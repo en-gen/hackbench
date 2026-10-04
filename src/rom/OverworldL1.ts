@@ -26,6 +26,10 @@ const OW_L1_TILE_BYTES = 0x800
 export const OW_L1_READER: readonly StockCode[] = [
   { addr: 0x00a126, bytes: [0x22, 0x09, 0xdc, 0x04], bankAt: 3,
     what: 'JSL CODE_04DC09', cite: 'bank_00.asm:4321' },
+  // The per-area index: SEP #$30 : LDA PlayerTurnOW : LSR : LSR : TAX : LDA OWPlayerSubmap,X : TAX.
+  { addr: 0x04dc09,
+    bytes: [0xe2, 0x30, 0xad, 0xd6, 0x0d, 0x4a, 0x4a, 0xaa, 0xbd, 0x11, 0x1f, 0xaa],
+    what: 'SEP #$30 through TAX, the OWPlayerSubmap index', cite: 'bank_04.asm:5638-5644' },
   { addr: 0x04dc15,
     bytes: [0xbf, WILD, WILD, WILD, 0x8d, 0x31, 0x19, 0xa9, WILD, 0x8d, 0x2b, 0x19,
       0xa9, 0x07, 0x8d, 0x25, 0x19, 0xa9, 0x03, 0x85, 0x5b, 0xc2, 0x10],
@@ -72,16 +76,23 @@ function charBank(rom: RomFile, objectTileset: number): number | string {
   return [...banks][0]!
 }
 
-/** The L1 tile data, char data and tilesets area 0 loads, or why they cannot be read. */
-export function readOverworldL1(rom: RomFile): OwL1Read {
+/**
+ * The L1 tile data, char data and tilesets `area` loads, or why they cannot be read:
+ * DATA_04DC02[OWPlayerSubmap] (bank_04.asm:5643-5646), no fallback when the byte is not in the ROM.
+ * No readable bound on the table's length exists (the index is the area byte, and the table's
+ * end is not an operand), so an area past it reads whatever follows: a named fragility point,
+ * kept in check by the area derivation marking areas past the camera table invalid.
+ */
+export function readOverworldL1(rom: RomFile, area = 0): OwL1Read {
   if (rom.mapMode !== 'lorom') return refuse('The overworld L1 reader reads LoROM only.')
   const mismatch = stockCodeMismatch(rom, OW_L1_READER)
   if (mismatch) return refuse(`The overworld L1 reader is not stock: ${mismatch}`)
   const tilesetTable = rom.readAt(0x04dc16, 3)!
   const tilesetAddr = tilesetTable[0]! | (tilesetTable[1]! << 8) | (tilesetTable[2]! << 16)
-  const objectTileset = isLoRomRomAddress(tilesetAddr) ? rom.readByte(tilesetAddr) : null
+  const entry = tilesetAddr + area
+  const objectTileset = isLoRomRomAddress(entry) ? rom.readByte(entry) : null
   if (objectTileset === null) {
-    return refuse(`The object tileset table at $${hex6(tilesetAddr)} is not in the ROM.`)
+    return refuse(`Area ${area}'s object tileset at $${hex6(entry)} is not in the ROM.`)
   }
   const spriteTileset = rom.readByte(0x04dc1d)!
 

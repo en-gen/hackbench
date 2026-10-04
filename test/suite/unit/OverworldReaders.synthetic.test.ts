@@ -48,7 +48,7 @@ describe('readOverworldL1 on a synthetic ROM', () => {
 
   it('refuses when any pinned byte changes: every byte, flipped one at a time', () => {
     const flips = pinnedFlips(OW_L1_READER)
-    expect(flips.length).toBe(73)
+    expect(flips.length).toBe(85)
     for (const { addr, value } of flips) {
       const rom = copy()
       rom.writeAt(addr, [value])
@@ -92,7 +92,7 @@ describe('readOverworldL1 on a synthetic ROM', () => {
     expect(refusal(low)).toMatch(/char data/)
     const table = syntheticOverworldRom()
     table.writeAt(0x04dc16, [0x00, 0x00, 0x7e])
-    expect(refusal(table)).toMatch(/tileset table/)
+    expect(refusal(table)).toMatch(/object tileset/)
   })
 
   it('lays half 0 left of half 1, decoding each id through its char entry', () => {

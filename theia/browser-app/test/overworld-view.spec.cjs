@@ -1,13 +1,13 @@
 /**
- * The Overworld view (en-gen/hackbench#363), end to end against the shell.
+ * The Overworld view (en-gen/hackbench#363) and the area tabs (#364 part B), end to end
+ * against the shell.
  *
- * The Overworld row in the map explorer (#432) opens ONE main-area widget.
- * The two half canvases (hub, then half 1, 16 px apart) are
- * the Background under the Foreground, each 512x512, and each hashes to its
- * per-half pin, which the Vitest decode test also holds, per layer set: the
- * layer toggles and a refused L2 land on those same pins. A ROM whose L1
- * reader is not stock shows the reason and no canvas. The Map tab's L1
- * toggle, now the shared LayerToggle, is covered by map-view.spec.cjs.
+ * The Overworld row in the map explorer (#432) opens ONE main-area widget: the hub, a
+ * single 512x512 canvas (half 0) that hashes to its pin, which the Vitest decode test also
+ * holds, per layer set: the layer toggles and a refused L2 land on those same pins. The
+ * Area 1..6 rows under it each open their own 256x224 tab. A ROM whose L1 reader is not
+ * stock shows the reason and no canvas. The Map tab's L1 toggle, now the shared
+ * LayerToggle, is covered by map-view.spec.cjs.
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')
@@ -15,20 +15,30 @@ const path = require('path')
 const os = require('os')
 const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
 const {
-  VANILLA_OVERWORLD_HALF_SHA256: HALF,
+  VANILLA_OVERWORLD_HUB_SHA256: HUB,
+  VANILLA_OVERWORLD_AREA_SHA256: AREA_PIN,
 } = require('../../../test/suite/support/overworld-pin.cjs')
 const { loromToOffset } = require('../../extension/lib/src/rom/addressing')
 
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
 const ROM = process.env.HB_ROM || romPath(VANILLA)
 const EXPLORER = '#hackbench\\.map-explorer'
-const ROW = `${EXPLORER} [data-node-id="overworld"]`
-const VIEW = '#theia-main-content-panel #hackbench\\.overworld-view'
+// Theia also puts data-node-id on a row's expansion chevron, so name the row itself.
+const NODE = id => `${EXPLORER} .theia-TreeNode[data-node-id="${id}"]`
+const ROW = NODE('overworld')
+// Every Overworld widget (preview or pinned) carries hb-overworld-view and its data-area.
+const AREA_VIEW = n => `#theia-main-content-panel .hb-overworld-view[data-area="${n}"]`
+const VIEW = AREA_VIEW(0)
+const AREA_ROW = n => NODE(`overworld/area:${n}`)
 
 /** LDX #OWL1TileData's opcode in CODE_04DC09 (bank_04.asm:5675), pinned by the reader. */
 const L1_LDX_OPCODE = 0x04dc5a
 /** `JSR CODE_04DABA`'s opcode for the high stream (bank_04.asm:5704), pinned by the L2 reader. */
 const L2_JSR_OPCODE = 0x04dc99
+/** The camera read's first opcode, `ASL A` (bank_00.asm:4324), the first byte of the derivation's pattern. */
+const CAMERA_READ_OPCODE = 0x00a130
+/** DATA_04849D, the warp destination words (bank_04.asm:554-581). */
+const WARP_DEST_TABLE = 0x04849d
 /** Tile data byte for grid (row 1, col 55): map16ByteOffset(1, 1, 23). Opaque on vanilla. */
 const OPAQUE_CELL = 0x517
 
@@ -88,18 +98,15 @@ async function openVanillaWithRow(page) {
   await page.waitForSelector(ROW, { timeout: 15000 })
 }
 
-/** SHA-256 of each half canvas's RGBA, hashed in the page: [hub, half 1]. */
-const halfShas = page =>
-  page.evaluate(() =>
-    Promise.all(
-      [0, 1].map(async h => {
-        const c = document.querySelector(`.hb-overworld-canvas[data-half="${h}"]`)
-        const rgba = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
-        const digest = await crypto.subtle.digest('SHA-256', rgba)
-        return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('')
-      }),
-    ),
-  )
+/** SHA-256 of the canvas inside `scope`, hashed in the page. */
+const canvasSha = (page, scope) =>
+  page.evaluate(async sel => {
+    const c = document.querySelector(`${sel} .hb-overworld-canvas`)
+    const rgba = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+    const digest = await crypto.subtle.digest('SHA-256', rgba)
+    return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('')
+  }, scope)
+const hubSha = page => canvasSha(page, VIEW)
 
 /** Writes `rom` with `edit` applied to a copy in tmp, and returns its path. */
 function plantedRom(name, edit) {
@@ -110,21 +117,26 @@ function plantedRom(name, edit) {
   return file
 }
 
-const leftExpanded = page => page.evaluate(() => getSvc('ApplicationShell').isExpanded('left'))
-const overworldCount = page =>
-  page.evaluate(
-    () =>
-      getSvc('ApplicationShell')
-        .getWidgets('main')
-        .filter(w => w.id === 'hackbench.overworld-view').length,
+const overworldIds = page =>
+  page.evaluate(() =>
+    getSvc('ApplicationShell')
+      .getWidgets('main')
+      .map(w => w.id)
+      .filter(id => id.startsWith('hackbench.overworld-')),
   )
+const previewIds = async page => (await overworldIds(page)).filter(id => id.endsWith(':preview'))
+const pinnedIds = async page => (await overworldIds(page)).filter(id => !id.endsWith(':preview'))
+const areaTabCount = async page =>
+  (await pinnedIds(page)).filter(id => id.startsWith('hackbench.overworld-area-view:')).length
+const leftExpanded = page => page.evaluate(() => getSvc('ApplicationShell').isExpanded('left'))
+const activeId = page => page.evaluate(() => getSvc('ApplicationShell').activeWidget?.id)
 
 /** Opens the Overworld the way a map row opens: double-click, which always fires. */
 async function openOverworldRow(page) {
   await page.locator(ROW).dblclick()
 }
 
-/** Closes the Overworld widget, so a reopen is observable. */
+/** Closes the pinned hub tab, so a reopen is observable. */
 const closeOverworld = page =>
   page.evaluate(() =>
     getSvc('ApplicationShell')
@@ -152,38 +164,124 @@ test('the explorer starts Title Screen, New Game, Overworld, then the groups', a
     expect.stringMatching(/^special:new-game:/),
     'overworld',
   ])
-  expect(top[3]).toMatch(/^group:/)
+  // The areas the ROM names are the Overworld row's children.
+  expect(top[3]).toBe('overworld/area:1')
   // No hex slot label, a globe icon, and not draggable.
   await expect(page.locator(`${ROW} .hb-map-slot`)).toHaveCount(0)
   await expect(page.locator(`${ROW} .codicon-globe`)).toHaveCount(1)
   await expect(page.locator(ROW)).not.toHaveAttribute('draggable', 'true')
 })
 
-test('opening the Overworld row opens one view; opening it again focuses that view', async ({
+test('double-clicking the Overworld row pins one tab; again focuses it; closed, it reopens', async ({
   page,
 }) => {
   await openVanillaWithRow(page)
   await openOverworldRow(page)
   await expect(page.locator(VIEW)).toBeVisible()
-  expect(await overworldCount(page)).toBe(1)
+  // The double-click's own single click previewed it; the pin retired that preview.
+  await expect.poll(() => overworldIds(page)).toEqual(['hackbench.overworld-view'])
 
-  // Move focus to the map explorer, then open the row again: the same widget, no second.
+  // Move focus to the map explorer, then double-click again: the same tab, no second.
   await page.evaluate(async () => {
     await getSvc('ApplicationShell').activateWidget('hackbench.map-explorer')
   })
   await openOverworldRow(page)
-  await expect(page.locator(VIEW)).toBeVisible()
-  expect(await overworldCount(page)).toBe(1)
-  await expect
-    .poll(() => page.evaluate(() => getSvc('ApplicationShell').activeWidget?.id))
-    .toBe('hackbench.overworld-view')
+  await expect.poll(() => activeId(page)).toBe('hackbench.overworld-view')
+  expect(await overworldIds(page)).toEqual(['hackbench.overworld-view'])
 
-  // After the view is closed, the row reopens it.
+  // After the tab is closed, the row reopens it.
   await closeOverworld(page)
   await expect(page.locator(VIEW)).toHaveCount(0)
   await openOverworldRow(page)
   await expect(page.locator(VIEW)).toBeVisible()
-  expect(await overworldCount(page)).toBe(1)
+  await expect.poll(() => pinnedIds(page)).toEqual(['hackbench.overworld-view'])
+})
+
+test('double-clicking Overworld opens it without folding its Area rows', async ({ page }) => {
+  await openVanillaWithRow(page)
+  await expect(page.locator(AREA_ROW(1))).toBeVisible()
+  await openOverworldRow(page)
+  await expect(page.locator(VIEW)).toBeVisible()
+  for (const n of [1, 2, 3, 4, 5, 6]) await expect(page.locator(AREA_ROW(n))).toBeVisible()
+  // The chevron still toggles.
+  await page.locator(`${ROW} .theia-ExpansionToggle`).click()
+  await expect(page.locator(AREA_ROW(1))).toHaveCount(0)
+})
+
+test('a single click on an Area row previews it in one shared tab; a double-click pins it', async ({
+  page,
+}) => {
+  test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
+  await openProject(page, ROM)
+  await page.waitForSelector(AREA_ROW(2), { timeout: 15000 })
+  await page.locator(AREA_ROW(2)).click()
+  await expect(page.locator(AREA_VIEW(2))).toBeVisible()
+  await expect.poll(() => previewIds(page)).toEqual(['hackbench.overworld-view:preview'])
+  expect(await pinnedIds(page)).toEqual([])
+  // Focus stays in the list so the arrows keep walking it.
+  await expect.poll(() => activeId(page)).toBe('hackbench.map-explorer')
+
+  // Another row reuses the same preview tab.
+  await page.locator(AREA_ROW(5)).click()
+  await expect(page.locator(AREA_VIEW(5))).toBeVisible()
+  await expect(page.locator(AREA_VIEW(2))).toHaveCount(0)
+  await expect.poll(() => previewIds(page)).toEqual(['hackbench.overworld-view:preview'])
+
+  // The hub row shares that slot too.
+  await page.locator(ROW).click()
+  await expect(page.locator(VIEW)).toBeVisible()
+  await expect.poll(() => previewIds(page)).toEqual(['hackbench.overworld-view:preview'])
+
+  // A double-click pins the area and retires a preview that showed it.
+  await page.locator(AREA_ROW(5)).click()
+  await expect(page.locator(AREA_VIEW(5))).toBeVisible()
+  await page.locator(AREA_ROW(5)).dblclick()
+  await expect.poll(() => overworldIds(page)).toEqual(['hackbench.overworld-area-view:5'])
+})
+
+test('the Overworld and area views zoom: stepper, canvas CSS size, bitmap untouched', async ({
+  page,
+}) => {
+  test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
+  await openProject(page, ROM)
+  await page.waitForSelector(AREA_ROW(1), { timeout: 15000 })
+  await page.locator(AREA_ROW(1)).dblclick()
+  await openOverworldRow(page)
+  for (const [view, w, h] of [
+    [AREA_VIEW(1), 256, 224],
+    [VIEW, 512, 512],
+  ]) {
+    // A background tab's canvas is attached but not visible: wait for attached, then bring it up.
+    await page.waitForSelector(`${view} .hb-overworld-canvas`, {
+      state: 'attached',
+      timeout: 30000,
+    })
+    // Only the front tab is laid out: bring this one up before measuring it.
+    await page.evaluate(
+      async id => {
+        await getSvc('ApplicationShell').activateWidget(id) // returns the widget: do not serialize it
+      },
+      view === VIEW ? 'hackbench.overworld-view' : 'hackbench.overworld-area-view:1',
+    )
+    await expect(page.locator(view)).toBeVisible()
+    const canvas = page.locator(`${view} .hb-overworld-canvas`)
+    const size = () => canvas.evaluate(c => [c.width, c.height, c.getBoundingClientRect().width])
+    const [bw, bh, shown] = await size()
+    expect([bw, bh]).toEqual([w, h])
+    await page.locator(`${view} [data-control="zoom-in"]`).click()
+    await expect(page.locator(`${view} [data-control="zoom-indicator"]`)).toHaveText('200%')
+    await expect.poll(async () => Math.round((await size())[2])).toBe(Math.round(shown * 2))
+    expect((await size()).slice(0, 2)).toEqual([w, h])
+  }
+})
+
+test('the views carry no "map data before any event" note', async ({ page }) => {
+  test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
+  await openProject(page, ROM)
+  await openOverworldRow(page)
+  await page.waitForSelector(`${VIEW} .hb-overworld-canvas`, { timeout: 30000 })
+  await expect(page.locator('.hb-overworld-note')).toHaveCount(0)
+  await expect(page.locator(VIEW)).not.toContainText(/map data before any event/i)
 })
 
 test('opening the row keeps the explorer visible, and it survives an activity switch', async ({
@@ -208,62 +306,147 @@ test('the command is on the View menu and opens the same widget', async ({ page 
   await expect(page.locator(VIEW)).toBeVisible()
 })
 
-test('on vanilla each half canvas hashes to its pinned vanilla half', async ({ page }) => {
+test('on vanilla the hub is one 512x512 canvas that hashes to its pin', async ({ page }) => {
   test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
   await openProject(page, ROM)
   await openOverworldRow(page)
   await page.waitForSelector('.hb-overworld-canvas', { timeout: 30000 })
   await page.waitForTimeout(500)
-  expect(await halfShas(page)).toEqual(HALF.BOTH)
-  await expect(page.locator('.hb-overworld-note')).toContainText(
-    /Map data before any event.*right half may differ in game/,
-  )
+  const canvases = page.locator(`${VIEW} .hb-overworld-canvas`)
+  await expect(canvases).toHaveCount(1)
+  expect(await canvases.evaluate(c => [c.width, c.height])).toEqual([512, 512])
+  // Displayed width is 512 (a scale transform goes red).
+  expect((await canvases.boundingBox()).width).toBeCloseTo(512, 0)
+  expect(await hubSha(page)).toBe(HUB.BOTH)
   await expect(page.locator('.hb-overworld-reason')).toHaveCount(0)
   await expect(page.locator('.hb-overworld-l2-reason')).toHaveCount(0)
+  // Foreground off changes the pixels.
+  await page.locator(`${VIEW} [data-control="layer-l1"]`).click()
+  await expect.poll(() => hubSha(page)).not.toBe(HUB.BOTH)
 })
 
-test('the halves are two 512x512 canvases, hub first, 16 px apart, Foreground off changes both', async ({
+test('the explorer shows Area 1..Area 6 under Overworld on vanilla', async ({ page }) => {
+  await openVanillaWithRow(page)
+  const rows = await page.evaluate(sel => {
+    return [...document.querySelectorAll(`${sel} .theia-TreeNode[data-node-id^="overworld/"]`)].map(
+      r => [r.getAttribute('data-node-id'), r.textContent.trim()],
+    )
+  }, EXPLORER)
+  expect(rows).toEqual([1, 2, 3, 4, 5, 6].map(n => [`overworld/area:${n}`, `Area ${n}`]))
+  await expect(page.locator(AREA_ROW(1))).not.toHaveClass(/hb-map-row-orphan/)
+})
+
+test('activating Area 2 opens a 256x224 tab; Area 5 opens a second; reopening focuses', async ({
   page,
 }) => {
   test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
   await openProject(page, ROM)
-  await openOverworldRow(page)
-  await page.waitForSelector('.hb-overworld-canvas', { timeout: 30000 })
+  await page.waitForSelector(AREA_ROW(2), { timeout: 15000 })
+  await page.locator(AREA_ROW(2)).dblclick()
+  await expect(page.locator(AREA_VIEW(2))).toBeVisible()
+  await page.waitForSelector(`${AREA_VIEW(2)} .hb-overworld-canvas`, { timeout: 30000 })
   await page.waitForTimeout(500)
-  const canvases = page.locator('.hb-overworld-canvas')
-  await expect(canvases).toHaveCount(2)
-  await expect(canvases.nth(0)).toHaveAttribute('data-half', '0')
-  await expect(canvases.nth(1)).toHaveAttribute('data-half', '1')
-  const sizes = await canvases.evaluateAll(cs => cs.map(c => [c.width, c.height]))
-  expect(sizes).toEqual([
-    [512, 512],
-    [512, 512],
-  ])
-  // Displayed width is 512 (a scale transform goes red).
-  for (const i of [0, 1]) expect((await canvases.nth(i).boundingBox()).width).toBeCloseTo(512, 0)
-  // 16 px CSS gap + 1 px wrap border on each facing side, no padding = 18, canvas to canvas.
-  const a = await canvases.nth(0).boundingBox()
-  const b = await canvases.nth(1).boundingBox()
-  expect(Math.abs(b.x - (a.x + a.width) - 18)).toBeLessThanOrEqual(0.5)
-  const before = await halfShas(page)
-  await page.locator(`${VIEW} [data-control="layer-l1"]`).click()
-  await expect.poll(async () => (await halfShas(page))[0]).not.toBe(before[0])
-  await expect.poll(async () => (await halfShas(page))[1]).not.toBe(before[1])
+  expect(
+    await page.locator(`${AREA_VIEW(2)} .hb-overworld-canvas`).evaluate(c => [c.width, c.height]),
+  ).toEqual([256, 224])
+  expect(await canvasSha(page, AREA_VIEW(2))).toBe(AREA_PIN[2].BOTH)
+  await expect(page.locator('.lm-TabBar-tab', { hasText: /^Area 2$/ })).toHaveCount(1)
+
+  await page.locator(AREA_ROW(5)).dblclick()
+  await expect(page.locator(AREA_VIEW(5))).toBeVisible()
+  await page.waitForSelector(`${AREA_VIEW(5)} .hb-overworld-canvas`, { timeout: 30000 })
+  await page.waitForTimeout(500)
+  expect(await canvasSha(page, AREA_VIEW(5))).toBe(AREA_PIN[5].BOTH)
+  expect(await areaTabCount(page)).toBe(2)
+
+  // Move focus back to the explorer, then activate Area 2 again: the same tab, no third.
+  await page.evaluate(async () => {
+    await getSvc('ApplicationShell').activateWidget('hackbench.map-explorer')
+  })
+  await page.locator(AREA_ROW(2)).dblclick()
+  await expect
+    .poll(() => page.evaluate(() => getSvc('ApplicationShell').activeWidget?.id))
+    .toBe('hackbench.overworld-area-view:2')
+  expect(await areaTabCount(page)).toBe(2)
 })
 
-test('a one-tile edit draws a canvas that differs from the pin', async ({ page }) => {
+test('an area tab toggles Foreground, and its Effects toggle is disabled with a reason', async ({
+  page,
+}) => {
+  test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
+  await openProject(page, ROM)
+  await page.waitForSelector(AREA_ROW(1), { timeout: 15000 })
+  await page.locator(AREA_ROW(1)).dblclick()
+  await page.waitForSelector(`${AREA_VIEW(1)} .hb-overworld-canvas`, { timeout: 30000 })
+  await page.waitForTimeout(500)
+  const l3 = page.locator(`${AREA_VIEW(1)} [data-control="layer-l3"]`)
+  await expect(l3).toBeDisabled()
+  await expect(l3).toHaveAttribute('title', 'Effects not drawn yet')
+  expect(await canvasSha(page, AREA_VIEW(1))).toBe(AREA_PIN[1].BOTH)
+  await page.locator(`${AREA_VIEW(1)} [data-control="layer-l1"]`).click()
+  await expect.poll(() => canvasSha(page, AREA_VIEW(1))).toBe(AREA_PIN[1].L2)
+  await page.locator(`${AREA_VIEW(1)} [data-control="layer-l1"]`).click()
+  await page.locator(`${AREA_VIEW(1)} [data-control="layer-l2"]`).click()
+  await expect.poll(() => canvasSha(page, AREA_VIEW(1))).toBe(AREA_PIN[1].L1)
+})
+
+test('a one-tile edit in half 1 redraws the area that shows it, and leaves the hub alone', async ({
+  page,
+}) => {
   test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
   const planted = plantedRom('planted.sfc', bytes => {
     bytes[fileOffset(bytes, 0x0cf7df + OPAQUE_CELL)] = 0
   })
   await openProject(page, planted)
   await openOverworldRow(page)
-  await page.waitForSelector('.hb-overworld-canvas', { timeout: 30000 })
+  await page.waitForSelector(`${VIEW} .hb-overworld-canvas`, { timeout: 30000 })
   await page.waitForTimeout(500)
-  // Grid column 55 is in half 1; the hub is untouched.
-  const [hub, half1] = await halfShas(page)
-  expect(hub).toBe(HALF.BOTH[0])
-  expect(half1).not.toBe(HALF.BOTH[1])
+  expect(await hubSha(page)).toBe(HUB.BOTH)
+  // Grid column 55 is half-1 column 23, row 1: pixels (368..383, 16..31), inside Area 4's window.
+  await page.locator(AREA_ROW(4)).dblclick()
+  await page.waitForSelector(`${AREA_VIEW(4)} .hb-overworld-canvas`, { timeout: 30000 })
+  await page.waitForTimeout(500)
+  expect(await canvasSha(page, AREA_VIEW(4))).not.toBe(AREA_PIN[4].BOTH)
+})
+
+test('a refused derivation shows no area rows and says why on the Overworld row', async ({
+  page,
+}) => {
+  test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
+  // The first opcode of the camera read (bank_00.asm:4324), pinned by the derivation.
+  const planted = plantedRom('no-areas.sfc', bytes => {
+    bytes[fileOffset(bytes, CAMERA_READ_OPCODE)] ^= 0xff
+  })
+  await openProject(page, planted)
+  await page.waitForSelector(ROW, { timeout: 15000 })
+  await expect(page.locator(`${EXPLORER} [data-node-id^="overworld/area:"]`)).toHaveCount(0)
+  await expect(page.locator(ROW)).toHaveAttribute('title', /^Areas unavailable: .*camera read/)
+  // The hub still draws.
+  await openOverworldRow(page)
+  await page.waitForSelector(`${VIEW} .hb-overworld-canvas`, { timeout: 30000 })
+})
+
+test('an area past the camera table keeps a marked row with its reason and opens nothing', async ({
+  page,
+}) => {
+  test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
+  // Warp record 26 (live: its source is area 1) now leads to area 9: bits 9-12 of the high byte.
+  const planted = plantedRom('area-9.sfc', bytes => {
+    const hi = fileOffset(bytes, WARP_DEST_TABLE + 2 * 26 + 1)
+    bytes[hi] = (bytes[hi] & 1) | (9 << 1)
+  })
+  await openProject(page, planted)
+  await page.waitForSelector(AREA_ROW(9), { timeout: 15000 })
+  await expect(page.locator(AREA_ROW(9))).toHaveAttribute(
+    'title',
+    /warp record 26 leads to area 9, past the camera table's 7 entries/,
+  )
+  await expect(page.locator(AREA_ROW(9))).toHaveClass(/hb-map-row-orphan/)
+  await expect(page.locator(`${AREA_ROW(9)} .codicon-warning`)).toHaveCount(1)
+  await page.locator(AREA_ROW(9)).dblclick()
+  await page.waitForTimeout(1000)
+  await expect(page.locator(AREA_VIEW(9))).toHaveCount(0)
+  expect(await areaTabCount(page)).toBe(0)
 })
 
 test('a ROM whose L2 reader is not stock draws L1 alone and says why', async ({ page }) => {
@@ -279,13 +462,10 @@ test('a ROM whose L2 reader is not stock draws L1 alone and says why', async ({ 
   )
   await page.waitForTimeout(500)
   expect(await page.$$eval('.hb-overworld-canvas', cs => cs.map(c => [c.width, c.height]))).toEqual(
-    [
-      [512, 512],
-      [512, 512],
-    ],
+    [[512, 512]],
   )
   // Exactly the L1-alone canvas: every L1 pixel drawn, the backdrop where L2 would be.
-  expect(await halfShas(page)).toEqual(HALF.L1)
+  expect(await hubSha(page)).toBe(HUB.L1)
   await expect(page.locator('[data-control="layer-l2"]')).toBeDisabled()
 })
 
@@ -295,22 +475,58 @@ test('each layer toggle hides its layer, and toggling back restores the pin', as
   await openOverworldRow(page)
   await page.waitForSelector('.hb-overworld-canvas', { timeout: 30000 })
   await page.waitForTimeout(500)
-  expect(await halfShas(page)).toEqual(HALF.BOTH)
+  expect(await hubSha(page)).toBe(HUB.BOTH)
   const view = page.locator(VIEW)
   for (const [control, alone] of [
-    ['layer-l2', HALF.L1],
-    ['layer-l1', HALF.L2],
+    ['layer-l2', HUB.L1],
+    ['layer-l1', HUB.L2],
   ]) {
     const button = view.locator(`[data-control="${control}"]`)
     await expect(button).toHaveAttribute('aria-pressed', 'true')
     await button.click()
     await expect(button).toHaveAttribute('aria-pressed', 'false')
     // The other layer alone: the pixels changed, to that layer's own pin.
-    await expect.poll(async () => await halfShas(page)).toEqual(alone)
+    await expect.poll(() => hubSha(page)).toBe(alone)
     await button.click()
     await expect(button).toHaveAttribute('aria-pressed', 'true')
-    await expect.poll(async () => await halfShas(page)).toEqual(HALF.BOTH)
+    await expect.poll(() => hubSha(page)).toBe(HUB.BOTH)
   }
+})
+
+test('the toolbar matches the map editor: Background, Foreground, Effects, then zoom at the right', async ({
+  page,
+}) => {
+  test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
+  await openProject(page, ROM)
+  await openOverworldRow(page)
+  await page.waitForSelector(`${VIEW} .hb-overworld-canvas`, { timeout: 30000 })
+  // The double-click's preview is retired by the pin: measure the pinned widget's toolbar.
+  await expect.poll(() => pinnedIds(page)).toEqual(['hackbench.overworld-view'])
+  await expect(page.locator(`${VIEW} .hb-map-view-toolbar`)).toHaveCount(1)
+  const controls = await page.evaluate(
+    sel =>
+      [...document.querySelectorAll(`${sel} .hb-map-view-toolbar [data-control]`)].map(e =>
+        e.getAttribute('data-control'),
+      ),
+    VIEW,
+  )
+  expect(controls).toEqual([
+    'layer-l2',
+    'layer-l1',
+    'layer-l3',
+    'zoom-out',
+    'zoom-indicator',
+    'zoom-in',
+  ])
+  const xs = await page.evaluate(
+    sel =>
+      ['layer-l2', 'layer-l1', 'layer-l3', 'zoom-out'].map(
+        c => document.querySelector(`${sel} [data-control="${c}"]`).getBoundingClientRect().left,
+      ),
+    VIEW,
+  )
+  expect([...xs].sort((a, b) => a - b)).toEqual(xs)
+  await expect(page.locator(`${VIEW} .hb-toolbar-spacer`)).toHaveCount(1)
 })
 
 test('the Effects toggle is disabled and says why', async ({ page }) => {
@@ -327,9 +543,9 @@ test('the Effects toggle is disabled and says why', async ({ page }) => {
     .locator('svg rect[data-on="true"]')
     .evaluateAll(rs => rs.map(r => r.getAttribute('y')))
   expect(ys).toEqual(['1'])
-  const before = await halfShas(page)
+  const before = await hubSha(page)
   await l3.click({ force: true })
-  expect(await halfShas(page)).toEqual(before)
+  expect(await hubSha(page)).toBe(before)
 })
 
 test('a ROM whose L1 reader is not stock shows the reason and no canvas', async ({ page }) => {
@@ -345,38 +561,36 @@ test('a ROM whose L1 reader is not stock shows the reason and no canvas', async 
   await expect(page.locator('.hb-overworld-canvas')).toHaveCount(0)
 })
 
-test('a single click on the row reveals the view without taking focus', async ({ page }) => {
+test('a single click on the row previews the view without taking focus', async ({ page }) => {
   await openVanillaWithRow(page)
   await page.locator(ROW).click()
   await expect(page.locator(VIEW)).toBeVisible()
-  await expect
-    .poll(() => page.evaluate(() => getSvc('ApplicationShell').activeWidget?.id))
-    .toBe('hackbench.map-explorer')
+  await expect.poll(() => previewIds(page)).toEqual(['hackbench.overworld-view:preview'])
+  await expect.poll(() => activeId(page)).toBe('hackbench.map-explorer')
   // The keys still drive the list: the next arrow moves the selection off the row.
   await page.keyboard.press('ArrowUp')
-  await expect(page.locator(`${EXPLORER} [data-node-id^="special:new-game"]`)).toHaveClass(
-    /theia-mod-selected/,
-  )
+  await expect(
+    page.locator(`${EXPLORER} .theia-TreeNode[data-node-id^="special:new-game"]`),
+  ).toHaveClass(/theia-mod-selected/)
 })
 
-test('arrowing onto the row reveals the view and keeps focus in the list', async ({ page }) => {
+test('arrowing onto the row previews the view and keeps focus in the list', async ({ page }) => {
   await openVanillaWithRow(page)
-  await page.locator(`${EXPLORER} [data-node-id^="special:title-screen"]`).click()
+  await page.locator(`${EXPLORER} .theia-TreeNode[data-node-id^="special:title-screen"]`).click()
   // Title Screen, New Game, Overworld: two presses. Each waits for the selection
   // to land, so a press is never sent before the tree has re-rendered.
   await page.keyboard.press('ArrowDown')
-  await expect(page.locator(`${EXPLORER} [data-node-id^="special:new-game"]`)).toHaveClass(
-    /theia-mod-selected/,
-  )
+  await expect(
+    page.locator(`${EXPLORER} .theia-TreeNode[data-node-id^="special:new-game"]`),
+  ).toHaveClass(/theia-mod-selected/)
   await page.keyboard.press('ArrowDown')
   await expect(page.locator(ROW)).toHaveClass(/theia-mod-selected/)
   await expect(page.locator(VIEW)).toBeVisible()
-  expect(await page.evaluate(() => getSvc('ApplicationShell').activeWidget?.id)).toBe(
-    'hackbench.map-explorer',
-  )
+  await expect.poll(() => previewIds(page)).toEqual(['hackbench.overworld-view:preview'])
+  expect(await activeId(page)).toBe('hackbench.map-explorer')
   // The keys still drive the list: the next arrow moves the selection off the row.
   await page.keyboard.press('ArrowUp')
-  await expect(page.locator(`${EXPLORER} [data-node-id^="special:new-game"]`)).toHaveClass(
-    /theia-mod-selected/,
-  )
+  await expect(
+    page.locator(`${EXPLORER} .theia-TreeNode[data-node-id^="special:new-game"]`),
+  ).toHaveClass(/theia-mod-selected/)
 })

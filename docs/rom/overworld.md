@@ -1,8 +1,9 @@
 # Overworld L1 and L2: how the view reads them
 
-The Overworld view (en-gen/hackbench#363) draws `Map16TilesLow` over
-`OWLayer2Tilemap` in two canvases, the hub and half 1, 16 px apart, each drawn
-on its own. This page holds the ASM trace behind
+The Overworld view (en-gen/hackbench#363) draws half 0 of `Map16TilesLow` over
+`OWLayer2Tilemap` as one 512x512 canvas, the hub. Each area (1..N) is its own
+tab, a 256x224 camera window over half 1 (see "Area windows" below). This page
+holds the ASM trace behind
 `src/rom/OverworldL1.ts`, `src/rom/OverworldL2.ts` and
 `OverworldLoader.overworldCgram`. Line numbers are SMWDisX.
 
@@ -33,8 +34,36 @@ table, sprite tileset, char data and tile data addresses from the operands.
 position moves up by $400 (bank_04.asm:2692-2698). Area 0 reads half
 0, the hub; half 1 (areas 1-6) holds camera windows (`DATA_00A06B`/`DATA_00A079`,
 bank_00.asm:4242-4248). The halves are independent layouts in both layers, so
-each is drawn as its own 512x512 image; showing them side by side, half 0 on
-the left, is a view choice, not a ROM fact.
+each is drawn as its own 512x512 image. The hub view shows half 0 only.
+
+## Area windows
+
+The game loads one area's tileset and palette at a time and draws the whole
+half with them; the L3 border hides the rest (owner decision, #364). So an
+area view is that area's camera window over half 1, in that area's own
+tileset (`DATA_04DC02[area]`, read through the L1 reader's operand, refused
+per area when the byte is not in the ROM) and the palette
+`overworldCgram` builds for that tileset.
+
+- The window is 256x224 at the signed camera (`DATA_00A06B[area]`,
+  `DATA_00A079[area]`, bank_00.asm:4242-4248), read at the operands the area
+  derivation (`src/rom/OverworldAreas.ts`) located, and wraps at 512 on both
+  axes: view pixel (x, y) is half-1 pixel ((wx + x) mod 512, (wy + y) mod 512).
+  `halfPixel` / `cropWindow` in `src/rom/OverworldWindow.ts` are the one
+  place that mapping lives (edits will reuse it, #283).
+- A window does not sit on an 8 px cell boundary (camera X -17), so the
+  cropped layer carries its priority per pixel (`prioCell` 1) instead of per
+  8x8 cell.
+- Measured on vanilla (one ROM): cameras are (-17,-40), (-17,128), (-17,296),
+  (240,-40), (240,128), (240,296) for areas 1-6.
+- `DATA_04DC02` has no readable length: the only index into it is the area byte at
+  `CODE_04DC09`, whose index chain (`PlayerTurnOW`, `OWPlayerSubmap`, bank_04.asm:5638-5644)
+  the L1 reader now pins. A hack that lengthens the camera table without lengthening the
+  tileset table would read past it; that is a named fragility point, not a check.
+- An area the derivation marks invalid (past the camera table) keeps its
+  explorer row with the reason in its tooltip and opens nothing. A refused
+  derivation gives no child rows and the reason on the Overworld row; the hub
+  still draws.
 
 ## L2 (background)
 
@@ -59,7 +88,7 @@ from there (measured on that one ROM of the 6-ROM corpus, 2026-09-28). An L2 tha
 
 `CODE_04DC6A` then runs `CODE_04E453` for each event (:5705-5712), applying
 completed events' tile changes before first display. The view draws the
-tilemap before any event, and its note says so.
+tilemap before any event.
 
 Layers compose in SNES mode 1 order from each word's priority bit: L2 low,
 L1 low, L2 high, L1 high (`src/rom/render/OverworldComposite.ts`, run in the

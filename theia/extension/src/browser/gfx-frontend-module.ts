@@ -60,8 +60,8 @@ export default new ContainerModule(bind => {
   bindViewContribution(bind, GfxExplorerContribution)
   bind(FrontendApplicationContribution).toService(GfxExplorerContribution)
 
-  // The Overworld view reads through GfxService too. WidgetManager caches by
-  // factory id, so there is one Overworld widget.
+  // The Overworld views read through GfxService too. One widget class: the preview tab and
+  // every pinned area (keyed `{ area }`) are separate instances, each retargeted by open().
   bind(OverworldViewWidget).toSelf()
   bind(WidgetFactory)
     .toDynamicValue(ctx => ({

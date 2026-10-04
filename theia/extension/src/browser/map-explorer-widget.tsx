@@ -49,7 +49,9 @@ import {
   createTreeContainer,
 } from '@theia/core/lib/browser'
 import { CommandService, Emitter, MessageService } from '@theia/core/lib/common'
-import { OVERWORLD_FOCUS_COMMAND_ID } from './overworld-view-widget'
+import { OVERWORLD_FOCUS_COMMAND_ID, OVERWORLD_OPEN_AREA_COMMAND_ID } from './overworld-view-widget'
+import { overworldRows, opensArea, type AreaRow } from './map-explorer-areas'
+import { GfxService } from '../common/gfx-protocol'
 import { orderSpecials } from './map-explorer-order'
 import {
   GroupedMapNodeDto,
@@ -75,6 +77,7 @@ export const MAP_EXPLORER_CONTEXT_MENU = ['map-explorer-context-menu']
 export type MapCategory =
   | SpecialMapNodeDto['role']
   | 'overworld'
+  | 'overworld-area'
   | 'unassigned-group'
   | 'user-group'
   | 'entry'
@@ -102,6 +105,10 @@ export interface MapTreeNode extends CompositeTreeNode, SelectableTreeNode {
   /** Set on a 'bonus' row: which flag sends the player there. */
   role?: BonusRole
   expanded?: boolean
+  /** Set on an 'overworld-area' row: the area number, and why it cannot open when invalid. */
+  area?: AreaRow
+  /** Set on the Overworld row when its area list is unavailable: the reason, for its tooltip. */
+  areasNote?: string
 }
 
 type BonusRole = NonNullable<GroupedMapNodeDto['role']>
@@ -132,6 +139,7 @@ export const CATEGORY_ICONS: Record<MapCategory, string> = {
   'title-screen': 'codicon-device-desktop',
   'new-game': 'codicon-play-circle',
   overworld: 'codicon-globe',
+  'overworld-area': 'codicon-map',
   // Deliberately the same mark as the orphans it contains: the folder is not
   // a different kind of thing from its children, it is just where they sit.
   'unassigned-group': 'codicon-question',
@@ -148,7 +156,11 @@ export const CATEGORY_ICONS: Record<MapCategory, string> = {
 }
 
 const iconFor = (node: MapTreeNode): string =>
-  node.role ? BONUS_ROLES[node.role].icon : CATEGORY_ICONS[node.category]
+  node.role
+    ? BONUS_ROLES[node.role].icon
+    : node.area?.invalid
+      ? 'codicon-warning'
+      : CATEGORY_ICONS[node.category]
 
 export const slotLabel = (index: number): string =>
   `$${index.toString(16).toUpperCase().padStart(3, '0')}`
@@ -158,6 +170,7 @@ export class MapExplorerWidget extends TreeWidget {
   @inject(CommandService) protected readonly commands!: CommandService
   @inject(ProjectService) protected readonly projects!: ProjectService
   @inject(MessageService) protected readonly messages!: MessageService
+  @inject(GfxService) protected readonly gfx!: GfxService
 
   /** Exposed for tests: the count the backend reported for this cartridge. */
   mapCount = 0
@@ -271,9 +284,12 @@ export class MapExplorerWidget extends TreeWidget {
     this.groups = result.rawGroups
     this.groupsError = result.groupsError
 
+    const areas = await this.loadAreaRows(manifestPath)
+    if (generation !== this.loadGeneration) return
+
     const rows: MapTreeNode[] = [
       ...orderSpecials(result.tree.special).map(s => this.specialNode(s)),
-      this.overworldNode(),
+      this.overworldNode(areas),
     ]
     if (this.groupsError) {
       rows.push(this.message(`Groups unavailable: ${this.groupsError}`))
@@ -422,9 +438,21 @@ export class MapExplorerWidget extends TreeWidget {
     }
   }
 
-  /** Not a slot: opening it runs the Overworld command, so it needs no ROM read here. */
-  protected overworldNode(): MapTreeNode {
-    return {
+  /** The backend derives the areas (the browser never reads the ROM); a failed call is a note, not a throw. */
+  protected async loadAreaRows(manifestPath: string): Promise<ReturnType<typeof overworldRows>> {
+    try {
+      return overworldRows(await this.gfx.overworldAreas(manifestPath))
+    } catch (err) {
+      return overworldRows(undefined, err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  /**
+   * Not a slot: opening it runs the Overworld command (the hub, area 0). The areas the ROM
+   * names are its children, each opening its own tab.
+   */
+  protected overworldNode(rows: ReturnType<typeof overworldRows>): MapTreeNode {
+    const node: MapTreeNode = {
       id: 'overworld',
       name: 'Overworld',
       index: -1,
@@ -434,14 +462,33 @@ export class MapExplorerWidget extends TreeWidget {
       parent: undefined,
       children: [],
       selected: false,
+      ...(rows.note ? { areasNote: rows.note } : {}),
     }
+    node.children = rows.areas.map(area => ({
+      id: `overworld/area:${area.area}`,
+      name: area.name,
+      index: -1,
+      mapName: null,
+      kind: 'map',
+      category: 'overworld-area',
+      parent: node,
+      children: [],
+      selected: false,
+      area,
+    }))
+    if (node.children.length > 0) node.expanded = true
+    return node
   }
 
   protected override handleDblClickEvent(
     node: TreeNode | undefined,
     event: React.MouseEvent<HTMLElement>,
   ): void {
-    super.handleDblClickEvent(node, event)
+    // The Overworld row is expandable (its areas), and Theia's default double-click opens the
+    // node by toggling it: opening it must not fold the area rows (the chevron still toggles).
+    if ((node as MapTreeNode | undefined)?.category !== 'overworld') {
+      super.handleDblClickEvent(node, event)
+    }
     this.fireOpen(node as MapTreeNode | undefined, true)
   }
 
@@ -453,6 +500,18 @@ export class MapExplorerWidget extends TreeWidget {
         .catch(err =>
           this.messages.error(
             `Could not open the Overworld: ${err instanceof Error ? err.message : String(err)}`,
+          ),
+        )
+      return
+    }
+    if (map?.category === 'overworld-area') {
+      // An invalid area has no window to draw: selecting or activating it opens nothing.
+      if (!map.area || !opensArea(map.area)) return
+      this.commands
+        .executeCommand(OVERWORLD_OPEN_AREA_COMMAND_ID, { area: map.area.area, activate: pinned })
+        .catch(err =>
+          this.messages.error(
+            `Could not open ${map.name}: ${err instanceof Error ? err.message : String(err)}`,
           ),
         )
       return
@@ -858,6 +917,7 @@ export class MapExplorerWidget extends TreeWidget {
   protected override createNodeClassNames(node: TreeNode, props: NodeProps): string[] {
     const classNames = super.createNodeClassNames(node, props)
     if ((node as MapTreeNode).category === 'orphan') classNames.push('hb-map-row-orphan')
+    if ((node as MapTreeNode).area?.invalid) classNames.push('hb-map-row-orphan')
     // The whole folder lights up, header and visible rows, as VS Code's does.
     if (this.dropHighlight && this.dropFolder(node as MapTreeNode)?.id === this.dropHighlight) {
       classNames.push('hb-map-drop-target')
@@ -873,6 +933,8 @@ export class MapExplorerWidget extends TreeWidget {
     const map = node as MapTreeNode
     if (map.category === 'orphan') attrs.title = 'Not reached from the overworld'
     if (map.role) attrs.title = BONUS_ROLES[map.role].title
+    if (map.area?.invalid) attrs.title = map.area.invalid
+    if (map.areasNote) attrs.title = map.areasNote
     // Theia's own default caption only carries the node id on expandable
     // rows (via the toggle element); a leaf map row otherwise has no DOM
     // marker at all. The same slot can appear twice in the tree (a sub area
@@ -890,7 +952,9 @@ export class MapExplorerWidget extends TreeWidget {
     const map = node as MapTreeNode
     if (map.kind === 'group' || map.kind === 'message') return super.renderCaption(node, props)
 
-    if (map.category === 'overworld') return <span key="label">{map.name}</span>
+    if (map.category === 'overworld' || map.category === 'overworld-area') {
+      return <span key="label">{map.name}</span>
+    }
     if (isSpecial(map.category)) {
       return [
         <span key="label">{map.name}</span>,

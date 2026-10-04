@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Map explorer lists Area 1..N under Overworld, each opening its own 256x224 tab drawn with that
+  area's tileset and palette; the Overworld view is the hub only (#364).
 - Map view draws L2 (background) behind and in front of L1 in priority planes, with a
   Background toggle in the toolbar. L2 comes from the working copy, image or object
   stream, placed at the level's start offset. A map whose L2 cannot be read draws L1
@@ -17,12 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   same mark as the title bar, shaded with a gray gradient so it reads on light
   and dark taskbars. It was Electron's default icon.
 - Overworld view, opened from an Overworld row in the map explorer, after Title Screen
-  and New Game. It draws the
-  overworld's Foreground and Background from the working copy, the
-  hub on the left and areas 1-6 on the right, with toolbar toggles to show or
-  hide each layer. It shows map data before any event, in area 0's tileset
-  and palette. On a ROM whose overworld code it cannot read, it shows the
-  reason instead of drawing.
+  and New Game. It draws the hub
+  (half 0, 512x512) from the working copy before any event, in area 0's tileset and
+  palette. Area 1..N rows under it each open a 256x224 camera window over half 1 in that
+  area's own tileset and palette, in a tab of their own. Rows preview on a click and pin
+  on a double-click, as map rows do. Toolbar toggles show or hide Foreground and
+  Background, and a zoom control scales each view. On a ROM whose overworld code it
+  cannot read, it shows the reason instead of drawing.
 - Palette view is now editable. Click a swatch, change its colour through a
   colour picker or the BGR555 hex field, and the working copy updates live -
   a recolour of a written cell is visible in the GFX viewer too, since both

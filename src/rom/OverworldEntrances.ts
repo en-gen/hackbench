@@ -117,12 +117,8 @@ import {
 import { findUnique, matchesAt, WILD, type BytePattern } from './BytePattern'
 import { fingerprint } from './Fingerprint'
 import { readLmTranslevels, type LmDecompressors } from './LmTranslevelTable'
-import {
-  OW_L1_MAP16_BYTES,
-  OW_SUBAREA_TILES_W,
-  OW_SUBAREA_TILES_H,
-  loadOverworldAreas,
-} from './OverworldLoader'
+import { OW_L1_MAP16_BYTES, OW_SUBAREA_TILES_W, OW_SUBAREA_TILES_H } from './OverworldLoader'
+import { deriveOverworldAreas } from './OverworldAreas'
 
 /** Buffer index at which the sub-map half of `OWLayer1Translevel` starts. */
 export const SUBMAP_BUFFER_BASE = 0x400
@@ -438,14 +434,23 @@ interface SubmapWindow {
  *
  * This is the one inference in this module. It never feeds `slot`.
  */
-function submapWindows(rom: RomFile): SubmapWindow[] {
-  return loadOverworldAreas(rom)
-    .filter(area => area.index !== 0)
-    .map(area => ({
-      submap: area.index,
-      rowStart: Math.floor(Math.ceil(area.cameraY / 8) / 2),
-      colStart: Math.floor(Math.ceil(area.cameraX / 8) / 2),
-    }))
+function submapWindows(rom: RomFile): { windows: SubmapWindow[]; refused?: string } {
+  // The derived list, not fixed tables: a ROM whose camera read is not stock gives no windows,
+  // so the submap is unknown (null) instead of a vanilla guess (#523).
+  const set = deriveOverworldAreas(rom)
+  if ('unavailable' in set) return { windows: [], refused: set.unavailable }
+  const windows = set.areas.flatMap(area =>
+    area.area === 0 || area.cameraX === undefined || area.cameraY === undefined
+      ? []
+      : [
+          {
+            submap: area.area,
+            rowStart: Math.floor(Math.ceil(area.cameraY / 8) / 2),
+            colStart: Math.floor(Math.ceil(area.cameraX / 8) / 2),
+          },
+        ],
+  )
+  return { windows }
 }
 
 const WINDOW_COLS = OW_SUBAREA_TILES_W / 2
@@ -559,7 +564,7 @@ export function deriveOverworldEntrances(
   }
 
   const cat = catalog ?? buildLevelCatalog(rom)
-  const windows = submapWindows(rom.rom)
+  const { windows, refused } = submapWindows(rom.rom)
   const precursors = warpPrecursorTiles(rom.rom, warpTiles)
   const entrances: OverworldEntrance[] = walked.map(({ bufferIndex, translevel, layout, slot }) => {
     const { tileX, tileY } = decodeBufferIndex(bufferIndex)
@@ -607,8 +612,11 @@ export function deriveOverworldEntrances(
   }
   const unplaced = entrances.filter(e => e.submap === null).length
   if (unplaced > 0) {
+    const why = refused
+      ? `the area derivation is unavailable (${refused})`
+      : 'they fall outside every camera-derived sub-map window'
     notes.push(
-      `${unplaced} sub-map entrances fall outside every camera-derived sub-map window, so ` +
+      `${unplaced} sub-map entrances have no submap: ${why}, so ` +
         'their `submap` is null. `layout`, `tileX`, `tileY` and `tileDataAddress` are exact ' +
         'regardless; only `submap` is inferred.',
     )

@@ -11,15 +11,12 @@ import { SmwRom } from '../../../src/rom/SmwRom'
 import { bgr555ToRgba } from '../../../src/rom/GraphicsDecoder'
 import { ADDR_FG_PAIR } from '../../../src/rom/PaletteLoader'
 import { OW_ADDR, map16ByteOffset, tilemapByteOffset } from '../../../src/rom/OverworldLoader'
-import {
-  compositeOverworld,
-  OW_HALF_H,
-  OW_HALF_W,
-} from '../../../src/rom/render/OverworldComposite'
+import { compositeOverworld, OW_HALF_W } from '../../../src/rom/render/OverworldComposite'
 import { WorkingRom } from '../../../src/project/WorkingRom'
 import { decodeOverworld } from '../../../theia/extension/src/node/overworld-decode'
 import type { OverworldDto } from '../../../theia/extension/src/common/gfx-protocol'
 import { plantGfxHook } from '../support/syntheticGfxCart'
+import { b64, composeDto as compose } from '../support/overworldView'
 import {
   BACKDROP_BGR,
   CHAR_DATA,
@@ -57,37 +54,12 @@ vi.mock('../../../theia/extension/src/node/overworld-decode', async importOrigin
     await importOriginal<typeof import('../../../theia/extension/src/node/overworld-decode')>()
   const { SYNTHETIC_FPS: fps } = await import('../support/syntheticOverworld')
   return {
+    ...real,
     decodeOverworld: (rom: SmwRom, f?: Parameters<typeof real.decodeOverworld>[1]) =>
       real.decodeOverworld(rom, f ?? fps),
   }
 })
 
-const b64 = (s: string): Uint8Array => Uint8Array.from(Buffer.from(s, 'base64'))
-
-/** One half's canvas as the browser paints it, with each layer shown or hidden. */
-function composeHalf(dto: OverworldDto, i: 0 | 1, show = { l1: true, l2: true }): Buffer {
-  if (dto.status !== 'ok') throw new Error(dto.reason)
-  const half = dto.halves[i]
-  const layer = (l: { rgbaBase64: string; prioBase64: string } | undefined) =>
-    l ? { rgba: new Uint8ClampedArray(b64(l.rgbaBase64)), prio: b64(l.prioBase64) } : null
-  const px = compositeOverworld(
-    OW_HALF_W,
-    OW_HALF_H,
-    dto.backdrop,
-    show.l2 ? layer(half.l2) : null,
-    show.l1 ? layer(half.l1) : null,
-  )
-  return Buffer.from(px)
-}
-/** Both halves joined row by row: the 1024x512 image the view used to paint as one canvas. */
-function compose(dto: OverworldDto, show = { l1: true, l2: true }): Buffer {
-  const halves = [composeHalf(dto, 0, show), composeHalf(dto, 1, show)]
-  const rowBytes = 512 * 4
-  const rows: Buffer[] = []
-  for (let y = 0; y < 512; y++)
-    for (const h of halves) rows.push(h.subarray(y * rowBytes, (y + 1) * rowBytes))
-  return Buffer.concat(rows)
-}
 /**
  * The color L1 cell (row, col) paints at 2 px into its top-left quadrant,
  * composed through the same compositeOverworld from a 3x3-cell window of each
@@ -98,7 +70,7 @@ function compose(dto: OverworldDto, show = { l1: true, l2: true }): Buffer {
  */
 function cellColor(dto: OverworldDto, row: number, col: number): number[] {
   if (dto.status !== 'ok') throw new Error(dto.reason)
-  const half = dto.halves[col >> 5]!
+  const half = dto
   const cy = row * 2
   const cx = (col & 31) * 2
   const crop = (l: { rgbaBase64: string; prioBase64: string }) => {
@@ -124,7 +96,7 @@ const decode = (rom: RomFile) => decodeOverworld(new SmwRom(rom), SYNTHETIC_FPS)
 const pixels = (rom: RomFile, show?: { l1: boolean; l2: boolean }): Buffer => {
   const dto = decode(rom)
   if (dto.status !== 'ok') throw new Error(dto.reason)
-  expect(dto.halves.map(h => b64(h.l1.rgbaBase64).length)).toEqual([512 * 512 * 4, 512 * 512 * 4])
+  expect([dto.width, dto.height, b64(dto.l1.rgbaBase64).length]).toEqual([512, 512, 512 * 512 * 4])
   expect(dto.l2Unavailable).toBeUndefined()
   return compose(dto, show)
 }
@@ -150,10 +122,10 @@ const l2Color = (tileset = 0x12): number[] => color(7, (tileset % 7) + 1, tilese
 const BACKDROP = [...bgr555ToRgba(BACKDROP_BGR)]
 
 const at = (px: Buffer, x: number, y: number): number[] => {
-  const i = (y * 1024 + x) * 4
+  const i = (y * 512 + x) * 4
   return [...px.subarray(i, i + 4)]
 }
-/** 1024 wide: L1 grid cell (row 0-31, col 0-63), 2 px into its top-left quadrant. */
+/** 512 wide: L1 grid cell (row 0-31, col 0-31), 2 px into its top-left quadrant. */
 const pixelAt = (px: Buffer, row: number, col: number): number[] =>
   at(px, col * 16 + 2, row * 16 + 2)
 /** Clears L1 cell (row, col)'s top-left char (index 0), so what is under it shows. */
@@ -163,54 +135,15 @@ const clearL1 = (rom: RomFile, row: number, col: number): void =>
 describe('decodeOverworld on a synthetic ROM', () => {
   it('paints each cell from its tile, the ROM-read tileset and that tileset palette', () => {
     const px = pixels(syntheticOverworldRom(0x12))
-    // Both sides of the half boundary, and the far corners.
+    // The corners and an interior cell of the hub.
     for (const [row, col] of [
       [0, 0],
       [0, 31],
-      [0, 32],
-      [17, 40],
-      [31, 63],
+      [17, 20],
+      [31, 31],
     ] as const) {
       expect(pixelAt(px, row, col), `cell ${row},${col}`).toEqual(expectedAt(row, col, 0x12))
     }
-  })
-
-  it('draws each half from its own layout: a swap or a shifted column goes red', () => {
-    const dto = decode(syntheticOverworldRom(0x12))
-    if (dto.status !== 'ok') throw new Error(dto.reason)
-    const halves = [composeHalf(dto, 0), composeHalf(dto, 1)]
-    const local = (h: Buffer, row: number, col: number): number[] => {
-      const i = (row * 16 + 2) * 512 + col * 16 + 2
-      return [...h.subarray(i * 4, i * 4 + 4)]
-    }
-    // Local column c of half h is grid column 32 * h + c. Pick cells whose two halves paint
-    // different colors (they follow id & 3), so a swap or a 32-column shift cannot pass.
-    const cells: Array<[number, number]> = [0, 17, 31].map(row => {
-      const col = [...Array(32).keys()].find(
-        c => (tileAt(row, c) & 3) !== (tileAt(row, c + 32) & 3),
-      )
-      expect(col, `row ${row} has a differing column`).toBeDefined()
-      return [row, col!]
-    })
-    for (const [row, col] of cells) {
-      for (const h of [0, 1] as const) {
-        expect(local(halves[h]!, row, col), `half ${h} cell ${row},${col}`).toEqual(
-          expectedAt(row, 32 * h + col, 0x12),
-        )
-      }
-      expect(expectedAt(row, col, 0x12)).not.toEqual(expectedAt(row, col + 32, 0x12))
-    }
-    // L2 probes: [9, 70] is in layout 1, local cell (y 9, x 6); [3, 5] is in layout 0.
-    const l2At = (h: Buffer, y: number, x: number): number[] => {
-      const i = (y * 8 + 2) * 512 + x * 8 + 2
-      return [...h.subarray(i * 4, i * 4 + 4)]
-    }
-    const hi = L2_PROBES[4]!
-    expect(l2At(halves[1]!, hi.y, hi.x - 64)).toEqual(color(hi.row, 1))
-    expect(l2At(halves[0]!, hi.y, hi.x - 64)).not.toEqual(color(hi.row, 1))
-    const lo = L2_PROBES[0]!
-    expect(l2At(halves[0]!, lo.y, lo.x)).toEqual(color(lo.row, (0x12 % 7) + 1))
-    expect(l2At(halves[1]!, lo.y, lo.x)).not.toEqual(color(lo.row, (0x12 % 7) + 1))
   })
 
   it('area 0 tileset $13 loads its own GFX and DATA_00AD1E[2], not the submap entry', () => {
@@ -241,12 +174,11 @@ describe('decodeOverworld on a synthetic ROM', () => {
     expect(pixelAt(pixels(rom), 5, 9)).toEqual([...bgr555ToRgba(0x7fff)])
   })
 
-  // One cell per half, both with id & 3 not 3 (tileAt 5,9 is 0; 5,41 is 77, so 1), so L1's
-  // row 4 + (id & 3) color differs from L2's row 7. One test per half, each with its own
-  // 5 s budget (#515).
+  // Cells with id & 3 not 3 (tileAt 5,9 is 0; 6,12 is 2), so L1's row 4 + (id & 3) color
+  // differs from L2's row 7. One test per cell, each with its own 5 s budget (#515).
   for (const [r, c] of [
     [5, 9],
-    [5, 41],
+    [6, 12],
   ] as const) {
     it(`orders L2 low, L1 low, L2 high, L1 high over the backdrop, cell ${r},${c}`, () => {
       const id = tileAt(r, c)
@@ -261,10 +193,6 @@ describe('decodeOverworld on a synthetic ROM', () => {
         rom.writeAt(CHAR_DATA + id * 8, [l1Low, l1High])
         const dto = decode(rom)
         if (dto.status !== 'ok') throw new Error(dto.reason)
-        expect(dto.halves.map(h => b64(h.l1.rgbaBase64).length)).toEqual([
-          512 * 512 * 4,
-          512 * 512 * 4,
-        ])
         expect(dto.l2Unavailable).toBeUndefined()
         return cellColor(dto, r, c)
       }
@@ -279,9 +207,9 @@ describe('decodeOverworld on a synthetic ROM', () => {
     })
   }
 
-  it('places L2 in every quadrant of both layouts, and honors its flips', () => {
+  it('places L2 in every quadrant of the hub layout, and honors its flips', () => {
     const px = pixels(syntheticOverworldRom(0x12))
-    for (const p of L2_PROBES) {
+    for (const p of L2_PROBES.filter(q => q.x < 64)) {
       const index = p.char === 0x3f ? (0x12 % 7) + 1 : 1
       expect(at(px, p.x * 8 + 2, p.y * 8 + 2), `probe ${p.y},${p.x}`).toEqual(color(p.row, index))
     }
@@ -297,13 +225,9 @@ describe('decodeOverworld on a synthetic ROM', () => {
     clearL1(rom, 5, 9)
     const dto = decodeOverworld(new SmwRom(rom), { ...SYNTHETIC_FPS, l2: [] })
     if (dto.status !== 'ok') throw new Error(dto.reason)
-    expect([dto.halves[0].l2, dto.halves[1].l2, dto.l2Unavailable]).toEqual([
-      undefined,
-      undefined,
-      expect.stringMatching(/\$04DABA/),
-    ])
+    expect([dto.l2, dto.l2Unavailable]).toEqual([undefined, expect.stringMatching(/\$04DABA/)])
     const px = compose(dto)
-    expect(pixelAt(px, 17, 40)).toEqual(expectedAt(17, 40, 0x12))
+    expect(pixelAt(px, 17, 20)).toEqual(expectedAt(17, 20, 0x12))
     expect(pixelAt(px, 5, 9)).toEqual(BACKDROP)
     // Where an L2 probe sat over L1, L1 shows.
     const p = L2_PROBES[0]!
@@ -320,8 +244,8 @@ describe('decodeOverworld on a synthetic ROM', () => {
     expect(at(pixels(rom), x, y)).toEqual(color(p.row, (0x12 % 7) + 1))
     expect(at(noL2, x, y)).toEqual(expectedAt(p.y >> 1, p.x >> 1, 0x12))
     expect(pixelAt(noL2, 5, 9)).toEqual(BACKDROP)
-    expect(pixelAt(noL1, 17, 40)).toEqual(l2Color())
-    expect(pixelAt(pixels(rom, { l1: false, l2: false }), 17, 40)).toEqual(BACKDROP)
+    expect(pixelAt(noL1, 17, 20)).toEqual(l2Color())
+    expect(pixelAt(pixels(rom, { l1: false, l2: false }), 17, 20)).toEqual(BACKDROP)
   })
 
   it('refuses the L1 reader, the palette load, its call and a hooked GFX loader, with reasons', () => {
@@ -396,24 +320,20 @@ describe.skipIf(!hasRom(VANILLA))('decodeOverworld on vanilla', () => {
     return real.decodeOverworld(new SmwRom(rom))
   }
 
-  it('draws the pinned canvas; each layer alone is its own pin, and an L1 edit differs', async () => {
+  it('draws the pinned hub; each layer alone is its own pin, and an L1 edit differs', async () => {
     const dto = await vanilla(freshRom())
-    // The halves joined row by row are the old single 1024x512 image: no pixel moved.
-    expect(sha(compose(dto))).toBe(pin.VANILLA_OVERWORLD_CANVAS_SHA256)
-    expect(sha(compose(dto, { l1: true, l2: false }))).toBe(pin.VANILLA_OVERWORLD_L1_SHA256)
-    expect(sha(compose(dto, { l1: false, l2: true }))).toBe(pin.VANILLA_OVERWORLD_L2_SHA256)
     for (const [show, name] of [
       [{ l1: true, l2: true }, 'BOTH'],
       [{ l1: true, l2: false }, 'L1'],
       [{ l1: false, l2: true }, 'L2'],
     ] as const) {
-      const pins = pin.VANILLA_OVERWORLD_HALF_SHA256[name]
-      expect([sha(composeHalf(dto, 0, show)), sha(composeHalf(dto, 1, show))], name).toEqual(pins)
+      expect(sha(compose(dto, show)), name).toBe(pin.VANILLA_OVERWORLD_HUB_SHA256[name])
     }
     const edited = freshRom()
-    // Grid cell (row 1, col 55) draws an opaque L1 icon on vanilla; tile 0 draws nothing.
-    edited.writeAt(0x0cf7df + map16ByteOffset(1, 1, 23), [0])
-    expect(sha(compose(await vanilla(edited)))).not.toBe(pin.VANILLA_OVERWORLD_CANVAS_SHA256)
+    // Half 0 cell (row 0, col 0): tile 0 draws nothing, and the vanilla cell there is not 0 or
+    // the hub pin would not move; asserted below by the hash changing.
+    edited.writeAt(0x0cf7df + map16ByteOffset(0, 0, 0), [0xff])
+    expect(sha(compose(await vanilla(edited)))).not.toBe(pin.VANILLA_OVERWORLD_HUB_SHA256.BOTH)
   })
 
   it('an L2 it refuses leaves exactly the L1-alone canvas', async () => {
@@ -421,6 +341,6 @@ describe.skipIf(!hasRom(VANILLA))('decodeOverworld on vanilla', () => {
     rom.writeAt(0x04dc99, [0x00]) // JSR CODE_04DABA for the high stream
     const dto = await vanilla(rom)
     expect(dto.status === 'ok' && dto.l2Unavailable).toMatch(/\$04DC91/)
-    expect(sha(compose(dto))).toBe(pin.VANILLA_OVERWORLD_L1_SHA256)
+    expect(sha(compose(dto))).toBe(pin.VANILLA_OVERWORLD_HUB_SHA256.L1)
   })
 })

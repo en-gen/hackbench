@@ -1,12 +1,14 @@
 /**
- * The Overworld view: L2 (background) under L1 (foreground), half 0 left of half 1.
+ * The Overworld views: L2 (background) under L1 (foreground), one canvas each.
  *
- * One instance in the main area. Follows ProjectContext, and redraws when the
+ * The hub (area 0) is half 0 at 512x512. An area (1..N) is its 256x224 camera window over
+ * half 1, in the area's own tileset and palette (#364). Rows open like map rows
+ * (PreviewTabs): a click shows an area in the one preview tab, a double-click pins it as
+ * its own tab, so one widget class serves all of them and `open(area)` retargets it.
+ * Ctrl + wheel and the stepper zoom the canvas (CSS only). Follows ProjectContext, and redraws when the
  * backend reports the working copy changed. A refusal shows its reason and
  * no canvas. Styling reuses the Graphics view's classes (style/gfx.css).
  * The layer toggles re-compose the layers already fetched, with no round trip.
- * Two canvases, one per half: the halves are independent layouts, each drawn
- * and composed on its own, and the 16 px gap between them is CSS, not map pixels (#431).
  */
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
@@ -14,18 +16,28 @@ import { ReactWidget, Message } from '@theia/core/lib/browser'
 import { GfxService, OverworldDto, OverworldLayerDto } from '../common/gfx-protocol'
 import {
   compositeOverworld,
-  OW_HALF_H,
-  OW_HALF_W,
   type OwLayerPixels,
 } from '../../../../src/rom/render/OverworldComposite'
 import { GfxFrontendClient } from './gfx-push-client'
 import { LayerToggle } from './layer-icon'
+import { WheelBinding, ZoomController } from './zoom-controller'
 import { decodeBase64Bytes, decodeRgba, paintScaled } from './map16-pixels'
 import { ProjectContext } from './project-context'
+import { previewId } from './preview-id'
 
 export const OVERWORLD_VIEW_ID = 'hackbench.overworld-view'
-/** Opens or focuses the one Overworld view; the map explorer's Overworld row runs it. */
+/** A pinned area's widget id is `${OVERWORLD_AREA_VIEW_ID}:${area}`; the hub keeps OVERWORLD_VIEW_ID. */
+export const OVERWORLD_AREA_VIEW_ID = 'hackbench.overworld-area-view'
+/** The id of area `area`'s pinned tab (0 is the hub). */
+export const overworldTabId = (area: number): string =>
+  area === 0 ? OVERWORLD_VIEW_ID : `${OVERWORLD_AREA_VIEW_ID}:${area}`
+/** Shows the hub (area 0): `{ activate }` false previews it, true pins it. */
 export const OVERWORLD_FOCUS_COMMAND_ID = 'hackbench.overworld.focus'
+/** Shows one area, as `{ area, activate }`: previewed, or pinned when `activate`. */
+export const OVERWORLD_OPEN_AREA_COMMAND_ID = 'hackbench.overworld.openArea'
+
+/** Canvas zoom. Integer factors only, so tile edges stay on device pixels. */
+const ZOOM_OPTIONS = [1, 2, 3, 4]
 
 @injectable()
 export class OverworldViewWidget extends ReactWidget {
@@ -33,34 +45,70 @@ export class OverworldViewWidget extends ReactWidget {
   @inject(GfxFrontendClient) protected readonly pushClient!: GfxFrontendClient
   @inject(ProjectContext) protected readonly projectContext!: ProjectContext
 
+  /** 0 is the hub. */
+  area = 0
+  protected opened = false
+  protected readonly zoomController = new ZoomController(ZOOM_OPTIONS, 1)
+  protected wheelBinding: WheelBinding | undefined
+
   protected manifestPath: string | undefined
   protected dto: OverworldDto | undefined
-  protected layers: Array<{ l1: OwLayerPixels; l2: OwLayerPixels | null }> | undefined
+  protected layers: { l1: OwLayerPixels; l2: OwLayerPixels | null } | undefined
   protected visible = { l1: true, l2: true }
   protected error: string | undefined
-  protected readonly canvasEls: Array<HTMLCanvasElement | null> = [null, null]
-  protected readonly halfRefs = [0, 1].map(i => (el: HTMLCanvasElement | null) => {
-    this.canvasEls[i] = el
+  protected canvasEl: HTMLCanvasElement | null = null
+  protected readonly canvasRef = (el: HTMLCanvasElement | null): void => {
+    this.canvasEl = el
     this.paintCanvas()
-  })
+  }
   protected reloadToken = 0
+
+  /** The scroll container: Ctrl + wheel binds here and anchors on the cursor within it. */
+  protected readonly scrollerRef = (el: HTMLDivElement | null): void => {
+    this.wheelBinding?.dispose()
+    this.wheelBinding = el ? this.zoomController.bindWheel(el, () => this.canvasEl) : undefined
+  }
 
   @postConstruct()
   protected init(): void {
-    this.id = OVERWORLD_VIEW_ID
-    this.title.label = 'Overworld'
-    this.title.caption = 'Overworld'
-    this.title.iconClass = 'codicon codicon-globe'
+    // A fresh widget is nobody's tab yet; PreviewTabs gives the preview this id, and the pin
+    // path sets `overworldTabId(area)` before attaching, so open() never owns the id.
+    this.id = previewId(OVERWORLD_VIEW_ID)
     this.title.closable = true
-    this.addClass('hb-gfx-view')
+    this.addClass('hb-map-view')
+    this.addClass('hb-overworld-view')
     this.node.tabIndex = 0
-    this.toDispose.push(this.projectContext.onChanged(p => void this.load(p?.manifestPath)))
+    this.toDispose.push(this.zoomController.onDidChange(() => this.update()))
+    this.toDispose.push(this.zoomController)
+    this.toDispose.push({ dispose: () => this.wheelBinding?.dispose() })
+    this.toDispose.push(
+      this.projectContext.onChanged(p => {
+        if (this.opened) void this.load(p?.manifestPath)
+      }),
+    )
     this.toDispose.push(
       this.pushClient.onChanged(path => {
         if (path === this.manifestPath) void this.load(path)
       }),
     )
-    void this.load(this.projectContext.current?.manifestPath)
+  }
+
+  /** Points the widget at `area` (0 is the hub) and draws it. */
+  async open(area: number): Promise<void> {
+    this.area = area
+    this.opened = true
+    const label = area === 0 ? 'Overworld' : `Area ${area}`
+    this.title.label = label
+    this.title.caption = label
+    this.title.iconClass = area === 0 ? 'codicon codicon-globe' : 'codicon codicon-map'
+    this.node.dataset.area = String(area)
+    this.dto = undefined
+    this.layers = undefined
+    await this.load(this.projectContext.current?.manifestPath)
+  }
+
+  shows(area: number): boolean {
+    return this.opened && this.area === area
   }
 
   async load(manifestPath: string | undefined): Promise<void> {
@@ -70,20 +118,27 @@ export class OverworldViewWidget extends ReactWidget {
     let error: string | undefined
     if (manifestPath) {
       try {
-        dto = await this.gfx.overworld(manifestPath)
+        dto =
+          this.area === 0
+            ? await this.gfx.overworld(manifestPath)
+            : await this.gfx.overworldArea(manifestPath, this.area)
       } catch (err) {
         error = (err as Error).message
       }
     }
     if (token !== this.reloadToken) return
     this.dto = dto
-    const pixels = (l: OverworldLayerDto): OwLayerPixels => ({
+    const pixels = (l: OverworldLayerDto, prioCell: number): OwLayerPixels => ({
       rgba: decodeRgba(l.rgbaBase64),
       prio: decodeBase64Bytes(l.prioBase64),
+      prioCell,
     })
     this.layers =
       dto?.status === 'ok'
-        ? dto.halves.map(h => ({ l1: pixels(h.l1), l2: h.l2 ? pixels(h.l2) : null }))
+        ? {
+            l1: pixels(dto.l1, dto.prioCell),
+            l2: dto.l2 ? pixels(dto.l2, dto.prioCell) : null,
+          }
         : undefined
     this.error = error
     this.update()
@@ -101,20 +156,26 @@ export class OverworldViewWidget extends ReactWidget {
   }
 
   protected paintCanvas(): void {
-    if (this.dto?.status !== 'ok' || !this.layers || !this.canvasEls.some(c => c)) return
-    const { backdrop } = this.dto
-    this.canvasEls.forEach((canvas, i) => {
-      if (!canvas) return
-      const { l1, l2 } = this.layers![i]!
-      const px = compositeOverworld(
-        OW_HALF_W,
-        OW_HALF_H,
-        backdrop,
-        this.visible.l2 ? l2 : null,
-        this.visible.l1 ? l1 : null,
-      )
-      paintScaled(canvas, px, OW_HALF_W, OW_HALF_H, 1)
-    })
+    if (this.dto?.status !== 'ok' || !this.layers || !this.canvasEl) {
+      // No resize this call: drop a wheel anchor rather than misapply it to a later canvas.
+      this.wheelBinding?.restoreAnchor()
+      return
+    }
+    const { backdrop, width, height } = this.dto
+    const { l1, l2 } = this.layers
+    const px = compositeOverworld(
+      width,
+      height,
+      backdrop,
+      this.visible.l2 ? l2 : null,
+      this.visible.l1 ? l1 : null,
+    )
+    paintScaled(this.canvasEl, px, width, height, 1)
+    // Zoom is CSS only, so the bitmap stays 1:1 with the map's pixels.
+    const zoom = this.zoomController.value
+    this.canvasEl.style.width = `${width * zoom}px`
+    this.canvasEl.style.height = `${height * zoom}px`
+    this.wheelBinding?.restoreAnchor()
   }
 
   protected toggle(layer: 'l1' | 'l2'): void {
@@ -124,21 +185,21 @@ export class OverworldViewWidget extends ReactWidget {
 
   protected render(): React.ReactNode {
     if (!this.manifestPath) {
-      return <div className="hb-gfx-view-empty">Open a project to see its overworld.</div>
+      return <div className="hb-map-view-empty">Open a project to see its overworld.</div>
     }
     const dto = this.dto
     const reason = this.error ?? (dto?.status === 'unavailable' ? dto.reason : undefined)
+    const z = this.zoomController
     return (
-      <div className="hb-gfx-view-body">
-        <div className="hb-gfx-view-toolbar">
-          <span className="hb-gfx-view-title">Overworld</span>
+      <div className="hb-map-view-main">
+        <div className="hb-map-view-toolbar">
           <LayerToggle
-            highlight="top"
-            label="Effects not drawn yet"
-            pressed={false}
-            disabled
-            control="layer-l3"
-            onClick={() => undefined}
+            highlight="bottom"
+            label="Background"
+            pressed={this.visible.l2}
+            disabled={dto?.status === 'ok' && !!dto.l2Unavailable}
+            control="layer-l2"
+            onClick={() => this.toggle('l2')}
           />
           <LayerToggle
             highlight="middle"
@@ -148,39 +209,57 @@ export class OverworldViewWidget extends ReactWidget {
             onClick={() => this.toggle('l1')}
           />
           <LayerToggle
-            highlight="bottom"
-            label="Background"
-            pressed={this.visible.l2}
-            disabled={dto?.status === 'ok' && !!dto.l2Unavailable}
-            control="layer-l2"
-            onClick={() => this.toggle('l2')}
+            highlight="top"
+            label="Effects not drawn yet"
+            pressed={false}
+            disabled
+            control="layer-l3"
+            onClick={() => undefined}
           />
-          {dto?.status === 'ok' && (
-            <span className="hb-gfx-view-summary hb-overworld-note">
-              Map data before any event; drawn with area 0&apos;s tileset and palette, so the right
-              half may differ in game.
-            </span>
-          )}
+          <span className="hb-toolbar-spacer" />
+          <button
+            type="button"
+            data-control="zoom-out"
+            className="hb-icon-btn"
+            disabled={!z.canZoomOut}
+            title="Zoom out"
+            aria-label="Zoom out"
+            onClick={() => z.step(-1)}
+          >
+            <span className="codicon codicon-zoom-out" />
+          </button>
+          <span data-control="zoom-indicator" className="hb-zoom-indicator">
+            {`${Math.round(z.value * 100)}%`}
+          </span>
+          <button
+            type="button"
+            data-control="zoom-in"
+            className="hb-icon-btn"
+            disabled={!z.canZoomIn}
+            title="Zoom in"
+            aria-label="Zoom in"
+            onClick={() => z.step(1)}
+          >
+            <span className="codicon codicon-zoom-in" />
+          </button>
         </div>
-        {reason && <div className="hb-gfx-view-error hb-overworld-reason">{reason}</div>}
+        {reason && (
+          <div className="hb-map-view-note hb-map-view-error hb-overworld-reason">{reason}</div>
+        )}
         {dto?.status === 'ok' && dto.l2Unavailable && (
-          <div className="hb-gfx-view-error hb-overworld-l2-reason">
+          <div className="hb-map-view-note hb-overworld-l2-reason">
             {`Background unavailable: ${dto.l2Unavailable}`}
           </div>
         )}
-        {dto?.status === 'ok' && (
-          <div className="hb-overworld-halves">
-            {[0, 1].map(i => (
-              <div key={i} className="hb-gfx-view-canvas-wrap">
-                <canvas
-                  data-half={i}
-                  className="hb-gfx-view-canvas hb-overworld-canvas"
-                  ref={this.halfRefs[i]}
-                />
-              </div>
-            ))}
-          </div>
-        )}
+        <div className="hb-map-view-scroller" ref={this.scrollerRef}>
+          {dto?.status === 'ok' && (
+            <canvas
+              data-area={this.area}
+              className="hb-pixel-canvas hb-overworld-canvas"
+              ref={this.canvasRef}
+            />
+          )}
+        </div>
       </div>
     )
   }

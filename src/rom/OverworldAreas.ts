@@ -24,6 +24,10 @@ export interface OverworldArea {
   area: number
   /** Why the camera table (DATA_00A06B/DATA_00A079) cannot place this area. */
   invalid?: string
+  /** Signed camera position of the window over half 1 (DATA_00A06B / DATA_00A079, bank_00.asm:4242-4248),
+   *  read at the gated camera operands; absent on an invalid area. */
+  cameraX?: number
+  cameraY?: number
 }
 export type OverworldAreaSet = { areas: OverworldArea[] } | { unavailable: string }
 
@@ -136,8 +140,10 @@ export function deriveOverworldAreas(rom: RomFile): OverworldAreaSet {
     return no(`${SITES.camera.name} reads two tables that are not an even distance apart.`)
   }
   const cameraCount = (cameraY - cameraX) / 2
-  if (!table(at.camera, cameraY, cameraCount * 2)) {
-    return no(`${SITES.camera.name} reads a Y table that runs past the end of its bank.`)
+  const camX = table(at.camera, cameraX, cameraCount * 2)
+  const camY = table(at.camera, cameraY, cameraCount * 2)
+  if (!camX || !camY) {
+    return no(`${SITES.camera.name} reads a table that runs past the end of its bank.`)
   }
 
   // Each loop starts at `LDY #n` and drops one record while Y stays below $80 (BPL).
@@ -192,6 +198,11 @@ export function deriveOverworldAreas(rom: RomFile): OverworldAreaSet {
   }
   const areas = [...seen]
     .sort(([p], [q]) => p - q)
-    .map(([area, invalid]) => ({ area, ...(invalid && { invalid }) }))
+    .map(([area, invalid]) => ({
+      area,
+      ...(invalid
+        ? { invalid }
+        : { cameraX: camX.readInt16LE(area * 2), cameraY: camY.readInt16LE(area * 2) }),
+    }))
   return { areas }
 }
