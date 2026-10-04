@@ -1156,7 +1156,7 @@ describe('PNG decode', () => {
     writeFileSync(f, Buffer.alloc(100, 1))
     expect(() => readBounded(f, 'g.bin', charge, () => writeFileSync(f, Buffer.alloc(10)))).toThrow(/g\.bin changed size/) // prettier-ignore
     expect(charged).toEqual([100, 100, 100])
-    expect(() => readBounded(dir, 'd', charge)).toThrow() // a directory is no capture file
+    expect(() => readBounded(dir, 'd', charge)).toThrow(/d is not a regular file/) // a directory is no capture file
   })
 
   it('holds a capture folder to the same entry cap and total', () => {
