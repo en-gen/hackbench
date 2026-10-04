@@ -9,7 +9,8 @@
  */
 import { describe, it, expect, afterEach } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
-import { createGrid } from '../../../src/rom/ObjectExpander'
+import { createGrid, expandObject } from '../../../src/rom/ObjectExpander'
+import type { LevelObject } from '../../../src/rom/LevelParser'
 import { makeCursor } from '../../../src/rom/objectHandlers/cursor'
 import type { InterpretedDraw } from '../../../src/rom/objectHandlers/interpretedDraw'
 import {
@@ -139,4 +140,28 @@ describe('dispatch path gate (#302)', () => {
       }
     })
   }
+
+  it('reaches the sink through expandObject for an extended object (production wiring)', () => {
+    const rom = stockCart(b => b.set([0x5c, ...long(0x93aa00)], off(EXT_ENTRY)))
+    const unverified: string[] = []
+    const obj = { type: 'extended', objectNumber: 0, settings: 0, x: 0, y: 0 } as LevelObject
+    expandObject(createGrid(1), obj, rom, 0, null, undefined, undefined, { unverified } as InterpretedDraw) // prettier-ignore
+    expect(unverified).toHaveLength(1)
+    expect(unverified[0]).toContain('$0DA106')
+  })
+
+  it('a pin read that runs off the ROM says it found nothing', () => {
+    const rom = stockCart(b => b.set(long(0x7e0000), off(ADDR_TILESET_DISPATCH)))
+    const notes = run(rom, 'standard')
+    expect(notes.some(n => n.includes('found nothing'))).toBe(true)
+  })
+
+  it('a write after the first dispatch is seen by the next one (cache keyed on version)', () => {
+    const rom = stockCart()
+    expect(run(rom, 'standard')).toEqual([])
+    rom.writeAt(STD_ENTRY, [0x5c, 0xd2, 0xcc, 0x92])
+    const notes = run(rom, 'standard')
+    expect(notes).toHaveLength(1)
+    expect(notes[0]).toContain('JML $92CCD2')
+  })
 })

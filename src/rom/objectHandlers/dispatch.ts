@@ -295,6 +295,10 @@ export const EXTENDED_HANDLERS: Record<number, HandlerFn> = {
  * per-tileset dispatchers' shared preamble (CODE_0DA44B, 1345-1350). The
  * trailing `22 FA 86 00` is JSL ExecutePtrLong (bank_00.asm:864), whose bank byte may be $80 (the same code through the FastROM mirror); $59/$5A
  * are LvlLoadObjSize/LvlLoadObjNo and $1931 is ObjectTileset (rammap.asm).
+ * Deliberately unpinned hops: $0586E3-$0586F0, CODE_0DA100 (1051-1054),
+ * CODE_0DA40F (1319-1322) and ExecutePtrLong itself. Over 105 ROMs none gets
+ * past these pins through them: each is stock, an equivalent $8D form, or one
+ * of the 2 broken ROMs that fail every pin anyway.
  */
 const PIN_EXTENDED = [0xe2, 0x30, 0xa5, 0x59, 0xaa, 0x22, 0xfa, 0x86, 0x00]
 const PIN_TILESET = [0xe2, 0x30, 0xad, 0x31, 0x19, 0x22, 0xfa, 0x86, 0x00]
