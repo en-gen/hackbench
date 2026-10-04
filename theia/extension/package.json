@@ -28,7 +28,8 @@
   "theiaExtensions": [
     {
       "frontend": "lib/theia/extension/src/browser/hackbench-frontend-module",
-      "backend": "lib/theia/extension/src/node/hackbench-backend-module"
+      "backend": "lib/theia/extension/src/node/hackbench-backend-module",
+      "electronMain": "lib/theia/extension/src/electron-main/electron-main-module"
     },
     {
       "frontend": "lib/theia/extension/src/browser/palette-frontend-module",
