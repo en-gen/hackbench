@@ -1,5 +1,6 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
-# CodeRabbit is the approving reviewer on develop (CLAUDE.md "Merging"): it
+# CodeRabbit is the approving reviewer on develop (docs/agents/orchestrator.md
+# "Merging"): it
 # approves once its comments are resolved, and a PR with auto-merge on then
 # merges on green CI. Assertive, because for most PRs it is the only reviewer.
 # Each instruction restates a rule in CLAUDE.md or docs/, so a new rule goes
@@ -64,15 +65,15 @@ reviews:
         Comments say WHY, not WHAT. The house comment-to-code signal is near
         0.60; much above that is narration (CLAUDE.md "Size budgets"). A long
         ROM derivation belongs in docs/ with a one-line citation in the code
-        (docs/agents/orchestrator.md "Review").
+        (.claude/agents/simplify-reviewer.md).
     - path: 'src/rom/**'
       instructions: >-
         ROM behaviour must be read from the ROM's tables and bytes, never
         hardcoded from the vanilla game, and must fail closed with a reason on
         an unrecognized hack. Flag any vanilla fallback, any fixed address used
         without checking the opcode or bytes there, and any SMWDisX citation
-        without a file:line. Per CLAUDE.md "The ROM is a collection of lookup
-        tables" and "Knowledge Integration", also flag: reading an operand
+        without a file:line. Per .claude/rules/rom-interpretation.md "The ROM is a
+        collection of lookup tables" and "Knowledge Integration", also flag: reading an operand
         without first gating on its opcode; a fixed address where a byte
         pattern would find a relocated routine, or taking the first of several
         pattern matches; stock constants used as a default rather than a
@@ -100,8 +101,8 @@ reviews:
         "color"; copy says what the app does ("Save", not "Save to ROM");
         emphasis must not change an element's box. A view that cannot verify
         what it draws draws its best data and marks it unverified with a
-        reason, never blank and never a vanilla substitute (CLAUDE.md "Viewers
-        draw; they do not blank"). UI names graphics layers Foreground,
+        reason, never blank and never a vanilla substitute
+        (.claude/rules/rom-interpretation.md "Viewers draw; they do not blank"). UI names graphics layers Foreground,
         Background, Effects, never Layer 1/2/3 (docs/glossary.md). New
         user-facing behaviour needs a Playwright spec under
         theia/browser-app/test (CLAUDE.md "Every feature ships with a
@@ -187,6 +188,8 @@ knowledge_base:
     # Root CLAUDE.md and AGENTS.md are default patterns. A guideline under
     # docs/ otherwise governs only docs/, so map each to the code it covers.
     filePatterns:
+      - files: '.claude/rules/rom-interpretation.md'
+        applyTo: 'src/**,theia/extension/src/node/**,test/**,tools/**'
       - files: 'docs/glossary.md'
         applyTo: '**/*'
       - files: 'docs/testing.md'
