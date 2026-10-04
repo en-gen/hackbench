@@ -195,9 +195,10 @@ export class EmulatorWidget extends ReactWidget {
       code => this.controllers.setOsCountry(code),
       () => undefined,
     )
-    void this.storage.getData<unknown>(CONTROLLERS_KEY).then(raw => {
-      this.controllers.load(raw)
-    })
+    void this.storage.getData<unknown>(CONTROLLERS_KEY).then(
+      raw => this.controllers.load(raw),
+      () => this.controllers.load(undefined),
+    )
     void this.storage.getData<unknown>(VOLUME_KEY).then(raw => {
       if (!this.volumeTouched) this.applyVolume(parseVolumeState(raw))
     })

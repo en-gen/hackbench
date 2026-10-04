@@ -51,6 +51,8 @@ function pad(index, down = [], axes = [0, 0, 0, 0], mapping = 'standard') {
 function setPads(p0, p1) { window.__pads = [p0 ?? null, p1 ?? null, null, null] }`
 
 let tmp
+/** The project bootWithSpy made, so a test can reopen it after a reload. */
+let lastManifest
 
 test.beforeEach(async ({ page }) => {
   test.skip(
@@ -88,11 +90,12 @@ async function bootWithSpy(page, name) {
       const w = await getWidget('hackbench.emulator-view')
       ctx.current = project
       await w.refresh()
-      return { state: w.state }
+      return { state: w.state, manifestPath: project.manifestPath }
     },
     { romPath: ROM, corePath: CORE_JS, directory: path.join(tmp, name) },
   )
   expect(setup.error).toBeUndefined()
+  lastManifest = setup.manifestPath
   await page.evaluate(async () => {
     await revealEmulator()
   })
@@ -332,9 +335,15 @@ test('tabs: aria roles, keyboard navigation, activity dot, and the selection per
   await page.keyboard.press('ArrowRight')
   await expect(tab(2)).toHaveAttribute('aria-selected', 'true')
   await expect(page.locator(`${VIEW} [data-player="2"]`)).toBeVisible()
+  await page.keyboard.press('Home')
+  await expect(tab(1)).toHaveAttribute('aria-selected', 'true')
+  await page.keyboard.press('End')
+  await expect(tab(2)).toHaveAttribute('aria-selected', 'true')
   // P1 holds a button while the P2 tab is selected: P1's dot lights, P2's does not.
   await page.evaluate(() => setPads(pad(0, [0]), null))
   await expect(tab(1).locator('.hb-pad-dot')).toHaveCount(1)
+  // The dot's meaning is in the tab's accessible text, not only its color.
+  await expect(tab(1)).toContainText('(active)')
   await expect(tab(2).locator('.hb-pad-dot')).toHaveCount(0)
   await page.evaluate(() => setPads(null, null))
   await expect(tab(1).locator('.hb-pad-dot')).toHaveCount(0)
@@ -342,19 +351,23 @@ test('tabs: aria roles, keyboard navigation, activity dot, and the selection per
   await page.reload({ waitUntil: 'domcontentloaded' })
   await page.waitForSelector('#theia-app-shell', { timeout: 90000 })
   await page.addScriptTag({ content: GET_SVC })
-  // Retry until the shell has bound the emulator contribution; no fixed wait.
+  // A reload leaves no project open: reopen it (no Start needed), retrying
+  // until the shell has bound the services; no fixed wait.
   await expect
     .poll(() =>
-      page.evaluate(async () => {
+      page.evaluate(async mp => {
         try {
-          await revealEmulator()
-          return true
+          const ctx = getSvc('ProjectContext')
+          ctx.current = await getSvc('Symbol(ProjectService)').openProject(mp)
+          const w = await revealEmulator()
+          await w.refresh()
+          return w.state.kind
         } catch {
-          return false
+          return 'not ready'
         }
-      }),
+      }, lastManifest),
     )
-    .toBe(true)
+    .toBe('ready')
   await openFlyout(page)
   // The stored selection is what the UI shows, not just what the model holds.
   await expect(tab(2)).toHaveAttribute('aria-selected', 'true')
