@@ -189,7 +189,7 @@ knowledge_base:
     # docs/ otherwise governs only docs/, so map each to the code it covers.
     filePatterns:
       - files: '.claude/rules/rom-interpretation.md'
-        applyTo: 'src/**,theia/extension/src/node/**,test/**,tools/**'
+        applyTo: 'src/**,theia/extension/src/node/**,test/**,tools/**,docs/rom/**'
       - files: 'docs/glossary.md'
         applyTo: '**/*'
       - files: 'docs/testing.md'

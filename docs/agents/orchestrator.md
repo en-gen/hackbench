@@ -104,10 +104,11 @@ effort goes. Short headed sections, numbered one-line steps, plain words.
 
 ## 4. Review
 
-Code changes to the application, `tools/`, `.githooks/` and
-`.github/workflows/` get two FRESH reviewers after the implementer hands
-back. Operational Markdown (`CLAUDE.md`, `docs/`, `.claude/`, PR and issue
-templates) skips Review and Verify; hooks and CI still check it.
+Code changes to the application, `tools/`, `.githooks/`,
+`.github/workflows/` and `.claude/settings.json` (it runs hooks) get two
+FRESH reviewers after the implementer hands back. Operational Markdown
+(`CLAUDE.md`, Markdown under `docs/` and `.claude/`, PR and issue templates)
+skips Review and Verify; hooks and CI still check it.
 
 - `simplify-reviewer` first: it applies quality-only edits and commits, so it
   runs alone in the worktree. A finding that removes a check, gate or test is
