@@ -162,10 +162,10 @@ export class WorkingRomRegistry {
       // Taken BEFORE the layers are read: a write landing in between then
       // shows as a changed stamp next call, rather than being stamped as seen.
       stamp = { key: opsStamp(project.directory).key, takenAt: Date.now() }
-      const resolved = this.registry.resolve(project.baseRom.sha256)
+      const resolved = this.registry.resolveVerified(project.baseRom.sha256)
       if (!resolved) return { status: 'rom-not-located', baseRom: project.baseRom }
-      romPath = resolved
-      const rom = RomFile.load(romPath)
+      romPath = resolved.path
+      const rom = RomFile.fromBytes(romPath, Buffer.from(resolved.bytes))
       working = new WorkingRom(rom.buffer, rom.hasHeader)
       const persisted = persistedOps(project.directory)
       working.restore(persisted.applied)
