@@ -117,18 +117,25 @@ export class ProjectPropertiesDialog extends AbstractDialog<HackMetadataDto | un
     return row
   }
 
-  /** The base ROM only: a different cart is refused inline, the field unchanged. */
-  protected async browseRom(): Promise<void> {
-    if (!this.project) return
+  protected async pickFile(
+    title: string,
+    filters: Record<string, string[]>,
+  ): Promise<string | undefined> {
     const uri = await this.fileDialog.showOpenDialog({
-      title: "Locate this project's ROM",
+      title,
       canSelectFiles: true,
       canSelectFolders: false,
       canSelectMany: false,
-      filters: ROM_FILTER,
+      filters,
     })
-    if (!uri) return
-    const picked = uri.path.fsPath()
+    return uri?.path.fsPath()
+  }
+
+  /** The base ROM only: a different cart is refused inline, the field unchanged. */
+  protected async browseRom(): Promise<void> {
+    if (!this.project) return
+    const picked = await this.pickFile("Locate this project's ROM", ROM_FILTER)
+    if (!picked) return
     try {
       const check = await this.projects.checkRom(this.project.manifestPath, picked)
       if (check.status === 'mismatch') {
@@ -148,15 +155,8 @@ export class ProjectPropertiesDialog extends AbstractDialog<HackMetadataDto | un
 
   /** Validation is the emulator's own (`checkCore`); nothing is remembered until Save. */
   protected async browseCore(): Promise<void> {
-    const uri = await this.fileDialog.showOpenDialog({
-      title: "Select the core's Emscripten loader (.js)",
-      canSelectFiles: true,
-      canSelectFolders: false,
-      canSelectMany: false,
-      filters: CORE_FILTER,
-    })
-    if (!uri) return
-    const picked = uri.path.fsPath()
+    const picked = await this.pickFile("Select the core's Emscripten loader (.js)", CORE_FILTER)
+    if (!picked) return
     const result = await this.emulator.checkCore(picked)
     if (result.status === 'invalid') {
       this.pathError.textContent = result.message
