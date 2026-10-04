@@ -129,6 +129,8 @@ export class MapViewWidget extends ReactWidget {
     this.details = undefined
     this.error = undefined
     this.mapLayout = undefined
+    // A new map opens fitted, whatever zoom the last one was left at.
+    this.userZoom = undefined
     // A reused (preview) tab keeps its strip across maps: blank it, and start at screen 0.
     for (const c of this.canvases.values()) {
       c.getContext('2d')?.clearRect(0, 0, c.width, c.height)
@@ -381,6 +383,33 @@ export class MapViewWidget extends ReactWidget {
     requestAnimationFrame(() => this.requestVisible())
   }
 
+  /** Back to fit mode: the strip refits on every resize until the next manual zoom. */
+  protected fitToWindow(): void {
+    this.userZoom = undefined
+    this.fitStrip()
+    this.update()
+  }
+
+  /** Exactly 100%, keeping the view's centre point where it is. */
+  protected actualSize(): void {
+    const el = this.scroller
+    const before = this.zoom
+    const cx = el ? (el.scrollLeft + el.clientWidth / 2) / before : 0
+    const cy = el ? (el.scrollTop + el.clientHeight / 2) / before : 0
+    this.userZoom = 1
+    this.update()
+    // Two frames: Lumino's render lands on the first, the resized strip on the second.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        if (el && this.userZoom === 1) {
+          el.scrollLeft = cx - el.clientWidth / 2
+          el.scrollTop = cy - el.clientHeight / 2
+        }
+        this.requestVisible()
+      }),
+    )
+  }
+
   protected override onResize(msg: Widget.ResizeMessage): void {
     super.onResize(msg)
     this.fitStrip()
@@ -425,6 +454,27 @@ export class MapViewWidget extends ReactWidget {
             />
           ))}
           <span className="hb-toolbar-spacer" />
+          <button
+            type="button"
+            data-control="zoom-actual"
+            className="hb-icon-btn"
+            title="Actual size (100%)"
+            aria-label="Actual size (100%)"
+            onClick={() => this.actualSize()}
+          >
+            <span className="codicon codicon-screen-normal" />
+          </button>
+          <button
+            type="button"
+            data-control="zoom-fit"
+            className={`hb-icon-btn${this.userZoom === undefined ? ' hb-icon-btn-on' : ''}`}
+            aria-pressed={this.userZoom === undefined}
+            title="Fit to window"
+            aria-label="Fit to window"
+            onClick={() => this.fitToWindow()}
+          >
+            <span className="codicon codicon-screen-full" />
+          </button>
           <button
             type="button"
             data-control="zoom-out"

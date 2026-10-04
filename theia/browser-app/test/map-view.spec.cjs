@@ -1152,3 +1152,75 @@ test('$1E0 screen 0 draws the cloud slope as a staircase, not a column', async (
   expect(cells['11,9'], 'body under the first lip').not.toBe(fill)
   for (const y of [10, 14, 20]) expect(cells[`11,${y}`], `(11,${y}) is fill`).toBe(fill)
 })
+
+/**
+ * Fit to window / Actual size (100%). The zoom is READ from the painted
+ * canvas (CSS width over bitmap width), not from the indicator, which rounds
+ * a fractional fit to a whole percent. $105 is horizontal (fits by height),
+ * $109 vertical (fits by width): a fit that only worked on one axis fails.
+ */
+const zoomOf = (page, index) =>
+  page.evaluate(sel => {
+    const c = document.querySelector(`${sel} canvas[data-plane="l1Low"]`)
+    return c.getBoundingClientRect().width / c.width
+  }, root(index))
+
+for (const index of [0x105, 0x109]) {
+  const name = `$${index.toString(16)}`
+  const open = async page => {
+    const project = await createProject(page, path.join(tmp, 'MyHack'))
+    await openMap(page, project.manifestPath, index)
+    await page.waitForTimeout(500)
+    return zoomOf(page, index)
+  }
+  const click = (page, control) =>
+    page.locator(`${root(index)} [data-control="${control}"]`).click()
+
+  test(`${name}: Fit returns to the load-time zoom after zooming in twice`, async ({ page }) => {
+    const loaded = await open(page)
+    await click(page, 'zoom-in')
+    await click(page, 'zoom-in')
+    await expect.poll(() => zoomOf(page, index)).not.toBeCloseTo(loaded, 2)
+    await click(page, 'zoom-fit')
+    await expect.poll(() => zoomOf(page, index)).toBeCloseTo(loaded, 3)
+    await expect(page.locator(`${root(index)} [data-control="zoom-fit"]`)).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+  })
+
+  test(`${name}: Actual size is exactly 100%, and leaves fit mode`, async ({ page }) => {
+    await open(page)
+    await click(page, 'zoom-actual')
+    await expect.poll(() => zoomOf(page, index)).toBe(1)
+    await expect(page.locator(`${root(index)} [data-control="zoom-fit"]`)).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+  })
+
+  test(`${name}: in fit mode a resize refits; after a manual zoom it does not`, async ({
+    page,
+  }) => {
+    const loaded = await open(page)
+    const size = page.viewportSize()
+    await page.setViewportSize({ width: Math.round(size.width * 0.7), height: Math.round(size.height * 0.7) }) // prettier-ignore
+    await expect.poll(() => zoomOf(page, index)).not.toBeCloseTo(loaded, 2)
+    // Fits: the cross axis is the scroller's own, to within a pixel.
+    const slack = await page.evaluate(sel => {
+      const root = document.querySelector(sel)
+      const el = root.querySelector('[data-control="map-scroller"]')
+      const r = root.querySelector('canvas[data-plane="l1Low"]').getBoundingClientRect()
+      return el.classList.contains('hb-vertical')
+        ? Math.abs(r.width - el.clientWidth)
+        : Math.abs(r.height - el.clientHeight)
+    }, root(index))
+    expect(slack).toBeLessThan(1.5)
+    await click(page, 'zoom-fit')
+    await click(page, 'zoom-in')
+    const held = await zoomOf(page, index)
+    await page.setViewportSize(size)
+    await page.waitForTimeout(800)
+    expect(await zoomOf(page, index)).toBeCloseTo(held, 6)
+  })
+}
