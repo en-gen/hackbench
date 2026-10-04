@@ -1,7 +1,7 @@
 # Getting started
 
 What you need, how to run HackBench, and how to get from a ROM to an
-`.ips` patch.
+`.bps` patch.
 
 > HackBench is pre-alpha. There is no packaged release yet, so the only way
 > to run it is to build from source.
@@ -119,7 +119,7 @@ project: an undone layer moves to `ops/redo/` rather than being deleted.
 ## Export a patch
 
 **File > Export Patch** diffs the base ROM against your working copy
-and writes a real `.ips` into `export/`.
+and writes a real `.bps` (or `.ips`) into `export/`.
 
 The patch is what you distribute. It contains only your changes, so it
 carries no Nintendo content, and it applies to the same file variant

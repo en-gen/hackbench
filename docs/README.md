@@ -22,7 +22,7 @@ on Eclipse Theia and Electron.
 - [overview.md](architecture/overview.md) - the three trees, the edit model,
   how a ROM becomes pixels
 - [project-format.md](architecture/project-format.md) - `.hbproj`, patch
-  layers, the working copy, IPS export
+  layers, the working copy, BPS or IPS export
 - [theia-shell.md](architecture/theia-shell.md) - the six extensions, the
   browser/common/node split, RPC wiring
 - [codebase-map.md](architecture/codebase-map.md) - where code lives, what
