@@ -6,7 +6,7 @@
  * presence-flavored checks while the user saw only sky. So the first test
  * reads what is inside the VIEWPORT, not what is somewhere in the canvas.
  *
- * Each screen is its own canvas (`[data-screen=N]`) at native resolution,
+ * Each screen is its own canvas per plane (`[data-screen=N][data-plane=l1Low]`) at native resolution,
  * carrying `data-drawn="<generation>:<palaces>:<switches>:<screen>"` once the
  * reply for the current state is painted; palaces are yellow, green, red,
  * blue bits, switches blue P-switch, silver P-switch, ON/OFF.
@@ -18,7 +18,7 @@
  */
 const { test, expect } = require('@playwright/test')
 const { CART, shownWords } = require('./rom-words.cjs')
-const { expectCheckerboard } = require('./pixel-canvas.cjs')
+const { expectCheckerboard, PAGE_COMPOSE } = require('./pixel-canvas.cjs')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
@@ -61,6 +61,7 @@ test.beforeEach(async ({ page }) => {
   await page.waitForSelector('#theia-app-shell', { timeout: 90000 })
   await page.waitForTimeout(4000)
   await page.addScriptTag({ content: GET_SVC })
+  await page.addScriptTag({ content: PAGE_COMPOSE })
 })
 
 test.afterEach(async ({ page }) => {
@@ -109,11 +110,9 @@ async function openMap(page, manifestPath, index) {
     { mp: manifestPath, index },
   )
   opened.push(`hackbench.map-view:${index}`)
-  await expect(page.locator(`${root(index)} canvas[data-screen="0"]`)).toHaveAttribute(
-    'data-drawn',
-    drawn(0),
-    { timeout: 30000 },
-  )
+  await expect(
+    page.locator(`${root(index)} canvas[data-screen="0"][data-plane="l1Low"]`),
+  ).toHaveAttribute('data-drawn', drawn(0), { timeout: 30000 })
 }
 
 async function activate(page, index) {
@@ -125,7 +124,7 @@ async function activate(page, index) {
 
 /** Scrolls a screen into view and waits until it is painted for the given palaces. */
 async function showScreen(page, index, screen, yellow = false) {
-  const sel = `${root(index)} canvas[data-screen="${screen}"]`
+  const sel = `${root(index)} canvas[data-screen="${screen}"][data-plane="l1Low"]`
   await page.locator(sel).evaluate(el => el.scrollIntoView({ inline: 'start', block: 'nearest' }))
   await expect(page.locator(sel)).toHaveAttribute('data-drawn', drawn(screen, yellow), {
     timeout: 15000,
@@ -144,12 +143,7 @@ async function readScreen(page, index, screen) {
       const bg = getComputedStyle(document.querySelector(`${rootSel} [data-layer="back-area"]`))
         .backgroundColor.match(/\d+/g)
         .map(Number)
-      const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
-      // The high plane is stacked over the low one: alpha-over it before the back area.
-      const high = document.querySelector(`${rootSel} canvas[data-high-of="${c.dataset.screen}"]`)
-      const hd = high.getContext('2d').getImageData(0, 0, c.width, c.height).data
-      for (let i = 0; i < data.length; i += 4)
-        if (hd[i + 3] !== 0) for (let k = 0; k < 4; k++) data[i + k] = hd[i + k]
+      const data = composeCanvases(planesOf(rootSel, c.dataset.screen), 0, 0, c.width, c.height)
       for (let i = 0; i < data.length; i += 4) {
         const a = data[i + 3]
         for (let k = 0; k < 3; k++)
@@ -171,15 +165,18 @@ async function readScreen(page, index, screen) {
         for (let cx = 0; cx < c.width / 16; cx++) cells[`${cx},${cy}`] = checksumOf(cellOf(cx, cy))
       return { checksum: checksumOf(data), distinct: distinct.size, cells, rgba: Array.from(data) }
     },
-    { sel: `${root(index)} canvas[data-screen="${screen}"]`, rootSel: root(index) },
+    {
+      sel: `${root(index)} canvas[data-screen="${screen}"][data-plane="l1Low"]`,
+      rootSel: root(index),
+    },
   )
 }
 
 /** Both L1 planes of a screen: low, then high. */
-const planesOf = (page, index, screen) => [
-  page.locator(`${root(index)} canvas[data-screen="${screen}"]`),
-  page.locator(`${root(index)} canvas[data-high-of="${screen}"]`),
-]
+const planeLocators = (page, index, screen) =>
+  ['l1Low', 'l1High'].map(p =>
+    page.locator(`${root(index)} canvas[data-screen="${screen}"][data-plane="${p}"]`),
+  )
 
 const changedCells = (a, b) => Object.keys(a.cells).filter(k => a.cells[k] !== b.cells[k])
 
@@ -197,7 +194,7 @@ async function readViewport(page, index) {
     const distinct = new Set()
     const screens = []
     let fullHeight = true
-    for (const c of scroller.querySelectorAll('canvas[data-screen]')) {
+    for (const c of scroller.querySelectorAll('canvas[data-plane="l1Low"]')) {
       const r = c.getBoundingClientRect()
       const left = Math.max(r.left, view.left)
       const right = Math.min(r.right, view.left + visW)
@@ -211,11 +208,7 @@ async function readViewport(page, index) {
       const y0 = Math.floor((top - r.top) * sy)
       const w = Math.max(1, Math.floor((right - left) * sx))
       const h = Math.max(1, Math.floor((bottom - top) * sy))
-      const high = scroller.querySelector(`canvas[data-high-of="${c.dataset.screen}"]`)
-      const data = c.getContext('2d').getImageData(x0, y0, w, h).data
-      const hd = high.getContext('2d').getImageData(x0, y0, w, h).data
-      for (let i = 0; i < data.length; i += 4)
-        if (hd[i + 3] !== 0) for (let k = 0; k < 4; k++) data[i + k] = hd[i + k]
+      const data = composeCanvases(planesOf(sel, c.dataset.screen), x0, y0, w, h)
       const own = new Set()
       for (let i = 0; i < data.length; i += 4) {
         const px = data.slice(i, i + 4).join(',')
@@ -298,11 +291,9 @@ test('a reused tab paints screen 0 of the next map', async ({ page }) => {
     await w.open({ manifestPath: mp, index: 0x106, label: '106', iconClass: '' })
   }, project.manifestPath)
   opened.push('hackbench.map-view:262')
-  await expect(page.locator(`${root(0x106)} canvas[data-screen="0"]`)).toHaveAttribute(
-    'data-drawn',
-    drawn(0),
-    { timeout: 15000 },
-  )
+  await expect(
+    page.locator(`${root(0x106)} canvas[data-screen="0"][data-plane="l1Low"]`),
+  ).toHaveAttribute('data-drawn', drawn(0), { timeout: 15000 })
   const px = await readScreen(page, 0x106, 0)
   expect(px.distinct).toBeGreaterThan(1)
   await expectEveryVisibleScreenDrawn(page, 0x106)
@@ -314,18 +305,16 @@ test('a reused tab resets the scroll for the next map', async ({ page }) => {
   await openMap(page, project.manifestPath, 0x105)
   await showScreen(page, 0x105, 9)
   const scroller = id => page.locator(`${root(id)} [data-control="map-scroller"]`)
-  const screenWidth = await page.locator(`${root(0x105)} canvas[data-screen="0"]`).evaluate(c => c.getBoundingClientRect().width) // prettier-ignore
+  const screenWidth = await page.locator(`${root(0x105)} canvas[data-screen="0"][data-plane="l1Low"]`).evaluate(c => c.getBoundingClientRect().width) // prettier-ignore
   expect(await scroller(0x105).evaluate(el => el.scrollLeft)).toBeGreaterThan(2 * screenWidth)
   await page.evaluate(async mp => {
     const w = getSvc('ApplicationShell').getWidgetById('hackbench.map-view:261')
     await w.open({ manifestPath: mp, index: 0x106, label: '106', iconClass: '' })
   }, project.manifestPath)
   opened.push('hackbench.map-view:262')
-  await expect(page.locator(`${root(0x106)} canvas[data-screen="0"]`)).toHaveAttribute(
-    'data-drawn',
-    drawn(0),
-    { timeout: 15000 },
-  )
+  await expect(
+    page.locator(`${root(0x106)} canvas[data-screen="0"][data-plane="l1Low"]`),
+  ).toHaveAttribute('data-drawn', drawn(0), { timeout: 15000 })
   expect(await scroller(0x106).evaluate(el => [el.scrollLeft, el.scrollTop])).toEqual([0, 0])
   await expectEveryVisibleScreenDrawn(page, 0x106)
 })
@@ -375,7 +364,9 @@ for (const [index, control, screen, cell] of [
     await openMap(page, project.manifestPath, index)
     await showScreen(page, index, screen)
     const button = page.locator(`${root(index)} [data-control="${control}"]`)
-    const canvas = page.locator(`${root(index)} canvas[data-screen="${screen}"]`)
+    const canvas = page.locator(
+      `${root(index)} canvas[data-screen="${screen}"][data-plane="l1Low"]`,
+    )
     const want = on => {
       const palace = control === 'palace-yellow' && on ? 1 : 0
       const blue = control === 'switch-blue' && on ? 1 : 0
@@ -408,14 +399,12 @@ test('a reused tab going from a horizontal to a vertical map draws screen 0', as
     await w.open({ manifestPath: mp, index: 0x109, label: '109', iconClass: '' })
   }, project.manifestPath)
   opened.push('hackbench.map-view:265')
-  await expect(page.locator(`${root(0x109)} canvas[data-screen="0"]`)).toHaveAttribute(
-    'data-drawn',
-    drawn(0),
-    { timeout: 15000 },
-  )
+  await expect(
+    page.locator(`${root(0x109)} canvas[data-screen="0"][data-plane="l1Low"]`),
+  ).toHaveAttribute('data-drawn', drawn(0), { timeout: 15000 })
   // Every canvas is blank or this map's: none holds a $105 picture.
   const marks = await page.locator(`${root(0x109)} canvas[data-screen]`).evaluateAll(cs => cs.map(c => c.dataset.drawn ?? null)) // prettier-ignore
-  const current = await page.locator(`${root(0x109)} canvas[data-screen="0"]`).getAttribute('data-drawn') // prettier-ignore
+  const current = await page.locator(`${root(0x109)} canvas[data-screen="0"][data-plane="l1Low"]`).getAttribute('data-drawn') // prettier-ignore
   const generation = current.split(':')[0]
   for (const m of marks) if (m !== null) expect(m.split(':')[0]).toBe(generation)
   const px = await readScreen(page, 0x109, 0)
@@ -451,7 +440,7 @@ test('the L1 toggle hides and restores the foreground, per tab', async ({ page }
   await l1.click()
   await expect(l1).toHaveAttribute('aria-pressed', 'false')
   // Both L1 planes hide, not just the low one.
-  for (const plane of planesOf(page, 0x105, 0))
+  for (const plane of planeLocators(page, 0x105, 0))
     await expect(plane).toHaveCSS('visibility', 'hidden')
   const hidden = await shownPixels(page, strip)
   expect(hidden.colors).toBe(1)
@@ -462,7 +451,7 @@ test('the L1 toggle hides and restores the foreground, per tab', async ({ page }
   await activate(page, 0x105)
   await l1.click()
   await expect(l1).toHaveAttribute('aria-pressed', 'true')
-  for (const plane of planesOf(page, 0x105, 0))
+  for (const plane of planeLocators(page, 0x105, 0))
     await expect(plane).toHaveCSS('visibility', 'visible')
   expect((await shownPixels(page, strip)).checksum).toBe(shown.checksum)
 })
@@ -482,8 +471,8 @@ test('the back area is its own layer, with the checkerboard beneath it', async (
   await expectCheckerboard(
     expect,
     page,
-    `${root(0x105)} canvas[data-screen="0"]`,
-    `${root(0x105)} canvas[data-high-of="0"]`,
+    `${root(0x105)} canvas[data-screen="0"][data-plane="l1Low"]`,
+    [`${root(0x105)} canvas[data-screen="0"][data-plane="l1High"]`],
   )
 })
 
@@ -507,7 +496,7 @@ test('a tile ON/OFF blanks shows in the screen door on $12C with ON/OFF on', asy
   }
   const off = await cell()
   await page.locator(`${root(0x12c)} [data-control="switch-onOff"]`).click()
-  await expect(page.locator(`${root(0x12c)} canvas[data-screen="5"]`)).toHaveAttribute('data-drawn', /^\d+:0000:001:5$/) // prettier-ignore
+  await expect(page.locator(`${root(0x12c)} canvas[data-screen="5"][data-plane="l1Low"]`)).toHaveAttribute('data-drawn', /^\d+:0000:001:5$/) // prettier-ignore
   const on = await cell()
   expect(on).not.toEqual(off)
   const count = p => on.filter(q => q === p).length
@@ -543,7 +532,7 @@ function dominant(rgba) {
 test('a back-area color edit repaints the strip behind a hidden L1', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
-  const screen0 = page.locator(`${root(0x105)} canvas[data-screen="0"]`)
+  const screen0 = page.locator(`${root(0x105)} canvas[data-screen="0"][data-plane="l1Low"]`)
   const drawnBefore = await screen0.getAttribute('data-drawn')
   const rom = fs.readFileSync(ROM)
   const at = (rom.length % 1024 === 512 ? 512 : 0) + (0x00b0a4 & 0x7fff)
@@ -598,7 +587,7 @@ test('opening a map draws real pixels, and two maps differ', async ({ page }) =>
 test('a one-screen map draws its one screen and asks for no other', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x0bd)
-  await expect(page.locator(`${root(0x0bd)} canvas[data-screen]`)).toHaveCount(1)
+  await expect(page.locator(`${root(0x0bd)} canvas[data-plane="l1Low"]`)).toHaveCount(1)
   expect((await readScreen(page, 0x0bd, 0)).distinct).toBeGreaterThan(4)
   await expect(page.locator(`${root(0x0bd)} [data-control="map-error"]`)).toHaveCount(0)
 })
@@ -609,7 +598,7 @@ test('a palette edit recolors exactly the pixels of that color, with no reload',
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
   const before = await readScreen(page, 0x105, 0)
-  const screen0 = page.locator(`${root(0x105)} canvas[data-screen="0"]`)
+  const screen0 = page.locator(`${root(0x105)} canvas[data-screen="0"][data-plane="l1Low"]`)
   const drawnBefore = await screen0.getAttribute('data-drawn')
 
   // The word the ROM holds now, read from the file rather than assumed.
@@ -775,7 +764,7 @@ test('blue P-switch on draws $014 hidden cells in full, and off restores them', 
   const blue = page.locator(`${root(0x014)} [data-control="switch-blue"]`)
   await blue.click()
   await expect(blue).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.locator(`${root(0x014)} canvas[data-screen="0"]`)).toHaveAttribute('data-drawn', drawn(0, false, true)) // prettier-ignore
+  await expect(page.locator(`${root(0x014)} canvas[data-screen="0"][data-plane="l1Low"]`)).toHaveAttribute('data-drawn', drawn(0, false, true)) // prettier-ignore
   const on = await hiddenCell(page)
   const count = p => off.filter(q => q === p).length
   const backdrop = [...off]
@@ -789,7 +778,7 @@ test('blue P-switch on draws $014 hidden cells in full, and off restores them', 
   expect(on).not.toEqual(off)
 
   await blue.click()
-  await expect(page.locator(`${root(0x014)} canvas[data-screen="0"]`)).toHaveAttribute('data-drawn', drawn(0)) // prettier-ignore
+  await expect(page.locator(`${root(0x014)} canvas[data-screen="0"][data-plane="l1Low"]`)).toHaveAttribute('data-drawn', drawn(0)) // prettier-ignore
   expect(await hiddenCell(page)).toEqual(off)
 })
 
@@ -805,7 +794,7 @@ test('the switch toggles show art, and two tabs keep their own switches', async 
   await expect(page.locator(`${root(0x105)} [data-control="switch-blue"]`)).toHaveAttribute('aria-pressed', 'false') // prettier-ignore
   await activate(page, 0x014)
   await expect(page.locator(`${root(0x014)} [data-control="switch-blue"]`)).toHaveAttribute('aria-pressed', 'true') // prettier-ignore
-  await expect(page.locator(`${root(0x014)} canvas[data-screen="0"]`)).toHaveAttribute('data-drawn', drawn(0, false, true)) // prettier-ignore
+  await expect(page.locator(`${root(0x014)} canvas[data-screen="0"][data-plane="l1Low"]`)).toHaveAttribute('data-drawn', drawn(0, false, true)) // prettier-ignore
 })
 
 /**
@@ -850,10 +839,9 @@ test('two map tabs keep their own palaces', async ({ page }) => {
     'false',
   )
   // $106's own yellow block (screen 2, column 7, row 20) is still unpressed.
-  await expect(page.locator(`${root(0x106)} canvas[data-screen="2"]`)).toHaveAttribute(
-    'data-drawn',
-    drawn(2),
-  )
+  await expect(
+    page.locator(`${root(0x106)} canvas[data-screen="2"][data-plane="l1Low"]`),
+  ).toHaveAttribute('data-drawn', drawn(2))
   const still = await readScreen(page, 0x106, 2)
   expect(still.cells['7,20']).toBe(other.cells['7,20'])
 
@@ -882,7 +870,7 @@ test('the header facts are in view, and the decode panel opens with its ROM byte
 
   // The decoded screen count is the one the strip was sized from.
   const screensRow = panel.locator('tr', { hasText: 'Screens' }).locator('td')
-  const canvases = await page.locator(`${root(0x105)} canvas[data-screen]`).count()
+  const canvases = await page.locator(`${root(0x105)} canvas[data-plane="l1Low"]`).count()
   await expect(screensRow).toHaveText(String(canvases))
   expect(canvases).toBe(20)
 })

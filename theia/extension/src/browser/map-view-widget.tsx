@@ -15,8 +15,8 @@ import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message, Widget } from '@theia/core/lib/browser'
 import {
+  MAP_PLANE_KEYS,
   MapDetailsDto,
-  MapPlane,
   MapPlaneKey,
   MapScreenResult,
   ProjectService,
@@ -40,15 +40,6 @@ interface ScreenImages {
   height: number
   planes: Record<MapPlaneKey, ImageData | null>
 }
-
-/**
- * Stack order within a screen, bottom to top. BG mode 1 puts BG2 low (1) and
- * BG2 high (3) between these two; the gaps are theirs (#459).
- */
-const PLANE_Z: ReadonlyArray<readonly [MapPlaneKey, number]> = [
-  ['l1Low', 2],
-  ['l1High', 4],
-]
 
 export const MAP_VIEW_ID = 'hackbench.map-view'
 
@@ -256,12 +247,14 @@ export class MapViewWidget extends ReactWidget {
       this.update()
       return
     }
-    const image = (p: MapPlane) =>
-      p.empty ? null : new ImageData(decodeRgba(p.rgbaBase64), r.width, r.height)
+    const image = (b64: string | null) =>
+      b64 === null ? null : new ImageData(decodeRgba(b64), r.width, r.height)
     this.screens.set(key, {
       width: r.width,
       height: r.height,
-      planes: { l1Low: image(r.planes.l1Low), l1High: image(r.planes.l1High) },
+      planes: Object.fromEntries(
+        MAP_PLANE_KEYS.map(k => [k, image(r.planes[k])]),
+      ) as ScreenImages['planes'],
     })
     const l = this.mapLayout
     if (
@@ -505,7 +498,7 @@ export class MapViewWidget extends ReactWidget {
         }}
         onScroll={() => this.requestVisible()}
       >
-        {/* Bottom to top (planes by PLANE_Z): the checkerboard, the back area, then the screens,
+        {/* Bottom to top (planes by MAP_PLANE_KEYS): the checkerboard, the back area, then the screens,
             so hiding a layer shows what is under it, down to nothing. */}
         <div className="hb-map-view-strip hb-checkerboard">
           <div
@@ -519,13 +512,13 @@ export class MapViewWidget extends ReactWidget {
               className="hb-map-view-screen"
               style={{ width: l.width * this.zoom, height: l.height * this.zoom }}
             >
-              {PLANE_Z.map(([plane, z]) => (
+              {MAP_PLANE_KEYS.map((plane, z) => (
                 <canvas
                   key={plane}
                   className="hb-map-view-plane"
                   data-plane={plane}
-                  {...(plane === 'l1Low' ? { 'data-screen': s } : { 'data-high-of': s })}
-                  style={{ zIndex: z, visibility: this.showL1 ? undefined : 'hidden' }}
+                  data-screen={s}
+                  style={{ zIndex: z + 1, visibility: this.showL1 ? undefined : 'hidden' }}
                   ref={this.canvasRef(plane, s)}
                 />
               ))}

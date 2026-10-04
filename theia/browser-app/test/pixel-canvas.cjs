@@ -17,7 +17,7 @@ const CHECKER_CELL_CSS_PX = 8
  * Split by square, not just "two colors seen": overlays (hover dim, handle
  * outlines) add colors of their own, which made a flat background pass.
  */
-async function transparentShowsThrough(page, selector, coverSelector) {
+async function transparentShowsThrough(page, selector, covers = []) {
   // Only what is on screen: a canvas taller than its scroll box screenshots
   // blank beyond the box, which reads as a flat color.
   const clip = await page.evaluate(sel => {
@@ -47,13 +47,15 @@ async function transparentShowsThrough(page, selector, coverSelector) {
   }, selector)
   const png = (await page.screenshot({ clip })).toString('base64')
   return page.evaluate(
-    async ({ sel, png, cell, clip, cover }) => {
+    async ({ sel, png, cell, clip, covers }) => {
       const canvas = document.querySelector(sel)
       const box = canvas.getBoundingClientRect()
       const native = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data
       // A plane stacked above this one hides what it covers: only pixels clear in both show through.
-      const over = cover && document.querySelector(cover)
-      const above = over && over.getContext('2d').getImageData(0, 0, over.width, over.height).data
+      const above = covers.map(c => {
+        const el = document.querySelector(c)
+        return el.getContext('2d').getImageData(0, 0, el.width, el.height).data
+      })
       const img = new Image()
       img.src = `data:image/png;base64,${png}`
       await img.decode()
@@ -70,7 +72,7 @@ async function transparentShowsThrough(page, selector, coverSelector) {
       for (let y = 0; y < canvas.height; y++) {
         for (let x = 0; x < canvas.width; x++) {
           if (native[(y * canvas.width + x) * 4 + 3] !== 0) continue
-          if (above && above[(y * canvas.width + x) * 4 + 3] !== 0) continue
+          if (above.some(a => a[(y * canvas.width + x) * 4 + 3] !== 0)) continue
           // Center of the native pixel, in CSS px from the canvas's top left.
           const cx = (x + 0.5) * cssPerNative
           const cy = (y + 0.5) * cssPerNative
@@ -87,17 +89,37 @@ async function transparentShowsThrough(page, selector, coverSelector) {
       const mode = m => [...m].sort((a, b) => b[1] - a[1])[0]?.[0]
       return { transparentPixels, squares: counts.map(mode) }
     },
-    { sel: selector, png, cell: CHECKER_CELL_CSS_PX, clip, cover: coverSelector },
+    { sel: selector, png, cell: CHECKER_CELL_CSS_PX, clip, covers },
   )
 }
 
 /** A two-tone checkerboard shows through: not a flat panel color, not invisible. */
-async function expectCheckerboard(expect, page, selector, coverSelector) {
-  const seen = await transparentShowsThrough(page, selector, coverSelector)
+async function expectCheckerboard(expect, page, selector, covers = []) {
+  const seen = await transparentShowsThrough(page, selector, covers)
   expect(seen.transparentPixels, `${selector} has color-0 pixels to see through`).toBeGreaterThan(0)
   expect(seen.squares[0], `${selector} alternates tones`).not.toBe(seen.squares[1])
   const [a, b] = seen.squares.map(k => k.split(',').map(Number))
   expect(contrastRatio(a, b), `${selector} tones are distinguishable`).toBeGreaterThan(1.1)
 }
 
-module.exports = { expectCheckerboard }
+/**
+ * Page-side helpers (add with `page.addScriptTag`): a screen's plane canvases
+ * bottom to top, and their pixels in a box with each plane laid over the ones
+ * below it. A covering pixel replaces what is under it, colour included.
+ */
+const PAGE_COMPOSE = `
+function planesOf(rootSel, screen) {
+  return [...document.querySelectorAll(\`\${rootSel} canvas[data-screen="\${screen}"]\`)]
+    .sort((a, b) => a.style.zIndex - b.style.zIndex)
+}
+function composeCanvases(canvases, x, y, w, h) {
+  const out = canvases[0].getContext('2d').getImageData(x, y, w, h).data
+  for (const c of canvases.slice(1)) {
+    const d = c.getContext('2d').getImageData(x, y, w, h).data
+    for (let i = 0; i < out.length; i += 4)
+      if (d[i + 3] !== 0) for (let k = 0; k < 4; k++) out[i + k] = d[i + k]
+  }
+  return out
+}`
+
+module.exports = { expectCheckerboard, PAGE_COMPOSE }

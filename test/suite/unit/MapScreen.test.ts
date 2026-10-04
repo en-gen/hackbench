@@ -77,7 +77,6 @@ import {
   ADDR_TILESET_DISPATCH,
 } from '../../../src/rom/objectHandlers/romData'
 import type { RgbaColor } from '../../../src/rom/GraphicsDecoder'
-import type { MapPlane } from '../../../theia/extension/src/common/project-protocol'
 import { readLevelBgMode } from '../../../src/rom/BgMode'
 import { CORPUS, MAGIC } from '../support/corpus'
 import {
@@ -85,7 +84,6 @@ import {
   drawL1Planes,
   screenTiles,
   withBgMode,
-  drawL1Screen,
   L1ModelCache,
   mapScreen,
   palaceIconsOf,
@@ -218,6 +216,19 @@ const overBackArea = (buf: Uint8ClampedArray, bg: RgbaColor) => {
   return out
 }
 
+/** The planes as one image. They are zero wherever the other draws, so OR is exact. */
+function drawL1Screen(
+  m: L1Inputs,
+  screen: number,
+  switches?: Parameters<typeof drawL1Planes>[2],
+): Uint8ClampedArray {
+  const { w, h } = screenTiles(m.isVertical)
+  const out = new Uint8ClampedArray(w * h * 16 * 16 * 4)
+  for (const plane of Object.values(drawL1Planes(m, screen, switches)))
+    plane?.forEach((v, i) => (out[i]! |= v))
+  return out
+}
+
 /** RGBA of pixel (x, y) in a screen buffer of `width` pixels. */
 const px = (buf: Uint8ClampedArray, width: number, x: number, y: number) =>
   Array.from(buf.subarray((y * width + x) * 4, (y * width + x) * 4 + 4))
@@ -264,7 +275,7 @@ describe('one renderer for the sheet and the map (synthetic)', () => {
 describe('L1 priority planes (synthetic)', () => {
   const prio = (q: ReturnType<typeof sub>) => ({ ...q, priority: true })
   const planeOf = (r: unknown, k: 'l1Low' | 'l1High') =>
-    (r as { planes: Record<string, { empty: boolean; rgbaBase64?: string }> }).planes[k]!
+    (r as { planes: Record<string, string | null> }).planes[k]
 
   it('a tile with the priority bit set draws in the high plane only', () => {
     const i = inputs(hGrid(1), false, 1)
@@ -274,20 +285,19 @@ describe('L1 priority planes (synthetic)', () => {
     )
     i.grid[0]![0] = 1
     const p = drawL1Planes(i, 0)
-    expect(px(p.high, 256, 3, 3)[0]).toBe(1)
-    expect(px(p.low, 256, 3, 3)).toEqual(CLEAR)
-    expect([p.lowEmpty, p.highEmpty]).toEqual([true, false])
+    expect(px(p.l1High!, 256, 3, 3)[0]).toBe(1)
+    expect(p.l1Low).toBeNull()
     const wire = screenResult(i, 0)
-    expect(planeOf(wire, 'l1Low')).toEqual({ empty: true }) // no image bytes sent
-    expect(planeOf(wire, 'l1High').empty).toBe(false)
+    expect(planeOf(wire, 'l1Low')).toBeNull() // no image bytes sent
+    expect(planeOf(wire, 'l1High')).toBeTruthy()
   })
 
   it('an all-low screen flags the high plane empty and sends no image', () => {
     const i = inputs(hGrid(1), false, 1)
     i.grid[0]![0] = 1
     const wire = screenResult(i, 0)
-    expect(planeOf(wire, 'l1High')).toEqual({ empty: true })
-    expect(planeOf(wire, 'l1Low').rgbaBase64).toBeTruthy()
+    expect(planeOf(wire, 'l1High')).toBeNull()
+    expect(planeOf(wire, 'l1Low')).toBeTruthy()
   })
 
   it('a mixed tile splits per 8x8 subtile', () => {
@@ -296,8 +306,8 @@ describe('L1 priority planes (synthetic)', () => {
     i.grid[0]![0] = 1
     const p = drawL1Planes(i, 0)
     const at = (b: Uint8ClampedArray, x: number, y: number) => px(b, 256, x, y)[0]
-    expect([at(p.high, 3, 3), at(p.high, 11, 3), at(p.high, 3, 11), at(p.high, 11, 11)]).toEqual([1, 0, 0, 4]) // prettier-ignore
-    expect([at(p.low, 3, 3), at(p.low, 11, 3), at(p.low, 3, 11), at(p.low, 11, 11)]).toEqual([0, 2, 3, 0]) // prettier-ignore
+    expect([at(p.l1High!, 3, 3), at(p.l1High!, 11, 3), at(p.l1High!, 3, 11), at(p.l1High!, 11, 11)]).toEqual([1, 0, 0, 4]) // prettier-ignore
+    expect([at(p.l1Low!, 3, 3), at(p.l1Low!, 11, 3), at(p.l1Low!, 3, 11), at(p.l1Low!, 11, 11)]).toEqual([0, 2, 3, 0]) // prettier-ignore
     expect([0, 1, 2, 3].map(k => px(drawL1Screen(i, 0), 256, 3 + 8 * (k % 2), 3 + 8 * (k >> 1))[0])).toEqual([1, 2, 3, 4]) // prettier-ignore
   })
 
@@ -309,9 +319,9 @@ describe('L1 priority planes (synthetic)', () => {
     )
     i.grid[0]![0] = 2
     const p = drawL1Planes(i, 0)
-    expect(px(p.high, 256, 5, 1)).toEqual([7, 100, 200, 255])
-    expect(px(p.high, 256, 6, 1)).toEqual(dim([7, 100, 200]))
-    expect(p.lowEmpty).toBe(true)
+    expect(px(p.l1High!, 256, 5, 1)).toEqual([7, 100, 200, 255])
+    expect(px(p.l1High!, 256, 6, 1)).toEqual(dim([7, 100, 200]))
+    expect(p.l1Low).toBeNull()
   })
 })
 
@@ -972,11 +982,9 @@ describe.each([VANILLA, MAGIC])('L1 planes rebuild the single image: %s', name =
         const r = buildL1Inputs(rom, index, UNCLEARED)
         if (!r.ok) continue
         for (let screen = 0; screen < r.inputs.screenCount; screen++) {
-          const planes = drawL1Planes(r.inputs, screen)
           const ref = wholeCellScreen(r.inputs, screen)
-          const merged = planes.low.map((v, i) => v | planes.high[i]!)
-          if (!Buffer.from(merged).equals(Buffer.from(ref))) throw new Error(`slot ${index} screen ${screen} differs`) // prettier-ignore
-          if (!planes.highEmpty) high++
+          if (!Buffer.from(drawL1Screen(r.inputs, screen)).equals(Buffer.from(ref))) throw new Error(`slot ${index} screen ${screen} differs`) // prettier-ignore
+          if (drawL1Planes(r.inputs, screen).l1High) high++
           screens++
         }
       }
@@ -1081,12 +1089,11 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
   function rpcScreen(index: number, screen: number, flags: SwitchFlags): Buffer {
     const r = mapScreen(new L1ModelCache(), bytes, romPath(VANILLA), index, screen, flags)
     if (r.status !== 'ok') throw new Error(r.status)
-    const plane = (p: MapPlane) => (p.empty ? undefined : Buffer.from(p.rgbaBase64, 'base64'))
-    const low = plane(r.planes.l1Low) ?? Buffer.alloc(r.width * r.height * 4)
-    const high = plane(r.planes.l1High)
     // The planes are zero where the other draws, so OR rebuilds the single image.
-    high?.forEach((v, i) => (low[i]! |= v))
-    return low
+    const out = Buffer.alloc(r.width * r.height * 4)
+    for (const b64 of Object.values(r.planes))
+      if (b64) Buffer.from(b64, 'base64').forEach((v, i) => (out[i]! |= v))
+    return out
   }
 
   /** The 16x16 cells (local col, row) whose pixels differ between two screens. */

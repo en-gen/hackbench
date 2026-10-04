@@ -29,8 +29,9 @@ import { palaceArt, type PalaceArt } from '../../../../src/rom/SwitchArt'
 import { readLevelBgMode } from '../../../../src/rom/BgMode'
 import { renderMap16Tile } from '../../../../src/rom/TileRenderer'
 import { ghostOf, overlayHidden } from '../../../../src/rom/render/HiddenTiles'
+import { MAP_PLANE_KEYS } from '../common/project-protocol'
 import type {
-  MapPlane,
+  MapPlaneKey,
   MapScreenResult,
   PalaceIconsResult,
   PalaceIconDto,
@@ -62,20 +63,14 @@ export function cellDef(model: L1Inputs, id: number, screen: number): Map16Tile 
 
 export const SWITCHES_OFF: SwitchStateDto = { blue: false, silver: false, onOff: false }
 
-/** One screen's L1 split by the tilemap priority bit of each 8x8 subtile. */
-export interface L1Planes {
-  low: Uint8ClampedArray
-  high: Uint8ClampedArray
-  /** No pixel drew in the plane, so the wire sends no image for it. */
-  lowEmpty: boolean
-  highEmpty: boolean
-}
+/** A plane's RGBA, or null when no pixel drew in it (the wire sends no image for it). */
+export type L1Planes = Record<MapPlaneKey, Uint8ClampedArray | null>
 
 /**
- * One screen as two RGBA planes: each cell drawn with the switches that are
- * on, blank cells given `ghostOf`'s screen door (both ways, #621), then each
- * 8x8 quadrant copied into the plane its Map16 priority bit (bit 13) picks.
- * The planes never overlap, clear where no tile draws.
+ * One screen as RGBA planes: each cell drawn with the switches that are on,
+ * blank cells given `ghostOf`'s screen door (both ways, #621), then each 8x8
+ * quadrant copied into the plane its Map16 priority bit (bit 13) picks. The
+ * planes never overlap, clear where no tile draws.
  */
 export function drawL1Planes(
   model: L1Inputs,
@@ -90,8 +85,8 @@ export function drawL1Planes(
   const y0 = model.isVertical ? screen * h : 0
   const width = w * 16
   const size = width * h * 16 * 4
-  const planes = { low: new Uint8ClampedArray(size), high: new Uint8ClampedArray(size) }
-  const drew = { low: false, high: false }
+  const planes = { l1Low: new Uint8ClampedArray(size), l1High: new Uint8ClampedArray(size) }
+  const drew = { l1Low: false, l1High: false }
   const palette = { colors: model.colors }
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
@@ -108,8 +103,7 @@ export function drawL1Planes(
         [0, 8, def.bl],
         [8, 8, def.br],
       ] as const) {
-        // prettier-ignore
-        const plane = sub.priority ? 'high' : 'low'
+        const plane = sub.priority ? 'l1High' : 'l1Low'
         for (let py = qy; py < qy + 8; py++) {
           const row = cell.subarray((py * 16 + qx) * 4, (py * 16 + qx + 8) * 4)
           if (!drew[plane]) drew[plane] = row.some((v, i) => i % 4 === 3 && v !== 0)
@@ -117,22 +111,10 @@ export function drawL1Planes(
         }
       }
     }
-  return { ...planes, lowEmpty: !drew.low, highEmpty: !drew.high }
-}
-
-/**
- * The planes as the single image L1 used to be. They are zero wherever the
- * other plane draws, so OR is exact (alpha-over would drop the colour of a
- * clear pixel); the view stacks the planes instead, and tests use this.
- */
-export function drawL1Screen(
-  model: L1Inputs,
-  screen: number,
-  switches: SwitchStateDto = SWITCHES_OFF,
-): Uint8ClampedArray {
-  const { low, high } = drawL1Planes(model, screen, switches)
-  for (let i = 0; i < low.length; i++) low[i]! |= high[i]!
-  return low
+  return {
+    l1Low: drew.l1Low ? planes.l1Low : null,
+    l1High: drew.l1High ? planes.l1High : null,
+  }
 }
 
 const base64 = (b: Uint8ClampedArray) =>
@@ -153,9 +135,7 @@ export function screenResult(
     }
   }
   const { w, h } = screenTiles(model.isVertical)
-  const { low, high, lowEmpty, highEmpty } = drawL1Planes(model, screen, switches)
-  const plane = (rgba: Uint8ClampedArray, empty: boolean): MapPlane =>
-    empty ? { empty: true } : { empty: false, rgbaBase64: base64(rgba) }
+  const drawn = drawL1Planes(model, screen, switches)
   return {
     status: 'ok',
     screen,
@@ -163,7 +143,12 @@ export function screenResult(
     orientation: model.isVertical ? 'vertical' : 'horizontal',
     width: w * 16,
     height: h * 16,
-    planes: { l1Low: plane(low, lowEmpty), l1High: plane(high, highEmpty) },
+    planes: Object.fromEntries(
+      MAP_PLANE_KEYS.map(k => {
+        const rgba = drawn[k]
+        return [k, rgba ? base64(rgba) : null]
+      }),
+    ) as Record<MapPlaneKey, string | null>,
     note: [...model.unverified, model.animNote].filter(Boolean).join(' ') || undefined,
     backdrop: [model.backArea[0], model.backArea[1], model.backArea[2]],
   }
