@@ -10,15 +10,27 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import setup, { guardEnv, SENTINEL, TOKEN_VARS } from '../support/noRealGh'
 
-const REAL_TOKEN = /gh[opsu]_/
+const REAL_TOKEN = /gh[opsu]_|github_pat_/
+const isSentinel = (v: string | undefined) => v === SENTINEL
 
 describe('guardEnv (pure)', () => {
   const real = Object.fromEntries(TOKEN_VARS.map(v => [v, 'ghp_realtoken']))
   const out = guardEnv({ ...real, GH_HOST: 'github.com', KEEP: '1' }, '/cfg')
 
   it('replaces all four tokens with the sentinel', () => {
-    for (const v of TOKEN_VARS) expect(out[v]).toBe(SENTINEL)
+    for (const v of TOKEN_VARS) expect(isSentinel(out[v])).toBe(true)
     expect(REAL_TOKEN.test(JSON.stringify(out))).toBe(false)
+  })
+  it('appends to an existing GIT_CONFIG_COUNT and does not stack on a second pass', () => {
+    const o = guardEnv(
+      { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'a.b', GIT_CONFIG_VALUE_0: 'c' },
+      '/cfg',
+    )
+    expect(o.GIT_CONFIG_COUNT).toBe('2')
+    expect(o.GIT_CONFIG_KEY_0).toBe('a.b')
+    expect(o.GIT_CONFIG_KEY_1).toBe('credential.helper')
+    expect(o.GIT_CONFIG_VALUE_1).toBe('')
+    expect(guardEnv(o, '/cfg').GIT_CONFIG_COUNT).toBe('2')
   })
   it('sets the config dir, keeps other variables, does not mutate its input', () => {
     expect(out.GH_CONFIG_DIR).toBe('/cfg')
@@ -36,13 +48,32 @@ describe('a reached gh is unauthenticated (no-shell spawn)', () => {
     const r = token(process.env)
     const out = `${r.stdout}${r.stderr}`
     expect(REAL_TOKEN.test(out)).toBe(false) // boolean: a failure must not echo a token
-    if (r.status === 0) expect(r.stdout.trim()).toBe(SENTINEL)
+    if (r.status === 0) expect(isSentinel(r.stdout.trim())).toBe(true)
   })
 
   it('holds with GH_HOST=github.com', () => {
     const r = token({ ...process.env, GH_HOST: 'github.com' })
     expect(REAL_TOKEN.test(`${r.stdout}${r.stderr}`)).toBe(false)
-    if (r.status === 0) expect(r.stdout.trim()).toBe(SENTINEL)
+    if (r.status === 0) expect(isSentinel(r.stdout.trim())).toBe(true)
+  })
+
+  it('git credential fill finds no password even with a global helper that supplies one', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-home-'))
+    try {
+      fs.writeFileSync(
+        path.join(home, '.gitconfig'),
+        '[credential]\n\thelper = "!f() { echo password=fake-helper-pw; }; f"\n',
+      )
+      const r = spawnSync('git', ['credential', 'fill'], {
+        input: 'protocol=https\nhost=github.com\n\n',
+        encoding: 'utf8',
+        timeout: 20000,
+        env: { ...process.env, HOME: home, USERPROFILE: home },
+      })
+      expect(/^password=/m.test(r.stdout)).toBe(false)
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true })
+    }
   })
 
   it('git credential fill for github.com yields the sentinel or nothing', () => {
@@ -54,7 +85,7 @@ describe('a reached gh is unauthenticated (no-shell spawn)', () => {
     })
     expect(REAL_TOKEN.test(`${r.stdout}${r.stderr}`)).toBe(false)
     const pw = /^password=(.*)$/m.exec(r.stdout)?.[1]
-    if (pw !== undefined) expect(pw.trim()).toBe(SENTINEL)
+    if (pw !== undefined) expect(isSentinel(pw.trim())).toBe(true)
   })
 })
 
@@ -66,7 +97,9 @@ describe('setup lifecycle', () => {
   })
 
   it('reinstalls when HB_NO_REAL_GH_DIR is stale (missing on disk)', () => {
-    process.env.HB_NO_REAL_GH_DIR = path.join(os.tmpdir(), 'hb-nogh-stale-does-not-exist')
+    const missing = path.join(os.tmpdir(), 'hb-nogh-stale-does-not-exist').replaceAll(path.sep, '/')
+    process.env.HB_NO_REAL_GH_DIR = missing
+    process.env.PATH = missing + path.delimiter + process.env.PATH // leads PATH, so only existsSync can reject it
     const teardown = setup()
     expect(teardown).toBeTypeOf('function')
     const dir = process.env.HB_NO_REAL_GH_DIR!
@@ -81,14 +114,24 @@ describe('setup lifecycle', () => {
   it('reinstalls when the dir exists but is not first on PATH', () => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-nogh-notfirst-'))
     process.env.HB_NO_REAL_GH_DIR = d.replaceAll(path.sep, '/')
-    const teardown = setup()
-    const dir = process.env.HB_NO_REAL_GH_DIR!
-    expect(dir).not.toBe(d.replaceAll(path.sep, '/'))
-    ;(teardown as () => void)()
-    fs.rmSync(d, { recursive: true, force: true })
+    try {
+      const teardown = setup()
+      const dir = process.env.HB_NO_REAL_GH_DIR!
+      expect(dir).not.toBe(d.replaceAll(path.sep, '/'))
+      ;(teardown as () => void)()
+    } finally {
+      fs.rmSync(d, { recursive: true, force: true })
+    }
   })
 
   it('is idempotent when installed and first on PATH', () => {
     expect(setup()).toBeUndefined()
+  })
+
+  it('re-applies the env on the early return (blank and deleted tokens)', () => {
+    process.env.GH_TOKEN = ''
+    delete process.env.GITHUB_TOKEN
+    expect(setup()).toBeUndefined()
+    for (const v of TOKEN_VARS) expect(isSentinel(process.env[v])).toBe(true)
   })
 })

@@ -9,8 +9,10 @@
  *   keyring, and the global git credential helper is an absolute path to
  *   gh.exe, so an empty GH_CONFIG_DIR alone hides nothing: a reached gh
  *   (or `git credential fill`) sees only the sentinel, which GitHub rejects.
- * - A test env built WITHOUT spreading process.env loses all of this and is
- *   outside the guard.
+ * - Git credential helpers are cleared at command scope (GIT_CONFIG_*), so
+ *   `git credential fill` returns no password.
+ * - Outside the guard: a test that blanks or deletes the token variables, or
+ *   builds an env without spreading process.env.
  * A test that needs a `gh` builds its own and prepends its own directory.
  */
 import * as fs from 'node:fs'
@@ -30,8 +32,19 @@ export const TOKEN_VARS = [
 
 /** Pure: the credential part of the guard, applied to any env. */
 export function guardEnv(env: NodeJS.ProcessEnv, configDir: string): NodeJS.ProcessEnv {
-  const out = { ...env, GH_CONFIG_DIR: configDir }
+  const out = { ...env, GH_CONFIG_DIR: configDir, GIT_TERMINAL_PROMPT: '0' }
   for (const v of TOKEN_VARS) out[v] = SENTINEL
+  // An empty credential.helper resets the list, so no helper (gh.exe, manager) runs.
+  // Appended after any existing GIT_CONFIG_* entries, and only once.
+  const n = Number.parseInt(env.GIT_CONFIG_COUNT ?? '0', 10) || 0
+  const done = Array.from({ length: n }, (_, i) => i).some(
+    i => env[`GIT_CONFIG_KEY_${i}`] === 'credential.helper' && env[`GIT_CONFIG_VALUE_${i}`] === '',
+  )
+  if (!done) {
+    out[`GIT_CONFIG_KEY_${n}`] = 'credential.helper'
+    out[`GIT_CONFIG_VALUE_${n}`] = ''
+    out.GIT_CONFIG_COUNT = String(n + 1)
+  }
   return out
 }
 
@@ -39,7 +52,11 @@ export default function setup(): (() => void) | void {
   // Idempotent only while the dir still exists AND leads PATH; a stale value
   // inherited from a dead run must not suppress installation.
   const cur = process.env.HB_NO_REAL_GH_DIR
-  if (cur && fs.existsSync(cur) && (process.env.PATH ?? '').startsWith(cur + path.delimiter)) return
+  if (cur && fs.existsSync(cur) && (process.env.PATH ?? '').startsWith(cur + path.delimiter)) {
+    // Only shim creation is idempotent; the env is re-applied every time.
+    Object.assign(process.env, guardEnv(process.env, process.env.GH_CONFIG_DIR ?? cur))
+    return
+  }
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-nogh-'))
   fs.writeFileSync(
@@ -53,7 +70,7 @@ export default function setup(): (() => void) | void {
   )
   const config = fs.mkdtempSync(path.join(dir, 'config-'))
 
-  Object.assign(process.env, guardEnv({}, config))
+  Object.assign(process.env, guardEnv(process.env, config))
   process.env.HB_NO_REAL_GH_DIR = dir.replaceAll(path.sep, '/')
   process.env.PATH = process.env.HB_NO_REAL_GH_DIR + path.delimiter + (process.env.PATH ?? '')
 

@@ -23,14 +23,13 @@ type Result = { status: number; output: string }
 // and the fake gh entirely. Use Git Bash explicitly.
 function bashPath(): string {
   if (process.platform !== 'win32') return 'bash'
-  const gitBash = path.join(
-    process.env.ProgramFiles ?? 'C:/Program Files',
-    'Git',
-    'bin',
-    'bash.exe',
-  )
-  if (!fs.existsSync(gitBash)) throw new Error(`Git Bash required, not found at ${gitBash}`)
-  return gitBash
+  // bash.exe sits under the Git root's bin; --exec-path is <root>/mingw64/libexec/git-core.
+  const exec = execFileSync('git', ['--exec-path'], { encoding: 'utf8' }).trim()
+  const fromGit = path.resolve(exec, '..', '..', '..', 'bin', 'bash.exe')
+  const fromPf = path.join(process.env.ProgramFiles ?? 'C:/Program Files', 'Git', 'bin', 'bash.exe')
+  const found = [fromGit, fromPf].find(p => fs.existsSync(p))
+  if (!found) throw new Error(`Git Bash required, not found at ${fromGit} or ${fromPf}`)
+  return found
 }
 
 function runBash(argv: string[], env: NodeJS.ProcessEnv = process.env): Result {
@@ -168,8 +167,10 @@ describe('the suite-wide guard', () => {
   })
 
   it('sets every gh token variable to the sentinel', () => {
+    // Own hardcoded list on purpose: must not import TOKEN_VARS, or a name
+    // dropped from it would silently drop out of this check too.
     for (const v of ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN'])
-      expect(process.env[v]).toBe('hb-no-real-gh-486')
+      expect(process.env[v] === 'hb-no-real-gh-486').toBe(true)
     expect(process.env.GH_CONFIG_DIR).toContain('hb-nogh-')
   })
 
