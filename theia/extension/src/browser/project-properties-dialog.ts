@@ -202,9 +202,18 @@ export class ProjectPropertiesDialog extends AbstractDialog<HackMetadataDto | un
     this.pendingRomPath = undefined
     this.pendingCorePath = undefined
     this.pathError.textContent = ''
-    const paths = await this.projects.workstationPaths(project.manifestPath)
-    this.romPathField.value = paths.romPath ?? 'not located'
-    this.corePathField.value = paths.corePath ?? 'not set up'
+    // A failed lookup must not stop the dialog opening: the metadata stays
+    // editable, the paths read "unavailable", and Browse stays usable (each
+    // pick is validated on its own).
+    try {
+      const paths = await this.projects.workstationPaths(project.manifestPath)
+      this.romPathField.value = paths.romPath ?? 'not located'
+      this.corePathField.value = paths.corePath ?? 'not set up'
+    } catch (err) {
+      this.romPathField.value = 'unavailable'
+      this.corePathField.value = 'unavailable'
+      this.pathError.textContent = `Could not read the workstation paths: ${(err as Error).message}`
+    }
 
     return this.open()
   }

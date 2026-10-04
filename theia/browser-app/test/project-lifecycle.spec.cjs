@@ -515,3 +515,30 @@ test('the Save-time relocation check refuses on its own when the pre-check passe
   await expect(page.locator('.theia-notification-list-item').last()).toContainText('different ROM')
   expect(registeredRom(project.baseRom.sha256)).toBe(before)
 })
+
+test('Project Properties still opens, with the failure shown inline, when the path lookup rejects', async ({
+  page,
+}) => {
+  const project = await makeProject(page, 'LookupFails')
+  await page.evaluate(() => {
+    const dlg = getSvc('ProjectPropertiesDialog')
+    dlg.projects = new Proxy(dlg.projects, {
+      get: (t, k) =>
+        k === 'workstationPaths'
+          ? async () => {
+              throw new Error('manifest unreadable')
+            }
+          : t[k],
+    })
+  })
+  await page.evaluate(p => {
+    void getSvc('ProjectPropertiesDialog').editFor(p)
+  }, project)
+  await page.waitForSelector('.dialogBlock .hb-dialog-error', { timeout: 15000 })
+  await expect(page.locator('.dialogBlock .hb-dialog-error')).toContainText('manifest unreadable')
+  expect(await fieldValues(page)).toEqual(['unavailable', 'unavailable'])
+  const title = page.locator('.dialogBlock input.theia-input').first()
+  await title.fill('Still Editable')
+  await expect(title).toHaveValue('Still Editable')
+  await page.keyboard.press('Escape')
+})

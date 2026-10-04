@@ -418,7 +418,7 @@
 }
 
 .hb-map-view-error {
-  color: var(--theia-errorForeground);
+  color: var(--theia-errorForeground, #f48771);
 }
 
 .hb-map-view-note {
