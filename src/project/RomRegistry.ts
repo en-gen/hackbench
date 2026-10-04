@@ -62,7 +62,12 @@ export class RomRegistry {
    */
   register(romPath: string): RomIdentity {
     const absolute = path.resolve(romPath)
-    const identity = romIdentity(readRomBounded(absolute))
+    return this.registerBytes(absolute, readRomBounded(absolute))
+  }
+
+  /** As `register`, from bytes the caller already read and verified (no second read of the file). */
+  registerBytes(absolute: string, bytes: Uint8Array): RomIdentity {
+    const identity = romIdentity(bytes)
 
     const data = this.read()
     data.roms[identity.sha256] = {

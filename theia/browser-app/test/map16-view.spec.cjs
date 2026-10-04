@@ -2630,13 +2630,22 @@ test('plain wheel still scrolls the Map16 strip and does not touch zoom', async 
 test('a Map16 view waiting on a missing ROM repaints after Project Properties relocates it (#527)', async ({
   page,
 }) => {
-  // The project's only registered copy is deleted before anything reads it,
-  // so the view opens in rom-not-located; Save on the dialog must revive it.
+  // The project's only registered copy is deleted right after createProject
+  // and before anything calls workingRoms.get (a cache hit never re-reads the
+  // file), so the view opens in rom-not-located. The view is opened directly:
+  // explorer rows do not exist while the ROM is missing.
   const gone = path.join(tmp, 'gone.sfc')
   fs.copyFileSync(ROM, gone)
-  const project = await loadGfxExplorer(page, path.join(tmp, 'Revive'), gone)
+  const project = await createProject(page, path.join(tmp, 'Revive'), 'Revive', gone)
   fs.rmSync(gone)
-  await page.locator('#hackbench\\.gfx-explorer .theia-TreeNode').nth(ROW_OF.fg).dblclick()
+  await page.evaluate(async manifestPath => {
+    const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map16-view', {
+      layer: 'fg',
+    })
+    await w.open({ manifestPath, label: 'Map16 Foreground', layer: 'fg' })
+    await getSvc('ApplicationShell').addWidget(w, { area: 'main' })
+    await getSvc('ApplicationShell').activateWidget(w.id)
+  }, project.manifestPath)
   await expect(page.locator(`${FG} .hb-map16-empty`)).toContainText('Locate')
 
   const moved = path.join(tmp, 'moved.sfc')

@@ -487,3 +487,31 @@ test('changing the core and saving registers the new core', async ({ page }) => 
   await saveDone(page)
   expect(registeredCore()).toBe(core)
 })
+
+test('the Save-time relocation check refuses on its own when the pre-check passes', async ({
+  page,
+}) => {
+  // Isolates the backend refusal at Save: checkRom is stubbed to approve, so
+  // only relocateRom's own check can stop the swapped file.
+  const project = await makeProject(page, 'Isolated')
+  const before = registeredRom(project.baseRom.sha256)
+  const copy = path.join(tmp, 'iso.sfc')
+  fs.copyFileSync(ROM, copy)
+  await openProps(page, project, [copy])
+  await browse(page, 0)
+  await expect.poll(() => fieldValues(page).then(v => v[0])).toBe(copy)
+  const bytes = fs.readFileSync(ROM)
+  bytes[0x100] ^= 0xff
+  fs.writeFileSync(copy, bytes)
+  await page.evaluate(() => {
+    const c = getSvc('HackBenchContribution')
+    const real = c.projects
+    c.projects = new Proxy(real, {
+      get: (t, k) => (k === 'checkRom' ? async () => ({ status: 'ok' }) : t[k]),
+    })
+  })
+  await page.locator('.dialogBlock .theia-button.main').click()
+  await saveDone(page)
+  await expect(page.locator('.theia-notification-list-item').last()).toContainText('different ROM')
+  expect(registeredRom(project.baseRom.sha256)).toBe(before)
+})

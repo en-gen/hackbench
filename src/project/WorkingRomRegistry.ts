@@ -139,22 +139,21 @@ export class WorkingRomRegistry {
    * Point this machine at another copy of the project's own ROM (#527). A
    * different ROM is refused: retargeting a project is out of scope.
    *
-   * `register` hashes the file again, so its identity is compared too: a file
-   * swapped after `checkRom` must not be accepted on the strength of the
-   * earlier read. Every cached project on this ROM learns the new path; one
-   * whose copier-header state changed is dropped, so the next `get` rebuilds
-   * it (Export Patch depends on that state). Callers push a refresh after.
+   * The file is read ONCE: hashed, then registered and header-checked from
+   * those same bytes, so a file swapped mid-call can neither land in the
+   * registry under its own hash nor give a header state for other bytes.
+   * Every cached project on this ROM learns the new path; one whose
+   * copier-header state changed is dropped, so the next `get` rebuilds it
+   * (Export Patch depends on that state). Callers push a refresh after.
    */
   relocate(manifestPath: string, romPath: string): RomCheck {
-    const check = this.checkRom(manifestPath, romPath)
-    if (check.status !== 'ok') return check
     const expected = openProject(manifestPath).baseRom.sha256
-    const registered = this.registry.register(romPath)
-    if (registered.sha256 !== expected) {
-      return { status: 'mismatch', picked: registered.sha256, expected }
-    }
     const absolute = path.resolve(romPath)
-    const headered = RomFile.fromBytes(absolute, Buffer.from(readRomBounded(absolute))).hasHeader
+    const bytes = readRomBounded(absolute)
+    const picked = romIdentity(bytes).sha256
+    if (picked !== expected) return { status: 'mismatch', picked, expected }
+    this.registry.registerBytes(absolute, bytes)
+    const headered = RomFile.fromBytes(absolute, Buffer.from(bytes)).hasHeader
     for (const [manifest, entry] of [...this.cache]) {
       if (entry.project.baseRom.sha256 !== expected) continue
       if (entry.working.hasCopierHeader !== headered) {
@@ -164,7 +163,7 @@ export class WorkingRomRegistry {
         entry.romPath = absolute
       }
     }
-    return check
+    return { status: 'ok' }
   }
 
   /**

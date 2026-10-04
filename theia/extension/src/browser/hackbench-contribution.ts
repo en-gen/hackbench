@@ -463,15 +463,24 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
       applied.push('properties')
       this.messages.info(`Saved properties for ${changes.title}`)
     } catch (err) {
+      // The message may already end in a full stop.
       this.messages.error(
-        `Could not save properties: ${(err as Error).message}. ` +
+        `Could not save properties: ${(err as Error).message.replace(/\.$/, '')}. ` +
           `Applied: ${applied.length ? applied.join(', ') : 'nothing'}.`,
       )
     } finally {
       // Views waiting on a ROM or core re-read on these, the same pushes a
       // working-copy edit sends. Each view type listens to its own client.
-      if (applied.some(a => a !== 'properties')) {
-        for (const client of [this.pushClient, this.map16Push, this.gfxPush, this.palettePush]) {
+      const romMoved = applied.includes('ROM location')
+      const registryWritten = romMoved || applied.includes('emulator core')
+      if (registryWritten) {
+        this.pushClient.onWorkingCopyChanged(open.manifestPath)
+        // Re-announce the project: the GFX and music explorers and the
+        // emulator reload on the context, not on pushes. A full save already did.
+        if (!applied.includes('properties')) this.context.current = this.context.current // eslint-disable-line no-self-assign
+      }
+      if (romMoved) {
+        for (const client of [this.map16Push, this.gfxPush, this.palettePush]) {
           client.onWorkingCopyChanged(open.manifestPath)
         }
       }

@@ -3,7 +3,7 @@
  *
  * The dialog browses first and persists only on OK, so the backend has two
  * halves: `checkRom` (read-only) and `relocate` (check, then register). The
- * assertion that matters is that a different ROMridge is refused and leaves
+ * assertion that matters is that a different ROM is refused and leaves
  * the registry untouched; retargeting a project is out of scope.
  * Synthetic ROMs only: CI has no ROM.
  */
@@ -114,20 +114,21 @@ describe('WorkingRomRegistry relocation', () => {
     expect(working.get(second)).toMatchObject({ status: 'ok', romPath: copy })
   })
 
-  it('refuses when the file changes between the check and the registration', () => {
+  it('hashes the file once: registration uses the verified bytes, never a second read', () => {
     const rom = put('a.sfc', fakeRom(31))
     const manifest = project(rom)
-    const swapped = put('swap.sfc', fakeRom(31))
-    // A registry whose register() sees a different ROM than checkRom hashed.
-    class Racy extends RomRegistry {
-      override register(romPath: string) {
-        fs.writeFileSync(romPath, fakeRom(33))
-        return super.register(romPath)
+    // A path-reading register() is the old second read; it must not be used.
+    class NoReread extends RomRegistry {
+      override register(): never {
+        throw new Error('re-read the file')
       }
     }
-    const racy = new WorkingRomRegistry(new Racy(path.join(tmp, 'rom-registry.json')))
-    const r = racy.relocate(manifest, swapped)
-    expect(r.status).toBe('mismatch')
-    expect(racy.workstationRomPath(manifest)).toBe(rom)
+    const strict = new WorkingRomRegistry(new NoReread(path.join(tmp, 'rom-registry.json')))
+    const copy = put('copy.sfc', fakeRom(31))
+    expect(strict.relocate(manifest, copy)).toEqual({ status: 'ok' })
+    expect(strict.workstationRomPath(manifest)).toBe(copy)
+    const other = put('other.sfc', fakeRom(33))
+    expect(strict.relocate(manifest, other).status).toBe('mismatch')
+    expect(registry.list().map(e => e.path)).toEqual([copy])
   })
 })

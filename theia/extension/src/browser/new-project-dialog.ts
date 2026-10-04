@@ -21,8 +21,6 @@ import { CreateProjectRequest, ProjectService } from '../common/project-protocol
 import { PROJECT_EXT } from '../../../../src/project/Project'
 import { ROM_FILTER } from './file-filters'
 
-/** Extensions a dumped SNES cart normally carries. */
-
 @injectable()
 export class NewProjectDialogProps extends DialogProps {}
 
