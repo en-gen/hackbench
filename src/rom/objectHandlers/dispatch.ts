@@ -337,7 +337,7 @@ export function dispatchStandard(cur: Cursor): void {
   if (tilesetIdx >= TILESET_DISPATCH_COUNT) return
   const tilesetHandlerAddr = readLongPointer(cur.rom, ADDR_TILESET_DISPATCH + tilesetIdx * 3)
   if (tilesetHandlerAddr === null) return
-  const dispatcherSnesAddr = mirror(tilesetHandlerAddr)
+  const dispatcherSnesAddr = tilesetHandlerAddr & 0xffffff
 
   // Step 2: the handler pointer table lives immediately after the dispatcher's
   // 10-byte preamble. Look up this tileset's entry for the 1-based objNo.
@@ -374,7 +374,7 @@ export function objectsDispatchedTo(
   const t = tileset & 0x0f
   const dispatcher = t < TILESET_DISPATCH_COUNT ? readLongPointer(rom, ADDR_TILESET_DISPATCH + t * 3) : null // prettier-ignore
   if (dispatcher === null) return out
-  const table = readLongPointerTable(rom, mirror(dispatcher) + DISPATCHER_PREAMBLE_SIZE, STANDARD_HANDLER_COUNT) // prettier-ignore
+  const table = readLongPointerTable(rom, (dispatcher & 0xffffff) + DISPATCHER_PREAMBLE_SIZE, STANDARD_HANDLER_COUNT) // prettier-ignore
   table.forEach((addr, i) => {
     if (STANDARD_HANDLERS[mirror(addr)] === handler) out.push({ type: 'standard', objectNumber: i + 1 }) // prettier-ignore
   })

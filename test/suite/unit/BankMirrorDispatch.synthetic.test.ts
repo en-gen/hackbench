@@ -147,3 +147,31 @@ describe('bank mirror at every handler lookup (#302)', () => {
     expect(changed(grid)).toBe(true)
   })
 })
+
+describe('dispatcher table in the $FE/$FF ROM mirror of a 4 MB cart (#302)', () => {
+  // mirror() would fold $FE onto $7E (WRAM, unreadable); only handler-map KEYS
+  // are normalized, the table reads keep the raw bank.
+  const FE = 0xfe8000
+  const rom4mb = (): RomFile => {
+    const buf = Buffer.alloc(0x400000, 0)
+    buf[0x7fd5] = 0x20
+    buf.set(long(0x0dd100), 0x3f0000 + 10) // $FE800A: object 1 -> $0DD100
+    buf.set(long(FE), off(ADDR_TILESET_DISPATCH))
+    return new RomFile('synthetic.sfc', buf)
+  }
+
+  it('dispatchStandard still reads a table at $FE8000', () => {
+    const s = spy()
+    STANDARD_HANDLERS[FAKE_STD] = s.fn
+    added.push(FAKE_STD)
+    dispatchStandard(makeCursor(createGrid(1), rom4mb(), 0, 0, 0, 1, 0))
+    expect(s.seen).toEqual([FAKE_STD])
+  })
+
+  it('objectsDispatchedTo still reads a table at $FE8000', () => {
+    const f = spy().fn
+    STANDARD_HANDLERS[FAKE_STD] = f
+    added.push(FAKE_STD)
+    expect(objectsDispatchedTo(rom4mb(), 0, f)).toEqual([{ type: 'standard', objectNumber: 1 }])
+  })
+})

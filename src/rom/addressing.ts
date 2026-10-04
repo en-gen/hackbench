@@ -116,5 +116,9 @@ export function formatAddr(addr: number): string {
   return '$' + hex6(addr)
 }
 
-/** The same ROM address in $00-$7F and its $80-$FF mirror compares equal. */
+/**
+ * Key normalizer for handler-map lookups: $8D and $0D name the same handler.
+ * Not an address for reading: it folds $FE/$FF onto $7E/$7F (WRAM), which is
+ * unreadable, while $FE/$FF is real ROM on a 4 MB cart. Reads keep the raw bank.
+ */
 export const mirror = (a: number): number => a & 0x7fffff
