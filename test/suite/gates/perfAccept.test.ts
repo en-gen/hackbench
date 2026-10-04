@@ -21,20 +21,33 @@ type Result = { status: number; output: string }
 
 // On win32 a bare `bash` can be the WSL launcher, which skips the PATH shim
 // and the fake gh entirely. Use Git Bash explicitly.
-function bashPath(): string {
-  if (process.platform !== 'win32') return 'bash'
-  // bash.exe sits under the Git root's bin; --exec-path is <root>/mingw64/libexec/git-core.
-  const exec = execFileSync('git', ['--exec-path'], { encoding: 'utf8' }).trim()
-  const fromGit = path.resolve(exec, '..', '..', '..', 'bin', 'bash.exe')
-  const fromPf = path.join(process.env.ProgramFiles ?? 'C:/Program Files', 'Git', 'bin', 'bash.exe')
-  const found = [fromGit, fromPf].find(p => fs.existsSync(p))
-  if (!found) throw new Error(`Git Bash required, not found at ${fromGit} or ${fromPf}`)
+export function resolveGitBash(candidates: string[], exists: (p: string) => boolean): string {
+  const found = candidates.find(exists)
+  if (!found) throw new Error(`Git Bash required, not found at ${candidates.join(' or ')}`)
   return found
 }
 
+function findBash(): string {
+  if (process.platform !== 'win32') return 'bash'
+  // bash.exe sits under the Git root's bin; --exec-path is <root>/mingw64/libexec/git-core.
+  const exec = execFileSync('git', ['--exec-path'], { encoding: 'utf8', timeout: 20000 }).trim()
+  return resolveGitBash(
+    [
+      path.resolve(exec, '..', '..', '..', 'bin', 'bash.exe'),
+      path.join(process.env.ProgramFiles ?? 'C:/Program Files', 'Git', 'bin', 'bash.exe'),
+    ],
+    fs.existsSync,
+  )
+}
+
+let bashCache: string | undefined
+const bashPath = () => (bashCache ??= findBash())
+
 function runBash(argv: string[], env: NodeJS.ProcessEnv = process.env): Result {
+  const bash = bashPath() // outside the try: a missing Git Bash must surface, not become status -1
   try {
-    const output = execFileSync(bashPath(), argv, {
+    const output = execFileSync(bash, argv, {
+      timeout: 60000,
       cwd: repoRoot,
       encoding: 'utf8',
       stdio: 'pipe',
@@ -49,7 +62,16 @@ function runBash(argv: string[], env: NodeJS.ProcessEnv = process.env): Result {
 
 const run = (args: string[], env?: NodeJS.ProcessEnv) => runBash([script, ...args], env)
 
-describe('accept.sh refuses before touching gh api', () => {
+describe('resolveGitBash', () => {
+  it('throws "Git Bash required" when no candidate exists', () => {
+    expect(() => resolveGitBash(['/no/a', '/no/b'], () => false)).toThrow(/Git Bash required/)
+  })
+  it('returns the first existing candidate', () => {
+    expect(resolveGitBash(['/a', '/b'], p => p === '/b')).toBe('/b')
+  })
+})
+
+describe('accept.sh refuses before touching gh api', { timeout: 90000 }, () => {
   it('refuses with no arguments', () => {
     const r = run([])
     expect(r.status).toBe(2)
@@ -87,79 +109,84 @@ describe('accept.sh refuses before touching gh api', () => {
   })
 })
 
-describe('accept.sh only accepts a sha in the latest 100 develop commits', () => {
-  // A fake `gh` on PATH: the commits listing prints $FAKE_WINDOW, any other
-  // call is logged to $FAKE_LOG (so a post is observable).
-  const script_ = [
-    '#!/usr/bin/env bash',
-    'case "$2" in',
-    '  *commits*) printf "%s\n" "$FAKE_WINDOW";;',
-    '  *) echo "$@" >> "$FAKE_LOG";;',
-    'esac',
-    '',
-  ].join('\n')
-  const fwd = (p: string) => p.replaceAll(path.sep, '/')
-  const made: string[] = []
-  afterAll(() => {
-    for (const d of made) fs.rmSync(d, { recursive: true, force: true })
-  })
+describe(
+  'accept.sh only accepts a sha in the latest 100 develop commits',
+  { timeout: 90000 },
+  () => {
+    // A fake `gh` on PATH: the commits listing prints $FAKE_WINDOW, any other
+    // call is logged to $FAKE_LOG (so a post is observable).
+    const script_ = [
+      '#!/usr/bin/env bash',
+      'case "$2" in',
+      '  *commits*) printf "%s\n" "$FAKE_WINDOW";;',
+      '  *) echo "$@" >> "$FAKE_LOG";;',
+      'esac',
+      '',
+    ].join('\n')
+    const fwd = (p: string) => p.replaceAll(path.sep, '/')
+    const made: string[] = []
+    afterAll(() => {
+      for (const d of made) fs.rmSync(d, { recursive: true, force: true })
+    })
 
-  function fakeGh(window: string): { env: NodeJS.ProcessEnv; log: string } {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-fakegh-'))
-    made.push(dir)
-    const log = path.join(dir, 'calls.log')
-    fs.writeFileSync(path.join(dir, 'gh'), script_, { mode: 0o755 })
-    const sep = process.platform === 'win32' ? ';' : ':'
-    return {
-      env: {
-        ...process.env,
-        PATH: fwd(dir) + sep + process.env.PATH,
-        FAKE_WINDOW: window,
-        FAKE_LOG: fwd(log),
-      },
-      log,
+    function fakeGh(window: string): { env: NodeJS.ProcessEnv; log: string } {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-fakegh-'))
+      made.push(dir)
+      const log = path.join(dir, 'calls.log')
+      fs.writeFileSync(path.join(dir, 'gh'), script_, { mode: 0o755 })
+      const sep = process.platform === 'win32' ? ';' : ':'
+      return {
+        env: {
+          ...process.env,
+          PATH: fwd(dir) + sep + process.env.PATH,
+          FAKE_WINDOW: window,
+          FAKE_LOG: fwd(log),
+        },
+        log,
+      }
     }
-  }
-  const head = execFileSync('git', ['rev-parse', 'HEAD'], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-  }).trim()
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], {
+      timeout: 20000,
+      cwd: repoRoot,
+      encoding: 'utf8',
+    }).trim()
 
-  it('refuses a sha outside the window and posts nothing', () => {
-    const { env, log } = fakeGh('0'.repeat(40))
-    const r = run([head, 'a reason'], env)
-    expect(r.status).toBe(2)
-    expect(r.output).toMatch(/latest 100 commits/)
-    expect(fs.existsSync(log)).toBe(false)
-  })
+    it('refuses a sha outside the window and posts nothing', () => {
+      const { env, log } = fakeGh('0'.repeat(40))
+      const r = run([head, 'a reason'], env)
+      expect(r.status).toBe(2)
+      expect(r.output).toMatch(/latest 100 commits/)
+      expect(fs.existsSync(log)).toBe(false)
+    })
 
-  it('resolves a real ref (HEAD), gets past validation, and posts nothing when outside the window', () => {
-    const { env, log } = fakeGh('0'.repeat(40))
-    const r = run(['HEAD', 'a valid reason'], env)
-    expect(r.output).not.toMatch(/not a commit|whitespace|usage/)
-    expect(r.output).toMatch(/latest 100 commits/) // reached the window check
-    expect(r.output).toContain(head) // the ref was resolved to the full sha
-    expect(fs.existsSync(log)).toBe(false) // no status POST
-  })
+    it('resolves a real ref (HEAD), gets past validation, and posts nothing when outside the window', () => {
+      const { env, log } = fakeGh('0'.repeat(40))
+      const r = run(['HEAD', 'a valid reason'], env)
+      expect(r.output).not.toMatch(/not a commit|whitespace|usage/)
+      expect(r.output).toMatch(/latest 100 commits/) // reached the window check
+      expect(r.output).toContain(head) // the ref was resolved to the full sha
+      expect(fs.existsSync(log)).toBe(false) // no status POST
+    })
 
-  it('posts the status for a sha inside the window', () => {
-    const { env, log } = fakeGh(`${'0'.repeat(40)}\n${head}`)
-    const r = run([head, 'a reason'], env)
-    expect(r.status).toBe(0)
-    expect(fs.readFileSync(log, 'utf8')).toMatch(/statuses/)
-  })
+    it('posts the status for a sha inside the window', () => {
+      const { env, log } = fakeGh(`${'0'.repeat(40)}\n${head}`)
+      const r = run([head, 'a reason'], env)
+      expect(r.status).toBe(0)
+      expect(fs.readFileSync(log, 'utf8')).toMatch(/statuses/)
+    })
 
-  it('posts to the full resolved sha when given HEAD (not the literal ref)', () => {
-    const { env, log } = fakeGh(head)
-    const r = run(['HEAD', 'a reason'], env)
-    expect(r.status).toBe(0)
-    const logged = fs.readFileSync(log, 'utf8')
-    expect(logged).toContain(`statuses/${head}`)
-    expect(logged).not.toMatch(/statuses\/HEAD/)
-  })
-})
+    it('posts to the full resolved sha when given HEAD (not the literal ref)', () => {
+      const { env, log } = fakeGh(head)
+      const r = run(['HEAD', 'a reason'], env)
+      expect(r.status).toBe(0)
+      const logged = fs.readFileSync(log, 'utf8')
+      expect(logged).toContain(`statuses/${head}`)
+      expect(logged).not.toMatch(/statuses\/HEAD/)
+    })
+  },
+)
 
-describe('the suite-wide guard', () => {
+describe('the suite-wide guard', { timeout: 90000 }, () => {
   const shimName = path.basename(process.env.HB_NO_REAL_GH_DIR ?? '')
 
   it('puts the shim dir in the env', () => {

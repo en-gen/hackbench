@@ -9,8 +9,11 @@
  *   keyring, and the global git credential helper is an absolute path to
  *   gh.exe, so an empty GH_CONFIG_DIR alone hides nothing: a reached gh
  *   (or `git credential fill`) sees only the sentinel, which GitHub rejects.
- * - Git credential helpers are cleared at command scope (GIT_CONFIG_*), so
- *   `git credential fill` returns no password.
+ * - Git credential helpers are cleared at command scope (GIT_CONFIG_*), and
+ *   GIT_ASKPASS/SSH_ASKPASS are emptied, so `git credential fill` returns no
+ *   password from a helper or an askpass program in the env. An askpass set
+ *   by `-c core.askPass` on the command line is overridden by the empty
+ *   GIT_ASKPASS (checked by test), not by this file.
  * - Outside the guard: a test that blanks or deletes the token variables, or
  *   builds an env without spreading process.env.
  * A test that needs a `gh` builds its own and prepends its own directory.
@@ -32,14 +35,25 @@ export const TOKEN_VARS = [
 
 /** Pure: the credential part of the guard, applied to any env. */
 export function guardEnv(env: NodeJS.ProcessEnv, configDir: string): NodeJS.ProcessEnv {
-  const out = { ...env, GH_CONFIG_DIR: configDir, GIT_TERMINAL_PROMPT: '0' }
+  const out = {
+    ...env,
+    GH_CONFIG_DIR: configDir,
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_ASKPASS: '',
+    SSH_ASKPASS: '',
+  }
   for (const v of TOKEN_VARS) out[v] = SENTINEL
   // An empty credential.helper resets the list, so no helper (gh.exe, manager) runs.
-  // Appended after any existing GIT_CONFIG_* entries, and only once.
-  const n = Number.parseInt(env.GIT_CONFIG_COUNT ?? '0', 10) || 0
-  const done = Array.from({ length: n }, (_, i) => i).some(
-    i => env[`GIT_CONFIG_KEY_${i}`] === 'credential.helper' && env[`GIT_CONFIG_VALUE_${i}`] === '',
-  )
+  // Appended after any existing GIT_CONFIG_* entries, and only once: an empty
+  // helper anywhere in the parent's list is not enough, because a later entry
+  // would re-add one, so the append is skipped only when the LAST helper is empty.
+  const raw = env.GIT_CONFIG_COUNT
+  const n = raw === undefined || raw === '' ? 0 : Number(raw)
+  if (!Number.isInteger(n) || n < 0 || n >= 1000) throw new Error('invalid GIT_CONFIG_COUNT')
+  let last: string | undefined
+  for (let i = 0; i < n; i++)
+    if (env[`GIT_CONFIG_KEY_${i}`] === 'credential.helper') last = env[`GIT_CONFIG_VALUE_${i}`]
+  const done = last === ''
   if (!done) {
     out[`GIT_CONFIG_KEY_${n}`] = 'credential.helper'
     out[`GIT_CONFIG_VALUE_${n}`] = ''

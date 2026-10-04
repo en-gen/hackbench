@@ -32,6 +32,56 @@ describe('guardEnv (pure)', () => {
     expect(o.GIT_CONFIG_VALUE_1).toBe('')
     expect(guardEnv(o, '/cfg').GIT_CONFIG_COUNT).toBe('2')
   })
+  it('disables prompting and askpass', () => {
+    const o = guardEnv({ GIT_ASKPASS: '/x', SSH_ASKPASS: '/y' }, '/cfg')
+    expect(o.GIT_TERMINAL_PROMPT).toBe('0')
+    expect(o.GIT_ASKPASS).toBe('')
+    expect(o.SSH_ASKPASS).toBe('')
+  })
+  it('appends when an EARLIER entry is an empty helper and a later one is not', () => {
+    const o = guardEnv(
+      {
+        GIT_CONFIG_COUNT: '2',
+        GIT_CONFIG_KEY_0: 'credential.helper',
+        GIT_CONFIG_VALUE_0: '',
+        GIT_CONFIG_KEY_1: 'credential.helper',
+        GIT_CONFIG_VALUE_1: 'manager',
+      },
+      '/cfg',
+    )
+    expect(o.GIT_CONFIG_COUNT).toBe('3')
+    expect(o.GIT_CONFIG_VALUE_1).toBe('manager')
+    expect(o.GIT_CONFIG_VALUE_2).toBe('')
+  })
+  it('keeps a parent safe.directory at 0 and adds the helper at 1', () => {
+    const o = guardEnv(
+      { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'safe.directory', GIT_CONFIG_VALUE_0: '*' },
+      '/cfg',
+    )
+    expect(o.GIT_CONFIG_KEY_0).toBe('safe.directory')
+    expect(o.GIT_CONFIG_VALUE_0).toBe('*')
+    expect(o.GIT_CONFIG_KEY_1).toBe('credential.helper')
+    expect(o.GIT_CONFIG_COUNT).toBe('2')
+  })
+  it('appends when the parent helper is manager', () => {
+    const o = guardEnv(
+      {
+        GIT_CONFIG_COUNT: '1',
+        GIT_CONFIG_KEY_0: 'credential.helper',
+        GIT_CONFIG_VALUE_0: 'manager',
+      },
+      '/cfg',
+    )
+    expect(o.GIT_CONFIG_COUNT).toBe('2')
+    expect(o.GIT_CONFIG_VALUE_0).toBe('manager')
+    expect(o.GIT_CONFIG_KEY_1).toBe('credential.helper')
+    expect(o.GIT_CONFIG_VALUE_1).toBe('')
+  })
+  it.each(['-1', 'abc', '1000', '99999999999', '1.5', ''])('rejects GIT_CONFIG_COUNT=%j', c => {
+    if (c === '')
+      return expect(guardEnv({ GIT_CONFIG_COUNT: c }, '/cfg').GIT_CONFIG_COUNT).toBe('1')
+    expect(() => guardEnv({ GIT_CONFIG_COUNT: c }, '/cfg')).toThrow(/GIT_CONFIG_COUNT/)
+  })
   it('sets the config dir, keeps other variables, does not mutate its input', () => {
     expect(out.GH_CONFIG_DIR).toBe('/cfg')
     expect(out.GH_HOST).toBe('github.com')
@@ -40,7 +90,7 @@ describe('guardEnv (pure)', () => {
   })
 })
 
-describe('a reached gh is unauthenticated (no-shell spawn)', () => {
+describe('a reached gh is unauthenticated (no-shell spawn)', { timeout: 90000 }, () => {
   const token = (env: NodeJS.ProcessEnv) =>
     spawnSync('gh', ['auth', 'token'], { encoding: 'utf8', env, timeout: 20000 })
 
@@ -71,6 +121,31 @@ describe('a reached gh is unauthenticated (no-shell spawn)', () => {
         env: { ...process.env, HOME: home, USERPROFILE: home },
       })
       expect(/^password=/m.test(r.stdout)).toBe(false)
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  it('git credential fill gets no password from an askpass program', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-home-'))
+    try {
+      const ask = path.join(home, 'ask.sh').replaceAll(path.sep, '/')
+      fs.writeFileSync(ask, '#!/bin/sh\necho fake-askpass-pw\n', { mode: 0o755 })
+      const base = { ...process.env, HOME: home, USERPROFILE: home }
+      const cases: Array<[NodeJS.ProcessEnv, string[]]> = [
+        [{ ...base, GIT_ASKPASS: ask }, []],
+        [{ ...base, SSH_ASKPASS: ask }, []],
+        [{ ...base }, ['-c', `core.askPass=${ask}`]],
+      ]
+      for (const [e, cfg] of cases) {
+        const r = spawnSync('git', [...cfg, 'credential', 'fill'], {
+          input: 'protocol=https\nhost=github.com\n\n',
+          encoding: 'utf8',
+          timeout: 20000,
+          env: { ...guardEnv(e, home), GCM_INTERACTIVE: 'never' },
+        })
+        expect(/^password=fake-askpass-pw/m.test(r.stdout)).toBe(false)
+      }
     } finally {
       fs.rmSync(home, { recursive: true, force: true })
     }
