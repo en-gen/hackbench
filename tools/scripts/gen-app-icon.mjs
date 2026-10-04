@@ -1,5 +1,6 @@
 // Generates the window/taskbar icon from the title-bar mushroom path in
-// build/icons/icon.svg: gray gradient fill over a white backing.
+// build/icons/icon.svg: a gradient silhouette with white spots and face and
+// gradient eyes, painted as opaque layers.
 // Run: npm run gen:icon
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
@@ -18,17 +19,19 @@ export const readPath = () =>
   /<path d="([^"]+)"/.exec(readFileSync(path.join(root, 'build/icons/icon.svg'), 'utf8'))[1]
 
 // Absolute-start subpaths. A relative `m` after `z` is measured from the start
-// of the subpath just closed, so each start is the previous start plus offset.
+// of the subpath just closed, so each start is the previous start plus offset;
+// an absolute `M` is taken as is.
 export function subpaths(d) {
-  const m = /^\s*m\s*(-?[\d.]+)[\s,]*(-?[\d.]+)/i
+  const m = /^\s*([mM])\s*(-?[\d.]+)[\s,]*(-?[\d.]+)/
   let x = 0
   let y = 0
   return d
     .split(/z/i)
     .filter(chunk => m.test(chunk))
     .map((chunk, i) => {
-      const [dx, dy] = m.exec(chunk).slice(1).map(Number)
-      ;[x, y] = i === 0 ? [dx, dy] : [x + dx, y + dy]
+      const [, cmd, a, b] = m.exec(chunk)
+      const [dx, dy] = [Number(a), Number(b)]
+      ;[x, y] = i === 0 || cmd === 'M' ? [dx, dy] : [x + dx, y + dy]
       return chunk.replace(m, `M${+x.toFixed(3)} ${+y.toFixed(3)}`) + 'z'
     })
 }
@@ -51,10 +54,24 @@ export function classify(d) {
 
 function classifyUncached(d) {
   const subs = subpaths(d).map(path => ({ path, box: bbox(path) }))
-  const outer = subs.find(s => subs.every(o => o === s || inside(o.box, s.box)))
+  const same = (a, b) => inside(a, b) && inside(b, a)
+  if (subs.some((s, i) => subs.some((o, j) => i < j && same(s.box, o.box)))) {
+    throw new Error('icon art unreadable: two subpaths have identical boxes')
+  }
+  const outers = subs.filter(s => subs.every(o => o === s || inside(o.box, s.box)))
+  if (outers.length !== 1) {
+    throw new Error(
+      `icon art unreadable: ${outers.length} subpaths contain all the others, need exactly one`,
+    )
+  }
+  const outer = outers[0]
   const rest = subs.filter(s => s !== outer)
   const parent = s =>
     rest.filter(o => o !== s && inside(s.box, o.box)).sort((a, b) => area(a.box) - area(b.box))[0]
+  const depth = s => (parent(s) ? 1 + depth(parent(s)) : 0)
+  if (rest.some(s => depth(s) > 1)) {
+    throw new Error('icon art unreadable: nesting depth over 2 (something inside an eye)')
+  }
   return {
     outer: outer.path,
     holes: rest.filter(s => !parent(s)).map(s => s.path),

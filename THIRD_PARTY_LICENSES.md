@@ -76,4 +76,4 @@ remain under their authors' terms and are not redistributed here.
 - **License:** Public domain (below the threshold of originality, per Wikimedia Commons)
 - **Author:** Lucian Novosel, after Nintendo's Super Mushroom design
 - **Upstream:** https://commons.wikimedia.org/wiki/File:Novosel_mushroom.svg
-- **Used for:** the title-bar mark (`build/icons/icon.svg`) and the window and taskbar icon (`build/icons/app/`), which adds a gray gradient and white backing.
+- **Used for:** the title-bar mark (`build/icons/icon.svg`) and the window and taskbar icon (`build/icons/app/`), which paints it as a gray-gradient silhouette with white spots and face and gradient eyes.

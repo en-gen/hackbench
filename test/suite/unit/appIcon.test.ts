@@ -43,7 +43,7 @@ const seams = (svg: string, n: number) =>
 // outer edge once. The one real difference: below ~30 px a hole edge can sit
 // inside an outer-edge pixel (the side spots are under one pixel from the
 // outline at 16 px), and its white adds up to 29/255 there (measured at 16 px;
-// 0 at 32 px and up). A leak is ~255, so 32 separates them.
+// 1 at 32 px, 0 from 40 px up). A leak is ~255, so 32 separates them.
 const alphaOff = (svg: string, n: number) =>
   count(svg, n, (px, sil, i) => Math.abs(px[i * 4 + 3] - sil[i * 4 + 3]) > 32)
 // Outer-edge pixels (partly covered, no hole content) must equal the outer
@@ -70,6 +70,32 @@ const LEAKY = wrap(
   `<path fill="#fff" transform="scale(1.05)" d="${roles.outer}"/><path fill="url(#g)" d="${d}"/>`,
 )
 
+const CRC = Array.from({ length: 256 }, (_, n) => {
+  let c = n
+  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+  return c >>> 0
+})
+const crc32 = (b: Buffer) => {
+  let c = 0xffffffff
+  for (const x of b) c = CRC[(c ^ x) & 0xff] ^ (c >>> 8)
+  return (c ^ 0xffffffff) >>> 0
+}
+// Walks the PNG chunks from `off`, checking each CRC, and returns the offset
+// just past IEND (throws if the stream ends before IEND or a CRC is wrong).
+function pngEnd(buf: Buffer, off: number): number {
+  expect(buf.subarray(off, off + 8).toString('hex')).toBe('89504e470d0a1a0a')
+  let p = off + 8
+  for (;;) {
+    const len = buf.readUInt32BE(p)
+    const type = buf.subarray(p + 4, p + 8)
+    expect(crc32(buf.subarray(p + 4, p + 8 + len)), type.toString()).toBe(
+      buf.readUInt32BE(p + 8 + len),
+    )
+    p += 12 + len
+    if (type.toString() === 'IEND') return p
+  }
+}
+
 function expectValidIco(ico: Buffer) {
   expect([ico.readUInt16LE(0), ico.readUInt16LE(2), ico.readUInt16LE(4)]).toEqual([
     0,
@@ -79,11 +105,11 @@ function expectValidIco(ico: Buffer) {
   SIZES.forEach((size, i) => {
     const e = 6 + 16 * i
     expect([ico[e] || 256, ico[e + 1] || 256]).toEqual([size, size])
+    expect([ico.readUInt16LE(e + 4), ico.readUInt16LE(e + 6)]).toEqual([1, 32])
     const len = ico.readUInt32LE(e + 8)
-    const png = ico.subarray(ico.readUInt32LE(e + 12), ico.readUInt32LE(e + 12) + len)
-    expect(png.length).toBe(len)
-    expect(png.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a')
-    expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([size, size])
+    const off = ico.readUInt32LE(e + 12)
+    expect(pngEnd(ico, off), `entry ${size}`).toBe(off + len)
+    expect([ico.readUInt32BE(off + 16), ico.readUInt32BE(off + 20)]).toEqual([size, size])
   })
 }
 
@@ -118,18 +144,54 @@ describe('app icon generator', () => {
     expect(rimOff(gen.coloredSvg(d), n)).toBe(0)
   })
 
-  it('an eye center is gray, not white', () => {
-    const box = new Resvg(gen.bareSvg(roles.eyes[0]), {
-      font: { loadSystemFonts: false },
-    }).getBBox()!
-    for (const n of [64, 256]) {
+  it.each(SIZES)(
+    'every pixel fully inside a hole and outside both eyes is pure white at %i px',
+    n => {
       const px = rgba(gen.coloredSvg(d), n)
-      const x = Math.floor(((box.x + box.width / 2) / 95.41467) * n)
-      const y = Math.floor(((box.y + box.height / 2 + 0.20733) / 95.41467) * n)
-      const i = (y * n + x) * 4
-      expect(px[i + 3]).toBe(255)
-      expect(px[i]).toBeLessThan(128)
+      const eyes = roles.eyes.map(e => rgba(wrap(`<path fill="#000" d="${e}"/>`), n))
+      for (const [k, hole] of roles.holes.entries()) {
+        const mask = rgba(wrap(`<path fill="#000" d="${hole}"/>`), n)
+        let sampled = 0
+        for (let i = 0; i < n * n; i++) {
+          if (mask[i * 4 + 3] !== 255 || eyes.some(e => e[i * 4 + 3] !== 0)) continue
+          sampled++
+          expect([...px.subarray(i * 4, i * 4 + 4)], `hole ${k} pixel ${i}`).toEqual([
+            255, 255, 255, 255,
+          ])
+        }
+        expect(sampled, `hole ${k} has sample pixels`).toBeGreaterThan(0)
+      }
+    },
+  )
+
+  it('an eye center is gray, not white', () => {
+    for (const eye of roles.eyes) {
+      const box = new Resvg(gen.bareSvg(eye), {
+        font: { loadSystemFonts: false },
+      }).getBBox()!
+      for (const n of [64, 256]) {
+        const px = rgba(gen.coloredSvg(d), n)
+        const x = Math.floor(((box.x + box.width / 2) / 95.41467) * n)
+        const y = Math.floor(((box.y + box.height / 2 + 0.20733) / 95.41467) * n)
+        const i = (y * n + x) * 4
+        expect(px[i + 3]).toBe(255)
+        expect(px[i]).toBeLessThan(128)
+      }
     }
+  })
+
+  it('subpaths: absolute M after z is absolute, relative m is relative', () => {
+    expect(gen.subpaths('m10 10h10v10h-10zM20 20h5v5h-5z')[1].startsWith('M20 20')).toBe(true)
+    expect(gen.subpaths('m10 10h10v10h-10zm5 5h5v5h-5z')[1].startsWith('M15 15')).toBe(true)
+  })
+
+  it('classify refuses what it cannot read, with a reason', () => {
+    const sq = (x: number, y: number, w: number) => `M${x} ${y}h${w}v${w}h-${w}z`
+    expect(() => gen.classify(sq(0, 0, 10) + sq(20, 0, 10))).toThrow(/exactly one/)
+    expect(() => gen.classify(sq(0, 0, 10) + sq(0, 0, 10))).toThrow(/identical/)
+    expect(() =>
+      gen.classify(sq(0, 0, 100) + sq(10, 10, 50) + sq(20, 20, 20) + sq(25, 25, 10)),
+    ).toThrow(/depth/)
   })
 
   it('oracle: the round-3 backing leaves seams at every size', () => {
