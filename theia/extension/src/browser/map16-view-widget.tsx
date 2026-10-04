@@ -932,7 +932,7 @@ export class Map16ViewWidget extends ReactWidget {
           <span className="hb-toolbar-spacer" />
           <div className="hb-map16-toolbar-actions">
             <ZoomStepper controller={this.zoomController} />
-            <span className="hb-map16-toolbar-sep" />
+            <span className="hb-toolbar-sep" />
             <button
               data-control="grid-toggle"
               type="button"

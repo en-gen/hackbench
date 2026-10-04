@@ -519,11 +519,23 @@ test('the Background toggle hides and restores both L2 canvases, per tab', async
   await expectEveryVisibleScreenDrawn(page, 0x105)
   const l2 = await expectLayerToggle(page, 0x105, 'layer-l2', 'Background', 2)
   const strip = page.locator(`${root(0x105)} [data-control="map-scroller"]`)
-  // Foreground, then Background, beside each other.
+  // Back to front: Background, then Foreground, beside each other.
   const order = await page
     .locator(`${root(0x105)} .hb-map-view-toolbar [data-control^="layer-"]`)
     .evaluateAll(bs => bs.map(b => b.dataset.control))
-  expect(order).toEqual(['layer-l1', 'layer-l2'])
+  expect(order).toEqual(['layer-l2', 'layer-l1'])
+  // A visible separator sits between Foreground and the first switch toggle, by DOM order.
+  const sep = await page.evaluate(rootSel => {
+    const bar = document.querySelector(`${rootSel} .hb-map-view-toolbar`)
+    const kids = [...bar.children]
+    const at = c => kids.findIndex(k => k.dataset.control === c)
+    const el = kids.find(k => k.dataset.control === 'toolbar-sep')
+    const r = el.getBoundingClientRect()
+    return { between: at('toolbar-sep') === at('layer-l1') + 1 && at('toolbar-sep') < at('palace-yellow'), w: r.width, h: r.height } // prettier-ignore
+  }, root(0x105))
+  expect(sep.between).toBe(true)
+  expect(sep.w).toBeGreaterThan(0)
+  expect(sep.h).toBeGreaterThan(0)
 
   const shown = await shownPixels(page, strip)
   await l2.click()

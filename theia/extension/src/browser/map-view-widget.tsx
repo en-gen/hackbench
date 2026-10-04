@@ -397,19 +397,20 @@ export class MapViewWidget extends ReactWidget {
       <div className="hb-map-view-main">
         <div className="hb-map-view-toolbar">
           <LayerToggle
-            highlight="middle"
-            label="Foreground"
-            pressed={this.showL1}
-            control="layer-l1"
-            onClick={() => this.toggleL1()}
-          />
-          <LayerToggle
             highlight="bottom"
             label="Background"
             pressed={this.showL2}
             control="layer-l2"
             onClick={() => this.toggleL2()}
           />
+          <LayerToggle
+            highlight="middle"
+            label="Foreground"
+            pressed={this.showL1}
+            control="layer-l1"
+            onClick={() => this.toggleL1()}
+          />
+          <span className="hb-toolbar-sep" data-control="toolbar-sep" />
           {PALACES.map(p => this.renderToggle(p))}
           {SWITCH_ORDER.map(k => (
             <SwitchToggle
