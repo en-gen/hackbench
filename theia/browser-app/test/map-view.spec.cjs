@@ -145,6 +145,11 @@ async function readScreen(page, index, screen) {
         .backgroundColor.match(/\d+/g)
         .map(Number)
       const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+      // The high plane is stacked over the low one: alpha-over it before the back area.
+      const high = document.querySelector(`${rootSel} canvas[data-high-of="${c.dataset.screen}"]`)
+      const hd = high.getContext('2d').getImageData(0, 0, c.width, c.height).data
+      for (let i = 0; i < data.length; i += 4)
+        if (hd[i + 3] !== 0) for (let k = 0; k < 4; k++) data[i + k] = hd[i + k]
       for (let i = 0; i < data.length; i += 4) {
         const a = data[i + 3]
         for (let k = 0; k < 3; k++)
@@ -169,6 +174,12 @@ async function readScreen(page, index, screen) {
     { sel: `${root(index)} canvas[data-screen="${screen}"]`, rootSel: root(index) },
   )
 }
+
+/** Both L1 planes of a screen: low, then high. */
+const planesOf = (page, index, screen) => [
+  page.locator(`${root(index)} canvas[data-screen="${screen}"]`),
+  page.locator(`${root(index)} canvas[data-high-of="${screen}"]`),
+]
 
 const changedCells = (a, b) => Object.keys(a.cells).filter(k => a.cells[k] !== b.cells[k])
 
@@ -200,7 +211,11 @@ async function readViewport(page, index) {
       const y0 = Math.floor((top - r.top) * sy)
       const w = Math.max(1, Math.floor((right - left) * sx))
       const h = Math.max(1, Math.floor((bottom - top) * sy))
+      const high = scroller.querySelector(`canvas[data-high-of="${c.dataset.screen}"]`)
       const data = c.getContext('2d').getImageData(x0, y0, w, h).data
+      const hd = high.getContext('2d').getImageData(x0, y0, w, h).data
+      for (let i = 0; i < data.length; i += 4)
+        if (hd[i + 3] !== 0) for (let k = 0; k < 4; k++) data[i + k] = hd[i + k]
       const own = new Set()
       for (let i = 0; i < data.length; i += 4) {
         const px = data.slice(i, i + 4).join(',')
@@ -435,6 +450,9 @@ test('the L1 toggle hides and restores the foreground, per tab', async ({ page }
   const backdrop = dominant((await readScreen(page, 0x105, 0)).rgba)
   await l1.click()
   await expect(l1).toHaveAttribute('aria-pressed', 'false')
+  // Both L1 planes hide, not just the low one.
+  for (const plane of planesOf(page, 0x105, 0))
+    await expect(plane).toHaveCSS('visibility', 'hidden')
   const hidden = await shownPixels(page, strip)
   expect(hidden.colors).toBe(1)
   expect(hidden.color).toBe(backdrop)
@@ -444,6 +462,8 @@ test('the L1 toggle hides and restores the foreground, per tab', async ({ page }
   await activate(page, 0x105)
   await l1.click()
   await expect(l1).toHaveAttribute('aria-pressed', 'true')
+  for (const plane of planesOf(page, 0x105, 0))
+    await expect(plane).toHaveCSS('visibility', 'visible')
   expect((await shownPixels(page, strip)).checksum).toBe(shown.checksum)
 })
 
@@ -459,7 +479,12 @@ test('the back area is its own layer, with the checkerboard beneath it', async (
   await page
     .locator(`${root(0x105)} [data-layer="back-area"]`)
     .evaluate(el => (el.style.display = 'none'))
-  await expectCheckerboard(expect, page, `${root(0x105)} canvas[data-screen="0"]`)
+  await expectCheckerboard(
+    expect,
+    page,
+    `${root(0x105)} canvas[data-screen="0"]`,
+    `${root(0x105)} canvas[data-high-of="0"]`,
+  )
 })
 
 /**

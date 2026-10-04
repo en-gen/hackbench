@@ -204,6 +204,12 @@ export interface SwitchFlagsDto {
   red: boolean
 }
 
+/** Which plane of the map's layers: L1 split by the Map16 priority bit (L2 joins in #459). */
+export type MapPlaneKey = 'l1Low' | 'l1High'
+
+/** One plane's RGBA image, or the flag that nothing draws in it (no bytes sent). */
+export type MapPlane = { empty: true } | { empty: false; rgbaBase64: string }
+
 /**
  * One screen of a map's L1 (foreground), drawn by the backend from the
  * working copy. Horizontal maps have 16 x 27 tile screens; vertical maps
@@ -219,7 +225,7 @@ export type MapScreenResult =
       /** Pixels. */
       width: number
       height: number
-      rgbaBase64: string
+      planes: Record<MapPlaneKey, MapPlane>
       /** Why the animated tiles are drawn from unverified or no frames, when they are. */
       note?: string
       /** The back area (CGRAM color 0), RGB: its own layer under L1. */
