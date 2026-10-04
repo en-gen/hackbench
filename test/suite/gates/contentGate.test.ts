@@ -1090,8 +1090,8 @@ refs/heads/b ${head()} refs/heads/b ${zero}
       const trace = fs.readFileSync(traceFile, 'utf8')
       fs.rmSync(traceFile, { force: true })
       expect(res.status).toBe(0)
-      // one read for the lone blob, the rest are tag chunks
-      expect((trace.match(/git cat-file --batch\s*$/gm) ?? []).length).toBeGreaterThanOrEqual(4)
+      // measured 11 (README batch + 10 tag chunks of 3); floor 10 leaves one spare
+      expect((trace.match(/git cat-file --batch\s*$/gm) ?? []).length).toBeGreaterThanOrEqual(10)
     })
 
     it('an annotated tag body over the per-blob limit is refused in history mode', () => {

@@ -576,7 +576,7 @@ function readBlobs(unique, total) {
     if (parts[1] === 'missing') throw new GateError(`missing endpoint object: ${sha}`)
     const size = +parts[2]
     if (!Number.isFinite(size)) throw new GateError(`cat-file --batch: bad header "${header}"`)
-    out.set(sha, Buffer.from(buf.subarray(nl + 1, nl + 1 + size)))
+    out.set(sha, buf.subarray(nl + 1, nl + 1 + size)) // view: freed with the chunk
     off = nl + 1 + size + 1
   }
   return out
