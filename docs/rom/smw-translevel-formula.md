@@ -42,8 +42,8 @@ argument, not measured on a corpus; #451). Roots are excluded from
 the Lunar Magic hook path too. A non-root is `(flag ? screenHigh : 0) << 8
 | destLow`: with screenHigh 1 its bit 8 IS its flag; with screenHigh 0
 (stock or hook) both flags resolve identically; readSubmapHigh refuses 2
-or more. The BFS's real job is a reachability gate: an orphaned level's
-exit data never contributes an edge, and a level never reached gets no
+or more. The BFS's real job is a reachability gate: an orphaned map's
+exit data never contributes an edge, and a map never reached gets no
 resolved exits.
 
 The hook is Lunar Magic's replacement of the stock `BEQ` that picks the
