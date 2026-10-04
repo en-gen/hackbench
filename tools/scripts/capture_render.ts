@@ -7,9 +7,13 @@
  * says and never into the repo. Canvas in the page is the rasterizer.
  */
 import {
+  closeSync,
   existsSync,
+  fstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
+  readSync,
   readdirSync,
   realpathSync,
   renameSync,
@@ -39,9 +43,23 @@ type Regs = Record<(typeof REGS)[number], number>
 // The only tile-id rule and vertical in-screen layout map16Id/map16Index implement.
 export const TILE_ID_RULE = '(high & 1) * 256 + low'
 export const VERTICAL_RULE = '(col//16)*$100 + (row%16)*$10 + col%16'
+/** Charges one entry's declared size to a capture's budget, before it is read; `fail` throws. */
+const budget = (fail: (why: string) => never) => {
+  let total = 0
+  return (name: string, size: number) => {
+    if (size > MAX_ENTRY) fail(`${name} states ${size} bytes, over the ${MAX_ENTRY} this reads`)
+    total += size
+    if (total > MAX_TOTAL) fail(`${name} brings the entries read to ${total} bytes, over the ${MAX_TOTAL} a capture may expand to`) // prettier-ignore
+  }
+}
 const PIPE_RANGE = /Map16Pointers\[\$([0-9a-f]+)\.\.\$([0-9a-f]+)\]/i
-/** The largest zip entry read, far above any capture file. */
-const MAX_ENTRY = 256 << 20
+/** The largest entry read: ~160x the largest real one (sprite_spawns.json, ~410 KB, over 161 captures at layers_v5). */
+const MAX_ENTRY = 64 << 20
+/** All entries a capture may expand to together; a map's seven required files are well under 1 MiB. */
+const MAX_TOTAL = 128 << 20
+/** A layer picture is one SNES frame, at most 512x478 (hi-res, interlaced): 1 << 18 pixels, 1024 on a side. */
+const MAX_PNG_PIXELS = 1 << 18
+const MAX_PNG_SIDE = 1024
 
 /** One of Mesen's layer pictures: layer_<name>.png and the files beside it. */
 interface Ref {
@@ -145,6 +163,8 @@ export function pngRgba(b: Buffer): { w: number; h: number; px: Uint8ClampedArra
   }
   const bpp = { 2: 3, 6: 4, 3: 1 }[type]
   if (depth !== 8 || lace || !bpp || (type === 3 && !plte)) return null
+  if (w > MAX_PNG_SIDE || h > MAX_PNG_SIDE || w * h > MAX_PNG_PIXELS)
+    throw new CaptureFileError(`a PNG states ${w}x${h}, over the ${MAX_PNG_SIDE} per side and ${MAX_PNG_PIXELS} pixels a capture picture can be`) // prettier-ignore
   const stride = w * bpp
   let raw: Buffer
   try {
@@ -1096,6 +1116,7 @@ export function unzip(zip: Buffer): Map<string, () => Buffer> {
   while (end >= 0 && zip.readUInt32LE(end) !== 0x06054b50) end--
   if (end < 0) fail('no end of central directory')
   const out = new Map<string, () => Buffer>()
+  const charge = budget(fail)
   let o = zip.readUInt32LE(end + 16)
   for (let k = zip.readUInt16LE(end + 10); k > 0; k--) {
     if (o + 46 > zip.length || zip.readUInt32LE(o) !== 0x02014b50) fail('bad central directory')
@@ -1108,7 +1129,7 @@ export function unzip(zip: Buffer): Map<string, () => Buffer> {
     out.set(name, () => (cached ??= read()))
     const read = () => {
       if (method !== 0 && method !== 8) fail(`${name} uses compression method ${method}`)
-      if (size > MAX_ENTRY) fail(`${name} states ${size} bytes, over the ${MAX_ENTRY} this reads`)
+      charge(name, size)
       if (local + 30 > zip.length || zip.readUInt32LE(local) !== 0x04034b50) fail(`${name} has no local header`) // prettier-ignore
       const at = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28)
       let data = zip.subarray(at, at + packed)
@@ -1125,12 +1146,55 @@ export function unzip(zip: Buffer): Map<string, () => Buffer> {
   return out
 }
 
+/**
+ * A file read through one descriptor: its size is charged from that
+ * descriptor, then exactly that many bytes are read from it, so a file replaced
+ * or grown after the size was taken is refused, not read in full. `afterSize`
+ * is a test seam, run between the size and the read.
+ */
+export function readBounded(
+  f: string,
+  name: string,
+  charge: (name: string, size: number) => void,
+  afterSize?: () => void,
+): Buffer {
+  const fd = openSync(f, 'r')
+  try {
+    const st = fstatSync(fd)
+    if (!st.isFile()) throw new CaptureFileError(`a capture folder: ${name} is not a regular file`)
+    charge(name, st.size)
+    afterSize?.()
+    const buf = Buffer.alloc(st.size)
+    let got = 0
+    while (got < st.size) {
+      const r = readSync(fd, buf, got, st.size - got, got)
+      if (!r) break
+      got += r
+    }
+    if (got !== st.size || readSync(fd, Buffer.alloc(1), 0, 1, st.size) > 0)
+      throw new CaptureFileError(`a capture folder: ${name} changed size while being read (${st.size} bytes when opened)`) // prettier-ignore
+    return buf
+  } finally {
+    closeSync(fd)
+  }
+}
+
 /** A map's reader and window names, from its folder or its zip. */
 export function openMap(path: string, name: string): { read: Reader; windows: string[] } {
   let read: Reader
   let files: string[]
   if (statSync(path).isDirectory()) {
-    read = n => (existsSync(join(path, n)) ? readFileSync(join(path, n)) : null)
+    const charge = budget(why => {
+      throw new CaptureFileError(`a capture folder: ${why}`)
+    })
+    const seen = new Map<string, Buffer | null>()
+    read = n => {
+      if (!seen.has(n)) {
+        const f = join(path, n)
+        seen.set(n, existsSync(f) ? readBounded(f, n, charge) : null)
+      }
+      return seen.get(n) ?? null
+    }
     const w = join(path, 'windows')
     files = existsSync(w) ? readdirSync(w).filter(n => statSync(join(w, n)).isDirectory()).map(n => `windows/${n}/`) : [] // prettier-ignore
   } else {

@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The desktop app's window and taskbar icon is the HackBench mushroom, the
+  same mark as the title bar, shaded with a gray gradient so it reads on light
+  and dark taskbars. It was Electron's default icon.
 - Overworld view, opened from an Overworld row in the map explorer, after Title Screen
   and New Game. It draws the
   overworld's Foreground and Background from the working copy, the

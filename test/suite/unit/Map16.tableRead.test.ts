@@ -57,6 +57,15 @@ describe('L2 (background) table (no ROM)', () => {
     expect(reasonOf(readL2Map16Table(stub({ bgBound: 0x401 })))).toContain('pointer count')
   })
 
+  it('refuses a bound past the 512-entry Map16Pointers array, never clamps it', () => {
+    expect(reasonOf(readL2Map16Table(stub({ bgBound: 0x402 })))).toContain('Map16Pointers')
+    expect(reasonOf(readL2Map16Table(stub({ bgBound: 0xfffe })))).toContain('Map16Pointers')
+    expect(reasonOf(readL2Map16Table(stub({ hook: HOOK, bgBound: 0x402 })))).toContain(
+      'Map16Pointers',
+    )
+    expect(valueOf(readL2Map16Table(stub({ bgBound: 0x400 })))).toHaveLength(512)
+  })
+
   it('refuses when no level-load JSR reaches the routine holding the loop', () => {
     expect(reasonOf(readL2Map16Table(stub({}, ['bgPath'])))).toContain('JSR')
     const rom = stub()

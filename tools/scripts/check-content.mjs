@@ -305,7 +305,10 @@ export function evaluateEntry(path, buf) {
 // git plumbing
 // ---------------------------------------------------------------------------
 
-class GateError extends Error {}
+class GateError extends Error {
+  /** Hits found before the refusal, still reported (never hidden by it). */
+  hits = []
+}
 
 // --no-replace-objects and grafts: a replace ref or a graft can make the
 // history git shows us differ from what a plain clone/fetch would receive,
@@ -461,16 +464,107 @@ function stagedEntries() {
   return entries
 }
 
+// Read budget (#461): sizes are checked with --batch-check before any content
+// is buffered, so a PR of many large files is refused instead of exhausting the
+// runner. Largest tracked file on develop 2026-10-03 is 340 KB (theia/yarn.lock);
+// 32 MiB per blob is ~100x that and 128 MiB per read is ~390x. A blob of 8 to
+// 32 MiB is still read, and reported by name under the 8 MB `oversize` rule;
+// above 32 MiB the gate refuses (exit 2) naming the path. A size exactly at a
+// limit is accepted; only strictly greater is refused. Whole-history modes
+// skip the total refusal and read in chunks of at most the total instead.
+// The env overrides exist for the tests, which cannot write megabytes.
+const envBytes = (name, dflt) => (/^\d+$/.test(process.env[name] ?? '') ? +process.env[name] : dflt)
+export const DEFAULT_MAX_BLOB_BYTES = 32 << 20
+export const DEFAULT_MAX_TOTAL_BYTES = 128 << 20
+const MAX_BLOB_BYTES = envBytes('CONTENT_GATE_MAX_BLOB_BYTES', DEFAULT_MAX_BLOB_BYTES)
+const MAX_TOTAL_BYTES = envBytes('CONTENT_GATE_MAX_TOTAL_BYTES', DEFAULT_MAX_TOTAL_BYTES)
+/** The limits actually in force (defaults unless the test env overrides). */
+export const effectiveLimits = () => ({ blob: MAX_BLOB_BYTES, total: MAX_TOTAL_BYTES })
+
+const spawnFailure = res => res.error?.message ?? res.stderr
+
+/** Sizes every object, refusing any over the per-blob limit. With `whole`
+ * unset it also refuses a set over the total. `pathOf` (sha -> path) only
+ * improves the message. Returns Map sha -> size. */
+function checkReadBudget(unique, pathOf, whole = false) {
+  const res = spawnGit(['cat-file', '--batch-check'], {
+    input: unique.join('\n') + '\n',
+    maxBuffer: 1 << 26,
+  })
+  if (res.error || res.status !== 0) {
+    throw new GateError(`git cat-file --batch-check failed: ${spawnFailure(res)}`)
+  }
+  const lines = res.stdout
+    .toString('latin1')
+    .split('\n')
+    .filter(l => l.length)
+  const sizes = new Map()
+  let total = 0
+  for (const line of lines) {
+    const [sha, type, sizeStr] = line.split(' ')
+    if (type === 'missing') throw new GateError(`missing endpoint object: ${sha}`)
+    const size = +sizeStr
+    if (!Number.isFinite(size)) throw new GateError(`cat-file --batch-check: bad line "${line}"`)
+    if (size > MAX_BLOB_BYTES) {
+      throw new GateError(
+        `${pathOf?.get(sha) ?? sha} is ${size} bytes, over the ${MAX_BLOB_BYTES}-byte per-file limit`,
+      )
+    }
+    sizes.set(sha, size)
+    total += size
+  }
+  if (!whole && total > MAX_TOTAL_BYTES) {
+    const first = pathOf?.values().next().value
+    throw new GateError(
+      `content to read${first ? ` (including ${first})` : ''} totals ${total} bytes, over the ${MAX_TOTAL_BYTES}-byte total limit`,
+    )
+  }
+  return sizes
+}
+
 /** Batch-reads object content for every distinct sha in `shas` (any type),
- * in one pipe. Never one spawn per object. */
-function batchReadObjects(shas) {
+ * in one pipe, after the size check. Never one spawn per object. */
+function batchReadObjects(shas, pathOf, whole = false) {
   const unique = [...new Set(shas)]
   if (unique.length === 0) return new Map()
+  const sizes = checkReadBudget(unique, pathOf, whole)
+  return readBlobs(
+    unique,
+    [...sizes.values()].reduce((x, y) => x + y, 0),
+  )
+}
+
+/** Calls onBlobs(Map sha -> Buffer) per read. Not whole: one read, refused over
+ * the total. Whole: chunks that each sum to at most the total. */
+function readBudgeted(shas, pathOf, whole, onBlobs) {
+  const unique = [...new Set(shas)]
+  if (unique.length === 0) return
+  if (!whole) return onBlobs(batchReadObjects(unique, pathOf))
+  const sizes = checkReadBudget(unique, pathOf, true)
+  let chunk = []
+  let sum = 0
+  const flush = () => {
+    if (chunk.length) onBlobs(readBlobs(chunk, sum))
+    chunk = []
+    sum = 0
+  }
+  for (const sha of unique) {
+    const size = sizes.get(sha)
+    if (chunk.length && sum + size > MAX_TOTAL_BYTES) flush()
+    chunk.push(sha)
+    sum += size
+  }
+  flush()
+}
+
+function readBlobs(unique, total) {
   const res = spawnGit(['cat-file', '--batch'], {
     input: unique.join('\n') + '\n',
-    maxBuffer: 1 << 30,
+    maxBuffer: total + unique.length * 128 + 1024,
   })
-  if (res.status !== 0) throw new GateError(`git cat-file --batch failed: ${res.stderr}`)
+  if (res.error || res.status !== 0) {
+    throw new GateError(`git cat-file --batch failed: ${spawnFailure(res)}`)
+  }
   const buf = res.stdout
   const out = new Map()
   let off = 0
@@ -482,26 +576,49 @@ function batchReadObjects(shas) {
     if (parts[1] === 'missing') throw new GateError(`missing endpoint object: ${sha}`)
     const size = +parts[2]
     if (!Number.isFinite(size)) throw new GateError(`cat-file --batch: bad header "${header}"`)
-    out.set(sha, Buffer.from(buf.subarray(nl + 1, nl + 1 + size)))
+    out.set(sha, buf.subarray(nl + 1, nl + 1 + size)) // view: freed with the chunk
     off = nl + 1 + size + 1
   }
   return out
 }
 
 /** Evaluates a de-duplicated (path, blob) entry set plus commit messages. */
-function evaluateEntries(entries, messages = []) {
+function evaluateEntries(entries, messages = [], whole = false) {
   const seen = new Map() // `${path}\0${blob}` -> first entry (for "first added")
   for (const e of entries) {
     const key = `${e.path}\0${e.blob}`
     if (!seen.has(key)) seen.set(key, e)
   }
-  const blobs = batchReadObjects([...seen.values()].map(e => e.blob))
+  const list = [...seen.values()]
   const hits = []
-  for (const e of seen.values()) {
-    const buf = blobs.get(e.blob)
-    if (buf === undefined) throw new GateError(`missing endpoint object: ${e.blob} (${e.path})`)
-    for (const hit of evaluateEntry(e.path, buf))
-      hits.push({ ...hit, commit: e.commit, blob: e.blob })
+  const pathOf = new Map(list.map(e => [e.blob, e.path]))
+  const evalWith = blobs => {
+    for (const e of list) {
+      if (!blobs.has(e.blob)) continue
+      for (const hit of evaluateEntry(e.path, blobs.get(e.blob)))
+        hits.push({ ...hit, commit: e.commit, blob: e.blob })
+    }
+  }
+  const blobShas = [...pathOf.keys()]
+  try {
+    readBudgeted(blobShas, pathOf, whole, blobs => {
+      if (!whole) {
+        for (const e of list) {
+          if (!blobs.has(e.blob))
+            throw new GateError(`missing endpoint object: ${e.blob} (${e.path})`)
+        }
+      }
+      evalWith(blobs)
+    })
+  } catch (err) {
+    if (err instanceof GateError) {
+      // A budget refusal must not hide path-rule hits, which need no content.
+      err.hits = [
+        ...hits,
+        ...list.flatMap(e => checkPath(e.path).map(h => ({ ...h, commit: e.commit }))),
+      ]
+    }
+    throw err
   }
   const reviewed = reviewedMessages()
   for (const msg of messages) {
@@ -543,7 +660,7 @@ function reviewedMessages() {
 
 /** Annotated tag bodies (lightweight tags carry no message). One extra
  * git call total, never one per tag. */
-function tagBodyHits() {
+function tagBodyHits(whole = false) {
   const res = spawnGit([
     'for-each-ref',
     '--format=%(objectname) %(objecttype) %(refname)',
@@ -561,16 +678,20 @@ function tagBodyHits() {
     }
   }
   if (tagShas.length === 0) return []
-  const objs = batchReadObjects(tagShas)
   const hits = []
-  for (const sha of tagShas) {
-    const buf = objs.get(sha)
-    if (!buf) continue
-    const text = buf.toString('utf8')
-    const idx = text.indexOf('\n\n')
-    const message = idx === -1 ? '' : text.slice(idx + 2)
-    const label = `<tag ${nameFor.get(sha)}>`
-    for (const hit of checkTextContent(label, message)) hits.push({ ...hit, commit: sha })
+  try {
+    readBudgeted(tagShas, nameFor, whole, objs => {
+      for (const [sha, buf] of objs) {
+        const text = buf.toString('utf8')
+        const idx = text.indexOf('\n\n')
+        const message = idx === -1 ? '' : text.slice(idx + 2)
+        const label = `<tag ${nameFor.get(sha)}>`
+        for (const hit of checkTextContent(label, message)) hits.push({ ...hit, commit: sha })
+      }
+    })
+  } catch (err) {
+    if (err instanceof GateError) err.hits = [...hits, ...err.hits]
+    throw err
   }
   return hits
 }
@@ -664,9 +785,19 @@ function runPush(remote, stdinText) {
   for (const localSha of localShas) {
     requireCommit(localSha, 'pushed ref')
     const { entries, messages } = walkRawDiff([localSha, '--not', ...known])
-    hits.push(...evaluateEntries(entries, messages))
+    try {
+      hits.push(...evaluateEntries(entries, messages, known.length === 0))
+    } catch (err) {
+      if (err instanceof GateError) err.hits = [...hits, ...err.hits]
+      throw err
+    }
   }
-  hits.push(...tagBodyHits())
+  try {
+    hits.push(...tagBodyHits(known.length === 0))
+  } catch (err) {
+    if (err instanceof GateError) err.hits = [...hits, ...err.hits]
+    throw err
+  }
   return dedupeReport(hits)
 }
 
@@ -676,7 +807,13 @@ function runHistory() {
     throw new GateError('history mode refuses a shallow clone: run against full history')
   }
   const { entries, messages } = walkRawDiff(['--all'], { reverse: true })
-  const hits = [...evaluateEntries(entries, messages), ...tagBodyHits()]
+  const hits = [...evaluateEntries(entries, messages, true)]
+  try {
+    hits.push(...tagBodyHits(true))
+  } catch (err) {
+    if (err instanceof GateError) err.hits = [...hits, ...err.hits]
+    throw err
+  }
 
   // Fail on any blob/tree reachable only via a tag/ref pointing at it
   // directly, never via a commit's tree walk. `rev-list --objects` prints
@@ -771,6 +908,7 @@ if (invokedDirectly) {
     main(process.argv.slice(2))
   } catch (err) {
     if (err instanceof GateError) {
+      for (const h of dedupeReport(err.hits)) console.log(formatHit(h))
       process.stderr.write(`check-content: ${err.message}\n`)
       process.exit(2)
     }

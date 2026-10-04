@@ -7,9 +7,9 @@
  * drawn by `renderMap16Tile`, the Map16 sheet's own tile renderer, and a
  * cell blank in the switch state shown gets `ghostOf`'s screen door, the
  * sheet's and the preview's rule. The back area is not baked in: it is a
- * layer of its own in the view, so it can be hidden like any other. L1's two
- * priority planes need no ordering while L1 is drawn
- * alone: its quadrants never overlap each other.
+ * layer of its own in the view, so it can be hidden like any other. L1 is
+ * sent as two planes by the Map16 priority bit; the view stacks them. They never
+ * overlap, so their order is unobservable until L2 exists.
  */
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { RomFile } from '../../../../src/rom/RomFile'
@@ -29,7 +29,9 @@ import { PALACES, type Palace } from '../../../../src/rom/SwitchBlockTiles'
 import { palaceArt, type PalaceArt } from '../../../../src/rom/SwitchArt'
 import { renderMap16Tile } from '../../../../src/rom/TileRenderer'
 import { ghostOf, overlayHidden } from '../../../../src/rom/render/HiddenTiles'
+import { MAP_PLANE_KEYS } from '../common/project-protocol'
 import type {
+  MapPlaneKey,
   MapScreenResult,
   PalaceIconsResult,
   PalaceIconDto,
@@ -50,7 +52,7 @@ export function screenTiles(isVertical: boolean): { w: number; h: number } {
  * MAP16AppTable picks by the strip counter (bank_05.asm:119-124), one per
  * screen since a screen is 16 strips.
  */
-function cellDef(model: L1Inputs, id: number, screen: number): Map16Tile | undefined {
+export function cellDef(model: L1Inputs, id: number, screen: number): Map16Tile | undefined {
   const pipe = id - PIPE_VARIANT_TILE_START
   const sets = model.map16.pipeVariants
   if (pipe >= 0 && pipe < PIPE_VARIANT_TILE_COUNT && sets.length > 0) {
@@ -61,16 +63,20 @@ function cellDef(model: L1Inputs, id: number, screen: number): Map16Tile | undef
 
 export const SWITCHES_OFF: SwitchStateDto = { blue: false, silver: false, onOff: false }
 
+/** A plane's RGBA, or null when no pixel drew in it (the wire sends no image for it). */
+export type L1Planes = Record<MapPlaneKey, Uint8ClampedArray | null>
+
 /**
- * One screen as RGBA: each cell drawn with the switches that are on, blank
- * cells given `ghostOf`'s screen door (both ways, #621), clear where no tile
- * draws.
+ * One screen as RGBA planes: each cell drawn with the switches that are on,
+ * blank cells given `ghostOf`'s screen door (both ways, #621), then each 8x8
+ * quadrant copied into the plane its Map16 priority bit (bit 13) picks. The
+ * planes never overlap, clear where no tile draws.
  */
-export function drawL1Screen(
+export function drawL1Planes(
   model: L1Inputs,
   screen: number,
   switches: SwitchStateDto = SWITCHES_OFF,
-): Uint8ClampedArray {
+): L1Planes {
   const on = new Set((Object.keys(switches) as SwitchKind[]).filter(k => switches[k]))
   // A char input, never a grid remap (#573): the chars the switches change, swapped.
   const vram = on.size > 0 && model.anim ? switchedVram(model.anim, model.vram, on) : model.vram
@@ -78,7 +84,9 @@ export function drawL1Screen(
   const x0 = model.isVertical ? 0 : screen * w
   const y0 = model.isVertical ? screen * h : 0
   const width = w * 16
-  const out = new Uint8ClampedArray(width * h * 16 * 4)
+  const size = width * h * 16 * 4
+  const planes = { l1Low: new Uint8ClampedArray(size), l1High: new Uint8ClampedArray(size) }
+  const drew = { l1Low: false, l1High: false }
   const palette = { colors: model.colors }
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
@@ -89,11 +97,27 @@ export function drawL1Screen(
       const art = model.switchArt.get(def.id)
       const ghost = art && ghostOf(cell, art.off, art.alts, x => x.rgba)
       if (ghost) overlayHidden(cell, 16, 0, 0, ghost)
-      // Cells never overlap, so each row is a straight copy.
-      for (let py = 0; py < 16; py++)
-        out.set(cell.subarray(py * 64, py * 64 + 64), ((y * 16 + py) * width + x * 16) * 4)
+      // The screen door is the hidden tile's art (built from the Map16 entry), so its priority
+      // bits route it, not those of the blank cell drawn in its place.
+      const owner = ghost ? (model.map16.tiles[def.id] ?? def) : def
+      for (const [qx, qy, sub] of [
+        [0, 0, owner.tl],
+        [8, 0, owner.tr],
+        [0, 8, owner.bl],
+        [8, 8, owner.br],
+      ] as const) {
+        const plane = sub.priority ? 'l1High' : 'l1Low'
+        for (let py = qy; py < qy + 8; py++) {
+          const row = cell.subarray((py * 16 + qx) * 4, (py * 16 + qx + 8) * 4)
+          if (!drew[plane]) drew[plane] = row.some((v, i) => i % 4 === 3 && v !== 0)
+          planes[plane].set(row, ((y * 16 + py) * width + x * 16 + qx) * 4)
+        }
+      }
     }
-  return out
+  return {
+    l1Low: drew.l1Low ? planes.l1Low : null,
+    l1High: drew.l1High ? planes.l1High : null,
+  }
 }
 
 const base64 = (b: Uint8ClampedArray) =>
@@ -114,6 +138,7 @@ export function screenResult(
     }
   }
   const { w, h } = screenTiles(model.isVertical)
+  const drawn = drawL1Planes(model, screen, switches)
   return {
     status: 'ok',
     screen,
@@ -121,7 +146,12 @@ export function screenResult(
     orientation: model.isVertical ? 'vertical' : 'horizontal',
     width: w * 16,
     height: h * 16,
-    rgbaBase64: base64(drawL1Screen(model, screen, switches)),
+    planes: Object.fromEntries(
+      MAP_PLANE_KEYS.map(k => {
+        const rgba = drawn[k]
+        return [k, rgba ? base64(rgba) : null]
+      }),
+    ) as Record<MapPlaneKey, string | null>,
     note: [...model.unverified, model.animNote].filter(Boolean).join(' ') || undefined,
     backdrop: [model.backArea[0], model.backArea[1], model.backArea[2]],
   }

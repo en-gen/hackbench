@@ -12,6 +12,7 @@ import { encodeIps } from '../rom/Ips'
 import { encodeBps } from '../rom/Bps'
 import { COPIER_HEADER_SIZE } from '../rom/addressing'
 import { WorkingRom } from './WorkingRom'
+import { projectNameProblem } from './Project'
 
 export const EXPORT_DIR = 'export'
 export type PatchFormat = 'bps' | 'ips'
@@ -39,8 +40,24 @@ export function exportPatch(
   working: WorkingRom,
   format: PatchFormat = 'bps',
 ): ExportedPatch {
+  // Runtime checks: `format` and `name` cross RPC / come from a shared manifest.
+  if (format !== 'bps' && format !== 'ips')
+    throw new Error(`Unknown patch format: ${String(format)}`)
+  const problem = projectNameProblem(name, true)
+  if (problem) throw new Error(`Cannot export: ${problem}`)
   const dir = path.join(projectDirectory, EXPORT_DIR)
   fs.mkdirSync(dir, { recursive: true })
+  // export/ may be a symlink or junction a shared project carries; the real
+  // directory must still be inside the project.
+  const inside = path.relative(fs.realpathSync(projectDirectory), fs.realpathSync(dir))
+  if (inside.startsWith('..') || path.isAbsolute(inside)) {
+    throw new Error(`${EXPORT_DIR}/ resolves outside the project: ${dir}`)
+  }
+  const filePath = path.join(dir, `${name}.${format}`)
+  // A planted link at the target would redirect the write.
+  if (fs.existsSync(filePath) && fs.lstatSync(filePath).isSymbolicLink()) {
+    throw new Error(`Refusing to write through a link: ${filePath}`)
+  }
 
   const strip = format === 'bps' && working.hasCopierHeader ? COPIER_HEADER_SIZE : 0
   const source = working.baseBytes().subarray(strip)
@@ -48,8 +65,15 @@ export function exportPatch(
   const patches = diffPatches(source, target)
   const bytes = format === 'ips' ? encodeIps(patches) : encodeBps(source, target)
 
-  const filePath = path.join(dir, `${name}.${format}`)
-  fs.writeFileSync(filePath, bytes)
+  // Temp file then rename: rename replaces a hard link at the target instead
+  // of writing through it to the file it points at.
+  const tmpPath = `${filePath}.tmp-${process.pid}`
+  try {
+    fs.writeFileSync(tmpPath, bytes, { flag: 'wx' })
+    fs.renameSync(tmpPath, filePath)
+  } finally {
+    fs.rmSync(tmpPath, { force: true })
+  }
   return {
     path: filePath,
     hasCopierHeader: working.hasCopierHeader,
