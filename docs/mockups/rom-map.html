@@ -1425,6 +1425,7 @@
 
     loadedRom = data;
     romHeaderOffset = headerBytes;
+    boundaryCapHit = false;
     romBlocks = computeLevelBoundaries();
 
     const l1Count  = romBlocks.filter(b => b.kind === 'L1').length;
@@ -1432,7 +1433,8 @@
     const sprCount = romBlocks.filter(b => b.kind === 'Sprite').length;
     romStatus.textContent =
       'Loaded ' + name + ' (' + data.length + ' B' + (headerBytes ? ', copier header stripped' : '') + ') \u2014 ' +
-      l1Count + ' L1 / ' + l2Count + ' L2 / ' + sprCount + ' sprite blocks';
+      l1Count + ' L1 / ' + l2Count + ' L2 / ' + sprCount + ' sprite blocks' +
+      (boundaryCapHit ? '; parsing stopped early (work cap reached); block list is incomplete' : '');
     romStatus.classList.add('loaded');
 
     rerenderIfOpen();
@@ -1503,37 +1505,44 @@
     return pos;
   }
 
+  let boundaryCapHit = false;
+
   function computeLevelBoundaries() {
     const byKey = new Map();      // kind+fileStart -> block
-    const register = (kind, snes, fileStart, fileEnd, index) => {
+    // Aggregate budget of bytes walked, so a hostile ROM full of distinct
+    // pointers into long streams cannot make one load run unbounded.
+    let budget = 8 * 0x80000;
+    // Look up the pointer first; only an unseen one is walked.
+    const register = (kind, snes, fileStart, walk, index) => {
       const key = kind + ':' + fileStart;
       const existing = byKey.get(key);
-      if (existing) {
-        existing.indices.push(index);
-      } else {
-        byKey.set(key, {
-          kind, snes, fileStart, fileEnd,
-          size: fileEnd - fileStart,
-          indices: [index],
-        });
-      }
+      if (existing) { existing.indices.push(index); return true; }
+      if (budget <= 0) { boundaryCapHit = true; return false; }
+      const fileEnd = walk(fileStart);
+      budget -= fileEnd - fileStart;
+      byKey.set(key, {
+        kind, snes, fileStart, fileEnd,
+        size: fileEnd - fileStart,
+        indices: [index],
+      });
+      return true;
     };
 
     for (let i = 0; i < 512; i++) {
       const p1 = readPtr3(0x05E000, i);
       if (p1 !== null && (p1 >>> 16) !== 0xFF) {
         const fs = snesToFile(p1);
-        if (fs >= 0 && fs < 0x80000) register('L1', p1, fs, walkObjectStream(fs, true), i);
+        if (fs >= 0 && fs < 0x80000 && !register('L1', p1, fs, f => walkObjectStream(f, true), i)) break;
       }
       const p2 = readPtr3(0x05E600, i);
       if (p2 !== null && (p2 >>> 16) !== 0xFF) {
         const fs = snesToFile(p2);
-        if (fs >= 0 && fs < 0x80000) register('L2', p2, fs, walkObjectStream(fs, false), i);
+        if (fs >= 0 && fs < 0x80000 && !register('L2', p2, fs, f => walkObjectStream(f, false), i)) break;
       }
       const ps = readPtr2Bank07(0x05EC00, i);
       if (ps !== null) {
         const fs = snesToFile(ps);
-        if (fs >= 0 && fs < 0x80000) register('Sprite', ps, fs, walkSpriteStream(fs), i);
+        if (fs >= 0 && fs < 0x80000 && !register('Sprite', ps, fs, walkSpriteStream, i)) break;
       }
     }
 

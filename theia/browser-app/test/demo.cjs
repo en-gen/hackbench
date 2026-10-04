@@ -55,10 +55,17 @@ const OVERLAY = `
   ].join(';')
   document.body.appendChild(el)
   window.__caption = (title, detail, verdict) => {
-    el.innerHTML =
-      '<div style="font-weight:600;color:#4ec9b0">' + title + '</div>' +
-      '<div style="opacity:.85">' + detail + '</div>' +
-      (verdict ? '<div style="margin-top:4px;color:#9cdcfe">' + verdict + '</div>' : '')
+    // textContent only: title/detail/verdict can carry the ROM header title.
+    el.textContent = ''
+    const add = (css, text) => {
+      const d = document.createElement('div')
+      d.style.cssText = css
+      d.textContent = text
+      el.appendChild(d)
+    }
+    add('font-weight:600;color:#4ec9b0', title)
+    add('opacity:.85', detail)
+    if (verdict) add('margin-top:4px;color:#9cdcfe', verdict)
   }
 })()
 `
