@@ -34,6 +34,25 @@ The low-byte subtract is 8-bit: when the bias exceeds the threshold, a
 translevel from the threshold up to bias - 1 lands on $100 + translevel - bias,
 at the top of its half. A set holds those slots as they are.
 
+## Exit graph: the reaching flag
+
+No slot's resolved exits depend on which flag reached it (static
+argument, not measured on a corpus; #451). Roots are excluded from
+`validDestinations`, so each root resolves once under its seeded flag, on
+the Lunar Magic hook path too. A non-root is `(flag ? screenHigh : 0) << 8
+| destLow`: with screenHigh 1 its bit 8 IS its flag; with screenHigh 0
+(stock or hook) both flags resolve identically; readSubmapHigh refuses 2
+or more. The BFS's real job is a reachability gate: an orphaned level's
+exit data never contributes an edge, and a level never reached gets no
+resolved exits.
+
+The hook is Lunar Magic's replacement of the stock `BEQ` that picks the
+entry high byte from `OWPlayerSubmap` (stock BEQ at bank_05.asm:7224,
+opened via smw-mcp `get_lines`; the `$05D8B1` address is from CLAUDE.md,
+not re-derived here). Whether a ROM carries the hook is decided by
+`src/rom/SubmapFlagGate.ts` (`LM_ENTRY_SITE`, `LM_ENTRY_HOOK`), which is
+the authority for the hook claim, not any ASM line.
+
 ## Implementation
 
 `isOverworldLevel(index, roots)` in `src/rom/SmwRom.ts`, with `roots` from

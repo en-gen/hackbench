@@ -363,15 +363,8 @@ export class SmwRom {
    * equivalent: every level reached from overworld root R inherits R's
    * flag -- 1 if R is a submap root, 0 if a main-map root.
    *
-   * No slot's resolved exits depend on which flag reached it (static
-   * argument, not measured on a corpus; #451). Roots are excluded from
-   * `validDestinations`, so each root resolves once under its seeded flag, on
-   * the Lunar Magic hook path too. A non-root is `(flag ? screenHigh : 0) << 8
-   * | destLow`: with screenHigh 1 its bit 8 IS its flag; with screenHigh 0
-   * (stock or hook) both flags resolve identically; readSubmapHigh refuses 2
-   * or more. The BFS's real job is a reachability gate: an orphaned level's
-   * exit data never contributes an edge, and a level never reached gets no
-   * resolved exits.
+   * Why no slot's exits depend on the reaching flag: see
+   * docs/rom/smw-translevel-formula.md, section "Exit graph: the reaching flag".
    *
    * Secondary-exit low byte: DATA_05F800 is two 256-entry halves selected
    * by the same flag (bank_05.asm 7113-7118, `LDY.B _E` reads the _E/_F
