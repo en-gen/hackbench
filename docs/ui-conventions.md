@@ -190,7 +190,9 @@ and the control looks unstyled.
 
 ## Copy
 
-- US spelling. **color**, never "colour".
+- US spelling. **color**, never "colour". `romTerminologyGate.test.ts`
+  fails on "colour" in any string literal or JSX text under
+  `theia/extension/src`, `src/rom` or `src/project` (#273).
 - No em-dashes. A pre-commit hook blocks them in added lines.
 - Say what the app actually does. "Save" is correct; "Save to ROM"
   is not, because saving appends an op layer and the base ROM is
