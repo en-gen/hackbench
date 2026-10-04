@@ -30,7 +30,9 @@ class Hardening(unittest.TestCase):
         self.srv = ThreadingHTTPServer(("127.0.0.1", 0), self.mod.Handler)
         self.port = self.srv.server_address[1]
         self.me = f"127.0.0.1:{self.port}"
-        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        # shutdown() blocks up to one poll interval (default 0.5 s), which was
+        # ~0.5 s of the 81 tests = 41 s of CI. 10 ms keeps the same coverage.
+        threading.Thread(target=self.srv.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
         self.ev = self.mod.T0_DIR / "evidence"
         self.made = []
 
