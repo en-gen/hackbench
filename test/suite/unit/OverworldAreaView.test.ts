@@ -16,6 +16,7 @@ import {
   type OwLayerPixels,
 } from '../../../src/rom/render/OverworldComposite'
 import {
+  decodeAreaView,
   decodeOverworld,
   decodeOverworldArea,
   decodeOverworldAreas,
@@ -24,6 +25,7 @@ import {
 import { overworldRows, opensArea } from '../../../theia/extension/src/browser/map-explorer-areas'
 import { SYNTHETIC_FPS, le24, syntheticOverworldRom } from '../support/syntheticOverworld'
 import { composeDto } from '../support/overworldView'
+import { plantAreas, warpDst } from '../support/syntheticAreas'
 import { VANILLA, freshRom, hasRom } from '../support/corpus'
 import * as pin from '../support/overworld-pin.cjs'
 
@@ -176,6 +178,81 @@ describe('the explorer rows', () => {
   it('the backend refuses with a reason on a ROM without the area routines', () => {
     const dto = decodeOverworldAreas(new SmwRom(syntheticOverworldRom()))
     expect(dto).toEqual({ status: 'unavailable', reason: expect.stringMatching(/not stock/) })
+  })
+})
+
+/** The overworld view's synthetic ROM with the area routines planted and cameras set. */
+function viewRomWithAreas(): ReturnType<typeof syntheticOverworldRom> {
+  const rom = syntheticOverworldRom([0x12, 0x13, 0x15, 0x12, 0x13, 0x15, 0x12])
+  plantAreas(rom)
+  // Area 1 at (-17, 296), area 2 at (240, -40): X != Y, signed.
+  rom.writeAt(0xa06b + 2, [0xef, 0xff, 0xf0, 0x00])
+  rom.writeAt(0xa079 + 2, [0x28, 0x01, 0xd8, 0xff])
+  return rom
+}
+
+describe('decodeAreaView and decodeOverworldAreas (planted area routines)', () => {
+  const view = (rom: ReturnType<typeof syntheticOverworldRom>, n: number) =>
+    decodeAreaView(new SmwRom(rom), n, SYNTHETIC_FPS)
+
+  it('a refused derivation refuses the view with the derivation reason, no vanilla camera', () => {
+    const rom = viewRomWithAreas()
+    rom.writeAt(0x00a130, [0x00]) // the camera read's first opcode
+    const r = view(rom, 1)
+    expect(r).toEqual({
+      status: 'unavailable',
+      reason: expect.stringMatching(/camera read .*not stock/),
+    })
+    expect(decodeOverworldAreas(new SmwRom(rom))).toEqual({
+      status: 'unavailable',
+      reason: expect.stringMatching(/camera read .*not stock/),
+    })
+  })
+
+  it('an area the set does not name is refused', () => {
+    expect(view(viewRomWithAreas(), 8)).toEqual({
+      status: 'unavailable',
+      reason: 'The ROM names no area 8.',
+    })
+  })
+
+  it('an invalid area gives its reason and no pixels', () => {
+    const rom = viewRomWithAreas()
+    warpDst(rom, 26, 9)
+    const r = view(rom, 9)
+    expect(r).toEqual({
+      status: 'unavailable',
+      reason: expect.stringMatching(/warp record 26 leads to area 9, past the camera table/),
+    })
+    expect(JSON.stringify(r)).not.toContain('rgbaBase64')
+  })
+
+  it('a valid area equals decodeOverworldArea at the derived camera', () => {
+    const rom = viewRomWithAreas()
+    const want = decodeOverworldArea(
+      new SmwRom(rom),
+      { area: 1, cameraX: -17, cameraY: 296 },
+      SYNTHETIC_FPS,
+    )
+    expect(want.status).toBe('ok')
+    expect(view(rom, 1)).toEqual(want)
+    // Area 2's own camera, not area 1's.
+    expect(view(rom, 2)).toEqual(
+      decodeOverworldArea(new SmwRom(rom), { area: 2, cameraX: 240, cameraY: -40 }, SYNTHETIC_FPS),
+    )
+    expect(view(rom, 2)).not.toEqual(want)
+  })
+
+  it('the area list drops area 0 and keeps an invalid area with its reason', () => {
+    const rom = viewRomWithAreas()
+    expect(decodeOverworldAreas(new SmwRom(rom))).toEqual({
+      status: 'ok',
+      areas: [1, 2, 3, 4, 5, 6].map(area => ({ area })),
+    })
+    warpDst(rom, 26, 9)
+    const r = decodeOverworldAreas(new SmwRom(rom))
+    expect(r.status === 'ok' && r.areas.map(a => a.area)).toEqual([1, 2, 3, 4, 5, 6, 9])
+    expect(r.status === 'ok' && r.areas.find(a => a.area === 9)!.invalid).toMatch(/area 9/)
   })
 })
 

@@ -251,7 +251,11 @@ test('the Overworld and area views zoom: stepper, canvas CSS size, bitmap untouc
     [AREA_VIEW(1), 256, 224],
     [VIEW, 512, 512],
   ]) {
-    await page.waitForSelector(`${view} .hb-overworld-canvas`, { timeout: 30000 })
+    // A background tab's canvas is attached but not visible: wait for attached, then bring it up.
+    await page.waitForSelector(`${view} .hb-overworld-canvas`, {
+      state: 'attached',
+      timeout: 30000,
+    })
     // Only the front tab is laid out: bring this one up before measuring it.
     await page.evaluate(
       async id => {

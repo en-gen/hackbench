@@ -40,6 +40,19 @@ describe('legacy overworld loaders', () => {
     expect(legacyCallers(path.join(root, 'theia/extension/src'), definer)).toEqual([])
   })
 
+  it('overworldCgram, which Theia calls, does not reference them either', () => {
+    // The definer file is skipped above (it holds the legacy loaders themselves), so name the
+    // one function in it the Theia path reaches.
+    const src = fs.readFileSync(path.join(root, 'src/rom/OverworldLoader.ts'), 'utf8')
+    const start = src.indexOf('export function overworldCgram')
+    expect(start).toBeGreaterThan(0)
+    const end = src.slice(start).search(/\r?\n\}\r?\n/)
+    expect(end).toBeGreaterThan(0)
+    const body = src.slice(start, start + end)
+    expect(body.length).toBeGreaterThan(200)
+    expect(body).not.toMatch(LEGACY)
+  })
+
   it('the scan can fail: it finds the definer when not skipped', () => {
     expect(legacyCallers(path.join(root, 'src/rom'), () => false)).toContain(
       'src/rom/OverworldLoader.ts',

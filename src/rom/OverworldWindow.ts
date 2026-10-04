@@ -2,7 +2,7 @@
  * An area's camera window over half 1 (en-gen/hackbench#364). The one place the mapping lives,
  * so edits made in an area view can land on the same grid location later (#283).
  * Camera X/Y: DATA_00A06B / DATA_00A079, bank_00.asm:4242-4248. The BG wraps at 512 (the
- * 64x64 tile layout, bank_04.asm:2692-2698).
+ * BG tilemaps are 64x64, bank_00.asm:1268-1271).
  */
 import { OW_HALF_H, OW_HALF_W, type OwLayerPixels } from './render/OverworldComposite'
 

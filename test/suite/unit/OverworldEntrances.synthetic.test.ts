@@ -90,13 +90,14 @@ function buildRom(tiles: Record<number, number>, opts: RomOpts = {}): SmwRom {
     buf[off(OW_EVENT_ADDR.TO_LIST) + i] = to
   })
 
-  // Area 1 at (-16, -16) puts its Map16 window origin at (-1, -1); areas 2-6 stay at 0.
+  // Area 1 at (-16, 32) puts its Map16 window origin at column -1, row 2; areas 2-6 sit far
+  // off (4000, 4000) so they never match.
   derived.result = opts.cameras
     ? {
         areas: [0, 1, 2, 3, 4, 5, 6].map(area => ({
           area,
-          cameraX: area === 1 ? -16 : 0,
-          cameraY: area === 1 ? -16 : 0,
+          cameraX: area === 1 ? -16 : 4000,
+          cameraY: area === 1 ? 32 : 4000,
         })),
       }
     : { unavailable: 'no camera read' }
@@ -292,13 +293,21 @@ describe('deriveOverworldEntrances: sub-map inference', () => {
   })
 
   it('places a sub-map tile in the area whose camera window covers it', () => {
-    // Area 1's camera is (-16,-16) -> window origin (-1,-1), 16x14 tiles.
-    // Areas 2..6 sit at origin (0,0) in this synthetic ROM, so a tile at
-    // (0,0) matches area 1 first and a tile at row 15 matches none.
-    const rom = buildRom({ 0x400: 0x6e, 0x4f0: 0x6e }, { cameras: true })
+    // Area 1's camera is (-16, 32) -> window origin column -1, row 2, 16x14 tiles: rows 2-15.
+    // X != Y, so a row start taken from cameraX (-1) would put row 15 outside the window
+    // and row 0 inside it.
+    const rom = buildRom(
+      { 0x400: 0x6e, 0x420: 0x6e, 0x42e: 0x6e, 0x4f0: 0x6e, 0x600: 0x6e },
+      { cameras: true },
+    )
     const result = derive(rom)
-    expect(result.entrances[0]).toMatchObject({ tileX: 0, tileY: 0, submap: 1 })
-    expect(result.entrances[1]).toMatchObject({ tileX: 0, tileY: 15, submap: null })
+    expect(result.entrances.map(e => [e.tileX, e.tileY, e.submap])).toEqual([
+      [0, 0, null],
+      [0, 2, 1],
+      [14, 2, 1],
+      [0, 15, 1],
+      [0, 16, null],
+    ])
     expect(result.notes.some(n => n.includes('outside every camera-derived'))).toBe(true)
   })
 })
@@ -307,6 +316,7 @@ describe('deriveOverworldEntrances: refused camera read', () => {
   it('leaves a sub-map tile without a submap instead of guessing from vanilla windows', () => {
     const result = derive(buildRom({ 0x400: 0x6e }))
     expect(result.entrances[0]).toMatchObject({ layout: 1, submap: null })
+    expect(result.notes.join(' ')).toMatch(/area derivation is unavailable \(no camera read\)/)
   })
 })
 

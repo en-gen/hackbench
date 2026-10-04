@@ -56,6 +56,10 @@ per area when the byte is not in the ROM) and the palette
   8x8 cell.
 - Measured on vanilla (one ROM): cameras are (-17,-40), (-17,128), (-17,296),
   (240,-40), (240,128), (240,296) for areas 1-6.
+- `DATA_04DC02` has no readable length: the only index into it is the area byte at
+  `CODE_04DC09`, whose index chain (`PlayerTurnOW`, `OWPlayerSubmap`, bank_04.asm:5638-5644)
+  the L1 reader now pins. A hack that lengthens the camera table without lengthening the
+  tileset table would read past it; that is a named fragility point, not a check.
 - An area the derivation marks invalid (past the camera table) keeps its
   explorer row with the reason in its tooltip and opens nothing. A refused
   derivation gives no child rows and the reason on the Overworld row; the hub
