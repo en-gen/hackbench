@@ -340,7 +340,7 @@ function buildBackAreaGroup(backAreaColors: RgbaColor[]): AttributedGroup {
     label: 'Back Area Colors',
     cgRamRow: null,
     description:
-      'The 8 fixed background colours, written to PPU register $2132 (COLDATA) rather than ' +
+      'The 8 fixed background colors, written to PPU register $2132 (COLDATA) rather than ' +
       'to CGRAM. A map chooses among them with level header byte 1 bits 7-5, independent of ' +
       'its BG palette. BackAreaColors at $B0A0.',
     variants: [{ label: 'Fixed', romAddr: ADDR_BACK_AREA, rows: [cells] }],
