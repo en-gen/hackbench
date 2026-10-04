@@ -15,26 +15,33 @@ const VIEWBOX = '0 -0.20733 95.41467 95.41467'
 export const readPath = () =>
   /<path d="([^"]+)"/.exec(readFileSync(path.join(root, 'build/icons/icon.svg'), 'utf8'))[1]
 
-// The path's outer contour is its second subpath. Its relative `m` is measured
-// from the start of the first subpath (a `z` returns there), so its absolute
-// start is first start + that offset.
-export function outerContour(d) {
-  const [first, second] = d.split(/z/i)
-  const start = s => /^\s*m\s*(-?[\d.]+)[\s,]*(-?[\d.]+)/i.exec(s).slice(1).map(Number)
-  const [x0, y0] = start(first)
-  const [dx, dy] = start(second)
-  return (
-    second.replace(
-      /^\s*m\s*-?[\d.]+[\s,]*-?[\d.]+/i,
-      `M${+(x0 + dx).toFixed(3)} ${+(y0 + dy).toFixed(3)}`,
-    ) + 'z'
-  )
+// Absolute-start subpaths. A relative `m` after `z` is measured from the start
+// of the subpath just closed, so each start is the previous start plus offset.
+export function subpaths(d) {
+  const m = /^\s*m\s*(-?[\d.]+)[\s,]*(-?[\d.]+)/i
+  let x = 0
+  let y = 0
+  return d
+    .split(/z/i)
+    .filter(chunk => m.test(chunk))
+    .map((chunk, i) => {
+      const [dx, dy] = m.exec(chunk).slice(1).map(Number)
+      ;[x, y] = i === 0 ? [dx, dy] : [x + dx, y + dy]
+      return chunk.replace(m, `M${+x.toFixed(3)} ${+y.toFixed(3)}`) + 'z'
+    })
 }
 
-// White under the holes. Scaled 1% about the center so its antialiased edge
-// sits inside the path's, instead of haloing the outline.
+// The outer silhouette is the second subpath; every other one is a hole or
+// something inside one (spots, face, eyes).
+export const outerContour = d => subpaths(d)[1]
+
+// White under every subpath except the outer contour. It never reaches the
+// outer edge, so it cannot rim or halo the outline at any size; its edges are
+// the holes' own edges. Eyes get white too, and the gray path paints over them.
 export const backingSvg = d =>
-  `<path fill="#fff" transform="translate(47.7 47.5) scale(.99) translate(-47.7 -47.5)" d="${outerContour(d)}"/>`
+  `<path fill="#fff" d="${subpaths(d)
+    .filter((_, i) => i !== 1)
+    .join('')}"/>`
 
 export const coloredSvg = (d, backing = backingSvg(d)) =>
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${VIEWBOX}">` +
