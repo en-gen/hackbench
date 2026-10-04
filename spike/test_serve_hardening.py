@@ -9,7 +9,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-SERVERS = ["t0", "t4", "t7", "t13"]
+SERVERS = ["t0", "t1", "t4", "t5", "t6", "t7", "t8", "t10", "t13"]
 
 
 def load(t):
@@ -36,10 +36,16 @@ class Hardening(unittest.TestCase):
             f.unlink(missing_ok=True)
 
     def req(self, method, path, body=b"x", headers=None):
-        c = http.client.HTTPConnection("127.0.0.1", self.port)
-        c.request(method, path, body if method == "POST" else None, headers or {})
-        r = c.getresponse()
-        return r.status, r, r.read()
+        for attempt in range(3):
+            # Windows can RST a connection the server closed with an unread body.
+            try:
+                c = http.client.HTTPConnection("127.0.0.1", self.port)
+                c.request(method, path, body if method == "POST" else None, headers or {})
+                r = c.getresponse()
+                return r.status, r, r.read()
+            except ConnectionError:
+                if attempt == 2:
+                    raise
 
     def save(self, name, token=True, **h):
         if token:
