@@ -64,10 +64,11 @@ class Hardening(unittest.TestCase):
 
     def refused(self, name, code, **kw):
         # The status must be a refusal AND nothing may have been written.
-        target = self.ev / name
-        self.assertFalse(target.exists(), name)
+        # Compare directory listings: Path.exists() is True for device names like CON.
+        before = set(os.listdir(self.ev)) if self.ev.is_dir() else set()
         self.assertEqual(self.save(name, **kw), code, name)
-        self.assertFalse(target.exists(), name)
+        after = set(os.listdir(self.ev)) if self.ev.is_dir() else set()
+        self.assertEqual(before, after, name)
 
     def test_bad_names_refused(self):
         outside = self.mod.T0_DIR / "evil.txt"
