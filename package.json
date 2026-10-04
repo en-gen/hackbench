@@ -193,6 +193,7 @@
     "lint:fix": "eslint src test tools theia *.js *.mjs --fix",
     "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,css}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,cjs,css}\"",
+    "gen:icon": "node tools/scripts/gen-app-icon.mjs",
     "gitnexus": "bash tools/scripts/gitnexus-refresh.sh",
     "test": "tsc -p tsconfig.test.json && vitest run",
     "test:unit": "vitest run",

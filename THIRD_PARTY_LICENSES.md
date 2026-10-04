@@ -68,3 +68,12 @@ does. It does not reproduce third-party documentation.
 The published SNES and SMW references this project relies on are listed,
 with links, in [docs/references.md](./docs/references.md). Those works
 remain under their authors' terms and are not redistributed here.
+
+---
+
+## Mushroom icon
+
+- **License:** Public domain (below the threshold of originality, per Wikimedia Commons)
+- **Author:** Lucian Novosel, after Nintendo's Super Mushroom design
+- **Upstream:** https://commons.wikimedia.org/wiki/File:Novosel_mushroom.svg
+- **Used for:** the title-bar mark (`build/icons/icon.svg`) and the window and taskbar icon (`build/icons/app/`), which adds a gray gradient and white backing.

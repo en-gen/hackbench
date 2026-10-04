@@ -1,19 +1,19 @@
 import * as fs from 'fs'
 import * as path from 'path'
 
-// Found by walking up from this file to the repo's build/icons/app, so the
-// same code resolves from src/ (tests) and from lib/theia/extension/src/ (the
-// built app), and never depends on the process cwd. The icons live under
-// build/icons because the content gate allows binary images only there.
+// Walks up from the code's own directory (never the cwd) to the repo's
+// build/icons/app, so it resolves from src/ (tests), lib/ (tsc output) and
+// theia/electron-app/lib/backend (the esbuild bundle that actually runs). The
+// icons live under build/icons because the content gate allows binary images
+// only there. Undefined when the file is absent: an icon never blocks startup.
 export function appIconPath(
   platform: string = process.platform,
   fromDir: string = __dirname,
-): string {
-  let dir = fromDir
-  while (!fs.existsSync(path.join(dir, 'build', 'icons', 'app'))) {
-    const parent = path.dirname(dir)
-    if (parent === dir) throw new Error(`HackBench icon assets not found above ${fromDir}`)
-    dir = parent
+): string | undefined {
+  const name = platform === 'win32' ? 'icon.ico' : 'icon.png'
+  for (let dir = fromDir, parent = ''; dir !== parent; parent = dir, dir = path.dirname(dir)) {
+    const file = path.join(dir, 'build', 'icons', 'app', name)
+    if (fs.existsSync(file)) return file
   }
-  return path.join(dir, 'build', 'icons', 'app', platform === 'win32' ? 'icon.ico' : 'icon.png')
+  return undefined
 }
