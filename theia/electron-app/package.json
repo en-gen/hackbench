@@ -20,7 +20,7 @@
   },
   "devDependencies": {
     "@theia/cli": "1.75.0",
-    "electron": "42.8.1"
+    "electron": "42.10.0"
   },
   "scripts": {
     "bundle": "theia build --mode development",

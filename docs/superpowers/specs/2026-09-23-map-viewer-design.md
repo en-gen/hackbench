@@ -211,11 +211,12 @@ rendered phases.
 
 **The grid is recomputed coarsely, deliberately.** Which Map16 id lands at a
 cell depends on the level header, the tileset, the object stream AND ROM
-code paths. `CODE_05801E` (`bank_05.asm:20-49`) forces `ObjectTileset := 0`
-whenever a level's Background is a preset, regardless of the header;
-`MapBuilder` never applied it, and on `$93`, `$94`, `$d3`, `$193` and `$194`
+code paths. `CODE_05801E` (`bank_05.asm:20-67`) writes `ObjectTileset := 0`
+(line 51) when a level's Background is a preset, but the header parse that
+`LoadLevel` runs next sets it again from the header (line 626), so the zero
+never reaches object expansion. On `$93`, `$94`, `$d3`, `$193` and `$194`
 object `$3C` painted a full width wall the ROM never draws, about 212 of
-432 tiles. An oracle found that, not reading. A dependency graph missing an
+432 tiles; the cause is not known. An oracle found that, not reading. A dependency graph missing an
 edge like that is silently wrong; a coarse recomputation can only be slow,
 and one object-stream expansion is cheap.
 

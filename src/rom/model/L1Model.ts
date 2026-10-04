@@ -6,6 +6,7 @@
  * tab shows, by construction rather than by keeping two copies in step.
  */
 import type { SmwRom } from '../SmwRom'
+import { hex3s as hex3 } from '../hex'
 import type { RomFile } from '../RomFile'
 import type { RgbaColor } from '../GraphicsDecoder'
 import {
@@ -15,6 +16,7 @@ import {
   type LevelHeader,
 } from '../LevelParser'
 import { drawInterpreted } from '../objectHandlers/interpretedDraw'
+import { VANILLA_PRIMITIVES } from '../objectHandlers/interpret'
 import { expandMap, type SwitchFlags, type TileGrid } from '../ObjectExpander'
 import { loadMap16WithPipeVariants, map16TileCapacity, type Map16Tile } from '../Map16'
 import { gfxSource, loadVram, type VramState } from '../GfxLoader'
@@ -90,8 +92,6 @@ export interface L1Inputs {
 }
 
 export type L1InputsResult = { ok: true; inputs: L1Inputs } | { ok: false; reason: string }
-
-const hex3 = (n: number) => `$${n.toString(16).toUpperCase().padStart(3, '0')}`
 
 /** Everything `assembleL1Inputs` needs, read from the ROM and nothing else. */
 export interface L1Readings {
@@ -208,7 +208,7 @@ export function buildL1Inputs(rom: SmwRom, index: number, flags: SwitchFlags): L
     const tileset = header.objectTileset
     // No levelNum: the Layer 3 overflow screens are not this map's own.
     const unverified: string[] = []
-    const grid = expandMap(objects, header.levelLength, rom.rom, tileset, isVertical, header.levelMode, undefined, flags, { unverified, draw: drawInterpreted }) // prettier-ignore
+    const grid = expandMap(objects, header.levelLength, rom.rom, tileset, isVertical, header.levelMode, undefined, flags, { unverified, draw: drawInterpreted, primitives: VANILLA_PRIMITIVES }) // prettier-ignore
 
     const gfx = gfxSource(rom.rom)
     if (!gfx.ok) return refuse(`GFX cannot be read: ${gfx.reason}`)

@@ -459,4 +459,27 @@ describe('EmulatorDriver', () => {
       expect(canvases[0].removed, 'nor its canvas').toBe(true)
     })
   })
+
+  describe('setButton port routing', () => {
+    function withInput() {
+      const input = vi.fn()
+      const driver = new EmulatorDriver()
+      ;(driver as unknown as { module: EmscriptenModule }).module = fakeModule({
+        _simulate_input: input,
+      })
+      return { driver, input }
+    }
+
+    it('defaults to port 0 and sends the given port otherwise', () => {
+      const { driver, input } = withInput()
+      driver.setButton(8, true)
+      driver.setButton(8, true, 1)
+      driver.setButton(8, false, 1)
+      expect(input.mock.calls).toEqual([
+        [0, 8, 1],
+        [1, 8, 1],
+        [1, 8, 0],
+      ])
+    })
+  })
 })

@@ -1,6 +1,6 @@
 /*
  * The volume split button (volume-split-button.tsx). Themed tokens only, per
- * style/index.css. Self-contained rather than borrowing .hb-emulator-btn,
+ * style/index.css. Self-contained rather than borrowing the emulator toolbar's .hb-icon-btn,
  * because other views that play sound will reuse this control.
  */
 

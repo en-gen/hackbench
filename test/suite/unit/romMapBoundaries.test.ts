@@ -16,17 +16,16 @@ interface Result {
   reads: number
 }
 
-function loadParser(): (rom: Uint8Array) => Result {
-  const src = fs.readFileSync(path.resolve(__dirname, '../../../docs/mockups/rom-map.html'), 'utf8')
-  const a = src.indexOf('  function readRomByte(snes)')
-  const b = src.indexOf('  function findBlockAt(')
-  if (a < 0 || b < a) throw new Error('rom-map.html parser region not found')
-  const body = src
-    .slice(a, b)
-    .replace(
-      'function readRomByteFile(fileOffset) {',
-      'function readRomByteFile(fileOffset) { __reads++;',
-    )
+const MOCKUP = path.resolve(__dirname, '../../../docs/mockups/rom-map.html')
+
+function loadParser(src = fs.readFileSync(MOCKUP, 'utf8')): (rom: Uint8Array) => Result {
+  const a0 = src.indexOf('  function readRomByte(snes)')
+  const b0 = src.indexOf('  function findBlockAt(')
+  if (a0 < 0 || b0 < a0) throw new Error('rom-map.html parser region not found')
+  const anchor = 'function readRomByteFile(fileOffset) {'
+  if (!src.includes(anchor))
+    throw new Error('readRomByteFile signature changed; read counter not installed')
+  const body = src.slice(a0, b0).replace(anchor, anchor + ' __reads++;')
   const code = `
     const BANK_BYTES = 0x8000;
     function snesToFile(snes) { return (((snes >>> 16) & 0x7F) * BANK_BYTES) + (snes & 0x7FFF); }
@@ -58,6 +57,15 @@ function makeRom(l1Snes: (i: number) => number): Uint8Array {
 }
 
 describe('rom-map computeLevelBoundaries', () => {
+  it('refuses a source whose read-counter anchor is missing', () => {
+    const src = [
+      '  function readRomByte(snes) {}',
+      '  function readRomByteFile(off) {}',
+      '  function findBlockAt() {}',
+    ].join(' ')
+    expect(() => loadParser(src)).toThrow('readRomByteFile signature changed')
+  })
+
   const run = loadParser()
 
   it('walks a stream shared by all 512 L1 pointers once and keeps every index', () => {
@@ -67,6 +75,7 @@ describe('rom-map computeLevelBoundaries', () => {
     expect(l1[0].indices).toHaveLength(512)
     expect(r.capHit).toBe(false)
     // One L1 walk plus one sprite walk; 512 rewalks would be ~100x this.
+    expect(r.reads).toBeGreaterThan(0)
     expect(r.reads).toBeLessThan(4 * 0x80000)
   })
 
@@ -74,6 +83,7 @@ describe('rom-map computeLevelBoundaries', () => {
     const r = run(makeRom(i => 0x028000 + i * 3))
     expect(r.capHit).toBe(true)
     expect(r.blocks.filter(b => b.kind === 'L1').length).toBeLessThan(100)
+    expect(r.reads).toBeGreaterThan(0)
     expect(r.reads).toBeLessThan(12 * 0x80000)
   })
 
@@ -82,6 +92,7 @@ describe('rom-map computeLevelBoundaries', () => {
     rom[0x78005] = 0xff // terminate the shared stream after its 5-byte header
     const r = run(rom)
     const shared = r.blocks.find(b => b.kind === 'L1' && b.fileStart === 0x78000)
+    expect(r.reads).toBeGreaterThan(0)
     expect(shared?.indices).toEqual([0, 511])
     expect(r.capHit).toBe(true)
     expect(r.blocks.filter(b => b.kind === 'L1').length).toBeLessThan(100)

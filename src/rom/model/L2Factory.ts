@@ -1,15 +1,14 @@
 import type { RomFile } from '../RomFile'
 import {
-  L2_BG_PLANE_ROWS,
   L2_EMPTY_TILE,
-  L2_TILEMAP_COLS,
-  L2_TILEMAP_ROWS,
   computeL2ScrollRange,
   isPresetPtr,
   loadL2Objects,
   loadL2Preset,
   readInitialLayer2YPos,
+  l2PaletteOrForTileset,
   readL2Pointer,
+  tilePresetGrid,
 } from '../L2Loader'
 import { type ColumnDyRange } from '../scrollSim'
 import {
@@ -27,23 +26,6 @@ import { PaletteOrBehavior } from './tiles/behaviors/PaletteOrBehavior'
 import { StaticQuadBehavior } from './tiles/behaviors/StaticQuadBehavior'
 import { makeTransparentPlaceholderChar, quadFromMap16 } from './tiles/TileFactory'
 import { Tile } from './tiles/Tile'
-
-/**
- * Tileset(s) where SMW's L2 strip uploader OR's `$1000` (= palette bit 2)
- * into every L2 subtile attribute. The check sits inline in the routine -
- * `LDA.W ObjectTileset / CMP.B #$03` at bank_05.asm:1387-1391 + 1503-1507 -
- * with no pointer table, so this is the entire set: tileset 3 only.
- *
- * The OR mask itself in tilemap-entry coords is `$1000` = bit 12 = palette
- * index += 4 (the 3-bit palette field lives at bits 10-12 of a tilemap word).
- * Expressed against our 0..7 `SubTile.palette` field, the mask is simply `4`.
- */
-const L2_TILESET3_PALETTE_OR = 4
-
-/** Returns the value OR'd with each L2 subtile's palette for this tileset. */
-export function l2PaletteOrForTileset(objectTileset: number): number {
-  return objectTileset === 3 ? L2_TILESET3_PALETTE_OR : 0
-}
 
 /**
  * Wrap each L1 tile's behavior in `PaletteOrBehavior` when L2 needs the
@@ -110,18 +92,7 @@ export function buildL2(
     const rows = isVertical ? screens * SCREEN_H_VERT : SCREEN_H
     // Grid of BG Map16 ids. The L2Preset resolves ids against the shared
     // `bgTiles` map at render time rather than holding Tile references.
-    //
-    // We render every byte - including the $25 pre-init filler CODE_05801E
-    // writes before decompression - because SMW's upload loop (CODE_058D7A,
-    // bank_05.asm:1680-1705) indexes Map16BGTiles with that byte unconditionally.
-    // Map16BGTiles[$025] is a real visible tile (char $13D), not empty.
-    const grid: (number | null)[][] = Array.from({ length: rows }, (_, r) =>
-      Array.from({ length: cols }, (_, c) => {
-        const rr = r % L2_BG_PLANE_ROWS
-        if (rr >= L2_TILEMAP_ROWS) return null
-        return preset.grid[rr][c % L2_TILEMAP_COLS]
-      }),
-    )
+    const grid = tilePresetGrid(preset, cols, rows)
     return new L2Preset(preset.page, grid, bgTiles)
   }
 

@@ -1,12 +1,13 @@
 /**
- * The map tab draws the L1 (foreground), en-gen/hackbench#205 step 3.
+ * The map tab draws the L1 (foreground), en-gen/hackbench#205 step 3, and the
+ * L2 (background) under it, en-gen/hackbench#459.
  *
  * Every assertion reads PIXELS back, never the mere presence of a canvas: a
  * blank canvas is on screen too, and the first build of this tab passed six
  * presence-flavored checks while the user saw only sky. So the first test
  * reads what is inside the VIEWPORT, not what is somewhere in the canvas.
  *
- * Each screen is its own canvas (`[data-screen=N]`) at native resolution,
+ * Each screen is its own canvas per plane (`[data-screen=N][data-plane=l1Low]`) at native resolution,
  * carrying `data-drawn="<generation>:<palaces>:<switches>:<screen>"` once the
  * reply for the current state is painted; palaces are yellow, green, red,
  * blue bits, switches blue P-switch, silver P-switch, ON/OFF.
@@ -18,7 +19,7 @@
  */
 const { test, expect } = require('@playwright/test')
 const { CART, shownWords } = require('./rom-words.cjs')
-const { expectCheckerboard } = require('./pixel-canvas.cjs')
+const { expectCheckerboard, PAGE_COMPOSE } = require('./pixel-canvas.cjs')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
@@ -61,6 +62,7 @@ test.beforeEach(async ({ page }) => {
   await page.waitForSelector('#theia-app-shell', { timeout: 90000 })
   await page.waitForTimeout(4000)
   await page.addScriptTag({ content: GET_SVC })
+  await page.addScriptTag({ content: PAGE_COMPOSE })
 })
 
 test.afterEach(async ({ page }) => {
@@ -109,11 +111,9 @@ async function openMap(page, manifestPath, index) {
     { mp: manifestPath, index },
   )
   opened.push(`hackbench.map-view:${index}`)
-  await expect(page.locator(`${root(index)} canvas[data-screen="0"]`)).toHaveAttribute(
-    'data-drawn',
-    drawn(0),
-    { timeout: 30000 },
-  )
+  await expect(
+    page.locator(`${root(index)} canvas[data-screen="0"][data-plane="l1Low"]`),
+  ).toHaveAttribute('data-drawn', drawn(0), { timeout: 30000 })
 }
 
 async function activate(page, index) {
@@ -125,7 +125,7 @@ async function activate(page, index) {
 
 /** Scrolls a screen into view and waits until it is painted for the given palaces. */
 async function showScreen(page, index, screen, yellow = false) {
-  const sel = `${root(index)} canvas[data-screen="${screen}"]`
+  const sel = `${root(index)} canvas[data-screen="${screen}"][data-plane="l1Low"]`
   await page.locator(sel).evaluate(el => el.scrollIntoView({ inline: 'start', block: 'nearest' }))
   await expect(page.locator(sel)).toHaveAttribute('data-drawn', drawn(screen, yellow), {
     timeout: 15000,
@@ -133,8 +133,8 @@ async function showScreen(page, index, screen, yellow = false) {
 }
 
 /**
- * One screen's pixels as the user sees them, laid over the back area layer
- * (L1 is clear where no tile draws): a positional checksum, distinct colors,
+ * One screen's pixels as the user sees them: the planes that are shown, over the back area
+ * layer (a hidden layer is left out; L1 is clear where no tile draws): a positional checksum, distinct colors,
  * per-cell checksums, raw RGBA.
  */
 async function readScreen(page, index, screen) {
@@ -144,7 +144,7 @@ async function readScreen(page, index, screen) {
       const bg = getComputedStyle(document.querySelector(`${rootSel} [data-layer="back-area"]`))
         .backgroundColor.match(/\d+/g)
         .map(Number)
-      const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+      const data = composeCanvases(planesOf(rootSel, c.dataset.screen), 0, 0, c.width, c.height)
       for (let i = 0; i < data.length; i += 4) {
         const a = data[i + 3]
         for (let k = 0; k < 3; k++)
@@ -166,9 +166,17 @@ async function readScreen(page, index, screen) {
         for (let cx = 0; cx < c.width / 16; cx++) cells[`${cx},${cy}`] = checksumOf(cellOf(cx, cy))
       return { checksum: checksumOf(data), distinct: distinct.size, cells, rgba: Array.from(data) }
     },
-    { sel: `${root(index)} canvas[data-screen="${screen}"]`, rootSel: root(index) },
+    {
+      sel: `${root(index)} canvas[data-screen="${screen}"][data-plane="l1Low"]`,
+      rootSel: root(index),
+    },
   )
 }
+
+/** The planes of a screen, L1's by default: low, then high. */
+const MAP_PLANES = ['l2Low', 'l1Low', 'l2High', 'l1High']
+const planeLocators = (page, index, screen, planes = ['l1Low', 'l1High']) =>
+  planes.map(p => page.locator(`${root(index)} canvas[data-screen="${screen}"][data-plane="${p}"]`))
 
 const changedCells = (a, b) => Object.keys(a.cells).filter(k => a.cells[k] !== b.cells[k])
 
@@ -186,7 +194,7 @@ async function readViewport(page, index) {
     const distinct = new Set()
     const screens = []
     let fullHeight = true
-    for (const c of scroller.querySelectorAll('canvas[data-screen]')) {
+    for (const c of scroller.querySelectorAll('canvas[data-plane="l1Low"]')) {
       const r = c.getBoundingClientRect()
       const left = Math.max(r.left, view.left)
       const right = Math.min(r.right, view.left + visW)
@@ -200,7 +208,7 @@ async function readViewport(page, index) {
       const y0 = Math.floor((top - r.top) * sy)
       const w = Math.max(1, Math.floor((right - left) * sx))
       const h = Math.max(1, Math.floor((bottom - top) * sy))
-      const data = c.getContext('2d').getImageData(x0, y0, w, h).data
+      const data = composeCanvases(planesOf(sel, c.dataset.screen), x0, y0, w, h)
       const own = new Set()
       for (let i = 0; i < data.length; i += 4) {
         const px = data.slice(i, i + 4).join(',')
@@ -283,11 +291,9 @@ test('a reused tab paints screen 0 of the next map', async ({ page }) => {
     await w.open({ manifestPath: mp, index: 0x106, label: '106', iconClass: '' })
   }, project.manifestPath)
   opened.push('hackbench.map-view:262')
-  await expect(page.locator(`${root(0x106)} canvas[data-screen="0"]`)).toHaveAttribute(
-    'data-drawn',
-    drawn(0),
-    { timeout: 15000 },
-  )
+  await expect(
+    page.locator(`${root(0x106)} canvas[data-screen="0"][data-plane="l1Low"]`),
+  ).toHaveAttribute('data-drawn', drawn(0), { timeout: 15000 })
   const px = await readScreen(page, 0x106, 0)
   expect(px.distinct).toBeGreaterThan(1)
   await expectEveryVisibleScreenDrawn(page, 0x106)
@@ -299,18 +305,16 @@ test('a reused tab resets the scroll for the next map', async ({ page }) => {
   await openMap(page, project.manifestPath, 0x105)
   await showScreen(page, 0x105, 9)
   const scroller = id => page.locator(`${root(id)} [data-control="map-scroller"]`)
-  const screenWidth = await page.locator(`${root(0x105)} canvas[data-screen="0"]`).evaluate(c => c.getBoundingClientRect().width) // prettier-ignore
+  const screenWidth = await page.locator(`${root(0x105)} canvas[data-screen="0"][data-plane="l1Low"]`).evaluate(c => c.getBoundingClientRect().width) // prettier-ignore
   expect(await scroller(0x105).evaluate(el => el.scrollLeft)).toBeGreaterThan(2 * screenWidth)
   await page.evaluate(async mp => {
     const w = getSvc('ApplicationShell').getWidgetById('hackbench.map-view:261')
     await w.open({ manifestPath: mp, index: 0x106, label: '106', iconClass: '' })
   }, project.manifestPath)
   opened.push('hackbench.map-view:262')
-  await expect(page.locator(`${root(0x106)} canvas[data-screen="0"]`)).toHaveAttribute(
-    'data-drawn',
-    drawn(0),
-    { timeout: 15000 },
-  )
+  await expect(
+    page.locator(`${root(0x106)} canvas[data-screen="0"][data-plane="l1Low"]`),
+  ).toHaveAttribute('data-drawn', drawn(0), { timeout: 15000 })
   expect(await scroller(0x106).evaluate(el => [el.scrollLeft, el.scrollTop])).toEqual([0, 0])
   await expectEveryVisibleScreenDrawn(page, 0x106)
 })
@@ -360,7 +364,9 @@ for (const [index, control, screen, cell] of [
     await openMap(page, project.manifestPath, index)
     await showScreen(page, index, screen)
     const button = page.locator(`${root(index)} [data-control="${control}"]`)
-    const canvas = page.locator(`${root(index)} canvas[data-screen="${screen}"]`)
+    const canvas = page.locator(
+      `${root(index)} canvas[data-screen="${screen}"][data-plane="l1Low"]`,
+    )
     const want = on => {
       const palace = control === 'palace-yellow' && on ? 1 : 0
       const blue = control === 'switch-blue' && on ? 1 : 0
@@ -393,14 +399,12 @@ test('a reused tab going from a horizontal to a vertical map draws screen 0', as
     await w.open({ manifestPath: mp, index: 0x109, label: '109', iconClass: '' })
   }, project.manifestPath)
   opened.push('hackbench.map-view:265')
-  await expect(page.locator(`${root(0x109)} canvas[data-screen="0"]`)).toHaveAttribute(
-    'data-drawn',
-    drawn(0),
-    { timeout: 15000 },
-  )
+  await expect(
+    page.locator(`${root(0x109)} canvas[data-screen="0"][data-plane="l1Low"]`),
+  ).toHaveAttribute('data-drawn', drawn(0), { timeout: 15000 })
   // Every canvas is blank or this map's: none holds a $105 picture.
   const marks = await page.locator(`${root(0x109)} canvas[data-screen]`).evaluateAll(cs => cs.map(c => c.dataset.drawn ?? null)) // prettier-ignore
-  const current = await page.locator(`${root(0x109)} canvas[data-screen="0"]`).getAttribute('data-drawn') // prettier-ignore
+  const current = await page.locator(`${root(0x109)} canvas[data-screen="0"][data-plane="l1Low"]`).getAttribute('data-drawn') // prettier-ignore
   const generation = current.split(':')[0]
   for (const m of marks) if (m !== null) expect(m.split(':')[0]).toBe(generation)
   const px = await readScreen(page, 0x109, 0)
@@ -411,30 +415,43 @@ test('a reused tab going from a horizontal to a vertical map draws screen 0', as
  * The L1 (foreground) toggle: off shows only the level's backdrop (no L1
  * pixel on screen, and not the theme), on shows exactly the picture again.
  */
+/**
+ * A layer toggle's face: pressed, named, and the owner's icon with its own bar (top, middle or
+ * bottom) in the button's color and the others dimmed.
+ */
+async function expectLayerToggle(page, index, control, label, bar) {
+  const button = page.locator(`${root(index)} [data-control="${control}"]`)
+  await expect(button).toHaveAttribute('aria-pressed', 'true')
+  await expect(button).toHaveAttribute('aria-label', label)
+  await expect(button).toHaveAttribute('title', label)
+  const bars = await button
+    .locator('svg rect')
+    .evaluateAll(rs => rs.map(r => ({ y: r.getAttribute('y'), fill: getComputedStyle(r).fill })))
+  const color = await button.evaluate(b => getComputedStyle(b).color)
+  expect(bars.map(b => b.y)).toEqual(['1', '6', '11'])
+  bars.forEach((b, i) => (i === bar ? expect(b.fill).toBe(color) : expect(b.fill).not.toBe(color)))
+  return button
+}
+
 test('the L1 toggle hides and restores the foreground, per tab', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
   await expectEveryVisibleScreenDrawn(page, 0x105)
-  const l1 = page.locator(`${root(0x105)} [data-control="layer-l1"]`)
+  const l1 = await expectLayerToggle(page, 0x105, 'layer-l1', 'Foreground', 1)
   const strip = page.locator(`${root(0x105)} [data-control="map-scroller"]`)
-  await expect(l1).toHaveAttribute('aria-pressed', 'true')
-  await expect(l1).toHaveAttribute('aria-label', 'Foreground')
-  await expect(l1).toHaveAttribute('title', 'Foreground')
-  // The owner's icon: three bars, the middle one in the button's own color.
-  const bars = await l1
-    .locator('svg rect')
-    .evaluateAll(rs => rs.map(r => ({ y: r.getAttribute('y'), fill: getComputedStyle(r).fill })))
-  const color = await l1.evaluate(b => getComputedStyle(b).color)
-  expect(bars.map(b => b.y)).toEqual(['1', '6', '11'])
-  expect(bars[1].fill).toBe(color)
-  expect(bars[0].fill).not.toBe(color)
 
   const shown = await shownPixels(page, strip)
   expect(shown.colors).toBeGreaterThan(4)
-  // $105's first screen is mostly sky: its dominant pixel is the level's backdrop.
-  const backdrop = dominant((await readScreen(page, 0x105, 0)).rgba)
+  const backdrop = await backdropOf(page, 0x105)
   await l1.click()
   await expect(l1).toHaveAttribute('aria-pressed', 'false')
+  // Both L1 planes hide, not just the low one; the background's stay.
+  for (const plane of planeLocators(page, 0x105, 0))
+    await expect(plane).toHaveCSS('visibility', 'hidden')
+  for (const plane of planeLocators(page, 0x105, 0, ['l2Low', 'l2High']))
+    await expect(plane).toHaveCSS('visibility', 'visible')
+  // With the background off as well, only the back area is left.
+  await page.locator(`${root(0x105)} [data-control="layer-l2"]`).click()
   const hidden = await shownPixels(page, strip)
   expect(hidden.colors).toBe(1)
   expect(hidden.color).toBe(backdrop)
@@ -443,8 +460,239 @@ test('the L1 toggle hides and restores the foreground, per tab', async ({ page }
   await expect(page.locator(`${root(0x106)} [data-control="layer-l1"]`)).toHaveAttribute('aria-pressed', 'true') // prettier-ignore
   await activate(page, 0x105)
   await l1.click()
+  await page.locator(`${root(0x105)} [data-control="layer-l2"]`).click()
   await expect(l1).toHaveAttribute('aria-pressed', 'true')
+  for (const plane of planeLocators(page, 0x105, 0, MAP_PLANES))
+    await expect(plane).toHaveCSS('visibility', 'visible')
   expect((await shownPixels(page, strip)).checksum).toBe(shown.checksum)
+})
+
+/**
+ * The high plane is painted, not just present: $105 screen 9 has priority
+ * tiles ($105 draws screens 9 and 18 in the high plane, measured on vanilla),
+ * so the server's l1High has drawn pixels, and the high canvas must carry the
+ * same alpha. Alpha only: a canvas readback premultiplies colour.
+ */
+test('the high canvas shows the served l1High plane on a screen with priority tiles', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await showScreen(page, 0x105, 9)
+  const flags = { green: false, yellow: false, blue: false, red: false }
+  const switches = { blue: false, silver: false, onOff: false }
+  const reply = await page.evaluate(
+    ({ mp, flags, switches }) =>
+      getSvc('Symbol(ProjectService)').mapScreen(mp, 0x105, 9, flags, switches),
+    { mp: project.manifestPath, flags, switches },
+  )
+  expect(reply.status).toBe('ok')
+  expect(reply.planes.l1High, 'the server draws a high plane on screen 9').not.toBeNull()
+  const sel = `${root(0x105)} canvas[data-screen="9"][data-plane="l1High"]`
+  await expect(page.locator(sel)).toHaveAttribute('data-drawn', drawn(9))
+  const { served, shown, drawnPx } = await page.evaluate(
+    ({ sel, b64 }) => {
+      const c = document.querySelector(sel)
+      const alpha = d => Array.from({ length: d.length / 4 }, (_, i) => d[i * 4 + 3])
+      const shown = alpha(c.getContext('2d').getImageData(0, 0, c.width, c.height).data)
+      const served = alpha(Uint8Array.from(atob(b64), ch => ch.charCodeAt(0)))
+      return {
+        served: served.join(','),
+        shown: shown.join(','),
+        drawnPx: shown.filter(a => a !== 0).length,
+      }
+    },
+    { sel, b64: reply.planes.l1High },
+  )
+  expect(drawnPx, 'the high canvas has drawn pixels').toBeGreaterThan(0)
+  expect(shown).toBe(served)
+})
+
+/**
+ * The background (L2) is its own pair of planes, hidden and restored by its
+ * own toggle, per tab. $105's background is an image, so its screen 0 has L2
+ * pixels the view must show and then stop showing.
+ */
+test('the Background toggle hides and restores both L2 canvases, per tab', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await expectEveryVisibleScreenDrawn(page, 0x105)
+  const l2 = await expectLayerToggle(page, 0x105, 'layer-l2', 'Background', 2)
+  const strip = page.locator(`${root(0x105)} [data-control="map-scroller"]`)
+  // Back to front: Background, then Foreground, beside each other.
+  const order = await page
+    .locator(`${root(0x105)} .hb-map-view-toolbar [data-control^="layer-"]`)
+    .evaluateAll(bs => bs.map(b => b.dataset.control))
+  expect(order).toEqual(['layer-l2', 'layer-l1'])
+  // A visible separator sits between Foreground and the first switch toggle, by DOM order.
+  const sep = await page.evaluate(rootSel => {
+    const bar = document.querySelector(`${rootSel} .hb-map-view-toolbar`)
+    const kids = [...bar.children]
+    const at = c => kids.findIndex(k => k.dataset.control === c)
+    const el = kids.find(k => k.dataset.control === 'toolbar-sep')
+    const r = el.getBoundingClientRect()
+    return { between: at('toolbar-sep') === at('layer-l1') + 1 && at('toolbar-sep') < at('palace-yellow'), w: r.width, h: r.height } // prettier-ignore
+  }, root(0x105))
+  expect(sep.between).toBe(true)
+  expect(sep.w).toBeGreaterThan(0)
+  expect(sep.h).toBeGreaterThan(0)
+
+  const shown = await shownPixels(page, strip)
+  await l2.click()
+  await expect(l2).toHaveAttribute('aria-pressed', 'false')
+  for (const plane of planeLocators(page, 0x105, 0, ['l2Low', 'l2High']))
+    await expect(plane).toHaveCSS('visibility', 'hidden')
+  for (const plane of planeLocators(page, 0x105, 0, ['l1Low', 'l1High']))
+    await expect(plane).toHaveCSS('visibility', 'visible')
+  // The picture changed: the background really was on screen.
+  expect((await shownPixels(page, strip)).checksum).not.toBe(shown.checksum)
+
+  await openMap(page, project.manifestPath, 0x106)
+  await expect(page.locator(`${root(0x106)} [data-control="layer-l2"]`)).toHaveAttribute('aria-pressed', 'true') // prettier-ignore
+  for (const plane of planeLocators(page, 0x106, 0, ['l2Low', 'l2High']))
+    await expect(plane).toHaveCSS('visibility', 'visible')
+  await activate(page, 0x105)
+  await l2.click()
+  await expect(l2).toHaveAttribute('aria-pressed', 'true')
+  for (const plane of planeLocators(page, 0x105, 0, ['l2Low', 'l2High']))
+    await expect(plane).toHaveCSS('visibility', 'visible')
+  expect((await shownPixels(page, strip)).checksum).toBe(shown.checksum)
+})
+
+/**
+ * The color a pixel shows on screen: a 1 CSS px screenshot at its center,
+ * from a spot whose 3x3 native neighborhood is uniform so scaling cannot blend it.
+ */
+async function colorOnScreen(page, selector, x, y) {
+  const clip = await page.evaluate(
+    ({ sel, x, y }) => {
+      const c = document.querySelector(sel)
+      const r = c.getBoundingClientRect()
+      return { x: Math.floor(r.left + ((x + 0.5) * r.width) / c.width), y: Math.floor(r.top + ((y + 0.5) * r.height) / c.height), width: 1, height: 1 } // prettier-ignore
+    },
+    { sel: selector, x, y },
+  )
+  const png = (await page.screenshot({ clip })).toString('base64')
+  return page.evaluate(async b64 => {
+    const img = new Image()
+    img.src = `data:image/png;base64,${b64}`
+    await img.decode()
+    const c = document.createElement('canvas')
+    c.width = c.height = 1
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    return Array.from(ctx.getImageData(0, 0, 1, 1).data.slice(0, 3))
+  }, png)
+}
+
+test('L2 shows above the back area: a clear L1 pixel shows the background, not the back area', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await showScreen(page, 0x105, 0)
+  const sel = p => `${root(0x105)} canvas[data-screen="0"][data-plane="${p}"]`
+  // A pixel where L2 is opaque and both L1 planes are clear, in a uniform 3x3.
+  const spot = await page.evaluate(
+    ({ l2, l1a, l1b }) => {
+      const px = s => {
+        const c = document.querySelector(s)
+        return { w: c.width, h: c.height, d: c.getContext('2d').getImageData(0, 0, c.width, c.height).data } // prettier-ignore
+      }
+      const [b, f1, f2] = [px(l2), px(l1a), px(l1b)]
+      const at = (g, x, y) => (y * g.w + x) * 4
+      for (let y = 40; y < b.h - 40; y += 7)
+        for (let x = 40; x < b.w - 40; x += 7) {
+          let ok = true
+          const first = [...b.d.slice(at(b, x, y), at(b, x, y) + 4)]
+          for (let dy = -1; dy <= 1 && ok; dy++)
+            for (let dx = -1; dx <= 1 && ok; dx++) {
+              const i = at(b, x + dx, y + dy)
+              ok = b.d[i + 3] === 255 && f1.d[i + 3] === 0 && f2.d[i + 3] === 0 && b.d[i] === first[0] && b.d[i + 1] === first[1] && b.d[i + 2] === first[2] // prettier-ignore
+            }
+          if (ok) return { x, y, rgb: first.slice(0, 3) }
+        }
+      return null
+    },
+    { l2: sel('l2Low'), l1a: sel('l1Low'), l1b: sel('l1High') },
+  )
+  expect(spot, '$105 screen 0 has a background pixel with L1 clear over it').not.toBeNull()
+  const backdrop = (await backdropOf(page, 0x105)).split(',').map(Number)
+  expect(spot.rgb, 'the background differs from the back area, or this proves nothing').not.toEqual(backdrop) // prettier-ignore
+  const near = (a, b) => a.every((v, i) => Math.abs(v - b[i]) <= 2)
+  expect(near(await colorOnScreen(page, sel('l1Low'), spot.x, spot.y), spot.rgb)).toBe(true)
+  // With the background off the same pixel is the back area.
+  await page.locator(`${root(0x105)} [data-control="layer-l2"]`).click()
+  expect(near(await colorOnScreen(page, sel('l1Low'), spot.x, spot.y), backdrop)).toBe(true)
+})
+
+/**
+ * BG mode 1 stacks BG1 high > BG2 high > BG1 low > BG2 low (map-screen's
+ * MAP_PLANE_KEYS). Read from the computed z-index, not the source order. No
+ * vanilla or magic-ROM slot draws an l2High pixel (swept: 0 of 488 maps each),
+ * so there is no corpus screen to check the order on pixels; the unit tests
+ * pin which plane a priority subtile lands in on synthetic data.
+ */
+test('the canvas stack is l2Low, l1Low, l2High, l1High, bottom to top', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  const stack = await page
+    .locator(`${root(0x105)} canvas[data-screen="0"]`)
+    .evaluateAll(cs =>
+      cs
+        .map(c => ({ plane: c.dataset.plane, z: Number(getComputedStyle(c).zIndex) }))
+        .sort((a, b) => a.z - b.z),
+    )
+  expect(stack.map(c => c.plane)).toEqual(['l2Low', 'l1Low', 'l2High', 'l1High'])
+  expect(new Set(stack.map(c => c.z)).size, 'four distinct levels').toBe(4)
+  expect(stack[0].z).toBeGreaterThan(0)
+})
+
+test('a map the ROM reads fully carries no layer note', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await expect(page.locator(`${root(0x105)} [data-note="layers"]`)).toHaveCount(0)
+})
+
+/**
+ * $0E7's L2 (an object stream, tileset 1) draws Map16 tile 349 under L1's tile 352 at column 0,
+ * row 13 (measured on vanilla); both are opaque at pixel (3, 211) of screen 0, both low priority.
+ * Setting tile 349's top-left priority bit in the working copy moves that quadrant to l2High,
+ * which BG mode 1 stacks over l1Low: the pixel shown must turn into L2's. The composite is read
+ * from the canvases in their z-index order, so reordering MAP_PLANE_KEYS turns this red.
+ */
+test('an L2 priority tile draws over an L1 low tile, from a working-copy edit', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0xe7)
+  const spot = { x: 3, y: 13 * 16 + 3 }
+  const read = () =>
+    page.evaluate(
+      ({ rootSel, spot }) => {
+        const px = c => Array.from(c.getContext('2d').getImageData(spot.x, spot.y, 1, 1).data)
+        const planes = planesOf(rootSel, 0)
+        const by = k => planes.find(c => c.dataset.plane === k)
+        const shown = composeCanvases(planes, spot.x, spot.y, 1, 1)
+        return { shown: Array.from(shown), l1Low: px(by('l1Low')), l2High: px(by('l2High')) }
+      },
+      { rootSel: root(0xe7), spot },
+    )
+  const before = await read()
+  expect(before.l1Low[3], 'L1 is opaque there').toBe(255)
+  expect(before.l2High[3], 'no L2 priority yet').toBe(0)
+  expect(before.shown).toEqual(before.l1Low)
+
+  const edit = await page.evaluate(
+    ({ mp }) =>
+      getSvc('Symbol(Map16Service)').setQuadrantField(mp, 1, 'fg', { bg: 0, fg: 0 }, 349, 'tl', 'priority', true), // prettier-ignore
+    { mp: project.manifestPath },
+  )
+  expect(edit.status).toBe('ok')
+  await expect.poll(async () => (await read()).l2High[3], { timeout: 15000 }).toBe(255)
+  const after = await read()
+  expect(after.shown, 'the pixel is L2 priority color').toEqual(after.l2High)
+  expect(after.shown).not.toEqual(after.l1Low)
 })
 
 /**
@@ -456,10 +704,17 @@ test('the back area is its own layer, with the checkerboard beneath it', async (
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
   await showScreen(page, 0x105, 0)
+  // The background image sits over the back area, so it goes too.
+  await page.locator(`${root(0x105)} [data-control="layer-l2"]`).click()
   await page
     .locator(`${root(0x105)} [data-layer="back-area"]`)
     .evaluate(el => (el.style.display = 'none'))
-  await expectCheckerboard(expect, page, `${root(0x105)} canvas[data-screen="0"]`)
+  await expectCheckerboard(
+    expect,
+    page,
+    `${root(0x105)} canvas[data-screen="0"][data-plane="l1Low"]`,
+    [`${root(0x105)} canvas[data-screen="0"][data-plane="l1High"]`],
+  )
 })
 
 /**
@@ -482,7 +737,7 @@ test('a tile ON/OFF blanks shows in the screen door on $12C with ON/OFF on', asy
   }
   const off = await cell()
   await page.locator(`${root(0x12c)} [data-control="switch-onOff"]`).click()
-  await expect(page.locator(`${root(0x12c)} canvas[data-screen="5"]`)).toHaveAttribute('data-drawn', /^\d+:0000:001:5$/) // prettier-ignore
+  await expect(page.locator(`${root(0x12c)} canvas[data-screen="5"][data-plane="l1Low"]`)).toHaveAttribute('data-drawn', /^\d+:0000:001:5$/) // prettier-ignore
   const on = await cell()
   expect(on).not.toEqual(off)
   const count = p => on.filter(q => q === p).length
@@ -500,25 +755,21 @@ test('a tile ON/OFF blanks shows in the screen door on $12C with ON/OFF on', asy
   )
 })
 
-/** The most common RGB of an RGBA array, as "r,g,b". */
-function dominant(rgba) {
-  const counts = new Map()
-  for (let i = 0; i < rgba.length; i += 4) {
-    const k = `${rgba[i]},${rgba[i + 1]},${rgba[i + 2]}`
-    counts.set(k, (counts.get(k) ?? 0) + 1)
-  }
-  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0]
-}
+/** The back area layer's color, "r,g,b", as the view paints it. */
+const backdropOf = (page, index) =>
+  page
+    .locator(`${root(index)} [data-layer="back-area"]`)
+    .evaluate(el => getComputedStyle(el).backgroundColor.match(/\d+/g).slice(0, 3).join(','))
 
 /**
  * A Back Area palette edit reaches the strip's own background, which is what
  * shows with L1 hidden. $105 uses back-area color 2, the word at $00B0A4
  * (PaletteLoader ADDR_BACK_AREA plus 2 x 2; vanilla $5D80, measured).
  */
-test('a back-area color edit repaints the strip behind a hidden L1', async ({ page }) => {
+test('a back-area color edit repaints the strip behind a hidden L1 and L2', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
-  const screen0 = page.locator(`${root(0x105)} canvas[data-screen="0"]`)
+  const screen0 = page.locator(`${root(0x105)} canvas[data-screen="0"][data-plane="l1Low"]`)
   const drawnBefore = await screen0.getAttribute('data-drawn')
   const rom = fs.readFileSync(ROM)
   const at = (rom.length % 1024 === 512 ? 512 : 0) + (0x00b0a4 & 0x7fff)
@@ -534,6 +785,7 @@ test('a back-area color edit repaints the strip behind a hidden L1', async ({ pa
     .poll(() => screen0.getAttribute('data-drawn'), { timeout: 15000 })
     .not.toBe(drawnBefore)
   await page.locator(`${root(0x105)} [data-control="layer-l1"]`).click()
+  await page.locator(`${root(0x105)} [data-control="layer-l2"]`).click()
   const hidden = await shownPixels(
     page,
     page.locator(`${root(0x105)} [data-control="map-scroller"]`),
@@ -573,7 +825,7 @@ test('opening a map draws real pixels, and two maps differ', async ({ page }) =>
 test('a one-screen map draws its one screen and asks for no other', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x0bd)
-  await expect(page.locator(`${root(0x0bd)} canvas[data-screen]`)).toHaveCount(1)
+  await expect(page.locator(`${root(0x0bd)} canvas[data-plane="l1Low"]`)).toHaveCount(1)
   expect((await readScreen(page, 0x0bd, 0)).distinct).toBeGreaterThan(4)
   await expect(page.locator(`${root(0x0bd)} [data-control="map-error"]`)).toHaveCount(0)
 })
@@ -584,7 +836,7 @@ test('a palette edit recolors exactly the pixels of that color, with no reload',
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
   const before = await readScreen(page, 0x105, 0)
-  const screen0 = page.locator(`${root(0x105)} canvas[data-screen="0"]`)
+  const screen0 = page.locator(`${root(0x105)} canvas[data-screen="0"][data-plane="l1Low"]`)
   const drawnBefore = await screen0.getAttribute('data-drawn')
 
   // The word the ROM holds now, read from the file rather than assumed.
@@ -710,6 +962,9 @@ test('hidden cells on $014 show their art in the screen door over the backdrop',
 }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x014)
+  // These are about L1's screen door over the back area: the background would show through its clear pixels.
+  await page.locator(`${root(0x014)} [data-control="layer-l2"]`).click()
+  await expect(page.locator(`${root(0x014)} [data-control="layer-l2"]`)).toHaveAttribute('aria-pressed', 'false') // prettier-ignore
   const screen = await readScreen(page, 0x014, 0)
   const cell = []
   for (let y = 13 * 16; y < 14 * 16; y++)
@@ -746,11 +1001,14 @@ test('blue P-switch on draws $014 hidden cells in full, and off restores them', 
 }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x014)
+  // These are about L1's screen door over the back area: the background would show through its clear pixels.
+  await page.locator(`${root(0x014)} [data-control="layer-l2"]`).click()
+  await expect(page.locator(`${root(0x014)} [data-control="layer-l2"]`)).toHaveAttribute('aria-pressed', 'false') // prettier-ignore
   const off = await hiddenCell(page)
   const blue = page.locator(`${root(0x014)} [data-control="switch-blue"]`)
   await blue.click()
   await expect(blue).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.locator(`${root(0x014)} canvas[data-screen="0"]`)).toHaveAttribute('data-drawn', drawn(0, false, true)) // prettier-ignore
+  await expect(page.locator(`${root(0x014)} canvas[data-screen="0"][data-plane="l1Low"]`)).toHaveAttribute('data-drawn', drawn(0, false, true)) // prettier-ignore
   const on = await hiddenCell(page)
   const count = p => off.filter(q => q === p).length
   const backdrop = [...off]
@@ -764,7 +1022,7 @@ test('blue P-switch on draws $014 hidden cells in full, and off restores them', 
   expect(on).not.toEqual(off)
 
   await blue.click()
-  await expect(page.locator(`${root(0x014)} canvas[data-screen="0"]`)).toHaveAttribute('data-drawn', drawn(0)) // prettier-ignore
+  await expect(page.locator(`${root(0x014)} canvas[data-screen="0"][data-plane="l1Low"]`)).toHaveAttribute('data-drawn', drawn(0)) // prettier-ignore
   expect(await hiddenCell(page)).toEqual(off)
 })
 
@@ -780,7 +1038,7 @@ test('the switch toggles show art, and two tabs keep their own switches', async 
   await expect(page.locator(`${root(0x105)} [data-control="switch-blue"]`)).toHaveAttribute('aria-pressed', 'false') // prettier-ignore
   await activate(page, 0x014)
   await expect(page.locator(`${root(0x014)} [data-control="switch-blue"]`)).toHaveAttribute('aria-pressed', 'true') // prettier-ignore
-  await expect(page.locator(`${root(0x014)} canvas[data-screen="0"]`)).toHaveAttribute('data-drawn', drawn(0, false, true)) // prettier-ignore
+  await expect(page.locator(`${root(0x014)} canvas[data-screen="0"][data-plane="l1Low"]`)).toHaveAttribute('data-drawn', drawn(0, false, true)) // prettier-ignore
 })
 
 /**
@@ -825,10 +1083,9 @@ test('two map tabs keep their own palaces', async ({ page }) => {
     'false',
   )
   // $106's own yellow block (screen 2, column 7, row 20) is still unpressed.
-  await expect(page.locator(`${root(0x106)} canvas[data-screen="2"]`)).toHaveAttribute(
-    'data-drawn',
-    drawn(2),
-  )
+  await expect(
+    page.locator(`${root(0x106)} canvas[data-screen="2"][data-plane="l1Low"]`),
+  ).toHaveAttribute('data-drawn', drawn(2))
   const still = await readScreen(page, 0x106, 2)
   expect(still.cells['7,20']).toBe(other.cells['7,20'])
 
@@ -857,7 +1114,7 @@ test('the header facts are in view, and the decode panel opens with its ROM byte
 
   // The decoded screen count is the one the strip was sized from.
   const screensRow = panel.locator('tr', { hasText: 'Screens' }).locator('td')
-  const canvases = await page.locator(`${root(0x105)} canvas[data-screen]`).count()
+  const canvases = await page.locator(`${root(0x105)} canvas[data-plane="l1Low"]`).count()
   await expect(screensRow).toHaveText(String(canvases))
   expect(canvases).toBe(20)
 })

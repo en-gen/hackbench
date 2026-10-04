@@ -244,6 +244,14 @@
 
 /* ── Toolbar controls shared by the map and Map16 views ─────────────── */
 
+/* A vertical divider between toolbar groups, as VS Code's toolbar draws it. */
+.hb-toolbar-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 4px;
+  background: var(--theia-menu-separatorBackground, rgba(128, 128, 128, 0.35));
+}
+
 .hb-toolbar-spacer {
   flex: 1 1 auto;
 }
@@ -335,6 +343,14 @@
 .hb-map-view-screen {
   position: relative;
   flex: none;
+}
+
+/* Planes stack by inline z-index; the back area has none, so every plane is above it. */
+.hb-map-view-plane {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   image-rendering: pixelated;
 }
 

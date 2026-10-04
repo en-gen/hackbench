@@ -1,5 +1,5 @@
 /**
- * One map, opened from the explorer: its L1 (foreground), drawn by the
+ * One map, opened from the explorer: its L1 (foreground) and L2 (background), drawn by the
  * backend a screen at a time (#421 step 3), with the header decode below.
  *
  * The strip requests only the screens in view plus one either side, and
@@ -15,7 +15,9 @@ import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message, Widget } from '@theia/core/lib/browser'
 import {
+  MAP_PLANE_KEYS,
   MapDetailsDto,
+  MapPlaneKey,
   MapScreenResult,
   ProjectService,
   SwitchFlagsDto,
@@ -32,6 +34,13 @@ import { slotLabel } from './map-explorer-widget'
 import { perfEnd, perfStart } from '../common/perf-marks'
 
 export { slotLabel }
+/** One screen's decoded planes; null is an empty plane, which draws nothing. */
+interface ScreenImages {
+  width: number
+  height: number
+  planes: Record<MapPlaneKey, ImageData | null>
+}
+
 export const MAP_VIEW_ID = 'hackbench.map-view'
 
 /** Identifies which map a widget instance shows. */
@@ -80,15 +89,17 @@ export class MapViewWidget extends ReactWidget {
   /** The switch toggles' art (#574's), and why a kind has none. */
   protected switchArt: Partial<Record<Switch, SwitchButtonImages>> = {}
   protected switchWhy: Partial<Record<Switch, string>> = {}
-  /** L1 (foreground) shown; off leaves the back area layer beneath it. */
+  /** L1 (foreground) and L2 (background) shown; off leaves what is beneath them. */
   protected showL1 = true
+  protected showL2 = true
   /** Undefined until the user zooms: the strip then fits the view. */
   protected userZoom: number | undefined
   protected fitZoom = 1
-  protected readonly screens = new Map<string, ImageData>()
+  protected readonly screens = new Map<string, ScreenImages>()
   protected readonly pending = new Set<string>()
-  protected readonly canvases = new Map<number, HTMLCanvasElement>()
-  protected readonly canvasRefs = new Map<number, (el: HTMLCanvasElement | null) => void>()
+  /** Keyed `<plane>:<screen>`. */
+  protected readonly canvases = new Map<string, HTMLCanvasElement>()
+  protected readonly canvasRefs = new Map<string, (el: HTMLCanvasElement | null) => void>()
   protected scroller: HTMLDivElement | null = null
   /** Refits when the strip's box changes, e.g. when the facts line arrives above it. */
   protected readonly resizes = new ResizeObserver(() => this.fitStrip())
@@ -237,13 +248,22 @@ export class MapViewWidget extends ReactWidget {
       this.update()
       return
     }
-    this.screens.set(key, new ImageData(decodeRgba(r.rgbaBase64), r.width, r.height))
+    const image = (b64: string | null) =>
+      b64 === null ? null : new ImageData(decodeRgba(b64), r.width, r.height)
+    this.screens.set(key, {
+      width: r.width,
+      height: r.height,
+      planes: Object.fromEntries(
+        MAP_PLANE_KEYS.map(k => [k, image(r.planes[k])]),
+      ) as ScreenImages['planes'],
+    })
     const l = this.mapLayout
     if (
       !l ||
       l.screenCount !== r.screenCount ||
       l.orientation !== r.orientation ||
       l.note !== r.note ||
+      l.layerNotes.join() !== r.layerNotes.join() ||
       l.backdrop.join() !== r.backdrop.join()
     ) {
       // The first reply sizes the strip; the screens in view follow once it is laid out.
@@ -267,14 +287,18 @@ export class MapViewWidget extends ReactWidget {
    * canvas; `data-drawn` records only what a canvas was painted with.
    */
   protected readonly sync = (): void => {
-    for (const [s, canvas] of this.canvases) {
-      const want = `${this.generation}:${this.key(s)}`
+    for (const [k, canvas] of this.canvases) {
+      const [plane, s] = k.split(':') as [MapPlaneKey, string]
+      const want = `${this.generation}:${this.key(Number(s))}`
       if (canvas.dataset.drawn === want) continue
-      const img = this.screens.get(this.key(s))
-      if (img) {
-        if (canvas.width !== img.width) canvas.width = img.width
-        if (canvas.height !== img.height) canvas.height = img.height
-        canvas.getContext('2d')?.putImageData(img, 0, 0)
+      const shot = this.screens.get(this.key(Number(s)))
+      if (shot) {
+        if (canvas.width !== shot.width) canvas.width = shot.width
+        if (canvas.height !== shot.height) canvas.height = shot.height
+        const ctx = canvas.getContext('2d')
+        const img = shot.planes[plane]
+        if (img) ctx?.putImageData(img, 0, 0)
+        else ctx?.clearRect(0, 0, canvas.width, canvas.height)
         canvas.dataset.drawn = want
         perfEnd('open-maps')
       } else if (this.screenError && canvas.dataset.drawn) {
@@ -289,21 +313,22 @@ export class MapViewWidget extends ReactWidget {
    * mounts or unmounts, and on unmount it removes only its own canvas, never
    * a replacement. A new canvas starts blank, so it is synced at once (#421).
    */
-  protected canvasRef(s: number): (el: HTMLCanvasElement | null) => void {
-    let ref = this.canvasRefs.get(s)
+  protected canvasRef(plane: MapPlaneKey, s: number): (el: HTMLCanvasElement | null) => void {
+    const k = `${plane}:${s}`
+    let ref = this.canvasRefs.get(k)
     if (!ref) {
       let mine: HTMLCanvasElement | null = null
       ref = el => {
         if (el) {
           mine = el
-          this.canvases.set(s, el)
+          this.canvases.set(k, el)
           this.sync()
         } else {
-          if (this.canvases.get(s) === mine) this.canvases.delete(s)
+          if (this.canvases.get(k) === mine) this.canvases.delete(k)
           mine = null
         }
       }
-      this.canvasRefs.set(s, ref)
+      this.canvasRefs.set(k, ref)
     }
     return ref
   }
@@ -341,6 +366,11 @@ export class MapViewWidget extends ReactWidget {
     this.update()
   }
 
+  protected toggleL2(): void {
+    this.showL2 = !this.showL2
+    this.update()
+  }
+
   protected stepZoom(dir: 1 | -1): void {
     const z = this.zoom
     const next =
@@ -367,12 +397,20 @@ export class MapViewWidget extends ReactWidget {
       <div className="hb-map-view-main">
         <div className="hb-map-view-toolbar">
           <LayerToggle
+            highlight="bottom"
+            label="Background"
+            pressed={this.showL2}
+            control="layer-l2"
+            onClick={() => this.toggleL2()}
+          />
+          <LayerToggle
             highlight="middle"
             label="Foreground"
             pressed={this.showL1}
             control="layer-l1"
             onClick={() => this.toggleL1()}
           />
+          <span className="hb-toolbar-sep" data-control="toolbar-sep" />
           {PALACES.map(p => this.renderToggle(p))}
           {SWITCH_ORDER.map(k => (
             <SwitchToggle
@@ -424,6 +462,11 @@ export class MapViewWidget extends ReactWidget {
             {this.screenError}
           </div>
         )}
+        {this.mapLayout?.layerNotes.map(n => (
+          <div key={n} className="hb-map-view-note" data-note="layers">
+            {n}
+          </div>
+        ))}
         {this.renderStrip()}
         <AfterCommit run={this.sync} />
         <details className="hb-map-view-header" data-control="header-panel">
@@ -475,7 +518,7 @@ export class MapViewWidget extends ReactWidget {
         }}
         onScroll={() => this.requestVisible()}
       >
-        {/* Bottom to top: the checkerboard, the back area, then the screens,
+        {/* Bottom to top (planes by MAP_PLANE_KEYS): the checkerboard, the back area, then the screens,
             so hiding a layer shows what is under it, down to nothing. */}
         <div className="hb-map-view-strip hb-checkerboard">
           <div
@@ -484,13 +527,25 @@ export class MapViewWidget extends ReactWidget {
             style={{ background: `rgb(${l.backdrop.join(',')})` }}
           />
           {Array.from({ length: l.screenCount }, (_, s) => (
-            <canvas
+            <div
               key={s}
               className="hb-map-view-screen"
-              data-screen={s}
-              style={{ width: l.width * this.zoom, height: l.height * this.zoom, visibility: this.showL1 ? undefined : 'hidden' }} // prettier-ignore
-              ref={this.canvasRef(s)}
-            />
+              style={{ width: l.width * this.zoom, height: l.height * this.zoom }}
+            >
+              {MAP_PLANE_KEYS.map((plane, z) => (
+                <canvas
+                  key={plane}
+                  className="hb-map-view-plane"
+                  data-plane={plane}
+                  data-screen={s}
+                  style={{
+                    zIndex: z + 1,
+                    visibility: (plane.startsWith('l2') ? this.showL2 : this.showL1) ? undefined : 'hidden', // prettier-ignore
+                  }}
+                  ref={this.canvasRef(plane, s)}
+                />
+              ))}
+            </div>
           ))}
         </div>
       </div>

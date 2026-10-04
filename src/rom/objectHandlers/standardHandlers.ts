@@ -43,6 +43,7 @@ import {
   readImmByte,
   MAP16_BYTES_PER_SCREEN_H,
 } from './cursor'
+import { mirror } from '../addressing'
 import { isInterpretedHandler, noteUnverified } from './interpretedGate'
 // No ADDR_DATA_* imports: every handler resolves its table addresses and
 // immediate tile IDs dynamically from its own bytecode via cur.handlerAddr.
@@ -884,7 +885,7 @@ export function handle_0DAB3E(cur: Cursor): void {
   // immediately after the JSL. That table lives at cur.handlerAddr + 18.
   const variant = (cur.size & 0x0f) % 10
   const tableBase = cur.handlerAddr + 18
-  const target = readLongOperand(cur, tableBase + variant * 3) & 0xffffff
+  const target = mirror(readLongOperand(cur, tableBase + variant * 3))
 
   // Run each variant handler with its own handlerAddr so that its LDA.L
   // and LDA # operands resolve correctly against its own bytecode.
@@ -897,7 +898,7 @@ export function handle_0DAB3E(cur: Cursor): void {
   const prevHandler = cur.handlerAddr
   cur.handlerAddr = target
   try {
-    PIPE_VARIANT_HANDLERS[target & 0x7fffff]?.(cur)
+    PIPE_VARIANT_HANDLERS[target]?.(cur)
   } finally {
     cur.handlerAddr = prevHandler
   }
@@ -2420,7 +2421,7 @@ export function handle_0DC341(cur: Cursor): void {
   // dl CODE_0DC358, dl CODE_0DC3D8 table starts at handler +9 (after
   // SEP/LDA/AND/LSR/JSL = 9 bytes).
   const variantIdx = (cur.size >> 1) & 1
-  const target = readLongOperand(cur, cur.handlerAddr + 9 + variantIdx * 3) & 0xffffff
+  const target = mirror(readLongOperand(cur, cur.handlerAddr + 9 + variantIdx * 3))
 
   const prevHandler = cur.handlerAddr
   cur.handlerAddr = target
@@ -2505,18 +2506,17 @@ function staircaseVariantA(cur: Cursor): void {
  *
  *   Same table layout as variant A, but the staircase descends to the right
  *   instead of the left: step i at (col0 + i, row0 + i), with preceding
- *   tiles on the row filled with $3F (page 0) and an $F3 edge next to the
- *   step cap.
+ *   tiles on the row filled with $3F (page 0) and an edge next to the cap.
  *
- *   For each step i in 0..H (total H+1 steps):
+ *   Row i in 0..H (cap rows):
  *     (col0 + 0 .. col0 + i - 2, row0 + i): $3F fill (page 0)   -- (i-1) tiles
- *     (col0 + i - 1, row0 + i):             step edge ($F3, page 1)  if i >= 1
- *     (col0 + i, row0 + i):                 step cap ($CE, page 1)
- *
- *   No separate ground row (unlike variant A) -- the bottom step IS the
- *   terminating row.
+ *     (col0 + i - 1, row0 + i):             step edge (page 1)  if i >= 1
+ *     (col0 + i, row0 + i):                 step cap (page 1)
+ *   Row H+1 has the H fills and the edge but no cap: the exit test
+ *   (bank_0D.asm:4962-4963) sits after the edge and before the cap, with
+ *   _0 = H+1 (4946-4947), so the routine draws H+2 rows (#361).
  */
-function staircaseVariantB(cur: Cursor): void {
+export function staircaseVariantB(cur: Cursor): void {
   const X = cur.size & 0x03
   const H = (cur.size >> 4) & 0x0f
   const base = cur.handlerAddr
@@ -2533,7 +2533,7 @@ function staircaseVariantB(cur: Cursor): void {
   const col0 = cur.col,
     row0 = cur.row
 
-  for (let i = 0; i <= H; i++) {
+  for (let i = 0; i <= H + 1; i++) {
     cur.row = row0 + i
     cur.col = col0
     // (i - 1) fills on page 0.
@@ -2546,9 +2546,11 @@ function staircaseVariantB(cur: Cursor): void {
       setPage1(cur)
       writeTileAdvance(cur, edgeTile)
     }
-    // Step cap.
-    setPage1(cur)
-    writeTileAdvance(cur, capTile)
+    // Step cap; the last row stops after the edge.
+    if (i <= H) {
+      setPage1(cur)
+      writeTileAdvance(cur, capTile)
+    }
   }
 
   cur.col = col0
@@ -2604,7 +2606,7 @@ export function handle_0DCF53(cur: Cursor): void {
   // Byte layout verified by dumping $0DCF53:
   //   +0 A5 59 29 0F AA 22 FA 86 00   LDA size; AND #$0F; TAX; JSL ExecutePtrLong
   //   +9..+26   dl $0DCF6E, $0DCFB1, $0DCFF0, $0DD034, $0DCFB1, $0DD034
-  const target = readLongOperand(cur, cur.handlerAddr + 9 + X * 3) & 0xffffff
+  const target = mirror(readLongOperand(cur, cur.handlerAddr + 9 + X * 3))
   const prevHandler = cur.handlerAddr
   cur.handlerAddr = target
   try {
@@ -2739,7 +2741,7 @@ export function handle_0DD070(cur: Cursor): void {
   // Byte layout verified by dumping $0DD070:
   //   +0 A5 59 4A 4A 4A 4A 22 FA 86 00   LDA size; LSR×4; JSL ExecutePtrLong
   //   +10..+15   dl $0DD080, $0DD0C3
-  const target = readLongOperand(cur, cur.handlerAddr + 10 + sel * 3) & 0xffffff
+  const target = mirror(readLongOperand(cur, cur.handlerAddr + 10 + sel * 3))
   const prevHandler = cur.handlerAddr
   cur.handlerAddr = target
   try {
@@ -3813,17 +3815,19 @@ export function handle_0DB9C0(cur: Cursor): void {
 /**
  * CODE_0DBA4C (bank_0D.asm line 4386) -- vertical slope-shoulder stripe
  * (object 52 in tilesets 0/7/12). Single-column vertical line; the top row uses
- * DATA_0DBA44[X] (page 1), and all following rows use DATA_0DBA48[X] with a
- * page-1 prefix that only applies when X < 2.
+ * DATA_0DBA44[X] (page 1), and all following rows use DATA_0DBA48[X].
  *
  * Size byte: HHHHVVVV
- *   V (low nibble, X)  = variant index (0-3) selecting both tables.
+ *   V (low nibble, X)  = the full nibble (0-15) indexing both tables.
  *   H (high nibble)    = count (H rows written below the top).
+ *
+ * X >= 2 body cells keep the cell's own high byte: Sta1To6ePointer stores it at
+ * the current cell (bank_0D.asm:2107-2110) and CPX #$02 / BPL skips it
+ * (4403-4405), so the port reads the page from the grid (#458).
  *
  * ASM path: JSR Sta1To6ePointer once up-front, then STA top tile, JMP to
  * CODE_0DBA74 (advance row, DEC _0, BPL; bank_0D.asm:4408-4411), which runs
- * the body H times. Each body write: CPX #$02 / BPL skip / JSR Sta1To6ePointer,
- * then STA body tile.
+ * the body H times.
  */
 export function handle_0DBA4C(cur: Cursor): void {
   const X = cur.size & 0x0f
@@ -3839,9 +3843,8 @@ export function handle_0DBA4C(cur: Cursor): void {
   const H = (cur.size >> 4) & 0x0f
   for (let r = 0; r < H; r++) {
     advanceRowRaw(cur)
-    // Body tile: page 1 only when X < 2 (CPX #$02 / BPL skip-page1).
     if (X < 2) setPage1(cur)
-    else setPage0(cur)
+    else cur.page = ((cur.grid[cur.row]?.[cur.col] ?? 0) >> 8) & 1
     writeTile(cur, bodyTile)
   }
 }

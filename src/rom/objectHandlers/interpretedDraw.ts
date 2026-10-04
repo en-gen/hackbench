@@ -15,9 +15,10 @@ import {
   horizontalPlacement,
   interpret,
   seedFromGrid,
-  type InterpretOptions,
+  type RecognizedPrimitive,
 } from './interpret'
-import { mirror, noteUnverified } from './interpretedGate'
+import { mirror } from '../addressing'
+import { noteUnverified } from './interpretedGate'
 
 /** LevLoadNrmObj: SEP #$30; JSL CODE_0DA40F; RTS (bank_05.asm:805-808). */
 const LOADER_ROUTINE = 0x0586ea
@@ -53,9 +54,8 @@ export interface InterpretedDraw {
   vertical: boolean
   /** One line per distinct reason a port drew an object the interpreter refused. */
   unverified: string[]
-  /** Test seam: enter here, with these options, instead of the loader's entry. */
-  entry?: number
-  options?: InterpretOptions
+  /** The routines this ROM's interpreter may recognize; the caller supplies the table it trusts. */
+  primitives: readonly RecognizedPrimitive[]
   /** The drawing function itself, so the expander never imports it (see interpretedGate.ts). */
   draw: DrawInterpreted
 }
@@ -63,7 +63,7 @@ export interface InterpretedDraw {
 export type DrawInterpreted = (cur: Cursor, handler: number, ctx: InterpretedDraw) => boolean
 
 /** What a caller of expandMap hands over: the note sink and the function that fills it. */
-export type InterpretedSink = Pick<InterpretedDraw, 'unverified' | 'draw'>
+export type InterpretedSink = Pick<InterpretedDraw, 'unverified' | 'draw' | 'primitives'>
 
 const hex6 = (n: number): string => '$' + n.toString(16).toUpperCase().padStart(6, '0')
 
@@ -74,24 +74,22 @@ export function drawInterpreted(cur: Cursor, handler: number, ctx: InterpretedDr
     return false
   }
   if (ctx.vertical) return note('vertical levels are not interpreted yet')
-  if (ctx.entry === undefined) {
-    const why = loaderProblem(cur.rom)
-    if (why) return note(why)
-  }
+  const why = loaderProblem(cur.rom)
+  if (why) return note(why)
   const r = interpret(
     cur.rom,
-    ctx.entry ?? ENTRY_STANDARD,
+    ENTRY_STANDARD,
     horizontalPlacement('standard', cur.objNo, cur.size, cur.col, cur.row),
     { tileset: cur.tileset, switchFlags: cur.switchFlags },
     {
-      entryCall: ctx.entry === undefined ? 'jsl' : 'jsr',
+      primitives: ctx.primitives,
       seed: seedFromGrid(cur.grid),
-      ...ctx.options,
     },
   )
   if (r.refusal) return note(`${r.refusal.reason} at ${hex6(r.refusal.at)}`)
-  const reached = r.dispatches[r.dispatches.length - 1] ?? 0
-  if (ctx.entry === undefined && mirror(reached) !== mirror(handler))
+  const reached = r.dispatches[r.dispatches.length - 1]
+  if (reached === undefined) return note('the run reached no dispatch')
+  if (mirror(reached) !== mirror(handler))
     return note(`the ROM's dispatch reaches ${hex6(reached)}`)
   applyWrites(cur.grid, r.writes, cur.owners, cur.owner)
   return true
