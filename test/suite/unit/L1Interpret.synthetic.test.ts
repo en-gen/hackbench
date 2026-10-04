@@ -29,6 +29,7 @@ import {
   HANDLER,
   PIPES,
   RTL,
+  SIG_AT,
   STAND_IN,
   STAND_IN_PRIMITIVES,
   STOCK_PINS,
@@ -696,6 +697,22 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
       expect(viaObject(other, STAND_IN_PRIMITIVES)).toEqual([])
     })
 
+    it('keys the cache by length: a short entry in the table does not hide the full one', () => {
+      const [full] = STAND_IN_PRIMITIVES
+      expect(viaObject(productionCart([RTL]), [{ ...full, length: 20 }, full])).toEqual([])
+    })
+
+    it('an empty table recognizes nothing', () => {
+      expect(viaObject(productionCart([RTL]), [])[0]).toMatch(NOT_DISPATCH)
+    })
+
+    it('drops the cache when the ROM is written: a corrupted dispatcher is refused on the next draw', () => {
+      const rom = productionCart([RTL])
+      expect(viaObject(rom, STAND_IN_PRIMITIVES)).toEqual([])
+      rom.writeAt(SIG_AT + 5, [STAND_IN[5] ^ 1])
+      expect(viaObject(rom, STAND_IN_PRIMITIVES)[0]).toMatch(NOT_DISPATCH)
+    })
+
     it('a cached miss stays a miss', () => {
       const rom = productionCart([RTL])
       expect(viaObject(rom, VANILLA_PRIMITIVES)[0]).toMatch(NOT_DISPATCH)
@@ -790,7 +807,9 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
     it('refuses when any bit of any pinned byte differs, drawing the port and noting it', () => {
       const stock = STOCK_PINS
       // The note must name the site that was flipped, not just mention the loader.
-      const SITE_MESSAGE = { branch: /branch to its standard-object call/, call: /loader's call at/, loader: /routine at|JSL at/ } // prettier-ignore
+      const ROUTINE = /loader's routine at/,
+        JSL = /loader's JSL at/ // the loader routine's three operand bytes are its JSL; the rest are SEP, JSL, RTS
+      const SITE_MESSAGE = { branch: /branch to its standard-object call/, call: /loader's call at/ } // prettier-ignore
       const passed: string[] = []
       for (const part of ['branch', 'call', 'loader'] as const)
         for (let i = 0; i < stock[part].length; i++)
@@ -802,7 +821,8 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
             const rom = prodCart({ [part]: bytes })
             const r = expand(rom, 0x35)
             const drawsPort = JSON.stringify(r.grid) === JSON.stringify(port(rom, 0x35))
-            if (!SITE_MESSAGE[part].test(r.unverified[0] ?? '') || !drawsPort) passed.push(`${part}[${i}]^${bit}`) // prettier-ignore
+            const want = part === 'loader' ? (i >= 3 && i <= 5 ? JSL : ROUTINE) : SITE_MESSAGE[part]
+            if (!want.test(r.unverified[0] ?? '') || !drawsPort) passed.push(`${part}[${i}]^${bit}`) // prettier-ignore
           }
       expect(passed).toEqual([])
     })
