@@ -22,15 +22,31 @@ export const readPath = () =>
 // of the subpath just closed, so each start is the previous start plus offset;
 // an absolute `M` is taken as is.
 export function subpaths(d) {
-  const m = /^\s*([mM])\s*(-?[\d.]+)[\s,]*(-?[\d.]+)/
+  const num = String.raw`[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?`
+  const m = new RegExp(String.raw`^\s*([mM])\s*(${num})[\s,]*(${num})`)
   let x = 0
   let y = 0
   return d
     .split(/z/i)
-    .filter(chunk => m.test(chunk))
+    .filter(chunk => /\S/.test(chunk))
     .map((chunk, i) => {
-      const [, cmd, a, b] = m.exec(chunk)
+      const found = m.exec(chunk)
+      if (!found)
+        throw new Error(
+          `icon art unreadable: subpath ${i} does not start with a moveto: ${chunk.trim().slice(0, 30)}`,
+        )
+      const [whole, cmd, a, b] = found
       const [dx, dy] = [Number(a), Number(b)]
+      if (!Number.isFinite(dx) || !Number.isFinite(dy)) {
+        throw new Error(`icon art unreadable: subpath ${i} has non-numeric moveto coordinates`)
+      }
+      const rest = chunk.slice(whole.length)
+      if (/^[\s,]*[+\-.\d]/.test(rest)) {
+        throw new Error(`icon art unreadable: subpath ${i} has an implicit lineto after its moveto`)
+      }
+      if (/[mM]/.test(rest)) {
+        throw new Error(`icon art unreadable: subpath ${i} has a moveto before its closing z`)
+      }
       ;[x, y] = i === 0 || cmd === 'M' ? [dx, dy] : [x + dx, y + dy]
       return chunk.replace(m, `M${+x.toFixed(3)} ${+y.toFixed(3)}`) + 'z'
     })

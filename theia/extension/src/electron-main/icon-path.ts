@@ -5,15 +5,26 @@ import * as path from 'path'
 // build/icons/app, so it resolves from src/ (tests), lib/ (tsc output) and
 // theia/electron-app/lib/backend (the esbuild bundle that actually runs). The
 // icons live under build/icons because the content gate allows binary images
-// only there. Undefined when the file is absent: an icon never blocks startup.
+// only there. A candidate must be a regular, non-empty file; anything else (a
+// directory, an empty file, a failed stat) counts as absent and the search
+// goes on. Undefined when nothing usable is found: an icon never blocks startup.
 export function appIconPath(
   platform: string = process.platform,
   fromDir: string = __dirname,
+  stat: typeof fs.statSync = fs.statSync,
 ): string | undefined {
   const name = platform === 'win32' ? 'icon.ico' : 'icon.png'
+  const usable = (file: string) => {
+    try {
+      const s = stat(file)
+      return s.isFile() && s.size > 0
+    } catch {
+      return false
+    }
+  }
   for (let dir = fromDir, parent = ''; dir !== parent; parent = dir, dir = path.dirname(dir)) {
     const file = path.join(dir, 'build', 'icons', 'app', name)
-    if (fs.existsSync(file)) return file
+    if (usable(file)) return file
   }
   return undefined
 }

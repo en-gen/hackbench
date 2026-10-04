@@ -185,6 +185,18 @@ describe('app icon generator', () => {
     expect(gen.subpaths('m10 10h10v10h-10zm5 5h5v5h-5z')[1].startsWith('M15 15')).toBe(true)
   })
 
+  it('subpaths refuses what it would otherwise misread, with a reason', () => {
+    expect(() => gen.subpaths('m0 0h10v10h-10z foo h5z')).toThrow(/moveto/)
+    expect(() => gen.subpaths('m0 0h10z mx 5h5z')).toThrow(/moveto/)
+    expect(() => gen.subpaths('m0 0 100 0 0 10z')).toThrow(/implicit lineto/)
+    expect(() => gen.subpaths('m0 0h10v10h-10 m20 20h5v5h-5z')).toThrow(/closing z/)
+  })
+
+  it('subpaths reads packed coordinates and exponents it can parse', () => {
+    expect(gen.subpaths('m1.5.5h5z')[0].startsWith('M1.5 0.5')).toBe(true)
+    expect(gen.subpaths('m1e1 +5h5z')[0].startsWith('M10 5')).toBe(true)
+  })
+
   it('classify refuses what it cannot read, with a reason', () => {
     const sq = (x: number, y: number, w: number) => `M${x} ${y}h${w}v${w}h-${w}z`
     expect(() => gen.classify(sq(0, 0, 10) + sq(20, 0, 10))).toThrow(/exactly one/)
@@ -263,6 +275,35 @@ describe('appIconPath', () => {
 
   it('is undefined, not a throw, when the assets are missing', () => {
     expect(appIconPath('win32', fs.mkdtempSync(path.join(os.tmpdir(), 'noicon-')))).toBeUndefined()
+  })
+
+  const iconDir = (dir: string) => {
+    const d2 = path.join(dir, 'build/icons/app')
+    fs.mkdirSync(d2, { recursive: true })
+    return d2
+  }
+
+  it('skips a zero-byte icon and keeps searching up', () => {
+    const top = fs.mkdtempSync(path.join(os.tmpdir(), 'zero-'))
+    fs.writeFileSync(path.join(iconDir(top), 'icon.ico'), Buffer.from([1]))
+    const inner = path.join(top, 'inner')
+    fs.writeFileSync(path.join(iconDir(inner), 'icon.ico'), '')
+    expect(appIconPath('win32', inner)).toBe(path.join(top, 'build/icons/app/icon.ico'))
+    fs.rmSync(path.join(top, 'build'), { recursive: true })
+    expect(appIconPath('win32', inner)).toBeUndefined()
+  })
+
+  it('skips a directory named icon.ico', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dirico-'))
+    fs.mkdirSync(path.join(iconDir(dir), 'icon.ico'))
+    expect(appIconPath('win32', dir)).toBeUndefined()
+  })
+
+  it('treats a stat failure as absent, never a throw', () => {
+    const throwing = () => {
+      throw new Error('EACCES')
+    }
+    expect(appIconPath('win32', repo, throwing as unknown as typeof fs.statSync)).toBeUndefined()
   })
 
   it('is undefined when the folder exists but the file does not', () => {
