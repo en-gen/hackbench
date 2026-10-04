@@ -17,7 +17,12 @@ import { execFileSync, spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { checkBlob, checkPath } from '../../../tools/scripts/check-content.mjs'
+import {
+  checkBlob,
+  checkPath,
+  DEFAULT_MAX_BLOB_BYTES,
+  DEFAULT_MAX_TOTAL_BYTES,
+} from '../../../tools/scripts/check-content.mjs'
 
 const repoRoot = path.resolve(__dirname, '../../..')
 const realScript = path.join(repoRoot, 'tools/scripts/check-content.mjs')
@@ -843,8 +848,12 @@ describe(
 describe(
   'content gate: read budget (#461)',
   () => {
-    function gateWithLimits(maxBlob: number, maxTotal: number): { status: number; err: string } {
-      const res = spawnSync('node', ['tools/scripts/check-content.mjs', 'staged'], {
+    function gate(
+      maxBlob: number,
+      maxTotal: number,
+      mode = 'staged',
+    ): { status: number; out: string; err: string } {
+      const res = spawnSync('node', ['tools/scripts/check-content.mjs', mode], {
         cwd: dir,
         env: {
           ...process.env,
@@ -852,36 +861,93 @@ describe(
           CONTENT_GATE_MAX_TOTAL_BYTES: String(maxTotal),
         },
       })
-      return { status: res.status ?? -1, err: res.stderr.toString() }
+      return { status: res.status ?? -1, out: res.stdout.toString(), err: res.stderr.toString() }
     }
+    const small = (i: number) => `line ${i} `.repeat(50)
+
+    it('defaults are 32 MiB per blob and 128 MiB total', () => {
+      expect(DEFAULT_MAX_BLOB_BYTES).toBe(32 * 1024 * 1024)
+      expect(DEFAULT_MAX_TOTAL_BYTES).toBe(128 * 1024 * 1024)
+    })
 
     it('an ordinary change passes under small limits', () => {
       writeFile('src/a.ts', 'export const a = 1\n')
       writeFile('src/b.ts', 'export const b = 2\n')
       run('git', ['add', 'src'])
-      expect(gateWithLimits(1000, 1000).status).toBe(0)
+      expect(gate(1000, 1000).status).toBe(0)
     })
 
     it('one blob over the per-blob limit is refused, naming its path', () => {
       writeFile('src/huge.txt', 'x'.repeat(2000))
       run('git', ['add', 'src'])
-      const r = gateWithLimits(1000, 1_000_000)
+      const r = gate(1000, 1_000_000)
       expect(r.status).toBe(2)
       expect(r.err).toMatch(/src\/huge\.txt/)
     })
 
-    it('many blobs each under the per-blob limit but over the total are refused', () => {
-      for (let i = 0; i < 10; i++) writeFile(`src/f${i}.txt`, `line ${i} `.repeat(50))
+    it('a blob exactly at the per-blob limit is accepted, one byte over is refused', () => {
+      writeFile('src/edge.txt', 'a '.repeat(500)) // 1000 bytes
       run('git', ['add', 'src'])
-      const r = gateWithLimits(1000, 3000)
+      expect(gate(1000, 1_000_000).status).toBe(0)
+      expect(gate(999, 1_000_000).status).toBe(2)
+    })
+
+    it('many blobs each under the per-blob limit but over the total are refused', () => {
+      for (let i = 0; i < 10; i++) writeFile(`src/f${i}.txt`, small(i))
+      run('git', ['add', 'src'])
+      const r = gate(1000, 3000)
       expect(r.status).toBe(2)
       expect(r.err).toMatch(/total/)
     })
 
-    it('the same ten blobs pass when the total budget allows them', () => {
-      for (let i = 0; i < 10; i++) writeFile(`src/f${i}.txt`, `line ${i} `.repeat(50))
+    it('the total is accepted exactly at the budget (also covers batch header slack)', () => {
+      let sum = 0
+      for (let i = 0; i < 40; i++) {
+        const c = `file ${i} content\n`
+        sum += Buffer.byteLength(c)
+        writeFile(`src/s${i}.txt`, c)
+      }
       run('git', ['add', 'src'])
-      expect(gateWithLimits(1000, 10_000).status).toBe(0)
+      expect(gate(1000, sum).status).toBe(0)
+      expect(gate(1000, sum - 1).status).toBe(2)
+    })
+
+    it('a budget refusal still reports path-rule hits (big file plus staged ROM)', () => {
+      writeFile('big.txt', 'x'.repeat(2000))
+      writeFile('game.smc', 'not a rom')
+      run('git', ['add', 'big.txt', 'game.smc'])
+      const r = gate(1000, 1_000_000)
+      expect(r.status).toBe(2)
+      expect(r.err).toMatch(/big\.txt/)
+      expect(r.out).toMatch(/BLOCKED \(rom-ext\): game\.smc/)
+    })
+
+    it('history mode reads in chunks: a total over the budget passes and a late hit is reported', () => {
+      for (let i = 0; i < 30; i++) writeFile(`src/h${i}.txt`, small(i))
+      run('git', ['add', 'src'])
+      run('git', ['commit', '-q', '-m', 'many'])
+      writeFile('late.dat2', Buffer.from([0x61, 0x00, 0x62]))
+      run('git', ['add', 'late.dat2'])
+      run('git', ['commit', '-q', '-m', 'late'])
+      const clean = gate(1000, 2000, 'history')
+      expect(clean.err).toBe('')
+      expect(clean.status).toBe(1) // the planted hit, not a budget refusal
+      expect(clean.out).toMatch(/late\.dat2/)
+    })
+
+    it('history mode with no hit and a tiny total passes, but per-blob is still enforced', () => {
+      for (let i = 0; i < 30; i++) writeFile(`src/h${i}.txt`, small(i))
+      run('git', ['add', 'src'])
+      run('git', ['commit', '-q', '-m', 'many'])
+      expect(gate(1000, 2000, 'history').status).toBe(0)
+      expect(gate(100, 2000, 'history').status).toBe(2)
+    })
+
+    it('an annotated tag body over the per-blob limit is refused in history mode', () => {
+      run('git', ['tag', '-a', 'v1', '-m', 'x'.repeat(2000)])
+      const r = gate(1000, 1_000_000, 'history')
+      expect(r.status).toBe(2)
+      expect(r.err).toMatch(/per-file limit/)
     })
   },
   CLI_TIMEOUT_MS,

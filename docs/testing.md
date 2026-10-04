@@ -46,6 +46,17 @@ remote-tracking refs), and `history` (every blob reachable from every ref
   shallow clone, a grafts file, and a tag/ref pointing at a blob or tree
   outside any commit's tree).
 
+Read budget (#461): before any content is buffered, object sizes are
+checked with `git cat-file --batch-check`. A blob over 32 MiB, or (in
+`staged`, `range` and a per-ref `push`) a set whose total exceeds 128 MiB,
+exits 2 naming the path; path-rule hits (such as a staged `.smc`) are still
+printed alongside the refusal. `history`, and a `push` to an empty remote,
+skip the total refusal and read in chunks of at most 128 MiB instead, so
+memory stays bounded as history grows. A size exactly at a limit passes.
+The largest tracked file today is 340 KB. The limits can be overridden with
+`CONTENT_GATE_MAX_BLOB_BYTES` and `CONTENT_GATE_MAX_TOTAL_BYTES`; these exist
+so tests need not write megabytes, not for normal use.
+
 A commit MESSAGE already on protected `develop` cannot be amended, so a false
 positive there would red `history` mode forever. Such a message goes in
 `tools/scripts/content-gate-reviewed.txt` as `<sha> <rule> -- <reason>`,
