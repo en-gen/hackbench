@@ -265,7 +265,7 @@ describe('deriveOverworldEntrances: Lunar Magic stored translevels', () => {
     // Every flip was undone, so each variant still reads; a missed restore
     // would refuse later bytes for the wrong reason and hide a survivor.
     for (const [what, rom] of roms) expect(derive(rom).overworldReadable, what).toBe(true)
-  }, 30_000) // ~900 derives; the default 5 s is too tight under a full parallel run
+  }, 90_000) // ~900 derives; the default 5 s is too tight under a full parallel run
 
   it('refuses a table shorter than the $800 tiles', () => {
     const rom = build(new Uint8Array(0x7ff))

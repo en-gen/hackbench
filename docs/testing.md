@@ -141,7 +141,7 @@ helpers with hand-crafted byte sequences or literal inputs. Examples:
   (the non-integration portion) - feeds tiny constructed object streams
   into the expander.
 
-These run in CI on Node 20 and Node 22 and are the project's primary
+These run in CI on Node 22 and are the project's primary
 correctness gate.
 
 ### 2. ROM-dependent tests (skipped in CI, run locally if ROM present)
