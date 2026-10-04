@@ -1,5 +1,5 @@
 /**
- * One map, opened from the explorer: its L1 (foreground), drawn by the
+ * One map, opened from the explorer: its L1 (foreground) and L2 (background), drawn by the
  * backend a screen at a time (#421 step 3), with the header decode below.
  *
  * The strip requests only the screens in view plus one either side, and
@@ -89,8 +89,9 @@ export class MapViewWidget extends ReactWidget {
   /** The switch toggles' art (#574's), and why a kind has none. */
   protected switchArt: Partial<Record<Switch, SwitchButtonImages>> = {}
   protected switchWhy: Partial<Record<Switch, string>> = {}
-  /** L1 (foreground) shown; off leaves the back area layer beneath it. */
+  /** L1 (foreground) and L2 (background) shown; off leaves what is beneath them. */
   protected showL1 = true
+  protected showL2 = true
   /** Undefined until the user zooms: the strip then fits the view. */
   protected userZoom: number | undefined
   protected fitZoom = 1
@@ -262,6 +263,7 @@ export class MapViewWidget extends ReactWidget {
       l.screenCount !== r.screenCount ||
       l.orientation !== r.orientation ||
       l.note !== r.note ||
+      l.layerNotes.join() !== r.layerNotes.join() ||
       l.backdrop.join() !== r.backdrop.join()
     ) {
       // The first reply sizes the strip; the screens in view follow once it is laid out.
@@ -364,6 +366,11 @@ export class MapViewWidget extends ReactWidget {
     this.update()
   }
 
+  protected toggleL2(): void {
+    this.showL2 = !this.showL2
+    this.update()
+  }
+
   protected stepZoom(dir: 1 | -1): void {
     const z = this.zoom
     const next =
@@ -390,12 +397,20 @@ export class MapViewWidget extends ReactWidget {
       <div className="hb-map-view-main">
         <div className="hb-map-view-toolbar">
           <LayerToggle
+            highlight="bottom"
+            label="Background"
+            pressed={this.showL2}
+            control="layer-l2"
+            onClick={() => this.toggleL2()}
+          />
+          <LayerToggle
             highlight="middle"
             label="Foreground"
             pressed={this.showL1}
             control="layer-l1"
             onClick={() => this.toggleL1()}
           />
+          <span className="hb-toolbar-sep" data-control="toolbar-sep" />
           {PALACES.map(p => this.renderToggle(p))}
           {SWITCH_ORDER.map(k => (
             <SwitchToggle
@@ -447,6 +462,11 @@ export class MapViewWidget extends ReactWidget {
             {this.screenError}
           </div>
         )}
+        {this.mapLayout?.layerNotes.map(n => (
+          <div key={n} className="hb-map-view-note" data-note="layers">
+            {n}
+          </div>
+        ))}
         {this.renderStrip()}
         <AfterCommit run={this.sync} />
         <details className="hb-map-view-header" data-control="header-panel">
@@ -518,7 +538,10 @@ export class MapViewWidget extends ReactWidget {
                   className="hb-map-view-plane"
                   data-plane={plane}
                   data-screen={s}
-                  style={{ zIndex: z + 1, visibility: this.showL1 ? undefined : 'hidden' }}
+                  style={{
+                    zIndex: z + 1,
+                    visibility: (plane.startsWith('l2') ? this.showL2 : this.showL1) ? undefined : 'hidden', // prettier-ignore
+                  }}
                   ref={this.canvasRef(plane, s)}
                 />
               ))}

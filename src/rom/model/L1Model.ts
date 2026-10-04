@@ -6,6 +6,7 @@
  * tab shows, by construction rather than by keeping two copies in step.
  */
 import type { SmwRom } from '../SmwRom'
+import { hex3s as hex3 } from '../hex'
 import type { RomFile } from '../RomFile'
 import type { RgbaColor } from '../GraphicsDecoder'
 import {
@@ -91,8 +92,6 @@ export interface L1Inputs {
 }
 
 export type L1InputsResult = { ok: true; inputs: L1Inputs } | { ok: false; reason: string }
-
-const hex3 = (n: number) => `$${n.toString(16).toUpperCase().padStart(3, '0')}`
 
 /** Everything `assembleL1Inputs` needs, read from the ROM and nothing else. */
 export interface L1Readings {

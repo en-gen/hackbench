@@ -39,10 +39,9 @@ import {
   PIPE_VARIANT_TILE_START,
   loadMap16WithPipeVariants,
   pipeVariantIndex,
-  type Map16Tile,
 } from '../../../src/rom/Map16'
 import { buildTileAtlas, renderMap16Tile } from '../../../src/rom/TileRenderer'
-import { loadVram, type VramState } from '../../../src/rom/GfxLoader'
+import { loadVram } from '../../../src/rom/GfxLoader'
 import {
   ghostOf,
   overlayHidden,
@@ -79,6 +78,18 @@ import {
 } from '../../../src/rom/objectHandlers/romData'
 import type { RgbaColor } from '../../../src/rom/GraphicsDecoder'
 import { MAGIC } from '../support/corpus'
+import {
+  BLUE_SLOT,
+  COLORS,
+  hGrid,
+  inputs,
+  ONOFF_SLOT,
+  px,
+  sub,
+  tile,
+  vGrid,
+  VRAM,
+} from '../support/mapInputs'
 import {
   cellDef,
   drawL1Planes,
@@ -145,59 +156,6 @@ afterEach(() => {
 
 const romPresent = hasRom(VANILLA)
 const YELLOW: SwitchFlags = { ...UNCLEARED, yellow: true }
-const BACKDROP: RgbaColor = [250, 9, 9, 255]
-
-// ── Synthetic inputs ─────────────────────────────────────────────────────────
-
-const sub = (charNum: number, palette = 0) => ({ charNum, palette, priority: false, flipX: false, flipY: false }) // prettier-ignore
-const tile = (id: number, q: ReturnType<typeof sub>[]): Map16Tile => ({ id, tl: q[0]!, tr: q[1]!, bl: q[2]!, br: q[3]! }) // prettier-ignore
-/** fg1 chars 0-4, each solid in its own color index (char 0 transparent); 5 blank; 6 solid color 4; 7-9 blank. */
-const VRAM: VramState = { fg1: [0, 1, 2, 3, 4, 0, 4, 0, 0, 0].map(v => new Uint8Array(64).fill(v)) }
-/** The blue switch swaps chars 2-4 to solid color 7 and char 5's top half to color 7 (frame 0 as loaded when off). */
-/** ON/OFF on blanks char 6: a tile drawn with the switch off, gone with it on. */
-const ONOFF_SLOT = { charBase: 6, tiles: [4, 0, 0, 0].map(v => new Uint8Array(64).fill(v)), alt: { switch: 'onOff' as const, tiles: [0, 1, 2, 3].map(() => new Uint8Array(64)) } } // prettier-ignore
-const BLUE_SLOT = { charBase: 2, tiles: [2, 3, 4, 0].map(v => new Uint8Array(64).fill(v)), alt: { switch: 'blue' as const, tiles: [0, 1, 2, 3].map(i => new Uint8Array(64).fill(7, 0, i === 3 ? 32 : 64)) } } // prettier-ignore
-
-/** Color index c of row r is [r * 16 + c, 100, 200]; index 0 is transparent. */
-const COLORS: RgbaColor[] = Array.from({ length: 256 }, (_, i) => (i % 16 === 0 ? [0, 0, 0, 0] : [i, 100, 200, 255])) // prettier-ignore
-
-/**
- * Inputs with tile 1 (chars 1-4, one per quadrant), empty tile 0, tile 2
- * hidden until blue is on, tile 4 drawn until ON/OFF is on, and the eight
- * pipe tiles whose variant v draws char 1 in palette row v. Tiles sit at
- * their own ids, as the Map16 table does.
- */
-function inputs(grid: number[][], isVertical: boolean, screenCount: number): L1Inputs {
-  const tiles: Map16Tile[] = []
-  const put = (t: Map16Tile) => (tiles[t.id] = t)
-  put(tile(0, [sub(0), sub(0), sub(0), sub(0)]))
-  put(tile(1, [sub(1), sub(2), sub(3), sub(4)]))
-  put(tile(2, [sub(5), sub(5), sub(5), sub(5)])) // hidden: blank until blue is on
-  put(tile(3, [sub(1), sub(1), sub(1), sub(1)])) // cites no switched char
-  put(tile(4, [sub(6), sub(6), sub(6), sub(6)])) // vanishes: drawn until ON/OFF is on
-  const pipeVariants = [0, 1, 2, 3].map(
-    v =>
-    Array.from({ length: PIPE_VARIANT_TILE_COUNT }, (_, i) => tile(PIPE_VARIANT_TILE_START + i, [sub(1, v), sub(1, v), sub(1, v), sub(1, v)])), // prettier-ignore
-  )
-  for (let i = 0; i < PIPE_VARIANT_TILE_COUNT; i++) put(tile(PIPE_VARIANT_TILE_START + i, [sub(0), sub(0), sub(0), sub(0)])) // prettier-ignore
-  return {
-    header: parseLevelHeader([0, 0, 0, 0, 0]),
-    isVertical,
-    screenCount,
-    grid,
-    map16: { tiles, pipeVariants },
-    rawVram: VRAM,
-    anim: { frameCount: 1, intervalMs: 100, frames: [[BLUE_SLOT, ONOFF_SLOT]] },
-    vram: VRAM,
-    colors: COLORS,
-    backArea: BACKDROP,
-    unverified: [],
-    switchArt: switchArtOf({ frameCount: 1, intervalMs: 100, frames: [[BLUE_SLOT, ONOFF_SLOT]] }, tiles, VRAM, { colors: COLORS }), // prettier-ignore
-  }
-}
-
-const hGrid = (screens: number) => Array.from({ length: 27 }, () => new Array<number>(screens * 16).fill(0)) // prettier-ignore
-const vGrid = (screens: number) => Array.from({ length: screens * 16 }, () => new Array<number>(32).fill(0)) // prettier-ignore
 
 /** A color on the screen door's dim squares: the art at 25%, left for the browser to lay over the back area. */
 const dim = (rgb: number[]) => [...rgb, Math.round(255 * HIDDEN_TILE_DIM_ALPHA)]
@@ -227,10 +185,6 @@ function drawL1Screen(
     plane?.forEach((v, i) => (out[i]! |= v))
   return out
 }
-
-/** RGBA of pixel (x, y) in a screen buffer of `width` pixels. */
-const px = (buf: Uint8ClampedArray, width: number, x: number, y: number) =>
-  Array.from(buf.subarray((y * width + x) * 4, (y * width + x) * 4 + 4))
 
 describe('one renderer for the sheet and the map (synthetic)', () => {
   it('each quadrant draws its own color', () => {

@@ -165,6 +165,19 @@ describe('readInitialLayer2YPos', () => {
     expect(readInitialLayer2YPos(rom, 5, true)).toBe((0x1f << 8) | 0x90)
   })
 
+  it('VertLayer2Setting 3 (DATA_05D710) leaves the high byte at 0', () => {
+    const rom = make4MbRom()
+    rom.writeAt(DATA_05F400 + 5, [0x01])
+    rom.writeAt(DATA_05D70C + 1, [0x90])
+    rom.writeAt(DATA_05F600 + 5, [0x03])
+    rom.writeAt(0x05f000 + 5, [0x10]) // index 1 of DATA_05D710: not 3, so the high byte is written
+    rom.writeAt(0x05d710 + 1, [0x01])
+    expect(readInitialLayer2YPos(rom, 5, true)).toBe(0x0390)
+    rom.writeAt(0x05f000 + 5, [0x00]) // index 0
+    rom.writeAt(0x05d710, [0x03]) // the vanilla value for index 0
+    expect(readInitialLayer2YPos(rom, 5, true)).toBe(0x90)
+  })
+
   it('sublevel without targeting entrance falls back to primary F400 path', () => {
     const rom = make4MbRom()
     // $111 has no targeting entrance in our zeroed ROM.
