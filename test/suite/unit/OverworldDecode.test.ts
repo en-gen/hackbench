@@ -90,9 +90,11 @@ function compose(dto: OverworldDto, show = { l1: true, l2: true }): Buffer {
 }
 /**
  * The color L1 cell (row, col) paints at 2 px into its top-left quadrant,
- * composed from only that 8x8 cell of each layer through the same
- * compositeOverworld. Composing a whole half per probe cost ~50 of the ~85 ms
- * a draw took, and the ordering test makes five draws per cell (#515).
+ * composed through the same compositeOverworld from a 3x3-cell window of each
+ * layer instead of a whole half (composing a half cost ~50 of the ~85 ms a
+ * draw took; #515). The target sits at window (row 2, col 1) and every other
+ * cell gets the opposite priority, so a transposed or wrong-stride cell index
+ * (cellsW is 3 here, never 1) lands on a neighbour that disagrees with it.
  */
 function cellColor(dto: OverworldDto, row: number, col: number): number[] {
   if (dto.status !== 'ok') throw new Error(dto.reason)
@@ -101,15 +103,20 @@ function cellColor(dto: OverworldDto, row: number, col: number): number[] {
   const cx = (col & 31) * 2
   const crop = (l: { rgbaBase64: string; prioBase64: string }) => {
     const rgba = b64(l.rgbaBase64)
-    const out = new Uint8ClampedArray(8 * 8 * 4)
-    for (let y = 0; y < 8; y++) {
-      const from = ((cy * 8 + y) * OW_HALF_W + cx * 8) * 4
-      out.set(rgba.subarray(from, from + 32), y * 32)
+    const prio = b64(l.prioBase64)
+    const out = new Uint8ClampedArray(24 * 24 * 4)
+    for (let y = 0; y < 24; y++) {
+      const from = ((cy - 2) * 8 + y) * OW_HALF_W * 4 + (cx - 1) * 8 * 4
+      out.set(rgba.subarray(from, from + 24 * 4), y * 24 * 4)
     }
-    return { rgba: out, prio: Uint8Array.of(b64(l.prioBase64)[cy * (OW_HALF_W >> 3) + cx]!) }
+    const target = prio[cy * (OW_HALF_W >> 3) + cx]!
+    const win = new Uint8Array(9).fill(target ? 0 : 1)
+    win[2 * 3 + 1] = target
+    return { rgba: out, prio: win }
   }
-  const px = compositeOverworld(8, 8, dto.backdrop, crop(half.l2!), crop(half.l1))
-  return [...px.subarray((2 * 8 + 2) * 4, (2 * 8 + 2) * 4 + 4)]
+  const px = compositeOverworld(24, 24, dto.backdrop, crop(half.l2!), crop(half.l1))
+  const i = (18 * 24 + 10) * 4
+  return [...px.subarray(i, i + 4)]
 }
 const sha = (px: Buffer): string => createHash('sha256').update(px).digest('hex')
 
@@ -234,7 +241,8 @@ describe('decodeOverworld on a synthetic ROM', () => {
     expect(pixelAt(pixels(rom), 5, 9)).toEqual([...bgr555ToRgba(0x7fff)])
   })
 
-  // Cells whose id & 3 = 0 (tileAt), so L1's row 4 color differs from L2's row 7: one per
+  // Cells whose id & 3 is not 3 (tileAt 5,9 is 0; 5,41 is 77, so 1), so L1's row 4 + (id & 3)
+  // color differs from L2's row 7: one per
   // half. One test per half, each with its own 5 s budget (#515).
   for (const [r, c] of [
     [5, 9],
@@ -253,7 +261,8 @@ describe('decodeOverworld on a synthetic ROM', () => {
         rom.writeAt(CHAR_DATA + id * 8, [l1Low, l1High])
         const dto = decode(rom)
         expect(dto.status).toBe('ok')
-        expect(dto.status === 'ok' && dto.l2Unavailable).toBeFalsy()
+        expect(dto.status === 'ok' && dto.l2Unavailable).toBeUndefined()
+        expect(dto.status === 'ok' && b64(dto.halves[0].l1.rgbaBase64).length).toBe(512 * 512 * 4)
         return cellColor(dto, r, c)
       }
       const l1Row = (4 + (id & 3)) << 2
