@@ -1,10 +1,13 @@
 /**
- * Proof that accept.sh (design section 5) refuses before it ever calls
- * `gh api`: every case here exits 2 on its own validation, so none of them
- * need `gh` installed or authenticated to run in CI.
+ * Three kinds of case, none of which can reach the real `gh` (issue #486):
+ * 1. accept.sh refuses on its own validation before any `gh` call (exit 2).
+ * 2. accept.sh against a fake `gh` that lists a window and logs any other
+ *    call, so a status POST is observable.
+ * 3. The suite-wide guard (test/suite/support/noRealGh.ts): every way of
+ *    launching `gh` (bash, no shell, cmd.exe) lands on the failing shim.
  */
 import { describe, it, expect } from 'vitest'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
@@ -12,12 +15,11 @@ import * as os from 'node:os'
 const repoRoot = path.resolve(__dirname, '../../..')
 const script = path.join(repoRoot, 'tools', 'perf', 'accept.sh')
 
-function run(
-  args: string[],
-  env: NodeJS.ProcessEnv = process.env,
-): { status: number; output: string } {
+type Result = { status: number; output: string }
+
+function runBash(argv: string[], env: NodeJS.ProcessEnv = process.env): Result {
   try {
-    const output = execFileSync('bash', [script, ...args], {
+    const output = execFileSync('bash', argv, {
       cwd: repoRoot,
       encoding: 'utf8',
       stdio: 'pipe',
@@ -29,6 +31,8 @@ function run(
     return { status: e.status ?? -1, output: (e.stderr ?? '') + (e.stdout ?? '') }
   }
 }
+
+const run = (args: string[], env?: NodeJS.ProcessEnv) => runBash([script, ...args], env)
 
 describe('accept.sh refuses before touching gh api', () => {
   it('refuses with no arguments', () => {
@@ -114,6 +118,7 @@ describe('accept.sh only accepts a sha in the latest 100 develop commits', () =>
     const r = run(['HEAD', 'a valid reason'], env)
     expect(r.output).not.toMatch(/not a commit|whitespace|usage/)
     expect(r.output).toMatch(/latest 100 commits/) // reached the window check
+    expect(r.output).toContain(head) // the ref was resolved to the full sha
     expect(fs.existsSync(log)).toBe(false) // no status POST
   })
 
@@ -126,24 +131,36 @@ describe('accept.sh only accepts a sha in the latest 100 develop commits', () =>
 })
 
 describe('the suite-wide guard', () => {
-  it('resolves gh to the failing shim, never the real one', () => {
-    const r = run_('gh api repos/en-gen/hackbench/statuses/x')
+  const shimName = path.basename(process.env.HB_NO_REAL_GH_DIR ?? '')
+
+  it('puts the shim dir in the env', () => {
+    expect(shimName).toMatch(/^hb-nogh-/)
+  })
+
+  it('strips gh credentials from the env', () => {
+    for (const v of ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN'])
+      expect(process.env[v]).toBeUndefined()
+    expect(process.env.GH_CONFIG_DIR).toContain('hb-nogh-')
+  })
+
+  it('resolves gh to the failing shim from bash, never the real one', () => {
+    const r = runBash(['-c', 'gh api repos/en-gen/hackbench/statuses/x'])
     expect(r.status).toBe(99)
     expect(r.output).toMatch(/gh blocked/)
     // msys rewrites the drive form, so compare the unique directory name
-    const shimName = path.basename(process.env.HB_NO_REAL_GH_DIR ?? '')
-    expect(run_('command -v gh').output.trim()).toContain(`${shimName}/gh`)
+    expect(shimName).toMatch(/^hb-nogh-/)
+    expect(runBash(['-c', 'command -v gh']).output.trim()).toContain(`${shimName}/gh`)
   })
 
-  function run_(cmd: string): { status: number; output: string } {
-    try {
-      return {
-        status: 0,
-        output: execFileSync('bash', ['-c', cmd], { encoding: 'utf8', stdio: 'pipe' }),
-      }
-    } catch (err) {
-      const e = err as { status?: number; stderr?: string; stdout?: string }
-      return { status: e.status ?? -1, output: (e.stderr ?? '') + (e.stdout ?? '') }
-    }
-  }
+  it('blocks a spawn with no shell (no bash, no cmd.exe)', () => {
+    const r = spawnSync('gh', ['auth', 'status'], { encoding: 'utf8' })
+    expect(r.status).not.toBe(0)
+    expect(`${r.stdout}${r.stderr}`).not.toMatch(/Logged in/)
+  })
+
+  it.skipIf(process.platform !== 'win32')('blocks gh through cmd.exe via gh.cmd', () => {
+    const r = spawnSync('gh auth status', { shell: true, encoding: 'utf8' })
+    expect(r.status).toBe(99)
+    expect(`${r.stdout}${r.stderr}`).toMatch(/gh blocked/)
+  })
 })

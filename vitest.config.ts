@@ -16,7 +16,7 @@ export default defineConfig({
       'test/suite/gates/**/*.test.ts',
     ],
     environment: 'node',
-    setupFiles: ['test/suite/support/noRealGh.ts'],
+    globalSetup: ['test/suite/support/noRealGh.ts'],
     coverage: {
       provider: 'v8',
       // lcov is what Codecov ingests; the rest are for reading locally.

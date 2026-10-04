@@ -7,6 +7,7 @@ export default defineConfig({
   test: {
     include: ['test/perf/core/**/*.bench.ts'],
     environment: 'node',
+    globalSetup: ['test/suite/support/noRealGh.ts'],
     // 10 minutes (design D4): a catastrophic regression must show up as a
     // slow, honest measurement the detector can flag, not as a vitest
     // timeout error that gets swallowed as "the suite failed" instead.
