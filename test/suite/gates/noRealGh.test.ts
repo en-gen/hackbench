@@ -267,6 +267,20 @@ describe('setup lifecycle', () => {
     expect(setup()).toBeUndefined()
   })
 
+  it.each([
+    ['changed', '/elsewhere'],
+    ['deleted', undefined],
+  ])('restores the guard-owned config dir on reuse when GH_CONFIG_DIR is %s', (_n, v) => {
+    const dir = process.env.HB_NO_REAL_GH_DIR!
+    if (v === undefined) delete process.env.GH_CONFIG_DIR
+    else process.env.GH_CONFIG_DIR = v
+    expect(setup()).toBeUndefined()
+    const cfg = process.env.GH_CONFIG_DIR!.replaceAll(path.sep, '/')
+    expect(path.dirname(cfg)).toBe(dir)
+    expect(path.basename(cfg).startsWith('config-')).toBe(true)
+    expect(fs.readdirSync(cfg)).toEqual([]) // empty, so gh finds no stored login
+  })
+
   it('re-applies the env on the early return (blank and deleted tokens)', () => {
     process.env.GH_TOKEN = ''
     delete process.env.GITHUB_TOKEN

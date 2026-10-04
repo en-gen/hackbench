@@ -93,7 +93,11 @@ export default function setup(): (() => void) | void {
   const cur = process.env.HB_NO_REAL_GH_DIR
   if (cur && fs.existsSync(cur) && (process.env.PATH ?? '').startsWith(cur + path.delimiter)) {
     // Only shim creation is idempotent; the env is re-applied every time.
-    Object.assign(process.env, guardEnv(process.env, process.env.GH_CONFIG_DIR ?? cur))
+    // GH_CONFIG_DIR is not trusted: a test may have changed or deleted it, so
+    // go back to the guard-owned config-* child (empty), or make one.
+    const owned = fs.readdirSync(cur).find(n => n.startsWith('config-'))
+    const config = owned ? path.join(cur, owned) : fs.mkdtempSync(path.join(cur, 'config-'))
+    Object.assign(process.env, guardEnv(process.env, config))
     return
   }
 

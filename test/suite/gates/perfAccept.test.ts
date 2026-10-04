@@ -222,7 +222,7 @@ describe('the suite-wide guard', { timeout: 90000 }, () => {
   })
 
   it.skipIf(process.platform !== 'win32')('blocks gh through cmd.exe via gh.cmd', () => {
-    const r = spawnSync('gh auth status', { shell: true, encoding: 'utf8' })
+    const r = spawnSync('gh auth status', { shell: true, encoding: 'utf8', timeout: 20000 })
     expect(r.status).toBe(99)
     expect(`${r.stdout}${r.stderr}`).toMatch(/gh blocked/)
   })
