@@ -10,7 +10,9 @@
  * the Theia module as a constant, the same way RomRegistry is used directly
  * by each `*ServiceImpl` today.
  */
-import { openProject, Project, RomIdentity } from './Project'
+import * as path from 'path'
+import { openProject, Project, RomIdentity, romIdentity } from './Project'
+import { readRomBounded } from './BoundedRead'
 import { RomRegistry } from './RomRegistry'
 import { RomFile } from '../rom/RomFile'
 import { Layer, WorkingRom } from './WorkingRom'
@@ -93,6 +95,9 @@ function addrHex(romAddr: number): string {
   return `$${romAddr.toString(16).toUpperCase().padStart(6, '0')}`
 }
 
+/** `mismatch` names both hashes in full so a caller can shorten them for display. */
+export type RomCheck = { status: 'ok' } | { status: 'mismatch'; picked: string; expected: string }
+
 export class WorkingRomRegistry {
   private readonly cache = new Map<string, WorkingRomEntry>()
   /**
@@ -113,6 +118,32 @@ export class WorkingRomRegistry {
    */
   register(romPath: string): RomIdentity {
     return this.registry.register(romPath)
+  }
+
+  /** Where this machine says the cart with this hash is, re-verified; null if unknown. */
+  registeredPath(sha256: string): string | null {
+    return this.registry.resolve(sha256)
+  }
+
+  /** Whether the cart at `romPath` is this project's base ROM. Registers nothing. */
+  checkRom(manifestPath: string, romPath: string): RomCheck {
+    const expected = openProject(manifestPath).baseRom.sha256
+    const picked = romIdentity(readRomBounded(romPath)).sha256
+    return picked === expected ? { status: 'ok' } : { status: 'mismatch', picked, expected }
+  }
+
+  /**
+   * Point this machine at another copy of the project's own cart (#527). A
+   * different cart is refused: retargeting a project is out of scope. The
+   * cached working copy keeps its layers and only learns the new path.
+   */
+  relocate(manifestPath: string, romPath: string): RomCheck {
+    const check = this.checkRom(manifestPath, romPath)
+    if (check.status !== 'ok') return check
+    this.registry.register(romPath)
+    const cached = this.cache.get(manifestPath)
+    if (cached) cached.romPath = path.resolve(romPath)
+    return check
   }
 
   /**

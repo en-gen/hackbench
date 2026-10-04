@@ -62,7 +62,9 @@ path that will be written.
 
 Title, authors, version and summary are not asked for here. Nobody knows
 their summary at minute zero. They live in **Project Properties...** and the
-manifest carries defaults until you fill them in.
+manifest carries defaults until you fill them in. The same dialog shows where
+this workstation keeps the ROM and the emulator core, and lets you point either
+at a new location (the ROM must be the same one the project was made from).
 
 What you get:
 

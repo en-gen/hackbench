@@ -448,3 +448,7 @@
 .hb-layer-btn:not(.hb-icon-btn-on) {
   opacity: 0.4;
 }
+
+.hb-dialog-error {
+  color: var(--theia-errorForeground);
+}

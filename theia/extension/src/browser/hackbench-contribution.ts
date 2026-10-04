@@ -29,6 +29,8 @@ import { NewProjectDialog } from './new-project-dialog'
 import { MapExplorerWidget, MAP_EXPLORER_ID } from './map-explorer-widget'
 import { PreviewTabs } from './preview-tabs'
 import { MapViewWidget, MAP_VIEW_ID } from './map-view-widget'
+import { EmulatorService } from '../common/emulator-protocol'
+import { ProjectFrontendClient } from './project-push-client'
 import { ProjectPropertiesDialog } from './project-properties-dialog'
 import { ProjectContext } from './project-context'
 import { FileDialogService } from '@theia/filesystem/lib/browser'
@@ -124,6 +126,8 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
   @inject(ApplicationShell) protected readonly shell!: ApplicationShell
   @inject(ProjectPropertiesDialog) protected readonly properties!: ProjectPropertiesDialog
   @inject(ProjectContext) protected readonly context!: ProjectContext
+  @inject(EmulatorService) protected readonly emulator!: EmulatorService
+  @inject(ProjectFrontendClient) protected readonly pushClient!: ProjectFrontendClient
   @inject(FileDialogService) protected readonly fileDialog!: FileDialogService
   @inject(QuickInputService) protected readonly quickInput!: QuickInputService
 
@@ -425,7 +429,18 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
     if (!changes) return
 
     try {
+      // Registries first: a refused or failed relocation must not leave the
+      // metadata half-saved with the paths unchanged.
+      const { pendingRomPath, pendingCorePath } = this.properties
+      if (pendingRomPath) await this.projects.relocateRom(open.manifestPath, pendingRomPath)
+      if (pendingCorePath) {
+        const core = await this.emulator.locateCore(pendingCorePath)
+        if (core.status === 'invalid') throw new Error(core.message)
+      }
       this.context.current = await this.projects.updateProject(open.manifestPath, changes)
+      // Views that were waiting on a ROM or core re-read on this, the same
+      // push a working-copy edit sends.
+      this.pushClient.onWorkingCopyChanged(open.manifestPath)
       this.messages.info(`Saved properties for ${changes.title}`)
     } catch (err) {
       this.messages.error(`Could not save properties: ${(err as Error).message}`)

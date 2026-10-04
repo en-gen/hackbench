@@ -312,3 +312,139 @@ test('Project Properties speaks of ROMs, never cartridges, even for an untitled 
   expect(words).not.toMatch(CART)
   await page.keyboard.press('Escape')
 })
+
+/**
+ * Local workstation section (#527). Asserted against the registry FILES the
+ * backend writes, not against what the dialog displays.
+ */
+function appDataFile(name) {
+  const home = os.homedir()
+  const base =
+    process.platform === 'win32'
+      ? process.env.APPDATA || path.join(home, 'AppData', 'Roaming')
+      : process.platform === 'darwin'
+        ? path.join(home, 'Library', 'Application Support')
+        : process.env.XDG_DATA_HOME || path.join(home, '.local', 'share')
+  return path.join(base, 'hackbench', name)
+}
+const readJson = f => JSON.parse(fs.readFileSync(f, 'utf8'))
+const registeredRom = sha => readJson(appDataFile('rom-registry.json')).roms[sha].path
+const registeredCore = () => readJson(appDataFile('core-registry.json')).core?.jsPath
+
+/** A core that passes validateCore: both driver markers, sibling .wasm with the magic. */
+function makeCore(dir) {
+  fs.mkdirSync(dir, { recursive: true })
+  const js = path.join(dir, 'core.js')
+  fs.writeFileSync(js, 'var a="EJS_Runtime";Module["_get_current_frame_count"]=1;')
+  fs.writeFileSync(path.join(dir, 'core.wasm'), Buffer.from([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]))
+  return js
+}
+
+/** Open Project Properties through its command, with Browse answering `picks` in order. */
+async function openProps(page, project, picks) {
+  await page.evaluate(
+    async ({ p, picks }) => {
+      getSvc('ProjectContext').current = p
+      const dlg = getSvc('ProjectPropertiesDialog')
+      const queue = [...picks]
+      dlg.fileDialog.showOpenDialog = async () => ({ path: { fsPath: () => queue.shift() } })
+      void getSvc('CommandRegistry').executeCommand('hackbench.project.properties')
+    },
+    { p: project, picks },
+  )
+  await page.waitForSelector('.hb-dialog-facts', { timeout: 15000 })
+}
+
+const browse = (page, n) => page.locator('.dialogBlock button:has-text("Browse...")').nth(n).click()
+const fieldValues = page =>
+  page.locator('.dialogBlock input[readonly]').evaluateAll(els => els.map(e => e.value))
+
+async function makeProject(page, name) {
+  return page.evaluate(
+    async ({ romPath, directory, name }) =>
+      getSvc('Symbol(ProjectService)').createProject({ romPath, name, directory }),
+    { romPath: ROM, directory: path.join(tmp, name), name },
+  )
+}
+
+test('Project Properties shows the registered ROM and core paths', async ({ page }) => {
+  const core = makeCore(path.join(tmp, 'core'))
+  await page.evaluate(c => getSvc('Symbol(EmulatorService)').locateCore(c), core)
+  const project = await makeProject(page, 'Shown')
+  await openProps(page, project, [])
+  expect(await page.locator('.dialogBlock').innerText()).toContain('Local workstation')
+  const [rom, shownCore] = await fieldValues(page)
+  expect(rom).toBe(registeredRom(project.baseRom.sha256))
+  expect(shownCore).toBe(registeredCore())
+  await page.keyboard.press('Escape')
+})
+
+test('browsing to the same ROM at a new path and saving registers it, and the project opens from it', async ({
+  page,
+}) => {
+  const project = await makeProject(page, 'Moved')
+  const moved = path.join(tmp, 'moved.sfc')
+  fs.copyFileSync(ROM, moved)
+  await openProps(page, project, [moved])
+  await browse(page, 0)
+  await expect.poll(() => fieldValues(page).then(v => v[0])).toBe(moved)
+  // Browsing alone persists nothing.
+  expect(registeredRom(project.baseRom.sha256)).not.toBe(moved)
+  await page.locator('.dialogBlock .theia-button.main').click()
+  await expect.poll(() => registeredRom(project.baseRom.sha256)).toBe(moved)
+
+  const result = await page.evaluate(async mp => {
+    const r = await getSvc('Symbol(ProjectService)').loadMaps(mp)
+    return { status: r.status, romPath: r.romPath }
+  }, project.manifestPath)
+  expect(result).toEqual({ status: 'ok', romPath: moved })
+})
+
+test('a ROM with a different hash is refused inline, naming both hashes, and nothing is saved', async ({
+  page,
+}) => {
+  const project = await makeProject(page, 'Refused')
+  const before = registeredRom(project.baseRom.sha256)
+  const other = path.join(tmp, 'other.sfc')
+  const bytes = fs.readFileSync(ROM)
+  bytes[0x100] ^= 0xff
+  fs.writeFileSync(other, bytes)
+  await openProps(page, project, [other])
+  await browse(page, 0)
+  const error = page.locator('.dialogBlock .hb-dialog-error')
+  await expect(error).toContainText(project.baseRom.sha256.slice(0, 12))
+  expect((await error.innerText()).match(/[0-9a-f]{12}…/g)).toHaveLength(2)
+  expect((await fieldValues(page))[0]).toBe(before)
+  await page.locator('.dialogBlock .theia-button.main').click()
+  await expect(page.locator('.dialogBlock')).toHaveCount(0)
+  expect(registeredRom(project.baseRom.sha256)).toBe(before)
+})
+
+test('Browse then Cancel leaves both registries unchanged', async ({ page }) => {
+  const project = await makeProject(page, 'Cancelled')
+  const romBefore = registeredRom(project.baseRom.sha256)
+  const coreBefore = fs.existsSync(appDataFile('core-registry.json')) ? registeredCore() : undefined
+  const moved = path.join(tmp, 'cancel.sfc')
+  fs.copyFileSync(ROM, moved)
+  const core = makeCore(path.join(tmp, 'cancelcore'))
+  await openProps(page, project, [moved, core])
+  await browse(page, 0)
+  await browse(page, 1)
+  await expect.poll(() => fieldValues(page).then(v => v[1])).toBe(core)
+  await page.locator('.dialogBlock .theia-button.secondary:has-text("Cancel")').click()
+  await expect(page.locator('.dialogBlock')).toHaveCount(0)
+  expect(registeredRom(project.baseRom.sha256)).toBe(romBefore)
+  expect(fs.existsSync(appDataFile('core-registry.json')) ? registeredCore() : undefined).toBe(
+    coreBefore,
+  )
+})
+
+test('changing the core and saving registers the new core', async ({ page }) => {
+  const project = await makeProject(page, 'CoreMoved')
+  const core = makeCore(path.join(tmp, 'newcore'))
+  await openProps(page, project, [core])
+  await browse(page, 1)
+  await expect.poll(() => fieldValues(page).then(v => v[1])).toBe(core)
+  await page.locator('.dialogBlock .theia-button.main').click()
+  await expect.poll(() => registeredCore()).toBe(core)
+})

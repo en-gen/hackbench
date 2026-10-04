@@ -10,9 +10,14 @@
  * facts about the project rather than opinions, and changing the cartridge
  * would leave the patch layers pointed at a different game.
  */
-import { injectable } from '@theia/core/shared/inversify'
+import { inject, injectable } from '@theia/core/shared/inversify'
 import { AbstractDialog } from '@theia/core/lib/browser'
-import { HackMetadataDto, ProjectDto } from '../common/project-protocol'
+import { FileDialogService } from '@theia/filesystem/lib/browser'
+import { EmulatorService } from '../common/emulator-protocol'
+import { HackMetadataDto, ProjectDto, ProjectService } from '../common/project-protocol'
+
+const ROM_FILTER = { 'SNES ROM': ['sfc', 'smc', 'rom'] }
+const CORE_FILTER = { 'Core script (Emscripten loader)': ['js'] }
 
 @injectable()
 export class ProjectPropertiesDialog extends AbstractDialog<HackMetadataDto | undefined> {
@@ -22,7 +27,22 @@ export class ProjectPropertiesDialog extends AbstractDialog<HackMetadataDto | un
   protected readonly summaryField = document.createElement('textarea')
   protected readonly factsNode = document.createElement('div')
 
+  protected readonly romPathField = document.createElement('input')
+  protected readonly corePathField = document.createElement('input')
+  protected readonly pathError = document.createElement('div')
+
   protected project: ProjectDto | undefined
+
+  /**
+   * Picks made with Browse..., applied by the caller on Save. The dialog
+   * persists nothing itself, so Cancel discards them with the dialog.
+   */
+  pendingRomPath: string | undefined
+  pendingCorePath: string | undefined
+
+  @inject(ProjectService) protected readonly projects!: ProjectService
+  @inject(EmulatorService) protected readonly emulator!: EmulatorService
+  @inject(FileDialogService) protected readonly fileDialog!: FileDialogService
 
   constructor() {
     super({ title: 'Project Properties' })
@@ -36,6 +56,7 @@ export class ProjectPropertiesDialog extends AbstractDialog<HackMetadataDto | un
     // describe it.
     this.factsNode.className = 'hb-dialog-facts'
     this.contentNode.appendChild(this.factsNode)
+    this.contentNode.appendChild(this.workstationSection())
 
     this.appendAcceptButton('Save')
     this.appendCloseButton('Cancel')
@@ -68,6 +89,84 @@ export class ProjectPropertiesDialog extends AbstractDialog<HackMetadataDto | un
     return row
   }
 
+  protected workstationSection(): HTMLElement {
+    const section = document.createElement('div')
+    section.className = 'hb-dialog-facts'
+    const heading = document.createElement('strong')
+    heading.textContent = 'Local workstation'
+    const note = document.createElement('div')
+    note.textContent = 'These paths are stored on this workstation, not in the project.'
+    section.append(heading, note)
+    section.appendChild(this.pathRow('ROM location', this.romPathField, () => this.browseRom()))
+    section.appendChild(this.pathRow('Emulator core', this.corePathField, () => this.browseCore()))
+    const coreNote = document.createElement('div')
+    coreNote.textContent = 'The emulator core applies to all projects.'
+    this.pathError.className = 'hb-dialog-error'
+    section.append(coreNote, this.pathError)
+    return section
+  }
+
+  protected pathRow(label: string, field: HTMLInputElement, browse: () => void): HTMLElement {
+    const row = this.row(label, field, '')
+    field.readOnly = true
+    const button = document.createElement('button')
+    button.className = 'theia-button secondary'
+    button.textContent = 'Browse...'
+    button.onclick = browse
+    row.appendChild(button)
+    return row
+  }
+
+  /** The base ROM only: a different cart is refused inline, the field unchanged. */
+  protected async browseRom(): Promise<void> {
+    if (!this.project) return
+    const uri = await this.fileDialog.showOpenDialog({
+      title: "Locate this project's ROM",
+      canSelectFiles: true,
+      canSelectFolders: false,
+      canSelectMany: false,
+      filters: ROM_FILTER,
+    })
+    if (!uri) return
+    const picked = uri.path.fsPath()
+    try {
+      const check = await this.projects.checkRom(this.project.manifestPath, picked)
+      if (check.status === 'mismatch') {
+        this.pathError.textContent =
+          `That is a different ROM (sha256 ${check.picked.slice(0, 12)}…); ` +
+          `this project needs ${check.expected.slice(0, 12)}…`
+        return
+      }
+    } catch (err) {
+      this.pathError.textContent = (err as Error).message
+      return
+    }
+    this.pathError.textContent = ''
+    this.pendingRomPath = picked
+    this.romPathField.value = picked
+  }
+
+  /** Validation is the emulator's own (`checkCore`); nothing is remembered until Save. */
+  protected async browseCore(): Promise<void> {
+    const uri = await this.fileDialog.showOpenDialog({
+      title: "Select the core's Emscripten loader (.js)",
+      canSelectFiles: true,
+      canSelectFolders: false,
+      canSelectMany: false,
+      filters: CORE_FILTER,
+    })
+    if (!uri) return
+    const picked = uri.path.fsPath()
+    const result = await this.emulator.checkCore(picked)
+    if (result.status === 'invalid') {
+      this.pathError.textContent = result.message
+      return
+    }
+    this.pathError.textContent = ''
+    this.pendingCorePath = picked
+    this.corePathField.value = picked
+  }
+
   /** Open against a project, prefilled with what it currently says. */
   async editFor(project: ProjectDto): Promise<HackMetadataDto | undefined> {
     this.project = project
@@ -81,6 +180,13 @@ export class ProjectPropertiesDialog extends AbstractDialog<HackMetadataDto | un
     this.factsNode.textContent =
       `${project.baseRom.title || 'unrecognized ROM'} · ${project.baseRom.size} bytes ` +
       `· sha256 ${project.baseRom.sha256.slice(0, 12)}…`
+
+    this.pendingRomPath = undefined
+    this.pendingCorePath = undefined
+    this.pathError.textContent = ''
+    const paths = await this.projects.workstationPaths(project.manifestPath)
+    this.romPathField.value = paths.romPath ?? 'not located'
+    this.corePathField.value = paths.corePath ?? 'not set up'
 
     return this.open()
   }
