@@ -241,9 +241,9 @@ describe('decodeOverworld on a synthetic ROM', () => {
     expect(pixelAt(pixels(rom), 5, 9)).toEqual([...bgr555ToRgba(0x7fff)])
   })
 
-  // Cells whose id & 3 is not 3 (tileAt 5,9 is 0; 5,41 is 77, so 1), so L1's row 4 + (id & 3)
-  // color differs from L2's row 7: one per
-  // half. One test per half, each with its own 5 s budget (#515).
+  // One cell per half, both with id & 3 not 3 (tileAt 5,9 is 0; 5,41 is 77, so 1), so L1's
+  // row 4 + (id & 3) color differs from L2's row 7. One test per half, each with its own
+  // 5 s budget (#515).
   for (const [r, c] of [
     [5, 9],
     [5, 41],
@@ -260,9 +260,12 @@ describe('decodeOverworld on a synthetic ROM', () => {
         plantL2(rom, t)
         rom.writeAt(CHAR_DATA + id * 8, [l1Low, l1High])
         const dto = decode(rom)
-        expect(dto.status).toBe('ok')
-        expect(dto.status === 'ok' && dto.l2Unavailable).toBeUndefined()
-        expect(dto.status === 'ok' && b64(dto.halves[0].l1.rgbaBase64).length).toBe(512 * 512 * 4)
+        if (dto.status !== 'ok') throw new Error(dto.reason)
+        expect(dto.halves.map(h => b64(h.l1.rgbaBase64).length)).toEqual([
+          512 * 512 * 4,
+          512 * 512 * 4,
+        ])
+        expect(dto.l2Unavailable).toBeUndefined()
         return cellColor(dto, r, c)
       }
       const l1Row = (4 + (id & 3)) << 2
