@@ -1568,7 +1568,7 @@ test('changing tileset/palettes/zoom/grid/playing preserves the selection and th
   await page.waitForTimeout(200)
   await stillSelected()
   let after = await controlValues()
-  expect(after.zoom).toBe('4x')
+  expect(after.zoom).toBe('400%')
   expect({ ...after, zoom: before.zoom }).toEqual(before)
 
   before = await controlValues()
@@ -2278,7 +2278,9 @@ for (const { name, width, zoomIns } of [
     // Selected BEFORE zooming, since clickTile aims at the default zoom.
     await clickTile(page, BLUE_SWITCH_TILE_ID)
     for (let i = 0; i < zoomIns; i++) await page.locator(ctl('zoom-in')).click()
-    await expect(page.locator(ctl('zoom-indicator'))).toHaveText(`${DEFAULT_ZOOM + zoomIns}x`)
+    await expect(page.locator(ctl('zoom-indicator'))).toHaveText(
+      `${(DEFAULT_ZOOM + zoomIns) * 100}%`,
+    )
 
     const l = await layoutOf(page)
     expect(contains(l.root, l.preview)).toBe(true)
@@ -2508,13 +2510,13 @@ test('Ctrl + wheel over the Map16 strip steps the zoom indicator and the canvas 
   const wrap = page.locator(`${FG} .hb-map16-canvas-wrap`)
   const canvas = page.locator(`${FG} .hb-map16-canvas`)
   const widthBefore = await canvas.evaluate(el => el.getBoundingClientRect().width)
-  expect(await page.locator(ctl('zoom-indicator')).textContent()).toBe(`${DEFAULT_ZOOM}x`)
+  expect(await page.locator(ctl('zoom-indicator')).textContent()).toBe(`${DEFAULT_ZOOM * 100}%`)
 
   // One notch (~100px of accumulated delta) is one step, same as one click
   // of the zoom-in button.
   await ctrlWheel(page, wrap, -120)
 
-  await expect(page.locator(ctl('zoom-indicator'))).toHaveText(`${DEFAULT_ZOOM + 1}x`)
+  await expect(page.locator(ctl('zoom-indicator'))).toHaveText(`${(DEFAULT_ZOOM + 1) * 100}%`)
   await expect
     .poll(() => canvas.evaluate(el => el.getBoundingClientRect().width))
     .toBeGreaterThan(widthBefore)
@@ -2527,12 +2529,12 @@ test('Ctrl + wheel clamps at the same limits as the zoom buttons', async ({ page
 
   // Zoom in far past the 4x ceiling with one big scroll.
   await ctrlWheel(page, wrap, -1000)
-  await expect(page.locator(ctl('zoom-indicator'))).toHaveText('4x')
+  await expect(page.locator(ctl('zoom-indicator'))).toHaveText('400%')
   await expect(page.locator(ctl('zoom-in'))).toBeDisabled()
 
   // And back down past the 1x floor.
   await ctrlWheel(page, wrap, 2000)
-  await expect(page.locator(ctl('zoom-indicator'))).toHaveText('1x')
+  await expect(page.locator(ctl('zoom-indicator'))).toHaveText('100%')
   await expect(page.locator(ctl('zoom-out'))).toBeDisabled()
 })
 
@@ -2624,5 +2626,5 @@ test('plain wheel still scrolls the Map16 strip and does not touch zoom', async 
 
   const scrollAfter = await wrap.evaluate(el => el.scrollTop)
   expect(scrollAfter).toBeGreaterThan(scrollBefore)
-  expect(await page.locator(ctl('zoom-indicator')).textContent()).toBe(`${DEFAULT_ZOOM}x`)
+  expect(await page.locator(ctl('zoom-indicator')).textContent()).toBe(`${DEFAULT_ZOOM * 100}%`)
 })

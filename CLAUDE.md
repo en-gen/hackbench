@@ -126,7 +126,7 @@ Details, including the two distinct change-notification paths, in
 [docs/architecture/theia-shell.md](docs/architecture/theia-shell.md).
 
 An on-screen zoom control uses `ZoomController` + `ZoomStepper`
-(`theia/extension/src/browser/`), anchored on the cursor. Ctrl + wheel is
+(`theia/extension/src/browser/`), anchored on the cursor; Maps adds a sticky fit mode (#526). Ctrl + wheel is
 cancelled shell-wide, so `build:browser` never page-zooms and editors don't
 scroll on it (#651).
 

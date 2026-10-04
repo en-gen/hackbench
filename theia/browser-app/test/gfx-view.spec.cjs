@@ -581,11 +581,11 @@ test('Ctrl + wheel on the GFX sheet clamps at 1x and 8x', async ({ page }) => {
   const indicator = page.locator('[data-control="zoom-indicator"]')
 
   await ctrlWheel(page, wrap, -2000)
-  await expect(indicator).toHaveText('8x')
+  await expect(indicator).toHaveText('800%')
   await expect(page.locator('[data-control="zoom-in"]')).toBeDisabled()
 
   await ctrlWheel(page, wrap, 2000)
-  await expect(indicator).toHaveText('1x')
+  await expect(indicator).toHaveText('100%')
   await expect(page.locator('[data-control="zoom-out"]')).toBeDisabled()
 })
 
@@ -749,7 +749,7 @@ test('plain wheel still scrolls the GFX view and does not touch zoom', async ({ 
   await page.mouse.wheel(0, -2000)
   await page.keyboard.up('Control')
   await afterWheel(page)
-  await expect(page.locator('[data-control="zoom-indicator"]')).toHaveText('8x')
+  await expect(page.locator('[data-control="zoom-indicator"]')).toHaveText('800%')
 
   const overflowY = await view.evaluate(el => el.scrollHeight - el.clientHeight)
   expect(overflowY).toBeGreaterThan(10) // the setup itself must produce overflow
@@ -760,5 +760,5 @@ test('plain wheel still scrolls the GFX view and does not touch zoom', async ({ 
 
   const scrollAfter = await view.evaluate(el => el.scrollTop)
   expect(scrollAfter).toBeGreaterThan(scrollBefore)
-  expect(await page.locator('[data-control="zoom-indicator"]').textContent()).toBe('8x')
+  expect(await page.locator('[data-control="zoom-indicator"]').textContent()).toBe('800%')
 })

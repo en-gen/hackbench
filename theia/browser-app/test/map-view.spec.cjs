@@ -1165,6 +1165,17 @@ const zoomOf = (page, index) =>
     return c.getBoundingClientRect().width / c.width
   }, root(index))
 
+/** How far the strip's cross axis is from filling the scroller, in CSS pixels. */
+const crossSlack = (page, index) =>
+  page.evaluate(sel => {
+    const root = document.querySelector(sel)
+    const el = root.querySelector('[data-control="map-scroller"]')
+    const r = root.querySelector('canvas[data-plane="l1Low"]').getBoundingClientRect()
+    return el.classList.contains('hb-vertical')
+      ? Math.abs(r.width - el.clientWidth)
+      : Math.abs(r.height - el.clientHeight)
+  }, root(index))
+
 for (const index of [0x105, 0x109]) {
   const name = `$${index.toString(16)}`
   const open = async page => {
@@ -1207,14 +1218,7 @@ for (const index of [0x105, 0x109]) {
     await page.setViewportSize({ width: Math.round(size.width * 0.7), height: Math.round(size.height * 0.7) }) // prettier-ignore
     await expect.poll(() => zoomOf(page, index)).not.toBeCloseTo(loaded, 2)
     // Fits: the cross axis is the scroller's own, to within a pixel.
-    const slack = await page.evaluate(sel => {
-      const root = document.querySelector(sel)
-      const el = root.querySelector('[data-control="map-scroller"]')
-      const r = root.querySelector('canvas[data-plane="l1Low"]').getBoundingClientRect()
-      return el.classList.contains('hb-vertical')
-        ? Math.abs(r.width - el.clientWidth)
-        : Math.abs(r.height - el.clientHeight)
-    }, root(index))
+    const slack = await crossSlack(page, index)
     expect(slack).toBeLessThan(1.5)
     await click(page, 'zoom-fit')
     await click(page, 'zoom-in')
@@ -1222,5 +1226,74 @@ for (const index of [0x105, 0x109]) {
     await page.setViewportSize(size)
     await page.waitForTimeout(800)
     expect(await zoomOf(page, index)).toBeCloseTo(held, 6)
+  })
+}
+
+/**
+ * Ctrl + wheel (#392) keeps the content point under the cursor. Judged on
+ * the MAIN axis (x for a horizontal strip, y for a vertical one): the cross
+ * axis is fitted, so it has nothing to scroll.
+ */
+for (const index of [0x105, 0x109]) {
+  test(`$${index.toString(16)}: Ctrl + wheel zooms in and keeps the point under the cursor`, async ({
+    page,
+  }) => {
+    const project = await createProject(page, path.join(tmp, 'MyHack'))
+    await openMap(page, project.manifestPath, index)
+    await page.waitForTimeout(500)
+    await page.locator(`${root(index)} [data-control="zoom-actual"]`).click()
+    await expect.poll(() => zoomOf(page, index)).toBe(1)
+    const probe = () =>
+      page.evaluate(sel => {
+        const root = document.querySelector(sel)
+        const el = root.querySelector('[data-control="map-scroller"]')
+        const v = el.classList.contains('hb-vertical')
+        const r = el.getBoundingClientRect()
+        const strip = root.querySelector('.hb-map-view-strip').getBoundingClientRect()
+        const c = root.querySelector('canvas[data-plane="l1Low"]')
+        const z = c.getBoundingClientRect().width / c.width
+        const pos = v ? r.top + r.height / 2 : r.left + r.width / 2
+        return { v, x: r.left + r.width / 2, y: r.top + r.height / 2, z, content: (pos - (v ? strip.top : strip.left)) / z } // prettier-ignore
+      }, root(index))
+    const before = await probe()
+    await page.mouse.move(before.x, before.y)
+    await page.keyboard.down('Control')
+    await page.mouse.wheel(0, -120)
+    await page.keyboard.up('Control')
+    await expect.poll(async () => (await probe()).z).toBe(2)
+    await page.waitForTimeout(300)
+    const after = await probe()
+    expect(Math.abs(after.content - before.content)).toBeLessThan(1)
+    await expect(page.locator(`${root(index)} [data-control="zoom-fit"]`)).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+  })
+}
+
+/** A map loaded into a reused tab opens fitted, whatever zoom the last one was left at. */
+for (const next of [0x106, 0x109]) {
+  test(`loading $${next.toString(16)} into a $105 tab zoomed by hand re-fits`, async ({ page }) => {
+    const project = await createProject(page, path.join(tmp, 'MyHack'))
+    await openMap(page, project.manifestPath, 0x105)
+    await page.waitForTimeout(500)
+    await page.locator(`${root(0x105)} [data-control="zoom-actual"]`).click()
+    await expect.poll(() => zoomOf(page, 0x105)).toBe(1)
+    await page.evaluate(
+      async ({ mp, next }) => {
+        const w = getSvc('ApplicationShell').getWidgetById('hackbench.map-view:261')
+        await w.open({ manifestPath: mp, index: next, label: next.toString(16), iconClass: '' })
+      },
+      { mp: project.manifestPath, next },
+    )
+    opened.push(`hackbench.map-view:${next}`)
+    await expect(
+      page.locator(`${root(next)} canvas[data-screen="0"][data-plane="l1Low"]`),
+    ).toHaveAttribute('data-drawn', drawn(0), { timeout: 15000 })
+    await expect(page.locator(`${root(next)} [data-control="zoom-fit"]`)).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    await expect.poll(() => crossSlack(page, next)).toBeLessThan(1.5)
   })
 }

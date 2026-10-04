@@ -15,6 +15,8 @@ import { ZoomController } from '../../../theia/extension/src/browser/zoom-contro
 class FakeNode {
   scrollLeft = 0
   scrollTop = 0
+  clientWidth = 400
+  clientHeight = 200
   rect: { left: number; top: number }
   private readonly handlers: Array<(e: FakeWheelEvent) => void> = []
 
@@ -400,5 +402,147 @@ describe('ZoomController.bindWheel - delta modes', () => {
     bind(c, node)
     node.dispatch(wheelEvent(deltaY, { deltaMode }))
     expect(c.value).toBe(6)
+  })
+})
+
+describe('ZoomController - fit mode', () => {
+  const MAPS = [1, 2, 3, 4]
+  /** A host whose fit value the test moves, like a resizing panel. */
+  const host = (fit: number | undefined) => {
+    const h = { fit }
+    return { h, c: new ZoomController(MAPS, 1, () => h.fit) }
+  }
+
+  it('without a fit function there is no fit mode, and enterFit is a no-op', () => {
+    const c = new ZoomController(MAPS, 2)
+    expect(c.canFit).toBe(false)
+    expect(c.fitting).toBe(false)
+    c.enterFit()
+    expect(c.fitting).toBe(false)
+    expect(c.value).toBe(2)
+  })
+
+  it.each([0.25, 0.6, 1, 1.37, 2.5, 3.99, 4])('enterFit takes fit value %s', fit => {
+    const { c } = host(fit)
+    c.enterFit()
+    expect(c.fitting).toBe(true)
+    expect(c.value).toBe(fit)
+  })
+
+  it('refit follows the host while fitting, and notifies only on a change', () => {
+    const { h, c } = host(1.5)
+    c.enterFit()
+    const l = vi.fn()
+    c.onDidChange(l)
+    c.refit()
+    expect(l).not.toHaveBeenCalled()
+    h.fit = 0.8
+    c.refit()
+    expect(c.value).toBe(0.8)
+    expect(l).toHaveBeenCalledTimes(1)
+  })
+
+  it('an unmeasurable fit (undefined) keeps the last value', () => {
+    const { h, c } = host(1.5)
+    c.enterFit()
+    h.fit = undefined
+    c.refit()
+    expect(c.value).toBe(1.5)
+    expect(c.fitting).toBe(true)
+  })
+
+  it.each([
+    { fit: 0.4, up: 1, down: undefined },
+    { fit: 1.37, up: 2, down: 1 },
+    { fit: 2.5, up: 3, down: 2 },
+    { fit: 3.99, up: 4, down: 3 },
+    { fit: 4, up: undefined, down: 3 },
+  ])('from fit $fit, steps go to the next level: up $up, down $down', ({ fit, up, down }) => {
+    for (const [dir, want] of [
+      [1, up],
+      [-1, down],
+    ] as const) {
+      const { c } = host(fit)
+      c.enterFit()
+      expect(c.step(dir)).toBe(want !== undefined)
+      expect(c.value).toBe(want ?? fit)
+      expect(c.fitting).toBe(want === undefined)
+    }
+  })
+
+  it('a manual step leaves fit mode: refit then keeps the zoom', () => {
+    const { h, c } = host(1.37)
+    c.enterFit()
+    c.step(1)
+    h.fit = 3
+    c.refit()
+    expect(c.value).toBe(2)
+  })
+
+  it('Ctrl + wheel from fit leaves fit mode', () => {
+    const { h, c } = host(1.37)
+    c.enterFit()
+    const node = new FakeNode()
+    bind(c, node)
+    node.dispatch(wheelEvent(-120))
+    expect(c.fitting).toBe(false)
+    expect(c.value).toBe(2)
+    h.fit = 4
+    c.refit()
+    expect(c.value).toBe(2)
+  })
+
+  it('canZoomIn/Out are judged from a fractional fit', () => {
+    const { c } = host(0.5)
+    c.enterFit()
+    expect(c.canZoomOut).toBe(false)
+    expect(c.canZoomIn).toBe(true)
+  })
+
+  it('actualSize is exactly 1, leaves fit mode, and notifies once', () => {
+    const { h, c } = host(2.2)
+    c.enterFit()
+    const l = vi.fn()
+    c.onDidChange(l)
+    c.actualSize()
+    expect(c.value).toBe(1)
+    expect(c.fitting).toBe(false)
+    expect(l).toHaveBeenCalledTimes(1)
+    h.fit = 3
+    c.refit()
+    expect(c.value).toBe(1)
+  })
+
+  it('actualSize at 1 in fit mode still leaves fit mode, even at the same value', () => {
+    const { c } = host(1)
+    c.enterFit()
+    c.actualSize()
+    expect(c.fitting).toBe(false)
+  })
+
+  it('actualSize keeps the view centre: the content point there stays put', () => {
+    const { c } = host(2)
+    c.enterFit()
+    const node = new FakeNode({ left: 10, top: 5 })
+    node.scrollLeft = 100
+    node.scrollTop = 40
+    const canvas = new FakeNode()
+    // The canvas box moves opposite the scroll, as in a real scroller.
+    canvas.getBoundingClientRect = () => ({
+      left: 10 - node.scrollLeft,
+      top: 5 - node.scrollTop,
+      right: 0,
+      bottom: 0,
+      width: 0,
+      height: 0,
+    })
+    const binding = bind(c, node, canvas)
+    const content = { x: (100 + 200) / 2, y: (40 + 100) / 2 } // centre point in content px at 2x
+    c.actualSize()
+    node.scrollLeft = 0 // the resized canvas clamped the scroll
+    node.scrollTop = 0
+    binding.restoreAnchor()
+    expect(node.scrollLeft + node.clientWidth / 2).toBeCloseTo(content.x, 6)
+    expect(node.scrollTop + node.clientHeight / 2).toBeCloseTo(content.y, 6)
   })
 })

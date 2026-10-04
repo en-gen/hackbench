@@ -14,6 +14,8 @@ const WHEEL_STEP_PX = 100
 const DELTA_MODE_PX = [1, WHEEL_STEP_PX / 3, WHEEL_STEP_PX]
 /** A pause this long ends a wheel gesture. */
 const WHEEL_IDLE_MS = 400
+/** Levels closer than this to the zoom count as the zoom itself. */
+const EPS = 0.001
 
 export interface Disposable {
   dispose(): void
@@ -45,26 +47,46 @@ interface PendingAnchor {
 
 export class ZoomController implements Disposable {
   private readonly listeners: Array<(value: number) => void> = []
-  private index: number
+  /** Any positive number: a fit value or 100% need not be one of `levels`. */
+  private zoom: number
+  private fit = false
+  /** Set by `bindWheel`: keeps the view centre fixed across a jump to `target`. */
+  private anchorCentre: ((target: number) => void) | undefined
 
+  /**
+   * `fitZoom`, when given, enables fit mode (#526): the host's own "what zoom
+   * fits the view" - undefined while the view cannot be measured. It is the
+   * host's formula, so a second one never drifts from the load-time fit.
+   */
   constructor(
     private readonly levels: readonly number[],
     initial: number,
+    private readonly fitZoom?: () => number | undefined,
   ) {
     const i = levels.indexOf(initial)
-    this.index = i >= 0 ? i : 0
+    this.zoom = levels[i >= 0 ? i : 0]!
   }
 
   get value(): number {
-    return this.levels[this.index]!
+    return this.zoom
+  }
+
+  /** Whether the host supplied a fit function. */
+  get canFit(): boolean {
+    return this.fitZoom !== undefined
+  }
+
+  /** True while the zoom tracks the host's fit value. */
+  get fitting(): boolean {
+    return this.fit
   }
 
   get canZoomIn(): boolean {
-    return this.index < this.levels.length - 1
+    return this.levels.some(l => l > this.zoom + EPS)
   }
 
   get canZoomOut(): boolean {
-    return this.index > 0
+    return this.levels.some(l => l < this.zoom - EPS)
   }
 
   readonly onDidChange = (listener: (value: number) => void): Disposable => {
@@ -81,13 +103,45 @@ export class ZoomController implements Disposable {
     this.listeners.length = 0
   }
 
-  /** One level in `dir`, clamped. Returns whether the value actually moved. */
+  private set(value: number, fit: boolean): boolean {
+    const moved = Math.abs(value - this.zoom) > EPS || fit !== this.fit
+    this.zoom = value
+    this.fit = fit
+    if (moved) for (const l of [...this.listeners]) l(this.value)
+    return moved
+  }
+
+  /** Starts (or resumes) fit mode. A no-op without a fit function. */
+  enterFit(): void {
+    if (!this.fitZoom) return
+    this.set(this.fitZoom() ?? this.zoom, true)
+  }
+
+  /** The host reports its view resized: follows the fit value while fitting. */
+  refit(): void {
+    if (!this.fit || !this.fitZoom) return
+    const f = this.fitZoom()
+    if (f !== undefined) this.set(f, true)
+  }
+
+  /** Exactly 100%, anchored on the view centre once a wheel binding exists. */
+  actualSize(): void {
+    this.anchorCentre?.(1)
+    this.set(1, false)
+  }
+
+  /**
+   * One level in `dir`, clamped; from a fractional zoom (fit, 100% outside
+   * `levels`) that is the nearest level above or below it. Leaves fit mode
+   * only if it moves. Returns whether the value actually moved.
+   */
   step(dir: 1 | -1): boolean {
-    const next = Math.min(this.levels.length - 1, Math.max(0, this.index + dir))
-    if (next === this.index) return false
-    this.index = next
-    for (const l of [...this.listeners]) l(this.value)
-    return true
+    const next =
+      dir > 0
+        ? this.levels.find(l => l > this.zoom + EPS)
+        : [...this.levels].reverse().find(l => l < this.zoom - EPS)
+    if (next === undefined) return false
+    return this.set(next, false)
   }
 
   /**
@@ -183,9 +237,25 @@ export class ZoomController implements Disposable {
       node.scrollTop += rect.top - (anchor.clientY - anchor.contentY * anchor.zoom)
     }
 
+    this.anchorCentre = target => {
+      const canvas = canvasOf()
+      if (!canvas) return
+      const rect = canvas.getBoundingClientRect()
+      const clientX = node.getBoundingClientRect().left + node.clientWidth / 2
+      const clientY = node.getBoundingClientRect().top + node.clientHeight / 2
+      pending = {
+        contentX: (clientX - rect.left) / this.value,
+        contentY: (clientY - rect.top) / this.value,
+        clientX,
+        clientY,
+        zoom: target,
+      }
+    }
+
     return {
       dispose: () => {
         cancelFollowUp()
+        if (this.anchorCentre) this.anchorCentre = undefined
         node.removeEventListener('wheel', listener)
       },
       restoreAnchor: () => {
