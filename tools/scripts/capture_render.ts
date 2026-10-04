@@ -7,9 +7,13 @@
  * says and never into the repo. Canvas in the page is the rasterizer.
  */
 import {
+  closeSync,
   existsSync,
+  fstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
+  readSync,
   readdirSync,
   realpathSync,
   renameSync,
@@ -1142,6 +1146,40 @@ export function unzip(zip: Buffer): Map<string, () => Buffer> {
   return out
 }
 
+/**
+ * A file read through one descriptor: its size is charged from that
+ * descriptor, then exactly that many bytes are read from it, so a file replaced
+ * or grown after the size was taken is refused, not read in full. `afterSize`
+ * is a test seam, run between the size and the read.
+ */
+export function readBounded(
+  f: string,
+  name: string,
+  charge: (name: string, size: number) => void,
+  afterSize?: () => void,
+): Buffer {
+  // prettier-ignore
+  const fd = openSync(f, 'r')
+  try {
+    const st = fstatSync(fd)
+    if (!st.isFile()) throw new CaptureFileError(`a capture folder: ${name} is not a regular file`)
+    charge(name, st.size)
+    afterSize?.()
+    const buf = Buffer.alloc(st.size)
+    let got = 0
+    while (got < st.size) {
+      const r = readSync(fd, buf, got, st.size - got, got)
+      if (!r) break
+      got += r
+    }
+    if (got !== st.size || readSync(fd, Buffer.alloc(1), 0, 1, st.size) > 0)
+      throw new CaptureFileError(`a capture folder: ${name} changed size while being read (${st.size} bytes when opened)`) // prettier-ignore
+    return buf
+  } finally {
+    closeSync(fd)
+  }
+}
+
 /** A map's reader and window names, from its folder or its zip. */
 export function openMap(path: string, name: string): { read: Reader; windows: string[] } {
   let read: Reader
@@ -1154,8 +1192,7 @@ export function openMap(path: string, name: string): { read: Reader; windows: st
     read = n => {
       if (!seen.has(n)) {
         const f = join(path, n)
-        if (existsSync(f)) charge(n, statSync(f).size)
-        seen.set(n, existsSync(f) ? readFileSync(f) : null)
+        seen.set(n, existsSync(f) ? readBounded(f, n, charge) : null)
       }
       return seen.get(n) ?? null
     }

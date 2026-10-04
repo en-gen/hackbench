@@ -4,7 +4,7 @@
  * code follows the worst verdict, and a stale page cannot outlive its
  * capture. Synthetic captures only: CI has no ROM and no Mesen captures.
  */
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'fs' // prettier-ignore
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'fs' // prettier-ignore
 import { tmpdir } from 'os'
 import { dirname, join, resolve } from 'path'
 import { runInNewContext } from 'vm'
@@ -26,6 +26,7 @@ import {
   pngRgba,
   runCapture,
   openMap,
+  readBounded,
   spriteFrame,
   unzip,
 } from '../../../tools/scripts/capture_render'
@@ -1142,6 +1143,20 @@ describe('PNG decode', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+
+  it('refuses a folder file that grows or shrinks after its size is charged', () => {
+    const dir = mkdtempSync(join(TMP, 'grow-'))
+    const f = join(dir, 'g.bin')
+    const charged: number[] = []
+    const charge = (_: string, size: number) => void charged.push(size)
+    writeFileSync(f, Buffer.alloc(100, 1))
+    expect(readBounded(f, 'g.bin', charge)).toHaveLength(100)
+    expect(() => readBounded(f, 'g.bin', charge, () => appendFileSync(f, Buffer.alloc(50 << 20)))).toThrow(/g\.bin changed size/) // prettier-ignore
+    writeFileSync(f, Buffer.alloc(100, 1))
+    expect(() => readBounded(f, 'g.bin', charge, () => writeFileSync(f, Buffer.alloc(10)))).toThrow(/g\.bin changed size/) // prettier-ignore
+    expect(charged).toEqual([100, 100, 100])
+    expect(() => readBounded(dir, 'd', charge)).toThrow() // a directory is no capture file
   })
 
   it('holds a capture folder to the same entry cap and total', () => {
