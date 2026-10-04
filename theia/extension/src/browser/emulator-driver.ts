@@ -193,9 +193,9 @@ export class EmulatorDriver {
     }
   }
 
-  /** Player 1's controller; button is a libretro RETRO_DEVICE_ID_JOYPAD id. */
-  setButton(button: number, pressed: boolean): void {
-    this.module?._simulate_input?.(0, button, pressed ? 1 : 0)
+  /** A player's controller (port 0 is player 1); button is a libretro RETRO_DEVICE_ID_JOYPAD id. */
+  setButton(button: number, pressed: boolean, port = 0): void {
+    this.module?._simulate_input?.(port, button, pressed ? 1 : 0)
   }
   setOutputGain(gain: number): void {
     this.outputGain = gain

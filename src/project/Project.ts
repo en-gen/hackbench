@@ -45,6 +45,7 @@ import * as crypto from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
 import { COPIER_HEADER_SIZE, hasCopierHeader } from '../rom/addressing'
+import { readManifestBounded, readRomBounded } from './BoundedRead'
 
 export const PROJECT_EXT = '.hbproj'
 export const SCHEMA_VERSION = 1
@@ -136,6 +137,72 @@ export function romIdentity(bytes: Uint8Array): RomIdentity {
   return { sha256, size: cart.length, title }
 }
 
+const RESERVED_DEVICE = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i
+const MAX_NAME_LENGTH = 200
+
+/**
+ * Why `name` cannot be a project name, or null if it can (#240). The name
+ * becomes a manifest filename and an export filename, and on READ it comes
+ * from a manifest other people wrote.
+ *
+ * Lenient (read): only what makes it more than one path component or breaks
+ * a path outright, so a project whose name merely trips a Windows rule still
+ * opens. Strict (create, export): also what Windows refuses in a filename.
+ */
+export function projectNameProblem(name: unknown, strict: boolean): string | null {
+  if (typeof name !== 'string' || !name.trim()) return 'A project needs a name'
+  // eslint-disable-next-line no-control-regex
+  if (/[/\\\x00-\x1f]/.test(name) || name === '.' || name === '..') {
+    return `Project name must be one plain filename, without separators or control characters: ${name}`
+  }
+  if (!strict) return null
+  if (/[<>:"|?*]/.test(name) || /[. ]$/.test(name) || RESERVED_DEVICE.test(name)) {
+    return `Project name is not valid as a Windows filename: ${name}`
+  }
+  if (name.length > MAX_NAME_LENGTH) return `Project name is over ${MAX_NAME_LENGTH} characters`
+  return null
+}
+
+function assertProjectName(name: unknown, strict: boolean): asserts name is string {
+  const problem = projectNameProblem(name, strict)
+  if (problem) throw new Error(problem)
+}
+
+/** Throws a clear Error unless the parsed JSON has every field a reader touches. */
+function assertManifestShape(m: unknown, manifestPath: string): asserts m is ProjectManifest {
+  const bad = (what: string): never => {
+    throw new Error(`Project file is malformed (${what}): ${manifestPath}`)
+  }
+  if (typeof m !== 'object' || m === null || Array.isArray(m)) bad('not an object')
+  const o = m as Record<string, unknown>
+  const problem = projectNameProblem(o.name, false)
+  if (problem) bad(problem)
+  // Optional (older manifests lack them) but typed when present, because
+  // withMetadataDefaults calls string methods on them.
+  for (const k of ['title', 'summary', 'version']) {
+    if (o[k] !== undefined && typeof o[k] !== 'string') bad(`${k} is not a string`)
+  }
+  const a = o.authors
+  // A bare string is tolerated on purpose (withMetadataDefaults).
+  if (
+    a !== undefined &&
+    typeof a !== 'string' &&
+    !(Array.isArray(a) && a.every(x => typeof x === 'string'))
+  ) {
+    bad('authors is not a list of strings')
+  }
+  const r = o.baseRom as Record<string, unknown> | null | undefined
+  if (
+    typeof r !== 'object' ||
+    r === null ||
+    typeof r.sha256 !== 'string' ||
+    typeof r.size !== 'number' ||
+    typeof r.title !== 'string'
+  ) {
+    bad('baseRom missing or not {sha256, size, title}')
+  }
+}
+
 export interface CreateOptions extends Partial<HackMetadata> {
   romPath: string
   name: string
@@ -176,9 +243,7 @@ export function createProject(opts: CreateOptions): Project {
   if (!fs.existsSync(romPath)) {
     throw new Error(`No ROM at ${romPath}`)
   }
-  if (!name.trim()) {
-    throw new Error('A project needs a name')
-  }
+  assertProjectName(name, true)
 
   // Refuse an occupied directory rather than merging into it: adopting files
   // that are not ours, and being unable to tell later which were, is worse
@@ -187,7 +252,7 @@ export function createProject(opts: CreateOptions): Project {
     throw new Error(`Directory is not empty: ${directory}`)
   }
 
-  const baseRom = romIdentity(new Uint8Array(fs.readFileSync(romPath)))
+  const baseRom = romIdentity(readRomBounded(romPath))
 
   const manifest: ProjectManifest = {
     schemaVersion: SCHEMA_VERSION,
@@ -197,12 +262,16 @@ export function createProject(opts: CreateOptions): Project {
     created: new Date().toISOString(),
   }
 
+  // Manifest first and exclusive: a refusal here leaves no stray levels/ or
+  // snapshots/ behind to turn a retry into "Directory is not empty".
   fs.mkdirSync(directory, { recursive: true })
+  const manifestPath = path.join(directory, `${name}${PROJECT_EXT}`)
+  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, {
+    encoding: 'utf8',
+    flag: 'wx',
+  })
   fs.mkdirSync(path.join(directory, LEVELS_DIR), { recursive: true })
   fs.mkdirSync(path.join(directory, SNAPSHOTS_DIR), { recursive: true })
-
-  const manifestPath = path.join(directory, `${name}${PROJECT_EXT}`)
-  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
 
   return toProject(manifestPath, manifest)
 }
@@ -215,6 +284,14 @@ export function createProject(opts: CreateOptions): Project {
  * project looks exactly like a hack that lost all its work.
  */
 export function openProject(manifestPath: string): Project {
+  return openValidated(manifestPath).project
+}
+
+/**
+ * The one read of a manifest: the project plus the parsed JSON that was
+ * validated, so a caller that rewrites it merges exactly those bytes.
+ */
+function openValidated(manifestPath: string): { project: Project; manifest: ProjectManifest } {
   if (!fs.existsSync(manifestPath)) {
     throw new Error(`No project at ${manifestPath}`)
   }
@@ -229,9 +306,12 @@ export function openProject(manifestPath: string): Project {
     )
   }
 
+  // A refused read (directory, oversize) keeps its own reason; only a parse
+  // failure means "not JSON".
+  const text = readManifestBounded(manifestPath)
   let manifest: ProjectManifest
   try {
-    manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as ProjectManifest
+    manifest = JSON.parse(text) as ProjectManifest
   } catch (err) {
     throw new Error(`Project file is not readable JSON: ${manifestPath}`, { cause: err })
   }
@@ -239,7 +319,7 @@ export function openProject(manifestPath: string): Project {
   // Refuse a newer schema rather than guessing at fields we do not know. A
   // project written by a later version may mean something different by the
   // same names.
-  if (typeof manifest.schemaVersion !== 'number') {
+  if (typeof manifest?.schemaVersion !== 'number') {
     throw new Error(`Project file has no schema version: ${manifestPath}`)
   }
   if (manifest.schemaVersion > SCHEMA_VERSION) {
@@ -248,6 +328,8 @@ export function openProject(manifestPath: string): Project {
     )
   }
 
+  assertManifestShape(manifest, manifestPath)
+
   const levelsDir = path.join(directory, LEVELS_DIR)
   if (!fs.existsSync(levelsDir)) {
     throw new Error(
@@ -255,7 +337,7 @@ export function openProject(manifestPath: string): Project {
     )
   }
 
-  return toProject(manifestPath, manifest)
+  return { project: toProject(manifestPath, manifest), manifest }
 }
 
 function toProject(manifestPath: string, manifest: ProjectManifest): Project {
@@ -284,11 +366,10 @@ function toProject(manifestPath: string, manifest: ProjectManifest): Project {
  * the manifest describe a different thing.
  */
 export function updateProject(manifestPath: string, changes: Partial<HackMetadata>): Project {
-  // Round-trips through openProject first so a manifest that is unreadable,
-  // orphaned or from a future schema is refused BEFORE anything is written.
-  openProject(manifestPath)
-
-  const raw = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as ProjectManifest
+  // Validated read first, so a manifest that is unreadable, orphaned, from a
+  // future schema or malformed is refused BEFORE anything is written. The
+  // merge uses those same validated bytes, not a second read.
+  const { manifest: raw } = openValidated(manifestPath)
   const merged: ProjectManifest = {
     ...raw,
     ...withMetadataDefaults({ ...raw, ...changes }, raw.name),

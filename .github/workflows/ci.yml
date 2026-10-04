@@ -32,7 +32,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
@@ -63,6 +63,12 @@ jobs:
       - name: Format
         run: npm run format:check
 
+      # The spike probe servers are throwaway but bind a local port and write
+      # files; this proves their /save and GET hardening (stdlib only, no ROM).
+      # ubuntu-latest ships python3 >= 3.10, which the servers' annotations need.
+      - name: Spike serve hardening
+        run: python3 spike/test_serve_hardening.py
+
       - name: Type-check
         run: npx tsc --noEmit
 
@@ -78,8 +84,10 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
 
+      # Exhaustive byte-flip sweeps run 2-4x slower under v8 coverage on Node 22
+      # than on Node 20 (same sweep: 14 s vs 47 s on CI), past the 5 s default.
       - name: Unit tests with coverage
-        run: npm run test:unit -- --coverage
+        run: npm run test:unit -- --coverage --testTimeout=60000
 
       # Runs when the tests FAIL too: that is the run worth having. Informational
       # only; Codecov being down never reds CI.
@@ -115,7 +123,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # 22, not the 20 the job above uses: Theia 1.75 pins Electron 42.8.1,
+      # 22: Theia 1.75 pins Electron 42.8.1,
       # whose engines field requires >= 22.12. Matching it rather than
       # passing --ignore-engines, so a future bump is a visible failure here
       # instead of a suppressed one.

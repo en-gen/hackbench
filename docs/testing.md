@@ -46,6 +46,17 @@ remote-tracking refs), and `history` (every blob reachable from every ref
   shallow clone, a grafts file, and a tag/ref pointing at a blob or tree
   outside any commit's tree).
 
+Read budget (#461): before any content is buffered, object sizes are
+checked with `git cat-file --batch-check`. A blob over 32 MiB, or (in
+`staged`, `range` and a per-ref `push`) a set whose total exceeds 128 MiB,
+exits 2 naming the path; path-rule hits (such as a staged `.smc`) are still
+printed alongside the refusal. `history`, and a `push` to an empty remote,
+skip the total refusal and read in chunks of at most 128 MiB instead, so
+memory stays bounded as history grows. A size exactly at a limit passes.
+The largest tracked file today is 340 KB. The limits can be overridden with
+`CONTENT_GATE_MAX_BLOB_BYTES` and `CONTENT_GATE_MAX_TOTAL_BYTES`; these exist
+so tests need not write megabytes, not for normal use.
+
 A commit MESSAGE already on protected `develop` cannot be amended, so a false
 positive there would red `history` mode forever. Such a message goes in
 `tools/scripts/content-gate-reviewed.txt` as `<sha> <rule> -- <reason>`,
@@ -130,7 +141,7 @@ helpers with hand-crafted byte sequences or literal inputs. Examples:
   (the non-integration portion) - feeds tiny constructed object streams
   into the expander.
 
-These run in CI on Node 20 and Node 22 and are the project's primary
+These run in CI on Node 22 and are the project's primary
 correctness gate.
 
 ### 2. ROM-dependent tests (skipped in CI, run locally if ROM present)
@@ -528,6 +539,8 @@ npm run test:unit      # Vitest, single run
 npm run test:unit -- --coverage    # + v8 coverage
 npx vitest run test/suite/unit/LcLz2.synthetic.test.ts   # one file
 ```
+
+`test/suite/unit/romMapBoundaries.test.ts` (synthetic ROMs, `docs/mockups/rom-map.html` parser run in a vm) and `demoCaption.test.ts` (`OVERLAY` from `demo.cjs`, fake DOM) were each shown red on a planted defect, one machine: walking before the dedupe lookup (3 of 3 rom-map tests fail), the work-cap check placed before the repeat-pointer lookup (1 of 3), the work-cap check removed (2 of 3), and `innerHTML` restored in the caption (1 of 1).
 
 ## Related docs
 

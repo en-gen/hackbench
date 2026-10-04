@@ -6,7 +6,7 @@
 import { readFileSync } from 'fs'
 import { SmwRom } from '../../src/rom/SmwRom'
 import { parseLevelObjects, SCREEN_W } from '../../src/rom/LevelParser'
-import { expandMap, TILE_EMPTY } from '../../src/rom/ObjectExpander'
+import { expandMap, SWITCH_FLAGS_UNCLEARED, TILE_EMPTY } from '../../src/rom/ObjectExpander'
 
 const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
 // HB_MAPS_DIR lets a run point at a scratch copy, matching gen_diff_images.
@@ -32,6 +32,8 @@ const ourGrid = expandMap(
   false,
   header.levelMode,
   levelNum,
+  SWITCH_FLAGS_UNCLEARED,
+  null,
 )
 
 const text = readFileSync(`${MAPS_DIR}/${arg}/map16.txt`, 'utf8')

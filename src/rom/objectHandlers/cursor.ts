@@ -28,6 +28,7 @@
  *   StzTo6ePointer  (line 2112) setPage(0) - next write is on page 0
  */
 
+import type { InterpretedDraw } from './interpretedDraw'
 import { RomFile } from '../RomFile'
 
 /** Map16 RAM bytes per horizontal-level screen: 27 rows x 16 cols. */
@@ -133,6 +134,8 @@ export interface Cursor {
   owner: number
   /** Switch-palace state the switch-block handlers gate on (#567). */
   switchFlags: SwitchFlags
+  /** Set by a caller that takes the interpreter's word for gated handlers (#342). */
+  draw?: InterpretedDraw | null
 }
 
 export function makeCursor(

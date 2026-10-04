@@ -9,6 +9,11 @@
  *   |- $0D3 (an entry map)
  *   \- $0D8 (an orphan: not reached from the overworld, dimmed)
  *
+ * The top rows follow the order the player meets them: Title Screen, New
+ * Game, Overworld. The Overworld row is frontend-only (no slot, no hex label):
+ * opening it runs `hackbench.overworld.focus`, which opens or focuses the one
+ * Overworld view. Groups and maps follow.
+ *
  * There is no separate Overworld folder. Every top-level map not in a user
  * group, entry map or orphan alike, lands in Unassigned, sorted by slot: an
  * entry map moved there is exactly as "unassigned" as an orphan is, the row
@@ -43,7 +48,9 @@ import {
   TreeSelection,
   createTreeContainer,
 } from '@theia/core/lib/browser'
-import { Emitter, MessageService } from '@theia/core/lib/common'
+import { CommandService, Emitter, MessageService } from '@theia/core/lib/common'
+import { OVERWORLD_FOCUS_COMMAND_ID } from './overworld-view-widget'
+import { orderSpecials } from './map-explorer-order'
 import {
   GroupedMapNodeDto,
   GroupedMapTreeDto,
@@ -67,6 +74,7 @@ export const MAP_EXPLORER_CONTEXT_MENU = ['map-explorer-context-menu']
  */
 export type MapCategory =
   | SpecialMapNodeDto['role']
+  | 'overworld'
   | 'unassigned-group'
   | 'user-group'
   | 'entry'
@@ -86,7 +94,7 @@ export type MapCategory =
  * carries `expanded: false` renders a chevron that expands nothing.
  */
 export interface MapTreeNode extends CompositeTreeNode, SelectableTreeNode {
-  /** Pointer-table slot, or -1 for a grouping folder. */
+  /** Pointer-table slot, or -1 for a grouping folder or the Overworld row. */
   index: number
   mapName: string | null
   kind: 'map' | 'loop' | 'truncated' | 'group' | 'message'
@@ -123,6 +131,7 @@ const MAP_ROWS_TYPE = 'application/vnd.hackbench.map-rows'
 export const CATEGORY_ICONS: Record<MapCategory, string> = {
   'title-screen': 'codicon-device-desktop',
   'new-game': 'codicon-play-circle',
+  overworld: 'codicon-globe',
   // Deliberately the same mark as the orphans it contains: the folder is not
   // a different kind of thing from its children, it is just where they sit.
   'unassigned-group': 'codicon-question',
@@ -146,6 +155,7 @@ export const slotLabel = (index: number): string =>
 
 @injectable()
 export class MapExplorerWidget extends TreeWidget {
+  @inject(CommandService) protected readonly commands!: CommandService
   @inject(ProjectService) protected readonly projects!: ProjectService
   @inject(MessageService) protected readonly messages!: MessageService
 
@@ -261,7 +271,10 @@ export class MapExplorerWidget extends TreeWidget {
     this.groups = result.rawGroups
     this.groupsError = result.groupsError
 
-    const rows: MapTreeNode[] = [...result.tree.special.map(s => this.specialNode(s))]
+    const rows: MapTreeNode[] = [
+      ...orderSpecials(result.tree.special).map(s => this.specialNode(s)),
+      this.overworldNode(),
+    ]
     if (this.groupsError) {
       rows.push(this.message(`Groups unavailable: ${this.groupsError}`))
       this.messages.error(`meta/groups.json: ${this.groupsError}`)
@@ -366,8 +379,8 @@ export class MapExplorerWidget extends TreeWidget {
 
   /**
    * Node ids are path-scoped, not slot-scoped: a sub-area reachable from two
-   * levels is expanded under both (see src/rom/LevelTree.ts), and a tree that
-   * reused one id for both copies would collapse them into one row.
+   * roots is listed under both (see reachableSlots in src/rom/LevelTree.ts),
+   * and a tree that reused one id for both copies would collapse them into one row.
    */
   protected toNode(dto: MapNodeDto, parent: MapTreeNode, asCategory: MapCategory): MapTreeNode {
     // A loop or a truncation is what it is regardless of where it sits: both
@@ -409,6 +422,21 @@ export class MapExplorerWidget extends TreeWidget {
     }
   }
 
+  /** Not a slot: opening it runs the Overworld command, so it needs no ROM read here. */
+  protected overworldNode(): MapTreeNode {
+    return {
+      id: 'overworld',
+      name: 'Overworld',
+      index: -1,
+      mapName: null,
+      kind: 'map',
+      category: 'overworld',
+      parent: undefined,
+      children: [],
+      selected: false,
+    }
+  }
+
   protected override handleDblClickEvent(
     node: TreeNode | undefined,
     event: React.MouseEvent<HTMLElement>,
@@ -419,6 +447,16 @@ export class MapExplorerWidget extends TreeWidget {
 
   /** Groups and messages name no map; a marker points at a row shown elsewhere. */
   protected fireOpen(map: MapTreeNode | undefined, pinned: boolean): void {
+    if (map?.category === 'overworld') {
+      this.commands
+        .executeCommand(OVERWORLD_FOCUS_COMMAND_ID, { activate: pinned })
+        .catch(err =>
+          this.messages.error(
+            `Could not open the Overworld: ${err instanceof Error ? err.message : String(err)}`,
+          ),
+        )
+      return
+    }
     if (!map || map.index < 0 || map.kind !== 'map' || !this.manifestPath) return
     this.onMapOpenedEmitter.fire({
       index: map.index,
@@ -852,6 +890,7 @@ export class MapExplorerWidget extends TreeWidget {
     const map = node as MapTreeNode
     if (map.kind === 'group' || map.kind === 'message') return super.renderCaption(node, props)
 
+    if (map.category === 'overworld') return <span key="label">{map.name}</span>
     if (isSpecial(map.category)) {
       return [
         <span key="label">{map.name}</span>,

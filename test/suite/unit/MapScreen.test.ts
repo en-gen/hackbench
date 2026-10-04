@@ -9,28 +9,42 @@
  * the cache keys. The corpus cases then check the drawing against the Map16
  * atlas path (`renderMap16Tile`) on real screens.
  */
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as fs from 'fs'
 import { createHash } from 'crypto'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
+import type * as Map16Mod from '../../../src/rom/Map16'
+import type * as GfxMod from '../../../src/rom/GfxLoader'
+import type * as AnimMod from '../../../src/rom/AnimationLoader'
+import type * as StockMod from '../../../src/rom/PaletteStockTables'
+import type * as ExMod from '../../../src/rom/ExAnimationLoader'
+import * as Map16Real from '../../../src/rom/Map16'
+import * as GfxReal from '../../../src/rom/GfxLoader'
+import * as AnimReal from '../../../src/rom/AnimationLoader'
+import * as StockReal from '../../../src/rom/PaletteStockTables'
+import * as ExReal from '../../../src/rom/ExAnimationLoader'
 import * as Expander from '../../../src/rom/ObjectExpander'
 import {
   SWITCH_FLAGS_UNCLEARED as UNCLEARED,
   type SwitchFlags,
 } from '../../../src/rom/ObjectExpander'
 import { parseLevelHeader } from '../../../src/rom/LevelParser'
+import * as ParserReal from '../../../src/rom/LevelParser'
+import type * as ParserMod from '../../../src/rom/LevelParser'
+import { drawInterpreted } from '../../../src/rom/objectHandlers/interpretedDraw'
+import { VANILLA_PRIMITIVES } from '../../../src/rom/objectHandlers/interpret'
 import {
   PIPE_VARIANT_TILE_COUNT,
   PIPE_VARIANT_TILE_START,
   loadMap16WithPipeVariants,
   pipeVariantIndex,
-  type Map16Tile,
 } from '../../../src/rom/Map16'
 import { buildTileAtlas, renderMap16Tile } from '../../../src/rom/TileRenderer'
-import { loadVram, type VramState } from '../../../src/rom/GfxLoader'
+import { loadVram } from '../../../src/rom/GfxLoader'
 import {
   ghostOf,
+  overlayHidden,
   HIDDEN_TILE_DIM_ALPHA,
   hiddenPixelStrength,
 } from '../../../src/rom/render/HiddenTiles'
@@ -63,8 +77,23 @@ import {
   ADDR_TILESET_DISPATCH,
 } from '../../../src/rom/objectHandlers/romData'
 import type { RgbaColor } from '../../../src/rom/GraphicsDecoder'
+import { MAGIC } from '../support/corpus'
 import {
-  drawL1Screen,
+  BLUE_SLOT,
+  COLORS,
+  hGrid,
+  inputs,
+  ONOFF_SLOT,
+  px,
+  sub,
+  tile,
+  vGrid,
+  VRAM,
+} from '../support/mapInputs'
+import {
+  cellDef,
+  drawL1Planes,
+  screenTiles,
   L1ModelCache,
   mapScreen,
   palaceIconsOf,
@@ -79,60 +108,54 @@ vi.mock('../../../src/rom/ObjectExpander', async importOriginal => {
   return { ...real, expandMap: vi.fn(real.expandMap) }
 })
 
+// Pass-through wrappers, so one test can stub the readers a fake ROM cannot satisfy (#342).
+vi.mock('../../../src/rom/LevelParser', async importOriginal => {
+  const real = await importOriginal<typeof ParserMod>()
+  return { ...real, parseLevelObjects: vi.fn(real.parseLevelObjects) }
+})
+vi.mock('../../../src/rom/Map16', async importOriginal => {
+  const real = await importOriginal<typeof Map16Mod>()
+  return {
+    ...real,
+    loadMap16WithPipeVariants: vi.fn(real.loadMap16WithPipeVariants),
+    map16TileCapacity: vi.fn(real.map16TileCapacity),
+  }
+})
+vi.mock('../../../src/rom/GfxLoader', async importOriginal => {
+  const real = await importOriginal<typeof GfxMod>()
+  return { ...real, gfxSource: vi.fn(real.gfxSource), loadVram: vi.fn(real.loadVram) }
+})
+vi.mock('../../../src/rom/AnimationLoader', async importOriginal => {
+  const real = await importOriginal<typeof AnimMod>()
+  return { ...real, loadAnimationDataOrReason: vi.fn(real.loadAnimationDataOrReason) }
+})
+vi.mock('../../../src/rom/PaletteStockTables', async importOriginal => {
+  const real = await importOriginal<typeof StockMod>()
+  return { ...real, readLevelCol1: vi.fn(real.readLevelCol1) }
+})
+vi.mock('../../../src/rom/ExAnimationLoader', async importOriginal => {
+  const real = await importOriginal<typeof ExMod>()
+  return { ...real, loadExAnimData: vi.fn(real.loadExAnimData) }
+})
+
+// A test that refuses early leaves its `...Once` stubs queued; put every wrapper back to pass-through.
+afterEach(() => {
+  for (const f of [
+    Expander.expandMap,
+    ParserReal.parseLevelObjects,
+    Map16Real.loadMap16WithPipeVariants,
+    Map16Real.map16TileCapacity,
+    GfxReal.gfxSource,
+    GfxReal.loadVram,
+    AnimReal.loadAnimationDataOrReason,
+    StockReal.readLevelCol1,
+    ExReal.loadExAnimData,
+  ])
+    vi.mocked(f).mockReset()
+})
+
 const romPresent = hasRom(VANILLA)
 const YELLOW: SwitchFlags = { ...UNCLEARED, yellow: true }
-const BACKDROP: RgbaColor = [250, 9, 9, 255]
-
-// ── Synthetic inputs ─────────────────────────────────────────────────────────
-
-const sub = (charNum: number, palette = 0) => ({ charNum, palette, priority: false, flipX: false, flipY: false }) // prettier-ignore
-const tile = (id: number, q: ReturnType<typeof sub>[]): Map16Tile => ({ id, tl: q[0]!, tr: q[1]!, bl: q[2]!, br: q[3]! }) // prettier-ignore
-/** fg1 chars 0-4, each solid in its own color index (char 0 transparent); 5 blank; 6 solid color 4; 7-9 blank. */
-const VRAM: VramState = { fg1: [0, 1, 2, 3, 4, 0, 4, 0, 0, 0].map(v => new Uint8Array(64).fill(v)) }
-/** The blue switch swaps chars 2-4 to solid color 7 and char 5's top half to color 7 (frame 0 as loaded when off). */
-/** ON/OFF on blanks char 6: a tile drawn with the switch off, gone with it on. */
-const ONOFF_SLOT = { charBase: 6, tiles: [4, 0, 0, 0].map(v => new Uint8Array(64).fill(v)), alt: { switch: 'onOff' as const, tiles: [0, 1, 2, 3].map(() => new Uint8Array(64)) } } // prettier-ignore
-const BLUE_SLOT = { charBase: 2, tiles: [2, 3, 4, 0].map(v => new Uint8Array(64).fill(v)), alt: { switch: 'blue' as const, tiles: [0, 1, 2, 3].map(i => new Uint8Array(64).fill(7, 0, i === 3 ? 32 : 64)) } } // prettier-ignore
-
-/** Color index c of row r is [r * 16 + c, 100, 200]; index 0 is transparent. */
-const COLORS: RgbaColor[] = Array.from({ length: 256 }, (_, i) => (i % 16 === 0 ? [0, 0, 0, 0] : [i, 100, 200, 255])) // prettier-ignore
-
-/**
- * Inputs with tile 1 (chars 1-4, one per quadrant), empty tile 0, tile 2
- * hidden until blue is on, tile 4 drawn until ON/OFF is on, and the eight
- * pipe tiles whose variant v draws char 1 in palette row v. Tiles sit at
- * their own ids, as the Map16 table does.
- */
-function inputs(grid: number[][], isVertical: boolean, screenCount: number): L1Inputs {
-  const tiles: Map16Tile[] = []
-  const put = (t: Map16Tile) => (tiles[t.id] = t)
-  put(tile(0, [sub(0), sub(0), sub(0), sub(0)]))
-  put(tile(1, [sub(1), sub(2), sub(3), sub(4)]))
-  put(tile(2, [sub(5), sub(5), sub(5), sub(5)])) // hidden: blank until blue is on
-  put(tile(3, [sub(1), sub(1), sub(1), sub(1)])) // cites no switched char
-  put(tile(4, [sub(6), sub(6), sub(6), sub(6)])) // vanishes: drawn until ON/OFF is on
-  const pipeVariants = [0, 1, 2, 3].map(
-    v =>
-    Array.from({ length: PIPE_VARIANT_TILE_COUNT }, (_, i) => tile(PIPE_VARIANT_TILE_START + i, [sub(1, v), sub(1, v), sub(1, v), sub(1, v)])), // prettier-ignore
-  )
-  for (let i = 0; i < PIPE_VARIANT_TILE_COUNT; i++) put(tile(PIPE_VARIANT_TILE_START + i, [sub(0), sub(0), sub(0), sub(0)])) // prettier-ignore
-  return {
-    header: parseLevelHeader([0, 0, 0, 0, 0]),
-    isVertical,
-    screenCount,
-    grid,
-    map16: { tiles, pipeVariants },
-    rawVram: VRAM,
-    anim: { frameCount: 1, intervalMs: 100, frames: [[BLUE_SLOT, ONOFF_SLOT]] },
-    vram: VRAM,
-    colors: COLORS,
-    backArea: BACKDROP,
-    switchArt: switchArtOf({ frameCount: 1, intervalMs: 100, frames: [[BLUE_SLOT, ONOFF_SLOT]] }, tiles, VRAM, { colors: COLORS }), // prettier-ignore
-  }
-}
-
-const hGrid = (screens: number) => Array.from({ length: 27 }, () => new Array<number>(screens * 16).fill(0)) // prettier-ignore
-const vGrid = (screens: number) => Array.from({ length: screens * 16 }, () => new Array<number>(32).fill(0)) // prettier-ignore
 
 /** A color on the screen door's dim squares: the art at 25%, left for the browser to lay over the back area. */
 const dim = (rgb: number[]) => [...rgb, Math.round(255 * HIDDEN_TILE_DIM_ALPHA)]
@@ -150,9 +173,18 @@ const overBackArea = (buf: Uint8ClampedArray, bg: RgbaColor) => {
   return out
 }
 
-/** RGBA of pixel (x, y) in a screen buffer of `width` pixels. */
-const px = (buf: Uint8ClampedArray, width: number, x: number, y: number) =>
-  Array.from(buf.subarray((y * width + x) * 4, (y * width + x) * 4 + 4))
+/** The planes as one image. They are zero wherever the other draws, so OR is exact. */
+function drawL1Screen(
+  m: L1Inputs,
+  screen: number,
+  switches?: Parameters<typeof drawL1Planes>[2],
+): Uint8ClampedArray {
+  const { w, h } = screenTiles(m.isVertical)
+  const out = new Uint8ClampedArray(w * h * 16 * 16 * 4)
+  for (const plane of Object.values(drawL1Planes(m, screen, switches)))
+    plane?.forEach((v, i) => (out[i]! |= v))
+  return out
+}
 
 describe('one renderer for the sheet and the map (synthetic)', () => {
   it('each quadrant draws its own color', () => {
@@ -193,6 +225,138 @@ describe('one renderer for the sheet and the map (synthetic)', () => {
   })
 })
 
+describe('L1 priority planes (synthetic)', () => {
+  const prio = (q: ReturnType<typeof sub>) => ({ ...q, priority: true })
+  const planeOf = (r: unknown, k: 'l1Low' | 'l1High') =>
+    (r as { planes: Record<string, string | null> }).planes[k]
+
+  it('a tile with the priority bit set draws in the high plane only', () => {
+    const i = inputs(hGrid(1), false, 1)
+    i.map16.tiles[1] = tile(
+      1,
+      [1, 2, 3, 4].map(c => prio(sub(c))),
+    )
+    i.grid[0]![0] = 1
+    const p = drawL1Planes(i, 0)
+    expect(px(p.l1High!, 256, 3, 3)[0]).toBe(1)
+    expect(p.l1Low).toBeNull()
+    const wire = screenResult(i, 0)
+    expect(planeOf(wire, 'l1Low')).toBeNull() // no image bytes sent
+    expect(planeOf(wire, 'l1High')).toBeTruthy()
+  })
+
+  it('an all-low screen flags the high plane empty and sends no image', () => {
+    const i = inputs(hGrid(1), false, 1)
+    i.grid[0]![0] = 1
+    const wire = screenResult(i, 0)
+    expect(planeOf(wire, 'l1High')).toBeNull()
+    expect(planeOf(wire, 'l1Low')).toBeTruthy()
+  })
+
+  it('a mixed tile splits per 8x8 subtile', () => {
+    const i = inputs(hGrid(1), false, 1)
+    i.map16.tiles[1] = tile(1, [prio(sub(1)), sub(2), sub(3), prio(sub(4))]) // tl and br high
+    i.grid[0]![0] = 1
+    const p = drawL1Planes(i, 0)
+    const at = (b: Uint8ClampedArray, x: number, y: number) => px(b, 256, x, y)[0]
+    expect([at(p.l1High!, 3, 3), at(p.l1High!, 11, 3), at(p.l1High!, 3, 11), at(p.l1High!, 11, 11)]).toEqual([1, 0, 0, 4]) // prettier-ignore
+    expect([at(p.l1Low!, 3, 3), at(p.l1Low!, 11, 3), at(p.l1Low!, 3, 11), at(p.l1Low!, 11, 11)]).toEqual([0, 2, 3, 0]) // prettier-ignore
+    expect([0, 1, 2, 3].map(k => px(drawL1Screen(i, 0), 256, 3 + 8 * (k % 2), 3 + 8 * (k >> 1))[0])).toEqual([1, 2, 3, 4]) // prettier-ignore
+  })
+
+  it('tr and bl route independently: only tr high puts tr in high and bl in low', () => {
+    const i = inputs(hGrid(1), false, 1)
+    i.map16.tiles[1] = tile(1, [sub(1), prio(sub(2)), sub(3), sub(4)])
+    i.grid[0]![0] = 1
+    const p = drawL1Planes(i, 0)
+    const at = (b: Uint8ClampedArray | null, x: number, y: number) => px(b!, 256, x, y)[0]
+    expect([at(p.l1High, 11, 3), at(p.l1High, 3, 11)]).toEqual([2, 0])
+    expect([at(p.l1Low, 11, 3), at(p.l1Low, 3, 11)]).toEqual([0, 3])
+  })
+
+  it('a plane with only R=0 opaque pixels (pure blue, opaque black) is not empty', () => {
+    const i = inputs(hGrid(1), false, 1)
+    i.colors = COLORS.map(c => [...c] as RgbaColor)
+    i.colors[5 * 16 + 1] = [0, 0, 255, 255]
+    i.colors[5 * 16 + 2] = [0, 0, 0, 255]
+    i.map16.tiles[5] = tile(5, [prio(sub(1, 5)), prio(sub(2, 5)), sub(0), sub(0)])
+    i.grid[0]![0] = 5
+    const p = drawL1Planes(i, 0)
+    expect(p.l1High).not.toBeNull()
+    expect(px(p.l1High!, 256, 3, 3)).toEqual([0, 0, 255, 255])
+    expect(px(p.l1High!, 256, 11, 3)).toEqual([0, 0, 0, 255])
+    expect(p.l1Low).toBeNull()
+  })
+
+  it('a subtile whose first row is clear and the rest opaque still flags its plane drawn', () => {
+    const i = inputs(hGrid(1), false, 1)
+    const fg1 = [...VRAM.fg1!, new Uint8Array(64).fill(1, 8)] // char 10: row 0 clear
+    i.vram = i.rawVram = { fg1 }
+    i.map16.tiles[6] = tile(
+      6,
+      [10, 10, 10, 10].map(c => prio(sub(c))),
+    )
+    i.grid[0]![0] = 6
+    const p = drawL1Planes(i, 0)
+    expect(p.l1High).not.toBeNull()
+    expect(px(p.l1High!, 256, 3, 0)).toEqual(CLEAR)
+    expect(px(p.l1High!, 256, 3, 1)[3]).toBe(255)
+  })
+
+  it('on the wire each key carries its own plane when both are drawn', () => {
+    const i = inputs(hGrid(1), false, 1)
+    i.map16.tiles[1] = tile(1, [sub(1), prio(sub(2)), sub(3), sub(4)]) // only tr high
+    i.grid[0]![0] = 1
+    const wire = (k: 'l1Low' | 'l1High') =>
+      new Uint8ClampedArray(Buffer.from(planeOf(screenResult(i, 0), k)!, 'base64'))
+    const opaque = (b: Uint8ClampedArray) => [3, 11].flatMap(y => [3, 11].map(x => px(b, 256, x, y)[3] === 255)) // prettier-ignore
+    expect(opaque(wire('l1High'))).toEqual([false, true, false, false]) // tl, tr, bl, br
+    expect(opaque(wire('l1Low'))).toEqual([true, false, true, true])
+  })
+
+  it('a drawn pipe variant routes by its own priority bits, not the base entry bits', () => {
+    const i = inputs(hGrid(1), false, 1)
+    const id = PIPE_VARIANT_TILE_START
+    i.map16.tiles[id] = tile(
+      id,
+      [0, 0, 0, 0].map(c => prio(sub(c))),
+    ) // base entry: high, blank
+    i.grid[0]![0] = id // the cell draws the low variant (char 1)
+    const p = drawL1Planes(i, 0)
+    expect(p.l1Low).not.toBeNull()
+    expect(p.l1High).toBeNull()
+  })
+
+  it('a hidden tile routes its screen door by its own priority, not the blank cell drawn', () => {
+    const i = inputs(hGrid(1), false, 1)
+    const id = PIPE_VARIANT_TILE_START
+    // The Map16 entry is the hidden, high-priority tile; the cell draws a blank, low variant.
+    i.map16.tiles[id] = tile(
+      id,
+      [5, 5, 5, 5].map(c => prio(sub(c))),
+    )
+    for (const set of i.map16.pipeVariants) set[0] = tile(id, [sub(0), sub(0), sub(0), sub(0)])
+    i.switchArt = switchArtOf({ frameCount: 1, intervalMs: 100, frames: [[BLUE_SLOT, ONOFF_SLOT]] }, i.map16.tiles, VRAM, { colors: COLORS }) // prettier-ignore
+    i.grid[0]![0] = id
+    const p = drawL1Planes(i, 0)
+    expect(px(p.l1High!, 256, 5, 1)).toEqual([7, 100, 200, 255])
+    expect(p.l1Low).toBeNull()
+  })
+
+  it('a hidden tile keeps its screen door in the plane it belongs to', () => {
+    const i = inputs(hGrid(1), false, 1)
+    i.map16.tiles[2] = tile(
+      2,
+      [5, 5, 5, 5].map(c => prio(sub(c))),
+    )
+    i.grid[0]![0] = 2
+    const p = drawL1Planes(i, 0)
+    expect(px(p.l1High!, 256, 5, 1)).toEqual([7, 100, 200, 255])
+    expect(px(p.l1High!, 256, 6, 1)).toEqual(dim([7, 100, 200]))
+    expect(p.l1Low).toBeNull()
+  })
+})
+
 describe('char switches on the map (synthetic)', () => {
   const blueOn = { blue: true, silver: false, onOff: false }
   const cells = (a: Uint8ClampedArray, b: Uint8ClampedArray) => {
@@ -211,7 +375,7 @@ describe('char switches on the map (synthetic)', () => {
     expect(cells(off, on)).toEqual(['0,0'])
     // And through the screen the wire carries.
     const wire = (sw?: typeof blueOn) =>
-      (screenResult(i, 0, sw) as { rgbaBase64: string }).rgbaBase64
+      JSON.stringify((screenResult(i, 0, sw) as { planes: unknown }).planes)
     expect(wire(blueOn)).not.toBe(wire())
     expect([px(on, 256, 3, 3)[0], px(on, 256, 11, 3)[0], px(on, 256, 3, 11)[0], px(on, 256, 11, 11)[0]]).toEqual([1, 7, 7, 7]) // prettier-ignore
   })
@@ -413,6 +577,77 @@ describe('buildL1Inputs (synthetic)', () => {
     expect(spy.mock.calls[0]![7]).toEqual(YELLOW)
   })
 
+  // No ROM needed: the readers a fake ROM cannot satisfy are stubbed for one build, so the
+  // note's path (expandMap sink -> readings -> inputs -> wire note) runs in CI.
+  it('carries a note the expander pushes into inputs.unverified and the wire note, without a ROM (#342)', () => {
+    vi.mocked(GfxReal.gfxSource).mockReturnValueOnce({ ok: true } as never)
+    vi.mocked(Map16Real.map16TileCapacity).mockReturnValueOnce({} as never)
+    vi.mocked(StockReal.readLevelCol1).mockReturnValueOnce({ bg: 0, obj: 0 } as never)
+    vi.mocked(AnimReal.loadAnimationDataOrReason).mockReturnValueOnce({ ok: false, reason: 'stub' })
+    vi.mocked(ExReal.loadExAnimData).mockReturnValueOnce(null)
+    vi.mocked(Map16Real.loadMap16WithPipeVariants).mockReturnValueOnce({ tiles: [], pipeVariants: [] } as never) // prettier-ignore
+    vi.mocked(GfxReal.loadVram).mockReturnValueOnce({} as never)
+    const spy = vi.mocked(Expander.expandMap)
+    const real = spy.getMockImplementation()!
+    spy.mockImplementationOnce((...a) => {
+      ;(a[8] as { unverified: string[] }).unverified.push('NOTE FROM THE EXPANDER')
+      return real(...a)
+    })
+    const r = buildL1Inputs(fakeRom(0), 0x105, UNCLEARED)
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.inputs.unverified).toEqual(['NOTE FROM THE EXPANDER'])
+    expect((screenResult(r.inputs, 0) as { note?: string }).note).toContain('NOTE FROM THE EXPANDER') // prettier-ignore
+  })
+
+  // A cart whose object $12 reaches CODE_0DADEB as pipe variant 5 (via the tileset dispatch,
+  // as ObjectExpander reads it) and nothing else: the interpreter refuses at the loader.
+  const slopeObjectRom = (): SmwRom => {
+    const base = fakeRom(0)
+    const buf = Buffer.alloc(0x80000, 0)
+    buf[0x7fd5] = 0x20
+    buf.set(noL1Check(), 0x1000)
+    const rom = new RomFile('slope.sfc', buf)
+    const DISPATCH = 0x0d9000
+    const table = new Array(63 * 3).fill(0)
+    table.splice((0x12 - 1) * 3, 3, 0x3e, 0xab, 0x0d)
+    const variants = new Array(30).fill(0)
+    variants.splice(5 * 3, 3, 0xeb, 0xad, 0x0d)
+    rom.writeAt(0x0da415, [0xe2, 0x30, 0xad, 0x31, 0x19, 0x22, 0xfa, 0x86, 0x00]) // stock path: no #302 note
+    rom.writeAt(DISPATCH, [0xe2, 0x30, 0xa6, 0x5a, 0xca, 0x8a, 0x22, 0xfa, 0x86, 0x00])
+    rom.writeAt(ADDR_TILESET_DISPATCH, [DISPATCH & 0xff, (DISPATCH >> 8) & 0xff, 0x0d])
+    rom.writeAt(DISPATCH + 10, table)
+    rom.writeAt(0x0dab3e + 18, variants)
+    return { ...base, rom } as unknown as SmwRom
+  }
+
+  it('draws through the real drawInterpreted: a refusal reaches inputs.unverified and the wire note, without a ROM (#342)', () => {
+    vi.mocked(GfxReal.gfxSource).mockReturnValueOnce({ ok: true } as never)
+    vi.mocked(Map16Real.map16TileCapacity).mockReturnValueOnce({} as never)
+    vi.mocked(StockReal.readLevelCol1).mockReturnValueOnce({ bg: 0, obj: 0 } as never)
+    vi.mocked(AnimReal.loadAnimationDataOrReason).mockReturnValueOnce({ ok: false, reason: 'stub' })
+    vi.mocked(ExReal.loadExAnimData).mockReturnValueOnce(null)
+    vi.mocked(Map16Real.loadMap16WithPipeVariants).mockReturnValueOnce({ tiles: [], pipeVariants: [] } as never) // prettier-ignore
+    vi.mocked(GfxReal.loadVram).mockReturnValueOnce({} as never)
+    const slope = { type: 'standard', objectNumber: 0x12, settings: 0xe5, x: 16, y: 2 }
+    vi.mocked(ParserReal.parseLevelObjects).mockReturnValueOnce({ objects: [slope] } as never)
+    const r = buildL1Inputs(slopeObjectRom(), 0x105, UNCLEARED)
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.inputs.unverified).toHaveLength(1)
+    expect(r.inputs.unverified[0]).toMatch(/\$0DADEB .*not verified.*loader/)
+    expect((screenResult(r.inputs, 0) as { note?: string }).note).toContain(r.inputs.unverified[0]!)
+  })
+
+  it('hands expandMap a note sink, not an opt-out, so refusals can reach the inputs (#342)', () => {
+    const spy = vi.mocked(Expander.expandMap)
+    spy.mockClear()
+    buildL1Inputs(fakeRom(0), 0x105, UNCLEARED)
+    expect(spy.mock.calls[0]![8]).toMatchObject({
+      unverified: [],
+      draw: drawInterpreted,
+      primitives: VANILLA_PRIMITIVES,
+    })
+  })
+
   it.each([0x09, 0x0b, 0x10])(
     'refuses boss-arena mode $%s, whose L1 the game never loads',
     mode => {
@@ -507,6 +742,7 @@ describe('assembleL1Inputs (synthetic)', () => {
     backAreas,
     col1,
     paletteAnim: { context: 'level', available: true, notes: [], targets: [{ cgramIdx: 0x21, colors: [0x03e0] }] } as unknown as PaletteAnimContext, // prettier-ignore
+    unverified: [],
     ...over,
   })
   const pal = loadRomPalettes(palRom, 1)
@@ -532,6 +768,18 @@ describe('assembleL1Inputs (synthetic)', () => {
     const blind = assembleL1Inputs(readings({ paletteAnim: { context: 'level', available: false, targets: [], notes: ['hooked'] } as unknown as PaletteAnimContext })) // prettier-ignore
     expect(blind.colors).toEqual(buildLevelCgram(pal, 1, 2, 3, col1).colors)
     expect(blind.animNote).toMatch(/hooked/)
+  })
+
+  it('carries unverified notes in their own field, and into the wire note (#342)', () => {
+    const why = 'Handler $0DADEB is drawn by the built-in model, not verified against this ROM: x.'
+    expect(assembleL1Inputs(readings()).unverified).toEqual([])
+    const r = assembleL1Inputs(readings({ unverified: [why] }))
+    expect(r.unverified).toEqual([why])
+    expect(r.animNote ?? '').not.toContain('0DADEB')
+    expect((screenResult(r, 0) as { note?: string }).note).toContain(why)
+    expect(
+      (screenResult(assembleL1Inputs(readings()), 0) as { note?: string }).note,
+    ).toBeUndefined()
   })
 
   it('merges ExAnimation into the stock frames, and carries a frames error into the note', () => {
@@ -685,6 +933,94 @@ function distinctColors(buf: Uint8ClampedArray): number {
 const buildTiles16 = (t: number) => loadMap16WithPipeVariants(freshRomFile(), t).tiles
 const freshRomFile = () => RomFile.load(romPath(VANILLA))
 
+/** The single image L1 was before the planes: each cell drawn whole, ghosted, copied. */
+function wholeCellScreen(model: L1Inputs, screen: number): Uint8ClampedArray {
+  const { w, h } = screenTiles(model.isVertical)
+  const x0 = model.isVertical ? 0 : screen * w
+  const y0 = model.isVertical ? screen * h : 0
+  const out = new Uint8ClampedArray(w * 16 * h * 16 * 4)
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const id = model.grid[y0 + y]?.[x0 + x]
+      const def = id === undefined ? undefined : cellDef(model, id, screen)
+      if (!def) continue
+      const cell = renderMap16Tile(def, model.vram, { colors: model.colors })
+      const art = model.switchArt.get(def.id)
+      const ghost = art && ghostOf(cell, art.off, art.alts, c => c.rgba)
+      if (ghost) overlayHidden(cell, 16, 0, 0, ghost)
+      for (let py = 0; py < 16; py++)
+        out.set(cell.subarray(py * 64, py * 64 + 64), ((y * 16 + py) * w * 16 + x * 16) * 4)
+    }
+  return out
+}
+
+/**
+ * The reference split: the whole-cell image, each 8x8 quadrant sent to the plane its subtile's
+ * priority bit names. Quadrants are indexed by arithmetic here, not by the production tuple.
+ */
+function referencePlanes(model: L1Inputs, screen: number, whole: Uint8ClampedArray) {
+  const { w, h } = screenTiles(model.isVertical)
+  const x0 = model.isVertical ? 0 : screen * w
+  const y0 = model.isVertical ? screen * h : 0
+  const out = { low: new Uint8ClampedArray(whole.length), high: new Uint8ClampedArray(whole.length) } // prettier-ignore
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const id = model.grid[y0 + y]?.[x0 + x]
+      const def = id === undefined ? undefined : cellDef(model, id, screen)
+      if (!def) continue
+      // A switch tile's screen door is its Map16 entry's art.
+      const owner = model.switchArt.has(def.id) ? (model.map16.tiles[def.id] ?? def) : def
+      const subs = [owner.tl, owner.tr, owner.bl, owner.br]
+      for (let q = 0; q < 4; q++) {
+        const dest = subs[q]!.priority ? out.high : out.low
+        for (let py = 0; py < 8; py++) {
+          const at = ((y * 16 + (q >> 1) * 8 + py) * w * 16 + x * 16 + (q & 1) * 8) * 4
+          dest.set(whole.subarray(at, at + 32), at)
+        }
+      }
+    }
+  return out
+}
+
+const hasAlpha = (b: Uint8ClampedArray) => b.some((v, i) => i % 4 === 3 && v !== 0)
+
+// Every slot, every screen, no switches on. Only the two stock-shaped ROMs: the L1 model
+// refuses all 512 slots of the four hacks (boss-mode check), so they have no screens to draw.
+describe.each([VANILLA, MAGIC])('L1 planes rebuild the single image: %s', name => {
+  it.skipIf(!hasRom(name))(
+    'the planes OR to the whole-cell image on every screen of every slot',
+    () => {
+      const rom = new SmwRom(RomFile.load(romPath(name)))
+      let screens = 0
+      let high = 0
+      for (let index = 0; index < 0x200; index++) {
+        const r = buildL1Inputs(rom, index, UNCLEARED)
+        if (!r.ok) continue
+        for (let screen = 0; screen < r.inputs.screenCount; screen++) {
+          const ref = wholeCellScreen(r.inputs, screen)
+          if (!Buffer.from(drawL1Screen(r.inputs, screen)).equals(Buffer.from(ref))) throw new Error(`slot ${index} screen ${screen} differs`) // prettier-ignore
+          const got = drawL1Planes(r.inputs, screen)
+          const want = referencePlanes(r.inputs, screen, ref)
+          for (const [key, plane] of [
+            ['l1Low', want.low],
+            ['l1High', want.high],
+          ] as const) {
+            // prettier-ignore
+            // Null exactly when no pixel has alpha, and the bytes are the reference split's.
+            if ((got[key] === null) !== !hasAlpha(plane)) throw new Error(`slot ${index} screen ${screen} ${key} empty flag`) // prettier-ignore
+            if (!Buffer.from(got[key] ?? new Uint8ClampedArray(plane.length)).equals(Buffer.from(plane))) throw new Error(`slot ${index} screen ${screen} ${key} differs from the reference split`) // prettier-ignore
+          }
+          if (got.l1High) high++
+          screens++
+        }
+      }
+      expect(screens).toBeGreaterThan(100) // the sweep drew something
+      expect(high).toBeGreaterThan(0) // and some screen has a priority tile, so the split was exercised
+    },
+    600_000,
+  )
+})
+
 describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
   const bytes = romPresent ? new Uint8Array(fs.readFileSync(romPath(VANILLA))) : new Uint8Array()
   const rom = romPresent ? new SmwRom(RomFile.fromBytes(romPath(VANILLA), Buffer.from(bytes))) : null! // prettier-ignore
@@ -693,6 +1029,19 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
     if (!r.ok) throw new Error(r.reason)
     return r.inputs
   }
+
+  it('carries a note the expander pushes into inputs.unverified and into the wire note (#342)', () => {
+    const spy = vi.mocked(Expander.expandMap)
+    const real = spy.getMockImplementation()!
+    spy.mockImplementationOnce((...a) => {
+      ;(a[8] as { unverified: string[] }).unverified.push('NOTE FROM THE EXPANDER')
+      return real(...a)
+    })
+    const m = model(0x105)
+    expect(m.unverified).toEqual(['NOTE FROM THE EXPANDER'])
+    expect((screenResult(m, 0) as { note?: string }).note).toContain('NOTE FROM THE EXPANDER')
+    expect(model(0x105).unverified).toEqual([]) // and nothing when the expander says nothing
+  })
 
   // A regression oracle independent of the current renderer: SHA-256 of whole screens
   // drawn by the pre-#421-shared-renderer tile path at c6e39a15 (Tile.render
@@ -766,7 +1115,11 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
   function rpcScreen(index: number, screen: number, flags: SwitchFlags): Buffer {
     const r = mapScreen(new L1ModelCache(), bytes, romPath(VANILLA), index, screen, flags)
     if (r.status !== 'ok') throw new Error(r.status)
-    return Buffer.from(r.rgbaBase64, 'base64')
+    // The planes are zero where the other draws, so OR rebuilds the single image.
+    const out = Buffer.alloc(r.width * r.height * 4)
+    for (const b64 of Object.values(r.planes))
+      if (b64) Buffer.from(b64, 'base64').forEach((v, i) => (out[i]! |= v))
+    return out
   }
 
   /** The 16x16 cells (local col, row) whose pixels differ between two screens. */

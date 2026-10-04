@@ -33,7 +33,9 @@ import { hasFlagSizedImmediate, instructionLength } from '../dispatch/HandlerWal
 import { readLongPointer } from './romData'
 import {
   MAP16_BYTES_PER_SCREEN_H,
+  OWNER_NONE,
   SWITCH_FLAGS_UNCLEARED,
+  type OwnerGrid,
   type SwitchFlags,
   type TileGrid,
 } from './cursor'
@@ -48,7 +50,18 @@ export const ENTRY_EXTENDED = 0x0da100
  *  match in the cart). Stored as a hash: the routine is Nintendo's code. */
 export const EXECUTE_PTR_LONG_SHA256 =
   '9269f0bdf61255bd04b61dbb8aa17533389a25d3932f9478941cb387ff736a9d'
-const EXECUTE_PTR_LONG_LEN = 36
+
+/** A routine the interpreter recognizes by the hash of its bytes and models
+ *  instead of executing. Each is an ExecutePtrLong-style inline-table dispatch. */
+export interface RecognizedPrimitive {
+  sha256: string
+  length: number
+}
+
+/** The primitives of a stock ROM. A caller supplies the table it trusts. */
+export const VANILLA_PRIMITIVES: readonly RecognizedPrimitive[] = Object.freeze([
+  Object.freeze({ sha256: EXECUTE_PTR_LONG_SHA256, length: 36 }),
+])
 
 /** Vanilla's largest completed run is 99,776 steps and 13,470 writes. */
 export const STEP_BUDGET = 250_000
@@ -103,12 +116,11 @@ export interface InterpretEnv {
 export interface InterpretOptions {
   stepBudget?: number
   writeBudget?: number
-  /** Overrides EXECUTE_PTR_LONG_SHA256; synthetic tests pass their own. */
-  dispatchFingerprint?: string
-  /** How `entry` is called, which decides the return that ends the run.
-   *  The loader JSLs both real entries; a test entering a handler directly
-   *  passes 'jsr'. */
-  entryCall?: 'jsl' | 'jsr'
+  /** The routines a JSL may reach. Required: no silent fallback to vanilla. */
+  primitives: readonly RecognizedPrimitive[]
+  /** What a buffer cell holds before the handler writes it (a merge reads the
+   *  tile already there). Unset cells read as an empty level. */
+  seed?: (addr: number) => number | undefined
 }
 
 export interface BufferWrite {
@@ -128,7 +140,7 @@ export interface InterpretResult {
 type V = number | null
 type Frame = { call: 'jsr' | 'jsl'; ret: number | null } | { call: null; v: V }
 
-/** Per cart: whether the JSL target at an address matches a fingerprint. */
+/** Per cart: whether the bytes at an address match a primitive, keyed by that primitive's signature. */
 const SIG_CACHE = new WeakMap<RomFile, { version: number; value: Map<string, boolean> }>()
 
 class Refusal extends Error {}
@@ -143,11 +155,11 @@ export function interpret(
   entry: number,
   place: Placement,
   env: InterpretEnv,
-  opts: InterpretOptions = {},
+  opts: InterpretOptions,
 ): InterpretResult {
   const stepBudget = opts.stepBudget ?? STEP_BUDGET
   const writeBudget = opts.writeBudget ?? WRITE_BUDGET
-  const sig = opts.dispatchFingerprint ?? EXECUTE_PTR_LONG_SHA256
+  const primitives = opts.primitives
   const flags = env.switchFlags ?? SWITCH_FLAGS_UNCLEARED
   const switches = [flags.green, flags.yellow, flags.blue, flags.red]
   const sigSeen = cachedByVersion(SIG_CACHE, rom, () => new Map<string, boolean>())
@@ -176,8 +188,8 @@ export function interpret(
   let n: boolean | null = null
   let z: boolean | null = null
   let c: boolean | null = null
-  // The entry's own frame: its return (ret null) ends the run.
-  const stack: Frame[] = [{ call: opts.entryCall ?? 'jsl', ret: null }]
+  // The entry's own frame: the loader JSLs both real entries, and its return (ret null) ends the run.
+  const stack: Frame[] = [{ call: 'jsl', ret: null }]
 
   // ── bus ──
   /** WRAM offset of a 24-bit address, or null when it is not WRAM. */
@@ -212,7 +224,7 @@ export function interpret(
     if (w === null) return cart(a) ?? refuse(`read of unmodelled address ${hex(a)}`)
     if (w < 0x100) return dp[w]
     const buf = bufferAddr(w)
-    if (buf !== null) return buffer.get(buf) ?? (buf < BUF_HI ? TILE_EMPTY : 0)
+    if (buf !== null) return buffer.get(buf) ?? opts.seed?.(buf) ?? (buf < BUF_HI ? TILE_EMPTY : 0)
     const cell = cells.get(w)
     if (cell !== undefined) return cell
     if (w === OBJECT_TILESET) return env.tileset & 0xff
@@ -304,15 +316,16 @@ export function interpret(
     out.dispatches.push(t)
     return t
   }
-  const isDispatch = (t: number): boolean => {
-    const key = `${sig}@${t}`
-    let hit = sigSeen.get(key)
-    if (hit === undefined) {
-      hit = fingerprint(rom.readAt(t, EXECUTE_PTR_LONG_LEN)) === sig
-      sigSeen.set(key, hit)
-    }
-    return hit
-  }
+  const isDispatch = (t: number): boolean =>
+    primitives.some(p => {
+      const key = `${p.sha256}:${p.length}@${t}`
+      let hit = sigSeen.get(key)
+      if (hit === undefined) {
+        hit = fingerprint(rom.readAt(t, p.length)) === p.sha256
+        sigSeen.set(key, hit)
+      }
+      return hit
+    })
   const isCode = (a: number): boolean => cart(a) !== null
 
   // The instruction being evaluated. Hoisted so the helpers below are built once.
@@ -525,20 +538,46 @@ export function horizontalPlacement(
   }
 }
 
+/** The grid cell a buffer address is, on a horizontal level; null off the grid. */
+function gridCell(addr: number, cols: number): { row: number; col: number; high: boolean } | null {
+  const o = (addr & 0xffff) - (BUF_LO & 0xffff)
+  const screen = Math.floor(o / MAP16_BYTES_PER_SCREEN_H)
+  const rem = o % MAP16_BYTES_PER_SCREEN_H
+  const col = screen * 16 + (rem & 0x0f)
+  return o < 0 || col >= cols ? null : { row: rem >> 4, col, high: addr >>> 16 !== 0x7e }
+}
+
+/** A `seed` that reads the tiles a horizontal-level grid already holds. */
+export function seedFromGrid(grid: TileGrid): (addr: number) => number | undefined {
+  return addr => {
+    const c = gridCell(addr, 0x200)
+    const t = c ? grid[c.row]?.[c.col] : undefined
+    return c && t !== undefined ? (c.high ? t >> 8 : t & 0xff) : undefined
+  }
+}
+
 /**
  * Apply writes to a horizontal-level grid the way cursor.ts's writeTile
  * stores a tile: (high byte << 8) | low byte, rows growing up to $200 columns.
+ * With `owners`, each cell written is recorded as drawn by `owner`.
  */
-export function applyWrites(grid: TileGrid, writes: readonly BufferWrite[]): void {
+export function applyWrites(
+  grid: TileGrid,
+  writes: readonly BufferWrite[],
+  owners: OwnerGrid | null = null,
+  owner: number = OWNER_NONE,
+): void {
   for (const { addr, value } of writes) {
-    const o = (addr & 0xffff) - (BUF_LO & 0xffff)
-    const screen = Math.floor(o / MAP16_BYTES_PER_SCREEN_H)
-    const rem = o % MAP16_BYTES_PER_SCREEN_H
-    const row = grid[rem >> 4]
-    const col = screen * 16 + (rem & 0x0f)
-    if (!row || col >= 0x200) continue
-    while (row.length < col) row.push(TILE_EMPTY)
-    const cell = row[col] ?? TILE_EMPTY
-    row[col] = addr >>> 16 === 0x7e ? (cell & ~0xff) | value : (value << 8) | (cell & 0xff)
+    const c = gridCell(addr, 0x200)
+    const row = c && grid[c.row]
+    if (!c || !row) continue
+    while (row.length < c.col) row.push(TILE_EMPTY)
+    const cell = row[c.col] ?? TILE_EMPTY
+    row[c.col] = c.high ? (value << 8) | (cell & 0xff) : (cell & ~0xff) | value
+    const orow = owners?.[c.row]
+    if (orow) {
+      while (orow.length < c.col) orow.push(OWNER_NONE)
+      orow[c.col] = owner
+    }
   }
 }

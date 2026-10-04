@@ -22,6 +22,7 @@ import {
   readLongPointerTable,
 } from '../../../src/rom/objectHandlers/romData'
 import {
+  VANILLA_PRIMITIVES,
   interpret,
   horizontalPlacement,
   applyWrites,
@@ -46,7 +47,7 @@ export interface DiffRun {
   leaf: number
   top: number
   refusal: string | null
-  /** Null when the port was not run (a refusal, or the #350 hang). */
+  /** Null when the port was not run (a refusal). */
   differs: boolean | null
   /** SHA-1 of the interpreter's writes, 12 hex digits. */
   digest: string
@@ -124,6 +125,7 @@ export function sweep(rom: RomFile): DiffRun[] {
           kind === 'standard' ? ENTRY_STANDARD : ENTRY_EXTENDED,
           horizontalPlacement(kind, obj, size, x, y),
           { tileset: ts },
+          { primitives: VANILLA_PRIMITIVES },
         )
       // Compare at the first row that fits, else the first that completes, else rows[0].
       const first: [number, InterpretResult] = [rows[0], at(rows[0])]
@@ -156,8 +158,7 @@ export function sweep(rom: RomFile): DiffRun[] {
         digest: digestOf(r.writes),
       }
       runs.push(run)
-      // #350: handle_0DB49E never returns at height 0. Not fixed here.
-      if (r.refusal || (kind === 'standard' && obj === 0x1e && size < 0x10)) continue
+      if (r.refusal) continue
       const object = { type: kind, objectNumber: obj, settings: size, x, y: row } as LevelObject
       expandObject(port, object, rom, ts)
       applyWrites(mine, r.writes)

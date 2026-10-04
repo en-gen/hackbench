@@ -4,7 +4,7 @@
   "description": "HackBench desktop shell. Monorepo layout per theia-ide.org/docs/composing_applications.",
   "engines": {
     "yarn": ">=1.7.0 <2",
-    "node": ">=20"
+    "node": ">=22.12"
   },
   "workspaces": [
     "extension",

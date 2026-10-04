@@ -6,6 +6,7 @@
  * tab shows, by construction rather than by keeping two copies in step.
  */
 import type { SmwRom } from '../SmwRom'
+import { hex3s as hex3 } from '../hex'
 import type { RomFile } from '../RomFile'
 import type { RgbaColor } from '../GraphicsDecoder'
 import {
@@ -14,6 +15,8 @@ import {
   parseLevelObjects,
   type LevelHeader,
 } from '../LevelParser'
+import { drawInterpreted } from '../objectHandlers/interpretedDraw'
+import { VANILLA_PRIMITIVES } from '../objectHandlers/interpret'
 import { expandMap, type SwitchFlags, type TileGrid } from '../ObjectExpander'
 import { loadMap16WithPipeVariants, map16TileCapacity, type Map16Tile } from '../Map16'
 import { gfxSource, loadVram, type VramState } from '../GfxLoader'
@@ -78,6 +81,8 @@ export interface L1Inputs {
   vram: VramState
   /** Why the char or palette animation frames are unverified or absent, when they are. */
   animNote?: string
+  /** Why an object's tiles come from a hand port the interpreter could not check (#342); empty when none. */
+  unverified: string[]
   /** CGRAM, 256 colors: any per-level override block, then the palette animation's representative frame (phase 0). */
   colors: RgbaColor[]
   /** CGRAM color 0, the backdrop the PPU shows where every layer is transparent. */
@@ -87,8 +92,6 @@ export interface L1Inputs {
 }
 
 export type L1InputsResult = { ok: true; inputs: L1Inputs } | { ok: false; reason: string }
-
-const hex3 = (n: number) => `$${n.toString(16).toUpperCase().padStart(3, '0')}`
 
 /** Everything `assembleL1Inputs` needs, read from the ROM and nothing else. */
 export interface L1Readings {
@@ -105,6 +108,8 @@ export interface L1Readings {
   backAreas: RgbaColor[]
   col1: { bg: number; obj: number }
   paletteAnim: PaletteAnimContext
+  /** Why the expander drew an object from a port the interpreter could not check (#342). */
+  unverified: string[]
 }
 
 /** A level's CGRAM and backdrop: its override block, else the header's palettes and back-area color. */
@@ -177,6 +182,7 @@ export function assembleL1Inputs(r: L1Readings): L1Inputs {
     anim: frameZero?.animData ?? null,
     vram,
     animNote: notes.length > 0 ? notes.join(' ') : undefined,
+    unverified: r.unverified,
     colors: palette.colors,
     backArea: stored.backArea,
     switchArt: anim ? switchArtOf(anim, r.map16.tiles, vram, palette) : new Map(),
@@ -201,7 +207,8 @@ export function buildL1Inputs(rom: SmwRom, index: number, flags: SwitchFlags): L
     const isVertical = isLevelModeVertical(header.levelMode, table.table)
     const tileset = header.objectTileset
     // No levelNum: the Layer 3 overflow screens are not this map's own.
-    const grid = expandMap(objects, header.levelLength, rom.rom, tileset, isVertical, header.levelMode, undefined, flags) // prettier-ignore
+    const unverified: string[] = []
+    const grid = expandMap(objects, header.levelLength, rom.rom, tileset, isVertical, header.levelMode, undefined, flags, { unverified, draw: drawInterpreted, primitives: VANILLA_PRIMITIVES }) // prettier-ignore
 
     const gfx = gfxSource(rom.rom)
     if (!gfx.ok) return refuse(`GFX cannot be read: ${gfx.reason}`)
@@ -225,6 +232,7 @@ export function buildL1Inputs(rom: SmwRom, index: number, flags: SwitchFlags): L
       backAreas: loadBackAreaColors(rom.rom),
       col1,
       paletteAnim: detectPaletteAnimation(rom.rom).level,
+      unverified,
     })
     return { ok: true, inputs }
   } catch (err) {

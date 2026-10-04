@@ -88,6 +88,36 @@ function compose(dto: OverworldDto, show = { l1: true, l2: true }): Buffer {
     for (const h of halves) rows.push(h.subarray(y * rowBytes, (y + 1) * rowBytes))
   return Buffer.concat(rows)
 }
+/**
+ * The color L1 cell (row, col) paints at 2 px into its top-left quadrant,
+ * composed through the same compositeOverworld from a 3x3-cell window of each
+ * layer instead of a whole half (composing a half cost ~50 of the ~85 ms a
+ * draw took; #515). The target sits at window (row 2, col 1) and every other
+ * cell gets the opposite priority, so a transposed or wrong-stride cell index
+ * (cellsW is 3 here, never 1) lands on a neighbour that disagrees with it.
+ */
+function cellColor(dto: OverworldDto, row: number, col: number): number[] {
+  if (dto.status !== 'ok') throw new Error(dto.reason)
+  const half = dto.halves[col >> 5]!
+  const cy = row * 2
+  const cx = (col & 31) * 2
+  const crop = (l: { rgbaBase64: string; prioBase64: string }) => {
+    const rgba = b64(l.rgbaBase64)
+    const prio = b64(l.prioBase64)
+    const out = new Uint8ClampedArray(24 * 24 * 4)
+    for (let y = 0; y < 24; y++) {
+      const from = ((cy - 2) * 8 + y) * OW_HALF_W * 4 + (cx - 1) * 8 * 4
+      out.set(rgba.subarray(from, from + 24 * 4), y * 24 * 4)
+    }
+    const target = prio[cy * (OW_HALF_W >> 3) + cx]!
+    const win = new Uint8Array(9).fill(target ? 0 : 1)
+    win[2 * 3 + 1] = target
+    return { rgba: out, prio: win }
+  }
+  const px = compositeOverworld(24, 24, dto.backdrop, crop(half.l2!), crop(half.l1))
+  const i = (18 * 24 + 10) * 4
+  return [...px.subarray(i, i + 4)]
+}
 const sha = (px: Buffer): string => createHash('sha256').update(px).digest('hex')
 
 const decode = (rom: RomFile) => decodeOverworld(new SmwRom(rom), SYNTHETIC_FPS)
@@ -211,12 +241,14 @@ describe('decodeOverworld on a synthetic ROM', () => {
     expect(pixelAt(pixels(rom), 5, 9)).toEqual([...bgr555ToRgba(0x7fff)])
   })
 
-  it('orders L2 low, L1 low, L2 high, L1 high over the backdrop, in both halves', () => {
-    // Cells whose id & 3 = 0 (tileAt), so L1's row 4 color differs from L2's row 7: one per half.
-    for (const [r, c] of [
-      [5, 9],
-      [5, 41],
-    ] as const) {
+  // One cell per half, both with id & 3 not 3 (tileAt 5,9 is 0; 5,41 is 77, so 1), so L1's
+  // row 4 + (id & 3) color differs from L2's row 7. One test per half, each with its own
+  // 5 s budget (#515).
+  for (const [r, c] of [
+    [5, 9],
+    [5, 41],
+  ] as const) {
+    it(`orders L2 low, L1 low, L2 high, L1 high over the backdrop, cell ${r},${c}`, () => {
       const id = tileAt(r, c)
       const l1 = expectedAt(r, c, 0x12)
       const l2 = l2Color()
@@ -227,7 +259,14 @@ describe('decodeOverworld on a synthetic ROM', () => {
         setL2Word(t, 2 * r, 2 * c, l2Word)
         plantL2(rom, t)
         rom.writeAt(CHAR_DATA + id * 8, [l1Low, l1High])
-        return pixelAt(pixels(rom), r, c)
+        const dto = decode(rom)
+        if (dto.status !== 'ok') throw new Error(dto.reason)
+        expect(dto.halves.map(h => b64(h.l1.rgbaBase64).length)).toEqual([
+          512 * 512 * 4,
+          512 * 512 * 4,
+        ])
+        expect(dto.l2Unavailable).toBeUndefined()
+        return cellColor(dto, r, c)
       }
       const l1Row = (4 + (id & 3)) << 2
       const solid = (id * 4) & 0x3f
@@ -237,8 +276,8 @@ describe('decodeOverworld on a synthetic ROM', () => {
       expect(draw(L2_WORD | PRIO, solid, l1Row | 0x20), cell + 'L1 high over L2 high').toEqual(l1)
       expect(draw(L2_WORD, 0x40, l1Row), cell + 'L2 low through a clear L1').toEqual(l2)
       expect(draw((L2_WORD & ~0x3ff) | 0x40, 0x40, l1Row), cell + 'the backdrop').toEqual(BACKDROP)
-    }
-  })
+    })
+  }
 
   it('places L2 in every quadrant of both layouts, and honors its flips', () => {
     const px = pixels(syntheticOverworldRom(0x12))

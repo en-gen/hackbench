@@ -1425,14 +1425,16 @@
 
     loadedRom = data;
     romHeaderOffset = headerBytes;
-    romBlocks = computeLevelBoundaries();
+    const bounds = computeLevelBoundaries();
+    romBlocks = bounds.blocks;
 
     const l1Count  = romBlocks.filter(b => b.kind === 'L1').length;
     const l2Count  = romBlocks.filter(b => b.kind === 'L2').length;
     const sprCount = romBlocks.filter(b => b.kind === 'Sprite').length;
     romStatus.textContent =
       'Loaded ' + name + ' (' + data.length + ' B' + (headerBytes ? ', copier header stripped' : '') + ') \u2014 ' +
-      l1Count + ' L1 / ' + l2Count + ' L2 / ' + sprCount + ' sprite blocks';
+      l1Count + ' L1 / ' + l2Count + ' L2 / ' + sprCount + ' sprite blocks' +
+      (bounds.capHit ? '; parsing stopped early (work cap reached); block list is incomplete' : '');
     romStatus.classList.add('loaded');
 
     rerenderIfOpen();
@@ -1503,41 +1505,41 @@
     return pos;
   }
 
+  // Legitimate max walked: 28% of this budget (worst 9543.sfc, 1,190,509 bytes, 101 hacks swept).
+  const WALK_BUDGET = 8 * 0x80000;
+
   function computeLevelBoundaries() {
     const byKey = new Map();      // kind+fileStart -> block
-    const register = (kind, snes, fileStart, fileEnd, index) => {
+    let budget = WALK_BUDGET;
+    let capHit = false;
+    // Skips bad pointers; a repeat pointer always joins its block, and only a
+    // new one is walked (and only while budget remains).
+    const register = (kind, snes, walk, index) => {
+      if (snes === null) return;
+      const fileStart = snesToFile(snes);
+      if (fileStart < 0 || fileStart >= 0x80000) return;
       const key = kind + ':' + fileStart;
       const existing = byKey.get(key);
-      if (existing) {
-        existing.indices.push(index);
-      } else {
-        byKey.set(key, {
-          kind, snes, fileStart, fileEnd,
-          size: fileEnd - fileStart,
-          indices: [index],
-        });
-      }
+      if (existing) { existing.indices.push(index); return; }
+      if (budget <= 0) { capHit = true; return; }
+      const fileEnd = walk(fileStart);
+      budget -= fileEnd - fileStart;
+      byKey.set(key, {
+        kind, snes, fileStart, fileEnd,
+        size: fileEnd - fileStart,
+        indices: [index],
+      });
     };
 
     for (let i = 0; i < 512; i++) {
       const p1 = readPtr3(0x05E000, i);
-      if (p1 !== null && (p1 >>> 16) !== 0xFF) {
-        const fs = snesToFile(p1);
-        if (fs >= 0 && fs < 0x80000) register('L1', p1, fs, walkObjectStream(fs, true), i);
-      }
+      if (p1 !== null && (p1 >>> 16) !== 0xFF) register('L1', p1, f => walkObjectStream(f, true), i);
       const p2 = readPtr3(0x05E600, i);
-      if (p2 !== null && (p2 >>> 16) !== 0xFF) {
-        const fs = snesToFile(p2);
-        if (fs >= 0 && fs < 0x80000) register('L2', p2, fs, walkObjectStream(fs, false), i);
-      }
-      const ps = readPtr2Bank07(0x05EC00, i);
-      if (ps !== null) {
-        const fs = snesToFile(ps);
-        if (fs >= 0 && fs < 0x80000) register('Sprite', ps, fs, walkSpriteStream(fs), i);
-      }
+      if (p2 !== null && (p2 >>> 16) !== 0xFF) register('L2', p2, f => walkObjectStream(f, false), i);
+      register('Sprite', readPtr2Bank07(0x05EC00, i), walkSpriteStream, i);
     }
 
-    return [...byKey.values()].sort((a, b) => a.fileStart - b.fileStart);
+    return { blocks: [...byKey.values()].sort((a, b) => a.fileStart - b.fileStart), capHit };
   }
 
   function findBlockAt(fileStart, fileEnd) {
