@@ -149,4 +149,16 @@ describe('opcode gates behind resolveJsrTarget, resolveJmpTarget and handle_0DB5
       refusal(FILL, FILL + 2, JMP, 0x22),
     ])
   })
+
+  it('a gated byte past the end of the ROM is refused and reported as "nothing"', () => {
+    const buf = Buffer.alloc(0x80000, 0)
+    buf[0x7fd5] = 0x20
+    const rom = new RomFile('short.sfc', buf)
+    const beyond = 0x3f8000 // file offset $1F8000, past the 512 KiB cart
+    const r = run(handle_0DB571, beyond, 0x68, rom)
+    expect(r.tiles).toEqual([])
+    expect(r.unverified).toEqual([
+      `Handler $3F8000 refused: the byte at $3F800B is nothing, not the $BF opcode it reads through, so the object is not drawn.`,
+    ])
+  })
 })
