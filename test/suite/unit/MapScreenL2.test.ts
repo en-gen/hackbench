@@ -26,6 +26,7 @@ import {
 } from '../../../theia/extension/src/node/map-screen'
 import { MAP_PLANE_KEYS } from '../../../theia/extension/src/common/project-protocol'
 import { palaceArt } from '../../../src/rom/SwitchArt'
+import { renderMap16Tile } from '../../../src/rom/TileRenderer'
 import { VANILLA, MAGIC, hasRom, romPath } from '../support/corpus'
 import { bgModeRom } from '../support/bgModeRom'
 import { hGrid, inputs, px, sub, tile, vGrid } from '../support/mapInputs'
@@ -48,7 +49,7 @@ const prio = (char: number, palette = 0) => sub(char, palette, true)
 const nullGrid = (rows: number, cols: number) => Array.from({ length: rows }, () => new Array<number | null>(cols).fill(null)) // prettier-ignore
 const tiles2 = (...t: Map16Tile[]) => t.reduce<Map16Tile[]>((a, x) => ((a[x.id] = x), a), [])
 const solid = tile(1, [sub(1), sub(1), sub(1), sub(1)])
-const l2Of = (grid: (number | null)[][], tiles: Map16Tile[], dy = 0): L2Inputs => ({ kind: 'objects', grid, tiles, dy }) // prettier-ignore
+const l2Of = (grid: (number | null)[][], tiles: Map16Tile[], dy = 0, kind: L2Inputs['kind'] = 'objects'): L2Inputs => ({ kind, grid, tiles, dy }) // prettier-ignore
 const mapOf = (m: L1Inputs, l2?: MapInputs['l2'], orderNote?: string): MapInputs => ({ ...m, l2, orderNote }) // prettier-ignore
 const opaque = (buf: Uint8ClampedArray | null, width: number, x: number, y: number) =>
   buf !== null && px(buf, width, x, y)[3] === 255
@@ -120,13 +121,23 @@ describe('L2 planes (synthetic)', () => {
     expect([opaque(bottom, 512, 3, 0), opaque(bottom, 512, 3, 7), opaque(bottom, 512, 3, 8)]).toEqual([true, true, false]) // prettier-ignore
   })
 
-  it('a vertical stack taller than the 32-row plane is not wrapped', () => {
+  it('a vertical object stream is streamed, so it is not wrapped', () => {
     const m = inputs(vGrid(3), true, 3)
     const grid = nullGrid(48, 32)
     grid[0]![0] = 1
     const l2 = l2Of(grid, tiles2(solid), -8) // would reappear at 504 if wrapped
     expect(opaque(drawL2Planes(m, l2, 0).l2Low, 512, 3, 0)).toBe(true)
     expect(drawL2Planes(m, l2, 1).l2Low).toBeNull()
+  })
+
+  it('a vertical image is one fixed 512 px plane, so it wraps on every screen however far it is shifted', () => {
+    // CODE_058883's image modes are Return058C70 (bank_05.asm:1023-1055): BG2 is never streamed.
+    const m = inputs(vGrid(5), true, 5)
+    const grid = nullGrid(80, 32)
+    for (const row of grid.slice(0, 32)) row[0] = 1 // one plane of rows, repeated down the map
+    const l2 = l2Of(grid, tiles2(solid), 1344, 'image') // $109's shift: 1344 mod 512 = 320
+    for (const screen of [0, 1, 2, 3, 4])
+      expect(drawL2Planes(m, l2, screen).l2Low, `screen ${screen}`).not.toBeNull()
   })
 
   it('L2 is drawn with the chars the switches that are on swap in, as L1 is', () => {
@@ -282,15 +293,19 @@ describe('buildL2Inputs (synthetic ROM)', () => {
     expect(vi.mocked(L2LoaderReal.loadL2Objects).mock.calls[0]!.slice(2)).toEqual([1, 0, false])
   })
 
-  it('a vertical map reads its L2 as vertical, and its high byte only when VertLayer2Setting is not 3', () => {
+  it('the high bytes follow the ScreenMode at level entry (F600 bit 5), and L2 only when VertLayer2Setting is not 3', () => {
     objects([[1]])
-    // F000 high nibble 0 -> DATA_05D710[0] (3 on a stock ROM); F600 & $1F = 3 is the high byte.
-    const vertical = (d710: number) =>
-      romWith([ptr(0x00, 0x90, 0x0c), [0x05f600 + LEVEL, [0x03]], [0x05d710, [d710]], [0x05f000 + LEVEL, [0x00]]]) // prettier-ignore
-    const read = (d710: number) => ok(buildL2Inputs(smw(vertical(d710), true), LEVEL, inputs(vGrid(1), true, 1))).dy // prettier-ignore
-    expect(read(3)).toBe(0x320 - 0xc0) // L1 gets the high byte (it is vertical), L2's stays 0
-    expect(read(1)).toBe(0x320 - 0x3c0) // both have it
+    // F000 high nibble 0 -> DATA_05D710[0]; F600 & $1F = 3 is the high byte; bit 5 is Layer1Vert.
+    const entry = (f600: number, d710: number) =>
+      romWith([ptr(0x00, 0x90, 0x0c), [0x05f600 + LEVEL, [f600]], [0x05d710, [d710]], [0x05f000 + LEVEL, [0x00]]]) // prettier-ignore
+    const dy = (f600: number, d710: number, vertical = true) =>
+      ok(buildL2Inputs(smw(entry(f600, d710), vertical), LEVEL, inputs(vertical ? vGrid(1) : hGrid(1), vertical, 1))).dy // prettier-ignore
+    expect(dy(0x23, 3)).toBe(0x320 - 0xc0) // L1 gets the high byte, L2's stays 0
+    expect(dy(0x23, 1)).toBe(0x320 - 0x3c0) // both have it
     expect(vi.mocked(L2LoaderReal.loadL2Objects).mock.calls[0]!.slice(2)).toEqual([1, 0, true])
+    // The VerticalTable (the map's isVertical) is not what the entry code tests.
+    expect(dy(0x03, 3)).toBe(0x20 - 0xc0) // F600 bit 5 clear: no high bytes, though the map is vertical
+    expect(dy(0x23, 3, false)).toBe(0x320 - 0xc0) // bit 5 set: both, though the map is horizontal
   })
 
   it('tileset 3 ORs palette bit 2 into every L2 object subtile, and no image tile', () => {
@@ -395,11 +410,60 @@ describe.each([VANILLA, MAGIC])('every slot of %s', name => {
     600_000,
   )
 
-  // Layer2YPos is DATA_05D70C[F400 & 3] whatever the L2 kind: $012 starts at L1 $00, L2 $C0.
-  it.skipIf(!hasRom(name))('$012 is an image shifted up by its Layer2YPos', () => {
+  const load = (index: number) => {
     const rom = new SmwRom(RomFile.load(romPath(name)))
-    const built = buildL1Inputs(rom, 0x012, UNCLEARED)
+    const built = buildL1Inputs(rom, index, UNCLEARED)
     if (!built.ok) throw new Error(built.reason)
-    expect(buildL2Inputs(rom, 0x012, built.inputs)).toMatchObject({ ok: true, l2: { kind: 'image', dy: -0xc0 } }) // prettier-ignore
+    return { rom, inputs: built.inputs, l2: buildL2Inputs(rom, index, built.inputs) }
+  }
+
+  // The level-start relation (not a screen capture): $012's F600 is $64, so the entry code takes the
+  // vertical branch (bank_05.asm:7292-7299, 7379-7381): Layer1YPos $0400, Layer2YPos $00C0.
+  it.skipIf(!hasRom(name))('$012 starts with Layer1YPos $0400 and Layer2YPos $00C0', () => {
+    expect(load(0x012).l2).toMatchObject({ ok: true, l2: { kind: 'image', dy: 0x400 - 0xc0 } })
   })
+
+  // F600 and the VerticalTable disagree on $108; its high byte is 0, so the position is the low bytes.
+  it.skipIf(!hasRom(name))('$108 disagrees between F600 and the VerticalTable, harmlessly', () => {
+    const { rom, inputs: m, l2 } = load(0x108)
+    const f600 = rom.rom.readByte(0x05f600 + 0x108)!
+    expect(((f600 & 0x20) !== 0) !== m.isVertical).toBe(true)
+    expect(f600 & 0x1f).toBe(0)
+    expect(l2.ok && Math.abs(l2.l2.dy)).toBeLessThan(0x100)
+  })
+
+  // An image is one fixed plane that wraps: no screen of an image map is empty unless the image is.
+  it.skipIf(!hasRom(name))(
+    'every screen of every image map has L2 pixels, unless the image is blank',
+    () => {
+      const rom = new SmwRom(RomFile.load(romPath(name)))
+      let checked = 0
+      let blank = 0
+      for (let index = 0; index < 0x200; index++) {
+        const built = buildL1Inputs(rom, index, UNCLEARED)
+        if (!built.ok) continue
+        const r = buildL2Inputs(rom, index, built.inputs)
+        if (!r.ok || r.l2.kind !== 'image') continue
+        const m = built.inputs
+        const drawn = Array.from({ length: m.screenCount }, (_, s) => {
+          const p = drawL2Planes(m, r.l2, s)
+          return p.l2Low !== null || p.l2High !== null
+        })
+        const imageHasInk = [...new Set(r.l2.grid.flat())].some(id => {
+          const t = id === null ? undefined : r.l2.tiles[id]
+          return !!t && renderMap16Tile(t, m.vram, { colors: m.colors }).some((v, i) => i % 4 === 3 && v !== 0) // prettier-ignore
+        })
+        if (!imageHasInk) {
+          blank++
+          expect(drawn.some(Boolean), `slot ${index} blank image`).toBe(false)
+          continue
+        }
+        checked++
+        expect(drawn.indexOf(false), `slot ${index} has an empty screen`).toBe(-1)
+      }
+      expect(checked).toBeGreaterThan(100)
+      console.info(`blank image maps in ${name}: ${blank}`)
+    },
+    600_000,
+  )
 })

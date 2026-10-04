@@ -178,9 +178,10 @@ export function drawL2Planes(
 ): L2Planes {
   const palette = { colors: model.colors }
   const drawn = new Map<number, Uint8ClampedArray>()
-  // BG2 is a 64x64-tile plane (bank_00.asm:1270-1271): 512 px, so a shifted grid wraps in it.
-  // A taller grid is a vertical map's scrolling stack, not one plane, and is not wrapped.
-  const period = l2.grid.length <= 32 ? 512 : Infinity
+  // BG2 is a 64x64-tile plane (bank_00.asm:1270-1271), 512 px, so a shifted grid wraps in it. An image is
+  // never streamed (CODE_058883's image modes return, bank_05.asm:1023-1055): one fixed plane, wrapped on
+  // every screen. A horizontal object stream fits the plane; a vertical one is streamed, so it is not wrapped.
+  const period = l2.kind === 'image' || !model.isVertical ? 512 : Infinity
   const [l2Low, l2High] = drawPlanes(
     model.isVertical,
     screen,

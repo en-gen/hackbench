@@ -53,9 +53,14 @@ export function buildL2Inputs(rom: SmwRom, index: number, l1: L1Inputs): L2Resul
   const ptr = readL2Pointer(rom.rom, index)
   if (ptr === null) return refuse(`The L2 pointer of map ${hex3(index)} is outside the ROM`)
   const { screenCount: screens, isVertical, header } = l1
-  // The map's primary-entrance values (DATA_05F400 / D708 / D70C): a secondary entrance
-  // (DATA_05FC00 and friends) can start the level elsewhere, which this view does not read.
-  const dy = (): number => readInitialLayer1YPos(rom.rom, index, isVertical) - readInitialLayer2YPos(rom.rom, index, isVertical) // prettier-ignore
+  // The level-start relation `Layer1YPos - Layer2YPos`, the view's representative frame; later
+  // vertical scrolling moves L2 against L1 when VertLayer2Setting != 1. The high bytes follow the
+  // ScreenMode the entry code builds from F600 bits 5-6 (bank_05.asm:7292-7299, 7379-7381), not the
+  // VerticalTable, which the header parse applies later (:552-553). The values are the level's own
+  // F400/F600; a sublevel reached by a secondary entrance takes its low bytes from FA00 and its high
+  // byte from DATA_05FC00 (bank_05.asm:7147-7148, 7376-7388), which this view does not read (#505).
+  const entryVertical = ((rom.rom.readByte(0x05f600 + index) ?? 0) & 0x20) !== 0
+  const dy = (): number => readInitialLayer1YPos(rom.rom, index, entryVertical) - readInitialLayer2YPos(rom.rom, index, entryVertical) // prettier-ignore
   try {
     if (isPresetPtr(ptr)) {
       const preset = loadL2Preset(rom.rom, ptr)
