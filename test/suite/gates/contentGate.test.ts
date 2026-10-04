@@ -903,6 +903,7 @@ describe(
       const r = gate(1000, 3000)
       expect(r.status).toBe(2)
       expect(r.err).toMatch(/total/)
+      expect(r.err).toMatch(/including src\/f\d\.txt/)
     })
 
     it('the total is accepted exactly at the budget (also covers batch header slack)', () => {
@@ -1058,6 +1059,39 @@ refs/heads/b ${head()} refs/heads/b ${zero}
       addBareRemote('origin')
       for (let i = 0; i < 3; i++) run('git', ['tag', '-a', `t${i}`, '-m', `tag ${i} `.repeat(150)])
       expect(pushGate(2000)).toBe(0)
+    })
+
+    it('history: a tag-body refusal still prints earlier hits and names the tag', () => {
+      writeFile('late.dat2', Buffer.from([0x61, 0x00, 0x62]))
+      run('git', ['add', 'late.dat2'])
+      run('git', ['commit', '-q', '-m', 'late'])
+      run('git', ['tag', '-a', 'bigtag', '-m', 'x'.repeat(2000)])
+      const r = gate(1000, 1_000_000, 'history')
+      expect(r.status).toBe(2)
+      expect(r.out).toMatch(/late\.dat2/)
+      expect(r.err).toMatch(/refs\/tags\/bigtag/)
+    })
+
+    it('history reads many small tags in chunks, not one read', () => {
+      for (let i = 0; i < 30; i++) run('git', ['tag', '-a', `c${i}`, '-m', `tag ${i} `.repeat(70)])
+      const traceFile = path.join(
+        os.tmpdir(),
+        `contentgate-tagtrace-${process.pid}-${Date.now()}.txt`,
+      )
+      const res = spawnSync('node', ['tools/scripts/check-content.mjs', 'history'], {
+        cwd: dir,
+        env: {
+          ...process.env,
+          GIT_TRACE: traceFile,
+          CONTENT_GATE_MAX_BLOB_BYTES: '5000',
+          CONTENT_GATE_MAX_TOTAL_BYTES: '2000',
+        },
+      })
+      const trace = fs.readFileSync(traceFile, 'utf8')
+      fs.rmSync(traceFile, { force: true })
+      expect(res.status).toBe(0)
+      // one read for the lone blob, the rest are tag chunks
+      expect((trace.match(/git cat-file --batch\s*$/gm) ?? []).length).toBeGreaterThanOrEqual(4)
     })
 
     it('an annotated tag body over the per-blob limit is refused in history mode', () => {

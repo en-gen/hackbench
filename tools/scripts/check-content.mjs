@@ -514,8 +514,9 @@ function checkReadBudget(unique, pathOf, whole = false) {
     total += size
   }
   if (!whole && total > MAX_TOTAL_BYTES) {
+    const first = pathOf?.values().next().value
     throw new GateError(
-      `content to read totals ${total} bytes, over the ${MAX_TOTAL_BYTES}-byte total limit`,
+      `content to read${first ? ` (including ${first})` : ''} totals ${total} bytes, over the ${MAX_TOTAL_BYTES}-byte total limit`,
     )
   }
   return sizes
@@ -531,6 +532,29 @@ function batchReadObjects(shas, pathOf, whole = false) {
     unique,
     [...sizes.values()].reduce((x, y) => x + y, 0),
   )
+}
+
+/** Calls onBlobs(Map sha -> Buffer) per read. Not whole: one read, refused over
+ * the total. Whole: chunks that each sum to at most the total. */
+function readBudgeted(shas, pathOf, whole, onBlobs) {
+  const unique = [...new Set(shas)]
+  if (unique.length === 0) return
+  if (!whole) return onBlobs(batchReadObjects(unique, pathOf))
+  const sizes = checkReadBudget(unique, pathOf, true)
+  let chunk = []
+  let sum = 0
+  const flush = () => {
+    if (chunk.length) onBlobs(readBlobs(chunk, sum))
+    chunk = []
+    sum = 0
+  }
+  for (const sha of unique) {
+    const size = sizes.get(sha)
+    if (chunk.length && sum + size > MAX_TOTAL_BYTES) flush()
+    chunk.push(sha)
+    sum += size
+  }
+  flush()
 }
 
 function readBlobs(unique, total) {
@@ -577,31 +601,15 @@ function evaluateEntries(entries, messages = [], whole = false) {
   }
   const blobShas = [...pathOf.keys()]
   try {
-    if (!whole) {
-      const blobs = batchReadObjects(blobShas, pathOf)
-      for (const e of list) {
-        if (!blobs.has(e.blob))
-          throw new GateError(`missing endpoint object: ${e.blob} (${e.path})`)
+    readBudgeted(blobShas, pathOf, whole, blobs => {
+      if (!whole) {
+        for (const e of list) {
+          if (!blobs.has(e.blob))
+            throw new GateError(`missing endpoint object: ${e.blob} (${e.path})`)
+        }
       }
       evalWith(blobs)
-    } else if (blobShas.length > 0) {
-      // Whole history: bounded memory, not a refusal. Chunks sum to at most the total.
-      const sizes = checkReadBudget(blobShas, pathOf, true)
-      let chunk = []
-      let sum = 0
-      const flush = () => {
-        if (chunk.length) evalWith(readBlobs(chunk, sum))
-        chunk = []
-        sum = 0
-      }
-      for (const sha of blobShas) {
-        const size = sizes.get(sha)
-        if (chunk.length && sum + size > MAX_TOTAL_BYTES) flush()
-        chunk.push(sha)
-        sum += size
-      }
-      flush()
-    }
+    })
   } catch (err) {
     if (err instanceof GateError) {
       // A budget refusal must not hide path-rule hits, which need no content.
@@ -670,16 +678,20 @@ function tagBodyHits(whole = false) {
     }
   }
   if (tagShas.length === 0) return []
-  const objs = batchReadObjects(tagShas, undefined, whole)
   const hits = []
-  for (const sha of tagShas) {
-    const buf = objs.get(sha)
-    if (!buf) continue
-    const text = buf.toString('utf8')
-    const idx = text.indexOf('\n\n')
-    const message = idx === -1 ? '' : text.slice(idx + 2)
-    const label = `<tag ${nameFor.get(sha)}>`
-    for (const hit of checkTextContent(label, message)) hits.push({ ...hit, commit: sha })
+  try {
+    readBudgeted(tagShas, nameFor, whole, objs => {
+      for (const [sha, buf] of objs) {
+        const text = buf.toString('utf8')
+        const idx = text.indexOf('\n\n')
+        const message = idx === -1 ? '' : text.slice(idx + 2)
+        const label = `<tag ${nameFor.get(sha)}>`
+        for (const hit of checkTextContent(label, message)) hits.push({ ...hit, commit: sha })
+      }
+    })
+  } catch (err) {
+    if (err instanceof GateError) err.hits = [...hits, ...err.hits]
+    throw err
   }
   return hits
 }
@@ -780,7 +792,12 @@ function runPush(remote, stdinText) {
       throw err
     }
   }
-  hits.push(...tagBodyHits(known.length === 0))
+  try {
+    hits.push(...tagBodyHits(known.length === 0))
+  } catch (err) {
+    if (err instanceof GateError) err.hits = [...hits, ...err.hits]
+    throw err
+  }
   return dedupeReport(hits)
 }
 
@@ -790,7 +807,13 @@ function runHistory() {
     throw new GateError('history mode refuses a shallow clone: run against full history')
   }
   const { entries, messages } = walkRawDiff(['--all'], { reverse: true })
-  const hits = [...evaluateEntries(entries, messages, true), ...tagBodyHits(true)]
+  const hits = [...evaluateEntries(entries, messages, true)]
+  try {
+    hits.push(...tagBodyHits(true))
+  } catch (err) {
+    if (err instanceof GateError) err.hits = [...hits, ...err.hits]
+    throw err
+  }
 
   // Fail on any blob/tree reachable only via a tag/ref pointing at it
   // directly, never via a commit's tree walk. `rev-list --objects` prints
