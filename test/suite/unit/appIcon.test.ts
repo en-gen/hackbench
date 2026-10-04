@@ -2,103 +2,80 @@ import { describe, expect, it, vi } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { Resvg } from '@resvg/resvg-js'
 // @ts-expect-error untyped generator module
 import * as gen from '../../../tools/scripts/gen-app-icon.mjs'
 import { appIconPath } from '../../../theia/extension/src/electron-main/icon-path'
 
 const repo = path.resolve(__dirname, '../../..')
 const d: string = gen.readPath()
-const committed = (name: string) => fs.readFileSync(path.join(gen.OUT_DIR, name))
 const SIZES: number[] = gen.ICON_SIZES
-const rgba = (svg: string, n: number): Buffer => gen.render(svg, n).pixels
-const alphaOf = (px: Buffer) => Array.from({ length: px.length / 4 }, (_, i) => px[i * 4 + 3])
-const bareAlpha = (n: number) => alphaOf(rgba(gen.bareSvg(d), n))
+const roles = gen.classify(d) as { outer: string; holes: string[]; eyes: string[] }
+const committed = (name: string) => fs.readFileSync(path.join(gen.OUT_DIR, name))
 
-// Exterior = pixels reachable from the border through near-transparent bare
-// pixels. Holes (spots, face) are enclosed, so they are not exterior.
-function exteriorOf(bare: number[], n: number) {
-  const out = new Uint8Array(bare.length)
-  const stack: number[] = []
-  const push = (i: number) => {
-    if (!out[i] && bare[i] <= 32) {
-      out[i] = 1
-      stack.push(i)
-    }
-  }
-  for (let k = 0; k < n; k++) [k, (n - 1) * n + k, k * n, k * n + n - 1].forEach(push)
-  while (stack.length) {
-    const i = stack.pop()!
-    const x = i % n
-    if (x > 0) push(i - 1)
-    if (x < n - 1) push(i + 1)
-    if (i >= n) push(i - n)
-    if (i < n * (n - 1)) push(i + n)
-  }
-  return out
+const cache = new Map<string, Buffer>()
+const rgba = (svg: string, n: number): Buffer => {
+  const key = `${n}:${svg}`
+  if (!cache.has(key)) cache.set(key, gen.render(svg, n).pixels)
+  return cache.get(key)!
+}
+const VB = '0 -0.20733 95.41467 95.41467'
+// Oracles are built here from fixed inputs (the path's own subpaths and a
+// restated gradient), not from the production layers.
+const wrap = (body: string) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${VB}"><defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="95" x2="0" y2="0"><stop offset="0" stop-color="#2b2b2b"/><stop offset="1" stop-color="#9a9a9a"/></linearGradient></defs>${body}</svg>`
+const outerAlone = (fill: string) => wrap(`<path fill="${fill}" d="${roles.outer}"/>`)
+const holesAlone = wrap(roles.holes.map(h => `<path fill="#000" d="${h}"/>`).join(''))
+const silhouette = (n: number) => rgba(outerAlone('#000'), n)
+const holeAlpha = (n: number) => rgba(holesAlone, n)
+
+const count = (svg: string, n: number, bad: (px: Buffer, sil: Buffer, i: number) => boolean) => {
+  const px = rgba(svg, n)
+  const sil = silhouette(n)
+  let c = 0
+  for (let i = 0; i < n * n; i++) if (bad(px, sil, i)) c++
+  return c
+}
+// Silhouette pixels (holes count as opaque) that the icon leaves see-through.
+const seams = (svg: string, n: number) =>
+  count(svg, n, (px, sil, i) => sil[i * 4 + 3] === 255 && px[i * 4 + 3] < 254)
+// Icon alpha differing from the silhouette alpha. Both antialias the same
+// outer edge once. The one real difference: below ~30 px a hole edge can sit
+// inside an outer-edge pixel (the side spots are under one pixel from the
+// outline at 16 px), and its white adds up to 29/255 there (measured at 16 px;
+// 0 at 32 px and up). A leak is ~255, so 32 separates them.
+const alphaOff = (svg: string, n: number) =>
+  count(svg, n, (px, sil, i) => Math.abs(px[i * 4 + 3] - sil[i * 4 + 3]) > 32)
+// Outer-edge pixels (partly covered, no hole content) must equal the outer
+// contour alone in gradient, per channel within 1/255.
+const rimOff = (svg: string, n: number) => {
+  const ref = rgba(outerAlone('url(#g)'), n)
+  const holes = holeAlpha(n)
+  return count(svg, n, (px, sil, i) => {
+    if (sil[i * 4 + 3] === 0 || sil[i * 4 + 3] === 255 || holes[i * 4 + 3] > 0) return false
+    return [0, 1, 2, 3].some(k => Math.abs(px[i * 4 + k] - ref[i * 4 + k]) > 1)
+  })
 }
 
-// Antialiasing leaves at most a faint fringe outside; a backing leak is ~255,
-// so 64/255 separates them.
-const leaks = (n: number, backing?: string) => {
-  const outside = exteriorOf(bareAlpha(n), n)
-  return alphaOf(rgba(gen.coloredSvg(d, backing), n)).filter((a, i) => outside[i] && a > 64).length
-}
-
-// A hole pixel is enclosed and at most 32/255 covered by the path. The backing
-// covers the rest, and two antialiased layers sharing an edge combine to
-// 1 - p(1-p) >= 0.89 for p <= 32/255, i.e. alpha >= 227; 220 leaves margin.
-const holeGaps = (n: number, backing?: string) => {
-  const bare = bareAlpha(n)
-  const outside = exteriorOf(bare, n)
-  return alphaOf(rgba(gen.coloredSvg(d, backing), n)).filter(
-    (a, i) => !outside[i] && bare[i] <= 32 && a < 220,
-  ).length
-}
-
-// Brightness over a dark taskbar (#202020) of the outline-edge pixels, with the
-// backing versus without it. Pixels are premultiplied, so over = rgb + bg(1-a).
-// Pixels that touch a hole are skipped (white belongs there). The same gradient
-// path is drawn both times, so any other difference is the backing leaking into
-// the outline. Rounding allows a mean of 1/255; a rim is +24..+44.
-const rimShift = (n: number, backing?: string) => {
-  const bare = bareAlpha(n)
-  const outside = exteriorOf(bare, n)
-  const withB = rgba(gen.coloredSvg(d, backing), n)
-  const without = rgba(gen.coloredSvg(d, ''), n)
-  const holes = alphaOf(
-    rgba(gen.coloredSvg('M0 0', gen.backingSvg(d)).replace('fill="url(#g)"', 'fill="none"'), n),
-  )
-  const over = (px: Buffer, i: number) => {
-    const bg = 0x20 * (1 - px[i * 4 + 3] / 255)
-    return (px[i * 4] + px[i * 4 + 1] + px[i * 4 + 2]) / 3 + bg
-  }
-  let sum = 0
-  let count = 0
-  for (let i = 0; i < bare.length; i++) {
-    const x = i % n
-    const y = Math.floor(i / n)
-    const nearOutside =
-      (x > 0 && outside[i - 1]) ||
-      (x < n - 1 && outside[i + 1]) ||
-      (y > 0 && outside[i - n]) ||
-      (y < n - 1 && outside[i + n])
-    if (!outside[i] && !holes[i] && bare[i] > 0 && bare[i] < 255 && nearOutside) {
-      sum += over(withB, i) - over(without, i)
-      count++
-    }
-  }
-  return count ? sum / count : 0
-}
-
-// The first attempt: the outer contour scaled 1%, which rimmed at small sizes.
-const SCALED_CONTOUR = `<path fill="#fff" transform="translate(47.7 47.5) scale(.99) translate(-47.7 -47.5)" d="${gen.outerContour(d)}"/>`
-// The hand-placed backing before that; it left slivers.
-const OLD_BACKING =
-  '<ellipse cx="47.7" cy="42" rx="43" ry="38" fill="#fff"/>' +
-  '<rect x="22" y="58" width="52" height="30" rx="10" fill="#fff"/>'
+// Earlier backings, kept as planted defects the tests must catch.
+const nonOuter = [...roles.holes, ...roles.eyes].join('')
+const ROUND3 = wrap(`<path fill="#fff" d="${nonOuter}"/><path fill="url(#g)" d="${d}"/>`)
+const SCALED = wrap(
+  `<path fill="#fff" transform="translate(47.7 47.5) scale(.99) translate(-47.7 -47.5)" d="${roles.outer}"/><path fill="url(#g)" d="${d}"/>`,
+)
+const OLD_ELLIPSE = wrap(
+  `<ellipse cx="47.7" cy="42" rx="43" ry="38" fill="#fff"/><path fill="url(#g)" d="${d}"/>`,
+)
+const LEAKY = wrap(
+  `<path fill="#fff" transform="scale(1.05)" d="${roles.outer}"/><path fill="url(#g)" d="${d}"/>`,
+)
 
 function expectValidIco(ico: Buffer) {
-  expect([ico.readUInt16LE(0), ico.readUInt16LE(2), ico.readUInt16LE(4)]).toEqual([0, 1, 5])
+  expect([ico.readUInt16LE(0), ico.readUInt16LE(2), ico.readUInt16LE(4)]).toEqual([
+    0,
+    1,
+    SIZES.length,
+  ])
   SIZES.forEach((size, i) => {
     const e = 6 + 16 * i
     expect([ico[e] || 256, ico[e + 1] || 256]).toEqual([size, size])
@@ -111,37 +88,64 @@ function expectValidIco(ico: Buffer) {
 }
 
 describe('app icon generator', () => {
-  it('outer contour starts at the absolute point the relative m implies', () => {
-    expect(gen.outerContour(d).startsWith('M6.812 68.674c')).toBe(true)
+  it('has the sizes the owner approved, ascending', () => {
+    expect(SIZES).toEqual([16, 20, 24, 30, 32, 40, 48, 64, 96, 128, 256])
   })
 
-  it('colored SVG carries the title-bar path unchanged', () => {
-    expect(gen.coloredSvg(d)).toContain(`d="${d}"`)
+  it('classifies 1 outer contour, 4 holes and 2 eyes, by geometry', () => {
+    expect(roles.outer.startsWith('M6.812 68.674c')).toBe(true)
+    expect(roles.holes).toHaveLength(4)
+    expect(roles.eyes).toHaveLength(2)
   })
 
-  it.each(SIZES)('backing stays inside the silhouette at %i px', n => {
-    expect(leaks(n)).toBe(0)
+  it('the subpaths reproduce icon.svg geometry, and the roles partition them', () => {
+    const body = (s: string) => s.replace(/^\s*m\s*-?[\d.]+[\s,]*-?[\d.]+/i, '').replace(/z$/i, '')
+    const original = d.split(/z/i).filter(c => /\S/.test(c))
+    const subs: string[] = gen.subpaths(d)
+    expect(subs.map(body)).toEqual(original.map(body))
+    expect([roles.outer, ...roles.holes, ...roles.eyes].sort()).toEqual([...subs].sort())
+  })
+
+  it.each(SIZES)('no see-through seam inside the silhouette at %i px', n => {
+    expect(seams(gen.coloredSvg(d), n)).toBe(0)
+  })
+
+  it.each(SIZES)('icon alpha equals the silhouette (no leak, no gap) at %i px', n => {
+    expect(alphaOff(gen.coloredSvg(d), n)).toBe(0)
+  })
+
+  it.each(SIZES)('outer edge is the plain gradient edge at %i px', n => {
+    expect(rimOff(gen.coloredSvg(d), n)).toBe(0)
+  })
+
+  it('an eye center is gray, not white', () => {
+    const box = new Resvg(gen.bareSvg(roles.eyes[0]), {
+      font: { loadSystemFonts: false },
+    }).getBBox()!
+    for (const n of [64, 256]) {
+      const px = rgba(gen.coloredSvg(d), n)
+      const x = Math.floor(((box.x + box.width / 2) / 95.41467) * n)
+      const y = Math.floor(((box.y + box.height / 2 + 0.20733) / 95.41467) * n)
+      const i = (y * n + x) * 4
+      expect(px[i + 3]).toBe(255)
+      expect(px[i]).toBeLessThan(128)
+    }
+  })
+
+  it('oracle: the round-3 backing leaves seams at every size', () => {
+    for (const n of SIZES) expect(seams(ROUND3, n)).toBeGreaterThan(0)
+  })
+
+  it('oracle: the 1%-scaled contour backing rims the outline at 16 px', () => {
+    expect(rimOff(SCALED, 16)).toBeGreaterThan(0)
+  })
+
+  it('oracle: the old ellipse backing leaves holes see-through', () => {
+    expect(seams(OLD_ELLIPSE, 256)).toBeGreaterThan(100)
   })
 
   it('oracle: an enlarged backing leaks outside the silhouette', () => {
-    const bigger = `<path fill="#fff" transform="scale(1.05)" d="${gen.outerContour(d)}"/>`
-    expect(leaks(256, bigger)).toBeGreaterThan(100)
-  })
-
-  it.each(SIZES)('backing covers every hole at %i px', n => {
-    expect(holeGaps(n)).toBe(0)
-  })
-
-  it('oracle: the old ellipse + rect backing leaves holes uncovered', () => {
-    expect(holeGaps(256, OLD_BACKING)).toBeGreaterThan(100)
-  })
-
-  it.each(SIZES)('backing does not brighten the outline at %i px', n => {
-    expect(Math.abs(rimShift(n))).toBeLessThan(1)
-  })
-
-  it('oracle: the 0.99-scaled contour backing rims at 16 px', () => {
-    expect(rimShift(16, SCALED_CONTOUR)).toBeGreaterThan(10)
+    expect(alphaOff(LEAKY, 256)).toBeGreaterThan(100)
   })
 
   it('generator output: square viewBox, gradient stops, valid ico', () => {

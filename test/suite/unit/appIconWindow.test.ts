@@ -58,7 +58,10 @@ describe.skipIf(!theiaInstalled)('main window icon wiring', () => {
   it('warns and omits the icon when the asset is missing', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     vi.mocked(appIconPath).mockReturnValueOnce(undefined)
-    expect(options().icon).toBeUndefined()
+    const app = Object.create(Ours.prototype)
+    Object.defineProperty(app, 'config', { value: { electron: { windowOptions: {} } } })
+    expect(app.getDefaultOptions().icon).toBeUndefined()
+    expect(app.getDefaultOptions().icon).toBeUndefined()
     expect(warn).toHaveBeenCalledOnce()
   })
 
@@ -71,6 +74,10 @@ describe.skipIf(!theiaInstalled)('main window icon wiring', () => {
     )
     container.bind(ElectronMainApplicationGlobals).toConstantValue({})
     container.load(core, oursModule.default)
-    expect(await container.getAsync(App)).toBeInstanceOf(Ours)
+    const first = container.get(App)
+    expect(first).toBeInstanceOf(Ours)
+    // Theia injects ElectronMainApplication elsewhere; a transient binding
+    // would hand those an instance that was never started.
+    expect(container.get(App)).toBe(first)
   })
 })

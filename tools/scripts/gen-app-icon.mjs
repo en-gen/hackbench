@@ -7,7 +7,9 @@ import { fileURLToPath } from 'node:url'
 import { Resvg } from '@resvg/resvg-js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
-export const ICON_SIZES = [16, 24, 32, 48, 256]
+// The icon has no text; scanning system fonts costs ~250 ms per Resvg.
+const NO_FONTS = { font: { loadSystemFonts: false } }
+export const ICON_SIZES = [16, 20, 24, 30, 32, 40, 48, 64, 96, 128, 256]
 export const OUT_DIR = path.join(root, 'build/icons/app')
 // Square viewBox centered on the 95.41467 x 95 artwork, so icon sizes do not distort it.
 const VIEWBOX = '0 -0.20733 95.41467 95.41467'
@@ -31,29 +33,60 @@ export function subpaths(d) {
     })
 }
 
-// The outer silhouette is the second subpath; every other one is a hole or
-// something inside one (spots, face, eyes).
-export const outerContour = d => subpaths(d)[1]
+const bbox = sub => {
+  const b = new Resvg(bareSvg(sub), NO_FONTS).getBBox()
+  return { x0: b.x, y0: b.y, x1: b.x + b.width, y1: b.y + b.height }
+}
+const inside = (a, b) =>
+  a.x0 >= b.x0 - 0.01 && a.y0 >= b.y0 - 0.01 && a.x1 <= b.x1 + 0.01 && a.y1 <= b.y1 + 0.01
+const area = b => (b.x1 - b.x0) * (b.y1 - b.y0)
 
-// White under every subpath except the outer contour. It never reaches the
-// outer edge, so it cannot rim or halo the outline at any size; its edges are
-// the holes' own edges. Eyes get white too, and the gray path paints over them.
-export const backingSvg = d =>
-  `<path fill="#fff" d="${subpaths(d)
-    .filter((_, i) => i !== 1)
-    .join('')}"/>`
+// Roles by bounding box, never by index: the outer contour contains every other
+// subpath, a hole is directly inside it, an eye is inside a hole.
+const classified = new Map()
+export function classify(d) {
+  if (!classified.has(d)) classified.set(d, classifyUncached(d))
+  return classified.get(d)
+}
 
-export const coloredSvg = (d, backing = backingSvg(d)) =>
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${VIEWBOX}">` +
+function classifyUncached(d) {
+  const subs = subpaths(d).map(path => ({ path, box: bbox(path) }))
+  const outer = subs.find(s => subs.every(o => o === s || inside(o.box, s.box)))
+  const rest = subs.filter(s => s !== outer)
+  const parent = s =>
+    rest.filter(o => o !== s && inside(s.box, o.box)).sort((a, b) => area(a.box) - area(b.box))[0]
+  return {
+    outer: outer.path,
+    holes: rest.filter(s => !parent(s)).map(s => s.path),
+    eyes: rest.filter(s => parent(s)).map(s => s.path),
+  }
+}
+
+const GRADIENT =
   '<defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="95" x2="0" y2="0">' +
-  '<stop offset="0" stop-color="#2b2b2b"/><stop offset="1" stop-color="#9a9a9a"/></linearGradient></defs>' +
-  `${backing}<path fill="url(#g)" d="${d}"/></svg>`
+  '<stop offset="0" stop-color="#2b2b2b"/><stop offset="1" stop-color="#9a9a9a"/></linearGradient></defs>'
+
+// Opaque layers painted in order, so no two layers share an edge over
+// transparency (that left a see-through seam): the outer contour in gradient
+// (one antialiased outer edge), each hole as its own white path (own path, so
+// winding cannot cancel it), each eye in the same gradient over the white.
+export function coloredSvg(d) {
+  const { outer, holes, eyes } = classify(d)
+  const layer = (fill, p) => `<path fill="${fill}" d="${p}"/>`
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${VIEWBOX}">${GRADIENT}` +
+    layer('url(#g)', outer) +
+    holes.map(h => layer('#fff', h)).join('') +
+    eyes.map(e => layer('url(#g)', e)).join('') +
+    '</svg>'
+  )
+}
 
 export const bareSvg = d =>
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${VIEWBOX}"><path d="${d}"/></svg>`
 
 export const render = (svg, size) =>
-  new Resvg(svg, { fitTo: { mode: 'width', value: size } }).render()
+  new Resvg(svg, { ...NO_FONTS, fitTo: { mode: 'width', value: size } }).render()
 
 // ICO with PNG-compressed entries (supported since Vista). Size 256 is stored as 0.
 function buildIco(pngs) {
