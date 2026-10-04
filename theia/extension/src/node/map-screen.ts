@@ -8,7 +8,8 @@
  * cell blank in the switch state shown gets `ghostOf`'s screen door, the
  * sheet's and the preview's rule. The back area is not baked in: it is a
  * layer of its own in the view, so it can be hidden like any other. L1 is
- * sent as two planes by the Map16 priority bit; the view stacks them.
+ * sent as two planes by the Map16 priority bit; the view stacks them. They never
+ * overlap, so their order is unobservable until L2 exists.
  */
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { RomFile } from '../../../../src/rom/RomFile'
@@ -26,7 +27,6 @@ import {
 } from '../../../../src/rom/model/L1Model'
 import { PALACES, type Palace } from '../../../../src/rom/SwitchBlockTiles'
 import { palaceArt, type PalaceArt } from '../../../../src/rom/SwitchArt'
-import { readLevelBgMode } from '../../../../src/rom/BgMode'
 import { renderMap16Tile } from '../../../../src/rom/TileRenderer'
 import { ghostOf, overlayHidden } from '../../../../src/rom/render/HiddenTiles'
 import { MAP_PLANE_KEYS } from '../common/project-protocol'
@@ -157,19 +157,6 @@ export function screenResult(
   }
 }
 
-/**
- * A build that also refuses a ROM whose level loader does not set BG mode 1:
- * the planes are stacked in that mode's order. A build's own refusal wins.
- */
-export const withBgMode =
-  (build: typeof buildL1Inputs): typeof buildL1Inputs =>
-  (rom, index, flags) => {
-    const built = build(rom, index, flags)
-    if (!built.ok) return built
-    const bg = readLevelBgMode(rom.rom)
-    return bg.ok ? built : bg
-  }
-
 /** Each palace's block for the wire: per ROM, so the same on every map. */
 export function palaceIconsOf(art: Record<Palace, PalaceArt>): PalaceIconDto[] {
   return PALACES.map(palace => {
@@ -191,7 +178,7 @@ export class L1ModelCache {
   private readonly byBytes = new WeakMap<Uint8Array, Map<string, L1InputsResult>>()
   private readonly arts = new WeakMap<Uint8Array, Record<Palace, PalaceArt>>()
 
-  constructor(private readonly build: typeof buildL1Inputs = withBgMode(buildL1Inputs)) {}
+  constructor(private readonly build: typeof buildL1Inputs = buildL1Inputs) {}
 
   get(bytes: Uint8Array, romPath: string, index: number, flags: SwitchFlagsDto): L1InputsResult {
     let models = this.byBytes.get(bytes)

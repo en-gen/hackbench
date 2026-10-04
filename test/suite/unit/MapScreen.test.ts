@@ -77,13 +77,11 @@ import {
   ADDR_TILESET_DISPATCH,
 } from '../../../src/rom/objectHandlers/romData'
 import type { RgbaColor } from '../../../src/rom/GraphicsDecoder'
-import { readLevelBgMode } from '../../../src/rom/BgMode'
-import { CORPUS, MAGIC } from '../support/corpus'
+import { MAGIC } from '../support/corpus'
 import {
   cellDef,
   drawL1Planes,
   screenTiles,
-  withBgMode,
   L1ModelCache,
   mapScreen,
   palaceIconsOf,
@@ -377,59 +375,6 @@ describe('L1 priority planes (synthetic)', () => {
     expect(px(p.l1High!, 256, 5, 1)).toEqual([7, 100, 200, 255])
     expect(px(p.l1High!, 256, 6, 1)).toEqual(dim([7, 100, 200]))
     expect(p.l1Low).toBeNull()
-  })
-})
-
-describe('the level BG mode (synthetic)', () => {
-  // AND #$80, LSR x4, ORA #imm, STA dp, planted in bank 05.
-  const SIG = [0x29, 0x80, 0x4a, 0x4a, 0x4a, 0x4a, 0x09, 0x01, 0x85, 0x3e]
-  const at = 0x058100
-  const romWith = (...sigs: [number, number[]][]) => {
-    const rom = new RomFile('bg.sfc', Buffer.alloc(0x80000, 0))
-    for (const [addr, bytes] of sigs) rom.writeAt(addr, bytes)
-    return rom
-  }
-
-  it('reads mode 1 from the ORA operand, whatever the layer 3 priority bit', () => {
-    expect(readLevelBgMode(romWith([at, SIG]))).toEqual({ ok: true, mode: 1 })
-    expect(readLevelBgMode(romWith([at, [...SIG.slice(0, 7), 0x09, ...SIG.slice(8)]]))).toEqual({ ok: true, mode: 1 }) // prettier-ignore
-  })
-
-  it('refuses another mode, no match and two matches, with a reason', () => {
-    const other = readLevelBgMode(romWith([at, [...SIG.slice(0, 7), 0x02, ...SIG.slice(8)]]))
-    expect(other).toMatchObject({ ok: false })
-    expect(!other.ok && other.reason).toMatch(/mode 2/)
-    expect(readLevelBgMode(romWith())).toMatchObject({ ok: false })
-    expect(readLevelBgMode(romWith([at, SIG], [at + 0x40, SIG]))).toMatchObject({ ok: false })
-  })
-
-  it('every pinned byte of the signature is needed: flipping any one refuses', () => {
-    for (let k = 0; k < 9; k++) {
-      if (k === 7) continue // the operand: any mode 1 value is the answer
-      const bytes = SIG.map((b, j) => (j === k ? b ^ 0xff : b))
-      expect(readLevelBgMode(romWith([at, bytes])), `byte ${k}`).toMatchObject({ ok: false })
-    }
-  })
-
-  it('a cache built with the gate refuses a ROM that does not set mode 1, and draws one that does', () => {
-    const ok = () => ({ ok: true as const, inputs: inputs(hGrid(1), false, 1) })
-    const cache = new L1ModelCache(withBgMode(ok))
-    const bytes = (...sigs: [number, number[]][]) => {
-      const rom = romWith(...sigs)
-      rom.buffer[0x7fd5] = 0x20
-      return rom.buffer
-    }
-    expect(mapScreen(cache, bytes(), 'x.sfc', 0x105, 0, UNCLEARED)).toMatchObject({ status: 'unavailable', reason: expect.stringMatching(/BG mode/) }) // prettier-ignore
-    expect(mapScreen(new L1ModelCache(withBgMode(ok)), bytes([at, SIG]), 'x.sfc', 0x105, 0, UNCLEARED)).toMatchObject({ status: 'ok' }) // prettier-ignore
-    // A build's own refusal is not hidden behind the gate's.
-    const bad = withBgMode(() => ({ ok: false, reason: 'GFX unreadable' }))
-    expect(mapScreen(new L1ModelCache(bad), bytes(), 'x.sfc', 0x105, 0, UNCLEARED)).toMatchObject({ reason: 'GFX unreadable' }) // prettier-ignore
-  })
-
-  describe.each(CORPUS)('%s', name => {
-    it.skipIf(!hasRom(name))('sets mode 1', () => {
-      expect(readLevelBgMode(RomFile.load(romPath(name)))).toEqual({ ok: true, mode: 1 })
-    })
   })
 })
 
