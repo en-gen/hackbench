@@ -194,7 +194,7 @@ test('double-clicking the Overworld row pins one tab; again focuses it; closed, 
   await expect(page.locator(VIEW)).toHaveCount(0)
   await openOverworldRow(page)
   await expect(page.locator(VIEW)).toBeVisible()
-  expect(await pinnedIds(page)).toEqual(['hackbench.overworld-view'])
+  await expect.poll(() => pinnedIds(page)).toEqual(['hackbench.overworld-view'])
 })
 
 test('double-clicking Overworld opens it without folding its Area rows', async ({ page }) => {
@@ -216,7 +216,7 @@ test('a single click on an Area row previews it in one shared tab; a double-clic
   await page.waitForSelector(AREA_ROW(2), { timeout: 15000 })
   await page.locator(AREA_ROW(2)).click()
   await expect(page.locator(AREA_VIEW(2))).toBeVisible()
-  expect(await previewIds(page)).toEqual(['hackbench.overworld-view:preview'])
+  await expect.poll(() => previewIds(page)).toEqual(['hackbench.overworld-view:preview'])
   expect(await pinnedIds(page)).toEqual([])
   // Focus stays in the list so the arrows keep walking it.
   await expect.poll(() => activeId(page)).toBe('hackbench.map-explorer')
@@ -225,12 +225,12 @@ test('a single click on an Area row previews it in one shared tab; a double-clic
   await page.locator(AREA_ROW(5)).click()
   await expect(page.locator(AREA_VIEW(5))).toBeVisible()
   await expect(page.locator(AREA_VIEW(2))).toHaveCount(0)
-  expect(await previewIds(page)).toEqual(['hackbench.overworld-view:preview'])
+  await expect.poll(() => previewIds(page)).toEqual(['hackbench.overworld-view:preview'])
 
   // The hub row shares that slot too.
   await page.locator(ROW).click()
   await expect(page.locator(VIEW)).toBeVisible()
-  expect(await previewIds(page)).toEqual(['hackbench.overworld-view:preview'])
+  await expect.poll(() => previewIds(page)).toEqual(['hackbench.overworld-view:preview'])
 
   // A double-click pins the area and retires a preview that showed it.
   await page.locator(AREA_ROW(5)).click()
@@ -252,6 +252,12 @@ test('the Overworld and area views zoom: stepper, canvas CSS size, bitmap untouc
     [VIEW, 512, 512],
   ]) {
     await page.waitForSelector(`${view} .hb-overworld-canvas`, { timeout: 30000 })
+    // Only the front tab is laid out: bring this one up before measuring it.
+    await page.evaluate(
+      async id => getSvc('ApplicationShell').activateWidget(id),
+      view === VIEW ? 'hackbench.overworld-view' : 'hackbench.overworld-area-view:1',
+    )
+    await expect(page.locator(view)).toBeVisible()
     const canvas = page.locator(`${view} .hb-overworld-canvas`)
     const size = () => canvas.evaluate(c => [c.width, c.height, c.getBoundingClientRect().width])
     const [bw, bh, shown] = await size()
@@ -269,6 +275,7 @@ test('the views carry no "map data before any event" note', async ({ page }) => 
   await openOverworldRow(page)
   await page.waitForSelector(`${VIEW} .hb-overworld-canvas`, { timeout: 30000 })
   await expect(page.locator('.hb-overworld-note')).toHaveCount(0)
+  await expect(page.locator(VIEW)).not.toContainText(/map data before any event/i)
 })
 
 test('opening the row keeps the explorer visible, and it survives an activity switch', async ({
@@ -487,6 +494,9 @@ test('the toolbar matches the map editor: Background, Foreground, Effects, then 
   await openProject(page, ROM)
   await openOverworldRow(page)
   await page.waitForSelector(`${VIEW} .hb-overworld-canvas`, { timeout: 30000 })
+  // The double-click's preview is retired by the pin: measure the pinned widget's toolbar.
+  await expect.poll(() => pinnedIds(page)).toEqual(['hackbench.overworld-view'])
+  await expect(page.locator(`${VIEW} .hb-map-view-toolbar`)).toHaveCount(1)
   const controls = await page.evaluate(
     sel =>
       [...document.querySelectorAll(`${sel} .hb-map-view-toolbar [data-control]`)].map(e =>
@@ -549,7 +559,7 @@ test('a single click on the row previews the view without taking focus', async (
   await openVanillaWithRow(page)
   await page.locator(ROW).click()
   await expect(page.locator(VIEW)).toBeVisible()
-  expect(await previewIds(page)).toEqual(['hackbench.overworld-view:preview'])
+  await expect.poll(() => previewIds(page)).toEqual(['hackbench.overworld-view:preview'])
   await expect.poll(() => activeId(page)).toBe('hackbench.map-explorer')
   // The keys still drive the list: the next arrow moves the selection off the row.
   await page.keyboard.press('ArrowUp')
@@ -570,7 +580,7 @@ test('arrowing onto the row previews the view and keeps focus in the list', asyn
   await page.keyboard.press('ArrowDown')
   await expect(page.locator(ROW)).toHaveClass(/theia-mod-selected/)
   await expect(page.locator(VIEW)).toBeVisible()
-  expect(await previewIds(page)).toEqual(['hackbench.overworld-view:preview'])
+  await expect.poll(() => previewIds(page)).toEqual(['hackbench.overworld-view:preview'])
   expect(await activeId(page)).toBe('hackbench.map-explorer')
   // The keys still drive the list: the next arrow moves the selection off the row.
   await page.keyboard.press('ArrowUp')

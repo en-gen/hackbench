@@ -23,10 +23,14 @@ import { LayerToggle } from './layer-icon'
 import { WheelBinding, ZoomController } from './zoom-controller'
 import { decodeBase64Bytes, decodeRgba, paintScaled } from './map16-pixels'
 import { ProjectContext } from './project-context'
+import { previewId } from './preview-id'
 
 export const OVERWORLD_VIEW_ID = 'hackbench.overworld-view'
 /** A pinned area's widget id is `${OVERWORLD_AREA_VIEW_ID}:${area}`; the hub keeps OVERWORLD_VIEW_ID. */
 export const OVERWORLD_AREA_VIEW_ID = 'hackbench.overworld-area-view'
+/** The id of area `area`'s pinned tab (0 is the hub). */
+export const overworldTabId = (area: number): string =>
+  area === 0 ? OVERWORLD_VIEW_ID : `${OVERWORLD_AREA_VIEW_ID}:${area}`
 /** Shows the hub (area 0): `{ activate }` false previews it, true pins it. */
 export const OVERWORLD_FOCUS_COMMAND_ID = 'hackbench.overworld.focus'
 /** Shows one area, as `{ area, activate }`: previewed, or pinned when `activate`. */
@@ -67,7 +71,9 @@ export class OverworldViewWidget extends ReactWidget {
 
   @postConstruct()
   protected init(): void {
-    this.id = OVERWORLD_VIEW_ID
+    // A fresh widget is nobody's tab yet; PreviewTabs gives the preview this id, and the pin
+    // path sets `overworldTabId(area)` before attaching, so open() never owns the id.
+    this.id = previewId(OVERWORLD_VIEW_ID)
     this.title.closable = true
     this.addClass('hb-map-view')
     this.addClass('hb-overworld-view')
@@ -92,7 +98,6 @@ export class OverworldViewWidget extends ReactWidget {
     this.area = area
     this.opened = true
     const label = area === 0 ? 'Overworld' : `Area ${area}`
-    this.id = area === 0 ? OVERWORLD_VIEW_ID : `${OVERWORLD_AREA_VIEW_ID}:${area}`
     this.title.label = label
     this.title.caption = label
     this.title.iconClass = area === 0 ? 'codicon codicon-globe' : 'codicon codicon-map'

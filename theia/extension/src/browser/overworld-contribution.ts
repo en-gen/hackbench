@@ -22,6 +22,7 @@ import {
   OVERWORLD_FOCUS_COMMAND_ID,
   OVERWORLD_OPEN_AREA_COMMAND_ID,
   OVERWORLD_VIEW_ID,
+  overworldTabId,
 } from './overworld-view-widget'
 import { PreviewTabs } from './preview-tabs'
 
@@ -39,10 +40,14 @@ export class OverworldContribution implements CommandContribution, MenuContribut
   async show(area: number, pinned: boolean): Promise<OverworldViewWidget> {
     const apply = (w: OverworldViewWidget): Promise<void> => w.open(area)
     if (!pinned) return this.previews.preview<OverworldViewWidget>(OVERWORLD_VIEW_ID, apply)
+    const pin = (w: OverworldViewWidget): Promise<void> => {
+      w.id = overworldTabId(area)
+      return apply(w)
+    }
     return this.previews.pin<OverworldViewWidget>(
       OVERWORLD_VIEW_ID,
       { area },
-      apply,
+      pin,
       p => p.shows(area),
       {},
     )
