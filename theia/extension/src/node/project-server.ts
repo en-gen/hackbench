@@ -25,6 +25,7 @@ import { buildMapDetails } from './map-details'
 import { L1ModelCache, mapScreen, toolbarArtOf } from './map-screen'
 import { SWITCH_FLAGS_UNCLEARED } from '../../../../src/rom/ObjectExpander'
 import { exportPatch } from '../../../../src/project/ExportPatch'
+import { readRomBounded } from '../../../../src/project/BoundedRead'
 import {
   admitGroups,
   applyGroups,
@@ -37,7 +38,6 @@ import {
   VANILLA_SHA256,
   writeGroups,
 } from '../../../../src/project/MapGroups'
-import * as fs from 'fs'
 import {
   CreateProjectRequest,
   EditStackResult,
@@ -134,7 +134,7 @@ export class ProjectServiceImpl implements ProjectService {
   }
 
   async identifyRom(romPath: string): Promise<RomIdentityDto> {
-    return romIdentity(new Uint8Array(fs.readFileSync(romPath)))
+    return romIdentity(readRomBounded(romPath))
   }
 
   async registerRom(romPath: string): Promise<RomIdentityDto> {

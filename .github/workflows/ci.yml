@@ -63,6 +63,12 @@ jobs:
       - name: Format
         run: npm run format:check
 
+      # The spike probe servers are throwaway but bind a local port and write
+      # files; this proves their /save and GET hardening (stdlib only, no ROM).
+      # ubuntu-latest ships python3 >= 3.10, which the servers' annotations need.
+      - name: Spike serve hardening
+        run: python3 spike/test_serve_hardening.py
+
       - name: Type-check
         run: npx tsc --noEmit
 

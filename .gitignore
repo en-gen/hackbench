@@ -127,6 +127,7 @@ build/*
 # Claude / local agent state; agent roles and shared settings are tracked
 .claude/*
 !.claude/agents/
+!.claude/rules/
 !.claude/settings.json
 
 # Python bytecode caches

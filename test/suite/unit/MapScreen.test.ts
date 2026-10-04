@@ -33,6 +33,7 @@ import { parseLevelHeader } from '../../../src/rom/LevelParser'
 import * as ParserReal from '../../../src/rom/LevelParser'
 import type * as ParserMod from '../../../src/rom/LevelParser'
 import { drawInterpreted } from '../../../src/rom/objectHandlers/interpretedDraw'
+import { VANILLA_PRIMITIVES } from '../../../src/rom/objectHandlers/interpret'
 import {
   PIPE_VARIANT_TILE_COUNT,
   PIPE_VARIANT_TILE_START,
@@ -611,6 +612,8 @@ describe('buildL1Inputs (synthetic)', () => {
     table.splice((0x12 - 1) * 3, 3, 0x3e, 0xab, 0x0d)
     const variants = new Array(30).fill(0)
     variants.splice(5 * 3, 3, 0xeb, 0xad, 0x0d)
+    rom.writeAt(0x0da415, [0xe2, 0x30, 0xad, 0x31, 0x19, 0x22, 0xfa, 0x86, 0x00]) // stock path: no #302 note
+    rom.writeAt(DISPATCH, [0xe2, 0x30, 0xa6, 0x5a, 0xca, 0x8a, 0x22, 0xfa, 0x86, 0x00])
     rom.writeAt(ADDR_TILESET_DISPATCH, [DISPATCH & 0xff, (DISPATCH >> 8) & 0xff, 0x0d])
     rom.writeAt(DISPATCH + 10, table)
     rom.writeAt(0x0dab3e + 18, variants)
@@ -638,7 +641,11 @@ describe('buildL1Inputs (synthetic)', () => {
     const spy = vi.mocked(Expander.expandMap)
     spy.mockClear()
     buildL1Inputs(fakeRom(0), 0x105, UNCLEARED)
-    expect(spy.mock.calls[0]![8]).toMatchObject({ unverified: [], draw: drawInterpreted })
+    expect(spy.mock.calls[0]![8]).toMatchObject({
+      unverified: [],
+      draw: drawInterpreted,
+      primitives: VANILLA_PRIMITIVES,
+    })
   })
 
   it.each([0x09, 0x0b, 0x10])(
