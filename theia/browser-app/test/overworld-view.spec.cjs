@@ -257,7 +257,7 @@ test('the Overworld and area views zoom: stepper, canvas CSS size, bitmap untouc
     const [bw, bh, shown] = await size()
     expect([bw, bh]).toEqual([w, h])
     await page.locator(`${view} [data-control="zoom-in"]`).click()
-    await expect(page.locator(`${view} [data-control="zoom-indicator"]`)).toHaveText('2x')
+    await expect(page.locator(`${view} [data-control="zoom-indicator"]`)).toHaveText('200%')
     await expect.poll(async () => Math.round((await size())[2])).toBe(Math.round(shown * 2))
     expect((await size()).slice(0, 2)).toEqual([w, h])
   }
@@ -337,7 +337,7 @@ test('activating Area 2 opens a 256x224 tab; Area 5 opens a second; reopening fo
     await page.locator(`${AREA_VIEW(2)} .hb-overworld-canvas`).evaluate(c => [c.width, c.height]),
   ).toEqual([256, 224])
   expect(await canvasSha(page, AREA_VIEW(2))).toBe(AREA_PIN[2].BOTH)
-  await expect(page.locator(`${AREA_VIEW(2)} .hb-gfx-view-title`)).toHaveText('Area 2')
+  await expect(page.locator('.lm-TabBar-tab', { hasText: /^Area 2$/ })).toHaveCount(1)
 
   await page.locator(AREA_ROW(5)).dblclick()
   await expect(page.locator(AREA_VIEW(5))).toBeVisible()
@@ -478,6 +478,39 @@ test('each layer toggle hides its layer, and toggling back restores the pin', as
     await expect(button).toHaveAttribute('aria-pressed', 'true')
     await expect.poll(() => hubSha(page)).toBe(HUB.BOTH)
   }
+})
+
+test('the toolbar matches the map editor: Background, Foreground, Effects, then zoom at the right', async ({
+  page,
+}) => {
+  test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
+  await openProject(page, ROM)
+  await openOverworldRow(page)
+  await page.waitForSelector(`${VIEW} .hb-overworld-canvas`, { timeout: 30000 })
+  const controls = await page.evaluate(
+    sel =>
+      [...document.querySelectorAll(`${sel} .hb-map-view-toolbar [data-control]`)].map(e =>
+        e.getAttribute('data-control'),
+      ),
+    VIEW,
+  )
+  expect(controls).toEqual([
+    'layer-l2',
+    'layer-l1',
+    'layer-l3',
+    'zoom-out',
+    'zoom-indicator',
+    'zoom-in',
+  ])
+  const xs = await page.evaluate(
+    sel =>
+      ['layer-l2', 'layer-l1', 'layer-l3', 'zoom-out'].map(
+        c => document.querySelector(`${sel} [data-control="${c}"]`).getBoundingClientRect().left,
+      ),
+    VIEW,
+  )
+  expect([...xs].sort((a, b) => a - b)).toEqual(xs)
+  await expect(page.locator(`${VIEW} .hb-toolbar-spacer`)).toHaveCount(1)
 })
 
 test('the Effects toggle is disabled and says why', async ({ page }) => {

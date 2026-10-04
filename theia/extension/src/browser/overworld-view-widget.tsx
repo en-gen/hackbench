@@ -21,7 +21,6 @@ import {
 import { GfxFrontendClient } from './gfx-push-client'
 import { LayerToggle } from './layer-icon'
 import { WheelBinding, ZoomController } from './zoom-controller'
-import { ZoomStepper } from './zoom-stepper'
 import { decodeBase64Bytes, decodeRgba, paintScaled } from './map16-pixels'
 import { ProjectContext } from './project-context'
 
@@ -60,17 +59,22 @@ export class OverworldViewWidget extends ReactWidget {
   }
   protected reloadToken = 0
 
+  /** The scroll container: Ctrl + wheel binds here and anchors on the cursor within it. */
+  protected readonly scrollerRef = (el: HTMLDivElement | null): void => {
+    this.wheelBinding?.dispose()
+    this.wheelBinding = el ? this.zoomController.bindWheel(el, () => this.canvasEl) : undefined
+  }
+
   @postConstruct()
   protected init(): void {
     this.id = OVERWORLD_VIEW_ID
     this.title.closable = true
-    this.addClass('hb-gfx-view')
+    this.addClass('hb-map-view')
     this.addClass('hb-overworld-view')
     this.node.tabIndex = 0
     this.toDispose.push(this.zoomController.onDidChange(() => this.update()))
     this.toDispose.push(this.zoomController)
-    this.wheelBinding = this.zoomController.bindWheel(this.node, () => this.canvasEl)
-    this.toDispose.push(this.wheelBinding)
+    this.toDispose.push({ dispose: () => this.wheelBinding?.dispose() })
     this.toDispose.push(
       this.projectContext.onChanged(p => {
         if (this.opened) void this.load(p?.manifestPath)
@@ -176,21 +180,21 @@ export class OverworldViewWidget extends ReactWidget {
 
   protected render(): React.ReactNode {
     if (!this.manifestPath) {
-      return <div className="hb-gfx-view-empty">Open a project to see its overworld.</div>
+      return <div className="hb-map-view-empty">Open a project to see its overworld.</div>
     }
     const dto = this.dto
     const reason = this.error ?? (dto?.status === 'unavailable' ? dto.reason : undefined)
+    const z = this.zoomController
     return (
-      <div className="hb-gfx-view-body">
-        <div className="hb-gfx-view-toolbar">
-          <span className="hb-gfx-view-title">{this.title.label}</span>
+      <div className="hb-map-view-main">
+        <div className="hb-map-view-toolbar">
           <LayerToggle
-            highlight="top"
-            label="Effects not drawn yet"
-            pressed={false}
-            disabled
-            control="layer-l3"
-            onClick={() => undefined}
+            highlight="bottom"
+            label="Background"
+            pressed={this.visible.l2}
+            disabled={dto?.status === 'ok' && !!dto.l2Unavailable}
+            control="layer-l2"
+            onClick={() => this.toggle('l2')}
           />
           <LayerToggle
             highlight="middle"
@@ -200,30 +204,57 @@ export class OverworldViewWidget extends ReactWidget {
             onClick={() => this.toggle('l1')}
           />
           <LayerToggle
-            highlight="bottom"
-            label="Background"
-            pressed={this.visible.l2}
-            disabled={dto?.status === 'ok' && !!dto.l2Unavailable}
-            control="layer-l2"
-            onClick={() => this.toggle('l2')}
+            highlight="top"
+            label="Effects not drawn yet"
+            pressed={false}
+            disabled
+            control="layer-l3"
+            onClick={() => undefined}
           />
-          <ZoomStepper controller={this.zoomController} />
+          <span className="hb-toolbar-spacer" />
+          <button
+            type="button"
+            data-control="zoom-out"
+            className="hb-icon-btn"
+            disabled={!z.canZoomOut}
+            title="Zoom out"
+            aria-label="Zoom out"
+            onClick={() => z.step(-1)}
+          >
+            <span className="codicon codicon-zoom-out" />
+          </button>
+          <span data-control="zoom-indicator" className="hb-zoom-indicator">
+            {`${Math.round(z.value * 100)}%`}
+          </span>
+          <button
+            type="button"
+            data-control="zoom-in"
+            className="hb-icon-btn"
+            disabled={!z.canZoomIn}
+            title="Zoom in"
+            aria-label="Zoom in"
+            onClick={() => z.step(1)}
+          >
+            <span className="codicon codicon-zoom-in" />
+          </button>
         </div>
-        {reason && <div className="hb-gfx-view-error hb-overworld-reason">{reason}</div>}
+        {reason && (
+          <div className="hb-map-view-note hb-map-view-error hb-overworld-reason">{reason}</div>
+        )}
         {dto?.status === 'ok' && dto.l2Unavailable && (
-          <div className="hb-gfx-view-error hb-overworld-l2-reason">
+          <div className="hb-map-view-note hb-overworld-l2-reason">
             {`Background unavailable: ${dto.l2Unavailable}`}
           </div>
         )}
-        {dto?.status === 'ok' && (
-          <div className="hb-gfx-view-canvas-wrap">
+        <div className="hb-map-view-scroller" ref={this.scrollerRef}>
+          {dto?.status === 'ok' && (
             <canvas
               data-area={this.area}
-              className="hb-gfx-view-canvas hb-overworld-canvas"
+              className="hb-pixel-canvas hb-overworld-canvas"
               ref={this.canvasRef}
             />
-          </div>
-        )}
+          )}
+        </div>
       </div>
     )
   }
