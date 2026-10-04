@@ -110,6 +110,7 @@ async function expectCheckerboard(expect, page, selector, covers = []) {
 const PAGE_COMPOSE = `
 function planesOf(rootSel, screen) {
   return [...document.querySelectorAll(\`\${rootSel} canvas[data-screen="\${screen}"]\`)]
+    .filter(c => getComputedStyle(c).visibility !== 'hidden')
     .sort((a, b) => a.style.zIndex - b.style.zIndex)
 }
 function composeCanvases(canvases, x, y, w, h) {

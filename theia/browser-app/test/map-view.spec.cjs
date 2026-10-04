@@ -133,8 +133,8 @@ async function showScreen(page, index, screen, yellow = false) {
 }
 
 /**
- * One screen's pixels as the user sees them, laid over the back area layer
- * (L1 is clear where no tile draws): a positional checksum, distinct colors,
+ * One screen's pixels as the user sees them: the planes that are shown, over the back area
+ * layer (a hidden layer is left out; L1 is clear where no tile draws): a positional checksum, distinct colors,
  * per-cell checksums, raw RGBA.
  */
 async function readScreen(page, index, screen) {
@@ -950,6 +950,9 @@ test('hidden cells on $014 show their art in the screen door over the backdrop',
 }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x014)
+  // These are about L1's screen door over the back area: the background would show through its clear pixels.
+  await page.locator(`${root(0x014)} [data-control="layer-l2"]`).click()
+  await expect(page.locator(`${root(0x014)} [data-control="layer-l2"]`)).toHaveAttribute('aria-pressed', 'false') // prettier-ignore
   const screen = await readScreen(page, 0x014, 0)
   const cell = []
   for (let y = 13 * 16; y < 14 * 16; y++)
@@ -986,6 +989,9 @@ test('blue P-switch on draws $014 hidden cells in full, and off restores them', 
 }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x014)
+  // These are about L1's screen door over the back area: the background would show through its clear pixels.
+  await page.locator(`${root(0x014)} [data-control="layer-l2"]`).click()
+  await expect(page.locator(`${root(0x014)} [data-control="layer-l2"]`)).toHaveAttribute('aria-pressed', 'false') // prettier-ignore
   const off = await hiddenCell(page)
   const blue = page.locator(`${root(0x014)} [data-control="switch-blue"]`)
   await blue.click()
