@@ -254,7 +254,9 @@ test('the Overworld and area views zoom: stepper, canvas CSS size, bitmap untouc
     await page.waitForSelector(`${view} .hb-overworld-canvas`, { timeout: 30000 })
     // Only the front tab is laid out: bring this one up before measuring it.
     await page.evaluate(
-      async id => getSvc('ApplicationShell').activateWidget(id),
+      async id => {
+        await getSvc('ApplicationShell').activateWidget(id) // returns the widget: do not serialize it
+      },
       view === VIEW ? 'hackbench.overworld-view' : 'hackbench.overworld-area-view:1',
     )
     await expect(page.locator(view)).toBeVisible()
