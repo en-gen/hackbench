@@ -84,8 +84,10 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
 
+      # Exhaustive byte-flip sweeps run 2-4x slower under v8 coverage on Node 22
+      # than on Node 20 (same sweep: 14 s vs 47 s on CI), past the 5 s default.
       - name: Unit tests with coverage
-        run: npm run test:unit -- --coverage
+        run: npm run test:unit -- --coverage --testTimeout=60000
 
       # Runs when the tests FAIL too: that is the run worth having. Informational
       # only; Codecov being down never reds CI.
