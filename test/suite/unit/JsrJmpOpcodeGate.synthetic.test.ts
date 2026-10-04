@@ -11,9 +11,18 @@
  */
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
-import { createGrid, TILE_EMPTY } from '../../../src/rom/ObjectExpander'
+import {
+  createGrid,
+  expandMap,
+  SWITCH_FLAGS_UNCLEARED,
+  TILE_EMPTY,
+} from '../../../src/rom/ObjectExpander'
 import { makeCursor } from '../../../src/rom/objectHandlers/cursor'
-import { handle_0DB49E, handle_0DF066 } from '../../../src/rom/objectHandlers/standardHandlers'
+import {
+  handle_0DB49E,
+  handle_0DB571,
+  handle_0DF066,
+} from '../../../src/rom/objectHandlers/standardHandlers'
 
 const PIPE = 0x0db49e
 const FILL = 0x0df066
@@ -25,7 +34,9 @@ const BOT = 0x0db4fe
 const RECT_CORE = 0x0decce
 const TILE_TABLE = 0x0da000
 const RECT_TABLE = 0x0da200
-const [PIPE_TILE, RECT_TILE] = [0x0a, 0x82]
+const STAMP = 0x0db571
+const STAMP_TABLE = 0x0da300
+const [PIPE_TILE, RECT_TILE, STAMP_TILE] = [0x0a, 0x82, 0x93]
 
 function cart(): RomFile {
   const buf = Buffer.alloc(0x400000, 0)
@@ -41,6 +52,8 @@ function cart(): RomFile {
     rom.writeAt(helper + 5, [0xff]) // triggers no tile in the grid
     rom.writeAt(helper + 16, [0xff])
   }
+  rom.writeAt(STAMP_TABLE, [STAMP_TILE])
+  rom.writeAt(STAMP + 11, [0xbf, ...long(STAMP_TABLE)])
   rom.writeAt(FILL + 1, [0x02])
   rom.writeAt(FILL + 2, [JMP, ...word(RECT_CORE)])
   rom.writeAt(RECT_TABLE, [0x00, 0x00, RECT_TILE])
@@ -48,58 +61,74 @@ function cart(): RomFile {
   return rom
 }
 
-function run(
-  handler: (c: ReturnType<typeof makeCursor>) => void,
-  at: number,
-  size: number,
-  rom: RomFile,
-) {
+type Handler = (c: ReturnType<typeof makeCursor>) => void
+
+/** The drawn tiles (row-major, empties dropped) and every reason recorded. */
+function run(handler: Handler, at: number, size: number, rom: RomFile) {
   const grid = createGrid(1)
   const cur = makeCursor(grid, rom, 1, 4, 5, 0x25, size)
   cur.handlerAddr = at
+  const unverified: string[] = []
+  cur.draw = { vertical: false, unverified, primitives: [], draw: () => false }
   handler(cur)
-  return grid.flat().filter(t => t !== TILE_EMPTY).length
+  return { tiles: grid.flat().filter(t => t !== TILE_EMPTY), unverified }
 }
 
 // [name, handler, address, size, byte address of the gated opcode, tiles drawn]
 const CALLERS = [
-  ['0DB49E JSR (+19)', handle_0DB49E, PIPE, 0x10, PIPE + 19, 2],
-  ['0DB49E JMP (+52)', handle_0DB49E, PIPE, 0x10, BODY_LOOP + 18, 2],
-  ['0DF066 JMP (+2)', handle_0DF066, FILL, 0x11, FILL + 2, 4],
+  ['0DB49E JSR (+19)', handle_0DB49E, PIPE, 0x10, PIPE + 19, [PIPE_TILE, PIPE_TILE]],
+  ['0DB49E JMP (+52)', handle_0DB49E, PIPE, 0x10, BODY_LOOP + 18, [PIPE_TILE, PIPE_TILE]],
+  ['0DF066 JMP (+2)', handle_0DF066, FILL, 0x11, FILL + 2, Array(4).fill(RECT_TILE)],
+  ['0DB571 LDA.L (+11)', handle_0DB571, STAMP, 0x68, STAMP + 11, [STAMP_TILE]],
 ] as const
 
-describe('JSR/JMP opcode gate (#452)', () => {
+describe('opcode gates behind resolveJsrTarget, resolveJmpTarget and handle_0DB571 (#452)', () => {
   for (const [name, handler, at, size, opAt, drawn] of CALLERS) {
-    it(`${name}: draws with the right opcode`, () => {
-      expect(run(handler, at, size, cart())).toBe(drawn)
+    it(`${name}: draws the expected tiles with the right opcode, no reason`, () => {
+      const r = run(handler, at, size, cart())
+      expect(r.tiles).toEqual(drawn)
+      expect(r.unverified).toEqual([])
     })
 
-    it(`${name}: refuses every other opcode byte, draws nothing`, () => {
+    it(`${name}: every other opcode byte writes no tile and records one reason`, () => {
       const rom = cart()
       const good = rom.readByte(opAt)
       let swept = 0
       for (let op = 0; op < 0x100; op++) {
         if (op === good) continue
         rom.writeAt(opAt, [op])
-        expect(run(handler, at, size, rom), `opcode $${op.toString(16)}`).toBe(0)
+        const r = run(handler, at, size, rom)
+        expect(r.tiles, `opcode $${op.toString(16)}`).toEqual([])
+        expect(r.unverified, `opcode $${op.toString(16)}`).toHaveLength(1)
+        expect(r.unverified[0]).toMatch(/refused/)
         swept++
       }
       expect(swept).toBe(255)
     })
   }
 
-  it('the issue witness: LDX #2 : JSL $108000 at $0DF066 draws nothing', () => {
+  it('the issue witness through expandMap: LDX #2 : JSL $108000 at $0DF066', () => {
     const rom = cart()
     rom.writeAt(FILL, [0xa2, 0x02, 0x22, 0x00, 0x80, 0x10])
-    expect(run(handle_0DF066, FILL, 0x11, rom)).toBe(0)
-  })
-
-  it('JSR and JMP are not interchangeable', () => {
-    const rom = cart()
-    rom.writeAt(PIPE + 19, [JMP])
-    expect(run(handle_0DB49E, PIPE, 0x10, rom)).toBe(0)
-    const rom2 = cart()
-    rom2.writeAt(FILL + 2, [JSR])
-    expect(run(handle_0DF066, FILL, 0x11, rom2)).toBe(0)
+    // Tileset 0's dispatcher at $0DA500; its table, after the 10-byte preamble, routes object 1 here.
+    rom.writeAt(0x0da41e, [0x00, 0xa5, 0x0d])
+    rom.writeAt(0x0da500 + 10, [0x66, 0xf0, 0x0d])
+    const obj = {
+      type: 'standard' as const,
+      screen: 0,
+      x: 1,
+      y: 2,
+      objectNumber: 1,
+      settings: 0x11,
+      newScreen: false,
+      highCoord: false,
+      raw: [0, 0, 0x11],
+      objectType: 1,
+      param: 0x11,
+    }
+    const sink = { unverified: [] as string[], primitives: [], draw: () => false }
+    const grid = expandMap([obj], 1, rom, 0, false, undefined, undefined, SWITCH_FLAGS_UNCLEARED, sink) // prettier-ignore
+    expect(grid.flat().filter(t => t !== TILE_EMPTY)).toEqual([])
+    expect(sink.unverified.filter(u => /refused/.test(u))).toHaveLength(1)
   })
 })

@@ -970,6 +970,7 @@ describe('handle_0DB571 (single-tile stamp, extended $68-$6F)', () => {
 
   it('stamps DATA_0DB569[size - $68]', () => {
     const rom = makeMockRom({ [TABLE_ADDR]: TABLE })
+    rom.writeAt(HANDLER_ADDR + 11, [0xbf])
     stampLongOperand(rom, HANDLER_ADDR, 12, TABLE_ADDR)
     const grid = createGrid(1)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 3, 10, 0x69, 0x69)
@@ -981,6 +982,7 @@ describe('handle_0DB571 (single-tile stamp, extended $68-$6F)', () => {
   // registered as a standard handler, so dispatchExtended found nothing (#360).
   it('is reached through the extended dispatch for every id $68-$6F', () => {
     const rom = makeMockRom({ [TABLE_ADDR]: TABLE })
+    rom.writeAt(HANDLER_ADDR + 11, [0xbf])
     stampLongOperand(rom, HANDLER_ADDR, 12, TABLE_ADDR)
     for (let id = 0x68; id <= 0x6f; id++) {
       rom.writeAt(ADDR_EXTENDED_DISPATCH + id * 3, [0x71, 0xb5, 0x0d])

@@ -44,7 +44,7 @@ import {
   MAP16_BYTES_PER_SCREEN_H,
 } from './cursor'
 import { mirror } from '../addressing'
-import { isInterpretedHandler, noteUnverified } from './interpretedGate'
+import { isInterpretedHandler, noteRefused, noteUnverified } from './interpretedGate'
 // No ADDR_DATA_* imports: every handler resolves its table addresses and
 // immediate tile IDs dynamically from its own bytecode via cur.handlerAddr.
 // No RomFile / readByteTable imports either -- reads go through cur.rom directly.
@@ -558,8 +558,12 @@ export function handle_0DB571(cur: Cursor): void {
   const X = cur.size - 0x68
   if (X < 0 || X > 7) return
 
-  // LDA.L DATA_0DB569,X at handler offset +11 (operand at +12).
-  const tableAddr = readLongOperand(cur, cur.handlerAddr + 12)
+  // LDA.L DATA_0DB569,X at handler offset +11 (operand at +12), gated on $BF (#452).
+  const tableAddr = readGatedLongOperand(cur, 12)
+  if (tableAddr === null) {
+    noteRefused(cur.draw?.unverified, cur.handlerAddr, cur.handlerAddr + 11, 0xbf)
+    return
+  }
   setPage0(cur) // StzTo6ePointer
   writeTile(cur, cur.rom.readByte(tableAddr + X) ?? 0)
 }
@@ -666,10 +670,14 @@ function readExistingLow(cur: Cursor): number {
  * `opcodeAddr` is not `opcode`. A hack that rewrote the instruction (say as a
  * JSL) leaves bytes that are not a 2-byte operand, and reading them draws from
  * wherever they point (#452). Callers decline, as CODE_0DDF3A's gates do, until
- * #301 gives the port a refusal channel.
+ * #301 gives the port a refusal channel, they record the reason in
+ * cur.draw.unverified.
  */
 function resolveAbsTarget(cur: Cursor, opcodeAddr: number, opcode: number): number | null {
-  if (cur.rom.readByte(opcodeAddr) !== opcode) return null
+  if (cur.rom.readByte(opcodeAddr) !== opcode) {
+    noteRefused(cur.draw?.unverified, cur.handlerAddr, opcodeAddr, opcode)
+    return null
+  }
   const lo = cur.rom.readByte(opcodeAddr + 1) ?? 0
   const hi = cur.rom.readByte(opcodeAddr + 2) ?? 0
   return (opcodeAddr & 0xff0000) | (hi << 8) | lo
