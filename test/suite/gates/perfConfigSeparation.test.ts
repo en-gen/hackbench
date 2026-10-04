@@ -9,10 +9,19 @@
  * matcher, so a widened glob is caught by what it would actually pick up.
  */
 import { describe, it, expect } from 'vitest'
+import { execFileSync } from 'node:child_process'
 import * as fs from 'node:fs'
+import * as os from 'node:os'
 import * as path from 'node:path'
 
 const repoRoot = path.resolve(__dirname, '../../..')
+
+// Tracked files only: untracked nested worktrees under .claude/ hold configs at
+// arbitrary commits and must not decide this repo's verdict.
+export function trackedConfigs(cwd: string): string[] {
+  const out = execFileSync('git', ['ls-files'], { cwd, encoding: 'utf8', timeout: 20000 })
+  return out.split(/\r?\n/).filter(f => /(^|\/)vitest(\..+)?\.config\.[mc]?[jt]s$/.test(f))
+}
 
 function includeArrayFrom(configSource: string): string[] {
   const match = configSource.match(/include:\s*\[([^\]]*)\]/)
@@ -101,5 +110,44 @@ describe('vitest.config.ts and vitest.perf.config.ts do not overlap', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'))
     expect(pkg.scripts['test:unit']).toBe('vitest run')
     expect(pkg.scripts['test:unit']).not.toContain('perf')
+  })
+})
+
+describe('the gh guard reaches both configs and the paired base round', () => {
+  const globalSetups = (src: string): string[] => {
+    const m = src.match(/globalSetup:\s*\[([^\]]*)\]/)
+    return m ? Array.from(m[1].matchAll(/'([^']*)'/g)).map(x => x[1]) : []
+  }
+  const read = (f: string) => fs.readFileSync(path.join(repoRoot, f), 'utf8')
+  const guard = 'test/suite/support/noRealGh.ts'
+
+  it('every vitest config in the repo registers the guard', () => {
+    const found = trackedConfigs(repoRoot)
+    expect(found.length).toBeGreaterThanOrEqual(3)
+    for (const f of found) expect(globalSetups(read(f)), f).toContain(guard)
+  })
+
+  it('every globalSetup the perf config names is a harness path', async () => {
+    const { HARNESS_PATHS } = await import('../../../tools/perf/results.mjs')
+    const named = globalSetups(read('vitest.perf.config.ts'))
+    expect(named.length).toBeGreaterThan(0)
+    for (const f of named) expect(HARNESS_PATHS).toContain(f)
+  })
+})
+
+describe('trackedConfigs', () => {
+  it('ignores an untracked nested directory holding an unguarded config', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-ls-'))
+    try {
+      const git = (...a: string[]) => execFileSync('git', a, { cwd: d, stdio: 'pipe' })
+      git('init', '-q')
+      fs.writeFileSync(path.join(d, 'vitest.config.ts'), '')
+      fs.mkdirSync(path.join(d, '.claude/worktrees/x'), { recursive: true })
+      fs.writeFileSync(path.join(d, '.claude/worktrees/x/vitest.config.ts'), '')
+      git('add', 'vitest.config.ts')
+      expect(trackedConfigs(d)).toEqual(['vitest.config.ts'])
+    } finally {
+      fs.rmSync(d, { recursive: true, force: true })
+    }
   })
 })

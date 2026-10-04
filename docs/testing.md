@@ -480,6 +480,33 @@ quote one instruction's bytes; any longer run is elided. Neither file is
 committed. The sweep is hand-run, since CI has no store; its verdict and
 summary code is tested in `HackSweep.synthetic.test.ts`.
 
+## Unit tests cannot reach an authenticated gh
+
+`test/suite/support/noRealGh.ts` is a vitest `globalSetup` (#486: a test ran
+`accept.sh` and posted real perf-nightly statuses). It puts a failing `gh` shim
+first on PATH, sets the four GitHub token variables to a sentinel, points
+`GH_CONFIG_DIR` at an empty directory, empties `GIT_ASKPASS`/`SSH_ASKPASS`, and
+resets `credential.helper` through both `GIT_CONFIG_*` and
+`GIT_CONFIG_PARAMETERS` (what `git -c` exports to children). A reached `gh` or
+`git credential fill` then sees only a token GitHub rejects.
+
+Every vitest config in the repo must register it in `globalSetup`;
+`perfConfigSeparation.test.ts` finds the configs by glob and fails on a miss.
+`perfAccept.test.ts` also refuses to run when the guard is not active.
+
+Known limits, stated as such:
+
+- A test that blanks or deletes the token variables, or builds an env without
+  spreading `process.env`, is outside the guard.
+- On Windows a test that spawns `gh` without a shell skips the shims and runs
+  the real gh.exe. The sentinel token keeps it unauthenticated, except that
+  `gh auth token --user <login>` reads that account's token from Windows
+  Credential Manager. A test can only reach it by naming the account
+  deliberately, so the guard does not block it.
+- `assertGuardActive` is satisfied by reusing a leftover `hb-nogh-*` dir and
+  setting the sentinel by hand. `accept.sh` still cannot post in that state,
+  because the shim `gh` it reaches always fails.
+
 ## Playwright never touches your app data
 
 Specs create projects, which writes `recent-projects.json`, `rom-registry.json`
