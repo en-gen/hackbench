@@ -54,6 +54,7 @@ export const HARNESS_PATHS = [
   'theia/browser-app/test/app-data.cjs',
   'theia/extension/src/common/perf-marks.ts',
   'test/suite/support/corpus.cjs',
+  'test/suite/support/noRealGh.ts',
 ]
 
 /** sha256 of HARNESS_PATHS under `dir`, in a fixed (sorted, path-relative)

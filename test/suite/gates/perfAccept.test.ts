@@ -3,10 +3,12 @@
  * 1. accept.sh refuses on its own validation before any `gh` call (exit 2).
  * 2. accept.sh against a fake `gh` that lists a window and logs any other
  *    call, so a status POST is observable.
- * 3. The suite-wide guard (test/suite/support/noRealGh.ts): every way of
- *    launching `gh` (bash, no shell, cmd.exe) lands on the failing shim.
+ * 3. The suite-wide guard (test/suite/support/noRealGh.ts). bash and cmd.exe
+ *    reach the failing shim; a no-shell spawn on win32 reaches the real gh.exe
+ *    but unauthenticated (sentinel tokens, see noRealGh.test.ts). An env built
+ *    without spreading process.env is outside the guard.
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterAll } from 'vitest'
 import { execFileSync, spawnSync } from 'node:child_process'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
@@ -17,9 +19,23 @@ const script = path.join(repoRoot, 'tools', 'perf', 'accept.sh')
 
 type Result = { status: number; output: string }
 
+// On win32 a bare `bash` can be the WSL launcher, which skips the PATH shim
+// and the fake gh entirely. Use Git Bash explicitly.
+function bashPath(): string {
+  if (process.platform !== 'win32') return 'bash'
+  const gitBash = path.join(
+    process.env.ProgramFiles ?? 'C:/Program Files',
+    'Git',
+    'bin',
+    'bash.exe',
+  )
+  if (!fs.existsSync(gitBash)) throw new Error(`Git Bash required, not found at ${gitBash}`)
+  return gitBash
+}
+
 function runBash(argv: string[], env: NodeJS.ProcessEnv = process.env): Result {
   try {
-    const output = execFileSync('bash', argv, {
+    const output = execFileSync(bashPath(), argv, {
       cwd: repoRoot,
       encoding: 'utf8',
       stdio: 'pipe',
@@ -84,9 +100,14 @@ describe('accept.sh only accepts a sha in the latest 100 develop commits', () =>
     '',
   ].join('\n')
   const fwd = (p: string) => p.replaceAll(path.sep, '/')
+  const made: string[] = []
+  afterAll(() => {
+    for (const d of made) fs.rmSync(d, { recursive: true, force: true })
+  })
 
   function fakeGh(window: string): { env: NodeJS.ProcessEnv; log: string } {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-fakegh-'))
+    made.push(dir)
     const log = path.join(dir, 'calls.log')
     fs.writeFileSync(path.join(dir, 'gh'), script_, { mode: 0o755 })
     const sep = process.platform === 'win32' ? ';' : ':'
@@ -128,6 +149,15 @@ describe('accept.sh only accepts a sha in the latest 100 develop commits', () =>
     expect(r.status).toBe(0)
     expect(fs.readFileSync(log, 'utf8')).toMatch(/statuses/)
   })
+
+  it('posts to the full resolved sha when given HEAD (not the literal ref)', () => {
+    const { env, log } = fakeGh(head)
+    const r = run(['HEAD', 'a reason'], env)
+    expect(r.status).toBe(0)
+    const logged = fs.readFileSync(log, 'utf8')
+    expect(logged).toContain(`statuses/${head}`)
+    expect(logged).not.toMatch(/statuses\/HEAD/)
+  })
 })
 
 describe('the suite-wide guard', () => {
@@ -137,9 +167,9 @@ describe('the suite-wide guard', () => {
     expect(shimName).toMatch(/^hb-nogh-/)
   })
 
-  it('strips gh credentials from the env', () => {
+  it('sets every gh token variable to the sentinel', () => {
     for (const v of ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN'])
-      expect(process.env[v]).toBeUndefined()
+      expect(process.env[v]).toBe('hb-no-real-gh-486')
     expect(process.env.GH_CONFIG_DIR).toContain('hb-nogh-')
   })
 
@@ -152,8 +182,8 @@ describe('the suite-wide guard', () => {
     expect(runBash(['-c', 'command -v gh']).output.trim()).toContain(`${shimName}/gh`)
   })
 
-  it('blocks a spawn with no shell (no bash, no cmd.exe)', () => {
-    const r = spawnSync('gh', ['auth', 'status'], { encoding: 'utf8' })
+  it('a spawn with no shell is not authenticated (on win32 it reaches gh.exe)', () => {
+    const r = spawnSync('gh', ['auth', 'status'], { encoding: 'utf8', timeout: 20000 })
     expect(r.status).not.toBe(0)
     expect(`${r.stdout}${r.stderr}`).not.toMatch(/Logged in/)
   })

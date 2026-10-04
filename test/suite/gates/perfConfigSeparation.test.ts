@@ -103,3 +103,24 @@ describe('vitest.config.ts and vitest.perf.config.ts do not overlap', () => {
     expect(pkg.scripts['test:unit']).not.toContain('perf')
   })
 })
+
+describe('the gh guard reaches both configs and the paired base round', () => {
+  const globalSetups = (src: string): string[] => {
+    const m = src.match(/globalSetup:\s*\[([^\]]*)\]/)
+    return m ? Array.from(m[1].matchAll(/'([^']*)'/g)).map(x => x[1]) : []
+  }
+  const read = (f: string) => fs.readFileSync(path.join(repoRoot, f), 'utf8')
+  const guard = 'test/suite/support/noRealGh.ts'
+
+  it('both vitest configs register the guard', () => {
+    expect(globalSetups(read('vitest.config.ts'))).toContain(guard)
+    expect(globalSetups(read('vitest.perf.config.ts'))).toContain(guard)
+  })
+
+  it('every globalSetup the perf config names is a harness path', async () => {
+    const { HARNESS_PATHS } = await import('../../../tools/perf/results.mjs')
+    const named = globalSetups(read('vitest.perf.config.ts'))
+    expect(named.length).toBeGreaterThan(0)
+    for (const f of named) expect(HARNESS_PATHS).toContain(f)
+  })
+})
