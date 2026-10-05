@@ -19,6 +19,8 @@ test/magic/
 # owned ROM. See docs/testing.md.
 test/fixtures/
 !test/fixtures/README.md
+# lintGate.test.ts scratch dirs (one per run; left behind if a run is killed)
+test/suite/gates/__fixtures__/
 
 # Build output
 dist/
