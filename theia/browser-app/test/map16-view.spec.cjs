@@ -2681,7 +2681,12 @@ async function leftEdgeColors(page, locator, n) {
     const b = el.getBoundingClientRect()
     return { x: Math.round(b.left), y: Math.round(b.top + b.height / 2) }
   })
-  const png = await page.screenshot({ clip: { x: r.x, y: r.y, width: n, height: 1 } })
+  return rowColors(page, r.x, r.y, n)
+}
+
+/** `n` painted pixels of the screenshot row at (x, y), as 'r,g,b'. */
+async function rowColors(page, x, y, n) {
+  const png = await page.screenshot({ clip: { x, y, width: n, height: 1 } })
   return page.evaluate(async b64 => {
     const img = new Image()
     img.src = `data:image/png;base64,${b64}`
@@ -2885,18 +2890,37 @@ test('the selection is a 1px black, 2px blue, 1px black overlay outside the tile
       expect(px, `${what} changed the bitmap`).toEqual(reference)
     }
 
-    // Selected = 0x30. A neighbor's hover and the selection both show, the
-    // selection later in the DOM so it draws above.
+    // Selected = 0x30, hovering its right neighbor 0x31. The selection's right
+    // rings and the hover's top lines (black, white) cross in the corner above
+    // 0x31's left edge. Read from the screenshot, not DOM order.
     await canvas.click(at(0x30, zoom))
     await canvas.hover(at(0x31, zoom))
     await expect(hov).toBeVisible()
     await expect(sel).toBeVisible()
-    expect(
-      await sel.evaluate(
-        (s, h) => Boolean(h.compareDocumentPosition(s) & Node.DOCUMENT_POSITION_FOLLOWING),
-        await hov.elementHandle(),
-      ),
-    ).toBe(true)
+    const corner = await page.evaluate(
+      ([s, h]) => {
+        const sr = document.querySelector(s).getBoundingClientRect()
+        const hr = document.querySelector(h).getBoundingClientRect()
+        return { x: Math.round(sr.right) - 4, black: Math.round(hr.top) }
+      },
+      ['.hb-map16-selection-outline', '.hb-map16-hover-outline'].map(c => `${FG} ${c}`),
+    )
+    // The corner is the selection's top-right 4x4, nested rings (outer black,
+    // 2 blue, inner black), so the rows read: hover-black row, [B,B,B,K] where
+    // K is black and B blue; hover-white row, [K,B,B,K]. Hover on top would
+    // read all black, then all white.
+    const K = '0,0,0'
+    const B = '79,193,255'
+    const want = [
+      [B, B, B, K],
+      [K, B, B, K],
+    ]
+    for (const dy of [0, 1]) {
+      expect(
+        await rowColors(page, corner.x, corner.black + dy, 4),
+        `z-order row ${dy} at ${zoom}x`,
+      ).toEqual(want[dy])
+    }
     // Hovering the selected tile itself: only the selection.
     await canvas.hover(at(0x30, zoom))
     await expect(sel).toBeVisible()
