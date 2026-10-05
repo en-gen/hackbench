@@ -93,7 +93,9 @@ uses the fixed color. Is the half bit still applied? **No: the half is skipped.*
 - Effect: $10E and $1BD (mode 11, CGADSUB $FF, $FB after the BG3 clear: subtract
   and half, black fixed color, sub screen $00) render unchanged. Subtracting
   black changes nothing and the half is skipped. Without this fact they would
-  show at half brightness.
+  show at half brightness. The rule is cited (snes9x and bsnes lines above) in a
+  comment on the half branch of `ColorMath.ts` and pinned by a unit test that
+  fails if the half is applied against the fixed color.
 
 ## What changes on screen
 
@@ -102,7 +104,8 @@ From the tables and the probe (vanilla ROM; level counts by header mode):
 - Mode 02, 12 levels including $009 (main $17, sub $00, BG3 priority clear): BG3
   is behind layers 1 and 2. CGADSUB $24 adds a black fixed color: no change.
 - Mode 08: $0E7 and $1CE, same shape as mode 02.
-- Mode 0E: $018 only (main $04, sub $13, CGADSUB $24 kept): BG3 is the only main
+- Mode 0E: $018 only (main $04, sub $13, CGADSUB $24 kept; but see the
+  contradictions: its layer 3 is camera-locked and not drawn here): BG3 is the only main
   layer and is added onto the sub screen's layers 1 and 2 (and sprites later).
   A real add, and the only level where layer 3 over another layer is not an
   occlusion.
@@ -178,13 +181,24 @@ the source and for the specs that read them).
    empty the main pixel is the backdrop (black) and the result is the sub pixel
    halved: layer 2 reads at half brightness there. "Only $018 renders
    differently" is true of the non-standard modes, not of the vanilla ROM overall.
-   Criterion 6 is restricted to modes whose math is the identity (CGADSUB $24, black
-   backdrop), and a sweep assertion counts the mode 0C maps that change. This
-   rests on the table value and the half rule above, not on a rendered capture:
-   confirm on one of the six against the core before the PR leaves draft.
+   Criterion 6 is restricted to modes whose math is the identity (CGADSUB $24,
+   black backdrop), and a sweep assertion counts the mode 0C maps that change.
+   This is derived from the table (bank_05.asm:495-499) plus the half rule above,
+   with no capture: the rule is to do what the ROM says, and mode 0C renders from
+   its CGADSUB value like every other mode. The synthetic add-and-half tests are
+   the check.
 2. **Sprites are not drawn on the map tab**, so the issue's "added onto layers 1,
    2 and sprites" is asserted on layers 1 and 2 only (criterion 4).
-3. `ModeLayout` does not carry CGADSUB today (only main, sub, special, vertical),
+3. **$018's layer 3 is camera-locked, so it is not drawn in #562.** Its settings
+   byte is $81 on tileset 13; `l3LoadTimeY` returns null for that (CODE_00A01F
+   follows the camera, bank_00.asm:4166-4199), the same case the first section
+   keeps out under #563. The $018 acceptance items (4 and the $018 half of 7)
+   become: the add is proven by the synthetic mode 0E tests only, and Playwright
+   asserts $018's layer 3 toggle is disabled with the camera-locked reason. The
+   real add shows once #563 draws camera-locked layer 3. Probe: vanilla ROM,
+   2026-10-05; $009 is byte $81 on tileset 3 and $0E7 and $1CE on tileset 1
+   (Castle 1 or Underground 1 path, $C0, BG3 cleared), so those draw.
+4. `ModeLayout` does not carry CGADSUB today (only main, sub, special, vertical),
    so the table-read site grows by one operand; `layer3.layout` and
    `mapPlaneOrder` are removed rather than extended.
 
@@ -218,8 +232,6 @@ standard-layout only (`docs/architecture/theia-shell.md` if it does).
 
 Implementation about 400 lines (ScreenPlanes 70, ColorMath 100, tables and model
 45, protocol and node 40, widget 130, minus the removed special case), tests
-about 650 (unit 450, Playwright 200). Total about 1050, above the 150-250 spec
-size by nature, so the PR should be split if the widget half passes 150 lines:
-planes and payload first, the stage and the composite second. **Label the PR
+about 650 (unit 450, Playwright 200). Total about 1050, above the 150-250 spec size by nature. It ships as ONE PR (owner decision, 2026-10-05): one review cycle beats two. **Label the PR
 needs-owner:** it changes what maps show (mode 0C dims layer 2, $018 gains an
 additive layer 3, $009 and similar gain layer 3, the layer 2 tooltip changes).
