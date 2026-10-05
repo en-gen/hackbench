@@ -73,6 +73,13 @@ export function loadLevelState(rom: RomFile, level: number): LevelLoad {
     let n = call(cpu, bus, 0x05d8b7, 'jsl', true)
     if (n < 0) return { ok: false, reason: 'level pointer loader did not return' }
     steps += n
+    // GM11 (bank_00.asm:2636-2657) runs CODE_00A635 between the two: it clears
+    // the per-level timers and sets Mario's entrance state ($71, $76) from the
+    // entrance type the header loader just read.
+    cpu.db = 0x00
+    n = call(cpu, bus, 0x00a635, 'jsr')
+    if (n < 0) return { ok: false, reason: 'Mario entrance setup did not return' }
+    steps += n
     // CODE_05801E ends with PLP, RTL; it saves its own DB use via the JSL caller.
     cpu.db = 0x05
     n = call(cpu, bus, 0x05801e, 'jsl')

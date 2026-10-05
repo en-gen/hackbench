@@ -11,6 +11,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { Cpu65816 } from '../../../../src/rom/cpu/Cpu65816'
+import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { SpriteBus } from '../../../../src/rom/sprites/interp/SpriteBus'
 import type { RomFile } from '../../../../src/rom/RomFile'
 import { freshRom, hasRom, TOOLS_ROOT, VANILLA } from '../../support/corpus'
@@ -125,6 +126,44 @@ describe.skipIf(!existsSync(TRACE_DIR) || !hasRom(VANILLA))(
       expect(tried).toBe(20)
       expect(equal).toBe(0)
     })
+
+    // The level state the runner seeds from the ROM's own loader (LevelLoader.ts) against
+    // what Mesen held when the level's sprites ran. Measured 2026-10-05, vanilla: both
+    // Map16 tables byte-identical on 88 of 154 maps (3 more differ only past the level's
+    // end, 63 differ inside it, cause not investigated), and every header and Mario-entrance
+    // cell equal on every map whose WRAM image was recorded. Asserted as floors, with the
+    // counts checked non-empty so a comparison of nothing cannot pass.
+    it('ROM-run level loader against Mesen level state', () => {
+      const rom = freshRom()
+      const cells = [0x5b, 0x5d, 0x64, 0x71, 0x76, 0x82, 0x83, 0x85, 0x86, 0x1692, 0x190e, 0x19, 0x187a] // prettier-ignore
+      let maps = 0
+      let withWram = 0
+      let identical = 0
+      const badCells: string[] = []
+      for (const map of readdirSync(root).sort()) {
+        const lp = join(root, map, 'map16_7ec800.bin')
+        if (!existsSync(lp)) continue
+        const l = loadLevelState(rom, parseInt(map, 16))
+        if (!l.ok) throw new Error(`${map}: ${l.reason}`)
+        maps++
+        const lo = readFileSync(lp)
+        const hi = readFileSync(join(root, map, 'map16_7fc800.bin'))
+        const same =
+          Buffer.compare(Buffer.from(l.wram.subarray(0xc800, 0xc800 + lo.length)), lo) === 0 &&
+          Buffer.compare(Buffer.from(l.wram.subarray(0x1c800, 0x1c800 + hi.length)), hi) === 0
+        if (same) identical++
+        const wp = join(root, map, 'wram.bin')
+        const w = existsSync(wp) ? readFileSync(wp) : Buffer.alloc(0)
+        if (w.length < 0x2000) continue
+        withWram++
+        for (const c of cells)
+          if (l.wram[c] !== w[c]) badCells.push(`${map} cell ${c.toString(16)}`)
+      }
+      expect(maps).toBeGreaterThan(100)
+      expect(withWram).toBeGreaterThan(50)
+      expect(identical).toBeGreaterThanOrEqual(85)
+      expect(badCells).toEqual([])
+    }, 300_000)
   },
 )
 

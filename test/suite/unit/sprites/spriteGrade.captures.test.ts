@@ -116,7 +116,8 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
       for (const a of m.inputs ?? []) {
         const e = inputs.get(a) ?? { reads: 0, nonzero: 0 }
         e.reads++
-        if (wram && a < 0x2000 && wram[a]) e.nonzero++
+        // A seed gap: read before written, and the capture holds a value the seed lacks.
+        if (wram && a < 0x2000 && wram[a] !== (loaded?.[a] ?? 0)) e.nonzero++
         inputs.set(a, e)
       }
       const g = grade(m, want, process.env.SPRITE_GRADE_POLICY === 'best' ? 'best' : 'chosen')

@@ -34,13 +34,13 @@ and were read raw with `sed`/`grep`, not through `smw-mcp` (logged in
 
 No, and the reason is structural, not a missing-opcode list.
 
-| Property | `interpret.ts` (Layer 1 handlers) | Needed for a sprite |
-|---|---|---|
-| Values | unknown (`null`) propagates; refuses at a branch, index, pointer or tile write | concrete: a sprite reads Mario, camera and timers before its first draw call |
-| RAM | closed set: direct page, a few named cells, two Map16 buffers; any other read refuses | 143 distinct WRAM cells read in MAIN, 57 in INIT (section 1.1), plus its own tables |
-| `JSL` | only the `ExecutePtrLong` hash | `ExecutePtr` (16-bit table) at the top of every dispatch, plus the shared draw routines |
-| Output | writes to the Map16 buffers | writes to OAM `$0300-$03FF`, size table `$0460` |
-| Opcodes | 65 cases | 140 distinct opcodes executed over the 197 completing sprites; 79 of them outside the 65 |
+| Property | `interpret.ts` (Layer 1 handlers)                                                     | Needed for a sprite                                                                      |
+| -------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Values   | unknown (`null`) propagates; refuses at a branch, index, pointer or tile write        | concrete: a sprite reads Mario, camera and timers before its first draw call             |
+| RAM      | closed set: direct page, a few named cells, two Map16 buffers; any other read refuses | 143 distinct WRAM cells read in MAIN, 57 in INIT (section 1.1), plus its own tables      |
+| `JSL`    | only the `ExecutePtrLong` hash                                                        | `ExecutePtr` (16-bit table) at the top of every dispatch, plus the shared draw routines  |
+| Output   | writes to the Map16 buffers                                                           | writes to OAM `$0300-$03FF`, size table `$0460`                                          |
+| Opcodes  | 65 cases                                                                              | 140 distinct opcodes executed over the 197 completing sprites; 79 of them outside the 65 |
 
 `Cpu65816.ts` is the sibling: every opcode and mode except decimal ADC/SBC,
 `COP`, `BRK`, `WDM`, `STP`, `WAI`, `XCE`, `RTI` (these refuse and name the
@@ -66,20 +66,20 @@ the way `SpriteDrawEngine.largeObj` does so the two outputs are comparable.
 Measured as "WRAM read before anything in the run wrote it", over the 197
 completing sprites, MAIN pass after INIT (count = sprites that read it):
 
-| Input | RAM | Sprites |
-|---|---|---|
-| sprite lock | `$9D` | 197 |
-| sprite number, slot | `$9E`, `$15E9` | 197, 181 |
-| `$15AC` (turn timer), `$1692` (sprite memory setting) | | 197, 197 |
-| camera X / Y low and high | `$1A`, `$1B`, `$1C`, `$1D` | 186, 186, 183, 181 |
-| sprite position highs / lows | `$14D4`, `$14E0`, `$D8`, `$E4` | 179, 176, 171, 164 |
-| sprite properties (priority) | `$64` | 160 |
-| TrueFrame | `$13` | 157 |
-| ScreenMode (vertical level) | `$5B` | 139 |
-| Mario position, "next" and "now" | `$94-$97`, `$D1-$D4` | 101, 95, 88 |
-| Yoshi / net / powerup / animation / duck | `$187A`, `$13F9`, `$19`, `$71`, `$73` | 104, 96, 100, 100, 100 |
-| EffFrame | `$14` | 37 |
-| level length | `$5D` | 94 |
+| Input                                                 | RAM                                   | Sprites                |
+| ----------------------------------------------------- | ------------------------------------- | ---------------------- |
+| sprite lock                                           | `$9D`                                 | 197                    |
+| sprite number, slot                                   | `$9E`, `$15E9`                        | 197, 181               |
+| `$15AC` (turn timer), `$1692` (sprite memory setting) |                                       | 197, 197               |
+| camera X / Y low and high                             | `$1A`, `$1B`, `$1C`, `$1D`            | 186, 186, 183, 181     |
+| sprite position highs / lows                          | `$14D4`, `$14E0`, `$D8`, `$E4`        | 179, 176, 171, 164     |
+| sprite properties (priority)                          | `$64`                                 | 160                    |
+| TrueFrame                                             | `$13`                                 | 157                    |
+| ScreenMode (vertical level)                           | `$5B`                                 | 139                    |
+| Mario position, "next" and "now"                      | `$94-$97`, `$D1-$D4`                  | 101, 95, 88            |
+| Yoshi / net / powerup / animation / duck              | `$187A`, `$13F9`, `$19`, `$71`, `$73` | 104, 96, 100, 100, 100 |
+| EffFrame                                              | `$14`                                 | 37                     |
+| level length                                          | `$5D`                                 | 94                     |
 
 The brief's "frame counter `$13`/`$14`": it is `$13` almost everywhere; `$14`
 only 37 sprites. `$157C` (facing), `$1602` (frame), `$15EA` (OAM index) are NOT
@@ -100,20 +100,20 @@ the Yoshi egg (`$2C`), the climbing-net Koopas (`$22-$25`), the four platforms
 
 Vanilla, 201 ids, first MAIN pass after INIT:
 
-| Result | Count |
-|---|---|
+| Result                                       | Count   |
+| -------------------------------------------- | ------- |
 | ran INIT and MAIN to completion (no refusal) | **197** |
-| refused | **4** |
-| completed and wrote at least one OAM tile | **174** |
-| completed, nothing drawn on pass 1 | 23 |
+| refused                                      | **4**   |
+| completed and wrote at least one OAM tile    | **174** |
+| completed, nothing drawn on pass 1           | 23      |
 
 The 4 refusals, all honest:
 
-| Id | Reason |
-|---|---|
-| `$36` | `COP` (`$02`): its handler is `DATA_01E41F`, data not code (the `CallSpriteMain` table row "36 - Unused", bank_01.asm) |
-| `$B6` | `COP` after the `Bnk3CallSprMain` chain's tail block; I did not trace why |
-| `$33` Fireball, `$B3` Bowser statue fireball | 400,000-step budget: the routine waits on state the seed lacks (Mario, level) |
+| Id                                           | Reason                                                                                                                 |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `$36`                                        | `COP` (`$02`): its handler is `DATA_01E41F`, data not code (the `CallSpriteMain` table row "36 - Unused", bank_01.asm) |
+| `$B6`                                        | `COP` after the `Bnk3CallSprMain` chain's tail block; I did not trace why                                              |
+| `$33` Fireball, `$B3` Bowser statue fireball | 400,000-step budget: the routine waits on state the seed lacks (Mario, level)                                          |
 
 The 23 that draw nothing on pass 1: 4 draw after N further passes (`$49` at 6,
 `$4D` and `$4E` at 3, `$7A` at 5); 19 never draw within 400 passes (`$12` and
@@ -142,12 +142,12 @@ set is a superset.)
 Sprites that cannot be completed this way, read from RAM writes during the run
 (OAM is fine; the PIXELS come from hardware uploads):
 
-| Id | What | Evidence |
-|---|---|---|
-| `$2D` baby Yoshi, `$33` fireball | write `DynGfxTilePtr` (`$0D85-$0D98`), tiles DMA'd per frame (rammap.asm:1321) | 4 writes each, `$02:EA41`, `$01:E1AB` |
-| `$9B` Hammer Brother | writes `DynPaletteTable` (`$0682`), CGRAM upload (rammap.asm:1155,1164) | 20 writes, `$03:DFD2` |
-| `$35` Yoshi, Mario, cape | same dynamic-tile scheme, but `$35` drew nothing in my run so it is not measured | n/a |
-| `$5F` brown chained platform | uses the multiply unit, not a blocker once `$4216` is modelled | 38 register writes |
+| Id                               | What                                                                             | Evidence                              |
+| -------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------- |
+| `$2D` baby Yoshi, `$33` fireball | write `DynGfxTilePtr` (`$0D85-$0D98`), tiles DMA'd per frame (rammap.asm:1321)   | 4 writes each, `$02:EA41`, `$01:E1AB` |
+| `$9B` Hammer Brother             | writes `DynPaletteTable` (`$0682`), CGRAM upload (rammap.asm:1155,1164)          | 20 writes, `$03:DFD2`                 |
+| `$35` Yoshi, Mario, cape         | same dynamic-tile scheme, but `$35` drew nothing in my run so it is not measured | n/a                                   |
+| `$5F` brown chained platform     | uses the multiply unit, not a blocker once `$4216` is modelled                   | 38 register writes                    |
 
 For these the OAM entries are still valid; what the interpreter cannot give is
 the char data behind a tile number, which the GFX decoder already supplies from
@@ -174,10 +174,10 @@ Engine side: `drawSpriteParts` with `spriteX` 0x80, `marioX` 0x80,
 `EnginePart` (char with the OBJ base and char-high bit, palette row, flips,
 dx/dy from the sprite origin). Compared as sorted sets.
 
-| Run | Exact match | Mismatch |
-|---|---|---|
-| Pass 1 | **9 of 16** (`$00 $03 $04 $07 $0F $11 $13 $14 $2C`) | 7 |
-| After 16 passes | **14 of 16** (all but `$1F`, `$2C`) | 2 |
+| Run             | Exact match                                         | Mismatch |
+| --------------- | --------------------------------------------------- | -------- |
+| Pass 1          | **9 of 16** (`$00 $03 $04 $07 $0F $11 $13 $14 $2C`) | 7        |
+| After 16 passes | **14 of 16** (all but `$1F`, `$2C`)                 | 2        |
 
 Pass-1 mismatches, classified:
 
@@ -262,7 +262,7 @@ a general core with no per-id code. So the question is the build, not the choice
    (+8, -1) come out of the INIT pass: 27 ids move the sprite and the core
    yields each shift by running INIT (section 8). Draw offsets come from the
    OAM the MAIN pass writes. The map layer reads `(INIT-shifted origin, OAM
-   parts)`, so the owner's `$4F` half-tile error disappears with no table.
+parts)`, so the owner's `$4F` half-tile error disappears with no table.
 3. **Guards, because completion is not correctness.** Id inside the pointer
    table; resolved pointer in code; step budget; refusal reported with its
    reason and shown as "appearance unverified" (today's honest degrade). The
@@ -306,19 +306,19 @@ by running the cart's own INIT; pinned in `spike.test.ts`.
 
 Constant across the first four seeds (dx, dy in pixels):
 
-| Ids | dx | dy | Note |
-|---|---|---|---|
-| `$1A $4B $4F $50 $9A` | +8 | -1 | `InitPiranha`-style; Y borrow handled |
-| `$0E $8E` | +8 | 0 | |
-| `$26 $A6` | +8 | 0 | |
-| `$3C $BC` | 0 | +1 | |
-| `$52` | 0 | -1 | |
-| `$5B $5D` | 0 | +24 | |
-| `$5F` | +120 | +104 | chain platform centre |
-| `$63 $64` | +2 | 0 | |
-| `$6C` | -8 | 0 | |
-| `$2A $AA` | +8 | -17 | |
-| `$54` | +8 | +7 | |
+| Ids                   | dx   | dy   | Note                                  |
+| --------------------- | ---- | ---- | ------------------------------------- |
+| `$1A $4B $4F $50 $9A` | +8   | -1   | `InitPiranha`-style; Y borrow handled |
+| `$0E $8E`             | +8   | 0    |                                       |
+| `$26 $A6`             | +8   | 0    |                                       |
+| `$3C $BC`             | 0    | +1   |                                       |
+| `$52`                 | 0    | -1   |                                       |
+| `$5B $5D`             | 0    | +24  |                                       |
+| `$5F`                 | +120 | +104 | chain platform centre                 |
+| `$63 $64`             | +2   | 0    |                                       |
+| `$6C`                 | -8   | 0    |                                       |
+| `$2A $AA`             | +8   | -17  |                                       |
+| `$54`                 | +8   | +7   |                                       |
 
 (`$AA` and `$2A` share one INIT, as do `$9A`/`$1A` and so on: aliases via the
 shared handler, not separate code.) Not constant:
@@ -346,11 +346,11 @@ those seeds could hide.
 Owner scope: three fields. Everything the interpreter emits per placed sprite
 (id, extra bits, level position) is the key; the model is:
 
-| Field | Shape | Filled today | Evidence |
-|---|---|---|---|
-| **Anchor** (position after INIT) | `{x, y}` 16-bit, plus the raw placement it started from | **199 of 201** (INIT alone; `$33`, `$B3` refuse) | section 8; 27 ids shift it |
-| **Parts** | list of `{char, size 8/16, dx, dy, flipX, flipY}` from OAM; 16x16 also split to four 8x8 as `EnginePart` does | **174 of 201** on pass 1, **178** within 400 passes (`$49 $4D $4E $7A` appear later), 19 never, 4 refuse | section 3; 9 of 16 descriptors exact on pass 1, 14 of 16 settled |
-| **Palette** | CGRAM row per part, `8 + ((attr >> 1) & 7)`, plus char-high bit and priority bits from the same attribute byte | **174 / 178**, same sprites as Parts | row is in the OAM attribute the cart wrote; `$15F6` is seeded by running `LoadSpriteTables` then INIT; INIT changes the row for at least 2 sprites (skip-INIT run differs by palette only) |
+| Field                            | Shape                                                                                                          | Filled today                                                                                             | Evidence                                                                                                                                                                                   |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Anchor** (position after INIT) | `{x, y}` 16-bit, plus the raw placement it started from                                                        | **199 of 201** (INIT alone; `$33`, `$B3` refuse)                                                         | section 8; 27 ids shift it                                                                                                                                                                 |
+| **Parts**                        | list of `{char, size 8/16, dx, dy, flipX, flipY}` from OAM; 16x16 also split to four 8x8 as `EnginePart` does  | **174 of 201** on pass 1, **178** within 400 passes (`$49 $4D $4E $7A` appear later), 19 never, 4 refuse | section 3; 9 of 16 descriptors exact on pass 1, 14 of 16 settled                                                                                                                           |
+| **Palette**                      | CGRAM row per part, `8 + ((attr >> 1) & 7)`, plus char-high bit and priority bits from the same attribute byte | **174 / 178**, same sprites as Parts                                                                     | row is in the OAM attribute the cart wrote; `$15F6` is seeded by running `LoadSpriteTables` then INIT; INIT changes the row for at least 2 sprites (skip-INIT run differs by palette only) |
 
 Palette caveat: this gives the ROW, not the colours. `$9B` writes
 `DynPaletteTable` at runtime (20 writes, bank_03.asm:10212): row known,
@@ -361,11 +361,11 @@ runtime GFX pointer writes, which affect pixels, not rows.
 What cannot be data, and how it is marked. Measured by running each completing
 sprite with Mario at X `$010` and at X `$1FF` (sprite at `$080`):
 
-| Field | Changes with Mario's side | Of 197 |
-|---|---|---|
-| Anchor | 0 | independent in all |
-| Palette row per part | 0 | independent in all |
-| Parts (mostly flipX, tile order) | 71 | dependent: facing |
+| Field                            | Changes with Mario's side | Of 197             |
+| -------------------------------- | ------------------------- | ------------------ |
+| Anchor                           | 0                         | independent in all |
+| Palette row per part             | 0                         | independent in all |
+| Parts (mostly flipX, tile order) | 71                        | dependent: facing  |
 
 So Anchor and Palette are pure data. Parts are data PLUS a facing input: the
 model stores parts for one declared seed and a `dependsOn: ['marioX']` set,
@@ -480,20 +480,20 @@ Seed column: G = generic seed only (placement, camera, Mario from the record);
 L+M = plus the level-state cells of 11.4 and the Map16 tables; W = plus the
 whole low-WRAM image (oracle seed, an upper bound, not a runtime input).
 
-| Round | Change | Seed | exact | shape | close | wrong | refused | empty |
-|---|---|---|---|---|---|---|---|---|
-| 0 | `HandleSprite` called directly, DB 0 | G | 325 | n/a | 104 | 1,404 | 115 | 9 |
-| 1 | call the game's sprite loop (DB 1) | G | 559 | n/a | 313 | 965 | 113 | 7 |
-| 2 | add `shape` verdict | G | 559 | 221 | 92 | 965 | 113 | 7 |
-| 3 | OAM mirror is 64 entries; the high table was read as OAM | G | 917 | 497 | 171 | 251 | 113 | 8 |
-| 4 | seed the whole low WRAM | W | 952 | 512 | 176 | 229 | 35 | 53 |
-| 5 | W plus Map16 tables | W+M | 984 | 584 | 72 | 228 | 35 | 54 |
-| 6 | level cells + status 9 allowed + status 0 is "erased" | G | 956 | 497 | 171 | 251 | 78 | 8 |
-| 6 | same | L | 987 | 503 | 176 | 227 | 0 | 64 |
-| 6 | same, plus Map16 | L+M | 1,022 | 573 | 78 | 219 | 0 | 65 |
-| 7 | INIT re-runs while status stays 1; counters tick per frame | G | 956 | 511 | 154 | 250 | 56 | 30 |
-| 7 | same | L+M | 1,034 | 581 | 63 | 214 | 0 | 65 |
-| 7 | same, 64 MAIN passes instead of 16 | L+M | 1,215 | 570 | 30 | 137 | 0 | 5 |
+| Round | Change                                                     | Seed | exact | shape | close | wrong | refused | empty |
+| ----- | ---------------------------------------------------------- | ---- | ----- | ----- | ----- | ----- | ------- | ----- |
+| 0     | `HandleSprite` called directly, DB 0                       | G    | 325   | n/a   | 104   | 1,404 | 115     | 9     |
+| 1     | call the game's sprite loop (DB 1)                         | G    | 559   | n/a   | 313   | 965   | 113     | 7     |
+| 2     | add `shape` verdict                                        | G    | 559   | 221   | 92    | 965   | 113     | 7     |
+| 3     | OAM mirror is 64 entries; the high table was read as OAM   | G    | 917   | 497   | 171   | 251   | 113     | 8     |
+| 4     | seed the whole low WRAM                                    | W    | 952   | 512   | 176   | 229   | 35      | 53    |
+| 5     | W plus Map16 tables                                        | W+M  | 984   | 584   | 72    | 228   | 35      | 54    |
+| 6     | level cells + status 9 allowed + status 0 is "erased"      | G    | 956   | 497   | 171   | 251   | 78      | 8     |
+| 6     | same                                                       | L    | 987   | 503   | 176   | 227   | 0       | 64    |
+| 6     | same, plus Map16                                           | L+M  | 1,022 | 573   | 78    | 219   | 0       | 65    |
+| 7     | INIT re-runs while status stays 1; counters tick per frame | G    | 956   | 511   | 154   | 250   | 56      | 30    |
+| 7     | same                                                       | L+M  | 1,034 | 581   | 63    | 214   | 0       | 65    |
+| 7     | same, 64 MAIN passes instead of 16                         | L+M  | 1,215 | 570   | 30    | 137   | 0       | 5     |
 
 Lines of code added: round 0 to 3 about 1,680 (runner, bus, dispatch, seed,
 graders, synthetic cart and tests, doc); rounds 4 to 7 about 440 more (180 of them the spawn grader).
@@ -537,16 +537,16 @@ Graded from each call's write log, not hardware OAM: hardware OAM lags the
 mirror by one frame (the NMI copies the mirror first), which an earlier version
 of the grader got wrong and scored 0 exact.
 
-| Measure | Result |
-|---|---|
-| anchor (position after INIT) equal to the recorded one | 198 of 201 |
-| the other 3 | refused, and Mesen's own INIT never returned (`$33`, `$A0`) or its MAIN hung (`$36`, COP) |
-| MAIN passes recorded and graded | 3,216 of 3,216 slots; 101 have no recorded call (the harness ran 16 frames in all, so INIT retries use some) |
-| exact (every owned OAM entry equal in slot, X, Y, tile, attribute, size) | 2,714 |
-| exact, both empty | 276 |
-| close (same tiles, a position or flip differs) | 11 |
-| wrong | 66 |
-| refused, agreeing with Mesen | 48 (3 ids x 16) |
+| Measure                                                                  | Result                                                                                                       |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| anchor (position after INIT) equal to the recorded one                   | 198 of 201                                                                                                   |
+| the other 3                                                              | refused, and Mesen's own INIT never returned (`$33`, `$A0`) or its MAIN hung (`$36`, COP)                    |
+| MAIN passes recorded and graded                                          | 3,216 of 3,216 slots; 101 have no recorded call (the harness ran 16 frames in all, so INIT retries use some) |
+| exact (every owned OAM entry equal in slot, X, Y, tile, attribute, size) | 2,714                                                                                                        |
+| exact, both empty                                                        | 276                                                                                                          |
+| close (same tiles, a position or flip differs)                           | 11                                                                                                           |
+| wrong                                                                    | 66                                                                                                           |
+| refused, agreeing with Mesen                                             | 48 (3 ids x 16)                                                                                              |
 
 The 66 wrong and 11 close passes are 7 ids: `$1E` Lakitu (Mesen shows the
 cloud, we show Lakitu: a state difference), `$2B`, `$2D` baby Yoshi, `$3E` and
@@ -578,3 +578,90 @@ against 5). None was investigated beyond this; the cause is not known.
   map's level-load image. Neither proves custom (hack) sprites.
 - The core does not store 16-bit read-modify-write high-byte first; the same
   bytes land, in a different order. Nothing here observes the order.
+
+## 12 Follow-up rounds (2026-10-05): provenance, frame policy, spawn classes
+
+### 12.1 Provenance of every seed value
+
+The runner reads nothing from a capture. Rounds 4 to 7 in 11.2 used capture
+values inside the GRADER only (an "oracle seed", an upper bound). The runtime
+seed is now:
+
+| Value                                                             | Source                                                                                                                                       |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `$5B` `$5D` `$64` (level header cells)                            | the ROM's own header parse, run on the core (`LevelLoader.ts`, CODE_05D8B7 then CODE_05801E)                                                 |
+| `$82-$83` slope pointer, `$1692` sprite memory, `$190E` buoyancy  | same run (tileset code, sprite header byte)                                                                                                  |
+| `$85` `$86` water and slippery                                    | same run, via the Mario-entrance routine CODE_00A635                                                                                         |
+| Map16 low and high tables `$7E:C800`, `$7F:C800`                  | same run: every Layer 1 object expanded by the ROM's own object handlers                                                                     |
+| `$71` `$76` `$19` `$187A` `$13F9` `$73` (Mario entrance and form) | CODE_00A635                                                                                                                                  |
+| the level's own sprite list                                       | the ROM's loader spawns it; the runner zeroes all 12 status bytes so only the sprite under test runs                                         |
+| placement, camera, Mario X/Y, `$13/$14`, pass count               | the caller's seed (a fixture or UI supplies them)                                                                                            |
+| `$148B/C` RNGCalc                                                 | a constant, 6 and 3: no ROM code sets it before frame 0; every level-load capture held that value (98 of 98 maps, vanilla). Not ROM-derived. |
+| `$76` default when no loader ran                                  | 1 (facing right), the loader's own result, a documented constant                                                                             |
+
+Measured against Mesen (sprite-trace, vanilla): every header and entrance
+cell equal on every map that recorded a WRAM image; both Map16 tables
+byte-identical on 88 of 154 maps, 3 more differ only past the level's end, 63
+differ inside the level (cause not investigated; Mesen may have captured after
+in-level changes). Accuracy delta of ROM seed against oracle seed, layers_v5,
+chosen-frame policy: exact 932 against 914, shape 572 against 563, wrong 300
+against 344. Spawn tier: identical (both 2,714 exact before the grouping fix
+below). Test: `ROM-run level loader against Mesen level state`.
+
+### 12.2 Frame policy and set-membership grading
+
+The model carries `chosen`: the first pass at or after INIT that draws at least
+one tile, within a cap of 64. Grading: the chosen frame's parts must equal SOME
+frame Mesen recorded for that sprite (all recorded frames, not one).
+
+Layers_v5, 1,957 recorded sprites, ROM seed unless stated:
+
+| Policy and seed                             | exact | shape | close | wrong | refused | empty |
+| ------------------------------------------- | ----- | ----- | ----- | ----- | ------- | ----- |
+| chosen frame, ROM seed (headline)           | 932   | 572   | 136   | 300   | 0       | 17    |
+| chosen frame, oracle seed                   | 914   | 563   | 131   | 344   | 0       | 5     |
+| chosen frame, generic seed (no level state) | 931   | 469   | 130   | 343   | 56      | 28    |
+| best of 64 passes, ROM seed (old headline)  | 1,211 | 572   | 20    | 137   | 0       | 17    |
+
+The 280 sprites between chosen and best-of-64 are animation phase: Mesen's
+recorded frames come later than the first draw (Rip Van Fish asleep is tile
+`$AE` first, `$8C/$8E` later). That is a frame-choice policy gap, not a seed
+gap.
+
+### 12.3 Sprite-loop entry check
+
+`resolveLoop` byte-checks the loop at `$01:808C` (PHB PHK PLB, then the
+`LDX #$0B / STX $15E9 / JSR setup / JSR handle / DEX / BPL` countdown) and takes
+the setup and HandleSprite addresses from its two JSR operands. A different
+shape is refused with a reason. Planted: a countdown of `$0A` instead of `$0B`
+refuses (synthetic cart test).
+
+### 12.4 The seven unexplained spawn ids
+
+Replaying each recorded call on the core from Mesen's own pre-call state (WRAM
+image plus the harness's high-WRAM blocks) is write-for-write equal for all
+seven: none is a core or bus bug. After two grader fixes the status is:
+
+| Id                | Class                                                                                                                                                                                                                                                | Evidence                                                                     |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `$1E` `$61` `$82` | grader bug: sprites that spawn others log extra calls in the same frame; I had read only one call per frame                                                                                                                                          | after grouping every call of a frame, all three are exact in 16 of 16 passes |
+| `$3E` `$80` `$2D` | grader bug: status-9 sprites log their calls as `other`, not `main`, so I was a frame early                                                                                                                                                          | exact after finding the first non-INIT call                                  |
+| `$2B`             | seed gap: Mesen enters its first MAIN with about 1,000 cells of state in `$1BB4-$1DD3` and `$1693/$1928` that our run does not have (written by code outside the sprite loop in frame 0); 15 of 16 passes draw nothing in Mesen and one tile in ours | cause of those cells not identified                                          |
+
+Spawn tier now: 2,776 exact, 276 exact-empty, 15 wrong (all `$2B`), 48 refused
+and agreeing with Mesen, 101 unrecorded; anchors 198 of 201, the other 3
+agreeing refusals. A Boo (`$37`) mismatch with the ROM seed was the Mario
+direction `$76`, found by `trackInputs` and now seeded.
+
+### 12.5 Largest remaining class (Mario and level dependent)
+
+Seed-gap ranking by reads of cells the seed lacks (`SPRITE_GRADE_INPUTS`):
+`$13/$14` frame counters, `$D1/$D3/$D4` Mario position (both are fixture
+seeds, differing from where Mesen's Mario was at draw time), `$71` (now
+ROM-derived), `$148B/C` (constant). So the Mario and level cells are no longer
+the lead class: after them, 572 `shape` and 300 `wrong` verdicts are sprite
+position and animation phase at the instant Mesen drew (the sprite had moved
+or fallen: a Koopa at `y` 353 in Mesen against 368 in ours), which the level
+captures cannot settle because Mario and the sprite were free-running. The
+next fixture that would settle it is a per-frame sprite-position log, which the
+spawn fixtures carry only for level `$0BD`.
