@@ -76,7 +76,8 @@ async function shootCanvas(page, canvasSel) {
  * Compares a grid-off and a grid-on shot of the same region, numerically in
  * the page. Pixels on the hook's lines should change (the grid is visible in
  * the composited page, so a canvas stacked BELOW the content fails); every
- * other pixel must be identical (it is an overlay, not a repaint).
+ * pixel more than one pixel from a line must be identical (it is an overlay,
+ * not a repaint). The one-pixel slack absorbs a fractional canvas offset.
  */
 async function compositedGridDiff(page, off, on, grid) {
   return page.evaluate(
@@ -101,18 +102,38 @@ async function compositedGridDiff(page, off, on, grid) {
       }
       for (const l of xLines) mark(l.start, l.start + l.size, l.from, l.to)
       for (const l of yLines) mark(l.from, l.to, l.start, l.start + l.size)
-      let lineTotal = 0
-      let lineChanged = 0
-      let otherChanged = 0
+      // The canvas can sit at a fractional page offset (measured: 299.66, 120.59),
+      // so the clip, rounded to whole pixels, may be up to a pixel off the canvas's
+      // own origin. A line pixel counts as changed if it OR a neighbour changed,
+      // and "other" pixels exclude the mask dilated by one pixel.
+      const changed = new Uint8Array(W * H)
       for (let i = 0; i < W * H; i++) {
-        const diff =
+        changed[i] =
           a.data[i * 4] !== b.data[i * 4] ||
           a.data[i * 4 + 1] !== b.data[i * 4 + 1] ||
           a.data[i * 4 + 2] !== b.data[i * 4 + 2]
-        if (mask[i]) {
-          lineTotal++
-          if (diff) lineChanged++
-        } else if (diff) otherChanged++
+            ? 1
+            : 0
+      }
+      const near = (arr, x, y) => {
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dx = -1; dx <= 1; dx++) {
+            const xx = x + dx
+            const yy = y + dy
+            if (xx >= 0 && yy >= 0 && xx < W && yy < H && arr[yy * W + xx]) return true
+          }
+        return false
+      }
+      let lineTotal = 0
+      let lineChanged = 0
+      let otherChanged = 0
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          if (mask[y * W + x]) {
+            lineTotal++
+            if (near(changed, x, y)) lineChanged++
+          } else if (changed[y * W + x] && !near(mask, x, y)) otherChanged++
+        }
       }
       return { W, H, bW: b.width, bH: b.height, lineTotal, lineChanged, otherChanged }
     },
