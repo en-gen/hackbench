@@ -5,7 +5,8 @@
  * It is its own canvas at DEVICE resolution rather than lines baked into the
  * content bitmap: the bitmap is zoomed by CSS, so baked lines would thicken
  * with zoom and blur. The host must be `position: relative` and exactly the
- * content canvas's size (see `.hb-grid-host`); the overlay ignores the pointer.
+ * content canvas's size (see `.hb-grid-host`), or pass `locate`; the overlay
+ * ignores the pointer.
  *
  * Test hook: `data-grid-lines` holds the `GridLines` JSON that was drawn,
  * `data-grid-cell-px` the CSS px between base lines (cellSize * zoom),
@@ -32,6 +33,15 @@ export function useDevicePixelRatio(): number {
   return dpr
 }
 
+export interface GridOverlayProps extends GridSpec {
+  /**
+   * For a host that cannot give the overlay a positioned wrapper of its own:
+   * where, in the overlay's containing block, the content canvas's top-left is.
+   * Read after every commit, so a remounted canvas is never located stale.
+   */
+  locate?: () => { left: number; top: number } | undefined
+}
+
 /**
  * The canvas itself: sized in device px, shown at CSS size, repainted only
  * when the lines, size or color change (a Map16 animation tick or any other
@@ -45,9 +55,17 @@ export function GridCanvas(props: {
   cssH: number
   cellPx: number
   dpr: number
+  locate?: () => { left: number; top: number } | undefined
 }): React.ReactElement {
   const { lines, devW, devH, cssW, cssH, cellPx, dpr } = props
   const ref = React.useRef<HTMLCanvasElement>(null)
+  React.useLayoutEffect(() => {
+    const at = props.locate?.()
+    if (ref.current && at) {
+      ref.current.style.left = `${at.left}px`
+      ref.current.style.top = `${at.top}px`
+    }
+  })
   const linesJson = JSON.stringify(lines)
   // Read at render so a theme switch (which re-renders the widget) changes the key.
   const color = getComputedStyle(document.body).getPropertyValue('--theia-foreground').trim()
@@ -74,7 +92,7 @@ export function GridCanvas(props: {
   )
 }
 
-export function GridOverlay(spec: GridSpec): React.ReactElement {
+export function GridOverlay(spec: GridOverlayProps): React.ReactElement {
   const dpr = useDevicePixelRatio()
   const { cellSize, width, height, zoom } = spec
   const tiersKey = JSON.stringify(spec.tiers ?? [])
@@ -96,6 +114,7 @@ export function GridOverlay(spec: GridSpec): React.ReactElement {
       cssH={cssH}
       cellPx={cellSize * zoom}
       dpr={dpr}
+      locate={spec.locate}
     />
   )
 }

@@ -111,10 +111,21 @@ Rules learned the hard way:
 
 ## Toggle buttons
 
-A toggle must show its state without a hover or a tooltip. Following the
-extension's convention, the pressed state is an ACCENT FOREGROUND on the
-glyph, plus a tinted fill and an inset outline, because a recolored 24px
-codicon on its own is easy to miss.
+A toggle must show its state without a hover or a tooltip. The house style
+is "option D" (owner-approved): PRESSED is a raised chip, a filled background
+with a 1px border and a bright glyph (dark theme: `#37373d`, `#4a4a50`,
+`#e0e0e0`; hover while pressed `#3e3e45`). OFF is a bare dim glyph (`#6e6e6e`
+equivalent) with no fill and a TRANSPARENT 1px border, so pressing never
+shifts the layout. It applies to every toggle family: `.hb-icon-btn-on` /
+`-off` (codicon and layer icons), `.hb-map16-toggle` (text toggles) and `.hb-pixel-button-on` (pixel art, which
+keeps full-color art in both states). The values are Theia tokens whose dark
+values match (fill `list.inactiveSelectionBackground`; border, hover and glyph
+mixed from `foreground`), so light follows the theme, and high contrast uses
+`contrastActiveBorder` for the border. Not an accent color: a blue glyph on a
+24px button competes with the focus ring.
+
+The focus ring is for the KEYBOARD only (`:focus-visible`): a mouse click
+leaves no outline, Tab shows one.
 
 Watch specificity. `.btn:hover:not(:disabled)` outranks a single `.btn-on`
 class, so without an explicit `-on:hover` rule the fill vanishes exactly
@@ -179,11 +190,12 @@ border box and take no layout space.
 
 ## Hover
 
-Map16 sheet (#570): the hovered tile gets a two-tone outline, a black
-outer ring and a white inner ring, both inside the tile's own bounds, drawn
-last so it also reads on the selected (accent) tile. Nothing outside the tile
-changes. Plain white was rejected because it vanishes on light tiles. The
-preview's edit-affordance dim (`HOVER_DIM`, `rgba(0,0,0,0.55)`) is a
+Map16 sheet (#573, was #570): the hovered tile gets a two-tone outline drawn
+as a DOM overlay above the canvas, never into the bitmap: a white line touching
+the tile and a black line outside it, 1 CSS px each at every zoom, so the whole
+tile stays visible and the outline is not clipped at the sheet edge (the strip's
+padding holds it). Plain white was rejected because it vanishes on light tiles.
+The preview's edit-affordance dim (`HOVER_DIM`, `rgba(0,0,0,0.55)`) is a
 separate thing and stays.
 
 ## Color tokens

@@ -16,6 +16,7 @@ import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message, Widget } from '@theia/core/lib/browser'
 import {
   MAP_PLANE_KEYS,
+  mapPlaneOrder,
   MapDetailsDto,
   MapPlaneKey,
   MapScreenResult,
@@ -97,6 +98,7 @@ export class MapViewWidget extends ReactWidget {
   protected showL2 = true
   /** The tile / sub-screen / screen grid; off by default. */
   protected showGrid = false
+  protected showL3 = true
   /** Fit mode until the user zooms; the fit is the cross axis filling the view (#526). */
   protected readonly zoomController = new ZoomController(ZOOMS, 1, () => this.measureFit())
   protected wheelBinding: WheelBinding | undefined
@@ -283,6 +285,7 @@ export class MapViewWidget extends ReactWidget {
       l.orientation !== r.orientation ||
       l.note !== r.note ||
       l.layerNotes.join() !== r.layerNotes.join() ||
+      JSON.stringify(l.layer3) !== JSON.stringify(r.layer3) ||
       l.backdrop.join() !== r.backdrop.join()
     ) {
       // The first reply sizes the strip; the screens in view follow once it is laid out.
@@ -408,6 +411,11 @@ export class MapViewWidget extends ReactWidget {
     this.update()
   }
 
+  protected toggleL3(): void {
+    this.showL3 = !this.showL3
+    this.update()
+  }
+
   protected override onResize(msg: Widget.ResizeMessage): void {
     super.onResize(msg)
     this.fitStrip()
@@ -418,24 +426,47 @@ export class MapViewWidget extends ReactWidget {
     this.node.focus()
   }
 
+  /** Layer 3's tooltip: its role when drawn (the header's priority bit), else why it is not. */
+  protected layer3Label(): string {
+    const l3 = this.mapLayout?.layer3
+    if (!l3) return 'Layer 3 · reading the map'
+    return l3.reason ?? (l3.priority ? 'Layer 3 · Overlay' : 'Layer 3 · Background')
+  }
+
   protected render(): React.ReactNode {
     this.renderedZoom = this.zoomController.value
     return (
       <div className="hb-map-view-main">
         <div className="hb-map-view-toolbar">
           <LayerToggle
-            highlight="bottom"
-            label="Background"
+            glyph="1"
+            label="Layer 1 · Foreground"
+            pressed={this.showL1}
+            control="layer-l1"
+            onClick={() => this.toggleL1()}
+          />
+          <LayerToggle
+            glyph="2"
+            label="Layer 2 · Background"
             pressed={this.showL2}
             control="layer-l2"
             onClick={() => this.toggleL2()}
           />
           <LayerToggle
-            highlight="middle"
-            label="Foreground"
-            pressed={this.showL1}
-            control="layer-l1"
-            onClick={() => this.toggleL1()}
+            glyph="3"
+            label={this.layer3Label()}
+            pressed={this.showL3 && !this.mapLayout?.layer3.reason}
+            disabled={!this.mapLayout || !!this.mapLayout.layer3.reason}
+            control="layer-l3"
+            onClick={() => this.toggleL3()}
+          />
+          <LayerToggle
+            glyph="S"
+            label="Sprite toggle not wired yet"
+            pressed={false}
+            disabled
+            control="layer-sprites"
+            onClick={() => undefined}
           />
           <span className="hb-toolbar-sep" data-control="toolbar-sep" />
           {PALACES.map(p => this.renderToggle(p))}
@@ -550,7 +581,7 @@ export class MapViewWidget extends ReactWidget {
           ref={this.scrollerRef}
           onScroll={() => this.requestVisible()}
         >
-          {/* Bottom to top (planes by MAP_PLANE_KEYS): the checkerboard, the back area, then the screens,
+          {/* Bottom to top (planes by mapPlaneOrder): the checkerboard, the back area, then the screens,
             so hiding a layer shows what is under it, down to nothing. */}
           <div className="hb-map-view-strip hb-checkerboard">
             <div
@@ -564,7 +595,7 @@ export class MapViewWidget extends ReactWidget {
                 className="hb-map-view-screen"
                 style={{ width: l.width * this.zoom, height: l.height * this.zoom }}
               >
-                {MAP_PLANE_KEYS.map((plane, z) => (
+                {mapPlaneOrder(l.layer3).map((plane, z) => (
                   <canvas
                     key={plane}
                     className="hb-map-view-plane"
@@ -572,7 +603,7 @@ export class MapViewWidget extends ReactWidget {
                     data-screen={s}
                     style={{
                       zIndex: z + 1,
-                      visibility: (plane.startsWith('l2') ? this.showL2 : this.showL1) ? undefined : 'hidden', // prettier-ignore
+                      visibility: (plane.startsWith('l2') ? this.showL2 : plane.startsWith('l3') ? this.showL3 : this.showL1) ? undefined : 'hidden', // prettier-ignore
                     }}
                     ref={this.canvasRef(plane, s)}
                   />
