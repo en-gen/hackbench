@@ -22,7 +22,7 @@ flowchart TB
 
     subgraph supp["Supporting"]
         tools["tools/<br/>Mesen capture, gates"]
-        spike["spike/<br/>throwaway probes"]
+        spike["spikes/<br/>throwaway probes, one folder each"]
         docs["docs/"]
     end
 
@@ -44,7 +44,7 @@ flowchart TB
 | `src/providers/`, `src/webview/`, `src/extension.ts` + its `src/`-root helpers | the original VS Code extension | no, reference only |
 | `test/suite/` | the Vitest suite | yes |
 | `tools/` | Mesen capture scripts, the commit gates | as needed |
-| `spike/` | throwaway probes, kept for their findings | no |
+| `spikes/` | throwaway probes, one folder per spike, kept for their findings | no |
 | `docs/` | this documentation | yes |
 
 ## The one rule about imports
