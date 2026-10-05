@@ -147,6 +147,39 @@ describe('partial-alpha pixels (the hidden-tile screen door)', () => {
     })
     expect([...out]).toEqual([...mix(c5(30, 2, 2), c5(4, 20, 4), W), 255])
   })
+  it('the topmost plane decides CGADSUB membership for a dim over an opaque plane in its list', () => {
+    // Layer 3 is in CGADSUB ($24), layer 1 is not: layer 1 is on top, so no math adds layer 2.
+    const l1 = c5(30, 2, 2)
+    const l3 = c5(4, 20, 4)
+    const out = composeScreen({
+      width: 1,
+      height: 1,
+      math: { cgadsub: 0x24, fixed: BACK },
+      lists: { main: ['l3Low', 'l1Low'], sub: ['l2Low'] },
+      planes: { l1Low: dim(l1, 64), l3Low: plane(l3), l2Low: plane(c5(9, 9, 9)) },
+    })
+    expect([...out]).toEqual([...mix(l1, l3, W), 255])
+  })
+  it('a dim sub-only pixel (mode 0E style) keeps its alpha', () => {
+    const out = composeScreen({
+      width: 1,
+      height: 1,
+      math: { cgadsub: 0x24, fixed: BACK },
+      lists: { main: ['l3Low'], sub: ['l1Low'] },
+      planes: { l1Low: dim(c5(10, 20, 30), 64), l3Low: null },
+    })
+    expect([...out]).toEqual([...c5(10, 20, 30), 64])
+  })
+  it('with no math, a dim pixel over nothing keeps its alpha', () => {
+    const out = composeScreen({
+      width: 1,
+      height: 1,
+      math: null,
+      lists: { main: ['l1Low'], sub: [] },
+      planes: { l1Low: dim(c5(10, 20, 30), 64) },
+    })
+    expect([...out]).toEqual([...c5(10, 20, 30), 64])
+  })
   it('the math runs on the tile color, not on the dimmed one', () => {
     const l1 = c5(10, 10, 10)
     const l2 = c5(4, 4, 4)

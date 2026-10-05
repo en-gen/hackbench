@@ -46,6 +46,8 @@ const to8 = (v: number) => (v << 3) | (v >> 2)
  * The pixel a list shows at byte offset `at`: its color, coverage (0..1) and the layer bit of the
  * topmost plane that drew. A partial-alpha pixel (the hidden-tile screen door, an editor dim and not
  * hardware) is blended over the planes beneath it in the list, as the old plane stack did.
+ * The topmost plane's CGADSUB membership then applies to the blend: an editor affordance, not
+ * hardware, and it differs only when the two layers differ in membership.
  */
 function top(i: ScreenInput, list: readonly PlaneKey[], at: number) {
   let sum = [0, 0, 0]
