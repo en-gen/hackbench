@@ -139,7 +139,7 @@ border box and take no layout space.
   art, and a blurred edit cannot be judged.
 - Draw at NATURAL resolution and scale with CSS. Zoom changes the CSS
   size, not the bitmap.
-- Overlays (grid lines, selection outlines, hover dimming) are drawn on
+- Overlays (grid lines, selection outlines, hover outline) are drawn on
   top at paint time and never baked into the decoded pixels. Toggling one
   is a repaint, not a reload, and the bytes an export would use stay
   exactly what the ROM says.
@@ -174,14 +174,12 @@ border box and take no layout space.
 
 ## Hover
 
-The convention, from the extension's Map16 panel (`main.ts:2372`): dim
-everything EXCEPT the thing under the pointer, at `rgba(0,0,0,0.55)`.
-
-The hovered item itself must be left exactly as drawn - no tint, no
-outline, no scale. The point is to make it legible while judging it, so
-anything that alters it defeats the purpose. Prefer painting the dim
-AROUND the item over restoring it afterwards, so its pixels are never
-drawn over at all.
+Map16 sheet (#570): the hovered tile gets a two-tone outline, a black
+outer ring and a white inner ring, both inside the tile's own bounds, drawn
+last so it also reads on the selected (accent) tile. Nothing outside the tile
+changes. Plain white was rejected because it vanishes on light tiles. The
+preview's edit-affordance dim (`HOVER_DIM`, `rgba(0,0,0,0.55)`) is a
+separate thing and stays.
 
 ## Color tokens
 

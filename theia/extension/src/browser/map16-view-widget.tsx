@@ -66,7 +66,7 @@ import {
   TILE_PX,
   cropRegion,
   decodeRgba,
-  paintSpotlight,
+  paintHoverOutline,
 } from './map16-pixels'
 import { paintCharSheet, renderCharPalettes } from './map16-char-palettes'
 import {
@@ -186,7 +186,7 @@ export class Map16ViewWidget extends ReactWidget {
   protected reloadToken = 0
 
   /** Tile under the pointer on the browser strip. Drives the hover
-   * spotlight only, never the edit selection. */
+   * outline only, never the edit selection. */
   protected hoverTileId: number | undefined
 
   protected showGrid = false
@@ -718,11 +718,6 @@ export class Map16ViewWidget extends ReactWidget {
 
     perfEnd('open-map16')
 
-    if (this.hoverTileId !== undefined) {
-      const { x, y } = tileOrigin(this.hoverTileId, sheet.tilesPerRow)
-      paintSpotlight(ctx, sheet.width, this.canvasEl.height, x, y, TILE_PX, TILE_PX)
-    }
-
     const sel = this.selection
     if (sel) {
       const { x: selX, y: selY } = tileOrigin(sel.tileId, sheet.tilesPerRow)
@@ -757,6 +752,14 @@ export class Map16ViewWidget extends ReactWidget {
           ctx.stroke()
         }
       }
+    }
+
+    // Last, so it also reads on the selected tile (that one is accent blue).
+    // Both rings sit inside the tile's own 16x16, and the bitmap is natural
+    // resolution scaled by CSS zoom >= 1, so each 1px line is >= 1 screen px.
+    if (this.hoverTileId !== undefined) {
+      const { x, y } = tileOrigin(this.hoverTileId, sheet.tilesPerRow)
+      paintHoverOutline(ctx, x, y, TILE_PX)
     }
   }
 

@@ -15,7 +15,7 @@ export const TILE_PX = 16
 /** One character is 8x8 px; a tile's quadrant is exactly one of them. */
 export const CHAR_PX = 8
 
-/** Dim applied to everything except the item under the pointer. 0.55 black
+/** Dim over the preview while its edit affordance shows. 0.55 black
  * is the value the VS Code extension's Map16 panel used (main.ts:2372). */
 export const HOVER_DIM = 'rgba(0, 0, 0, 0.55)'
 
@@ -125,25 +125,20 @@ export function compositeIndices(
 }
 
 /**
- * Dims everything on `ctx` EXCEPT the given rectangle.
- *
- * Painting the four bands AROUND the item, rather than dimming everything
- * and restoring it, means the item's own pixels are never drawn over: the
- * hover convention exists to make an item legible while judging it, so
- * anything that alters it defeats the purpose.
+ * Two-tone outline inside the `size` square at (x, y): black outer ring,
+ * white inner ring. White alone vanishes on light tiles and black alone on
+ * dark ones; stacking them reads on either. Strokes sit on half pixels so
+ * each ring is exactly one crisp pixel, and nothing leaves the square.
  */
-export function paintSpotlight(
+export function paintHoverOutline(
   ctx: CanvasRenderingContext2D,
-  canvasWidth: number,
-  canvasHeight: number,
   x: number,
   y: number,
-  w: number,
-  h: number,
+  size: number,
 ): void {
-  ctx.fillStyle = HOVER_DIM
-  ctx.fillRect(0, 0, canvasWidth, y)
-  ctx.fillRect(0, y + h, canvasWidth, canvasHeight - (y + h))
-  ctx.fillRect(0, y, x, h)
-  ctx.fillRect(x + w, y, canvasWidth - (x + w), h)
+  ctx.lineWidth = 1
+  ctx.strokeStyle = '#000'
+  ctx.strokeRect(x + 0.5, y + 0.5, size - 1, size - 1)
+  ctx.strokeStyle = '#fff'
+  ctx.strokeRect(x + 1.5, y + 1.5, size - 3, size - 3)
 }
