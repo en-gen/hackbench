@@ -37,6 +37,7 @@ screen on every layer toggle.
 - CGADSUB table: bank_05.asm:495-499, stored at :548-549. BG3 (bit 2) is removed wherever CODE_009FB8 clears it (bank_00.asm:4170-4199; the only path that keeps it is the camera-locked byte $81-$BF off Castle 1 and Underground 1). Fixed color = `BackAreaColors[header byte1 >> 5]` (bank_00.asm:5623-5628), the same entry as the back color the view already carries (`model.backArea`).
 - Layer 2 is interactive when `ModeLayout.vertical & 0x80` (bank_00.asm:11736-11738).
 - Wire mapping: BG1 `l1`, BG2 `l2`, BG3 `l3`; main designation $212C and sub $212D bit 0 BG1, bit 1 BG2, bit 2 BG3, bit 4 OBJ (dropped until #564), bit 3 BG4 ignored.
+- CGADSUB participation is keyed by layer in `ColorMath.ts` (one bit per layer in a `LAYER_BIT` map: l1 1, l2 2, l3 4, backdrop $20), so the sprite layer (#564, OBJ bit $10, palettes 4-7 only: snes9x gfx.cpp:819, bsnes ppu-fast/object.cpp:125) is a new input later, not a redesign. Do not build a sprite path now.
 - Out of scope: #563 camera-locked layer 3, #571 vertical maps, #115 tide animation, #564 sprite toggle, #569. Mode 7 rooms stay refused with their reason.
 - Every verdict or gate test needs a planted-defect test proving it can go red. CI has no ROM: corpus tests use `describe.skipIf(!hasRom(VANILLA))`, never a loop over a corpus listing.
 - Gates before the last commit: `npm run lint`, `npm run format:check`, `npm run test:unit`, `npm run typecheck:theia`, then `yarn --cwd theia/extension build` before `yarn --cwd theia build:browser`.

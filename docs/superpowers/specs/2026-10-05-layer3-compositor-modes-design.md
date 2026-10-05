@@ -138,6 +138,21 @@ the source and for the specs that read them).
   unverified BG mode, no layer 3 on the map, unreadable tilemap: as in #561.
 - The interactive-layer-2 refusal is deleted.
 
+## OBJ later: the stage must take it (#564)
+
+Sprites are not drawn on the map tab, so this PR builds no sprite path. The stage
+keys CGADSUB participation by layer (a bit per layer: BG1 1, BG2 2, BG3 4, OBJ
+$10, backdrop $20), so the sprite layer arrives later as one more input plane
+with its bit, not a redesign. When it does, one rule must apply: only OBJ
+palettes 4 to 7 take part in color math; palettes 0 to 3 never do, whatever
+CGADSUB bit 4 says. Sources: snes9x `gfx.cpp:819`
+(`BG.EnableMath && (PPU.OBJ[S].Palette & 4)`) and bsnes
+`sfc/ppu-fast/object.cpp:125` (palette index below 192, i.e. OBJ palettes 0 to 3,
+is `Source::OBJ1`, which line.cpp does not color-math; 4 to 7 is `OBJ2`). Same
+scope as the half rule: GitHub master on 2026-10-05, not run on hardware. The
+owner reports powerups at 50% transparency in ghost houses: that is mode 0C
+(CGADSUB $70, OBJ bit set, half) on a palette 4 to 7 sprite, e.g. $004 and $114.
+
 ## Acceptance criteria
 
 1. Per-mode plane lists. For each of the 32 modes, a synthetic ROM whose tables
