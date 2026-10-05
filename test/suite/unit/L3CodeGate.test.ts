@@ -90,6 +90,13 @@ describe('readL3CodeGate (synthetic sites)', () => {
     expect(buildL3Verdict(rom, 5, l1, { ok: true, mode: 1 }, () => [], gate)).toMatchObject({ l3: null, layout: 'standard', reason: 'Layer 3 not drawn yet: hooked layer 3 code' }) // prettier-ignore
   })
 
+  it('a layer 3 GFX file that failed to load (null chars) skips layer 3 too', () => {
+    const { rom, sites } = codeRom()
+    withLayer3(rom, { level: 5, tileset: 0, setting: 2, settingsByte: 2, word: 0x2402 })
+    const l1 = { header: parseLevelHeader([0, 0, 0, 0, 0]), isVertical: false, colors: [] }
+    expect(buildL3Verdict(rom, 5, l1, { ok: true, mode: 1 }, () => null, readL3CodeGate(rom, sites))).toMatchObject({ l3: null, reason: 'Layer 3 not drawn yet: hooked layer 3 code' }) // prettier-ignore
+  })
+
   it('refuses when a site lies outside the ROM', () => {
     const { rom, sites } = codeRom()
     expect(readL3CodeGate(rom, [...sites, { addr: 0x7f0000, length: 4, sha256: 'x' }]).ok).toBe(

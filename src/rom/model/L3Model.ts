@@ -11,7 +11,7 @@
  */
 import type { RomFile } from '../RomFile'
 import type { RgbaColor } from '../GraphicsDecoder'
-import { loadL3Chars, type GfxSheet } from '../GfxLoader'
+import { readL3Chars, type GfxSheet } from '../GfxLoader'
 import type { BgModeResult } from '../BgMode'
 import { layoutRefusal, readModeLayouts } from '../LevelScreenTables'
 import { HOOKED_L3_CODE, readL3CodeGate, type L3CodeGate } from '../L3CodeGate'
@@ -50,7 +50,7 @@ export function buildL3Verdict(
   index: number,
   l1: Wanted,
   bg: BgModeResult,
-  chars: (rom: RomFile) => GfxSheet[] = loadL3Chars,
+  chars: (rom: RomFile) => GfxSheet[] | null = readL3Chars,
   gate: L3CodeGate = readL3CodeGate(rom),
 ): L3Verdict {
   const priority = l1.header.layer3Priority
@@ -73,9 +73,9 @@ export function buildL3Verdict(
   if (!load) return none("This map's layer 3 tilemap cannot be read")
   const yPx = l3LoadTimeY(load.settingsByte, tileset)
   if (yPx === null) return none('Layer 3 not drawn yet: camera-locked layer 3')
-  // The GFX loader (CODE_00A993) is a third piece of layer 3 code: hooked, its range is unreadable and the chars empty.
+  // The GFX loader (CODE_00A993) is a third piece of layer 3 code: hooked, or any file failing to load, leaves no chars.
   const sheets = chars(rom)
-  if (sheets.length === 0) return none(HOOKED_L3_CODE)
+  if (!sheets || sheets.length === 0) return none(HOOKED_L3_CODE)
   return {
     layout: 'standard',
     priority,

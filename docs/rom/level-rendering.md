@@ -205,12 +205,14 @@ level runs `CODE_00A007` (`bank_00.asm:4184-4189`), which copies
 (`bank_00.asm:4868-4870`); the level palette path applies it (`readCrusherColors`),
 so layer 3 palette 3 and any layer 1 or 2 pixel using those colors show it.
 
-**Measured, one cart.** On the vanilla cart the renderer draws layer 3 on 8
-slots (`$002 $01F $0BE $0C1 $102 $127 $1D4 $1FC`; `$01F $1D4 $1FC` are the
-crusher-colors levels), skips 3 as camera-locked (`$011 $130 $1C1`), 14 as
-interactive layer 2 maps (`$009` is mode 2) and 1 on a non-standard layout
-(`$018`); 462 have no layer 3 (of the 488 slots that hold a map; 486 of all 512), and
-"no layer 3" is reported before the layout reason. The corpus sweep in
+**Measured, one cart.** Over the vanilla cart's 235 maps (`docs/glossary.md`: a
+map is a non-empty slot; one machine, `buildMapInputs`): layer 3 is drawn on 8
+(`$002 $01F $0BE $0C1 $102 $127 $1D4 $1FC`; `$01F $1D4 $1FC` are the
+crusher-colors maps), skipped as camera-locked on 3 (`$011 $130 $1C1`), as
+interactive layer 2 on 14 (`$009` is mode 2), and for a non-standard layout on 1
+(`$018`); 185 have no layer 3. The other 24 maps do not build an L1 at all, so
+they have no verdict (their refusal reasons were not tabulated). "No layer 3" is
+reported before the layout reason. The corpus sweep in
 `test/suite/unit/MapScreenL3.test.ts` compares every slot's priority bit,
 layout and draw decision with a straight decode of the header and the tables.
 
