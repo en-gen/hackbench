@@ -196,7 +196,10 @@ describe('buildL3Verdict: screens, math and the layer 2 role', () => {
     )
   const v = (r: RomFile, mode = 5, pri = false) =>
     buildL3Verdict(r, 5, l1Of(mode, 0, pri), BG_OK, chars, GATE_OK)
-  const MODE_0E_SCREENS = { main: ['l3Low', 'l3High'], sub: ['l2Low', 'l1Low', 'l2High', 'l1High'] }
+  const MODE_0E_SCREENS = {
+    main: ['l3Low', 'l3High'],
+    sub: ['l2Low', 'l1Low', 'l2High', 'sprites', 'l1High'],
+  }
 
   it('mode 0E style: BG3 alone on main, BG1 and BG2 on sub, CGADSUB minus BG3', () => {
     const r = v(rom({ main: 0x04, sub: 0x13, cgadsub: 0x24, special: 0, vertical: 0 }))
@@ -207,7 +210,7 @@ describe('buildL3Verdict: screens, math and the layer 2 role', () => {
   it('an interactive mode draws layer 3 (the #561 refusal is gone) and reports layer 2 interactive', () => {
     const r = v(rom({ main: 0x17, sub: 0x00, special: 0, vertical: 0x80 }))
     expect(r).toMatchObject({ reason: null, layer2Interactive: true })
-    expect(r.screens.main).toEqual(['l3Low', 'l3High', 'l2Low', 'l1Low', 'l2High', 'l1High'])
+    expect(r.screens.main).toEqual(['l3Low', 'l3High', 'l2Low', 'l1Low', 'l2High', 'sprites', 'l1High']) // prettier-ignore
   })
   it('mode 11 style: BG2 on main but not interactive, math kept minus BG3', () => {
     const r = v(rom({ main: 0x17, sub: 0x00, cgadsub: 0xff, special: 0, vertical: 0 }))
@@ -396,11 +399,19 @@ describe.skipIf(!hasRom(VANILLA))(
   'every vanilla map: renderer verdict equals a straight decode (corpus)',
   () => {
     /** An independent mask-to-keys loop over the hand-written mode 1 order (not ScreenPlanes). */
-    const keys = (mask: number, pri: boolean) =>
-      (pri
-        ? ['l3Low', 'l2Low', 'l1Low', 'l2High', 'l1High', 'l3High']
-        : ['l3Low', 'l3High', 'l2Low', 'l1Low', 'l2High', 'l1High']
-      ).filter(k => mask & ({ l1: 1, l2: 2, l3: 4 } as Record<string, number>)[k.slice(0, 2)]!)
+    const keys = (mask: number, pri: boolean) => {
+      const table = pri
+        ? ['l3Low', 'sp0', 'sp1', 'l2Low', 'l1Low', 'sp2', 'l2High', 'l1High', 'sp3', 'l3High']
+        : ['l3Low', 'sp0', 'l3High', 'sp1', 'l2Low', 'l1Low', 'sp2', 'l2High', 'l1High', 'sp3']
+      const bg = table.filter(
+        k => !k.startsWith('sp') && mask & ({ l1: 1, l2: 2, l3: 4 } as Record<string, number>)[k.slice(0, 2)]!, // prettier-ignore
+      )
+      if (!(mask & 0x10)) return bg
+      const at = bg.includes('l1High')
+        ? bg.indexOf('l1High')
+        : table.slice(0, table.indexOf('sp2')).filter(k => bg.includes(k)).length
+      return [...bg.slice(0, at), 'sprites', ...bg.slice(at)]
+    }
 
     it('priority bit, plane lists, math and skip decision agree on every slot', () => {
       const rom = RomFile.load(romPath(VANILLA))

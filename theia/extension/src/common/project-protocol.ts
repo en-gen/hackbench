@@ -5,6 +5,7 @@
  * backend service the frontend calls over JSON-RPC, and this file is the
  * contract both ends compile against.
  */
+import type { ScreenPlanes } from '../../../../src/rom/model/ScreenPlanes'
 import type { Map16SwitchButtonImages, Map16SwitchKind } from './map16-protocol'
 
 /** Where the frontend reaches the backend. Must match the backend binding. */
@@ -250,7 +251,7 @@ export type MapScreenResult =
       planes: Record<MapPlaneKey, string | null>
       layer3: MapLayer3Dto
       /** Bottom to top, per SNES screen (#562). Both lists name planes from `planes`. */
-      screens: { main: MapPlaneKey[]; sub: MapPlaneKey[] }
+      screens: ScreenPlanes
       /** Color math between the screens; null when the mode tables could not be verified. */
       math: { cgadsub: number; fixed: [number, number, number] } | null
       /** Layer 2 is interactive on this level mode: the toolbar calls it Foreground. */

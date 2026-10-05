@@ -245,7 +245,7 @@ describe('the sprite layer as a source (#564)', () => {
     ...composeScreen({
       width: 1,
       height: 1,
-      math: { cgadsub: 0x01, fixed: BACK }, // layer 1 in CGADSUB, sprites not
+      math: { cgadsub: 0x11, fixed: BACK }, // layer 1 and the OBJ bit in CGADSUB: sprites still take no part
       lists: { main: ['l1Low', 'sprites'], sub: ['l2Low'] },
       planes: { l1Low: plane(c5(10, 10, 10)), l2Low: plane(c5(4, 4, 4)), sprites: sprite ? plane(sprite) : null }, // prettier-ignore
     }),

@@ -12,7 +12,7 @@
  * Participation in math is keyed by layer (LAYER_BIT), so OBJ (bit $10, palettes
  * 4-7 only, #564) arrives later as one more input plane, not a redesign.
  */
-import type { PlaneKey } from './ScreenPlanes'
+import type { ListKey } from './ScreenPlanes'
 
 export type Rgb = readonly [number, number, number]
 export interface ColorMathInput {
@@ -20,7 +20,7 @@ export interface ColorMathInput {
   fixed: Rgb
 }
 /** A plane, or the sprite layer (#564): a source the lists can name. */
-export type SourceKey = PlaneKey | 'sprites'
+export type SourceKey = ListKey
 export interface ScreenInput {
   width: number
   height: number

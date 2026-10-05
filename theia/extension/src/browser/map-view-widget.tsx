@@ -411,7 +411,7 @@ export class MapViewWidget extends ReactWidget {
       width: shot.width,
       height: shot.height,
       planes,
-      lists: this.mapLayout ? this.screenLists(this.mapLayout) : shot.screens,
+      lists: shot.screens,
       math: shot.math,
     })
     canvas.getContext('2d')?.putImageData(new ImageData(out, shot.width, shot.height), 0, 0)
@@ -730,21 +730,9 @@ export class MapViewWidget extends ReactWidget {
     )
   }
 
-  /**
-   * Each screen's sources bottom to top, the sprites just under L1's priority plane (owner ruling,
-   * #564). That is the OBJ designation too: sprites sit on the screen that holds layer 1 here
-   * (mode 0E has OBJ on the sub screen with BG1 and BG2).
-   */
-  protected screenLists(l: Layout): { main: LayerKey[]; sub: LayerKey[] } {
-    const put = (list: MapPlaneKey[]): LayerKey[] =>
-      list.flatMap(p => (p === 'l1High' ? [SPRITES, p] : [p]))
-    return { main: put(l.screens.main), sub: put(l.screens.sub) }
-  }
-
-  /** The sources bottom to top over both screens, for stacking the source canvases. */
+  /** The sources bottom to top over both screens (sprites included: `screenPlanes` places them), for stacking the source canvases. */
   protected layerOrder(l: Layout): LayerKey[] {
-    const { sub, main } = this.screenLists(l)
-    return [...sub, ...main]
+    return [...l.screens.sub, ...l.screens.main]
   }
 
   protected layerShown(plane: LayerKey): boolean {
