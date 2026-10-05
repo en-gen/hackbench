@@ -280,12 +280,11 @@ export function interpParts(parts: readonly SpritePart[]): EnginePart[] {
 /**
  * Camera that puts a level position on screen: centred, clamped to the scroll
  * range. The range is DERIVED from the level extents minus the 256 x 224 view,
- * not traced to the camera routine: the extents themselves are the game's
- * (a horizontal level is LevelScrLength screens wide and $01B0 = 432 px tall,
- * bank_00.asm:13293 and 13299; a vertical one is LevelScrLength screens tall,
- * bank_00.asm:13326, 512 px wide); the camera's own clamp was not read. A
- * wrong clamp only moves the camera by a few pixels, and any position that
- * keeps the sprite on screen is as good a seed.
+ * not traced to the camera routine. The extents are the game's (a horizontal
+ * level is LevelScrLength screens wide and $01B0 = 432 px tall, a vertical one
+ * LevelScrLength screens tall), read off the collision routine's bounds
+ * (CODE_00F44D, bank_00.asm:13293, 13299, 13326); the camera's own clamp was
+ * not read, so this range is a derivation, not a trace.
  */
 export function cameraFor(x: number, y: number, vertical: boolean, screens: number) {
   const [maxX, maxY] = vertical ? [256, screens * 256 - 224] : [screens * 256 - 256, 432 - 224]
@@ -406,11 +405,15 @@ export function mapSprites(
   let byMap = replies.get(bytes)
   if (!byMap) replies.set(bytes, (byMap = new Map()))
   let r = byMap.get(index)
-  if (!r) {
+  if (r) {
+    // LRU: a hit moves the map to the newest end.
+    byMap.delete(index)
+    byMap.set(index, r)
+  } else {
     r = compute(cache, bytes, romPath, index)
     // Only a computed answer is kept; an unavailable one may be a loader hiccup worth retrying.
     if (r.status === 'ok') {
-      // As L1ModelCache bounds its models (map-screen.ts): the oldest of a version's replies goes first.
+      // The least recently used reply goes first (L1ModelCache, map-screen.ts:387, drops the oldest inserted).
       if (byMap.size >= REPLIES_PER_BYTES) byMap.delete(byMap.keys().next().value!)
       byMap.set(index, r)
     }

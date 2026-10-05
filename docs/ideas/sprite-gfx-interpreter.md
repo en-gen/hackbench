@@ -814,7 +814,8 @@ Against the table engine over ten vanilla maps (62 sprites the engine draws),
 parts relative to each side's own anchor: 25 agree, 36 differ, 1 the
 interpreter draws nothing for. Of the 36 differing rows, 19 are tile or flip
 (a walk-cycle frame or a facing: the engine's frame-0 pose against the first
-drawing pass), 16 are Koopa (`$05`) +1 px Y walk-frame offsets, and `$1F` on
+drawing pass), 16 are +1 px Y walk-frame offsets (ids `$03`-`$06` on `$11B`, `$008` and
+`$006`; these overlap the tile bucket, so the two counts are not disjoint), and `$1F` on
 `$11C` is relocation by its own MAIN (x 352 to 304 by pass 1, flipped), which
 depends on Mario and the RNG. None is a mis-placement found by this
 comparison. The list is pinned per row (verdict, served anchor, a digest of
@@ -826,20 +827,25 @@ pinned row.
 Runtime palette: sprite code does not write `$2122` itself; it appends to
 WRAM that NMI uploads. No NMI runs on the core, so `Machine.nmi()` models the
 palette part of one after every frame (INIT frames and each pass;
-`PassResult.palette` is cumulative): direct `$2121/$2122` writes take effect
-in order during the frame; then by `PaletteIndexTable` `$0680` (index into the
-three-entry table, bank_00.asm:4709-4712): 0, the default, uploads the list
-`DynPaletteTable` `$0682` (entries `[bytes, CGRAM color index, colors]`,
-rammap.asm:1152-1164; CODE_00A488, bank_00.asm:4714-4735; Magikoopa's writer
-`CODE_01C028`, bank_01.asm:8733-8760) from where the run began on the first
-frame, bounded to the 127-byte table, and then clears `$0681` and the first
-list byte (bank_00.asm:4753-4756); 6 uploads `MainPalette` `$0703`
-(rammap.asm:1172-1175), applied only for colors whose two bytes the run wrote
-AND only when the run itself wrote `$0680` (no vanilla sprite bank does); 3,
-`CopyPalette`, is not modelled. `$0680` is cleared after (bank_00.asm:4757).
-The served frame applies the writes up to its pass, to that sprite only. Before
-this model the list was never drained: `$1F` on `$11C` overflowed the table
-from pass 30 into `$0701`/`$0703` and the mirror route read that as colors 0-7.
+`PassResult.palette` is cumulative). Direct `$2121/$2122` writes take effect in
+order during the frame. Then `CODE_00A488` walks one list shape for every
+source (bank_00.asm:4726-4748): `[byte count, CGRAM color index, colors]`
+repeated to a zero count. The source is `PaletteIndexTable` `$0680` (an index
+into the three-entry table, bank_00.asm:4709-4712): 0, the default, is
+`DynPaletteTable` `$0682` (rammap.asm:1152-1164; Magikoopa's writer
+`CODE_01C028`, bank_01.asm:8733-8760), read from where the run began on the
+first frame, then `$0681` and the first list byte are cleared
+(bank_00.asm:4753-4756); nothing bounds an entry to the 127-byte table, the
+DMA reads on past it (only the end of WRAM stops the walk). 6 is the same list
+starting at `MainPalette` `$0703` (rammap.asm:1172-1175), whose first bytes are
+a header, not color 0 (the overworld writes `$FE, $01` and a terminator at +$100,
+bank_04.asm:5585-5590; the level upload zeroes them, bank_00.asm:2047-2048); it
+is walked only when the run itself wrote `$0680` (no vanilla sprite bank does),
+and leaves the dynamic list for the next NMI. 3, `CopyPalette`, is not
+modelled. `$0680` is cleared after (bank_00.asm:4757). The served frame applies
+the writes up to its pass, to that sprite only. Before this model the list was
+never drained: `$1F` on `$11C` overflowed the table from pass 30 into
+`$0701`/`$0703`, and an earlier mirror rule read that as colors 0-7.
 
 Measured on vanilla (196 maps with a sprite stream, every id the interpreter
 draws): only `$C5` (boss Big Boo, map `$0E4`) has runtime colors at its served

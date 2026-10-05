@@ -49,9 +49,9 @@ export const RAM = {
   xHigh: 0x14e0,
   curSprite: 0x15e9,
   oamIndex: 0x15ea,
-  /** $0681 DynPaletteIndex: bytes used in the NMI colour-upload list at $0682 (rammap.asm:1152-1164). */
   /** $0680 PaletteIndexTable: which palette source the next NMI uploads (rammap.asm:1143-1146). */
   paletteIndexTable: 0x680,
+  /** $0681 DynPaletteIndex: bytes used in the NMI colour-upload list at $0682 (rammap.asm:1152-1164). */
   dynPaletteIndex: 0x681,
   dynPaletteTable: 0x682,
   /** $0703 MainPalette: a RAM copy of all 256 CGRAM colors (rammap.asm:1172-1175). */
@@ -156,8 +156,6 @@ export class Machine {
   readonly bus: SpriteBus
   readonly cpu: Cpu65816
   private touched = new Set<number>()
-  /** Cumulative: MainPalette bytes written, and direct $2121/$2122 colors in write order. */
-  private palTouched = new Set<number>()
   /** Colors set so far, in the order they took effect (cumulative; see `nmi`). */
   private applied: PaletteWrite[] = []
   /** The run itself wrote $0680 PaletteIndexTable since the last NMI (a loaded image's value is not the sprite's). */
@@ -184,7 +182,6 @@ export class Machine {
     this.bus.onInstruction = guardInstruction
     this.bus.onWramWrite = off => {
       this.touched.add(off)
-      if (off >= RAM.mainPalette && off < RAM.mainPalette + 512) this.palTouched.add(off)
       if (off === RAM.paletteIndexTable) this.modeWritten = true
     }
     this.bus.onHwWrite = (reg, v) => {
@@ -213,18 +210,22 @@ export class Machine {
    * The NMI's palette work after one frame of sprite code (CODE_00A488 and
    * CODE_00A4CF, SMWDisX bank_00.asm:4714-4757), since no NMI runs here.
    * Direct $2121/$2122 writes already took effect, in order, during the
-   * frame; then, by `PaletteIndexTable` ($0680, rammap.asm:1143-1146, an
-   * index into the three-entry table at bank_00.asm:4709-4712):
-   * - 0, the default: upload the list `DynPaletteTable` ($0682), entries
-   *   `[bytes, CGRAM color index, colors...]` ended by a zero count, from where
-   *   the run began on the first frame (what the loader left is not this
-   *   sprite's); then `$0681` and the first list byte are cleared
-   *   (bank_00.asm:4753-4756), so the list never piles up or overflows. An
-   *   entry that would end past the 127-byte table is not read.
-   * - 6, MainPalette ($0703, the whole-CGRAM copy, rammap.asm:1172-1175): the
-   *   colors whose BOTH bytes the run wrote (a half-written color has no known
-   *   other half). No sprite code in the vanilla banks writes $0680, so this
-   *   route is reached only by a hack's own sprite, and only if the run wrote it.
+   * frame. Then CODE_00A488 walks ONE list, the same shape for every source
+   * (bank_00.asm:4726-4748): `[byte count, CGRAM color index, count bytes of
+   * colors...]` repeated until a zero count, each entry DMA'd to CGRAM from
+   * that index. The source is `PaletteIndexTable` ($0680, rammap.asm:1143-1146,
+   * an index into the three-entry table at bank_00.asm:4709-4712):
+   * - 0, the default: `DynPaletteTable` ($0682), from where the run began on
+   *   the first frame (what the loader left is not this sprite's); then `$0681`
+   *   and the first list byte are cleared (bank_00.asm:4753-4756), so the list
+   *   does not pile up. Nothing bounds an entry to the 127-byte table: the DMA
+   *   reads on past it, as hardware does (only the end of WRAM stops the walk).
+   * - 6: the list starts at `MainPalette` ($0703, rammap.asm:1172-1175), whose
+   *   first bytes are a header, not color 0 (the overworld writes `$FE, $01` and
+   *   a terminator at +$100, bank_04.asm:5585-5590; the level upload zeroes
+   *   them, bank_00.asm:2047-2048). The list is not cleared. No vanilla sprite
+   *   bank writes $0680, so this is reached only by a hack's own sprite, and
+   *   only when the run wrote it.
    * - 3, CopyPalette (level-end fades): not modelled.
    * Then $0680 is cleared (bank_00.asm:4757).
    */
@@ -232,30 +233,33 @@ export class Machine {
     const w = this.bus.wram
     const mode = w[RAM.paletteIndexTable]
     if (mode === 0) {
-      const end = RAM.dynPaletteTable + 0x7f
-      let at = RAM.dynPaletteTable + this.dynStart
-      while (at < end && w[at] !== 0 && at + 2 + w[at] <= end) {
-        const n = w[at] >> 1
-        const first = w[at + 1]
-        for (let i = 0; i < n && first + i < 256; i++)
-          this.applied.push({
-            index: first + i,
-            bgr555: (w[at + 2 + i * 2] | (w[at + 3 + i * 2] << 8)) & 0x7fff,
-          })
-        at += 2 + w[at]
-      }
+      this.uploadList(RAM.dynPaletteTable + this.dynStart)
       w[RAM.dynPaletteIndex] = 0
       w[RAM.dynPaletteTable] = 0
       this.dynStart = 0
     } else if (mode === 6 && this.modeWritten) {
-      for (let i = 0; i < 256; i++) {
-        const b = RAM.mainPalette + i * 2
-        if (this.palTouched.has(b) && this.palTouched.has(b + 1))
-          this.applied.push({ index: i, bgr555: (w[b] | (w[b + 1] << 8)) & 0x7fff })
-      }
+      this.uploadList(RAM.mainPalette)
     }
     w[RAM.paletteIndexTable] = 0
     this.modeWritten = false
+  }
+
+  /** CODE_00A4A0's walk: entries to their CGRAM colors; an entry past the end of WRAM stops it. */
+  private uploadList(start: number): void {
+    const w = this.bus.wram
+    let at = start
+    while (at + 1 < w.length && w[at] !== 0) {
+      const count = w[at]
+      const first = w[at + 1]
+      if (at + 2 + count > w.length) break
+      // CGADD counts colors and wraps at 256; an odd count leaves a half color the DMA still writes.
+      for (let i = 0; i + 1 < count; i += 2)
+        this.applied.push({
+          index: (first + (i >> 1)) & 0xff,
+          bgr555: (w[at + 2 + i] | (w[at + 3 + i] << 8)) & 0x7fff,
+        })
+      at += 2 + count
+    }
   }
 
   private w16(off: number, v: number): void {

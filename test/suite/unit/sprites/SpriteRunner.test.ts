@@ -94,28 +94,22 @@ describe('runtime palette writes', () => {
     ])
   })
 
-  it('half a mirror color is not a color, even with the upload requested', () => {
-    expect(runSprite(rom, 24).passes[0].palette).toEqual([])
+  it('the MainPalette source is a list with a header, like the others: id 21 uploads its entry', () => {
+    expect(runSprite(rom, 21).passes[0].palette).toEqual([{ index: 0xd2, bgr555: 0x01aa }])
   })
 
-  it('a mirror color is not applied unless the run requested the MainPalette upload ($0680 = 6)', () => {
-    // Id 21 with its $0680 write undone by an image that has no way to matter: the gate reads the run's own write.
-    const m = runSprite(rom, 21, withSeed({ loaded: image({ 0x680: 6 }) }))
-    expect(m.passes[0].palette).toEqual([{ index: 0xd2, bgr555: 0x01aa }])
-    expect(runSprite(rom, 0, withSeed({ loaded: image({ 0x680: 6 }) })).passes[0].palette).toEqual(
-      [],
-    )
+  it('colors written where the list has no header upload nothing (first byte 0 ends the walk)', () => {
+    expect(runSprite(rom, 28).passes[0].palette).toEqual([])
   })
 
-  it('a whole mirror color is not applied unless the run asked for the upload, whatever $0680 held', () => {
+  it('the MainPalette list is not walked unless the run asked for it ($0680 = 6), whatever $0680 held', () => {
     expect(runSprite(rom, 26).passes[0].palette).toEqual([])
-    const six = runSprite(rom, 26, withSeed({ loaded: image({ 0x680: 6 }) }))
-    expect(six.passes[0].palette).toEqual([])
+    expect(runSprite(rom, 26, withSeed({ loaded: image({ 0x680: 6 }) })).passes[0].palette).toEqual([]) // prettier-ignore
   })
 
-  it('the list is drained by each frame: a color appended every pass lands every pass', () => {
-    const m = runSprite(rom, 27)
-    expect([0, 1, 5].map(p => m.passes[p].palette.length)).toEqual([1, 2, 6])
+  it('a MainPalette upload leaves the dynamic list for the next NMI', () => {
+    // Appended and $0680 = 6 in one frame: INIT's NMI walks MainPalette (empty), pass 0's walks the list.
+    expect(runSprite(rom, 24).passes[0].palette).toEqual([{ index: 0xd1, bgr555: 0x03ff }])
   })
 
   it('two consecutive CGDATA colors land on consecutive indices (CGADD auto-increments)', () => {
@@ -125,12 +119,24 @@ describe('runtime palette writes', () => {
     ])
   })
 
-  it('an entry that would end past the 127-byte table is not read, and the list is drained each frame', () => {
-    // $0681 = $7C: the sprite appends at $06FE, its 5 bytes end at $0702, past $0700.
+  it('an entry running past the 127-byte table is still uploaded (the DMA reads on), and the list is drained each frame', () => {
+    // $0681 = $7C: the sprite appends at $06FE; its data bytes sit at $0700 and $0701.
     const m = runSprite(rom, 20, withSeed({ loaded: image({ 0x681: 0x7c }) }))
-    expect(m.passes[0].palette).toEqual([])
+    expect(m.passes[0].palette).toEqual([{ index: 0xd1, bgr555: 0x03ff }])
     // Drained: no later pass re-applies or piles anything.
     expect(runSprite(rom, 20).passes.at(-1)!.palette).toHaveLength(1)
+  })
+
+  it('a two-color entry lands on consecutive colors from its CGRAM index', () => {
+    expect(runSprite(rom, 29).passes[0].palette).toEqual([
+      { index: 0xd6, bgr555: 0x0111 },
+      { index: 0xd7, bgr555: 0x0222 },
+    ])
+  })
+
+  it('the list is drained by each frame: a color appended every pass lands every pass', () => {
+    const m = runSprite(rom, 27)
+    expect([0, 1, 5].map(p => m.passes[p].palette.length)).toEqual([1, 2, 6])
   })
 
   it('a sprite that writes no color has none', () => {

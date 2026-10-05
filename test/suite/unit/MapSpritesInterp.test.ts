@@ -363,7 +363,7 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     for (const r of rows.filter(r => r.verdict !== 'same'))
       console.log(`${r.verdict} map ${r.map.toString(16)} id ${r.id.toString(16)} at ${r.at}\n  engine ${r.e}\n  interp ${r.i}`) // prettier-ignore
     // The known list. Of the 36 differing rows: 19 are tile/flip (the engine's frame-0 pose
-    // against a later walk-cycle frame or a facing), 16 are Koopa +1 px Y walk-frame offsets,
+    // against a later walk-cycle frame or a facing), 16 are +1 px Y walk-frame offsets (ids $03-$06, overlapping the tile bucket),
     // and $1F on $11C relocates itself in its own MAIN (x 352 to 304 by pass 1, flipped,
     // depending on Mario and the RNG); one id draws nothing. A new entry, or one that clears, fails here.
     expect(t).toEqual(EXPECTED)
@@ -396,7 +396,7 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     expect(pinned(rows)).not.toEqual(PINNED_ROWS)
   })
 
-  it('caches an ok reply per bytes and map, at most 8 of them, and never an unavailable one', () => {
+  it('caches an ok reply per bytes and map, at most 8 of them (least recently used out), and never an unavailable one', () => {
     const b = bytes()
     const c = new L1ModelCache()
     const get = (m: number) => mapSprites(c, b, romPath(VANILLA), m)
@@ -405,8 +405,80 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     // $095 is a boss arena the map model refuses: asked twice, answered twice.
     expect(get(0x095).status).toBe('unavailable')
     expect(get(0x095)).not.toBe(get(0x095))
-    for (const m of [0x106, 0x00f, 0x1c5, 0x008, 0x11b, 0x006, 0x1c2, 0x001]) get(m)
-    expect(get(0x105)).not.toBe(first) // evicted by the ninth map, recomputed
+    const second = get(0x106)
+    for (const m of [0x00f, 0x1c5, 0x008, 0x11b, 0x006, 0x1c2]) get(m) // eight replies now
+    expect(get(0x105)).toBe(first) // a hit refreshes it: LRU, not first-in
+    get(0x001) // the ninth: the least recently used ($106) goes, not $105
+    expect(get(0x105)).toBe(first)
+    expect(get(0x106)).not.toBe(second)
+  })
+
+  it('$4F on $105 is served at its stream position plus (8, -1): INIT moved it, not a table', () => {
+    const b = bytes()
+    const r = mapSprites(new L1ModelCache(), b, romPath(VANILLA), 0x105)
+    if (r.status !== 'ok') throw new Error(JSON.stringify(r))
+    const rom = new SmwRom(RomFile.fromBytes('x.sfc', Buffer.from(b)))
+    const raw = parseLevelSprites(rom.rom.readUpTo(rom.getLevelSpritePointer(0x105)!, 0x200)!, false).filter(s => s.spriteId === 0x4f) // prettier-ignore
+    const served = r.sprites.filter(s => s.id === 0x4f)
+    expect(served.map(s => [s.x, s.y])).toEqual([[1816, 335], [2232, 319], [4552, 319]]) // prettier-ignore
+    expect(served.map(s => [s.x, s.y])).toEqual(raw.map(s => [s.x * 16 + 8, s.y * 16 - 1]))
+    expect(served.every(s => s.status === 'drawn')).toBe(true)
+  })
+
+  it('runtime colors: the last upload of $1F (Magikoopa) is the colors the table engine splices in', () => {
+    const b = bytes()
+    const rom = new SmwRom(RomFile.fromBytes('x.sfc', Buffer.from(b)))
+    const map = 0x11c
+    const level = loadLevelState(rom.rom, map)
+    if (!level.ok) throw new Error(level.reason)
+    const sprite = parseLevelSprites(rom.rom.readUpTo(rom.getLevelSpritePointer(map)!, 0x200)!, false).find(x => x.spriteId === 0x1f)! // prettier-ignore
+    const [x, y] = [sprite.x * 16, sprite.y * 16]
+    const m = runOnce(rom.rom, 0x1f, withSeed({ sprite: { x, y }, camera: cameraFor(x, y, false, 20), mario: readMarioStartPos(rom.rom, map), loaded: level.wram })) // prettier-ignore
+    const written = m.passes.at(-1)!.palette
+    const note = engineDrawer(rom.rom, 0)!(sprite)
+    if (!note.ok || !('paletteNote' in note) || !note.paletteNote) throw new Error('engine has no dynamicCgram note') // prettier-ignore
+    const n = note.paletteNote
+    const bytesAt = rom.rom.readAt(n.entryAddr, n.colors * 2)!
+    const want = Array.from({ length: n.colors }, (_, i) => ({ index: n.row * 16 + n.firstCol + i, bgr555: (bytesAt[i * 2]! | (bytesAt[i * 2 + 1]! << 8)) & 0x7fff })) // prettier-ignore
+    expect(written.slice(-n.colors)).toEqual(want)
+    // The served frame is the first that draws, which precedes the first upload: no colors yet.
+    expect(m.chosen).toBeDefined()
+    expect(m.passes[m.chosen!]!.palette).toEqual([])
+  })
+
+  it('$C5 (the boss Big Boo on $0E4) is served with the colors its own code uploads, in its pixels', () => {
+    const b = bytes()
+    const rom = new SmwRom(RomFile.fromBytes('x.sfc', Buffer.from(b)))
+    const built = new L1ModelCache().get(b, romPath(VANILLA), 0xe4, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
+    if (!built.ok) throw new Error(built.reason)
+    const draw = interpDrawer(rom.rom, 0xe4, built.inputs)
+    const s = parseLevelSprites(rom.rom.readUpTo(rom.getLevelSpritePointer(0xe4)!, 0x200)!, false).find(x => x.spriteId === 0xc5)! // prettier-ignore
+    const r = draw(s)
+    expect(r.ok && 'runtimePalette' in r && r.runtimePalette?.length).toBe(8)
+    // Served pixels: with the sprite's own writes dropped, the bitmap must differ.
+    const withColors = drawSprites([s], built.inputs, draw)[0]!
+    const without = drawSprites([s], built.inputs, x => {
+      const d = draw(x)
+      return d.ok ? { ...d, runtimePalette: [] } : d
+    })[0]!
+    expect(withColors.status).toBe('drawn')
+    expect(withColors.rgba).not.toBe(without.rgba)
+  })
+
+  it("the served seed on $1C5 carries the loader's Mario (136, 368), not the table's (128, 368)", () => {
+    const b = bytes()
+    const rom = new SmwRom(RomFile.fromBytes('x.sfc', Buffer.from(b)))
+    const built = new L1ModelCache().get(b, romPath(VANILLA), 0x1c5, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
+    if (!built.ok) throw new Error(built.reason)
+    expect(readMarioStartPos(rom.rom, 0x1c5)).toEqual({ x: 128, y: 368 }) // what the table says
+    const seeds: SpriteSeed[] = []
+    const draw = interpDrawer(rom.rom, 0x1c5, built.inputs, (r, id, seed) => (seeds.push(seed), runOnce(r, id, seed))) // prettier-ignore
+    const s = parseLevelSprites(
+      rom.rom.readUpTo(rom.getLevelSpritePointer(0x1c5)!, 0x200)!,
+      false,
+    )[0]!
+    draw(s)
+    expect(seeds[0]!.mario).toMatchObject({ x: 136, y: 368 })
   })
 
   it('$4F on $105 is served at its stream position plus (8, -1): INIT moved it, not a table', () => {
