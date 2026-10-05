@@ -122,15 +122,11 @@ export class ProjectServiceImpl implements ProjectService {
     return mapScreen(this.screens, r.working.bytes(), r.romPath, index, screen, switchFlags, switches) // prettier-ignore
   }
 
-  async mapSprites(
-    manifestPath: string,
-    index: number,
-    switchFlags: SwitchFlagsDto,
-  ): Promise<MapSpritesResult> {
+  async mapSprites(manifestPath: string, index: number): Promise<MapSpritesResult> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
     this.notifier.watch(manifestPath, r.working)
-    return mapSprites(this.screens, r.working.bytes(), r.romPath, index, switchFlags)
+    return mapSprites(this.screens, r.working.bytes(), r.romPath, index)
   }
 
   async mapPalaceIcons(manifestPath: string, index: number): Promise<PalaceIconsResult> {

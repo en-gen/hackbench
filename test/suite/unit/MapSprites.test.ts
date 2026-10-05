@@ -9,9 +9,12 @@ import { describe, it, expect } from 'vitest'
 import type { EngineResult } from '../../../src/rom/model/sprites/generic/SpriteDrawEngine'
 import type { LevelSprite } from '../../../src/rom/LevelParser'
 import { RomFile } from '../../../src/rom/RomFile'
-import { drawSprites, mapSprites } from '../../../theia/extension/src/node/map-sprites'
+import { drawSprites, mapSprites, spriteLayer } from '../../../theia/extension/src/node/map-sprites'
 import { L1ModelCache } from '../../../theia/extension/src/node/map-screen'
-import { compositeSpriteScreen } from '../../../theia/extension/src/browser/map-view-model'
+import {
+  clearSpriteCanvas,
+  compositeSpriteScreen,
+} from '../../../theia/extension/src/browser/map-view-model'
 import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
 import { COLORS, px } from '../support/mapInputs'
@@ -78,6 +81,69 @@ describe('drawSprites', () => {
   })
 })
 
+describe('drawSprites: extra bits, palette splice', () => {
+  it('marks a sprite whose extra bits are set instead of drawing vanilla art for it', () => {
+    const custom = { ...spr(0, 1, 1), raw: [0x08, 0, 0x10] } as LevelSprite
+    const [a, b] = drawSprites([custom, { ...custom, raw: [0x04, 0, 0x10] } as LevelSprite, spr(2, 1, 1)], MODEL, () => ok(part(0x401, 0, 0))) // prettier-ignore
+    expect(a).toMatchObject({ status: 'placeholder', reason: 'extraBits' })
+    expect(b).toMatchObject({ status: 'placeholder', reason: 'extraBits' })
+    expect(drawSprites([spr(2, 1, 1)], MODEL, () => ok(part(0x401, 0, 0)))[0]!.status).toBe('drawn') // prettier-ignore
+  })
+
+  it('splices a dynamic row over columns [firstCol, firstCol + colors) and keeps the level colors elsewhere', () => {
+    const chars = { sp1: [Uint8Array.from([3, 4, 5, 6, 0, 0, 0, 0, ...new Array(56).fill(0)])] }
+    const note = { kind: 'dynamicCgram' as const, row: 9, firstCol: 4, colors: 2, entryAddr: 0 }
+    const stub = (): EngineResult => ({ ...ok(part(0x400, 0, 0)), paletteNote: note }) as EngineResult // prettier-ignore
+    const dyn: [number, number, number, number][] = [
+      [1, 2, 3, 255],
+      [4, 5, 6, 255],
+    ]
+    const [s] = drawSprites([spr(0, 0, 0)], { vram: chars, colors: COLORS }, stub, () => dyn)
+    const bmp = decode(s!)
+    expect([0, 1, 2, 3].map(x => px(bmp, 8, x, 0))).toEqual([
+      [9 * 16 + 3, 100, 200, 255],
+      [1, 2, 3, 255],
+      [4, 5, 6, 255],
+      [9 * 16 + 6, 100, 200, 255],
+    ])
+  })
+})
+
+describe('spriteLayer', () => {
+  const END = 0xff
+  const vertical = { ...MODEL, isVertical: true, screenCount: 2 }
+  const stub = () => ok(part(0x401, 0, 0))
+
+  it('lays a vertical map out as 512 x 256 screens with X from the first nibble and Y from the screen', () => {
+    // Byte 0 high nibble 3 is X (tiles); byte 1: Y nibble 5 in screen 1.
+    const r = spriteLayer(Uint8Array.from([0, 0x30, 0x51, 0x10, END]), vertical, stub)
+    expect(r).toMatchObject({ orientation: 'vertical', width: 512, height: 256, screenCount: 2 })
+    expect(r.sprites[0]).toMatchObject({ x: 48, y: 21 * 16 })
+    expect(r.note).toBeUndefined()
+  })
+
+  it('notes a stream cut before its end marker, and still draws what is there', () => {
+    const h = { ...MODEL, isVertical: false, screenCount: 1 }
+    const cut = spriteLayer(Uint8Array.from([0, 0x10, 0x01, 0x10, 0x20, 0x02, 0x10]), h, stub)
+    expect(cut.sprites).toHaveLength(2)
+    expect(cut.note).toMatch(/no end marker/)
+    expect(spriteLayer(Uint8Array.from([0, 0x10, 0x01, 0x10, END]), h, stub).note).toBeUndefined()
+  })
+})
+
+describe('clearSpriteCanvas', () => {
+  it('blanks a canvas that still holds an earlier fetch, and leaves a fresh one alone', () => {
+    const cleared: number[][] = []
+    const canvas = (drawn?: string) => ({ width: 8, height: 4, dataset: drawn === undefined ? {} : { drawn }, getContext: () => ({ clearRect: (...a: number[]) => cleared.push(a) }) }) // prettier-ignore
+    const old = canvas('3:1')
+    clearSpriteCanvas(old)
+    expect(cleared).toEqual([[0, 0, 8, 4]])
+    expect(old.dataset.drawn).toBeUndefined()
+    clearSpriteCanvas(canvas())
+    expect(cleared).toHaveLength(1)
+  })
+})
+
 describe('compositeSpriteScreen', () => {
   const solid = (x0: number, y0: number, w: number, h: number, color: number): MapSpriteDto =>
     ({ index: 0, id: 1, x: x0, y: y0, box: { x0, y0, x1: x0 + w, y1: y0 + h }, status: 'drawn', rgba: Buffer.from(new Uint8ClampedArray(w * h * 4).fill(color)).toString('base64') }) as MapSpriteDto // prettier-ignore
@@ -120,10 +186,9 @@ describe('compositeSpriteScreen', () => {
 })
 
 describe.skipIf(!hasRom(VANILLA))('mapSprites on the vanilla ROM', () => {
-  const none = { yellow: false, green: false, red: false, blue: false }
   const run = (index: number) => {
     const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
-    const r = mapSprites(new L1ModelCache(), bytes, romPath(VANILLA), index, none)
+    const r = mapSprites(new L1ModelCache(), bytes, romPath(VANILLA), index)
     if (r.status !== 'ok') throw new Error(JSON.stringify(r))
     return r
   }
@@ -132,7 +197,7 @@ describe.skipIf(!hasRom(VANILLA))('mapSprites on the vanilla ROM', () => {
     const r = run(0x106)
     expect(r.sprites).toHaveLength(25)
     const drawn = r.sprites.filter(s => s.status === 'drawn')
-    expect(drawn.length).toBeGreaterThan(0)
+    expect(drawn).toHaveLength(15)
     // Sprite $05 stands at tile row 20: its parts begin above the anchor, a 16 x 32 body.
     const koopa = drawn.find(s => s.id === 0x05)!
     expect(sized(koopa)).toEqual([16, 32])

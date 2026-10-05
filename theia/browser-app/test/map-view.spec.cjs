@@ -888,18 +888,18 @@ test('an engine-drawn sprite shows its own pixels where the service placed it; a
   await openMap(page, project.manifestPath, 0x106)
   await showScreen(page, 0x106, 1)
   await expect(spritePlane(page, 0x106, 1)).toHaveAttribute('data-drawn', SPRITES_DRAWN)
-  const flags = { green: false, yellow: false, blue: false, red: false }
   const reply = await page.evaluate(
-    ({ mp, flags }) => getSvc('Symbol(ProjectService)').mapSprites(mp, 0x106, flags),
-    { mp: project.manifestPath, flags },
+    mp => getSvc('Symbol(ProjectService)').mapSprites(mp, 0x106),
+    project.manifestPath,
   )
   expect(reply.status).toBe('ok')
   expect(reply.sprites).toHaveLength(25)
+  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(15)
   const inScreen1 = s => s.box.x0 >= 256 && s.box.x1 <= 512 && s.box.y0 >= 0 && s.box.y1 <= 432
-  // Sprite $05 stands on tile row 20 with a 16 x 32 body whose top is above its anchor.
-  const koopa = reply.sprites.find(s => s.id === 5 && s.status === 'drawn' && inScreen1(s))
-  expect(koopa, 'a drawn $05 inside screen 1').toBeTruthy()
-  expect(koopa.box.y0).toBeLessThan(koopa.y)
+  // Measured on vanilla: the first $05 is at tile (27, 20), a 16 x 32 body whose top is above its anchor.
+  const koopa = reply.sprites.find(s => s.id === 5)
+  expect(koopa).toMatchObject({ x: 432, y: 320, status: 'drawn' })
+  expect(koopa.box).toEqual({ x0: 432, y0: 304, x1: 448, y1: 336 })
   const marker = reply.sprites.find(s => s.status === 'placeholder' && inScreen1(s))
   expect(marker, 'a marker inside screen 1').toBeTruthy()
   expect(marker.reason).toBe('noDescriptor')
@@ -925,13 +925,17 @@ test('an engine-drawn sprite shows its own pixels where the service placed it; a
           if (got[i] !== want[i] || got[i + 1] !== want[i + 1] || got[i + 2] !== want[i + 2])
             same = false
         }
-        return { same, opaque, corner: Array.from(got.slice(0, 4)) }
+        return { same, opaque, corner: Array.from(got.slice(0, 4)), inBox: 0 }
       }
-      return { koopa: cut(koopa), marker: cut(marker) }
+      const abs = ctx.getImageData(432 - 256, 304, 16, 32).data
+      let inBox = 0
+      for (let i = 3; i < abs.length; i += 4) if (abs[i] !== 0) inBox++
+      return { koopa: { ...cut(koopa), inBox }, marker: cut(marker) }
     },
     { koopa, marker },
   )
   expect(read.koopa.opaque, 'the engine drew pixels').toBeGreaterThan(0)
+  expect(read.koopa.inBox, 'canvas pixels inside the absolute box (432,304)-(448,336)').toBeGreaterThan(0) // prettier-ignore
   expect(read.koopa.same, 'the canvas holds the served bitmap at its box').toBe(true)
   expect(read.marker.same).toBe(true)
   // The marker is 16 x 16 at the anchor, its frame the editor blue.

@@ -27,7 +27,7 @@ import {
 } from '../common/project-protocol'
 import { ProjectFrontendClient } from './project-push-client'
 import { decodeRgba, TILE_PX } from './map16-pixels'
-import { compositeSpriteScreen, PALACES, screenKey } from './map-view-model'
+import { clearSpriteCanvas, compositeSpriteScreen, PALACES, screenKey } from './map-view-model'
 import { SWITCH_ORDER } from './map16-view-model'
 import { decodeSwitchButton, SwitchToggle, type SwitchButtonImages } from './switch-toggle'
 import { LayerToggle } from './layer-icon'
@@ -196,7 +196,7 @@ export class MapViewWidget extends ReactWidget {
     if (!o) return
     const generation = this.generation
     const r = await this.projects
-      .mapSprites(o.manifestPath, o.index, { ...this.flags })
+      .mapSprites(o.manifestPath, o.index)
       .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
     // An older map's or edit's sprites must not land over a newer one.
     if (generation !== this.generation) return
@@ -377,7 +377,9 @@ export class MapViewWidget extends ReactWidget {
   protected syncSprites(canvas: HTMLCanvasElement, screen: number): void {
     const sp = this.sprites
     const want = `${this.generation}:${this.spritesVersion}`
-    if (!sp || canvas.dataset.drawn === want) return
+    // No sprites (a failed or older map's fetch): clear what an earlier map's left, never keep it.
+    if (!sp) return clearSpriteCanvas(canvas)
+    if (canvas.dataset.drawn === want) return
     if (canvas.width !== sp.width) canvas.width = sp.width
     if (canvas.height !== sp.height) canvas.height = sp.height
     const ctx = canvas.getContext('2d')
@@ -546,6 +548,11 @@ export class MapViewWidget extends ReactWidget {
         {this.screenError && this.mapLayout && (
           <div className="hb-map-view-note hb-map-view-error" data-control="map-error">
             {this.screenError}
+          </div>
+        )}
+        {this.sprites?.note && (
+          <div className="hb-map-view-note" data-note="sprites">
+            {this.sprites.note}
           </div>
         )}
         {this.mapLayout?.layerNotes.map(n => (

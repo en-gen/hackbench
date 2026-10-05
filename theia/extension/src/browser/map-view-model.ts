@@ -60,3 +60,15 @@ export function compositeSpriteScreen(
   }
   return out
 }
+
+/** Blanks a sprite canvas that still shows an earlier fetch's sprites. */
+export function clearSpriteCanvas(canvas: {
+  width: number
+  height: number
+  dataset: DOMStringMap
+  getContext(id: '2d'): { clearRect(x: number, y: number, w: number, h: number): void } | null
+}): void {
+  if (canvas.dataset.drawn === undefined) return
+  canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height)
+  delete canvas.dataset.drawn
+}

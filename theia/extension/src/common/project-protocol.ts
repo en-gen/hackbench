@@ -307,6 +307,8 @@ export type MapSpritesResult =
       width: number
       height: number
       sprites: MapSpriteDto[]
+      /** Why some sprites may be missing (an unterminated stream), when they may be. */
+      note?: string
     }
   | { status: 'unavailable'; reason: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
@@ -454,7 +456,7 @@ export interface ProjectService {
   ): Promise<MapScreenResult>
 
   /** Every sprite of a map, drawn by the table engine or marked, from the working copy (#564). */
-  mapSprites(manifestPath: string, index: number, switchFlags: SwitchFlagsDto): Promise<MapSpritesResult> // prettier-ignore
+  mapSprites(manifestPath: string, index: number): Promise<MapSpritesResult>
 
   /** The map toolbar's art: the palace blocks and the char switches' buttons. */
   mapPalaceIcons(manifestPath: string, index: number): Promise<PalaceIconsResult>

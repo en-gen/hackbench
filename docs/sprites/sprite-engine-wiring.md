@@ -220,3 +220,14 @@ read through `drawSpriteParts`; no emulator was run.
 - Overlap between sprites: column order on a horizontal map, row order on a
   vertical one, the stream's order breaking ties, later on top. This is a
   display choice, not the game's OAM order.
+- The anchor is the raw stream position; INIT-time position changes are not
+  applied yet (for example InitPiranha's shift on `$4F`, and others). They are
+  to come from interpreting INIT, not from a per-sprite table.
+- A sprite whose extra bits (byte 0, bits 3-2) are set is a marker with reason
+  `extraBits`: Lunar Magic / PIXI use them to flag a custom sprite (a
+  convention not read from this repo's ROM sources), so vanilla art is not
+  drawn for it. On vanilla no such sprite has a descriptor, so `$106` still
+  draws 15.
+- The stream is read with `readUpTo` (a stream at the ROM's end still parses);
+  one with no `$FF` in the bytes read carries a `note` on the reply, shown on
+  the map tab.

@@ -144,7 +144,7 @@ which `theia/browser-app/test/load-maps.spec.cjs` asserts.
 
 ### The map tab's sprite layer (#564)
 
-`ProjectService.mapSprites(manifestPath, index, switchFlags)` returns every
+`ProjectService.mapSprites(manifestPath, index)` returns every
 sprite of a map as one RGBA bitmap in map pixels (`MapSpriteDto`: index, id,
 anchor, `box`, base64 `rgba`, `status` of `drawn` or `placeholder`, and the
 engine's failure kind as `reason`), plus the screen size and orientation.

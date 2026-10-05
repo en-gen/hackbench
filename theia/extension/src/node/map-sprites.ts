@@ -16,6 +16,14 @@
  * repointed handler, chars not loaded, a custom handler) is a 16 x 16 marker
  * with its hex id, never invented art. That includes the non-visual sprites
  * (auto-scroll, generators, layer control): their real treatment is deferred.
+ *
+ * NOT APPLIED YET: the anchor is the raw stream position. Position changes an
+ * INIT routine makes (a Piranha Plant's +8 / -1 in InitPiranha, and others)
+ * are not applied; they will come from interpreting INIT, not from a table.
+ * A sprite whose extra bits (byte 0, bits 3-2) are set is marked, not drawn:
+ * Lunar Magic / PIXI use them to flag a custom sprite (convention, not read
+ * from this repo's ROM sources), and the engine's vanilla descriptor would
+ * draw the wrong art for it.
  */
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
@@ -38,6 +46,10 @@ import type { MapSpriteDto, MapSpritesResult, SwitchFlagsDto } from '../common/p
 import { screenTiles, type L1ModelCache } from './map-screen'
 
 const TILE = 16
+const EXTRA_BITS = 0x0c
+const NO_FLAGS: SwitchFlagsDto = { yellow: false, green: false, red: false, blue: false }
+/** Bytes of a level's sprite stream read; a longer one is noted, not silently cut. */
+const STREAM_WINDOW = 0x200
 const MARK = 16
 /** The marker's colors: a dark fill under white hex digits, in an editor blue frame. */
 const FILL: RgbaColor = [20, 20, 40, 220]
@@ -130,6 +142,8 @@ export function drawSprites(
   dynamic: (note: PaletteNote) => RgbaColor[] = () => [],
 ): MapSpriteDto[] {
   return sprites.map(s => {
+    // Fail closed: a possibly custom sprite is never given vanilla art.
+    if ((s.raw[0] ?? 0) & EXTRA_BITS) return placeholder(s, 'extraBits')
     const res = draw(s)
     if (!res.ok) return placeholder(s, res.failure.kind)
     if (res.parts.length === 0) return placeholder(s, 'noParts')
@@ -186,22 +200,50 @@ export function engineDrawer(rom: RomFile, marioX: number): SpriteDrawer | null 
   }
 }
 
+/** The stream's own terminator ($FF in a first-byte slot) within the bytes read. */
+const terminated = (data: Uint8Array) => {
+  for (let p = 1; p < data.length; p += 3) if (data[p] === 0xff) return true
+  return false
+}
+
+/** The reply for a stream: its sprites drawn, in the geometry of the map's screens. */
+export function spriteLayer(
+  data: Uint8Array,
+  model: SpriteModel & { isVertical: boolean; screenCount: number },
+  draw: SpriteDrawer,
+  dynamic?: (note: PaletteNote) => RgbaColor[],
+): Extract<MapSpritesResult, { status: 'ok' }> {
+  const { w, h } = screenTiles(model.isVertical)
+  return {
+    status: 'ok',
+    orientation: model.isVertical ? 'vertical' : 'horizontal',
+    screenCount: model.screenCount,
+    width: w * TILE,
+    height: h * TILE,
+    sprites: drawSprites(parseLevelSprites(data, model.isVertical), model, draw, dynamic),
+    note: terminated(data)
+      ? undefined
+      : 'The sprite stream has no end marker in the bytes read: sprites past them are not drawn.',
+  }
+}
+
 /** A map's sprites from the working copy's bytes, over the same model as its screens. */
 export function mapSprites(
   cache: L1ModelCache,
   bytes: Uint8Array,
   romPath: string,
   index: number,
-  flags: SwitchFlagsDto,
 ): Exclude<MapSpritesResult, { status: 'rom-not-located' }> {
-  const built = cache.get(bytes, romPath, index, flags)
+  // Sprites do not depend on the palaces; any flags give the same model.
+  const built = cache.get(bytes, romPath, index, NO_FLAGS)
   if (!built.ok) return { status: 'unavailable', reason: built.reason }
   const model = built.inputs
   try {
     // A copy, as the model cache makes: the working copy's array is shared.
     const rom = new SmwRom(RomFile.fromBytes(romPath, Buffer.from(bytes)))
     const ptr = rom.getLevelSpritePointer(index)
-    const data = ptr === null ? null : rom.rom.readAt(ptr, 0x200)
+    // A stream in the ROM's last bytes is still a stream (as SmwRom.getLevelRawData reads).
+    const data = ptr === null ? null : rom.rom.readUpTo(ptr, STREAM_WINDOW)
     if (!data) return { status: 'unavailable', reason: `No sprite data at the pointer for slot ${index.toString(16)}` } // prettier-ignore
     const draw = engineDrawer(rom.rom, readMarioStartPos(rom.rom, index).x)
     if (!draw) return { status: 'unavailable', reason: 'The sprite tile tables cannot be read' }
@@ -209,15 +251,7 @@ export function mapSprites(
       const b = rom.rom.readAt(n.entryAddr, n.colors * 2)
       return b ? Array.from({ length: n.colors }, (_, i) => bgr555ToRgba(b[i * 2]! | (b[i * 2 + 1]! << 8))) : [] // prettier-ignore
     }
-    const { w, h } = screenTiles(model.isVertical)
-    return {
-      status: 'ok',
-      orientation: model.isVertical ? 'vertical' : 'horizontal',
-      screenCount: model.screenCount,
-      width: w * TILE,
-      height: h * TILE,
-      sprites: drawSprites(parseLevelSprites(data, model.isVertical), model, draw, dynamic),
-    }
+    return spriteLayer(data, model, draw, dynamic)
   } catch (err) {
     return { status: 'unavailable', reason: (err as Error).message }
   }
