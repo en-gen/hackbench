@@ -9,9 +9,11 @@ const VARIANTS = [
   ['HO', 'HO. Horizontal split; 1px white line, 1px black border each side', 'hor', 1, 1, 1, '#fff'],
   ['HL', 'HL. Horizontal split; 1px white line, 1px black border on the mushroom side only', 'hor', 1, 0, 1, '#fff'],
   ['HD', 'HD. Horizontal split; 1px black line', 'hor', 1, 0, 0, '#000'],
+  ['HD2', 'HD2. Horizontal split; 2px black line', 'hor', 2, 0, 0, '#000'],
   ['HH', 'HH. Horizontal split; hard split, no line', 'hor', 0, 0, 0, '#fff'],
   ['VO', 'VO. Vertical split (mushroom left, powerup right); 1px white line, 1px black border each side', 'ver', 1, 1, 1, '#fff'],
   ['VD', 'VD. Vertical split (mushroom left, powerup right); 1px black line', 'ver', 1, 0, 0, '#000'],
+  ['VD2', 'VD2. Vertical split (mushroom left, powerup right); 2px black line', 'ver', 2, 0, 0, '#000'],
   ['VH', 'VH. Vertical split (mushroom left, powerup right); hard split, no line', 'ver', 0, 0, 0, '#fff'],
   ['DO', 'DO. Diagonal top-left to bottom-right (powerup top-right); 1px white line, 1px black border each side', 'tlbr', 1, 1, 1, '#fff'],
 ]
