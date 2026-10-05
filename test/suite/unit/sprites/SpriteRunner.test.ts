@@ -49,6 +49,23 @@ describe('dispatch reader', () => {
   })
 })
 
+describe('runtime palette writes', () => {
+  // Each id writes one color in INIT by a different route; the model carries it from pass 0 on.
+  it.each([
+    [11, 0xd1, 0x03ff, 'the NMI upload list'],
+    [12, 0xd2, 0x01aa, 'the palette mirror'],
+    [13, 0xd3, 0x0255, 'CGADD and CGDATA'],
+  ])('id %i: color %i set through %s', (id, index, bgr555) => {
+    const m = runSprite(rom, id)
+    expect(m.passes[0].palette).toEqual([{ index, bgr555 }])
+    expect(m.passes.at(-1)!.palette).toEqual([{ index, bgr555 }])
+  })
+
+  it('a sprite that writes no color has none', () => {
+    expect(runSprite(rom, 0).passes[0].palette).toEqual([])
+  })
+})
+
 describe('runner on a synthetic cart', () => {
   it('shifts the anchor by what INIT executes, and a changed operand changes the shift', () => {
     const a = runSprite(rom, 0)

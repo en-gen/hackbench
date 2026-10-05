@@ -9,7 +9,9 @@
  * Y borrow; 2 draws a flip that follows Mario's side; 3 takes its tile from
  * the hardware multiplier; 4 executes COP in MAIN; 5 draws nothing; 6 has an
  * INIT pointer below $8000; 7, 8 and 9 end INIT with status $9, $0 and $1; 10
- * draws its tile from the level water flag ($85). Options plant a defect for the oracle tests.
+ * draws its tile from the level water flag ($85). Ids 11, 12 and 13 draw like
+ * id 0 and set one CGRAM color in INIT: 11 through the NMI upload list
+ * ($0681/$0682), 12 through the palette mirror ($0703), 13 through $2121/$2122. Options plant a defect for the oracle tests.
  */
 import { RomFile } from '../../../src/rom/RomFile'
 
@@ -79,6 +81,10 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   mainTable[3] = 0x86c0
   mainTable[4] = 0x8700
   mainTable[10] = 0x8780
+  initTable[11] = 0x8800
+  initTable[12] = 0x8830
+  initTable[13] = 0x8860
+  for (const id of [11, 12, 13]) mainTable[id] = 0x8640
   const words = (t: number[]) => t.flatMap(w => [w & 0xff, w >> 8])
   put(0x018170 + 11, words(initTable))
   put(0x018320 + 9, words(mainTable))
@@ -99,6 +105,12 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   // id 10: tile = $85 (LevelIsWater).
   put(0x018780, draw([0xa5, 0x85, 0x99, 0x02, 0x03], [0xa9, 0x0a, 0x99, 0x03, 0x03]))
   put(0x018700, [0x02, 0x00])
+  // id 11: append [2 bytes, color $D1, $03FF] to the upload list and bump $0681 by 4.
+  put(0x018800, [0xac, 0x81, 0x06, 0xa9, 0x02, 0x99, 0x82, 0x06, 0xa9, 0xd1, 0x99, 0x83, 0x06, 0xa9, 0xff, 0x99, 0x84, 0x06, 0xa9, 0x03, 0x99, 0x85, 0x06, 0xa9, 0x00, 0x99, 0x86, 0x06, 0x98, 0x18, 0x69, 0x04, 0x8d, 0x81, 0x06, 0x60]) // prettier-ignore
+  // id 12: color $D2 = $01AA, written to its two MainPalette bytes ($0703 + $1A4).
+  put(0x018830, [0xa9, 0xaa, 0x8d, 0xa7, 0x08, 0xa9, 0x01, 0x8d, 0xa8, 0x08, 0x60])
+  // id 13: color $D3 = $0255 through CGADD/CGDATA.
+  put(0x018860, [0xa9, 0xd3, 0x8d, 0x21, 0x21, 0xa9, 0x55, 0x8d, 0x22, 0x21, 0xa9, 0x02, 0x8d, 0x22, 0x21, 0x60]) // prettier-ignore
   // INIT routines that leave status 9, 0 and 1.
   for (const [addr, status] of [
     [0x018730, 9],

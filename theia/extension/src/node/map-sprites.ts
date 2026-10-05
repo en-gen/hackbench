@@ -24,10 +24,11 @@
  * from running it, not from a table). The table engine (`engineDrawer`) stays
  * as the comparison oracle of step 3 and goes in step 4. Seeds are generic:
  * the ROM-run level loader's WRAM, Mario at the level's start, the camera
- * placed so the sprite is on screen. Not modelled: CGRAM a handler uploads
- * at runtime (the level's own rows are used), so such a sprite may be
- * miscolored; and the sprite is run alone, so one that reacts to a
- * neighbour or to the player's actions shows its first pose.
+ * placed so the sprite is on screen. CGRAM a handler writes at runtime is
+ * applied: the colors the sprite's own code wrote (NMI upload
+ * list, palette mirror, direct registers; `Machine.paletteWrites`) override
+ * the level's row for that sprite only. Not modelled: the sprite is run
+ * alone, so one that reacts to a neighbour or to the player's actions shows its first pose.
  * A sprite with bit 3 of byte 0 set is marked, not drawn: the gate fails
  * closed for sprites that MAY be custom (PIXI dispatches on bit 3), which the
  * vanilla descriptor would draw wrongly. Vanilla scroll/command sprites ($E8,
@@ -50,6 +51,7 @@ import { readMarioStartPos } from '../../../../src/rom/L3Loader'
 import {
   runOnce,
   type SpriteModel as RunModel,
+  type PaletteWrite,
   type SpritePart,
 } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
@@ -98,7 +100,11 @@ export interface SpriteModel {
  * `reason` is a refusal in the interpreter's own words.
  */
 export type SpriteDrawResult =
-  | (Extract<EngineResult, { ok: true }> & { anchor?: { x: number; y: number } })
+  | (Extract<EngineResult, { ok: true }> & {
+      anchor?: { x: number; y: number }
+      /** CGRAM colors the sprite's own code set by its drawn frame (interpreter only). */
+      runtimePalette?: PaletteWrite[]
+    })
   | Extract<EngineResult, { ok: false }>
   | { ok: false; reason: string }
 
@@ -194,9 +200,14 @@ export function drawSprites(
     const dyn = res.paletteNote ? dynamic(res.paletteNote) : []
     res.parts.forEach((p, i) => {
       const note = res.paletteNote
+      const runtime = new Map<number, number>()
+      for (const w of ('runtimePalette' in res && res.runtimePalette) || []) runtime.set(w.index, w.bgr555) // prettier-ignore
       const row = (c: number): RgbaColor => {
+        // The sprite's own CGRAM writes (WRAM upload list, palette mirror, direct), per sprite.
+        const set = runtime.get(p.palette * 16 + c)
         // Only the parts on the row the handler uploads to; another row keeps the level's colors.
         const spliced = note && p.palette === note.row && c >= note.firstCol ? dyn[c - note.firstCol] : undefined // prettier-ignore
+        if (set !== undefined && !spliced) return bgr555ToRgba(set)
         return spliced ?? getPaletteColor(model, p.palette, c)
       }
       blit(out, width, p, [ax + p.dx - box.x0, ay + p.dy - box.y0], pixels[i]!, row)
@@ -278,6 +289,7 @@ export function modelResult(m: RunModel): SpriteDrawResult {
     ok: true,
     parts: interpParts(pass.parts),
     anchor: { x: m.anchor.x, y: m.anchor.y },
+    runtimePalette: pass.palette,
     identity: { spriteId: m.id, mainHandler: 0, initHandler: 0, status: 'vanilla' },
   }
 }

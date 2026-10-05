@@ -697,6 +697,23 @@ still pose against the interpreter's first drawing pass (another walk-cycle
 tile, or a facing), not mis-placement; the list is pinned in
 `test/suite/unit/MapSpritesInterp.test.ts`.
 
-Not modelled here: CGRAM a handler uploads at runtime (the level's rows are
-used, so such a sprite may be miscolored), and neighbours or player actions (each
-sprite runs alone).
+Runtime palette: sprite code does not write `$2122` itself; it appends
+to WRAM that NMI uploads. The runner records, cumulative from the start of
+INIT to the end of each pass (`PassResult.palette`), (1) the upload list
+`DynPaletteTable` `$0682` with `DynPaletteIndex` `$0681` (entries `[bytes, CGRAM
+color index, colors]`, rammap.asm:1152-1164, consumed by CODE_00A488,
+bank_00.asm:4714-4735, e.g. `CODE_01C028` for Magikoopa, bank_01.asm:8733-8760),
+(2) `MainPalette` `$0703` colors whose two bytes the run wrote (uploaded whole
+via `PaletteIndexTable` 6, bank_00.asm:4710), (3) direct `$2121/$2122` writes.
+No NMI runs, so list entries pile up and a later one for an index wins. The
+served frame applies the writes up to its pass, to that sprite only.
+
+Measured on vanilla (196 maps with a sprite stream, every id the interpreter
+draws): only `$C5` (boss Big Boo, map `$0E4`) has runtime colors at its served
+frame: 8 colors at CGRAM `$F0`. `$1F` (Magikoopa, `$11C`) uploads from pass 2
+on, but its first drawing pass (1) comes before the first upload, so the served
+frame has none; the run's last upload equals the table engine's resting-entry
+splice (test). That is the frame policy's doing (this section notes it), not a missing
+route.
+
+Not modelled here: neighbours or player actions (each sprite runs alone).

@@ -43,6 +43,11 @@ export const RAM = {
   oamIndex: 0x15ea,
   oamX: 0x300,
   oamTileSize: 0x460,
+  /** $0681 DynPaletteIndex: bytes used in the NMI colour-upload list at $0682 (rammap.asm:1152-1164). */
+  dynPaletteIndex: 0x681,
+  dynPaletteTable: 0x682,
+  /** $0703 MainPalette: a RAM copy of all 256 CGRAM colors (rammap.asm:1172-1175). */
+  mainPalette: 0x703,
   /** Entries in the sprite OAM mirror ($0300-$03FF; hardware entries 64-127). */
   oamEntries: 64,
 } as const
@@ -75,6 +80,12 @@ export interface SpritePart {
   oy: number
 }
 
+/** One CGRAM color a run set: index 0-255 (row * 16 + column) and its BGR555 value. */
+export interface PaletteWrite {
+  index: number
+  bgr555: number
+}
+
 export interface PassResult {
   pass: number
   /** Level position of the sprite at the end of this pass. */
@@ -82,6 +93,11 @@ export interface PassResult {
   parts: SpritePart[]
   /** Palette or graphics uploads the pass wrote registers for. */
   uploads: string[]
+  /**
+   * CGRAM colors the run has set by the end of this pass (cumulative from the
+   * start of INIT), in application order. See `Machine.paletteWrites`.
+   */
+  palette: PaletteWrite[]
 }
 
 export type DependsOn = 'marioX'
@@ -126,6 +142,13 @@ export class Machine {
   readonly bus: SpriteBus
   readonly cpu: Cpu65816
   private touched = new Set<number>()
+  /** Cumulative: MainPalette bytes written, and direct $2121/$2122 colors in write order. */
+  private palTouched = new Set<number>()
+  private direct: PaletteWrite[] = []
+  private cgadd = 0
+  private cgLow: number | null = null
+  /** $0681 when the run began: entries the loader left in the upload list are not this sprite's. */
+  private dynStart = 0
   steps = 0
 
   constructor(
@@ -150,8 +173,57 @@ export class Machine {
     }
     this.bus.onWramWrite = off => {
       this.touched.add(off)
+      if (off >= RAM.mainPalette && off < RAM.mainPalette + 512) this.palTouched.add(off)
+    }
+    this.bus.onHwWrite = (reg, v) => {
+      if (reg === 0x2121) {
+        this.cgadd = v
+        this.cgLow = null
+      } else if (reg === 0x2122) {
+        if (this.cgLow === null) this.cgLow = v
+        else {
+          this.direct.push({ index: this.cgadd, bgr555: ((v << 8) | this.cgLow) & 0x7fff })
+          this.cgadd = (this.cgadd + 1) & 0xff
+          this.cgLow = null
+        }
+      }
     }
     this.load(id)
+    this.dynStart = this.bus.wram[RAM.dynPaletteIndex]
+  }
+
+  /**
+   * CGRAM colors this run has set so far, three routes in this order (a later
+   * route wins a color): (1) the NMI upload list at $0682, entries
+   * `[bytes, CGRAM color index, colors...]` ended by a zero count, read from
+   * where the run began (CODE_00A488, SMWDisX bank_00.asm:4714-4735, the
+   * table `DynPaletteTable` of rammap.asm:1157-1164; no NMI runs here, so
+   * entries pile up and a later one for the same index wins, as it would
+   * after the earlier upload); (2) MainPalette colors whose BOTH bytes the run
+   * wrote (a half-written color has no known other half); (3) direct
+   * $2121/$2122 writes. Hardware's own consumption of (2) is the
+   * whole-CGRAM upload of PaletteIndexTable 6 (bank_00.asm:4710).
+   */
+  paletteWrites(): PaletteWrite[] {
+    const w = this.bus.wram
+    const out: PaletteWrite[] = []
+    let at = RAM.dynPaletteTable + this.dynStart
+    while (at < RAM.dynPaletteTable + 0x7f && w[at] !== 0) {
+      const n = w[at] & ~1
+      const first = w[at + 1]
+      for (let i = 0; i < n / 2 && first + i < 256; i++)
+        out.push({
+          index: first + i,
+          bgr555: (w[at + 2 + i * 2] | (w[at + 3 + i * 2] << 8)) & 0x7fff,
+        })
+      at += 2 + w[at]
+    }
+    for (let i = 0; i < 256; i++) {
+      const b = RAM.mainPalette + i * 2
+      if (this.palTouched.has(b) && this.palTouched.has(b + 1))
+        out.push({ index: i, bgr555: (w[b] | (w[b + 1] << 8)) & 0x7fff })
+    }
+    return [...out, ...this.direct]
   }
 
   private w16(off: number, v: number): void {
@@ -368,6 +440,7 @@ export function runOnce(
         pos: m.pos(),
         parts: readParts(m, anchor),
         uploads: uploadsOf(m, hw),
+        palette: m.paletteWrites(),
       })
     }
     if (m.bus.inputs) model.inputs = [...m.bus.inputs].sort((a, b) => a - b)

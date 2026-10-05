@@ -9,7 +9,11 @@ import type { LevelSprite } from '../../../src/rom/LevelParser'
 import { parseLevelSprites } from '../../../src/rom/LevelParser'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
+import { loadLevelState } from '../../../src/rom/sprites/interp/LevelLoader'
+import { runOnce } from '../../../src/rom/sprites/interp/SpriteRunner'
+import { withSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
 import { readMarioStartPos } from '../../../src/rom/L3Loader'
+import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
 import type { SpriteModel, SpritePart } from '../../../src/rom/sprites/interp/SpriteRunner'
 import {
   cameraFor,
@@ -58,9 +62,9 @@ describe('interpParts', () => {
 describe('modelResult', () => {
   it('serves the chosen pass at the anchor INIT left, and says why when there is nothing to draw', () => {
     const passes = [
-      { pass: 0, pos: { x: 0, y: 0 }, parts: [], uploads: [] },
-      { pass: 1, pos: { x: 0, y: 0 }, parts: [part({ char: 5, dx: 2 })], uploads: [] },
-      { pass: 2, pos: { x: 0, y: 0 }, parts: [part({ char: 9 })], uploads: [] },
+      { pass: 0, pos: { x: 0, y: 0 }, parts: [], uploads: [], palette: [] },
+      { pass: 1, pos: { x: 0, y: 0 }, parts: [part({ char: 5, dx: 2 })], uploads: [], palette: [] },
+      { pass: 2, pos: { x: 0, y: 0 }, parts: [part({ char: 9 })], uploads: [], palette: [] },
     ]
     const r = modelResult(
       model({ anchor: { x: 104, y: 51, rawX: 96, rawY: 52 }, passes, chosen: 1 }),
@@ -78,6 +82,28 @@ describe('cameraFor', () => {
     expect(cameraFor(10, 10, false, 20)).toEqual({ x: 0, y: 0 })
     expect(cameraFor(9000, 430, false, 20)).toEqual({ x: 4864, y: 208 })
     expect(cameraFor(500, 700, true, 3)).toEqual({ x: 256, y: 544 })
+  })
+})
+
+describe('drawSprites with runtime palette writes', () => {
+  const s = { index: 0, x: 0, y: 0, spriteId: 1, screen: 0, extraBit: false, raw: [], streamOffset: 0 } as LevelSprite // prettier-ignore
+  const chars = { sp1: [Uint8Array.from([1, 2, ...new Array(62).fill(0)])] }
+  const withPalette = (runtimePalette: { index: number; bgr555: number }[]): SpriteDrawer => () => ({ ok: true, runtimePalette, parts: [{ charNum: 0x400, palette: 9, flipX: false, flipY: false, dx: 0, dy: 0 }], identity: { spriteId: 1, mainHandler: 0, initHandler: 0, status: 'vanilla' } }) // prettier-ignore
+  const px2 = (d: MapSpriteDto) => [0, 1].map(x => Array.from(Buffer.from(d.rgba, 'base64').subarray(x * 4, x * 4 + 4))) // prettier-ignore
+
+  it("the sprite's own CGRAM write changes the rendered color of that row and column only", () => {
+    const [plain] = drawSprites([s], { vram: chars, colors: COLORS }, withPalette([]))
+    // Row 9, column 2 (index 146) = BGR555 $7C00: pure blue, 248 in the blue byte.
+    const [set] = drawSprites([s], { vram: chars, colors: COLORS }, withPalette([{ index: 9 * 16 + 2, bgr555: 0x7c00 }])) // prettier-ignore
+    expect(px2(plain!)[0]).toEqual(px2(set!)[0])
+    expect(px2(plain!)[1]).not.toEqual(px2(set!)[1])
+    expect(px2(set!)[1]).toEqual([0, 0, 255, 255])
+  })
+
+  it('a write to another row is ignored', () => {
+    const [a] = drawSprites([s], { vram: chars, colors: COLORS }, withPalette([]))
+    const [b] = drawSprites([s], { vram: chars, colors: COLORS }, withPalette([{ index: 10 * 16 + 2, bgr555: 0x7c00 }])) // prettier-ignore
+    expect(px2(a!)).toEqual(px2(b!))
   })
 })
 
@@ -204,6 +230,40 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     expect(served.map(s => [s.x, s.y])).toEqual([[1816, 335], [2232, 319], [4552, 319]]) // prettier-ignore
     expect(served.map(s => [s.x, s.y])).toEqual(raw.map(s => [s.x * 16 + 8, s.y * 16 - 1]))
     expect(served.every(s => s.status === 'drawn')).toBe(true)
+  })
+
+  it('runtime colors: the last upload of $1F (Magikoopa) is the colors the table engine splices in', () => {
+    const b = bytes()
+    const rom = new SmwRom(RomFile.fromBytes('x.sfc', Buffer.from(b)))
+    const map = 0x11c
+    const level = loadLevelState(rom.rom, map)
+    if (!level.ok) throw new Error(level.reason)
+    const sprite = parseLevelSprites(rom.rom.readUpTo(rom.getLevelSpritePointer(map)!, 0x200)!, false).find(x => x.spriteId === 0x1f)! // prettier-ignore
+    const [x, y] = [sprite.x * 16, sprite.y * 16]
+    const m = runOnce(rom.rom, 0x1f, withSeed({ sprite: { x, y }, camera: cameraFor(x, y, false, 20), mario: readMarioStartPos(rom.rom, map), loaded: level.wram })) // prettier-ignore
+    const written = m.passes.at(-1)!.palette
+    const note = engineDrawer(rom.rom, 0)!(sprite)
+    if (!note.ok || !('paletteNote' in note) || !note.paletteNote) throw new Error('engine has no dynamicCgram note') // prettier-ignore
+    const n = note.paletteNote
+    const bytesAt = rom.rom.readAt(n.entryAddr, n.colors * 2)!
+    const want = Array.from({ length: n.colors }, (_, i) => ({ index: n.row * 16 + n.firstCol + i, bgr555: (bytesAt[i * 2]! | (bytesAt[i * 2 + 1]! << 8)) & 0x7fff })) // prettier-ignore
+    // Sprite rows are CGRAM 128-255; the run also touches BG colors 0-7 in the mirror, which no sprite part reads.
+    expect(written.filter(w => w.index >= 128).slice(-n.colors)).toEqual(want)
+    // The served frame is the first that draws, which precedes the first upload: no colors yet.
+    expect(m.chosen).toBeDefined()
+    expect(m.passes[m.chosen!]!.palette).toEqual([])
+  })
+
+  it('$C5 (the boss Big Boo on $0E4) is served with the colors its own code uploads', () => {
+    const b = bytes()
+    const rom = new SmwRom(RomFile.fromBytes('x.sfc', Buffer.from(b)))
+    const built = new L1ModelCache().get(b, romPath(VANILLA), 0xe4, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
+    if (!built.ok) throw new Error(built.reason)
+    const draw = interpDrawer(rom.rom, 0xe4, built.inputs)
+    if (typeof draw !== 'function') throw new Error(draw.reason)
+    const s = parseLevelSprites(rom.rom.readUpTo(rom.getLevelSpritePointer(0xe4)!, 0x200)!, false).find(x => x.spriteId === 0xc5)! // prettier-ignore
+    const r = draw(s)
+    expect(r.ok && 'runtimePalette' in r && r.runtimePalette?.length).toBe(8)
   })
 
   it('counts drawn and marked sprites on $105 and $106, every marker with the interpreter reason', () => {
