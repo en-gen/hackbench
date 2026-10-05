@@ -267,7 +267,7 @@ export class GfxViewWidget extends ReactWidget {
           <button
             data-control="grid-toggle"
             type="button"
-            className={'hb-icon-btn' + (gridShown ? ' hb-icon-btn-on' : '')}
+            className={'hb-icon-btn' + (gridShown ? ' hb-icon-btn-on' : ' hb-icon-btn-off')}
             aria-pressed={gridShown}
             title={gridShown ? 'Hide grid' : 'Show grid'}
             aria-label={gridShown ? 'Hide grid' : 'Show grid'}

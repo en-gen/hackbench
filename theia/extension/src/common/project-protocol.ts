@@ -278,6 +278,42 @@ export type MapScreenResult =
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
 /**
+ * One sprite of a map's sprite layer (#564), in map pixels. `box` is where its
+ * bitmap lands (x1 and y1 exclusive); the bitmap is `box`-sized RGBA, base64.
+ * A part can sit off the 16 px grid, with a negative offset, past its anchor
+ * tile or across a screen edge, so the box is never snapped. `placeholder` is
+ * a 16 x 16 marker at the anchor with the sprite's hex id, `reason` the
+ * engine's failure kind.
+ */
+export interface MapSpriteDto {
+  index: number
+  id: number
+  /** Anchor, the sprite's tile corner. */
+  x: number
+  y: number
+  box: { x0: number; y0: number; x1: number; y1: number }
+  rgba: string
+  status: 'drawn' | 'placeholder'
+  reason?: string
+}
+
+/** A map's sprites, with the screen geometry the view needs to cut them per screen. */
+export type MapSpritesResult =
+  | {
+      status: 'ok'
+      orientation: 'horizontal' | 'vertical'
+      screenCount: number
+      /** One screen's pixels. */
+      width: number
+      height: number
+      sprites: MapSpriteDto[]
+      /** Why some sprites may be missing (an unterminated stream), when they may be. */
+      note?: string
+    }
+  | { status: 'unavailable'; reason: string }
+  | { status: 'rom-not-located'; baseRom: RomIdentityDto }
+
+/**
  * Which char switches a map is drawn with (#573): the blue and silver
  * P-switches and ON/OFF swap the chars they animate, not the grid. Per tab.
  */
@@ -418,6 +454,9 @@ export interface ProjectService {
     switchFlags: SwitchFlagsDto,
     switches: SwitchStateDto,
   ): Promise<MapScreenResult>
+
+  /** Every sprite of a map, drawn by the table engine or marked, from the working copy (#564). */
+  mapSprites(manifestPath: string, index: number): Promise<MapSpritesResult>
 
   /** The map toolbar's art: the palace blocks and the char switches' buttons. */
   mapPalaceIcons(manifestPath: string, index: number): Promise<PalaceIconsResult>

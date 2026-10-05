@@ -19,12 +19,12 @@ expressed as data anywhere.
 Having invented the abstraction, we then filled it with guesses, and the
 guesses disagree with each other and with the ROM:
 
-| Where | Claims | ROM |
-|---|---|---|
+| Where                                    | Claims                                                   | ROM                                                        |
+| ---------------------------------------- | -------------------------------------------------------- | ---------------------------------------------------------- |
 | `l3MaskForArea` (OverworldLoader.ts:583) | top 4 or 5, bottom 2, left 2, right 2; `null` for area 0 | uniform top 6, bottom 3, left 3, right 3, including area 0 |
-| comment at OverworldLoader.ts:503 | 32x21 window | 26x19 |
-| `OW_SUBAREA_TILES_H` (line 550) | 28 | 19 |
-| `heightTiles` (line 402) | 32 | 19 |
+| comment at OverworldLoader.ts:503        | 32x21 window                                             | 26x19                                                      |
+| `OW_SUBAREA_TILES_H` (line 550)          | 28                                                       | 19                                                         |
+| `heightTiles` (line 402)                 | 32                                                       | 19                                                         |
 
 The `isTopRow` branch keyed on `cameraY < 0` has no basis in ROM data at all.
 
@@ -57,16 +57,16 @@ not a resolved target. That is the pattern; it should be the default.
 
 Each stage names what the game does, and therefore what we read.
 
-| Stage | Mechanism | Cite |
-|---|---|---|
-| Choose layout | `layout = (OWPlayerSubmap == 0) ? 0 : 1`. A hardcoded `BEQ`, not a table. Patches the DMA source high byte `$40` -> `$60`. | bank_00.asm:4792-4818; bank_04.asm:5219-5222 |
-| BG2 tilemap | Twin-stream RLE decompressed into `OWLayer2Tilemap` (`$7F4000`), output limit `$4000` = exactly 2 x `$2000` | bank_04.asm:5683; limit at 5691-5694; rammap.asm:2124 |
-| BG1 Map16 | `OWL1TileData`, `$0800` bytes = 2 x 1024 cells; same `submap == 0` split; `+$0400` on the tile index for sub-maps | bank_04.asm:5673-5677, 2692-2698 |
-| VRAM / GFX | `ObjectTileset` from `DATA_04DC02` -> `OBJECTGFXLIST` -> GFX files into slots | bank_04.asm:5634. **Not yet traced by us.** |
-| CGRAM | `ObjectTileset & $0F` minus 1 -> `DATA_00AD1E` -> palette block offset | bank_00.asm:5744-5747 |
-| BG3 frame | `OWBorderStripe` (`$04A400`) loaded once; scroll registers zeroed every NMI | bank_04.asm:3526; bank_00.asm:4339-4341, 338-341 |
-| Camera | `DATA_00A06B` / `DATA_00A079` on the load path, `DATA_049A0C` on the warp path (a duplicate that must be edited in step) | bank_00.asm:4322-4331; bank_04.asm:2904-2911 |
-| Main-map scroll | Not fixed: clamped by `OWScrollLowerBound` / `OWScrollUpperBound`. Sub-maps return early, so their camera never moves. | bank_04.asm:2111-2116, 2636-2658 |
+| Stage           | Mechanism                                                                                                                  | Cite                                                  |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Choose layout   | `layout = (OWPlayerSubmap == 0) ? 0 : 1`. A hardcoded `BEQ`, not a table. Patches the DMA source high byte `$40` -> `$60`. | bank_00.asm:4792-4818; bank_04.asm:5219-5222          |
+| BG2 tilemap     | Twin-stream RLE decompressed into `OWLayer2Tilemap` (`$7F4000`), output limit `$4000` = exactly 2 x `$2000`                | bank_04.asm:5683; limit at 5691-5694; rammap.asm:2124 |
+| BG1 Map16       | `OWL1TileData`, `$0800` bytes = 2 x 1024 cells; same `submap == 0` split; `+$0400` on the tile index for sub-maps          | bank_04.asm:5673-5677, 2692-2698                      |
+| VRAM / GFX      | `ObjectTileset` from `DATA_04DC02` -> `OBJECTGFXLIST` -> GFX files into slots                                              | bank_04.asm:5634. **Not yet traced by us.**           |
+| CGRAM           | `ObjectTileset & $0F` minus 1 -> `DATA_00AD1E` -> palette block offset                                                     | bank_00.asm:5744-5747                                 |
+| BG3 frame       | `OWBorderStripe` (`$04A400`) loaded once; scroll registers zeroed every NMI                                                | bank_04.asm:3526; bank_00.asm:4339-4341, 338-341      |
+| Camera          | `DATA_00A06B` / `DATA_00A079` on the load path, `DATA_049A0C` on the warp path (a duplicate that must be edited in step)   | bank_00.asm:4322-4331; bank_04.asm:2904-2911          |
+| Main-map scroll | Not fixed: clamped by `OWScrollLowerBound` / `OWScrollUpperBound`. Sub-maps return early, so their camera never moves.     | bank_04.asm:2111-2116, 2636-2658                      |
 
 ## What follows from it
 

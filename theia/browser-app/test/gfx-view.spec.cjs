@@ -816,12 +816,14 @@ test('the grid toggle shows an 8px-cell overlay that tracks zoom, and hides agai
   expect(await readGrid(page, root)).toBeNull() // off by default
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
   await expect(toggle).toHaveAttribute('title', 'Show grid')
+  await expect(toggle).toHaveClass(/hb-icon-btn-off/)
 
   const contentBefore = await sheetPixels()
   const sheetWidth = await page.locator('.hb-gfx-view-canvas').evaluate(c => c.width)
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   await expect(toggle).toHaveAttribute('title', 'Hide grid')
+  await expect(toggle).toHaveClass(/hb-icon-btn-on/)
   const zooms = []
   for (let step = 0; step < 2; step++) {
     if (step > 0) await page.locator('[data-control="zoom-in"]').click()
