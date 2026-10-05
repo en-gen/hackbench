@@ -55,7 +55,7 @@
 const { test, expect } = require('@playwright/test')
 const { CART, shownWords } = require('./rom-words.cjs')
 const { expectCheckerboard } = require('./pixel-canvas.cjs')
-const { readGrid } = require('./grid-probe.cjs')
+const { readGrid, shootCanvas, compositedGridDiff, samplePixels } = require('./grid-probe.cjs')
 const { parseRgbTriplet } = require('./palette-color.cjs')
 const fs = require('fs')
 const path = require('path')
@@ -2887,4 +2887,75 @@ test('hovering a tile outlines it black-outside white-inside and leaves every ot
   expect(await sheetPixels(), 'leaving must restore the unhovered highlight layer exactly').toEqual(
     base,
   )
+})
+
+/**
+ * Composited, not painted: a grid canvas stacked below the strip draws every
+ * pixel the hook claims and shows none of them. Two real screenshots, grid off
+ * then on, compared numerically.
+ */
+test('the grid shows in a real screenshot: line pixels change, no other pixel does', async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  await page.mouse.move(2, 2)
+  const sel = `${FG} .hb-map16-canvas`
+
+  const off = await shootCanvas(page, sel)
+  await page.locator(ctl('grid-toggle')).click()
+  await page.mouse.move(2, 2)
+  await page.waitForTimeout(300)
+  const grid = await readGrid(page, FG)
+  const on = await shootCanvas(page, sel)
+  const d = await compositedGridDiff(page, off, on, grid)
+
+  expect([d.bW, d.bH]).toEqual([d.W, d.H])
+  expect(d.lineTotal).toBeGreaterThan(100)
+  expect(d.lineChanged / d.lineTotal).toBeGreaterThan(0.95)
+  expect(d.otherChanged).toBe(0)
+})
+
+/**
+ * Outlines above the grid, on screen: a tile's left and top boundary line
+ * falls on the first of its outline's two screen pixels (zoom 2), so with the
+ * outline on top that pixel equals the next one in the same ring. Grid on top
+ * would blend foreground over it and make them differ.
+ */
+test('selection and hover outlines cover the grid line they sit on', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  await page.locator(ctl('grid-toggle')).click()
+  const SELECTED = 0x13
+  const HOVERED = 0x31
+  await clickTile(page, SELECTED)
+  const h = tileOrigin(HOVERED)
+  const mid = TILE_PX / 2
+  await page
+    .locator(`${FG} .hb-map16-canvas`)
+    .hover({ position: { x: (h.x + mid) * DEFAULT_ZOOM, y: (h.y + mid) * DEFAULT_ZOOM } })
+  await page.waitForTimeout(300)
+  const shot = await shootCanvas(page, `${FG} .hb-map16-canvas`)
+
+  // For each tile: a pixel ON its left boundary line and the next one in, then the same on top.
+  const pairs = id => {
+    const o = tileOrigin(id)
+    const x0 = o.x * DEFAULT_ZOOM
+    const y0 = o.y * DEFAULT_ZOOM
+    const m = (TILE_PX / 2) * DEFAULT_ZOOM
+    return [
+      [x0, y0 + m],
+      [x0 + 1, y0 + m],
+      [x0 + m, y0],
+      [x0 + m, y0 + 1],
+    ]
+  }
+  for (const [name, id] of [
+    ['selection', SELECTED],
+    ['hover', HOVERED],
+  ]) {
+    const [left, leftNext, top, topNext] = await samplePixels(page, shot, pairs(id))
+    expect(left, `${name} outline, left edge under a grid line`).toBe(leftNext)
+    expect(top, `${name} outline, top edge under a grid line`).toBe(topNext)
+  }
 })
