@@ -455,7 +455,7 @@ export interface ProjectService {
     switches: SwitchStateDto,
   ): Promise<MapScreenResult>
 
-  /** Every sprite of a map, drawn by the table engine or marked, from the working copy (#564). */
+  /** Every sprite of a map, drawn by the sprite interpreter or marked, from the working copy (#564, #585). */
   mapSprites(manifestPath: string, index: number): Promise<MapSpritesResult>
 
   /** The map toolbar's art: the palace blocks and the char switches' buttons. */

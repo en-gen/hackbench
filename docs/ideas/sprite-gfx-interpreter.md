@@ -665,3 +665,37 @@ or fallen: a Koopa at `y` 353 in Mesen against 368 in ours), which the level
 captures cannot settle because Mario and the sprite were free-running. The
 next fixture that would settle it is a per-frame sprite-position log, which the
 spawn fixtures carry only for level `$0BD`.
+
+## 13 Step 3: the map editor's sprite layer draws from the interpreter (#585)
+
+`theia/extension/src/node/map-sprites.ts` now serves `interpDrawer`: per map,
+`loadLevelState` once (the ROM's own level loader), then per stream sprite one
+`runOnce` (INIT plus up to 64 passes, no `dependsOn` second run). Seeds, all
+generic: the loader's WRAM; sprite = stream position in level pixels; camera
+centred on the sprite and clamped to the map's scroll range; Mario at
+`readMarioStartPos` for the slot. The `chosen` frame's OAM parts are drawn at
+the anchor INIT left; a 16 x 16 entry is four chars (tile, +1, +$10, +$11). A
+refusal or an empty run stays a 16 x 16 marker carrying the interpreter's
+reason. Replies are cached per working-copy bytes and map.
+
+Measured (vanilla, one machine, node, cold map, whole layer): `$105` 255-280 ms,
+`$106` 130-175 ms, `$00F` ~200 ms, the vanilla map with most sprites (`$120`,
+65) ~320 ms. Nothing near the 1 s line; no optimisation made.
+
+Drawn / marker on vanilla: `$105` 31 of 34 (was 0 of 34 by the table engine),
+`$106` 21 of 25 (was 15 of 25). The markers are ids `$DA`/`$DB` (past the
+201-entry pointer table, refused by the runner) and ids that draw no tile in 64
+passes. Placement: `$4F` on `$105` is served at the stream position plus (8,
+-1), `(1816, 335)`, `(2232, 319)`, `(4552, 319)`. The `$106` `$05` box is
+unchanged `(432,304)-(448,336)`.
+
+Against the table engine over ten vanilla maps (62 sprites the engine draws),
+parts relative to each side's own anchor: 25 agree, 36 differ, 1 the
+interpreter draws nothing for. The differences sampled are the engine's frame-0
+still pose against the interpreter's first drawing pass (another walk-cycle
+tile, or a facing), not mis-placement; the list is pinned in
+`test/suite/unit/MapSpritesInterp.test.ts`.
+
+Not modelled here: CGRAM a handler uploads at runtime (the level's rows are
+used, so such a sprite may be miscolored), and neighbours or player actions (each
+sprite runs alone).

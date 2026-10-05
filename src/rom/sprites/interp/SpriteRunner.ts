@@ -309,8 +309,13 @@ function uploadsOf(m: Machine, before: Map<number, number>): string[] {
 /** Debug hook: sees WRAM after INIT (pass -1) and after each MAIN pass. */
 export type Probe = (pass: number, wram: Uint8Array) => void
 
-/** Run once with a seed; no dependsOn analysis. */
-function runOnce(rom: RomFile, id: number, seed: SpriteSeed, opts: RunOptions = {}): SpriteModel {
+/** Run once with a seed; no dependsOn analysis (half the cost of `runSprite`). */
+export function runOnce(
+  rom: RomFile,
+  id: number,
+  seed: SpriteSeed,
+  opts: RunOptions = {},
+): SpriteModel {
   const probe = opts.probe
   const model: SpriteModel = { id, passes: [], dependsOn: [], steps: [] }
   const loop = resolveLoop(rom)
