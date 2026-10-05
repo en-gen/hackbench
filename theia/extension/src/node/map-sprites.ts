@@ -21,12 +21,15 @@
  * INIT routine makes (a Piranha Plant's +8 / -1 in InitPiranha, and others)
  * are not applied (InitPiranha, SMWDisX bank_01.asm:880-889); they will come
  * from interpreting INIT, not from a table.
- * A sprite with bit 3 of byte 0 set is marked, not drawn: it is a custom
- * (PIXI) sprite, which the vanilla descriptor would draw wrongly. Bit 2 is
- * NOT a custom flag: vanilla keeps both extra bits in Y high
- * (bank_02.asm:5441-5447), the goal tape reads bit 2 as its secret exit
- * (InitGoalTape, bank_01.asm:8785-8788) and scroll sprites $E7+ read them as
- * Layer1ScrollBits (bank_02.asm:5301-5305). Custom PIXI sprites on
+ * A sprite with bit 3 of byte 0 set is marked, not drawn: the gate fails
+ * closed for sprites that MAY be custom (PIXI dispatches on bit 3), which the
+ * vanilla descriptor would draw wrongly. Vanilla scroll/command sprites ($E8,
+ * $E9, $EA, $F5; e.g. slot $115 id $EA) also set it, since scroll sprites
+ * read the bits as Layer1ScrollBits (bank_02.asm:5301-5305), and get the same
+ * marker; that costs nothing today because none has a descriptor. Bit 2 is
+ * not gated: vanilla keeps both extra bits in Y high (bank_02.asm:5441-5447)
+ * and the goal tape saves them (InitGoalTape, bank_01.asm:8785-8788) and
+ * reads bit 2 as its secret exit (bank_01.asm:8833-8836). Custom PIXI sprites on
  * GrandPooWorld_V1.2 were measured with EE = 2 (reviewer's scan, one ROM).
  */
 import { RomFile } from '../../../../src/rom/RomFile'
