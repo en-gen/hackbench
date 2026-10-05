@@ -936,7 +936,7 @@ export class Map16ViewWidget extends ReactWidget {
             <button
               data-control="grid-toggle"
               type="button"
-              className={'hb-icon-btn' + (this.showGrid ? ' hb-icon-btn-on' : '')}
+              className={'hb-icon-btn' + (this.showGrid ? ' hb-icon-btn-on' : ' hb-icon-btn-off')}
               aria-pressed={this.showGrid}
               title={this.showGrid ? 'Hide grid' : 'Show grid'}
               aria-label={this.showGrid ? 'Hide grid' : 'Show grid'}
@@ -947,7 +947,7 @@ export class Map16ViewWidget extends ReactWidget {
             <button
               data-control="play-toggle"
               type="button"
-              className={'hb-icon-btn' + (this.playing ? ' hb-icon-btn-on' : '')}
+              className={'hb-icon-btn' + (this.playing ? ' hb-icon-btn-on' : ' hb-icon-btn-off')}
               disabled={!sheet.charAnimation}
               aria-pressed={this.playing}
               title={

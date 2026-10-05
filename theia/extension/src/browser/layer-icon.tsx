@@ -54,7 +54,9 @@ export function LayerToggle(props: {
       type="button"
       data-control={props.control}
       data-glyph={props.glyph}
-      className={'hb-icon-btn hb-layer-btn' + (props.pressed ? ' hb-icon-btn-on' : '')}
+      className={
+        'hb-icon-btn hb-layer-btn' + (props.pressed ? ' hb-icon-btn-on' : ' hb-icon-btn-off')
+      }
       aria-pressed={props.pressed}
       disabled={props.disabled}
       title={props.label}

@@ -779,6 +779,45 @@ for (const [index, role, bit, known] of [
   })
 }
 
+/**
+ * The toggle look (option D): pressed is a filled chip with a 1px border, off has neither (a transparent
+ * 1px border, so the box does not move), and a mouse click leaves no focus ring while Tab shows one.
+ */
+test('a layer toggle is a chip when pressed, bare when off, and rings only for the keyboard', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  const button = page.locator(`${root(0x105)} [data-control="layer-l1"]`)
+  const look = () =>
+    button.evaluate(b => {
+      const cs = getComputedStyle(b)
+      const r = b.getBoundingClientRect()
+      return { bg: cs.backgroundColor, border: [cs.borderTopWidth, cs.borderTopColor], outline: [cs.outlineStyle, cs.outlineWidth], ring: b.matches(':focus-visible'), size: [r.width, r.height] } // prettier-ignore
+    })
+  const clear = 'rgba(0, 0, 0, 0)'
+  const on = await look()
+  expect(on.bg, 'pressed has a fill').not.toBe(clear)
+  expect(on.bg, 'and it is not the old accent tint').not.toMatch(/^rgba\(91, 156, 246/)
+  expect(on.border[0]).toBe('1px')
+  expect(on.border[1], 'a visible border').not.toBe(clear)
+
+  await button.click() // a mouse click: off, no ring
+  await expect(button).toHaveAttribute('aria-pressed', 'false')
+  const off = await look()
+  expect(off.bg, 'off has no fill').toBe(clear)
+  expect(off.border, 'off keeps a transparent 1px border').toEqual(['1px', clear])
+  expect(off.size, 'the box does not shift').toEqual(on.size)
+  expect(off.ring, 'a mouse click is not focus-visible').toBe(false)
+  expect(off.outline[0]).toBe('none')
+
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Shift+Tab') // back onto the button, from the keyboard
+  const keyed = await look()
+  expect(keyed.ring, 'keyboard focus is focus-visible').toBe(true)
+  expect(keyed.outline[0]).not.toBe('none')
+})
+
 test('a map with no layer 3 and an interactive layer 2 map disable the toggle and say why', async ({
   page,
 }) => {
