@@ -85,20 +85,19 @@ describe.skipIf(!existsSync(TRACE_DIR) || !hasRom(VANILLA))(
   'sprite call replay vs Mesen traces',
   () => {
     const root = join(TRACE_DIR, romSha() ?? 'none')
-    const each = (rom: RomFile, f: (map: string, wram: Buffer, c: Call) => void): void => {
+    const each = (f: (map: string, wram: Buffer, c: Call) => void): void => {
       for (const map of readdirSync(root).sort()) {
         const cp = join(root, map, 'calls.json')
         if (!existsSync(cp)) continue
         const wram = readFileSync(join(root, map, 'wram.bin'))
         for (const c of JSON.parse(readFileSync(cp, 'utf8')) as Call[]) f(map, wram, c)
       }
-      void rom
     }
 
     it('replays every recorded call', () => {
       const rom = freshRom()
       const results: { map: string; i: number; id: number; kind: string; ok: boolean; first?: string; n: number }[] = [] // prettier-ignore
-      each(rom, (map, wram, c) => {
+      each((map, wram, c) => {
         const r = replay(rom, root, map, wram, c)
         results.push({ map, i: c.i, id: c.id, kind: c.kind, ok: r.ok, first: r.first, n: r.n })
       })
@@ -118,7 +117,7 @@ describe.skipIf(!existsSync(TRACE_DIR) || !hasRom(VANILLA))(
       rom.writeAt(0x018127, [0xea])
       let tried = 0
       let equal = 0
-      each(rom, (map, wram, c) => {
+      each((map, wram, c) => {
         if (tried >= 20) return
         tried++
         if (replay(rom, root, map, wram, c).ok) equal++

@@ -19,8 +19,9 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runSprite, type SpritePart } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
-import { withSeed, type LevelState } from '../../../../src/rom/sprites/interp/SpriteSeed'
+import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { freshRom, hasRom, TOOLS_ROOT, VANILLA } from '../../support/corpus'
+import { levelOf } from '../../support/spriteGrade'
 
 const SPAWN_DIR = process.env.HACKBENCH_SPRITE_SPAWN ?? join(TOOLS_ROOT, 'fixtures', 'sprite-spawn')
 
@@ -74,13 +75,6 @@ function modelPieces(parts: SpritePart[]): Piece[] {
   return parts
     .filter(q => !(q.oy >= 224 && q.oy + q.size <= 256))
     .map(q => ({ oam: q.oam, x: q.ox, y: q.oy, tile: q.char & 0xff, attr: q.attr, large: q.size === 16 })) // prettier-ignore
-}
-
-function levelOf(w: Uint8Array): Partial<LevelState> {
-  return {
-    screenMode: w[0x5b], screens: w[0x5d], spriteProps: w[0x64], water: w[0x85], slippery: w[0x86],
-    buoyancy: w[0x190e], spriteMemory: w[0x1692], slopes: w[0x82] | (w[0x83] << 8), rng: [w[0x148b], w[0x148c]],
-  } // prettier-ignore
 }
 
 describe.skipIf(!existsSync(SPAWN_DIR) || !hasRom(VANILLA))(

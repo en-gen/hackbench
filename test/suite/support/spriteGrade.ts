@@ -3,8 +3,7 @@
  * `sprite_spawns.json` record or a spawn-mode fixture frame). Oracle only:
  * nothing here feeds the runner.
  *
- * Verdicts, best pass wins (the recorded frame is not known, so any of the
- * runner's passes may be the one Mesen drew):
+ * Verdicts, best recorded frame wins (the frame Mesen drew is not known):
  *   exact    same tiles, sizes, palette/flip bits and offsets from the sprite
  *   shape    same tiles and sizes, same arrangement among themselves, but not at
  *            the same offsets from the sprite (it moved, or the anchor differs)
@@ -16,6 +15,7 @@
  * Priority bits are not compared (same as capture_decode.sameShape).
  */
 import type { SpriteModel } from '../../../src/rom/sprites/interp/SpriteRunner'
+import type { LevelState } from '../../../src/rom/sprites/interp/SpriteSeed'
 
 export interface RecordedPiece {
   dx: number
@@ -29,7 +29,7 @@ export type Verdict = 'exact' | 'shape' | 'close' | 'wrong' | 'refused' | 'empty
 
 export interface Grade {
   verdict: Verdict
-  /** Pass that matched best, for exact/close. */
+  /** The pass graded (the model's chosen one). */
   pass?: number
   /** Why it is not exact, for wrong/close. */
   detail?: string
@@ -78,31 +78,29 @@ function gradePass(got: RecordedPiece[], recorded: RecordedPiece[], pass: number
 }
 
 /**
- * `policy` 'chosen' grades only the pass the model's frame policy picked
- * (`m.chosen`) against EVERY frame Mesen recorded for the sprite (set
- * membership: it must equal some recorded frame). 'best' tries every pass
- * (lenient; kept for comparison with earlier rounds).
+ * Grades only the pass the model's frame policy picked (`m.chosen`) against
+ * EVERY frame Mesen recorded for the sprite (set membership: it must equal
+ * some recorded frame).
  */
-export function grade(
-  m: SpriteModel,
-  recorded: RecordedPiece[][],
-  policy: 'chosen' | 'best' = 'chosen',
-): Grade {
+export function grade(m: SpriteModel, recorded: RecordedPiece[][]): Grade {
   if (m.refusal) return { verdict: 'refused', detail: m.refusal }
   if (m.emptyReason || m.chosen === undefined) return { verdict: 'empty', detail: m.emptyReason }
-  const passes = policy === 'chosen' ? [m.chosen] : m.passes.map((_, i) => i)
+  const got = passPieces(m, m.chosen)
   let best: Grade = { verdict: 'wrong' }
-  for (const i of passes) {
-    const got = passPieces(m, i)
-    for (const rec of recorded) {
-      const g = gradePass(got, rec, i)
-      if (RANK.indexOf(g.verdict) < RANK.indexOf(best.verdict)) best = g
-      if (best.verdict === 'exact') return best
-    }
+  for (const rec of recorded) {
+    const g = gradePass(got, rec, m.chosen)
+    if (RANK.indexOf(g.verdict) < RANK.indexOf(best.verdict)) best = g
+    if (best.verdict === 'exact') return best
   }
-  if (best.verdict === 'wrong') {
-    const n = passes.map(i => m.passes[i].parts.length)
-    best.detail = `recorded ${recorded.map(r => r.length).join('/')} pieces; model drew ${[...new Set(n)].join('/')}`
-  }
+  if (best.verdict === 'wrong')
+    best.detail = `recorded ${recorded.map(r => r.length).join('/')} pieces; model drew ${m.passes[m.chosen].parts.length}`
   return best
+}
+
+/** The LevelState cells out of a level-load WRAM image (oracle seed, never a runtime input). */
+export function levelOf(w: Uint8Array): Partial<LevelState> {
+  return {
+    screenMode: w[0x5b], screens: w[0x5d], spriteProps: w[0x64], water: w[0x85], slippery: w[0x86],
+    buoyancy: w[0x190e], spriteMemory: w[0x1692], slopes: w[0x82] | (w[0x83] << 8), rng: [w[0x148b], w[0x148c]],
+  } // prettier-ignore
 }

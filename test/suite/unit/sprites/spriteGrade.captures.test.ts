@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest'
 import { unzip } from '../../../../tools/scripts/capture_render'
 import { runSprite } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
-import { withSeed, type LevelState } from '../../../../src/rom/sprites/interp/SpriteSeed'
+import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import {
   CAPTURE_DIR,
   freshRom,
@@ -23,7 +23,13 @@ import {
   TOOLS_ROOT,
   VANILLA,
 } from '../../support/corpus'
-import { grade, passPieces, type Grade, type RecordedPiece } from '../../support/spriteGrade'
+import {
+  grade,
+  levelOf,
+  passPieces,
+  type Grade,
+  type RecordedPiece,
+} from '../../support/spriteGrade'
 
 interface Rec {
   id: string
@@ -53,14 +59,6 @@ function traceMap16(map: string): { low: Uint8Array; high: Uint8Array } | undefi
     if (existsSync(lo) && existsSync(hi)) return { low: readFileSync(lo), high: readFileSync(hi) }
   }
   return undefined
-}
-
-/** The LevelState cells out of a level-load WRAM image (oracle seed). */
-function levelOf(w: Uint8Array): Partial<LevelState> {
-  return {
-    screenMode: w[0x5b], screens: w[0x5d], spriteProps: w[0x64], water: w[0x85], slippery: w[0x86],
-    buoyancy: w[0x190e], spriteMemory: w[0x1692], slopes: w[0x82] | (w[0x83] << 8), rng: [w[0x148b], w[0x148c]],
-  } // prettier-ignore
 }
 
 function loadAll(): { map: string; rec: Rec; wram: Uint8Array | null }[] {
@@ -120,7 +118,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
         if (wram && a < 0x2000 && wram[a] !== (loaded?.[a] ?? 0)) e.nonzero++
         inputs.set(a, e)
       }
-      const g = grade(m, want, process.env.SPRITE_GRADE_POLICY === 'best' ? 'best' : 'chosen')
+      const g = grade(m, want)
       const dbg = g.verdict === 'wrong' || g.verdict === 'close' || g.verdict === 'shape'
       rows.push({
         ...g, map, id: rec.id, slot: rec.slot,
