@@ -13,7 +13,7 @@ import {
 } from '../../../../src/rom/sprites/interp/SpriteDispatch'
 import { SPRITE_SEED, withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { SpriteBus } from '../../../../src/rom/sprites/interp/SpriteBus'
-import { freshRom, hasRom, VANILLA } from '../../support/corpus'
+import { CORPUS, freshRom, hasRom, hasRoms, VANILLA } from '../../support/corpus'
 import { grade, passPieces } from '../../support/spriteGrade'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 
@@ -52,9 +52,9 @@ describe('dispatch reader', () => {
 describe('runtime palette writes', () => {
   // Each id writes one color in INIT by a different route; the model carries it from pass 0 on.
   it.each([
-    [11, 0xd1, 0x03ff, 'the NMI upload list'],
-    [12, 0xd2, 0x01aa, 'the palette mirror'],
-    [13, 0xd3, 0x0255, 'CGADD and CGDATA'],
+    [17, 0xd1, 0x03ff, 'the NMI upload list'],
+    [18, 0xd2, 0x01aa, 'the palette mirror'],
+    [19, 0xd3, 0x0255, 'CGADD and CGDATA'],
   ])('id %i: color %i set through %s', (id, index, bgr555) => {
     const m = runSprite(rom, id)
     expect(m.passes[0].palette).toEqual([{ index, bgr555 }])
@@ -85,7 +85,7 @@ describe('runner on a synthetic cart', () => {
     expect(m.passes).toHaveLength(SPRITE_SEED.mainPasses)
     expect(m.passes[0].parts).toEqual([
       {
-        oam: 0,
+        oam: 64,
         char: 0x24,
         size: 16,
         palette: 8 + 5,
@@ -225,5 +225,121 @@ describe.skipIf(!hasRom(VANILLA))('ROM level loader (vanilla)', () => {
     const r = loadLevelState(rom, 0x105)
     if (!r.ok) throw new Error(r.reason)
     expect(r.wram[0x5d]).toBe(4)
+  })
+})
+
+describe('runner mechanics, each guarded by a case that goes red without it', () => {
+  const stateOf = (id: number, over: Parameters<typeof withSeed>[0] = {}) => {
+    let wram: Uint8Array | undefined
+    const m = runSprite(rom, id, withSeed(over), {
+      probe: (p, w) => {
+        if (p === -1) wram = w.slice()
+      },
+    })
+    return { m, wram: wram! }
+  }
+
+  it('sets X to the slot for every call (InitSpriteTables stores through X)', () => {
+    const { wram } = stateOf(0, { slot: 3 })
+    expect(wram[0x1603]).toBe(0x55)
+    expect(wram[0x1600]).toBe(0)
+  })
+
+  it("zeroes the level loader's own sprites so only the sprite under test runs", () => {
+    const loaded = new Uint8Array(0x20000)
+    loaded[0x14c8 + 5] = 8 // another slot, left running by a loader (id 0 draws)
+    const { m } = stateOf(0, { loaded })
+    expect(m.passes[0].parts).toHaveLength(1)
+  })
+
+  it('re-runs INIT while it leaves status 1 (two retries for id 13), then draws', () => {
+    const { m } = stateOf(13)
+    expect(m.initFrames).toBe(3)
+    expect(m.refusal).toBeUndefined()
+    expect(m.passes[0].parts).toHaveLength(1)
+  })
+
+  it('ticks the frame counter once per pass, after the INIT frames', () => {
+    const { m } = stateOf(14)
+    // TrueFrame is the tile: seed 0, no INIT retry, so pass p sees p + 1.
+    expect(m.passes.slice(0, 4).map(p => p.parts[0].char)).toEqual([1, 2, 3, 4])
+  })
+
+  it('derives the RNG by running the ROM GetRand once from zero', () => {
+    expect(stateOf(15).m.passes[0].parts[0].char).toBe(2)
+    // A loaded image that already carries RNG state is not touched.
+    const loaded = new Uint8Array(0x20000)
+    loaded[0x148b] = 9
+    expect(stateOf(15, { loaded }).m.passes[0].parts[0].char).toBe(9)
+  })
+
+  it('writes mario.dir only when no loaded image supplies $76', () => {
+    expect(stateOf(16).m.passes[0].parts[0].char).toBe(1)
+    const loaded = new Uint8Array(0x20000) // a level whose entrance leaves $76 = 0
+    expect(stateOf(16, { loaded }).m.passes[0].parts[0].char).toBe(0)
+  })
+
+  it('reads the $0200 OAM page too, with the matching size byte', () => {
+    const { m } = stateOf(12)
+    expect(m.refusal).toBeUndefined()
+    expect(m.emptyReason).toBeUndefined()
+    expect(m.passes[0].parts).toEqual([
+      expect.objectContaining({ oam: 3, char: 0x33, size: 16, palette: 13, ox: 0x50, oy: 0x60 }),
+    ])
+  })
+
+  it('refuses when execution leaves ROM, with the address', () => {
+    expect(stateOf(11).m.refusal).toMatch(/execution left ROM code at \$7E0000/)
+  })
+
+  it('refuses when InitSpriteTables or GetRand has a different shape', () => {
+    expect(runSprite(buildSyntheticRom({ badInitTables: true }), 0).refusal).toMatch(
+      /InitSpriteTables/,
+    )
+    expect(runSprite(buildSyntheticRom({ badGetRand: true }), 0).refusal).toMatch(/GetRand/)
+  })
+})
+
+describe('level loader on a synthetic cart', () => {
+  const run = (o: Parameters<typeof buildSyntheticRom>[0] = {}, level = 0x105) =>
+    loadLevelState(buildSyntheticRom(o), level)
+
+  it('runs every entry: pointers, Mario entrance, then level data', () => {
+    const l = run()
+    if (!l.ok) throw new Error(l.reason)
+    expect(l.wram[0x1692]).toBe(7) // CODE_05D8B7 stand-in
+    expect(l.wram[0x71]).toBe(6) // CODE_00A635 stand-in: skipping it leaves 0
+    expect(l.wram[0xc800]).toBe(0x25) // CODE_05801E stand-in
+    expect(l.wram[0x0e]).toBe(0x05)
+    expect(l.wram[0x0f]).toBe(0x01)
+  })
+
+  it('refuses each differing entry with its name', () => {
+    expect(run({ badLoader: 'lead' })).toMatchObject({ ok: false, reason: /lead-in at \$05:D8AE/ })
+    expect(run({ badLoader: 'pointers' })).toMatchObject({ ok: false, reason: /pointer loader/ })
+    expect(run({ badLoader: 'entrance' })).toMatchObject({ ok: false, reason: /entrance setup/ })
+    expect(run({ badLoader: 'data' })).toMatchObject({ ok: false, reason: /data loader/ })
+  })
+
+  it('refuses when the loader executes COP', () => {
+    expect(run({ loaderCop: true })).toMatchObject({ ok: false, reason: /COP executed/ })
+  })
+})
+
+describe.skipIf(!hasRoms())('level loader on the hack corpus', () => {
+  it('refuses every ROM whose loader entries differ from vanilla, with a reason', () => {
+    const refused: string[] = []
+    for (const name of CORPUS) {
+      const l = loadLevelState(freshRom(name), 0x105)
+      if (!l.ok) refused.push(name)
+    }
+    // The three hacks that patch $00:A635 and $05:D8B7, and Seven Vanilla Levels
+    // (LM's JSL at $05:D8B1 in front of the entry), must not return "ok".
+    expect(refused).toHaveLength(4)
+    expect(refused.join('|')).toMatch(/Grand Poo World 2/)
+    expect(refused.join('|')).toMatch(/Invictus/)
+    expect(refused.join('|')).toMatch(/Seven_Vanilla/)
+    for (const name of CORPUS.filter(n => !refused.includes(n)))
+      expect(name).toMatch(/Super Mario World/)
   })
 })

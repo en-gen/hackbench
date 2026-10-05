@@ -588,17 +588,19 @@ The runner reads nothing from a capture. Rounds 4 to 7 in 11.2 used capture
 values inside the GRADER only (an "oracle seed", an upper bound). The runtime
 seed is now:
 
-| Value                                                             | Source                                                                                                                                       |
-| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `$5B` `$5D` `$64` (level header cells)                            | the ROM's own header parse, run on the core (`LevelLoader.ts`, CODE_05D8B7 then CODE_05801E)                                                 |
-| `$82-$83` slope pointer, `$1692` sprite memory, `$190E` buoyancy  | same run (tileset code, sprite header byte)                                                                                                  |
-| `$85` `$86` water and slippery                                    | same run, via the Mario-entrance routine CODE_00A635                                                                                         |
-| Map16 low and high tables `$7E:C800`, `$7F:C800`                  | same run: every Layer 1 object expanded by the ROM's own object handlers                                                                     |
-| `$71` `$76` `$19` `$187A` `$13F9` `$73` (Mario entrance and form) | CODE_00A635                                                                                                                                  |
-| the level's own sprite list                                       | the ROM's loader spawns it; the runner zeroes all 12 status bytes so only the sprite under test runs                                         |
-| placement, camera, Mario X/Y, `$13/$14`, pass count               | the caller's seed (a fixture or UI supplies them)                                                                                            |
-| `$148B/C` RNGCalc                                                 | a constant, 6 and 3: no ROM code sets it before frame 0; every level-load capture held that value (98 of 98 maps, vanilla). Not ROM-derived. |
-| `$76` default when no loader ran                                  | 1 (facing right), the loader's own result, a documented constant                                                                             |
+| Value                                                             | Source                                                                                               |
+| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `$5B` `$5D` `$64` (level header cells)                            | the ROM's own header parse, run on the core (`LevelLoader.ts`, CODE_05D8B7 then CODE_05801E)         |
+| `$82-$83` slope pointer, `$1692` sprite memory, `$190E` buoyancy  | same run (tileset code, sprite header byte)                                                          |
+| `$85` `$86` water and slippery                                    | same run, via the Mario-entrance routine CODE_00A635                                                 |
+| Map16 low and high tables `$7E:C800`, `$7F:C800`                  | same run: every Layer 1 object expanded by the ROM's own object handlers                             |
+| `$71` `$76` `$19` `$187A` `$13F9` `$73` (Mario entrance and form) | CODE_00A635                                                                                          |
+| the level's own sprite list                                       | the ROM's loader spawns it; the runner zeroes all 12 status bytes so only the sprite under test runs |
+| placement, camera, Mario X/Y, `$13/$14`, pass count               | the caller's seed (a fixture or UI supplies them)                                                    |
+| `$148B/C` RNGCalc                                                 | the ROM's own GetRand, run once on the core (see below)                                              |
+| `$76` Mario direction                                             | the loaded image's value; the seed default is a fallback                                             |
+
+RNGCalc: its only writer is CODE_01AD07 (bank_01.asm:6101-6121), and one GetRand call from zero leaves 6 and 3, which is what every level-load capture held (98 of 98 maps). An earlier version of this table called it a constant with no ROM source; that was wrong.
 
 Measured against Mesen (sprite-trace, vanilla): every header and entrance
 cell equal on every map that recorded a WRAM image; both Map16 tables
@@ -622,7 +624,6 @@ Layers_v5, 1,957 recorded sprites, ROM seed unless stated:
 | chosen frame, ROM seed (headline)           | 932   | 572   | 136   | 300   | 0       | 17    |
 | chosen frame, oracle seed                   | 914   | 563   | 131   | 344   | 0       | 5     |
 | chosen frame, generic seed (no level state) | 931   | 469   | 130   | 343   | 56      | 28    |
-| best of 64 passes, ROM seed (old headline)  | 1,211 | 572   | 20    | 137   | 0       | 17    |
 
 The 280 sprites between chosen and best-of-64 are animation phase: Mesen's
 recorded frames come later than the first draw (Rip Van Fish asleep is tile
@@ -667,7 +668,68 @@ captures cannot settle because Mario and the sprite were free-running. The
 next fixture that would settle it is a per-frame sprite-position log, which the
 spawn fixtures carry only for level `$0BD`.
 
-## 13 Step 3: the map editor's sprite layer draws from the interpreter (#585)
+## 13 Review round (adversarial review of 3da8f52b)
+
+### 13.1 What changed
+
+- Every fixed entry is byte-checked and refused with a reason when it differs:
+  the sprite loop (already), InitSpriteTables `$07:F7D2`, GetRand `$01:ACF9`,
+  and the level loader's four: the bytes leading into the mid-routine entry
+  (`$05:D8AE`, "an entry that exists is not an entry that is reached"), the
+  entry `$05:D8B7`, `$00:A635` and `$05:801E`. The loader also runs under the
+  same instruction guard as the runner (no BRK/COP/WDM/STP, no leaving ROM).
+- Corpus: Grand Poo World 2, Grand Poo World 1.2 and Invictus (a `BRA` at
+  `$00:A635` and `$05:D8B7`) and Seven Vanilla Levels (Lunar Magic's JSL at
+  `$05:D8B1`) now REFUSE the loader with a reason; before, the loader returned
+  "ok" with values from a path the hack had rerouted. Vanilla and the magic
+  ROM load. Test: `level loader on the hack corpus`.
+- OAM: the whole mirror `$0200-$03FF` is read (128 entries, one size byte each
+  at `$0420`), not only `$0300`. `SpritePart.oam` is now 0-127. Sprites that
+  draw into the first page (vanilla `$1E`, `$7B`, `$87`, `$8A`) were being
+  dropped; `$8A` drew only there and got a false "drew no OAM tile".
+- `$76` is written from the seed only when no loaded image supplies it.
+- RNG derived by GetRand (12.1). `LevelState.rng` is gone.
+- `wramBase`, `map16` and `blocks` are gone from `SpriteSeed`. Oracle images
+  are built in test support (`oracleImage.ts`) and passed through the one
+  whole-WRAM entry, `loaded`.
+- Doc cites: CODE_0584E3 is called at bank_05.asm:428 (defined 523), CODE_0581FB
+  at 253.
+
+### 13.2 Graders can fail
+
+Each tier asserts floors and has a planted-defect run (ExecutePtr `$00:86DF`
+patched to RTL: nothing runs, the exact count collapses). Floors are the
+measured count minus about 3%. Mutants applied to the runner, one at a time:
+
+| Mutant                   | Went red in                                                                      |
+| ------------------------ | -------------------------------------------------------------------------------- |
+| X not set to the slot    | synthetic (InitSpriteTables stores through X), captures floor (exact 936 to 515) |
+| level sprites not zeroed | synthetic (two slots draw different OAM entries), captures floor (936 to 748)    |
+| INIT retry removed       | synthetic (id 13), spawn (refused-differs 48), captures (refused 22)             |
+| frame counter not ticked | synthetic (id 14), spawn floor (exact 2,792 to 2,164)                            |
+| RNG not derived          | synthetic (id 15), spawn floor (2,792 to 2,647)                                  |
+| execution guard removed  | synthetic (id 11 jumps to `$7E:0000`; COP id 4)                                  |
+| loader skips `$00:A635`  | synthetic loader (`$71` stays 0)                                                 |
+
+### 13.3 Headline numbers re-derived (vanilla, one machine)
+
+Layers_v5, 1,957 sprites, 64 passes, chosen-frame policy, set membership:
+
+| Seed                                   | exact | shape | close | wrong | refused | empty |
+| -------------------------------------- | ----- | ----- | ----- | ----- | ------- | ----- |
+| ROM-run level loader (headline)        | 936   | 572   | 136   | 300   | 0       | 13    |
+| oracle (capture level cells and Map16) | 942   | 565   | 131   | 318   | 0       | 1     |
+| generic (placement only)               | 951   | 469   | 130   | 327   | 56      | 24    |
+
+Delta from the `$0200` page fix on the headline row: exact 932 to 936, empty 17
+to 13 (the four are sprites that draw only there). Spawn tier (201 ids, 16
+passes): 2,792 exact (was 2,776), 260 exact-empty (was 276), 15 wrong (all
+`$2B`), 48 refused and agreeing with Mesen, 101 unrecorded; anchors 198 of 201.
+The ROM seed beats the generic seed on `shape` (572 against 469) and has no
+refusals; it trails the generic seed by 15 exact, a seed difference I did not
+investigate.
+
+## 14 Step 3: the map editor's sprite layer draws from the interpreter (#585)
 
 `theia/extension/src/node/map-sprites.ts` now serves `interpDrawer`: per map,
 `loadLevelState` once (the ROM's own level loader), then per stream sprite one
@@ -717,3 +779,17 @@ splice (test). That is the frame policy's doing (this section notes it), not a m
 route.
 
 Not modelled here: neighbours or player actions (each sprite runs alone).
+
+### 14.1 A refused level loader is shown, flagged
+
+`loadLevelState` now refuses carts whose loader entry points or shape differ
+from stock (GPW 1.1/1.2, Invictus, Seven_Vanilla_Levels on the corpus). The map
+drawer then seeds each run from placement alone (the map's screen mode and
+length, generic defaults for the rest) and sets `MapSpriteDto.unverified` on
+EVERY sprite it answers, drawn or marked, plus a map-level `note` and the
+sprite toggle's tooltip. Evidence scope, this corpus, one machine: every cart
+whose loader refuses also has a `LoadLevel` the map model refuses (512 of 512
+maps unavailable), and GPW's `HandleSprite` is not stock either, so the
+runner refuses there as well; the path is therefore reached only through the
+drawer in tests today. Vanilla `$105`/`$106` counts (31/34, 21/25) and the
+engine-vs-interpreter list are unchanged by the review-round merge.

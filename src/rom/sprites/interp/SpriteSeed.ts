@@ -28,8 +28,6 @@ export interface LevelState {
   spriteMemory: number
   /** $82-$83 SlopesPtr: the tileset's slope table pointer (low, high). */
   slopes: number
-  /** $148B/$148C RNGCalc seed bytes. */
-  rng: [number, number]
 }
 
 export interface SpriteSeed {
@@ -53,32 +51,19 @@ export interface SpriteSeed {
   /**
    * The WRAM the ROM's own level loader produced for this level
    * (`loadLevelState`, LevelLoader.ts). Applied before everything else; when
-   * present the `level` cells below are not written (except `rng`, which no
-   * ROM code sets before the first frame).
+   * present the `level` cells and `mario.dir` are not written (the ROM's
+   * entrance setup provides them). It is the ONLY way a whole-WRAM image gets
+   * in: oracle images built from captures live in test support, so a capture
+   * cannot become a runtime input by a field of this seed.
    */
   loaded?: Uint8Array
-  /**
-   * Optional low-WRAM image ($0000-$1FFF) the machine starts from, for a seed
-   * that carries the whole level state (a Mesen capture at level load). Every
-   * other slot's status is zeroed after it is applied, so only the one sprite
-   * runs; the fields above are written over it.
-   */
-  wramBase?: Uint8Array
-  /**
-   * The level's Map16 grid as the game holds it in WRAM: the low-byte table at
-   * $7E:C800 and the high-byte table at $7F:C800 (up to $3800 bytes each).
-   * Sprites read it for block contact; without it every cell is tile 0.
-   */
-  map16?: { low: Uint8Array; high: Uint8Array }
-  /** Further WRAM blocks (offset into the 128 KB), for state a fixture carries beyond the above. */
-  blocks?: { offset: number; bytes: Uint8Array }[]
 }
 
 export const SPRITE_SEED: SpriteSeed = {
   slot: 0,
   sprite: { x: 0x80, y: 0x80 },
-  // dir $76 PlayerDirection: 1 faces right, the value both spawn-trace baselines
-  // held and what the level-entry code leaves; the Boos read it (found by trackInputs).
+  // dir $76 PlayerDirection (used only when no loaded image supplies it): 1 faces
+  // right, what the ROM's entrance setup leaves for most levels; the Boos read it.
   mario: { x: 0x80, y: 0x80, dir: 1 },
   camera: { x: 0, y: 0 },
   trueFrame: 0,
@@ -93,9 +78,6 @@ export const SPRITE_SEED: SpriteSeed = {
     buoyancy: 0,
     spriteMemory: 0,
     slopes: 0,
-    // No ROM code sets RNGCalc before the first frame; 6 and 3 is the value every
-    // level-load capture held at frame 0 (98 of 98 maps, vanilla). A constant, not data.
-    rng: [6, 3],
   },
   // $9D SpritesLocked off, stated although WRAM starts zeroed, so a fixture
   // that differs says so.

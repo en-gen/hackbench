@@ -9,7 +9,15 @@
  */
 import { Cpu65816 } from '../../cpu/Cpu65816'
 import type { RomFile } from '../../RomFile'
-import { ENTRY, resolveLoop, resolvePointer, resolveTables } from './SpriteDispatch'
+import { guardInstruction, Refusal } from './Guards'
+import {
+  checkGetRand,
+  checkInitTables,
+  ENTRY,
+  resolveLoop,
+  resolvePointer,
+  resolveTables,
+} from './SpriteDispatch'
 import { SpriteBus } from './SpriteBus'
 import { SPRITE_SEED, withSeed, type SpriteSeed } from './SpriteSeed'
 
@@ -41,15 +49,15 @@ export const RAM = {
   xHigh: 0x14e0,
   curSprite: 0x15e9,
   oamIndex: 0x15ea,
-  oamX: 0x300,
-  oamTileSize: 0x460,
   /** $0681 DynPaletteIndex: bytes used in the NMI colour-upload list at $0682 (rammap.asm:1152-1164). */
   dynPaletteIndex: 0x681,
   dynPaletteTable: 0x682,
   /** $0703 MainPalette: a RAM copy of all 256 CGRAM colors (rammap.asm:1172-1175). */
   mainPalette: 0x703,
-  /** Entries in the sprite OAM mirror ($0300-$03FF; hardware entries 64-127). */
-  oamEntries: 64,
+  /** OAM mirror $0200-$03FF: 128 entries of 4 bytes; one size byte per entry at $0420. */
+  oam: 0x200,
+  oamSize: 0x420,
+  oamEntries: 128,
 } as const
 
 /** Instruction budget for one call (INIT or one MAIN pass). */
@@ -60,7 +68,7 @@ const MAX_INIT_FRAMES = 64
 const SENTINEL = 0xff00
 
 export interface SpritePart {
-  /** Slot in the $0300 OAM mirror, 0-63. */
+  /** Entry in the OAM mirror, 0-127 ($0200 page first, then $0300). */
   oam: number
   /** 9-bit tile number: tile byte plus the attribute's name-table bit. */
   char: number
@@ -133,10 +141,7 @@ export interface RunOptions {
   trackInputs?: boolean
 }
 
-export class Refusal extends Error {}
-
-const REFUSED_OPS: Record<number, string> = { 0x00: 'BRK', 0x02: 'COP', 0x42: 'WDM', 0xdb: 'STP' }
-const hex = (n: number, w = 6) => n.toString(16).toUpperCase().padStart(w, '0')
+export { Refusal }
 
 export class Machine {
   readonly bus: SpriteBus
@@ -164,13 +169,7 @@ export class Machine {
     cpu.s = 0x1ff
     cpu.d = 0
     cpu.db = 0
-    this.bus.onInstruction = (addr, op) => {
-      if (REFUSED_OPS[op]) throw new Refusal(`${REFUSED_OPS[op]} executed at $${hex(addr)}`)
-      const bank = addr >>> 16
-      const lo = addr & 0xffff
-      if (bank === 0x7e || bank === 0x7f || ((bank & 0x7f) < 0x40 && lo < 0x8000))
-        throw new Refusal(`execution left ROM code at $${hex(addr)}`)
-    }
+    this.bus.onInstruction = guardInstruction
     this.bus.onWramWrite = off => {
       this.touched.add(off)
       if (off >= RAM.mainPalette && off < RAM.mainPalette + 512) this.palTouched.add(off)
@@ -239,15 +238,7 @@ export class Machine {
       // The loader also spawns the level's own sprite list (CODE_02A751); only the one sprite under test runs.
       for (let i = 0; i < 12; i++) w[RAM.status + i] = 0
     }
-    if (s.wramBase) {
-      w.set(s.wramBase.subarray(0, 0x2000))
-      for (let i = 0; i < 12; i++) w[RAM.status + i] = 0
-    }
-    if (s.map16) {
-      w.set(s.map16.low, 0xc800)
-      w.set(s.map16.high, 0x1c800)
-    }
-    for (let i = 0; i < RAM.oamEntries; i++) w[RAM.oamX + 1 + i * 4] = 0xf0 // cleared OAM is offscreen
+    for (let i = 0; i < RAM.oamEntries; i++) w[RAM.oam + 1 + i * 4] = 0xf0 // cleared OAM is offscreen
     w[RAM.trueFrame] = s.trueFrame
     w[RAM.effFrame] = s.effFrame
     this.w16(RAM.camX, s.camera.x)
@@ -257,7 +248,8 @@ export class Machine {
     this.w16(RAM.marioXNow, s.mario.x)
     this.w16(RAM.marioYNext, s.mario.y)
     this.w16(RAM.marioYNow, s.mario.y)
-    w[RAM.marioDir] = s.mario.dir
+    // $76 comes from the ROM's own entrance setup when a loaded image carries it.
+    if (!s.loaded) w[RAM.marioDir] = s.mario.dir
     const lv = s.level
     if (!s.loaded) {
       w[RAM.screenMode] = lv.screenMode
@@ -269,11 +261,6 @@ export class Machine {
       w[RAM.spriteMemory] = lv.spriteMemory
       this.w16(RAM.slopes, lv.slopes)
     }
-    if (!s.loaded || (w[RAM.rng] === 0 && w[RAM.rng + 1] === 0)) {
-      w[RAM.rng] = lv.rng[0]
-      w[RAM.rng + 1] = lv.rng[1]
-    }
-    for (const b of s.blocks ?? []) w.set(b.bytes, b.offset)
     for (const [k, v] of Object.entries(s.ram)) w[Number(k)] = v
     const n = s.slot
     w[RAM.curSprite] = n
@@ -328,7 +315,7 @@ export class Machine {
   /** OAM mirror indices whose tile byte this pass wrote. */
   writtenOam(): number[] {
     const out: number[] = []
-    for (let i = 0; i < RAM.oamEntries; i++) if (this.touched.has(RAM.oamX + 2 + i * 4)) out.push(i)
+    for (let i = 0; i < RAM.oamEntries; i++) if (this.touched.has(RAM.oam + 2 + i * 4)) out.push(i)
     return out
   }
 }
@@ -341,11 +328,11 @@ function readParts(m: Machine, anchor: { x: number; y: number }): SpritePart[] {
   const cam = m.seed.camera
   const out: SpritePart[] = []
   for (const i of m.writtenOam()) {
-    const b = RAM.oamX + i * 4
+    const b = RAM.oam + i * 4
     const y = w[b + 1]
     if (y === 0xf0) continue
     const attr = w[b + 3]
-    const hi = w[RAM.oamTileSize + i]
+    const hi = w[RAM.oamSize + i]
     // OAM X is 9 bits (size-table bit 0); the offset wraps into -256..255.
     const x9 = w[b] | ((hi & 1) << 8)
     const rel = (((x9 - (anchor.x - cam.x)) % 512) + 512) % 512
@@ -398,9 +385,18 @@ export function runOnce(
   if (!inits.ok) return { ...model, refusal: `INIT: ${inits.reason}` }
   const mains = resolvePointer(rom, tables.tables.mainTable, id)
   if (!mains.ok) return { ...model, refusal: `MAIN: ${mains.reason}` }
+  const init = checkInitTables(rom)
+  if (!init.ok) return { ...model, refusal: init.reason }
+  const rand = checkGetRand(rom)
+  if (!rand.ok) return { ...model, refusal: rand.reason }
   const m = new Machine(rom, seed, id)
   if (opts.trackInputs) m.bus.inputs = new Set()
   try {
+    // RNGCalc ($148B/C) is zero until the game first calls GetRand, its only
+    // writer (CODE_01AD07, bank_01.asm:6101-6121); one call from zero is what
+    // frame 0 of a level has run, so run the ROM's own GetRand once.
+    const rngCells = m.bus.wram.subarray(RAM.rng, RAM.rng + 2)
+    if (rngCells[0] === 0 && rngCells[1] === 0) m.call(ENTRY.getRand, 'jsl')
     m.call(ENTRY.initSpriteTables, 'jsl')
     let n = m.steps
     const w = m.bus.wram
@@ -428,7 +424,7 @@ export function runOnce(
     for (let p = 0; p < seed.mainPasses; p++) {
       w[RAM.trueFrame] = (seed.trueFrame + frameNo + 1 + p) & 0xff
       w[RAM.effFrame] = (seed.effFrame + frameNo + 1 + p) & 0xff
-      for (let i = 0; i < RAM.oamEntries; i++) w[RAM.oamX + 1 + i * 4] = 0xf0
+      for (let i = 0; i < RAM.oamEntries; i++) w[RAM.oam + 1 + i * 4] = 0xf0
       m.clearOamWrites()
       n = m.steps
       const hw = new Map(m.bus.hwWrites)

@@ -55,7 +55,11 @@ import {
   type SpritePart,
 } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
-import { withSeed, type SpriteSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
+import {
+  SPRITE_SEED,
+  withSeed,
+  type SpriteSeed,
+} from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { readSpriteTileTables } from '../../../../src/rom/SpriteTileLoader'
 import {
   drawSpriteParts,
@@ -104,9 +108,11 @@ export type SpriteDrawResult =
       anchor?: { x: number; y: number }
       /** CGRAM colors the sprite's own code set by its drawn frame (interpreter only). */
       runtimePalette?: PaletteWrite[]
+      /** Set when the run's seed is not the ROM-run level state: why the art is unverified. */
+      unverified?: string
     })
   | Extract<EngineResult, { ok: false }>
-  | { ok: false; reason: string }
+  | { ok: false; reason: string; unverified?: string }
 
 /** Runs a drawer for one sprite; injected so the placement math is tested without a cart. */
 export type SpriteDrawer = (sprite: LevelSprite) => SpriteDrawResult
@@ -133,7 +139,7 @@ function marker(id: number): Uint8ClampedArray {
   return out
 }
 
-function placeholder(s: LevelSprite, reason: string): MapSpriteDto {
+function placeholder(s: LevelSprite, reason: string, unverified?: string): MapSpriteDto {
   const [x, y] = [pixelX(s), s.y * TILE]
   return {
     index: s.index,
@@ -144,6 +150,7 @@ function placeholder(s: LevelSprite, reason: string): MapSpriteDto {
     rgba: base64(marker(s.spriteId)),
     status: 'placeholder',
     reason,
+    ...(unverified ? { unverified } : {}),
   }
 }
 
@@ -183,7 +190,7 @@ export function drawSprites(
     // Fail closed: a possibly custom sprite is never given vanilla art.
     if ((s.raw[0] ?? 0) & EXTRA_BITS) return placeholder(s, 'extraBits')
     const res = draw(s)
-    if (!res.ok) return placeholder(s, 'reason' in res ? res.reason : res.failure.kind)
+    if (!res.ok) return placeholder(s, 'reason' in res ? res.reason : res.failure.kind, 'unverified' in res ? res.unverified : undefined) // prettier-ignore
     if (res.parts.length === 0) return placeholder(s, 'noParts')
     const pixels = res.parts.map(p => getCharPixels(model.vram, p.charNum))
     // One missing char would draw as a hole, so the whole sprite is marked.
@@ -220,6 +227,7 @@ export function drawSprites(
       box,
       rgba: base64(out),
       status: 'drawn',
+      ...('unverified' in res && res.unverified ? { unverified: res.unverified } : {}),
     }
   })
 }
@@ -281,37 +289,45 @@ export function cameraFor(x: number, y: number, vertical: boolean, screens: numb
 }
 
 /** What the interpreter shows for one sprite: its model, as the drawer's reply. */
-export function modelResult(m: RunModel): SpriteDrawResult {
-  if (m.refusal) return { ok: false, reason: `refused: ${m.refusal}` }
+export function modelResult(m: RunModel, unverified?: string): SpriteDrawResult {
+  const u = unverified ? { unverified } : {}
+  if (m.refusal) return { ok: false, reason: `refused: ${m.refusal}`, ...u }
   const pass = m.chosen === undefined ? undefined : m.passes[m.chosen]
-  if (!m.anchor || !pass) return { ok: false, reason: m.emptyReason ?? 'drew no tile' }
+  if (!m.anchor || !pass) return { ok: false, reason: m.emptyReason ?? 'drew no tile', ...u }
   return {
     ok: true,
     parts: interpParts(pass.parts),
     anchor: { x: m.anchor.x, y: m.anchor.y },
     runtimePalette: pass.palette,
+    ...u,
     identity: { spriteId: m.id, mainHandler: 0, initHandler: 0, status: 'vanilla' },
   }
 }
 
 /**
  * The interpreter over this cart, for the level `index`: its own loader's
- * WRAM, Mario at the level's start, one sprite run alone per call. Null when
- * the loader cannot run (the table engine is then the only source).
+ * WRAM, Mario at the level's start, one sprite run alone per call. When the
+ * loader refuses (a hack that moves its entry points), the run is seeded from
+ * placement alone (the map's screen mode and length, the generic defaults for
+ * the rest) and EVERY sprite it answers carries `unverified` with the loader's
+ * reason: still drawn, never presented as run from the level's own state.
  */
 export function interpDrawer(
   rom: RomFile,
   index: number,
   model: { isVertical: boolean; screenCount: number },
   run: (rom: RomFile, id: number, seed: SpriteSeed) => RunModel = runOnce,
-): SpriteDrawer | { reason: string } {
+): SpriteDrawer {
   const loaded = loadLevelState(rom, index)
-  if (!loaded.ok) return { reason: loaded.reason }
   const mario = readMarioStartPos(rom, index)
+  const unverified = loaded.ok ? undefined : `level loader refused (${loaded.reason}); drawn from a placement-only seed` // prettier-ignore
+  const base = loaded.ok
+    ? { loaded: loaded.wram }
+    : { level: { screenMode: model.isVertical ? 1 : 0, screens: model.screenCount } }
   return s => {
     const [x, y] = [pixelX(s), s.y * TILE]
     const camera = cameraFor(x, y, model.isVertical, model.screenCount)
-    return modelResult(run(rom, s.spriteId, withSeed({ sprite: { x, y }, camera, mario, loaded: loaded.wram }))) // prettier-ignore
+    return modelResult(run(rom, s.spriteId, withSeed({ sprite: { x, y }, camera, mario, ...base }, SPRITE_SEED)), unverified) // prettier-ignore
   }
 }
 
@@ -325,6 +341,12 @@ const terminated = (data: Uint8Array) => {
   return false
 }
 
+/** The map-level line for sprites drawn without the ROM-run level state: they are shown, flagged. */
+const unverifiedNote = (sprites: readonly MapSpriteDto[]) => {
+  const u = sprites.find(s => s.unverified)?.unverified
+  return u ? `Unverified: ${sprites.filter(s => s.unverified).length} sprites ${u}.` : undefined
+}
+
 /** The reply for a stream: its sprites drawn, in the geometry of the map's screens. */
 export function spriteLayer(
   data: Uint8Array,
@@ -333,16 +355,23 @@ export function spriteLayer(
   dynamic?: (note: PaletteNote) => RgbaColor[],
 ): Extract<MapSpritesResult, { status: 'ok' }> {
   const { w, h } = screenTiles(model.isVertical)
+  const sprites = drawSprites(parseLevelSprites(data, model.isVertical), model, draw, dynamic)
   return {
     status: 'ok',
     orientation: model.isVertical ? 'vertical' : 'horizontal',
     screenCount: model.screenCount,
     width: w * TILE,
     height: h * TILE,
-    sprites: drawSprites(parseLevelSprites(data, model.isVertical), model, draw, dynamic),
-    note: terminated(data)
-      ? undefined
-      : 'The sprite stream has no end marker in the bytes read: sprites past them are not drawn.',
+    sprites,
+    note:
+      [
+        terminated(data)
+          ? undefined
+          : 'The sprite stream has no end marker in the bytes read: sprites past them are not drawn.',
+        unverifiedNote(sprites),
+      ]
+        .filter(Boolean)
+        .join(' ') || undefined,
   }
 }
 
@@ -389,7 +418,6 @@ function compute(
     const data = ptr === null ? null : readStream(rom.rom, ptr)
     if (!data) return { status: 'unavailable', reason: `No sprite data at the pointer for slot ${index.toString(16)}` } // prettier-ignore
     const draw = interpDrawer(rom.rom, index, model)
-    if (typeof draw !== 'function') return { status: 'unavailable', reason: `The level loader did not run: ${draw.reason}` } // prettier-ignore
     const dynamic = (n: PaletteNote) => {
       const b = rom.rom.readAt(n.entryAddr, n.colors * 2)
       return b ? Array.from({ length: n.colors }, (_, i) => bgr555ToRgba(b[i * 2]! | (b[i * 2 + 1]! << 8))) : [] // prettier-ignore

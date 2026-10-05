@@ -15,7 +15,6 @@
  * Priority bits are not compared (same as capture_decode.sameShape).
  */
 import type { SpriteModel } from '../../../src/rom/sprites/interp/SpriteRunner'
-import type { LevelState } from '../../../src/rom/sprites/interp/SpriteSeed'
 
 export interface RecordedPiece {
   dx: number
@@ -95,12 +94,4 @@ export function grade(m: SpriteModel, recorded: RecordedPiece[][]): Grade {
   if (best.verdict === 'wrong')
     best.detail = `recorded ${recorded.map(r => r.length).join('/')} pieces; model drew ${m.passes[m.chosen].parts.length}`
   return best
-}
-
-/** The LevelState cells out of a level-load WRAM image (oracle seed, never a runtime input). */
-export function levelOf(w: Uint8Array): Partial<LevelState> {
-  return {
-    screenMode: w[0x5b], screens: w[0x5d], spriteProps: w[0x64], water: w[0x85], slippery: w[0x86],
-    buoyancy: w[0x190e], spriteMemory: w[0x1692], slopes: w[0x82] | (w[0x83] << 8), rng: [w[0x148b], w[0x148c]],
-  } // prettier-ignore
 }

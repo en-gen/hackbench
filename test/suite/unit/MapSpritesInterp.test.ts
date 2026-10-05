@@ -11,7 +11,7 @@ import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { loadLevelState } from '../../../src/rom/sprites/interp/LevelLoader'
 import { runOnce } from '../../../src/rom/sprites/interp/SpriteRunner'
-import { withSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
+import { withSeed, type SpriteSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
 import { readMarioStartPos } from '../../../src/rom/L3Loader'
 import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
 import type { SpriteModel, SpritePart } from '../../../src/rom/sprites/interp/SpriteRunner'
@@ -22,6 +22,7 @@ import {
   interpDrawer,
   interpParts,
   mapSprites,
+  spriteLayer,
   modelResult,
   partKey,
   type SpriteDrawer,
@@ -107,6 +108,35 @@ describe('drawSprites with runtime palette writes', () => {
   })
 })
 
+describe('a refused level loader marks every sprite unverified', () => {
+  // A cart of zeros has no level loader: loadLevelState refuses it.
+  const blank = RomFile.fromBytes('blank.sfc', Buffer.alloc(0x80000))
+  const shape = { isVertical: false, screenCount: 2 }
+  const ran = (anchor: boolean): SpriteModel =>
+    model(anchor ? { anchor: { x: 16, y: 16, rawX: 16, rawY: 16 }, passes: [{ pass: 0, pos: { x: 0, y: 0 }, parts: [part({ char: 0 })], uploads: [], palette: [] }], chosen: 0 } : { refusal: 'loop' }) // prettier-ignore
+  const sprite = (i: number) => ({ index: i, x: 1, y: 1, spriteId: 1, screen: 0, extraBit: false, raw: [], streamOffset: 0 }) as LevelSprite // prettier-ignore
+  const chars = { sp1: [new Uint8Array(64).fill(3)] }
+
+  it('keeps drawing, with the loader reason on each sprite, drawn or marked', () => {
+    let n = 0
+    const draw = interpDrawer(blank, 0x105, shape, () => ran(n++ === 0))
+    const [a, b] = drawSprites([sprite(0), sprite(1)], { vram: chars, colors: COLORS }, draw)
+    expect(a).toMatchObject({ status: 'drawn' })
+    expect(a!.unverified).toMatch(/^level loader refused \(.+\); drawn from a placement-only seed$/)
+    expect(b).toMatchObject({ status: 'placeholder', reason: 'refused: loop' })
+    expect(b!.unverified).toBe(a!.unverified)
+  })
+
+  it('seeds the run from the map shape alone, and says so once on the map', () => {
+    const seeds: SpriteSeed[] = []
+    const draw = interpDrawer(blank, 0x105, { isVertical: true, screenCount: 3 }, (_r, _i, seed) => (seeds.push(seed), ran(true))) // prettier-ignore
+    const r = spriteLayer(Uint8Array.from([0, 0x10, 0x01, 0x10, 0xff]), { vram: chars, colors: COLORS, isVertical: true, screenCount: 3 }, draw) // prettier-ignore
+    expect(seeds[0]!.loaded).toBeUndefined()
+    expect(seeds[0]).toMatchObject({ level: { screenMode: 1, screens: 3 } })
+    expect(r.note).toMatch(/^Unverified: 1 sprites level loader refused/)
+  })
+})
+
 describe('drawSprites with the interpreter', () => {
   it('draws at the anchor the drawer reports, not the stream position, and keeps the reason of a refusal', () => {
     const s = { index: 0, x: 2, y: 2, spriteId: 0x4f, screen: 0, extraBit: false, raw: [], streamOffset: 0 } as LevelSprite // prettier-ignore
@@ -148,6 +178,33 @@ const EXPECTED: Record<string, Record<string, number>> = {
   $4E: { same: 3 },
 }
 
+const GPW = 'GrandPooWorld_V1.2.sfc'
+describe.skipIf(!hasRom(GPW))(
+  'GPW 1.2: the level loader refuses, the drawer still draws, flagged',
+  () => {
+    // Through the drawer, not mapSprites: every cart whose loader refuses also has a
+    // LoadLevel shape the map model refuses (all 512 maps unavailable), so the map
+    // never reaches this path on these carts today.
+    it('answers every sprite of a level with the loader reason', () => {
+      const rom = new SmwRom(RomFile.load(romPath(GPW)))
+      expect(loadLevelState(rom.rom, 0x105).ok).toBe(false)
+      let sprites: LevelSprite[] = []
+      let level = 0
+      for (; level < 0x200 && sprites.length === 0; level++) {
+        const ptr = rom.getLevelSpritePointer(level)
+        sprites = ptr === null ? [] : parseLevelSprites(rom.rom.readUpTo(ptr, 0x200)!, false).filter(s => !((s.raw[0] ?? 0) & 8)) // prettier-ignore
+      }
+      expect(sprites.length).toBeGreaterThan(0)
+      const draw = interpDrawer(rom.rom, level - 1, { isVertical: false, screenCount: 0x14 })
+      const answers = sprites.map(draw)
+      expect(answers.every(a => /^level loader refused/.test(('unverified' in a && a.unverified) || ''))).toBe(true) // prettier-ignore
+      // GPW's HandleSprite is not the stock dispatch either, so the runner refuses here too:
+      // the marker carries both reasons. The drawn case is the synthetic test above.
+      expect(answers.every(a => !a.ok && /^refused: /.test(a.reason))).toBe(true)
+    })
+  },
+)
+
 describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps', () => {
   /** Maps holding every id the engine draws, plus the two the issue names. */
   const MAPS = [0x105, 0x106, 0x00f, 0x1c5, 0x008, 0x11b, 0x006, 0x1c2, 0x001, 0x11c]
@@ -166,7 +223,6 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
       const sprites = parseLevelSprites(rom.rom.readUpTo(rom.getLevelSpritePointer(map)!, 0x200)!, built.inputs.isVertical) // prettier-ignore
       const eng = engineDrawer(rom.rom, readMarioStartPos(rom.rom, map).x)!
       const interp = interpDrawer(rom.rom, map, built.inputs)
-      if (typeof interp !== 'function') throw new Error(interp.reason)
       const both = wrap(interp)
       for (const s of sprites) {
         const e = eng(s)
@@ -260,7 +316,6 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     const built = new L1ModelCache().get(b, romPath(VANILLA), 0xe4, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
     if (!built.ok) throw new Error(built.reason)
     const draw = interpDrawer(rom.rom, 0xe4, built.inputs)
-    if (typeof draw !== 'function') throw new Error(draw.reason)
     const s = parseLevelSprites(rom.rom.readUpTo(rom.getLevelSpritePointer(0xe4)!, 0x200)!, false).find(x => x.spriteId === 0xc5)! // prettier-ignore
     const r = draw(s)
     expect(r.ok && 'runtimePalette' in r && r.runtimePalette?.length).toBe(8)
@@ -272,6 +327,7 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
       const r = mapSprites(new L1ModelCache(), b, romPath(VANILLA), m)
       if (r.status !== 'ok') throw new Error(JSON.stringify(r))
       for (const s of r.sprites.filter(s => s.status === 'placeholder')) expect(s.reason).toMatch(/^(refused: INIT: id \$[0-9a-f]+ is past|drew no OAM tile)/) // prettier-ignore
+      expect(r.sprites.some(s => s.unverified)).toBe(false)
       return [r.sprites.filter(s => s.status === 'drawn').length, r.sprites.length]
     })
     expect(got).toEqual([

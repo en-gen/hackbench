@@ -295,6 +295,11 @@ export interface MapSpriteDto {
   rgba: string
   status: 'drawn' | 'placeholder'
   reason?: string
+  /**
+   * Present when the sprite was run from a placement-only seed because the
+   * level loader refused this ROM: drawn, but not run from the level's state.
+   */
+  unverified?: string
 }
 
 /** A map's sprites, with the screen geometry the view needs to cut them per screen. */
