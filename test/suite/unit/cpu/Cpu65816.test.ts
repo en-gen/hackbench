@@ -251,45 +251,83 @@ describe('SingleStep harness oracle', () => {
   })
 })
 
-describe('Cpu65816 16-bit read-modify-write order (#593)', () => {
+describe('Cpu65816 read-modify-write bus writes (#593)', () => {
   // Hardware writes the HIGH byte first, then the low byte, for every 16-bit RMW.
-  const rmw: [string, number[]][] = [
-    ['ASL', [0x06, 0x0e, 0x16, 0x1e]],
-    ['ROL', [0x26, 0x2e, 0x36, 0x3e]],
-    ['LSR', [0x46, 0x4e, 0x56, 0x5e]],
-    ['ROR', [0x66, 0x6e, 0x76, 0x7e]],
-    ['INC', [0xe6, 0xee, 0xf6, 0xfe]],
-    ['DEC', [0xc6, 0xce, 0xd6, 0xde]],
-    ['TSB', [0x04, 0x0c]],
-    ['TRB', [0x14, 0x1c]],
+  // Memory $1234, C=1, A=$0F0F: every result differs from the input and has hi != lo.
+  const rmw: [string, number[], number][] = [
+    ['ASL', [0x06, 0x0e, 0x16, 0x1e], 0x2468],
+    ['ROL', [0x26, 0x2e, 0x36, 0x3e], 0x2469],
+    ['LSR', [0x46, 0x4e, 0x56, 0x5e], 0x091a],
+    ['ROR', [0x66, 0x6e, 0x76, 0x7e], 0x891a],
+    ['INC', [0xe6, 0xee, 0xf6, 0xfe], 0x1235],
+    ['DEC', [0xc6, 0xce, 0xd6, 0xde], 0x1233],
+    ['TSB', [0x04, 0x0c], 0x1f3f],
+    ['TRB', [0x14, 0x1c], 0x1030],
   ]
-  for (const [name, ops] of rmw)
+  /** Runs one RMW opcode on seeded memory; returns the ordered [addr, value] bus writes. */
+  function writes(
+    op: number,
+    wide: boolean,
+    operand: number[],
+    seed: [number, number][],
+    setup: (c: Cpu65816) => void,
+  ) {
+    const log: [number, number][] = []
+    const mem = new Map<number, number>(seed)
+    ;[op, ...operand].forEach((b, i) => mem.set(0x8000 + i, b))
+    const cpu = new Cpu65816({
+      read: a => mem.get(a) ?? 0,
+      write: (a, v) => {
+        log.push([a, v])
+        mem.set(a, v)
+      },
+    })
+    Object.assign(cpu, { pc: 0x8000, e: false, m8: !wide, x8: !wide, c: true, a: 0x0f0f, x: 0 }) // prettier-ignore
+    setup(cpu)
+    cpu.step()
+    return log
+  }
+  for (const [name, ops, want] of rmw)
     for (const op of ops)
-      it(`${name} opcode $${op.toString(16)} writes high then low`, () => {
-        const writes: number[] = []
-        const mem = new Map<number, number>()
-        // dp operand $10 (D=0), abs operand $2010; X=0 so indexed modes hit the same address.
-        const code = (op & 0x0f) === 0x0e || (op & 0x0f) === 0x0c ? [op, 0x10, 0x20] : [op, 0x10]
-        const at = 0x8000
-        code.forEach((b, i) => mem.set(at + i, b))
-        const bus: Bus = {
-          read: a => mem.get(a) ?? 0,
-          write: (a, v) => {
-            writes.push(a)
-            mem.set(a, v)
+      it(`${name} $${op.toString(16)}: 16-bit writes high then low`, () => {
+        const abs = (op & 0x0f) === 0x0e || (op & 0x0f) === 0x0c
+        const indexed = !!(op & 0x10) && name !== 'TRB'
+        const t = (abs ? 0x2010 : 0x10) + (indexed ? 2 : 0)
+        const log = writes(
+          op,
+          true,
+          abs ? [0x10, 0x20] : [0x10],
+          [
+            [t, 0x34],
+            [t + 1, 0x12],
+          ],
+          c => {
+            // prettier-ignore
+            c.x = indexed ? 2 : 0
           },
-        }
-        const cpu = new Cpu65816(bus)
-        cpu.pc = at
-        cpu.e = false
-        cpu.m8 = false
-        cpu.x8 = false
-        cpu.x = 0
-        cpu.a = 0x00ff
-        const target = code.length === 3 ? 0x2010 : 0x10
-        mem.set(target, 0xff)
-        mem.set(target + 1, 0x01)
-        cpu.step()
-        expect(writes).toEqual([target + 1, target])
+        )
+        expect(log).toEqual([
+          [t + 1, want >> 8],
+          [t, want & 0xff],
+        ])
       })
+
+  it('8-bit RMW makes exactly one write', () => {
+    const log = writes(0xee, false, [0x10, 0x20], [[0x2010, 0x00]], () => {})
+    expect(log).toEqual([[0x2010, 0x01]])
+  })
+  it('direct page RMW at D+$FF wraps the high byte to bank 0 offset $0000', () => {
+    const log = writes(0xe6, true, [0xff], [], c => (c.d = 0xff00))
+    expect(log).toEqual([
+      [0x0000, 0x00],
+      [0xffff, 0x01],
+    ])
+  })
+  it('abs,X RMW at $7E:FFFF puts the high byte at $7F:0000', () => {
+    const log = writes(0xfe, true, [0xff, 0xff], [], c => (c.db = 0x7e))
+    expect(log).toEqual([
+      [0x7f0000, 0x00],
+      [0x7effff, 0x01],
+    ])
+  })
 })

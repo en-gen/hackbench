@@ -1,8 +1,9 @@
 /**
  * Runs one SingleStepTests 65816 case against Cpu65816 and returns the
  * mismatches. Compares registers, flags and every memory byte the case lists
- * or the CPU wrote; cycle / bus-line data is ignored (the core does not model
- * timing).
+ * or the CPU wrote, and the ordered (address, value) bus writes against the
+ * case's write cycles. Timing and other bus lines are ignored (the core does
+ * not model them).
  */
 import { Cpu65816 } from '../../../src/rom/cpu/Cpu65816'
 
@@ -23,16 +24,20 @@ export interface StepCase {
   name: string
   initial: StepState
   final: StepState
+  /** [address, value | null, bus flags]; flags[3] is 'w' on a write cycle. */
+  cycles?: [number, number | null, string][]
 }
 
 export function runCase(tc: StepCase, make: (bus: never) => Cpu65816 = defaultMake): string[] {
   const mem = new Map<number, number>(tc.initial.ram)
   const written = new Set<number>()
+  const log: [number, number][] = []
   const bus = {
     read: (a: number) => mem.get(a) ?? 0,
     write: (a: number, v: number) => {
       mem.set(a, v)
       written.add(a)
+      log.push([a, v])
     },
   }
   const cpu = make(bus as never)
@@ -81,6 +86,16 @@ export function runCase(tc: StepCase, make: (bus: never) => Cpu65816 = defaultMa
   for (const addr of written)
     if (!want.has(addr))
       out.push(`[${addr.toString(16)}]: written ${mem.get(addr)!.toString(16)} but not in final`)
+  if (tc.cycles && opcode !== 0x44 && opcode !== 0x54) {
+    let w = tc.cycles.filter(c => c[2][3] === 'w').map(c => [c[0], c[1]] as [number, number])
+    // Out of scope: in emulation mode an 8-bit RMW writes the old value, then
+    // the new one, to the same address; the core writes only the new one.
+    // Collapse any consecutive same-address pair there (emulation mode only).
+    if (i.e) w = w.filter((c, k) => !(k + 1 < w.length && w[k + 1][0] === c[0]))
+    const fmt = (l: [number, number][]) =>
+      l.map(([a, v]) => `${a.toString(16)}=${v.toString(16)}`).join(' ')
+    if (fmt(log) !== fmt(w)) out.push(`write order: got [${fmt(log)}] want [${fmt(w)}]`)
+  }
   return out
 }
 
