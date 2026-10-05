@@ -5,7 +5,8 @@
  * It is its own canvas at DEVICE resolution rather than lines baked into the
  * content bitmap: the bitmap is zoomed by CSS, so baked lines would thicken
  * with zoom and blur. The host must be `position: relative` and exactly the
- * content canvas's size (see `.hb-grid-host`); the overlay ignores the pointer.
+ * content canvas's size (see `.hb-grid-host`), or pass `locate`; the overlay
+ * ignores the pointer.
  *
  * Test hook: `data-grid-lines` holds the `GridLines` JSON that was drawn,
  * `data-grid-cell-px` the CSS px between base lines (cellSize * zoom),
@@ -31,7 +32,16 @@ function useDevicePixelRatio(): number {
   return dpr
 }
 
-export function GridOverlay(spec: GridSpec): React.ReactElement {
+export interface GridOverlayProps extends GridSpec {
+  /**
+   * For a host that cannot give the overlay a positioned wrapper of its own:
+   * where, in the overlay's containing block, the content canvas's top-left is.
+   * Read after every commit, so a remounted canvas is never located stale.
+   */
+  locate?: () => { left: number; top: number } | undefined
+}
+
+export function GridOverlay(spec: GridOverlayProps): React.ReactElement {
   const ref = React.useRef<HTMLCanvasElement>(null)
   const dpr = useDevicePixelRatio()
   const { cellSize, width, height, zoom } = spec
@@ -52,6 +62,13 @@ export function GridOverlay(spec: GridSpec): React.ReactElement {
   const color = getComputedStyle(document.body).getPropertyValue('--theia-foreground').trim()
   // Repaint only when what is drawn changes: a Map16 animation tick re-renders
   // the widget many times a second with identical lines.
+  React.useLayoutEffect(() => {
+    const at = spec.locate?.()
+    if (ref.current && at) {
+      ref.current.style.left = `${at.left}px`
+      ref.current.style.top = `${at.top}px`
+    }
+  })
   React.useEffect(() => {
     const ctx = ref.current?.getContext('2d')
     if (!ctx) return

@@ -254,6 +254,11 @@ export class Map16ViewWidget extends ReactWidget {
         width={sheet.width}
         height={sheet.height + (pages - 1) * PAGE_GAP_PX}
         zoom={this.zoomController.value}
+        locate={() =>
+          this.canvasEl
+            ? { left: this.canvasEl.offsetLeft, top: this.canvasEl.offsetTop }
+            : undefined
+        }
         bands={Array.from({ length: pages }, (_, page) => ({
           top: page * (pageHeight + PAGE_GAP_PX),
           height: Math.min(pageHeight, sheet.height - page * pageHeight),
@@ -1089,34 +1094,32 @@ export class Map16ViewWidget extends ReactWidget {
         </div>
         {this.browserOpen && (
           <div className="hb-map16-canvas-wrap" ref={this.bindCanvasWrap}>
-            <div className="hb-grid-host">
-              <canvas
-                className="hb-map16-canvas hb-pixel-canvas"
-                onClick={this.handleCanvasClick}
-                onMouseMove={this.handleCanvasMouseMove}
-                onMouseLeave={this.handleCanvasMouseLeave}
-                ref={el => {
-                  this.canvasEl = el
-                  this.paintCanvas()
-                }}
-              />
-              {this.gridOverlay()}
-              {/* After the grid overlay in the DOM, so the outlines draw above its lines. */}
-              <div
-                className="hb-map16-hover-outline"
-                ref={el => {
-                  this.hoverOutlineEl = el
-                  if (el) this.positionOutlines()
-                }}
-              />
-              <div
-                className="hb-map16-selection-outline"
-                ref={el => {
-                  this.selectionOutlineEl = el
-                  if (el) this.positionOutlines()
-                }}
-              />
-            </div>
+            <canvas
+              className="hb-map16-canvas hb-pixel-canvas"
+              onClick={this.handleCanvasClick}
+              onMouseMove={this.handleCanvasMouseMove}
+              onMouseLeave={this.handleCanvasMouseLeave}
+              ref={el => {
+                this.canvasEl = el
+                this.paintCanvas()
+              }}
+            />
+            {this.gridOverlay()}
+            {/* After the grid overlay in the DOM, so the outlines draw above its lines. */}
+            <div
+              className="hb-map16-hover-outline"
+              ref={el => {
+                this.hoverOutlineEl = el
+                if (el) this.positionOutlines()
+              }}
+            />
+            <div
+              className="hb-map16-selection-outline"
+              ref={el => {
+                this.selectionOutlineEl = el
+                if (el) this.positionOutlines()
+              }}
+            />
           </div>
         )}
       </div>
