@@ -109,3 +109,68 @@ describe('viewport-only drawing', () => {
     expect(g.x[0]!.to).toBe(432)
   })
 })
+
+describe('device pixels, both axes, scrolled', () => {
+  it('scales positions and weights by the device pixel ratio', () => {
+    const g = computeMapGridLines({ ...base, vertical: false, screenCount: 2, dpr: 2 })
+    const screen = g.x.find(l => l.pos === 256)!
+    // 256 css px -> 512 device px; a 5 px line centred on it covers 510..514.
+    expect([screen.start, screen.size]).toEqual([510, 5])
+    expect(g.x.find(l => l.pos === 16)!.size).toBe(1)
+    expect(g.y.find(l => l.pos === 256)!.size).toBe(3)
+    expect(g.x[0]!.to).toBe(864)
+  })
+
+  it('rounds a boundary to the nearest device pixel at dpr 1.5', () => {
+    const g = computeMapGridLines({ ...base, vertical: false, screenCount: 2, zoom: 1.1, dpr: 1.5 })
+    // Boundaries 17.6 * i css px: 26.4, 52.8, 79.2, 105.6 device px (floor would give 52 and 105).
+    expect(g.x.slice(1, 5).map(l => l.start)).toEqual([26, 53, 79, 106])
+  })
+
+  it('a vertical level scrolled down: y lines follow scrollY, x lines are unaffected by it', () => {
+    const at = (scrollY: number) =>
+      computeMapGridLines({
+        ...base,
+        vertical: true,
+        screenCount: 6,
+        scrollY,
+        viewW: 700,
+        viewH: 300,
+      })
+    const a = at(0)
+    const b = at(500)
+    expect(b.y.every(l => l.pos >= 480 && l.pos <= 816)).toBe(true)
+    // 512 css px is 12 px into the view: a 5 px line centred there starts at 10.
+    expect(b.y.find(l => l.pos === 512)!.start).toBe(10)
+    expect(b.x.map(l => l.start)).toEqual(a.x.map(l => l.start))
+    expect(b.y.every(l => l.start < 300)).toBe(true)
+  })
+
+  it('a horizontal level scrolled right keeps its rows where they were', () => {
+    const at = (scrollX: number) =>
+      computeMapGridLines({
+        ...base,
+        vertical: false,
+        screenCount: 8,
+        scrollX,
+        viewW: 500,
+        viewH: 300,
+      })
+    expect(at(700).y.map(l => l.start)).toEqual(at(0).y.map(l => l.start))
+  })
+
+  it('no line runs past the content right edge when the view is wider than the map', () => {
+    const g = computeMapGridLines({ ...base, vertical: false, screenCount: 1, scrollX: 100 })
+    // One screen is 256 px wide: with 100 scrolled, 156 are left.
+    expect(g.y.every(l => l.to === 156)).toBe(true)
+    expect(Math.max(...g.x.map(l => l.start + l.size))).toBeLessThanOrEqual(156)
+  })
+
+  it('no line runs past the content bottom when the view is taller than the map (vertical, scrolled)', () => {
+    const g = computeMapGridLines({ ...base, vertical: true, screenCount: 1, scrollY: 100 })
+    // One vertical screen is 256 px tall: 156 left after scrolling 100.
+    expect(g.x.every(l => l.to === 156)).toBe(true)
+    expect(Math.max(...g.y.map(l => l.start + l.size))).toBeLessThanOrEqual(156)
+    expect(g.y.every(l => l.from === 0 && l.to === 512)).toBe(true)
+  })
+})

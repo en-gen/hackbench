@@ -1554,45 +1554,185 @@ test('the grid canvas is viewport-sized, however wide the map and zoom', async (
   expect(m.stripW).toBeGreaterThan(m.cw * 3)
 })
 
-/** Where each screen-weight x line sits against the real screen canvases. */
-async function alignment(page, index) {
+/**
+ * How far every grid line sits from its boundary in the CONTENT, in device px: each line's
+ * centre against the strip's own edge plus the line's content position. Lines clipped by the
+ * viewport edge are skipped (their centre is not the boundary). Tolerance at the call sites is
+ * 1.5 device px: one px of rounding in the overlay, half a px of fractional layout (Fit zoom).
+ */
+async function lineDeviation(page, index) {
   return page.evaluate(sel => {
     const o = document.querySelector(`${sel} .hb-grid-overlay`)
+    const strip = document.querySelector(`${sel} .hb-map-view-strip`).getBoundingClientRect()
     const lines = JSON.parse(o.dataset.gridLines)
     const dpr = Number(o.dataset.gridDpr)
-    const left = o.getBoundingClientRect().left
-    const out = []
-    for (const l of lines.x.filter(l => l.weight === 5)) {
-      const k = Math.round(l.pos / (Number(o.dataset.gridCellPx) * 16))
-      const c = document.querySelector(`${sel} canvas[data-screen="${k}"][data-plane="l1Low"]`)
-      if (!c) continue
-      const line = (l.start + l.size / 2) / dpr
-      out.push({ k, line, screen: c.getBoundingClientRect().left - left })
+    const box = o.getBoundingClientRect()
+    const worst = { x: 0, y: 0 }
+    const seen = { x: new Set(), y: new Set() }
+    const check = (axis, l, edge, over, cap) => {
+      if (l.start <= 0 || l.start + l.size >= cap) return
+      const want = (edge + l.pos - over) * dpr + 0.5
+      worst[axis] = Math.max(worst[axis], Math.abs(l.start + l.size / 2 - want))
+      seen[axis].add(l.weight)
     }
-    return out
+    for (const l of lines.x) check('x', l, strip.left, box.left, o.width)
+    for (const l of lines.y) check('y', l, strip.top, box.top, o.height)
+    return { worst, x: [...seen.x], y: [...seen.y], cellPx: Number(o.dataset.gridCellPx), w: o.width, h: o.height } // prettier-ignore
   }, root(index))
 }
 
-for (const mode of ['actual', 'fit']) {
-  test(`grid lines stay on the tile boundaries after scrolling, at ${mode} zoom`, async ({
-    page,
-  }) => {
-    const project = await createProject(page, path.join(tmp, 'MyHack'))
-    await openMap(page, project.manifestPath, 0x105)
-    await page.locator(`${root(0x105)} [data-control="zoom-${mode}"]`).click()
-    await showGrid(page, 0x105)
-    if (mode === 'actual') await page.locator(`${root(0x105)} [data-control="zoom-in"]`).click()
-    await page.waitForTimeout(400)
-    const maxScroll = await page
-      .locator(scrollerSel(0x105))
-      .evaluate(s => s.scrollWidth - s.clientWidth)
-    expect(maxScroll).toBeGreaterThan(0)
-    for (const at of [0, 0.37, 0.8]) {
-      await scrollMapTo(page, 0x105, Math.floor(maxScroll * at), 0)
-      await expect.poll(async () => (await alignment(page, 0x105)).length).toBeGreaterThan(0)
-      const rows = await alignment(page, 0x105)
-      for (const r of rows) expect(Math.abs(r.line - r.screen)).toBeLessThanOrEqual(1)
-      if (at > 0) expect(rows.some(r => r.k > 0)).toBe(true)
-    }
-  })
+const TOL = 1.5
+
+// Assumptions: $105 is horizontal and 10+ screens wide, so at Fit (height-fitted) and at 200% it
+// scrolls sideways; $109 is vertical and several screens tall, so it scrolls down. Both are
+// asserted below (maxScroll > 0) rather than trusted.
+const scrollMax = (page, index, axis) =>
+  page.locator(scrollerSel(index)).evaluate((s, a) => (a === 'x' ? s.scrollWidth - s.clientWidth : s.scrollHeight - s.clientHeight), axis) // prettier-ignore
+
+for (const [index, axis] of [
+  [0x105, 'x'],
+  [0x109, 'y'],
+]) {
+  for (const mode of ['actual', 'fit']) {
+    test(`$${index.toString(16)}: every grid line, sub-screen line included, stays on its boundary while scrolling, at ${mode} zoom`, async ({
+      page,
+    }) => {
+      const project = await createProject(page, path.join(tmp, 'MyHack'))
+      await openMap(page, project.manifestPath, index)
+      await page.locator(`${root(index)} [data-control="zoom-${mode}"]`).click()
+      await page.waitForTimeout(400)
+      const max = await scrollMax(page, index, axis)
+      expect(max).toBeGreaterThan(0)
+      // Toggled ON while scrolled: the first paint must already be right.
+      await scrollMapTo(page, index, axis === 'x' ? Math.floor(max * 0.4) : 0, axis === 'y' ? Math.floor(max * 0.4) : 0) // prettier-ignore
+      await showGrid(page, index)
+      for (const at of [0.4, 0.8, 0.15]) {
+        await scrollMapTo(page, index, axis === 'x' ? Math.floor(max * at) : 0, axis === 'y' ? Math.floor(max * at) : 0) // prettier-ignore
+        await expect
+          .poll(async () => {
+            const d = await lineDeviation(page, index)
+            return Math.max(d.worst.x, d.worst.y)
+          })
+          .toBeLessThanOrEqual(TOL)
+        const d = await lineDeviation(page, index)
+        // Sub-screen (3) and screen (5) lines are among those checked, on the axis that has them.
+        expect(d[axis === 'x' ? 'x' : 'y']).toContain(5)
+        const halfAxis = axis === 'x' ? 'y' : 'x' // rows split horizontal maps, columns vertical ones
+        if (mode === 'actual') expect(d[halfAxis]).toContain(3)
+      }
+    })
+  }
 }
+
+test('the grid stays aligned after Ctrl + wheel zoom and after a resize', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await page.locator(`${root(0x105)} [data-control="zoom-actual"]`).click()
+  await showGrid(page, 0x105)
+  const before = (await lineDeviation(page, 0x105)).cellPx
+  const box = await page.locator(scrollerSel(0x105)).boundingBox()
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.keyboard.down('Control')
+  await page.mouse.wheel(0, -120)
+  await page.keyboard.up('Control')
+  await expect.poll(async () => (await lineDeviation(page, 0x105)).cellPx).toBeGreaterThan(before)
+  await expect
+    .poll(async () => {
+      const d = await lineDeviation(page, 0x105)
+      return Math.max(d.worst.x, d.worst.y)
+    })
+    .toBeLessThanOrEqual(TOL)
+  const size = page.viewportSize()
+  await page.setViewportSize({ width: Math.floor(size.width * 0.7), height: Math.floor(size.height * 0.8) }) // prettier-ignore
+  await page.waitForTimeout(600)
+  const d = await page.evaluate(sel => {
+    const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
+    const o = document.querySelector(`${sel} .hb-grid-overlay`)
+    return { cw: s.clientWidth, ch: s.clientHeight, ow: parseFloat(o.style.width), oh: parseFloat(o.style.height) } // prettier-ignore
+  }, root(0x105))
+  expect(d.ow).toBe(d.cw)
+  expect(d.oh).toBe(d.ch)
+  await expect
+    .poll(async () => {
+      const dev = await lineDeviation(page, 0x105)
+      return Math.max(dev.worst.x, dev.worst.y)
+    })
+    .toBeLessThanOrEqual(TOL)
+  await page.setViewportSize(size)
+})
+
+/**
+ * The overlay must be ABOVE the level planes (z-index 1..4): a stacking bug draws it under them,
+ * where it shows only through clear pixels and every data-hook and canvas check still passes. So
+ * compare COMPOSITED screen pixels, grid on against grid off, at thin vertical lines over opaque
+ * terrain: the line pixels must change, their neighbours must not. Decoded numerically in the page.
+ */
+test('the grid is composited above opaque level content', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await page.locator(`${root(0x105)} [data-control="zoom-actual"]`).click()
+  await page.waitForTimeout(400)
+  await showGrid(page, 0x105)
+  const probe = await page.evaluate(sel => {
+    const o = document.querySelector(`${sel} .hb-grid-overlay`)
+    const dpr = Number(o.dataset.gridDpr)
+    const lines = JSON.parse(o.dataset.gridLines)
+    const r = o.getBoundingClientRect()
+    const c = document.querySelector(`${sel} canvas[data-screen="0"][data-plane="l1Low"]`)
+    const cr = c.getBoundingClientRect()
+    const alpha = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+    const pts = []
+    // Thin vertical lines inside screen 0 only, at rows where L1 is fully opaque both on the line and beside it.
+    for (const l of lines.x.filter(l => l.weight === 1 && l.pos > 0 && l.pos < c.width)) {
+      for (let y = 0; y < c.height && pts.length < 60; y += 7) {
+        const a = x => alpha[(y * c.width + x) * 4 + 3]
+        if (a(l.pos) === 255 && a(l.pos + 2) === 255) pts.push({ x: l.pos, y })
+      }
+    }
+    return { pts, left: cr.left, top: cr.top, ox: r.left, oy: r.top, dpr }
+  }, root(0x105))
+  expect(probe.dpr).toBe(1)
+  expect(probe.pts.length).toBeGreaterThan(10)
+  const clip = await page.evaluate(sel => {
+    const r = document.querySelector(`${sel} .hb-grid-overlay`).getBoundingClientRect()
+    return { x: Math.ceil(r.left), y: Math.ceil(r.top), width: Math.floor(r.width) - 1, height: Math.floor(r.height) - 1 } // prettier-ignore
+  }, root(0x105))
+  const shot = async () => {
+    await page.mouse.move(0, 0)
+    return (await page.screenshot({ clip })).toString('base64')
+  }
+  const on = await shot()
+  await page.locator(gridToggle(0x105)).click()
+  await expect(page.locator(`${root(0x105)} .hb-grid-overlay`)).toHaveCount(0)
+  const off = await shot()
+  const r = await page.evaluate(
+    async ({ on, off, pts, left, top, clip }) => {
+      const read = async b64 => {
+        const img = new Image()
+        img.src = `data:image/png;base64,${b64}`
+        await img.decode()
+        const c = document.createElement('canvas')
+        c.width = img.width
+        c.height = img.height
+        const ctx = c.getContext('2d')
+        ctx.drawImage(img, 0, 0)
+        return ctx.getImageData(0, 0, c.width, c.height)
+      }
+      const [a, b] = [await read(on), await read(off)]
+      const at = (d, x, y) => Array.from(d.data.slice((y * d.width + x) * 4, (y * d.width + x) * 4 + 3)) // prettier-ignore
+      let lineChanged = 0
+      let besideSame = 0
+      for (const p of pts) {
+        const x = Math.round(left + p.x - clip.x)
+        const y = Math.round(top + p.y - clip.y)
+        if (at(a, x, y).join() !== at(b, x, y).join()) lineChanged++
+        if (at(a, x + 2, y).join() === at(b, x + 2, y).join()) besideSame++
+      }
+      return { lineChanged, besideSame, n: pts.length }
+    },
+    { on, off, pts: probe.pts, left: probe.left, top: probe.top, clip },
+  )
+  // 90%: a few tiles animate between the two screenshots.
+  expect(r.lineChanged).toBeGreaterThanOrEqual(r.n * 0.9)
+  expect(r.besideSame).toBeGreaterThanOrEqual(r.n * 0.9)
+})

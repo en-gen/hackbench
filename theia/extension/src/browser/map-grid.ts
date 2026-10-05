@@ -14,7 +14,8 @@
  * bank_05.asm:777-781); an entrance's Y (horizontal) or X (vertical) high
  * byte is the same 256 px half (DATA_05D730/05D740/05D750/05D758,
  * bank_05.asm:7044-7053); orientation decides which high byte survives
- * (bank_05.asm:7435-7451). Evidence and what was not traced:
+ * (bank_05.asm:7375-7395: 7379 tests ScrMode_Layer1Vert, 7382-7383
+ * horizontal, 7386-7387 vertical). Evidence and what was not traced:
  * docs/architecture/screens.md.
  *
  * Free of `@theia/core` so vitest loads it in CI (see grid-lines.ts).
@@ -91,7 +92,6 @@ export function computeMapGridLines(spec: MapGridSpec): GridLines {
     i: number,
     scroll: number,
     hi: number,
-    end: number,
     axis: 'x' | 'y',
     across: [number, number],
   ): GridLine | undefined => {
@@ -99,22 +99,22 @@ export function computeMapGridLines(spec: MapGridSpec): GridLines {
     const at = dev(pos - scroll)
     const weight = mapGridWeight(vertical, axis, i)
     // `place` pulls a lone pixel inside the range, which would turn an
-    // off-screen thin line into a ghost on the viewport edge.
-    if (weight === TILE_GRID_WEIGHT && !(at >= 0 && (at < hi || (at === hi && hi === end))))
-      return undefined
+    // off-screen thin line into a ghost on the viewport edge. (The content's
+    // trailing edge is always a screen boundary, so a thin line never sits on it.)
+    if (weight === TILE_GRID_WEIGHT && !(at >= 0 && at < hi)) return undefined
     const p = place(at, weight, 0, hi)
     return p && { pos, weight, start: p[0], size: p[1], from: across[0], to: across[1] }
   }
   const ix0 = Math.max(0, Math.floor(scrollX / step) - 1)
   const ix1 = Math.min(cols, Math.ceil((scrollX + viewW) / step) + 1)
   for (let i = ix0; i <= ix1; i++) {
-    const l = one(i, scrollX, hiX, endX, 'x', [0, hiY])
+    const l = one(i, scrollX, hiX, 'x', [0, hiY])
     if (l) out.x.push(l)
   }
   const iy0 = Math.max(0, Math.floor(scrollY / step) - 1)
   const iy1 = Math.min(rows, Math.ceil((scrollY + viewH) / step) + 1)
   for (let i = iy0; i <= iy1; i++) {
-    const l = one(i, scrollY, hiY, endY, 'y', [0, hiX])
+    const l = one(i, scrollY, hiY, 'y', [0, hiX])
     if (l) out.y.push(l)
   }
   return out
