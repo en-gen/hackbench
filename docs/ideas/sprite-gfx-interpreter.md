@@ -420,3 +420,25 @@ modules so a transpiler can be added later behind the same entry if a use
 appears (for example whole-level simulation, which this spike did not measure).
 Do not build a transpiler for sprite INIT and GFX: the sandboxing and
 indirect-jump work buys speed the workload does not need.
+
+## 11 Prior art (from the owner's survey; not re-checked here)
+
+Taken as reported, no links verified by me. No maintained standalone 65816 core
+for JS or WASM exists, which supports extending `Cpu65816.ts` rather than
+adopting one.
+
+- Test data: SingleStepTests/65816 (github.com/SingleStepTests/65816), per-opcode
+  JSON cases. Licence unverified: use as test data for full opcode and M/X
+  coverage, do not vendor. This is the missing oracle for the untested flag
+  semantics noted in section 4.
+- CPU references to consult if stuck, MIT: angelo-wf/SnesJs (archived),
+  DirtyHairy/yasnes (TypeScript), angelo-wf/LakeSnes (C).
+- Read for ideas only, never copy: mstan/snesrecomp (PolyForm Noncommercial).
+  Its jump tables need hand-written per-bank config; ours resolve targets at
+  run time (`ExecutePtr` runs as code), so that cost does not arise.
+- snesrev/smw is a hand port: reference only.
+
+Folded into the recommendation: extend our interpreter, do not transpile
+(agrees with section 10). Add a differential oracle on a dev machine, our
+OAM output against bsnes or snes9x for the same spawn state, which would
+replace "two static derivations agree" with a live comparison.
