@@ -23,6 +23,7 @@ const { expectCheckerboard, PAGE_COMPOSE } = require('./pixel-canvas.cjs')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
+const { readGrid } = require('./grid-probe.cjs')
 const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
 
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
@@ -1435,5 +1436,163 @@ for (const next of [0x106, 0x109]) {
       'true',
     )
     await expect.poll(() => crossSlack(page, next)).toBeLessThan(1.5)
+  })
+}
+
+/**
+ * The Maps grid (tile 1 px, sub-screen 3 px, screen 5 px; all device px). Lines are checked as
+ * PIXELS on the overlay canvas and against the real screen canvases' positions, never only
+ * against the data hook.
+ */
+const gridToggle = index => `${root(index)} [data-control="grid-toggle"]`
+const scrollerSel = index => `${root(index)} [data-control="map-scroller"]`
+
+/** Maximal runs of painted device pixels along a row (or column) from readGrid's hits. */
+const runs = hits => {
+  const out = []
+  for (const h of hits) {
+    const last = out[out.length - 1]
+    if (last && last.start + last.size === h) last.size++
+    else out.push({ start: h, size: 1 })
+  }
+  return out
+}
+
+async function showGrid(page, index) {
+  await page.locator(gridToggle(index)).click()
+  await expect(page.locator(gridToggle(index))).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator(`${root(index)} .hb-grid-overlay`)).toBeVisible()
+}
+
+async function scrollMapTo(page, index, left, top) {
+  await page.locator(scrollerSel(index)).evaluate(
+    (el, [l, t]) => {
+      el.scrollLeft = l
+      el.scrollTop = t
+    },
+    [left, top],
+  )
+  await page.waitForTimeout(250)
+}
+
+test('the Maps grid toggle is labelled, off by default, and the command drives it', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  const toggle = page.locator(gridToggle(0x105))
+  expect(await readGrid(page, root(0x105))).toBeNull()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  await expect(toggle).toHaveAttribute('title', 'Show grid')
+  await expect(toggle.locator('.codicon-table')).toHaveCount(1)
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  await expect(toggle).toHaveAttribute('title', 'Hide grid')
+  await expect(toggle).toHaveAttribute('aria-label', 'Hide grid')
+  expect(await readGrid(page, root(0x105))).not.toBeNull()
+  await page.evaluate(() => getSvc('CommandRegistry').executeCommand('hackbench.maps.toggleGrid'))
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  expect(await readGrid(page, root(0x105))).toBeNull()
+})
+
+/** Expected weight of boundary `i` (tiles): a screen every `screen`, the half at `sub`. */
+const weightOf = (i, screen, sub) =>
+  i % screen === 0 ? 5 : sub !== undefined && i % screen === sub ? 3 : 1
+
+for (const [index, vertical] of [
+  [0x105, false],
+  [0x109, true],
+]) {
+  test(`$${index.toString(16)} (${vertical ? 'vertical' : 'horizontal'}): three weights at the expected boundaries, centred`, async ({
+    page,
+  }) => {
+    const project = await createProject(page, path.join(tmp, 'MyHack'))
+    await openMap(page, project.manifestPath, index)
+    await page.locator(`${root(index)} [data-control="zoom-actual"]`).click()
+    await showGrid(page, index)
+    await page.waitForTimeout(300)
+    const g = await readGrid(page, root(index))
+    expect(g.cell).toBe(16) // zoom 1
+    // Vertical: x repeats every 32 columns with the half at 16; y every 16 rows.
+    // Horizontal: x every 16 columns; y every 27 rows with the half at row 16.
+    const xs = vertical ? [32, 16] : [16, undefined]
+    const ys = vertical ? [16, undefined] : [27, 16]
+    for (const l of g.xLines) expect(l.weight).toBe(weightOf(Math.round(l.pos / 16), ...xs))
+    for (const l of g.yLines) expect(l.weight).toBe(weightOf(Math.round(l.pos / 16), ...ys))
+    const half = (vertical ? g.xLines : g.yLines).filter(l => l.weight === 3)
+    expect(half.map(l => l.pos)).toContain(256)
+    expect(new Set([...g.xLines, ...g.yLines].map(l => l.weight))).toEqual(new Set([1, 3, 5]))
+    // Pixels: each vertical line paints exactly its weight, centred on its boundary pixel.
+    expect(runs(g.rowHits)).toEqual(g.xLines.map(l => ({ start: l.start, size: l.size })))
+    for (const l of g.xLines.filter(l => l.weight > 1 && l.start > 0))
+      expect(l.start + (l.size - 1) / 2).toBe(Math.round(l.pos * g.dpr))
+  })
+}
+
+test('the grid canvas is viewport-sized, however wide the map and zoom', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await showGrid(page, 0x105)
+  for (let i = 0; i < 4; i++) await page.locator(`${root(0x105)} [data-control="zoom-in"]`).click()
+  await page.waitForTimeout(400)
+  const m = await page.evaluate(sel => {
+    const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
+    const o = document.querySelector(`${sel} .hb-grid-overlay`)
+    const strip = s.querySelector('.hb-map-view-strip').getBoundingClientRect()
+    return {
+      cw: s.clientWidth,
+      ch: s.clientHeight,
+      ow: o.width,
+      oh: o.height,
+      dpr: Number(o.dataset.gridDpr),
+      stripW: strip.width,
+    }
+  }, root(0x105))
+  expect(m.ow).toBeLessThanOrEqual(Math.ceil(m.cw * m.dpr))
+  expect(m.oh).toBeLessThanOrEqual(Math.ceil(m.ch * m.dpr))
+  // The content really is much wider than what the canvas covers.
+  expect(m.stripW).toBeGreaterThan(m.cw * 3)
+})
+
+/** Where each screen-weight x line sits against the real screen canvases. */
+async function alignment(page, index) {
+  return page.evaluate(sel => {
+    const o = document.querySelector(`${sel} .hb-grid-overlay`)
+    const lines = JSON.parse(o.dataset.gridLines)
+    const dpr = Number(o.dataset.gridDpr)
+    const left = o.getBoundingClientRect().left
+    const out = []
+    for (const l of lines.x.filter(l => l.weight === 5)) {
+      const k = Math.round(l.pos / (Number(o.dataset.gridCellPx) * 16))
+      const c = document.querySelector(`${sel} canvas[data-screen="${k}"][data-plane="l1Low"]`)
+      if (!c) continue
+      const line = (l.start + l.size / 2) / dpr
+      out.push({ k, line, screen: c.getBoundingClientRect().left - left })
+    }
+    return out
+  }, root(index))
+}
+
+for (const mode of ['actual', 'fit']) {
+  test(`grid lines stay on the tile boundaries after scrolling, at ${mode} zoom`, async ({
+    page,
+  }) => {
+    const project = await createProject(page, path.join(tmp, 'MyHack'))
+    await openMap(page, project.manifestPath, 0x105)
+    await page.locator(`${root(0x105)} [data-control="zoom-${mode}"]`).click()
+    await showGrid(page, 0x105)
+    if (mode === 'actual') await page.locator(`${root(0x105)} [data-control="zoom-in"]`).click()
+    await page.waitForTimeout(400)
+    const maxScroll = await page
+      .locator(scrollerSel(0x105))
+      .evaluate(s => s.scrollWidth - s.clientWidth)
+    expect(maxScroll).toBeGreaterThan(0)
+    for (const at of [0, 0.37, 0.8]) {
+      await scrollMapTo(page, 0x105, Math.floor(maxScroll * at), 0)
+      await expect.poll(async () => (await alignment(page, 0x105)).length).toBeGreaterThan(0)
+      const rows = await alignment(page, 0x105)
+      for (const r of rows) expect(Math.abs(r.line - r.screen)).toBeLessThanOrEqual(1)
+      if (at > 0) expect(rows.some(r => r.k > 0)).toBe(true)
+    }
   })
 }

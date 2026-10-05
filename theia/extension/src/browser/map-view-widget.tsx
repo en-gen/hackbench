@@ -33,6 +33,7 @@ import { PixelImageButton, type FrameImage } from './pixel-image-button'
 import { slotLabel } from './map-explorer-widget'
 import { WheelBinding, ZoomController } from './zoom-controller'
 import { ZoomStepper } from './zoom-stepper'
+import { MapGridOverlay } from './grid-overlay'
 import { perfEnd, perfStart } from '../common/perf-marks'
 
 export { slotLabel }
@@ -94,6 +95,8 @@ export class MapViewWidget extends ReactWidget {
   /** L1 (foreground) and L2 (background) shown; off leaves what is beneath them. */
   protected showL1 = true
   protected showL2 = true
+  /** The tile / sub-screen / screen grid; off by default. */
+  protected showGrid = false
   /** Fit mode until the user zooms; the fit is the cross axis filling the view (#526). */
   protected readonly zoomController = new ZoomController(ZOOMS, 1, () => this.measureFit())
   protected wheelBinding: WheelBinding | undefined
@@ -395,6 +398,11 @@ export class MapViewWidget extends ReactWidget {
     this.update()
   }
 
+  toggleGrid(): void {
+    this.showGrid = !this.showGrid
+    this.update()
+  }
+
   protected toggleL2(): void {
     this.showL2 = !this.showL2
     this.update()
@@ -444,6 +452,17 @@ export class MapViewWidget extends ReactWidget {
             />
           ))}
           <span className="hb-toolbar-spacer" />
+          <button
+            data-control="grid-toggle"
+            type="button"
+            className={'hb-icon-btn' + (this.showGrid ? ' hb-icon-btn-on' : '')}
+            aria-pressed={this.showGrid}
+            title={this.showGrid ? 'Hide grid' : 'Show grid'}
+            aria-label={this.showGrid ? 'Hide grid' : 'Show grid'}
+            onClick={() => this.toggleGrid()}
+          >
+            <span className="codicon codicon-table" />
+          </button>
           <ZoomStepper controller={this.zoomController} fitControls />
         </div>
         {this.renderFacts()}
@@ -499,6 +518,8 @@ export class MapViewWidget extends ReactWidget {
     if (el === this.scroller) return
     if (this.scroller) this.resizes.unobserve(this.scroller)
     this.scroller = el
+    // The grid overlay takes the scroller as a prop and the ref lands after the commit.
+    if (this.showGrid) queueMicrotask(() => this.update())
     this.wheelBinding?.dispose()
     this.wheelBinding = undefined
     if (el) {
@@ -522,42 +543,52 @@ export class MapViewWidget extends ReactWidget {
       )
     }
     return (
-      <div
-        className={'hb-map-view-scroller' + (l.orientation === 'vertical' ? ' hb-vertical' : '')}
-        data-control="map-scroller"
-        ref={this.scrollerRef}
-        onScroll={() => this.requestVisible()}
-      >
-        {/* Bottom to top (planes by MAP_PLANE_KEYS): the checkerboard, the back area, then the screens,
+      <div className="hb-map-grid-host">
+        <div
+          className={'hb-map-view-scroller' + (l.orientation === 'vertical' ? ' hb-vertical' : '')}
+          data-control="map-scroller"
+          ref={this.scrollerRef}
+          onScroll={() => this.requestVisible()}
+        >
+          {/* Bottom to top (planes by MAP_PLANE_KEYS): the checkerboard, the back area, then the screens,
             so hiding a layer shows what is under it, down to nothing. */}
-        <div className="hb-map-view-strip hb-checkerboard">
-          <div
-            className="hb-map-view-back-area"
-            data-layer="back-area"
-            style={{ background: `rgb(${l.backdrop.join(',')})` }}
-          />
-          {Array.from({ length: l.screenCount }, (_, s) => (
+          <div className="hb-map-view-strip hb-checkerboard">
             <div
-              key={s}
-              className="hb-map-view-screen"
-              style={{ width: l.width * this.zoom, height: l.height * this.zoom }}
-            >
-              {MAP_PLANE_KEYS.map((plane, z) => (
-                <canvas
-                  key={plane}
-                  className="hb-map-view-plane"
-                  data-plane={plane}
-                  data-screen={s}
-                  style={{
-                    zIndex: z + 1,
-                    visibility: (plane.startsWith('l2') ? this.showL2 : this.showL1) ? undefined : 'hidden', // prettier-ignore
-                  }}
-                  ref={this.canvasRef(plane, s)}
-                />
-              ))}
-            </div>
-          ))}
+              className="hb-map-view-back-area"
+              data-layer="back-area"
+              style={{ background: `rgb(${l.backdrop.join(',')})` }}
+            />
+            {Array.from({ length: l.screenCount }, (_, s) => (
+              <div
+                key={s}
+                className="hb-map-view-screen"
+                style={{ width: l.width * this.zoom, height: l.height * this.zoom }}
+              >
+                {MAP_PLANE_KEYS.map((plane, z) => (
+                  <canvas
+                    key={plane}
+                    className="hb-map-view-plane"
+                    data-plane={plane}
+                    data-screen={s}
+                    style={{
+                      zIndex: z + 1,
+                      visibility: (plane.startsWith('l2') ? this.showL2 : this.showL1) ? undefined : 'hidden', // prettier-ignore
+                    }}
+                    ref={this.canvasRef(plane, s)}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
         </div>
+        {this.showGrid && (
+          <MapGridOverlay
+            scroller={this.scroller}
+            vertical={l.orientation === 'vertical'}
+            screenCount={l.screenCount}
+            zoom={this.zoom}
+          />
+        )}
       </div>
     )
   }

@@ -112,6 +112,15 @@ those two gates is correct on vanilla and wrong in principle.
 
 ## The connection words
 
+**Sub-screen.** One half of a screen. A horizontal map's screen (16 x 27
+tiles) splits at tile row 16 into a top half (16 rows) and a bottom half (11).
+A vertical map's screen (32 x 16 tiles) splits at column 16 into a left and a
+right half. The ROM encodes the half as a 256 px high-byte bit in object,
+sprite and entrance positions. Not the SNES color-math "subscreen"
+(`LevSubScrnTbl`, `bank_05.asm:491`), which is unrelated. Evidence in
+[architecture/screens.md](architecture/screens.md). The Maps grid draws it as
+the medium line.
+
 **Screen exit.** The object inside a map that leads to another map: a pipe, a
 door, a screen boundary. Qualify it; do not call it just "exit".
 
