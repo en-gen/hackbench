@@ -54,7 +54,8 @@ needs it (`SMWDisX bank_01.asm:10346-10358`).
 
 Seeding is what the game's own spawn path does, run as code: set `$9E`, `$14C8`
 = 1, position, `$15E9` = slot, then `JSL InitSpriteTables` ($07:F7D2, which
-runs `ZeroSpriteTables` and `LoadSpriteTables`, so the OAM attribute `$15F6`
+runs `ZeroSpriteTables` and `LoadSpriteTables`, `SMWDisX bank_07.asm:1006-1008`
+(the routines: `bank_07.asm:933` and `:972`), so the OAM attribute `$15F6`
 and the six tweaker bytes come from the cart's own tables), then `JSR
 $0180D2` (OAM index and timer decrements, bank_01.asm:139-171) and `JSR
 HandleSprite` ($018127). OAM entries are read back from `$0300-$03FF` where a
@@ -787,3 +788,89 @@ Loader support for Lunar Magic's `$05:D8B1` hook: 0 of 101 hacks load today,
 filed as its own issue. Convention note: the `loaded` seed field takes any
 bytes; "captures never become a runtime input" is held by review and by keeping
 oracle images in test support, not by the type.
+
+## 15 Step 3: the map editor's sprite layer draws from the interpreter (#585)
+
+`theia/extension/src/node/map-sprites.ts` now serves `interpDrawer`: per map,
+`loadLevelState` once (the ROM's own level loader), then per stream sprite one
+`runOnce` (INIT plus up to 64 passes, no `dependsOn` second run). Seeds: the
+ROM-run loader's WRAM (including the Mario position the loader left, at
+`$94`/`$96`, so a sprite that reads Mario sees the loader's, not a table's);
+sprite = stream position in level pixels; camera centred on the sprite and
+clamped to the map's scroll range. Only when the loader refuses is the seed
+generic, with Mario at `readMarioStartPos`, and the sprite is then marked
+`unverified`. The `chosen` frame's OAM parts are drawn at
+the anchor INIT left; a 16 x 16 entry is four chars (tile, +1, +$10, +$11). A
+refusal or an empty run stays a 16 x 16 marker carrying the interpreter's
+reason. Replies are cached per working-copy bytes and map.
+
+Measured (vanilla, one machine, node, cold map, whole layer): `$105` 255-280 ms,
+`$106` 130-175 ms, `$00F` ~200 ms, the vanilla map with most sprites (`$120`, 65) ~320 ms. Nothing near the 1 s line; no optimisation made.
+
+Drawn / marker on vanilla: `$105` 31 of 34 (was 0 of 34 by the table engine),
+`$106` 21 of 25 (was 15 of 25). The markers are ids `$DA`/`$DB` (past the
+201-entry pointer table, refused by the runner) and ids that draw no tile in 64
+passes. Placement: `$4F` on `$105` is served at the stream position plus (8,
+-1), `(1816, 335)`, `(2232, 319)`, `(4552, 319)`. The `$106` `$05` box is
+unchanged `(432,304)-(448,336)`.
+
+Against the table engine over ten vanilla maps (62 sprites the engine draws),
+parts relative to each side's own anchor: 25 agree, 36 differ, 1 the
+interpreter draws nothing for. Of the 36 differing rows, 19 are tile or flip
+(a walk-cycle frame or a facing: the engine's frame-0 pose against the first
+drawing pass), 16 are +1 px Y walk-frame offsets (ids `$03`-`$06` on `$11B`, `$008` and
+`$006`; these overlap the tile bucket, so the two counts are not disjoint), and `$1F` on
+`$11C` is relocation by its own MAIN (x 352 to 304 by pass 1, flipped), which
+depends on Mario and the RNG. None is a mis-placement found by this
+comparison. The list is pinned per row (verdict, served anchor, a digest of
+the interpreter's part keys) in `test/suite/unit/MapSpritesInterp.test.ts`.
+Mario's start for a ROM-run seed is the loader's own `$94/$96`; the table
+re-derivation (`readMarioStartPos`) is used only for a generic seed; it moved no
+pinned row.
+
+Runtime palette: sprite code does not write `$2122` itself; it appends to
+WRAM that NMI uploads. No NMI runs on the core, so `Machine.nmi()` models the
+palette part of one after every frame (INIT frames and each pass;
+`PassResult.palette` is cumulative). Direct `$2121/$2122` writes take effect in
+order during the frame. Then `CODE_00A488` walks one list shape for every
+source (bank_00.asm:4726-4748): `[byte count, CGRAM color index, colors]`
+repeated to a zero count. The source is `PaletteIndexTable` `$0680` (an index
+into the three-entry table, bank_00.asm:4709-4712): 0, the default, is
+`DynPaletteTable` `$0682` (rammap.asm:1152-1164; Magikoopa's writer
+`CODE_01C028`, bank_01.asm:8733-8760), read from where the run began on the
+first frame, then `$0681` and the first list byte are cleared
+(bank_00.asm:4753-4756); nothing bounds an entry to the 127-byte table, the
+DMA reads on past it (only the end of WRAM stops the walk). 6 is the same list
+starting at `MainPalette` `$0703` (rammap.asm:1172-1175), whose first bytes are
+a header, not color 0 (the overworld writes `$FE, $01` and a terminator at +$100,
+bank_04.asm:5585-5590; the level upload zeroes them, bank_00.asm:2047-2048); it
+is walked only when the run itself wrote `$0680` (no vanilla sprite bank does),
+and leaves the dynamic list for the next NMI. 3, `CopyPalette`, is not
+modelled. `$0680` is cleared after (bank_00.asm:4757). The served frame applies
+the writes up to its pass, to that sprite only. Before this model the list was
+never drained: `$1F` on `$11C` overflowed the table from pass 30 into
+`$0701`/`$0703`, and an earlier mirror rule read that as colors 0-7.
+
+Measured on vanilla (196 maps with a sprite stream, every id the interpreter
+draws): only `$C5` (boss Big Boo, map `$0E4`) has runtime colors at its served
+frame: 8 colors at CGRAM `$F0`. `$1F` (Magikoopa, `$11C`) uploads from pass 2
+on, but its first drawing pass (1) comes before the first upload, so the served
+frame has none; the run's last upload equals the table engine's resting-entry
+splice (test). That is the frame policy's doing (this section notes it), not a missing
+route.
+
+Not modelled here: neighbours or player actions (each sprite runs alone).
+
+### 15.1 A refused level loader is shown, flagged
+
+`loadLevelState` now refuses carts whose loader entry points or shape differ
+from stock (GPW 1.1/1.2, Invictus, Seven_Vanilla_Levels on the corpus). The map
+drawer then seeds each run from placement alone (the map's screen mode and
+length, generic defaults for the rest) and sets `MapSpriteDto.unverified` on
+EVERY sprite it answers, drawn or marked, plus a map-level `note` and the
+sprite toggle's tooltip. Evidence scope, this corpus, one machine: every cart
+whose loader refuses also has a `LoadLevel` the map model refuses (512 of 512
+maps unavailable), and GPW's `HandleSprite` is not stock either, so the
+runner refuses there as well; the path is therefore reached only through the
+drawer in tests today. Vanilla `$105`/`$106` counts (31/34, 21/25) and the
+engine-vs-interpreter list are unchanged by the review-round merge.

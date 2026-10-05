@@ -1,9 +1,10 @@
 /**
- * The map tab's sprite layer (#564): `drawSprites` places the table engine's
- * parts at the sprite's anchor and marks what the engine declines;
+ * The map tab's sprite layer (#564): `drawSprites` places a drawer's parts at
+ * the sprite's anchor and marks what the drawer declines;
  * `compositeSpriteScreen` cuts the sprites per screen. Synthetic chars,
- * palette and engine results throughout, so CI needs no cart; the corpus
- * block at the end runs the real engine over a vanilla map.
+ * palette and drawer results throughout (the shapes are the table engine's
+ * `EngineResult`; the served drawer is the interpreter, #585), so CI needs no
+ * cart; the corpus block at the end runs `mapSprites` over a vanilla map.
  */
 import { describe, it, expect } from 'vitest'
 import type { EngineResult } from '../../../src/rom/model/sprites/generic/SpriteDrawEngine'
@@ -257,11 +258,11 @@ describe.skipIf(!hasRom(VANILLA))('mapSprites on the vanilla ROM', () => {
     return r
   }
 
-  it('draws the traced sprites of $106 and marks the rest, every one with a matching bitmap', () => {
+  it('draws 21 of the 25 sprites of $106 and marks the rest, every one with a matching bitmap', () => {
     const r = run(0x106)
     expect(r.sprites).toHaveLength(25)
     const drawn = r.sprites.filter(s => s.status === 'drawn')
-    expect(drawn).toHaveLength(15)
+    expect(drawn).toHaveLength(21)
     // Sprite $05 stands at tile row 20: its parts begin above the anchor, a 16 x 32 body.
     const koopa = drawn.find(s => s.id === 0x05)!
     expect(sized(koopa)).toEqual([16, 32])
@@ -279,9 +280,10 @@ describe.skipIf(!hasRom(VANILLA))('mapSprites on the vanilla ROM', () => {
     expect(tape!.reason).not.toBe('extraBits')
   })
 
-  it('marks every sprite of $105: none of its ids has a descriptor', () => {
+  it('draws 31 of the 34 sprites of $105 from the interpreter, marking the rest with its reason', () => {
     const r = run(0x105)
-    expect(r.sprites.length).toBeGreaterThan(0)
-    expect(r.sprites.every(s => s.status === 'placeholder' && s.reason === 'noDescriptor')).toBe(true) // prettier-ignore
+    expect(r.sprites).toHaveLength(34)
+    expect(r.sprites.filter(s => s.status === 'drawn')).toHaveLength(31)
+    for (const s of r.sprites.filter(s => s.status === 'placeholder')) expect(s.reason).toMatch(/^(refused: |drew no OAM tile)/) // prettier-ignore
   })
 })

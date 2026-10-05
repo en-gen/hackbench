@@ -5,7 +5,7 @@
  */
 import { levelSeed, loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { describe, expect, it } from 'vitest'
-import { runSprite } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import { runSprite, TOTAL_STEP_CAP } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import {
   resolveLoop,
   resolvePointer,
@@ -59,6 +59,125 @@ describe('dispatch reader', () => {
     const p = resolvePointer(rom, t.tables.initTable, 6)
     expect(p.ok).toBe(false)
     expect(resolvePointer(rom, t.tables.initTable, 0).ok).toBe(true)
+  })
+})
+
+describe('runtime palette writes', () => {
+  // Each id writes one color in INIT by a different route; the model carries it from pass 0 on.
+  it.each([
+    [20, 0xd1, 0x03ff, 'the NMI upload list'],
+    [21, 0xd2, 0x01aa, 'the palette mirror'],
+    [22, 0xd3, 0x0255, 'CGADD and CGDATA'],
+  ])('id %i: color %i set through %s', (id, index, bgr555) => {
+    const m = runSprite(rom, id)
+    expect(m.passes[0].palette).toEqual([{ index, bgr555 }])
+    expect(m.passes.at(-1)!.palette).toEqual([{ index, bgr555 }])
+  })
+
+  const image = (cells: Record<number, number>) => {
+    const w = new Uint8Array(0x20000)
+    for (const [k, v] of Object.entries(cells)) w[Number(k)] = v
+    return w
+  }
+
+  it('entries the loader left in the upload list are not the sprite own (the run starts at $0681)', () => {
+    // $0681 = 4 with a stale entry [2 bytes, color $D7, $2211] at $0682.
+    const stale = image({ 0x681: 4, 0x682: 2, 0x683: 0xd7, 0x684: 0x11, 0x685: 0x22 })
+    const m = runSprite(rom, 20, withSeed({ loaded: stale }))
+    expect(m.passes[0].palette).toEqual([{ index: 0xd1, bgr555: 0x03ff }])
+  })
+
+  it('a color set directly and then by the list ends as the list set it, in that order', () => {
+    expect(runSprite(rom, 23).passes[0].palette).toEqual([
+      { index: 0xd1, bgr555: 0x0211 },
+      { index: 0xd1, bgr555: 0x03ff },
+    ])
+  })
+
+  it('the MainPalette source is a list with a header, like the others: id 21 uploads its entry', () => {
+    expect(runSprite(rom, 21).passes[0].palette).toEqual([{ index: 0xd2, bgr555: 0x01aa }])
+  })
+
+  it('colors written where the list has no header upload nothing (first byte 0 ends the walk)', () => {
+    expect(runSprite(rom, 28).passes[0].palette).toEqual([])
+  })
+
+  it('the MainPalette list is not walked unless the run asked for it ($0680 = 6), whatever $0680 held', () => {
+    expect(runSprite(rom, 26).passes[0].palette).toEqual([])
+    expect(runSprite(rom, 26, withSeed({ loaded: image({ 0x680: 6 }) })).passes[0].palette).toEqual([]) // prettier-ignore
+  })
+
+  it('a MainPalette upload leaves the dynamic list for the next NMI', () => {
+    // Appended and $0680 = 6 in one frame: INIT's NMI walks MainPalette (empty), pass 0's walks the list.
+    expect(runSprite(rom, 24).passes[0].palette).toEqual([{ index: 0xd1, bgr555: 0x03ff }])
+  })
+
+  it('two consecutive CGDATA colors land on consecutive indices (CGADD auto-increments)', () => {
+    expect(runSprite(rom, 25).passes[0].palette).toEqual([
+      { index: 0xd4, bgr555: 0x0123 },
+      { index: 0xd5, bgr555: 0x0456 },
+    ])
+  })
+
+  it('an entry running past the 127-byte table is still uploaded (the DMA reads on), and the list is drained each frame', () => {
+    // $0681 = $7C: the sprite appends at $06FE; its data bytes sit at $0700 and $0701.
+    const m = runSprite(rom, 20, withSeed({ loaded: image({ 0x681: 0x7c }) }))
+    expect(m.passes[0].palette).toEqual([{ index: 0xd1, bgr555: 0x03ff }])
+    // Drained: no later pass re-applies or piles anything.
+    expect(runSprite(rom, 20).passes.at(-1)!.palette).toHaveLength(1)
+  })
+
+  it('a two-color entry lands on consecutive colors from its CGRAM index', () => {
+    expect(runSprite(rom, 29).passes[0].palette).toEqual([
+      { index: 0xd6, bgr555: 0x0111 },
+      { index: 0xd7, bgr555: 0x0222 },
+    ])
+  })
+
+  it('the list is drained by each frame: a color appended every pass lands every pass', () => {
+    const m = runSprite(rom, 27)
+    expect([0, 1, 5].map(p => m.passes[p].palette.length)).toEqual([1, 2, 6])
+  })
+
+  it('refuses a list whose header or data is cut off by the end of WRAM, and one with no terminator', () => {
+    const len = 0x20000
+    // Entries of 100 bytes chain from $0682 (the run starts at $0681 = 0) up to `end`, then `tail` is written there.
+    const chain = (tail: (w: Uint8Array, at: number) => void) => {
+      const w = new Uint8Array(len)
+      let at = 0x682
+      while (len - 1 - at - 2 > 100) {
+        w[at] = 100
+        w[at + 1] = 0x80
+        for (let i = 0; i < 100; i++) w[at + 2 + i] = 0x11
+        at += 102
+      }
+      tail(w, at)
+      return w
+    }
+    // (a) count byte in the very last cell: no header after it. Walk by 102 until the stride lands on len-1.
+    const cut = (w: Uint8Array, at: number) => {
+      const r = len - 1 - at - 2 // data bytes left between this entry's header and the last cell
+      w[at] = r
+      w[at + 1] = 0x80
+      for (let i = 0; i < r; i++) w[at + 2 + i] = 0x11
+      w[len - 1] = 7
+    }
+    const a = runSprite(rom, 0, withSeed({ loaded: chain(cut) }))
+    expect(a.refusal).toMatch(/header is cut off/)
+    // (b) the last entry claims more data than WRAM has left.
+    const over = (w: Uint8Array, at: number) => {
+      w[at] = 200
+      w[at + 1] = 0x80
+    }
+    const b = runSprite(rom, 0, withSeed({ loaded: chain(over) }))
+    expect(b.refusal).toMatch(/runs past the end of WRAM/)
+    // (c) a well-formed list that ends in a terminator is not refused.
+    const ok = (w: Uint8Array, at: number) => void (w[at] = 0)
+    expect(runSprite(rom, 0, withSeed({ loaded: chain(ok) })).refusal).toBeUndefined()
+  })
+
+  it('a sprite that writes no color has none', () => {
+    expect(runSprite(rom, 0).passes[0].palette).toEqual([])
   })
 })
 
@@ -139,6 +258,13 @@ describe('runner on a synthetic cart', () => {
     expect(m.inputs).toContain(0x85)
     // Mario's X is read by id 2 only through the seed, never invented.
     expect(runSprite(rom, 0, SPRITE_SEED, { trackInputs: true }).inputs).not.toContain(0x85)
+  })
+
+  it('an INIT that stays under the per-call budget but never settles hits the total step cap', () => {
+    const m = runSprite(rom, 30)
+    expect(m.refusal).toMatch(/total step cap/)
+    // Without the cap this would run 64 retries of ~196k steps each (~12.6M).
+    expect(m.steps.reduce((x, y) => x + y, 0)).toBeLessThanOrEqual(TOTAL_STEP_CAP)
   })
 
   it('refuses when the dispatch shape is wrong', () => {

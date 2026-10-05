@@ -939,9 +939,9 @@ test('$018: layer 3 is camera-locked, so its toggle is disabled and says so', as
 })
 
 /**
- * The sprite layer (#564). $106 holds both kinds on vanilla: sprite $05 (traced, engine-drawn) and
- * ids with no descriptor (marked). Its sprites sit past screen 0, so screen 1 is scrolled into view.
- * ($105, which the issue names, holds no traced sprite: all 34 of its ids are markers.)
+ * The sprite layer (#564), drawn by the sprite interpreter (#585). $106 holds both kinds on vanilla:
+ * sprites the ROM's own INIT and MAIN draw (21 of 25) and ids the interpreter refuses (marked, with its
+ * reason). Its sprites sit past screen 0, so screen 1 is scrolled into view. $105 draws 31 of 34.
  */
 const spriteToggle = (page, index) => page.locator(`${root(index)} [data-control="layer-sprites"]`)
 const spritePlane = (page, index, screen) =>
@@ -974,7 +974,7 @@ test('the sprite toggle hides and restores the sprites, and changes what is on s
   expect((await shownPixels(page, strip)).checksum).toBe(shown.checksum)
 })
 
-test('an engine-drawn sprite shows its own pixels where the service placed it; a miss shows a marker', async ({
+test('an interpreter-drawn sprite shows its own pixels where the service placed it; a miss shows a marker', async ({
   page,
 }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
@@ -987,7 +987,7 @@ test('an engine-drawn sprite shows its own pixels where the service placed it; a
   )
   expect(reply.status).toBe('ok')
   expect(reply.sprites).toHaveLength(25)
-  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(15)
+  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(21)
   const inScreen1 = s => s.box.x0 >= 256 && s.box.x1 <= 512 && s.box.y0 >= 0 && s.box.y1 <= 432
   // Measured on vanilla: the first $05 is at tile (27, 20), a 16 x 32 body whose top is above its anchor.
   const koopa = reply.sprites.find(s => s.id === 5)
@@ -995,7 +995,8 @@ test('an engine-drawn sprite shows its own pixels where the service placed it; a
   expect(koopa.box).toEqual({ x0: 432, y0: 304, x1: 448, y1: 336 })
   const marker = reply.sprites.find(s => s.status === 'placeholder' && inScreen1(s))
   expect(marker, 'a marker inside screen 1').toBeTruthy()
-  expect(marker.reason).toBe('noDescriptor')
+  // The interpreter's own words: sprite $DB is past the ROM's 201-entry pointer table.
+  expect(marker.reason).toMatch(/^refused: INIT: id \$db is past the 201-entry pointer table/)
 
   const read = await page.evaluate(
     ({ koopa, marker }) => {
@@ -1027,13 +1028,33 @@ test('an engine-drawn sprite shows its own pixels where the service placed it; a
     },
     { koopa, marker },
   )
-  expect(read.koopa.opaque, 'the engine drew pixels').toBeGreaterThan(0)
+  expect(read.koopa.opaque, 'the interpreter drew pixels').toBeGreaterThan(0)
   expect(read.koopa.inBox, 'canvas pixels inside the absolute box (432,304)-(448,336)').toBeGreaterThan(0) // prettier-ignore
   expect(read.koopa.same, 'the canvas holds the served bitmap at its box').toBe(true)
   expect(read.marker.same).toBe(true)
   // The marker is 16 x 16 at the anchor, its frame the editor blue.
   expect([marker.box.x1 - marker.box.x0, marker.box.y1 - marker.box.y0]).toEqual([16, 16])
   expect(read.marker.corner).toEqual([90, 200, 255, 255])
+})
+
+test('$4F on $105 is served at its stream position plus the (8, -1) its INIT adds', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  const reply = await page.evaluate(
+    mp => getSvc('Symbol(ProjectService)').mapSprites(mp, 0x105),
+    project.manifestPath,
+  )
+  expect(reply.status).toBe('ok')
+  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(31)
+  // Stream positions (1808, 336), (2224, 320), (4544, 320): measured on vanilla, absolute.
+  const fours = reply.sprites.filter(s => s.id === 0x4f)
+  expect(fours.map(s => [s.x, s.y, s.status])).toEqual([
+    [1816, 335, 'drawn'],
+    [2232, 319, 'drawn'],
+    [4552, 319, 'drawn'],
+  ])
 })
 
 test('a sprite stream with no end marker shows its note on the map tab', async ({ page }) => {

@@ -1,26 +1,34 @@
 /**
- * The map tab's sprite layer (#564), drawn by the table engine.
+ * The map tab's sprite layer (#564), drawn by the sprite interpreter (#585).
  *
  * Pure, so it is unit tested in CI; `ProjectServiceImpl` only resolves the
- * working copy and delegates here. Each sprite of the level's stream goes to
- * `drawSpriteParts`; the chars come from the level's own VRAM (SP1-SP4, as
- * `loadVram` placed them) and the colors from the level's CGRAM, whose rows
- * 8-15 are the sprite palettes. The ROW a part uses is the engine's: it reads
- * the sprite's own palette source (docs/sprites/sprite-engine-divergence.md),
- * so the level's palette is only the colors that row holds, not a choice.
+ * working copy and delegates here. Each sprite of the level's stream is run by
+ * `interpDrawer` (below); the chars come from the level's own VRAM (SP1-SP4,
+ * as `loadVram` placed them) and the colors from the level's CGRAM, whose rows
+ * 8-15 are the sprite palettes. The ROW a part uses is the sprite's own
+ * (its OAM attribute byte), so the level's palette is only the colors that row
+ * holds, not a choice.
  *
  * A part lands at the sprite's anchor (its tile corner, in map pixels) plus
- * the engine's dx/dy: negative, off the 16 px grid, and free to spill past
+ * the part's dx/dy: negative, off the 16 px grid, and free to spill past
  * its tile or screen, so nothing is snapped and each sprite is one bitmap
- * the view cuts per screen. A sprite the engine declines (no descriptor, a
- * repointed handler, chars not loaded, a custom handler) is a 16 x 16 marker
- * with its hex id, never invented art. That includes the non-visual sprites
+ * the view cuts per screen. A sprite the interpreter refuses or that draws
+ * nothing, or whose chars are not loaded, is a 16 x 16 marker with its hex id
+ * and the reason, never invented art. That includes the non-visual sprites
  * (auto-scroll, generators, layer control): their real treatment is deferred.
  *
- * NOT APPLIED YET: the anchor is the raw stream position. Position changes an
- * INIT routine makes (a Piranha Plant's +8 / -1 in InitPiranha, and others)
- * are not applied (InitPiranha, SMWDisX bank_01.asm:880-889); they will come
- * from interpreting INIT, not from a table.
+ * THE SERVED PATH IS THE INTERPRETER (#585): `interpDrawer` runs the sprite's
+ * own INIT and MAIN from the ROM on the 65816 core (src/rom/sprites/interp/)
+ * and draws the first pass that puts a tile in OAM, at the anchor INIT left
+ * (a Piranha Plant's +8 / -1, InitPiranha, SMWDisX bank_01.asm:880-889, comes
+ * from running it, not from a table). The table engine (`engineDrawer`) stays
+ * as the comparison oracle of step 3 and goes in step 4. Seeds are generic:
+ * the ROM-run level loader's WRAM, Mario at the level's start, the camera
+ * placed so the sprite is on screen. The colors the sprite's own code wrote to
+ * CGRAM (NMI upload list, palette mirror, direct registers;
+ * `Machine.paletteWrites`) override the level's row for that sprite only.
+ * Not modelled: the sprite is run alone, so one that reacts to a neighbour or
+ * to the player's actions shows its first pose.
  * A sprite with bit 3 of byte 0 set is marked, not drawn: the gate fails
  * closed for sprites that MAY be custom (PIXI dispatches on bit 3), which the
  * vanilla descriptor would draw wrongly. Vanilla scroll/command sprites ($E8,
@@ -40,6 +48,14 @@ import { getCharPixels, type VramState } from '../../../../src/rom/GfxLoader'
 import { bgr555ToRgba, type RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import { getPaletteColor } from '../../../../src/rom/PaletteLoader'
 import { readMarioStartPos } from '../../../../src/rom/L3Loader'
+import {
+  runOnce,
+  type SpriteModel as RunModel,
+  type PaletteWrite,
+  type SpritePart,
+} from '../../../../src/rom/sprites/interp/SpriteRunner'
+import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
+import { withSeed, type SpriteSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { readSpriteTileTables } from '../../../../src/rom/SpriteTileLoader'
 import {
   drawSpriteParts,
@@ -77,8 +93,25 @@ export interface SpriteModel {
   colors: RgbaColor[]
 }
 
-/** Runs the engine for one sprite; injected so the placement math is tested without a cart. */
-export type SpriteDrawer = (sprite: LevelSprite) => EngineResult
+/**
+ * What a drawer answers for one sprite: the table engine's result, or the
+ * interpreter's. `anchor` is where the sprite stands after its INIT ran (the
+ * parts' dx/dy are relative to it); absent, the stream position is the anchor.
+ * `reason` is a refusal in the interpreter's own words.
+ */
+export type SpriteDrawResult =
+  | (Extract<EngineResult, { ok: true }> & {
+      anchor?: { x: number; y: number }
+      /** CGRAM colors the sprite's own code set by its drawn frame (interpreter only). */
+      runtimePalette?: PaletteWrite[]
+      /** Set when the run's seed is not the ROM-run level state: why the art is unverified. */
+      unverified?: string
+    })
+  | Extract<EngineResult, { ok: false }>
+  | { ok: false; reason: string; unverified?: string }
+
+/** Runs a drawer for one sprite; injected so the placement math is tested without a cart. */
+export type SpriteDrawer = (sprite: LevelSprite) => SpriteDrawResult
 
 /** The anchor's X in level pixels is what facing and Yoshi-egg color read. */
 const pixelX = (s: LevelSprite) => s.x * TILE
@@ -102,7 +135,7 @@ function marker(id: number): Uint8ClampedArray {
   return out
 }
 
-function placeholder(s: LevelSprite, reason: string): MapSpriteDto {
+function placeholder(s: LevelSprite, reason: string, unverified?: string): MapSpriteDto {
   const [x, y] = [pixelX(s), s.y * TILE]
   return {
     index: s.index,
@@ -113,6 +146,7 @@ function placeholder(s: LevelSprite, reason: string): MapSpriteDto {
     rgba: base64(marker(s.spriteId)),
     status: 'placeholder',
     reason,
+    ...(unverified ? { unverified } : {}),
   }
 }
 
@@ -152,12 +186,12 @@ export function drawSprites(
     // Fail closed: a possibly custom sprite is never given vanilla art.
     if ((s.raw[0] ?? 0) & EXTRA_BITS) return placeholder(s, 'extraBits')
     const res = draw(s)
-    if (!res.ok) return placeholder(s, res.failure.kind)
+    if (!res.ok) return placeholder(s, 'reason' in res ? res.reason : res.failure.kind, 'unverified' in res ? res.unverified : undefined) // prettier-ignore
     if (res.parts.length === 0) return placeholder(s, 'noParts')
     const pixels = res.parts.map(p => getCharPixels(model.vram, p.charNum))
     // One missing char would draw as a hole, so the whole sprite is marked.
     if (pixels.some(p => !p)) return placeholder(s, 'charsNotLoaded')
-    const [ax, ay] = [pixelX(s), s.y * TILE]
+    const [ax, ay] = 'anchor' in res && res.anchor ? [res.anchor.x, res.anchor.y] : [pixelX(s), s.y * TILE] // prettier-ignore
     const box = {
       x0: ax + Math.min(...res.parts.map(p => p.dx)),
       y0: ay + Math.min(...res.parts.map(p => p.dy)),
@@ -167,12 +201,17 @@ export function drawSprites(
     const width = box.x1 - box.x0
     const out = new Uint8ClampedArray(width * (box.y1 - box.y0) * 4)
     const dyn = res.paletteNote ? dynamic(res.paletteNote) : []
+    // The sprite's own CGRAM writes (WRAM upload list, palette mirror, direct), per sprite.
+    const runtime = new Map<number, number>()
+    for (const w of ('runtimePalette' in res && res.runtimePalette) || []) runtime.set(w.index, w.bgr555) // prettier-ignore
     res.parts.forEach((p, i) => {
       const note = res.paletteNote
       const row = (c: number): RgbaColor => {
         // Only the parts on the row the handler uploads to; another row keeps the level's colors.
         const spliced = note && p.palette === note.row && c >= note.firstCol ? dyn[c - note.firstCol] : undefined // prettier-ignore
-        return spliced ?? getPaletteColor(model, p.palette, c)
+        if (spliced) return spliced
+        const set = runtime.get(p.palette * 16 + c)
+        return set !== undefined ? bgr555ToRgba(set) : getPaletteColor(model, p.palette, c)
       }
       blit(out, width, p, [ax + p.dx - box.x0, ay + p.dy - box.y0], pixels[i]!, row)
     })
@@ -184,6 +223,7 @@ export function drawSprites(
       box,
       rgba: base64(out),
       status: 'drawn',
+      ...('unverified' in res && res.unverified ? { unverified: res.unverified } : {}),
     }
   })
 }
@@ -208,6 +248,110 @@ export function engineDrawer(rom: RomFile, marioX: number): SpriteDrawer | null 
   }
 }
 
+/** The engine's parts as `[char, palette, flipX, flipY, dx, dy]`, order-free: how step 3 compares engines. */
+export const partKey = (p: EnginePart) => [p.charNum, p.palette, +p.flipX, +p.flipY, p.dx, p.dy].join(',') // prettier-ignore
+
+/**
+ * A 16 x 16 OBJ's char at cell (cx, cy): the PPU steps the column inside the
+ * low nibble and the row inside the 256-char table, and leaves bit 8 (the
+ * name table) alone, so `$1F` is `$1F, $10, $2F, $20` and `$F0` is
+ * `$F0, $F1, $00, $01` (SNES OBJ name-table addressing, hardware behaviour;
+ * not a ROM trace).
+ */
+const neighbour = (char: number, cx: number, cy: number): number =>
+  (char & 0x100) | ((((char >> 4) + cy) & 0xf) << 4) | (((char & 0xf) + cx) & 0xf)
+
+/**
+ * The interpreter's `chosen` frame as drawable parts. A 16 x 16 OAM entry is
+ * four 8 x 8 chars (tile, +1, +$10, +$11, wrapping as `neighbour` says: a
+ * flip swaps which char sits where). Highest OAM index first, so the lower index (higher priority) is
+ * blitted last and wins an overlap. `char` is the 9-bit OBJ char; hackbench
+ * numbers OBJ chars from $400.
+ */
+export function interpParts(parts: readonly SpritePart[]): EnginePart[] {
+  const out: EnginePart[] = []
+  for (const p of [...parts].sort((a, b) => b.oam - a.oam)) {
+    const cells = p.size === 16 ? ([[0, 0], [1, 0], [0, 1], [1, 1]] as const) : ([[0, 0]] as const) // prettier-ignore
+    for (const [cx, cy] of cells) {
+      const [col, row] = [p.flipX ? 1 - cx : cx, p.flipY ? 1 - cy : cy]
+      out.push({
+        charNum: 0x400 + (p.size === 16 ? neighbour(p.char, cx, cy) : p.char),
+        palette: p.palette,
+        flipX: p.flipX,
+        flipY: p.flipY,
+        dx: p.dx + (p.size === 16 ? col * 8 : 0),
+        dy: p.dy + (p.size === 16 ? row * 8 : 0),
+      })
+    }
+  }
+  return out
+}
+
+/**
+ * Camera that puts a level position on screen: centred, clamped to the scroll
+ * range. The range is DERIVED from the level extents minus the 256 x 224 view,
+ * not traced to the camera routine. The extents are the game's (a horizontal
+ * level is LevelScrLength screens wide and $01B0 = 432 px tall, a vertical one
+ * LevelScrLength screens tall), read off the collision routine's bounds
+ * (CODE_00F44D, bank_00.asm:13293, 13299, 13326); the camera's own clamp was
+ * not read, so this range is a derivation, not a trace.
+ */
+export function cameraFor(x: number, y: number, vertical: boolean, screens: number) {
+  const [maxX, maxY] = vertical ? [256, screens * 256 - 224] : [screens * 256 - 256, 432 - 224]
+  const clamp = (v: number, hi: number) => Math.max(0, Math.min(hi, v))
+  return { x: clamp(x - 128, maxX), y: clamp(y - 112, maxY) }
+}
+
+/** What the interpreter shows for one sprite: its model, as the drawer's reply. */
+export function modelResult(m: RunModel): SpriteDrawResult {
+  const generic = m.seedSource === 'generic'
+  const u = generic ? { unverified: `level loader refused (${m.seedReason}); drawn from a placement-only seed` } : {} // prettier-ignore
+  if (m.refusal) return { ok: false, reason: `refused: ${m.refusal}`, ...u }
+  const pass = m.chosen === undefined ? undefined : m.passes[m.chosen]
+  if (!m.anchor || !pass) return { ok: false, reason: m.emptyReason ?? 'drew no tile', ...u }
+  return {
+    ok: true,
+    parts: interpParts(pass.parts),
+    anchor: { x: m.anchor.x, y: m.anchor.y },
+    runtimePalette: pass.palette,
+    ...u,
+    identity: { spriteId: m.id, mainHandler: 0, initHandler: 0, status: 'vanilla' },
+  }
+}
+
+/**
+ * The interpreter over this cart, for the level `index`: `levelSeed` runs the
+ * ROM's own loader, Mario at the level's start, one sprite run alone per call.
+ * When the loader refuses (a hack that moves its entry points) the model
+ * reports `seedSource: 'generic'` with the loader's reason, and EVERY sprite
+ * so run is answered with `unverified`: still drawn, never presented as run
+ * from the level's own state. The runner decides; nothing here re-derives it.
+ */
+export function interpDrawer(
+  rom: RomFile,
+  index: number,
+  model: { isVertical: boolean; screenCount: number },
+  run: (rom: RomFile, id: number, seed: SpriteSeed) => RunModel = runOnce,
+): SpriteDrawer {
+  // The loader runs once per map, not per sprite.
+  const base = levelSeed(rom, index)
+  // Mario's start is what the ROM-run loader left in $94/$96 (the entrance it ran); the
+  // table re-derivation is only for a generic seed, which has no loader image.
+  const w = base.loaded
+  const mario = w
+    ? { x: w[0x94]! | (w[0x95]! << 8), y: w[0x96]! | (w[0x97]! << 8) }
+    : readMarioStartPos(rom, index)
+  // Only the map's own shape is added to a generic seed; a loaded one ignores it.
+  const shape = { level: { screenMode: model.isVertical ? 1 : 0, screens: model.screenCount } }
+  return s => {
+    const [x, y] = [pixelX(s), s.y * TILE]
+    const camera = cameraFor(x, y, model.isVertical, model.screenCount)
+    return modelResult(
+      run(rom, s.spriteId, withSeed({ sprite: { x, y }, camera, mario, ...shape }, base)),
+    )
+  }
+}
+
 /** A sprite stream's bytes: up to the window, fewer when the ROM ends first (as SmwRom.getLevelRawData reads). */
 export const readStream = (rom: RomFile, ptr: number, window = STREAM_WINDOW) =>
   rom.readUpTo(ptr, window)
@@ -218,6 +362,12 @@ const terminated = (data: Uint8Array) => {
   return false
 }
 
+/** The map-level line for sprites drawn without the ROM-run level state: they are shown, flagged. */
+const unverifiedNote = (sprites: readonly MapSpriteDto[]) => {
+  const u = sprites.find(s => s.unverified)?.unverified
+  return u ? `Unverified: ${sprites.filter(s => s.unverified).length} sprites ${u}.` : undefined
+}
+
 /** The reply for a stream: its sprites drawn, in the geometry of the map's screens. */
 export function spriteLayer(
   data: Uint8Array,
@@ -226,21 +376,62 @@ export function spriteLayer(
   dynamic?: (note: PaletteNote) => RgbaColor[],
 ): Extract<MapSpritesResult, { status: 'ok' }> {
   const { w, h } = screenTiles(model.isVertical)
+  const sprites = drawSprites(parseLevelSprites(data, model.isVertical), model, draw, dynamic)
   return {
     status: 'ok',
     orientation: model.isVertical ? 'vertical' : 'horizontal',
     screenCount: model.screenCount,
     width: w * TILE,
     height: h * TILE,
-    sprites: drawSprites(parseLevelSprites(data, model.isVertical), model, draw, dynamic),
-    note: terminated(data)
-      ? undefined
-      : 'The sprite stream has no end marker in the bytes read: sprites past them are not drawn.',
+    sprites,
+    note:
+      [
+        terminated(data)
+          ? undefined
+          : 'The sprite stream has no end marker in the bytes read: sprites past them are not drawn.',
+        unverifiedNote(sprites),
+      ]
+        .filter(Boolean)
+        .join(' ') || undefined,
   }
 }
 
+/**
+ * Replies per working-copy bytes and map: running every sprite's INIT and 64
+ * passes takes a moment, and the working copy hands out new bytes after each
+ * edit, so nothing here needs invalidating.
+ */
+/** Replies kept per working-copy bytes: each holds every sprite's bitmap, so a whole ROM's maps are not. */
+const REPLIES_PER_BYTES = 8
+const replies = new WeakMap<Uint8Array, Map<number, ReturnType<typeof compute>>>()
+
 /** A map's sprites from the working copy's bytes, over the same model as its screens. */
 export function mapSprites(
+  cache: L1ModelCache,
+  bytes: Uint8Array,
+  romPath: string,
+  index: number,
+): ReturnType<typeof compute> {
+  let byMap = replies.get(bytes)
+  if (!byMap) replies.set(bytes, (byMap = new Map()))
+  let r = byMap.get(index)
+  if (r) {
+    // LRU: a hit moves the map to the newest end.
+    byMap.delete(index)
+    byMap.set(index, r)
+  } else {
+    r = compute(cache, bytes, romPath, index)
+    // Only a computed answer is kept; an unavailable one may be a loader hiccup worth retrying.
+    if (r.status === 'ok') {
+      // The least recently used reply goes first (L1ModelCache, map-screen.ts:387, drops the oldest inserted).
+      if (byMap.size >= REPLIES_PER_BYTES) byMap.delete(byMap.keys().next().value!)
+      byMap.set(index, r)
+    }
+  }
+  return r
+}
+
+function compute(
   cache: L1ModelCache,
   bytes: Uint8Array,
   romPath: string,
@@ -257,8 +448,7 @@ export function mapSprites(
     // A stream in the ROM's last bytes is still a stream (as SmwRom.getLevelRawData reads).
     const data = ptr === null ? null : readStream(rom.rom, ptr)
     if (!data) return { status: 'unavailable', reason: `No sprite data at the pointer for slot ${index.toString(16)}` } // prettier-ignore
-    const draw = engineDrawer(rom.rom, readMarioStartPos(rom.rom, index).x)
-    if (!draw) return { status: 'unavailable', reason: 'The sprite tile tables cannot be read' }
+    const draw = interpDrawer(rom.rom, index, model)
     const dynamic = (n: PaletteNote) => {
       const b = rom.rom.readAt(n.entryAddr, n.colors * 2)
       return b ? Array.from({ length: n.colors }, (_, i) => bgr555ToRgba(b[i * 2]! | (b[i * 2 + 1]! << 8))) : [] // prettier-ignore

@@ -23,6 +23,7 @@ import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import type { RomFile } from '../../../../src/rom/RomFile'
 import { freshRom, hasRom, TOOLS_ROOT, VANILLA } from '../../support/corpus'
 import { oracleImage } from '../../support/oracleImage'
+import { plantTileStoreDefect } from '../../support/spriteGrade'
 
 const SPAWN_DIR = process.env.HACKBENCH_SPRITE_SPAWN ?? join(TOOLS_ROOT, 'fixtures', 'sprite-spawn')
 
@@ -197,9 +198,9 @@ describe.skipIf(!existsSync(SPAWN_DIR) || !hasRom(VANILLA))(
     }, 300_000)
 
     it('goes red when the dispatch is planted with a defect', () => {
-      // ExecutePtr ($00:86DF) returns at once: no INIT, no MAIN runs.
+      // OAM tile stores write the attribute byte: INIT and MAIN still run, the graded tiles are wrong.
       const rom = freshRom()
-      rom.writeAt(0x0086df, [0x6b])
+      expect(plantTileStoreDefect(rom)).toBeGreaterThan(0)
       const { rows, tally } = gradeSpawn(rom, { limit: 40 })
       expect(rows.length).toBeGreaterThan(0) // the defect run must grade something
       expect((tally.exact ?? 0) + (tally['exact-empty'] ?? 0)).toBeLessThan(FLOOR.exact / 10)

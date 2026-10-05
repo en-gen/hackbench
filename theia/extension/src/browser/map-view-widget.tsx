@@ -534,7 +534,9 @@ export class MapViewWidget extends ReactWidget {
   protected spritesLabel(): string {
     if (this.spritesWhy) return `Sprites unavailable: ${this.spritesWhy}`
     if (!this.sprites) return 'Sprites · reading the map'
-    return this.sprites.sprites.length === 0 ? 'Sprites · this map has none' : 'Sprites'
+    if (this.sprites.sprites.length === 0) return 'Sprites · this map has none'
+    const u = this.sprites.sprites.find(x => x.unverified)?.unverified
+    return u ? `Sprites · unverified: ${u}` : 'Sprites'
   }
 
   protected override onResize(msg: Widget.ResizeMessage): void {

@@ -155,9 +155,13 @@ which `theia/browser-app/test/load-maps.spec.cjs` asserts.
 `ProjectService.mapSprites(manifestPath, index)` returns every
 sprite of a map as one RGBA bitmap in map pixels (`MapSpriteDto`: index, id,
 anchor, `box`, base64 `rgba`, `status` of `drawn` or `placeholder`, and the
-engine's failure kind as `reason`), plus the screen size and orientation and
-a `note` when the stream has no end marker in the bytes read (sprites past them
-are not drawn; the tab shows it).
+reason a marker is a marker: the interpreter's refusal (`refused: ...`), an
+empty run (`drew no OAM tile`), or `extraBits` / `charsNotLoaded`), plus the
+screen size and orientation. A drawn sprite may carry `unverified`: the level
+loader refused this ROM, so the sprite ran from a placement-only seed, not the
+level's state. The reply's `note` joins two caveats: the stream has no end
+marker in the bytes read (sprites past them are not drawn), and, once per map,
+that sprites were drawn unverified; the tab shows it.
 `node/map-sprites.ts` is the pure module behind it; `project-server.ts`
 reads the working copy through `WorkingRomRegistry`, as `mapScreen` does.
 It is a separate call from `mapScreen` because a sprite is not cut at screen

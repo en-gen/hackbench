@@ -49,6 +49,13 @@ export const RAM = {
   xHigh: 0x14e0,
   curSprite: 0x15e9,
   oamIndex: 0x15ea,
+  /** $0680 PaletteIndexTable: which palette source the next NMI uploads (rammap.asm:1143-1146). */
+  paletteIndexTable: 0x680,
+  /** $0681 DynPaletteIndex: bytes used in the NMI colour-upload list at $0682 (rammap.asm:1152-1164). */
+  dynPaletteIndex: 0x681,
+  dynPaletteTable: 0x682,
+  /** $0703 MainPalette: a RAM copy of all 256 CGRAM colors (rammap.asm:1172-1175). */
+  mainPalette: 0x703,
   /** OAM mirror $0200-$03FF: 128 entries of 4 bytes; one size byte per entry at $0420. */
   oam: 0x200,
   oamSize: 0x420,
@@ -57,6 +64,14 @@ export const RAM = {
 
 /** Instruction budget for one call (INIT or one MAIN pass). */
 const STEP_BUDGET = 200_000
+/**
+ * Instruction cap for one whole sprite (setup, every INIT retry, every MAIN
+ * pass). The per-call budget alone lets a sprite that never leaves INIT cost
+ * 64 + 64 calls x 200k steps (~25.6M), which blocks the Theia RPC thread.
+ * Vanilla's worst sprite over the maps measured is 234,924 steps (one
+ * machine, 2026-10-05), so this is ~4x headroom.
+ */
+export const TOTAL_STEP_CAP = 1_000_000
 /** INIT retries allowed while the routine leaves status 1. */
 const MAX_INIT_FRAMES = 64
 /** Return address pushed under each call; the call is done when it is popped. */
@@ -83,6 +98,12 @@ export interface SpritePart {
   oy: number
 }
 
+/** One CGRAM color a run set: index 0-255 (row * 16 + column) and its BGR555 value. */
+export interface PaletteWrite {
+  index: number
+  bgr555: number
+}
+
 export interface PassResult {
   pass: number
   /** Level position of the sprite at the end of this pass. */
@@ -90,6 +111,11 @@ export interface PassResult {
   parts: SpritePart[]
   /** Palette or graphics uploads the pass wrote registers for. */
   uploads: string[]
+  /**
+   * CGRAM colors the run has set by the end of this pass (cumulative from the
+   * start of INIT), in application order. See `Machine.paletteWrites`.
+   */
+  palette: PaletteWrite[]
 }
 
 export type DependsOn = 'marioX'
@@ -138,6 +164,14 @@ export class Machine {
   readonly bus: SpriteBus
   readonly cpu: Cpu65816
   private touched = new Set<number>()
+  /** Colors set so far, in the order they took effect (cumulative; see `nmi`). */
+  private applied: PaletteWrite[] = []
+  /** The run itself wrote $0680 PaletteIndexTable since the last NMI (a loaded image's value is not the sprite's). */
+  private modeWritten = false
+  private cgadd = 0
+  private cgLow: number | null = null
+  /** $0681 when the run began: entries the loader left in the upload list are not this sprite's. */
+  private dynStart = 0
   steps = 0
 
   constructor(
@@ -156,8 +190,92 @@ export class Machine {
     this.bus.onInstruction = guardInstruction
     this.bus.onWramWrite = off => {
       this.touched.add(off)
+      if (off === RAM.paletteIndexTable) this.modeWritten = true
+    }
+    this.bus.onHwWrite = (reg, v) => {
+      if (reg === 0x2121) {
+        this.cgadd = v
+        this.cgLow = null
+      } else if (reg === 0x2122) {
+        if (this.cgLow === null) this.cgLow = v
+        else {
+          this.applied.push({ index: this.cgadd, bgr555: ((v << 8) | this.cgLow) & 0x7fff })
+          this.cgadd = (this.cgadd + 1) & 0xff
+          this.cgLow = null
+        }
+      }
     }
     this.load(id)
+    this.dynStart = this.bus.wram[RAM.dynPaletteIndex]
+  }
+
+  /** CGRAM colors this run has set so far, in the order they took effect. */
+  paletteWrites(): PaletteWrite[] {
+    return [...this.applied]
+  }
+
+  /**
+   * The NMI's palette work after one frame of sprite code (CODE_00A488 and
+   * CODE_00A4CF, SMWDisX bank_00.asm:4714-4757), since no NMI runs here.
+   * Direct $2121/$2122 writes already took effect, in order, during the
+   * frame. Then CODE_00A488 walks ONE list, the same shape for every source
+   * (bank_00.asm:4726-4748): `[byte count, CGRAM color index, count bytes of
+   * colors...]` repeated until a zero count, each entry DMA'd to CGRAM from
+   * that index. The source is `PaletteIndexTable` ($0680, rammap.asm:1143-1146,
+   * an index into the three-entry table at bank_00.asm:4709-4712):
+   * - 0, the default: `DynPaletteTable` ($0682), from where the run began on
+   *   the first frame (what the loader left is not this sprite's); then `$0681`
+   *   and the first list byte are cleared (bank_00.asm:4753-4756), so the list
+   *   does not pile up. Nothing bounds an entry to the 127-byte table: the DMA
+   *   reads on past it, as hardware does (only the end of WRAM stops the walk).
+   * - 6: the list starts at `MainPalette` ($0703, rammap.asm:1172-1175), whose
+   *   first bytes are a header, not color 0 (the overworld writes `$FE, $01` and
+   *   a terminator at +$100, bank_04.asm:5585-5590; the level upload zeroes
+   *   them, bank_00.asm:2047-2048). The list is not cleared. No vanilla sprite
+   *   bank writes $0680, so this is reached only by a hack's own sprite, and
+   *   only when the run wrote it.
+   * - 3, CopyPalette (level-end fades): not modelled.
+   * Then $0680 is cleared (bank_00.asm:4757).
+   */
+  nmi(): void {
+    const w = this.bus.wram
+    const mode = w[RAM.paletteIndexTable]
+    if (mode === 0) {
+      this.uploadList(RAM.dynPaletteTable + this.dynStart)
+      w[RAM.dynPaletteIndex] = 0
+      w[RAM.dynPaletteTable] = 0
+      this.dynStart = 0
+    } else if (mode === 6 && this.modeWritten) {
+      this.uploadList(RAM.mainPalette)
+    }
+    w[RAM.paletteIndexTable] = 0
+    this.modeWritten = false
+  }
+
+  /**
+   * CODE_00A4A0's walk: entries to their CGRAM colors. A list that runs off
+   * the end of WRAM (a count byte with no header after it, data past the end,
+   * or no terminator) is refused: hardware would read other memory, which this
+   * machine does not have, so any colors it applied would be guesses.
+   */
+  private uploadList(start: number): void {
+    const w = this.bus.wram
+    let at = start
+    for (;;) {
+      if (at >= w.length) throw new Refusal('palette list runs off the end of WRAM without a terminator') // prettier-ignore
+      const count = w[at]
+      if (count === 0) return
+      if (at + 1 >= w.length) throw new Refusal('palette list is truncated: an entry header is cut off by the end of WRAM') // prettier-ignore
+      const first = w[at + 1]
+      if (at + 2 + count > w.length) throw new Refusal('palette list is truncated: an entry runs past the end of WRAM') // prettier-ignore
+      // CGADD counts colors and wraps at 256; an odd count leaves a half color the DMA still writes.
+      for (let i = 0; i + 1 < count; i += 2)
+        this.applied.push({
+          index: (first + (i >> 1)) & 0xff,
+          bgr555: (w[at + 2 + i] | (w[at + 3 + i] << 8)) & 0x7fff,
+        })
+      at += 2 + count
+    }
   }
 
   private w16(off: number, v: number): void {
@@ -221,12 +339,15 @@ export class Machine {
     wr((SENTINEL - 1) & 0xff)
     cpu.pb = entry >>> 16
     cpu.pc = entry & 0xffff
-    for (let i = 0; i < STEP_BUDGET; i++) {
+    const left = TOTAL_STEP_CAP - this.steps
+    if (left <= 0) throw new Refusal(`total step cap of ${TOTAL_STEP_CAP} spent across INIT and MAIN; the sprite does not settle`) // prettier-ignore
+    const room = Math.min(STEP_BUDGET, left)
+    for (let i = 0; i < room; i++) {
       cpu.step()
       this.steps++
       if (cpu.s === s0 && cpu.pc === SENTINEL) return
     }
-    throw new Refusal(`step budget of ${STEP_BUDGET} spent; the routine waits on state the seed lacks`) // prettier-ignore
+    throw new Refusal(room < STEP_BUDGET ? `total step cap of ${TOTAL_STEP_CAP} spent across INIT and MAIN; the sprite does not settle` : `step budget of ${STEP_BUDGET} spent; the routine waits on state the seed lacks`) // prettier-ignore
   }
 
   pos(): { x: number; y: number } {
@@ -241,6 +362,7 @@ export class Machine {
   /** One frame: the game's own sprite loop over all twelve slots (the others are empty). */
   frame(): void {
     this.call(ENTRY.spriteLoop, 'jsl')
+    this.nmi()
   }
 
   clearOamWrites(): void {
@@ -303,8 +425,13 @@ function uploadsOf(m: Machine, before: Map<number, number>): string[] {
 /** Debug hook: sees WRAM after INIT (pass -1) and after each MAIN pass. */
 export type Probe = (pass: number, wram: Uint8Array) => void
 
-/** Run once with a seed; no dependsOn analysis. */
-function runOnce(rom: RomFile, id: number, seed: SpriteSeed, opts: RunOptions = {}): SpriteModel {
+/** Run once with a seed; no dependsOn analysis (half the cost of `runSprite`). */
+export function runOnce(
+  rom: RomFile,
+  id: number,
+  seed: SpriteSeed,
+  opts: RunOptions = {},
+): SpriteModel {
   const probe = opts.probe
   const model: SpriteModel = {
     id,
@@ -373,6 +500,7 @@ function runOnce(rom: RomFile, id: number, seed: SpriteSeed, opts: RunOptions = 
         pos: m.pos(),
         parts: readParts(m, anchor),
         uploads: uploadsOf(m, hw),
+        palette: m.paletteWrites(),
       })
     }
     if (m.bus.inputs) model.inputs = [...m.bus.inputs].sort((a, b) => a - b)

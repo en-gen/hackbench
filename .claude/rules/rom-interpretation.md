@@ -164,8 +164,11 @@ In practice:
   without a decision of the same kind.
 - Second bounded exception, for sprites (owner decision 2026-10-05, #582): a
   sprite is drawn by executing its own INIT and MAIN from the ROM on the
-  concrete 65816 core (`src/rom/cpu`, #583). Generic seeds only, no per-sprite
-  tables, refusal with a reason on an unknown entry shape, step budgets.
+  concrete 65816 core (`src/rom/cpu`, #583). Seeds may be ROM-derived level
+  state (the ROM's own level loader run as code) and per-instance inputs (the
+  placed sprite's position, camera, Mario); no per-sprite seed tables. An
+  unknown entry shape is refused with a reason, and runs have step budgets (per
+  call and per sprite).
   Captures and Mesen are an oracle only, never a runtime input.
 - A derivation that truly cannot be read must be NAMED as a hack-fragility
   point and paired with honest degradation: compare the handler against its
