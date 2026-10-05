@@ -2138,7 +2138,10 @@ for (const [index, axis] of [
       const project = await createProject(page, path.join(tmp, 'MyHack'))
       await openMap(page, project.manifestPath, index)
       await page.locator(`${root(index)} [data-control="zoom-${mode}"]`).click()
-      await page.waitForTimeout(400)
+      // Settled, not slept: Actual is zoom 1; Fit shows its pressed state once it has taken effect.
+      if (mode === 'actual') await expect.poll(() => zoomOf(page, index)).toBe(1)
+      else await expect(page.locator(`${root(index)} [data-control="zoom-fit"]`)).toHaveAttribute('aria-pressed', 'true') // prettier-ignore
+      await expect.poll(() => scrollMax(page, index, axis)).toBeGreaterThan(0)
       const max = await scrollMax(page, index, axis)
       expect(max).toBeGreaterThan(0)
       // Toggled ON while scrolled: the first paint must already be right.
@@ -2181,8 +2184,21 @@ test('the grid stays aligned after Ctrl + wheel zoom and after a resize', async 
     })
     .toBeLessThanOrEqual(TOL)
   const size = page.viewportSize()
+  const clientBefore = await page.locator(scrollerSel(0x105)).evaluate(s => s.clientWidth)
   await page.setViewportSize({ width: Math.floor(size.width * 0.7), height: Math.floor(size.height * 0.8) }) // prettier-ignore
-  await page.waitForTimeout(600)
+  // Until the scroller has shrunk AND the overlay has followed it to the pixel.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        ([sel, was]) => {
+          const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
+          const o = document.querySelector(`${sel} .hb-grid-overlay`)
+          return s.clientWidth < was && parseFloat(o.style.width) === s.clientWidth && parseFloat(o.style.height) === s.clientHeight // prettier-ignore
+        },
+        [root(0x105), clientBefore],
+      ),
+    )
+    .toBe(true)
   const d = await page.evaluate(sel => {
     const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
     const o = document.querySelector(`${sel} .hb-grid-overlay`)
