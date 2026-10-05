@@ -20,7 +20,7 @@ const long = (a: number) => [a & 0xff, (a >> 8) & 0xff, a >> 16]
 export function modeTablesRom(layouts: readonly ModeLayout[]): RomFile {
   const rom = new RomFile('l3.sfc', Buffer.alloc(0x80000, 0))
   rom.writeAt(0x00ffd5, [0x20])
-  for (const key of ['vertical', 'main', 'sub', 'special'] as const) {
+  for (const key of ['vertical', 'main', 'sub', 'cgadsub', 'special'] as const) {
     rom.writeAt(
       TABLE[key],
       layouts.map(l => l[key]),
@@ -35,7 +35,13 @@ export function modeTablesRom(layouts: readonly ModeLayout[]): RomFile {
 }
 export const SITE_BYTES = { at: SITE_AT, length: 27, stores: [0x8d, 0x9d, 0x0d] }
 
-export const STANDARD: ModeLayout = { main: 0x15, sub: 0x02, special: 0, vertical: 0 }
+export const STANDARD: ModeLayout = {
+  main: 0x15,
+  sub: 0x02,
+  cgadsub: 0x24,
+  special: 0,
+  vertical: 0,
+}
 
 /** One level's layer 3: a single tile word at the tilemap's first gameplay row, `row` * 8 rows down. */
 export function withLayer3(

@@ -9,10 +9,10 @@
  * sheet's and the preview's rule. The back area is not baked in: it is a
  * layer of its own in the view, so it can be hidden like any other. L1 and
  * L2 (background) are each sent as two planes by the subtile priority bit;
- * the view stacks them in `mapPlaneOrder`'s order. A layer
+ * the view composites them per screen from `screens`. A layer
  * never overlaps its own planes; L2 sits at a 1:1 horizontal offset, with no
  * parallax, and shifted vertically by its initial Layer2YPos (#113). L3 is two
- * planes by its tile priority bit, drawn only on the standard layout (#561).
+ * planes by its tile priority bit, drawn on every non-Mode-7 level mode (#561, #562).
  */
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { RomFile } from '../../../../src/rom/RomFile'
@@ -37,6 +37,7 @@ import { palaceArt, type PalaceArt } from '../../../../src/rom/SwitchArt'
 import { renderMap16Tile } from '../../../../src/rom/TileRenderer'
 import { ghostOf, overlayHidden } from '../../../../src/rom/render/HiddenTiles'
 import { MAP_PLANE_KEYS } from '../common/project-protocol'
+import { FALLBACK_SCREENS } from '../../../../src/rom/model/ScreenPlanes'
 import type {
   MapPlaneKey,
   MapScreenResult,
@@ -260,7 +261,7 @@ export function drawL3Planes(l3: L3Inputs, screen: number): L3Planes {
 /** What the map tab draws: L1's inputs plus the background and the layer-order verdict. */
 export interface MapInputs extends L1Inputs {
   l2?: L2Result
-  /** Layer 3's layout, priority bit and inputs, or why it is not drawn (#561). Absent: the old order, no layer 3. */
+  /** Layer 3's plane lists, math, priority bit and inputs, or why it is not drawn (#561, #562). Absent: the old order, no math, no layer 3. */
   l3?: L3Verdict
   /** Why the planes' order is unverified (not BG mode 1, or the mode could not be read). */
   orderNote?: string
@@ -306,10 +307,20 @@ export function screenResult(
       }),
     ) as Record<MapPlaneKey, string | null>,
     layer3: {
-      layout: model.l3?.layout ?? 'other',
       priority: model.l3?.priority ?? model.header.layer3Priority,
       reason: model.l3 ? model.l3.reason : 'Layer 3 not drawn yet',
     },
+    screens: model.l3?.screens ?? FALLBACK_SCREENS,
+    math:
+      model.l3?.cgadsub != null
+        ? {
+            cgadsub: model.l3.cgadsub,
+            // The fixed color is BackAreaColors[header byte 1 >> 5], the same entry as the
+            // back area (bank_00.asm:5623-5628).
+            fixed: [model.backArea[0], model.backArea[1], model.backArea[2]],
+          }
+        : null,
+    layer2Interactive: model.l3?.layer2Interactive ?? false,
     note: [...model.unverified, model.animNote].filter(Boolean).join(' ') || undefined,
     layerNotes: [
       model.l2 && !model.l2.ok ? `The background is not drawn: ${model.l2.reason}` : '',

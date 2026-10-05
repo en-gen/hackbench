@@ -131,32 +131,59 @@ SMW assigns these rows per layer type:
 
 ---
 
-## Layer 3 (BG3) in the map editor (#561)
+## Layer 3 (BG3) in the map editor (#561, #562)
 
 BG3 is not only the status bar: `Layer3Setting` (`$05F200` bits 7:6) picks a
 per-tileset image (a tide, cage bars, windows). The map editor draws it at its
-load-time state, on the standard layout only, with no animation (#115).
+load-time state, on every level mode except the Mode 7 boss rooms, with no
+animation (#115). Design: `docs/superpowers/specs/2026-10-05-layer3-compositor-modes-design.md`.
 Code: `src/rom/model/L3Model.ts`, `src/rom/LevelScreenTables.ts`,
-`drawL3Planes` in `theia/extension/src/node/map-screen.ts`.
+`src/rom/model/ScreenPlanes.ts`, `src/rom/model/ColorMath.ts`, `drawL3Planes` in
+`theia/extension/src/node/map-screen.ts`.
 
-**The standard layout.** The level mode (header byte 1, bits 4:0) indexes four
-tables loaded at `bank_05.asm:542-553`: main screen (`LevMainScrnTbl`), sub
-screen, special-level setting and `VerticalTable` (`bank_05.asm:480-504`).
-The layout is standard when main is `$15` (BG1, BG3, OBJ), sub is `$02` (BG2),
-special is 0 and `VerticalTable` bit 7 is clear (layer 2 interactive,
-`bank_00.asm:11736-11738`). BG2 is then on the sub screen only, so every opaque
-main-screen pixel covers it regardless of priority bits. The core reads the
-four tables through the operands of the loader's `LDA.L` loads, one 27-byte
-site that must match exactly once, and refuses with a reason when the loader is
-hooked. Vanilla modes `$00-$11` that qualify: `$00 $01 $03 $05 $07 $0A $0C $0D`,
-which is the issue's list; the same rule also admits the unused `$12-$1D`
-(measured on the vanilla tables, one cart). It also requires BG mode 1
-(`BgMode.ts`), because main and sub only mean BG1/BG2/BG3 there.
+**The mode tables.** The level mode (header byte 1, bits 4:0) indexes five
+tables loaded at `bank_05.asm:542-553`: main screen (`LevMainScrnTbl`, $212C),
+sub screen ($212D), CGADSUB (`LevCGADSUBtable`, `bank_05.asm:495-499`), the
+special-level setting and `VerticalTable` (`bank_05.asm:480-504`). Bit 7 of
+`VerticalTable` is layer 2 interactive (`bank_00.asm:11736-11738`); the toolbar
+calls layer 2 Foreground then, Background otherwise. The core reads the tables
+through the operands of the loader's `LDA.L` loads, one 27-byte site that must
+match exactly once, and falls back to the pre-#561 stacking with no color math
+when the loader is hooked. A nonzero special setting is a boss room (Iggy/Larry
+`$80`, Reznor/Morton/Roy `$C0`, Bowser `$C1`; `rammap.asm:1331-1338`); bit 7
+sends NMI to `Mode7NMI` (`bank_00.asm:233-235`), so layer 3 is refused there.
+The core also requires BG mode 1 (`BgMode.ts`), because the designations only
+mean BG1/BG2/BG3 there.
+
+**Per-screen planes and color math.** The SNES composites the main and the sub
+screen separately and then does color math between them (CGWSEL is `$02`: add
+the sub screen, `bank_00.asm:1285`; windows are not modeled). `screenPlanes`
+turns the two designations and the BG3 priority bit into two bottom-to-top plane
+lists, each `ppuDrawOrder` filtered to the layers on that screen (OBJ and BG4
+dropped). `composeScreen` takes the topmost opaque plane of each list (the
+black backdrop when none: CGRAM color 0 is cleared before every palette upload,
+`CODE_00922F`, `bank_00.asm:2046-2049`); if that main pixel's layer, or the
+backdrop, has its bit in CGADSUB it adds or subtracts (bit 7) the sub pixel, or the fixed color where the
+sub screen drew nothing, in 5-bit space, halving (bit 6) only against a real sub
+pixel and clamping to 31. CGADSUB is the table value minus BG3 where
+`CODE_009FB8` clears it (`TRB.B ColorSettings`, `bank_00.asm:4196-4198`), kept
+only for a camera-locked `$81`-`$BF` byte (`$00` is cleared too); the fixed
+color is the back area (`BackAreaColors`, `bank_00.asm:5623-5628`, sent to the
+PPU as COLDATA via `CODE_00AE47`, `bank_00.asm:5867-5885`). The back area color
+is not the main backdrop: it shows only where main and sub both draw nothing
+(there `composeScreen` stays transparent and the view's back area layer shows
+it), and layer 2 is never tinted by it. The half skip against the fixed
+color is read from snes9x `tileimpl.h:176-181` and bsnes `ppu-fast/line.cpp:111`
+(GitHub master, 2026-10-05, not run on hardware); it is pinned in
+`ColorMath.test.ts`. The standard layout (main `$15`, sub `$02`, CGADSUB `$24`
+minus BG3, whatever the back color) is the identity case: layer 2 alone on the sub
+screen sits under every main-screen layer, as in #561. Mode 0C (CGADSUB `$70`)
+is not: where layers 1 and 3 are empty, layer 2 shows halved.
 
 **Priority bit and stacking.** Header byte 2 bit 7 becomes `MainBGMode` bit 3
 (`bank_05.asm:590-597`): BG3's priority-1 tiles go in front of BG1 (set) or
 just behind BG1's low plane (clear). Hardware order is only between layers on
-the SAME screen (`docs/rom/obj-priority.md` section 1). Back to front on a
+the SAME screen (`docs/rom/obj-priority.md` section 1). Back to front on the
 standard layout:
 
 ```
@@ -167,10 +194,10 @@ layer 1 low, layer 1 high
 layer 3 high                         (bit set)
 ```
 
-`mapPlaneOrder` (`project-protocol.ts`) derives the main-screen part from
-`ppuDrawOrder` (sprites removed), so it cannot drift from the pass list. Any
-other layout keeps the old BG mode 1 order (layer 1 low, layer 2 high over it)
-until the full main/sub compositor (#562).
+Other modes differ only in which layers sit on which screen: modes 02 and 08
+(main `$17`, sub `$00`) put all three BG layers on the main screen, so layer 3
+is behind layers 1 and 2; mode 0E (main `$04`, sub `$13`) puts layer 3 alone on
+the main screen and adds it onto the sub screen's layers.
 
 **Where layer 3 sits.** `CODE_009FB8` (`bank_00.asm:4139-4199`), by settings
 byte: bit 7 clear is a tide (`$00`/`$01` start at Y `$70`, `$02`-`$7F` at
@@ -205,16 +232,16 @@ level runs `CODE_00A007` (`bank_00.asm:4184-4189`), which copies
 (`bank_00.asm:4868-4870`); the level palette path applies it (`readCrusherColors`),
 so layer 3 palette 3 and any layer 1 or 2 pixel using those colors show it.
 
-**Measured, one cart.** Over the vanilla cart's 235 maps (`docs/glossary.md`: a
-map is a non-empty slot; one machine, `buildMapInputs`): layer 3 is drawn on 8
-(`$002 $01F $0BE $0C1 $102 $127 $1D4 $1FC`; `$01F $1D4 $1FC` are the
-crusher-colors maps), skipped as camera-locked on 3 (`$011 $130 $1C1`), as
-interactive layer 2 on 14 (`$009` is mode 2), and for a non-standard layout on 1
-(`$018`); 185 have no layer 3. The other 24 maps do not build an L1 at all, so
-they have no verdict (their refusal reasons were not tabulated). "No layer 3" is
-reported before the layout reason. The corpus sweep in
-`test/suite/unit/MapScreenL3.test.ts` compares every slot's priority bit,
-layout and draw decision with a straight decode of the header and the tables.
+**Measured, one ROM.** Over the vanilla ROM's 512 slot ids that have level
+data (one machine, `buildL3Verdict` against a straight decode, with an empty
+palette and no vertical flag): layer 3 is drawn on 22, skipped as camera-locked
+on 4 (`$011 $018 $130 $1C1`), refused as a Mode 7 room on 24, and 462 have no
+layer 3. `$009`, `$0E7` and `$1CE` draw; `$018` (mode 0E) is camera-locked, so
+the additive layer 3 over layers 1 and 2 shows only once #563 draws it. "No
+layer 3" is reported before the Mode 7 reason. The corpus sweep in
+`test/suite/unit/MapScreenL3.test.ts` compares every slot's priority bit, plane
+lists, CGADSUB and draw decision with a straight decode of the header and the
+tables.
 
 ---
 

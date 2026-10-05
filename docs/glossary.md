@@ -180,7 +180,7 @@ goes in the tooltip, because what a layer does depends on the map.
 | Toolbar        | ROM name     | Role (tooltip)                                                                                                                                                                  |
 | -------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Layer 1**    | BG1          | Foreground. The terrain the player walks on, built from the map's object stream through Map16.                                                                                  |
-| **Layer 2**    | BG2          | Background. Either a preset pattern that repeats across the map, or built from its own object stream like the foreground, with its own screen stride.                           |
+| **Layer 2**    | BG2          | Background, or Foreground on the level modes whose VerticalTable bit 7 is set (layer 2 interactive, `bank_00.asm:11736-11738`). Either a preset pattern that repeats across the map, or built from its own object stream like the foreground, with its own screen stride.                           |
 | **Layer 3**    | BG3          | A fixed image chosen per level (none, or one of three per tileset). Drawn 2bpp, never through Map16. Overlay when the header's BG3 priority bit is set, Background when clear.   |
 | **Sprites**    | OAM          | Objects placed at free positions rather than on a grid.                                                                                                                         |
 
@@ -193,7 +193,7 @@ just behind layer 1, and the level mode's main and sub screen designations
 (`bank_05.asm:480-504`) decide whether layer 2 shares a screen with layer 1 at
 all. "Foreground", "Background" and "Effects" as fixed labels were wrong
 whenever a map broke the pattern. The number never misleads; the tooltip names
-the role this map gives it: "Layer 2 · Background", "Layer 3 · Overlay" (bit
+the role this map gives it: "Layer 2 · Background" ("Layer 2 · Foreground" on an interactive layer 2 mode), "Layer 3 · Overlay" (bit
 set) or "Layer 3 · Background" (bit clear). Veterans of other editors read the
 numbers directly, and tutorials and patch readmes use them.
 

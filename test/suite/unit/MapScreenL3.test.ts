@@ -1,6 +1,6 @@
 /**
- * Layer 3 on the map tab (#561): the gate (`buildL3Verdict`), the drawing
- * (`drawL3Planes`), the stacking (`mapPlaneOrder`) and the wire. Synthetic ROMs
+ * Layer 3 on the map tab (#561, #562): the gate (`buildL3Verdict`), the drawing
+ * (`drawL3Planes`), the per-screen plane lists and the wire. Synthetic ROMs
  * and inputs throughout, so CI needs no cart; the corpus sweep at the end
  * compares every vanilla map's verdict with a straight decode of its header
  * and the mode tables.
@@ -17,13 +17,17 @@ import {
   screenResult,
   type MapInputs,
 } from '../../../theia/extension/src/node/map-screen'
-import {
-  mapPlaneOrder,
-  type MapPlaneKey,
-} from '../../../theia/extension/src/common/project-protocol'
+import { MAP_PLANE_KEYS } from '../../../theia/extension/src/common/project-protocol'
+import { composeScreen } from '../../../src/rom/model/ColorMath'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
 import { COLORS, hGrid, inputs, px, sub, tile } from '../support/mapInputs'
 import { modeTablesRom, STANDARD_MODES, sweepLayouts, withLayer3 } from '../support/l3Rom'
+import type { ModeLayout } from '../../../src/rom/LevelScreenTables'
+import {
+  FALLBACK_SCREENS,
+  screenPlanes,
+  type ScreenPlanes,
+} from '../../../src/rom/model/ScreenPlanes'
 
 const BG_OK = { ok: true as const, mode: 1 }
 const GATE_OK = { ok: true as const }
@@ -41,58 +45,50 @@ const l3Of = (words: [number, number, number][], o: Partial<L3Inputs> = {}): L3I
   for (const [r, c, w] of words) tilemap[r * 64 + c] = w
   return { tilemap, chars: chars(), colors: COLORS, yPx: 0x40, camYPx: 0, tide: false, ...o }
 }
-const verdict = (priority: boolean, l3: L3Inputs | null, layout: L3Verdict['layout'] = 'standard'): L3Verdict => ({ layout, priority, l3, reason: l3 ? null : 'none' }) // prettier-ignore
+const verdict = (priority: boolean, l3: L3Inputs | null, screens: ScreenPlanes = screenPlanes(0x15, 0x02, priority)): L3Verdict => ({ screens, cgadsub: 0x20, layer2Interactive: false, priority, l3, reason: l3 ? null : 'none' }) // prettier-ignore
 const wireOf = (m: MapInputs, screen = 0) => {
   const w = screenResult(m, screen)
   if (w.status !== 'ok') throw new Error(w.status)
   return w
 }
-/** What the view shows at a pixel: the planes in `mapPlaneOrder`, each covering what is under it. */
+/** What the view shows at a pixel: the payload's lists and math through composeScreen, as the widget runs it. Red channel, or null where nothing shows. */
 const shown = (m: MapInputs, x = 3, y = 3): number | null => {
   const w = wireOf(m)
-  return mapPlaneOrder(w.layer3).reduce<number | null>((top, k: MapPlaneKey) => {
-    const p = decode(w.planes[k])
-    return p && px(p, 256, x, y)[3] === 255 ? px(p, 256, x, y)[0]! : top
-  }, null)
+  const planes = Object.fromEntries(MAP_PLANE_KEYS.map(k => [k, decode(w.planes[k])]))
+  const out = composeScreen({ width: w.width, height: w.height, planes, lists: w.screens, math: w.math }) // prettier-ignore
+  const p = px(out, w.width, x, y)
+  return p[3] === 255 ? p[0]! : null
 }
 const L1_COLOR = 1
 const L3_COLOR = 6
-const L2_COLOR = 35
+/** Layer 2's color after the 5-bit round trip the math stage applies to a sub-screen pixel. */
+const L2_COLOR = ((35 >> 3) << 3) | ((35 >> 3) >> 2)
 const solid2 = (priority: boolean) => tile(2, [sub(3, 2, priority), sub(3, 2, priority), sub(3, 2, priority), sub(3, 2, priority)]) // prettier-ignore
 const rom5 = () => withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: 0, setting: 2, settingsByte: 2, word: L3_WORD(true) }) // prettier-ignore
 
 describe('layer 3 gate, every level mode (synthetic header and mode tables)', () => {
-  it('draws layer 3 iff the mode is a standard layout; otherwise a reason and no layer 3 pixels', () => {
+  it('draws layer 3 iff the special setting is zero; otherwise a reason, no pixels, no math', () => {
     const rom = rom5()
+    const layouts = sweepLayouts()
     const drawn: number[] = []
     for (let mode = 0; mode < 32; mode++) {
       const v = buildL3Verdict(rom, 5, l1Of(mode, 0, true), BG_OK, chars, GATE_OK)
       if (v.l3) drawn.push(mode)
-      else expect(v.reason, `mode ${mode}`).toMatch(/Layer 3 not drawn yet/)
+      else expect(v.reason, `mode ${mode}`).toMatch(/Layer 3 not drawn/)
       const w = wireOf({ ...l1Of(mode, 0, true), l3: v })
       expect([w.planes.l3Low, w.planes.l3High].some(p => p !== null), `mode ${mode} pixels`).toBe(v.l3 !== null) // prettier-ignore
-      expect(w.layer3.layout).toBe(v.l3 ? 'standard' : 'other')
     }
-    expect(drawn).toEqual(STANDARD_MODES)
+    expect(drawn).toEqual(layouts.flatMap((l, m) => (l.special === 0 ? [m] : [])))
+    expect(drawn.length).toBeGreaterThan(STANDARD_MODES.length) // non-standard layouts draw now
   })
 
-  it('names the reason: interactive layer 2, no layer 3 on the map, an unverified BG mode', () => {
+  it('names the reason: Mode 7 room, no layer 3 on the map, an unverified BG mode', () => {
     const rom = rom5()
-    expect(buildL3Verdict(rom, 5, l1Of(2, 0, false), BG_OK, chars, GATE_OK).reason).toMatch(
-      /interactive layer 2/,
-    ) // mode 2: bit 7
-    expect(buildL3Verdict(rom, 6, l1Of(0, 0, false), BG_OK, chars, GATE_OK)).toMatchObject({ layout: 'standard', l3: null, reason: 'This map has no layer 3' }) // prettier-ignore
-    // No layer 3 outranks the layout: an interactive-layer-2 map without one says so, and still stacks as 'other'.
-    expect(buildL3Verdict(rom, 6, l1Of(2, 0, false), BG_OK, chars, GATE_OK)).toMatchObject({ layout: 'other', l3: null, reason: 'This map has no layer 3' }) // prettier-ignore
-    const bg = buildL3Verdict(
-      rom,
-      5,
-      l1Of(0, 0, false),
-      { ok: false, reason: 'hooked' },
-      chars,
-      GATE_OK,
-    )
-    expect(bg).toMatchObject({ layout: 'other', l3: null, reason: 'Layer 3 not drawn: hooked' })
+    const special = sweepLayouts().findIndex(l => l.special !== 0)
+    expect(buildL3Verdict(rom, 5, l1Of(special, 0, false), BG_OK, chars, GATE_OK).reason).toMatch(/Mode 7/) // prettier-ignore
+    expect(buildL3Verdict(rom, 6, l1Of(0, 0, false), BG_OK, chars, GATE_OK)).toMatchObject({ l3: null, reason: 'This map has no layer 3' }) // prettier-ignore
+    const bg = buildL3Verdict(rom, 5, l1Of(0, 0, false), { ok: false, reason: 'hooked' }, chars, GATE_OK) // prettier-ignore
+    expect(bg).toMatchObject({ l3: null, reason: 'Layer 3 not drawn: hooked', cgadsub: null })
   })
 
   it('the header bit is carried as read, never forced', () => {
@@ -149,17 +145,115 @@ describe('layer 3 against layers 1 and 2 (synthetic)', () => {
     expect(shown(m)).toBe(L1_COLOR)
   })
 
-  it('a layout that is not standard keeps the old order: layer 2 high over layer 1 low', () => {
-    const m = mapOf(verdict(false, null, 'other'), true)
-    m.grid[0]![0] = 1
-    m.l2 = { ok: true, l2: { ...(m.l2 as { ok: true; l2: never }).l2, tiles: [undefined, undefined, solid2(true)] } } // prettier-ignore
-    expect(shown(m)).toBe(L2_COLOR)
-    expect(mapPlaneOrder({ layout: 'other', priority: true })).toEqual(['l2Low', 'l1Low', 'l2High', 'l1High']) // prettier-ignore
+  it('mode 0C (CGADSUB $70) with a non-black back area: layer 2 halved, the back area where nothing draws', () => {
+    const l3 = { ...verdict(false, null), cgadsub: 0x70 }
+    const m = mapOf(l3, true) // layer 2 at (3, 3); the fixture's back area is not black
+    expect(m.backArea.slice(0, 3)).not.toEqual([0, 0, 0])
+    expect(shown(m)).toBe(((35 >> 3) >> 1) * 8) // 4 halved is 2, expanded: (2 << 3) | (2 >> 2)
+    expect(shown(m, 100, 100)).toBeNull() // transparent: the view's back area layer shows
   })
 
-  it('mapPlaneOrder: layer 2 first, then the main screen with BG3.1 placed by the bit', () => {
-    expect(mapPlaneOrder({ layout: 'standard', priority: true })).toEqual(['l2Low', 'l2High', 'l3Low', 'l1Low', 'l1High', 'l3High']) // prettier-ignore
-    expect(mapPlaneOrder({ layout: 'standard', priority: false })).toEqual(['l2Low', 'l2High', 'l3Low', 'l3High', 'l1Low', 'l1High']) // prettier-ignore
+  it('no verdict (unverified tables) keeps the old order: layer 2 high over layer 1 low', () => {
+    const m = mapOf(verdict(false, null, FALLBACK_SCREENS), true)
+    m.grid[0]![0] = 1
+    m.l2 = { ok: true, l2: { ...(m.l2 as { ok: true; l2: never }).l2, tiles: [undefined, undefined, solid2(true)] } } // prettier-ignore
+    expect(shown(m)).toBe(35) // no math: the plane's own pixel, not re-quantized
+  })
+})
+
+describe('the wire: screens, math, layer 2 role (synthetic)', () => {
+  it('carries both plane lists, the math and the layer 2 role', () => {
+    const l3 = { ...verdict(false, l3Of([word(8, 0, L3_WORD(true))]), screenPlanes(0x04, 0x13, false)), cgadsub: 0x20, layer2Interactive: true } // prettier-ignore
+    const m = { ...l1Of(0, 0, false), l3 }
+    const w = wireOf(m)
+    expect(w.screens).toEqual(screenPlanes(0x04, 0x13, false))
+    // The fixed color is the back area: the same BackAreaColors entry (bank_00.asm:5623-5628).
+    expect(m.backArea.slice(0, 3)).not.toEqual([0, 0, 0])
+    expect(w.math).toEqual({ cgadsub: 0x20, fixed: m.backArea.slice(0, 3) })
+    expect(w.layer2Interactive).toBe(true)
+    expect('layout' in w.layer3).toBe(false)
+  })
+  it('no verdict: fallback lists and math null, the pre-#561 stacking', () => {
+    const w = wireOf({ ...l1Of(0, 0, false), l3: undefined })
+    expect(w).toMatchObject({ screens: FALLBACK_SCREENS, math: null, layer2Interactive: false })
+  })
+  it('a verdict with no math sends none even when it has lists', () => {
+    const l3 = { ...verdict(false, null), cgadsub: null }
+    expect(wireOf({ ...l1Of(0, 0, false), l3 }).math).toBeNull()
+  })
+  it('the standard layout keeps the #561 sub list for both priority bits', () => {
+    for (const pri of [true, false]) {
+      expect(wireOf({ ...l1Of(0, 0, pri), l3: verdict(pri, null) }).screens.sub).toEqual(['l2Low', 'l2High']) // prettier-ignore
+    }
+  })
+})
+
+describe('buildL3Verdict: screens, math and the layer 2 role', () => {
+  const rom = (layout: Partial<ModeLayout>, mode = 5) =>
+    withLayer3(
+      modeTablesRom(sweepLayouts().map((l, m) => (m === mode ? { ...l, ...layout } : l))),
+      { level: 5, tileset: 0, setting: 2, settingsByte: 0x02, word: L3_WORD(false) },
+    )
+  const v = (r: RomFile, mode = 5, pri = false) =>
+    buildL3Verdict(r, 5, l1Of(mode, 0, pri), BG_OK, chars, GATE_OK)
+  const MODE_0E_SCREENS = {
+    main: ['l3Low', 'l3High'],
+    sub: ['l2Low', 'l1Low', 'l2High', 'sprites', 'l1High'],
+  }
+
+  it('mode 0E style: BG3 alone on main, BG1 and BG2 on sub, CGADSUB minus BG3', () => {
+    const r = v(rom({ main: 0x04, sub: 0x13, cgadsub: 0x24, special: 0, vertical: 0 }))
+    expect(r.screens).toEqual(MODE_0E_SCREENS)
+    expect(r.cgadsub).toBe(0x20)
+    expect(r.l3).not.toBeNull()
+  })
+  it('an interactive mode draws layer 3 (the #561 refusal is gone) and reports layer 2 interactive', () => {
+    const r = v(rom({ main: 0x17, sub: 0x00, special: 0, vertical: 0x80 }))
+    expect(r).toMatchObject({ reason: null, layer2Interactive: true })
+    expect(r.screens.main).toEqual(['l3Low', 'l3High', 'l2Low', 'l1Low', 'l2High', 'sprites', 'l1High']) // prettier-ignore
+  })
+  it('mode 11 style: BG2 on main but not interactive, math kept minus BG3', () => {
+    const r = v(rom({ main: 0x17, sub: 0x00, cgadsub: 0xff, special: 0, vertical: 0 }))
+    expect(r.layer2Interactive).toBe(false)
+    expect(r.cgadsub).toBe(0xfb)
+  })
+  it('a special-setting (Mode 7) mode: refused, old order, no math, role not claimed', () => {
+    const r = v(rom({ special: 0xc0, vertical: 0x80 }))
+    expect(r).toMatchObject({ l3: null, cgadsub: null, screens: FALLBACK_SCREENS })
+    expect(r.layer2Interactive).toBe(false)
+    expect(r.reason).toMatch(/Layer 3 not drawn/)
+  })
+  it('layer 2 role does not depend on layer 3 drawing (no layer 3 on the map)', () => {
+    const r = buildL3Verdict(
+      rom({ main: 0x17, sub: 0x00, vertical: 0x80 }),
+      6,
+      l1Of(5, 0, false),
+      BG_OK,
+      chars,
+      GATE_OK,
+    )
+    expect(r).toMatchObject({ l3: null, layer2Interactive: true, cgadsub: 0x20 })
+  })
+  it('unreadable mode tables (a hooked loader): fallback order, no math, no throw', () => {
+    const blank = new RomFile('x.sfc', Buffer.alloc(0x80000))
+    const r = buildL3Verdict(blank, 5, l1Of(0, 0, false), BG_OK, chars, GATE_OK)
+    expect(r).toMatchObject({ cgadsub: null, screens: FALLBACK_SCREENS, layer2Interactive: false })
+  })
+  it('camera-locked layer 3 keeps BG3 in CGADSUB (not drawn; #563 inherits this)', () => {
+    const locked = withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: 0, setting: 2, settingsByte: 0x81, word: L3_WORD(false) }) // prettier-ignore
+    const r = buildL3Verdict(locked, 5, l1Of(0, 0, false), BG_OK, chars, GATE_OK)
+    expect(r.reason).toMatch(/camera-locked/)
+    expect(r.cgadsub! & 0x04).toBe(0x04)
+  })
+  it('settings byte $00 off tilesets 1 and 3 is camera-locked but BG3 is still cleared (CODE_00A01B)', () => {
+    const rom0 = withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: 0, setting: 2, settingsByte: 0x00, word: L3_WORD(false) }) // prettier-ignore
+    const r = buildL3Verdict(rom0, 5, l1Of(0, 0, false), BG_OK, chars, GATE_OK)
+    expect(r.reason).toMatch(/camera-locked/)
+    expect(r.cgadsub! & 0x04).toBe(0)
+  })
+  it('planted defect: tables read with main and sub swapped fail the mode 0E assertions', () => {
+    const swapped = rom({ main: 0x13, sub: 0x04, cgadsub: 0x24, special: 0, vertical: 0 })
+    expect(v(swapped).screens).not.toEqual(MODE_0E_SCREENS)
   })
 })
 
@@ -263,7 +357,7 @@ describe('drawL3Planes (synthetic)', () => {
 describe('maps layer 3 is not drawn on (synthetic)', () => {
   it('a vertical map says so, whatever else would draw', () => {
     const l1 = { ...l1Of(3, 0, false), isVertical: true } // mode 3: standard layout, vertical
-    expect(buildL3Verdict(rom5(), 5, l1, BG_OK, chars, GATE_OK)).toMatchObject({ layout: 'standard', l3: null, reason: 'Layer 3 not drawn yet: vertical maps' }) // prettier-ignore
+    expect(buildL3Verdict(rom5(), 5, l1, BG_OK, chars, GATE_OK)).toMatchObject({ l3: null, reason: 'Layer 3 not drawn yet: vertical maps' }) // prettier-ignore
   })
 
   it('settings $00 follows the camera off Castle1 and Underground1, like $81', () => {
@@ -304,28 +398,63 @@ describe('tide or not, by the settings byte (synthetic)', () => {
 describe.skipIf(!hasRom(VANILLA))(
   'every vanilla map: renderer verdict equals a straight decode (corpus)',
   () => {
-    it('priority bit, layout and skip decision agree on every slot', () => {
+    /** An independent mask-to-keys loop over the hand-written mode 1 order (not ScreenPlanes). */
+    const keys = (mask: number, pri: boolean) => {
+      const table = pri
+        ? ['l3Low', 'sp0', 'sp1', 'l2Low', 'l1Low', 'sp2', 'l2High', 'l1High', 'sp3', 'l3High']
+        : ['l3Low', 'sp0', 'l3High', 'sp1', 'l2Low', 'l1Low', 'sp2', 'l2High', 'l1High', 'sp3']
+      const bg = table.filter(
+        k => !k.startsWith('sp') && mask & ({ l1: 1, l2: 2, l3: 4 } as Record<string, number>)[k.slice(0, 2)]!, // prettier-ignore
+      )
+      if (!(mask & 0x10)) return bg
+      const at = bg.includes('l1High')
+        ? bg.indexOf('l1High')
+        : table.slice(0, table.indexOf('sp2')).filter(k => bg.includes(k)).length
+      return [...bg.slice(0, at), 'sprites', ...bg.slice(at)]
+    }
+
+    it('priority bit, plane lists, math and skip decision agree on every slot', () => {
       const rom = RomFile.load(romPath(VANILLA))
       const smw = new SmwRom(rom)
       const tbl = (a: number) => Array.from(rom.readAt(a, 32)!)
-      const [main, sub2, special, vertical] = [0x058437, 0x058457, 0x058497, 0x058417].map(tbl)
-      let checked = 0
+      const [main, sub2, cgadsub, special, vertical] = [0x058437, 0x058457, 0x058477, 0x058497, 0x058417].map(tbl) // prettier-ignore
+      const seen = { checked: 0, drawn: 0, noLayer3: 0, locked: 0, special: 0 }
+      const drew: Record<number, boolean> = {}
       for (let id = 0; id < 512; id++) {
         const raw = smw.getLevelRawData(id)
         if (!raw) continue
         const header = parseLevelHeader(raw)
         const mode = header.levelMode
-        const standard = main![mode] === 0x15 && sub2![mode] === 2 && special![mode] === 0 && (vertical![mode]! & 0x80) === 0 // prettier-ignore
         const setting = (rom.readByte(0x05f200 + id)! & 0xc0) >> 6
         const byte = setting ? rom.readByte(0x009f88 + header.objectTileset * 3 + setting - 1)! : 0
         const locked = setting > 0 && (byte & 0xc0) === 0x80 && (byte & 0x3f) !== 0 && header.objectTileset !== 1 && header.objectTileset !== 3 // prettier-ignore
         const v = buildL3Verdict(rom, id, { header, isVertical: false, colors: [] }, BG_OK)
-        expect([id, v.priority]).toEqual([id, (raw[2]! & 0x80) !== 0])
-        expect([id, v.layout]).toEqual([id, standard ? 'standard' : 'other'])
-        expect([id, v.l3 !== null]).toEqual([id, standard && setting > 0 && !locked])
-        checked++
+        const pri = (raw[2]! & 0x80) !== 0
+        expect([id, v.priority]).toEqual([id, pri])
+        if (special![mode] !== 0) {
+          expect([id, v.l3, v.cgadsub]).toEqual([id, null, null])
+          seen.special++
+        } else {
+          expect([id, v.screens]).toEqual([id, { main: keys(main![mode]!, pri), sub: keys(sub2![mode]!, pri) }]) // prettier-ignore
+          expect([id, v.layer2Interactive]).toEqual([id, (vertical![mode]! & 0x80) !== 0])
+          expect([id, v.cgadsub! & 0x04]).toEqual([id, locked ? cgadsub![mode]! & 0x04 : 0])
+          expect([id, v.cgadsub! & ~0x04]).toEqual([id, cgadsub![mode]! & ~0x04])
+          expect([id, v.l3 !== null]).toEqual([id, setting > 0 && !locked])
+          if (setting === 0) seen.noLayer3++
+          else if (locked) seen.locked++
+          else seen.drawn++
+        }
+        drew[id] = v.l3 !== null
+        seen.checked++
       }
-      expect(checked).toBeGreaterThan(400)
+      expect(seen.checked).toBeGreaterThan(400)
+      expect(seen.drawn + seen.noLayer3 + seen.locked + seen.special).toBe(seen.checked)
+      expect(seen.drawn).toBeGreaterThan(0)
+      // Named maps (vanilla, 2026-10-05 probe): $009, $0E7 and $1CE draw; $018 is camera-locked,
+      // $10E and $1BD have no layer 3.
+      for (const id of [0x009, 0x0e7, 0x1ce]) expect([id, drew[id]]).toEqual([id, true])
+      for (const id of [0x018, 0x10e, 0x1bd]) expect([id, drew[id]]).toEqual([id, false])
+      console.log('layer 3 corpus sweep', JSON.stringify(seen))
     }, 60_000)
   },
 )
