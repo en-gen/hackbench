@@ -2160,6 +2160,8 @@ const gridPixelsMatchLines = (page, index) =>
     const o = document.querySelector(`${sel} .hb-grid-overlay`)
     if (!o || o.width === 0 || o.height === 0) return false
     const lines = JSON.parse(o.dataset.gridLines)
+    // No expected lines would match an empty canvas: that is "not drawn yet", not "settled".
+    if (lines.x.length === 0 || lines.y.length === 0) return false
     const W = o.width
     const H = o.height
     const data = o.getContext('2d').getImageData(0, 0, W, H).data
@@ -2183,6 +2185,28 @@ const gridPixelsMatchLines = (page, index) =>
       )
     )
   }, root(index))
+
+test('gridPixelsMatchLines is true when painted, false when cleared, and false for zero lines', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await showGrid(page, 0x105)
+  await gridSettled(page, 0x105)
+  expect(await gridPixelsMatchLines(page, 0x105)).toBe(true)
+  const overlay = fn => page.evaluate(fn, root(0x105))
+  await overlay(sel => {
+    const o = document.querySelector(`${sel} .hb-grid-overlay`)
+    o.getContext('2d').clearRect(0, 0, o.width, o.height)
+  })
+  // Metadata untouched, canvas blank: the oracle must see the difference.
+  expect(await gridPixelsMatchLines(page, 0x105)).toBe(false)
+  // Zero lines listed and nothing painted must not read as settled.
+  await overlay(sel => {
+    document.querySelector(`${sel} .hb-grid-overlay`).dataset.gridLines = '{"x":[],"y":[]}'
+  })
+  expect(await gridPixelsMatchLines(page, 0x105)).toBe(false)
+})
 
 // Assumptions: $105 is horizontal and 10+ screens wide, so at Fit (height-fitted) and at 200% it
 // scrolls sideways; $109 is vertical and several screens tall, so it scrolls down. Both are
