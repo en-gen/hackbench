@@ -80,7 +80,7 @@ figcaption{font-size:11px;color:#858585;margin-top:4px}figcaption.w{color:#9cdcf
 label{margin-left:12px}
 </style></head><body>
 <h1>Progressive powerup blocks, map ${map}</h1>
-<p class="note">Real blocks of map ${map} (flower and feather blocks, from its level data) beside plain blocks added in free cells (coin, 1-Up, mushroom). Hover a block to grow its indicator to the full block. <label><input type="checkbox" id="dk"> dark background instead of the map backdrop</label></p>
+<p class="note">Real blocks of map ${map} (flower and feather blocks, from its level data) beside plain blocks added in free cells (1-Up, coin, star, left to right). Hover a block to grow its indicator to the full block. <label><input type="checkbox" id="dk"> dark background instead of the map backdrop</label></p>
 <p class="note">Properties panel, Contains row:</p>${props}
 ${body}
 <script>
