@@ -10,6 +10,9 @@ const VARIANTS = [
   ['HL', 'HL. Horizontal split; 1px white line, 1px black border on the mushroom side only', 'hor', 1, 0, 1, '#fff'],
   ['HD', 'HD. Horizontal split; 1px black line', 'hor', 1, 0, 0, '#000'],
   ['HH', 'HH. Horizontal split; hard split, no line', 'hor', 0, 0, 0, '#fff'],
+  ['VO', 'VO. Vertical split (mushroom left, powerup right); 1px white line, 1px black border each side', 'ver', 1, 1, 1, '#fff'],
+  ['VD', 'VD. Vertical split (mushroom left, powerup right); 1px black line', 'ver', 1, 0, 0, '#000'],
+  ['VH', 'VH. Vertical split (mushroom left, powerup right); hard split, no line', 'ver', 0, 0, 0, '#fff'],
   ['DO', 'DO. Diagonal top-left to bottom-right (powerup top-right); 1px white line, 1px black border each side', 'tlbr', 1, 1, 1, '#fff'],
 ]
 const containsText = (b) => `${labels.mushroom} if Mario is small, otherwise ${labels[b.other]}`
@@ -62,6 +65,7 @@ body{--bg:${bg}}body.dark{--bg:#1e1e1e}
 .bd .o{clip-path:var(--co)}.bd .m{clip-path:var(--cm)}
 section{--co:polygon(0 0,100% 0,100% 100%);--cm:polygon(0 0,100% 100%,0 100%);--dir:to top right}
 section[data-ang=hor]{--co:polygon(0 0,100% 0,100% 50%,0 50%);--cm:polygon(0 50%,100% 50%,100% 100%,0 100%);--dir:to bottom}
+section[data-ang=ver]{--co:polygon(50% 0,100% 0,100% 100%,50% 100%);--cm:polygon(0 0,50% 0,50% 100%,0 100%);--dir:to right}
 .ln{display:none;position:absolute;inset:0;--a:calc(50% - var(--lw)*.5px);--b:calc(50% + var(--lw)*.5px);--p:calc(var(--a) - var(--bt)*1px);--q:calc(var(--b) + var(--bb)*1px);background:linear-gradient(var(--dir),transparent var(--p),#000 var(--p),#000 var(--a),var(--lc) var(--a),var(--lc) var(--b),#000 var(--b),#000 var(--q),transparent var(--q))}
 section:not([style*="--lw:0"]) .ln{display:block}
 .msg{min-height:20px;margin-top:6px;font-size:12px;color:#9cdcfe}.cap{font-size:11px;color:#858585;margin-bottom:4px;height:14px}

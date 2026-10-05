@@ -35,8 +35,16 @@ family is a horizontal split, clipped at the vertical midpoint.
 2. HL: horizontal; 1px white line, 1px black border on the mushroom side only.
 3. HD: horizontal; 1px black line.
 4. HH: horizontal; hard split, no line.
-5. DO: diagonal top-left to bottom-right (powerup top-right, mushroom
+5. VO: vertical split at the horizontal midpoint (mushroom left, powerup
+   right); 1px white line, 1px black border each side.
+6. VD: vertical; 1px black line.
+7. VH: vertical; hard split, no line.
+8. DO: diagonal top-left to bottom-right (powerup top-right, mushroom
    bottom-left); 1px white line, 1px black border each side.
+
+Owner rule for every variant: progression reads left to right and bottom to
+top. The mushroom is always the left or bottom item and the powerup always the
+right or top item (diagonal: mushroom bottom-left, powerup top-right).
 
 A checkbox on the page switches the stage to a dark backdrop.
 
