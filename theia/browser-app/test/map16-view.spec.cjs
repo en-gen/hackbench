@@ -2679,6 +2679,7 @@ test('a Map16 view waiting on a missing ROM repaints after Project Properties re
 test('hovering a tile outlines it black-outside white-inside and leaves every other pixel alone', async ({
   page,
 }) => {
+  test.skip(!fs.existsSync(ROM), 'needs the vanilla corpus ROM')
   await loadGfxExplorer(page, path.join(tmp, 'HoverOutline'))
   await openMap16(page, 'fg')
   const sheetPixels = () =>
