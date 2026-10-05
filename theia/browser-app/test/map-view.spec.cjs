@@ -1524,7 +1524,9 @@ for (const [index, vertical] of [
     expect(new Set([...g.xLines, ...g.yLines].map(l => l.weight))).toEqual(new Set([1, 3, 5]))
     // Pixels: each vertical line paints exactly its weight, centred on its boundary pixel.
     expect(runs(g.rowHits)).toEqual(g.xLines.map(l => ({ start: l.start, size: l.size })))
-    for (const l of g.xLines.filter(l => l.weight > 1 && l.start > 0))
+    // The content's own left and right edges are clipped, so their centre is not the boundary.
+    const lastPos = Math.max(...g.xLines.map(l => l.pos))
+    for (const l of g.xLines.filter(l => l.weight > 1 && l.start > 0 && l.pos < lastPos))
       expect(l.start + (l.size - 1) / 2).toBe(Math.round(l.pos * g.dpr))
   })
 }
@@ -1533,7 +1535,10 @@ test('the grid canvas is viewport-sized, however wide the map and zoom', async (
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
   await showGrid(page, 0x105)
-  for (let i = 0; i < 4; i++) await page.locator(`${root(0x105)} [data-control="zoom-in"]`).click()
+  // To the maximum: the button disables there (Fit may already start above 100%).
+  const zin = page.locator(`${root(0x105)} [data-control="zoom-in"]`)
+  for (let i = 0; i < 6 && (await zin.isEnabled()); i++) await zin.click()
+  await expect(zin).toBeDisabled()
   await page.waitForTimeout(400)
   const m = await page.evaluate(sel => {
     const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
