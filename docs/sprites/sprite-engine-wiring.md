@@ -194,3 +194,48 @@ vanilla level's sprite stream, so the vanilla ROM cannot show it in the editor
 at all. Hack ROMs in `test/roms/` do place it; `GrandPooWorld_V1.2.sfc` map
 `$113` at (col 93, row 23) and (col 77, row 23) is the most plausible pair, but
 that was not visually confirmed.
+
+## Theia wiring (#564)
+
+The Theia map tab draws sprites through the same table engine, without the
+scaffolding above: no toggle between engines, no corner ticks, no fallback to
+the retired appearance classes. Evidence scope: the vanilla ROM in the corpus,
+read through `drawSpriteParts`; no emulator was run.
+
+- `theia/extension/src/node/map-sprites.ts` parses the level's stream with
+  `parseLevelSprites`, resolves identity (`findDescriptor`, `resolveIdentity`),
+  and draws each sprite at `romFrame` 0 with Mario's X from
+  `readMarioStartPos`. Chars come from the map's VRAM (SP1-SP4), colors from
+  its CGRAM; the palette row is the engine's own per-part answer, and a
+  `dynamicCgram` note is spliced over that row as above.
+- Each sprite is one bitmap at anchor + `dx`/`dy`, never snapped to the grid.
+  A sprite the engine declines (`noDescriptor`, `customHandler`,
+  `unexpectedOpcode` and the other failure kinds), or whose chars are not in
+  the level's sprite set (`charsNotLoaded`), is a 16 x 16 marker at the anchor
+  with its hex id. That includes the non-visual sprites (auto-scroll,
+  generators, layer control), whose real treatment is deferred.
+- Counts on the vanilla ROM: `$106` has 25 sprites, 15 drawn and 10 markers;
+  `$105` has 34, all markers, because none of its ids has a descriptor (the
+  issue named `$105` as holding covered ids; it does not).
+- Overlap between sprites: column order on a horizontal map, row order on a
+  vertical one, the stream's order breaking ties, later on top. This is a
+  display choice, not the game's OAM order.
+- The anchor is the raw stream position; INIT-time position changes are not
+  applied yet (for example InitPiranha's shift on `$4F`, `SMWDisX`
+  `bank_01.asm:880-889`, and others). They are to come from interpreting INIT,
+  not from a per-sprite table.
+- A sprite with bit 3 of byte 0 set is a marker with reason `extraBits`: the
+  gate fails closed for sprites that MAY be custom (PIXI dispatches on bit 3).
+  Vanilla scroll/command sprites (`$E8`, `$E9`, `$EA`, `$F5`; e.g. slot `$115`
+  id `$EA`) also set it, since scroll sprites read the bits as
+  `Layer1ScrollBits` (`bank_02.asm:5301-5305`), and get the same marker; that
+  costs nothing today because none has a descriptor. Bit 2 is not gated:
+  vanilla keeps both extra bits in Y high (`bank_02.asm:5441-5447`) and the
+  goal tape saves them (`InitGoalTape`, `bank_01.asm:8785-8788`) and reads
+  bit 2 as its secret exit (`bank_01.asm:8833-8836`). Custom PIXI sprites on
+  GrandPooWorld_V1.2 were measured with EE = 2 (reviewer's scan, one ROM).
+  On vanilla no sprite with bit 3 has a descriptor, so `$106` still draws 15.
+- A `dynamicCgram` splice applies only to parts on the note's row.
+- The stream is read with `readUpTo` (a stream at the ROM's end still parses);
+  one with no `$FF` in the bytes read carries a `note` on the reply, shown on
+  the map tab.
