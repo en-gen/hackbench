@@ -16,7 +16,6 @@ import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message, Widget } from '@theia/core/lib/browser'
 import {
   MAP_PLANE_KEYS,
-  mapPlaneOrder,
   MapDetailsDto,
   MapPlaneKey,
   MapScreenResult,
@@ -34,6 +33,8 @@ import { PixelImageButton, type FrameImage } from './pixel-image-button'
 import { slotLabel } from './map-explorer-widget'
 import { WheelBinding, ZoomController } from './zoom-controller'
 import { ZoomStepper } from './zoom-stepper'
+import { layer2Label } from './map-layer-labels'
+import { composeScreen } from '../../../../src/rom/model/ColorMath'
 import { perfEnd, perfStart } from '../common/perf-marks'
 
 export { slotLabel }
@@ -42,6 +43,10 @@ interface ScreenImages {
   width: number
   height: number
   planes: Record<MapPlaneKey, ImageData | null>
+  /** What the compositor needs, from the same reply (#562). */
+  screens: Layout['screens']
+  math: Layout['math']
+  backdrop: Layout['backdrop']
 }
 
 export const MAP_VIEW_ID = 'hackbench.map-view'
@@ -106,6 +111,9 @@ export class MapViewWidget extends ReactWidget {
   /** Keyed `<plane>:<screen>`. */
   protected readonly canvases = new Map<string, HTMLCanvasElement>()
   protected readonly canvasRefs = new Map<string, (el: HTMLCanvasElement | null) => void>()
+  /** The composite canvas of each screen (what the user sees), keyed by screen index. */
+  protected readonly composites = new Map<number, HTMLCanvasElement>()
+  protected readonly compositeRefs = new Map<number, (el: HTMLCanvasElement | null) => void>()
   protected scroller: HTMLDivElement | null = null
   /** Refits when the strip's box changes, e.g. when the facts line arrives above it. */
   protected readonly resizes = new ResizeObserver(() => this.fitStrip())
@@ -274,6 +282,9 @@ export class MapViewWidget extends ReactWidget {
       planes: Object.fromEntries(
         MAP_PLANE_KEYS.map(k => [k, image(r.planes[k])]),
       ) as ScreenImages['planes'],
+      screens: r.screens,
+      math: r.math,
+      backdrop: r.backdrop,
     })
     const l = this.mapLayout
     if (
@@ -282,7 +293,8 @@ export class MapViewWidget extends ReactWidget {
       l.orientation !== r.orientation ||
       l.note !== r.note ||
       l.layerNotes.join() !== r.layerNotes.join() ||
-      JSON.stringify(l.layer3) !== JSON.stringify(r.layer3) ||
+      JSON.stringify([l.layer3, l.screens, l.math, l.layer2Interactive]) !==
+        JSON.stringify([r.layer3, r.screens, r.math, r.layer2Interactive]) ||
       l.backdrop.join() !== r.backdrop.join()
     ) {
       // The first reply sizes the strip; the screens in view follow once it is laid out.
@@ -337,6 +349,62 @@ export class MapViewWidget extends ReactWidget {
         delete canvas.dataset.drawn
       }
     }
+    for (const [s, canvas] of this.composites) this.paintComposite(s, canvas)
+  }
+
+  /**
+   * One screen's picture: the plane canvases' pixels, composited per SNES screen with color
+   * math (#562). Redone on every layer toggle, since a toggle changes both plane lists.
+   */
+  protected paintComposite(s: number, canvas: HTMLCanvasElement): void {
+    const shot = this.screens.get(this.key(s))
+    if (!shot) {
+      if (this.screenError && canvas.dataset.drawn) {
+        canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height)
+        delete canvas.dataset.drawn
+      }
+      return
+    }
+    const want = `${this.generation}:${this.key(s)}:${+this.showL1}${+this.showL2}${+this.showL3}`
+    if (canvas.dataset.drawn === want) return
+    canvas.width = shot.width
+    canvas.height = shot.height
+    const planes = Object.fromEntries(
+      MAP_PLANE_KEYS.map(k => [k, this.layerShown(k) ? (shot.planes[k]?.data ?? null) : null]),
+    )
+    const out = composeScreen({
+      width: shot.width,
+      height: shot.height,
+      planes,
+      lists: shot.screens,
+      backdrop: [shot.backdrop[0], shot.backdrop[1], shot.backdrop[2]],
+      math: shot.math,
+    })
+    canvas.getContext('2d')?.putImageData(new ImageData(out, shot.width, shot.height), 0, 0)
+    canvas.dataset.drawn = want
+  }
+
+  protected layerShown(plane: MapPlaneKey): boolean {
+    return plane.startsWith('l2') ? this.showL2 : plane.startsWith('l3') ? this.showL3 : this.showL1
+  }
+
+  protected compositeRef(s: number): (el: HTMLCanvasElement | null) => void {
+    let ref = this.compositeRefs.get(s)
+    if (!ref) {
+      let mine: HTMLCanvasElement | null = null
+      ref = el => {
+        if (el) {
+          mine = el
+          this.composites.set(s, el)
+          this.sync()
+        } else {
+          if (this.composites.get(s) === mine) this.composites.delete(s)
+          mine = null
+        }
+      }
+      this.compositeRefs.set(s, ref)
+    }
+    return ref
   }
 
   /**
@@ -396,16 +464,19 @@ export class MapViewWidget extends ReactWidget {
   protected toggleL1(): void {
     this.showL1 = !this.showL1
     this.update()
+    this.sync()
   }
 
   protected toggleL2(): void {
     this.showL2 = !this.showL2
     this.update()
+    this.sync()
   }
 
   protected toggleL3(): void {
     this.showL3 = !this.showL3
     this.update()
+    this.sync()
   }
 
   protected override onResize(msg: Widget.ResizeMessage): void {
@@ -439,7 +510,7 @@ export class MapViewWidget extends ReactWidget {
           />
           <LayerToggle
             glyph="2"
-            label="Layer 2 · Background"
+            label={layer2Label(this.mapLayout)}
             pressed={this.showL2}
             control="layer-l2"
             onClick={() => this.toggleL2()}
@@ -559,7 +630,7 @@ export class MapViewWidget extends ReactWidget {
         ref={this.scrollerRef}
         onScroll={() => this.requestVisible()}
       >
-        {/* Bottom to top (planes by mapPlaneOrder): the checkerboard, the back area, then the screens,
+        {/* Bottom to top (planes by `screens`, composited per screen): the checkerboard, the back area, then the screens,
             so hiding a layer shows what is under it, down to nothing. */}
         <div className="hb-map-view-strip hb-checkerboard">
           <div
@@ -573,19 +644,32 @@ export class MapViewWidget extends ReactWidget {
               className="hb-map-view-screen"
               style={{ width: l.width * this.zoom, height: l.height * this.zoom }}
             >
-              {mapPlaneOrder(l.layer3).map((plane, z) => (
-                <canvas
-                  key={plane}
-                  className="hb-map-view-plane"
-                  data-plane={plane}
-                  data-screen={s}
-                  style={{
-                    zIndex: z + 1,
-                    visibility: (plane.startsWith('l2') ? this.showL2 : plane.startsWith('l3') ? this.showL3 : this.showL1) ? undefined : 'hidden', // prettier-ignore
-                  }}
-                  ref={this.canvasRef(plane, s)}
-                />
-              ))}
+              {MAP_PLANE_KEYS.map(plane => {
+                const z = [...l.screens.sub, ...l.screens.main].indexOf(plane) + 1
+                return (
+                  // The plane canvases are the compositor's source, never seen: opacity 0, not
+                  // display none, so a plane in no list or toggled off still reads as hidden.
+                  <canvas
+                    key={plane}
+                    className="hb-map-view-plane"
+                    data-plane={plane}
+                    data-screen={s}
+                    style={{
+                      zIndex: z,
+                      opacity: 0,
+                      visibility: z > 0 && this.layerShown(plane) ? undefined : 'hidden',
+                    }}
+                    ref={this.canvasRef(plane, s)}
+                  />
+                )
+              })}
+              <canvas
+                className="hb-map-view-plane hb-map-view-composite"
+                data-layer="screen"
+                data-screen={s}
+                style={{ zIndex: 100 }}
+                ref={this.compositeRef(s)}
+              />
             </div>
           ))}
         </div>
