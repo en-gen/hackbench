@@ -123,22 +123,3 @@ export function compositeIndices(
   }
   return out
 }
-
-/**
- * Two-tone outline inside the `size` square at (x, y): black outer ring,
- * white inner ring. White alone vanishes on light tiles and black alone on
- * dark ones; stacking them reads on either. Strokes sit on half pixels so
- * each ring is exactly one crisp pixel, and nothing leaves the square.
- */
-export function paintHoverOutline(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  size: number,
-): void {
-  ctx.lineWidth = 1
-  ctx.strokeStyle = '#000'
-  ctx.strokeRect(x + 0.5, y + 0.5, size - 1, size - 1)
-  ctx.strokeStyle = '#fff'
-  ctx.strokeRect(x + 1.5, y + 1.5, size - 3, size - 3)
-}

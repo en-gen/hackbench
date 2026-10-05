@@ -221,6 +221,29 @@
   overflow-anchor: none;
   scrollbar-gutter: stable;
   padding: 1.2em;
+  position: relative;
+}
+
+/* Hover outline (#573): placed by positionHoverOutline, never in the bitmap.
+   Black border outside, white inset line against the tile; the 1.2em wrap
+   padding keeps it unclipped at the sheet edge. */
+.hb-map16-hover-outline,
+.hb-map16-selection-outline {
+  display: none;
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid #000;
+  box-shadow: inset 0 0 0 1px #fff;
+  pointer-events: none;
+}
+
+/* Selection (#573), tile outward: 1px black, 2px #4fc1ff, 1px black. The
+   border is the outer black, the stacked inset shadows the blue over the
+   inner black. Later in the DOM than the hover box, so it draws above it. */
+.hb-map16-selection-outline {
+  box-shadow:
+    inset 0 0 0 2px #4fc1ff,
+    inset 0 0 0 3px #000;
 }
 
 .hb-map16-canvas {
