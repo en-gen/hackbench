@@ -1108,12 +1108,14 @@ export class Map16ViewWidget extends ReactWidget {
               className="hb-map16-hover-outline"
               ref={el => {
                 this.hoverOutlineEl = el
+                if (el) this.positionOutlines()
               }}
             />
             <div
               className="hb-map16-selection-outline"
               ref={el => {
                 this.selectionOutlineEl = el
+                if (el) this.positionOutlines()
               }}
             />
           </div>

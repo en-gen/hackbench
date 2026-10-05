@@ -2671,6 +2671,35 @@ test('a Map16 view waiting on a missing ROM repaints after Project Properties re
 })
 
 /**
+ * The painted colors, from a real screenshot, of `n` pixels running inward from
+ * the left edge of `locator`'s box at its mid height. Geometry plus
+ * toBeVisible() cannot see an opacity-0 or unpainted overlay (Playwright counts
+ * opacity 0 as visible); a screenshot can. The PNG is decoded in the page.
+ */
+async function leftEdgeColors(page, locator, n) {
+  const r = await locator.evaluate(el => {
+    const b = el.getBoundingClientRect()
+    return { x: Math.round(b.left), y: Math.round(b.top + b.height / 2) }
+  })
+  const png = await page.screenshot({ clip: { x: r.x, y: r.y, width: n, height: 1 } })
+  return page.evaluate(async b64 => {
+    const img = new Image()
+    img.src = `data:image/png;base64,${b64}`
+    await img.decode()
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = 1
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const d = ctx.getImageData(0, 0, img.width, 1).data
+    return Array.from(
+      { length: img.width },
+      (_, i) => `${d[i * 4]},${d[i * 4 + 1]},${d[i * 4 + 2]}`,
+    )
+  }, png.toString('base64'))
+}
+
+/**
  * #573 (replaces #570's inside outline): hovering a strip tile shows a DOM
  * overlay OUTSIDE the tile, white line touching it and black line outside
  * that, 1 screen pixel each at every zoom, and never touches the bitmap.
@@ -2751,6 +2780,13 @@ test('hovering a tile shows a two-tone overlay outside it and leaves the canvas 
       expect(g.o.l + g.o.w).toBeLessThanOrEqual(g.wrap.r + 0.6)
       expect(g.o.t + g.o.h).toBeLessThanOrEqual(g.wrap.b + 0.6)
       expect(await bitmap(), `hover on tile ${id} changed the bitmap`).toEqual(base)
+      // Painted, not just present: black line outside, white line against the tile.
+      if (id === 0x55) {
+        expect(await leftEdgeColors(page, overlay, 2), `hover paint at ${zoom}x`).toEqual([
+          '0,0,0',
+          '255,255,255',
+        ])
+      }
     }
     await unhover()
     await expect(overlay).toBeHidden()
@@ -2822,6 +2858,15 @@ test('the selection is a 1px black, 2px blue, 1px black overlay outside the tile
       await canvas.click(at(id, zoom))
       await unhover()
       await expect(sel).toBeVisible()
+      // Painted from outside in: black, 2px #4fc1ff, black.
+      if (id === 0x30) {
+        expect(await leftEdgeColors(page, sel, 4), `selection paint at ${zoom}x`).toEqual([
+          '0,0,0',
+          '79,193,255',
+          '79,193,255',
+          '0,0,0',
+        ])
+      }
       const g = await box('.hb-map16-selection-outline', id, zoom)
       const what = `selected ${id} at ${zoom}x`
       near(g.dl, -4, `${what} left`)
@@ -2858,4 +2903,17 @@ test('the selection is a 1px black, 2px blue, 1px black overlay outside the tile
     await expect(hov).toBeHidden()
     expect(await bitmap()).toEqual(reference)
   }
+
+  // Collapsing and reopening the strip remounts the canvas and both boxes; the
+  // selection must be placed at once, with no further interaction.
+  const toggle = page.locator(ctl('browser-toggle'))
+  await toggle.click()
+  await expect(canvas).toHaveCount(0)
+  await toggle.click()
+  await expect(canvas).toBeVisible()
+  await expect(sel).toBeVisible()
+  const back = await box('.hb-map16-selection-outline', 0x30, 4)
+  near(back.dl, -4, 'reopened left')
+  near(back.dt, -4, 'reopened top')
+  near(back.w, 8, 'reopened width')
 })
