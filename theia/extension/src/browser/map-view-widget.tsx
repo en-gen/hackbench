@@ -168,7 +168,9 @@ export class MapViewWidget extends ReactWidget {
     // A new map opens fitted, whatever zoom the last one was left at.
     this.zoomController.enterFit()
     // A reused (preview) tab keeps its strip across maps: blank it, and start at screen 0.
-    for (const c of this.canvases.values()) {
+    // The composites too: they are what is on screen, and paintComposite leaves a canvas alone
+    // until its screen has arrived.
+    for (const c of [...this.canvases.values(), ...this.composites.values()]) {
       c.getContext('2d')?.clearRect(0, 0, c.width, c.height)
       delete c.dataset.drawn
     }

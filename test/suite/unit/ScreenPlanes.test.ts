@@ -12,7 +12,7 @@ import {
 import { readModeLayouts } from '../../../src/rom/LevelScreenTables'
 import { modeTablesRom } from '../support/l3Rom'
 
-// docs/snes-superfamicom-selected.md:501-518, back to front, with the four OBJ priority slots.
+// docs/rom/obj-priority.md section 1, back to front (the table there is front to back), with the four OBJ priority slots.
 const SET = ['l3Low', 'sp0', 'sp1', 'l2Low', 'l1Low', 'sp2', 'l2High', 'l1High', 'sp3', 'l3High']
 const CLEAR = ['l3Low', 'sp0', 'l3High', 'sp1', 'l2Low', 'l1Low', 'sp2', 'l2High', 'l1High', 'sp3']
 const BITS: Record<string, number> = { l1: 1, l2: 2, l3: 4 }

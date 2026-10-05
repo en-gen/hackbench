@@ -283,6 +283,32 @@ for (const index of [0x009, 0x013, 0x105, 0x106, 0x12c, 0x109]) {
  * screen 0 must be painted by that reply itself (review of 4e932c3c; the
  * owner saw $106's screen 0 blank this way on d8500dd0).
  */
+/**
+ * The composite is what the user sees, so opening another map in a reused preview tab must blank it
+ * at once: no screen of the new map has landed (its fetch is stubbed out), and the old map's pixels
+ * must not stay up as a plausible picture of it.
+ */
+test('a reused tab blanks the composite when it opens another map', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  const comp = page.locator(`${root(0x105)} canvas[data-layer="screen"][data-screen="0"]`)
+  await expect(comp).toHaveAttribute('data-drawn', /./, { timeout: 15000 })
+  const count = () => comp.evaluate(c => { const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i]) n++; return n }) // prettier-ignore
+  expect(await count(), 'map A is on screen').toBeGreaterThan(0)
+  const after = await page.evaluate(async mp => {
+    const w = getSvc('ApplicationShell').getWidgetById('hackbench.map-view:261')
+    w.fetchScreen = async () => {} // map B's screens never arrive
+    await w.open({ manifestPath: mp, index: 0x106, label: '106', iconClass: '' })
+    // The tab's id follows the map it shows, so find the composite from the widget.
+    const c = w.node.querySelector('canvas[data-layer="screen"][data-screen="0"]')
+    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+    let n = 0
+    for (let i = 3; i < d.length; i += 4) if (d[i]) n++
+    return { n, drawn: c.dataset.drawn ?? null }
+  }, project.manifestPath)
+  expect(after).toEqual({ n: 0, drawn: null })
+})
+
 test('a reused tab paints screen 0 of the next map', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)

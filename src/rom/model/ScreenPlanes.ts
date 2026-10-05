@@ -4,7 +4,8 @@
  * priority order once, and each screen is that table filtered to its own layers.
  * OBJ (bit 4, #564) is one `sprites` entry on each screen that designates it: just
  * before BG1's priority plane (the owner's ruling), or on a screen with no layer 1 at
- * the table's OBJ priority 2 slot, the one between BG1's low and high planes.
+ * the table's OBJ priority 2 slot (docs/rom/obj-priority.md section 1), the one between BG1's
+ * low and high planes.
  * BG4 (bit 3) does not exist in mode 1. Tables: SMWDisX bank_05.asm:480-504 (OBJ is
  * TM/TS bit $10, :485-494).
  */
