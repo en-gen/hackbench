@@ -2362,7 +2362,7 @@ test('the edit pane and the character palettes open under the preview, in the ri
  * #621: a hidden tile ($027, blank until the blue P-switch) shows in the SHEET
  * in the soft screen door, still or playing, so it can be found; a blank tile no
  * switch touches ($025) stays transparent. Interior pixels only, and the
- * pointer kept off the sheet, so neither the grid nor the hover dim counts.
+ * pointer kept off the sheet, so neither the grid nor the hover outline counts.
  */
 test('hidden tiles show in the sheet in the soft screen door, playing or not; a blank tile stays blank', async ({
   page,
@@ -2668,4 +2668,81 @@ test('a Map16 view waiting on a missing ROM repaints after Project Properties re
     .toBe(moved)
   await page.locator('.dialogBlock .theia-button.main').click()
   await page.waitForSelector(`${FG} .hb-map16-preview-canvas`, { timeout: 15000 })
+})
+
+/**
+ * #570: hovering a strip tile draws a two-tone outline INSIDE that tile (black
+ * ring outside, white ring inside it) and changes no pixel anywhere else; the
+ * old behaviour dimmed every other tile. Pixels are read from the canvas
+ * itself at natural resolution, so the check does not depend on zoom.
+ */
+test('hovering a tile outlines it black-outside white-inside and leaves every other pixel alone', async ({
+  page,
+}) => {
+  test.skip(!fs.existsSync(ROM), 'needs the vanilla corpus ROM')
+  await loadGfxExplorer(page, path.join(tmp, 'HoverOutline'))
+  await openMap16(page, 'fg')
+  const sheetPixels = () =>
+    page.evaluate(sel => {
+      const c = document.querySelector(`${sel} .hb-map16-canvas`)
+      return Array.from(c.getContext('2d').getImageData(0, 0, c.width, c.height).data)
+    }, FG)
+  const hoverTile = async id => {
+    const { x, y } = tileOrigin(id)
+    const mid = TILE_PX / 2
+    await page
+      .locator(`${FG} .hb-map16-canvas`)
+      .hover({ position: { x: (x + mid) * DEFAULT_ZOOM, y: (y + mid) * DEFAULT_ZOOM } })
+    await page.waitForTimeout(150)
+  }
+  const unhover = async () => {
+    await page.locator(`${FG} .hb-map16-browser-head`).hover()
+    await page.waitForTimeout(150)
+  }
+  /** Ring `r` of a tile: 0 is its outermost pixels. */
+  const inRing = (lx, ly, r) => Math.min(lx, ly, TILE_PX - 1 - lx, TILE_PX - 1 - ly) === r
+
+  const HOVERED = 0x55
+  const SELECTED = 0x30
+  await clickTile(page, SELECTED) // so the selected highlight is on screen
+  await unhover()
+  const base = await sheetPixels()
+  const width = await page.evaluate(
+    sel => document.querySelector(`${sel} .hb-map16-canvas`).width,
+    FG,
+  )
+
+  await hoverTile(HOVERED)
+  const hovered = await sheetPixels()
+  const o = tileOrigin(HOVERED)
+  // One failure list instead of an expect per pixel: this walks ~130k pixels.
+  const wrong = []
+  for (let i = 0; i < base.length; i += 4) {
+    const px = (i / 4) % width
+    const py = Math.floor(i / 4 / width)
+    const lx = px - o.x
+    const ly = py - o.y
+    const inside = lx >= 0 && ly >= 0 && lx < TILE_PX && ly < TILE_PX
+    const got = hovered.slice(i, i + 4).join(',')
+    let want = base.slice(i, i + 4).join(',')
+    if (inside && inRing(lx, ly, 0)) want = '0,0,0,255'
+    else if (inside && inRing(lx, ly, 1)) want = '255,255,255,255'
+    if (got !== want) wrong.push(`${px},${py} (tile ${lx},${ly}) got ${got} want ${want}`)
+  }
+  expect(wrong.slice(0, 5), `${wrong.length} pixels wrong`).toEqual([])
+
+  // Selected and hovered on one tile: the hover rings still read black/white,
+  // not the selection accent.
+  await hoverTile(SELECTED)
+  const both = await sheetPixels()
+  const so = tileOrigin(SELECTED)
+  const at = (lx, ly) => {
+    const i = ((so.y + ly) * width + so.x + lx) * 4
+    return both.slice(i, i + 4).join(',')
+  }
+  expect(at(0, 5)).toBe('0,0,0,255')
+  expect(at(1, 5)).toBe('255,255,255,255')
+
+  await unhover()
+  expect(await sheetPixels(), 'leaving must restore the unhovered grid exactly').toEqual(base)
 })
