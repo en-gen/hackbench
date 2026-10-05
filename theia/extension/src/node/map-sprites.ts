@@ -19,11 +19,15 @@
  *
  * NOT APPLIED YET: the anchor is the raw stream position. Position changes an
  * INIT routine makes (a Piranha Plant's +8 / -1 in InitPiranha, and others)
- * are not applied; they will come from interpreting INIT, not from a table.
- * A sprite whose extra bits (byte 0, bits 3-2) are set is marked, not drawn:
- * Lunar Magic / PIXI use them to flag a custom sprite (convention, not read
- * from this repo's ROM sources), and the engine's vanilla descriptor would
- * draw the wrong art for it.
+ * are not applied (InitPiranha, SMWDisX bank_01.asm:880-889); they will come
+ * from interpreting INIT, not from a table.
+ * A sprite with bit 3 of byte 0 set is marked, not drawn: it is a custom
+ * (PIXI) sprite, which the vanilla descriptor would draw wrongly. Bit 2 is
+ * NOT a custom flag: vanilla keeps both extra bits in Y high
+ * (bank_02.asm:5441-5447), the goal tape reads bit 2 as its secret exit
+ * (InitGoalTape, bank_01.asm:8785-8788) and scroll sprites $E7+ read them as
+ * Layer1ScrollBits (bank_02.asm:5301-5305). Custom PIXI sprites on
+ * GrandPooWorld_V1.2 were measured with EE = 2 (reviewer's scan, one ROM).
  */
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
@@ -46,10 +50,10 @@ import type { MapSpriteDto, MapSpritesResult, SwitchFlagsDto } from '../common/p
 import { screenTiles, type L1ModelCache } from './map-screen'
 
 const TILE = 16
-const EXTRA_BITS = 0x0c
+const EXTRA_BITS = 0x08
 const NO_FLAGS: SwitchFlagsDto = { yellow: false, green: false, red: false, blue: false }
 /** Bytes of a level's sprite stream read; a longer one is noted, not silently cut. */
-const STREAM_WINDOW = 0x200
+export const STREAM_WINDOW = 0x200
 const MARK = 16
 /** The marker's colors: a dark fill under white hex digits, in an editor blue frame. */
 const FILL: RgbaColor = [20, 20, 40, 220]
@@ -163,7 +167,8 @@ export function drawSprites(
     res.parts.forEach((p, i) => {
       const note = res.paletteNote
       const row = (c: number): RgbaColor => {
-        const spliced = note && c >= note.firstCol ? dyn[c - note.firstCol] : undefined
+        // Only the parts on the row the handler uploads to; another row keeps the level's colors.
+        const spliced = note && p.palette === note.row && c >= note.firstCol ? dyn[c - note.firstCol] : undefined // prettier-ignore
         return spliced ?? getPaletteColor(model, p.palette, c)
       }
       blit(out, width, p, [ax + p.dx - box.x0, ay + p.dy - box.y0], pixels[i]!, row)
@@ -199,6 +204,10 @@ export function engineDrawer(rom: RomFile, marioX: number): SpriteDrawer | null 
     return drawSpriteParts({ rom, tables, descriptor, spriteX: pixelX(s), ctx: { marioX, romFrame: 0 } }) // prettier-ignore
   }
 }
+
+/** A sprite stream's bytes: up to the window, fewer when the ROM ends first (as SmwRom.getLevelRawData reads). */
+export const readStream = (rom: RomFile, ptr: number, window = STREAM_WINDOW) =>
+  rom.readUpTo(ptr, window)
 
 /** The stream's own terminator ($FF in a first-byte slot) within the bytes read. */
 const terminated = (data: Uint8Array) => {
@@ -243,7 +252,7 @@ export function mapSprites(
     const rom = new SmwRom(RomFile.fromBytes(romPath, Buffer.from(bytes)))
     const ptr = rom.getLevelSpritePointer(index)
     // A stream in the ROM's last bytes is still a stream (as SmwRom.getLevelRawData reads).
-    const data = ptr === null ? null : rom.rom.readUpTo(ptr, STREAM_WINDOW)
+    const data = ptr === null ? null : readStream(rom.rom, ptr)
     if (!data) return { status: 'unavailable', reason: `No sprite data at the pointer for slot ${index.toString(16)}` } // prettier-ignore
     const draw = engineDrawer(rom.rom, readMarioStartPos(rom.rom, index).x)
     if (!draw) return { status: 'unavailable', reason: 'The sprite tile tables cannot be read' }

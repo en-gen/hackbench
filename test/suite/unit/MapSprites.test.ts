@@ -9,11 +9,18 @@ import { describe, it, expect } from 'vitest'
 import type { EngineResult } from '../../../src/rom/model/sprites/generic/SpriteDrawEngine'
 import type { LevelSprite } from '../../../src/rom/LevelParser'
 import { RomFile } from '../../../src/rom/RomFile'
-import { drawSprites, mapSprites, spriteLayer } from '../../../theia/extension/src/node/map-sprites'
+import {
+  drawSprites,
+  mapSprites,
+  readStream,
+  spriteLayer,
+  STREAM_WINDOW,
+} from '../../../theia/extension/src/node/map-sprites'
 import { L1ModelCache } from '../../../theia/extension/src/node/map-screen'
 import {
   clearSpriteCanvas,
   compositeSpriteScreen,
+  paintSpriteCanvas,
 } from '../../../theia/extension/src/browser/map-view-model'
 import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
@@ -82,12 +89,23 @@ describe('drawSprites', () => {
 })
 
 describe('drawSprites: extra bits, palette splice', () => {
-  it('marks a sprite whose extra bits are set instead of drawing vanilla art for it', () => {
-    const custom = { ...spr(0, 1, 1), raw: [0x08, 0, 0x10] } as LevelSprite
-    const [a, b] = drawSprites([custom, { ...custom, raw: [0x04, 0, 0x10] } as LevelSprite, spr(2, 1, 1)], MODEL, () => ok(part(0x401, 0, 0))) // prettier-ignore
+  it('marks a custom sprite (bit 3) but draws one that only has bit 2, which vanilla uses', () => {
+    const withBits = (raw0: number) => ({ ...spr(0, 1, 1), raw: [raw0, 0, 0x10] }) as LevelSprite
+    const [a, b, c] = drawSprites([withBits(0x08), withBits(0x04), withBits(0x0c)], MODEL, () => ok(part(0x401, 0, 0))) // prettier-ignore
     expect(a).toMatchObject({ status: 'placeholder', reason: 'extraBits' })
-    expect(b).toMatchObject({ status: 'placeholder', reason: 'extraBits' })
-    expect(drawSprites([spr(2, 1, 1)], MODEL, () => ok(part(0x401, 0, 0)))[0]!.status).toBe('drawn') // prettier-ignore
+    expect(b!.status).toBe('drawn')
+    expect(c).toMatchObject({ reason: 'extraBits' })
+  })
+
+  it('splices only the parts on the note row', () => {
+    const chars = { sp1: [Uint8Array.from([3, 4, ...new Array(62).fill(0)])] }
+    const note = { kind: 'dynamicCgram' as const, row: 9, firstCol: 4, colors: 1, entryAddr: 0 }
+    const other = { ...part(0x400, 8, 0), palette: 10 }
+    const stub = (): EngineResult => ({ ...ok(part(0x400, 0, 0), other), paletteNote: note }) as EngineResult // prettier-ignore
+    const [s] = drawSprites([spr(0, 0, 0)], { vram: chars, colors: COLORS }, stub, () => [[1, 2, 3, 255]]) // prettier-ignore
+    const bmp = decode(s!)
+    expect(px(bmp, 16, 1, 0)).toEqual([1, 2, 3, 255])
+    expect(px(bmp, 16, 9, 0)).toEqual([10 * 16 + 4, 100, 200, 255])
   })
 
   it('splices a dynamic row over columns [firstCol, firstCol + colors) and keeps the level colors elsewhere', () => {
@@ -128,6 +146,52 @@ describe('spriteLayer', () => {
     expect(cut.sprites).toHaveLength(2)
     expect(cut.note).toMatch(/no end marker/)
     expect(spriteLayer(Uint8Array.from([0, 0x10, 0x01, 0x10, END]), h, stub).note).toBeUndefined()
+  })
+})
+
+describe('the sprite stream read', () => {
+  const END = 0xff
+  const h = { ...MODEL, isVertical: false, screenCount: 1 }
+  const stub = () => ok(part(0x401, 0, 0))
+  /** A 512 KB LoROM-sized buffer; file offset o is SNES $0F:8000 + (o - $78000). */
+  const romWith = (at: number, bytes: number[]) => {
+    const buf = Buffer.alloc(0x80000)
+    buf.set(bytes, at)
+    return RomFile.fromBytes('x.sfc', buf)
+  }
+
+  it('notes a stream whose terminator byte is not at an entry boundary', () => {
+    // $FF at offset 2 is a Y/X byte of the first entry, not an end marker.
+    const r = spriteLayer(Uint8Array.from([0, 0x10, END, 0x01]), h, stub)
+    expect(r.note).toMatch(/no end marker/)
+  })
+
+  it('reads a stream that starts within the window of the ROM end', () => {
+    const rom = romWith(0x7ffb0, [0, 0x10, 0x01, 0x10, END])
+    const data = readStream(rom, 0x0fffb0)
+    expect(data).toHaveLength(0x50)
+    const r = spriteLayer(data!, h, stub)
+    expect(r.sprites).toHaveLength(1)
+    expect(r.note).toBeUndefined()
+  })
+
+  it('reads at most the window, and says so when the stream runs past it', () => {
+    const long = [0, ...new Array(0x24c).fill(0).map((_, i) => (i % 3 === 0 ? 0x10 : 0x01)), END]
+    const data = readStream(romWith(0x78000, long), 0x0f8000)!
+    expect(data).toHaveLength(STREAM_WINDOW)
+    const r = spriteLayer(data, h, stub)
+    expect(r.sprites).toHaveLength(170)
+    expect(r.note).toMatch(/no end marker/)
+  })
+})
+
+describe('paintSpriteCanvas', () => {
+  it('blanks a canvas of an earlier map when there are no sprites to paint', () => {
+    const cleared: number[][] = []
+    const canvas = { width: 8, height: 4, dataset: { drawn: '3:1' } as DOMStringMap, getContext: () => ({ clearRect: (...a: number[]) => cleared.push(a) }) } // prettier-ignore
+    paintSpriteCanvas(canvas, undefined, 0, '4:0')
+    expect(cleared).toEqual([[0, 0, 8, 4]])
+    expect(canvas.dataset.drawn).toBeUndefined()
   })
 })
 
@@ -207,6 +271,12 @@ describe.skipIf(!hasRom(VANILLA))('mapSprites on the vanilla ROM', () => {
       expect(decode(s).length).toBe(w * h * 4)
       if (s.status === 'placeholder') expect(s.reason).toBeTruthy()
     }
+  })
+
+  it('does not mistake the goal tape on $00F (bit 2 only) for a custom sprite', () => {
+    const tape = run(0x00f).sprites.find(x => x.id === 0x7b && x.x === 5344 && x.y === 368)
+    expect(tape).toBeTruthy()
+    expect(tape!.reason).not.toBe('extraBits')
   })
 
   it('marks every sprite of $105: none of its ids has a descriptor', () => {

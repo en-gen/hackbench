@@ -27,7 +27,7 @@ import {
 } from '../common/project-protocol'
 import { ProjectFrontendClient } from './project-push-client'
 import { decodeRgba, TILE_PX } from './map16-pixels'
-import { clearSpriteCanvas, compositeSpriteScreen, PALACES, screenKey } from './map-view-model'
+import { paintSpriteCanvas, PALACES, screenKey } from './map-view-model'
 import { SWITCH_ORDER } from './map16-view-model'
 import { decodeSwitchButton, SwitchToggle, type SwitchButtonImages } from './switch-toggle'
 import { LayerToggle } from './layer-icon'
@@ -375,18 +375,7 @@ export class MapViewWidget extends ReactWidget {
 
   /** The sprite canvas of one screen: the map's sprites cut to it, or blank when none reach it. */
   protected syncSprites(canvas: HTMLCanvasElement, screen: number): void {
-    const sp = this.sprites
-    const want = `${this.generation}:${this.spritesVersion}`
-    // No sprites (a failed or older map's fetch): clear what an earlier map's left, never keep it.
-    if (!sp) return clearSpriteCanvas(canvas)
-    if (canvas.dataset.drawn === want) return
-    if (canvas.width !== sp.width) canvas.width = sp.width
-    if (canvas.height !== sp.height) canvas.height = sp.height
-    const ctx = canvas.getContext('2d')
-    ctx?.clearRect(0, 0, canvas.width, canvas.height)
-    const rgba = compositeSpriteScreen(sp.sprites, screen, sp)
-    if (rgba) ctx?.putImageData(new ImageData(rgba, sp.width, sp.height), 0, 0)
-    canvas.dataset.drawn = want
+    paintSpriteCanvas(canvas, this.sprites, screen, `${this.generation}:${this.spritesVersion}`)
   }
 
   /**

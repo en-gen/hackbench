@@ -221,13 +221,18 @@ read through `drawSpriteParts`; no emulator was run.
   vertical one, the stream's order breaking ties, later on top. This is a
   display choice, not the game's OAM order.
 - The anchor is the raw stream position; INIT-time position changes are not
-  applied yet (for example InitPiranha's shift on `$4F`, and others). They are
-  to come from interpreting INIT, not from a per-sprite table.
-- A sprite whose extra bits (byte 0, bits 3-2) are set is a marker with reason
-  `extraBits`: Lunar Magic / PIXI use them to flag a custom sprite (a
-  convention not read from this repo's ROM sources), so vanilla art is not
-  drawn for it. On vanilla no such sprite has a descriptor, so `$106` still
-  draws 15.
+  applied yet (for example InitPiranha's shift on `$4F`, `SMWDisX`
+  `bank_01.asm:880-889`, and others). They are to come from interpreting INIT,
+  not from a per-sprite table.
+- A sprite with bit 3 of byte 0 set is a marker with reason `extraBits`: a
+  custom (PIXI) sprite, so vanilla art is not drawn for it. Bit 2 is not a
+  custom flag: vanilla keeps both extra bits in Y high (`bank_02.asm:5441-5447`),
+  the goal tape reads bit 2 as its secret exit (`InitGoalTape`,
+  `bank_01.asm:8785-8788`) and scroll sprites `$E7`+ read them as
+  `Layer1ScrollBits` (`bank_02.asm:5301-5305`). Custom PIXI sprites on
+  GrandPooWorld_V1.2 were measured with EE = 2 (reviewer's scan, one ROM).
+  On vanilla no sprite with bit 3 has a descriptor, so `$106` still draws 15.
+- A `dynamicCgram` splice applies only to parts on the note's row.
 - The stream is read with `readUpTo` (a stream at the ROM's end still parses);
   one with no `$FF` in the bytes read carries a `note` on the reply, shown on
   the map tab.

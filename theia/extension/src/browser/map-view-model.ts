@@ -61,14 +61,41 @@ export function compositeSpriteScreen(
   return out
 }
 
-/** Blanks a sprite canvas that still shows an earlier fetch's sprites. */
-export function clearSpriteCanvas(canvas: {
+/** The canvas surface the sprite painter needs: a subset of HTMLCanvasElement. */
+interface SpriteCanvas {
   width: number
   height: number
   dataset: DOMStringMap
-  getContext(id: '2d'): { clearRect(x: number, y: number, w: number, h: number): void } | null
-}): void {
+  getContext(id: '2d'): {
+    clearRect(x: number, y: number, w: number, h: number): void
+    putImageData?(data: ImageData, x: number, y: number): void
+  } | null
+}
+
+/** Blanks a sprite canvas that still shows an earlier fetch's sprites. */
+export function clearSpriteCanvas(canvas: SpriteCanvas): void {
   if (canvas.dataset.drawn === undefined) return
   canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height)
   delete canvas.dataset.drawn
+}
+
+/**
+ * Brings one screen's sprite canvas to `want`: the sprites cut to the screen, or, with
+ * no sprites (a failed or older map's fetch), blank, never the stale picture.
+ */
+export function paintSpriteCanvas(
+  canvas: SpriteCanvas,
+  sp: (ScreenGeometry & { sprites: readonly MapSpriteDto[] }) | undefined,
+  screen: number,
+  want: string,
+): void {
+  if (!sp) return clearSpriteCanvas(canvas)
+  if (canvas.dataset.drawn === want) return
+  if (canvas.width !== sp.width) canvas.width = sp.width
+  if (canvas.height !== sp.height) canvas.height = sp.height
+  const ctx = canvas.getContext('2d')
+  ctx?.clearRect(0, 0, canvas.width, canvas.height)
+  const rgba = compositeSpriteScreen(sp.sprites, screen, sp)
+  if (rgba) ctx?.putImageData?.(new ImageData(rgba, sp.width, sp.height), 0, 0)
+  canvas.dataset.drawn = want
 }

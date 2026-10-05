@@ -147,7 +147,9 @@ which `theia/browser-app/test/load-maps.spec.cjs` asserts.
 `ProjectService.mapSprites(manifestPath, index)` returns every
 sprite of a map as one RGBA bitmap in map pixels (`MapSpriteDto`: index, id,
 anchor, `box`, base64 `rgba`, `status` of `drawn` or `placeholder`, and the
-engine's failure kind as `reason`), plus the screen size and orientation.
+engine's failure kind as `reason`), plus the screen size and orientation and
+a `note` when the stream has no end marker in the bytes read (sprites past them
+are not drawn; the tab shows it).
 `node/map-sprites.ts` is the pure module behind it; `project-server.ts`
 reads the working copy through `WorkingRomRegistry`, as `mapScreen` does.
 It is a separate call from `mapScreen` because a sprite is not cut at screen

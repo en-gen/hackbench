@@ -466,8 +466,9 @@ test('the L1 toggle hides and restores the foreground, per tab', async ({ page }
     await expect(plane).toHaveCSS('visibility', 'hidden')
   for (const plane of planeLocators(page, 0x105, 0, ['l2Low', 'l2High']))
     await expect(plane).toHaveCSS('visibility', 'visible')
-  // With the background off as well, only the back area is left.
+  // With the background and the sprites off as well, only the back area is left.
   await page.locator(`${root(0x105)} [data-control="layer-l2"]`).click()
+  await page.locator(`${root(0x105)} [data-control="layer-sprites"]`).click()
   const hidden = await shownPixels(page, strip)
   expect(hidden.colors).toBe(1)
   expect(hidden.color).toBe(backdrop)
@@ -477,6 +478,7 @@ test('the L1 toggle hides and restores the foreground, per tab', async ({ page }
   await activate(page, 0x105)
   await l1.click()
   await page.locator(`${root(0x105)} [data-control="layer-l2"]`).click()
+  await page.locator(`${root(0x105)} [data-control="layer-sprites"]`).click()
   await expect(l1).toHaveAttribute('aria-pressed', 'true')
   for (const plane of planeLocators(page, 0x105, 0, MAP_PLANES))
     await expect(plane).toHaveCSS('visibility', 'visible')
@@ -943,6 +945,30 @@ test('an engine-drawn sprite shows its own pixels where the service placed it; a
   expect(read.marker.corner).toEqual([90, 200, 255, 255])
 })
 
+test('a sprite stream with no end marker shows its note on the map tab', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x106)
+  const note = page.locator(`${root(0x106)} [data-note="sprites"]`)
+  await expect(note).toHaveCount(0)
+  // Serve the same sprites with the truncation note, as a stream cut by the ROM's end would.
+  await page.evaluate(async () => {
+    const w = getSvc('ApplicationShell').getWidgetById('hackbench.map-view:262')
+    const real = w.projects
+    w.projects = {
+      mapDetails: (...a) => real.mapDetails(...a),
+      mapScreen: (...a) => real.mapScreen(...a),
+      mapPalaceIcons: (...a) => real.mapPalaceIcons(...a),
+      mapSprites: async (...a) => ({
+        ...(await real.mapSprites(...a)),
+        note: 'no end marker (test)',
+      }),
+    }
+    w.refresh()
+  })
+  await expect(note).toHaveText('no end marker (test)')
+  await expect(note).toBeVisible()
+})
+
 test('the sprite toggle is disabled with its reason on a map without sprites', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x108)
@@ -1090,6 +1116,7 @@ test('a back-area color edit repaints the strip behind a hidden L1 and L2', asyn
     .not.toBe(drawnBefore)
   await page.locator(`${root(0x105)} [data-control="layer-l1"]`).click()
   await page.locator(`${root(0x105)} [data-control="layer-l2"]`).click()
+  await page.locator(`${root(0x105)} [data-control="layer-sprites"]`).click()
   const hidden = await shownPixels(
     page,
     page.locator(`${root(0x105)} [data-control="map-scroller"]`),
