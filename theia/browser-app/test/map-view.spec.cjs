@@ -2166,7 +2166,68 @@ async function gridSettled(page, index) {
       return Math.max(d.worst.x, d.worst.y)
     })
     .toBeLessThanOrEqual(TOL)
+  // The metadata is written at render; the canvas is painted after the commit. Wait for the
+  // PIXELS to be exactly the lines the metadata lists, or a sample can read the previous paint.
+  await expect.poll(() => gridPixelsMatchLines(page, index)).toBe(true)
 }
+
+/**
+ * Whether the overlay canvas's painted pixels are exactly its metadata's lines: along one row
+ * that crosses no horizontal line, the painted columns equal the vertical lines covering that row;
+ * along one column that crosses no vertical line, the painted rows equal the horizontal lines.
+ */
+const gridPixelsMatchLines = (page, index) =>
+  page.evaluate(sel => {
+    const o = document.querySelector(`${sel} .hb-grid-overlay`)
+    if (!o || o.width === 0 || o.height === 0) return false
+    const lines = JSON.parse(o.dataset.gridLines)
+    // No expected lines would match an empty canvas: that is "not drawn yet", not "settled".
+    if (lines.x.length === 0 || lines.y.length === 0) return false
+    const W = o.width
+    const H = o.height
+    const data = o.getContext('2d').getImageData(0, 0, W, H).data
+    const painted = (x, y) => data[(y * W + x) * 4 + 3] > 0
+    const covers = (ls, v) => ls.some(l => v >= l.start && v < l.start + l.size)
+    const row = Array.from({ length: H }, (_, y) => y).find(y => !covers(lines.y, y))
+    const col = Array.from({ length: W }, (_, x) => x).find(x => !covers(lines.x, x))
+    if (row === undefined || col === undefined) return false
+    const want = (ls, v, n) =>
+      Array.from({ length: n }, (_, i) => i).filter(i => ls.some(l => i >= l.start && i < l.start + l.size && v >= l.from && v < l.to)) // prettier-ignore
+    const got = (n, at) => Array.from({ length: n }, (_, i) => i).filter(at)
+    const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i])
+    return (
+      same(
+        got(W, x => painted(x, row)),
+        want(lines.x, row, W),
+      ) &&
+      same(
+        got(H, y => painted(col, y)),
+        want(lines.y, col, H),
+      )
+    )
+  }, root(index))
+
+test('gridPixelsMatchLines is true when painted, false when cleared, and false for zero lines', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await showGrid(page, 0x105)
+  await gridSettled(page, 0x105)
+  expect(await gridPixelsMatchLines(page, 0x105)).toBe(true)
+  const overlay = fn => page.evaluate(fn, root(0x105))
+  await overlay(sel => {
+    const o = document.querySelector(`${sel} .hb-grid-overlay`)
+    o.getContext('2d').clearRect(0, 0, o.width, o.height)
+  })
+  // Metadata untouched, canvas blank: the oracle must see the difference.
+  expect(await gridPixelsMatchLines(page, 0x105)).toBe(false)
+  // Zero lines listed and nothing painted must not read as settled.
+  await overlay(sel => {
+    document.querySelector(`${sel} .hb-grid-overlay`).dataset.gridLines = '{"x":[],"y":[]}'
+  })
+  expect(await gridPixelsMatchLines(page, 0x105)).toBe(false)
+})
 
 // Assumptions: $105 is horizontal and 10+ screens wide, so at Fit (height-fitted) and at 200% it
 // scrolls sideways; $109 is vertical and several screens tall, so it scrolls down. Both are
