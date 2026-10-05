@@ -92,7 +92,7 @@ describe('readL3CodeGate (synthetic sites)', () => {
     withLayer3(rom, { level: 5, tileset: 0, setting: 2, settingsByte: 2, word: 0x2402 })
     const l1 = { header: parseLevelHeader([0, 0, 0, 0, 0]), isVertical: false, colors: [] }
     const gate = readL3CodeGate(rom, sites)
-    expect(buildL3Verdict(rom, 5, l1, { ok: true, mode: 1 }, () => [], gate)).toMatchObject({ l3: null, layout: 'standard', reason: 'Layer 3 not drawn yet: hooked layer 3 code' }) // prettier-ignore
+    expect(buildL3Verdict(rom, 5, l1, { ok: true, mode: 1 }, () => [], gate)).toMatchObject({ l3: null, reason: 'Layer 3 not drawn yet: hooked layer 3 code' }) // prettier-ignore
   })
 
   it('a layer 3 GFX file that failed to load (null chars) skips layer 3 too', () => {
@@ -118,7 +118,7 @@ describe('readL3CodeGate (synthetic sites)', () => {
       buildL3Verdict(rom, 5, l1, { ok: true, mode: 1 }, chars, readL3CodeGate(rom, sites))
     expect(draws().l3).not.toBeNull()
     rom.writeAt(SITE_A + SCRIPTED.jsl, [0x22])
-    expect(draws()).toMatchObject({ l3: null, layout: 'standard', reason: 'Layer 3 not drawn yet: hooked layer 3 code' }) // prettier-ignore
+    expect(draws()).toMatchObject({ l3: null, reason: 'Layer 3 not drawn yet: hooked layer 3 code' }) // prettier-ignore
   })
 })
 
@@ -162,7 +162,7 @@ describe('readCrusherColors (synthetic)', () => {
 })
 
 describe.skipIf(!hasRom(VANILLA))('the real sites on the vanilla cart (corpus)', () => {
-  it('pass, and layer 3 still draws on exactly the 8 slots it drew before', () => {
+  it('pass, and layer 3 draws on exactly the 22 slots (the 8 it drew before, plus 14)', () => {
     const rom = RomFile.load(romPath(VANILLA))
     expect(readL3CodeGate(rom)).toEqual({ ok: true })
     rom.writeAt(0x009fb8 + 47, [0x85])
@@ -184,7 +184,11 @@ describe.skipIf(!hasRom(VANILLA))('the real sites on the vanilla cart (corpus)',
       )
       if (v.l3) drawn.push(id)
     }
-    expect(drawn).toEqual([0x002, 0x01f, 0x0be, 0x0c1, 0x102, 0x127, 0x1d4, 0x1fc])
+    // The 8 standard-layout slots of #561, plus the 14 that #562 draws (interactive layer 2 modes).
+    expect(drawn).toEqual([
+      0x002, 0x009, 0x01a, 0x01f, 0x0be, 0x0c1, 0x0d4, 0x0dc, 0x0e7, 0x102, 0x111, 0x115, 0x127,
+      0x1ce, 0x1cf, 0x1d4, 0x1e2, 0x1e3, 0x1ec, 0x1ef, 0x1f3, 0x1fc,
+    ])
   }, 60_000)
 
   it('a $80 level (vanilla $01F, $1D4, $1FC) gets the crusher colors, and a tide level none', () => {
