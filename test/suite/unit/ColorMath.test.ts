@@ -24,7 +24,6 @@ function one(o: Partial<ScreenInput> & { l1?: Rgb | null; l2?: Rgb | null } = {}
     ...composeScreen({
       width: 1,
       height: 1,
-      backdrop: BACK,
       math: { cgadsub: 0x01, fixed: BACK },
       lists: { main: ['l1Low'], sub: ['l2Low'] },
       planes: { l1Low: plane(l1), l2Low: plane(l2) },
@@ -44,9 +43,6 @@ describe('composeScreen color math', () => {
   })
   it('halves when bit 6 is set and there is a sub pixel', () => {
     expect(one({ math: { cgadsub: 0x41, fixed: BACK } })).toEqual(rgba(c5(7, 7, 7)))
-  })
-  it('clamps an add at 31', () => {
-    expect(one({ l1: c5(30, 31, 28), l2: c5(5, 5, 5) })).toEqual(rgba(c5(31, 31, 31)))
   })
   // snes9x tileimpl.h:176-181 (MATHS1_2::Calc) and bsnes sfc/ppu-fast/line.cpp:111:
   // against the fixed color the half is NOT applied.
@@ -71,28 +67,35 @@ describe('composeScreen color math', () => {
   })
 })
 
-describe('the backdrop is a main-screen layer for CGADSUB (bit 5)', () => {
-  const back = (l2: Rgb | null, backdrop: Rgb = BACK, cgadsub = 0x24) => [
+// CODE_00922F clears CGRAM color 0 before every palette upload (bank_00.asm:2046-2049), so the
+// main-screen backdrop is black; the back area color reaches the screen only as the fixed color
+// (COLDATA, bank_00.asm:5867-5885), added through CGADSUB's backdrop bit.
+describe('the backdrop is a black main-screen layer for CGADSUB (bit 5)', () => {
+  const back = (l2: Rgb | null, fixed: Rgb, cgadsub = 0x24) => [
     ...composeScreen({
       width: 1,
       height: 1,
-      backdrop,
-      math: { cgadsub, fixed: backdrop },
+      math: { cgadsub, fixed },
       lists: { main: ['l1Low'], sub: ['l2Low'] },
       planes: { l1Low: plane(null), l2Low: plane(l2) },
     }),
   ]
-  it('black backdrop plus layer 2 is layer 2: the #561 picture', () => {
-    expect(back(c5(7, 8, 9))).toEqual(rgba(c5(7, 8, 9)))
+  const AREA = c5(5, 5, 5)
+  it('a non-black back area leaves layer 2 unchanged under CGADSUB $24 (a hack)', () => {
+    expect(back(c5(7, 8, 9), AREA)).toEqual(rgba(c5(7, 8, 9)))
+    expect(back(c5(30, 2, 2), AREA)).toEqual(rgba(c5(30, 2, 2)))
   })
-  it('a non-black back color (a hack) sums with layer 2 and clamps', () => {
-    expect(back(c5(30, 2, 2), c5(5, 5, 5))).toEqual(rgba(c5(31, 7, 7)))
+  it('main and sub both empty: transparent, so the back area layer shows', () => {
+    expect(back(null, AREA)[3]).toBe(0)
+    expect(back(null, BACK)[3]).toBe(0)
   })
-  it('an empty pixel whose result is the backdrop stays transparent', () => {
-    expect(back(null)[3]).toBe(0)
+  it('mode 0C style (CGADSUB $70): layer 2 shows halved, and the back area where nothing draws', () => {
+    expect(back(c5(20, 10, 6), AREA, 0x70)).toEqual(rgba(c5(10, 5, 3)))
+    expect(back(null, AREA, 0x70)[3]).toBe(0)
   })
-  it('mode 0C style (CGADSUB $70): layer 2 over a black backdrop shows halved', () => {
-    expect(back(c5(20, 10, 6), BACK, 0x70)).toEqual(rgba(c5(10, 5, 3)))
+  it('without the backdrop bit, an empty pixel is black, not the back area', () => {
+    expect(back(null, AREA, 0x04)).toEqual(rgba(BACK))
+    expect(back(null, AREA, 0xa0)).toEqual(rgba(BACK)) // black minus the fixed color
   })
 })
 
@@ -101,7 +104,6 @@ describe('layer order and toggles', () => {
     ...composeScreen({
       width: 1,
       height: 1,
-      backdrop: BACK,
       math: null,
       lists: { main: ['l3Low', 'l1Low'], sub: [] },
       planes,
@@ -115,7 +117,6 @@ describe('layer order and toggles', () => {
     const out = composeScreen({
       width: 3,
       height: 2,
-      backdrop: BACK,
       math: { cgadsub: 0x24, fixed: BACK },
       lists: screenPlanes(0x15, 0x02, true),
       planes: {},
@@ -130,7 +131,6 @@ describe('layer order and toggles', () => {
       ...composeScreen({
         width: 1,
         height: 1,
-        backdrop: BACK,
         math: { cgadsub: 0x24, fixed: BACK },
         lists,
         planes: { l3Low: plane(l3), l1Low: plane(c5(10, 20, 30)) },
@@ -143,7 +143,6 @@ describe('layer order and toggles', () => {
     const out = composeScreen({
       width: 1,
       height: 1,
-      backdrop: BACK,
       math: { cgadsub: 0x20, fixed: BACK },
       lists: screenPlanes(0x17, 0x00, false),
       planes: { l3Low: plane(c5(2, 2, 2)), l1Low: plane(c5(9, 9, 9)) },

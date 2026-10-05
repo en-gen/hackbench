@@ -161,17 +161,22 @@ the sub screen, `bank_00.asm:1285`; windows are not modeled). `screenPlanes`
 turns the two designations and the BG3 priority bit into two bottom-to-top plane
 lists, each `ppuDrawOrder` filtered to the layers on that screen (OBJ and BG4
 dropped). `composeScreen` takes the topmost opaque plane of each list (the
-backdrop when none); if that main pixel's layer, or the backdrop, has its bit in
-CGADSUB it adds or subtracts (bit 7) the sub pixel, or the fixed color where the
+black backdrop when none: CGRAM color 0 is cleared before every palette upload,
+`CODE_00922F`, `bank_00.asm:2046-2049`); if that main pixel's layer, or the
+backdrop, has its bit in CGADSUB it adds or subtracts (bit 7) the sub pixel, or the fixed color where the
 sub screen drew nothing, in 5-bit space, halving (bit 6) only against a real sub
 pixel and clamping to 31. CGADSUB is the table value minus BG3 where
 `CODE_009FB8` clears it (`TRB.B ColorSettings`, `bank_00.asm:4196-4198`), kept
-only for the camera-locked byte; the fixed color is the back area
-(`BackAreaColors`, `bank_00.asm:5623-5628`). The half skip against the fixed
+only for a camera-locked `$81`-`$BF` byte (`$00` is cleared too); the fixed
+color is the back area (`BackAreaColors`, `bank_00.asm:5623-5628`, sent to the
+PPU as COLDATA via `CODE_00AE47`, `bank_00.asm:5867-5885`). The back area color
+is not the main backdrop: it shows only where main and sub both draw nothing
+(there `composeScreen` stays transparent and the view's back area layer shows
+it), and layer 2 is never tinted by it. The half skip against the fixed
 color is read from snes9x `tileimpl.h:176-181` and bsnes `ppu-fast/line.cpp:111`
 (GitHub master, 2026-10-05, not run on hardware); it is pinned in
 `ColorMath.test.ts`. The standard layout (main `$15`, sub `$02`, CGADSUB `$24`
-minus BG3, black fixed color) is the identity case: layer 2 alone on the sub
+minus BG3, whatever the back color) is the identity case: layer 2 alone on the sub
 screen sits under every main-screen layer, as in #561. Mode 0C (CGADSUB `$70`)
 is not: where layers 1 and 3 are empty, layer 2 shows halved.
 
@@ -227,7 +232,7 @@ level runs `CODE_00A007` (`bank_00.asm:4184-4189`), which copies
 (`bank_00.asm:4868-4870`); the level palette path applies it (`readCrusherColors`),
 so layer 3 palette 3 and any layer 1 or 2 pixel using those colors show it.
 
-**Measured, one cart.** Over the vanilla cart's 512 slot ids that have level
+**Measured, one ROM.** Over the vanilla ROM's 512 slot ids that have level
 data (one machine, `buildL3Verdict` against a straight decode, with an empty
 palette and no vertical flag): layer 3 is drawn on 22, skipped as camera-locked
 on 4 (`$011 $018 $130 $1C1`), refused as a Mode 7 room on 24, and 462 have no

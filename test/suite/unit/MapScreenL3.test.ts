@@ -17,7 +17,8 @@ import {
   screenResult,
   type MapInputs,
 } from '../../../theia/extension/src/node/map-screen'
-import type { MapPlaneKey } from '../../../theia/extension/src/common/project-protocol'
+import { MAP_PLANE_KEYS } from '../../../theia/extension/src/common/project-protocol'
+import { composeScreen } from '../../../src/rom/model/ColorMath'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
 import { COLORS, hGrid, inputs, px, sub, tile } from '../support/mapInputs'
 import { modeTablesRom, STANDARD_MODES, sweepLayouts, withLayer3 } from '../support/l3Rom'
@@ -50,17 +51,18 @@ const wireOf = (m: MapInputs, screen = 0) => {
   if (w.status !== 'ok') throw new Error(w.status)
   return w
 }
-/** What the view shows at a pixel with black-fixed identity math: sub screen, then main, each covering what is under it. */
+/** What the view shows at a pixel: the payload's lists and math through composeScreen, as the widget runs it. Red channel, or null where nothing shows. */
 const shown = (m: MapInputs, x = 3, y = 3): number | null => {
   const w = wireOf(m)
-  return [...w.screens.sub, ...w.screens.main].reduce<number | null>((top, k: MapPlaneKey) => {
-    const p = decode(w.planes[k])
-    return p && px(p, 256, x, y)[3] === 255 ? px(p, 256, x, y)[0]! : top
-  }, null)
+  const planes = Object.fromEntries(MAP_PLANE_KEYS.map(k => [k, decode(w.planes[k])]))
+  const out = composeScreen({ width: w.width, height: w.height, planes, lists: w.screens, math: w.math }) // prettier-ignore
+  const p = px(out, w.width, x, y)
+  return p[3] === 255 ? p[0]! : null
 }
 const L1_COLOR = 1
 const L3_COLOR = 6
-const L2_COLOR = 35
+/** Layer 2's color after the 5-bit round trip the math stage applies to a sub-screen pixel. */
+const L2_COLOR = ((35 >> 3) << 3) | (35 >> 5)
 const solid2 = (priority: boolean) => tile(2, [sub(3, 2, priority), sub(3, 2, priority), sub(3, 2, priority), sub(3, 2, priority)]) // prettier-ignore
 const rom5 = () => withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: 0, setting: 2, settingsByte: 2, word: L3_WORD(true) }) // prettier-ignore
 
@@ -143,11 +145,19 @@ describe('layer 3 against layers 1 and 2 (synthetic)', () => {
     expect(shown(m)).toBe(L1_COLOR)
   })
 
+  it('mode 0C (CGADSUB $70) with a non-black back area: layer 2 halved, the back area where nothing draws', () => {
+    const l3 = { ...verdict(false, null), cgadsub: 0x70 }
+    const m = mapOf(l3, true) // layer 2 at (3, 3); the fixture's back area is not black
+    expect(m.backArea.slice(0, 3)).not.toEqual([0, 0, 0])
+    expect(shown(m)).toBe(((35 >> 3) >> 1) * 8) // 4 halved is 2, expanded: (2 << 3) | (2 >> 2)
+    expect(shown(m, 100, 100)).toBeNull() // transparent: the view's back area layer shows
+  })
+
   it('no verdict (unverified tables) keeps the old order: layer 2 high over layer 1 low', () => {
     const m = mapOf(verdict(false, null, FALLBACK_SCREENS), true)
     m.grid[0]![0] = 1
     m.l2 = { ok: true, l2: { ...(m.l2 as { ok: true; l2: never }).l2, tiles: [undefined, undefined, solid2(true)] } } // prettier-ignore
-    expect(shown(m)).toBe(L2_COLOR)
+    expect(shown(m)).toBe(35) // no math: the plane's own pixel, not re-quantized
   })
 })
 
@@ -231,6 +241,12 @@ describe('buildL3Verdict: screens, math and the layer 2 role', () => {
     const r = buildL3Verdict(locked, 5, l1Of(0, 0, false), BG_OK, chars, GATE_OK)
     expect(r.reason).toMatch(/camera-locked/)
     expect(r.cgadsub! & 0x04).toBe(0x04)
+  })
+  it('settings byte $00 off tilesets 1 and 3 is camera-locked but BG3 is still cleared (CODE_00A01B)', () => {
+    const rom0 = withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: 0, setting: 2, settingsByte: 0x00, word: L3_WORD(false) }) // prettier-ignore
+    const r = buildL3Verdict(rom0, 5, l1Of(0, 0, false), BG_OK, chars, GATE_OK)
+    expect(r.reason).toMatch(/camera-locked/)
+    expect(r.cgadsub! & 0x04).toBe(0)
   })
   it('planted defect: tables read with main and sub swapped fail the mode 0E assertions', () => {
     const swapped = rom({ main: 0x13, sub: 0x04, cgadsub: 0x24, special: 0, vertical: 0 })

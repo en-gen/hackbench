@@ -966,8 +966,10 @@ test('the layer 2 tooltip names its role from the level mode', async ({ page }) 
 })
 
 /**
- * On a standard-layout map the compositor changes nothing: black fixed color, CGADSUB $24 minus BG3 (so only
- * the backdrop adds the sub screen, which is layer 2). The composite must equal the topmost plane pixel in the
+ * On a standard-layout map the compositor changes nothing: the main-screen backdrop is black (CGRAM color 0 is
+ * cleared, bank_00.asm:2046-2049), CGADSUB $24 minus BG3 lets only the backdrop add the sub screen (layer 2), and
+ * the back area is the fixed color, which only shows where nothing draws (transparent, so the back area layer
+ * shows). Layer 2 is therefore not tinted by the back area. The composite must equal the topmost plane pixel in the
  * #561 order, on a sample spread over the whole screen. $002 is mode 0 with layer 3 drawn and the priority bit
  * set, so BG3's high plane is in front of layer 1.
  */
@@ -1034,7 +1036,8 @@ test('an L2 priority tile draws over an L1 low tile, from a working-copy edit', 
       ({ rootSel, spot }) => {
         const px = c => Array.from(c.getContext('2d').getImageData(spot.x, spot.y, 1, 1).data)
         const planes = planesOf(rootSel, 0)
-        const by = k => planes.find(c => c.dataset.plane === k)
+        // The source plane canvases; planesOf is the composite only.
+        const by = k => document.querySelector(`${rootSel} canvas[data-screen="0"][data-plane="${k}"]`) // prettier-ignore
         const shown = composeCanvases(planes, spot.x, spot.y, 1, 1)
         return { shown: Array.from(shown), l1Low: px(by('l1Low')), l2High: px(by('l2High')) }
       },

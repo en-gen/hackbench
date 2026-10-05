@@ -46,7 +46,6 @@ interface ScreenImages {
   /** What the compositor needs, from the same reply (#562). */
   screens: Layout['screens']
   math: Layout['math']
-  backdrop: Layout['backdrop']
 }
 
 export const MAP_VIEW_ID = 'hackbench.map-view'
@@ -284,7 +283,6 @@ export class MapViewWidget extends ReactWidget {
       ) as ScreenImages['planes'],
       screens: r.screens,
       math: r.math,
-      backdrop: r.backdrop,
     })
     const l = this.mapLayout
     if (
@@ -377,7 +375,6 @@ export class MapViewWidget extends ReactWidget {
       height: shot.height,
       planes,
       lists: shot.screens,
-      backdrop: [shot.backdrop[0], shot.backdrop[1], shot.backdrop[2]],
       math: shot.math,
     })
     canvas.getContext('2d')?.putImageData(new ImageData(out, shot.width, shot.height), 0, 0)

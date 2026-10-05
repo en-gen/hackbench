@@ -24,7 +24,6 @@ export interface ScreenInput {
   height: number
   planes: Partial<Record<PlaneKey, Uint8ClampedArray | null>>
   lists: ScreenPlanes
-  backdrop: Rgb
   math: ColorMathInput | null
 }
 
@@ -33,6 +32,8 @@ const BACKDROP_BIT = 0x20
 const SUBTRACT = 0x80
 const HALF = 0x40
 const BG3 = 0x04
+/** CGRAM color 0 is cleared before every palette upload (CODE_00922F, bank_00.asm:2046-2049). */
+const BACKDROP: Rgb = [0, 0, 0]
 
 /** CGADSUB as the game leaves it: the table value minus BG3 where CODE_009FB8 clears it. */
 export const effectiveCgadsub = (table: number, bg3Cleared: boolean): number =>
@@ -62,23 +63,29 @@ function channel(main: number, sub: number, cgadsub: number, half: boolean): num
 
 export function composeScreen(i: ScreenInput): Uint8ClampedArray {
   const out = new Uint8ClampedArray(i.width * i.height * 4)
+  const math = i.math
   for (let p = 0; p < i.width * i.height; p++) {
     const at = p * 4
     const main = top(i, i.lists.main, at)
-    let res: Rgb = main ? main.rgb : i.backdrop
-    const bit = main ? main.bit : BACKDROP_BIT
-    if (i.math && i.math.cgadsub & bit) {
-      const sub = top(i, i.lists.sub, at)
-      const s: Rgb = sub ? sub.rgb : i.math.fixed
-      // No half against the fixed color: see the header.
-      const half = !!(i.math.cgadsub & HALF) && sub !== null
-      const c = i.math.cgadsub
-      res = [channel(res[0], s[0], c, half), channel(res[1], s[1], c, half), channel(res[2], s[2], c, half)] // prettier-ignore
-    }
-    // A backdrop-only result stays transparent so the view's back-area layer still shows.
-    if (!main && res[0] === i.backdrop[0] && res[1] === i.backdrop[1] && res[2] === i.backdrop[2]) {
+    // Unverified tables (no math): the stack as is, the back area showing where nothing draws.
+    if (!math) {
+      if (main) out.set([...main.rgb, 255], at)
       continue
     }
+    const sub = top(i, i.lists.sub, at)
+    let res: Rgb = main ? main.rgb : BACKDROP
+    if (math.cgadsub & (main ? main.bit : BACKDROP_BIT)) {
+      const s: Rgb = sub ? sub.rgb : math.fixed
+      // No half against the fixed color: see the header.
+      const half = !!(math.cgadsub & HALF) && sub !== null
+      const c = math.cgadsub
+      res = [channel(res[0], s[0], c, half), channel(res[1], s[1], c, half), channel(res[2], s[2], c, half)] // prettier-ignore
+    }
+    // Nothing drew on either screen and the result is the fixed color: that is the back area,
+    // which the view shows as a layer of its own, so stay transparent.
+    const f = math.fixed
+    // Compared in 5-bit space, where the PPU adds.
+    if (!main && !sub && [0, 1, 2].every(k => to5(res[k]!) === to5(f[k]!))) continue
     out.set([res[0], res[1], res[2], 255], at)
   }
   return out

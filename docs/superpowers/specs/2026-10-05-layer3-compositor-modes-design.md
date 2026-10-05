@@ -33,7 +33,8 @@ modes put BG2 on the main screen, or BG3 alone on it, and then the math shows.
    `src/rom/model/ScreenPlanes.ts`; Map16 and GFX views are untouched.
 2. **A generic color-math stage.** A pure function in `src/rom/model/ColorMath.ts`
    (no shell imports) that takes one screen's decoded planes, both lists, the
-   backdrop color, the effective CGADSUB and the fixed color, and returns RGBA.
+   effective CGADSUB and the fixed color, and returns RGBA. The main-screen
+   backdrop is black, not an input (see "The backdrop model").
    Per pixel it composites main and sub separately (topmost opaque plane of each
    list, backdrop when none). If the main pixel's layer, or the backdrop, has its
    bit in CGADSUB, it adds (bit 7 clear) or subtracts (bit 7 set) the sub pixel,
@@ -71,7 +72,26 @@ modes put BG2 on the main screen, or BG3 alone on it, and then the math shows.
   null for, so `bg3InCgadsub = (l3LoadTimeY(byte, tileset) === null)` and the
   layer is skipped under #563 anyway. A level with no layer 3 clears it too.
 - Fixed color: `BackAreaColors[header byte 1 >> 5]`, bank_00.asm:5623-5628.
-  Every vanilla back color index used is 3, which is $0000 (black).
+  It is NOT black on most maps: the back color index is 3 (black) on only 36
+  of the vanilla ROM's 512 slots (probe, 2026-10-05, one machine).
+
+## The backdrop model
+
+CODE_00922F clears CGRAM color 0 before every palette upload
+(bank_00.asm:2046-2049), so the main-screen backdrop is $0000. The back area
+color reaches the screen only as COLDATA, the fixed color (BackgroundColor via
+CODE_00AE47, bank_00.asm:5867-5885), added through CGADSUB's backdrop bit $20,
+which every vanilla mode has. So an empty main pixel is black plus the sub
+pixel (or plus the fixed color where the sub screen is empty too, which is
+the back area color). `composeScreen` therefore starts from a black backdrop,
+takes `fixed` from `math`, and leaves a pixel transparent when main and sub are
+both empty and the result equals the fixed color, so the widget's back area
+layer shows it. An earlier draft of this spec used the back area color as the
+main backdrop; that made empty pixels back area plus back area and brightened
+layer 2 on most maps (reviewer probe: $105 88,205 of 110,592 pixels differed
+from a plain stack). Probe after the fix, screen 0, composite against the plain
+stack: $002 0, $105 0, $106 0, $10E 0, $1BD 0, $004 (mode 0C) 100,544, where
+layer 2 is halved on purpose.
 
 ## The open fact, settled: half against the fixed color
 
@@ -91,8 +111,9 @@ uses the fixed color. Is the half bit still applied? **No: the half is skipped.*
   `1bcc369e89f08243e0a462882fb1f3e42e51de3a`); the wasm build HackBench ships was
   not diffed against that commit, and no hardware or ROM run was made.
 - Effect: $10E and $1BD (mode 11, CGADSUB $FF, $FB after the BG3 clear: subtract
-  and half, black fixed color, sub screen $00) render unchanged. Subtracting
-  black changes nothing and the half is skipped. Without this fact they would
+  and half, sub screen $00) render unchanged only while the back area is black
+  (it is on $10E and $1BD, probed): layer 1 subtracts the fixed color, and
+  subtracting black changes nothing and the half is skipped. Without this fact they would
   show at half brightness. The rule is cited (snes9x and bsnes lines above) in a
   comment on the half branch of `ColorMath.ts` and pinned by a unit test that
   fails if the half is applied against the fixed color.
@@ -102,7 +123,8 @@ uses the fixed color. Is the half bit still applied? **No: the half is skipped.*
 From the tables and the probe (vanilla ROM; level counts by header mode):
 
 - Mode 02, 12 levels including $009 (main $17, sub $00, BG3 priority clear): BG3
-  is behind layers 1 and 2. CGADSUB $24 adds a black fixed color: no change.
+  is behind layers 1 and 2. CGADSUB $24 has only the backdrop bit, which adds the
+  sub screen (layer 2) to black: no change on any back color.
 - Mode 08: $0E7 and $1CE, same shape as mode 02.
 - Mode 0E: $018 only (main $04, sub $13, CGADSUB $24 kept; but see the
   contradictions: its layer 3 is camera-locked and not drawn here): BG3 is the only main
@@ -176,8 +198,8 @@ owner reports powerups at 50% transparency in ghost houses: that is mode 0C
    address; the test reports how many maps it checked (more than 400) and per
    verdict.
 6. Standard-layout maps keep the #561 plane order (`[l2Low, l2High, ...]` for the
-   same priority) and, for a sampled mode-00 map with a black back color, byte
-   identical pixels to #561. Not mode 0C: see the contradiction below.
+   same priority) and, for a sampled mode-00 map (any back color: the backdrop is
+   black), byte identical pixels to #561. Not mode 0C: see the contradiction below.
 7. Playwright on $009 and $018 (`map-view.spec.cjs`): read pixels from the
    composite canvas; $009 shows a layer 3 pixel only where layers 1 and 2 are
    empty, and the pixel returns when layer 1 is toggled off; $018's add pixel
@@ -194,7 +216,8 @@ owner reports powerups at 50% transparency in ghost houses: that is mode 0C
    as plain main over sub. Six vanilla levels use mode 0C ($004, $0F8, $114,
    $1D9, $1EA, $1FA; none use 0D). With the stage, where layer 1 and layer 3 are
    empty the main pixel is the backdrop (black) and the result is the sub pixel
-   halved: layer 2 reads at half brightness there. "Only $018 renders
+   halved: layer 2 reads at half brightness there, and the back area color
+   shows where layer 2 is empty too. "Only $018 renders
    differently" is true of the non-standard modes, not of the vanilla ROM overall.
    Criterion 6 is restricted to modes whose math is the identity (CGADSUB $24,
    black backdrop), and a sweep assertion counts the mode 0C maps that change.
@@ -234,10 +257,12 @@ standard-layout only (`docs/architecture/theia-shell.md` if it does).
 
 - `map-view.spec.cjs` has 82 plane references; the ones about stacking (z-index,
   order) move to the composite. Keeping the plane canvases hidden holds the rest.
-- Cost: a recompute per screen per toggle, 256 x 432 pixels a screen. A fast path
-  when the effective CGADSUB hits no present layer returns the plain stack.
-- Hacks: a hack with a non-black back color gets backdrop-plus-BG2 sums that #561
-  did not show; that is the hardware rule, but it is a visible change.
+- Cost: a recompute per screen per toggle, 256 x 432 pixels a screen. The fast
+  path this spec first proposed (no CGADSUB hit, plain stack) was not
+  implemented; the per-pixel loop is the only path.
+- Back colors: the backdrop is black on every map, so a non-black back color no
+  longer changes layer 2 (the earlier "backdrop-plus-BG2 sum" risk was a wrong
+  model; see "The backdrop model").
 - Camera-locked layer 3 (#563) keeps BG3 in CGADSUB, so it will need this stage
   with BG3 in the mask; #563 inherits that.
 - Window masks and the CODE_00A0xx special cases of mid-level HDMA are not

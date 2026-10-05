@@ -101,9 +101,11 @@ export function buildL3Verdict(
   if (!load) return none("This map's layer 3 tilemap cannot be read")
   const yPx = l3LoadTimeY(load.settingsByte, tileset)
   if (yPx === null) {
-    // BG3 stays in CGADSUB here; #563 draws this layer and inherits the mask.
+    // Only a $81-$BF byte skips the TRB that clears BG3 (CODE_00A01F, bank_00.asm:4174); byte $00
+    // takes the tide path to CODE_00A01B (:4164) and is cleared. #563 draws the kept case.
+    const kept = (load.settingsByte & 0x80) !== 0
     return none('Layer 3 not drawn yet: camera-locked layer 3', {
-      cgadsub: effectiveCgadsub(layout.cgadsub, false),
+      cgadsub: effectiveCgadsub(layout.cgadsub, !kept),
     })
   }
   // The GFX loader (CODE_00A993) is a third piece of layer 3 code: hooked, or any file failing to load, leaves no chars.
