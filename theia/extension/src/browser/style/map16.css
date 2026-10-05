@@ -114,8 +114,8 @@
 
 /* The affordance OVERLAYS the preview and takes no layout space: emphasis
    must never move layout, so hovering may change opacity and nothing else.
-   The dim itself is applied inline from HOVER_DIM (map16-pixels.ts), which
-   the canvas spotlight also uses, rather than written out again here. */
+   The dim itself is applied inline from HOVER_DIM (map16-pixels.ts) rather
+   than written out again here. */
 .hb-map16-preview-overlay {
   position: absolute;
   inset: 0;

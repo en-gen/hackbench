@@ -61,7 +61,7 @@ Codicons, the same set the rest of the shell uses. One meaning per glyph.
 | `symbol-color`         | palettes                        |
 | `file-media`           | a GFX file                      |
 | `symbol-structure`     | a Map16 block table             |
-| `table`                | toggle the tile grid            |
+| `table`                | toggle the grid (GFX, Map16)    |
 | `play` / `debug-stop`  | start / stop animation playback |
 | `zoom-in` / `zoom-out` | step zoom                       |
 | `screen-full`          | fit to window (Maps)            |
@@ -139,10 +139,15 @@ border box and take no layout space.
   art, and a blurred edit cannot be judged.
 - Draw at NATURAL resolution and scale with CSS. Zoom changes the CSS
   size, not the bitmap.
-- Overlays (grid lines, selection outlines, hover dimming) are drawn on
+- Overlays (grid lines, selection outlines, hover outline) are drawn on
   top at paint time and never baked into the decoded pixels. Toggling one
   is a repaint, not a reload, and the bytes an export would use stay
   exactly what the ROM says.
+- The grid (GFX 8x8 characters, Map16 16x16 tiles) is the shared
+  `GridOverlay`: its own canvas at DEVICE resolution above the content, so
+  a line is one device pixel at any zoom and display scale. Selection and
+  hover outlines sit above it. The tooltip reads "Show grid" and, once on,
+  "Hide grid"; GFX shares one switch across its tabs, like zoom.
 - A hidden tile (blank until a switch is on, e.g. vanilla `$027-$02A`) is
   drawn with its switched-on art in a soft screen door, in color, never
   blank: a checkerboard on the tile's own pixel grid, full strength where
@@ -174,14 +179,12 @@ border box and take no layout space.
 
 ## Hover
 
-The convention, from the extension's Map16 panel (`main.ts:2372`): dim
-everything EXCEPT the thing under the pointer, at `rgba(0,0,0,0.55)`.
-
-The hovered item itself must be left exactly as drawn - no tint, no
-outline, no scale. The point is to make it legible while judging it, so
-anything that alters it defeats the purpose. Prefer painting the dim
-AROUND the item over restoring it afterwards, so its pixels are never
-drawn over at all.
+Map16 sheet (#570): the hovered tile gets a two-tone outline, a black
+outer ring and a white inner ring, both inside the tile's own bounds, drawn
+last so it also reads on the selected (accent) tile. Nothing outside the tile
+changes. Plain white was rejected because it vanishes on light tiles. The
+preview's edit-affordance dim (`HOVER_DIM`, `rgba(0,0,0,0.55)`) is a
+separate thing and stays.
 
 ## Color tokens
 
