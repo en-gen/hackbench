@@ -15,7 +15,7 @@ export const TILE_PX = 16
 /** One character is 8x8 px; a tile's quadrant is exactly one of them. */
 export const CHAR_PX = 8
 
-/** Dim applied to everything except the item under the pointer. 0.55 black
+/** Dim over the preview while its edit affordance shows. 0.55 black
  * is the value the VS Code extension's Map16 panel used (main.ts:2372). */
 export const HOVER_DIM = 'rgba(0, 0, 0, 0.55)'
 
@@ -122,28 +122,4 @@ export function compositeIndices(
     out[i * 4 + 3] = 255
   }
   return out
-}
-
-/**
- * Dims everything on `ctx` EXCEPT the given rectangle.
- *
- * Painting the four bands AROUND the item, rather than dimming everything
- * and restoring it, means the item's own pixels are never drawn over: the
- * hover convention exists to make an item legible while judging it, so
- * anything that alters it defeats the purpose.
- */
-export function paintSpotlight(
-  ctx: CanvasRenderingContext2D,
-  canvasWidth: number,
-  canvasHeight: number,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-): void {
-  ctx.fillStyle = HOVER_DIM
-  ctx.fillRect(0, 0, canvasWidth, y)
-  ctx.fillRect(0, y + h, canvasWidth, canvasHeight - (y + h))
-  ctx.fillRect(0, y, x, h)
-  ctx.fillRect(x + w, y, canvasWidth - (x + w), h)
 }

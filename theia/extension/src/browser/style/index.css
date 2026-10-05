@@ -263,7 +263,8 @@
    the fill (dark ~#4a4a50; high contrast: contrastActiveBorder), hover = the fill 6% toward the
    foreground (dark ~#404047), glyph = foreground (dark #cccccc), off glyph = 55% foreground. */
 .hb-icon-btn,
-.hb-pixel-button {
+.hb-pixel-button,
+.hb-map16-toggle {
   --hb-on-bg: var(--theia-list-inactiveSelectionBackground, #37373d);
   --hb-on-border: var(
     --theia-contrastActiveBorder,
@@ -300,29 +301,34 @@
 
 /* A mouse click leaves no ring; keyboard focus (Tab) does. */
 .hb-icon-btn:focus,
-.hb-pixel-button:focus {
+.hb-pixel-button:focus,
+.hb-map16-toggle:focus {
   outline: none;
 }
 
-.hb-icon-btn:focus-visible {
+.hb-icon-btn:focus-visible,
+.hb-map16-toggle:focus-visible {
   outline: 1px solid var(--theia-focusBorder, #5b9cf6);
   outline-offset: 1px;
 }
 
 /* A toggle that is off: no fill, a transparent border (so the box never shifts), a dim glyph. */
-.hb-icon-btn-off {
+.hb-icon-btn-off,
+.hb-map16-toggle:not(.hb-map16-toggle-on) {
   color: var(--hb-off-fg);
 }
 
 /* Pressed. `.hb-icon-btn:hover:not(:disabled)` outranks a single class, so the pressed hover
    needs its own rule or the chip would vanish exactly under the pointer. */
-.hb-icon-btn-on {
+.hb-icon-btn-on,
+.hb-map16-toggle-on {
   color: var(--hb-on-fg);
   background: var(--hb-on-bg);
   border-color: var(--hb-on-border);
 }
 
-.hb-icon-btn-on:hover:not(:disabled) {
+.hb-icon-btn-on:hover:not(:disabled),
+.hb-map16-toggle-on:hover:not(:disabled) {
   background: var(--hb-on-hover);
 }
 

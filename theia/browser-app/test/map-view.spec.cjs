@@ -807,6 +807,10 @@ test('a layer toggle is a chip when pressed, bare when off, and rings only for t
 
   await button.click() // a mouse click: off, no ring
   await expect(button).toHaveAttribute('aria-pressed', 'false')
+  // The pointer is still over the button, so the hover fill applies: that is the designed hover.
+  expect((await look()).bg, 'off under the pointer shows the hover fill').not.toBe(clear)
+  await page.mouse.move(2, 2) // away from the button
+  await expect.poll(async () => (await look()).bg).toBe(clear)
   const off = await look()
   expect(off.bg, 'off has no fill').toBe(clear)
   expect(off.border, 'off keeps a transparent 1px border').toEqual(['1px', clear])

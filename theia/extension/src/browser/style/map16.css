@@ -114,8 +114,8 @@
 
 /* The affordance OVERLAYS the preview and takes no layout space: emphasis
    must never move layout, so hovering may change opacity and nothing else.
-   The dim itself is applied inline from HOVER_DIM (map16-pixels.ts), which
-   the canvas spotlight also uses, rather than written out again here. */
+   The dim itself is applied inline from HOVER_DIM (map16-pixels.ts) rather
+   than written out again here. */
 .hb-map16-preview-overlay {
   position: absolute;
   inset: 0;
@@ -221,6 +221,29 @@
   overflow-anchor: none;
   scrollbar-gutter: stable;
   padding: 1.2em;
+  position: relative;
+}
+
+/* Hover outline (#573): placed by positionHoverOutline, never in the bitmap.
+   Black border outside, white inset line against the tile; the 1.2em wrap
+   padding keeps it unclipped at the sheet edge. */
+.hb-map16-hover-outline,
+.hb-map16-selection-outline {
+  display: none;
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid #000;
+  box-shadow: inset 0 0 0 1px #fff;
+  pointer-events: none;
+}
+
+/* Selection (#573), tile outward: 1px black, 2px #4fc1ff, 1px black. The
+   border is the outer black, the stacked inset shadows the blue over the
+   inner black. Later in the DOM than the hover box, so it draws above it. */
+.hb-map16-selection-outline {
+  box-shadow:
+    inset 0 0 0 2px #4fc1ff,
+    inset 0 0 0 3px #000;
 }
 
 .hb-map16-canvas {
@@ -333,32 +356,19 @@
   font-size: var(--theia-ui-font-size0);
 }
 
+/* A text toggle: the shared option D look (index.css: --hb-on-* tokens, the pressed chip, the
+   dim off glyph and the keyboard-only focus ring all extend to this class). Only its box is here. */
 .hb-map16-toggle {
   font-size: var(--theia-ui-font-size0);
   padding: 0.25em 0.6em;
   border-radius: 3px;
-  border: 1px solid var(--theia-editorWidget-border);
-  background: var(--theia-editorWidget-background);
-  color: var(--theia-foreground);
+  border: 1px solid transparent;
+  background: transparent;
   cursor: pointer;
 }
 
-/* Same pressed convention as the toolbar's icon toggles: accent foreground,
-   tinted fill, inset outline. */
-.hb-map16-toggle-on {
-  color: var(--theia-focusBorder, #5b9cf6);
-  background: var(--theia-inputOption-activeBackground, rgba(91, 156, 246, 0.18));
-  box-shadow: inset 0 0 0 1px var(--theia-focusBorder, #5b9cf6);
-}
-
-.hb-map16-toggle:hover {
+.hb-map16-toggle:hover:not(.hb-map16-toggle-on) {
   background: var(--theia-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
-}
-
-/* Needed because the hover rule above outranks a single class, so without
-   this the fill vanished exactly while the pointer was on the button. */
-.hb-map16-toggle-on:hover {
-  background: var(--theia-inputOption-hoverBackground, rgba(91, 156, 246, 0.3));
 }
 
 /* ── Color row picker ─────────────────────────────────────────────────── */

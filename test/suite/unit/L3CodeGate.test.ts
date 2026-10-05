@@ -147,6 +147,14 @@ describe('readCrusherColors (synthetic)', () => {
     expect(readCrusherColors(rom, 6, 0, gate), 'a map with no layer 3').toBeNull()
   })
 
+  it('reads nothing when the copy loop is not unique in the region (two loops: which one runs is unknown)', () => {
+    const { rom } = romWith(0x80)
+    expect(readCrusherColors(rom, 5, 0, { ok: true })).toEqual(words.map(bgr555ToRgba))
+    // A second copy loop, naming a different table, earlier in the same region.
+    rom.writeAt(SITE_A, [0xa2, 0x07, 0xbd, 0x00, 0xb8, 0x9d, 0x1b, 0x07, 0xca, 0x10, 0xf7])
+    expect(readCrusherColors(rom, 5, 0, { ok: true })).toBeNull()
+  })
+
   it('reads nothing behind a failed gate', () => {
     const { rom } = romWith(0x80)
     expect(readCrusherColors(rom, 5, 0, { ok: false, reason: 'hooked' })).toBeNull()
