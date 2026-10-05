@@ -161,6 +161,11 @@ export class Cpu65816 {
     this.wr(a, v)
     if (wide) this.wr(this.next(a), v >> 8)
   }
+  /** 16-bit RMW stores the high byte first, as the 65816 bus does (#593). */
+  private wrRmw(a: number, v: number, wide: boolean): void {
+    if (wide) this.wr(this.next(a), v >> 8)
+    this.wr(a, v)
+  }
   private fetch(n: number): number {
     let v = 0
     for (let i = 0; i < n; i++) v |= this.rd((this.pb << 16) | ((this.pc + i) & 0xffff)) << (8 * i)
@@ -405,18 +410,18 @@ export class Cpu65816 {
             break
           case 'TSB':
             this.z = (this.a & v) === 0
-            this.wrN(a, v | this.a, w)
+            this.wrRmw(a, v | this.a, w)
             break
           case 'TRB':
             this.z = (this.a & v) === 0
-            this.wrN(a, v & ~this.a, w)
+            this.wrRmw(a, v & ~this.a, w)
             break
           case 'INC':
           case 'DEC':
-            this.wrN(a, this.nz(v + (name === 'INC' ? 1 : -1), w), w)
+            this.wrRmw(a, this.nz(v + (name === 'INC' ? 1 : -1), w), w)
             break
           default:
-            this.wrN(a, this.shift(name, v, w), w)
+            this.wrRmw(a, this.shift(name, v, w), w)
         }
       }
       return

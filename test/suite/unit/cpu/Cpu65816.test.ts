@@ -250,3 +250,46 @@ describe('SingleStep harness oracle', () => {
     expect(runCase(bad).join()).toContain('[9000]')
   })
 })
+
+describe('Cpu65816 16-bit read-modify-write order (#593)', () => {
+  // Hardware writes the HIGH byte first, then the low byte, for every 16-bit RMW.
+  const rmw: [string, number[]][] = [
+    ['ASL', [0x06, 0x0e, 0x16, 0x1e]],
+    ['ROL', [0x26, 0x2e, 0x36, 0x3e]],
+    ['LSR', [0x46, 0x4e, 0x56, 0x5e]],
+    ['ROR', [0x66, 0x6e, 0x76, 0x7e]],
+    ['INC', [0xe6, 0xee, 0xf6, 0xfe]],
+    ['DEC', [0xc6, 0xce, 0xd6, 0xde]],
+    ['TSB', [0x04, 0x0c]],
+    ['TRB', [0x14, 0x1c]],
+  ]
+  for (const [name, ops] of rmw)
+    for (const op of ops)
+      it(`${name} opcode $${op.toString(16)} writes high then low`, () => {
+        const writes: number[] = []
+        const mem = new Map<number, number>()
+        // dp operand $10 (D=0), abs operand $2010; X=0 so indexed modes hit the same address.
+        const code = (op & 0x0f) === 0x0e || (op & 0x0f) === 0x0c ? [op, 0x10, 0x20] : [op, 0x10]
+        const at = 0x8000
+        code.forEach((b, i) => mem.set(at + i, b))
+        const bus: Bus = {
+          read: a => mem.get(a) ?? 0,
+          write: (a, v) => {
+            writes.push(a)
+            mem.set(a, v)
+          },
+        }
+        const cpu = new Cpu65816(bus)
+        cpu.pc = at
+        cpu.e = false
+        cpu.m8 = false
+        cpu.x8 = false
+        cpu.x = 0
+        cpu.a = 0x00ff
+        const target = code.length === 3 ? 0x2010 : 0x10
+        mem.set(target, 0xff)
+        mem.set(target + 1, 0x01)
+        cpu.step()
+        expect(writes).toEqual([target + 1, target])
+      })
+})
