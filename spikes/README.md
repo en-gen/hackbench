@@ -14,6 +14,7 @@ One sub-folder per spike, named for the question it asks. Each carries a
 | [libretro-view-engine](libretro-view-engine/FINDINGS.md) | Can a libretro core be HackBench's view engine? |
 | [sprite-oracle](sprite-oracle/FINDINGS.md)               | Does our 65816 core run real SMW sprite routines exactly as the game does? |
 | [block-content-indicators](block-content-indicators/README.md) | How should a question block show what it holds? (D4 picked) |
+| [progressive-powerup-indicators](progressive-powerup-indicators/README.md) | How does a block indicator show a progressive powerup (mushroom or flower/feather)? |
 
 ## Past write-ups
 
