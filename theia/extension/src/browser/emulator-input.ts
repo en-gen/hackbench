@@ -31,7 +31,7 @@ export const KEY_TO_BUTTON: Readonly<Record<string, number>> = {
 /**
  * Which keys are down, so key repeat sends nothing and a release can be
  * forced. A press the core never sees released stays held, survives a core
- * restart, and has wedged a run on a black screen (spike/FINDINGS.md).
+ * restart, and has wedged a run on a black screen (spikes/libretro-view-engine/FINDINGS.md).
  * Tracked per key, not per button: a button with two keys stays down until
  * the last of them is let go.
  */

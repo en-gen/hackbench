@@ -18,7 +18,7 @@
  * resume / toggleMainLoop for task B, and a PNG screenshot pulled through
  * the core's own cmd_take_screenshot command. Screenshotting this way,
  * rather than canvas.getContext('2d').getImageData() on the live canvas, is
- * ported from spike/t6/harness.js's T0.screenshot: the core binds the
+ * ported from spikes/libretro-view-engine/t6/harness.js's T0.screenshot: the core binds the
  * canvas as webgl2, so a 2d context request on it fails.
  *
  * Messages FROM extension host:
@@ -151,7 +151,7 @@ async function boot(
   }
   // audio_enable=false is mandatory (see t9 findings). screenshot_directory
   // fixes cmd_take_screenshot's output path for __hackbenchTest.screenshotPng
-  // below -- ported from spike/t6/harness.js's RA_CFG.
+  // below -- ported from spikes/libretro-view-engine/t6/harness.js's RA_CFG.
   // video_smooth defaults to TRUE in RetroArch, which bilinear-filters the
   // core's 256x224 framebuffer on its way to the canvas. The canvas itself is
   // already a clean 2x nearest-neighbour upscale, so that filtering is the
@@ -269,7 +269,7 @@ function restoreMachineState(Module: EmscriptenModule): boolean {
  * save_state_info() returns a STRING of the form "size|pointer|flag", not a
  * number -- the state bytes are read straight out of the heap at that pointer,
  * with no filesystem involved. Reading it as a number is why an earlier attempt
- * concluded savestates were broken. See spike/t11-emulatorjs-api.md.
+ * concluded savestates were broken. See spikes/libretro-view-engine/t11-emulatorjs-api.md.
  */
 function captureState(Module: EmscriptenModule, base: number): void {
   try {
@@ -648,7 +648,7 @@ async function onLoad(
   toggleMainLoop: (n: number) => activeModule?._toggleMainLoop(n),
   frameCount: () => activeModule?._get_current_frame_count?.() ?? null,
   // cmd_take_screenshot() only writes /screenshot.png on a later core
-  // iteration (GL readback isn't safe outside the run loop -- spike/t6
+  // iteration (GL readback isn't safe outside the run loop -- spikes/libretro-view-engine/t6
   // harness.js), so this polls real wall-clock time instead of t6's
   // pumpFrames(), which relied on the monkeypatched rAF this build doesn't use.
   screenshotPng: async (): Promise<number[]> => {
@@ -675,7 +675,7 @@ async function onLoad(
   // WRAM base discovery: plant a distinctive 8-byte signature at $7E1000
   // via the core's cheat API, then find it in Module.HEAPU8 by exact
   // identity (same technique findRom() used for the ROM copy). Ported from
-  // spike/t6/harness.js's T0.plantWramSignature -- this environment has no
+  // spikes/libretro-view-engine/t6/harness.js's T0.plantWramSignature -- this environment has no
   // other way to reach WRAM, since the JS heap is a flat wasm arena with no
   // labelled regions. Caller must let real frames run between planting and
   // finding (the cheat only takes effect within the emulated CPU's own
@@ -699,7 +699,7 @@ async function onLoad(
       console.log('[wram] setCheat returned', r)
     })
     // NOT calling resetCheat() here as an experiment: the documented
-    // spike/t6 sequence calls it after the set_cheat loop, but that
+    // spikes/libretro-view-engine/t6 sequence calls it after the set_cheat loop, but that
     // produced zero effect empirically in this webview (all calls
     // succeeded with no thrown error, yet the planted pattern never
     // appeared in HEAPU8). Testing whether reset_cheat actually means
