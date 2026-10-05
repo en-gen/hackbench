@@ -256,14 +256,34 @@
   flex: 1 1 auto;
 }
 
+/* Toggle buttons, "option D" (docs/ui-conventions.md, Toggle buttons): pressed is a raised
+   chip (fill, 1px border, bright glyph), off is a bare dim glyph. The values are Theia tokens
+   whose dark-theme values are the house ones, so light and high contrast follow the theme:
+   fill = list.inactiveSelectionBackground (dark #37373d), border = 12% of the foreground over
+   the fill (dark ~#4a4a50; high contrast: contrastActiveBorder), hover = the fill 6% toward the
+   foreground (dark ~#404047), glyph = foreground (dark #cccccc), off glyph = 55% foreground. */
+.hb-icon-btn,
+.hb-pixel-button,
+.hb-map16-toggle {
+  --hb-on-bg: var(--theia-list-inactiveSelectionBackground, #37373d);
+  --hb-on-border: var(
+    --theia-contrastActiveBorder,
+    color-mix(in srgb, var(--theia-foreground, #e0e0e0) 12%, var(--hb-on-bg))
+  );
+  --hb-on-hover: color-mix(in srgb, var(--hb-on-bg) 94%, var(--theia-foreground, #e0e0e0));
+  --hb-on-fg: var(--theia-foreground, #e0e0e0);
+  --hb-off-fg: color-mix(in srgb, var(--theia-foreground, #6e6e6e) 55%, transparent);
+}
+
 .hb-icon-btn {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 24px;
   height: 24px;
   padding: 0;
-  border: none;
+  border: 1px solid transparent;
   border-radius: 4px;
   background: transparent;
   color: var(--theia-icon-foreground);
@@ -279,23 +299,37 @@
   cursor: default;
 }
 
-/* Pressed state for the two toggles, so "grid on" and "playing" are
-   readable at a glance rather than only via the tooltip.
-   Follows the VS Code extension's own toolbar convention - an ACCENT
-   FOREGROUND on the glyph (`.iconBtn.on { color: #5b9cf6 }`,
-   webview/mapEditor/main.ts:1428) - with a tinted fill and inset outline
-   added, since a 24px codicon recolored alone is easy to miss. */
-.hb-icon-btn-on {
-  color: var(--theia-focusBorder, #5b9cf6);
-  background: var(--theia-inputOption-activeBackground, rgba(91, 156, 246, 0.18));
-  box-shadow: inset 0 0 0 1px var(--theia-focusBorder, #5b9cf6);
+/* A mouse click leaves no ring; keyboard focus (Tab) does. */
+.hb-icon-btn:focus,
+.hb-pixel-button:focus,
+.hb-map16-toggle:focus {
+  outline: none;
 }
 
-/* Needed because `.hb-icon-btn:hover:not(:disabled)` above outranks
-   a single class, so without this the fill vanished on hover - the button
-   looked UNSET exactly while the pointer was on it. */
-.hb-icon-btn-on:hover:not(:disabled) {
-  background: var(--theia-inputOption-hoverBackground, rgba(91, 156, 246, 0.3));
+.hb-icon-btn:focus-visible,
+.hb-map16-toggle:focus-visible {
+  outline: 1px solid var(--theia-focusBorder, #5b9cf6);
+  outline-offset: 1px;
+}
+
+/* A toggle that is off: no fill, a transparent border (so the box never shifts), a dim glyph. */
+.hb-icon-btn-off,
+.hb-map16-toggle:not(.hb-map16-toggle-on) {
+  color: var(--hb-off-fg);
+}
+
+/* Pressed. `.hb-icon-btn:hover:not(:disabled)` outranks a single class, so the pressed hover
+   needs its own rule or the chip would vanish exactly under the pointer. */
+.hb-icon-btn-on,
+.hb-map16-toggle-on {
+  color: var(--hb-on-fg);
+  background: var(--hb-on-bg);
+  border-color: var(--hb-on-border);
+}
+
+.hb-icon-btn-on:hover:not(:disabled),
+.hb-map16-toggle-on:hover:not(:disabled) {
+  background: var(--hb-on-hover);
 }
 
 .hb-zoom-indicator {
@@ -435,19 +469,8 @@
   font-style: italic;
 }
 
-/* A layer's toolbar icon (layer-icon.tsx): its own bar in the foreground
-   color, the others dimmed; the whole button dims while the layer is hidden. */
-.hb-layer-icon rect {
-  fill: var(--theia-disabledForeground);
-}
-
-.hb-layer-icon rect[data-on='true'] {
-  fill: currentColor;
-}
-
-.hb-layer-btn:not(.hb-icon-btn-on) {
-  opacity: 0.4;
-}
+/* A layer's toolbar icon (layer-icon.tsx): a framed digit in currentColor. A disabled one says why
+   in its tooltip; on and off follow the shared toggle look above. */
 
 .hb-dialog-error {
   color: var(--theia-errorForeground);

@@ -18,6 +18,8 @@ import type * as Map16Mod from '../../../src/rom/Map16'
 import type * as GfxMod from '../../../src/rom/GfxLoader'
 import type * as AnimMod from '../../../src/rom/AnimationLoader'
 import type * as StockMod from '../../../src/rom/PaletteStockTables'
+import type * as L3GateMod from '../../../src/rom/L3CodeGate'
+import * as L3GateReal from '../../../src/rom/L3CodeGate'
 import type * as ExMod from '../../../src/rom/ExAnimationLoader'
 import * as Map16Real from '../../../src/rom/Map16'
 import * as GfxReal from '../../../src/rom/GfxLoader'
@@ -133,6 +135,10 @@ vi.mock('../../../src/rom/PaletteStockTables', async importOriginal => {
   const real = await importOriginal<typeof StockMod>()
   return { ...real, readLevelCol1: vi.fn(real.readLevelCol1) }
 })
+vi.mock('../../../src/rom/L3CodeGate', async importOriginal => {
+  const real = await importOriginal<typeof L3GateMod>()
+  return { ...real, readCrusherColors: vi.fn(real.readCrusherColors) }
+})
 vi.mock('../../../src/rom/ExAnimationLoader', async importOriginal => {
   const real = await importOriginal<typeof ExMod>()
   return { ...real, loadExAnimData: vi.fn(real.loadExAnimData) }
@@ -150,6 +156,7 @@ afterEach(() => {
     AnimReal.loadAnimationDataOrReason,
     StockReal.readLevelCol1,
     ExReal.loadExAnimData,
+    L3GateReal.readCrusherColors,
   ])
     vi.mocked(f).mockReset()
 })
@@ -569,6 +576,24 @@ function fakeRom(levelMode: number): SmwRom {
 }
 
 describe('buildL1Inputs (synthetic)', () => {
+  // The wiring itself: the build asks for the crusher colors of THIS map and tileset, and they land in CGRAM 12-15.
+  it('puts readCrusherColors for the map and its tileset into colors 12-15', () => {
+    const crusher: RgbaColor[] = [[1, 2, 3, 255], [4, 5, 6, 255], [7, 8, 9, 255], [10, 11, 12, 255]] // prettier-ignore
+    vi.mocked(GfxReal.gfxSource).mockReturnValueOnce({ ok: true } as never)
+    vi.mocked(Map16Real.map16TileCapacity).mockReturnValueOnce({} as never)
+    vi.mocked(StockReal.readLevelCol1).mockReturnValueOnce({ bg: 0, obj: 0 } as never)
+    vi.mocked(AnimReal.loadAnimationDataOrReason).mockReturnValueOnce({ ok: false, reason: 'stub' })
+    vi.mocked(ExReal.loadExAnimData).mockReturnValueOnce(null)
+    vi.mocked(Map16Real.loadMap16WithPipeVariants).mockReturnValueOnce({ tiles: [], pipeVariants: [] } as never) // prettier-ignore
+    vi.mocked(GfxReal.loadVram).mockReturnValueOnce({} as never)
+    vi.mocked(L3GateReal.readCrusherColors).mockReturnValueOnce(crusher)
+    const rom = fakeRom(0)
+    const r = buildL1Inputs(rom, 0x105, UNCLEARED)
+    if (!r.ok) throw new Error(r.reason)
+    expect(vi.mocked(L3GateReal.readCrusherColors)).toHaveBeenCalledWith(rom.rom, 0x105, 0)
+    expect(r.inputs.colors.slice(12, 16)).toEqual(crusher)
+  })
+
   it('passes the switch flags to expandMap', () => {
     const spy = vi.mocked(Expander.expandMap)
     spy.mockClear()
@@ -761,6 +786,17 @@ describe('assembleL1Inputs (synthetic)', () => {
     const r = assembleL1Inputs(readings({ custom }))
     expect(r.backArea).toEqual([9, 8, 7, 255])
     expect(r.colors).toEqual(withFrame0(COLORS))
+  })
+
+  it('puts the crusher colors in CGRAM 12-15 after the palettes, before the palette frame, and only when read', () => {
+    const crusher: RgbaColor[] = [[1, 2, 3, 255], [4, 5, 6, 255], [7, 8, 9, 255], [10, 11, 12, 255]] // prettier-ignore
+    const base = assembleL1Inputs(readings()).colors
+    const got = assembleL1Inputs(readings({ crusher })).colors
+    expect(got.slice(12, 16)).toEqual(crusher)
+    expect(got.filter((c, i) => i < 12 || i > 15)).toEqual(base.filter((c, i) => i < 12 || i > 15))
+    expect(base.slice(12, 16)).not.toEqual(crusher)
+    const custom = { backAreaColor: [9, 8, 7, 255] as RgbaColor, rows: [], colors: COLORS }
+    expect(assembleL1Inputs(readings({ crusher, custom })).colors.slice(12, 16)).toEqual(crusher)
   })
 
   it('applies palette frame 0 only when the routine was read, noting it otherwise', () => {

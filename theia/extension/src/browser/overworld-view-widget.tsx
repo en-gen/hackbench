@@ -194,26 +194,34 @@ export class OverworldViewWidget extends ReactWidget {
       <div className="hb-map-view-main">
         <div className="hb-map-view-toolbar">
           <LayerToggle
-            highlight="bottom"
-            label="Background"
+            glyph="1"
+            label="Layer 1 · Foreground"
+            pressed={this.visible.l1}
+            control="layer-l1"
+            onClick={() => this.toggle('l1')}
+          />
+          <LayerToggle
+            glyph="2"
+            label="Layer 2 · Background"
             pressed={this.visible.l2}
             disabled={dto?.status === 'ok' && !!dto.l2Unavailable}
             control="layer-l2"
             onClick={() => this.toggle('l2')}
           />
           <LayerToggle
-            highlight="middle"
-            label="Foreground"
-            pressed={this.visible.l1}
-            control="layer-l1"
-            onClick={() => this.toggle('l1')}
-          />
-          <LayerToggle
-            highlight="top"
-            label="Effects not drawn yet"
+            glyph="3"
+            label="Layer 3 not drawn yet: overworld layer 3"
             pressed={false}
             disabled
             control="layer-l3"
+            onClick={() => undefined}
+          />
+          <LayerToggle
+            glyph="S"
+            label="Sprite toggle not wired yet"
+            pressed={false}
+            disabled
+            control="layer-sprites"
             onClick={() => undefined}
           />
           <span className="hb-toolbar-spacer" />

@@ -173,7 +173,7 @@ describe('the wire carries four planes in the view stacking order (synthetic)', 
     l2.grid[0]![1] = 2
     const wire = wireOf(mapOf(m, { ok: true, l2 }))
     expect(Object.keys(wire.planes)).toEqual([...MAP_PLANE_KEYS])
-    expect(MAP_PLANE_KEYS).toEqual(['l2Low', 'l1Low', 'l2High', 'l1High'])
+    expect(MAP_PLANE_KEYS).toEqual(['l2Low', 'l1Low', 'l2High', 'l1High', 'l3Low', 'l3High'])
     const p = Object.fromEntries(MAP_PLANE_KEYS.map(k => [k, decode(wire.planes[k])]))
     const spots = [
       [3, 3],

@@ -27,7 +27,7 @@ export function ZoomStepper({ controller, fitControls }: ZoomStepperProps): Reac
         <button
           data-control="zoom-fit"
           type="button"
-          className={`hb-icon-btn${controller.fitting ? ' hb-icon-btn-on' : ''}`}
+          className={`hb-icon-btn ${controller.fitting ? 'hb-icon-btn-on' : 'hb-icon-btn-off'}`}
           aria-pressed={controller.fitting}
           title="Fit to window"
           aria-label="Fit to window"

@@ -120,7 +120,7 @@ ROM
 SMW uses **Mode 1**:
 - BG1 (Layer 1): 4bpp, 16 colors per tile, CGRAM sub-palettes 0–7
 - BG2 (Layer 2): 4bpp, 16 colors per tile, CGRAM sub-palettes 0–7
-- BG3 (Layer 3): 2bpp - used for the **HUD/status bar only**, not level content
+- BG3 (Layer 3): 2bpp - the status bar, and the per-level image the map editor draws (see "Layer 3 (BG3)" below)
 - All sprites: 4bpp, CGRAM sub-palettes 8–15 (OBJ space, separate from BG VRAM)
 
 The 3-bit palette field in each Map16 SubTile (CCC = 0–7) selects one of CGRAM rows 0–7.
@@ -128,6 +128,93 @@ SMW assigns these rows per layer type:
 - Rows 0–1: Layer 2 BG tiles (BG palette variants)
 - Rows 2–3: Layer 1 FG tiles (FG palette variants, derived from spriteSet & 0x07)
 - Rows 4–8: Sprite palettes (selected by spritePalette field)
+
+---
+
+## Layer 3 (BG3) in the map editor (#561)
+
+BG3 is not only the status bar: `Layer3Setting` (`$05F200` bits 7:6) picks a
+per-tileset image (a tide, cage bars, windows). The map editor draws it at its
+load-time state, on the standard layout only, with no animation (#115).
+Code: `src/rom/model/L3Model.ts`, `src/rom/LevelScreenTables.ts`,
+`drawL3Planes` in `theia/extension/src/node/map-screen.ts`.
+
+**The standard layout.** The level mode (header byte 1, bits 4:0) indexes four
+tables loaded at `bank_05.asm:542-553`: main screen (`LevMainScrnTbl`), sub
+screen, special-level setting and `VerticalTable` (`bank_05.asm:480-504`).
+The layout is standard when main is `$15` (BG1, BG3, OBJ), sub is `$02` (BG2),
+special is 0 and `VerticalTable` bit 7 is clear (layer 2 interactive,
+`bank_00.asm:11736-11738`). BG2 is then on the sub screen only, so every opaque
+main-screen pixel covers it regardless of priority bits. The core reads the
+four tables through the operands of the loader's `LDA.L` loads, one 27-byte
+site that must match exactly once, and refuses with a reason when the loader is
+hooked. Vanilla modes `$00-$11` that qualify: `$00 $01 $03 $05 $07 $0A $0C $0D`,
+which is the issue's list; the same rule also admits the unused `$12-$1D`
+(measured on the vanilla tables, one cart). It also requires BG mode 1
+(`BgMode.ts`), because main and sub only mean BG1/BG2/BG3 there.
+
+**Priority bit and stacking.** Header byte 2 bit 7 becomes `MainBGMode` bit 3
+(`bank_05.asm:590-597`): BG3's priority-1 tiles go in front of BG1 (set) or
+just behind BG1's low plane (clear). Hardware order is only between layers on
+the SAME screen (`docs/rom/obj-priority.md` section 1). Back to front on a
+standard layout:
+
+```
+layer 2 low, layer 2 high            (sub screen: under everything)
+layer 3 low
+layer 3 high                         (bit clear)
+layer 1 low, layer 1 high
+layer 3 high                         (bit set)
+```
+
+`mapPlaneOrder` (`project-protocol.ts`) derives the main-screen part from
+`ppuDrawOrder` (sprites removed), so it cannot drift from the pass list. Any
+other layout keeps the old BG mode 1 order (layer 1 low, layer 2 high over it)
+until the full main/sub compositor (#562).
+
+**Where layer 3 sits.** `CODE_009FB8` (`bank_00.asm:4139-4199`), by settings
+byte: bit 7 clear is a tide (`$00`/`$01` start at Y `$70`, `$02`-`$7F` at
+`$40`); `$80` and `$C0`-`$FF` are Y `$D0` (`CODE_00A012`); `$81`-`$BF` are Y
+`$C0` on Castle1 and Underground1 (`CODE_009FFA`) and **camera-locked** on every
+other tileset, which branches to `CODE_00A01F` without writing a Y
+(`bank_00.asm:4174`). The gate is that ASM condition (`l3LoadTimeY`), not the
+loader's older `=== 0x81`; camera-locked maps are skipped (#563). A tile row R
+is at level Y `R*8 - Layer3YPos + Layer1YPos`; a tide repeats every 256 px over
+columns 0-31 and its second copy of the tilemap is not drawn; the status-bar
+rows 0-7 are not drawn. `L3Loader.l3InitialYPx` disagrees with the ASM for
+`$C0`-`$FF` (0, the ASM says `$D0`) and for Castle1/Underground1 `$81` (`$D0`,
+the ASM says `$C0`); the renderer does not use it.
+
+**Hooked code, vertical maps, crusher colors.** The Y values above and the
+tide path are the stock code's (`CODE_009FB8..CODE_00A044`,
+`CODE_05C40C..CODE_05C493`), so `L3CodeGate.ts` fingerprints both with SHA-256
+and a mismatch skips layer 3 ("hooked layer 3 code"). `JSL CODE_05BC72` may
+name its FastROM bank `$85` (ten hacks and Seven Vanilla Levels differ from stock
+only there); that one byte is read as `$05`. Measured on `hackbench-tools`
+(107 carts: the 6 corpus carts and 101 hacks, one machine): 40 pass the gate and
+37 also have a readable layer 3 GFX range. Of the 6 corpus carts, vanilla,
+Lunar Magic and Seven Vanilla Levels pass; Grand Poo World 2 1.1, GrandPooWorld
+1.2 and Invictus do not. A cart whose GFX loader (`CODE_00A993`) is hooked has no
+readable range and skips layer 3 as well. Vertical maps are skipped: a sublevel's entry never reads
+`$05F600` (`bank_05.asm:7116-7162`), so its Layer1YPos is unverified. Settings
+`$00` is Layer3TideSetting 0 (not a tide: 512 px repeat, whole tilemap), the non-tide path of `CODE_05C40C`: off Castle1
+and Underground1 it sets Layer3YPos = Layer1YPos every frame
+(`CODE_05C428` to `CODE_05C48D`), so it is camera-locked like `$81`. A `$80`
+level runs `CODE_00A007` (`bank_00.asm:4184-4189`), which copies
+`BigCrusherColors` over CGRAM colors 12-15 after `LoadPalette`
+(`bank_00.asm:4868-4870`); the level palette path applies it (`readCrusherColors`),
+so layer 3 palette 3 and any layer 1 or 2 pixel using those colors show it.
+
+**Measured, one cart.** Over the vanilla cart's 235 maps (`docs/glossary.md`: a
+map is a non-empty slot; one machine, `buildMapInputs`): layer 3 is drawn on 8
+(`$002 $01F $0BE $0C1 $102 $127 $1D4 $1FC`; `$01F $1D4 $1FC` are the
+crusher-colors maps), skipped as camera-locked on 3 (`$011 $130 $1C1`), as
+interactive layer 2 on 14 (`$009` is mode 2), and for a non-standard layout on 1
+(`$018`); 185 have no layer 3. The other 24 maps do not build an L1 at all, so
+they have no verdict (their refusal reasons were not tabulated). "No layer 3" is
+reported before the layout reason. The corpus sweep in
+`test/suite/unit/MapScreenL3.test.ts` compares every slot's priority bit,
+layout and draw decision with a straight decode of the header and the tables.
 
 ---
 
