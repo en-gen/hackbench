@@ -2757,3 +2757,105 @@ test('hovering a tile shows a two-tone overlay outside it and leaves the canvas 
     expect(await bitmap()).toEqual(base)
   }
 })
+
+/**
+ * #573: the selection is an overlay too, never in the bitmap. Style A4 from
+ * the tile outward: 1px black, 2px #4fc1ff, 1px black, so the box is the tile
+ * grown by 4. Hovering a neighbor leaves both visible with the selection
+ * above; hovering the selected tile itself shows only the selection.
+ */
+test('the selection is a 1px black, 2px blue, 1px black overlay outside the tile, above any hover, and not in the bitmap', async ({
+  page,
+}) => {
+  test.skip(!fs.existsSync(ROM), 'needs the vanilla corpus ROM')
+  await loadGfxExplorer(page, path.join(tmp, 'SelectionOverlay'))
+  await openMap16(page, 'fg')
+  const canvas = page.locator(`${FG} .hb-map16-canvas`)
+  const sel = page.locator(`${FG} .hb-map16-selection-outline`)
+  const hov = page.locator(`${FG} .hb-map16-hover-outline`)
+  const bitmap = () =>
+    canvas.evaluate(c => Array.from(c.getContext('2d').getImageData(0, 0, c.width, c.height).data))
+  const unhover = async () => {
+    await page.locator(`${FG} .hb-map16-browser-head`).hover()
+    await page.waitForTimeout(100)
+  }
+  const at = (id, zoom) => {
+    const { x, y } = tileOrigin(id)
+    return { position: { x: (x + TILE_PX / 2) * zoom, y: (y + TILE_PX / 2) * zoom } }
+  }
+  const box = (locator, tileId, zoom) =>
+    page.evaluate(
+      ({ selector, x, y, zoom, tilePx }) => {
+        const c = document.querySelector('[id="hackbench.map16-view:fg"] .hb-map16-canvas')
+        const o = document.querySelector(selector)
+        const w = c.parentElement
+        const wr = w.getBoundingClientRect()
+        const cr = c.getBoundingClientRect()
+        const or = o.getBoundingClientRect()
+        const st = getComputedStyle(o)
+        return {
+          dl: or.left - (cr.left + x * zoom),
+          dt: or.top - (cr.top + y * zoom),
+          w: or.width - tilePx * zoom,
+          h: or.height - tilePx * zoom,
+          inScroll:
+            or.left >= wr.left - w.scrollLeft - 0.6 &&
+            or.top >= wr.top - w.scrollTop - 0.6 &&
+            or.right <= wr.left - w.scrollLeft + w.scrollWidth + 0.6 &&
+            or.bottom <= wr.top - w.scrollTop + w.scrollHeight + 0.6,
+          border: [st.borderTopWidth, st.borderTopColor],
+          shadow: st.boxShadow,
+        }
+      },
+      { selector: locator, ...tileOrigin(tileId), zoom, tilePx: TILE_PX },
+    )
+  const near = (a, b, what) => expect(Math.abs(a - b), what).toBeLessThanOrEqual(0.6)
+
+  let reference
+  for (const zoomIns of [-1, 3]) {
+    const step = ctl(zoomIns < 0 ? 'zoom-out' : 'zoom-in')
+    for (let i = 0; i < Math.abs(zoomIns); i++) await page.locator(step).click()
+    const zoom = zoomIns < 0 ? 1 : 4
+    await expect(page.locator(ctl('zoom-indicator'))).toHaveText(`${zoom * 100}%`)
+
+    for (const id of [0x30, 0, 511]) {
+      await canvas.click(at(id, zoom))
+      await unhover()
+      await expect(sel).toBeVisible()
+      const g = await box('.hb-map16-selection-outline', id, zoom)
+      const what = `selected ${id} at ${zoom}x`
+      near(g.dl, -4, `${what} left`)
+      near(g.dt, -4, `${what} top`)
+      near(g.w, 8, `${what} width`)
+      near(g.h, 8, `${what} height`)
+      expect(g.border, what).toEqual(['1px', 'rgb(0, 0, 0)'])
+      // Blue 2px over the inner black 1px, innermost first.
+      expect(g.shadow, what).toMatch(
+        /rgb\(79, 193, 255\) 0px 0px 0px 2px inset.*rgb\(0, 0, 0\) 0px 0px 0px 3px inset/,
+      )
+      expect(g.inScroll, `${what} clipped`).toBe(true)
+      // The bitmap holds no selection: every selection and zoom reads the same.
+      const px = await bitmap()
+      reference ??= px
+      expect(px, `${what} changed the bitmap`).toEqual(reference)
+    }
+
+    // Selected = 0x30. A neighbor's hover and the selection both show, the
+    // selection later in the DOM so it draws above.
+    await canvas.click(at(0x30, zoom))
+    await canvas.hover(at(0x31, zoom))
+    await expect(hov).toBeVisible()
+    await expect(sel).toBeVisible()
+    expect(
+      await sel.evaluate(
+        (s, h) => Boolean(h.compareDocumentPosition(s) & Node.DOCUMENT_POSITION_FOLLOWING),
+        await hov.elementHandle(),
+      ),
+    ).toBe(true)
+    // Hovering the selected tile itself: only the selection.
+    await canvas.hover(at(0x30, zoom))
+    await expect(sel).toBeVisible()
+    await expect(hov).toBeHidden()
+    expect(await bitmap()).toEqual(reference)
+  }
+})

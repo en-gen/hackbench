@@ -166,6 +166,7 @@ export class Map16ViewWidget extends ReactWidget {
   protected readonly zoomController = new ZoomController(ZOOM_OPTIONS, DEFAULT_ZOOM)
   protected canvasWrapEl: HTMLElement | null = null
   protected hoverOutlineEl: HTMLElement | null = null
+  protected selectionOutlineEl: HTMLElement | null = null
   protected wheelBinding: WheelBinding | undefined
   protected browserOpen = true
   /**
@@ -536,28 +537,34 @@ export class Map16ViewWidget extends ReactWidget {
   }
 
   /**
-   * Places the hover outline, a DOM box over the canvas rather than pixels in
-   * it (#573): the canvas bitmap never changes on hover, and a box can sit
-   * outside the tile and past the canvas edge (the wrap's padding is room
-   * for it). It is the tile grown by 2px: a 1px black border, then a 1px
-   * white inset line touching the tile. CSS px, so each line is 1 screen
-   * pixel at any zoom.
+   * Places the hover and selection outlines, DOM boxes over the canvas rather
+   * than pixels in it (#573): the bitmap never changes on hover or selection,
+   * and a box can sit outside the tile and past the canvas edge (the wrap's
+   * padding is room for it). Each box is the tile grown by `grow` px, all in
+   * CSS px so every line is whole screen pixels at any zoom. Hovering the
+   * selected tile shows only the selection; the selection box comes later in
+   * the DOM, so it also draws above a neighbor's hover.
    */
-  protected positionHoverOutline(): void {
-    const box = this.hoverOutlineEl
+  protected positionOutlines(): void {
     const sheet = this.sheet()
-    if (!box || !this.canvasEl || !sheet || this.hoverTileId === undefined) {
-      if (box) box.style.display = 'none'
-      return
+    const place = (box: HTMLElement | null, tileId: number | undefined, grow: number): void => {
+      if (!box) return
+      if (!this.canvasEl || !sheet || tileId === undefined) {
+        box.style.display = 'none'
+        return
+      }
+      const zoom = this.zoomController.value
+      const { x, y } = tileOrigin(tileId, sheet.tilesPerRow)
+      const size = TILE_PX * zoom + 2 * grow
+      box.style.left = `${this.canvasEl.offsetLeft + x * zoom - grow}px`
+      box.style.top = `${this.canvasEl.offsetTop + y * zoom - grow}px`
+      box.style.width = `${size}px`
+      box.style.height = `${size}px`
+      box.style.display = 'block'
     }
-    const zoom = this.zoomController.value
-    const { x, y } = tileOrigin(this.hoverTileId, sheet.tilesPerRow)
-    const size = TILE_PX * zoom + 4
-    box.style.left = `${this.canvasEl.offsetLeft + x * zoom - 2}px`
-    box.style.top = `${this.canvasEl.offsetTop + y * zoom - 2}px`
-    box.style.width = `${size}px`
-    box.style.height = `${size}px`
-    box.style.display = 'block'
+    const selected = this.selection?.tileId
+    place(this.hoverOutlineEl, this.hoverTileId === selected ? undefined : this.hoverTileId, 2)
+    place(this.selectionOutlineEl, selected, 4)
   }
 
   protected handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>): void => {
@@ -737,16 +744,6 @@ export class Map16ViewWidget extends ReactWidget {
 
     perfEnd('open-map16')
 
-    const sel = this.selection
-    if (sel) {
-      const { x: selX, y: selY } = tileOrigin(sel.tileId, sheet.tilesPerRow)
-      const accent =
-        getComputedStyle(this.node).getPropertyValue('--theia-focusBorder').trim() || '#3399ff'
-      ctx.lineWidth = 1
-      ctx.strokeStyle = accent
-      ctx.strokeRect(selX + 0.5, selY + 0.5, TILE_PX - 1, TILE_PX - 1)
-    }
-
     // Overlay, never baked into the atlas: toggling it is a local repaint
     // and the bytes an export would use stay exactly what the cart says.
     if (this.showGrid) {
@@ -773,7 +770,7 @@ export class Map16ViewWidget extends ReactWidget {
       }
     }
 
-    this.positionHoverOutline()
+    this.positionOutlines()
   }
 
   /**
@@ -1111,6 +1108,12 @@ export class Map16ViewWidget extends ReactWidget {
               className="hb-map16-hover-outline"
               ref={el => {
                 this.hoverOutlineEl = el
+              }}
+            />
+            <div
+              className="hb-map16-selection-outline"
+              ref={el => {
+                this.selectionOutlineEl = el
               }}
             />
           </div>
