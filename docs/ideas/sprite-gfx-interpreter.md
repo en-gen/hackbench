@@ -464,7 +464,8 @@ sets DB to bank 1, and routines read bank-1 tables through DB.
 
 ### 11.1 Grading definitions
 
-Layers_v5 tier, one verdict per recorded sprite, best of 16 passes, offsets
+Layers_v5 tier, one verdict per recorded sprite (rounds 0 to 7: best of the
+passes; from 12.2 the chosen frame against every recorded frame), offsets
 relative to the sprite's own position at the recorded draw; priority bits not
 compared. `exact` same tile, size, palette/flip bits and offsets. `shape`
 same pieces and arrangement, offset from the sprite differs (the sprite moved,
@@ -569,8 +570,8 @@ against 5). None was investigated beyond this; the cause is not known.
 
 - The three fixed entry points (`$01:808C`, `$01:8127`, `$07:F7D2`) are the
   game's own loop in vanilla; a hack that moves them is refused by the shape
-  check, not followed. The sprite-loop entry is not byte-checked, only
-  HandleSprite is.
+  check, not followed. The sprite loop (12.3) and HandleSprite are
+  byte-checked; `$07:F7D2` is not.
 - `dependsOn` is only `marioX`; RNG and the frame counters are inputs too and
   are not diffed. Measured, not claimed: 71 of 197 depended on Mario in the
   spike.

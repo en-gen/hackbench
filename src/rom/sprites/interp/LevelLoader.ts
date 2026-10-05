@@ -53,7 +53,7 @@ function call(
 
 /**
  * The 128 KB WRAM after the ROM has loaded `level` (the 9-bit level number, e.g.
- * 0x105). `rngSeed` is the pair the game's reset code leaves in $148B/$148C.
+ * 0x105). RNGCalc ($148B/$148C) is left zero: no ROM code sets it before frame 0.
  */
 export function loadLevelState(rom: RomFile, level: number): LevelLoad {
   const bus = new SpriteBus(rom)
