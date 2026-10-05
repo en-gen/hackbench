@@ -1,0 +1,336 @@
+/**
+ * SpriteRunner.ts -- runs one sprite's own INIT and MAIN from the ROM on the
+ * 65816 core and emits the v1 model: anchor after INIT, per-pass OAM parts,
+ * a refusal or empty reason, and `dependsOn` found by a two-run diff.
+ *
+ * Nothing here knows a sprite id. Placement and drawing are whatever the
+ * cart's bytes do; the only inputs are the seed (SpriteSeed.ts) and the ROM.
+ * See docs/ideas/sprite-gfx-interpreter.md for measurements.
+ */
+import { Cpu65816 } from '../../cpu/Cpu65816'
+import type { RomFile } from '../../RomFile'
+import { ENTRY, resolvePointer, resolveTables } from './SpriteDispatch'
+import { SpriteBus } from './SpriteBus'
+import { SPRITE_SEED, withSeed, type SpriteSeed } from './SpriteSeed'
+
+/** SMWDisX rammap.asm names, offsets into WRAM. */
+export const RAM = {
+  trueFrame: 0x13,
+  effFrame: 0x14,
+  camX: 0x1a,
+  camY: 0x1c,
+  marioXNext: 0x94,
+  marioYNext: 0x96,
+  marioXNow: 0xd1,
+  marioYNow: 0xd3,
+  spriteNumber: 0x9e,
+  spriteYLow: 0xd8,
+  spriteXLow: 0xe4,
+  status: 0x14c8,
+  yHigh: 0x14d4,
+  xHigh: 0x14e0,
+  curSprite: 0x15e9,
+  oamIndex: 0x15ea,
+  oamX: 0x300,
+  oamTileSize: 0x460,
+  /** Entries in the sprite OAM mirror ($0300-$03FF; hardware entries 64-127). */
+  oamEntries: 64,
+} as const
+
+/** Instruction budget for one call (INIT or one MAIN pass). */
+const STEP_BUDGET = 200_000
+/** Return address pushed under each call; the call is done when it is popped. */
+const SENTINEL = 0xff00
+
+export interface SpritePart {
+  /** Slot in the $0300 OAM mirror, 0-63. */
+  oam: number
+  /** 9-bit tile number: tile byte plus the attribute's name-table bit. */
+  char: number
+  size: 8 | 16
+  /** CGRAM sprite row 8-15, from the attribute the cart wrote. */
+  palette: number
+  priority: number
+  flipX: boolean
+  flipY: boolean
+  /** Pixels from the post-INIT sprite position. */
+  dx: number
+  dy: number
+  /** Raw attribute byte, for graders that compare it whole. */
+  attr: number
+  /** Raw OAM Y, so a grader can drop entries parked below the screen. */
+  oy: number
+}
+
+export interface PassResult {
+  pass: number
+  /** Level position of the sprite at the end of this pass. */
+  pos: { x: number; y: number }
+  parts: SpritePart[]
+  /** Palette or graphics uploads the pass wrote registers for. */
+  uploads: string[]
+}
+
+export type DependsOn = 'marioX'
+
+export interface SpriteModel {
+  id: number
+  /** Why nothing was emitted: the run was refused. */
+  refusal?: string
+  /** Why no part was drawn across all passes, when the run completed. */
+  emptyReason?: string
+  /** Position after INIT, and the raw placement it started from. */
+  anchor?: { x: number; y: number; rawX: number; rawY: number }
+  /** $15EA after INIT: the OAM base the cart assigned. */
+  oamBase?: number
+  passes: PassResult[]
+  dependsOn: DependsOn[]
+  /** Instruction counts: INIT, then each MAIN pass. */
+  steps: number[]
+}
+
+export class Refusal extends Error {}
+
+const REFUSED_OPS: Record<number, string> = { 0x00: 'BRK', 0x02: 'COP', 0x42: 'WDM', 0xdb: 'STP' }
+const hex = (n: number, w = 6) => n.toString(16).toUpperCase().padStart(w, '0')
+
+export class Machine {
+  readonly bus: SpriteBus
+  readonly cpu: Cpu65816
+  private touched = new Set<number>()
+  steps = 0
+
+  constructor(
+    rom: RomFile,
+    readonly seed: SpriteSeed,
+    id: number,
+  ) {
+    this.bus = new SpriteBus(rom)
+    this.cpu = new Cpu65816(this.bus)
+    const cpu = this.cpu
+    cpu.e = false
+    cpu.p = 0x34 // native, 8-bit M and X, IRQ off
+    cpu.s = 0x1ff
+    cpu.d = 0
+    cpu.db = 0
+    this.bus.onInstruction = (addr, op) => {
+      if (REFUSED_OPS[op]) throw new Refusal(`${REFUSED_OPS[op]} executed at $${hex(addr)}`)
+      const bank = addr >>> 16
+      const lo = addr & 0xffff
+      if (bank === 0x7e || bank === 0x7f || ((bank & 0x7f) < 0x40 && lo < 0x8000))
+        throw new Refusal(`execution left ROM code at $${hex(addr)}`)
+    }
+    this.bus.onWramWrite = off => {
+      this.touched.add(off)
+    }
+    this.load(id)
+  }
+
+  private w16(off: number, v: number): void {
+    this.bus.wram[off] = v & 0xff
+    this.bus.wram[off + 1] = (v >> 8) & 0xff
+  }
+
+  private load(id: number): void {
+    const w = this.bus.wram
+    const s = this.seed
+    if (s.wramBase) {
+      w.set(s.wramBase.subarray(0, 0x2000))
+      for (let i = 0; i < 12; i++) w[RAM.status + i] = 0
+    }
+    if (s.map16) {
+      w.set(s.map16.low, 0xc800)
+      w.set(s.map16.high, 0x1c800)
+    }
+    for (let i = 0; i < RAM.oamEntries; i++) w[RAM.oamX + 1 + i * 4] = 0xf0 // cleared OAM is offscreen
+    w[RAM.trueFrame] = s.trueFrame
+    w[RAM.effFrame] = s.effFrame
+    this.w16(RAM.camX, s.camera.x)
+    this.w16(RAM.camY, s.camera.y)
+    // SubHorizPos reads Now ($D1), most others Next ($94): seed both.
+    this.w16(RAM.marioXNext, s.mario.x)
+    this.w16(RAM.marioXNow, s.mario.x)
+    this.w16(RAM.marioYNext, s.mario.y)
+    this.w16(RAM.marioYNow, s.mario.y)
+    for (const [k, v] of Object.entries(s.ram)) w[Number(k)] = v
+    const n = s.slot
+    w[RAM.curSprite] = n
+    w[RAM.spriteNumber + n] = id
+    w[RAM.spriteXLow + n] = s.sprite.x & 0xff
+    w[RAM.xHigh + n] = (s.sprite.x >> 8) & 0xff
+    w[RAM.spriteYLow + n] = s.sprite.y & 0xff
+    w[RAM.yHigh + n] = (s.sprite.y >> 8) & 0xff
+    w[RAM.status + n] = 1
+  }
+
+  /** Runs a routine to its return; throws Refusal on a bad op, escape or budget. */
+  call(entry: number, kind: 'jsr' | 'jsl'): void {
+    const cpu = this.cpu
+    cpu.x = this.seed.slot
+    const s0 = cpu.s
+    const wr = (v: number) => {
+      this.bus.write(cpu.s, v)
+      cpu.s = (cpu.s - 1) & 0xffff
+    }
+    if (kind === 'jsl') wr(0x00)
+    wr((SENTINEL - 1) >> 8)
+    wr((SENTINEL - 1) & 0xff)
+    cpu.pb = entry >>> 16
+    cpu.pc = entry & 0xffff
+    for (let i = 0; i < STEP_BUDGET; i++) {
+      cpu.step()
+      this.steps++
+      if (cpu.s === s0 && cpu.pc === SENTINEL) return
+    }
+    throw new Refusal(`step budget of ${STEP_BUDGET} spent; the routine waits on state the seed lacks`) // prettier-ignore
+  }
+
+  pos(): { x: number; y: number } {
+    const w = this.bus.wram
+    const n = this.seed.slot
+    return {
+      x: w[RAM.spriteXLow + n] | (w[RAM.xHigh + n] << 8),
+      y: w[RAM.spriteYLow + n] | (w[RAM.yHigh + n] << 8),
+    }
+  }
+
+  /** One frame: the game's own sprite loop over all twelve slots (the others are empty). */
+  frame(): void {
+    this.call(ENTRY.spriteLoop, 'jsl')
+  }
+
+  clearOamWrites(): void {
+    this.touched.clear()
+  }
+
+  /** OAM mirror indices whose tile byte this pass wrote. */
+  writtenOam(): number[] {
+    const out: number[] = []
+    for (let i = 0; i < RAM.oamEntries; i++) if (this.touched.has(RAM.oamX + 2 + i * 4)) out.push(i)
+    return out
+  }
+}
+
+const s8 = (v: number) => (v > 127 ? v - 256 : v)
+
+/** Parts the pass wrote, relative to `anchor`, in screen terms (camera removed). */
+function readParts(m: Machine, anchor: { x: number; y: number }): SpritePart[] {
+  const w = m.bus.wram
+  const cam = m.seed.camera
+  const out: SpritePart[] = []
+  for (const i of m.writtenOam()) {
+    const b = RAM.oamX + i * 4
+    const y = w[b + 1]
+    if (y === 0xf0) continue
+    const attr = w[b + 3]
+    const hi = w[RAM.oamTileSize + i]
+    // OAM X is 9 bits (size-table bit 0); the offset wraps into -256..255.
+    const x9 = w[b] | ((hi & 1) << 8)
+    const rel = (((x9 - (anchor.x - cam.x)) % 512) + 512) % 512
+    out.push({
+      oam: i,
+      char: w[b + 2] | ((attr & 1) << 8),
+      size: hi & 2 ? 16 : 8,
+      palette: 8 + ((attr >> 1) & 7),
+      priority: (attr >> 4) & 3,
+      flipX: !!(attr & 0x40),
+      flipY: !!(attr & 0x80),
+      dx: rel > 255 ? rel - 512 : rel,
+      dy: s8((y - (anchor.y - cam.y)) & 0xff),
+      attr,
+      oy: y,
+    })
+  }
+  return out
+}
+
+function uploadsOf(m: Machine, before: Map<number, number>): string[] {
+  const out = new Set<string>()
+  for (const [a, n] of m.bus.hwWrites) {
+    if (n === (before.get(a) ?? 0)) continue
+    if (a === 0x2121 || a === 0x2122) out.add('cgram')
+    else if (a >= 0x2115 && a <= 0x2119) out.add('vram')
+    else if (a >= 0x4300 && a <= 0x437f) out.add('dma')
+  }
+  return [...out]
+}
+
+/** Debug hook: sees WRAM after INIT (pass -1) and after each MAIN pass. */
+export type Probe = (pass: number, wram: Uint8Array) => void
+
+/** Run once with a seed; no dependsOn analysis. */
+function runOnce(rom: RomFile, id: number, seed: SpriteSeed, probe?: Probe): SpriteModel {
+  const model: SpriteModel = { id, passes: [], dependsOn: [], steps: [] }
+  const tables = resolveTables(rom)
+  if (!tables.ok) return { ...model, refusal: tables.reason }
+  const inits = resolvePointer(rom, tables.tables.initTable, id)
+  if (!inits.ok) return { ...model, refusal: `INIT: ${inits.reason}` }
+  const mains = resolvePointer(rom, tables.tables.mainTable, id)
+  if (!mains.ok) return { ...model, refusal: `MAIN: ${mains.reason}` }
+  const m = new Machine(rom, seed, id)
+  try {
+    m.call(ENTRY.initSpriteTables, 'jsl')
+    let n = m.steps
+    m.frame() // status 1 -> CallSpriteInit, which sets status 8 and runs INIT
+    model.steps.push(m.steps - n)
+    const w = m.bus.wram
+    const st = w[RAM.status + seed.slot]
+    if (st !== 8) return { ...model, refusal: `INIT left status $${st.toString(16)}, not 8` }
+    const anchor = m.pos()
+    model.anchor = { ...anchor, rawX: seed.sprite.x, rawY: seed.sprite.y }
+    model.oamBase = w[RAM.oamIndex + seed.slot]
+    probe?.(-1, w)
+    for (let p = 0; p < seed.mainPasses; p++) {
+      w[RAM.trueFrame] = (seed.trueFrame + p) & 0xff
+      w[RAM.effFrame] = (seed.effFrame + p) & 0xff
+      for (let i = 0; i < RAM.oamEntries; i++) w[RAM.oamX + 1 + i * 4] = 0xf0
+      m.clearOamWrites()
+      n = m.steps
+      const hw = new Map(m.bus.hwWrites)
+      m.frame()
+      model.steps.push(m.steps - n)
+      probe?.(p, w)
+      model.passes.push({
+        pass: p,
+        pos: m.pos(),
+        parts: readParts(m, anchor),
+        uploads: uploadsOf(m, hw),
+      })
+    }
+    if (model.passes.every(p => p.parts.length === 0))
+      model.emptyReason = `drew no OAM tile in ${seed.mainPasses} passes (invisible by design, or the seed lacks state)` // prettier-ignore
+  } catch (e) {
+    if (e instanceof Refusal) return { ...model, refusal: e.message }
+    throw e
+  }
+  return model
+}
+
+const partsKey = (m: SpriteModel): string =>
+  m.passes
+    .map(p =>
+      p.parts
+        .map(q => [q.char, q.palette, +q.flipX, +q.flipY, q.dx, q.dy, q.size].join(','))
+        .sort()
+        .join(';'),
+    )
+    .join('|')
+
+/**
+ * The v1 model for one id. `dependsOn` is filled by running a second time with
+ * Mario on the other side of the sprite and diffing the parts, so a future
+ * input is flagged by the same method and never by a per-id list.
+ */
+export function runSprite(
+  rom: RomFile,
+  id: number,
+  seed: SpriteSeed = SPRITE_SEED,
+  probe?: Probe,
+): SpriteModel {
+  const a = runOnce(rom, id, seed, probe)
+  if (a.refusal) return a
+  const other = seed.mario.x >= seed.sprite.x ? seed.sprite.x - 0x40 : seed.sprite.x + 0x40
+  const b = runOnce(rom, id, withSeed({ mario: { x: other, y: seed.mario.y } }, seed))
+  if (!b.refusal && partsKey(a) !== partsKey(b)) a.dependsOn.push('marioX')
+  return a
+}
