@@ -8,7 +8,7 @@
   ./run_sprite_oracle.ps1 -Mode level -Maps 105,106 -K 3
   ./run_sprite_oracle.ps1 -Mode spawn -Ids 0,5,1f,4d,4f
   HB_MESEN, HB_ROM, HB_MESEN_SAVES (Mesen 2.x path; ROM path; saves dir); HB_FIXTURES
-  is the fixtures root (…/hackbench-tools/fixtures).
+  is the fixtures root (.../hackbench-tools/fixtures).
 #>
 param(
   [ValidateSet("level", "spawn")][string]$Mode = "level",

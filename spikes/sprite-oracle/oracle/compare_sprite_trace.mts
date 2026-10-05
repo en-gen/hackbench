@@ -148,7 +148,9 @@ function replay(fx: ReturnType<typeof loadDir>, call: Call, dirName: string, mod
   const unseeded: string[] = []
   let mulA = 0, mulB = 0, prod = 0, dvd = 0, wasDiv = false, quo = 0, rem = 0
   let lastPc = 0, lastOp = 0, steps = 0
-  const note = (s: string) => { if (unseeded.length < 8 && !unseeded.includes(s)) unseeded.push(s) }
+  // unseededAt[k] = writes logged when unseeded[k] was first read, so a read can be blamed only for a write after it.
+  const unseededAt: number[] = []
+  const note = (s: string) => { if (unseeded.length < 8 && !unseeded.includes(s)) { unseeded.push(s); unseededAt.push(got.length) } }
 
   const bus = {
     read(addr: number): number {
@@ -253,7 +255,7 @@ function replay(fx: ReturnType<typeof loadDir>, call: Call, dirName: string, mod
     }
     if (exp[i] !== got[i]) {
       const cause =
-        unseeded.length > 0
+        unseededAt.length > 0 && unseededAt[0] <= i
           ? 'unseeded read ' + unseeded[0]
           : got[i] === undefined
             ? 'core wrote fewer'

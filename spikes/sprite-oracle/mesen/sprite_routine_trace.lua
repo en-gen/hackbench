@@ -451,7 +451,11 @@ local MARIO_X = 64
 
 local SP = { ids = {}, i = 0, ss = nil, base = nil }
 if ENV.IDS and ENV.IDS ~= "" then
-  for tok in ENV.IDS:gmatch("[^,]+") do SP.ids[#SP.ids + 1] = tonumber(tok, 16) end
+  for tok in ENV.IDS:gmatch("[^,]+") do
+    local v = tonumber((tok:gsub("^%s*0[xX]", ""):gsub("^%s*%$", "")), 16)
+    if not v then dlog("bad HB_SPAWN_IDS token " .. tok); emu.stop(26); return end
+    SP.ids[#SP.ids + 1] = v
+  end
 else
   for id = 0, 0xC8 do SP.ids[#SP.ids + 1] = id end
 end

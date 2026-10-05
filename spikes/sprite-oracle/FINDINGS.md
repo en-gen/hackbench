@@ -13,7 +13,7 @@ head 711b7e3). Spike code, not product code.
    (ROM read-only, recorded WRAM and Map16 seeded, multiplier/divider modelled)
    and diffs the ordered (address, value) write logs byte for byte.
 3. Level mode: K=3 calls per sprite slot over 154 maps. Spawn mode
-   (`mesen/sprite_spawn_extract.lua`): 201 sprite ids placed in level $0BD.
+   (`mesen/sprite_spawn_extract.lua`): 201 sprite ids placed in map $0BD.
 4. `oracle/plant_adc_defect.mjs` plants an ADC carry defect in a copy of the
    core to prove the comparator can go red. `oracle/render_sprite_png.mts`
    renders OAM for the owner; no images are committed.
