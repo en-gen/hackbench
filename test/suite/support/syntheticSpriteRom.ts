@@ -17,7 +17,7 @@
  * loader entries ($05:D8AE, $05:D8B7, $00:A635, $05:801E) carry the vanilla shape bytes
  * and small routines of our own. Ids 20, 21 and 22 draw like id 0 and set one CGRAM color
  * in INIT: 20 through the NMI upload list ($0681/$0682), 21 through a MainPalette list
- * ($0703, with $0680 = 6), 22 through $2121/$2122; 23 sets one color directly then by the list, 24 appends a list color and requests the MainPalette upload in one frame, 25 sets two colors with one CGADD, 26 writes id 21's MainPalette list without requesting the upload, 28 writes mirror colors with no list header, 29 uploads a two-color list entry, 27 appends a list color in every MAIN pass. Options plant a defect for the oracle tests.
+ * ($0703, with $0680 = 6), 22 through $2121/$2122; 23 sets one color directly then by the list, 24 appends a list color and requests the MainPalette upload in one frame, 25 sets two colors with one CGADD, 26 writes id 21's MainPalette list without requesting the upload, 28 writes mirror colors with no list header, 29 uploads a two-color list entry, 27 appends a list color in every MAIN pass, 30 burns ~196k steps per INIT and never leaves status 1. Options plant a defect for the oracle tests.
  */
 import { RomFile } from '../../../src/rom/RomFile'
 
@@ -140,6 +140,7 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   initTable[26] = 0x8e00
   initTable[28] = 0x8f00
   initTable[29] = 0x9000
+  initTable[30] = 0x9100
   mainTable[29] = 0x8640
   mainTable[28] = 0x8640
   mainTable[26] = 0x8640
@@ -202,6 +203,8 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   put(0x018f00, [0xa9, 0x06, 0x8d, 0x80, 0x06, 0xa9, 0xaa, 0x8d, 0xa7, 0x08, 0xa9, 0x01, 0x8d, 0xa8, 0x08, 0x60]) // prettier-ignore
   // id 27: appends a list color every MAIN pass (the same bytes as id 20's INIT).
   put(0x018e40, [0xac, 0x81, 0x06, 0xa9, 0x02, 0x99, 0x82, 0x06, 0xa9, 0xd1, 0x99, 0x83, 0x06, 0xa9, 0xff, 0x99, 0x84, 0x06, 0xa9, 0x03, 0x99, 0x85, 0x06, 0xa9, 0x00, 0x99, 0x86, 0x06, 0x98, 0x18, 0x69, 0x04, 0x8d, 0x81, 0x06, 0x60]) // prettier-ignore
+  // id 30 INIT: burns 196,608 steps (65,536 x DEY, NOP, BNE: under the 200,000 per-call budget) and leaves status 1, so the game retries it every frame.
+  put(0x019100, [0xc2, 0x10, 0xa0, 0x00, 0x00, 0x88, 0xea, 0xd0, 0xfc, 0xe2, 0x10, 0xa9, 0x01, 0x9d, 0xc8, 0x14, 0x60]) // prettier-ignore
   // INIT routines that leave status 9, 0 and 1.
   for (const [addr, status] of [
     [0x018730, 9],

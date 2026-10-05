@@ -54,7 +54,8 @@ needs it (`SMWDisX bank_01.asm:10346-10358`).
 
 Seeding is what the game's own spawn path does, run as code: set `$9E`, `$14C8`
 = 1, position, `$15E9` = slot, then `JSL InitSpriteTables` ($07:F7D2, which
-runs `ZeroSpriteTables` and `LoadSpriteTables`, so the OAM attribute `$15F6`
+runs `ZeroSpriteTables` and `LoadSpriteTables`, `SMWDisX bank_07.asm:1006-1008`
+(the routines: `bank_07.asm:933` and `:972`), so the OAM attribute `$15F6`
 and the six tweaker bytes come from the cart's own tables), then `JSR
 $0180D2` (OAM index and timer decrements, bank_01.asm:139-171) and `JSR
 HandleSprite` ($018127). OAM entries are read back from `$0300-$03FF` where a
@@ -792,10 +793,13 @@ oracle images in test support, not by the type.
 
 `theia/extension/src/node/map-sprites.ts` now serves `interpDrawer`: per map,
 `loadLevelState` once (the ROM's own level loader), then per stream sprite one
-`runOnce` (INIT plus up to 64 passes, no `dependsOn` second run). Seeds, all
-generic: the loader's WRAM; sprite = stream position in level pixels; camera
-centred on the sprite and clamped to the map's scroll range; Mario at
-`readMarioStartPos` for the slot. The `chosen` frame's OAM parts are drawn at
+`runOnce` (INIT plus up to 64 passes, no `dependsOn` second run). Seeds: the
+ROM-run loader's WRAM (including the Mario position the loader left, at
+`$94`/`$96`, so a sprite that reads Mario sees the loader's, not a table's);
+sprite = stream position in level pixels; camera centred on the sprite and
+clamped to the map's scroll range. Only when the loader refuses is the seed
+generic, with Mario at `readMarioStartPos`, and the sprite is then marked
+`unverified`. The `chosen` frame's OAM parts are drawn at
 the anchor INIT left; a 16 x 16 entry is four chars (tile, +1, +$10, +$11). A
 refusal or an empty run stays a 16 x 16 marker carrying the interpreter's
 reason. Replies are cached per working-copy bytes and map.

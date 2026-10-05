@@ -5,7 +5,7 @@
  */
 import { levelSeed, loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { describe, expect, it } from 'vitest'
-import { runSprite } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import { runSprite, TOTAL_STEP_CAP } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import {
   resolveLoop,
   resolvePointer,
@@ -139,6 +139,43 @@ describe('runtime palette writes', () => {
     expect([0, 1, 5].map(p => m.passes[p].palette.length)).toEqual([1, 2, 6])
   })
 
+  it('refuses a list whose header or data is cut off by the end of WRAM, and one with no terminator', () => {
+    const len = 0x20000
+    // Entries of 100 bytes chain from $0682 (the run starts at $0681 = 0) up to `end`, then `tail` is written there.
+    const chain = (tail: (w: Uint8Array, at: number) => void) => {
+      const w = new Uint8Array(len)
+      let at = 0x682
+      while (len - 1 - at - 2 > 100) {
+        w[at] = 100
+        w[at + 1] = 0x80
+        for (let i = 0; i < 100; i++) w[at + 2 + i] = 0x11
+        at += 102
+      }
+      tail(w, at)
+      return w
+    }
+    // (a) count byte in the very last cell: no header after it. Walk by 102 until the stride lands on len-1.
+    const cut = (w: Uint8Array, at: number) => {
+      const r = len - 1 - at - 2 // data bytes left between this entry's header and the last cell
+      w[at] = r
+      w[at + 1] = 0x80
+      for (let i = 0; i < r; i++) w[at + 2 + i] = 0x11
+      w[len - 1] = 7
+    }
+    const a = runSprite(rom, 0, withSeed({ loaded: chain(cut) }))
+    expect(a.refusal).toMatch(/header is cut off/)
+    // (b) the last entry claims more data than WRAM has left.
+    const over = (w: Uint8Array, at: number) => {
+      w[at] = 200
+      w[at + 1] = 0x80
+    }
+    const b = runSprite(rom, 0, withSeed({ loaded: chain(over) }))
+    expect(b.refusal).toMatch(/runs past the end of WRAM/)
+    // (c) a well-formed list that ends in a terminator is not refused.
+    const ok = (w: Uint8Array, at: number) => void (w[at] = 0)
+    expect(runSprite(rom, 0, withSeed({ loaded: chain(ok) })).refusal).toBeUndefined()
+  })
+
   it('a sprite that writes no color has none', () => {
     expect(runSprite(rom, 0).passes[0].palette).toEqual([])
   })
@@ -221,6 +258,13 @@ describe('runner on a synthetic cart', () => {
     expect(m.inputs).toContain(0x85)
     // Mario's X is read by id 2 only through the seed, never invented.
     expect(runSprite(rom, 0, SPRITE_SEED, { trackInputs: true }).inputs).not.toContain(0x85)
+  })
+
+  it('an INIT that stays under the per-call budget but never settles hits the total step cap', () => {
+    const m = runSprite(rom, 30)
+    expect(m.refusal).toMatch(/total step cap/)
+    // Without the cap this would run 64 retries of ~196k steps each (~12.6M).
+    expect(m.steps.reduce((x, y) => x + y, 0)).toBeLessThanOrEqual(TOTAL_STEP_CAP)
   })
 
   it('refuses when the dispatch shape is wrong', () => {

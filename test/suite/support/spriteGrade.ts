@@ -14,6 +14,7 @@
  *   empty    the runner drew nothing in any pass
  * Priority bits are not compared (same as capture_decode.sameShape).
  */
+import type { RomFile } from '../../../src/rom/RomFile'
 import type { SpriteModel } from '../../../src/rom/sprites/interp/SpriteRunner'
 
 export interface RecordedPiece {
@@ -94,4 +95,23 @@ export function grade(m: SpriteModel, recorded: RecordedPiece[][]): Grade {
   if (best.verdict === 'wrong')
     best.detail = `recorded ${recorded.map(r => r.length).join('/')} pieces; model drew ${m.passes[m.chosen].parts.length}`
   return best
+}
+
+/**
+ * A planted defect that KEEPS the dispatch shape, so the runner still runs
+ * INIT and MAIN and only the graded output can notice: every `STA $0302,Y`
+ * (the OAM tile store, `99 02 03`) in banks $01-$03, where the sprite code
+ * lives, becomes `STA $0303,Y` (the attribute byte). Returns the count patched
+ * so a caller can prove it planted something. Test helper, not a ROM trace.
+ */
+export function plantTileStoreDefect(rom: RomFile): number {
+  const buf = rom.buffer
+  const base = rom.hasHeader ? 0x200 : 0
+  let n = 0
+  for (let i = base + 0x8000; i + 2 < base + 0x20000; i++)
+    if (buf[i] === 0x99 && buf[i + 1] === 0x02 && buf[i + 2] === 0x03) {
+      buf[i + 1] = 0x03
+      n++
+    }
+  return n
 }

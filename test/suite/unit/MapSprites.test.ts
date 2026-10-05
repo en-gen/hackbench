@@ -1,9 +1,10 @@
 /**
- * The map tab's sprite layer (#564): `drawSprites` places the table engine's
- * parts at the sprite's anchor and marks what the engine declines;
+ * The map tab's sprite layer (#564): `drawSprites` places a drawer's parts at
+ * the sprite's anchor and marks what the drawer declines;
  * `compositeSpriteScreen` cuts the sprites per screen. Synthetic chars,
- * palette and engine results throughout, so CI needs no cart; the corpus
- * block at the end runs the real engine over a vanilla map.
+ * palette and drawer results throughout (the shapes are the table engine's
+ * `EngineResult`; the served drawer is the interpreter, #585), so CI needs no
+ * cart; the corpus block at the end runs `mapSprites` over a vanilla map.
  */
 import { describe, it, expect } from 'vitest'
 import type { EngineResult } from '../../../src/rom/model/sprites/generic/SpriteDrawEngine'

@@ -64,6 +64,14 @@ export const RAM = {
 
 /** Instruction budget for one call (INIT or one MAIN pass). */
 const STEP_BUDGET = 200_000
+/**
+ * Instruction cap for one whole sprite (setup, every INIT retry, every MAIN
+ * pass). The per-call budget alone lets a sprite that never leaves INIT cost
+ * 64 + 64 calls x 200k steps (~25.6M), which blocks the Theia RPC thread.
+ * Vanilla's worst sprite over the maps measured is 234,924 steps (one
+ * machine, 2026-10-05), so this is ~4x headroom.
+ */
+export const TOTAL_STEP_CAP = 1_000_000
 /** INIT retries allowed while the routine leaves status 1. */
 const MAX_INIT_FRAMES = 64
 /** Return address pushed under each call; the call is done when it is popped. */
@@ -244,14 +252,22 @@ export class Machine {
     this.modeWritten = false
   }
 
-  /** CODE_00A4A0's walk: entries to their CGRAM colors; an entry past the end of WRAM stops it. */
+  /**
+   * CODE_00A4A0's walk: entries to their CGRAM colors. A list that runs off
+   * the end of WRAM (a count byte with no header after it, data past the end,
+   * or no terminator) is refused: hardware would read other memory, which this
+   * machine does not have, so any colors it applied would be guesses.
+   */
   private uploadList(start: number): void {
     const w = this.bus.wram
     let at = start
-    while (at + 1 < w.length && w[at] !== 0) {
+    for (;;) {
+      if (at >= w.length) throw new Refusal('palette list runs off the end of WRAM without a terminator') // prettier-ignore
       const count = w[at]
+      if (count === 0) return
+      if (at + 1 >= w.length) throw new Refusal('palette list is truncated: an entry header is cut off by the end of WRAM') // prettier-ignore
       const first = w[at + 1]
-      if (at + 2 + count > w.length) break
+      if (at + 2 + count > w.length) throw new Refusal('palette list is truncated: an entry runs past the end of WRAM') // prettier-ignore
       // CGADD counts colors and wraps at 256; an odd count leaves a half color the DMA still writes.
       for (let i = 0; i + 1 < count; i += 2)
         this.applied.push({
@@ -323,12 +339,15 @@ export class Machine {
     wr((SENTINEL - 1) & 0xff)
     cpu.pb = entry >>> 16
     cpu.pc = entry & 0xffff
-    for (let i = 0; i < STEP_BUDGET; i++) {
+    const left = TOTAL_STEP_CAP - this.steps
+    if (left <= 0) throw new Refusal(`total step cap of ${TOTAL_STEP_CAP} spent across INIT and MAIN; the sprite does not settle`) // prettier-ignore
+    const room = Math.min(STEP_BUDGET, left)
+    for (let i = 0; i < room; i++) {
       cpu.step()
       this.steps++
       if (cpu.s === s0 && cpu.pc === SENTINEL) return
     }
-    throw new Refusal(`step budget of ${STEP_BUDGET} spent; the routine waits on state the seed lacks`) // prettier-ignore
+    throw new Refusal(room < STEP_BUDGET ? `total step cap of ${TOTAL_STEP_CAP} spent across INIT and MAIN; the sprite does not settle` : `step budget of ${STEP_BUDGET} spent; the routine waits on state the seed lacks`) // prettier-ignore
   }
 
   pos(): { x: number; y: number } {

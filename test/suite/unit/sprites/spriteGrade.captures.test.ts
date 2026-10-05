@@ -29,7 +29,13 @@ import {
   VANILLA,
 } from '../../support/corpus'
 import { oracleCells, oracleImage } from '../../support/oracleImage'
-import { grade, passPieces, type Grade, type RecordedPiece } from '../../support/spriteGrade'
+import {
+  grade,
+  passPieces,
+  plantTileStoreDefect,
+  type Grade,
+  type RecordedPiece,
+} from '../../support/spriteGrade'
 
 interface Rec {
   id: string
@@ -188,12 +194,14 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
   }, 300_000)
 
   it('goes red when the dispatch is planted with a defect', () => {
-    // ExecutePtr ($00:86DF) returns at once: no INIT, no MAIN runs, nothing is drawn.
+    // The OAM tile stores of banks $01-$03 write the attribute byte instead: INIT and MAIN still
+    // run (the dispatch shape check passes), and only the graded tiles are wrong.
     const sample = 150
     const base = gradeAll(freshRom(), all, { limit: sample, passes: 8 })
     const rom = freshRom()
-    rom.writeAt(0x0086df, [0x6b])
+    expect(plantTileStoreDefect(rom)).toBeGreaterThan(0)
     const planted = gradeAll(rom, all, { limit: sample, passes: 8 })
+    expect(planted.by.refused ?? 0).toBeLessThanOrEqual(base.by.refused ?? 0) // not the dispatch refusal
     expect(base.by.exact ?? 0).toBeGreaterThan(sample / 4)
     expect(planted.by.exact ?? 0).toBeLessThan((base.by.exact ?? 0) / 4)
   }, 300_000)

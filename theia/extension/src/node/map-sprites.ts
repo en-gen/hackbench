@@ -2,19 +2,19 @@
  * The map tab's sprite layer (#564), drawn by the sprite interpreter (#585).
  *
  * Pure, so it is unit tested in CI; `ProjectServiceImpl` only resolves the
- * working copy and delegates here. Each sprite of the level's stream goes to
- * `drawSpriteParts`; the chars come from the level's own VRAM (SP1-SP4, as
- * `loadVram` placed them) and the colors from the level's CGRAM, whose rows
- * 8-15 are the sprite palettes. The ROW a part uses is the engine's: it reads
- * the sprite's own palette source (docs/sprites/sprite-engine-divergence.md),
- * so the level's palette is only the colors that row holds, not a choice.
+ * working copy and delegates here. Each sprite of the level's stream is run by
+ * `interpDrawer` (below); the chars come from the level's own VRAM (SP1-SP4,
+ * as `loadVram` placed them) and the colors from the level's CGRAM, whose rows
+ * 8-15 are the sprite palettes. The ROW a part uses is the sprite's own
+ * (its OAM attribute byte), so the level's palette is only the colors that row
+ * holds, not a choice.
  *
  * A part lands at the sprite's anchor (its tile corner, in map pixels) plus
- * the engine's dx/dy: negative, off the 16 px grid, and free to spill past
+ * the part's dx/dy: negative, off the 16 px grid, and free to spill past
  * its tile or screen, so nothing is snapped and each sprite is one bitmap
- * the view cuts per screen. A sprite the engine declines (no descriptor, a
- * repointed handler, chars not loaded, a custom handler) is a 16 x 16 marker
- * with its hex id, never invented art. That includes the non-visual sprites
+ * the view cuts per screen. A sprite the interpreter refuses or that draws
+ * nothing, or whose chars are not loaded, is a 16 x 16 marker with its hex id
+ * and the reason, never invented art. That includes the non-visual sprites
  * (auto-scroll, generators, layer control): their real treatment is deferred.
  *
  * THE SERVED PATH IS THE INTERPRETER (#585): `interpDrawer` runs the sprite's
@@ -252,9 +252,19 @@ export function engineDrawer(rom: RomFile, marioX: number): SpriteDrawer | null 
 export const partKey = (p: EnginePart) => [p.charNum, p.palette, +p.flipX, +p.flipY, p.dx, p.dy].join(',') // prettier-ignore
 
 /**
+ * A 16 x 16 OBJ's char at cell (cx, cy): the PPU steps the column inside the
+ * low nibble and the row inside the 256-char table, and leaves bit 8 (the
+ * name table) alone, so `$1F` is `$1F, $10, $2F, $20` and `$F0` is
+ * `$F0, $F1, $00, $01` (SNES OBJ name-table addressing, hardware behaviour;
+ * not a ROM trace).
+ */
+const neighbour = (char: number, cx: number, cy: number): number =>
+  (char & 0x100) | ((((char >> 4) + cy) & 0xf) << 4) | (((char & 0xf) + cx) & 0xf)
+
+/**
  * The interpreter's `chosen` frame as drawable parts. A 16 x 16 OAM entry is
- * four 8 x 8 chars (tile, +1, +$10, +$11: a flip swaps which char sits
- * where). Highest OAM index first, so the lower index (higher priority) is
+ * four 8 x 8 chars (tile, +1, +$10, +$11, wrapping as `neighbour` says: a
+ * flip swaps which char sits where). Highest OAM index first, so the lower index (higher priority) is
  * blitted last and wins an overlap. `char` is the 9-bit OBJ char; hackbench
  * numbers OBJ chars from $400.
  */
@@ -265,7 +275,7 @@ export function interpParts(parts: readonly SpritePart[]): EnginePart[] {
     for (const [cx, cy] of cells) {
       const [col, row] = [p.flipX ? 1 - cx : cx, p.flipY ? 1 - cy : cy]
       out.push({
-        charNum: 0x400 + p.char + (p.size === 16 ? cx + cy * 16 : 0),
+        charNum: 0x400 + (p.size === 16 ? neighbour(p.char, cx, cy) : p.char),
         palette: p.palette,
         flipX: p.flipX,
         flipY: p.flipY,

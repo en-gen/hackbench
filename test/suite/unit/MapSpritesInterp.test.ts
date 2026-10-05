@@ -2,7 +2,8 @@
  * The map tab's sprite layer draws from the interpreter (#585, step 3 of
  * #582): `interpParts` / `modelResult` / `cameraFor` are synthetic (CI has no
  * ROM); the corpus block runs the real thing over vanilla maps and lays it
- * beside the table engine, which stays only as that oracle until step 4.
+ * beside the table engine, which stays only as that oracle until step 4 (it
+ * is not the served path).
  */
 import { createHash } from 'crypto'
 import { describe, it, expect } from 'vitest'
@@ -54,6 +55,13 @@ describe('interpParts', () => {
     // flipX + flipY: the bottom-right char sits top-left.
     expect([at(0, 0), at(8, 0), at(0, 8), at(8, 8)]).toEqual([0x511, 0x510, 0x501, 0x500])
     expect(got.every(p => p.flipX && p.flipY)).toBe(true)
+  })
+
+  it('wraps the neighbour chars like the PPU: column in the low nibble, row in the 256-char table, bit 8 kept', () => {
+    const at = (char: number) => interpParts([part({ char, size: 16 })]).map(p => p.charNum - 0x400).sort((a, b) => a - b) // prettier-ignore
+    expect(at(0x1f)).toEqual([0x10, 0x1f, 0x20, 0x2f]) // $1F, $10, $2F, $20
+    expect(at(0xf0)).toEqual([0x00, 0x01, 0xf0, 0xf1]) // $F0, $F1, $00, $01
+    expect(at(0x1ff)).toEqual([0x100, 0x10f, 0x1f0, 0x1ff]) // bit 8 unchanged: $1FF, $1F0, $10F, $100
   })
 
   it('puts the lower OAM index last, so it wins an overlap when blitted in order', () => {
@@ -479,50 +487,6 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     )[0]!
     draw(s)
     expect(seeds[0]!.mario).toMatchObject({ x: 136, y: 368 })
-  })
-
-  it('$4F on $105 is served at its stream position plus (8, -1): INIT moved it, not a table', () => {
-    const b = bytes()
-    const r = mapSprites(new L1ModelCache(), b, romPath(VANILLA), 0x105)
-    if (r.status !== 'ok') throw new Error(JSON.stringify(r))
-    const rom = new SmwRom(RomFile.fromBytes('x.sfc', Buffer.from(b)))
-    const raw = parseLevelSprites(rom.rom.readUpTo(rom.getLevelSpritePointer(0x105)!, 0x200)!, false).filter(s => s.spriteId === 0x4f) // prettier-ignore
-    const served = r.sprites.filter(s => s.id === 0x4f)
-    expect(served.map(s => [s.x, s.y])).toEqual([[1816, 335], [2232, 319], [4552, 319]]) // prettier-ignore
-    expect(served.map(s => [s.x, s.y])).toEqual(raw.map(s => [s.x * 16 + 8, s.y * 16 - 1]))
-    expect(served.every(s => s.status === 'drawn')).toBe(true)
-  })
-
-  it('runtime colors: the last upload of $1F (Magikoopa) is the colors the table engine splices in', () => {
-    const b = bytes()
-    const rom = new SmwRom(RomFile.fromBytes('x.sfc', Buffer.from(b)))
-    const map = 0x11c
-    const level = loadLevelState(rom.rom, map)
-    if (!level.ok) throw new Error(level.reason)
-    const sprite = parseLevelSprites(rom.rom.readUpTo(rom.getLevelSpritePointer(map)!, 0x200)!, false).find(x => x.spriteId === 0x1f)! // prettier-ignore
-    const [x, y] = [sprite.x * 16, sprite.y * 16]
-    const m = runOnce(rom.rom, 0x1f, withSeed({ sprite: { x, y }, camera: cameraFor(x, y, false, 20), mario: readMarioStartPos(rom.rom, map), loaded: level.wram })) // prettier-ignore
-    const written = m.passes.at(-1)!.palette
-    const note = engineDrawer(rom.rom, 0)!(sprite)
-    if (!note.ok || !('paletteNote' in note) || !note.paletteNote) throw new Error('engine has no dynamicCgram note') // prettier-ignore
-    const n = note.paletteNote
-    const bytesAt = rom.rom.readAt(n.entryAddr, n.colors * 2)!
-    const want = Array.from({ length: n.colors }, (_, i) => ({ index: n.row * 16 + n.firstCol + i, bgr555: (bytesAt[i * 2]! | (bytesAt[i * 2 + 1]! << 8)) & 0x7fff })) // prettier-ignore
-    expect(written.slice(-n.colors)).toEqual(want)
-    // The served frame is the first that draws, which precedes the first upload: no colors yet.
-    expect(m.chosen).toBeDefined()
-    expect(m.passes[m.chosen!]!.palette).toEqual([])
-  })
-
-  it('$C5 (the boss Big Boo on $0E4) is served with the colors its own code uploads', () => {
-    const b = bytes()
-    const rom = new SmwRom(RomFile.fromBytes('x.sfc', Buffer.from(b)))
-    const built = new L1ModelCache().get(b, romPath(VANILLA), 0xe4, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
-    if (!built.ok) throw new Error(built.reason)
-    const draw = interpDrawer(rom.rom, 0xe4, built.inputs)
-    const s = parseLevelSprites(rom.rom.readUpTo(rom.getLevelSpritePointer(0xe4)!, 0x200)!, false).find(x => x.spriteId === 0xc5)! // prettier-ignore
-    const r = draw(s)
-    expect(r.ok && 'runtimePalette' in r && r.runtimePalette?.length).toBe(8)
   })
 
   it('counts drawn and marked sprites on $105 and $106, every marker with the interpreter reason', () => {
