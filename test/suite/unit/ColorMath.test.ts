@@ -240,6 +240,24 @@ describe('layer order and toggles', () => {
   })
 })
 
+describe('the sprite layer as a source (#564)', () => {
+  const run = (sprite: Rgb | null) => [
+    ...composeScreen({
+      width: 1,
+      height: 1,
+      math: { cgadsub: 0x01, fixed: BACK }, // layer 1 in CGADSUB, sprites not
+      lists: { main: ['l1Low', 'sprites'], sub: ['l2Low'] },
+      planes: { l1Low: plane(c5(10, 10, 10)), l2Low: plane(c5(4, 4, 4)), sprites: sprite ? plane(sprite) : null }, // prettier-ignore
+    }),
+  ]
+  it('a sprite pixel covers layer 1 and takes no part in the math', () => {
+    expect(run(c5(1, 2, 3))).toEqual(rgba(c5(1, 2, 3)))
+  })
+  it('with no sprite there the layer 1 pixel is added onto layer 2 as before', () => {
+    expect(run(null)).toEqual(rgba(c5(14, 14, 14)))
+  })
+})
+
 describe('effectiveCgadsub', () => {
   it('drops BG3 where CODE_009FB8 clears it, keeps it for the camera-locked byte', () => {
     expect(effectiveCgadsub(0x24, true)).toBe(0x20)

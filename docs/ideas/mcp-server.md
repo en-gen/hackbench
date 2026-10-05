@@ -25,41 +25,41 @@ Agents connect via `mcp.json` (VS Code) or Claude Desktop config:
 
 ## Proposed tools
 
-| Tool | Maps to |
-|------|---------|
-| `smw_list_levels` | `SmwRom.getLevelList()` |
-| `smw_get_level` | `LevelParser.parseLevel(index)` |
-| `smw_get_level_objects` | `ObjectExpander.expand(level)` |
-| `smw_get_palette` | `PaletteLoader.loadPaletteGroup(group)` |
-| `smw_get_gfx` | `GfxLoader.loadGfxFile(index)` |
-| `smw_get_map16_page` | `SmwRom.getMap16Page(page)` |
+| Tool                    | Maps to                                 |
+| ----------------------- | --------------------------------------- |
+| `smw_list_levels`       | `SmwRom.getLevelList()`                 |
+| `smw_get_level`         | `LevelParser.parseLevel(index)`         |
+| `smw_get_level_objects` | `ObjectExpander.expand(level)`          |
+| `smw_get_palette`       | `PaletteLoader.loadPaletteGroup(group)` |
+| `smw_get_gfx`           | `GfxLoader.loadGfxFile(index)`          |
+| `smw_get_map16_page`    | `SmwRom.getMap16Page(page)`             |
 
 ## Implementation sketch
 
 ```ts
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import * as http from 'http';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import * as http from 'http'
 
 export function activate(ctx: vscode.ExtensionContext) {
-    // ... existing providers ...
+  // ... existing providers ...
 
-    const mcp = new McpServer({ name: 'hackbench', version: '0.1.0' });
+  const mcp = new McpServer({ name: 'hackbench', version: '0.1.0' })
 
-    mcp.tool('smw_list_levels', {}, async () => {
-        const rom = RomSession.current?.rom;
-        if (!rom) return { content: [{ type: 'text', text: 'No ROM open' }] };
-        return { content: [{ type: 'text', text: JSON.stringify(rom.getLevelList()) }] };
-    });
+  mcp.tool('smw_list_levels', {}, async () => {
+    const rom = RomSession.current?.rom
+    if (!rom) return { content: [{ type: 'text', text: 'No ROM open' }] }
+    return { content: [{ type: 'text', text: JSON.stringify(rom.getLevelList()) }] }
+  })
 
-    // ... more tools ...
+  // ... more tools ...
 
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-    const server = http.createServer((req, res) => transport.handleRequest(req, res));
-    server.listen(3579);
-    mcp.connect(transport);
+  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
+  const server = http.createServer((req, res) => transport.handleRequest(req, res))
+  server.listen(3579)
+  mcp.connect(transport)
 
-    ctx.subscriptions.push({ dispose: () => server.close() });
+  ctx.subscriptions.push({ dispose: () => server.close() })
 }
 ```
 

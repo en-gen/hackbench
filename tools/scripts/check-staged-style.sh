@@ -19,7 +19,7 @@ mapfile -t files < <(git diff --cached --name-only --diff-filter=ACMR \
 
 fail=0
 
-# --no-warn-ignored keeps an explicitly-passed but ignored file (spike/, say)
+# --no-warn-ignored keeps an explicitly-passed but ignored file (spikes/, say)
 # from turning into a warning that --max-warnings 0 then treats as fatal.
 if ! npx --no-install eslint --max-warnings 0 --no-warn-ignored "${files[@]}"; then
   echo ""

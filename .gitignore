@@ -145,9 +145,9 @@ __pycache__/
 vendor/cores/
 
 # Spike: gameplay screenshots are ROM-derived output - never commit
-spike/**/evidence/
-spike/**/*.png
-spike/**/serve.log
+spikes/**/evidence/
+spikes/**/*.png
+spikes/**/serve.log
 
 # ROM-derived edit layers (IPS patch files contain ROM bytes)
 *.hackbench/

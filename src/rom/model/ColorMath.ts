@@ -12,18 +12,20 @@
  * Participation in math is keyed by layer (LAYER_BIT), so OBJ (bit $10, palettes
  * 4-7 only, #564) arrives later as one more input plane, not a redesign.
  */
-import type { PlaneKey, ScreenPlanes } from './ScreenPlanes'
+import type { PlaneKey } from './ScreenPlanes'
 
 export type Rgb = readonly [number, number, number]
 export interface ColorMathInput {
   cgadsub: number
   fixed: Rgb
 }
+/** A plane, or the sprite layer (#564): a source the lists can name. */
+export type SourceKey = PlaneKey | 'sprites'
 export interface ScreenInput {
   width: number
   height: number
-  planes: Partial<Record<PlaneKey, Uint8ClampedArray | null>>
-  lists: ScreenPlanes
+  planes: Partial<Record<SourceKey, Uint8ClampedArray | null>>
+  lists: { main: readonly SourceKey[]; sub: readonly SourceKey[] }
   math: ColorMathInput | null
 }
 
@@ -49,7 +51,7 @@ const to8 = (v: number) => (v << 3) | (v >> 2)
  * The topmost plane's CGADSUB membership then applies to the blend: an editor affordance, not
  * hardware, and it differs only when the two layers differ in membership.
  */
-function top(i: ScreenInput, list: readonly PlaneKey[], at: number) {
+function top(i: ScreenInput, list: readonly SourceKey[], at: number) {
   let sum = [0, 0, 0]
   let cover = 0
   let bit = 0
@@ -57,7 +59,9 @@ function top(i: ScreenInput, list: readonly PlaneKey[], at: number) {
     const data = i.planes[list[k]!]
     const a = data ? data[at + 3]! / 255 : 0
     if (!data || a === 0) continue
-    if (cover === 0) bit = LAYER_BIT[list[k]!.slice(0, 2) as keyof typeof LAYER_BIT]
+    // Sprites take no part in color math yet: palettes 4-7 only (snes9x gfx.cpp:819) needs the
+    // sprite palette split, which #564's pixels do not carry.
+    if (cover === 0) bit = list[k] === 'sprites' ? 0 : LAYER_BIT[list[k]!.slice(0, 2) as keyof typeof LAYER_BIT] // prettier-ignore
     const w = a * (1 - cover)
     sum = sum.map((v, c) => v + data[at + c]! * w)
     cover += w

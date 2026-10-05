@@ -168,7 +168,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - run: python3 spike/test_serve_hardening.py
+      - run: python3 spikes/libretro-view-engine/test_serve_hardening.py
 
   # The required check "Build & Test" lives on as the gate over the jobs
   # above, so branch protection is unchanged. The verdict is in
