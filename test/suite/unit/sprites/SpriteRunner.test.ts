@@ -74,6 +74,65 @@ describe('runtime palette writes', () => {
     expect(m.passes.at(-1)!.palette).toEqual([{ index, bgr555 }])
   })
 
+  const image = (cells: Record<number, number>) => {
+    const w = new Uint8Array(0x20000)
+    for (const [k, v] of Object.entries(cells)) w[Number(k)] = v
+    return w
+  }
+
+  it('entries the loader left in the upload list are not the sprite own (the run starts at $0681)', () => {
+    // $0681 = 4 with a stale entry [2 bytes, color $D7, $2211] at $0682.
+    const stale = image({ 0x681: 4, 0x682: 2, 0x683: 0xd7, 0x684: 0x11, 0x685: 0x22 })
+    const m = runSprite(rom, 20, withSeed({ loaded: stale }))
+    expect(m.passes[0].palette).toEqual([{ index: 0xd1, bgr555: 0x03ff }])
+  })
+
+  it('a color set directly and then by the list ends as the list set it, in that order', () => {
+    expect(runSprite(rom, 23).passes[0].palette).toEqual([
+      { index: 0xd1, bgr555: 0x0211 },
+      { index: 0xd1, bgr555: 0x03ff },
+    ])
+  })
+
+  it('half a mirror color is not a color, even with the upload requested', () => {
+    expect(runSprite(rom, 24).passes[0].palette).toEqual([])
+  })
+
+  it('a mirror color is not applied unless the run requested the MainPalette upload ($0680 = 6)', () => {
+    // Id 21 with its $0680 write undone by an image that has no way to matter: the gate reads the run's own write.
+    const m = runSprite(rom, 21, withSeed({ loaded: image({ 0x680: 6 }) }))
+    expect(m.passes[0].palette).toEqual([{ index: 0xd2, bgr555: 0x01aa }])
+    expect(runSprite(rom, 0, withSeed({ loaded: image({ 0x680: 6 }) })).passes[0].palette).toEqual(
+      [],
+    )
+  })
+
+  it('a whole mirror color is not applied unless the run asked for the upload, whatever $0680 held', () => {
+    expect(runSprite(rom, 26).passes[0].palette).toEqual([])
+    const six = runSprite(rom, 26, withSeed({ loaded: image({ 0x680: 6 }) }))
+    expect(six.passes[0].palette).toEqual([])
+  })
+
+  it('the list is drained by each frame: a color appended every pass lands every pass', () => {
+    const m = runSprite(rom, 27)
+    expect([0, 1, 5].map(p => m.passes[p].palette.length)).toEqual([1, 2, 6])
+  })
+
+  it('two consecutive CGDATA colors land on consecutive indices (CGADD auto-increments)', () => {
+    expect(runSprite(rom, 25).passes[0].palette).toEqual([
+      { index: 0xd4, bgr555: 0x0123 },
+      { index: 0xd5, bgr555: 0x0456 },
+    ])
+  })
+
+  it('an entry that would end past the 127-byte table is not read, and the list is drained each frame', () => {
+    // $0681 = $7C: the sprite appends at $06FE, its 5 bytes end at $0702, past $0700.
+    const m = runSprite(rom, 20, withSeed({ loaded: image({ 0x681: 0x7c }) }))
+    expect(m.passes[0].palette).toEqual([])
+    // Drained: no later pass re-applies or piles anything.
+    expect(runSprite(rom, 20).passes.at(-1)!.palette).toHaveLength(1)
+  })
+
   it('a sprite that writes no color has none', () => {
     expect(runSprite(rom, 0).passes[0].palette).toEqual([])
   })

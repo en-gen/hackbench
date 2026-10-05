@@ -277,7 +277,16 @@ export function interpParts(parts: readonly SpritePart[]): EnginePart[] {
   return out
 }
 
-/** Camera that puts a level position on screen: centred, clamped to the map's scroll range. */
+/**
+ * Camera that puts a level position on screen: centred, clamped to the scroll
+ * range. The range is DERIVED from the level extents minus the 256 x 224 view,
+ * not traced to the camera routine: the extents themselves are the game's
+ * (a horizontal level is LevelScrLength screens wide and $01B0 = 432 px tall,
+ * bank_00.asm:13293 and 13299; a vertical one is LevelScrLength screens tall,
+ * bank_00.asm:13326, 512 px wide); the camera's own clamp was not read. A
+ * wrong clamp only moves the camera by a few pixels, and any position that
+ * keeps the sprite on screen is as good a seed.
+ */
 export function cameraFor(x: number, y: number, vertical: boolean, screens: number) {
   const [maxX, maxY] = vertical ? [256, screens * 256 - 224] : [screens * 256 - 256, 432 - 224]
   const clamp = (v: number, hi: number) => Math.max(0, Math.min(hi, v))
@@ -315,9 +324,14 @@ export function interpDrawer(
   model: { isVertical: boolean; screenCount: number },
   run: (rom: RomFile, id: number, seed: SpriteSeed) => RunModel = runOnce,
 ): SpriteDrawer {
-  const mario = readMarioStartPos(rom, index)
   // The loader runs once per map, not per sprite.
   const base = levelSeed(rom, index)
+  // Mario's start is what the ROM-run loader left in $94/$96 (the entrance it ran); the
+  // table re-derivation is only for a generic seed, which has no loader image.
+  const w = base.loaded
+  const mario = w
+    ? { x: w[0x94]! | (w[0x95]! << 8), y: w[0x96]! | (w[0x97]! << 8) }
+    : readMarioStartPos(rom, index)
   // Only the map's own shape is added to a generic seed; a loaded one ignores it.
   const shape = { level: { screenMode: model.isVertical ? 1 : 0, screens: model.screenCount } }
   return s => {
@@ -378,6 +392,8 @@ export function spriteLayer(
  * passes takes a moment, and the working copy hands out new bytes after each
  * edit, so nothing here needs invalidating.
  */
+/** Replies kept per working-copy bytes: each holds every sprite's bitmap, so a whole ROM's maps are not. */
+const REPLIES_PER_BYTES = 8
 const replies = new WeakMap<Uint8Array, Map<number, ReturnType<typeof compute>>>()
 
 /** A map's sprites from the working copy's bytes, over the same model as its screens. */
@@ -393,7 +409,11 @@ export function mapSprites(
   if (!r) {
     r = compute(cache, bytes, romPath, index)
     // Only a computed answer is kept; an unavailable one may be a loader hiccup worth retrying.
-    if (r.status === 'ok') byMap.set(index, r)
+    if (r.status === 'ok') {
+      // As L1ModelCache bounds its models (map-screen.ts): the oldest of a version's replies goes first.
+      if (byMap.size >= REPLIES_PER_BYTES) byMap.delete(byMap.keys().next().value!)
+      byMap.set(index, r)
+    }
   }
   return r
 }

@@ -50,6 +50,8 @@ export const RAM = {
   curSprite: 0x15e9,
   oamIndex: 0x15ea,
   /** $0681 DynPaletteIndex: bytes used in the NMI colour-upload list at $0682 (rammap.asm:1152-1164). */
+  /** $0680 PaletteIndexTable: which palette source the next NMI uploads (rammap.asm:1143-1146). */
+  paletteIndexTable: 0x680,
   dynPaletteIndex: 0x681,
   dynPaletteTable: 0x682,
   /** $0703 MainPalette: a RAM copy of all 256 CGRAM colors (rammap.asm:1172-1175). */
@@ -156,7 +158,10 @@ export class Machine {
   private touched = new Set<number>()
   /** Cumulative: MainPalette bytes written, and direct $2121/$2122 colors in write order. */
   private palTouched = new Set<number>()
-  private direct: PaletteWrite[] = []
+  /** Colors set so far, in the order they took effect (cumulative; see `nmi`). */
+  private applied: PaletteWrite[] = []
+  /** The run itself wrote $0680 PaletteIndexTable since the last NMI (a loaded image's value is not the sprite's). */
+  private modeWritten = false
   private cgadd = 0
   private cgLow: number | null = null
   /** $0681 when the run began: entries the loader left in the upload list are not this sprite's. */
@@ -180,6 +185,7 @@ export class Machine {
     this.bus.onWramWrite = off => {
       this.touched.add(off)
       if (off >= RAM.mainPalette && off < RAM.mainPalette + 512) this.palTouched.add(off)
+      if (off === RAM.paletteIndexTable) this.modeWritten = true
     }
     this.bus.onHwWrite = (reg, v) => {
       if (reg === 0x2121) {
@@ -188,7 +194,7 @@ export class Machine {
       } else if (reg === 0x2122) {
         if (this.cgLow === null) this.cgLow = v
         else {
-          this.direct.push({ index: this.cgadd, bgr555: ((v << 8) | this.cgLow) & 0x7fff })
+          this.applied.push({ index: this.cgadd, bgr555: ((v << 8) | this.cgLow) & 0x7fff })
           this.cgadd = (this.cgadd + 1) & 0xff
           this.cgLow = null
         }
@@ -198,38 +204,58 @@ export class Machine {
     this.dynStart = this.bus.wram[RAM.dynPaletteIndex]
   }
 
-  /**
-   * CGRAM colors this run has set so far, three routes in this order (a later
-   * route wins a color): (1) the NMI upload list at $0682, entries
-   * `[bytes, CGRAM color index, colors...]` ended by a zero count, read from
-   * where the run began (CODE_00A488, SMWDisX bank_00.asm:4714-4735, the
-   * table `DynPaletteTable` of rammap.asm:1157-1164; no NMI runs here, so
-   * entries pile up and a later one for the same index wins, as it would
-   * after the earlier upload); (2) MainPalette colors whose BOTH bytes the run
-   * wrote (a half-written color has no known other half); (3) direct
-   * $2121/$2122 writes. Hardware's own consumption of (2) is the
-   * whole-CGRAM upload of PaletteIndexTable 6 (bank_00.asm:4710).
-   */
+  /** CGRAM colors this run has set so far, in the order they took effect. */
   paletteWrites(): PaletteWrite[] {
+    return [...this.applied]
+  }
+
+  /**
+   * The NMI's palette work after one frame of sprite code (CODE_00A488 and
+   * CODE_00A4CF, SMWDisX bank_00.asm:4714-4757), since no NMI runs here.
+   * Direct $2121/$2122 writes already took effect, in order, during the
+   * frame; then, by `PaletteIndexTable` ($0680, rammap.asm:1143-1146, an
+   * index into the three-entry table at bank_00.asm:4709-4712):
+   * - 0, the default: upload the list `DynPaletteTable` ($0682), entries
+   *   `[bytes, CGRAM color index, colors...]` ended by a zero count, from where
+   *   the run began on the first frame (what the loader left is not this
+   *   sprite's); then `$0681` and the first list byte are cleared
+   *   (bank_00.asm:4753-4756), so the list never piles up or overflows. An
+   *   entry that would end past the 127-byte table is not read.
+   * - 6, MainPalette ($0703, the whole-CGRAM copy, rammap.asm:1172-1175): the
+   *   colors whose BOTH bytes the run wrote (a half-written color has no known
+   *   other half). No sprite code in the vanilla banks writes $0680, so this
+   *   route is reached only by a hack's own sprite, and only if the run wrote it.
+   * - 3, CopyPalette (level-end fades): not modelled.
+   * Then $0680 is cleared (bank_00.asm:4757).
+   */
+  nmi(): void {
     const w = this.bus.wram
-    const out: PaletteWrite[] = []
-    let at = RAM.dynPaletteTable + this.dynStart
-    while (at < RAM.dynPaletteTable + 0x7f && w[at] !== 0) {
-      const n = w[at] & ~1
-      const first = w[at + 1]
-      for (let i = 0; i < n / 2 && first + i < 256; i++)
-        out.push({
-          index: first + i,
-          bgr555: (w[at + 2 + i * 2] | (w[at + 3 + i * 2] << 8)) & 0x7fff,
-        })
-      at += 2 + w[at]
+    const mode = w[RAM.paletteIndexTable]
+    if (mode === 0) {
+      const end = RAM.dynPaletteTable + 0x7f
+      let at = RAM.dynPaletteTable + this.dynStart
+      while (at < end && w[at] !== 0 && at + 2 + w[at] <= end) {
+        const n = w[at] >> 1
+        const first = w[at + 1]
+        for (let i = 0; i < n && first + i < 256; i++)
+          this.applied.push({
+            index: first + i,
+            bgr555: (w[at + 2 + i * 2] | (w[at + 3 + i * 2] << 8)) & 0x7fff,
+          })
+        at += 2 + w[at]
+      }
+      w[RAM.dynPaletteIndex] = 0
+      w[RAM.dynPaletteTable] = 0
+      this.dynStart = 0
+    } else if (mode === 6 && this.modeWritten) {
+      for (let i = 0; i < 256; i++) {
+        const b = RAM.mainPalette + i * 2
+        if (this.palTouched.has(b) && this.palTouched.has(b + 1))
+          this.applied.push({ index: i, bgr555: (w[b] | (w[b + 1] << 8)) & 0x7fff })
+      }
     }
-    for (let i = 0; i < 256; i++) {
-      const b = RAM.mainPalette + i * 2
-      if (this.palTouched.has(b) && this.palTouched.has(b + 1))
-        out.push({ index: i, bgr555: (w[b] | (w[b + 1] << 8)) & 0x7fff })
-    }
-    return [...out, ...this.direct]
+    w[RAM.paletteIndexTable] = 0
+    this.modeWritten = false
   }
 
   private w16(off: number, v: number): void {
@@ -313,6 +339,7 @@ export class Machine {
   /** One frame: the game's own sprite loop over all twelve slots (the others are empty). */
   frame(): void {
     this.call(ENTRY.spriteLoop, 'jsl')
+    this.nmi()
   }
 
   clearOamWrites(): void {

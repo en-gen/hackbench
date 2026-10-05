@@ -801,8 +801,7 @@ refusal or an empty run stays a 16 x 16 marker carrying the interpreter's
 reason. Replies are cached per working-copy bytes and map.
 
 Measured (vanilla, one machine, node, cold map, whole layer): `$105` 255-280 ms,
-`$106` 130-175 ms, `$00F` ~200 ms, the vanilla map with most sprites (`$120`,
-65) ~320 ms. Nothing near the 1 s line; no optimisation made.
+`$106` 130-175 ms, `$00F` ~200 ms, the vanilla map with most sprites (`$120`, 65) ~320 ms. Nothing near the 1 s line; no optimisation made.
 
 Drawn / marker on vanilla: `$105` 31 of 34 (was 0 of 34 by the table engine),
 `$106` 21 of 25 (was 15 of 25). The markers are ids `$DA`/`$DB` (past the
@@ -813,21 +812,34 @@ unchanged `(432,304)-(448,336)`.
 
 Against the table engine over ten vanilla maps (62 sprites the engine draws),
 parts relative to each side's own anchor: 25 agree, 36 differ, 1 the
-interpreter draws nothing for. The differences sampled are the engine's frame-0
-still pose against the interpreter's first drawing pass (another walk-cycle
-tile, or a facing), not mis-placement; the list is pinned in
-`test/suite/unit/MapSpritesInterp.test.ts`.
+interpreter draws nothing for. Of the 36 differing rows, 19 are tile or flip
+(a walk-cycle frame or a facing: the engine's frame-0 pose against the first
+drawing pass), 16 are Koopa (`$05`) +1 px Y walk-frame offsets, and `$1F` on
+`$11C` is relocation by its own MAIN (x 352 to 304 by pass 1, flipped), which
+depends on Mario and the RNG. None is a mis-placement found by this
+comparison. The list is pinned per row (verdict, served anchor, a digest of
+the interpreter's part keys) in `test/suite/unit/MapSpritesInterp.test.ts`.
+Mario's start for a ROM-run seed is the loader's own `$94/$96`; the table
+re-derivation (`readMarioStartPos`) is used only for a generic seed; it moved no
+pinned row.
 
-Runtime palette: sprite code does not write `$2122` itself; it appends
-to WRAM that NMI uploads. The runner records, cumulative from the start of
-INIT to the end of each pass (`PassResult.palette`), (1) the upload list
-`DynPaletteTable` `$0682` with `DynPaletteIndex` `$0681` (entries `[bytes, CGRAM
-color index, colors]`, rammap.asm:1152-1164, consumed by CODE_00A488,
-bank_00.asm:4714-4735, e.g. `CODE_01C028` for Magikoopa, bank_01.asm:8733-8760),
-(2) `MainPalette` `$0703` colors whose two bytes the run wrote (uploaded whole
-via `PaletteIndexTable` 6, bank_00.asm:4710), (3) direct `$2121/$2122` writes.
-No NMI runs, so list entries pile up and a later one for an index wins. The
-served frame applies the writes up to its pass, to that sprite only.
+Runtime palette: sprite code does not write `$2122` itself; it appends to
+WRAM that NMI uploads. No NMI runs on the core, so `Machine.nmi()` models the
+palette part of one after every frame (INIT frames and each pass;
+`PassResult.palette` is cumulative): direct `$2121/$2122` writes take effect
+in order during the frame; then by `PaletteIndexTable` `$0680` (index into the
+three-entry table, bank_00.asm:4709-4712): 0, the default, uploads the list
+`DynPaletteTable` `$0682` (entries `[bytes, CGRAM color index, colors]`,
+rammap.asm:1152-1164; CODE_00A488, bank_00.asm:4714-4735; Magikoopa's writer
+`CODE_01C028`, bank_01.asm:8733-8760) from where the run began on the first
+frame, bounded to the 127-byte table, and then clears `$0681` and the first
+list byte (bank_00.asm:4753-4756); 6 uploads `MainPalette` `$0703`
+(rammap.asm:1172-1175), applied only for colors whose two bytes the run wrote
+AND only when the run itself wrote `$0680` (no vanilla sprite bank does); 3,
+`CopyPalette`, is not modelled. `$0680` is cleared after (bank_00.asm:4757).
+The served frame applies the writes up to its pass, to that sprite only. Before
+this model the list was never drained: `$1F` on `$11C` overflowed the table
+from pass 30 into `$0701`/`$0703` and the mirror route read that as colors 0-7.
 
 Measured on vanilla (196 maps with a sprite stream, every id the interpreter
 draws): only `$C5` (boss Big Boo, map `$0E4`) has runtime colors at its served

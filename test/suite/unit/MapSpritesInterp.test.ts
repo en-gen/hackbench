@@ -4,6 +4,7 @@
  * ROM); the corpus block runs the real thing over vanilla maps and lays it
  * beside the table engine, which stays only as that oracle until step 4.
  */
+import { createHash } from 'crypto'
 import { describe, it, expect } from 'vitest'
 import type { LevelSprite } from '../../../src/rom/LevelParser'
 import { parseLevelSprites } from '../../../src/rom/LevelParser'
@@ -176,6 +177,73 @@ describe('drawSprites with the interpreter', () => {
   })
 })
 
+/** Row `map:id@x,y` -> verdict, served anchor, digest of the interpreter's part keys (see `pinned`). One machine, vanilla. */
+// prettier-ignore
+const PINNED_ROWS: Record<string, string> = {
+  '106:5@432,320': 'same 432,320 75b102da23',
+  '106:5@448,320': 'same 448,320 75b102da23',
+  '106:5@464,320': 'same 464,320 75b102da23',
+  '106:5@480,320': 'same 480,320 75b102da23',
+  '106:5@496,320': 'same 496,320 75b102da23',
+  '106:5@512,320': 'same 512,320 75b102da23',
+  '106:5@528,320': 'same 528,320 75b102da23',
+  '106:5@544,320': 'same 544,320 75b102da23',
+  '106:1@1344,368': 'same 1344,368 55d7cd9a11',
+  '106:0@1696,368': 'same 1696,368 23dda30666',
+  '106:4e@3088,304': 'same 3088,304 a890101608',
+  '106:4e@3168,352': 'same 3168,352 a890101608',
+  '106:4e@3424,320': 'same 3424,320 a890101608',
+  '106:4d@3760,368': 'interp-miss - -',
+  '106:4d@3952,368': 'same 3952,368 e53dc0877b',
+  '8:2@128,304': 'differ 128,304 5c1daaa53f',
+  '8:5@224,368': 'differ 224,368 73a3e6fff4',
+  '8:5@288,368': 'differ 288,368 73a3e6fff4',
+  '8:5@352,368': 'differ 352,368 73a3e6fff4',
+  '8:5@416,368': 'differ 416,368 73a3e6fff4',
+  '8:5@480,368': 'differ 480,368 73a3e6fff4',
+  '8:5@544,368': 'differ 544,368 73a3e6fff4',
+  '8:5@608,368': 'differ 608,368 73a3e6fff4',
+  '8:5@672,368': 'differ 672,368 73a3e6fff4',
+  '11b:3@144,368': 'differ 144,368 c2c726401e',
+  '11b:4@208,368': 'differ 208,368 023e282179',
+  '11b:5@272,368': 'differ 272,368 73a3e6fff4',
+  '11b:6@336,368': 'differ 336,368 b4e706d4df',
+  '11b:4@400,368': 'differ 400,368 023e282179',
+  '11b:5@464,368': 'differ 464,368 73a3e6fff4',
+  '11b:6@528,368': 'differ 528,368 b4e706d4df',
+  '11b:4@592,368': 'differ 592,368 023e282179',
+  '11b:5@656,368': 'differ 656,368 73a3e6fff4',
+  '6:3@320,368': 'same 320,368 8db4314a8a',
+  '6:f@528,368': 'same 528,368 b3ff82ca7b',
+  '6:5@624,368': 'same 624,368 75b102da23',
+  '6:6@768,368': 'same 768,368 7ea5a3a536',
+  '6:6@880,368': 'same 880,368 7ea5a3a536',
+  '6:5@1488,272': 'differ 1488,272 07f6cc95bd',
+  '6:f@1552,368': 'same 1552,368 b3ff82ca7b',
+  '6:f@1584,368': 'same 1584,368 b3ff82ca7b',
+  '6:6@1600,288': 'same 1600,288 7ea5a3a536',
+  '6:f@1616,368': 'same 1616,368 b3ff82ca7b',
+  '6:f@1648,368': 'same 1648,368 b3ff82ca7b',
+  '6:f@1680,368': 'same 1680,368 b3ff82ca7b',
+  '1c2:11@224,304': 'differ 224,304 ece1e9ea01',
+  '1c2:11@272,304': 'differ 272,304 ece1e9ea01',
+  '1c2:11@416,352': 'differ 416,352 ece1e9ea01',
+  '1c2:11@560,288': 'differ 560,288 ece1e9ea01',
+  '1c2:11@976,352': 'differ 976,352 ece1e9ea01',
+  '1:13@2720,240': 'differ 2720,240 29a7dadd44',
+  '1:13@3312,320': 'differ 3312,320 29a7dadd44',
+  '1:13@3376,352': 'differ 3376,352 29a7dadd44',
+  '1:13@3728,368': 'differ 3728,368 29a7dadd44',
+  '1:13@3744,368': 'differ 3744,368 29a7dadd44',
+  '1:13@3760,368': 'differ 3760,368 29a7dadd44',
+  '1:13@3776,368': 'differ 3776,368 29a7dadd44',
+  '1:13@3792,368': 'differ 3792,368 29a7dadd44',
+  '1:13@3808,368': 'differ 3808,368 29a7dadd44',
+  '1:13@3824,368': 'differ 3824,368 29a7dadd44',
+  '1:13@3840,368': 'differ 3840,368 29a7dadd44',
+  '11c:1f@352,336': 'differ 352,336 9c12455c79',
+}
+
 /**
  * The known engine-vs-interpreter list over MAPS below (vanilla, one machine,
  * 62 sprites the engine draws): 25 agree exactly, 36 differ, 1 the interpreter
@@ -229,7 +297,7 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
   const MAPS = [0x105, 0x106, 0x00f, 0x1c5, 0x008, 0x11b, 0x006, 0x1c2, 0x001, 0x11c]
   const bytes = () => new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
 
-  interface Row { map: number; id: number; at: string; verdict: 'same' | 'differ' | 'interp-miss'; e?: string; i?: string } // prettier-ignore
+  interface Row { map: number; id: number; at: string; verdict: 'same' | 'differ' | 'interp-miss'; e?: string; i?: string; anchor?: string } // prettier-ignore
 
   /** Per sprite the engine draws: both sides' parts relative to their own anchor, order-free. */
   function compare(wrap: (d: SpriteDrawer) => SpriteDrawer = d => d): Row[] {
@@ -253,11 +321,28 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
           e.parts.map(partKey).sort().join(';'),
           g.parts.map(partKey).sort().join(';'),
         ]
-        rows.push({ map, id: s.spriteId, at, verdict: ek === ik ? 'same' : 'differ', e: ek, i: ik })
+        const anchor = g.anchor ? `${g.anchor.x},${g.anchor.y}` : at
+        rows.push({
+          map,
+          id: s.spriteId,
+          at,
+          verdict: ek === ik ? 'same' : 'differ',
+          e: ek,
+          i: ik,
+          anchor,
+        })
       }
     }
     return rows
   }
+
+  const pinned = (rows: Row[]) =>
+    Object.fromEntries(
+      rows.map(r => [
+        `${r.map.toString(16)}:${r.id.toString(16)}@${r.at}`,
+        `${r.verdict} ${r.anchor ?? '-'} ${r.i === undefined ? '-' : createHash('sha1').update(r.i).digest('hex').slice(0, 10)}`,
+      ]),
+    )
 
   const tally = (rows: Row[]) => {
     const out: Record<string, Record<string, number>> = {}
@@ -277,10 +362,14 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     )
     for (const r of rows.filter(r => r.verdict !== 'same'))
       console.log(`${r.verdict} map ${r.map.toString(16)} id ${r.id.toString(16)} at ${r.at}\n  engine ${r.e}\n  interp ${r.i}`) // prettier-ignore
-    // The known list. Every entry is the engine's still pose (frame 0) against the
-    // interpreter's first drawing pass (a later walk-cycle frame or a facing), or
-    // an id the interpreter draws nothing for. A new entry, or one that clears, fails here.
+    // The known list. Of the 36 differing rows: 19 are tile/flip (the engine's frame-0 pose
+    // against a later walk-cycle frame or a facing), 16 are Koopa +1 px Y walk-frame offsets,
+    // and $1F on $11C relocates itself in its own MAIN (x 352 to 304 by pass 1, flipped,
+    // depending on Mario and the RNG); one id draws nothing. A new entry, or one that clears, fails here.
     expect(t).toEqual(EXPECTED)
+    // Per row: verdict, served anchor and a digest of the interpreter's part keys, so a
+    // change INSIDE a differing row (a tile, a flip, a pixel) is as red as a new row.
+    expect(pinned(rows)).toEqual(PINNED_ROWS)
   })
 
   it('goes red on a planted defect: one part shifted by a pixel is a disagreement', () => {
@@ -293,6 +382,31 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     )
     expect(planted).not.toEqual(base)
     expect(planted).not.toEqual(EXPECTED)
+  })
+
+  it('goes red when a part changes INSIDE a row that already differs (the verdict counts stay equal)', () => {
+    const rows = compare(d => s => {
+      const r = d(s)
+      // $13 differs from the engine already; one more pixel keeps it "differ".
+      return r.ok && s.spriteId === 0x13
+        ? { ...r, parts: r.parts.map(p => ({ ...p, dy: p.dy + 1 })) }
+        : r
+    })
+    expect(tally(rows)).toEqual(EXPECTED)
+    expect(pinned(rows)).not.toEqual(PINNED_ROWS)
+  })
+
+  it('caches an ok reply per bytes and map, at most 8 of them, and never an unavailable one', () => {
+    const b = bytes()
+    const c = new L1ModelCache()
+    const get = (m: number) => mapSprites(c, b, romPath(VANILLA), m)
+    const first = get(0x105)
+    expect(get(0x105)).toBe(first)
+    // $095 is a boss arena the map model refuses: asked twice, answered twice.
+    expect(get(0x095).status).toBe('unavailable')
+    expect(get(0x095)).not.toBe(get(0x095))
+    for (const m of [0x106, 0x00f, 0x1c5, 0x008, 0x11b, 0x006, 0x1c2, 0x001]) get(m)
+    expect(get(0x105)).not.toBe(first) // evicted by the ninth map, recomputed
   })
 
   it('$4F on $105 is served at its stream position plus (8, -1): INIT moved it, not a table', () => {
@@ -322,8 +436,7 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     const n = note.paletteNote
     const bytesAt = rom.rom.readAt(n.entryAddr, n.colors * 2)!
     const want = Array.from({ length: n.colors }, (_, i) => ({ index: n.row * 16 + n.firstCol + i, bgr555: (bytesAt[i * 2]! | (bytesAt[i * 2 + 1]! << 8)) & 0x7fff })) // prettier-ignore
-    // Sprite rows are CGRAM 128-255; the run also touches BG colors 0-7 in the mirror, which no sprite part reads.
-    expect(written.filter(w => w.index >= 128).slice(-n.colors)).toEqual(want)
+    expect(written.slice(-n.colors)).toEqual(want)
     // The served frame is the first that draws, which precedes the first upload: no colors yet.
     expect(m.chosen).toBeDefined()
     expect(m.passes[m.chosen!]!.palette).toEqual([])
