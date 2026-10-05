@@ -62,7 +62,7 @@ const shown = (m: MapInputs, x = 3, y = 3): number | null => {
 const L1_COLOR = 1
 const L3_COLOR = 6
 /** Layer 2's color after the 5-bit round trip the math stage applies to a sub-screen pixel. */
-const L2_COLOR = ((35 >> 3) << 3) | (35 >> 5)
+const L2_COLOR = ((35 >> 3) << 3) | ((35 >> 3) >> 2)
 const solid2 = (priority: boolean) => tile(2, [sub(3, 2, priority), sub(3, 2, priority), sub(3, 2, priority), sub(3, 2, priority)]) // prettier-ignore
 const rom5 = () => withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: 0, setting: 2, settingsByte: 2, word: L3_WORD(true) }) // prettier-ignore
 

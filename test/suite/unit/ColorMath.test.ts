@@ -93,6 +93,19 @@ describe('the backdrop is a black main-screen layer for CGADSUB (bit 5)', () => 
     expect(back(c5(20, 10, 6), AREA, 0x70)).toEqual(rgba(c5(10, 5, 3)))
     expect(back(null, AREA, 0x70)[3]).toBe(0)
   })
+  it('a sub pixel equal to the fixed color is a real pixel, not the empty back area', () => {
+    expect(back(AREA, AREA)).toEqual(rgba(AREA)) // main empty, sub drew: opaque
+  })
+  it('a main layer pixel equal to the fixed color stays opaque', () => {
+    const out = composeScreen({
+      width: 1,
+      height: 1,
+      math: { cgadsub: 0x02, fixed: AREA }, // layer 1 is not in CGADSUB: untouched
+      lists: { main: ['l1Low'], sub: ['l2Low'] },
+      planes: { l1Low: plane(AREA), l2Low: plane(null) },
+    })
+    expect([...out]).toEqual(rgba(AREA))
+  })
   it('without the backdrop bit, an empty pixel is black, not the back area', () => {
     expect(back(null, AREA, 0x04)).toEqual(rgba(BACK))
     expect(back(null, AREA, 0xa0)).toEqual(rgba(BACK)) // black minus the fixed color

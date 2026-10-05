@@ -68,6 +68,7 @@ export function composeScreen(i: ScreenInput): Uint8ClampedArray {
     const at = p * 4
     const main = top(i, i.lists.main, at)
     // Unverified tables (no math): the stack as is, the back area showing where nothing draws.
+    // Sub is ignored: every math-null verdict carries FALLBACK_SCREENS, whose sub list is empty.
     if (!math) {
       if (main) out.set([...main.rgb, 255], at)
       continue
