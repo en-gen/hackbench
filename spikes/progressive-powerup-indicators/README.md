@@ -25,7 +25,7 @@ from that spike's `probe.ts` unchanged, which now imports them too).
 ## Variants (all D4: half-scale in the bottom-right quadrant, full block on hover)
 
 Both items share one indicator, split along a diagonal. Owner rulings
-(coordinator messages, 2026-10-05): the powerup is always in the upper triangle and the mushroom always in the lower, in every variant; no swapped variant. the primary angle is top-left to
+(coordinator messages, 2026-10-05): the powerup is always in the upper triangle and the mushroom always in the lower, in every variant; no swapped variant. The primary angle is top-left to
 bottom-right, with the small-Mario item (mushroom) in the bottom-left triangle
 and the other item (flower or feather) in the top-right. Line weights are in
 block pixels (a 16px block at 1x), so they scale with zoom and stay the same
