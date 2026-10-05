@@ -95,11 +95,63 @@ export function resolveLoop(rom: RomFile): LoopResult {
   if (!matches(b, [0x8b, 0x4b, 0xab])) return { ok: false, reason: 'sprite loop does not start PHB PHK PLB' } // prettier-ignore
   // LDX #$0B / STX $15E9 / JSR setup / JSR handle / DEX / BPL back
   const core = [0xa2, 0x0b, 0x8e, 0xe9, 0x15, 0x20, null, null, 0x20, null, null, 0xca, 0x10, 0xf4]
-  for (let i = 3; i + core.length <= b!.length; i++) {
-    if (!matches(b!.slice(i), core)) continue
-    return { ok: true, setup: 0x010000 | (b![i + 6] | (b![i + 7] << 8)), handle: 0x010000 | (b![i + 9] | (b![i + 10] << 8)) } // prettier-ignore
-  }
-  return { ok: false, reason: 'sprite loop is not the countdown shape this runner knows' }
+  // More than one match means we cannot say which one runs: unavailable, not a guess.
+  const hits: number[] = []
+  for (let i = 3; i + core.length <= b!.length; i++) if (matches(b!.slice(i), core)) hits.push(i)
+  if (hits.length > 1)
+    return { ok: false, reason: 'sprite loop countdown matches more than once; which one runs is unknown' } // prettier-ignore
+  if (hits.length === 0)
+    return { ok: false, reason: 'sprite loop is not the countdown shape this runner knows' }
+  const i = hits[0]
+  return { ok: true, setup: 0x010000 | (b![i + 6] | (b![i + 7] << 8)), handle: 0x010000 | (b![i + 9] | (b![i + 10] << 8)) } // prettier-ignore
+}
+
+/**
+ * ExecutePtr, the 16-bit pointer-table jump (bank_00.asm:847): STY / PLY / STY /
+ * REP #$30 / AND #$00FF / ASL / TAY / PLA / STA / INY / LDA [dp],Y / STA /
+ * SEP #$30 / LDY / JML [dp]. The inline tables after each JSL are read as 16-bit
+ * words only if the call really reaches this; ExecutePtrLong (24-bit entries) has a
+ * different body and is refused.
+ */
+const EXECUTE_PTR_SHAPE: (number | null)[] = [
+  0x84,
+  null,
+  0x7a,
+  0x84,
+  null,
+  0xc2,
+  0x30,
+  0x29,
+  0xff,
+  0x00,
+  0x0a,
+  0xa8,
+  0x68,
+  0x85,
+  null,
+  0xc8,
+  0xb7,
+  null,
+  0x85,
+  null,
+  0xe2,
+  0x30,
+  0xa4,
+  null,
+  0xdc,
+  null,
+  0x00,
+]
+
+/** The three dispatch JSLs (HandleSprite, CallSpriteInit, CallSpriteMain) must reach one ExecutePtr. */
+function checkExecutePtr(rom: RomFile, jsl: number[][]): ShapeResult {
+  // Normalise the FastROM mirror: $80+ banks are the same code.
+  const targets = jsl.map(t => ((t[2] & 0x7f) << 16) | (t[1] << 8) | t[0])
+  if (new Set(targets).size !== 1)
+    return { ok: false, reason: 'the dispatch calls do not all reach the same routine' }
+  if (!matches(bytes(rom, targets[0], EXECUTE_PTR_SHAPE.length), EXECUTE_PTR_SHAPE))
+    return { ok: false, reason: 'the dispatch calls do not reach the 16-bit ExecutePtr' }
+  return { ok: true }
 }
 
 /** Reads both table bases from the dispatch code, or says what did not match. */
@@ -119,6 +171,8 @@ export function resolveTables(rom: RomFile, handle: number = ENTRY.handleSprite)
   const m = bytes(rom, mainEntry, 9)
   if (!matches(m, [0x9c, null, null, 0xb5, 0x9e, 0x22]))
     return { ok: false, reason: 'CallSpriteMain is not the dispatch shape this reader knows' }
+  const ep = checkExecutePtr(rom, [h!.slice(13, 16), i!.slice(8, 11), m!.slice(6, 9)])
+  if (!ep.ok) return ep
   return { ok: true, tables: { initTable: initEntry + 11, mainTable: mainEntry + 9 } }
 }
 

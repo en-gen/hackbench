@@ -571,7 +571,8 @@ against 5). None was investigated beyond this; the cause is not known.
 - The three fixed entry points (`$01:808C`, `$01:8127`, `$07:F7D2`) are the
   game's own loop in vanilla; a hack that moves them is refused by the shape
   check, not followed. The sprite loop (12.3) and HandleSprite are
-  byte-checked; `$07:F7D2` is not.
+  byte-checked, and so are InitSpriteTables at `$07:F7D2` and GetRand at
+  `$01:ACF9` (13.1), each before it is called.
 - `dependsOn` is only `marioX`; RNG and the frame counters are inputs too and
   are not diffed. Measured, not claimed: 71 of 197 depended on Mario in the
   spike.

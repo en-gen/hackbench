@@ -98,7 +98,7 @@ describe('Cpu65816 decimal mode', () => {
   })
   it('SBC subtracts BCD digits and borrows', () => {
     const { cpu, run } = machine([0xf8, 0x38, 0xa9, 0x40, 0xe9, 0x13, 0x38, 0xe9, 0x28])
-    run(5)
+    run(4)
     expect([cpu.a, cpu.c]).toEqual([0x27, true])
     run(2)
     expect([cpu.a, cpu.c]).toEqual([0x99, false])

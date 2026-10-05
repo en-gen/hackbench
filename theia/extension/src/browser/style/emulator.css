@@ -46,7 +46,7 @@
 
 /* Native SNES output at up to 2x, nearest-neighbour, kept at 256:224 at
    any panel size. The canvas fills it: a definite CSS size, which the core's
-   DPI path needs (spike/FINDINGS.md gotcha 3). */
+   DPI path needs (spikes/libretro-view-engine/FINDINGS.md gotcha 3). */
 .hb-emulator-screen {
   width: min(512px, 100cqw, calc(100cqh * 256 / 224));
   aspect-ratio: 256 / 224;

@@ -14,11 +14,11 @@ const hex = (n: number): string => n.toString(16).toUpperCase().padStart(6, '0')
 
 /** Bus `onInstruction` hook: throws `Refusal` for a refused opcode or a fetch outside ROM. */
 export function guardInstruction(addr: number, op: number): void {
-  if (REFUSED_OPS[op]) throw new Refusal(`${REFUSED_OPS[op]} executed at $${hex(addr)}`)
   const bank = addr >>> 16
   const lo = addr & 0xffff
   if (bank === 0x7e || bank === 0x7f || ((bank & 0x7f) < 0x40 && lo < 0x8000))
     throw new Refusal(`execution left ROM code at $${hex(addr)}`)
+  if (REFUSED_OPS[op]) throw new Refusal(`${REFUSED_OPS[op]} executed at $${hex(addr)}`)
 }
 
 /** Reads `n` bytes at a SNES address as numbers, or null when unmapped. */

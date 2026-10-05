@@ -23,6 +23,11 @@ describe('sprite loop reader', () => {
   it('resolves the setup and HandleSprite addresses from the loop itself', () => {
     expect(resolveLoop(rom)).toEqual({ ok: true, setup: 0x0180d2, handle: 0x018127 })
   })
+  it('refuses a loop whose countdown matches more than once', () => {
+    const dup = buildSyntheticRom({ dupLoop: true })
+    expect(resolveLoop(dup)).toMatchObject({ ok: false, reason: /more than once/ })
+    expect(runSprite(dup, 0).refusal).toMatch(/more than once/)
+  })
   it('refuses a loop that is not the countdown shape', () => {
     const bad = buildSyntheticRom({ badLoop: true })
     expect(resolveLoop(bad).ok).toBe(false)
@@ -38,6 +43,14 @@ describe('dispatch reader', () => {
   it('refuses a HandleSprite that is not the known shape', () => {
     const t = resolveTables(buildSyntheticRom({ badDispatch: true }))
     expect(t.ok).toBe(false)
+  })
+  it('refuses dispatch calls that do not reach one 16-bit ExecutePtr', () => {
+    const t = resolveTables(buildSyntheticRom({ badExecutePtr: true }))
+    expect(t).toMatchObject({ ok: false, reason: /same routine/ })
+    // Agreeing calls into a routine of another shape (here, a RTS) are refused too.
+    const rts = buildSyntheticRom()
+    rts.writeAt(0x0086fa, [0x60])
+    expect(resolveTables(rts)).toMatchObject({ ok: false, reason: /16-bit ExecutePtr/ })
   })
   it('refuses an id past the table and a pointer below $8000', () => {
     const t = resolveTables(rom)
