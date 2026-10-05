@@ -6,6 +6,10 @@
  * Scope: registers, flags and memory effects of one instruction per step().
  * Cycle counts and bus timing (dummy reads, write order, MLB/VPA lines) are
  * NOT modelled. Evidence: test/suite/unit/cpu/SingleStep.test.ts.
+ *
+ * WAI and STP only set `waiting` / `stopped`; step() does not halt, callers
+ * check the flags. MVN/MVP move one byte per step(), so `onInstruction` fires
+ * once per byte moved.
  */
 
 export interface Bus {
@@ -72,6 +76,16 @@ def('STY', [[0x84, 'dp'], [0x8c, 'abs'], [0x94, 'dpx']])
 def('STZ', [[0x64, 'dp'], [0x74, 'dpx'], [0x9c, 'abs'], [0x9e, 'absx']])
 def('CPX', [[0xe0, 'imm'], [0xe4, 'dp'], [0xec, 'abs']])
 def('CPY', [[0xc0, 'imm'], [0xc4, 'dp'], [0xcc, 'abs']])
+}
+/** CLC SEC CLI SEI CLD SED CLV: [flag, value]. */
+const FLAG_OPS: Record<number, ['c' | 'i' | 'dec' | 'v', boolean]> = {
+  0x18: ['c', false],
+  0x38: ['c', true],
+  0x58: ['i', false],
+  0x78: ['i', true],
+  0xd8: ['dec', false],
+  0xf8: ['dec', true],
+  0xb8: ['v', false],
 }
 const INDEX_OPS = new Set(['LDX', 'LDY', 'STX', 'STY', 'CPX', 'CPY'])
 
@@ -155,8 +169,12 @@ export class Cpu65816 {
   }
   /**
    * `old` stack ops (6502 heritage) wrap inside page 1 in emulation mode; the
-   * 65816 additions (PEA PEI PER PHD PLD PLB JSL RTL) let S walk out
-   * of the page and are re-pinned to page 1 after the instruction.
+   * 65816 additions (PEA PEI PER PHD PLD PLB JSL RTL) let S walk out of the
+   * page and are re-pinned to page 1 after the instruction. These rules are
+   * FITTED to the SingleStepTests data, not derived from hardware docs: ares
+   * (instructions-pc.cpp) differs on JSR (a,X), and LakeSnes wraps every push.
+   * PHB and PHK are 65816 additions too; treating them as `old` is harmless
+   * because of the post-step S pin.
    */
   private push(v: number, n = 1, old = true): void {
     for (let i = n - 1; i >= 0; i--) {
@@ -403,31 +421,17 @@ export class Cpu65816 {
       }
       return
     }
+    if ((op & 0x1f) === 0x10) {
+      // Bxx: bits 7-6 pick the flag (N V C Z), bit 5 the sense (clear / set).
+      this.branch([this.n, this.v, this.c, this.z][op >> 6] === !!(op & 0x20))
+      return
+    }
+    const flag = FLAG_OPS[op]
+    if (flag) {
+      this[flag[0]] = flag[1]
+      return
+    }
     switch (op) {
-      case 0x10:
-        this.branch(!this.n)
-        break
-      case 0x30:
-        this.branch(this.n)
-        break
-      case 0x50:
-        this.branch(!this.v)
-        break
-      case 0x70:
-        this.branch(this.v)
-        break
-      case 0x90:
-        this.branch(!this.c)
-        break
-      case 0xb0:
-        this.branch(this.c)
-        break
-      case 0xd0:
-        this.branch(!this.z)
-        break
-      case 0xf0:
-        this.branch(this.z)
-        break
       case 0x80:
         this.branch(true)
         break
@@ -569,27 +573,6 @@ export class Cpu65816 {
         break
       case 0xe2:
         this.p = this.p | this.fetch(1)
-        break
-      case 0x18:
-        this.c = false
-        break
-      case 0x38:
-        this.c = true
-        break
-      case 0x58:
-        this.i = false
-        break
-      case 0x78:
-        this.i = true
-        break
-      case 0xd8:
-        this.dec = false
-        break
-      case 0xf8:
-        this.dec = true
-        break
-      case 0xb8:
-        this.v = false
         break
       case 0xea:
         break
