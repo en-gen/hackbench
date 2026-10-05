@@ -132,8 +132,8 @@ export function drawSprites(
   return sprites.map(s => {
     const res = draw(s)
     if (!res.ok) return placeholder(s, res.failure.kind)
-    const pixels = res.parts.map(p => getCharPixels(model.vram, p.charNum))
     if (res.parts.length === 0) return placeholder(s, 'noParts')
+    const pixels = res.parts.map(p => getCharPixels(model.vram, p.charNum))
     // One missing char would draw as a hole, so the whole sprite is marked.
     if (pixels.some(p => !p)) return placeholder(s, 'charsNotLoaded')
     const [ax, ay] = [pixelX(s), s.y * TILE]

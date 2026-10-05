@@ -127,7 +127,6 @@ export class ProjectServiceImpl implements ProjectService {
     index: number,
     switchFlags: SwitchFlagsDto,
   ): Promise<MapSpritesResult> {
-    // prettier-ignore
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
     this.notifier.watch(manifestPath, r.working)
