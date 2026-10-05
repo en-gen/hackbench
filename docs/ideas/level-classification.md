@@ -21,11 +21,11 @@ The catalog is the thing a map editor edits. The access layer is a view over it.
 
 ## Three tiers
 
-| Tier | Definition |
-|---|---|
-| **Maps** | An overworld tile launches this level |
+| Tier          | Definition                                               |
+| ------------- | -------------------------------------------------------- |
+| **Maps**      | An overworld tile launches this level                    |
 | **Sub-areas** | Reachable from a Map through a screen exit, pipe or door |
-| **Extras** | Real level data, not reachable from either |
+| **Extras**    | Real level data, not reachable from either               |
 
 Extras are not junk. In an editor they are the work-in-progress pile: levels
 that exist but are not linked up yet. That is a first-class category, not a
@@ -69,7 +69,7 @@ interface LevelClassification {
   extras: number[]
   overworldReadable: boolean
   exitGraphReadable: boolean
-  notes: string[]     // e.g. "Lunar Magic overworld extensions detected"
+  notes: string[] // e.g. "Lunar Magic overworld extensions detected"
 }
 ```
 
@@ -86,14 +86,14 @@ hardcoded: it is `$068000` on vanilla but must not be assumed.
 
 Measured across the corpus:
 
-| ROM | distinct L1 ptrs | filler slots | real | parseable |
-|---|---|---|---|---|
-| vanilla | 194 | 277 | 235 | 235 |
-| magic (copier header) | 194 | 277 | 235 | 235 |
-| Seven Vanilla Levels | 214 | 261 | 251 | 251 |
-| GrandPooWorld 1.2 | 199 | 277 | 235 | 235 |
-| Grand Poo World 2 | 264 | 221 | 291 | 291 |
-| Invictus 1.0 | 320 | 158 | 354 | 354 |
+| ROM                   | distinct L1 ptrs | filler slots | real | parseable |
+| --------------------- | ---------------- | ------------ | ---- | --------- |
+| vanilla               | 194              | 277          | 235  | 235       |
+| magic (copier header) | 194              | 277          | 235  | 235       |
+| Seven Vanilla Levels  | 214              | 261          | 251  | 251       |
+| GrandPooWorld 1.2     | 199              | 277          | 235  | 235       |
+| Grand Poo World 2     | 264              | 221          | 291  | 291       |
+| Invictus 1.0          | 320              | 158          | 354  | 354       |
 
 The two 4 MB ROMs originally parsed only part of their catalog: 197 of 291 and
 192 of 354. The suspected cause was expanded-ROM addressing, where bank bytes
@@ -149,15 +149,15 @@ it; their swap tables were read anyway and all four still pair `$5A -> $5F`.
 Every pristine `$5A` tile, its buffer index in `OWL1TileData`, and the two
 independent per-position tables that both call it a star-warp node:
 
-| buf | half | (x,y) | translevel | slot | `DATA_04D85D` event(s) | warp SRC | warp DST | slot L1 is real |
-|-----|------|-------|-----------|------|------------------------|----------|----------|-----------------|
-| `$1F0` | 0 | (16,15) | `$12` | `$012` | 96 | 16 | 17 | no, filler |
-| `$227` | 0 | (7,18) | `$16` | `$016` | 19 | 6 | 13 | yes, shared with `$015`/`$017` |
-| `$304` | 0 | (20,16) | `$1E` | `$01E` | 53 | 18 | 19 | no, filler |
-| `$4E0` | 1 | (0,14) | `$2C` | `$108` | 30, 81, 82 | 14 | 15 | yes, unique pointer |
-| `$534` | 1 | (20,3) | `$30` | `$10C` | 63, 90, 91 | 25 | 21 | no, filler |
-| `$711` | 1 | (17,17) | `$48` | `$124` | 108 | 24 | none | no, filler |
-| `$787` | 1 | (23,24) | `$55` | `$131` | 94 | 22 | 23 | no, filler |
+| buf    | half | (x,y)   | translevel | slot   | `DATA_04D85D` event(s) | warp SRC | warp DST | slot L1 is real                |
+| ------ | ---- | ------- | ---------- | ------ | ---------------------- | -------- | -------- | ------------------------------ |
+| `$1F0` | 0    | (16,15) | `$12`      | `$012` | 96                     | 16       | 17       | no, filler                     |
+| `$227` | 0    | (7,18)  | `$16`      | `$016` | 19                     | 6        | 13       | yes, shared with `$015`/`$017` |
+| `$304` | 0    | (20,16) | `$1E`      | `$01E` | 53                     | 18       | 19       | no, filler                     |
+| `$4E0` | 1    | (0,14)  | `$2C`      | `$108` | 30, 81, 82             | 14       | 15       | yes, unique pointer            |
+| `$534` | 1    | (20,3)  | `$30`      | `$10C` | 63, 90, 91             | 25       | 21       | no, filler                     |
+| `$711` | 1    | (17,17) | `$48`      | `$124` | 108                    | 24       | none     | no, filler                     |
+| `$787` | 1    | (23,24) | `$55`      | `$131` | 94                     | 22       | 23       | no, filler                     |
 
 "warp SRC" is the index into `DATA_048431` / `DATA_048467` (`bank_04.asm:491`,
 `:500`) whose submap and tile position equal this tile's. Those are the tables
