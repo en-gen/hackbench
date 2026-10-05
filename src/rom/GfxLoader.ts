@@ -745,3 +745,21 @@ export function loadL3Chars(rom: RomFile): GfxSheet[] {
   }
   return sheets
 }
+
+/**
+ * `loadL3Chars`, or null when the range is unreadable or any of its files fails
+ * to load (a replaced decompressor, an unreadable pointer): `loadGfxFile` turns
+ * those into blank sheets, which would draw as an empty layer, so a caller that
+ * must not show that asks here.
+ */
+export function readL3Chars(rom: RomFile): GfxSheet[] | null {
+  const range = getLayer3GfxRange(rom)
+  if (!range) return null
+  const sheets: GfxSheet[] = []
+  for (let i = range.start; i <= range.end; i++) {
+    const read = readGfxFile(rom, i)
+    if (!read.ok) return null
+    sheets.push(decodeGfxBytes(rom, i, read.bytes))
+  }
+  return sheets
+}

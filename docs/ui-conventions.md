@@ -111,10 +111,21 @@ Rules learned the hard way:
 
 ## Toggle buttons
 
-A toggle must show its state without a hover or a tooltip. Following the
-extension's convention, the pressed state is an ACCENT FOREGROUND on the
-glyph, plus a tinted fill and an inset outline, because a recolored 24px
-codicon on its own is easy to miss.
+A toggle must show its state without a hover or a tooltip. The house style
+is "option D" (owner-approved): PRESSED is a raised chip, a filled background
+with a 1px border and a bright glyph (dark theme: `#37373d`, `#4a4a50`,
+`#e0e0e0`; hover while pressed `#3e3e45`). OFF is a bare dim glyph (`#6e6e6e`
+equivalent) with no fill and a TRANSPARENT 1px border, so pressing never
+shifts the layout. It applies to every toggle family: `.hb-icon-btn-on` /
+`-off` (codicon and layer icons), `.hb-map16-toggle` (text toggles) and `.hb-pixel-button-on` (pixel art, which
+keeps full-color art in both states). The values are Theia tokens whose dark
+values match (fill `list.inactiveSelectionBackground`; border, hover and glyph
+mixed from `foreground`), so light follows the theme, and high contrast uses
+`contrastActiveBorder` for the border. Not an accent color: a blue glyph on a
+24px button competes with the focus ring.
+
+The focus ring is for the KEYBOARD only (`:focus-visible`): a mouse click
+leaves no outline, Tab shows one.
 
 Watch specificity. `.btn:hover:not(:disabled)` outranks a single `.btn-on`
 class, so without an explicit `-on:hover` rule the fill vanishes exactly
