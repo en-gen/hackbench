@@ -1973,7 +1973,6 @@ async function scrollMapTo(page, index, left, top) {
     },
     [left, top],
   )
-  await page.waitForTimeout(250)
 }
 
 test('the Maps grid toggle is labelled, off by default, and the command drives it', async ({
@@ -2010,8 +2009,9 @@ for (const [index, vertical] of [
     const project = await createProject(page, path.join(tmp, 'MyHack'))
     await openMap(page, project.manifestPath, index)
     await page.locator(`${root(index)} [data-control="zoom-actual"]`).click()
+    await expect.poll(() => zoomOf(page, index)).toBe(1)
     await showGrid(page, index)
-    await page.waitForTimeout(300)
+    await gridSettled(page, index)
     const g = await readGrid(page, root(index))
     expect(g.cell).toBe(16) // zoom 1
     // Vertical: x repeats every 32 columns with the half at 16; y every 16 rows.
@@ -2058,7 +2058,7 @@ test('the grid canvas is viewport-sized, however wide the map and zoom', async (
   const zin = page.locator(`${root(0x105)} [data-control="zoom-in"]`)
   for (let i = 0; i < 6 && (await zin.isEnabled()); i++) await zin.click()
   await expect(zin).toBeDisabled()
-  await page.waitForTimeout(400)
+  await gridSettled(page, 0x105)
   const m = await page.evaluate(sel => {
     const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
     const o = document.querySelector(`${sel} .hb-grid-overlay`)
@@ -2106,6 +2106,20 @@ async function lineDeviation(page, index) {
 }
 
 const TOL = 1.5
+
+/**
+ * Waits until the overlay's drawn lines sit on the strip's boundaries for the CURRENT scroll, zoom
+ * and size (the same deviation the alignment tests assert), instead of a fixed pause: the pixel
+ * samples that follow are only meaningful once the overlay has caught up with the layout.
+ */
+async function gridSettled(page, index) {
+  await expect
+    .poll(async () => {
+      const d = await lineDeviation(page, index)
+      return Math.max(d.worst.x, d.worst.y)
+    })
+    .toBeLessThanOrEqual(TOL)
+}
 
 // Assumptions: $105 is horizontal and 10+ screens wide, so at Fit (height-fitted) and at 200% it
 // scrolls sideways; $109 is vertical and several screens tall, so it scrolls down. Both are
@@ -2195,8 +2209,9 @@ test('the grid is composited above opaque level content', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
   await page.locator(`${root(0x105)} [data-control="zoom-actual"]`).click()
-  await page.waitForTimeout(400)
+  await expect.poll(() => zoomOf(page, 0x105)).toBe(1)
   await showGrid(page, 0x105)
+  await gridSettled(page, 0x105)
   const probe = await page.evaluate(sel => {
     const o = document.querySelector(`${sel} .hb-grid-overlay`)
     const dpr = Number(o.dataset.gridDpr)
@@ -2271,7 +2286,7 @@ test('the grid is composited above the sprite layer', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x106)
   await page.locator(`${root(0x106)} [data-control="zoom-actual"]`).click()
-  await page.waitForTimeout(400)
+  await expect.poll(() => zoomOf(page, 0x106)).toBe(1)
   await showScreen(page, 0x106, 1)
   await expect(spritePlane(page, 0x106, 1)).toHaveAttribute('data-drawn', SPRITES_DRAWN)
   await showGrid(page, 0x106)
@@ -2281,7 +2296,7 @@ test('the grid is composited above the sprite layer', async ({ page }) => {
     const sc = document.querySelector(`${sel} [data-control="map-scroller"]`)
     sc.scrollTop = Math.max(0, 320 - sc.clientHeight / 2)
   }, root(0x106))
-  await page.waitForTimeout(300)
+  await gridSettled(page, 0x106)
   const probe = await page.evaluate(sel => {
     const c = document.querySelector(`${sel} canvas[data-screen="1"][data-plane="sprites"]`)
     const cr = c.getBoundingClientRect()
