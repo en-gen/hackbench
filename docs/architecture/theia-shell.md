@@ -139,6 +139,14 @@ Project-level commands (`New Project...`, `Open Project...`, `Open Recent
 Project...`, `Project Properties...`, `Export Patch`) live on the same
 category and are reachable from the File menu.
 
+The map tab shows each screen as one composite canvas. The backend sends the
+six plane canvases per screen plus two plane lists (main and sub, bottom to
+top) and the CGADSUB and fixed color; the widget runs `composeScreen`
+(`src/rom/model/ColorMath.ts`) over them on every layer toggle, so layer 3 and
+the SNES color math draw on every non-Mode-7 level mode (#562). The plane
+canvases stay in the DOM as the compositor's source, never seen. Rules and
+evidence: `docs/rom/level-rendering.md`.
+
 Views follow the active Theia theme rather than pinning their own colors,
 which `theia/browser-app/test/load-maps.spec.cjs` asserts.
 

@@ -103,15 +103,15 @@ async function expectCheckerboard(expect, page, selector, covers = []) {
 }
 
 /**
- * Page-side helpers (add with `page.addScriptTag`): a screen's plane canvases
- * bottom to top, and their pixels in a box with each plane laid over the ones
- * below it. A covering pixel replaces what is under it, colour included.
+ * Page-side helpers (add with `page.addScriptTag`): what the user sees of a
+ * screen, and its pixels in a box. The map tab composites a screen's planes
+ * (per SNES screen, with color math, #562) into one canvas, `data-layer="screen"`;
+ * the plane canvases under it are only its source. A covering pixel replaces
+ * what is under it, colour included.
  */
 const PAGE_COMPOSE = `
 function planesOf(rootSel, screen) {
-  return [...document.querySelectorAll(\`\${rootSel} canvas[data-screen="\${screen}"]\`)]
-    .filter(c => getComputedStyle(c).visibility !== 'hidden')
-    .sort((a, b) => a.style.zIndex - b.style.zIndex)
+  return [...document.querySelectorAll(\`\${rootSel} canvas[data-layer="screen"][data-screen="\${screen}"]\`)]
 }
 function composeCanvases(canvases, x, y, w, h) {
   const out = canvases[0].getContext('2d').getImageData(x, y, w, h).data

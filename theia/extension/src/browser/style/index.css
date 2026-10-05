@@ -388,6 +388,10 @@
   image-rendering: pixelated;
 }
 
+.hb-map-view-composite {
+  pointer-events: none;
+}
+
 .hb-map-view-header {
   flex: none;
   max-height: 50%;

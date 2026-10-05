@@ -644,20 +644,22 @@ test('L2 shows above the back area: a clear L1 pixel shows the background, not t
   expect(near(await colorOnScreen(page, sel('l1Low'), spot.x, spot.y), backdrop)).toBe(true)
 })
 
-/** A screen-0 canvas stack, bottom to top, with each plane's z-index. */
+/**
+ * A screen-0 plane stack, bottom to top (the sub screen's planes, then the main screen's), with each
+ * plane's z-index. A plane in neither list has z-index 0 and is left out; the composite canvas is not a plane.
+ */
 const zStack = (page, index) =>
-  page
-    .locator(`${root(index)} canvas[data-screen="0"]`)
-    .evaluateAll(cs =>
-      cs
-        .map(c => ({ plane: c.dataset.plane, z: Number(getComputedStyle(c).zIndex) }))
-        .sort((a, b) => a.z - b.z),
-    )
+  page.locator(`${root(index)} canvas[data-screen="0"][data-plane]`).evaluateAll(cs =>
+    cs
+      .map(c => ({ plane: c.dataset.plane, z: Number(getComputedStyle(c).zIndex) }))
+      .filter(c => c.z > 0)
+      .sort((a, b) => a.z - b.z),
+  )
 const zOrder = async (page, index) => (await zStack(page, index)).map(c => c.plane)
 
 /**
- * The plane order is `mapPlaneOrder`'s (project-protocol): layer 2 under everything on a standard
- * layout, the old BG mode 1 order otherwise. Read from the computed z-index, not the source order. No
+ * The plane order is the payload's `screens` (sub screen, then main screen): layer 2 under everything on a
+ * standard layout, BG1 and BG2 together on the Mode 2 and 8 shape. Read from the computed z-index, not the source order. No
  * vanilla or magic-ROM slot draws an l2High pixel (swept: 0 of 488 maps each),
  * so there is no corpus screen to check the order on pixels; the unit tests
  * pin which plane a priority subtile lands in on synthetic data.
@@ -673,9 +675,17 @@ test('the canvas stack puts layer 2 under everything on a standard-layout map, b
   expect(stack.map(c => c.plane)).toEqual(['l2Low', 'l2High', 'l3Low', 'l3High', 'l1Low', 'sprites', 'l1High']) // prettier-ignore
   expect(new Set(stack.map(c => c.z)).size, 'seven distinct levels').toBe(7)
   expect(stack[0].z).toBeGreaterThan(0)
-  // $0E7 is mode 8 (interactive layer 2): BG1 and BG2 on one screen, the BG mode 1 order, no layer 3.
+  // $0E7 is mode 8 (interactive layer 2): BG1, BG2 and BG3 all on the main screen, BG3 behind (bit clear).
   await openMap(page, project.manifestPath, 0xe7)
-  expect(await zOrder(page, 0xe7)).toEqual(['l2Low', 'l1Low', 'l2High', 'sprites', 'l1High'])
+  expect(await zOrder(page, 0xe7)).toEqual([
+    'l3Low',
+    'l3High',
+    'l2Low',
+    'l1Low',
+    'l2High',
+    'sprites',
+    'l1High',
+  ])
 })
 
 /** The composite of every visible plane over the box that layer 3's own pixels fill on screen 0. */
@@ -684,7 +694,7 @@ async function layer3Region(page, index, box) {
     ({ rootSel, box }) => {
       const planes = planesOf(rootSel, 0)
       if (!box) {
-        const l3 = [...document.querySelectorAll(`${rootSel} canvas[data-screen="0"]`)].filter(c => c.dataset.plane.startsWith('l3')) // prettier-ignore
+        const l3 = [...document.querySelectorAll(`${rootSel} canvas[data-screen="0"][data-plane^="l3"]`)] // prettier-ignore
         let [x0, y0, x1, y1] = [1e9, 1e9, -1, -1]
         for (const c of l3) {
           const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
@@ -708,7 +718,7 @@ const l3Toggle = (page, index) => page.locator(`${root(index)} [data-control="la
  * Layer 3 (#561), on vanilla maps measured from the ROM: $002 is a tide with the header's BG3
  * priority bit set (an overlay: its band is in l3High, drawn over layer 1, at the foot of every
  * screen), $01F is a cage with the bit clear (a background: l3High under l1Low), $105 has no
- * layer 3 and $009 is mode 2, an interactive layer 2 map.
+ * layer 3 ($009, an interactive layer 2 map, has its own tests below).
  */
 for (const [index, role, bit, known] of [
   // known: the top-left of layer 3's box on screen 0, and its first opaque pixel in raster order with
@@ -825,29 +835,79 @@ test('a layer toggle is a chip when pressed, bare when off, and rings only for t
   expect(keyed.outline[0]).not.toBe('none')
 })
 
-test('a map with no layer 3 and an interactive layer 2 map disable the toggle and say why', async ({
-  page,
-}) => {
+/**
+ * Screen 0's first pixel where `want` holds, as [x, y], or null. `want` is an expression over the
+ * alphas of layer 1, layer 2 and layer 3 (each the larger of its low and high plane), e.g. `a3 && !a1`.
+ * Read from the plane canvases, the compositor's source.
+ */
+const findPixel = (page, index, want) =>
+  page.evaluate(
+    ({ rootSel, want }) => {
+      const cv = p =>
+        document.querySelector(`${rootSel} canvas[data-screen="0"][data-plane="${p}"]`)
+      const alphas = ps => {
+        const ds = ps.map(p => cv(p).getContext('2d').getImageData(0, 0, cv(p).width, cv(p).height).data) // prettier-ignore
+        return i => Math.max(...ds.map(d => d[i * 4 + 3]))
+      }
+      const [a1, a2, a3] = [['l1Low', 'l1High'], ['l2Low', 'l2High'], ['l3Low', 'l3High']].map(alphas) // prettier-ignore
+      const test = new Function('a1', 'a2', 'a3', `return (${want})`)
+      const { width, height } = cv('l1Low')
+      for (let i = 0; i < width * height; i++) {
+        if (test(a1(i), a2(i), a3(i))) return [i % width, Math.floor(i / width)]
+      }
+      return null
+    },
+    { rootSel: root(index), want },
+  )
+
+/** RGBA at a pixel of screen 0's composite (what the user sees) or of one plane. */
+const pixelOf = (page, index, which, [x, y]) =>
+  page.evaluate(
+    ({ rootSel, which, x, y }) => {
+      const sel = which === 'composite' ? 'canvas[data-layer="screen"][data-screen="0"]' : `canvas[data-screen="0"][data-plane="${which}"]` // prettier-ignore
+      const c = document.querySelector(`${rootSel} ${sel}`)
+      return Array.from(c.getContext('2d').getImageData(x, y, 1, 1).data)
+    },
+    { rootSel: root(index), which, x, y },
+  )
+
+/** The layer 3 plane (low or high) that has an opaque pixel here. */
+const l3Own = async (page, index, at) => {
+  const [low, high] = [await pixelOf(page, index, 'l3Low', at), await pixelOf(page, index, 'l3High', at)] // prettier-ignore
+  return low[3] !== 0 ? low : high
+}
+
+test('a map with no layer 3 disables the toggle and says why', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
   const none = l3Toggle(page, 0x105)
   await expect(none).toBeDisabled()
   await expect(none).toHaveAttribute('title', 'This map has no layer 3')
+})
 
-  await openMap(page, project.manifestPath, 0x009)
-  const locked = l3Toggle(page, 0x009)
+/**
+ * $018 is mode 0E (BG3 alone on the main screen, BG1 and BG2 on the sub screen), where layer 3 would
+ * add onto layers 1 and 2. Its layer 3 is camera-locked (settings byte $81 on tileset 13, #563), so it
+ * is not drawn yet: this pins the gap. The add itself is covered by the synthetic mode 0E tests in
+ * ColorMath.test.ts, until #563 draws the layer and a pixel-level check can replace this one.
+ */
+test('$018: layer 3 is camera-locked, so its toggle is disabled and says so', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x018)
+  const locked = l3Toggle(page, 0x018)
   await expect(locked).toBeDisabled()
   await expect(locked).toHaveAttribute('aria-pressed', 'false')
-  await expect(locked).toHaveAttribute('title', 'Layer 3 not drawn yet: interactive layer 2 maps')
-  // No layer 3 planes at all, and layer 2 keeps the old BG mode 1 order on this layout.
-  await expect(page.locator(`${root(0x009)} canvas[data-plane^="l3"]`)).toHaveCount(0)
-  expect(await zOrder(page, 0x009)).toEqual(['l2Low', 'l1Low', 'l2High', 'sprites', 'l1High'])
-  // A disabled toggle does nothing when forced: state and canvases stay as they were.
-  const l3Planes = page.locator(`${root(0x009)} canvas[data-plane^="l3"]`)
+  await expect(locked).toHaveAttribute('title', 'Layer 3 not drawn yet: camera-locked layer 3')
+  // The plane lists still follow the mode: layers 1 and 2 on the sub screen, layer 3 alone on main,
+  // and the sprites just under layer 1's priority plane (#564).
+  expect(await zOrder(page, 0x018)).toEqual(['l2Low', 'l1Low', 'l2High', 'sprites', 'l1High', 'l3Low', 'l3High']) // prettier-ignore
+  // No layer 3 pixels at all.
+  expect(await findPixel(page, 0x018, 'a3 > 0')).toBeNull()
+  // A disabled toggle does nothing when forced: state and planes stay as they were.
   await locked.click({ force: true })
   await expect(locked).toHaveAttribute('aria-pressed', 'false')
-  await expect(l3Planes).toHaveCount(0)
-  for (const plane of planeLocators(page, 0x009, 0, ['l2Low', 'l1Low', 'l2High', 'l1High']))
+  expect(await findPixel(page, 0x018, 'a3 > 0')).toBeNull()
+  for (const plane of planeLocators(page, 0x018, 0, ['l2Low', 'l1Low', 'l2High', 'l1High']))
     await expect(plane).toHaveCSS('visibility', 'visible')
 })
 
@@ -982,6 +1042,108 @@ test('the sprite toggle is disabled with its reason on a map without sprites', a
   await expect(sprites).toHaveAttribute('title', 'Sprites · this map has none')
 })
 
+/**
+ * $009 is mode 2 (an interactive layer 2 map: BG1, BG2 and BG3 on the main screen) with BG3's priority
+ * bit clear, so layer 3 sits behind layers 1 and 2. Measured on vanilla, screen 0: 3492 pixels are layer
+ * 3 alone and 948 are layer 3 under layer 1.
+ */
+test('$009: layer 3 draws behind layers 1 and 2, and its toggle is enabled', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x009)
+  const button = l3Toggle(page, 0x009)
+  await expect(button).toBeEnabled()
+  await expect(button).toHaveAttribute('aria-pressed', 'true')
+  await expect(button).toHaveAttribute('title', 'Layer 3 · Background')
+
+  // Where layers 1 and 2 are empty, layer 3 is what shows.
+  const alone = await findPixel(page, 0x009, 'a3 > 0 && a1 === 0 && a2 === 0')
+  expect(alone, 'a pixel with layer 3 alone').not.toBeNull()
+  expect(await pixelOf(page, 0x009, 'composite', alone)).toEqual(await l3Own(page, 0x009, alone))
+
+  // Where layer 1 is over it, layer 1 shows, not layer 3.
+  const under = await findPixel(page, 0x009, 'a3 > 0 && a1 > 0 && a2 === 0')
+  expect(under, 'a pixel with layer 3 under layer 1').not.toBeNull()
+  const l1Own = (await pixelOf(page, 0x009, 'l1Low', under))[3] ? await pixelOf(page, 0x009, 'l1Low', under) : await pixelOf(page, 0x009, 'l1High', under) // prettier-ignore
+  const covered = await pixelOf(page, 0x009, 'composite', under)
+  expect(covered).toEqual(l1Own)
+  expect(covered).not.toEqual(await l3Own(page, 0x009, under))
+
+  // Layer 1 off: the layer 3 pixel returns where layer 1 covered it.
+  await page.locator(`${root(0x009)} [data-control="layer-l1"]`).click()
+  await expect
+    .poll(async () => pixelOf(page, 0x009, 'composite', under))
+    .toEqual(await l3Own(page, 0x009, under))
+})
+
+/**
+ * Layer 2's role follows the level mode's VerticalTable bit 7 (bank_00.asm:11736-11738), not whether the map
+ * has a layer 3: $009 and $0E7 (modes 2 and 8) are the interactive foreground; $105 (mode 0), $018 and $10E
+ * (mode 11, BG2 on the main screen but bit 7 clear) are background.
+ */
+test('the layer 2 tooltip names its role from the level mode', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  const expected = [
+    [0x009, 'Layer 2 · Foreground'],
+    [0x0e7, 'Layer 2 · Foreground'],
+    [0x105, 'Layer 2 · Background'],
+    [0x018, 'Layer 2 · Background'],
+    [0x10e, 'Layer 2 · Background'],
+  ]
+  for (const [index, title] of expected) {
+    await openMap(page, project.manifestPath, index)
+    await expect(page.locator(`${root(index)} [data-control="layer-l2"]`), `$${index.toString(16)}`).toHaveAttribute('title', title) // prettier-ignore
+  }
+})
+
+/**
+ * On a standard-layout map the compositor changes nothing: the main-screen backdrop is black (CGRAM color 0 is
+ * cleared, bank_00.asm:2046-2049), CGADSUB $24 minus BG3 lets only the backdrop add the sub screen (layer 2), and
+ * the back area is the fixed color, which only shows where nothing draws (transparent, so the back area layer
+ * shows). Layer 2 is therefore not tinted by the back area. The composite must equal the topmost plane pixel in the
+ * #561 order, on a sample spread over the whole screen. $002 is mode 0 with layer 3 drawn and the priority bit
+ * set, so BG3's high plane is in front of layer 1.
+ */
+test('a standard-layout map: the composite equals the plane stack', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x002)
+  const order = ['l2Low', 'l2High', 'l3Low', 'l1Low', 'sprites', 'l1High', 'l3High']
+  expect(await zOrder(page, 0x002)).toEqual(order)
+  // The sprites arrive after the planes; the composite repaints with them, so wait for them.
+  await expect(page.locator(`${root(0x002)} canvas[data-screen="0"][data-plane="sprites"]`)).toHaveAttribute('data-drawn', /^\d+:\d+$/) // prettier-ignore
+  const result = await page.evaluate(
+    ({ rootSel, order }) => {
+      const read = sel => {
+        const c = document.querySelector(`${rootSel} ${sel}`)
+        return c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+      }
+      const planes = order.map(p => read(`canvas[data-screen="0"][data-plane="${p}"]`))
+      const comp = read('canvas[data-layer="screen"][data-screen="0"]')
+      const pixels = comp.length / 4
+      const step = Math.floor(pixels / 200)
+      const bad = []
+      let opaque = 0
+      let sampled = 0
+      for (let i = 0; i < pixels; i += step) {
+        sampled++
+        const top = planes.filter(d => d[i * 4 + 3] !== 0).pop()
+        const got = Array.from(comp.slice(i * 4, i * 4 + 4))
+        if (!top) {
+          if (got[3] !== 0) bad.push({ i, got, want: 'transparent' })
+          continue
+        }
+        opaque++
+        const want = Array.from(top.slice(i * 4, i * 4 + 4))
+        if (got.join() !== want.join()) bad.push({ i, got, want })
+      }
+      return { bad: bad.slice(0, 5), sampled, opaque }
+    },
+    { rootSel: root(0x002), order },
+  )
+  expect(result.sampled).toBeGreaterThanOrEqual(200)
+  expect(result.opaque, 'the sample covers drawn pixels, not only empty ones').toBeGreaterThan(20)
+  expect(result.bad).toEqual([])
+})
+
 test('a map the ROM reads fully carries no layer note', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
@@ -993,7 +1155,7 @@ test('a map the ROM reads fully carries no layer note', async ({ page }) => {
  * row 13 (measured on vanilla); both are opaque at pixel (3, 211) of screen 0, both low priority.
  * Setting tile 349's top-left priority bit in the working copy moves that quadrant to l2High,
  * which BG mode 1 stacks over l1Low: the pixel shown must turn into L2's. The composite is read
- * from the canvases in their z-index order, so reordering the planes (`mapPlaneOrder`) turns this red.
+ * from the composite canvas, which stacks the planes by the payload's lists, so reordering them turns this red.
  */
 test('an L2 priority tile draws over an L1 low tile, from a working-copy edit', async ({
   page,
@@ -1006,7 +1168,8 @@ test('an L2 priority tile draws over an L1 low tile, from a working-copy edit', 
       ({ rootSel, spot }) => {
         const px = c => Array.from(c.getContext('2d').getImageData(spot.x, spot.y, 1, 1).data)
         const planes = planesOf(rootSel, 0)
-        const by = k => planes.find(c => c.dataset.plane === k)
+        // The source plane canvases; planesOf is the composite only.
+        const by = k => document.querySelector(`${rootSel} canvas[data-screen="0"][data-plane="${k}"]`) // prettier-ignore
         const shown = composeCanvases(planes, spot.x, spot.y, 1, 1)
         return { shown: Array.from(shown), l1Low: px(by('l1Low')), l2High: px(by('l2High')) }
       },
