@@ -354,6 +354,22 @@ export function l3InitialYPx(settingsByte: number): number {
   return settingsByte <= 0x01 ? 0x70 : 0x40
 }
 
+/**
+ * Layer3YPos as CODE_009FB8 leaves it at level load, or null when it never
+ * writes one (camera-locked: CODE_00A01F follows the camera every frame).
+ * Walked branch by branch (bank_00.asm:4150-4182): bit 7 clear is a tide
+ * ($70 for $00/$01, else $40); bit 7 set with bit 6 set is CODE_00A012 ($D0);
+ * $80 alone is BigCrusherColors then $D0; $81-$BF is $C0 on Castle1 and
+ * Underground1 (CODE_009FFA) and camera-locked on every other tileset. Not
+ * `l3InitialYPx`, which answers $D0 for the first and 0 for $C0+, and not the
+ * loader's `=== 0x81` test, which would draw $82-$BF at the camera.
+ */
+export function l3LoadTimeY(settingsByte: number, tileset: number): number | null {
+  if (settingsByte < 0x80) return settingsByte <= 0x01 ? 0x70 : 0x40
+  if (settingsByte >= 0xc0 || settingsByte === 0x80) return 0xd0
+  return tileset === 1 || tileset === 3 ? 0xc0 : null
+}
+
 // ── Routine classification (editor metadata) ────────────────────────────────
 
 /**

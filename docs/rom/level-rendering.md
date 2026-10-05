@@ -120,7 +120,7 @@ ROM
 SMW uses **Mode 1**:
 - BG1 (Layer 1): 4bpp, 16 colors per tile, CGRAM sub-palettes 0–7
 - BG2 (Layer 2): 4bpp, 16 colors per tile, CGRAM sub-palettes 0–7
-- BG3 (Layer 3): 2bpp - used for the **HUD/status bar only**, not level content
+- BG3 (Layer 3): 2bpp - the status bar, and the per-level image the map editor draws (see "Layer 3 (BG3)" below)
 - All sprites: 4bpp, CGRAM sub-palettes 8–15 (OBJ space, separate from BG VRAM)
 
 The 3-bit palette field in each Map16 SubTile (CCC = 0–7) selects one of CGRAM rows 0–7.
@@ -128,6 +128,69 @@ SMW assigns these rows per layer type:
 - Rows 0–1: Layer 2 BG tiles (BG palette variants)
 - Rows 2–3: Layer 1 FG tiles (FG palette variants, derived from spriteSet & 0x07)
 - Rows 4–8: Sprite palettes (selected by spritePalette field)
+
+---
+
+## Layer 3 (BG3) in the map editor (#561)
+
+BG3 is not only the status bar: `Layer3Setting` (`$05F200` bits 7:6) picks a
+per-tileset image (a tide, cage bars, windows). The map editor draws it at its
+load-time state, on the standard layout only, with no animation (#115).
+Code: `src/rom/model/L3Model.ts`, `src/rom/LevelScreenTables.ts`,
+`drawL3Planes` in `theia/extension/src/node/map-screen.ts`.
+
+**The standard layout.** The level mode (header byte 1, bits 4:0) indexes four
+tables loaded at `bank_05.asm:542-553`: main screen (`LevMainScrnTbl`), sub
+screen, special-level setting and `VerticalTable` (`bank_05.asm:480-504`).
+The layout is standard when main is `$15` (BG1, BG3, OBJ), sub is `$02` (BG2),
+special is 0 and `VerticalTable` bit 7 is clear (layer 2 interactive,
+`bank_00.asm:11736-11738`). BG2 is then on the sub screen only, so every opaque
+main-screen pixel covers it regardless of priority bits. The core reads the
+four tables through the operands of the loader's `LDA.L` loads, one 27-byte
+site that must match exactly once, and refuses with a reason when the loader is
+hooked. Vanilla modes `$00-$11` that qualify: `$00 $01 $03 $05 $07 $0A $0C $0D`,
+which is the issue's list; the same rule also admits the unused `$12-$1D`
+(measured on the vanilla tables, one cart). It also requires BG mode 1
+(`BgMode.ts`), because main and sub only mean BG1/BG2/BG3 there.
+
+**Priority bit and stacking.** Header byte 2 bit 7 becomes `MainBGMode` bit 3
+(`bank_05.asm:590-597`): BG3's priority-1 tiles go in front of BG1 (set) or
+just behind BG1's low plane (clear). Hardware order is only between layers on
+the SAME screen (`docs/rom/obj-priority.md` section 1). Back to front on a
+standard layout:
+
+```
+layer 2 low, layer 2 high            (sub screen: under everything)
+layer 3 low
+layer 3 high                         (bit clear)
+layer 1 low, layer 1 high
+layer 3 high                         (bit set)
+```
+
+`mapPlaneOrder` (`project-protocol.ts`) derives the main-screen part from
+`ppuDrawOrder` (sprites removed), so it cannot drift from the pass list. Any
+other layout keeps the old BG mode 1 order (layer 1 low, layer 2 high over it)
+until the full main/sub compositor (#562).
+
+**Where layer 3 sits.** `CODE_009FB8` (`bank_00.asm:4139-4199`), by settings
+byte: bit 7 clear is a tide (`$00`/`$01` start at Y `$70`, `$02`-`$7F` at
+`$40`); `$80` and `$C0`-`$FF` are Y `$D0` (`CODE_00A012`); `$81`-`$BF` are Y
+`$C0` on Castle1 and Underground1 (`CODE_009FFA`) and **camera-locked** on every
+other tileset, which branches to `CODE_00A01F` without writing a Y
+(`bank_00.asm:4174`). The gate is that ASM condition (`l3LoadTimeY`), not the
+loader's older `=== 0x81`; camera-locked maps are skipped (#563). A tile row R
+is at level Y `R*8 - Layer3YPos + Layer1YPos`; a tide repeats every 256 px over
+columns 0-31 and its second copy of the tilemap is not drawn; the status-bar
+rows 0-7 are not drawn. `L3Loader.l3InitialYPx` disagrees with the ASM for
+`$C0`-`$FF` (0, the ASM says `$D0`) and for Castle1/Underground1 `$81` (`$D0`,
+the ASM says `$C0`); the renderer does not use it.
+
+**Measured, one cart.** On the vanilla cart the renderer draws layer 3 on 8
+slots (`$002 $01F $0BE $0C1 $102 $127 $1D4 $1FC`), skips 3 as camera-locked
+(`$011 $130 $1C1`), 14 as interactive layer 2 maps (`$009` is mode 2) and 27
+more on a non-standard layout; 460 have no layer 3. The corpus sweep in
+`test/suite/unit/MapScreenL3.test.ts` compares every slot's priority bit,
+layout and draw decision with a straight decode of the header and the tables.
 
 ---
 

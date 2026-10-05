@@ -6,6 +6,7 @@
  * contract both ends compile against.
  */
 import type { Map16SwitchButtonImages, Map16SwitchKind } from './map16-protocol'
+import { ppuDrawOrder } from '../../../../src/rom/model/RenderPass'
 
 /** Where the frontend reaches the backend. Must match the backend binding. */
 export const PROJECT_SERVICE_PATH = '/services/hackbench-project'
@@ -215,12 +216,38 @@ export interface SwitchFlagsDto {
 }
 
 /**
- * The map's planes, bottom to top (the view's z-order): BG mode 1 stacks
- * BG1 high > BG2 high > BG1 low > BG2 low, each layer split by its subtiles'
- * priority bit (#459). L1 is BG1 (foreground), L2 BG2 (background).
+ * Every plane the wire can carry: a layer's pixels split by its subtiles' (or
+ * tiles') priority bit. L1 is BG1, L2 BG2, L3 BG3. Their stacking is NOT this
+ * order: it depends on the layout, `mapPlaneOrder`.
  */
-export const MAP_PLANE_KEYS = ['l2Low', 'l1Low', 'l2High', 'l1High'] as const
+export const MAP_PLANE_KEYS = ['l2Low', 'l1Low', 'l2High', 'l1High', 'l3Low', 'l3High'] as const
 export type MapPlaneKey = (typeof MAP_PLANE_KEYS)[number]
+
+/**
+ * Layer 3 on one map: the layout its planes stack in, the header's BG3 priority
+ * bit, and why layer 3 is not drawn (null when it is). `layout: 'standard'` is
+ * BG2 on the sub screen only (#561); 'other' keeps the BG mode 1 order of both
+ * on one screen until #562.
+ */
+export interface MapLayer3Dto {
+  layout: 'standard' | 'other'
+  priority: boolean
+  reason: string | null
+}
+
+/**
+ * The planes a map shows, bottom to top. Standard layout: BG2 is on the sub
+ * screen, so both its planes go under everything; the main screen follows in
+ * mode 1 order with BG3's priority bit placing its high plane (`ppuDrawOrder`).
+ * Anything else: the old BG1/BG2 order, no layer 3.
+ */
+export function mapPlaneOrder(l3: Pick<MapLayer3Dto, 'layout' | 'priority'>): MapPlaneKey[] {
+  if (l3.layout !== 'standard') return ['l2Low', 'l1Low', 'l2High', 'l1High']
+  const main = ppuDrawOrder(l3.priority)
+    .filter(p => p.layer === 'l1' || p.layer === 'l3')
+    .map(p => `${p.layer}${p.priority ? 'High' : 'Low'}` as MapPlaneKey)
+  return ['l2Low', 'l2High', ...main]
+}
 
 /**
  * One screen of a map's L1 (foreground), drawn by the backend from the
@@ -239,6 +266,7 @@ export type MapScreenResult =
       height: number
       /** Base64 RGBA per plane; null where nothing draws, with no image sent. */
       planes: Record<MapPlaneKey, string | null>
+      layer3: MapLayer3Dto
       /** Why the animated tiles are drawn from unverified or no frames, when they are. */
       note?: string
       /** Caveats on the layers: a background that is not drawn, a layer order that is unverified. */

@@ -11,7 +11,8 @@
  * L2 (background) are each sent as two planes by the subtile priority bit;
  * the view stacks the four in BG mode 1's order (`MAP_PLANE_KEYS`). A layer
  * never overlaps its own planes; L2 sits at a 1:1 horizontal offset, with no
- * parallax, and shifted vertically by its initial Layer2YPos (#113).
+ * parallax, and shifted vertically by its initial Layer2YPos (#113). L3 is two
+ * planes by its tile priority bit, drawn only on the standard layout (#561).
  */
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { RomFile } from '../../../../src/rom/RomFile'
@@ -28,6 +29,8 @@ import {
   type L1InputsResult,
 } from '../../../../src/rom/model/L1Model'
 import { buildL2Inputs, type L2Inputs, type L2Result } from '../../../../src/rom/model/L2Model'
+import { buildL3Verdict, type L3Inputs, type L3Verdict } from '../../../../src/rom/model/L3Model'
+import { L3_HUD_ROW_CUTOFF, L3_TILEMAP_COLS, L3_TILEMAP_ROWS } from '../../../../src/rom/L3Loader'
 import { readLevelBgMode, type BgModeResult } from '../../../../src/rom/BgMode'
 import { PALACES, type Palace } from '../../../../src/rom/SwitchBlockTiles'
 import { palaceArt, type PalaceArt } from '../../../../src/rom/SwitchArt'
@@ -199,9 +202,66 @@ export function drawL2Planes(
   return { l2Low, l2High }
 }
 
+export type L3Planes = Record<'l3Low' | 'l3High', Plane>
+
+/**
+ * L3 of one screen as [low, high] planes by each tile's priority bit: tile row
+ * R (gameplay rows only; the first 8 are the status bar) at level Y
+ * R*8 - Layer3YPos + Layer1YPos, x repeating every 512 px (a tide, whose BG3
+ * scrolls with the camera, every 256 px over the first 32 columns, and its
+ * second copy of the tilemap is not drawn). Rows that start above the level
+ * are skipped whole, as the reference view does. Char 0 of every 2bpp
+ * palette is clear.
+ */
+export function drawL3Planes(l3: L3Inputs, isVertical: boolean, screen: number): L3Planes {
+  const { w, h } = screenTiles(isVertical)
+  const [width, height] = [w * 16, h * 16]
+  const [x0, top] = isVertical ? [0, screen * height] : [screen * width, 0]
+  const cols = l3.tide ? 32 : L3_TILEMAP_COLS
+  const cell = (r: number, c: number) => l3.tilemap[r * L3_TILEMAP_COLS + c] ?? 0
+  const row = (r: number) => Array.from({ length: L3_TILEMAP_COLS }, (_, c) => cell(r, c))
+  let first = L3_HUD_ROW_CUTOFF
+  while (first < L3_TILEMAP_ROWS - 1 && row(first).every(v => v === 0)) first++
+  // A tide writes its tilemap twice for animation; the copy starts where a row repeats the first one's chars.
+  const sameChars = (a: number[], b: number[]) => a.every((v, c) => (v === 0) === (b[c] === 0) && (v & 0x3ff) === (b[c]! & 0x3ff)) // prettier-ignore
+  let end = L3_TILEMAP_ROWS
+  for (let r = first + 1; l3.tide && r < L3_TILEMAP_ROWS; r++) {
+    if (sameChars(row(r), row(first))) {
+      end = r
+      break
+    }
+  }
+  const planes = [0, 1].map(() => new Uint8ClampedArray(width * height * 4))
+  const drew = [false, false]
+  for (let r = L3_HUD_ROW_CUTOFF; r < end; r++) {
+    const y = r * 8 - l3.yPx + l3.camYPx
+    if (y < 0 || y + 8 <= top || y >= top + height) continue
+    for (let sx = 0; sx < width; sx += 8) {
+      const word = cell(r, ((x0 + sx) % (cols * 8)) >> 3)
+      const pixels = l3.chars[(word & 0x3ff) >> 7]?.[word & 0x7f]
+      if (!word || !pixels) continue
+      const p = word & 0x2000 ? 1 : 0
+      for (let ty = 0; ty < 8; ty++) {
+        const outY = y + ty - top
+        if (outY < 0 || outY >= height) continue
+        for (let tx = 0; tx < 8; tx++) {
+          const v = pixels[((word & 0x8000 ? 7 - ty : ty) << 3) | (word & 0x4000 ? 7 - tx : tx)]!
+          const color = v === 0 ? undefined : l3.colors[((word >> 10) & 7) * 4 + v]
+          if (!color) continue
+          planes[p]!.set(color, (outY * width + sx + tx) * 4)
+          drew[p] = true
+        }
+      }
+    }
+  }
+  return { l3Low: drew[0] ? planes[0]! : null, l3High: drew[1] ? planes[1]! : null }
+}
+
 /** What the map tab draws: L1's inputs plus the background and the layer-order verdict. */
 export interface MapInputs extends L1Inputs {
   l2?: L2Result
+  /** Layer 3's layout, priority bit and inputs, or why it is not drawn (#561). Absent: the old order, no layer 3. */
+  l3?: L3Verdict
   /** Why the planes' order is unverified (not BG mode 1, or the mode could not be read). */
   orderNote?: string
 }
@@ -230,6 +290,7 @@ export function screenResult(
   const drawn: Partial<Record<MapPlaneKey, Plane>> = {
     ...drawL1Planes(model, screen, switches, vram),
     ...(l2 && drawL2Planes(model, l2, screen, vram)),
+    ...(model.l3?.l3 && drawL3Planes(model.l3.l3, model.isVertical, screen)),
   }
   return {
     status: 'ok',
@@ -244,6 +305,11 @@ export function screenResult(
         return [k, rgba ? base64(rgba) : null]
       }),
     ) as Record<MapPlaneKey, string | null>,
+    layer3: {
+      layout: model.l3?.layout ?? 'other',
+      priority: model.l3?.priority ?? model.header.layer3Priority,
+      reason: model.l3 ? model.l3.reason : 'Layer 3 not drawn yet',
+    },
     note: [...model.unverified, model.animNote].filter(Boolean).join(' ') || undefined,
     layerNotes: [
       model.l2 && !model.l2.ok ? `The background is not drawn: ${model.l2.reason}` : '',
@@ -282,7 +348,12 @@ export function buildMapInputs(
   const bg = bgMode()
   return {
     ok: true,
-    inputs: { ...built.inputs, l2: buildL2Inputs(rom, index, built.inputs), orderNote: bg.ok ? undefined : bg.reason }, // prettier-ignore
+    inputs: {
+      ...built.inputs,
+      l2: buildL2Inputs(rom, index, built.inputs),
+      l3: buildL3Verdict(rom.rom, index, built.inputs, bg),
+      orderNote: bg.ok ? undefined : bg.reason,
+    },
   }
 }
 

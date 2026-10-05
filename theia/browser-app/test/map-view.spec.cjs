@@ -174,7 +174,7 @@ async function readScreen(page, index, screen) {
 }
 
 /** The planes of a screen, L1's by default: low, then high. */
-const MAP_PLANES = ['l2Low', 'l1Low', 'l2High', 'l1High']
+const MAP_PLANES = ['l2Low', 'l2High', 'l3Low', 'l3High', 'l1Low', 'l1High']
 const planeLocators = (page, index, screen, planes = ['l1Low', 'l1High']) =>
   planes.map(p => page.locator(`${root(index)} canvas[data-screen="${screen}"][data-plane="${p}"]`))
 
@@ -416,20 +416,36 @@ test('a reused tab going from a horizontal to a vertical map draws screen 0', as
  * pixel on screen, and not the theme), on shows exactly the picture again.
  */
 /**
- * A layer toggle's face: pressed, named, and the owner's icon with its own bar (top, middle or
- * bottom) in the button's color and the others dimmed.
+ * A layer toggle is pressed, labelled with its layer and role, and drawn as a 16x16
+ * frame with its glyph inside, both in the button's color (stroke, no fill).
  */
-async function expectLayerToggle(page, index, control, label, bar) {
+async function expectLayerToggle(page, index, control, label, glyph) {
   const button = page.locator(`${root(index)} [data-control="${control}"]`)
   await expect(button).toHaveAttribute('aria-pressed', 'true')
   await expect(button).toHaveAttribute('aria-label', label)
   await expect(button).toHaveAttribute('title', label)
-  const bars = await button
-    .locator('svg rect')
-    .evaluateAll(rs => rs.map(r => ({ y: r.getAttribute('y'), fill: getComputedStyle(r).fill })))
-  const color = await button.evaluate(b => getComputedStyle(b).color)
-  expect(bars.map(b => b.y)).toEqual(['1', '6', '11'])
-  bars.forEach((b, i) => (i === bar ? expect(b.fill).toBe(color) : expect(b.fill).not.toBe(color)))
+  const art = await button.locator('svg').evaluate(svg => {
+    const rect = svg.querySelector('rect')
+    const path = svg.querySelector('path[data-part="glyph"]')
+    const stroke = el => getComputedStyle(el).stroke
+    const color = getComputedStyle(svg.closest('button')).color
+    return {
+      size: [svg.getAttribute('width'), svg.getAttribute('height')],
+      frame: ['x', 'y', 'width', 'height', 'rx'].map(a => rect.getAttribute(a)),
+      glyph: path.dataset.glyph,
+      glyphDrawn: path.getAttribute('d').length > 10,
+      strokes: [stroke(rect) === color, stroke(path) === color],
+      fills: [getComputedStyle(rect).fill, getComputedStyle(path).fill],
+      rects: svg.querySelectorAll('rect').length,
+    }
+  })
+  expect(art.size).toEqual(['16', '16'])
+  expect(art.frame).toEqual(['1.5', '1.5', '13', '13', '1.5'])
+  expect(art.glyph).toBe(glyph)
+  expect(art.glyphDrawn).toBe(true)
+  expect(art.strokes).toEqual([true, true])
+  expect(art.fills).toEqual(['none', 'none'])
+  expect(art.rects, 'one frame, no bars').toBe(1)
   return button
 }
 
@@ -437,7 +453,7 @@ test('the L1 toggle hides and restores the foreground, per tab', async ({ page }
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
   await expectEveryVisibleScreenDrawn(page, 0x105)
-  const l1 = await expectLayerToggle(page, 0x105, 'layer-l1', 'Foreground', 1)
+  const l1 = await expectLayerToggle(page, 0x105, 'layer-l1', 'Layer 1 · Foreground', '1')
   const strip = page.locator(`${root(0x105)} [data-control="map-scroller"]`)
 
   const shown = await shownPixels(page, strip)
@@ -517,21 +533,21 @@ test('the Background toggle hides and restores both L2 canvases, per tab', async
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
   await expectEveryVisibleScreenDrawn(page, 0x105)
-  const l2 = await expectLayerToggle(page, 0x105, 'layer-l2', 'Background', 2)
+  const l2 = await expectLayerToggle(page, 0x105, 'layer-l2', 'Layer 2 · Background', '2')
   const strip = page.locator(`${root(0x105)} [data-control="map-scroller"]`)
-  // Back to front: Background, then Foreground, beside each other.
+  // Fixed order, whatever the roles: Layer 1, Layer 2, Layer 3, Sprites.
   const order = await page
     .locator(`${root(0x105)} .hb-map-view-toolbar [data-control^="layer-"]`)
     .evaluateAll(bs => bs.map(b => b.dataset.control))
-  expect(order).toEqual(['layer-l2', 'layer-l1'])
-  // A visible separator sits between Foreground and the first switch toggle, by DOM order.
+  expect(order).toEqual(['layer-l1', 'layer-l2', 'layer-l3', 'layer-sprites'])
+  // A visible separator sits between the Sprites toggle and the first switch toggle, by DOM order.
   const sep = await page.evaluate(rootSel => {
     const bar = document.querySelector(`${rootSel} .hb-map-view-toolbar`)
     const kids = [...bar.children]
     const at = c => kids.findIndex(k => k.dataset.control === c)
     const el = kids.find(k => k.dataset.control === 'toolbar-sep')
     const r = el.getBoundingClientRect()
-    return { between: at('toolbar-sep') === at('layer-l1') + 1 && at('toolbar-sep') < at('palace-yellow'), w: r.width, h: r.height } // prettier-ignore
+    return { between: at('toolbar-sep') === at('layer-sprites') + 1 && at('toolbar-sep') < at('palace-yellow'), w: r.width, h: r.height } // prettier-ignore
   }, root(0x105))
   expect(sep.between).toBe(true)
   expect(sep.w).toBeGreaterThan(0)
@@ -633,19 +649,124 @@ test('L2 shows above the back area: a clear L1 pixel shows the background, not t
  * so there is no corpus screen to check the order on pixels; the unit tests
  * pin which plane a priority subtile lands in on synthetic data.
  */
-test('the canvas stack is l2Low, l1Low, l2High, l1High, bottom to top', async ({ page }) => {
+test('the canvas stack puts layer 2 under everything on a standard-layout map, bottom to top', async ({
+  page,
+}) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
-  const stack = await page
-    .locator(`${root(0x105)} canvas[data-screen="0"]`)
-    .evaluateAll(cs =>
-      cs
-        .map(c => ({ plane: c.dataset.plane, z: Number(getComputedStyle(c).zIndex) }))
-        .sort((a, b) => a.z - b.z),
-    )
-  expect(stack.map(c => c.plane)).toEqual(['l2Low', 'l1Low', 'l2High', 'l1High'])
-  expect(new Set(stack.map(c => c.z)).size, 'four distinct levels').toBe(4)
+  const stackOf = index =>
+    page
+      .locator(`${root(index)} canvas[data-screen="0"]`)
+      .evaluateAll(cs =>
+        cs
+          .map(c => ({ plane: c.dataset.plane, z: Number(getComputedStyle(c).zIndex) }))
+          .sort((a, b) => a.z - b.z),
+      )
+  // $105 is mode 0 (main BG1, BG3, OBJ; sub BG2) with the BG3 priority bit clear.
+  const stack = await stackOf(0x105)
+  expect(stack.map(c => c.plane)).toEqual(['l2Low', 'l2High', 'l3Low', 'l3High', 'l1Low', 'l1High'])
+  expect(new Set(stack.map(c => c.z)).size, 'six distinct levels').toBe(6)
   expect(stack[0].z).toBeGreaterThan(0)
+  // $0E7 is mode 8 (interactive layer 2): BG1 and BG2 on one screen, the BG mode 1 order, no layer 3.
+  await openMap(page, project.manifestPath, 0xe7)
+  expect((await stackOf(0xe7)).map(c => c.plane)).toEqual(['l2Low', 'l1Low', 'l2High', 'l1High'])
+})
+
+/**
+ * Layer 3 (#561), on vanilla maps measured from the ROM: $002 is a tide with the header's BG3
+ * priority bit set (an overlay: its band is in l3High, drawn over layer 1, at the foot of every
+ * screen), $01F is a cage with the bit clear (a background: l3High under l1Low), $105 has no
+ * layer 3 and $009 is mode 2, an interactive layer 2 map.
+ */
+const zOrder = (page, index) =>
+  page.locator(`${root(index)} canvas[data-screen="0"]`).evaluateAll(
+    cs =>
+      cs.map(c => ({ plane: c.dataset.plane, z: Number(getComputedStyle(c).zIndex) })).sort((a, b) => a.z - b.z).map(c => c.plane), // prettier-ignore
+  )
+
+/** The composite of every visible plane over the box that layer 3's own pixels fill on screen 0. */
+async function layer3Region(page, index, box) {
+  return page.evaluate(
+    ({ rootSel, box }) => {
+      const planes = planesOf(rootSel, 0)
+      if (!box) {
+        const l3 = [...document.querySelectorAll(`${rootSel} canvas[data-screen="0"]`)].filter(c => c.dataset.plane.startsWith('l3')) // prettier-ignore
+        let [x0, y0, x1, y1] = [1e9, 1e9, -1, -1]
+        for (const c of l3) {
+          const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+          for (let i = 0; i < d.length; i += 4) {
+            if (d[i + 3] === 0) continue
+            const [x, y] = [(i / 4) % c.width, Math.floor(i / 4 / c.width)]
+            ;[x0, y0, x1, y1] = [Math.min(x0, x), Math.min(y0, y), Math.max(x1, x), Math.max(y1, y)]
+          }
+        }
+        box = { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 }
+      }
+      return { box, pixels: Array.from(composeCanvases(planes, box.x, box.y, box.w, box.h)) }
+    },
+    { rootSel: root(index), box },
+  )
+}
+
+const l3Toggle = (page, index) => page.locator(`${root(index)} [data-control="layer-l3"]`)
+
+for (const [index, role, bit] of [
+  [0x002, 'Layer 3 · Overlay', true],
+  [0x01f, 'Layer 3 · Background', false],
+]) {
+  test(`$${index.toString(16).padStart(3, '0')}: the Layer 3 toggle (${role}) changes the layer 3 region's pixels and restores them`, async ({
+    page,
+  }) => {
+    const project = await createProject(page, path.join(tmp, 'MyHack'))
+    await openMap(page, project.manifestPath, index)
+    const button = l3Toggle(page, index)
+    await expect(button).toBeEnabled()
+    await expect(button).toHaveAttribute('aria-pressed', 'true')
+    await expect(button).toHaveAttribute('title', role)
+    // The bit places BG3's high plane: over layer 1 when set, under layer 1's low plane when clear.
+    const order = await zOrder(page, index)
+    const at = k => order.indexOf(k)
+    expect(at('l2High')).toBeLessThan(at('l3Low'))
+    expect(at('l3High') > at('l1High')).toBe(bit)
+    expect(at('l3High') < at('l1Low')).toBe(!bit)
+
+    const before = await layer3Region(page, index)
+    expect(before.box.w * before.box.h, 'layer 3 draws pixels on screen 0').toBeGreaterThan(0)
+    await button.click()
+    await expect(button).toHaveAttribute('aria-pressed', 'false')
+    for (const plane of planeLocators(page, index, 0, ['l3Low', 'l3High']))
+      await expect(plane).toHaveCSS('visibility', 'hidden')
+    const hidden = await layer3Region(page, index, before.box)
+    const changed = hidden.pixels.filter((v, i) => v !== before.pixels[i]).length
+    expect(changed, 'hiding layer 3 changes the pixels it covered').toBeGreaterThan(0)
+    await button.click()
+    await expect(button).toHaveAttribute('aria-pressed', 'true')
+    const back = await layer3Region(page, index, before.box)
+    expect(back.pixels).toEqual(before.pixels)
+  })
+}
+
+test('a map with no layer 3 and an interactive layer 2 map disable the toggle and say why', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  const none = l3Toggle(page, 0x105)
+  await expect(none).toBeDisabled()
+  await expect(none).toHaveAttribute('title', 'This map has no layer 3')
+
+  await openMap(page, project.manifestPath, 0x009)
+  const locked = l3Toggle(page, 0x009)
+  await expect(locked).toBeDisabled()
+  await expect(locked).toHaveAttribute('aria-pressed', 'false')
+  await expect(locked).toHaveAttribute('title', 'Layer 3 not drawn yet: interactive layer 2 maps')
+  // No layer 3 planes at all, and layer 2 keeps the old BG mode 1 order on this layout.
+  await expect(page.locator(`${root(0x009)} canvas[data-plane^="l3"]`)).toHaveCount(0)
+  expect(await zOrder(page, 0x009)).toEqual(['l2Low', 'l1Low', 'l2High', 'l1High'])
+  // Sprites: the toggle exists in its place, disabled, naming why.
+  const sprites = page.locator(`${root(0x009)} [data-control="layer-sprites"]`)
+  await expect(sprites).toBeDisabled()
+  await expect(sprites).toHaveAttribute('title', 'Sprite toggle not wired yet')
 })
 
 test('a map the ROM reads fully carries no layer note', async ({ page }) => {
