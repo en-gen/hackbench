@@ -5,6 +5,33 @@
  * core run start from identical values.
  */
 
+/**
+ * The level-header-derived cells sprites read: found by recording which WRAM
+ * a run reads before writing it (`RunOptions.trackInputs`) over 1,957 recorded
+ * sprites and keeping the cells that are level state rather than the sprite's
+ * own slot, Mario or the camera. rammap.asm names in each comment.
+ */
+export interface LevelState {
+  /** $5B ScreenMode: 0 horizontal, 1 vertical (bit 7 variants). */
+  screenMode: number
+  /** $5D LevelScrLength: screens in the level. */
+  screens: number
+  /** $64 SpriteProperties: OAM priority bits sprites OR into their attribute. */
+  spriteProps: number
+  /** $85 LevelIsWater. */
+  water: number
+  /** $86 LevelIsSlippery. */
+  slippery: number
+  /** $190E SpriteBuoyancy. */
+  buoyancy: number
+  /** $1692 SpriteMemorySetting: picks the OAM index table row. */
+  spriteMemory: number
+  /** $82-$83 SlopesPtr: the tileset's slope table pointer (low, high). */
+  slopes: number
+  /** $148B/$148C RNGCalc seed bytes. */
+  rng: [number, number]
+}
+
 export interface SpriteSeed {
   /** Sprite table slot the routine runs in ($15E9 and the X register). */
   slot: number
@@ -14,11 +41,13 @@ export interface SpriteSeed {
   mario: { x: number; y: number }
   /** Layer 1 camera, $1A/$1C. */
   camera: { x: number; y: number }
-  /** $13 TrueFrame and $14 EffFrame at the first MAIN pass; both tick once per pass. */
+  /** $13 TrueFrame and $14 EffFrame during the INIT frame; both tick once per MAIN pass after it. */
   trueFrame: number
   effFrame: number
   /** MAIN passes after INIT. */
   mainPasses: number
+  /** What the level loader leaves in WRAM that sprite code reads (measured, not guessed: see docs 11.4). */
+  level: LevelState
   /** Extra single-byte WRAM writes, offset to value. $9D (sprites locked) is 0. */
   ram: Record<number, number>
   /**
@@ -34,6 +63,8 @@ export interface SpriteSeed {
    * Sprites read it for block contact; without it every cell is tile 0.
    */
   map16?: { low: Uint8Array; high: Uint8Array }
+  /** Further WRAM blocks (offset into the 128 KB), for state a fixture carries beyond the above. */
+  blocks?: { offset: number; bytes: Uint8Array }[]
 }
 
 export const SPRITE_SEED: SpriteSeed = {
@@ -44,10 +75,20 @@ export const SPRITE_SEED: SpriteSeed = {
   trueFrame: 0,
   effFrame: 0,
   mainPasses: 16,
-  // $9D SpritesLocked off; $1692 sprite memory setting 0 (the table row the
-  // level header would pick). Both stated even though WRAM starts zeroed, so
-  // a fixture that differs says so.
-  ram: { 0x9d: 0, 0x1692: 0 },
+  level: {
+    screenMode: 0,
+    screens: 0x14,
+    spriteProps: 0x20,
+    water: 0,
+    slippery: 0,
+    buoyancy: 0,
+    spriteMemory: 0,
+    slopes: 0,
+    rng: [0, 0],
+  },
+  // $9D SpritesLocked off, stated although WRAM starts zeroed, so a fixture
+  // that differs says so.
+  ram: { 0x9d: 0 },
 }
 
 /** A seed with some fields replaced, deep for the nested position objects. */
@@ -58,6 +99,7 @@ export function withSeed(over: Partial<SpriteSeed>, base: SpriteSeed = SPRITE_SE
     sprite: { ...base.sprite, ...over.sprite },
     mario: { ...base.mario, ...over.mario },
     camera: { ...base.camera, ...over.camera },
+    level: { ...base.level, ...over.level },
     ram: { ...base.ram, ...over.ram },
   }
 }

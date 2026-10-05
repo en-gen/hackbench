@@ -8,7 +8,8 @@
  * Ids: 0 shifts +8 in INIT and draws one 16x16 piece; 1 shifts (+8,-1) with a
  * Y borrow; 2 draws a flip that follows Mario's side; 3 takes its tile from
  * the hardware multiplier; 4 executes COP in MAIN; 5 draws nothing; 6 has an
- * INIT pointer below $8000. Options plant a defect for the oracle tests.
+ * INIT pointer below $8000; 7, 8 and 9 end INIT with status $9, $0 and $1; 10
+ * draws its tile from the level water flag ($85). Options plant a defect for the oracle tests.
  */
 import { RomFile } from '../../../src/rom/RomFile'
 
@@ -67,11 +68,15 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   initTable[0] = 0x8610
   initTable[1] = 0x8620
   initTable[6] = 0x0010
+  initTable[7] = 0x8730
+  initTable[8] = 0x8740
+  initTable[9] = 0x8750
   mainTable[0] = 0x8640
   mainTable[1] = 0x8640
   mainTable[2] = 0x8680
   mainTable[3] = 0x86c0
   mainTable[4] = 0x8700
+  mainTable[10] = 0x8780
   const words = (t: number[]) => t.flatMap(w => [w & 0xff, w >> 8])
   put(0x018170 + 11, words(initTable))
   put(0x018320 + 9, words(mainTable))
@@ -89,6 +94,16 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   put(0x018680, draw([0xa9, 0x24, 0x99, 0x02, 0x03], [0xa9, 0x0a, 0x99, 0x03, 0x03, 0xa5, 0xd1, 0xd5, 0xe4, 0xb0, 0x05, 0xa9, 0x4a, 0x99, 0x03, 0x03])) // prettier-ignore
   // id 3: tile = 3 * 5 from the CPU multiplier ($4202/$4203 in, $4216 out).
   put(0x0186c0, draw([0xa9, 0x03, 0x8d, 0x02, 0x42, 0xa9, 0x05, 0x8d, 0x03, 0x42, 0xad, 0x16, 0x42, 0x99, 0x02, 0x03], [0xa9, 0x0a, 0x99, 0x03, 0x03])) // prettier-ignore
+  // id 10: tile = $85 (LevelIsWater).
+  put(0x018780, draw([0xa5, 0x85, 0x99, 0x02, 0x03], [0xa9, 0x0a, 0x99, 0x03, 0x03]))
   put(0x018700, [0x02, 0x00])
+  // INIT routines that leave status 9, 0 and 1.
+  for (const [addr, status] of [
+    [0x018730, 9],
+    [0x018740, 0],
+    [0x018750, 1],
+  ]) {
+    put(addr, [0xa9, status, 0x9d, 0xc8, 0x14, 0x60])
+  }
   return RomFile.fromBytes('synthetic.sfc', rom)
 }

@@ -19,6 +19,15 @@ export const RAM = {
   effFrame: 0x14,
   camX: 0x1a,
   camY: 0x1c,
+  screenMode: 0x5b,
+  levelScreens: 0x5d,
+  spriteProps: 0x64,
+  water: 0x85,
+  slippery: 0x86,
+  slopes: 0x82,
+  buoyancy: 0x190e,
+  spriteMemory: 0x1692,
+  rng: 0x148b,
   marioXNext: 0x94,
   marioYNext: 0x96,
   marioXNow: 0xd1,
@@ -39,6 +48,8 @@ export const RAM = {
 
 /** Instruction budget for one call (INIT or one MAIN pass). */
 const STEP_BUDGET = 200_000
+/** INIT retries allowed while the routine leaves status 1. */
+const MAX_INIT_FRAMES = 64
 /** Return address pushed under each call; the call is done when it is popped. */
 const SENTINEL = 0xff00
 
@@ -58,7 +69,8 @@ export interface SpritePart {
   dy: number
   /** Raw attribute byte, for graders that compare it whole. */
   attr: number
-  /** Raw OAM Y, so a grader can drop entries parked below the screen. */
+  /** Raw OAM position: X is 9 bits (size-table bit 0 is bit 8), Y is the line. */
+  ox: number
   oy: number
 }
 
@@ -81,12 +93,21 @@ export interface SpriteModel {
   emptyReason?: string
   /** Position after INIT, and the raw placement it started from. */
   anchor?: { x: number; y: number; rawX: number; rawY: number }
+  /** Frames INIT took: 1 unless it left status 1 and was re-run. */
+  initFrames?: number
   /** $15EA after INIT: the OAM base the cart assigned. */
   oamBase?: number
   passes: PassResult[]
   dependsOn: DependsOn[]
   /** Instruction counts: INIT, then each MAIN pass. */
   steps: number[]
+  /** WRAM offsets read before anything wrote them, when `RunOptions.trackInputs` is set. */
+  inputs?: number[]
+}
+
+export interface RunOptions {
+  probe?: Probe
+  trackInputs?: boolean
 }
 
 export class Refusal extends Error {}
@@ -152,6 +173,18 @@ export class Machine {
     this.w16(RAM.marioXNow, s.mario.x)
     this.w16(RAM.marioYNext, s.mario.y)
     this.w16(RAM.marioYNow, s.mario.y)
+    const lv = s.level
+    w[RAM.screenMode] = lv.screenMode
+    w[RAM.levelScreens] = lv.screens
+    w[RAM.spriteProps] = lv.spriteProps
+    w[RAM.water] = lv.water
+    w[RAM.slippery] = lv.slippery
+    w[RAM.buoyancy] = lv.buoyancy
+    w[RAM.spriteMemory] = lv.spriteMemory
+    this.w16(RAM.slopes, lv.slopes)
+    w[RAM.rng] = lv.rng[0]
+    w[RAM.rng + 1] = lv.rng[1]
+    for (const b of s.blocks ?? []) w.set(b.bytes, b.offset)
     for (const [k, v] of Object.entries(s.ram)) w[Number(k)] = v
     const n = s.slot
     w[RAM.curSprite] = n
@@ -238,6 +271,7 @@ function readParts(m: Machine, anchor: { x: number; y: number }): SpritePart[] {
       dx: rel > 255 ? rel - 512 : rel,
       dy: s8((y - (anchor.y - cam.y)) & 0xff),
       attr,
+      ox: x9,
       oy: y,
     })
   }
@@ -259,7 +293,8 @@ function uploadsOf(m: Machine, before: Map<number, number>): string[] {
 export type Probe = (pass: number, wram: Uint8Array) => void
 
 /** Run once with a seed; no dependsOn analysis. */
-function runOnce(rom: RomFile, id: number, seed: SpriteSeed, probe?: Probe): SpriteModel {
+function runOnce(rom: RomFile, id: number, seed: SpriteSeed, opts: RunOptions = {}): SpriteModel {
+  const probe = opts.probe
   const model: SpriteModel = { id, passes: [], dependsOn: [], steps: [] }
   const tables = resolveTables(rom)
   if (!tables.ok) return { ...model, refusal: tables.reason }
@@ -268,21 +303,35 @@ function runOnce(rom: RomFile, id: number, seed: SpriteSeed, probe?: Probe): Spr
   const mains = resolvePointer(rom, tables.tables.mainTable, id)
   if (!mains.ok) return { ...model, refusal: `MAIN: ${mains.reason}` }
   const m = new Machine(rom, seed, id)
+  if (opts.trackInputs) m.bus.inputs = new Set()
   try {
     m.call(ENTRY.initSpriteTables, 'jsl')
     let n = m.steps
-    m.frame() // status 1 -> CallSpriteInit, which sets status 8 and runs INIT
-    model.steps.push(m.steps - n)
     const w = m.bus.wram
+    // Status 1 -> CallSpriteInit, which sets status 8 and runs INIT. An INIT
+    // that leaves status 1 runs again next frame, as the game does (the floating
+    // platforms sink a few pixels per frame until they reach water).
+    let frameNo = 0
+    m.frame()
+    while (w[RAM.status + seed.slot] === 1 && frameNo < MAX_INIT_FRAMES) {
+      frameNo++
+      w[RAM.trueFrame] = (seed.trueFrame + frameNo) & 0xff
+      w[RAM.effFrame] = (seed.effFrame + frameNo) & 0xff
+      m.frame()
+    }
+    model.steps.push(m.steps - n)
+    model.initFrames = frameNo + 1
     const st = w[RAM.status + seed.slot]
-    if (st !== 8) return { ...model, refusal: `INIT left status $${st.toString(16)}, not 8` }
+    if (st === 0) return { ...model, emptyReason: 'INIT erased the sprite (status 0)' }
+    if (st === 1)
+      return { ...model, refusal: `INIT did not complete in ${MAX_INIT_FRAMES} frames: status stays 1, waiting on state the seed lacks` } // prettier-ignore
     const anchor = m.pos()
     model.anchor = { ...anchor, rawX: seed.sprite.x, rawY: seed.sprite.y }
     model.oamBase = w[RAM.oamIndex + seed.slot]
     probe?.(-1, w)
     for (let p = 0; p < seed.mainPasses; p++) {
-      w[RAM.trueFrame] = (seed.trueFrame + p) & 0xff
-      w[RAM.effFrame] = (seed.effFrame + p) & 0xff
+      w[RAM.trueFrame] = (seed.trueFrame + frameNo + 1 + p) & 0xff
+      w[RAM.effFrame] = (seed.effFrame + frameNo + 1 + p) & 0xff
       for (let i = 0; i < RAM.oamEntries; i++) w[RAM.oamX + 1 + i * 4] = 0xf0
       m.clearOamWrites()
       n = m.steps
@@ -297,6 +346,7 @@ function runOnce(rom: RomFile, id: number, seed: SpriteSeed, probe?: Probe): Spr
         uploads: uploadsOf(m, hw),
       })
     }
+    if (m.bus.inputs) model.inputs = [...m.bus.inputs].sort((a, b) => a - b)
     if (model.passes.every(p => p.parts.length === 0))
       model.emptyReason = `drew no OAM tile in ${seed.mainPasses} passes (invisible by design, or the seed lacks state)` // prettier-ignore
   } catch (e) {
@@ -325,9 +375,9 @@ export function runSprite(
   rom: RomFile,
   id: number,
   seed: SpriteSeed = SPRITE_SEED,
-  probe?: Probe,
+  opts: RunOptions = {},
 ): SpriteModel {
-  const a = runOnce(rom, id, seed, probe)
+  const a = runOnce(rom, id, seed, opts)
   if (a.refusal) return a
   const other = seed.mario.x >= seed.sprite.x ? seed.sprite.x - 0x40 : seed.sprite.x + 0x40
   const b = runOnce(rom, id, withSeed({ mario: { x: other, y: seed.mario.y } }, seed))

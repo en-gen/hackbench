@@ -62,6 +62,7 @@ describe('runner on a synthetic cart', () => {
         dx: 0,
         dy: 0,
         attr: 0x0a,
+        ox: 0x80,
         oy: 0x80,
       },
     ])
@@ -93,6 +94,22 @@ describe('runner on a synthetic cart', () => {
     expect(runSprite(rom, 4).refusal).toMatch(/COP executed/)
     expect(runSprite(rom, 201).refusal).toMatch(/past the 201-entry/)
     expect(runSprite(rom, 6).refusal).toMatch(/not in ROM code/)
+  })
+
+  it('INIT status: 9 runs on, 0 is an erased sprite, 1 is an INIT that did not complete', () => {
+    expect(runSprite(rom, 7).refusal).toBeUndefined()
+    expect(runSprite(rom, 8).emptyReason).toMatch(/erased/)
+    expect(runSprite(rom, 9).refusal).toMatch(/status stays 1/)
+  })
+
+  it('level state is seeded where sprites read it, and recorded as an input', () => {
+    expect(runSprite(rom, 10).passes[0].parts[0].char).toBe(0)
+    const seed = withSeed({ level: { water: 1 } })
+    const m = runSprite(rom, 10, seed, { trackInputs: true })
+    expect(m.passes[0].parts[0].char).toBe(1)
+    expect(m.inputs).toContain(0x85)
+    // Mario's X is read by id 2 only through the seed, never invented.
+    expect(runSprite(rom, 0, SPRITE_SEED, { trackInputs: true }).inputs).not.toContain(0x85)
   })
 
   it('refuses when the dispatch shape is wrong', () => {

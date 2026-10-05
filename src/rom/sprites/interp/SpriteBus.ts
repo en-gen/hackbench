@@ -24,6 +24,12 @@ export class SpriteBus implements Bus {
   /** Every hardware register address ($2000-$43FF, bank-folded) written, with counts. */
   readonly hwWrites = new Map<number, number>()
   onInstruction?: (addr: number, op: number) => void
+  /**
+   * When set, collects the WRAM offsets a run READ before anything wrote them:
+   * the inputs a seed has to supply. Off by default (one extra branch per read).
+   */
+  inputs: Set<number> | null = null
+  private written = new Uint8Array(WRAM_SIZE)
   private mul = { a: 0, prod: 0, dividend: 0, quot: 0, rem: 0 }
   private ppuMul = { m7a: 0, prev: 0, result: 0 }
   private header: number
@@ -45,7 +51,10 @@ export class SpriteBus implements Bus {
   read(addr: number): number {
     addr &= 0xffffff
     const w = this.wramOffset(addr)
-    if (w >= 0) return this.wram[w]
+    if (w >= 0) {
+      if (this.inputs && !this.written[w]) this.inputs.add(w)
+      return this.wram[w]
+    }
     const bank = addr >>> 16
     const lo = addr & 0xffff
     if ((bank & 0x7f) < 0x40 && lo >= 0x2000 && lo < 0x4400) return this.readReg(lo)
@@ -79,6 +88,7 @@ export class SpriteBus implements Bus {
     const w = this.wramOffset(addr)
     if (w >= 0) {
       this.wram[w] = v
+      this.written[w] = 1
       this.onWramWrite?.(w, v)
       return
     }

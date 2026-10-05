@@ -474,19 +474,35 @@ multiset, offsets or flips differ. `wrong` drew, nothing matches. `refused`,
 a free-moving sprite with Mario elsewhere, so `shape` and `close` are mostly
 tier-2 differences (position, frame, Mario's side), not decode errors.
 
-### 11.2 Rounds (layers_v5, 1,957 recorded vanilla sprites, ids $00-$C8)
+### 11.2 Rounds, level-load tier (layers_v5, 1,957 recorded vanilla sprites, ids $00-$C8)
 
-| Round | Change | exact | shape | close | wrong | refused | empty |
-|---|---|---|---|---|---|---|---|
-| 0 | `HandleSprite` called directly, DB 0 | 325 | n/a | 104 | 1,404 | 115 | 9 |
-| 1 | call the game's sprite loop (DB 1) | 559 | n/a | 313 | 965 | 113 | 7 |
-| 2 | add `shape` verdict (same arrangement, other offset) | 559 | 221 | 92 | 965 | 113 | 7 |
-| 3 | OAM mirror is 64 entries, not 128 (the high table was read as OAM) | 917 | 497 | 171 | 251 | 113 | 8 |
-| 4 | seed with the level's low WRAM image (oracle seed) | 952 | 512 | 176 | 229 | 35 | 53 |
-| 5 | 4 plus Map16 tables | 984 | 584 | 72 | 228 | 35 | 54 |
+Seed column: G = generic seed only (placement, camera, Mario from the record);
+L+M = plus the level-state cells of 11.4 and the Map16 tables; W = plus the
+whole low-WRAM image (oracle seed, an upper bound, not a runtime input).
 
-Rounds 0 and 1 pre-date the `shape` verdict (counted in `wrong`/`close`).
-Round 3's class was an attribution bug (a spurious tile at "OAM 91").
+| Round | Change | Seed | exact | shape | close | wrong | refused | empty |
+|---|---|---|---|---|---|---|---|---|
+| 0 | `HandleSprite` called directly, DB 0 | G | 325 | n/a | 104 | 1,404 | 115 | 9 |
+| 1 | call the game's sprite loop (DB 1) | G | 559 | n/a | 313 | 965 | 113 | 7 |
+| 2 | add `shape` verdict | G | 559 | 221 | 92 | 965 | 113 | 7 |
+| 3 | OAM mirror is 64 entries; the high table was read as OAM | G | 917 | 497 | 171 | 251 | 113 | 8 |
+| 4 | seed the whole low WRAM | W | 952 | 512 | 176 | 229 | 35 | 53 |
+| 5 | W plus Map16 tables | W+M | 984 | 584 | 72 | 228 | 35 | 54 |
+| 6 | level cells + status 9 allowed + status 0 is "erased" | G | 956 | 497 | 171 | 251 | 78 | 8 |
+| 6 | same | L | 987 | 503 | 176 | 227 | 0 | 64 |
+| 6 | same, plus Map16 | L+M | 1,022 | 573 | 78 | 219 | 0 | 65 |
+| 7 | INIT re-runs while status stays 1; counters tick per frame | G | 956 | 511 | 154 | 250 | 56 | 30 |
+| 7 | same | L+M | 1,034 | 581 | 63 | 214 | 0 | 65 |
+| 7 | same, 64 MAIN passes instead of 16 | L+M | 1,215 | 570 | 30 | 137 | 0 | 5 |
+
+Lines of code added: round 0 to 3 about 1,680 (runner, bus, dispatch, seed,
+graders, synthetic cart and tests, doc); rounds 4 to 7 about 440 more (180 of them the spawn grader).
+
+Rounds 0 and 1 pre-date the `shape` verdict (counted in `wrong`/`close`). Round
+3's class was an attribution bug (a spurious tile at "OAM 91"). Best-of-N
+passes is lenient on frame choice: 16 to 64 passes moves 181 sprites from
+`empty`/`wrong` to `exact`, mostly sprites that start hidden (the podoboo waits
+32 frames before it shows).
 
 ### 11.3 Exact tier: call replay against Mesen (`sprite-trace`)
 
@@ -499,4 +515,66 @@ The 12 misses are state the fixture does not carry (WRAM above `$2000` except
 Map16: `$7F:9BFA`, `$7F:837D`). Planted defect: NOPing HandleSprite's first
 instruction makes all 20 sampled calls diverge.
 Before the Map16 tables were loaded the same replay was 614 of 1,122: sprite
-block contact (`$1693`, `$18D7`) reads them.
+block contact (`$1693`, `$18D7`) reads them. This tier proves the core, bus and
+dispatch; it says nothing about seeding, which 11.2 and 11.5 grade.
+
+### 11.4 Level state a sprite reads (found by measurement)
+
+`RunOptions.trackInputs` records the WRAM a run reads before anything wrote
+it. Over the 1,957 recorded sprites the level-derived cells (not the sprite's
+own slot, Mario or the camera) are: `$5B` ScreenMode, `$5D` LevelScrLength,
+`$64` SpriteProperties, `$85` LevelIsWater, `$86` LevelIsSlippery, `$190E`
+SpriteBuoyancy, `$1692` SpriteMemorySetting, `$82-$83` SlopesPtr, `$148B/C`
+RNGCalc, and the Map16 tables (`$7E:C800`, `$7F:C800`). They are the
+`LevelState` fields of `SpriteSeed`. Seeding only these, with Map16, is as good
+as seeding the whole low WRAM (1,034 against 984 exact in the same round).
+
+### 11.5 Spawn tier (sprite-spawn, 201 ids, slot 0, 16 passes each)
+
+One id per run at a fixed placement, so the comparison is absolute OAM, with the
+seed turned into a `SpriteSeed` from the fixture's own baseline (level `$0BD`).
+Graded from each call's write log, not hardware OAM: hardware OAM lags the
+mirror by one frame (the NMI copies the mirror first), which an earlier version
+of the grader got wrong and scored 0 exact.
+
+| Measure | Result |
+|---|---|
+| anchor (position after INIT) equal to the recorded one | 198 of 201 |
+| the other 3 | refused, and Mesen's own INIT never returned (`$33`, `$A0`) or its MAIN hung (`$36`, COP) |
+| MAIN passes recorded and graded | 3,216 of 3,216 slots; 101 have no recorded call (the harness ran 16 frames in all, so INIT retries use some) |
+| exact (every owned OAM entry equal in slot, X, Y, tile, attribute, size) | 2,714 |
+| exact, both empty | 276 |
+| close (same tiles, a position or flip differs) | 11 |
+| wrong | 66 |
+| refused, agreeing with Mesen | 48 (3 ids x 16) |
+
+The 66 wrong and 11 close passes are 7 ids: `$1E` Lakitu (Mesen shows the
+cloud, we show Lakitu: a state difference), `$2B`, `$2D` baby Yoshi, `$3E` and
+`$80` (pass 0 only: we draw, Mesen's first call writes nothing), `$61` floating
+skulls (Mesen writes one of the four entries), `$82` bonus game (50 entries
+against 5). None was investigated beyond this; the cause is not known.
+
+### 11.6 Remaining failure classes, ranked
+
+1. Sprite state that depends on Mario or the level and is not in the seed
+   (Boo `$37`, Rip Van Fish `$3D`, Lakitu `$1E`, fish out of water): the
+   layers_v5 `wrong` and `close` rows. Tier 2 by design.
+2. Movers and ground contact: `shape` verdicts (offset from the sprite differs
+   by a constant per id), because the capture caught the sprite after it moved.
+3. Which frame to show (`N` passes): `empty` at 16 passes, `exact` at 64.
+4. Spawn-mode oddities above (7 ids), cause not known.
+5. Not run: SA-1, HiROM (refused by a mapping check only), custom sprites.
+
+### 11.7 Risks
+
+- The three fixed entry points (`$01:808C`, `$01:8127`, `$07:F7D2`) are the
+  game's own loop in vanilla; a hack that moves them is refused by the shape
+  check, not followed. The sprite-loop entry is not byte-checked, only
+  HandleSprite is.
+- `dependsOn` is only `marioX`; RNG and the frame counters are inputs too and
+  are not diffed. Measured, not claimed: 71 of 197 depended on Mario in the
+  spike.
+- Spawn fixtures use level `$0BD` state; the layers_v5 tier seeds from each
+  map's level-load image. Neither proves custom (hack) sprites.
+- The core does not store 16-bit read-modify-write high-byte first; the same
+  bytes land, in a different order. Nothing here observes the order.

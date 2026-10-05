@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { unzip } from '../../../../tools/scripts/capture_render'
 import { runSprite } from '../../../../src/rom/sprites/interp/SpriteRunner'
-import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
+import { withSeed, type LevelState } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import {
   CAPTURE_DIR,
   freshRom,
@@ -55,6 +55,14 @@ function traceMap16(map: string): { low: Uint8Array; high: Uint8Array } | undefi
   return undefined
 }
 
+/** The LevelState cells out of a level-load WRAM image (oracle seed). */
+function levelOf(w: Uint8Array): Partial<LevelState> {
+  return {
+    screenMode: w[0x5b], screens: w[0x5d], spriteProps: w[0x64], water: w[0x85], slippery: w[0x86],
+    buoyancy: w[0x190e], spriteMemory: w[0x1692], slopes: w[0x82] | (w[0x83] << 8), rng: [w[0x148b], w[0x148c]],
+  } // prettier-ignore
+}
+
 function loadAll(): { map: string; rec: Rec; wram: Uint8Array | null }[] {
   const out: { map: string; rec: Rec; wram: Uint8Array | null }[] = []
   for (const f of readdirSync(CAPTURE_DIR).sort()) {
@@ -78,6 +86,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     const all = loadAll()
     expect(all.length).toBeGreaterThan(0)
     const rows: (Grade & { map: string; id: string; slot: number; want?: unknown; got?: unknown; anchor?: unknown; pos?: unknown; seed?: unknown })[] = [] // prettier-ignore
+    const inputs = new Map<number, { reads: number; nonzero: number }>()
     for (const { map, rec, wram } of all) {
       const id = parseInt(rec.id.slice(1), 16)
       const want = recordedPieces(rec)
@@ -85,12 +94,20 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
       const seed = withSeed({
         wramBase: process.env.SPRITE_GRADE_WRAM && wram ? wram : undefined,
         map16: process.env.SPRITE_GRADE_MAP16 ? traceMap16(map) : undefined,
+        level: process.env.SPRITE_GRADE_LEVEL && wram ? levelOf(wram) : undefined,
         slot: rec.slot,
+        mainPasses: Number(process.env.SPRITE_GRADE_PASSES ?? 16),
         sprite: { x: rec.listX, y: rec.listY },
         camera: { x: rec.cameraX, y: rec.cameraY },
         mario: rec.marioAtInit ?? { x: rec.listX, y: rec.listY },
       })
-      const m = runSprite(rom, id, seed)
+      const m = runSprite(rom, id, seed, { trackInputs: !!process.env.SPRITE_GRADE_INPUTS })
+      for (const a of m.inputs ?? []) {
+        const e = inputs.get(a) ?? { reads: 0, nonzero: 0 }
+        e.reads++
+        if (wram && a < 0x2000 && wram[a]) e.nonzero++
+        inputs.set(a, e)
+      }
       const g = grade(m, want)
       const dbg = g.verdict === 'wrong' || g.verdict === 'close' || g.verdict === 'shape'
       rows.push({
@@ -99,6 +116,11 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
             best: g.pass === undefined ? undefined : passPieces(m, g.pass), anchor: m.anchor, pos: m.passes[0]?.pos, seed: rec } : {}),
       }) // prettier-ignore
     }
+    if (process.env.SPRITE_GRADE_INPUTS)
+      writeFileSync(
+        process.env.SPRITE_GRADE_INPUTS,
+        JSON.stringify([...inputs].sort((a, b) => b[1].nonzero - a[1].nonzero)),
+      )
     const by: Record<string, number> = {}
     for (const r of rows) by[r.verdict] = (by[r.verdict] ?? 0) + 1
     const summary = `graded ${rows.length}: ${JSON.stringify(by)}`
