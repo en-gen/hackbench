@@ -511,8 +511,8 @@ passes is lenient on frame choice: 16 to 64 passes moves 181 sprites from
 Each recorded INIT or MAIN call (WRAM image and registers at entry, every
 write the call made) is replayed on the core: 1,110 of 1,122 calls over 77
 sprite ids are write-for-write equal (hardware multiply included; PPU writes
-the recorder dropped are not compared; a swapped adjacent pair from 16-bit
-read-modify-write order, which the core does not model, counts as equal).
+the recorder dropped are not compared; order is exact, 16-bit read-modify-write
+stores high byte first, #593).
 The 12 misses are state the fixture does not carry (WRAM above `$2000` except
 Map16: `$7F:9BFA`, `$7F:837D`). Planted defect: NOPing HandleSprite's first
 instruction makes all 20 sampled calls diverge.
@@ -579,8 +579,9 @@ against 5). None was investigated beyond this; the cause is not known.
   spike.
 - Spawn fixtures use level `$0BD` state; the layers_v5 tier seeds from each
   map's level-load image. Neither proves custom (hack) sprites.
-- The core does not store 16-bit read-modify-write high-byte first; the same
-  bytes land, in a different order. Nothing here observes the order.
+- 16-bit read-modify-write stores high byte first (#593); SingleStepTests
+  checks the write order. Not modelled: the extra old-value write an
+  emulation-mode 8-bit read-modify-write makes on hardware.
 
 ## 12 Follow-up rounds (2026-10-05): provenance, frame policy, spawn classes
 

@@ -65,20 +65,11 @@ function replay(rom: RomFile, root: string, map: string, wram: Buffer, c: Call) 
     err = String(e)
   }
   const want = c.writes.map(w => w >>> 0)
-  // A 16-bit read-modify-write stores its high byte first on hardware; the core
-  // stores low first. Same bytes either way, so a swapped adjacent pair is equal.
   let k = 0
-  let swaps = 0
-  while (k < want.length && k < got.length) {
-    if (want[k] === got[k]) k++
-    else if (k + 1 < got.length && want[k] === got[k + 1] && want[k + 1] === got[k]) {
-      k += 2
-      swaps++
-    } else break
-  }
+  while (k < want.length && k < got.length && want[k] === got[k]) k++
   const ok = !err && k === want.length && k === got.length
   const first = ok ? undefined : `${err} diverge@${k}/${want.length} want ${fmt(want[k])} got ${fmt(got[k])}` // prettier-ignore
-  return { ok, first, swaps, n: want.length }
+  return { ok, first, n: want.length }
 }
 
 describe.skipIf(!existsSync(TRACE_DIR) || !hasRom(VANILLA))(
