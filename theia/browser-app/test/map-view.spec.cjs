@@ -710,7 +710,8 @@ const l3Toggle = (page, index) => page.locator(`${root(index)} [data-control="la
 for (const [index, role, bit, known] of [
   // known: the top-left of layer 3's box on screen 0, and its first opaque pixel in raster order with
   // that pixel's color (outline black), then a non-black pixel. $01F's is BG3 palette 3, its crusher
-  // color [0,0,66] (without the crusher colors the same pixel is [255,90,90]), so a wrong palette fails.
+  // color 15 (gold, the castle_crusher palette's last entry; without the crusher colors the same pixel is
+  // [255,90,90]), so a wrong palette fails.
   // All measured from the backend's planes.
   [
     0x002,
@@ -731,7 +732,7 @@ for (const [index, role, bit, known] of [
       box: { x: 56, y: 48 },
       pixel: { x: 64, y: 48 },
       rgba: [0, 0, 0, 255],
-      color: { pixel: { x: 80, y: 48 }, rgba: [0, 0, 66, 255] },
+      color: { pixel: { x: 80, y: 48 }, rgba: [222, 165, 57, 255] },
     },
   ],
 ]) {

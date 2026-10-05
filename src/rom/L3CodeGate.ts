@@ -47,8 +47,24 @@ export function readL3CodeGate(
   return { ok: true }
 }
 
-/** BigCrusherColors (bank_00.asm:6223): 4 BGR555 words CODE_00A007 copies to MainPalette+$18. */
-const BIG_CRUSHER_COLORS = 0x00b67f
+/**
+ * CODE_00A007's copy loop (bank_00.asm:4184-4189), inside the fingerprinted
+ * CODE_009FB8 region: LDX #7 / LDA.W BigCrusherColors,X / STA.W MainPalette+$18,X
+ * / DEX / BPL. The table's address is the LDA's operand (bank 0, $B66C on stock),
+ * read here and not assumed. Eight bytes: 4 BGR555 words for CGRAM 12-15.
+ */
+const COPY_LOOP = [0xa2, 0x07, 0xbd, -1, -1, 0x9d, -1, -1, 0xca, 0x10, 0xf7] as const
+const COPY_OPERAND_AT = 3
+
+function crusherTableAddr(rom: RomFile): number | null {
+  const code = rom.readAt(L3_CODE_SITES[0]!.addr, L3_CODE_SITES[0]!.length)
+  if (!code) return null
+  const hits: number[] = []
+  for (let i = 0; i + COPY_LOOP.length <= code.length; i++) {
+    if (COPY_LOOP.every((b, k) => b === -1 || code[i + k] === b)) hits.push(i)
+  }
+  return hits.length === 1 ? code[hits[0]! + COPY_OPERAND_AT]! | (code[hits[0]! + COPY_OPERAND_AT + 1]! << 8) : null // prettier-ignore
+}
 
 /**
  * The colors a settings byte $80 level gets at CGRAM 12-15 (BG3 palette 3),
@@ -64,7 +80,8 @@ export function readCrusherColors(
   if (!gate.ok) return null
   const setting = readLayer3Setting(rom, index)
   if (setting === 0 || readL3SettingsByte(rom, tileset, setting) !== 0x80) return null
-  const words = rom.readAt(BIG_CRUSHER_COLORS, 8)
+  const table = crusherTableAddr(rom)
+  const words = table === null ? null : rom.readAt(table, 8)
   if (!words) return null
   return [0, 1, 2, 3].map(i => bgr555ToRgba(words[i * 2]! | (words[i * 2 + 1]! << 8)))
 }

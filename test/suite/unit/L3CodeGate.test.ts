@@ -24,6 +24,9 @@ import { modeTablesRom, sweepLayouts, withLayer3 } from '../support/l3Rom'
 const REGION = 0x40
 const SITE_A = 0x009fb8
 const SITE_B = 0x05c40c
+/** Where the synthetic copy loop sits in site A, and the table it names (not the stock address). */
+const LOOP_AT = 0x34
+const TABLE = 0x00b700
 /** Offsets inside site A standing for a Y immediate, the setting read and the pointer operand. */
 const SCRIPTED = { immediate: 0x18, jsl: 0x20, pointer: 0x30 }
 
@@ -36,6 +39,8 @@ const hashOf = (rom: RomFile, addr: number) =>
 function codeRom(): { rom: RomFile; sites: CodeSite[] } {
   const rom = modeTablesRom(sweepLayouts())
   for (const at of [SITE_A, SITE_B]) rom.writeAt(at, Array.from({ length: REGION }, (_, i) => (i * 11 + (at & 0xff)) & 0xff)) // prettier-ignore
+  // CODE_00A007's copy loop inside site A, naming the table: LDX #7 / LDA.W table,X / STA.W $071B,X / DEX / BPL.
+  rom.writeAt(SITE_A + LOOP_AT, [0xa2, 0x07, 0xbd, TABLE & 0xff, TABLE >> 8, 0x9d, 0x1b, 0x07, 0xca, 0x10, 0xf7]) // prettier-ignore
   const sites = [SITE_A, SITE_B].map(addr => ({ addr, length: REGION, sha256: hashOf(rom, addr) }))
   return { rom, sites }
 }
@@ -118,11 +123,13 @@ describe('readL3CodeGate (synthetic sites)', () => {
 })
 
 describe('readCrusherColors (synthetic)', () => {
-  const TABLE = 0x00b67f
   const words = [0x0123, 0x2345, 0x3456, 0x4567]
   const romWith = (settingsByte: number, tileset = 0) => {
     const { rom, sites } = codeRom()
     withLayer3(rom, { level: 5, tileset, setting: 2, settingsByte, word: 0 })
+    // Decoys at the stock table's address and 13 bytes past the named one: reading either is wrong.
+    rom.writeAt(0x00b66c, new Array(8).fill(0x77))
+    rom.writeAt(TABLE + 13, new Array(8).fill(0x55))
     rom.writeAt(
       TABLE,
       words.flatMap(w => [w & 0xff, w >> 8]),
@@ -171,6 +178,19 @@ describe.skipIf(!hasRom(VANILLA))('the real sites on the vanilla cart (corpus)',
     }
     expect(drawn).toEqual([0x002, 0x01f, 0x0be, 0x0c1, 0x102, 0x127, 0x1d4, 0x1fc])
   }, 60_000)
+
+  it('a $80 level (vanilla $01F, $1D4, $1FC) gets the crusher colors, and a tide level none', () => {
+    const rom = RomFile.load(romPath(VANILLA))
+    const smw = new SmwRom(rom)
+    const tilesetOf = (id: number) => parseLevelHeader(smw.getLevelRawData(id)!).objectTileset
+    // The renderer expands 5-bit channels (c << 3 | c >> 2), so compare the 5-bit values: the castle_crusher
+    // palette's 8-bit entries (152,224,224), (0,0,0), (136,88,24), (216,160,56) shifted right by 3.
+    const rgb5 = (id: number) => readCrusherColors(rom, id, tilesetOf(id))?.map(c => c.slice(0, 3).map(v => v >> 3)) // prettier-ignore
+    for (const id of [0x01f, 0x1d4, 0x1fc]) {
+      expect(rgb5(id), `$${id.toString(16)}`).toEqual([[19, 28, 28], [0, 0, 0], [17, 11, 3], [27, 20, 7]]) // prettier-ignore
+    }
+    expect(rgb5(0x002) ?? null).toBeNull()
+  })
 
   it('a one-byte patch in each real site turns the gate red', () => {
     for (const at of [0x009fb8, 0x009fe0, 0x00a01f + 8, 0x05c40c, 0x05c470]) {
