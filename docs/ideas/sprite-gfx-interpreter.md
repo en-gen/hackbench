@@ -678,11 +678,12 @@ spawn fixtures carry only for level `$0BD`.
   (`$05:D8AE`, "an entry that exists is not an entry that is reached"), the
   entry `$05:D8B7`, `$00:A635` and `$05:801E`. The loader also runs under the
   same instruction guard as the runner (no BRK/COP/WDM/STP, no leaving ROM).
-- Corpus: Grand Poo World 2, Grand Poo World 1.2 and Invictus (a `BRA` at
-  `$00:A635` and `$05:D8B7`) and Seven Vanilla Levels (Lunar Magic's JSL at
-  `$05:D8B1`) now REFUSE the loader with a reason; before, the loader returned
-  "ok" with values from a path the hack had rerouted. Vanilla and the magic
-  ROM load. Test: `level loader on the hack corpus`.
+- Corpus: all four hacks (Grand Poo World 2, Grand Poo World 1.2, Invictus,
+  Seven Vanilla Levels) now REFUSE the loader with a reason; before, it returned
+  "ok" with values from a path the hack had rerouted. The first failing check is
+  not the same for each (see 14.1: the lead-in check this paragraph first used
+  was replaced). Vanilla and the magic ROM load. Test: `level loader on the
+hack corpus`.
 - OAM: the whole mirror `$0200-$03FF` is read (128 entries, one size byte each
   at `$0420`), not only `$0300`. `SpritePart.oam` is now 0-127. Sprites that
   draw into the first page (vanilla `$1E`, `$7B`, `$87`, `$8A`) were being
@@ -728,3 +729,60 @@ passes): 2,792 exact (was 2,776), 260 exact-empty (was 276), 15 wrong (all
 The ROM seed beats the generic seed on `shape` (572 against 469) and has no
 refusals; it trails the generic seed by 15 exact, a seed difference I did not
 investigate.
+
+## 14 Review round 2
+
+### 14.1 The loader checks the path it models
+
+The loader sets `SublevelCount` ($141A) to 1 (a sublevel entry), so it follows
+the sublevel branch of CODE_05D796, not the overworld lead-in at `$05:D8AE-D8B6`
+that 13.1 byte-checked. Round 1's attribution ("all four first fail on Lunar
+Magic's JSL at `$05:D8B1`") described that lead-in, which the sublevel path
+never executes; it was the wrong thing to check and is gone. Now checked, in
+order: GM11's three calls (`$00:96F4` JSL CODE_05D796, `$00:9705` JSR CODE_00A635,
+`$00:9716` JSL CODE_05801E), the GM11 code between them (`$00:96F8` and `$00:9708`;
+the music upload between the first two is not modelled and not checked),
+CODE_05D796's prologue and sublevel branch (`$05:D796`), the JMP into the pointer
+loader (`$05:D83B`), and the four entries of 13.1. The first failure per corpus ROM:
+
+| ROM                   | First failing check                    |
+| --------------------- | -------------------------------------- |
+| Grand Poo World 2 1.1 | GM11 code at `$00:9708`                |
+| Grand Poo World 1.2   | pointer loader at `$05:D8B7`           |
+| Invictus 1.0          | GM11 code at `$00:9708`                |
+| Seven Vanilla Levels  | GM11 code at `$00:9708` (its JSL hook) |
+
+Witness: vanilla with `$05:D83B` = `4c 00 80` refuses. None of the four fails on
+`$00:A635` first; the BRA there is never the reported reason now.
+
+### 14.2 GetRand and the FastROM mirror
+
+`checkGetRand` accepts a JSL bank of `$01` or `$81` (36 of 101 SMWC hacks use
+the mirror), consistently with `checkInitTables`. Witness: vanilla with
+`$01:ACFF` and `$01:AD04` set to `$81` runs and gives the same passes.
+Seven Vanilla Levels on ids `$00 $04 $0D $1E $2B $48 $8A`, default seed (its
+loader refuses, so generic): before, all seven were refused ("GetRand is not the
+two-step shape"); after, all seven run and draw on pass 0 (1, 2, 1, 5, 4, 1 and 1
+parts), seed source `generic`.
+
+### 14.3 `seedSource`
+
+The model reports `seedSource`: `'rom-level-load'` when a loaded image was
+given, else `'generic'` with `seedReason` (the loader's refusal text when the
+caller used `levelSeed`, which runs the loader and records why it refused). A
+caller that draws sprites should mark generic-seeded ones unverified.
+
+### 14.4 Mutants M11, M15, M18
+
+Synthetic ids now exercise them: id 17 (an INIT that retries and records `$13`
+and `$14` of each call: retry frames must tick), id 18 (tile from `$14`: `$14`
+must tick in MAIN), id 19 (writes the tile byte every frame but a Y only on odd
+frames: a stale Y from the previous pass must not make it visible, which the
+per-pass OAM clear guarantees).
+
+### 14.5 Not on this branch
+
+Loader support for Lunar Magic's `$05:D8B1` hook: 0 of 101 hacks load today,
+filed as its own issue. Convention note: the `loaded` seed field takes any
+bytes; "captures never become a runtime input" is held by review and by keeping
+oracle images in test support, not by the type.

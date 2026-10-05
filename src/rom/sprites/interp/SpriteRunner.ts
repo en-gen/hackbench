@@ -102,6 +102,13 @@ export interface SpriteModel {
   emptyReason?: string
   /** Position after INIT, and the raw placement it started from. */
   anchor?: { x: number; y: number; rawX: number; rawY: number }
+  /**
+   * Where the level state came from: the ROM's own level loader, or a generic
+   * placement-only seed (no loader ran, or it refused: see `seedReason`). A
+   * caller that shows sprites should mark generic-seeded ones unverified.
+   */
+  seedSource?: 'rom-level-load' | 'generic'
+  seedReason?: string
   /** Frames INIT took: 1 unless it left status 1 and was re-run. */
   initFrames?: number
   /** $15EA after INIT: the OAM base the cart assigned. */
@@ -299,7 +306,14 @@ export type Probe = (pass: number, wram: Uint8Array) => void
 /** Run once with a seed; no dependsOn analysis. */
 function runOnce(rom: RomFile, id: number, seed: SpriteSeed, opts: RunOptions = {}): SpriteModel {
   const probe = opts.probe
-  const model: SpriteModel = { id, passes: [], dependsOn: [], steps: [] }
+  const model: SpriteModel = {
+    id,
+    passes: [],
+    dependsOn: [],
+    steps: [],
+    seedSource: seed.loaded ? 'rom-level-load' : 'generic',
+    ...(seed.loaded ? {} : { seedReason: seed.loadRefusal ?? 'no level image was given' }),
+  }
   const loop = resolveLoop(rom)
   if (!loop.ok) return { ...model, refusal: loop.reason }
   const tables = resolveTables(rom, loop.handle)

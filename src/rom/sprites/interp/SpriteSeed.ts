@@ -52,11 +52,15 @@ export interface SpriteSeed {
    * The WRAM the ROM's own level loader produced for this level
    * (`loadLevelState`, LevelLoader.ts). Applied before everything else; when
    * present the `level` cells and `mario.dir` are not written (the ROM's
-   * entrance setup provides them). It is the ONLY way a whole-WRAM image gets
-   * in: oracle images built from captures live in test support, so a capture
-   * cannot become a runtime input by a field of this seed.
+   * entrance setup provides them). It is the ONLY whole-WRAM entry of this seed;
+   * oracle images built from captures live in test support. That keeps captures
+   * out of src/ by convention, not by type: the field takes any bytes, so a
+   * caller that passes a capture image here defeats the owner ruling and review
+   * has to catch it.
    */
   loaded?: Uint8Array
+  /** Why `loadLevelState` refused, when the caller tried and `loaded` is absent; echoed in the model. */
+  loadRefusal?: string
 }
 
 export const SPRITE_SEED: SpriteSeed = {

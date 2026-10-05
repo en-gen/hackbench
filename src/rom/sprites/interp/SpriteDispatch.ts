@@ -57,7 +57,27 @@ export function checkInitTables(rom: RomFile): ShapeResult {
 /** GetRand: PHY LDY #1 JSL step DEY JSL step PLY RTL (bank_01.asm:6092). */
 export function checkGetRand(rom: RomFile): ShapeResult {
   const b = bytes(rom, ENTRY.getRand, 14)
-  return matches(b, [0x5a, 0xa0, 0x01, 0x22, null, null, 0x01, 0x88, 0x22, null, null, 0x01, 0x7a, 0x6b]) // prettier-ignore
+  // The two JSL banks are $01 or its FastROM mirror $81 (36 of 101 SMWC hacks); same code.
+  const ok =
+    matches(b, [
+      0x5a,
+      0xa0,
+      0x01,
+      0x22,
+      null,
+      null,
+      null,
+      0x88,
+      0x22,
+      null,
+      null,
+      null,
+      0x7a,
+      0x6b,
+    ]) &&
+    (b![6] & 0x7f) === 0x01 &&
+    (b![11] & 0x7f) === 0x01
+  return ok
     ? { ok: true }
     : { ok: false, reason: 'GetRand is not the two-step shape this runner knows' }
 }
