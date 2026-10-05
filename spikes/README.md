@@ -12,6 +12,7 @@ One sub-folder per spike, named for the question it asks. Each carries a
 | Folder                                                   | Question                                       |
 | -------------------------------------------------------- | ---------------------------------------------- |
 | [libretro-view-engine](libretro-view-engine/FINDINGS.md) | Can a libretro core be HackBench's view engine? |
+| [sprite-oracle](sprite-oracle/FINDINGS.md)               | Does our 65816 core run real SMW sprite routines exactly as the game does? |
 
 ## Past write-ups
 
