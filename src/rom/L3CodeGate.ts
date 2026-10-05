@@ -7,7 +7,9 @@
  * hacks differ too. A site whose bytes are not the stock ones means the values
  * `l3LoadTimeY` hardcodes may be wrong, so layer 3 is skipped, never guessed.
  * Hashes are SHA-256 of the stock bytes (over the 32-byte pattern threshold);
- * all five corpus carts that share the stock code match, the hacks do not.
+ * the carts that keep the stock code match, the hacks that change it do not.
+ * `JSL CODE_05BC72` (offset 44) may name bank $85, the FastROM mirror, which ten
+ * hacks use and which changes nothing: that one byte is read as $05 when it is $85.
  */
 import { createHash } from 'crypto'
 import { bgr555ToRgba, type RgbaColor } from './GraphicsDecoder'
@@ -19,11 +21,13 @@ export interface CodeSite {
   addr: number
   length: number
   sha256: string
+  /** One byte hashed as `to` when it reads `from`: the JSL's bank, $05 or its FastROM mirror $85. */
+  alias?: { at: number; from: number; to: number }
 }
 export type L3CodeGate = { ok: true } | { ok: false; reason: string }
 
 export const L3_CODE_SITES: readonly CodeSite[] = [
-  { addr: 0x009fb8, length: 0x8d, sha256: '992b8ec64e16548160d75f0ef49209f6b71e1d7c31f308b0f6bca49183f06a28' }, // prettier-ignore
+  { addr: 0x009fb8, length: 0x8d, sha256: '992b8ec64e16548160d75f0ef49209f6b71e1d7c31f308b0f6bca49183f06a28', alias: { at: 47, from: 0x85, to: 0x05 } }, // prettier-ignore
   { addr: 0x05c40c, length: 0x88, sha256: '313bdc9336d774d595f35e9a0f42246d2c934a93095cc082c9108dabb5309938' }, // prettier-ignore
 ]
 
@@ -34,8 +38,10 @@ export function readL3CodeGate(
   sites: readonly CodeSite[] = L3_CODE_SITES,
 ): L3CodeGate {
   for (const s of sites) {
-    const bytes = rom.readAt(s.addr, s.length)
-    const hash = bytes && createHash('sha256').update(Buffer.from(bytes)).digest('hex')
+    const raw = rom.readAt(s.addr, s.length)
+    const bytes = raw && Buffer.from(raw)
+    if (bytes && s.alias && bytes[s.alias.at] === s.alias.from) bytes[s.alias.at] = s.alias.to
+    const hash = bytes && createHash('sha256').update(bytes).digest('hex')
     if (hash !== s.sha256) return { ok: false, reason: HOOKED_L3_CODE }
   }
   return { ok: true }

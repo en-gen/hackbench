@@ -188,11 +188,16 @@ the ASM says `$C0`); the renderer does not use it.
 **Hooked code, vertical maps, crusher colors.** The Y values above and the
 tide path are the stock code's (`CODE_009FB8..CODE_00A044`,
 `CODE_05C40C..CODE_05C493`), so `L3CodeGate.ts` fingerprints both with SHA-256
-and a mismatch skips layer 3 ("hooked layer 3 code"). On the corpus the vanilla
-and Lunar Magic carts and Seven Vanilla Levels match; Grand Poo World 1.1, 1.2
-and Invictus do not. Vertical maps are skipped: a sublevel's entry never reads
+and a mismatch skips layer 3 ("hooked layer 3 code"). `JSL CODE_05BC72` may
+name its FastROM bank `$85` (ten hacks and Seven Vanilla Levels differ from stock
+only there); that one byte is read as `$05`. Measured on `hackbench-tools`
+(107 carts: the 6 corpus carts and 101 hacks, one machine): 40 pass the gate and
+37 also have a readable layer 3 GFX range. Of the 6 corpus carts, vanilla,
+Lunar Magic and Seven Vanilla Levels pass; Grand Poo World 2 1.1, GrandPooWorld
+1.2 and Invictus do not. A cart whose GFX loader (`CODE_00A993`) is hooked has no
+readable range and skips layer 3 as well. Vertical maps are skipped: a sublevel's entry never reads
 `$05F600` (`bank_05.asm:7116-7162`), so its Layer1YPos is unverified. Settings
-`$00` is Layer3TideSetting 0, the non-tide path of `CODE_05C40C`: off Castle1
+`$00` is Layer3TideSetting 0 (not a tide: 512 px repeat, whole tilemap), the non-tide path of `CODE_05C40C`: off Castle1
 and Underground1 it sets Layer3YPos = Layer1YPos every frame
 (`CODE_05C428` to `CODE_05C48D`), so it is camera-locked like `$81`. A `$80`
 level runs `CODE_00A007` (`bank_00.asm:4184-4189`), which copies
@@ -204,8 +209,8 @@ so layer 3 palette 3 and any layer 1 or 2 pixel using those colors show it.
 slots (`$002 $01F $0BE $0C1 $102 $127 $1D4 $1FC`; `$01F $1D4 $1FC` are the
 crusher-colors levels), skips 3 as camera-locked (`$011 $130 $1C1`), 14 as
 interactive layer 2 maps (`$009` is mode 2) and 1 on a non-standard layout
-(`$018`); 462 have no layer 3, and "no layer 3" is reported before the layout
-reason. The corpus sweep in
+(`$018`); 462 have no layer 3 (of the 488 slots that hold a map; 486 of all 512), and
+"no layer 3" is reported before the layout reason. The corpus sweep in
 `test/suite/unit/MapScreenL3.test.ts` compares every slot's priority bit,
 layout and draw decision with a straight decode of the header and the tables.
 

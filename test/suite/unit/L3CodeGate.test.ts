@@ -7,7 +7,12 @@
  */
 import { createHash } from 'crypto'
 import { describe, it, expect } from 'vitest'
-import { readCrusherColors, readL3CodeGate, type CodeSite } from '../../../src/rom/L3CodeGate'
+import {
+  L3_CODE_SITES,
+  readCrusherColors,
+  readL3CodeGate,
+  type CodeSite,
+} from '../../../src/rom/L3CodeGate'
 import { bgr555ToRgba } from '../../../src/rom/GraphicsDecoder'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
@@ -53,6 +58,36 @@ describe('readL3CodeGate (synthetic sites)', () => {
       const gate = readL3CodeGate(rom, sites)
       expect(gate, what).toMatchObject({ ok: false, reason: /hooked layer 3 code/ })
     }
+  })
+
+  it('reads the JSL bank as $05 when it is $85 (FastROM mirror), and refuses any other bank', () => {
+    const { rom, sites } = codeRom()
+    const at = SITE_A + SCRIPTED.jsl + 3
+    const aliased = sites.map((s, i) => (i === 0 ? { ...s, alias: { at: SCRIPTED.jsl + 3, from: 0x85, to: rom.readByte(at)! } } : s)) // prettier-ignore
+    expect(readL3CodeGate(rom, aliased)).toEqual({ ok: true })
+    rom.writeAt(at, [0x85])
+    expect(readL3CodeGate(rom, aliased)).toEqual({ ok: true })
+    for (const other of [0x00, 0x45, 0x84, 0x86, 0xc5]) {
+      rom.writeAt(at, [other])
+      expect(readL3CodeGate(rom, aliased).ok, `bank ${other}`).toBe(false)
+    }
+    rom.writeAt(at, [0x85])
+    expect(readL3CodeGate(rom, sites).ok, 'without the alias $85 is a patch').toBe(false)
+  })
+
+  it('pins the real sites to the ASM they fingerprint: both routines, whole ranges', () => {
+    // CODE_009FB8 to CODE_00A045 (bank_00.asm:4139-4217), CODE_05C40C to CODE_05C494 (bank_05.asm:5504-5570).
+    expect(L3_CODE_SITES.map(s => [s.addr, s.length])).toEqual([[0x009fb8, 0x00a045 - 0x009fb8], [0x05c40c, 0x05c494 - 0x05c40c]]) // prettier-ignore
+    expect(L3_CODE_SITES.every(s => /^[0-9a-f]{64}$/.test(s.sha256))).toBe(true)
+    expect(L3_CODE_SITES[0]!.alias).toEqual({ at: 44 + 3, from: 0x85, to: 0x05 }) // JSL CODE_05BC72's bank byte
+  })
+
+  it('a hooked graphics loader (no layer 3 chars) skips layer 3 too', () => {
+    const { rom, sites } = codeRom()
+    withLayer3(rom, { level: 5, tileset: 0, setting: 2, settingsByte: 2, word: 0x2402 })
+    const l1 = { header: parseLevelHeader([0, 0, 0, 0, 0]), isVertical: false, colors: [] }
+    const gate = readL3CodeGate(rom, sites)
+    expect(buildL3Verdict(rom, 5, l1, { ok: true, mode: 1 }, () => [], gate)).toMatchObject({ l3: null, layout: 'standard', reason: 'Layer 3 not drawn yet: hooked layer 3 code' }) // prettier-ignore
   })
 
   it('refuses when a site lies outside the ROM', () => {
@@ -108,6 +143,11 @@ describe.skipIf(!hasRom(VANILLA))('the real sites on the vanilla cart (corpus)',
   it('pass, and layer 3 still draws on exactly the 8 slots it drew before', () => {
     const rom = RomFile.load(romPath(VANILLA))
     expect(readL3CodeGate(rom)).toEqual({ ok: true })
+    rom.writeAt(0x009fb8 + 47, [0x85])
+    expect(readL3CodeGate(rom), 'FastROM bank').toEqual({ ok: true })
+    rom.writeAt(0x009fb8 + 47, [0x45])
+    expect(readL3CodeGate(rom).ok).toBe(false)
+    rom.writeAt(0x009fb8 + 47, [0x05])
     const smw = new SmwRom(rom)
     const drawn: number[] = []
     for (let id = 0; id < 512; id++) {

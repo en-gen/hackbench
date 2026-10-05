@@ -73,17 +73,21 @@ export function buildL3Verdict(
   if (!load) return none("This map's layer 3 tilemap cannot be read")
   const yPx = l3LoadTimeY(load.settingsByte, tileset)
   if (yPx === null) return none('Layer 3 not drawn yet: camera-locked layer 3')
+  // The GFX loader (CODE_00A993) is a third piece of layer 3 code: hooked, its range is unreadable and the chars empty.
+  const sheets = chars(rom)
+  if (sheets.length === 0) return none(HOOKED_L3_CODE)
   return {
     layout: 'standard',
     priority,
     reason: null,
     l3: {
       tilemap: load.tilemap,
-      chars: chars(rom),
+      chars: sheets,
       colors: l1.colors,
       yPx,
       camYPx: readInitialLayer1YPos(rom, index),
-      tide: load.settingsByte < 0x80,
+      // $00 is Layer3TideSetting 0: no tide (it is camera-locked or Castle1/Underground1's half-speed scroll).
+      tide: load.settingsByte !== 0 && load.settingsByte < 0x80,
     },
   }
 }

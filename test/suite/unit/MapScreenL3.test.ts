@@ -274,7 +274,7 @@ describe('maps layer 3 is not drawn on (synthetic)', () => {
 })
 
 describe('tide or not, by the settings byte (synthetic)', () => {
-  const verdictFor = (byte: number) => buildL3Verdict(withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: 0, setting: 2, settingsByte: byte, word: L3_WORD(false), row: 30 }), 5, l1Of(0, 0, false), BG_OK, chars, GATE_OK) // prettier-ignore
+  const verdictFor = (byte: number, ts = 0) => buildL3Verdict(withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: ts, setting: 2, settingsByte: byte, word: L3_WORD(false), row: 30 }), 5, l1Of(0, ts, false), BG_OK, chars, GATE_OK) // prettier-ignore
 
   it('$02, $50 and $7F are tides (256 px repeat); $80 and $C0 are not (512 px)', () => {
     expect([0x02, 0x50, 0x7f, 0x80, 0xc0].map(b => verdictFor(b).l3?.tide)).toEqual([true, true, true, false, false]) // prettier-ignore
@@ -282,6 +282,14 @@ describe('tide or not, by the settings byte (synthetic)', () => {
       [1, 2].map(sc => drawL3Planes(verdictFor(b).l3!, sc).l3Low !== null) // row 8, col 0
     expect(repeats(0x50)).toEqual([true, true])
     expect(repeats(0x80)).toEqual([false, true])
+  })
+
+  it('$00 is no tide: on Castle1 it repeats every 512 px and keeps its whole tilemap, like $80', () => {
+    expect([1, 3].map(ts => verdictFor(0x00, ts).l3?.tide)).toEqual([false, false])
+    expect([1, 2].map(sc => drawL3Planes(verdictFor(0x00, 1).l3!, sc).l3Low !== null)).toEqual([
+      false,
+      true,
+    ]) // row 30 col 0
   })
 
   it('the wire carries the header priority bit as read, both ways', () => {
