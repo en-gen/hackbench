@@ -17,15 +17,16 @@ import {
   screenResult,
   type MapInputs,
 } from '../../../theia/extension/src/node/map-screen'
-import {
-  mapPlaneOrder,
-  type MapPlaneKey,
-} from '../../../theia/extension/src/common/project-protocol'
+import type { MapPlaneKey } from '../../../theia/extension/src/common/project-protocol'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
 import { COLORS, hGrid, inputs, px, sub, tile } from '../support/mapInputs'
 import { modeTablesRom, STANDARD_MODES, sweepLayouts, withLayer3 } from '../support/l3Rom'
 import type { ModeLayout } from '../../../src/rom/LevelScreenTables'
-import { FALLBACK_SCREENS } from '../../../src/rom/model/ScreenPlanes'
+import {
+  FALLBACK_SCREENS,
+  screenPlanes,
+  type ScreenPlanes,
+} from '../../../src/rom/model/ScreenPlanes'
 
 const BG_OK = { ok: true as const, mode: 1 }
 const GATE_OK = { ok: true as const }
@@ -43,16 +44,16 @@ const l3Of = (words: [number, number, number][], o: Partial<L3Inputs> = {}): L3I
   for (const [r, c, w] of words) tilemap[r * 64 + c] = w
   return { tilemap, chars: chars(), colors: COLORS, yPx: 0x40, camYPx: 0, tide: false, ...o }
 }
-const verdict = (priority: boolean, l3: L3Inputs | null, layout: L3Verdict['layout'] = 'standard'): L3Verdict => ({ layout, priority, l3, reason: l3 ? null : 'none' }) // prettier-ignore
+const verdict = (priority: boolean, l3: L3Inputs | null, screens: ScreenPlanes = screenPlanes(0x15, 0x02, priority)): L3Verdict => ({ screens, cgadsub: 0x20, layer2Interactive: false, priority, l3, reason: l3 ? null : 'none' }) // prettier-ignore
 const wireOf = (m: MapInputs, screen = 0) => {
   const w = screenResult(m, screen)
   if (w.status !== 'ok') throw new Error(w.status)
   return w
 }
-/** What the view shows at a pixel: the planes in `mapPlaneOrder`, each covering what is under it. */
+/** What the view shows at a pixel with black-fixed identity math: sub screen, then main, each covering what is under it. */
 const shown = (m: MapInputs, x = 3, y = 3): number | null => {
   const w = wireOf(m)
-  return mapPlaneOrder(w.layer3).reduce<number | null>((top, k: MapPlaneKey) => {
+  return [...w.screens.sub, ...w.screens.main].reduce<number | null>((top, k: MapPlaneKey) => {
     const p = decode(w.planes[k])
     return p && px(p, 256, x, y)[3] === 255 ? px(p, 256, x, y)[0]! : top
   }, null)
@@ -142,17 +143,38 @@ describe('layer 3 against layers 1 and 2 (synthetic)', () => {
     expect(shown(m)).toBe(L1_COLOR)
   })
 
-  it('a layout that is not standard keeps the old order: layer 2 high over layer 1 low', () => {
-    const m = mapOf(verdict(false, null, 'other'), true)
+  it('no verdict (unverified tables) keeps the old order: layer 2 high over layer 1 low', () => {
+    const m = mapOf(verdict(false, null, FALLBACK_SCREENS), true)
     m.grid[0]![0] = 1
     m.l2 = { ok: true, l2: { ...(m.l2 as { ok: true; l2: never }).l2, tiles: [undefined, undefined, solid2(true)] } } // prettier-ignore
     expect(shown(m)).toBe(L2_COLOR)
-    expect(mapPlaneOrder({ layout: 'other', priority: true })).toEqual(['l2Low', 'l1Low', 'l2High', 'l1High']) // prettier-ignore
   })
+})
 
-  it('mapPlaneOrder: layer 2 first, then the main screen with BG3.1 placed by the bit', () => {
-    expect(mapPlaneOrder({ layout: 'standard', priority: true })).toEqual(['l2Low', 'l2High', 'l3Low', 'l1Low', 'l1High', 'l3High']) // prettier-ignore
-    expect(mapPlaneOrder({ layout: 'standard', priority: false })).toEqual(['l2Low', 'l2High', 'l3Low', 'l3High', 'l1Low', 'l1High']) // prettier-ignore
+describe('the wire: screens, math, layer 2 role (synthetic)', () => {
+  it('carries both plane lists, the math and the layer 2 role', () => {
+    const l3 = { ...verdict(false, l3Of([word(8, 0, L3_WORD(true))]), screenPlanes(0x04, 0x13, false)), cgadsub: 0x20, layer2Interactive: true } // prettier-ignore
+    const m = { ...l1Of(0, 0, false), l3 }
+    const w = wireOf(m)
+    expect(w.screens).toEqual(screenPlanes(0x04, 0x13, false))
+    // The fixed color is the back area: the same BackAreaColors entry (bank_00.asm:5623-5628).
+    expect(m.backArea.slice(0, 3)).not.toEqual([0, 0, 0])
+    expect(w.math).toEqual({ cgadsub: 0x20, fixed: m.backArea.slice(0, 3) })
+    expect(w.layer2Interactive).toBe(true)
+    expect('layout' in w.layer3).toBe(false)
+  })
+  it('no verdict: fallback lists and math null, the pre-#561 stacking', () => {
+    const w = wireOf({ ...l1Of(0, 0, false), l3: undefined })
+    expect(w).toMatchObject({ screens: FALLBACK_SCREENS, math: null, layer2Interactive: false })
+  })
+  it('a verdict with no math sends none even when it has lists', () => {
+    const l3 = { ...verdict(false, null), cgadsub: null }
+    expect(wireOf({ ...l1Of(0, 0, false), l3 }).math).toBeNull()
+  })
+  it('the standard layout keeps the #561 sub list for both priority bits', () => {
+    for (const pri of [true, false]) {
+      expect(wireOf({ ...l1Of(0, 0, pri), l3: verdict(pri, null) }).screens.sub).toEqual(['l2Low', 'l2High']) // prettier-ignore
+    }
   })
 })
 
