@@ -48,16 +48,16 @@ break priority" motivation, which argues against code nobody wrote
 
 ## 2 What exists, mapped to the proposal
 
-| Proposed | Exists as | Missing | Adopting means |
-|---|---|---|---|
-| Compositor | `SmwMap.render` (`src/rom/model/SmwMap.ts:84-97`): L3 if not priority, L2, L1 non-priority, sprites, L1 priority, L3 if priority; one `CanvasRenderTarget` | sprite priority classes; per-tile L2/L3 priority (section 3.1) | extend the pass list |
-| Layer 1 engine | `LevelParser` + `ObjectExpander` + `objectHandlers/` (6363 lines) + `TileFactory` | user-visible provenance (section 4.3) | rename |
-| Layer 2 engine | `L2Factory` + `L2Layer` (preset and object-stream, tileset-3 palette OR, frame-accurate scroll) | nothing on vanilla (section 3.1) | rename |
-| Layer 3 engine | `L3Factory` + `L3Layer` | per-tile priority is decoded (`L3Layer.ts:86`) and never read | rename |
-| Sprite engine | `SpriteFactory` + 40 `appearances/*` on develop; `generic/SpriteDrawEngine` on the engine branch | OAM priority; the census's 43 clean ids | already in flight elsewhere |
-| CGRAM engine | `PaletteLoader` (static, eight sources) + `PaletteFactory`/`Palette`/`Color` (animation as `CyclingColorBehavior`) + `PaletteOrBehavior` (L2 tileset 3) + `EngineSpriteAppearance.rowFor` (runtime splice, engine branch) | one place that knows all contributors and records the winner | data-structure change on `Palette`, not a rewrite |
-| VRAM engine | `GfxLoader.loadVram` (static slots) + `AnimationLoader`/`ExAnimationLoader` (DMA frames) + `CharFactory.buildChars` (arbitration) + `PSwitchAlternateBehavior` | GFX32 Mario DMA (`GfxLoader.ts`, `loadVram` comment); per-slot provenance | rename |
-| Shared contract (result + provenance + facts) | provenance exists for sprites only (`SpriteHandlerProvenance.ts`, engine branch); facts inventory exists for sprites only (`docs/ideas/sprite-properties-panel.md`) | both for L1/L2/L3/CGRAM/VRAM | new, small per engine |
+| Proposed                                      | Exists as                                                                                                                                                                                                                 | Missing                                                                   | Adopting means                                    |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------- |
+| Compositor                                    | `SmwMap.render` (`src/rom/model/SmwMap.ts:84-97`): L3 if not priority, L2, L1 non-priority, sprites, L1 priority, L3 if priority; one `CanvasRenderTarget`                                                                | sprite priority classes; per-tile L2/L3 priority (section 3.1)            | extend the pass list                              |
+| Layer 1 engine                                | `LevelParser` + `ObjectExpander` + `objectHandlers/` (6363 lines) + `TileFactory`                                                                                                                                         | user-visible provenance (section 4.3)                                     | rename                                            |
+| Layer 2 engine                                | `L2Factory` + `L2Layer` (preset and object-stream, tileset-3 palette OR, frame-accurate scroll)                                                                                                                           | nothing on vanilla (section 3.1)                                          | rename                                            |
+| Layer 3 engine                                | `L3Factory` + `L3Layer`                                                                                                                                                                                                   | per-tile priority is decoded (`L3Layer.ts:86`) and never read             | rename                                            |
+| Sprite engine                                 | `SpriteFactory` + 40 `appearances/*` on develop; `generic/SpriteDrawEngine` on the engine branch                                                                                                                          | OAM priority; the census's 43 clean ids                                   | already in flight elsewhere                       |
+| CGRAM engine                                  | `PaletteLoader` (static, eight sources) + `PaletteFactory`/`Palette`/`Color` (animation as `CyclingColorBehavior`) + `PaletteOrBehavior` (L2 tileset 3) + `EngineSpriteAppearance.rowFor` (runtime splice, engine branch) | one place that knows all contributors and records the winner              | data-structure change on `Palette`, not a rewrite |
+| VRAM engine                                   | `GfxLoader.loadVram` (static slots) + `AnimationLoader`/`ExAnimationLoader` (DMA frames) + `CharFactory.buildChars` (arbitration) + `PSwitchAlternateBehavior`                                                            | GFX32 Mario DMA (`GfxLoader.ts`, `loadVram` comment); per-slot provenance | rename                                            |
+| Shared contract (result + provenance + facts) | provenance exists for sprites only (`SpriteHandlerProvenance.ts`, engine branch); facts inventory exists for sprites only (`docs/ideas/sprite-properties-panel.md`)                                                       | both for L1/L2/L3/CGRAM/VRAM                                              | new, small per engine                             |
 
 **verified** by reading each file. The proposal's claim that `PaletteLoader`
 "is already most of a CGRAM engine but lacks the runtime layer and per-index
@@ -253,16 +253,16 @@ The owner's addition of a services tier survives, with one rule that makes
 the boundary non-arbitrary: **a service has no notion of who won; a resource
 engine does.**
 
-| File | Tier | Why |
-|---|---|---|
-| `addressing.ts`, `LcLz2.ts`, `GraphicsDecoder.ts` | service | pure, no ROM identity, no arbitration |
-| `GfxLoader.readGfxFile/loadGfxFile/readGfxAssignment/getLayer3GfxRange` | service | ROM in, sheet out, no state |
-| `GfxLoader.loadVram` | resource engine, static-load step | assigns slots; the first contributor |
-| `GfxLoader.getGfxBinDir/loadGfxFileBin` | neither | `fs` reads of an external editor's export folder; impure and outside the ROM; should not sit in `src/rom/` |
-| `AnimationLoader`, `ExAnimationLoader` | resource contributors | later writers to the same slots |
-| `CharFactory.buildChars` | the VRAM resource engine's arbitration | decides per char whether static, animated, or P-switch-alternate |
-| `PaletteLoader.loadRomPalettes/buildLevelCgram` | resource engine, static-load step | LoadPalette order, eight sources |
-| `PaletteFactory`, `PaletteOrBehavior`, sprite runtime splice | resource contributors | scattered; the record is what is missing |
+| File                                                                    | Tier                                   | Why                                                                                                        |
+| ----------------------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `addressing.ts`, `LcLz2.ts`, `GraphicsDecoder.ts`                       | service                                | pure, no ROM identity, no arbitration                                                                      |
+| `GfxLoader.readGfxFile/loadGfxFile/readGfxAssignment/getLayer3GfxRange` | service                                | ROM in, sheet out, no state                                                                                |
+| `GfxLoader.loadVram`                                                    | resource engine, static-load step      | assigns slots; the first contributor                                                                       |
+| `GfxLoader.getGfxBinDir/loadGfxFileBin`                                 | neither                                | `fs` reads of an external editor's export folder; impure and outside the ROM; should not sit in `src/rom/` |
+| `AnimationLoader`, `ExAnimationLoader`                                  | resource contributors                  | later writers to the same slots                                                                            |
+| `CharFactory.buildChars`                                                | the VRAM resource engine's arbitration | decides per char whether static, animated, or P-switch-alternate                                           |
+| `PaletteLoader.loadRomPalettes/buildLevelCgram`                         | resource engine, static-load step      | LoadPalette order, eight sources                                                                           |
+| `PaletteFactory`, `PaletteOrBehavior`, sprite runtime splice            | resource contributors                  | scattered; the record is what is missing                                                                   |
 
 So `GfxLoader.ts` straddles, which is a fact about the file, not a flaw in
 the tiers. **verified** by reading the file. Nothing here needs moving to
@@ -399,18 +399,18 @@ diffing both branches against `origin/develop`.
 
 ## 6 What the proposal does not cover
 
-| Area | Fits the model? | Evidence |
-|---|---|---|
-| Map16 | yes, data; the tileset walk reads the bitmap and tileset pointer per `bank_05` (`Map16.ts:158-215`) | **verified**. Caveat: `TileFactory` attaches behaviours by hardcoded tile-id ranges (`$133-$13A`, `$06A-$06D`), a derivation class Pillar 1a covers and nobody has fingerprinted |
-| Overworld | separate pipeline: own loader, own palette path (`loadAreaPalette`), own webview, no priority handling at all, two of the six timers | **verified**. Fits the pass model in principle; shares nothing with it today. `docs/ideas/overworld-scene-pipeline.md` is the plan there |
-| Level header, entrances, screen exits | services and facts; not rendering | **verified** (`parseLevelHeader`, `parseLevelScreenExits`, `readMarioStartPos`) |
-| Backgrounds vs foregrounds | object-stream L2 shares the L1 Map16 table and gets the tileset-3 palette OR (`L2Layer.ts`, `L2Factory.ts`) | **verified**; fits |
-| HDMA | breaks it | section 5.3 |
-| Color math and windows | not modelled; `HW_CGADSUB` is written from `ColorSettings` (`bank_00.asm:466-467`) | **verified** the write; whether any vanilla level uses translucency is **unverified** |
-| Animated tiles | fits as VRAM contributors; exists | **verified** |
-| Mario GFX32 DMA | missing; `loadVram` says so | **verified** |
-| Third-party per-level custom palette | `loadCustomLevelPalette` exists and is used only by the GFX viewer, not the map | **verified** by grep |
-| Sprite OAM priority | missing facet | section 3.1 |
+| Area                                  | Fits the model?                                                                                                                      | Evidence                                                                                                                                                                         |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Map16                                 | yes, data; the tileset walk reads the bitmap and tileset pointer per `bank_05` (`Map16.ts:158-215`)                                  | **verified**. Caveat: `TileFactory` attaches behaviours by hardcoded tile-id ranges (`$133-$13A`, `$06A-$06D`), a derivation class Pillar 1a covers and nobody has fingerprinted |
+| Overworld                             | separate pipeline: own loader, own palette path (`loadAreaPalette`), own webview, no priority handling at all, two of the six timers | **verified**. Fits the pass model in principle; shares nothing with it today. `docs/ideas/overworld-scene-pipeline.md` is the plan there                                         |
+| Level header, entrances, screen exits | services and facts; not rendering                                                                                                    | **verified** (`parseLevelHeader`, `parseLevelScreenExits`, `readMarioStartPos`)                                                                                                  |
+| Backgrounds vs foregrounds            | object-stream L2 shares the L1 Map16 table and gets the tileset-3 palette OR (`L2Layer.ts`, `L2Factory.ts`)                          | **verified**; fits                                                                                                                                                               |
+| HDMA                                  | breaks it                                                                                                                            | section 5.3                                                                                                                                                                      |
+| Color math and windows                | not modelled; `HW_CGADSUB` is written from `ColorSettings` (`bank_00.asm:466-467`)                                                   | **verified** the write; whether any vanilla level uses translucency is **unverified**                                                                                            |
+| Animated tiles                        | fits as VRAM contributors; exists                                                                                                    | **verified**                                                                                                                                                                     |
+| Mario GFX32 DMA                       | missing; `loadVram` says so                                                                                                          | **verified**                                                                                                                                                                     |
+| Third-party per-level custom palette  | `loadCustomLevelPalette` exists and is used only by the GFX viewer, not the map                                                      | **verified** by grep                                                                                                                                                             |
+| Sprite OAM priority                   | missing facet                                                                                                                        | section 3.1                                                                                                                                                                      |
 
 ## 7 Staging recommendation
 

@@ -200,7 +200,8 @@ describe.skipIf(!existsSync(SPAWN_DIR) || !hasRom(VANILLA))(
       // ExecutePtr ($00:86DF) returns at once: no INIT, no MAIN runs.
       const rom = freshRom()
       rom.writeAt(0x0086df, [0x6b])
-      const { tally } = gradeSpawn(rom, { limit: 40 })
+      const { rows, tally } = gradeSpawn(rom, { limit: 40 })
+      expect(rows.length).toBeGreaterThan(0) // the defect run must grade something
       expect((tally.exact ?? 0) + (tally['exact-empty'] ?? 0)).toBeLessThan(FLOOR.exact / 10)
     }, 300_000)
   },
