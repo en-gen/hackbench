@@ -24,8 +24,8 @@ from that spike's `probe.ts` unchanged, which now imports them too).
 
 ## Variants (all D4: half-scale in the bottom-right quadrant, full block on hover)
 
-Both items share one indicator, split along a diagonal. Owner scope change
-(coordinator message, 2026-10-05): the primary angle is top-left to
+Both items share one indicator, split along a diagonal. Owner rulings
+(coordinator messages, 2026-10-05): the powerup is always in the upper triangle and the mushroom always in the lower, in every variant; no swapped variant. the primary angle is top-left to
 bottom-right, with the small-Mario item (mushroom) in the bottom-left triangle
 and the other item (flower or feather) in the top-right. Line weights are in
 block pixels (a 16px block at 1x), so they scale with zoom and stay the same
@@ -35,8 +35,7 @@ width in the hover state.
 2. W3: TL-BR, white 3px line with a 2px black border each side.
 3. H: TL-BR, hard split, no line (comparison).
 4. D1: TL-BR, 1px black line (comparison).
-5. O: the original TR-BL angle (mushroom bottom-right), 1px black line (comparison).
-6. S: TL-BR, halves swapped (mushroom top-right), W2 line.
+5. O: the original TR-BL angle (powerup top-left, mushroom bottom-right), 1px black line (comparison).
 
 The 1px light line variant was dropped; a checkbox on the page still switches
 the stage to a dark backdrop.

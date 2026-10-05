@@ -10,10 +10,9 @@ const VARIANTS = [
   ['H', 'H. Angle top-left to bottom-right; hard split, no line (comparison)', 'tlbr', 0, 0, 0, '#fff'],
   ['D1', 'D1. Angle top-left to bottom-right; 1px black line (comparison)', 'tlbr', 1, 0, 0, '#000'],
   ['O', 'O. Original angle, top-right to bottom-left; 1px black line (comparison)', 'trbl', 1, 0, 0, '#000'],
-  ['S', 'S. Angle top-left to bottom-right, halves swapped (mushroom top-right); white 2px line, 1px black border', 'tlbr', 2, 1, 1, '#fff'],
 ]
 const containsText = (b) => `${labels.mushroom} if Mario is small, otherwise ${labels[b.other]}`
-// Both items in one indicator. The mushroom (small-Mario item) sits bottom-left (bottom-right in O), except in S.
+// Both items in one indicator. The mushroom (small-Mario item) sits in the lower triangle in every variant (bottom-left, bottom-right in O).
 const ind = (small, other) =>
   `<span class="bd"><img class="o" src="${img[other]}"><img class="m" src="${img[small]}"><i class="ln"></i></span>`
 const plainInd = (key) => `<span class="bd"><img class="p" src="${img[key]}"></span>`
@@ -62,7 +61,6 @@ body{--bg:${bg}}body.dark{--bg:#1e1e1e}
 .bd .o{clip-path:var(--co)}.bd .m{clip-path:var(--cm)}
 section{--co:polygon(0 0,100% 0,100% 100%);--cm:polygon(0 0,100% 100%,0 100%);--dir:to top right}
 section[data-ang=trbl]{--co:polygon(0 0,100% 0,0 100%);--cm:polygon(100% 0,100% 100%,0 100%);--dir:to top left}
-section[data-sw="1"]{--cm:polygon(0 0,100% 0,100% 100%);--co:polygon(0 0,100% 100%,0 100%)}
 .ln{display:none;position:absolute;inset:0;--h:calc(var(--lw)*var(--z)*.5px);--t:calc(var(--h) + var(--bw)*var(--z)*1px);background:linear-gradient(var(--dir),transparent calc(50% - var(--t)),#000 calc(50% - var(--t)),#000 calc(50% - var(--h)),var(--lc) calc(50% - var(--h)),var(--lc) calc(50% + var(--h)),#000 calc(50% + var(--h)),#000 calc(50% + var(--t)),transparent calc(50% + var(--t)))}
 section:not([style*="--lw:0"]) .ln{display:block}
 .msg{min-height:20px;margin-top:6px;font-size:12px;color:#9cdcfe}.cap{font-size:11px;color:#858585;margin-bottom:4px;height:14px}
