@@ -24,21 +24,21 @@ from that spike's `probe.ts` unchanged, which now imports them too).
 
 ## Variants (all D4: half-scale in the bottom-right quadrant, full block on hover)
 
-Both items share one indicator, split along a diagonal. Owner rulings
-(coordinator messages, 2026-10-05): the powerup is always in the upper triangle and the mushroom always in the lower, in every variant; no swapped variant. The primary angle is top-left to
-bottom-right, with the small-Mario item (mushroom) in the bottom-left triangle
-and the other item (flower or feather) in the top-right. Line weights are in
-block pixels (a 16px block at 1x), so they scale with zoom and stay the same
-width in the hover state.
+Both items share one indicator, split in two. The powerup (flower or feather)
+is always the upper part and the mushroom always the lower part, in every
+variant. Owner rulings (coordinator messages, 2026-10-05): the divider is
+measured in SCREEN pixels, constant at every zoom and in the hover state
+(an earlier version scaled it with zoom and swallowed the items); the lead
+family is a horizontal split, clipped at the vertical midpoint.
 
-1. W2 (lead): TL-BR, white 2px line with a 1px black border each side.
-2. W3: TL-BR, white 3px line with a 2px black border each side.
-3. H: TL-BR, hard split, no line (comparison).
-4. D1: TL-BR, 1px black line (comparison).
-5. O: the original TR-BL angle (powerup top-left, mushroom bottom-right), 1px black line (comparison).
+1. HO: horizontal; 1px white line, 1px black border each side (3px in all).
+2. HL: horizontal; 1px white line, 1px black border on the mushroom side only.
+3. HD: horizontal; 1px black line.
+4. HH: horizontal; hard split, no line.
+5. DO: diagonal top-left to bottom-right (powerup top-right, mushroom
+   bottom-left); 1px white line, 1px black border each side.
 
-The 1px light line variant was dropped; a checkbox on the page still switches
-the stage to a dark backdrop.
+A checkbox on the page switches the stage to a dark backdrop.
 
 Each variant shows map $003 (Top Secret Area) at 1x, 2x and 3x with its real
 progressive blocks and three plain D4 blocks added in free cells for

@@ -3,16 +3,17 @@ const path = require('path')
 // Usage: node gen.cjs [assets.json] [out.html]; run probe.ts first.
 const { img, win, y0, blocks, plain, labels, bg, map } = JSON.parse(fs.readFileSync(process.argv[2] || path.join(__dirname, 'assets.json'), 'utf8'))
 const W = win[0].length, H = win.length
-// [code, title, angle, white weight, border weight, swapped]; weights in block pixels (a 16px block at 1x)
+// [code, title, angle, core px, border px above/left of the core, border px below/right, core colour]
+// Weights are SCREEN pixels: constant at every zoom and in the hover state.
 const VARIANTS = [
-  ['W2', 'W2. Angle top-left to bottom-right; white 2px line, 1px black border each side', 'tlbr', 2, 1, 0, '#fff'],
-  ['W3', 'W3. Angle top-left to bottom-right; white 3px line, 2px black border each side', 'tlbr', 3, 2, 0, '#fff'],
-  ['H', 'H. Angle top-left to bottom-right; hard split, no line (comparison)', 'tlbr', 0, 0, 0, '#fff'],
-  ['D1', 'D1. Angle top-left to bottom-right; 1px black line (comparison)', 'tlbr', 1, 0, 0, '#000'],
-  ['O', 'O. Original angle, top-right to bottom-left; 1px black line (comparison)', 'trbl', 1, 0, 0, '#000'],
+  ['HO', 'HO. Horizontal split; 1px white line, 1px black border each side', 'hor', 1, 1, 1, '#fff'],
+  ['HL', 'HL. Horizontal split; 1px white line, 1px black border on the mushroom side only', 'hor', 1, 0, 1, '#fff'],
+  ['HD', 'HD. Horizontal split; 1px black line', 'hor', 1, 0, 0, '#000'],
+  ['HH', 'HH. Horizontal split; hard split, no line', 'hor', 0, 0, 0, '#fff'],
+  ['DO', 'DO. Diagonal top-left to bottom-right (powerup top-right); 1px white line, 1px black border each side', 'tlbr', 1, 1, 1, '#fff'],
 ]
 const containsText = (b) => `${labels.mushroom} if Mario is small, otherwise ${labels[b.other]}`
-// Both items in one indicator. The mushroom (small-Mario item) sits in the lower triangle in every variant (bottom-left, bottom-right in O).
+// Both items in one indicator. The mushroom (small-Mario item) sits in the lower half (or triangle) in every variant.
 const ind = (small, other) =>
   `<span class="bd"><img class="o" src="${img[other]}"><img class="m" src="${img[small]}"><i class="ln"></i></span>`
 const plainInd = (key) => `<span class="bd"><img class="p" src="${img[key]}"></span>`
@@ -37,8 +38,8 @@ function detail(code) {
   return h + '</div>'
 }
 let body = ''
-for (const [code, title, ang, lw, bw, sw, lc] of VARIANTS) {
-  body += `<section data-ang="${ang}" data-sw="${sw}" style="--lw:${lw};--bw:${bw};--lc:${lc}"><h2>${title}</h2><div class="row">${[1, 2, 3].map((z) => scene(code, z)).join('')}</div>${detail(code)}</section>`
+for (const [code, title, ang, lw, bt, bb, lc] of VARIANTS) {
+  body += `<section data-ang="${ang}" style="--lw:${lw};--bt:${bt};--bb:${bb};--lc:${lc}"><h2>${title}</h2><div class="row">${[1, 2, 3].map((z) => scene(code, z)).join('')}</div>${detail(code)}</section>`
 }
 const props = [
   ...[blocks[0], blocks[2]].map((b) => [`Map16 $${b.id.toString(16)}`, containsText(b)]),
@@ -60,8 +61,8 @@ body{--bg:${bg}}body.dark{--bg:#1e1e1e}
 .bd img{position:absolute;left:0;top:0;width:100%;height:100%}
 .bd .o{clip-path:var(--co)}.bd .m{clip-path:var(--cm)}
 section{--co:polygon(0 0,100% 0,100% 100%);--cm:polygon(0 0,100% 100%,0 100%);--dir:to top right}
-section[data-ang=trbl]{--co:polygon(0 0,100% 0,0 100%);--cm:polygon(100% 0,100% 100%,0 100%);--dir:to top left}
-.ln{display:none;position:absolute;inset:0;--h:calc(var(--lw)*var(--z)*.5px);--t:calc(var(--h) + var(--bw)*var(--z)*1px);background:linear-gradient(var(--dir),transparent calc(50% - var(--t)),#000 calc(50% - var(--t)),#000 calc(50% - var(--h)),var(--lc) calc(50% - var(--h)),var(--lc) calc(50% + var(--h)),#000 calc(50% + var(--h)),#000 calc(50% + var(--t)),transparent calc(50% + var(--t)))}
+section[data-ang=hor]{--co:polygon(0 0,100% 0,100% 50%,0 50%);--cm:polygon(0 50%,100% 50%,100% 100%,0 100%);--dir:to bottom}
+.ln{display:none;position:absolute;inset:0;--a:calc(50% - var(--lw)*.5px);--b:calc(50% + var(--lw)*.5px);--p:calc(var(--a) - var(--bt)*1px);--q:calc(var(--b) + var(--bb)*1px);background:linear-gradient(var(--dir),transparent var(--p),#000 var(--p),#000 var(--a),var(--lc) var(--a),var(--lc) var(--b),#000 var(--b),#000 var(--q),transparent var(--q))}
 section:not([style*="--lw:0"]) .ln{display:block}
 .msg{min-height:20px;margin-top:6px;font-size:12px;color:#9cdcfe}.cap{font-size:11px;color:#858585;margin-bottom:4px;height:14px}
 .detail{display:flex;gap:28px;margin-top:14px}figure{margin:0}.cell{display:inline-block;margin-right:10px;vertical-align:top}
