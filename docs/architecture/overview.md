@@ -40,6 +40,8 @@ flowchart TB
 Theia and no VS Code imports, so every one of them is testable without
 starting a shell. This is enforced by convention and stated at the top of
 each module. Everything that knows how to read a ROM lives here.
+`src/rom/cpu/` is a 65816 core over a `Bus` interface (registers, flags and
+memory effects per instruction, no timing, no SMW knowledge).
 
 **`theia/` is the application.** It consumes the core and adds the user
 interface. See [theia-shell.md](theia-shell.md).
