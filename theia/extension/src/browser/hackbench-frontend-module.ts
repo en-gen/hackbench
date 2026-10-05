@@ -29,6 +29,7 @@ import { MapExplorerContribution } from './map-explorer-contribution'
 import { createMapExplorerWidget, MAP_EXPLORER_ID } from './map-explorer-widget'
 import { MapViewWidget, MAP_VIEW_ID } from './map-view-widget'
 import { ProjectFrontendClient } from './project-push-client'
+import { GridToggleContribution } from './grid-toggle-contribution'
 import { EditStackContribution } from './edit-stack-contribution'
 import { ReconnectContribution } from './reconnect-contribution'
 import { OutlineViewContribution } from '@theia/outline-view/lib/browser/outline-view-contribution'
@@ -71,6 +72,8 @@ export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
   // entries rather than adding a second pair beside them.
   bind(ReconnectContribution).toSelf().inSingletonScope()
   bind(FrontendApplicationContribution).toService(ReconnectContribution)
+  bind(GridToggleContribution).toSelf().inSingletonScope()
+  bind(CommandContribution).toService(GridToggleContribution)
   bind(EditStackContribution).toSelf().inSingletonScope()
   bind(CommandContribution).toService(EditStackContribution)
 

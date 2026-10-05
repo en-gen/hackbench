@@ -1614,22 +1614,105 @@ test('changing tileset/palettes/zoom/grid/playing preserves the selection and th
 })
 
 /**
- * Grid is a pure overlay (paintCanvas's own doc comment): toggling it
- * repaints the SAME decoded pixels with lines on top, then the identical
- * pixels again with them removed - never a re-decode, never a residue.
+ * The drawn grid, read back from the overlay's test hook (`data-grid-lines`,
+ * grid-overlay.tsx) plus two pixels: one on a line, one mid-cell.
  */
-test('toggling grid draws an overlay and removes it cleanly', async ({ page }) => {
+async function readGrid(page, root) {
+  return page.evaluate(sel => {
+    const el = document.querySelector(`${sel} .hb-grid-overlay`)
+    if (!el) return null
+    const lines = JSON.parse(el.dataset.gridLines)
+    const alphaAt = (x, y) => el.getContext('2d').getImageData(x, y, 1, 1).data[3]
+    const cell = Number(el.dataset.gridCellPx)
+    const uniq = ls => [...new Set(ls.map(l => l.pos))].sort((a, b) => a - b)
+    return {
+      cell,
+      x: uniq(lines.x),
+      y: uniq(lines.y),
+      weights: [...lines.x, ...lines.y].map(l => l.weight),
+      onLine: alphaAt(Math.round(cell), Math.round(cell / 2)),
+      midCell: alphaAt(Math.round(cell + cell / 2), Math.round(cell / 2)),
+    }
+  }, root)
+}
+
+/**
+ * Grid is a pure overlay: its own canvas above the strip, so toggling never
+ * touches the decoded pixels, and its lines are cell * zoom apart (a tile is
+ * TILE_PX) with a 1 screen px weight at every zoom.
+ */
+test('the grid toggle draws 16px tile lines that track zoom, then removes them cleanly', async ({
+  page,
+}) => {
   await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
   await openMap16(page, 'fg')
+  const toggle = page.locator(ctl('grid-toggle'))
 
+  expect(await readGrid(page, FG)).toBeNull() // off by default
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
   const before = await readCanvas(page)
-  await page.locator(ctl('grid-toggle')).click()
-  await page.waitForTimeout(150)
-  expect((await readCanvas(page)).checksum).not.toBe(before.checksum)
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
 
-  await page.locator(ctl('grid-toggle')).click()
-  await page.waitForTimeout(150)
+  const zooms = []
+  for (let step = 0; step < 2; step++) {
+    if (step > 0) await page.locator(ctl('zoom-in')).click()
+    await page.waitForTimeout(200)
+    const zoom = parseInt(await page.locator(ctl('zoom-indicator')).textContent(), 10) / 100
+    zooms.push(zoom)
+    const g = await readGrid(page, FG)
+    expect(g.cell).toBe(TILE_PX * zoom)
+    expect(new Set(g.x.slice(1).map((v, i) => v - g.x[i]))).toEqual(new Set([TILE_PX * zoom]))
+    // Vertical steps are a tile, except across a page gap (PAGE_GAP_PX).
+    const dy = new Set(g.y.slice(1).map((v, i) => v - g.y[i]))
+    expect([...dy].every(d => d === TILE_PX * zoom || d === PAGE_GAP_PX * zoom)).toBe(true)
+    expect(dy.has(TILE_PX * zoom)).toBe(true)
+    expect(new Set(g.weights)).toEqual(new Set([1]))
+    expect(g.onLine).toBeGreaterThan(0)
+    expect(g.midCell).toBe(0)
+  }
+  expect(zooms[1]).toBeGreaterThan(zooms[0])
   expect((await readCanvas(page)).checksum).toBe(before.checksum)
+
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  expect(await readGrid(page, FG)).toBeNull()
+  expect((await readCanvas(page)).checksum).toBe(before.checksum)
+})
+
+test('the Map16 and GFX grids are independent, and the commands drive each', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await page.locator('#hackbench\\.gfx-explorer .theia-TreeNode').nth(2).dblclick()
+  const GFX = '[id="hackbench.gfx-view:0"]'
+  await page.waitForSelector(`${GFX} .hb-gfx-view-canvas`, { timeout: 15000 })
+  await openMap16(page, 'fg')
+  const run = async id => {
+    await page.evaluate(i => getSvc('CommandRegistry').executeCommand(i), id)
+    await page.waitForTimeout(200)
+  }
+  const show = async id => {
+    await page.evaluate(async i => {
+      await getSvc('ApplicationShell').activateWidget(i)
+    }, id)
+    await page.waitForTimeout(300)
+  }
+  const gfxZoom = async () =>
+    parseInt(await page.locator(`${GFX} [data-control="zoom-indicator"]`).textContent(), 10) / 100
+
+  await run('hackbench.map16.toggleGrid')
+  expect(await readGrid(page, FG)).not.toBeNull()
+  await show('hackbench.gfx-view:0')
+  expect(await readGrid(page, GFX)).toBeNull()
+
+  await run('hackbench.gfx.toggleGrid')
+  expect((await readGrid(page, GFX)).cell).toBe(8 * (await gfxZoom()))
+  await show('hackbench.map16-view:fg')
+  expect(await readGrid(page, FG)).not.toBeNull() // not reset by the other view
+
+  await run('hackbench.map16.toggleGrid')
+  expect(await readGrid(page, FG)).toBeNull()
+  await show('hackbench.gfx-view:0')
+  expect(await readGrid(page, GFX)).not.toBeNull() // untouched by the Map16 toggle
 })
 
 test('the tile browser strip collapses and expands', async ({ page }) => {

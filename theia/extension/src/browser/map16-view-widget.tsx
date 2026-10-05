@@ -40,6 +40,7 @@ import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message } from '@theia/core/lib/browser'
 import { WheelBinding, ZoomController } from './zoom-controller'
 import { ZoomStepper } from './zoom-stepper'
+import { GridOverlay } from './grid-overlay'
 import { ThemeService } from '@theia/core/lib/browser/theming'
 import {
   BG_VARIANT_COLOR_ROWS,
@@ -223,7 +224,7 @@ export class Map16ViewWidget extends ReactWidget {
       }),
     )
     this.toDispose.push({ dispose: () => this.stopAnimation() })
-    // Page bands and grid lines are theme colors baked into the bitmap.
+    // Page bands are a theme color baked into the bitmap; the grid overlay reads its own.
     this.toDispose.push(this.themes.onDidColorThemeChange(() => this.update()))
     this.toDispose.push(this.zoomController.onDidChange(() => this.update()))
     this.toDispose.push(this.zoomController)
@@ -241,9 +242,29 @@ export class Map16ViewWidget extends ReactWidget {
     return this.options?.layer ?? 'fg'
   }
 
-  protected handleGridToggle = (): void => {
+  toggleGrid(): void {
     this.showGrid = !this.showGrid
     this.update()
+  }
+
+  /** Grid geometry for the current sheet: a cell per tile, none across the page gaps. */
+  protected gridOverlay(): React.ReactNode {
+    const sheet = this.sheet()
+    if (!this.showGrid || !sheet) return undefined
+    const pageHeight = (TILES_PER_PAGE / sheet.tilesPerRow) * TILE_PX
+    const pages = Math.ceil(sheet.tiles.length / TILES_PER_PAGE)
+    return (
+      <GridOverlay
+        cellSize={TILE_PX}
+        width={sheet.width}
+        height={sheet.height + (pages - 1) * PAGE_GAP_PX}
+        zoom={this.zoomController.value}
+        bands={Array.from({ length: pages }, (_, page) => ({
+          top: page * (pageHeight + PAGE_GAP_PX),
+          height: Math.min(pageHeight, sheet.height - page * pageHeight),
+        }))}
+      />
+    )
   }
 
   protected handleBrowserToggle = (): void => {
@@ -732,32 +753,6 @@ export class Map16ViewWidget extends ReactWidget {
       ctx.strokeStyle = accent
       ctx.strokeRect(selX + 0.5, selY + 0.5, TILE_PX - 1, TILE_PX - 1)
     }
-
-    // Overlay, never baked into the atlas: toggling it is a local repaint
-    // and the bytes an export would use stay exactly what the cart says.
-    if (this.showGrid) {
-      const gridColor =
-        getComputedStyle(this.node).getPropertyValue('--theia-editorWidget-border').trim() ||
-        'rgba(128,128,128,0.6)'
-      ctx.lineWidth = 1
-      ctx.strokeStyle = gridColor
-      for (let page = 0; page < pages; page++) {
-        const top = page * (pageHeight + PAGE_GAP_PX)
-        const bottom = top + pageHeight
-        for (let x = 0; x <= sheet.width; x += TILE_PX) {
-          ctx.beginPath()
-          ctx.moveTo(x + 0.5, top)
-          ctx.lineTo(x + 0.5, bottom)
-          ctx.stroke()
-        }
-        for (let y = top; y <= bottom; y += TILE_PX) {
-          ctx.beginPath()
-          ctx.moveTo(0, y + 0.5)
-          ctx.lineTo(sheet.width, y + 0.5)
-          ctx.stroke()
-        }
-      }
-    }
   }
 
   /**
@@ -938,9 +933,9 @@ export class Map16ViewWidget extends ReactWidget {
               type="button"
               className={'hb-icon-btn' + (this.showGrid ? ' hb-icon-btn-on' : '')}
               aria-pressed={this.showGrid}
-              title={this.showGrid ? 'Hide grid' : 'Show grid'}
-              aria-label={this.showGrid ? 'Hide grid' : 'Show grid'}
-              onClick={this.handleGridToggle}
+              title="Show grid"
+              aria-label="Show grid"
+              onClick={() => this.toggleGrid()}
             >
               <span className="codicon codicon-table" />
             </button>
@@ -1081,16 +1076,19 @@ export class Map16ViewWidget extends ReactWidget {
         </div>
         {this.browserOpen && (
           <div className="hb-map16-canvas-wrap" ref={this.bindCanvasWrap}>
-            <canvas
-              className="hb-map16-canvas hb-pixel-canvas"
-              onClick={this.handleCanvasClick}
-              onMouseMove={this.handleCanvasMouseMove}
-              onMouseLeave={this.handleCanvasMouseLeave}
-              ref={el => {
-                this.canvasEl = el
-                this.paintCanvas()
-              }}
-            />
+            <div className="hb-grid-host">
+              <canvas
+                className="hb-map16-canvas hb-pixel-canvas"
+                onClick={this.handleCanvasClick}
+                onMouseMove={this.handleCanvasMouseMove}
+                onMouseLeave={this.handleCanvasMouseLeave}
+                ref={el => {
+                  this.canvasEl = el
+                  this.paintCanvas()
+                }}
+              />
+              {this.gridOverlay()}
+            </div>
           </div>
         )}
       </div>

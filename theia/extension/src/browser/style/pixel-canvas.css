@@ -30,3 +30,20 @@
   );
   background-size: 16px 16px;
 }
+
+/* Grid overlay (grid-overlay.tsx): above the content canvas, never in its
+   way. Foreground is the theme's own text color, so it contrasts either way. */
+.hb-grid-host {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+  vertical-align: top;
+}
+
+.hb-grid-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  color: var(--theia-foreground);
+}

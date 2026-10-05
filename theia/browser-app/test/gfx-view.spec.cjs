@@ -762,3 +762,75 @@ test('plain wheel still scrolls the GFX view and does not touch zoom', async ({ 
   expect(scrollAfter).toBeGreaterThan(scrollBefore)
   expect(await page.locator('[data-control="zoom-indicator"]').textContent()).toBe('800%')
 })
+
+/**
+ * The drawn grid, read back from the overlay's test hook (`data-grid-lines`,
+ * grid-overlay.tsx) plus two pixels: one on a line, one mid-cell. A hook that
+ * claimed lines the canvas never painted would pass the first alone.
+ */
+async function readGrid(page, root) {
+  return page.evaluate(sel => {
+    const el = document.querySelector(`${sel} .hb-grid-overlay`)
+    if (!el) return null
+    const lines = JSON.parse(el.dataset.gridLines)
+    const alphaAt = (x, y) => el.getContext('2d').getImageData(x, y, 1, 1).data[3]
+    const cell = Number(el.dataset.gridCellPx)
+    return {
+      cell,
+      x: [...new Set(lines.x.map(l => l.pos))].sort((a, b) => a - b),
+      weights: [...lines.x, ...lines.y].map(l => l.weight),
+      onLine: alphaAt(Math.round(cell), Math.round(cell / 2)),
+      midCell: alphaAt(Math.round(cell + cell / 2), Math.round(cell / 2)),
+    }
+  }, root)
+}
+
+test('the grid toggle shows an 8px-cell overlay that tracks zoom, and hides again', async ({
+  page,
+}) => {
+  await loadGfx(page, path.join(tmp, 'MyHack'))
+  await revealGfx(page)
+  await firstGfxFileRow(page).click()
+  await page.waitForSelector('.hb-gfx-view-canvas', { timeout: 15000 })
+  await page.waitForTimeout(300)
+  const root = '.hb-gfx-view'
+  const sheetPixels = () =>
+    page
+      .locator('.hb-gfx-view-canvas')
+      .evaluate(c =>
+        Array.from(c.getContext('2d').getImageData(0, 0, c.width, c.height).data).join(','),
+      )
+
+  const toggle = page.locator(`${root} [data-control="grid-toggle"]`)
+  expect(await readGrid(page, root)).toBeNull() // off by default
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+
+  const contentBefore = await sheetPixels()
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  const zooms = []
+  for (let step = 0; step < 2; step++) {
+    if (step > 0) await page.locator('[data-control="zoom-in"]').click()
+    await page.waitForTimeout(200)
+    const zoom =
+      parseInt(await page.locator('[data-control="zoom-indicator"]').textContent(), 10) / 100
+    zooms.push(zoom)
+    const g = await readGrid(page, root)
+    expect(g.cell).toBe(8 * zoom)
+    expect(g.x.length).toBeGreaterThan(2)
+    // Spacing is cell * zoom for EVERY neighbour, not just the first.
+    expect(new Set(g.x.slice(1).map((v, i) => v - g.x[i]))).toEqual(new Set([8 * zoom]))
+    // Constant 1 screen px at any zoom, and really painted.
+    expect(new Set(g.weights)).toEqual(new Set([1]))
+    expect(g.onLine).toBeGreaterThan(0)
+    expect(g.midCell).toBe(0)
+  }
+  expect(zooms[1]).toBeGreaterThan(zooms[0])
+
+  // A pure overlay: the sheet's own pixels are untouched.
+  expect(await sheetPixels()).toBe(contentBefore)
+
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  expect(await readGrid(page, root)).toBeNull()
+})

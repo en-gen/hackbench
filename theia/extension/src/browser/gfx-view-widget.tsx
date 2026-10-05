@@ -15,6 +15,7 @@
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message } from '@theia/core/lib/browser'
+import { ThemeService } from '@theia/core/lib/browser/theming'
 import {
   GFX_FORMATS,
   GfxFormat,
@@ -26,9 +27,12 @@ import {
 import { GfxFrontendClient } from './gfx-push-client'
 import { WheelBinding, ZoomController } from './zoom-controller'
 import { ZoomStepper } from './zoom-stepper'
+import { GridOverlay } from './grid-overlay'
 import { perfEnd, perfStart } from '../common/perf-marks'
 
 export const GFX_VIEW_ID = 'hackbench.gfx-view'
+/** One 8x8 character, the unit a GFX sheet is built from. */
+const GFX_CHAR_PX = 8
 
 export interface GfxViewOptions {
   manifestPath: string
@@ -65,6 +69,7 @@ function decodeRgba(base64: string): Uint8ClampedArray {
 export class GfxViewWidget extends ReactWidget {
   @inject(GfxService) protected readonly gfx!: GfxService
   @inject(GfxFrontendClient) protected readonly pushClient!: GfxFrontendClient
+  @inject(ThemeService) protected readonly themes!: ThemeService
 
   protected options: GfxViewOptions | undefined
   protected sheet: GfxSheetDto | undefined
@@ -74,6 +79,8 @@ export class GfxViewWidget extends ReactWidget {
   protected paletteRowChoice: number | undefined
   protected canvasEl: HTMLCanvasElement | null = null
   protected wheelBinding: WheelBinding | undefined
+  /** Per tab; off by default. */
+  protected showGrid = false
   /** Bumped on every reload; a response is applied only if it is still current,
    * so two rapid control changes cannot have the slower one overwrite the newer. */
   protected reloadToken = 0
@@ -85,6 +92,8 @@ export class GfxViewWidget extends ReactWidget {
     this.node.tabIndex = 0
     // Every open sheet redraws when any one of them changes the zoom.
     this.toDispose.push(sharedZoomController.onDidChange(() => this.update()))
+    // The grid color is read from the theme at draw time.
+    this.toDispose.push(this.themes.onDidColorThemeChange(() => this.update()))
     // `this.node` (`.hb-gfx-view`) is the widget's own scroll container in
     // BOTH axes - the canvas wrap has no bounded height of its own, so it
     // never scrolls itself. `this.node` exists for the widget's whole life,
@@ -183,6 +192,11 @@ export class GfxViewWidget extends ReactWidget {
     perfEnd('open-gfx')
   }
 
+  toggleGrid(): void {
+    this.showGrid = !this.showGrid
+    this.update()
+  }
+
   protected handleBppChange = (e: React.ChangeEvent<HTMLSelectElement>): void => {
     this.bppChoice = GFX_FORMATS.find(f => String(f) === e.target.value)
     void this.reload()
@@ -243,12 +257,31 @@ export class GfxViewWidget extends ReactWidget {
             </select>
           </label>
           <span className="hb-toolbar-spacer" />
+          <button
+            data-control="grid-toggle"
+            type="button"
+            className={'hb-icon-btn' + (this.showGrid ? ' hb-icon-btn-on' : '')}
+            aria-pressed={this.showGrid}
+            title="Show grid"
+            aria-label="Show grid"
+            onClick={() => this.toggleGrid()}
+          >
+            <span className="codicon codicon-table" />
+          </button>
           <ZoomStepper controller={sharedZoomController} />
         </div>
         {this.error && <div className="hb-gfx-view-error">{this.error}</div>}
         {s && s.height > 0 && (
-          <div className="hb-gfx-view-canvas-wrap">
+          <div className="hb-gfx-view-canvas-wrap hb-grid-host">
             <canvas className="hb-gfx-view-canvas hb-pixel-canvas" ref={this.bindCanvas} />
+            {this.showGrid && (
+              <GridOverlay
+                cellSize={GFX_CHAR_PX}
+                width={s.width}
+                height={s.height}
+                zoom={sharedZoomController.value}
+              />
+            )}
           </div>
         )}
       </div>
