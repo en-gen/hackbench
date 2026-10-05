@@ -62,7 +62,7 @@ describe('runner on a synthetic cart', () => {
         dx: 0,
         dy: 0,
         attr: 0x0a,
-        ox: 0x80,
+        ox: 0x88,
         oy: 0x80,
       },
     ])
