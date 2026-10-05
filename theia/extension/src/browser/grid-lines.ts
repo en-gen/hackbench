@@ -77,7 +77,12 @@ function weightAt(index: number, axis: 'x' | 'y', tiers: readonly GridTier[]): n
  * A wider line is centred and CLIPPED at the edges, never shifted inward, so
  * its centre stays on the boundary. Even weights centre half a pixel early.
  */
-function place(at: number, weight: number, lo: number, hi: number): [number, number] | undefined {
+export function place(
+  at: number,
+  weight: number,
+  lo: number,
+  hi: number,
+): [number, number] | undefined {
   if (weight <= 1) {
     const s = Math.min(Math.max(at, lo), hi - 1)
     return hi > lo ? [s, 1] : undefined

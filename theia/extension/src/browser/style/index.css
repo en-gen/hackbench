@@ -475,3 +475,18 @@
 .hb-dialog-error {
   color: var(--theia-errorForeground);
 }
+
+/* Holds the scroller and the viewport-sized grid overlay over it (grid-overlay.tsx). */
+.hb-map-grid-host {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* The planes carry z-index 1..6; the grid overlay must sit above all of them. */
+  isolation: isolate;
+}
+
+.hb-map-grid-host > .hb-grid-overlay {
+  z-index: 10;
+}

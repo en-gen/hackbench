@@ -23,6 +23,7 @@ const { expectCheckerboard, PAGE_COMPOSE } = require('./pixel-canvas.cjs')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
+const { readGrid } = require('./grid-probe.cjs')
 const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
 
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
@@ -1643,3 +1644,324 @@ for (const next of [0x106, 0x109]) {
     await expect.poll(() => crossSlack(page, next)).toBeLessThan(1.5)
   })
 }
+
+/**
+ * The Maps grid (tile 1 px, sub-screen 3 px, screen 5 px; all device px). Lines are checked as
+ * PIXELS on the overlay canvas and against the real screen canvases' positions, never only
+ * against the data hook.
+ */
+const gridToggle = index => `${root(index)} [data-control="grid-toggle"]`
+const scrollerSel = index => `${root(index)} [data-control="map-scroller"]`
+
+/** Maximal runs of painted device pixels along a row (or column) from readGrid's hits. */
+const runs = hits => {
+  const out = []
+  for (const h of hits) {
+    const last = out[out.length - 1]
+    if (last && last.start + last.size === h) last.size++
+    else out.push({ start: h, size: 1 })
+  }
+  return out
+}
+
+async function showGrid(page, index) {
+  await page.locator(gridToggle(index)).click()
+  await expect(page.locator(gridToggle(index))).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator(`${root(index)} .hb-grid-overlay`)).toBeVisible()
+}
+
+async function scrollMapTo(page, index, left, top) {
+  await page.locator(scrollerSel(index)).evaluate(
+    (el, [l, t]) => {
+      el.scrollLeft = l
+      el.scrollTop = t
+    },
+    [left, top],
+  )
+  await page.waitForTimeout(250)
+}
+
+test('the Maps grid toggle is labelled, off by default, and the command drives it', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  const toggle = page.locator(gridToggle(0x105))
+  expect(await readGrid(page, root(0x105))).toBeNull()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  await expect(toggle).toHaveAttribute('title', 'Show grid')
+  await expect(toggle.locator('.codicon-table')).toHaveCount(1)
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  await expect(toggle).toHaveAttribute('title', 'Hide grid')
+  await expect(toggle).toHaveAttribute('aria-label', 'Hide grid')
+  expect(await readGrid(page, root(0x105))).not.toBeNull()
+  await page.evaluate(() => getSvc('CommandRegistry').executeCommand('hackbench.maps.toggleGrid'))
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  expect(await readGrid(page, root(0x105))).toBeNull()
+})
+
+/** Expected weight of boundary `i` (tiles): a screen every `screen`, the half at `sub`. */
+const weightOf = (i, screen, sub) =>
+  i % screen === 0 ? 5 : sub !== undefined && i % screen === sub ? 3 : 1
+
+for (const [index, vertical] of [
+  [0x105, false],
+  [0x109, true],
+]) {
+  test(`$${index.toString(16)} (${vertical ? 'vertical' : 'horizontal'}): three weights at the expected boundaries, centred`, async ({
+    page,
+  }) => {
+    const project = await createProject(page, path.join(tmp, 'MyHack'))
+    await openMap(page, project.manifestPath, index)
+    await page.locator(`${root(index)} [data-control="zoom-actual"]`).click()
+    await showGrid(page, index)
+    await page.waitForTimeout(300)
+    const g = await readGrid(page, root(index))
+    expect(g.cell).toBe(16) // zoom 1
+    // Vertical: x repeats every 32 columns with the half at 16; y every 16 rows.
+    // Horizontal: x every 16 columns; y every 27 rows with the half at row 16.
+    const xs = vertical ? [32, 16] : [16, undefined]
+    const ys = vertical ? [16, undefined] : [27, 16]
+    for (const l of g.xLines) expect(l.weight).toBe(weightOf(Math.round(l.pos / 16), ...xs))
+    for (const l of g.yLines) expect(l.weight).toBe(weightOf(Math.round(l.pos / 16), ...ys))
+    const half = (vertical ? g.xLines : g.yLines).filter(l => l.weight === 3)
+    expect(half.map(l => l.pos)).toContain(256)
+    expect(new Set([...g.xLines, ...g.yLines].map(l => l.weight))).toEqual(new Set([1, 3, 5]))
+    // Pixels: each vertical line paints exactly its weight, centred on its boundary pixel.
+    expect(runs(g.rowHits)).toEqual(g.xLines.map(l => ({ start: l.start, size: l.size })))
+    // The content's own left and right edges are clipped, so their centre is not the boundary.
+    const lastPos = Math.max(...g.xLines.map(l => l.pos))
+    for (const l of g.xLines.filter(l => l.weight > 1 && l.start > 0 && l.pos < lastPos))
+      expect(l.start + (l.size - 1) / 2).toBe(Math.round(l.pos * g.dpr))
+    // The sub-screen line sits at row 16 (horizontal) or column 16 (vertical) of the CONTENT:
+    // measured from the strip's own edge in the DOM, painted as a 3 px run on the canvas.
+    const off = await page.evaluate(sel => {
+      const o = document.querySelector(`${sel} .hb-grid-overlay`).getBoundingClientRect()
+      const t = document.querySelector(`${sel} .hb-map-view-strip`).getBoundingClientRect()
+      return { x: t.left - o.left, y: t.top - o.top }
+    }, root(index))
+    const axisOff = vertical ? off.x : off.y
+    const wantCentre = Math.round((axisOff + 16 * 16) * g.dpr)
+    const threes = runs(vertical ? g.rowHits : g.colHits).filter(r => r.size === 3)
+    // The strip's own edges are 5 px lines clipped to 3 px, so they look like 3 px runs too:
+    // only an interior run counts, and exactly one of those must be the half line.
+    const interior = threes.filter(r => r.start > 0 && r.start + r.size < (vertical ? g.canvasW : g.canvasH)) // prettier-ignore
+    const edge = Math.max(...(vertical ? g.xLines : g.yLines).map(l => l.pos)) * g.dpr
+    const inner = interior.filter(r => r.start + 1 < edge - 1)
+    expect(inner.length).toBe(1)
+    // Within 1 device px: the strip's box may sit on a fractional CSS offset.
+    expect(Math.abs(inner[0].start + 1 - wantCentre)).toBeLessThanOrEqual(1)
+  })
+}
+
+test('the grid canvas is viewport-sized, however wide the map and zoom', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await showGrid(page, 0x105)
+  // To the maximum: the button disables there (Fit may already start above 100%).
+  const zin = page.locator(`${root(0x105)} [data-control="zoom-in"]`)
+  for (let i = 0; i < 6 && (await zin.isEnabled()); i++) await zin.click()
+  await expect(zin).toBeDisabled()
+  await page.waitForTimeout(400)
+  const m = await page.evaluate(sel => {
+    const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
+    const o = document.querySelector(`${sel} .hb-grid-overlay`)
+    const strip = s.querySelector('.hb-map-view-strip').getBoundingClientRect()
+    return {
+      cw: s.clientWidth,
+      ch: s.clientHeight,
+      ow: o.width,
+      oh: o.height,
+      dpr: Number(o.dataset.gridDpr),
+      stripW: strip.width,
+    }
+  }, root(0x105))
+  expect(m.ow).toBeLessThanOrEqual(Math.ceil(m.cw * m.dpr))
+  expect(m.oh).toBeLessThanOrEqual(Math.ceil(m.ch * m.dpr))
+  // The content really is much wider than what the canvas covers.
+  expect(m.stripW).toBeGreaterThan(m.cw * 3)
+})
+
+/**
+ * How far every grid line sits from its boundary in the CONTENT, in device px: each line's
+ * centre against the strip's own edge plus the line's content position. Lines clipped by the
+ * viewport edge are skipped (their centre is not the boundary). Tolerance at the call sites is
+ * 1.5 device px: one px of rounding in the overlay, half a px of fractional layout (Fit zoom).
+ */
+async function lineDeviation(page, index) {
+  return page.evaluate(sel => {
+    const o = document.querySelector(`${sel} .hb-grid-overlay`)
+    const strip = document.querySelector(`${sel} .hb-map-view-strip`).getBoundingClientRect()
+    const lines = JSON.parse(o.dataset.gridLines)
+    const dpr = Number(o.dataset.gridDpr)
+    const box = o.getBoundingClientRect()
+    const worst = { x: 0, y: 0 }
+    const seen = { x: new Set(), y: new Set() }
+    const check = (axis, l, edge, over, cap) => {
+      if (l.start <= 0 || l.start + l.size >= cap) return
+      const want = (edge + l.pos - over) * dpr + 0.5
+      worst[axis] = Math.max(worst[axis], Math.abs(l.start + l.size / 2 - want))
+      seen[axis].add(l.weight)
+    }
+    for (const l of lines.x) check('x', l, strip.left, box.left, o.width)
+    for (const l of lines.y) check('y', l, strip.top, box.top, o.height)
+    return { worst, x: [...seen.x], y: [...seen.y], cellPx: Number(o.dataset.gridCellPx), w: o.width, h: o.height } // prettier-ignore
+  }, root(index))
+}
+
+const TOL = 1.5
+
+// Assumptions: $105 is horizontal and 10+ screens wide, so at Fit (height-fitted) and at 200% it
+// scrolls sideways; $109 is vertical and several screens tall, so it scrolls down. Both are
+// asserted below (maxScroll > 0) rather than trusted.
+const scrollMax = (page, index, axis) =>
+  page.locator(scrollerSel(index)).evaluate((s, a) => (a === 'x' ? s.scrollWidth - s.clientWidth : s.scrollHeight - s.clientHeight), axis) // prettier-ignore
+
+for (const [index, axis] of [
+  [0x105, 'x'],
+  [0x109, 'y'],
+]) {
+  for (const mode of ['actual', 'fit']) {
+    test(`$${index.toString(16)}: every grid line, sub-screen line included, stays on its boundary while scrolling, at ${mode} zoom`, async ({
+      page,
+    }) => {
+      const project = await createProject(page, path.join(tmp, 'MyHack'))
+      await openMap(page, project.manifestPath, index)
+      await page.locator(`${root(index)} [data-control="zoom-${mode}"]`).click()
+      await page.waitForTimeout(400)
+      const max = await scrollMax(page, index, axis)
+      expect(max).toBeGreaterThan(0)
+      // Toggled ON while scrolled: the first paint must already be right.
+      await scrollMapTo(page, index, axis === 'x' ? Math.floor(max * 0.4) : 0, axis === 'y' ? Math.floor(max * 0.4) : 0) // prettier-ignore
+      await showGrid(page, index)
+      for (const at of [0.4, 0.8, 0.15]) {
+        await scrollMapTo(page, index, axis === 'x' ? Math.floor(max * at) : 0, axis === 'y' ? Math.floor(max * at) : 0) // prettier-ignore
+        await expect
+          .poll(async () => {
+            const d = await lineDeviation(page, index)
+            return Math.max(d.worst.x, d.worst.y)
+          })
+          .toBeLessThanOrEqual(TOL)
+        const d = await lineDeviation(page, index)
+        // Sub-screen (3) and screen (5) lines are among those checked, on the axis that has them.
+        expect(d[axis === 'x' ? 'x' : 'y']).toContain(5)
+        const halfAxis = axis === 'x' ? 'y' : 'x' // rows split horizontal maps, columns vertical ones
+        if (mode === 'actual') expect(d[halfAxis]).toContain(3)
+      }
+    })
+  }
+}
+
+test('the grid stays aligned after Ctrl + wheel zoom and after a resize', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await page.locator(`${root(0x105)} [data-control="zoom-actual"]`).click()
+  await showGrid(page, 0x105)
+  const before = (await lineDeviation(page, 0x105)).cellPx
+  const box = await page.locator(scrollerSel(0x105)).boundingBox()
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.keyboard.down('Control')
+  await page.mouse.wheel(0, -120)
+  await page.keyboard.up('Control')
+  await expect.poll(async () => (await lineDeviation(page, 0x105)).cellPx).toBeGreaterThan(before)
+  await expect
+    .poll(async () => {
+      const d = await lineDeviation(page, 0x105)
+      return Math.max(d.worst.x, d.worst.y)
+    })
+    .toBeLessThanOrEqual(TOL)
+  const size = page.viewportSize()
+  await page.setViewportSize({ width: Math.floor(size.width * 0.7), height: Math.floor(size.height * 0.8) }) // prettier-ignore
+  await page.waitForTimeout(600)
+  const d = await page.evaluate(sel => {
+    const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
+    const o = document.querySelector(`${sel} .hb-grid-overlay`)
+    return { cw: s.clientWidth, ch: s.clientHeight, ow: parseFloat(o.style.width), oh: parseFloat(o.style.height) } // prettier-ignore
+  }, root(0x105))
+  expect(d.ow).toBe(d.cw)
+  expect(d.oh).toBe(d.ch)
+  await expect
+    .poll(async () => {
+      const dev = await lineDeviation(page, 0x105)
+      return Math.max(dev.worst.x, dev.worst.y)
+    })
+    .toBeLessThanOrEqual(TOL)
+  await page.setViewportSize(size)
+})
+
+/**
+ * The overlay must be ABOVE the level planes (z-index 1..4): a stacking bug draws it under them,
+ * where it shows only through clear pixels and every data-hook and canvas check still passes. So
+ * compare COMPOSITED screen pixels, grid on against grid off, at thin vertical lines over opaque
+ * terrain: the line pixels must change, their neighbours must not. Decoded numerically in the page.
+ */
+test('the grid is composited above opaque level content', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await page.locator(`${root(0x105)} [data-control="zoom-actual"]`).click()
+  await page.waitForTimeout(400)
+  await showGrid(page, 0x105)
+  const probe = await page.evaluate(sel => {
+    const o = document.querySelector(`${sel} .hb-grid-overlay`)
+    const dpr = Number(o.dataset.gridDpr)
+    const lines = JSON.parse(o.dataset.gridLines)
+    const r = o.getBoundingClientRect()
+    const c = document.querySelector(`${sel} canvas[data-screen="0"][data-plane="l1Low"]`)
+    const cr = c.getBoundingClientRect()
+    const alpha = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+    const pts = []
+    // Thin vertical lines inside screen 0 only, at rows where L1 is fully opaque both on the line and beside it.
+    for (const l of lines.x.filter(l => l.weight === 1 && l.pos > 0 && l.pos < c.width)) {
+      for (let y = 0; y < c.height && pts.length < 60; y += 7) {
+        const a = x => alpha[(y * c.width + x) * 4 + 3]
+        if (a(l.pos) === 255 && a(l.pos + 2) === 255) pts.push({ x: l.pos, y })
+      }
+    }
+    return { pts, left: cr.left, top: cr.top, ox: r.left, oy: r.top, dpr }
+  }, root(0x105))
+  expect(probe.dpr).toBe(1)
+  expect(probe.pts.length).toBeGreaterThan(10)
+  const clip = await page.evaluate(sel => {
+    const r = document.querySelector(`${sel} .hb-grid-overlay`).getBoundingClientRect()
+    return { x: Math.ceil(r.left), y: Math.ceil(r.top), width: Math.floor(r.width) - 1, height: Math.floor(r.height) - 1 } // prettier-ignore
+  }, root(0x105))
+  const shot = async () => {
+    await page.mouse.move(0, 0)
+    return (await page.screenshot({ clip })).toString('base64')
+  }
+  const on = await shot()
+  await page.locator(gridToggle(0x105)).click()
+  await expect(page.locator(`${root(0x105)} .hb-grid-overlay`)).toHaveCount(0)
+  const off = await shot()
+  const r = await page.evaluate(
+    async ({ on, off, pts, left, top, clip }) => {
+      const read = async b64 => {
+        const img = new Image()
+        img.src = `data:image/png;base64,${b64}`
+        await img.decode()
+        const c = document.createElement('canvas')
+        c.width = img.width
+        c.height = img.height
+        const ctx = c.getContext('2d')
+        ctx.drawImage(img, 0, 0)
+        return ctx.getImageData(0, 0, c.width, c.height)
+      }
+      const [a, b] = [await read(on), await read(off)]
+      const at = (d, x, y) => Array.from(d.data.slice((y * d.width + x) * 4, (y * d.width + x) * 4 + 3)) // prettier-ignore
+      let lineChanged = 0
+      let besideSame = 0
+      for (const p of pts) {
+        const x = Math.round(left + p.x - clip.x)
+        const y = Math.round(top + p.y - clip.y)
+        if (at(a, x, y).join() !== at(b, x, y).join()) lineChanged++
+        if (at(a, x + 2, y).join() === at(b, x + 2, y).join()) besideSame++
+      }
+      return { lineChanged, besideSame, n: pts.length }
+    },
+    { on, off, pts: probe.pts, left: probe.left, top: probe.top, clip },
+  )
+  // 90%: a few tiles animate between the two screenshots.
+  expect(r.lineChanged).toBeGreaterThanOrEqual(r.n * 0.9)
+  expect(r.besideSame).toBeGreaterThanOrEqual(r.n * 0.9)
+})
