@@ -667,12 +667,13 @@ test('the canvas stack puts layer 2 under everything on a standard-layout map, b
   await openMap(page, project.manifestPath, 0x105)
   // $105 is mode 0 (main BG1, BG3, OBJ; sub BG2) with the BG3 priority bit clear.
   const stack = await zStack(page, 0x105)
-  expect(stack.map(c => c.plane)).toEqual(['l2Low', 'l2High', 'l3Low', 'l3High', 'l1Low', 'l1High'])
-  expect(new Set(stack.map(c => c.z)).size, 'six distinct levels').toBe(6)
+  // The sprites sit between L1's low plane and its priority plane (#564).
+  expect(stack.map(c => c.plane)).toEqual(['l2Low', 'l2High', 'l3Low', 'l3High', 'l1Low', 'sprites', 'l1High']) // prettier-ignore
+  expect(new Set(stack.map(c => c.z)).size, 'seven distinct levels').toBe(7)
   expect(stack[0].z).toBeGreaterThan(0)
   // $0E7 is mode 8 (interactive layer 2): BG1 and BG2 on one screen, the BG mode 1 order, no layer 3.
   await openMap(page, project.manifestPath, 0xe7)
-  expect(await zOrder(page, 0xe7)).toEqual(['l2Low', 'l1Low', 'l2High', 'l1High'])
+  expect(await zOrder(page, 0xe7)).toEqual(['l2Low', 'l1Low', 'l2High', 'sprites', 'l1High'])
 })
 
 /** The composite of every visible plane over the box that layer 3's own pixels fill on screen 0. */
@@ -834,20 +835,117 @@ test('a map with no layer 3 and an interactive layer 2 map disable the toggle an
   await expect(locked).toHaveAttribute('title', 'Layer 3 not drawn yet: interactive layer 2 maps')
   // No layer 3 planes at all, and layer 2 keeps the old BG mode 1 order on this layout.
   await expect(page.locator(`${root(0x009)} canvas[data-plane^="l3"]`)).toHaveCount(0)
-  expect(await zOrder(page, 0x009)).toEqual(['l2Low', 'l1Low', 'l2High', 'l1High'])
-  // Sprites: the toggle exists in its place, disabled, naming why.
-  const sprites = page.locator(`${root(0x009)} [data-control="layer-sprites"]`)
-  await expect(sprites).toBeDisabled()
+  expect(await zOrder(page, 0x009)).toEqual(['l2Low', 'l1Low', 'l2High', 'sprites', 'l1High'])
   // A disabled toggle does nothing when forced: state and canvases stay as they were.
   const l3Planes = page.locator(`${root(0x009)} canvas[data-plane^="l3"]`)
-  for (const button of [locked, sprites]) {
-    await button.click({ force: true })
-    await expect(button).toHaveAttribute('aria-pressed', 'false')
-  }
+  await locked.click({ force: true })
+  await expect(locked).toHaveAttribute('aria-pressed', 'false')
   await expect(l3Planes).toHaveCount(0)
   for (const plane of planeLocators(page, 0x009, 0, ['l2Low', 'l1Low', 'l2High', 'l1High']))
     await expect(plane).toHaveCSS('visibility', 'visible')
-  await expect(sprites).toHaveAttribute('title', 'Sprite toggle not wired yet')
+})
+
+/**
+ * The sprite layer (#564). $106 holds both kinds on vanilla: sprite $05 (traced, engine-drawn) and
+ * ids with no descriptor (marked). Its sprites sit past screen 0, so screen 1 is scrolled into view.
+ * ($105, which the issue names, holds no traced sprite: all 34 of its ids are markers.)
+ */
+const spriteToggle = (page, index) => page.locator(`${root(index)} [data-control="layer-sprites"]`)
+const spritePlane = (page, index, screen) =>
+  page.locator(`${root(index)} canvas[data-screen="${screen}"][data-plane="sprites"]`)
+const SPRITES_DRAWN = /^\d+:\d+$/
+
+test('the sprite toggle hides and restores the sprites, and changes what is on screen', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x106)
+  await showScreen(page, 0x106, 1)
+  const sprites = await expectLayerToggle(page, 0x106, 'layer-sprites', 'Sprites', 'S')
+  await expect(sprites).toBeEnabled()
+  await expect(spritePlane(page, 0x106, 1)).toHaveAttribute('data-drawn', SPRITES_DRAWN)
+  const strip = page.locator(`${root(0x106)} [data-control="map-scroller"]`)
+
+  const shown = await shownPixels(page, strip)
+  await sprites.click()
+  await expect(sprites).toHaveAttribute('aria-pressed', 'false')
+  for (const screen of [0, 1, 2])
+    await expect(spritePlane(page, 0x106, screen)).toHaveCSS('visibility', 'hidden')
+  // The terrain stays: the picture changed only by the sprites' pixels.
+  for (const plane of planeLocators(page, 0x106, 1))
+    await expect(plane).toHaveCSS('visibility', 'visible')
+  expect((await shownPixels(page, strip)).checksum).not.toBe(shown.checksum)
+  await sprites.click()
+  await expect(sprites).toHaveAttribute('aria-pressed', 'true')
+  await expect(spritePlane(page, 0x106, 1)).toHaveCSS('visibility', 'visible')
+  expect((await shownPixels(page, strip)).checksum).toBe(shown.checksum)
+})
+
+test('an engine-drawn sprite shows its own pixels where the service placed it; a miss shows a marker', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x106)
+  await showScreen(page, 0x106, 1)
+  await expect(spritePlane(page, 0x106, 1)).toHaveAttribute('data-drawn', SPRITES_DRAWN)
+  const flags = { green: false, yellow: false, blue: false, red: false }
+  const reply = await page.evaluate(
+    ({ mp, flags }) => getSvc('Symbol(ProjectService)').mapSprites(mp, 0x106, flags),
+    { mp: project.manifestPath, flags },
+  )
+  expect(reply.status).toBe('ok')
+  expect(reply.sprites).toHaveLength(25)
+  const inScreen1 = s => s.box.x0 >= 256 && s.box.x1 <= 512 && s.box.y0 >= 0 && s.box.y1 <= 432
+  // Sprite $05 stands on tile row 20 with a 16 x 32 body whose top is above its anchor.
+  const koopa = reply.sprites.find(s => s.id === 5 && s.status === 'drawn' && inScreen1(s))
+  expect(koopa, 'a drawn $05 inside screen 1').toBeTruthy()
+  expect(koopa.box.y0).toBeLessThan(koopa.y)
+  const marker = reply.sprites.find(s => s.status === 'placeholder' && inScreen1(s))
+  expect(marker, 'a marker inside screen 1').toBeTruthy()
+  expect(marker.reason).toBe('noDescriptor')
+
+  const read = await page.evaluate(
+    ({ koopa, marker }) => {
+      const c = document.querySelector(
+        '[id="hackbench.map-view:262"] canvas[data-screen="1"][data-plane="sprites"]',
+      )
+      const ctx = c.getContext('2d')
+      const cut = s => {
+        const w = s.box.x1 - s.box.x0
+        const h = s.box.y1 - s.box.y0
+        const got = ctx.getImageData(s.box.x0 - 256, s.box.y0, w, h).data
+        const want = Uint8Array.from(atob(s.rgba), ch => ch.charCodeAt(0))
+        // Alpha and opaque colors only: a readback premultiplies translucent pixels.
+        let same = true
+        let opaque = 0
+        for (let i = 0; i < want.length; i += 4) {
+          if (got[i + 3] !== want[i + 3]) same = false
+          if (want[i + 3] !== 255) continue
+          opaque++
+          if (got[i] !== want[i] || got[i + 1] !== want[i + 1] || got[i + 2] !== want[i + 2])
+            same = false
+        }
+        return { same, opaque, corner: Array.from(got.slice(0, 4)) }
+      }
+      return { koopa: cut(koopa), marker: cut(marker) }
+    },
+    { koopa, marker },
+  )
+  expect(read.koopa.opaque, 'the engine drew pixels').toBeGreaterThan(0)
+  expect(read.koopa.same, 'the canvas holds the served bitmap at its box').toBe(true)
+  expect(read.marker.same).toBe(true)
+  // The marker is 16 x 16 at the anchor, its frame the editor blue.
+  expect([marker.box.x1 - marker.box.x0, marker.box.y1 - marker.box.y0]).toEqual([16, 16])
+  expect(read.marker.corner).toEqual([90, 200, 255, 255])
+})
+
+test('the sprite toggle is disabled with its reason on a map without sprites', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x108)
+  const sprites = spriteToggle(page, 0x108)
+  await expect(sprites).toBeDisabled()
+  await expect(sprites).toHaveAttribute('aria-pressed', 'false')
+  await expect(sprites).toHaveAttribute('title', 'Sprites · this map has none')
 })
 
 test('a map the ROM reads fully carries no layer note', async ({ page }) => {

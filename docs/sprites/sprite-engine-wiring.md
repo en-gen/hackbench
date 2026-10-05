@@ -194,3 +194,29 @@ vanilla level's sprite stream, so the vanilla ROM cannot show it in the editor
 at all. Hack ROMs in `test/roms/` do place it; `GrandPooWorld_V1.2.sfc` map
 `$113` at (col 93, row 23) and (col 77, row 23) is the most plausible pair, but
 that was not visually confirmed.
+
+## Theia wiring (#564)
+
+The Theia map tab draws sprites through the same table engine, without the
+scaffolding above: no toggle between engines, no corner ticks, no fallback to
+the retired appearance classes. Evidence scope: the vanilla ROM in the corpus,
+read through `drawSpriteParts`; no emulator was run.
+
+- `theia/extension/src/node/map-sprites.ts` parses the level's stream with
+  `parseLevelSprites`, resolves identity (`findDescriptor`, `resolveIdentity`),
+  and draws each sprite at `romFrame` 0 with Mario's X from
+  `readMarioStartPos`. Chars come from the map's VRAM (SP1-SP4), colors from
+  its CGRAM; the palette row is the engine's own per-part answer, and a
+  `dynamicCgram` note is spliced over that row as above.
+- Each sprite is one bitmap at anchor + `dx`/`dy`, never snapped to the grid.
+  A sprite the engine declines (`noDescriptor`, `customHandler`,
+  `unexpectedOpcode` and the other failure kinds), or whose chars are not in
+  the level's sprite set (`charsNotLoaded`), is a 16 x 16 marker at the anchor
+  with its hex id. That includes the non-visual sprites (auto-scroll,
+  generators, layer control), whose real treatment is deferred.
+- Counts on the vanilla ROM: `$106` has 25 sprites, 15 drawn and 10 markers;
+  `$105` has 34, all markers, because none of its ids has a descriptor (the
+  issue named `$105` as holding covered ids; it does not).
+- Overlap between sprites: column order on a horizontal map, row order on a
+  vertical one, the stream's order breaking ties, later on top. This is a
+  display choice, not the game's OAM order.

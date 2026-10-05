@@ -24,6 +24,7 @@ import {
 } from '../../../../src/project/WorkingRomRegistry'
 import { buildMapDetails } from './map-details'
 import { L1ModelCache, mapScreen, toolbarArtOf } from './map-screen'
+import { mapSprites } from './map-sprites'
 import { SWITCH_FLAGS_UNCLEARED } from '../../../../src/rom/ObjectExpander'
 import { exportPatch } from '../../../../src/project/ExportPatch'
 import { readRomBounded } from '../../../../src/project/BoundedRead'
@@ -48,6 +49,7 @@ import {
   LoadMapsResult,
   MapDetailsDto,
   MapScreenResult,
+  MapSpritesResult,
   PalaceIconsResult,
   PatchFormatDto,
   ProjectDto,
@@ -118,6 +120,18 @@ export class ProjectServiceImpl implements ProjectService {
     // An edit made in any view must repaint an open map.
     this.notifier.watch(manifestPath, r.working)
     return mapScreen(this.screens, r.working.bytes(), r.romPath, index, screen, switchFlags, switches) // prettier-ignore
+  }
+
+  async mapSprites(
+    manifestPath: string,
+    index: number,
+    switchFlags: SwitchFlagsDto,
+  ): Promise<MapSpritesResult> {
+    // prettier-ignore
+    const r = this.located(manifestPath)
+    if (r.status !== 'ok') return r
+    this.notifier.watch(manifestPath, r.working)
+    return mapSprites(this.screens, r.working.bytes(), r.romPath, index, switchFlags)
   }
 
   async mapPalaceIcons(manifestPath: string, index: number): Promise<PalaceIconsResult> {

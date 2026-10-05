@@ -142,6 +142,21 @@ category and are reachable from the File menu.
 Views follow the active Theia theme rather than pinning their own colors,
 which `theia/browser-app/test/load-maps.spec.cjs` asserts.
 
+### The map tab's sprite layer (#564)
+
+`ProjectService.mapSprites(manifestPath, index, switchFlags)` returns every
+sprite of a map as one RGBA bitmap in map pixels (`MapSpriteDto`: index, id,
+anchor, `box`, base64 `rgba`, `status` of `drawn` or `placeholder`, and the
+engine's failure kind as `reason`), plus the screen size and orientation.
+`node/map-sprites.ts` is the pure module behind it; `project-server.ts`
+reads the working copy through `WorkingRomRegistry`, as `mapScreen` does.
+It is a separate call from `mapScreen` because a sprite is not cut at screen
+edges: parts sit at the anchor plus the engine's `dx`/`dy`, negative and off
+the 16 px grid. The frontend cuts each bitmap per screen
+(`compositeSpriteScreen`, `browser/map-view-model.ts`) into one `sprites`
+canvas per screen, stacked just under L1's priority plane. The `S` toggle
+hides those canvases with `visibility: hidden`, as L1 and L2 do.
+
 ## The emulator view
 
 The emulator runs a **libretro core that you supply**. HackBench ships no
