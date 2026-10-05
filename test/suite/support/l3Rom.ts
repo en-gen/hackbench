@@ -20,22 +20,12 @@ const long = (a: number) => [a & 0xff, (a >> 8) & 0xff, a >> 16]
 export function modeTablesRom(layouts: readonly ModeLayout[]): RomFile {
   const rom = new RomFile('l3.sfc', Buffer.alloc(0x80000, 0))
   rom.writeAt(0x00ffd5, [0x20])
-  rom.writeAt(
-    TABLE.vertical,
-    layouts.map(l => l.vertical),
-  )
-  rom.writeAt(
-    TABLE.main,
-    layouts.map(l => l.main),
-  )
-  rom.writeAt(
-    TABLE.sub,
-    layouts.map(l => l.sub),
-  )
-  rom.writeAt(
-    TABLE.special,
-    layouts.map(l => l.special),
-  )
+  for (const key of ['vertical', 'main', 'sub', 'special'] as const) {
+    rom.writeAt(
+      TABLE[key],
+      layouts.map(l => l[key]),
+    )
+  }
   // LDA.L main,X / STA.W $0D9D / LDA.L sub,X / STA.W $0D9E / LDA.L cgadsub,X / STA.B $40 / LDA.L special,X / STA.W $0D9B
   // prettier-ignore
   rom.writeAt(SITE_AT, [0xbf, ...long(TABLE.main), 0x8d, 0x9d, 0x0d, 0xbf, ...long(TABLE.sub), 0x8d, 0x9e, 0x0d,

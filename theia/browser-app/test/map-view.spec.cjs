@@ -642,6 +642,17 @@ test('L2 shows above the back area: a clear L1 pixel shows the background, not t
   expect(near(await colorOnScreen(page, sel('l1Low'), spot.x, spot.y), backdrop)).toBe(true)
 })
 
+/** A screen-0 canvas stack, bottom to top, with each plane's z-index. */
+const zStack = (page, index) =>
+  page
+    .locator(`${root(index)} canvas[data-screen="0"]`)
+    .evaluateAll(cs =>
+      cs
+        .map(c => ({ plane: c.dataset.plane, z: Number(getComputedStyle(c).zIndex) }))
+        .sort((a, b) => a.z - b.z),
+    )
+const zOrder = async (page, index) => (await zStack(page, index)).map(c => c.plane)
+
 /**
  * BG mode 1 stacks BG1 high > BG2 high > BG1 low > BG2 low (map-screen's
  * MAP_PLANE_KEYS). Read from the computed z-index, not the source order. No
@@ -654,35 +665,15 @@ test('the canvas stack puts layer 2 under everything on a standard-layout map, b
 }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
-  const stackOf = index =>
-    page
-      .locator(`${root(index)} canvas[data-screen="0"]`)
-      .evaluateAll(cs =>
-        cs
-          .map(c => ({ plane: c.dataset.plane, z: Number(getComputedStyle(c).zIndex) }))
-          .sort((a, b) => a.z - b.z),
-      )
   // $105 is mode 0 (main BG1, BG3, OBJ; sub BG2) with the BG3 priority bit clear.
-  const stack = await stackOf(0x105)
+  const stack = await zStack(page, 0x105)
   expect(stack.map(c => c.plane)).toEqual(['l2Low', 'l2High', 'l3Low', 'l3High', 'l1Low', 'l1High'])
   expect(new Set(stack.map(c => c.z)).size, 'six distinct levels').toBe(6)
   expect(stack[0].z).toBeGreaterThan(0)
   // $0E7 is mode 8 (interactive layer 2): BG1 and BG2 on one screen, the BG mode 1 order, no layer 3.
   await openMap(page, project.manifestPath, 0xe7)
-  expect((await stackOf(0xe7)).map(c => c.plane)).toEqual(['l2Low', 'l1Low', 'l2High', 'l1High'])
+  expect(await zOrder(page, 0xe7)).toEqual(['l2Low', 'l1Low', 'l2High', 'l1High'])
 })
-
-/**
- * Layer 3 (#561), on vanilla maps measured from the ROM: $002 is a tide with the header's BG3
- * priority bit set (an overlay: its band is in l3High, drawn over layer 1, at the foot of every
- * screen), $01F is a cage with the bit clear (a background: l3High under l1Low), $105 has no
- * layer 3 and $009 is mode 2, an interactive layer 2 map.
- */
-const zOrder = (page, index) =>
-  page.locator(`${root(index)} canvas[data-screen="0"]`).evaluateAll(
-    cs =>
-      cs.map(c => ({ plane: c.dataset.plane, z: Number(getComputedStyle(c).zIndex) })).sort((a, b) => a.z - b.z).map(c => c.plane), // prettier-ignore
-  )
 
 /** The composite of every visible plane over the box that layer 3's own pixels fill on screen 0. */
 async function layer3Region(page, index, box) {
@@ -710,6 +701,12 @@ async function layer3Region(page, index, box) {
 
 const l3Toggle = (page, index) => page.locator(`${root(index)} [data-control="layer-l3"]`)
 
+/**
+ * Layer 3 (#561), on vanilla maps measured from the ROM: $002 is a tide with the header's BG3
+ * priority bit set (an overlay: its band is in l3High, drawn over layer 1, at the foot of every
+ * screen), $01F is a cage with the bit clear (a background: l3High under l1Low), $105 has no
+ * layer 3 and $009 is mode 2, an interactive layer 2 map.
+ */
 for (const [index, role, bit] of [
   [0x002, 'Layer 3 · Overlay', true],
   [0x01f, 'Layer 3 · Background', false],
