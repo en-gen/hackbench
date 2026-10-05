@@ -1,13 +1,12 @@
 /**
- * Which level modes use the standard layer layout, read from the level
- * loader's own tables (SMWDisX bank_05.asm:480-504, loaded at 542-553): the
- * main screen designation ($15 = BG1, BG3, OBJ), the sub screen ($02 = BG2),
- * the special-level setting (0 = normal) and VerticalTable bit 7 (layer 2
- * interactive, bank_00.asm:11736-11738). Under all four BG2 is only on the
- * sub screen, so it sits behind every main-screen layer; any other combination
- * stacks differently and is not drawn yet (#562).
+ * Each level mode's layer layout, read from the level loader's own tables
+ * (SMWDisX bank_05.asm:480-504, loaded at 542-553): the main screen designation
+ * ($212C), the sub screen ($212D), CGADSUB (LevCGADSUBtable, :495-499), the
+ * special-level setting ($0D9B, 0 = normal) and VerticalTable bit 7 (layer 2
+ * interactive, bank_00.asm:11736-11738). ScreenPlanes turns the designations into
+ * per-screen plane lists (#562); only a special setting stops layer 3 drawing.
  *
- * The four tables are named by the operands of CODE_0584E3's LDA.L loads, found
+ * The tables are named by the operands of CODE_0584E3's LDA.L loads, found
  * as one 27-byte site that must match exactly once, with each STA pinned to its
  * RAM destination, so a hooked loader reads as unverified and never as stock.
  * VerticalTable comes from `readVerticalTable`, which carries its own gate.
@@ -19,6 +18,8 @@ import type { RomFile } from './RomFile'
 export interface ModeLayout {
   main: number
   sub: number
+  /** LevCGADSUBtable's byte, before CODE_009FB8 clears BG3 (bit 2). */
+  cgadsub: number
   special: number
   /** VerticalTable's byte; bit 7 is layer 2 interactive. */
   vertical: number
@@ -36,6 +37,7 @@ const SITE: BytePattern = [
 ]
 const MAIN_AT = 1
 const SUB_AT = 8
+const CGADSUB_AT = 15
 const SPECIAL_AT = 21
 
 /** Every mode's layout, or why the load site is not the stock one. */
@@ -45,9 +47,9 @@ export function readModeLayouts(rom: RomFile): ModeLayoutsResult {
   if (!site.ok) return site
   const code = rom.readAtFileOffset(site.offset, SITE.length)!
   const table = (at: number) => rom.readAt(code[at]! | (code[at + 1]! << 8) | (code[at + 2]! << 16), VERTICAL_TABLE_LENGTH) // prettier-ignore
-  const [main, sub, special] = [MAIN_AT, SUB_AT, SPECIAL_AT].map(table)
+  const [main, sub, cgadsub, special] = [MAIN_AT, SUB_AT, CGADSUB_AT, SPECIAL_AT].map(table)
   const vertical = readVerticalTable(rom)
-  if (!main || !sub || !special)
+  if (!main || !sub || !cgadsub || !special)
     return { ok: false, reason: `${what} name a table outside the ROM` }
   if (!vertical.ok) return vertical
   return {
@@ -55,17 +57,19 @@ export function readModeLayouts(rom: RomFile): ModeLayoutsResult {
     layouts: Array.from({ length: VERTICAL_TABLE_LENGTH }, (_, m) => ({
       main: main[m]!,
       sub: sub[m]!,
+      cgadsub: cgadsub[m]!,
       special: special[m]!,
       vertical: vertical.table[m]!,
     })),
   }
 }
 
-/** Why layer 3 is not drawn for this layout, or null when it is the standard one. */
+/**
+ * Why layer 3 is not drawn for this layout, or null. The valid nonzero level
+ * values are the boss rooms (Iggy/Larry $80, Reznor/Morton/Roy $C0, Bowser $C1;
+ * rammap.asm:1331-1338); bit 7 sends NMI to Mode7NMI (bank_00.asm:233-235),
+ * so there is no BG3 tilemap to draw.
+ */
 export function layoutRefusal(l: ModeLayout): string | null {
-  if (l.vertical & 0x80) return 'Layer 3 not drawn yet: interactive layer 2 maps'
-  if (l.main !== 0x15 || l.sub !== 0x02 || l.special !== 0) {
-    return 'Layer 3 not drawn yet: this level mode has a non-standard layer layout'
-  }
-  return null
+  return l.special !== 0 ? 'Layer 3 not drawn: Mode 7 boss room level mode' : null
 }

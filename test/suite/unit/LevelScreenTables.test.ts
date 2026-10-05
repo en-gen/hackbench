@@ -1,6 +1,6 @@
 /**
- * The layer 3 gate's two readers (#561): which level modes use the standard
- * layer layout (CODE_0584E3's main/sub/special/vertical tables), and where a
+ * The layer 3 gate's two readers (#561, #562): each level mode's layer layout
+ * (CODE_0584E3's main/sub/CGADSUB/special/vertical tables), and where a
  * layer 3 settings byte puts layer 3 (CODE_009FB8). Synthetic ROMs throughout;
  * the corpus block at the end reads the vanilla tables straight by address.
  */
@@ -9,21 +9,30 @@ import { layoutRefusal, readModeLayouts } from '../../../src/rom/LevelScreenTabl
 import { l3LoadTimeY } from '../../../src/rom/L3Loader'
 import { RomFile } from '../../../src/rom/RomFile'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
-import { modeTablesRom, SITE_BYTES, STANDARD_MODES, sweepLayouts } from '../support/l3Rom'
+import { modeTablesRom, SITE_BYTES, STANDARD, STANDARD_MODES, sweepLayouts } from '../support/l3Rom'
 
 describe('readModeLayouts (synthetic)', () => {
-  it('names a standard layout for exactly the standard modes, across all 32', () => {
-    const r = readModeLayouts(modeTablesRom(sweepLayouts()))
-    if (!r.ok) throw new Error(r.reason)
-    const std = r.layouts.map((l, m) => (layoutRefusal(l) === null ? m : -1)).filter(m => m >= 0)
-    expect(std).toEqual(STANDARD_MODES)
+  it('reads the CGADSUB operand of the load site', () => {
+    const layouts = sweepLayouts().map((l, m) => ({ ...l, cgadsub: 0x20 + (m & 0x0f) }))
+    const r = readModeLayouts(modeTablesRom(layouts))
+    expect(r.ok && r.layouts.map(l => l.cgadsub)).toEqual(layouts.map(l => l.cgadsub))
   })
 
-  it('says interactive layer 2 for a vertical-table bit 7, and a non-standard layout otherwise', () => {
+  it('refuses exactly the modes with a nonzero special setting, across all 32', () => {
     const r = readModeLayouts(modeTablesRom(sweepLayouts()))
     if (!r.ok) throw new Error(r.reason)
-    expect(layoutRefusal(r.layouts[4]!)).toMatch(/non-standard/) // 4 % 4 === 0: main differs
-    expect(layoutRefusal(r.layouts[2]!)).toMatch(/interactive layer 2/) // 2 % 4 === 2: bit 7
+    const refused = r.layouts
+      .map((l, m) => (layoutRefusal(l) === null ? -1 : m))
+      .filter(m => m >= 0)
+    expect(refused).toEqual(sweepLayouts().flatMap((l, m) => (l.special !== 0 ? [m] : [])))
+    expect(refused.length).toBeGreaterThan(0)
+  })
+
+  it('refuses only a nonzero special setting: interactive and odd screens are drawn now', () => {
+    expect(layoutRefusal({ ...STANDARD, special: 0xc0 })).toMatch(/Layer 3 not drawn/)
+    expect(layoutRefusal({ ...STANDARD, vertical: 0x80 })).toBeNull()
+    expect(layoutRefusal({ ...STANDARD, main: 0x17, sub: 0x00 })).toBeNull()
+    expect(layoutRefusal(STANDARD)).toBeNull()
   })
 
   it('refuses when the load site is absent, repeated, or stores elsewhere', () => {
@@ -81,7 +90,7 @@ describe('l3LoadTimeY: where CODE_009FB8 puts layer 3 (synthetic bytes, no ROM)'
 
 /** The vanilla tables by their SMWDisX addresses, read with no gate in between. */
 describe.skipIf(!hasRom(VANILLA))('vanilla mode tables (corpus)', () => {
-  it('modes 0-$11 are standard for exactly the issue set; the table rule also admits the unused $12-$1D', () => {
+  it('the standard set is the issue set, and only a special setting refuses layer 3', () => {
     const rom = RomFile.load(romPath(VANILLA))
     const at = (a: number) => Array.from(rom.readAt(a, 32)!)
     const [main, sub, special, vertical] = [0x058437, 0x058457, 0x058497, 0x058417].map(at)
@@ -90,7 +99,7 @@ describe.skipIf(!hasRom(VANILLA))('vanilla mode tables (corpus)', () => {
     expect(used).toEqual(STANDARD_MODES)
     const r = readModeLayouts(rom)
     if (!r.ok) throw new Error(r.reason)
-    expect(r.layouts.map(l => layoutRefusal(l) === null)).toEqual(Array.from({ length: 32 }, (_, m) => std(m))) // prettier-ignore
-    expect(Array.from({ length: 12 }, (_, i) => i + 0x12).every(std)).toBe(true)
+    expect(r.layouts.map(l => layoutRefusal(l) === null)).toEqual(special!.map(v => v === 0))
+    expect(r.layouts.map(l => l.cgadsub)).toEqual(at(0x058477))
   })
 })
