@@ -221,6 +221,19 @@
   overflow-anchor: none;
   scrollbar-gutter: stable;
   padding: 1.2em;
+  position: relative;
+}
+
+/* Hover outline (#573): placed by positionHoverOutline, never in the bitmap.
+   Black border outside, white inset line against the tile; the 1.2em wrap
+   padding keeps it unclipped at the sheet edge. */
+.hb-map16-hover-outline {
+  display: none;
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid #000;
+  box-shadow: inset 0 0 0 1px #fff;
+  pointer-events: none;
 }
 
 .hb-map16-canvas {

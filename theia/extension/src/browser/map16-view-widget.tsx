@@ -60,14 +60,7 @@ import {
   SetMap16Result,
 } from '../common/map16-protocol'
 import { Map16FrontendClient } from './map16-push-client'
-import {
-  CHAR_PX,
-  QUADRANT_ORIGIN,
-  TILE_PX,
-  cropRegion,
-  decodeRgba,
-  paintHoverOutline,
-} from './map16-pixels'
+import { CHAR_PX, QUADRANT_ORIGIN, TILE_PX, cropRegion, decodeRgba } from './map16-pixels'
 import { paintCharSheet, renderCharPalettes } from './map16-char-palettes'
 import {
   QUADRANTS,
@@ -172,6 +165,7 @@ export class Map16ViewWidget extends ReactWidget {
   protected canvasEl: HTMLCanvasElement | null = null
   protected readonly zoomController = new ZoomController(ZOOM_OPTIONS, DEFAULT_ZOOM)
   protected canvasWrapEl: HTMLElement | null = null
+  protected hoverOutlineEl: HTMLElement | null = null
   protected wheelBinding: WheelBinding | undefined
   protected browserOpen = true
   /**
@@ -541,6 +535,31 @@ export class Map16ViewWidget extends ReactWidget {
     )
   }
 
+  /**
+   * Places the hover outline, a DOM box over the canvas rather than pixels in
+   * it (#573): the canvas bitmap never changes on hover, and a box can sit
+   * outside the tile and past the canvas edge (the wrap's padding is room
+   * for it). It is the tile grown by 2px: a 1px black border, then a 1px
+   * white inset line touching the tile. CSS px, so each line is 1 screen
+   * pixel at any zoom.
+   */
+  protected positionHoverOutline(): void {
+    const box = this.hoverOutlineEl
+    const sheet = this.sheet()
+    if (!box || !this.canvasEl || !sheet || this.hoverTileId === undefined) {
+      if (box) box.style.display = 'none'
+      return
+    }
+    const zoom = this.zoomController.value
+    const { x, y } = tileOrigin(this.hoverTileId, sheet.tilesPerRow)
+    const size = TILE_PX * zoom + 4
+    box.style.left = `${this.canvasEl.offsetLeft + x * zoom - 2}px`
+    box.style.top = `${this.canvasEl.offsetTop + y * zoom - 2}px`
+    box.style.width = `${size}px`
+    box.style.height = `${size}px`
+    box.style.display = 'block'
+  }
+
   protected handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>): void => {
     const id = this.tileIdAt(e)
     if (id === this.hoverTileId) return
@@ -754,13 +773,7 @@ export class Map16ViewWidget extends ReactWidget {
       }
     }
 
-    // Last, so it also reads on the selected tile (that one is accent blue).
-    // Both rings sit inside the tile's own 16x16, and the bitmap is natural
-    // resolution scaled by CSS zoom >= 1, so each 1px line is >= 1 screen px.
-    if (this.hoverTileId !== undefined) {
-      const { x, y } = tileOrigin(this.hoverTileId, sheet.tilesPerRow)
-      paintHoverOutline(ctx, x, y, TILE_PX)
-    }
+    this.positionHoverOutline()
   }
 
   /**
@@ -1092,6 +1105,12 @@ export class Map16ViewWidget extends ReactWidget {
               ref={el => {
                 this.canvasEl = el
                 this.paintCanvas()
+              }}
+            />
+            <div
+              className="hb-map16-hover-outline"
+              ref={el => {
+                this.hoverOutlineEl = el
               }}
             />
           </div>
