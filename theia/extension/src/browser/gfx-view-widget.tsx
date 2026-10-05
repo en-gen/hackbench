@@ -15,6 +15,7 @@
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message } from '@theia/core/lib/browser'
+import { Emitter } from '@theia/core'
 import { ThemeService } from '@theia/core/lib/browser/theming'
 import {
   GFX_FORMATS,
@@ -31,6 +32,13 @@ import { GridOverlay } from './grid-overlay'
 import { perfEnd, perfStart } from '../common/perf-marks'
 
 export const GFX_VIEW_ID = 'hackbench.gfx-view'
+/**
+ * Grid visibility is shared by every open GFX tab, like zoom: one switch for
+ * the view, not one per sheet.
+ */
+const gridChanged = new Emitter<void>()
+let gridShown = false
+
 /** One 8x8 character, the unit a GFX sheet is built from. */
 const GFX_CHAR_PX = 8
 
@@ -79,8 +87,6 @@ export class GfxViewWidget extends ReactWidget {
   protected paletteRowChoice: number | undefined
   protected canvasEl: HTMLCanvasElement | null = null
   protected wheelBinding: WheelBinding | undefined
-  /** Per tab; off by default. */
-  protected showGrid = false
   /** Bumped on every reload; a response is applied only if it is still current,
    * so two rapid control changes cannot have the slower one overwrite the newer. */
   protected reloadToken = 0
@@ -92,7 +98,8 @@ export class GfxViewWidget extends ReactWidget {
     this.node.tabIndex = 0
     // Every open sheet redraws when any one of them changes the zoom.
     this.toDispose.push(sharedZoomController.onDidChange(() => this.update()))
-    // The grid color is read from the theme at draw time.
+    this.toDispose.push(gridChanged.event(() => this.update()))
+    // The grid color is read from the theme at render.
     this.toDispose.push(this.themes.onDidColorThemeChange(() => this.update()))
     // `this.node` (`.hb-gfx-view`) is the widget's own scroll container in
     // BOTH axes - the canvas wrap has no bounded height of its own, so it
@@ -193,8 +200,8 @@ export class GfxViewWidget extends ReactWidget {
   }
 
   toggleGrid(): void {
-    this.showGrid = !this.showGrid
-    this.update()
+    gridShown = !gridShown
+    gridChanged.fire()
   }
 
   protected handleBppChange = (e: React.ChangeEvent<HTMLSelectElement>): void => {
@@ -260,10 +267,10 @@ export class GfxViewWidget extends ReactWidget {
           <button
             data-control="grid-toggle"
             type="button"
-            className={'hb-icon-btn' + (this.showGrid ? ' hb-icon-btn-on' : '')}
-            aria-pressed={this.showGrid}
-            title="Show grid"
-            aria-label="Show grid"
+            className={'hb-icon-btn' + (gridShown ? ' hb-icon-btn-on' : '')}
+            aria-pressed={gridShown}
+            title={gridShown ? 'Hide grid' : 'Show grid'}
+            aria-label={gridShown ? 'Hide grid' : 'Show grid'}
             onClick={() => this.toggleGrid()}
           >
             <span className="codicon codicon-table" />
@@ -274,7 +281,7 @@ export class GfxViewWidget extends ReactWidget {
         {s && s.height > 0 && (
           <div className="hb-gfx-view-canvas-wrap hb-grid-host">
             <canvas className="hb-gfx-view-canvas hb-pixel-canvas" ref={this.bindCanvas} />
-            {this.showGrid && (
+            {gridShown && (
               <GridOverlay
                 cellSize={GFX_CHAR_PX}
                 width={s.width}

@@ -1,7 +1,8 @@
 /**
- * `hackbench.gfx.toggleGrid` and `hackbench.map16.toggleGrid`: the keyboard
- * and palette route to each view's own grid button. They act on the focused
- * tab only, so the two views' grids stay independent.
+ * `hackbench.gfx.toggleGrid` and `hackbench.map16.toggleGrid`: Command
+ * Palette routes to each view's own grid button (no default keybinding). Each
+ * is enabled only while a tab of its own view is focused, so the two views'
+ * grids stay independent.
  */
 import { inject, injectable } from '@theia/core/shared/inversify'
 import { ApplicationShell } from '@theia/core/lib/browser'

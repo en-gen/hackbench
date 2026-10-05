@@ -32,7 +32,7 @@
 }
 
 /* Grid overlay (grid-overlay.tsx): above the content canvas, never in its
-   way. Foreground is the theme's own text color, so it contrasts either way. */
+   way. Its color is the theme's foreground, read by the component. */
 .hb-grid-host {
   position: relative;
   display: inline-block;
@@ -45,5 +45,15 @@
   top: 0;
   left: 0;
   pointer-events: none;
-  color: var(--theia-foreground);
+  /* Device-resolution canvas shown at CSS size: never let the browser smooth it. */
+  image-rendering: pixelated;
+}
+
+/* A content-resolution layer painted above the grid (Map16 selection and hover). */
+.hb-map16-highlight {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  image-rendering: pixelated;
 }

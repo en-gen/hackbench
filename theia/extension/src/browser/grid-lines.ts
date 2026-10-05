@@ -1,10 +1,14 @@
 /**
  * Where a grid overlay's lines fall, as pure arithmetic (no DOM, no Theia).
  *
- * Positions and weights are in SCREEN pixels: the overlay is drawn at screen
- * resolution, so a 1px line stays 1px at any zoom instead of scaling with the
- * bitmap it sits on. Kept free of `@theia/core` so vitest can load it in CI,
- * where `theia/node_modules` does not exist (see zoom-controller.ts).
+ * The overlay is drawn at DEVICE resolution, so a weight-1 line is exactly one
+ * device pixel at any zoom and any display scaling, where a line baked into
+ * the zoomed bitmap would thicken and blur. `pos` stays in CSS px (cell size
+ * times zoom, the number a test can reason about); every other field is in
+ * device px, ready to hand to fillRect. At `dpr` 1 the two coincide.
+ *
+ * Kept free of `@theia/core` so vitest can load it in CI, where
+ * `theia/node_modules` does not exist (see zoom-controller.ts).
  */
 
 /** A heavier line every `every` cells, counted from each band's own origin. */
@@ -12,7 +16,7 @@ export interface GridTier {
   every: number
   /** Omitted: both axes. */
   axis?: 'x' | 'y'
-  /** Screen pixels. */
+  /** Device px. Odd, so the line centres exactly on its boundary. */
   weight: number
 }
 
@@ -28,19 +32,24 @@ export interface GridSpec {
   /** Content pixels. */
   width: number
   height: number
-  /** Screen pixels per content pixel. */
+  /** CSS pixels per content pixel. */
   zoom: number
+  /** Device pixels per CSS pixel. Default 1. */
+  dpr?: number
   tiers?: readonly GridTier[]
   /** Default: one band over the whole height. */
   bands?: readonly GridBand[]
 }
 
 export interface GridLine {
-  /** Screen px of the line's leading edge, along the axis it divides. */
+  /** CSS px of the cell boundary this line sits on. */
   pos: number
-  /** Screen px thick. */
+  /** Requested thickness, device px. */
   weight: number
-  /** Screen px extent across the other axis. */
+  /** Device px: where the drawn line starts and how thick it is, after clipping. */
+  start: number
+  size: number
+  /** Device px extent across the other axis. */
   from: number
   to: number
 }
@@ -61,25 +70,46 @@ function weightAt(index: number, axis: 'x' | 'y', tiers: readonly GridTier[]): n
   return weight
 }
 
+/**
+ * Places one line of `weight` on the boundary at device px `at`, inside
+ * [lo, hi). A single pixel takes the boundary's leading pixel, pulled inside
+ * when the boundary is the trailing edge (otherwise it would be invisible).
+ * A wider line is centred and CLIPPED at the edges, never shifted inward, so
+ * its centre stays on the boundary. Even weights centre half a pixel early.
+ */
+function place(at: number, weight: number, lo: number, hi: number): [number, number] | undefined {
+  if (weight <= 1) {
+    const s = Math.min(Math.max(at, lo), hi - 1)
+    return hi > lo ? [s, 1] : undefined
+  }
+  const a = Math.max(at - Math.floor(weight / 2), lo)
+  const b = Math.min(at - Math.floor(weight / 2) + weight, hi)
+  return b > a ? [a, b - a] : undefined
+}
+
 export function computeGridLines(spec: GridSpec): GridLines {
   const { cellSize, width, height, zoom } = spec
+  const dpr = spec.dpr ?? 1
   const tiers = spec.tiers ?? []
   const bands = spec.bands ?? [{ top: 0, height }]
   const out: GridLines = { x: [], y: [] }
-  if (!(cellSize > 0) || !(zoom > 0)) return out
+  if (!(cellSize > 0) || !(zoom > 0) || !(dpr > 0)) return out
+  const dev = (css: number): number => Math.round(css * dpr)
+  const xEnd = dev(width * zoom)
   for (const band of bands) {
-    const from = band.top * zoom
-    const to = (band.top + band.height) * zoom
+    const from = dev(band.top * zoom)
+    const to = dev((band.top + band.height) * zoom)
     for (let i = 0; i * cellSize <= width; i++) {
-      out.x.push({ pos: i * cellSize * zoom, weight: weightAt(i, 'x', tiers), from, to })
+      const pos = i * cellSize * zoom
+      const weight = weightAt(i, 'x', tiers)
+      const p = place(dev(pos), weight, 0, xEnd)
+      if (p) out.x.push({ pos, weight, start: p[0], size: p[1], from, to })
     }
     for (let k = 0; k * cellSize <= band.height; k++) {
-      out.y.push({
-        pos: (band.top + k * cellSize) * zoom,
-        weight: weightAt(k, 'y', tiers),
-        from: 0,
-        to: width * zoom,
-      })
+      const pos = (band.top + k * cellSize) * zoom
+      const weight = weightAt(k, 'y', tiers)
+      const p = place(dev(pos), weight, from, to)
+      if (p) out.y.push({ pos, weight, start: p[0], size: p[1], from: 0, to: xEnd })
     }
   }
   return out

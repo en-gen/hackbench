@@ -171,6 +171,7 @@ export class Map16ViewWidget extends ReactWidget {
   /** Which palette sections are expanded. All four are always listed. */
   protected expandedSheets = new Set<Map16CharSlot>()
   protected canvasEl: HTMLCanvasElement | null = null
+  protected highlightEl: HTMLCanvasElement | null = null
   protected readonly zoomController = new ZoomController(ZOOM_OPTIONS, DEFAULT_ZOOM)
   protected canvasWrapEl: HTMLElement | null = null
   protected wheelBinding: WheelBinding | undefined
@@ -250,7 +251,7 @@ export class Map16ViewWidget extends ReactWidget {
   /** Grid geometry for the current sheet: a cell per tile, none across the page gaps. */
   protected gridOverlay(): React.ReactNode {
     const sheet = this.sheet()
-    if (!this.showGrid || !sheet) return undefined
+    if (!this.showGrid || !sheet || sheet.tiles.length === 0) return undefined
     const pageHeight = (TILES_PER_PAGE / sheet.tilesPerRow) * TILE_PX
     const pages = Math.ceil(sheet.tiles.length / TILES_PER_PAGE)
     return (
@@ -739,11 +740,30 @@ export class Map16ViewWidget extends ReactWidget {
 
     perfEnd('open-map16')
 
+    this.paintHighlight()
+  }
+
+  /**
+   * Hover dim and selection outline, on their own canvas ABOVE the grid
+   * overlay: baked into the strip they would sit under the grid lines and
+   * the selected tile's border would be cut by them. Same pixel size as the
+   * strip, sized by the same CSS, so it scales with zoom exactly as before.
+   */
+  protected paintHighlight(): void {
+    const sheet = this.sheet()
+    const base = this.canvasEl
+    const layer = this.highlightEl
+    if (!layer || !base || !sheet) return
+    layer.width = base.width
+    layer.height = base.height
+    layer.style.width = base.style.width
+    layer.style.height = base.style.height
+    const ctx = layer.getContext('2d')
+    if (!ctx) return
     if (this.hoverTileId !== undefined) {
       const { x, y } = tileOrigin(this.hoverTileId, sheet.tilesPerRow)
-      paintSpotlight(ctx, sheet.width, this.canvasEl.height, x, y, TILE_PX, TILE_PX)
+      paintSpotlight(ctx, sheet.width, layer.height, x, y, TILE_PX, TILE_PX)
     }
-
     const sel = this.selection
     if (sel) {
       const { x: selX, y: selY } = tileOrigin(sel.tileId, sheet.tilesPerRow)
@@ -933,8 +953,8 @@ export class Map16ViewWidget extends ReactWidget {
               type="button"
               className={'hb-icon-btn' + (this.showGrid ? ' hb-icon-btn-on' : '')}
               aria-pressed={this.showGrid}
-              title="Show grid"
-              aria-label="Show grid"
+              title={this.showGrid ? 'Hide grid' : 'Show grid'}
+              aria-label={this.showGrid ? 'Hide grid' : 'Show grid'}
               onClick={() => this.toggleGrid()}
             >
               <span className="codicon codicon-table" />
@@ -1088,6 +1108,13 @@ export class Map16ViewWidget extends ReactWidget {
                 }}
               />
               {this.gridOverlay()}
+              <canvas
+                className="hb-map16-highlight"
+                ref={el => {
+                  this.highlightEl = el
+                  this.paintHighlight()
+                }}
+              />
             </div>
           </div>
         )}

@@ -55,6 +55,7 @@
 const { test, expect } = require('@playwright/test')
 const { CART, shownWords } = require('./rom-words.cjs')
 const { expectCheckerboard } = require('./pixel-canvas.cjs')
+const { readGrid } = require('./grid-probe.cjs')
 const { parseRgbTriplet } = require('./palette-color.cjs')
 const fs = require('fs')
 const path = require('path')
@@ -1613,33 +1614,20 @@ test('changing tileset/palettes/zoom/grid/playing preserves the selection and th
   await page.locator(ctl('play-toggle')).click()
 })
 
-/**
- * The drawn grid, read back from the overlay's test hook (`data-grid-lines`,
- * grid-overlay.tsx) plus two pixels: one on a line, one mid-cell.
- */
-async function readGrid(page, root) {
-  return page.evaluate(sel => {
-    const el = document.querySelector(`${sel} .hb-grid-overlay`)
-    if (!el) return null
-    const lines = JSON.parse(el.dataset.gridLines)
-    const alphaAt = (x, y) => el.getContext('2d').getImageData(x, y, 1, 1).data[3]
-    const cell = Number(el.dataset.gridCellPx)
-    const uniq = ls => [...new Set(ls.map(l => l.pos))].sort((a, b) => a - b)
-    return {
-      cell,
-      x: uniq(lines.x),
-      y: uniq(lines.y),
-      weights: [...lines.x, ...lines.y].map(l => l.weight),
-      onLine: alphaAt(Math.round(cell), Math.round(cell / 2)),
-      midCell: alphaAt(Math.round(cell + cell / 2), Math.round(cell / 2)),
-    }
-  }, root)
+/** Where the hook should put each vertical line, recomputed from the cell. */
+function expectedStarts(cell, count, dpr, extentDev) {
+  return Array.from({ length: count }, (_, i) =>
+    Math.min(Math.round(i * cell * dpr), extentDev - 1),
+  )
 }
+
+/** Natural-px height of one page of tiles, before the gap band. */
+const PAGE_HEIGHT_PX = (TILES_PER_PAGE / TILES_PER_ROW) * TILE_PX
 
 /**
  * Grid is a pure overlay: its own canvas above the strip, so toggling never
  * touches the decoded pixels, and its lines are cell * zoom apart (a tile is
- * TILE_PX) with a 1 screen px weight at every zoom.
+ * TILE_PX) with a 1 device px weight at every zoom, none across a page gap.
  */
 test('the grid toggle draws 16px tile lines that track zoom, then removes them cleanly', async ({
   page,
@@ -1650,9 +1638,11 @@ test('the grid toggle draws 16px tile lines that track zoom, then removes them c
 
   expect(await readGrid(page, FG)).toBeNull() // off by default
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  await expect(toggle).toHaveAttribute('title', 'Show grid')
   const before = await readCanvas(page)
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  await expect(toggle).toHaveAttribute('title', 'Hide grid')
 
   const zooms = []
   for (let step = 0; step < 2; step++) {
@@ -1661,15 +1651,33 @@ test('the grid toggle draws 16px tile lines that track zoom, then removes them c
     const zoom = parseInt(await page.locator(ctl('zoom-indicator')).textContent(), 10) / 100
     zooms.push(zoom)
     const g = await readGrid(page, FG)
-    expect(g.cell).toBe(TILE_PX * zoom)
-    expect(new Set(g.x.slice(1).map((v, i) => v - g.x[i]))).toEqual(new Set([TILE_PX * zoom]))
-    // Vertical steps are a tile, except across a page gap (PAGE_GAP_PX).
-    const dy = new Set(g.y.slice(1).map((v, i) => v - g.y[i]))
-    expect([...dy].every(d => d === TILE_PX * zoom || d === PAGE_GAP_PX * zoom)).toBe(true)
-    expect(dy.has(TILE_PX * zoom)).toBe(true)
-    expect(new Set(g.weights)).toEqual(new Set([1]))
-    expect(g.onLine).toBeGreaterThan(0)
-    expect(g.midCell).toBe(0)
+    const cell = TILE_PX * zoom
+    expect(g.cell).toBe(cell)
+    // Both axes start at the content origin; a one-cell shift fails here.
+    expect(g.x[0]).toBe(0)
+    expect(g.y[0]).toBe(0)
+    expect(new Set(g.x.slice(1).map((v, i) => v - g.x[i]))).toEqual(new Set([cell]))
+    expect(g.x[g.x.length - 1]).toBe(TILES_PER_ROW * TILE_PX * zoom)
+    // Page 1 ends and the next starts a gap band later; no line falls in the band.
+    const bottom1 = PAGE_HEIGHT_PX * zoom
+    const top2 = (PAGE_HEIGHT_PX + PAGE_GAP_PX) * zoom
+    expect(g.y).toContain(bottom1)
+    expect(g.y).toContain(top2)
+    expect(g.y.filter(v => v > bottom1 && v < top2)).toEqual([])
+    expect(g.y.indexOf(top2) - g.y.indexOf(bottom1)).toBe(1)
+    // Within a page the step is a tile.
+    expect(g.y[1] - g.y[0]).toBe(cell)
+    // Constant 1 device px, painted on a vertical and a horizontal line, and on the LAST of each.
+    expect(new Set([...g.xLines, ...g.yLines].map(l => l.size))).toEqual(new Set([1]))
+    expect(g.vLine).toBeGreaterThan(0)
+    expect(g.vLast).toBeGreaterThan(0)
+    expect(g.hLine).toBeGreaterThan(0)
+    expect(g.hLast).toBeGreaterThan(0)
+    expect(g.mid).toBe(0)
+    // Horizontal lines run the full width; the strip's gap band stays unlined in pixels too.
+    expect(g.yLines.every(l => l.to - l.from === g.canvasW)).toBe(true)
+    expect(g.rowHits).toEqual(expectedStarts(cell, g.x.length, g.dpr, g.canvasW))
+    expect(g.colHits.some(v => v > bottom1 && v < top2)).toBe(false)
   }
   expect(zooms[1]).toBeGreaterThan(zooms[0])
   expect((await readCanvas(page)).checksum).toBe(before.checksum)
@@ -1678,6 +1686,28 @@ test('the grid toggle draws 16px tile lines that track zoom, then removes them c
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
   expect(await readGrid(page, FG)).toBeNull()
   expect((await readCanvas(page)).checksum).toBe(before.checksum)
+})
+
+/**
+ * Selection outline and hover dim are drawn ABOVE the grid, on their own
+ * layer, so a selected tile's border is never cut by a grid line.
+ */
+test('the grid draws under the selection outline, not over it', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  await page.locator(ctl('grid-toggle')).click()
+  await clickTile(page, 0)
+  await page.waitForTimeout(300)
+  const probe = await page.evaluate(sel => {
+    const overlay = document.querySelector(`${sel} .hb-grid-overlay`)
+    const layer = document.querySelector(`${sel} .hb-map16-highlight`)
+    const kids = [...overlay.parentElement.children]
+    // Tile 0's left edge: a grid line and the outline both want this column.
+    const hl = layer.getContext('2d').getImageData(0, 4, 1, 1).data
+    return { order: kids.indexOf(layer) > kids.indexOf(overlay), outlineAlpha: hl[3] }
+  }, FG)
+  expect(probe.order).toBe(true)
+  expect(probe.outlineAlpha).toBe(255)
 })
 
 test('the Map16 and GFX grids are independent, and the commands drive each', async ({ page }) => {
@@ -1714,6 +1744,32 @@ test('the Map16 and GFX grids are independent, and the commands drive each', asy
   await show('hackbench.gfx-view:0')
   expect(await readGrid(page, GFX)).not.toBeNull() // untouched by the Map16 toggle
 })
+
+/** HiDPI: one device pixel per line at fractional and doubled display scale. */
+for (const dpr of [1.5, 2]) {
+  test.describe(`at device pixel ratio ${dpr}`, () => {
+    test.use({ deviceScaleFactor: dpr })
+
+    test('every Map16 grid line is exactly one device pixel wide, on the right pixel', async ({
+      page,
+    }) => {
+      await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+      await openMap16(page, 'fg')
+      await page.locator(ctl('grid-toggle')).click()
+      await page.waitForTimeout(300)
+      expect(await page.evaluate(() => window.devicePixelRatio)).toBe(dpr)
+
+      const g = await readGrid(page, FG)
+      expect(g.dpr).toBe(dpr)
+      expect(g.canvasW).toBe(Math.round(g.cssW * dpr))
+      expect(g.rowHits).toEqual(expectedStarts(g.cell, g.x.length, dpr, g.canvasW))
+      expect(g.rowHits.every((v, i) => i === 0 || v - g.rowHits[i - 1] > 1)).toBe(true)
+      expect(g.colHits.every((v, i) => i === 0 || v - g.colHits[i - 1] > 1)).toBe(true)
+      // Each horizontal line is on its own rounded device row.
+      expect(g.colHits).toEqual([...new Set(g.yLines.map(l => l.start))].sort((a, b) => a - b))
+    })
+  })
+}
 
 test('the tile browser strip collapses and expands', async ({ page }) => {
   await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
