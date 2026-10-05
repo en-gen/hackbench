@@ -79,7 +79,7 @@ export function runCase(tc: StepCase, make: (bus: never) => Cpu65816 = defaultMa
         `[${addr.toString(16)}]: got ${(mem.get(addr) ?? 0).toString(16)} want ${v.toString(16)}`,
       )
   for (const addr of written)
-    if (!want.has(addr) && mem.get(addr) !== 0)
+    if (!want.has(addr))
       out.push(`[${addr.toString(16)}]: written ${mem.get(addr)!.toString(16)} but not in final`)
   return out
 }

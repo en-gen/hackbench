@@ -6,6 +6,10 @@
  * Scope: registers, flags and memory effects of one instruction per step().
  * Cycle counts and bus timing (dummy reads, write order, MLB/VPA lines) are
  * NOT modelled. Evidence: test/suite/unit/cpu/SingleStep.test.ts.
+ *
+ * WAI and STP only set `waiting` / `stopped`; step() does not halt, callers
+ * check the flags. MVN/MVP move one byte per step(), so `onInstruction` fires
+ * once per byte moved.
  */
 
 export interface Bus {
@@ -165,8 +169,12 @@ export class Cpu65816 {
   }
   /**
    * `old` stack ops (6502 heritage) wrap inside page 1 in emulation mode; the
-   * 65816 additions (PEA PEI PER PHD PLD PLB JSL RTL) let S walk out
-   * of the page and are re-pinned to page 1 after the instruction.
+   * 65816 additions (PEA PEI PER PHD PLD PLB JSL RTL) let S walk out of the
+   * page and are re-pinned to page 1 after the instruction. These rules are
+   * FITTED to the SingleStepTests data, not derived from hardware docs: ares
+   * (instructions-pc.cpp) differs on JSR (a,X), and LakeSnes wraps every push.
+   * PHB and PHK are 65816 additions too; treating them as `old` is harmless
+   * because of the post-step S pin.
    */
   private push(v: number, n = 1, old = true): void {
     for (let i = n - 1; i >= 0; i--) {

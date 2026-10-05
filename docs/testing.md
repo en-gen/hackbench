@@ -109,7 +109,7 @@ and the suites SKIP rather than throwing during collection.
 `test/suite/unit/cpu/SingleStep.test.ts` runs `src/rom/cpu/Cpu65816.ts`
 against [SingleStepTests/65816](https://github.com/SingleStepTests/65816):
 512 files (`{op}.{n|e}.json`, 10,000 cases each), one `it` per file. The data
-is 3.2 GB and its license is unverified, so it is never vendored. Clone it to
+is about 2.7 GB of data (3.2 GB as a git clone) and its license is unverified, so it is never vendored. Clone it to
 `<hackbench-tools>/singlestep65816/` or point `HACKBENCH_SINGLESTEP` at the
 clone (or its `v1` directory); without it every case skips. It checks
 registers, flags and memory; cycle and bus-line data are ignored. MVN/MVP

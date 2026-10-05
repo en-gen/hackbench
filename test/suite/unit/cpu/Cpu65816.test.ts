@@ -123,6 +123,69 @@ describe('Cpu65816 branches', () => {
   })
 })
 
+describe('Cpu65816 block moves and direct page wrap', () => {
+  it('a full MVN of $300 bytes ends with A=$FFFF, X/Y advanced, DB=dst, PC after the instruction', () => {
+    const { cpu, mem, run } = machine([
+      ...NATIVE,
+      0xc2,
+      0x30,
+      0xa2,
+      0x00,
+      0x20,
+      0xa0,
+      0x00,
+      0x40,
+      0xa9,
+      0xff,
+      0x02,
+      0x54,
+      0x7f,
+      0x7e,
+    ])
+    for (let i = 0; i < 0x300; i++) mem.set(0x7e2000 + i, (i * 7 + 1) & 0xff)
+    run(2 + 4 + 0x300)
+    expect([cpu.a, cpu.x, cpu.y, cpu.db, cpu.pc]).toEqual([0xffff, 0x2300, 0x4300, 0x7f, 0x8010])
+    for (let i = 0; i < 0x300; i++) expect(mem.get(0x7f4000 + i)).toBe((i * 7 + 1) & 0xff)
+  })
+  it('MVP with 8-bit index registers wraps X and Y inside 8 bits', () => {
+    const { cpu, mem, run } = machine([
+      ...NATIVE,
+      0xc2,
+      0x20,
+      0xe2,
+      0x10,
+      0xa2,
+      0x02,
+      0xa0,
+      0x01,
+      0xa9,
+      0x03,
+      0x00,
+      0x44,
+      0x7f,
+      0x7e,
+    ])
+    mem.set(0x7e0002, 0xa1)
+    mem.set(0x7e0001, 0xa2)
+    mem.set(0x7e0000, 0xa3)
+    mem.set(0x7e00ff, 0xa4)
+    run(2 + 5 + 4)
+    expect([cpu.a, cpu.x, cpu.y, cpu.pc]).toEqual([0xffff, 0xfe, 0xfd, 0x8010])
+    expect([0x01, 0x00, 0xff, 0xfe].map(a => mem.get(0x7f0000 + a))).toEqual([
+      0xa1, 0xa2, 0xa3, 0xa4,
+    ])
+  })
+  it('a 16-bit direct page read at D+offset=$FFFF takes its high byte from $0000 of bank 0', () => {
+    const { cpu, mem, run } = machine([...NATIVE, 0xc2, 0x20, 0xa5, 0xff])
+    cpu.d = 0xff00
+    mem.set(0xffff, 0x34)
+    mem.set(0x0000, 0x12)
+    mem.set(0x010000, 0x99)
+    run(4)
+    expect(cpu.a).toBe(0x1234)
+  })
+})
+
 describe('SingleStep harness oracle', () => {
   // ADC #$01 with A=$FF in 8-bit emulation mode: A=$00, C=1, Z=1.
   const tc = (carry: number): StepCase => ({
@@ -171,6 +234,15 @@ describe('SingleStep harness oracle', () => {
       }
     }
     expect(runCase(tc(1), bus => new NoCarry(bus)).join()).toContain('p: got')
+  })
+  it('goes red on a stray write of 0 to an unlisted address', () => {
+    class StrayZero extends Cpu65816 {
+      override step() {
+        super.step()
+        this.bus.write(0x5000, 0)
+      }
+    }
+    expect(runCase(tc(1), bus => new StrayZero(bus)).join()).toContain('[5000]')
   })
   it('goes red when memory differs', () => {
     const bad = tc(1)
