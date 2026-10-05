@@ -316,7 +316,7 @@ houses run an entrance animation (`!PAni_CastleEntrance = 10`,
 `constants.asm:185`). Measured on `$0DB` and `$111`: at the first
 `GameMode == $14` both read the SAME `Layer1DataPtr` of `$07802C` and report
 a 1-screen mode-0 level, the entrance room. Their real headers, 5 and 15
-screens, appear about 520 frames later. That matches `spike/FINDINGS.md:490`,
+screens, appear about 520 frames later. That matches `spikes/libretro-view-engine/FINDINGS.md:490`,
 where 66 of 161 levels "failed an identity gate, many collapsing to a bogus
 1-screen mode-0 level", and is likely the whole 66. The capture must wait
 for `PlayerAnimation` at `$7E0071` to read `$00` AND `GameMode` to read

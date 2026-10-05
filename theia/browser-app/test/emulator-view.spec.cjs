@@ -938,7 +938,7 @@ test('the core keeps running through maximize and moving the tab to another area
 /**
  * Keyboard reaches the core as controller input through its exported
  * simulate_input. The spike showed the game acting on those calls (Mario
- * ran right on command, spike/FINDINGS.md), so the assertion is that the
+ * ran right on command, spikes/libretro-view-engine/FINDINGS.md), so the assertion is that the
  * right calls are made from real key presses, and nothing is left held
  * when focus leaves.
  */
