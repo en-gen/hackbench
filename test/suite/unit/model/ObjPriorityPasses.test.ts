@@ -3,7 +3,7 @@
  *
  * Test tree:
  *   pass table   : ppuDrawOrder covers every (layer, priority) pair, in the
- *                  order docs/snes-superfamicom-selected.md:501-518 gives
+ *                  order docs/rom/obj-priority.md section 1 gives
  *   livePasses   : filters to occupied pairs, preserves PPU order
  *   the bug      : an OBJ.1 sprite draws UNDER a priority BG tile at the
  *                  same cell -- this is what the single-pass render got
@@ -140,7 +140,7 @@ describe('ppuDrawOrder', () => {
 
   it('places OBJ.1 under both BG1 and BG2, and OBJ.3 over both', () => {
     // The whole point: a single sprite pass between "BG" and "foreground BG"
-    // cannot express this. docs/snes-superfamicom-selected.md:505-514.
+    // cannot express this. docs/rom/obj-priority.md section 1.
     for (const bit of [false, true]) {
       const at = (key: string): number =>
         ppuDrawOrder(bit).findIndex(p => `${p.layer}.${p.priority}` === key)
