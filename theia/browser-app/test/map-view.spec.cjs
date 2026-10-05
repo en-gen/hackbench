@@ -2097,3 +2097,75 @@ test('the grid is composited above opaque level content', async ({ page }) => {
   expect(r.lineChanged).toBeGreaterThanOrEqual(r.n * 0.9)
   expect(r.besideSame).toBeGreaterThanOrEqual(r.n * 0.9)
 })
+
+/**
+ * The grid must also sit above the SPRITE layer (#564), which stacks between L1's low and
+ * priority planes: a grid under the sprites shows through clear pixels only, so the opaque-terrain
+ * check above passes. $106's first $05 sits at content (432, 304) to (448, 336), and the tile lines
+ * x = 432 and y = 320 cross it. Pixels where that sprite is opaque must change when the grid is on.
+ */
+test('the grid is composited above the sprite layer', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x106)
+  await page.locator(`${root(0x106)} [data-control="zoom-actual"]`).click()
+  await page.waitForTimeout(400)
+  await showScreen(page, 0x106, 1)
+  await expect(spritePlane(page, 0x106, 1)).toHaveAttribute('data-drawn', SPRITES_DRAWN)
+  await showGrid(page, 0x106)
+  await page.mouse.move(0, 0)
+  // The koopa's rows are 304..336: bring them to the middle of the scroller, not just the screen's top.
+  await page.evaluate(sel => {
+    const sc = document.querySelector(`${sel} [data-control="map-scroller"]`)
+    sc.scrollTop = Math.max(0, 320 - sc.clientHeight / 2)
+  }, root(0x106))
+  await page.waitForTimeout(300)
+  const probe = await page.evaluate(sel => {
+    const c = document.querySelector(`${sel} canvas[data-screen="1"][data-plane="sprites"]`)
+    const cr = c.getBoundingClientRect()
+    const zoom = cr.width / c.width
+    const a = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+    const pts = []
+    for (let y = 304; y < 336; y++) {
+      for (let x = 432; x < 448; x++) {
+        // Opaque sprite pixels exactly on a grid line.
+        if ((x === 432 || y === 320) && a[(y * c.width + (x - 256)) * 4 + 3] === 255) {
+          const p = [Math.round(cr.left + (x - 256) * zoom), Math.round(cr.top + y * zoom)]
+          const sr = document.querySelector(`${sel} [data-control="map-scroller"]`).getBoundingClientRect() // prettier-ignore
+          if (p[0] > sr.left && p[0] < sr.right && p[1] > sr.top && p[1] < sr.bottom) pts.push(p)
+        }
+      }
+    }
+    const o = document.querySelector(`${sel} .hb-grid-overlay`)
+    return { pts, zoom, dpr: Number(o.dataset.gridDpr), w: innerWidth, h: innerHeight }
+  }, root(0x106))
+  expect([probe.zoom, probe.dpr]).toEqual([1, 1])
+  // Not vacuous: enough opaque sprite pixels lie on the lines.
+  expect(probe.pts.length).toBeGreaterThan(8)
+  const shot = async () =>
+    (await page.screenshot({ clip: { x: 0, y: 0, width: probe.w, height: probe.h } })).toString('base64') // prettier-ignore
+  const on = await shot()
+  await page.locator(gridToggle(0x106)).click()
+  await expect(page.locator(`${root(0x106)} .hb-grid-overlay`)).toHaveCount(0)
+  const off = await shot()
+  const changed = await page.evaluate(
+    async ({ on, off, pts }) => {
+      const read = async b64 => {
+        const img = new Image()
+        img.src = `data:image/png;base64,${b64}`
+        await img.decode()
+        const c = document.createElement('canvas')
+        c.width = img.width
+        c.height = img.height
+        const ctx = c.getContext('2d')
+        ctx.drawImage(img, 0, 0)
+        return ctx.getImageData(0, 0, c.width, c.height)
+      }
+      const [a, b] = [await read(on), await read(off)]
+      const px = (d, [x, y]) => Array.from(d.data.slice((y * d.width + x) * 4, (y * d.width + x) * 4 + 3)).join() // prettier-ignore
+      return pts.filter(p => px(a, p) !== px(b, p)).length
+    },
+    { on, off, pts: probe.pts },
+  )
+  // 80%: a sprite can animate between the two screenshots.
+  expect(changed).toBeGreaterThanOrEqual(probe.pts.length * 0.8)
+})
