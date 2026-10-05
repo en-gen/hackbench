@@ -30,3 +30,21 @@
   );
   background-size: 16px 16px;
 }
+
+/* Grid overlay (grid-overlay.tsx): above the content canvas, never in its
+   way. Its color is the theme's foreground, read by the component. */
+.hb-grid-host {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+  vertical-align: top;
+}
+
+.hb-grid-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  /* Device-resolution canvas shown at CSS size: never let the browser smooth it. */
+  image-rendering: pixelated;
+}

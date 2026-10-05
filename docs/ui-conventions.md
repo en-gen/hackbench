@@ -61,7 +61,7 @@ Codicons, the same set the rest of the shell uses. One meaning per glyph.
 | `symbol-color`         | palettes                        |
 | `file-media`           | a GFX file                      |
 | `symbol-structure`     | a Map16 block table             |
-| `table`                | toggle the tile grid            |
+| `table`                | toggle the grid (GFX, Map16)    |
 | `play` / `debug-stop`  | start / stop animation playback |
 | `zoom-in` / `zoom-out` | step zoom                       |
 | `screen-full`          | fit to window (Maps)            |
@@ -154,6 +154,11 @@ border box and take no layout space.
   top at paint time and never baked into the decoded pixels. Toggling one
   is a repaint, not a reload, and the bytes an export would use stay
   exactly what the ROM says.
+- The grid (GFX 8x8 characters, Map16 16x16 tiles) is the shared
+  `GridOverlay`: its own canvas at DEVICE resolution above the content, so
+  a line is one device pixel at any zoom and display scale. Selection and
+  hover outlines sit above it. The tooltip reads "Show grid" and, once on,
+  "Hide grid"; GFX shares one switch across its tabs, like zoom.
 - A hidden tile (blank until a switch is on, e.g. vanilla `$027-$02A`) is
   drawn with its switched-on art in a soft screen door, in color, never
   blank: a checkerboard on the tile's own pixel grid, full strength where

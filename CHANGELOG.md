@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The map view has a grid toggle (table icon, "Show grid", off by default; command
+  `hackbench.maps.toggleGrid`): a thin line on every 16x16 tile, a medium one where a screen's
+  top and bottom halves meet (row 16; column 16 in vertical maps), a thick one on screen
+  boundaries. It draws only what is in view, so it stays crisp and cheap on long maps at any
+  zoom.
+- A grid toggle (table icon, "Show grid") in the Graphics and Map16 views draws a one-pixel
+  line around every 8x8 character or 16x16 tile, crisp at any zoom and display scale. Graphics
+  tabs share one switch; Map16 keeps its own. The Map16 selection and hover outlines draw above
+  it.
 - Map explorer lists Area 1..N under Overworld, each opening its own 256x224 tab drawn with that
   area's tileset and palette; the Overworld view is the hub only (#364).
 - Map view draws L2 (background) behind and in front of L1 in priority planes, with a

@@ -9,6 +9,7 @@
 const { test, expect } = require('@playwright/test')
 const { CART, shownWords, makeUntitledAndUnlocated } = require('./rom-words.cjs')
 const { expectCheckerboard } = require('./pixel-canvas.cjs')
+const { readGrid, shootCanvas, compositedGridDiff } = require('./grid-probe.cjs')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
@@ -761,4 +762,171 @@ test('plain wheel still scrolls the GFX view and does not touch zoom', async ({ 
   const scrollAfter = await view.evaluate(el => el.scrollTop)
   expect(scrollAfter).toBeGreaterThan(scrollBefore)
   expect(await page.locator('[data-control="zoom-indicator"]').textContent()).toBe('800%')
+})
+
+/** Same boundary list as the hook, recomputed here from first principles. */
+function expectedStarts(cell, count, dpr, extentDev) {
+  return Array.from({ length: count }, (_, i) =>
+    Math.min(Math.round(i * cell * dpr), extentDev - 1),
+  )
+}
+
+/** A grid line is checked against pixels, not just the hook. */
+function expectGridGeometry(g, cellContent, zoom, widthContent) {
+  const cell = cellContent * zoom
+  expect(g.cell).toBe(cell)
+  // The first line sits on the content's origin: a one-cell shift fails here.
+  expect(g.x[0]).toBe(0)
+  expect(g.y[0]).toBe(0)
+  expect(g.x.length).toBeGreaterThan(2)
+  // Spacing is cell * zoom for EVERY neighbour, not just the first.
+  expect(new Set(g.x.slice(1).map((v, i) => v - g.x[i]))).toEqual(new Set([cell]))
+  // Ends exactly at the content edge.
+  expect(g.x[g.x.length - 1]).toBe(widthContent * zoom)
+  // Constant 1 device px, really painted, including the last of each axis.
+  expect(new Set([...g.xLines, ...g.yLines].map(l => l.size))).toEqual(new Set([1]))
+  expect(g.vLine).toBeGreaterThan(0)
+  expect(g.vLast).toBeGreaterThan(0)
+  expect(g.hLine).toBeGreaterThan(0)
+  expect(g.hLast).toBeGreaterThan(0)
+  expect(g.mid).toBe(0)
+  // Every horizontal line runs the full width of the sheet.
+  expect(g.yLines.every(l => l.to - l.from === g.canvasW)).toBe(true)
+  // The pixels along the first cell's middle row ARE the vertical lines, no more, no fewer.
+  expect(g.rowHits).toEqual(expectedStarts(cell, g.x.length, g.dpr, g.canvasW))
+}
+
+test('the grid toggle shows an 8px-cell overlay that tracks zoom, and hides again', async ({
+  page,
+}) => {
+  await loadGfx(page, path.join(tmp, 'MyHack'))
+  await revealGfx(page)
+  await firstGfxFileRow(page).click()
+  await page.waitForSelector('.hb-gfx-view-canvas', { timeout: 15000 })
+  await page.waitForTimeout(300)
+  const root = '.hb-gfx-view'
+  const sheetPixels = () =>
+    page
+      .locator('.hb-gfx-view-canvas')
+      .evaluate(c =>
+        Array.from(c.getContext('2d').getImageData(0, 0, c.width, c.height).data).join(','),
+      )
+
+  const toggle = page.locator(`${root} [data-control="grid-toggle"]`)
+  expect(await readGrid(page, root)).toBeNull() // off by default
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  await expect(toggle).toHaveAttribute('title', 'Show grid')
+  await expect(toggle).toHaveClass(/hb-icon-btn-off/)
+
+  const contentBefore = await sheetPixels()
+  const sheetWidth = await page.locator('.hb-gfx-view-canvas').evaluate(c => c.width)
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  await expect(toggle).toHaveAttribute('title', 'Hide grid')
+  await expect(toggle).toHaveClass(/hb-icon-btn-on/)
+  const zooms = []
+  for (let step = 0; step < 2; step++) {
+    if (step > 0) await page.locator('[data-control="zoom-in"]').click()
+    await page.waitForTimeout(200)
+    const zoom =
+      parseInt(await page.locator('[data-control="zoom-indicator"]').textContent(), 10) / 100
+    zooms.push(zoom)
+    expectGridGeometry(await readGrid(page, root), 8, zoom, sheetWidth)
+  }
+  expect(zooms[1]).toBeGreaterThan(zooms[0])
+
+  // A pure overlay: the sheet's own pixels are untouched.
+  expect(await sheetPixels()).toBe(contentBefore)
+
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  expect(await readGrid(page, root)).toBeNull()
+})
+
+test('the GFX grid is one switch for every open GFX tab, like zoom', async ({ page }) => {
+  await loadGfx(page, path.join(tmp, 'MyHack'))
+  await revealGfx(page)
+  await gfxFileRow(page, 0).dblclick()
+  await page.waitForSelector(`${gfxViewRoot(0)} .hb-gfx-view-canvas`, { timeout: 15000 })
+  await revealGfx(page)
+  await gfxFileRow(page, 1).dblclick()
+  await page.waitForSelector(`${gfxViewRoot(1)} .hb-gfx-view-canvas`, { timeout: 15000 })
+
+  await page.locator(`${gfxViewRoot(1)} [data-control="grid-toggle"]`).click()
+  expect(await readGrid(page, gfxViewRoot(1))).not.toBeNull()
+  // The other tab, brought to the front, shows it already on.
+  await page.evaluate(async id => {
+    await getSvc('ApplicationShell').activateWidget(id)
+  }, 'hackbench.gfx-view:0')
+  await page.waitForTimeout(400)
+  expect(await readGrid(page, gfxViewRoot(0))).not.toBeNull()
+  await expect(page.locator(`${gfxViewRoot(0)} [data-control="grid-toggle"]`)).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  await page.locator(`${gfxViewRoot(0)} [data-control="grid-toggle"]`).click()
+  expect(await readGrid(page, gfxViewRoot(0))).toBeNull()
+})
+
+/**
+ * HiDPI: the overlay is backed at device resolution, so a line is exactly ONE
+ * device pixel at a fractional or doubled display scale, where a canvas
+ * stretched by the browser would smear it across two.
+ */
+for (const dpr of [1.5, 2]) {
+  test.describe(`at device pixel ratio ${dpr}`, () => {
+    test.use({ deviceScaleFactor: dpr })
+
+    test('every grid line is exactly one device pixel wide, on the right pixel', async ({
+      page,
+    }) => {
+      await loadGfx(page, path.join(tmp, 'MyHack'))
+      await revealGfx(page)
+      await firstGfxFileRow(page).click()
+      await page.waitForSelector('.hb-gfx-view-canvas', { timeout: 15000 })
+      await page.locator('.hb-gfx-view [data-control="grid-toggle"]').click()
+      await page.waitForTimeout(300)
+      expect(await page.evaluate(() => window.devicePixelRatio)).toBe(dpr)
+
+      const g = await readGrid(page, '.hb-gfx-view')
+      expect(g.dpr).toBe(dpr)
+      expect(g.canvasW).toBe(Math.round(g.cssW * dpr))
+      // Positions come from the cell, not from the hook's own claim.
+      expect(g.rowHits).toEqual(expectedStarts(g.cell, g.x.length, dpr, g.canvasW))
+      // No two hits are adjacent: each line is one device pixel, not two.
+      expect(g.rowHits.every((v, i) => i === 0 || v - g.rowHits[i - 1] > 1)).toBe(true)
+      expect(g.colHits.every((v, i) => i === 0 || v - g.colHits[i - 1] > 1)).toBe(true)
+      expect(g.colHits).toEqual(expectedStarts(g.cell, g.y.length, dpr, g.canvasH))
+    })
+  })
+}
+
+/**
+ * The grid must be visible in the COMPOSITED page, not just painted: a canvas
+ * stacked below the sheet draws every pixel the hook claims and shows none of
+ * them. Two real screenshots, grid off then on, compared numerically.
+ */
+test('the grid shows in a real screenshot: line pixels change, no other pixel does', async ({
+  page,
+}) => {
+  await loadGfx(page, path.join(tmp, 'MyHack'))
+  await revealGfx(page)
+  await firstGfxFileRow(page).click()
+  await page.waitForSelector('.hb-gfx-view-canvas', { timeout: 15000 })
+  await page.waitForTimeout(300)
+  await page.mouse.move(2, 2)
+  const toggle = page.locator('.hb-gfx-view [data-control="grid-toggle"]')
+
+  const off = await shootCanvas(page, '.hb-gfx-view-canvas')
+  await toggle.click()
+  await page.mouse.move(2, 2)
+  await page.waitForTimeout(300)
+  const grid = await readGrid(page, '.hb-gfx-view')
+  const on = await shootCanvas(page, '.hb-gfx-view-canvas')
+  const d = await compositedGridDiff(page, off, on, grid)
+
+  expect([d.bW, d.bH]).toEqual([d.W, d.H])
+  expect(d.lineTotal).toBeGreaterThan(100)
+  expect(d.lineChanged / d.lineTotal).toBeGreaterThan(0.95)
+  expect(d.otherChanged).toBe(0)
 })

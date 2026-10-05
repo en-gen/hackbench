@@ -55,6 +55,7 @@
 const { test, expect } = require('@playwright/test')
 const { CART, shownWords } = require('./rom-words.cjs')
 const { expectCheckerboard } = require('./pixel-canvas.cjs')
+const { readGrid, shootCanvas, compositedGridDiff, samplePixels } = require('./grid-probe.cjs')
 const { parseRgbTriplet } = require('./palette-color.cjs')
 const fs = require('fs')
 const path = require('path')
@@ -1613,24 +1614,166 @@ test('changing tileset/palettes/zoom/grid/playing preserves the selection and th
   await page.locator(ctl('play-toggle')).click()
 })
 
+/** Where the hook should put each vertical line, recomputed from the cell. */
+function expectedStarts(cell, count, dpr, extentDev) {
+  return Array.from({ length: count }, (_, i) =>
+    Math.min(Math.round(i * cell * dpr), extentDev - 1),
+  )
+}
+
+/** Natural-px height of one page of tiles, before the gap band. */
+const PAGE_HEIGHT_PX = (TILES_PER_PAGE / TILES_PER_ROW) * TILE_PX
+
 /**
- * Grid is a pure overlay (paintCanvas's own doc comment): toggling it
- * repaints the SAME decoded pixels with lines on top, then the identical
- * pixels again with them removed - never a re-decode, never a residue.
+ * Grid is a pure overlay: its own canvas above the strip, so toggling never
+ * touches the decoded pixels, and its lines are cell * zoom apart (a tile is
+ * TILE_PX) with a 1 device px weight at every zoom, none across a page gap.
  */
-test('toggling grid draws an overlay and removes it cleanly', async ({ page }) => {
+test('the grid toggle draws 16px tile lines that track zoom, then removes them cleanly', async ({
+  page,
+}) => {
   await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
   await openMap16(page, 'fg')
+  const toggle = page.locator(ctl('grid-toggle'))
 
+  expect(await readGrid(page, FG)).toBeNull() // off by default
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  await expect(toggle).toHaveAttribute('title', 'Show grid')
   const before = await readCanvas(page)
-  await page.locator(ctl('grid-toggle')).click()
-  await page.waitForTimeout(150)
-  expect((await readCanvas(page)).checksum).not.toBe(before.checksum)
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  await expect(toggle).toHaveAttribute('title', 'Hide grid')
 
-  await page.locator(ctl('grid-toggle')).click()
-  await page.waitForTimeout(150)
+  const zooms = []
+  for (let step = 0; step < 2; step++) {
+    if (step > 0) await page.locator(ctl('zoom-in')).click()
+    await page.waitForTimeout(200)
+    const zoom = parseInt(await page.locator(ctl('zoom-indicator')).textContent(), 10) / 100
+    zooms.push(zoom)
+    const g = await readGrid(page, FG)
+    const cell = TILE_PX * zoom
+    expect(g.cell).toBe(cell)
+    // Both axes start at the content origin; a one-cell shift fails here.
+    expect(g.x[0]).toBe(0)
+    expect(g.y[0]).toBe(0)
+    expect(new Set(g.x.slice(1).map((v, i) => v - g.x[i]))).toEqual(new Set([cell]))
+    expect(g.x[g.x.length - 1]).toBe(TILES_PER_ROW * TILE_PX * zoom)
+    // Page 1 ends and the next starts a gap band later; no line falls in the band.
+    const bottom1 = PAGE_HEIGHT_PX * zoom
+    const top2 = (PAGE_HEIGHT_PX + PAGE_GAP_PX) * zoom
+    expect(g.y).toContain(bottom1)
+    expect(g.y).toContain(top2)
+    expect(g.y.filter(v => v > bottom1 && v < top2)).toEqual([])
+    expect(g.y.indexOf(top2) - g.y.indexOf(bottom1)).toBe(1)
+    // Within a page the step is a tile.
+    expect(g.y[1] - g.y[0]).toBe(cell)
+    // Constant 1 device px, painted on a vertical and a horizontal line, and on the LAST of each.
+    expect(new Set([...g.xLines, ...g.yLines].map(l => l.size))).toEqual(new Set([1]))
+    expect(g.vLine).toBeGreaterThan(0)
+    expect(g.vLast).toBeGreaterThan(0)
+    expect(g.hLine).toBeGreaterThan(0)
+    expect(g.hLast).toBeGreaterThan(0)
+    expect(g.mid).toBe(0)
+    // Horizontal lines run the full width; the strip's gap band stays unlined in pixels too.
+    expect(g.yLines.every(l => l.to - l.from === g.canvasW)).toBe(true)
+    expect(g.rowHits).toEqual(expectedStarts(cell, g.x.length, g.dpr, g.canvasW))
+    expect(g.colHits.some(v => v > bottom1 && v < top2)).toBe(false)
+  }
+  expect(zooms[1]).toBeGreaterThan(zooms[0])
+  expect((await readCanvas(page)).checksum).toBe(before.checksum)
+
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  expect(await readGrid(page, FG)).toBeNull()
   expect((await readCanvas(page)).checksum).toBe(before.checksum)
 })
+
+/**
+ * The outline boxes (#577) share the grid's positioned host and come after
+ * it in the DOM, so they stack above its lines. The pixel proof is the
+ * composited "cover the grid line" test below.
+ */
+test('the outline boxes sit above the grid overlay in the same stacking context', async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  await page.locator(ctl('grid-toggle')).click()
+  await clickTile(page, 0)
+  await page.waitForTimeout(300)
+  const probe = await page.evaluate(sel => {
+    const overlay = document.querySelector(`${sel} .hb-grid-overlay`)
+    const kids = [...overlay.parentElement.children]
+    const idx = c => kids.indexOf(overlay.parentElement.querySelector(c))
+    return {
+      hover: idx('.hb-map16-hover-outline') > kids.indexOf(overlay),
+      selection: idx('.hb-map16-selection-outline') > kids.indexOf(overlay),
+      zIndex: getComputedStyle(overlay).zIndex,
+    }
+  }, FG)
+  expect(probe).toEqual({ hover: true, selection: true, zIndex: 'auto' })
+})
+
+test('the Map16 and GFX grids are independent, and the commands drive each', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await page.locator('#hackbench\\.gfx-explorer .theia-TreeNode').nth(2).dblclick()
+  const GFX = '[id="hackbench.gfx-view:0"]'
+  await page.waitForSelector(`${GFX} .hb-gfx-view-canvas`, { timeout: 15000 })
+  await openMap16(page, 'fg')
+  const run = async id => {
+    await page.evaluate(i => getSvc('CommandRegistry').executeCommand(i), id)
+    await page.waitForTimeout(200)
+  }
+  const show = async id => {
+    await page.evaluate(async i => {
+      await getSvc('ApplicationShell').activateWidget(i)
+    }, id)
+    await page.waitForTimeout(300)
+  }
+  const gfxZoom = async () =>
+    parseInt(await page.locator(`${GFX} [data-control="zoom-indicator"]`).textContent(), 10) / 100
+
+  await run('hackbench.map16.toggleGrid')
+  expect(await readGrid(page, FG)).not.toBeNull()
+  await show('hackbench.gfx-view:0')
+  expect(await readGrid(page, GFX)).toBeNull()
+
+  await run('hackbench.gfx.toggleGrid')
+  expect((await readGrid(page, GFX)).cell).toBe(8 * (await gfxZoom()))
+  await show('hackbench.map16-view:fg')
+  expect(await readGrid(page, FG)).not.toBeNull() // not reset by the other view
+
+  await run('hackbench.map16.toggleGrid')
+  expect(await readGrid(page, FG)).toBeNull()
+  await show('hackbench.gfx-view:0')
+  expect(await readGrid(page, GFX)).not.toBeNull() // untouched by the Map16 toggle
+})
+
+/** HiDPI: one device pixel per line at fractional and doubled display scale. */
+for (const dpr of [1.5, 2]) {
+  test.describe(`at device pixel ratio ${dpr}`, () => {
+    test.use({ deviceScaleFactor: dpr })
+
+    test('every Map16 grid line is exactly one device pixel wide, on the right pixel', async ({
+      page,
+    }) => {
+      await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+      await openMap16(page, 'fg')
+      await page.locator(ctl('grid-toggle')).click()
+      await page.waitForTimeout(300)
+      expect(await page.evaluate(() => window.devicePixelRatio)).toBe(dpr)
+
+      const g = await readGrid(page, FG)
+      expect(g.dpr).toBe(dpr)
+      expect(g.canvasW).toBe(Math.round(g.cssW * dpr))
+      expect(g.rowHits).toEqual(expectedStarts(g.cell, g.x.length, dpr, g.canvasW))
+      expect(g.rowHits.every((v, i) => i === 0 || v - g.rowHits[i - 1] > 1)).toBe(true)
+      expect(g.colHits.every((v, i) => i === 0 || v - g.colHits[i - 1] > 1)).toBe(true)
+      // Each horizontal line is on its own rounded device row.
+      expect(g.colHits).toEqual([...new Set(g.yLines.map(l => l.start))].sort((a, b) => a - b))
+    })
+  })
+}
 
 test('the tile browser strip collapses and expands', async ({ page }) => {
   await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
@@ -2961,4 +3104,101 @@ test('the selection is a 1px black, 2px blue, 1px black overlay outside the tile
   near(back.dl, -4, 'reopened left')
   near(back.dt, -4, 'reopened top')
   near(back.w, 8, 'reopened width')
+})
+
+/**
+ * Composited, not painted: a grid canvas stacked below the strip draws every
+ * pixel the hook claims and shows none of them. Two real screenshots, grid off
+ * then on, compared numerically.
+ */
+test('the grid shows in a real screenshot: line pixels change, no other pixel does', async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  await page.mouse.move(2, 2)
+  const sel = `${FG} .hb-map16-canvas`
+
+  const off = await shootCanvas(page, sel)
+  await page.locator(ctl('grid-toggle')).click()
+  await page.mouse.move(2, 2)
+  await page.waitForTimeout(300)
+  const grid = await readGrid(page, FG)
+  const on = await shootCanvas(page, sel)
+  const d = await compositedGridDiff(page, off, on, grid)
+
+  expect([d.bW, d.bH]).toEqual([d.W, d.H])
+  expect(d.lineTotal).toBeGreaterThan(100)
+  expect(d.lineChanged / d.lineTotal).toBeGreaterThan(0.95)
+  expect(d.otherChanged).toBe(0)
+})
+
+/**
+ * Outlines above the grid, on screen and independent of the theme. #577 draws
+ * the hover and selection boxes OUTSIDE the tile, so a tile's own left and
+ * top boundary lines lie inside it, uncovered, while its right and bottom
+ * boundary lines (the next tile's leading pixel) fall under the outline's
+ * innermost ring. The same region is shot with the grid off and on, hover and
+ * selection unchanged. With the outline on top, no pixel across the right and
+ * bottom edges differs between the two shots; a grid above it would change
+ * the line pixel. The canvas can sit at a fractional offset, so each window
+ * spans a few pixels either side of the edge. A control window across the
+ * tile's own left and top edges, which no outline covers, must differ, so the
+ * check cannot pass vacuously.
+ */
+test('selection and hover outlines cover the grid line they sit on', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  const SELECTED = 0x13
+  const HOVERED = 0x31
+  await clickTile(page, SELECTED)
+  const h = tileOrigin(HOVERED)
+  const hoverIt = async () => {
+    const mid = TILE_PX / 2
+    await page
+      .locator(`${FG} .hb-map16-canvas`)
+      .hover({ position: { x: (h.x + mid) * DEFAULT_ZOOM, y: (h.y + mid) * DEFAULT_ZOOM } })
+    await page.waitForTimeout(300)
+  }
+  const sel = `${FG} .hb-map16-canvas`
+  await hoverIt()
+  const off = await shootCanvas(page, sel)
+  await page.locator(ctl('grid-toggle')).click() // moves the pointer: hover again
+  await hoverIt()
+  const on = await shootCanvas(page, sel)
+
+  const m = (TILE_PX / 2) * DEFAULT_ZOOM
+  const w = TILE_PX * DEFAULT_ZOOM
+  const span = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => from + i)
+  const edgeWindows = id => {
+    const o = tileOrigin(id)
+    const x0 = o.x * DEFAULT_ZOOM
+    const y0 = o.y * DEFAULT_ZOOM
+    return {
+      // Across the tile's right and bottom edges: the outline lies on the line.
+      own: [
+        ...span(w - 3, w + 4).map(d => [x0 + d, y0 + m]),
+        ...span(w - 3, w + 4).map(d => [x0 + m, y0 + d]),
+      ],
+      // Across the tile's left and top edges: a bare grid line inside the tile.
+      bare: [...span(-1, 2).map(d => [x0 + d, y0 + m]), ...span(-1, 2).map(d => [x0 + m, y0 + d])],
+    }
+  }
+  for (const [name, id] of [
+    ['selection', SELECTED],
+    ['hover', HOVERED],
+  ]) {
+    const { own, bare } = edgeWindows(id)
+    const [ownOff, ownOn, bareOff, bareOn] = [
+      await samplePixels(page, off, own),
+      await samplePixels(page, on, own),
+      await samplePixels(page, off, bare),
+      await samplePixels(page, on, bare),
+    ]
+    expect(ownOn, `${name} outline must hide the grid line under it`).toEqual(ownOff)
+    expect(
+      bareOn.some((v, i) => v !== bareOff[i]),
+      `${name}: the grid line inside the tile must be visible (control)`,
+    ).toBe(true)
+  }
 })
