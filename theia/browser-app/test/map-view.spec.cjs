@@ -707,9 +707,21 @@ const l3Toggle = (page, index) => page.locator(`${root(index)} [data-control="la
  * screen), $01F is a cage with the bit clear (a background: l3High under l1Low), $105 has no
  * layer 3 and $009 is mode 2, an interactive layer 2 map.
  */
-for (const [index, role, bit] of [
-  [0x002, 'Layer 3 · Overlay', true],
-  [0x01f, 'Layer 3 · Background', false],
+for (const [index, role, bit, known] of [
+  // known: the top-left of layer 3's box on screen 0, and its first opaque pixel in raster order with
+  // that pixel's color (the outline black of the tide and of the cage), measured from the backend's planes.
+  [
+    0x002,
+    'Layer 3 · Overlay',
+    true,
+    { box: { x: 0, y: 384 }, pixel: { x: 15, y: 384 }, rgba: [0, 0, 0, 255] },
+  ],
+  [
+    0x01f,
+    'Layer 3 · Background',
+    false,
+    { box: { x: 56, y: 48 }, pixel: { x: 64, y: 48 }, rgba: [0, 0, 0, 255] },
+  ],
 ]) {
   test(`$${index.toString(16).padStart(3, '0')}: the Layer 3 toggle (${role}) changes the layer 3 region's pixels and restores them`, async ({
     page,
@@ -730,10 +742,14 @@ for (const [index, role, bit] of [
     const before = await layer3Region(page, index)
     expect(before.box.w * before.box.h, 'layer 3 draws pixels on screen 0').toBeGreaterThan(0)
     // A known layer 3 pixel: where the region starts, opaque in l3High; over layer 1 it is the shown color.
-    expect({ x: before.box.x, y: before.box.y }).toEqual(origin)
-    const own = await page.locator(`${root(index)} canvas[data-screen="0"][data-plane="l3High"]`).evaluate((c, o) => Array.from(c.getContext('2d').getImageData(o.x, o.y, 1, 1).data), origin) // prettier-ignore
-    expect(own[3], 'opaque at the known position').toBe(255)
-    if (bit) expect(before.pixels.slice(0, 4), 'an overlay pixel shows its own color').toEqual(own)
+    expect({ x: before.box.x, y: before.box.y }).toEqual(known.box)
+    const own = await page.locator(`${root(index)} canvas[data-screen="0"][data-plane="l3High"]`).evaluate((c, p) => Array.from(c.getContext('2d').getImageData(p.x, p.y, 1, 1).data), known.pixel) // prettier-ignore
+    expect(own, 'layer 3 pixel and color at the known position').toEqual(known.rgba)
+    if (bit) {
+      const at =
+        ((known.pixel.y - before.box.y) * before.box.w + (known.pixel.x - before.box.x)) * 4
+      expect(before.pixels.slice(at, at + 4), 'an overlay pixel shows its own color').toEqual(own)
+    }
     await button.click()
     await expect(button).toHaveAttribute('aria-pressed', 'false')
     for (const plane of planeLocators(page, index, 0, ['l3Low', 'l3High']))
@@ -768,6 +784,15 @@ test('a map with no layer 3 and an interactive layer 2 map disable the toggle an
   // Sprites: the toggle exists in its place, disabled, naming why.
   const sprites = page.locator(`${root(0x009)} [data-control="layer-sprites"]`)
   await expect(sprites).toBeDisabled()
+  // A disabled toggle does nothing when forced: state and canvases stay as they were.
+  const l3Planes = page.locator(`${root(0x009)} canvas[data-plane^="l3"]`)
+  for (const button of [locked, sprites]) {
+    await button.click({ force: true })
+    await expect(button).toHaveAttribute('aria-pressed', 'false')
+  }
+  await expect(l3Planes).toHaveCount(0)
+  for (const plane of planeLocators(page, 0x009, 0, ['l2Low', 'l1Low', 'l2High', 'l1High']))
+    await expect(plane).toHaveCSS('visibility', 'visible')
   await expect(sprites).toHaveAttribute('title', 'Sprite toggle not wired yet')
 })
 
