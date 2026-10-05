@@ -2679,13 +2679,27 @@ test('a Map16 view waiting on a missing ROM repaints after Project Properties re
 async function leftEdgeColors(page, locator, n) {
   const r = await locator.evaluate(el => {
     const b = el.getBoundingClientRect()
-    return { x: Math.round(b.left), y: Math.round(b.top + b.height / 2) }
+    return { x: b.left, y: b.top + b.height / 2 }
   })
-  return rowColors(page, r.x, r.y, n)
+  return rowColors(page, snap(r.x, 'overlay left edge'), snap(r.y, 'overlay mid height'), n)
+}
+
+/**
+ * The device pixel a laid-out CSS coordinate lands on. The strip's padding is
+ * fractional, so an edge may sit off the grid; rounding is only sound while it
+ * is not on a .5 tie (the strip's 1.2em padding lands at .47 today, which Chrome
+ * snaps down), which this asserts before the screenshot is trusted.
+ */
+function snap(v, what) {
+  expect(Math.abs(v - Math.round(v)), `${what} ${v} is on a pixel tie`).toBeLessThan(0.49)
+  return Math.round(v)
 }
 
 /** `n` painted pixels of the screenshot row at (x, y), as 'r,g,b'. */
 async function rowColors(page, x, y, n) {
+  expect(Number.isInteger(x) && Number.isInteger(y), `sample point ${x},${y} is whole pixels`).toBe(
+    true,
+  )
   const png = await page.screenshot({ clip: { x, y, width: n, height: 1 } })
   return page.evaluate(async b64 => {
     const img = new Image()
@@ -2897,14 +2911,21 @@ test('the selection is a 1px black, 2px blue, 1px black overlay outside the tile
     await canvas.hover(at(0x31, zoom))
     await expect(hov).toBeVisible()
     await expect(sel).toBeVisible()
-    const corner = await page.evaluate(
+    const rects = await page.evaluate(
       ([s, h]) => {
         const sr = document.querySelector(s).getBoundingClientRect()
         const hr = document.querySelector(h).getBoundingClientRect()
-        return { x: Math.round(sr.right) - 4, black: Math.round(hr.top) }
+        return { selRight: sr.right, selTop: sr.top, hovTop: hr.top }
       },
       ['.hb-map16-selection-outline', '.hb-map16-hover-outline'].map(c => `${FG} ${c}`),
     )
+    // Geometry first, so a layout change reads as one, not as a color mismatch:
+    // the hover on the neighbor sits 2px below the selection's outer top.
+    near(rects.hovTop - rects.selTop, 2, `hover top vs selection top at ${zoom}x`)
+    const corner = {
+      x: snap(rects.selRight, 'selection right edge') - 4,
+      black: snap(rects.hovTop, 'hover top edge'),
+    }
     // The corner is the selection's top-right 4x4, nested rings (outer black,
     // 2 blue, inner black), so the rows read: hover-black row, [B,B,B,K] where
     // K is black and B blue; hover-white row, [K,B,B,K]. Hover on top would
