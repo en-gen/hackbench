@@ -112,6 +112,49 @@ describe('the backdrop is a black main-screen layer for CGADSUB (bit 5)', () => 
   })
 })
 
+// The hidden-tile screen door (HiddenTiles.ts) draws a tile at partial alpha. That dim is an editor
+// affordance, not hardware: the math runs on the tile's color, and the dim blends over what is below.
+describe('partial-alpha pixels (the hidden-tile screen door)', () => {
+  const dim = (c: Rgb, a: number) => new Uint8ClampedArray([...c, a])
+  const run = (l1: Uint8ClampedArray | null, l2: Uint8ClampedArray | null, cgadsub = 0x20) => [
+    ...composeScreen({
+      width: 1,
+      height: 1,
+      math: { cgadsub, fixed: BACK },
+      lists: { main: ['l1Low'], sub: ['l2Low'] },
+      planes: { l1Low: l1, l2Low: l2 },
+    }),
+  ]
+  const mix = (a: Rgb, b: Rgb, w: number) => a.map((v, k) => Math.round(v * w + b[k]! * (1 - w)))
+  const W = 64 / 255
+
+  it('a dim main pixel blends over the sub pixel under it, not at full color', () => {
+    const l1 = c5(30, 2, 2)
+    const l2 = c5(4, 20, 4)
+    expect(run(dim(l1, 64), plane(l2))).toEqual([...mix(l1, l2, W), 255])
+    expect(run(dim(l1, 64), plane(l2))).not.toEqual(rgba(l1))
+  })
+  it('a dim main pixel over nothing keeps its alpha, so the back area shows through', () => {
+    expect(run(dim(c5(30, 2, 2), 64), null)).toEqual([...c5(30, 2, 2), 64])
+  })
+  it('a dim pixel in the same list blends over the plane beneath it', () => {
+    const out = composeScreen({
+      width: 1,
+      height: 1,
+      math: { cgadsub: 0x20, fixed: BACK },
+      lists: { main: ['l2Low', 'l1Low'], sub: [] },
+      planes: { l1Low: dim(c5(30, 2, 2), 64), l2Low: plane(c5(4, 20, 4)) },
+    })
+    expect([...out]).toEqual([...mix(c5(30, 2, 2), c5(4, 20, 4), W), 255])
+  })
+  it('the math runs on the tile color, not on the dimmed one', () => {
+    const l1 = c5(10, 10, 10)
+    const l2 = c5(4, 4, 4)
+    // Layer 1 and the backdrop in CGADSUB: layer 1 adds layer 2 (14 per channel), the dim blends over layer 2 alone.
+    expect(run(dim(l1, 64), plane(l2), 0x21)).toEqual([...mix(c5(14, 14, 14), l2, W), 255])
+  })
+})
+
 describe('layer order and toggles', () => {
   const run = (planes: ScreenInput['planes']) => [
     ...composeScreen({
