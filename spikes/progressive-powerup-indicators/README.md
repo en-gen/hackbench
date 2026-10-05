@@ -3,6 +3,22 @@
 Issue #607. Builds on the D4 pick of [block-content-indicators](../block-content-indicators/README.md)
 (#566). Status: mockup for the owner to review; spike code, not product code.
 
+## Result
+
+Chosen design: **DH** (2026-10-05, owner): a diagonal split from top-left to
+bottom-right, hard split with no line, mushroom in the bottom-left triangle
+and the flower or feather in the top-right. The same split is used in the D4
+quadrant at rest and in the full-block hover state. Progression reads left to
+right and bottom to top.
+
+Why the others lost:
+
+- The thick lines (the earlier W2/W3 weights) were too heavy and obscured the powerups.
+- The outlined and black-line variants (HO, HL, HD, HD2, VO, VD, VD2, DO) added a divider the hard split does not need.
+- The horizontal and vertical splits (H*, V*) were not chosen over the diagonal.
+
+The variant list below stays as the record; the page still generates all of them.
+
 Question: some blocks hold a powerup that depends on Mario's state (a flower
 or feather that becomes a mushroom when he is small). How does the D4
 indicator show that?
