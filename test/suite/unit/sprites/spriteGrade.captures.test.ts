@@ -13,6 +13,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { unzip } from '../../../../tools/scripts/capture_render'
 import { runSprite } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { withSeed, type LevelState } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import {
   CAPTURE_DIR,
@@ -37,10 +38,9 @@ interface Rec {
   complete?: boolean
 }
 
-function recordedPieces(r: Rec): RecordedPiece[] | null {
-  const fs = r.frames ?? []
-  const f = fs.find(x => x.frameIndex === r.firstFrameIndex) ?? fs[0]
-  return f?.tiles?.length ? f.tiles : null
+/** Every frame Mesen recorded for the sprite that has tiles. */
+function recordedFrames(r: Rec): RecordedPiece[][] {
+  return (r.frames ?? []).flatMap(f => (f.tiles?.length ? [f.tiles] : []))
 }
 
 /** Map16 tables from the sprite-trace fixtures (same maps, same ROM), when present. */
@@ -87,16 +87,27 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     expect(all.length).toBeGreaterThan(0)
     const rows: (Grade & { map: string; id: string; slot: number; want?: unknown; got?: unknown; anchor?: unknown; pos?: unknown; seed?: unknown })[] = [] // prettier-ignore
     const inputs = new Map<number, { reads: number; nonzero: number }>()
+    const loadedByMap = new Map<string, Uint8Array>()
     for (const { map, rec, wram } of all) {
       const id = parseInt(rec.id.slice(1), 16)
-      const want = recordedPieces(rec)
-      if (!want || id > 0xc8) continue
+      const want = recordedFrames(rec)
+      if (!want.length || id > 0xc8) continue
+      // SPRITE_GRADE_SEED: 'rom' (default) runs the ROM's own level loader for the
+      // map; 'generic' seeds placement only; 'oracle' copies the capture's level
+      // cells and Map16 (an upper bound for comparison, never a runtime input).
+      const mode = process.env.SPRITE_GRADE_SEED ?? 'rom'
+      let loaded = loadedByMap.get(map)
+      if (mode === 'rom' && !loaded) {
+        const l = loadLevelState(rom, parseInt(map, 16))
+        loaded = l.ok ? l.wram : undefined
+        if (loaded) loadedByMap.set(map, loaded)
+      }
       const seed = withSeed({
-        wramBase: process.env.SPRITE_GRADE_WRAM && wram ? wram : undefined,
-        map16: process.env.SPRITE_GRADE_MAP16 ? traceMap16(map) : undefined,
-        level: process.env.SPRITE_GRADE_LEVEL && wram ? levelOf(wram) : undefined,
+        loaded: mode === 'rom' ? loaded : undefined,
+        map16: mode === 'oracle' ? traceMap16(map) : undefined,
+        level: mode === 'oracle' && wram ? levelOf(wram) : undefined,
         slot: rec.slot,
-        mainPasses: Number(process.env.SPRITE_GRADE_PASSES ?? 16),
+        mainPasses: Number(process.env.SPRITE_GRADE_PASSES ?? 64),
         sprite: { x: rec.listX, y: rec.listY },
         camera: { x: rec.cameraX, y: rec.cameraY },
         mario: rec.marioAtInit ?? { x: rec.listX, y: rec.listY },
@@ -108,7 +119,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
         if (wram && a < 0x2000 && wram[a]) e.nonzero++
         inputs.set(a, e)
       }
-      const g = grade(m, want)
+      const g = grade(m, want, process.env.SPRITE_GRADE_POLICY === 'best' ? 'best' : 'chosen')
       const dbg = g.verdict === 'wrong' || g.verdict === 'close' || g.verdict === 'shape'
       rows.push({
         ...g, map, id: rec.id, slot: rec.slot,

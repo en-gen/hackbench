@@ -18,6 +18,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runSprite, type SpritePart } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { withSeed, type LevelState } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { freshRom, hasRom, TOOLS_ROOT, VANILLA } from '../../support/corpus'
 
@@ -89,6 +90,10 @@ describe.skipIf(!existsSync(SPAWN_DIR) || !hasRom(VANILLA))(
       const rom = freshRom()
       const sha = readdirSync(SPAWN_DIR)[0]
       const root = join(SPAWN_DIR, sha)
+      // SPRITE_SPAWN_SEED=oracle copies the fixture's WRAM (upper bound); default runs the ROM's own loader.
+      const oracle = process.env.SPRITE_SPAWN_SEED === 'oracle'
+      const lv = loadLevelState(rom, 0xbd)
+      const romLevel = lv.ok ? lv.wram : undefined
       const baseline = new Uint8Array(readFileSync(join(root, 'baseline_wram.bin')))
       const rows: {
         id: number
@@ -103,12 +108,13 @@ describe.skipIf(!existsSync(SPAWN_DIR) || !hasRom(VANILLA))(
         const sp = join(root, dir, 'seed.json')
         if (!existsSync(sp)) continue
         const seed: Seed = JSON.parse(readFileSync(sp, 'utf8'))
-        const calls: { writes: number[]; kind?: string }[] = JSON.parse(readFileSync(join(root, dir, 'calls.json'), 'utf8')) // prettier-ignore
+        const calls: { writes: number[]; kind?: string; frame: number }[] = JSON.parse(readFileSync(join(root, dir, 'calls.json'), 'utf8')) // prettier-ignore
         const wram = readFileSync(join(root, dir, 'wram.bin'))
         const hi = readFileSync(join(root, dir, 'wram_hi.bin'))
+        // First call that is not INIT: status-8 sprites log 'main', status-9 ones 'other'.
         const k0 = Math.max(
           0,
-          calls.findIndex(c => c.kind === 'main'),
+          calls.findIndex(c => c.kind !== 'init'),
         )
         const pre1 = wram.subarray(k0 * 0x2000, (k0 + 1) * 0x2000) // state entering the first MAIN call
         const pre0 = wram.subarray(0, 0x2000)
@@ -122,17 +128,21 @@ describe.skipIf(!existsSync(SPAWN_DIR) || !hasRom(VANILLA))(
             mario: { x: seed.marioX, y: seed.marioY },
             trueFrame: pre0[0x13],
             effFrame: pre0[0x14],
-            mainPasses: 16,
-            level: levelOf(baseline),
-            wramBase: baseline,
-            map16: {
-              low: readFileSync(join(root, dir, 'map16_7ec800.bin')),
-              high: readFileSync(join(root, dir, 'map16_7fc800.bin')),
-            },
-            blocks: [
-              { offset: 0xad00, bytes: hi.subarray(0, 768) },
-              { offset: 0x18000, bytes: hi.subarray(768, 768 + 8192) },
-            ],
+            mainPasses: 16, // the fixture records 16 frames
+            ...(oracle
+              ? {
+                  level: levelOf(baseline),
+                  wramBase: baseline,
+                  map16: {
+                    low: readFileSync(join(root, dir, 'map16_7ec800.bin')),
+                    high: readFileSync(join(root, dir, 'map16_7fc800.bin')),
+                  },
+                  blocks: [
+                    { offset: 0xad00, bytes: hi.subarray(0, 768) },
+                    { offset: 0x18000, bytes: hi.subarray(768, 768 + 8192) },
+                  ],
+                }
+              : { loaded: romLevel }),
           }),
         )
         const verdicts: string[] = []
@@ -145,11 +155,14 @@ describe.skipIf(!existsSync(SPAWN_DIR) || !hasRom(VANILLA))(
           verdicts.push(...Array(16).fill(mesenStuck ? 'refused-agrees' : 'refused-differs'))
         else
           for (let p = 0; p < 16; p++) {
-            if (!calls[k0 + p]) {
+            // Every call of that frame, any slot: sprites that spawn others (Lakitu, the
+            // bonus game) draw from more than slot 0, and so does our sprite loop.
+            const inFrame = calls.filter(c => c.frame === calls[k0].frame + p)
+            if (!inFrame.length) {
               verdicts.push('unrecorded')
               continue
             }
-            const want = recorded(calls[k0 + p].writes)
+            const want = recorded(inFrame.flatMap(c => c.writes))
             const got = modelPieces(m.passes[p].parts)
             let v = 'wrong'
             if (sorted(got, pieceKey) === sorted(want, pieceKey))

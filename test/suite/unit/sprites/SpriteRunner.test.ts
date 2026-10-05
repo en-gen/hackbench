@@ -3,9 +3,14 @@
  * checks gated on the corpus. Every defect the oracle claims to catch is
  * planted here and shown to change the verdict.
  */
+import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { describe, expect, it } from 'vitest'
 import { runSprite } from '../../../../src/rom/sprites/interp/SpriteRunner'
-import { resolvePointer, resolveTables } from '../../../../src/rom/sprites/interp/SpriteDispatch'
+import {
+  resolveLoop,
+  resolvePointer,
+  resolveTables,
+} from '../../../../src/rom/sprites/interp/SpriteDispatch'
 import { SPRITE_SEED, withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { SpriteBus } from '../../../../src/rom/sprites/interp/SpriteBus'
 import { freshRom, hasRom, VANILLA } from '../../support/corpus'
@@ -13,6 +18,17 @@ import { grade, passPieces } from '../../support/spriteGrade'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 
 const rom = buildSyntheticRom()
+
+describe('sprite loop reader', () => {
+  it('resolves the setup and HandleSprite addresses from the loop itself', () => {
+    expect(resolveLoop(rom)).toEqual({ ok: true, setup: 0x0180d2, handle: 0x018127 })
+  })
+  it('refuses a loop that is not the countdown shape', () => {
+    const bad = buildSyntheticRom({ badLoop: true })
+    expect(resolveLoop(bad).ok).toBe(false)
+    expect(runSprite(bad, 0).refusal).toMatch(/countdown/)
+  })
+})
 
 describe('dispatch reader', () => {
   it('reads both table bases from the dispatch code', () => {
@@ -130,16 +146,25 @@ describe('the grader can go red', () => {
   const m = runSprite(rom, 0)
   const exact = passPieces(m, 0)
   it('exact for the same pieces, wrong for a planted tile change', () => {
-    expect(grade(m, exact).verdict).toBe('exact')
-    expect(grade(m, [{ ...exact[0], tile: exact[0].tile + 1 }]).verdict).toBe('wrong')
+    expect(grade(m, [exact]).verdict).toBe('exact')
+    expect(grade(m, [[{ ...exact[0], tile: exact[0].tile + 1 }]]).verdict).toBe('wrong')
   })
   it('shape when only the offset from the sprite differs; close when only a flip does', () => {
-    expect(grade(m, [{ ...exact[0], dx: 5 }]).verdict).toBe('shape')
-    expect(grade(m, [{ ...exact[0], attr: exact[0].attr | 0x40 }]).verdict).toBe('close')
+    expect(grade(m, [[{ ...exact[0], dx: 5 }]]).verdict).toBe('shape')
+    expect(grade(m, [[{ ...exact[0], attr: exact[0].attr | 0x40 }]]).verdict).toBe('close')
+  })
+  it('set membership: the chosen frame may equal ANY recorded frame', () => {
+    const other = [{ ...exact[0], tile: exact[0].tile + 3 }]
+    expect(grade(m, [other, exact]).verdict).toBe('exact')
+    expect(grade(m, [other, other]).verdict).toBe('wrong')
+  })
+  it('frame policy: chosen is the first pass that draws', () => {
+    expect(runSprite(rom, 0).chosen).toBe(0)
+    expect(runSprite(rom, 5).chosen).toBeUndefined()
   })
   it('passes refusals and empties through', () => {
-    expect(grade(runSprite(rom, 4), exact).verdict).toBe('refused')
-    expect(grade(runSprite(rom, 5), exact).verdict).toBe('empty')
+    expect(grade(runSprite(rom, 4), [exact]).verdict).toBe('refused')
+    expect(grade(runSprite(rom, 5), [exact]).verdict).toBe('empty')
   })
 })
 
@@ -165,5 +190,23 @@ describe.skipIf(!hasRom(VANILLA))('vanilla', () => {
   it('refuses ids past the table, completing none of $C9-$FF', () => {
     const r = freshRom()
     for (let id = 0xc9; id < 0x100; id++) expect(runSprite(r, id).refusal).toBeDefined()
+  })
+})
+
+describe.skipIf(!hasRom(VANILLA))('ROM level loader (vanilla)', () => {
+  it('loads level $105 by running the ROM: header cells, Map16 filled, level sprites cleared by the runner', () => {
+    const r = loadLevelState(freshRom(), 0x105)
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.wram[0x5d]).toBe(0x14) // LevelScrLength from the header's first byte
+    expect(r.wram.subarray(0xc800, 0xc800 + 0x3800).some(b => b !== 0)).toBe(true)
+  })
+  it('a planted header-decode defect changes the loaded state (the loader can go red)', () => {
+    const rom = freshRom()
+    // CODE_0584E3: AND #$1F (screens) planted to AND #$0F.
+    expect(rom.readByte(0x0584e9)).toBe(0x1f)
+    rom.writeAt(0x0584e9, [0x0f])
+    const r = loadLevelState(rom, 0x105)
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.wram[0x5d]).toBe(4)
   })
 })

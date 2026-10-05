@@ -21,7 +21,7 @@ export const ENTRY = {
    * works under it, which is why the runner calls this and not HandleSprite.
    */
   spriteLoop: 0x01808c,
-  /** The dispatcher the loop calls, read by `resolveTables` (bank_01.asm:181). */
+  /** Default HandleSprite address (bank_01.asm:181); `resolveLoop` reads the real one from the loop. */
   handleSprite: 0x018127,
 } as const
 
@@ -42,10 +42,30 @@ const bytes = (rom: RomFile, a: number, n: number): number[] | null => {
 const matches = (got: number[] | null, want: (number | null)[]): boolean =>
   !!got && want.every((w, i) => w === null || got[i] === w)
 
+export type LoopResult = { ok: true; setup: number; handle: number } | { ok: false; reason: string }
+
+/**
+ * Checks the game's sprite loop at `ENTRY.spriteLoop` is the shape the runner
+ * relies on (PHB PHK PLB, then a countdown over slots that does STX $15E9, JSR
+ * setup, JSR handle) and RESOLVES the setup and HandleSprite addresses from its
+ * two JSR operands. A loop that differs is refused, not guessed at.
+ */
+export function resolveLoop(rom: RomFile): LoopResult {
+  const b = bytes(rom, ENTRY.spriteLoop, 64)
+  if (!matches(b, [0x8b, 0x4b, 0xab])) return { ok: false, reason: 'sprite loop does not start PHB PHK PLB' } // prettier-ignore
+  // LDX #$0B / STX $15E9 / JSR setup / JSR handle / DEX / BPL back
+  const core = [0xa2, 0x0b, 0x8e, 0xe9, 0x15, 0x20, null, null, 0x20, null, null, 0xca, 0x10, 0xf4]
+  for (let i = 3; i + core.length <= b!.length; i++) {
+    if (!matches(b!.slice(i), core)) continue
+    return { ok: true, setup: 0x010000 | (b![i + 6] | (b![i + 7] << 8)), handle: 0x010000 | (b![i + 9] | (b![i + 10] << 8)) } // prettier-ignore
+  }
+  return { ok: false, reason: 'sprite loop is not the countdown shape this runner knows' }
+}
+
 /** Reads both table bases from the dispatch code, or says what did not match. */
-export function resolveTables(rom: RomFile): TablesResult {
+export function resolveTables(rom: RomFile, handle: number = ENTRY.handleSprite): TablesResult {
   // HandleSprite: LDA $14C8,X / BEQ / CMP #$08 / BNE +3 / JMP CallSpriteMain / JSL ExecutePtr / table
-  const h = bytes(rom, ENTRY.handleSprite, 16 + 4)
+  const h = bytes(rom, handle, 16 + 4)
   if (!matches(h, [0xbd, 0xc8, 0x14, 0xf0, null, 0xc9, 0x08, 0xd0, 0x03, 0x4c, null, null, 0x22]))
     return { ok: false, reason: 'HandleSprite is not the dispatch shape this reader knows' }
   const mainEntry = 0x010000 | (h![10] | (h![11] << 8))

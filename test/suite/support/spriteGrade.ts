@@ -65,31 +65,44 @@ export function passPieces(m: SpriteModel, pass: number): RecordedPiece[] {
     }))
 }
 
-export function grade(m: SpriteModel, recorded: RecordedPiece[]): Grade {
+const RANK: Verdict[] = ['exact', 'shape', 'close', 'wrong']
+
+/** One pass against one recorded frame. */
+function gradePass(got: RecordedPiece[], recorded: RecordedPiece[], pass: number): Grade {
+  if (keys(got, exactKey) === keys(recorded, exactKey)) return { verdict: 'exact', pass }
+  if (got.length && recorded.length && shapeKeys(got) === shapeKeys(recorded))
+    return { verdict: 'shape', pass, detail: 'same arrangement, offset from the sprite differs' }
+  if (keys(got, closeKey) === keys(recorded, closeKey))
+    return { verdict: 'close', pass, detail: 'same tiles, offsets or flips differ' }
+  return { verdict: 'wrong', pass }
+}
+
+/**
+ * `policy` 'chosen' grades only the pass the model's frame policy picked
+ * (`m.chosen`) against EVERY frame Mesen recorded for the sprite (set
+ * membership: it must equal some recorded frame). 'best' tries every pass
+ * (lenient; kept for comparison with earlier rounds).
+ */
+export function grade(
+  m: SpriteModel,
+  recorded: RecordedPiece[][],
+  policy: 'chosen' | 'best' = 'chosen',
+): Grade {
   if (m.refusal) return { verdict: 'refused', detail: m.refusal }
-  if (m.emptyReason) return { verdict: 'empty', detail: m.emptyReason }
-  const want = keys(recorded, exactKey)
-  const wantClose = keys(recorded, closeKey)
-  const wantShape = recorded.length ? shapeKeys(recorded) : ''
-  let shape: Grade | null = null
-  let close: Grade | null = null
-  for (let i = 0; i < m.passes.length; i++) {
+  if (m.emptyReason || m.chosen === undefined) return { verdict: 'empty', detail: m.emptyReason }
+  const passes = policy === 'chosen' ? [m.chosen] : m.passes.map((_, i) => i)
+  let best: Grade = { verdict: 'wrong' }
+  for (const i of passes) {
     const got = passPieces(m, i)
-    if (keys(got, exactKey) === want) return { verdict: 'exact', pass: i }
-    if (!shape && got.length && shapeKeys(got) === wantShape)
-      shape = {
-        verdict: 'shape',
-        pass: i,
-        detail: 'same arrangement, offset from the sprite differs',
-      }
-    if (!close && keys(got, closeKey) === wantClose)
-      close = { verdict: 'close', pass: i, detail: 'same tiles, offsets or flips differ' }
+    for (const rec of recorded) {
+      const g = gradePass(got, rec, i)
+      if (RANK.indexOf(g.verdict) < RANK.indexOf(best.verdict)) best = g
+      if (best.verdict === 'exact') return best
+    }
   }
-  if (shape) return shape
-  if (close) return close
-  const n = m.passes.map(p => p.parts.length)
-  return {
-    verdict: 'wrong',
-    detail: `recorded ${recorded.length} pieces; model drew ${[...new Set(n)].join('/')} per pass`,
+  if (best.verdict === 'wrong') {
+    const n = passes.map(i => m.passes[i].parts.length)
+    best.detail = `recorded ${recorded.map(r => r.length).join('/')} pieces; model drew ${[...new Set(n)].join('/')}`
   }
+  return best
 }

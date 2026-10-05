@@ -9,7 +9,7 @@
  */
 import { Cpu65816 } from '../../cpu/Cpu65816'
 import type { RomFile } from '../../RomFile'
-import { ENTRY, resolvePointer, resolveTables } from './SpriteDispatch'
+import { ENTRY, resolveLoop, resolvePointer, resolveTables } from './SpriteDispatch'
 import { SpriteBus } from './SpriteBus'
 import { SPRITE_SEED, withSeed, type SpriteSeed } from './SpriteSeed'
 
@@ -28,6 +28,7 @@ export const RAM = {
   buoyancy: 0x190e,
   spriteMemory: 0x1692,
   rng: 0x148b,
+  marioDir: 0x76,
   marioXNext: 0x94,
   marioYNext: 0x96,
   marioXNow: 0xd1,
@@ -98,6 +99,12 @@ export interface SpriteModel {
   /** $15EA after INIT: the OAM base the cart assigned. */
   oamBase?: number
   passes: PassResult[]
+  /**
+   * The frame policy: index of the first pass at or after INIT that draws at
+   * least one tile (within the pass cap), absent when none does. A policy, not
+   * a claim about which frame a map should show.
+   */
+  chosen?: number
   dependsOn: DependsOn[]
   /** Instruction counts: INIT, then each MAIN pass. */
   steps: number[]
@@ -155,6 +162,11 @@ export class Machine {
   private load(id: number): void {
     const w = this.bus.wram
     const s = this.seed
+    if (s.loaded) {
+      w.set(s.loaded.subarray(0, w.length))
+      // The loader also spawns the level's own sprite list (CODE_02A751); only the one sprite under test runs.
+      for (let i = 0; i < 12; i++) w[RAM.status + i] = 0
+    }
     if (s.wramBase) {
       w.set(s.wramBase.subarray(0, 0x2000))
       for (let i = 0; i < 12; i++) w[RAM.status + i] = 0
@@ -173,17 +185,22 @@ export class Machine {
     this.w16(RAM.marioXNow, s.mario.x)
     this.w16(RAM.marioYNext, s.mario.y)
     this.w16(RAM.marioYNow, s.mario.y)
+    w[RAM.marioDir] = s.mario.dir
     const lv = s.level
-    w[RAM.screenMode] = lv.screenMode
-    w[RAM.levelScreens] = lv.screens
-    w[RAM.spriteProps] = lv.spriteProps
-    w[RAM.water] = lv.water
-    w[RAM.slippery] = lv.slippery
-    w[RAM.buoyancy] = lv.buoyancy
-    w[RAM.spriteMemory] = lv.spriteMemory
-    this.w16(RAM.slopes, lv.slopes)
-    w[RAM.rng] = lv.rng[0]
-    w[RAM.rng + 1] = lv.rng[1]
+    if (!s.loaded) {
+      w[RAM.screenMode] = lv.screenMode
+      w[RAM.levelScreens] = lv.screens
+      w[RAM.spriteProps] = lv.spriteProps
+      w[RAM.water] = lv.water
+      w[RAM.slippery] = lv.slippery
+      w[RAM.buoyancy] = lv.buoyancy
+      w[RAM.spriteMemory] = lv.spriteMemory
+      this.w16(RAM.slopes, lv.slopes)
+    }
+    if (!s.loaded || (w[RAM.rng] === 0 && w[RAM.rng + 1] === 0)) {
+      w[RAM.rng] = lv.rng[0]
+      w[RAM.rng + 1] = lv.rng[1]
+    }
     for (const b of s.blocks ?? []) w.set(b.bytes, b.offset)
     for (const [k, v] of Object.entries(s.ram)) w[Number(k)] = v
     const n = s.slot
@@ -296,7 +313,9 @@ export type Probe = (pass: number, wram: Uint8Array) => void
 function runOnce(rom: RomFile, id: number, seed: SpriteSeed, opts: RunOptions = {}): SpriteModel {
   const probe = opts.probe
   const model: SpriteModel = { id, passes: [], dependsOn: [], steps: [] }
-  const tables = resolveTables(rom)
+  const loop = resolveLoop(rom)
+  if (!loop.ok) return { ...model, refusal: loop.reason }
+  const tables = resolveTables(rom, loop.handle)
   if (!tables.ok) return { ...model, refusal: tables.reason }
   const inits = resolvePointer(rom, tables.tables.initTable, id)
   if (!inits.ok) return { ...model, refusal: `INIT: ${inits.reason}` }
@@ -347,6 +366,8 @@ function runOnce(rom: RomFile, id: number, seed: SpriteSeed, opts: RunOptions = 
       })
     }
     if (m.bus.inputs) model.inputs = [...m.bus.inputs].sort((a, b) => a - b)
+    const first = model.passes.findIndex(p => p.parts.length > 0)
+    if (first >= 0) model.chosen = first
     if (model.passes.every(p => p.parts.length === 0))
       model.emptyReason = `drew no OAM tile in ${seed.mainPasses} passes (invisible by design, or the seed lacks state)` // prettier-ignore
   } catch (e) {

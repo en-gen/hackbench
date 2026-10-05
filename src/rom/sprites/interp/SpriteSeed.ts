@@ -38,18 +38,25 @@ export interface SpriteSeed {
   /** Level position the level's sprite list places the sprite at (16 bit). */
   sprite: { x: number; y: number }
   /** Mario's level position, written to BOTH $94/$96 (Next) and $D1/$D3 (Now). */
-  mario: { x: number; y: number }
+  mario: { x: number; y: number; dir: number }
   /** Layer 1 camera, $1A/$1C. */
   camera: { x: number; y: number }
   /** $13 TrueFrame and $14 EffFrame during the INIT frame; both tick once per MAIN pass after it. */
   trueFrame: number
   effFrame: number
-  /** MAIN passes after INIT. */
+  /** MAIN pass cap after INIT; the frame policy picks the first pass that draws within it. */
   mainPasses: number
   /** What the level loader leaves in WRAM that sprite code reads (measured, not guessed: see docs 11.4). */
   level: LevelState
   /** Extra single-byte WRAM writes, offset to value. $9D (sprites locked) is 0. */
   ram: Record<number, number>
+  /**
+   * The WRAM the ROM's own level loader produced for this level
+   * (`loadLevelState`, LevelLoader.ts). Applied before everything else; when
+   * present the `level` cells below are not written (except `rng`, which no
+   * ROM code sets before the first frame).
+   */
+  loaded?: Uint8Array
   /**
    * Optional low-WRAM image ($0000-$1FFF) the machine starts from, for a seed
    * that carries the whole level state (a Mesen capture at level load). Every
@@ -70,11 +77,13 @@ export interface SpriteSeed {
 export const SPRITE_SEED: SpriteSeed = {
   slot: 0,
   sprite: { x: 0x80, y: 0x80 },
-  mario: { x: 0x80, y: 0x80 },
+  // dir $76 PlayerDirection: 1 faces right, the value both spawn-trace baselines
+  // held and what the level-entry code leaves; the Boos read it (found by trackInputs).
+  mario: { x: 0x80, y: 0x80, dir: 1 },
   camera: { x: 0, y: 0 },
   trueFrame: 0,
   effFrame: 0,
-  mainPasses: 16,
+  mainPasses: 64,
   level: {
     screenMode: 0,
     screens: 0x14,
@@ -84,7 +93,9 @@ export const SPRITE_SEED: SpriteSeed = {
     buoyancy: 0,
     spriteMemory: 0,
     slopes: 0,
-    rng: [0, 0],
+    // No ROM code sets RNGCalc before the first frame; 6 and 3 is the value every
+    // level-load capture held at frame 0 (98 of 98 maps, vanilla). A constant, not data.
+    rng: [6, 3],
   },
   // $9D SpritesLocked off, stated although WRAM starts zeroed, so a fixture
   // that differs says so.
@@ -92,7 +103,14 @@ export const SPRITE_SEED: SpriteSeed = {
 }
 
 /** A seed with some fields replaced, deep for the nested position objects. */
-export function withSeed(over: Partial<SpriteSeed>, base: SpriteSeed = SPRITE_SEED): SpriteSeed {
+export type SeedOverride = Partial<Omit<SpriteSeed, 'sprite' | 'mario' | 'camera' | 'level'>> & {
+  sprite?: Partial<SpriteSeed['sprite']>
+  mario?: Partial<SpriteSeed['mario']>
+  camera?: Partial<SpriteSeed['camera']>
+  level?: Partial<LevelState>
+}
+
+export function withSeed(over: SeedOverride, base: SpriteSeed = SPRITE_SEED): SpriteSeed {
   return {
     ...base,
     ...over,

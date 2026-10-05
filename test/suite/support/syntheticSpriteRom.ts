@@ -18,6 +18,8 @@ export interface SyntheticOptions {
   initShift?: number
   /** Replace id 0's MAIN tile STA with NOPs (draws nothing useful). */
   noTileWrite?: boolean
+  /** Break the sprite loop's countdown (loop reader must refuse). */
+  badLoop?: boolean
   /** Break the HandleSprite shape (dispatch reader must refuse). */
   badDispatch?: boolean
 }
@@ -44,7 +46,7 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   put(0x07f7d2, [0x6b])
   // $01:808C sprite loop: PHB PHK PLB, X = $0B..0 { STX $15E9; JSR setup; JSR handle }
   put(0x01808c, [
-    0x8b, 0x4b, 0xab, 0xa2, 0x0b, 0x8e, 0xe9, 0x15, 0x20, 0xd2, 0x80, 0x20, 0x27, 0x81, 0xca,
+    0x8b, 0x4b, 0xab, 0xa2, o.badLoop ? 0x0a : 0x0b, 0x8e, 0xe9, 0x15, 0x20, 0xd2, 0x80, 0x20, 0x27, 0x81, 0xca,
     0x10, 0xf4, 0xab, 0x6b,
   ]) // prettier-ignore
   // $01:80D2 per-sprite setup: OAM index 0 for every slot.
