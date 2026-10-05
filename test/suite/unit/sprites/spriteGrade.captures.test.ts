@@ -7,11 +7,16 @@
  * the captures record the first on-screen draw of a sprite that was free to
  * move and Mario was somewhere else. Set SPRITE_GRADE_OUT to a file path to
  * dump every graded record as JSON for classification.
+ *
+ * The headline run asserts FLOORS (the measured count minus a tolerance) and a
+ * planted-defect run asserts the same grader goes red, so a regression in the
+ * runner moves a failing number, not just a log line.
  */
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { unzip } from '../../../../tools/scripts/capture_render'
+import type { RomFile } from '../../../../src/rom/RomFile'
 import { runSprite } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
@@ -23,13 +28,8 @@ import {
   TOOLS_ROOT,
   VANILLA,
 } from '../../support/corpus'
-import {
-  grade,
-  levelOf,
-  passPieces,
-  type Grade,
-  type RecordedPiece,
-} from '../../support/spriteGrade'
+import { oracleCells, oracleImage } from '../../support/oracleImage'
+import { grade, passPieces, type Grade, type RecordedPiece } from '../../support/spriteGrade'
 
 interface Rec {
   id: string
@@ -78,64 +78,123 @@ function loadAll(): { map: string; rec: Rec; wram: Uint8Array | null }[] {
   return out
 }
 
-describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-load captures', () => {
-  it('grades every recorded sprite', () => {
-    const rom = freshRom()
-    const all = loadAll()
-    expect(all.length).toBeGreaterThan(0)
-    const rows: (Grade & { map: string; id: string; slot: number; want?: unknown; got?: unknown; anchor?: unknown; pos?: unknown; seed?: unknown })[] = [] // prettier-ignore
-    const inputs = new Map<number, { reads: number; nonzero: number }>()
-    const loadedByMap = new Map<string, Uint8Array>()
-    for (const { map, rec, wram } of all) {
-      const id = parseInt(rec.id.slice(1), 16)
-      const want = recordedFrames(rec)
-      if (!want.length || id > 0xc8) continue
-      // SPRITE_GRADE_SEED: 'rom' (default) runs the ROM's own level loader for the
-      // map; 'generic' seeds placement only; 'oracle' copies the capture's level
-      // cells and Map16 (an upper bound for comparison, never a runtime input).
-      const mode = process.env.SPRITE_GRADE_SEED ?? 'rom'
-      let loaded = loadedByMap.get(map)
-      if (mode === 'rom' && !loaded) {
+type Row = Grade & { map: string; id: string; slot: number; [k: string]: unknown }
+type Mode = 'rom' | 'generic' | 'oracle'
+
+/** Grades `all` (or its first `limit` gradable records) against `rom`. */
+function gradeAll(
+  rom: RomFile,
+  all: ReturnType<typeof loadAll>,
+  opts: { mode?: Mode; limit?: number; passes?: number; trackInputs?: boolean } = {},
+): {
+  rows: Row[]
+  by: Record<string, number>
+  inputs: Map<number, { reads: number; nonzero: number }>
+} {
+  const mode = opts.mode ?? 'rom'
+  const rows: Row[] = []
+  const inputs = new Map<number, { reads: number; nonzero: number }>()
+  const loadedByMap = new Map<string, Uint8Array | undefined>()
+  for (const { map, rec, wram } of all) {
+    if (opts.limit !== undefined && rows.length >= opts.limit) break
+    const id = parseInt(rec.id.slice(1), 16)
+    const want = recordedFrames(rec)
+    if (!want.length || id > 0xc8) continue
+    // 'rom' runs the ROM's own level loader; 'generic' seeds placement only;
+    // 'oracle' builds an image from the capture (an upper bound, never a runtime input).
+    let loaded: Uint8Array | undefined
+    if (mode === 'rom') {
+      if (!loadedByMap.has(map)) {
         const l = loadLevelState(rom, parseInt(map, 16))
-        loaded = l.ok ? l.wram : undefined
-        if (loaded) loadedByMap.set(map, loaded)
+        loadedByMap.set(map, l.ok ? l.wram : undefined)
       }
-      const seed = withSeed({
-        loaded: mode === 'rom' ? loaded : undefined,
-        map16: mode === 'oracle' ? traceMap16(map) : undefined,
-        level: mode === 'oracle' && wram ? levelOf(wram) : undefined,
-        slot: rec.slot,
-        mainPasses: Number(process.env.SPRITE_GRADE_PASSES ?? 64),
-        sprite: { x: rec.listX, y: rec.listY },
-        camera: { x: rec.cameraX, y: rec.cameraY },
-        mario: rec.marioAtInit ?? { x: rec.listX, y: rec.listY },
-      })
-      const m = runSprite(rom, id, seed, { trackInputs: !!process.env.SPRITE_GRADE_INPUTS })
-      for (const a of m.inputs ?? []) {
-        const e = inputs.get(a) ?? { reads: 0, nonzero: 0 }
-        e.reads++
-        // A seed gap: read before written, and the capture holds a value the seed lacks.
-        if (wram && a < 0x2000 && wram[a] !== (loaded?.[a] ?? 0)) e.nonzero++
-        inputs.set(a, e)
-      }
-      const g = grade(m, want)
-      const dbg = g.verdict === 'wrong' || g.verdict === 'close' || g.verdict === 'shape'
-      rows.push({
-        ...g, map, id: rec.id, slot: rec.slot,
-        ...(dbg ? { want, got: [0, 1, 15].map(i => m.passes[i] && passPieces(m, i)),
-            best: g.pass === undefined ? undefined : passPieces(m, g.pass), anchor: m.anchor, pos: m.passes[0]?.pos, seed: rec } : {}),
-      }) // prettier-ignore
+      loaded = loadedByMap.get(map)
+    } else if (mode === 'oracle' && wram) {
+      loaded = oracleImage({ cells: oracleCells(wram), map16: traceMap16(map) })
     }
+    const seed = withSeed({
+      loaded,
+      slot: rec.slot,
+      mainPasses: opts.passes ?? 64,
+      sprite: { x: rec.listX, y: rec.listY },
+      camera: { x: rec.cameraX, y: rec.cameraY },
+      mario: rec.marioAtInit ?? { x: rec.listX, y: rec.listY },
+    })
+    const m = runSprite(rom, id, seed, { trackInputs: opts.trackInputs })
+    for (const a of m.inputs ?? []) {
+      const e = inputs.get(a) ?? { reads: 0, nonzero: 0 }
+      e.reads++
+      // A seed gap: read before written, and the capture holds a value the seed lacks.
+      if (wram && a < 0x2000 && wram[a] !== (loaded?.[a] ?? 0)) e.nonzero++
+      inputs.set(a, e)
+    }
+    const g = grade(m, want)
+    const dbg = g.verdict === 'wrong' || g.verdict === 'close' || g.verdict === 'shape'
+    rows.push({
+      ...g,
+      map,
+      id: rec.id,
+      slot: rec.slot,
+      ...(dbg
+        ? {
+            want,
+            got: [0, 1, 15].map(i => m.passes[i] && passPieces(m, i)),
+            best: g.pass === undefined ? undefined : passPieces(m, g.pass),
+            anchor: m.anchor,
+            pos: m.passes[0]?.pos,
+            seed: rec,
+          }
+        : {}),
+    })
+  }
+  const by: Record<string, number> = {}
+  for (const r of rows) by[r.verdict] = (by[r.verdict] ?? 0) + 1
+  return { rows, by, inputs }
+}
+
+/** Floors for the 'rom' seed, 64 passes, chosen-frame policy; measured counts are in the docs. */
+const FLOOR = { graded: 1957, exact: 910, exactOrShape: 1480, maxRefused: 0, maxEmpty: 20 }
+
+describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-load captures', () => {
+  const all = hasCaptures() && hasRom(VANILLA) ? loadAll() : []
+
+  it('grades every recorded sprite, and holds the floors', () => {
+    const rom = freshRom()
+    expect(all.length).toBeGreaterThan(0)
+    const mode = (process.env.SPRITE_GRADE_SEED ?? 'rom') as Mode
+    const { rows, by, inputs } = gradeAll(rom, all, {
+      mode,
+      passes: Number(process.env.SPRITE_GRADE_PASSES ?? 64),
+      trackInputs: !!process.env.SPRITE_GRADE_INPUTS,
+    })
     if (process.env.SPRITE_GRADE_INPUTS)
       writeFileSync(
         process.env.SPRITE_GRADE_INPUTS,
         JSON.stringify([...inputs].sort((a, b) => b[1].nonzero - a[1].nonzero)),
       )
-    const by: Record<string, number> = {}
-    for (const r of rows) by[r.verdict] = (by[r.verdict] ?? 0) + 1
     const summary = `graded ${rows.length}: ${JSON.stringify(by)}`
-    if (process.env.SPRITE_GRADE_OUT) writeFileSync(process.env.SPRITE_GRADE_OUT, JSON.stringify({ summary, rows }, null, 1)) // prettier-ignore
+    if (process.env.SPRITE_GRADE_OUT)
+      writeFileSync(process.env.SPRITE_GRADE_OUT, JSON.stringify({ summary, rows }, null, 1))
     console.log(summary)
-    expect(rows.length).toBeGreaterThan(0)
-  }, 120_000)
+    if (mode !== 'rom') return
+    // Floors: measured 2026-10-05 (docs section 12) minus a tolerance. The mutants they
+    // were set against (X not set to the slot, level sprites not zeroed, INIT retry
+    // removed) all fall below them.
+    expect(rows.length).toBe(FLOOR.graded)
+    expect(by.exact ?? 0).toBeGreaterThanOrEqual(FLOOR.exact)
+    expect((by.exact ?? 0) + (by.shape ?? 0)).toBeGreaterThanOrEqual(FLOOR.exactOrShape)
+    expect(by.refused ?? 0).toBeLessThanOrEqual(FLOOR.maxRefused)
+    expect(by.empty ?? 0).toBeLessThanOrEqual(FLOOR.maxEmpty)
+  }, 300_000)
+
+  it('goes red when the dispatch is planted with a defect', () => {
+    // ExecutePtr ($00:86DF) returns at once: no INIT, no MAIN runs, nothing is drawn.
+    const sample = 150
+    const base = gradeAll(freshRom(), all, { limit: sample, passes: 8 })
+    const rom = freshRom()
+    rom.writeAt(0x0086df, [0x6b])
+    const planted = gradeAll(rom, all, { limit: sample, passes: 8 })
+    expect(base.by.exact ?? 0).toBeGreaterThan(sample / 4)
+    expect(planted.by.exact ?? 0).toBeLessThan((base.by.exact ?? 0) / 4)
+  }, 300_000)
 })

@@ -4,12 +4,16 @@
  * own dispatch code (HandleSprite -> CallSpriteInit / CallSpriteMain), not
  * assumed at a vanilla address, so a hack that moved a table is followed.
  *
- * Only three entry points are fixed: the routines the game's own sprite loop
- * calls (SMWDisX bank_01.asm:119-181 and bank_07.asm:1006). Each is verified
- * against the byte shape the reader depends on and refused when it differs.
+ * Fixed entry points, each byte-checked against the shape the runner depends
+ * on and refused with a reason when it differs: the sprite loop ($01:808C,
+ * `resolveLoop`, which also yields the setup and HandleSprite addresses),
+ * InitSpriteTables ($07:F7D2, `checkInitTables`) and GetRand ($01:ACF9,
+ * `checkGetRand`). SMWDisX bank_01.asm:98-125, bank_07.asm:1006,
+ * bank_01.asm:6092. The level loader's entries are checked in LevelLoader.ts.
  */
 import type { RomFile } from '../../RomFile'
 import { loromToOffset } from '../../addressing'
+import { bytesAt, shapeMatches } from './Guards'
 
 export const ENTRY = {
   /** JSL: ZeroSpriteTables + LoadSpriteTables (bank_07.asm:1006). */
@@ -23,6 +27,8 @@ export const ENTRY = {
   spriteLoop: 0x01808c,
   /** Default HandleSprite address (bank_01.asm:181); `resolveLoop` reads the real one from the loop. */
   handleSprite: 0x018127,
+  /** JSL: GetRand, two steps of the RNG at `$148B/C` (bank_01.asm:6092). */
+  getRand: 0x01acf9,
 } as const
 
 /** Entries in each table. Ids past this read bytes that are not pointers. */
@@ -35,12 +41,26 @@ export interface SpriteTables {
 
 export type TablesResult = { ok: true; tables: SpriteTables } | { ok: false; reason: string }
 
-const bytes = (rom: RomFile, a: number, n: number): number[] | null => {
-  const b = rom.readAt(a, n)
-  return b ? [...b] : null
+const bytes = (rom: RomFile, a: number, n: number): number[] | null => bytesAt(rom, a, n)
+const matches = shapeMatches
+
+export type ShapeResult = { ok: true } | { ok: false; reason: string }
+
+/** InitSpriteTables: JSL ZeroSpriteTables / JSL LoadSpriteTables / RTL (bank_07.asm:1006). */
+export function checkInitTables(rom: RomFile): ShapeResult {
+  const b = bytes(rom, ENTRY.initSpriteTables, 9)
+  return matches(b, [0x22, null, null, null, 0x22, null, null, null, 0x6b])
+    ? { ok: true }
+    : { ok: false, reason: 'InitSpriteTables is not JSL / JSL / RTL' }
 }
-const matches = (got: number[] | null, want: (number | null)[]): boolean =>
-  !!got && want.every((w, i) => w === null || got[i] === w)
+
+/** GetRand: PHY LDY #1 JSL step DEY JSL step PLY RTL (bank_01.asm:6092). */
+export function checkGetRand(rom: RomFile): ShapeResult {
+  const b = bytes(rom, ENTRY.getRand, 14)
+  return matches(b, [0x5a, 0xa0, 0x01, 0x22, null, null, 0x01, 0x88, 0x22, null, null, 0x01, 0x7a, 0x6b]) // prettier-ignore
+    ? { ok: true }
+    : { ok: false, reason: 'GetRand is not the two-step shape this runner knows' }
+}
 
 export type LoopResult = { ok: true; setup: number; handle: number } | { ok: false; reason: string }
 
