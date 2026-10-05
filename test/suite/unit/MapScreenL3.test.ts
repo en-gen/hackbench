@@ -6,9 +6,11 @@
  * and the mode tables.
  */
 import { describe, it, expect } from 'vitest'
+import type { RgbaColor } from '../../../src/rom/GraphicsDecoder'
 import { parseLevelHeader } from '../../../src/rom/LevelParser'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
+import { withCrusher } from '../../../src/rom/L3CodeGate'
 import { buildL3Verdict, type L3Inputs, type L3Verdict } from '../../../src/rom/model/L3Model'
 import {
   drawL3Planes,
@@ -24,6 +26,7 @@ import { COLORS, hGrid, inputs, px, sub, tile } from '../support/mapInputs'
 import { modeTablesRom, STANDARD_MODES, sweepLayouts, withLayer3 } from '../support/l3Rom'
 
 const BG_OK = { ok: true as const, mode: 1 }
+const GATE_OK = { ok: true as const }
 const chars = () => [0, 1, 2, 3].map(() => Array.from({ length: 128 }, (_, i) => new Uint8Array(64).fill(i % 4))) // prettier-ignore
 /** Char 2 in palette 1: BG3's color index 6, [6, 100, 200]. L1's tile 1 top-left is color 1, L2's palette-2 char 3 is 35. */
 const L3_WORD = (high: boolean) => (high ? 0x2000 : 0) | (1 << 10) | 2
@@ -63,7 +66,7 @@ describe('layer 3 gate, every level mode (synthetic header and mode tables)', ()
     const rom = rom5()
     const drawn: number[] = []
     for (let mode = 0; mode < 32; mode++) {
-      const v = buildL3Verdict(rom, 5, l1Of(mode, 0, true), BG_OK, chars)
+      const v = buildL3Verdict(rom, 5, l1Of(mode, 0, true), BG_OK, chars, GATE_OK)
       if (v.l3) drawn.push(mode)
       else expect(v.reason, `mode ${mode}`).toMatch(/Layer 3 not drawn yet/)
       const w = wireOf({ ...l1Of(mode, 0, true), l3: v })
@@ -75,16 +78,25 @@ describe('layer 3 gate, every level mode (synthetic header and mode tables)', ()
 
   it('names the reason: interactive layer 2, no layer 3 on the map, an unverified BG mode', () => {
     const rom = rom5()
-    expect(buildL3Verdict(rom, 5, l1Of(2, 0, false), BG_OK, chars).reason).toMatch(
+    expect(buildL3Verdict(rom, 5, l1Of(2, 0, false), BG_OK, chars, GATE_OK).reason).toMatch(
       /interactive layer 2/,
     ) // mode 2: bit 7
-    expect(buildL3Verdict(rom, 6, l1Of(0, 0, false), BG_OK, chars)).toMatchObject({ layout: 'standard', l3: null, reason: 'This map has no layer 3' }) // prettier-ignore
-    const bg = buildL3Verdict(rom, 5, l1Of(0, 0, false), { ok: false, reason: 'hooked' }, chars)
+    expect(buildL3Verdict(rom, 6, l1Of(0, 0, false), BG_OK, chars, GATE_OK)).toMatchObject({ layout: 'standard', l3: null, reason: 'This map has no layer 3' }) // prettier-ignore
+    // No layer 3 outranks the layout: an interactive-layer-2 map without one says so, and still stacks as 'other'.
+    expect(buildL3Verdict(rom, 6, l1Of(2, 0, false), BG_OK, chars, GATE_OK)).toMatchObject({ layout: 'other', l3: null, reason: 'This map has no layer 3' }) // prettier-ignore
+    const bg = buildL3Verdict(
+      rom,
+      5,
+      l1Of(0, 0, false),
+      { ok: false, reason: 'hooked' },
+      chars,
+      GATE_OK,
+    )
     expect(bg).toMatchObject({ layout: 'other', l3: null, reason: 'Layer 3 not drawn: hooked' })
   })
 
   it('the header bit is carried as read, never forced', () => {
-    const bits = [true, false].map(b => buildL3Verdict(rom5(), 5, l1Of(0, 0, b), BG_OK, chars).priority) // prettier-ignore
+    const bits = [true, false].map(b => buildL3Verdict(rom5(), 5, l1Of(0, 0, b), BG_OK, chars, GATE_OK).priority) // prettier-ignore
     expect(bits).toEqual([true, false])
   })
 })
@@ -158,7 +170,7 @@ describe('camera-locked layer 3 (synthetic settings bytes)', () => {
   it('$81 and $BF are skipped on a tileset other than Castle1 and Underground1', () => {
     for (const byte of [0x81, 0xbf]) {
       for (const ts of [0, 2, 4, 15]) {
-        const v = buildL3Verdict(romFor(ts, byte), 5, l1Of(0, ts, false), BG_OK, chars)
+        const v = buildL3Verdict(romFor(ts, byte), 5, l1Of(0, ts, false), BG_OK, chars, GATE_OK)
         expect(v, `byte ${byte} tileset ${ts}`).toMatchObject({ l3: null, reason: /camera-locked/ })
       }
     }
@@ -167,7 +179,7 @@ describe('camera-locked layer 3 (synthetic settings bytes)', () => {
   it('on Castle1 and Underground1 they are drawn at the fixed Y, $C0', () => {
     for (const byte of [0x81, 0xbf]) {
       for (const ts of [1, 3]) {
-        const v = buildL3Verdict(romFor(ts, byte), 5, l1Of(0, ts, false), BG_OK, chars)
+        const v = buildL3Verdict(romFor(ts, byte), 5, l1Of(0, ts, false), BG_OK, chars, GATE_OK)
         expect(v.l3?.yPx, `byte ${byte} tileset ${ts}`).toBe(0xc0)
         // Tile row 24 at Y $C0 is level Y 0: the tile's pixel is on screen at the top left.
         const m: MapInputs = {
@@ -185,40 +197,98 @@ describe('drawL3Planes (synthetic)', () => {
   const alpha = (b: Uint8ClampedArray | null, x: number, y: number, w = 256) => (b ? px(b, w, x, y)[3] : null) // prettier-ignore
 
   it('a tile word lands in the plane its priority bit names, at the tile row Y and the level X', () => {
-    const p = drawL3Planes(l3Of([word(8, 0, L3_WORD(false)), word(10, 2, L3_WORD(true))]), false, 0)
+    const p = drawL3Planes(l3Of([word(8, 0, L3_WORD(false)), word(10, 2, L3_WORD(true))]), 0)
     expect([alpha(p.l3Low, 3, 3), alpha(p.l3High, 3, 3)]).toEqual([255, 0]) // row 8 -> y 0
     expect([alpha(p.l3High, 19, 19), alpha(p.l3Low, 19, 19)]).toEqual([255, 0]) // row 10, col 2 -> (16, 16)
   })
 
   it('the status-bar rows are not drawn', () => {
-    const p = drawL3Planes(l3Of([word(3, 0, L3_WORD(false))], { yPx: 0 }), false, 0)
+    const p = drawL3Planes(l3Of([word(3, 0, L3_WORD(false))], { yPx: 0 }), 0)
     expect([p.l3Low, p.l3High]).toEqual([null, null])
   })
 
   it('a non-tide repeats every 512 px, a tide every 256 px over its first 32 columns', () => {
     const w = [word(8, 0, L3_WORD(false))]
-    expect([2, 1, 4].map(s => drawL3Planes(l3Of(w), false, s).l3Low !== null)).toEqual([true, false, true]) // prettier-ignore
-    expect([1, 2].map(s => drawL3Planes(l3Of(w, { tide: true }), false, s).l3Low !== null)).toEqual([true, true]) // prettier-ignore
+    expect([2, 1, 4].map(s => drawL3Planes(l3Of(w), s).l3Low !== null)).toEqual([true, false, true]) // prettier-ignore
+    expect([1, 2].map(s => drawL3Planes(l3Of(w, { tide: true }), s).l3Low !== null)).toEqual([true, true]) // prettier-ignore
   })
 
   it("a tide's second copy of its tilemap is not drawn", () => {
     // Rows 8-9 hold a pattern, rows 12-13 the same chars again: the copy starts at 12.
     const pair = (r: number) => [word(r, 0, L3_WORD(false)), word(r + 1, 1, L3_WORD(false))]
-    const p = drawL3Planes(l3Of([...pair(8), ...pair(12)], { tide: true }), false, 0).l3Low!
+    const p = drawL3Planes(l3Of([...pair(8), ...pair(12)], { tide: true }), 0).l3Low!
     expect([alpha(p, 3, 3), alpha(p, 11, 8 + 3), alpha(p, 3, 4 * 8 + 3)]).toEqual([255, 255, 0])
+  })
+
+  it('Layer1YPos at load moves every row down, and the pixel keeps its own color', () => {
+    const p = drawL3Planes(l3Of([word(8, 0, L3_WORD(false))], { camYPx: 0x30 }), 0).l3Low!
+    expect([alpha(p, 3, 3), alpha(p, 3, 0x30 + 3), alpha(p, 3, 0x30 + 8)]).toEqual([0, 255, 0])
+    expect(px(p, 256, 3, 0x30 + 3)[0]).toBe(L3_COLOR)
+  })
+
+  it('palettes above 3 select their own CGRAM colors (palette P is P*4 + color)', () => {
+    for (const pal of [3, 4, 5, 7]) {
+      const p = drawL3Planes(l3Of([word(8, 0, (pal << 10) | 2)]), 0).l3Low!
+      expect(px(p, 256, 3, 3)[0], `palette ${pal}`).toBe(pal * 4 + 2)
+    }
+  })
+
+  it('a pixel in palette 3 of a crusher level is the table color, not the level palette', () => {
+    const crusher: RgbaColor[] = [
+      [0, 0, 0, 0],
+      [1, 2, 3, 255],
+      [4, 5, 6, 255],
+      [7, 8, 9, 255],
+    ]
+    for (const v of [1, 2, 3]) {
+      const asym = chars()
+      asym[0]![2] = new Uint8Array(64).fill(v)
+      const l3 = l3Of([word(8, 0, (3 << 10) | 2)], {
+        chars: asym,
+        colors: withCrusher(COLORS, crusher),
+      })
+      expect(px(drawL3Planes(l3, 0).l3Low!, 256, 3, 3), `color ${v}`).toEqual(crusher[v])
+    }
   })
 
   it('X and Y flips mirror the char', () => {
     const asym = chars()
     asym[0]![2] = Uint8Array.from({ length: 64 }, (_, i) => (i === 0 ? 2 : 0)) // only the top-left pixel
-    const flipped = (flags: number) => drawL3Planes(l3Of([word(8, 0, L3_WORD(false) | flags)], { chars: asym }), false, 0).l3Low! // prettier-ignore
+    const flipped = (flags: number) => drawL3Planes(l3Of([word(8, 0, L3_WORD(false) | flags)], { chars: asym }), 0).l3Low! // prettier-ignore
     expect([alpha(flipped(0), 0, 0), alpha(flipped(0x4000), 7, 0), alpha(flipped(0x8000), 0, 7), alpha(flipped(0xc000), 7, 7)]).toEqual([255, 255, 255, 255]) // prettier-ignore
     expect(alpha(flipped(0x4000), 0, 0)).toBe(0)
   })
+})
 
-  it('a vertical map slices by 256 rows of pixels', () => {
-    const p = drawL3Planes(l3Of([word(40, 0, L3_WORD(false))]), true, 1) // level Y 256: row 0 of screen 1
-    expect(alpha(p.l3Low, 3, 3, 512)).toBe(255)
+describe('maps layer 3 is not drawn on (synthetic)', () => {
+  it('a vertical map says so, whatever else would draw', () => {
+    const l1 = { ...l1Of(3, 0, false), isVertical: true } // mode 3: standard layout, vertical
+    expect(buildL3Verdict(rom5(), 5, l1, BG_OK, chars, GATE_OK)).toMatchObject({ layout: 'standard', l3: null, reason: 'Layer 3 not drawn yet: vertical maps' }) // prettier-ignore
+  })
+
+  it('settings $00 follows the camera off Castle1 and Underground1, like $81', () => {
+    const rom = (ts: number) => withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: ts, setting: 2, settingsByte: 0x00, word: L3_WORD(false) }) // prettier-ignore
+    for (const ts of [0, 2, 5]) expect(buildL3Verdict(rom(ts), 5, l1Of(0, ts, false), BG_OK, chars, GATE_OK), `tileset ${ts}`).toMatchObject({ l3: null, reason: /camera-locked/ }) // prettier-ignore
+    for (const ts of [1, 3]) expect(buildL3Verdict(rom(ts), 5, l1Of(0, ts, false), BG_OK, chars, GATE_OK).l3?.yPx, `tileset ${ts}`).toBe(0x70) // prettier-ignore
+  })
+})
+
+describe('tide or not, by the settings byte (synthetic)', () => {
+  const verdictFor = (byte: number) => buildL3Verdict(withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: 0, setting: 2, settingsByte: byte, word: L3_WORD(false), row: 30 }), 5, l1Of(0, 0, false), BG_OK, chars, GATE_OK) // prettier-ignore
+
+  it('$02, $50 and $7F are tides (256 px repeat); $80 and $C0 are not (512 px)', () => {
+    expect([0x02, 0x50, 0x7f, 0x80, 0xc0].map(b => verdictFor(b).l3?.tide)).toEqual([true, true, true, false, false]) // prettier-ignore
+    const repeats = (b: number) =>
+      [1, 2].map(sc => drawL3Planes(verdictFor(b).l3!, sc).l3Low !== null) // row 8, col 0
+    expect(repeats(0x50)).toEqual([true, true])
+    expect(repeats(0x80)).toEqual([false, true])
+  })
+
+  it('the wire carries the header priority bit as read, both ways', () => {
+    for (const bit of [true, false]) {
+      const l3 = verdict(bit, l3Of([word(8, 0, L3_WORD(true))]))
+      expect(wireOf({ ...l1Of(0, 0, bit), l3 }).layer3.priority).toBe(bit)
+    }
   })
 })
 

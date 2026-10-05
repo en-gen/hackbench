@@ -9,7 +9,7 @@
  * sheet's and the preview's rule. The back area is not baked in: it is a
  * layer of its own in the view, so it can be hidden like any other. L1 and
  * L2 (background) are each sent as two planes by the subtile priority bit;
- * the view stacks the four in BG mode 1's order (`MAP_PLANE_KEYS`). A layer
+ * the view stacks them in `mapPlaneOrder`'s order. A layer
  * never overlaps its own planes; L2 sits at a 1:1 horizontal offset, with no
  * parallax, and shifted vertically by its initial Layer2YPos (#113). L3 is two
  * planes by its tile priority bit, drawn only on the standard layout (#561).
@@ -213,10 +213,10 @@ export type L3Planes = Record<'l3Low' | 'l3High', Plane>
  * are skipped whole, as the reference view does. Char 0 of every 2bpp
  * palette is clear.
  */
-export function drawL3Planes(l3: L3Inputs, isVertical: boolean, screen: number): L3Planes {
-  const { w, h } = screenTiles(isVertical)
+export function drawL3Planes(l3: L3Inputs, screen: number): L3Planes {
+  const { w, h } = screenTiles(false) // vertical maps never reach here (L3Model)
   const [width, height] = [w * 16, h * 16]
-  const [x0, top] = isVertical ? [0, screen * height] : [screen * width, 0]
+  const x0 = screen * width
   const cols = l3.tide ? 32 : L3_TILEMAP_COLS
   const cell = (r: number, c: number) => l3.tilemap[r * L3_TILEMAP_COLS + c] ?? 0
   const row = (r: number) => Array.from({ length: L3_TILEMAP_COLS }, (_, c) => cell(r, c))
@@ -235,14 +235,14 @@ export function drawL3Planes(l3: L3Inputs, isVertical: boolean, screen: number):
   const drew = [false, false]
   for (let r = L3_HUD_ROW_CUTOFF; r < end; r++) {
     const y = r * 8 - l3.yPx + l3.camYPx
-    if (y < 0 || y + 8 <= top || y >= top + height) continue
+    if (y < 0 || y >= height) continue
     for (let sx = 0; sx < width; sx += 8) {
       const word = cell(r, ((x0 + sx) % (cols * 8)) >> 3)
       const pixels = l3.chars[(word & 0x3ff) >> 7]?.[word & 0x7f]
       if (!word || !pixels) continue
       const p = word & 0x2000 ? 1 : 0
       for (let ty = 0; ty < 8; ty++) {
-        const outY = y + ty - top
+        const outY = y + ty
         if (outY < 0 || outY >= height) continue
         for (let tx = 0; tx < 8; tx++) {
           const v = pixels[((word & 0x8000 ? 7 - ty : ty) << 3) | (word & 0x4000 ? 7 - tx : tx)]!
@@ -290,7 +290,7 @@ export function screenResult(
   const drawn: Partial<Record<MapPlaneKey, Plane>> = {
     ...drawL1Planes(model, screen, switches, vram),
     ...(l2 && drawL2Planes(model, l2, screen, vram)),
-    ...(model.l3?.l3 && drawL3Planes(model.l3.l3, model.isVertical, screen)),
+    ...(model.l3?.l3 && drawL3Planes(model.l3.l3, screen)),
   }
   return {
     status: 'ok',

@@ -185,10 +185,27 @@ rows 0-7 are not drawn. `L3Loader.l3InitialYPx` disagrees with the ASM for
 `$C0`-`$FF` (0, the ASM says `$D0`) and for Castle1/Underground1 `$81` (`$D0`,
 the ASM says `$C0`); the renderer does not use it.
 
+**Hooked code, vertical maps, crusher colors.** The Y values above and the
+tide path are the stock code's (`CODE_009FB8..CODE_00A044`,
+`CODE_05C40C..CODE_05C493`), so `L3CodeGate.ts` fingerprints both with SHA-256
+and a mismatch skips layer 3 ("hooked layer 3 code"). On the corpus the vanilla
+and Lunar Magic carts and Seven Vanilla Levels match; Grand Poo World 1.1, 1.2
+and Invictus do not. Vertical maps are skipped: a sublevel's entry never reads
+`$05F600` (`bank_05.asm:7116-7162`), so its Layer1YPos is unverified. Settings
+`$00` is Layer3TideSetting 0, the non-tide path of `CODE_05C40C`: off Castle1
+and Underground1 it sets Layer3YPos = Layer1YPos every frame
+(`CODE_05C428` to `CODE_05C48D`), so it is camera-locked like `$81`. A `$80`
+level runs `CODE_00A007` (`bank_00.asm:4184-4189`), which copies
+`BigCrusherColors` over CGRAM colors 12-15 after `LoadPalette`
+(`bank_00.asm:4868-4870`); the level palette path applies it (`readCrusherColors`),
+so layer 3 palette 3 and any layer 1 or 2 pixel using those colors show it.
+
 **Measured, one cart.** On the vanilla cart the renderer draws layer 3 on 8
-slots (`$002 $01F $0BE $0C1 $102 $127 $1D4 $1FC`), skips 3 as camera-locked
-(`$011 $130 $1C1`), 14 as interactive layer 2 maps (`$009` is mode 2) and 27
-more on a non-standard layout; 460 have no layer 3. The corpus sweep in
+slots (`$002 $01F $0BE $0C1 $102 $127 $1D4 $1FC`; `$01F $1D4 $1FC` are the
+crusher-colors levels), skips 3 as camera-locked (`$011 $130 $1C1`), 14 as
+interactive layer 2 maps (`$009` is mode 2) and 1 on a non-standard layout
+(`$018`); 462 have no layer 3, and "no layer 3" is reported before the layout
+reason. The corpus sweep in
 `test/suite/unit/MapScreenL3.test.ts` compares every slot's priority bit,
 layout and draw decision with a straight decode of the header and the tables.
 

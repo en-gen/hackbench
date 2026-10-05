@@ -54,10 +54,15 @@ describe('l3LoadTimeY: where CODE_009FB8 puts layer 3 (synthetic bytes, no ROM)'
   const UNDERGROUND1 = 3
   const OTHER = [0, 2, 4, 5, 8, 15]
 
-  it('tide bytes: $00 and $01 start at $70, $02-$7F at $40, on every tileset', () => {
-    for (const ts of [CASTLE1, ...OTHER]) {
-      expect([0x00, 0x01, 0x02, 0x7f].map(b => l3LoadTimeY(b, ts))).toEqual([0x70, 0x70, 0x40, 0x40]) // prettier-ignore
+  it('tide bytes: $01 starts at $70, $02-$7F at $40, on every tileset', () => {
+    for (const ts of [CASTLE1, UNDERGROUND1, ...OTHER]) {
+      expect([0x01, 0x02, 0x7f].map(b => l3LoadTimeY(b, ts))).toEqual([0x70, 0x40, 0x40])
     }
+  })
+
+  it('$00 is $70 on Castle1 and Underground1 and camera-locked elsewhere (CODE_05C40C non-tide path)', () => {
+    expect([CASTLE1, UNDERGROUND1].map(ts => l3LoadTimeY(0x00, ts))).toEqual([0x70, 0x70])
+    expect(OTHER.map(ts => l3LoadTimeY(0x00, ts))).toEqual(OTHER.map(() => null))
   })
 
   it('$80 and $C0-$FF sit at $D0 on every tileset (CODE_00A012)', () => {

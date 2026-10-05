@@ -14,6 +14,7 @@ import type { RgbaColor } from '../GraphicsDecoder'
 import { loadL3Chars, type GfxSheet } from '../GfxLoader'
 import type { BgModeResult } from '../BgMode'
 import { layoutRefusal, readModeLayouts } from '../LevelScreenTables'
+import { HOOKED_L3_CODE, readL3CodeGate, type L3CodeGate } from '../L3CodeGate'
 import { l3LoadTimeY, loadL3Tilemap, readInitialLayer1YPos } from '../L3Loader'
 import { readLayer3Setting } from '../ObjectExpander'
 import type { L1Inputs } from './L1Model'
@@ -50,17 +51,23 @@ export function buildL3Verdict(
   l1: Wanted,
   bg: BgModeResult,
   chars: (rom: RomFile) => GfxSheet[] = loadL3Chars,
+  gate: L3CodeGate = readL3CodeGate(rom),
 ): L3Verdict {
   const priority = l1.header.layer3Priority
   const other = (reason: string): L3Verdict => ({ layout: 'other', priority, l3: null, reason })
   if (!bg.ok) return other(`Layer 3 not drawn: ${bg.reason}`)
+  // The layout decides how layer 2 stacks whether or not the map has a layer 3, so it is read
+  // first; the reason a map says is the more specific one, "no layer 3" before the layout's.
   const layouts = readModeLayouts(rom)
-  if (!layouts.ok) return other(`Layer 3 not drawn: ${layouts.reason}`)
-  const refusal = layoutRefusal(layouts.layouts[l1.header.levelMode & 0x1f]!)
-  if (refusal) return other(refusal)
-
-  const none = (reason: string): L3Verdict => ({ layout: 'standard', priority, l3: null, reason })
+  const refusal = layouts.ok ? layoutRefusal(layouts.layouts[l1.header.levelMode & 0x1f]!) : null
+  const layout = layouts.ok && !refusal ? 'standard' : 'other'
+  const none = (reason: string): L3Verdict => ({ layout, priority, l3: null, reason })
   if (readLayer3Setting(rom, index) === 0) return none('This map has no layer 3')
+  if (!layouts.ok) return none(`Layer 3 not drawn: ${layouts.reason}`)
+  if (refusal) return none(refusal)
+  // Y at load is not read for vertical maps: a sublevel's entry never reads F600 (bank_05.asm:7116-7162).
+  if (l1.isVertical) return none('Layer 3 not drawn yet: vertical maps')
+  if (!gate.ok) return none(HOOKED_L3_CODE)
   const tileset = l1.header.objectTileset
   const load = loadL3Tilemap(rom, index, tileset, l1.header.timeLimit)
   if (!load) return none("This map's layer 3 tilemap cannot be read")
@@ -75,7 +82,7 @@ export function buildL3Verdict(
       chars: chars(rom),
       colors: l1.colors,
       yPx,
-      camYPx: readInitialLayer1YPos(rom, index, l1.isVertical),
+      camYPx: readInitialLayer1YPos(rom, index),
       tide: load.settingsByte < 0x80,
     },
   }

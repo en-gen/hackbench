@@ -436,21 +436,14 @@
 }
 
 /* A layer's toolbar icon (layer-icon.tsx): a framed digit in currentColor. Hidden layers
-   dim a little; a disabled one dims more (the global :disabled rule), and says why in its tooltip.
-   Shown layers take Theia's toggled-action look (the tab bar toolbar's .item.toggled). */
+   dim a little; a disabled one dims more, and says why in its tooltip. A shown layer takes the
+   shared .hb-icon-btn-on look (accent foreground, tinted fill, inset outline; docs/ui-conventions.md). */
 .hb-layer-btn:not(.hb-icon-btn-on) {
   opacity: 0.7;
 }
 
 .hb-layer-btn:disabled {
   opacity: 0.4;
-}
-
-.hb-layer-btn.hb-icon-btn-on {
-  color: var(--theia-icon-foreground);
-  border: 1px solid var(--theia-inputOption-activeBorder, transparent);
-  background: var(--theia-inputOption-activeBackground);
-  box-shadow: none;
 }
 
 .hb-dialog-error {

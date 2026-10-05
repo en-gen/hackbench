@@ -654,8 +654,8 @@ const zStack = (page, index) =>
 const zOrder = async (page, index) => (await zStack(page, index)).map(c => c.plane)
 
 /**
- * BG mode 1 stacks BG1 high > BG2 high > BG1 low > BG2 low (map-screen's
- * MAP_PLANE_KEYS). Read from the computed z-index, not the source order. No
+ * The plane order is `mapPlaneOrder`'s (project-protocol): layer 2 under everything on a standard
+ * layout, the old BG mode 1 order otherwise. Read from the computed z-index, not the source order. No
  * vanilla or magic-ROM slot draws an l2High pixel (swept: 0 of 488 maps each),
  * so there is no corpus screen to check the order on pixels; the unit tests
  * pin which plane a priority subtile lands in on synthetic data.
@@ -729,6 +729,11 @@ for (const [index, role, bit] of [
 
     const before = await layer3Region(page, index)
     expect(before.box.w * before.box.h, 'layer 3 draws pixels on screen 0').toBeGreaterThan(0)
+    // A known layer 3 pixel: where the region starts, opaque in l3High; over layer 1 it is the shown color.
+    expect({ x: before.box.x, y: before.box.y }).toEqual(origin)
+    const own = await page.locator(`${root(index)} canvas[data-screen="0"][data-plane="l3High"]`).evaluate((c, o) => Array.from(c.getContext('2d').getImageData(o.x, o.y, 1, 1).data), origin) // prettier-ignore
+    expect(own[3], 'opaque at the known position').toBe(255)
+    if (bit) expect(before.pixels.slice(0, 4), 'an overlay pixel shows its own color').toEqual(own)
     await button.click()
     await expect(button).toHaveAttribute('aria-pressed', 'false')
     for (const plane of planeLocators(page, index, 0, ['l3Low', 'l3High']))
@@ -777,7 +782,7 @@ test('a map the ROM reads fully carries no layer note', async ({ page }) => {
  * row 13 (measured on vanilla); both are opaque at pixel (3, 211) of screen 0, both low priority.
  * Setting tile 349's top-left priority bit in the working copy moves that quadrant to l2High,
  * which BG mode 1 stacks over l1Low: the pixel shown must turn into L2's. The composite is read
- * from the canvases in their z-index order, so reordering MAP_PLANE_KEYS turns this red.
+ * from the canvases in their z-index order, so reordering the planes (`mapPlaneOrder`) turns this red.
  */
 test('an L2 priority tile draws over an L1 low tile, from a working-copy edit', async ({
   page,

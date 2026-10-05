@@ -763,6 +763,17 @@ describe('assembleL1Inputs (synthetic)', () => {
     expect(r.colors).toEqual(withFrame0(COLORS))
   })
 
+  it('puts the crusher colors in CGRAM 12-15 after the palettes, before the palette frame, and only when read', () => {
+    const crusher: RgbaColor[] = [[1, 2, 3, 255], [4, 5, 6, 255], [7, 8, 9, 255], [10, 11, 12, 255]] // prettier-ignore
+    const base = assembleL1Inputs(readings()).colors
+    const got = assembleL1Inputs(readings({ crusher })).colors
+    expect(got.slice(12, 16)).toEqual(crusher)
+    expect(got.filter((c, i) => i < 12 || i > 15)).toEqual(base.filter((c, i) => i < 12 || i > 15))
+    expect(base.slice(12, 16)).not.toEqual(crusher)
+    const custom = { backAreaColor: [9, 8, 7, 255] as RgbaColor, rows: [], colors: COLORS }
+    expect(assembleL1Inputs(readings({ crusher, custom })).colors.slice(12, 16)).toEqual(crusher)
+  })
+
   it('applies palette frame 0 only when the routine was read, noting it otherwise', () => {
     expect(assembleL1Inputs(readings()).colors[0x21]).toEqual(bgr555ToRgba(0x03e0))
     const blind = assembleL1Inputs(readings({ paletteAnim: { context: 'level', available: false, targets: [], notes: ['hooked'] } as unknown as PaletteAnimContext })) // prettier-ignore
