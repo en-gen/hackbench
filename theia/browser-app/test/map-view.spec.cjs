@@ -1744,9 +1744,14 @@ for (const [index, vertical] of [
     const axisOff = vertical ? off.x : off.y
     const wantCentre = Math.round((axisOff + 16 * 16) * g.dpr)
     const threes = runs(vertical ? g.rowHits : g.colHits).filter(r => r.size === 3)
-    expect(threes.length).toBe(1)
+    // The strip's own edges are 5 px lines clipped to 3 px, so they look like 3 px runs too:
+    // only an interior run counts, and exactly one of those must be the half line.
+    const interior = threes.filter(r => r.start > 0 && r.start + r.size < (vertical ? g.canvasW : g.canvasH)) // prettier-ignore
+    const edge = Math.max(...(vertical ? g.xLines : g.yLines).map(l => l.pos)) * g.dpr
+    const inner = interior.filter(r => r.start + 1 < edge - 1)
+    expect(inner.length).toBe(1)
     // Within 1 device px: the strip's box may sit on a fractional CSS offset.
-    expect(Math.abs(threes[0].start + 1 - wantCentre)).toBeLessThanOrEqual(1)
+    expect(Math.abs(inner[0].start + 1 - wantCentre)).toBeLessThanOrEqual(1)
   })
 }
 
