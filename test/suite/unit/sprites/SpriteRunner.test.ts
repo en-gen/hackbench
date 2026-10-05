@@ -3,7 +3,7 @@
  * checks gated on the corpus. Every defect the oracle claims to catch is
  * planted here and shown to change the verdict.
  */
-import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
+import { levelSeed, loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { describe, expect, it } from 'vitest'
 import { runSprite } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import {
@@ -52,9 +52,9 @@ describe('dispatch reader', () => {
 describe('runtime palette writes', () => {
   // Each id writes one color in INIT by a different route; the model carries it from pass 0 on.
   it.each([
-    [17, 0xd1, 0x03ff, 'the NMI upload list'],
-    [18, 0xd2, 0x01aa, 'the palette mirror'],
-    [19, 0xd3, 0x0255, 'CGADD and CGDATA'],
+    [20, 0xd1, 0x03ff, 'the NMI upload list'],
+    [21, 0xd2, 0x01aa, 'the palette mirror'],
+    [22, 0xd3, 0x0255, 'CGADD and CGDATA'],
   ])('id %i: color %i set through %s', (id, index, bgr555) => {
     const m = runSprite(rom, id)
     expect(m.passes[0].palette).toEqual([{ index, bgr555 }])
@@ -217,6 +217,24 @@ describe.skipIf(!hasRom(VANILLA))('ROM level loader (vanilla)', () => {
     expect(r.wram[0x5d]).toBe(0x14) // LevelScrLength from the header's first byte
     expect(r.wram.subarray(0xc800, 0xc800 + 0x3800).some(b => b !== 0)).toBe(true)
   })
+  it('GetRand with the FastROM mirror banks ($01:ACFF and $01:AD04 = $81) runs and agrees with vanilla', () => {
+    const plain = runSprite(freshRom(), 0x0f)
+    const rom = freshRom()
+    rom.writeAt(0x01acff, [0x81])
+    rom.writeAt(0x01ad04, [0x81])
+    const fast = runSprite(rom, 0x0f)
+    expect(fast.refusal).toBeUndefined()
+    expect(fast.chosen).toBe(plain.chosen)
+    expect(JSON.stringify(fast.passes)).toBe(JSON.stringify(plain.passes))
+  })
+  it('refuses when the sublevel path it models is rerouted ($05:D83B = JMP $8000)', () => {
+    const rom = freshRom()
+    rom.writeAt(0x05d83b, [0x4c, 0x00, 0x80])
+    expect(loadLevelState(rom, 0x105)).toMatchObject({
+      ok: false,
+      reason: /jump into the pointer loader/,
+    })
+  })
   it('a planted header-decode defect changes the loaded state (the loader can go red)', () => {
     const rom = freshRom()
     // CODE_0584E3: AND #$1F (screens) planted to AND #$0F.
@@ -292,6 +310,50 @@ describe('runner mechanics, each guarded by a case that goes red without it', ()
     expect(stateOf(11).m.refusal).toMatch(/execution left ROM code at \$7E0000/)
   })
 
+  it('accepts GetRand with the FastROM mirror banks ($81), as 36 of 101 hacks use', () => {
+    const fast = buildSyntheticRom({ fastRomGetRand: true })
+    const m = runSprite(fast, 15)
+    expect(m.refusal).toBeUndefined()
+    expect(m.passes[0].parts[0].char).toBe(2)
+  })
+
+  it('ticks $13 and $14 on INIT retry frames too', () => {
+    const { m, wram } = stateOf(17)
+    expect(m.initFrames).toBe(3)
+    // Each INIT call stores the counter it saw; the last call is retry frame 2.
+    expect(wram[0x1620]).toBe(2)
+    expect(wram[0x1630]).toBe(2)
+  })
+
+  it('ticks $14 (EffFrame) once per MAIN pass', () => {
+    expect(
+      stateOf(18)
+        .m.passes.slice(0, 4)
+        .map(p => p.parts[0].char),
+    ).toEqual([1, 2, 3, 4])
+  })
+
+  it('re-clears OAM Y between passes: a tile written without a Y is not drawn from a stale one', () => {
+    const { m } = stateOf(19)
+    // $13 is p + 1: odd on even passes (a Y is written), even on odd passes (tile only).
+    expect(m.passes.slice(0, 4).map(p => p.parts.length)).toEqual([1, 0, 1, 0])
+  })
+
+  it('reports where the seed came from', () => {
+    expect(stateOf(0).m).toMatchObject({
+      seedSource: 'generic',
+      seedReason: 'no level image was given',
+    })
+    const l = loadLevelState(rom, 0x105)
+    if (!l.ok) throw new Error(l.reason)
+    expect(stateOf(0, { loaded: l.wram }).m.seedSource).toBe('rom-level-load')
+    const refused = levelSeed(buildSyntheticRom({ badLoader: 'data' }), 0x105)
+    expect(runSprite(rom, 0, refused)).toMatchObject({
+      seedSource: 'generic',
+      seedReason: expect.stringMatching(/data loader/),
+    })
+  })
+
   it('refuses when InitSpriteTables or GetRand has a different shape', () => {
     expect(runSprite(buildSyntheticRom({ badInitTables: true }), 0).refusal).toMatch(
       /InitSpriteTables/,
@@ -315,7 +377,15 @@ describe('level loader on a synthetic cart', () => {
   })
 
   it('refuses each differing entry with its name', () => {
-    expect(run({ badLoader: 'lead' })).toMatchObject({ ok: false, reason: /lead-in at \$05:D8AE/ })
+    expect(run({ badLoader: 'lead' })).toMatchObject({ ok: false, reason: /CODE_05D796 prologue/ })
+    expect(run({ badLoader: 'jump' })).toMatchObject({
+      ok: false,
+      reason: /jump into the pointer loader/,
+    })
+    expect(run({ badLoader: 'callsite' })).toMatchObject({
+      ok: false,
+      reason: /GM11 call JSL CODE_05D796/,
+    })
     expect(run({ badLoader: 'pointers' })).toMatchObject({ ok: false, reason: /pointer loader/ })
     expect(run({ badLoader: 'entrance' })).toMatchObject({ ok: false, reason: /entrance setup/ })
     expect(run({ badLoader: 'data' })).toMatchObject({ ok: false, reason: /data loader/ })
@@ -339,6 +409,11 @@ describe.skipIf(!hasRoms())('level loader on the hack corpus', () => {
     expect(refused.join('|')).toMatch(/Grand Poo World 2/)
     expect(refused.join('|')).toMatch(/Invictus/)
     expect(refused.join('|')).toMatch(/Seven_Vanilla/)
+    // The product-facing answer: a hack gets a generic seed with the reason, never a guess.
+    const hack = CORPUS.find(n => /Invictus/.test(n))!
+    expect(runSprite(freshRom(hack), 0x0f, levelSeed(freshRom(hack), 0x105))).toMatchObject({
+      seedSource: 'generic',
+    })
     for (const name of CORPUS.filter(n => !refused.includes(n)))
       expect(name).toMatch(/Super Mario World/)
   })

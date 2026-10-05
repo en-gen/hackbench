@@ -77,6 +77,18 @@ describe('modelResult', () => {
   })
 })
 
+describe('modelResult unverified', () => {
+  const drawn = { anchor: { x: 1, y: 1, rawX: 1, rawY: 1 }, passes: [{ pass: 0, pos: { x: 0, y: 0 }, parts: [part({})], uploads: [], palette: [] }], chosen: 0 } // prettier-ignore
+  it('is unverified exactly when the model says its seed was generic', () => {
+    const g = modelResult(model({ ...drawn, seedSource: 'generic', seedReason: 'no stock loader' }))
+    expect(g).toMatchObject({ ok: true, unverified: 'level loader refused (no stock loader); drawn from a placement-only seed' }) // prettier-ignore
+    expect('unverified' in modelResult(model({ ...drawn, seedSource: 'rom-level-load' }))).toBe(
+      false,
+    )
+    expect('unverified' in modelResult(model(drawn))).toBe(false)
+  })
+})
+
 describe('cameraFor', () => {
   it('centres the sprite and clamps to the scroll range, horizontal and vertical', () => {
     expect(cameraFor(1000, 300, false, 20)).toEqual({ x: 872, y: 188 })
@@ -112,14 +124,21 @@ describe('a refused level loader marks every sprite unverified', () => {
   // A cart of zeros has no level loader: loadLevelState refuses it.
   const blank = RomFile.fromBytes('blank.sfc', Buffer.alloc(0x80000))
   const shape = { isVertical: false, screenCount: 2 }
-  const ran = (anchor: boolean): SpriteModel =>
+  // Like the runner: the model says where its seed came from.
+  const ran = (anchor: boolean, seed: SpriteSeed): SpriteModel => ({
+    ...(seed.loaded
+      ? { seedSource: 'rom-level-load' as const }
+      : { seedSource: 'generic' as const, seedReason: seed.loadRefusal ?? 'none' }),
+    ...ranModel(anchor),
+  })
+  const ranModel = (anchor: boolean): SpriteModel =>
     model(anchor ? { anchor: { x: 16, y: 16, rawX: 16, rawY: 16 }, passes: [{ pass: 0, pos: { x: 0, y: 0 }, parts: [part({ char: 0 })], uploads: [], palette: [] }], chosen: 0 } : { refusal: 'loop' }) // prettier-ignore
   const sprite = (i: number) => ({ index: i, x: 1, y: 1, spriteId: 1, screen: 0, extraBit: false, raw: [], streamOffset: 0 }) as LevelSprite // prettier-ignore
   const chars = { sp1: [new Uint8Array(64).fill(3)] }
 
   it('keeps drawing, with the loader reason on each sprite, drawn or marked', () => {
     let n = 0
-    const draw = interpDrawer(blank, 0x105, shape, () => ran(n++ === 0))
+    const draw = interpDrawer(blank, 0x105, shape, (_r, _i, seed) => ran(n++ === 0, seed))
     const [a, b] = drawSprites([sprite(0), sprite(1)], { vram: chars, colors: COLORS }, draw)
     expect(a).toMatchObject({ status: 'drawn' })
     expect(a!.unverified).toMatch(/^level loader refused \(.+\); drawn from a placement-only seed$/)
@@ -129,7 +148,7 @@ describe('a refused level loader marks every sprite unverified', () => {
 
   it('seeds the run from the map shape alone, and says so once on the map', () => {
     const seeds: SpriteSeed[] = []
-    const draw = interpDrawer(blank, 0x105, { isVertical: true, screenCount: 3 }, (_r, _i, seed) => (seeds.push(seed), ran(true))) // prettier-ignore
+    const draw = interpDrawer(blank, 0x105, { isVertical: true, screenCount: 3 }, (_r, _i, seed) => (seeds.push(seed), ran(true, seed))) // prettier-ignore
     const r = spriteLayer(Uint8Array.from([0, 0x10, 0x01, 0x10, 0xff]), { vram: chars, colors: COLORS, isVertical: true, screenCount: 3 }, draw) // prettier-ignore
     expect(seeds[0]!.loaded).toBeUndefined()
     expect(seeds[0]).toMatchObject({ level: { screenMode: 1, screens: 3 } })

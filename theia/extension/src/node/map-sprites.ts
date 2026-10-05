@@ -54,12 +54,8 @@ import {
   type PaletteWrite,
   type SpritePart,
 } from '../../../../src/rom/sprites/interp/SpriteRunner'
-import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
-import {
-  SPRITE_SEED,
-  withSeed,
-  type SpriteSeed,
-} from '../../../../src/rom/sprites/interp/SpriteSeed'
+import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
+import { withSeed, type SpriteSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { readSpriteTileTables } from '../../../../src/rom/SpriteTileLoader'
 import {
   drawSpriteParts,
@@ -289,8 +285,9 @@ export function cameraFor(x: number, y: number, vertical: boolean, screens: numb
 }
 
 /** What the interpreter shows for one sprite: its model, as the drawer's reply. */
-export function modelResult(m: RunModel, unverified?: string): SpriteDrawResult {
-  const u = unverified ? { unverified } : {}
+export function modelResult(m: RunModel): SpriteDrawResult {
+  const generic = m.seedSource === 'generic'
+  const u = generic ? { unverified: `level loader refused (${m.seedReason}); drawn from a placement-only seed` } : {} // prettier-ignore
   if (m.refusal) return { ok: false, reason: `refused: ${m.refusal}`, ...u }
   const pass = m.chosen === undefined ? undefined : m.passes[m.chosen]
   if (!m.anchor || !pass) return { ok: false, reason: m.emptyReason ?? 'drew no tile', ...u }
@@ -305,12 +302,12 @@ export function modelResult(m: RunModel, unverified?: string): SpriteDrawResult 
 }
 
 /**
- * The interpreter over this cart, for the level `index`: its own loader's
- * WRAM, Mario at the level's start, one sprite run alone per call. When the
- * loader refuses (a hack that moves its entry points), the run is seeded from
- * placement alone (the map's screen mode and length, the generic defaults for
- * the rest) and EVERY sprite it answers carries `unverified` with the loader's
- * reason: still drawn, never presented as run from the level's own state.
+ * The interpreter over this cart, for the level `index`: `levelSeed` runs the
+ * ROM's own loader, Mario at the level's start, one sprite run alone per call.
+ * When the loader refuses (a hack that moves its entry points) the model
+ * reports `seedSource: 'generic'` with the loader's reason, and EVERY sprite
+ * so run is answered with `unverified`: still drawn, never presented as run
+ * from the level's own state. The runner decides; nothing here re-derives it.
  */
 export function interpDrawer(
   rom: RomFile,
@@ -318,16 +315,17 @@ export function interpDrawer(
   model: { isVertical: boolean; screenCount: number },
   run: (rom: RomFile, id: number, seed: SpriteSeed) => RunModel = runOnce,
 ): SpriteDrawer {
-  const loaded = loadLevelState(rom, index)
   const mario = readMarioStartPos(rom, index)
-  const unverified = loaded.ok ? undefined : `level loader refused (${loaded.reason}); drawn from a placement-only seed` // prettier-ignore
-  const base = loaded.ok
-    ? { loaded: loaded.wram }
-    : { level: { screenMode: model.isVertical ? 1 : 0, screens: model.screenCount } }
+  // The loader runs once per map, not per sprite.
+  const base = levelSeed(rom, index)
+  // Only the map's own shape is added to a generic seed; a loaded one ignores it.
+  const shape = { level: { screenMode: model.isVertical ? 1 : 0, screens: model.screenCount } }
   return s => {
     const [x, y] = [pixelX(s), s.y * TILE]
     const camera = cameraFor(x, y, model.isVertical, model.screenCount)
-    return modelResult(run(rom, s.spriteId, withSeed({ sprite: { x, y }, camera, mario, ...base }, SPRITE_SEED)), unverified) // prettier-ignore
+    return modelResult(
+      run(rom, s.spriteId, withSeed({ sprite: { x, y }, camera, mario, ...shape }, base)),
+    )
   }
 }
 

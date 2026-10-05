@@ -2,8 +2,9 @@
  * Oracle-only WRAM images built from Mesen captures, for COMPARISON runs
  * (how much does a ROM-derived seed lose against a perfect one). They live in
  * test support on purpose: the runner's seed has one whole-WRAM entry,
- * `loaded`, which `loadLevelState` fills from the ROM; nothing under src/ can
- * name a capture-shaped field, so a capture cannot become a runtime input.
+ * `loaded`, which `loadLevelState` fills from the ROM. Nothing under src/ names
+ * a capture-shaped field, but `loaded` accepts any bytes, so keeping captures
+ * out of runtime is a convention enforced by review, not a type barrier.
  */
 import { WRAM_SIZE } from '../../../src/rom/sprites/interp/SpriteBus'
 
