@@ -55,7 +55,7 @@
 const { test, expect } = require('@playwright/test')
 const { CART, shownWords } = require('./rom-words.cjs')
 const { expectCheckerboard } = require('./pixel-canvas.cjs')
-const { readGrid } = require('./grid-probe.cjs')
+const { readGrid, shootCanvas, compositedGridDiff, samplePixels } = require('./grid-probe.cjs')
 const { parseRgbTriplet } = require('./palette-color.cjs')
 const fs = require('fs')
 const path = require('path')
@@ -2887,4 +2887,99 @@ test('hovering a tile outlines it black-outside white-inside and leaves every ot
   expect(await sheetPixels(), 'leaving must restore the unhovered highlight layer exactly').toEqual(
     base,
   )
+})
+
+/**
+ * Composited, not painted: a grid canvas stacked below the strip draws every
+ * pixel the hook claims and shows none of them. Two real screenshots, grid off
+ * then on, compared numerically.
+ */
+test('the grid shows in a real screenshot: line pixels change, no other pixel does', async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  await page.mouse.move(2, 2)
+  const sel = `${FG} .hb-map16-canvas`
+
+  const off = await shootCanvas(page, sel)
+  await page.locator(ctl('grid-toggle')).click()
+  await page.mouse.move(2, 2)
+  await page.waitForTimeout(300)
+  const grid = await readGrid(page, FG)
+  const on = await shootCanvas(page, sel)
+  const d = await compositedGridDiff(page, off, on, grid)
+
+  expect([d.bW, d.bH]).toEqual([d.W, d.H])
+  expect(d.lineTotal).toBeGreaterThan(100)
+  expect(d.lineChanged / d.lineTotal).toBeGreaterThan(0.95)
+  expect(d.otherChanged).toBe(0)
+})
+
+/**
+ * Outlines above the grid, on screen and independent of the theme: the same
+ * region is shot with the grid off and on, hover and selection unchanged. A
+ * tile's boundary line falls on the first pixel of its outline, so with the
+ * outline on top no pixel across that edge differs between the two shots.
+ * Grid on top would change the line pixel. The canvas can sit at a fractional
+ * offset, so each window spans a few pixels either side of the edge; only the
+ * line pixel could differ inside it. A control window at the NEXT tile's
+ * edge, which no outline covers, must differ, so the check cannot pass
+ * vacuously.
+ */
+test('selection and hover outlines cover the grid line they sit on', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  const SELECTED = 0x13
+  const HOVERED = 0x31
+  await clickTile(page, SELECTED)
+  const h = tileOrigin(HOVERED)
+  const hoverIt = async () => {
+    const mid = TILE_PX / 2
+    await page
+      .locator(`${FG} .hb-map16-canvas`)
+      .hover({ position: { x: (h.x + mid) * DEFAULT_ZOOM, y: (h.y + mid) * DEFAULT_ZOOM } })
+    await page.waitForTimeout(300)
+  }
+  const sel = `${FG} .hb-map16-canvas`
+  await hoverIt()
+  const off = await shootCanvas(page, sel)
+  await page.locator(ctl('grid-toggle')).click() // moves the pointer: hover again
+  await hoverIt()
+  const on = await shootCanvas(page, sel)
+
+  const m = (TILE_PX / 2) * DEFAULT_ZOOM
+  const span = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => from + i)
+  const edgeWindows = id => {
+    const o = tileOrigin(id)
+    const x0 = o.x * DEFAULT_ZOOM
+    const y0 = o.y * DEFAULT_ZOOM
+    const w = TILE_PX * DEFAULT_ZOOM
+    return {
+      // Across the tile's own left and top edges: the outline lies on the line.
+      own: [...span(-3, 4).map(d => [x0 + d, y0 + m]), ...span(-3, 4).map(d => [x0 + m, y0 + d])],
+      // Across the next tile's left and top edges: a bare grid line.
+      next: [
+        ...span(w - 2, w + 3).map(d => [x0 + d, y0 + m]),
+        ...span(w - 2, w + 3).map(d => [x0 + m, y0 + d]),
+      ],
+    }
+  }
+  for (const [name, id] of [
+    ['selection', SELECTED],
+    ['hover', HOVERED],
+  ]) {
+    const { own, next } = edgeWindows(id)
+    const [ownOff, ownOn, nextOff, nextOn] = [
+      await samplePixels(page, off, own),
+      await samplePixels(page, on, own),
+      await samplePixels(page, off, next),
+      await samplePixels(page, on, next),
+    ]
+    expect(ownOn, `${name} outline must hide the grid line under it`).toEqual(ownOff)
+    expect(
+      nextOn.some((v, i) => v !== nextOff[i]),
+      `${name}: the grid line beside the outline must be visible (control)`,
+    ).toBe(true)
+  }
 })

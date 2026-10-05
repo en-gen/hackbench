@@ -9,7 +9,7 @@
 const { test, expect } = require('@playwright/test')
 const { CART, shownWords, makeUntitledAndUnlocated } = require('./rom-words.cjs')
 const { expectCheckerboard } = require('./pixel-canvas.cjs')
-const { readGrid } = require('./grid-probe.cjs')
+const { readGrid, shootCanvas, compositedGridDiff } = require('./grid-probe.cjs')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
@@ -898,3 +898,33 @@ for (const dpr of [1.5, 2]) {
     })
   })
 }
+
+/**
+ * The grid must be visible in the COMPOSITED page, not just painted: a canvas
+ * stacked below the sheet draws every pixel the hook claims and shows none of
+ * them. Two real screenshots, grid off then on, compared numerically.
+ */
+test('the grid shows in a real screenshot: line pixels change, no other pixel does', async ({
+  page,
+}) => {
+  await loadGfx(page, path.join(tmp, 'MyHack'))
+  await revealGfx(page)
+  await firstGfxFileRow(page).click()
+  await page.waitForSelector('.hb-gfx-view-canvas', { timeout: 15000 })
+  await page.waitForTimeout(300)
+  await page.mouse.move(2, 2)
+  const toggle = page.locator('.hb-gfx-view [data-control="grid-toggle"]')
+
+  const off = await shootCanvas(page, '.hb-gfx-view-canvas')
+  await toggle.click()
+  await page.mouse.move(2, 2)
+  await page.waitForTimeout(300)
+  const grid = await readGrid(page, '.hb-gfx-view')
+  const on = await shootCanvas(page, '.hb-gfx-view-canvas')
+  const d = await compositedGridDiff(page, off, on, grid)
+
+  expect([d.bW, d.bH]).toEqual([d.W, d.H])
+  expect(d.lineTotal).toBeGreaterThan(100)
+  expect(d.lineChanged / d.lineTotal).toBeGreaterThan(0.95)
+  expect(d.otherChanged).toBe(0)
+})
