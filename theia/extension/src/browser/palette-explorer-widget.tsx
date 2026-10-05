@@ -39,6 +39,7 @@ import {
   PaletteVariantDto,
 } from '../common/palette-protocol'
 import { ProjectContext } from './project-context'
+import { surviving } from './tree-state'
 import { PaletteFrontendClient } from './palette-push-client'
 
 export const PALETTE_EXPLORER_ID = 'hackbench.palette-explorer'
@@ -98,6 +99,8 @@ export class PaletteExplorerWidget extends TreeWidget {
   protected manifestPath = ''
   /** Discards a response superseded by a later load(). */
   protected requestToken = 0
+  /** True while load() puts the pre-edit selection back; that must not open a tab. */
+  protected restoringSelection = false
   /** Reset at the start of every load() so note ids stay unique but stable within one render. */
   protected noteSeq = 0
 
@@ -146,8 +149,17 @@ export class PaletteExplorerWidget extends TreeWidget {
         if (manifestPath === this.manifestPath) void this.load(manifestPath)
       }),
     )
+    // The base ROM moved: rebuild as a fresh open would, collapsed, nothing selected.
+    this.toDispose.push(
+      this.projectContext.onRomChanged(manifestPath => {
+        if (manifestPath !== this.manifestPath) return
+        this.model.clearSelection()
+        void this.load(manifestPath, true)
+      }),
+    )
     this.toDispose.push(
       this.model.onSelectionChanged(() => {
+        if (this.restoringSelection) return
         this.fireOpen(this.model.selectedNodes[0] as PaletteTreeNode | undefined, false)
       }),
     )
@@ -164,7 +176,7 @@ export class PaletteExplorerWidget extends TreeWidget {
    * A cartridge this machine cannot locate is an ordinary first-run state,
    * not a failure, mirroring MapExplorerWidget.load and GfxExplorerWidget.load.
    */
-  async load(manifestPath: string | undefined): Promise<void> {
+  async load(manifestPath: string | undefined, fresh = false): Promise<void> {
     const token = ++this.requestToken
     this.manifestPath = manifestPath ?? ''
     this.noteSeq = 0
@@ -207,7 +219,8 @@ export class PaletteExplorerWidget extends TreeWidget {
     // root setter does not diff against the old one), so nothing carries
     // this forward unless this widget does it itself.
     const wasExpanded = new Set<string>()
-    this.collectExpanded(this.model.root, wasExpanded)
+    if (!fresh) this.collectExpanded(this.model.root, wasExpanded)
+    const wasSelected = fresh ? undefined : this.model.selectedNodes[0]?.id
 
     const { palettes, romName } = result
     const children: PaletteTreeNode[] = [this.note(romName)]
@@ -230,6 +243,23 @@ export class PaletteExplorerWidget extends TreeWidget {
     for (const g of palettes.groups) children.push(this.groupNode(g, wasExpanded))
     children.push(this.note(OVERWORLD_NOTE))
     this.setRoot(children)
+    // Only a node the new tree still has; a vanished one is cleared, not replaced.
+    this.restoringSelection = true
+    try {
+      const kept = wasSelected && surviving([wasSelected], this.collectIds(this.model.root, []))[0]
+      const node = kept ? this.model.getNode(kept) : undefined
+      if (node && SelectableTreeNode.is(node)) this.model.selectNode(node)
+      else this.model.clearSelection()
+    } finally {
+      this.restoringSelection = false
+    }
+  }
+
+  protected collectIds(node: TreeNode | undefined, out: string[]): string[] {
+    if (!node) return out
+    out.push(node.id)
+    if (CompositeTreeNode.is(node)) for (const c of node.children) this.collectIds(c, out)
+    return out
   }
 
   protected collectExpanded(node: TreeNode | undefined, out: Set<string>): void {

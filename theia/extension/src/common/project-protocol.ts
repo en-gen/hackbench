@@ -331,6 +331,12 @@ export type EditStackResult =
  */
 export interface ProjectServiceClient {
   onWorkingCopyChanged(manifestPath: string): void
+  /**
+   * The project's base ROM was swapped (relocated, or its working copy was
+   * rebuilt): every view reading it must rebuild from scratch, unlike the
+   * per-edit notice above, which keeps selection and expansion.
+   */
+  onRomChanged(manifestPath: string): void
 }
 
 export interface ProjectService {

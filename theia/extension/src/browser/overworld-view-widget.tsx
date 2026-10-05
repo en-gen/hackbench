@@ -91,6 +91,11 @@ export class OverworldViewWidget extends ReactWidget {
         if (path === this.manifestPath) void this.load(path)
       }),
     )
+    this.toDispose.push(
+      this.projectContext.onRomChanged(path => {
+        if (path === this.manifestPath) void this.load(path)
+      }),
+    )
   }
 
   /** Points the widget at `area` (0 is the hub) and draws it. */

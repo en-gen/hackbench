@@ -62,6 +62,7 @@ import {
   WorkstationPathsDto,
 } from '../common/project-protocol'
 import { WorkingCopyNotifier } from './working-copy-notifier'
+import { RomChangedNotifier } from './rom-changed-notifier'
 
 @injectable()
 export class ProjectServiceImpl implements ProjectService {
@@ -70,8 +71,13 @@ export class ProjectServiceImpl implements ProjectService {
   private readonly notifier = new WorkingCopyNotifier<ProjectServiceClient>()
   private readonly screens = new L1ModelCache()
 
+  private romNotifier: RomChangedNotifier | undefined
+
   setClient(client: ProjectServiceClient | undefined): void {
     this.notifier.setClient(client)
+    // The one place a ROM swap leaves the node side (#576).
+    this.romNotifier ??= new RomChangedNotifier(this.workingRoms)
+    this.romNotifier.setClient(client)
   }
 
   async createProject(req: CreateProjectRequest): Promise<ProjectDto> {

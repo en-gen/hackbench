@@ -24,6 +24,7 @@ import {
   SwitchStateDto,
 } from '../common/project-protocol'
 import { ProjectFrontendClient } from './project-push-client'
+import { ProjectContext } from './project-context'
 import { decodeRgba, TILE_PX } from './map16-pixels'
 import { PALACES, screenKey } from './map-view-model'
 import { SWITCH_ORDER } from './map16-view-model'
@@ -77,6 +78,7 @@ const palaceName = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
 export class MapViewWidget extends ReactWidget {
   @inject(ProjectService) protected readonly projects!: ProjectService
   @inject(ProjectFrontendClient) protected readonly pushClient!: ProjectFrontendClient
+  @inject(ProjectContext) protected readonly projectContext!: ProjectContext
 
   protected options: MapViewOptions | undefined
   protected details: MapDetailsDto | undefined
@@ -128,6 +130,11 @@ export class MapViewWidget extends ReactWidget {
     this.zoomController.enterFit()
     this.toDispose.push(
       this.pushClient.onChanged(manifestPath => {
+        if (manifestPath === this.options?.manifestPath) this.refresh()
+      }),
+    )
+    this.toDispose.push(
+      this.projectContext.onRomChanged(manifestPath => {
         if (manifestPath === this.options?.manifestPath) this.refresh()
       }),
     )

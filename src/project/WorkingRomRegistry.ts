@@ -109,7 +109,24 @@ export class WorkingRomRegistry {
    */
   private readonly stamps = new Map<string, { key: string; takenAt: number }>()
 
+  private readonly romListeners = new Set<(manifestPath: string) => void>()
+
   constructor(private readonly registry: RomRegistry = new RomRegistry()) {}
+
+  /**
+   * Fires, once per project, when the base ROM behind a project's working
+   * copy is swapped: `relocate`, or a rebuild that replaces a cached entry.
+   * NOT on the first build (a view asking for the project is already
+   * loading it) and NOT on edits (WorkingRom.onDidChange covers those).
+   */
+  onRomChanged(fn: (manifestPath: string) => void): () => void {
+    this.romListeners.add(fn)
+    return () => this.romListeners.delete(fn)
+  }
+
+  private fireRomChanged(manifestPath: string): void {
+    for (const fn of this.romListeners) fn(manifestPath)
+  }
 
   /**
    * Remember where a ROM lives on this machine. Here rather than in a
@@ -154,6 +171,9 @@ export class WorkingRomRegistry {
     if (picked !== expected) return { status: 'mismatch', picked, expected }
     this.registry.registerBytes(absolute, bytes)
     const headered = RomFile.fromBytes(absolute, Buffer.from(bytes)).hasHeader
+    // The caller's project may have no cache entry yet (it was waiting on a
+    // missing ROM), so it is announced whether or not the loop meets it.
+    const moved = new Set([manifestPath])
     for (const [manifest, entry] of [...this.cache]) {
       if (entry.project.baseRom.sha256 !== expected) continue
       if (entry.working.hasCopierHeader !== headered) {
@@ -162,7 +182,9 @@ export class WorkingRomRegistry {
       } else {
         entry.romPath = absolute
       }
+      moved.add(manifest)
     }
+    for (const manifest of moved) this.fireRomChanged(manifest)
     return { status: 'ok' }
   }
 
@@ -230,6 +252,8 @@ export class WorkingRomRegistry {
     const entry: WorkingRomEntry = { working, romPath, project }
     this.cache.set(manifestPath, entry)
     this.stamps.set(manifestPath, stamp)
+    // A rebuild strands every view holding the old instance (see above).
+    if (cached) this.fireRomChanged(manifestPath)
     return { status: 'ok', ...entry }
   }
 

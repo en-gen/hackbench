@@ -30,10 +30,6 @@ import { MapExplorerWidget, MAP_EXPLORER_ID } from './map-explorer-widget'
 import { PreviewTabs } from './preview-tabs'
 import { MapViewWidget, MAP_VIEW_ID } from './map-view-widget'
 import { EmulatorService } from '../common/emulator-protocol'
-import { ProjectFrontendClient } from './project-push-client'
-import { Map16FrontendClient } from './map16-push-client'
-import { GfxFrontendClient } from './gfx-push-client'
-import { PaletteFrontendClient } from './palette-push-client'
 import { describeRomMismatch, ProjectPropertiesDialog } from './project-properties-dialog'
 import { ProjectContext } from './project-context'
 import { FileDialogService } from '@theia/filesystem/lib/browser'
@@ -130,10 +126,6 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
   @inject(ProjectPropertiesDialog) protected readonly properties!: ProjectPropertiesDialog
   @inject(ProjectContext) protected readonly context!: ProjectContext
   @inject(EmulatorService) protected readonly emulator!: EmulatorService
-  @inject(ProjectFrontendClient) protected readonly pushClient!: ProjectFrontendClient
-  @inject(Map16FrontendClient) protected readonly map16Push!: Map16FrontendClient
-  @inject(GfxFrontendClient) protected readonly gfxPush!: GfxFrontendClient
-  @inject(PaletteFrontendClient) protected readonly palettePush!: PaletteFrontendClient
   @inject(FileDialogService) protected readonly fileDialog!: FileDialogService
   @inject(QuickInputService) protected readonly quickInput!: QuickInputService
 
@@ -469,20 +461,12 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
           `Applied: ${applied.length ? applied.join(', ') : 'nothing'}.`,
       )
     } finally {
-      // Views waiting on a ROM or core re-read on these, the same pushes a
-      // working-copy edit sends. Each view type listens to its own client.
-      const romMoved = applied.includes('ROM location')
-      const registryWritten = romMoved || applied.includes('emulator core')
-      if (registryWritten) {
-        this.pushClient.onWorkingCopyChanged(open.manifestPath)
-        // Re-announce the project: the GFX and music explorers and the
-        // emulator reload on the context, not on pushes. A full save already did.
-        if (!applied.includes('properties')) this.context.current = this.context.current // eslint-disable-line no-self-assign
-      }
-      if (romMoved) {
-        for (const client of [this.map16Push, this.gfxPush, this.palettePush]) {
-          client.onWorkingCopyChanged(open.manifestPath)
-        }
+      // A moved ROM reaches every view as ProjectContext.onRomChanged, pushed
+      // by the backend registry; nothing here fans it out. The emulator waits
+      // on a core, which is not a ROM swap, so a core-only save re-announces
+      // the project (a full save already did).
+      if (applied.includes('emulator core') && !applied.includes('properties')) {
+        this.context.current = this.context.current // eslint-disable-line no-self-assign
       }
     }
   }

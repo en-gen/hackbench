@@ -9,14 +9,26 @@
  * that needs current data re-reads it from the backend, because the manifest
  * is a file the user can edit in another editor.
  */
-import { injectable } from '@theia/core/shared/inversify'
+import { inject, injectable } from '@theia/core/shared/inversify'
 import { Emitter, Event } from '@theia/core/lib/common'
 import { ProjectDto } from '../common/project-protocol'
+import { ProjectFrontendClient } from './project-push-client'
 
 @injectable()
 export class ProjectContext {
   protected readonly onChangedEmitter = new Emitter<ProjectDto | undefined>()
   readonly onChanged: Event<ProjectDto | undefined> = this.onChangedEmitter.event
+
+  @inject(ProjectFrontendClient) protected readonly pushClient!: ProjectFrontendClient
+
+  /**
+   * A project's base ROM was swapped (Project Properties relocated it, or
+   * the working copy was rebuilt). The one event every view reading the ROM
+   * rebuilds on; carries the manifest path, so a view filters to its own.
+   */
+  get onRomChanged(): Event<string> {
+    return this.pushClient.onRomSwapped
+  }
 
   protected _current: ProjectDto | undefined
 

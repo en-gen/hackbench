@@ -37,6 +37,7 @@
  */
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
+import { ProjectContext } from './project-context'
 import { ReactWidget, Message } from '@theia/core/lib/browser'
 import { WheelBinding, ZoomController } from './zoom-controller'
 import { ZoomStepper } from './zoom-stepper'
@@ -142,6 +143,7 @@ interface Selection {
 export class Map16ViewWidget extends ReactWidget {
   @inject(Map16Service) protected readonly map16!: Map16Service
   @inject(Map16FrontendClient) protected readonly pushClient!: Map16FrontendClient
+  @inject(ProjectContext) protected readonly projectContext!: ProjectContext
   @inject(ThemeService) protected readonly themes!: ThemeService
 
   protected options: Map16ViewOptions | undefined
@@ -219,6 +221,11 @@ export class Map16ViewWidget extends ReactWidget {
 
     this.toDispose.push(
       this.pushClient.onChanged(manifestPath => {
+        if (manifestPath === this.options?.manifestPath) void this.refresh()
+      }),
+    )
+    this.toDispose.push(
+      this.projectContext.onRomChanged(manifestPath => {
         if (manifestPath === this.options?.manifestPath) void this.refresh()
       }),
     )

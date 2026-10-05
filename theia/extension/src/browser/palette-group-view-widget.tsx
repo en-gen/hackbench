@@ -65,6 +65,11 @@ export class PaletteGroupViewWidget extends ReactWidget {
       }),
     )
     this.toDispose.push(
+      this.context.onRomChanged(mp => {
+        if (mp === this.options?.manifestPath) void this.fetch()
+      }),
+    )
+    this.toDispose.push(
       this.context.onChanged(p => {
         if (!this.options || p?.manifestPath !== this.options.manifestPath) this.close()
       }),

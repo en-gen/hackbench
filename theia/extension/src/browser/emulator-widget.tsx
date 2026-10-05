@@ -146,6 +146,7 @@ export class EmulatorWidget extends ReactWidget {
         void this.refresh()
       }),
     )
+    this.toDispose.push(this.context.onRomChanged(() => void this.refresh()))
     // Edits land in bursts (a colour drag is many layers), so ask once the
     // burst settles rather than once per layer.
     this.toDispose.push(

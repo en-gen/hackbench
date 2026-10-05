@@ -18,6 +18,14 @@ export class ProjectFrontendClient implements ProjectServiceClient {
   /** Fires with the manifest path whose working copy changed. */
   readonly onChanged: Event<string> = this.emitter.event
 
+  private readonly romEmitter = new Emitter<string>()
+  /** Fires with the manifest path whose base ROM was swapped. */
+  readonly onRomSwapped: Event<string> = this.romEmitter.event
+
+  onRomChanged(manifestPath: string): void {
+    this.romEmitter.fire(manifestPath)
+  }
+
   onWorkingCopyChanged(manifestPath: string): void {
     this.emitter.fire(manifestPath)
   }

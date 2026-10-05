@@ -45,6 +45,7 @@ export class EditStackContribution implements CommandContribution {
   @postConstruct()
   protected init(): void {
     this.context.onChanged(() => void this.refresh())
+    this.context.onRomChanged(() => void this.refresh())
     // Any view's edit, not just this one's: the backend pushes on every
     // working-copy change, so a palette commit enables Undo here.
     this.pushClient.onChanged(manifestPath => {

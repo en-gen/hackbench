@@ -14,6 +14,7 @@
  */
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
+import { ProjectContext } from './project-context'
 import { ReactWidget, Message } from '@theia/core/lib/browser'
 import {
   GFX_FORMATS,
@@ -65,6 +66,7 @@ function decodeRgba(base64: string): Uint8ClampedArray {
 export class GfxViewWidget extends ReactWidget {
   @inject(GfxService) protected readonly gfx!: GfxService
   @inject(GfxFrontendClient) protected readonly pushClient!: GfxFrontendClient
+  @inject(ProjectContext) protected readonly projectContext!: ProjectContext
 
   protected options: GfxViewOptions | undefined
   protected sheet: GfxSheetDto | undefined
@@ -96,6 +98,11 @@ export class GfxViewWidget extends ReactWidget {
     // recolour an already-open GFX view without the user reopening it.
     this.toDispose.push(
       this.pushClient.onChanged(manifestPath => {
+        if (manifestPath === this.options?.manifestPath) void this.reload()
+      }),
+    )
+    this.toDispose.push(
+      this.projectContext.onRomChanged(manifestPath => {
         if (manifestPath === this.options?.manifestPath) void this.reload()
       }),
     )

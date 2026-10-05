@@ -101,9 +101,11 @@ sequenceDiagram
     S-->>W: onWorkingCopyChanged
 ```
 
-## Two notification paths
+## Notification paths
 
-This catches people out, so it is worth stating plainly.
+This catches people out, so it is worth stating plainly. There are two
+server-to-frontend pushes (an edit; a ROM swap) and one server-to-server
+subscription.
 
 **Server to frontend** goes over JSON-RPC via `WorkingCopyNotifier`. Its
 `watch` is idempotent per `WorkingRom` instance, keyed by a `Map` from that
@@ -115,6 +117,23 @@ disconnect signal: passing `undefined` (wired to the client proxy's
 `onDidCloseConnection` in each `*-backend-module.ts`) calls every stored
 unsubscribe function and clears the map, so a closed window's dead proxy is
 never called again.
+
+**ROM swapped** is the third path (#576), separate from edits.
+`WorkingRomRegistry.onRomChanged` fires once per project when `relocate`
+swaps the ROM path (Project Properties) or when a rebuild replaces an existing
+cache entry (a header flip, or layers rewritten under it); not on the first
+build, not on an edit. `RomChangedNotifier` (per connection, released by
+`setClient(undefined)` like `WorkingCopyNotifier`) pushes it as
+`ProjectServiceClient.onRomChanged`; the frontend re-emits it as
+`ProjectContext.onRomChanged`, the one event every ROM-reading view uses. The
+fan-out that `HackBenchContribution` used to send after a relocate is gone.
+
+| Subscriber                                      | Edit (`onWorkingCopyChanged`)                  | ROM swap (`ProjectContext.onRomChanged`)            |
+| ----------------------------------------------- | ---------------------------------------------- | --------------------------------------------------- |
+| Maps, Palettes explorers                        | rebuild, keep selection and folds that survive | rebuild as a fresh open: nothing selected, defaults |
+| Graphics, Audio explorers                       | none (their rows do not depend on word edits)  | rebuild as a fresh open                             |
+| Map, Map16, GFX, Palette-group, Overworld views | re-read                                        | re-read                                             |
+| Emulator, Edit menu                             | stale check / refresh                          | refresh                                             |
 
 **Server to server** is not a separate mechanism. `WorkingCopyNotifier` is
 the only `WorkingRom.onDidChange` subscriber under `theia/extension/src/node`:
