@@ -41,12 +41,13 @@ export const effectiveCgadsub = (table: number, bg3Cleared: boolean): number =>
 const to5 = (c: number) => c >> 3
 const to8 = (v: number) => (v << 3) | (v >> 2)
 
-/** The topmost opaque pixel of a list at byte offset `at`: its plane data and layer bit, or null. */
+/** The topmost opaque pixel of a list at byte offset `at`: its color and layer bit, or null. */
 function top(i: ScreenInput, list: readonly PlaneKey[], at: number) {
   for (let k = list.length - 1; k >= 0; k--) {
     const data = i.planes[list[k]!]
     if (data && data[at + 3] !== 0) {
-      return { data, bit: LAYER_BIT[list[k]!.slice(0, 2) as keyof typeof LAYER_BIT] }
+      const rgb: Rgb = [data[at]!, data[at + 1]!, data[at + 2]!]
+      return { rgb, bit: LAYER_BIT[list[k]!.slice(0, 2) as keyof typeof LAYER_BIT] }
     }
   }
   return null
@@ -64,11 +65,11 @@ export function composeScreen(i: ScreenInput): Uint8ClampedArray {
   for (let p = 0; p < i.width * i.height; p++) {
     const at = p * 4
     const main = top(i, i.lists.main, at)
-    let res: Rgb = main ? [main.data[at]!, main.data[at + 1]!, main.data[at + 2]!] : i.backdrop
+    let res: Rgb = main ? main.rgb : i.backdrop
     const bit = main ? main.bit : BACKDROP_BIT
     if (i.math && i.math.cgadsub & bit) {
       const sub = top(i, i.lists.sub, at)
-      const s: Rgb = sub ? [sub.data[at]!, sub.data[at + 1]!, sub.data[at + 2]!] : i.math.fixed
+      const s: Rgb = sub ? sub.rgb : i.math.fixed
       // No half against the fixed color: see the header.
       const half = !!(i.math.cgadsub & HALF) && sub !== null
       const c = i.math.cgadsub
