@@ -12,7 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The map view composites the main and sub screens for every level mode, with SNES color math:
   layer 3 translucency, and halving and additive blends, from the ROM's mode tables. Layer 3
   now draws on 22 vanilla slots, up from 8 (#598).
-- Level mode 0C (ghost houses) renders from its own table, so layer 2 shows halved there (#598).
+- Level mode 0C renders from its own table, so layer 2 shows halved there where layers 1 and 3
+  are empty (#598).
 - A reused map tab clears its composite canvas on open, so it no longer shows the previous map
   while the next one loads (#604).
 - The map view has a grid toggle (table icon, "Show grid", off by default; command
