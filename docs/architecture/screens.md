@@ -14,7 +14,7 @@ INFERENCE. All `file:line` cites are SMWDisX.
 NOT ASM: the project memo `bank_00/MEMO.md:259-260` (a note, not disassembly)
 gives the L1 screen stride as `$1B0` = 27 rows x 16 cols for horizontal levels
 and `$200` = 32 rows x 16 cols for vertical ones. TRACED: the high-coordinate
-bit adds `$100` bytes to the Map16 pointer (`bank_05.asm:780-781`), 16 rows of
+bit adds `$100` bytes to the Map16 pointer (`bank_05.asm:781-782`), 16 rows of
 16 columns. So the `$200` vertical block is two 16 x 16 pages, one per half.
 The viewer draws those two pages SIDE BY SIDE: a vertical screen is 32 wide x
 16 tall (`screenTiles`, `theia/extension/src/node/map-screen.ts:50`), which is
@@ -30,7 +30,7 @@ TRACED:
 - **Objects.** Byte 0 bit 4 is the "high coordinate". When set, the loader adds
   one to the high byte of the Map16 pointer, `$100` bytes = 16 rows. The ASM's
   own comment says "Lower half of horizontal level" and "Right half of vertical
-  level" (`bank_05.asm:777-781`, LoadLevelData). A vertical level swaps the X and
+  level" (`bank_05.asm:778-782`, LoadLevelData). A vertical level swaps the X and
   Y nibbles first (`bank_05.asm:654-675`, CODE_0585D8; the swap is skipped for
   extended object 0 with size < 2, `bank_05.asm:655-659`), so the same bit means
   the right half.
@@ -41,9 +41,9 @@ TRACED:
   `DATA_05D740` (high byte 0 for indices 0-7, 1 for 8-15); X from a 3-bit index
   into `DATA_05D750`/`DATA_05D758` (high byte 1 for indices 4-7)
   (`bank_05.asm:7044-7053`). Main entrance: `DATA_05F000` Y index,
-  `DATA_05F200` X index, screen in `DATA_05F600` (`bank_05.asm:7300-7336`).
+  `DATA_05F200` X index, screen in `DATA_05F600` (`bank_05.asm:7300-7337`).
   Secondary: `DATA_05FA00` Y index, `DATA_05FC00` screen and X index
-  (`bank_05.asm:7117-7160`).
+  (`bank_05.asm:7117-7161`).
 - **Orientation decides which high byte survives** (`bank_05.asm:7375-7395`: 7379 tests ScrMode_Layer1Vert, 7382-7383 horizontal, 7386-7387 vertical).
   Horizontal: X high is overwritten with the screen number, so the entrance's Y
   high byte is the top or bottom half. Vertical: Y high is overwritten with the

@@ -11,7 +11,7 @@
  *    sub-screen boundary is COLUMN 16 (two 16-wide halves).
  * SMWDisX: the loader picks the half from byte 0 bit 4 of an object
  * ("Lower half of horizontal level" / "Right half of vertical level",
- * bank_05.asm:777-781); an entrance's Y (horizontal) or X (vertical) high
+ * bank_05.asm:778-782); an entrance's Y (horizontal) or X (vertical) high
  * byte is the same 256 px half (DATA_05D730/05D740/05D750/05D758,
  * bank_05.asm:7044-7053); orientation decides which high byte survives
  * (bank_05.asm:7375-7395: 7379 tests ScrMode_Layer1Vert, 7382-7383

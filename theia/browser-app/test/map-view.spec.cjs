@@ -1528,6 +1528,19 @@ for (const [index, vertical] of [
     const lastPos = Math.max(...g.xLines.map(l => l.pos))
     for (const l of g.xLines.filter(l => l.weight > 1 && l.start > 0 && l.pos < lastPos))
       expect(l.start + (l.size - 1) / 2).toBe(Math.round(l.pos * g.dpr))
+    // The sub-screen line sits at row 16 (horizontal) or column 16 (vertical) of the CONTENT:
+    // measured from the strip's own edge in the DOM, painted as a 3 px run on the canvas.
+    const off = await page.evaluate(sel => {
+      const o = document.querySelector(`${sel} .hb-grid-overlay`).getBoundingClientRect()
+      const t = document.querySelector(`${sel} .hb-map-view-strip`).getBoundingClientRect()
+      return { x: t.left - o.left, y: t.top - o.top }
+    }, root(index))
+    const axisOff = vertical ? off.x : off.y
+    const wantCentre = Math.round((axisOff + 16 * 16) * g.dpr)
+    const threes = runs(vertical ? g.rowHits : g.colHits).filter(r => r.size === 3)
+    expect(threes.length).toBe(1)
+    // Within 1 device px: the strip's box may sit on a fractional CSS offset.
+    expect(Math.abs(threes[0].start + 1 - wantCentre)).toBeLessThanOrEqual(1)
   })
 }
 
