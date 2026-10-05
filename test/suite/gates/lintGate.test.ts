@@ -12,13 +12,17 @@
  * `--max-warnings 0` fails these tests instead of silently defanging CI.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import { execFileSync } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
 
 const repoRoot = path.resolve(__dirname, '../../..')
-const fixtureDir = path.join(repoRoot, 'test/suite/gates/__fixtures__')
+const fixtureRoot = path.join(repoRoot, 'test/suite/gates/__fixtures__')
+// One directory per process. A shared path let concurrent runs delete each
+// other's fixtures in beforeEach/afterEach (3 parallel runs failed 3-4 of 12).
+// It stays inside the repo so ESLint and Prettier resolve the real configs.
+const fixtureDir = path.join(fixtureRoot, `run-${process.pid}-${Date.now()}`)
 
 const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'))
 
@@ -45,6 +49,15 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(fixtureDir, { recursive: true, force: true })
+})
+
+afterAll(() => {
+  // Removes the shared parent only when no other run still has a directory in it.
+  try {
+    fs.rmdirSync(fixtureRoot)
+  } catch {
+    /* another run is active, or already gone */
+  }
 })
 
 /**
