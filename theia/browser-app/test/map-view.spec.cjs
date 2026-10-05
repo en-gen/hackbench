@@ -709,18 +709,30 @@ const l3Toggle = (page, index) => page.locator(`${root(index)} [data-control="la
  */
 for (const [index, role, bit, known] of [
   // known: the top-left of layer 3's box on screen 0, and its first opaque pixel in raster order with
-  // that pixel's color (the outline black of the tide and of the cage), measured from the backend's planes.
+  // that pixel's color (outline black), then a non-black pixel. $01F's is BG3 palette 3, its crusher
+  // color [0,0,66] (without the crusher colors the same pixel is [255,90,90]), so a wrong palette fails.
+  // All measured from the backend's planes.
   [
     0x002,
     'Layer 3 · Overlay',
     true,
-    { box: { x: 0, y: 384 }, pixel: { x: 15, y: 384 }, rgba: [0, 0, 0, 255] },
+    {
+      box: { x: 0, y: 384 },
+      pixel: { x: 15, y: 384 },
+      rgba: [0, 0, 0, 255],
+      color: { pixel: { x: 15, y: 385 }, rgba: [255, 255, 255, 255] },
+    },
   ],
   [
     0x01f,
     'Layer 3 · Background',
     false,
-    { box: { x: 56, y: 48 }, pixel: { x: 64, y: 48 }, rgba: [0, 0, 0, 255] },
+    {
+      box: { x: 56, y: 48 },
+      pixel: { x: 64, y: 48 },
+      rgba: [0, 0, 0, 255],
+      color: { pixel: { x: 80, y: 48 }, rgba: [0, 0, 66, 255] },
+    },
   ],
 ]) {
   test(`$${index.toString(16).padStart(3, '0')}: the Layer 3 toggle (${role}) changes the layer 3 region's pixels and restores them`, async ({
@@ -745,6 +757,8 @@ for (const [index, role, bit, known] of [
     expect({ x: before.box.x, y: before.box.y }).toEqual(known.box)
     const own = await page.locator(`${root(index)} canvas[data-screen="0"][data-plane="l3High"]`).evaluate((c, p) => Array.from(c.getContext('2d').getImageData(p.x, p.y, 1, 1).data), known.pixel) // prettier-ignore
     expect(own, 'layer 3 pixel and color at the known position').toEqual(known.rgba)
+    const tinted = await page.locator(`${root(index)} canvas[data-screen="0"][data-plane="l3High"]`).evaluate((c, p) => Array.from(c.getContext('2d').getImageData(p.x, p.y, 1, 1).data), known.color.pixel) // prettier-ignore
+    expect(tinted, 'a non-black layer 3 pixel, from the right palette').toEqual(known.color.rgba)
     if (bit) {
       const at =
         ((known.pixel.y - before.box.y) * before.box.w + (known.pixel.x - before.box.x)) * 4
