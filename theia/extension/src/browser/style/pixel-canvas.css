@@ -48,12 +48,3 @@
   /* Device-resolution canvas shown at CSS size: never let the browser smooth it. */
   image-rendering: pixelated;
 }
-
-/* A content-resolution layer painted above the grid (Map16 selection and hover). */
-.hb-map16-highlight {
-  position: absolute;
-  top: 0;
-  left: 0;
-  pointer-events: none;
-  image-rendering: pixelated;
-}
