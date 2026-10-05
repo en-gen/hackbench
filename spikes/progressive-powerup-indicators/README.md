@@ -43,6 +43,7 @@ family is a horizontal split, clipped at the vertical midpoint.
 9. VH: vertical; hard split, no line.
 10. DO: diagonal top-left to bottom-right (powerup top-right, mushroom
    bottom-left); 1px white line, 1px black border each side.
+11. DH: diagonal top-left to bottom-right; hard split, no line.
 
 Owner rule for every variant: progression reads left to right and bottom to
 top. The mushroom is always the left or bottom item and the powerup always the

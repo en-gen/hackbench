@@ -16,6 +16,7 @@ const VARIANTS = [
   ['VD2', 'VD2. Vertical split (mushroom left, powerup right); 2px black line', 'ver', 2, 0, 0, '#000'],
   ['VH', 'VH. Vertical split (mushroom left, powerup right); hard split, no line', 'ver', 0, 0, 0, '#fff'],
   ['DO', 'DO. Diagonal top-left to bottom-right (powerup top-right); 1px white line, 1px black border each side', 'tlbr', 1, 1, 1, '#fff'],
+  ['DH', 'DH. Diagonal top-left to bottom-right (powerup top-right); hard split, no line', 'tlbr', 0, 0, 0, '#fff'],
 ]
 const containsText = (b) => `${labels.mushroom} if Mario is small, otherwise ${labels[b.other]}`
 // Both items in one indicator. The mushroom (small-Mario item) sits in the lower half (or triangle) in every variant.
