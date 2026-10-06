@@ -494,3 +494,12 @@
 .hb-map-grid-host > .hb-grid-overlay {
   z-index: 1000;
 }
+
+.hb-map-view-mode-warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 8px;
+  color: var(--theia-editorWarning-foreground);
+  font-size: var(--theia-ui-font-size0);
+}

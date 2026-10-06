@@ -197,6 +197,8 @@ export interface MapDetailsDto {
   spriteCount?: number
   /** Why `spriteCount` is absent. Set only when it is. */
   spriteUnavailable?: string
+  /** The header's level mode, for the unverified-mode warning (#618). */
+  levelMode?: number
   /** Decoded header fields, label and value, in header-byte order. */
   header?: Array<{ label: string; value: string }>
   /** Why the GFX files the tileset and sprite set name may not be what loads. */

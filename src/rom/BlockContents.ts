@@ -86,7 +86,7 @@ class ShortTable extends Error {}
 
 /** One table byte; an index past a hand-built table's end refuses instead of defaulting. */
 function at(table: Uint8Array, i: number, name: string): number {
-  if (i < 0 || i >= table.length)
+  if (i >= table.length)
     throw new ShortTable(`${name}[${i}] is past the end of a ${table.length}-byte table`)
   return table[i]
 }
@@ -288,12 +288,13 @@ function decode(value: number, c: Ctx): ContentAlternative[] {
 
 function describe(alts: readonly ContentAlternative[]): string {
   if (alts.length === 0) return 'Nothing'
-  return alts
+  const text = alts
     .map((a, i) => {
       const last = i === alts.length - 1 && i > 0
       return (last ? 'otherwise ' : '') + a.content.label + (a.when ? ` if ${a.when}` : '')
     })
     .join(', ')
+  return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
 function altsFor(
@@ -309,11 +310,17 @@ function altsFor(
       n === null
         ? "this block's coin countdown is above zero"
         : `fewer than ${n} coins are collected`
+    const oneUp = contentFor(CONTENT_ONE_UP, c)
     return {
-      alts: chain([
-        [when, n === 0 ? null : contentFor(CONTENT_COIN, c)],
-        [null, contentFor(CONTENT_ONE_UP, c)],
-      ]),
+      alts:
+        n === 0
+          ? oneUp
+            ? chain([[null, oneUp]])
+            : []
+          : chain([
+              [when, contentFor(CONTENT_COIN, c)],
+              [null, oneUp ?? EMPTY],
+            ]),
       caveat:
         n === null ? (t.greenStarCoinsReason ?? 'the green star counter was not read') : undefined,
     }

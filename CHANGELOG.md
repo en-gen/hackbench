@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The map view toolbar warns when the open level's mode is on an unverified list, which holds
+  mode 1E only (sprite layering not verified, #617). Rendering is unchanged (#618).
 - The map view composites the main and sub screens for every level mode, with SNES color math:
   Layer 3 translucency, and halving and additive blends. Per mode, the main and sub screen
   planes and CGADSUB come from the ROM's tables (`LevMainScrnTbl`, `LevSubScrnTbl`,

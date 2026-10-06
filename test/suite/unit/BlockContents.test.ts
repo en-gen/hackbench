@@ -18,6 +18,7 @@ import {
   PSWITCH_COLOURS,
   readBlockContentTables,
   resolveBlockContents,
+  type BlockContents,
   type BlockContentTables,
 } from '../../../src/rom/BlockContents'
 import { RomFile } from '../../../src/rom/RomFile'
@@ -68,7 +69,7 @@ const TABLES: BlockContentTables = {
   greenStarCoins: 7,
 }
 
-const resolve = (tile: number, col = 0) => resolveBlockContents(tile, col, TABLES)!
+const resolve = (tile: number, col = 0) => resolveOk(tile, col, TABLES)
 const SMALL = 'Sprite $41 if Mario is small, otherwise'
 
 // Column-independent expectations; tiles with columns or colours follow below.
@@ -179,47 +180,47 @@ describe('resolveBlockContents', () => {
   })
 
   it('green star threshold comes from the table; a missing one is worded without a number', () => {
-    const twelve = resolveBlockContents(0x11d, 0, { ...TABLES, greenStarCoins: 12 })!
+    const twelve = resolveOk(0x11d, 0, { ...TABLES, greenStarCoins: 12 })
     expect(twelve.condition).toContain('fewer than 12 coins')
     expect(twelve.caveat).toBeUndefined()
     expect(resolve(0x11d).caveat).toBeUndefined()
-    const none = resolveBlockContents(0x11d, 0, { ...TABLES, greenStarCoins: null })!
+    const none = resolveOk(0x11d, 0, { ...TABLES, greenStarCoins: null })
     expect(none.condition).toContain("this block's coin countdown")
     expect(none.caveat).toBe('the green star counter was not read')
     const own = { ...TABLES, greenStarCoins: null, greenStarCoinsReason: 'why not' }
-    expect(resolveBlockContents(0x11d, 0, own)!.caveat).toBe('why not')
+    expect(resolveOk(0x11d, 0, own).caveat).toBe('why not')
   })
 
   it('a hack table with a zero sprite degrades to Nothing, never throws', () => {
     const sprites = Uint8Array.from(SPRITES)
     sprites[1] = sprites[18] = 0 // first-item slot: a progressive block keeps only its item
     const noFirst = { ...TABLES, spriteInBlock: sprites }
-    expect(resolveBlockContents(0x112, 0, noFirst)!.condition).toBe(
-      'nothing if Mario is small, otherwise Sprite $42',
+    expect(resolveOk(0x112, 0, noFirst).condition).toBe(
+      'Nothing if Mario is small, otherwise Sprite $42',
     )
     sprites[3] = sprites[20] = 0
-    expect(resolveBlockContents(0x114, 0, noFirst)!.condition).toBe('Nothing')
+    expect(resolveOk(0x114, 0, noFirst).condition).toBe('Nothing')
     const zero = { ...TABLES, columnOverride: Uint8Array.from([0, 0, 0, 0]) }
     for (let col = 0; col < 4; col++)
-      expect(resolveBlockContents(0x118, col, zero)!.condition.startsWith('Nothing')).toBe(true)
+      expect(resolveOk(0x118, col, zero).condition.startsWith('Nothing')).toBe(true)
   })
 
   it('an empty branch of a progressive outcome keeps its condition', () => {
     const sprites = Uint8Array.from(SPRITES)
     sprites[2] = sprites[19] = 0 // the big item of tile $112
     const noItem = { ...TABLES, spriteInBlock: sprites }
-    const r = resolveBlockContents(0x112, 0, noItem)!
+    const r = resolveOk(0x112, 0, noItem)
     expect(r.condition).toBe(`${SMALL} nothing`)
     expect(r.spriteIds).toEqual([0x41])
     expect(r.progressive).toBeNull()
     // The star-or-coin tile: the star branch is empty, the coin branch stays.
     sprites[3] = sprites[20] = 0
-    expect(resolveBlockContents(0x11c, 0, noItem)!.condition).toBe(
-      'nothing if Mario is invincible, otherwise Coin',
+    expect(resolveOk(0x11c, 0, noItem).condition).toBe(
+      'Nothing if Mario is invincible, otherwise Coin',
     )
     // Both branches empty is a block with nothing.
     sprites[1] = sprites[18] = 0
-    expect(resolveBlockContents(0x112, 0, noItem)!.condition).toBe('Nothing')
+    expect(resolveOk(0x112, 0, noItem).condition).toBe('Nothing')
   })
 
   it('a content id of $11 or more reads the contiguous bytes, as the ROM does', () => {
@@ -227,39 +228,42 @@ describe('resolveBlockContents', () => {
     sel[0x113 - FIRST_ITEM_BLOCK] = 0x13 << 1 // second-copy index 2
     sel[0x112 - FIRST_ITEM_BLOCK] = 0x3f << 1 // far past both copies
     const t = { ...TABLES, selector: sel }
-    expect(resolveBlockContents(0x113, 0, t)!.spriteIds).toEqual([0x42])
-    expect(resolveBlockContents(0x112, 0, t)!.condition).toBe('Nothing')
+    expect(resolveOk(0x113, 0, t).spriteIds).toEqual([0x42])
+    expect(resolveOk(0x112, 0, t).condition).toBe('Nothing')
   })
 
   it('a differing second SpriteInBlock copy adds a Yoshi is loose alternative; identical adds none', () => {
     expect(resolve(0x114).alternatives).toHaveLength(1)
     const sprites = Uint8Array.from(SPRITES)
     sprites[17 + 3] = 0x46
-    const r = resolveBlockContents(0x114, 0, { ...TABLES, spriteInBlock: sprites })!
+    const r = resolveOk(0x114, 0, { ...TABLES, spriteInBlock: sprites })
     expect(r.condition).toBe('Sprite $46 if Yoshi is loose, otherwise Sprite $43')
     expect(r.spriteIds).toEqual([0x46, 0x43])
   })
 
   it('the egg condition reads its contents from the egg table', () => {
     const eggs = Uint8Array.from([0x42, 0x43])
-    const r = resolveBlockContents(0x119, 0, { ...TABLES, eggContents: eggs })!
+    const r = resolveOk(0x119, 0, { ...TABLES, eggContents: eggs })
     expect(r.condition).toBe(
       'Yoshi egg (Sprite $42, or Sprite $43 if a baby Yoshi exists or Yoshi is loose)',
     )
   })
 
   it('a counter that starts at 0 gives the 1-up at once', () => {
-    const r = resolveBlockContents(0x11d, 0, { ...TABLES, greenStarCoins: 0 })!
+    const r = resolveOk(0x11d, 0, { ...TABLES, greenStarCoins: 0 })
     expect(r.condition).toBe('Sprite $47')
   })
 
-  it('an empty last alternative leaves the one before it unconditional', () => {
+  it('an empty 1-up keeps the coin under its condition; a start of 0 with no 1-up is Nothing', () => {
     const sprites = Uint8Array.from(SPRITES)
     sprites[5] = sprites[22] = 0 // the 1-up slot, both copies
-    const r = resolveBlockContents(0x11d, 0, { ...TABLES, spriteInBlock: sprites })!
-    expect(r.condition).toBe('Coin')
-    expect(r.alternatives).toHaveLength(1)
-    expect(r.alternatives[0].when).toBeNull()
+    const t = { ...TABLES, spriteInBlock: sprites }
+    const r = resolveOk(0x11d, 0, t)
+    expect(r.condition).toBe('Coin if fewer than 7 coins are collected, otherwise nothing')
+    expect(r.alternatives).toHaveLength(2)
+    expect(r.alternatives[0].when).toBe('fewer than 7 coins are collected')
+    expect(resolveOk(0x11d, 0, { ...t, greenStarCoins: 0 }).condition).toBe('Nothing')
+    expect(resolveOk(0x11d, 0, { ...t, greenStarCoins: 0 }).alternatives).toEqual([])
   })
 
   it('a cycle period between 8 and 15 is reported', () => {
@@ -276,7 +280,7 @@ describe('resolveBlockContents', () => {
       0x06: 'Sprite $43',
     }
     for (let col = 0; col < 48; col++) {
-      const r = resolveBlockContents(0x111, col, { ...TABLES, columnCycle: cycle })!
+      const r = resolveOk(0x111, col, { ...TABLES, columnCycle: cycle })
       expect(r.condition).toBe(
         `${text[vals[(col & 15) % 9]]} (X column ${((col & 15) % 9) + 1} of 9)`,
       )
@@ -299,7 +303,7 @@ describe('resolveBlockContents', () => {
       [0x123, 0x59],
     ]) {
       for (let col = 0; col < 4; col++) {
-        const r = resolveBlockContents(tile, col, t)!
+        const r = resolveOk(tile, col, t)
         expect(r.condition).toBe(`Sprite $${id.toString(16)}`)
         expect(r.caveat).toBeUndefined()
       }
@@ -312,7 +316,7 @@ describe('resolveBlockContents', () => {
       Number(Object.entries(PSWITCH_COLOURS).find(([, v]) => v === name)![0])
     const t = { ...TABLES, pSwitchAttribute: Uint8Array.from([key('blue'), key('silver')]) }
     for (let col = 0; col < 8; col++)
-      expect(resolveBlockContents(0x117, col, t)!.condition).toBe(
+      expect(resolveOk(0x117, col, t).condition).toBe(
         col % 2 === 0 ? 'P-switch (blue)' : 'P-switch (silver)',
       )
   })
@@ -374,6 +378,10 @@ describe('resolveBlockContents', () => {
       expect(refused(0x111, 3, { columnCycle: eight }).unavailable).toMatch(/DATA_00F100/)
       const short = new Uint8Array(CYCLE.slice(0, 24)) // first half whole, second cut
       expect(refused(0x11e, 0, { columnCycle: short }).unavailable).toMatch(/DATA_00F100/)
+      // 20 bytes: column 0..3 of the second half are inside the table, the rest of the half is not.
+      const twenty = new Uint8Array(CYCLE.slice(0, 20))
+      for (let col = 0; col < 4; col++)
+        expect(refused(0x11e, col, { columnCycle: twenty }).unavailable).toMatch(/DATA_00F100/)
       expect(isUnavailable(resolveBlockContents(0x111, 3, { ...TABLES, columnCycle: short }))).toBe(
         false,
       )
@@ -389,7 +397,7 @@ describe('resolveBlockContents', () => {
     it('the selector: a changed byte changes the tile', () => {
       const sel = Uint8Array.from(SELECTOR)
       sel[0x116 - FIRST_ITEM_BLOCK] = 0x0e // coin -> multi-coin
-      expect(resolveBlockContents(0x116, 0, { ...TABLES, selector: sel })!.multiCoin).toBe(true)
+      expect(resolveOk(0x116, 0, { ...TABLES, selector: sel }).multiCoin).toBe(true)
     })
 
     it('the cycle: a period-5 first half changes items, the column text and the period', () => {
@@ -404,34 +412,34 @@ describe('resolveBlockContents', () => {
         'Sprite $48 (X column 5 of 5)',
       ]
       for (let col = 0; col < 48; col++)
-        expect(resolveBlockContents(0x111, col, t)!.condition).toBe(want[(col & 15) % 5])
+        expect(resolveOk(0x111, col, t).condition).toBe(want[(col & 15) % 5])
     })
 
     it('the cycle: a half with no period drops the "n of p" text', () => {
       const cycle = Uint8Array.from(CYCLE)
       cycle.set([5, 9, 6, 10, 16, 5, 9, 9, 6, 10, 16, 5, 6, 9, 10, 16])
-      const r = resolveBlockContents(0x111, 7, { ...TABLES, columnCycle: cycle })!
+      const r = resolveOk(0x111, 7, { ...TABLES, columnCycle: cycle })
       expect(r.condition).toBe(`${SMALL} Sprite $46`)
     })
 
     it('the cycle: the second half is read when the selector bit says so', () => {
       const cycle = Uint8Array.from(CYCLE)
       cycle.fill(0x0a, 16)
-      const r = resolveBlockContents(0x11e, 5, { ...TABLES, columnCycle: cycle })!
+      const r = resolveOk(0x11e, 5, { ...TABLES, columnCycle: cycle })
       expect(r.condition).toBe('Sprite $47')
     })
 
     it('SpriteInBlock: a changed sprite id reaches every user of that slot', () => {
       const sprites = Uint8Array.from(SPRITES)
       sprites[0x0f] = sprites[0x0f + 17] = 0x76
-      const r = resolveBlockContents(0x11b, 0, { ...TABLES, spriteInBlock: sprites })!
+      const r = resolveOk(0x11b, 0, { ...TABLES, spriteInBlock: sprites })
       expect(r.spriteIds).toEqual([0x76])
     })
 
     it('StatusOfSprInBlk: a changed status is reported', () => {
       const status = Uint8Array.from(STATUS)
       status[0x0d] = 0x0b
-      const r = resolveBlockContents(0x11a, 0, { ...TABLES, statusOfSprInBlk: status })!
+      const r = resolveOk(0x11a, 0, { ...TABLES, statusOfSprInBlk: status })
       expect(r.alternatives[0].content).toMatchObject({ sprite: 0x51, status: 0x0b })
     })
 
@@ -442,25 +450,25 @@ describe('resolveBlockContents', () => {
         columnOverrideStatus: Uint8Array.from([0x1a, 0x1b, 0x1c, 0x1d]),
       }
       for (let col = 0; col < 4; col++) {
-        const c = resolveBlockContents(0x118, col, t)!.alternatives[0].content
+        const c = resolveOk(0x118, col, t).alternatives[0].content
         expect(c).toMatchObject({ sprite: 0x76 + col, status: 0x1a + col })
       }
-      expect(resolveBlockContents(0x118, 3, t)!.caveat).toContain('$1D has no handler')
+      expect(resolveOk(0x118, 3, t).caveat).toContain('$1D has no handler')
     })
 
     it('the balloon rewrite follows the spawned sprite, not the tile', () => {
       const sel = Uint8Array.from(SELECTOR)
       sel[0x114 - FIRST_ITEM_BLOCK] = 0x20 // the balloon's content on a different tile
-      const r = resolveBlockContents(0x114, 1, { ...TABLES, selector: sel })!
+      const r = resolveOk(0x114, 1, { ...TABLES, selector: sel })
       expect(r.spriteIds).toEqual([0x62])
     })
 
     it('the P-switch attribute table is followed', () => {
       const t = { ...TABLES, pSwitchAttribute: Uint8Array.from([0x30, 0x31]) }
-      expect(resolveBlockContents(0x117, 0, t)!.alternatives[0].content).toMatchObject({
+      expect(resolveOk(0x117, 0, t).alternatives[0].content).toMatchObject({
         attribute: 0x30,
       })
-      expect(resolveBlockContents(0x117, 1, t)!.alternatives[0].content).toMatchObject({
+      expect(resolveOk(0x117, 1, t).alternatives[0].content).toMatchObject({
         attribute: 0x31,
       })
     })
@@ -472,6 +480,14 @@ describe('resolveBlockContents', () => {
     expect(cycleColumn(0x117, 0)).toBeNull()
   })
 })
+
+/** A resolved block, or a thrown reason when the resolver refused or found no item block. */
+function resolveOk(tile: number, col: number, t: BlockContentTables): BlockContents {
+  const r = resolveBlockContents(tile, col, t)
+  if (r === null) throw new Error(`tile $${tile.toString(16)} is not an item block`)
+  if (isUnavailable(r)) throw new Error(r.unavailable)
+  return r
+}
 
 function tablesOf(rom: RomFile): BlockContentTables {
   const t = readBlockContentTables(rom)
@@ -594,8 +610,7 @@ const VANILLA_FIXED: Record<number, [string, number[]]> = {
 describe.skipIf(!hasRom(VANILLA))('vanilla ROM: decoded contents of $111-$12D (corpus)', () => {
   // Lazy: a skipped suite's body still runs at collection time, with no ROM to load.
   let tables: BlockContentTables | undefined
-  const at = (tile: number, col = 0) =>
-    resolveBlockContents(tile, col, (tables ??= tablesOf(freshRom())))!
+  const at = (tile: number, col = 0) => resolveOk(tile, col, (tables ??= tablesOf(freshRom())))
 
   it.each(Object.entries(VANILLA_FIXED))('tile $%s', (tile, [text, sprites]) => {
     for (let col = 0; col < 16; col++) {

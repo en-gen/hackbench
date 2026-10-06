@@ -113,36 +113,6 @@ resolver adds a "Yoshi is loose" alternative; vanilla's copies are identical.
 The "X column n of p" text uses the period found in DATA_00F100 and is dropped
 when the table has none.
 
-## Display
-
-Maps view, #566 PR B (`theia/extension/src/node/map-block-contents.ts`,
-`common/block-indicator.ts`). Owner decisions: spikes #605 (D4), #607
-(progressive split), #615 (C4a) and the 2026-10-05 rulings on #566.
-
-- The item at half scale in the block's bottom-right quadrant, full opacity,
-  no outline; on hover it fills exactly the block and never leaves it.
-- Progressive blocks ($111 cols 0 and 1, $117, $118, $11F, $120, $12A): both
-  items in one 16 x 16, hard diagonal from top-left to bottom-right, mushroom
-  bottom-left, flower or feather top-right, at rest and on hover alike. The
-  pixels on the diagonal go to the top-right item.
-- Multi-coin ($11B, $123): the coin with a 5 x 5 white "+" (7 x 7 with a black
-  edge) baked into the corner of its 16 x 16 art. $11C and $124: the plain coin.
-- Each cell resolves for its own X column ($111, $11A, $125, the $11D P-switch
-  colour); the P-switch uses the spawn attribute of DATA_028A42.
-- Drawn in the plane of the block's bottom-right subtile priority, so hiding a
-  layer hides its indicators. No Contents toggle.
-- Not drawn, pending spike #623 (PR #631): $11A column 0 of 3, $122 and $12D
-  (`pickIndicator` is the one function to change).
-- Item art is the table engine's layout (`buildSpriteLayout`) over the level's
-  own chars, so an item whose chars the level does not load is not drawn and
-  the map says so. Status 9 on sprite $04 uses the shell layout.
-- The Theia map view never used `StarOneUpVineBlockBehavior` or
-  `KeyCoinBalloonKoopaBlockBehavior` overlays (the reference webview model's);
-  they are untouched.
-- The half scale averages each 2 x 2 source block and keeps the pixel when two
-  of four are opaque, so the "+" survives at rest (plain nearest sampling
-  drops its centre line at 1x).
-
 ## Tests
 
 CI has no ROM and the repo carries no vanilla table bytes: the unit tests run
