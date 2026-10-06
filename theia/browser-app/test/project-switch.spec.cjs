@@ -330,3 +330,40 @@ test('a view of A still opening when B opens never attaches', async ({ page }) =
   expect(await currentPath(page)).toBe(b.manifestPath)
   expect(await leftovers(page)).toEqual([])
 })
+
+test('while B is loading, A rows are gone and cannot open a map bound to B', async ({ page }) => {
+  const a = await createProject(page, 'A')
+  const b = await createProject(page, 'B')
+  await openViaMenuPath(page, a.manifestPath)
+  const ROW = '[id="hackbench.map-explorer"] .hb-map-slot'
+  await page.waitForSelector(ROW, { timeout: 15000 })
+  const box = await page.locator(ROW).first().boundingBox()
+
+  // Hold only B's map load, the await show() makes after current has moved.
+  await page.evaluate(async mp => {
+    const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-explorer')
+    w.projects = new Proxy(w.projects, {
+      get: (t, k) =>
+        k === 'loadMaps'
+          ? async p => {
+              if (p === mp) await new Promise(r => (window.__release = r))
+              return t.loadMaps(p)
+            }
+          : t[k],
+    })
+    window.__switch = getSvc('HackBenchContribution').openPath(mp)
+  }, b.manifestPath)
+  await expect.poll(() => page.evaluate(() => !!window.__release)).toBe(true)
+  expect(await currentPath(page)).toBe(b.manifestPath)
+
+  // A's row was here a moment ago; a click on its place must open nothing.
+  await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2)
+  await page.waitForTimeout(1000)
+  expect(await page.locator(ROW).count(), 'A rows still listed during the load').toBe(0)
+  expect(await shellIds(page, ['hackbench.map-view'])).toEqual([])
+
+  await page.evaluate(() => window.__release())
+  await page.evaluate(() => window.__switch)
+  await page.waitForSelector(ROW, { timeout: 15000 })
+  expect(await shellIds(page, ['hackbench.map-view'])).toEqual([])
+})
