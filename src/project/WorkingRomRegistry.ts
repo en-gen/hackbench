@@ -20,6 +20,7 @@ import { Layer, WorkingRom } from './WorkingRom'
 import {
   loadLayers,
   appendLayer,
+  isGfxCharEdit,
   popLayer,
   loadRedoLayers,
   pushRedoLayer,
@@ -283,7 +284,7 @@ export class WorkingRomRegistry {
     | { status: 'io-error'; reason: string } {
     const r = this.get(manifestPath)
     if (r.status !== 'ok') return r
-    const { working, project } = r
+    const { working } = r
 
     const layer: Layer = {
       id: `edit-${Date.now().toString(36)}-${Math.floor(Math.random() * 0xffff).toString(36)}`,
@@ -298,20 +299,34 @@ export class WorkingRomRegistry {
       return { status: 'stale', reason: (err as Error).message }
     }
 
+    const failed = this.persist(manifestPath, r, layer)
+    if (failed) return failed
+    return r
+  }
+
+  /**
+   * The disk half of an edit whose layer `append` has already put on the
+   * stack. `append` ended the redo future in memory; this does the same on
+   * disk BEFORE the write, so a failure leaves the two agreeing (a disk redo
+   * the working copy no longer knows about would come back on the next
+   * launch). On failure the layer is popped straight back off: an edit live
+   * in memory but never on disk would show as committed, then be gone on
+   * reopen.
+   */
+  private persist(
+    manifestPath: string,
+    r: Extract<WorkingRomResult, { status: 'ok' }>,
+    layer: Layer,
+  ): { status: 'io-error'; reason: string } | null {
     try {
-      // `append` has already ended the redo future in memory; this is the
-      // same decision on disk. Done BEFORE the write so a failure leaves the
-      // two agreeing - a disk redo the working copy no longer knows about
-      // would come back, applicable, on the next launch.
-      clearRedo(project.directory)
-      appendLayer(project.directory, layer)
+      clearRedo(r.project.directory)
+      appendLayer(r.project.directory, layer)
+      return null
     } catch (err) {
-      working.pop() // roll back: it never actually took effect
+      r.working.pop()
       this.stamps.delete(manifestPath)
       return { status: 'io-error', reason: (err as Error).message }
     }
-
-    return r
   }
 
   /**
@@ -330,7 +345,10 @@ export class WorkingRomRegistry {
     | { status: 'io-error'; reason: string } {
     const r = this.get(manifestPath)
     if (r.status !== 'ok') return r
-    const { working, project } = r
+    const { working } = r
+    if (chars.length === 0 || !chars.every(isGfxCharEdit)) {
+      return { status: 'refused', reason: 'A character with no pixels cannot be saved.' }
+    }
     const n = chars.length
     const layer: Layer = {
       id: `gfx-${Date.now().toString(36)}-${Math.floor(Math.random() * 0xffff).toString(36)}`,
@@ -344,14 +362,8 @@ export class WorkingRomRegistry {
       const overage = err instanceof GfxRefusal ? err.overage : undefined
       return { status: 'refused', reason: (err as Error).message, overage }
     }
-    try {
-      clearRedo(project.directory)
-      appendLayer(project.directory, layer)
-    } catch (err) {
-      working.pop()
-      this.stamps.delete(manifestPath)
-      return { status: 'io-error', reason: (err as Error).message }
-    }
+    const failed = this.persist(manifestPath, r, layer)
+    if (failed) return failed
     return r
   }
 

@@ -118,23 +118,7 @@ function loadFrom(dir: string, lenient = false): Layer[] {
     const raw = Array.isArray(parsed.chars)
       ? (parsed.chars as unknown[])
       : [{ file: parsed.file, tile: parsed.tile, pixels: parsed.pixels }]
-    const okPixel = (p: unknown): boolean => {
-      const q = p as { x: number; y: number; value: number }
-      return typeof q === 'object' && q !== null && isInt(q.x) && isInt(q.y) && isInt(q.value)
-    }
-    const okChar = (c: unknown): boolean => {
-      const q = c as { file: number; tile: number; pixels: unknown[] }
-      return (
-        typeof q === 'object' &&
-        q !== null &&
-        isInt(q.file) &&
-        isInt(q.tile) &&
-        Array.isArray(q.pixels) &&
-        q.pixels.length > 0 && // a character that changes nothing is not an edit
-        q.pixels.every(okPixel)
-      )
-    }
-    if (raw.length === 0 || !raw.every(okChar))
+    if (raw.length === 0 || !raw.every(isGfxCharEdit))
       return refuse(`${path.join(dir, f)} is not a gfx layer this build understands`, id, label)
     return {
       id,
@@ -147,6 +131,29 @@ function loadFrom(dir: string, lenient = false): Layer[] {
       })),
     }
   })
+}
+
+const okPixel = (p: unknown): boolean => {
+  const q = p as { x: number; y: number; value: number }
+  return typeof q === 'object' && q !== null && isInt(q.x) && isInt(q.y) && isInt(q.value)
+}
+
+/**
+ * Whether `c` is a character edit a layer file may hold. The one rule behind
+ * both reading a layer back and accepting one to write (WorkingRomRegistry.setGfx),
+ * so nothing can be written that the next open refuses.
+ */
+export function isGfxCharEdit(c: unknown): boolean {
+  const q = c as { file: number; tile: number; pixels: unknown[] }
+  return (
+    typeof q === 'object' &&
+    q !== null &&
+    isInt(q.file) &&
+    isInt(q.tile) &&
+    Array.isArray(q.pixels) &&
+    q.pixels.length > 0 && // a character that changes nothing is not an edit
+    q.pixels.every(okPixel)
+  )
 }
 
 function appendTo(dir: string, layer: Layer): void {

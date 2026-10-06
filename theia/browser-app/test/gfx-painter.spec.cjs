@@ -192,13 +192,16 @@ test('strokes on two characters, one Save: one layer, one undo removes both, red
 }) => {
   const { manifestPath, directory } = await createProject(page, 'TwoChars')
   await openSheet(page, manifestPath)
-  const { rgba, before } = await pickColor(page, [P1, P2])
+  const { index, rgba, before } = await pickColor(page, [P1, P2])
 
   await stroke(page, P1)
   await stroke(page, P2)
   await page.click('#hb-gfx-save')
   await expect(page.locator('#hb-gfx-save-message')).toHaveAttribute('data-status', 'ok')
   expect(opFiles(directory), 'one Save is one layer').toHaveLength(1)
+  // Both characters, replayed from the layer file by the core, not read off the canvas.
+  expect(indexOnDisk(directory, P1, 0)).toBe(index)
+  expect(indexOnDisk(directory, P2, 1)).toBe(index)
   expect(await pixelAt(page, P1)).toEqual(rgba)
   expect(await pixelAt(page, P2)).toEqual(rgba)
 
@@ -249,12 +252,166 @@ test("closing with unsaved strokes asks, and Don't save discards them", async ({
   const { before } = await pickColor(page, [P1])
   await stroke(page, P1)
 
-  await page.evaluate(() => getSvc('WidgetManager').getWidgets('hackbench.gfx-view')[0].close())
-  const dialog = page.locator('.theia-dialog-shell, .p-Widget.dialogOverlay').first()
+  // Not awaited in the page: close() resolves only after the dialog is answered.
+  await page.evaluate(() => {
+    getSvc('WidgetManager').getWidgets('hackbench.gfx-view')[0].close()
+  })
+  const dialog = page.locator('.dialogOverlay').first()
   await expect(dialog).toBeVisible()
   await page.getByRole('button', { name: /don.t save/i }).click()
   await expect(page.locator('#hb-gfx-canvas')).toHaveCount(0)
 
   await openSheet(page, manifestPath)
   expect(await pixelAt(page, P1)).toEqual(before[0])
+})
+
+const strokeCount = page =>
+  page.evaluate(() => getSvc('WidgetManager').getWidgets('hackbench.gfx-view')[0].strokes.length)
+
+const widgetState = page =>
+  page.evaluate(() => {
+    const w = getSvc('WidgetManager').getWidgets('hackbench.gfx-view')[0]
+    return { bpp: w.sheet && w.sheet.bpp, error: w.error || null, dirty: w.dirty }
+  })
+
+/** Pick a depth other than the file's own, and wait until the sheet is decoded at it. */
+async function forceOtherDepth(page, pick) {
+  const own = (await widgetState(page)).bpp
+  const other = pick(own)
+  await page.selectOption('#hb-gfx-bpp-select', String(other))
+  await expect.poll(async () => (await widgetState(page)).bpp).toBe(other)
+  return { own, other }
+}
+
+test("choosing another depth and then the file's own depth turns painting back on", async ({
+  page,
+}) => {
+  const { manifestPath } = await createProject(page, 'DepthRoundTrip')
+  await openSheet(page, manifestPath)
+  const { own } = await forceOtherDepth(page, b => (b === 4 ? 3 : 4))
+  await expect(page.locator('#hb-gfx-swatches'), 'a forced depth offers no painting').toHaveCount(0)
+
+  await page.selectOption('#hb-gfx-bpp-select', String(own))
+  await expect.poll(async () => (await widgetState(page)).bpp).toBe(own)
+  await expect(page.locator('#hb-gfx-swatch-1')).toBeVisible()
+  const { rgba } = await pickColor(page, [P1])
+  await stroke(page, P1)
+  expect(await pixelAt(page, P1)).toEqual(rgba)
+})
+
+test('a forced shallower depth with strokes pending breaks nothing, and the strokes survive', async ({
+  page,
+}) => {
+  const errors = []
+  page.on('pageerror', e => errors.push(String(e)))
+  const { manifestPath } = await createProject(page, 'ShallowForce')
+  await openSheet(page, manifestPath)
+  const P3 = { x: 3, y: 60 } // tile row 7: past the end of a deeper (shorter) sheet of this file
+  const { rgba } = await pickColor(page, [P3])
+  await stroke(page, P3)
+  expect(await pixelAt(page, P3)).toEqual(rgba)
+
+  const { own } = await forceOtherDepth(page, b => (b === 4 ? 3 : 4))
+  expect((await widgetState(page)).error).toBeNull()
+  expect(errors).toEqual([])
+  await page.selectOption('#hb-gfx-bpp-select', String(own))
+  await expect.poll(async () => (await widgetState(page)).bpp).toBe(own)
+  expect(await pixelAt(page, P3)).toEqual(rgba)
+  expect((await widgetState(page)).dirty).toBe(true)
+})
+
+test('a pixel in the second tile row, painted at a zoom other than the default, saves to the right character', async ({
+  page,
+}) => {
+  const { manifestPath, directory } = await createProject(page, 'RowTwo')
+  await openSheet(page, manifestPath)
+  await page.click('[data-control="zoom-out"]')
+  const P4 = { x: 5, y: 12 } // tile row 1, column 0: tile 16, pixel (5, 4)
+  const { index, rgba } = await pickColor(page, [P4])
+  const box = await page.locator('#hb-gfx-canvas').boundingBox()
+  const w = await page.evaluate(() => document.querySelector('#hb-gfx-canvas').width)
+  expect(box.width / w, 'a zoom other than 1x and the default 4x').toBe(3)
+  await stroke(page, P4)
+  expect(await pixelAt(page, P4)).toEqual(rgba)
+  await page.click('#hb-gfx-save')
+  await expect(page.locator('#hb-gfx-save-message')).toHaveAttribute('data-status', 'ok')
+  expect(indexOnDisk(directory, P4, 16)).toBe(index)
+})
+
+test('painting and stroke undo are blocked while a Save is in flight, and nothing is lost', async ({
+  page,
+}) => {
+  const { manifestPath, directory } = await createProject(page, 'SaveInFlight')
+  await openSheet(page, manifestPath)
+  const { rgba, before } = await pickColor(page, [P1, P2])
+  await stroke(page, P1)
+  await page.evaluate(() => {
+    const w = getSvc('WidgetManager').getWidgets('hackbench.gfx-view')[0]
+    const real = w.gfx
+    window.__release = undefined
+    w.gfx = new Proxy(real, {
+      get: (t, k) => {
+        if (k === 'saveGfx')
+          return (...a) => new Promise(res => (window.__release = () => res(t.saveGfx(...a))))
+        const v = t[k]
+        return typeof v === 'function' ? v.bind(t) : v
+      },
+    })
+  })
+  await page.click('#hb-gfx-save')
+  await expect.poll(() => page.evaluate(() => !!window.__release)).toBe(true)
+
+  await stroke(page, P2) // blocked
+  expect(await strokeCount(page), 'a stroke during a Save is refused').toBe(1)
+  await page.keyboard.press('Control+z') // blocked
+  expect(await strokeCount(page), 'stroke undo during a Save is refused').toBe(1)
+  expect(await pixelAt(page, P2)).toEqual(before[1])
+  expect(await pixelAt(page, P1)).toEqual(rgba)
+
+  await page.evaluate(() => window.__release())
+  await expect(page.locator('#hb-gfx-save-message')).toHaveAttribute('data-status', 'ok')
+  expect(opFiles(directory)).toHaveLength(1)
+  expect(await pixelAt(page, P1)).toEqual(rgba)
+  expect(await pixelAt(page, P2)).toEqual(before[1])
+  await expect(page.locator('#hb-gfx-dirty')).toHaveAttribute('data-dirty', 'false')
+})
+
+test('a reload pushed in the middle of a drag keeps the pixels already drawn', async ({ page }) => {
+  const { manifestPath } = await createProject(page, 'ReloadMidDrag')
+  await openSheet(page, manifestPath)
+  const { rgba } = await pickColor(page, [P1])
+  const p = await screenPoint(page, P1)
+  await page.mouse.move(p.x, p.y)
+  await page.mouse.down()
+  await page.evaluate(() => getSvc('WidgetManager').getWidgets('hackbench.gfx-view')[0].reload())
+  await page.waitForTimeout(500)
+  expect(await pixelAt(page, P1)).toEqual(rgba)
+  await page.mouse.up()
+  expect((await widgetState(page)).dirty).toBe(true)
+})
+
+test('Ctrl+Z and Ctrl+Y walk the strokes before Save, and Ctrl+Z undoes the layer after it', async ({
+  page,
+}) => {
+  const { manifestPath, directory } = await createProject(page, 'Keys')
+  await page.evaluate(mp => (getSvc('ProjectContext').current = { manifestPath: mp }), manifestPath)
+  await openSheet(page, manifestPath)
+  const { rgba, before } = await pickColor(page, [P1])
+  await stroke(page, P1)
+
+  await page.keyboard.press('Control+z')
+  await expect.poll(() => pixelAt(page, P1)).toEqual(before[0])
+  expect(opFiles(directory)).toHaveLength(0)
+  await page.keyboard.press('Control+y')
+  await expect.poll(() => pixelAt(page, P1)).toEqual(rgba)
+
+  await page.click('#hb-gfx-save')
+  await expect(page.locator('#hb-gfx-save-message')).toHaveAttribute('data-status', 'ok')
+  expect(opFiles(directory)).toHaveLength(1)
+  await page.evaluate(() =>
+    getSvc('WidgetManager').getWidgets('hackbench.gfx-view')[0].node.focus(),
+  )
+  await page.keyboard.press('Control+z')
+  await expect.poll(() => opFiles(directory).length).toBe(0)
+  await expect.poll(() => pixelAt(page, P1)).toEqual(before[0])
 })

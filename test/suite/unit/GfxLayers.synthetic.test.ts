@@ -548,6 +548,32 @@ describe('a gfx layer holding several characters', () => {
     expect(sameBytes(w.bytes(), build(base, [A]).bytes())).toBe(true)
   })
 
+  it('undoing a later layer refolds a restored multi-character run in full', () => {
+    const w = new WorkingRom(base, false)
+    w.restore([M, A])
+    const first = build(base, [M]).bytes()
+    const firstCharOnly = build(base, [
+      gfx(
+        2,
+        0,
+        A.chars[0]!.pixels.map(p => [p.x, p.y, p.value]),
+      ),
+    ])
+    expect(sameBytes(first, firstCharOnly.bytes())).toBe(false) // later characters matter
+    w.undo()
+    expect(sameBytes(w.bytes(), first)).toBe(true)
+  })
+
+  it('restore of a multi-character layer equals appending it', () => {
+    const w = new WorkingRom(base, false)
+    w.restore([M, noop(), M])
+    expect(sameBytes(w.bytes(), build(base, [M, noop(), M]).bytes())).toBe(true)
+    const r = new WorkingRom(base, false)
+    r.restore([M])
+    expect(sameBytes(r.bytes(), build(base, [M]).bytes())).toBe(true)
+    expect(sameBytes(r.bytes(), oracle(base, [A, C, B]))).toBe(true) // every character landed
+  })
+
   it('round trips on disk, one character after another', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-gfxmulti-'))
     try {

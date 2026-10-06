@@ -118,6 +118,8 @@ export class GfxViewWidget extends ReactWidget implements SaveableSource, Stroke
   /** User overrides; undefined defers to whatever the loader itself reports. */
   protected bppChoice: GfxFormat | undefined
   protected paletteRowChoice: number | undefined
+  /** The depth the file decodes at with no override: what painting is offered at. */
+  protected ownBpp: GfxFormat | undefined
   protected canvasEl: HTMLCanvasElement | null = null
   protected wheelBinding: WheelBinding | undefined
   /** Bumped on every reload; a response is applied only if it is still current,
@@ -199,6 +201,7 @@ export class GfxViewWidget extends ReactWidget implements SaveableSource, Stroke
     this.saveMessage = undefined
     if (!same) {
       this.bppChoice = undefined
+      this.ownBpp = undefined
       this.paletteRowChoice = undefined
     }
     this.update()
@@ -240,23 +243,25 @@ export class GfxViewWidget extends ReactWidget implements SaveableSource, Stroke
     this.update()
   }
 
+  // Not while a Save is in flight: its success clears every stroke, so one
+  // drawn or undone meanwhile would be lost or come back.
   canUndoStroke(): boolean {
-    return this.strokes.length > 0
+    return this.strokes.length > 0 && !this.saving
   }
 
   canRedoStroke(): boolean {
-    return this.redoStrokes.length > 0
+    return this.redoStrokes.length > 0 && !this.saving
   }
 
   undoStroke(): void {
     const last = this.strokes[this.strokes.length - 1]
-    if (!last) return
+    if (!last || this.saving) return
     this.restroke(this.strokes.slice(0, -1), [...this.redoStrokes, last])
   }
 
   redoStroke(): void {
     const next = this.redoStrokes[this.redoStrokes.length - 1]
-    if (!next) return
+    if (!next || this.saving) return
     this.restroke([...this.strokes, next], this.redoStrokes.slice(0, -1))
   }
 
@@ -329,6 +334,7 @@ export class GfxViewWidget extends ReactWidget implements SaveableSource, Stroke
     if (token !== this.reloadToken) return // superseded by a later change; drop this stale response
     this.sheet = sheet
     this.error = error
+    if (sheet && this.bppChoice === undefined) this.ownBpp = sheet.bpp
     this.baseRgba = sheet ? decodeRgba(sheet.rgbaBase64) : undefined
     this.rebuildImage()
     this.update()
@@ -342,12 +348,17 @@ export class GfxViewWidget extends ReactWidget implements SaveableSource, Stroke
       return
     }
     this.image = new ImageData(new Uint8ClampedArray(this.baseRgba), s.width, s.height)
-    for (const stroke of this.strokes) for (const [k, v] of stroke) this.colorPixel(k, v)
+    // Strokes are pixel positions in the file's own layout; over another depth's
+    // sheet they would land on different pixels, or past its end.
+    if (!this.canPaint) return
+    for (const stroke of [...this.strokes, ...(this.drawing ? [this.drawing] : [])]) {
+      for (const [k, v] of stroke) this.colorPixel(k, v)
+    }
   }
 
   protected colorPixel(key: number, value: number): void {
     const c = this.sheet?.paletteColors[value]
-    if (!c || !this.image) return
+    if (!c || !this.image || key * 4 >= this.image.data.length) return
     this.image.data.set([c.r, c.g, c.b, c.a], key * 4)
   }
 
@@ -395,7 +406,7 @@ export class GfxViewWidget extends ReactWidget implements SaveableSource, Stroke
 
   protected handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>): void => {
     const at = this.pointerPixel(e)
-    if (e.button !== 0 || !at || !this.canPaint) return
+    if (e.button !== 0 || !at || !this.canPaint || this.saving) return
     if (this.colorIndex >= 1 << (this.sheet!.bpp as number)) this.colorIndex = 1 // a shallower file
     e.currentTarget.setPointerCapture?.(e.pointerId)
     this.drawing = new Map()
@@ -468,7 +479,9 @@ export class GfxViewWidget extends ReactWidget implements SaveableSource, Stroke
   }
 
   protected handleBppChange = (e: React.ChangeEvent<HTMLSelectElement>): void => {
-    this.bppChoice = GFX_FORMATS.find(f => String(f) === e.target.value)
+    const chosen = GFX_FORMATS.find(f => String(f) === e.target.value)
+    // The file's own depth is no override: it is the one painting is offered at.
+    this.bppChoice = chosen === this.ownBpp ? undefined : chosen
     void this.reload()
   }
 

@@ -409,12 +409,63 @@ describe('WorkingRomRegistry', () => {
 
       it('pops the layer back off when the disk write fails', () => {
         const { manifestPath } = gfxProject()
+        const held = opened(manifestPath).w // get() would reload from disk and hide a leak
         fsFault.hook = call => {
           if (call === 'writeFileSync') throw new Error('disk full')
         }
         const r = working.setGfx(manifestPath, [{ file: 2, tile: 0, pixels: px(5) }])
         expect(r.status).toBe('io-error')
-        expect(opened(manifestPath).w.stack).toHaveLength(0)
+        expect(held.stack).toHaveLength(0)
+      })
+
+      it.each([
+        ['no pixels', [{ file: 2, tile: 0, pixels: [] }]],
+        ['a fractional tile', [{ file: 2, tile: 0.5, pixels: px(1) }]],
+        ['no characters', []],
+      ])('refuses a layer with %s, writes nothing, and the project still opens', (_n, chars) => {
+        const { manifestPath, dir } = gfxProject()
+        expect(working.setGfx(manifestPath, chars).status).toBe('refused')
+        expect(loadLayers(dir)).toHaveLength(0)
+        expect(new WorkingRomRegistry(romRegistry).get(manifestPath).status).toBe('ok')
+      })
+
+      it('a multi-character layer reopens to the live bytes, every character', () => {
+        const { manifestPath } = gfxProject()
+        const edits = [0, 1, 2].map(tile => ({
+          file: 2,
+          tile,
+          pixels: px(((gfxPixel(manifestPath, tile) ?? 0) + 1) & 7),
+        }))
+        expect(working.setGfx(manifestPath, edits).status).toBe('ok')
+        const live = Buffer.from(opened(manifestPath).w.bytes())
+        const fresh = new WorkingRomRegistry(romRegistry).get(manifestPath)
+        if (fresh.status !== 'ok') throw new Error(fresh.status)
+        expect(Buffer.compare(live, Buffer.from(fresh.working.bytes()))).toBe(0)
+        for (const e of edits) {
+          const t = GfxTable.load(new RomFile('f.sfc', Buffer.from(fresh.working.bytes())))
+          expect(t.tile(2, e.tile)![0]).toBe(e.pixels[0]!.value)
+        }
+      })
+
+      it('a refused Save after an undo leaves the redo layer, in memory and on disk', () => {
+        const { manifestPath, dir } = gfxProject()
+        working.setGfx(manifestPath, [{ file: 2, tile: 0, pixels: px(5) }])
+        working.undo(manifestPath)
+        expect(loadRedoLayers(dir)).toHaveLength(1)
+        expect(working.setGfx(manifestPath, [{ file: 2, tile: 999, pixels: px(1) }]).status).toBe(
+          'refused',
+        )
+        expect(working.editStack(manifestPath)).toMatchObject({ canRedo: true })
+        expect(loadRedoLayers(dir)).toHaveLength(1)
+      })
+
+      it('a good Save ends the redo future, on disk too', () => {
+        const { manifestPath, dir } = gfxProject()
+        working.setGfx(manifestPath, [{ file: 2, tile: 0, pixels: px(5) }])
+        working.undo(manifestPath)
+        working.setGfx(manifestPath, [{ file: 2, tile: 1, pixels: px(6) }])
+        expect(working.editStack(manifestPath)).toMatchObject({ canRedo: false })
+        expect(loadRedoLayers(dir)).toHaveLength(0)
       })
     })
 
