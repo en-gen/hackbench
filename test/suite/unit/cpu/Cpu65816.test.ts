@@ -328,6 +328,26 @@ describe('SingleStep harness oracle: write log, S/E, collapse scope, MVN (#646)'
     expect(DISPUTED.some(d => d.matches(other))).toBe(false)
     expect(tally([other], () => ['x']).failed).toBe(1)
   })
+  it('a disputed vector passes only if its whole diff is the disputed kind', () => {
+    // Emulation JSR (a,X) from S=$0100: the data pushes to $01FF, the core to $00FF (Clark).
+    const jsr = (): StepCase => {
+      const ram: [number, number][] = [[0x8000, 0xfc], [0x8001, 0x00], [0x8002, 0x90], [0x9000, 0x00], [0x9001, 0xa0]] // prettier-ignore
+      return {
+        name: 'fc e 1',
+        initial: st({ e: 1, s: 0x100, ram }),
+        final: st({ e: 1, s: 0x1fe, pc: 0xa000, ram: [...ram, [0x100, 0x80], [0x1ff, 0x02]] }),
+        cycles: [w(0x100, 0x80), w(0x1ff, 0x02)],
+      }
+    }
+    expect(runCase(jsr()).join()).toContain('write order')
+    expect(tally([jsr()]).failed).toBe(0)
+    const extra = jsr()
+    extra.final.pc = 0xa001
+    expect(tally([extra]).failed).toBe(1)
+    const stray = jsr()
+    stray.final.ram.push([0x5000, 7])
+    expect(tally([stray]).failed).toBe(1)
+  })
   // INC $10 writes once. The data lists the old value then the new one in
   // emulation mode only; the harness may collapse that pair there, not in native mode.
   const inc = (e: number): StepCase => ({

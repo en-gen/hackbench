@@ -5,7 +5,7 @@
  * case's write cycles (MVN/MVP excepted). Reads, dummy cycles, timing and the
  * other bus lines are not compared (the core does not model them). Concessions:
  * MVN/MVP (data cut at 100 cycles) and, in emulation mode, an 8-bit RMW's
- * old-value write is collapsed. DISPUTED lists vectors skipped on purpose.
+ * old-value write is collapsed. DISPUTED lists vectors excused for one named diff.
  */
 import { Cpu65816 } from '../../../src/rom/cpu/Cpu65816'
 
@@ -44,7 +44,7 @@ export interface Disputed {
   file: string
   expected: number
   matches(tc: StepCase): boolean
-  /** True when a mismatch diff shows the disputed behaviour, not some other defect. */
+  /** True only when EVERY diff line is of the disputed kind; any other line is a real failure. */
   isDisputedDiff(diff: string[]): boolean
 }
 export const DISPUTED: Disputed[] = [
@@ -54,8 +54,9 @@ export const DISPUTED: Disputed[] = [
     file: 'e1.e',
     expected: 1,
     matches: tc => tc.name === 'e1 e 8669', // index 8668 in the file
-    // The pointer is read from a different place, so A (and its flags) differ.
-    isDisputedDiff: diff => diff.some(l => l.startsWith('a: ')),
+    // The pointer is read from a different place, so A and its flags differ, nothing else.
+    isDisputedDiff: diff =>
+      diff.some(l => l.startsWith('a: ')) && diff.every(l => /^[ap]: /.test(l)),
   },
   {
     id: 'JSR (a,X) push wrap, emulation',
@@ -64,8 +65,10 @@ export const DISPUTED: Disputed[] = [
     expected: 43,
     // The push of S and S-1 only differs when it crosses the page edge.
     matches: tc => tc.name.startsWith('fc e ') && (tc.initial.s & 0xff) === 0,
-    // The pushed return address lands at $00FF instead of $01FF.
-    isDisputedDiff: diff => diff.some(l => l.startsWith('write order')),
+    // The low return byte lands at $00FF instead of $01FF: write order, and those two bytes only.
+    isDisputedDiff: diff =>
+      diff.some(l => l.startsWith('write order')) &&
+      diff.every(l => l.startsWith('write order') || /^\[(ff|1ff)\]: /.test(l)),
   },
 ]
 
@@ -145,7 +148,7 @@ function defaultMake(bus: never): Cpu65816 {
 }
 
 /**
- * Runs every case of one vector file, skipping DISPUTED vectors; a case that
+ * Runs every case of one vector file; a DISPUTED vector is excused only for its disputed diff; a case that
  * throws counts as a failure, never as a pass.
  */
 export function tally(
@@ -155,13 +158,14 @@ export function tally(
   let failed = 0
   const first: string[] = []
   for (const tc of cases) {
-    if (DISPUTED.some(d => d.matches(tc))) continue
     let diff: string[]
     try {
       diff = run(tc)
     } catch (e) {
       diff = [String(e)]
     }
+    // A disputed vector may differ from the core, but only in its disputed kind.
+    if (DISPUTED.some(d => d.matches(tc) && d.isDisputedDiff(diff))) continue
     if (diff.length) {
       failed++
       if (first.length < 3) first.push(`${tc.name}: ${diff.join('; ')}`)
