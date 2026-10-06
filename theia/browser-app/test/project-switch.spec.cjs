@@ -164,3 +164,110 @@ test('Ctrl+Z in B own GFX view undoes B layer and never touches A', async ({ pag
   await expect.poll(() => opFiles(path.join(tmp, 'B')).length).toBe(0)
   expect(opFiles(path.join(tmp, 'A'))).toHaveLength(1)
 })
+
+const pixelAt = (page, { x, y }) =>
+  page.evaluate(
+    ({ x, y }) =>
+      Array.from(
+        document.querySelector('#hb-gfx-canvas').getContext('2d').getImageData(x, y, 1, 1).data,
+      ),
+    { x, y },
+  )
+
+/**
+ * A is open with its GFX view and one unsaved stroke; B's open is started and
+ * left waiting on the dirty prompt (window.__switch is the pending promise).
+ */
+async function dirtyThenSwitch(page) {
+  const a = await createProject(page, 'A')
+  const b = await createProject(page, 'B')
+  await openViaMenuPath(page, a.manifestPath)
+  await page.evaluate(async mp => {
+    await getSvc('PreviewTabs').pin(
+      'hackbench.gfx-view',
+      { index: 0 },
+      w => w.open({ manifestPath: mp, index: 0, label: 'GFX 0' }),
+      p => p.shows(0),
+      {},
+    )
+  }, a.manifestPath)
+  await page.waitForSelector('#hb-gfx-canvas', { timeout: 15000 })
+  await expect(page.locator('#hb-gfx-swatch-1')).toBeVisible()
+  const P = { x: 3, y: 5 }
+  const before = await pixelAt(page, P)
+  const colors = await page.evaluate(() =>
+    getSvc('WidgetManager')
+      .getWidgets('hackbench.gfx-view')[0]
+      .sheet.paletteColors.map(c => [c.r, c.g, c.b, c.a]),
+  )
+  const index = colors.findIndex((c, i) => i > 0 && c[3] > 0 && c.join() !== before.join())
+  await page.click(`#hb-gfx-swatch-${index}`)
+  const box = await page.locator('#hb-gfx-canvas').boundingBox()
+  const width = await page.evaluate(() => document.querySelector('#hb-gfx-canvas').width)
+  const k = box.width / width
+  await page.mouse.move(box.x + (P.x + 0.5) * k, box.y + (P.y + 0.5) * k)
+  await page.mouse.down()
+  await page.mouse.up()
+  const painted = await pixelAt(page, P)
+  expect(painted).not.toEqual(before)
+
+  await page.evaluate(mp => {
+    window.__switch = getSvc('HackBenchContribution').openPath(mp)
+  }, b.manifestPath)
+  await expect(page.locator('.dialogOverlay').first()).toBeVisible()
+  return { a, b, P, before, painted }
+}
+
+const currentPath = page => page.evaluate(() => getSvc('ProjectContext').current?.manifestPath)
+
+test('cancelling the unsaved-strokes prompt aborts the switch and keeps the stroke', async ({
+  page,
+}) => {
+  const { a, b, P, before, painted } = await dirtyThenSwitch(page)
+
+  await page
+    .locator('#theia-dialog-shell')
+    .getByRole('button', { name: /cancel/i })
+    .click()
+  await page.evaluate(() => window.__switch)
+
+  expect(await currentPath(page)).toBe(a.manifestPath)
+  await expect(page.locator('#hb-gfx-canvas')).toHaveCount(1)
+  expect(await pixelAt(page, P)).toEqual(painted)
+  const viewId = await page.evaluate(async () => {
+    const w = getSvc('WidgetManager').getWidgets('hackbench.gfx-view')[0]
+    await getSvc('ApplicationShell').activateWidget(w.id)
+    return w.id
+  })
+  expect(await page.evaluate(() => getSvc('ApplicationShell').activeWidget?.id)).toBe(viewId)
+  const ofB = await page.evaluate(
+    mp =>
+      getSvc('ApplicationShell')
+        .widgets.filter(w => w.manifestPath === mp)
+        .map(w => w.id),
+    b.manifestPath,
+  )
+  expect(ofB, 'no view of B was opened').toEqual([])
+
+  // Ctrl+Z walks the stroke back, not a layer of either project.
+  await page.keyboard.press('Control+z')
+  await expect.poll(() => pixelAt(page, P)).toEqual(before)
+  expect(opFiles(path.join(tmp, 'A'))).toHaveLength(0)
+  expect(opFiles(path.join(tmp, 'B'))).toHaveLength(0)
+})
+
+test('Save in the unsaved-strokes prompt writes one layer and completes the switch', async ({
+  page,
+}) => {
+  const { b } = await dirtyThenSwitch(page)
+
+  await page
+    .locator('#theia-dialog-shell')
+    .getByRole('button', { name: 'Save', exact: true })
+    .click()
+  await page.evaluate(() => window.__switch)
+
+  expect(opFiles(path.join(tmp, 'A'))).toHaveLength(1)
+  await expect(page.locator('#hb-gfx-canvas')).toHaveCount(0)
+  expect(await currentPath(page)).toBe(b.manifestPath)
+})
