@@ -36,7 +36,7 @@ import { GfxFrontendClient } from './gfx-push-client'
 import { PaletteFrontendClient } from './palette-push-client'
 import { describeRomMismatch, ProjectPropertiesDialog } from './project-properties-dialog'
 import { ProjectContext } from './project-context'
-import { isProjectBound } from './project-bound'
+import { boundToOther } from './project-bound'
 import { FileDialogService } from '@theia/filesystem/lib/browser'
 import { PROJECT_EXT } from '../../../../src/project/Project'
 import { perfEndAfterPaint, perfStart } from '../common/perf-marks'
@@ -300,18 +300,18 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
   /**
    * Close every view bound to a project other than `manifestPath`.
    *
-   * Goes through the shell so a dirty view prompts. Returns false when the
-   * user cancelled a prompt, which aborts the switch: the old project stays
+   * Goes through the shell so a dirty view prompts. Returns false when a view
+   * survived (a prompt was cancelled or its Save failed), which aborts the switch: the old project stays
    * current with its views intact. Views of `manifestPath` itself stay, so
    * reopening the open project closes nothing.
    */
   protected async closeOtherProjectViews(manifestPath: string): Promise<boolean> {
-    const stale = this.shell.widgets.filter(
-      w => isProjectBound(w) && w.manifestPath !== undefined && w.manifestPath !== manifestPath,
-    )
+    const stale = boundToOther(this.shell.widgets, manifestPath)
     if (stale.length === 0) return true
-    const closed = await this.shell.closeMany(stale)
-    return closed.length === stale.length
+    await this.shell.closeMany(stale)
+    // Not the returned count: Theia reports a widget closed even when a failed
+    // Save left it open. Ask the shell what is still attached.
+    return boundToOther(this.shell.widgets, manifestPath).length === 0
   }
 
   /**

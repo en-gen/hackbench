@@ -18,3 +18,15 @@ export interface ProjectBound {
 export function isProjectBound(w: unknown): w is ProjectBound {
   return typeof w === 'object' && w !== null && (w as ProjectBound).projectBound === true
 }
+
+/**
+ * The widgets bound to a project other than `manifestPath`. A widget with no
+ * manifest yet (not opened on anything) is kept. Called before a close to pick
+ * the targets and after it to confirm none survived: Theia's close prompt
+ * reports success even when a failed Save left the view open.
+ */
+export function boundToOther<W>(widgets: readonly W[], manifestPath: string): W[] {
+  return widgets.filter(
+    w => isProjectBound(w) && !!w.manifestPath && w.manifestPath !== manifestPath,
+  )
+}

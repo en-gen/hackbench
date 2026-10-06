@@ -15,6 +15,8 @@ import { injectable, inject } from '@theia/core/shared/inversify'
 import { ApplicationShell, WidgetManager, Widget } from '@theia/core/lib/browser'
 import { previewId } from './preview-id'
 import { PreviewSequence } from './preview-sequence'
+import { ProjectContext } from './project-context'
+import { boundToOther } from './project-bound'
 
 export { previewId }
 
@@ -25,6 +27,7 @@ export const PREVIEW_TAB_CLASS = 'hb-preview-tab'
 export class PreviewTabs {
   @inject(WidgetManager) protected readonly widgets!: WidgetManager
   @inject(ApplicationShell) protected readonly shell!: ApplicationShell
+  @inject(ProjectContext) protected readonly context!: ProjectContext
   /** The preview opens still running, so `pin` can wait for one rather than
    * race it - see PreviewSequence. */
   protected readonly sequence = new PreviewSequence()
@@ -113,6 +116,14 @@ export class PreviewTabs {
    * one", so it focuses.
    */
   protected attach(widget: Widget, focus: boolean): void {
+    // A view of the previous project that was still loading when another
+    // project opened is not in shell.widgets, so the switch could not close
+    // it. It must not appear now (#628).
+    const open = this.context.current?.manifestPath
+    if (open && boundToOther([widget], open).length > 0) {
+      widget.dispose()
+      return
+    }
     if (!widget.isAttached) this.shell.addWidget(widget, { area: 'main' })
     if (focus) void this.shell.activateWidget(widget.id)
     else void this.shell.revealWidget(widget.id)

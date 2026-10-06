@@ -141,9 +141,12 @@ category and are reachable from the File menu.
 
 Opening another project first closes every GFX, Map16 and map view of the old one
 (the widgets that implement `ProjectBound`), through the shell so a view with
-unsaved strokes asks; cancelling that prompt aborts the switch (#628). Palette,
-music, emulator and overworld views re-target on `ProjectContext.onChanged`
-instead.
+unsaved strokes asks. The switch aborts if any such view is still attached
+afterwards (a cancelled prompt, or a Save that failed), because Theia reports
+the close as done either way. A view still loading during the switch is
+disposed when `PreviewTabs` would attach it (#628). The palette explorer and
+the music, emulator and overworld views re-target on `ProjectContext.onChanged`;
+palette group views close themselves there.
 
 The map tab shows each screen as one composite canvas. The backend sends the
 six plane canvases per screen plus two plane lists (main and sub, bottom to

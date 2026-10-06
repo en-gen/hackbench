@@ -181,7 +181,7 @@ const pixelAt = (page, { x, y }) =>
  * A is open with its GFX view and one unsaved stroke; B's open is started and
  * left waiting on the dirty prompt (window.__switch is the pending promise).
  */
-async function dirtyThenSwitch(page) {
+async function dirtyThenSwitch(page, { refuseSave = false } = {}) {
   const a = await createProject(page, 'A')
   const b = await createProject(page, 'B')
   await openViaMenuPath(page, a.manifestPath)
@@ -206,6 +206,16 @@ async function dirtyThenSwitch(page) {
   const painted = await pixelAt(page, P)
   expect(painted).not.toEqual(before)
 
+  if (refuseSave) {
+    // The view's own save() then returns false, which Theia's close prompt ignores.
+    await page.evaluate(() => {
+      const w = getSvc('WidgetManager').getWidgets('hackbench.gfx-view')[0]
+      w.gfx = new Proxy(w.gfx, {
+        get: (t, k) =>
+          k === 'saveGfx' ? async () => ({ status: 'refused', reason: 'stubbed' }) : t[k],
+      })
+    })
+  }
   await page.evaluate(mp => {
     window.__switch = getSvc('HackBenchContribution').openPath(mp)
   }, b.manifestPath)
@@ -260,4 +270,63 @@ test('Save in the unsaved-strokes prompt writes one layer and completes the swit
   expect(opFiles(path.join(tmp, 'A'))).toHaveLength(1)
   await expect(page.locator('#hb-gfx-canvas')).toHaveCount(0)
   expect(await currentPath(page)).toBe(b.manifestPath)
+})
+
+/** Attached project-bound widgets whose manifest is not the open project's. */
+const leftovers = page =>
+  page.evaluate(() => {
+    const cur = getSvc('ProjectContext').current?.manifestPath
+    return getSvc('ApplicationShell')
+      .widgets.filter(w => w.projectBound === true && w.manifestPath !== cur)
+      .map(w => w.id)
+  })
+
+test('a refused Save in the prompt keeps A open and aborts the switch', async ({ page }) => {
+  const { a, P, before } = await dirtyThenSwitch(page, { refuseSave: true })
+  const dialog = page.locator('#theia-dialog-shell')
+
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+  // Theia asks again because the save failed; answering Cancel leaves the view open.
+  await expect(dialog.getByRole('button', { name: /cancel/i })).toBeVisible()
+  await dialog.getByRole('button', { name: /cancel/i }).click()
+  await page.evaluate(() => window.__switch)
+
+  expect(await currentPath(page)).toBe(a.manifestPath)
+  await expect(page.locator('#hb-gfx-canvas')).toHaveCount(1)
+  expect(await leftovers(page)).toEqual([])
+  await activateGfx(page)
+  await page.keyboard.press('Control+z')
+  await expect.poll(() => pixelAt(page, P)).toEqual(before)
+  expect(opFiles(path.join(tmp, 'A'))).toHaveLength(0)
+  expect(opFiles(path.join(tmp, 'B'))).toHaveLength(0)
+})
+
+test('a view of A still opening when B opens never attaches', async ({ page }) => {
+  const a = await createProject(page, 'A')
+  const b = await createProject(page, 'B')
+  await openViaMenuPath(page, a.manifestPath)
+  // Not awaited, and held in their load for 1.5 s so the switch lands inside it:
+  // neither is in shell.widgets yet when B opens.
+  await page.evaluate(mp => {
+    const tabs = getSvc('PreviewTabs')
+    const slow = open => async w => {
+      await new Promise(r => setTimeout(r, 1500))
+      await open(w)
+    }
+    void tabs.preview(
+      'hackbench.gfx-view',
+      slow(w => w.open({ manifestPath: mp, index: 0, label: 'G' })),
+    )
+    void tabs.preview(
+      'hackbench.map16-view',
+      slow(w => w.open({ manifestPath: mp, label: 'M', layer: 'fg' })),
+      { layer: 'fg' },
+    )
+  }, a.manifestPath)
+
+  await openViaMenuPath(page, b.manifestPath)
+  await page.waitForTimeout(3500) // past the held load
+
+  expect(await currentPath(page)).toBe(b.manifestPath)
+  expect(await leftovers(page)).toEqual([])
 })
