@@ -10,6 +10,11 @@ import type {
   SwitchStateDto,
 } from '../common/project-protocol'
 import { BLOCK, paintIndicator, type Box } from '../common/block-indicator'
+import {
+  composeScreen,
+  type SourceKey,
+  type ScreenInput,
+} from '../../../../src/rom/model/ColorMath'
 import { decodeRgba } from './map16-pixels'
 import { SWITCH_ORDER } from './map16-view-model'
 
@@ -175,4 +180,94 @@ export function paintScreenIndicators(
     out.push({ id: indicatorId(i), hover, box: paintIndicator(data, w, h, i.x - left, i.y - top, art, zoom, hover) }) // prettier-ignore
   }
   return out
+}
+
+/** A native-resolution RGBA image scaled to `dw` x `dh` by nearest sampling. */
+export function scaleNearest(
+  src: Uint8ClampedArray,
+  w: number,
+  h: number,
+  dw: number,
+  dh: number,
+): Uint8ClampedArray {
+  // prettier-ignore
+  if (dw === w && dh === h) return src.slice()
+  const out = new Uint8ClampedArray(dw * dh * 4)
+  for (let y = 0; y < dh; y++) {
+    const row = Math.min(h - 1, Math.floor((y * h) / dh)) * w
+    for (let x = 0; x < dw; x++) {
+      const from = (row + Math.min(w - 1, Math.floor((x * w) / dw))) * 4
+      out.set(src.subarray(from, from + 4), (y * dw + x) * 4)
+    }
+  }
+  return out
+}
+
+const PLANE_KEYS = ['l1Low', 'l1High', 'l2Low', 'l2High'] as const
+
+export interface IndicatorScreen {
+  width: number
+  height: number
+  zoom: number
+  screen: number
+  geometry: ScreenGeometry
+  /** Native planes, already reduced to the ones shown. */
+  planes: Partial<Record<SourceKey, Uint8ClampedArray | null>>
+  lists: ScreenInput['lists']
+  math: ScreenInput['math']
+  indicators: readonly Indicator[]
+  arts: ReadonlyMap<string, Uint8ClampedArray>
+  hoverId: string | undefined
+}
+
+/** Whether any indicator on this screen sits in a plane the lists compose. */
+export function indicatorsTouch(
+  i: Pick<IndicatorScreen, 'screen' | 'geometry' | 'lists' | 'planes' | 'indicators'>,
+): boolean {
+  // prettier-ignore
+  const g = i.geometry
+  const [left, top] =
+    g.orientation === 'vertical' ? [0, i.screen * g.height] : [i.screen * g.width, 0]
+  return i.indicators.some(
+    q =>
+      (i.lists.main.includes(q.plane) || i.lists.sub.includes(q.plane)) &&
+      i.planes[q.plane] !== undefined &&
+      q.x + BLOCK > left && q.x < left + g.width && q.y + BLOCK > top && q.y < top + g.height, // prettier-ignore
+  )
+}
+
+/**
+ * One screen composed at SCREEN resolution with its indicators IN their planes (#566 ruling 2026-10-06):
+ * every source is scaled to `zoom` by nearest sampling, each plane's indicators are painted into
+ * that plane's scaled copy, and then the planes are stacked and put through color math as ever. So a
+ * nearer plane or sprite covers an indicator exactly as it covers its block, and math applies to it.
+ */
+export function composeIndicatorScreen(i: IndicatorScreen): {
+  rgba: Uint8ClampedArray
+  width: number
+  height: number
+  painted: PaintedIndicator[]
+} {
+  // prettier-ignore
+  const [dw, dh] = [Math.round(i.width * i.zoom), Math.round(i.height * i.zoom)]
+  const planes: Partial<Record<SourceKey, Uint8ClampedArray | null>> = {}
+  const painted: PaintedIndicator[] = []
+  for (const [k, data] of Object.entries(i.planes) as [
+    SourceKey,
+    Uint8ClampedArray | null | undefined,
+  ][]) {
+    const composed = i.lists.main.includes(k) || i.lists.sub.includes(k)
+    const mine = (PLANE_KEYS as readonly string[]).includes(k) && composed && i.indicators.some(q => q.plane === k) // prettier-ignore
+    if (!data && !mine) {
+      planes[k] = null
+      continue
+    }
+    const up = data
+      ? scaleNearest(data, i.width, i.height, dw, dh)
+      : new Uint8ClampedArray(dw * dh * 4)
+    if (mine) painted.push(...paintScreenIndicators(up, i.screen, i.geometry, i.zoom, i.indicators, i.arts, p => p === k, i.hoverId)) // prettier-ignore
+    planes[k] = up
+  }
+  const rgba = composeScreen({ width: dw, height: dh, planes, lists: i.lists, math: i.math })
+  return { rgba, width: dw, height: dh, painted }
 }

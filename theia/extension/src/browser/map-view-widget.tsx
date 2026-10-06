@@ -32,7 +32,8 @@ import {
   decodeArts,
   hoverTarget,
   indicatorId,
-  paintScreenIndicators,
+  composeIndicatorScreen,
+  indicatorsTouch,
   paintSpriteCanvas,
   PALACES,
   screenKey,
@@ -80,9 +81,7 @@ type BlockContents = Extract<MapBlockContentsResult, { status: 'ok' }> & {
 }
 /** The sprite canvases' key in place of a plane's: one per screen, between L2 and L1's priority plane. */
 const SPRITES = 'sprites'
-/** Each screen's indicator overlay, in screen pixels (not a plane: it is never composed). */
-const INDICATORS = 'indicators'
-type LayerKey = MapPlaneKey | typeof SPRITES | typeof INDICATORS
+type LayerKey = MapPlaneKey | typeof SPRITES
 type Palace = keyof SwitchFlagsDto
 type Switch = keyof SwitchStateDto
 
@@ -420,10 +419,6 @@ export class MapViewWidget extends ReactWidget {
   protected readonly sync = (): void => {
     for (const [k, canvas] of this.canvases) {
       const [plane, s] = k.split(':') as [LayerKey, string]
-      if (plane === INDICATORS) {
-        this.syncIndicators(canvas, Number(s))
-        continue
-      }
       if (plane === SPRITES) {
         this.syncSprites(canvas, Number(s))
         continue
@@ -461,52 +456,62 @@ export class MapViewWidget extends ReactWidget {
       }
       return
     }
-    const want = `${this.generation}:${this.key(s)}:${+this.showL1}${+this.showL2}${+this.showL3}${+this.showSprites}:${this.spritesVersion}`
-    if (canvas.dataset.drawn === want) return
-    canvas.width = shot.width
-    canvas.height = shot.height
-    const planes: Partial<Record<SourceKey, Uint8ClampedArray | null>> = Object.fromEntries(
-      MAP_PLANE_KEYS.map(k => [k, this.layerShown(k) ? (shot.planes[k]?.data ?? null) : null]),
-    )
+    const b = this.blocks
+    // A hidden layer's plane is left out, not empty: its indicators go with it.
+    const planes: Partial<Record<SourceKey, Uint8ClampedArray | null>> = {}
+    for (const k of MAP_PLANE_KEYS) if (this.layerShown(k)) planes[k] = shot.planes[k]?.data ?? null
     // The sprites are one more source, not in color math (their palette split is #564's to add).
     const sp = this.sprites
-    planes.sprites = this.showSprites && sp ? compositeSpriteScreen(sp.sprites, s, sp) : null
-    const out = composeScreen({
-      width: shot.width,
-      height: shot.height,
-      planes,
+    if (this.showSprites) planes.sprites = sp ? compositeSpriteScreen(sp.sprites, s, sp) : null
+    // Indicators draw IN their block's plane at screen resolution (#566), so only a screen one
+    // touches is composed at the zoom; the rest stay native.
+    const ind = b && {
+      screen: s,
+      geometry: b,
       lists: shot.screens,
-      math: shot.math,
-    })
-    canvas.getContext('2d')?.putImageData(new ImageData(out, shot.width, shot.height), 0, 0)
+      planes,
+      indicators: b.indicators,
+    }
+    const hi = ind && indicatorsTouch(ind)
+    const hov = hi ? this.hoverOn(s) : undefined
+    const want = `${this.generation}:${this.key(s)}:${+this.showL1}${+this.showL2}${+this.showL3}${+this.showSprites}:${this.spritesVersion}:${hi ? `${this.blocksVersion}:${this.zoom}:${hov ? indicatorId(hov) : ''}` : ''}` // prettier-ignore
+    if (canvas.dataset.drawn === want) return
+    if (hi && b) {
+      const r = composeIndicatorScreen({
+        width: shot.width,
+        height: shot.height,
+        zoom: this.zoom,
+        screen: s,
+        geometry: b,
+        planes,
+        lists: shot.screens,
+        math: shot.math,
+        indicators: b.indicators,
+        arts: b.decoded,
+        hoverId: hov && indicatorId(hov),
+      })
+      canvas.width = r.width
+      canvas.height = r.height
+      canvas.getContext('2d')?.putImageData(new ImageData(r.rgba, r.width, r.height), 0, 0)
+      // What was painted, for the acceptance specs: item boxes in this canvas's pixels.
+      canvas.dataset.indicators = JSON.stringify(r.painted)
+    } else {
+      canvas.width = shot.width
+      canvas.height = shot.height
+      const out = composeScreen({ width: shot.width, height: shot.height, planes, lists: shot.screens, math: shot.math }) // prettier-ignore
+      canvas.getContext('2d')?.putImageData(new ImageData(out, shot.width, shot.height), 0, 0)
+      canvas.dataset.indicators = '[]'
+    }
     canvas.dataset.drawn = want
   }
 
-  /**
-   * One screen's indicator overlay: the item art at screen resolution (8 x zoom
-   * at rest, the whole block on hover), nearest-neighbour, for the layers that are
-   * shown. `data-indicators` records the boxes it painted, for the acceptance specs.
-   */
-  protected syncIndicators(canvas: HTMLCanvasElement, s: number): void {
+  /** The hovered indicator, when its block touches screen `s`. */
+  protected hoverOn(s: number): Indicator | undefined {
+    const h = this.hover
     const b = this.blocks
-    const l = this.mapLayout
-    const order = l ? this.layerOrder(l) : []
-    const shown = (p: Indicator['plane']) => order.includes(p) && this.layerShown(p)
-    const hov = this.hover
-    const want = `${this.generation}:${this.blocksVersion}:${this.zoom}:${+this.showL1}${+this.showL2}${+this.showL3}:${order.join()}:${hov ? indicatorId(hov) : ''}` // prettier-ignore
-    if (canvas.dataset.drawn === want) return
-    canvas.dataset.drawn = want
-    if (!b) {
-      canvas.width = 0
-      canvas.dataset.indicators = '[]'
-      return
-    }
-    canvas.width = Math.round(b.width * this.zoom)
-    canvas.height = Math.round(b.height * this.zoom)
-    const img = new ImageData(canvas.width, canvas.height)
-    const painted = paintScreenIndicators(img.data, s, b, this.zoom, b.indicators, b.decoded, shown, hov && indicatorId(hov)) // prettier-ignore
-    canvas.getContext('2d')?.putImageData(img, 0, 0)
-    canvas.dataset.indicators = JSON.stringify(painted)
+    if (!h || !b) return undefined
+    const [size, at] = b.orientation === 'vertical' ? [b.height, h.y] : [b.width, h.x]
+    return at + 16 > s * size && at < (s + 1) * size ? h : undefined
   }
 
   /** The pointer's client position over the strip, kept so a scroll or zoom can re-find the block under it. */
@@ -884,13 +889,6 @@ export class MapViewWidget extends ReactWidget {
                   data-screen={s}
                   style={{ zIndex: 100 }}
                   ref={this.compositeRef(s)}
-                />
-                <canvas
-                  className="hb-map-view-plane hb-map-view-composite"
-                  data-layer="indicators"
-                  data-screen={s}
-                  style={{ zIndex: 101 }}
-                  ref={this.canvasRef(INDICATORS, s)}
                 />
               </div>
             ))}

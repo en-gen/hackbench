@@ -11,6 +11,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   FIRST_ITEM_BLOCK,
+  readBlockContentTables,
   resolveBlockContents,
   type BlockContentTables,
   type BlockContents,
@@ -23,17 +24,21 @@ import {
   pickIndicator,
   plainWhy,
   readCoinParts,
-  readSpawnTimers,
-  spawnState,
+  contentIndex,
+  spawnInputs,
   type Drawn,
   type IndicatorModel,
   type ItemArt,
 } from '../../../theia/extension/src/node/map-block-contents'
+import { drawSprites, interpDrawer } from '../../../theia/extension/src/node/map-sprites'
 import { L1ModelCache } from '../../../theia/extension/src/node/map-screen'
 import {
   decodeArts,
   hoverTarget,
+  composeIndicatorScreen,
+  indicatorsTouch,
   paintScreenIndicators,
+  scaleNearest,
   type Indicator,
 } from '../../../theia/extension/src/browser/map-view-model'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
@@ -269,30 +274,37 @@ describe('pickIndicator', () => {
 })
 
 // ---- the spawn and the code gates, on a synthetic cart ----
-const TIMERS = { shellTimer: 0xf1, ySpeed: 0xd1, otherTimer: 0x3f, rise: 0x2d }
-const sp = (sprite: number, extra: object = {}) => ({ kind: 'sprite' as const, sprite, status: 9, label: '', ...extra }) // prettier-ignore
+const sp = (sprite: number, status: number, extra: object = {}) => ({ kind: 'sprite' as const, sprite, status, label: '', ...extra }) // prettier-ignore
 
-describe('spawnState', () => {
-  it('writes the spawn cells each branch of GenSpriteFromBlk writes (bank_02.asm:1199-1292)', () => {
-    const ram = (c: ReturnType<typeof sp>) => spawnState(c, TIMERS).ram
-    expect(ram(sp(0x04))).toEqual({ 0xaa: 0xd1, 0x154c: 0x2d, 0x1540: 0xf1 })
-    expect(ram(sp(0x2c))).toEqual({ 0xaa: 0xd1, 0x154c: 0x2d })
-    expect(ram(sp(0x3e, { attribute: 2 }))).toEqual({ 0xaa: 0xd1, 0x154c: 0x2d, 0x15f6: 2 })
-    expect(ram(sp(0x3e, { attribute: 6 }))[0x15f6]).toBe(6)
-    expect(ram(sp(0x74))).toEqual({ 0xaa: 0xd1, 0x154c: 0x2d, 0x1540: 0x3f })
-    expect(ram(sp(0x7d, { position: 'X column 3 of 4' }))).toEqual({ 0x157c: 1 })
-    expect(ram(sp(0x7e, { position: 'X column 2 of 4' }))).toEqual({ 0xc2: 2 })
-    expect(ram(sp(0x80, { position: 'X column 1 of 4' }))).toEqual({ 0xaa: 0xd1, 0x154c: 0x2d })
-    expect(spawnState(sp(0x04), TIMERS).status).toBe(9)
+describe('the spawn inputs', () => {
+  it('finds the SpriteInBlock index of an item by sprite and status, and the balloon family by position', () => {
+    expect(contentIndex(sp(0x41, 8), TABLES)).toBe(1)
+    expect(contentIndex(sp(0x3e, 9), TABLES)).toBe(14)
+    expect(contentIndex(sp(0x3e, 8), TABLES)).toBeNull() // right sprite, status the table does not give
+    expect(contentIndex(sp(0x80, 9, { position: 'X column 1 of 4' }), TABLES)).toBe(0x0b)
+    expect(contentIndex(sp(0x55, 8), TABLES)).toBeNull()
+  })
+  it('seeds only what GenSpriteFromBlk reads: the index, the block position and cleared flags', () => {
+    expect(spawnInputs(14, 0x1234, 0x0150)).toEqual({
+      0x05: 14,
+      0x9a: 0x34,
+      0x9b: 0x12,
+      0x98: 0x50,
+      0x99: 0x01,
+      0x1933: 0,
+      0x18e2: 0,
+      0x1432: 0,
+    })
+    // A layer 2 block above the screen top clamps to 0 rather than writing a negative byte.
+    expect(spawnInputs(1, 32, -12)[0x98]).toBe(0)
   })
 })
 
 const COIN_SITE = [0xa9, 0x44, 0x99, 0x02, 0x03, 0xa9, 0x06, 0x05, 0x64, 0x99, 0x03, 0x03, 0x98, 0x4a, 0x4a, 0xa8, 0xa9, 0x02, 0x99] // prettier-ignore
-const TIMER_SITE = [0xa9, 0xf1, 0x9d, 0x40, 0x15, 0xa9, 0xd1, 0x80, 0x08, 0xa9, 0x3f, 0x9d, 0x40, 0x15, 0xa9, 0xd1, 0x95, 0xaa, 0xa9, 0x2d, 0x9d, 0x4c, 0x15] // prettier-ignore
 const GREEN_STAR = [0xd0, 0x05, 0xa9, 0x1e, 0x8d, 0xc0, 0x0d]
 
 /** A 512 KB LoROM of zeros with the made-up tables and the given byte runs planted. */
-function cartBytes(opts: { coin?: number[]; timers?: number[]; twice?: boolean } = {}) {
+function cartBytes(opts: { coin?: number[]; twice?: boolean } = {}) {
   const b = new Uint8Array(0x80000)
   b[0x7fd5] = 0x20
   b.set(TABLES.selector, 0x7080)
@@ -305,25 +317,21 @@ function cartBytes(opts: { coin?: number[]; timers?: number[]; twice?: boolean }
   b.set(TABLES.eggContents, 0x108a1)
   b.set(GREEN_STAR, 0x20000)
   b.set(opts.coin ?? COIN_SITE, 0x30000)
-  b.set(opts.timers ?? TIMER_SITE, 0x31000)
   if (opts.twice) b.set(opts.coin ?? COIN_SITE, 0x32000)
   return b
 }
 const cart = (o: Parameters<typeof cartBytes>[0] = {}) => RomFile.fromBytes('synthetic.sfc', cartBytes(o)) // prettier-ignore
 
 describe('the code gates', () => {
-  it('reads the coin chars and the spawn timers from their immediates', () => {
+  it('reads the coin chars from their immediates', () => {
     const c = readCoinParts(cart())
     expect(c.ok && c.parts.map(p => [p.charNum, p.palette, p.dx, p.dy])).toEqual([[0x444, 11, 0, 0], [0x445, 11, 8, 0], [0x454, 11, 0, 8], [0x455, 11, 8, 8]]) // prettier-ignore
-    expect(readSpawnTimers(cart())).toEqual({ ok: true, timers: TIMERS })
   })
-  it('refuses a changed opcode, a missing site and two sites, with the reason', () => {
+  it('refuses a changed opcode and two sites, with the reason', () => {
     const bad = [...COIN_SITE]
     bad[2] = 0x9d // STA abs,X instead of STA abs,Y: the draw is not the one traced
     const r = readCoinParts(cart({ coin: bad }))
     expect(!r.ok && r.reason).toContain('is not present on this ROM')
-    const none = readSpawnTimers(cart({ timers: [0, 0, 0] }))
-    expect(!none.ok && none.reason).toContain('is not present on this ROM')
     const two = readCoinParts(cart({ twice: true }))
     expect(!two.ok && two.reason).toContain('more than once')
   })
@@ -391,6 +399,78 @@ describe('hoverTarget', () => {
   })
 })
 
+describe('composeIndicatorScreen: indicators draw in the layer pass of their block', () => {
+  const g = { orientation: 'horizontal' as const, width: 32, height: 32 }
+  const arts = decodeArts({ a: Buffer.from(solid([200, 0, 0, 255])).toString('base64') })
+  const native = (cells: [number, number][], rgb: [number, number, number]) => {
+    const d = new Uint8ClampedArray(32 * 32 * 4)
+    for (const [x, y] of cells) d.set([...rgb, 255], (y * 32 + x) * 4)
+    return d
+  }
+  const lists = { main: ['l2Low', 'l1Low'] as const, sub: [] as const }
+  const run = (planes: Record<string, Uint8ClampedArray | null>, ind: Indicator[], zoom = 2, hoverId?: string) => // prettier-ignore
+    composeIndicatorScreen({ width: 32, height: 32, zoom, screen: 0, geometry: g, planes: planes as never, lists: { main: [...lists.main], sub: [] }, math: null, indicators: ind, arts, hoverId }) // prettier-ignore
+  const at2 = (r: ReturnType<typeof run>, x: number, y: number) => Array.from(r.rgba.subarray((y * r.width + x) * 4, (y * r.width + x) * 4 + 4)) // prettier-ignore
+
+  it('composes at screen resolution', () => {
+    const r = run({ l1Low: null, l2Low: null }, [A('a', 0, 0, 'l2Low')], 3)
+    expect([r.width, r.height]).toEqual([96, 96])
+  })
+
+  it('shows an indicator of the farther layer where the nearer layer has nothing', () => {
+    const r = run({ l1Low: null, l2Low: null }, [A('a', 0, 0, 'l2Low')])
+    expect(at2(r, 30, 30)).toEqual([200, 0, 0, 255]) // the quadrant (16..31 at 2x)
+    expect(at2(r, 10, 10)).toEqual([0, 0, 0, 0])
+  })
+
+  it('hides it where a nearer layer has an opaque pixel, exactly as it hides the block', () => {
+    // The nearer plane's native pixel (14, 14) is 2 x 2 screen pixels at 2x: (28..29, 28..29), over the indicator.
+    const r = run({ l1Low: native([[14, 14]], [0, 0, 255]), l2Low: null }, [A('a', 0, 0, 'l2Low')])
+    expect(at2(r, 28, 28)).toEqual([0, 0, 255, 255])
+    expect(at2(r, 29, 29)).toEqual([0, 0, 255, 255])
+    expect(at2(r, 30, 28)).toEqual([200, 0, 0, 255]) // the indicator outside the covering pixel stays
+    expect(at2(r, 30, 30)).toEqual([200, 0, 0, 255])
+  })
+
+  it('draws a nearer-layer indicator over a farther-layer pixels, and a hidden layer indicator not at all', () => {
+    const far = native([[14, 14]], [0, 255, 0])
+    const near = run({ l1Low: null, l2Low: far }, [A('a', 0, 0, 'l1Low')])
+    expect(at2(near, 28, 28)).toEqual([200, 0, 0, 255])
+    const hidden = run({ l2Low: far }, [A('a', 0, 0, 'l1Low')]) // layer 1 not shown: its plane is absent
+    expect(at2(hidden, 28, 28)).toEqual([0, 255, 0, 255])
+    expect(hidden.painted).toEqual([])
+  })
+
+  it('reports what it painted, and whether any indicator touches the screen', () => {
+    const r = run(
+      { l1Low: null, l2Low: null },
+      [A('a', 0, 0), A('a', 0, 0, 'l2Low')],
+      1,
+      'l1Low:0:0',
+    )
+    expect(r.painted.map(p => [p.id, p.hover])).toEqual([['l1Low:0:0', true], ['l2Low:0:0', false]]) // prettier-ignore
+    const base = { screen: 0, geometry: g, lists: { main: ['l1Low' as const], sub: [] as never[] } }
+    expect(indicatorsTouch({ ...base, planes: { l1Low: null }, indicators: [A('a', 0, 0)] })).toBe(
+      true,
+    )
+    expect(indicatorsTouch({ ...base, planes: {}, indicators: [A('a', 0, 0)] })).toBe(false) // plane hidden
+    expect(indicatorsTouch({ ...base, planes: { l1Low: null }, indicators: [A('a', 64, 0)] })).toBe(
+      false,
+    ) // another screen
+    expect(
+      indicatorsTouch({ ...base, planes: { l1Low: null }, indicators: [A('a', 0, 0, 'l2Low')] }),
+    ).toBe(false) // plane not composed
+  })
+
+  it('scales by nearest sampling, keeping each source pixel whole', () => {
+    const src = new Uint8ClampedArray([1, 0, 0, 255, 2, 0, 0, 255])
+    expect(Array.from(scaleNearest(src, 2, 1, 4, 1)).filter((_, i) => i % 4 === 0)).toEqual([
+      1, 1, 2, 2,
+    ])
+    expect(Array.from(scaleNearest(src, 2, 1, 1, 1))[0]).toBe(1)
+  })
+})
+
 describe('paintScreenIndicators', () => {
   const g = { orientation: 'horizontal' as const, width: 64, height: 64 }
   const arts = decodeArts({ a: Buffer.from(solid([200, 0, 0, 255])).toString('base64') })
@@ -416,12 +496,24 @@ describe('paintScreenIndicators', () => {
   })
 })
 
+/** The vanilla tables, read from the corpus ROM (corpus-gated callers only). */
+function VANILLA_TABLES(bytes: Uint8Array): BlockContentTables {
+  const t = readBlockContentTables(RomFile.fromBytes('v.sfc', Buffer.from(bytes)))
+  if ('unavailable' in t) throw new Error(t.unavailable)
+  return t
+}
+
 /** The coin's colours on map $10B, from the cart's own coin draw. */
 function romArtCoin(): Set<string> {
   const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
   const built = new L1ModelCache().get(bytes, romPath(VANILLA), 0x10b, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
   if (!built.ok) throw new Error(built.reason)
-  const d = romArt(RomFile.fromBytes('v.sfc', Buffer.from(bytes)), 0x10b, built.inputs).coin(false)
+  const d = romArt(
+    RomFile.fromBytes('v.sfc', Buffer.from(bytes)),
+    0x10b,
+    built.inputs,
+    VANILLA_TABLES(bytes),
+  ).coin(false)
   if (!('art' in d)) throw new Error(d.why)
   const out = new Set<string>()
   for (let i = 0; i < d.art.length; i += 4)
@@ -496,7 +588,12 @@ describe.skipIf(!hasRom(VANILLA))('mapBlockContents on the vanilla ROM', () => {
     const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
     const built = new L1ModelCache().get(bytes, romPath(VANILLA), 0x126, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
     if (!built.ok) throw new Error(built.reason)
-    const art = romArt(RomFile.fromBytes('v.sfc', Buffer.from(bytes)), 0x126, built.inputs)
+    const art = romArt(
+      RomFile.fromBytes('v.sfc', Buffer.from(bytes)),
+      0x126,
+      built.inputs,
+      VANILLA_TABLES(bytes),
+    )
     const draw = (sprite: number, status: number) => {
       const d = art.sprite({ kind: 'sprite', sprite, status, label: '' }, 5, 10)
       if (!('art' in d)) throw new Error(d.why)
@@ -506,7 +603,12 @@ describe.skipIf(!hasRom(VANILLA))('mapBlockContents on the vanilla ROM', () => {
     let green = 0
     for (let i = 0; i < egg.length; i += 4) if (egg[i + 3] && egg[i + 1]! > egg[i]! + 60 && egg[i + 1]! > egg[i + 2]! + 60) green++ // prettier-ignore
     expect(green).toBeGreaterThan(20)
-    expect(Array.from(draw(4, 9))).not.toEqual(Array.from(draw(4, 8)))
+    // The same sprite placed by the level (INIT, status 8) is the walking Koopa; the spawn's status 9 is the shell.
+    const level = { vram: built.inputs.vram, colors: built.inputs.colors }
+    const rom = RomFile.fromBytes('v.sfc', Buffer.from(bytes))
+    const [koopa] = drawSprites([{ screen: 0, x: 5, y: 10, spriteId: 4, extraBit: false, raw: [0, 0, 0], index: 0 }] as never, level, interpDrawer(rom, 0x126, built.inputs)) // prettier-ignore
+    expect(koopa!.status).toBe('drawn')
+    expect(koopa!.rgba).not.toBe(Buffer.from(draw(4, 9)).toString('base64'))
   })
 
   // The L1 line (owner pick): per item, clipped to that item's half of the diagonal pixel, so a diagonal art
@@ -514,16 +616,17 @@ describe.skipIf(!hasRom(VANILLA))('mapBlockContents on the vanilla ROM', () => {
   // counts 13, 12, 11 and 12 diagonal pixels for $11F, $120, $11A column 0 and $12D, from its own static, unflipped
   // art. The core-run art matches it for $11F (13) and $12D (12) and differs for $120 (15) and $11A (12): the run
   // draws the feather mirrored (its first pass is flipped) and the star one pixel wider on the diagonal. So the rule is
-  // asserted against the constituents of the real art, and the counts that must equal the mockup's are pinned.
+  // asserted against the constituents of the real art, and the core's own counts are pinned: 13, 15, 12 and 12 (owner ruling
+  // 2026-10-06: the core's first frame stays, the mirrored feather and the wider star included).
   const diagOf = (a: Uint8ClampedArray) => Array.from({ length: 16 }, (_, i) => a[(i * 16 + i) * 4 + 3] !== 0) // prettier-ignore
   it.each([
     [0x105, 'mushroom / flower ($11F)', 's74:8:', 's75:8:', 13],
-    [0x002, 'mushroom / feather ($120)', 's74:8:', 's77:8:', undefined],
-    [0x10b, 'coin / star ($11A column 0 of 3)', 'coin', 's76:8:', undefined],
+    [0x002, 'mushroom / feather ($120)', 's74:8:', 's77:8:', 15],
+    [0x10b, 'coin / star ($11A column 0 of 3)', 'coin', 's76:8:', 12],
     [0x005, 'coin / 1-up ($12D)', 'coin', 's78:8:', 12],
   ] as const)(
     'draws the line on every diagonal pixel either item paints: map %#, %s',
-    (map, _name, small, big, mockup) => {
+    (map, _name, small, big, pinned) => {
       // prettier-ignore
       const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
       const cache = new L1ModelCache()
@@ -535,7 +638,12 @@ describe.skipIf(!hasRom(VANILLA))('mapBlockContents on the vanilla ROM', () => {
       expect(split.length, `${small}/${big} is on map ${map.toString(16)}`).toBe(1024)
       const built = cache.get(bytes, romPath(VANILLA), map, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
       if (!built.ok) throw new Error(built.reason)
-      const art = romArt(RomFile.fromBytes('v.sfc', Buffer.from(bytes)), map, built.inputs)
+      const art = romArt(
+        RomFile.fromBytes('v.sfc', Buffer.from(bytes)),
+        map,
+        built.inputs,
+        VANILLA_TABLES(bytes),
+      )
       const one = (k: string) => {
         const d = k === 'coin' ? art.coin(false) : art.sprite({ kind: 'sprite', sprite: parseInt(k.slice(1), 16), status: 8, label: '' }, 5, 10) // prettier-ignore
         if (!('art' in d)) throw new Error(d.why)
@@ -545,7 +653,7 @@ describe.skipIf(!hasRom(VANILLA))('mapBlockContents on the vanilla ROM', () => {
       const got = Array.from({ length: 16 }, (_, i) => split[(i * 16 + i) * 4 + 3] !== 0)
       expect(got).toEqual(a.map((v, i) => v || b[i]!))
       for (let i = 0; i < 16; i++) if (got[i]) expect(Array.from(split.subarray((i * 16 + i) * 4, (i * 16 + i) * 4 + 3))).toEqual([0, 0, 0]) // prettier-ignore
-      if (mockup !== undefined) expect(got.filter(Boolean).length).toBe(mockup)
+      expect(got.filter(Boolean).length).toBe(pinned)
     },
   )
 })

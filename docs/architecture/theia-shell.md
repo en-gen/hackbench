@@ -157,15 +157,14 @@ which `theia/browser-app/test/load-maps.spec.cjs` asserts.
 which (`indicators`: plane, map-pixel corner, art key), from the working copy,
 with a plain-words `note` for blocks it does not draw. The tables' refusal
 comes back as `unavailable` and the tab shows the reason.
-The indicators are NOT part of the composite: each screen has an overlay canvas
-(`data-layer="indicators"`) at screen resolution, painted nearest-neighbour at the
-current zoom for the planes that are composed and shown (`paintScreenIndicators`,
-`browser/map-view-model.ts`), so hiding a layer hides its indicators. The
-overlay sits above the composite, so a nearer layer's opaque pixels do not
-cover a farther layer's indicator. Hover is tracked on the scroller
-(`onPointerMove`, and re-found on scroll, zoom and new replies); the topmost visible
-plane's block under the pointer expands. The overlay publishes the boxes it
-painted in `data-indicators`.
+A screen that holds an indicator is composed at screen resolution (`composeIndicatorScreen`,
+`browser/map-view-model.ts`): each source plane is scaled to the zoom by nearest sampling, each
+plane's indicators are painted into that plane's copy (`paintScreenIndicators`), then the planes are
+stacked and put through color math as ever. So hiding a layer hides its indicators, and a nearer
+plane or a sprite covers an indicator exactly as it covers its block. A hidden plane is left out of
+the plane set, not empty. Screens with no indicator stay native. Hover is tracked on the scroller
+(`onPointerMove`, and re-found on scroll, zoom and new replies); the topmost visible plane's block
+under the pointer expands. The composite publishes the boxes it painted in `data-indicators`.
 
 ### The map tab's sprite layer (#564)
 

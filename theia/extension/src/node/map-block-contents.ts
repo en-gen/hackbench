@@ -4,16 +4,14 @@
  * (`resolveBlockContents`, docs/rom/block-contents.md); this file places and draws.
  *
  * Item art is the sprite RUN on the 65816 core, the path the map's sprite layer
- * uses (#585, `interpDrawer`), seeded as the block spawn leaves it:
- * GenSpriteFromBlk (SMWDisX bank_02.asm:1122-1160) writes the status from
- * StatusOfSprInBlk and the number, then calls InitSpriteTables, so the
- * sprite's INIT never runs and its status handler draws it (a status-9 egg or
- * shell goes through the stunned handler). Then the spawn writes its own cells
- * (bank_02.asm:1199-1278): the rise speed and timers, read from the ROM below,
- * and the P-switch colour (bank_02.asm:1280-1292, from the resolver), and for
- * the balloon family its direction (:1218) and the red coin's C2 bump (:1256).
- * Not modelled: the egg's contents cell (:1250), the tweaker turn timer (:1274). The coin is not a
- * sprite: its chars are the immediates of the coin draw (bank_02.asm:3432-3441).
+ * uses (#585, `interpDrawer`), set up by the game's OWN block spawn: GenSpriteFromBlk
+ * (SMWDisX bank_02.asm:1122-1292) runs on the core with the inputs it reads seeded
+ * generically (`spawnInputs`): it picks the slot, writes the status and sprite number
+ * from StatusOfSprInBlk and SpriteInBlock, calls InitSpriteTables, places the sprite
+ * and writes its spawn cells (rise speed, timers, the P-switch colour, the balloon's
+ * direction, C2). The sprite's INIT never runs; its status handler draws it, so a status-9
+ * egg or shell is the stunned one. Nothing about the spawn is ported here. The coin is
+ * not a sprite: its chars are the immediates of the coin draw (bank_02.asm:3432-3441).
  * A refused or empty run draws no indicator and the map says why; no table fallback.
  *
  * The theia map view never used the old `renderOverlay` of
@@ -34,7 +32,7 @@ import {
 } from '../../../../src/rom/BlockContents'
 import { findExactlyOneSite, WILD } from '../../../../src/rom/BytePattern'
 import type { LevelSprite } from '../../../../src/rom/LevelParser'
-import { runOnce, type SpawnState } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import { runOnce } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import type { EnginePart } from '../../../../src/rom/model/sprites/generic/SpriteDrawEngine'
 import { BLOCK as TILE, bakePlus, fitArt, splitDiagonal } from '../common/block-indicator'
 import type { BlockIndicatorDto, MapBlockContentsResult } from '../common/project-protocol'
@@ -44,13 +42,12 @@ import { base64, screenTiles, type L1ModelCache, type MapInputs } from './map-sc
 const NO_FLAGS = { yellow: false, green: false, red: false, blue: false }
 /** Replies kept per working-copy bytes: each holds every item's art, so a whole ROM's maps are not. */
 const REPLIES_PER_BYTES = 8
-/** Slot-0 offsets of the cells the spawn writes (rammap.asm). */
-const CELL = { ySpeed: 0xaa, c2: 0xc2, timer1540: 0x1540, rise154C: 0x154c, dir157C: 0x157c, objAttr: 0x15f6 } as const // prettier-ignore
-const SPRITE_KOOPA = 0x04
-const SPRITE_PSWITCH = 0x3e
-const SPRITE_YOSHI_EGG = 0x2c
-const SPRITE_BALLOON = 0x7d
-const SPRITE_RED_COIN = 0x7e
+/** The slot the spawn routine finds first with every slot empty (bank_02.asm:1123: LDX #$0B). */
+const SPAWN_SLOT = 0x0b
+/** SpriteInBlock's balloon entry: its X column picks the sprite (bank_02.asm:1199-1212). */
+const BALLOON_CONTENT = 0x0b
+/** WRAM cells GenSpriteFromBlk reads (rammap.asm): the content index and the block's position. */
+const IN = { content: 0x05, touchY: 0x98, touchX: 0x9a, directCoinInit: 0x1432, yoshiLoose: 0x18e2, layer: 0x1933 } as const // prettier-ignore
 
 type Item = Exclude<BlockContent, { kind: 'none' }>
 type SpriteItem = Extract<BlockContent, { kind: 'sprite' }>
@@ -235,57 +232,43 @@ export function readCoinParts(rom: RomFile): Read<{ parts: EnginePart[] }> {
   return { ok: true, parts }
 }
 
-/** What the spawn writes into the new sprite's cells besides status and colour (bank_02.asm:1260-1278). */
-export interface SpawnTimers {
-  shellTimer: number
-  ySpeed: number
-  otherTimer: number
-  rise: number
-}
-
 /**
- * ADDR_028A08 .. CODE_028A11 (bank_02.asm:1260-1273): LDA #t / STA SpriteMisc1540,X /
- * LDA #speed / BRA / LDA #t2 / STA SpriteMisc1540,X / LDA #speed / STA SpriteYSpeed,X /
- * LDA #rise / STA SpriteMisc154C,X.
+ * The content index GenSpriteFromBlk is entered with (`_5`): the SpriteInBlock index of the
+ * item, or the balloon's for a column-rewritten one. Null when the item is not in the table.
  */
-export function readSpawnTimers(rom: RomFile): Read<{ timers: SpawnTimers }> {
-  const what = 'the item block spawn timers (bank_02.asm:1260-1273)'
-  const P = [0xa9, WILD, 0x9d, 0x40, 0x15, 0xa9, WILD, 0x80, WILD, 0xa9, WILD, 0x9d, 0x40, 0x15, 0xa9, WILD, 0x95, WILD, 0xa9, WILD, 0x9d, 0x4c, 0x15] // prettier-ignore
-  const site = findExactlyOneSite(rom, P, what)
-  if (!site.ok) return { ok: false, reason: site.reason }
-  const b = rom.readAtFileOffset(site.offset, P.length)
-  if (!b) return { ok: false, reason: `${what} is past the end of this ROM` }
-  return {
-    ok: true,
-    timers: { shellTimer: b[1]!, ySpeed: b[6]!, otherTimer: b[10]!, rise: b[19]! },
+export function contentIndex(c: SpriteItem, t: BlockContentTables): number | null {
+  if (c.position !== undefined) return BALLOON_CONTENT
+  for (let i = 0; i < 17; i++) {
+    if (t.spriteInBlock[i] === c.sprite && t.statusOfSprInBlk[i] === c.status) return i
   }
+  return null
 }
 
-/**
- * The spawn state of an item sprite: its status from the resolver and the cells the
- * spawn wrote after InitSpriteTables (bank_02.asm:1199-1292). A balloon-family
- * rewrite (`position` set) returns early at :1219 / :1258 or takes :1253.
- */
-export function spawnState(c: SpriteItem, tm: SpawnTimers): SpawnState {
-  const ram: Record<number, number> = {}
-  const rise = () => Object.assign(ram, { [CELL.ySpeed]: tm.ySpeed, [CELL.rise154C]: tm.rise })
-  if (c.position !== undefined && c.sprite === SPRITE_BALLOON) ram[CELL.dir157C] = 1
-  else if (c.position !== undefined && c.sprite === SPRITE_RED_COIN) ram[CELL.c2] = 2
-  else if (c.position !== undefined) rise()
-  else if (c.sprite === SPRITE_KOOPA) Object.assign(rise(), { [CELL.timer1540]: tm.shellTimer })
-  else if (c.sprite === SPRITE_PSWITCH) {
-    rise()
-    if (c.attribute !== undefined) ram[CELL.objAttr] = c.attribute
-  } else if (c.sprite === SPRITE_YOSHI_EGG) rise()
-  else Object.assign(rise(), { [CELL.timer1540]: tm.otherTimer })
-  return { status: c.status, ram }
+/** The cells the spawn reads, for a block at map pixel (x, y): generic, no per-sprite values. */
+export function spawnInputs(content: number, x: number, y: number): Record<number, number> {
+  const [px, py] = [Math.max(0, x), Math.max(0, y)]
+  return {
+    [IN.content]: content,
+    [IN.touchX]: px & 0xff,
+    [IN.touchX + 1]: (px >> 8) & 0xff,
+    [IN.touchY]: py & 0xff,
+    [IN.touchY + 1]: (py >> 8) & 0xff,
+    [IN.layer]: 0,
+    [IN.yoshiLoose]: 0,
+    [IN.directCoinInit]: 0,
+  }
 }
 
 const fake = (spriteId: number, x: number, y: number) =>
   ({ screen: 0, x, y, spriteId, extraBit: false, raw: [0, 0, 0], index: 0 }) as LevelSprite
 
-/** The ROM-backed art: sprites run on the core, the coin from its draw immediates. */
-export function romArt(rom: RomFile, index: number, model: MapInputs): ItemArt {
+/** The ROM-backed art: sprites spawned by the game's own routine and run on the core, the coin from its draw immediates. */
+export function romArt(
+  rom: RomFile,
+  index: number,
+  model: MapInputs,
+  t: BlockContentTables,
+): ItemArt {
   const level = { vram: model.vram, colors: model.colors }
   const render = (draw: SpriteDrawer, id: number, col: number, row: number): Drawn => {
     const [d] = drawSprites([fake(id, col, row)], level, draw)
@@ -294,8 +277,7 @@ export function romArt(rom: RomFile, index: number, model: MapInputs): ItemArt {
     return { art: fitArt(rgba, d!.box.x1 - d!.box.x0, d!.box.y1 - d!.box.y0) }
   }
   const coin = readCoinParts(rom)
-  const timers = readSpawnTimers(rom)
-  let spawn: SpawnState | undefined
+  let inputs: Record<number, number> = {}
   // The level loader runs once, on the first sprite item; a coin-only map never starts it.
   let drawer: SpriteDrawer | undefined
   return {
@@ -306,9 +288,11 @@ export function romArt(rom: RomFile, index: number, model: MapInputs): ItemArt {
       return 'art' in d && multi ? { art: bakePlus(d.art) } : d
     },
     sprite: (c, col, row) => {
-      if (!timers.ok) return { why: timers.reason }
-      spawn = spawnState(c, timers.timers)
-      drawer ??= interpDrawer(rom, index, model, (r, id, seed) => runOnce(r, id, seed, { spawn })) // prettier-ignore
+      const content = contentIndex(c, t)
+      if (content === null)
+        return { why: `refused: sprite $${c.sprite.toString(16)} is not in SpriteInBlock` }
+      inputs = spawnInputs(content, col * TILE, row * TILE)
+      drawer ??= interpDrawer(rom, index, model, (r, id, seed) => runOnce(r, id, { ...seed, slot: SPAWN_SLOT }, { spawn: { inputs } })) // prettier-ignore
       return render(drawer, c.sprite, col, row)
     },
   }
@@ -332,7 +316,13 @@ export function mapBlockContents(
   let r: MapBlockContentsResult
   try {
     const rom = RomFile.fromBytes(romPath, Buffer.from(bytes))
-    r = blockIndicators(built.inputs, readBlockContentTables(rom), romArt(rom, index, built.inputs))
+    const tables = readBlockContentTables(rom)
+    const stub = {} as ItemArt // never asked: an unavailable table ends the run first
+    r = blockIndicators(
+      built.inputs,
+      tables,
+      isUnavailable(tables) ? stub : romArt(rom, index, built.inputs, tables),
+    )
   } catch (err) {
     return { status: 'unavailable', reason: (err as Error).message }
   }

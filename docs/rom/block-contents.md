@@ -135,20 +135,33 @@ Maps view, #566 PR B (`theia/extension/src/node/map-block-contents.ts`,
   edge) baked into the corner of its 16 x 16 art. $11C and $124: the plain coin.
 - Each cell resolves for its own X column; the P-switch uses the spawn
   attribute of DATA_028A42.
-- Drawn only for shown layers, so hiding a layer hides its indicators. No Contents toggle.
+- Drawn IN the plane of the block's bottom-right subtile priority, at screen resolution
+  (owner ruling 2026-10-06): a screen that holds an indicator is composed at the zoom, every
+  plane scaled by nearest sampling, each plane's indicators painted into its own scaled copy,
+  then stacked and put through color math as ever. A nearer plane or a sprite covers an
+  indicator exactly as it covers its block, and hiding a layer hides its indicators. No Contents toggle.
 - Not drawn, with a plain-words note: a Yoshi-loose variant, a block whose item
   graphics are not loaded in the level, a sprite the interpreter refuses or that draws
   nothing in its first frames, a spawn or coin routine that is not the traced one.
-- Item art is the sprite run on the 65816 core, as the map's sprite layer does
-  (#585), seeded as the block spawn leaves it: `GenSpriteFromBlk`
-  (`bank_02.asm:1122-1160`) writes the status from StatusOfSprInBlk and the sprite
-  number, then calls `InitSpriteTables`; the sprite's INIT never runs, so its status
-  handler draws it (a status-9 egg is the green stunned egg, a status-9 $04 a
-  shell). The spawn then writes its own cells (`bank_02.asm:1199-1292`): the rise
-  speed, `SpriteMisc154C` and the timers (read from the code's immediates, gated on
-  its bytes), and the P-switch colour. The balloon's direction (`:1218`) and the red coin's
-  `SpriteTableC2` bump (`:1256`) are written too. Not modelled: the egg's contents
-  cell (`:1250`) and the tweaker turn timer (`:1274`). The runner takes this as `RunOptions.spawn`.
+- Item art is the sprite run on the 65816 core, as the map's sprite layer does (#585), set up
+  by the game's OWN block spawn (owner ruling 2026-10-06, the second bounded exception in
+  `.claude/rules/rom-interpretation.md`): `GenSpriteFromBlk` (`bank_02.asm:1122-1292`) runs on the
+  core, its entry shape byte-checked (`resolveBlockSpawn`), with the inputs it reads seeded
+  generically: the content index `_5` ($05, the SpriteInBlock index; the balloon's for a
+  column-rewritten item), TouchBlockXPos ($9A) and TouchBlockYPos ($98) from the block's position,
+  LayerProcessing ($1933), YoshiIsLoose ($18E2) and DirectCoinInit ($1432) cleared, and DB set to the
+  routine's bank. The routine finds the slot ($0B with every slot empty), writes the status and number
+  from StatusOfSprInBlk and SpriteInBlock, calls InitSpriteTables, places the sprite and writes its
+  cells (rise speed, timers, the P-switch colour, the balloon's direction, C2, the egg's contents). The
+  sprite's INIT never runs, so its status handler draws it: a status-9 egg is the green stunned egg, a
+  status-9 $04 a shell. Nothing about the spawn is ported in `src/`; a routine that is not the shape
+  checked, or that exceeds the step budget, refuses with a plain reason and the block is not drawn.
+  The runner takes this as `RunOptions.spawn`. Layer 2 blocks are spawned as layer 1 ones: the art does not depend on it.
+- The core's first frame is what is drawn (owner ruling 2026-10-06): the mirrored feather and the
+  star one pixel wider on the diagonal stay. Real-art diagonal counts, pinned in the corpus test:
+  $11F 13, $120 15, $11A column 0 12, $12D 12. The mockup's static art gave 13, 12, 11, 12.
+- Accepted (owner, 2026-10-06): the flying red coin of $125 column 1 ($7E) draws its wings only on
+  the core's first frame, and is shown that way.
 - The coin is not a sprite: its chars and palette are the immediates of the coin
   draw (`bank_02.asm:3432-3441`), read behind a byte-pattern gate.
 - The Theia map view never used `StarOneUpVineBlockBehavior` or

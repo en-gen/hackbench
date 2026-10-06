@@ -15,6 +15,7 @@ import {
   checkInitTables,
   ENTRY,
   resolveLoop,
+  resolveBlockSpawn,
   resolvePointer,
   resolveTables,
 } from './SpriteDispatch'
@@ -154,19 +155,21 @@ export interface SpriteModel {
 }
 
 /**
- * A sprite spawned by something other than the level loader (an item block,
- * GenSpriteFromBlk, SMWDisX bank_02.asm:1139-1160): InitSpriteTables loads its
- * tables, but its INIT never runs. The spawner sets the status itself, so the
- * sprite's status handler draws it from the first frame, and then writes its own
- * table cells. `ram` keys are the slot-0 offsets of those cells; the run adds the slot.
+ * A sprite spawned by the game's own item block routine (GenSpriteFromBlk,
+ * SMWDisX bank_02.asm:1122-1292, #566) instead of by the level loader: that routine
+ * runs on the core in place of the loader's INIT. It finds the free slot (the
+ * seed's slot must be the one it finds first, $0B with every slot empty), writes
+ * the status and number from its tables, calls InitSpriteTables and writes the
+ * spawn cells; the sprite's INIT never runs, its status handler draws it.
+ * `inputs` are the absolute WRAM offsets the routine reads (its content index,
+ * TouchBlockXPos and the rest), seeded before it runs.
  */
-export interface SpawnState {
-  status: number
-  ram?: Record<number, number>
+export interface SpawnRun {
+  inputs: Record<number, number>
 }
 
 export interface RunOptions {
-  spawn?: SpawnState
+  spawn?: SpawnRun
   probe?: Probe
   trackInputs?: boolean
 }
@@ -474,13 +477,23 @@ export function runOnce(
     // frame 0 of a level has run, so run the ROM's own GetRand once.
     const rngCells = m.bus.wram.subarray(RAM.rng, RAM.rng + 2)
     if (rngCells[0] === 0 && rngCells[1] === 0) m.call(ENTRY.getRand, 'jsl')
-    m.call(ENTRY.initSpriteTables, 'jsl')
-    let n = m.steps
     const w = m.bus.wram
     if (opts.spawn) {
-      w[RAM.status + seed.slot] = opts.spawn.status
-      for (const [k, v] of Object.entries(opts.spawn.ram ?? {})) w[Number(k) + seed.slot] = v
-    }
+      const spawn = resolveBlockSpawn(rom)
+      if (!spawn.ok) return { ...model, refusal: spawn.reason }
+      // The routine takes the first free slot from $0B; the loader put this sprite in `slot`, so empty it first.
+      w[RAM.status + seed.slot] = 0
+      for (const [k, v] of Object.entries(opts.spawn.inputs)) w[Number(k)] = v
+      // The routine reads its tables through DB: the game reaches it from its own bank (PHK PLB), so enter it with DB = its bank.
+      m.cpu.db = spawn.entry >>> 16
+      m.call(spawn.entry, 'jsl')
+      if (w[RAM.status + seed.slot] === 0)
+        return {
+          ...model,
+          refusal: `the item block spawn did not put the sprite in slot ${seed.slot}`,
+        }
+    } else m.call(ENTRY.initSpriteTables, 'jsl')
+    let n = m.steps
     // Status 1 -> CallSpriteInit, which sets status 8 and runs INIT. An INIT
     // that leaves status 1 runs again next frame, as the game does (the floating
     // platforms sink a few pixels per frame until they reach water).

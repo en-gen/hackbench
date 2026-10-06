@@ -8,12 +8,12 @@
  *   $11E FoI1   $125 key 224,22 and balloon 250,21.   $125 Funky $111 117,15, $11D 86,20.
  *   $001 VS2    $111 183,16 (progressive), $11D 231,18.
  *
- * Indicators are painted in SCREEN pixels on a per-screen overlay canvas
- * (`canvas[data-layer="indicators"]`: one canvas pixel is one CSS pixel), so every
- * measurement here is in screen pixels, read from the overlay's own alpha and never
- * from a native composite pixel. `data-indicators` is the painter's record of the
- * boxes it drew; each spec checks it against the pixels. The zoom is READ from the
- * canvas (width / 256), not assumed.
+ * Indicators are composed INTO their block's plane at SCREEN resolution (#566, owner ruling 2026-10-06),
+ * so a screen that holds one has a composite canvas `round(256 x zoom)` wide, and a nearer plane or a
+ * sprite covers an indicator exactly as it covers its block. "Indicator pixels" are the composite's pixels that
+ * differ from the same screen repainted with the indicators set aside (the widget's `blocks`), so the
+ * baseline is the same layers, math and sprites. `data-indicators` is the painter's record of the boxes it
+ * drew; each spec checks it against the pixels. The zoom is READ from the canvas, not assumed.
  */
 const { test, expect } = require('@playwright/test')
 const { PAGE_COMPOSE } = require('./pixel-canvas.cjs')
@@ -37,7 +37,7 @@ const GET_SVC = `function getSvc(name) {
 let tmp
 const opened = []
 const root = index => `[id="hackbench.map-view:${index}"]`
-const OVERLAY = screen => `canvas[data-layer="indicators"][data-screen="${screen}"]`
+const SCREEN = screen => `canvas[data-layer="screen"][data-screen="${screen}"]`
 
 test.beforeEach(async ({ page }) => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-blocks-'))
@@ -115,20 +115,17 @@ async function setZoom(page, index, z) {
     },
     { id: `hackbench.map-view:${index}`, z },
   )
-  // The overlay is repainted at the new zoom when its width is the composite's CSS width.
   await expect
     .poll(() =>
       page.evaluate(
-        ({ sel, ov, z }) => {
-          const o = document.querySelector(`${sel} ${ov}`)
-          const c = document.querySelector(`${sel} canvas[data-layer="screen"][data-screen="0"]`)
-          const css = c.getBoundingClientRect().width
-          const zoom = css / c.width
+        ({ id, z }) => {
+          const w = getSvc('ApplicationShell').getWidgetById(id)
           return (
-            Math.abs(o.width - Math.round(css)) <= 1 && (z === 'fit' || Math.abs(zoom - z) < 0.01)
+            w.renderedZoom === w.zoomController.value &&
+            (z === 'fit' || Math.abs(w.zoomController.value - z) < 0.01)
           )
         },
-        { sel: root(index), ov: OVERLAY(0), z },
+        { id: `hackbench.map-view:${index}`, z },
       ),
     )
     .toBe(true)
@@ -149,35 +146,64 @@ async function reveal(page, index, col, row) {
       r = c.getBoundingClientRect()
       return { cx: r.left + (x + 8) * k, cy: r.top + (y + 8) * k }
     },
-    { sel: root(index), ov: OVERLAY(screen), x, y },
+    { sel: root(index), ov: SCREEN(screen), x, y },
   )
 }
 
-/** One screen's overlay read back: the zoom, the painter's record and every lit pixel with its colour. */
-async function overlay(page, index, screen) {
+/**
+ * One screen read back: the zoom, the painter's record and the indicator pixels with their colour. With
+ * `settle` it first waits for a composite painted at the widget's current zoom (not for a hidden layer).
+ */
+async function overlay(page, index, screen, settle = true) {
+  if (settle) {
+    await page.waitForFunction(
+      ({ id, ov }) => {
+        const w = getSvc('ApplicationShell').getWidgetById(id)
+        const c = w.node.querySelector(ov)
+        return !!c?.dataset.drawn && c.dataset.drawn.includes(`:${w.zoomController.value}:`)
+      },
+      { id: `hackbench.map-view:${index}`, ov: SCREEN(screen) },
+      { timeout: 15000 },
+    )
+  }
   return page.evaluate(
-    ({ sel, ov }) => {
-      const o = document.querySelector(`${sel} ${ov}`)
-      const d = o.getContext('2d').getImageData(0, 0, o.width, o.height).data
+    ({ id, ov }) => {
+      const w = getSvc('ApplicationShell').getWidgetById(id)
+      const c = w.node.querySelector(ov)
+      const read = () => c.getContext('2d').getImageData(0, 0, c.width, c.height).data.slice()
+      const [withI, width] = [read(), c.width]
+      const record = JSON.parse(c.dataset.indicators || '[]')
+      const saved = w.blocks
+      w.blocks = undefined
+      w.blocksVersion++
+      w.sync()
+      // Without indicators the screen is composed at native size: scale it up the way the view scales its planes.
+      const [nat, nw, nh] = [read(), c.width, c.height]
+      const without = new Uint8ClampedArray(withI.length)
+      const height = withI.length / 4 / width
+      for (let y = 0; y < height; y++)
+        for (let x = 0; x < width; x++) {
+          const from = (Math.min(nh - 1, Math.floor((y * nh) / height)) * nw + Math.min(nw - 1, Math.floor((x * nw) / width))) * 4 // prettier-ignore
+          without.set(nat.subarray(from, from + 4), (y * width + x) * 4)
+        }
+      w.blocks = saved
+      w.blocksVersion++
+      w.sync()
       const lit = []
-      for (let i = 0; i < d.length; i += 4) {
-        if (d[i + 3])
-          lit.push({
-            x: (i / 4) % o.width,
-            y: Math.floor(i / 4 / o.width),
-            rgb: [d[i], d[i + 1], d[i + 2]],
-          })
+      for (let i = 0; i < withI.length; i += 4) {
+        if (withI[i] === without[i] && withI[i + 1] === without[i + 1] && withI[i + 2] === without[i + 2] && withI[i + 3] === without[i + 3]) continue // prettier-ignore
+        lit.push({ x: (i / 4) % width, y: Math.floor(i / 4 / width), rgb: [withI[i], withI[i + 1], withI[i + 2]] }) // prettier-ignore
       }
-      return { z: o.width / 256, record: JSON.parse(o.dataset.indicators || '[]'), lit }
+      return { z: width / 256, record, lit }
     },
-    { sel: root(index), ov: OVERLAY(screen) },
+    { id: `hackbench.map-view:${index}`, ov: SCREEN(screen) },
   )
 }
 
 /** One block: its rect in screen pixels, its record and the lit pixels inside and outside it. */
-async function ofBlock(page, index, col, row) {
+async function ofBlock(page, index, col, row, settle = true) {
   const { screen, x, y } = cell(col, row)
-  const o = await overlay(page, index, screen)
+  const o = await overlay(page, index, screen, settle)
   const r = n => Math.round(n * o.z)
   const rect = { x0: r(x), y0: r(y), x1: r(x + 16), y1: r(y + 16) }
   const inRect = d => d.x >= rect.x0 && d.x < rect.x1 && d.y >= rect.y0 && d.y < rect.y1
@@ -283,9 +309,9 @@ test("hiding layer 1 removes the item block's drawn pixels and showing it restor
   const toggle = page.locator(`${root(0x123)} [data-control="layer-l1"]`)
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
-  await expect.poll(async () => (await ofBlock(page, 0x123, 77, 20)).pixels.length).toBe(0)
+  await expect.poll(async () => (await ofBlock(page, 0x123, 77, 20, false)).pixels.length).toBe(0)
   expect(
-    (await overlay(page, 0x123, 4)).lit.length,
+    (await overlay(page, 0x123, 4, false)).lit.length,
     'no indicator pixel is left on the screen',
   ).toBe(0)
   await toggle.click()
@@ -294,6 +320,53 @@ test("hiding layer 1 removes the item block's drawn pixels and showing it restor
     .poll(async () => (await ofBlock(page, 0x123, 77, 20)).pixels.length)
     .toBe(before.pixels.length)
 })
+
+/** The native pixels (x, y in the screen) the sprite layer paints opaque, from the sprite plane canvas. */
+async function spritePixels(page, index, screen) {
+  return page.evaluate(
+    ({ sel, screen }) => {
+      const c = document.querySelector(
+        `${sel} canvas[data-plane="sprites"][data-screen="${screen}"]`,
+      )
+      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+      const out = []
+      for (let i = 3; i < d.length; i += 4)
+        if (d[i]) out.push(`${((i - 3) / 4) % c.width},${Math.floor((i - 3) / 4 / c.width)}`)
+      return out
+    },
+    { sel: root(index), screen },
+  )
+}
+
+// A sprite that overlaps an item block covers its indicator exactly as it covers the block: the sprite's
+// pixels win. Spots measured on the vanilla ROM: $101 at 43,15 and $107 at 117,21.
+for (const [map, col, row] of [
+  [0x101, 43, 15],
+  [0x107, 117, 21],
+]) {
+  test(`a sprite over the item block at ${col},${row} on $${map.toString(16)} covers its indicator`, async ({
+    page,
+  }) => {
+    const project = await createProject(page)
+    await ready(page, project, map)
+    await setZoom(page, map, 3)
+    const { cx, cy } = await reveal(page, map, col, row)
+    await page.mouse.move(cx, cy) // hover: the indicator fills the whole block, so every overlap is exposed
+    await expect.poll(async () => (await ofBlock(page, map, col, row)).mine[0]?.hover).toBe(true)
+    const b = await ofBlock(page, map, col, row)
+    const { screen, x, y } = cell(col, row)
+    const sprites = new Set(await spritePixels(page, map, screen))
+    const under = []
+    for (let ny = y; ny < y + 16; ny++)
+      for (let nx = x; nx < x + 16; nx++) if (sprites.has(`${nx},${ny}`)) under.push([nx, ny])
+    expect(under.length, 'a sprite paints pixels of the block cell').toBeGreaterThan(0)
+    expect(b.pixels.length, 'the indicator still shows where no sprite is').toBeGreaterThan(0)
+    const hidden = b.pixels.filter(d =>
+      sprites.has(`${Math.floor(d.x / b.z)},${Math.floor(d.y / b.z)}`),
+    )
+    expect(hidden, 'no indicator pixel is drawn over a sprite pixel').toHaveLength(0)
+  })
+}
 
 test('a $11B indicator differs from a $11C indicator', async ({ page }) => {
   const project = await createProject(page)
