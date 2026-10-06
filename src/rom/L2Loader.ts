@@ -228,7 +228,18 @@ export function loadL2Objects(
   const objects = parseL2Objects(raw, screens, isVertical)
   const grid = createGrid(screens, isVertical)
   for (const obj of objects) {
-    expandObject(grid, obj, rom, objectTileset, null, OWNER_NONE, SWITCH_FLAGS_UNCLEARED, null) // L2 draws from the ports
+    // L2 draws from the ports
+    expandObject(
+      grid,
+      obj,
+      rom,
+      objectTileset,
+      null,
+      OWNER_NONE,
+      SWITCH_FLAGS_UNCLEARED,
+      null,
+      isVertical,
+    )
   }
   return { grid }
 }
