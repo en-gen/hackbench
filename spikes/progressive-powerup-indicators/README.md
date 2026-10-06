@@ -169,3 +169,7 @@ pixel wide, L2 one screen pixel wide, L3 one art pixel wide skipping
 near-black outline pixels. A new variant is one row of `LINES`, a new block one
 row of `LB`. The line is drawn once per item and clipped to that item's half,
 so it cannot land on a pixel the item does not paint.
+
+Pick (owner, recorded on #566): option A (coin bottom-left, star or 1-up
+top-right) with the diagonal line **L1**, one art pixel wide, scaling with zoom.
+L2 and L3 are not taken.
