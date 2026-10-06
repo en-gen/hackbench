@@ -9,6 +9,8 @@ import {
   fitArt,
   indicatorBox,
   paintIndicator,
+  LINE_BIG,
+  LINE_SMALL,
   splitDiagonal,
 } from '../../../theia/extension/src/common/block-indicator'
 
@@ -64,9 +66,10 @@ describe('splitDiagonal', () => {
       return a
     }
     const o = splitDiagonal(only([0, 1, 2, 3]), only([6, 7, 8, 9]))
+    // Opaque where either item is; the alpha says which half(s): 1 = bottom-left only, 2 = top-right only, 255 = both.
     for (let d = 0; d < BLOCK; d++) {
-      const lit = d <= 3 || (d >= 6 && d <= 9)
-      expect(at(o, d, d), `diagonal pixel ${d}`).toEqual(lit ? [0, 0, 0, 255] : [0, 0, 0, 0])
+      const want = d <= 3 ? LINE_SMALL : d >= 6 && d <= 9 ? LINE_BIG : 0
+      expect(at(o, d, d), `diagonal pixel ${d}`).toEqual([0, 0, 0, want])
     }
     // Nothing off the diagonal is drawn: neither item paints there.
     for (let y = 0; y < BLOCK; y++)
@@ -162,5 +165,31 @@ describe('paintIndicator', () => {
       for (let i = 0; i < p.length; i += 4) if (p[i] === 255 && p[i + 1] === 255 && p[i + 2] === 255 && p[i + 3] === 255) white++ // prettier-ignore
       expect(white, `white pixels at ${z}x`).toBeGreaterThan(0)
     }
+  })
+})
+
+describe('the line at sub-pixel level: each half of the diagonal pixel follows its own item', () => {
+  const W = 32
+  const only = (cells: number[]) => {
+    const a = new Uint8ClampedArray(BLOCK * BLOCK * 4)
+    for (const c of cells) a.set([9, 9, 9, 255], (c * BLOCK + c) * 4)
+    return a
+  }
+  // Diagonal art pixel 0: bottom-left item only. 1: top-right only. 2: both.
+  const art = splitDiagonal(only([0, 2]), only([1, 2]))
+  const p = new Uint8ClampedArray(W * W * 4)
+  paintIndicator(p, W, W, 0, 0, art, 2, true)
+  const lit = (x: number, y: number) => p[(y * W + x) * 4 + 3] !== 0
+  it('shows a black triangle, not a square, where only one item is opaque, at 2x', () => {
+    // Art pixel 0 is dest (0..1, 0..1): bottom-left half only; the pixel above the diagonal stays clear.
+    expect([lit(0, 0), lit(1, 0), lit(0, 1), lit(1, 1)]).toEqual([true, false, true, true])
+    // Art pixel 1 is dest (2..3, 2..3): top-right half only.
+    expect([lit(2, 2), lit(3, 2), lit(2, 3), lit(3, 3)]).toEqual([true, true, false, true])
+    // Art pixel 2, both items: the whole square.
+    expect([lit(4, 4), lit(5, 4), lit(4, 5), lit(5, 5)]).toEqual([true, true, true, true])
+  })
+  it('paints every lit diagonal pixel black, and nothing on art pixels without a line', () => {
+    for (let y = 0; y < 6; y++) for (let x = 0; x < 6; x++) if (lit(x, y)) expect(Array.from(p.subarray((y * W + x) * 4, (y * W + x) * 4 + 4))).toEqual([0, 0, 0, 255]) // prettier-ignore
+    for (let y = 6; y < W; y++) for (let x = 0; x < W; x++) expect(lit(x, y)).toBe(false)
   })
 })

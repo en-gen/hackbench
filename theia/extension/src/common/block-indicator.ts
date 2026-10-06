@@ -31,23 +31,35 @@ type Rgba = readonly [number, number, number, number]
 const px = (a: Uint8ClampedArray, i: number): Rgba => [a[i]!, a[i + 1]!, a[i + 2]!, a[i + 3]!]
 
 /**
+ * The line's alpha on a diagonal art pixel only one item paints: the art has
+ * no room for a half pixel, so the alpha says which triangle of the pixel is
+ * black. 255 (the ordinary opaque value) is both halves. `paintIndicator`
+ * turns these into triangles at screen resolution.
+ */
+export const LINE_SMALL = 1 // bottom-left triangle only (the small item's half)
+export const LINE_BIG = 2 // top-right triangle only (the big item's half)
+
+/**
  * Split indicators (#607 and the two-outcome blocks): a hard diagonal from the
  * top-left to the bottom-right corner, `small` below it (bottom-left), `big`
  * above it (top-right), with the owner's L1 line: black, one art pixel wide
  * (so it scales with zoom), on the diagonal. The mockup draws the line once per
- * item, each clipped to that item's own half of the diagonal pixel, so a
- * diagonal art pixel is black when EITHER item is opaque there and stays clear
- * when neither is (spikes/progressive-powerup-indicators gen.cjs, `diag`). The
- * rest of the split is hard: no blending.
+ * item, each clipped to that item's own triangle of the diagonal pixel
+ * (spikes/progressive-powerup-indicators gen.cjs, `diag`), so a diagonal art
+ * pixel is black in the half of each item that is opaque there: both halves
+ * (alpha 255), only the small item's (LINE_SMALL), only the big item's
+ * (LINE_BIG), or clear. The rest of the split is hard: no blending.
  */
 export function splitDiagonal(small: Uint8ClampedArray, big: Uint8ClampedArray): Uint8ClampedArray {
   const out = new Uint8ClampedArray(BLOCK * BLOCK * 4)
   for (let y = 0; y < BLOCK; y++) {
     for (let x = 0; x < BLOCK; x++) {
       const i = (y * BLOCK + x) * 4
-      if (x === y) {
-        if (small[i + 3] !== 0 || big[i + 3] !== 0) out.set([0, 0, 0, 255], i)
-      } else out.set(px(y > x ? small : big, i), i)
+      if (x !== y) out.set(px(y > x ? small : big, i), i)
+      else {
+        const [s, b] = [small[i + 3] !== 0, big[i + 3] !== 0]
+        if (s || b) out.set([0, 0, 0, s && b ? 255 : s ? LINE_SMALL : LINE_BIG], i)
+      }
     }
   }
   return out
@@ -119,7 +131,17 @@ export function paintIndicator(
       const [dx, dy] = [box.x0 + i, box.y0 + j]
       if (dx < 0 || dy < 0 || dx >= width || dy >= height) continue
       const from = (Math.floor((j * BLOCK) / h) * BLOCK + Math.floor((i * BLOCK) / w)) * 4
-      if (art[from + 3] === 0) continue
+      const alpha = art[from + 3]!
+      if (alpha === 0) continue
+      if (alpha === LINE_SMALL || alpha === LINE_BIG) {
+        // Only one item paints this diagonal pixel: its line is the item's own triangle of it,
+        // by the sample's position inside the art pixel (the diagonal itself belongs to both).
+        const u = ((i + 0.5) * BLOCK) / w - Math.floor((i * BLOCK) / w)
+        const v = ((j + 0.5) * BLOCK) / h - Math.floor((j * BLOCK) / h)
+        if (alpha === LINE_SMALL ? v < u : v > u) continue
+        canvas.set([0, 0, 0, 255], (dy * width + dx) * 4)
+        continue
+      }
       canvas.set(px(art, from), (dy * width + dx) * 4)
     }
   }

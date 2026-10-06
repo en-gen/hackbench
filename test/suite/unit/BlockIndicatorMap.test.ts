@@ -416,6 +416,19 @@ describe('paintScreenIndicators', () => {
   })
 })
 
+/** The coin's colours on map $10B, from the cart's own coin draw. */
+function romArtCoin(): Set<string> {
+  const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
+  const built = new L1ModelCache().get(bytes, romPath(VANILLA), 0x10b, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
+  if (!built.ok) throw new Error(built.reason)
+  const d = romArt(RomFile.fromBytes('v.sfc', Buffer.from(bytes)), 0x10b, built.inputs).coin(false)
+  if (!('art' in d)) throw new Error(d.why)
+  const out = new Set<string>()
+  for (let i = 0; i < d.art.length; i += 4)
+    if (d.art[i + 3]) out.add(Array.from(d.art.subarray(i, i + 3)).join())
+  return out
+}
+
 describe.skipIf(!hasRom(VANILLA))('mapBlockContents on the vanilla ROM', () => {
   const run = (index: number) => {
     const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
@@ -433,7 +446,7 @@ describe.skipIf(!hasRom(VANILLA))('mapBlockContents on the vanilla ROM', () => {
     expect(r.arts[multi[0]!.art]).not.toBe(r.arts[single[0]!.art])
   })
 
-  it('splits a progressive block into two different items and leaves $11A column 0 of 3 out', () => {
+  it('splits a progressive block into two different items, and $11A column 1 of 3 shows the 1-up alone', () => {
     const r = run(0x105)
     const [prog] = at(r, 243, 17)
     expect(prog).toBeDefined()
@@ -445,7 +458,28 @@ describe.skipIf(!hasRom(VANILLA))('mapBlockContents on the vanilla ROM', () => {
     expect(below.size).toBeGreaterThan(0)
     expect(above.size).toBeGreaterThan(0)
     expect([...below].join('|')).not.toBe([...above].join('|'))
-    expect(at(r, 209, 15)).toHaveLength(1) // $11A at column 1 of 3: the 1-up
+    expect(at(r, 209, 15).map(i => i.art)).toEqual(['s78:8:']) // $11A at column 1 of 3: the 1-up
+  })
+
+  it('draws $11A column 0 of 3 as the option A split: coin bottom-left, star top-right', () => {
+    const r = run(0x10b)
+    const [cell] = at(r, 176, 20) // 176 mod 16 = 0
+    expect(cell?.art).toBe('coin/s76:8:')
+    const art = unb(r.arts[cell!.art]!)
+    const opaque = (below: boolean) => {
+      const out: number[][] = []
+      for (let y = 0; y < 16; y++)
+        for (let x = 0; x < 16; x++)
+          if (y > x === below && y !== x && art[(y * 16 + x) * 4 + 3])
+            out.push(Array.from(art.subarray((y * 16 + x) * 4, (y * 16 + x) * 4 + 3)))
+      return out
+    }
+    expect(opaque(true).length).toBeGreaterThan(10)
+    expect(opaque(false).length).toBeGreaterThan(10)
+    // The coin's own pixels are below the diagonal, and the star's above it.
+    const coin = romArtCoin()
+    expect(opaque(true).some(p => coin.has(p.join()))).toBe(true)
+    expect(opaque(false).every(p => !coin.has(p.join()) || p.join() === '0,0,0')).toBe(true)
   })
 
   it('shows each cell the item of its own column ($125 key vs balloon, $11D blue vs silver)', () => {
@@ -510,7 +544,7 @@ describe.skipIf(!hasRom(VANILLA))('mapBlockContents on the vanilla ROM', () => {
       const [a, b] = [one(small), one(big)]
       const got = Array.from({ length: 16 }, (_, i) => split[(i * 16 + i) * 4 + 3] !== 0)
       expect(got).toEqual(a.map((v, i) => v || b[i]!))
-      for (let i = 0; i < 16; i++) if (got[i]) expect(Array.from(split.subarray((i * 16 + i) * 4, (i * 16 + i) * 4 + 4))).toEqual([0, 0, 0, 255]) // prettier-ignore
+      for (let i = 0; i < 16; i++) if (got[i]) expect(Array.from(split.subarray((i * 16 + i) * 4, (i * 16 + i) * 4 + 3))).toEqual([0, 0, 0]) // prettier-ignore
       if (mockup !== undefined) expect(got.filter(Boolean).length).toBe(mockup)
     },
   )

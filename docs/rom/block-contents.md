@@ -128,7 +128,9 @@ Maps view, #566 PR B (`theia/extension/src/node/map-block-contents.ts`,
   bottom-left, 1-up top-right). A hard diagonal from top-left to bottom-right
   with the owner's L1 line: black, one art pixel wide, scaling with zoom. It is
   drawn once per item, clipped to that item's half of the diagonal pixel, so a
-  diagonal art pixel is black where either item is opaque and clear where neither is.
+  diagonal art pixel is black in each item's triangle where that item is opaque
+  (so at 2x and 3x a pixel only one item paints shows a black triangle) and clear
+  where neither is.
 - Multi-coin ($11B, $123): the coin with a 5 x 5 white "+" (7 x 7 with a black
   edge) baked into the corner of its 16 x 16 art. $11C and $124: the plain coin.
 - Each cell resolves for its own X column; the P-switch uses the spawn
@@ -144,9 +146,9 @@ Maps view, #566 PR B (`theia/extension/src/node/map-block-contents.ts`,
   handler draws it (a status-9 egg is the green stunned egg, a status-9 $04 a
   shell). The spawn then writes its own cells (`bank_02.asm:1199-1292`): the rise
   speed, `SpriteMisc154C` and the timers (read from the code's immediates, gated on
-  its bytes), and the P-switch colour. Not modelled: the balloon's direction and
-  `SpriteTableC2` bump (`:1218`, `:1256`), the egg's contents cell (`:1250`) and
-  the tweaker turn timer (`:1274`). The runner takes this as `RunOptions.spawn`.
+  its bytes), and the P-switch colour. The balloon's direction (`:1218`) and the red coin's
+  `SpriteTableC2` bump (`:1256`) are written too. Not modelled: the egg's contents
+  cell (`:1250`) and the tweaker turn timer (`:1274`). The runner takes this as `RunOptions.spawn`.
 - The coin is not a sprite: its chars and palette are the immediates of the coin
   draw (`bank_02.asm:3432-3441`), read behind a byte-pattern gate.
 - The Theia map view never used `StarOneUpVineBlockBehavior` or

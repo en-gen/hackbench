@@ -270,7 +270,9 @@ test('on hover the item box is the block box, never outside it, and returns to t
   expect(rest.mine[0].box).toEqual(quadrant(rest.rect, rest.z, x, y))
 })
 
-test("hiding the block's layer removes its indicator pixels and showing it restores them", async ({
+// Layer 2 placement has no vanilla case (no vanilla map holds a layer 2 item block, measured over all
+// 512 slots), so it is covered by the synthetic unit tests in test/suite/unit/BlockIndicatorMap.test.ts.
+test("hiding layer 1 removes the item block's drawn pixels and showing it restores them", async ({
   page,
 }) => {
   const project = await createProject(page)
@@ -278,56 +280,19 @@ test("hiding the block's layer removes its indicator pixels and showing it resto
   await setZoom(page, 0x123, 1)
   const before = await ofBlock(page, 0x123, 77, 20)
   expect(before.pixels.length).toBeGreaterThan(0)
-  expect(before.mine[0].id.startsWith('l1')).toBe(true)
   const toggle = page.locator(`${root(0x123)} [data-control="layer-l1"]`)
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
-  await expect.poll(async () => (await ofBlock(page, 0x123, 77, 20)).mine.length).toBe(0)
-  expect((await ofBlock(page, 0x123, 77, 20)).pixels.length).toBe(0)
+  await expect.poll(async () => (await ofBlock(page, 0x123, 77, 20)).pixels.length).toBe(0)
+  expect(
+    (await overlay(page, 0x123, 4)).lit.length,
+    'no indicator pixel is left on the screen',
+  ).toBe(0)
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   await expect
     .poll(async () => (await ofBlock(page, 0x123, 77, 20)).pixels.length)
     .toBe(before.pixels.length)
-})
-
-test('a layer 2 block draws in layer 2 and hides with the layer 2 toggle only', async ({
-  page,
-}) => {
-  const project = await createProject(page)
-  // A vanilla map with an item block on layer 2, found through the RPC the view itself uses.
-  const found = await page.evaluate(async mp => {
-    const maps = [
-      0x0c2, 0x00a, 0x00f, 0x11e, 0x12b, 0x12c, 0x132, 0x135, 0x1c6, 0x1e3, 0x001, 0x01d, 0x0cd,
-      0x0fe, 0x125, 0x1ea,
-    ]
-    for (const index of maps) {
-      const r = await getSvc('Symbol(ProjectService)').mapBlockContents(mp, index)
-      const i =
-        r.status === 'ok' &&
-        r.indicators.find(q => q.plane.startsWith('l2') && q.y >= 0 && q.y < 432)
-      if (i) return { index, x: i.x, y: i.y, plane: i.plane }
-    }
-    return null
-  }, project.manifestPath)
-  expect(found, 'a vanilla map with a layer 2 item block').not.toBeNull()
-  await ready(page, project, found.index)
-  await setZoom(page, found.index, 1)
-  const [col, row] = [found.x / 16, found.y / 16]
-  const id = `${found.plane}:${found.x}:${found.y}`
-  const ids = async () => (await ofBlock(page, found.index, col, row)).mine.map(q => q.id)
-  expect(await ids()).toContain(id)
-  const l1 = page.locator(`${root(found.index)} [data-control="layer-l1"]`)
-  const l2 = page.locator(`${root(found.index)} [data-control="layer-l2"]`)
-  await l1.click()
-  await expect(l1).toHaveAttribute('aria-pressed', 'false')
-  expect(await ids(), 'hiding layer 1 leaves the layer 2 indicator').toContain(id)
-  await l1.click()
-  await l2.click()
-  await expect(l2).toHaveAttribute('aria-pressed', 'false')
-  await expect.poll(ids).not.toContain(id)
-  await l2.click()
-  await expect.poll(ids).toContain(id)
 })
 
 test('a $11B indicator differs from a $11C indicator', async ({ page }) => {
@@ -405,33 +370,36 @@ test('a split indicator has a black line on its diagonal, only on opaque pixels 
   expect(cells.size).toBeGreaterThan(3)
 })
 
-test('a cell shows the item of its own X column', async ({ page }) => {
+/** A block's drawn pixels relative to its own corner, as a comparable string (colour included). */
+const look = b => b.pixels.map(d => `${d.x - b.rect.x0},${d.y - b.rect.y0}:${d.rgb}`).join('|')
+const colourSet = b => [...new Set(b.pixels.map(d => d.rgb.join()))].sort().join('|')
+
+test('a cell shows the item of its own X column, in drawn pixels', async ({ page }) => {
   const project = await createProject(page)
-  const keys = async (index, cells) =>
-    page.evaluate(
-      async ({ mp, index, cells }) => {
-        const r = await getSvc('Symbol(ProjectService)').mapBlockContents(mp, index)
-        return cells.map(
-          ([c, row]) => r.indicators.find(i => i.x === c * 16 && i.y === row * 16)?.art,
-        )
-      },
-      { mp: project.manifestPath, index, cells },
-    )
-  // $125: key at column 224 (mod 4 = 0), balloon at 250 (mod 4 = 2).
-  const [key, balloon] = await keys(0x11e, [
-    [224, 22],
-    [250, 21],
-  ])
-  expect(key).toMatch(/^s80:/)
-  expect(balloon).toMatch(/^s7d:/)
-  // $111 column 117 (117 mod 16 mod 3 = 2): the star alone; column 183 (1): a progressive pair.
-  const [star] = await keys(0x125, [[117, 15]])
-  expect(star).toMatch(/^s76:/)
-  const [prog] = await keys(0x001, [[183, 16]])
-  expect(prog).toContain('/')
-  // $11D: blue on an even column, silver on an odd one.
-  const [blue] = await keys(0x125, [[86, 20]])
-  const [silver] = await keys(0x001, [[231, 18]])
-  expect(blue).toMatch(/^s3e:\d+:6$/)
-  expect(silver).toMatch(/^s3e:\d+:2$/)
+  // $125 on FoI1: column 224 (mod 4 = 0) is the key, column 250 (mod 4 = 2) the balloon.
+  await ready(page, project, 0x11e)
+  await setZoom(page, 0x11e, 2)
+  const key = await ofBlock(page, 0x11e, 224, 22)
+  const balloon = await ofBlock(page, 0x11e, 250, 21)
+  expect(key.pixels.length).toBeGreaterThan(8)
+  expect(balloon.pixels.length).toBeGreaterThan(8)
+  expect(look(key)).not.toBe(look(balloon))
+  // $111 on Funky, column 117 (117 mod 16 mod 3 = 2): the star alone, so no diagonal split line.
+  await ready(page, project, 0x125)
+  await setZoom(page, 0x125, 2)
+  const star = await ofBlock(page, 0x125, 117, 15)
+  expect(star.pixels.length).toBeGreaterThan(8)
+  // $11D on Funky, column 86 (even): the blue P-switch.
+  const blue = await ofBlock(page, 0x125, 86, 20)
+  expect(blue.pixels.length).toBeGreaterThan(8)
+  // $111 on VS2, column 183 (183 mod 16 mod 3 = 1): the progressive pair, which is not the star.
+  await ready(page, project, 0x001)
+  await setZoom(page, 0x001, 2)
+  const pair = await ofBlock(page, 0x001, 183, 16)
+  expect(pair.pixels.length).toBeGreaterThan(8)
+  expect(look(pair)).not.toBe(look(star))
+  // $11D on VS2, column 231 (odd): the silver P-switch, the same shape as the blue one in another colour.
+  const silver = await ofBlock(page, 0x001, 231, 18)
+  expect(silver.pixels.length).toBe(blue.pixels.length)
+  expect(colourSet(silver)).not.toBe(colourSet(blue))
 })

@@ -10,9 +10,9 @@
  * sprite's INIT never runs and its status handler draws it (a status-9 egg or
  * shell goes through the stunned handler). Then the spawn writes its own cells
  * (bank_02.asm:1199-1278): the rise speed and timers, read from the ROM below,
- * and the P-switch colour (bank_02.asm:1280-1292, from the resolver). Not
- * modelled: the balloon's direction and C2 bump (:1218, :1256), the egg's
- * contents cell (:1250), the tweaker turn timer (:1274). The coin is not a
+ * and the P-switch colour (bank_02.asm:1280-1292, from the resolver), and for
+ * the balloon family its direction (:1218) and the red coin's C2 bump (:1256).
+ * Not modelled: the egg's contents cell (:1250), the tweaker turn timer (:1274). The coin is not a
  * sprite: its chars are the immediates of the coin draw (bank_02.asm:3432-3441).
  * A refused or empty run draws no indicator and the map says why; no table fallback.
  *
