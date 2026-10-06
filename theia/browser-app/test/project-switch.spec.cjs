@@ -65,16 +65,10 @@ const shellIds = (page, prefixes) =>
 
 /** Opens a GFX, a Map16 and a map view of `mp` in the main area, plus the two explorers. */
 async function openViews(page, mp) {
+  await openGfx(page, mp)
   await page.evaluate(async mp => {
     const wm = getSvc('WidgetManager')
     const shell = getSvc('ApplicationShell')
-    await getSvc('PreviewTabs').pin(
-      'hackbench.gfx-view',
-      { index: 0 },
-      w => w.open({ manifestPath: mp, index: 0, label: 'GFX 0' }),
-      p => p.shows(0),
-      {},
-    )
     const m16 = await wm.getOrCreateWidget('hackbench.map16-view', { layer: 'fg' })
     await m16.open({ manifestPath: mp, label: 'Map16 Foreground', layer: 'fg' })
     await shell.addWidget(m16, { area: 'main' })
@@ -88,6 +82,28 @@ async function openViews(page, mp) {
   }, mp)
   await expect.poll(() => shellIds(page, BOUND).then(a => a.length)).toBe(3)
   expect((await shellIds(page, KEPT)).length).toBe(2)
+}
+
+/** Pins GFX sheet 0 of `mp` the way the sheet list does. */
+const openGfx = (page, mp) =>
+  page.evaluate(async mp => {
+    await getSvc('PreviewTabs').pin(
+      'hackbench.gfx-view',
+      { index: 0 },
+      w => w.open({ manifestPath: mp, index: 0, label: 'GFX 0' }),
+      p => p.shows(0),
+      {},
+    )
+  }, mp)
+
+/** Activates the one GFX view and asserts the shell agrees, so Ctrl+Z reaches it. */
+async function activateGfx(page) {
+  const viewId = await page.evaluate(async () => {
+    const w = getSvc('WidgetManager').getWidgets('hackbench.gfx-view')[0]
+    await getSvc('ApplicationShell').activateWidget(w.id)
+    return w.id
+  })
+  expect(await page.evaluate(() => getSvc('ApplicationShell').activeWidget?.id)).toBe(viewId)
 }
 
 const opFiles = dir =>
@@ -139,25 +155,12 @@ test('Ctrl+Z in B own GFX view undoes B layer and never touches A', async ({ pag
   await setColor(page, b.manifestPath)
   expect(opFiles(path.join(tmp, 'B'))).toHaveLength(1)
 
-  await page.evaluate(async mp => {
-    await getSvc('PreviewTabs').pin(
-      'hackbench.gfx-view',
-      { index: 0 },
-      w => w.open({ manifestPath: mp, index: 0, label: 'GFX 0' }),
-      p => p.shows(0),
-      {},
-    )
-  }, b.manifestPath)
+  await openGfx(page, b.manifestPath)
   await page.waitForSelector('#hb-gfx-canvas', { timeout: 15000 })
   await expect
     .poll(() => page.evaluate(() => getSvc('EditStackContribution').state.canUndo))
     .toBe(true)
-  const viewId = await page.evaluate(async () => {
-    const w = getSvc('WidgetManager').getWidgets('hackbench.gfx-view')[0]
-    await getSvc('ApplicationShell').activateWidget(w.id)
-    return w.id
-  })
-  expect(await page.evaluate(() => getSvc('ApplicationShell').activeWidget?.id)).toBe(viewId)
+  await activateGfx(page)
 
   await page.keyboard.press('Control+z')
 
@@ -182,15 +185,7 @@ async function dirtyThenSwitch(page) {
   const a = await createProject(page, 'A')
   const b = await createProject(page, 'B')
   await openViaMenuPath(page, a.manifestPath)
-  await page.evaluate(async mp => {
-    await getSvc('PreviewTabs').pin(
-      'hackbench.gfx-view',
-      { index: 0 },
-      w => w.open({ manifestPath: mp, index: 0, label: 'GFX 0' }),
-      p => p.shows(0),
-      {},
-    )
-  }, a.manifestPath)
+  await openGfx(page, a.manifestPath)
   await page.waitForSelector('#hb-gfx-canvas', { timeout: 15000 })
   await expect(page.locator('#hb-gfx-swatch-1')).toBeVisible()
   const P = { x: 3, y: 5 }
@@ -234,12 +229,7 @@ test('cancelling the unsaved-strokes prompt aborts the switch and keeps the stro
   expect(await currentPath(page)).toBe(a.manifestPath)
   await expect(page.locator('#hb-gfx-canvas')).toHaveCount(1)
   expect(await pixelAt(page, P)).toEqual(painted)
-  const viewId = await page.evaluate(async () => {
-    const w = getSvc('WidgetManager').getWidgets('hackbench.gfx-view')[0]
-    await getSvc('ApplicationShell').activateWidget(w.id)
-    return w.id
-  })
-  expect(await page.evaluate(() => getSvc('ApplicationShell').activeWidget?.id)).toBe(viewId)
+  await activateGfx(page)
   const ofB = await page.evaluate(
     mp =>
       getSvc('ApplicationShell')

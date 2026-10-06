@@ -3,8 +3,7 @@
  *
  * Such a view cannot follow a project switch: it holds the old manifest path
  * for its reads and writes, so it is closed when another project opens
- * (#628). Palette, music, emulator and the overworld view re-target on
- * `ProjectContext.onChanged` and do not implement this.
+ * (#628).
  *
  * The `projectBound` brand, not the mere presence of `manifestPath`, marks
  * the type: the overworld view also holds a field of that name and must stay
