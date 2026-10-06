@@ -299,21 +299,33 @@ test("choosing another depth and then the file's own depth turns painting back o
   expect(await pixelAt(page, P1)).toEqual(rgba)
 })
 
-test('a forced shallower depth with strokes pending breaks nothing, and the strokes survive', async ({
+test('a forced deeper depth with strokes pending breaks nothing, and the strokes survive', async ({
   page,
 }) => {
   const errors = []
   page.on('pageerror', e => errors.push(String(e)))
-  const { manifestPath } = await createProject(page, 'ShallowForce')
+  const { manifestPath } = await createProject(page, 'DeeperForce')
   await openSheet(page, manifestPath)
   const P3 = { x: 3, y: 60 } // tile row 7: past the end of a deeper (shorter) sheet of this file
-  const { rgba } = await pickColor(page, [P3])
+  const { rgba } = await pickColor(page, [P1, P3])
+  await stroke(page, P1)
   await stroke(page, P3)
   expect(await pixelAt(page, P3)).toEqual(rgba)
 
   const { own } = await forceOtherDepth(page, b => (b === 4 ? 3 : 4))
+  const forced = await page.evaluate(({ x, y }) => {
+    const w = getSvc('WidgetManager').getWidgets('hackbench.gfx-view')[0]
+    const i = (y * w.sheet.width + x) * 4
+    return { height: w.sheet.height, base: Array.from(w.baseRgba.slice(i, i + 4)) }
+  }, P1)
+  test.skip(forced.height > P3.y, "this ROM's file 0 gives no sheet short enough at another depth")
   expect((await widgetState(page)).error).toBeNull()
   expect(errors).toEqual([])
+  // The overlay is for the file's own layout only: over another depth's sheet
+  // the same pixel position is a different pixel.
+  expect(forced.base).not.toEqual(rgba)
+  expect(await pixelAt(page, P1)).toEqual(forced.base)
+
   await page.selectOption('#hb-gfx-bpp-select', String(own))
   await expect.poll(async () => (await widgetState(page)).bpp).toBe(own)
   expect(await pixelAt(page, P3)).toEqual(rgba)
@@ -338,14 +350,9 @@ test('a pixel in the second tile row, painted at a zoom other than the default, 
   expect(indexOnDisk(directory, P4, 16)).toBe(index)
 })
 
-test('painting and stroke undo are blocked while a Save is in flight, and nothing is lost', async ({
-  page,
-}) => {
-  const { manifestPath, directory } = await createProject(page, 'SaveInFlight')
-  await openSheet(page, manifestPath)
-  const { rgba, before } = await pickColor(page, [P1, P2])
-  await stroke(page, P1)
-  await page.evaluate(() => {
+/** Replace the widget's saveGfx with one that waits for window.__release(). */
+const stallSave = page =>
+  page.evaluate(() => {
     const w = getSvc('WidgetManager').getWidgets('hackbench.gfx-view')[0]
     const real = w.gfx
     window.__release = undefined
@@ -358,15 +365,30 @@ test('painting and stroke undo are blocked while a Save is in flight, and nothin
       },
     })
   })
+
+const redoFiles = dir => {
+  const d = path.join(dir, 'ops', 'redo')
+  return fs.existsSync(d) ? fs.readdirSync(d).filter(f => f.endsWith('.json')) : []
+}
+
+test('painting and stroke undo are blocked while a Save is in flight, and nothing is lost', async ({
+  page,
+}) => {
+  const { manifestPath, directory } = await createProject(page, 'SaveInFlight')
+  await openSheet(page, manifestPath)
+  const { rgba, before } = await pickColor(page, [P1, P2])
+  await stroke(page, P1)
+  await stallSave(page)
   await page.click('#hb-gfx-save')
   await expect.poll(() => page.evaluate(() => !!window.__release)).toBe(true)
 
   await stroke(page, P2) // blocked
+  expect(await pixelAt(page, P2)).toEqual(before[1])
   expect(await strokeCount(page), 'a stroke during a Save is refused').toBe(1)
   await page.keyboard.press('Control+z') // blocked
   expect(await strokeCount(page), 'stroke undo during a Save is refused').toBe(1)
-  expect(await pixelAt(page, P2)).toEqual(before[1])
   expect(await pixelAt(page, P1)).toEqual(rgba)
+  expect(opFiles(directory), 'no layer moved while the Save was stalled').toHaveLength(0)
 
   await page.evaluate(() => window.__release())
   await expect(page.locator('#hb-gfx-save-message')).toHaveAttribute('data-status', 'ok')
@@ -374,6 +396,31 @@ test('painting and stroke undo are blocked while a Save is in flight, and nothin
   expect(await pixelAt(page, P1)).toEqual(rgba)
   expect(await pixelAt(page, P2)).toEqual(before[1])
   await expect(page.locator('#hb-gfx-dirty')).toHaveAttribute('data-dirty', 'false')
+})
+
+test('Ctrl+Z during an in-flight Save does not undo the project layer below it', async ({
+  page,
+}) => {
+  const { manifestPath, directory } = await createProject(page, 'SaveInFlightKeys')
+  await page.evaluate(mp => (getSvc('ProjectContext').current = { manifestPath: mp }), manifestPath)
+  await openSheet(page, manifestPath)
+  const { rgba } = await pickColor(page, [P1, P2])
+  await stroke(page, P1)
+  await page.click('#hb-gfx-save')
+  await expect(page.locator('#hb-gfx-save-message')).toHaveAttribute('data-status', 'ok')
+  await stroke(page, P2)
+  await stallSave(page)
+  await page.click('#hb-gfx-save')
+  await expect.poll(() => page.evaluate(() => !!window.__release)).toBe(true)
+
+  await page.keyboard.press('Control+z') // must do nothing at all
+  await page.waitForTimeout(500)
+  await page.evaluate(() => window.__release())
+  await expect(page.locator('#hb-gfx-dirty')).toHaveAttribute('data-dirty', 'false')
+  await expect.poll(() => opFiles(directory).length).toBe(2)
+  expect(redoFiles(directory), 'nothing was undone into ops/redo').toHaveLength(0)
+  expect(await pixelAt(page, P1)).toEqual(rgba)
+  expect(await pixelAt(page, P2)).toEqual(rgba)
 })
 
 test('a reload pushed in the middle of a drag keeps the pixels already drawn', async ({ page }) => {
@@ -414,4 +461,59 @@ test('Ctrl+Z and Ctrl+Y walk the strokes before Save, and Ctrl+Z undoes the laye
   await page.keyboard.press('Control+z')
   await expect.poll(() => opFiles(directory).length).toBe(0)
   await expect.poll(() => pixelAt(page, P1)).toEqual(before[0])
+})
+
+/** Stall gfxSheet until window.__sheetRelease() is called; other calls pass through. */
+const stallSheet = page =>
+  page.evaluate(() => {
+    const w = getSvc('WidgetManager').getWidgets('hackbench.gfx-view')[0]
+    const real = w.gfx
+    w.gfx = new Proxy(real, {
+      get: (t, k) => {
+        if (k === 'gfxSheet')
+          return (...a) => new Promise(res => (window.__sheetRelease = () => res(t.gfxSheet(...a))))
+        const v = t[k]
+        return typeof v === 'function' ? v.bind(t) : v
+      },
+    })
+  })
+
+test("painting stays off until the file's own depth has actually loaded", async ({ page }) => {
+  const { manifestPath } = await createProject(page, 'OwnDepthLoading')
+  await openSheet(page, manifestPath)
+  const { own } = await forceOtherDepth(page, b => (b === 4 ? 3 : 4))
+  await stallSheet(page)
+  await page.evaluate(
+    v =>
+      getSvc('WidgetManager')
+        .getWidgets('hackbench.gfx-view')[0]
+        .handleBppChange({ target: { value: v } }),
+    String(own),
+  )
+  const canPaint = () =>
+    page.evaluate(() => getSvc('WidgetManager').getWidgets('hackbench.gfx-view')[0].canPaint)
+  expect(await canPaint(), 'the forced sheet is still on screen').toBe(false)
+  await page.evaluate(() => window.__sheetRelease())
+  await expect.poll(canPaint).toBe(true)
+})
+
+test("a depth chosen before the first sheet arrives still lets the file's own depth paint", async ({
+  page,
+}) => {
+  const { manifestPath } = await createProject(page, 'EarlyDepth')
+  const out = await page.evaluate(async mp => {
+    const w = await getWidget('hackbench.gfx-view')
+    const files = await getSvc('Symbol(GfxService)').listGfxFiles(mp)
+    const own = files.files[0].defaultBpp
+    const other = own === 4 ? 3 : 4
+    const opened = w.open({ manifestPath: mp, index: 0, label: 'GFX 0' })
+    w.handleBppChange({ target: { value: String(other) } }) // before any sheet
+    await opened
+    await new Promise(r => setTimeout(r, 1500))
+    w.handleBppChange({ target: { value: String(own) } })
+    await new Promise(r => setTimeout(r, 1500))
+    return { own, bpp: w.sheet && w.sheet.bpp, canPaint: w.canPaint }
+  }, manifestPath)
+  expect(out.bpp).toBe(out.own)
+  expect(out.canPaint).toBe(true)
 })

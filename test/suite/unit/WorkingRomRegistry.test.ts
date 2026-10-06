@@ -419,12 +419,22 @@ describe('WorkingRomRegistry', () => {
       })
 
       it.each([
-        ['no pixels', [{ file: 2, tile: 0, pixels: [] }]],
-        ['a fractional tile', [{ file: 2, tile: 0.5, pixels: px(1) }]],
-        ['no characters', []],
-      ])('refuses a layer with %s, writes nothing, and the project still opens', (_n, chars) => {
+        [
+          'no pixels',
+          [
+            { file: 2, tile: 0, pixels: px(1) },
+            { file: 2, tile: 1, pixels: [] },
+          ],
+          /character 1/i,
+        ],
+        ['a fractional tile', [{ file: 2, tile: 0.5, pixels: px(1) }], /character 0/i],
+        ['no characters', [], /nothing to save/i],
+      ])('refuses a layer with %s, writes nothing, and the project still opens', (...c) => {
+        const [, chars, reason] = c
         const { manifestPath, dir } = gfxProject()
-        expect(working.setGfx(manifestPath, chars).status).toBe('refused')
+        const r = working.setGfx(manifestPath, chars)
+        expect(r.status).toBe('refused')
+        expect(r.status === 'refused' && r.reason).toMatch(reason)
         expect(loadLayers(dir)).toHaveLength(0)
         expect(new WorkingRomRegistry(romRegistry).get(manifestPath).status).toBe('ok')
       })
@@ -680,9 +690,29 @@ describe('WorkingRomRegistry', () => {
       })
       expect(r.status).toBe('io-error')
       fsFault.hook = null
+      // The clear comes first: a write that ran before it would leave a layer on disk.
+      expect(loadLayers(dir)).toHaveLength(0)
 
       expect(loadRedoLayers(dir).map(l => l.id)).toEqual([mine])
       expect(working.editStack(manifestPath)).toMatchObject({ status: 'ok', canRedo: true })
+    })
+
+    it('a setWord whose layer write fails pops it from the held working copy', () => {
+      const { manifestPath } = makeProject()
+      const got = working.get(manifestPath)
+      if (got.status !== 'ok') throw new Error('unreachable')
+      const held = got.working // a later get() would reload from disk and hide a leak
+      fsFault.hook = call => {
+        if (call === 'writeFileSync') throw new Error('disk full')
+      }
+      const r = working.setWord(manifestPath, {
+        romAddr: MARIO_RED_ADDR,
+        oldHex: '$391F',
+        newHex: '$1000',
+      })
+      fsFault.hook = null
+      expect(r.status).toBe('io-error')
+      expect(held.stack).toHaveLength(0)
     })
   })
 

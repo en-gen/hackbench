@@ -51,11 +51,11 @@ export class GfxExplorerContribution extends AbstractViewContribution<GfxExplore
     }
     registry.registerHandler(CommonCommands.UNDO.id, {
       execute: () => strokes()?.undoStroke(),
-      isEnabled: () => !!strokes()?.canUndoStroke(),
+      isEnabled: () => !!strokes() && (strokes()!.busy() || strokes()!.canUndoStroke()),
     })
     registry.registerHandler(CommonCommands.REDO.id, {
       execute: () => strokes()?.redoStroke(),
-      isEnabled: () => !!strokes()?.canRedoStroke(),
+      isEnabled: () => !!strokes() && (strokes()!.busy() || strokes()!.canRedoStroke()),
     })
   }
 

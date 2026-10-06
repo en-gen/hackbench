@@ -346,8 +346,13 @@ export class WorkingRomRegistry {
     const r = this.get(manifestPath)
     if (r.status !== 'ok') return r
     const { working } = r
-    if (chars.length === 0 || !chars.every(isGfxCharEdit)) {
-      return { status: 'refused', reason: 'A character with no pixels cannot be saved.' }
+    if (chars.length === 0) return { status: 'refused', reason: 'There is nothing to save.' }
+    const bad = chars.findIndex(c => !isGfxCharEdit(c))
+    if (bad >= 0) {
+      return {
+        status: 'refused',
+        reason: `Character ${bad} is malformed: it needs whole-number file and tile and at least one whole-number pixel.`,
+      }
     }
     const n = chars.length
     const layer: Layer = {

@@ -67,6 +67,7 @@ type Stroke = Map<number, number>
 export interface StrokeHistory {
   canUndoStroke(): boolean
   canRedoStroke(): boolean
+  busy(): boolean
   undoStroke(): void
   redoStroke(): void
 }
@@ -206,7 +207,21 @@ export class GfxViewWidget extends ReactWidget implements SaveableSource, Stroke
     }
     this.update()
 
+    void this.loadOwnBpp(options)
     await this.reload()
+  }
+
+  /** The file's own depth, from the explorer's list: known even when the user
+   *  forces a depth before the first sheet arrives. */
+  protected async loadOwnBpp(o: GfxViewOptions): Promise<void> {
+    try {
+      const r = await this.gfx.listGfxFiles(o.manifestPath)
+      if (r.status !== 'ok' || o !== this.options) return
+      this.ownBpp = r.files.find(f => f.index === o.index)?.defaultBpp ?? undefined
+      this.update()
+    } catch {
+      // The first sheet response still sets it.
+    }
   }
 
   get dirty(): boolean {
@@ -245,6 +260,11 @@ export class GfxViewWidget extends ReactWidget implements SaveableSource, Stroke
 
   // Not while a Save is in flight: its success clears every stroke, so one
   // drawn or undone meanwhile would be lost or come back.
+  /** A Save is in flight: Ctrl+Z / Ctrl+Y are ours and do nothing (see EditStackContribution). */
+  busy(): boolean {
+    return this.saving
+  }
+
   canUndoStroke(): boolean {
     return this.strokes.length > 0 && !this.saving
   }
@@ -364,7 +384,9 @@ export class GfxViewWidget extends ReactWidget implements SaveableSource, Stroke
 
   /** Painting is offered at the file's own depth only, and never for Mode 7. */
   protected get canPaint(): boolean {
-    return !!this.sheet && this.sheet.bpp !== 'mode7' && this.bppChoice === undefined
+    // Judged by the sheet on screen, not by the dropdown: right after the user
+    // goes back to the file's own depth the forced sheet is still showing.
+    return !!this.sheet && this.sheet.bpp !== 'mode7' && this.sheet.bpp === this.ownBpp
   }
 
   /** Paints sheet pixel (x, y) into the stroke being drawn. */
@@ -479,9 +501,7 @@ export class GfxViewWidget extends ReactWidget implements SaveableSource, Stroke
   }
 
   protected handleBppChange = (e: React.ChangeEvent<HTMLSelectElement>): void => {
-    const chosen = GFX_FORMATS.find(f => String(f) === e.target.value)
-    // The file's own depth is no override: it is the one painting is offered at.
-    this.bppChoice = chosen === this.ownBpp ? undefined : chosen
+    this.bppChoice = GFX_FORMATS.find(f => String(f) === e.target.value)
     void this.reload()
   }
 
