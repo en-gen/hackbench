@@ -13,12 +13,12 @@ export interface RomChangedClient {
 export class RomChangedNotifier {
   private unsubscribe: (() => void) | undefined
 
-  constructor(private readonly registry: WorkingRomRegistry) {}
+  constructor(private readonly registry: () => WorkingRomRegistry) {}
 
   setClient(client: RomChangedClient | undefined): void {
     this.unsubscribe?.()
     this.unsubscribe = client
-      ? this.registry.onRomChanged(manifestPath => client.onRomChanged(manifestPath))
+      ? this.registry().onRomChanged(manifestPath => client.onRomChanged(manifestPath))
       : undefined
   }
 }

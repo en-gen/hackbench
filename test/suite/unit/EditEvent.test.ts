@@ -19,6 +19,8 @@ import {
   WorkingCopyClient,
   WorkingCopyNotifier,
 } from '../../../theia/extension/src/node/working-copy-notifier'
+import { ProjectConnection } from '../../../theia/extension/src/node/project-connection'
+import { buildCart } from '../support/syntheticGfxCart'
 
 describe('coalesceRanges', () => {
   it('sorts, and merges overlapping and touching ranges but not separated ones', () => {
@@ -85,6 +87,23 @@ describe('domainOf', () => {
     expect(domainOf(word(FULL_WORD_MASK))).toBe('map16')
     expect(domainOf(word())).toBe('palette')
   })
+
+  const op = (mask?: number) => ({ address: '$00B2CE', old: '$0000', new: '$0001', mask })
+  const many = (...masks: (number | undefined)[]): Layer => ({
+    id: 'm',
+    label: 'm',
+    ops: masks.map(op),
+  })
+  it('a layer of several full-word ops is Map16', () => {
+    expect(domainOf(many(FULL_WORD_MASK, FULL_WORD_MASK, FULL_WORD_MASK))).toBe('map16')
+  })
+  it('mixed masks are palette, whichever op comes first', () => {
+    expect(domainOf(many(FULL_WORD_MASK, undefined))).toBe('palette')
+    expect(domainOf(many(undefined, FULL_WORD_MASK))).toBe('palette')
+  })
+  it('a layer with no ops is palette, not vacuously Map16', () => {
+    expect(domainOf(many())).toBe('palette')
+  })
 })
 
 let tmp: string
@@ -129,10 +148,9 @@ function watched(): { manifest: string; events: EditEvent[]; bytes: Uint8Array }
   const r = working.get(manifest)
   if (r.status !== 'ok') throw new Error(r.status)
   const events: EditEvent[] = []
-  const notifier = new WorkingCopyNotifier<WorkingCopyClient>()
-  notifier.setClient({ onEditEvent: e => events.push(e) })
-  // As ProjectServiceImpl.setClient wires it: every copy, existing or built later.
-  working.onWorkingCopy((m, w) => notifier.watch(m, w))
+  // The wiring ProjectServiceImpl.setClient forwards to: every copy, existing or built later.
+  const connection = new ProjectConnection(() => working)
+  connection.setClient({ onEditEvent: e => events.push(e), onRomChanged: () => {} })
   return { manifest, events, bytes }
 }
 
@@ -202,11 +220,60 @@ describe('the notifier fires the edit event', () => {
       directory: path.join(tmp, 'late'),
     }).manifestPath
     const events: EditEvent[] = []
-    const notifier = new WorkingCopyNotifier<WorkingCopyClient>()
-    notifier.setClient({ onEditEvent: e => events.push(e) })
-    working.onWorkingCopy((m, w) => notifier.watch(m, w)) // nothing cached yet
+    new ProjectConnection(() => working).setClient({
+      onEditEvent: e => events.push(e),
+      onRomChanged: () => {},
+    }) // nothing cached yet
     working.setWord(manifest, { romAddr: ADDR, oldHex: word(bytes, OFFSET), newHex: '$03E0' })
     expect(events).toHaveLength(1)
+  })
+
+  it('a GFX layer reports the gfx domain and no ROM range', () => {
+    const cart = new Uint8Array(buildCart({ filler: 4096 }).rom.buffer)
+    const romPath = path.join(tmp, 'gfx.sfc')
+    fs.writeFileSync(romPath, cart)
+    registry.register(romPath)
+    const manifest = createProject({
+      romPath,
+      name: 'G',
+      directory: path.join(tmp, 'gfxproj'),
+    }).manifestPath
+    const events: EditEvent[] = []
+    new ProjectConnection(() => working).setClient({
+      onEditEvent: e => events.push(e),
+      onRomChanged: () => {},
+    })
+    const r = working.get(manifest)
+    if (r.status !== 'ok') throw new Error(r.status)
+    r.working.append({
+      id: 'g',
+      label: 'g',
+      kind: 'gfx',
+      chars: [{ file: 2, tile: 0, pixels: [{ x: 0, y: 0, value: 1 }] }],
+    })
+    expect(events).toHaveLength(1)
+    expect(events[0]?.data).toEqual({ domain: 'gfx', ranges: [] })
+  })
+
+  it('a copier-headered ROM reports offsets past the 512-byte header', () => {
+    const bare = fakeRom()
+    const headered = new Uint8Array(bare.length + 512)
+    headered.set(bare, 512)
+    const romPath = path.join(tmp, 'h.smc')
+    fs.writeFileSync(romPath, headered)
+    registry.register(romPath)
+    const manifest = createProject({
+      romPath,
+      name: 'H',
+      directory: path.join(tmp, 'hproj'),
+    }).manifestPath
+    const events: EditEvent[] = []
+    new ProjectConnection(() => working).setClient({
+      onEditEvent: e => events.push(e),
+      onRomChanged: () => {},
+    })
+    working.setWord(manifest, { romAddr: ADDR, oldHex: word(bare, OFFSET), newHex: '$03E0' })
+    expect(events[0]?.data?.ranges).toEqual([{ start: OFFSET + 512, end: OFFSET + 514 }])
   })
 
   it('a refused edit (stale old value) fires nothing', () => {

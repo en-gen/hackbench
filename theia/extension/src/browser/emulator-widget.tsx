@@ -144,7 +144,11 @@ export class EmulatorWidget extends ReactWidget {
         void this.refresh()
       }),
     )
-    this.toDispose.push(this.context.onRomChanged(() => void this.refresh()))
+    this.toDispose.push(
+      this.context.onRomChanged(manifestPath => {
+        if (manifestPath === this.context.current?.manifestPath) void this.refresh()
+      }),
+    )
     // Edits land in bursts (a colour drag is many layers), so ask once the
     // burst settles rather than once per layer.
     this.toDispose.push(
@@ -489,6 +493,9 @@ export class EmulatorWidget extends ReactWidget {
       this.romDigest = rom.digest
       this.state = { kind: 'ready' }
       this.update()
+      // A running core booted from the OLD bytes: whether it is stale is a
+      // question about the new ones (a rebuild replaced them).
+      void this.checkStale()
     } catch (err) {
       if (mine !== this.refreshGeneration) return
       this.state = { kind: 'error', message: (err as Error).message }

@@ -169,3 +169,6 @@ src/**/*.js
 src/**/*.d.ts
 src/**/*.js.map
 src/**/*.d.ts.map
+
+# Vitest JSON reporter output
+.vitest/

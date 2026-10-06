@@ -63,32 +63,17 @@ import {
   SwitchStateDto,
   WorkstationPathsDto,
 } from '../common/project-protocol'
-import { WorkingCopyNotifier } from './working-copy-notifier'
-import { RomChangedNotifier } from './rom-changed-notifier'
+import { ProjectConnection } from './project-connection'
 
 @injectable()
 export class ProjectServiceImpl implements ProjectService {
   private readonly recent = new RecentProjects()
   @inject(WorkingRomRegistry) protected readonly workingRoms!: WorkingRomRegistry
-  private readonly notifier = new WorkingCopyNotifier<ProjectServiceClient>()
+  private readonly connection = new ProjectConnection(() => this.workingRoms)
   private readonly screens = new L1ModelCache()
 
-  private romNotifier: RomChangedNotifier | undefined
-  private unwatchCopies: (() => void) | undefined
-
   setClient(client: ProjectServiceClient | undefined): void {
-    this.notifier.setClient(client)
-    // The one place a ROM swap leaves the node side (#576).
-    this.romNotifier ??= new RomChangedNotifier(this.workingRoms)
-    this.romNotifier.setClient(client)
-    // Every working copy, whichever service asked for it: an edit made through
-    // the palette or Map16 service reaches this connection's client too.
-    this.unwatchCopies?.()
-    this.unwatchCopies = client
-      ? this.workingRoms.onWorkingCopy((manifestPath, working) =>
-          this.notifier.watch(manifestPath, working),
-        )
-      : undefined
+    this.connection.setClient(client)
   }
 
   async createProject(req: CreateProjectRequest): Promise<ProjectDto> {
@@ -138,7 +123,6 @@ export class ProjectServiceImpl implements ProjectService {
   async mapSprites(manifestPath: string, index: number): Promise<MapSpritesResult> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
-    this.notifier.watch(manifestPath, r.working)
     return mapSprites(this.screens, r.working.bytes(), r.romPath, index)
   }
 

@@ -96,6 +96,8 @@ export class PaletteExplorerWidget extends TreeWidget {
   protected manifestPath = ''
   /** Discards a response superseded by a later load(). */
   protected requestToken = 0
+  /** Set by a ROM change; the next load that gets as far as building the tree starts fresh. */
+  protected freshFor: string | undefined
   /** Reset at the start of every load() so note ids stay unique but stable within one render. */
   protected noteSeq = 0
 
@@ -141,7 +143,10 @@ export class PaletteExplorerWidget extends TreeWidget {
       this.projectContext.onRomChanged(manifestPath => {
         if (manifestPath !== this.manifestPath) return
         this.model.clearSelection()
-        void this.load(manifestPath, true)
+        // Sticks until a load completes: a later non-fresh load (the context
+        // re-announce after a Properties save) must not bring the folds back.
+        this.freshFor = manifestPath
+        void this.load(manifestPath)
       }),
     )
     // A working-copy change - this widget's own edit, or one made from an
@@ -170,7 +175,7 @@ export class PaletteExplorerWidget extends TreeWidget {
    * A cartridge this machine cannot locate is an ordinary first-run state,
    * not a failure, mirroring MapExplorerWidget.load and GfxExplorerWidget.load.
    */
-  async load(manifestPath: string | undefined, fresh = false): Promise<void> {
+  async load(manifestPath: string | undefined): Promise<void> {
     const token = ++this.requestToken
     this.manifestPath = manifestPath ?? ''
     this.noteSeq = 0
@@ -213,6 +218,8 @@ export class PaletteExplorerWidget extends TreeWidget {
     // root setter does not diff against the old one), so nothing carries
     // this forward unless this widget does it itself.
     const wasExpanded = new Set<string>()
+    const fresh = this.freshFor === manifestPath
+    this.freshFor = undefined
     if (!fresh) this.collectExpanded(this.model.root, wasExpanded)
 
     const { palettes, romName } = result

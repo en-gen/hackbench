@@ -124,8 +124,9 @@ a reload where a field on the layer would not.
 
 It is built in one place. `WorkingCopyNotifier` is the only
 `WorkingRom.onDidChange` subscriber under `theia/extension/src/node`: the
-project service gives every working copy the registry holds, now or built
-later (`WorkingRomRegistry.onWorkingCopy`), to its per-connection notifier.
+project service's `ProjectConnection` gives every working copy the registry
+holds, now or built later (`WorkingRomRegistry.onWorkingCopy`), to its
+per-connection notifier, and lets go of a copy the registry replaces.
 `watch` is idempotent per `WorkingRom` instance, keyed by a `Map` from that
 instance to its unsubscribe function, so a single edit fires the client once.
 `setClient(undefined)` (wired to the client proxy's `onDidCloseConnection`)
@@ -152,9 +153,15 @@ not a CloudEvent.
 | Subscriber                                      | Edit (`onEdit`)                               | ROM changed (`onRomChanged`)                        |
 | ----------------------------------------------- | --------------------------------------------- | --------------------------------------------------- |
 | Palettes explorer                               | rebuild, keeps which groups were open         | rebuild as a fresh open: nothing selected, defaults |
-| Maps, Graphics, Audio explorers                 | none (their rows do not depend on word edits) | rebuild as a fresh open                             |
+| Maps, Graphics, Audio explorers                 | not subscribed (see below)                    | rebuild as a fresh open                             |
 | Map, Map16, GFX, Palette-group, Overworld views | re-read                                       | re-read                                             |
 | Emulator, Edit menu                             | stale check / refresh                         | refresh                                             |
+
+The Maps, Graphics and Audio explorers do not subscribe to edits because their
+rows come from tables that palette and Map16 word edits do not write, not
+because an edit can never matter: a GFX Save may change a GFX file's listing,
+and the Graphics explorer picks that up only on its next load. That is a
+known gap, not a decision.
 
 ## Views
 

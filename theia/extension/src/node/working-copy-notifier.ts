@@ -37,6 +37,12 @@ export class WorkingCopyNotifier<Client extends WorkingCopyClient> {
     }
   }
 
+  /** Lets go of a copy the registry no longer holds, so it can be collected. */
+  unwatch(working: WorkingRom): void {
+    this.subscriptions.get(working)?.()
+    this.subscriptions.delete(working)
+  }
+
   /** Subscribes `working` to notify this service's current client, tagged with `manifestPath`. */
   watch(manifestPath: string, working: WorkingRom): void {
     if (this.subscriptions.has(working)) return

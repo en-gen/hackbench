@@ -36,7 +36,8 @@ export default [
   },
 
   // `cloudevents` is a devDependency used for its TYPES only (the edit event,
-  // src/project/EditEvent.ts): a value import would ship the library.
+  // src/project/EditEvent.ts): a value import would ship the library. Covers
+  // the package and its subpaths, dynamic import() and require().
   {
     rules: {
       'no-restricted-imports': [
@@ -49,6 +50,24 @@ export default [
               allowTypeImports: true,
             },
           ],
+          patterns: [
+            {
+              group: ['cloudevents/*'],
+              message: 'cloudevents is for types only: `import type` from the package root.',
+              allowTypeImports: true,
+            },
+          ],
+        },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'ImportExpression[source.value=/^cloudevents/]',
+          message: 'cloudevents is for types only; a dynamic import() ships the library.',
+        },
+        {
+          selector: "CallExpression[callee.name='require'][arguments.0.value=/^cloudevents/]",
+          message: 'cloudevents is for types only; require() ships the library.',
         },
       ],
     },

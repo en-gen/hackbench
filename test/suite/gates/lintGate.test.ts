@@ -119,6 +119,23 @@ describe('the lint gate can fail', () => {
     CLI_TIMEOUT_MS,
   )
 
+  it.each([
+    [
+      'a subpath value import',
+      "import { x } from 'cloudevents/dist/event/cloudevent'\nexport default x\n",
+    ],
+    ['a dynamic import()', "export const load = () => import('cloudevents')\n"],
+    ['a dynamic import() of a subpath', "export const load = () => import('cloudevents/dist')\n"],
+    ['a require() in a .cjs file', "const ce = require('cloudevents')\nmodule.exports = ce\n"],
+  ])(
+    'rejects cloudevents through %s',
+    (name, body) => {
+      const file = writeFixture(name.includes('.cjs') ? 'ce-bypass.cjs' : 'ce-bypass.ts', body)
+      expect(exitCodeOf('npx', ['eslint', '--max-warnings', '0', file])).not.toBe(0)
+    },
+    CLI_TIMEOUT_MS,
+  )
+
   it(
     'accepts a clean file, so the gate is not simply always red',
     () => {

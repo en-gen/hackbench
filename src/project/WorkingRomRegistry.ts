@@ -100,6 +100,11 @@ function addrHex(romAddr: number): string {
 /** `mismatch` names both hashes in full so a caller can shorten them for display. */
 export type RomCheck = { status: 'ok' } | { status: 'mismatch'; picked: string; expected: string }
 
+interface CopyListener {
+  built: (manifestPath: string, working: WorkingRom) => void
+  release?: (working: WorkingRom) => void
+}
+
 export class WorkingRomRegistry {
   private readonly cache = new Map<string, WorkingRomEntry>()
   /**
@@ -112,7 +117,7 @@ export class WorkingRomRegistry {
   private readonly stamps = new Map<string, { key: string; takenAt: number }>()
 
   private readonly romListeners = new Set<(manifestPath: string) => void>()
-  private readonly copyListeners = new Set<(manifestPath: string, working: WorkingRom) => void>()
+  private readonly copyListeners = new Set<CopyListener>()
   /**
    * Projects whose `get` answered `rom-not-located`, with the ROM they wait
    * for: the only ones a later registration can newly serve. They have no
@@ -137,12 +142,22 @@ export class WorkingRomRegistry {
   /**
    * Called with every working copy this registry holds, now and as each one
    * is built or rebuilt, so a subscriber (a connection's edit notifier) never
-   * has to wait for a request to learn a copy exists.
+   * has to wait for a request to learn a copy exists. `release` is called with
+   * a copy the registry stops holding (replaced, evicted, dropped), so the
+   * subscriber can let go of it too.
    */
-  onWorkingCopy(fn: (manifestPath: string, working: WorkingRom) => void): () => void {
-    this.copyListeners.add(fn)
-    for (const [manifestPath, entry] of this.cache) fn(manifestPath, entry.working)
-    return () => this.copyListeners.delete(fn)
+  onWorkingCopy(
+    built: (manifestPath: string, working: WorkingRom) => void,
+    release?: (working: WorkingRom) => void,
+  ): () => void {
+    const listener = { built, release }
+    this.copyListeners.add(listener)
+    for (const [manifestPath, entry] of this.cache) built(manifestPath, entry.working)
+    return () => this.copyListeners.delete(listener)
+  }
+
+  private releaseCopy(working: WorkingRom): void {
+    for (const l of this.copyListeners) l.release?.(working)
   }
 
   private fireRomChanged(manifestPath: string): void {
@@ -210,6 +225,7 @@ export class WorkingRomRegistry {
       if (entry.working.hasCopierHeader !== headered) {
         this.cache.delete(manifest)
         this.stamps.delete(manifest)
+        this.releaseCopy(entry.working)
       } else {
         entry.romPath = absolute
       }
@@ -269,6 +285,13 @@ export class WorkingRomRegistry {
       const resolved = this.registry.resolveVerified(project.baseRom.sha256)
       if (!resolved) {
         this.waiting.set(manifestPath, project.baseRom.sha256)
+        // A stale entry must not outlive the answer: when the ROM is found, the
+        // later build would look like a second swap after register announced it.
+        if (cached) {
+          this.cache.delete(manifestPath)
+          this.stamps.delete(manifestPath)
+          this.releaseCopy(cached.working)
+        }
         return { status: 'rom-not-located', baseRom: project.baseRom }
       }
       this.waiting.delete(manifestPath)
@@ -288,7 +311,8 @@ export class WorkingRomRegistry {
     this.cache.set(manifestPath, entry)
     this.stamps.set(manifestPath, stamp)
     // A rebuild strands every view holding the old instance (see above).
-    for (const fn of this.copyListeners) fn(manifestPath, working)
+    if (cached) this.releaseCopy(cached.working)
+    for (const l of this.copyListeners) l.built(manifestPath, working)
     if (cached) this.fireRomChanged(manifestPath)
     return { status: 'ok', ...entry }
   }

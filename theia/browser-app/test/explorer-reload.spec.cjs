@@ -139,6 +139,25 @@ test.describe('explorer reload (#576)', () => {
       )
       .toBe(true)
 
+  /** Relocate through the Project Properties dialog, as a user does, and Save. */
+  async function relocateViaProperties(page, project, moved) {
+    await page.evaluate(
+      async ({ p, moved }) => {
+        getSvc('ProjectContext').current = p
+        const dlg = getSvc('ProjectPropertiesDialog')
+        dlg.fileDialog.showOpenDialog = async () => ({ path: { fsPath: () => moved } })
+        void getSvc('CommandRegistry').executeCommand('hackbench.project.properties')
+      },
+      { p: project, moved },
+    )
+    await page.waitForSelector('.hb-dialog-facts', { timeout: 15000 })
+    await page.locator('.dialogBlock button:has-text("Browse...")').first().click()
+    await expect
+      .poll(() => page.locator('.dialogBlock input[readonly]').first().inputValue())
+      .toBe(moved)
+    await page.locator('.dialogBlock .theia-button.main').click()
+  }
+
   for (const ex of EXPLORERS) {
     test(`${ex.kind}: a ROM waiting to be located fills in after Project Properties relocates it`, async ({
       page,
@@ -156,63 +175,58 @@ test.describe('explorer reload (#576)', () => {
 
       const moved = path.join(tmp, 'moved.sfc')
       fs.copyFileSync(ROM, moved)
-      await page.evaluate(
-        async ({ p, moved }) => {
-          getSvc('ProjectContext').current = p
-          const dlg = getSvc('ProjectPropertiesDialog')
-          dlg.fileDialog.showOpenDialog = async () => ({ path: { fsPath: () => moved } })
-          void getSvc('CommandRegistry').executeCommand('hackbench.project.properties')
-        },
-        { p: project, moved },
-      )
-      await page.waitForSelector('.hb-dialog-facts', { timeout: 15000 })
-      await page.locator('.dialogBlock button:has-text("Browse...")').first().click()
-      await expect
-        .poll(() => page.locator('.dialogBlock input[readonly]').first().inputValue())
-        .toBe(moved)
-      await page.locator('.dialogBlock .theia-button.main').click()
+      await relocateViaProperties(page, project, moved)
 
       if (ex.kind === 'maps') await expect.poll(() => count(page, ex)).toBe(VANILLA_MAPS)
       else await expect.poll(() => count(page, ex), { timeout: 30000 }).toBeGreaterThan(0)
       expect((await state(page, ex)).selected).toEqual([])
     })
 
-    test(`${ex.kind}: a ROM swap under a loaded explorer rebuilds it, nothing selected, default expansion`, async ({
-      page,
-    }) => {
-      const project = await createProject(page, 'Loaded', ROM)
-      await openExplorer(page, ex, project)
-      await expect.poll(() => count(page, ex), { timeout: 30000 }).toBeGreaterThan(0)
-      const fresh = await state(page, ex)
+    for (const via of ['service', 'properties']) {
+      test(`${ex.kind}: a ROM swap (${via}) under a loaded explorer rebuilds it, nothing selected, default expansion`, async ({
+        page,
+      }) => {
+        const project = await createProject(page, 'Loaded', ROM)
+        await openExplorer(page, ex, project)
+        await expect.poll(() => count(page, ex), { timeout: 30000 }).toBeGreaterThan(0)
+        const fresh = await state(page, ex)
 
-      // Make the state differ from a fresh load: select a row, flip its fold.
-      await page.evaluate(
-        async ({ ex }) => {
-          const w = getSvc('WidgetManager').tryGetWidget(ex.id)
-          const node = hbPick(w)
-          if ('expanded' in node && node.children.length > 0) {
-            if (node.expanded) await w.model.collapseNode(node)
-            else await w.model.expandNode(node)
-          }
-          w.model.selectNode(node)
-        },
-        { ex },
-      )
-      const touched = await state(page, ex)
-      expect(touched.selected).toHaveLength(1)
+        // Make the state differ from a fresh load: select a row, flip its fold.
+        await page.evaluate(
+          async ({ ex }) => {
+            const w = getSvc('WidgetManager').tryGetWidget(ex.id)
+            const node = hbPick(w)
+            if ('expanded' in node && node.children.length > 0) {
+              if (node.expanded) await w.model.collapseNode(node)
+              else await w.model.expandNode(node)
+            }
+            w.model.selectNode(node)
+          },
+          { ex },
+        )
+        const touched = await state(page, ex)
+        expect(touched.selected).toHaveLength(1)
 
-      const copy = path.join(tmp, 'copy.sfc')
-      fs.copyFileSync(ROM, copy)
-      await markRoot(page, ex)
-      const r = await page.evaluate(
-        ({ p, copy }) => getSvc('Symbol(ProjectService)').relocateRom(p, copy),
-        { p: project.manifestPath, copy },
-      )
-      expect(r.status).toBe('ok')
+        const copy = path.join(tmp, 'copy.sfc')
+        fs.copyFileSync(ROM, copy)
+        await markRoot(page, ex)
+        if (via === 'service') {
+          const r = await page.evaluate(
+            ({ p, copy }) => getSvc('Symbol(ProjectService)').relocateRom(p, copy),
+            { p: project.manifestPath, copy },
+          )
+          expect(r.status).toBe('ok')
+        } else {
+          // A full Properties save also re-announces the project (ProjectContext.onChanged):
+          // the later, ordinary load must not bring the folds back.
+          await relocateViaProperties(page, project, copy)
+        }
 
-      await rebuilt(page, ex)
-      await expect.poll(() => state(page, ex)).toEqual(fresh)
-    })
+        await rebuilt(page, ex)
+        await page.waitForTimeout(1500) // let the re-announce's load finish too
+        await expect.poll(() => state(page, ex)).toEqual(fresh)
+      })
+    }
 
     if (!ex.perEdit) continue
     test(`${ex.kind}: an ordinary edit keeps the selection and fold of rows that still exist`, async ({

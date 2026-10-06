@@ -240,17 +240,12 @@ not applied to the working copy; they are the same hex-text ops, never
 ROM bytes.
 
 **Working copy.** The base ROM with every layer in a project's stack
-applied, IN ORDER (`WorkingRom.bytes()`). A MIGRATED view renders this, never
-the base ROM directly - an edit made in one such view (a palette
-color) is invisible everywhere else otherwise. Concretely: every
+applied, IN ORDER (`WorkingRom.bytes()`). Every view renders this, never the
+base ROM directly: an edit made in one view (a palette color) would be
+invisible everywhere else otherwise. Concretely: every
 `theia/extension/src/node/*-server.ts` reads the ROM through
-`WorkingRomRegistry`, not `RomFile.load`. `project-server.ts` is the one
-exception, because it is what RESOLVES the ROM in the first place,
-before any working copy exists to read from - `WorkingRomRegistry` itself
-calls `RomFile.load` once, on first access per project.
+`WorkingRomRegistry`, and `test/suite/gates/workingCopyGate.test.ts` bans
+`RomFile.load(` and `RomRegistry` in them with no exception.
 
-Palette and GFX are migrated, and both push a re-render to an open widget on
-the edit event (`WorkingCopyNotifier`, `docs/architecture/theia-shell.md`). The map view is
-NOT yet: `project-server.ts`'s `mapDetails`/`loadMaps` still read the base
-ROM directly, so a palette edit is not visible there. That migration
-is unstarted work, done per view rather than assumed.
+An edit reaches every open view as the edit event (`WorkingCopyNotifier`,
+`docs/architecture/theia-shell.md`), and a view re-reads on it.
