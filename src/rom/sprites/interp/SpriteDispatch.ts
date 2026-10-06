@@ -33,6 +33,8 @@ export const ENTRY = {
    * places the sprite and writes its cells (:1139-1292). `resolveBlockSpawn` byte-checks it (#566).
    */
   blockSpawn: 0x0288dc,
+  /** JSL: FindFreeSprSlot (bank_02.asm:5513), which the dispatcher calls for the egg, key, vine and balloon. */
+  findFreeSprSlot: 0x02a9e4,
   /** JSL: GetRand, two steps of the RNG at `$148B/C` (bank_01.asm:6092). */
   getRand: 0x01acf9,
 } as const
@@ -76,6 +78,17 @@ export function resolveBlockSpawn(
   const dispatch = bytes(rom, ENTRY.blockSpawn, 41)
   if (!matches(dispatch, [0xa4, 0x05, 0xc0, 0x0b, 0xd0, n, 0xa5, 0x9a, 0x29, 0x30, 0xc9, 0x20, 0xf0, n, 0xc0, 0x10, 0xf0, n, 0xc0, 0x08, 0xd0, n, 0xad, 0x92, 0x16, 0xf0, n, 0xd0, n, 0xc0, 0x0c, 0xd0, n, 0x22, n, n, n, 0xbb, 0x10, n, 0x6b])) // prettier-ignore
     return { ok: false, reason: 'the item block spawn dispatcher is not the shape this reader knows' } // prettier-ignore
+  // The shape only proves bytes at fixed addresses: each free branch must land where the traced routine goes
+  // ([displacement offset, target offset], bank_02.asm:1097-1119), or a hack could jump past what was checked.
+  const s8 = (v: number) => (v > 127 ? v - 256 : v)
+  const lands: [number, number][] = [[5, 14], [13, 0x29], [17, 33], [21, 29], [26, 0x29], [28, 33], [32, 0x29], [39, 0x46]] // prettier-ignore
+  for (const [at, to] of lands)
+    if (at + 1 + s8(dispatch![at]!) !== to)
+      return { ok: false, reason: 'the item block spawn dispatcher branches somewhere this reader does not know' } // prettier-ignore
+  // And its call must reach the FindFreeSprSlot the game uses: the same address, with its own opening bytes.
+  const call = dispatch![34]! | (dispatch![35]! << 8) | (dispatch![36]! << 16)
+  if (call !== ENTRY.findFreeSprSlot || !matches(bytes(rom, call, 5), [0x64, 0x0e, 0x8b, 0x4b, 0xab]))
+    return { ok: false, reason: 'the item block spawn dispatcher does not call the FindFreeSprSlot this reader knows' } // prettier-ignore
   const head = bytes(rom, ENTRY.blockSpawn + 0x29, 12)
   if (!matches(head, [0xa2, 0x0b, 0xbd, 0xc8, 0x14, 0xf0, n, 0xca, 0xe0, 0xff, 0xd0, n]))
     return { ok: false, reason: 'the item block spawn does not start with the free-slot countdown this reader knows' } // prettier-ignore

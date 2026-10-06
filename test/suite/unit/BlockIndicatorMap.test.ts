@@ -246,7 +246,7 @@ describe('blockIndicators: what is drawn', () => {
     expect(refused.note).toMatch(/^Block contents not shown: 1 block .*past the end/)
     const drew = ok(blockIndicators(model([[0, 0, 0x115], [1, 0, 0x115]]), TABLES, stubArt({ 0x43: 'charsNotLoaded' }).art)) // prettier-ignore
     expect(drew.indicators).toEqual([])
-    expect(drew.note).toBe('Block contents not shown: 2 blocks whose graphics are not loaded in this level.') // prettier-ignore
+    expect(drew.note).toBe('Block contents not shown: 2 blocks whose graphics are not loaded in this map.') // prettier-ignore
     expect(plainWhy('refused: step budget spent')).toBe('whose sprite code was refused (step budget spent)') // prettier-ignore
     expect(plainWhy('drew no OAM tile in 64 passes')).toBe('whose item draws nothing in its first frames') // prettier-ignore
   })
@@ -731,9 +731,7 @@ describe.skipIf(!hasRom(VANILLA))('mapBlockContents on the vanilla ROM', () => {
       const cache = new L1ModelCache()
       const r = mapBlockContents(cache, bytes, romPath(VANILLA), map)
       if (r.status !== 'ok') throw new Error(JSON.stringify(r))
-      const split = unb(
-        r.arts[`${small}/${big}`] ?? r.arts[`${small}/${big}`.replace('/', '/')] ?? '',
-      )
+      const split = unb(r.arts[`${small}/${big}`] ?? '')
       expect(split.length, `${small}/${big} is on map ${map.toString(16)}`).toBe(1024)
       const built = cache.get(bytes, romPath(VANILLA), map, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
       if (!built.ok) throw new Error(built.reason)

@@ -336,12 +336,16 @@ export class Machine {
   }
 
   /** Runs a routine to its return, from the native reset state with X = the slot; throws Refusal on a bad op, escape, unbalanced return or budget. */
-  call(entry: number, kind: 'jsr' | 'jsl'): void {
+  call(entry: number, kind: 'jsr' | 'jsl', db?: number): void {
     const left = TOTAL_STEP_CAP - this.steps
     const capMsg = `total step cap of ${TOTAL_STEP_CAP} spent across INIT and MAIN; the sprite does not settle`
     if (left <= 0) throw new Refusal(capMsg)
     const room = Math.min(STEP_BUDGET, left)
-    const r = callSubroutine(this.cpu, entry, { kind, maxSteps: room, regs: { x: this.seed.slot } })
+    const r = callSubroutine(this.cpu, entry, {
+      kind,
+      maxSteps: room,
+      regs: { x: this.seed.slot, ...(db === undefined ? {} : { db }) },
+    })
     this.steps += r.steps
     if (r.kind === 'returned') return
     throw new Refusal(
@@ -471,8 +475,7 @@ export function runOnce(
       for (let i = 0; i < 12; i++) w[RAM.status + i] = 0
       for (const [k, v] of Object.entries(opts.spawn.inputs)) w[Number(k)] = v
       // The code reads its tables through DB: the game reaches it from its own bank (PHK PLB), so enter it with DB = its bank.
-      m.cpu.db = spawn.entry >>> 16
-      m.call(spawn.entry, 'jsl')
+      m.call(spawn.entry, 'jsl', spawn.entry >>> 16)
       const picked = Array.from({ length: 12 }, (_, i) => i).find(i => w[RAM.status + i] !== 0)
       if (picked === undefined) return { ...model, refusal: 'the item block spawn found no free slot and spawned nothing' } // prettier-ignore
       // From here the sprite is wherever the game put it.

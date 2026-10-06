@@ -139,9 +139,9 @@ Maps view, #566 PR B (`theia/extension/src/node/map-block-contents.ts`,
   (owner ruling 2026-10-06): the native composite is untouched; a display canvas over it shows the same
   picture at the zoom, with each indicator's block cell recomposed: its planes scaled by nearest sampling,
   its plane's indicators painted into the plane's copy, then stacked and put through color math as ever. A nearer plane or a sprite covers an
-  indicator exactly as it covers its block, and hiding a layer hides its indicators. No Contents toggle.
+  indicator exactly as it covers its block, and hiding a graphics layer hides its indicators. No Contents toggle.
 - Not drawn, with a plain-words note: a Yoshi-loose variant, a block whose item
-  graphics are not loaded in the level, a sprite the interpreter refuses or that draws
+  graphics are not loaded in this map, a sprite the interpreter refuses or that draws
   nothing in its first frames, a spawn or coin routine that is not the traced one.
 - Item art is the sprite run on the 65816 core, as the map's sprite layer does (#585), set up
   by the game's OWN block spawn (owner ruling 2026-10-06, the second bounded exception in

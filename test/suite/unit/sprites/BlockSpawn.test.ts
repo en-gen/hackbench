@@ -87,8 +87,6 @@ describe('the item block spawn', () => {
 
 describe('the dispatcher gate refuses a single changed byte', () => {
   const ENTRY = 0x0288dc
-  // The gate's free bytes: branch displacements and the JSL target (bank_02.asm:1097-1119).
-  const FREE = [5, 13, 17, 21, 26, 28, 32, 34, 35, 36, 39]
 
   it('refuses a flipped first opcode, with the reason', () => {
     const rom = buildSyntheticRom()
@@ -101,15 +99,37 @@ describe('the dispatcher gate refuses a single changed byte', () => {
     )
   })
 
-  it('refuses a change to any one fixed byte of the 41, and accepts a change to a free one', () => {
-    const refused: number[] = []
+  it('refuses a branch displacement that lands somewhere else, at offsets 13 and 39 and every other branch', () => {
+    for (const at of [5, 13, 17, 21, 26, 28, 32, 39]) {
+      const rom = buildSyntheticRom()
+      flip(rom, ENTRY + at)
+      const r = resolveBlockSpawn(rom)
+      expect(r.ok, `displacement at ${at}`).toBe(false)
+      expect(!r.ok && r.reason).toMatch(/branches somewhere/)
+    }
+  })
+
+  it('refuses a call that does not reach FindFreeSprSlot, or a FindFreeSprSlot that is not the one the game has', () => {
+    for (const at of [34, 35, 36]) {
+      const rom = buildSyntheticRom()
+      flip(rom, ENTRY + at)
+      const r = resolveBlockSpawn(rom)
+      expect(!r.ok && r.reason, `JSL operand byte ${at - 34}`).toMatch(/FindFreeSprSlot/)
+    }
+    const rom = buildSyntheticRom()
+    flip(rom, 0x02a9e4) // its own first opcode
+    expect(resolveBlockSpawn(rom)).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/FindFreeSprSlot/),
+    })
+  })
+
+  it('refuses a change to any one of the 41 bytes', () => {
     for (let i = 0; i < 41; i++) {
       const rom = buildSyntheticRom()
       flip(rom, ENTRY + i)
-      const r = resolveBlockSpawn(rom)
-      if (FREE.includes(i)) expect(r.ok, `free byte ${i}`).toBe(true)
-      else if (!r.ok) refused.push(i)
+      expect(resolveBlockSpawn(rom).ok, `byte ${i}`).toBe(false)
     }
-    expect(refused).toHaveLength(41 - FREE.length)
+    expect(resolveBlockSpawn(buildSyntheticRom()).ok).toBe(true)
   })
 })

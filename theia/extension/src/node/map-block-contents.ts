@@ -100,7 +100,7 @@ export type IndicatorModel = Pick<MapInputs, 'grid' | 'map16' | 'l2' | 'isVertic
 
 /** A refusal in the interpreter's or the placeholder's words, as plain words for the note. */
 export function plainWhy(reason: string): string {
-  if (reason === 'charsNotLoaded') return 'whose graphics are not loaded in this level'
+  if (reason === 'charsNotLoaded') return 'whose graphics are not loaded in this map'
   if (reason === 'noParts' || reason.startsWith('drew no') || reason.startsWith('INIT erased'))
     return 'whose item draws nothing in its first frames'
   if (reason.startsWith('refused')) return `whose sprite code was refused (${reason.slice(9)})`

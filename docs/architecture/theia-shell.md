@@ -162,7 +162,7 @@ holds one also has a display canvas (`data-layer="display"`) over it, which hide
 the same picture at the zoom (`IndicatorDisplay`, `browser/map-view-model.ts`): the native composite
 scaled up, with each indicator's block cell recomposed at the zoom, its planes scaled by nearest
 sampling, its plane's indicators painted into the plane's copy and the planes stacked and put through
-color math as ever. So hiding a layer hides its indicators, and a nearer plane or a sprite covers an
+color math as ever. So hiding a graphics layer hides its indicators, and a nearer plane or a sprite covers an
 indicator exactly as it covers its block. A hidden plane is left out of the plane set, not empty. A hover
 change recomposes only the cells it touches (about 2 ms at 3x on a screen with three blocks, measured in
 node), and the display is built once per screen and zoom. Screens with no indicator show the composite
