@@ -56,12 +56,15 @@ function gfx(file: number, tile: number, pixels: [number, number, number][]): Gf
     id: `gfx-${seq++}`,
     label: `GFX ${file} char ${tile}`,
     kind: 'gfx',
-    file,
-    tile,
-    pixels: pixels.map(([x, y, value]) => ({ x, y, value })),
+    chars: [{ file, tile, pixels: pixels.map(([x, y, value]) => ({ x, y, value })) }],
   }
 }
-const asEdit = (l: GfxLayer): GfxCharEdit => ({ file: l.file, tile: l.tile, pixels: l.pixels })
+/** The one character of a layer built by `gfx`. */
+const asEdit = (l: GfxLayer): GfxCharEdit => l.chars[0]!
+/** One layer holding several characters: what a Save sends. */
+function multi(...layers: GfxLayer[]): GfxLayer {
+  return { id: `multi-${seq++}`, label: 'multi', kind: 'gfx', chars: layers.flatMap(l => l.chars) }
+}
 
 /** A word write that changes nothing, at an address the synthetic ROM leaves zero:
  *  the smallest layer that still ends a gfx run. */
@@ -110,7 +113,9 @@ function oracle(base: Uint8Array, layers: readonly GfxLayer[]): Uint8Array {
   const rom = new RomFile('base.sfc', Buffer.from(base))
   const table = GfxTable.load(rom)
   for (const l of layers) {
-    for (const p of l.pixels) table.setPixel({ kind: 'gfxPixel', file: l.file, tile: l.tile, ...p })
+    for (const c of l.chars)
+      for (const p of c.pixels)
+        table.setPixel({ kind: 'gfxPixel', file: c.file, tile: c.tile, ...p })
   }
   const plan = planGfxSave(rom, table)
   if (plan.status !== 'ok') throw new Error(`oracle: ${plan.status}`)
@@ -483,7 +488,7 @@ describe('OpsStore persists a gfx layer', () => {
     try {
       appendLayer(dir, A)
       const text = fs.readFileSync(path.join(dir, 'ops', '0000.json'), 'utf8')
-      expect(text).toContain('\n    {"x":1,"y":0,"value":6},\n')
+      expect(text).toContain('\n        {"x":1,"y":0,"value":6},\n')
       expect(loadLayers(dir)).toEqual([A])
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
@@ -508,5 +513,115 @@ describe('OpsStore persists a gfx layer', () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('a gfx layer holding several characters', () => {
+  const base = romBytes()
+  const M = multi(A, C, B) // two files, three characters
+
+  it('folds to the bytes the oracle expects, and to the same bytes as one layer each', () => {
+    expect(sameBytes(build(base, [M]).bytes(), oracle(base, [A, C, B]))).toBe(true)
+    expect(sameBytes(build(base, [M]).bytes(), build(base, [A, C, B]).bytes())).toBe(true)
+  })
+
+  it('re-encodes each dirty file once', () => {
+    const { calls, encoder } = countingEncoder(base)
+    build(base, [M], encoder)
+    expect(calls.sort()).toEqual([2, 9])
+  })
+
+  it('undo removes every character at once, redo restores them', () => {
+    const w = build(base, [M])
+    const painted = w.bytes()
+    expect(sameBytes(painted, base)).toBe(false)
+    w.undo()
+    expect(sameBytes(w.bytes(), base)).toBe(true)
+    w.redo()
+    expect(sameBytes(w.bytes(), painted)).toBe(true)
+  })
+
+  it('undoes into the layer below when a run of gfx layers was restored whole', () => {
+    const w = new WorkingRom(base, false)
+    w.restore([A, M])
+    w.undo()
+    expect(sameBytes(w.bytes(), build(base, [A]).bytes())).toBe(true)
+  })
+
+  it('undoing a later layer refolds a restored multi-character run in full', () => {
+    const w = new WorkingRom(base, false)
+    w.restore([M, A])
+    const first = build(base, [M]).bytes()
+    const firstCharOnly = build(base, [
+      gfx(
+        2,
+        0,
+        A.chars[0]!.pixels.map(p => [p.x, p.y, p.value]),
+      ),
+    ])
+    expect(sameBytes(first, firstCharOnly.bytes())).toBe(false) // later characters matter
+    w.undo()
+    expect(sameBytes(w.bytes(), first)).toBe(true)
+  })
+
+  it('restore of a multi-character layer equals appending it', () => {
+    const w = new WorkingRom(base, false)
+    w.restore([M, noop(), M])
+    expect(sameBytes(w.bytes(), build(base, [M, noop(), M]).bytes())).toBe(true)
+    const r = new WorkingRom(base, false)
+    r.restore([M])
+    expect(sameBytes(r.bytes(), build(base, [M]).bytes())).toBe(true)
+    expect(sameBytes(r.bytes(), oracle(base, [A, C, B]))).toBe(true) // every character landed
+  })
+
+  it('round trips on disk, one character after another', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-gfxmulti-'))
+    try {
+      appendLayer(dir, M)
+      expect(loadLayers(dir)).toEqual([M])
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('reads the first, single-character file form as a one-element chars list', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-gfxold-'))
+    try {
+      fs.mkdirSync(path.join(dir, 'ops'))
+      const old = { id: 'o', label: 'o', kind: 'gfx', file: 2, tile: 1, pixels: B.chars[0]!.pixels }
+      fs.writeFileSync(path.join(dir, 'ops', '0000.json'), JSON.stringify(old))
+      expect(loadLayers(dir)).toEqual([{ id: 'o', label: 'o', kind: 'gfx', chars: B.chars }])
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    ['an empty chars list', { chars: [] }],
+    ['one character with no pixels', { chars: [{ file: 2, tile: 0, pixels: [] }] }],
+    [
+      'one good character and one with a fractional tile',
+      { chars: [...A.chars, { file: 2, tile: 0.5, pixels: B.chars[0]!.pixels }] },
+    ],
+  ])('refuses %s whole', (_n, body) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-gfxbad-'))
+    try {
+      fs.mkdirSync(path.join(dir, 'ops'))
+      fs.writeFileSync(
+        path.join(dir, 'ops', '0000.json'),
+        JSON.stringify({ id: 'x', label: 'x', kind: 'gfx', ...body }),
+      )
+      expect(() => loadLayers(dir)).toThrow(/gfx layer/)
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('a layer whose second character cannot be placed refuses and leaves the stack', () => {
+    const w = build(base, [A])
+    const before = w.bytes()
+    expect(() => w.append(multi(B, gfx(2, 99, [[0, 0, 1]])))).toThrow(GfxRefusal)
+    expect(w.stack).toEqual([A])
+    expect(w.bytes()).toBe(before)
   })
 })

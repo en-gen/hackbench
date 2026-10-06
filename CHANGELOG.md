@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- 65816 core: emulation-mode `(dp,X)` and JSR (a,X) follow Clark and Snes9x, WAI and STP halt `step()`, WDM makes no read, and setting `e` applies the XCE invariant. The SingleStep harness gains planted-defect proofs and a named list of disputed vectors; CI now pins its edge cases and the SingleStep harness's own checks with synthetic tests (#646).
+- The GFX view paints: pick a palette color, click or drag on a tile sheet, and the pixel changes
+  at once. Strokes can be undone and redone before Save; Save records them as one undoable op
+  layer (any number of 8x8 characters) and never writes the base ROM. Closing the view with
+  unsaved strokes asks first (#558). A gfx layer file now holds a `chars` list; the older
+  one-character form still reads.
 - The map view toolbar warns when the open level's mode is on an unverified list, which holds
   mode 1E only (sprite layering not verified, #617). Rendering is unchanged (#618).
 - The map view composites the main and sub screens for every level mode, with SNES color math:
@@ -167,6 +173,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `npm run gitnexus` no longer rewrites CLAUDE.md and AGENTS.md (`.gitnexusrc` and `--skip-agents-md`), so parallel worktrees stop conflicting on the generated counts, which are removed from the marked region (#644).
 - "Show surfaces" editor overlay now consumes the shared `SurfacePath`
   module — same source of truth as the sprite-patrol scan. Both views
   agree on silhouette suppression, slope vs flat classification, and

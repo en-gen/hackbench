@@ -120,3 +120,42 @@
 .hb-gfx-view-error {
   color: var(--theia-errorForeground);
 }
+
+/* ── GFX painter ────────────────────────────────────────────────────────── */
+
+.hb-gfx-swatches {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.2em;
+  align-items: center;
+}
+
+/* Index 0 paints transparent, so its swatch shows the empty checker rather
+ * than a color the sheet would not show. */
+.hb-gfx-swatch {
+  width: 1.2em;
+  height: 1.2em;
+  padding: 0;
+  border: 1px solid var(--theia-input-border, var(--theia-descriptionForeground));
+  background: repeating-conic-gradient(#8884 0 25%, transparent 0 50%) 0 0 / 0.6em 0.6em;
+  cursor: pointer;
+}
+
+.hb-gfx-swatch[aria-pressed='true'] {
+  border-color: var(--theia-contrastActiveBorder, var(--theia-foreground, #e0e0e0));
+}
+
+.hb-gfx-swatch:focus-visible {
+  outline: 2px solid var(--theia-focusBorder, #5b9cf6);
+  outline-offset: 1px;
+}
+
+.hb-gfx-paintable {
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.hb-gfx-view-notice {
+  padding: 0.2em 0.6em;
+  color: var(--theia-descriptionForeground);
+}
