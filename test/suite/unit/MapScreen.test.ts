@@ -94,7 +94,6 @@ import {
 } from '../support/mapInputs'
 import {
   cellDef,
-  cellSwitchArt,
   drawL1Planes,
   screenTiles,
   L1ModelCache,
@@ -351,6 +350,24 @@ describe('L1 priority planes (synthetic)', () => {
     const p = drawL1Planes(i, 0)
     expect(px(p.l1High!, 256, 5, 1)).toEqual([7, 100, 200, 255])
     expect(p.l1Low).toBeNull()
+  })
+
+  it('a pipe variant set is chosen per screen: the ghost shows only on the screen that picks its set', () => {
+    const id = PIPE_VARIANT_TILE_START
+    const anim = { frameCount: 1, intervalMs: 100, frames: [[BLUE_SLOT, ONOFF_SLOT]] }
+    for (let k = 0; k < 4; k++) {
+      const i = inputs(hGrid(4), false, 4)
+      // Only set k's variant is hidden (char 5, blue); the other sets draw blank.
+      i.map16.pipeVariants = [0, 1, 2, 3].map(j => [tile(id, [5, 5, 5, 5].map(c => prio(sub(j === k ? c : 0))))]) // prettier-ignore
+      i.variantSwitchArt = i.map16.pipeVariants.map(set => switchArtOf(anim, set, VRAM, { colors: COLORS })) // prettier-ignore
+      for (let s = 0; s < 4; s++) i.grid[0]![s * 16] = id
+      for (let s = 0; s < 4; s++) {
+        // Strip counter s*16: bank_05.asm:119-124, (counter >> 3 & 6) >> 1, written out here.
+        const picked = (((s * 16) >> 3) & 6) >> 1
+        const p = drawL1Planes(i, s)
+        expect(p.l1High !== null, `set ${k} screen ${s}`).toBe(picked === k)
+      }
+    }
   })
 
   it('a hidden tile keeps its screen door in the plane it belongs to', () => {
@@ -857,6 +874,32 @@ describe('assembleL1Inputs (synthetic)', () => {
     expect(r.switchArt.get(6)!.off[3]).toBe(255)
   })
 
+  it('builds pipe variant switch art per set, not from the base entries', () => {
+    const blank = () => new Uint8Array(64)
+    const lit = () => new Uint8Array(64).fill(1)
+    const switched = { charBase: 0x10, tiles: [0, 1, 2, 3].map(blank), alt: { switch: 'blue' as const, tiles: [0, 1, 2, 3].map(lit) } } // prettier-ignore
+    const id = PIPE_VARIANT_TILE_START
+    const empty = () => tile(0, [sub(0), sub(0), sub(0), sub(0)])
+    const tiles = Array.from({ length: id + PIPE_VARIANT_TILE_COUNT }, (_, i) => ({ ...empty(), id: i })) // prettier-ignore
+    const sets = [0, 1, 2, 3].map(k =>
+      Array.from(
+        { length: PIPE_VARIANT_TILE_COUNT },
+        (_, j) =>
+        j === 0 && k === 2 ? tile(id, [sub(0x10), sub(0x11), sub(0x12), sub(0x13)]) : tile(id + j, [sub(0), sub(0), sub(0), sub(0)]), // prettier-ignore
+      ),
+    )
+    const r = assembleL1Inputs(
+      readings({
+        rawVram: { fg1: Array.from({ length: 0x20 }, blank) },
+        stockAnim: { ok: true, data: { frameCount: 1, intervalMs: 100, frames: [[switched]] } },
+        exAnim: null,
+        map16: { tiles, pipeVariants: sets },
+      }),
+    )
+    expect(r.switchArt.has(id)).toBe(false) // the base entry cites no switch char
+    expect(r.variantSwitchArt.map(m => m.has(id))).toEqual([false, false, true, false])
+  })
+
   it('counts screens from the header, not the grid', () => {
     expect(assembleL1Inputs(readings()).screenCount).toBe(2)
   })
@@ -984,7 +1027,8 @@ function wholeCellScreen(model: L1Inputs, screen: number): Uint8ClampedArray {
       const def = id === undefined ? undefined : cellDef(model, id, screen)
       if (!def) continue
       const cell = renderMap16Tile(def, model.vram, { colors: model.colors })
-      const art = cellSwitchArt(model, id, screen)
+      // Independent of the model's art maps: one tile's art, from its own chars.
+      const art = model.anim && switchArtOf(model.anim, [def], model.vram, { colors: model.colors }).get(def.id) // prettier-ignore
       const ghost = art && ghostOf(cell, art.off, art.alts, c => c.rgba)
       if (ghost) overlayHidden(cell, 16, 0, 0, ghost)
       for (let py = 0; py < 16; py++)
@@ -1007,9 +1051,7 @@ function referencePlanes(model: L1Inputs, screen: number, whole: Uint8ClampedArr
       const id = model.grid[y0 + y]?.[x0 + x]
       const def = id === undefined ? undefined : cellDef(model, id, screen)
       if (!def) continue
-      // A switch tile's screen door is its Map16 entry's art.
-      const owner = def
-      const subs = [owner.tl, owner.tr, owner.bl, owner.br]
+      const subs = [def.tl, def.tr, def.bl, def.br]
       for (let q = 0; q < 4; q++) {
         const dest = subs[q]!.priority ? out.high : out.low
         for (let py = 0; py < 8; py++) {

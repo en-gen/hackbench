@@ -60,26 +60,23 @@ export function screenTiles(isVertical: boolean): { w: number; h: number } {
  * MAP16AppTable picks by the strip counter (bank_05.asm:119-124), one per
  * screen since a screen is 16 strips.
  */
-export function cellDef(model: L1Inputs, id: number, screen: number): Map16Tile | undefined {
-  const pipe = id - PIPE_VARIANT_TILE_START
-  const sets = model.map16.pipeVariants
-  if (pipe >= 0 && pipe < PIPE_VARIANT_TILE_COUNT && sets.length > 0) {
-    return sets[pipeVariantIndex(screen * 16)]?.[pipe]
-  }
-  return model.map16.tiles[id]
-}
-
-/** The switch art of the tile `cellDef` returns: a pipe variant has its own, though it shares its base id (#494). */
-export function cellSwitchArt(
+export function cellOf(
   model: L1Inputs,
   id: number,
   screen: number,
-): TileSwitchArt | undefined {
+): { def?: Map16Tile; art?: TileSwitchArt } {
   const pipe = id - PIPE_VARIANT_TILE_START
-  if (pipe >= 0 && pipe < PIPE_VARIANT_TILE_COUNT && model.map16.pipeVariants.length > 0)
-    return model.variantSwitchArt[pipeVariantIndex(screen * 16)]?.get(id)
-  return model.switchArt.get(id)
+  const sets = model.map16.pipeVariants
+  if (pipe >= 0 && pipe < PIPE_VARIANT_TILE_COUNT && sets.length > 0) {
+    // A variant shares its base id, so its switch art is its own set's, never `switchArt`'s (#494).
+    const k = pipeVariantIndex(screen * 16)
+    return { def: sets[k]?.[pipe], art: model.variantSwitchArt[k]?.get(id) }
+  }
+  return { def: model.map16.tiles[id], art: model.switchArt.get(id) }
 }
+
+export const cellDef = (model: L1Inputs, id: number, screen: number) =>
+  cellOf(model, id, screen).def
 
 export const SWITCHES_OFF: SwitchStateDto = { blue: false, silver: false, onOff: false }
 
@@ -88,7 +85,7 @@ type Plane = Uint8ClampedArray | null
 export type L1Planes = Record<'l1Low' | 'l1High', Plane>
 export type L2Planes = Record<'l2Low' | 'l2High', Plane>
 
-/** One cell as drawn, and the Map16 entry whose subtile priorities route its quadrants. */
+/** One cell as drawn, and the tile (the cell's own, variant included) whose subtile priorities route its quadrants. */
 interface DrawnCell {
   rgba: Uint8ClampedArray
   owner: Map16Tile
@@ -156,8 +153,8 @@ function vramFor(model: L1Inputs, switches: SwitchStateDto) {
 /**
  * L1 (foreground) of one screen: each cell drawn with the switches that are
  * on, blank cells given `ghostOf`'s screen door (both ways, #621). The screen
- * door is the hidden tile's art, so the hidden tile's own priority bits route
- * it, not those of the blank cell drawn in its place.
+ * door is the cell's own tile art (a pipe variant's, not its base's, #494), so
+ * that tile's priority bits route it.
  */
 export function drawL1Planes(
   model: L1Inputs,
@@ -174,10 +171,9 @@ export function drawL1Planes(
     (x, y) => {
       const id = model.grid[y]?.[x]
       if (id === undefined) return undefined
-      const def = cellDef(model, id, screen)
+      const { def, art } = cellOf(model, id, screen)
       if (!def) return undefined
       const rgba = renderMap16Tile(def, vram, palette)
-      const art = cellSwitchArt(model, id, screen)
       const ghost = art && ghostOf(rgba, art.off, art.alts, c => c.rgba)
       if (ghost) overlayHidden(rgba, 16, 0, 0, ghost)
       return { rgba, owner: def }
