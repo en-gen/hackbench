@@ -178,6 +178,15 @@ const diff = (a: Uint8ClampedArray, b: Uint8ClampedArray) => { let n = 0; for (l
 const d4 = diff(coin16, gfx.C4a!); console.log(`differs coin vs C4a: ${d4} pixels`)
 if (d4 < 15 || d4 > 25) throw new Error('C4a is not the coin plus the plus mark')
 if (diff(coin16, gfx.C4b!) !== 0) throw new Error('C4b base is not the unchanged coin')
+// The coin must sit exactly where the D4 single coin does: 0 differing pixels outside the "+" footprint (7x7 at 9,9).
+const coinDiff = (g: Uint8ClampedArray) => { let n = 0; for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { if (x >= 9 && y >= 9) continue; const i = (y * 16 + x) * 4; for (let k = 0; k < 4; k++) if (g[i + k] !== coin16[i + k]) { n++; break } } return n }
+{
+  const shifted = new Uint8ClampedArray(coin16.length) // the coin moved 1px right, as a planted defect
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 15; x++) shifted.set(coin16.subarray((y * 16 + x) * 4, (y * 16 + x) * 4 + 4), (y * 16 + x + 1) * 4)
+  if (coinDiff(shifted) === 0) throw new Error('coin-position check did not fail on a 1px offset')
+  console.log(`planted 1px coin offset: ${coinDiff(shifted)} differing pixels outside the footprint, rejected`)
+}
+for (const k of ['C4a', 'C4b']) { const n = coinDiff(gfx[k]!); console.log(`${n === 0 ? 'OK ' : 'BAD'} ${k}: coin pixels differing from the D4 single coin outside the "+" footprint: ${n}`); if (n) throw new Error(k + ' coin moved') }
 
 // ---- tiles
 const win: number[][] = []

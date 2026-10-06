@@ -98,7 +98,7 @@ The probe checks by numbers and fails the run on a bad graphic. C4a (16x16):
 (9,9)-(15,15) in the box's bottom-right corner, 23 pixels differ from the plain
 coin. The check requires all 9 white "+" pixels visible. C4b: base identical to
 the plain coin (132 opaque, 0 differing), overlay 7x7 with 9 white and 16 edge
-pixels. The check goes red on a blank canvas, a C4a with the "+" hidden and a
+pixels. The coin is not moved or scaled: 0 pixels of C4a and C4b differ from the D4 single-coin graphic outside the "+" footprint (7x7 at 9,9), and a planted 1px coin offset makes that check go red. The check goes red on a blank canvas, a C4a with the "+" hidden and a
 C4a with 3 white pixels hidden (all three rejected before the real run). The
 canvas is drawn into the 8x8 quadrant by CSS, so "inside the quadrant" means
 every opaque pixel is inside the canvas. A browser pass over the generated
