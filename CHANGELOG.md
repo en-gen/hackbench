@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The map view composites the main and sub screens for every level mode, with SNES color math:
+  Layer 3 translucency, and halving and additive blends. Per mode, the main and sub screen
+  planes and CGADSUB come from the ROM's tables (`LevMainScrnTbl`, `LevSubScrnTbl`,
+  `LevCGADSUBtable`, bank_05.asm:485-499), and the fixed color from `CODE_00AE47`
+  (bank_00.asm:5867-5885). Layer 3 now draws on 22 vanilla slots, up from 8 (#598). The halving
+  rule is from snes9x and bsnes source reads (GitHub master, 2026-10-05), with no hardware run.
+- Level mode 0C renders from its own table entry, CGADSUB $70 (bank_05.asm:497, add and half), so
+  Layer 2 shows halved there where Layer 1 and Layer 3 are empty (#598). Derived from the table, not
+  a capture.
+- A reused map tab clears its composite canvas on open, so it no longer shows the previous map
+  while the next one loads (#604).
 - The map view has a grid toggle (table icon, "Show grid", off by default; command
   `hackbench.maps.toggleGrid`): a thin line on every 16x16 tile, a medium one where a screen's
   top and bottom halves meet (row 16; column 16 in vertical maps), a thick one on screen
