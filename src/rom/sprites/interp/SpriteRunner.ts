@@ -7,9 +7,11 @@
  * cart's bytes do; the only inputs are the seed (SpriteSeed.ts) and the ROM.
  * See docs/ideas/sprite-gfx-interpreter.md for measurements.
  */
-import { Cpu65816 } from '../../cpu/Cpu65816'
+import type { Cpu65816 } from '../../cpu/Cpu65816'
+import { callSubroutine, describe } from '../../cpu/call'
 import type { RomFile } from '../../RomFile'
-import { guardInstruction, Refusal } from './Guards'
+import { mapperProblem, Refusal } from './Guards'
+import { smwMachine } from './Machine'
 import {
   checkGetRand,
   checkInitTables,
@@ -18,7 +20,7 @@ import {
   resolvePointer,
   resolveTables,
 } from './SpriteDispatch'
-import { SpriteBus } from './SpriteBus'
+import type { SpriteBus } from './SpriteBus'
 import { SPRITE_SEED, withSeed, type SpriteSeed } from './SpriteSeed'
 
 /** SMWDisX rammap.asm names, offsets into WRAM. */
@@ -74,8 +76,6 @@ const STEP_BUDGET = 200_000
 export const TOTAL_STEP_CAP = 1_000_000
 /** INIT retries allowed while the routine leaves status 1. */
 const MAX_INIT_FRAMES = 64
-/** Return address pushed under each call; the call is done when it is popped. */
-const SENTINEL = 0xff00
 
 export interface SpritePart {
   /** Entry in the OAM mirror, 0-127 ($0200 page first, then $0300). */
@@ -179,15 +179,9 @@ export class Machine {
     readonly seed: SpriteSeed,
     id: number,
   ) {
-    this.bus = new SpriteBus(rom)
-    this.cpu = new Cpu65816(this.bus)
-    const cpu = this.cpu
-    cpu.e = false
-    cpu.p = 0x34 // native, 8-bit M and X, IRQ off
-    cpu.s = 0x1ff
-    cpu.d = 0
-    cpu.db = 0
-    this.bus.onInstruction = guardInstruction
+    const m = smwMachine(rom)
+    this.bus = m.bus
+    this.cpu = m.cpu
     this.bus.onWramWrite = off => {
       this.touched.add(off)
       if (off === RAM.paletteIndexTable) this.modeWritten = true
@@ -325,29 +319,18 @@ export class Machine {
     w[RAM.status + n] = 1
   }
 
-  /** Runs a routine to its return; throws Refusal on a bad op, escape or budget. */
+  /** Runs a routine to its return, from the native reset state with X = the slot; throws Refusal on a bad op, escape, unbalanced return or budget. */
   call(entry: number, kind: 'jsr' | 'jsl'): void {
-    const cpu = this.cpu
-    cpu.x = this.seed.slot
-    const s0 = cpu.s
-    const wr = (v: number) => {
-      this.bus.write(cpu.s, v)
-      cpu.s = (cpu.s - 1) & 0xffff
-    }
-    if (kind === 'jsl') wr(0x00)
-    wr((SENTINEL - 1) >> 8)
-    wr((SENTINEL - 1) & 0xff)
-    cpu.pb = entry >>> 16
-    cpu.pc = entry & 0xffff
     const left = TOTAL_STEP_CAP - this.steps
-    if (left <= 0) throw new Refusal(`total step cap of ${TOTAL_STEP_CAP} spent across INIT and MAIN; the sprite does not settle`) // prettier-ignore
+    const capMsg = `total step cap of ${TOTAL_STEP_CAP} spent across INIT and MAIN; the sprite does not settle`
+    if (left <= 0) throw new Refusal(capMsg)
     const room = Math.min(STEP_BUDGET, left)
-    for (let i = 0; i < room; i++) {
-      cpu.step()
-      this.steps++
-      if (cpu.s === s0 && cpu.pc === SENTINEL) return
-    }
-    throw new Refusal(room < STEP_BUDGET ? `total step cap of ${TOTAL_STEP_CAP} spent across INIT and MAIN; the sprite does not settle` : `step budget of ${STEP_BUDGET} spent; the routine waits on state the seed lacks`) // prettier-ignore
+    const r = callSubroutine(this.cpu, entry, { kind, maxSteps: room, regs: { x: this.seed.slot } })
+    this.steps += r.steps
+    if (r.kind === 'returned') return
+    throw new Refusal(
+      r.kind === 'budget' && room < STEP_BUDGET ? capMsg : describe(r, STEP_BUDGET)!,
+    )
   }
 
   pos(): { x: number; y: number } {
@@ -441,6 +424,8 @@ export function runOnce(
     seedSource: seed.loaded ? 'rom-level-load' : 'generic',
     ...(seed.loaded ? {} : { seedReason: seed.loadRefusal ?? 'no level image was given' }),
   }
+  const mapper = mapperProblem(rom)
+  if (mapper) return { ...model, refusal: mapper }
   const loop = resolveLoop(rom)
   if (!loop.ok) return { ...model, refusal: loop.reason }
   const tables = resolveTables(rom, loop.handle)

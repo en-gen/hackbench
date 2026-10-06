@@ -21,44 +21,22 @@
  * Evidence scope: vanilla, one level at a time; exercised by the grader in
  * test/suite/unit/sprites/spriteGrade.captures.test.ts.
  */
-import { Cpu65816 } from '../../cpu/Cpu65816'
+import { callSubroutine, describe, type CallResult } from '../../cpu/call'
 import type { RomFile } from '../../RomFile'
-import { bytesAt, guardInstruction, Refusal, shapeMatches } from './Guards'
-import { SpriteBus } from './SpriteBus'
+import { bytesAt, mapperProblem, Refusal, shapeMatches } from './Guards'
+import { smwMachine } from './Machine'
 import { withSeed, type SeedOverride, type SpriteSeed } from './SpriteSeed'
 
-const BUDGET = 5_000_000
-const SENTINEL = 0xff00
+/**
+ * Instruction cap for the whole load (all three calls). The loader runs on the
+ * Theia RPC thread (map-sprites.ts), so a ROM that passes the shapes and loops
+ * must be refused quickly. Vanilla's worst level over all 512 level numbers is
+ * 276,655 steps (one machine, 2026-10-06), so this is ~7x headroom.
+ */
+export const LOADER_TOTAL_CAP = 2_000_000
 
 export type LevelLoad =
   { ok: true; wram: Uint8Array; steps: number } | { ok: false; reason: string }
-
-/** Runs a routine to its return on `cpu`; false when the step budget ran out. */
-function call(
-  cpu: Cpu65816,
-  bus: SpriteBus,
-  entry: number,
-  kind: 'jsr' | 'jsl',
-  phb = false,
-): number {
-  const push = (v: number) => {
-    bus.write(cpu.s, v)
-    cpu.s = (cpu.s - 1) & 0xffff
-  }
-  // CODE_05D8B7 is entered mid-routine, after CODE_05D796's PHB; its PLB needs that byte.
-  const s0 = cpu.s
-  if (kind === 'jsl') push(0x00)
-  push((SENTINEL - 1) >> 8)
-  push((SENTINEL - 1) & 0xff)
-  if (phb) push(cpu.db)
-  cpu.pb = entry >>> 16
-  cpu.pc = entry & 0xffff
-  for (let i = 0; i < BUDGET; i++) {
-    cpu.step()
-    if (cpu.s === s0 && cpu.pc === SENTINEL) return i
-  }
-  return -1
-}
 
 /** The vanilla shapes the loader relies on; `null` matches any byte. */
 const SHAPES: { name: string; at: number; want: (number | null)[] }[] = [
@@ -87,6 +65,8 @@ const SHAPES: { name: string; at: number; want: (number | null)[] }[] = [
 
 /** The first loader entry whose bytes differ from the shape this loader knows, or null. */
 export function loaderShapeProblem(rom: RomFile): string | null {
+  const mapper = mapperProblem(rom)
+  if (mapper) return mapper
   for (const s of SHAPES)
     if (!shapeMatches(bytesAt(rom, s.at, s.want.length), s.want))
       return `${s.name} is not the vanilla shape; the loader will not run it`
@@ -101,12 +81,7 @@ export function loaderShapeProblem(rom: RomFile): string | null {
 export function loadLevelState(rom: RomFile, level: number): LevelLoad {
   const problem = loaderShapeProblem(rom)
   if (problem) return { ok: false, reason: problem }
-  const bus = new SpriteBus(rom)
-  bus.onInstruction = guardInstruction
-  const cpu = new Cpu65816(bus)
-  cpu.e = false
-  cpu.p = 0x34
-  cpu.s = 0x1ff
+  const { bus, cpu } = smwMachine(rom)
   const w = bus.wram
   // SublevelCount ($141A) nonzero is a sublevel entry: it skips the
   // overworld-only intro branches that would overwrite the sprite memory setting.
@@ -114,23 +89,28 @@ export function loadLevelState(rom: RomFile, level: number): LevelLoad {
   w[0x0e] = level & 0xff
   w[0x0f] = (level >> 8) & 0xff
   let steps = 0
+  const run = (name: string, entry: number, kind: 'jsr' | 'jsl', db: number, extra?: number[]) => {
+    const room = LOADER_TOTAL_CAP - steps
+    const r: CallResult =
+      room > 0
+        ? callSubroutine(cpu, entry, { kind, maxSteps: room, regs: { db }, extra })
+        : { kind: 'budget', steps: 0 }
+    steps += r.steps
+    if (r.kind === 'returned') return null
+    if (r.kind === 'budget') return `${name} did not return within the loader's total of ${LOADER_TOTAL_CAP} steps` // prettier-ignore
+    return describe(r, LOADER_TOTAL_CAP)
+  }
   try {
-    cpu.db = 0x05
-    let n = call(cpu, bus, 0x05d8b7, 'jsl', true)
-    if (n < 0) return { ok: false, reason: 'level pointer loader did not return' }
-    steps += n
+    // CODE_05D8B7 is entered mid-routine, after CODE_05D796's PHB; its PLB needs that byte.
     // GM11 (bank_00.asm:2636-2657) runs CODE_00A635 between the two: it clears
     // the per-level timers and sets Mario's entrance state ($71, $76) from the
-    // entrance type the header loader just read.
-    cpu.db = 0x00
-    n = call(cpu, bus, 0x00a635, 'jsr')
-    if (n < 0) return { ok: false, reason: 'Mario entrance setup did not return' }
-    steps += n
-    // CODE_05801E ends with PLP, RTL; it saves its own DB use via the JSL caller.
-    cpu.db = 0x05
-    n = call(cpu, bus, 0x05801e, 'jsl')
-    if (n < 0) return { ok: false, reason: 'level data loader did not return' }
-    steps += n
+    // entrance type the header loader just read. CODE_05801E ends with PLP, RTL;
+    // it saves its own DB use via the JSL caller.
+    const bad =
+      run('level pointer loader', 0x05d8b7, 'jsl', 0x05, [0x05]) ??
+      run('Mario entrance setup', 0x00a635, 'jsr', 0x00) ??
+      run('level data loader', 0x05801e, 'jsl', 0x05)
+    if (bad) return { ok: false, reason: bad }
   } catch (e) {
     if (e instanceof Refusal) return { ok: false, reason: e.message }
     throw e
