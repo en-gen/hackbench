@@ -136,6 +136,11 @@ export interface Cursor {
   switchFlags: SwitchFlags
   /** Set by a caller that takes the interpreter's word for gated handlers (#342). */
   draw?: InterpretedDraw | null
+  /**
+   * True when the grid is a vertical level's (32 wide, 16 rows per screen).
+   * Only handlers that address raw Map16 buffer offsets need it (ext $5F, #362).
+   */
+  vertical: boolean
 }
 
 export function makeCursor(
@@ -149,6 +154,7 @@ export function makeCursor(
   owners: OwnerGrid | null = null,
   owner: number = OWNER_NONE,
   switchFlags: SwitchFlags = SWITCH_FLAGS_UNCLEARED,
+  vertical = false,
 ): Cursor {
   return {
     grid,
@@ -165,6 +171,7 @@ export function makeCursor(
     owners,
     owner,
     switchFlags,
+    vertical,
   }
 }
 

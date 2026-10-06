@@ -21,6 +21,7 @@ import {
   readLongOperand,
   readGatedLongOperand,
   readImmByte,
+  MAP16_BYTES_PER_SCREEN_H,
 } from './cursor'
 
 /**
@@ -876,13 +877,51 @@ export function handle_0DDA57(cur: Cursor): void {
 
 /**
  * ADDR_0DE971 (bank_0D.asm line 7637) -- cave background fill (ext $5F).
- * ASM fills 4×256 WRAM positions with tile $77 starting at Map16LowPtr[0],
- * ignoring LevelLoadPos entirely. We approximate by filling the entire grid.
+ *
+ * Writes page-0 tile $77 over 4 x 256 consecutive Map16 bytes from
+ * Map16LowPtr with Y = 0, so LevelLoadPos is ignored (bank_0D.asm:7640-7652).
+ * The pointer is the object's screen base from the LoadBlkPtrs tables, plus
+ * $100 when the high-coordinate bit is set (bank_05.asm:730-782). The tables
+ * stride $1B0 per horizontal screen (bank_00.asm:6763 onward for BAD8) and
+ * $200 per vertical screen (DATA_00BBEC, used by every VerticalTable bit-0
+ * mode, bank_00.asm:7000-7015); a vertical screen is the left $100 (cols
+ * 0-15) then the right $100 (cols 16-31), 16 rows each (docs/architecture/screens.md).
+ * The run walks on across screens; cells outside the grid are not drawn.
+ * Screens 14 and up in vertical modes 3/4 use a different stride in the ROM
+ * (BB62) and are not modelled. Evidence: SMWDisX trace only (#362).
  */
 export function handle_0DE971(cur: Cursor): void {
-  for (const row of cur.grid) {
-    if (row) row.fill(0x77)
+  const RUN = 0x400
+  const { grid, vertical } = cur
+  let offset: number
+  if (vertical) {
+    offset = (cur.row >> 4) * 0x200 + (cur.col >> 4) * 0x100
+  } else {
+    offset = (cur.col >> 4) * MAP16_BYTES_PER_SCREEN_H + (cur.row >> 4) * 0x100
   }
+  const col0 = cur.col
+  const row0 = cur.row
+  setPage0(cur)
+  for (let i = 0; i < RUN; i++, offset++) {
+    let r: number
+    let c: number
+    if (vertical) {
+      r = (offset >> 9) * 16 + ((offset >> 4) & 15)
+      c = ((offset >> 8) & 1) * 16 + (offset & 15)
+    } else {
+      const screen = Math.floor(offset / MAP16_BYTES_PER_SCREEN_H)
+      const within = offset - screen * MAP16_BYTES_PER_SCREEN_H
+      r = within >> 4
+      c = screen * 16 + (within & 15)
+    }
+    const row = grid[r]
+    if (!row || c >= row.length) continue
+    cur.row = r
+    cur.col = c
+    writeTile(cur, 0x77)
+  }
+  cur.col = col0
+  cur.row = row0
 }
 
 /**
