@@ -311,9 +311,9 @@ export class WorkingRomRegistry {
   /**
    * The disk half of an edit whose layer `append` has already put on the
    * stack. `append` ended the redo future in memory; this does the same on
-   * disk BEFORE the layer is committed (staged write, clear, rename), so a failure leaves the two agreeing (a disk redo
-   * the working copy no longer knows about would come back on the next
-   * launch). On failure the layer is popped straight back off: an edit live
+   * disk BEFORE the layer is committed (staged write, clear, rename), so a
+   * failure leaves the two agreeing (a disk redo the working copy no longer
+   * knows about would come back on the next launch). On failure the layer is popped straight back off: an edit live
    * in memory but never on disk would show as committed, then be gone on
    * reopen.
    */
