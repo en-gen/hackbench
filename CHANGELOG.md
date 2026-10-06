@@ -99,6 +99,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Opening another project closes the previous project's GFX, Map16 and map views, so
+  Ctrl+Z in a leftover view no longer undoes the new project's layer. A view with
+  unsaved strokes asks first, and cancelling keeps the old project open (#628).
 - A `setWord` or GFX Save whose layer file write fails after an undo now keeps the redo
   history, in memory and on disk, and the held working copy; a failure after the redo
   clear still loses it, as before. Synthetic fault tests, no ROM (#634).

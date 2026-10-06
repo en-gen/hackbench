@@ -46,6 +46,7 @@ import { WheelBinding, ZoomController } from './zoom-controller'
 import { ZoomStepper } from './zoom-stepper'
 import { GridOverlay } from './grid-overlay'
 import { perfEnd, perfStart } from '../common/perf-marks'
+import { ProjectBound } from './project-bound'
 
 export const GFX_VIEW_ID = 'hackbench.gfx-view'
 /**
@@ -108,12 +109,21 @@ function decodeRgba(base64: string): Uint8ClampedArray {
 }
 
 @injectable()
-export class GfxViewWidget extends ReactWidget implements SaveableSource, StrokeHistory {
+export class GfxViewWidget
+  extends ReactWidget
+  implements SaveableSource, StrokeHistory, ProjectBound
+{
   @inject(GfxService) protected readonly gfx!: GfxService
   @inject(GfxFrontendClient) protected readonly pushClient!: GfxFrontendClient
   @inject(ThemeService) protected readonly themes!: ThemeService
 
   protected options: GfxViewOptions | undefined
+
+  readonly projectBound = true as const
+  /** Closed by the shell when another project opens (#628). */
+  get manifestPath(): string | undefined {
+    return this.options?.manifestPath
+  }
   protected sheet: GfxSheetDto | undefined
   protected error: string | undefined
   /** User overrides; undefined defers to whatever the loader itself reports. */

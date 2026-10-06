@@ -252,6 +252,15 @@ export class MapExplorerWidget extends TreeWidget {
    */
   async load(manifestPath: string): Promise<void> {
     const generation = ++this.loadGeneration
+    // Another project's rows must not stay clickable while this one loads:
+    // a click would open a map bound to the new project with the old index.
+    if (manifestPath !== this.manifestPath) {
+      this.manifestPath = ''
+      // Theia carries selection ids across a root change (see restoreSelectionAndExpansion),
+      // so a same-named group in the new project would inherit the old selection.
+      this.model.clearSelection()
+      this.setRoot([])
+    }
     let result
     try {
       result = await this.projects.loadMaps(manifestPath)
