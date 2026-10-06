@@ -72,12 +72,21 @@ export class ProjectServiceImpl implements ProjectService {
   private readonly screens = new L1ModelCache()
 
   private romNotifier: RomChangedNotifier | undefined
+  private unwatchCopies: (() => void) | undefined
 
   setClient(client: ProjectServiceClient | undefined): void {
     this.notifier.setClient(client)
     // The one place a ROM swap leaves the node side (#576).
     this.romNotifier ??= new RomChangedNotifier(this.workingRoms)
     this.romNotifier.setClient(client)
+    // Every working copy, whichever service asked for it: an edit made through
+    // the palette or Map16 service reaches this connection's client too.
+    this.unwatchCopies?.()
+    this.unwatchCopies = client
+      ? this.workingRoms.onWorkingCopy((manifestPath, working) =>
+          this.notifier.watch(manifestPath, working),
+        )
+      : undefined
   }
 
   async createProject(req: CreateProjectRequest): Promise<ProjectDto> {
@@ -121,8 +130,6 @@ export class ProjectServiceImpl implements ProjectService {
   ): Promise<MapScreenResult> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
-    // An edit made in any view must repaint an open map.
-    this.notifier.watch(manifestPath, r.working)
     return mapScreen(this.screens, r.working.bytes(), r.romPath, index, screen, switchFlags, switches) // prettier-ignore
   }
 
@@ -263,15 +270,7 @@ export class ProjectServiceImpl implements ProjectService {
     }
   }
 
-  /**
-   * Reading the stack is also where this service starts WATCHING the working
-   * copy: the frontend calls it when a project opens, and from then on an
-   * edit made in any view (a palette colour) pushes here too, so the Edit
-   * menu's enablement is never stale.
-   */
   async editStack(manifestPath: string): Promise<EditStackResult> {
-    const entry = this.workingRoms.get(manifestPath)
-    if (entry.status === 'ok') this.notifier.watch(manifestPath, entry.working)
     return this.workingRoms.editStack(manifestPath)
   }
 

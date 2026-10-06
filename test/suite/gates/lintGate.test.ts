@@ -85,6 +85,23 @@ describe('the lint gate can fail', () => {
   )
 
   it(
+    'rejects a value import of cloudevents but accepts a type import',
+    () => {
+      const value = writeFixture(
+        'ce-value.ts',
+        "import { CloudEvent } from 'cloudevents'\nexport const e = CloudEvent\n",
+      )
+      expect(exitCodeOf('npx', ['eslint', '--max-warnings', '0', value])).not.toBe(0)
+      const type = writeFixture(
+        'ce-type.ts',
+        "import type { CloudEventV1 } from 'cloudevents'\nexport type E = CloudEventV1<string>\n",
+      )
+      expect(exitCodeOf('npx', ['eslint', '--max-warnings', '0', type])).toBe(0)
+    },
+    CLI_TIMEOUT_MS,
+  )
+
+  it(
     'accepts a clean file, so the gate is not simply always red',
     () => {
       const file = writeFixture(

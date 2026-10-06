@@ -135,21 +135,7 @@ export type OverworldAreasDto =
   | { status: 'ok'; areas: { area: number; invalid?: string }[] }
   | { status: 'unavailable'; reason: string }
 
-/**
- * Pushed to the frontend when the WORKING COPY a project's sheets are
- * decoded from changes - a palette edit made through a different view, most
- * concretely. There is no payload beyond which project: the client re-fetches
- * rather than being told what to redraw, same as `SetColorResult` answers
- * "what does it look like now" rather than a diff.
- */
-export interface GfxServiceClient {
-  onWorkingCopyChanged(manifestPath: string): void
-}
-
 export interface GfxService {
-  /** Registers the frontend's push target. Theia calls this once per connection. */
-  setClient(client: GfxServiceClient | undefined): void
-
   /** Every GFX file the project's base cartridge holds. */
   listGfxFiles(manifestPath: string): Promise<LoadGfxFilesResult>
 

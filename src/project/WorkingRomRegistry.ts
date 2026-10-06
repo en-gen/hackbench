@@ -110,18 +110,38 @@ export class WorkingRomRegistry {
   private readonly stamps = new Map<string, { key: string; takenAt: number }>()
 
   private readonly romListeners = new Set<(manifestPath: string) => void>()
+  /**
+   * Projects whose `get` answered `rom-not-located`, with the ROM they wait
+   * for: the only ones a later registration can newly serve. They have no
+   * cache entry, so nothing else remembers them.
+   */
+  private readonly waiting = new Map<string, string>()
 
   constructor(private readonly registry: RomRegistry = new RomRegistry()) {}
 
   /**
-   * Fires, once per project, when the base ROM behind a project's working
-   * copy is swapped: `relocate`, or a rebuild that replaces a cached entry.
-   * NOT on the first build (a view asking for the project is already
-   * loading it) and NOT on edits (WorkingRom.onDidChange covers those).
+   * Fires, once per project, when the ROM behind a project's working copy
+   * changes: `relocate`, a `register` that serves a project that was waiting
+   * for its ROM, or a rebuild that replaces a cached entry. NOT on the first
+   * build (a view asking for the project is already loading it) and NOT on
+   * edits (the edit event covers those).
    */
   onRomChanged(fn: (manifestPath: string) => void): () => void {
     this.romListeners.add(fn)
     return () => this.romListeners.delete(fn)
+  }
+
+  private readonly copyListeners = new Set<(manifestPath: string, working: WorkingRom) => void>()
+
+  /**
+   * Called with every working copy this registry holds, now and as each one
+   * is built or rebuilt, so a subscriber (a connection's edit notifier) never
+   * has to wait for a request to learn a copy exists.
+   */
+  onWorkingCopy(fn: (manifestPath: string, working: WorkingRom) => void): () => void {
+    this.copyListeners.add(fn)
+    for (const [manifestPath, entry] of this.cache) fn(manifestPath, entry.working)
+    return () => this.copyListeners.delete(fn)
   }
 
   private fireRomChanged(manifestPath: string): void {
@@ -134,7 +154,16 @@ export class WorkingRomRegistry {
    * base bytes behind the working copy's back (workingCopyGate.test.ts).
    */
   register(romPath: string): RomIdentity {
-    return this.registry.register(romPath)
+    const identity = this.registry.register(romPath)
+    for (const manifest of this.takeWaiting(identity.sha256)) this.fireRomChanged(manifest)
+    return identity
+  }
+
+  /** Projects that were waiting for the ROM `sha256`; they wait no longer. */
+  private takeWaiting(sha256: string): string[] {
+    const served = [...this.waiting].filter(([, sha]) => sha === sha256).map(([m]) => m)
+    for (const manifest of served) this.waiting.delete(manifest)
+    return served
   }
 
   /**
@@ -161,7 +190,8 @@ export class WorkingRomRegistry {
    * registry under its own hash nor give a header state for other bytes.
    * Every cached project on this ROM learns the new path; one whose
    * copier-header state changed is dropped, so the next `get` rebuilds it
-   * (Export Patch depends on that state). Callers push a refresh after.
+   * (Export Patch depends on that state). Announces the swap through
+   * `onRomChanged`, once per project, so callers push nothing themselves.
    */
   relocate(manifestPath: string, romPath: string): RomCheck {
     const expected = openProject(manifestPath).baseRom.sha256
@@ -173,7 +203,7 @@ export class WorkingRomRegistry {
     const headered = RomFile.fromBytes(absolute, Buffer.from(bytes)).hasHeader
     // The caller's project may have no cache entry yet (it was waiting on a
     // missing ROM), so it is announced whether or not the loop meets it.
-    const moved = new Set([manifestPath])
+    const moved = new Set([manifestPath, ...this.takeWaiting(expected)])
     for (const [manifest, entry] of [...this.cache]) {
       if (entry.project.baseRom.sha256 !== expected) continue
       if (entry.working.hasCopierHeader !== headered) {
@@ -208,7 +238,7 @@ export class WorkingRomRegistry {
     // rejection. The cache entry is kept: a checkout can leave the manifest
     // briefly missing, and a rebuilt instance would strand every view
     // subscribed to the old one. A real base ROM change below does strand
-    // them; nothing yet tells those views to re-fetch.
+    // them, which is why it announces `onRomChanged`.
     let project: Project
     try {
       project = openProject(manifestPath)
@@ -236,7 +266,11 @@ export class WorkingRomRegistry {
       // shows as a changed stamp next call, rather than being stamped as seen.
       stamp = { key: opsStamp(project.directory).key, takenAt: Date.now() }
       const resolved = this.registry.resolveVerified(project.baseRom.sha256)
-      if (!resolved) return { status: 'rom-not-located', baseRom: project.baseRom }
+      if (!resolved) {
+        this.waiting.set(manifestPath, project.baseRom.sha256)
+        return { status: 'rom-not-located', baseRom: project.baseRom }
+      }
+      this.waiting.delete(manifestPath)
       romPath = resolved.path
       const rom = RomFile.fromBytes(romPath, Buffer.from(resolved.bytes))
       working = new WorkingRom(rom.buffer, rom.hasHeader)
@@ -253,6 +287,7 @@ export class WorkingRomRegistry {
     this.cache.set(manifestPath, entry)
     this.stamps.set(manifestPath, stamp)
     // A rebuild strands every view holding the old instance (see above).
+    for (const fn of this.copyListeners) fn(manifestPath, working)
     if (cached) this.fireRomChanged(manifestPath)
     return { status: 'ok', ...entry }
   }

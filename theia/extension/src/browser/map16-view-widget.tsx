@@ -60,7 +60,6 @@ import {
   MAP16_TILESET_COUNT,
   SetMap16Result,
 } from '../common/map16-protocol'
-import { Map16FrontendClient } from './map16-push-client'
 import {
   CHAR_PX,
   QUADRANT_ORIGIN,
@@ -142,7 +141,6 @@ interface Selection {
 @injectable()
 export class Map16ViewWidget extends ReactWidget {
   @inject(Map16Service) protected readonly map16!: Map16Service
-  @inject(Map16FrontendClient) protected readonly pushClient!: Map16FrontendClient
   @inject(ProjectContext) protected readonly projectContext!: ProjectContext
   @inject(ThemeService) protected readonly themes!: ThemeService
 
@@ -220,8 +218,8 @@ export class Map16ViewWidget extends ReactWidget {
     this.node.tabIndex = 0
 
     this.toDispose.push(
-      this.pushClient.onChanged(manifestPath => {
-        if (manifestPath === this.options?.manifestPath) void this.refresh()
+      this.projectContext.onEdit(event => {
+        if (event.subject === this.options?.manifestPath) void this.refresh()
       }),
     )
     this.toDispose.push(

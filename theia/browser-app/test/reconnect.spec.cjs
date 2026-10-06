@@ -107,9 +107,9 @@ test('a backend restart under an open project reconnects without reloading the p
     // A push, not just a request: the new backend must have this
     // connection's client, or other views never hear about edits.
     const pushed = new Promise(resolve => {
-      const sub = getSvc('ProjectFrontendClient').onChanged(changed => {
+      const sub = getSvc('ProjectContext').onEdit(event => {
         sub.dispose()
-        resolve(changed)
+        resolve(event.subject)
       })
       setTimeout(() => resolve('no push'), 5000)
     })

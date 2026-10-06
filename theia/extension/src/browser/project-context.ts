@@ -11,6 +11,7 @@
  */
 import { inject, injectable } from '@theia/core/shared/inversify'
 import { Emitter, Event } from '@theia/core/lib/common'
+import type { EditEvent } from '../../../../src/project/EditEvent'
 import { ProjectDto } from '../common/project-protocol'
 import { ProjectFrontendClient } from './project-push-client'
 
@@ -20,6 +21,16 @@ export class ProjectContext {
   readonly onChanged: Event<ProjectDto | undefined> = this.onChangedEmitter.event
 
   @inject(ProjectFrontendClient) protected readonly pushClient!: ProjectFrontendClient
+
+  /**
+   * The working copy's bytes changed (any view's edit, undo or redo): the
+   * edit event of src/project/EditEvent.ts. `subject` is the manifest path;
+   * a view compares it with its own project, as each did before the event
+   * existed. The one bus for every widget.
+   */
+  get onEdit(): Event<EditEvent> {
+    return this.pushClient.onEdit
+  }
 
   /**
    * A project's base ROM was swapped (Project Properties relocated it, or

@@ -24,7 +24,6 @@ import {
   PALETTE_ROW_COUNT,
   gfxFormatLabel,
 } from '../common/gfx-protocol'
-import { GfxFrontendClient } from './gfx-push-client'
 import { WheelBinding, ZoomController } from './zoom-controller'
 import { ZoomStepper } from './zoom-stepper'
 import { perfEnd, perfStart } from '../common/perf-marks'
@@ -65,7 +64,6 @@ function decodeRgba(base64: string): Uint8ClampedArray {
 @injectable()
 export class GfxViewWidget extends ReactWidget {
   @inject(GfxService) protected readonly gfx!: GfxService
-  @inject(GfxFrontendClient) protected readonly pushClient!: GfxFrontendClient
   @inject(ProjectContext) protected readonly projectContext!: ProjectContext
 
   protected options: GfxViewOptions | undefined
@@ -97,8 +95,8 @@ export class GfxViewWidget extends ReactWidget {
     // copy) re-decodes this sheet, which is what makes an edit visibly
     // recolour an already-open GFX view without the user reopening it.
     this.toDispose.push(
-      this.pushClient.onChanged(manifestPath => {
-        if (manifestPath === this.options?.manifestPath) void this.reload()
+      this.projectContext.onEdit(event => {
+        if (event.subject === this.options?.manifestPath) void this.reload()
       }),
     )
     this.toDispose.push(

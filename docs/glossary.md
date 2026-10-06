@@ -241,7 +241,7 @@ before any working copy exists to read from - `WorkingRomRegistry` itself
 calls `RomFile.load` once, on first access per project.
 
 Palette and GFX are migrated, and both push a re-render to an open widget on
-the working copy's change event (`WorkingCopyNotifier`). The map view is
+the edit event (`WorkingCopyNotifier`, `docs/architecture/theia-shell.md`). The map view is
 NOT yet: `project-server.ts`'s `mapDetails`/`loadMaps` still read the base
 ROM directly, so a palette edit is not visible there. That migration
 is unstarted work, done per view rather than assumed.

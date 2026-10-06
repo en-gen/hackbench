@@ -4,10 +4,9 @@
  * Reads the project's WORKING COPY (WorkingRomRegistry), never the base
  * cartridge directly - see docs/glossary.md, "Working copy". This is what
  * makes a palette edit visibly recolour a GFX sheet: the same shared
- * `WorkingRom` instance palette-server.ts writes through is read here, and
- * subscribed to directly (in-process, not over RPC - see
- * working-copy-notifier.ts) so a change pushes a re-render to whatever GFX
- * view is open, the same way palette-server.ts pushes to its own view.
+ * `WorkingRom` instance palette-server.ts writes through is read here. An
+ * open GFX view hears about an edit from the one edit event the project
+ * service pushes (working-copy-notifier.ts), not from this service.
  *
  * `bytes()` is always re-decoded fresh (no cache to invalidate here), which
  * is the correct-first choice the brief asked for: a recolour-only fast
@@ -25,7 +24,6 @@ import { WorkingRomEntry, WorkingRomRegistry } from '../../../../src/project/Wor
 import {
   GfxFormat,
   GfxService,
-  GfxServiceClient,
   GfxSheetDto,
   LoadGfxFilesResult,
   OverworldAreasDto,
@@ -33,22 +31,14 @@ import {
 } from '../common/gfx-protocol'
 import { decodeGfxSheet, listGfxFileInfos } from './gfx-decode'
 import { decodeAreaView, decodeOverworld, decodeOverworldAreas } from './overworld-decode'
-import { WorkingCopyNotifier } from './working-copy-notifier'
 
 @injectable()
 export class GfxServiceImpl implements GfxService {
   @inject(WorkingRomRegistry) protected readonly workingRoms!: WorkingRomRegistry
-  private readonly notifier = new WorkingCopyNotifier<GfxServiceClient>()
-
-  setClient(client: GfxServiceClient | undefined): void {
-    this.notifier.setClient(client)
-  }
-
   async listGfxFiles(manifestPath: string): Promise<LoadGfxFilesResult> {
     const r = this.workingRoms.get(manifestPath)
     if (r.status === 'rom-not-located') return r
     if (r.status === 'unreadable') throw new Error(r.reason)
-    this.notifier.watch(manifestPath, r.working)
     return { status: 'ok', files: listGfxFileInfos(this.smwRomFrom(r)) }
   }
 
@@ -87,7 +77,6 @@ export class GfxServiceImpl implements GfxService {
       throw new Error(`${r.baseRom.title || 'The base ROM'} is not on this machine`)
     }
     if (r.status === 'unreadable') throw new Error(r.reason)
-    this.notifier.watch(manifestPath, r.working)
     return this.smwRomFrom(r)
   }
 

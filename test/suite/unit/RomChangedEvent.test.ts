@@ -136,6 +136,41 @@ describe('WorkingRomRegistry.onRomChanged', () => {
     expect(fired).toEqual([manifest])
   })
 
+  it('relocating one project announces only that project, not one on another ROM', () => {
+    const first = project(put('a.sfc', fakeRom(31)))
+    const second = project(put('b.sfc', fakeRom(37)), 'proj2')
+    working.get(first)
+    working.get(second)
+    const { fired } = recorder()
+    working.relocate(first, put('copy.sfc', fakeRom(31)))
+    expect(fired).toEqual([first])
+  })
+
+  it('registering a ROM announces the projects that were waiting for it, once each', () => {
+    const rom = put('a.sfc', fakeRom(31))
+    const waitingA = project(rom)
+    const waitingB = project(rom, 'proj2', false)
+    const other = project(put('b.sfc', fakeRom(37)), 'proj3')
+    fs.rmSync(rom)
+    // A fresh registry: neither project's ROM is findable, so both wait.
+    registry.forget(JSON.parse(fs.readFileSync(waitingA, 'utf8')).baseRom.sha256)
+    expect(working.get(waitingA).status).toBe('rom-not-located')
+    expect(working.get(waitingB).status).toBe('rom-not-located')
+    expect(working.get(other).status).toBe('ok')
+    const { fired } = recorder()
+    working.register(put('back.sfc', fakeRom(31)))
+    expect([...fired].sort()).toEqual([waitingA, waitingB].sort())
+    // Served now: registering again announces nothing.
+    working.register(put('back2.sfc', fakeRom(31)))
+    expect(fired).toHaveLength(2)
+  })
+
+  it('registering a ROM nobody was waiting for announces nothing', () => {
+    const { fired } = recorder()
+    working.register(put('a.sfc', fakeRom(31)))
+    expect(fired).toEqual([])
+  })
+
   it('stops delivering after the returned unsubscribe is called', () => {
     const manifest = project(put('a.sfc', fakeRom(31)))
     const { fired, stop } = recorder()
@@ -158,5 +193,21 @@ describe('RomChangedNotifier pushes the event to its own connection', () => {
     notifier.setClient(undefined)
     working.relocate(manifest, put('copy2.sfc', fakeRom(31)))
     expect(client.onRomChanged).toHaveBeenCalledTimes(1)
+  })
+
+  it('a reconnect releases the old subscription: only the new client hears the swap', () => {
+    const manifest = project(put('a.sfc', fakeRom(31)))
+    const notifier = new RomChangedNotifier(working)
+    const closed = { onRomChanged: vi.fn() }
+    const replaced = { onRomChanged: vi.fn() }
+    const current = { onRomChanged: vi.fn() }
+    notifier.setClient(closed)
+    notifier.setClient(undefined)
+    notifier.setClient(replaced)
+    notifier.setClient(current) // a new connection without a close in between
+    working.relocate(manifest, put('copy.sfc', fakeRom(31)))
+    expect(closed.onRomChanged).not.toHaveBeenCalled()
+    expect(replaced.onRomChanged).not.toHaveBeenCalled()
+    expect(current.onRomChanged).toHaveBeenCalledTimes(1)
   })
 })

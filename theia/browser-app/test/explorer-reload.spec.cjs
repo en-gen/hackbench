@@ -11,8 +11,9 @@
  * the widgets' own state, never from "the tree is visible".
  *
  * The per-edit notice is the other path: selection and expansion of rows that
- * still exist survive it. The notice is fired locally on the frontend client,
- * the same call the backend's push makes.
+ * still exist survive it (Palettes only: Maps does not subscribe to edits).
+ * The edit event is fired locally on the frontend client, the same call the
+ * backend's push makes.
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')
@@ -57,20 +58,18 @@ function hbState(w) {
   }
 }`
 
-/** perEdit: the explorer re-reads on the working-copy notice and must keep its place. */
+/** perEdit: the explorer re-reads on the edit event and must keep its place. */
 const EXPLORERS = [
-  { kind: 'maps', id: 'hackbench.map-explorer', client: 'ProjectFrontendClient', perEdit: true },
+  { kind: 'maps', id: 'hackbench.map-explorer', perEdit: false },
   {
     kind: 'palettes',
     id: 'hackbench.palette-explorer',
-    client: 'PaletteFrontendClient',
     perEdit: true,
   },
-  { kind: 'graphics', id: 'hackbench.gfx-explorer', client: 'GfxFrontendClient', perEdit: false },
+  { kind: 'graphics', id: 'hackbench.gfx-explorer', perEdit: false },
   {
     kind: 'music',
     id: 'hackbench.music-explorer',
-    client: 'ProjectFrontendClient',
     perEdit: false,
   },
 ]
@@ -239,12 +238,45 @@ test.describe('explorer reload (#576)', () => {
       expect(before.selected).toHaveLength(1)
 
       await markRoot(page, ex)
-      await page.evaluate(({ ex, p }) => getSvc(ex.client).onWorkingCopyChanged(p), {
-        ex,
-        p: project.manifestPath,
-      })
+      await page.evaluate(
+        p =>
+          getSvc('ProjectFrontendClient').onEditEvent({
+            specversion: '1.0',
+            id: 'test',
+            source: 'urn:test',
+            type: 'hackbench.edit.applied',
+            subject: p,
+            data: { domain: 'palette', ranges: [] },
+          }),
+        project.manifestPath,
+      )
       await rebuilt(page, ex)
       await expect.poll(() => state(page, ex)).toEqual(before)
     })
   }
+
+  test('locating the ROM from the emulator panel fills in all four explorers', async ({ page }) => {
+    const gone = path.join(tmp, 'gone.sfc')
+    fs.copyFileSync(ROM, gone)
+    const project = await createProject(page, 'Emulated', gone)
+    fs.rmSync(gone)
+    for (const ex of EXPLORERS) await openExplorer(page, ex, project)
+    for (const ex of EXPLORERS) await expect.poll(() => count(page, ex)).toBe(0)
+
+    const moved = path.join(tmp, 'moved.sfc')
+    fs.copyFileSync(ROM, moved)
+    // pickRom is what the panel's "Locate ROM..." button runs; the button itself
+    // needs a registered libretro core, which this test has no use for.
+    await page.evaluate(async moved => {
+      const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.emulator-view')
+      w.fileDialog.showOpenDialog = async () => ({ path: { fsPath: () => moved } })
+      await w.pickRom()
+    }, moved)
+
+    for (const ex of EXPLORERS) {
+      if (ex.kind === 'maps') await expect.poll(() => count(page, ex)).toBe(VANILLA_MAPS)
+      else await expect.poll(() => count(page, ex), { timeout: 30000 }).toBeGreaterThan(0)
+      expect((await state(page, ex)).selected).toEqual([])
+    }
+  })
 })

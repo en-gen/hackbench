@@ -18,7 +18,6 @@ import {
   compositeOverworld,
   type OwLayerPixels,
 } from '../../../../src/rom/render/OverworldComposite'
-import { GfxFrontendClient } from './gfx-push-client'
 import { LayerToggle } from './layer-icon'
 import { WheelBinding, ZoomController } from './zoom-controller'
 import { decodeBase64Bytes, decodeRgba, paintScaled } from './map16-pixels'
@@ -42,7 +41,6 @@ const ZOOM_OPTIONS = [1, 2, 3, 4]
 @injectable()
 export class OverworldViewWidget extends ReactWidget {
   @inject(GfxService) protected readonly gfx!: GfxService
-  @inject(GfxFrontendClient) protected readonly pushClient!: GfxFrontendClient
   @inject(ProjectContext) protected readonly projectContext!: ProjectContext
 
   /** 0 is the hub. */
@@ -87,8 +85,8 @@ export class OverworldViewWidget extends ReactWidget {
       }),
     )
     this.toDispose.push(
-      this.pushClient.onChanged(path => {
-        if (path === this.manifestPath) void this.load(path)
+      this.projectContext.onEdit(event => {
+        if (event.subject === this.manifestPath) void this.load(event.subject)
       }),
     )
     this.toDispose.push(

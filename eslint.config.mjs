@@ -35,6 +35,25 @@ export default [
     },
   },
 
+  // `cloudevents` is a devDependency used for its TYPES only (the edit event,
+  // src/project/EditEvent.ts): a value import would ship the library.
+  {
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'cloudevents',
+              message: "Use `import type { CloudEventV1 } from 'cloudevents'` only.",
+              allowTypeImports: true,
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   // Extension host, webviews and the Theia contribution: browser + node.
   {
     files: ['src/**/*.ts', 'theia/extension/src/**/*.{ts,tsx}'],

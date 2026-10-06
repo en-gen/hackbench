@@ -139,6 +139,18 @@ export class WorkingRom {
     return this.base
   }
 
+  /**
+   * File offsets of the words a word layer writes (a copier header counts),
+   * in op order; an op outside the cartridge is skipped. A gfx layer has
+   * none: it is addressed by file and character, not by ROM offset.
+   */
+  wordOffsets(layer: Layer): number[] {
+    if (layer.kind !== undefined) return []
+    return layer.ops
+      .map(op => opFileOffset(op, this.romSize, this.hasHeader))
+      .filter((o): o is number => o !== null)
+  }
+
   /** Whether the base file carries a 512-byte copier header. */
   get hasCopierHeader(): boolean {
     return this.hasHeader

@@ -53,7 +53,6 @@ import { OVERWORLD_FOCUS_COMMAND_ID, OVERWORLD_OPEN_AREA_COMMAND_ID } from './ov
 import { overworldRows, opensArea, type AreaRow } from './map-explorer-areas'
 import { GfxService } from '../common/gfx-protocol'
 import { ProjectContext } from './project-context'
-import { ProjectFrontendClient } from './project-push-client'
 import { orderSpecials } from './map-explorer-order'
 import {
   GroupedMapNodeDto,
@@ -174,7 +173,6 @@ export class MapExplorerWidget extends TreeWidget {
   @inject(MessageService) protected readonly messages!: MessageService
   @inject(GfxService) protected readonly gfx!: GfxService
   @inject(ProjectContext) protected readonly projectContext!: ProjectContext
-  @inject(ProjectFrontendClient) protected readonly pushClient!: ProjectFrontendClient
 
   /** Exposed for tests: the count the backend reported for this cartridge. */
   mapCount = 0
@@ -239,12 +237,6 @@ export class MapExplorerWidget extends TreeWidget {
         void this.load(manifestPath)
       }),
     )
-    // Any edit: rebuild but keep the user's place.
-    this.toDispose.push(
-      this.pushClient.onChanged(manifestPath => {
-        if (manifestPath === this.manifestPath) void this.reloadKeepingState(manifestPath, true)
-      }),
-    )
 
     // A multi-row selection (Ctrl/Shift+click) opens nothing: it is there to
     // build a group from, not to preview.
@@ -269,7 +261,7 @@ export class MapExplorerWidget extends TreeWidget {
    * dropped rather than applied after the second one's, which would leave
    * project A's tree on screen while project B is actually open.
    */
-  async load(manifestPath: string, quiet = false): Promise<void> {
+  async load(manifestPath: string): Promise<void> {
     const generation = ++this.loadGeneration
     let result
     try {
@@ -282,7 +274,7 @@ export class MapExplorerWidget extends TreeWidget {
       this.groupsError = undefined
       const reason = err instanceof Error ? err.message : String(err)
       this.setRoot([this.message(`Could not load maps: ${reason}`)])
-      if (!quiet) this.messages.error(reason)
+      this.messages.error(reason)
       return
     }
     if (generation !== this.loadGeneration) return
@@ -312,7 +304,7 @@ export class MapExplorerWidget extends TreeWidget {
     ]
     if (this.groupsError) {
       rows.push(this.message(`Groups unavailable: ${this.groupsError}`))
-      if (!quiet) this.messages.error(`meta/groups.json: ${this.groupsError}`)
+      this.messages.error(`meta/groups.json: ${this.groupsError}`)
     }
     rows.push(...result.tree.groups.map(g => this.userGroupNode(g)))
     // The count is rows actually listed under the folder, not a derived ROM
@@ -323,7 +315,7 @@ export class MapExplorerWidget extends TreeWidget {
     // Notes carry what the grouping could not do (unassigned maps, a ROM
     // whose filler could not be identified confidently). Surfacing them beats
     // a tidy tree that quietly means less than it looks like it does.
-    if (!quiet) for (const note of result.tree.notes) this.messages.info(note)
+    for (const note of result.tree.notes) this.messages.info(note)
   }
 
   /** Expanded breadth-first so the tree paints top-down rather than in bursts. */
@@ -675,25 +667,6 @@ export class MapExplorerWidget extends TreeWidget {
       return
     }
 
-    const result = await this.projects.setMapGroups(manifestPath, next)
-    if (this.manifestPath !== manifestPath) return // switched projects mid-write; drop the reload
-    if (result.status !== 'ok') {
-      this.messages.error(
-        result.status === 'invalid'
-          ? result.reason
-          : 'The base ROM for this project is not on this machine',
-      )
-      return
-    }
-
-    await this.reloadKeepingState(manifestPath, false)
-  }
-
-  /**
-   * Rebuild the tree, then put back what the user had: selected rows and
-   * expanded rows that still exist. A row the new tree lacks stays gone.
-   */
-  protected async reloadKeepingState(manifestPath: string, quiet: boolean): Promise<void> {
     const selectedIndices = new Set(
       this.selected()
         .filter(n => this.isTopLevelMap(n))
@@ -709,7 +682,18 @@ export class MapExplorerWidget extends TreeWidget {
     // had collapsed is tracked separately so the rebuild does not reopen it.
     const collapsedGroups = this.collectCollapsedGroupIds()
 
-    await this.load(manifestPath, quiet)
+    const result = await this.projects.setMapGroups(manifestPath, next)
+    if (this.manifestPath !== manifestPath) return // switched projects mid-write; drop the reload
+    if (result.status !== 'ok') {
+      this.messages.error(
+        result.status === 'invalid'
+          ? result.reason
+          : 'The base ROM for this project is not on this machine',
+      )
+      return
+    }
+
+    await this.load(manifestPath)
     if (this.manifestPath !== manifestPath) return
     this.restoreSelectionAndExpansion(selectedIndices, selectedFolderIds, expanded)
     await this.restoreCollapsedGroups(collapsedGroups)

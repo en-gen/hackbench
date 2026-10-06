@@ -29,22 +29,14 @@ import {
   Map16Layer,
   Map16PaletteVariantDto,
   Map16Service,
-  Map16ServiceClient,
   Map16QuadrantKey,
   SetMap16Result,
 } from '../common/map16-protocol'
 import { decodeMap16Sheet, gateQuadrantWrite } from './map16-decode'
-import { WorkingCopyNotifier } from './working-copy-notifier'
 
 @injectable()
 export class Map16ServiceImpl implements Map16Service {
   @inject(WorkingRomRegistry) protected readonly workingRoms!: WorkingRomRegistry
-  private readonly notifier = new WorkingCopyNotifier<Map16ServiceClient>()
-
-  setClient(client: Map16ServiceClient | undefined): void {
-    this.notifier.setClient(client)
-  }
-
   async loadMap16(
     manifestPath: string,
     tileset: number,
@@ -96,7 +88,6 @@ export class Map16ServiceImpl implements Map16Service {
     const r = this.workingRoms.get(manifestPath)
     if (r.status === 'rom-not-located') return r
     if (r.status === 'unreadable') throw new Error(r.reason)
-    this.notifier.watch(manifestPath, r.working)
     // decodeMap16Sheet's own refusal ('unavailable', an unreadable or
     // expanded Map16) is a LOAD result, not a throw: the view says why it
     // cannot show the table rather than rendering two pages of one that is
