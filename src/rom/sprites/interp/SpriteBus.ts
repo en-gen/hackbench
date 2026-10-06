@@ -5,7 +5,9 @@
  *
  * Deliberately absent (a reader cannot tell a stub from an omission otherwise):
  * open bus, the WRAM port $2180-$2183, DMA, $4210-$4212, and HiROM (refused
- * up front, see Machine.ts). SRAM is a 32 KB buffer. ROM reads past the image
+ * up front, see Machine.ts). SRAM is ONE 32 KB buffer aliased across
+ * $70-$7D and $F0-$FD (a real chip is smaller and mirrors inside it; no vanilla
+ * path touches SRAM), and `recordWrites` does not see its writes. ROM reads past the image
  * mirror (`romOffset`).
  *
  * Hardware modelled (everything else in $2000-$43FF reads 0 and counts its
@@ -37,10 +39,23 @@ export function romOffset(addr: number, romSize: number): number | null {
   if (lo < 0x8000 && (eb < 0x40 || (eb >= 0x70 && eb <= 0x7d))) return null
   let off = eb * 0x8000 + (lo & 0x7fff)
   if (off >= romSize) {
-    let p = 1
-    while (p < romSize) p *= 2
-    off &= p - 1
-    if (off >= romSize) off = p / 2 + ((off - p / 2) % (romSize - p / 2))
+    // Board mirroring as bsnes does it (its `mirror()` function, no code copied): repeatedly
+    // take the largest power of two the address still reaches, and repeat the
+    // part of the image above it. Exact for any size; evidence: synthetic tests.
+    let addr = off
+    let size = romSize
+    let base = 0
+    let mask = 1 << 23
+    while (addr >= size) {
+      while (!(addr & mask)) mask >>= 1
+      addr -= mask
+      if (size > mask) {
+        size -= mask
+        base += mask
+      }
+      mask >>= 1
+    }
+    off = base + addr
   }
   return off
 }
@@ -62,6 +77,7 @@ interface MulState {
 }
 interface PpuMulState {
   m7a: number
+  m7b: number
   prev: number
   result: number
 }
@@ -94,7 +110,7 @@ export class SpriteBus implements Bus {
   readonly sram = new Uint8Array(SRAM_SIZE)
   private written = new Uint8Array(WRAM_SIZE)
   private mul: MulState = { a: 0, prod: 0, dividend: 0, quot: 0, rem: 0 }
-  private ppuMul: PpuMulState = { m7a: 0, prev: 0, result: 0 }
+  private ppuMul: PpuMulState = { m7a: 0, m7b: 0, prev: 0, result: 0 }
 
   constructor(private readonly rom: RomFile) {}
 
@@ -205,10 +221,13 @@ export class SpriteBus implements Bus {
       // the high byte over whatever any of them wrote last. The multiplicand
       // is the 16-bit value $211B built; $211C's latest byte is the multiplier.
       if (lo === 0x211b) this.ppuMul.m7a = (v << 8) | this.ppuMul.prev
-      if (lo === 0x211c) {
-        const a = this.ppuMul.m7a & 0x8000 ? this.ppuMul.m7a - 0x10000 : this.ppuMul.m7a
-        const b = v & 0x80 ? v - 256 : v
-        this.ppuMul.result = (a * b) & 0xffffff
+      if (lo === 0x211c) this.ppuMul.m7b = v
+      // The product is continuous: any later $211B or $211C write changes it.
+      if (lo === 0x211b || lo === 0x211c) {
+        const m = this.ppuMul
+        const a = m.m7a & 0x8000 ? m.m7a - 0x10000 : m.m7a
+        const b = m.m7b & 0x80 ? m.m7b - 256 : m.m7b
+        m.result = (a * b) & 0xffffff
       }
       this.ppuMul.prev = v
     }

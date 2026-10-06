@@ -73,6 +73,12 @@ describe('ROM reads past the image mirror (F7)', () => {
     expect(read(rom, 0x078000)).toBe(6)
     expect(read(rom, 0x088000)).toBe(1) // the address wraps at the next power of two (8 banks)
   })
+  it('mirroring follows the bsnes rule: size $1A0000 at $34:8000 reads offset $180000, not $100000', () => {
+    const b = new Uint8Array(0x1a0000)
+    b[0x180000] = 0xaa
+    b[0x100000] = 0xbb
+    expect(read(RomFile.fromBytes('m.sfc', b), 0x348000)).toBe(0xaa)
+  })
   it('a copier header shifts every read by 512 bytes', () => {
     const bytes = new Uint8Array(512 + 0x40000)
     bytes[512] = 0x11
@@ -98,6 +104,12 @@ describe('SRAM is a buffer in the bus (F8)', () => {
     expect(bus.read(0x700000)).toBe(0x5a)
     expect(bus.read(0xf00000)).toBe(0x5a)
     expect(bus.read(0x708000)).toBe(0x99)
+  })
+  it('the buffer is not folded to a small chip: $70:0800 is distinct from $70:0000', () => {
+    const bus = new SpriteBus(big())
+    bus.write(0x700000, 1)
+    bus.write(0x700800, 2)
+    expect([bus.read(0x700000), bus.read(0x700800)]).toEqual([1, 2])
   })
   it('a fetch from SRAM is refused with the address', () => {
     const guard = romGuard(big())
@@ -151,15 +163,23 @@ describe('HiROM is refused up front (F9)', () => {
     expect(hirom().mapMode).toBe('hirom')
   })
   it('smwMachine, the loader shape check and the runner all refuse with the reason', () => {
-    expect(() => smwMachine(hirom())).toThrow(/HiROM/)
-    expect(loaderShapeProblem(hirom())).toMatch(/HiROM/)
-    expect(runSprite(hirom(), 0).refusal).toMatch(/HiROM/)
+    expect(() => smwMachine(hirom())).toThrow(/map byte is \$21/)
+    expect(loaderShapeProblem(hirom())).toMatch(/map byte is \$21/)
+    expect(runSprite(hirom(), 0).refusal).toMatch(/map byte is \$21/)
   })
   it('shape reads use the bus mapping, not the header mapper', () => {
     const rom = hirom()
     const viaBus = [0, 1, 2, 3].map(i => read(rom, 0x05d8b7 + i))
     expect(bytesAt(rom, 0x05d8b7, 4)).toEqual(viaBus)
     expect(rom.readAt(0x05d8b7, 4)).not.toEqual(Buffer.from(viaBus)) // the header mapper reads other bytes
+  })
+  it('any other mapper byte is refused too, naming it: $23 (SA-1)', () => {
+    const bytes = Uint8Array.from(buildSyntheticRom().buffer)
+    bytes[0x7fd5] = 0x23
+    const rom = RomFile.fromBytes('sa1.sfc', bytes)
+    expect(rom.mapMode).toBe('unknown')
+    expect(loaderShapeProblem(rom)).toMatch(/map byte is \$23/)
+    expect(() => smwMachine(rom)).toThrow(/\$23/)
   })
   it('bytesAt is null where the bus reads no ROM', () => {
     expect(bytesAt(bankCart(8), 0x7e0000, 2)).toBeNull()
@@ -184,6 +204,13 @@ describe('Mode 7 multiplier latch is shared with $211C-$2120 (F11)', () => {
     for (const [r, v] of [[0x211b, 0], [0x211b, 0], [0x211c, 5], [0x211b, 1], [0x211c, 2]] as const) bus.write(r, v) // prettier-ignore
     const prod = bus.read(0x2134) | (bus.read(0x2135) << 8) | (bus.read(0x2136) << 16)
     expect(prod).toBe(0x20a) // $0105 * 2
+  })
+  it('the product follows a later $211B write: $211C=2, $211B=3, $211B=0 reads 6', () => {
+    const bus = new SpriteBus(bankCart(8))
+    bus.write(0x211c, 2)
+    bus.write(0x211b, 3)
+    bus.write(0x211b, 0)
+    expect(bus.read(0x2134)).toBe(6)
   })
   it('the plain case is unchanged: $0102 * 3', () => {
     const bus = new SpriteBus(bankCart(8))

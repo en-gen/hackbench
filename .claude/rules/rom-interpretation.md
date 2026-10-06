@@ -171,7 +171,7 @@ In practice:
   call and per sprite). The call loop, stack and budget checks are one helper
   (`src/rom/cpu/call.ts`), and the machine is `src/rom/sprites/interp/Machine.ts`:
   LoROM only, guarded (BRK, COP, WDM, WAI, STP and any fetch outside cart ROM
-  refuse), no state shared between calls.
+  refuse); P, S, D, DB and mode are reset between calls.
   Captures and Mesen are an oracle only, never a runtime input.
 - Third bounded use, for block collision (owner comment on #435, 2026-10-06):
   the collision probe spike (`spikes/collision-probe/`, #633) and the planned

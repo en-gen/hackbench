@@ -39,6 +39,13 @@ describe('callSubroutine: returns', () => {
     expect(r).toEqual({ kind: 'returned', steps: 3 })
     expect(cpu.s).toBe(0x1ff)
   })
+  it('JSR frame outside bank 0: RTS in bank 1 returns (the return bank is the entry bank)', () => {
+    const m = machine({ 0x018000: [0x60] })
+    expect(callSubroutine(m.cpu, 0x018000, { kind: 'jsr', maxSteps: 10 })).toEqual({
+      kind: 'returned',
+      steps: 1,
+    })
+  })
   it('JSL frame, RTL: returned', () => {
     expect(jsl([0xa9, 0x33, 0x6b]).r).toEqual({ kind: 'returned', steps: 2 })
   })

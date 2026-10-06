@@ -3,8 +3,7 @@
 Feasibility spike, 2026-10-05. Branch `feature/sprite-interpreter-spike`.
 Prototype, since moved: `src/rom/sprites/interp/` and the core in `src/rom/cpu/`
 (the spike path was `src/rom/spriteInterp/`).
-Measurement and pins: `test/suite/unit/spriteInterp/` (`spike.test.ts`
-writes the full tables to `$SPIKE_OUT`).
+Measurement and pins: `test/suite/unit/sprites/` (the spike's `spike.test.ts` is gone).
 
 ## Evidence scope
 

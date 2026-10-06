@@ -58,7 +58,7 @@ function replay(rom: RomFile, root: string, map: string, wram: Buffer, c: Call) 
   const want = c.writes.map(w => w >>> 0)
   let k = 0
   while (k < want.length && k < got.length && want[k] === got[k]) k++
-  const ok = !err && k === want.length && k === got.length
+  const ok = !err && r.kind === 'returned' && k === want.length && k === got.length
   const first = ok ? undefined : `${err} diverge@${k}/${want.length} want ${fmt(want[k])} got ${fmt(got[k])}` // prettier-ignore
   return { ok, first, n: want.length }
 }
