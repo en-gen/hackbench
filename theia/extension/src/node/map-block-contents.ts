@@ -142,7 +142,12 @@ export function blockIndicators(
     y: number,
   ) => {
     const c = resolveBlockContents(id, col, t)
-    if (!c || 'unavailable' in c) return
+    if (!c) return
+    if (isUnavailable(c)) {
+      // A table this block needs is short: no indicator, and the tab says why.
+      why.add(c.unavailable)
+      return
+    }
     const spec = pickIndicator(c)
     const art = spec && artFor(spec, col)
     if (art) indicators.push({ plane, x, y, art })
