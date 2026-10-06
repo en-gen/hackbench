@@ -32,4 +32,14 @@ describe('collision probe entry shapes', () => {
     const bad = [0xea, ...COLLIDE.slice(1)]
     expect(() => new Probe(cart(RESET, bad), 0x105)).toThrow(/CODE_00EADB.*\$00EADB/)
   })
+  it('a wrong later fixed byte at the reset entry (opcode kept) is refused', () => {
+    const bad = [...RESET]
+    bad[3] = 0xea
+    expect(() => new Probe(cart(bad, COLLIDE), 0x105)).toThrow(/CODE_00EAA6/)
+  })
+  it('a wrong later fixed byte at the collide entry (opcode kept) is refused', () => {
+    const bad = [...COLLIDE]
+    bad[2] = 0xea
+    expect(() => new Probe(cart(RESET, bad), 0x105)).toThrow(/CODE_00EADB/)
+  })
 })
