@@ -367,3 +367,43 @@ test('while B is loading, A rows are gone and cannot open a map bound to B', asy
   await page.waitForSelector(ROW, { timeout: 15000 })
   expect(await shellIds(page, ['hackbench.map-view'])).toEqual([])
 })
+
+test('a group selected in A is not still selected after B opens', async ({ page }) => {
+  const a = await createProject(page, 'A')
+  const b = await createProject(page, 'B')
+  await page.evaluate(
+    async ([x, y]) => {
+      const svc = getSvc('Symbol(ProjectService)')
+      for (const mp of [x, y]) {
+        await svc.setMapGroups(mp, [{ name: 'Shared', slots: [0x106, 0x107] }])
+      }
+    },
+    [a.manifestPath, b.manifestPath],
+  )
+  await openViaMenuPath(page, a.manifestPath)
+  const row = page.locator(
+    '[id="hackbench.map-explorer"] .theia-TreeNode[data-node-id="group:user:Shared"]',
+  )
+  await row.waitFor({ timeout: 15000 })
+  await row.click()
+  const selected = () =>
+    page.evaluate(async () => {
+      const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-explorer')
+      return { count: w.model.selectedNodes.length, group: w.selectedGroupName() }
+    })
+  expect(await selected()).toEqual({ count: 1, group: 'Shared' })
+
+  await openViaMenuPath(page, b.manifestPath)
+  await row.waitFor({ timeout: 15000 })
+
+  // The same-named group in B must not inherit A's selection (Delete Group acts on it).
+  expect(await selected()).toEqual({ count: 0, group: undefined })
+  const groups = await page.evaluate(
+    mp =>
+      getSvc('Symbol(ProjectService)')
+        .loadMaps(mp)
+        .then(r => r.rawGroups),
+    b.manifestPath,
+  )
+  expect(groups.map(g => g.name)).toContain('Shared')
+})

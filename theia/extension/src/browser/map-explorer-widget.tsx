@@ -256,6 +256,9 @@ export class MapExplorerWidget extends TreeWidget {
     // a click would open a map bound to the new project with the old index.
     if (manifestPath !== this.manifestPath) {
       this.manifestPath = ''
+      // Theia carries selection ids across a root change (see restoreSelectionAndExpansion),
+      // so a same-named group in the new project would inherit the old selection.
+      this.model.clearSelection()
       this.setRoot([])
     }
     let result
