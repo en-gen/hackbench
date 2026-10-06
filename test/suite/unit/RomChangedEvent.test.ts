@@ -204,6 +204,26 @@ describe('WorkingRomRegistry.onRomChanged', () => {
     expect(fired).toEqual([manifest])
   })
 
+  it('a waiting project whose layer is unreadable keeps waiting; the get that finally builds it fires once', () => {
+    const rom = put('a.sfc', fakeRom(31))
+    const manifest = project(rom)
+    const sha = JSON.parse(fs.readFileSync(manifest, 'utf8')).baseRom.sha256
+    registry.forget(sha)
+    expect(working.get(manifest).status).toBe('rom-not-located')
+    // The ROM is back, but ops/ holds a layer that cannot be read.
+    registry.register(rom)
+    const ops = path.join(path.dirname(manifest), 'ops')
+    fs.mkdirSync(ops, { recursive: true })
+    const broken = path.join(ops, '0001.json')
+    fs.writeFileSync(broken, '{ not json')
+    const { fired } = recorder()
+    expect(working.get(manifest).status).toBe('unreadable')
+    expect(fired).toEqual([])
+    fs.rmSync(broken)
+    expect(working.get(manifest).status).toBe('ok')
+    expect(fired).toEqual([manifest])
+  })
+
   it('relocating one waiting project announces the others waiting on the same ROM', () => {
     const rom = put('a.sfc', fakeRom(31))
     const a = project(rom)

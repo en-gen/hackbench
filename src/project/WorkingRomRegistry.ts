@@ -296,7 +296,7 @@ export class WorkingRomRegistry {
         }
         return { status: 'rom-not-located', baseRom: project.baseRom }
       }
-      wasWaiting = this.waiting.delete(manifestPath)
+      wasWaiting = this.waiting.has(manifestPath)
       romPath = resolved.path
       const rom = RomFile.fromBytes(romPath, Buffer.from(resolved.bytes))
       working = new WorkingRom(rom.buffer, rom.hasHeader)
@@ -309,6 +309,9 @@ export class WorkingRomRegistry {
       return { status: 'unreadable', reason: (err as Error).message }
     }
 
+    // Only now: a failed build above must leave the project waiting, so the
+    // get that finally builds it still announces.
+    this.waiting.delete(manifestPath)
     const entry: WorkingRomEntry = { working, romPath, project }
     this.cache.set(manifestPath, entry)
     this.stamps.set(manifestPath, stamp)

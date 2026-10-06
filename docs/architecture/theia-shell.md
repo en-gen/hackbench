@@ -143,7 +143,14 @@ where an edit asks it to re-read.
 - `register` serves a project that was waiting for its ROM (the emulator's
   "Locate ROM...");
 - a `get` finds the ROM of a project that was waiting for it (it reappeared
-  without `register` or `relocate`), so a view stuck on "Locate" refreshes;
+  without `register` or `relocate`), so a view stuck on "Locate" refreshes.
+  Evidence scope: `WorkingRomRegistry.get()` keeps the waiting marker until the
+  copy is built; synthetic ROMs on one machine, pinned by two tests in
+  `test/suite/unit/RomChangedEvent.test.ts` ("a waiting project served by a
+  later get() is announced once, and a later register adds nothing" and "a
+  waiting project whose layer is unreadable keeps waiting; the get that
+  finally builds it fires once"), each seen red against the code without the
+  behaviour;
 - a rebuild replaces an existing cache entry (a header flip, or layers
   rewritten under it).
 
