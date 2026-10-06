@@ -268,7 +268,7 @@ export class WorkingRomRegistry {
    * match - a `stale` result here means a genuine race (another edit landed
    * first), not routine drift.
    *
-   * `working.append` runs BEFORE `appendLayer`'s disk write on purpose:
+   * `working.append` runs BEFORE the layer's disk write on purpose:
    * `append` is what validates `old`, and validating requires the layer to
    * already exist so `WorkingRom` can check it against the state below it -
    * there is no separate "just validate, do not apply" step to call first.
@@ -297,23 +297,25 @@ export class WorkingRomRegistry {
       ops: [{ address: addrHex(req.romAddr), old: req.oldHex, new: req.newHex, mask: req.mask }],
     }
 
+    const redo = [...working.redoStack] // append ends it; persist puts it back on a failed write
     try {
       working.append(layer)
     } catch (err) {
       return { status: 'stale', reason: (err as Error).message }
     }
 
-    const failed = this.persist(manifestPath, r, layer)
+    const failed = this.persist(manifestPath, r, layer, redo)
     if (failed) return failed
     return r
   }
 
   /**
    * The disk half of an edit whose layer `append` has already put on the
-   * stack. `append` ended the redo future in memory; this does the same on
-   * disk BEFORE the layer is committed (staged write, clear, rename), so a
-   * failure leaves the two agreeing (a disk redo the working copy no longer
-   * knows about would come back on the next launch). On failure the layer is popped straight back off: an edit live
+   * stack (staged write, clear redo, rename). `append` ended the redo future
+   * in memory, so a failure before the clear completed puts `redo` back
+   * (memory only; disk was never touched) and the held copy stays the live
+   * instance. After the clear the disk has lost it too, and the stamp drop
+   * reloads. The layer is popped straight back off either way: an edit live
    * in memory but never on disk would show as committed, then be gone on
    * reopen.
    */
@@ -321,19 +323,23 @@ export class WorkingRomRegistry {
     manifestPath: string,
     r: Extract<WorkingRomResult, { status: 'ok' }>,
     layer: Layer,
+    redo: readonly Layer[],
   ): { status: 'io-error'; reason: string } | null {
     let staged: StagedLayer | undefined
+    let cleared = false
     try {
       // Staged first so a failed write throws before clearRedo can destroy
       // the redo history; the rename comes after the clear so the layer
       // never sits on disk next to a redo future it ended.
       staged = stageLayer(r.project.directory, layer)
       clearRedo(r.project.directory)
+      cleared = true
       commitLayer(staged)
       return null
     } catch (err) {
       if (staged) compensate(() => discardStaged(staged as StagedLayer))
       r.working.pop()
+      if (!cleared) r.working.restoreRedo(redo)
       this.stamps.delete(manifestPath)
       return { status: 'io-error', reason: (err as Error).message }
     }
@@ -341,8 +347,8 @@ export class WorkingRomRegistry {
 
   /**
    * Append ONE gfx layer holding `chars`: what the GFX view's Save sends.
-   * Same order as setWord (append validates, then clearRedo, then the disk
-   * write, popped back if the write fails). A GfxRefusal (the arena would
+   * Same order as setWord (append validates, then persist stages, clears
+   * redo and renames; popped back if that fails). A GfxRefusal (the arena would
    * overflow, a character the file lacks) comes back as `refused` with the
    * stack untouched.
    */
@@ -376,13 +382,14 @@ export class WorkingRomRegistry {
         pixels: c.pixels.map(p => ({ x: p.x, y: p.y, value: p.value })),
       })),
     }
+    const redo = [...working.redoStack] // append ends it; persist puts it back on a failed write
     try {
       working.append(layer)
     } catch (err) {
       const overage = err instanceof GfxRefusal ? err.overage : undefined
       return { status: 'refused', reason: (err as Error).message, overage }
     }
-    const failed = this.persist(manifestPath, r, layer)
+    const failed = this.persist(manifestPath, r, layer, redo)
     if (failed) return failed
     return r
   }

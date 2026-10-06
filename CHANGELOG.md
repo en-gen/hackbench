@@ -98,7 +98,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- A layer write that fails no longer discards the redo history (#634).
+- A layer write that fails before the redo clear no longer discards the redo history (#634).
 - Sprite $0A (Red Vertical Para-Koopa) and $0B (Red Horizontal Para-Koopa)
   patrol overlay no longer renders as a symmetric `±amplitudePx` band. Per
   `RedVertParaKoopa` (bank_01.asm:1881), `SpriteXSpeed` and `SpriteMisc151C`

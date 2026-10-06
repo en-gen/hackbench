@@ -754,6 +754,85 @@ describe('WorkingRomRegistry', () => {
       expect(working.editStack(manifestPath)).toMatchObject({ status: 'ok', canRedo: true })
     })
 
+    const wr = (oldHex: string, newHex: string) => ({ romAddr: MARIO_RED_ADDR, oldHex, newHex })
+    const tmpsIn = (dir: string) =>
+      fs.readdirSync(path.join(dir, 'ops')).filter(f => f.endsWith('.tmp'))
+
+    // A rebuilt instance would strand every subscriber that makes no further request.
+    it('a layer write that fails after an undo keeps the held instance and its redo', () => {
+      const { manifestPath, w, mine } = editedOnce()
+      working.undo(manifestPath)
+      fsFault.hook = (call, target) => {
+        if (call === 'writeFileSync' && !inRedo(target)) throw new Error('disk full')
+      }
+      expect(working.setWord(manifestPath, wr('$391F', '$2000')).status).toBe('io-error')
+      fsFault.hook = null
+      const r = working.get(manifestPath)
+      if (r.status !== 'ok') throw new Error('unreachable')
+      expect(r.working).toBe(w)
+      expect(w.redoStack.map(l => l.id)).toEqual([mine])
+    })
+
+    it('a rename that fails pops the failed edit from the held copy', () => {
+      const { manifestPath, w } = editedOnce()
+      fsFault.hook = call => {
+        if (call === 'renameSync') throw new Error('locked')
+      }
+      expect(working.setWord(manifestPath, wr('$1000', '$2000')).status).toBe('io-error')
+      fsFault.hook = null
+      expect(w.stack).toHaveLength(1)
+    })
+
+    it('a rename and a discard that both fail still report the rename and leave the store usable', () => {
+      const { manifestPath, w, dir } = editedOnce()
+      fsFault.hook = call => {
+        if (call === 'renameSync') throw new Error('locked')
+        if (call === 'unlinkSync') throw new Error('locked too')
+      }
+      const r = working.setWord(manifestPath, wr('$1000', '$2000'))
+      fsFault.hook = null
+      expect(r).toMatchObject({ status: 'io-error', reason: 'locked' })
+      expect(w.stack).toHaveLength(1)
+      // The stranded temp is not a layer: not loaded, and the next edit overwrites it.
+      expect(tmpsIn(dir)).toHaveLength(1)
+      expect(loadLayers(dir)).toHaveLength(1)
+      expect(working.setWord(manifestPath, wr('$1000', '$3000')).status).toBe('ok')
+      expect(loadLayers(dir).map(l => l.ops?.[0]?.new)).toEqual(['$1000', '$3000'])
+      const f = new WorkingRomRegistry(romRegistry).get(manifestPath)
+      if (f.status !== 'ok') throw new Error('unreachable')
+      expect(f.working.stack).toHaveLength(2)
+    })
+
+    it('a stranded temp from a failed rename is invisible to a fresh open', () => {
+      const { manifestPath, dir } = editedOnce()
+      fsFault.hook = call => {
+        if (call === 'renameSync' || call === 'unlinkSync') throw new Error('locked')
+      }
+      working.setWord(manifestPath, wr('$1000', '$2000'))
+      fsFault.hook = null
+      expect(tmpsIn(dir)).toEqual(['0001.json.tmp'])
+      expect(fs.readdirSync(path.join(dir, 'ops')).filter(f => f === '0001.json')).toEqual([])
+      const f = new WorkingRomRegistry(romRegistry).get(manifestPath)
+      if (f.status !== 'ok') throw new Error('unreachable')
+      expect(f.working.stack).toHaveLength(1)
+    })
+
+    it('a redo that dies mid-write leaves no partial layer file under its final name', () => {
+      const { manifestPath, dir, mine } = editedOnce()
+      working.undo(manifestPath)
+      fsFault.hook = (call, target) => {
+        if (call !== 'writeFileSync' || inRedo(target)) return
+        fsFault.hook = null
+        fs.writeFileSync(target, '{"half":', 'utf8')
+        throw new Error('power cut')
+      }
+      expect(working.redo(manifestPath).status).toBe('io-error')
+      fsFault.hook = null
+      expect(() => loadLayers(dir)).not.toThrow()
+      expect(loadLayers(dir)).toEqual([])
+      expect(loadRedoLayers(dir).map(l => l.id)).toEqual([mine])
+    })
+
     it('a rename that fails after the redo clear leaves no layer and no temp, memory agreeing', () => {
       const { manifestPath, dir } = editedOnce()
       working.undo(manifestPath)
