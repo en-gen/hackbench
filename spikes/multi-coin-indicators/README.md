@@ -25,19 +25,23 @@ and sprite helpers from `../block-content-indicators/lib.ts`.
 
 ## Candidates (all D4: half scale in the bottom-right quadrant, full block on hover)
 
-Each is a 16x16 graphic built from the coin sprite, shown in the quadrant at
-rest and over the whole block on hover.
+Round 1 (C1 diagonal stack, C2 coin beside a "+", C3 pile) was rejected by the
+owner. Round 2: the coin unchanged, with a white "+" with a black edge in the
+bottom-right corner of the coin's own 16x16 box. At rest the whole box is the
+D4 quadrant; on hover it is the full block. The "+" is a 5x5 white cross (arms
+1px) with a 1px black edge, 7x7 in all.
 
-- C1: three coins stacked on a diagonal, bottom-left in front (recommended).
-- C2: one coin plus a small white "+" with a 1px black edge, top right.
-- C3: a small pile, two coins at the base and one on top.
+- C4a: the "+" is part of the 16x16 art, so it scales with the coin.
+- C4b: the "+" is a separate 7x7 screen-pixel overlay at the corner of the
+  indicator box at every zoom and in hover, as DH measures its split in screen
+  pixels. At 1x it nearly fills the 8px quadrant.
 
 The page shows, per candidate, a real map window at 1x, 2x and 3x (single-coin
 blocks keep the plain D4 coin beside the multi-coin ones), then a single-coin
 and a multi-coin block each at rest and hover at 4x and 8x. A comparison
-section at the top shows all three on one block at 2x, 4x and 8x. A checkbox
-switches the stage to a dark backdrop. The page also holds a sample
-Properties "Contains" row.
+section at the top shows the plain coin, C4a and C4b on one block at 2x, 4x
+and 8x. A checkbox switches the stage to a dark backdrop. The page also holds
+a sample Properties "Contains" row.
 
 Map: $123 (Forest of Illusion 3), columns 70-86, rows 13-23. It holds one real
 multi-coin block, `$11B` at column 77, row 20, and two real single-coin blocks
@@ -88,22 +92,26 @@ Out of scope: the green star block (`DATA_00F080` `$FF`, `$12D`).
 
 ## Number checks
 
-The probe checks by numbers (opaque pixels, colours, bounding box, visible
-pixels per element) and fails the run on a bad graphic. It first proves the
-check can fail: a blank canvas and a candidate with one coin hidden are both
-rejected. The 16x16 canvas is drawn into the 8x8 quadrant by CSS, so "inside
-the quadrant" means every opaque pixel is inside the canvas. A browser pass
-over the generated page confirmed, for all 117 block elements, that the
-indicator box is the bottom-right half-size quadrant at rest and the full
-block when hover is forced (0 mismatches).
+The probe checks by numbers and fails the run on a bad graphic. C4a (16x16):
+132 coin pixels become 146 opaque (coin 121 visible, edge 16, white "+" 9),
+6 colours, bounding box (3,0)-(15,15) inside the canvas, "+" bounding box
+(9,9)-(15,15) in the box's bottom-right corner, 23 pixels differ from the plain
+coin. The check requires all 9 white "+" pixels visible. C4b: base identical to
+the plain coin (132 opaque, 0 differing), overlay 7x7 with 9 white and 16 edge
+pixels. The check goes red on a blank canvas, a C4a with the "+" hidden and a
+C4a with 3 white pixels hidden (all three rejected before the real run). The
+canvas is drawn into the 8x8 quadrant by CSS, so "inside the quadrant" means
+every opaque pixel is inside the canvas. A browser pass over the generated
+page confirmed, for all 80 block elements, the indicator box is the
+bottom-right half-size quadrant at rest and the full block when hover is
+forced, and that all 20 C4b overlays are 7x7 px, flush with the box's
+bottom-right corner and inside it (0 mismatches).
 
 ## Known gaps
 
-- Checked by numbers only, not by eye. The coin is scaled by taking the most
-  common colour of each source box, so small coins may lose their outline.
+- Checked by numbers only, not by eye.
 - At 1x the 16x16 graphic lands in 8 screen pixels by nearest-neighbour
-  sampling, which drops every other pixel; judge the "+" and the coin
-  separation at 2x and above.
+  sampling, which drops every other pixel, so C4a's 5x5 "+" is 2.5px there.
 - A real mouse hover was not exercised (the forced class uses the same CSS
   rule as the live `:hover`, copied from the #607 page).
 - The star keeps its first palette frame and items are unflipped, as in #605.

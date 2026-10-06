@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs'
 import { png, stats, spriteTools } from '../block-content-indicators/lib.ts'
 // Usage: npx tsx spikes/multi-coin-indicators/probe.ts [out.json]  (default: assets.json beside this file)
 // Reads the block-content tables, finds the multiple-coin blocks, takes a real map that holds them, and
-// composes the three candidate indicators (C1 diagonal stack, C2 coin plus "+", C3 pile) from the coin sprite.
+// composes the two candidate indicators (C4a, C4b: coin plus a "+" in its box corner) from the coin sprite.
 const HERE = new URL('.', import.meta.url)
 const R = new URL('../../', HERE).href
 const MAP = 0x123
@@ -104,77 +104,80 @@ function paint(c: Canvas, src: Px[][], ox: number, oy: number, id: number) {
     c.rgba.set(p, (py * 16 + px) * 4); c.owner[py * 16 + px] = id
   }))
 }
-/** C1: three coins stacked on a diagonal, bottom-left in front. */
-function c1(): Canvas {
-  const c = blank(), s = scaleCoin(6, 10)
-  paint(c, s, 10, 0, 1); paint(c, s, 5, 3, 2); paint(c, s, 0, 6, 3)
-  return c
-}
-/** C2: one coin on the left and a small white "+" with a 1px black edge, top right. */
-function c2(): Canvas {
-  const c = blank()
-  paint(c, scaleCoin(8, 13), 0, 3, 1)
+/** The "+" in 16x16 art: 5x5 white cross (arms 1px) with a 1px black edge, so 7x7 in all, as a 7x7 pixel grid. */
+const plusPx = (): Px[][] => {
   const W: Px = [255, 255, 255, 255], K: Px = [0, 0, 0, 255]
-  const plus = (x: number, y: number) => x >= 0 && x < 6 && y >= 0 && y < 6 && (x === 2 || x === 3 || y === 2 || y === 3)
-  const edge = Array.from({ length: 8 }, (_, y) => Array.from({ length: 8 }, (_, x): Px => {
+  const cross = (x: number, y: number) => x >= 0 && x < 5 && y >= 0 && y < 5 && (x === 2 || y === 2)
+  return Array.from({ length: 7 }, (_, y) => Array.from({ length: 7 }, (_, x): Px => {
     const px = x - 1, py = y - 1
-    return !plus(px, py) && [[-1, 0], [1, 0], [0, -1], [0, 1]].some(([dx, dy]) => plus(px + dx!, py + dy!)) ? K : NONE
+    if (cross(px, py)) return W
+    return [[-1, 0], [1, 0], [0, -1], [0, 1]].some(([dx, dy]) => cross(px + dx!, py + dy!)) ? K : NONE
   }))
-  paint(c, edge, 8, 0, 2)
-  paint(c, Array.from({ length: 6 }, (_, y) => Array.from({ length: 6 }, (_, x): Px => (plus(x, y) ? W : NONE))), 9, 1, 3)
+}
+/** C4a: the coin unchanged (owner 1) with the "+" (edge 2, white 3) in the bottom-right corner of its 16x16 box; scales with the coin. */
+function c4a(): Canvas {
+  const c = blank()
+  paint(c, Array.from({ length: 16 }, (_, y) => Array.from({ length: 16 }, (_, x): Px => at(x, y))), 0, 0, 1)
+  const p = plusPx()
+  paint(c, p.map((r) => r.map((q): Px => (q[0] === 0 ? q : NONE))), 9, 9, 2) // black edge
+  paint(c, p.map((r) => r.map((q): Px => (q[0] === 255 ? q : NONE))), 9, 9, 3) // white cross
   return c
 }
-/** C3: a small pile, two coins at the base and one on top, overlapping. */
-function c3(): Canvas {
-  const c = blank(), s = scaleCoin(6, 10)
-  paint(c, s, 1, 6, 1); paint(c, s, 9, 6, 2); paint(c, s, 5, 0, 3)
-  return c
-}
-// elements: C1/C3 three coins; C2 owner 1 coin, 2 black edge, 3 white plus
+/** C4b: the same coin; the "+" is a separate 7x7 screen-pixel overlay at the corner of the indicator box at every zoom. */
+const plus7 = (): Uint8ClampedArray => { const a = new Uint8ClampedArray(7 * 7 * 4); plusPx().forEach((r, y) => r.forEach((q, x) => a.set(q, (y * 7 + x) * 4))); return a }
 const CANDS: Record<string, { name: string; make: () => Canvas }> = {
-  C1: { name: 'three coins stacked diagonally', make: c1 },
-  C2: { name: 'one coin plus a small "+"', make: c2 },
-  C3: { name: 'a pile of three coins', make: c3 },
+  C4a: { name: 'coin plus "+" in the box corner, scales with the coin (5x5 in 16x16 art)', make: c4a },
+  C4b: { name: 'coin plus "+" in the box corner, fixed 5x5 screen pixels at every zoom', make: () => { const c = blank(); paint(c, Array.from({ length: 16 }, (_, y) => Array.from({ length: 16 }, (_, x): Px => at(x, y))), 0, 0, 1); return c } },
 }
 
 // ---- number checks: the only check a no-eyes pipeline has (see README)
-function check(name: string, c: Canvas, minOwn: number) {
+function check(name: string, c: Canvas, plusWhite: number) {
   let opaque = 0, x0 = 16, y0 = 16, x1 = -1, y1 = -1; const cols = new Set<number>(); const own = [0, 0, 0, 0]
+  let px0 = 16, py0 = 16, px1 = -1, py1 = -1
   for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
     const i = (y * 16 + x) * 4; if (!c.rgba[i + 3]) continue
     opaque++; cols.add((c.rgba[i]! << 16) | (c.rgba[i + 1]! << 8) | c.rgba[i + 2]!)
     x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); own[c.owner[y * 16 + x]!]!++
+    if (c.owner[y * 16 + x]! >= 2) { px0 = Math.min(px0, x); px1 = Math.max(px1, x); py0 = Math.min(py0, y); py1 = Math.max(py1, y) }
   }
   // the rest state draws the whole 16x16 canvas into the bottom-right 8x8 box (CSS), so "inside the quadrant" is: opaque within the canvas
   const inside = opaque > 0 && x0 >= 0 && y0 >= 0 && x1 <= 15 && y1 <= 15
-  // every element must keep at least minOwn visible pixels, or the others hide it
-  const ok = opaque > 0 && cols.size > 1 && inside && Math.min(own[1]!, own[2]!, own[3]!) >= minOwn
-  console.log(`${ok ? 'OK ' : 'BAD'} ${name}: 16x16 opaque=${opaque} colors=${cols.size} bbox=(${x0},${y0})-(${x1},${y1}) visible-per-element=[${own.slice(1)}] inside-quadrant=${inside}`)
+  // the "+" must be fully visible (white cross not hidden by the coin) and sit in the bottom-right corner of the box
+  const corner = plusWhite === 0 || (px1 === 15 && py1 === 15 && px0 >= 8 && py0 >= 8)
+  const ok = opaque > 0 && cols.size > 1 && inside && own[1]! >= 100 && corner && (plusWhite === 0 || own[3]! === plusWhite)
+  console.log(`${ok ? 'OK ' : 'BAD'} ${name}: 16x16 opaque=${opaque} colors=${cols.size} bbox=(${x0},${y0})-(${x1},${y1}) coin=${own[1]} edge=${own[2]} white-plus=${own[3]} (want ${plusWhite}) plus-bbox=(${px0},${py0})-(${px1},${py1}) inside-quadrant=${inside}`)
   if (!ok) throw new Error('bad candidate ' + name)
   return opaque
 }
-// the check must be able to fail: a blank canvas and a hidden element are both rejected
+// the check must be able to fail: a blank canvas and a candidate with the "+" hidden are both rejected
 {
-  const hidden = c1(); for (let i = 0; i < 256; i++) if (hidden.owner[i] === 2) { hidden.rgba[i * 4 + 3] = 0; hidden.owner[i] = 0 }
-  for (const [n, c] of [['blank', blank()], ['hidden-element', hidden]] as const) {
-    let threw = false; try { check('planted ' + n, c, 8) } catch { threw = true }
+  const hidden = c4a(); for (let i = 0; i < 256; i++) if (hidden.owner[i]! >= 2) { hidden.rgba[i * 4 + 3] = 0; hidden.owner[i] = 0 }
+  const half = c4a(); let n = 0; for (let i = 0; i < 256; i++) if (half.owner[i] === 3 && n++ < 3) { half.rgba[i * 4 + 3] = 0; half.owner[i] = 0 }
+  for (const [n, c] of [['blank', blank()], ['plus-hidden', hidden], ['plus-partly-hidden', half]] as const) {
+    let threw = false; try { check('planted ' + n, c, 9) } catch { threw = true }
     if (!threw) throw new Error('check did not fail on planted defect: ' + n)
   }
-  console.log('planted defects (blank canvas, hidden element): both rejected')
+  console.log('planted defects (blank canvas, "+" hidden, "+" partly hidden): all rejected')
 }
 stats('coin', coin16, 'coin sprite (bank_02.asm:3432) tile $E8, attr $04, as in block-content-indicators/probe.ts')
 const img: Record<string, string> = { coin: png(16, 16, coin16) }
 const counts: Record<string, number> = {}, gfx: Record<string, Uint8ClampedArray> = {}
 for (const [k, c] of Object.entries(CANDS)) {
-  const cv = c.make(); counts[k] = check(k, cv, k === 'C2' ? 8 : 12); gfx[k] = cv.rgba; img[k] = png(16, 16, cv.rgba)
+  const cv = c.make(); counts[k] = check(k, cv, k === 'C4a' ? 9 : 0); gfx[k] = cv.rgba; img[k] = png(16, 16, cv.rgba)
 }
-// the candidates must differ from each other and from the single coin, or two mockup columns would show one design
+// C4b's "+" is its own 7x7 graphic: 9 white + 16 edge pixels, nothing else, and it must fit the 8x8 rest quadrant at 1x
+{
+  const p = plus7(); let white = 0, edge = 0
+  for (let i = 0; i < p.length; i += 4) if (p[i + 3]) { if (p[i] === 255) white++; else edge++ }
+  console.log(`${white === 9 && edge === 16 ? 'OK ' : 'BAD'} plus7: 7x7 white=${white} edge=${edge}`)
+  if (white !== 9 || edge !== 16) throw new Error('bad plus7')
+  img.plus7 = png(7, 7, p)
+}
+// C4a must differ from the plain coin by the "+" only (white 9 + edge 16 = 25 pixels at most)
 const diff = (a: Uint8ClampedArray, b: Uint8ClampedArray) => { let n = 0; for (let i = 0; i < a.length; i += 4) if (a[i + 3] !== b[i + 3] || (a[i + 3] && (a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2]))) n++; return n }
-const names = ['coin', ...Object.keys(CANDS)], arr = [coin16, ...Object.keys(CANDS).map((k) => gfx[k]!)]
-for (let i = 0; i < arr.length; i++) for (let j = i + 1; j < arr.length; j++) {
-  const d = diff(arr[i]!, arr[j]!); console.log(`differs ${names[i]} vs ${names[j]}: ${d} pixels`)
-  if (d < 20) throw new Error(`${names[i]} and ${names[j]} are nearly identical`)
-}
+const d4 = diff(coin16, gfx.C4a!); console.log(`differs coin vs C4a: ${d4} pixels`)
+if (d4 < 15 || d4 > 25) throw new Error('C4a is not the coin plus the plus mark')
+if (diff(coin16, gfx.C4b!) !== 0) throw new Error('C4b base is not the unchanged coin')
 
 // ---- tiles
 const win: number[][] = []

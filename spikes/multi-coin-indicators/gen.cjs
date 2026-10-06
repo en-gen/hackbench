@@ -8,7 +8,7 @@ const hex = (n) => n.toString(16)
 const SINGLE_TEXT = 'Coin'
 const MULTI_TEXT = 'Coins until the timer runs out'
 // Every block holds an indicator: the plain coin for single-coin blocks, the candidate for multi-coin blocks.
-const ind = (key) => `<span class="bd"><img src="${img[key]}"></span>`
+const ind = (key) => `<span class="bd"><img src="${img[key]}">${key === 'C4b' ? `<img class="pl" src="${img.plus7}">` : ''}</span>`
 function block(x, y, b, key, extra = '') {
   const text = `Map16 $${hex(b.id)}${b.label ? ' at ' + b.label.split(' at ')[1] : ''}: ${b.kind === 'multi' ? MULTI_TEXT : SINGLE_TEXT}`
   return `<div class="blk${extra}" style="--x:${x};--y:${y}" data-text="${text}"><img class="t0" src="${img['t' + b.id]}">${ind(key)}</div>`
@@ -59,6 +59,7 @@ body{--bg:${bg}}body.dark{--bg:#1e1e1e}
 .bd{position:absolute;z-index:5;right:0;bottom:0;width:calc(8px*var(--z));height:calc(8px*var(--z));pointer-events:none;transition:width .1s,height .1s}
 .blk:hover .bd,.blk.force .bd{width:var(--u);height:var(--u)}
 .bd img{position:absolute;left:0;top:0;width:100%;height:100%}
+.bd img.pl{left:auto;top:auto;right:0;bottom:0;width:7px;height:7px}
 .msg{min-height:20px;margin-top:6px;font-size:12px;color:#9cdcfe}.cap{font-size:11px;color:#858585;margin-bottom:4px;height:14px}
 .detail{margin-top:14px}.figs{display:flex;gap:28px;flex-wrap:wrap}figure{margin:0}.cell{display:inline-block;margin-right:10px;vertical-align:top}
 .s1{width:var(--u);height:var(--u);outline:none}.s1 .blk{left:0;top:0}
