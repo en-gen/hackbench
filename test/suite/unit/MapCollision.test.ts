@@ -5,13 +5,14 @@
  */
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
+import { NEUTRAL } from '../../../src/rom/collision/TileProbe'
 import { mapCollision, mapCollisionCheck } from '../../../theia/extension/src/node/map-collision'
 import { L1ModelCache } from '../../../theia/extension/src/node/map-screen'
 import { hGrid, inputs, vGrid } from '../support/mapInputs'
 import { hasRom, romPath, VANILLA } from '../support/corpus'
 import { readFileSync } from 'node:fs'
 
-const OFF = { flags: { green: false, yellow: false, blue: false, red: false }, bluePs: false }
+const OFF = NEUTRAL
 const stub = (isVertical: boolean) =>
   new L1ModelCache(() => ({
     ok: true,
@@ -54,6 +55,10 @@ describe('mapCollision reply cache (synthetic layer)', () => {
     }) as unknown as typeof import('../../../src/rom/collision/MapCollision').collisionLayer
     return { fn, calls }
   }
+  /** A layer stub that hands the options it was called with (the sixth argument) to `f`. */
+  const optsSpy = (f: (o: { cancelled?: () => boolean; state?: unknown }) => unknown) =>
+    ((_r: unknown, _l: number, _t: number, _g: unknown, _p: unknown, o: object) =>
+      Promise.resolve(f(o))) as unknown as ReturnType<typeof layer>['fn']
   const ask = (c: L1ModelCache, b: Uint8Array, i: number, fn: ReturnType<typeof layer>['fn']) =>
     mapCollision(c, b, 'x.sfc', i, OFF, () => false, fn)
 
@@ -69,17 +74,10 @@ describe('mapCollision reply cache (synthetic layer)', () => {
   it('passes the cancel check to the layer and turns its stop into stale, kept nowhere', async () => {
     const [c, b] = [stub(false), synthetic()]
     const seen: (() => boolean)[] = []
-    const stopped = (async (
-      _r: unknown,
-      _l: number,
-      _t: number,
-      _g: unknown,
-      _p: unknown,
-      o: { cancelled?: () => boolean },
-    ) => {
+    const stopped = optsSpy(o => {
       seen.push(o.cancelled!)
       return { ok: false, reason: 'superseded' }
-    }) as unknown as ReturnType<typeof layer>['fn']
+    })
     expect(await mapCollision(c, b, 'x.sfc', 0x105, OFF, () => true, stopped)).toEqual({
       status: 'stale',
     })
@@ -94,17 +92,10 @@ describe('mapCollision reply cache (synthetic layer)', () => {
       return { ok: true, inputs: inputs(hGrid(2), false, 2) }
     })
     const states: unknown[] = []
-    const fn = (async (
-      _r: unknown,
-      _l: number,
-      _t: number,
-      _g: unknown,
-      _p: unknown,
-      o: { state?: unknown },
-    ) => {
+    const fn = optsSpy(o => {
       states.push(o.state)
       return { ok: true, lines, probed: 1, steps: 1 }
-    }) as unknown as ReturnType<typeof layer>['fn']
+    })
     const b = synthetic()
     const yellow = { flags: { ...OFF.flags, yellow: true }, bluePs: true }
     await mapCollision(cache, b, 'x.sfc', 0x15, yellow, () => false, fn)

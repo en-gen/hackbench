@@ -54,21 +54,20 @@ export class MapViewStateStore {
 
   dispatch(action: MapViewAction): void {
     const { flags, switches } = this.current
-    // A key the state does not have changes nothing, so nothing is announced.
-    if (action.type === 'togglePalace' ? !(action.palace in flags) : !(action.key in switches))
-      return
-    const [next, changed]: [SwitchState, MapViewChange['changed']] =
-      action.type === 'togglePalace'
-        ? [
-            { flags: { ...flags, [action.palace]: !flags[action.palace] }, switches },
-            [{ group: 'flags', key: action.palace }],
-          ]
-        : [
-            { flags, switches: { ...switches, [action.key]: !switches[action.key] } },
-            [{ group: 'switches', key: action.key }],
-          ]
+    let next: SwitchState
+    let changed: MapViewChange['changed'][number]
+    if (action.type === 'togglePalace') {
+      // A key the state does not have changes nothing, so nothing is announced.
+      if (!(action.palace in flags)) return
+      next = { flags: { ...flags, [action.palace]: !flags[action.palace] }, switches }
+      changed = { group: 'flags', key: action.palace }
+    } else {
+      if (!(action.key in switches)) return
+      next = { flags, switches: { ...switches, [action.key]: !switches[action.key] } }
+      changed = { group: 'switches', key: action.key }
+    }
     this.current = next
-    this.emitter.fire({ state: next, changed })
+    this.emitter.fire({ state: next, changed: [changed] })
   }
 
   dispose(): void {
