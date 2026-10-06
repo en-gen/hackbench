@@ -794,6 +794,32 @@ describe('WorkingRomRegistry', () => {
 
     // The held-instance checks below read the registry's own copy, not editStack(),
     // which rebuilds from disk and would hide a redo that was never restored in memory.
+    // A recursive clear that deletes one redo file and then throws: the held copy
+    // briefly has both layers, disk one. The dropped stamp makes the next get() rebuild from disk.
+    it('a redo clear that deletes one file before it throws reconciles on the next access', () => {
+      const { manifestPath, dir } = editedOnce()
+      working.setWord(manifestPath, wr('$1000', '$2000'))
+      working.undo(manifestPath)
+      working.undo(manifestPath)
+      fsFault.hook = (call, target) => {
+        if (call !== 'rmSync' || !inRedo(`${target}${path.sep}`)) return
+        fs.unlinkSync(path.join(target, '0001.json'))
+        throw new Error('locked')
+      }
+      expect(working.setWord(manifestPath, wr('$391F', '$3000')).status).toBe('io-error')
+      fsFault.hook = null
+
+      expect(loadLayers(dir)).toHaveLength(0)
+      expect(tmpsIn(dir)).toEqual([])
+      expect(loadRedoLayers(dir)).toHaveLength(1)
+      expect(working.editStack(manifestPath)).toMatchObject({ status: 'ok', canRedo: true })
+      const r = working.get(manifestPath)
+      if (r.status !== 'ok') throw new Error('unreachable')
+      expect(r.working.redoStack).toHaveLength(1)
+      // The survivor is the later layer; its `old` no longer matches the bytes below it, so redo refuses.
+      expect(working.redo(manifestPath)).toMatchObject({ status: 'stale' })
+    })
+
     it('a redo clear that throws keeps the held instance and its redo', () => {
       const { manifestPath, w, mine } = editedOnce()
       working.undo(manifestPath)
