@@ -34,11 +34,13 @@ gn() {
 # fails every subsequent run with "FTS index is inconsistent". Observed once on
 # this repo. The tool ships a targeted repair for it, so try that before paying
 # for a full re-index.
-if ! gn analyze "$@"; then
+# --skip-agents-md: the generated region carries live counts, so two worktrees
+# analyzing at once wrote different numbers and conflicted on merge (#644).
+if ! gn analyze --skip-agents-md "$@"; then
   echo "gitnexus-refresh: incremental analyze failed, repairing the FTS index." >&2
-  gn analyze --repair-fts "$@" || {
+  gn analyze --skip-agents-md --repair-fts "$@" || {
     echo "gitnexus-refresh: repair failed, forcing a full re-index." >&2
-    gn analyze --force "$@"
+    gn analyze --skip-agents-md --force "$@"
   }
 fi
 
