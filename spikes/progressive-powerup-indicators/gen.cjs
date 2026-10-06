@@ -133,4 +133,98 @@ if (two) {
 <style>body{--bg:${bg}}</style></body></html>`
   fs.writeFileSync(path.join(path.dirname(process.argv[3] || __filename), 'two-outcome.html'), html2)
   console.log('two-outcome.html', html2.length, 'bytes;', (html2.match(/class="blk/g) || []).length, 'block elements')
+  // ---- #566 ruling mock: a black line on the TL-BR diagonal of every split indicator, only over opaque art.
+  // Same page machinery as above. A new variant is one row in LINES; a new block is one row in LB.
+  const zlib = require('zlib')
+  const decode = (uri) => { // 8-bit RGBA PNG data URI -> [r,g,b,a] per pixel, row-major (the probe's png() writes colour type 6)
+    const b = Buffer.from(uri.split(',')[1], 'base64'), w = b.readUInt32BE(16), h = b.readUInt32BE(20)
+    if (b[24] !== 8 || b[25] !== 6) throw new Error('not 8-bit RGBA')
+    let p = 33
+    const idat = []
+    while (p < b.length) { const n = b.readUInt32BE(p), t = b.toString('latin1', p + 4, p + 8); if (t === 'IDAT') idat.push(b.subarray(p + 8, p + 8 + n)); p += 12 + n }
+    const raw = zlib.inflateSync(Buffer.concat(idat)), st = w * 4, out = Buffer.alloc(st * h)
+    for (let y = 0; y < h; y++) {
+      const f = raw[y * (st + 1)]
+      for (let i = 0; i < st; i++) {
+        const x = raw[y * (st + 1) + 1 + i], a = i >= 4 ? out[y * st + i - 4] : 0, u = y ? out[(y - 1) * st + i] : 0, c = i >= 4 && y ? out[(y - 1) * st + i - 4] : 0
+        const pa = Math.abs(u - c), pb = Math.abs(a - c), pc = Math.abs(a + u - 2 * c)
+        out[y * st + i] = (x + [0, a, u, (a + u) >> 1, pa <= pb && pa <= pc ? a : pb <= pc ? u : c][f]) & 255
+      }
+    }
+    return Array.from({ length: w * h }, (_, i) => [...out.subarray(i * 4, i * 4 + 4)])
+  }
+  const NEAR_BLACK = 48 // L3: a pixel whose brightest channel is below this counts as outline
+  // The diagonal is the 16 art pixels (i, i). Upper-right of it is the conditional item, lower-left the
+  // small-Mario item; a diagonal pixel is half of each, so it is opaque if either item is.
+  const diag = (a, b) => Array.from({ length: 16 }, (_, i) => { // [i, opaque, dark] per diagonal pixel
+    const seen = [a[i * 16 + i], b[i * 16 + i]].filter((p) => p[3] > 0)
+    return [i, seen.length > 0, seen.length > 0 && seen.every((p) => Math.max(p[0], p[1], p[2]) < NEAR_BLACK)]
+  })
+  // The line is drawn once per item, clipped to that item's half (the same polygons as the art), so it can
+  // only land on a pixel that item paints. Per item: the opaque art pixels, and the diagonal ones among them.
+  const itemCells = (px, skip) => {
+    const all = [], dg = []
+    for (let k = 0; k < 256; k++) if (px[k][3] > 0) { const c = [k % 16, k >> 4]; all.push(c); if (c[0] === c[1] && !(skip && Math.max(px[k][0], px[k][1], px[k][2]) < NEAR_BLACK)) dg.push(c) }
+    return { all, dg }
+  }
+  const png16 = (cells) => { // 16x16 RGBA PNG data URI, opaque black at the given cells; PNG so it is sampled pixelated like the item art
+    const raw = Buffer.alloc(16 * 65)
+    for (const [x, y] of cells) raw[y * 65 + 1 + x * 4 + 3] = 255
+    const chunk = (t, d) => { const b = Buffer.alloc(12 + d.length); b.writeUInt32BE(d.length, 0); b.write(t, 4, 'latin1'); d.copy(b, 8); b.writeUInt32BE(zlib.crc32(b.subarray(4, 8 + d.length)), 8 + d.length); return b }
+    const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(16, 0); ihdr.writeUInt32BE(16, 4); ihdr[8] = 8; ihdr[9] = 6
+    return 'data:image/png;base64,' + Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]).toString('base64')
+  }
+  const rects = (cells) => cells.map(([x, y]) => `<rect x="${x}" y="${y}" width="1" height="1"/>`).join('')
+    // [code, label, mode, skip dark]. art: black art pixels that scale with the indicator; screen: a 1 screen-pixel line masked to opaque art.
+  const LINES = [
+    ['N', 'no line: the current hard split', null, false],
+    ['L1', 'black line one art pixel wide (scales with zoom)', 'art', false],
+    ['L2', 'black line one screen pixel wide at every zoom', 'screen', false],
+    ['L3', 'one art pixel wide, skipping outline pixels that are already black', 'art', true],
+  ]
+  // [Map16 id, label, top-right item, bottom-left item]; null top = plain indicator, 'plus' = C4a
+  const LB = [
+    [0x11f, 'progressive, mushroom / flower', 'flower', 'mushroom'],
+    [0x120, 'progressive, mushroom / feather', 'feather', 'mushroom'],
+    [0x11a, 'column 0, coin / star', 'star', 'coin'],
+    [0x12d, 'coin / 1-up', 'oneup', 'coin'],
+    [0x11c, 'plain D4 coin (context, no split)', null, 'coin'],
+    [0x11b, 'C4a multi-coin (context, no split)', 'plus', 'coin'],
+  ]
+  const layers = (top, bot, skip) => [['o', itemCells(decode(img[top]), skip)], ['m', itemCells(decode(img[bot]), skip)]]
+  const lineSet = (top, bot, skip) => { // line pixels as art pixels: a diagonal pixel counts if either item paints it
+    const L = layers(top, bot, skip), d = diag(decode(img[top]), decode(img[bot]))
+    return { cells: new Set(L.flatMap(([, c]) => c.dg.map(([i]) => i))).size, opaque: d.filter((p) => p[1]).length, dark: d.filter((p) => p[2]).length }
+  }
+  const cellFor = (b, [, , mode, skip], z, force) => {
+    const [id, , top, bot] = b
+    let inner = top === null ? plainInd(bot) : top === 'plus' ? `<span class="bd"><img class="p" src="${img.coin}"><img class="pl" src="${plusSvg}"></span>` : ind(bot, top)
+    if (mode && top && top !== 'plus') {
+      const ov = layers(top, bot, skip).map(([cls, c]) => mode === 'art'
+        ? `<img class="ov ${cls}" src="${png16(c.dg)}">`
+        : `<svg class="ov ln2 ${cls}" viewBox="0 0 10 10" preserveAspectRatio="none" style="-webkit-mask-image:url('${png16(c.all)}');mask-image:url('${png16(c.all)}')"><line x1="0" y1="0" x2="10" y2="10" stroke="#000" stroke-width="1" vector-effect="non-scaling-stroke" shape-rendering="crispEdges"/></svg>`).join('')
+      inner = inner.replace('</span>', ov + '</span>')
+    }
+    return `<div class="cell"><div class="stage s1" style="--z:${z}">${block(0, 0, id, inner, '', force ? ' force' : '')}</div></div>`
+  }
+  let secs = ''
+  const counts = []
+  for (const b of LB) {
+    const hx = '$' + b[0].toString(16).toUpperCase()
+    secs += `<section style="--lw:0"><h2>${hx} ${b[1]}</h2>`
+    for (const l of LINES) {
+      secs += `<div class="lr"><div class="lab"><b>${l[0]}</b> ${l[1]}<br>on ${hx}, ${b[1]}</div>` +
+        [1, 2, 3].map((z) => `<div class="zr" style="--z:${z}"><div class="cap">${z}x at rest | hover</div>${cellFor(b, l, z, false)}${cellFor(b, l, z, true)}</div>`).join('') + '</div>'
+      if (b[2] && b[2] !== 'plus' && l[2]) { const e = lineSet(b[2], b[3], l[3]); counts.push([l[0], hx, e.cells, e.opaque, e.dark]) }
+    }
+    secs += '</section>'
+  }
+  const css3 = css.replace('</style>', `.lr{display:flex;align-items:flex-start;gap:6px;margin:6px 0;border-top:1px solid #333;padding-top:6px}.lab{width:260px;flex:none;font-size:12px;color:#9cdcfe}.lab b{color:#fff}
+.lr .zr{margin-right:8px;--z:1;--u:calc(16px*var(--z))}body{line-height:18px}.bd .ln2,.bd img.ov{image-rendering:pixelated}.lr .cell{margin-right:8px}.bd .ov{pointer-events:none}.bd .ln2{position:absolute;left:0;top:0;width:100%;height:100%;mask-size:100% 100%;-webkit-mask-size:100% 100%}.bd img.ov{left:0;top:0;width:100%;height:100%}</style>`)
+  const html3 = `<!doctype html><html><head><meta charset="utf-8"><title>Diagonal line mockup</title>${css3}</head><body><h1>Black line on split indicators (#566 ruling), map ${map} palette</h1>
+<p class="note">A black line on the top-left to bottom-right diagonal, drawn only over opaque art. Each row: the current no-line split (N), then L1, L2, L3, at 1x, 2x, 3x, each at rest then hover. Hover a block to fill it.</p>${secs}
+<style>body{--bg:${bg}}</style></body></html>`
+  fs.writeFileSync(path.join(path.dirname(process.argv[3] || __filename), 'diagonal-line.html'), html3)
+  console.log('diagonal-line.html', html3.length, 'bytes')
+  console.log('variant block lineCells opaqueOnDiagonal(of 16) darkOnDiagonal'); counts.forEach((c) => console.log(c.join(' ')))
 }

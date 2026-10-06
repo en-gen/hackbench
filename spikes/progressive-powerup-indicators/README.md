@@ -159,3 +159,13 @@ Rules: `$11A` column 0 and `$122` give a star, or a coin when Mario already has
 one (`CODE_00F1C9`, `bank_00.asm:12887-12891`); `$12D` gives a 1-Up once its
 counter is zero, else a coin (`bank_00.asm:12861-12866`). ASM reading only; the
 probe throws if the tables stop saying so.
+
+## Diagonal line mock (#566 ruling, mock only)
+
+`gen.cjs` also writes `diagonal-line.html` (gitignored with the other pages):
+the split indicators with a black line on the top-left to bottom-right
+diagonal, only over opaque art, beside the current no-line split. L1 one art
+pixel wide, L2 one screen pixel wide, L3 one art pixel wide skipping
+near-black outline pixels. A new variant is one row of `LINES`, a new block one
+row of `LB`. The line is drawn once per item and clipped to that item's half,
+so it cannot land on a pixel the item does not paint.
