@@ -187,6 +187,23 @@ describe('WorkingRomRegistry.onRomChanged', () => {
     expect(fired).toEqual([])
   })
 
+  it('a waiting project served by a later get() is announced once, and a later register adds nothing', () => {
+    const rom = put('a.sfc', fakeRom(31))
+    const manifest = project(rom)
+    const sha = JSON.parse(fs.readFileSync(manifest, 'utf8')).baseRom.sha256
+    registry.forget(sha)
+    expect(working.get(manifest).status).toBe('rom-not-located')
+    const { fired } = recorder()
+    // The ROM reappears without register or relocate: a view stuck on "Locate"
+    // learns of it from the first get() that finds it.
+    registry.register(rom)
+    expect(working.get(manifest).status).toBe('ok')
+    expect(fired).toEqual([manifest])
+    working.get(manifest)
+    working.register(put('again.sfc', fakeRom(31)))
+    expect(fired).toEqual([manifest])
+  })
+
   it('relocating one waiting project announces the others waiting on the same ROM', () => {
     const rom = put('a.sfc', fakeRom(31))
     const a = project(rom)

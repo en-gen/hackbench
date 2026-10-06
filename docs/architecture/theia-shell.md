@@ -142,6 +142,8 @@ where an edit asks it to re-read.
 - `relocate` swaps the ROM path (Project Properties);
 - `register` serves a project that was waiting for its ROM (the emulator's
   "Locate ROM...");
+- a `get` finds the ROM of a project that was waiting for it (it reappeared
+  without `register` or `relocate`), so a view stuck on "Locate" refreshes;
 - a rebuild replaces an existing cache entry (a header flip, or layers
   rewritten under it).
 

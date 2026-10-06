@@ -130,9 +130,10 @@ export class WorkingRomRegistry {
   /**
    * Fires, once per project, when the ROM behind a project's working copy
    * changes: `relocate`, a `register` that serves a project that was waiting
-   * for its ROM, or a rebuild that replaces a cached entry. NOT on the first
-   * build (a view asking for the project is already loading it) and NOT on
-   * edits (the edit event covers those).
+   * for its ROM, a `get` that finds a waiting project's ROM again, or a rebuild
+   * that replaces a cached entry. NOT on the first build (a view asking for the
+   * project is already loading it) and NOT on edits (the edit event covers
+   * those).
    */
   onRomChanged(fn: (manifestPath: string) => void): () => void {
     this.romListeners.add(fn)
@@ -278,6 +279,7 @@ export class WorkingRomRegistry {
     let romPath: string
     let working: WorkingRom
     let stamp: { key: string; takenAt: number }
+    let wasWaiting: boolean
     try {
       // Taken BEFORE the layers are read: a write landing in between then
       // shows as a changed stamp next call, rather than being stamped as seen.
@@ -294,7 +296,7 @@ export class WorkingRomRegistry {
         }
         return { status: 'rom-not-located', baseRom: project.baseRom }
       }
-      this.waiting.delete(manifestPath)
+      wasWaiting = this.waiting.delete(manifestPath)
       romPath = resolved.path
       const rom = RomFile.fromBytes(romPath, Buffer.from(resolved.bytes))
       working = new WorkingRom(rom.buffer, rom.hasHeader)
@@ -313,7 +315,9 @@ export class WorkingRomRegistry {
     // A rebuild strands every view holding the old instance (see above).
     if (cached) this.releaseCopy(cached.working)
     for (const l of this.copyListeners) l.built(manifestPath, working)
-    if (cached) this.fireRomChanged(manifestPath)
+    // A waiting project served here (the ROM reappeared without register or
+    // relocate) is announced too: a view stuck on "Locate" has no other cue.
+    if (cached || wasWaiting) this.fireRomChanged(manifestPath)
     return { status: 'ok', ...entry }
   }
 

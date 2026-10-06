@@ -391,6 +391,22 @@ same move `previewId` and `gateQuadrantWrite` made. A grep over source text
 passes when the bug returns under a different spelling and fails on an
 innocent rename, which is the wrong failure mode twice over.
 
+### `eslint.config.mjs` - cloudevents is imported for types only
+
+Run against `test/suite/gates/lintGate.test.ts` (21 cases): one line of the
+rule disabled at a time, expecting the cases that need it to go red.
+
+| Planted defect                                              | Cases red |
+| ----------------------------------------------------------- | --------- |
+| `paths` entry for `cloudevents` renamed                     | 3         |
+| `patterns` entry `cloudevents/*` renamed                    | 1         |
+| `ImportExpression` selector (string literal) disabled       | 2         |
+| `ImportExpression` template-literal selector disabled       | 1         |
+| `require()` selector (string literal) disabled              | 1         |
+| `require()` template-literal selector disabled              | 1         |
+| `module.require()` selector (string literal) disabled       | 1         |
+| `module.require()` template-literal selector disabled       | 1         |
+
 ## Viewing Mesen per-map captures
 
 The Mesen capture harness (`en-gen/hackbench-validation`, under

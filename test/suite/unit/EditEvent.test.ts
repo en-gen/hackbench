@@ -14,7 +14,7 @@ import { WorkingRomRegistry } from '../../../src/project/WorkingRomRegistry'
 import { Layer, WorkingRom } from '../../../src/project/WorkingRom'
 import { EditEvent, buildEditEvent, coalesceRanges, domainOf } from '../../../src/project/EditEvent'
 import { FULL_WORD_MASK } from '../../../src/rom/PaletteOp'
-import { loromToOffset } from '../../../src/rom/addressing'
+import { loromFromOffset, loromToOffset } from '../../../src/rom/addressing'
 import {
   WorkingCopyClient,
   WorkingCopyNotifier,
@@ -283,16 +283,49 @@ describe('the notifier fires the edit event', () => {
     expect(events).toEqual([])
   })
 
-  it('a client-less or closed notifier sends nothing', () => {
+  it('a client-less or closed notifier sends nothing; a connected one hears each edit', () => {
     const w = new WorkingRom(fakeRom(), false)
     const events: EditEvent[] = []
+    const client = { onEditEvent: (e: EditEvent) => events.push(e) }
     const notifier = new WorkingCopyNotifier<WorkingCopyClient>()
     notifier.watch('/p', w) // no client yet
-    w.append({
-      id: 'a',
-      label: 'a',
-      ops: [{ address: '$00B2CE', old: word(fakeRom(), OFFSET), new: '$0001' }],
+    const layer = (id: string, old: string, next: string): Layer => ({
+      id,
+      label: id,
+      ops: [{ address: '$00B2CE', old, new: next }],
     })
+    w.append(layer('a', word(fakeRom(), OFFSET), '$0001'))
     expect(events).toEqual([])
+    notifier.setClient(client)
+    w.append(layer('b', '$0001', '$0002'))
+    expect(events).toHaveLength(1)
+    notifier.setClient(undefined)
+    w.append(layer('c', '$0002', '$0003'))
+    expect(events).toHaveLength(1)
+  })
+
+  it('a word that straddles the end of the file reports no range past it', () => {
+    const rom = fakeRom()
+    const w = new WorkingRom(rom, false)
+    // The file's last byte: a 2-byte word there would end one byte past the file.
+    const addr = loromFromOffset(rom.length - 1) as number
+    const events: EditEvent[] = []
+    const notifier = new WorkingCopyNotifier<WorkingCopyClient>()
+    notifier.setClient({ onEditEvent: e => events.push(e) })
+    notifier.watch('/p', w)
+    const hex = (n: number, width: number) => n.toString(16).toUpperCase().padStart(width, '0')
+    w.append({
+      id: 'e',
+      label: 'e',
+      ops: [{ address: `$${hex(addr, 6)}`, old: `$${hex(rom[rom.length - 1]!, 4)}`, new: '$0001' }],
+    })
+    expect(events).toHaveLength(1)
+    expect(events[0]?.data?.ranges).toEqual([])
+  })
+
+  it('a layer that was never read has no ROM range and is filed under palette', () => {
+    const layer: Layer = { id: 'u', label: 'u', kind: 'unreadable', reason: 'test' }
+    expect(domainOf(layer)).toBe('palette')
+    expect(new WorkingRom(fakeRom(), false).wordOffsets(layer)).toEqual([])
   })
 })
