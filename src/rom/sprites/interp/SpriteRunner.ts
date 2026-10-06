@@ -153,7 +153,20 @@ export interface SpriteModel {
   inputs?: number[]
 }
 
+/**
+ * A sprite spawned by something other than the level loader (an item block,
+ * GenSpriteFromBlk, SMWDisX bank_02.asm:1139-1160): InitSpriteTables loads its
+ * tables, but its INIT never runs. The spawner sets the status itself, so the
+ * sprite's status handler draws it from the first frame, and then writes its own
+ * table cells. `ram` keys are the slot-0 offsets of those cells; the run adds the slot.
+ */
+export interface SpawnState {
+  status: number
+  ram?: Record<number, number>
+}
+
 export interface RunOptions {
+  spawn?: SpawnState
   probe?: Probe
   trackInputs?: boolean
 }
@@ -464,6 +477,10 @@ export function runOnce(
     m.call(ENTRY.initSpriteTables, 'jsl')
     let n = m.steps
     const w = m.bus.wram
+    if (opts.spawn) {
+      w[RAM.status + seed.slot] = opts.spawn.status
+      for (const [k, v] of Object.entries(opts.spawn.ram ?? {})) w[Number(k) + seed.slot] = v
+    }
     // Status 1 -> CallSpriteInit, which sets status 8 and runs INIT. An INIT
     // that leaves status 1 runs again next frame, as the game does (the floating
     // platforms sink a few pixels per frame until they reach water).

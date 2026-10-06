@@ -8,8 +8,6 @@
  */
 
 export const BLOCK = 16
-export const QUAD = BLOCK / 2
-
 export interface Box {
   x0: number
   y0: number
@@ -17,19 +15,27 @@ export interface Box {
   y1: number
 }
 
-/** The item box for a block at (x, y): its bottom-right quadrant at rest, the whole block on hover. */
-export function indicatorBox(x: number, y: number, hover: boolean): Box {
-  const o = hover ? 0 : QUAD
-  return { x0: x + o, y0: y + o, x1: x + BLOCK, y1: y + BLOCK }
+/**
+ * The item box in SCREEN pixels for the block at map-pixel (x, y) at `zoom`:
+ * 8 x zoom square in the bottom-right quadrant at rest, the whole 16 x zoom
+ * block on hover. Edges are rounded from map pixels, so neighbouring blocks
+ * share an edge at a fractional zoom and the box never passes the block's.
+ */
+export function indicatorBox(x: number, y: number, zoom: number, hover: boolean): Box {
+  const o = hover ? 0 : BLOCK / 2
+  const r = (v: number) => Math.round(v * zoom)
+  return { x0: r(x + o), y0: r(y + o), x1: r(x + BLOCK), y1: r(y + BLOCK) }
 }
 
 type Rgba = readonly [number, number, number, number]
 const px = (a: Uint8ClampedArray, i: number): Rgba => [a[i]!, a[i + 1]!, a[i + 2]!, a[i + 3]!]
 
 /**
- * Progressive blocks (#607): a hard diagonal from the top-left to the
- * bottom-right corner, `small` below it (bottom-left), `big` above it
- * (top-right). Pixels on the diagonal itself go to `big`; no line is drawn.
+ * Split indicators (#607 and the two-outcome blocks): a hard diagonal from the
+ * top-left to the bottom-right corner, `small` below it (bottom-left), `big`
+ * above it (top-right), with a 1 px black line ON the diagonal. The line is
+ * painted only where the split art is opaque (the diagonal pixel takes the
+ * `big` item's colour first), so it stops at the items' edges. No blending.
  */
 export function splitDiagonal(small: Uint8ClampedArray, big: Uint8ClampedArray): Uint8ClampedArray {
   const out = new Uint8ClampedArray(BLOCK * BLOCK * 4)
@@ -37,6 +43,7 @@ export function splitDiagonal(small: Uint8ClampedArray, big: Uint8ClampedArray):
     for (let x = 0; x < BLOCK; x++) {
       const i = (y * BLOCK + x) * 4
       out.set(px(y > x ? small : big, i), i)
+      if (x === y && out[i + 3] !== 0) out.set([0, 0, 0, 255], i)
     }
   }
   return out
@@ -67,31 +74,6 @@ export function bakePlus(coin: Uint8ClampedArray): Uint8ClampedArray {
   return out
 }
 
-/** Half scale (16 to 8): a pixel is opaque when 2 of its 2 x 2 source are, coloured by their mean. */
-export function halve(art: Uint8ClampedArray): Uint8ClampedArray {
-  const out = new Uint8ClampedArray(QUAD * QUAD * 4)
-  for (let y = 0; y < QUAD; y++) {
-    for (let x = 0; x < QUAD; x++) {
-      const sum = [0, 0, 0]
-      let n = 0
-      for (const [dx, dy] of [
-        [0, 0],
-        [1, 0],
-        [0, 1],
-        [1, 1],
-      ] as const) {
-        // prettier-ignore
-        const p = px(art, ((y * 2 + dy) * BLOCK + x * 2 + dx) * 4)
-        if (p[3] === 0) continue
-        n++
-        for (let c = 0; c < 3; c++) sum[c]! += p[c]!
-      }
-      if (n >= 2) out.set([...sum.map(s => Math.round(s / n)), 255], (y * QUAD + x) * 4)
-    }
-  }
-  return out
-}
-
 /** A w x h bitmap fitted into 16 x 16: centred, and reduced by nearest sampling when larger. */
 export function fitArt(rgba: Uint8ClampedArray, w: number, h: number): Uint8ClampedArray {
   const out = new Uint8ClampedArray(BLOCK * BLOCK * 4)
@@ -107,35 +89,35 @@ export function fitArt(rgba: Uint8ClampedArray, w: number, h: number): Uint8Clam
   return out
 }
 
-export interface Placed {
-  box: Box
-  /** Pixels clipped to the plane are not counted; this is the unclipped box. */
-  hover: boolean
-}
-
 /**
- * Draws one indicator onto a plane (`width` x `height` RGBA) with the block's
- * top-left at (x, y), clipped to the plane. Only the item box is touched.
- * `rest` and `full` are the half and full scale art.
+ * Paints one indicator's 16 x 16 `art` into a screen-space canvas
+ * (`width` x `height` RGBA) at `zoom`, nearest-neighbour as the spikes' CSS
+ * scaling does (spikes/progressive-powerup-indicators/gen.cjs:65-67): the box
+ * of `indicatorBox`, each pixel taking the art pixel `floor(i * 16 / size)`.
+ * No blending, so a hard diagonal stays hard at every zoom. Clipped to the
+ * canvas; returns the unclipped box. `(x, y)` is the block's corner in this
+ * canvas's map pixels.
  */
 export function paintIndicator(
-  plane: Uint8ClampedArray,
+  canvas: Uint8ClampedArray,
   width: number,
   height: number,
   x: number,
   y: number,
-  art: { rest: Uint8ClampedArray; full: Uint8ClampedArray },
+  art: Uint8ClampedArray,
+  zoom: number,
   hover: boolean,
-): Placed {
-  const box = indicatorBox(x, y, hover)
-  const [src, size] = hover ? [art.full, BLOCK] : [art.rest, QUAD]
-  for (let j = 0; j < size; j++) {
-    for (let i = 0; i < size; i++) {
-      const [px0, py0] = [box.x0 + i, box.y0 + j]
-      if (px0 < 0 || py0 < 0 || px0 >= width || py0 >= height) continue
-      if (src[(j * size + i) * 4 + 3] === 0) continue
-      plane.set(px(src, (j * size + i) * 4), (py0 * width + px0) * 4)
+): Box {
+  const box = indicatorBox(x, y, zoom, hover)
+  const [w, h] = [box.x1 - box.x0, box.y1 - box.y0]
+  for (let j = 0; j < h; j++) {
+    for (let i = 0; i < w; i++) {
+      const [dx, dy] = [box.x0 + i, box.y0 + j]
+      if (dx < 0 || dy < 0 || dx >= width || dy >= height) continue
+      const from = (Math.floor((j * BLOCK) / h) * BLOCK + Math.floor((i * BLOCK) / w)) * 4
+      if (art[from + 3] === 0) continue
+      canvas.set(px(art, from), (dy * width + dx) * 4)
     }
   }
-  return { box, hover }
+  return box
 }

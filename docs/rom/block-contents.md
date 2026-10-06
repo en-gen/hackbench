@@ -113,6 +113,48 @@ resolver adds a "Yoshi is loose" alternative; vanilla's copies are identical.
 The "X column n of p" text uses the period found in DATA_00F100 and is dropped
 when the table has none.
 
+## Display
+
+Maps view, #566 PR B (`theia/extension/src/node/map-block-contents.ts`,
+`common/block-indicator.ts`). Owner decisions: spikes #605 (D4), #607
+(progressive split), #615 (C4a) and the rulings on #566 and #623.
+
+- The item at 8 x zoom screen pixels in the block's bottom-right quadrant, full
+  opacity, no outline; on hover it fills exactly the block (16 x zoom) and never
+  leaves it. The 16 x 16 art is scaled nearest-neighbour, as the spikes' CSS did.
+- Split indicators: the progressive blocks (mushroom bottom-left, item top-right)
+  and, by the #623 ruling, the two-outcome blocks that include a coin ($11A
+  column 0 of 3 and $122: coin bottom-left, star top-right; $12D: coin
+  bottom-left, 1-up top-right). A hard diagonal from top-left to bottom-right
+  with a 1 px black line on it, painted only where the split art is opaque, so
+  it stops at the items' edges. The pixels on the diagonal take the top-right item.
+- Multi-coin ($11B, $123): the coin with a 5 x 5 white "+" (7 x 7 with a black
+  edge) baked into the corner of its 16 x 16 art. $11C and $124: the plain coin.
+- Each cell resolves for its own X column; the P-switch uses the spawn
+  attribute of DATA_028A42.
+- Drawn only for shown layers, so hiding a layer hides its indicators. No Contents toggle.
+- Not drawn, with a plain-words note: a Yoshi-loose variant, a block whose item
+  graphics are not loaded in the level, a sprite the interpreter refuses or that draws
+  nothing in its first frames, a spawn or coin routine that is not the traced one.
+- Item art is the sprite run on the 65816 core, as the map's sprite layer does
+  (#585), seeded as the block spawn leaves it: `GenSpriteFromBlk`
+  (`bank_02.asm:1122-1160`) writes the status from StatusOfSprInBlk and the sprite
+  number, then calls `InitSpriteTables`; the sprite's INIT never runs, so its status
+  handler draws it (a status-9 egg is the green stunned egg, a status-9 $04 a
+  shell). The spawn then writes its own cells (`bank_02.asm:1199-1292`): the rise
+  speed, `SpriteMisc154C` and the timers (read from the code's immediates, gated on
+  its bytes), and the P-switch colour. Not modelled: the balloon's direction and
+  `SpriteTableC2` bump (`:1218`, `:1256`), the egg's contents cell (`:1250`) and
+  the tweaker turn timer (`:1274`). The runner takes this as `RunOptions.spawn`.
+- The coin is not a sprite: its chars and palette are the immediates of the coin
+  draw (`bank_02.asm:3432-3441`), read behind a byte-pattern gate.
+- The Theia map view never used `StarOneUpVineBlockBehavior` or
+  `KeyCoinBalloonKoopaBlockBehavior` overlays (the reference webview model's);
+  they are untouched.
+- Evidence scope: item art checked by pixel counts on the vanilla ROM, one
+  machine (coin 132 opaque pixels, multi-coin 146, as spike #615 measured); a
+  status-9 egg has green pixels and a status-9 $04 differs from status 8.
+
 ## Tests
 
 CI has no ROM and the repo carries no vanilla table bytes: the unit tests run

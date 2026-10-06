@@ -154,13 +154,17 @@ which `theia/browser-app/test/load-maps.spec.cjs` asserts.
 
 `ProjectService.mapBlockContents(manifestPath, index)` returns the distinct
 16 x 16 item arts of a map (`arts`, by key) and where each item block shows
-which (`indicators`: plane, map-pixel corner, art key), from the working copy.
-The tables' refusal comes back as `unavailable` and the tab shows the reason.
-The view paints each indicator into a COPY of its block's plane when it
-composes a screen (`paintPlaneIndicators`, `browser/map-view-model.ts`), so the
-cached plane stays clean and a hidden layer hides its indicators. Hover is
-tracked on the scroller (`onPointerMove`), the topmost visible plane's block
-under the pointer expands, and the composite canvas publishes the boxes it
+which (`indicators`: plane, map-pixel corner, art key), from the working copy,
+with a plain-words `note` for blocks it does not draw. The tables' refusal
+comes back as `unavailable` and the tab shows the reason.
+The indicators are NOT part of the composite: each screen has an overlay canvas
+(`data-layer="indicators"`) at screen resolution, painted nearest-neighbour at the
+current zoom for the planes that are composed and shown (`paintScreenIndicators`,
+`browser/map-view-model.ts`), so hiding a layer hides its indicators. The
+overlay sits above the composite, so a nearer layer's opaque pixels do not
+cover a farther layer's indicator. Hover is tracked on the scroller
+(`onPointerMove`, and re-found on scroll, zoom and new replies); the topmost visible
+plane's block under the pointer expands. The overlay publishes the boxes it
 painted in `data-indicators`.
 
 ### The map tab's sprite layer (#564)

@@ -1,23 +1,19 @@
 /**
  * Block content indicators in the map view (en-gen/hackbench#566, PR B).
  *
- * Maps and cells (vanilla ROM; found with smw-mcp find_l1_tile_levels, columns
- * and rows in tiles):
- *   $123 FoI3   $11B (multi-coin) col 77 row 20, $11C (coin) col 79 row 18,
- *               $11C col 76 row 21; col 78 row 20 holds no item block.
- *   $105 YI1    $11F (progressive flower) col 243 row 17.
- *   $11E FoI1   $125 col 224 row 22 (key) and col 250 row 21 (balloon).
- *   $125 Funky  $111 col 117 row 15 (star, column 2 of 3), $11D col 86 row 20 (blue).
- *   $001 VS2    $111 col 183 row 16 (progressive), $11D col 231 row 18 (silver).
+ * Maps and cells (vanilla ROM; smw-mcp find_l1_tile_levels; column, row in tiles):
+ *   $123 FoI3   $11B (multi-coin) 77,20; $11C (coin) 79,18 and 76,21; 78,20 holds no item block.
+ *   $105 YI1    $11F (progressive flower) 243,17.
+ *   $11A VD1    $118 (progressive feather) 69,14.
+ *   $11E FoI1   $125 key 224,22 and balloon 250,21.   $125 Funky $111 117,15, $11D 86,20.
+ *   $001 VS2    $111 183,16 (progressive), $11D 231,18.
  *
- * "Indicator pixels" are measured as the composite's pixels that differ from
- * the same composite repainted with the indicators removed (the widget's
- * `blocks` set aside), so the baseline is the same layers, math and sprites.
- * The item box is read from `data-indicators` on the composite canvas, which
- * the painter writes from the boxes it painted, and every box is checked
- * against the pixels. The composite is at native resolution and CSS-scaled by
- * the zoom, so a box of 8 x 8 native pixels is the block's quadrant at every
- * zoom; the specs also assert the zoom they ran at.
+ * Indicators are painted in SCREEN pixels on a per-screen overlay canvas
+ * (`canvas[data-layer="indicators"]`: one canvas pixel is one CSS pixel), so every
+ * measurement here is in screen pixels, read from the overlay's own alpha and never
+ * from a native composite pixel. `data-indicators` is the painter's record of the
+ * boxes it drew; each spec checks it against the pixels. The zoom is READ from the
+ * canvas (width / 256), not assumed.
  */
 const { test, expect } = require('@playwright/test')
 const { PAGE_COMPOSE } = require('./pixel-canvas.cjs')
@@ -41,6 +37,7 @@ const GET_SVC = `function getSvc(name) {
 let tmp
 const opened = []
 const root = index => `[id="hackbench.map-view:${index}"]`
+const OVERLAY = screen => `canvas[data-layer="indicators"][data-screen="${screen}"]`
 
 test.beforeEach(async ({ page }) => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-blocks-'))
@@ -73,6 +70,7 @@ async function createProject(page) {
   )
 }
 
+/** Opens a map and waits until its indicators have arrived (every map used here has some). */
 async function openMap(page, manifestPath, index) {
   await page.evaluate(
     async ({ mp, index }) => {
@@ -85,7 +83,6 @@ async function openMap(page, manifestPath, index) {
     { mp: manifestPath, index },
   )
   opened.push(`hackbench.map-view:${index}`)
-  // Indicators have arrived once the widget holds them (maps here all have some).
   await page.waitForFunction(
     id => getSvc('ApplicationShell').getWidgetById(id)?.blocks?.indicators.length > 0,
     `hackbench.map-view:${index}`,
@@ -93,39 +90,58 @@ async function openMap(page, manifestPath, index) {
   )
 }
 
-/** The screen and in-screen pixel corner of a tile cell (all maps used here are horizontal). */
+/** Moves the pointer off every block (onto the toolbar). */
+async function park(page, index) {
+  const r = await page.locator(`${root(index)} .hb-map-view-toolbar`).boundingBox()
+  await page.mouse.move(r.x + r.width / 2, r.y + r.height / 2)
+}
+
+async function ready(page, project, index) {
+  await openMap(page, project.manifestPath, index)
+  await park(page, index)
+}
+
+/** The screen and in-screen map-pixel corner of a tile cell (all maps used here are horizontal). */
 const cell = (col, row) => ({ screen: Math.floor(col / 16), x: (col % 16) * 16, y: row * 16 })
 
-/** Zoom 1, 2 or 3 through the widget's own controller, then waits for the strip to lay out at it. */
+/** Sets the zoom (1, 2, 3 or 'fit') through the widget's own controller and waits for the overlay to follow. */
 async function setZoom(page, index, z) {
   await page.evaluate(
     ({ id, z }) => {
       const c = getSvc('ApplicationShell').getWidgetById(id).zoomController
+      if (z === 'fit') return c.enterFit()
       c.actualSize()
       for (let i = 1; i < z; i++) c.step(1)
     },
     { id: `hackbench.map-view:${index}`, z },
   )
+  // The overlay is repainted at the new zoom when its width is the composite's CSS width.
   await expect
     .poll(() =>
-      page.evaluate(sel => {
-        const c = document.querySelector(`${sel} canvas[data-layer="screen"][data-screen="0"]`)
-        return c.getBoundingClientRect().width / c.width
-      }, root(index)),
+      page.evaluate(
+        ({ sel, ov, z }) => {
+          const o = document.querySelector(`${sel} ${ov}`)
+          const c = document.querySelector(`${sel} canvas[data-layer="screen"][data-screen="0"]`)
+          const css = c.getBoundingClientRect().width
+          const zoom = css / c.width
+          return (
+            Math.abs(o.width - Math.round(css)) <= 1 && (z === 'fit' || Math.abs(zoom - z) < 0.01)
+          )
+        },
+        { sel: root(index), ov: OVERLAY(0), z },
+      ),
     )
-    .toBeCloseTo(z, 2)
+    .toBe(true)
 }
 
 /** Brings the cell to the middle of the view and returns its client centre. */
 async function reveal(page, index, col, row) {
   const { screen, x, y } = cell(col, row)
   return page.evaluate(
-    ({ sel, screen, x, y }) => {
-      const c = document.querySelector(
-        `${sel} canvas[data-layer="screen"][data-screen="${screen}"]`,
-      )
+    ({ sel, ov, x, y }) => {
+      const c = document.querySelector(`${sel} ${ov}`)
       const sc = document.querySelector(`${sel} [data-control="map-scroller"]`)
-      const k = c.getBoundingClientRect().width / c.width
+      const k = c.getBoundingClientRect().width / 256
       let r = c.getBoundingClientRect()
       const s = sc.getBoundingClientRect()
       sc.scrollLeft += r.left + (x + 8) * k - (s.left + s.width / 2)
@@ -133,99 +149,94 @@ async function reveal(page, index, col, row) {
       r = c.getBoundingClientRect()
       return { cx: r.left + (x + 8) * k, cy: r.top + (y + 8) * k }
     },
-    { sel: root(index), screen, x, y },
+    { sel: root(index), ov: OVERLAY(screen), x, y },
   )
 }
 
-/** Moves the pointer off every block (onto the toolbar) and waits for the repaint. */
-async function park(page, index) {
-  const r = await page.locator(`${root(index)} .hb-map-view-toolbar`).boundingBox()
-  await page.mouse.move(r.x + r.width / 2, r.y + r.height / 2)
-}
-
-/**
- * What the indicators of one screen are: the painter's own record per block,
- * and the composite's pixels that differ from the same screen repainted with
- * no indicators, with their colours.
- */
-async function measure(page, index, screen) {
+/** One screen's overlay read back: the zoom, the painter's record and every lit pixel with its colour. */
+async function overlay(page, index, screen) {
   return page.evaluate(
-    ({ id, screen }) => {
-      const w = getSvc('ApplicationShell').getWidgetById(id)
-      const c = w.node.querySelector(`canvas[data-layer="screen"][data-screen="${screen}"]`)
-      const read = () => c.getContext('2d').getImageData(0, 0, c.width, c.height).data.slice()
-      const withI = read()
-      const record = JSON.parse(c.dataset.indicators || '[]')
-      const saved = w.blocks
-      w.blocks = undefined
-      w.blocksVersion++
-      w.sync()
-      const without = read()
-      w.blocks = saved
-      w.blocksVersion++
-      w.sync()
-      const diff = []
-      for (let i = 0; i < withI.length; i += 4) {
-        if (withI[i] === without[i] && withI[i + 1] === without[i + 1] && withI[i + 2] === without[i + 2] && withI[i + 3] === without[i + 3]) continue // prettier-ignore
-        const p = i / 4
-        diff.push({ x: p % c.width, y: Math.floor(p / c.width), rgb: [withI[i], withI[i + 1], withI[i + 2]] }) // prettier-ignore
+    ({ sel, ov }) => {
+      const o = document.querySelector(`${sel} ${ov}`)
+      const d = o.getContext('2d').getImageData(0, 0, o.width, o.height).data
+      const lit = []
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i + 3])
+          lit.push({
+            x: (i / 4) % o.width,
+            y: Math.floor(i / 4 / o.width),
+            rgb: [d[i], d[i + 1], d[i + 2]],
+          })
       }
-      return { record, diff }
+      return { z: o.width / 256, record: JSON.parse(o.dataset.indicators || '[]'), lit }
     },
-    { id: `hackbench.map-view:${index}`, screen },
+    { sel: root(index), ov: OVERLAY(screen) },
   )
 }
 
-const inside = (d, r) => d.x >= r.x && d.x < r.x + 16 && d.y >= r.y && d.y < r.y + 16
+/** One block: its rect in screen pixels, its record and the lit pixels inside and outside it. */
+async function ofBlock(page, index, col, row) {
+  const { screen, x, y } = cell(col, row)
+  const o = await overlay(page, index, screen)
+  const r = n => Math.round(n * o.z)
+  const rect = { x0: r(x), y0: r(y), x1: r(x + 16), y1: r(y + 16) }
+  const inRect = d => d.x >= rect.x0 && d.x < rect.x1 && d.y >= rect.y0 && d.y < rect.y1
+  const mine = o.record.filter(q => q.id.endsWith(`:${col * 16}:${row * 16}`))
+  return { ...o, rect, mine, pixels: o.lit.filter(inRect), outside: o.lit.filter(d => !inRect(d)) }
+}
+
 const bbox = list => ({
   x0: Math.min(...list.map(d => d.x)),
   y0: Math.min(...list.map(d => d.y)),
   x1: Math.max(...list.map(d => d.x)) + 1,
   y1: Math.max(...list.map(d => d.y)) + 1,
 })
-/** Indicator pixels inside one block's cell, and the record entry for it. */
-async function ofBlock(page, index, col, row) {
-  const { screen, x, y } = cell(col, row)
-  const m = await measure(page, index, screen)
-  const mine = m.record.filter(r => r.id.endsWith(`:${col * 16}:${row * 16}`))
-  return { ...m, rect: { x, y }, pixels: m.diff.filter(d => inside(d, { x, y })), mine }
-}
+const quadrant = (rect, z, x, y) => ({
+  x0: Math.round((x + 8) * z),
+  y0: Math.round((y + 8) * z),
+  x1: rect.x1,
+  y1: rect.y1,
+})
 
 test('an item block has indicator pixels in its cell and a block with no contents has none', async ({
   page,
 }) => {
   const project = await createProject(page)
-  await openMap(page, project.manifestPath, 0x123)
+  await ready(page, project, 0x123)
   await setZoom(page, 0x123, 1)
-  await park(page, 0x123)
   const item = await ofBlock(page, 0x123, 77, 20)
   expect(item.pixels.length, '$11B has indicator pixels').toBeGreaterThan(8)
-  // Every changed pixel on the screen belongs to some item block's cell, none to col 78 row 20.
-  const none = cell(78, 20)
-  expect(item.diff.filter(d => inside(d, none)).length).toBe(0)
   expect(item.mine).toHaveLength(1)
+  const none = await ofBlock(page, 0x123, 78, 20)
+  expect(none.pixels.length, 'column 78 row 20 holds no item block').toBe(0)
+  expect(none.mine).toHaveLength(0)
 })
 
-for (const z of [1, 2, 3]) {
-  test(`at rest the item box is the block's bottom-right quadrant at ${z}x`, async ({ page }) => {
+for (const z of [1, 2, 3, 'fit']) {
+  test(`at rest the item box is the block's bottom-right quadrant, in screen pixels, at ${z === 'fit' ? 'fit' : z + 'x'}`, async ({
+    page,
+  }) => {
     const project = await createProject(page)
-    await openMap(page, project.manifestPath, 0x123)
+    await ready(page, project, 0x123)
     await setZoom(page, 0x123, z)
-    await park(page, 0x123)
     await reveal(page, 0x123, 77, 20)
     await park(page, 0x123)
     const b = await ofBlock(page, 0x123, 77, 20)
-    const { x, y } = b.rect
+    const { x, y } = cell(77, 20)
+    const want = quadrant(b.rect, b.z, x, y)
     expect(b.mine[0].hover).toBe(false)
-    expect(b.mine[0].box).toEqual({ x0: x + 8, y0: y + 8, x1: x + 16, y1: y + 16 })
+    expect(b.mine[0].box).toEqual(want)
+    // About 8 x zoom CSS pixels wide, with the zoom read from the layout and not from the record.
+    expect(want.x1 - want.x0).toBeGreaterThanOrEqual(Math.floor(8 * b.z))
+    expect(want.x1 - want.x0).toBeLessThanOrEqual(Math.ceil(8 * b.z))
     const px = bbox(b.pixels)
-    expect(px.x0).toBeGreaterThanOrEqual(x + 8)
-    expect(px.y0).toBeGreaterThanOrEqual(y + 8)
-    expect(px.x1).toBeLessThanOrEqual(x + 16)
-    expect(px.y1).toBeLessThanOrEqual(y + 16)
+    expect(px.x0).toBeGreaterThanOrEqual(want.x0)
+    expect(px.y0).toBeGreaterThanOrEqual(want.y0)
+    expect(px.x1).toBeLessThanOrEqual(want.x1)
+    expect(px.y1).toBeLessThanOrEqual(want.y1)
     // The art fills most of the quadrant, so the box is real and not a hidden sliver.
-    expect(px.x1 - px.x0).toBeGreaterThanOrEqual(5)
-    expect(px.y1 - px.y0).toBeGreaterThanOrEqual(6)
+    expect(px.x1 - px.x0).toBeGreaterThanOrEqual(0.6 * (want.x1 - want.x0))
+    expect(px.y1 - px.y0).toBeGreaterThanOrEqual(0.6 * (want.y1 - want.y0))
   })
 }
 
@@ -233,46 +244,46 @@ test('on hover the item box is the block box, never outside it, and returns to t
   page,
 }) => {
   const project = await createProject(page)
-  await openMap(page, project.manifestPath, 0x123)
+  await ready(page, project, 0x123)
   await setZoom(page, 0x123, 2)
   const { cx, cy } = await reveal(page, 0x123, 77, 20)
   await page.mouse.move(cx, cy)
   await expect.poll(async () => (await ofBlock(page, 0x123, 77, 20)).mine[0]?.hover).toBe(true)
   const hov = await ofBlock(page, 0x123, 77, 20)
-  const { x, y } = hov.rect
-  expect(hov.mine[0].box).toEqual({ x0: x, y0: y, x1: x + 16, y1: y + 16 })
-  // Nothing changed outside the painted item boxes (this block's, and the others' resting ones).
-  const boxes = hov.record.map(r => r.box)
-  expect(hov.diff.every(d => boxes.some(q => d.x >= q.x0 && d.x < q.x1 && d.y >= q.y0 && d.y < q.y1))).toBe(true) // prettier-ignore
-  expect(hov.pixels.every(d => inside(d, hov.rect))).toBe(true)
+  expect(hov.mine[0].box).toEqual(hov.rect)
   const px = bbox(hov.pixels)
-  expect(px.x1 - px.x0).toBeGreaterThanOrEqual(12)
-  expect(px.y1 - px.y0).toBeGreaterThanOrEqual(12)
-  // Only this block expanded.
+  expect(px.x1 - px.x0).toBeGreaterThanOrEqual(0.6 * (hov.rect.x1 - hov.rect.x0))
+  expect(px.y1 - px.y0).toBeGreaterThanOrEqual(0.6 * (hov.rect.y1 - hov.rect.y0))
+  expect(px.x0).toBeGreaterThanOrEqual(hov.rect.x0)
+  expect(px.x1).toBeLessThanOrEqual(hov.rect.x1)
   expect(hov.record.filter(r => r.hover)).toHaveLength(1)
+  // Scrolling away without moving the mouse re-finds the block under it: the old one is no longer hovered.
+  await page.evaluate(sel => {
+    document.querySelector(`${sel} [data-control="map-scroller"]`).scrollLeft += 400
+  }, root(0x123))
+  await expect.poll(async () => (await ofBlock(page, 0x123, 77, 20)).mine[0]?.hover).not.toBe(true)
+  await reveal(page, 0x123, 77, 20)
   await park(page, 0x123)
   await expect.poll(async () => (await ofBlock(page, 0x123, 77, 20)).mine[0]?.hover).toBe(false)
+  const { x, y } = cell(77, 20)
   const rest = await ofBlock(page, 0x123, 77, 20)
-  expect(rest.mine[0].box).toEqual({ x0: x + 8, y0: y + 8, x1: x + 16, y1: y + 16 })
+  expect(rest.mine[0].box).toEqual(quadrant(rest.rect, rest.z, x, y))
 })
 
 test("hiding the block's layer removes its indicator pixels and showing it restores them", async ({
   page,
 }) => {
   const project = await createProject(page)
-  await openMap(page, project.manifestPath, 0x123)
+  await ready(page, project, 0x123)
   await setZoom(page, 0x123, 1)
-  await park(page, 0x123)
   const before = await ofBlock(page, 0x123, 77, 20)
   expect(before.pixels.length).toBeGreaterThan(0)
-  const plane = before.mine[0].id.split(':')[0]
-  expect(plane.startsWith('l1')).toBe(true)
+  expect(before.mine[0].id.startsWith('l1')).toBe(true)
   const toggle = page.locator(`${root(0x123)} [data-control="layer-l1"]`)
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
   await expect.poll(async () => (await ofBlock(page, 0x123, 77, 20)).mine.length).toBe(0)
-  const off = await ofBlock(page, 0x123, 77, 20)
-  expect(off.pixels.length).toBe(0)
+  expect((await ofBlock(page, 0x123, 77, 20)).pixels.length).toBe(0)
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   await expect
@@ -280,41 +291,118 @@ test("hiding the block's layer removes its indicator pixels and showing it resto
     .toBe(before.pixels.length)
 })
 
+test('a layer 2 block draws in layer 2 and hides with the layer 2 toggle only', async ({
+  page,
+}) => {
+  const project = await createProject(page)
+  // A vanilla map with an item block on layer 2, found through the RPC the view itself uses.
+  const found = await page.evaluate(async mp => {
+    const maps = [
+      0x0c2, 0x00a, 0x00f, 0x11e, 0x12b, 0x12c, 0x132, 0x135, 0x1c6, 0x1e3, 0x001, 0x01d, 0x0cd,
+      0x0fe, 0x125, 0x1ea,
+    ]
+    for (const index of maps) {
+      const r = await getSvc('Symbol(ProjectService)').mapBlockContents(mp, index)
+      const i =
+        r.status === 'ok' &&
+        r.indicators.find(q => q.plane.startsWith('l2') && q.y >= 0 && q.y < 432)
+      if (i) return { index, x: i.x, y: i.y, plane: i.plane }
+    }
+    return null
+  }, project.manifestPath)
+  expect(found, 'a vanilla map with a layer 2 item block').not.toBeNull()
+  await ready(page, project, found.index)
+  await setZoom(page, found.index, 1)
+  const [col, row] = [found.x / 16, found.y / 16]
+  const id = `${found.plane}:${found.x}:${found.y}`
+  const ids = async () => (await ofBlock(page, found.index, col, row)).mine.map(q => q.id)
+  expect(await ids()).toContain(id)
+  const l1 = page.locator(`${root(found.index)} [data-control="layer-l1"]`)
+  const l2 = page.locator(`${root(found.index)} [data-control="layer-l2"]`)
+  await l1.click()
+  await expect(l1).toHaveAttribute('aria-pressed', 'false')
+  expect(await ids(), 'hiding layer 1 leaves the layer 2 indicator').toContain(id)
+  await l1.click()
+  await l2.click()
+  await expect(l2).toHaveAttribute('aria-pressed', 'false')
+  await expect.poll(ids).not.toContain(id)
+  await l2.click()
+  await expect.poll(ids).toContain(id)
+})
+
 test('a $11B indicator differs from a $11C indicator', async ({ page }) => {
   const project = await createProject(page)
-  await openMap(page, project.manifestPath, 0x123)
-  await setZoom(page, 0x123, 1)
-  await park(page, 0x123)
+  await ready(page, project, 0x123)
+  await setZoom(page, 0x123, 2)
   const multi = await ofBlock(page, 0x123, 77, 20)
   const single = await ofBlock(page, 0x123, 79, 18)
-  // Painted pixels are the art itself: compare them relative to their own box.
-  const rel = b => b.pixels.map(d => `${d.x - b.rect.x},${d.y - b.rect.y}:${d.rgb}`).join('|')
+  const rel = b => b.pixels.map(d => `${d.x - b.rect.x0},${d.y - b.rect.y0}:${d.rgb}`).join('|')
   expect(multi.pixels.length).toBeGreaterThan(0)
   expect(single.pixels.length).toBeGreaterThan(0)
   expect(rel(multi)).not.toBe(rel(single))
-  // The two single-coin blocks ($11C) look alike.
-  const other = await ofBlock(page, 0x123, 76, 21)
-  expect(rel(other)).toBe(rel(single))
+  // The two single-coin blocks ($11C) look alike, and the "+" is white pixels the plain coin lacks.
+  expect(rel(await ofBlock(page, 0x123, 76, 21))).toBe(rel(single))
+  const white = b => b.pixels.filter(d => d.rgb.join() === '255,255,255').length
+  expect(white(multi)).toBeGreaterThan(white(single))
 })
 
-test('a progressive block holds two distinct items split along the diagonal', async ({ page }) => {
-  const project = await createProject(page)
-  await openMap(page, project.manifestPath, 0x105)
-  await setZoom(page, 0x105, 2)
-  const { cx, cy } = await reveal(page, 0x105, 243, 17)
+/** Pixels of a hovered progressive block by region of its 16 x 16 art: below, above and on the diagonal. */
+async function hoveredSplit(page, index, col, row) {
+  await setZoom(page, index, 3)
+  const { cx, cy } = await reveal(page, index, col, row)
   await page.mouse.move(cx, cy)
-  await expect.poll(async () => (await ofBlock(page, 0x105, 243, 17)).mine[0]?.hover).toBe(true)
-  const b = await ofBlock(page, 0x105, 243, 17)
-  const side = below =>
-    new Set(
-      b.pixels.filter(d => d.y - b.rect.y > d.x - b.rect.x === below).map(d => d.rgb.join(',')),
-    )
-  const [bl, tr] = [side(true), side(false)]
-  expect(bl.size).toBeGreaterThan(0)
-  expect(tr.size).toBeGreaterThan(0)
-  expect([...bl].sort().join('|')).not.toBe([...tr].sort().join('|'))
-  // Hard split: no pixel on the wrong side carries the other item's colours only.
-  expect(b.pixels.length).toBeGreaterThan(40)
+  await expect.poll(async () => (await ofBlock(page, index, col, row)).mine[0]?.hover).toBe(true)
+  const b = await ofBlock(page, index, col, row)
+  const [w, h] = [b.rect.x1 - b.rect.x0, b.rect.y1 - b.rect.y0]
+  const regions = { below: [], above: [], diag: [] }
+  for (const d of b.pixels) {
+    const [ax, ay] = [
+      Math.floor(((d.x - b.rect.x0) * 16) / w),
+      Math.floor(((d.y - b.rect.y0) * 16) / h),
+    ]
+    regions[ay > ax ? 'below' : ay < ax ? 'above' : 'diag'].push({ ...d, ax, ay })
+  }
+  return { b, regions }
+}
+const colours = list => [...new Set(list.map(d => d.rgb.join()))].sort().join('|')
+const byPos = list =>
+  [...new Map(list.map(d => [`${d.ax},${d.ay}`, d.rgb.join()]))].sort().join(';')
+
+test('a progressive block holds the mushroom bottom-left and its item top-right, split on the diagonal', async ({
+  page,
+}) => {
+  const project = await createProject(page)
+  await ready(page, project, 0x105)
+  const flower = await hoveredSplit(page, 0x105, 243, 17)
+  await ready(page, project, 0x11a)
+  const feather = await hoveredSplit(page, 0x11a, 69, 14)
+  // Both blocks hold the mushroom below the diagonal: the same art pixels, one for one.
+  expect(flower.regions.below.length).toBeGreaterThan(10)
+  expect(byPos(flower.regions.below)).toBe(byPos(feather.regions.below))
+  // Above it the flower and the feather differ, and a block is not one item twice.
+  expect(flower.regions.above.length).toBeGreaterThan(10)
+  expect(colours(flower.regions.above)).not.toBe(colours(feather.regions.above))
+  expect(colours(flower.regions.above)).not.toBe(colours(flower.regions.below))
+})
+
+test('a split indicator has a black line on its diagonal, only on opaque pixels and inside the block', async ({
+  page,
+}) => {
+  const project = await createProject(page)
+  await ready(page, project, 0x105)
+  const { b, regions } = await hoveredSplit(page, 0x105, 243, 17)
+  expect(regions.diag.length, 'the diagonal has pixels').toBeGreaterThan(0)
+  expect(
+    regions.diag.every(d => d.rgb.join() === '0,0,0'),
+    'every diagonal pixel is black',
+  ).toBe(true)
+  // The line stops at the items' edges: fewer than all 16 diagonal cells.
+  const px = bbox(b.pixels)
+  expect(px.x0).toBeGreaterThanOrEqual(b.rect.x0)
+  expect(px.y1).toBeLessThanOrEqual(b.rect.y1)
+  const cells = new Set(regions.diag.map(d => d.ax))
+  expect(cells.size).toBeLessThan(16)
+  expect(cells.size).toBeGreaterThan(3)
 })
 
 test('a cell shows the item of its own X column', async ({ page }) => {
@@ -344,6 +432,6 @@ test('a cell shows the item of its own X column', async ({ page }) => {
   // $11D: blue on an even column, silver on an odd one.
   const [blue] = await keys(0x125, [[86, 20]])
   const [silver] = await keys(0x001, [[231, 18]])
-  expect(blue).toMatch(/^s3e:\d+:6:/)
-  expect(silver).toMatch(/^s3e:\d+:2:/)
+  expect(blue).toMatch(/^s3e:\d+:6$/)
+  expect(silver).toMatch(/^s3e:\d+:2$/)
 })

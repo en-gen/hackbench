@@ -7,7 +7,6 @@ import {
   BLOCK,
   bakePlus,
   fitArt,
-  halve,
   indicatorBox,
   paintIndicator,
   splitDiagonal,
@@ -22,9 +21,16 @@ const at = (a: Uint8ClampedArray, x: number, y: number, w = BLOCK) =>
   Array.from(a.subarray((y * w + x) * 4, (y * w + x) * 4 + 4))
 
 describe('indicatorBox', () => {
-  it('is the bottom-right quadrant at rest and the whole block on hover', () => {
-    expect(indicatorBox(32, 48, false)).toEqual({ x0: 40, y0: 56, x1: 48, y1: 64 })
-    expect(indicatorBox(32, 48, true)).toEqual({ x0: 32, y0: 48, x1: 48, y1: 64 })
+  it('is the bottom-right quadrant at rest and the whole block on hover, in screen pixels', () => {
+    expect(indicatorBox(32, 48, 1, false)).toEqual({ x0: 40, y0: 56, x1: 48, y1: 64 })
+    expect(indicatorBox(32, 48, 2, false)).toEqual({ x0: 80, y0: 112, x1: 96, y1: 128 })
+    expect(indicatorBox(32, 48, 3, true)).toEqual({ x0: 96, y0: 144, x1: 144, y1: 192 })
+  })
+  it('stays inside the block at a fractional zoom', () => {
+    const [h, r] = [indicatorBox(16, 16, 1.37, true), indicatorBox(16, 16, 1.37, false)]
+    expect(r.x0).toBeGreaterThanOrEqual(h.x0)
+    expect(r.x1).toBe(h.x1)
+    expect(r.y1).toBe(h.y1)
   })
 })
 
@@ -32,17 +38,36 @@ describe('splitDiagonal', () => {
   const red = solid([255, 0, 0, 255])
   const blue = solid([0, 0, 255, 255])
   const out = splitDiagonal(red, blue)
-  it('puts the small item bottom-left and the big item top-right, hard', () => {
+  it('puts the small item bottom-left and the big item top-right, hard, off the diagonal', () => {
     expect(at(out, 0, 15)).toEqual([255, 0, 0, 255])
     expect(at(out, 15, 0)).toEqual([0, 0, 255, 255])
     for (let y = 0; y < BLOCK; y++)
-      for (let x = 0; x < BLOCK; x++) expect(at(out, x, y)).toEqual(at(y > x ? red : blue, x, y))
+      for (let x = 0; x < BLOCK; x++)
+        if (x !== y) expect(at(out, x, y)).toEqual(at(y > x ? red : blue, x, y))
   })
-  it('splits every pixel exactly once: 120 small, 136 big', () => {
+  it('splits every off-diagonal pixel once: 120 small, 120 big, 16 black', () => {
     let small = 0
+    let black = 0
     for (let y = 0; y < BLOCK; y++)
-      for (let x = 0; x < BLOCK; x++) if (at(out, x, y)[0] === 255) small++
-    expect(small).toBe(120)
+      for (let x = 0; x < BLOCK; x++) {
+        const p = at(out, x, y)
+        if (p[0] === 255) small++
+        if (p.join() === '0,0,0,255') black++
+      }
+    expect([small, black]).toEqual([120, 16])
+  })
+  it('paints the line only where the split art is opaque, and nowhere else', () => {
+    // big is opaque on the diagonal for x < 8 only; small is opaque everywhere.
+    const part = new Uint8ClampedArray(BLOCK * BLOCK * 4)
+    for (let y = 0; y < BLOCK; y++)
+      for (let x = 0; x < 8; x++) part.set([0, 0, 255, 255], (y * BLOCK + x) * 4)
+    const o = splitDiagonal(red, part)
+    for (let d = 0; d < BLOCK; d++) {
+      expect(at(o, d, d)).toEqual(d < 8 ? [0, 0, 0, 255] : [0, 0, 0, 0])
+    }
+    for (let y = 0; y < BLOCK; y++)
+      for (let x = 0; x < BLOCK; x++)
+        if (x !== y) expect(at(o, x, y)).toEqual(at(y > x ? red : part, x, y))
   })
 })
 
@@ -72,20 +97,6 @@ describe('bakePlus', () => {
   })
 })
 
-describe('halve', () => {
-  it('keeps a solid block opaque and a clear one clear', () => {
-    expect(at(halve(solid([10, 20, 30, 255])), 3, 3, 8)).toEqual([10, 20, 30, 255])
-    expect(at(halve(new Uint8ClampedArray(BLOCK * BLOCK * 4)), 3, 3, 8)).toEqual([0, 0, 0, 0])
-  })
-  it('needs 2 of 4 source pixels to be opaque, and averages them', () => {
-    const a = new Uint8ClampedArray(BLOCK * BLOCK * 4)
-    a.set([100, 0, 0, 255], 0)
-    expect(at(halve(a), 0, 0, 8)[3]).toBe(0)
-    a.set([200, 0, 0, 255], 4)
-    expect(at(halve(a), 0, 0, 8)).toEqual([150, 0, 0, 255])
-  })
-})
-
 describe('fitArt', () => {
   it('centres a small bitmap and reduces a big one into 16 x 16', () => {
     const small = fitArt(solid([1, 2, 3, 255], 8), 8, 8)
@@ -96,10 +107,9 @@ describe('fitArt', () => {
 })
 
 describe('paintIndicator', () => {
-  const art = { rest: solid([9, 9, 9, 255], 8), full: solid([7, 7, 7, 255]) }
-  const W = 48
-  const plane = () => new Uint8ClampedArray(W * W * 4)
-  const bbox = (p: Uint8ClampedArray) => {
+  const W = 64
+  const red = solid([9, 9, 9, 255])
+  const lit = (p: Uint8ClampedArray) => {
     const b = { x0: W, y0: W, x1: -1, y1: -1 }
     for (let y = 0; y < W; y++)
       for (let x = 0; x < W; x++)
@@ -111,17 +121,37 @@ describe('paintIndicator', () => {
         }
     return b
   }
-  it('fills exactly its box at rest and on hover, never outside the block', () => {
-    for (const hover of [false, true]) {
-      const p = plane()
-      const placed = paintIndicator(p, W, W, 16, 16, art, hover)
-      expect(bbox(p)).toEqual(placed.box)
-      expect(placed.box).toEqual(indicatorBox(16, 16, hover))
-    }
+  it.each([1, 2, 3])(
+    'fills exactly its box at rest and on hover at %ix, never outside the block',
+    z => {
+      for (const hover of [false, true]) {
+        const p = new Uint8ClampedArray(W * W * 4)
+        const box = paintIndicator(p, W, W, 16 / z, 16 / z, red, z, hover)
+        expect(lit(p)).toEqual(box)
+      }
+    },
+  )
+  it('clips at the canvas edge instead of wrapping', () => {
+    const p = new Uint8ClampedArray(W * W * 4)
+    paintIndicator(p, W, W, 56, 56, red, 1, true)
+    expect(lit(p)).toEqual({ x0: 56, y0: 56, x1: 64, y1: 64 })
   })
-  it('clips at the plane edge instead of wrapping', () => {
-    const p = plane()
-    paintIndicator(p, W, W, 40, 40, art, true)
-    expect(bbox(p)).toEqual({ x0: 40, y0: 40, x1: 48, y1: 48 })
+  it('samples nearest-neighbour: no pixel is a blend, and 2x doubles each art pixel', () => {
+    const two = new Uint8ClampedArray(16 * 16 * 4)
+    two.set([255, 0, 0, 255], 0)
+    two.set([0, 0, 255, 255], 4)
+    const p = new Uint8ClampedArray(W * W * 4)
+    paintIndicator(p, W, W, 0, 0, two, 2, true)
+    expect([at(p, 0, 0, W), at(p, 1, 1, W), at(p, 2, 0, W), at(p, 3, 1, W)]).toEqual([[255, 0, 0, 255], [255, 0, 0, 255], [0, 0, 255, 255], [0, 0, 255, 255]]) // prettier-ignore
+  })
+  it('keeps the "+" white pixels at 2x and 3x', () => {
+    const plus = bakePlus(solid([200, 160, 0, 255]))
+    for (const z of [2, 3]) {
+      const p = new Uint8ClampedArray(W * W * 4)
+      paintIndicator(p, W, W, 0, 0, plus, z, false)
+      let white = 0
+      for (let i = 0; i < p.length; i += 4) if (p[i] === 255 && p[i + 1] === 255 && p[i + 2] === 255 && p[i + 3] === 255) white++ // prettier-ignore
+      expect(white, `white pixels at ${z}x`).toBeGreaterThan(0)
+    }
   })
 })
