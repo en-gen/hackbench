@@ -28,6 +28,7 @@
 import { readFileSync, readdirSync, existsSync, writeFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { runUntil } from '../../../src/rom/cpu/call.ts'
 
 const args = process.argv.slice(2)
 const opt = (n: string) => {
@@ -94,7 +95,6 @@ export interface Result {
   unseededReads: string[]
   oam?: OamGrade
   /** adjacent write pairs that matched only after swapping (16-bit read-modify-write order) */
-  rmwOrderSwaps?: number
   /** slot position after the call: Mesen's (entry WRAM + its write log) vs the core's */
   pos?: { ok: boolean; expected: number[]; got: number[] }
 }
@@ -105,7 +105,6 @@ interface OamGrade {
 
 const hex = (n: number, w = 2) => n.toString(16).toUpperCase().padStart(w, '0')
 
-class StopRun extends Error {}
 
 function loadDir(dir: string) {
   const calls: Call[] = JSON.parse(readFileSync(join(dir, 'calls.json'), 'utf8'))
@@ -208,9 +207,7 @@ function replay(fx: ReturnType<typeof loadDir>, call: Call, dirName: string, mod
       }
     },
     onInstruction(addr: number, op: number): void {
-      if (addr === LOOP_NEXT) throw new StopRun()
       lastPc = addr; lastOp = op
-      if (++steps > STEP_BUDGET) throw new Error('step budget')
     },
   }
   const cpu = new Cpu65816(bus)
@@ -224,15 +221,19 @@ function replay(fx: ReturnType<typeof loadDir>, call: Call, dirName: string, mod
     dir: dirName, call: call.i, frame: call.frame, id: call.id, slot: call.slot, kind: call.kind,
     verdict: 'MATCH', cause: '', steps: 0, tainted: call.nmi > 0 || call.unlogged > 0, interrupted: (call.irq ?? 0) + call.nmi, unseededReads: unseeded,
   }
-  let stopped = false
+  // Mid-routine entry from recorded registers: no return frame, so run to the loop's DEX.
+  let run
   try {
-    for (;;) cpu.step()
+    run = runUntil(cpu, STEP_BUDGET, c => ((c.pb << 16) | c.pc) === LOOP_NEXT)
   } catch (e) {
-    if (e instanceof StopRun) stopped = true
-    else {
-      return { ...base, verdict: 'COULD_NOT_RUN', cause: String((e as Error).message ?? e), pc: lastPc, opcode: lastOp, steps }
-    }
+    return { ...base, verdict: 'COULD_NOT_RUN', cause: String((e as Error).message ?? e), pc: lastPc, opcode: lastOp, steps }
   }
+  steps = run.steps
+  const stopped = run.kind === 'returned'
+  if (!stopped && run.kind !== 'budget')
+    return { ...base, verdict: 'COULD_NOT_RUN', cause: run.kind === 'refused' ? run.reason : run.kind, pc: lastPc, opcode: lastOp, steps }
+  if (run.kind === 'budget')
+    return { ...base, verdict: 'COULD_NOT_RUN', cause: 'step budget', pc: lastPc, opcode: lastOp, steps }
   base.steps = steps
   const exp = call.writes
   {
@@ -243,16 +244,10 @@ function replay(fx: ReturnType<typeof loadDir>, call: Call, dirName: string, mod
     base.pos = { ok: e[0] === g[0] && e[1] === g[1], expected: e, got: g }
   }
   const n = Math.max(exp.length, got.length)
-  // A 16-bit read-modify-write (INC/DEC/ASL/LSR/ROL/ROR/TSB/TRB on memory)
-  // writes the HIGH byte first on the hardware and in Mesen; the core writes
-  // low first (its header: write order is not modelled). An adjacent swap is
-  // tolerated, counted, and reported; anything else is a divergence.
-  let swaps = 0
+  // Write ORDER is compared as recorded: 16-bit read-modify-write (INC/DEC/ASL/LSR/ROL/ROR/TSB/TRB
+  // on memory) writes the HIGH byte first on the hardware and in Mesen, and the core does too since
+  // #593 (Cpu65816.ts). No swap is tolerated; a low-first core diverges here.
   for (let i = 0; i < n; i++) {
-    if (exp[i] !== got[i] && exp[i + 1] === got[i] && exp[i] === got[i + 1] && exp[i] !== undefined && got[i + 1] !== undefined) {
-      const ea = Math.floor(exp[i] / 256), eb = Math.floor(exp[i + 1] / 256)
-      if (Math.abs(ea - eb) === 1) { swaps++; i++; continue }
-    }
     if (exp[i] !== got[i]) {
       const cause =
         unseededAt.length > 0 && unseededAt[0] <= i
@@ -274,7 +269,6 @@ function replay(fx: ReturnType<typeof loadDir>, call: Call, dirName: string, mod
   }
   if (!stopped) return { ...base, verdict: 'COULD_NOT_RUN', cause: 'did not stop', pc: lastPc, opcode: lastOp }
   base.oam = gradeOam(fx, call, got, wram)
-  if (swaps) base.rmwOrderSwaps = swaps
   return base
 }
 
@@ -369,8 +363,6 @@ if (process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('compare_spr
     console.log('per fixture (M match, D diverged, X could not run; frame order; "+" = OAM parts and position also right):')
     for (const [d, rs] of byDir) console.log(`  ${d}: ${rs.map(r => (r.verdict === 'MATCH' ? 'M' : r.verdict === 'DIVERGED' ? 'D' : 'X') + (r.verdict === 'MATCH' && r.oam && r.oam.mismatches.length === 0 && r.pos?.ok ? '+' : '')).join('')}`)
   }
-  const swapped = results.filter(r => r.rmwOrderSwaps)
-  console.log(`MATCH only after tolerating 16-bit RMW write order (core low-first, hardware high-first): ${swapped.length} calls, ${swapped.reduce((a, r) => a + (r.rmwOrderSwaps ?? 0), 0)} write pairs`)
   const posBad = results.filter(r => r.pos && !r.pos.ok).length
   console.log(`slot position wrong after the call: ${posBad}`)
   const tainted = results.filter(r => r.tainted).length

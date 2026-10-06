@@ -8,11 +8,10 @@
  * on and refused with a reason when it differs: the sprite loop ($01:808C,
  * `resolveLoop`, which also yields the setup and HandleSprite addresses),
  * InitSpriteTables ($07:F7D2, `checkInitTables`) and GetRand ($01:ACF9,
- * `checkGetRand`). SMWDisX bank_01.asm:98-125, bank_07.asm:1006,
+ * `checkGetRand`). SMWDisX bank_01.asm:110-127, bank_07.asm:1006,
  * bank_01.asm:6092. The level loader's entries are checked in LevelLoader.ts.
  */
 import type { RomFile } from '../../RomFile'
-import { loromToOffset } from '../../addressing'
 import { bytesAt, shapeMatches } from './Guards'
 
 export const ENTRY = {
@@ -21,7 +20,7 @@ export const ENTRY = {
   /**
    * JSL: the game's own per-frame sprite loop. Sets DB to bank 1 (PHK PLB),
    * then for slots $0B..0 runs the OAM-index and timer setup and HandleSprite
-   * (bank_01.asm:98-125). A routine that reads a bank-1 table through DB only
+   * (bank_01.asm:110-127). A routine that reads a bank-1 table through DB only
    * works under it, which is why the runner calls this and not HandleSprite.
    */
   spriteLoop: 0x01808c,
@@ -222,11 +221,12 @@ export function resolvePointer(
 ): { ok: true; handler: ResolvedHandler } | { ok: false; reason: string } {
   if (id < 0 || id >= SPRITE_TABLE_COUNT)
     return { ok: false, reason: `id $${id.toString(16)} is past the ${SPRITE_TABLE_COUNT}-entry pointer table` } // prettier-ignore
-  const w = rom.readWord(table + id * 2)
+  const pair = bytesAt(rom, table + id * 2, 2)
+  const w = pair ? pair[0] | (pair[1] << 8) : null
   if (w === null) return { ok: false, reason: 'pointer table is not readable' }
   const address = 0x010000 | w
   // A code pointer lands in the cart's upper half; below $8000 is registers or WRAM.
-  if (w < 0x8000 || loromToOffset(address, rom.romSize) === null)
+  if (w < 0x8000 || bytesAt(rom, address, 1) === null)
     return { ok: false, reason: `pointer $${w.toString(16)} is not in ROM code` }
   return { ok: true, handler: { pointer: w, address } }
 }
