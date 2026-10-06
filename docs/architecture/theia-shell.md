@@ -171,6 +171,37 @@ the 16 px grid. The frontend cuts each bitmap per screen
 canvas per screen, stacked just under L1's priority plane. The `S` toggle
 hides those canvases with `visibility: hidden`, as L1 and L2 do.
 
+### The map tab's collision overlay (#435)
+
+`ProjectService.mapCollision(manifestPath, index)` returns a map's collision as
+tagged polylines in map pixels (`MapCollisionResult`: `width`, `height`, and
+`lines` of `kind` `floor`, `ceiling`, `wall` or `unknown`; an unknown line is
+the cell's closed outline). The lines come from SMW's own block collision run
+on the 65816 core (`src/rom/collision/`), not from `TileFactory.classify`, so a
+patched block routine would show; vanilla block code only for now.
+`node/map-collision.ts` is the pure module behind it; `project-server.ts` reads
+the working copy through `WorkingRomRegistry` and passes a `cancelled` check
+(the working copy's bytes moved on), so a probe for old bytes stops between
+tiles. It is a separate call from `mapScreen`: a cold map takes about 3 s of
+CPU (the probe yields to the event loop after every tile), then a revisit is a
+cache hit. Probe results are cached per working-copy bytes by tileset, game
+state and tile id; the composed reply per bytes and map (eight kept).
+
+A map the probe cannot run answers `unavailable` with the reason (the ROM's
+level loader refused it, or the level is vertical): the toolbar's
+`collision-toggle` is then disabled with that reason as its tooltip, never an
+empty overlay. The view asks once when the map opens (that is how a refusal is
+found) and again on every working-copy push while the overlay is on; with it
+off, an edit only drops the stale lines and the next toggle refetches. Replies
+to an older request are dropped by `generation`, as for sprites.
+
+The overlay (`browser/collision-overlay.tsx`) is one SVG inside the strip, in
+map coordinates, so it follows `ZoomController` by scaling its box.
+`vector-effect: non-scaling-stroke` keeps every line 2 CSS px wide. Surfaces
+(`#ffeb3b`) and walls (`#d500f9`) are separate `<g data-group>` elements;
+unknown cells are hatched. Command `hackbench.maps.toggleCollision`, enabled
+while a map tab is focused (`grid-toggle-contribution.ts`).
+
 ## The emulator view
 
 The emulator runs a **libretro core that you supply**. HackBench ships no

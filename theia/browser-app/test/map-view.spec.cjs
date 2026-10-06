@@ -569,14 +569,14 @@ test('the Background toggle hides and restores both L2 canvases, per tab', async
     .locator(`${root(0x105)} .hb-map-view-toolbar [data-control^="layer-"]`)
     .evaluateAll(bs => bs.map(b => b.dataset.control))
   expect(order).toEqual(['layer-l1', 'layer-l2', 'layer-l3', 'layer-sprites'])
-  // A visible separator sits between the Sprites toggle and the first switch toggle, by DOM order.
+  // The collision toggle (#435) follows the layer group, then a visible separator, then the first switch toggle, by DOM order.
   const sep = await page.evaluate(rootSel => {
     const bar = document.querySelector(`${rootSel} .hb-map-view-toolbar`)
     const kids = [...bar.children]
     const at = c => kids.findIndex(k => k.dataset.control === c)
     const el = kids.find(k => k.dataset.control === 'toolbar-sep')
     const r = el.getBoundingClientRect()
-    return { between: at('toolbar-sep') === at('layer-sprites') + 1 && at('toolbar-sep') < at('palace-yellow'), w: r.width, h: r.height } // prettier-ignore
+    return { between: at('collision-toggle') === at('layer-sprites') + 1 && at('toolbar-sep') === at('collision-toggle') + 1 && at('toolbar-sep') < at('palace-yellow'), w: r.width, h: r.height } // prettier-ignore
   }, root(0x105))
   expect(sep.between).toBe(true)
   expect(sep.w).toBeGreaterThan(0)

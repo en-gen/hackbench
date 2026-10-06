@@ -1,0 +1,175 @@
+/**
+ * The collision probe against the vanilla ROM (en-gen/hackbench#435). The expectations are the spike's
+ * signed-off output (`collisionBaseline.ts`, numbers only, no ROM bytes): every Map16 id on maps $105, $10A and
+ * $111 and each map's line counts and checksum. The planted defects prove the probe can go red: a BRK in the
+ * routine, the slope table zeroed, a tile that kills on touch from above. The synthetic twins of the
+ * refusal paths are in CollisionCompose.test.ts and run without a cartridge.
+ *
+ * Skipped without the vanilla ROM; the skip count is part of the report.
+ */
+import { describe, it, expect } from 'vitest'
+import { SmwRom } from '../../../src/rom/SmwRom'
+import { buildL1Inputs } from '../../../src/rom/model/L1Model'
+import { collisionLayer, ProbeCache } from '../../../src/rom/collision/MapCollision'
+import {
+  calibrate,
+  measureTile,
+  probeAir,
+  Probe,
+  type TileProbe,
+} from '../../../src/rom/collision/TileProbe'
+import { COLLISION_BASELINE } from '../support/collisionBaseline'
+import { freshRom, hasRom, romPath, VANILLA } from '../support/corpus'
+
+const FLAGS = { yellow: false, green: false, red: false, blue: false }
+const n = (v: number | null) => (v === null ? '-' : String(v))
+/** A tile's result in the baseline's notation. */
+const sig = (t: TileProbe) =>
+  `${t.floor.map(n).join(',')}/${t.ceil.map(n).join(',')}/${+t.wallL}${+t.wallR}${+t.hurt}${t.unknown ? 'u' : ''}` // prettier-ignore
+
+function mapOf(level: number) {
+  const r = buildL1Inputs(SmwRom.open(romPath(VANILLA)), level, FLAGS)
+  if (!r.ok) throw new Error(r.reason)
+  return r.inputs
+}
+const kinds = (lines: { kind: string; points: number[] }[], k: string) => lines.filter(l => l.kind === k) // prettier-ignore
+
+describe.skipIf(!hasRom(VANILLA))('collision probe on the vanilla ROM', () => {
+  for (const level of [0x105, 0x10a, 0x111]) {
+    const base = COLLISION_BASELINE[level]!
+    describe(`map $${level.toString(16)}`, () => {
+      it('matches the signed-off output for every tile id on the map, lines included', async () => {
+        const m = mapOf(level)
+        const cache = new ProbeCache()
+        const r = await collisionLayer(freshRom(), level, m.header.objectTileset, m.grid, cache)
+        if (!r.ok) throw new Error(r.reason)
+        expect([m.header.objectTileset, m.grid.length, m.grid[0]!.length]).toEqual([base.tileset, base.rows, base.cols]) // prettier-ignore
+        const onMap = [...new Set(m.grid.flat())].sort((a, b) => a - b)
+        expect(onMap.length).toBeGreaterThan(20) // a map with no ids would pass the loop below
+        // The ids the baseline holds are exactly the ids on the map: nothing probed that is not kept, nothing kept that is not probed.
+        expect(Object.keys(base.ids).map(Number)).toEqual(onMap)
+        const wrong = onMap.filter(id => sig(cache.get(base.tileset, id)!) !== base.ids[id])
+        expect(wrong.map(id => '$' + id.toString(16))).toEqual([])
+        const count = (k: string) => kinds(r.lines, k).length
+        expect({ floor: count('floor'), ceiling: count('ceiling'), wall: count('wall'), unknown: count('unknown') }).toEqual(base.counts) // prettier-ignore
+        const sum = [...kinds(r.lines, 'floor'), ...kinds(r.lines, 'ceiling'), ...kinds(r.lines, 'wall')]
+          .reduce((s, l) => s + l.points.reduce((a, c) => a + c, 0), 0) // prettier-ignore
+        expect(sum).toBe(base.sum)
+      }, 120_000)
+    })
+  }
+
+  it('$105 has its known floor segments at their map coordinates', async () => {
+    const m = mapOf(0x105)
+    const r = await collisionLayer(freshRom(), 0x105, 7, m.grid, new ProbeCache())
+    if (!r.ok) throw new Error(r.reason)
+    const floors = kinds(r.lines, 'floor').map(l => l.points)
+    // A slope joined across tiles (176,335 down to 224,288) and a run of single-tile ledges (832,384 ...).
+    expect(floors).toContainEqual([176, 335, 176.5, 335, 223.5, 288, 224, 288])
+    expect(floors).toContainEqual([832, 384, 848, 384])
+    expect(kinds(r.lines, 'wall').map(l => l.points)).toContainEqual([3344, 240, 3344, 256])
+  }, 120_000)
+
+  it('$111 floor spikes carry a floor line along each spike cell (the $111 fix)', async () => {
+    const m = mapOf(0x111)
+    const cache = new ProbeCache()
+    const r = await collisionLayer(freshRom(), 0x111, 1, m.grid, cache)
+    if (!r.ok) throw new Error(r.reason)
+    const spikes = new Set([0x159, 0x15a, 0x15c])
+    const floors = kinds(r.lines, 'floor').map(l => l.points)
+    let cells = 0
+    m.grid.forEach((row, y) =>
+      row.forEach((id, x) => {
+        if (!spikes.has(id)) return
+        // Not fill under another floor: a cell whose own top counts is one with no floor cell above it.
+        if (y > 0 && cache.get(1, m.grid[y - 1]![x]!)!.floor[0] !== null) return
+        cells++
+        const covers = floors.some(p => {
+          const ys = p.filter((_, i) => i % 2)
+          const xs = p.filter((_, i) => !(i % 2))
+          return ys.every(v => v === y * 16) && Math.min(...xs) <= x * 16 && Math.max(...xs) >= x * 16 + 16 // prettier-ignore
+        })
+        expect(covers, `spike cell ${x},${y}`).toBe(true)
+      }),
+    )
+    expect(cells).toBeGreaterThan(0)
+  }, 120_000)
+
+  it('keys the cache on the tileset: $159 is solid on tileset 7 and a hazard on tileset 1', () => {
+    expect(COLLISION_BASELINE[0x105]!.ids[0x159]).toMatch(/\/110$/)
+    expect(COLLISION_BASELINE[0x111]!.ids[0x159]).toMatch(/\/111$/)
+    const c = new ProbeCache()
+    const t = measureTile(new Probe(freshRom(), 0x111), 0x159, { foot: 32, head: 17 })
+    c.set(1, 0x159, t)
+    expect(c.get(1, 0x159)).toBe(t)
+    expect(c.get(7, 0x159)).toBeUndefined()
+  })
+
+  it('calibrates Mario small: foot 32, head 17 on a flat block', () => {
+    expect(calibrate(new Probe(freshRom(), 0x105))).toEqual({ foot: 32, head: 17 })
+  })
+
+  it('serves a revisit from the cache: no tile probed, the same lines', async () => {
+    const m = mapOf(0x111)
+    const cache = new ProbeCache()
+    let yields = 0
+    const first = await collisionLayer(freshRom(), 0x111, 1, m.grid, cache, { yieldTurn: async () => void yields++ }) // prettier-ignore
+    const again = await collisionLayer(freshRom(), 0x111, 1, m.grid, cache)
+    if (!first.ok || !again.ok) throw new Error('refused')
+    expect(first.probed).toBeGreaterThan(20)
+    expect(yields).toBe(first.probed) // the event loop is given back after every tile
+    expect(again.probed).toBe(0)
+    expect(again.lines).toEqual(first.lines)
+  }, 120_000)
+
+  it('stops between tiles when told the working copy moved on', async () => {
+    const m = mapOf(0x111)
+    let calls = 0
+    const r = await collisionLayer(freshRom(), 0x111, 1, m.grid, new ProbeCache(), { cancelled: () => ++calls > 3 }) // prettier-ignore
+    expect(r).toEqual({ ok: false, reason: 'superseded' })
+  }, 120_000)
+
+  it('takes untouched positions from the level of air without changing any answer', () => {
+    // Slopes, a ledge, a solid, fillers, a ceiling slope, the muncher, the hazard ids and a passable id.
+    const ids = [0x025, 0x100, 0x130, 0x1aa, 0x1c4, 0x1c8, 0x1cb, 0x1d8, 0x12f, 0x159, 0x1fb, 0x021]
+    const p = new Probe(freshRom(), 0x105)
+    const cal = calibrate(p)
+    const air = probeAir(p)
+    const skipped = [...air.values()].filter(r => !r.touched).length
+    expect(skipped).toBeGreaterThan(air.size / 4) // the shortcut is doing something
+    for (const id of ids) expect(measureTile(p, id, cal, air), '$' + id.toString(16)).toEqual(measureTile(p, id, cal)) // prettier-ignore
+  }, 120_000)
+
+  describe('planted defects (the probe must go red)', () => {
+    const cal = { foot: 32, head: 17 }
+    const L = 0x105
+
+    it('a BRK at the collision routine makes a tile unknown, and the layer refused', async () => {
+      const rom = freshRom()
+      rom.writeAt(0x00eadb, [0x00])
+      expect(measureTile(new Probe(rom, L), 0x130, cal).unknown).toMatch(/BRK/)
+      const m = mapOf(L)
+      const r = await collisionLayer(rom, L, 7, m.grid, new ProbeCache())
+      expect(r.ok).toBe(false)
+      if (!r.ok) expect(r.reason).toMatch(/BRK|calibration/)
+    }, 120_000)
+
+    it('a zeroed slope table changes a slope floor: the ROM table is what is read', () => {
+      const real = measureTile(new Probe(freshRom(), L), 0x1bf, cal)
+      const rom = freshRom()
+      rom.writeAt(0x00e632, new Array(0x1f0).fill(0))
+      const flat = measureTile(new Probe(rom, L), 0x1bf, cal)
+      expect(new Set(real.floor).size).toBeGreaterThan(3)
+      expect(flat.floor).not.toEqual(real.floor)
+    })
+
+    it('a block that kills on touch from above still has its floor (HurtMario leaves no landing flag)', () => {
+      const rom = freshRom()
+      // The top-of-block hit (JSL CODE_00F120 at $00EE7F) pointed at HurtMario (CODE_00F5B7).
+      rom.writeAt(0x00ee7f, [0x22, 0xb7, 0xf5, 0x00])
+      const t = measureTile(new Probe(rom, L), 0x130, cal)
+      expect(t.hurt).toBe(true)
+      expect(t.floor).toEqual(Array(16).fill(0))
+    })
+  })
+})

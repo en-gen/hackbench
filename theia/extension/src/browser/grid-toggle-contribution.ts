@@ -29,6 +29,13 @@ export const ToggleMapsGridCommand: Command = {
   category: 'Maps',
 }
 
+/** `hackbench.maps.toggleCollision`: the Maps toolbar's collision overlay (#435), enabled while a map tab is focused. */
+export const ToggleMapsCollisionCommand: Command = {
+  id: 'hackbench.maps.toggleCollision',
+  label: 'Toggle Collision',
+  category: 'Maps',
+}
+
 @injectable()
 export class GridToggleContribution implements CommandContribution {
   @inject(ApplicationShell) protected readonly shell!: ApplicationShell
@@ -37,6 +44,14 @@ export class GridToggleContribution implements CommandContribution {
     this.register(registry, ToggleGfxGridCommand, GfxViewWidget)
     this.register(registry, ToggleMap16GridCommand, Map16ViewWidget)
     this.register(registry, ToggleMapsGridCommand, MapViewWidget)
+    const map = (): MapViewWidget | undefined => {
+      const w = this.shell.currentWidget
+      return w instanceof MapViewWidget ? w : undefined
+    }
+    registry.registerCommand(ToggleMapsCollisionCommand, {
+      execute: () => map()?.toggleCollision(),
+      isEnabled: () => !!map(),
+    })
   }
 
   protected register<T extends { toggleGrid(): void }>(

@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The map view has a collision toggle (`layout-panel-dock` icon, after the layer buttons; command
+  `hackbench.maps.toggleCollision`; off by default): floors, ceilings, slopes and walls as 2 px
+  vector lines over the map, yellow for surfaces and purple for walls, with a tile the probe could
+  not classify hatched. The lines come from SMW's own block collision run on the 65816 core, once
+  per Map16 tile on the map (cached per tileset and working copy), not from the hand-ported
+  classifier (#435). Vanilla block code and horizontal levels only; a ROM whose level loader
+  refuses, or a vertical level, disables the toggle with the reason. Cold map about 3 s on one
+  machine, a revisit from cache; checked against the spike's output on three vanilla maps, not
+  against an emulator.
 - The map view toolbar warns when the open level's mode is on an unverified list, which holds
   mode 1E only (sprite layering not verified, #617). Rendering is unchanged (#618).
 - The map view composites the main and sub screens for every level mode, with SNES color math:

@@ -16,6 +16,7 @@ import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message, Widget } from '@theia/core/lib/browser'
 import {
   MAP_PLANE_KEYS,
+  MapCollisionResult,
   MapDetailsDto,
   MapPlaneKey,
   MapScreenResult,
@@ -35,6 +36,7 @@ import { slotLabel } from './map-explorer-widget'
 import { WheelBinding, ZoomController } from './zoom-controller'
 import { ZoomStepper } from './zoom-stepper'
 import { MapGridOverlay } from './grid-overlay'
+import { CollisionOverlay } from './collision-overlay'
 import { layer2Label } from './map-layer-labels'
 import { isUnverifiedMode } from '../../../../src/rom/model/UnverifiedModes'
 import { composeScreen, type SourceKey } from '../../../../src/rom/model/ColorMath'
@@ -64,6 +66,7 @@ export interface MapViewOptions {
 
 type Layout = Extract<MapScreenResult, { status: 'ok' }>
 type Sprites = Extract<MapSpritesResult, { status: 'ok' }>
+type Collision = Extract<MapCollisionResult, { status: 'ok' }>
 /** The sprite canvases' key in place of a plane's: one per screen, between L2 and L1's priority plane. */
 const SPRITES = 'sprites'
 type LayerKey = MapPlaneKey | typeof SPRITES
@@ -115,6 +118,15 @@ export class MapViewWidget extends ReactWidget {
   protected spritesWhy: string | undefined
   /** Bumped when `sprites` is replaced, so a canvas painted from the old ones is repainted. */
   protected spritesVersion = 0
+  /** The collision overlay (#435); off by default. */
+  protected showCollision = false
+  /** The map's collision lines once read; `collisionWhy` is why there are none to show. */
+  protected collision: Collision | undefined
+  protected collisionWhy: string | undefined
+  /** Whether the map has been asked at least once (that is how a refusing ROM is found out). */
+  protected collisionAsked = false
+  /** Replies taken, for the overlay's test hook. */
+  protected collisionRevision = 0
   /** Fit mode until the user zooms; the fit is the cross axis filling the view (#526). */
   protected readonly zoomController = new ZoomController(ZOOMS, 1, () => this.measureFit())
   protected wheelBinding: WheelBinding | undefined
@@ -169,6 +181,9 @@ export class MapViewWidget extends ReactWidget {
     this.mapLayout = undefined
     this.sprites = undefined
     this.spritesWhy = undefined
+    this.collision = undefined
+    this.collisionWhy = undefined
+    this.collisionAsked = false
     // A new map opens fitted, whatever zoom the last one was left at.
     this.zoomController.enterFit()
     // A reused (preview) tab keeps its strip across maps: blank it, and start at screen 0.
@@ -201,7 +216,28 @@ export class MapViewWidget extends ReactWidget {
     void this.loadDetails()
     void this.loadIcons()
     void this.loadSprites()
+    // The probe runs the ROM's code: a hidden overlay is refetched when it is turned on, not on every edit.
+    if (!this.showCollision) this.collision = undefined
+    if (this.showCollision || !this.collisionAsked) void this.loadCollision()
     this.requestVisible()
+  }
+
+  protected async loadCollision(): Promise<void> {
+    const o = this.options
+    if (!o) return
+    this.collisionAsked = true
+    const generation = this.generation
+    const r = await this.projects
+      .mapCollision(o.manifestPath, o.index)
+      .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
+    // An older map's or edit's lines must not land over a newer one.
+    if (generation !== this.generation) return
+    // The working copy moved on under the probe; its push is on the way and will ask again.
+    if (r.status === 'stale') return
+    this.collision = r.status === 'ok' ? r : undefined
+    this.collisionRevision++
+    this.collisionWhy = r.status === 'ok' ? undefined : r.status === 'unavailable' ? r.reason : `The base ROM ${r.baseRom.title} is not on this machine` // prettier-ignore
+    this.update()
   }
 
   protected async loadSprites(): Promise<void> {
@@ -513,6 +549,21 @@ export class MapViewWidget extends ReactWidget {
     this.update()
   }
 
+  /** Shows or hides the collision overlay (`hackbench.maps.toggleCollision`); a refused map stays off. */
+  toggleCollision(): void {
+    if (this.collisionWhy) return
+    this.showCollision = !this.showCollision
+    if (this.showCollision && !this.collision) void this.loadCollision()
+    this.update()
+  }
+
+  /** The collision toggle's tooltip: what pressing it does, or why it cannot. */
+  protected collisionLabel(): string {
+    if (this.collisionWhy) return `Collision unavailable: ${this.collisionWhy}`
+    if (this.showCollision) return this.collision ? 'Hide collision' : 'Collision · reading the map'
+    return 'Show collision'
+  }
+
   protected toggleL2(): void {
     this.showL2 = !this.showL2
     this.update()
@@ -592,6 +643,20 @@ export class MapViewWidget extends ReactWidget {
             control="layer-sprites"
             onClick={() => this.toggleSprites()}
           />
+          <button
+            data-control="collision-toggle"
+            type="button"
+            className={
+              'hb-icon-btn' + (this.showCollision ? ' hb-icon-btn-on' : ' hb-icon-btn-off')
+            }
+            aria-pressed={this.showCollision && !this.collisionWhy}
+            disabled={!!this.collisionWhy}
+            title={this.collisionLabel()}
+            aria-label={this.collisionLabel()}
+            onClick={() => this.toggleCollision()}
+          >
+            <span className="codicon codicon-layout-panel-dock" />
+          </button>
           <span className="hb-toolbar-sep" data-control="toolbar-sep" />
           {PALACES.map(p => this.renderToggle(p))}
           {SWITCH_ORDER.map(k => (
@@ -762,6 +827,14 @@ export class MapViewWidget extends ReactWidget {
                 />
               </div>
             ))}
+            {this.showCollision && this.collision && (
+              <CollisionOverlay
+                layer={this.collision}
+                zoom={this.zoom}
+                owner={String(this.options?.index ?? '')}
+                revision={this.collisionRevision}
+              />
+            )}
           </div>
         </div>
         {this.showGrid && (

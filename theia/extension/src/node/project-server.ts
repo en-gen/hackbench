@@ -24,6 +24,7 @@ import {
 } from '../../../../src/project/WorkingRomRegistry'
 import { buildMapDetails } from './map-details'
 import { L1ModelCache, mapScreen, toolbarArtOf } from './map-screen'
+import { mapCollision } from './map-collision'
 import { mapSprites } from './map-sprites'
 import { SWITCH_FLAGS_UNCLEARED } from '../../../../src/rom/ObjectExpander'
 import { exportPatch } from '../../../../src/project/ExportPatch'
@@ -47,6 +48,7 @@ import {
   GroupedMapTreeDto,
   HackMetadataDto,
   LoadMapsResult,
+  MapCollisionResult,
   MapDetailsDto,
   MapScreenResult,
   MapSpritesResult,
@@ -127,6 +129,15 @@ export class ProjectServiceImpl implements ProjectService {
     if (r.status !== 'ok') return r
     this.notifier.watch(manifestPath, r.working)
     return mapSprites(this.screens, r.working.bytes(), r.romPath, index)
+  }
+
+  async mapCollision(manifestPath: string, index: number): Promise<MapCollisionResult> {
+    const r = this.located(manifestPath)
+    if (r.status !== 'ok') return r
+    this.notifier.watch(manifestPath, r.working)
+    const bytes = r.working.bytes()
+    // An edit hands out new bytes: a probe still running for the old ones is abandoned.
+    return mapCollision(this.screens, bytes, r.romPath, index, () => r.working.bytes() !== bytes)
   }
 
   async mapPalaceIcons(manifestPath: string, index: number): Promise<PalaceIconsResult> {

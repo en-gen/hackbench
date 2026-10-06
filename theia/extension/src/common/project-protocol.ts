@@ -309,6 +309,30 @@ export type MapSpritesResult =
   | { status: 'unavailable'; reason: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
+/** One line of the collision overlay (#435), in map pixels: `points` is x0,y0,x1,y1,..., an unknown cell its closed outline. */
+export interface MapCollisionLineDto {
+  kind: 'floor' | 'ceiling' | 'wall' | 'unknown'
+  points: number[]
+}
+
+/**
+ * A map's collision lines, from SMW's own block code run on the 65816 core
+ * (#435). `unavailable` carries the reason (the level loader refused this ROM,
+ * a vertical level): the view disables its toggle with it, never an empty overlay.
+ */
+export type MapCollisionResult =
+  | {
+      status: 'ok'
+      /** The map's size in pixels, the extent the lines are in. */
+      width: number
+      height: number
+      lines: MapCollisionLineDto[]
+    }
+  | { status: 'unavailable'; reason: string }
+  /** The working copy moved on while the probe ran: ask again, and do not treat it as a refusal. */
+  | { status: 'stale' }
+  | { status: 'rom-not-located'; baseRom: RomIdentityDto }
+
 /**
  * Which char switches a map is drawn with (#573): the blue and silver
  * P-switches and ON/OFF swap the chars they animate, not the grid. Per tab.
@@ -453,6 +477,9 @@ export interface ProjectService {
 
   /** Every sprite of a map, drawn by the sprite interpreter or marked, from the working copy (#564, #585). */
   mapSprites(manifestPath: string, index: number): Promise<MapSpritesResult>
+
+  /** A map's collision lines, from the working copy (#435). Slow cold (the probe runs the ROM's code), then cached. */
+  mapCollision(manifestPath: string, index: number): Promise<MapCollisionResult>
 
   /** The map toolbar's art: the palace blocks and the char switches' buttons. */
   mapPalaceIcons(manifestPath: string, index: number): Promise<PalaceIconsResult>
