@@ -9,8 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `npm run gitnexus` no longer rewrites CLAUDE.md and AGENTS.md (it passes `--skip-agents-md`), so parallel worktrees stop conflicting on the generated counts, which are removed from the marked region (#644).
-
 - The map view toolbar warns when the open level's mode is on an unverified list, which holds
   mode 1E only (sprite layering not verified, #617). Rendering is unchanged (#618).
 - The map view composites the main and sub screens for every level mode, with SNES color math:
@@ -169,6 +167,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `npm run gitnexus` no longer rewrites CLAUDE.md and AGENTS.md (`.gitnexusrc` and `--skip-agents-md`), so parallel worktrees stop conflicting on the generated counts, which are removed from the marked region (#644).
 - "Show surfaces" editor overlay now consumes the shared `SurfacePath`
   module — same source of truth as the sprite-patrol scan. Both views
   agree on silhouette suppression, slope vs flat classification, and

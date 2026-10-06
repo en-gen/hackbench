@@ -240,8 +240,8 @@ Every agent follows these. Role-specific rules are in `.claude/agents/`.
   owner and PRs.
 - Spawn a sub-agent only when it saves cost or context, by role, with an
   explicit `model`.
-- `npm run gitnexus` refreshes the index after a commit; never a bare
-  `gitnexus analyze`, which rewrites the marked region below with em-dashes.
+- `npm run gitnexus` refreshes the index after a commit. `.gitnexusrc` and the
+  script both stop analyze rewriting the marked region below (#644).
 
 <!-- gitnexus:start -->
 

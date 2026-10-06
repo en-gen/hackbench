@@ -20,7 +20,12 @@ function makeWritable(p: string): void {
   if (fs.statSync(p).isDirectory()) for (const e of fs.readdirSync(p)) makeWritable(path.join(p, e))
 }
 
-function runRefresh(scriptText: string): string {
+// Which analyze call the stub lets succeed; earlier ones exit 1, so the script
+// walks its fallbacks (analyze, then --repair-fts, then --force).
+type Mode = 'first' | 'repair' | 'force'
+const MODES: Mode[] = ['first', 'repair', 'force']
+
+function runRefresh(scriptText: string, mode: Mode = 'first'): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gnrefresh-'))
   try {
     const git = (...a: string[]) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' })
@@ -34,12 +39,27 @@ function runRefresh(scriptText: string): string {
     }
     fs.writeFileSync(
       path.join(dir, '.gitnexus/run.cjs'),
-      `if (!process.argv.includes('--skip-agents-md'))
+      `const a = process.argv
+       if (!a.includes('--skip-agents-md'))
          for (const f of ['CLAUDE.md', 'AGENTS.md'])
-           require('fs').appendFileSync(f, 'symbols: 13349')`,
+           require('fs').appendFileSync(f, 'symbols: 13349')
+       const ok = { first: true, repair: a.includes('--repair-fts'), force: a.includes('--force') }
+       process.exit(ok[process.env.STUB_OK] ? 0 : 1)`,
     )
     git('add', '-A')
-    git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'base')
+    git(
+      '-c',
+      'user.name=t',
+      '-c',
+      'user.email=t@t',
+      '-c',
+      'core.hooksPath=/dev/null',
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '-qm',
+      'base',
+    )
     // python is stubbed out: only the analyze step is under test.
     execFileSync(
       findBash(),
@@ -47,6 +67,7 @@ function runRefresh(scriptText: string): string {
       {
         cwd: dir,
         stdio: 'pipe',
+        env: { ...process.env, STUB_OK: mode },
       },
     )
     return git('status', '--porcelain').toString()
@@ -57,13 +78,29 @@ function runRefresh(scriptText: string): string {
   }
 }
 
+const real = fs.readFileSync(script, 'utf8')
+const CALLS: [Mode, string][] = [
+  ['first', 'analyze --skip-agents-md "$@"'],
+  ['repair', 'analyze --skip-agents-md --repair-fts'],
+  ['force', 'analyze --skip-agents-md --force'],
+]
+
 describe('gitnexus-refresh.sh leaves the context files alone', () => {
-  it('keeps git status clean', () => {
-    expect(runRefresh(fs.readFileSync(script, 'utf8'))).toBe('')
+  it.each(MODES)('keeps git status clean when %s succeeds', mode => {
+    expect(runRefresh(real, mode)).toBe('')
   })
 
-  it('goes red when the flag is removed', () => {
-    const unprotected = fs.readFileSync(script, 'utf8').replaceAll('--skip-agents-md ', '')
-    expect(runRefresh(unprotected)).toContain('CLAUDE.md')
+  // Each mutant strips the flag from ONE call and runs the path that reaches it.
+  it.each(CALLS)('goes red when the flag is removed from the %s call', (mode, call) => {
+    expect(real).toContain(call)
+    expect(runRefresh(real.replace(call, call.replace(' --skip-agents-md', '')), mode)).toContain(
+      'CLAUDE.md',
+    )
+  })
+
+  // A bare `gitnexus analyze` (which CLAUDE.md tells agents to run) reads this.
+  it('.gitnexusrc sets skipAgentsMd', () => {
+    const rc = JSON.parse(fs.readFileSync(path.join(repoRoot, '.gitnexusrc'), 'utf8'))
+    expect(rc.skipAgentsMd).toBe(true)
   })
 })
