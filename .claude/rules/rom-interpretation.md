@@ -179,7 +179,10 @@ In practice:
   that a block item's slot, status, timers and cells come from the game and
   not from a hand-ported dispatch. Same terms: byte-checked entry shape,
   generic seeds (the block's content index and position; the loader's own
-  SpriteMemorySetting), step budgets, a plain refusal otherwise. No other
+  SpriteMemorySetting), step budgets, a plain refusal otherwise. Unlike the
+  other calls, whose DB is reset to 0, the spawn is entered with DB deliberately
+  set to the routine's own bank ($02), as the game reaches it, because it reads
+  its tables through DB. No other
   routine is added by this.
 - Third bounded use, for block collision (owner comment on #435, 2026-10-06):
   the collision probe spike (`spikes/collision-probe/`, #633) and the planned

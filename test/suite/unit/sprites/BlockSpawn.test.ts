@@ -116,6 +116,15 @@ describe('the dispatcher gate refuses a single changed byte', () => {
       const r = resolveBlockSpawn(rom)
       expect(!r.ok && r.reason, `JSL operand byte ${at - 34}`).toMatch(/FindFreeSprSlot/)
     }
+    // A call to another address that carries FindFreeSprSlot's opening bytes (STZ $0E / PHB PHK PLB) is refused too:
+    // the address is checked, not only what is found there.
+    const other = buildSyntheticRom()
+    other.writeAt(0x02a9f0, [0x64, 0x0e, 0x8b, 0x4b, 0xab, 0xa0, 0x07, 0xab, 0x6b])
+    other.writeAt(ENTRY + 34, [0xf0, 0xa9, 0x02]) // JSL $02A9F0
+    expect(resolveBlockSpawn(other)).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/FindFreeSprSlot/),
+    })
     const rom = buildSyntheticRom()
     flip(rom, 0x02a9e4) // its own first opcode
     expect(resolveBlockSpawn(rom)).toMatchObject({
