@@ -45,8 +45,8 @@ describe.skipIf(!romsPresent)('the stated extraction rule does not reproduce the
     expect(Object.keys(FROZEN).length).toBe(98)
   })
 
-  // The move from 35/58 to 36/57 is a coincidence: $7F's correct tile ($24)
-  // equals PowerUpTiles[0], the element the rule reads.
+  // The move from 35/58 to 36/57 is a coincidence: $7E's correct tile ($E8)
+  // equals the first store the walk reads (LDA #$E8 in CoinSprGfxSub, bank_01.asm:9564).
   it('matches 36, differs on 57 and finds no store for 5, on every cart', () => {
     for (const { name, rom } of allRoms()) {
       let match = 0,
@@ -84,10 +84,11 @@ describe.skipIf(!romsPresent)('the stated extraction rule does not reproduce the
     expect(counts.filter(([, n]) => n === 27).length).toBe(1)
   })
 
-  it('gets exactly one of the five PowerUpTiles ids right, as element 0 must', () => {
+  it('does not recover the PowerUpTiles ids $74-$78 from the first store', () => {
     // $74-$78 read `PowerUpTiles` at indices 0 to 4; the index is
     // SpriteNumber - $74 (bank_01.asm:9632-9636), computed at run time from
-    // the sprite id, so a static first-element read cannot apply it.
+    // the sprite id, so a static first-store read cannot apply it. On five carts the
+    // walk returns $82 for $74-$76 and $78 and $E8 for $77.
     for (const { name, rom } of allRoms()) {
       const right = [0x74, 0x75, 0x76, 0x77, 0x78].filter(
         id => firstBaseTile(rom, id) === FROZEN[id],

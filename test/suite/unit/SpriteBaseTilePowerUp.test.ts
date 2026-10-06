@@ -17,7 +17,7 @@ const hex = (n: number) => '$' + n.toString(16).toUpperCase()
 
 describe.skipIf(!hasRom(VANILLA))('PowerUpGfxRt base tiles match PowerUpTiles (#99)', () => {
   it.each(IDS.map(id => [hex(id), id] as const))(
-    'sprite %s is PowerUpTiles[id - $74]',
+    'sprite %s is the PowerUpTiles entry at its id minus 0x74',
     (_n, id) => {
       const rom = freshRom(VANILLA)
       expect(SPRITE_BASE_TILE_OVERRIDES[id]).toBe(rom.readByte(POWER_UP_TILES + (id - 0x74)))
@@ -25,14 +25,24 @@ describe.skipIf(!hasRom(VANILLA))('PowerUpGfxRt base tiles match PowerUpTiles (#
   )
 })
 
-// Synthetic, no ROM: the three ids #99 corrected, pinned to the values read
-// from the table above, so a corpus-less run still goes red on the old $5D.
-describe('sprites $7D-$7F (#99), no ROM', () => {
-  it.each([
-    [0x7d, 0xe4],
-    [0x7e, 0xe8],
-    [0x7f, 0x24],
-  ])('sprite %i has the PowerUpTiles tile', (id, tile) => {
-    expect(SPRITE_BASE_TILE_OVERRIDES[id], hex(id)).toBe(tile)
+// Synthetic, no ROM: all nine ids pinned to the values the corpus block
+// reads from the table, so a corpus-less run still goes red on a bad value.
+describe('PowerUpGfxRt base tiles (#99), no ROM', () => {
+  it.each(
+    (
+      [
+        [0x74, 0x24],
+        [0x75, 0x26],
+        [0x76, 0x48],
+        [0x77, 0x0e],
+        [0x78, 0x24],
+        [0x7d, 0xe4],
+        [0x7e, 0xe8],
+        [0x7f, 0x24],
+        [0x80, 0xec],
+      ] as const
+    ).map(([id, tile]) => [hex(id), id, tile] as const),
+  )('sprite %s has the PowerUpTiles tile', (_n, id, tile) => {
+    expect(SPRITE_BASE_TILE_OVERRIDES[id]).toBe(tile)
   })
 })

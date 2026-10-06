@@ -266,18 +266,20 @@ Three reasons the disagreements are not bugs in the reimplementation:
    World 2 1.1, from a shared OAM preamble that runs before the
    handler writes its own tile. "First" in reachability order is not "first"
    in the sense a human reading the routine means.
-2. **Table-sourced tiles need an index the ROM does not hold statically.**
+2. **Table-sourced tiles are indexed by the sprite number, which a first-store read does not apply.**
    `PowerUpTiles` serves $74-$78 at indices 0 through 4; the index is
    the sprite number minus $74 (bank_01.asm:9632-9636), applied at run time.
-   Taking element 0 is right once in five. (The 35 to 36 move after #99 is a
-   coincidence: $7E's correct tile ($E8) equals the first store the walk reaches.)
+   The walk returns $82 for $74-$76 and $78 and $E8 for $77 on five of the six
+   files, so none of the five is recovered. (The 35 to 36 move after #99 is a
+   coincidence: $7E's correct tile ($E8) equals the first store the walk
+   reaches, LDA #$E8 in CoinSprGfxSub, bank_01.asm:9564.)
    The frozen table has all five correct, which is itself proof it was
    indexed by hand.
 3. **Which store is representative is a judgement.** $88 takes the value on
    the `BCC`-taken side. Nothing in the bytes says that side is the one to
    show a level editor.
 
-Keeping the 36 that agree and freezing the other 63 would be calibration
+Keeping the 36 that agree and freezing the other 62 would be calibration
 against the frozen table itself, so nothing was kept.
 
 A weaker check was measured and also rejected: collect every value the
