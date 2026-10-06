@@ -63,6 +63,19 @@ describe('pickIndicator', () => {
       ),
     ).toBeNull()
     expect(pickIndicator(contents([]))).toBeNull()
+    // an empty side: the present item alone, never a split
+    const none = { kind: 'none' as const, label: 'nothing' }
+    expect(
+      pickIndicator(
+        contents([
+          ['Mario is small', none as never],
+          [null, sprite(2)],
+        ]),
+      ),
+    ).toEqual({
+      kind: 'item',
+      content: sprite(2),
+    })
   })
 })
 

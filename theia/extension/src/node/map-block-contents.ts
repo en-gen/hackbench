@@ -47,9 +47,9 @@ const COIN: SpriteSubtile[] = [
   [0xf9, 8, 8],
 ].map(([n, dx, dy]) => ({ charNum: 0x400 + n!, palette: 10, flipX: false, flipY: false, dx: dx!, dy: dy! })) // prettier-ignore
 
-export type Spec =
-  | { kind: 'item'; content: BlockContent }
-  | { kind: 'split'; small: BlockContent; big: BlockContent }
+type Item = Exclude<BlockContent, { kind: 'none' }>
+
+export type Spec = { kind: 'item'; content: Item } | { kind: 'split'; small: Item; big: Item }
 
 /**
  * THE one place that chooses what a block draws. Progressive blocks (#607)
@@ -60,15 +60,16 @@ export type Spec =
  * becomes a one-line change here.
  */
 export function pickIndicator(c: BlockContents): Spec | null {
-  const alts = c.alternatives
-  if (c.progressive && alts.length === 2) {
-    return { kind: 'split', small: alts[0]!.content, big: alts[1]!.content }
+  // An empty branch (`none`) is no item: one item left draws alone, with no split.
+  const items = c.alternatives.flatMap(a => (a.content.kind === 'none' ? [] : [a.content]))
+  if (items.length === 1) return { kind: 'item', content: items[0]! }
+  if (c.progressive && items.length === 2 && c.alternatives.length === 2) {
+    return { kind: 'split', small: items[0]!, big: items[1]! }
   }
-  if (alts.length === 1) return { kind: 'item', content: alts[0]!.content }
   return null
 }
 
-const keyOf = (c: BlockContent, col: number): string =>
+const keyOf = (c: Item, col: number): string =>
   c.kind === 'sprite'
     ? `s${c.sprite.toString(16)}:${c.status}:${c.attribute ?? ''}:${c.sprite === YOSHI_EGG_ID ? col & 3 : ''}`
     : c.kind
@@ -97,7 +98,7 @@ export function blockIndicators(
     if (d!.status !== 'drawn') return { why: d!.reason ?? 'not drawn' }
     return { art: fitArt(unb64(d!.rgba), d!.box.x1 - d!.box.x0, d!.box.y1 - d!.box.y0) }
   }
-  const itemArt = (c: BlockContent, col: number): Drawn => {
+  const itemArt = (c: Item, col: number): Drawn => {
     if (c.kind === 'coin') return draw(COIN)
     if (c.kind === 'multiCoin') {
       const coin = draw(COIN)
