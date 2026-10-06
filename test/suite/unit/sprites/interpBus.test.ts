@@ -167,6 +167,17 @@ describe('HiROM is refused up front (F9)', () => {
   })
 })
 
+describe('hardware divide', () => {
+  it('divide by zero gives $FFFF and leaves the dividend as the remainder', () => {
+    const bus = new SpriteBus(bankCart(8))
+    bus.write(0x4204, 100)
+    bus.write(0x4205, 0)
+    bus.write(0x4206, 0)
+    expect(bus.read(0x4214) | (bus.read(0x4215) << 8)).toBe(0xffff)
+    expect(bus.read(0x4216) | (bus.read(0x4217) << 8)).toBe(100)
+  })
+})
+
 describe('Mode 7 multiplier latch is shared with $211C-$2120 (F11)', () => {
   it('a $211C write is the "previous byte" for the next $211B', () => {
     const bus = new SpriteBus(bankCart(8))
