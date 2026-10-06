@@ -17,10 +17,10 @@ self-check its work.
 The gap is measurable. Running the suite twice, once with a local ROM and
 fixtures present and once from a clean checkout (the CI condition):
 
-| | Collected | Passed | Skipped |
-|---|---|---|---|
-| Local | 2277 | 2270 | 7 |
-| Clean checkout | 2221 | 2159 | 62 |
+|                | Collected | Passed | Skipped |
+| -------------- | --------- | ------ | ------- |
+| Local          | 2277      | 2270   | 7       |
+| Clean checkout | 2221      | 2159   | 62      |
 
 111 tests (4.9%) do not run in CI. This is by design and matches the policy in
 `docs/testing.md`. The concern is not the count but the concentration:
@@ -104,11 +104,11 @@ are real gameplay frames because SMW's attract demo runs unattended, exercising
 sprites, physics and RNG. A fixed input schedule was injected via `emu.setInput`
 to exercise that path too.
 
-| Condition | WRAM across 6 runs | Screenshots across 6 runs |
-|---|---|---|
-| Default settings | 6 variants | 3 to 4 variants |
-| `+ rampoweronstate=AllZeros` | identical | 2 to 3 variants |
-| `+ disableframeskipping=true` | identical | identical |
+| Condition                     | WRAM across 6 runs | Screenshots across 6 runs |
+| ----------------------------- | ------------------ | ------------------------- |
+| Default settings              | 6 variants         | 3 to 4 variants           |
+| `+ rampoweronstate=AllZeros`  | identical          | 2 to 3 variants           |
+| `+ disableframeskipping=true` | identical          | identical                 |
 
 Two independent sources of nondeterminism, neither visible in the original
 probe:
@@ -152,12 +152,12 @@ presentation-independent: they describe what the hardware would draw regardless
 of how either side chooses to display it. HackBench's pipeline emits
 intermediates that map onto them directly.
 
-| Tier | Oracle | Validates | State |
-|---|---|---|---|
-| 1. Model | `map16.txt` Lua dump | object expansion, whole-level grid | exists |
-| 2. Register | `emu.getState()` PPU fields | scroll, layer enable, BG mode | proposed |
+| Tier            | Oracle                                       | Validates                                      | State    |
+| --------------- | -------------------------------------------- | ---------------------------------------------- | -------- |
+| 1. Model        | `map16.txt` Lua dump                         | object expansion, whole-level grid             | exists   |
+| 2. Register     | `emu.getState()` PPU fields                  | scroll, layer enable, BG mode                  | proposed |
 | 3. Video memory | `snesVideoRam`, `snesCgRam`, `snesSpriteRam` | GFX decode, palette, tilemap, sprite placement | proposed |
-| 4. Composite | framebuffer | compositor only, narrow | optional |
+| 4. Composite    | framebuffer                                  | compositor only, narrow                        | optional |
 
 ### Tier 2: register assertions
 
@@ -173,12 +173,12 @@ targets the layer scroll divergences that have cost the most time.
 The centre of this design. Compare HackBench's intermediates against the
 emulator's actual video memory at a defined frame:
 
-| HackBench artifact | Emulator oracle | Memory type |
-|---|---|---|
-| `GraphicsDecoder` tile bitmaps | tile data in VRAM | `snesVideoRam` |
-| `PaletteLoader` CGRAM rows | actual CGRAM | `snesCgRam` |
-| BG tilemap entries | actual BG tilemap | `snesVideoRam` |
-| Sprite `Appearance` output | actual OAM entries | `snesSpriteRam` |
+| HackBench artifact             | Emulator oracle    | Memory type     |
+| ------------------------------ | ------------------ | --------------- |
+| `GraphicsDecoder` tile bitmaps | tile data in VRAM  | `snesVideoRam`  |
+| `PaletteLoader` CGRAM rows     | actual CGRAM       | `snesCgRam`     |
+| BG tilemap entries             | actual BG tilemap  | `snesVideoRam`  |
+| Sprite `Appearance` output     | actual OAM entries | `snesSpriteRam` |
 
 Every failure is diagnostic. "CGRAM row 6 entry 4 is `$1C7F`, expected `$0C7F`"
 rather than "2,140 pixels differ". This tier maps directly onto the modules that

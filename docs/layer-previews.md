@@ -35,12 +35,13 @@ choice belongs to the kind, not to the editor that happens to be open.
 is already the smallest recognisable unit, and applying it is cheap.
 
 **Staged** (gfx). The editor accumulates pixels in a scratch buffer and
-commits them as ONE layer at a STRUCTURAL boundary, not at an arbitrary
-session boundary. A GFX file is a regular grid of 8x8 characters, so the
-character is that boundary: paint freely within a character, and Save, or
-moving to another character, commits it.
+commits them as ONE layer at an explicit boundary: Save. The GFX view
+keeps strokes (pointer down to up) in the widget, with stroke undo and redo,
+and Save flattens them to the final value per pixel per 8x8 character and
+sends one layer holding every character touched (`GfxLayer.chars`). Closing
+with unsaved strokes prompts (Theia's Saveable dialog); discarding drops them.
 
-The character is the right unit for two reasons:
+The character is still the unit INSIDE a layer, for two reasons:
 
 1. It is what the rest of the system already cites. A Map16 quadrant can
    only say "character N", and this file's `gfx` preview kind already
@@ -58,8 +59,8 @@ separate from "when do we re-encode" is what lets the layer follow the
 user's mental model instead of the compressor's.
 
 The scratch buffer is NOT a layer and never reaches the stack. Undo inside
-a character is editor-local; once the character is committed, Ctrl+Z pops
-the whole character. A staged editor therefore needs a dirty indicator,
+the view is editor-local (stroke undo); once Save commits, Ctrl+Z pops
+the whole layer, every character of it. A staged editor therefore needs a dirty indicator,
 and must commit or prompt when it closes, or the user loses work that
 looked saved.
 
@@ -126,9 +127,11 @@ in the same change, with the reason.
   one-pixel edit can shift every file behind it. The line reports how many
   bytes the patch actually moved, since that number is the user's budget.
 
-This kind is STAGED: one layer per 8x8 character, committed on Save or on
-moving to another character. The visual is therefore always exactly one
-character, and the value text reports how many of its 64 pixels changed.
+This kind is STAGED: one layer per Save, holding one or more 8x8 characters.
+The visual is one tile before and after per character, and the value text
+reports how many of its 64 pixels changed. A layer file written by the first
+build (`file`, `tile`, `pixels` at the top level) still reads, as a layer of
+one character.
 
 ### import
 

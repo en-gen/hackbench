@@ -23,11 +23,13 @@ import { SmwRom } from '../../../../src/rom/SmwRom'
 import { WorkingRomEntry, WorkingRomRegistry } from '../../../../src/project/WorkingRomRegistry'
 import {
   GfxFormat,
+  GfxCharEditDto,
   GfxService,
   GfxSheetDto,
   LoadGfxFilesResult,
   OverworldAreasDto,
   OverworldDto,
+  SaveGfxResult,
 } from '../common/gfx-protocol'
 import { decodeGfxSheet, listGfxFileInfos } from './gfx-decode'
 import { decodeAreaView, decodeOverworld, decodeOverworldAreas } from './overworld-decode'
@@ -49,6 +51,25 @@ export class GfxServiceImpl implements GfxService {
     paletteRow?: number,
   ): Promise<GfxSheetDto> {
     return decodeGfxSheet(this.romFor(manifestPath), index, bpp, paletteRow)
+  }
+
+  async saveGfx(manifestPath: string, chars: GfxCharEditDto[]): Promise<SaveGfxResult> {
+    if (!Array.isArray(chars) || chars.length === 0) {
+      return { status: 'refused', reason: 'There is nothing to save.' }
+    }
+    const r = this.workingRoms.setGfx(manifestPath, chars)
+    if (r.status === 'rom-not-located') {
+      return {
+        status: 'unavailable',
+        reason: `${r.baseRom.title || 'The base ROM'} is not on this machine`,
+      }
+    }
+    if (r.status === 'unreadable' || r.status === 'io-error') {
+      return { status: 'unavailable', reason: r.reason }
+    }
+    if (r.status === 'refused') return r
+    const top = r.working.stack.length - 1
+    return { status: 'ok', bytesChanged: r.working.bytesChangedBy(top) }
   }
 
   async overworld(manifestPath: string): Promise<OverworldDto> {

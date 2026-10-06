@@ -12,15 +12,24 @@
  * `--max-warnings 0` fails these tests instead of silently defanging CI.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import { execFileSync } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
 
 const repoRoot = path.resolve(__dirname, '../../..')
-const fixtureDir = path.join(repoRoot, 'test/suite/gates/__fixtures__')
+const fixtureRoot = path.join(repoRoot, 'test/suite/gates/__fixtures__')
+// A shared path let concurrent runs delete each
+// other's fixtures in beforeEach/afterEach (3 parallel runs failed 3-4 of 12).
+// It stays inside the repo so ESLint and Prettier resolve the real configs.
+const fixtureDir = path.join(fixtureRoot, `run-${process.pid}-${Date.now()}`)
 
 const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'))
+
+// Prettier also reads .gitignore, which now lists the fixture dir, and then
+// silently skips the file and exits 0, so every 'rejects' case would go green
+// on nothing. Naming .prettierignore alone keeps the fixtures checked.
+const PRETTIER_CHECK = ['prettier', '--ignore-path', '.prettierignore', '--check']
 
 /** Runs a CLI and returns its exit code, never throwing on failure. */
 function exitCodeOf(cmd: string, args: string[]): number {
@@ -45,6 +54,15 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(fixtureDir, { recursive: true, force: true })
+})
+
+afterAll(() => {
+  // Removes the shared parent only when no other run still has a directory in it.
+  try {
+    fs.rmdirSync(fixtureRoot)
+  } catch {
+    /* another run is active, or already gone */
+  }
 })
 
 /**
@@ -151,7 +169,7 @@ describe('the format gate can fail', () => {
     'rejects a misformatted file',
     () => {
       const file = writeFixture('ugly.ts', 'export const a   =    {b:1,c:  2};\n')
-      expect(exitCodeOf('npx', ['prettier', '--check', file])).not.toBe(0)
+      expect(exitCodeOf('npx', [...PRETTIER_CHECK, file])).not.toBe(0)
     },
     CLI_TIMEOUT_MS,
   )
@@ -162,7 +180,7 @@ describe('the format gate can fail', () => {
       // Semicolons and double quotes are what Prettier defaults to and this
       // repo does not use. A config that lost `semi: false` passes this file.
       const file = writeFixture('style.ts', 'export const greeting = "hi";\n')
-      expect(exitCodeOf('npx', ['prettier', '--check', file])).not.toBe(0)
+      expect(exitCodeOf('npx', [...PRETTIER_CHECK, file])).not.toBe(0)
     },
     CLI_TIMEOUT_MS,
   )
@@ -171,7 +189,7 @@ describe('the format gate can fail', () => {
     'accepts a correctly formatted file',
     () => {
       const file = writeFixture('pretty.ts', "export const greeting = 'hi'\n")
-      expect(exitCodeOf('npx', ['prettier', '--check', file])).toBe(0)
+      expect(exitCodeOf('npx', [...PRETTIER_CHECK, file])).toBe(0)
     },
     CLI_TIMEOUT_MS,
   )
@@ -180,7 +198,7 @@ describe('the format gate can fail', () => {
     'checks CSS too',
     () => {
       const file = writeFixture('ugly.css', '.a{color:red;background:blue}\n')
-      expect(exitCodeOf('npx', ['prettier', '--check', file])).not.toBe(0)
+      expect(exitCodeOf('npx', [...PRETTIER_CHECK, file])).not.toBe(0)
     },
     CLI_TIMEOUT_MS,
   )

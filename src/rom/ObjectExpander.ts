@@ -140,6 +140,7 @@ export function expandObject(
   owner: number = OWNER_NONE,
   switchFlags: SwitchFlags = SWITCH_FLAGS_UNCLEARED,
   draw: InterpretedDraw | null = null,
+  vertical = false,
 ): void {
   if (obj.type === 'extended') {
     // For extended objects, LevelParser stores the extended type in `objectNumber`
@@ -156,6 +157,7 @@ export function expandObject(
       owners,
       owner,
       switchFlags,
+      vertical,
     )
     cur.draw = draw
     dispatchExtended(cur)
@@ -171,6 +173,7 @@ export function expandObject(
       owners,
       owner,
       switchFlags,
+      vertical,
     )
     cur.draw = draw
     dispatchStandard(cur)
@@ -311,7 +314,7 @@ export function expandMapOwned(
     primitives: sink.primitives,
   }
   for (let i = 0; i < objects.length; i++) {
-    expandObject(grid, objects[i], rom, tileset, owners, i, switchFlags, draw)
+    expandObject(grid, objects[i], rom, tileset, owners, i, switchFlags, draw, isVertical)
   }
   return { grid, owners }
 }

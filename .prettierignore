@@ -7,9 +7,9 @@ build/
 node_modules/
 package-lock.json
 
-# Throwaway probe code. Labelled as such in spike/FINDINGS.md; gating it
+# Throwaway probe code. Labelled as such in spikes/libretro-view-engine/FINDINGS.md; gating it
 # produces noise nobody will act on.
-spike/
+spikes/
 
 # Shims standing in for native modules, kept byte-for-byte as vendored.
 theia/no-native/

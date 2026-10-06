@@ -23,6 +23,7 @@ const { expectCheckerboard, PAGE_COMPOSE } = require('./pixel-canvas.cjs')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
+const { readGrid } = require('./grid-probe.cjs')
 const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
 
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
@@ -174,7 +175,7 @@ async function readScreen(page, index, screen) {
 }
 
 /** The planes of a screen, L1's by default: low, then high. */
-const MAP_PLANES = ['l2Low', 'l1Low', 'l2High', 'l1High']
+const MAP_PLANES = ['l2Low', 'l2High', 'l3Low', 'l3High', 'l1Low', 'l1High']
 const planeLocators = (page, index, screen, planes = ['l1Low', 'l1High']) =>
   planes.map(p => page.locator(`${root(index)} canvas[data-screen="${screen}"][data-plane="${p}"]`))
 
@@ -283,6 +284,32 @@ for (const index of [0x009, 0x013, 0x105, 0x106, 0x12c, 0x109]) {
  * screen 0 must be painted by that reply itself (review of 4e932c3c; the
  * owner saw $106's screen 0 blank this way on d8500dd0).
  */
+/**
+ * The composite is what the user sees, so opening another map in a reused preview tab must blank it
+ * at once: no screen of the new map has landed (its fetch is stubbed out), and the old map's pixels
+ * must not stay up as a plausible picture of it.
+ */
+test('a reused tab blanks the composite when it opens another map', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  const comp = page.locator(`${root(0x105)} canvas[data-layer="screen"][data-screen="0"]`)
+  await expect(comp).toHaveAttribute('data-drawn', /./, { timeout: 15000 })
+  const count = () => comp.evaluate(c => { const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i]) n++; return n }) // prettier-ignore
+  expect(await count(), 'map A is on screen').toBeGreaterThan(0)
+  const after = await page.evaluate(async mp => {
+    const w = getSvc('ApplicationShell').getWidgetById('hackbench.map-view:261')
+    w.fetchScreen = async () => {} // map B's screens never arrive
+    await w.open({ manifestPath: mp, index: 0x106, label: '106', iconClass: '' })
+    // The tab's id follows the map it shows, so find the composite from the widget.
+    const c = w.node.querySelector('canvas[data-layer="screen"][data-screen="0"]')
+    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+    let n = 0
+    for (let i = 3; i < d.length; i += 4) if (d[i]) n++
+    return { n, drawn: c.dataset.drawn ?? null }
+  }, project.manifestPath)
+  expect(after).toEqual({ n: 0, drawn: null })
+})
+
 test('a reused tab paints screen 0 of the next map', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
@@ -416,20 +443,36 @@ test('a reused tab going from a horizontal to a vertical map draws screen 0', as
  * pixel on screen, and not the theme), on shows exactly the picture again.
  */
 /**
- * A layer toggle's face: pressed, named, and the owner's icon with its own bar (top, middle or
- * bottom) in the button's color and the others dimmed.
+ * A layer toggle is pressed, labelled with its layer and role, and drawn as a 16x16
+ * frame with its glyph inside, both in the button's color (stroke, no fill).
  */
-async function expectLayerToggle(page, index, control, label, bar) {
+async function expectLayerToggle(page, index, control, label, glyph) {
   const button = page.locator(`${root(index)} [data-control="${control}"]`)
   await expect(button).toHaveAttribute('aria-pressed', 'true')
   await expect(button).toHaveAttribute('aria-label', label)
   await expect(button).toHaveAttribute('title', label)
-  const bars = await button
-    .locator('svg rect')
-    .evaluateAll(rs => rs.map(r => ({ y: r.getAttribute('y'), fill: getComputedStyle(r).fill })))
-  const color = await button.evaluate(b => getComputedStyle(b).color)
-  expect(bars.map(b => b.y)).toEqual(['1', '6', '11'])
-  bars.forEach((b, i) => (i === bar ? expect(b.fill).toBe(color) : expect(b.fill).not.toBe(color)))
+  const art = await button.locator('svg').evaluate(svg => {
+    const rect = svg.querySelector('rect')
+    const path = svg.querySelector('path[data-part="glyph"]')
+    const stroke = el => getComputedStyle(el).stroke
+    const color = getComputedStyle(svg.closest('button')).color
+    return {
+      size: [svg.getAttribute('width'), svg.getAttribute('height')],
+      frame: ['x', 'y', 'width', 'height', 'rx'].map(a => rect.getAttribute(a)),
+      glyph: path.dataset.glyph,
+      glyphDrawn: path.getAttribute('d').length > 10,
+      strokes: [stroke(rect) === color, stroke(path) === color],
+      fills: [getComputedStyle(rect).fill, getComputedStyle(path).fill],
+      rects: svg.querySelectorAll('rect').length,
+    }
+  })
+  expect(art.size).toEqual(['16', '16'])
+  expect(art.frame).toEqual(['1.5', '1.5', '13', '13', '1.5'])
+  expect(art.glyph).toBe(glyph)
+  expect(art.glyphDrawn).toBe(true)
+  expect(art.strokes).toEqual([true, true])
+  expect(art.fills).toEqual(['none', 'none'])
+  expect(art.rects, 'one frame, no bars').toBe(1)
   return button
 }
 
@@ -437,7 +480,7 @@ test('the L1 toggle hides and restores the foreground, per tab', async ({ page }
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
   await expectEveryVisibleScreenDrawn(page, 0x105)
-  const l1 = await expectLayerToggle(page, 0x105, 'layer-l1', 'Foreground', 1)
+  const l1 = await expectLayerToggle(page, 0x105, 'layer-l1', 'Layer 1 · Foreground', '1')
   const strip = page.locator(`${root(0x105)} [data-control="map-scroller"]`)
 
   const shown = await shownPixels(page, strip)
@@ -450,8 +493,9 @@ test('the L1 toggle hides and restores the foreground, per tab', async ({ page }
     await expect(plane).toHaveCSS('visibility', 'hidden')
   for (const plane of planeLocators(page, 0x105, 0, ['l2Low', 'l2High']))
     await expect(plane).toHaveCSS('visibility', 'visible')
-  // With the background off as well, only the back area is left.
+  // With the background and the sprites off as well, only the back area is left.
   await page.locator(`${root(0x105)} [data-control="layer-l2"]`).click()
+  await page.locator(`${root(0x105)} [data-control="layer-sprites"]`).click()
   const hidden = await shownPixels(page, strip)
   expect(hidden.colors).toBe(1)
   expect(hidden.color).toBe(backdrop)
@@ -461,6 +505,7 @@ test('the L1 toggle hides and restores the foreground, per tab', async ({ page }
   await activate(page, 0x105)
   await l1.click()
   await page.locator(`${root(0x105)} [data-control="layer-l2"]`).click()
+  await page.locator(`${root(0x105)} [data-control="layer-sprites"]`).click()
   await expect(l1).toHaveAttribute('aria-pressed', 'true')
   for (const plane of planeLocators(page, 0x105, 0, MAP_PLANES))
     await expect(plane).toHaveCSS('visibility', 'visible')
@@ -517,21 +562,21 @@ test('the Background toggle hides and restores both L2 canvases, per tab', async
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
   await expectEveryVisibleScreenDrawn(page, 0x105)
-  const l2 = await expectLayerToggle(page, 0x105, 'layer-l2', 'Background', 2)
+  const l2 = await expectLayerToggle(page, 0x105, 'layer-l2', 'Layer 2 · Background', '2')
   const strip = page.locator(`${root(0x105)} [data-control="map-scroller"]`)
-  // Back to front: Background, then Foreground, beside each other.
+  // Fixed order, whatever the roles: Layer 1, Layer 2, Layer 3, Sprites.
   const order = await page
     .locator(`${root(0x105)} .hb-map-view-toolbar [data-control^="layer-"]`)
     .evaluateAll(bs => bs.map(b => b.dataset.control))
-  expect(order).toEqual(['layer-l2', 'layer-l1'])
-  // A visible separator sits between Foreground and the first switch toggle, by DOM order.
+  expect(order).toEqual(['layer-l1', 'layer-l2', 'layer-l3', 'layer-sprites'])
+  // A visible separator sits between the Sprites toggle and the first switch toggle, by DOM order.
   const sep = await page.evaluate(rootSel => {
     const bar = document.querySelector(`${rootSel} .hb-map-view-toolbar`)
     const kids = [...bar.children]
     const at = c => kids.findIndex(k => k.dataset.control === c)
     const el = kids.find(k => k.dataset.control === 'toolbar-sep')
     const r = el.getBoundingClientRect()
-    return { between: at('toolbar-sep') === at('layer-l1') + 1 && at('toolbar-sep') < at('palace-yellow'), w: r.width, h: r.height } // prettier-ignore
+    return { between: at('toolbar-sep') === at('layer-sprites') + 1 && at('toolbar-sep') < at('palace-yellow'), w: r.width, h: r.height } // prettier-ignore
   }, root(0x105))
   expect(sep.between).toBe(true)
   expect(sep.w).toBeGreaterThan(0)
@@ -627,25 +672,524 @@ test('L2 shows above the back area: a clear L1 pixel shows the background, not t
 })
 
 /**
- * BG mode 1 stacks BG1 high > BG2 high > BG1 low > BG2 low (map-screen's
- * MAP_PLANE_KEYS). Read from the computed z-index, not the source order. No
+ * A screen-0 plane stack, bottom to top (the sub screen's planes, then the main screen's), with each
+ * plane's z-index. A plane in neither list has z-index 0 and is left out; the composite canvas is not a plane.
+ */
+const zStack = (page, index) =>
+  page.locator(`${root(index)} canvas[data-screen="0"][data-plane]`).evaluateAll(cs =>
+    cs
+      .map(c => ({ plane: c.dataset.plane, z: Number(getComputedStyle(c).zIndex) }))
+      .filter(c => c.z > 0)
+      .sort((a, b) => a.z - b.z),
+  )
+const zOrder = async (page, index) => (await zStack(page, index)).map(c => c.plane)
+
+/**
+ * The plane order is the payload's `screens` (sub screen, then main screen): layer 2 under everything on a
+ * standard layout, BG1 and BG2 together on the Mode 2 and 8 shape. Read from the computed z-index, not the source order. No
  * vanilla or magic-ROM slot draws an l2High pixel (swept: 0 of 488 maps each),
  * so there is no corpus screen to check the order on pixels; the unit tests
  * pin which plane a priority subtile lands in on synthetic data.
  */
-test('the canvas stack is l2Low, l1Low, l2High, l1High, bottom to top', async ({ page }) => {
+test('the canvas stack puts layer 2 under everything on a standard-layout map, bottom to top', async ({
+  page,
+}) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
-  const stack = await page
-    .locator(`${root(0x105)} canvas[data-screen="0"]`)
-    .evaluateAll(cs =>
-      cs
-        .map(c => ({ plane: c.dataset.plane, z: Number(getComputedStyle(c).zIndex) }))
-        .sort((a, b) => a.z - b.z),
-    )
-  expect(stack.map(c => c.plane)).toEqual(['l2Low', 'l1Low', 'l2High', 'l1High'])
-  expect(new Set(stack.map(c => c.z)).size, 'four distinct levels').toBe(4)
+  // $105 is mode 0 (main BG1, BG3, OBJ; sub BG2) with the BG3 priority bit clear.
+  const stack = await zStack(page, 0x105)
+  // The sprites sit between L1's low plane and its priority plane (#564).
+  expect(stack.map(c => c.plane)).toEqual(['l2Low', 'l2High', 'l3Low', 'l3High', 'l1Low', 'sprites', 'l1High']) // prettier-ignore
+  expect(new Set(stack.map(c => c.z)).size, 'seven distinct levels').toBe(7)
   expect(stack[0].z).toBeGreaterThan(0)
+  // $0E7 is mode 8 (interactive layer 2): BG1, BG2 and BG3 all on the main screen, BG3 behind (bit clear).
+  await openMap(page, project.manifestPath, 0xe7)
+  expect(await zOrder(page, 0xe7)).toEqual([
+    'l3Low',
+    'l3High',
+    'l2Low',
+    'l1Low',
+    'l2High',
+    'sprites',
+    'l1High',
+  ])
+})
+
+/** The composite of every visible plane over the box that layer 3's own pixels fill on screen 0. */
+async function layer3Region(page, index, box) {
+  return page.evaluate(
+    ({ rootSel, box }) => {
+      const planes = planesOf(rootSel, 0)
+      if (!box) {
+        const l3 = [...document.querySelectorAll(`${rootSel} canvas[data-screen="0"][data-plane^="l3"]`)] // prettier-ignore
+        let [x0, y0, x1, y1] = [1e9, 1e9, -1, -1]
+        for (const c of l3) {
+          const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+          for (let i = 0; i < d.length; i += 4) {
+            if (d[i + 3] === 0) continue
+            const [x, y] = [(i / 4) % c.width, Math.floor(i / 4 / c.width)]
+            ;[x0, y0, x1, y1] = [Math.min(x0, x), Math.min(y0, y), Math.max(x1, x), Math.max(y1, y)]
+          }
+        }
+        box = { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 }
+      }
+      return { box, pixels: Array.from(composeCanvases(planes, box.x, box.y, box.w, box.h)) }
+    },
+    { rootSel: root(index), box },
+  )
+}
+
+const l3Toggle = (page, index) => page.locator(`${root(index)} [data-control="layer-l3"]`)
+
+/**
+ * Layer 3 (#561), on vanilla maps measured from the ROM: $002 is a tide with the header's BG3
+ * priority bit set (an overlay: its band is in l3High, drawn over layer 1, at the foot of every
+ * screen), $01F is a cage with the bit clear (a background: l3High under l1Low), $105 has no
+ * layer 3 ($009, an interactive layer 2 map, has its own tests below).
+ */
+for (const [index, role, bit, known] of [
+  // known: the top-left of layer 3's box on screen 0, and its first opaque pixel in raster order with
+  // that pixel's color (outline black), then a non-black pixel. $01F's is BG3 palette 3, its crusher
+  // color 15 (gold, the castle_crusher palette's last entry; without the crusher colors the same pixel is
+  // [255,90,90]), so a wrong palette fails.
+  // All measured from the backend's planes.
+  [
+    0x002,
+    'Layer 3 · Overlay',
+    true,
+    {
+      box: { x: 0, y: 384 },
+      pixel: { x: 15, y: 384 },
+      rgba: [0, 0, 0, 255],
+      color: { pixel: { x: 15, y: 385 }, rgba: [255, 255, 255, 255] },
+    },
+  ],
+  [
+    0x01f,
+    'Layer 3 · Background',
+    false,
+    {
+      box: { x: 56, y: 48 },
+      pixel: { x: 64, y: 48 },
+      rgba: [0, 0, 0, 255],
+      color: { pixel: { x: 80, y: 48 }, rgba: [222, 165, 57, 255] },
+    },
+  ],
+]) {
+  test(`$${index.toString(16).padStart(3, '0')}: the Layer 3 toggle (${role}) changes the layer 3 region's pixels and restores them`, async ({
+    page,
+  }) => {
+    const project = await createProject(page, path.join(tmp, 'MyHack'))
+    await openMap(page, project.manifestPath, index)
+    const button = l3Toggle(page, index)
+    await expect(button).toBeEnabled()
+    await expect(button).toHaveAttribute('aria-pressed', 'true')
+    await expect(button).toHaveAttribute('title', role)
+    // The bit places BG3's high plane: over layer 1 when set, under layer 1's low plane when clear.
+    const order = await zOrder(page, index)
+    const at = k => order.indexOf(k)
+    expect(at('l2High')).toBeLessThan(at('l3Low'))
+    expect(at('l3High') > at('l1High')).toBe(bit)
+    expect(at('l3High') < at('l1Low')).toBe(!bit)
+
+    const before = await layer3Region(page, index)
+    expect(before.box.w * before.box.h, 'layer 3 draws pixels on screen 0').toBeGreaterThan(0)
+    // A known layer 3 pixel: where the region starts, opaque in l3High; over layer 1 it is the shown color.
+    expect({ x: before.box.x, y: before.box.y }).toEqual(known.box)
+    const own = await page.locator(`${root(index)} canvas[data-screen="0"][data-plane="l3High"]`).evaluate((c, p) => Array.from(c.getContext('2d').getImageData(p.x, p.y, 1, 1).data), known.pixel) // prettier-ignore
+    expect(own, 'layer 3 pixel and color at the known position').toEqual(known.rgba)
+    const tinted = await page.locator(`${root(index)} canvas[data-screen="0"][data-plane="l3High"]`).evaluate((c, p) => Array.from(c.getContext('2d').getImageData(p.x, p.y, 1, 1).data), known.color.pixel) // prettier-ignore
+    expect(tinted, 'a non-black layer 3 pixel, from the right palette').toEqual(known.color.rgba)
+    if (bit) {
+      const at =
+        ((known.pixel.y - before.box.y) * before.box.w + (known.pixel.x - before.box.x)) * 4
+      expect(before.pixels.slice(at, at + 4), 'an overlay pixel shows its own color').toEqual(own)
+    }
+    await button.click()
+    await expect(button).toHaveAttribute('aria-pressed', 'false')
+    for (const plane of planeLocators(page, index, 0, ['l3Low', 'l3High']))
+      await expect(plane).toHaveCSS('visibility', 'hidden')
+    const hidden = await layer3Region(page, index, before.box)
+    const changed = hidden.pixels.filter((v, i) => v !== before.pixels[i]).length
+    expect(changed, 'hiding layer 3 changes the pixels it covered').toBeGreaterThan(0)
+    await button.click()
+    await expect(button).toHaveAttribute('aria-pressed', 'true')
+    const back = await layer3Region(page, index, before.box)
+    expect(back.pixels).toEqual(before.pixels)
+  })
+}
+
+/**
+ * The toggle look (option D): pressed is a filled chip with a 1px border, off has neither (a transparent
+ * 1px border, so the box does not move), and a mouse click leaves no focus ring while Tab shows one.
+ */
+test('a layer toggle is a chip when pressed, bare when off, and rings only for the keyboard', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  const button = page.locator(`${root(0x105)} [data-control="layer-l1"]`)
+  const look = () =>
+    button.evaluate(b => {
+      const cs = getComputedStyle(b)
+      const r = b.getBoundingClientRect()
+      return { bg: cs.backgroundColor, border: [cs.borderTopWidth, cs.borderTopColor], outline: [cs.outlineStyle, cs.outlineWidth], ring: b.matches(':focus-visible'), size: [r.width, r.height] } // prettier-ignore
+    })
+  const clear = 'rgba(0, 0, 0, 0)'
+  const on = await look()
+  expect(on.bg, 'pressed has a fill').not.toBe(clear)
+  expect(on.bg, 'and it is not the old accent tint').not.toMatch(/^rgba\(91, 156, 246/)
+  expect(on.border[0]).toBe('1px')
+  expect(on.border[1], 'a visible border').not.toBe(clear)
+
+  await button.click() // a mouse click: off, no ring
+  await expect(button).toHaveAttribute('aria-pressed', 'false')
+  // The pointer is still over the button, so the hover fill applies: that is the designed hover.
+  expect((await look()).bg, 'off under the pointer shows the hover fill').not.toBe(clear)
+  await page.mouse.move(2, 2) // away from the button
+  await expect.poll(async () => (await look()).bg).toBe(clear)
+  const off = await look()
+  expect(off.bg, 'off has no fill').toBe(clear)
+  expect(off.border, 'off keeps a transparent 1px border').toEqual(['1px', clear])
+  expect(off.size, 'the box does not shift').toEqual(on.size)
+  expect(off.ring, 'a mouse click is not focus-visible').toBe(false)
+  expect(off.outline[0]).toBe('none')
+
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Shift+Tab') // back onto the button, from the keyboard
+  const keyed = await look()
+  expect(keyed.ring, 'keyboard focus is focus-visible').toBe(true)
+  expect(keyed.outline[0]).not.toBe('none')
+})
+
+/**
+ * Screen 0's first pixel where `want` holds, as [x, y], or null. `want` is an expression over the
+ * alphas of layer 1, layer 2 and layer 3 (each the larger of its low and high plane), e.g. `a3 && !a1`.
+ * Read from the plane canvases, the compositor's source.
+ */
+const findPixel = (page, index, want) =>
+  page.evaluate(
+    ({ rootSel, want }) => {
+      const cv = p =>
+        document.querySelector(`${rootSel} canvas[data-screen="0"][data-plane="${p}"]`)
+      const alphas = ps => {
+        const ds = ps.map(p => cv(p).getContext('2d').getImageData(0, 0, cv(p).width, cv(p).height).data) // prettier-ignore
+        return i => Math.max(...ds.map(d => d[i * 4 + 3]))
+      }
+      const [a1, a2, a3] = [['l1Low', 'l1High'], ['l2Low', 'l2High'], ['l3Low', 'l3High']].map(alphas) // prettier-ignore
+      const test = new Function('a1', 'a2', 'a3', `return (${want})`)
+      const { width, height } = cv('l1Low')
+      for (let i = 0; i < width * height; i++) {
+        if (test(a1(i), a2(i), a3(i))) return [i % width, Math.floor(i / width)]
+      }
+      return null
+    },
+    { rootSel: root(index), want },
+  )
+
+/** RGBA at a pixel of screen 0's composite (what the user sees) or of one plane. */
+const pixelOf = (page, index, which, [x, y]) =>
+  page.evaluate(
+    ({ rootSel, which, x, y }) => {
+      const sel = which === 'composite' ? 'canvas[data-layer="screen"][data-screen="0"]' : `canvas[data-screen="0"][data-plane="${which}"]` // prettier-ignore
+      const c = document.querySelector(`${rootSel} ${sel}`)
+      return Array.from(c.getContext('2d').getImageData(x, y, 1, 1).data)
+    },
+    { rootSel: root(index), which, x, y },
+  )
+
+/** The layer 3 plane (low or high) that has an opaque pixel here. */
+const l3Own = async (page, index, at) => {
+  const [low, high] = [await pixelOf(page, index, 'l3Low', at), await pixelOf(page, index, 'l3High', at)] // prettier-ignore
+  return low[3] !== 0 ? low : high
+}
+
+test('a map with no layer 3 disables the toggle and says why', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  const none = l3Toggle(page, 0x105)
+  await expect(none).toBeDisabled()
+  await expect(none).toHaveAttribute('title', 'This map has no layer 3')
+})
+
+/**
+ * $018 is mode 0E (BG3 alone on the main screen, BG1 and BG2 on the sub screen), where layer 3 would
+ * add onto layers 1 and 2. Its layer 3 is camera-locked (settings byte $81 on tileset 13, #563), so it
+ * is not drawn yet: this pins the gap. The add itself is covered by the synthetic mode 0E tests in
+ * ColorMath.test.ts, until #563 draws the layer and a pixel-level check can replace this one.
+ */
+test('$018: layer 3 is camera-locked, so its toggle is disabled and says so', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x018)
+  const locked = l3Toggle(page, 0x018)
+  await expect(locked).toBeDisabled()
+  await expect(locked).toHaveAttribute('aria-pressed', 'false')
+  await expect(locked).toHaveAttribute('title', 'Layer 3 not drawn yet: camera-locked layer 3')
+  // The plane lists still follow the mode: layers 1 and 2 on the sub screen, layer 3 alone on main,
+  // and the sprites just under layer 1's priority plane (#564).
+  expect(await zOrder(page, 0x018)).toEqual(['l2Low', 'l1Low', 'l2High', 'sprites', 'l1High', 'l3Low', 'l3High']) // prettier-ignore
+  // No layer 3 pixels at all.
+  expect(await findPixel(page, 0x018, 'a3 > 0')).toBeNull()
+  // A disabled toggle does nothing when forced: state and planes stay as they were.
+  await locked.click({ force: true })
+  await expect(locked).toHaveAttribute('aria-pressed', 'false')
+  expect(await findPixel(page, 0x018, 'a3 > 0')).toBeNull()
+  for (const plane of planeLocators(page, 0x018, 0, ['l2Low', 'l1Low', 'l2High', 'l1High']))
+    await expect(plane).toHaveCSS('visibility', 'visible')
+})
+
+/**
+ * The sprite layer (#564), drawn by the sprite interpreter (#585). $106 holds both kinds on vanilla:
+ * sprites the ROM's own INIT and MAIN draw (21 of 25) and ids the interpreter refuses (marked, with its
+ * reason). Its sprites sit past screen 0, so screen 1 is scrolled into view. $105 draws 31 of 34.
+ */
+const spriteToggle = (page, index) => page.locator(`${root(index)} [data-control="layer-sprites"]`)
+const spritePlane = (page, index, screen) =>
+  page.locator(`${root(index)} canvas[data-screen="${screen}"][data-plane="sprites"]`)
+const SPRITES_DRAWN = /^\d+:\d+$/
+
+test('the sprite toggle hides and restores the sprites, and changes what is on screen', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x106)
+  await showScreen(page, 0x106, 1)
+  const sprites = await expectLayerToggle(page, 0x106, 'layer-sprites', 'Sprites', 'S')
+  await expect(sprites).toBeEnabled()
+  await expect(spritePlane(page, 0x106, 1)).toHaveAttribute('data-drawn', SPRITES_DRAWN)
+  const strip = page.locator(`${root(0x106)} [data-control="map-scroller"]`)
+
+  const shown = await shownPixels(page, strip)
+  await sprites.click()
+  await expect(sprites).toHaveAttribute('aria-pressed', 'false')
+  for (const screen of [0, 1, 2])
+    await expect(spritePlane(page, 0x106, screen)).toHaveCSS('visibility', 'hidden')
+  // The terrain stays: the picture changed only by the sprites' pixels.
+  for (const plane of planeLocators(page, 0x106, 1))
+    await expect(plane).toHaveCSS('visibility', 'visible')
+  expect((await shownPixels(page, strip)).checksum).not.toBe(shown.checksum)
+  await sprites.click()
+  await expect(sprites).toHaveAttribute('aria-pressed', 'true')
+  await expect(spritePlane(page, 0x106, 1)).toHaveCSS('visibility', 'visible')
+  expect((await shownPixels(page, strip)).checksum).toBe(shown.checksum)
+})
+
+test('an interpreter-drawn sprite shows its own pixels where the service placed it; a miss shows a marker', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x106)
+  await showScreen(page, 0x106, 1)
+  await expect(spritePlane(page, 0x106, 1)).toHaveAttribute('data-drawn', SPRITES_DRAWN)
+  const reply = await page.evaluate(
+    mp => getSvc('Symbol(ProjectService)').mapSprites(mp, 0x106),
+    project.manifestPath,
+  )
+  expect(reply.status).toBe('ok')
+  expect(reply.sprites).toHaveLength(25)
+  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(21)
+  const inScreen1 = s => s.box.x0 >= 256 && s.box.x1 <= 512 && s.box.y0 >= 0 && s.box.y1 <= 432
+  // Measured on vanilla: the first $05 is at tile (27, 20), a 16 x 32 body whose top is above its anchor.
+  const koopa = reply.sprites.find(s => s.id === 5)
+  expect(koopa).toMatchObject({ x: 432, y: 320, status: 'drawn' })
+  expect(koopa.box).toEqual({ x0: 432, y0: 304, x1: 448, y1: 336 })
+  const marker = reply.sprites.find(s => s.status === 'placeholder' && inScreen1(s))
+  expect(marker, 'a marker inside screen 1').toBeTruthy()
+  // The interpreter's own words: sprite $DB is past the ROM's 201-entry pointer table.
+  expect(marker.reason).toMatch(/^refused: INIT: id \$db is past the 201-entry pointer table/)
+
+  const read = await page.evaluate(
+    ({ koopa, marker }) => {
+      const c = document.querySelector(
+        '[id="hackbench.map-view:262"] canvas[data-screen="1"][data-plane="sprites"]',
+      )
+      const ctx = c.getContext('2d')
+      const cut = s => {
+        const w = s.box.x1 - s.box.x0
+        const h = s.box.y1 - s.box.y0
+        const got = ctx.getImageData(s.box.x0 - 256, s.box.y0, w, h).data
+        const want = Uint8Array.from(atob(s.rgba), ch => ch.charCodeAt(0))
+        // Alpha and opaque colors only: a readback premultiplies translucent pixels.
+        let same = true
+        let opaque = 0
+        for (let i = 0; i < want.length; i += 4) {
+          if (got[i + 3] !== want[i + 3]) same = false
+          if (want[i + 3] !== 255) continue
+          opaque++
+          if (got[i] !== want[i] || got[i + 1] !== want[i + 1] || got[i + 2] !== want[i + 2])
+            same = false
+        }
+        return { same, opaque, corner: Array.from(got.slice(0, 4)), inBox: 0 }
+      }
+      const abs = ctx.getImageData(432 - 256, 304, 16, 32).data
+      let inBox = 0
+      for (let i = 3; i < abs.length; i += 4) if (abs[i] !== 0) inBox++
+      return { koopa: { ...cut(koopa), inBox }, marker: cut(marker) }
+    },
+    { koopa, marker },
+  )
+  expect(read.koopa.opaque, 'the interpreter drew pixels').toBeGreaterThan(0)
+  expect(read.koopa.inBox, 'canvas pixels inside the absolute box (432,304)-(448,336)').toBeGreaterThan(0) // prettier-ignore
+  expect(read.koopa.same, 'the canvas holds the served bitmap at its box').toBe(true)
+  expect(read.marker.same).toBe(true)
+  // The marker is 16 x 16 at the anchor, its frame the editor blue.
+  expect([marker.box.x1 - marker.box.x0, marker.box.y1 - marker.box.y0]).toEqual([16, 16])
+  expect(read.marker.corner).toEqual([90, 200, 255, 255])
+})
+
+test('$4F on $105 is served at its stream position plus the (8, -1) its INIT adds', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  const reply = await page.evaluate(
+    mp => getSvc('Symbol(ProjectService)').mapSprites(mp, 0x105),
+    project.manifestPath,
+  )
+  expect(reply.status).toBe('ok')
+  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(31)
+  // Stream positions (1808, 336), (2224, 320), (4544, 320): measured on vanilla, absolute.
+  const fours = reply.sprites.filter(s => s.id === 0x4f)
+  expect(fours.map(s => [s.x, s.y, s.status])).toEqual([
+    [1816, 335, 'drawn'],
+    [2232, 319, 'drawn'],
+    [4552, 319, 'drawn'],
+  ])
+})
+
+test('a sprite stream with no end marker shows its note on the map tab', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x106)
+  const note = page.locator(`${root(0x106)} [data-note="sprites"]`)
+  await expect(note).toHaveCount(0)
+  // Serve the same sprites with the truncation note, as a stream cut by the ROM's end would.
+  await page.evaluate(async () => {
+    const w = getSvc('ApplicationShell').getWidgetById('hackbench.map-view:262')
+    const real = w.projects
+    w.projects = {
+      mapDetails: (...a) => real.mapDetails(...a),
+      mapScreen: (...a) => real.mapScreen(...a),
+      mapPalaceIcons: (...a) => real.mapPalaceIcons(...a),
+      mapSprites: async (...a) => ({
+        ...(await real.mapSprites(...a)),
+        note: 'no end marker (test)',
+      }),
+    }
+    w.refresh()
+  })
+  await expect(note).toHaveText('no end marker (test)')
+  await expect(note).toBeVisible()
+})
+
+test('the sprite toggle is disabled with its reason on a map without sprites', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x108)
+  const sprites = spriteToggle(page, 0x108)
+  await expect(sprites).toBeDisabled()
+  await expect(sprites).toHaveAttribute('aria-pressed', 'false')
+  await expect(sprites).toHaveAttribute('title', 'Sprites · this map has none')
+})
+
+/**
+ * $009 is mode 2 (an interactive layer 2 map: BG1, BG2 and BG3 on the main screen) with BG3's priority
+ * bit clear, so layer 3 sits behind layers 1 and 2. Measured on vanilla, screen 0: 3492 pixels are layer
+ * 3 alone and 948 are layer 3 under layer 1.
+ */
+test('$009: layer 3 draws behind layers 1 and 2, and its toggle is enabled', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x009)
+  const button = l3Toggle(page, 0x009)
+  await expect(button).toBeEnabled()
+  await expect(button).toHaveAttribute('aria-pressed', 'true')
+  await expect(button).toHaveAttribute('title', 'Layer 3 · Background')
+
+  // Where layers 1 and 2 are empty, layer 3 is what shows.
+  const alone = await findPixel(page, 0x009, 'a3 > 0 && a1 === 0 && a2 === 0')
+  expect(alone, 'a pixel with layer 3 alone').not.toBeNull()
+  expect(await pixelOf(page, 0x009, 'composite', alone)).toEqual(await l3Own(page, 0x009, alone))
+
+  // Where layer 1 is over it, layer 1 shows, not layer 3.
+  const under = await findPixel(page, 0x009, 'a3 > 0 && a1 > 0 && a2 === 0')
+  expect(under, 'a pixel with layer 3 under layer 1').not.toBeNull()
+  const l1Own = (await pixelOf(page, 0x009, 'l1Low', under))[3] ? await pixelOf(page, 0x009, 'l1Low', under) : await pixelOf(page, 0x009, 'l1High', under) // prettier-ignore
+  const covered = await pixelOf(page, 0x009, 'composite', under)
+  expect(covered).toEqual(l1Own)
+  expect(covered).not.toEqual(await l3Own(page, 0x009, under))
+
+  // Layer 1 off: the layer 3 pixel returns where layer 1 covered it.
+  await page.locator(`${root(0x009)} [data-control="layer-l1"]`).click()
+  await expect
+    .poll(async () => pixelOf(page, 0x009, 'composite', under))
+    .toEqual(await l3Own(page, 0x009, under))
+})
+
+/**
+ * Layer 2's role follows the level mode's VerticalTable bit 7 (bank_00.asm:11736-11738), not whether the map
+ * has a layer 3: $009 and $0E7 (modes 2 and 8) are the interactive foreground; $105 (mode 0), $018 and $10E
+ * (mode 11, BG2 on the main screen but bit 7 clear) are background.
+ */
+test('the layer 2 tooltip names its role from the level mode', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  const expected = [
+    [0x009, 'Layer 2 · Foreground'],
+    [0x0e7, 'Layer 2 · Foreground'],
+    [0x105, 'Layer 2 · Background'],
+    [0x018, 'Layer 2 · Background'],
+    [0x10e, 'Layer 2 · Background'],
+  ]
+  for (const [index, title] of expected) {
+    await openMap(page, project.manifestPath, index)
+    await expect(page.locator(`${root(index)} [data-control="layer-l2"]`), `$${index.toString(16)}`).toHaveAttribute('title', title) // prettier-ignore
+  }
+})
+
+/**
+ * On a standard-layout map the compositor changes nothing: the main-screen backdrop is black (CGRAM color 0 is
+ * cleared, bank_00.asm:2046-2049), CGADSUB $24 minus BG3 lets only the backdrop add the sub screen (layer 2), and
+ * the back area is the fixed color, which only shows where nothing draws (transparent, so the back area layer
+ * shows). Layer 2 is therefore not tinted by the back area. The composite must equal the topmost plane pixel in the
+ * #561 order, on a sample spread over the whole screen. $002 is mode 0 with layer 3 drawn and the priority bit
+ * set, so BG3's high plane is in front of layer 1.
+ */
+test('a standard-layout map: the composite equals the plane stack', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x002)
+  const order = ['l2Low', 'l2High', 'l3Low', 'l1Low', 'sprites', 'l1High', 'l3High']
+  expect(await zOrder(page, 0x002)).toEqual(order)
+  // The sprites arrive after the planes; the composite repaints with them, so wait for them.
+  await expect(page.locator(`${root(0x002)} canvas[data-screen="0"][data-plane="sprites"]`)).toHaveAttribute('data-drawn', /^\d+:\d+$/) // prettier-ignore
+  const result = await page.evaluate(
+    ({ rootSel, order }) => {
+      const read = sel => {
+        const c = document.querySelector(`${rootSel} ${sel}`)
+        return c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+      }
+      const planes = order.map(p => read(`canvas[data-screen="0"][data-plane="${p}"]`))
+      const comp = read('canvas[data-layer="screen"][data-screen="0"]')
+      const pixels = comp.length / 4
+      const step = Math.floor(pixels / 200)
+      const bad = []
+      let opaque = 0
+      let sampled = 0
+      for (let i = 0; i < pixels; i += step) {
+        sampled++
+        const top = planes.filter(d => d[i * 4 + 3] !== 0).pop()
+        const got = Array.from(comp.slice(i * 4, i * 4 + 4))
+        if (!top) {
+          if (got[3] !== 0) bad.push({ i, got, want: 'transparent' })
+          continue
+        }
+        opaque++
+        const want = Array.from(top.slice(i * 4, i * 4 + 4))
+        if (got.join() !== want.join()) bad.push({ i, got, want })
+      }
+      return { bad: bad.slice(0, 5), sampled, opaque }
+    },
+    { rootSel: root(0x002), order },
+  )
+  expect(result.sampled).toBeGreaterThanOrEqual(200)
+  expect(result.opaque, 'the sample covers drawn pixels, not only empty ones').toBeGreaterThan(20)
+  expect(result.bad).toEqual([])
 })
 
 test('a map the ROM reads fully carries no layer note', async ({ page }) => {
@@ -659,7 +1203,7 @@ test('a map the ROM reads fully carries no layer note', async ({ page }) => {
  * row 13 (measured on vanilla); both are opaque at pixel (3, 211) of screen 0, both low priority.
  * Setting tile 349's top-left priority bit in the working copy moves that quadrant to l2High,
  * which BG mode 1 stacks over l1Low: the pixel shown must turn into L2's. The composite is read
- * from the canvases in their z-index order, so reordering MAP_PLANE_KEYS turns this red.
+ * from the composite canvas, which stacks the planes by the payload's lists, so reordering them turns this red.
  */
 test('an L2 priority tile draws over an L1 low tile, from a working-copy edit', async ({
   page,
@@ -672,7 +1216,8 @@ test('an L2 priority tile draws over an L1 low tile, from a working-copy edit', 
       ({ rootSel, spot }) => {
         const px = c => Array.from(c.getContext('2d').getImageData(spot.x, spot.y, 1, 1).data)
         const planes = planesOf(rootSel, 0)
-        const by = k => planes.find(c => c.dataset.plane === k)
+        // The source plane canvases; planesOf is the composite only.
+        const by = k => document.querySelector(`${rootSel} canvas[data-screen="0"][data-plane="${k}"]`) // prettier-ignore
         const shown = composeCanvases(planes, spot.x, spot.y, 1, 1)
         return { shown: Array.from(shown), l1Low: px(by('l1Low')), l2High: px(by('l2High')) }
       },
@@ -786,6 +1331,7 @@ test('a back-area color edit repaints the strip behind a hidden L1 and L2', asyn
     .not.toBe(drawnBefore)
   await page.locator(`${root(0x105)} [data-control="layer-l1"]`).click()
   await page.locator(`${root(0x105)} [data-control="layer-l2"]`).click()
+  await page.locator(`${root(0x105)} [data-control="layer-sprites"]`).click()
   const hidden = await shownPixels(
     page,
     page.locator(`${root(0x105)} [data-control="map-scroller"]`),
@@ -1437,3 +1983,491 @@ for (const next of [0x106, 0x109]) {
     await expect.poll(() => crossSlack(page, next)).toBeLessThan(1.5)
   })
 }
+
+/**
+ * The Maps grid (tile 1 px, sub-screen 3 px, screen 5 px; all device px). Lines are checked as
+ * PIXELS on the overlay canvas and against the real screen canvases' positions, never only
+ * against the data hook.
+ */
+const gridToggle = index => `${root(index)} [data-control="grid-toggle"]`
+const scrollerSel = index => `${root(index)} [data-control="map-scroller"]`
+
+/** Maximal runs of painted device pixels along a row (or column) from readGrid's hits. */
+const runs = hits => {
+  const out = []
+  for (const h of hits) {
+    const last = out[out.length - 1]
+    if (last && last.start + last.size === h) last.size++
+    else out.push({ start: h, size: 1 })
+  }
+  return out
+}
+
+async function showGrid(page, index) {
+  // Off must read as off without a hover (docs/ui-conventions.md, Toggle buttons).
+  await expect(page.locator(gridToggle(index))).toHaveClass(/hb-icon-btn-off/)
+  await page.locator(gridToggle(index)).click()
+  await expect(page.locator(gridToggle(index))).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator(gridToggle(index))).toHaveClass(/hb-icon-btn-on/)
+  await expect(page.locator(`${root(index)} .hb-grid-overlay`)).toBeVisible()
+}
+
+async function scrollMapTo(page, index, left, top) {
+  await page.locator(scrollerSel(index)).evaluate(
+    (el, [l, t]) => {
+      el.scrollLeft = l
+      el.scrollTop = t
+    },
+    [left, top],
+  )
+}
+
+test('the Maps grid toggle is labelled, off by default, and the command drives it', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  const toggle = page.locator(gridToggle(0x105))
+  expect(await readGrid(page, root(0x105))).toBeNull()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  await expect(toggle).toHaveAttribute('title', 'Show grid')
+  await expect(toggle.locator('.codicon-table')).toHaveCount(1)
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  await expect(toggle).toHaveAttribute('title', 'Hide grid')
+  await expect(toggle).toHaveAttribute('aria-label', 'Hide grid')
+  expect(await readGrid(page, root(0x105))).not.toBeNull()
+  await page.evaluate(() => getSvc('CommandRegistry').executeCommand('hackbench.maps.toggleGrid'))
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  expect(await readGrid(page, root(0x105))).toBeNull()
+})
+
+/** Expected weight of boundary `i` (tiles): a screen every `screen`, the half at `sub`. */
+const weightOf = (i, screen, sub) =>
+  i % screen === 0 ? 5 : sub !== undefined && i % screen === sub ? 3 : 1
+
+for (const [index, vertical] of [
+  [0x105, false],
+  [0x109, true],
+]) {
+  test(`$${index.toString(16)} (${vertical ? 'vertical' : 'horizontal'}): three weights at the expected boundaries, centred`, async ({
+    page,
+  }) => {
+    const project = await createProject(page, path.join(tmp, 'MyHack'))
+    await openMap(page, project.manifestPath, index)
+    await page.locator(`${root(index)} [data-control="zoom-actual"]`).click()
+    await expect.poll(() => zoomOf(page, index)).toBe(1)
+    await showGrid(page, index)
+    await gridSettled(page, index)
+    const g = await readGrid(page, root(index))
+    expect(g.cell).toBe(16) // zoom 1
+    // Vertical: x repeats every 32 columns with the half at 16; y every 16 rows.
+    // Horizontal: x every 16 columns; y every 27 rows with the half at row 16.
+    const xs = vertical ? [32, 16] : [16, undefined]
+    const ys = vertical ? [16, undefined] : [27, 16]
+    for (const l of g.xLines) expect(l.weight).toBe(weightOf(Math.round(l.pos / 16), ...xs))
+    for (const l of g.yLines) expect(l.weight).toBe(weightOf(Math.round(l.pos / 16), ...ys))
+    const half = (vertical ? g.xLines : g.yLines).filter(l => l.weight === 3)
+    expect(half.map(l => l.pos)).toContain(256)
+    expect(new Set([...g.xLines, ...g.yLines].map(l => l.weight))).toEqual(new Set([1, 3, 5]))
+    // Pixels: each vertical line paints exactly its weight, centred on its boundary pixel.
+    expect(runs(g.rowHits)).toEqual(g.xLines.map(l => ({ start: l.start, size: l.size })))
+    // The content's own left and right edges are clipped, so their centre is not the boundary.
+    const lastPos = Math.max(...g.xLines.map(l => l.pos))
+    for (const l of g.xLines.filter(l => l.weight > 1 && l.start > 0 && l.pos < lastPos))
+      expect(l.start + (l.size - 1) / 2).toBe(Math.round(l.pos * g.dpr))
+    // The sub-screen line sits at row 16 (horizontal) or column 16 (vertical) of the CONTENT:
+    // measured from the strip's own edge in the DOM, painted as a 3 px run on the canvas.
+    const off = await page.evaluate(sel => {
+      const o = document.querySelector(`${sel} .hb-grid-overlay`).getBoundingClientRect()
+      const t = document.querySelector(`${sel} .hb-map-view-strip`).getBoundingClientRect()
+      return { x: t.left - o.left, y: t.top - o.top }
+    }, root(index))
+    const axisOff = vertical ? off.x : off.y
+    const wantCentre = Math.round((axisOff + 16 * 16) * g.dpr)
+    const threes = runs(vertical ? g.rowHits : g.colHits).filter(r => r.size === 3)
+    // The strip's own edges are 5 px lines clipped to 3 px, so they look like 3 px runs too:
+    // only an interior run counts, and exactly one of those must be the half line.
+    const interior = threes.filter(r => r.start > 0 && r.start + r.size < (vertical ? g.canvasW : g.canvasH)) // prettier-ignore
+    const edge = Math.max(...(vertical ? g.xLines : g.yLines).map(l => l.pos)) * g.dpr
+    const inner = interior.filter(r => r.start + 1 < edge - 1)
+    expect(inner.length).toBe(1)
+    // Within 1 device px: the strip's box may sit on a fractional CSS offset.
+    expect(Math.abs(inner[0].start + 1 - wantCentre)).toBeLessThanOrEqual(1)
+  })
+}
+
+test('the grid canvas is viewport-sized, however wide the map and zoom', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await showGrid(page, 0x105)
+  // To the maximum: the button disables there (Fit may already start above 100%).
+  const zin = page.locator(`${root(0x105)} [data-control="zoom-in"]`)
+  for (let i = 0; i < 6 && (await zin.isEnabled()); i++) await zin.click()
+  await expect(zin).toBeDisabled()
+  await gridSettled(page, 0x105)
+  const m = await page.evaluate(sel => {
+    const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
+    const o = document.querySelector(`${sel} .hb-grid-overlay`)
+    const strip = s.querySelector('.hb-map-view-strip').getBoundingClientRect()
+    return {
+      cw: s.clientWidth,
+      ch: s.clientHeight,
+      ow: o.width,
+      oh: o.height,
+      dpr: Number(o.dataset.gridDpr),
+      stripW: strip.width,
+    }
+  }, root(0x105))
+  expect(m.ow).toBeLessThanOrEqual(Math.ceil(m.cw * m.dpr))
+  expect(m.oh).toBeLessThanOrEqual(Math.ceil(m.ch * m.dpr))
+  // The content really is much wider than what the canvas covers.
+  expect(m.stripW).toBeGreaterThan(m.cw * 3)
+})
+
+/**
+ * How far every grid line sits from its boundary in the CONTENT, in device px: each line's
+ * centre against the strip's own edge plus the line's content position. Lines clipped by the
+ * viewport edge are skipped (their centre is not the boundary). Tolerance at the call sites is
+ * 1.5 device px: one px of rounding in the overlay, half a px of fractional layout (Fit zoom).
+ */
+async function lineDeviation(page, index) {
+  return page.evaluate(sel => {
+    const o = document.querySelector(`${sel} .hb-grid-overlay`)
+    const strip = document.querySelector(`${sel} .hb-map-view-strip`).getBoundingClientRect()
+    const lines = JSON.parse(o.dataset.gridLines)
+    const dpr = Number(o.dataset.gridDpr)
+    const box = o.getBoundingClientRect()
+    const worst = { x: 0, y: 0 }
+    const seen = { x: new Set(), y: new Set() }
+    const check = (axis, l, edge, over, cap) => {
+      if (l.start <= 0 || l.start + l.size >= cap) return
+      const want = (edge + l.pos - over) * dpr + 0.5
+      worst[axis] = Math.max(worst[axis], Math.abs(l.start + l.size / 2 - want))
+      seen[axis].add(l.weight)
+    }
+    for (const l of lines.x) check('x', l, strip.left, box.left, o.width)
+    for (const l of lines.y) check('y', l, strip.top, box.top, o.height)
+    return { worst, x: [...seen.x], y: [...seen.y], cellPx: Number(o.dataset.gridCellPx), w: o.width, h: o.height } // prettier-ignore
+  }, root(index))
+}
+
+const TOL = 1.5
+
+/**
+ * Waits until the overlay's drawn lines sit on the strip's boundaries for the CURRENT scroll, zoom
+ * and size (the same deviation the alignment tests assert), instead of a fixed pause: the pixel
+ * samples that follow are only meaningful once the overlay has caught up with the layout.
+ */
+async function gridSettled(page, index) {
+  await expect
+    .poll(async () => {
+      const d = await lineDeviation(page, index)
+      return Math.max(d.worst.x, d.worst.y)
+    })
+    .toBeLessThanOrEqual(TOL)
+  // The metadata is written at render; the canvas is painted after the commit. Wait for the
+  // PIXELS to be exactly the lines the metadata lists, or a sample can read the previous paint.
+  await expect.poll(() => gridPixelsMatchLines(page, index)).toBe(true)
+}
+
+/**
+ * Whether the overlay canvas's painted pixels are exactly its metadata's lines: along one row
+ * that crosses no horizontal line, the painted columns equal the vertical lines covering that row;
+ * along one column that crosses no vertical line, the painted rows equal the horizontal lines.
+ */
+const gridPixelsMatchLines = (page, index) =>
+  page.evaluate(sel => {
+    const o = document.querySelector(`${sel} .hb-grid-overlay`)
+    if (!o || o.width === 0 || o.height === 0) return false
+    const lines = JSON.parse(o.dataset.gridLines)
+    // No expected lines would match an empty canvas: that is "not drawn yet", not "settled".
+    if (lines.x.length === 0 || lines.y.length === 0) return false
+    const W = o.width
+    const H = o.height
+    const data = o.getContext('2d').getImageData(0, 0, W, H).data
+    const painted = (x, y) => data[(y * W + x) * 4 + 3] > 0
+    const covers = (ls, v) => ls.some(l => v >= l.start && v < l.start + l.size)
+    const row = Array.from({ length: H }, (_, y) => y).find(y => !covers(lines.y, y))
+    const col = Array.from({ length: W }, (_, x) => x).find(x => !covers(lines.x, x))
+    if (row === undefined || col === undefined) return false
+    const want = (ls, v, n) =>
+      Array.from({ length: n }, (_, i) => i).filter(i => ls.some(l => i >= l.start && i < l.start + l.size && v >= l.from && v < l.to)) // prettier-ignore
+    const got = (n, at) => Array.from({ length: n }, (_, i) => i).filter(at)
+    const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i])
+    return (
+      same(
+        got(W, x => painted(x, row)),
+        want(lines.x, row, W),
+      ) &&
+      same(
+        got(H, y => painted(col, y)),
+        want(lines.y, col, H),
+      )
+    )
+  }, root(index))
+
+test('gridPixelsMatchLines is true when painted, false when cleared, and false for zero lines', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await showGrid(page, 0x105)
+  await gridSettled(page, 0x105)
+  expect(await gridPixelsMatchLines(page, 0x105)).toBe(true)
+  const overlay = fn => page.evaluate(fn, root(0x105))
+  await overlay(sel => {
+    const o = document.querySelector(`${sel} .hb-grid-overlay`)
+    o.getContext('2d').clearRect(0, 0, o.width, o.height)
+  })
+  // Metadata untouched, canvas blank: the oracle must see the difference.
+  expect(await gridPixelsMatchLines(page, 0x105)).toBe(false)
+  // Zero lines listed and nothing painted must not read as settled.
+  await overlay(sel => {
+    document.querySelector(`${sel} .hb-grid-overlay`).dataset.gridLines = '{"x":[],"y":[]}'
+  })
+  expect(await gridPixelsMatchLines(page, 0x105)).toBe(false)
+})
+
+// Assumptions: $105 is horizontal and 10+ screens wide, so at Fit (height-fitted) and at 200% it
+// scrolls sideways; $109 is vertical and several screens tall, so it scrolls down. Both are
+// asserted below (maxScroll > 0) rather than trusted.
+const scrollMax = (page, index, axis) =>
+  page.locator(scrollerSel(index)).evaluate((s, a) => (a === 'x' ? s.scrollWidth - s.clientWidth : s.scrollHeight - s.clientHeight), axis) // prettier-ignore
+
+for (const [index, axis] of [
+  [0x105, 'x'],
+  [0x109, 'y'],
+]) {
+  for (const mode of ['actual', 'fit']) {
+    test(`$${index.toString(16)}: every grid line, sub-screen line included, stays on its boundary while scrolling, at ${mode} zoom`, async ({
+      page,
+    }) => {
+      const project = await createProject(page, path.join(tmp, 'MyHack'))
+      await openMap(page, project.manifestPath, index)
+      await page.locator(`${root(index)} [data-control="zoom-${mode}"]`).click()
+      // Settled, not slept: Actual is zoom 1; Fit shows its pressed state once it has taken effect.
+      if (mode === 'actual') await expect.poll(() => zoomOf(page, index)).toBe(1)
+      else await expect(page.locator(`${root(index)} [data-control="zoom-fit"]`)).toHaveAttribute('aria-pressed', 'true') // prettier-ignore
+      await expect.poll(() => scrollMax(page, index, axis)).toBeGreaterThan(0)
+      const max = await scrollMax(page, index, axis)
+      expect(max).toBeGreaterThan(0)
+      // Toggled ON while scrolled: the first paint must already be right.
+      await scrollMapTo(page, index, axis === 'x' ? Math.floor(max * 0.4) : 0, axis === 'y' ? Math.floor(max * 0.4) : 0) // prettier-ignore
+      await showGrid(page, index)
+      for (const at of [0.4, 0.8, 0.15]) {
+        await scrollMapTo(page, index, axis === 'x' ? Math.floor(max * at) : 0, axis === 'y' ? Math.floor(max * at) : 0) // prettier-ignore
+        await expect
+          .poll(async () => {
+            const d = await lineDeviation(page, index)
+            return Math.max(d.worst.x, d.worst.y)
+          })
+          .toBeLessThanOrEqual(TOL)
+        const d = await lineDeviation(page, index)
+        // Sub-screen (3) and screen (5) lines are among those checked, on the axis that has them.
+        expect(d[axis === 'x' ? 'x' : 'y']).toContain(5)
+        const halfAxis = axis === 'x' ? 'y' : 'x' // rows split horizontal maps, columns vertical ones
+        if (mode === 'actual') expect(d[halfAxis]).toContain(3)
+      }
+    })
+  }
+}
+
+test('the grid stays aligned after Ctrl + wheel zoom and after a resize', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await page.locator(`${root(0x105)} [data-control="zoom-actual"]`).click()
+  await showGrid(page, 0x105)
+  const before = (await lineDeviation(page, 0x105)).cellPx
+  const box = await page.locator(scrollerSel(0x105)).boundingBox()
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.keyboard.down('Control')
+  await page.mouse.wheel(0, -120)
+  await page.keyboard.up('Control')
+  await expect.poll(async () => (await lineDeviation(page, 0x105)).cellPx).toBeGreaterThan(before)
+  await expect
+    .poll(async () => {
+      const d = await lineDeviation(page, 0x105)
+      return Math.max(d.worst.x, d.worst.y)
+    })
+    .toBeLessThanOrEqual(TOL)
+  const size = page.viewportSize()
+  const clientBefore = await page.locator(scrollerSel(0x105)).evaluate(s => s.clientWidth)
+  await page.setViewportSize({ width: Math.floor(size.width * 0.7), height: Math.floor(size.height * 0.8) }) // prettier-ignore
+  // Until the scroller has shrunk AND the overlay has followed it to the pixel.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        ([sel, was]) => {
+          const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
+          const o = document.querySelector(`${sel} .hb-grid-overlay`)
+          return s.clientWidth < was && parseFloat(o.style.width) === s.clientWidth && parseFloat(o.style.height) === s.clientHeight // prettier-ignore
+        },
+        [root(0x105), clientBefore],
+      ),
+    )
+    .toBe(true)
+  const d = await page.evaluate(sel => {
+    const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
+    const o = document.querySelector(`${sel} .hb-grid-overlay`)
+    return { cw: s.clientWidth, ch: s.clientHeight, ow: parseFloat(o.style.width), oh: parseFloat(o.style.height) } // prettier-ignore
+  }, root(0x105))
+  expect(d.ow).toBe(d.cw)
+  expect(d.oh).toBe(d.ch)
+  await expect
+    .poll(async () => {
+      const dev = await lineDeviation(page, 0x105)
+      return Math.max(dev.worst.x, dev.worst.y)
+    })
+    .toBeLessThanOrEqual(TOL)
+  await page.setViewportSize(size)
+})
+
+/**
+ * The overlay must be ABOVE the level planes (the composite canvas, z-index 100, over the source planes, 1..7): a stacking bug draws it under them,
+ * where it shows only through clear pixels and every data-hook and canvas check still passes. So
+ * compare COMPOSITED screen pixels, grid on against grid off, at thin vertical lines over opaque
+ * terrain: the line pixels must change, their neighbours must not. Decoded numerically in the page.
+ */
+test('the grid is composited above opaque level content', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await page.locator(`${root(0x105)} [data-control="zoom-actual"]`).click()
+  await expect.poll(() => zoomOf(page, 0x105)).toBe(1)
+  await showGrid(page, 0x105)
+  await gridSettled(page, 0x105)
+  const probe = await page.evaluate(sel => {
+    const o = document.querySelector(`${sel} .hb-grid-overlay`)
+    const dpr = Number(o.dataset.gridDpr)
+    const lines = JSON.parse(o.dataset.gridLines)
+    const r = o.getBoundingClientRect()
+    const c = document.querySelector(`${sel} canvas[data-screen="0"][data-plane="l1Low"]`)
+    const cr = c.getBoundingClientRect()
+    const alpha = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+    const pts = []
+    // Thin vertical lines inside screen 0 only, at rows where L1 is fully opaque both on the line and beside it.
+    for (const l of lines.x.filter(l => l.weight === 1 && l.pos > 0 && l.pos < c.width)) {
+      for (let y = 0; y < c.height && pts.length < 60; y += 7) {
+        const a = x => alpha[(y * c.width + x) * 4 + 3]
+        if (a(l.pos) === 255 && a(l.pos + 2) === 255) pts.push({ x: l.pos, y })
+      }
+    }
+    return { pts, left: cr.left, top: cr.top, ox: r.left, oy: r.top, dpr }
+  }, root(0x105))
+  expect(probe.dpr).toBe(1)
+  expect(probe.pts.length).toBeGreaterThan(10)
+  const clip = await page.evaluate(sel => {
+    const r = document.querySelector(`${sel} .hb-grid-overlay`).getBoundingClientRect()
+    return { x: Math.ceil(r.left), y: Math.ceil(r.top), width: Math.floor(r.width) - 1, height: Math.floor(r.height) - 1 } // prettier-ignore
+  }, root(0x105))
+  const shot = async () => {
+    await page.mouse.move(0, 0)
+    return (await page.screenshot({ clip })).toString('base64')
+  }
+  const on = await shot()
+  await page.locator(gridToggle(0x105)).click()
+  await expect(page.locator(`${root(0x105)} .hb-grid-overlay`)).toHaveCount(0)
+  const off = await shot()
+  const r = await page.evaluate(
+    async ({ on, off, pts, left, top, clip }) => {
+      const read = async b64 => {
+        const img = new Image()
+        img.src = `data:image/png;base64,${b64}`
+        await img.decode()
+        const c = document.createElement('canvas')
+        c.width = img.width
+        c.height = img.height
+        const ctx = c.getContext('2d')
+        ctx.drawImage(img, 0, 0)
+        return ctx.getImageData(0, 0, c.width, c.height)
+      }
+      const [a, b] = [await read(on), await read(off)]
+      const at = (d, x, y) => Array.from(d.data.slice((y * d.width + x) * 4, (y * d.width + x) * 4 + 3)) // prettier-ignore
+      let lineChanged = 0
+      let besideSame = 0
+      for (const p of pts) {
+        const x = Math.round(left + p.x - clip.x)
+        const y = Math.round(top + p.y - clip.y)
+        if (at(a, x, y).join() !== at(b, x, y).join()) lineChanged++
+        if (at(a, x + 2, y).join() === at(b, x + 2, y).join()) besideSame++
+      }
+      return { lineChanged, besideSame, n: pts.length }
+    },
+    { on, off, pts: probe.pts, left: probe.left, top: probe.top, clip },
+  )
+  // 90%: a few tiles animate between the two screenshots.
+  expect(r.lineChanged).toBeGreaterThanOrEqual(r.n * 0.9)
+  expect(r.besideSame).toBeGreaterThanOrEqual(r.n * 0.9)
+})
+
+/**
+ * The grid must also sit above the SPRITE layer (#564), which stacks between L1's low and
+ * priority planes: a grid under the sprites shows through clear pixels only, so the opaque-terrain
+ * check above passes. $106's first $05 sits at content (432, 304) to (448, 336), and the tile lines
+ * x = 432 and y = 320 cross it. Pixels where that sprite is opaque must change when the grid is on.
+ */
+test('the grid is composited above the sprite layer', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x106)
+  await page.locator(`${root(0x106)} [data-control="zoom-actual"]`).click()
+  await expect.poll(() => zoomOf(page, 0x106)).toBe(1)
+  await showScreen(page, 0x106, 1)
+  await expect(spritePlane(page, 0x106, 1)).toHaveAttribute('data-drawn', SPRITES_DRAWN)
+  await showGrid(page, 0x106)
+  await page.mouse.move(0, 0)
+  // The koopa's rows are 304..336: bring them to the middle of the scroller, not just the screen's top.
+  await page.evaluate(sel => {
+    const sc = document.querySelector(`${sel} [data-control="map-scroller"]`)
+    sc.scrollTop = Math.max(0, 320 - sc.clientHeight / 2)
+  }, root(0x106))
+  await gridSettled(page, 0x106)
+  const probe = await page.evaluate(sel => {
+    const c = document.querySelector(`${sel} canvas[data-screen="1"][data-plane="sprites"]`)
+    const cr = c.getBoundingClientRect()
+    const zoom = cr.width / c.width
+    const a = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+    const pts = []
+    for (let y = 304; y < 336; y++) {
+      for (let x = 432; x < 448; x++) {
+        // Opaque sprite pixels exactly on a grid line.
+        if ((x === 432 || y === 320) && a[(y * c.width + (x - 256)) * 4 + 3] === 255) {
+          const p = [Math.round(cr.left + (x - 256) * zoom), Math.round(cr.top + y * zoom)]
+          const sr = document.querySelector(`${sel} [data-control="map-scroller"]`).getBoundingClientRect() // prettier-ignore
+          if (p[0] > sr.left && p[0] < sr.right && p[1] > sr.top && p[1] < sr.bottom) pts.push(p)
+        }
+      }
+    }
+    const o = document.querySelector(`${sel} .hb-grid-overlay`)
+    return { pts, zoom, dpr: Number(o.dataset.gridDpr), w: innerWidth, h: innerHeight }
+  }, root(0x106))
+  expect([probe.zoom, probe.dpr]).toEqual([1, 1])
+  // Not vacuous: enough opaque sprite pixels lie on the lines.
+  expect(probe.pts.length).toBeGreaterThan(8)
+  const shot = async () =>
+    (await page.screenshot({ clip: { x: 0, y: 0, width: probe.w, height: probe.h } })).toString('base64') // prettier-ignore
+  const on = await shot()
+  await page.locator(gridToggle(0x106)).click()
+  await expect(page.locator(`${root(0x106)} .hb-grid-overlay`)).toHaveCount(0)
+  const off = await shot()
+  const changed = await page.evaluate(
+    async ({ on, off, pts }) => {
+      const read = async b64 => {
+        const img = new Image()
+        img.src = `data:image/png;base64,${b64}`
+        await img.decode()
+        const c = document.createElement('canvas')
+        c.width = img.width
+        c.height = img.height
+        const ctx = c.getContext('2d')
+        ctx.drawImage(img, 0, 0)
+        return ctx.getImageData(0, 0, c.width, c.height)
+      }
+      const [a, b] = [await read(on), await read(off)]
+      const px = (d, [x, y]) => Array.from(d.data.slice((y * d.width + x) * 4, (y * d.width + x) * 4 + 3)).join() // prettier-ignore
+      return pts.filter(p => px(a, p) !== px(b, p)).length
+    },
+    { on, off, pts: probe.pts },
+  )
+  // 80%: a sprite can animate between the two screenshots.
+  expect(changed).toBeGreaterThanOrEqual(probe.pts.length * 0.8)
+})

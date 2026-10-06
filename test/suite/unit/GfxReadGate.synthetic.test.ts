@@ -7,7 +7,13 @@
 import { describe, it, expect } from 'vitest'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { RomFile } from '../../../src/rom/RomFile'
-import { readGfxFile, loadVram, getLayer3GfxRange, inferGfxBpp } from '../../../src/rom/GfxLoader'
+import {
+  readGfxFile,
+  loadVram,
+  getLayer3GfxRange,
+  inferGfxBpp,
+  readL3Chars,
+} from '../../../src/rom/GfxLoader'
 import { GFX_FILE_COUNT } from '../../../src/rom/GfxArena'
 import { STOCK_LCLZ2_ENTRY } from '../../../src/rom/GfxDecompressor'
 import { GfxTable } from '../../../src/rom/GfxTable'
@@ -80,6 +86,18 @@ describe('readGfxFile', () => {
     expect(readGfxFile(rom, 0).ok).toBe(false)
     rom.writeAt(DECOMP_ENTRY, [...STOCK_LCLZ2_ENTRY])
     expect(readGfxFile(rom, 0).ok).toBe(true)
+  })
+})
+
+describe('readL3Chars', () => {
+  it('returns the sheets of the range on a readable cart, and null when a file cannot load though the range reads', () => {
+    const cart = buildCart().rom
+    const r = getLayer3GfxRange(cart)!
+    expect(readL3Chars(cart)).toHaveLength(r.end - r.start + 1)
+    const hooked = replacedCart() // CODE_00A993 intact, so the range reads; every file load fails
+    expect(getLayer3GfxRange(hooked)).toEqual(r)
+    expect(readL3Chars(hooked)).toBeNull()
+    expect(readL3Chars(buildCart({ l3Routine: null }).rom)).toBeNull()
   })
 })
 

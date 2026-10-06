@@ -18,6 +18,8 @@ import type * as Map16Mod from '../../../src/rom/Map16'
 import type * as GfxMod from '../../../src/rom/GfxLoader'
 import type * as AnimMod from '../../../src/rom/AnimationLoader'
 import type * as StockMod from '../../../src/rom/PaletteStockTables'
+import type * as L3GateMod from '../../../src/rom/L3CodeGate'
+import * as L3GateReal from '../../../src/rom/L3CodeGate'
 import type * as ExMod from '../../../src/rom/ExAnimationLoader'
 import * as Map16Real from '../../../src/rom/Map16'
 import * as GfxReal from '../../../src/rom/GfxLoader'
@@ -133,6 +135,10 @@ vi.mock('../../../src/rom/PaletteStockTables', async importOriginal => {
   const real = await importOriginal<typeof StockMod>()
   return { ...real, readLevelCol1: vi.fn(real.readLevelCol1) }
 })
+vi.mock('../../../src/rom/L3CodeGate', async importOriginal => {
+  const real = await importOriginal<typeof L3GateMod>()
+  return { ...real, readCrusherColors: vi.fn(real.readCrusherColors) }
+})
 vi.mock('../../../src/rom/ExAnimationLoader', async importOriginal => {
   const real = await importOriginal<typeof ExMod>()
   return { ...real, loadExAnimData: vi.fn(real.loadExAnimData) }
@@ -150,6 +156,7 @@ afterEach(() => {
     AnimReal.loadAnimationDataOrReason,
     StockReal.readLevelCol1,
     ExReal.loadExAnimData,
+    L3GateReal.readCrusherColors,
   ])
     vi.mocked(f).mockReset()
 })
@@ -327,20 +334,66 @@ describe('L1 priority planes (synthetic)', () => {
     expect(p.l1High).toBeNull()
   })
 
-  it('a hidden tile routes its screen door by its own priority, not the blank cell drawn', () => {
+  it('a hidden pipe variant ghosts its own art and routes by its own priority, not the base entry', () => {
     const i = inputs(hGrid(1), false, 1)
     const id = PIPE_VARIANT_TILE_START
-    // The Map16 entry is the hidden, high-priority tile; the cell draws a blank, low variant.
-    i.map16.tiles[id] = tile(
-      id,
-      [5, 5, 5, 5].map(c => prio(sub(c))),
-    )
-    for (const set of i.map16.pipeVariants) set[0] = tile(id, [sub(0), sub(0), sub(0), sub(0)])
-    i.switchArt = switchArtOf({ frameCount: 1, intervalMs: 100, frames: [[BLUE_SLOT, ONOFF_SLOT]] }, i.map16.tiles, VRAM, { colors: COLORS }) // prettier-ignore
+    // Base entry: blank, low, no switch char. Variant: hidden until blue, high priority.
+    i.map16.tiles[id] = tile(id, [sub(0), sub(0), sub(0), sub(0)])
+    for (const set of i.map16.pipeVariants)
+      set[0] = tile(
+        id,
+        [5, 5, 5, 5].map(c => prio(sub(c))),
+      )
+    const anim = { frameCount: 1, intervalMs: 100, frames: [[BLUE_SLOT, ONOFF_SLOT]] }
+    i.variantSwitchArt = i.map16.pipeVariants.map(set => switchArtOf(anim, set, VRAM, { colors: COLORS })) // prettier-ignore
     i.grid[0]![0] = id
     const p = drawL1Planes(i, 0)
     expect(px(p.l1High!, 256, 5, 1)).toEqual([7, 100, 200, 255])
     expect(p.l1Low).toBeNull()
+  })
+
+  it('a pipe variant set is chosen per screen: the ghost shows only on the screen that picks its set', () => {
+    const id = PIPE_VARIANT_TILE_START
+    const anim = { frameCount: 1, intervalMs: 100, frames: [[BLUE_SLOT, ONOFF_SLOT]] }
+    for (let k = 0; k < 4; k++) {
+      const i = inputs(hGrid(4), false, 4)
+      // Only set k's variant is hidden (char 5, blue); the other sets draw blank.
+      i.map16.pipeVariants = [0, 1, 2, 3].map(j => [tile(id, [5, 5, 5, 5].map(c => prio(sub(j === k ? c : 0))))]) // prettier-ignore
+      i.variantSwitchArt = i.map16.pipeVariants.map(set => switchArtOf(anim, set, VRAM, { colors: COLORS })) // prettier-ignore
+      for (let s = 0; s < 4; s++) i.grid[0]![s * 16] = id
+      for (let s = 0; s < 4; s++) {
+        // Strip counter s*16: bank_05.asm:119-124, (counter >> 3 & 6) >> 1, written out here.
+        const picked = (((s * 16) >> 3) & 6) >> 1
+        const p = drawL1Planes(i, s)
+        expect(p.l1High !== null, `set ${k} screen ${s}`).toBe(picked === k)
+      }
+    }
+  })
+
+  it('the tile after the pipe range draws its base ghost, not a variant lookup', () => {
+    const i = inputs(hGrid(1), false, 1)
+    const id = PIPE_VARIANT_TILE_START + PIPE_VARIANT_TILE_COUNT // $13B
+    i.map16.tiles[id] = tile(
+      id,
+      [5, 5, 5, 5].map(c => prio(sub(c))),
+    )
+    i.switchArt = switchArtOf({ frameCount: 1, intervalMs: 100, frames: [[BLUE_SLOT, ONOFF_SLOT]] }, i.map16.tiles, VRAM, { colors: COLORS }) // prettier-ignore
+    i.grid[0]![0] = id
+    expect(drawL1Planes(i, 0).l1High).not.toBeNull()
+  })
+
+  it('with no pipe variant table, $133 draws its base entry ghost', () => {
+    const i = inputs(hGrid(1), false, 1)
+    const id = PIPE_VARIANT_TILE_START
+    i.map16.pipeVariants = []
+    i.variantSwitchArt = []
+    i.map16.tiles[id] = tile(
+      id,
+      [5, 5, 5, 5].map(c => prio(sub(c))),
+    )
+    i.switchArt = switchArtOf({ frameCount: 1, intervalMs: 100, frames: [[BLUE_SLOT, ONOFF_SLOT]] }, i.map16.tiles, VRAM, { colors: COLORS }) // prettier-ignore
+    i.grid[0]![0] = id
+    expect(drawL1Planes(i, 0).l1High).not.toBeNull()
   })
 
   it('a hidden tile keeps its screen door in the plane it belongs to', () => {
@@ -569,6 +622,24 @@ function fakeRom(levelMode: number): SmwRom {
 }
 
 describe('buildL1Inputs (synthetic)', () => {
+  // The wiring itself: the build asks for the crusher colors of THIS map and tileset, and they land in CGRAM 12-15.
+  it('puts readCrusherColors for the map and its tileset into colors 12-15', () => {
+    const crusher: RgbaColor[] = [[1, 2, 3, 255], [4, 5, 6, 255], [7, 8, 9, 255], [10, 11, 12, 255]] // prettier-ignore
+    vi.mocked(GfxReal.gfxSource).mockReturnValueOnce({ ok: true } as never)
+    vi.mocked(Map16Real.map16TileCapacity).mockReturnValueOnce({} as never)
+    vi.mocked(StockReal.readLevelCol1).mockReturnValueOnce({ bg: 0, obj: 0 } as never)
+    vi.mocked(AnimReal.loadAnimationDataOrReason).mockReturnValueOnce({ ok: false, reason: 'stub' })
+    vi.mocked(ExReal.loadExAnimData).mockReturnValueOnce(null)
+    vi.mocked(Map16Real.loadMap16WithPipeVariants).mockReturnValueOnce({ tiles: [], pipeVariants: [] } as never) // prettier-ignore
+    vi.mocked(GfxReal.loadVram).mockReturnValueOnce({} as never)
+    vi.mocked(L3GateReal.readCrusherColors).mockReturnValueOnce(crusher)
+    const rom = fakeRom(0)
+    const r = buildL1Inputs(rom, 0x105, UNCLEARED)
+    if (!r.ok) throw new Error(r.reason)
+    expect(vi.mocked(L3GateReal.readCrusherColors)).toHaveBeenCalledWith(rom.rom, 0x105, 0)
+    expect(r.inputs.colors.slice(12, 16)).toEqual(crusher)
+  })
+
   it('passes the switch flags to expandMap', () => {
     const spy = vi.mocked(Expander.expandMap)
     spy.mockClear()
@@ -763,6 +834,17 @@ describe('assembleL1Inputs (synthetic)', () => {
     expect(r.colors).toEqual(withFrame0(COLORS))
   })
 
+  it('puts the crusher colors in CGRAM 12-15 after the palettes, before the palette frame, and only when read', () => {
+    const crusher: RgbaColor[] = [[1, 2, 3, 255], [4, 5, 6, 255], [7, 8, 9, 255], [10, 11, 12, 255]] // prettier-ignore
+    const base = assembleL1Inputs(readings()).colors
+    const got = assembleL1Inputs(readings({ crusher })).colors
+    expect(got.slice(12, 16)).toEqual(crusher)
+    expect(got.filter((c, i) => i < 12 || i > 15)).toEqual(base.filter((c, i) => i < 12 || i > 15))
+    expect(base.slice(12, 16)).not.toEqual(crusher)
+    const custom = { backAreaColor: [9, 8, 7, 255] as RgbaColor, rows: [], colors: COLORS }
+    expect(assembleL1Inputs(readings({ crusher, custom })).colors.slice(12, 16)).toEqual(crusher)
+  })
+
   it('applies palette frame 0 only when the routine was read, noting it otherwise', () => {
     expect(assembleL1Inputs(readings()).colors[0x21]).toEqual(bgr555ToRgba(0x03e0))
     const blind = assembleL1Inputs(readings({ paletteAnim: { context: 'level', available: false, targets: [], notes: ['hooked'] } as unknown as PaletteAnimContext })) // prettier-ignore
@@ -816,6 +898,32 @@ describe('assembleL1Inputs (synthetic)', () => {
     // Tile 5 is blank off; tile 6 is drawn both ways.
     expect(r.switchArt.get(5)!.off[3]).toBe(0)
     expect(r.switchArt.get(6)!.off[3]).toBe(255)
+  })
+
+  it('builds pipe variant switch art per set, not from the base entries', () => {
+    const blank = () => new Uint8Array(64)
+    const lit = () => new Uint8Array(64).fill(1)
+    const switched = { charBase: 0x10, tiles: [0, 1, 2, 3].map(blank), alt: { switch: 'blue' as const, tiles: [0, 1, 2, 3].map(lit) } } // prettier-ignore
+    const id = PIPE_VARIANT_TILE_START
+    const empty = () => tile(0, [sub(0), sub(0), sub(0), sub(0)])
+    const tiles = Array.from({ length: id + PIPE_VARIANT_TILE_COUNT }, (_, i) => ({ ...empty(), id: i })) // prettier-ignore
+    const sets = [0, 1, 2, 3].map(k =>
+      Array.from(
+        { length: PIPE_VARIANT_TILE_COUNT },
+        (_, j) =>
+        j === 0 && k === 2 ? tile(id, [sub(0x10), sub(0x11), sub(0x12), sub(0x13)]) : tile(id + j, [sub(0), sub(0), sub(0), sub(0)]), // prettier-ignore
+      ),
+    )
+    const r = assembleL1Inputs(
+      readings({
+        rawVram: { fg1: Array.from({ length: 0x20 }, blank) },
+        stockAnim: { ok: true, data: { frameCount: 1, intervalMs: 100, frames: [[switched]] } },
+        exAnim: null,
+        map16: { tiles, pipeVariants: sets },
+      }),
+    )
+    expect(r.switchArt.has(id)).toBe(false) // the base entry cites no switch char
+    expect(r.variantSwitchArt.map(m => m.has(id))).toEqual([false, false, true, false])
   })
 
   it('counts screens from the header, not the grid', () => {
@@ -945,7 +1053,8 @@ function wholeCellScreen(model: L1Inputs, screen: number): Uint8ClampedArray {
       const def = id === undefined ? undefined : cellDef(model, id, screen)
       if (!def) continue
       const cell = renderMap16Tile(def, model.vram, { colors: model.colors })
-      const art = model.switchArt.get(def.id)
+      // Independent of the model's art maps: one tile's art, from its own chars.
+      const art = model.anim && switchArtOf(model.anim, [def], model.vram, { colors: model.colors }).get(def.id) // prettier-ignore
       const ghost = art && ghostOf(cell, art.off, art.alts, c => c.rgba)
       if (ghost) overlayHidden(cell, 16, 0, 0, ghost)
       for (let py = 0; py < 16; py++)
@@ -968,9 +1077,7 @@ function referencePlanes(model: L1Inputs, screen: number, whole: Uint8ClampedArr
       const id = model.grid[y0 + y]?.[x0 + x]
       const def = id === undefined ? undefined : cellDef(model, id, screen)
       if (!def) continue
-      // A switch tile's screen door is its Map16 entry's art.
-      const owner = model.switchArt.has(def.id) ? (model.map16.tiles[def.id] ?? def) : def
-      const subs = [owner.tl, owner.tr, owner.bl, owner.br]
+      const subs = [def.tl, def.tr, def.bl, def.br]
       for (let q = 0; q < 4; q++) {
         const dest = subs[q]!.priority ? out.high : out.low
         for (let py = 0; py < 8; py++) {
@@ -1053,7 +1160,10 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
     ['109', 0, '52ebd71afcfbc0847f9309d31d01eae3754432e766b4412307202c25a1609010'],
   ])('map $%s screen %i draws the same pixels as the old tile path', (slot, screen, sha) => {
     const m = model(parseInt(slot, 16))
-    const buf = overBackArea(drawL1Screen({ ...m, switchArt: new Map() }, screen), m.backArea)
+    const buf = overBackArea(
+      drawL1Screen({ ...m, switchArt: new Map(), variantSwitchArt: [] }, screen),
+      m.backArea,
+    )
     expect(createHash('sha256').update(buf).digest('hex')).toBe(sha)
   })
 

@@ -15,10 +15,12 @@ import { openProject, Project, RomIdentity, romIdentity } from './Project'
 import { readRomBounded } from './BoundedRead'
 import { RomRegistry } from './RomRegistry'
 import { RomFile } from '../rom/RomFile'
+import { GfxCharEdit, GfxRefusal } from '../rom/GfxLayer'
 import { Layer, WorkingRom } from './WorkingRom'
 import {
   loadLayers,
   appendLayer,
+  isGfxCharEdit,
   popLayer,
   loadRedoLayers,
   pushRedoLayer,
@@ -341,7 +343,7 @@ export class WorkingRomRegistry {
     | { status: 'io-error'; reason: string } {
     const r = this.get(manifestPath)
     if (r.status !== 'ok') return r
-    const { working, project } = r
+    const { working } = r
 
     const layer: Layer = {
       id: `edit-${Date.now().toString(36)}-${Math.floor(Math.random() * 0xffff).toString(36)}`,
@@ -356,19 +358,81 @@ export class WorkingRomRegistry {
       return { status: 'stale', reason: (err as Error).message }
     }
 
+    const failed = this.persist(manifestPath, r, layer)
+    if (failed) return failed
+    return r
+  }
+
+  /**
+   * The disk half of an edit whose layer `append` has already put on the
+   * stack. `append` ended the redo future in memory; this does the same on
+   * disk BEFORE the write, so a failure leaves the two agreeing (a disk redo
+   * the working copy no longer knows about would come back on the next
+   * launch). On failure the layer is popped straight back off: an edit live
+   * in memory but never on disk would show as committed, then be gone on
+   * reopen.
+   */
+  private persist(
+    manifestPath: string,
+    r: Extract<WorkingRomResult, { status: 'ok' }>,
+    layer: Layer,
+  ): { status: 'io-error'; reason: string } | null {
     try {
-      // `append` has already ended the redo future in memory; this is the
-      // same decision on disk. Done BEFORE the write so a failure leaves the
-      // two agreeing - a disk redo the working copy no longer knows about
-      // would come back, applicable, on the next launch.
-      clearRedo(project.directory)
-      appendLayer(project.directory, layer)
+      clearRedo(r.project.directory)
+      appendLayer(r.project.directory, layer)
+      return null
     } catch (err) {
-      working.pop() // roll back: it never actually took effect
+      r.working.pop()
       this.stamps.delete(manifestPath)
       return { status: 'io-error', reason: (err as Error).message }
     }
+  }
 
+  /**
+   * Append ONE gfx layer holding `chars`: what the GFX view's Save sends.
+   * Same order as setWord (append validates, then clearRedo, then the disk
+   * write, popped back if the write fails). A GfxRefusal (the arena would
+   * overflow, a character the file lacks) comes back as `refused` with the
+   * stack untouched.
+   */
+  setGfx(
+    manifestPath: string,
+    chars: readonly GfxCharEdit[],
+  ):
+    | WorkingRomResult
+    | { status: 'refused'; reason: string; overage?: number }
+    | { status: 'io-error'; reason: string } {
+    const r = this.get(manifestPath)
+    if (r.status !== 'ok') return r
+    const { working } = r
+    if (chars.length === 0) return { status: 'refused', reason: 'There is nothing to save.' }
+    const bad = chars.findIndex(c => !isGfxCharEdit(c))
+    if (bad >= 0) {
+      return {
+        status: 'refused',
+        reason: `Character ${bad} is malformed: it needs a whole-number file and tile, and one or more pixels with whole-number x, y and value.`,
+      }
+    }
+    const n = chars.length
+    const layer: Layer = {
+      id: `gfx-${Date.now().toString(36)}-${Math.floor(Math.random() * 0xffff).toString(36)}`,
+      label: `paint ${n} ${n === 1 ? 'character' : 'characters'}`,
+      kind: 'gfx',
+      // Copied: the stack must not alias objects the caller may reuse.
+      chars: chars.map(c => ({
+        file: c.file,
+        tile: c.tile,
+        pixels: c.pixels.map(p => ({ x: p.x, y: p.y, value: p.value })),
+      })),
+    }
+    try {
+      working.append(layer)
+    } catch (err) {
+      const overage = err instanceof GfxRefusal ? err.overage : undefined
+      return { status: 'refused', reason: (err as Error).message, overage }
+    }
+    const failed = this.persist(manifestPath, r, layer)
+    if (failed) return failed
     return r
   }
 
@@ -491,7 +555,12 @@ function sameLayers(a: readonly Layer[], b: readonly Layer[]): boolean {
   const key = (l: Layer): string =>
     JSON.stringify(
       l.kind === 'gfx'
-        ? [l.id, l.label, l.kind, l.file, l.tile, l.pixels.map(p => [p.x, p.y, p.value])]
+        ? [
+            l.id,
+            l.label,
+            l.kind,
+            l.chars.map(c => [c.file, c.tile, c.pixels.map(p => [p.x, p.y, p.value])]),
+          ]
         : l.kind === 'unreadable'
           ? [l.id, l.label, l.kind, l.reason]
           : [l.id, l.label, l.ops],

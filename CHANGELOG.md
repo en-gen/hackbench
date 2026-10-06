@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The GFX view paints: pick a palette color, click or drag on a tile sheet, and the pixel changes
+  at once. Strokes can be undone and redone before Save; Save records them as one undoable op
+  layer (any number of 8x8 characters) and never writes the base ROM. Closing the view with
+  unsaved strokes asks first (#558). A gfx layer file now holds a `chars` list; the older
+  one-character form still reads.
+- The map view toolbar warns when the open level's mode is on an unverified list, which holds
+  mode 1E only (sprite layering not verified, #617). Rendering is unchanged (#618).
+- The map view composites the main and sub screens for every level mode, with SNES color math:
+  Layer 3 translucency, and halving and additive blends. Per mode, the main and sub screen
+  planes and CGADSUB come from the ROM's tables (`LevMainScrnTbl`, `LevSubScrnTbl`,
+  `LevCGADSUBtable`, bank_05.asm:485-499), and the fixed color from `CODE_00AE47`
+  (bank_00.asm:5867-5885). Layer 3 now draws on 22 vanilla slots, up from 8 (#598). The halving
+  rule is from snes9x and bsnes source reads (GitHub master, 2026-10-05), with no hardware run.
+- Level mode 0C renders from its own table entry, CGADSUB $70 (bank_05.asm:497, add and half), so
+  Layer 2 shows halved there where Layer 1 and Layer 3 are empty (#598). Derived from the table, not
+  a capture.
+- A reused map tab clears its composite canvas on open, so it no longer shows the previous map
+  while the next one loads (#604).
+- The map view has a grid toggle (table icon, "Show grid", off by default; command
+  `hackbench.maps.toggleGrid`): a thin line on every 16x16 tile, a medium one where a screen's
+  top and bottom halves meet (row 16; column 16 in vertical maps), a thick one on screen
+  boundaries. It draws only what is in view, so it stays crisp and cheap on long maps at any
+  zoom.
+- A grid toggle (table icon, "Show grid") in the Graphics and Map16 views draws a one-pixel
+  line around every 8x8 character or 16x16 tile, crisp at any zoom and display scale. Graphics
+  tabs share one switch; Map16 keeps its own. The Map16 selection and hover outlines draw above
+  it.
 - Map explorer lists Area 1..N under Overworld, each opening its own 256x224 tab drawn with that
   area's tileset and palette; the Overworld view is the hub only (#364).
 - Map view draws L2 (background) behind and in front of L1 in priority planes, with a

@@ -803,7 +803,7 @@ export class EmulatorWidget extends ReactWidget {
           </span>
           <span className="hb-toolbar-spacer" />
           <button
-            className={`hb-icon-btn${this.controllers.padsOpen ? ' hb-icon-btn-on' : ''}`}
+            className={`hb-icon-btn ${this.controllers.padsOpen ? 'hb-icon-btn-on' : 'hb-icon-btn-off'}`}
             title="Controllers"
             aria-label="Controllers"
             aria-pressed={this.controllers.padsOpen}

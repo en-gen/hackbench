@@ -41,6 +41,7 @@ import { bgr555ToRgba } from '../GraphicsDecoder'
 import { detectPaletteAnimation, type PaletteAnimContext } from '../PaletteAnimationDetect'
 import { findUnique, WILD, type BytePattern } from '../BytePattern'
 import { switchArtOf, type TileSwitchArt } from '../SwitchAlternates'
+import { readCrusherColors, withCrusher } from '../L3CodeGate'
 
 /**
  * LoadLevel's boss-mode exit, bank_05.asm:431-437: `LDA.W LevelModeSetting`
@@ -89,6 +90,8 @@ export interface L1Inputs {
   backArea: RgbaColor
   /** Each switch-following tile's pictures, from its own chars: what `ghostOf` draws faintly. */
   switchArt: Map<number, TileSwitchArt>
+  /** The same for each pipe variant set, parallel to `map16.pipeVariants`: a variant shares its base id (#494). */
+  variantSwitchArt: Map<number, TileSwitchArt>[]
 }
 
 export type L1InputsResult = { ok: true; inputs: L1Inputs } | { ok: false; reason: string }
@@ -108,6 +111,8 @@ export interface L1Readings {
   backAreas: RgbaColor[]
   col1: { bg: number; obj: number }
   paletteAnim: PaletteAnimContext
+  /** CGRAM 12-15 for a settings byte $80 level (CODE_00A007 copies them after LoadPalette); absent otherwise. */
+  crusher?: RgbaColor[] | null
   /** Why the expander drew an object from a port the interpreter could not check (#342). */
   unverified: string[]
 }
@@ -169,6 +174,7 @@ export function assembleL1Inputs(r: L1Readings): L1Inputs {
   const frameZero = frameZeroFrom(r.stockAnim, r.unreached, r.rawVram, r.exAnim)
   const vram = frameZero?.vram ?? r.rawVram
   const stored = levelColorsFrom(r)
+  if (r.crusher) stored.colors = withCrusher(stored.colors, r.crusher)
   const palette = applyPaletteFrame0(stored.colors, r.paletteAnim)
   const notes = [frameZero?.error, palette.note].filter(Boolean)
   const anim = frameZero?.animData
@@ -186,6 +192,9 @@ export function assembleL1Inputs(r: L1Readings): L1Inputs {
     colors: palette.colors,
     backArea: stored.backArea,
     switchArt: anim ? switchArtOf(anim, r.map16.tiles, vram, palette) : new Map(),
+    variantSwitchArt: r.map16.pipeVariants.map(set =>
+      anim ? switchArtOf(anim, set, vram, palette) : new Map(),
+    ),
   }
 }
 
@@ -232,6 +241,7 @@ export function buildL1Inputs(rom: SmwRom, index: number, flags: SwitchFlags): L
       backAreas: loadBackAreaColors(rom.rom),
       col1,
       paletteAnim: detectPaletteAnimation(rom.rom).level,
+      crusher: readCrusherColors(rom.rom, index, tileset),
       unverified,
     })
     return { ok: true, inputs }

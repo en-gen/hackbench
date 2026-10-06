@@ -61,13 +61,17 @@ Codicons, the same set the rest of the shell uses. One meaning per glyph.
 | `symbol-color`         | palettes                        |
 | `file-media`           | a GFX file                      |
 | `symbol-structure`     | a Map16 block table             |
-| `table`                | toggle the tile grid            |
+| `table`                | toggle the grid (GFX, Map16)    |
 | `play` / `debug-stop`  | start / stop animation playback |
 | `zoom-in` / `zoom-out` | step zoom                       |
 | `screen-full`          | fit to window (Maps)            |
 | `screen-normal`        | actual size, 100% (Maps)        |
 | `debug-pause`          | pause, leaving state intact     |
 | `refresh`              | discard and reload from source  |
+| `warning`              | toolbar warning (Maps)          |
+
+Use the toolbar warning for a short fact about the whole level that qualifies every pixel (an
+unverified level mode); use an `hb-map-view-note` layer note for a sentence about one layer or plane.
 
 **The glyph must agree with what the code does, and this has been got
 wrong in both directions.** In the Map16 view playback stops and resets,
@@ -111,10 +115,21 @@ Rules learned the hard way:
 
 ## Toggle buttons
 
-A toggle must show its state without a hover or a tooltip. Following the
-extension's convention, the pressed state is an ACCENT FOREGROUND on the
-glyph, plus a tinted fill and an inset outline, because a recolored 24px
-codicon on its own is easy to miss.
+A toggle must show its state without a hover or a tooltip. The house style
+is "option D" (owner-approved): PRESSED is a raised chip, a filled background
+with a 1px border and a bright glyph (dark theme: `#37373d`, `#4a4a50`,
+`#e0e0e0`; hover while pressed `#3e3e45`). OFF is a bare dim glyph (`#6e6e6e`
+equivalent) with no fill and a TRANSPARENT 1px border, so pressing never
+shifts the layout. It applies to every toggle family: `.hb-icon-btn-on` /
+`-off` (codicon and layer icons), `.hb-map16-toggle` (text toggles) and `.hb-pixel-button-on` (pixel art, which
+keeps full-color art in both states). The values are Theia tokens whose dark
+values match (fill `list.inactiveSelectionBackground`; border, hover and glyph
+mixed from `foreground`), so light follows the theme, and high contrast uses
+`contrastActiveBorder` for the border. Not an accent color: a blue glyph on a
+24px button competes with the focus ring.
+
+The focus ring is for the KEYBOARD only (`:focus-visible`): a mouse click
+leaves no outline, Tab shows one.
 
 Watch specificity. `.btn:hover:not(:disabled)` outranks a single `.btn-on`
 class, so without an explicit `-on:hover` rule the fill vanishes exactly
@@ -143,6 +158,11 @@ border box and take no layout space.
   top at paint time and never baked into the decoded pixels. Toggling one
   is a repaint, not a reload, and the bytes an export would use stay
   exactly what the ROM says.
+- The grid (GFX 8x8 characters, Map16 16x16 tiles) is the shared
+  `GridOverlay`: its own canvas at DEVICE resolution above the content, so
+  a line is one device pixel at any zoom and display scale. Selection and
+  hover outlines sit above it. The tooltip reads "Show grid" and, once on,
+  "Hide grid"; GFX shares one switch across its tabs, like zoom.
 - A hidden tile (blank until a switch is on, e.g. vanilla `$027-$02A`) is
   drawn with its switched-on art in a soft screen door, in color, never
   blank: a checkerboard on the tile's own pixel grid, full strength where
@@ -174,11 +194,12 @@ border box and take no layout space.
 
 ## Hover
 
-Map16 sheet (#570): the hovered tile gets a two-tone outline, a black
-outer ring and a white inner ring, both inside the tile's own bounds, drawn
-last so it also reads on the selected (accent) tile. Nothing outside the tile
-changes. Plain white was rejected because it vanishes on light tiles. The
-preview's edit-affordance dim (`HOVER_DIM`, `rgba(0,0,0,0.55)`) is a
+Map16 sheet (#573, was #570): the hovered tile gets a two-tone outline drawn
+as a DOM overlay above the canvas, never into the bitmap: a white line touching
+the tile and a black line outside it, 1 CSS px each at every zoom, so the whole
+tile stays visible and the outline is not clipped at the sheet edge (the strip's
+padding holds it). Plain white was rejected because it vanishes on light tiles.
+The preview's edit-affordance dim (`HOVER_DIM`, `rgba(0,0,0,0.55)`) is a
 separate thing and stays.
 
 ## Color tokens

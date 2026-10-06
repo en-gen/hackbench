@@ -13,6 +13,9 @@ This affects how the test suite is organized:
 
 - **CI runs only on content original to this project** - hand-crafted test
   vectors, pure-function assertions, synthetic inputs.
+- **Small vanilla tables are not committed either.** A test that needs vanilla
+  behaviour asserts the decoded result in a corpus-gated test (`describe.skipIf`)
+  and uses made-up tables everywhere else.
 - **Tests that need real ROM data are developer-local only.** They are
   either skipped automatically when no ROM is present, or depend on fixtures
   that live under `test/fixtures/` (gitignored).
@@ -103,6 +106,20 @@ resolves the corpus directory for both the Vitest suites (through
 
 When none exist it returns a path that does not, so `hasRom` reads false
 and the suites SKIP rather than throwing during collection.
+
+## SingleStepTests data (the 65816 core)
+
+`test/suite/unit/cpu/SingleStep.test.ts` runs `src/rom/cpu/Cpu65816.ts`
+against [SingleStepTests/65816](https://github.com/SingleStepTests/65816):
+512 files (`{op}.{n|e}.json`, 10,000 cases each), one `it` per file. The data
+is about 2.7 GB of data (3.2 GB as a git clone) and its license is unverified, so it is never vendored. Clone it to
+`<hackbench-tools>/singlestep65816/` or point `HACKBENCH_SINGLESTEP` at the
+clone (or its `v1` directory); without it every case skips. It checks
+registers, flags and memory; cycle and bus-line data are ignored. MVN/MVP
+files are cut by the data at 100 cycles, so the harness runs 14 byte moves
+and expects `pc + 2` (see `test/suite/support/singleStep.ts`). The synthetic
+`Cpu65816.test.ts` runs in CI and includes the planted-defect check that the
+harness goes red.
 
 ## Getting a ROM (locally)
 

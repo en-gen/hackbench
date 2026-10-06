@@ -1,5 +1,6 @@
 // Consumes: editorStore.cursorPx
 
+import { cycleColumn } from '../../../BlockContents'
 import type { Char } from '../../chars/Char'
 import type { CellBox, RenderTarget } from '../../RenderTarget'
 import { editorStore } from '../../stores/editorStore'
@@ -40,7 +41,7 @@ export type Tile25Item = 'key' | 'redCoin' | 'pBalloon' | 'paraKoopa'
 
 /** Pure per-column dispatch. Exported so tests / other tools can re-use it. */
 export function tile25ItemAt(col: number): Tile25Item {
-  switch (col & 3) {
+  switch (cycleColumn(0x125, col)!.index) {
     case 0:
       return 'key'
     case 1:

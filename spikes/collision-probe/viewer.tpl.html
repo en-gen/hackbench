@@ -1,0 +1,61 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Collision probe</title>
+<style>
+body{margin:0;padding:12px 20px 40px;background:#1e1e1e;color:#ccc;font:13px/1.4 -apple-system,"Segoe UI",system-ui,sans-serif}
+h1{font-size:15px;margin:0 0 4px}h2{font-size:13px;margin:22px 0 6px;color:#e7e7e7}.note{color:#9d9d9d;max-width:960px;margin:2px 0}
+.bar{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin:8px 0}label{cursor:pointer;user-select:none}
+.sw{display:inline-block;width:10px;height:10px;margin-right:4px;vertical-align:middle}
+#view{overflow:auto;border:1px solid #3c3c3c;max-height:70vh}#wrap{position:relative;transform-origin:0 0;image-rendering:pixelated}
+canvas,svg{position:absolute;left:0;top:0;image-rendering:pixelated}svg{pointer-events:none}
+svg .f,svg .c{stroke:#ffeb3b}svg .w{stroke:#d500f9}svg *{fill:none;stroke-width:2;vector-effect:non-scaling-stroke}
+svg .u{fill:url(#hatch);stroke:#ff9800;stroke-width:1}svg .d{stroke:#ff1744;stroke-width:1;stroke-dasharray:3 2}
+table{border-collapse:collapse;margin:4px 0}td,th{border:1px solid #3c3c3c;padding:2px 8px;text-align:left;vertical-align:top;font-size:12px}th{background:#252526}
+.id{display:inline-block;margin:1px 2px;padding:0 3px;border-radius:2px;background:#2d2d30;font-family:Consolas,monospace}.id.on{background:#0e639c;color:#fff}.id.p{outline:1px solid #ff9800}.id.x{background:#5a1d1d}
+code{font-family:Consolas,monospace}
+</style></head><body>
+<h1 id="title"></h1><div class="note" id="state"></div>
+<div class="bar">
+<label><input type="checkbox" id="tf" checked><span class="sw" style="background:#ffeb3b"></span>floors</label>
+<label><input type="checkbox" id="tc" checked><span class="sw" style="background:#ffeb3b"></span>ceilings</label>
+<label><input type="checkbox" id="tw" checked><span class="sw" style="background:#d500f9"></span>walls</label>
+<label><input type="checkbox" id="tu" checked><span class="sw" style="background:repeating-linear-gradient(45deg,#ff9800 0 2px,transparent 2px 4px)"></span>unknown</label>
+<label><input type="checkbox" id="td"><span class="sw" style="border:1px dashed #ff1744"></span>probe vs old classifier disagreements</label>
+<label>zoom <input type="range" id="z" min="1" max="6" step="0.5" value="2"> <span id="zv">2</span>x</label>
+</div>
+<div id="view"><div id="wrap"><canvas id="cv"></canvas><svg id="sv"><defs><pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="4" stroke="#ff9800" stroke-width="1" style="stroke-width:1"/></pattern></defs><g id="gf" class="f"></g><g id="gc" class="c"></g><g id="gw" class="w"></g><g id="gu"></g><g id="gd"></g></svg></div></div>
+<h2>Tile categories (all 512 Map16 ids, measured by the probe)</h2>
+<div class="note">Blue = on this map. Orange outline = result changes with the blue P-switch running. Red = disagrees with <code>TileFactory.classify</code>.</div>
+<table id="cats"><tr><th>category</th><th>ids</th></tr></table>
+<h2>Probe vs old classifier</h2><table id="dis"><tr><th>id</th><th>probe</th><th>old (TileFactory.classify)</th></tr></table>
+<h2>Game state the block code reads (WRAM read before written, over all runs; count of ids that read it)</h2><div class="note" id="inp"></div>
+<script>
+/*DATA*/
+const T = 16, H = D.grid.length, W = D.grid[0].length, $ = (i) => document.getElementById(i)
+$('title').textContent = `Collision probe: map ${D.map} ${D.mapName} (tileset ${D.tileset})`
+$('state').textContent = 'Assumed state: ' + D.state + '. Lines are what SMW\'s own Mario-vs-layer-1 code did on the 65816 core, not a hand port.'
+const cv = $('cv'), sv = $('sv'), wrap = $('wrap')
+cv.width = W * T; cv.height = H * T; sv.setAttribute('width', W * T); sv.setAttribute('height', H * T); sv.setAttribute('viewBox', `0 0 ${W * T} ${H * T}`)
+wrap.style.width = W * T + 'px'; wrap.style.height = H * T + 'px'
+const g = cv.getContext('2d'); g.fillStyle = D.bg; g.fillRect(0, 0, W * T, H * T)
+const imgs = {}; let pend = Object.keys(D.img).length
+for (const [id, src] of Object.entries(D.img)) { const i = new Image(); i.onload = () => { imgs[id] = i; if (--pend === 0) draw() }; i.src = src }
+function draw() { g.imageSmoothingEnabled = false; D.grid.forEach((row, y) => row.forEach((id, x) => { if (imgs[id]) g.drawImage(imgs[id], x * T, y * T) })) }
+const NS = 'http://www.w3.org/2000/svg'
+const el = (p, tag, a) => { const e = document.createElementNS(NS, tag); for (const k in a) e.setAttribute(k, a[k]); p.appendChild(e); return e }
+const pl = (p, pts) => el(p, 'polyline', { points: pts.map((v, i) => v + (i % 2 ? ' ' : ',')).join('').trim() })
+D.lines.floor.forEach((p) => pl($('gf'), p)); D.lines.ceiling.forEach((p) => pl($('gc'), p))
+D.lines.wall.forEach((p) => el($('gw'), 'line', { x1: p[0], y1: p[1], x2: p[2], y2: p[3] }))
+D.lines.unknown.forEach(([c, r]) => el($('gu'), 'rect', { class: 'u', x: c * T, y: r * T, width: T, height: T }))
+const bad = new Set(D.diffs.map((d) => d.id))
+D.grid.forEach((row, y) => row.forEach((id, x) => { if (bad.has(id)) el($('gd'), 'rect', { class: 'd', x: x * T + 1, y: y * T + 1, width: T - 2, height: T - 2 }) }))
+for (const [t, g2] of [['tf', 'gf'], ['tc', 'gc'], ['tw', 'gw'], ['tu', 'gu'], ['td', 'gd']]) { const f = () => ($(g2).style.display = $(t).checked ? '' : 'none'); $(t).onchange = f; f() }
+$('z').oninput = () => { wrap.style.transform = `scale(${$('z').value})`; $('zv').textContent = $('z').value; $('view').style.height = (H * T * $('z').value + 20) + 'px' }; $('z').oninput()
+const hx = (n, w = 3) => n.toString(16).padStart(w, '0')
+const byCat = {}; D.tiles.forEach((t) => (byCat[t.cat] ||= []).push(t))
+for (const [c, ts] of Object.entries(byCat)) {
+  const tr = el($('cats'), 'tr', {}); el(tr, 'td', {}).textContent = `${c} (${ts.length})`
+  const td = el(tr, 'td', {})
+  ts.forEach((t) => { const s = el(td, 'span', { class: 'id' + (t.onMap ? ' on' : '') + (t.pDiff ? ' p' : '') + (bad.has(t.id) ? ' x' : ''), title: t.unknown || (t.cat === 'slope' ? 'floor ' + t.floor.join(',') : '') }); s.textContent = '$' + hx(t.id) })
+}
+D.diffs.forEach((d) => { const tr = el($('dis'), 'tr', {}); el(tr, 'td', {}).textContent = '$' + hx(d.id); el(tr, 'td', {}).textContent = d.probe; el(tr, 'td', {}).textContent = d.old })
+$('inp').textContent = D.inputs.map((i) => `$${i.a.toString(16)}:${i.n}`).join('  ')
+</script></body></html>

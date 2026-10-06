@@ -97,10 +97,36 @@ export interface GfxSheetDto {
   height: number
   /** Which of the 16 CGRAM rows actually coloured this preview. */
   paletteRow: number
+  /** That row's colors, so the painter can draw a swatch per index the
+   *  depth can reach. Index 0 is transparent however the ROM colors it, the
+   *  same rule tilesToRgba applies. */
+  paletteColors: GfxColorDto[]
   paletteVariant: PaletteVariantDto
   /** RGBA8888 pixels, row-major, 16 tiles per row, base64-encoded. */
   rgbaBase64: string
 }
+
+/** An RGBA color, the same shape palette-protocol.ts uses. */
+export interface GfxColorDto {
+  r: number
+  g: number
+  b: number
+  a: number
+}
+
+/** One 8x8 character's changed pixels, as the painter's Save sends them.
+ *  Mirrors GfxCharEdit in src/rom/GfxLayer.ts. */
+export interface GfxCharEditDto {
+  file: number
+  tile: number
+  pixels: { x: number; y: number; value: number }[]
+}
+
+/** What Save did. `refused` leaves the project exactly as it was. */
+export type SaveGfxResult =
+  | { status: 'ok'; bytesChanged: number }
+  | { status: 'refused'; reason: string; overage?: number }
+  | { status: 'unavailable'; reason: string }
 
 /** One overworld layer: RGBA on a clear canvas, and a priority byte per `prioCell` block. */
 export interface OverworldLayerDto {
@@ -163,6 +189,14 @@ export interface GfxService {
     bpp?: GfxFormat,
     paletteRow?: number,
   ): Promise<GfxSheetDto>
+
+  /**
+   * Record `chars` as ONE gfx op layer (one undo step, however many
+   * characters), on the stack and on disk. The base ROM is never written.
+   * Refuses, changing nothing, when the arena cannot take it; `overage` is
+   * then the bytes past capacity.
+   */
+  saveGfx(manifestPath: string, chars: GfxCharEditDto[]): Promise<SaveGfxResult>
 
   /** The hub: half 0's L2 and L1 in area 0's tileset and palette (overworld-decode.ts). */
   overworld(manifestPath: string): Promise<OverworldDto>

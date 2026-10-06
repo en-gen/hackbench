@@ -12,8 +12,8 @@ export default [
       'build/**',
       'node_modules/**',
       '.gitnexus/**',
-      // Throwaway probe code, labelled as such in spike/FINDINGS.md.
-      'spike/**',
+      // Throwaway probe code, labelled as such in spikes/libretro-view-engine/FINDINGS.md.
+      'spikes/**',
       // Vendored stand-ins for native modules; kept byte-for-byte.
       'theia/no-native/**',
       // Emitted by Theia's own build, not authored here.

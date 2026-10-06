@@ -171,8 +171,37 @@ Project-level commands (`New Project...`, `Open Project...`, `Open Recent
 Project...`, `Project Properties...`, `Export Patch`) live on the same
 category and are reachable from the File menu.
 
+The map tab shows each screen as one composite canvas. The backend sends the
+six plane canvases per screen plus two plane lists (main and sub, bottom to
+top) and the CGADSUB and fixed color; the widget runs `composeScreen`
+(`src/rom/model/ColorMath.ts`) over them on every layer toggle, so layer 3 and
+the SNES color math draw on every non-Mode-7 level mode (#562). The plane
+canvases stay in the DOM as the compositor's source, never seen. Rules and
+evidence: `docs/rom/level-rendering.md`.
+
 Views follow the active Theia theme rather than pinning their own colors,
 which `theia/browser-app/test/load-maps.spec.cjs` asserts.
+
+### The map tab's sprite layer (#564)
+
+`ProjectService.mapSprites(manifestPath, index)` returns every
+sprite of a map as one RGBA bitmap in map pixels (`MapSpriteDto`: index, id,
+anchor, `box`, base64 `rgba`, `status` of `drawn` or `placeholder`, and the
+reason a marker is a marker: the interpreter's refusal (`refused: ...`), an
+empty run (`drew no OAM tile`), or `extraBits` / `charsNotLoaded`), plus the
+screen size and orientation. A drawn sprite may carry `unverified`: the level
+loader refused this ROM, so the sprite ran from a placement-only seed, not the
+level's state. The reply's `note` joins two caveats: the stream has no end
+marker in the bytes read (sprites past them are not drawn), and, once per map,
+that sprites were drawn unverified; the tab shows it.
+`node/map-sprites.ts` is the pure module behind it; `project-server.ts`
+reads the working copy through `WorkingRomRegistry`, as `mapScreen` does.
+It is a separate call from `mapScreen` because a sprite is not cut at screen
+edges: parts sit at the anchor plus the engine's `dx`/`dy`, negative and off
+the 16 px grid. The frontend cuts each bitmap per screen
+(`compositeSpriteScreen`, `browser/map-view-model.ts`) into one `sprites`
+canvas per screen, stacked just under L1's priority plane. The `S` toggle
+hides those canvases with `visibility: hidden`, as L1 and L2 do.
 
 ## The emulator view
 

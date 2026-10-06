@@ -265,7 +265,7 @@ export class EmulatorDriver {
           /* already exists */
         }
       }
-      // audio_enable must be true: spike/FINDINGS.md's "mandatory false" held
+      // audio_enable must be true: spikes/libretro-view-engine/FINDINGS.md's "mandatory false" held
       // only for its hidden, hand-pumped pane, where WebAudio never drained.
       // In this visible widget the core held 45-75fps with its context
       // running (emulator-view.spec.cjs, one machine, snes9x wasm build).

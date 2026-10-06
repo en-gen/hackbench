@@ -55,6 +55,7 @@
 const { test, expect } = require('@playwright/test')
 const { CART, shownWords } = require('./rom-words.cjs')
 const { expectCheckerboard } = require('./pixel-canvas.cjs')
+const { readGrid, shootCanvas, compositedGridDiff, samplePixels } = require('./grid-probe.cjs')
 const { parseRgbTriplet } = require('./palette-color.cjs')
 const fs = require('fs')
 const path = require('path')
@@ -1613,24 +1614,166 @@ test('changing tileset/palettes/zoom/grid/playing preserves the selection and th
   await page.locator(ctl('play-toggle')).click()
 })
 
+/** Where the hook should put each vertical line, recomputed from the cell. */
+function expectedStarts(cell, count, dpr, extentDev) {
+  return Array.from({ length: count }, (_, i) =>
+    Math.min(Math.round(i * cell * dpr), extentDev - 1),
+  )
+}
+
+/** Natural-px height of one page of tiles, before the gap band. */
+const PAGE_HEIGHT_PX = (TILES_PER_PAGE / TILES_PER_ROW) * TILE_PX
+
 /**
- * Grid is a pure overlay (paintCanvas's own doc comment): toggling it
- * repaints the SAME decoded pixels with lines on top, then the identical
- * pixels again with them removed - never a re-decode, never a residue.
+ * Grid is a pure overlay: its own canvas above the strip, so toggling never
+ * touches the decoded pixels, and its lines are cell * zoom apart (a tile is
+ * TILE_PX) with a 1 device px weight at every zoom, none across a page gap.
  */
-test('toggling grid draws an overlay and removes it cleanly', async ({ page }) => {
+test('the grid toggle draws 16px tile lines that track zoom, then removes them cleanly', async ({
+  page,
+}) => {
   await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
   await openMap16(page, 'fg')
+  const toggle = page.locator(ctl('grid-toggle'))
 
+  expect(await readGrid(page, FG)).toBeNull() // off by default
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  await expect(toggle).toHaveAttribute('title', 'Show grid')
   const before = await readCanvas(page)
-  await page.locator(ctl('grid-toggle')).click()
-  await page.waitForTimeout(150)
-  expect((await readCanvas(page)).checksum).not.toBe(before.checksum)
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  await expect(toggle).toHaveAttribute('title', 'Hide grid')
 
-  await page.locator(ctl('grid-toggle')).click()
-  await page.waitForTimeout(150)
+  const zooms = []
+  for (let step = 0; step < 2; step++) {
+    if (step > 0) await page.locator(ctl('zoom-in')).click()
+    await page.waitForTimeout(200)
+    const zoom = parseInt(await page.locator(ctl('zoom-indicator')).textContent(), 10) / 100
+    zooms.push(zoom)
+    const g = await readGrid(page, FG)
+    const cell = TILE_PX * zoom
+    expect(g.cell).toBe(cell)
+    // Both axes start at the content origin; a one-cell shift fails here.
+    expect(g.x[0]).toBe(0)
+    expect(g.y[0]).toBe(0)
+    expect(new Set(g.x.slice(1).map((v, i) => v - g.x[i]))).toEqual(new Set([cell]))
+    expect(g.x[g.x.length - 1]).toBe(TILES_PER_ROW * TILE_PX * zoom)
+    // Page 1 ends and the next starts a gap band later; no line falls in the band.
+    const bottom1 = PAGE_HEIGHT_PX * zoom
+    const top2 = (PAGE_HEIGHT_PX + PAGE_GAP_PX) * zoom
+    expect(g.y).toContain(bottom1)
+    expect(g.y).toContain(top2)
+    expect(g.y.filter(v => v > bottom1 && v < top2)).toEqual([])
+    expect(g.y.indexOf(top2) - g.y.indexOf(bottom1)).toBe(1)
+    // Within a page the step is a tile.
+    expect(g.y[1] - g.y[0]).toBe(cell)
+    // Constant 1 device px, painted on a vertical and a horizontal line, and on the LAST of each.
+    expect(new Set([...g.xLines, ...g.yLines].map(l => l.size))).toEqual(new Set([1]))
+    expect(g.vLine).toBeGreaterThan(0)
+    expect(g.vLast).toBeGreaterThan(0)
+    expect(g.hLine).toBeGreaterThan(0)
+    expect(g.hLast).toBeGreaterThan(0)
+    expect(g.mid).toBe(0)
+    // Horizontal lines run the full width; the strip's gap band stays unlined in pixels too.
+    expect(g.yLines.every(l => l.to - l.from === g.canvasW)).toBe(true)
+    expect(g.rowHits).toEqual(expectedStarts(cell, g.x.length, g.dpr, g.canvasW))
+    expect(g.colHits.some(v => v > bottom1 && v < top2)).toBe(false)
+  }
+  expect(zooms[1]).toBeGreaterThan(zooms[0])
+  expect((await readCanvas(page)).checksum).toBe(before.checksum)
+
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  expect(await readGrid(page, FG)).toBeNull()
   expect((await readCanvas(page)).checksum).toBe(before.checksum)
 })
+
+/**
+ * The outline boxes (#577) share the grid's positioned host and come after
+ * it in the DOM, so they stack above its lines. The pixel proof is the
+ * composited "cover the grid line" test below.
+ */
+test('the outline boxes sit above the grid overlay in the same stacking context', async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  await page.locator(ctl('grid-toggle')).click()
+  await clickTile(page, 0)
+  await page.waitForTimeout(300)
+  const probe = await page.evaluate(sel => {
+    const overlay = document.querySelector(`${sel} .hb-grid-overlay`)
+    const kids = [...overlay.parentElement.children]
+    const idx = c => kids.indexOf(overlay.parentElement.querySelector(c))
+    return {
+      hover: idx('.hb-map16-hover-outline') > kids.indexOf(overlay),
+      selection: idx('.hb-map16-selection-outline') > kids.indexOf(overlay),
+      zIndex: getComputedStyle(overlay).zIndex,
+    }
+  }, FG)
+  expect(probe).toEqual({ hover: true, selection: true, zIndex: 'auto' })
+})
+
+test('the Map16 and GFX grids are independent, and the commands drive each', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await page.locator('#hackbench\\.gfx-explorer .theia-TreeNode').nth(2).dblclick()
+  const GFX = '[id="hackbench.gfx-view:0"]'
+  await page.waitForSelector(`${GFX} .hb-gfx-view-canvas`, { timeout: 15000 })
+  await openMap16(page, 'fg')
+  const run = async id => {
+    await page.evaluate(i => getSvc('CommandRegistry').executeCommand(i), id)
+    await page.waitForTimeout(200)
+  }
+  const show = async id => {
+    await page.evaluate(async i => {
+      await getSvc('ApplicationShell').activateWidget(i)
+    }, id)
+    await page.waitForTimeout(300)
+  }
+  const gfxZoom = async () =>
+    parseInt(await page.locator(`${GFX} [data-control="zoom-indicator"]`).textContent(), 10) / 100
+
+  await run('hackbench.map16.toggleGrid')
+  expect(await readGrid(page, FG)).not.toBeNull()
+  await show('hackbench.gfx-view:0')
+  expect(await readGrid(page, GFX)).toBeNull()
+
+  await run('hackbench.gfx.toggleGrid')
+  expect((await readGrid(page, GFX)).cell).toBe(8 * (await gfxZoom()))
+  await show('hackbench.map16-view:fg')
+  expect(await readGrid(page, FG)).not.toBeNull() // not reset by the other view
+
+  await run('hackbench.map16.toggleGrid')
+  expect(await readGrid(page, FG)).toBeNull()
+  await show('hackbench.gfx-view:0')
+  expect(await readGrid(page, GFX)).not.toBeNull() // untouched by the Map16 toggle
+})
+
+/** HiDPI: one device pixel per line at fractional and doubled display scale. */
+for (const dpr of [1.5, 2]) {
+  test.describe(`at device pixel ratio ${dpr}`, () => {
+    test.use({ deviceScaleFactor: dpr })
+
+    test('every Map16 grid line is exactly one device pixel wide, on the right pixel', async ({
+      page,
+    }) => {
+      await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+      await openMap16(page, 'fg')
+      await page.locator(ctl('grid-toggle')).click()
+      await page.waitForTimeout(300)
+      expect(await page.evaluate(() => window.devicePixelRatio)).toBe(dpr)
+
+      const g = await readGrid(page, FG)
+      expect(g.dpr).toBe(dpr)
+      expect(g.canvasW).toBe(Math.round(g.cssW * dpr))
+      expect(g.rowHits).toEqual(expectedStarts(g.cell, g.x.length, dpr, g.canvasW))
+      expect(g.rowHits.every((v, i) => i === 0 || v - g.rowHits[i - 1] > 1)).toBe(true)
+      expect(g.colHits.every((v, i) => i === 0 || v - g.colHits[i - 1] > 1)).toBe(true)
+      // Each horizontal line is on its own rounded device row.
+      expect(g.colHits).toEqual([...new Set(g.yLines.map(l => l.start))].sort((a, b) => a - b))
+    })
+  })
+}
 
 test('the tile browser strip collapses and expands', async ({ page }) => {
   await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
@@ -2671,78 +2814,391 @@ test('a Map16 view waiting on a missing ROM repaints after Project Properties re
 })
 
 /**
- * #570: hovering a strip tile draws a two-tone outline INSIDE that tile (black
- * ring outside, white ring inside it) and changes no pixel anywhere else; the
- * old behaviour dimmed every other tile. Pixels are read from the canvas
- * itself at natural resolution, so the check does not depend on zoom.
+ * The painted colors, from a real screenshot, of `n` pixels running inward from
+ * the left edge of `locator`'s box at its mid height. Geometry plus
+ * toBeVisible() cannot see an opacity-0 or unpainted overlay (Playwright counts
+ * opacity 0 as visible); a screenshot can. The PNG is decoded in the page.
  */
-test('hovering a tile outlines it black-outside white-inside and leaves every other pixel alone', async ({
+async function leftEdgeColors(page, locator, n) {
+  const r = await locator.evaluate(el => {
+    const b = el.getBoundingClientRect()
+    return { x: b.left, y: b.top + b.height / 2 }
+  })
+  return rowColors(page, snap(r.x, 'overlay left edge'), snap(r.y, 'overlay mid height'), n)
+}
+
+/**
+ * The device pixel a laid-out CSS coordinate lands on. The strip's padding is
+ * fractional, so an edge may sit off the grid; rounding is only sound while it
+ * is not on a .5 tie (the strip's 1.2em padding lands at .47 today, which Chrome
+ * snaps down), which this asserts before the screenshot is trusted.
+ */
+function snap(v, what) {
+  expect(Math.abs(v - Math.round(v)), `${what} ${v} is on a pixel tie`).toBeLessThan(0.49)
+  return Math.round(v)
+}
+
+/** `n` painted pixels of the screenshot row at (x, y), as 'r,g,b'. */
+async function rowColors(page, x, y, n) {
+  expect(Number.isInteger(x) && Number.isInteger(y), `sample point ${x},${y} is whole pixels`).toBe(
+    true,
+  )
+  const png = await page.screenshot({ clip: { x, y, width: n, height: 1 } })
+  return page.evaluate(async b64 => {
+    const img = new Image()
+    img.src = `data:image/png;base64,${b64}`
+    await img.decode()
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = 1
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const d = ctx.getImageData(0, 0, img.width, 1).data
+    return Array.from(
+      { length: img.width },
+      (_, i) => `${d[i * 4]},${d[i * 4 + 1]},${d[i * 4 + 2]}`,
+    )
+  }, png.toString('base64'))
+}
+
+/**
+ * #573 (replaces #570's inside outline): hovering a strip tile shows a DOM
+ * overlay OUTSIDE the tile, white line touching it and black line outside
+ * that, 1 screen pixel each at every zoom, and never touches the bitmap.
+ * Geometry is read from the overlay against the tile's on-screen rect; the
+ * bitmap is read from canvas data. Corner tiles prove the outline is not
+ * clipped at the sheet edge.
+ */
+test('hovering a tile shows a two-tone overlay outside it and leaves the canvas bitmap untouched', async ({
   page,
 }) => {
   test.skip(!fs.existsSync(ROM), 'needs the vanilla corpus ROM')
   await loadGfxExplorer(page, path.join(tmp, 'HoverOutline'))
   await openMap16(page, 'fg')
-  const sheetPixels = () =>
-    page.evaluate(sel => {
-      const c = document.querySelector(`${sel} .hb-map16-canvas`)
-      return Array.from(c.getContext('2d').getImageData(0, 0, c.width, c.height).data)
-    }, FG)
-  const hoverTile = async id => {
+  const canvas = page.locator(`${FG} .hb-map16-canvas`)
+  const overlay = page.locator(`${FG} .hb-map16-hover-outline`)
+  const bitmap = () =>
+    canvas.evaluate(c => Array.from(c.getContext('2d').getImageData(0, 0, c.width, c.height).data))
+  const unhover = async () => {
+    await page.locator(`${FG} .hb-map16-browser-head`).hover()
+    await page.waitForTimeout(100)
+  }
+  const SELECTED = 0x30
+  await clickTile(page, SELECTED) // so the selection highlight is on screen
+  await unhover()
+  await expect(overlay).toBeHidden()
+
+  for (const zoomIns of [-1, 3]) {
+    const step = ctl(zoomIns < 0 ? 'zoom-out' : 'zoom-in')
+    for (let i = 0; i < Math.abs(zoomIns); i++) await page.locator(step).click()
+    const zoom = zoomIns < 0 ? 1 : 4
+    await expect(page.locator(ctl('zoom-indicator'))).toHaveText(`${zoom * 100}%`)
+    await unhover()
+    const base = await bitmap()
+
+    // Corners, an interior tile, and the tile next to the selection.
+    for (const id of [0, TILES_PER_ROW - 1, 0x55, SELECTED + 1, 511 - (TILES_PER_ROW - 1), 511]) {
+      const { x, y } = tileOrigin(id)
+      await canvas.hover({ position: { x: (x + TILE_PX / 2) * zoom, y: (y + TILE_PX / 2) * zoom } })
+      await expect(overlay).toBeVisible()
+      const g = await page.evaluate(
+        ({ sel, x, y, zoom, tilePx }) => {
+          const c = document.querySelector(`${sel} .hb-map16-canvas`)
+          const o = document.querySelector(`${sel} .hb-map16-hover-outline`)
+          // The strip's whole scrollable content, not just the part in view.
+          const w = c.parentElement
+          const wr = w.getBoundingClientRect()
+          const wrap = {
+            left: wr.left - w.scrollLeft,
+            top: wr.top - w.scrollTop,
+            right: wr.left - w.scrollLeft + w.scrollWidth,
+            bottom: wr.top - w.scrollTop + w.scrollHeight,
+          }
+          const cr = c.getBoundingClientRect()
+          const or = o.getBoundingClientRect()
+          const st = getComputedStyle(o)
+          return {
+            tile: { l: cr.left + x * zoom, t: cr.top + y * zoom, s: tilePx * zoom },
+            o: { l: or.left, t: or.top, w: or.width, h: or.height },
+            wrap: { l: wrap.left, t: wrap.top, r: wrap.right, b: wrap.bottom },
+            border: [st.borderTopWidth, st.borderTopColor, st.borderLeftWidth],
+            shadow: st.boxShadow,
+          }
+        },
+        { sel: FG, x, y, zoom, tilePx: TILE_PX },
+      )
+      const near = (a, b, what) =>
+        expect(Math.abs(a - b), `${what} (tile ${id}, ${zoom}x)`).toBeLessThanOrEqual(0.6)
+      // Black line 2px out, white line 1px out: the box is the tile grown by 2 each side.
+      near(g.o.l, g.tile.l - 2, 'left edge')
+      near(g.o.t, g.tile.t - 2, 'top edge')
+      near(g.o.w, g.tile.s + 4, 'width')
+      near(g.o.h, g.tile.s + 4, 'height')
+      expect(g.border).toEqual(['1px', 'rgb(0, 0, 0)', '1px'])
+      expect(g.shadow).toMatch(/rgb\(255, 255, 255\) 0px 0px 0px 1px inset/)
+      // Not clipped by the strip's scroll box at the sheet edge.
+      expect(g.o.l).toBeGreaterThanOrEqual(g.wrap.l - 0.6)
+      expect(g.o.t).toBeGreaterThanOrEqual(g.wrap.t - 0.6)
+      expect(g.o.l + g.o.w).toBeLessThanOrEqual(g.wrap.r + 0.6)
+      expect(g.o.t + g.o.h).toBeLessThanOrEqual(g.wrap.b + 0.6)
+      expect(await bitmap(), `hover on tile ${id} changed the bitmap`).toEqual(base)
+      // Painted, not just present: black line outside, white line against the tile.
+      if (id === 0x55) {
+        expect(await leftEdgeColors(page, overlay, 2), `hover paint at ${zoom}x`).toEqual([
+          '0,0,0',
+          '255,255,255',
+        ])
+      }
+    }
+    await unhover()
+    await expect(overlay).toBeHidden()
+    expect(await bitmap()).toEqual(base)
+  }
+})
+
+/**
+ * #573: the selection is an overlay too, never in the bitmap. Style A4 from
+ * the tile outward: 1px black, 2px #4fc1ff, 1px black, so the box is the tile
+ * grown by 4. Hovering a neighbor leaves both visible with the selection
+ * above; hovering the selected tile itself shows only the selection.
+ */
+test('the selection is a 1px black, 2px blue, 1px black overlay outside the tile, above any hover, and not in the bitmap', async ({
+  page,
+}) => {
+  test.skip(!fs.existsSync(ROM), 'needs the vanilla corpus ROM')
+  await loadGfxExplorer(page, path.join(tmp, 'SelectionOverlay'))
+  await openMap16(page, 'fg')
+  const canvas = page.locator(`${FG} .hb-map16-canvas`)
+  const sel = page.locator(`${FG} .hb-map16-selection-outline`)
+  const hov = page.locator(`${FG} .hb-map16-hover-outline`)
+  const bitmap = () =>
+    canvas.evaluate(c => Array.from(c.getContext('2d').getImageData(0, 0, c.width, c.height).data))
+  const unhover = async () => {
+    await page.locator(`${FG} .hb-map16-browser-head`).hover()
+    await page.waitForTimeout(100)
+  }
+  const at = (id, zoom) => {
     const { x, y } = tileOrigin(id)
+    return { position: { x: (x + TILE_PX / 2) * zoom, y: (y + TILE_PX / 2) * zoom } }
+  }
+  const box = (locator, tileId, zoom) =>
+    page.evaluate(
+      ({ selector, x, y, zoom, tilePx }) => {
+        const c = document.querySelector('[id="hackbench.map16-view:fg"] .hb-map16-canvas')
+        const o = document.querySelector(selector)
+        const w = c.parentElement
+        const wr = w.getBoundingClientRect()
+        const cr = c.getBoundingClientRect()
+        const or = o.getBoundingClientRect()
+        const st = getComputedStyle(o)
+        return {
+          dl: or.left - (cr.left + x * zoom),
+          dt: or.top - (cr.top + y * zoom),
+          w: or.width - tilePx * zoom,
+          h: or.height - tilePx * zoom,
+          inScroll:
+            or.left >= wr.left - w.scrollLeft - 0.6 &&
+            or.top >= wr.top - w.scrollTop - 0.6 &&
+            or.right <= wr.left - w.scrollLeft + w.scrollWidth + 0.6 &&
+            or.bottom <= wr.top - w.scrollTop + w.scrollHeight + 0.6,
+          border: [st.borderTopWidth, st.borderTopColor],
+          shadow: st.boxShadow,
+        }
+      },
+      { selector: locator, ...tileOrigin(tileId), zoom, tilePx: TILE_PX },
+    )
+  const near = (a, b, what) => expect(Math.abs(a - b), what).toBeLessThanOrEqual(0.6)
+
+  let reference
+  for (const zoomIns of [-1, 3]) {
+    const step = ctl(zoomIns < 0 ? 'zoom-out' : 'zoom-in')
+    for (let i = 0; i < Math.abs(zoomIns); i++) await page.locator(step).click()
+    const zoom = zoomIns < 0 ? 1 : 4
+    await expect(page.locator(ctl('zoom-indicator'))).toHaveText(`${zoom * 100}%`)
+
+    for (const id of [0x30, 0, 511]) {
+      await canvas.click(at(id, zoom))
+      await unhover()
+      await expect(sel).toBeVisible()
+      // Painted from outside in: black, 2px #4fc1ff, black.
+      if (id === 0x30) {
+        expect(await leftEdgeColors(page, sel, 4), `selection paint at ${zoom}x`).toEqual([
+          '0,0,0',
+          '79,193,255',
+          '79,193,255',
+          '0,0,0',
+        ])
+      }
+      const g = await box('.hb-map16-selection-outline', id, zoom)
+      const what = `selected ${id} at ${zoom}x`
+      near(g.dl, -4, `${what} left`)
+      near(g.dt, -4, `${what} top`)
+      near(g.w, 8, `${what} width`)
+      near(g.h, 8, `${what} height`)
+      expect(g.border, what).toEqual(['1px', 'rgb(0, 0, 0)'])
+      // Blue 2px over the inner black 1px, innermost first.
+      expect(g.shadow, what).toMatch(
+        /rgb\(79, 193, 255\) 0px 0px 0px 2px inset.*rgb\(0, 0, 0\) 0px 0px 0px 3px inset/,
+      )
+      expect(g.inScroll, `${what} clipped`).toBe(true)
+      // The bitmap holds no selection: every selection and zoom reads the same.
+      const px = await bitmap()
+      reference ??= px
+      expect(px, `${what} changed the bitmap`).toEqual(reference)
+    }
+
+    // Selected = 0x30, hovering its right neighbor 0x31. The selection's right
+    // rings and the hover's top lines (black, white) cross in the corner above
+    // 0x31's left edge. Read from the screenshot, not DOM order.
+    await canvas.click(at(0x30, zoom))
+    await canvas.hover(at(0x31, zoom))
+    await expect(hov).toBeVisible()
+    await expect(sel).toBeVisible()
+    const rects = await page.evaluate(
+      ([s, h]) => {
+        const sr = document.querySelector(s).getBoundingClientRect()
+        const hr = document.querySelector(h).getBoundingClientRect()
+        return { selRight: sr.right, selTop: sr.top, hovTop: hr.top }
+      },
+      ['.hb-map16-selection-outline', '.hb-map16-hover-outline'].map(c => `${FG} ${c}`),
+    )
+    // Geometry first, so a layout change reads as one, not as a color mismatch:
+    // the hover on the neighbor sits 2px below the selection's outer top.
+    near(rects.hovTop - rects.selTop, 2, `hover top vs selection top at ${zoom}x`)
+    const corner = {
+      x: snap(rects.selRight, 'selection right edge') - 4,
+      black: snap(rects.hovTop, 'hover top edge'),
+    }
+    // The corner is the selection's top-right 4x4, nested rings (outer black,
+    // 2 blue, inner black), so the rows read: hover-black row, [B,B,B,K] where
+    // K is black and B blue; hover-white row, [K,B,B,K]. Hover on top would
+    // read all black, then all white.
+    const K = '0,0,0'
+    const B = '79,193,255'
+    const want = [
+      [B, B, B, K],
+      [K, B, B, K],
+    ]
+    for (const dy of [0, 1]) {
+      expect(
+        await rowColors(page, corner.x, corner.black + dy, 4),
+        `z-order row ${dy} at ${zoom}x`,
+      ).toEqual(want[dy])
+    }
+    // Hovering the selected tile itself: only the selection.
+    await canvas.hover(at(0x30, zoom))
+    await expect(sel).toBeVisible()
+    await expect(hov).toBeHidden()
+    expect(await bitmap()).toEqual(reference)
+  }
+
+  // Collapsing and reopening the strip remounts the canvas and both boxes; the
+  // selection must be placed at once, with no further interaction.
+  const toggle = page.locator(ctl('browser-toggle'))
+  await toggle.click()
+  await expect(canvas).toHaveCount(0)
+  await toggle.click()
+  await expect(canvas).toBeVisible()
+  await expect(sel).toBeVisible()
+  const back = await box('.hb-map16-selection-outline', 0x30, 4)
+  near(back.dl, -4, 'reopened left')
+  near(back.dt, -4, 'reopened top')
+  near(back.w, 8, 'reopened width')
+})
+
+/**
+ * Composited, not painted: a grid canvas stacked below the strip draws every
+ * pixel the hook claims and shows none of them. Two real screenshots, grid off
+ * then on, compared numerically.
+ */
+test('the grid shows in a real screenshot: line pixels change, no other pixel does', async ({
+  page,
+}) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  await page.mouse.move(2, 2)
+  const sel = `${FG} .hb-map16-canvas`
+
+  const off = await shootCanvas(page, sel)
+  await page.locator(ctl('grid-toggle')).click()
+  await page.mouse.move(2, 2)
+  await page.waitForTimeout(300)
+  const grid = await readGrid(page, FG)
+  const on = await shootCanvas(page, sel)
+  const d = await compositedGridDiff(page, off, on, grid)
+
+  expect([d.bW, d.bH]).toEqual([d.W, d.H])
+  expect(d.lineTotal).toBeGreaterThan(100)
+  expect(d.lineChanged / d.lineTotal).toBeGreaterThan(0.95)
+  expect(d.otherChanged).toBe(0)
+})
+
+/**
+ * Outlines above the grid, on screen and independent of the theme. #577 draws
+ * the hover and selection boxes OUTSIDE the tile, so a tile's own left and
+ * top boundary lines lie inside it, uncovered, while its right and bottom
+ * boundary lines (the next tile's leading pixel) fall under the outline's
+ * innermost ring. The same region is shot with the grid off and on, hover and
+ * selection unchanged. With the outline on top, no pixel across the right and
+ * bottom edges differs between the two shots; a grid above it would change
+ * the line pixel. The canvas can sit at a fractional offset, so each window
+ * spans a few pixels either side of the edge. A control window across the
+ * tile's own left and top edges, which no outline covers, must differ, so the
+ * check cannot pass vacuously.
+ */
+test('selection and hover outlines cover the grid line they sit on', async ({ page }) => {
+  await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
+  await openMap16(page, 'fg')
+  const SELECTED = 0x13
+  const HOVERED = 0x31
+  await clickTile(page, SELECTED)
+  const h = tileOrigin(HOVERED)
+  const hoverIt = async () => {
     const mid = TILE_PX / 2
     await page
       .locator(`${FG} .hb-map16-canvas`)
-      .hover({ position: { x: (x + mid) * DEFAULT_ZOOM, y: (y + mid) * DEFAULT_ZOOM } })
-    await page.waitForTimeout(150)
+      .hover({ position: { x: (h.x + mid) * DEFAULT_ZOOM, y: (h.y + mid) * DEFAULT_ZOOM } })
+    await page.waitForTimeout(300)
   }
-  const unhover = async () => {
-    await page.locator(`${FG} .hb-map16-browser-head`).hover()
-    await page.waitForTimeout(150)
+  const sel = `${FG} .hb-map16-canvas`
+  await hoverIt()
+  const off = await shootCanvas(page, sel)
+  await page.locator(ctl('grid-toggle')).click() // moves the pointer: hover again
+  await hoverIt()
+  const on = await shootCanvas(page, sel)
+
+  const m = (TILE_PX / 2) * DEFAULT_ZOOM
+  const w = TILE_PX * DEFAULT_ZOOM
+  const span = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => from + i)
+  const edgeWindows = id => {
+    const o = tileOrigin(id)
+    const x0 = o.x * DEFAULT_ZOOM
+    const y0 = o.y * DEFAULT_ZOOM
+    return {
+      // Across the tile's right and bottom edges: the outline lies on the line.
+      own: [
+        ...span(w - 3, w + 4).map(d => [x0 + d, y0 + m]),
+        ...span(w - 3, w + 4).map(d => [x0 + m, y0 + d]),
+      ],
+      // Across the tile's left and top edges: a bare grid line inside the tile.
+      bare: [...span(-1, 2).map(d => [x0 + d, y0 + m]), ...span(-1, 2).map(d => [x0 + m, y0 + d])],
+    }
   }
-  /** Ring `r` of a tile: 0 is its outermost pixels. */
-  const inRing = (lx, ly, r) => Math.min(lx, ly, TILE_PX - 1 - lx, TILE_PX - 1 - ly) === r
-
-  const HOVERED = 0x55
-  const SELECTED = 0x30
-  await clickTile(page, SELECTED) // so the selected highlight is on screen
-  await unhover()
-  const base = await sheetPixels()
-  const width = await page.evaluate(
-    sel => document.querySelector(`${sel} .hb-map16-canvas`).width,
-    FG,
-  )
-
-  await hoverTile(HOVERED)
-  const hovered = await sheetPixels()
-  const o = tileOrigin(HOVERED)
-  // One failure list instead of an expect per pixel: this walks ~130k pixels.
-  const wrong = []
-  for (let i = 0; i < base.length; i += 4) {
-    const px = (i / 4) % width
-    const py = Math.floor(i / 4 / width)
-    const lx = px - o.x
-    const ly = py - o.y
-    const inside = lx >= 0 && ly >= 0 && lx < TILE_PX && ly < TILE_PX
-    const got = hovered.slice(i, i + 4).join(',')
-    let want = base.slice(i, i + 4).join(',')
-    if (inside && inRing(lx, ly, 0)) want = '0,0,0,255'
-    else if (inside && inRing(lx, ly, 1)) want = '255,255,255,255'
-    if (got !== want) wrong.push(`${px},${py} (tile ${lx},${ly}) got ${got} want ${want}`)
+  for (const [name, id] of [
+    ['selection', SELECTED],
+    ['hover', HOVERED],
+  ]) {
+    const { own, bare } = edgeWindows(id)
+    const [ownOff, ownOn, bareOff, bareOn] = [
+      await samplePixels(page, off, own),
+      await samplePixels(page, on, own),
+      await samplePixels(page, off, bare),
+      await samplePixels(page, on, bare),
+    ]
+    expect(ownOn, `${name} outline must hide the grid line under it`).toEqual(ownOff)
+    expect(
+      bareOn.some((v, i) => v !== bareOff[i]),
+      `${name}: the grid line inside the tile must be visible (control)`,
+    ).toBe(true)
   }
-  expect(wrong.slice(0, 5), `${wrong.length} pixels wrong`).toEqual([])
-
-  // Selected and hovered on one tile: the hover rings still read black/white,
-  // not the selection accent.
-  await hoverTile(SELECTED)
-  const both = await sheetPixels()
-  const so = tileOrigin(SELECTED)
-  const at = (lx, ly) => {
-    const i = ((so.y + ly) * width + so.x + lx) * 4
-    return both.slice(i, i + 4).join(',')
-  }
-  expect(at(0, 5)).toBe('0,0,0,255')
-  expect(at(1, 5)).toBe('255,255,255,255')
-
-  await unhover()
-  expect(await sheetPixels(), 'leaving must restore the unhovered grid exactly').toEqual(base)
 })

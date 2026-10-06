@@ -24,6 +24,7 @@ import {
 } from '../../../../src/project/WorkingRomRegistry'
 import { buildMapDetails } from './map-details'
 import { L1ModelCache, mapScreen, toolbarArtOf } from './map-screen'
+import { mapSprites } from './map-sprites'
 import { SWITCH_FLAGS_UNCLEARED } from '../../../../src/rom/ObjectExpander'
 import { exportPatch } from '../../../../src/project/ExportPatch'
 import { readRomBounded } from '../../../../src/project/BoundedRead'
@@ -48,6 +49,7 @@ import {
   LoadMapsResult,
   MapDetailsDto,
   MapScreenResult,
+  MapSpritesResult,
   PalaceIconsResult,
   PatchFormatDto,
   ProjectDto,
@@ -131,6 +133,13 @@ export class ProjectServiceImpl implements ProjectService {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
     return mapScreen(this.screens, r.working.bytes(), r.romPath, index, screen, switchFlags, switches) // prettier-ignore
+  }
+
+  async mapSprites(manifestPath: string, index: number): Promise<MapSpritesResult> {
+    const r = this.located(manifestPath)
+    if (r.status !== 'ok') return r
+    this.notifier.watch(manifestPath, r.working)
+    return mapSprites(this.screens, r.working.bytes(), r.romPath, index)
   }
 
   async mapPalaceIcons(manifestPath: string, index: number): Promise<PalaceIconsResult> {

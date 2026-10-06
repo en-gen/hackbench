@@ -145,7 +145,8 @@ In practice:
   as -1. Comparison thresholds are plain immediates.
 - The line is at ASSUMPTION, not at opcodes. **We are not building an
   emulator, but content we load for editing must be INTERPRETED, not assumed
-  from the ROM.** Running the ROM to see what happens is out of scope.
+  from the ROM.** Running the ROM to see what happens is out of scope outside
+  the two bounded exceptions below.
   Reading bytes - including opcodes - to determine what the ROM does with
   the content we are about to show the user is in scope and required.
 - Static control-flow reading is on the required side of that line. Walking
@@ -161,6 +162,14 @@ In practice:
   fixed opcode set, a named memory surface and step/write budgets, and
   refuses anything else with a reason. Do not extend it to other subsystems
   without a decision of the same kind.
+- Second bounded exception, for sprites (owner decision 2026-10-05, #582): a
+  sprite is drawn by executing its own INIT and MAIN from the ROM on the
+  concrete 65816 core (`src/rom/cpu`, #583). Seeds may be ROM-derived level
+  state (the ROM's own level loader run as code) and per-instance inputs (the
+  placed sprite's position, camera, Mario); no per-sprite seed tables. An
+  unknown entry shape is refused with a reason, and runs have step budgets (per
+  call and per sprite).
+  Captures and Mesen are an oracle only, never a runtime input.
 - A derivation that truly cannot be read must be NAMED as a hack-fragility
   point and paired with honest degradation: compare the handler against its
   vanilla bytes and DECLINE TO ASSERT when it diverges, rather than rendering

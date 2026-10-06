@@ -19,7 +19,7 @@ export interface RenderPass {
 
 const p = (layer: PassLayer, priority: number): RenderPass => ({ layer, priority })
 
-/** Back to front, BG3 priority bit SET. docs/snes-superfamicom-selected.md:501-514. */
+/** Back to front, BG3 priority bit SET. docs/rom/obj-priority.md section 1 (the front-to-back table, reversed here). */
 const BG3_PRI_SET: readonly RenderPass[] = [
   p('l3', 0),
   p('sprites', 0),
@@ -33,7 +33,7 @@ const BG3_PRI_SET: readonly RenderPass[] = [
   p('l3', 1),
 ]
 
-/** Back to front, bit CLEAR: BG3.1 drops to just under OBJ.0 (:516-518). */
+/** Back to front, bit CLEAR: BG3.1 drops to just under OBJ.0 (docs/rom/obj-priority.md section 1). */
 const BG3_PRI_CLEAR: readonly RenderPass[] = [
   p('l3', 0),
   p('sprites', 0),

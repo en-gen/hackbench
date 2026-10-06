@@ -33,6 +33,7 @@ import {
 } from '../../../../src/rom/Mode7Gfx'
 import {
   GFX_FORMATS,
+  GfxColorDto,
   GfxFormat,
   gfxFormatLabel,
   GfxFileDto,
@@ -205,7 +206,14 @@ export function decodeGfxSheet(
     width,
     height,
     paletteRow: rowIdx,
+    paletteColors: (row as RgbaColor[]).map(toColorDto),
     paletteVariant: { ...PALETTE_VARIANT },
     rgbaBase64: Buffer.from(rgba.buffer, rgba.byteOffset, rgba.byteLength).toString('base64'),
   }
+}
+
+/** Index 0 is transparent whatever the ROM puts there, matching what
+ *  tilesToRgba paints, so a swatch cannot offer a color the sheet will not show. */
+function toColorDto([r, g, b, a]: RgbaColor, index: number): GfxColorDto {
+  return { r, g, b, a: index === 0 ? 0 : a }
 }

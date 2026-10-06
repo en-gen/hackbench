@@ -6,6 +6,7 @@
  * contract both ends compile against.
  */
 import type { EditEvent } from '../../../../src/project/EditEvent'
+import type { ScreenPlanes } from '../../../../src/rom/model/ScreenPlanes'
 import type { Map16SwitchButtonImages, Map16SwitchKind } from './map16-protocol'
 
 /** Where the frontend reaches the backend. Must match the backend binding. */
@@ -197,6 +198,8 @@ export interface MapDetailsDto {
   spriteCount?: number
   /** Why `spriteCount` is absent. Set only when it is. */
   spriteUnavailable?: string
+  /** The header's level mode, for the unverified-mode warning (#618). */
+  levelMode?: number
   /** Decoded header fields, label and value, in header-byte order. */
   header?: Array<{ label: string; value: string }>
   /** Why the GFX files the tileset and sprite set name may not be what loads. */
@@ -216,12 +219,21 @@ export interface SwitchFlagsDto {
 }
 
 /**
- * The map's planes, bottom to top (the view's z-order): BG mode 1 stacks
- * BG1 high > BG2 high > BG1 low > BG2 low, each layer split by its subtiles'
- * priority bit (#459). L1 is BG1 (foreground), L2 BG2 (background).
+ * Every plane the wire can carry: a layer's pixels split by its subtiles' (or
+ * tiles') priority bit. L1 is BG1, L2 BG2, L3 BG3. Their stacking is NOT this
+ * order: it depends on the level mode, `MapScreenResult.screens`.
  */
-export const MAP_PLANE_KEYS = ['l2Low', 'l1Low', 'l2High', 'l1High'] as const
+export const MAP_PLANE_KEYS = ['l2Low', 'l1Low', 'l2High', 'l1High', 'l3Low', 'l3High'] as const
 export type MapPlaneKey = (typeof MAP_PLANE_KEYS)[number]
+
+/**
+ * Layer 3 on one map: the header's BG3 priority bit, and why layer 3 is not
+ * drawn (null when it is). How the planes stack is `MapScreenResult.screens`.
+ */
+export interface MapLayer3Dto {
+  priority: boolean
+  reason: string | null
+}
 
 /**
  * One screen of a map's L1 (foreground), drawn by the backend from the
@@ -240,12 +252,60 @@ export type MapScreenResult =
       height: number
       /** Base64 RGBA per plane; null where nothing draws, with no image sent. */
       planes: Record<MapPlaneKey, string | null>
+      layer3: MapLayer3Dto
+      /** Bottom to top, per SNES screen (#562). Both lists name planes from `planes`. */
+      screens: ScreenPlanes
+      /** Color math between the screens; null when the mode tables could not be verified. */
+      math: { cgadsub: number; fixed: [number, number, number] } | null
+      /** Layer 2 is interactive on this level mode: the toolbar calls it Foreground. */
+      layer2Interactive: boolean
       /** Why the animated tiles are drawn from unverified or no frames, when they are. */
       note?: string
       /** Caveats on the layers: a background that is not drawn, a layer order that is unverified. */
       layerNotes: string[]
       /** The back area (CGRAM color 0), RGB: its own layer under L1. */
       backdrop: [number, number, number]
+    }
+  | { status: 'unavailable'; reason: string }
+  | { status: 'rom-not-located'; baseRom: RomIdentityDto }
+
+/**
+ * One sprite of a map's sprite layer (#564), in map pixels. `box` is where its
+ * bitmap lands (x1 and y1 exclusive); the bitmap is `box`-sized RGBA, base64.
+ * A part can sit off the 16 px grid, with a negative offset, past its anchor
+ * tile or across a screen edge, so the box is never snapped. `placeholder` is
+ * a 16 x 16 marker at the anchor with the sprite's hex id, `reason` the
+ * engine's failure kind.
+ */
+export interface MapSpriteDto {
+  index: number
+  id: number
+  /** Anchor, the sprite's tile corner. */
+  x: number
+  y: number
+  box: { x0: number; y0: number; x1: number; y1: number }
+  rgba: string
+  status: 'drawn' | 'placeholder'
+  reason?: string
+  /**
+   * Present when the sprite was run from a placement-only seed because the
+   * level loader refused this ROM: drawn, but not run from the level's state.
+   */
+  unverified?: string
+}
+
+/** A map's sprites, with the screen geometry the view needs to cut them per screen. */
+export type MapSpritesResult =
+  | {
+      status: 'ok'
+      orientation: 'horizontal' | 'vertical'
+      screenCount: number
+      /** One screen's pixels. */
+      width: number
+      height: number
+      sprites: MapSpriteDto[]
+      /** Why some sprites may be missing (an unterminated stream), when they may be. */
+      note?: string
     }
   | { status: 'unavailable'; reason: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
@@ -401,6 +461,9 @@ export interface ProjectService {
     switchFlags: SwitchFlagsDto,
     switches: SwitchStateDto,
   ): Promise<MapScreenResult>
+
+  /** Every sprite of a map, drawn by the sprite interpreter or marked, from the working copy (#564, #585). */
+  mapSprites(manifestPath: string, index: number): Promise<MapSpritesResult>
 
   /** The map toolbar's art: the palace blocks and the char switches' buttons. */
   mapPalaceIcons(manifestPath: string, index: number): Promise<PalaceIconsResult>

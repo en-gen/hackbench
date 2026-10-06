@@ -20,6 +20,7 @@ import { ApplicationShell, CommonCommands } from '@theia/core/lib/browser'
 import { EditStackDto, EditStackResult, ProjectService } from '../common/project-protocol'
 import { ProjectContext } from './project-context'
 import { handlesEditStack } from './edit-stack-gate'
+import { isStrokeHistory } from './gfx-view-widget'
 import { perfStart } from '../common/perf-marks'
 
 /** No project, or a project we could not read: nothing to undo or redo. */
@@ -54,17 +55,24 @@ export class EditStackContribution implements CommandContribution {
   registerCommands(registry: CommandRegistry): void {
     registry.registerHandler(CommonCommands.UNDO.id, {
       execute: () => this.move('undo'),
-      isEnabled: () => this.handles() && this.state.canUndo,
+      isEnabled: () => this.handles('undo') && this.state.canUndo,
     })
     registry.registerHandler(CommonCommands.REDO.id, {
       execute: () => this.move('redo'),
-      isEnabled: () => this.handles() && this.state.canRedo,
+      isEnabled: () => this.handles('redo') && this.state.canRedo,
     })
   }
 
   /** Whether these commands are ours to answer right now. */
-  protected handles(): boolean {
-    return handlesEditStack(this.shell.activeWidget?.id, !!this.context.current)
+  protected handles(direction: 'undo' | 'redo'): boolean {
+    const active = this.shell.activeWidget
+    // A GFX view with unsaved strokes answers first (GfxExplorerContribution):
+    // the strokes are the newer edit, and the project's layers sit below them.
+    if (isStrokeHistory(active)) {
+      if (active.busy()) return false // a Save is in flight: this view's own Ctrl+Z must not reach the project stack, which the backend may already have the new layer on
+      if (direction === 'undo' ? active.canUndoStroke() : active.canRedoStroke()) return false
+    }
+    return handlesEditStack(active?.id, !!this.context.current)
   }
 
   protected async move(direction: 'undo' | 'redo'): Promise<void> {

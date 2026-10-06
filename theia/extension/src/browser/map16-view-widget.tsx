@@ -41,6 +41,7 @@ import { ProjectContext } from './project-context'
 import { ReactWidget, Message } from '@theia/core/lib/browser'
 import { WheelBinding, ZoomController } from './zoom-controller'
 import { ZoomStepper } from './zoom-stepper'
+import { GridOverlay } from './grid-overlay'
 import { ThemeService } from '@theia/core/lib/browser/theming'
 import {
   BG_VARIANT_COLOR_ROWS,
@@ -60,14 +61,7 @@ import {
   MAP16_TILESET_COUNT,
   SetMap16Result,
 } from '../common/map16-protocol'
-import {
-  CHAR_PX,
-  QUADRANT_ORIGIN,
-  TILE_PX,
-  cropRegion,
-  decodeRgba,
-  paintHoverOutline,
-} from './map16-pixels'
+import { CHAR_PX, QUADRANT_ORIGIN, TILE_PX, cropRegion, decodeRgba } from './map16-pixels'
 import { paintCharSheet, renderCharPalettes } from './map16-char-palettes'
 import {
   QUADRANTS,
@@ -172,6 +166,8 @@ export class Map16ViewWidget extends ReactWidget {
   protected canvasEl: HTMLCanvasElement | null = null
   protected readonly zoomController = new ZoomController(ZOOM_OPTIONS, DEFAULT_ZOOM)
   protected canvasWrapEl: HTMLElement | null = null
+  protected hoverOutlineEl: HTMLElement | null = null
+  protected selectionOutlineEl: HTMLElement | null = null
   protected wheelBinding: WheelBinding | undefined
   protected browserOpen = true
   /**
@@ -228,7 +224,7 @@ export class Map16ViewWidget extends ReactWidget {
       }),
     )
     this.toDispose.push({ dispose: () => this.stopAnimation() })
-    // Page bands and grid lines are theme colors baked into the bitmap.
+    // Page bands are a theme color baked into the bitmap; the grid overlay reads its own.
     this.toDispose.push(this.themes.onDidColorThemeChange(() => this.update()))
     this.toDispose.push(this.zoomController.onDidChange(() => this.update()))
     this.toDispose.push(this.zoomController)
@@ -246,9 +242,34 @@ export class Map16ViewWidget extends ReactWidget {
     return this.options?.layer ?? 'fg'
   }
 
-  protected handleGridToggle = (): void => {
+  toggleGrid(): void {
     this.showGrid = !this.showGrid
     this.update()
+  }
+
+  /** Grid geometry for the current sheet: a cell per tile, none across the page gaps. */
+  protected gridOverlay(): React.ReactNode {
+    const sheet = this.sheet()
+    if (!this.showGrid || !sheet || sheet.tiles.length === 0) return undefined
+    const pageHeight = (TILES_PER_PAGE / sheet.tilesPerRow) * TILE_PX
+    const pages = Math.ceil(sheet.tiles.length / TILES_PER_PAGE)
+    return (
+      <GridOverlay
+        cellSize={TILE_PX}
+        width={sheet.width}
+        height={sheet.height + (pages - 1) * PAGE_GAP_PX}
+        zoom={this.zoomController.value}
+        locate={() =>
+          this.canvasEl
+            ? { left: this.canvasEl.offsetLeft, top: this.canvasEl.offsetTop }
+            : undefined
+        }
+        bands={Array.from({ length: pages }, (_, page) => ({
+          top: page * (pageHeight + PAGE_GAP_PX),
+          height: Math.min(pageHeight, sheet.height - page * pageHeight),
+        }))}
+      />
+    )
   }
 
   protected handleBrowserToggle = (): void => {
@@ -546,6 +567,37 @@ export class Map16ViewWidget extends ReactWidget {
     )
   }
 
+  /**
+   * Places the hover and selection outlines, DOM boxes over the canvas rather
+   * than pixels in it (#573): the bitmap never changes on hover or selection,
+   * and a box can sit outside the tile and past the canvas edge (the wrap's
+   * padding is room for it). Each box is the tile grown by `grow` px, all in
+   * CSS px so every line is whole screen pixels at any zoom. Hovering the
+   * selected tile shows only the selection; the selection box comes later in
+   * the DOM, so it also draws above a neighbor's hover.
+   */
+  protected positionOutlines(): void {
+    const sheet = this.sheet()
+    const place = (box: HTMLElement | null, tileId: number | undefined, grow: number): void => {
+      if (!box) return
+      if (!this.canvasEl || !sheet || tileId === undefined) {
+        box.style.display = 'none'
+        return
+      }
+      const zoom = this.zoomController.value
+      const { x, y } = tileOrigin(tileId, sheet.tilesPerRow)
+      const size = TILE_PX * zoom + 2 * grow
+      box.style.left = `${this.canvasEl.offsetLeft + x * zoom - grow}px`
+      box.style.top = `${this.canvasEl.offsetTop + y * zoom - grow}px`
+      box.style.width = `${size}px`
+      box.style.height = `${size}px`
+      box.style.display = 'block'
+    }
+    const selected = this.selection?.tileId
+    place(this.hoverOutlineEl, this.hoverTileId === selected ? undefined : this.hoverTileId, 2)
+    place(this.selectionOutlineEl, selected, 4)
+  }
+
   protected handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>): void => {
     const id = this.tileIdAt(e)
     if (id === this.hoverTileId) return
@@ -723,49 +775,7 @@ export class Map16ViewWidget extends ReactWidget {
 
     perfEnd('open-map16')
 
-    const sel = this.selection
-    if (sel) {
-      const { x: selX, y: selY } = tileOrigin(sel.tileId, sheet.tilesPerRow)
-      const accent =
-        getComputedStyle(this.node).getPropertyValue('--theia-focusBorder').trim() || '#3399ff'
-      ctx.lineWidth = 1
-      ctx.strokeStyle = accent
-      ctx.strokeRect(selX + 0.5, selY + 0.5, TILE_PX - 1, TILE_PX - 1)
-    }
-
-    // Overlay, never baked into the atlas: toggling it is a local repaint
-    // and the bytes an export would use stay exactly what the cart says.
-    if (this.showGrid) {
-      const gridColor =
-        getComputedStyle(this.node).getPropertyValue('--theia-editorWidget-border').trim() ||
-        'rgba(128,128,128,0.6)'
-      ctx.lineWidth = 1
-      ctx.strokeStyle = gridColor
-      for (let page = 0; page < pages; page++) {
-        const top = page * (pageHeight + PAGE_GAP_PX)
-        const bottom = top + pageHeight
-        for (let x = 0; x <= sheet.width; x += TILE_PX) {
-          ctx.beginPath()
-          ctx.moveTo(x + 0.5, top)
-          ctx.lineTo(x + 0.5, bottom)
-          ctx.stroke()
-        }
-        for (let y = top; y <= bottom; y += TILE_PX) {
-          ctx.beginPath()
-          ctx.moveTo(0, y + 0.5)
-          ctx.lineTo(sheet.width, y + 0.5)
-          ctx.stroke()
-        }
-      }
-    }
-
-    // Last, so it also reads on the selected tile (that one is accent blue).
-    // Both rings sit inside the tile's own 16x16, and the bitmap is natural
-    // resolution scaled by CSS zoom >= 1, so each 1px line is >= 1 screen px.
-    if (this.hoverTileId !== undefined) {
-      const { x, y } = tileOrigin(this.hoverTileId, sheet.tilesPerRow)
-      paintHoverOutline(ctx, x, y, TILE_PX)
-    }
+    this.positionOutlines()
   }
 
   /**
@@ -944,18 +954,18 @@ export class Map16ViewWidget extends ReactWidget {
             <button
               data-control="grid-toggle"
               type="button"
-              className={'hb-icon-btn' + (this.showGrid ? ' hb-icon-btn-on' : '')}
+              className={'hb-icon-btn' + (this.showGrid ? ' hb-icon-btn-on' : ' hb-icon-btn-off')}
               aria-pressed={this.showGrid}
               title={this.showGrid ? 'Hide grid' : 'Show grid'}
               aria-label={this.showGrid ? 'Hide grid' : 'Show grid'}
-              onClick={this.handleGridToggle}
+              onClick={() => this.toggleGrid()}
             >
               <span className="codicon codicon-table" />
             </button>
             <button
               data-control="play-toggle"
               type="button"
-              className={'hb-icon-btn' + (this.playing ? ' hb-icon-btn-on' : '')}
+              className={'hb-icon-btn' + (this.playing ? ' hb-icon-btn-on' : ' hb-icon-btn-off')}
               disabled={!sheet.charAnimation}
               aria-pressed={this.playing}
               title={
@@ -1097,6 +1107,22 @@ export class Map16ViewWidget extends ReactWidget {
               ref={el => {
                 this.canvasEl = el
                 this.paintCanvas()
+              }}
+            />
+            {this.gridOverlay()}
+            {/* After the grid overlay in the DOM, so the outlines draw above its lines. */}
+            <div
+              className="hb-map16-hover-outline"
+              ref={el => {
+                this.hoverOutlineEl = el
+                if (el) this.positionOutlines()
+              }}
+            />
+            <div
+              className="hb-map16-selection-outline"
+              ref={el => {
+                this.selectionOutlineEl = el
+                if (el) this.positionOutlines()
               }}
             />
           </div>

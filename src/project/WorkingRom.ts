@@ -62,13 +62,14 @@ export interface OpsLayer extends LayerBase {
 }
 
 /**
- * One 8x8 character's new pixels in one GFX file: the STAGED kind of
- * docs/layer-previews.md. Consecutive gfx layers replay as one re-encode per
- * file (src/rom/GfxLayer.ts), so the layer follows the user's edit and not
- * the compressor's.
+ * One Save's worth of 8x8 character edits, in any number of GFX files: the
+ * STAGED kind of docs/layer-previews.md. Consecutive gfx layers replay as one
+ * re-encode per file (src/rom/GfxLayer.ts), so the layer follows the user's
+ * edit and not the compressor's. Edits apply in order: the last pixel wins.
  */
-export interface GfxLayer extends LayerBase, GfxCharEdit {
+export interface GfxLayer extends LayerBase {
   kind: 'gfx'
+  chars: GfxCharEdit[]
 }
 
 /**
@@ -338,7 +339,7 @@ export class WorkingRom {
   scopeLine(index: number): string | null {
     if (this.layerStack[index]?.kind !== 'gfx') return null
     const n = this.bytesChangedBy(index)
-    return `Re-encodes the GFX arena: ${n} ${n === 1 ? 'byte' : 'bytes'} of the ROM changed, not just this character.`
+    return `Re-encodes the GFX arena: ${n} ${n === 1 ? 'byte' : 'bytes'} of the ROM changed, not just the characters drawn.`
   }
 
   /**
@@ -348,7 +349,7 @@ export class WorkingRom {
   private applyOnTop(layer: Layer): Uint8Array {
     const next = new Uint8Array(this.bytes())
     const replaced =
-      layer.kind === 'gfx' ? this.fold(next, [layer]) : this.applyWords(next, layer, true)
+      layer.kind === 'gfx' ? this.fold(next, layer.chars) : this.applyWords(next, layer, true)
     this.applied.set(this.layerStack.length, { from: this.layerStack.length, replaced })
     return next
   }
@@ -364,7 +365,7 @@ export class WorkingRom {
     const next = new Uint8Array(this.bytes())
     revert(next, top.replaced)
     if (top.from < k) {
-      const rest = this.layerStack.slice(top.from, k) as GfxLayer[]
+      const rest = (this.layerStack.slice(top.from, k) as GfxLayer[]).flatMap(l => l.chars)
       this.applied.set(k - 1, { from: top.from, replaced: this.fold(next, rest) })
     }
     this.applied.delete(k)
@@ -409,7 +410,7 @@ export class WorkingRom {
       const layer = layers[i]!
       if (layer.kind === 'gfx') {
         if (run.length === 0) runFrom = i
-        run.push(layer)
+        run.push(...layer.chars)
         continue
       }
       flush(i)

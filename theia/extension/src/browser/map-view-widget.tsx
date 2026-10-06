@@ -19,13 +19,14 @@ import {
   MapDetailsDto,
   MapPlaneKey,
   MapScreenResult,
+  MapSpritesResult,
   ProjectService,
   SwitchFlagsDto,
   SwitchStateDto,
 } from '../common/project-protocol'
 import { ProjectContext } from './project-context'
 import { decodeRgba, TILE_PX } from './map16-pixels'
-import { PALACES, screenKey } from './map-view-model'
+import { compositeSpriteScreen, paintSpriteCanvas, PALACES, screenKey } from './map-view-model'
 import { SWITCH_ORDER } from './map16-view-model'
 import { decodeSwitchButton, SwitchToggle, type SwitchButtonImages } from './switch-toggle'
 import { LayerToggle } from './layer-icon'
@@ -33,6 +34,10 @@ import { PixelImageButton, type FrameImage } from './pixel-image-button'
 import { slotLabel } from './map-explorer-widget'
 import { WheelBinding, ZoomController } from './zoom-controller'
 import { ZoomStepper } from './zoom-stepper'
+import { MapGridOverlay } from './grid-overlay'
+import { layer2Label } from './map-layer-labels'
+import { isUnverifiedMode } from '../../../../src/rom/model/UnverifiedModes'
+import { composeScreen, type SourceKey } from '../../../../src/rom/model/ColorMath'
 import { perfEnd, perfStart } from '../common/perf-marks'
 
 export { slotLabel }
@@ -41,6 +46,9 @@ interface ScreenImages {
   width: number
   height: number
   planes: Record<MapPlaneKey, ImageData | null>
+  /** What the compositor needs, from the same reply (#562). */
+  screens: Layout['screens']
+  math: Layout['math']
 }
 
 export const MAP_VIEW_ID = 'hackbench.map-view'
@@ -55,6 +63,10 @@ export interface MapViewOptions {
 }
 
 type Layout = Extract<MapScreenResult, { status: 'ok' }>
+type Sprites = Extract<MapSpritesResult, { status: 'ok' }>
+/** The sprite canvases' key in place of a plane's: one per screen, between L2 and L1's priority plane. */
+const SPRITES = 'sprites'
+type LayerKey = MapPlaneKey | typeof SPRITES
 type Palace = keyof SwitchFlagsDto
 type Switch = keyof SwitchStateDto
 
@@ -94,6 +106,15 @@ export class MapViewWidget extends ReactWidget {
   /** L1 (foreground) and L2 (background) shown; off leaves what is beneath them. */
   protected showL1 = true
   protected showL2 = true
+  /** The tile / sub-screen / screen grid; off by default. */
+  protected showGrid = false
+  protected showL3 = true
+  protected showSprites = true
+  /** The map's sprites (#564), once read; `spritesWhy` is why there are none to show. */
+  protected sprites: Sprites | undefined
+  protected spritesWhy: string | undefined
+  /** Bumped when `sprites` is replaced, so a canvas painted from the old ones is repainted. */
+  protected spritesVersion = 0
   /** Fit mode until the user zooms; the fit is the cross axis filling the view (#526). */
   protected readonly zoomController = new ZoomController(ZOOMS, 1, () => this.measureFit())
   protected wheelBinding: WheelBinding | undefined
@@ -104,6 +125,9 @@ export class MapViewWidget extends ReactWidget {
   /** Keyed `<plane>:<screen>`. */
   protected readonly canvases = new Map<string, HTMLCanvasElement>()
   protected readonly canvasRefs = new Map<string, (el: HTMLCanvasElement | null) => void>()
+  /** The composite canvas of each screen (what the user sees), keyed by screen index. */
+  protected readonly composites = new Map<number, HTMLCanvasElement>()
+  protected readonly compositeRefs = new Map<number, (el: HTMLCanvasElement | null) => void>()
   protected scroller: HTMLDivElement | null = null
   /** Refits when the strip's box changes, e.g. when the facts line arrives above it. */
   protected readonly resizes = new ResizeObserver(() => this.fitStrip())
@@ -148,10 +172,14 @@ export class MapViewWidget extends ReactWidget {
     this.details = undefined
     this.error = undefined
     this.mapLayout = undefined
+    this.sprites = undefined
+    this.spritesWhy = undefined
     // A new map opens fitted, whatever zoom the last one was left at.
     this.zoomController.enterFit()
     // A reused (preview) tab keeps its strip across maps: blank it, and start at screen 0.
-    for (const c of this.canvases.values()) {
+    // The composites too: they are what is on screen, and paintComposite leaves a canvas alone
+    // until its screen has arrived.
+    for (const c of [...this.canvases.values(), ...this.composites.values()]) {
       c.getContext('2d')?.clearRect(0, 0, c.width, c.height)
       delete c.dataset.drawn
     }
@@ -177,7 +205,24 @@ export class MapViewWidget extends ReactWidget {
     this.screenError = undefined
     void this.loadDetails()
     void this.loadIcons()
+    void this.loadSprites()
     this.requestVisible()
+  }
+
+  protected async loadSprites(): Promise<void> {
+    const o = this.options
+    if (!o) return
+    const generation = this.generation
+    const r = await this.projects
+      .mapSprites(o.manifestPath, o.index)
+      .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
+    // An older map's or edit's sprites must not land over a newer one.
+    if (generation !== this.generation) return
+    this.sprites = r.status === 'ok' ? r : undefined
+    this.spritesWhy = r.status === 'ok' ? undefined : r.status === 'unavailable' ? r.reason : `The base ROM ${r.baseRom.title} is not on this machine` // prettier-ignore
+    this.spritesVersion++
+    this.update()
+    this.sync()
   }
 
   protected async loadDetails(): Promise<void> {
@@ -277,6 +322,8 @@ export class MapViewWidget extends ReactWidget {
       planes: Object.fromEntries(
         MAP_PLANE_KEYS.map(k => [k, image(r.planes[k])]),
       ) as ScreenImages['planes'],
+      screens: r.screens,
+      math: r.math,
     })
     const l = this.mapLayout
     if (
@@ -285,6 +332,8 @@ export class MapViewWidget extends ReactWidget {
       l.orientation !== r.orientation ||
       l.note !== r.note ||
       l.layerNotes.join() !== r.layerNotes.join() ||
+      JSON.stringify([l.layer3, l.screens, l.math, l.layer2Interactive]) !==
+        JSON.stringify([r.layer3, r.screens, r.math, r.layer2Interactive]) ||
       l.backdrop.join() !== r.backdrop.join()
     ) {
       // The first reply sizes the strip; the screens in view follow once it is laid out.
@@ -321,7 +370,11 @@ export class MapViewWidget extends ReactWidget {
    */
   protected readonly sync = (): void => {
     for (const [k, canvas] of this.canvases) {
-      const [plane, s] = k.split(':') as [MapPlaneKey, string]
+      const [plane, s] = k.split(':') as [LayerKey, string]
+      if (plane === SPRITES) {
+        this.syncSprites(canvas, Number(s))
+        continue
+      }
       const want = `${this.generation}:${this.key(Number(s))}`
       if (canvas.dataset.drawn === want) continue
       const shot = this.screens.get(this.key(Number(s)))
@@ -339,6 +392,65 @@ export class MapViewWidget extends ReactWidget {
         delete canvas.dataset.drawn
       }
     }
+    for (const [s, canvas] of this.composites) this.paintComposite(s, canvas)
+  }
+
+  /**
+   * One screen's picture: the plane canvases' pixels, composited per SNES screen with color
+   * math (#562). Redone on every layer toggle, since a toggle changes both plane lists.
+   */
+  protected paintComposite(s: number, canvas: HTMLCanvasElement): void {
+    const shot = this.screens.get(this.key(s))
+    if (!shot) {
+      if (this.screenError && canvas.dataset.drawn) {
+        canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height)
+        delete canvas.dataset.drawn
+      }
+      return
+    }
+    const want = `${this.generation}:${this.key(s)}:${+this.showL1}${+this.showL2}${+this.showL3}${+this.showSprites}:${this.spritesVersion}`
+    if (canvas.dataset.drawn === want) return
+    canvas.width = shot.width
+    canvas.height = shot.height
+    const planes: Partial<Record<SourceKey, Uint8ClampedArray | null>> = Object.fromEntries(
+      MAP_PLANE_KEYS.map(k => [k, this.layerShown(k) ? (shot.planes[k]?.data ?? null) : null]),
+    )
+    // The sprites are one more source, not in color math (their palette split is #564's to add).
+    const sp = this.sprites
+    planes.sprites = this.showSprites && sp ? compositeSpriteScreen(sp.sprites, s, sp) : null
+    const out = composeScreen({
+      width: shot.width,
+      height: shot.height,
+      planes,
+      lists: shot.screens,
+      math: shot.math,
+    })
+    canvas.getContext('2d')?.putImageData(new ImageData(out, shot.width, shot.height), 0, 0)
+    canvas.dataset.drawn = want
+  }
+
+  protected compositeRef(s: number): (el: HTMLCanvasElement | null) => void {
+    let ref = this.compositeRefs.get(s)
+    if (!ref) {
+      let mine: HTMLCanvasElement | null = null
+      ref = el => {
+        if (el) {
+          mine = el
+          this.composites.set(s, el)
+          this.sync()
+        } else {
+          if (this.composites.get(s) === mine) this.composites.delete(s)
+          mine = null
+        }
+      }
+      this.compositeRefs.set(s, ref)
+    }
+    return ref
+  }
+
+  /** The sprite canvas of one screen: the map's sprites cut to it, or blank when none reach it. */
+  protected syncSprites(canvas: HTMLCanvasElement, screen: number): void {
+    paintSpriteCanvas(canvas, this.sprites, screen, `${this.generation}:${this.spritesVersion}`)
   }
 
   /**
@@ -346,7 +458,7 @@ export class MapViewWidget extends ReactWidget {
    * mounts or unmounts, and on unmount it removes only its own canvas, never
    * a replacement. A new canvas starts blank, so it is synced at once (#421).
    */
-  protected canvasRef(plane: MapPlaneKey, s: number): (el: HTMLCanvasElement | null) => void {
+  protected canvasRef(plane: LayerKey, s: number): (el: HTMLCanvasElement | null) => void {
     const k = `${plane}:${s}`
     let ref = this.canvasRefs.get(k)
     if (!ref) {
@@ -398,11 +510,39 @@ export class MapViewWidget extends ReactWidget {
   protected toggleL1(): void {
     this.showL1 = !this.showL1
     this.update()
+    this.sync()
+  }
+
+  toggleGrid(): void {
+    this.showGrid = !this.showGrid
+    this.update()
   }
 
   protected toggleL2(): void {
     this.showL2 = !this.showL2
     this.update()
+    this.sync()
+  }
+
+  protected toggleL3(): void {
+    this.showL3 = !this.showL3
+    this.update()
+    this.sync()
+  }
+
+  protected toggleSprites(): void {
+    this.showSprites = !this.showSprites
+    this.update()
+    this.sync()
+  }
+
+  /** The sprite toggle's tooltip: "Sprites" when it works, else why it does not. */
+  protected spritesLabel(): string {
+    if (this.spritesWhy) return `Sprites unavailable: ${this.spritesWhy}`
+    if (!this.sprites) return 'Sprites · reading the map'
+    if (this.sprites.sprites.length === 0) return 'Sprites · this map has none'
+    const u = this.sprites.sprites.find(x => x.unverified)?.unverified
+    return u ? `Sprites · unverified: ${u}` : 'Sprites'
   }
 
   protected override onResize(msg: Widget.ResizeMessage): void {
@@ -415,24 +555,47 @@ export class MapViewWidget extends ReactWidget {
     this.node.focus()
   }
 
+  /** Layer 3's tooltip: its role when drawn (the header's priority bit), else why it is not. */
+  protected layer3Label(): string {
+    const l3 = this.mapLayout?.layer3
+    if (!l3) return 'Layer 3 · reading the map'
+    return l3.reason ?? (l3.priority ? 'Layer 3 · Overlay' : 'Layer 3 · Background')
+  }
+
   protected render(): React.ReactNode {
     this.renderedZoom = this.zoomController.value
     return (
       <div className="hb-map-view-main">
         <div className="hb-map-view-toolbar">
           <LayerToggle
-            highlight="bottom"
-            label="Background"
+            glyph="1"
+            label="Layer 1 · Foreground"
+            pressed={this.showL1}
+            control="layer-l1"
+            onClick={() => this.toggleL1()}
+          />
+          <LayerToggle
+            glyph="2"
+            label={layer2Label(this.mapLayout)}
             pressed={this.showL2}
             control="layer-l2"
             onClick={() => this.toggleL2()}
           />
           <LayerToggle
-            highlight="middle"
-            label="Foreground"
-            pressed={this.showL1}
-            control="layer-l1"
-            onClick={() => this.toggleL1()}
+            glyph="3"
+            label={this.layer3Label()}
+            pressed={this.showL3 && !this.mapLayout?.layer3.reason}
+            disabled={!this.mapLayout || !!this.mapLayout.layer3.reason}
+            control="layer-l3"
+            onClick={() => this.toggleL3()}
+          />
+          <LayerToggle
+            glyph="S"
+            label={this.spritesLabel()}
+            pressed={this.showSprites && !!this.sprites?.sprites.length}
+            disabled={!this.sprites?.sprites.length}
+            control="layer-sprites"
+            onClick={() => this.toggleSprites()}
           />
           <span className="hb-toolbar-sep" data-control="toolbar-sep" />
           {PALACES.map(p => this.renderToggle(p))}
@@ -449,6 +612,27 @@ export class MapViewWidget extends ReactWidget {
             />
           ))}
           <span className="hb-toolbar-spacer" />
+          {isUnverifiedMode(this.details?.levelMode) && (
+            <span
+              className="hb-map-view-mode-warning"
+              data-control="unverified-mode"
+              title="Sprites in this mode may draw in the wrong order. This mode has not been checked against the game."
+            >
+              <span className="codicon codicon-warning" />
+              {`Level mode ${this.details!.levelMode!.toString(16).toUpperCase().padStart(2, '0')}: sprite layering not verified`}
+            </span>
+          )}
+          <button
+            data-control="grid-toggle"
+            type="button"
+            className={'hb-icon-btn' + (this.showGrid ? ' hb-icon-btn-on' : ' hb-icon-btn-off')}
+            aria-pressed={this.showGrid}
+            title={this.showGrid ? 'Hide grid' : 'Show grid'}
+            aria-label={this.showGrid ? 'Hide grid' : 'Show grid'}
+            onClick={() => this.toggleGrid()}
+          >
+            <span className="codicon codicon-table" />
+          </button>
           <ZoomStepper controller={this.zoomController} fitControls />
         </div>
         {this.renderFacts()}
@@ -460,6 +644,11 @@ export class MapViewWidget extends ReactWidget {
         {this.screenError && this.mapLayout && (
           <div className="hb-map-view-note hb-map-view-error" data-control="map-error">
             {this.screenError}
+          </div>
+        )}
+        {this.sprites?.note && (
+          <div className="hb-map-view-note" data-note="sprites">
+            {this.sprites.note}
           </div>
         )}
         {this.mapLayout?.layerNotes.map(n => (
@@ -504,6 +693,8 @@ export class MapViewWidget extends ReactWidget {
     if (el === this.scroller) return
     if (this.scroller) this.resizes.unobserve(this.scroller)
     this.scroller = el
+    // The grid overlay takes the scroller as a prop and the ref lands after the commit.
+    if (this.showGrid) queueMicrotask(() => this.update())
     this.wheelBinding?.dispose()
     this.wheelBinding = undefined
     if (el) {
@@ -527,44 +718,77 @@ export class MapViewWidget extends ReactWidget {
       )
     }
     return (
-      <div
-        className={'hb-map-view-scroller' + (l.orientation === 'vertical' ? ' hb-vertical' : '')}
-        data-control="map-scroller"
-        ref={this.scrollerRef}
-        onScroll={() => this.requestVisible()}
-      >
-        {/* Bottom to top (planes by MAP_PLANE_KEYS): the checkerboard, the back area, then the screens,
-            so hiding a layer shows what is under it, down to nothing. */}
-        <div className="hb-map-view-strip hb-checkerboard">
-          <div
-            className="hb-map-view-back-area"
-            data-layer="back-area"
-            style={{ background: `rgb(${l.backdrop.join(',')})` }}
-          />
-          {Array.from({ length: l.screenCount }, (_, s) => (
+      <div className="hb-map-grid-host">
+        <div
+          className={'hb-map-view-scroller' + (l.orientation === 'vertical' ? ' hb-vertical' : '')}
+          data-control="map-scroller"
+          ref={this.scrollerRef}
+          onScroll={() => this.requestVisible()}
+        >
+          {/* Bottom to top (planes by `screens`, composited per screen): the checkerboard, the back area, then the screens,
+              so hiding a layer shows what is under it, down to nothing. */}
+          <div className="hb-map-view-strip hb-checkerboard">
             <div
-              key={s}
-              className="hb-map-view-screen"
-              style={{ width: l.width * this.zoom, height: l.height * this.zoom }}
-            >
-              {MAP_PLANE_KEYS.map((plane, z) => (
+              className="hb-map-view-back-area"
+              data-layer="back-area"
+              style={{ background: `rgb(${l.backdrop.join(',')})` }}
+            />
+            {Array.from({ length: l.screenCount }, (_, s) => (
+              <div
+                key={s}
+                className="hb-map-view-screen"
+                style={{ width: l.width * this.zoom, height: l.height * this.zoom }}
+              >
+                {([...MAP_PLANE_KEYS, SPRITES] as LayerKey[]).map(plane => {
+                  const z = this.layerOrder(l).indexOf(plane) + 1
+                  return (
+                    // The plane canvases are the compositor's source, never seen: opacity 0, not
+                    // display none, so a plane in no list or toggled off still reads as hidden.
+                    <canvas
+                      key={plane}
+                      className="hb-map-view-plane"
+                      data-plane={plane}
+                      data-screen={s}
+                      style={{
+                        zIndex: z,
+                        opacity: 0,
+                        visibility: z > 0 && this.layerShown(plane) ? undefined : 'hidden',
+                      }}
+                      ref={this.canvasRef(plane, s)}
+                    />
+                  )
+                })}
                 <canvas
-                  key={plane}
-                  className="hb-map-view-plane"
-                  data-plane={plane}
+                  className="hb-map-view-plane hb-map-view-composite"
+                  data-layer="screen"
                   data-screen={s}
-                  style={{
-                    zIndex: z + 1,
-                    visibility: (plane.startsWith('l2') ? this.showL2 : this.showL1) ? undefined : 'hidden', // prettier-ignore
-                  }}
-                  ref={this.canvasRef(plane, s)}
+                  style={{ zIndex: 100 }}
+                  ref={this.compositeRef(s)}
                 />
-              ))}
-            </div>
-          ))}
+              </div>
+            ))}
+          </div>
         </div>
+        {this.showGrid && (
+          <MapGridOverlay
+            scroller={this.scroller}
+            vertical={l.orientation === 'vertical'}
+            screenCount={l.screenCount}
+            zoom={this.zoom}
+          />
+        )}
       </div>
     )
+  }
+
+  /** The sources bottom to top over both screens (sprites included: `screenPlanes` places them), for stacking the source canvases. */
+  protected layerOrder(l: Layout): LayerKey[] {
+    return [...l.screens.sub, ...l.screens.main]
+  }
+
+  protected layerShown(plane: LayerKey): boolean {
+    if (plane === SPRITES) return this.showSprites
+    return plane.startsWith('l2') ? this.showL2 : plane.startsWith('l3') ? this.showL3 : this.showL1
   }
 
   /** What a reader wants at a glance: which map, how big, and what is unavailable and why. */

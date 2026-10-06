@@ -370,7 +370,7 @@ test('activating Area 2 opens a 256x224 tab; Area 5 opens a second; reopening fo
   expect(await areaTabCount(page)).toBe(2)
 })
 
-test('an area tab toggles Foreground, and its Effects toggle is disabled with a reason', async ({
+test('an area tab toggles Layer 1, and its Layer 3 toggle is disabled with a reason', async ({
   page,
 }) => {
   test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
@@ -381,7 +381,7 @@ test('an area tab toggles Foreground, and its Effects toggle is disabled with a 
   await page.waitForTimeout(500)
   const l3 = page.locator(`${AREA_VIEW(1)} [data-control="layer-l3"]`)
   await expect(l3).toBeDisabled()
-  await expect(l3).toHaveAttribute('title', 'Effects not drawn yet')
+  await expect(l3).toHaveAttribute('title', 'Layer 3 not drawn yet: overworld layer 3')
   expect(await canvasSha(page, AREA_VIEW(1))).toBe(AREA_PIN[1].BOTH)
   await page.locator(`${AREA_VIEW(1)} [data-control="layer-l1"]`).click()
   await expect.poll(() => canvasSha(page, AREA_VIEW(1))).toBe(AREA_PIN[1].L2)
@@ -493,7 +493,7 @@ test('each layer toggle hides its layer, and toggling back restores the pin', as
   }
 })
 
-test('the toolbar matches the map editor: Background, Foreground, Effects, then zoom at the right', async ({
+test('the toolbar matches the map editor: Layer 1, 2, 3, Sprites, then zoom at the right', async ({
   page,
 }) => {
   test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
@@ -511,16 +511,17 @@ test('the toolbar matches the map editor: Background, Foreground, Effects, then 
     VIEW,
   )
   expect(controls).toEqual([
-    'layer-l2',
     'layer-l1',
+    'layer-l2',
     'layer-l3',
+    'layer-sprites',
     'zoom-out',
     'zoom-indicator',
     'zoom-in',
   ])
   const xs = await page.evaluate(
     sel =>
-      ['layer-l2', 'layer-l1', 'layer-l3', 'zoom-out'].map(
+      ['layer-l1', 'layer-l2', 'layer-l3', 'layer-sprites', 'zoom-out'].map(
         c => document.querySelector(`${sel} [data-control="${c}"]`).getBoundingClientRect().left,
       ),
     VIEW,
@@ -529,20 +530,23 @@ test('the toolbar matches the map editor: Background, Foreground, Effects, then 
   await expect(page.locator(`${VIEW} .hb-toolbar-spacer`)).toHaveCount(1)
 })
 
-test('the Effects toggle is disabled and says why', async ({ page }) => {
+test('the Layer 3 and Sprites toggles are disabled and say why', async ({ page }) => {
   test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
   await openProject(page, ROM)
   await openOverworldRow(page)
   await page.waitForSelector('.hb-overworld-canvas', { timeout: 30000 })
   const l3 = page.locator(`${VIEW} [data-control="layer-l3"]`)
   await expect(l3).toBeDisabled()
-  await expect(l3).toHaveAttribute('title', 'Effects not drawn yet')
+  await expect(l3).toHaveAttribute('title', 'Layer 3 not drawn yet: overworld layer 3')
   await expect(l3).toHaveAttribute('aria-pressed', 'false')
-  // The icon marks the top bar: three bars, only the first in the button's color.
-  const ys = await l3
-    .locator('svg rect[data-on="true"]')
-    .evaluateAll(rs => rs.map(r => r.getAttribute('y')))
-  expect(ys).toEqual(['1'])
+  // The icon is the framed digit 3, in the same order as the map editor: 1, 2, 3, S.
+  await expect(l3.locator('svg path[data-glyph="3"]')).toHaveCount(1)
+  const sprites = page.locator(`${VIEW} [data-control="layer-sprites"]`)
+  await expect(sprites).toBeDisabled()
+  await expect(sprites).toHaveAttribute('title', 'Sprite toggle not wired yet')
+  await expect(sprites.locator('svg path[data-glyph="S"]')).toHaveCount(1)
+  await expect(page.locator(`${VIEW} [data-control="layer-l1"]`)).toHaveAttribute('title', 'Layer 1 · Foreground') // prettier-ignore
+  await expect(page.locator(`${VIEW} [data-control="layer-l2"]`)).toHaveAttribute('title', 'Layer 2 · Background') // prettier-ignore
   const before = await hubSha(page)
   await l3.click({ force: true })
   expect(await hubSha(page)).toBe(before)

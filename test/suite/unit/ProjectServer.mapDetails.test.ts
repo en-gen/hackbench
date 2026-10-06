@@ -115,6 +115,18 @@ describe('buildMapDetails - level data in the last bytes of the ROM', () => {
   })
 })
 
+describe('buildMapDetails - levelMode', () => {
+  it('masks header byte 1 to the 5-bit mode, so $FE reads as 1E (#618)', () => {
+    const smw = syntheticRom()
+    smw.rom.writeAt(0x068001, [0xfe])
+    expect(buildMapDetails(smw, 0x105).levelMode).toBe(0x1e)
+  })
+
+  it('is absent when the level data is unavailable', () => {
+    expect(buildMapDetails(romWithL1(0x07fffc), 0x105).levelMode).toBeUndefined()
+  })
+})
+
 describe('buildMapDetails - level data unavailable', () => {
   it('returns the reason instead of throwing when the pointer is outside the ROM', () => {
     const details = buildMapDetails(romWithL1(0x7eb215), 0x105)

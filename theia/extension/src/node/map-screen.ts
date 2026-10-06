@@ -9,9 +9,10 @@
  * sheet's and the preview's rule. The back area is not baked in: it is a
  * layer of its own in the view, so it can be hidden like any other. L1 and
  * L2 (background) are each sent as two planes by the subtile priority bit;
- * the view stacks the four in BG mode 1's order (`MAP_PLANE_KEYS`). A layer
+ * the view composites them per screen from `screens`. A layer
  * never overlaps its own planes; L2 sits at a 1:1 horizontal offset, with no
- * parallax, and shifted vertically by its initial Layer2YPos (#113).
+ * parallax, and shifted vertically by its initial Layer2YPos (#113). L3 is two
+ * planes by its tile priority bit, drawn on every non-Mode-7 level mode (#561, #562).
  */
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { RomFile } from '../../../../src/rom/RomFile'
@@ -28,12 +29,15 @@ import {
   type L1InputsResult,
 } from '../../../../src/rom/model/L1Model'
 import { buildL2Inputs, type L2Inputs, type L2Result } from '../../../../src/rom/model/L2Model'
+import { buildL3Verdict, type L3Inputs, type L3Verdict } from '../../../../src/rom/model/L3Model'
+import { L3_HUD_ROW_CUTOFF, L3_TILEMAP_COLS, L3_TILEMAP_ROWS } from '../../../../src/rom/L3Loader'
 import { readLevelBgMode, type BgModeResult } from '../../../../src/rom/BgMode'
 import { PALACES, type Palace } from '../../../../src/rom/SwitchBlockTiles'
 import { palaceArt, type PalaceArt } from '../../../../src/rom/SwitchArt'
 import { renderMap16Tile } from '../../../../src/rom/TileRenderer'
 import { ghostOf, overlayHidden } from '../../../../src/rom/render/HiddenTiles'
 import { MAP_PLANE_KEYS } from '../common/project-protocol'
+import { FALLBACK_SCREENS } from '../../../../src/rom/model/ScreenPlanes'
 import type {
   MapPlaneKey,
   MapScreenResult,
@@ -43,7 +47,7 @@ import type {
   SwitchStateDto,
 } from '../common/project-protocol'
 import type { SwitchKind } from '../../../../src/rom/AnimationLoader'
-import { switchedVram } from '../../../../src/rom/SwitchAlternates'
+import { switchedVram, type TileSwitchArt } from '../../../../src/rom/SwitchAlternates'
 import { buildSwitchButtonArt, buildTileAlternates, ONOFF_BUTTON_TILE_ID } from './map16-decode'
 
 /** A screen's size in tiles: 16 x 27 horizontal, two 16-wide halves x 16 vertical. */
@@ -56,14 +60,23 @@ export function screenTiles(isVertical: boolean): { w: number; h: number } {
  * MAP16AppTable picks by the strip counter (bank_05.asm:119-124), one per
  * screen since a screen is 16 strips.
  */
-export function cellDef(model: L1Inputs, id: number, screen: number): Map16Tile | undefined {
+export function cellOf(
+  model: L1Inputs,
+  id: number,
+  screen: number,
+): { def?: Map16Tile; art?: TileSwitchArt } {
   const pipe = id - PIPE_VARIANT_TILE_START
   const sets = model.map16.pipeVariants
   if (pipe >= 0 && pipe < PIPE_VARIANT_TILE_COUNT && sets.length > 0) {
-    return sets[pipeVariantIndex(screen * 16)]?.[pipe]
+    // A variant shares its base id, so its switch art is its own set's, never `switchArt`'s (#494).
+    const k = pipeVariantIndex(screen * 16)
+    return { def: sets[k]?.[pipe], art: model.variantSwitchArt[k]?.get(id) }
   }
-  return model.map16.tiles[id]
+  return { def: model.map16.tiles[id], art: model.switchArt.get(id) }
 }
+
+export const cellDef = (model: L1Inputs, id: number, screen: number) =>
+  cellOf(model, id, screen).def
 
 export const SWITCHES_OFF: SwitchStateDto = { blue: false, silver: false, onOff: false }
 
@@ -72,7 +85,7 @@ type Plane = Uint8ClampedArray | null
 export type L1Planes = Record<'l1Low' | 'l1High', Plane>
 export type L2Planes = Record<'l2Low' | 'l2High', Plane>
 
-/** One cell as drawn, and the Map16 entry whose subtile priorities route its quadrants. */
+/** One cell as drawn, and the tile (the cell's own, variant included) whose subtile priorities route its quadrants. */
 interface DrawnCell {
   rgba: Uint8ClampedArray
   owner: Map16Tile
@@ -140,8 +153,8 @@ function vramFor(model: L1Inputs, switches: SwitchStateDto) {
 /**
  * L1 (foreground) of one screen: each cell drawn with the switches that are
  * on, blank cells given `ghostOf`'s screen door (both ways, #621). The screen
- * door is the hidden tile's art, so the hidden tile's own priority bits route
- * it, not those of the blank cell drawn in its place.
+ * door is the cell's own tile art (a pipe variant's, not its base's, #494), so
+ * that tile's priority bits route it.
  */
 export function drawL1Planes(
   model: L1Inputs,
@@ -157,13 +170,13 @@ export function drawL1Planes(
     { dy: 0 },
     (x, y) => {
       const id = model.grid[y]?.[x]
-      const def = id === undefined ? undefined : cellDef(model, id, screen)
+      if (id === undefined) return undefined
+      const { def, art } = cellOf(model, id, screen)
       if (!def) return undefined
       const rgba = renderMap16Tile(def, vram, palette)
-      const art = model.switchArt.get(def.id)
       const ghost = art && ghostOf(rgba, art.off, art.alts, c => c.rgba)
       if (ghost) overlayHidden(rgba, 16, 0, 0, ghost)
-      return { rgba, owner: ghost ? (model.map16.tiles[def.id] ?? def) : def }
+      return { rgba, owner: def }
     },
   )
   return { l1Low, l1High }
@@ -199,9 +212,66 @@ export function drawL2Planes(
   return { l2Low, l2High }
 }
 
+export type L3Planes = Record<'l3Low' | 'l3High', Plane>
+
+/**
+ * L3 of one screen as [low, high] planes by each tile's priority bit: tile row
+ * R (gameplay rows only; the first 8 are the status bar) at level Y
+ * R*8 - Layer3YPos + Layer1YPos, x repeating every 512 px (a tide, whose BG3
+ * scrolls with the camera, every 256 px over the first 32 columns, and its
+ * second copy of the tilemap is not drawn). Rows that start above the level
+ * are skipped whole, as the reference view does. Char 0 of every 2bpp
+ * palette is clear.
+ */
+export function drawL3Planes(l3: L3Inputs, screen: number): L3Planes {
+  const { w, h } = screenTiles(false) // vertical maps never reach here (L3Model)
+  const [width, height] = [w * 16, h * 16]
+  const x0 = screen * width
+  const cols = l3.tide ? 32 : L3_TILEMAP_COLS
+  const cell = (r: number, c: number) => l3.tilemap[r * L3_TILEMAP_COLS + c] ?? 0
+  const row = (r: number) => Array.from({ length: L3_TILEMAP_COLS }, (_, c) => cell(r, c))
+  let first = L3_HUD_ROW_CUTOFF
+  while (first < L3_TILEMAP_ROWS - 1 && row(first).every(v => v === 0)) first++
+  // A tide writes its tilemap twice for animation; the copy starts where a row repeats the first one's chars.
+  const sameChars = (a: number[], b: number[]) => a.every((v, c) => (v === 0) === (b[c] === 0) && (v & 0x3ff) === (b[c]! & 0x3ff)) // prettier-ignore
+  let end = L3_TILEMAP_ROWS
+  for (let r = first + 1; l3.tide && r < L3_TILEMAP_ROWS; r++) {
+    if (sameChars(row(r), row(first))) {
+      end = r
+      break
+    }
+  }
+  const planes = [0, 1].map(() => new Uint8ClampedArray(width * height * 4))
+  const drew = [false, false]
+  for (let r = L3_HUD_ROW_CUTOFF; r < end; r++) {
+    const y = r * 8 - l3.yPx + l3.camYPx
+    if (y < 0 || y >= height) continue
+    for (let sx = 0; sx < width; sx += 8) {
+      const word = cell(r, ((x0 + sx) % (cols * 8)) >> 3)
+      const pixels = l3.chars[(word & 0x3ff) >> 7]?.[word & 0x7f]
+      if (!word || !pixels) continue
+      const p = word & 0x2000 ? 1 : 0
+      for (let ty = 0; ty < 8; ty++) {
+        const outY = y + ty
+        if (outY < 0 || outY >= height) continue
+        for (let tx = 0; tx < 8; tx++) {
+          const v = pixels[((word & 0x8000 ? 7 - ty : ty) << 3) | (word & 0x4000 ? 7 - tx : tx)]!
+          const color = v === 0 ? undefined : l3.colors[((word >> 10) & 7) * 4 + v]
+          if (!color) continue
+          planes[p]!.set(color, (outY * width + sx + tx) * 4)
+          drew[p] = true
+        }
+      }
+    }
+  }
+  return { l3Low: drew[0] ? planes[0]! : null, l3High: drew[1] ? planes[1]! : null }
+}
+
 /** What the map tab draws: L1's inputs plus the background and the layer-order verdict. */
 export interface MapInputs extends L1Inputs {
   l2?: L2Result
+  /** Layer 3's plane lists, math, priority bit and inputs, or why it is not drawn (#561, #562). Absent: the old order, no math, no layer 3. */
+  l3?: L3Verdict
   /** Why the planes' order is unverified (not BG mode 1, or the mode could not be read). */
   orderNote?: string
 }
@@ -230,6 +300,7 @@ export function screenResult(
   const drawn: Partial<Record<MapPlaneKey, Plane>> = {
     ...drawL1Planes(model, screen, switches, vram),
     ...(l2 && drawL2Planes(model, l2, screen, vram)),
+    ...(model.l3?.l3 && drawL3Planes(model.l3.l3, screen)),
   }
   return {
     status: 'ok',
@@ -244,6 +315,21 @@ export function screenResult(
         return [k, rgba ? base64(rgba) : null]
       }),
     ) as Record<MapPlaneKey, string | null>,
+    layer3: {
+      priority: model.l3?.priority ?? model.header.layer3Priority,
+      reason: model.l3 ? model.l3.reason : 'Layer 3 not drawn yet',
+    },
+    screens: model.l3?.screens ?? FALLBACK_SCREENS,
+    math:
+      model.l3?.cgadsub != null
+        ? {
+            cgadsub: model.l3.cgadsub,
+            // The fixed color is BackAreaColors[header byte 1 >> 5], the same entry as the
+            // back area (bank_00.asm:5623-5628).
+            fixed: [model.backArea[0], model.backArea[1], model.backArea[2]],
+          }
+        : null,
+    layer2Interactive: model.l3?.layer2Interactive ?? false,
     note: [...model.unverified, model.animNote].filter(Boolean).join(' ') || undefined,
     layerNotes: [
       model.l2 && !model.l2.ok ? `The background is not drawn: ${model.l2.reason}` : '',
@@ -282,7 +368,12 @@ export function buildMapInputs(
   const bg = bgMode()
   return {
     ok: true,
-    inputs: { ...built.inputs, l2: buildL2Inputs(rom, index, built.inputs), orderNote: bg.ok ? undefined : bg.reason }, // prettier-ignore
+    inputs: {
+      ...built.inputs,
+      l2: buildL2Inputs(rom, index, built.inputs),
+      l3: buildL3Verdict(rom.rom, index, built.inputs, bg),
+      orderNote: bg.ok ? undefined : bg.reason,
+    },
   }
 }
 
