@@ -230,7 +230,12 @@ export class GfxViewWidget extends ReactWidget implements SaveableSource, Stroke
   /** Drops every unsaved stroke, and shows the ROM's own pixels again. */
   protected discardStrokes(): void {
     this.drawing = undefined
-    this.setStrokes([], [])
+    this.restroke([], [])
+  }
+
+  /** Swap in a stroke list and repaint the canvas from the ROM's pixels. */
+  protected restroke(strokes: Stroke[], redo: Stroke[]): void {
+    this.setStrokes(strokes, redo)
     this.rebuildImage()
     this.update()
   }
@@ -246,17 +251,13 @@ export class GfxViewWidget extends ReactWidget implements SaveableSource, Stroke
   undoStroke(): void {
     const last = this.strokes[this.strokes.length - 1]
     if (!last) return
-    this.setStrokes(this.strokes.slice(0, -1), [...this.redoStrokes, last])
-    this.rebuildImage()
-    this.update()
+    this.restroke(this.strokes.slice(0, -1), [...this.redoStrokes, last])
   }
 
   redoStroke(): void {
     const next = this.redoStrokes[this.redoStrokes.length - 1]
     if (!next) return
-    this.setStrokes([...this.strokes, next], this.redoStrokes.slice(0, -1))
-    this.rebuildImage()
-    this.update()
+    this.restroke([...this.strokes, next], this.redoStrokes.slice(0, -1))
   }
 
   /**
