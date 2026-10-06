@@ -7,9 +7,10 @@
  * Cycle counts and bus timing (dummy reads, write order, MLB/VPA lines) are
  * NOT modelled. Evidence: test/suite/unit/cpu/SingleStep.test.ts.
  *
- * WAI and STP only set `waiting` / `stopped`; step() does not halt, callers
- * check the flags. MVN/MVP move one byte per step(), so `onInstruction` fires
- * once per byte moved.
+ * WAI and STP set `waiting` / `stopped` and step() then returns without
+ * fetching (PC unchanged); there is no interrupt entry, so nothing clears
+ * them. MVN/MVP move one byte per step(), so `onInstruction` fires once per
+ * byte moved.
  */
 
 export interface Bus {
@@ -108,15 +109,28 @@ export class Cpu65816 {
   m8 = true
   /** True when X and Y are 8 bit. */
   x8 = true
-  /** Emulation flag. */
-  e = true
-  /** Set by STP / WAI; step() keeps executing regardless, the owner decides. */
+  private emu = true
+  /** Set by STP / WAI; step() is then a no-op, the owner reads the flags. */
   stopped = false
   waiting = false
   /** The last ea() stays inside bank 0 / 16 bits (direct page, stack relative). */
   private wrap16 = false
 
   constructor(readonly bus: Bus) {}
+
+  /** Emulation flag. Setting it true applies the invariant XCE applies. */
+  get e(): boolean {
+    return this.emu
+  }
+  set e(v: boolean) {
+    this.emu = v
+    if (v) {
+      this.m8 = this.x8 = true
+      this.x &= 0xff
+      this.y &= 0xff
+      this.s = 0x100 | (this.s & 0xff)
+    }
+  }
 
   get p(): number {
     return (
@@ -174,10 +188,16 @@ export class Cpu65816 {
   }
   /**
    * `old` stack ops (6502 heritage) wrap inside page 1 in emulation mode; the
-   * 65816 additions (PEA PEI PER PHD PLD PLB JSL RTL) let S walk out of the
-   * page and are re-pinned to page 1 after the instruction. These rules are
-   * FITTED to the SingleStepTests data, not derived from hardware docs: ares
-   * (instructions-pc.cpp) differs on JSR (a,X), and LakeSnes wraps every push.
+   * 65816 additions (PEA PEI PER PHD PLD PLB JSL RTL, JSR (a,X)) let S walk out
+   * of the page and are re-pinned to page 1 after the instruction.
+   * Rule: Clark and WDC documentation, confirmed by bsnes or Snes9x where they
+   * agree, win over SingleStepTests. Clark: https://6502.org/tutorials/65c816opcodes.html
+   * (#5.11, #APPENDIX); Snes9x cpuaddr.h:412-414 and cpuops.cpp:2947-2955.
+   * PEI is the exception to "confirmed": Snes9x wraps its pointer when DL=0
+   * (OpD4E1, cpuaddr.h:245-247); the core follows Clark and the vectors, which agree.
+   * Two vector sets disagree and are listed as exceptions in
+   * test/suite/support/singleStep.ts: `(dp,X)` pointer wrap (upstream
+   * SingleStepTests/65816 issue 3) and JSR (a,X) push wrap (issues 6, 7).
    * PHB and PHK are 65816 additions too; treating them as `old` is harmless
    * because of the post-step S pin.
    */
@@ -240,7 +260,7 @@ export class Cpu65816 {
       case 'longx':
         return (this.fetch(3) + this.x) & 0xffffff
       case 'idx':
-        return dbase + this.dpPtr(this.dpEa(this.fetch(1), this.x), 2, false)
+        return dbase + this.dpPtr(this.dpEa(this.fetch(1), this.x), 2, true)
       case 'ind':
         return dbase + this.dpPtr(this.dpEa(this.fetch(1)), 2, true)
       case 'indy':
@@ -347,8 +367,12 @@ export class Cpu65816 {
     this.pc = this.rd(vec) | (this.rd(vec + 1) << 8)
   }
 
-  /** Executes one instruction. */
+  /**
+   * Executes one instruction; a no-op while `waiting` or `stopped`. A bus whose
+   * read or write throws leaves the machine half-executed: discard it.
+   */
   step(): void {
+    if (this.stopped || this.waiting) return
     this.wrap16 = false
     if (this.e) this.s = 0x100 | (this.s & 0xff)
     const addr = (this.pb << 16) | this.pc
@@ -479,7 +503,8 @@ export class Cpu65816 {
       }
       case 0xfc: {
         const p = this.fetch(2)
-        this.push(this.pc - 1, 2)
+        // A 65816 addition: its push does not wrap in emulation mode (Clark appendix).
+        this.push(this.pc - 1, 2, false)
         this.wrap16 = true
         this.pc = this.rdN((this.pb << 16) | ((p + this.x) & 0xffff), true)
         break
@@ -513,7 +538,8 @@ export class Cpu65816 {
         this.trap(0xffe4, 0xfff4)
         break
       case 0x42:
-        this.fetch(1)
+        // The signature byte is skipped, not read: no bus access on hardware.
+        this.pc = (this.pc + 1) & 0xffff
         break
       case 0xcb:
         this.waiting = true
@@ -585,13 +611,7 @@ export class Cpu65816 {
         // XCE: swap carry and emulation. Entering emulation narrows registers and pins S to page 1.
         const ne = this.c
         this.c = this.e
-        this.e = ne
-        if (this.e) {
-          this.m8 = this.x8 = true
-          this.x &= 0xff
-          this.y &= 0xff
-          this.s = 0x100 | (this.s & 0xff)
-        }
+        this.e = ne // the setter narrows registers and pins S when entering emulation
         break
       }
       case 0xaa:
@@ -616,6 +636,7 @@ export class Cpu65816 {
         this.x = this.nz(wx ? this.s : this.s & 0xff, wx)
         break
       case 0x9a:
+        // The e-mode branch here and in TCS is redundant with the post-step S pin (audit #646 F10).
         this.s = this.e ? 0x100 | (this.x & 0xff) : this.x & 0xffff
         break
       case 0x5b:
