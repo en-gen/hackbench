@@ -2811,10 +2811,15 @@ describe('handle_0DE971 (cave fill, ext $5F)', () => {
     return filled
   }
 
+  function fill(grid: number[][], col: number, row: number, vertical = false): void {
+    const cur = makeCursorForHandler(0x0de971, grid, makeMockRom(), 0, col, row, 0x5f, 0)
+    cur.vertical = vertical
+    handle_0DE971(cur)
+  }
+
   it('horizontal: 432 + 432 + 160 bytes from row 0 of the object screen', () => {
     const grid = createGrid(4)
-    const cur = makeCursorForHandler(0x0de971, grid, makeMockRom(), 0, 16 + 5, 3, 0x5f, 0)
-    handle_0DE971(cur)
+    fill(grid, 16 + 5, 3)
     expect(expectRun(grid, horizOffset, 0x1b0)).toBe(RUN)
     expect(grid[0][16]).toBe(0x77) // screen 1 row 0
     expect(grid[26][47]).toBe(0x77) // screen 2 last cell
@@ -2832,18 +2837,7 @@ describe('handle_0DE971 (cave fill, ext $5F)', () => {
           [15, 15],
         ]) {
           const grid = createGrid(6)
-          const col = screen * 16 + x
-          const cur = makeCursorForHandler(
-            0x0de971,
-            grid,
-            makeMockRom(),
-            0,
-            col,
-            y + hi * 16,
-            0x5f,
-            0,
-          )
-          handle_0DE971(cur)
+          fill(grid, screen * 16 + x, y + hi * 16)
           expectRun(grid, horizOffset, screen * 0x1b0 + hi * 0x100)
         }
       }
@@ -2852,7 +2846,7 @@ describe('handle_0DE971 (cave fill, ext $5F)', () => {
 
   it('horizontal: a run past the last screen draws only the cells that exist', () => {
     const grid = createGrid(2)
-    handle_0DE971(makeCursorForHandler(0x0de971, grid, makeMockRom(), 0, 16, 0, 0x5f, 0))
+    fill(grid, 16, 0)
     expect(grid[0].length).toBe(32)
     expect(expectRun(grid, horizOffset, 0x1b0)).toBe(0x1b0)
   })
@@ -2866,18 +2860,7 @@ describe('handle_0DE971 (cave fill, ext $5F)', () => {
           [15, 15],
         ]) {
           const grid = createGrid(5, true)
-          const cur = makeCursorForHandler(
-            0x0de971,
-            grid,
-            makeMockRom(),
-            0,
-            x + hi * 16,
-            screen * 16 + y,
-            0x5f,
-            0,
-          )
-          cur.vertical = true
-          handle_0DE971(cur)
+          fill(grid, x + hi * 16, screen * 16 + y, true)
           expectRun(grid, vertOffset, screen * 0x200 + hi * 0x100)
         }
       }
@@ -2886,9 +2869,7 @@ describe('handle_0DE971 (cave fill, ext $5F)', () => {
 
   it('vertical: screen 1, left half covers its both halves and the next screen', () => {
     const grid = createGrid(4, true)
-    const cur = makeCursorForHandler(0x0de971, grid, makeMockRom(), 0, 3, 16 + 2, 0x5f, 0)
-    cur.vertical = true
-    handle_0DE971(cur)
+    fill(grid, 3, 16 + 2, true)
     expect(grid[16][0]).toBe(0x77)
     expect(grid[31][31]).toBe(0x77)
     expect(grid[32][15]).toBe(0x77)
