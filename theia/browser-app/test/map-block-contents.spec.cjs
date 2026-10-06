@@ -385,6 +385,26 @@ test('a progressive block holds the mushroom bottom-left and its item top-right,
   expect(colours(flower.regions.above)).not.toBe(colours(flower.regions.below))
 })
 
+test('a split indicator has a black line on its diagonal, only on opaque pixels and inside the block', async ({
+  page,
+}) => {
+  const project = await createProject(page)
+  await ready(page, project, 0x105)
+  const { b, regions } = await hoveredSplit(page, 0x105, 243, 17)
+  expect(regions.diag.length, 'the diagonal has pixels').toBeGreaterThan(0)
+  expect(
+    regions.diag.every(d => d.rgb.join() === '0,0,0'),
+    'every diagonal pixel is black',
+  ).toBe(true)
+  // The line stops at the items' edges: fewer than all 16 diagonal cells.
+  const px = bbox(b.pixels)
+  expect(px.x0).toBeGreaterThanOrEqual(b.rect.x0)
+  expect(px.y1).toBeLessThanOrEqual(b.rect.y1)
+  const cells = new Set(regions.diag.map(d => d.ax))
+  expect(cells.size).toBeLessThan(16)
+  expect(cells.size).toBeGreaterThan(3)
+})
+
 test('a cell shows the item of its own X column', async ({ page }) => {
   const project = await createProject(page)
   const keys = async (index, cells) =>

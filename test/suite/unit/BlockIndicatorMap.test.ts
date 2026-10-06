@@ -167,11 +167,12 @@ describe('blockIndicators: placement', () => {
 })
 
 describe('blockIndicators: what is drawn', () => {
-  it('splits a progressive block: small item bottom-left, big item top-right', () => {
+  it('splits a progressive block: small item bottom-left, big item top-right, black on the diagonal', () => {
     const r = ok(blockIndicators(model([[0, 0, 0x113]]), TABLES, stubArt().art))
     const a = unb(r.arts[r.indicators[0]!.art]!)
     expect(at(a, 0, 15)).toEqual(spriteColour(0x41))
     expect(at(a, 15, 0)).toEqual(spriteColour(0x42))
+    for (let d = 0; d < 16; d++) expect(at(a, d, d)).toEqual([0, 0, 0, 255])
   })
 
   it('draws star-or-coin ($11A column 0, $122) and coin-or-1-up ($12D) as coin bottom-left, the other item top-right', () => {
@@ -190,6 +191,7 @@ describe('blockIndicators: what is drawn', () => {
     const [star, oneUp] = r.indicators.map(i => unb(r.arts[i.art]!))
     expect([at(star!, 0, 15), at(star!, 15, 0)]).toEqual([COIN, spriteColour(0x43)])
     expect([at(oneUp!, 0, 15), at(oneUp!, 15, 0)]).toEqual([COIN, spriteColour(0x47)])
+    for (const a of [star!, oneUp!]) for (let d = 0; d < 16; d++) expect(at(a, d, d)).toEqual([0, 0, 0, 255]) // prettier-ignore
   })
 
   it('leaves a Yoshi-loose variant undrawn and says so in plain words', () => {

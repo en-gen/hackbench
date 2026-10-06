@@ -38,28 +38,36 @@ describe('splitDiagonal', () => {
   const red = solid([255, 0, 0, 255])
   const blue = solid([0, 0, 255, 255])
   const out = splitDiagonal(red, blue)
-  it('puts the small item bottom-left and the big item top-right, hard', () => {
+  it('puts the small item bottom-left and the big item top-right, hard, off the diagonal', () => {
     expect(at(out, 0, 15)).toEqual([255, 0, 0, 255])
     expect(at(out, 15, 0)).toEqual([0, 0, 255, 255])
     for (let y = 0; y < BLOCK; y++)
-      for (let x = 0; x < BLOCK; x++) expect(at(out, x, y)).toEqual(at(y > x ? red : blue, x, y))
+      for (let x = 0; x < BLOCK; x++)
+        if (x !== y) expect(at(out, x, y)).toEqual(at(y > x ? red : blue, x, y))
   })
-  it('splits every pixel exactly once: 120 small, 136 big, no blended colour', () => {
+  it('splits every off-diagonal pixel once: 120 small, 120 big, 16 black', () => {
     let small = 0
-    let big = 0
+    let black = 0
     for (let y = 0; y < BLOCK; y++)
       for (let x = 0; x < BLOCK; x++) {
-        const p = at(out, x, y).join()
-        if (p === '255,0,0,255') small++
-        else if (p === '0,0,255,255') big++
+        const p = at(out, x, y)
+        if (p[0] === 255) small++
+        if (p.join() === '0,0,0,255') black++
       }
-    expect([small, big]).toEqual([120, 136])
+    expect([small, black]).toEqual([120, 16])
   })
-  it('leaves transparent pixels transparent', () => {
+  it('paints the line only where the split art is opaque, and nowhere else', () => {
+    // big is opaque on the diagonal for x < 8 only; small is opaque everywhere.
     const part = new Uint8ClampedArray(BLOCK * BLOCK * 4)
+    for (let y = 0; y < BLOCK; y++)
+      for (let x = 0; x < 8; x++) part.set([0, 0, 255, 255], (y * BLOCK + x) * 4)
     const o = splitDiagonal(red, part)
-    expect(at(o, 15, 0)).toEqual([0, 0, 0, 0])
-    expect(at(o, 3, 3)).toEqual([0, 0, 0, 0])
+    for (let d = 0; d < BLOCK; d++) {
+      expect(at(o, d, d)).toEqual(d < 8 ? [0, 0, 0, 255] : [0, 0, 0, 0])
+    }
+    for (let y = 0; y < BLOCK; y++)
+      for (let x = 0; x < BLOCK; x++)
+        if (x !== y) expect(at(o, x, y)).toEqual(at(y > x ? red : part, x, y))
   })
 })
 

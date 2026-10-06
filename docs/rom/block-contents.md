@@ -125,9 +125,9 @@ Maps view, #566 PR B (`theia/extension/src/node/map-block-contents.ts`,
 - Split indicators: the progressive blocks (mushroom bottom-left, item top-right)
   and, by the #623 ruling, the two-outcome blocks that include a coin ($11A
   column 0 of 3 and $122: coin bottom-left, star top-right; $12D: coin
-  bottom-left, 1-up top-right). A hard diagonal from top-left to bottom-right,
-  no line and no blending; the pixels on the diagonal take the top-right item.
-  A black line along the diagonal is pending an owner mockup.
+  bottom-left, 1-up top-right). A hard diagonal from top-left to bottom-right
+  with a 1 px black line on it, painted only where the split art is opaque, so
+  it stops at the items' edges. The pixels on the diagonal take the top-right item.
 - Multi-coin ($11B, $123): the coin with a 5 x 5 white "+" (7 x 7 with a black
   edge) baked into the corner of its 16 x 16 art. $11C and $124: the plain coin.
 - Each cell resolves for its own X column; the P-switch uses the spawn
