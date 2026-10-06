@@ -143,18 +143,48 @@ export function handle_0DA673(cur: Cursor): void {
  *
  * In-game this consults OWLevelTileSettings and MidwayFlag to decide whether
  * to emit the tape ($35) and base ($38). For an editor we always show the
- * midway post.
+ * midway post (the two gates are tracked separately, not ported here).
+ *
+ * Column 0 of a screen (bank_0D.asm:1625-1632, 1999-2002): DEY on the 8-bit
+ * Y moves the tape to column 15 of the row above ON THE SAME SCREEN, and the
+ * INY after it reads as a screen edge, so the base lands at column 0 of the
+ * NEXT screen, on the object's own row. With no row above in its 16-row
+ * half, Y wraps to $FF: row 0 draws the tape at row 15; row 16 draws it at
+ * $1FF past the +$100 pointer, which is row 4 of the next screen. Vanilla
+ * ROM, horizontal levels, checked against the #351 interpreter at rows 0, 2,
+ * 10, 16, 18, 26. Vertical levels have a different buffer layout and no
+ * oracle yet, so they keep the old two-cell draw (shape test: a horizontal
+ * grid is always 27 rows tall, a vertical one a multiple of 16).
  */
 export function handle_0DA68E(cur: Cursor): void {
   // CODE_0DA68E inline tile immediates: +23 $35 (tape), +31 $38 (base).
   const tapeTile = readImmByte(cur, cur.handlerAddr + 23)
   const baseTile = readImmByte(cur, cur.handlerAddr + 31)
   const origCol = cur.col
+  const origRow = cur.row
   setPage0(cur)
-  cur.col = origCol - 1
+  if (origCol % 16 !== 0 || cur.grid.length !== 27) {
+    cur.col = origCol - 1
+    writeTile(cur, tapeTile)
+    cur.col = origCol
+    writeTile(cur, baseTile)
+    return
+  }
+  if ((origRow & 15) > 0) {
+    cur.row = origRow - 1
+    cur.col = origCol + 15
+  } else if (origRow < 16) {
+    cur.row = 15
+    cur.col = origCol + 15
+  } else {
+    cur.row = 4
+    cur.col = origCol + 31
+  }
   writeTile(cur, tapeTile)
-  cur.col = origCol
+  cur.row = origRow
+  cur.col = origCol + 16
   writeTile(cur, baseTile)
+  cur.col = origCol
 }
 
 /**
