@@ -192,12 +192,32 @@ describe('resolveBlockContents', () => {
     const sprites = Uint8Array.from(SPRITES)
     sprites[1] = sprites[18] = 0 // first-item slot: a progressive block keeps only its item
     const noFirst = { ...TABLES, spriteInBlock: sprites }
-    expect(resolveBlockContents(0x112, 0, noFirst)!.condition).toBe('Sprite $42')
+    expect(resolveBlockContents(0x112, 0, noFirst)!.condition).toBe(
+      'nothing if Mario is small, otherwise Sprite $42',
+    )
     sprites[3] = sprites[20] = 0
     expect(resolveBlockContents(0x114, 0, noFirst)!.condition).toBe('Nothing')
     const zero = { ...TABLES, columnOverride: Uint8Array.from([0, 0, 0, 0]) }
     for (let col = 0; col < 4; col++)
       expect(resolveBlockContents(0x118, col, zero)!.condition.startsWith('Nothing')).toBe(true)
+  })
+
+  it('an empty branch of a progressive outcome keeps its condition', () => {
+    const sprites = Uint8Array.from(SPRITES)
+    sprites[2] = sprites[19] = 0 // the big item of tile $112
+    const noItem = { ...TABLES, spriteInBlock: sprites }
+    const r = resolveBlockContents(0x112, 0, noItem)!
+    expect(r.condition).toBe(`${SMALL} nothing`)
+    expect(r.spriteIds).toEqual([0x41])
+    expect(r.progressive).toBeNull()
+    // The star-or-coin tile: the star branch is empty, the coin branch stays.
+    sprites[3] = sprites[20] = 0
+    expect(resolveBlockContents(0x11c, 0, noItem)!.condition).toBe(
+      'nothing if Mario is invincible, otherwise Coin',
+    )
+    // Both branches empty is a block with nothing.
+    sprites[1] = sprites[18] = 0
+    expect(resolveBlockContents(0x112, 0, noItem)!.condition).toBe('Nothing')
   })
 
   it('a content id of $11 or more reads the contiguous bytes, as the ROM does', () => {

@@ -158,6 +158,7 @@ export type BlockContent =
       position?: string
       caveat?: string
     }
+  | { kind: 'none'; label: string } // an empty branch of a conditional outcome
   | { kind: 'coin'; label: string }
   | { kind: 'multiCoin'; label: string }
 
@@ -260,24 +261,28 @@ function chain(pairs: [string | null, BlockContent | null][]): ContentAlternativ
   return alts
 }
 
+const EMPTY: BlockContent = { kind: 'none', label: 'nothing' }
+
 /** CODE_00F1BA (bank_00.asm:12877-12891): one selector value to alternatives. */
 function decode(value: number, c: Ctx): ContentAlternative[] {
   const id = value >> 1
   const item = contentFor(id, c)
-  if (!item) return []
-  if ((value & 1) === 0) return chain([[null, item]])
+  if ((value & 1) === 0) return item ? chain([[null, item]]) : []
   if (id === CONTENT_STAR) {
     // Star only while InvinsibilityTimer is nonzero, else coin (bank_00.asm:12887-12891).
     // ASM reading, not yet confirmed in an emulator.
     return chain([
-      ['Mario is invincible', item],
+      ['Mario is invincible', item ?? EMPTY],
       [null, contentFor(CONTENT_COIN, c)],
     ])
   }
-  // Mushroom unless Powerup is nonzero (bank_00.asm:12882-12885).
+  // Mushroom unless Powerup is nonzero (bank_00.asm:12882-12885). An empty table
+  // entry stays an empty branch under its condition, not an unconditional other branch.
+  const mushroom = contentFor(1, c)
+  if (!item && !mushroom) return []
   return chain([
-    ['Mario is small', contentFor(1, c)],
-    [null, item],
+    ['Mario is small', mushroom ?? EMPTY],
+    [null, item ?? EMPTY],
   ])
 }
 
