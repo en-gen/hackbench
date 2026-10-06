@@ -308,10 +308,8 @@ describe('SingleStep harness oracle: write log, S/E, collapse scope, MVN (#646)'
     const mvn = (a: number): StepCase => {
       const code: [number, number][] = [[0x8000, 0x54], [0x8001, 1], [0x8002, 0]] // prettier-ignore
       const n = a === 0 ? 1 : 14
-      const moved: [number, number][] = []
-      for (let k = 0; k < n; k++) moved.push([0x10030 + k, 0x77])
-      const src: [number, number][] = []
-      for (let k = 0; k < n; k++) src.push([0x20 + k, 0x77])
+      const moved = Array.from({ length: n }, (_, k): [number, number] => [0x10030 + k, 0x77])
+      const src = Array.from({ length: n }, (_, k): [number, number] => [0x20 + k, 0x77])
       return {
         name: 'mvn',
         initial: st({ a, x: 0x20, y: 0x30, ram: [...code, ...src] }),

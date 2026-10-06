@@ -218,16 +218,15 @@ describe('Cpu65816 flag and register edges', () => {
     m.run(1)
     Object.assign(m.cpu, { x: 0x1234, y: 0xabcd, s: 0x2345, a: 0x5678 })
     m.run(2)
-    const c = m.cpu
-    expect([c.e, c.m8, c.x8, c.x, c.y, c.s, c.a]).toEqual([
-      true,
-      true,
-      true,
-      0x34,
-      0xcd,
-      0x145,
-      0x5678,
-    ])
+    expect(m.cpu).toMatchObject({
+      e: true,
+      m8: true,
+      x8: true,
+      x: 0x34,
+      y: 0xcd,
+      s: 0x145,
+      a: 0x5678,
+    })
   })
   it('MVN counts all of A even with 8-bit M', () => {
     const m = nat([0x54, 0x01, 0x00])
