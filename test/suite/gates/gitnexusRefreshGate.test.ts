@@ -10,23 +10,10 @@ import { execFileSync } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { findBash } from '../support/gitBash'
 
 const repoRoot = path.resolve(__dirname, '../../..')
 const script = path.join(repoRoot, 'tools/scripts/gitnexus-refresh.sh')
-
-// A bare `bash` on win32 can be the WSL launcher; use Git for Windows' bash and
-// fail loudly when it is missing (same approach as perfAccept.test.ts).
-function findBash(): string {
-  if (process.platform !== 'win32') return 'bash'
-  const exec = execFileSync('git', ['--exec-path'], { encoding: 'utf8' }).trim()
-  const candidates = [
-    path.resolve(exec, '..', '..', '..', 'bin', 'bash.exe'),
-    path.join(process.env.ProgramFiles ?? 'C:/Program Files', 'Git', 'bin', 'bash.exe'),
-  ]
-  const found = candidates.find(fs.existsSync)
-  if (!found) throw new Error(`Git Bash required, not found at ${candidates.join(' or ')}`)
-  return found
-}
 
 function makeWritable(p: string): void {
   fs.chmodSync(p, 0o700)
