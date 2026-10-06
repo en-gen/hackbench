@@ -416,6 +416,18 @@ test('a progressive block holds the mushroom bottom-left and its item top-right,
   expect(flower.regions.below.length).toBeGreaterThan(10)
   // The same mushroom: the same art pixels (the level's palette may colour it differently), none on the diagonal.
   expect(unlike(shape(flower.regions.below), shape(feather.regions.below))).toBeLessThan(0.06)
+  // It is the mushroom in its own palette (red, not the 1-up's green): the unit test checks the exact row
+  // against the ROM and the level's CGRAM; here the drawn pixels must be red-dominant and none green-dominant.
+  for (const half of [flower.regions.below, feather.regions.below]) {
+    expect(
+      half.some(d => d.rgb[0] > 150 && d.rgb[1] < 90 && d.rgb[2] < 90),
+      'a red mushroom pixel',
+    ).toBe(true)
+    expect(
+      half.some(d => d.rgb[1] > d.rgb[0] + 50 && d.rgb[1] > d.rgb[2] + 50),
+      'no green pixel',
+    ).toBe(false)
+  }
   // Above it the flower and the feather differ, and a block is not one item twice.
   expect(flower.regions.above.length).toBeGreaterThan(10)
   expect(colours(flower.regions.above)).not.toBe(colours(feather.regions.above))

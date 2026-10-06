@@ -15,6 +15,7 @@ import {
   type BlockContentTables,
   type BlockContents,
 } from '../../../src/rom/BlockContents'
+import { paintIndicator, splitDiagonal } from '../../../theia/extension/src/common/block-indicator'
 import { composeScreen } from '../../../src/rom/model/ColorMath'
 import { RomFile } from '../../../src/rom/RomFile'
 import {
@@ -33,6 +34,7 @@ import { drawSprites, interpDrawer } from '../../../theia/extension/src/node/map
 import { L1ModelCache } from '../../../theia/extension/src/node/map-screen'
 import {
   decodeArts,
+  indicatorId,
   hoverTarget,
   IndicatorDisplay,
   scaleNearest,
@@ -520,6 +522,96 @@ describe('IndicatorDisplay: indicators draw in the layer pass of their block', (
   })
 })
 
+describe('IndicatorDisplay against an independent full compose, with color math', () => {
+  const W = 32
+  const g = { orientation: 'horizontal' as const, width: W, height: W }
+  const math = { cgadsub: 0x23, fixed: [0, 0, 120] as const } // add the fixed color to BG1, BG2 and the backdrop
+  const lists = { main: ['l2Low', 'l1Low'] as ('l2Low' | 'l1Low')[], sub: [] as never[] }
+  const native = (cells: [number, number][], rgb: [number, number, number]) => {
+    const d = new Uint8ClampedArray(W * W * 4)
+    for (const [x, y] of cells) d.set([...rgb, 255], (y * W + x) * 4)
+    return d
+  }
+  const blob = (x0: number, y0: number, n: number) => Array.from({ length: n * n }, (_, i) => [x0 + (i % n), y0 + Math.floor(i / n)] as [number, number]) // prettier-ignore
+  const planes = { l1Low: native(blob(10, 2, 8), [0, 0, 200]), l2Low: native([...blob(2, 2, 10), ...blob(20, 20, 6)], [0, 160, 30]) } // prettier-ignore
+  // A split art, so the half-painted diagonal triangles are in play, beside a plain one.
+  const half = new Uint8ClampedArray(16 * 16 * 4)
+  for (let y = 0; y < 16; y++)
+    for (let x = 0; x < 8; x++) half.set([40, 40, 220, 255], (y * 16 + x) * 4)
+  const artSet = new Map([['plain', solid([200, 0, 0, 255])], ['split', splitDiagonal(solid([255, 255, 0, 255]), half)]]) // prettier-ignore
+  const list: Indicator[] = [A('plain', 0, 0, 'l2Low'), A('split', 16, 0, 'l1Low'), A('split', 0, 16, 'l2Low'), A('plain', 16, 16, 'l1Low')] // prettier-ignore
+  const base = composeScreen({ width: W, height: W, planes, lists, math })
+  const display = (zoom: number, hoverId?: string) => new IndicatorDisplay({ width: W, height: W, zoom, screen: 0, geometry: g, planes, lists, math, base, indicators: list, arts: artSet }, hoverId) // prettier-ignore
+
+  /** Every plane scaled whole, each indicator painted into its plane, the whole screen composed: no cells, no cache. */
+  function reference(zoom: number, hoverId?: string) {
+    const [dw, dh] = [Math.round(W * zoom), Math.round(W * zoom)]
+    const scaled: Record<string, Uint8ClampedArray> = {}
+    for (const [k, data] of Object.entries(planes)) {
+      const out = new Uint8ClampedArray(dw * dh * 4)
+      for (let y = 0; y < dh; y++)
+        for (let x = 0; x < dw; x++) {
+          const from = (Math.floor((y * W) / dh) * W + Math.floor((x * W) / dw)) * 4
+          out.set(data.subarray(from, from + 4), (y * dw + x) * 4)
+        }
+      scaled[k] = out
+    }
+    for (const q of list) paintIndicator(scaled[q.plane]!, dw, dh, q.x, q.y, artSet.get(q.art)!, zoom, indicatorId(q) === hoverId) // prettier-ignore
+    return composeScreen({ width: dw, height: dh, planes: scaled, lists, math })
+  }
+
+  it.each([1, 2, 3, 1.7])(
+    'is byte for byte the full compose at %sx, at rest and after every hover move',
+    zoom => {
+      const d = display(zoom)
+      expect(Array.from(d.image)).toEqual(Array.from(reference(zoom)))
+      for (const id of [
+        ...list.map(indicatorId),
+        undefined,
+        list.map(indicatorId)[3],
+        list.map(indicatorId)[0],
+      ]) {
+        d.setHover(id)
+        expect(Array.from(d.image), `${zoom}x, hover ${id}`).toEqual(
+          Array.from(reference(zoom, id)),
+        )
+      }
+      // The independent compose really includes color math: a green BG2 pixel (blue 30) got the fixed blue.
+      const [px, dw] = [Math.floor(5 * zoom), Math.round(W * zoom)]
+      expect(reference(zoom)[(px * dw + px) * 4 + 2]).toBeGreaterThan(100)
+    },
+  )
+})
+
+describe('IndicatorDisplay: which indicators belong to a screen', () => {
+  const g = { orientation: 'horizontal' as const, width: 32, height: 32 }
+  const arts = decodeArts({ a: Buffer.from(solid([200, 0, 0, 255])).toString('base64') })
+  const lists = { main: ['l1Low' as const], sub: [] as never[] }
+  const on = (screen: number, ind: Indicator[], geometry: { orientation: 'horizontal' | 'vertical'; width: number; height: number } = g) => // prettier-ignore
+    new IndicatorDisplay({ width: 32, height: 32, zoom: 1, screen, geometry, planes: { l1Low: null }, lists, math: null, base: new Uint8ClampedArray(32 * 32 * 4), indicators: ind, arts }) // prettier-ignore
+  it('keeps an indicator on the screen it is on, and drops the ones either side of it', () => {
+    // Screen 1 spans x 32..63: x = 8 is a screen to the left (it ends at 24), x = 72 one to the right.
+    expect(
+      on(1, [A('a', 8, 0), A('a', 40, 0), A('a', 72, 0)])
+        .records()
+        .map(r => r.id),
+    ).toEqual(['l1Low:40:0'])
+    expect(on(1, [A('a', 8, 0), A('a', 72, 0)]).touches).toBe(false)
+    // The edges: a block that ends at the screen's left edge, or starts at its right edge, is not on it.
+    expect(on(1, [A('a', 16, 0), A('a', 64, 0)]).touches).toBe(false)
+    expect(on(1, [A('a', 24, 0), A('a', 56, 0)]).records()).toHaveLength(2) // straddling the edges: on it
+  })
+  it('does the same down a vertical map, by y', () => {
+    const v = { orientation: 'vertical' as const, width: 32, height: 32 }
+    expect(
+      on(1, [A('a', 0, 8), A('a', 0, 40), A('a', 0, 72)], v)
+        .records()
+        .map(r => r.id),
+    ).toEqual(['l1Low:0:40'])
+    expect(on(1, [A('a', 0, 16), A('a', 0, 64)], v).touches).toBe(false)
+  })
+})
+
 /** The coin's colours on map $10B, from the cart's own coin draw. */
 function romArtCoin(): Set<string> {
   const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
@@ -658,4 +750,28 @@ describe.skipIf(!hasRom(VANILLA))('mapBlockContents on the vanilla ROM', () => {
       expect(got.filter(Boolean).length).toBe(pinned)
     },
   )
+
+  // The mushroom half is drawn in the mushroom's own palette row (Sprite166EVals, $07F3FE + id, low nibble:
+  // OBJ row 8 + (attr >> 1 & 7)), read here from the ROM and the level's CGRAM, so a 1-up drawn in its place fails.
+  it('draws the mushroom half of a progressive block in the mushroom palette row, not the 1-up one', () => {
+    const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
+    const rom = RomFile.fromBytes('v.sfc', Buffer.from(bytes))
+    const built = new L1ModelCache().get(bytes, romPath(VANILLA), 0x105, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
+    if (!built.ok) throw new Error(built.reason)
+    const row = (sprite: number) => 8 + (((rom.readByte(0x07f3fe + sprite) ?? 0) >> 1) & 7)
+    const rowColours = (r: number) => new Set(built.inputs.colors.slice(r * 16 + 1, r * 16 + 16).map(c => c.slice(0, 3).join())) // prettier-ignore
+    expect(row(0x74)).not.toBe(row(0x78)) // a 1-up is in another row, so the difference can be seen
+    const mapped = mapBlockContents(new L1ModelCache(), bytes, romPath(VANILLA), 0x105)
+    if (mapped.status !== 'ok') throw new Error(JSON.stringify(mapped))
+    const art = unb(mapped.arts['s74:8:/s75:8:']!)
+    const below: string[] = []
+    for (let y = 0; y < 16; y++) for (let x = 0; x < y; x++) if (art[(y * 16 + x) * 4 + 3]) below.push(Array.from(art.subarray((y * 16 + x) * 4, (y * 16 + x) * 4 + 3)).join()) // prettier-ignore
+    const [mush, oneUp] = [rowColours(row(0x74)), rowColours(row(0x78))]
+    expect(below.length).toBeGreaterThan(20)
+    expect(below.every(c => mush.has(c) || c === '0,0,0' || c === '255,255,255'), 'every mushroom pixel is one of its row').toBe(true) // prettier-ignore
+    expect(
+      below.some(c => mush.has(c) && !oneUp.has(c)),
+      'a colour only the mushroom row has',
+    ).toBe(true)
+  })
 })

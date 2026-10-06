@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { runOnce, RAM, type SpawnRun } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { resolveBlockSpawn } from '../../../../src/rom/sprites/interp/SpriteDispatch'
 import { SPRITE_SEED, withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
+import { flip } from '../../support/syntheticRom'
 import { buildSyntheticRom, type SyntheticOptions } from '../../support/syntheticSpriteRom'
 
 const seed = withSeed({ slot: 3, sprite: { x: 0x80, y: 0x80 } }, SPRITE_SEED)
@@ -81,5 +82,34 @@ describe('the item block spawn', () => {
   it('refuses when the game spawns nothing', () => {
     // Content 0 has status 0 in the table, so the routine leaves every slot empty.
     expect(cells(0).m.refusal).toMatch(/found no free slot and spawned nothing/)
+  })
+})
+
+describe('the dispatcher gate refuses a single changed byte', () => {
+  const ENTRY = 0x0288dc
+  // The gate's free bytes: branch displacements and the JSL target (bank_02.asm:1097-1119).
+  const FREE = [5, 13, 17, 21, 26, 28, 32, 34, 35, 36, 39]
+
+  it('refuses a flipped first opcode, with the reason', () => {
+    const rom = buildSyntheticRom()
+    flip(rom, ENTRY) // LDY _5 becomes another instruction
+    const r = resolveBlockSpawn(rom)
+    expect(r).toMatchObject({ ok: false })
+    expect(!r.ok && r.reason).toMatch(/dispatcher is not the shape/)
+    expect(runOnce(rom, 0, seed, { spawn: spawn(1) }).refusal).toMatch(
+      /dispatcher is not the shape/,
+    )
+  })
+
+  it('refuses a change to any one fixed byte of the 41, and accepts a change to a free one', () => {
+    const refused: number[] = []
+    for (let i = 0; i < 41; i++) {
+      const rom = buildSyntheticRom()
+      flip(rom, ENTRY + i)
+      const r = resolveBlockSpawn(rom)
+      if (FREE.includes(i)) expect(r.ok, `free byte ${i}`).toBe(true)
+      else if (!r.ok) refused.push(i)
+    }
+    expect(refused).toHaveLength(41 - FREE.length)
   })
 })
