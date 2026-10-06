@@ -9,7 +9,7 @@
  * Special cases are keyed on the SPAWNED SPRITE, as the ROM does, not on the tile.
  */
 
-import { findUnique, WILD } from './BytePattern'
+import { findExactlyOneSite, WILD } from './BytePattern'
 import type { RomFile } from './RomFile'
 
 export const FIRST_ITEM_BLOCK = 0x111
@@ -62,6 +62,8 @@ export interface BlockContentTables {
   readonly eggContents: Uint8Array // DATA_0288A1[0..1]: [no Yoshi out, Yoshi out]
   /** Immediate of the green star counter reset (bank_00.asm:1980); null if not found. */
   readonly greenStarCoins: number | null
+  /** Why `greenStarCoins` is null (site missing or ambiguous), from findExactlyOneSite. */
+  readonly greenStarCoinsReason?: string
 }
 
 const SPRITE_SPAN = 0xa0 // id up to $7F, plus $11 when Yoshi is loose
@@ -69,11 +71,24 @@ const STATUS_SPAN = 0x80
 
 /** The loader's refusal: a required table could not be read, so nothing is resolved. */
 export interface TablesUnavailable {
+  readonly kind: 'unavailable'
   readonly unavailable: string
 }
 
-export function isUnavailable(x: BlockContentTables | TablesUnavailable): x is TablesUnavailable {
-  return 'unavailable' in x
+/** True for the refusal, from the loader or from the resolver (which passes it through). */
+export function isUnavailable(
+  x: BlockContentTables | BlockContents | TablesUnavailable | null,
+): x is TablesUnavailable {
+  return x !== null && (x as { kind?: string }).kind === 'unavailable'
+}
+
+class ShortTable extends Error {}
+
+/** One table byte; an index past a hand-built table's end refuses instead of defaulting. */
+function at(table: Uint8Array, i: number, name: string): number {
+  if (i < 0 || i >= table.length)
+    throw new ShortTable(`${name}[${i}] is past the end of a ${table.length}-byte table`)
+  return table[i]
 }
 
 /** A table's bytes, or null when any of them lies past the end of the ROM (no zero fill). */
@@ -88,9 +103,14 @@ function slice(rom: RomFile, addr: number, len: number): Uint8Array | null {
 }
 
 /** BNE / LDA #imm / STA GreenStarBlockCoins ($0DC0), bank_00.asm:1979-1981; the lone STA alone matches twice. */
-function readGreenStarCoins(rom: RomFile): number | null {
-  const at = findUnique(rom, [0xd0, 0x05, 0xa9, WILD, 0x8d, 0xc0, 0x0d])
-  return at === null ? null : (rom.readAtFileOffset(at + 3, 1)?.[0] ?? null)
+function readGreenStarCoins(rom: RomFile): { value: number | null; reason?: string } {
+  const what = 'the green star counter reset (bank_00.asm:1979-1981)'
+  const site = findExactlyOneSite(rom, [0xd0, 0x05, 0xa9, WILD, 0x8d, 0xc0, 0x0d], what)
+  if (!site.ok) return { value: null, reason: site.reason }
+  const value = rom.readAtFileOffset(site.offset + 3, 1)?.[0] ?? null
+  return value === null
+    ? { value, reason: `${what} operand is past the end of this ROM` }
+    : { value }
 }
 
 const TABLE_SPECS = [
@@ -111,13 +131,18 @@ export function readBlockContentTables(rom: RomFile): BlockContentTables | Table
     const bytes = slice(rom, addr, len)
     if (!bytes) {
       const at = `$${addr.toString(16).toUpperCase().padStart(6, '0')}`
-      return { unavailable: `${label} (${len} bytes at ${at}) runs past the end of this ROM` }
+      return {
+        kind: 'unavailable',
+        unavailable: `${label} (${len} bytes at ${at}) runs past the end of this ROM`,
+      }
     }
     got[key] = bytes
   }
+  const counter = readGreenStarCoins(rom)
   return {
-    ...(got as Omit<BlockContentTables, 'greenStarCoins'>),
-    greenStarCoins: readGreenStarCoins(rom),
+    ...(got as unknown as Omit<BlockContentTables, 'greenStarCoins'>),
+    greenStarCoins: counter.value,
+    ...(counter.reason ? { greenStarCoinsReason: counter.reason } : {}),
   }
 }
 
@@ -191,8 +216,9 @@ function contentFor(id: number, c: Ctx): BlockContent | null {
   if (id === CONTENT_COIN) return { kind: 'coin', label: 'Coin' }
   if (id === CONTENT_MULTICOIN) return { kind: 'multiCoin', label: 'Multiple coins' }
   const { t, col } = c
-  let sprite = t.spriteInBlock[id + (c.loose ? 0x11 : 0)] ?? 0
-  let status = t.statusOfSprInBlk[id] ?? 8
+  let sprite = at(t.spriteInBlock, id + (c.loose ? 0x11 : 0), 'SpriteInBlock')
+  if (sprite === 0) return null
+  let status = at(t.statusOfSprInBlk, id, 'StatusOfSprInBlk')
   let position: string | undefined
   let caveat: string | undefined
   let attribute: number | undefined
@@ -200,8 +226,8 @@ function contentFor(id: number, c: Ctx): BlockContent | null {
   if (sprite === SPRITE_BALLOON) {
     // bank_02.asm:1199-1212: the spawned balloon is rewritten by X column.
     const i = col & 3
-    sprite = t.columnOverride[i] ?? 0
-    status = t.columnOverrideStatus[i] ?? 8
+    sprite = at(t.columnOverride, i, 'DATA_0288D6')
+    status = at(t.columnOverrideStatus, i, 'DATA_0288D9')
     position = `X column ${i + 1} of 4`
     const hex = status.toString(16).toUpperCase()
     caveat =
@@ -211,14 +237,17 @@ function contentFor(id: number, c: Ctx): BlockContent | null {
   let label = nameOf(sprite)
   if (sprite === SPRITE_PSWITCH) {
     // CODE_028A2A (bank_02.asm:1280-1295): colour by column parity.
-    attribute = t.pSwitchAttribute[col & 1]
+    attribute = at(t.pSwitchAttribute, col & 1, 'DATA_028A42')
     const colour = PSWITCH_COLOURS[attribute ?? -1]
     if (colour) label += ` (${colour})`
     caveat = layer2
   }
   if (sprite === SPRITE_YOSHI_EGG) {
     // bank_02.asm:1232-1251, DATA_0288A1.
-    const [alone, withYoshi] = [t.eggContents[0], t.eggContents[1]].map(nameOf)
+    const [alone, withYoshi] = [
+      at(t.eggContents, 0, 'DATA_0288A1'),
+      at(t.eggContents, 1, 'DATA_0288A1'),
+    ].map(nameOf)
     label += ` (${alone}, or ${withYoshi} if a baby Yoshi exists or Yoshi is loose)`
   }
   return { kind: 'sprite', sprite, status, label, attribute, position, caveat }
@@ -262,7 +291,10 @@ function describe(alts: readonly ContentAlternative[]): string {
     .join(', ')
 }
 
-function altsFor(raw: number, c: Ctx): { alts: ContentAlternative[]; position?: string } {
+function altsFor(
+  raw: number,
+  c: Ctx,
+): { alts: ContentAlternative[]; position?: string; caveat?: string } {
   const { t, col } = c
   if (raw === 0xff) {
     // Green star block: coin until GreenStarBlockCoins reaches zero, then 1-up
@@ -277,14 +309,17 @@ function altsFor(raw: number, c: Ctx): { alts: ContentAlternative[]; position?: 
         [when, n === 0 ? null : contentFor(CONTENT_COIN, c)],
         [null, contentFor(CONTENT_ONE_UP, c)],
       ]),
+      caveat:
+        n === null ? (t.greenStarCoinsReason ?? 'the green star counter was not read') : undefined,
     }
   }
   if (raw >= 0x80) {
     // Bit 7: DATA_00F100[(raw & 1) * 16 + (col & 15)] (bank_00.asm:12868-12876).
     const base = (raw & 1) * 16
+    at(t.columnCycle, base + 15, 'DATA_00F100')
     const p = cyclePeriod(t.columnCycle.subarray(base, base + 16))
     return {
-      alts: decode(t.columnCycle[base + (col & 15)] ?? 0, c),
+      alts: decode(at(t.columnCycle, base + (col & 15), 'DATA_00F100'), c),
       position: p > 1 && p < 16 ? `X column ${((col & 15) % p) + 1} of ${p}` : undefined,
     }
   }
@@ -309,7 +344,16 @@ export function resolveBlockContents(
 ): BlockContents | TablesUnavailable | null {
   if (isUnavailable(t)) return t
   if (actsLike < FIRST_ITEM_BLOCK || actsLike > LAST_ITEM_BLOCK) return null
-  const raw = t.selector[actsLike - FIRST_ITEM_BLOCK] ?? 0
+  try {
+    return resolveWith(actsLike, col, t)
+  } catch (e) {
+    if (e instanceof ShortTable) return { kind: 'unavailable', unavailable: e.message }
+    throw e
+  }
+}
+
+function resolveWith(actsLike: number, col: number, t: BlockContentTables): BlockContents {
+  const raw = at(t.selector, actsLike - FIRST_ITEM_BLOCK, 'DATA_00F080')
   const normal = altsFor(raw, { t, col, loose: false })
   let alts = normal.alts
   // Vanilla's second copy is identical, so this adds nothing there (bank_02.asm:1143-1149).
@@ -323,7 +367,12 @@ export function resolveBlockContents(
   const sprites = contents.flatMap(x => (x.kind === 'sprite' ? [x] : []))
   const position = normal.position ?? sprites.find(x => x.position)?.position
   const condition = describe(alts) + (position ? ` (${position})` : '')
-  const caveats = [...new Set(sprites.flatMap(x => (x.caveat ? [x.caveat] : [])))]
+  const caveats = [
+    ...new Set([
+      ...sprites.flatMap(x => (x.caveat ? [x.caveat] : [])),
+      ...(normal.caveat ? [normal.caveat] : []),
+    ]),
+  ]
   const [small, big] = contents
   const progressive =
     alts.length === 2 &&
