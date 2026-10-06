@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- 65816 core: emulation-mode `(dp,X)` and JSR (a,X) follow Clark and Snes9x, WAI and STP halt `step()`, WDM makes no read, and setting `e` applies the XCE invariant. The SingleStep harness gains planted-defect proofs and a named list of disputed vectors; CI now pins its edge cases and the SingleStep harness's own checks with synthetic tests (#646).
 - The GFX view paints: pick a palette color, click or drag on a tile sheet, and the pixel changes
   at once. Strokes can be undone and redone before Save; Save records them as one undoable op
   layer (any number of 8x8 characters) and never writes the base ROM. Closing the view with
@@ -99,6 +100,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A layer write that fails before the redo clear no longer discards the redo history (#634).
+- The sprite interpreter's machine is stricter and shared: one call helper (`src/rom/cpu/call.ts`) replaces four copies of the call loop and reports a wrong or unbalanced return, WAI, a fetch outside ROM, a HiROM cart and a runaway level load by their real cause (the level load now has a total step cap); the bus mirrors ROM past the image, models SRAM as a buffer and shares the Mode 7 latch; the Mesen replay test now asserts the exact 1110 of 1122 (#647).
+
 - Sprite $0A (Red Vertical Para-Koopa) and $0B (Red Horizontal Para-Koopa)
   patrol overlay no longer renders as a symmetric `±amplitudePx` band. Per
   `RedVertParaKoopa` (bank_01.asm:1881), `SpriteXSpeed` and `SpriteMisc151C`
