@@ -47,7 +47,7 @@ import type {
   SwitchStateDto,
 } from '../common/project-protocol'
 import type { SwitchKind } from '../../../../src/rom/AnimationLoader'
-import { switchedVram } from '../../../../src/rom/SwitchAlternates'
+import { switchedVram, type TileSwitchArt } from '../../../../src/rom/SwitchAlternates'
 import { buildSwitchButtonArt, buildTileAlternates, ONOFF_BUTTON_TILE_ID } from './map16-decode'
 
 /** A screen's size in tiles: 16 x 27 horizontal, two 16-wide halves x 16 vertical. */
@@ -67,6 +67,18 @@ export function cellDef(model: L1Inputs, id: number, screen: number): Map16Tile 
     return sets[pipeVariantIndex(screen * 16)]?.[pipe]
   }
   return model.map16.tiles[id]
+}
+
+/** The switch art of the tile `cellDef` returns: a pipe variant has its own, though it shares its base id (#494). */
+export function cellSwitchArt(
+  model: L1Inputs,
+  id: number,
+  screen: number,
+): TileSwitchArt | undefined {
+  const pipe = id - PIPE_VARIANT_TILE_START
+  if (pipe >= 0 && pipe < PIPE_VARIANT_TILE_COUNT && model.map16.pipeVariants.length > 0)
+    return model.variantSwitchArt[pipeVariantIndex(screen * 16)]?.get(id)
+  return model.switchArt.get(id)
 }
 
 export const SWITCHES_OFF: SwitchStateDto = { blue: false, silver: false, onOff: false }
@@ -164,10 +176,10 @@ export function drawL1Planes(
       const def = id === undefined ? undefined : cellDef(model, id, screen)
       if (!def) return undefined
       const rgba = renderMap16Tile(def, vram, palette)
-      const art = model.switchArt.get(def.id)
+      const art = cellSwitchArt(model, id!, screen)
       const ghost = art && ghostOf(rgba, art.off, art.alts, c => c.rgba)
       if (ghost) overlayHidden(rgba, 16, 0, 0, ghost)
-      return { rgba, owner: ghost ? (model.map16.tiles[def.id] ?? def) : def }
+      return { rgba, owner: def }
     },
   )
   return { l1Low, l1High }

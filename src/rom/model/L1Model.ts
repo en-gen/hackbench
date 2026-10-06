@@ -90,6 +90,8 @@ export interface L1Inputs {
   backArea: RgbaColor
   /** Each switch-following tile's pictures, from its own chars: what `ghostOf` draws faintly. */
   switchArt: Map<number, TileSwitchArt>
+  /** The same for each pipe variant set, parallel to `map16.pipeVariants`: a variant shares its base id (#494). */
+  variantSwitchArt: Map<number, TileSwitchArt>[]
 }
 
 export type L1InputsResult = { ok: true; inputs: L1Inputs } | { ok: false; reason: string }
@@ -190,6 +192,9 @@ export function assembleL1Inputs(r: L1Readings): L1Inputs {
     colors: palette.colors,
     backArea: stored.backArea,
     switchArt: anim ? switchArtOf(anim, r.map16.tiles, vram, palette) : new Map(),
+    variantSwitchArt: r.map16.pipeVariants.map(set =>
+      anim ? switchArtOf(anim, set, vram, palette) : new Map(),
+    ),
   }
 }
 

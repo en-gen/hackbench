@@ -94,6 +94,7 @@ import {
 } from '../support/mapInputs'
 import {
   cellDef,
+  cellSwitchArt,
   drawL1Planes,
   screenTiles,
   L1ModelCache,
@@ -334,16 +335,18 @@ describe('L1 priority planes (synthetic)', () => {
     expect(p.l1High).toBeNull()
   })
 
-  it('a hidden tile routes its screen door by its own priority, not the blank cell drawn', () => {
+  it('a hidden pipe variant ghosts its own art and routes by its own priority, not the base entry', () => {
     const i = inputs(hGrid(1), false, 1)
     const id = PIPE_VARIANT_TILE_START
-    // The Map16 entry is the hidden, high-priority tile; the cell draws a blank, low variant.
-    i.map16.tiles[id] = tile(
-      id,
-      [5, 5, 5, 5].map(c => prio(sub(c))),
-    )
-    for (const set of i.map16.pipeVariants) set[0] = tile(id, [sub(0), sub(0), sub(0), sub(0)])
-    i.switchArt = switchArtOf({ frameCount: 1, intervalMs: 100, frames: [[BLUE_SLOT, ONOFF_SLOT]] }, i.map16.tiles, VRAM, { colors: COLORS }) // prettier-ignore
+    // Base entry: blank, low, no switch char. Variant: hidden until blue, high priority.
+    i.map16.tiles[id] = tile(id, [sub(0), sub(0), sub(0), sub(0)])
+    for (const set of i.map16.pipeVariants)
+      set[0] = tile(
+        id,
+        [5, 5, 5, 5].map(c => prio(sub(c))),
+      )
+    const anim = { frameCount: 1, intervalMs: 100, frames: [[BLUE_SLOT, ONOFF_SLOT]] }
+    i.variantSwitchArt = i.map16.pipeVariants.map(set => switchArtOf(anim, set, VRAM, { colors: COLORS })) // prettier-ignore
     i.grid[0]![0] = id
     const p = drawL1Planes(i, 0)
     expect(px(p.l1High!, 256, 5, 1)).toEqual([7, 100, 200, 255])
@@ -981,7 +984,7 @@ function wholeCellScreen(model: L1Inputs, screen: number): Uint8ClampedArray {
       const def = id === undefined ? undefined : cellDef(model, id, screen)
       if (!def) continue
       const cell = renderMap16Tile(def, model.vram, { colors: model.colors })
-      const art = model.switchArt.get(def.id)
+      const art = cellSwitchArt(model, id, screen)
       const ghost = art && ghostOf(cell, art.off, art.alts, c => c.rgba)
       if (ghost) overlayHidden(cell, 16, 0, 0, ghost)
       for (let py = 0; py < 16; py++)
@@ -1005,7 +1008,7 @@ function referencePlanes(model: L1Inputs, screen: number, whole: Uint8ClampedArr
       const def = id === undefined ? undefined : cellDef(model, id, screen)
       if (!def) continue
       // A switch tile's screen door is its Map16 entry's art.
-      const owner = model.switchArt.has(def.id) ? (model.map16.tiles[def.id] ?? def) : def
+      const owner = def
       const subs = [owner.tl, owner.tr, owner.bl, owner.br]
       for (let q = 0; q < 4; q++) {
         const dest = subs[q]!.priority ? out.high : out.low
@@ -1089,7 +1092,10 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
     ['109', 0, '52ebd71afcfbc0847f9309d31d01eae3754432e766b4412307202c25a1609010'],
   ])('map $%s screen %i draws the same pixels as the old tile path', (slot, screen, sha) => {
     const m = model(parseInt(slot, 16))
-    const buf = overBackArea(drawL1Screen({ ...m, switchArt: new Map() }, screen), m.backArea)
+    const buf = overBackArea(
+      drawL1Screen({ ...m, switchArt: new Map(), variantSwitchArt: [] }, screen),
+      m.backArea,
+    )
     expect(createHash('sha256').update(buf).digest('hex')).toBe(sha)
   })
 
