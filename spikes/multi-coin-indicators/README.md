@@ -5,6 +5,29 @@ Issue #615. Builds on the D4 pick of [block-content-indicators](../block-content
 [progressive-powerup-indicators](../progressive-powerup-indicators/README.md) (#607).
 Status: mockup for the owner to pick from; spike code, not product code.
 
+## Result
+
+Chosen design: **C4a** (2026-10-05, owner): the coin exactly as in the D4
+single-coin indicator (same position and scale, pixel for pixel), with a 5x5
+white "+" (7x7 with its 1px black edge) baked into the bottom-right corner of
+the coin's 16x16 art. It scales with the coin: half scale in the bottom-right
+quadrant at rest, the full block on hover.
+
+Applies to Map16 `$11B` and `$123` (`DATA_00F080` content 7, `bank_00.asm:12751`;
+`MulticoinTimer`, `bank_02.asm:1062-1067`). Single-coin `$11C` and `$124`
+(content 6) keep the plain D4 coin. Details in "The ROM rule" below.
+
+Why the others lost:
+
+- C1 (diagonal stack), C2 (coin beside a "+") and C3 (pile) shifted or shrank
+  the coin to make room, so the multi-coin block no longer matched the D4
+  coin. The owner wants the coin unchanged and only a "+" added.
+- C4b (the "+" at a fixed 7x7 screen pixels at every zoom) was not chosen over
+  the "+" that scales with the coin.
+
+The candidate list below stays as the record; the page still generates C4a and
+C4b only (C1 to C3 are in git history).
+
 Question: a multiple-coin block pays one coin per hit until a timer runs out.
 There is no fixed count, so no numeral. How does the D4 indicator tell it from
 a single-coin block?
