@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The Maps view shows what a block holds: each item block carries its item at half size in the bottom-right quadrant, filling the block on hover, drawn in the block's own layer at screen resolution so nearer layers and sprites cover it. Progressive blocks and the two-outcome blocks show both items split on a diagonal with a black line, multi-coin blocks a "+" on the coin, and each cell shows the item for its own column. Item art comes from running the game's own item-block spawn on the 65816 core; a block whose item cannot be drawn is listed in a note with the reason (#566).
 - 65816 core: emulation-mode `(dp,X)` and JSR (a,X) follow Clark and Snes9x, WAI and STP halt `step()`, WDM makes no read, and setting `e` applies the XCE invariant. The SingleStep harness gains planted-defect proofs and a named list of disputed vectors; CI now pins its edge cases and the SingleStep harness's own checks with synthetic tests (#646).
 - The GFX view paints: pick a palette color, click or drag on a tile sheet, and the pixel changes
   at once. Strokes can be undone and redone before Save; Save records them as one undoable op
