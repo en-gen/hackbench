@@ -16,6 +16,7 @@ import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message, Widget } from '@theia/core/lib/browser'
 import {
   MAP_PLANE_KEYS,
+  MapCollisionCheckResult,
   MapCollisionResult,
   MapDetailsDto,
   MapPlaneKey,
@@ -67,6 +68,14 @@ export interface MapViewOptions {
 type Layout = Extract<MapScreenResult, { status: 'ok' }>
 type Sprites = Extract<MapSpritesResult, { status: 'ok' }>
 type Collision = Extract<MapCollisionResult, { status: 'ok' }>
+/** Why a collision reply (or check) leaves the overlay unavailable, or undefined when it does not. */
+function collisionWhyNot(
+  r: Exclude<MapCollisionResult, { status: 'stale' }> | MapCollisionCheckResult,
+): string | undefined {
+  if (r.status === 'ok' || r.status === 'available') return undefined
+  if (r.status === 'unavailable') return r.reason
+  return `The base ROM ${r.baseRom.title} is not on this machine`
+}
 /** The sprite canvases' key in place of a plane's: one per screen, between L2 and L1's priority plane. */
 const SPRITES = 'sprites'
 type LayerKey = MapPlaneKey | typeof SPRITES
@@ -232,7 +241,7 @@ export class MapViewWidget extends ReactWidget {
       .mapCollisionCheck(o.manifestPath, o.index)
       .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
     if (generation !== this.generation) return
-    this.collisionWhy = r.status === 'available' ? undefined : r.status === 'unavailable' ? r.reason : `The base ROM ${r.baseRom.title} is not on this machine` // prettier-ignore
+    this.collisionWhy = collisionWhyNot(r)
     this.update()
   }
 
@@ -249,7 +258,7 @@ export class MapViewWidget extends ReactWidget {
     if (r.status === 'stale') return
     this.collision = r.status === 'ok' ? r : undefined
     this.collisionRevision++
-    this.collisionWhy = r.status === 'ok' ? undefined : r.status === 'unavailable' ? r.reason : `The base ROM ${r.baseRom.title} is not on this machine` // prettier-ignore
+    this.collisionWhy = collisionWhyNot(r)
     this.update()
   }
 

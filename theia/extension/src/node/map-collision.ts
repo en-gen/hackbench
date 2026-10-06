@@ -89,8 +89,10 @@ export async function mapCollision(
   entry.replies.set(index, pending)
   const r = await pending
   // Only a computed answer is kept; an unavailable one may be a hiccup worth retrying.
-  if (r.status !== 'ok' && entry.replies.get(index) === pending) entry.replies.delete(index)
-  else if (entry.replies.get(index) === pending) entry.replies.set(index, r)
+  if (entry.replies.get(index) === pending) {
+    if (r.status === 'ok') entry.replies.set(index, r)
+    else entry.replies.delete(index)
+  }
   return r
 }
 
