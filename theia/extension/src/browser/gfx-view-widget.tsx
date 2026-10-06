@@ -1,11 +1,20 @@
 /**
- * One GFX file's tile sheet, opened from the Graphics explorer.
+ * One GFX file's tile sheet, opened from the Graphics explorer, and a pixel
+ * painter over it.
  *
- * Read-only: no editing, import, export or patch layer, per this change's
- * scope. The bit-depth and palette-row controls change what is DECODED
+ * Strokes live HERE, in the widget, until Save: pointer down to up is one
+ * stroke, and stroke undo/redo walk that list. Nothing reaches the project
+ * before Save. Save flattens the strokes to the final value per pixel per 8x8
+ * character and sends ONE gfx op layer (GfxService.saveGfx), so after Save the
+ * project's own undo (#448) owns it; Save never writes the base ROM. Closing
+ * with unsaved strokes asks, through Theia's Saveable idiom (`saveable`).
+ *
+ * The bit-depth and palette-row controls change what is DECODED
  * server-side and re-fetch, rather than re-decoding in the browser, so the
  * pure ROM-decode logic stays out of the frontend bundle (project-protocol.ts
- * states the same rule for its DTOs).
+ * states the same rule for its DTOs). Painting is offered only at the
+ * file's own depth: a forced depth shows the bytes as another layout, and a
+ * pixel painted there would not be the pixel the ROM holds.
  *
  * The controls stay on screen even when the fetch fails: gfxSheet refuses a
  * file GfxLoader cannot place at any depth on its own (a relocated GFX
@@ -14,13 +23,20 @@
  */
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
-import { ReactWidget, Message } from '@theia/core/lib/browser'
+import {
+  ReactWidget,
+  Message,
+  Saveable,
+  SaveableSource,
+  ShouldSaveDialog,
+} from '@theia/core/lib/browser'
 import { Emitter } from '@theia/core'
 import { ThemeService } from '@theia/core/lib/browser/theming'
 import {
   GFX_FORMATS,
   GfxFormat,
   GfxService,
+  GfxCharEditDto,
   GfxSheetDto,
   PALETTE_ROW_COUNT,
   gfxFormatLabel,
@@ -41,6 +57,23 @@ let gridShown = false
 
 /** One 8x8 character, the unit a GFX sheet is built from. */
 const GFX_CHAR_PX = 8
+/** Characters per sheet row: GFX_TILES_PER_ROW in node/gfx-decode.ts. */
+const TILES_PER_ROW = 16
+
+/** One pointer-down to pointer-up: sheet pixel (y * width + x) to the palette index painted. */
+type Stroke = Map<number, number>
+
+/** The slice of the widget the Edit > Undo/Redo contribution defers to. */
+export interface StrokeHistory {
+  canUndoStroke(): boolean
+  canRedoStroke(): boolean
+  undoStroke(): void
+  redoStroke(): void
+}
+
+export function isStrokeHistory(w: unknown): w is StrokeHistory {
+  return w instanceof GfxViewWidget
+}
 
 export interface GfxViewOptions {
   manifestPath: string
@@ -74,7 +107,7 @@ function decodeRgba(base64: string): Uint8ClampedArray {
 }
 
 @injectable()
-export class GfxViewWidget extends ReactWidget {
+export class GfxViewWidget extends ReactWidget implements SaveableSource, StrokeHistory {
   @inject(GfxService) protected readonly gfx!: GfxService
   @inject(GfxFrontendClient) protected readonly pushClient!: GfxFrontendClient
   @inject(ThemeService) protected readonly themes!: ThemeService
@@ -90,6 +123,34 @@ export class GfxViewWidget extends ReactWidget {
   /** Bumped on every reload; a response is applied only if it is still current,
    * so two rapid control changes cannot have the slower one overwrite the newer. */
   protected reloadToken = 0
+
+  /** Strokes since the last Save; Save flattens them into one layer. */
+  protected strokes: Stroke[] = []
+  protected redoStrokes: Stroke[] = []
+  /** The stroke the pointer is drawing right now. */
+  protected drawing: Stroke | undefined
+  protected lastPoint: { x: number; y: number } | undefined
+  protected colorIndex = 1
+  /** The sheet's pixels as the ROM has them, with the strokes laid over `image`. */
+  protected baseRgba: Uint8ClampedArray | undefined
+  protected image: ImageData | undefined
+  protected saving = false
+  protected saveMessage: { status: string; text: string; overage?: number } | undefined
+
+  protected readonly dirtyEmitter = new Emitter<void>()
+  protected readonly contentEmitter = new Emitter<void>()
+  /** Theia's Saveable contract: dirty marks the tab and prompts on close. Not
+   *  autosaved, because Save records an undo step. */
+  readonly saveable: Saveable & { dirty: boolean } = {
+    dirty: false,
+    autosaveable: false,
+    onDirtyChanged: this.dirtyEmitter.event,
+    onContentChanged: this.contentEmitter.event,
+    save: async () => {
+      await this.save()
+    },
+    revert: async () => this.discardStrokes(),
+  }
 
   @postConstruct()
   protected init(): void {
@@ -107,6 +168,8 @@ export class GfxViewWidget extends ReactWidget {
     // unlike the canvas, which only exists once a sheet has loaded.
     this.wheelBinding = sharedZoomController.bindWheel(this.node, () => this.canvasEl)
     this.toDispose.push(this.wheelBinding)
+    this.toDispose.push(this.dirtyEmitter)
+    this.toDispose.push(this.contentEmitter)
     // A palette edit (or anything else touching this project's working
     // copy) re-decodes this sheet, which is what makes an edit visibly
     // recolour an already-open GFX view without the user reopening it.
@@ -119,6 +182,12 @@ export class GfxViewWidget extends ReactWidget {
 
   async open(options: GfxViewOptions): Promise<void> {
     perfStart('open-gfx')
+    const same =
+      options.manifestPath === this.options?.manifestPath && options.index === this.options?.index
+    // The preview tab is one widget reused for every single click: moving it
+    // to another file would drop the strokes without a word.
+    if (!same && this.dirty && !(await this.resolveUnsaved())) return
+    if (!same) this.discardStrokes()
     this.options = options
     this.id = `${GFX_VIEW_ID}:${options.index}`
     this.title.label = options.label
@@ -127,11 +196,118 @@ export class GfxViewWidget extends ReactWidget {
 
     this.sheet = undefined
     this.error = undefined
-    this.bppChoice = undefined
-    this.paletteRowChoice = undefined
+    this.saveMessage = undefined
+    if (!same) {
+      this.bppChoice = undefined
+      this.paletteRowChoice = undefined
+    }
     this.update()
 
     await this.reload()
+  }
+
+  get dirty(): boolean {
+    return this.strokes.length > 0
+  }
+
+  /** Save, Don't Save or Cancel, Theia's own close dialog; true to go on. */
+  protected async resolveUnsaved(): Promise<boolean> {
+    const choice = await new ShouldSaveDialog(this).open()
+    if (choice === undefined) return false
+    if (choice && !(await this.save())) return false
+    return true
+  }
+
+  protected setStrokes(strokes: Stroke[], redo: Stroke[]): void {
+    const was = this.dirty
+    this.strokes = strokes
+    this.redoStrokes = redo
+    this.saveable.dirty = this.dirty
+    if (was !== this.dirty) this.dirtyEmitter.fire()
+    this.contentEmitter.fire()
+  }
+
+  /** Drops every unsaved stroke, and shows the ROM's own pixels again. */
+  protected discardStrokes(): void {
+    this.drawing = undefined
+    this.setStrokes([], [])
+    this.rebuildImage()
+    this.update()
+  }
+
+  canUndoStroke(): boolean {
+    return this.strokes.length > 0
+  }
+
+  canRedoStroke(): boolean {
+    return this.redoStrokes.length > 0
+  }
+
+  undoStroke(): void {
+    const last = this.strokes[this.strokes.length - 1]
+    if (!last) return
+    this.setStrokes(this.strokes.slice(0, -1), [...this.redoStrokes, last])
+    this.rebuildImage()
+    this.update()
+  }
+
+  redoStroke(): void {
+    const next = this.redoStrokes[this.redoStrokes.length - 1]
+    if (!next) return
+    this.setStrokes([...this.strokes, next], this.redoStrokes.slice(0, -1))
+    this.rebuildImage()
+    this.update()
+  }
+
+  /**
+   * One Save: the strokes flattened to the final value per pixel per
+   * character, sent as ONE layer. False when nothing was recorded.
+   */
+  async save(): Promise<boolean> {
+    if (!this.options || !this.sheet || this.strokes.length === 0 || this.saving) return false
+    const { manifestPath, index } = this.options
+    const width = this.sheet.width
+    const final = new Map<number, number>()
+    for (const stroke of this.strokes) for (const [k, v] of stroke) final.set(k, v)
+    const byTile = new Map<number, GfxCharEditDto>()
+    for (const [k, value] of final) {
+      const x = k % width
+      const y = Math.floor(k / width)
+      const tile = (y >> 3) * TILES_PER_ROW + (x >> 3)
+      let char = byTile.get(tile)
+      if (!char) byTile.set(tile, (char = { file: index, tile, pixels: [] }))
+      char.pixels.push({ x: x & 7, y: y & 7, value })
+    }
+    this.saving = true
+    this.update()
+    try {
+      const r = await this.gfx.saveGfx(manifestPath, [...byTile.values()])
+      if (r.status === 'ok') {
+        this.setStrokes([], [])
+        this.saveMessage = {
+          status: 'ok',
+          text: `Saved as one undoable layer (${r.bytesChanged} ROM bytes re-encoded). The base ROM is not changed.`,
+        }
+        await this.reload()
+        return true
+      }
+      const overage = r.status === 'refused' ? r.overage : undefined
+      this.saveMessage = {
+        status: r.status,
+        text:
+          overage !== undefined
+            ? `Not saved: ${overage} bytes too big for the GFX arena. Your strokes are kept.`
+            : `Not saved: ${r.reason}`,
+        overage,
+      }
+      return false
+    } catch (err) {
+      this.saveMessage = { status: 'unavailable', text: `Not saved: ${(err as Error).message}` }
+      return false
+    } finally {
+      this.saving = false
+      this.update()
+    }
   }
 
   protected async reload(): Promise<void> {
@@ -152,6 +328,92 @@ export class GfxViewWidget extends ReactWidget {
     if (token !== this.reloadToken) return // superseded by a later change; drop this stale response
     this.sheet = sheet
     this.error = error
+    this.baseRgba = sheet ? decodeRgba(sheet.rgbaBase64) : undefined
+    this.rebuildImage()
+    this.update()
+  }
+
+  /** The ROM's pixels with every unsaved stroke laid over them, in order. */
+  protected rebuildImage(): void {
+    const s = this.sheet
+    if (!s || !this.baseRgba) {
+      this.image = undefined
+      return
+    }
+    this.image = new ImageData(new Uint8ClampedArray(this.baseRgba), s.width, s.height)
+    for (const stroke of this.strokes) for (const [k, v] of stroke) this.colorPixel(k, v)
+  }
+
+  protected colorPixel(key: number, value: number): void {
+    const c = this.sheet?.paletteColors[value]
+    if (!c || !this.image) return
+    this.image.data.set([c.r, c.g, c.b, c.a], key * 4)
+  }
+
+  /** Painting is offered at the file's own depth only, and never for Mode 7. */
+  protected get canPaint(): boolean {
+    return !!this.sheet && this.sheet.bpp !== 'mode7' && this.bppChoice === undefined
+  }
+
+  /** Paints sheet pixel (x, y) into the stroke being drawn. */
+  protected paintPixel(x: number, y: number): void {
+    const s = this.sheet
+    if (!s || !this.drawing || !this.image) return
+    if (x < 0 || y < 0 || x >= s.width || y >= s.height) return
+    if ((y >> 3) * TILES_PER_ROW + (x >> 3) >= s.tileCount) return // past the file's last character
+    const key = y * s.width + x
+    if (this.drawing.get(key) === this.colorIndex) return
+    this.drawing.set(key, this.colorIndex)
+    this.colorPixel(key, this.colorIndex)
+    this.canvasEl?.getContext('2d')?.putImageData(this.image, 0, 0, x, y, 1, 1)
+  }
+
+  protected pointerPixel(e: React.PointerEvent): { x: number; y: number } | undefined {
+    const s = this.sheet
+    const r = this.canvasEl?.getBoundingClientRect()
+    if (!s || !r || r.width === 0) return undefined
+    return {
+      x: Math.floor(((e.clientX - r.left) / r.width) * s.width),
+      y: Math.floor(((e.clientY - r.top) / r.height) * s.height),
+    }
+  }
+
+  /** Every pixel from the last point to this one, so a fast drag leaves no gaps. */
+  protected paintLine(to: { x: number; y: number }): void {
+    const from = this.lastPoint ?? to
+    const n = Math.max(Math.abs(to.x - from.x), Math.abs(to.y - from.y))
+    for (let i = 0; i <= n; i++) {
+      const t = n === 0 ? 0 : i / n
+      this.paintPixel(
+        Math.round(from.x + (to.x - from.x) * t),
+        Math.round(from.y + (to.y - from.y) * t),
+      )
+    }
+    this.lastPoint = to
+  }
+
+  protected handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>): void => {
+    const at = this.pointerPixel(e)
+    if (e.button !== 0 || !at || !this.canPaint) return
+    if (this.colorIndex >= 1 << (this.sheet!.bpp as number)) this.colorIndex = 1 // a shallower file
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+    this.drawing = new Map()
+    this.lastPoint = undefined
+    this.paintLine(at)
+  }
+
+  protected handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>): void => {
+    const at = this.pointerPixel(e)
+    if (this.drawing && at) this.paintLine(at)
+  }
+
+  protected handlePointerUp = (): void => {
+    const stroke = this.drawing
+    this.drawing = undefined
+    this.lastPoint = undefined
+    if (!stroke || stroke.size === 0) return
+    this.saveMessage = undefined
+    this.setStrokes([...this.strokes, stroke], [])
     this.update()
   }
 
@@ -184,7 +446,7 @@ export class GfxViewWidget extends ReactWidget {
       this.wheelBinding?.restoreAnchor()
       return
     }
-    const { width, height, rgbaBase64 } = this.sheet
+    const { width, height } = this.sheet
     const zoom = sharedZoomController.value
     this.canvasEl.width = width
     this.canvasEl.height = height
@@ -195,7 +457,7 @@ export class GfxViewWidget extends ReactWidget {
     this.wheelBinding?.restoreAnchor()
     const ctx = this.canvasEl.getContext('2d')
     if (!ctx) return
-    ctx.putImageData(new ImageData(decodeRgba(rgbaBase64), width, height), 0, 0)
+    if (this.image) ctx.putImageData(this.image, 0, 0)
     perfEnd('open-gfx')
   }
 
@@ -263,6 +525,62 @@ export class GfxViewWidget extends ReactWidget {
               ))}
             </select>
           </label>
+          {this.canPaint && s && (
+            <span
+              id="hb-gfx-swatches"
+              className="hb-gfx-swatches"
+              role="group"
+              aria-label="Paint color"
+            >
+              {s.paletteColors.slice(0, 1 << (s.bpp as number)).map((c, i) => (
+                <button
+                  key={i}
+                  id={`hb-gfx-swatch-${i}`}
+                  type="button"
+                  className="hb-gfx-swatch"
+                  aria-pressed={i === this.colorIndex}
+                  title={i === 0 ? 'Color 0 (erases)' : `Color ${i}`}
+                  style={{ background: i === 0 ? undefined : `rgb(${c.r},${c.g},${c.b})` }}
+                  onClick={() => {
+                    this.colorIndex = i
+                    this.update()
+                  }}
+                />
+              ))}
+            </span>
+          )}
+          <button
+            id="hb-gfx-stroke-undo"
+            type="button"
+            className="hb-icon-btn"
+            title="Undo stroke"
+            aria-label="Undo stroke"
+            disabled={!this.canUndoStroke()}
+            onClick={() => this.undoStroke()}
+          >
+            <span className="codicon codicon-discard" />
+          </button>
+          <button
+            id="hb-gfx-stroke-redo"
+            type="button"
+            className="hb-icon-btn"
+            title="Redo stroke"
+            aria-label="Redo stroke"
+            disabled={!this.canRedoStroke()}
+            onClick={() => this.redoStroke()}
+          >
+            <span className="codicon codicon-redo" />
+          </button>
+          <button
+            id="hb-gfx-save"
+            type="button"
+            className="theia-button"
+            disabled={!this.dirty || this.saving}
+            title="Record the strokes as one op layer. The base ROM is never written."
+            onClick={() => void this.save()}
+          >
+            Save
+          </button>
           <span className="hb-toolbar-spacer" />
           <button
             data-control="grid-toggle"
@@ -278,9 +596,33 @@ export class GfxViewWidget extends ReactWidget {
           <ZoomStepper controller={sharedZoomController} />
         </div>
         {this.error && <div className="hb-gfx-view-error">{this.error}</div>}
+        <div id="hb-gfx-dirty" className="hb-gfx-view-notice" data-dirty={this.dirty}>
+          {this.dirty &&
+            'Unsaved strokes. Save records them as one op layer; the base ROM is never written.'}
+        </div>
+        {this.saveMessage && (
+          <div
+            id="hb-gfx-save-message"
+            className="hb-gfx-view-notice"
+            data-status={this.saveMessage.status}
+            data-overage={this.saveMessage.overage}
+          >
+            {this.saveMessage.text}
+          </div>
+        )}
         {s && s.height > 0 && (
           <div className="hb-gfx-view-canvas-wrap hb-grid-host">
-            <canvas className="hb-gfx-view-canvas hb-pixel-canvas" ref={this.bindCanvas} />
+            <canvas
+              id="hb-gfx-canvas"
+              className={
+                'hb-gfx-view-canvas hb-pixel-canvas' + (this.canPaint ? ' hb-gfx-paintable' : '')
+              }
+              ref={this.bindCanvas}
+              onPointerDown={this.handlePointerDown}
+              onPointerMove={this.handlePointerMove}
+              onPointerUp={this.handlePointerUp}
+              onPointerCancel={this.handlePointerUp}
+            />
             {gridShown && (
               <GridOverlay
                 cellSize={GFX_CHAR_PX}

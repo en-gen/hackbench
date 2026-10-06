@@ -15,6 +15,7 @@ import { openProject, Project, RomIdentity, romIdentity } from './Project'
 import { readRomBounded } from './BoundedRead'
 import { RomRegistry } from './RomRegistry'
 import { RomFile } from '../rom/RomFile'
+import { GfxCharEdit, GfxRefusal } from '../rom/GfxLayer'
 import { Layer, WorkingRom } from './WorkingRom'
 import {
   loadLayers,
@@ -313,6 +314,47 @@ export class WorkingRomRegistry {
     return r
   }
 
+  /**
+   * Append ONE gfx layer holding `chars`: what the GFX view's Save sends.
+   * Same order as setWord (append validates, then clearRedo, then the disk
+   * write, popped back if the write fails). A GfxRefusal (the arena would
+   * overflow, a character the file lacks) comes back as `refused` with the
+   * stack untouched.
+   */
+  setGfx(
+    manifestPath: string,
+    chars: readonly GfxCharEdit[],
+  ):
+    | WorkingRomResult
+    | { status: 'refused'; reason: string; overage?: number }
+    | { status: 'io-error'; reason: string } {
+    const r = this.get(manifestPath)
+    if (r.status !== 'ok') return r
+    const { working, project } = r
+    const n = chars.length
+    const layer: Layer = {
+      id: `gfx-${Date.now().toString(36)}-${Math.floor(Math.random() * 0xffff).toString(36)}`,
+      label: `paint ${n} ${n === 1 ? 'character' : 'characters'}`,
+      kind: 'gfx',
+      chars: chars.map(c => ({ file: c.file, tile: c.tile, pixels: c.pixels })),
+    }
+    try {
+      working.append(layer)
+    } catch (err) {
+      const overage = err instanceof GfxRefusal ? err.overage : undefined
+      return { status: 'refused', reason: (err as Error).message, overage }
+    }
+    try {
+      clearRedo(project.directory)
+      appendLayer(project.directory, layer)
+    } catch (err) {
+      working.pop()
+      this.stamps.delete(manifestPath)
+      return { status: 'io-error', reason: (err as Error).message }
+    }
+    return r
+  }
+
   /** What undo/redo can do for this project right now. */
   editStack(manifestPath: string): EditStackResult {
     const r = this.get(manifestPath)
@@ -432,7 +474,12 @@ function sameLayers(a: readonly Layer[], b: readonly Layer[]): boolean {
   const key = (l: Layer): string =>
     JSON.stringify(
       l.kind === 'gfx'
-        ? [l.id, l.label, l.kind, l.file, l.tile, l.pixels.map(p => [p.x, p.y, p.value])]
+        ? [
+            l.id,
+            l.label,
+            l.kind,
+            l.chars.map(c => [c.file, c.tile, c.pixels.map(p => [p.x, p.y, p.value])]),
+          ]
         : l.kind === 'unreadable'
           ? [l.id, l.label, l.kind, l.reason]
           : [l.id, l.label, l.ops],

@@ -21,6 +21,7 @@ import {
 import { GfxLayer, Layer, WorkingRom } from '../../../src/project/WorkingRom'
 import { loromToOffset } from '../../../src/rom/addressing'
 import { GfxTable } from '../../../src/rom/GfxTable'
+import type { GfxCharEdit } from '../../../src/rom/GfxLayer'
 import { RomFile } from '../../../src/rom/RomFile'
 import { buildCart } from '../support/syntheticGfxCart'
 
@@ -251,9 +252,7 @@ describe('WorkingRomRegistry', () => {
       id,
       label: id,
       kind: 'gfx',
-      file: 2,
-      tile: 0,
-      pixels: [{ x: 0, y: 0, value }],
+      chars: [{ file: 2, tile: 0, pixels: [{ x: 0, y: 0, value }] }],
     })
     const gfxPixel = (manifestPath: string, tile: number): number | undefined => {
       const bytes = Buffer.from(opened(manifestPath).w.bytes())
@@ -376,6 +375,49 @@ describe('WorkingRomRegistry', () => {
       expect(gfxPixel(manifestPath, tile)).toBe(value)
     })
 
+    describe('setGfx', () => {
+      const px = (value: number): GfxCharEdit['pixels'] => [{ x: 0, y: 0, value }]
+
+      it('appends ONE layer for several characters, to the stack and to disk, and ends redo', () => {
+        const { manifestPath, dir } = gfxProject()
+        const r = working.setGfx(manifestPath, [
+          { file: 2, tile: 0, pixels: px(5) },
+          { file: 2, tile: 1, pixels: px(6) },
+        ])
+        expect(r.status).toBe('ok')
+        expect(gfxPixel(manifestPath, 0)).toBe(5)
+        expect(gfxPixel(manifestPath, 1)).toBe(6)
+        expect(opened(manifestPath).w.stack).toHaveLength(1)
+        expect(loadLayers(dir)).toHaveLength(1)
+        working.undo(manifestPath)
+        expect(gfxPixel(manifestPath, 0)).not.toBe(5)
+        expect(gfxPixel(manifestPath, 1)).not.toBe(6)
+        working.redo(manifestPath)
+        expect(gfxPixel(manifestPath, 1)).toBe(6)
+      })
+
+      it('refuses a character the file lacks, and leaves stack and disk alone', () => {
+        const { manifestPath, dir } = gfxProject()
+        const r = working.setGfx(manifestPath, [
+          { file: 2, tile: 0, pixels: px(5) },
+          { file: 2, tile: 999, pixels: px(1) },
+        ])
+        expect(r.status).toBe('refused')
+        expect(opened(manifestPath).w.stack).toHaveLength(0)
+        expect(loadLayers(dir)).toHaveLength(0)
+      })
+
+      it('pops the layer back off when the disk write fails', () => {
+        const { manifestPath } = gfxProject()
+        fsFault.hook = call => {
+          if (call === 'writeFileSync') throw new Error('disk full')
+        }
+        const r = working.setGfx(manifestPath, [{ file: 2, tile: 0, pixels: px(5) }])
+        expect(r.status).toBe('io-error')
+        expect(opened(manifestPath).w.stack).toHaveLength(0)
+      })
+    })
+
     // ops/redo/ is not validated on open for word layers (a stale one opens
     // and refuses on redo). A damaged gfx layer there gets the same policy.
     it.each([
@@ -402,7 +444,10 @@ describe('WorkingRomRegistry', () => {
     it('reopens 4 runs of 10 gfx layers with one table decode per run', () => {
       const { manifestPath, dir } = gfxProject()
       for (let i = 0; i < 40; i++) {
-        appendLayer(dir, { ...gfxLayer(`g${i}`, 1 + (i % 7)), file: i })
+        appendLayer(dir, {
+          ...gfxLayer(`g${i}`, 1 + (i % 7)),
+          chars: [{ file: i, tile: 0, pixels: [{ x: 0, y: 0, value: 1 + (i % 7) }] }],
+        })
         if (i % 10 !== 9) continue
         const [o, n] = [(i - 9) / 10, (i + 1) / 10].map(v => `$${v.toString(16)}`)
         appendLayer(dir, {
