@@ -72,6 +72,7 @@ export async function mapCollision(
   romPath: string,
   index: number,
   cancelled: () => boolean = () => false,
+  layer: typeof collisionLayer = collisionLayer,
 ): Promise<Reply> {
   let entry = byBytes.get(bytes)
   if (!entry) byBytes.set(bytes, (entry = { probes: new ProbeCache(), replies: new Map() }))
@@ -82,7 +83,7 @@ export async function mapCollision(
     entry.replies.set(index, kept)
     return kept
   }
-  const pending = compute(cache, entry.probes, bytes, romPath, index, cancelled)
+  const pending = compute(cache, entry.probes, bytes, romPath, index, cancelled, layer)
   if (entry.replies.size >= REPLIES_PER_BYTES) {
     entry.replies.delete(entry.replies.keys().next().value!)
   }
@@ -103,8 +104,9 @@ async function compute(
   romPath: string,
   index: number,
   cancelled: () => boolean,
+  layer: typeof collisionLayer,
 ): Promise<Reply> {
-  // Collision does not depend on the palaces; any flags give the same grid.
+  // The grid is for the palaces-off state, and the probe's own game state is fixed (P-switches off): see theia-shell.md.
   const built = cache.get(bytes, romPath, index, NO_FLAGS)
   if (!built.ok) return { status: 'unavailable', reason: built.reason }
   const m = built.inputs
@@ -114,7 +116,7 @@ async function compute(
   try {
     // A copy, as the model cache makes: the working copy's array is shared.
     const rom = RomFile.fromBytes(romPath, Buffer.from(bytes))
-    const r = await collisionLayer(rom, index, m.header.objectTileset, m.grid, probes, {
+    const r = await layer(rom, index, m.header.objectTileset, m.grid, probes, {
       yieldTurn,
       cancelled,
     })

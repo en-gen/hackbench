@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { compose, type CollisionLine } from '../../../src/rom/collision/Compose'
-import { collisionLayer, ProbeCache } from '../../../src/rom/collision/MapCollision'
+import { collisionLayer, ProbeCache, SUPERSEDED } from '../../../src/rom/collision/MapCollision'
 import {
   calibrate,
   measureTile,
@@ -150,6 +150,93 @@ describe('the probe without a cartridge', () => {
   it('a routine that leaves ROM makes the tile unknown', () => {
     const t = measureTile(new Probe(rom([0x4c, 0x00, 0x20]), 0, loaded()), 0x30, CAL) // JMP $2000: registers, not code
     expect(t.unknown).toMatch(/left ROM/)
+  })
+
+  /**
+   * A routine for several tiles: LDA cell; then per tile `CMP #t; BNE next; body; RTS`. Tile $30 is the flat
+   * block (floor at Y 96, bonk for Y <= $7F); the others are single behaviours (see MULTI's cases below).
+   */
+  const blocks = (cases: [number, number[]][]) => [
+    0xaf, 0x88, 0xc8, 0x7e,
+    ...cases.flatMap(([t, body]) => [0xc9, t, 0xd0, body.length + 1, ...body, 0x60]),
+    0x60,
+  ] // prettier-ignore
+  const FLAT = [0xa5, 0x7d, 0x30, 0x0f, 0xa5, 0x96, 0xc9, 0x60, 0x90, 0x11, 0xa9, 0x04, 0x85, 0x77, 0xa9, 0x01, 0x8d, 0xef, 0x13, 0xa5, 0x96, 0xc9, 0x80, 0xb0, 0x02, 0x64, 0x7d] // prettier-ignore
+  const MULTI = blocks([
+    [0x30, FLAT],
+    // Upward speed zeroed when Y <= $88 (the turn block bonks by zeroing Y speed, not by $77 bit 3).
+    [0x31, [0xa5, 0x7d, 0x10, 0x08, 0xa5, 0x96, 0xc9, 0x89, 0xb0, 0x02, 0x64, 0x7d]],
+    // Kills (sets $71, no landing flag) once Y >= 96.
+    [0x32, [0xa5, 0x96, 0xc9, 0x60, 0x90, 0x04, 0xa9, 0x09, 0x85, 0x71]],
+    // Lands from Y >= 90: above the cell top, so no floor.
+    [
+      0x33,
+      [0xa5, 0x96, 0xc9, 0x5a, 0x90, 0x09, 0xa9, 0x04, 0x85, 0x77, 0xa9, 0x01, 0x8d, 0xef, 0x13],
+    ],
+    // Leaves $77 = 4 behind on every run.
+    [0x34, [0xa9, 0x04, 0x85, 0x77]],
+    // Sets only the ground flag once Y >= 96: lands only if $77 was left set by an earlier run.
+    [0x35, [0xa5, 0x96, 0xc9, 0x60, 0x90, 0x05, 0xa9, 0x01, 0x8d, 0xef, 0x13]],
+    // Writes the cell itself (as a collected coin does): LDA #$25; STA $7EC888.
+    [0x36, [0xa9, 0x25, 0x8f, 0x88, 0xc8, 0x7e]],
+  ])
+
+  it('calibrates and measures a flat block: floor 0, underside 16', () => {
+    const p = new Probe(rom(MULTI), 0, loaded())
+    expect(calibrate(p)).toEqual(CAL)
+    const t = measureTile(p, 0x30, CAL)
+    expect([t.floor, t.ceil]).toEqual([Array(16).fill(0), Array(16).fill(16)])
+  })
+
+  it('a bonk by zeroed Y speed is an underside (the turn block)', () => {
+    expect(measureTile(new Probe(rom(MULTI), 0, loaded()), 0x31, CAL).ceil).toEqual(
+      Array(16).fill(25),
+    )
+  })
+
+  it('a tile that kills on touch has its floor and is hurt, though it never lands', () => {
+    const t = measureTile(new Probe(rom(MULTI), 0, loaded()), 0x32, CAL)
+    expect([t.hurt, t.floor]).toEqual([true, Array(16).fill(0)])
+    expect(measureTile(new Probe(rom(MULTI), 0, loaded()), 0x31, CAL).hurt).toBe(false)
+  })
+
+  it('a landing above the cell top is no floor', () => {
+    expect(measureTile(new Probe(rom(MULTI), 0, loaded()), 0x33, CAL).floor).toEqual(NONE)
+  })
+
+  it('restores every byte a run wrote: the next tile does not inherit it', () => {
+    const p = new Probe(rom(MULTI), 0, loaded())
+    measureTile(p, 0x34, CAL)
+    expect(measureTile(p, 0x35, CAL).floor).toEqual(NONE)
+  })
+
+  it('a tile that rewrites the cell does not blind the level of air that follows', () => {
+    const p = new Probe(rom(MULTI), 0, loaded())
+    measureTile(p, 0x36, CAL)
+    expect([...probeAir(p).values()].some(r => r.touched)).toBe(true)
+  })
+
+  it('refuses a level of air no position of which reaches the cell', () => {
+    expect(() => probeAir(new Probe(rom([0x60]), 0, loaded()))).toThrow(/reached the tile cell/)
+  })
+
+  it('refuses to calibrate on a block with no ground flag (head found, feet not)', () => {
+    const bonkOnly = blocks([[0x30, FLAT.slice(19)]])
+    expect(() => calibrate(new Probe(rom(bonkOnly), 0, loaded()))).toThrow(/calibration block/)
+  })
+
+  it('runs a whole map through collisionLayer, stops when cancelled, and refuses a tileset mismatch', async () => {
+    const grid = [[0x30, 0x31, 0x32]]
+    const run = (opts = {}, tileset = 7) => collisionLayer(rom(MULTI), 0, tileset, grid, new ProbeCache(), { wram: loaded(), ...opts }) // prettier-ignore
+    const ok = await run()
+    if (!ok.ok) throw new Error(ok.reason)
+    expect(ok.probed).toBe(3)
+    expect(ok.lines.some(l => l.kind === 'floor')).toBe(true)
+    let polls = 0
+    expect(await run({ cancelled: () => ++polls > 1 })).toEqual({ ok: false, reason: SUPERSEDED })
+    expect(polls).toBe(2)
+    const wrong = await run({}, 3)
+    expect(wrong).toMatchObject({ ok: false, reason: expect.stringMatching(/tileset 7 differs from its header's 3/) }) // prettier-ignore
   })
 
   it('refuses to calibrate on a block that gives no surface', () => {

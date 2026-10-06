@@ -30,6 +30,10 @@ export class SpriteBus implements Bus {
    */
   inputs: Set<number> | null = null
   private written = new Uint8Array(WRAM_SIZE)
+  /** Forgets which WRAM bytes were written, so `inputs` reads them again (one run's inputs are not the last run's). */
+  clearWritten(): void {
+    this.written.fill(0)
+  }
   private mul = { a: 0, prod: 0, dividend: 0, quot: 0, rem: 0 }
   private ppuMul = { m7a: 0, prev: 0, result: 0 }
   private header: number

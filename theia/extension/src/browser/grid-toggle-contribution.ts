@@ -50,7 +50,7 @@ export class GridToggleContribution implements CommandContribution {
     }
     registry.registerCommand(ToggleMapsCollisionCommand, {
       execute: () => map()?.toggleCollision(),
-      isEnabled: () => !!map(),
+      isEnabled: () => !!map()?.canToggleCollision,
     })
   }
 

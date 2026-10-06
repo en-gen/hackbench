@@ -42,6 +42,64 @@ describe('mapCollision (synthetic)', () => {
   })
 })
 
+describe('mapCollision reply cache (synthetic layer)', () => {
+  const lines = [{ kind: 'floor' as const, points: [0, 0, 16, 0] }]
+  const layer = (script: ('ok' | 'bad')[]) => {
+    const calls: number[] = []
+    const fn = (async (_r: unknown, level: number) => {
+      calls.push(level)
+      const v = script.length ? script.shift()! : 'ok'
+      return v === 'ok' ? { ok: true, lines, probed: 1, steps: 1 } : { ok: false, reason: 'hiccup' }
+    }) as unknown as typeof import('../../../src/rom/collision/MapCollision').collisionLayer
+    return { fn, calls }
+  }
+  const ask = (c: L1ModelCache, b: Uint8Array, i: number, fn: ReturnType<typeof layer>['fn']) =>
+    mapCollision(c, b, 'x.sfc', i, () => false, fn)
+
+  it('keeps an ok reply and does not keep an unavailable one', async () => {
+    const [c, b, l] = [stub(false), synthetic(), layer(['bad'])]
+    expect(await ask(c, b, 0x105, l.fn)).toEqual({ status: 'unavailable', reason: 'hiccup' })
+    const ok = await ask(c, b, 0x105, l.fn) // asked again: not served the failure
+    expect(ok.status).toBe('ok')
+    expect(await ask(c, b, 0x105, l.fn)).toBe(ok) // now served from the cache
+    expect(l.calls).toEqual([0x105, 0x105])
+  })
+
+  it('passes the cancel check to the layer and turns its stop into stale, kept nowhere', async () => {
+    const [c, b] = [stub(false), synthetic()]
+    const seen: (() => boolean)[] = []
+    const stopped = (async (
+      _r: unknown,
+      _l: number,
+      _t: number,
+      _g: unknown,
+      _p: unknown,
+      o: { cancelled?: () => boolean },
+    ) => {
+      seen.push(o.cancelled!)
+      return { ok: false, reason: 'superseded' }
+    }) as unknown as ReturnType<typeof layer>['fn']
+    expect(await mapCollision(c, b, 'x.sfc', 0x105, () => true, stopped)).toEqual({
+      status: 'stale',
+    })
+    expect(seen[0]!()).toBe(true)
+    expect((await ask(c, b, 0x105, layer([]).fn)).status).toBe('ok')
+  })
+
+  it('keeps eight maps per working copy: the ninth evicts the least recently used', async () => {
+    const [c, b, l] = [stub(false), synthetic(), layer([])]
+    for (let i = 0; i < 8; i++) await ask(c, b, 0x100 + i, l.fn)
+    await ask(c, b, 0x100, l.fn) // touch the oldest: it is now the newest
+    await ask(c, b, 0x108, l.fn) // evicts 0x101
+    l.calls.length = 0
+    await ask(c, b, 0x100, l.fn)
+    await ask(c, b, 0x108, l.fn)
+    expect(l.calls).toEqual([])
+    await ask(c, b, 0x101, l.fn)
+    expect(l.calls).toEqual([0x101])
+  })
+})
+
 describe('mapCollisionCheck (synthetic): the toggle state without a probe', () => {
   it('says why for a vertical level, a refusing loader and an unbuildable map', () => {
     expect(mapCollisionCheck(stub(true), synthetic(), 'x.sfc', 0x105)).toEqual({

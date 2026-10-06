@@ -64,6 +64,8 @@ export interface CollisionOptions {
   yieldTurn?: () => Promise<void>
   /** Checked between tiles; true abandons the run (the reply would be dropped anyway). */
   cancelled?: () => boolean
+  /** A WRAM image already made, in place of the level loader's (a test seam). */
+  wram?: Uint8Array
 }
 
 /**
@@ -86,7 +88,7 @@ export async function collisionLayer(
   if (todo.length > 0) {
     let probe: Probe
     try {
-      probe = new Probe(rom, level)
+      probe = new Probe(rom, level, opts.wram)
     } catch (err) {
       return { ok: false, reason: (err as Error).message }
     }

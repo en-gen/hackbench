@@ -86,7 +86,10 @@ async function openMap(page, manifestPath, index) {
 
 /** Turns the overlay on and waits for the lines (a cold map is probed on the backend: seconds). */
 async function showOverlay(page, index) {
-  await expect(toggle(page, index)).toBeEnabled({ timeout: 30000 })
+  // Enabled is not enough: the toggle is enabled until the cheap check answers. Wait for its verdict.
+  await expect(toggle(page, index)).toHaveAttribute('data-collision-state', 'ready', {
+    timeout: 30000,
+  })
   await toggle(page, index).click()
   await expect(toggle(page, index)).toHaveAttribute('aria-pressed', 'true')
   await expect(overlay(page, index)).toHaveCount(1, { timeout: 60000 })
@@ -108,7 +111,7 @@ test('the toggle shows and hides the overlay, with aria-pressed and its tooltip 
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
   const t = toggle(page, 0x105)
-  await expect(t).toBeEnabled({ timeout: 30000 })
+  await expect(t).toHaveAttribute('data-collision-state', 'ready', { timeout: 30000 })
   // Off by default: nothing drawn, not pressed.
   await expect(t).toHaveAttribute('aria-pressed', 'false')
   await expect(t).toHaveAttribute('title', 'Show collision')
@@ -220,7 +223,9 @@ test('$111 floor spikes carry a floor line along each spike cell', async ({ page
   expect(covered).toEqual([true, true, true, true, true])
 })
 
-test('turning the overlay off and on again draws identical geometry', async ({ page }) => {
+test('off, a working-copy edit, then on draws identical geometry from a fresh fetch', async ({
+  page,
+}) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
   await showOverlay(page, 0x105)
@@ -228,9 +233,71 @@ test('turning the overlay off and on again draws identical geometry', async ({ p
   expect(first.length).toBeGreaterThan(100)
   await toggle(page, 0x105).click()
   await expect(overlay(page, 0x105)).toHaveCount(0)
+  // An edit while off drops the stale lines (nothing in the view still holds them), so the next press
+  // must fetch again: the geometry below is a new reply, not the object shown before.
+  const edit = await page.evaluate(
+    ({ mp }) =>
+      getSvc('Symbol(Map16Service)').setQuadrantField(mp, 1, 'fg', { bg: 0, fg: 0 }, 349, 'tl', 'priority', true), // prettier-ignore
+    { mp: project.manifestPath },
+  )
+  expect(edit.status).toBe('ok')
+  await page.waitForTimeout(1500)
   await toggle(page, 0x105).click()
   await expect(overlay(page, 0x105)).toHaveCount(1, { timeout: 60000 })
+  expect(await overlay(page, 0x105).getAttribute('data-revision')).toBe('2')
   expect(await linesOf(page, 0x105)).toEqual(first)
+})
+
+test('the command toggles the overlay like the button, and is disabled where the button is', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await expect(toggle(page, 0x105)).toHaveAttribute('data-collision-state', 'ready', {
+    timeout: 30000,
+  })
+  const run = () =>
+    page.evaluate(() => getSvc('CommandRegistry').executeCommand('hackbench.maps.toggleCollision'))
+  await run()
+  await expect(toggle(page, 0x105)).toHaveAttribute('aria-pressed', 'true')
+  await expect(overlay(page, 0x105)).toHaveCount(1, { timeout: 60000 })
+  await run()
+  await expect(toggle(page, 0x105)).toHaveAttribute('aria-pressed', 'false')
+  await expect(overlay(page, 0x105)).toHaveCount(0)
+  // A refused map: button disabled, command disabled with it.
+  await openMap(page, project.manifestPath, 0x109)
+  await expect(toggle(page, 0x109)).toHaveAttribute('data-collision-state', 'refused', {
+    timeout: 60000,
+  })
+  const enabled = await page.evaluate(() =>
+    getSvc('CommandRegistry').isEnabled('hackbench.maps.toggleCollision'),
+  )
+  expect(enabled).toBe(false)
+})
+
+test('a second visit to a map is served from the backend cache', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  const visit = async () => {
+    await openMap(page, project.manifestPath, 0x105)
+    await expect(toggle(page, 0x105)).toHaveAttribute('data-collision-state', 'ready', {
+      timeout: 30000,
+    })
+    const t0 = Date.now()
+    await toggle(page, 0x105).click()
+    await expect(overlay(page, 0x105)).toHaveCount(1, { timeout: 60000 })
+    const ms = Date.now() - t0
+    await page.evaluate(
+      async id => getSvc('ApplicationShell').closeWidget(id),
+      'hackbench.map-view:261',
+    )
+    await expect(page.locator(root(0x105))).toHaveCount(0)
+    return ms
+  }
+  const cold = await visit()
+  const warm = await visit()
+  // The cold visit probes tiles (seconds); the revisit is a cache hit and a render.
+  expect(warm).toBeLessThan(cold / 2)
+  expect(warm).toBeLessThan(1500)
 })
 
 /**

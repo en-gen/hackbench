@@ -4,7 +4,7 @@
  * (en-gen/hackbench#435; method, evidence and findings in
  * spikes/collision-probe/README.md). No shell imports.
  *
- * The routine is CODE_00EADB (SMWDisX bank_00.asm:11927), entered after the
+ * The routine is CODE_00EADB (SMWDisX bank_00.asm:11952), entered after the
  * per-frame reset CODE_00EAA6 (bank_00.asm:11921), with the setup between them
  * that CODE_00E92B does for layer 1 of a horizontal level (bank_00.asm:11723-11768).
  * Addresses below are SMWDisX rammap names; nothing is copied from the ROM.
@@ -79,6 +79,8 @@ export class Probe {
   private readonly reads = new Set<number>()
   readonly tileset: number
   steps = 0
+  /** TrueFrame ($13) every run uses; 1 keeps the conveyor slopes from shoving Mario. A test seam otherwise. */
+  trueFrame = 1
 
   /**
    * Throws `Error` when the ROM's own level loader refuses (the message is the reason). `loaded` is a WRAM
@@ -163,10 +165,12 @@ export class Probe {
     // PlayerAnimation: a loaded entrance (pipe, door) leaves it set, which would read as 'hurt' on every tile.
     this.w(RAM.animation, 0)
     // TrueFrame: the conveyor slopes ($1CE-$1D1, CODE_00EFCD) shove Mario only when it is a multiple of 4.
-    this.w(RAM.trueFrame, 1)
+    this.w(RAM.trueFrame, this.trueFrame)
     this.w(RAM.air, 0x24)
     this.w(RAM.dir, s.dir ?? 0)
     this.reads.clear()
+    // A byte an earlier run wrote (a coin collected rewrites the cell) would otherwise never be seen as read.
+    if (track) this.bus.clearWritten()
     this.bus.inputs = track ? this.reads : null
     this.call(ENTRY_RESET)
     this.w(RAM.tGround, 0)
@@ -286,6 +290,8 @@ export function probeAir(p: Probe): AirRuns {
     },
     { foot: 0, head: 0 },
   )
+  // Every tile would read as air: refuse rather than draw an empty overlay.
+  if (![...air.values()].some(r => r.touched)) throw new Refusal('no probe position reached the tile cell') // prettier-ignore
   return air
 }
 

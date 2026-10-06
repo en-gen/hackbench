@@ -140,6 +140,53 @@ describe.skipIf(!hasRom(VANILLA))('collision probe on the vanilla ROM', () => {
     for (const id of ids) expect(measureTile(p, id, cal, air), '$' + id.toString(16)).toEqual(measureTile(p, id, cal)) // prettier-ignore
   }, 120_000)
 
+  describe('the spike findings each have a witness', () => {
+    const cal = { foot: 32, head: 17 }
+
+    it('clears PlayerAnimation ($71) first: a level that loads with it set is not all hazard', () => {
+      // $1C6 loads with $71 set by its entrance (spike README); air must still read as harmless.
+      expect(measureTile(new Probe(freshRom(), 0x1c6), 0x25, cal).hurt).toBe(false)
+    })
+
+    it('holds TrueFrame at 1: the conveyor slope $1CE is 15..0 deep, one column off at frame 0', () => {
+      const at = (frame: number) => {
+        const p = new Probe(freshRom(), 0x7)
+        p.trueFrame = frame
+        return measureTile(p, 0x1ce, cal).floor
+      }
+      expect(at(1)).toEqual(Array.from({ length: 16 }, (_, x) => 15 - x))
+      expect(at(0)).not.toEqual(at(1))
+      expect(new Probe(freshRom(), 0x7).trueFrame).toBe(1)
+    })
+
+    it('probing a tile that rewrites the cell does not blind the air table (call order)', () => {
+      const p = new Probe(freshRom(), 0x105)
+      measureTile(p, 0x2b, cal) // a coin: collecting it writes the cell
+      expect([...probeAir(p).values()].filter(r => r.touched).length).toBeGreaterThan(0)
+    })
+
+    it('a second level of the same tileset gives what probing it fresh gives; a wrong tileset key does not', async () => {
+      const [a, b] = [mapOf(0x105), mapOf(0x1c6)]
+      expect(a.header.objectTileset).toBe(b.header.objectTileset)
+      const t = a.header.objectTileset
+      const fresh = await collisionLayer(freshRom(), 0x1c6, t, b.grid, new ProbeCache())
+      const shared = new ProbeCache()
+      await collisionLayer(freshRom(), 0x105, t, a.grid, shared)
+      const reused = await collisionLayer(freshRom(), 0x1c6, t, b.grid, shared)
+      if (!fresh.ok || !reused.ok) throw new Error('refused')
+      expect(reused.probed).toBeLessThan(fresh.probed) // it really reused some
+      expect(reused.lines).toEqual(fresh.lines)
+      // The test can fail: $105's tiles served to $111 (tileset 1) as if they were tileset 1's differ in the
+      // tiles themselves (hazard or solid), though not always in the lines.
+      const c = mapOf(0x111)
+      const right = new ProbeCache()
+      expect((await collisionLayer(freshRom(), 0x111, 1, c.grid, right)).ok).toBe(true)
+      const shown = (id: number) => JSON.stringify(shared.get(t, id))
+      const differing = [...new Set(c.grid.flat())].filter(id => shared.get(t, id) && shown(id) !== JSON.stringify(right.get(1, id))) // prettier-ignore
+      expect(differing.length).toBeGreaterThan(0)
+    }, 120_000)
+  })
+
   describe('planted defects (the probe must go red)', () => {
     const cal = { foot: 32, head: 17 }
     const L = 0x105

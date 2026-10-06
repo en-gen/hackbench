@@ -132,6 +132,9 @@ export class MapViewWidget extends ReactWidget {
   /** The map's collision lines once read; `collisionWhy` is why there are none to show. */
   protected collision: Collision | undefined
   protected collisionWhy: string | undefined
+  /** The cheap check or a probe has answered for this map; a probe's answer is the authority over the check's. */
+  protected collisionChecked = false
+  protected collisionProbed = false
   /** Replies taken, for the overlay's test hook. */
   protected collisionRevision = 0
   /** Fit mode until the user zooms; the fit is the cross axis filling the view (#526). */
@@ -190,6 +193,8 @@ export class MapViewWidget extends ReactWidget {
     this.spritesWhy = undefined
     this.collision = undefined
     this.collisionWhy = undefined
+    this.collisionChecked = false
+    this.collisionProbed = false
     // A new map opens fitted, whatever zoom the last one was left at.
     this.zoomController.enterFit()
     // A reused (preview) tab keeps its strip across maps: blank it, and start at screen 0.
@@ -227,6 +232,7 @@ export class MapViewWidget extends ReactWidget {
     if (this.showCollision) void this.loadCollision()
     else {
       this.collision = undefined
+      this.collisionProbed = false
       void this.checkCollision()
     }
     this.requestVisible()
@@ -240,8 +246,9 @@ export class MapViewWidget extends ReactWidget {
     const r = await this.projects
       .mapCollisionCheck(o.manifestPath, o.index)
       .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
-    if (generation !== this.generation) return
-    this.collisionWhy = collisionWhyNot(r)
+    // A probe that already answered knows more than the check: a late `available` must not undo its refusal.
+    if (generation !== this.generation || this.collisionProbed) return
+    this.setCollisionWhy(collisionWhyNot(r))
     this.update()
   }
 
@@ -258,8 +265,16 @@ export class MapViewWidget extends ReactWidget {
     if (r.status === 'stale') return
     this.collision = r.status === 'ok' ? r : undefined
     this.collisionRevision++
-    this.collisionWhy = collisionWhyNot(r)
+    this.collisionProbed = true
+    this.setCollisionWhy(collisionWhyNot(r))
     this.update()
+  }
+
+  /** A refusal turns the overlay off, so a disabled toggle never looks pressed and nothing is left to switch off. */
+  protected setCollisionWhy(why: string | undefined): void {
+    this.collisionWhy = why
+    this.collisionChecked = true
+    if (why) this.showCollision = false
   }
 
   protected async loadSprites(): Promise<void> {
@@ -579,6 +594,11 @@ export class MapViewWidget extends ReactWidget {
     this.update()
   }
 
+  /** Whether the collision toggle can be used: what `hackbench.maps.toggleCollision` and the button share. */
+  get canToggleCollision(): boolean {
+    return !this.collisionWhy
+  }
+
   /** The collision toggle's tooltip: what pressing it does, or why it cannot. */
   protected collisionLabel(): string {
     if (this.collisionWhy) return `Collision unavailable: ${this.collisionWhy}`
@@ -671,8 +691,11 @@ export class MapViewWidget extends ReactWidget {
             className={
               'hb-icon-btn' + (this.showCollision ? ' hb-icon-btn-on' : ' hb-icon-btn-off')
             }
-            aria-pressed={this.showCollision && !this.collisionWhy}
-            disabled={!!this.collisionWhy}
+            data-collision-state={
+              !this.collisionChecked ? 'checking' : this.collisionWhy ? 'refused' : 'ready'
+            }
+            aria-pressed={this.showCollision}
+            disabled={!this.canToggleCollision}
             title={this.collisionLabel()}
             aria-label={this.collisionLabel()}
             onClick={() => this.toggleCollision()}
