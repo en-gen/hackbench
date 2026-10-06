@@ -112,6 +112,7 @@ export class WorkingRomRegistry {
   private readonly stamps = new Map<string, { key: string; takenAt: number }>()
 
   private readonly romListeners = new Set<(manifestPath: string) => void>()
+  private readonly copyListeners = new Set<(manifestPath: string, working: WorkingRom) => void>()
   /**
    * Projects whose `get` answered `rom-not-located`, with the ROM they wait
    * for: the only ones a later registration can newly serve. They have no
@@ -132,8 +133,6 @@ export class WorkingRomRegistry {
     this.romListeners.add(fn)
     return () => this.romListeners.delete(fn)
   }
-
-  private readonly copyListeners = new Set<(manifestPath: string, working: WorkingRom) => void>()
 
   /**
    * Called with every working copy this registry holds, now and as each one
