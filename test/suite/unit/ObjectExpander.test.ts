@@ -927,6 +927,40 @@ describe('handle_0DA68E (ext 0x46 midway)', () => {
     expect(drawn(run(0, row)).sort()).toEqual([tape, base].sort())
   })
 
+  // Vertical levels: same code, a different buffer. A screen is two $100-byte
+  // 16x16 blocks (left cols 0-15, right 16-31) and Y wraps inside its block,
+  // but CODE_0DA95D still adds the horizontal $1B0 stride, so the base lands in
+  // another block and not on the object's row. Oracle: the #351 interpreter run
+  // on a hand-built vertical pointer (the handler code does not read the level
+  // layout); no capture.
+  it.each([
+    [32, 0, 'r47 c15=35', 'r43 c16=38'],
+    [33, 0, 'r32 c15=35', 'r44 c16=38'],
+    [37, 0, 'r36 c15=35', 'r48 c0=38'],
+    [32, 16, 'r47 c31=35', 'r59 c0=38'],
+    [37, 16, 'r36 c31=35', 'r48 c16=38'],
+    [47, 16, 'r46 c31=35', 'r58 c16=38'],
+  ])('vertical level, row %i col %i', (row, col, tape, base) => {
+    const grid = createGrid(4, true)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, setupRom(), 0, col, row, 0x46, 0)
+    cur.vertical = true
+    handle_0DA68E(cur)
+    const cells = drawn(grid).map(c => {
+      const [rc, t] = c.split('=')
+      const [r, cc] = rc.split(',')
+      return `r${r} c${cc}=${t}`
+    })
+    expect(cells.sort()).toEqual([tape, base].sort())
+  })
+
+  it('vertical level, column not on a block edge, keeps the col-1 and col draw', () => {
+    const grid = createGrid(4, true)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, setupRom(), 0, 5, 40, 0x46, 0)
+    cur.vertical = true
+    handle_0DA68E(cur)
+    expect(drawn(grid).sort()).toEqual(['40,4=35', '40,5=38'])
+  })
+
   it('does the same at the first column of any screen', () => {
     expect(drawn(run(32, 10)).sort()).toEqual(['10,48=38', '9,47=35'].sort())
   })
@@ -2819,14 +2853,93 @@ describe('handle_0DDAF2 (diagonal cliff staircase dispatcher, object $39)', () =
 // ── New handlers (issue #65) ──────────────────────────────────────────────────
 
 describe('handle_0DE971 (cave fill, ext $5F)', () => {
-  it('fills the entire grid with tile $77', () => {
-    const rom = makeMockRom()
-    const grid = createGrid(2)
-    const cur = makeCursorForHandler(0x0de971, grid, rom, 0, 5, 3, 0x5f, 0)
+  // bank_0D.asm:7637-7653 writes $77 over 4 x 256 consecutive Map16 bytes from
+  // the screen pointer (+$100 when the object's high-coordinate bit is set,
+  // bank_05.asm:778-782), ignoring LevelLoadPos. Oracle: the forward map from a
+  // grid cell to its byte offset, so a cell is $77 iff its offset is in the run.
+  const RUN = 0x400
+  const horizOffset = (r: number, c: number) => (c >> 4) * 0x1b0 + r * 16 + (c & 15)
+  const vertOffset = (r: number, c: number) =>
+    (r >> 4) * 0x200 + (c >> 4) * 0x100 + (r & 15) * 16 + (c & 15)
+
+  function expectRun(grid: number[][], offsetOf: typeof horizOffset, start: number): number {
+    let filled = 0
+    for (let r = 0; r < grid.length; r++) {
+      for (let c = 0; c < grid[r].length; c++) {
+        const o = offsetOf(r, c)
+        const inRun = o >= start && o < start + RUN
+        if (inRun) filled++
+        expect(grid[r][c], `r${r} c${c} offset ${o.toString(16)}`).toBe(inRun ? 0x77 : TILE_EMPTY)
+      }
+    }
+    return filled
+  }
+
+  function fill(grid: number[][], col: number, row: number, vertical = false): void {
+    const cur = makeCursorForHandler(0x0de971, grid, makeMockRom(), 0, col, row, 0x5f, 0)
+    cur.vertical = vertical
     handle_0DE971(cur)
-    expect(cur.grid[0][0]).toBe(0x77)
-    expect(cur.grid[26][31]).toBe(0x77)
-    expect(cur.grid[13][10]).toBe(0x77)
+  }
+
+  it('horizontal: 432 + 432 + 160 bytes from row 0 of the object screen', () => {
+    const grid = createGrid(4)
+    fill(grid, 16 + 5, 3)
+    expect(expectRun(grid, horizOffset, 0x1b0)).toBe(RUN)
+    expect(grid[0][16]).toBe(0x77) // screen 1 row 0
+    expect(grid[26][47]).toBe(0x77) // screen 2 last cell
+    expect(grid[9][48 + 15]).toBe(0x77) // screen 3, byte 159
+    expect(grid[10][48]).toBe(TILE_EMPTY) // byte 160 is outside
+    expect(grid[0][0]).toBe(TILE_EMPTY) // screen 0 untouched
+  })
+
+  it('horizontal sweep: screen and high bit pick the start; column and row do not', () => {
+    for (let screen = 0; screen < 4; screen++) {
+      for (const hi of [0, 1]) {
+        for (const [x, y] of [
+          [0, 0],
+          [7, 5],
+          [15, 15],
+        ]) {
+          const grid = createGrid(6)
+          fill(grid, screen * 16 + x, y + hi * 16)
+          expectRun(grid, horizOffset, screen * 0x1b0 + hi * 0x100)
+        }
+      }
+    }
+  })
+
+  it('horizontal: a run past the last screen draws only the cells that exist', () => {
+    const grid = createGrid(2)
+    fill(grid, 16, 0)
+    expect(grid[0].length).toBe(32)
+    expect(expectRun(grid, horizOffset, 0x1b0)).toBe(0x1b0)
+  })
+
+  it('vertical: 1024 bytes are two vertical screens, right half selected by the high bit', () => {
+    for (let screen = 0; screen < 3; screen++) {
+      for (const hi of [0, 1]) {
+        for (const [x, y] of [
+          [0, 0],
+          [9, 4],
+          [15, 15],
+        ]) {
+          const grid = createGrid(5, true)
+          fill(grid, x + hi * 16, screen * 16 + y, true)
+          expectRun(grid, vertOffset, screen * 0x200 + hi * 0x100)
+        }
+      }
+    }
+  })
+
+  it('vertical: screen 1, left half covers its both halves and the next screen', () => {
+    const grid = createGrid(4, true)
+    fill(grid, 3, 16 + 2, true)
+    expect(grid[16][0]).toBe(0x77)
+    expect(grid[31][31]).toBe(0x77)
+    expect(grid[32][15]).toBe(0x77)
+    expect(grid[47][31]).toBe(0x77)
+    expect(grid[0][0]).toBe(TILE_EMPTY)
+    expect(grid[48][0]).toBe(TILE_EMPTY)
   })
 })
 

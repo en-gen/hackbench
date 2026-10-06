@@ -29,6 +29,8 @@ export const BLUE_SLOT = { charBase: 2, tiles: [2, 3, 4, 0].map(v => new Uint8Ar
 /** Color index c of row r is [r * 16 + c, 100, 200]; index 0 is transparent. */
 export const COLORS: RgbaColor[] = Array.from({ length: 256 }, (_, i) => (i % 16 === 0 ? [0, 0, 0, 0] : [i, 100, 200, 255])) // prettier-ignore
 
+const ANIM = { frameCount: 1, intervalMs: 100, frames: [[BLUE_SLOT, ONOFF_SLOT]] }
+
 /**
  * Inputs with tile 1 (chars 1-4, one per quadrant), empty tile 0, tile 2
  * hidden until blue is on, tile 4 drawn until ON/OFF is on, and the eight
@@ -60,12 +62,13 @@ export function inputs(
     grid,
     map16: { tiles, pipeVariants },
     rawVram: VRAM,
-    anim: { frameCount: 1, intervalMs: 100, frames: [[BLUE_SLOT, ONOFF_SLOT]] },
+    anim: ANIM,
     vram: VRAM,
     colors: COLORS,
     backArea: BACKDROP,
     unverified: [],
-    switchArt: switchArtOf({ frameCount: 1, intervalMs: 100, frames: [[BLUE_SLOT, ONOFF_SLOT]] }, tiles, VRAM, { colors: COLORS }), // prettier-ignore
+    switchArt: switchArtOf(ANIM, tiles, VRAM, { colors: COLORS }),
+    variantSwitchArt: pipeVariants.map(set => switchArtOf(ANIM, set, VRAM, { colors: COLORS })),
   }
 }
 

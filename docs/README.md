@@ -5,12 +5,12 @@ on Eclipse Theia and Electron.
 
 ## Start here
 
-| If you want to... | Read |
-|---|---|
-| run HackBench and make your first edit | [guide/getting-started.md](guide/getting-started.md) |
-| understand how it is put together | [architecture/overview.md](architecture/overview.md) |
-| know what a word means here | [glossary.md](glossary.md) |
-| contribute | [codebase map](architecture/codebase-map.md), then [CONTRIBUTING.md](../CONTRIBUTING.md) |
+| If you want to...                      | Read                                                                                     |
+| -------------------------------------- | ---------------------------------------------------------------------------------------- |
+| run HackBench and make your first edit | [guide/getting-started.md](guide/getting-started.md)                                     |
+| understand how it is put together      | [architecture/overview.md](architecture/overview.md)                                     |
+| know what a word means here            | [glossary.md](glossary.md)                                                               |
+| contribute                             | [codebase map](architecture/codebase-map.md), then [CONTRIBUTING.md](../CONTRIBUTING.md) |
 
 ## Guide
 
@@ -75,6 +75,8 @@ cited to the disassembly.
   compositor pass list
 - [rom/map-data-mechanics.md](rom/map-data-mechanics.md) - how maps grow,
   relocate and share pointers; sprite-stream limits; acts-like
+- [rom/block-contents.md](rom/block-contents.md) - what each item block
+  ($111-$12D) holds, by X column and game state
 
 ## Sprites
 

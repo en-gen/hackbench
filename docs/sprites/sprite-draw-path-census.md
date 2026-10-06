@@ -236,10 +236,10 @@ Columns: stub = behind `Bank3SprHandler`; depth = distinct named routines on the
 | $7A | Bank3SprHandler | B3 | Firework | BESPOKE | CODE_03C96D |  |  |  |
 | $7B | GoalTape |  | GoalTape | BESPOKE | CODE_01C12D |  |  |  |
 | $7C | Bank3SprHandler | B3 | PrincessPeach | BESPOKE | PrincessPeach |  |  |  |
-| $7D | BalloonKeyFlyObjs |  | BalloonKeyFlyObjs | BESPOKE | CODE_01C670 |  |  |  |
-| $7E | BalloonKeyFlyObjs |  | BalloonKeyFlyObjs | BESPOKE | CODE_01C670 |  |  |  |
-| $7F | BalloonKeyFlyObjs |  | BalloonKeyFlyObjs | BESPOKE | CODE_01C670 |  |  |  |
-| $80 | BalloonKeyFlyObjs |  | BalloonKeyFlyObjs | BESPOKE | CODE_01C670 |  |  |  |
+| $7D | BalloonKeyFlyObjs |  | BalloonKeyFlyObjs | BESPOKE | CODE_01C61A, PowerUpGfxRt |  |  |  |
+| $7E | BalloonKeyFlyObjs |  | BalloonKeyFlyObjs | BESPOKE | CODE_01C61A, PowerUpGfxRt |  |  |  |
+| $7F | BalloonKeyFlyObjs |  | BalloonKeyFlyObjs | BESPOKE | CODE_01C61A, PowerUpGfxRt |  |  |  |
+| $80 | BalloonKeyFlyObjs |  | BalloonKeyFlyObjs | BESPOKE | CODE_01C61A, PowerUpGfxRt |  |  |  |
 | $81 | ChangingItem |  | ChangingItem | SHARED | G2 via PowerUpRt | 3 | Y |  |
 | $82 | BonusGame |  | BonusGame | BESPOKE | CODE_01DF4E |  |  |  |
 | $83 | Flying_Block |  | Flying_Block | SHARED | G2 via Flying_Block | 2 |  |  |
@@ -363,6 +363,7 @@ All eight match exactly. For these call sites the disassembly text is faithful t
 - **Indirect jumps.** The CFG contains exactly one `JMP (...)` node, which I treated as a terminator. That one site is unresolved.
 - **Dead code.** The reachability analysis makes no liveness judgement. An id classified SHARED via a path that the game never takes would be counted SHARED.
 - **Bespoke routine names are heuristic.** For a BESPOKE id I report the enclosing label with the most `OAMTileNo` writes on the reachable set. Where the disassembly has no meaningful name, that is a `CODE_xxxxxx` label, and where a sprite has several draw states it may not be the one a reader would call "the" graphics routine. `CODE_01B7DE`/`CODE_01B7F0`, which write only `OAMTileSize`, appear on almost every sprite's reachable set and were excluded as noise.
+- **$7D-$80 draw through `PowerUpGfxRt`, not `CODE_01C670`.** `BalloonKeyFlyObjs` (SMWDisX `bank_01.asm:8969`) calls `CODE_01C61A` at `bank_01.asm:8984` and `:9048`, and that routine falls into `PowerUpGfxRt` (`bank_01.asm:9607`), which takes the tile from `PowerUpTiles[sprite - $74]` (`bank_01.asm:9632-9636`). Evidence scope: SMWDisX static trace; the resulting tiles are checked against `PowerUpTiles` in the vanilla US ROM only (`SpriteBaseTilePowerUp.test.ts`), not the other corpus ROMs.
 - **One disagreement worth recording.** The 24-of-40 tile-literal figure reproduces independently, but `RipVanFishAppearance` is borderline: its `RIP_VAN_FISH_FRAMES` constants are commented as mirroring `SprTilemap[$E2..$E5]` yet are literals in the `.ts`. Scored YES. It is also one of the 7 SHARED classes, so excluding it would make the headline 6 of 24, not 7.
 
 ## Verdict

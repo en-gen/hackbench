@@ -21,6 +21,7 @@ import {
   readLongOperand,
   readGatedLongOperand,
   readImmByte,
+  MAP16_BYTES_PER_SCREEN_H,
 } from './cursor'
 
 /**
@@ -145,16 +146,19 @@ export function handle_0DA673(cur: Cursor): void {
  * to emit the tape ($35) and base ($38). For an editor we always show the
  * midway post (the two gates are tracked separately, not ported here).
  *
- * Column 0 of a screen (bank_0D.asm:1625-1632, 1999-2002): DEY on the 8-bit
- * Y moves the tape to column 15 of the row above ON THE SAME SCREEN, and the
- * INY after it reads as a screen edge, so the base lands at column 0 of the
- * NEXT screen, on the object's own row. With no row above in its 16-row
- * half, Y wraps to $FF: row 0 draws the tape at row 15; row 16 draws it at
- * $1FF past the +$100 pointer, which is row 4 of the next screen. Vanilla
- * ROM, horizontal levels, checked against the #351 interpreter at rows 0, 2,
- * 10, 16, 18, 26. Vertical levels have a different buffer layout and no
- * oracle yet, so they keep the old two-cell draw (shape test: a horizontal
- * grid is always 27 rows tall, a vertical one a multiple of 16).
+ * Column 0 of a screen or block (bank_0D.asm:1625-1632, 1999-2015): DEY on
+ * the 8-bit Y moves the tape to the row above, column 15, inside the same
+ * $100 block (Y wraps to $FF at local row 0). The INY after it reads as an
+ * edge, so the pointer gains a fixed $1B0 and Y reloads from LevelLoadPos
+ * AND $F0: the base lands at `block + $1B0 + local row * 16`. Horizontally
+ * that is column 0 of the next screen on the object's row (a screen is $1B0
+ * bytes); in a vertical level, where a screen is $200 bytes, it is in another
+ * block, not on the object's row. Both are the same offset arithmetic below.
+ *
+ * Evidence scope: vanilla ROM; horizontal checked against the #351
+ * interpreter at rows 0, 2, 10, 16, 18, 26; vertical against the same
+ * interpreter on a hand-built vertical pointer, no capture and no emulator.
+ * Columns other than a block's first keep the plain col-1 / col draw.
  */
 export function handle_0DA68E(cur: Cursor): void {
   // CODE_0DA68E inline tile immediates: +23 $35 (tape), +31 $38 (base).
@@ -163,27 +167,33 @@ export function handle_0DA68E(cur: Cursor): void {
   const origCol = cur.col
   const origRow = cur.row
   setPage0(cur)
-  if (origCol % 16 !== 0 || cur.grid.length !== 27) {
+  if (origCol % 16 !== 0) {
     cur.col = origCol - 1
     writeTile(cur, tapeTile)
     cur.col = origCol
     writeTile(cur, baseTile)
     return
   }
-  if ((origRow & 15) > 0) {
-    cur.row = origRow - 1
-    cur.col = origCol + 15
-  } else if (origRow < 16) {
-    cur.row = 15
-    cur.col = origCol + 15
-  } else {
-    cur.row = 4
-    cur.col = origCol + 31
+  const { vertical } = cur
+  const block = vertical
+    ? (origRow >> 4) * 0x200 + (origCol >> 4) * 0x100
+    : (origCol >> 4) * MAP16_BYTES_PER_SCREEN_H + (origRow >> 4) * 0x100
+  const y = (origRow & 15) * 16
+  const put = (offset: number, tile: number): void => {
+    if (vertical) {
+      cur.row = (offset >> 9) * 16 + ((offset >> 4) & 15)
+      cur.col = ((offset >> 8) & 1) * 16 + (offset & 15)
+    } else {
+      const screen = Math.floor(offset / MAP16_BYTES_PER_SCREEN_H)
+      const within = offset - screen * MAP16_BYTES_PER_SCREEN_H
+      cur.row = within >> 4
+      cur.col = screen * 16 + (within & 15)
+    }
+    writeTile(cur, tile)
   }
-  writeTile(cur, tapeTile)
+  put(block + ((y - 1) & 0xff), tapeTile)
+  put(block + MAP16_BYTES_PER_SCREEN_H + y, baseTile)
   cur.row = origRow
-  cur.col = origCol + 16
-  writeTile(cur, baseTile)
   cur.col = origCol
 }
 
@@ -906,13 +916,60 @@ export function handle_0DDA57(cur: Cursor): void {
 
 /**
  * ADDR_0DE971 (bank_0D.asm line 7637) -- cave background fill (ext $5F).
- * ASM fills 4×256 WRAM positions with tile $77 starting at Map16LowPtr[0],
- * ignoring LevelLoadPos entirely. We approximate by filling the entire grid.
+ *
+ * Writes page-0 tile $77 over 4 x 256 consecutive Map16 bytes from
+ * Map16LowPtr with Y = 0, so LevelLoadPos is ignored (bank_0D.asm:7640-7652).
+ * The pointer is the object's screen base from the LoadBlkPtrs tables, plus
+ * $100 when the high-coordinate bit is set (bank_05.asm:730-782).
+ *
+ * Per-mode screen strides ($1B0 horizontal, $200 vertical) and the L1/L2 table
+ * sets are traced in docs/architecture/screens.md (SMWDisX bank_00.asm:6999-7065).
+ * A vertical screen is the left $100 bytes (cols 0-15) then the right $100
+ * (cols 16-31), 16 rows each.
+ *
+ * Evidence scope: SMWDisX trace; the horizontal layout is also checked by the
+ * L1 differential on the vanilla corpus; vertical: SMWDisX trace only, no
+ * capture or differential.
+ *
+ * Not modelled: (1) vertical modes 3/4 at screen 14+, where the ROM table
+ * jumps to $1B00 (DATA_00BB62) instead of 14 * $200; (2) a run that leaves the
+ * grid: the ROM keeps writing into whatever follows in WRAM (near the end of a
+ * 16-screen horizontal level, into the L2 buffer), the port clips at the
+ * declared width (the narrowest row, so rows an earlier object grew do not
+ * change the clip) or, vertically, at the last row.
  */
 export function handle_0DE971(cur: Cursor): void {
-  for (const row of cur.grid) {
-    if (row) row.fill(0x77)
+  const RUN = 0x400
+  const { grid, vertical } = cur
+  const width = vertical ? 32 : Math.min(...grid.map(r => r.length))
+  let offset: number
+  if (vertical) {
+    offset = (cur.row >> 4) * 0x200 + (cur.col >> 4) * 0x100
+  } else {
+    offset = (cur.col >> 4) * MAP16_BYTES_PER_SCREEN_H + (cur.row >> 4) * 0x100
   }
+  const col0 = cur.col
+  const row0 = cur.row
+  setPage0(cur)
+  for (let i = 0; i < RUN; i++, offset++) {
+    let r: number
+    let c: number
+    if (vertical) {
+      r = (offset >> 9) * 16 + ((offset >> 4) & 15)
+      c = ((offset >> 8) & 1) * 16 + (offset & 15)
+    } else {
+      const screen = Math.floor(offset / MAP16_BYTES_PER_SCREEN_H)
+      const within = offset - screen * MAP16_BYTES_PER_SCREEN_H
+      r = within >> 4
+      c = screen * 16 + (within & 15)
+    }
+    if (r >= grid.length || c >= width) continue
+    cur.row = r
+    cur.col = c
+    writeTile(cur, 0x77)
+  }
+  cur.col = col0
+  cur.row = row0
 }
 
 /**

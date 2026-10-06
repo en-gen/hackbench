@@ -93,6 +93,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The midway tape (extended object $46) at the first column of a screen draws where the game does:
+  the tape on the row above at column 15, and the base on the next screen in a horizontal level
+  (bank_0D.asm:1625-1632, #368). Vertical levels follow the same arithmetic on their $200-byte
+  screens, checked against the L1 interpreter, not a capture. The two gates that hide the post
+  are tracked in #635.
+
 - Sprite $0A (Red Vertical Para-Koopa) and $0B (Red Horizontal Para-Koopa)
   patrol overlay no longer renders as a symmetric `±amplitudePx` band. Per
   `RedVertParaKoopa` (bank_01.asm:1881), `SpriteXSpeed` and `SpriteMisc151C`
