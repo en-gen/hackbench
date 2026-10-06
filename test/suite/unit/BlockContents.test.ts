@@ -195,7 +195,7 @@ describe('resolveBlockContents', () => {
     sprites[1] = sprites[18] = 0 // first-item slot: a progressive block keeps only its item
     const noFirst = { ...TABLES, spriteInBlock: sprites }
     expect(resolveBlockContents(0x112, 0, noFirst)!.condition).toBe(
-      'nothing if Mario is small, otherwise Sprite $42',
+      'Nothing if Mario is small, otherwise Sprite $42',
     )
     sprites[3] = sprites[20] = 0
     expect(resolveBlockContents(0x114, 0, noFirst)!.condition).toBe('Nothing')
@@ -215,7 +215,7 @@ describe('resolveBlockContents', () => {
     // The star-or-coin tile: the star branch is empty, the coin branch stays.
     sprites[3] = sprites[20] = 0
     expect(resolveBlockContents(0x11c, 0, noItem)!.condition).toBe(
-      'nothing if Mario is invincible, otherwise Coin',
+      'Nothing if Mario is invincible, otherwise Coin',
     )
     // Both branches empty is a block with nothing.
     sprites[1] = sprites[18] = 0
@@ -253,13 +253,15 @@ describe('resolveBlockContents', () => {
     expect(r.condition).toBe('Sprite $47')
   })
 
-  it('an empty last alternative leaves the one before it unconditional', () => {
+  it('an empty 1-up keeps the coin under its condition; a start of 0 with no 1-up is Nothing', () => {
     const sprites = Uint8Array.from(SPRITES)
     sprites[5] = sprites[22] = 0 // the 1-up slot, both copies
-    const r = resolveBlockContents(0x11d, 0, { ...TABLES, spriteInBlock: sprites })!
-    expect(r.condition).toBe('Coin')
-    expect(r.alternatives).toHaveLength(1)
-    expect(r.alternatives[0].when).toBeNull()
+    const t = { ...TABLES, spriteInBlock: sprites }
+    const r = resolveBlockContents(0x11d, 0, t)!
+    expect(r.condition).toBe('Coin if fewer than 7 coins are collected, otherwise nothing')
+    expect(r.alternatives).toHaveLength(2)
+    expect(r.alternatives[0].when).toBe('fewer than 7 coins are collected')
+    expect(resolveBlockContents(0x11d, 0, { ...t, greenStarCoins: 0 })!.condition).toBe('Nothing')
   })
 
   it('a cycle period between 8 and 15 is reported', () => {
