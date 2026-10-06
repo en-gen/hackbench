@@ -56,18 +56,27 @@ describe('splitDiagonal', () => {
       }
     expect([small, black]).toEqual([120, 16])
   })
-  it('paints the line only where the split art is opaque, and nowhere else', () => {
-    // big is opaque on the diagonal for x < 8 only; small is opaque everywhere.
-    const part = new Uint8ClampedArray(BLOCK * BLOCK * 4)
-    for (let y = 0; y < BLOCK; y++)
-      for (let x = 0; x < 8; x++) part.set([0, 0, 255, 255], (y * BLOCK + x) * 4)
-    const o = splitDiagonal(red, part)
-    for (let d = 0; d < BLOCK; d++) {
-      expect(at(o, d, d)).toEqual(d < 8 ? [0, 0, 0, 255] : [0, 0, 0, 0])
+  it('paints the line where EITHER item is opaque on the diagonal pixel, and nowhere else', () => {
+    // small (bottom-left) is opaque at the diagonal pixels 0-3 only; big (top-right) at 6-9 only.
+    const only = (cells: number[]) => {
+      const a = new Uint8ClampedArray(BLOCK * BLOCK * 4)
+      for (const c of cells) a.set([0, 0, 255, 255], (c * BLOCK + c) * 4)
+      return a
     }
+    const o = splitDiagonal(only([0, 1, 2, 3]), only([6, 7, 8, 9]))
+    for (let d = 0; d < BLOCK; d++) {
+      const lit = d <= 3 || (d >= 6 && d <= 9)
+      expect(at(o, d, d), `diagonal pixel ${d}`).toEqual(lit ? [0, 0, 0, 255] : [0, 0, 0, 0])
+    }
+    // Nothing off the diagonal is drawn: neither item paints there.
     for (let y = 0; y < BLOCK; y++)
-      for (let x = 0; x < BLOCK; x++)
-        if (x !== y) expect(at(o, x, y)).toEqual(at(y > x ? red : part, x, y))
+      for (let x = 0; x < BLOCK; x++) if (x !== y) expect(at(o, x, y)[3]).toBe(0)
+  })
+  it('draws the whole diagonal black when both items are opaque, and keeps either side hard', () => {
+    const o = splitDiagonal(red, blue)
+    for (let d = 0; d < BLOCK; d++) expect(at(o, d, d)).toEqual([0, 0, 0, 255])
+    expect(at(o, 5, 4)).toEqual([0, 0, 255, 255]) // above the diagonal: big
+    expect(at(o, 4, 5)).toEqual([255, 0, 0, 255]) // below it: small
   })
 })
 

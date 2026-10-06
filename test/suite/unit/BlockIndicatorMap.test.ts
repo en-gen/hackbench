@@ -474,4 +474,44 @@ describe.skipIf(!hasRom(VANILLA))('mapBlockContents on the vanilla ROM', () => {
     expect(green).toBeGreaterThan(20)
     expect(Array.from(draw(4, 9))).not.toEqual(Array.from(draw(4, 8)))
   })
+
+  // The L1 line (owner pick): per item, clipped to that item's half of the diagonal pixel, so a diagonal art
+  // pixel is black where EITHER item is opaque. The mockup (spikes/progressive-powerup-indicators gen.cjs, `diag`)
+  // counts 13, 12, 11 and 12 diagonal pixels for $11F, $120, $11A column 0 and $12D, from its own static, unflipped
+  // art. The core-run art matches it for $11F (13) and $12D (12) and differs for $120 (15) and $11A (12): the run
+  // draws the feather mirrored (its first pass is flipped) and the star one pixel wider on the diagonal. So the rule is
+  // asserted against the constituents of the real art, and the counts that must equal the mockup's are pinned.
+  const diagOf = (a: Uint8ClampedArray) => Array.from({ length: 16 }, (_, i) => a[(i * 16 + i) * 4 + 3] !== 0) // prettier-ignore
+  it.each([
+    [0x105, 'mushroom / flower ($11F)', 's74:8:', 's75:8:', 13],
+    [0x002, 'mushroom / feather ($120)', 's74:8:', 's77:8:', undefined],
+    [0x10b, 'coin / star ($11A column 0 of 3)', 'coin', 's76:8:', undefined],
+    [0x005, 'coin / 1-up ($12D)', 'coin', 's78:8:', 12],
+  ] as const)(
+    'draws the line on every diagonal pixel either item paints: map %#, %s',
+    (map, _name, small, big, mockup) => {
+      // prettier-ignore
+      const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
+      const cache = new L1ModelCache()
+      const r = mapBlockContents(cache, bytes, romPath(VANILLA), map)
+      if (r.status !== 'ok') throw new Error(JSON.stringify(r))
+      const split = unb(
+        r.arts[`${small}/${big}`] ?? r.arts[`${small}/${big}`.replace('/', '/')] ?? '',
+      )
+      expect(split.length, `${small}/${big} is on map ${map.toString(16)}`).toBe(1024)
+      const built = cache.get(bytes, romPath(VANILLA), map, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
+      if (!built.ok) throw new Error(built.reason)
+      const art = romArt(RomFile.fromBytes('v.sfc', Buffer.from(bytes)), map, built.inputs)
+      const one = (k: string) => {
+        const d = k === 'coin' ? art.coin(false) : art.sprite({ kind: 'sprite', sprite: parseInt(k.slice(1), 16), status: 8, label: '' }, 5, 10) // prettier-ignore
+        if (!('art' in d)) throw new Error(d.why)
+        return diagOf(d.art)
+      }
+      const [a, b] = [one(small), one(big)]
+      const got = Array.from({ length: 16 }, (_, i) => split[(i * 16 + i) * 4 + 3] !== 0)
+      expect(got).toEqual(a.map((v, i) => v || b[i]!))
+      for (let i = 0; i < 16; i++) if (got[i]) expect(Array.from(split.subarray((i * 16 + i) * 4, (i * 16 + i) * 4 + 4))).toEqual([0, 0, 0, 255]) // prettier-ignore
+      if (mockup !== undefined) expect(got.filter(Boolean).length).toBe(mockup)
+    },
+  )
 })

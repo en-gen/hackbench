@@ -126,8 +126,9 @@ Maps view, #566 PR B (`theia/extension/src/node/map-block-contents.ts`,
   and, by the #623 ruling, the two-outcome blocks that include a coin ($11A
   column 0 of 3 and $122: coin bottom-left, star top-right; $12D: coin
   bottom-left, 1-up top-right). A hard diagonal from top-left to bottom-right
-  with a 1 px black line on it, painted only where the split art is opaque, so
-  it stops at the items' edges. The pixels on the diagonal take the top-right item.
+  with the owner's L1 line: black, one art pixel wide, scaling with zoom. It is
+  drawn once per item, clipped to that item's half of the diagonal pixel, so a
+  diagonal art pixel is black where either item is opaque and clear where neither is.
 - Multi-coin ($11B, $123): the coin with a 5 x 5 white "+" (7 x 7 with a black
   edge) baked into the corner of its 16 x 16 art. $11C and $124: the plain coin.
 - Each cell resolves for its own X column; the P-switch uses the spawn
