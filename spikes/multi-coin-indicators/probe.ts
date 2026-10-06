@@ -32,15 +32,18 @@ function idsWithContent(f080: number[], content: number): number[] {
   for (let i = 0; i < 0x1d; i++) if (!(f080[i]! & 0x80) && f080[i]! >> 1 === content) ids.push(0x111 + i)
   return ids
 }
-// The classifier must be able to fail: synthetic tables (no ROM) with one content byte planted wrong must change the ids.
+// The classifier must be able to fail: synthetic tables (no ROM) with one content byte planted wrong must give EXACT ids.
 {
+  type Cls = typeof idsWithContent
   const t = Array.from({ length: 36 }, () => 0); t[10] = 0x0e; t[11] = 0x0c
-  const ok = idsWithContent(t, 7).join() === '283' && idsWithContent(t, 6).join() === '284'
-  const bad = [...t]; bad[10] = 0x0c // multi-coin byte misread as single
-  const caught = idsWithContent(bad, 7).join() !== '283' && idsWithContent(bad, 6).join() !== '284'
+  const bad = [...t]; bad[10] = 0x0c // multi-coin byte misread as single: content 7 gives nothing, content 6 gives both
   const flag = [...t]; flag[10] = 0x8e // a column-dependent byte must not count
-  if (!ok || !caught || idsWithContent(flag, 7).length) throw new Error('F080 classifier self-test failed')
-  console.log('F080 classifier self-test (synthetic table, planted misread byte): rejected')
+  const exact = (c: Cls) => c(t, 7).join() === '283' && c(t, 6).join() === '284' && c(bad, 7).join() === '' && c(bad, 6).join() === '283,284' && c(flag, 7).length === 0
+  // a planted wrong-but-changed classifier (content 6 gives only '283' on the misread table) that the old "both lists changed" check accepted
+  const wrong: Cls = (f, c) => (f === bad && c === 6 ? [283] : idsWithContent(f, c))
+  const oldCheck = (c: Cls) => c(bad, 7).join() !== '283' && c(bad, 6).join() !== '284'
+  if (!oldCheck(wrong) || exact(wrong) || !exact(idsWithContent)) throw new Error('F080 classifier self-test failed')
+  console.log("F080 classifier self-test (synthetic table): planted wrong-but-changed result '283' for content 6 passed the old check, fails the exact one")
 }
 const multi = idsWithContent(F080, 7), single = idsWithContent(F080, 6)
 // the column-dependent bytes add no coin blocks if DATA_00F100 holds no content 6 or 7
