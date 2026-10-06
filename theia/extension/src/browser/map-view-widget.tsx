@@ -26,6 +26,7 @@ import {
   SwitchStateDto,
 } from '../common/project-protocol'
 import { ProjectFrontendClient } from './project-push-client'
+import { BLOCK } from '../common/block-indicator'
 import { decodeRgba, TILE_PX } from './map16-pixels'
 import {
   compositeSpriteScreen,
@@ -496,7 +497,7 @@ export class MapViewWidget extends ReactWidget {
     const b = this.blocks
     if (!h || !b) return undefined
     const [size, at] = b.orientation === 'vertical' ? [b.height, h.y] : [b.width, h.x]
-    return at + 16 > s * size && at < (s + 1) * size ? h : undefined
+    return at + BLOCK > s * size && at < (s + 1) * size ? h : undefined
   }
 
   protected readonly onPointerMove = (e: React.MouseEvent): void => {

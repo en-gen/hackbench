@@ -27,13 +27,12 @@ import {
   YOSHI_EGG_ID,
   type SpriteSubtile,
 } from '../../../../src/rom/SpriteTileLoader'
-import { bakePlus, fitArt, splitDiagonal } from '../common/block-indicator'
+import { BLOCK as TILE, bakePlus, fitArt, splitDiagonal } from '../common/block-indicator'
 import type { BlockIndicatorDto, MapBlockContentsResult } from '../common/project-protocol'
 import { drawSprites } from './map-sprites'
-import { screenTiles, type L1ModelCache, type MapInputs } from './map-screen'
+import { base64, screenTiles, type L1ModelCache, type MapInputs } from './map-screen'
 
 const NO_FLAGS = { yellow: false, green: false, red: false, blue: false }
-const TILE = 16
 /** $04 at status 9 is the stunned shell: the layout of id $DA (SpriteTileLoader `resolveShellAlias`). */
 const SPRITE_KOOPA = 0x04
 const STATUS_STUNNED = 0x09
@@ -78,7 +77,6 @@ export const specKey = (s: Spec, col: number): string =>
 
 type Drawn = { art: Uint8ClampedArray } | { why: string }
 
-const b64 = (b: Uint8ClampedArray) => Buffer.from(b.buffer, b.byteOffset, b.byteLength).toString('base64') // prettier-ignore
 const unb64 = (s: string) => new Uint8ClampedArray(Buffer.from(s, 'base64'))
 
 export function blockIndicators(
@@ -184,7 +182,7 @@ export function blockIndicators(
     )
   }
   const arts: Record<string, string> = {}
-  for (const [k, d] of cache) if ('art' in d) arts[k] = b64(d.art)
+  for (const [k, d] of cache) if ('art' in d) arts[k] = base64(d.art)
   return {
     status: 'ok',
     orientation: model.isVertical ? 'vertical' : 'horizontal',

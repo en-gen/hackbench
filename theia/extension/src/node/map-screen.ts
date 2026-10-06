@@ -268,7 +268,7 @@ export interface MapInputs extends L1Inputs {
 }
 export type MapInputsResult = { ok: true; inputs: MapInputs } | { ok: false; reason: string }
 
-const base64 = (b: Uint8ClampedArray) =>
+export const base64 = (b: Uint8ClampedArray) =>
   Buffer.from(b.buffer, b.byteOffset, b.byteLength).toString('base64')
 
 type ScreenReply = Exclude<MapScreenResult, { status: 'rom-not-located' }>
