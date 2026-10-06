@@ -13,6 +13,9 @@ This affects how the test suite is organized:
 
 - **CI runs only on content original to this project** - hand-crafted test
   vectors, pure-function assertions, synthetic inputs.
+- **Small vanilla tables are not committed either.** A test that needs vanilla
+  behaviour asserts the decoded result in a corpus-gated test (`describe.skipIf`)
+  and uses made-up tables everywhere else.
 - **Tests that need real ROM data are developer-local only.** They are
   either skipped automatically when no ROM is present, or depend on fixtures
   that live under `test/fixtures/` (gitignored).
