@@ -86,7 +86,7 @@ class ShortTable extends Error {}
 
 /** One table byte; an index past a hand-built table's end refuses instead of defaulting. */
 function at(table: Uint8Array, i: number, name: string): number {
-  if (i < 0 || i >= table.length)
+  if (i >= table.length)
     throw new ShortTable(`${name}[${i}] is past the end of a ${table.length}-byte table`)
   return table[i]
 }

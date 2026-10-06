@@ -376,6 +376,10 @@ describe('resolveBlockContents', () => {
       expect(refused(0x111, 3, { columnCycle: eight }).unavailable).toMatch(/DATA_00F100/)
       const short = new Uint8Array(CYCLE.slice(0, 24)) // first half whole, second cut
       expect(refused(0x11e, 0, { columnCycle: short }).unavailable).toMatch(/DATA_00F100/)
+      // 20 bytes: column 0..3 of the second half are inside the table, the rest of the half is not.
+      const twenty = new Uint8Array(CYCLE.slice(0, 20))
+      for (let col = 0; col < 4; col++)
+        expect(refused(0x11e, col, { columnCycle: twenty }).unavailable).toMatch(/DATA_00F100/)
       expect(isUnavailable(resolveBlockContents(0x111, 3, { ...TABLES, columnCycle: short }))).toBe(
         false,
       )
