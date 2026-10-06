@@ -36,8 +36,13 @@ async function main() {
     const brk = measureTile(new Probe(copy((b, o) => { b[o(0x00eadb)] = 0 }), MAP), 0x130)
     // 2) the slope table DATA_00E632 zeroed: a slope's floor must change, so the probe reads the ROM's table and not a built-in one
     const flat = measureTile(new Probe(copy((b, o) => { for (let i = 0; i < 0x1f0; i++) b[o(0x00e632 + i)] = 0 }), MAP), 0x1bf)
-    const ok = !!brk.unknown && /BRK/.test(brk.unknown) && !t0.unknown && t0.floor.join() !== flat.floor.join() && new Set(t0.floor).size > 3
-    console.log(`self-test: BRK planted -> "${brk.unknown}"; slope table zeroed: floor ${t0.floor.join(' ')} -> ${flat.floor.join(' ')}: ${ok ? 'both detected' : 'FAILED'}`)
+    // 3) the top-of-block hit (JSL CODE_00F120 at $00EE7F) pointed at HurtMario: a tile that kills on touch from above.
+    //    Small Mario dies with Y speed set negative, and CODE_00EE85 then returns before the landing flag (bank_00.asm:12482-12488),
+    //    so a probe that waits for the landing sees no floor. The surface is still where the kill fires.
+    const kill = measureTile(new Probe(copy((b, o) => { b.set([0x22, 0xb7, 0xf5, 0x00], o(0x00ee7f)) }), MAP), 0x130)
+    const killOk = kill.hurt && kill.floor.every((v) => v === 0) && t0.floor.length === 16
+    const ok = !!brk.unknown && /BRK/.test(brk.unknown) && !t0.unknown && t0.floor.join() !== flat.floor.join() && new Set(t0.floor).size > 3 && killOk
+    console.log(`self-test: BRK planted -> "${brk.unknown}"; slope table zeroed: floor ${t0.floor.join(' ')} -> ${flat.floor.join(' ')}: ${ok ? 'both detected' : 'FAILED'}; kill-on-touch block (planted): floor ${kill.floor.join(' ')}, hurt ${kill.hurt}: ${killOk ? 'floor found' : 'FAILED'}`)
     if (!ok) throw new Error('probe self-test failed')
   }
 

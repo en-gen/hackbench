@@ -111,7 +111,11 @@ export function measureTile(p: Probe, tile: number, state: Partial<Setup> = {}):
       let f: number | null = null, landed = false
       for (let dy = -40; dy <= 8 && !landed; dy++) {
         const r = run({ x, y: CELL.py + dy, ySpd: 0x1000 })
-        if (r.blocked & 4 && r.ground) { landed = true; const d = r.y - CELL.py + FOOT; if (d < 0) out.above++; else f = d }
+        // A tile that kills small Mario on touch never reaches the landing flag: HurtMario leaves Y speed negative and
+        // CODE_00EE85 returns early (bank_00.asm:12482-12488). Its first contact is the surface, as for a landing,
+        // because contact starts at the same foot offset (the sweep steps 1 px, so no snap is lost).
+        const killed = p.bus.wram[0x71] !== 0
+        if ((r.blocked & 4 && r.ground) || killed) { landed = true; const d = (killed ? dy : r.y - CELL.py) + FOOT; if (d < 0) out.above++; else f = d }
       }
       out.floor.push(f)
       let cl: number | null = null

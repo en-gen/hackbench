@@ -4,8 +4,16 @@
 Mario-vs-layer-1 code run on our 65816 core, instead of the hand port in `TileFactory.classify`, so a hack with
 patched block code comes out right?
 
-**Status:** three maps generated: `$105` (owner checked by eye, "looks great"), `$10A` and `$111`. Hack support is
-not started and is a separate decision. Spike code, not product code; not run by CI.
+**Status:** done for vanilla. Three maps generated and checked by eye by the owner: `$105` ("looks great"), `$10A`
+(looks right) and `$111` (looks right after the floor-spike fix below). Spike code, not product code; not run by CI.
+
+**Evidence scope:** vanilla US ROM only; tilesets 7, 3 and 1 (maps `$105`, `$10A`, `$111`); small Mario, blue and
+silver P-switch off, switch palaces off; horizontal layer-1 path only; one machine, 2026-10-05; not compared against
+an emulator.
+
+**Known gaps** (deferred): the other tilesets; the very gentle, steep and conveyor slopes were measured but not
+eyeballed on a map; water; vertical levels; layer 2; hacks (patched block code is the reason for this approach but is
+untested, to be taken up in a later milestone); big, ducking, Yoshi and cape states.
 
 ## Run
 
@@ -122,6 +130,18 @@ Disagreements with `TileFactory.classify` beyond the 53 on `$105` (ids not in th
 | `$111` | `$166-$169` | ceiling + wall (hurt) | nothing (on `$105` the same ids are solid: tileset-dependent) |
 
 Evidence scope as above: vanilla US ROM, one machine, one run on 2026-10-05, tilesets 7, 3 and 1 only.
+
+## Floor-spike fix (`$111`)
+
+The floor spikes drew no top line: ids `$159 $15A $15C` (and `$005`, `$12F`, `$166-$169`, `$1FB-$1FF` elsewhere) kill small
+Mario on contact, and the probe waited for the landing flag. `HurtMario` -> `KillMario` (`bank_00.asm:13522`) leaves Y
+speed `$90`, and `CODE_00EE85` (`bank_00.asm:12482-12488`) returns early for a negative Y speed, before the `$77`
+bit 2 write; at the foot-touch step on `$159` the run showed `$77` = 0, `$71` = 9, Y speed `$90`. The cause was the probe
+(compose was fine). The from-above sweep now takes the first contact that sets `$71` as the surface, at the same foot
+offset as a landing. The self-test plants a ROM copy where block `$130`'s top hit calls `HurtMario`: it fails before the
+fix (floor empty, hurt true) and passes after (floor 0 in all 16 columns). Only hazard ids changed, in all three maps
+(see the list above); by the ROM these tiles kill from above whatever their graphic, so the downward-pointing ones now
+also get a top line.
 
 ## `SurfacePath` span logic (`src/rom/model/SurfacePath.ts`)
 
