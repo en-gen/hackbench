@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   layer (any number of 8x8 characters) and never writes the base ROM. Closing the view with
   unsaved strokes asks first (#558). A gfx layer file now holds a `chars` list; the older
   one-character form still reads.
+- The map view toolbar warns when the open level's mode is on an unverified list, which holds
+  mode 1E only (sprite layering not verified, #617). Rendering is unchanged (#618).
 - The map view composites the main and sub screens for every level mode, with SNES color math:
   Layer 3 translucency, and halving and additive blends. Per mode, the main and sub screen
   planes and CGADSUB come from the ROM's tables (`LevMainScrnTbl`, `LevSubScrnTbl`,

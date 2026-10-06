@@ -36,6 +36,7 @@ import { WheelBinding, ZoomController } from './zoom-controller'
 import { ZoomStepper } from './zoom-stepper'
 import { MapGridOverlay } from './grid-overlay'
 import { layer2Label } from './map-layer-labels'
+import { isUnverifiedMode } from '../../../../src/rom/model/UnverifiedModes'
 import { composeScreen, type SourceKey } from '../../../../src/rom/model/ColorMath'
 import { perfEnd, perfStart } from '../common/perf-marks'
 
@@ -606,6 +607,16 @@ export class MapViewWidget extends ReactWidget {
             />
           ))}
           <span className="hb-toolbar-spacer" />
+          {isUnverifiedMode(this.details?.levelMode) && (
+            <span
+              className="hb-map-view-mode-warning"
+              data-control="unverified-mode"
+              title="Sprites in this mode may draw in the wrong order. This mode has not been checked against the game."
+            >
+              <span className="codicon codicon-warning" />
+              {`Level mode ${this.details!.levelMode!.toString(16).toUpperCase().padStart(2, '0')}: sprite layering not verified`}
+            </span>
+          )}
           <button
             data-control="grid-toggle"
             type="button"
