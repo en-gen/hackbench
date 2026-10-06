@@ -1,7 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 // Usage: node gen.cjs [assets.json] [out.html]; run probe.ts first.
-const { img, win, y0, blocks, plain, labels, bg, map } = JSON.parse(fs.readFileSync(process.argv[2] || path.join(__dirname, 'assets.json'), 'utf8'))
+const { img, win, y0, blocks, plain, two, labels, bg, map } = JSON.parse(fs.readFileSync(process.argv[2] || path.join(__dirname, 'assets.json'), 'utf8'))
 const W = win[0].length, H = win.length
 // [code, title, angle, core px, border px above/left of the core, border px below/right, core colour]
 // Weights are SCREEN pixels: constant at every zoom and in the hover state.
@@ -89,3 +89,48 @@ document.querySelectorAll('.scene .blk').forEach(b=>b.addEventListener('click',(
 </script></body></html>`
 fs.writeFileSync(process.argv[3] || path.join(__dirname, 'mockup.html'), html)
 console.log('mockup.html', html.length, 'bytes;', (html.match(/class="blk/g) || []).length, 'block elements')
+
+// ---- #623: two-outcome blocks, one sheet per option, beside the D4 coin, the #607 split and the #615 C4a.
+// Same stylesheet and same .bd / clip-path machinery as above; only the compositions below are new.
+if (two) {
+  const plusSvg = (() => { // C4a "+": 5x5 white cross, 1px black edge, at (9,9) of the 16x16 coin art (multi-coin-indicators/probe.ts plusPx)
+    const cross = (x, y) => x >= 0 && x < 5 && y >= 0 && y < 5 && (x === 2 || y === 2)
+    let r = ''
+    for (let y = 0; y < 7; y++) for (let x = 0; x < 7; x++) {
+      const c = cross(x - 1, y - 1) ? '#fff' : [[-1, 0], [1, 0], [0, -1], [0, 1]].some(([dx, dy]) => cross(x - 1 + dx, y - 1 + dy)) ? '#000' : null
+      if (c) r += `<rect x="${x}" y="${y}" width="1" height="1" fill="${c}"/>`
+    }
+    return 'data:image/svg+xml,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="7" height="7" shape-rendering="crispEdges">${r}</svg>`)
+  })()
+  const S = { star: ['Star', 'invincible'], oneup: ['1-Up', 'the coin counter is zero'] }
+  // [Map16 id, number, label, item shown for the state-dependent options (null = not a two-outcome block)]
+  const SET = [[0x11c, 'D4 coin'], [0x11f, '#607 split'], [0x11b, 'C4a multi-coin'], [0x11a, 'star or coin', 'star'], [0x122, 'star or coin', 'star'], [0x12d, '1-Up or coin', 'oneup']]
+  const strip = (opt, z, force) => {
+    let h = `<div class="stage strip" style="--z:${z}">`
+    SET.forEach(([id, , item], i) => {
+      const inner = item ? opt(item)
+        : id === 0x11f ? ind('mushroom', 'flower')
+        : id === 0x11b ? `<span class="bd"><img class="p" src="${img.coin}"><img class="pl" src="${plusSvg}"></span>`
+        : plainInd('coin')
+      h += block(i * 1.5, 0, id, inner, '', force ? ' force' : '') + `<b class="nm" style="--x:${i * 1.5}">${i + 1}</b>`
+    })
+    return h + '</div>'
+  }
+  const OPTS = [
+    ['A', 'The #607 diagonal: coin bottom-left, star or 1-Up top-right', (it) => ind('coin', it)],
+    ['B', 'The coin only; the condition shows only in the Contains row (#565)', () => plainInd('coin')],
+    ['C', 'The conditional item only (star or 1-Up)', (it) => plainInd(it)],
+    ['D', 'The coin with the item as a half-size badge in its top-right corner, as C4a marks multi-coin in the bottom-right. Reads as a coin with a twist, and cannot be mistaken for the progressive split', (it) => `<span class="bd"><img class="p" src="${img.coin}"><img class="bg" src="${img[it]}"></span>`],
+  ]
+  const legend = SET.map(([id, n], i) => `${i + 1} $${id.toString(16)} ${n}`).join(' &middot; ')
+  const sec = OPTS.map(([c, t, f]) => `<section id="opt${c}" style="--lw:0"><h2>${c}. ${t}</h2><p class="note">${legend}</p>` +
+    [1, 2, 3].map((z) => `<div class="zr" style="--z:${z}"><div class="cap">${z}x at rest</div>${strip(f, z, false)}<div class="cap">${z}x hover</div>${strip(f, z, true)}</div>`).join('') + '</section>').join('')
+  const css = html.match(/<style>[\s\S]*<\/style>/)[0].replace('</style>', `.strip{width:calc(8.5*var(--u));height:var(--u);margin-bottom:6px;--u:calc(16px*var(--z))}.zr{margin:10px 0 18px;padding:8px;background:var(--bg);display:inline-block;margin-right:20px;vertical-align:top;--z:1}
+.nm{position:absolute;left:calc(var(--x)*var(--u));width:var(--u);top:calc(var(--u) + 2px);text-align:center;font:10px sans-serif;color:#fff;text-shadow:0 0 2px #000}
+.bd img.pl{left:56.25%;top:56.25%;width:43.75%;height:43.75%}.bd img.bg{left:50%;top:0;width:50%;height:50%}.zr .stage{outline:none;margin-bottom:18px}</style>`)
+  const html2 = `<!doctype html><html><head><meta charset="utf-8"><title>Two-outcome indicator mockup</title>${css}</head><body><h1>Two-outcome blocks (#623), map ${map} palette</h1>
+<p class="note">Star or coin: $11A at column 0 of 3 and $122 (star if Mario is invincible). 1-Up or coin: $12D (1-Up once its coin counter is zero). Hover fills the whole block.</p>${sec}
+<style>body{--bg:${bg}}</style></body></html>`
+  fs.writeFileSync(path.join(path.dirname(process.argv[3] || __filename), 'two-outcome.html'), html2)
+  console.log('two-outcome.html', html2.length, 'bytes;', (html2.match(/class="blk/g) || []).length, 'block elements')
+}

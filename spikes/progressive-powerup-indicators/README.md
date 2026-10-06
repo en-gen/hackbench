@@ -142,3 +142,20 @@ Properties sample: "Mushroom if Mario is small, otherwise Fire Flower".
   counts), not by eye; the diagonal clip is CSS `clip-path`, so its edge is
   anti-aliased in the browser.
 - Only the hit from below triggers most of these blocks (`DATA_00F0A4`); not modelled.
+
+## Two-outcome blocks (#623)
+
+Same probe and generator, extended: `probe.ts` also renders D4 coin `$11C`, the
+split block `$11F`, C4a `$11B`, and the state-dependent `$11A` (column 0), `$122`
+and `$12D`; `gen.cjs` writes a second page, `two-outcome.html` (gitignored), with
+one sheet per option at 1x, 2x and 3x, at rest and on hover.
+
+- A: the diagonal, coin bottom-left, star or 1-Up top-right.
+- B: the coin only.
+- C: the conditional item only.
+- D: the coin with the item as a half-size badge in its top-right corner.
+
+Rules: `$11A` column 0 and `$122` give a star, or a coin when Mario already has
+one (`CODE_00F1C9`, `bank_00.asm:12887-12891`); `$12D` gives a 1-Up once its
+counter is zero, else a coin (`bank_00.asm:12861-12866`). ASM reading only; the
+probe throws if the tables stop saying so.

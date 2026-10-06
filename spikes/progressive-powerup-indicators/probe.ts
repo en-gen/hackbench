@@ -87,12 +87,22 @@ for (const [key, x] of [['oneup', 1], ['coin', 2], ['star', 14]] as const) {
   plain.push({ x, y: 20, id, key, label: `$${id.toString(16)} at column ${x} (plain)` })
 }
 
+// ---- two-outcome blocks (#623): item depends on game state but Mario does not progress through a mushroom
+// $11A at X column 0 of a screen (F080 $81 -> F100[16], star) and $122 (F080 $07): star, or a coin if Mario
+// is invincible already (CODE_00F1C9, bank_00.asm:12887-12891). $12D (F080 $ff, green star block): 1-Up once
+// the counter reaches zero, else coin (bank_00.asm:12861-12866). Set beside D4 coin $11C, $11F, C4a $11B.
+const two = [0x11c, 0x11f, 0x11b, 0x11a, 0x122, 0x12d]
+const star11a = contentOf(0x11a, 0), star122 = contentOf(0x122, 0)
+if (star11a?.other !== 'star' || !star11a.note || star122?.other !== 'star' || !star122.note) throw new Error('$11A col 0 / $122 are not the conditional star')
+if (F080[tableIndex(0x12d)!] !== 0xff) throw new Error('$12D is not the F080 $ff green star block')
+if (F080[tableIndex(0x11b)!]! >> 1 !== 7 || itemKey(F080[tableIndex(0x11c)!]! >> 1) !== 'coin') throw new Error('$11B/$11C are not multi-coin/coin')
+
 // ---- graphics
 const img: Record<string, string> = {}
 const [x0, x1] = [0, L.grid[0]!.length - 1]
 const win: number[][] = []
 for (let y = ROWS[0]!; y <= ROWS[1]!; y++) win.push(L.grid[y]!.slice(x0, x1 + 1))
-for (const id of new Set<number>([...win.flat(), ...blocks.map((b) => b.id), ...plain.map((p) => p.id)])) {
+for (const id of new Set<number>([...win.flat(), ...blocks.map((b) => b.id), ...plain.map((p) => p.id), ...two])) {
   const t = tile(id); if (id !== 0x25) stats('tile $' + id.toString(16), t, `Map16 $${id.toString(16)}, map $${MAP.toString(16)}`)
   img['t' + id] = png(16, 16, t)
 }
@@ -101,10 +111,10 @@ const itemSrc = (key: string) => {
   const id = { mushroom: 0x74, flower: 0x75, star: 0x76, feather: 0x77, oneup: 0x78 }[key]!
   return sprite16(powerTile(id), attrOf(id))
 }
-const keys = new Set<string>(['mushroom', ...blocks.map((b) => b.other), ...plain.map((p) => p.key)])
+const keys = new Set<string>(['mushroom', 'flower', 'coin', 'star', 'oneup', ...blocks.map((b) => b.other), ...plain.map((p) => p.key)])
 for (const k of keys) { const s = itemSrc(k); stats(k, s, 'sprite tables, as in block-content-indicators/probe.ts'); img[k] = png(16, 16, s) }
 const [br, bg, bb] = L.backArea
-writeFileSync(process.argv[2] ?? new URL('assets.json', HERE), JSON.stringify({ img, win, y0: ROWS[0], blocks, plain, labels: ITEM_LABEL, bg: `rgb(${br},${bg},${bb})`, map: '$' + MAP.toString(16).padStart(3, '0') }))
+writeFileSync(process.argv[2] ?? new URL('assets.json', HERE), JSON.stringify({ img, win, y0: ROWS[0], blocks, plain, two, labels: ITEM_LABEL, bg: `rgb(${br},${bg},${bb})`, map: '$' + MAP.toString(16).padStart(3, '0') }))
 console.log('plain comparison blocks:', plain.map((p) => p.label).join('; '))
 }
 main()
