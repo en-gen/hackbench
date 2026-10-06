@@ -11,17 +11,41 @@ INFERENCE. All `file:line` cites are SMWDisX.
 | Horizontal   | 16 wide x 27   | left to right | row 16: top 16 rows, bottom 11 |
 | Vertical     | 32 wide x 16   | top to bottom | column 16: two 16-wide halves  |
 
-NOT ASM: the project memo `bank_00/MEMO.md:259-260` (a note, not disassembly)
-gives the L1 screen stride as `$1B0` = 27 rows x 16 cols for horizontal levels
-and `$200` = 32 rows x 16 cols for vertical ones. TRACED: the high-coordinate
-bit adds `$100` bytes to the Map16 pointer (`bank_05.asm:781-782`), 16 rows of
-16 columns. So the `$200` vertical block is two 16 x 16 pages, one per half.
-The viewer draws those two pages SIDE BY SIDE: a vertical screen is 32 wide x
-16 tall (`screenTiles`, `theia/extension/src/node/map-screen.ts:50`), which is
-the same two pages seen along the other axis. That the viewer's 32 x 16 equals
-the memo's "32 rows x 16 cols" transposed is INFERENCE, supported by the nibble
-swap below and the right-half comment (`bank_05.asm:781`). Where the grid's three weights come from:
-`theia/extension/src/browser/map-grid.ts`.
+TRACED (SMWDisX, no capture): the screen stride is read from `LoadBlkPtrs`
+(`bank_05.asm:730-777`), a per-level-mode pointer into a table of Map16 buffer
+addresses, one 3-byte entry per screen. The high-coordinate bit adds `$100`
+bytes to the pointer (`bank_05.asm:778-782`), 16 rows of 16 columns. So the
+`$200` vertical block is two 16 x 16 pages, one per half. The viewer draws those
+two pages SIDE BY SIDE: a vertical screen is 32 wide x 16 tall (`screenTiles`,
+`theia/extension/src/node/map-screen.ts:50`). That its 32 x 16 equals "32 rows x
+16 cols" transposed is INFERENCE, supported by the nibble swap below and the
+right-half comment (`bank_05.asm:781`).
+
+Per level mode (bank_00.asm; "L1" is `Ptrs00BDA8` at 6999-7019, "L2" is
+`Ptrs00BDE8` at 7033-7065; tables `DATA_00BAD8` 6727 to `DATA_00BC16` 6847):
+
+| Level modes    | L1 table, stride, base     | L2 table, stride, base  |
+| -------------- | -------------------------- | ----------------------- |
+| 0 1 2 C E F 11 | `BAD8`, `$1B0`, 16 at `$0` | `BB08`, `$1B0`, `$1B00` |
+| 3 4 (L1 vert.) | `BB38`, `$200`, 14 screens | `BB62`, `$1B0`, `$1B00` |
+| 5 6 (L2 vert.) | `BB92`, `$1B0`             | `BBC2`, `$200`, `$1C00` |
+| 7 8 A D        | `BBEC`, `$200`, 28 screens | `BC16`, `$200`, `$1C00` |
+
+Where this breaks the port's single-stride model:
+
+- **Modes 3 and 4, screen 14 and up.** `BB38` has 14 entries (`$0` to `$1A00`);
+  the next table, `BB62`, starts at `$1B00` with `$1B0` steps, so screen 14 is
+  at `$1B00`, not `14 * $200 = $1C00`. No vanilla corpus level uses mode 3 or 4.
+- **Modes A and D, L2.** `VerticalTable` bit 1 is clear for both, so the port
+  builds the L2 grid horizontal (`$1B0`) while the ROM's L2 table is `BC16`
+  (`$200`, `bank_00.asm:7044` and `7047`). Filed as #637.
+- **A 16-screen horizontal L1 ends at `$1B00`,** where the L2 buffer begins. A
+  run that writes past the last screen (ext `$5F` is one: it writes a fixed
+  `$400` bytes, #362) spills into L2 in the ROM; the port clips at the grid edge.
+- The `$1B0` and `$200` strides and the `BB38`/`BBEC` mode split are also
+  asserted against the vanilla ROM's own tables in
+  `test/suite/unit/ExtFill5F.synthetic.test.ts`. Where the grid's three weights come from:
+  `theia/extension/src/browser/map-grid.ts`.
 
 ## How the ROM encodes the half
 

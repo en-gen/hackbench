@@ -881,18 +881,30 @@ export function handle_0DDA57(cur: Cursor): void {
  * Writes page-0 tile $77 over 4 x 256 consecutive Map16 bytes from
  * Map16LowPtr with Y = 0, so LevelLoadPos is ignored (bank_0D.asm:7640-7652).
  * The pointer is the object's screen base from the LoadBlkPtrs tables, plus
- * $100 when the high-coordinate bit is set (bank_05.asm:730-782). The tables
- * stride $1B0 per horizontal screen (bank_00.asm:6763 onward for BAD8) and
- * $200 per vertical screen (DATA_00BBEC, used by every VerticalTable bit-0
- * mode, bank_00.asm:7000-7015); a vertical screen is the left $100 (cols
- * 0-15) then the right $100 (cols 16-31), 16 rows each (docs/architecture/screens.md).
- * The run walks on across screens; cells outside the grid are not drawn.
- * Screens 14 and up in vertical modes 3/4 use a different stride in the ROM
- * (BB62) and are not modelled. Evidence: SMWDisX trace only (#362).
+ * $100 when the high-coordinate bit is set (bank_05.asm:730-782).
+ *
+ * L1 tables, Ptrs00BDA8 (bank_00.asm:6999-7019): horizontal modes use
+ * DATA_00BAD8 (6727; $1B0 per screen, 16 screens) or DATA_00BB92 (modes 5/6);
+ * vertical modes use DATA_00BB38 (modes 3/4, 7003-7004) or DATA_00BBEC
+ * (modes 7/8/A/D, 7007-7013), both $200 per screen. L2 uses the parallel set
+ * Ptrs00BDE8 (7033-7065). A vertical screen is the left $100 bytes (cols 0-15)
+ * then the right $100 (cols 16-31), 16 rows each (docs/architecture/screens.md).
+ *
+ * Evidence scope: SMWDisX trace; the horizontal layout is also checked by the
+ * L1 differential on the vanilla corpus; vertical: SMWDisX trace only, no
+ * capture or differential.
+ *
+ * Not modelled: (1) vertical modes 3/4 at screen 14+, where the ROM table
+ * jumps to $1B00 (DATA_00BB62) instead of 14 * $200; (2) a run that leaves the
+ * grid: the ROM keeps writing into whatever follows in WRAM (near the end of a
+ * 16-screen horizontal level, into the L2 buffer), the port clips at the
+ * declared width (the narrowest row, so rows an earlier object grew do not
+ * change the clip) or, vertically, at the last row.
  */
 export function handle_0DE971(cur: Cursor): void {
   const RUN = 0x400
   const { grid, vertical } = cur
+  const width = vertical ? 32 : Math.min(...grid.map(r => r.length))
   let offset: number
   if (vertical) {
     offset = (cur.row >> 4) * 0x200 + (cur.col >> 4) * 0x100
@@ -914,8 +926,7 @@ export function handle_0DE971(cur: Cursor): void {
       r = within >> 4
       c = screen * 16 + (within & 15)
     }
-    const row = grid[r]
-    if (!row || c >= row.length) continue
+    if (r >= grid.length || c >= width) continue
     cur.row = r
     cur.col = c
     writeTile(cur, 0x77)
