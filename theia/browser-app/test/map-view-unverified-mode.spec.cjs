@@ -55,12 +55,16 @@ async function openSynthetic(page, index, levelMode) {
   )
 }
 
-test('mode 1E shows the warning, with the #617 link in its tooltip', async ({ page }) => {
+test('mode 1E shows the warning, with an explanatory tooltip', async ({ page }) => {
   await openSynthetic(page, 0x1e0, 0x1e)
   const w = page.locator(warning(0x1e0))
   await expect(w).toHaveText(WARNING)
   await expect(w.locator('.codicon-warning')).toHaveCount(1)
-  await expect(w).toHaveAttribute('title', /github\.com\/en-gen\/hackbench\/issues\/617/)
+  await expect(w).toHaveAttribute(
+    'title',
+    'Sprites in this mode may draw in the wrong order. This mode has not been checked against the game.',
+  )
+  expect(await w.getAttribute('title')).not.toMatch(/github/i)
 })
 
 test('another mode shows no warning', async ({ page }) => {

@@ -83,8 +83,6 @@ function AfterCommit({ run }: { run: () => void }): null {
   return null
 }
 
-const UNVERIFIED_MODE_ISSUE = 'https://github.com/en-gen/hackbench/issues/617'
-
 const palaceName = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
 
 @injectable()
@@ -613,7 +611,7 @@ export class MapViewWidget extends ReactWidget {
             <span
               className="hb-map-view-mode-warning"
               data-control="unverified-mode"
-              title={`Sprite layering in this mode has not been checked against the ROM: ${UNVERIFIED_MODE_ISSUE}`}
+              title="Sprites in this mode may draw in the wrong order. This mode has not been checked against the game."
             >
               <span className="codicon codicon-warning" />
               {`Level mode ${this.details!.levelMode!.toString(16).toUpperCase().padStart(2, '0')}: sprite layering not verified`}
