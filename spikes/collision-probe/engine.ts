@@ -66,6 +66,7 @@ export class Probe {
     for (let i = 0; i < 4; i++) this.w(RAM.palaces + i, (s.palaces ?? 0) >> i & 1)
     this.w16(RAM.xNext, s.x); this.w16(RAM.yNext, s.y); this.w16(RAM.xNow, s.x); this.w16(RAM.yNow, s.y)
     this.w16(RAM.xSpd, s.xSpd ?? 0); this.w16(RAM.ySpd, s.ySpd ?? 0)
+    this.w(0x71, 0) // PlayerAnimation: a loaded entrance (pipe, door) leaves it set, which would read as 'hurt' on every tile
     this.w(0x13, 1) // TrueFrame: the conveyor slopes ($CE-$D1, CODE_00EFCD) shove Mario only when it is a multiple of 4
     this.w(RAM.air, s.air ?? 0x24); this.w(RAM.dir, s.dir ?? 0); this.w(RAM.onGround, 0)
     // CODE_00E92B's setup for layer 1 of a horizontal level (bank_00.asm:11723-11768), then the collision body.

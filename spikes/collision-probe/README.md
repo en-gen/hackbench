@@ -4,8 +4,8 @@
 Mario-vs-layer-1 code run on our 65816 core, instead of the hand port in `TileFactory.classify`, so a hack with
 patched block code comes out right?
 
-**Status:** first map done (Yoshi's Island 1, `$105`) for the owner to check by eye. The other 1-2 maps wait for
-sign-off. Spike code, not product code; not run by CI.
+**Status:** three maps generated: `$105` (owner checked by eye, "looks great"), `$10A` and `$111`. Hack support is
+not started and is a separate decision. Spike code, not product code; not run by CI.
 
 ## Run
 
@@ -13,7 +13,9 @@ sign-off. Spike code, not product code; not run by CI.
 npx tsx spikes/collision-probe/probe.ts --rom <vanilla ROM> --map 105
 ```
 
-`--rom` is required (no default path). Writes `spikes/collision-probe/out/105.html` (gitignored): the map, the SVG
+Maps: `105` Yoshi's Island 1, `10a` Vanilla Dome 3, `111` Valley Fortress. `--rom` is required (no default path).
+Each run writes `out/<map>.html` and refreshes `out/index.html`, which links every page there. Pages are
+gitignored; the one for `105` is `spikes/collision-probe/out/105.html`: the map, the SVG
 lines (yellow `#ffeb3b` floors and ceilings, purple `#d500f9` walls, 2 px, `vector-effect: non-scaling-stroke`,
 unknown cells hatched), a toggle per group, zoom, a table of tile categories with ids, and the probe-vs-old
 disagreements (also outlined red on the map behind a toggle). About 75 s: 512 ids, two states, ~850 M instructions.
@@ -87,6 +89,39 @@ Notable measured behaviour:
 The ROM's head-hit path for page 0 accepts only `$21-$24` (`CODE_00EC8A`, `bank_00.asm:12194-12205`), so the old
 ceiling for the other page-0 ids has no counterpart in the routine. Open for review: the old port may encode intent
 the routine does not show (blocks it wants hit from below).
+
+## Maps `$10A` and `$111` (added after sign-off on `$105`)
+
+Chosen with `find_l1_tile_levels` plus a scan of every level's Map16 ids against the probe's categories per
+tileset (13 of 16 tilesets have levels; `$105` is tileset 7). Two maps cover everything `$105` lacked:
+
+| Map | Tileset | Covers (ids measured on the map) |
+| --- | --- | --- |
+| `$10A` Vanilla Dome 3 | 3 | muncher `$12F` (hazard); ceiling slopes `$1C8 $1C9`; floor/ceiling halves `$1CB $1CD`; invisible block `$021`; P-switch-dependent `$029 $02B $132`; note-block ids `$159-$15B` (partial); slopes `$16E-$1B5 $1CA $1CC`; `$1FB $1FD-$1FF` hazard |
+| `$111` Valley Fortress | 1 | `$005` and `$159 $15A $15C` hazard (tile `$005` is the `CPY #$05` kill, `CODE_00EDDB`, `bank_00.asm:12383-12386`; `$159-$15C` hit `HurtMario` for tileset 1 through `CODE_00F127`, `bank_00.asm:12789-12815`); solid `$15D-$165` |
+
+The note block is `$15A` (low byte `$5A` takes the `$59/$5A` side door of `CODE_00F160`, `bank_00.asm:12828-12846`, into
+`DATA_00F05C` entry `$10`); the probe reports it `partial` on tileset 3 and `solid` on tileset 0. The same ids
+`$159-$15C` mean hazards on tilesets 1, 5 and 13 and notes/doors elsewhere, so a tile's meaning is per tileset: the
+page shows the categories of the tileset it was run for. One map cannot cover both groups (hazards `$159-$15C` and
+munchers live in different tilesets), two can. Spikes and lava here mean those measured hazard ids; I did not name
+graphics.
+
+Bug found and fixed while scanning: some levels (tilesets 4, 9, 12, 13) load with `$71` PlayerAnimation set by their
+entrance, which read as "hurt" on every id. `Probe.run` now clears `$71` first. `$105`, `$10A`, `$111` were
+regenerated after the fix (their level images had `$71` = 0, so their results did not change).
+
+Disagreements with `TileFactory.classify` beyond the 53 on `$105` (ids not in that set, per map):
+
+| Map | Ids | Probe | Old |
+| --- | --- | --- | --- |
+| `$10A` (63 total) | `$1C4-$1C7` | ceiling | floor + ceiling |
+| `$10A` | `$1D2-$1D7` | nothing | floor (fillers drawn as floor by old) |
+| `$111` (61 total) | `$159 $15A $15B $15C` | ceiling + wall (hurt) | nothing |
+| `$111` | `$1C4-$1C7` | ceiling | floor + ceiling |
+| `$111` | `$166-$169` | ceiling + wall (hurt) | nothing (on `$105` the same ids are solid: tileset-dependent) |
+
+Evidence scope as above: vanilla US ROM, one machine, one run on 2026-10-05, tilesets 7, 3 and 1 only.
 
 ## `SurfacePath` span logic (`src/rom/model/SurfacePath.ts`)
 

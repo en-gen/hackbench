@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { png } from '../block-content-indicators/lib.ts'
@@ -105,6 +105,11 @@ async function main() {
   mkdirSync(outDir, { recursive: true })
   const outFile = join(outDir, `${hx(MAP)}.html`)
   writeFileSync(outFile, tpl.replace('/*DATA*/', 'const D = ' + JSON.stringify(data).replace(/</g, '\\u003c')))
+  // index.html: one link per map page already in the out dir (each run refreshes it)
+  const pages = readdirSync(outDir).filter((f) => /^[0-9a-f]{3}\.html$/.test(f)).sort()
+  const name = (f: string) => /"mapName":"([^"]*)"/.exec(readFileSync(join(outDir, f), 'utf8'))?.[1] ?? ''
+  const li = pages.map((f) => `<li><a href="${f}">map $${f.slice(0, 3)} ${name(f)}</a></li>`).join('')
+  writeFileSync(join(outDir, 'index.html'), `<!doctype html><meta charset="utf-8"><title>Collision probe maps</title><body style="font:14px system-ui;background:#1e1e1e;color:#ccc;padding:16px"><h1 style="font-size:16px">Collision probe maps</h1><ul>${li}</ul>`)
   const count = new Map<Cat, number>(); for (const c of cats) count.set(c, (count.get(c) ?? 0) + 1)
   console.log('ids with a landing above the cell top:', base.map((m, i) => (m.above ? '$' + hx(i) : '')).filter(Boolean).join(' '))
   console.log('categories (512 ids):', [...count].map(([c, n]) => `${c} ${n}`).join(', '))
