@@ -425,6 +425,25 @@ describe('WorkingRomRegistry', () => {
         expect(working.editStack(manifestPath)).toMatchObject({ status: 'ok', canRedo: true })
       })
 
+      it('keeps the held instance and its redo when the layer write fails after an undo', () => {
+        const { manifestPath } = gfxProject()
+        working.setGfx(manifestPath, [{ file: 2, tile: 0, pixels: px(5) }])
+        const held = opened(manifestPath).w
+        const undone = held.stack[0].id
+        working.undo(manifestPath)
+        fsFault.hook = (call, target) => {
+          if (call === 'writeFileSync' && !target.includes(`${path.sep}redo${path.sep}`)) {
+            throw new Error('disk full')
+          }
+        }
+        expect(working.setGfx(manifestPath, [{ file: 2, tile: 1, pixels: px(6) }]).status).toBe(
+          'io-error',
+        )
+        fsFault.hook = null
+        expect(opened(manifestPath).w).toBe(held)
+        expect(held.redoStack.map(l => l.id)).toEqual([undone])
+      })
+
       it('pops the layer back off when the disk write fails', () => {
         const { manifestPath } = gfxProject()
         const held = opened(manifestPath).w // get() would reload from disk and hide a leak
@@ -771,6 +790,37 @@ describe('WorkingRomRegistry', () => {
       if (r.status !== 'ok') throw new Error('unreachable')
       expect(r.working).toBe(w)
       expect(w.redoStack.map(l => l.id)).toEqual([mine])
+    })
+
+    // The held-instance checks below read the registry's own copy, not editStack(),
+    // which rebuilds from disk and would hide a redo that was never restored in memory.
+    it('a redo clear that throws keeps the held instance and its redo', () => {
+      const { manifestPath, w, mine } = editedOnce()
+      working.undo(manifestPath)
+      fsFault.hook = call => {
+        if (call === 'rmSync') throw new Error('locked')
+      }
+      expect(working.setWord(manifestPath, wr('$391F', '$2000')).status).toBe('io-error')
+      fsFault.hook = null
+      const r = working.get(manifestPath)
+      if (r.status !== 'ok') throw new Error('unreachable')
+      expect(r.working).toBe(w)
+      expect(w.redoStack.map(l => l.id)).toEqual([mine])
+    })
+
+    it('a rename that fails after the clear keeps the held instance with an empty redo', () => {
+      const { manifestPath, w, dir } = editedOnce()
+      working.undo(manifestPath)
+      fsFault.hook = call => {
+        if (call === 'renameSync') throw new Error('locked')
+      }
+      expect(working.setWord(manifestPath, wr('$391F', '$2000')).status).toBe('io-error')
+      fsFault.hook = null
+      const r = working.get(manifestPath)
+      if (r.status !== 'ok') throw new Error('unreachable')
+      expect(r.working).toBe(w)
+      expect(w.redoStack).toEqual([])
+      expect(loadRedoLayers(dir)).toEqual([])
     })
 
     it('a rename that fails pops the failed edit from the held copy', () => {
