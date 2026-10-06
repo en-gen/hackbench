@@ -14,6 +14,20 @@ import * as path from 'path'
 const repoRoot = path.resolve(__dirname, '../../..')
 const script = path.join(repoRoot, 'tools/scripts/gitnexus-refresh.sh')
 
+// A bare `bash` on win32 can be the WSL launcher; use Git for Windows' bash and
+// fail loudly when it is missing (same approach as perfAccept.test.ts).
+function findBash(): string {
+  if (process.platform !== 'win32') return 'bash'
+  const exec = execFileSync('git', ['--exec-path'], { encoding: 'utf8' }).trim()
+  const candidates = [
+    path.resolve(exec, '..', '..', '..', 'bin', 'bash.exe'),
+    path.join(process.env.ProgramFiles ?? 'C:/Program Files', 'Git', 'bin', 'bash.exe'),
+  ]
+  const found = candidates.find(fs.existsSync)
+  if (!found) throw new Error(`Git Bash required, not found at ${candidates.join(' or ')}`)
+  return found
+}
+
 function makeWritable(p: string): void {
   fs.chmodSync(p, 0o700)
   if (fs.statSync(p).isDirectory()) for (const e of fs.readdirSync(p)) makeWritable(path.join(p, e))
@@ -41,7 +55,7 @@ function runRefresh(scriptText: string): string {
     git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'base')
     // python is stubbed out: only the analyze step is under test.
     execFileSync(
-      'bash',
+      findBash(),
       ['-c', 'python() { :; }; export -f python; bash tools/scripts/gitnexus-refresh.sh'],
       {
         cwd: dir,
