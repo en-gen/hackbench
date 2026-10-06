@@ -176,7 +176,8 @@ export interface SpriteLayout {
  * following each handler to its first `LDA ... STA OAMTileNo` pair, taking
  * an immediate's operand or an indexed load's first table byte. That claim
  * is false. Applying exactly that rule with `HandlerWalk` reproduces 36 of
- * the 98 values; 57 differ and 5 find no store at all, identically on all
+ * the 98 values (the 35 to 36 move after #99 is a coincidence: $7E's tile
+ * $E8 equals the first store the walk reaches in $7D-$80); 57 differ and 5 find no store at all, identically on all
  * six carts in the corpus. The table is curated, not extracted.
  *
  * Why it cannot be read live, in one line each, with the measurements and
@@ -242,8 +243,8 @@ export const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0x7c: 0x6e, // Princess Peach
   // PowerUpGfxRt: PowerUpTiles[sprite - $74], bank_01.asm:9528-9530, 9632-9637 (#99)
   0x7d: 0xe4, // Balloon
-  0x7e: 0xe8, // Flying Red coin
-  0x7f: 0x24, // Flying yellow 1-Up
+  0x7e: 0xe8, // Flying Red coin (body only; wing tiles from CODE_019E95 not modelled)
+  0x7f: 0x24, // Flying yellow 1-Up (body only; wings not modelled)
   0x80: 0xec, // Key - PowerUpGfxRt with PowerUpTiles[$0C], bank_01.asm:9528
   0x81: 0x80, // Changing item from translucent block
   0x82: 0xe4, // Bonus game sprite

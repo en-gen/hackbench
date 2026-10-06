@@ -236,10 +236,10 @@ Columns: stub = behind `Bank3SprHandler`; depth = distinct named routines on the
 | $7A | Bank3SprHandler | B3 | Firework | BESPOKE | CODE_03C96D |  |  |  |
 | $7B | GoalTape |  | GoalTape | BESPOKE | CODE_01C12D |  |  |  |
 | $7C | Bank3SprHandler | B3 | PrincessPeach | BESPOKE | PrincessPeach |  |  |  |
-| $7D | BalloonKeyFlyObjs |  | BalloonKeyFlyObjs | BESPOKE | CODE_01C670 |  |  |  |
-| $7E | BalloonKeyFlyObjs |  | BalloonKeyFlyObjs | BESPOKE | CODE_01C670 |  |  |  |
-| $7F | BalloonKeyFlyObjs |  | BalloonKeyFlyObjs | BESPOKE | CODE_01C670 |  |  |  |
-| $80 | BalloonKeyFlyObjs |  | BalloonKeyFlyObjs | BESPOKE | CODE_01C670 |  |  |  |
+| $7D | BalloonKeyFlyObjs |  | BalloonKeyFlyObjs | BESPOKE | CODE_01C61A, PowerUpGfxRt |  |  |  |
+| $7E | BalloonKeyFlyObjs |  | BalloonKeyFlyObjs | BESPOKE | CODE_01C61A, PowerUpGfxRt |  |  |  |
+| $7F | BalloonKeyFlyObjs |  | BalloonKeyFlyObjs | BESPOKE | CODE_01C61A, PowerUpGfxRt |  |  |  |
+| $80 | BalloonKeyFlyObjs |  | BalloonKeyFlyObjs | BESPOKE | CODE_01C61A, PowerUpGfxRt |  |  |  |
 | $81 | ChangingItem |  | ChangingItem | SHARED | G2 via PowerUpRt | 3 | Y |  |
 | $82 | BonusGame |  | BonusGame | BESPOKE | CODE_01DF4E |  |  |  |
 | $83 | Flying_Block |  | Flying_Block | SHARED | G2 via Flying_Block | 2 |  |  |

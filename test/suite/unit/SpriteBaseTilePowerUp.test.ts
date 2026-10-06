@@ -1,18 +1,38 @@
 /**
- * #99: sprites $7D/$7E/$7F draw through PowerUpGfxRt, which indexes
- * PowerUpTiles by (sprite - $74). Synthetic expectations, no ROM.
- * SMWDisX bank_01.asm:9528-9530 (table), 9632-9637 (index).
+ * #99: sprites $74-$78 and $7D-$80 draw through PowerUpGfxRt, which indexes
+ * PowerUpTiles by (sprite - $74). SMWDisX bank_01.asm:9528-9530 (table),
+ * 9632-9637 (index). PowerUpTiles is at $01:C609 (SMW_U.sym:11159).
+ *
+ * The expectation is read from the ROM so a wrong index (say sprite - $73)
+ * applied to the table cannot agree with itself. Vanilla only: hacks may
+ * move the table. Evidence scope: one vanilla US ROM, static read.
  */
 import { describe, it, expect } from 'vitest'
 import { SPRITE_BASE_TILE_OVERRIDES } from '../../../src/rom/SpriteTileLoader'
+import { VANILLA, freshRom, hasRom } from '../support/corpus'
 
-describe('PowerUpGfxRt base tiles (#99)', () => {
+const POWER_UP_TILES = 0x01c609
+const IDS = [0x74, 0x75, 0x76, 0x77, 0x78, 0x7d, 0x7e, 0x7f, 0x80]
+const hex = (n: number) => '$' + n.toString(16).toUpperCase()
+
+describe.skipIf(!hasRom(VANILLA))('PowerUpGfxRt base tiles match PowerUpTiles (#99)', () => {
+  it.each(IDS.map(id => [hex(id), id] as const))(
+    'sprite %s is PowerUpTiles[id - $74]',
+    (_n, id) => {
+      const rom = freshRom(VANILLA)
+      expect(SPRITE_BASE_TILE_OVERRIDES[id]).toBe(rom.readByte(POWER_UP_TILES + (id - 0x74)))
+    },
+  )
+})
+
+// Synthetic, no ROM: the three ids #99 corrected, pinned to the values read
+// from the table above, so a corpus-less run still goes red on the old $5D.
+describe('sprites $7D-$7F (#99), no ROM', () => {
   it.each([
     [0x7d, 0xe4],
     [0x7e, 0xe8],
     [0x7f, 0x24],
-    [0x80, 0xec],
-  ])('sprite $%s uses tile $%s', (id, tile) => {
-    expect(SPRITE_BASE_TILE_OVERRIDES[id]).toBe(tile)
+  ])('sprite %i has the PowerUpTiles tile', (id, tile) => {
+    expect(SPRITE_BASE_TILE_OVERRIDES[id], hex(id)).toBe(tile)
   })
 })

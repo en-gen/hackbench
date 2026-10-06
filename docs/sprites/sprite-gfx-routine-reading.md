@@ -251,8 +251,8 @@ table. On every one of the six ROMs:
 
 | | count |
 |---|---|
-| live value equals the frozen value | 35 |
-| live value differs | 58 |
+| live value equals the frozen value | 36 |
+| live value differs | 57 |
 | no store reachable at all | 5 |
 
 So the stated method reproduces about a third of its own output. The table is
@@ -262,20 +262,22 @@ worth fixing about it.
 Three reasons the disagreements are not bugs in the reimplementation:
 
 1. **The first store is usually not the sprite's own.** The value $82 comes
-   back for 32 of the 58 on five of the six files and 27 on Grand Poo
+   back for 32 of the 57 on five of the six files and 27 on Grand Poo
    World 2 1.1, from a shared OAM preamble that runs before the
    handler writes its own tile. "First" in reachability order is not "first"
    in the sense a human reading the routine means.
 2. **Table-sourced tiles need an index the ROM does not hold statically.**
-   `PowerUpTiles` serves $74-$78 at indices 0 through 4; the index is an
-   animation or state byte in RAM. Taking element 0 is right once in five.
+   `PowerUpTiles` serves $74-$78 at indices 0 through 4; the index is
+   the sprite number minus $74 (bank_01.asm:9632-9636), applied at run time.
+   Taking element 0 is right once in five. (The 35 to 36 move after #99 is a
+   coincidence: $7E's correct tile ($E8) equals the first store the walk reaches.)
    The frozen table has all five correct, which is itself proof it was
    indexed by hand.
 3. **Which store is representative is a judgement.** $88 takes the value on
    the `BCC`-taken side. Nothing in the bytes says that side is the one to
    show a level editor.
 
-Keeping the 35 that agree and freezing the other 63 would be calibration
+Keeping the 36 that agree and freezing the other 63 would be calibration
 against the frozen table itself, so nothing was kept.
 
 A weaker check was measured and also rejected: collect every value the
