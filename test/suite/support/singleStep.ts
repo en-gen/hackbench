@@ -2,8 +2,10 @@
  * Runs one SingleStepTests 65816 case against Cpu65816 and returns the
  * mismatches. Compares registers, flags and every memory byte the case lists
  * or the CPU wrote, and the ordered (address, value) bus writes against the
- * case's write cycles. Timing and other bus lines are ignored (the core does
- * not model them).
+ * case's write cycles (MVN/MVP excepted). Reads, dummy cycles, timing and the
+ * other bus lines are not compared (the core does not model them). Concessions:
+ * MVN/MVP (data cut at 100 cycles) and, in emulation mode, an 8-bit RMW's
+ * old-value write is collapsed. DISPUTED lists vectors skipped on purpose.
  */
 import { Cpu65816 } from '../../../src/rom/cpu/Cpu65816'
 
@@ -27,6 +29,39 @@ export interface StepCase {
   /** [address, value | null, bus flags]; flags[3] is 'w' on a write cycle. */
   cycles?: [number, number | null, string][]
 }
+
+/**
+ * Vectors the core deliberately disagrees with: Clark and Snes9x contradict
+ * the data (see Cpu65816.push). SingleStep.test.ts skips them in the main run
+ * and, when the data is present, asserts each one still MISMATCHES the core,
+ * so an exception that stops being needed goes red.
+ */
+export interface Disputed {
+  id: string
+  /** Upstream SingleStepTests/65816 issue numbers. */
+  issues: string
+  /** Vector file (`{op}.e`) the exception applies to. */
+  file: string
+  expected: number
+  matches(tc: StepCase): boolean
+}
+export const DISPUTED: Disputed[] = [
+  {
+    id: '(dp,X) pointer wrap, emulation, DL=0',
+    issues: 'issue 3',
+    file: 'e1.e',
+    expected: 1,
+    matches: tc => tc.name === 'e1 e 8669', // index 8668 in the file
+  },
+  {
+    id: 'JSR (a,X) push wrap, emulation',
+    issues: 'issues 6 and 7',
+    file: 'fc.e',
+    expected: 43,
+    // The push of S and S-1 only differs when it crosses the page edge.
+    matches: tc => (tc.initial.s & 0xff) === 0,
+  },
+]
 
 export function runCase(tc: StepCase, make: (bus: never) => Cpu65816 = defaultMake): string[] {
   const mem = new Map<number, number>(tc.initial.ram)

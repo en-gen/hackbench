@@ -251,6 +251,78 @@ describe('SingleStep harness oracle', () => {
   })
 })
 
+describe('SingleStep harness oracle: write log, S/E, collapse scope, MVN (#646)', () => {
+  const st = (o: Partial<StepCase['initial']>): StepCase['initial'] => ({
+    pc: 0x8000,
+    s: 0x1ff,
+    p: 0x30,
+    a: 0,
+    x: 0,
+    y: 0,
+    dbr: 0,
+    d: 0,
+    pbr: 0,
+    e: 0,
+    ram: [],
+    ...o, // prettier-ignore
+  })
+  const w = (a: number, v: number): [number, number, string] => [a, v, 'xxxw']
+  /** Native PEA $1234: writes the high byte at $01FF, then the low byte at $01FE. */
+  const pea = (): StepCase => ({
+    name: 'pea',
+    initial: st({ ram: [[0x8000, 0xf4], [0x8001, 0x34], [0x8002, 0x12]] }), // prettier-ignore
+    final: st({ pc: 0x8003, s: 0x1fd, ram: [[0x8000, 0xf4], [0x8001, 0x34], [0x8002, 0x12], [0x1ff, 0x12], [0x1fe, 0x34]] }), // prettier-ignore
+    cycles: [w(0x1ff, 0x12), w(0x1fe, 0x34)],
+  })
+  it('passes the correct write order', () => {
+    expect(runCase(pea())).toEqual([])
+  })
+  it('goes red when the expected writes come in the other order', () => {
+    const tc = pea()
+    tc.cycles = [w(0x1fe, 0x34), w(0x1ff, 0x12)]
+    expect(runCase(tc).join()).toContain('write order')
+  })
+  it('goes red when S or E differ', () => {
+    const s = pea()
+    s.final.s = 0x1fc
+    expect(runCase(s).join()).toContain('s: got')
+    const e = pea()
+    e.final.e = 1
+    expect(runCase(e).join()).toContain('e: got')
+  })
+  // INC $10 writes once. The data lists the old value then the new one in
+  // emulation mode only; the harness may collapse that pair there, not in native mode.
+  const inc = (e: number): StepCase => ({
+    name: 'inc',
+    initial: st({ e, ram: [[0x8000, 0xe6], [0x8001, 0x10], [0x10, 5]] }), // prettier-ignore
+    final: st({ e, pc: 0x8002, ram: [[0x8000, 0xe6], [0x8001, 0x10], [0x10, 6]] }), // prettier-ignore
+    cycles: [w(0x10, 5), w(0x10, 6)],
+  })
+  it('collapses a same-address write pair in emulation mode', () => {
+    expect(runCase(inc(1))).toEqual([])
+  })
+  it('does not collapse a same-address write pair in native mode', () => {
+    expect(runCase(inc(0)).join()).toContain('write order')
+  })
+  it('checks an MVN that moves one byte, and the 14-move cut of a longer one', () => {
+    const mvn = (a: number): StepCase => {
+      const code: [number, number][] = [[0x8000, 0x54], [0x8001, 1], [0x8002, 0]] // prettier-ignore
+      const n = a === 0 ? 1 : 14
+      const moved: [number, number][] = []
+      for (let k = 0; k < n; k++) moved.push([0x10030 + k, 0x77])
+      const src: [number, number][] = []
+      for (let k = 0; k < n; k++) src.push([0x20 + k, 0x77])
+      return {
+        name: 'mvn',
+        initial: st({ a, x: 0x20, y: 0x30, ram: [...code, ...src] }),
+        final: st({ a: (a - n) & 0xffff, x: 0x20 + n, y: 0x30 + n, dbr: 1, pc: a === 0 ? 0x8003 : 0x8002, ram: [...code, ...src, ...moved] }), // prettier-ignore
+      }
+    }
+    expect(runCase(mvn(0))).toEqual([])
+    expect(runCase(mvn(0x100))).toEqual([])
+  })
+})
+
 describe('Cpu65816 read-modify-write bus writes (#593)', () => {
   // Hardware writes the HIGH byte first, then the low byte, for every 16-bit RMW.
   // Memory $1234, C=1, A=$0F0F: every result differs from the input and has hi != lo.

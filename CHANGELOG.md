@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- 65816 core: emulation-mode `(dp,X)` and JSR (a,X) follow Clark and Snes9x, WAI and STP halt `step()`, WDM makes no read, and setting `e` applies the XCE invariant. The SingleStep harness gains planted-defect proofs and a named list of disputed vectors; about 30 synthetic edge tests run in CI (#646).
 - The GFX view paints: pick a palette color, click or drag on a tile sheet, and the pixel changes
   at once. Strokes can be undone and redone before Save; Save records them as one undoable op
   layer (any number of 8x8 characters) and never writes the base ROM. Closing the view with
