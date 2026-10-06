@@ -187,6 +187,36 @@ describe.skipIf(!hasRom(VANILLA))('collision probe on the vanilla ROM', () => {
     }, 120_000)
   })
 
+  it('a pressed yellow palace turns the ghost "!" blocks of $015 solid: the grid and the lines follow', async () => {
+    const flags = (yellow: boolean) => ({ yellow, green: false, red: false, blue: false })
+    const rom = SmwRom.open(romPath(VANILLA))
+    const grid = (yellow: boolean) => {
+      const r = buildL1Inputs(rom, 0x15, flags(yellow))
+      if (!r.ok) throw new Error(r.reason)
+      return r.inputs
+    }
+    const [off, on] = [grid(false), grid(true)]
+    const ts = off.header.objectTileset
+    const layer = (m: typeof off, yellow: boolean) =>
+      collisionLayer(freshRom(), 0x15, ts, m.grid, new ProbeCache(), { state: { flags: flags(yellow), bluePs: false } }) // prettier-ignore
+    const [a, b] = [await layer(off, false), await layer(on, true)]
+    if (!a.ok || !b.ok) throw new Error('refused')
+    const cells: [number, number][] = []
+    off.grid.forEach((row, y) =>
+      row.forEach((id, x) => id !== on.grid[y]![x] && cells.push([x, y])),
+    )
+    expect(cells.length).toBe(7)
+    expect(cells.every(([x, y]) => off.grid[y]![x] === 0x6b && on.grid[y]![x] === 0x16b)).toBe(true)
+    expect(b.lines).not.toEqual(a.lines)
+    // The "!" block ($16B) is solid: every changed cell has a floor line along its top in the on case, and not in the off case.
+    const covers = (lines: typeof a.lines, x: number, y: number) =>
+      lines.some(l => l.kind === 'floor' && l.points.filter((_, i) => i % 2).every(v => v === y * 16) && Math.min(...l.points.filter((_, i) => !(i % 2))) <= x * 16 && Math.max(...l.points.filter((_, i) => !(i % 2))) >= x * 16 + 16) // prettier-ignore
+    for (const [x, y] of cells) {
+      expect(covers(b.lines, x, y), `on ${x},${y}`).toBe(true)
+      expect(covers(a.lines, x, y), `off ${x},${y}`).toBe(false)
+    }
+  }, 120_000)
+
   describe('planted defects (the probe must go red)', () => {
     const cal = { foot: 32, head: 17 }
     const L = 0x105

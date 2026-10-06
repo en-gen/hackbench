@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest'
 import { compose, type CollisionLine } from '../../../src/rom/collision/Compose'
 import { collisionLayer, ProbeCache, SUPERSEDED } from '../../../src/rom/collision/MapCollision'
 import {
+  stateKey,
   calibrate,
   measureTile,
   probeAir,
@@ -180,6 +181,46 @@ describe('the probe without a cartridge', () => {
     // Writes the cell itself (as a collected coin does): LDA #$25; STA $7EC888.
     [0x36, [0xa9, 0x25, 0x8f, 0x88, 0xc8, 0x7e]],
   ])
+
+  /** Lands from Y >= 96 only while the byte at `addr` is non-zero. */
+  const WHEN = (addr: number) => [0xad, addr & 255, addr >> 8, 0xf0, 0x0f, 0xa5, 0x96, 0xc9, 0x60, 0x90, 0x09, 0xa9, 0x04, 0x85, 0x77, 0xa9, 0x01, 0x8d, 0xef, 0x13] // prettier-ignore
+  const STATE = blocks([
+    [0x40, WHEN(0x1f27)], // green
+    [0x41, WHEN(0x1f28)], // yellow
+    [0x42, WHEN(0x1f29)], // blue
+    [0x43, WHEN(0x1f2a)], // red
+    [0x44, WHEN(0x14ad)], // blue P-switch
+  ])
+
+  it('puts the palace flags and the blue P-switch in the probe WRAM, in SwitchBlockFlags order', () => {
+    const off = { flags: { green: false, yellow: false, blue: false, red: false }, bluePs: false }
+    const floorOf = (tile: number, over: Partial<typeof off.flags> = {}, bluePs = false) => {
+      const p = new Probe(rom(STATE), 0, loaded())
+      p.state = { flags: { ...off.flags, ...over }, bluePs }
+      return measureTile(p, tile, CAL).floor
+    }
+    const flat = Array(16).fill(0)
+    for (const t of [0x40, 0x41, 0x42, 0x43, 0x44])
+      expect(floorOf(t), '$' + t.toString(16)).toEqual(NONE)
+    expect(floorOf(0x40, { green: true })).toEqual(flat)
+    expect(floorOf(0x41, { yellow: true })).toEqual(flat)
+    expect(floorOf(0x42, { blue: true })).toEqual(flat)
+    expect(floorOf(0x43, { red: true })).toEqual(flat)
+    expect(floorOf(0x44, {}, true)).toEqual(flat)
+    // Each byte is its own: yellow does not set green's.
+    expect(floorOf(0x40, { yellow: true })).toEqual(NONE)
+  })
+
+  it('keys the cache on the flags and the P-switch', () => {
+    const on = { flags: { green: false, yellow: true, blue: false, red: false }, bluePs: false }
+    const off = { ...on, flags: { ...on.flags, yellow: false } }
+    expect(stateKey(on)).not.toBe(stateKey(off))
+    expect(stateKey({ ...off, bluePs: true })).not.toBe(stateKey(off))
+    const c = new ProbeCache()
+    c.set(7, 1, mk(), on)
+    expect(c.get(7, 1, on)).toBeDefined()
+    expect(c.get(7, 1, off)).toBeUndefined()
+  })
 
   it('calibrates and measures a flat block: floor 0, underside 16', () => {
     const p = new Probe(rom(MULTI), 0, loaded())

@@ -20,6 +20,7 @@ import {
   ProbeCache,
   SUPERSEDED,
 } from '../../../../src/rom/collision/MapCollision'
+import { stateKey, type ProbeState } from '../../../../src/rom/collision/TileProbe'
 import type { MapCollisionCheckResult, MapCollisionResult } from '../common/project-protocol'
 import { L1ModelCache } from './map-screen'
 
@@ -32,7 +33,7 @@ const REPLIES_PER_BYTES = 8
 interface PerBytes {
   probes: ProbeCache
   /** A map's reply, or the promise of it while it is being probed (a second request shares it). */
-  replies: Map<number, Reply | Promise<Reply>>
+  replies: Map<string, Reply | Promise<Reply>>
 }
 const byBytes = new WeakMap<Uint8Array, PerBytes>()
 
@@ -71,28 +72,30 @@ export async function mapCollision(
   bytes: Uint8Array,
   romPath: string,
   index: number,
+  state: ProbeState,
   cancelled: () => boolean = () => false,
   layer: typeof collisionLayer = collisionLayer,
 ): Promise<Reply> {
+  const key = `${index}:${stateKey(state)}`
   let entry = byBytes.get(bytes)
   if (!entry) byBytes.set(bytes, (entry = { probes: new ProbeCache(), replies: new Map() }))
-  const kept = entry.replies.get(index)
+  const kept = entry.replies.get(key)
   if (kept) {
     // LRU: a hit moves the map to the newest end.
-    entry.replies.delete(index)
-    entry.replies.set(index, kept)
+    entry.replies.delete(key)
+    entry.replies.set(key, kept)
     return kept
   }
-  const pending = compute(cache, entry.probes, bytes, romPath, index, cancelled, layer)
+  const pending = compute(cache, entry.probes, bytes, romPath, index, state, cancelled, layer)
   if (entry.replies.size >= REPLIES_PER_BYTES) {
     entry.replies.delete(entry.replies.keys().next().value!)
   }
-  entry.replies.set(index, pending)
+  entry.replies.set(key, pending)
   const r = await pending
   // Only a computed answer is kept; an unavailable one may be a hiccup worth retrying.
-  if (entry.replies.get(index) === pending) {
-    if (r.status === 'ok') entry.replies.set(index, r)
-    else entry.replies.delete(index)
+  if (entry.replies.get(key) === pending) {
+    if (r.status === 'ok') entry.replies.set(key, r)
+    else entry.replies.delete(key)
   }
   return r
 }
@@ -103,11 +106,12 @@ async function compute(
   bytes: Uint8Array,
   romPath: string,
   index: number,
+  state: ProbeState,
   cancelled: () => boolean,
   layer: typeof collisionLayer,
 ): Promise<Reply> {
-  // The grid is for the palaces-off state, and the probe's own game state is fixed (P-switches off): see theia-shell.md.
-  const built = cache.get(bytes, romPath, index, NO_FLAGS)
+  // The grid is drawn with the view's palaces, and the probe runs in the same state (silver P-switch is not modelled).
+  const built = cache.get(bytes, romPath, index, state.flags)
   if (!built.ok) return { status: 'unavailable', reason: built.reason }
   const m = built.inputs
   if (m.isVertical) {
@@ -119,6 +123,7 @@ async function compute(
     const r = await layer(rom, index, m.header.objectTileset, m.grid, probes, {
       yieldTurn,
       cancelled,
+      state,
     })
     if (!r.ok) {
       return r.reason === SUPERSEDED

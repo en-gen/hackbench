@@ -257,7 +257,7 @@ export class MapViewWidget extends ReactWidget {
     if (!o) return
     const generation = this.generation
     const r = await this.projects
-      .mapCollision(o.manifestPath, o.index)
+      .mapCollision(o.manifestPath, o.index, { ...this.flags }, { ...this.switches })
       .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
     // An older map's or edit's lines must not land over a newer one.
     if (generation !== this.generation) return

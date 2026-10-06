@@ -488,7 +488,12 @@ export interface ProjectService {
   mapCollisionCheck(manifestPath: string, index: number): Promise<MapCollisionCheckResult>
 
   /** A map's collision lines, from the working copy (#435). Slow cold (the probe runs the ROM's code), then cached. */
-  mapCollision(manifestPath: string, index: number): Promise<MapCollisionResult>
+  mapCollision(
+    manifestPath: string,
+    index: number,
+    switchFlags: SwitchFlagsDto,
+    switches: SwitchStateDto,
+  ): Promise<MapCollisionResult>
 
   /** The map toolbar's art: the palace blocks and the char switches' buttons. */
   mapPalaceIcons(manifestPath: string, index: number): Promise<PalaceIconsResult>

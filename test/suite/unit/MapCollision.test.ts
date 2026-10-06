@@ -11,6 +11,7 @@ import { hGrid, inputs, vGrid } from '../support/mapInputs'
 import { hasRom, romPath, VANILLA } from '../support/corpus'
 import { readFileSync } from 'node:fs'
 
+const OFF = { flags: { green: false, yellow: false, blue: false, red: false }, bluePs: false }
 const stub = (isVertical: boolean) =>
   new L1ModelCache(() => ({
     ok: true,
@@ -24,12 +25,12 @@ const synthetic = () => {
 
 describe('mapCollision (synthetic)', () => {
   it('a vertical level is unavailable with its reason, not an empty overlay', async () => {
-    const r = await mapCollision(stub(true), synthetic(), 'x.sfc', 0x105)
+    const r = await mapCollision(stub(true), synthetic(), 'x.sfc', 0x105, OFF)
     expect(r).toEqual({ status: 'unavailable', reason: expect.stringMatching(/vertical/i) })
   })
 
   it("a ROM the level loader refuses is unavailable with the loader's reason", async () => {
-    const r = await mapCollision(stub(false), synthetic(), 'x.sfc', 0x105)
+    const r = await mapCollision(stub(false), synthetic(), 'x.sfc', 0x105, OFF)
     expect(r).toEqual({
       status: 'unavailable',
       reason: expect.stringMatching(/not the vanilla shape/),
@@ -38,7 +39,7 @@ describe('mapCollision (synthetic)', () => {
 
   it('a map the model cannot build is unavailable with that reason', async () => {
     const cache = new L1ModelCache(() => ({ ok: false, reason: 'no level data' }))
-    expect(await mapCollision(cache, synthetic(), 'x.sfc', 0x105)).toEqual({ status: 'unavailable', reason: 'no level data' }) // prettier-ignore
+    expect(await mapCollision(cache, synthetic(), 'x.sfc', 0x105, OFF)).toEqual({ status: 'unavailable', reason: 'no level data' }) // prettier-ignore
   })
 })
 
@@ -54,7 +55,7 @@ describe('mapCollision reply cache (synthetic layer)', () => {
     return { fn, calls }
   }
   const ask = (c: L1ModelCache, b: Uint8Array, i: number, fn: ReturnType<typeof layer>['fn']) =>
-    mapCollision(c, b, 'x.sfc', i, () => false, fn)
+    mapCollision(c, b, 'x.sfc', i, OFF, () => false, fn)
 
   it('keeps an ok reply and does not keep an unavailable one', async () => {
     const [c, b, l] = [stub(false), synthetic(), layer(['bad'])]
@@ -79,11 +80,38 @@ describe('mapCollision reply cache (synthetic layer)', () => {
       seen.push(o.cancelled!)
       return { ok: false, reason: 'superseded' }
     }) as unknown as ReturnType<typeof layer>['fn']
-    expect(await mapCollision(c, b, 'x.sfc', 0x105, () => true, stopped)).toEqual({
+    expect(await mapCollision(c, b, 'x.sfc', 0x105, OFF, () => true, stopped)).toEqual({
       status: 'stale',
     })
     expect(seen[0]!()).toBe(true)
     expect((await ask(c, b, 0x105, layer([]).fn)).status).toBe('ok')
+  })
+
+  it('draws the grid with the view flags and probes in the same state; each state is its own reply', async () => {
+    const seen: unknown[] = []
+    const cache = new L1ModelCache((_r, _i, flags) => {
+      seen.push(flags)
+      return { ok: true, inputs: inputs(hGrid(2), false, 2) }
+    })
+    const states: unknown[] = []
+    const fn = (async (
+      _r: unknown,
+      _l: number,
+      _t: number,
+      _g: unknown,
+      _p: unknown,
+      o: { state?: unknown },
+    ) => {
+      states.push(o.state)
+      return { ok: true, lines, probed: 1, steps: 1 }
+    }) as unknown as ReturnType<typeof layer>['fn']
+    const b = synthetic()
+    const yellow = { flags: { ...OFF.flags, yellow: true }, bluePs: true }
+    await mapCollision(cache, b, 'x.sfc', 0x15, yellow, () => false, fn)
+    await mapCollision(cache, b, 'x.sfc', 0x15, OFF, () => false, fn)
+    await mapCollision(cache, b, 'x.sfc', 0x15, yellow, () => false, fn) // same state again: cached
+    expect(states).toEqual([yellow, OFF])
+    expect(seen).toContainEqual(yellow.flags)
   })
 
   it('keeps eight maps per working copy: the ninth evicts the least recently used', async () => {
@@ -135,22 +163,22 @@ describe.skipIf(!hasRom(VANILLA))('mapCollision on the vanilla ROM', () => {
     const bytes = rom()
     const cache = new L1ModelCache()
     const t0 = Date.now()
-    const r = await mapCollision(cache, bytes, romPath(VANILLA), 0x111)
+    const r = await mapCollision(cache, bytes, romPath(VANILLA), 0x111, OFF)
     const cold = Date.now() - t0
     if (r.status !== 'ok') throw new Error(JSON.stringify(r))
     expect([r.width, r.height]).toEqual([240 * 16, 27 * 16])
     expect(r.lines.some(l => l.kind === 'floor')).toBe(true)
     expect(cold).toBeLessThan(5000)
     const t1 = Date.now()
-    expect(await mapCollision(cache, bytes, romPath(VANILLA), 0x111)).toBe(r) // the same reply object
+    expect(await mapCollision(cache, bytes, romPath(VANILLA), 0x111, OFF)).toBe(r) // the same reply object
     expect(Date.now() - t1).toBeLessThan(100)
   }, 120_000)
 
   it('new bytes are a new working copy: probed again, same lines for the same ROM', async () => {
     const a = rom()
     const cache = new L1ModelCache()
-    const first = await mapCollision(cache, a, romPath(VANILLA), 0x111)
-    const second = await mapCollision(cache, new Uint8Array(a), romPath(VANILLA), 0x111)
+    const first = await mapCollision(cache, a, romPath(VANILLA), 0x111, OFF)
+    const second = await mapCollision(cache, new Uint8Array(a), romPath(VANILLA), 0x111, OFF)
     expect(second).not.toBe(first)
     expect(second).toEqual(first)
   }, 120_000)
@@ -158,15 +186,15 @@ describe.skipIf(!hasRom(VANILLA))('mapCollision on the vanilla ROM', () => {
   it('a patched block routine changes what the working copy answers (here it breaks it: unavailable)', async () => {
     const patched = RomFile.fromBytes(romPath(VANILLA), rom())
     patched.writeAt(0x00eadb, [0x00]) // a BRK at the collision routine
-    const r = await mapCollision(new L1ModelCache(), patched.buffer, romPath(VANILLA), 0x111)
+    const r = await mapCollision(new L1ModelCache(), patched.buffer, romPath(VANILLA), 0x111, OFF)
     expect(r).toEqual({ status: 'unavailable', reason: expect.stringMatching(/BRK|calibration/) })
   }, 120_000)
 
   it('a stale request is abandoned and not kept: the next one is computed afresh', async () => {
     const bytes = rom()
     const cache = new L1ModelCache()
-    const stale = await mapCollision(cache, bytes, romPath(VANILLA), 0x111, () => true)
+    const stale = await mapCollision(cache, bytes, romPath(VANILLA), 0x111, OFF, () => true)
     expect(stale).toEqual({ status: 'stale' })
-    expect((await mapCollision(cache, bytes, romPath(VANILLA), 0x111)).status).toBe('ok')
+    expect((await mapCollision(cache, bytes, romPath(VANILLA), 0x111, OFF)).status).toBe('ok')
   }, 120_000)
 })

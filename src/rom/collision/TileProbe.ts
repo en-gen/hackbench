@@ -10,7 +10,8 @@
  * Addresses below are SMWDisX rammap names; nothing is copied from the ROM.
  *
  * Evidence scope: vanilla US ROM, tilesets 7, 3 and 1, small Mario with the
- * P-switches and switch palaces off, one machine; not compared with an emulator.
+ * silver P-switch off, palaces and blue P-switch as `ProbeState` says (only the all-off state was
+ * compared with the spike's signed-off output), one machine; not compared with an emulator.
  */
 import { Cpu65816 } from '../cpu/Cpu65816'
 import type { RomFile } from '../RomFile'
@@ -39,8 +40,19 @@ const CELL_LOW = LOW + CELL_AT
 const CELL_HIGH = 0x10000 + LOW + CELL_AT
 /** The synthetic cell the probed tile sits in, and its pixel origin (screen 0, 16 px cells). */
 export const CELL = { col: 8, row: 8, px: 128, py: 128 }
-/** The game state this probe assumes; part of every cache key. */
-export const PROBE_STATE = 'small-pswitch-off'
+/**
+ * The game state a probe runs in, on top of the fixed small Mario with the silver P-switch off (not modelled):
+ * the four switch palaces and the blue P-switch. Part of every cache key.
+ */
+export interface ProbeState {
+  flags: { green: boolean; yellow: boolean; blue: boolean; red: boolean }
+  bluePs: boolean
+}
+export const NEUTRAL: ProbeState = { flags: { green: false, yellow: false, blue: false, red: false }, bluePs: false } // prettier-ignore
+/** SwitchBlockFlags ($1F27-$1F2A) are in this order (bank_0D.asm:3739, :4229). */
+const PALACE_ORDER = ['green', 'yellow', 'blue', 'red'] as const
+export const stateKey = (s: ProbeState): string =>
+  PALACE_ORDER.map(k => +s.flags[k]).join('') + `:${+s.bluePs}`
 
 interface Setup {
   x: number
@@ -81,6 +93,8 @@ export class Probe {
   steps = 0
   /** TrueFrame ($13) every run uses; 1 keeps the conveyor slopes from shoving Mario. A test seam otherwise. */
   trueFrame = 1
+  /** The palaces and blue P-switch every run is set up with; see `ProbeState`. */
+  state: ProbeState = NEUTRAL
 
   /**
    * Throws `Error` when the ROM's own level loader refuses (the message is the reason). `loaded` is a WRAM
@@ -155,7 +169,8 @@ export class Probe {
     this.w(RAM.scrLen, 3)
     // Assumed state: small Mario, P-switches and palaces off, nothing carried, ridden or wall-running.
     for (const a of [RAM.power, RAM.duck, RAM.wall, RAM.yoshi, RAM.carry, RAM.bluePs, RAM.silverPs, RAM.noteBlk, RAM.onSprite, RAM.onGround]) this.w(a, 0) // prettier-ignore
-    for (let i = 0; i < 4; i++) this.w(RAM.palaces + i, 0)
+    PALACE_ORDER.forEach((k, i) => this.w(RAM.palaces + i, +this.state.flags[k]))
+    this.w(RAM.bluePs, this.state.bluePs ? 0x80 : 0)
     this.w16(RAM.xNext, s.x)
     this.w16(RAM.yNext, s.y)
     this.w16(RAM.xNow, s.x)

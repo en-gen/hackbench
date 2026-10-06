@@ -15,10 +15,12 @@ import {
   calibrate,
   measureTile,
   probeAir,
-  PROBE_STATE,
+  NEUTRAL,
   Probe,
+  stateKey,
   type AirRuns,
   type Calibration,
+  type ProbeState,
   type TileProbe,
 } from './TileProbe'
 
@@ -26,20 +28,21 @@ import {
 export class ProbeCache {
   private readonly tiles = new Map<string, TileProbe>()
   private readonly preps = new Map<string, { cal: Calibration; air: AirRuns }>()
-  private static key = (tileset: number, id: number) => `${tileset}:${PROBE_STATE}:${id}`
+  private static key = (tileset: number, id: number, s: ProbeState) =>
+    `${tileset}:${stateKey(s)}:${id}`
 
-  get(tileset: number, id: number): TileProbe | undefined {
-    return this.tiles.get(ProbeCache.key(tileset, id))
+  get(tileset: number, id: number, s: ProbeState = NEUTRAL): TileProbe | undefined {
+    return this.tiles.get(ProbeCache.key(tileset, id, s))
   }
-  set(tileset: number, id: number, t: TileProbe): void {
-    this.tiles.set(ProbeCache.key(tileset, id), t)
+  set(tileset: number, id: number, t: TileProbe, s: ProbeState = NEUTRAL): void {
+    this.tiles.set(ProbeCache.key(tileset, id, s), t)
   }
   /** The calibration and the level-of-air runs that every tile of this tileset shares. */
-  prep(tileset: number): { cal: Calibration; air: AirRuns } | undefined {
-    return this.preps.get(`${tileset}:${PROBE_STATE}`)
+  prep(tileset: number, s: ProbeState = NEUTRAL): { cal: Calibration; air: AirRuns } | undefined {
+    return this.preps.get(`${tileset}:${stateKey(s)}`)
   }
-  setPrep(tileset: number, p: { cal: Calibration; air: AirRuns }): void {
-    this.preps.set(`${tileset}:${PROBE_STATE}`, p)
+  setPrep(tileset: number, p: { cal: Calibration; air: AirRuns }, s: ProbeState = NEUTRAL): void {
+    this.preps.set(`${tileset}:${stateKey(s)}`, p)
   }
 }
 
@@ -66,6 +69,8 @@ export interface CollisionOptions {
   cancelled?: () => boolean
   /** A WRAM image already made, in place of the level loader's (a test seam). */
   wram?: Uint8Array
+  /** The palaces and blue P-switch the map was drawn with; the probe runs in the same state. */
+  state?: ProbeState
 }
 
 /**
@@ -81,14 +86,16 @@ export async function collisionLayer(
   cache: ProbeCache,
   opts: CollisionOptions = {},
 ): Promise<CollisionLayer> {
+  const state = opts.state ?? NEUTRAL
   const ids = [...new Set(grid.flat())].sort((a, b) => a - b)
-  const todo = ids.filter(id => !cache.get(tileset, id))
+  const todo = ids.filter(id => !cache.get(tileset, id, state))
   let probed = 0
   let steps = 0
   if (todo.length > 0) {
     let probe: Probe
     try {
       probe = new Probe(rom, level, opts.wram)
+      probe.state = state
     } catch (err) {
       return { ok: false, reason: (err as Error).message }
     }
@@ -96,11 +103,12 @@ export async function collisionLayer(
       return { ok: false, reason: `the loaded level's tileset ${probe.tileset} differs from its header's ${tileset}` } // prettier-ignore
     }
     try {
-      let prep = cache.prep(tileset)
-      if (!prep) cache.setPrep(tileset, (prep = { cal: calibrate(probe), air: probeAir(probe) }))
+      let prep = cache.prep(tileset, state)
+      if (!prep)
+        cache.setPrep(tileset, (prep = { cal: calibrate(probe), air: probeAir(probe) }), state)
       for (const id of todo) {
         if (opts.cancelled?.()) return { ok: false, reason: SUPERSEDED }
-        cache.set(tileset, id, measureTile(probe, id, prep.cal, prep.air))
+        cache.set(tileset, id, measureTile(probe, id, prep.cal, prep.air), state)
         probed++
         await opts.yieldTurn?.()
       }
@@ -109,5 +117,5 @@ export async function collisionLayer(
     }
     steps = probe.steps
   }
-  return { ok: true, lines: compose(grid, id => cache.get(tileset, id)), probed, steps }
+  return { ok: true, lines: compose(grid, id => cache.get(tileset, id, state)), probed, steps }
 }

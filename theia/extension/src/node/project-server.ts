@@ -138,13 +138,19 @@ export class ProjectServiceImpl implements ProjectService {
     return mapCollisionCheck(this.screens, r.working.bytes(), r.romPath, index)
   }
 
-  async mapCollision(manifestPath: string, index: number): Promise<MapCollisionResult> {
+  async mapCollision(
+    manifestPath: string,
+    index: number,
+    switchFlags: SwitchFlagsDto,
+    switches: SwitchStateDto,
+  ): Promise<MapCollisionResult> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
     this.notifier.watch(manifestPath, r.working)
     const bytes = r.working.bytes()
     // An edit hands out new bytes: a probe still running for the old ones is abandoned.
-    return mapCollision(this.screens, bytes, r.romPath, index, () => r.working.bytes() !== bytes)
+    const state = { flags: switchFlags, bluePs: switches.blue }
+    return mapCollision(this.screens, bytes, r.romPath, index, state, () => r.working.bytes() !== bytes) // prettier-ignore
   }
 
   async mapPalaceIcons(manifestPath: string, index: number): Promise<PalaceIconsResult> {

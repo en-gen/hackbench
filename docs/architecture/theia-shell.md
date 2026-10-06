@@ -201,11 +201,12 @@ The overlay (`browser/collision-overlay.tsx`) is one SVG inside the strip, in
 map coordinates, so it follows `ZoomController` by scaling its box.
 `vector-effect: non-scaling-stroke` keeps every line 2 CSS px wide. Surfaces
 (`#ffeb3b`) and walls (`#d500f9`) are separate `<g data-group>` elements;
-unknown cells are hatched. The overlay shows one fixed game state: switch palaces off, blue and
-silver P-switches off, small Mario. The grid it draws over is the palaces-off one, which is not the
-same grid when a palace is pressed ($06A-$06D become $16A-$16D on 30+ levels), and the probe's
-calibration and level-of-air runs come from the first level probed on a tileset, then serve every
-later level of that tileset (checked identical on $105/$1C6; $105 and $111 differ, so tileset is
+unknown cells are hatched. The overlay follows the view's four palace toggles and the blue P-switch
+(`mapCollision` takes the same flags as `mapScreen`: the grid is built with them, since $06A-$06D
+become $16A-$16D on 30+ levels, and the probe's WRAM gets $1F27-$1F2A and $14AD to match); the
+silver P-switch is not modelled, and Mario is small. The state is in every cache key. The view passes its
+current toggles on each fetch; refetching when a toggle changes is not wired yet. The probe's calibration and level-of-air runs come from
+the first level probed on a tileset, then serve every later level of that tileset (checked identical on $105/$1C6; $105 and $111 differ, so tileset is
 in every cache key). Command `hackbench.maps.toggleCollision`, enabled
 while a map tab is focused (`grid-toggle-contribution.ts`).
 
