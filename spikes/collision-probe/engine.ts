@@ -1,8 +1,10 @@
 // The probe engine: SMW's own Mario-vs-layer-1 routine (README) run on the 65816 core over a synthetic level.
 // Addresses are SMWDisX rammap/SMW_U.sym names; nothing here is copied from the ROM.
-import { Cpu65816 } from '../../src/rom/cpu/Cpu65816.ts'
-import { SpriteBus } from '../../src/rom/sprites/interp/SpriteBus.ts'
-import { guardInstruction, Refusal } from '../../src/rom/sprites/interp/Guards.ts'
+import type { Cpu65816 } from '../../src/rom/cpu/Cpu65816.ts'
+import { callSubroutine, describe, Refusal } from '../../src/rom/cpu/call.ts'
+import type { BusSnapshot, SpriteBus } from '../../src/rom/sprites/interp/SpriteBus.ts'
+import { bytesAt, shapeMatches } from '../../src/rom/sprites/interp/Guards.ts'
+import { smwMachine } from '../../src/rom/sprites/interp/Machine.ts'
 import { loadLevelState } from '../../src/rom/sprites/interp/LevelLoader.ts'
 import type { RomFile } from '../../src/rom/RomFile.ts'
 
@@ -11,8 +13,20 @@ const RAM = { xNext: 0x94, yNext: 0x96, xNow: 0xd1, yNow: 0xd3, xSpd: 0x7a, ySpd
   onGround: 0x13ef, layerProc: 0x1933, bluePs: 0x14ad, silverPs: 0x14ae, palaces: 0x1f27, palacePressed: 0x1423, noteBlk: 0x1402,
   onSprite: 0x1471, slopeType: 0x13e1, curSlope: 0x13ee, tileset: 0x1931, tileNo: 0x1693 }
 const LOW = 0xc800 // Map16TilesLow $7E:C800, Map16TilesHigh $7F:C800 (rammap.asm:2114, 2138)
-const ENTRY_RESET = 0x00eaa6, ENTRY_COLLIDE = 0x00eadb // SMWDisX bank_00.asm:11921, 11927
-const SENTINEL = 0xff00, BUDGET = 20000
+const ENTRY_RESET = 0x00eaa6, ENTRY_COLLIDE = 0x00eadb // SMWDisX bank_00.asm:11921, 11952
+const BUDGET = 20000
+/** The first opcodes each entry must start with (STZ abs, STZ dp ... / LDA dp, AND #$0F, STA dp; bank_00.asm:11921, 11952); null matches any operand. */
+const ENTRY_SHAPES: { name: string; at: number; want: (number | null)[] }[] = [
+  { name: 'CODE_00EAA6 (collision reset)', at: ENTRY_RESET, want: [0x9c, null, null, 0x64, null] },
+  { name: 'CODE_00EADB (collision body)', at: ENTRY_COLLIDE, want: [0xa5, null, 0x29, 0x0f, 0x85] },
+]
+/** The first collision entry whose bytes differ from the shape the probe was written against, or null. */
+export function collisionEntryProblem(rom: RomFile): string | null {
+  for (const e of ENTRY_SHAPES)
+    if (!shapeMatches(bytesAt(rom, e.at, e.want.length), e.want))
+      return `${e.name} at $${e.at.toString(16).toUpperCase().padStart(6, '0')} is not the vanilla shape; the probe will not run it`
+  return null
+}
 /** The synthetic cell the probed tile sits in, and its pixel origin (screen 0, 16 px cells). */
 export const CELL = { col: 8, row: 8, px: 128, py: 128 }
 
@@ -22,37 +36,31 @@ export interface Result { blocked: number; x: number; y: number; xSpd: number; y
 export class Probe {
   readonly bus: SpriteBus
   private readonly cpu: Cpu65816
-  private readonly base: Uint8Array
-  private dirty: number[] = []
+  private readonly base: BusSnapshot
   readonly tileset: number
   steps = 0
   constructor(rom: RomFile, map: number) {
+    const problem = collisionEntryProblem(rom)
+    if (problem) throw new Refusal(problem)
     const l = loadLevelState(rom, map)
     if (!l.ok) throw new Error('level load refused: ' + l.reason)
-    this.base = l.wram.slice()
-    this.bus = new SpriteBus(rom)
-    this.bus.wram.set(this.base)
-    this.bus.onInstruction = guardInstruction
-    this.bus.onWramWrite = (o) => this.dirty.push(o)
-    this.cpu = new Cpu65816(this.bus)
-    this.tileset = this.base[RAM.tileset]!
+    const m = smwMachine(rom, l.wram)
+    this.bus = m.bus
+    this.cpu = m.cpu
+    this.base = this.bus.snapshot()
+    this.tileset = this.base.wram[RAM.tileset]!
   }
   private w(a: number, v: number) { this.bus.write(a, v) }
   private w16(a: number, v: number) { this.w(a, v & 255); this.w(a + 1, (v >> 8) & 255) }
   private call(entry: number) {
-    const c = this.cpu, push = (v: number) => { this.bus.write(c.s, v); c.s = (c.s - 1) & 0xffff }
-    c.e = false; c.p = 0x30; c.s = 0x1ff; c.d = 0; c.db = 0
-    const s0 = c.s
-    push((SENTINEL - 1) >> 8); push((SENTINEL - 1) & 255)
-    c.pb = entry >>> 16; c.pc = entry & 0xffff
-    for (let i = 0; i < BUDGET; i++) { c.step(); this.steps++; if (c.s === s0 && c.pc === SENTINEL) return }
-    throw new Refusal(`step budget of ${BUDGET} spent`)
+    // P=$30 (IRQ flag clear), the state the collision body was probed under.
+    const r = callSubroutine(this.cpu, entry, { kind: 'jsr', maxSteps: BUDGET, regs: { p: 0x30 } })
+    this.steps += r.steps
+    if (r.kind !== 'returned') throw new Refusal(describe(r, BUDGET)!)
   }
-  /** Restores every WRAM byte the last run changed. */
-  private restore() { for (const o of this.dirty) this.bus.wram[o] = this.base[o]!; this.dirty.length = 0; (this.bus as any).written.fill(0) }
   /** One collision pass for Mario at (x,y) over a level of air with `tile` (9-bit Map16 id) in CELL; throws Refusal on budget/escape. */
   run(tile: number, s: Setup): Result {
-    this.restore()
+    this.bus.restore(this.base)
     const b = this.bus
     const set = (c: number, r: number, id: number) => {
       const off = LOW + (r & 15) * 16 + c; this.w(0x7e0000 + off, id & 255); this.w(0x7f0000 + off, id >> 8)
