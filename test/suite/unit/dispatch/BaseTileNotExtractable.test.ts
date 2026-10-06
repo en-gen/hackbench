@@ -69,9 +69,9 @@ const FROZEN: Readonly<Record<number, number>> = {
   0x79: 0xae,
   0x7a: 0xae,
   0x7c: 0x6e,
-  0x7d: 0x5d,
-  0x7e: 0x5d,
-  0x7f: 0x5d,
+  0x7d: 0xe4,
+  0x7e: 0xe8,
+  0x7f: 0x24,
   0x80: 0xec,
   0x81: 0x80,
   0x82: 0xe4,
@@ -149,7 +149,7 @@ describe.skipIf(!romsPresent)('the stated extraction rule does not reproduce the
     expect(Object.keys(FROZEN).length).toBe(98)
   })
 
-  it('matches 35, differs on 58 and finds no store for 5, on every cart', () => {
+  it('matches 36, differs on 57 and finds no store for 5, on every cart', () => {
     for (const { name, rom } of allRoms()) {
       let match = 0,
         differ = 0,
@@ -160,7 +160,7 @@ describe.skipIf(!romsPresent)('the stated extraction rule does not reproduce the
         else if (live === frozen) match++
         else differ++
       }
-      expect({ match, differ, absent }, name).toEqual({ match: 35, differ: 58, absent: 5 })
+      expect({ match, differ, absent }, name).toEqual({ match: 36, differ: 57, absent: 5 })
     }
   })
 
@@ -169,7 +169,7 @@ describe.skipIf(!romsPresent)('the stated extraction rule does not reproduce the
     // runs before its own tile write, so "first store reached" is not
     // "first store a human reading the routine would call the sprite's".
     //
-    // The count is per cart, unlike the 35/58/5 split above: vanilla,
+    // The count is per cart, unlike the 36/57/5 split above: vanilla,
     // magic, GPW V1.2, Invictus and Seven Vanilla Levels give 32 and
     // Grand Poo World 2 1.1 gives 27, because it patches some of those
     // handlers. Asserted as a range, with the two exact figures named,
