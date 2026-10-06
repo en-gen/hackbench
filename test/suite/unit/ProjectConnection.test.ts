@@ -2,9 +2,9 @@
  * What one connection's project service wires up (#576), tested through the
  * plain-TS ProjectConnection that ProjectServiceImpl forwards `setClient` to.
  * ProjectServiceImpl itself cannot load in the unit job (it imports Theia's
- * inversify, which that job does not install), so a source check pins the
- * forwarding, and ConnectionDi.test.ts proves it end to end where Theia is
- * installed. Synthetic ROMs only: CI has no ROM.
+ * inversify, which that job does not install), so it assigns `setClient` from
+ * `forwardSetClient`, and that real path is what these tests run.
+ * ConnectionDi.test.ts proves it end to end where Theia is installed. Synthetic ROMs only: CI has no ROM.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as fs from 'fs'
@@ -17,7 +17,10 @@ import { appendLayer } from '../../../src/project/OpsStore'
 import { WorkingRom } from '../../../src/project/WorkingRom'
 import { loromToOffset } from '../../../src/rom/addressing'
 import { EditEvent } from '../../../src/project/EditEvent'
-import { ProjectConnection } from '../../../theia/extension/src/node/project-connection'
+import {
+  ProjectConnection,
+  forwardSetClient,
+} from '../../../theia/extension/src/node/project-connection'
 
 const client = () => ({ onEditEvent: vi.fn(), onRomChanged: vi.fn() })
 
@@ -71,19 +74,6 @@ describe('ProjectConnection with a stubbed registry (every subscription observab
     c.setClient(client())
     expect(unsubRom).toHaveBeenCalledTimes(1)
     expect(unsubCopy).toHaveBeenCalledTimes(1)
-  })
-})
-
-describe('ProjectServiceImpl forwards setClient to it', () => {
-  const source = fs.readFileSync(
-    path.resolve(__dirname, '../../../theia/extension/src/node/project-server.ts'),
-    'utf8',
-  )
-  it('builds one ProjectConnection over the injected registry and calls it from setClient', () => {
-    expect(source).toContain('new ProjectConnection(() => this.workingRoms)')
-    expect(source).toMatch(
-      /setClient\(client[^)]*\): void \{\s*this\.connection\.setClient\(client\)/,
-    )
   })
 })
 
@@ -164,6 +154,29 @@ describe('ProjectConnection with the real registry', () => {
     fs.writeFileSync(copy, headered)
     working.relocate(manifest, copy)
     expect(listeners(first.working)).toBe(0)
+  })
+
+  it('forwardSetClient, the function ProjectServiceImpl assigns, delivers edits to the client', () => {
+    const manifest = project()
+    const setClient = forwardSetClient(() => working)
+    const c = client()
+    setClient(c)
+    working.setWord(manifest, { romAddr: ADDR, oldHex, newHex: '$03E0' })
+    expect(c.onEditEvent).toHaveBeenCalledTimes(1)
+    setClient(undefined)
+    working.setWord(manifest, { romAddr: ADDR, oldHex: '$03E0', newHex: '$001F' })
+    expect(c.onEditEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('a second client on the same copy hears each edit exactly once (watch is idempotent)', () => {
+    const manifest = project()
+    const conn = new ProjectConnection(() => working)
+    conn.setClient(client())
+    working.get(manifest)
+    const second = client()
+    conn.setClient(second) // replays the cached copy to a fresh listener
+    working.setWord(manifest, { romAddr: ADDR, oldHex, newHex: '$03E0' })
+    expect(second.onEditEvent).toHaveBeenCalledTimes(1)
   })
 
   it('events reach the client typed as the edit event', () => {

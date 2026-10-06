@@ -54,7 +54,6 @@ import {
   PatchFormatDto,
   ProjectDto,
   ProjectService,
-  ProjectServiceClient,
   RecentProjectDto,
   RomCheckDto,
   RomIdentityDto,
@@ -63,18 +62,15 @@ import {
   SwitchStateDto,
   WorkstationPathsDto,
 } from '../common/project-protocol'
-import { ProjectConnection } from './project-connection'
+import { forwardSetClient } from './project-connection'
 
 @injectable()
 export class ProjectServiceImpl implements ProjectService {
   private readonly recent = new RecentProjects()
   @inject(WorkingRomRegistry) protected readonly workingRoms!: WorkingRomRegistry
-  private readonly connection = new ProjectConnection(() => this.workingRoms)
   private readonly screens = new L1ModelCache()
 
-  setClient(client: ProjectServiceClient | undefined): void {
-    this.connection.setClient(client)
-  }
+  readonly setClient = forwardSetClient(() => this.workingRoms)
 
   async createProject(req: CreateProjectRequest): Promise<ProjectDto> {
     const p = createProject(req)

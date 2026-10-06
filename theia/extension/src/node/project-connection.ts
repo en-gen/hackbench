@@ -14,6 +14,18 @@ import { RomChangedClient, RomChangedNotifier } from './rom-changed-notifier'
 
 export type ProjectConnectionClient = WorkingCopyClient & RomChangedClient
 
+/**
+ * The function ProjectServiceImpl assigns as its `setClient`: the real path
+ * from the RPC call to the registry, kept out of the decorated class so a
+ * plain-TS test can run it.
+ */
+export function forwardSetClient(
+  registry: () => WorkingRomRegistry,
+): (client: ProjectConnectionClient | undefined) => void {
+  const connection = new ProjectConnection(registry)
+  return client => connection.setClient(client)
+}
+
 export class ProjectConnection {
   private readonly edits = new WorkingCopyNotifier<ProjectConnectionClient>()
   private readonly roms: RomChangedNotifier

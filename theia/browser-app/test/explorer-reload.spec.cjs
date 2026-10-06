@@ -229,6 +229,8 @@ test.describe('explorer reload (#576)', () => {
     }
 
     if (!ex.perEdit) continue
+    // A regression guard for behaviour the Palettes explorer already had on develop
+    // (folds survive an edit); it is not evidence for #576's ROM-changed event.
     test(`${ex.kind}: an ordinary edit keeps the selection and fold of rows that still exist`, async ({
       page,
     }) => {

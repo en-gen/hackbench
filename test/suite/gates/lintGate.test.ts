@@ -127,6 +127,13 @@ describe('the lint gate can fail', () => {
     ['a dynamic import()', "export const load = () => import('cloudevents')\n"],
     ['a dynamic import() of a subpath', "export const load = () => import('cloudevents/dist')\n"],
     ['a require() in a .cjs file', "const ce = require('cloudevents')\nmodule.exports = ce\n"],
+    ['a template-literal import()', 'export const load = () => import(`cloudevents`)\n'],
+    ['a template-literal require() in a .cjs file', 'module.exports = require(`cloudevents`)\n'],
+    ['a module.require() in a .cjs file', "module.exports = module.require('cloudevents')\n"],
+    [
+      'a template-literal module.require() in a .cjs file',
+      'module.exports = module.require(`cloudevents`)\n',
+    ],
   ])(
     'rejects cloudevents through %s',
     (name, body) => {

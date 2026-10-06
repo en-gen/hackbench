@@ -66,6 +66,26 @@ export default [
           message: 'cloudevents is for types only; a dynamic import() ships the library.',
         },
         {
+          selector:
+            "ImportExpression[source.type='TemplateLiteral'][source.quasis.0.value.raw=/^cloudevents/]",
+          message: 'cloudevents is for types only; a dynamic import() ships the library.',
+        },
+        {
+          selector:
+            "CallExpression[callee.name='require'][arguments.0.type='TemplateLiteral'][arguments.0.quasis.0.value.raw=/^cloudevents/]",
+          message: 'cloudevents is for types only; require() ships the library.',
+        },
+        {
+          selector:
+            "CallExpression[callee.object.name='module'][callee.property.name='require'][arguments.0.value=/^cloudevents/]",
+          message: 'cloudevents is for types only; module.require() ships the library.',
+        },
+        {
+          selector:
+            "CallExpression[callee.object.name='module'][callee.property.name='require'][arguments.0.quasis.0.value.raw=/^cloudevents/]",
+          message: 'cloudevents is for types only; module.require() ships the library.',
+        },
+        {
           selector: "CallExpression[callee.name='require'][arguments.0.value=/^cloudevents/]",
           message: 'cloudevents is for types only; require() ships the library.',
         },

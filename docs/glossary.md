@@ -247,5 +247,7 @@ invisible everywhere else otherwise. Concretely: every
 `WorkingRomRegistry`, and `test/suite/gates/workingCopyGate.test.ts` bans
 `RomFile.load(` and `RomRegistry` in them with no exception.
 
-An edit reaches every open view as the edit event (`WorkingCopyNotifier`,
-`docs/architecture/theia-shell.md`), and a view re-reads on it.
+An edit is announced to the frontend as the edit event (`WorkingCopyNotifier`,
+`docs/architecture/theia-shell.md`), and the views that read the ROM re-read on
+it. The Maps, Graphics and Audio explorers do not subscribe; that document says
+why.
