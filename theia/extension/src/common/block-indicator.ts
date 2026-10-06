@@ -34,8 +34,9 @@ const px = (a: Uint8ClampedArray, i: number): Rgba => [a[i]!, a[i + 1]!, a[i + 2
  * Split indicators (#607 and the two-outcome blocks): a hard diagonal from the
  * top-left to the bottom-right corner, `small` below it (bottom-left), `big`
  * above it (top-right), with a 1 px black line ON the diagonal. The line is
- * painted only where the split art is opaque (the diagonal pixel takes the
- * `big` item's colour first), so it stops at the items' edges. No blending.
+ * painted only where the split art is opaque. The diagonal pixel takes the `big`
+ * item's colour first, so the line is clipped to that item's own half: a diagonal
+ * pixel only `small` paints stays clear. It stops at the items' edges. No blending.
  */
 export function splitDiagonal(small: Uint8ClampedArray, big: Uint8ClampedArray): Uint8ClampedArray {
   const out = new Uint8ClampedArray(BLOCK * BLOCK * 4)
