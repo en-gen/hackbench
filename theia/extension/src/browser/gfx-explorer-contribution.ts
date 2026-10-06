@@ -13,10 +13,10 @@
  * reopens the view. Music's explorer contribution uses the same shape.
  */
 import { inject, injectable } from '@theia/core/shared/inversify'
-import { AbstractViewContribution } from '@theia/core/lib/browser'
-import { Command } from '@theia/core/lib/common'
+import { AbstractViewContribution, CommonCommands } from '@theia/core/lib/browser'
+import { Command, CommandRegistry } from '@theia/core/lib/common'
 import { GfxExplorerWidget, GFX_EXPLORER_ID } from './gfx-explorer-widget'
-import { GfxViewWidget, GFX_VIEW_ID } from './gfx-view-widget'
+import { GfxViewWidget, GFX_VIEW_ID, isStrokeHistory } from './gfx-view-widget'
 import { Map16ViewWidget, MAP16_VIEW_ID } from './map16-view-widget'
 import { PreviewTabs } from './preview-tabs'
 
@@ -36,6 +36,26 @@ export class GfxExplorerContribution extends AbstractViewContribution<GfxExplore
       widgetName: 'Graphics',
       defaultWidgetOptions: { area: 'left', rank: 200 },
       toggleCommandId: ShowGfxExplorerCommand.id,
+    })
+  }
+
+  /**
+   * Ctrl+Z and Ctrl+Y in a GFX view walk its unsaved strokes. EditStackContribution
+   * declines in exactly the cases these accept, so the two never both answer.
+   */
+  override registerCommands(registry: CommandRegistry): void {
+    super.registerCommands(registry)
+    const strokes = () => {
+      const w = this.shell.activeWidget
+      return isStrokeHistory(w) ? w : undefined
+    }
+    registry.registerHandler(CommonCommands.UNDO.id, {
+      execute: () => strokes()?.undoStroke(),
+      isEnabled: () => !!strokes() && (strokes()!.busy() || strokes()!.canUndoStroke()),
+    })
+    registry.registerHandler(CommonCommands.REDO.id, {
+      execute: () => strokes()?.redoStroke(),
+      isEnabled: () => !!strokes() && (strokes()!.busy() || strokes()!.canRedoStroke()),
     })
   }
 
