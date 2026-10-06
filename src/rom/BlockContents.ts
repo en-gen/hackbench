@@ -21,7 +21,7 @@ const SPRITE_YOSHI_EGG = 0x2c
 const SPRITE_BALLOON = 0x7d
 
 /** Colours for the two vanilla DATA_028A42 attribute values. */
-const PSWITCH_COLOURS: Readonly<Record<number, string>> = { 0x06: 'blue', 0x02: 'silver' }
+export const PSWITCH_COLOURS: Readonly<Record<number, string>> = { 0x06: 'blue', 0x02: 'silver' }
 
 /** Sprite ids named by the game's SpriteInBlock table. */
 export const SPRITE_NAMES: Readonly<Record<number, string>> = {
@@ -60,7 +60,7 @@ export interface BlockContentTables {
   readonly columnOverrideStatus: Uint8Array
   readonly pSwitchAttribute: Uint8Array // DATA_028A42[0..1]
   readonly eggContents: Uint8Array // DATA_0288A1[0..1]: [no Yoshi out, Yoshi out]
-  /** Immediate of the green star counter reset (bank_00.asm:1979); null if not found. */
+  /** Immediate of the green star counter reset (bank_00.asm:1980); null if not found. */
   readonly greenStarCoins: number | null
 }
 
@@ -73,7 +73,7 @@ function slice(rom: RomFile, addr: number, len: number): Uint8Array {
   return out
 }
 
-/** BNE / LDA #imm / STA GreenStarBlockCoins ($0DC0), bank_00.asm:1978-1981; the lone STA alone matches twice. */
+/** BNE / LDA #imm / STA GreenStarBlockCoins ($0DC0), bank_00.asm:1979-1981; the lone STA alone matches twice. */
 function readGreenStarCoins(rom: RomFile): number | null {
   const at = findUnique(rom, [0xd0, 0x05, 0xa9, WILD, 0x8d, 0xc0, 0x0d])
   return at === null ? null : (rom.readAtFileOffset(at + 3, 1)?.[0] ?? null)
@@ -115,7 +115,7 @@ export interface ContentAlternative {
 }
 
 export interface BlockContents {
-  /** Empty for a block with no item. The first alternative is the default. */
+  /** Empty for a block with no item. */
   readonly alternatives: readonly ContentAlternative[]
   /** Distinct sprite ids across alternatives, for the sprite table engine. */
   readonly spriteIds: readonly number[]
@@ -238,14 +238,15 @@ function altsFor(raw: number, c: Ctx): { alts: ContentAlternative[]; position?: 
   const { t, col } = c
   if (raw === 0xff) {
     // Green star block: coin until GreenStarBlockCoins reaches zero, then 1-up
-    // (bank_00.asm:12863-12866; the counter starts at the immediate at :1979).
+    // (bank_00.asm:12863-12866; the counter starts at the immediate at :1980; a start of 0 gives the 1-up at once).
     const n = t.greenStarCoins
     const when =
-      n === null ? 'the coin counter is above zero' : `fewer than ${n} coins are collected`
-    const coin = contentFor(CONTENT_COIN, c)
+      n === null
+        ? "this block's coin countdown is above zero"
+        : `fewer than ${n} coins are collected`
     return {
       alts: chain([
-        [when, coin],
+        [when, n === 0 ? null : contentFor(CONTENT_COIN, c)],
         [null, contentFor(CONTENT_ONE_UP, c)],
       ]),
     }

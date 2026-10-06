@@ -14,10 +14,12 @@ import {
   cycleColumn,
   FIRST_ITEM_BLOCK,
   LAST_ITEM_BLOCK,
+  PSWITCH_COLOURS,
   readBlockContentTables,
   resolveBlockContents,
   type BlockContentTables,
 } from '../../../src/rom/BlockContents'
+import { RomFile } from '../../../src/rom/RomFile'
 import { freshRom, hasRom, VANILLA } from '../support/corpus'
 
 // Made-up tile assignment (not vanilla's). Tiles not listed hold nothing.
@@ -28,9 +30,9 @@ const ASSIGN: Record<number, number> = {
   0x114: 0x06, // plain content 3
   0x115: 0x0e, // content 7: multi-coin
   0x116: 0x0c, // content 6: coin
-  0x117: 0x14, // content 10: the P-switch sprite
-  0x118: 0x16, // content 11: the balloon sprite, rewritten by column
-  0x119: 0x18, // content 12: the egg sprite
+  0x117: 0x1c, // content 14: the P-switch sprite
+  0x118: 0x20, // content 16: the balloon sprite, rewritten by column
+  0x119: 0x12, // content 9: the egg sprite
   0x11a: 0x1a, // content 13
   0x11b: 0x1e, // content 15
   0x11c: 0x07, // progressive content 3
@@ -46,8 +48,8 @@ const CYCLE = Array.from({ length: 32 }, (_, i) =>
 )
 // Content id -> sprite; the second copy is read when Yoshi is loose.
 const SPRITE_COPY = [
-  0x00, 0x41, 0x42, 0x43, 0x46, 0x47, 0x00, 0x00, 0x48, 0x00, 0x3e, 0x7d, 0x2c, 0x51, 0x55, 0x52,
-  0x56,
+  0x00, 0x41, 0x42, 0x43, 0x46, 0x47, 0x00, 0x00, 0x48, 0x2c, 0x57, 0x58, 0x59, 0x51, 0x3e, 0x52,
+  0x7d,
 ]
 const SPRITES = [...SPRITE_COPY, ...SPRITE_COPY]
 const STATUS = SPRITE_COPY.map((_, i) => 0x20 + i)
@@ -171,14 +173,14 @@ describe('resolveBlockContents', () => {
 
   it('reports spawn status from the status table', () => {
     expect(resolve(0x11a).alternatives[0].content).toMatchObject({ sprite: 0x51, status: 0x2d })
-    expect(resolve(0x119).alternatives[0].content).toMatchObject({ sprite: 0x2c, status: 0x2c })
+    expect(resolve(0x119).alternatives[0].content).toMatchObject({ sprite: 0x2c, status: 0x29 })
   })
 
   it('green star threshold comes from the table; a missing one is worded without a number', () => {
     const twelve = resolveBlockContents(0x11d, 0, { ...TABLES, greenStarCoins: 12 })!
     expect(twelve.condition).toContain('fewer than 12 coins')
     const none = resolveBlockContents(0x11d, 0, { ...TABLES, greenStarCoins: null })!
-    expect(none.condition).toContain('counter is above zero')
+    expect(none.condition).toContain("this block's coin countdown")
   })
 
   it('a hack table with a zero sprite degrades to Nothing, never throws', () => {
@@ -221,6 +223,75 @@ describe('resolveBlockContents', () => {
     )
   })
 
+  it('a counter that starts at 0 gives the 1-up at once', () => {
+    const r = resolveBlockContents(0x11d, 0, { ...TABLES, greenStarCoins: 0 })!
+    expect(r.condition).toBe('Sprite $47')
+  })
+
+  it('an empty last alternative leaves the one before it unconditional', () => {
+    const sprites = Uint8Array.from(SPRITES)
+    sprites[5] = sprites[22] = 0 // the 1-up slot, both copies
+    const r = resolveBlockContents(0x11d, 0, { ...TABLES, spriteInBlock: sprites })!
+    expect(r.condition).toBe('Coin')
+    expect(r.alternatives).toHaveLength(1)
+    expect(r.alternatives[0].when).toBeNull()
+  })
+
+  it('a cycle period between 8 and 15 is reported', () => {
+    const vals = [0x05, 0x0a, 0x07, 0x0c, 0x09, 0x10, 0x06, 0x0a, 0x0c] // period 9
+    const cycle = Uint8Array.from(CYCLE)
+    for (let i = 0; i < 16; i++) cycle[i] = vals[i % 9]
+    const text: Record<number, string> = {
+      0x05: `${SMALL} Sprite $42`,
+      0x0a: 'Sprite $47',
+      0x07: 'Sprite $43 if Mario is invincible, otherwise Coin',
+      0x0c: 'Coin',
+      0x09: `${SMALL} Sprite $46`,
+      0x10: 'Sprite $48',
+      0x06: 'Sprite $43',
+    }
+    for (let col = 0; col < 48; col++) {
+      const r = resolveBlockContents(0x111, col, { ...TABLES, columnCycle: cycle })!
+      expect(r.condition).toBe(
+        `${text[vals[(col & 15) % 9]]} (X column ${((col & 15) % 9) + 1} of 9)`,
+      )
+    }
+  })
+
+  it('special sprites are keyed on the sprite, so ordinary ids in the vanilla slots stay ordinary', () => {
+    const sel = Uint8Array.from(SELECTOR)
+    for (const [tile, content] of [
+      [0x121, 10],
+      [0x122, 11],
+      [0x123, 12],
+    ]) {
+      sel[tile - FIRST_ITEM_BLOCK] = content << 1
+    }
+    const t = { ...TABLES, selector: sel }
+    for (const [tile, id] of [
+      [0x121, 0x57],
+      [0x122, 0x58],
+      [0x123, 0x59],
+    ]) {
+      for (let col = 0; col < 4; col++) {
+        const r = resolveBlockContents(tile, col, t)!
+        expect(r.condition).toBe(`Sprite $${id.toString(16)}`)
+        expect(r.caveat).toBeUndefined()
+      }
+    }
+  })
+
+  it('P-switch colour names follow the exported attribute table, even blue and odd silver', () => {
+    expect(PSWITCH_COLOURS).toEqual({ 0x06: 'blue', 0x02: 'silver' })
+    const key = (name: string): number =>
+      Number(Object.entries(PSWITCH_COLOURS).find(([, v]) => v === name)![0])
+    const t = { ...TABLES, pSwitchAttribute: Uint8Array.from([key('blue'), key('silver')]) }
+    for (let col = 0; col < 8; col++)
+      expect(resolveBlockContents(0x117, col, t)!.condition).toBe(
+        col % 2 === 0 ? 'P-switch (blue)' : 'P-switch (silver)',
+      )
+  })
+
   describe('plants in every table are followed (kills hardcoded tables)', () => {
     it('the selector: a changed byte changes the tile', () => {
       const sel = Uint8Array.from(SELECTOR)
@@ -239,8 +310,8 @@ describe('resolveBlockContents', () => {
         'Sprite $47 (X column 4 of 5)',
         'Sprite $48 (X column 5 of 5)',
       ]
-      for (let col = 0; col < 16; col++)
-        expect(resolveBlockContents(0x111, col, t)!.condition).toBe(want[col % 5])
+      for (let col = 0; col < 48; col++)
+        expect(resolveBlockContents(0x111, col, t)!.condition).toBe(want[(col & 15) % 5])
     })
 
     it('the cycle: a half with no period drops the "n of p" text', () => {
@@ -286,7 +357,7 @@ describe('resolveBlockContents', () => {
 
     it('the balloon rewrite follows the spawned sprite, not the tile', () => {
       const sel = Uint8Array.from(SELECTOR)
-      sel[0x114 - FIRST_ITEM_BLOCK] = 0x16 // content 11 on a different tile
+      sel[0x114 - FIRST_ITEM_BLOCK] = 0x20 // the balloon's content on a different tile
       const r = resolveBlockContents(0x114, 1, { ...TABLES, selector: sel })!
       expect(r.spriteIds).toEqual([0x62])
     })
@@ -306,6 +377,58 @@ describe('resolveBlockContents', () => {
     expect(cycleColumn(0x111, 17)).toEqual({ index: 1, of: 3 })
     expect(cycleColumn(0x125, 6)).toEqual({ index: 2, of: 4 })
     expect(cycleColumn(0x117, 0)).toBeNull()
+  })
+})
+
+// Loader tests on a synthetic LoROM image: bank b, address a lives at b * $8000 + (a & $7FFF).
+describe('readBlockContentTables on a synthetic ROM', () => {
+  const at = (bank: number, addr: number): number => bank * 0x8000 + (addr & 0x7fff)
+  const mark = (bank: number, addr: number): number =>
+    ((bank * 0x1f + addr) * 7 + (addr >> 4)) & 0xff
+  const COUNTER = [0xd0, 0x05, 0xa9, 0x2a, 0x8d, 0xc0, 0x0d]
+  function image(...counterAt: number[]): RomFile {
+    const bytes = new Uint8Array(0x20000)
+    bytes[0x7fd5] = 0x20 // LoROM map mode
+    for (let a = 0xf000; a < 0xf200; a++) bytes[at(0, a)] = mark(0, a)
+    for (let a = 0x8800; a < 0x8b00; a++) bytes[at(2, a)] = mark(2, a)
+    for (const off of counterAt) bytes.set(COUNTER, off)
+    return RomFile.fromBytes('synthetic.sfc', bytes)
+  }
+
+  it('reads every table from its own address and length', () => {
+    const t = readBlockContentTables(image())
+    const expectFrom = (got: Uint8Array, bank: number, addr: number, len: number): void => {
+      expect(got.length).toBe(len)
+      expect(Array.from(got)).toEqual(Array.from({ length: len }, (_, i) => mark(bank, addr + i)))
+    }
+    expectFrom(t.selector, 0, 0xf080, 36)
+    expectFrom(t.columnCycle, 0, 0xf100, 32)
+    expectFrom(t.spriteInBlock, 2, 0x88a3, 0xa0)
+    expectFrom(t.statusOfSprInBlk, 2, 0x88c5, 0x80)
+    expectFrom(t.columnOverride, 2, 0x88d6, 4)
+    expectFrom(t.columnOverrideStatus, 2, 0x88d9, 4)
+    expectFrom(t.pSwitchAttribute, 2, 0x8a42, 2)
+    expectFrom(t.eggContents, 2, 0x88a1, 2)
+  })
+
+  it('one counter site gives its operand', () => {
+    expect(readBlockContentTables(image(0x100)).greenStarCoins).toBe(0x2a)
+  })
+
+  it('two counter sites are ambiguous and give null', () => {
+    expect(readBlockContentTables(image(0x100, 0x300)).greenStarCoins).toBeNull()
+  })
+
+  it('no counter site gives null', () => {
+    expect(readBlockContentTables(image()).greenStarCoins).toBeNull()
+  })
+
+  it('a bare store of the counter elsewhere does not make the site ambiguous', () => {
+    const bytes = new Uint8Array(0x20000)
+    bytes[0x7fd5] = 0x20
+    bytes.set(COUNTER, 0x100)
+    bytes.set([0xa9, 0x11, 0x8d, 0xc0, 0x0d], 0x400) // same load and store, no branch before it
+    expect(readBlockContentTables(RomFile.fromBytes('s.sfc', bytes)).greenStarCoins).toBe(0x2a)
   })
 })
 

@@ -22,7 +22,8 @@ emulator unless stated.
    a Mushroom.
 4. Content id to sprite: `SpriteInBlock` (`bank_02.asm:1077`). The second
    17-byte copy, used when `YoshiIsLoose`, is byte-identical, so Yoshi state
-   never changes the content. Ids 6 and 7 are coin art with no sprite
+   never changes which sprite SpriteInBlock picks (the egg's own hatch contents
+   are the exception, see the $126 row). Ids 6 and 7 are coin art with no sprite
    (`bank_02.asm:1055-1070`); id 7 sets `MulticoinTimer` to its start value if it is zero
    (`bank_02.asm:1062-1067`). Spawn status comes from `StatusOfSprInBlk`
    (`bank_02.asm:1086`).
@@ -60,7 +61,8 @@ restart each 16); P-switch colour
 `bank_02.asm:1232-1251` with `DATA_0288A1` (`bank_02.asm:1074`: Yoshi $35, or
 1-up $78 when a baby Yoshi sprite $2D exists or `YoshiIsLoose`); shell
 `ADDR_028A08` (`bank_02.asm:1260`); green star block counter starts at 30
-(`constants.asm:97`, set at `bank_00.asm:1979-1981`; the resolver reads the immediate from the ROM)
+(`constants.asm:97`, set at `bank_00.asm:1979-1981`, the immediate at :1980; the resolver reads it from
+the ROM; a start of 0 gives the 1-up at once, `bank_00.asm:12863-12866`)
 and counts down on coin pickups (`bank_05.asm:3552-3567`).
 
 ### $125
