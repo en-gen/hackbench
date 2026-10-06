@@ -19,6 +19,7 @@ import {
   MapDetailsDto,
   MapPlaneKey,
   MapScreenResult,
+  MapBlockContentsResult,
   MapSpritesResult,
   ProjectService,
   SwitchFlagsDto,
@@ -26,7 +27,19 @@ import {
 } from '../common/project-protocol'
 import { ProjectFrontendClient } from './project-push-client'
 import { decodeRgba, TILE_PX } from './map16-pixels'
-import { compositeSpriteScreen, paintSpriteCanvas, PALACES, screenKey } from './map-view-model'
+import {
+  compositeSpriteScreen,
+  decodeArts,
+  hoverTarget,
+  indicatorId,
+  paintPlaneIndicators,
+  paintSpriteCanvas,
+  PALACES,
+  screenKey,
+  type Indicator,
+  type IndicatorArt,
+  type PaintedIndicator,
+} from './map-view-model'
 import { SWITCH_ORDER } from './map16-view-model'
 import { decodeSwitchButton, SwitchToggle, type SwitchButtonImages } from './switch-toggle'
 import { LayerToggle } from './layer-icon'
@@ -63,6 +76,9 @@ export interface MapViewOptions {
 
 type Layout = Extract<MapScreenResult, { status: 'ok' }>
 type Sprites = Extract<MapSpritesResult, { status: 'ok' }>
+type BlockContents = Extract<MapBlockContentsResult, { status: 'ok' }> & {
+  decoded: Map<string, IndicatorArt>
+}
 /** The sprite canvases' key in place of a plane's: one per screen, between L2 and L1's priority plane. */
 const SPRITES = 'sprites'
 type LayerKey = MapPlaneKey | typeof SPRITES
@@ -114,6 +130,12 @@ export class MapViewWidget extends ReactWidget {
   protected spritesWhy: string | undefined
   /** Bumped when `sprites` is replaced, so a canvas painted from the old ones is repainted. */
   protected spritesVersion = 0
+  /** Block content indicators (#566), once read; `blocksWhy` is why there are none to show. */
+  protected blocks: BlockContents | undefined
+  protected blocksWhy: string | undefined
+  protected blocksVersion = 0
+  /** The indicator under the pointer: it fills its block, the rest sit in their quadrants. */
+  protected hover: Indicator | undefined
   /** Fit mode until the user zooms; the fit is the cross axis filling the view (#526). */
   protected readonly zoomController = new ZoomController(ZOOMS, 1, () => this.measureFit())
   protected wheelBinding: WheelBinding | undefined
@@ -168,6 +190,9 @@ export class MapViewWidget extends ReactWidget {
     this.mapLayout = undefined
     this.sprites = undefined
     this.spritesWhy = undefined
+    this.blocks = undefined
+    this.blocksWhy = undefined
+    this.hover = undefined
     // A new map opens fitted, whatever zoom the last one was left at.
     this.zoomController.enterFit()
     // A reused (preview) tab keeps its strip across maps: blank it, and start at screen 0.
@@ -200,6 +225,7 @@ export class MapViewWidget extends ReactWidget {
     void this.loadDetails()
     void this.loadIcons()
     void this.loadSprites()
+    void this.loadBlocks()
     this.requestVisible()
   }
 
@@ -215,6 +241,22 @@ export class MapViewWidget extends ReactWidget {
     this.sprites = r.status === 'ok' ? r : undefined
     this.spritesWhy = r.status === 'ok' ? undefined : r.status === 'unavailable' ? r.reason : `The base ROM ${r.baseRom.title} is not on this machine` // prettier-ignore
     this.spritesVersion++
+    this.update()
+    this.sync()
+  }
+
+  protected async loadBlocks(): Promise<void> {
+    const o = this.options
+    if (!o) return
+    const generation = this.generation
+    const r = await this.projects
+      .mapBlockContents(o.manifestPath, o.index)
+      .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
+    if (generation !== this.generation) return
+    this.blocks = r.status === 'ok' ? { ...r, decoded: decodeArts(r.arts) } : undefined
+    this.blocksWhy = r.status === 'ok' ? r.note : r.status === 'unavailable' ? `Block contents are not drawn: ${r.reason}` : undefined // prettier-ignore
+    this.hover = undefined
+    this.blocksVersion++
     this.update()
     this.sync()
   }
@@ -402,12 +444,18 @@ export class MapViewWidget extends ReactWidget {
       }
       return
     }
-    const want = `${this.generation}:${this.key(s)}:${+this.showL1}${+this.showL2}${+this.showL3}${+this.showSprites}:${this.spritesVersion}`
+    const hov = this.hoverOn(s)
+    const want = `${this.generation}:${this.key(s)}:${+this.showL1}${+this.showL2}${+this.showL3}${+this.showSprites}:${this.spritesVersion}:${this.blocksVersion}:${hov ? indicatorId(hov) : ''}`
     if (canvas.dataset.drawn === want) return
     canvas.width = shot.width
     canvas.height = shot.height
+    // Each indicator is painted into its block's own plane, so hiding the layer hides it.
+    const painted: PaintedIndicator[] = []
     const planes: Partial<Record<SourceKey, Uint8ClampedArray | null>> = Object.fromEntries(
-      MAP_PLANE_KEYS.map(k => [k, this.layerShown(k) ? (shot.planes[k]?.data ?? null) : null]),
+      MAP_PLANE_KEYS.map(k => [
+        k,
+        this.layerShown(k) ? this.withIndicators(k, s, shot, hov, painted) : null,
+      ]),
     )
     // The sprites are one more source, not in color math (their palette split is #564's to add).
     const sp = this.sprites
@@ -421,6 +469,52 @@ export class MapViewWidget extends ReactWidget {
     })
     canvas.getContext('2d')?.putImageData(new ImageData(out, shot.width, shot.height), 0, 0)
     canvas.dataset.drawn = want
+    // What was painted, for the acceptance specs: item boxes in this screen's pixels.
+    canvas.dataset.indicators = JSON.stringify(painted)
+  }
+
+  /** The plane's pixels with its block indicators painted on a copy; the cached plane stays clean. */
+  protected withIndicators(
+    k: MapPlaneKey,
+    s: number,
+    shot: ScreenImages,
+    hov: Indicator | undefined,
+    painted: PaintedIndicator[],
+  ): Uint8ClampedArray | null {
+    const data = shot.planes[k]?.data ?? null
+    const b = this.blocks
+    if (!b || !b.indicators.some(i => i.plane === k)) return data
+    const copy = data ? data.slice() : new Uint8ClampedArray(shot.width * shot.height * 4)
+    const done = paintPlaneIndicators(copy, k as Indicator['plane'], s, b, b.indicators, b.decoded, hov && indicatorId(hov)) // prettier-ignore
+    painted.push(...done)
+    return data || done.length ? copy : null
+  }
+
+  /** The hovered indicator, when its block touches screen `s`. */
+  protected hoverOn(s: number): Indicator | undefined {
+    const h = this.hover
+    const b = this.blocks
+    if (!h || !b) return undefined
+    const [size, at] = b.orientation === 'vertical' ? [b.height, h.y] : [b.width, h.x]
+    return at + 16 > s * size && at < (s + 1) * size ? h : undefined
+  }
+
+  protected readonly onPointerMove = (e: React.MouseEvent): void => {
+    const strip = this.scroller?.querySelector<HTMLElement>('.hb-map-view-strip')
+    const l = this.mapLayout
+    if (!strip || !l || !this.blocks) return
+    const r = strip.getBoundingClientRect()
+    const [x, y] = [(e.clientX - r.left) / this.zoom, (e.clientY - r.top) / this.zoom]
+    const order = this.layerOrder(l)
+    this.setHover(
+      hoverTarget(this.blocks.indicators, x, y, p => this.layerShown(p), p => order.indexOf(p)) ?? undefined, // prettier-ignore
+    )
+  }
+
+  protected setHover(next: Indicator | undefined): void {
+    if ((next && indicatorId(next)) === (this.hover && indicatorId(this.hover))) return
+    this.hover = next
+    this.sync()
   }
 
   protected compositeRef(s: number): (el: HTMLCanvasElement | null) => void {
@@ -635,6 +729,11 @@ export class MapViewWidget extends ReactWidget {
             {this.sprites.note}
           </div>
         )}
+        {this.blocksWhy && (
+          <div className="hb-map-view-note" data-note="block-contents">
+            {this.blocksWhy}
+          </div>
+        )}
         {this.mapLayout?.layerNotes.map(n => (
           <div key={n} className="hb-map-view-note" data-note="layers">
             {n}
@@ -708,6 +807,8 @@ export class MapViewWidget extends ReactWidget {
           data-control="map-scroller"
           ref={this.scrollerRef}
           onScroll={() => this.requestVisible()}
+          onMouseMove={this.onPointerMove}
+          onMouseLeave={() => this.setHover(undefined)}
         >
           {/* Bottom to top (planes by `screens`, composited per screen): the checkerboard, the back area, then the screens,
               so hiding a layer shows what is under it, down to nothing. */}

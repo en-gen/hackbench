@@ -3,7 +3,13 @@
  * pressed and which char switches are on both change the picture, so both
  * key a cached screen. Pure, so it is unit tested without a DOM.
  */
-import type { MapSpriteDto, SwitchFlagsDto, SwitchStateDto } from '../common/project-protocol'
+import type {
+  BlockIndicatorDto,
+  MapSpriteDto,
+  SwitchFlagsDto,
+  SwitchStateDto,
+} from '../common/project-protocol'
+import { BLOCK, halve, paintIndicator, type Box } from '../common/block-indicator'
 import { decodeRgba } from './map16-pixels'
 import { SWITCH_ORDER } from './map16-view-model'
 
@@ -98,4 +104,86 @@ export function paintSpriteCanvas(
   const rgba = compositeSpriteScreen(sp.sprites, screen, sp)
   if (rgba) ctx?.putImageData?.(new ImageData(rgba, sp.width, sp.height), 0, 0)
   canvas.dataset.drawn = want
+}
+
+/** The indicator art of one item, as drawn at rest (half scale) and on hover (the whole block). */
+export interface IndicatorArt {
+  rest: Uint8ClampedArray
+  full: Uint8ClampedArray
+}
+
+/** Decodes a reply's arts once; `halve` is the resting scale. */
+export function decodeArts(arts: Record<string, string>): Map<string, IndicatorArt> {
+  return new Map(
+    Object.entries(arts).map(([k, v]) => {
+      const full = decodeRgba(v)
+      return [k, { rest: halve(full), full }]
+    }),
+  )
+}
+
+/** A block-content indicator with its plane, as `mapBlockContents` replies. */
+export type Indicator = BlockIndicatorDto
+
+const blockRect = (i: Indicator) => ({ x0: i.x, y0: i.y, x1: i.x + BLOCK, y1: i.y + BLOCK })
+const screenOrigin = (screen: number, g: ScreenGeometry): [number, number] =>
+  g.orientation === 'vertical' ? [0, screen * g.height] : [screen * g.width, 0]
+
+/** One indicator's identity, for hover and for the painted record. */
+export const indicatorId = (i: Indicator): string => `${i.plane}:${i.x}:${i.y}`
+
+/**
+ * The indicator the pointer is over: the block under (x, y), among the planes
+ * `shown` reports visible, topmost by `rank` (a plane's place in the stacking
+ * order, higher is nearer). Null over no block.
+ */
+export function hoverTarget(
+  list: readonly Indicator[],
+  x: number,
+  y: number,
+  shown: (plane: Indicator['plane']) => boolean,
+  rank: (plane: Indicator['plane']) => number,
+): Indicator | null {
+  let best: Indicator | null = null
+  for (const i of list) {
+    const r = blockRect(i)
+    if (x < r.x0 || x >= r.x1 || y < r.y0 || y >= r.y1 || !shown(i.plane)) continue
+    if (!best || rank(i.plane) > rank(best.plane)) best = i
+  }
+  return best
+}
+
+export interface PaintedIndicator {
+  id: string
+  hover: boolean
+  /** The item box in this screen's pixels, x1 and y1 exclusive. */
+  box: Box
+}
+
+/**
+ * Paints the indicators of ONE plane onto that plane's screen pixels (a copy
+ * is the caller's to make), so hiding the plane hides them. Returns what it
+ * painted, for the view to publish.
+ */
+export function paintPlaneIndicators(
+  data: Uint8ClampedArray,
+  plane: Indicator['plane'],
+  screen: number,
+  g: ScreenGeometry,
+  list: readonly Indicator[],
+  arts: ReadonlyMap<string, IndicatorArt>,
+  hoverId: string | undefined,
+): PaintedIndicator[] {
+  const [left, top] = screenOrigin(screen, g)
+  const out: PaintedIndicator[] = []
+  for (const i of list) {
+    const art = arts.get(i.art)
+    const r = blockRect(i)
+    if (i.plane !== plane || !art) continue
+    if (r.x1 <= left || r.x0 >= left + g.width || r.y1 <= top || r.y0 >= top + g.height) continue
+    const hover = indicatorId(i) === hoverId
+    const p = paintIndicator(data, g.width, g.height, i.x - left, i.y - top, art, hover)
+    out.push({ id: indicatorId(i), hover, box: p.box })
+  }
+  return out
 }
