@@ -122,10 +122,13 @@ compared. Concessions: MVN/MVP files are cut by the data at 100 cycles, so the
 harness runs 14 byte moves and expects `pc + 2`; in emulation mode a
 same-address write pair (an 8-bit RMW's old-value write) is collapsed (see
 `test/suite/support/singleStep.ts`). Ground truth is Clark and WDC
-documentation confirmed by Snes9x or bsnes, not the vectors: `DISPUTED` in
+documentation (<https://6502.org/tutorials/65c816opcodes.html>) confirmed by
+Snes9x or bsnes, not the vectors. (PEI is the one place Snes9x differs: it
+wraps the pointer at DL=0, while Clark and the vectors, which the core follows,
+do not.) `DISPUTED` in
 that file names the 44 vectors the core deliberately fails (`e1.e` #8668,
 upstream issue 3; 43 `fc.e` page-cross vectors, issues 6 and 7), and a test
-asserts each still mismatches. The synthetic `Cpu65816.test.ts` and
+asserts each still mismatches in the disputed field. The synthetic `Cpu65816.test.ts` and
 `Cpu65816Edges.test.ts` run in CI; they hold the planted-defect proofs for the
 harness and the edge cases the random vectors rarely reach.
 

@@ -188,11 +188,13 @@ export class Cpu65816 {
   }
   /**
    * `old` stack ops (6502 heritage) wrap inside page 1 in emulation mode; the
-   * 65816 additions (PEA PEI PER PHD PLD PLB JSL RTL) let S walk out of the
-   * page and are re-pinned to page 1 after the instruction.
-   * Rule: Clark ("Investigating the 65C816's Operation") and WDC documentation,
-   * confirmed by Snes9x, win over SingleStepTests. Sources: Clark sec. 5.11
-   * and appendix; Snes9x cpuaddr.h:412-414 and cpuops.cpp:2947-2955.
+   * 65816 additions (PEA PEI PER PHD PLD PLB JSL RTL, JSR (a,X)) let S walk out
+   * of the page and are re-pinned to page 1 after the instruction.
+   * Rule: Clark and WDC documentation, confirmed by bsnes or Snes9x where they
+   * agree, win over SingleStepTests. Clark: https://6502.org/tutorials/65c816opcodes.html
+   * (#5.11, #APPENDIX); Snes9x cpuaddr.h:412-414 and cpuops.cpp:2947-2955.
+   * PEI is the exception to "confirmed": Snes9x wraps its pointer when DL=0
+   * (OpD4E1, cpuaddr.h:245-247); the core follows Clark and the vectors, which agree.
    * Two vector sets disagree and are listed as exceptions in
    * test/suite/support/singleStep.ts: `(dp,X)` pointer wrap (upstream
    * SingleStepTests/65816 issue 3) and JSR (a,X) push wrap (issues 6, 7).

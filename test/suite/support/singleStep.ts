@@ -40,10 +40,12 @@ export interface Disputed {
   id: string
   /** Upstream SingleStepTests/65816 issue numbers. */
   issues: string
-  /** Vector file (`{op}.e`) the exception applies to. */
+  /** Vector file (`{op}.e`) the exception applies to; `matches` also checks it via the vector name. */
   file: string
   expected: number
   matches(tc: StepCase): boolean
+  /** True when a mismatch diff shows the disputed behaviour, not some other defect. */
+  isDisputedDiff(diff: string[]): boolean
 }
 export const DISPUTED: Disputed[] = [
   {
@@ -52,6 +54,8 @@ export const DISPUTED: Disputed[] = [
     file: 'e1.e',
     expected: 1,
     matches: tc => tc.name === 'e1 e 8669', // index 8668 in the file
+    // The pointer is read from a different place, so A (and its flags) differ.
+    isDisputedDiff: diff => diff.some(l => l.startsWith('a: ')),
   },
   {
     id: 'JSR (a,X) push wrap, emulation',
@@ -59,7 +63,9 @@ export const DISPUTED: Disputed[] = [
     file: 'fc.e',
     expected: 43,
     // The push of S and S-1 only differs when it crosses the page edge.
-    matches: tc => (tc.initial.s & 0xff) === 0,
+    matches: tc => tc.name.startsWith('fc e ') && (tc.initial.s & 0xff) === 0,
+    // The pushed return address lands at $00FF instead of $01FF.
+    isDisputedDiff: diff => diff.some(l => l.startsWith('write order')),
   },
 ]
 
@@ -136,4 +142,30 @@ export function runCase(tc: StepCase, make: (bus: never) => Cpu65816 = defaultMa
 
 function defaultMake(bus: never): Cpu65816 {
   return new Cpu65816(bus)
+}
+
+/**
+ * Runs every case of one vector file, skipping DISPUTED vectors; a case that
+ * throws counts as a failure, never as a pass.
+ */
+export function tally(
+  cases: StepCase[],
+  run: (tc: StepCase) => string[] = runCase,
+): { failed: number; first: string[] } {
+  let failed = 0
+  const first: string[] = []
+  for (const tc of cases) {
+    if (DISPUTED.some(d => d.matches(tc))) continue
+    let diff: string[]
+    try {
+      diff = run(tc)
+    } catch (e) {
+      diff = [String(e)]
+    }
+    if (diff.length) {
+      failed++
+      if (first.length < 3) first.push(`${tc.name}: ${diff.join('; ')}`)
+    }
+  }
+  return { failed, first }
 }

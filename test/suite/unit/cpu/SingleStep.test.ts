@@ -14,7 +14,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { TOOLS_ROOT } from '../../support/corpus'
-import { DISPUTED, runCase, type StepCase } from '../../support/singleStep'
+import { DISPUTED, runCase, tally, type StepCase } from '../../support/singleStep'
 
 const base = process.env.HACKBENCH_SINGLESTEP ?? join(TOOLS_ROOT, 'singlestep65816')
 const root = existsSync(join(base, 'v1')) ? join(base, 'v1') : base
@@ -27,21 +27,7 @@ describe.skipIf(!existsSync(root))('SingleStepTests 65816', () => {
       it.skipIf(!existsSync(file))(`${hex(op)}.${mode}`, { timeout: 120_000 }, () => {
         const cases = JSON.parse(readFileSync(file, 'utf8')) as StepCase[]
         expect(cases.length).toBe(10000)
-        let failed = 0
-        const first: string[] = []
-        for (const tc of cases) {
-          if (DISPUTED.some(d => d.file === `${hex(op)}.${mode}` && d.matches(tc))) continue
-          let diff: string[]
-          try {
-            diff = runCase(tc)
-          } catch (e) {
-            diff = [String(e)]
-          }
-          if (diff.length) {
-            failed++
-            if (first.length < 3) first.push(`${tc.name}: ${diff.join('; ')}`)
-          }
-        }
+        const { failed, first } = tally(cases)
         expect(failed, first.join('\n')).toBe(0)
       })
     }
@@ -53,7 +39,10 @@ describe.skipIf(!existsSync(root))('SingleStepTests 65816', () => {
       () => {
         const cases = (JSON.parse(readFileSync(join(root, `${d.file}.json`), 'utf8')) as StepCase[]).filter(d.matches) // prettier-ignore
         expect(cases.length).toBe(d.expected)
-        for (const tc of cases) expect(runCase(tc), tc.name).not.toEqual([])
+        for (const tc of cases) {
+          const diff = runCase(tc)
+          expect(d.isDisputedDiff(diff), `${tc.name}: ${diff.join('; ')}`).toBe(true)
+        }
       },
     )
 })

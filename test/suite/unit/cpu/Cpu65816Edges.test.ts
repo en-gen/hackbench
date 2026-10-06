@@ -3,7 +3,8 @@
  * no SingleStepTests data, so CI runs them. They cover rules the 5.12M random
  * vectors reach 0 to 2 times (so a mutant there survives) and the two
  * emulation-mode rules where the vectors are disputed upstream. Rules cite
- * Bruce Clark, "Investigating the 65C816's Operation" (Clark), and Snes9x.
+ * Bruce Clark (https://6502.org/tutorials/65c816opcodes.html, sections #5.11
+ * and #APPENDIX) and Snes9x.
  */
 import { describe, it, expect } from 'vitest'
 import { Cpu65816, type Bus } from '../../../../src/rom/cpu/Cpu65816'
@@ -87,6 +88,31 @@ describe('Cpu65816 addressing edges', () => {
       expect(n.cpu.a & 0xff).toBe(0xaa)
     }
   })
+  it('emulation [dp],Y never wraps in the page either, even with DL 0', () => {
+    const m = machine([0xb7, 0xff])
+    m.cpu.y = 1
+    seed(m.mem, [[0xff, 0x00], [0x100, 0x90], [0x101, 0x01], [0x019001, 0x5b]]) // prettier-ignore
+    m.run(1)
+    expect(m.cpu.a & 0xff).toBe(0x5b)
+  })
+  it('abs,Y carries into the next bank', () => {
+    const m = nat([0xb9, 0xff, 0xff])
+    Object.assign(m.cpu, { db: 0x12, y: 2 })
+    seed(m.mem, [[0x130001, 0x77], [0x120001, 0x11]]) // prettier-ignore
+    m.run(1)
+    expect(m.cpu.a & 0xff).toBe(0x77)
+  })
+  it('JMP (a,X) and JSR (a,X) read their pointer from the program bank, not bank 0', () => {
+    for (const op of [0x7c, 0xfc]) {
+      const m = machine([])
+      seed(m.mem, [[0x058000, op], [0x058001, 0x00], [0x058002, 0x90]]) // prettier-ignore
+      Object.assign(m.cpu, { pb: 5, pc: 0x8000, x: 2 })
+      m.cpu.e = false
+      seed(m.mem, [[0x059002, 0x34], [0x059003, 0x12], [0x9002, 0x99], [0x9003, 0x98]]) // prettier-ignore
+      m.run(1)
+      expect([m.cpu.pb, m.cpu.pc]).toEqual([5, 0x1234])
+    }
+  })
   it('emulation [dp] never wraps in the page, even with DL 0 (Clark)', () => {
     const m = machine([0xa7, 0xff])
     seed(m.mem, [[0xff, 0x00], [0x100, 0x90], [0x101, 0x01], [0x019000, 0x5a]]) // prettier-ignore
@@ -137,10 +163,10 @@ describe('Cpu65816 addressing edges', () => {
     expect([m.mem.get(0x1ff), m.mem.get(0x1fe)]).toEqual([0x12, 0x34])
   })
   it('(dp,X) in emulation mode with DL 0 wraps the pointer high byte in the page (Clark 5.11)', () => {
-    const m = machine([0xa1, 0xb0])
-    m.cpu.d = 0xf400
-    m.cpu.x = 0x4f
-    seed(m.mem, [[0xf4ff, 0x34], [0xf400, 0x12], [0xf500, 0x99], [0x1234, 0xaa], [0x9934, 0xbb]]) // prettier-ignore
+    const m = machine([0xa1, 0x7e])
+    m.cpu.d = 0x2100
+    m.cpu.x = 0x81
+    seed(m.mem, [[0x21ff, 0x56], [0x2100, 0x34], [0x2200, 0x99], [0x3456, 0xaa], [0x9956, 0xbb]]) // prettier-ignore
     m.run(1)
     expect(m.cpu.a & 0xff).toBe(0xaa)
   })
@@ -202,6 +228,21 @@ describe('Cpu65816 flag and register edges', () => {
       expect(m.cpu.z).toBe(true)
     }
   })
+  it('BRK and COP clear D and set I in emulation mode, COP through $FFF4 and BRK through $FFFE', () => {
+    for (const [op, vec] of [
+      [0x00, 0xfffe],
+      [0x02, 0xfff4],
+    ]) {
+      const m = machine([0xf8, 0x58, op, 0x00])
+      seed(m.mem, [[0xfffe, 0x00], [0xffff, 0xa0], [0xfff4, 0x00], [0xfff5, 0x90]]) // prettier-ignore
+      m.run(3)
+      expect([m.cpu.dec, m.cpu.i, m.cpu.pc]).toEqual([
+        false,
+        true,
+        vec === 0xfffe ? 0xa000 : 0x9000,
+      ])
+    }
+  })
   it('BRK and COP clear D, set I, push 4 bytes in native mode and jump through the vector', () => {
     for (const [op, vec] of [
       [0x00, 0xffe6],
@@ -227,6 +268,25 @@ describe('Cpu65816 flag and register edges', () => {
       s: 0x145,
       a: 0x5678,
     })
+  })
+  it('ADC overflow needs operands of the same sign: $50 + $90 leaves V clear, decimal and binary', () => {
+    for (const dec of [true, false]) {
+      const m = nat([...(dec ? [0xf8] : []), 0x18, 0x69, 0x90])
+      m.cpu.a = 0x50
+      m.run(dec ? 3 : 2)
+      expect([m.cpu.a, m.cpu.c, m.cpu.v]).toEqual([dec ? 0x40 : 0xe0, dec, false])
+    }
+  })
+  it('e = false leaves M, X, the index registers and S alone, native or not', () => {
+    const m = nat([0xc2, 0x30])
+    m.run(1)
+    Object.assign(m.cpu, { x: 0x1234, s: 0x2345 })
+    m.cpu.e = false
+    expect([m.cpu.m8, m.cpu.x8, m.cpu.x, m.cpu.s]).toEqual([false, false, 0x1234, 0x2345])
+    const em = machine([])
+    em.cpu.s = 0x145
+    em.cpu.e = false
+    expect([em.cpu.m8, em.cpu.x8, em.cpu.s]).toEqual([true, true, 0x145])
   })
   it('MVN counts all of A even with 8-bit M', () => {
     const m = nat([0x54, 0x01, 0x00])
@@ -284,6 +344,42 @@ describe('Cpu65816 emulation-mode stack rules', () => {
       0x1fe,
       0xa000,
     ])
+  })
+})
+
+describe('Cpu65816 emulation-mode stack: 65816 additions walk out of page 1', () => {
+  it('PHD, PER and JSL push below $0100 without wrapping', () => {
+    const phd = machine([0x0b])
+    Object.assign(phd.cpu, { s: 0x100, d: 0x1234 })
+    phd.run(1)
+    expect([phd.mem.get(0x100), phd.mem.get(0xff), phd.cpu.s]).toEqual([0x12, 0x34, 0x1fe])
+    const per = machine([0x62, 0x00, 0x00])
+    per.cpu.s = 0x100
+    per.run(1)
+    expect([per.mem.get(0x100), per.mem.get(0xff), per.mem.get(0x1ff)]).toEqual([
+      0x80,
+      0x03,
+      undefined,
+    ])
+    const jsl = machine([0x22, 0x00, 0x90, 0x00])
+    jsl.cpu.s = 0x100
+    jsl.run(1)
+    expect([jsl.mem.get(0x100), jsl.mem.get(0xff), jsl.mem.get(0xfe), jsl.mem.get(0x1ff)]).toEqual([
+      0x00,
+      0x80,
+      0x03,
+      undefined,
+    ])
+  })
+  it('PLD and RTL pull above $01FF without wrapping', () => {
+    const pld = machine([0x2b])
+    seed(pld.mem, [[0x200, 0x34], [0x201, 0x12], [0x100, 0x99], [0x101, 0x98]]) // prettier-ignore
+    pld.run(1)
+    expect(pld.cpu.d).toBe(0x1234)
+    const rtl = machine([0x6b])
+    seed(rtl.mem, [[0x200, 0x33], [0x201, 0x12], [0x202, 0x05], [0x100, 0x99], [0x101, 0x98], [0x102, 0x97]]) // prettier-ignore
+    rtl.run(1)
+    expect([rtl.cpu.pb, rtl.cpu.pc]).toEqual([5, 0x1234])
   })
 })
 

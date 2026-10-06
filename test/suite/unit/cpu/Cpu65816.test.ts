@@ -1,7 +1,7 @@
 /** Synthetic Cpu65816 tests: no ROM and no SingleStepTests data, so CI runs them. */
 import { describe, it, expect } from 'vitest'
 import { Cpu65816, type Bus } from '../../../../src/rom/cpu/Cpu65816'
-import { runCase, type StepCase } from '../../support/singleStep'
+import { DISPUTED, runCase, tally, type StepCase } from '../../support/singleStep'
 
 function machine(code: number[], at = 0x8000) {
   const mem = new Map<number, number>()
@@ -268,10 +268,10 @@ describe('SingleStep harness oracle: write log, S/E, collapse scope, MVN (#646)'
   })
   const w = (a: number, v: number): [number, number, string] => [a, v, 'xxxw']
   /** Native PEA $1234: writes the high byte at $01FF, then the low byte at $01FE. */
-  const pea = (): StepCase => ({
+  const pea = (e = 0): StepCase => ({
     name: 'pea',
-    initial: st({ ram: [[0x8000, 0xf4], [0x8001, 0x34], [0x8002, 0x12]] }), // prettier-ignore
-    final: st({ pc: 0x8003, s: 0x1fd, ram: [[0x8000, 0xf4], [0x8001, 0x34], [0x8002, 0x12], [0x1ff, 0x12], [0x1fe, 0x34]] }), // prettier-ignore
+    initial: st({ e, ram: [[0x8000, 0xf4], [0x8001, 0x34], [0x8002, 0x12]] }), // prettier-ignore
+    final: st({ e, pc: 0x8003, s: 0x1fd, ram: [[0x8000, 0xf4], [0x8001, 0x34], [0x8002, 0x12], [0x1ff, 0x12], [0x1fe, 0x34]] }), // prettier-ignore
     cycles: [w(0x1ff, 0x12), w(0x1fe, 0x34)],
   })
   it('passes the correct write order', () => {
@@ -282,13 +282,51 @@ describe('SingleStep harness oracle: write log, S/E, collapse scope, MVN (#646)'
     tc.cycles = [w(0x1fe, 0x34), w(0x1ff, 0x12)]
     expect(runCase(tc).join()).toContain('write order')
   })
-  it('goes red when S or E differ', () => {
-    const s = pea()
-    s.final.s = 0x1fc
-    expect(runCase(s).join()).toContain('s: got')
-    const e = pea()
-    e.final.e = 1
-    expect(runCase(e).join()).toContain('e: got')
+  it('goes red when the expected writes come in the other order in emulation mode', () => {
+    const tc = pea(1)
+    expect(runCase(tc)).toEqual([])
+    tc.cycles = [w(0x1fe, 0x34), w(0x1ff, 0x12)]
+    expect(runCase(tc).join()).toContain('write order')
+  })
+  it('goes red when any one compared register differs', () => {
+    const keys = ['pc', 's', 'p', 'a', 'x', 'y', 'dbr', 'd', 'pbr', 'e'] as const
+    for (const k of keys) {
+      const tc = pea()
+      tc.final[k] = tc.final[k] ^ 1
+      expect(runCase(tc).join(), k).toContain(`${k}: got`)
+    }
+  })
+  it('loads a non-zero initial D, PBR and DBR into the core', () => {
+    // LDA dp with D=$0100 and PBR=1; LDA abs with DBR=2. Wrong setup reads other bytes.
+    const lda = (
+      op: number,
+      operand: number[],
+      at: number,
+      over: object,
+      ram: [number, number][],
+    ): StepCase => {
+      const code = [op, ...operand].map((b, k): [number, number] => [(over as { pbr?: number }).pbr! << 16 | (0x8000 + k), b]) // prettier-ignore
+      const i = st({ ...over, ram: [...code, ...ram] })
+      return {
+        name: 'lda',
+        initial: i,
+        final: st({ ...over, pc: 0x8000 + 1 + operand.length, a: at, ram: i.ram }),
+      }
+    }
+    const dp = lda(0xa5, [0x10], 0x42, { pbr: 1, d: 0x100 }, [[0x110, 0x42], [0x10, 0x99]]) // prettier-ignore
+    const abs = lda(0xad, [0x00, 0x20], 0x43, { pbr: 0, dbr: 2 }, [[0x022000, 0x43], [0x2000, 0x99]]) // prettier-ignore
+    expect(runCase(dp)).toEqual([])
+    expect(runCase(abs)).toEqual([])
+  })
+  it('a vector that throws counts as a failure, and DISPUTED skips only its own vectors', () => {
+    const tc = pea()
+    expect(tally([tc], () => []).failed).toBe(0)
+    expect(tally([tc], () => { throw new Error('boom') }).failed).toBe(1) // prettier-ignore
+    // an S-low-0 vector from another opcode file is not disputed
+    const other = { ...pea(), name: '01 e 1' }
+    other.initial.s = 0x100
+    expect(DISPUTED.some(d => d.matches(other))).toBe(false)
+    expect(tally([other], () => ['x']).failed).toBe(1)
   })
   // INC $10 writes once. The data lists the old value then the new one in
   // emulation mode only; the harness may collapse that pair there, not in native mode.
