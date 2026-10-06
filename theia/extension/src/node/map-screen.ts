@@ -173,10 +173,11 @@ export function drawL1Planes(
     { dy: 0 },
     (x, y) => {
       const id = model.grid[y]?.[x]
-      const def = id === undefined ? undefined : cellDef(model, id, screen)
+      if (id === undefined) return undefined
+      const def = cellDef(model, id, screen)
       if (!def) return undefined
       const rgba = renderMap16Tile(def, vram, palette)
-      const art = cellSwitchArt(model, id!, screen)
+      const art = cellSwitchArt(model, id, screen)
       const ghost = art && ghostOf(rgba, art.off, art.alts, c => c.rgba)
       if (ghost) overlayHidden(rgba, 16, 0, 0, ghost)
       return { rgba, owner: def }
