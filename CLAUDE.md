@@ -43,7 +43,7 @@ npm run format:check   # Prettier check mode, as CI runs it
 npm run test:unit      # Vitest unit tests (single run)
 npm run test:unit:watch
 npm run typecheck:theia
-npm run gitnexus       # refresh the index; never a bare `gitnexus analyze`
+npm run gitnexus       # refresh the index; a bare analyze skips the FTS repair
 ```
 
 The desktop app, from `theia/`. `build` and `start` target Electron, which

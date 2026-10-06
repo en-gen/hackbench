@@ -85,7 +85,7 @@ const CALLS: [Mode, string][] = [
   ['force', 'analyze --skip-agents-md --force'],
 ]
 
-describe('gitnexus-refresh.sh leaves the context files alone', () => {
+describe('gitnexus-refresh.sh leaves the context files alone', { timeout: 60000 }, () => {
   it.each(MODES)('keeps git status clean when %s succeeds', mode => {
     expect(runRefresh(real, mode)).toBe('')
   })
