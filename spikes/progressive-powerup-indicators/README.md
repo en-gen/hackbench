@@ -155,8 +155,7 @@ one sheet per option at 1x, 2x and 3x, at rest and on hover.
 - C: the conditional item only.
 - D: the coin with the item as a half-size badge in its top-right corner.
 
-Rules: `$11A` column 0 and `$122` give a star, or a coin when Mario already has
-one (`CODE_00F1C9`, `bank_00.asm:12887-12891`); `$12D` gives a 1-Up once its
+Rules: `$11A` column 0 and `$122` give a star only while Mario is invincible, else a coin (`CODE_00F1C9`, `bank_00.asm:12887-12891`); `$12D` gives a 1-Up once its
 counter is zero, else a coin (`bank_00.asm:12861-12866`). ASM reading only; the
 probe throws if the tables stop saying so.
 

@@ -129,7 +129,7 @@ if (two) {
 .nm{position:absolute;left:calc(var(--x)*var(--u));width:var(--u);top:calc(var(--u) + 2px);text-align:center;font:10px sans-serif;color:#fff;text-shadow:0 0 2px #000}
 .bd img.pl{left:56.25%;top:56.25%;width:43.75%;height:43.75%}.bd img.bg{left:50%;top:0;width:50%;height:50%}.zr .stage{outline:none;margin-bottom:18px}</style>`)
   const html2 = `<!doctype html><html><head><meta charset="utf-8"><title>Two-outcome indicator mockup</title>${css}</head><body><h1>Two-outcome blocks (#623), map ${map} palette</h1>
-<p class="note">Star or coin: $11A at column 0 of 3 and $122 (star if Mario is invincible). 1-Up or coin: $12D (1-Up once its coin counter is zero). Hover fills the whole block.</p>${sec}
+<p class="note">Star or coin: $11A at column 0 of 3 and $122 (star while Mario is invincible, else a coin). 1-Up or coin: $12D (1-Up once its coin counter is zero). Hover fills the whole block.</p>${sec}
 <style>body{--bg:${bg}}</style></body></html>`
   fs.writeFileSync(path.join(path.dirname(process.argv[3] || __filename), 'two-outcome.html'), html2)
   console.log('two-outcome.html', html2.length, 'bytes;', (html2.match(/class="blk/g) || []).length, 'block elements')

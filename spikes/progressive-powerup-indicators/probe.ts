@@ -88,8 +88,8 @@ for (const [key, x] of [['oneup', 1], ['coin', 2], ['star', 14]] as const) {
 }
 
 // ---- two-outcome blocks (#623): item depends on game state but Mario does not progress through a mushroom
-// $11A at X column 0 of a screen (F080 $81 -> F100[16], star) and $122 (F080 $07): star, or a coin if Mario
-// is invincible already (CODE_00F1C9, bank_00.asm:12887-12891). $12D (F080 $ff, green star block): 1-Up once
+// $11A at X column 0 of a screen (F080 $81 -> F100[16], star) and $122 (F080 $07): a star while Mario
+// is invincible, else a coin (CODE_00F1C9, bank_00.asm:12887-12891). $12D (F080 $ff, green star block): 1-Up once
 // the counter reaches zero, else coin (bank_00.asm:12861-12866). Set beside D4 coin $11C, $11F, C4a $11B.
 const two = [0x11c, 0x11f, 0x11b, 0x11a, 0x122, 0x12d]
 const star11a = contentOf(0x11a, 0), star122 = contentOf(0x122, 0)
