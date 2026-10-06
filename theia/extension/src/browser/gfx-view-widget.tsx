@@ -258,13 +258,13 @@ export class GfxViewWidget extends ReactWidget implements SaveableSource, Stroke
     this.update()
   }
 
-  // Not while a Save is in flight: its success clears every stroke, so one
-  // drawn or undone meanwhile would be lost or come back.
   /** A Save is in flight: Ctrl+Z / Ctrl+Y are ours and do nothing (see EditStackContribution). */
   busy(): boolean {
     return this.saving
   }
 
+  // Not while a Save is in flight: its success clears every stroke, so one
+  // drawn or undone meanwhile would be lost or come back.
   canUndoStroke(): boolean {
     return this.strokes.length > 0 && !this.saving
   }
@@ -290,9 +290,10 @@ export class GfxViewWidget extends ReactWidget implements SaveableSource, Stroke
    * character, sent as ONE layer. False when nothing was recorded.
    */
   async save(): Promise<boolean> {
-    if (!this.options || !this.sheet || this.strokes.length === 0 || this.saving) return false
+    // No sheet needed: a failed reload can leave strokes pending, and the layout is fixed.
+    if (!this.options || this.strokes.length === 0 || this.saving) return false
     const { manifestPath, index } = this.options
-    const width = this.sheet.width
+    const width = TILES_PER_ROW * GFX_CHAR_PX
     const final = new Map<number, number>()
     for (const stroke of this.strokes) for (const [k, v] of stroke) final.set(k, v)
     const byTile = new Map<number, GfxCharEditDto>()
@@ -355,6 +356,7 @@ export class GfxViewWidget extends ReactWidget implements SaveableSource, Stroke
     this.sheet = sheet
     this.error = error
     if (sheet && this.bppChoice === undefined) this.ownBpp = sheet.bpp
+    else if (this.ownBpp === undefined) void this.loadOwnBpp(this.options) // the list may have failed once
     this.baseRgba = sheet ? decodeRgba(sheet.rgbaBase64) : undefined
     this.rebuildImage()
     this.update()

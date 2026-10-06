@@ -142,7 +142,11 @@
 }
 
 .hb-gfx-swatch[aria-pressed='true'] {
-  outline: 2px solid var(--theia-focusBorder);
+  border-color: var(--theia-contrastActiveBorder, var(--theia-foreground, #e0e0e0));
+}
+
+.hb-gfx-swatch:focus-visible {
+  outline: 2px solid var(--theia-focusBorder, #5b9cf6);
   outline-offset: 1px;
 }
 

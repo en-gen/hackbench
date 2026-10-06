@@ -425,9 +425,13 @@ describe('WorkingRomRegistry', () => {
             { file: 2, tile: 0, pixels: px(1) },
             { file: 2, tile: 1, pixels: [] },
           ],
-          /character 1/i,
+          /character 1.*one or more pixels/i,
         ],
-        ['a fractional tile', [{ file: 2, tile: 0.5, pixels: px(1) }], /character 0/i],
+        [
+          'a fractional tile',
+          [{ file: 2, tile: 0.5, pixels: px(1) }],
+          /character 0.*whole-number/i,
+        ],
         ['no characters', [], /nothing to save/i],
       ])('refuses a layer with %s, writes nothing, and the project still opens', (...c) => {
         const [, chars, reason] = c
@@ -437,6 +441,21 @@ describe('WorkingRomRegistry', () => {
         expect(r.status === 'refused' && r.reason).toMatch(reason)
         expect(loadLayers(dir)).toHaveLength(0)
         expect(new WorkingRomRegistry(romRegistry).get(manifestPath).status).toBe('ok')
+      })
+
+      it('keeps its own copy of the pixels: a caller mutating its array changes nothing', () => {
+        const { manifestPath } = gfxProject()
+        const edits = [{ file: 2, tile: 0, pixels: px(5) }]
+        working.setGfx(manifestPath, edits)
+        const held = opened(manifestPath).w
+        const bytes = Buffer.from(held.bytes())
+        edits[0]!.pixels[0]!.value = 1 // the caller reuses its objects
+        edits[0]!.pixels.push({ x: 1, y: 1, value: 2 })
+        const layer = held.stack[0]
+        expect(layer?.kind === 'gfx' && layer.chars[0]!.pixels).toEqual(px(5))
+        // The next get() agrees with disk, so the same working copy comes back.
+        expect(opened(manifestPath).w).toBe(held)
+        expect(Buffer.compare(bytes, Buffer.from(held.bytes()))).toBe(0)
       })
 
       it('a multi-character layer reopens to the live bytes, every character', () => {

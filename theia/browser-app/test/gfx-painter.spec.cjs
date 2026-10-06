@@ -49,6 +49,7 @@ async function boot(page) {
 }
 
 test.beforeEach(async ({ page }) => {
+  test.skip(!fs.existsSync(ROM), 'the vanilla ROM is not on this machine')
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-paint-'))
   await boot(page)
 })
@@ -413,6 +414,11 @@ test('Ctrl+Z during an in-flight Save does not undo the project layer below it',
   await page.click('#hb-gfx-save')
   await expect.poll(() => page.evaluate(() => !!window.__release)).toBe(true)
 
+  // The project handler is armed (its cached stack says Undo is possible), so
+  // only the GFX view's claim on the key keeps the layer from being undone.
+  await expect
+    .poll(() => page.evaluate(() => getSvc('EditStackContribution').state.canUndo))
+    .toBe(true)
   await page.keyboard.press('Control+z') // must do nothing at all
   await page.waitForTimeout(500)
   await page.evaluate(() => window.__release())
@@ -506,6 +512,22 @@ test("a depth chosen before the first sheet arrives still lets the file's own de
     const files = await getSvc('Symbol(GfxService)').listGfxFiles(mp)
     const own = files.files[0].defaultBpp
     const other = own === 4 ? 3 : 4
+    const real = w.gfx
+    let failed = false
+    w.gfx = new Proxy(real, {
+      get: (t, k) => {
+        if (k === 'listGfxFiles')
+          return (...a) => {
+            if (!failed) {
+              failed = true
+              return Promise.reject(new Error('listGfxFiles failed once'))
+            }
+            return t.listGfxFiles(...a)
+          }
+        const v = t[k]
+        return typeof v === 'function' ? v.bind(t) : v
+      },
+    })
     const opened = w.open({ manifestPath: mp, index: 0, label: 'GFX 0' })
     w.handleBppChange({ target: { value: String(other) } }) // before any sheet
     await opened
@@ -516,4 +538,28 @@ test("a depth chosen before the first sheet arrives still lets the file's own de
   }, manifestPath)
   expect(out.bpp).toBe(out.own)
   expect(out.canPaint).toBe(true)
+})
+
+test('Save works when a reload failed and left strokes pending with no sheet', async ({ page }) => {
+  const { manifestPath, directory } = await createProject(page, 'NoSheetSave')
+  await openSheet(page, manifestPath)
+  const { index } = await pickColor(page, [P1])
+  await stroke(page, P1)
+  await page.evaluate(async () => {
+    const w = getSvc('WidgetManager').getWidgets('hackbench.gfx-view')[0]
+    const real = w.gfx
+    w.gfx = new Proxy(real, {
+      get: (t, k) => {
+        if (k === 'gfxSheet') return () => Promise.reject(new Error('no sheet'))
+        const v = t[k]
+        return typeof v === 'function' ? v.bind(t) : v
+      },
+    })
+    await w.reload()
+  })
+  expect((await widgetState(page)).dirty).toBe(true)
+  await page.click('#hb-gfx-save')
+  await expect(page.locator('#hb-gfx-save-message')).toHaveAttribute('data-status', 'ok')
+  expect(opFiles(directory)).toHaveLength(1)
+  expect(indexOnDisk(directory, P1, 0)).toBe(index)
 })

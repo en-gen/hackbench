@@ -70,7 +70,7 @@ export class EditStackContribution implements CommandContribution {
     // A GFX view with unsaved strokes answers first (GfxExplorerContribution):
     // the strokes are the newer edit, and the project's layers sit below them.
     if (isStrokeHistory(active)) {
-      if (active.busy()) return false // a Save is in flight: its layer is not on the stack yet
+      if (active.busy()) return false // a Save is in flight: this view's own Ctrl+Z must not reach the project stack, which the backend may already have the new layer on
       if (direction === 'undo' ? active.canUndoStroke() : active.canRedoStroke()) return false
     }
     return handlesEditStack(active?.id, !!this.context.current)

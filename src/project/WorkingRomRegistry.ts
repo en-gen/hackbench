@@ -351,7 +351,7 @@ export class WorkingRomRegistry {
     if (bad >= 0) {
       return {
         status: 'refused',
-        reason: `Character ${bad} is malformed: it needs whole-number file and tile and at least one whole-number pixel.`,
+        reason: `Character ${bad} is malformed: it needs a whole-number file and tile, and one or more pixels with whole-number x, y and value.`,
       }
     }
     const n = chars.length
@@ -359,7 +359,12 @@ export class WorkingRomRegistry {
       id: `gfx-${Date.now().toString(36)}-${Math.floor(Math.random() * 0xffff).toString(36)}`,
       label: `paint ${n} ${n === 1 ? 'character' : 'characters'}`,
       kind: 'gfx',
-      chars: chars.map(c => ({ file: c.file, tile: c.tile, pixels: c.pixels })),
+      // Copied: the stack must not alias objects the caller may reuse.
+      chars: chars.map(c => ({
+        file: c.file,
+        tile: c.tile,
+        pixels: c.pixels.map(p => ({ x: p.x, y: p.y, value: p.value })),
+      })),
     }
     try {
       working.append(layer)
