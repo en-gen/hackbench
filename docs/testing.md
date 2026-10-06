@@ -126,11 +126,17 @@ documentation (<https://6502.org/tutorials/65c816opcodes.html>) confirmed by
 Snes9x or bsnes, not the vectors. (PEI is the one place Snes9x differs: it
 wraps the pointer at DL=0, while Clark and the vectors, which the core follows,
 do not.) `DISPUTED` in
-that file names the 44 vectors the core deliberately fails (`e1.e` #8668,
-upstream issue 3; 43 `fc.e` page-cross vectors, issues 6 and 7), and a test
-asserts each still mismatches in the disputed field. The synthetic `Cpu65816.test.ts` and
-`Cpu65816Edges.test.ts` run in CI; they hold the planted-defect proofs for the
-harness and the edge cases the random vectors rarely reach.
+that file lists the 44 vectors where the core deliberately differs from the
+data (`e1.e` #8668, upstream issue 3; 43 `fc.e` page-cross vectors, issues 6
+and 7). The main run executes them rather than skipping them. A disputed vector
+is excused only when its whole diff is of the disputed kind: for `e1.e`, A (P
+may also differ); for `fc.e`, write order (the $FF and $1FF stack bytes may
+also differ). Any other difference counts as a failure. A corpus-gated test
+asserts that exactly 1 and 43 such vectors exist per file and that each one
+still differs from the core in that way, so an exception that stops being
+needed goes red. The synthetic `Cpu65816.test.ts` and `Cpu65816Edges.test.ts`
+run in CI; they hold the planted-defect proofs for the harness and the edge
+cases the random vectors rarely reach.
 
 ## Getting a ROM (locally)
 
