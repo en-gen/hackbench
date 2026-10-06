@@ -120,7 +120,7 @@ the resolver on made-up tables, and the vanilla results above are asserted only
 in the corpus-gated tests of `test/suite/unit/BlockContents.test.ts`.
 
 A ROM that ends before a required table is refused: `readBlockContentTables` returns
-`{ unavailable: reason }` and the resolver passes it through, instead of reading
+`{ kind: 'unavailable', unavailable: reason }` and the resolver passes it through, instead of reading
 zeros as "Nothing".
 
 The table reads are not yet gated on the instructions that read them, so a hack that

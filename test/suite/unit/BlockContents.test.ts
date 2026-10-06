@@ -181,6 +181,8 @@ describe('resolveBlockContents', () => {
   it('green star threshold comes from the table; a missing one is worded without a number', () => {
     const twelve = resolveBlockContents(0x11d, 0, { ...TABLES, greenStarCoins: 12 })!
     expect(twelve.condition).toContain('fewer than 12 coins')
+    expect(twelve.caveat).toBeUndefined()
+    expect(resolve(0x11d).caveat).toBeUndefined()
     const none = resolveBlockContents(0x11d, 0, { ...TABLES, greenStarCoins: null })!
     expect(none.condition).toContain("this block's coin countdown")
     expect(none.caveat).toBe('the green star counter was not read')
@@ -319,7 +321,8 @@ describe('resolveBlockContents', () => {
     const refused = (tile: number, col: number, t: Partial<BlockContentTables>) => {
       const r = resolveBlockContents(tile, col, { ...TABLES, ...t } as BlockContentTables)
       expect(isUnavailable(r)).toBe(true)
-      return r as { kind: string; unavailable: string }
+      if (!isUnavailable(r)) throw new Error('expected a refusal')
+      return r
     }
 
     it('selector, cycle and sprite tables', () => {
@@ -348,9 +351,32 @@ describe('resolveBlockContents', () => {
       expect(refused(0x119, 0, { eggContents: new Uint8Array(1) }).unavailable).toMatch(
         /DATA_0288A1/,
       )
+      // Reads are lazy: a table a tile never touches, or an index it never reaches, may be short.
+      const lazy = (tile: number, col: number, t: Partial<BlockContentTables>): void => {
+        const r = resolveBlockContents(tile, col, { ...TABLES, ...t } as BlockContentTables)
+        expect(isUnavailable(r)).toBe(false)
+        expect(r).not.toBeNull()
+      }
+      lazy(0x117, 0, { pSwitchAttribute: Uint8Array.from([0x04]) }) // reads [0] only
+      lazy(0x112, 0, { pSwitchAttribute: new Uint8Array(0) })
+      lazy(0x112, 0, { columnOverride: new Uint8Array(0), columnOverrideStatus: new Uint8Array(0) })
+      lazy(0x118, 0, {
+        columnOverride: Uint8Array.from([0x61]),
+        columnOverrideStatus: Uint8Array.from([0x0a]),
+      }) // column 0 reads index 0 of each
       // A tile that never touches the egg table does not care that it is short.
       const ok = resolveBlockContents(0x112, 0, { ...TABLES, eggContents: new Uint8Array(0) })
       expect(isUnavailable(ok)).toBe(false)
+    })
+
+    it('a half of DATA_00F100 cut short refuses even in a column inside the table', () => {
+      const eight = new Uint8Array(CYCLE.slice(0, 8))
+      expect(refused(0x111, 3, { columnCycle: eight }).unavailable).toMatch(/DATA_00F100/)
+      const short = new Uint8Array(CYCLE.slice(0, 24)) // first half whole, second cut
+      expect(refused(0x11e, 0, { columnCycle: short }).unavailable).toMatch(/DATA_00F100/)
+      expect(isUnavailable(resolveBlockContents(0x111, 3, { ...TABLES, columnCycle: short }))).toBe(
+        false,
+      )
     })
 
     it('isUnavailable accepts resolver results, including null', () => {

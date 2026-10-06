@@ -335,16 +335,6 @@ function altsFor(
 export function resolveBlockContents(
   actsLike: number,
   col: number,
-  t: BlockContentTables,
-): BlockContents | null
-export function resolveBlockContents(
-  actsLike: number,
-  col: number,
-  t: BlockContentTables | TablesUnavailable,
-): BlockContents | TablesUnavailable | null
-export function resolveBlockContents(
-  actsLike: number,
-  col: number,
   t: BlockContentTables | TablesUnavailable,
 ): BlockContents | TablesUnavailable | null {
   if (isUnavailable(t)) return t
