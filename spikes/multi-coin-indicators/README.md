@@ -3,7 +3,7 @@
 Issue #615. Builds on the D4 pick of [block-content-indicators](../block-content-indicators/README.md)
 (#566, single coin = content index 6) and the DH pick of
 [progressive-powerup-indicators](../progressive-powerup-indicators/README.md) (#607).
-Status: mockup for the owner to pick from; spike code, not product code.
+Status: done. The owner picked C4a; the mockup stays local (it embeds ROM graphics). Spike code, not product code.
 
 ## Result
 

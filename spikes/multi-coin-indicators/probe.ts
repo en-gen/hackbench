@@ -18,7 +18,7 @@ if (!r.ok) throw new Error(r.reason)
 const L = r.inputs
 const pal = { colors: L.colors }
 const tile = (id: number) => renderMap16Tile(L.map16.tiles[id]!, L.vram, pal)
-const { bytes, sprite16 } = await spriteTools(L, pal, romPath(VANILLA))
+const { sprite16 } = await spriteTools(L, pal, romPath(VANILLA))
 const rd = (addr: number, n: number) => Array.from({ length: n }, (_, i) => rom.rom.readByte(addr + i) ?? 0)
 
 // ---- the ROM rule, read from the tables (derivation in README)
@@ -26,14 +26,23 @@ const rd = (addr: number, n: number) => Array.from({ length: n }, (_, i) => rom.
 // (bank_02.asm:1062-1067 starts MulticoinTimer; there is no count, the timer decides). Index = low byte - $11
 // for page-1 ids $111-$12D (CODE_00F160, bank_00.asm:12827-12846).
 const F080 = rd(0x00f080, 36), F100 = rd(0x00f100, 32), F05C = rd(0x00f05c, 36), F0C8 = rd(0x00f0c8, 36)
-const idOf = (i: number) => 0x111 + i
-const multi: number[] = [], single: number[] = []
-for (let i = 0; i < 0x1d; i++) {
-  const b = F080[i]!
-  if (b & 0x80) continue // $80/$81 take the content from DATA_00F100 by column
-  if (b >> 1 === 7) multi.push(idOf(i))
-  if (b >> 1 === 6) single.push(idOf(i))
+/** Page-1 ids whose DATA_00F080 byte has content `content` (byte >> 1); $80/$81 bytes take their content from DATA_00F100 by column and are skipped. */
+function idsWithContent(f080: number[], content: number): number[] {
+  const ids: number[] = []
+  for (let i = 0; i < 0x1d; i++) if (!(f080[i]! & 0x80) && f080[i]! >> 1 === content) ids.push(0x111 + i)
+  return ids
 }
+// The classifier must be able to fail: synthetic tables (no ROM) with one content byte planted wrong must change the ids.
+{
+  const t = Array.from({ length: 36 }, () => 0); t[10] = 0x0e; t[11] = 0x0c
+  const ok = idsWithContent(t, 7).join() === '283' && idsWithContent(t, 6).join() === '284'
+  const bad = [...t]; bad[10] = 0x0c // multi-coin byte misread as single
+  const caught = idsWithContent(bad, 7).join() !== '283' && idsWithContent(bad, 6).join() !== '284'
+  const flag = [...t]; flag[10] = 0x8e // a column-dependent byte must not count
+  if (!ok || !caught || idsWithContent(flag, 7).length) throw new Error('F080 classifier self-test failed')
+  console.log('F080 classifier self-test (synthetic table, planted misread byte): rejected')
+}
+const multi = idsWithContent(F080, 7), single = idsWithContent(F080, 6)
 // the column-dependent bytes add no coin blocks if DATA_00F100 holds no content 6 or 7
 if (F100.some((v) => v >> 1 === 6 || v >> 1 === 7)) throw new Error('DATA_00F100 holds a coin content: the $80/$81 rule needs a second look')
 console.log('single-coin ids (content 6):', single.map((i) => '$' + i.toString(16)).join(' '))
@@ -44,11 +53,11 @@ for (const id of [...multi, ...single]) {
 }
 if (multi.join() !== '283,291' || single.join() !== '284,292') throw new Error('expected multi $11b,$123 and single $11c,$124 (vanilla table)')
 // While the timer runs a multi-coin block regenerates as itself: F0C8 gives generate tiles $0A/$0B and
-// TileToGeneratePg1 (bank_00.asm:7425, located by its bytes) maps index (tile - 9) to $1B/$23 on page 1.
-const tg = bytes.indexOf(Buffer.from('521B231E32131516', 'hex'))
-if (tg < 0 || bytes.indexOf(Buffer.from('521B231E32131516', 'hex'), tg + 1) >= 0) throw new Error('TileToGeneratePg1 not found uniquely')
+// TileToGeneratePg1 (bank_00.asm:7425) maps index (tile - 9) to $1B/$23 on page 1. Read by address, no bytes
+// in source: the label sits 15 bytes before CODE_00C0C1 (bank_00.asm:7429), so $00C0B2.
+const TG1 = 0x00c0b2
 for (const id of multi) {
-  const gen = F0C8[id - 0x111]!, back = 0x100 + bytes[tg + gen - 9]!
+  const gen = F0C8[id - 0x111]!, back = 0x100 + rd(TG1 + gen - 9, 1)[0]!
   console.log(`  $${id.toString(16)} regenerates as generate-tile $${gen.toString(16)} -> $${back.toString(16)}`)
   if (back !== id) throw new Error('multi-coin block does not regenerate as itself')
 }
@@ -131,7 +140,7 @@ const CANDS: Record<string, { name: string; make: () => Canvas }> = {
 }
 
 // ---- number checks: the only check a no-eyes pipeline has (see README)
-function check(name: string, c: Canvas, plusWhite: number) {
+function check(name: string, c: Canvas, plusWhite: number, plusEdge = 0) {
   let opaque = 0, x0 = 16, y0 = 16, x1 = -1, y1 = -1; const cols = new Set<number>(); const own = [0, 0, 0, 0]
   let px0 = 16, py0 = 16, px1 = -1, py1 = -1
   for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
@@ -144,8 +153,8 @@ function check(name: string, c: Canvas, plusWhite: number) {
   const inside = opaque > 0 && x0 >= 0 && y0 >= 0 && x1 <= 15 && y1 <= 15
   // the "+" must be fully visible (white cross not hidden by the coin) and sit in the bottom-right corner of the box
   const corner = plusWhite === 0 || (px1 === 15 && py1 === 15 && px0 >= 8 && py0 >= 8)
-  const ok = opaque > 0 && cols.size > 1 && inside && own[1]! >= 100 && corner && (plusWhite === 0 || own[3]! === plusWhite)
-  console.log(`${ok ? 'OK ' : 'BAD'} ${name}: 16x16 opaque=${opaque} colors=${cols.size} bbox=(${x0},${y0})-(${x1},${y1}) coin=${own[1]} edge=${own[2]} white-plus=${own[3]} (want ${plusWhite}) plus-bbox=(${px0},${py0})-(${px1},${py1}) inside-quadrant=${inside}`)
+  const ok = opaque > 0 && cols.size > 1 && inside && own[1]! >= 100 && corner && (plusWhite === 0 || (own[3]! === plusWhite && own[2]! === plusEdge))
+  console.log(`${ok ? 'OK ' : 'BAD'} ${name}: 16x16 opaque=${opaque} colors=${cols.size} bbox=(${x0},${y0})-(${x1},${y1}) coin=${own[1]} edge=${own[2]} white-plus=${own[3]} (want ${plusWhite}) edge (want ${plusEdge}) plus-bbox=(${px0},${py0})-(${px1},${py1}) inside-quadrant=${inside}`)
   if (!ok) throw new Error('bad candidate ' + name)
   return opaque
 }
@@ -153,17 +162,18 @@ function check(name: string, c: Canvas, plusWhite: number) {
 {
   const hidden = c4a(); for (let i = 0; i < 256; i++) if (hidden.owner[i]! >= 2) { hidden.rgba[i * 4 + 3] = 0; hidden.owner[i] = 0 }
   const half = c4a(); let n = 0; for (let i = 0; i < 256; i++) if (half.owner[i] === 3 && n++ < 3) { half.rgba[i * 4 + 3] = 0; half.owner[i] = 0 }
-  for (const [n, c] of [['blank', blank()], ['plus-hidden', hidden], ['plus-partly-hidden', half]] as const) {
-    let threw = false; try { check('planted ' + n, c, 9) } catch { threw = true }
+  const edge1 = c4a(); for (let i = 0; i < 256; i++) if (edge1.owner[i] === 2) { edge1.rgba[i * 4 + 3] = 0; edge1.owner[i] = 0; break } // one black-edge pixel
+  for (const [n, c] of [['blank', blank()], ['plus-hidden', hidden], ['plus-partly-hidden', half], ['one-edge-pixel-hidden', edge1]] as const) {
+    let threw = false; try { check('planted ' + n, c, 9, 16) } catch { threw = true }
     if (!threw) throw new Error('check did not fail on planted defect: ' + n)
   }
-  console.log('planted defects (blank canvas, "+" hidden, "+" partly hidden): all rejected')
+  console.log('planted defects (blank canvas, "+" hidden, "+" partly hidden, one edge pixel hidden): all rejected')
 }
 stats('coin', coin16, 'coin sprite (bank_02.asm:3432) tile $E8, attr $04, as in block-content-indicators/probe.ts')
 const img: Record<string, string> = { coin: png(16, 16, coin16) }
 const counts: Record<string, number> = {}, gfx: Record<string, Uint8ClampedArray> = {}
 for (const [k, c] of Object.entries(CANDS)) {
-  const cv = c.make(); counts[k] = check(k, cv, k === 'C4a' ? 9 : 0); gfx[k] = cv.rgba; img[k] = png(16, 16, cv.rgba)
+  const cv = c.make(); counts[k] = check(k, cv, k === 'C4a' ? 9 : 0, 16); gfx[k] = cv.rgba; img[k] = png(16, 16, cv.rgba)
 }
 // C4b's "+" is its own 7x7 graphic: 9 white + 16 edge pixels, nothing else, and it must fit the 8x8 rest quadrant at 1x
 {
