@@ -8,7 +8,7 @@ emulator unless stated.
 ## Mechanism
 
 1. A head bump on a page-1 tile reaches `CODE_00F17F` (`bank_00.asm:12846`)
-   with index = acts-like low byte - $11, valid 0-$1C (`bank_00.asm:12789-12793`).
+   with index = acts-like low byte - $11, valid 0-$1C (`bank_00.asm:12827-12831`).
 2. The selector byte `DATA_00F080[index]` (`bank_00.asm:12751`) is decoded at
    `CODE_00F1BA` (`bank_00.asm:12877-12891`):
    - bit 7 set, `$FF`: green star block (`bank_00.asm:12861-12866`).
@@ -32,26 +32,26 @@ emulator unless stated.
 "col" is the map X column (block X / 16), taken mod 16 where the ROM uses pixel
 bits 7-4.
 
-| Tile                                    | Selector | Contents                                                            | Varies by                    | Sprite                         |
-| --------------------------------------- | -------- | ------------------------------------------------------------------- | ---------------------------- | ------------------------------ |
-| $111                                    | $80      | col%3 = 0 Fire Flower, 1 Feather (both progressive), 2 Star         | X column, Powerup            | $74 small, else $75 / $77; $76 |
-| $112 $113 $115 $116 $11E $129 $12B $12C | $00      | none                                                                | -                            | -                              |
-| $114                                    | $1E      | Directional coins                                                   | -                            | $45                            |
-| $117                                    | $05      | progressive Fire Flower (a flower block, not a turn block)          | Powerup                      | $74 / $75                      |
-| $118                                    | $09      | progressive Feather                                                 | Powerup                      | $74 / $77                      |
-| $119                                    | $06      | Star                                                                | -                            | $76                            |
-| $11A                                    | $81      | col%3 = 0 star-or-coin, 1 1-up, 2 Vine                              | X column, InvinsibilityTimer | $76 or coin; $78; $79          |
-| $11B $123                               | $0E      | multi-coin                                                          | MulticoinTimer               | coin art                       |
-| $11C $124                               | $0C      | coin                                                                | -                            | coin art                       |
-| $11D                                    | $14      | P-switch                                                            | colour by column parity      | $3E                            |
-| $11F                                    | $05      | progressive Fire Flower                                             | Powerup                      | $74 / $75                      |
-| $120 $12A                               | $09      | progressive Feather                                                 | Powerup                      | $74 / $77                      |
-| $121                                    | $06      | Star                                                                | -                            | $76                            |
-| $122                                    | $07      | star-or-coin                                                        | InvinsibilityTimer           | $76 or coin                    |
-| $125                                    | $16      | col%4 = 0 Key, 1 Flying red coin, 2 Balloon, 3 Green bouncing Koopa | X column mod 4               | $80 / $7E / $7D / $09          |
-| $126                                    | $18      | Yoshi egg                                                           | egg holds Yoshi or a 1-up    | $2C                            |
-| $127 $128                               | $1A      | Green Koopa shell (status 9)                                        | -                            | $04                            |
-| $12D                                    | $FF      | coin until 30 coins are collected, then 1-up                        | GreenStarBlockCoins          | coin art or $78                |
+| Tile                                    | Selector | Contents                                                            | Varies by                                                                  | Sprite                         |
+| --------------------------------------- | -------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------ |
+| $111                                    | $80      | col%3 = 0 Fire Flower, 1 Feather (both progressive), 2 Star         | X column, Powerup                                                          | $74 small, else $75 / $77; $76 |
+| $112 $113 $115 $116 $11E $129 $12B $12C | $00      | none                                                                | -                                                                          | -                              |
+| $114                                    | $1E      | Directional coins                                                   | -                                                                          | $45                            |
+| $117                                    | $05      | progressive Fire Flower (a flower block, not a turn block)          | Powerup                                                                    | $74 / $75                      |
+| $118                                    | $09      | progressive Feather                                                 | Powerup                                                                    | $74 / $77                      |
+| $119                                    | $06      | Star                                                                | -                                                                          | $76                            |
+| $11A                                    | $81      | col%3 = 0 star-or-coin, 1 1-up, 2 Vine                              | X column, InvinsibilityTimer                                               | $76 or coin; $78; $79          |
+| $11B $123                               | $0E      | multi-coin                                                          | MulticoinTimer                                                             | coin art                       |
+| $11C $124                               | $0C      | coin                                                                | -                                                                          | coin art                       |
+| $11D                                    | $14      | P-switch                                                            | colour by column parity (even blue, odd silver; layer 2 depends on scroll) | $3E                            |
+| $11F                                    | $05      | progressive Fire Flower                                             | Powerup                                                                    | $74 / $75                      |
+| $120 $12A                               | $09      | progressive Feather                                                 | Powerup                                                                    | $74 / $77                      |
+| $121                                    | $06      | Star                                                                | -                                                                          | $76                            |
+| $122                                    | $07      | star-or-coin                                                        | InvinsibilityTimer                                                         | $76 or coin                    |
+| $125                                    | $16      | col%4 = 0 Key, 1 Flying red coin, 2 Balloon, 3 Green bouncing Koopa | X column mod 4                                                             | $80 / $7E / $7D / $09          |
+| $126                                    | $18      | Yoshi egg                                                           | egg holds Yoshi or a 1-up                                                  | $2C                            |
+| $127 $128                               | $1A      | Green Koopa shell (status 9)                                        | -                                                                          | $04                            |
+| $12D                                    | $FF      | coin until 30 coins are collected, then 1-up                        | GreenStarBlockCoins                                                        | coin art or $78                |
 
 Citations per row: selector values `bank_00.asm:12751-12756`; `DATA_00F100`
 values `bank_00.asm:12778-12781` ($111 half cycles $05, $09, $06; $11A half
@@ -60,7 +60,7 @@ cycles $07, $0A, $10, period 3, restarting each 16 columns); P-switch colour
 `bank_02.asm:1232-1251` with `DATA_0288A1` (`bank_02.asm:1074`: Yoshi $35, or
 1-up $78 when a baby Yoshi sprite $2D exists or `YoshiIsLoose`); shell
 `ADDR_028A08` (`bank_02.asm:1260`); green star block counter starts at 30
-(`constants.asm:97`, set at `bank_00.asm:1980`) and counts down on coin pickups
+(`constants.asm:97`, set at `bank_00.asm:1979-1981`; the resolver reads the immediate from the ROM) and counts down on coin pickups
 (`bank_05.asm:3552-3567`).
 
 ### $125
@@ -98,3 +98,15 @@ the item depends on scroll position; the resolver gives the layer-1 answer.
 the table engine, `progressive: {small, big}`, `multiCoin`, a `condition` line
 for the Properties "Contains" row, and an optional `caveat`. Tables come from
 `readBlockContentTables(rom)`; tests pass synthetic bytes.
+
+## Hack tables
+
+The resolver reads every table from the ROM and keys the special cases on the
+spawned sprite, as the ROM does (balloon rewrite `bank_02.asm:1199`, P-switch
+`bank_02.asm:1228`, Yoshi egg `bank_02.asm:1230`). A zero SpriteInBlock or
+DATA_0288D6 entry gives "Nothing". Content ids of $11 and up read the bytes that
+follow the table (`bank_02.asm:1077-1089`). When the second SpriteInBlock copy
+(read while Yoshi is loose, `bank_02.asm:1143-1149`) differs from the first, the
+resolver adds a "Yoshi is loose" alternative; vanilla's copies are identical.
+The "X column n of p" text uses the period found in DATA_00F100 and is dropped
+when the table has none.

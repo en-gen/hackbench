@@ -28,10 +28,12 @@ const SELECTOR = [
 const CYCLE = Array.from({ length: 32 }, (_, i) =>
   i < 16 ? [0x05, 0x09, 0x06][i % 3] : [0x07, 0x0a, 0x10][(i - 16) % 3],
 )
-const SPRITES = [
+const SPRITE_COPY = [
   0x00, 0x74, 0x75, 0x76, 0x77, 0x78, 0x00, 0x00, 0x79, 0x00, 0x3e, 0x7d, 0x2c, 0x04, 0x81, 0x45,
   0x80,
 ]
+// The ROM keeps two identical copies back to back; the second is read when Yoshi is loose.
+const SPRITES = [...SPRITE_COPY, ...SPRITE_COPY]
 const STATUS = [0, 8, 8, 8, 8, 8, 0, 0, 8, 0, 9, 8, 9, 9, 8, 8, 9]
 
 const TABLES: BlockContentTables = {
@@ -41,6 +43,9 @@ const TABLES: BlockContentTables = {
   statusOfSprInBlk: Uint8Array.from(STATUS),
   columnOverride: Uint8Array.from([0x80, 0x7e, 0x7d, 0x09]),
   columnOverrideStatus: Uint8Array.from([0x09, 0x08, 0x08, 0xa4]),
+  pSwitchAttribute: Uint8Array.from([0x06, 0x02]),
+  eggContents: Uint8Array.from([0x35, 0x78]),
+  greenStarCoins: 30,
 }
 
 const resolve = (tile: number, col = 0) => resolveBlockContents(tile, col, TABLES)!
@@ -57,7 +62,6 @@ const FIXED: Record<number, string> = {
   0x119: 'Star',
   0x11b: 'Multiple coins',
   0x11c: 'Coin',
-  0x11d: 'P-switch',
   0x11e: 'Nothing',
   0x11f: 'Mushroom if Mario is small, otherwise Fire Flower',
   0x120: 'Mushroom if Mario is small, otherwise Feather',
@@ -65,7 +69,7 @@ const FIXED: Record<number, string> = {
   0x122: 'Star if Mario is invincible, otherwise Coin',
   0x123: 'Multiple coins',
   0x124: 'Coin',
-  0x126: 'Yoshi egg',
+  0x126: 'Yoshi egg (Yoshi, or 1-up if a baby Yoshi exists or Yoshi is loose)',
   0x127: 'Green Koopa shell',
   0x128: 'Green Koopa shell',
   0x129: 'Nothing',
@@ -77,7 +81,7 @@ const FIXED: Record<number, string> = {
 
 describe('resolveBlockContents', () => {
   it('covers every tile $111-$12D and refuses the rest', () => {
-    const covered = new Set<number>([0x111, 0x11a, 0x125, ...Object.keys(FIXED).map(Number)])
+    const covered = new Set<number>([0x111, 0x11a, 0x11d, 0x125, ...Object.keys(FIXED).map(Number)])
     for (let t = FIRST_ITEM_BLOCK; t <= LAST_ITEM_BLOCK; t++) expect(covered.has(t)).toBe(true)
     expect(covered.size).toBe(LAST_ITEM_BLOCK - FIRST_ITEM_BLOCK + 1)
     expect(resolveBlockContents(0x110, 0, TABLES)).toBeNull()
@@ -164,6 +168,129 @@ describe('resolveBlockContents', () => {
     expect(r.multiCoin).toBe(true)
   })
 
+  it('$11D P-switch is blue on even columns and silver on odd, with the layer 2 caveat', () => {
+    for (let col = 0; col < 16; col++) {
+      const r = resolve(0x11d, col)
+      expect(r.condition).toBe(col % 2 === 0 ? 'P-switch (blue)' : 'P-switch (silver)')
+      expect(r.alternatives[0].content).toMatchObject({ attribute: col % 2 === 0 ? 0x06 : 0x02 })
+      expect(r.caveat).toBe('on layer 2 the item depends on scroll position')
+    }
+  })
+
+  it('green star threshold comes from the table; a missing one is worded without a number', () => {
+    expect(resolve(0x12d).condition).toContain('fewer than 30 coins')
+    const twelve = resolveBlockContents(0x12d, 0, { ...TABLES, greenStarCoins: 12 })!
+    expect(twelve.condition).toContain('fewer than 12 coins')
+    const none = resolveBlockContents(0x12d, 0, { ...TABLES, greenStarCoins: null })!
+    expect(none.condition).toContain('counter is above zero')
+  })
+
+  it('a hack table with a zero sprite degrades to Nothing, never throws', () => {
+    const sprites = Uint8Array.from(SPRITES)
+    sprites[1] = sprites[18] = 0 // mushroom slot: a progressive block keeps only its item
+    const noMushroom = { ...TABLES, spriteInBlock: sprites }
+    expect(resolveBlockContents(0x117, 0, noMushroom)!.condition).toBe('Fire Flower')
+    sprites[3] = sprites[20] = 0 // star slot
+    expect(resolveBlockContents(0x119, 0, noMushroom)!.condition).toBe('Nothing')
+    const zero = { ...TABLES, columnOverride: Uint8Array.from([0, 0, 0, 0]) }
+    for (let col = 0; col < 4; col++)
+      expect(resolveBlockContents(0x125, col, zero)!.condition.startsWith('Nothing')).toBe(true)
+    const empty = { ...TABLES, columnCycle: new Uint8Array(0) }
+    expect(resolveBlockContents(0x111, 0, empty)!.condition).toBe('Nothing')
+  })
+
+  it('a content id of $11 or more reads the contiguous bytes, as the ROM does', () => {
+    const sel = Uint8Array.from(SELECTOR)
+    sel[0x113 - FIRST_ITEM_BLOCK] = 0x13 << 1 // content $13 = second-copy index 2 = Fire Flower
+    sel[0x112 - FIRST_ITEM_BLOCK] = 0x3f << 1 // far past both copies
+    const t = { ...TABLES, selector: sel }
+    expect(resolveBlockContents(0x113, 0, t)!.spriteIds).toEqual([0x75])
+    expect(resolveBlockContents(0x112, 0, t)!.condition).toBe('Nothing')
+  })
+
+  it('a differing second SpriteInBlock copy adds a Yoshi is loose alternative; identical adds none', () => {
+    expect(resolve(0x119).alternatives).toHaveLength(1)
+    const sprites = Uint8Array.from(SPRITES)
+    sprites[17 + 3] = 0x77 // loose: star slot gives a feather
+    const r = resolveBlockContents(0x119, 0, { ...TABLES, spriteInBlock: sprites })!
+    expect(r.condition).toBe('Feather if Yoshi is loose, otherwise Star')
+    expect(r.spriteIds).toEqual([0x77, 0x76])
+  })
+
+  it('the egg condition reads its contents from DATA_0288A1', () => {
+    const eggs = Uint8Array.from([0x75, 0x76])
+    const r = resolveBlockContents(0x126, 0, { ...TABLES, eggContents: eggs })!
+    expect(r.condition).toBe(
+      'Yoshi egg (Fire Flower, or Star if a baby Yoshi exists or Yoshi is loose)',
+    )
+  })
+
+  describe('plants in every table are followed (kills hardcoded tables)', () => {
+    it('DATA_00F100: a period-5 cycle changes items, the column text and the period', () => {
+      const cycle = Uint8Array.from(CYCLE)
+      for (let i = 0; i < 16; i++) cycle[i] = [0x05, 0x09, 0x06, 0x0a, 0x10][i % 5]
+      const t = { ...TABLES, columnCycle: cycle }
+      const want = [
+        'Mushroom if Mario is small, otherwise Fire Flower (X column 1 of 5)',
+        'Mushroom if Mario is small, otherwise Feather (X column 2 of 5)',
+        'Star (X column 3 of 5)',
+        '1-up (X column 4 of 5)',
+        'Vine (X column 5 of 5)',
+      ]
+      for (let col = 0; col < 16; col++)
+        expect(resolveBlockContents(0x111, col, t)!.condition).toBe(want[col % 5])
+    })
+
+    it('DATA_00F100: a half with no period drops the "n of p" text', () => {
+      const cycle = Uint8Array.from(CYCLE)
+      cycle.set([5, 9, 6, 10, 16, 5, 9, 9, 6, 10, 16, 5, 6, 9, 10, 16])
+      const r = resolveBlockContents(0x111, 7, { ...TABLES, columnCycle: cycle })!
+      expect(r.condition).toBe('Mushroom if Mario is small, otherwise Feather')
+    })
+
+    it('DATA_00F100: the second half is read for $11A, not the first', () => {
+      const cycle = Uint8Array.from(CYCLE)
+      cycle.fill(0x0a, 16)
+      const r = resolveBlockContents(0x11a, 5, { ...TABLES, columnCycle: cycle })!
+      expect(r.condition).toBe('1-up')
+    })
+
+    it('SpriteInBlock: a changed sprite id reaches every user of that slot', () => {
+      const sprites = Uint8Array.from(SPRITES)
+      sprites[0x0f] = 0x76 // directional-coin slot now spawns a star
+      sprites[0x0f + 17] = 0x76
+      const r = resolveBlockContents(0x114, 0, { ...TABLES, spriteInBlock: sprites })!
+      expect(r.spriteIds).toEqual([0x76])
+    })
+
+    it('StatusOfSprInBlk: a changed status is reported', () => {
+      const status = Uint8Array.from(STATUS)
+      status[0x0d] = 0x0b
+      const r = resolveBlockContents(0x127, 0, { ...TABLES, statusOfSprInBlk: status })!
+      expect(r.alternatives[0].content).toMatchObject({ sprite: 0x04, status: 0x0b })
+    })
+
+    it('DATA_0288D6 and DATA_0288D9: changed bytes change the $125 sprite and status per column', () => {
+      const t = {
+        ...TABLES,
+        columnOverride: Uint8Array.from([0x76, 0x77, 0x78, 0x79]),
+        columnOverrideStatus: Uint8Array.from([0x0a, 0x0b, 0x0c, 0x0d]),
+      }
+      for (let col = 0; col < 4; col++) {
+        const c = resolveBlockContents(0x125, col, t)!.alternatives[0].content
+        expect(c).toMatchObject({ sprite: 0x76 + col, status: 0x0a + col })
+      }
+      expect(resolveBlockContents(0x125, 3, t)!.caveat).toContain('$D has no handler')
+    })
+
+    it('the balloon rewrite follows the spawned sprite, not the tile', () => {
+      const sel = Uint8Array.from(SELECTOR)
+      sel[0x119 - FIRST_ITEM_BLOCK] = 0x16 // content $B (sprite $7D) on a different tile
+      const r = resolveBlockContents(0x119, 1, { ...TABLES, selector: sel })!
+      expect(r.spriteIds).toEqual([0x7e])
+    })
+  })
+
   it('cycleColumn only reports the three cycling tiles', () => {
     expect(cycleColumn(0x111, 17)).toEqual({ index: 1, of: 3 })
     expect(cycleColumn(0x125, 6)).toEqual({ index: 2, of: 4 })
@@ -176,8 +303,11 @@ describe.skipIf(!hasRom(VANILLA))('readBlockContentTables (corpus)', () => {
     const t = readBlockContentTables(freshRom())
     expect(Array.from(t.selector)).toEqual(SELECTOR)
     expect(Array.from(t.columnCycle)).toEqual(CYCLE)
-    expect(Array.from(t.spriteInBlock)).toEqual(SPRITES)
-    expect(Array.from(t.statusOfSprInBlk)).toEqual(STATUS)
+    expect(Array.from(t.spriteInBlock.subarray(0, SPRITES.length))).toEqual(SPRITES)
+    expect(Array.from(t.statusOfSprInBlk.subarray(0, STATUS.length))).toEqual(STATUS)
+    expect(Array.from(t.pSwitchAttribute)).toEqual([0x06, 0x02])
+    expect(Array.from(t.eggContents)).toEqual([0x35, 0x78])
+    expect(t.greenStarCoins).toBe(30)
     expect(Array.from(t.columnOverride)).toEqual(Array.from(TABLES.columnOverride))
     expect(Array.from(t.columnOverrideStatus)).toEqual(Array.from(TABLES.columnOverrideStatus))
   })
