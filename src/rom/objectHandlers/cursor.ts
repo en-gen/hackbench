@@ -70,6 +70,9 @@ export interface SwitchFlags {
   red: boolean
 }
 
+/** The palaces in SwitchBlockFlags order ($1F27-$1F2A): one list for the interpreter and the collision probe. */
+export const SWITCH_BLOCK_ORDER = ['green', 'yellow', 'blue', 'red'] as const
+
 /**
  * Default switch state: all four uncleared, matching a fresh save and the
  * `layers_v5` Mesen captures (#567).

@@ -6,7 +6,11 @@
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { NEUTRAL } from '../../../src/rom/collision/TileProbe'
-import { mapCollision, mapCollisionCheck } from '../../../theia/extension/src/node/map-collision'
+import {
+  mapCollision,
+  mapCollisionCheck,
+  probeStateOf,
+} from '../../../theia/extension/src/node/map-collision'
 import { L1ModelCache } from '../../../theia/extension/src/node/map-screen'
 import { hGrid, inputs, vGrid } from '../support/mapInputs'
 import { hasRom, romPath, VANILLA } from '../support/corpus'
@@ -103,6 +107,43 @@ describe('mapCollision reply cache (synthetic layer)', () => {
     await mapCollision(cache, b, 'x.sfc', 0x15, yellow, () => false, fn) // same state again: cached
     expect(states).toEqual([yellow, OFF])
     expect(seen).toContainEqual(yellow.flags)
+  })
+
+  it('a request for another state of the same map supersedes the one still probing', async () => {
+    const [c, b] = [stub(false), synthetic()]
+    const yellow = { flags: { ...OFF.flags, yellow: true }, bluePs: false }
+    let release!: () => void
+    const gate = new Promise<void>(r => (release = r))
+    const slow = (async (
+      _r: unknown,
+      _l: number,
+      _t: number,
+      _g: unknown,
+      _p: unknown,
+      o: { cancelled?: () => boolean },
+    ) => {
+      await gate
+      return o.cancelled!()
+        ? { ok: false, reason: 'superseded' }
+        : { ok: true, lines, probed: 1, steps: 1 }
+    }) as unknown as ReturnType<typeof layer>['fn']
+    const first = mapCollision(c, b, 'x.sfc', 0x15, OFF, () => false, slow)
+    const second = mapCollision(c, b, 'x.sfc', 0x15, yellow, () => false, slow)
+    release()
+    expect(await first).toEqual({ status: 'stale' })
+    expect((await second).status).toBe('ok')
+    // The same state asked twice shares one probe and neither is told it is stale.
+    const [x, y] = [mapCollision(c, b, 'x.sfc', 0x16, OFF, () => false, slow), mapCollision(c, b, 'x.sfc', 0x16, OFF, () => false, slow)] // prettier-ignore
+    expect([(await x).status, (await y).status]).toEqual(['ok', 'ok'])
+  })
+
+  it('the probe state is the view flags and the BLUE P-switch (not silver)', () => {
+    const flags = { ...OFF.flags, red: true }
+    expect(probeStateOf(flags, { blue: true, silver: false, onOff: false })).toEqual({
+      flags,
+      bluePs: true,
+    })
+    expect(probeStateOf(flags, { blue: false, silver: true, onOff: true }).bluePs).toBe(false)
   })
 
   it('keeps eight maps per working copy: the ninth evicts the least recently used', async () => {

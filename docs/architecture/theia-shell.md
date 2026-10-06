@@ -203,18 +203,28 @@ map coordinates, so it follows `ZoomController` by scaling its box.
 (`#ffeb3b`) and walls (`#d500f9`) are separate `<g data-group>` elements;
 unknown cells are hatched. The overlay follows the view's four palace toggles and the blue P-switch
 (`mapCollision` takes the same flags as `mapScreen`: the grid is built with them, since $06A-$06D
-become $16A-$16D on 30+ levels, and the probe's WRAM gets $1F27-$1F2A and $14AD to match); the
-silver P-switch is not modelled, and Mario is small. The state is in every cache key. The toggles live in
-`MapViewStateStore` (`browser/map-view-state-store.ts`), a per-tab flux-style store on Theia's
-`Emitter`: the buttons only `dispatch` (`togglePalace`, `toggleSwitch`), the store replaces its state
-and fires `onDidChange({ state, changed })` once per real change, and three consumers subscribe and
-decide for themselves. The toolbar re-renders for `aria-pressed`; layer 1 refetches the screens in
-view; the collision overlay refetches if on (a reply for an older state is dropped), or, if off, marks
-its lines stale so the next press fetches (`collisionReaction`: palaces and the blue P-switch matter,
-silver and ON/OFF do not). Layers, grid and the collision toggle are still widget fields. The probe's calibration and level-of-air runs come from
-the first level probed on a tileset, then serve every later level of that tileset (checked identical on $105/$1C6; $105 and $111 differ, so tileset is
-in every cache key). Command `hackbench.maps.toggleCollision`, enabled
-while a map tab is focused (`grid-toggle-contribution.ts`).
+become $16A-$16D on 48 levels, and the probe's WRAM gets $1F27-$1F2A and $14AD to match). The silver
+P-switch also changes tiles ($12F becomes coin $2B under it) but is not modelled, so the overlay does
+not follow it; ON/OFF swaps chars, not tiles, so it does not matter here. Mario is small. The state is
+in every cache key.
+
+The toggles live in `MapViewStateStore` (`browser/map-view-state-store.ts`, over the Theia-free
+`map-view-state.ts`), a per-tab flux-style store on Theia's `Emitter`: the buttons only `dispatch`
+(`togglePalace`, `toggleSwitch`), the store replaces its state and fires `onDidChange({ state,
+changed })` once per real change, and three consumers decide for themselves. The toolbar re-renders for
+`aria-pressed`; layer 1 refetches the screens in view; the collision overlay follows `collisionPlan`:
+a palace or blue P-switch change drops its lines and any reply still on the way, asks again if the
+overlay is on, and, if the toggle was disabled by a probe's refusal for the old state, runs the cheap
+check again (a refusal is tied to its state key; only the cheap check's refusals are the map's). Lines
+are kept with the key they were probed for and drawn only for the current one. On the server a newer
+state asked for the same map stops the older probe at its next tile. Layers, grid and the collision
+toggle are still widget fields.
+
+The probe's calibration and level-of-air runs come from the first level probed on a tileset, then
+serve every later level of that tileset (checked identical on $105/$1C6; $105 and $111 differ, so
+tileset is in every cache key). Command `hackbench.maps.toggleCollision` is enabled only while a map
+tab is focused and its toggle is usable (`canToggleCollision`, the button's own test), in
+`grid-toggle-contribution.ts`.
 
 ## The emulator view
 

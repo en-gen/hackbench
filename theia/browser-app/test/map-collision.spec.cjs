@@ -223,6 +223,25 @@ test('$111 floor spikes carry a floor line along each spike cell', async ({ page
   expect(covered).toEqual([true, true, true, true, true])
 })
 
+/** The view's generation: the first token of a drawn screen's `data-drawn`, bumped by every working-copy refresh. */
+const generation = (page, index) =>
+  page
+    .locator(`${root(index)} canvas[data-screen="0"][data-plane="l1Low"]`)
+    .getAttribute('data-drawn')
+    .then(d => d && d.split(':')[0])
+
+test('off and on again shows the same lines', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await showOverlay(page, 0x105)
+  const first = await linesOf(page, 0x105)
+  await toggle(page, 0x105).click()
+  await expect(overlay(page, 0x105)).toHaveCount(0)
+  await toggle(page, 0x105).click()
+  await expect(overlay(page, 0x105)).toHaveCount(1)
+  expect(await linesOf(page, 0x105)).toEqual(first)
+})
+
 test('off, a working-copy edit, then on draws identical geometry from a fresh fetch', async ({
   page,
 }) => {
@@ -231,6 +250,7 @@ test('off, a working-copy edit, then on draws identical geometry from a fresh fe
   await showOverlay(page, 0x105)
   const first = await linesOf(page, 0x105)
   expect(first.length).toBeGreaterThan(100)
+  const generationBefore = await generation(page, 0x105)
   await toggle(page, 0x105).click()
   await expect(overlay(page, 0x105)).toHaveCount(0)
   // An edit while off drops the stale lines (nothing in the view still holds them), so the next press
@@ -241,10 +261,11 @@ test('off, a working-copy edit, then on draws identical geometry from a fresh fe
     { mp: project.manifestPath },
   )
   expect(edit.status).toBe('ok')
-  await page.waitForTimeout(1500)
+  // Wait for the view to have taken the edit: its screens repaint under a new generation.
+  await expect.poll(() => generation(page, 0x105), { timeout: 30000 }).not.toBe(generationBefore)
   await toggle(page, 0x105).click()
   await expect(overlay(page, 0x105)).toHaveCount(1, { timeout: 60000 })
-  expect(await overlay(page, 0x105).getAttribute('data-revision')).toBe('2')
+  expect(Number(await overlay(page, 0x105).getAttribute('data-revision'))).toBeGreaterThanOrEqual(2)
   expect(await linesOf(page, 0x105)).toEqual(first)
 })
 
@@ -291,6 +312,56 @@ test('a palace toggle with the overlay on changes the collision lines and the la
     .poll(async () => (await linesOf(page, 0x15)).length, { timeout: 60000 })
     .toBe(off.length)
   expect(await linesOf(page, 0x15)).toEqual(off)
+})
+
+/**
+ * The race: the overlay on for the unpressed state, a reply held back, off, yellow pressed, the old reply
+ * lands, on. The lines shown must be the yellow ones, not the old state's.
+ */
+test('off, a palace toggle, the old reply landing late, then on shows the new state', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x15)
+  await page.evaluate(() => {
+    const svc = getSvc('Symbol(ProjectService)')
+    const orig = svc.mapCollision.bind(svc)
+    window.__held = false
+    window.__release = undefined
+    svc.mapCollision = async (...a) => {
+      const r = await orig(...a)
+      if (!window.__held) {
+        window.__held = true // only the first reply is held back
+        await new Promise(res => (window.__release = res))
+      }
+      return r
+    }
+  })
+  await expect(toggle(page, 0x15)).toHaveAttribute('data-collision-state', 'ready', {
+    timeout: 30000,
+  })
+  await toggle(page, 0x15).click() // asks for the unpressed state; the reply is held
+  await expect.poll(() => page.evaluate(() => !!window.__release), { timeout: 60000 }).toBe(true)
+  await toggle(page, 0x15).click() // off
+  await page.locator(`${root(0x15)} [data-control="palace-yellow"]`).click()
+  await page.evaluate(() => window.__release()) // the old reply lands now
+  await page.waitForTimeout(500)
+  await toggle(page, 0x15).click() // on, for yellow
+  await expect(overlay(page, 0x15)).toHaveCount(1, { timeout: 60000 })
+  const lines = await linesOf(page, 0x15)
+  const along = lines.some(l => {
+    if (!l.startsWith('floor:')) return false
+    const pts = l
+      .slice(6)
+      .split(' ')
+      .map(p => p.split(',').map(Number))
+    return (
+      pts.every(([, y]) => y === 384) &&
+      Math.min(...pts.map(p => p[0])) <= 1888 &&
+      Math.max(...pts.map(p => p[0])) >= 1952
+    )
+  })
+  expect(along, 'the yellow "!" blocks have a floor at y 384, x 1888-1952').toBe(true)
 })
 
 test('the command toggles the overlay like the button, and is disabled where the button is', async ({

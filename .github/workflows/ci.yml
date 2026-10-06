@@ -244,3 +244,10 @@ jobs:
         run: npx vitest run test/suite/gates/playwrightAppDataGate.test.ts
         env:
           HB_REQUIRE_THEIA: '1'
+
+      # The Maps switch-state store imports Theia's Emitter, so the no-Theia `unit` job skips it;
+      # this job installs Theia, and HB_REQUIRE_THEIA turns a broken install into a failure.
+      - name: Maps switch-state store against Theia
+        run: npx vitest run test/suite/unit/MapViewStateStore.test.ts
+        env:
+          HB_REQUIRE_THEIA: '1'

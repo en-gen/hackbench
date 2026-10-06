@@ -21,7 +21,12 @@ import {
   SUPERSEDED,
 } from '../../../../src/rom/collision/MapCollision'
 import { stateKey, type ProbeState } from '../../../../src/rom/collision/TileProbe'
-import type { MapCollisionCheckResult, MapCollisionResult } from '../common/project-protocol'
+import type {
+  MapCollisionCheckResult,
+  MapCollisionResult,
+  SwitchFlagsDto,
+  SwitchStateDto,
+} from '../common/project-protocol'
 import { L1ModelCache } from './map-screen'
 
 type Reply = Exclude<MapCollisionResult, { status: 'rom-not-located' }>
@@ -32,9 +37,19 @@ const REPLIES_PER_BYTES = 8
 
 interface PerBytes {
   probes: ProbeCache
-  /** A map's reply, or the promise of it while it is being probed (a second request shares it). */
-  replies: Map<string, Reply | Promise<Reply>>
+  /** Finished ok replies, least recently used first. */
+  replies: Map<string, Reply>
+  /** Replies being probed (a second request for the same map and state shares one). */
+  inflight: Map<string, Promise<Reply>>
+  /** The newest state asked for per map: an older probe of that map stops when it is no longer this. */
+  latest: Map<number, string>
 }
+
+/** The state a probe runs in: the view's palaces and its BLUE P-switch (silver is not modelled). */
+export const probeStateOf = (flags: SwitchFlagsDto, switches: SwitchStateDto): ProbeState => ({
+  flags,
+  bluePs: switches.blue,
+})
 const byBytes = new WeakMap<Uint8Array, PerBytes>()
 
 const VERTICAL = 'Collision is not shown for vertical levels yet'
@@ -78,7 +93,10 @@ export async function mapCollision(
 ): Promise<Reply> {
   const key = `${index}:${stateKey(state)}`
   let entry = byBytes.get(bytes)
-  if (!entry) byBytes.set(bytes, (entry = { probes: new ProbeCache(), replies: new Map() }))
+  if (!entry) {
+    entry = { probes: new ProbeCache(), replies: new Map(), inflight: new Map(), latest: new Map() }
+    byBytes.set(bytes, entry)
+  }
   const kept = entry.replies.get(key)
   if (kept) {
     // LRU: a hit moves the map to the newest end.
@@ -86,16 +104,22 @@ export async function mapCollision(
     entry.replies.set(key, kept)
     return kept
   }
-  const pending = compute(cache, entry.probes, bytes, romPath, index, state, cancelled, layer)
-  if (entry.replies.size >= REPLIES_PER_BYTES) {
-    entry.replies.delete(entry.replies.keys().next().value!)
-  }
-  entry.replies.set(key, pending)
+  // The newest state asked for this map wins: an older probe of it stops at its next tile, and is not shared.
+  const old = entry.latest.get(index)
+  if (old !== undefined && old !== key) entry.inflight.delete(old)
+  entry.latest.set(index, key)
+  const shared = entry.inflight.get(key)
+  if (shared) return shared
+  const live = entry
+  const pending = compute(cache, live.probes, bytes, romPath, index, state, () => cancelled() || live.latest.get(index) !== key, layer) // prettier-ignore
+  live.inflight.set(key, pending)
   const r = await pending
+  if (live.inflight.get(key) === pending) live.inflight.delete(key)
   // Only a computed answer is kept; an unavailable one may be a hiccup worth retrying.
-  if (entry.replies.get(key) === pending) {
-    if (r.status === 'ok') entry.replies.set(key, r)
-    else entry.replies.delete(key)
+  if (r.status === 'ok') {
+    if (live.replies.size >= REPLIES_PER_BYTES)
+      live.replies.delete(live.replies.keys().next().value!)
+    live.replies.set(key, r)
   }
   return r
 }

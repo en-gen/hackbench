@@ -187,6 +187,24 @@ describe.skipIf(!hasRom(VANILLA))('collision probe on the vanilla ROM', () => {
     }, 120_000)
   })
 
+  it('the blue P-switch turns coin $2B solid: collisionLayer in that state has a floor the off state lacks', async () => {
+    const m = mapOf(0x10a) // holds coins; $2B acts as $32 while the switch runs (bank_00.asm:13423-13440)
+    const ts = m.header.objectTileset
+    const run = async (bluePs: boolean) => {
+      const r = await collisionLayer(freshRom(), 0x10a, ts, m.grid, new ProbeCache(), { state: { flags: { green: false, yellow: false, blue: false, red: false }, bluePs } }) // prettier-ignore
+      if (!r.ok) throw new Error(r.reason)
+      return r.lines
+    }
+    const [off, on] = [await run(false), await run(true)]
+    const covers = (lines: typeof off, x: number, y: number) =>
+      lines.some(l => l.kind === 'floor' && l.points.filter((_, i) => i % 2).every(v => v === y * 16) && Math.min(...l.points.filter((_, i) => !(i % 2))) <= x * 16 && Math.max(...l.points.filter((_, i) => !(i % 2))) >= x * 16 + 16) // prettier-ignore
+    const coins: [number, number][] = []
+    m.grid.forEach((row, y) => row.forEach((id, x) => id === 0x2b && coins.push([x, y])))
+    expect(coins.length).toBeGreaterThan(0)
+    const solid = coins.filter(([x, y]) => covers(on, x, y) && !covers(off, x, y))
+    expect(solid.length).toBeGreaterThan(0)
+  }, 120_000)
+
   it('a pressed yellow palace turns the ghost "!" blocks of $015 solid: the grid and the lines follow', async () => {
     const flags = (yellow: boolean) => ({ yellow, green: false, red: false, blue: false })
     const rom = SmwRom.open(romPath(VANILLA))

@@ -38,7 +38,8 @@ import { WheelBinding, ZoomController } from './zoom-controller'
 import { ZoomStepper } from './zoom-stepper'
 import { MapGridOverlay } from './grid-overlay'
 import { CollisionOverlay } from './collision-overlay'
-import { collisionReaction, MapViewStateStore } from './map-view-state-store'
+import { collisionKey, collisionPlan } from './map-view-state'
+import { MapViewStateStore } from './map-view-state-store'
 import { layer2Label } from './map-layer-labels'
 import { isUnverifiedMode } from '../../../../src/rom/model/UnverifiedModes'
 import { composeScreen, type SourceKey } from '../../../../src/rom/model/ColorMath'
@@ -133,6 +134,10 @@ export class MapViewWidget extends ReactWidget {
   /** The map's collision lines once read; `collisionWhy` is why there are none to show. */
   protected collision: Collision | undefined
   protected collisionWhy: string | undefined
+  /** The state key a probe's refusal was for; undefined when the cheap check refused (true of the map, whatever the state). */
+  protected collisionWhyKey: string | undefined
+  /** The state key `collision` was probed for. */
+  protected collisionKey: string | undefined
   /** The cheap check or a probe has answered for this map; a probe's answer is the authority over the check's. */
   protected collisionChecked = false
   protected collisionProbed = false
@@ -179,9 +184,18 @@ export class MapViewWidget extends ReactWidget {
       // The collision overlay: the palaces and the blue P-switch change the map's tiles, so its lines.
       // On: ask again (a reply for an older state is dropped). Off: the lines are stale, the next press fetches.
       this.view.onDidChange(c => {
-        const what = collisionReaction(c, this.showCollision)
-        if (what === 'refetch') void this.loadCollision()
-        else if (what === 'stale') this.collision = undefined
+        const plan = collisionPlan(c, this.showCollision, this.collisionWhyKey !== undefined)
+        if (plan.drop) {
+          this.collisionSeq++ // a reply still on its way is for the old state
+          this.collision = undefined
+        }
+        if (plan.recheck) {
+          // The refusal was for the old state: the toggle is enabled again until the cheap check says otherwise.
+          this.collisionWhy = undefined
+          this.collisionWhyKey = undefined
+          void this.checkCollision()
+        }
+        if (plan.refetch) void this.loadCollision()
       }),
     )
     this.zoomController.centreAnchored = true
@@ -215,6 +229,8 @@ export class MapViewWidget extends ReactWidget {
     this.spritesWhy = undefined
     this.collision = undefined
     this.collisionWhy = undefined
+    this.collisionWhyKey = undefined
+    this.collisionKey = undefined
     this.collisionChecked = false
     this.collisionProbed = false
     // A new map opens fitted, whatever zoom the last one was left at.
@@ -280,6 +296,7 @@ export class MapViewWidget extends ReactWidget {
     const generation = this.generation
     const seq = ++this.collisionSeq
     const { flags, switches } = this.view.state
+    const key = collisionKey(this.view.state)
     const r = await this.projects
       .mapCollision(o.manifestPath, o.index, flags, switches)
       .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
@@ -288,15 +305,17 @@ export class MapViewWidget extends ReactWidget {
     // The working copy moved on under the probe; its push is on the way and will ask again.
     if (r.status === 'stale') return
     this.collision = r.status === 'ok' ? r : undefined
+    this.collisionKey = key
     this.collisionRevision++
     this.collisionProbed = true
-    this.setCollisionWhy(collisionWhyNot(r))
+    this.setCollisionWhy(collisionWhyNot(r), key)
     this.update()
   }
 
   /** A refusal turns the overlay off, so a disabled toggle never looks pressed and nothing is left to switch off. */
-  protected setCollisionWhy(why: string | undefined): void {
+  protected setCollisionWhy(why: string | undefined, probedFor?: string): void {
     this.collisionWhy = why
+    this.collisionWhyKey = why ? probedFor : undefined
     this.collisionChecked = true
     if (why) this.showCollision = false
   }
@@ -610,8 +629,14 @@ export class MapViewWidget extends ReactWidget {
   toggleCollision(): void {
     if (this.collisionWhy) return
     this.showCollision = !this.showCollision
-    if (this.showCollision && !this.collision) void this.loadCollision()
+    this.collisionSeq++ // off: a reply still on its way is not wanted; on: it is asked for afresh below
+    if (this.showCollision && !this.collisionCurrent()) void this.loadCollision()
     this.update()
+  }
+
+  /** The lines, when they are for the state the toolbar shows now. */
+  protected collisionCurrent(): Collision | undefined {
+    return this.collisionKey === collisionKey(this.view.state) ? this.collision : undefined
   }
 
   /** Whether the collision toggle can be used: what `hackbench.maps.toggleCollision` and the button share. */
@@ -622,7 +647,8 @@ export class MapViewWidget extends ReactWidget {
   /** The collision toggle's tooltip: what pressing it does, or why it cannot. */
   protected collisionLabel(): string {
     if (this.collisionWhy) return `Collision unavailable: ${this.collisionWhy}`
-    if (this.showCollision) return this.collision ? 'Hide collision' : 'Collision · reading the map'
+    if (this.showCollision)
+      return this.collisionCurrent() ? 'Hide collision' : 'Collision · reading the map'
     return 'Show collision'
   }
 
@@ -892,9 +918,9 @@ export class MapViewWidget extends ReactWidget {
                 />
               </div>
             ))}
-            {this.showCollision && this.collision && (
+            {this.showCollision && this.collisionCurrent() && (
               <CollisionOverlay
-                layer={this.collision}
+                layer={this.collisionCurrent()!}
                 zoom={this.zoom}
                 owner={String(this.options?.index ?? '')}
                 revision={this.collisionRevision}

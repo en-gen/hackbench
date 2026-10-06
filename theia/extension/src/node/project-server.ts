@@ -24,7 +24,7 @@ import {
 } from '../../../../src/project/WorkingRomRegistry'
 import { buildMapDetails } from './map-details'
 import { L1ModelCache, mapScreen, toolbarArtOf } from './map-screen'
-import { mapCollision, mapCollisionCheck } from './map-collision'
+import { mapCollision, mapCollisionCheck, probeStateOf } from './map-collision'
 import { mapSprites } from './map-sprites'
 import { SWITCH_FLAGS_UNCLEARED } from '../../../../src/rom/ObjectExpander'
 import { exportPatch } from '../../../../src/project/ExportPatch'
@@ -149,7 +149,7 @@ export class ProjectServiceImpl implements ProjectService {
     this.notifier.watch(manifestPath, r.working)
     const bytes = r.working.bytes()
     // An edit hands out new bytes: a probe still running for the old ones is abandoned.
-    const state = { flags: switchFlags, bluePs: switches.blue }
+    const state = probeStateOf(switchFlags, switches)
     return mapCollision(this.screens, bytes, r.romPath, index, state, () => r.working.bytes() !== bytes) // prettier-ignore
   }
 

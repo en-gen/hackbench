@@ -15,6 +15,7 @@
  */
 import { Cpu65816 } from '../cpu/Cpu65816'
 import type { RomFile } from '../RomFile'
+import { SWITCH_BLOCK_ORDER } from '../objectHandlers/cursor'
 import { SpriteBus } from '../sprites/interp/SpriteBus'
 import { guardInstruction, Refusal } from '../sprites/interp/Guards'
 import { loadLevelState } from '../sprites/interp/LevelLoader'
@@ -49,8 +50,7 @@ export interface ProbeState {
   bluePs: boolean
 }
 export const NEUTRAL: ProbeState = { flags: { green: false, yellow: false, blue: false, red: false }, bluePs: false } // prettier-ignore
-/** SwitchBlockFlags ($1F27-$1F2A) are in this order (bank_0D.asm:3739, :4229). */
-const PALACE_ORDER = ['green', 'yellow', 'blue', 'red'] as const
+const PALACE_ORDER = SWITCH_BLOCK_ORDER
 export const stateKey = (s: ProbeState): string =>
   PALACE_ORDER.map(k => +s.flags[k]).join('') + `:${+s.bluePs}`
 

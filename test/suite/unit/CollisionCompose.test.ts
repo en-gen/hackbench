@@ -211,6 +211,17 @@ describe('the probe without a cartridge', () => {
     expect(floorOf(0x40, { yellow: true })).toEqual(NONE)
   })
 
+  it('collisionLayer runs the probe in the state it is given (a floor only while the blue P-switch runs)', async () => {
+    const r = rom(blocks([[0x30, FLAT], [0x44, WHEN(0x14ad)]])) // prettier-ignore
+    const floors = async (bluePs: boolean) => {
+      const out = await collisionLayer(r, 0, 7, [[0x44]], new ProbeCache(), { wram: loaded(), state: { flags: { green: false, yellow: false, blue: false, red: false }, bluePs } }) // prettier-ignore
+      if (!out.ok) throw new Error(out.reason)
+      return out.lines.filter(l => l.kind === 'floor')
+    }
+    expect(await floors(false)).toEqual([])
+    expect(await floors(true)).toHaveLength(1)
+  })
+
   it('keys the cache on the flags and the P-switch', () => {
     const on = { flags: { green: false, yellow: true, blue: false, red: false }, bluePs: false }
     const off = { ...on, flags: { ...on.flags, yellow: false } }
