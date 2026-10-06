@@ -52,8 +52,9 @@ const SPRITE_COPY = [
   0x00, 0x41, 0x42, 0x43, 0x46, 0x47, 0x00, 0x00, 0x48, 0x2c, 0x57, 0x58, 0x59, 0x51, 0x3e, 0x52,
   0x7d,
 ]
-const SPRITES = [...SPRITE_COPY, ...SPRITE_COPY]
-const STATUS = SPRITE_COPY.map((_, i) => 0x20 + i)
+// Padded to the span the loader reads, so every id the ROM could index is present.
+const SPRITES = [...SPRITE_COPY, ...SPRITE_COPY, ...new Array(0xa0 - 34).fill(0)]
+const STATUS = [...SPRITE_COPY.map((_, i) => 0x20 + i), ...new Array(0x80 - 17).fill(0)]
 
 const TABLES: BlockContentTables = {
   selector: Uint8Array.from(SELECTOR),
@@ -182,6 +183,9 @@ describe('resolveBlockContents', () => {
     expect(twelve.condition).toContain('fewer than 12 coins')
     const none = resolveBlockContents(0x11d, 0, { ...TABLES, greenStarCoins: null })!
     expect(none.condition).toContain("this block's coin countdown")
+    expect(none.caveat).toBe('the green star counter was not read')
+    const own = { ...TABLES, greenStarCoins: null, greenStarCoinsReason: 'why not' }
+    expect(resolveBlockContents(0x11d, 0, own)!.caveat).toBe('why not')
   })
 
   it('a hack table with a zero sprite degrades to Nothing, never throws', () => {
@@ -194,8 +198,6 @@ describe('resolveBlockContents', () => {
     const zero = { ...TABLES, columnOverride: Uint8Array.from([0, 0, 0, 0]) }
     for (let col = 0; col < 4; col++)
       expect(resolveBlockContents(0x118, col, zero)!.condition.startsWith('Nothing')).toBe(true)
-    const empty = { ...TABLES, columnCycle: new Uint8Array(0) }
-    expect(resolveBlockContents(0x111, 0, empty)!.condition).toBe('Nothing')
   })
 
   it('a content id of $11 or more reads the contiguous bytes, as the ROM does', () => {
@@ -291,6 +293,50 @@ describe('resolveBlockContents', () => {
       expect(resolveBlockContents(0x117, col, t)!.condition).toBe(
         col % 2 === 0 ? 'P-switch (blue)' : 'P-switch (silver)',
       )
+  })
+
+  describe('a short hand-built table is refused, never defaulted', () => {
+    const refused = (tile: number, col: number, t: Partial<BlockContentTables>) => {
+      const r = resolveBlockContents(tile, col, { ...TABLES, ...t } as BlockContentTables)
+      expect(isUnavailable(r)).toBe(true)
+      return r as { kind: string; unavailable: string }
+    }
+
+    it('selector, cycle and sprite tables', () => {
+      expect(refused(0x116, 0, { selector: new Uint8Array(3) }).unavailable).toMatch(/DATA_00F080/)
+      expect(refused(0x111, 0, { columnCycle: new Uint8Array(0) }).unavailable).toMatch(
+        /DATA_00F100/,
+      )
+      expect(refused(0x112, 0, { spriteInBlock: new Uint8Array(2) }).unavailable).toMatch(
+        /SpriteInBlock/,
+      )
+      expect(refused(0x112, 0, { statusOfSprInBlk: new Uint8Array(2) }).unavailable).toMatch(
+        /StatusOfSprInBlk/,
+      )
+    })
+
+    it('rewrite, attribute and egg tables, only when the sprite needs them', () => {
+      expect(refused(0x118, 2, { columnOverride: new Uint8Array(2) }).unavailable).toMatch(
+        /DATA_0288D6/,
+      )
+      expect(refused(0x118, 3, { columnOverrideStatus: new Uint8Array(3) }).unavailable).toMatch(
+        /DATA_0288D9/,
+      )
+      expect(refused(0x117, 1, { pSwitchAttribute: new Uint8Array(1) }).unavailable).toMatch(
+        /DATA_028A42/,
+      )
+      expect(refused(0x119, 0, { eggContents: new Uint8Array(1) }).unavailable).toMatch(
+        /DATA_0288A1/,
+      )
+      // A tile that never touches the egg table does not care that it is short.
+      const ok = resolveBlockContents(0x112, 0, { ...TABLES, eggContents: new Uint8Array(0) })
+      expect(isUnavailable(ok)).toBe(false)
+    })
+
+    it('isUnavailable accepts resolver results, including null', () => {
+      expect(isUnavailable(null)).toBe(false)
+      expect(isUnavailable(resolve(0x112))).toBe(false)
+    })
   })
 
   describe('plants in every table are followed (kills hardcoded tables)', () => {
@@ -424,28 +470,34 @@ describe('readBlockContentTables on a synthetic ROM', () => {
     const t = readBlockContentTables(RomFile.fromBytes('short.sfc', bytes))
     expect(isUnavailable(t)).toBe(true)
     if (!isUnavailable(t)) return
+    expect(t.kind).toBe('unavailable')
     expect(t.unavailable).toMatch(/SpriteInBlock.*\$0288A3.*past the end/)
     const r = resolveBlockContents(0x112, 0, t)
     expect(r).toEqual(t)
   })
 
   it('a table cut short partway through is refused too', () => {
-    const bytes = new Uint8Array(0x10800 + 0x50) // SpriteInBlock needs 0xA0 bytes from $0288A3
+    const bytes = new Uint8Array(0x108f3) // $0288A3 is present; the 0xA0-byte table ends 0x50 bytes later
     bytes[0x7fd5] = 0x20
     const t = readBlockContentTables(RomFile.fromBytes('cut.sfc', bytes))
     expect(isUnavailable(t)).toBe(true)
+    if (isUnavailable(t)) expect(t.unavailable).toMatch(/SpriteInBlock.*past the end/)
   })
 
   it('one counter site gives its operand', () => {
     expect(tablesOf(image(0x100)).greenStarCoins).toBe(0x2a)
   })
 
-  it('two counter sites are ambiguous and give null', () => {
-    expect(tablesOf(image(0x100, 0x300)).greenStarCoins).toBeNull()
+  it('two counter sites are ambiguous and give null with the reason', () => {
+    const t = tablesOf(image(0x100, 0x300))
+    expect(t.greenStarCoins).toBeNull()
+    expect(t.greenStarCoinsReason).toMatch(/more than once/)
   })
 
   it('no counter site gives null', () => {
-    expect(tablesOf(image()).greenStarCoins).toBeNull()
+    const t = tablesOf(image())
+    expect(t.greenStarCoins).toBeNull()
+    expect(t.greenStarCoinsReason).toMatch(/not present/)
   })
 
   it('a bare store of the counter elsewhere does not make the site ambiguous', () => {
