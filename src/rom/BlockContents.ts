@@ -4,12 +4,8 @@
  * read from the ROM by `readBlockContentTables` and passed in, so tests feed
  * synthetic bytes. Derivation and the resolved table: docs/rom/block-contents.md.
  *
- * Trace (SMWDisX): index = acts-like - $11 (bank_00.asm:12789-12793); the
- * selector byte DATA_00F080 (bank_00.asm:12751) decodes at CODE_00F1BA
- * (bank_00.asm:12877-12891) as content = byte >> 1, progressive = byte & 1;
- * bit 7 set means "look up DATA_00F100 by X column" ($80/$81) or the green
- * star block ($FF). Content ids map to sprites through SpriteInBlock
- * (bank_02.asm:1077); ids 6 and 7 are coins (bank_02.asm:1055-1070).
+ * Selector byte decoding (content = byte >> 1, progressive = byte & 1, bit 7 =
+ * column lookup) is traced to SMWDisX lines in the doc and at each branch below.
  */
 
 import type { RomFile } from './RomFile'
@@ -172,16 +168,13 @@ export function resolveBlockContents(
     // $125: SpriteInBlock gives $7D, then bank_02.asm:1199-1212 rewrites it by X column.
     const i = col & 3
     const item = contentFor(CONTENT_COLUMN_OVERRIDE, t, t.columnOverride[i])!
-    if (item.kind === 'sprite') {
-      item.status = t.columnOverrideStatus[i]
-      if (i === 3) {
-        const hex = item.status.toString(16).toUpperCase()
-        caveat = `reads past DATA_0288D6; spawn status $${hex} has no handler`
-      }
-    }
-    alts = [{ when: null, content: item }]
     const layer2 = 'on layer 2 the item depends on scroll position'
-    caveat = caveat ? `${caveat}; ${layer2}` : layer2
+    if (item.kind === 'sprite') item.status = t.columnOverrideStatus[i]
+    if (i === 3) {
+      const hex = t.columnOverrideStatus[i].toString(16).toUpperCase()
+      caveat = `reads past DATA_0288D6; spawn status $${hex} has no handler; ${layer2}`
+    } else caveat = layer2
+    alts = [{ when: null, content: item }]
   } else {
     alts = decode(raw, t)
   }
