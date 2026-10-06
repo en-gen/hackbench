@@ -98,6 +98,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Opening another project closes the previous project's GFX, Map16 and map views, so
+  Ctrl+Z in a leftover view no longer undoes the new project's layer. A view with
+  unsaved strokes asks first, and cancelling keeps the old project open (#628).
 - Sprite $0A (Red Vertical Para-Koopa) and $0B (Red Horizontal Para-Koopa)
   patrol overlay no longer renders as a symmetric `±amplitudePx` band. Per
   `RedVertParaKoopa` (bank_01.asm:1881), `SpriteXSpeed` and `SpriteMisc151C`

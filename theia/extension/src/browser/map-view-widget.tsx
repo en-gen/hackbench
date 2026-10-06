@@ -39,6 +39,7 @@ import { layer2Label } from './map-layer-labels'
 import { isUnverifiedMode } from '../../../../src/rom/model/UnverifiedModes'
 import { composeScreen, type SourceKey } from '../../../../src/rom/model/ColorMath'
 import { perfEnd, perfStart } from '../common/perf-marks'
+import { ProjectBound } from './project-bound'
 
 export { slotLabel }
 /** One screen's decoded planes; null is an empty plane, which draws nothing. */
@@ -86,11 +87,17 @@ function AfterCommit({ run }: { run: () => void }): null {
 const palaceName = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
 
 @injectable()
-export class MapViewWidget extends ReactWidget {
+export class MapViewWidget extends ReactWidget implements ProjectBound {
   @inject(ProjectService) protected readonly projects!: ProjectService
   @inject(ProjectFrontendClient) protected readonly pushClient!: ProjectFrontendClient
 
   protected options: MapViewOptions | undefined
+
+  readonly projectBound = true as const
+  /** Closed by the shell when another project opens (#628). */
+  get manifestPath(): string | undefined {
+    return this.options?.manifestPath
+  }
   protected details: MapDetailsDto | undefined
   protected error: string | undefined
   protected mapLayout: Layout | undefined

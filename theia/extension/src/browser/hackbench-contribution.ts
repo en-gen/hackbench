@@ -36,6 +36,7 @@ import { GfxFrontendClient } from './gfx-push-client'
 import { PaletteFrontendClient } from './palette-push-client'
 import { describeRomMismatch, ProjectPropertiesDialog } from './project-properties-dialog'
 import { ProjectContext } from './project-context'
+import { isProjectBound } from './project-bound'
 import { FileDialogService } from '@theia/filesystem/lib/browser'
 import { PROJECT_EXT } from '../../../../src/project/Project'
 import { perfEndAfterPaint, perfStart } from '../common/perf-marks'
@@ -280,6 +281,9 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
    */
   protected async show(project: ProjectDto): Promise<void> {
     perfStart('open-project')
+    // Before `current` moves: a view of the old project would otherwise send
+    // its edits, and Ctrl+Z, to the new one (#628).
+    if (!(await this.closeOtherProjectViews(project.manifestPath))) return
     this.context.current = project
     // Opening or creating a project reorders the recent list.
     void this.refreshRecentMenu()
@@ -291,6 +295,23 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
     // background tab shows a loaded project as an empty view.
     await this.shell.activateWidget(MAP_EXPLORER_ID)
     perfEndAfterPaint('open-project')
+  }
+
+  /**
+   * Close every view bound to a project other than `manifestPath`.
+   *
+   * Goes through the shell so a dirty view prompts. Returns false when the
+   * user cancelled a prompt, which aborts the switch: the old project stays
+   * current with its views intact. Views of `manifestPath` itself stay, so
+   * reopening the open project closes nothing.
+   */
+  protected async closeOtherProjectViews(manifestPath: string): Promise<boolean> {
+    const stale = this.shell.widgets.filter(
+      w => isProjectBound(w) && w.manifestPath !== undefined && w.manifestPath !== manifestPath,
+    )
+    if (stale.length === 0) return true
+    const closed = await this.shell.closeMany(stale)
+    return closed.length === stale.length
   }
 
   /**

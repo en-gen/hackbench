@@ -139,6 +139,12 @@ Project-level commands (`New Project...`, `Open Project...`, `Open Recent
 Project...`, `Project Properties...`, `Export Patch`) live on the same
 category and are reachable from the File menu.
 
+Opening another project first closes every GFX, Map16 and map view of the old one
+(the widgets that implement `ProjectBound`), through the shell so a view with
+unsaved strokes asks; cancelling that prompt aborts the switch (#628). Palette,
+music, emulator and overworld views re-target on `ProjectContext.onChanged`
+instead.
+
 The map tab shows each screen as one composite canvas. The backend sends the
 six plane canvases per screen plus two plane lists (main and sub, bottom to
 top) and the CGADSUB and fixed color; the widget runs `composeScreen`

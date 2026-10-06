@@ -83,6 +83,7 @@ import {
 import { decodeSwitchButton, type SwitchButtonImages } from './switch-toggle'
 import { ghostOf } from '../../../../src/rom/render/HiddenTiles'
 import { perfEnd, perfStart } from '../common/perf-marks'
+import { ProjectBound } from './project-bound'
 
 export { MAP16_VIEW_ID, map16WidgetId } from './map16-view-model'
 
@@ -133,12 +134,18 @@ interface Selection {
 }
 
 @injectable()
-export class Map16ViewWidget extends ReactWidget {
+export class Map16ViewWidget extends ReactWidget implements ProjectBound {
   @inject(Map16Service) protected readonly map16!: Map16Service
   @inject(Map16FrontendClient) protected readonly pushClient!: Map16FrontendClient
   @inject(ThemeService) protected readonly themes!: ThemeService
 
   protected options: Map16ViewOptions | undefined
+
+  readonly projectBound = true as const
+  /** Closed by the shell when another project opens (#628). */
+  get manifestPath(): string | undefined {
+    return this.options?.manifestPath
+  }
   protected result: LoadMap16Result | undefined
   protected error: string | undefined
   protected editError: string | undefined
