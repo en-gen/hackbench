@@ -24,7 +24,7 @@ import {
 } from '../../../../src/project/WorkingRomRegistry'
 import { buildMapDetails } from './map-details'
 import { L1ModelCache, mapScreen, toolbarArtOf } from './map-screen'
-import { mapCollision } from './map-collision'
+import { mapCollision, mapCollisionCheck } from './map-collision'
 import { mapSprites } from './map-sprites'
 import { SWITCH_FLAGS_UNCLEARED } from '../../../../src/rom/ObjectExpander'
 import { exportPatch } from '../../../../src/project/ExportPatch'
@@ -48,6 +48,7 @@ import {
   GroupedMapTreeDto,
   HackMetadataDto,
   LoadMapsResult,
+  MapCollisionCheckResult,
   MapCollisionResult,
   MapDetailsDto,
   MapScreenResult,
@@ -129,6 +130,12 @@ export class ProjectServiceImpl implements ProjectService {
     if (r.status !== 'ok') return r
     this.notifier.watch(manifestPath, r.working)
     return mapSprites(this.screens, r.working.bytes(), r.romPath, index)
+  }
+
+  async mapCollisionCheck(manifestPath: string, index: number): Promise<MapCollisionCheckResult> {
+    const r = this.located(manifestPath)
+    if (r.status !== 'ok') return r
+    return mapCollisionCheck(this.screens, r.working.bytes(), r.romPath, index)
   }
 
   async mapCollision(manifestPath: string, index: number): Promise<MapCollisionResult> {

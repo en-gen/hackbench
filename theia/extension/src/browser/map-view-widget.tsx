@@ -123,8 +123,6 @@ export class MapViewWidget extends ReactWidget {
   /** The map's collision lines once read; `collisionWhy` is why there are none to show. */
   protected collision: Collision | undefined
   protected collisionWhy: string | undefined
-  /** Whether the map has been asked at least once (that is how a refusing ROM is found out). */
-  protected collisionAsked = false
   /** Replies taken, for the overlay's test hook. */
   protected collisionRevision = 0
   /** Fit mode until the user zooms; the fit is the cross axis filling the view (#526). */
@@ -183,7 +181,6 @@ export class MapViewWidget extends ReactWidget {
     this.spritesWhy = undefined
     this.collision = undefined
     this.collisionWhy = undefined
-    this.collisionAsked = false
     // A new map opens fitted, whatever zoom the last one was left at.
     this.zoomController.enterFit()
     // A reused (preview) tab keeps its strip across maps: blank it, and start at screen 0.
@@ -216,16 +213,32 @@ export class MapViewWidget extends ReactWidget {
     void this.loadDetails()
     void this.loadIcons()
     void this.loadSprites()
-    // The probe runs the ROM's code: a hidden overlay is refetched when it is turned on, not on every edit.
-    if (!this.showCollision) this.collision = undefined
-    if (this.showCollision || !this.collisionAsked) void this.loadCollision()
+    // The probe runs the ROM's code: it runs only while the overlay is on. Off, an edit drops the stale
+    // lines and the toggle's refusal is re-read (a cheap check, no probe); the next press fetches.
+    if (this.showCollision) void this.loadCollision()
+    else {
+      this.collision = undefined
+      void this.checkCollision()
+    }
     this.requestVisible()
+  }
+
+  /** Whether collision can be probed for this map at all, without probing: the toggle's enabled state. */
+  protected async checkCollision(): Promise<void> {
+    const o = this.options
+    if (!o) return
+    const generation = this.generation
+    const r = await this.projects
+      .mapCollisionCheck(o.manifestPath, o.index)
+      .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
+    if (generation !== this.generation) return
+    this.collisionWhy = r.status === 'available' ? undefined : r.status === 'unavailable' ? r.reason : `The base ROM ${r.baseRom.title} is not on this machine` // prettier-ignore
+    this.update()
   }
 
   protected async loadCollision(): Promise<void> {
     const o = this.options
     if (!o) return
-    this.collisionAsked = true
     const generation = this.generation
     const r = await this.projects
       .mapCollision(o.manifestPath, o.index)

@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
-import { mapCollision } from '../../../theia/extension/src/node/map-collision'
+import { mapCollision, mapCollisionCheck } from '../../../theia/extension/src/node/map-collision'
 import { L1ModelCache } from '../../../theia/extension/src/node/map-screen'
 import { hGrid, inputs, vGrid } from '../support/mapInputs'
 import { hasRom, romPath, VANILLA } from '../support/corpus'
@@ -39,6 +39,34 @@ describe('mapCollision (synthetic)', () => {
   it('a map the model cannot build is unavailable with that reason', async () => {
     const cache = new L1ModelCache(() => ({ ok: false, reason: 'no level data' }))
     expect(await mapCollision(cache, synthetic(), 'x.sfc', 0x105)).toEqual({ status: 'unavailable', reason: 'no level data' }) // prettier-ignore
+  })
+})
+
+describe('mapCollisionCheck (synthetic): the toggle state without a probe', () => {
+  it('says why for a vertical level, a refusing loader and an unbuildable map', () => {
+    expect(mapCollisionCheck(stub(true), synthetic(), 'x.sfc', 0x105)).toEqual({
+      status: 'unavailable',
+      reason: expect.stringMatching(/vertical/i),
+    })
+    expect(mapCollisionCheck(stub(false), synthetic(), 'x.sfc', 0x105)).toEqual({
+      status: 'unavailable',
+      reason: expect.stringMatching(/not the vanilla shape/),
+    })
+    const broken = new L1ModelCache(() => ({ ok: false, reason: 'no level data' }))
+    expect(mapCollisionCheck(broken, synthetic(), 'x.sfc', 0x105)).toEqual({ status: 'unavailable', reason: 'no level data' }) // prettier-ignore
+  })
+})
+
+describe.skipIf(!hasRom(VANILLA))('mapCollisionCheck on the vanilla ROM', () => {
+  it('is available and fast, and runs no probe: a planted BRK in the routine is not seen by it', () => {
+    const bytes = new Uint8Array(readFileSync(romPath(VANILLA)))
+    const t0 = Date.now()
+    expect(mapCollisionCheck(new L1ModelCache(), bytes, romPath(VANILLA), 0x105)).toEqual({ status: 'available' }) // prettier-ignore
+    expect(Date.now() - t0).toBeLessThan(2000)
+    // A probe would hit the BRK; the check must not run one, so it still says available.
+    const patched = RomFile.fromBytes(romPath(VANILLA), bytes)
+    patched.writeAt(0x00eadb, [0x00])
+    expect(mapCollisionCheck(new L1ModelCache(), patched.buffer, romPath(VANILLA), 0x105)).toEqual({ status: 'available' }) // prettier-ignore
   })
 })
 

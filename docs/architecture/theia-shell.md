@@ -190,9 +190,11 @@ state and tile id; the composed reply per bytes and map (eight kept).
 A map the probe cannot run answers `unavailable` with the reason (the ROM's
 level loader refused it, or the level is vertical): the toolbar's
 `collision-toggle` is then disabled with that reason as its tooltip, never an
-empty overlay. The view asks once when the map opens (that is how a refusal is
-found) and again on every working-copy push while the overlay is on; with it
-off, an edit only drops the stale lines and the next toggle refetches. Replies
+empty overlay. Nothing is probed until the toggle is pressed: on map open the
+view calls the cheap `mapCollisionCheck` (the level's shape and the ROM's own
+level loader, no tile probed), which decides the toggle's state; `mapCollision`
+runs on the press and on every working-copy push while the overlay is on. With
+it off, an edit only drops the stale lines and the next press refetches. Replies
 to an older request are dropped by `generation`, as for sprites.
 
 The overlay (`browser/collision-overlay.tsx`) is one SVG inside the strip, in

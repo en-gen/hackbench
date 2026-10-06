@@ -9,6 +9,7 @@
  * bytes, and a patched block routine changes every result).
  */
 import type { RomFile } from '../RomFile'
+import { loadLevelState } from '../sprites/interp/LevelLoader'
 import { compose, type CollisionLine } from './Compose'
 import {
   calibrate,
@@ -44,6 +45,15 @@ export class ProbeCache {
 
 /** The reason of a run stopped by `cancelled`: not a refusal, only an answer nobody wants any more. */
 export const SUPERSEDED = 'superseded'
+
+/**
+ * Why the probe cannot run on this ROM for `level`, or null: the ROM's own level loader refusing is the
+ * only ROM-dependent refusal, and it is found without probing a single tile.
+ */
+export function collisionRefusal(rom: RomFile, level: number): string | null {
+  const l = loadLevelState(rom, level)
+  return l.ok ? null : l.reason
+}
 
 export type CollisionLayer =
   | { ok: true; lines: CollisionLine[]; probed: number; steps: number }

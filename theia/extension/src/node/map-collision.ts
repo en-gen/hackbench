@@ -14,8 +14,13 @@
  * levels only, vanilla block code only (#435's settled scope).
  */
 import { RomFile } from '../../../../src/rom/RomFile'
-import { collisionLayer, ProbeCache, SUPERSEDED } from '../../../../src/rom/collision/MapCollision'
-import type { MapCollisionResult } from '../common/project-protocol'
+import {
+  collisionLayer,
+  collisionRefusal,
+  ProbeCache,
+  SUPERSEDED,
+} from '../../../../src/rom/collision/MapCollision'
+import type { MapCollisionCheckResult, MapCollisionResult } from '../common/project-protocol'
 import { L1ModelCache } from './map-screen'
 
 type Reply = Exclude<MapCollisionResult, { status: 'rom-not-located' }>
@@ -30,6 +35,29 @@ interface PerBytes {
   replies: Map<number, Reply | Promise<Reply>>
 }
 const byBytes = new WeakMap<Uint8Array, PerBytes>()
+
+const VERTICAL = 'Collision is not shown for vertical levels yet'
+
+/**
+ * Whether `mapCollision` can run for this map, without running it: the level's shape and the ROM's own
+ * level loader. No tile is probed, so the view can ask on every map open and keep the toggle's state honest.
+ */
+export function mapCollisionCheck(
+  cache: L1ModelCache,
+  bytes: Uint8Array,
+  romPath: string,
+  index: number,
+): MapCollisionCheckResult {
+  const built = cache.get(bytes, romPath, index, NO_FLAGS)
+  if (!built.ok) return { status: 'unavailable', reason: built.reason }
+  if (built.inputs.isVertical) return { status: 'unavailable', reason: VERTICAL }
+  try {
+    const why = collisionRefusal(RomFile.fromBytes(romPath, Buffer.from(bytes)), index)
+    return why === null ? { status: 'available' } : { status: 'unavailable', reason: why }
+  } catch (err) {
+    return { status: 'unavailable', reason: (err as Error).message }
+  }
+}
 
 const yieldTurn = () => new Promise<void>(resolve => setImmediate(resolve))
 
@@ -79,7 +107,7 @@ async function compute(
   if (!built.ok) return { status: 'unavailable', reason: built.reason }
   const m = built.inputs
   if (m.isVertical) {
-    return { status: 'unavailable', reason: 'Collision is not shown for vertical levels yet' }
+    return { status: 'unavailable', reason: VERTICAL }
   }
   try {
     // A copy, as the model cache makes: the working copy's array is shared.

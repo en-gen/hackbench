@@ -315,6 +315,12 @@ export interface MapCollisionLineDto {
   points: number[]
 }
 
+/** Whether a map's collision can be probed, found without probing (#435): the toggle's enabled state and tooltip. */
+export type MapCollisionCheckResult =
+  | { status: 'available' }
+  | { status: 'unavailable'; reason: string }
+  | { status: 'rom-not-located'; baseRom: RomIdentityDto }
+
 /**
  * A map's collision lines, from SMW's own block code run on the 65816 core
  * (#435). `unavailable` carries the reason (the level loader refused this ROM,
@@ -477,6 +483,9 @@ export interface ProjectService {
 
   /** Every sprite of a map, drawn by the sprite interpreter or marked, from the working copy (#564, #585). */
   mapSprites(manifestPath: string, index: number): Promise<MapSpritesResult>
+
+  /** Whether the map's collision can be probed at all, without probing: the level loader's verdict and the level's shape (#435). */
+  mapCollisionCheck(manifestPath: string, index: number): Promise<MapCollisionCheckResult>
 
   /** A map's collision lines, from the working copy (#435). Slow cold (the probe runs the ROM's code), then cached. */
   mapCollision(manifestPath: string, index: number): Promise<MapCollisionResult>

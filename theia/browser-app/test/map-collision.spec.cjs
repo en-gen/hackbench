@@ -143,6 +143,26 @@ test('the toggle shows and hides the overlay, with aria-pressed and its tooltip 
   await expect(overlay(page, 0x105)).toHaveCount(0)
 })
 
+test('opening a map with the toggle off probes nothing; pressing it does', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  // Count the view's calls to the probe. The wrapper is proven to see calls: the press below must raise it.
+  await page.evaluate(() => {
+    const svc = getSvc('Symbol(ProjectService)')
+    window.__collisionCalls = 0
+    const orig = svc.mapCollision.bind(svc)
+    svc.mapCollision = (...a) => {
+      window.__collisionCalls++
+      return orig(...a)
+    }
+  })
+  await openMap(page, project.manifestPath, 0x105)
+  await expect(toggle(page, 0x105)).toBeEnabled({ timeout: 30000 })
+  await page.waitForTimeout(3000)
+  expect(await page.evaluate(() => window.__collisionCalls)).toBe(0)
+  await showOverlay(page, 0x105)
+  expect(await page.evaluate(() => window.__collisionCalls)).toBeGreaterThan(0)
+})
+
 test('$105 draws its known floor, slope and wall at their map coordinates', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
