@@ -370,6 +370,32 @@ describe('L1 priority planes (synthetic)', () => {
     }
   })
 
+  it('the tile after the pipe range draws its base ghost, not a variant lookup', () => {
+    const i = inputs(hGrid(1), false, 1)
+    const id = PIPE_VARIANT_TILE_START + PIPE_VARIANT_TILE_COUNT // $13B
+    i.map16.tiles[id] = tile(
+      id,
+      [5, 5, 5, 5].map(c => prio(sub(c))),
+    )
+    i.switchArt = switchArtOf({ frameCount: 1, intervalMs: 100, frames: [[BLUE_SLOT, ONOFF_SLOT]] }, i.map16.tiles, VRAM, { colors: COLORS }) // prettier-ignore
+    i.grid[0]![0] = id
+    expect(drawL1Planes(i, 0).l1High).not.toBeNull()
+  })
+
+  it('with no pipe variant table, $133 draws its base entry ghost', () => {
+    const i = inputs(hGrid(1), false, 1)
+    const id = PIPE_VARIANT_TILE_START
+    i.map16.pipeVariants = []
+    i.variantSwitchArt = []
+    i.map16.tiles[id] = tile(
+      id,
+      [5, 5, 5, 5].map(c => prio(sub(c))),
+    )
+    i.switchArt = switchArtOf({ frameCount: 1, intervalMs: 100, frames: [[BLUE_SLOT, ONOFF_SLOT]] }, i.map16.tiles, VRAM, { colors: COLORS }) // prettier-ignore
+    i.grid[0]![0] = id
+    expect(drawL1Planes(i, 0).l1High).not.toBeNull()
+  })
+
   it('a hidden tile keeps its screen door in the plane it belongs to', () => {
     const i = inputs(hGrid(1), false, 1)
     i.map16.tiles[2] = tile(
