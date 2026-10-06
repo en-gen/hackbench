@@ -3,6 +3,7 @@
 import type { Cpu65816 } from '../../src/rom/cpu/Cpu65816.ts'
 import { callSubroutine, describe, Refusal } from '../../src/rom/cpu/call.ts'
 import type { BusSnapshot, SpriteBus } from '../../src/rom/sprites/interp/SpriteBus.ts'
+import { bytesAt, shapeMatches } from '../../src/rom/sprites/interp/Guards.ts'
 import { smwMachine } from '../../src/rom/sprites/interp/Machine.ts'
 import { loadLevelState } from '../../src/rom/sprites/interp/LevelLoader.ts'
 import type { RomFile } from '../../src/rom/RomFile.ts'
@@ -14,6 +15,18 @@ const RAM = { xNext: 0x94, yNext: 0x96, xNow: 0xd1, yNow: 0xd3, xSpd: 0x7a, ySpd
 const LOW = 0xc800 // Map16TilesLow $7E:C800, Map16TilesHigh $7F:C800 (rammap.asm:2114, 2138)
 const ENTRY_RESET = 0x00eaa6, ENTRY_COLLIDE = 0x00eadb // SMWDisX bank_00.asm:11921, 11952
 const BUDGET = 20000
+/** The first opcodes each entry must start with (STZ abs, STZ dp ... / LDA dp, AND #$0F, STA dp; bank_00.asm:11921, 11952); null matches any operand. */
+const ENTRY_SHAPES: { name: string; at: number; want: (number | null)[] }[] = [
+  { name: 'CODE_00EAA6 (collision reset)', at: ENTRY_RESET, want: [0x9c, null, null, 0x64, null] },
+  { name: 'CODE_00EADB (collision body)', at: ENTRY_COLLIDE, want: [0xa5, null, 0x29, 0x0f, 0x85] },
+]
+/** The first collision entry whose bytes differ from the shape the probe was written against, or null. */
+export function collisionEntryProblem(rom: RomFile): string | null {
+  for (const e of ENTRY_SHAPES)
+    if (!shapeMatches(bytesAt(rom, e.at, e.want.length), e.want))
+      return `${e.name} at $${e.at.toString(16).toUpperCase().padStart(6, '0')} is not the vanilla shape; the probe will not run it`
+  return null
+}
 /** The synthetic cell the probed tile sits in, and its pixel origin (screen 0, 16 px cells). */
 export const CELL = { col: 8, row: 8, px: 128, py: 128 }
 
@@ -27,6 +40,8 @@ export class Probe {
   readonly tileset: number
   steps = 0
   constructor(rom: RomFile, map: number) {
+    const problem = collisionEntryProblem(rom)
+    if (problem) throw new Refusal(problem)
     const l = loadLevelState(rom, map)
     if (!l.ok) throw new Error('level load refused: ' + l.reason)
     const m = smwMachine(rom, l.wram)
