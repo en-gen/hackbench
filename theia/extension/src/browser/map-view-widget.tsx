@@ -36,6 +36,7 @@ import { WheelBinding, ZoomController } from './zoom-controller'
 import { ZoomStepper } from './zoom-stepper'
 import { MapGridOverlay } from './grid-overlay'
 import { layer2Label } from './map-layer-labels'
+import { isUnverifiedMode } from '../../../../src/rom/model/UnverifiedModes'
 import { composeScreen, type SourceKey } from '../../../../src/rom/model/ColorMath'
 import { perfEnd, perfStart } from '../common/perf-marks'
 
@@ -81,6 +82,8 @@ function AfterCommit({ run }: { run: () => void }): null {
   React.useLayoutEffect(run)
   return null
 }
+
+const UNVERIFIED_MODE_ISSUE = 'https://github.com/en-gen/hackbench/issues/617'
 
 const palaceName = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
 
@@ -606,6 +609,16 @@ export class MapViewWidget extends ReactWidget {
             />
           ))}
           <span className="hb-toolbar-spacer" />
+          {isUnverifiedMode(this.details?.levelMode) && (
+            <span
+              className="hb-map-view-mode-warning"
+              data-control="unverified-mode"
+              title={`Sprite layering in this mode has not been checked against the ROM: ${UNVERIFIED_MODE_ISSUE}`}
+            >
+              <span className="codicon codicon-warning" />
+              {`Level mode ${this.details!.levelMode!.toString(16).toUpperCase()}: sprite layering not verified`}
+            </span>
+          )}
           <button
             data-control="grid-toggle"
             type="button"
