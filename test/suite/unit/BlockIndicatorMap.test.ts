@@ -583,11 +583,11 @@ describe('IndicatorDisplay against an independent full compose, with color math'
   )
 })
 
-describe('IndicatorDisplay: the layer 2 toggle', () => {
+describe('IndicatorDisplay: the graphics layer 2 toggle', () => {
   const g = { orientation: 'horizontal' as const, width: 64, height: 32 }
   const arts = decodeArts({ a: Buffer.from(solid([200, 0, 0, 255])).toString('base64') })
   const lists = { main: ['l2Low', 'l2High', 'l1Low', 'l1High'] as const, sub: [] as never[] }
-  // One block in each of the four planes, side by side along the top: l2Low, l2High, l1Low, l1High.
+  // One block in each of the four planes (graphics layers 2 and 1, low and high), side by side along the top: l2Low, l2High, l1Low, l1High.
   const ind = [
     A('a', 0, 0, 'l2Low'),
     A('a', 16, 0, 'l2High'),
@@ -610,23 +610,23 @@ describe('IndicatorDisplay: the layer 2 toggle', () => {
   }
   const all = { l2Low: null, l2High: null, l1Low: null, l1High: null }
 
-  it('hides the layer 2 planes indicators and keeps the layer 1 ones, and showing layer 2 again restores them', () => {
+  it('hides the graphics layer 2 planes indicators and keeps the graphics layer 1 ones, and showing graphics layer 2 again restores them', () => {
     const on = show(all)
     expect([0, 16, 32, 48].map(x => red(on, x))).toEqual([256, 256, 256, 256])
     expect(on.records().map(r => r.id)).toEqual(ind.map(indicatorId))
-    // Layer 2 off: its planes are left out of the plane set, as the view does.
+    // Graphics layer 2 off: its planes are left out of the plane set, as the view does.
     const off = show({ l1Low: null, l1High: null })
     expect([0, 16, 32, 48].map(x => red(off, x))).toEqual([0, 0, 256, 256])
     expect(off.records().map(r => r.id)).toEqual(['l1Low:32:0', 'l1High:48:0'])
     expect(off.touches).toBe(true)
     // And back on.
     expect(Array.from(show(all).image)).toEqual(Array.from(on.image))
-    // Layer 1 off with layer 2 on is the mirror image.
+    // Graphics layer 1 off with graphics layer 2 on is the mirror image.
     const l1off = show({ l2Low: null, l2High: null })
     expect([0, 16, 32, 48].map(x => red(l1off, x))).toEqual([256, 256, 0, 0])
   })
 
-  it('has nothing to show when both layers are off', () => {
+  it('has nothing to show when both graphics layers are off', () => {
     const none = show({})
     expect(none.touches).toBe(false)
     expect(none.records()).toEqual([])
