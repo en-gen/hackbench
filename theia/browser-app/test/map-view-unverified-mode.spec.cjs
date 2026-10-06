@@ -65,16 +65,28 @@ test('mode 1E shows the warning, with the #617 link in its tooltip', async ({ pa
 
 test('another mode shows no warning', async ({ page }) => {
   await openSynthetic(page, 0x1e1, 0x0e)
-  await expect(page.locator(`${root(0x1e1)} [data-control="grid-toggle"]`)).toBeVisible()
+  // The details reply has landed once the name shows, so absence is checked after it.
+  await expect(page.locator(`${root(0x1e1)} .hb-map-name`)).toHaveText('Synthetic')
   await expect(page.locator(warning(0x1e1))).toHaveCount(0)
 })
 
-test('switching from a 1E tab to a normal tab hides the warning', async ({ page }) => {
+test('reusing one tab for a 1E level, then a normal one, hides the warning', async ({ page }) => {
+  // The preview tab is reused across maps: one widget, open() twice (hackbench-contribution.ts).
   await openSynthetic(page, 0x1e2, 0x1e)
   await expect(page.locator(warning(0x1e2))).toBeVisible()
-  await openSynthetic(page, 0x1e3, 0x01)
-  await expect(page.locator(`${root(0x1e3)} [data-control="grid-toggle"]`)).toBeVisible()
-  await expect(page.locator(warning(0x1e3))).toHaveCount(0)
-  // The 1E tab is now in the background, so its warning is hidden with it.
-  await expect(page.locator(warning(0x1e2))).toBeHidden()
+  await page.evaluate(async () => {
+    const w = getSvc('ApplicationShell').getWidgetById('hackbench.map-view:482')
+    w.projects = new Proxy(
+      {},
+      {
+        get: (_, name) =>
+          name === 'mapDetails'
+            ? async () => ({ index: 0x1e2, name: 'Normal', screens: 1, levelMode: 0x01 })
+            : async () => ({ status: 'unavailable', reason: 'synthetic level' }),
+      },
+    )
+    await w.open({ manifestPath: 'synthetic.hbproj', index: 0x1e2, label: 'n', iconClass: '' })
+  })
+  await expect(page.locator(`${root(0x1e2)} .hb-map-name`)).toHaveText('Normal')
+  await expect(page.locator(warning(0x1e2))).toHaveCount(0)
 })

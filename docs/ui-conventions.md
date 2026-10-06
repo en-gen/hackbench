@@ -68,6 +68,10 @@ Codicons, the same set the rest of the shell uses. One meaning per glyph.
 | `screen-normal`        | actual size, 100% (Maps)        |
 | `debug-pause`          | pause, leaving state intact     |
 | `refresh`              | discard and reload from source  |
+| `warning`              | toolbar warning (Maps)          |
+
+Use the toolbar warning for a short fact about the whole level that qualifies every pixel (an
+unverified level mode); use an `hb-map-view-note` layer note for a sentence about one layer or plane.
 
 **The glyph must agree with what the code does, and this has been got
 wrong in both directions.** In the Map16 view playback stops and resets,

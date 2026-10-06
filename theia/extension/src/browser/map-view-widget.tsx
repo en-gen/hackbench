@@ -616,7 +616,7 @@ export class MapViewWidget extends ReactWidget {
               title={`Sprite layering in this mode has not been checked against the ROM: ${UNVERIFIED_MODE_ISSUE}`}
             >
               <span className="codicon codicon-warning" />
-              {`Level mode ${this.details!.levelMode!.toString(16).toUpperCase()}: sprite layering not verified`}
+              {`Level mode ${this.details!.levelMode!.toString(16).toUpperCase().padStart(2, '0')}: sprite layering not verified`}
             </span>
           )}
           <button
