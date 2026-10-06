@@ -419,6 +419,15 @@ test('Ctrl+Z during an in-flight Save does not undo the project layer below it',
   await expect
     .poll(() => page.evaluate(() => getSvc('EditStackContribution').state.canUndo))
     .toBe(true)
+  // The Save click disables its button and drops focus, which leaves no active
+  // widget and makes the project handler decline for that reason alone. Make
+  // the GFX view active again so only busy() is what stands in the way.
+  const viewId = await page.evaluate(async () => {
+    const w = getSvc('WidgetManager').getWidgets('hackbench.gfx-view')[0]
+    await getSvc('ApplicationShell').activateWidget(w.id)
+    return w.id
+  })
+  expect(await page.evaluate(() => getSvc('ApplicationShell').activeWidget?.id)).toBe(viewId)
   await page.keyboard.press('Control+z') // must do nothing at all
   await page.waitForTimeout(500)
   await page.evaluate(() => window.__release())
