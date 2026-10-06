@@ -26,7 +26,7 @@ Each run writes `out/<map>.html` and refreshes `out/index.html`, which links eve
 gitignored; the one for `105` is `spikes/collision-probe/out/105.html`: the map, the SVG
 lines (yellow `#ffeb3b` floors and ceilings, purple `#d500f9` walls, 2 px, `vector-effect: non-scaling-stroke`,
 unknown cells hatched), a toggle per group, zoom, a table of tile categories with ids, and the probe-vs-old
-disagreements (also outlined red on the map behind a toggle). About 75 s: 512 ids, two states, ~850 M instructions.
+disagreements (also outlined red on the map behind a toggle). About 78 to 106 s per map, one machine: 512 ids, two states, ~850 M instructions.
 
 ## What runs
 
@@ -82,7 +82,7 @@ Notable measured behaviour:
 - Game state read before written (top: `$1931` ObjectTileset, `$1407` FlightPhase, `$13ED` PlayerSlopePose, `$1DF9`
   sound, `$15` held buttons, `$82-$84` SlopesPtr). The full count per address is at the bottom of the page.
 
-### Disagreements with `TileFactory.classify` (53 of 512 ids; full list on the page)
+### Disagreements with `TileFactory.classify` (59 of 512 ids after the floor-spike fix; full list on the page)
 
 | Ids                                            | Probe                      | Old                                                                  |
 | ---------------------------------------------- | -------------------------- | -------------------------------------------------------------------- |
@@ -90,7 +90,7 @@ Notable measured behaviour:
 | `$011 $013 $015`                               | nothing                    | floor + ceiling                                                      |
 | `$016`                                         | nothing                    | floor + ceiling + wall                                               |
 | `$0EC-$0FB`, `$12A-$12E`, `$166-$169`          | solid                      | nothing (old drops coins/checkpoint ids by id, ignoring the page bit) |
-| `$12F`                                         | ceiling + wall + hurt      | nothing                                                              |
+| `$12F`                                         | floor + ceiling + wall + hurt | nothing                                                              |
 | `$1C8 $1C9`                                    | ceiling slope              | floor slope (signed heights drawn as floor)                          |
 | `$1CB $1CD`                                    | floor half + ceiling half  | floor slope / nothing                                                |
 
@@ -119,15 +119,15 @@ Bug found and fixed while scanning: some levels (tilesets 4, 9, 12, 13) load wit
 entrance, which read as "hurt" on every id. `Probe.run` now clears `$71` first. `$105`, `$10A`, `$111` were
 regenerated after the fix (their level images had `$71` = 0, so their results did not change).
 
-Disagreements with `TileFactory.classify` beyond the 53 on `$105` (ids not in that set, per map):
+Disagreements with `TileFactory.classify` beyond those on `$105` (ids not in that set, per map):
 
 | Map | Ids | Probe | Old |
 | --- | --- | --- | --- |
-| `$10A` (63 total) | `$1C4-$1C7` | ceiling | floor + ceiling |
+| `$10A` (69 total) | `$1C4-$1C7` | ceiling | floor + ceiling |
 | `$10A` | `$1D2-$1D7` | nothing | floor (fillers drawn as floor by old) |
-| `$111` (61 total) | `$159 $15A $15B $15C` | ceiling + wall (hurt) | nothing |
+| `$111` (67 total) | `$159 $15A $15B $15C` | floor + ceiling + wall (hurt) | nothing |
 | `$111` | `$1C4-$1C7` | ceiling | floor + ceiling |
-| `$111` | `$166-$169` | ceiling + wall (hurt) | nothing (on `$105` the same ids are solid: tileset-dependent) |
+| `$111` | `$166-$169` | floor + ceiling + wall (hurt) | nothing (on `$105` the same ids are solid: tileset-dependent) |
 
 Evidence scope as above: vanilla US ROM, one machine, one run on 2026-10-05, tilesets 7, 3 and 1 only.
 
