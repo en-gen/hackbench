@@ -67,9 +67,23 @@ export interface BlockContentTables {
 const SPRITE_SPAN = 0xa0 // id up to $7F, plus $11 when Yoshi is loose
 const STATUS_SPAN = 0x80
 
-function slice(rom: RomFile, addr: number, len: number): Uint8Array {
+/** The loader's refusal: a required table could not be read, so nothing is resolved. */
+export interface TablesUnavailable {
+  readonly unavailable: string
+}
+
+export function isUnavailable(x: BlockContentTables | TablesUnavailable): x is TablesUnavailable {
+  return 'unavailable' in x
+}
+
+/** A table's bytes, or null when any of them lies past the end of the ROM (no zero fill). */
+function slice(rom: RomFile, addr: number, len: number): Uint8Array | null {
   const out = new Uint8Array(len)
-  for (let i = 0; i < len; i++) out[i] = rom.readByte(addr + i) ?? 0
+  for (let i = 0; i < len; i++) {
+    const b = rom.readByte(addr + i)
+    if (b === null) return null
+    out[i] = b
+  }
   return out
 }
 
@@ -79,16 +93,30 @@ function readGreenStarCoins(rom: RomFile): number | null {
   return at === null ? null : (rom.readAtFileOffset(at + 3, 1)?.[0] ?? null)
 }
 
-export function readBlockContentTables(rom: RomFile): BlockContentTables {
+const TABLE_SPECS = [
+  ['selector', 'DATA_00F080', 0x00f080, 36],
+  ['columnCycle', 'DATA_00F100', 0x00f100, 32],
+  ['spriteInBlock', 'SpriteInBlock', 0x0288a3, SPRITE_SPAN],
+  ['statusOfSprInBlk', 'StatusOfSprInBlk', 0x0288c5, STATUS_SPAN],
+  ['columnOverride', 'DATA_0288D6', 0x0288d6, 4],
+  ['columnOverrideStatus', 'DATA_0288D9', 0x0288d9, 4],
+  ['pSwitchAttribute', 'DATA_028A42', 0x028a42, 2],
+  ['eggContents', 'DATA_0288A1', 0x0288a1, 2],
+] as const
+
+/** Read every table, or refuse naming the first one that runs past the end of the ROM. */
+export function readBlockContentTables(rom: RomFile): BlockContentTables | TablesUnavailable {
+  const got: Record<string, Uint8Array> = {}
+  for (const [key, label, addr, len] of TABLE_SPECS) {
+    const bytes = slice(rom, addr, len)
+    if (!bytes) {
+      const at = `$${addr.toString(16).toUpperCase().padStart(6, '0')}`
+      return { unavailable: `${label} (${len} bytes at ${at}) runs past the end of this ROM` }
+    }
+    got[key] = bytes
+  }
   return {
-    selector: slice(rom, 0x00f080, 36),
-    columnCycle: slice(rom, 0x00f100, 32),
-    spriteInBlock: slice(rom, 0x0288a3, SPRITE_SPAN),
-    statusOfSprInBlk: slice(rom, 0x0288c5, STATUS_SPAN),
-    columnOverride: slice(rom, 0x0288d6, 4),
-    columnOverrideStatus: slice(rom, 0x0288d9, 4),
-    pSwitchAttribute: slice(rom, 0x028a42, 2),
-    eggContents: slice(rom, 0x0288a1, 2),
+    ...(got as Omit<BlockContentTables, 'greenStarCoins'>),
     greenStarCoins: readGreenStarCoins(rom),
   }
 }
@@ -268,7 +296,18 @@ export function resolveBlockContents(
   actsLike: number,
   col: number,
   t: BlockContentTables,
-): BlockContents | null {
+): BlockContents | null
+export function resolveBlockContents(
+  actsLike: number,
+  col: number,
+  t: BlockContentTables | TablesUnavailable,
+): BlockContents | TablesUnavailable | null
+export function resolveBlockContents(
+  actsLike: number,
+  col: number,
+  t: BlockContentTables | TablesUnavailable,
+): BlockContents | TablesUnavailable | null {
+  if (isUnavailable(t)) return t
   if (actsLike < FIRST_ITEM_BLOCK || actsLike > LAST_ITEM_BLOCK) return null
   const raw = t.selector[actsLike - FIRST_ITEM_BLOCK] ?? 0
   const normal = altsFor(raw, { t, col, loose: false })

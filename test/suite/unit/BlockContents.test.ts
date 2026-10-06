@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest'
 import {
   cycleColumn,
   FIRST_ITEM_BLOCK,
+  isUnavailable,
   LAST_ITEM_BLOCK,
   PSWITCH_COLOURS,
   readBlockContentTables,
@@ -380,6 +381,12 @@ describe('resolveBlockContents', () => {
   })
 })
 
+function tablesOf(rom: RomFile): BlockContentTables {
+  const t = readBlockContentTables(rom)
+  if (isUnavailable(t)) throw new Error(t.unavailable)
+  return t
+}
+
 // Loader tests on a synthetic LoROM image: bank b, address a lives at b * $8000 + (a & $7FFF).
 describe('readBlockContentTables on a synthetic ROM', () => {
   const at = (bank: number, addr: number): number => bank * 0x8000 + (addr & 0x7fff)
@@ -396,7 +403,7 @@ describe('readBlockContentTables on a synthetic ROM', () => {
   }
 
   it('reads every table from its own address and length', () => {
-    const t = readBlockContentTables(image())
+    const t = tablesOf(image())
     const expectFrom = (got: Uint8Array, bank: number, addr: number, len: number): void => {
       expect(got.length).toBe(len)
       expect(Array.from(got)).toEqual(Array.from({ length: len }, (_, i) => mark(bank, addr + i)))
@@ -411,16 +418,34 @@ describe('readBlockContentTables on a synthetic ROM', () => {
     expectFrom(t.eggContents, 2, 0x88a1, 2)
   })
 
+  it('a ROM that ends before a table refuses with a reason instead of reading zeros', () => {
+    const bytes = new Uint8Array(0x10800) // bank 2 starts at $10000; $0288A3 is past the end
+    bytes[0x7fd5] = 0x20
+    const t = readBlockContentTables(RomFile.fromBytes('short.sfc', bytes))
+    expect(isUnavailable(t)).toBe(true)
+    if (!isUnavailable(t)) return
+    expect(t.unavailable).toMatch(/SpriteInBlock.*\$0288A3.*past the end/)
+    const r = resolveBlockContents(0x112, 0, t)
+    expect(r).toEqual(t)
+  })
+
+  it('a table cut short partway through is refused too', () => {
+    const bytes = new Uint8Array(0x10800 + 0x50) // SpriteInBlock needs 0xA0 bytes from $0288A3
+    bytes[0x7fd5] = 0x20
+    const t = readBlockContentTables(RomFile.fromBytes('cut.sfc', bytes))
+    expect(isUnavailable(t)).toBe(true)
+  })
+
   it('one counter site gives its operand', () => {
-    expect(readBlockContentTables(image(0x100)).greenStarCoins).toBe(0x2a)
+    expect(tablesOf(image(0x100)).greenStarCoins).toBe(0x2a)
   })
 
   it('two counter sites are ambiguous and give null', () => {
-    expect(readBlockContentTables(image(0x100, 0x300)).greenStarCoins).toBeNull()
+    expect(tablesOf(image(0x100, 0x300)).greenStarCoins).toBeNull()
   })
 
   it('no counter site gives null', () => {
-    expect(readBlockContentTables(image()).greenStarCoins).toBeNull()
+    expect(tablesOf(image()).greenStarCoins).toBeNull()
   })
 
   it('a bare store of the counter elsewhere does not make the site ambiguous', () => {
@@ -428,7 +453,7 @@ describe('readBlockContentTables on a synthetic ROM', () => {
     bytes[0x7fd5] = 0x20
     bytes.set(COUNTER, 0x100)
     bytes.set([0xa9, 0x11, 0x8d, 0xc0, 0x0d], 0x400) // same load and store, no branch before it
-    expect(readBlockContentTables(RomFile.fromBytes('s.sfc', bytes)).greenStarCoins).toBe(0x2a)
+    expect(tablesOf(RomFile.fromBytes('s.sfc', bytes)).greenStarCoins).toBe(0x2a)
   })
 })
 
@@ -472,7 +497,7 @@ describe.skipIf(!hasRom(VANILLA))('vanilla ROM: decoded contents of $111-$12D (c
   // Lazy: a skipped suite's body still runs at collection time, with no ROM to load.
   let tables: BlockContentTables | undefined
   const at = (tile: number, col = 0) =>
-    resolveBlockContents(tile, col, (tables ??= readBlockContentTables(freshRom())))!
+    resolveBlockContents(tile, col, (tables ??= tablesOf(freshRom())))!
 
   it.each(Object.entries(VANILLA_FIXED))('tile $%s', (tile, [text, sprites]) => {
     for (let col = 0; col < 16; col++) {

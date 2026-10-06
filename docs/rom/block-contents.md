@@ -118,3 +118,7 @@ when the table has none.
 CI has no ROM and the repo carries no vanilla table bytes: the unit tests run
 the resolver on made-up tables, and the vanilla results above are asserted only
 in the corpus-gated tests of `test/suite/unit/BlockContents.test.ts`.
+
+A ROM that ends before a required table is refused: `readBlockContentTables` returns
+`{ unavailable: reason }` and the resolver passes it through, instead of reading
+zeros as "Nothing".
