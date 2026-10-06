@@ -21,9 +21,9 @@
  * Evidence scope: vanilla, one level at a time; exercised by the grader in
  * test/suite/unit/sprites/spriteGrade.captures.test.ts.
  */
-import { callSubroutine, describe, type CallResult } from '../../cpu/call'
+import { callSubroutine, describe, Refusal, type CallResult } from '../../cpu/call'
 import type { RomFile } from '../../RomFile'
-import { bytesAt, mapperProblem, Refusal, shapeMatches } from './Guards'
+import { bytesAt, mapperProblem, shapeMatches } from './Guards'
 import { smwMachine } from './Machine'
 import { withSeed, type SeedOverride, type SpriteSeed } from './SpriteSeed'
 

@@ -35,7 +35,7 @@ disagreements (also outlined red on the map behind a toggle). About 78 to 106 s 
 | Level state: the ROM's own loader (tileset, `SlopesPtr`, ObjectTileset)    | `LevelLoader.ts` `loadLevelState`                                                                                                                                                                  |
 | Mario's collision body for layer 1                                         | `CODE_00EADB`, SMWDisX `bank_00.asm:11927` (entry, slope and wall tables, the F44D/F461 tile fetch at 13266-13342, the F545 solidity gate at 13410)                                              |
 | The per-frame reset it is called after                                     | `CODE_00EAA6`, `bank_00.asm:11921`; the setup between them mirrors `CODE_00E92B`, `bank_00.asm:11723-11768` (layer 1, horizontal)                                                                  |
-| Bus and guards                                                             | `SpriteBus` (WRAM, LoROM, `inputs` set) and `guardInstruction` (BRK/COP/WDM/STP, leaving ROM), plus a 20,000-instruction budget per call                                                          |
+| Bus and guards                                                             | `SpriteBus` (WRAM, LoROM, `inputs` set) and `romGuard` (BRK/COP/WDM/WAI/STP, leaving ROM), plus a 20,000-instruction budget per call                                                          |
 
 The probe lays out a 16x16-cell level of air ($025), puts one Map16 id in a cell, and sweeps Mario toward it a pixel
 at a time: down for floors (first landing, `$77` bit 2), up for ceilings (`$77` bit 3, or Y speed zeroed, which is how

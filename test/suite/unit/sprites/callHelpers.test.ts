@@ -23,14 +23,14 @@ function machine(code: Record<number, number[]>) {
 }
 
 const ENTRY = 0x008000
-const jsr = (code: number[], over: Partial<Parameters<typeof callSubroutine>[2]> = {}) => {
-  const m = machine({ [ENTRY]: code })
-  return { ...m, r: callSubroutine(m.cpu, ENTRY, { kind: 'jsr', maxSteps: 1000, ...over }) }
-}
-const jsl = (code: number[], over: Partial<Parameters<typeof callSubroutine>[2]> = {}) => {
-  const m = machine({ [ENTRY]: code })
-  return { ...m, r: callSubroutine(m.cpu, ENTRY, { kind: 'jsl', maxSteps: 1000, ...over }) }
-}
+const call =
+  (kind: 'jsr' | 'jsl') =>
+  (code: number[], over: Partial<Parameters<typeof callSubroutine>[2]> = {}) => {
+    const m = machine({ [ENTRY]: code })
+    return { ...m, r: callSubroutine(m.cpu, ENTRY, { kind, maxSteps: 1000, ...over }) }
+  }
+const jsr = call('jsr')
+const jsl = call('jsl')
 
 describe('callSubroutine: returns', () => {
   it('JSR frame, RTS: returned with the exact step count', () => {

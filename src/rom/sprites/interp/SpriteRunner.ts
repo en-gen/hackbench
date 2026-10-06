@@ -8,9 +8,9 @@
  * See docs/ideas/sprite-gfx-interpreter.md for measurements.
  */
 import type { Cpu65816 } from '../../cpu/Cpu65816'
-import { callSubroutine, describe } from '../../cpu/call'
+import { callSubroutine, describe, Refusal } from '../../cpu/call'
 import type { RomFile } from '../../RomFile'
-import { mapperProblem, Refusal } from './Guards'
+import { mapperProblem } from './Guards'
 import { smwMachine } from './Machine'
 import {
   checkGetRand,

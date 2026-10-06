@@ -8,9 +8,6 @@
 import type { RomFile } from '../../RomFile'
 import { romByte } from './SpriteBus'
 
-/** Thrown to stop a run; the message is the refusal reason shown to the user. */
-export { Refusal } from '../../cpu/call'
-
 const REFUSED_OPS: Record<number, string> = { 0x00: 'BRK', 0x02: 'COP', 0x42: 'WDM', 0xcb: 'WAI', 0xdb: 'STP' } // prettier-ignore
 
 /** The mnemonic of an opcode the core cannot meaningfully run here, or undefined. WAI halts until an interrupt that never comes. */
