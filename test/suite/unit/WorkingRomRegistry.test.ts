@@ -36,7 +36,7 @@ const fsFault = vi.hoisted(() => ({
 vi.mock('fs', async importOriginal => {
   const actual = await importOriginal<typeof import('fs')>()
   const wrapped: Record<string, unknown> = { ...actual }
-  for (const name of ['writeFileSync', 'unlinkSync', 'rmSync'] as const) {
+  for (const name of ['writeFileSync', 'unlinkSync', 'rmSync', 'renameSync'] as const) {
     const real = actual[name] as (...args: unknown[]) => unknown
     wrapped[name] = (...args: unknown[]) => {
       fsFault.hook?.(name, String(args[0]))
@@ -407,6 +407,24 @@ describe('WorkingRomRegistry', () => {
         expect(loadLayers(dir)).toHaveLength(0)
       })
 
+      it('keeps the redo, in memory and on disk, when the layer write fails after an undo', () => {
+        const { manifestPath, dir } = gfxProject()
+        working.setGfx(manifestPath, [{ file: 2, tile: 0, pixels: px(5) }])
+        const undone = opened(manifestPath).w.stack[0].id
+        working.undo(manifestPath)
+        fsFault.hook = (call, target) => {
+          if (call === 'writeFileSync' && !target.includes(`${path.sep}redo${path.sep}`)) {
+            throw new Error('disk full')
+          }
+        }
+        const r = working.setGfx(manifestPath, [{ file: 2, tile: 1, pixels: px(6) }])
+        fsFault.hook = null
+        expect(r.status).toBe('io-error')
+        expect(loadLayers(dir)).toHaveLength(0)
+        expect(loadRedoLayers(dir).map(l => l.id)).toEqual([undone])
+        expect(working.editStack(manifestPath)).toMatchObject({ status: 'ok', canRedo: true })
+      })
+
       it('pops the layer back off when the disk write fails', () => {
         const { manifestPath } = gfxProject()
         const held = opened(manifestPath).w // get() would reload from disk and hide a leak
@@ -714,6 +732,45 @@ describe('WorkingRomRegistry', () => {
 
       expect(loadRedoLayers(dir).map(l => l.id)).toEqual([mine])
       expect(working.editStack(manifestPath)).toMatchObject({ status: 'ok', canRedo: true })
+    })
+
+    // The write that fails is the layer's own; the redo future must survive
+    // it, in memory and on disk (#634).
+    it('a setWord whose layer write fails after an undo keeps the redo, in memory and on disk', () => {
+      const { manifestPath, dir, mine } = editedOnce()
+      working.undo(manifestPath)
+      fsFault.hook = (call, target) => {
+        if (call === 'writeFileSync' && !inRedo(target)) throw new Error('disk full')
+      }
+      const r = working.setWord(manifestPath, {
+        romAddr: MARIO_RED_ADDR,
+        oldHex: '$391F',
+        newHex: '$7C00',
+      })
+      fsFault.hook = null
+      expect(r.status).toBe('io-error')
+      expect(loadLayers(dir)).toHaveLength(0)
+      expect(loadRedoLayers(dir).map(l => l.id)).toEqual([mine])
+      expect(working.editStack(manifestPath)).toMatchObject({ status: 'ok', canRedo: true })
+    })
+
+    it('a rename that fails after the redo clear leaves no layer and no temp, memory agreeing', () => {
+      const { manifestPath, dir } = editedOnce()
+      working.undo(manifestPath)
+      fsFault.hook = call => {
+        if (call === 'renameSync') throw new Error('locked')
+      }
+      const r = working.setWord(manifestPath, {
+        romAddr: MARIO_RED_ADDR,
+        oldHex: '$391F',
+        newHex: '$7C00',
+      })
+      fsFault.hook = null
+      expect(r.status).toBe('io-error')
+      expect(fs.readdirSync(path.join(dir, 'ops')).filter(f => f.endsWith('.json'))).toEqual([])
+      expect(fs.readdirSync(path.join(dir, 'ops')).filter(f => f.includes('.tmp'))).toEqual([])
+      expect(loadRedoLayers(dir)).toEqual([])
+      expect(working.editStack(manifestPath)).toMatchObject({ status: 'ok', canRedo: false })
     })
 
     it('a setWord whose layer write fails pops it from the held working copy', () => {

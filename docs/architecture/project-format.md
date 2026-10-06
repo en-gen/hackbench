@@ -95,6 +95,10 @@ inside `ops/` so everything op-shaped lives under one directory, and the
 applied-stack reader is unaffected because it filters to `.json` and a
 directory is not one.
 
+A new edit writes its layer as `NNNN.json.tmp`, clears `ops/redo/`, then renames the
+file to `NNNN.json`. A failed write therefore keeps the redo history, and a stray
+`.tmp` after a crash is not a layer (the reader keeps an exact `.json` suffix).
+
 A project created before `ops/` existed reads back as an empty stack rather
 than an error.
 

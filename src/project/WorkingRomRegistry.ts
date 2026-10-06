@@ -27,6 +27,10 @@ import {
   popRedoLayer,
   clearRedo,
   opsStamp,
+  stageLayer,
+  commitLayer,
+  discardStaged,
+  StagedLayer,
 } from './OpsStore'
 
 /**
@@ -307,7 +311,7 @@ export class WorkingRomRegistry {
   /**
    * The disk half of an edit whose layer `append` has already put on the
    * stack. `append` ended the redo future in memory; this does the same on
-   * disk BEFORE the write, so a failure leaves the two agreeing (a disk redo
+   * disk BEFORE the layer is committed (staged write, clear, rename), so a failure leaves the two agreeing (a disk redo
    * the working copy no longer knows about would come back on the next
    * launch). On failure the layer is popped straight back off: an edit live
    * in memory but never on disk would show as committed, then be gone on
@@ -318,11 +322,17 @@ export class WorkingRomRegistry {
     r: Extract<WorkingRomResult, { status: 'ok' }>,
     layer: Layer,
   ): { status: 'io-error'; reason: string } | null {
+    let staged: StagedLayer | undefined
     try {
+      // Staged first so a failed write throws before clearRedo can destroy
+      // the redo history; the rename comes after the clear so the layer
+      // never sits on disk next to a redo future it ended.
+      staged = stageLayer(r.project.directory, layer)
       clearRedo(r.project.directory)
-      appendLayer(r.project.directory, layer)
+      commitLayer(staged)
       return null
     } catch (err) {
+      if (staged) compensate(() => discardStaged(staged as StagedLayer))
       r.working.pop()
       this.stamps.delete(manifestPath)
       return { status: 'io-error', reason: (err as Error).message }

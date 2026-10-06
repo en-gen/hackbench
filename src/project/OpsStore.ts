@@ -221,7 +221,38 @@ export function loadLayers(projectDirectory: string): Layer[] {
  * persists what was already accepted in memory.
  */
 export function appendLayer(projectDirectory: string, layer: Layer): void {
-  appendTo(opsDir(projectDirectory), layer)
+  commitLayer(stageLayer(projectDirectory, layer))
+}
+
+/** A layer written under a temp name, not yet part of the stack. */
+export interface StagedLayer {
+  tmp: string
+  final: string
+}
+
+/**
+ * Writes the next layer as `NNNN.json.tmp`. layerFiles keeps only an exact
+ * `.json` suffix, so a staged file (or one a crash leaves behind) is invisible
+ * to load and to opsStamp until commitLayer renames it; a later stage at the
+ * same index overwrites it.
+ */
+export function stageLayer(projectDirectory: string, layer: Layer): StagedLayer {
+  const dir = opsDir(projectDirectory)
+  fs.mkdirSync(dir, { recursive: true })
+  const final = path.join(dir, `${String(layerFiles(dir).length).padStart(4, '0')}.json`)
+  const tmp = `${final}.tmp`
+  fs.writeFileSync(tmp, formatLayerFile(layer), 'utf8')
+  return { tmp, final }
+}
+
+/** Puts a staged layer on the stack. */
+export function commitLayer(staged: StagedLayer): void {
+  fs.renameSync(staged.tmp, staged.final)
+}
+
+/** Removes a staged layer that will not be committed. */
+export function discardStaged(staged: StagedLayer): void {
+  fs.unlinkSync(staged.tmp)
 }
 
 /** Deletes the top (most recently appended) layer file; see popFrom. */

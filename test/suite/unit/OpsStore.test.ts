@@ -15,6 +15,7 @@ import {
   popLayer,
   popRedoLayer,
   pushRedoLayer,
+  opsStamp,
   OPS_DIR,
   REDO_DIR,
 } from '../../../src/project/OpsStore'
@@ -102,6 +103,16 @@ describe('OpsStore', () => {
  * Same file format and same zero-padded naming as `ops/` itself, so the
  * highest index is the top of the stack - the next layer `redo` re-applies.
  */
+describe('OpsStore staged layers', () => {
+  it('a stray NNNN.json.tmp is not a layer and does not move opsStamp', () => {
+    appendLayer(tmp, layer('L1'))
+    const before = opsStamp(tmp).key
+    fs.writeFileSync(path.join(tmp, OPS_DIR, '0001.json.tmp'), '{"half":', 'utf8')
+    expect(loadLayers(tmp).map(l => l.id)).toEqual(['L1'])
+    expect(opsStamp(tmp).key).toBe(before)
+  })
+})
+
 describe('OpsStore redo area', () => {
   it('a project with no redo/ directory yet loads as an empty redo stack', () => {
     expect(loadRedoLayers(tmp)).toEqual([])
