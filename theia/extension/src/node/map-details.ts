@@ -81,6 +81,7 @@ export function buildMapDetails(
     ...named,
     headerBytes: h.raw,
     screens: parsed.screens,
+    levelMode: h.levelMode,
     isVertical: verticalTable.ok ? parsed.isVertical : undefined,
     orientationUnavailable: verticalTable.ok ? undefined : verticalTable.reason,
     objectCount: parsed.terminated ? parsed.objects.length : undefined,
