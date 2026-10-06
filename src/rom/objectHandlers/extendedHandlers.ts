@@ -883,8 +883,9 @@ export function handle_0DDA57(cur: Cursor): void {
  * The pointer is the object's screen base from the LoadBlkPtrs tables, plus
  * $100 when the high-coordinate bit is set (bank_05.asm:730-782).
  *
- * L1 tables, Ptrs00BDA8 (bank_00.asm:6999-7019): horizontal modes use
- * DATA_00BAD8 (6727; $1B0 per screen, 16 screens) or DATA_00BB92 (modes 5/6);
+ * L1 tables, Ptrs00BDA8 (bank_00.asm:6999-7031): horizontal modes (incl. $1E/$1F,
+ * 7030-7031) use DATA_00BAD8 (6727; $1B0 per screen, 16 entries, the run on into
+ * the next table giving screens 16-31 at the same stride) or DATA_00BB92 (modes 5/6);
  * vertical modes use DATA_00BB38 (modes 3/4, 7003-7004) or DATA_00BBEC
  * (modes 7/8/A/D, 7007-7013), both $200 per screen. L2 uses the parallel set
  * Ptrs00BDE8 (7033-7065). A vertical screen is the left $100 bytes (cols 0-15)

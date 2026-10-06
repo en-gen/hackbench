@@ -116,7 +116,7 @@ describe('ext $5F clip is a fixed bound, not the rows an earlier object grew', (
 // The oracle in ObjectExpander.test.ts shares the layout assumption with the
 // handler. This one reads the strides out of the vanilla ROM's own tables.
 describe.skipIf(!hasRom(VANILLA))(
-  'ext $5F strides read from the vanilla LoadBlkPtrs tables',
+  'ext $5F stride assumption checked against the vanilla LoadBlkPtrs tables',
   () => {
     const PTRS_L1 = 0x00bda8 // Ptrs00BDA8, bank_00.asm:6999
     const rom = hasRom(VANILLA) ? freshRom() : (null as unknown as RomFile)
@@ -128,7 +128,7 @@ describe.skipIf(!hasRom(VANILLA))(
     const VERTICAL_L1 = [3, 4, 7, 8, 10, 13] // VerticalTable bit 0 set (bank_05.asm:480-482)
     const HORIZONTAL_L1 = [0, 1, 2, 5, 6, 12, 14, 15]
 
-    it.each(VERTICAL_L1)('mode %i: $200 per screen, the stride the handler uses', mode => {
+    it.each(VERTICAL_L1)('mode %i: $200 per screen in the ROM table', mode => {
       const t = tableOf(mode)
       const origin = entry(0x00bad8, 0)
       for (let s = 0; s < 14; s++) expect(entry(t, s) - origin).toBe(s * 0x200)
@@ -143,12 +143,6 @@ describe.skipIf(!hasRom(VANILLA))(
     it('modes 3 and 4 break at screen 14 (not modelled)', () => {
       const origin = entry(0x00bad8, 0)
       expect(entry(tableOf(3), 14) - origin).toBe(0x1b00)
-      expect(14 * 0x200).toBe(0x1c00)
-    })
-
-    it('the high-coordinate bit adds $100 (bank_05.asm:778-782), modelled as the half select', () => {
-      // 16 rows of 16 columns: the right half of a vertical screen, row 16 of a horizontal one.
-      expect(0x100).toBe(16 * 16)
     })
   },
 )

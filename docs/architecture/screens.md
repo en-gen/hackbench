@@ -21,15 +21,18 @@ two pages SIDE BY SIDE: a vertical screen is 32 wide x 16 tall (`screenTiles`,
 16 cols" transposed is INFERENCE, supported by the nibble swap below and the
 right-half comment (`bank_05.asm:781`).
 
-Per level mode (bank_00.asm; "L1" is `Ptrs00BDA8` at 6999-7019, "L2" is
+Per level mode (bank_00.asm; "L1" is `Ptrs00BDA8` at 6999-7031, "L2" is
 `Ptrs00BDE8` at 7033-7065; tables `DATA_00BAD8` 6727 to `DATA_00BC16` 6847):
 
-| Level modes    | L1 table, stride, base     | L2 table, stride, base  |
-| -------------- | -------------------------- | ----------------------- |
-| 0 1 2 C E F 11 | `BAD8`, `$1B0`, 16 at `$0` | `BB08`, `$1B0`, `$1B00` |
-| 3 4 (L1 vert.) | `BB38`, `$200`, 14 screens | `BB62`, `$1B0`, `$1B00` |
-| 5 6 (L2 vert.) | `BB92`, `$1B0`             | `BBC2`, `$200`, `$1C00` |
-| 7 8 A D        | `BBEC`, `$200`, 28 screens | `BC16`, `$200`, `$1C00` |
+| Level modes          | L1 table, stride, base     | L2 table, stride, base  |
+| -------------------- | -------------------------- | ----------------------- |
+| 0 1 2 C E F 11 1E 1F | `BAD8`, `$1B0`, 16 at `$0` | `BB08`, `$1B0`, `$1B00` |
+| 3 4 (L1 vert.)       | `BB38`, `$200`, 14 screens | `BB62`, `$1B0`, `$1B00` |
+| 5 6 (L2 vert.)       | `BB92`, `$1B0`             | `BBC2`, `$200`, `$1C00` |
+| 7 8 A D              | `BBEC`, `$200`, 28 screens | `BC16`, `$200`, `$1C00` |
+
+"16 screens" and "28 screens" are the effective run-on into the next table (screens
+16-31 of a mode-0 L1 read from `BB08` at the same `$1B0` stride).
 
 Where this breaks the port's single-stride model:
 
