@@ -11,11 +11,11 @@
 import { describe, it, expect } from 'vitest'
 import {
   FIRST_ITEM_BLOCK,
-  readBlockContentTables,
   resolveBlockContents,
   type BlockContentTables,
   type BlockContents,
 } from '../../../src/rom/BlockContents'
+import { composeScreen } from '../../../src/rom/model/ColorMath'
 import { RomFile } from '../../../src/rom/RomFile'
 import {
   blockIndicators,
@@ -24,7 +24,6 @@ import {
   pickIndicator,
   plainWhy,
   readCoinParts,
-  contentIndex,
   spawnInputs,
   type Drawn,
   type IndicatorModel,
@@ -35,10 +34,9 @@ import { L1ModelCache } from '../../../theia/extension/src/node/map-screen'
 import {
   decodeArts,
   hoverTarget,
-  composeIndicatorScreen,
-  indicatorsTouch,
-  paintScreenIndicators,
+  IndicatorDisplay,
   scaleNearest,
+  scaleRegion,
   type Indicator,
 } from '../../../theia/extension/src/browser/map-view-model'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
@@ -274,15 +272,27 @@ describe('pickIndicator', () => {
 })
 
 // ---- the spawn and the code gates, on a synthetic cart ----
-const sp = (sprite: number, status: number, extra: object = {}) => ({ kind: 'sprite' as const, sprite, status, label: '', ...extra }) // prettier-ignore
 
 describe('the spawn inputs', () => {
-  it('finds the SpriteInBlock index of an item by sprite and status, and the balloon family by position', () => {
-    expect(contentIndex(sp(0x41, 8), TABLES)).toBe(1)
-    expect(contentIndex(sp(0x3e, 9), TABLES)).toBe(14)
-    expect(contentIndex(sp(0x3e, 8), TABLES)).toBeNull() // right sprite, status the table does not give
-    expect(contentIndex(sp(0x80, 9, { position: 'X column 1 of 4' }), TABLES)).toBe(0x0b)
-    expect(contentIndex(sp(0x55, 8), TABLES)).toBeNull()
+  it('takes the content index from the resolver, the balloon family included', () => {
+    const r = (tile: number, col = 0) => resolveBlockContents(tile, col, TABLES)
+    const index = (tile: number, col = 0) => {
+      const c = r(tile, col)
+      return c && 'alternatives' in c ? c.alternatives.map(a => (a.content.kind === 'sprite' ? a.content.index : null)) : [] // prettier-ignore
+    }
+    expect(index(0x115)).toEqual([3]) // plain content 3
+    expect(index(0x114)).toEqual([14]) // the P-switch
+    expect(index(0x113)).toEqual([1, 2]) // progressive 2: mushroom index 1, then index 2
+    // The balloon (index 16 in this table) keeps its own index whichever sprite the column rewrites it to.
+    const t = {
+      ...TABLES,
+      selector: Uint8Array.from(SELECTOR.map((v, i) => (i === 0x116 - 0x111 ? 0x20 : v))),
+    }
+    for (let col = 0; col < 4; col++) {
+      const c = resolveBlockContents(0x116, col, t)
+      const alt = c && 'alternatives' in c ? c.alternatives[0]!.content : null
+      expect(alt && alt.kind === 'sprite' && alt.index).toBe(16)
+    }
   })
   it('seeds only what GenSpriteFromBlk reads: the index, the block position and cleared flags', () => {
     expect(spawnInputs(14, 0x1234, 0x0150)).toEqual({
@@ -399,7 +409,7 @@ describe('hoverTarget', () => {
   })
 })
 
-describe('composeIndicatorScreen: indicators draw in the layer pass of their block', () => {
+describe('IndicatorDisplay: indicators draw in the layer pass of their block', () => {
   const g = { orientation: 'horizontal' as const, width: 32, height: 32 }
   const arts = decodeArts({ a: Buffer.from(solid([200, 0, 0, 255])).toString('base64') })
   const native = (cells: [number, number][], rgb: [number, number, number]) => {
@@ -407,113 +417,115 @@ describe('composeIndicatorScreen: indicators draw in the layer pass of their blo
     for (const [x, y] of cells) d.set([...rgb, 255], (y * 32 + x) * 4)
     return d
   }
-  const lists = { main: ['l2Low', 'l1Low'] as const, sub: [] as const }
-  const run = (planes: Record<string, Uint8ClampedArray | null>, ind: Indicator[], zoom = 2, hoverId?: string) => // prettier-ignore
-    composeIndicatorScreen({ width: 32, height: 32, zoom, screen: 0, geometry: g, planes: planes as never, lists: { main: [...lists.main], sub: [] }, math: null, indicators: ind, arts, hoverId }) // prettier-ignore
-  const at2 = (r: ReturnType<typeof run>, x: number, y: number) => Array.from(r.rgba.subarray((y * r.width + x) * 4, (y * r.width + x) * 4 + 4)) // prettier-ignore
+  const lists = { main: ['l2Low', 'l1Low'] as ('l2Low' | 'l1Low')[], sub: [] as never[] }
+  /** The native composite of `planes` (what the view's composite canvas holds). */
+  const baseOf = (planes: Record<string, Uint8ClampedArray | null>) =>
+    composeScreen({ width: 32, height: 32, planes: planes as never, lists, math: null })
+  const build = (planes: Record<string, Uint8ClampedArray | null>, ind: Indicator[], zoom = 2, hoverId?: string, screen = 0) => // prettier-ignore
+    new IndicatorDisplay({ width: 32, height: 32, zoom, screen, geometry: g, planes: planes as never, lists, math: null, base: baseOf(planes), indicators: ind, arts }, hoverId) // prettier-ignore
+  const at2 = (d: IndicatorDisplay, x: number, y: number) => Array.from(d.image.subarray((y * d.width + x) * 4, (y * d.width + x) * 4 + 4)) // prettier-ignore
 
-  it('composes at screen resolution', () => {
-    const r = run({ l1Low: null, l2Low: null }, [A('a', 0, 0, 'l2Low')], 3)
-    expect([r.width, r.height]).toEqual([96, 96])
+  it('is the screen at the zoom, the native composite scaled, where there is no indicator', () => {
+    const planes = { l1Low: native([[20, 20]], [0, 0, 255]), l2Low: null }
+    const d = build(planes, [A('a', 0, 0, 'l2Low')], 3)
+    expect([d.width, d.height]).toEqual([96, 96])
+    expect(at2(d, 60, 60)).toEqual([0, 0, 255, 255])
+    expect(at2(d, 62, 62)).toEqual([0, 0, 255, 255])
+    expect(at2(d, 80, 80)).toEqual([0, 0, 0, 0])
   })
 
   it('shows an indicator of the farther layer where the nearer layer has nothing', () => {
-    const r = run({ l1Low: null, l2Low: null }, [A('a', 0, 0, 'l2Low')])
-    expect(at2(r, 30, 30)).toEqual([200, 0, 0, 255]) // the quadrant (16..31 at 2x)
-    expect(at2(r, 10, 10)).toEqual([0, 0, 0, 0])
+    const d = build({ l1Low: null, l2Low: null }, [A('a', 0, 0, 'l2Low')])
+    expect(at2(d, 30, 30)).toEqual([200, 0, 0, 255]) // the quadrant (16..31 at 2x)
+    expect(at2(d, 10, 10)).toEqual([0, 0, 0, 0])
   })
 
   it('hides it where a nearer layer has an opaque pixel, exactly as it hides the block', () => {
     // The nearer plane's native pixel (14, 14) is 2 x 2 screen pixels at 2x: (28..29, 28..29), over the indicator.
-    const r = run({ l1Low: native([[14, 14]], [0, 0, 255]), l2Low: null }, [A('a', 0, 0, 'l2Low')])
-    expect(at2(r, 28, 28)).toEqual([0, 0, 255, 255])
-    expect(at2(r, 29, 29)).toEqual([0, 0, 255, 255])
-    expect(at2(r, 30, 28)).toEqual([200, 0, 0, 255]) // the indicator outside the covering pixel stays
-    expect(at2(r, 30, 30)).toEqual([200, 0, 0, 255])
-  })
-
-  it('draws a nearer-layer indicator over a farther-layer pixels, and a hidden layer indicator not at all', () => {
-    const far = native([[14, 14]], [0, 255, 0])
-    const near = run({ l1Low: null, l2Low: far }, [A('a', 0, 0, 'l1Low')])
-    expect(at2(near, 28, 28)).toEqual([200, 0, 0, 255])
-    const hidden = run({ l2Low: far }, [A('a', 0, 0, 'l1Low')]) // layer 1 not shown: its plane is absent
-    expect(at2(hidden, 28, 28)).toEqual([0, 255, 0, 255])
-    expect(hidden.painted).toEqual([])
-  })
-
-  it('reports what it painted, and whether any indicator touches the screen', () => {
-    const r = run(
-      { l1Low: null, l2Low: null },
-      [A('a', 0, 0), A('a', 0, 0, 'l2Low')],
-      1,
-      'l1Low:0:0',
-    )
-    expect(r.painted.map(p => [p.id, p.hover])).toEqual([['l1Low:0:0', true], ['l2Low:0:0', false]]) // prettier-ignore
-    const base = { screen: 0, geometry: g, lists: { main: ['l1Low' as const], sub: [] as never[] } }
-    expect(indicatorsTouch({ ...base, planes: { l1Low: null }, indicators: [A('a', 0, 0)] })).toBe(
-      true,
-    )
-    expect(indicatorsTouch({ ...base, planes: {}, indicators: [A('a', 0, 0)] })).toBe(false) // plane hidden
-    expect(indicatorsTouch({ ...base, planes: { l1Low: null }, indicators: [A('a', 64, 0)] })).toBe(
-      false,
-    ) // another screen
-    expect(
-      indicatorsTouch({ ...base, planes: { l1Low: null }, indicators: [A('a', 0, 0, 'l2Low')] }),
-    ).toBe(false) // plane not composed
-  })
-
-  it('scales by nearest sampling, keeping each source pixel whole', () => {
-    const src = new Uint8ClampedArray([1, 0, 0, 255, 2, 0, 0, 255])
-    expect(Array.from(scaleNearest(src, 2, 1, 4, 1)).filter((_, i) => i % 4 === 0)).toEqual([
-      1, 1, 2, 2,
+    const d = build({ l1Low: native([[14, 14]], [0, 0, 255]), l2Low: null }, [
+      A('a', 0, 0, 'l2Low'),
     ])
-    expect(Array.from(scaleNearest(src, 2, 1, 1, 1))[0]).toBe(1)
+    expect(at2(d, 28, 28)).toEqual([0, 0, 255, 255])
+    expect(at2(d, 29, 29)).toEqual([0, 0, 255, 255])
+    expect(at2(d, 30, 28)).toEqual([200, 0, 0, 255]) // the indicator outside the covering pixel stays
+    expect(at2(d, 30, 30)).toEqual([200, 0, 0, 255])
+  })
+
+  it('draws a nearer-layer indicator over farther-layer pixels, and a hidden layer indicator not at all', () => {
+    const far = native([[14, 14]], [0, 255, 0])
+    expect(at2(build({ l1Low: null, l2Low: far }, [A('a', 0, 0, 'l1Low')]), 28, 28)).toEqual([200, 0, 0, 255]) // prettier-ignore
+    const hidden = build({ l2Low: far }, [A('a', 0, 0, 'l1Low')]) // layer 1 not shown: its plane is absent
+    expect(at2(hidden, 28, 28)).toEqual([0, 255, 0, 255])
+    expect(hidden.touches).toBe(false)
+    expect(hidden.records()).toEqual([])
+  })
+
+  it('records only the planes the lists compose, on this screen, with the item box at rest and on hover', () => {
+    const planes = { l1Low: null, l2Low: null }
+    const d = build(planes, [A('a', 0, 0), A('a', 0, 0, 'l2Low'), A('a', 0, 0, 'l1High'), A('a', 64, 0)], 2, 'l1Low:0:0') // prettier-ignore
+    expect(d.records()).toEqual([
+      { id: 'l1Low:0:0', hover: true, box: { x0: 0, y0: 0, x1: 32, y1: 32 } },
+      { id: 'l2Low:0:0', hover: false, box: { x0: 16, y0: 16, x1: 32, y1: 32 } },
+    ]) // l1High is in no list and (64, 0) is another screen
+  })
+
+  it('moves the hover by recomposing only the cells it touches, to the same picture as a fresh build', () => {
+    const planes = {
+      l1Low: native(
+        [
+          [14, 14],
+          [3, 3],
+        ],
+        [0, 0, 255],
+      ),
+      l2Low: null,
+    }
+    const list = [A('a', 0, 0, 'l2Low'), A('a', 16, 0, 'l2Low')]
+    for (const zoom of [1, 2, 3]) {
+      const d = build(planes, list, zoom)
+      const regions = d.setHover('l2Low:16:0')
+      expect(regions).toHaveLength(1)
+      expect(regions[0]).toMatchObject({ x: 16 * zoom, y: 0, width: 16 * zoom, height: 16 * zoom })
+      expect(Array.from(d.image)).toEqual(Array.from(build(planes, list, zoom, 'l2Low:16:0').image))
+      // And back, through the other cell: the old one is recomposed too.
+      expect(d.setHover('l2Low:0:0')).toHaveLength(2)
+      expect(Array.from(d.image)).toEqual(Array.from(build(planes, list, zoom, 'l2Low:0:0').image))
+      expect(d.setHover(undefined)).toHaveLength(1)
+      expect(Array.from(d.image)).toEqual(Array.from(build(planes, list, zoom).image))
+      expect(d.setHover(undefined)).toEqual([])
+    }
+  })
+
+  it('applies color math to an indicator as it does to its plane', () => {
+    const math = { cgadsub: 0x21, fixed: [0, 0, 120] as const } // add the fixed color to BG1 and the backdrop
+    const mk = (planes: Record<string, Uint8ClampedArray | null>) => composeScreen({ width: 32, height: 32, planes: planes as never, lists: { main: ['l1Low'], sub: [] }, math }) // prettier-ignore
+    const planes = { l1Low: null }
+    const d = new IndicatorDisplay({ width: 32, height: 32, zoom: 1, screen: 0, geometry: g, planes: planes as never, lists: { main: ['l1Low'], sub: [] }, math, base: mk(planes), indicators: [A('a', 0, 0)], arts }) // prettier-ignore
+    const px = Array.from(d.image.subarray((12 * 32 + 12) * 4, (12 * 32 + 12) * 4 + 4))
+    expect(px[0]).toBe(206) // red kept, in the 5-bit steps color math works in (200 to 206)
+    expect(px[2]).toBeGreaterThan(100) // blue: the fixed color was added to the indicator too
+  })
+
+  it('scales by nearest sampling, whole rows and regions alike', () => {
+    const src = new Uint8ClampedArray([1, 0, 0, 255, 2, 0, 0, 255, 3, 0, 0, 255, 4, 0, 0, 255])
+    const reds = (a: Uint8ClampedArray) => Array.from(a).filter((_, i) => i % 4 === 0)
+    expect(reds(scaleNearest(src, 2, 2, 4, 4))).toEqual([
+      1, 1, 2, 2, 1, 1, 2, 2, 3, 3, 4, 4, 3, 3, 4, 4,
+    ])
+    expect(reds(scaleNearest(src, 2, 2, 1, 1))).toEqual([1])
+    const full = scaleNearest(src, 2, 2, 6, 6)
+    expect(reds(scaleRegion(src, 2, 2, 6, 6, { x0: 2, y0: 2, x1: 5, y1: 4 }))).toEqual(
+      [0, 1].flatMap(y => [2, 3, 4].map(x => full[((y + 2) * 6 + x) * 4]!)),
+    )
   })
 })
-
-describe('paintScreenIndicators', () => {
-  const g = { orientation: 'horizontal' as const, width: 64, height: 64 }
-  const arts = decodeArts({ a: Buffer.from(solid([200, 0, 0, 255])).toString('base64') })
-  const list = [A('a', 16, 16), A('a', 80, 16), A('a', 16, 16, 'l2Low')]
-  it.each([1, 2, 3])(
-    'paints the quadrant at rest and the block on hover at %ix, in screen pixels',
-    z => {
-      const rest = new Uint8ClampedArray(64 * z * 64 * z * 4)
-      const r = paintScreenIndicators(rest, 0, g, z, list, arts, p => p === 'l1Low', undefined)
-      expect(r).toEqual([{ id: 'l1Low:16:16', hover: false, box: { x0: 24 * z, y0: 24 * z, x1: 32 * z, y1: 32 * z } }]) // prettier-ignore
-      const hov = new Uint8ClampedArray(64 * z * 64 * z * 4)
-      const h = paintScreenIndicators(hov, 0, g, z, list, arts, p => p === 'l1Low', 'l1Low:16:16')
-      expect(h[0]!.box).toEqual({ x0: 16 * z, y0: 16 * z, x1: 32 * z, y1: 32 * z })
-      const lit = (d: Uint8ClampedArray) => d.filter((v, i) => i % 4 === 3 && v !== 0).length
-      expect([lit(rest), lit(hov)]).toEqual([(8 * z) ** 2, (16 * z) ** 2])
-    },
-  )
-  it('draws only the shown planes and only the blocks on its screen', () => {
-    const none = paintScreenIndicators(new Uint8ClampedArray(64 * 64 * 4), 0, g, 1, list, arts, () => false, undefined) // prettier-ignore
-    expect(none).toEqual([])
-    const s1 = paintScreenIndicators(new Uint8ClampedArray(64 * 64 * 4), 1, g, 1, list, arts, p => p === 'l1Low', undefined) // prettier-ignore
-    expect(s1.map(i => i.box.x0)).toEqual([80 - 64 + 8])
-  })
-})
-
-/** The vanilla tables, read from the corpus ROM (corpus-gated callers only). */
-function VANILLA_TABLES(bytes: Uint8Array): BlockContentTables {
-  const t = readBlockContentTables(RomFile.fromBytes('v.sfc', Buffer.from(bytes)))
-  if ('unavailable' in t) throw new Error(t.unavailable)
-  return t
-}
 
 /** The coin's colours on map $10B, from the cart's own coin draw. */
 function romArtCoin(): Set<string> {
   const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
   const built = new L1ModelCache().get(bytes, romPath(VANILLA), 0x10b, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
   if (!built.ok) throw new Error(built.reason)
-  const d = romArt(
-    RomFile.fromBytes('v.sfc', Buffer.from(bytes)),
-    0x10b,
-    built.inputs,
-    VANILLA_TABLES(bytes),
-  ).coin(false)
+  const d = romArt(RomFile.fromBytes('v.sfc', Buffer.from(bytes)), 0x10b, built.inputs).coin(false)
   if (!('art' in d)) throw new Error(d.why)
   const out = new Set<string>()
   for (let i = 0; i < d.art.length; i += 4)
@@ -588,14 +600,9 @@ describe.skipIf(!hasRom(VANILLA))('mapBlockContents on the vanilla ROM', () => {
     const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
     const built = new L1ModelCache().get(bytes, romPath(VANILLA), 0x126, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
     if (!built.ok) throw new Error(built.reason)
-    const art = romArt(
-      RomFile.fromBytes('v.sfc', Buffer.from(bytes)),
-      0x126,
-      built.inputs,
-      VANILLA_TABLES(bytes),
-    )
+    const art = romArt(RomFile.fromBytes('v.sfc', Buffer.from(bytes)), 0x126, built.inputs)
     const draw = (sprite: number, status: number) => {
-      const d = art.sprite({ kind: 'sprite', sprite, status, label: '' }, 5, 10)
+      const d = art.sprite({ kind: 'sprite', sprite, index: ({ 0x2c: 12, 4: 13 } as Record<number, number>)[sprite]!, status, label: '' }, 5, 10) // prettier-ignore
       if (!('art' in d)) throw new Error(d.why)
       return d.art
     }
@@ -638,14 +645,9 @@ describe.skipIf(!hasRom(VANILLA))('mapBlockContents on the vanilla ROM', () => {
       expect(split.length, `${small}/${big} is on map ${map.toString(16)}`).toBe(1024)
       const built = cache.get(bytes, romPath(VANILLA), map, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
       if (!built.ok) throw new Error(built.reason)
-      const art = romArt(
-        RomFile.fromBytes('v.sfc', Buffer.from(bytes)),
-        map,
-        built.inputs,
-        VANILLA_TABLES(bytes),
-      )
+      const art = romArt(RomFile.fromBytes('v.sfc', Buffer.from(bytes)), map, built.inputs)
       const one = (k: string) => {
-        const d = k === 'coin' ? art.coin(false) : art.sprite({ kind: 'sprite', sprite: parseInt(k.slice(1), 16), status: 8, label: '' }, 5, 10) // prettier-ignore
+        const d = k === 'coin' ? art.coin(false) : art.sprite({ kind: 'sprite', sprite: parseInt(k.slice(1), 16), index: parseInt(k.slice(1), 16) - 0x73, status: 8, label: '' }, 5, 10) // prettier-ignore
         if (!('art' in d)) throw new Error(d.why)
         return diagOf(d.art)
       }

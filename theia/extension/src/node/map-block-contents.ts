@@ -4,11 +4,11 @@
  * (`resolveBlockContents`, docs/rom/block-contents.md); this file places and draws.
  *
  * Item art is the sprite RUN on the 65816 core, the path the map's sprite layer
- * uses (#585, `interpDrawer`), set up by the game's OWN block spawn: GenSpriteFromBlk
- * (SMWDisX bank_02.asm:1122-1292) runs on the core with the inputs it reads seeded
- * generically (`spawnInputs`): it picks the slot, writes the status and sprite number
- * from StatusOfSprInBlk and SpriteInBlock, calls InitSpriteTables, places the sprite
- * and writes its spawn cells (rise speed, timers, the P-switch colour, the balloon's
+ * uses (#585, `interpDrawer`), set up by the game's OWN block spawn: the dispatcher CODE_0288DC and GenSpriteFromBlk
+ * (SMWDisX bank_02.asm:1097-1292) run on the core with the inputs it reads seeded
+ * generically (`spawnInputs`): they pick the slot (FindFreeSprSlot's for the egg, key, vine and balloon), write the status and sprite number
+ * from StatusOfSprInBlk and SpriteInBlock, call InitSpriteTables, place the sprite
+ * and write its spawn cells (rise speed, timers, the P-switch colour, the balloon's
  * direction, C2). The sprite's INIT never runs; its status handler draws it, so a status-9
  * egg or shell is the stunned one. Nothing about the spawn is ported here. The coin is
  * not a sprite: its chars are the immediates of the coin draw (bank_02.asm:3432-3441).
@@ -42,11 +42,7 @@ import { base64, screenTiles, type L1ModelCache, type MapInputs } from './map-sc
 const NO_FLAGS = { yellow: false, green: false, red: false, blue: false }
 /** Replies kept per working-copy bytes: each holds every item's art, so a whole ROM's maps are not. */
 const REPLIES_PER_BYTES = 8
-/** The slot the spawn routine finds first with every slot empty (bank_02.asm:1123: LDX #$0B). */
-const SPAWN_SLOT = 0x0b
-/** SpriteInBlock's balloon entry: its X column picks the sprite (bank_02.asm:1199-1212). */
-const BALLOON_CONTENT = 0x0b
-/** WRAM cells GenSpriteFromBlk reads (rammap.asm): the content index and the block's position. */
+/** WRAM cells the item block spawn reads (rammap.asm): the content index and the block's position. */
 const IN = { content: 0x05, touchY: 0x98, touchX: 0x9a, directCoinInit: 0x1432, yoshiLoose: 0x18e2, layer: 0x1933 } as const // prettier-ignore
 
 type Item = Exclude<BlockContent, { kind: 'none' }>
@@ -232,18 +228,6 @@ export function readCoinParts(rom: RomFile): Read<{ parts: EnginePart[] }> {
   return { ok: true, parts }
 }
 
-/**
- * The content index GenSpriteFromBlk is entered with (`_5`): the SpriteInBlock index of the
- * item, or the balloon's for a column-rewritten one. Null when the item is not in the table.
- */
-export function contentIndex(c: SpriteItem, t: BlockContentTables): number | null {
-  if (c.position !== undefined) return BALLOON_CONTENT
-  for (let i = 0; i < 17; i++) {
-    if (t.spriteInBlock[i] === c.sprite && t.statusOfSprInBlk[i] === c.status) return i
-  }
-  return null
-}
-
 /** The cells the spawn reads, for a block at map pixel (x, y): generic, no per-sprite values. */
 export function spawnInputs(content: number, x: number, y: number): Record<number, number> {
   const [px, py] = [Math.max(0, x), Math.max(0, y)]
@@ -263,12 +247,7 @@ const fake = (spriteId: number, x: number, y: number) =>
   ({ screen: 0, x, y, spriteId, extraBit: false, raw: [0, 0, 0], index: 0 }) as LevelSprite
 
 /** The ROM-backed art: sprites spawned by the game's own routine and run on the core, the coin from its draw immediates. */
-export function romArt(
-  rom: RomFile,
-  index: number,
-  model: MapInputs,
-  t: BlockContentTables,
-): ItemArt {
+export function romArt(rom: RomFile, index: number, model: MapInputs): ItemArt {
   const level = { vram: model.vram, colors: model.colors }
   const render = (draw: SpriteDrawer, id: number, col: number, row: number): Drawn => {
     const [d] = drawSprites([fake(id, col, row)], level, draw)
@@ -288,11 +267,8 @@ export function romArt(
       return 'art' in d && multi ? { art: bakePlus(d.art) } : d
     },
     sprite: (c, col, row) => {
-      const content = contentIndex(c, t)
-      if (content === null)
-        return { why: `refused: sprite $${c.sprite.toString(16)} is not in SpriteInBlock` }
-      inputs = spawnInputs(content, col * TILE, row * TILE)
-      drawer ??= interpDrawer(rom, index, model, (r, id, seed) => runOnce(r, id, { ...seed, slot: SPAWN_SLOT }, { spawn: { inputs } })) // prettier-ignore
+      inputs = spawnInputs(c.index, col * TILE, row * TILE)
+      drawer ??= interpDrawer(rom, index, model, (r, id, seed) => runOnce(r, id, { ...seed, slot: 0 }, { spawn: { inputs } })) // prettier-ignore
       return render(drawer, c.sprite, col, row)
     },
   }
@@ -321,7 +297,7 @@ export function mapBlockContents(
     r = blockIndicators(
       built.inputs,
       tables,
-      isUnavailable(tables) ? stub : romArt(rom, index, built.inputs, tables),
+      isUnavailable(tables) ? stub : romArt(rom, index, built.inputs),
     )
   } catch (err) {
     return { status: 'unavailable', reason: (err as Error).message }

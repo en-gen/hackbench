@@ -44,7 +44,7 @@ export interface SyntheticOptions {
   /** The data loader executes COP after its shape bytes. */
   loaderCop?: boolean
   /** Break one shape of the item block spawn routine at $02:8905: its slot countdown or its status write. */
-  badSpawn?: 'head' | 'status'
+  badSpawn?: 'head' | 'status' | 'dispatch'
   /** The spawn routine's own timer immediate (written to $1540,X); default $37. */
   spawnTimer?: number
   /** The spawn routine never returns. */
@@ -160,8 +160,12 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   // InitSpriteTables, then 1540,X = a timer immediate and C2,X += 1. Tables: $02:88A3 numbers, $02:88C5
   // status, by content index 1: sprite 5 (draws nothing), 8; 2: sprite 13 (counts its INIT calls), 9;
   // 3: sprite 0 (draws a 16x16 piece), 8.
-  put(0x0288a3, [0, 5, 13, 0])
-  put(0x0288c5, [0, 8, 9, 8])
+  put(0x0288a3, [0, 5, 13, 0, 0, 0, 0, 0, 0, 0, 0, 0, 13])
+  put(0x0288c5, [0, 8, 9, 8, 0, 0, 0, 0, 0, 0, 0, 0, 9])
+  // The vanilla dispatcher CODE_0288DC byte for byte (its branches land on $028905 and $028922): content 12 (as
+  // CPY #$0C) goes through FindFreeSprSlot, which here always answers slot 7; every other index falls to $028905.
+  if (o.badSpawn !== 'dispatch') put(0x0288dc, [0xa4, 0x05, 0xc0, 0x0b, 0xd0, 0x08, 0xa5, 0x9a, 0x29, 0x30, 0xc9, 0x20, 0xf0, 0x1b, 0xc0, 0x10, 0xf0, 0x0f, 0xc0, 0x08, 0xd0, 0x07, 0xad, 0x92, 0x16, 0xf0, 0x0e, 0xd0, 0x04, 0xc0, 0x0c, 0xd0, 0x08, 0x22, 0xe4, 0xa9, 0x02, 0xbb, 0x10, 0x1e, 0x6b]) // prettier-ignore
+  put(0x02a9e4, [0xa0, 0x07, 0x6b]) // FindFreeSprSlot stand-in: Y = 7
   put(0x028905, [o.badSpawn === 'head' ? 0xea : 0xa2, 0x0b, 0xbd, 0xc8, 0x14, 0xf0, 0x16, 0xca, 0xe0, 0xff, 0xd0, 0xf6, 0x6b]) // prettier-ignore
   put(0x028922, [o.badSpawn === 'status' ? 0xea : 0x8e, 0x61, 0x18, 0xa4, 0x05, 0xb9, 0xc5, 0x88, 0x9d, 0xc8, 0x14, 0xb9, 0xa3, 0x88, 0x95, 0x9e, 0x22, 0xd2, 0xf7, 0x07]) // prettier-ignore
   put(

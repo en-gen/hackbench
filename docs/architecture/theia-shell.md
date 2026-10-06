@@ -157,14 +157,18 @@ which `theia/browser-app/test/load-maps.spec.cjs` asserts.
 which (`indicators`: plane, map-pixel corner, art key), from the working copy,
 with a plain-words `note` for blocks it does not draw. The tables' refusal
 comes back as `unavailable` and the tab shows the reason.
-A screen that holds an indicator is composed at screen resolution (`composeIndicatorScreen`,
-`browser/map-view-model.ts`): each source plane is scaled to the zoom by nearest sampling, each
-plane's indicators are painted into that plane's copy (`paintScreenIndicators`), then the planes are
-stacked and put through color math as ever. So hiding a layer hides its indicators, and a nearer
-plane or a sprite covers an indicator exactly as it covers its block. A hidden plane is left out of
-the plane set, not empty. Screens with no indicator stay native. Hover is tracked on the scroller
-(`onPointerMove`, and re-found on scroll, zoom and new replies); the topmost visible plane's block
-under the pointer expands. The composite publishes the boxes it painted in `data-indicators`.
+The composite canvas of each screen stays native-size and is never given indicators. A screen that
+holds one also has a display canvas (`data-layer="display"`) over it, which hides the composite and shows
+the same picture at the zoom (`IndicatorDisplay`, `browser/map-view-model.ts`): the native composite
+scaled up, with each indicator's block cell recomposed at the zoom, its planes scaled by nearest
+sampling, its plane's indicators painted into the plane's copy and the planes stacked and put through
+color math as ever. So hiding a layer hides its indicators, and a nearer plane or a sprite covers an
+indicator exactly as it covers its block. A hidden plane is left out of the plane set, not empty. A hover
+change recomposes only the cells it touches (about 2 ms at 3x on a screen with three blocks, measured in
+node), and the display is built once per screen and zoom. Screens with no indicator show the composite
+itself. Hover is tracked on the scroller (`onPointerMove`, and re-found on scroll, zoom and new replies);
+the topmost visible plane's block under the pointer expands. The display publishes the boxes it painted
+in `data-indicators`.
 
 ### The map tab's sprite layer (#564)
 

@@ -9,7 +9,7 @@ import type {
   SwitchFlagsDto,
   SwitchStateDto,
 } from '../common/project-protocol'
-import { BLOCK, paintIndicator, type Box } from '../common/block-indicator'
+import { BLOCK, indicatorBox, paintIndicator, type Box } from '../common/block-indicator'
 import {
   composeScreen,
   type SourceKey,
@@ -152,36 +152,6 @@ export interface PaintedIndicator {
   box: Box
 }
 
-/**
- * Paints one screen's indicators into its screen-space canvas pixels (`zoom`
- * canvas pixels per map pixel). Only planes `shown` says are composed and
- * visible are drawn, so hiding a layer hides its indicators. Returns what it painted.
- */
-export function paintScreenIndicators(
-  data: Uint8ClampedArray,
-  screen: number,
-  g: ScreenGeometry,
-  zoom: number,
-  list: readonly Indicator[],
-  arts: ReadonlyMap<string, Uint8ClampedArray>,
-  shown: (plane: Indicator['plane']) => boolean,
-  hoverId: string | undefined,
-): PaintedIndicator[] {
-  const vertical = g.orientation === 'vertical'
-  const [left, top] = vertical ? [0, screen * g.height] : [screen * g.width, 0]
-  const [w, h] = [Math.round(g.width * zoom), Math.round(g.height * zoom)]
-  const out: PaintedIndicator[] = []
-  for (const i of list) {
-    const art = arts.get(i.art)
-    const r = blockRect(i)
-    if (!art || !shown(i.plane)) continue
-    if (r.x1 <= left || r.x0 >= left + g.width || r.y1 <= top || r.y0 >= top + g.height) continue
-    const hover = indicatorId(i) === hoverId
-    out.push({ id: indicatorId(i), hover, box: paintIndicator(data, w, h, i.x - left, i.y - top, art, zoom, hover) }) // prettier-ignore
-  }
-  return out
-}
-
 /** A native-resolution RGBA image scaled to `dw` x `dh` by nearest sampling. */
 export function scaleNearest(
   src: Uint8ClampedArray,
@@ -193,81 +163,208 @@ export function scaleNearest(
   // prettier-ignore
   if (dw === w && dh === h) return src.slice()
   const out = new Uint8ClampedArray(dw * dh * 4)
+  // 32-bit pixels, and each source row is sampled once: its repeats are whole-row copies.
+  const [s32, o32] = [
+    new Uint32Array(src.buffer, src.byteOffset, w * h),
+    new Uint32Array(out.buffer),
+  ]
+  const cols = Uint32Array.from({ length: dw }, (_, x) => Math.min(w - 1, Math.floor((x * w) / dw)))
+  let last = -1
   for (let y = 0; y < dh; y++) {
-    const row = Math.min(h - 1, Math.floor((y * h) / dh)) * w
-    for (let x = 0; x < dw; x++) {
-      const from = (row + Math.min(w - 1, Math.floor((x * w) / dw))) * 4
-      out.set(src.subarray(from, from + 4), (y * dw + x) * 4)
-    }
+    const sy = Math.min(h - 1, Math.floor((y * h) / dh))
+    const at = y * dw
+    if (sy === last) o32.copyWithin(at, at - dw, at)
+    else for (let x = 0; x < dw; x++) o32[at + x] = s32[sy * w + cols[x]!]!
+    last = sy
   }
   return out
 }
 
-const PLANE_KEYS = ['l1Low', 'l1High', 'l2Low', 'l2High'] as const
+export interface Rect {
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+}
 
-export interface IndicatorScreen {
+/** One region of the display to put back on its canvas after a hover change. */
+export interface Region {
+  x: number
+  y: number
+  width: number
+  height: number
+  rgba: Uint8ClampedArray
+}
+
+export interface DisplaySource {
+  /** Native size of a screen. */
   width: number
   height: number
   zoom: number
   screen: number
   geometry: ScreenGeometry
-  /** Native planes, already reduced to the ones shown. */
+  /** The native planes that are shown (a hidden layer's is omitted; a shown, empty one is null). */
   planes: Partial<Record<SourceKey, Uint8ClampedArray | null>>
   lists: ScreenInput['lists']
   math: ScreenInput['math']
+  /** The native composite of those same planes: every pixel outside an indicator is its scaled copy. */
+  base: Uint8ClampedArray
   indicators: readonly Indicator[]
   arts: ReadonlyMap<string, Uint8ClampedArray>
-  hoverId: string | undefined
 }
 
-/** Whether any indicator on this screen sits in a plane the lists compose. */
-export function indicatorsTouch(
-  i: Pick<IndicatorScreen, 'screen' | 'geometry' | 'lists' | 'planes' | 'indicators'>,
-): boolean {
-  // prettier-ignore
-  const g = i.geometry
-  const [left, top] =
-    g.orientation === 'vertical' ? [0, i.screen * g.height] : [i.screen * g.width, 0]
-  return i.indicators.some(
-    q =>
-      (i.lists.main.includes(q.plane) || i.lists.sub.includes(q.plane)) &&
-      i.planes[q.plane] !== undefined &&
-      q.x + BLOCK > left && q.x < left + g.width && q.y + BLOCK > top && q.y < top + g.height, // prettier-ignore
-  )
-}
+const NO_ART = new Uint8ClampedArray(BLOCK * BLOCK * 4)
 
 /**
- * One screen composed at SCREEN resolution with its indicators IN their planes (#566 ruling 2026-10-06):
- * every source is scaled to `zoom` by nearest sampling, each plane's indicators are painted into
- * that plane's scaled copy, and then the planes are stacked and put through color math as ever. So a
- * nearer plane or sprite covers an indicator exactly as it covers its block, and math applies to it.
+ * The screen at screen resolution with its indicators IN their planes (#566, owner ruling
+ * 2026-10-06), shown over the native composite, which stays as it is. Per-pixel operations commute with
+ * nearest scaling, so the picture is the native composite scaled up (cheap), with each indicator's block
+ * cell recomposed at the zoom: its planes' pixels scaled, its plane's indicators painted into the
+ * plane's copy, then stacked and put through color math. A nearer plane or a sprite therefore covers an
+ * indicator exactly as it covers its block. A hover change recomposes only the cells it touches.
  */
-export function composeIndicatorScreen(i: IndicatorScreen): {
-  rgba: Uint8ClampedArray
-  width: number
-  height: number
-  painted: PaintedIndicator[]
-} {
-  // prettier-ignore
-  const [dw, dh] = [Math.round(i.width * i.zoom), Math.round(i.height * i.zoom)]
-  const planes: Partial<Record<SourceKey, Uint8ClampedArray | null>> = {}
-  const painted: PaintedIndicator[] = []
-  for (const [k, data] of Object.entries(i.planes) as [
-    SourceKey,
-    Uint8ClampedArray | null | undefined,
-  ][]) {
-    const composed = i.lists.main.includes(k) || i.lists.sub.includes(k)
-    const mine = (PLANE_KEYS as readonly string[]).includes(k) && composed && i.indicators.some(q => q.plane === k) // prettier-ignore
-    if (!data && !mine) {
-      planes[k] = null
-      continue
-    }
-    const up = data
-      ? scaleNearest(data, i.width, i.height, dw, dh)
-      : new Uint8ClampedArray(dw * dh * 4)
-    if (mine) painted.push(...paintScreenIndicators(up, i.screen, i.geometry, i.zoom, i.indicators, i.arts, p => p === k, i.hoverId)) // prettier-ignore
-    planes[k] = up
+export class IndicatorDisplay {
+  readonly width: number
+  readonly height: number
+  /** The picture, screen resolution RGBA. */
+  readonly image: Uint8ClampedArray
+  private hoverId: string | undefined
+  private readonly mine: readonly Indicator[]
+  private readonly left: number
+  private readonly top: number
+
+  constructor(
+    private readonly src: DisplaySource,
+    hoverId?: string,
+  ) {
+    const g = src.geometry
+    ;[this.left, this.top] =
+      g.orientation === 'vertical' ? [0, src.screen * g.height] : [src.screen * g.width, 0]
+    this.width = Math.round(src.width * src.zoom)
+    this.height = Math.round(src.height * src.zoom)
+    this.mine = src.indicators.filter(
+      q =>
+        this.composed(q.plane) &&
+        q.x + BLOCK > this.left &&
+        q.x < this.left + g.width &&
+        q.y + BLOCK > this.top &&
+        q.y < this.top + g.height,
+    )
+    this.hoverId = hoverId
+    this.image = scaleNearest(src.base, src.width, src.height, this.width, this.height)
+    for (const r of this.mine.map(q => this.rect(q))) this.put(r, this.compose(r))
   }
-  const rgba = composeScreen({ width: dw, height: dh, planes, lists: i.lists, math: i.math })
-  return { rgba, width: dw, height: dh, painted }
+
+  /** A plane the lists compose and the view shows: only these have indicators on screen. */
+  private composed(p: Indicator['plane']): boolean {
+    const { planes, lists } = this.src
+    return planes[p] !== undefined && (lists.main.includes(p) || lists.sub.includes(p))
+  }
+
+  /** Whether any indicator is on this screen to be shown. */
+  get touches(): boolean {
+    return this.mine.length > 0
+  }
+
+  /** The block cell of an indicator in screen pixels, clipped to the screen. */
+  private rect(q: Indicator): Rect {
+    const [x, y, z] = [q.x - this.left, q.y - this.top, this.src.zoom]
+    const r = (v: number) => Math.round(v * z)
+    return {
+      x0: Math.max(0, r(x)),
+      y0: Math.max(0, r(y)),
+      x1: Math.min(this.width, r(x + BLOCK)),
+      y1: Math.min(this.height, r(y + BLOCK)),
+    }
+  }
+
+  /** What was painted: each indicator's item box in screen pixels. */
+  records(): PaintedIndicator[] {
+    return this.mine.map(q => {
+      const hover = indicatorId(q) === this.hoverId
+      const box = indicatorBox(q.x - this.left, q.y - this.top, this.src.zoom, hover)
+      return { id: indicatorId(q), hover, box }
+    })
+  }
+
+  /** The cell `r` recomposed at the zoom, with the current hover. */
+  private compose(r: Rect): Uint8ClampedArray {
+    const s = this.src
+    const [rw, rh] = [r.x1 - r.x0, r.y1 - r.y0]
+    const planes: Partial<Record<SourceKey, Uint8ClampedArray | null>> = {}
+    for (const [k, data] of Object.entries(s.planes) as [SourceKey, Uint8ClampedArray | null][]) {
+      const own = this.mine.filter(q => q.plane === k && this.meets(q, r))
+      if (!data && own.length === 0) {
+        planes[k] = null
+        continue
+      }
+      const cell = data
+        ? scaleRegion(data, s.width, s.height, this.width, this.height, r)
+        : new Uint8ClampedArray(rw * rh * 4)
+      for (const q of own) {
+        const art = s.arts.get(q.art) ?? NO_ART
+        const [x, y] = [q.x - this.left, q.y - this.top]
+        paintIndicator(cell, rw, rh, x, y, art, s.zoom, indicatorId(q) === this.hoverId, [
+          r.x0,
+          r.y0,
+        ])
+      }
+      planes[k] = cell
+    }
+    return composeScreen({ width: rw, height: rh, planes, lists: s.lists, math: s.math })
+  }
+
+  /** The item box lies inside its block cell, so the cells meeting is enough. */
+  private meets(q: Indicator, r: Rect): boolean {
+    const b = this.rect(q)
+    return b.x0 < r.x1 && b.x1 > r.x0 && b.y0 < r.y1 && b.y1 > r.y0
+  }
+
+  private put(r: Rect, rgba: Uint8ClampedArray): void {
+    const rw = r.x1 - r.x0
+    for (let y = r.y0; y < r.y1; y++) {
+      const row = rgba.subarray((y - r.y0) * rw * 4, (y - r.y0 + 1) * rw * 4)
+      this.image.set(row, (y * this.width + r.x0) * 4)
+    }
+  }
+
+  /** Moves the hover; returns the cells that changed (the old one's and the new one's), recomposed. */
+  setHover(next: string | undefined): Region[] {
+    const prev = this.hoverId
+    if (prev === next) return []
+    this.hoverId = next
+    const out: Region[] = []
+    const seen = new Set<string>()
+    for (const q of this.mine.filter(i => [prev, next].includes(indicatorId(i)))) {
+      const r = this.rect(q)
+      if (seen.has(`${r.x0},${r.y0}`)) continue
+      seen.add(`${r.x0},${r.y0}`)
+      const rgba = this.compose(r)
+      this.put(r, rgba)
+      out.push({ x: r.x0, y: r.y0, width: r.x1 - r.x0, height: r.y1 - r.y0, rgba })
+    }
+    return out
+  }
+}
+
+/** The region `r` (screen pixels) of a native image scaled to `dw` x `dh`, by nearest sampling. */
+export function scaleRegion(
+  src: Uint8ClampedArray,
+  w: number,
+  h: number,
+  dw: number,
+  dh: number,
+  r: Rect,
+): Uint8ClampedArray {
+  const [rw, rh] = [r.x1 - r.x0, r.y1 - r.y0]
+  const out = new Uint8ClampedArray(rw * rh * 4)
+  const s32 = new Uint32Array(src.buffer, src.byteOffset, w * h)
+  const o32 = new Uint32Array(out.buffer)
+  for (let y = 0; y < rh; y++) {
+    const sy = Math.min(h - 1, Math.floor(((r.y0 + y) * h) / dh))
+    for (let x = 0; x < rw; x++) {
+      o32[y * rw + x] = s32[sy * w + Math.min(w - 1, Math.floor(((r.x0 + x) * w) / dw))]!
+    }
+  }
+  return out
 }

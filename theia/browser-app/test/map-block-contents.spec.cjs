@@ -8,12 +8,13 @@
  *   $11E FoI1   $125 key 224,22 and balloon 250,21.   $125 Funky $111 117,15, $11D 86,20.
  *   $001 VS2    $111 183,16 (progressive), $11D 231,18.
  *
- * Indicators are composed INTO their block's plane at SCREEN resolution (#566, owner ruling 2026-10-06),
- * so a screen that holds one has a composite canvas `round(256 x zoom)` wide, and a nearer plane or a
- * sprite covers an indicator exactly as it covers its block. "Indicator pixels" are the composite's pixels that
- * differ from the same screen repainted with the indicators set aside (the widget's `blocks`), so the
- * baseline is the same layers, math and sprites. `data-indicators` is the painter's record of the boxes it
- * drew; each spec checks it against the pixels. The zoom is READ from the canvas, not assumed.
+ * Indicators are composed INTO their block's plane at SCREEN resolution (#566, owner ruling 2026-10-06): a
+ * screen that holds one has a DISPLAY canvas (`canvas[data-layer="display"]`, `round(256 x zoom)` wide) over its
+ * composite, which stays native and untouched. A nearer plane or a sprite covers an indicator exactly as it
+ * covers its block. "Indicator pixels" are the display's pixels that differ from the native composite scaled up
+ * the way the view scales it, so the baseline is the same layers, math and sprites. `data-indicators` is the
+ * painter's record of the boxes it drew; each spec checks it against the pixels. The zoom is READ from the
+ * canvas, not assumed.
  */
 const { test, expect } = require('@playwright/test')
 const { PAGE_COMPOSE } = require('./pixel-canvas.cjs')
@@ -38,6 +39,7 @@ let tmp
 const opened = []
 const root = index => `[id="hackbench.map-view:${index}"]`
 const SCREEN = screen => `canvas[data-layer="screen"][data-screen="${screen}"]`
+const DISPLAY = screen => `canvas[data-layer="display"][data-screen="${screen}"]`
 
 test.beforeEach(async ({ page }) => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-blocks-'))
@@ -151,8 +153,10 @@ async function reveal(page, index, col, row) {
 }
 
 /**
- * One screen read back: the zoom, the painter's record and the indicator pixels with their colour. With
- * `settle` it first waits for a composite painted at the widget's current zoom (not for a hidden layer).
+ * One screen read back from its display canvas (the screen at the zoom, indicators drawn in their layers):
+ * the zoom, the painter's record and the indicator pixels with their colour, which are the display's pixels that
+ * differ from the native composite scaled up the way the view scales it. The composite itself is never touched.
+ * With `settle` it first waits for a display built at the widget's current zoom (not wanted for a hidden layer).
  */
 async function overlay(page, index, screen, settle = true) {
   if (settle) {
@@ -160,49 +164,39 @@ async function overlay(page, index, screen, settle = true) {
       ({ id, ov }) => {
         const w = getSvc('ApplicationShell').getWidgetById(id)
         const c = w.node.querySelector(ov)
-        return !!c?.dataset.drawn && c.dataset.drawn.includes(`:${w.zoomController.value}:`)
+        return !!c?.dataset.drawn && c.dataset.drawn.endsWith(`:${w.zoomController.value}`)
       },
-      { id: `hackbench.map-view:${index}`, ov: SCREEN(screen) },
+      { id: `hackbench.map-view:${index}`, ov: DISPLAY(screen) },
       { timeout: 15000 },
     )
   }
   return page.evaluate(
-    ({ id, ov }) => {
+    ({ id, ov, sc }) => {
       const w = getSvc('ApplicationShell').getWidgetById(id)
-      const c = w.node.querySelector(ov)
-      const read = () => c.getContext('2d').getImageData(0, 0, c.width, c.height).data.slice()
-      const [withI, width] = [read(), c.width]
-      const record = JSON.parse(c.dataset.indicators || '[]')
-      const saved = w.blocks
-      w.blocks = undefined
-      w.blocksVersion++
-      w.sync()
-      // Without indicators the screen is composed at native size: scale it up the way the view scales its planes.
-      const [nat, nw, nh] = [read(), c.width, c.height]
-      const without = new Uint8ClampedArray(withI.length)
-      const height = withI.length / 4 / width
-      for (let y = 0; y < height; y++)
-        for (let x = 0; x < width; x++) {
-          const from = (Math.min(nh - 1, Math.floor((y * nh) / height)) * nw + Math.min(nw - 1, Math.floor((x * nw) / width))) * 4 // prettier-ignore
-          without.set(nat.subarray(from, from + 4), (y * width + x) * 4)
-        }
-      w.blocks = saved
-      w.blocksVersion++
-      w.sync()
+      const d = w.node.querySelector(ov)
+      const c = w.node.querySelector(sc)
+      if (!d.width) return { z: 0, record: [], lit: [] }
+      const [shown, nat] = [d.getContext('2d').getImageData(0, 0, d.width, d.height).data, c.getContext('2d').getImageData(0, 0, c.width, c.height).data] // prettier-ignore
       const lit = []
-      for (let i = 0; i < withI.length; i += 4) {
-        if (withI[i] === without[i] && withI[i + 1] === without[i + 1] && withI[i + 2] === without[i + 2] && withI[i + 3] === without[i + 3]) continue // prettier-ignore
-        lit.push({ x: (i / 4) % width, y: Math.floor(i / 4 / width), rgb: [withI[i], withI[i + 1], withI[i + 2]] }) // prettier-ignore
+      for (let y = 0; y < d.height; y++) {
+        const ny = Math.min(c.height - 1, Math.floor((y * c.height) / d.height))
+        for (let x = 0; x < d.width; x++) {
+          const i = (y * d.width + x) * 4
+          const j = (ny * c.width + Math.min(c.width - 1, Math.floor((x * c.width) / d.width))) * 4
+          if (shown[i] === nat[j] && shown[i + 1] === nat[j + 1] && shown[i + 2] === nat[j + 2] && shown[i + 3] === nat[j + 3]) continue // prettier-ignore
+          lit.push({ x, y, rgb: [shown[i], shown[i + 1], shown[i + 2]] })
+        }
       }
-      return { z: width / 256, record, lit }
+      return { z: d.width / 256, record: JSON.parse(d.dataset.indicators || '[]'), lit }
     },
-    { id: `hackbench.map-view:${index}`, ov: SCREEN(screen) },
+    { id: `hackbench.map-view:${index}`, ov: DISPLAY(screen), sc: SCREEN(screen) },
   )
 }
 
 /** One block: its rect in screen pixels, its record and the lit pixels inside and outside it. */
-async function ofBlock(page, index, col, row, settle = true) {
+async function ofBlock(page, index, col, row, settle = true, scroll = true) {
   const { screen, x, y } = cell(col, row)
+  if (scroll) await reveal(page, index, col, row) // a screen that is not in view is not fetched or painted
   const o = await overlay(page, index, screen, settle)
   const r = n => Math.round(n * o.z)
   const rect = { x0: r(x), y0: r(y), x1: r(x + 16), y1: r(y + 16) }
@@ -287,7 +281,9 @@ test('on hover the item box is the block box, never outside it, and returns to t
   await page.evaluate(sel => {
     document.querySelector(`${sel} [data-control="map-scroller"]`).scrollLeft += 400
   }, root(0x123))
-  await expect.poll(async () => (await ofBlock(page, 0x123, 77, 20)).mine[0]?.hover).not.toBe(true)
+  await expect
+    .poll(async () => (await ofBlock(page, 0x123, 77, 20, true, false)).mine[0]?.hover)
+    .not.toBe(true)
   await reveal(page, 0x123, 77, 20)
   await park(page, 0x123)
   await expect.poll(async () => (await ofBlock(page, 0x123, 77, 20)).mine[0]?.hover).toBe(false)
@@ -403,8 +399,10 @@ async function hoveredSplit(page, index, col, row) {
   return { b, regions }
 }
 const colours = list => [...new Set(list.map(d => d.rgb.join()))].sort().join('|')
-const byPos = list =>
-  [...new Map(list.map(d => [`${d.ax},${d.ay}`, d.rgb.join()]))].sort().join(';')
+const shape = list => new Set(list.map(d => `${d.ax},${d.ay}`))
+/** How different two pixel sets are, 0 to 1. A pixel whose colour equals the background under it is not lit (the
+ * measure is a diff), and the two maps have different backgrounds, so a few edge pixels may differ. */
+const unlike = (a, b) => [...a].filter(k => !b.has(k)).length / Math.max(1, new Set([...a, ...b]).size) + [...b].filter(k => !a.has(k)).length / Math.max(1, new Set([...a, ...b]).size) // prettier-ignore
 
 test('a progressive block holds the mushroom bottom-left and its item top-right, split on the diagonal', async ({
   page,
@@ -416,7 +414,8 @@ test('a progressive block holds the mushroom bottom-left and its item top-right,
   const feather = await hoveredSplit(page, 0x11a, 69, 14)
   // Both blocks hold the mushroom below the diagonal: the same art pixels, one for one.
   expect(flower.regions.below.length).toBeGreaterThan(10)
-  expect(byPos(flower.regions.below)).toBe(byPos(feather.regions.below))
+  // The same mushroom: the same art pixels (the level's palette may colour it differently), none on the diagonal.
+  expect(unlike(shape(flower.regions.below), shape(feather.regions.below))).toBeLessThan(0.06)
   // Above it the flower and the feather differ, and a block is not one item twice.
   expect(flower.regions.above.length).toBeGreaterThan(10)
   expect(colours(flower.regions.above)).not.toBe(colours(feather.regions.above))
@@ -445,7 +444,6 @@ test('a split indicator has a black line on its diagonal, only on opaque pixels 
 
 /** A block's drawn pixels relative to its own corner, as a comparable string (colour included). */
 const look = b => b.pixels.map(d => `${d.x - b.rect.x0},${d.y - b.rect.y0}:${d.rgb}`).join('|')
-const colourSet = b => [...new Set(b.pixels.map(d => d.rgb.join()))].sort().join('|')
 
 test('a cell shows the item of its own X column, in drawn pixels', async ({ page }) => {
   const project = await createProject(page)
@@ -462,17 +460,29 @@ test('a cell shows the item of its own X column, in drawn pixels', async ({ page
   await setZoom(page, 0x125, 2)
   const star = await ofBlock(page, 0x125, 117, 15)
   expect(star.pixels.length).toBeGreaterThan(8)
-  // $11D on Funky, column 86 (even): the blue P-switch.
+  // $11D on Funky, column 86 (even): the blue P-switch; on VS2, column 231 (odd): the silver one. Asserted on
+  // the drawn colours directly, since the two maps have different backgrounds: blue has a strongly blue pixel,
+  // silver only greys.
   const blue = await ofBlock(page, 0x125, 86, 20)
   expect(blue.pixels.length).toBeGreaterThan(8)
-  // $111 on VS2, column 183 (183 mod 16 mod 3 = 1): the progressive pair, which is not the star.
+  expect(
+    blue.pixels.some(d => d.rgb[2] > d.rgb[0] + 80 && d.rgb[2] > d.rgb[1] + 80),
+    'a blue pixel',
+  ).toBe(true)
   await ready(page, project, 0x001)
   await setZoom(page, 0x001, 2)
   const pair = await ofBlock(page, 0x001, 183, 16)
   expect(pair.pixels.length).toBeGreaterThan(8)
   expect(look(pair)).not.toBe(look(star))
-  // $11D on VS2, column 231 (odd): the silver P-switch, the same shape as the blue one in another colour.
   const silver = await ofBlock(page, 0x001, 231, 18)
-  expect(silver.pixels.length).toBe(blue.pixels.length)
-  expect(colourSet(silver)).not.toBe(colourSet(blue))
+  expect(silver.pixels.length).toBeGreaterThan(8)
+  const grey = d => Math.abs(d.rgb[0] - d.rgb[1]) < 12 && Math.abs(d.rgb[1] - d.rgb[2]) < 12
+  expect(
+    silver.pixels.some(d => grey(d) && d.rgb[0] > 90 && d.rgb[0] < 160),
+    'a silver grey pixel',
+  ).toBe(true)
+  expect(
+    silver.pixels.some(d => d.rgb[2] > d.rgb[0] + 80),
+    'no blue pixel',
+  ).toBe(false)
 })

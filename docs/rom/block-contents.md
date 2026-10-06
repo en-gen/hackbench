@@ -136,27 +136,30 @@ Maps view, #566 PR B (`theia/extension/src/node/map-block-contents.ts`,
 - Each cell resolves for its own X column; the P-switch uses the spawn
   attribute of DATA_028A42.
 - Drawn IN the plane of the block's bottom-right subtile priority, at screen resolution
-  (owner ruling 2026-10-06): a screen that holds an indicator is composed at the zoom, every
-  plane scaled by nearest sampling, each plane's indicators painted into its own scaled copy,
-  then stacked and put through color math as ever. A nearer plane or a sprite covers an
+  (owner ruling 2026-10-06): the native composite is untouched; a display canvas over it shows the same
+  picture at the zoom, with each indicator's block cell recomposed: its planes scaled by nearest sampling,
+  its plane's indicators painted into the plane's copy, then stacked and put through color math as ever. A nearer plane or a sprite covers an
   indicator exactly as it covers its block, and hiding a layer hides its indicators. No Contents toggle.
 - Not drawn, with a plain-words note: a Yoshi-loose variant, a block whose item
   graphics are not loaded in the level, a sprite the interpreter refuses or that draws
   nothing in its first frames, a spawn or coin routine that is not the traced one.
 - Item art is the sprite run on the 65816 core, as the map's sprite layer does (#585), set up
   by the game's OWN block spawn (owner ruling 2026-10-06, the second bounded exception in
-  `.claude/rules/rom-interpretation.md`): `GenSpriteFromBlk` (`bank_02.asm:1122-1292`) runs on the
-  core, its entry shape byte-checked (`resolveBlockSpawn`), with the inputs it reads seeded
-  generically: the content index `_5` ($05, the SpriteInBlock index; the balloon's for a
-  column-rewritten item), TouchBlockXPos ($9A) and TouchBlockYPos ($98) from the block's position,
-  LayerProcessing ($1933), YoshiIsLoose ($18E2) and DirectCoinInit ($1432) cleared, and DB set to the
-  routine's bank. The routine finds the slot ($0B with every slot empty), writes the status and number
-  from StatusOfSprInBlk and SpriteInBlock, calls InitSpriteTables, places the sprite and writes its
-  cells (rise speed, timers, the P-switch colour, the balloon's direction, C2, the egg's contents). The
-  sprite's INIT never runs, so its status handler draws it: a status-9 egg is the green stunned egg, a
-  status-9 $04 a shell. Nothing about the spawn is ported in `src/`; a routine that is not the shape
-  checked, or that exceeds the step budget, refuses with a plain reason and the block is not drawn.
-  The runner takes this as `RunOptions.spawn`. Layer 2 blocks are spawned as layer 1 ones: the art does not depend on it.
+  `.claude/rules/rom-interpretation.md`): the dispatcher `CODE_0288DC` (`bank_02.asm:1097-1119`) and
+  `GenSpriteFromBlk` (`:1122-1292`) run on the core, their shapes byte-checked
+  (`resolveBlockSpawn`), with the inputs they read seeded generically: the content index `_5` ($05),
+  which comes from the resolver (`BlockContent.index`, so the balloon family keeps its own), TouchBlockXPos
+  ($9A) and TouchBlockYPos ($98) from the block's position, LayerProcessing ($1933), YoshiIsLoose
+  ($18E2) and DirectCoinInit ($1432) cleared, SpriteMemorySetting ($1692) as the level loader left it,
+  and DB set to the code's bank. The dispatcher sends the egg, key, vine and balloon through
+  `FindFreeSprSlot` and the rest to `GenSpriteFromBlk`'s own countdown; the run reads whichever slot the
+  game filled. The code writes the status and number from StatusOfSprInBlk and SpriteInBlock, calls
+  InitSpriteTables, places the sprite and writes its cells (rise speed, timers, the P-switch colour, the
+  balloon's direction, C2, the egg's contents). The sprite's INIT never runs, so its status handler draws
+  it: a status-9 egg is the green stunned egg, a status-9 $04 a shell. Nothing about the spawn is ported in
+  `src/`; code that is not the shape checked, a spawn that fills no slot, or one that exceeds the step
+  budget refuses with a plain reason and the block is not drawn. The runner takes this as
+  `RunOptions.spawn`. Layer 2 blocks are spawned as layer 1 ones: the art does not depend on it.
 - The core's first frame is what is drawn (owner ruling 2026-10-06): the mirrored feather and the
   star one pixel wider on the diagonal stay. Real-art diagonal counts, pinned in the corpus test:
   $11F 13, $120 15, $11A column 0 12, $12D 12. The mockup's static art gave 13, 12, 11, 12.

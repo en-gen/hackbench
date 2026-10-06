@@ -32,8 +32,7 @@ import {
   decodeArts,
   hoverTarget,
   indicatorId,
-  composeIndicatorScreen,
-  indicatorsTouch,
+  IndicatorDisplay,
   paintSpriteCanvas,
   PALACES,
   screenKey,
@@ -81,7 +80,9 @@ type BlockContents = Extract<MapBlockContentsResult, { status: 'ok' }> & {
 }
 /** The sprite canvases' key in place of a plane's: one per screen, between L2 and L1's priority plane. */
 const SPRITES = 'sprites'
-type LayerKey = MapPlaneKey | typeof SPRITES
+/** Each screen's display canvas: the screen at screen resolution when it holds indicators (#566). */
+const DISPLAY = 'display'
+type LayerKey = MapPlaneKey | typeof SPRITES | typeof DISPLAY
 type Palace = keyof SwitchFlagsDto
 type Switch = keyof SwitchStateDto
 
@@ -419,6 +420,7 @@ export class MapViewWidget extends ReactWidget {
   protected readonly sync = (): void => {
     for (const [k, canvas] of this.canvases) {
       const [plane, s] = k.split(':') as [LayerKey, string]
+      if (plane === DISPLAY) continue
       if (plane === SPRITES) {
         this.syncSprites(canvas, Number(s))
         continue
@@ -441,6 +443,8 @@ export class MapViewWidget extends ReactWidget {
       }
     }
     for (const [s, canvas] of this.composites) this.paintComposite(s, canvas)
+    for (const [k, canvas] of this.canvases)
+      if (k.startsWith(`${DISPLAY}:`)) this.syncDisplay(canvas, Number(k.split(':')[1]))
   }
 
   /**
@@ -456,53 +460,86 @@ export class MapViewWidget extends ReactWidget {
       }
       return
     }
-    const b = this.blocks
-    // A hidden layer's plane is left out, not empty: its indicators go with it.
+    const want = `${this.generation}:${this.key(s)}:${+this.showL1}${+this.showL2}${+this.showL3}${+this.showSprites}:${this.spritesVersion}`
+    if (canvas.dataset.drawn === want) return
+    canvas.width = shot.width
+    canvas.height = shot.height
+    const planes = this.shownPlanes(s, shot)
+    const out = composeScreen({
+      width: shot.width,
+      height: shot.height,
+      planes,
+      lists: shot.screens,
+      math: shot.math,
+    })
+    canvas.getContext('2d')?.putImageData(new ImageData(out, shot.width, shot.height), 0, 0)
+    canvas.dataset.drawn = want
+  }
+
+  /** The sources a screen composes: a hidden layer's plane is left out (not empty), so its indicators go with it. */
+  protected shownPlanes(
+    s: number,
+    shot: ScreenImages,
+  ): Partial<Record<SourceKey, Uint8ClampedArray | null>> {
+    // prettier-ignore
     const planes: Partial<Record<SourceKey, Uint8ClampedArray | null>> = {}
     for (const k of MAP_PLANE_KEYS) if (this.layerShown(k)) planes[k] = shot.planes[k]?.data ?? null
     // The sprites are one more source, not in color math (their palette split is #564's to add).
     const sp = this.sprites
     if (this.showSprites) planes.sprites = sp ? compositeSpriteScreen(sp.sprites, s, sp) : null
-    // Indicators draw IN their block's plane at screen resolution (#566), so only a screen one
-    // touches is composed at the zoom; the rest stay native.
-    const ind = b && {
-      screen: s,
-      geometry: b,
-      lists: shot.screens,
-      planes,
-      indicators: b.indicators,
+    return planes
+  }
+
+  /** Each screen's picture at screen resolution, while it holds indicators: built once, then only hover cells are redone. */
+  protected readonly displays = new Map<number, { want: string; display: IndicatorDisplay }>()
+
+  /**
+   * The display canvas of screen `s` covers the native composite, which stays untouched, with the same
+   * picture at the zoom and the indicators drawn in their planes (`IndicatorDisplay`). `data-indicators`
+   * records the boxes it painted. A screen with none shows the composite itself.
+   */
+  protected syncDisplay(canvas: HTMLCanvasElement, s: number): void {
+    const [comp, shot, b] = [this.composites.get(s), this.screens.get(this.key(s)), this.blocks]
+    const hide = () => {
+      this.displays.delete(s)
+      if (canvas.width !== 0) canvas.width = 0
+      delete canvas.dataset.drawn
+      canvas.dataset.indicators = '[]'
+      if (comp) comp.style.visibility = ''
     }
-    const hi = ind && indicatorsTouch(ind)
-    const hov = hi ? this.hoverOn(s) : undefined
-    const want = `${this.generation}:${this.key(s)}:${+this.showL1}${+this.showL2}${+this.showL3}${+this.showSprites}:${this.spritesVersion}:${hi ? `${this.blocksVersion}:${this.zoom}:${hov ? indicatorId(hov) : ''}` : ''}` // prettier-ignore
-    if (canvas.dataset.drawn === want) return
-    if (hi && b) {
-      const r = composeIndicatorScreen({
+    if (!comp?.dataset.drawn || !shot || !b) return hide()
+    const want = `${comp.dataset.drawn}:${this.blocksVersion}:${this.zoom}`
+    let cur = this.displays.get(s)
+    if (cur?.want !== want) {
+      const display = new IndicatorDisplay({
         width: shot.width,
         height: shot.height,
         zoom: this.zoom,
         screen: s,
         geometry: b,
-        planes,
+        planes: this.shownPlanes(s, shot),
         lists: shot.screens,
         math: shot.math,
+        base: comp.getContext('2d')!.getImageData(0, 0, comp.width, comp.height).data,
         indicators: b.indicators,
         arts: b.decoded,
-        hoverId: hov && indicatorId(hov),
-      })
-      canvas.width = r.width
-      canvas.height = r.height
-      canvas.getContext('2d')?.putImageData(new ImageData(r.rgba, r.width, r.height), 0, 0)
-      // What was painted, for the acceptance specs: item boxes in this canvas's pixels.
-      canvas.dataset.indicators = JSON.stringify(r.painted)
+      }, this.hoverOn(s) && indicatorId(this.hoverOn(s)!)) // prettier-ignore
+      if (!display.touches) return hide()
+      canvas.width = display.width
+      canvas.height = display.height
+      canvas
+        .getContext('2d')
+        ?.putImageData(new ImageData(display.image, display.width, display.height), 0, 0)
+      this.displays.set(s, (cur = { want, display }))
     } else {
-      canvas.width = shot.width
-      canvas.height = shot.height
-      const out = composeScreen({ width: shot.width, height: shot.height, planes, lists: shot.screens, math: shot.math }) // prettier-ignore
-      canvas.getContext('2d')?.putImageData(new ImageData(out, shot.width, shot.height), 0, 0)
-      canvas.dataset.indicators = '[]'
+      const hov = this.hoverOn(s)
+      for (const r of cur.display.setHover(hov && indicatorId(hov))) {
+        canvas.getContext('2d')?.putImageData(new ImageData(r.rgba, r.width, r.height), r.x, r.y)
+      }
     }
     canvas.dataset.drawn = want
+    canvas.dataset.indicators = JSON.stringify(cur.display.records())
+    comp.style.visibility = 'hidden'
   }
 
   /** The hovered indicator, when its block touches screen `s`. */
@@ -889,6 +926,13 @@ export class MapViewWidget extends ReactWidget {
                   data-screen={s}
                   style={{ zIndex: 100 }}
                   ref={this.compositeRef(s)}
+                />
+                <canvas
+                  className="hb-map-view-plane hb-map-view-composite"
+                  data-layer="display"
+                  data-screen={s}
+                  style={{ zIndex: 101 }}
+                  ref={this.canvasRef(DISPLAY, s)}
                 />
               </div>
             ))}

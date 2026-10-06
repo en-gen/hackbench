@@ -171,11 +171,13 @@ In practice:
   call and per sprite).
   Captures and Mesen are an oracle only, never a runtime input.
   Extended to one more routine (owner decision 2026-10-06, #566): the item
-  block's own spawn, `GenSpriteFromBlk` (`bank_02.asm:1122-1292`), runs on the
-  core so that a block item's status, timers and cells come from the game and
+  block's own spawn, entered at its dispatcher `CODE_0288DC` and running
+  through `GenSpriteFromBlk` (`bank_02.asm:1097-1292`), runs on the core so
+  that a block item's slot, status, timers and cells come from the game and
   not from a hand-ported dispatch. Same terms: byte-checked entry shape,
-  generic seeds (the block's content index and position), step budgets, a plain
-  refusal otherwise. No other routine is added by this.
+  generic seeds (the block's content index and position; the loader's own
+  SpriteMemorySetting), step budgets, a plain refusal otherwise. No other
+  routine is added by this.
 - A derivation that truly cannot be read must be NAMED as a hack-fragility
   point and paired with honest degradation: compare the handler against its
   vanilla bytes and DECLINE TO ASSERT when it diverges, rather than rendering

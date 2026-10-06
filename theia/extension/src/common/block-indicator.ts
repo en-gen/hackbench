@@ -123,21 +123,26 @@ export function paintIndicator(
   art: Uint8ClampedArray,
   zoom: number,
   hover: boolean,
+  /** Screen-pixel origin of `canvas` when it is a region of the screen (default: the whole screen). */
+  origin: readonly [number, number] = [0, 0],
 ): Box {
   const box = indicatorBox(x, y, zoom, hover)
   const [w, h] = [box.x1 - box.x0, box.y1 - box.y0]
   for (let j = 0; j < h; j++) {
     for (let i = 0; i < w; i++) {
-      const [dx, dy] = [box.x0 + i, box.y0 + j]
+      const [dx, dy] = [box.x0 + i - origin[0], box.y0 + j - origin[1]]
       if (dx < 0 || dy < 0 || dx >= width || dy >= height) continue
-      const from = (Math.floor((j * BLOCK) / h) * BLOCK + Math.floor((i * BLOCK) / w)) * 4
+      // One sample point per screen pixel (its top-left corner in art pixels) picks both the art pixel and,
+      // for a half-painted diagonal pixel, which triangle of it the pixel lies in.
+      const [sx, sy] = [(i * BLOCK) / w, (j * BLOCK) / h]
+      const [ax, ay] = [Math.floor(sx), Math.floor(sy)]
+      const from = (ay * BLOCK + ax) * 4
       const alpha = art[from + 3]!
       if (alpha === 0) continue
       if (alpha === LINE_SMALL || alpha === LINE_BIG) {
-        // Only one item paints this diagonal pixel: its line is the item's own triangle of it,
-        // by the sample's position inside the art pixel (the diagonal itself belongs to both).
-        const u = ((i + 0.5) * BLOCK) / w - Math.floor((i * BLOCK) / w)
-        const v = ((j + 0.5) * BLOCK) / h - Math.floor((j * BLOCK) / h)
+        // Only one item paints this diagonal pixel: its line is that item's own triangle of it
+        // (the diagonal itself belongs to both).
+        const [u, v] = [sx - ax, sy - ay]
         if (alpha === LINE_SMALL ? v < u : v > u) continue
         canvas.set([0, 0, 0, 255], (dy * width + dx) * 4)
         continue
