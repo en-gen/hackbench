@@ -204,8 +204,14 @@ map coordinates, so it follows `ZoomController` by scaling its box.
 unknown cells are hatched. The overlay follows the view's four palace toggles and the blue P-switch
 (`mapCollision` takes the same flags as `mapScreen`: the grid is built with them, since $06A-$06D
 become $16A-$16D on 30+ levels, and the probe's WRAM gets $1F27-$1F2A and $14AD to match); the
-silver P-switch is not modelled, and Mario is small. The state is in every cache key. The view passes its
-current toggles on each fetch; refetching when a toggle changes is not wired yet. The probe's calibration and level-of-air runs come from
+silver P-switch is not modelled, and Mario is small. The state is in every cache key. The toggles live in
+`MapViewStateStore` (`browser/map-view-state-store.ts`), a per-tab flux-style store on Theia's
+`Emitter`: the buttons only `dispatch` (`togglePalace`, `toggleSwitch`), the store replaces its state
+and fires `onDidChange({ state, changed })` once per real change, and three consumers subscribe and
+decide for themselves. The toolbar re-renders for `aria-pressed`; layer 1 refetches the screens in
+view; the collision overlay refetches if on (a reply for an older state is dropped), or, if off, marks
+its lines stale so the next press fetches (`collisionReaction`: palaces and the blue P-switch matter,
+silver and ON/OFF do not). Layers, grid and the collision toggle are still widget fields. The probe's calibration and level-of-air runs come from
 the first level probed on a tileset, then serve every later level of that tileset (checked identical on $105/$1C6; $105 and $111 differ, so tileset is
 in every cache key). Command `hackbench.maps.toggleCollision`, enabled
 while a map tab is focused (`grid-toggle-contribution.ts`).

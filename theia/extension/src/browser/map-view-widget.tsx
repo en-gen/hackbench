@@ -38,6 +38,7 @@ import { WheelBinding, ZoomController } from './zoom-controller'
 import { ZoomStepper } from './zoom-stepper'
 import { MapGridOverlay } from './grid-overlay'
 import { CollisionOverlay } from './collision-overlay'
+import { collisionReaction, MapViewStateStore } from './map-view-state-store'
 import { layer2Label } from './map-layer-labels'
 import { isUnverifiedMode } from '../../../../src/rom/model/UnverifiedModes'
 import { composeScreen, type SourceKey } from '../../../../src/rom/model/ColorMath'
@@ -110,8 +111,8 @@ export class MapViewWidget extends ReactWidget {
   /** Each palace's block, decoded once per load, or why it cannot be drawn. */
   protected icons = new Map<Palace, PalaceIcon>()
 
-  protected flags: SwitchFlagsDto = { yellow: false, green: false, red: false, blue: false }
-  protected switches: SwitchStateDto = { blue: false, silver: false, onOff: false }
+  /** The palaces and switches, this tab's own; buttons dispatch, consumers subscribe (see `init`). */
+  protected readonly view = new MapViewStateStore()
   /** The switch toggles' art (#574's), and why a kind has none. */
   protected switchArt: Partial<Record<Switch, SwitchButtonImages>> = {}
   protected switchWhy: Partial<Record<Switch, string>> = {}
@@ -135,6 +136,8 @@ export class MapViewWidget extends ReactWidget {
   /** The cheap check or a probe has answered for this map; a probe's answer is the authority over the check's. */
   protected collisionChecked = false
   protected collisionProbed = false
+  /** Bumped per probe request: a reply for an older palace or P-switch state is dropped. */
+  protected collisionSeq = 0
   /** Replies taken, for the overlay's test hook. */
   protected collisionRevision = 0
   /** Fit mode until the user zooms; the fit is the cross axis filling the view (#526). */
@@ -162,6 +165,25 @@ export class MapViewWidget extends ReactWidget {
     this.title.closable = true
     this.node.tabIndex = 0
     this.toDispose.push({ dispose: () => this.resizes.disconnect() })
+    this.toDispose.push(this.view)
+    // Three consumers of one store, each deciding for itself.
+    this.toDispose.push(
+      // The toolbar: aria-pressed and the palace art follow the state.
+      this.view.onDidChange(() => this.update()),
+    )
+    this.toDispose.push(
+      // Layer 1: the screens in view are drawn for the new state.
+      this.view.onDidChange(() => this.requestVisible()),
+    )
+    this.toDispose.push(
+      // The collision overlay: the palaces and the blue P-switch change the map's tiles, so its lines.
+      // On: ask again (a reply for an older state is dropped). Off: the lines are stale, the next press fetches.
+      this.view.onDidChange(c => {
+        const what = collisionReaction(c, this.showCollision)
+        if (what === 'refetch') void this.loadCollision()
+        else if (what === 'stale') this.collision = undefined
+      }),
+    )
     this.zoomController.centreAnchored = true
     this.toDispose.push(this.zoomController)
     this.toDispose.push({ dispose: () => this.wheelBinding?.dispose() })
@@ -256,11 +278,13 @@ export class MapViewWidget extends ReactWidget {
     const o = this.options
     if (!o) return
     const generation = this.generation
+    const seq = ++this.collisionSeq
+    const { flags, switches } = this.view.state
     const r = await this.projects
-      .mapCollision(o.manifestPath, o.index, { ...this.flags }, { ...this.switches })
+      .mapCollision(o.manifestPath, o.index, flags, switches)
       .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
     // An older map's or edit's lines must not land over a newer one.
-    if (generation !== this.generation) return
+    if (generation !== this.generation || seq !== this.collisionSeq) return
     // The working copy moved on under the probe; its push is on the way and will ask again.
     if (r.status === 'stale') return
     this.collision = r.status === 'ok' ? r : undefined
@@ -336,7 +360,7 @@ export class MapViewWidget extends ReactWidget {
   }
 
   protected key(screen: number): string {
-    return screenKey(this.flags, this.switches, screen)
+    return screenKey(this.view.state.flags, this.view.state.switches, screen)
   }
 
   /** The screens in view, plus MARGIN either side; screen 0 before the layout is known. */
@@ -366,7 +390,7 @@ export class MapViewWidget extends ReactWidget {
     const generation = this.generation
     let r: MapScreenResult
     try {
-      r = await this.projects.mapScreen(o.manifestPath, o.index, screen, { ...this.flags }, { ...this.switches }) // prettier-ignore
+      r = await this.projects.mapScreen(o.manifestPath, o.index, screen, this.view.state.flags, this.view.state.switches) // prettier-ignore
     } catch (err) {
       r = { status: 'unavailable', reason: (err as Error).message }
     }
@@ -563,16 +587,12 @@ export class MapViewWidget extends ReactWidget {
     requestAnimationFrame(() => this.requestVisible())
   }
 
-  protected togglePalace(p: Palace): void {
-    this.flags = { ...this.flags, [p]: !this.flags[p] }
-    this.update()
-    this.requestVisible()
+  protected togglePalace(palace: Palace): void {
+    this.view.dispatch({ type: 'togglePalace', palace })
   }
 
-  protected toggleSwitch(k: Switch): void {
-    this.switches = { ...this.switches, [k]: !this.switches[k] }
-    this.update()
-    this.requestVisible()
+  protected toggleSwitch(key: Switch): void {
+    this.view.dispatch({ type: 'toggleSwitch', key })
   }
 
   protected toggleL1(): void {
@@ -709,7 +729,7 @@ export class MapViewWidget extends ReactWidget {
               key={k}
               kind={k}
               images={this.switchArt[k]}
-              pressed={this.switches[k]}
+              pressed={this.view.state.switches[k]}
               reason={this.switchWhy[k]}
               scale={1}
               data={{ control: `switch-${k}` }}
@@ -773,7 +793,7 @@ export class MapViewWidget extends ReactWidget {
 
   protected renderToggle(p: Palace): React.ReactNode {
     const icon = this.icons.get(p)
-    const pressed = this.flags[p]
+    const pressed = this.view.state.flags[p]
     return (
       <PixelImageButton
         key={p}

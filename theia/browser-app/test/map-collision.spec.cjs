@@ -248,6 +248,51 @@ test('off, a working-copy edit, then on draws identical geometry from a fresh fe
   expect(await linesOf(page, 0x105)).toEqual(first)
 })
 
+test('a palace toggle with the overlay on changes the collision lines and the layer 1 screens', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x15)
+  await showOverlay(page, 0x15)
+  const off = await linesOf(page, 0x15)
+  // The "!" blocks of $015 sit at columns 118-121 (screen 7): scroll that screen in, so its layer 1 is drawn.
+  const l1 = `${root(0x15)} canvas[data-screen="7"][data-plane="l1Low"]`
+  await page.locator(l1).evaluate(el => el.scrollIntoView({ inline: 'start', block: 'nearest' }))
+  await expect(page.locator(l1)).toHaveAttribute('data-drawn', /^\d+:0000:000:7$/, {
+    timeout: 30000,
+  })
+  const revision = () => overlay(page, 0x15).getAttribute('data-revision').then(Number)
+  const r0 = await revision()
+  await page.locator(`${root(0x15)} [data-control="palace-yellow"]`).click()
+  // Layer 1 for the new state (yellow pressed) and a new collision reply, both from the one toggle.
+  await expect(page.locator(l1)).toHaveAttribute('data-drawn', /^\d+:1000:000:7$/, {
+    timeout: 30000,
+  })
+  await expect.poll(revision, { timeout: 60000 }).toBeGreaterThan(r0)
+  const on = await linesOf(page, 0x15)
+  expect(on.length).toBeGreaterThan(off.length)
+  // The ghost cells at columns 118-121, row 24 are solid now: a floor along their tops (y 384, x 1888-1952).
+  const along = on.some(l => {
+    if (!l.startsWith('floor:')) return false
+    const pts = l
+      .slice(6)
+      .split(' ')
+      .map(p => p.split(',').map(Number))
+    return (
+      pts.every(([, y]) => y === 384) &&
+      Math.min(...pts.map(p => p[0])) <= 1888 &&
+      Math.max(...pts.map(p => p[0])) >= 1952
+    )
+  })
+  expect(along).toBe(true)
+  // Off again: the first state's lines return.
+  await page.locator(`${root(0x15)} [data-control="palace-yellow"]`).click()
+  await expect
+    .poll(async () => (await linesOf(page, 0x15)).length, { timeout: 60000 })
+    .toBe(off.length)
+  expect(await linesOf(page, 0x15)).toEqual(off)
+})
+
 test('the command toggles the overlay like the button, and is disabled where the button is', async ({
   page,
 }) => {
