@@ -14,6 +14,7 @@ import * as path from 'node:path'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import { assertGuardActive } from '../support/noRealGh'
+import { findBash, resolveGitBash } from '../support/gitBash'
 
 const repoRoot = path.resolve(__dirname, '../../..')
 const script = path.join(repoRoot, 'tools', 'perf', 'accept.sh')
@@ -23,27 +24,6 @@ const script = path.join(repoRoot, 'tools', 'perf', 'accept.sh')
 beforeAll(() => assertGuardActive(process.env))
 
 type Result = { status: number; output: string }
-
-// On win32 a bare `bash` can be the WSL launcher, which skips the PATH shim
-// and the fake gh entirely. Use Git Bash explicitly.
-export function resolveGitBash(candidates: string[], exists: (p: string) => boolean): string {
-  const found = candidates.find(exists)
-  if (!found) throw new Error(`Git Bash required, not found at ${candidates.join(' or ')}`)
-  return found
-}
-
-function findBash(): string {
-  if (process.platform !== 'win32') return 'bash'
-  // bash.exe sits under the Git root's bin; --exec-path is <root>/mingw64/libexec/git-core.
-  const exec = execFileSync('git', ['--exec-path'], { encoding: 'utf8', timeout: 20000 }).trim()
-  return resolveGitBash(
-    [
-      path.resolve(exec, '..', '..', '..', 'bin', 'bash.exe'),
-      path.join(process.env.ProgramFiles ?? 'C:/Program Files', 'Git', 'bin', 'bash.exe'),
-    ],
-    fs.existsSync,
-  )
-}
 
 let bashCache: string | undefined
 const bashPath = () => (bashCache ??= findBash())

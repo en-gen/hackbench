@@ -2,18 +2,14 @@
 #
 # Refresh the GitNexus index, then repair what the refresh breaks.
 #
-# `gitnexus analyze` rewrites the region between the gitnexus:start and
-# gitnexus:end markers in CLAUDE.md and AGENTS.md. Two things go wrong if that
-# is left alone, and both actually happened on the first run:
-#
-#   1. Anything sitting inside the markers is destroyed. The whole "Quality
-#      gates" section was inside them and vanished. The fix was to move the
-#      start marker below it; the canary at the bottom of this script
-#      re-checks that afterwards rather than trusting it.
-#
-#   2. The generated text uses em-dashes, which this repo's own pre-commit
-#      gate blocks, so every refresh left an uncommittable working tree.
-#      normalize-generated-docs.py settles that.
+# `gitnexus analyze` would rewrite the region between the gitnexus:start and
+# gitnexus:end markers in CLAUDE.md and AGENTS.md, with live counts that differ
+# per worktree and conflict on merge (#644). It is told not to, twice:
+# `.gitnexusrc` (skipAgentsMd, read by a bare analyze too) and the
+# --skip-agents-md flag on every call below. The normalizer and canary stay as
+# a net for a generator that ignores both: it also writes em-dashes, which this
+# repo's pre-commit gate blocks, and an old generator once ate the Quality
+# gates section when the start marker sat above it.
 #
 # Run this whenever the index is reported stale.
 
@@ -34,11 +30,13 @@ gn() {
 # fails every subsequent run with "FTS index is inconsistent". Observed once on
 # this repo. The tool ships a targeted repair for it, so try that before paying
 # for a full re-index.
-if ! gn analyze "$@"; then
+# --skip-agents-md: the generated region carries live counts, so two worktrees
+# analyzing at once wrote different numbers and conflicted on merge (#644).
+if ! gn analyze --skip-agents-md "$@"; then
   echo "gitnexus-refresh: incremental analyze failed, repairing the FTS index." >&2
-  gn analyze --repair-fts "$@" || {
+  gn analyze --skip-agents-md --repair-fts "$@" || {
     echo "gitnexus-refresh: repair failed, forcing a full re-index." >&2
-    gn analyze --force "$@"
+    gn analyze --skip-agents-md --force "$@"
   }
 fi
 
