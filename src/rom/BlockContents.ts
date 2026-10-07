@@ -15,14 +15,14 @@ import type { RomFile } from './RomFile'
 export const FIRST_ITEM_BLOCK = 0x111
 export const LAST_ITEM_BLOCK = 0x12d
 /**
- * Page-0 tiles $021-$024 reach the same code by a head bump while Mario moves up
- * (bank_00.asm:12199-12212): selector index = tile - 4, so $1D-$20.
- */
-/**
  * Tiles $12A and $12B have gate mask $03 in DATA_00F0A4 (bank_00.asm:12762): a side
  * hit opens them, a head bump never does (gate, bank_00.asm:12850-12853).
  */
 const SIDE_ONLY_TILES: ReadonlySet<number> = new Set([0x12a, 0x12b])
+/**
+ * Page-0 tiles $021-$024 reach the same code by a head bump while Mario moves up
+ * (bank_00.asm:12199-12212): selector index = tile - 4, so $1D-$20.
+ */
 export const FIRST_UPWARD_TILE = 0x21
 export const LAST_UPWARD_TILE = 0x24
 
@@ -295,16 +295,14 @@ function decode(value: number, c: Ctx): ContentAlternative[] {
     // Star only while InvinsibilityTimer is nonzero, else coin (bank_00.asm:12887-12891).
     // ASM reading, not yet confirmed in an emulator.
     return chain([
-      ['Mario is invincible', item ?? EMPTY],
+      ['Mario is invincible', item],
       [null, contentFor(CONTENT_COIN, c)],
     ])
   }
-  // Mushroom unless Powerup is nonzero (bank_00.asm:12882-12885). An empty table
-  // entry stays an empty branch under its condition, not an unconditional other branch.
-  const mushroom = contentFor(1, c)
-  if (!item && !mushroom) return []
+  // Mushroom unless Powerup is nonzero (bank_00.asm:12882-12885). Content id 0 is the
+  // only empty one; it stays an empty branch under its condition, not an unconditional other branch.
   return chain([
-    ['Mario is small', mushroom ?? EMPTY],
+    ['Mario is small', contentFor(1, c)],
     [null, item ?? EMPTY],
   ])
 }
@@ -347,12 +345,10 @@ function altsFor(
     return {
       alts:
         n === 0
-          ? oneUp
-            ? chain([[null, oneUp]])
-            : []
+          ? chain([[null, oneUp]])
           : chain([
               [when, contentFor(CONTENT_COIN, c)],
-              [null, oneUp ?? EMPTY],
+              [null, oneUp],
             ]),
       caveat:
         n === null ? (t.greenStarCoinsReason ?? 'the green star counter was not read') : undefined,
