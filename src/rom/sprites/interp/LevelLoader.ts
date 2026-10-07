@@ -101,31 +101,26 @@ export function loadLevelState(rom: RomFile, level: number): LevelLoad {
   w[0x0e] = level & 0xff
   w[0x0f] = (level >> 8) & 0xff
   let steps = 0
-  // Runs the ROM's own inline GM11 bytes from `from` until PC reaches `to` (bank 0): the spans of
-  // GM11LoadLevel (bank_00.asm:2645-2649, 2652-2656) are not subroutines, so there is no return frame.
-  const span = (name: string, from: number, to: number) => {
+  // One loader step: `go` gets the steps left in the total cap and returns how the step ended.
+  const step = (name: string, go: (room: number) => CallResult) => {
     const room = LOADER_TOTAL_CAP - steps
-    const budget = `${name} did not return within the loader's total of ${LOADER_TOTAL_CAP} steps`
-    if (room <= 0) return budget
-    nativeReset(cpu)
-    cpu.pb = 0
-    cpu.pc = from
-    const r = runUntil(cpu, room, k => k.pb === 0 && k.pc === to)
-    steps += r.steps
-    if (r.kind === 'returned') return null
-    return r.kind === 'budget' ? budget : describe(r, LOADER_TOTAL_CAP)
-  }
-  const run = (name: string, entry: number, kind: 'jsr' | 'jsl', db: number, extra?: number[]) => {
-    const room = LOADER_TOTAL_CAP - steps
-    const r: CallResult =
-      room > 0
-        ? callSubroutine(cpu, entry, { kind, maxSteps: room, regs: { db }, extra })
-        : { kind: 'budget', steps: 0 }
+    const r: CallResult = room > 0 ? go(room) : { kind: 'budget', steps: 0 }
     steps += r.steps
     if (r.kind === 'returned') return null
     if (r.kind === 'budget') return `${name} did not return within the loader's total of ${LOADER_TOTAL_CAP} steps` // prettier-ignore
     return describe(r, LOADER_TOTAL_CAP)
   }
+  const run = (name: string, entry: number, kind: 'jsr' | 'jsl', db: number, extra?: number[]) =>
+    step(name, room => callSubroutine(cpu, entry, { kind, maxSteps: room, regs: { db }, extra }))
+  // Runs the ROM's own inline GM11 bytes from `from` until PC reaches `to` (bank 0): the spans of
+  // GM11LoadLevel (bank_00.asm:2645-2649, 2652-2656) are not subroutines, so there is no return frame.
+  const span = (name: string, from: number, to: number) =>
+    step(name, room => {
+      nativeReset(cpu)
+      cpu.pb = 0
+      cpu.pc = from
+      return runUntil(cpu, room, k => k.pb === 0 && k.pc === to)
+    })
   try {
     // CODE_05D8B7 is entered mid-routine, after CODE_05D796's PHB; its PLB needs that byte.
     // GM11LoadLevel's order (bank_00.asm:2644-2657): the header loader, the layer position copy
