@@ -9,8 +9,9 @@
  * Special cases are keyed on the SPAWNED SPRITE, as the ROM does, not on the tile.
  */
 
-import { findExactlyOneSite, WILD } from './BytePattern'
+import { findExactlyOneSite, WILD, type BytePattern } from './BytePattern'
 import type { RomFile } from './RomFile'
+import { hiromToOffset, loromToOffset } from './addressing'
 
 export const FIRST_ITEM_BLOCK = 0x111
 export const LAST_ITEM_BLOCK = 0x12d
@@ -125,9 +126,39 @@ function readGreenStarCoins(rom: RomFile): { value: number | null; reason?: stri
     : { value }
 }
 
+const GATE_LABEL = 'DATA_00F0A4'
+const GATE_LENGTH = 36
+// PHX / PHA / TYX / LDA.L DATA_00F0EC,X / PLX / AND.L DATA_00F0A4,X / BEQ: CODE_00F17F from its
+// entry (bank_00.asm:12846-12853). The entry is in the pattern so a hijack planted there breaks the
+// match; the TYX is still what disambiguates hack 19720, which has an unrelated TAX / LDA.L / PLX /
+// AND.L / BEQ.
+// prettier-ignore
+const GATE_READER: BytePattern = [0xda, 0x48, 0xbb, 0xbf, WILD, WILD, WILD, 0xfa, 0x3f, WILD, WILD, WILD, 0xf0, WILD]
+const GATE_OPERAND_AT = 9
+
+/** DATA_00F0A4 from the operand of the AND.L that reads it, or why that read is not on this ROM. */
+function readGate(rom: RomFile): { bytes: Uint8Array } | { reason: string } {
+  const what = `the reader of ${GATE_LABEL} (CODE_00F17F, bank_00.asm:12846-12853)`
+  const site = findExactlyOneSite(rom, GATE_READER, what)
+  if (!site.ok) return { reason: `${GATE_LABEL}: ${site.reason}` }
+  const op = rom.readAtFileOffset(site.offset + GATE_OPERAND_AT, 3)!
+  const operand = op[0]! | (op[1]! << 8) | (op[2]! << 16)
+  // Per byte, like the fixed tables: AND long,X carries into the bank, so a table that crosses a
+  // bank end does not continue in the next ROM bank.
+  const bytes = slice(rom, operand, GATE_LENGTH)
+  if (bytes) return { bytes }
+  const hex = (n: number): string => `$${n.toString(16).toUpperCase().padStart(6, '0')}`
+  const first = Array.from({ length: GATE_LENGTH }, (_, i) => (operand + i) & 0xffffff).find(
+    a => rom.readByte(a) === null,
+  )!
+  const mapped =
+    rom.mapMode === 'hirom' ? hiromToOffset(first) : loromToOffset(first, Number.MAX_SAFE_INTEGER)
+  const why = mapped === null ? `${hex(first)} is not ROM` : `runs past the end of this ROM`
+  return { reason: `${GATE_LABEL} (${GATE_LENGTH} bytes at ${hex(operand)}): ${why}` }
+}
+
 const TABLE_SPECS = [
   ['selector', 'DATA_00F080', 0x00f080, 36],
-  ['gate', 'DATA_00F0A4', 0x00f0a4, 36],
   ['columnCycle', 'DATA_00F100', 0x00f100, 32],
   ['spriteInBlock', 'SpriteInBlock', 0x0288a3, SPRITE_SPAN],
   ['statusOfSprInBlk', 'StatusOfSprInBlk', 0x0288c5, STATUS_SPAN],
@@ -151,6 +182,9 @@ export function readBlockContentTables(rom: RomFile): BlockContentTables | Table
     }
     got[key] = bytes
   }
+  const gate = readGate(rom) // after the fixed tables, so a short ROM still names the first one cut off
+  if (!('bytes' in gate)) return { kind: 'unavailable', unavailable: gate.reason }
+  got.gate = gate.bytes
   const counter = readGreenStarCoins(rom)
   return {
     ...(got as unknown as Omit<BlockContentTables, 'greenStarCoins'>),
@@ -415,7 +449,7 @@ function resolveWith(
 ): BlockContents {
   const index = upward ? actsLike - 4 : actsLike - FIRST_ITEM_BLOCK
   const raw = at(t.selector, index, 'DATA_00F080')
-  // The gate (bank_00.asm:12850-12853): which hit directions open this index. Head bump
+  // The gate (bank_00.asm:12849-12853): which hit directions open this index. Head bump
   // is Y=0 (mask $08), sides Y=1,2 ($03), above Y=3 ($04); the upward tiles are a head bump.
   const mask = at(t.gate, index, 'DATA_00F0A4') & 0x0f // bits 4-7 never match: Y is 0-3
   const trigger = upward ? ' (only when hit from below)' : gateText(mask)
