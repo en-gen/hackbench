@@ -759,9 +759,9 @@ loader (`$05:D83B`), and the four entries of 13.1. The first failure per corpus 
 | Seven Vanilla Levels  | GM11 code at `$00:9708` (its JSL hook) |
 
 Since #648 the UpdateScreenPosition shape is the 9 bytes `$00:F6DB-F6E3` (PHB PHK PLB REP LDA
-SEC, `bank_00.asm:13632-13637`), stopping before the SBC at `$00:F6E4` (13638), where 87 of 107
-corpus ROMs have a JML hook; the hook runs on the core like the rest of the routine, under
-the same step cap and stack guard. Shape acceptance over the 107 corpus ROMs (one machine,
+SEC, `bank_00.asm:13632-13637`), stopping before the SBC at `$00:F6E4` (13638), where 86 of the 107
+corpus ROMs (20 are vanilla; 9678 is all zeros there) have a JML hook; the hook runs on the core like the rest of the routine, under
+the same step cap and a stack guard that also refuses a return to `$00:9716` in another bank. Shape acceptance over the 107 corpus ROMs (one machine,
 2026-10-07): 14 with the old shapes, 7 with a 12-byte shape that covered `$F6E4`, 14 with the
 9-byte shape; the four ROMs above keep their first failure. Of the seven that flipped
 (10186, 5559, 6161, 6416, 6593, 6764, 9535), 5559, 6416 and 6593 load and run the

@@ -11,10 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The sprite level loader now runs the rest of GM11LoadLevel's setup in the ROM's order: the layer
   position copy and the screen setup (CODE_00A796, `$1404`, UpdateScreenPosition). Against
-  Mesen's recorded level state, 308 cell mismatches over 98 maps (`$1404`, `$1462-$1468`, `$1E`,
+  Mesen's recorded level state, 307 cell mismatches over 98 maps (`$1404`, `$1462-$1469`, `$1E`,
   `$20`) fall to 8 on 4 boss rooms (`$1464/$1465`, set by GM12PrepLevel, not GM11); Map16 comparison unchanged
   (88 of 154 identical). Vanilla, one machine (#648). Loader acceptance over the 107 corpus ROMs
-  (shape check only): 14 before; 7 with a 12-byte UpdateScreenPosition shape, which 87 hacks defeat
+  (shape check only): 14 before; 7 with a 12-byte UpdateScreenPosition shape, which 86 of the 107 defeat
   with a JML at `$00:F6E4`; 14 again with the shape cut to the 9 bytes before that hook, so the
   hook runs on the core. Seven hacks changed and changed back (10186, 5559, 6161, 6416, 6593,
   6764, 9535); four of them (10186, 6161, 6764, 9535) were already refused at run time by the

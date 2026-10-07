@@ -110,7 +110,7 @@ describe('level loader paths (F2, F14, F15)', () => {
   const PTR = 0x05d8c9
   const ENT = 0x00a647
   const DATA = 0x058030
-  const UPD = 0x00f6e7 // UpdateScreenPosition's stub PLB, inside the screen setup span
+  const UPD = 0x00f6e7 // the stub's STA $142C (the hook site's second instruction), inside the screen setup span
   const loaded = (at: number, bytes: number[]) => {
     const rom = buildSyntheticRom()
     rom.writeAt(at, bytes)

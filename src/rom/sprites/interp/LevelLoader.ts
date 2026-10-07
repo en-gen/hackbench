@@ -59,7 +59,9 @@ const SHAPES: { name: string; at: number; want: (number | null)[] }[] = [
   { name: 'GM11 code between the entrance setup and the level data call at $00:9708', at: 0x009708, want: [0xa9, 0x20, 0x85, 0x5e, 0x20, 0x96, 0xa7, 0xee, 0x04, 0x14, 0x22, 0xdb, 0xf6, 0x00] }, // prettier-ignore
   // CODE_00A796 and UpdateScreenPosition are called from that span (bank_00.asm:5089, 13631).
   { name: 'Layer 2 scroll setup at $00:A796', at: 0x00a796, want: [0xc2, 0x20, 0xac, null, null, 0xf0, null, 0x88, 0xd0] }, // prettier-ignore
-  { name: 'UpdateScreenPosition at $00:F6DB (to the hook site at $F6E4)', at: 0x00f6db, want: [0x8b, 0x4b, 0xab, 0xc2, 0x20, 0xad, null, null, 0x38] }, // prettier-ignore
+  // LDA CameraMoveTrigger ($142A): exact, as the corpus holds only `2a 14` (and `2a 74`, all on SA-1
+  // ROMs, which the mapper check refuses first).
+  { name: 'UpdateScreenPosition at $00:F6DB (to the hook site at $F6E4)', at: 0x00f6db, want: [0x8b, 0x4b, 0xab, 0xc2, 0x20, 0xad, 0x2a, 0x14, 0x38] }, // prettier-ignore
   { name: 'GM11 call JSR CODE_00A635 at $00:9705', at: 0x009705, want: [0x20, 0x35, 0xa6] },
   { name: 'GM11 call JSL CODE_05801E at $00:9716', at: 0x009716, want: [0x22, 0x1e, 0x80, null] },
   // CODE_05D796: PHB PHK PLB SEP #$30 STZ / LDA / BNE / LDY / BEQ / JSR / LDA SublevelCount / BNE +3 / JMP CODE_05D83E
@@ -124,11 +126,19 @@ export function loadLevelState(rom: RomFile, level: number): LevelLoad {
       // wrong-kind or stray return (RTS from a JSL frame, RTL from a JSR frame), not a finished span.
       const s0 = cpu.s
       const unbalanced = (c: Cpu65816): CallResult => ({ kind: 'unbalanced', s: c.s, expected: s0, pb: c.pb, expectedPb: 0, steps: 0 }) // prettier-ignore
+      // A return to `to` in another bank (RTS from a hook in bank $05) is refused by name, as
+      // callSubroutine refuses a return into the wrong bank.
+      const wrongBank = (c: Cpu65816): CallResult => ({ kind: 'refused', reason: `returned to $00:${to.toString(16).toUpperCase()} in bank $${c.pb.toString(16).toUpperCase().padStart(2, '0')}; the call frame was not unwound`, at: (c.pb << 16) | c.pc, steps: 0 }) // prettier-ignore
       return runUntil(
         cpu,
         room,
         k => k.pb === 0 && k.pc === to && k.s === s0,
-        k => (k.s > s0 || (k.pb === 0 && k.pc === to) ? unbalanced(k) : null),
+        k =>
+          k.pc === to && k.pb !== 0
+            ? wrongBank(k)
+            : k.s > s0 || (k.pb === 0 && k.pc === to)
+              ? unbalanced(k)
+              : null,
       )
     })
   try {

@@ -25,7 +25,10 @@ describe('sprite loop reader', () => {
   })
   it('refuses a loop whose countdown matches more than once', () => {
     const dup = buildSyntheticRom({ dupLoop: true })
-    expect(resolveLoop(dup)).toMatchObject({ ok: false, reason: /more than once/ })
+    expect(resolveLoop(dup)).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/more than once/),
+    })
     expect(runSprite(dup, 0).refusal).toMatch(/more than once/)
   })
   it('refuses a loop that is not the countdown shape', () => {
@@ -46,11 +49,14 @@ describe('dispatch reader', () => {
   })
   it('refuses dispatch calls that do not reach one 16-bit ExecutePtr', () => {
     const t = resolveTables(buildSyntheticRom({ badExecutePtr: true }))
-    expect(t).toMatchObject({ ok: false, reason: /same routine/ })
+    expect(t).toMatchObject({ ok: false, reason: expect.stringMatching(/same routine/) })
     // Agreeing calls into a routine of another shape (here, a RTS) are refused too.
     const rts = buildSyntheticRom()
     rts.writeAt(0x0086fa, [0x60])
-    expect(resolveTables(rts)).toMatchObject({ ok: false, reason: /16-bit ExecutePtr/ })
+    expect(resolveTables(rts)).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/16-bit ExecutePtr/),
+    })
   })
   it('refuses an id past the table and a pointer below $8000', () => {
     const t = resolveTables(rom)
@@ -354,7 +360,7 @@ describe.skipIf(!hasRom(VANILLA))('ROM level loader (vanilla)', () => {
     rom.writeAt(0x05d83b, [0x4c, 0x00, 0x80])
     expect(loadLevelState(rom, 0x105)).toMatchObject({
       ok: false,
-      reason: /jump into the pointer loader/,
+      reason: expect.stringMatching(/jump into the pointer loader/),
     })
   })
   it('a planted header-decode defect changes the loaded state (the loader can go red)', () => {
@@ -507,25 +513,46 @@ describe('level loader on a synthetic cart', () => {
   })
 
   it('refuses each differing entry with its name', () => {
-    expect(run({ badLoader: 'lead' })).toMatchObject({ ok: false, reason: /CODE_05D796 prologue/ })
+    expect(run({ badLoader: 'lead' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/CODE_05D796 prologue/),
+    })
     expect(run({ badLoader: 'jump' })).toMatchObject({
       ok: false,
-      reason: /jump into the pointer loader/,
+      reason: expect.stringMatching(/jump into the pointer loader/),
     })
     expect(run({ badLoader: 'callsite' })).toMatchObject({
       ok: false,
-      reason: /GM11 call JSL CODE_05D796/,
+      reason: expect.stringMatching(/GM11 call JSL CODE_05D796/),
     })
-    expect(run({ badLoader: 'pointers' })).toMatchObject({ ok: false, reason: /pointer loader/ })
-    expect(run({ badLoader: 'entrance' })).toMatchObject({ ok: false, reason: /entrance setup/ })
-    expect(run({ badLoader: 'data' })).toMatchObject({ ok: false, reason: /data loader/ })
+    expect(run({ badLoader: 'pointers' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/pointer loader/),
+    })
+    expect(run({ badLoader: 'entrance' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/entrance setup/),
+    })
+    expect(run({ badLoader: 'data' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/data loader/),
+    })
     expect(run({ badLoader: 'scroll' })).toMatchObject({
       ok: false,
-      reason: /Layer 2 scroll setup/,
+      reason: expect.stringMatching(/Layer 2 scroll setup/),
     })
     expect(run({ badLoader: 'update' })).toMatchObject({
       ok: false,
-      reason: /UpdateScreenPosition/,
+      reason: expect.stringMatching(/UpdateScreenPosition/),
+    })
+    // The LAST byte of each new shape: a shape cut short of it (8 bytes for the update) would not see these.
+    expect(run({ badLoader: 'scrollTail' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/Layer 2 scroll setup/),
+    })
+    expect(run({ badLoader: 'updateTail' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/UpdateScreenPosition/),
     })
   })
 
@@ -542,18 +569,39 @@ describe('level loader on a synthetic cart', () => {
   it('a hook that never returns hits the cap; one that returns on the wrong stack is unbalanced', () => {
     expect(run({ updateHook: 'loop' })).toMatchObject({
       ok: false,
-      reason: /screen position setup did not return/,
+      reason: expect.stringMatching(/screen position setup did not return/),
     })
-    expect(run({ updateHook: 'rts' })).toMatchObject({ ok: false, reason: /stack unbalanced/ })
+    // PLB then RTS from the bank-$05 hook lands on $9716 in bank $05: the guard names the bank.
+    expect(run({ updateHook: 'rts' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/bank [$]05/),
+    })
   })
 
   it('a wrong-kind return inside the screen setup span is refused, not run on', () => {
-    expect(run({ badLoader: 'scrollRtl' })).toMatchObject({ ok: false, reason: /stack unbalanced/ })
-    expect(run({ badLoader: 'updateRts' })).toMatchObject({ ok: false, reason: /stack unbalanced/ })
+    expect(run({ badLoader: 'scrollRtl' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/stack unbalanced/),
+    })
+    expect(run({ badLoader: 'updateRts' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/stack unbalanced/),
+    })
+  })
+
+  it('a span-internal return that pops above the start S is refused even if S is restored', () => {
+    // CODE_00A796 stub: PLA x3 (M is 16-bit after the shape's REP, so S=$0201 after the second), PHA x2 (S back to $01FF), JMP $970F; without the S-above-start clause this runs on.
+    expect(run({ badLoader: 'scrollPop' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/stack unbalanced at return [(]S=[$]0201, expected [$]01FF[)]/),
+    })
   })
 
   it('refuses when the loader executes COP', () => {
-    expect(run({ loaderCop: true })).toMatchObject({ ok: false, reason: /COP executed/ })
+    expect(run({ loaderCop: true })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/COP executed/),
+    })
   })
 })
 

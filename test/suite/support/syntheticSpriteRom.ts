@@ -21,6 +21,8 @@
  */
 import { RomFile } from '../../../src/rom/RomFile'
 
+import { putGm11Spans } from './syntheticGm11Spans'
+
 export interface SyntheticOptions {
   /** ADC operand of id 0's INIT shift. */
   initShift?: number
@@ -39,7 +41,11 @@ export interface SyntheticOptions {
   badGetRand?: boolean
   /** GetRand's two JSL banks use the FastROM mirror $81, as 36 of 101 hacks do. */
   fastRomGetRand?: boolean
-  /** Break one level-loader entry shape: 'lead' | 'pointers' | 'entrance' | 'data'. */
+  /**
+   * Break one level-loader entry shape (by its first byte: 'lead' 'jump' 'callsite' 'pointers' 'entrance'
+   * 'data' 'scroll' 'update'; by its last: 'scrollTail' 'updateTail'), or make a GM11-span routine
+   * return wrongly ('scrollRtl' 'updateRts') or pop above its frame and repair S ('scrollPop').
+   */
   badLoader?:
     | 'lead'
     | 'jump'
@@ -53,6 +59,7 @@ export interface SyntheticOptions {
     | 'updateTail'
     | 'scrollRtl'
     | 'updateRts'
+    | 'scrollPop'
   /**
    * UpdateScreenPosition carries a JML at $00:F6E4 (87 of 107 corpus hacks do) to $05:F000, which
    * does the rest of its work: 'jml' ends in RTL, 'loop' never returns, 'rts' ends in the wrong return.
@@ -103,20 +110,7 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   put(0x05d83b, [bad('jump', 0x4c), 0xb7, 0xd8])
   // CODE_05D8B7 shape, then SEP #$30 / LDA #7 / STA $1692 / STA $1A / PLB / RTL
   put(0x05d8b7, [bad('pointers', 0xc2), 0x30, 0xa5, 0x0e, 0x0a, 0x18, 0x65, 0x0e, 0xa8, 0xe2, 0x30, 0xa9, 0x07, 0x8d, 0x92, 0x16, 0x85, 0x1a, 0xab, 0x6b]) // prettier-ignore
-  // CODE_00A796 shape, then SEP #$20 / RTS. UpdateScreenPosition shape, then SEP #$20 / LDA $1462
-  // (the copied $1A: proves the pointer loader and the copy ran first) / STA $1E / LDA $71 (the
-  // entrance setup's) / STA $20 / PLB / RTL.
-  put(0x00a796, [bad('scroll', 0xc2), 0x20, 0xac, 0x13, 0x14, 0xf0, 0x03, 0x88, o.badLoader === 'scrollTail' ? 0xea : 0xd0, 0x00, 0xe2, 0x20, o.badLoader === 'scrollRtl' ? 0x6b : 0x60]) // prettier-ignore
-  const upd = [bad('update', 0x8b), 0x4b, 0xab, 0xc2, 0x20, 0xad, 0x00, 0x00, o.badLoader === 'updateTail' ? 0xea : 0x38, 0xe9, 0x0c, 0x00, 0xe2, 0x20, 0xad, 0x62, 0x14, 0x85, 0x1e, 0xad, 0x71, 0x00, 0x85, 0x20, 0xab, o.badLoader === 'updateRts' ? 0x60 : 0x6b] // prettier-ignore
-  // The vanilla-shaped bytes up to the hook site, then a JML to the rest of the routine.
-  put(0x00f6db, o.updateHook ? [...upd.slice(0, 9), 0x5c, 0x00, 0xf0, 0x05] : upd)
-  if (o.updateHook)
-    put(
-      0x05f000,
-      o.updateHook === 'loop'
-        ? [0x80, 0xfe]
-        : [...upd.slice(9, -1), o.updateHook === 'rts' ? 0x60 : 0x6b],
-    )
+  putGm11Spans(put, o)
   // CODE_00A635 shape, then LDA $0000 / LDA #6 / STA $71 / RTS
   put(0x00a635, [bad('entrance', 0xad), 0xad, 0x14, 0x0d, 0xae, 0x14, 0x0d, 0x0c, 0x19, 0xd0, 0x0a, 0xad, 0x00, 0x00, 0xa9, 0x06, 0x85, 0x71, 0x60]) // prettier-ignore
   // CODE_05801E shape, STA $7EC800,X, LDA #$77 / STA $5E (CODE_0584E3 rewrites $5E, bank_05.asm:560,
