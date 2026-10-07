@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   refuses, or a vertical level, disables the toggle with the reason. Cold map about 3 s on one
   machine, a revisit from cache; checked against the spike's output on three vanilla maps, not
   against an emulator.
+- The Maps view shows what a block holds: each item block carries its item at half size in the bottom-right quadrant, filling the block on hover, drawn in the block's own graphics layer at screen resolution so nearer graphics layers and sprites cover it. Progressive blocks and the two-outcome blocks show both items split along the anti-diagonal, the base item (mushroom or coin) bottom-right and the upgrade (flower, feather, star or 1-up) top-left, with a black line on it, multi-coin blocks a "+" on the coin, and each cell shows the item for its own column ($111 and $11A by X column, `bank_00.asm:12868-12876`; $125 by X column mod 4, `bank_02.asm:1199-1212`; the P-switch colour by column parity, `bank_02.asm:1280-1295`; traced in SMWDisX and checked over a census of vanilla's 512 map slots, 578 indicators, all drawn). Item art comes from running the game's own item-block spawn on the 65816 core; a block whose item cannot be drawn is listed in a note with the reason (#566).
+- 65816 core: emulation-mode `(dp,X)` and JSR (a,X) follow Clark and Snes9x, WAI and STP halt `step()`, WDM makes no read, and setting `e` applies the XCE invariant. The SingleStep harness gains planted-defect proofs and a named list of disputed vectors; CI now pins its edge cases and the SingleStep harness's own checks with synthetic tests (#646).
+- The GFX view paints: pick a palette color, click or drag on a tile sheet, and the pixel changes
+  at once. Strokes can be undone and redone before Save; Save records them as one undoable op
+  layer (any number of 8x8 characters) and never writes the base ROM. Closing the view with
+  unsaved strokes asks first (#558). A gfx layer file now holds a `chars` list; the older
+  one-character form still reads.
 - The map view toolbar warns when the open level's mode is on an unverified list, which holds
   mode 1E only (sprite layering not verified, #617). Rendering is unchanged (#618).
 - The map view composites the main and sub screens for every level mode, with SNES color math:
@@ -102,6 +109,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Opening another project closes the previous project's GFX, Map16 and map views, so
+  Ctrl+Z in a leftover view no longer undoes the new project's layer. A view with
+  unsaved strokes asks first, and cancelling keeps the old project open (#628).
+- A `setWord` or GFX Save whose layer file write fails after an undo now keeps the redo
+  history, in memory and on disk, and the held working copy; a failure after the redo
+  clear still loses it, as before. Synthetic fault tests, no ROM (#634).
+- The sprite interpreter's machine is stricter and shared: one call helper (`src/rom/cpu/call.ts`) replaces four copies of the call loop and reports a wrong or unbalanced return, WAI, a fetch outside ROM, a HiROM cart and a runaway level load by their real cause (the level load now has a total step cap); the bus mirrors ROM past the image, models SRAM as a buffer and shares the Mode 7 latch; the Mesen replay test now asserts the exact 1110 of 1122 (#647).
+
 - Sprite $0A (Red Vertical Para-Koopa) and $0B (Red Horizontal Para-Koopa)
   patrol overlay no longer renders as a symmetric `±amplitudePx` band. Per
   `RedVertParaKoopa` (bank_01.asm:1881), `SpriteXSpeed` and `SpriteMisc151C`
@@ -176,6 +191,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Agent manual: auto-merge stays on across fix pushes.
+- `npm run gitnexus` no longer rewrites CLAUDE.md and AGENTS.md (`.gitnexusrc` and `--skip-agents-md`), so parallel worktrees stop conflicting on the generated counts, which are removed from the marked region (#644).
 - "Show surfaces" editor overlay now consumes the shared `SurfacePath`
   module — same source of truth as the sprite-patrol scan. Both views
   agree on silhouette suppression, slope vs flat classification, and

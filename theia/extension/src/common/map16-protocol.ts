@@ -407,16 +407,7 @@ export type SetMap16Result =
   | { status: 'io-error'; reason: string }
   | { status: 'refused'; reason: string }
 
-/** Pushed when a project's working copy changes - a palette edit, a Map16
- * edit made through another view, or this view's own edit. */
-export interface Map16ServiceClient {
-  onWorkingCopyChanged(manifestPath: string): void
-}
-
 export interface Map16Service {
-  /** Registers the frontend's push target. Theia calls this once per connection. */
-  setClient(client: Map16ServiceClient | undefined): void
-
   /**
    * Decode one Map16 sheet from the working copy.
    *

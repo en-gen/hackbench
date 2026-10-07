@@ -25,6 +25,13 @@ head 711b7e3). Spike code, not product code.
 | level | 1122 of 1122   | 1162        |
 | spawn | 3495 of 3495   | 9875        |
 
+Write order is compared as recorded: no swap is tolerated (the core writes a
+16-bit read-modify-write high byte first since #593; a low-first core diverges
+here). This table is THIS comparator, which seeds the recorded hi-WRAM windows
+and an overlay. The vitest replay (`test/suite/unit/sprites/spriteTrace.test.ts`)
+seeds only $7E:0000-$1FFF and Map16 and prints 1110 of 1122; that is a different
+number from a different comparator, not a regression.
+
 Planted ADC carry defect: diverges at 657 and 2538 calls. The sample was
 byte-identical across 2 cold runs.
 
@@ -32,8 +39,6 @@ byte-identical across 2 cold runs.
 
 - HDMA writes ($2126, $2127) and all of $2100-$21FF are dropped on both sides.
 - About 11% of calls had an IRQ interrupt inside; those writes are stripped.
-- 16-bit read-modify-write order differs (core low byte first, hardware high
-  first) and is tolerated: #593.
 - Sprites $33, $36 and $A0 hang in INIT in Mesen too, so they have no trace.
 
 ## Running it

@@ -13,11 +13,12 @@
  * silver P-switch off, palaces and blue P-switch as `ProbeState` says (only the all-off state was
  * compared with the spike's signed-off output), one machine; not compared with an emulator.
  */
-import { Cpu65816 } from '../cpu/Cpu65816'
+import type { Cpu65816 } from '../cpu/Cpu65816'
+import { callSubroutine, describe, Refusal } from '../cpu/call'
 import type { RomFile } from '../RomFile'
 import { SWITCH_BLOCK_ORDER } from '../objectHandlers/cursor'
-import { SpriteBus } from '../sprites/interp/SpriteBus'
-import { guardInstruction, Refusal } from '../sprites/interp/Guards'
+import type { SpriteBus } from '../sprites/interp/SpriteBus'
+import { smwMachine } from '../sprites/interp/Machine'
 import { loadLevelState } from '../sprites/interp/LevelLoader'
 
 const RAM = {
@@ -31,7 +32,6 @@ const RAM = {
 const LOW = 0xc800
 const ENTRY_RESET = 0x00eaa6
 const ENTRY_COLLIDE = 0x00eadb
-const SENTINEL = 0xff00
 /** Instructions one call may spend; the routine needs a few hundred. */
 const BUDGET = 20000
 const AIR = 0x25
@@ -125,12 +125,12 @@ export class Probe {
       this.base[LOW + i] = AIR
       this.base[0x10000 + LOW + i] = 0
     }
-    this.bus = new SpriteBus(rom)
-    this.bus.wram.set(this.base)
+    // The shared machine: a CPU over the sprite bus with the ROM guard (BRK, leaving ROM) installed.
+    const { bus, cpu } = smwMachine(rom, this.base)
+    this.bus = bus
+    this.cpu = cpu
     this.romLen = rom.buffer.length
-    this.bus.onInstruction = guardInstruction
     this.bus.onWramWrite = o => this.dirty.push(o)
-    this.cpu = new Cpu65816(this.bus)
     this.tileset = this.base[RAM.tileset]!
   }
 
@@ -171,27 +171,10 @@ export class Probe {
 
   /** Runs a routine to its return; throws `Refusal` when the budget is spent or the code leaves ROM. */
   private call(entry: number): void {
-    const c = this.cpu
-    const push = (v: number) => {
-      this.bus.write(c.s, v)
-      c.s = (c.s - 1) & 0xffff
-    }
-    c.e = false
-    c.p = 0x30
-    c.s = 0x1ff
-    c.d = 0
-    c.db = 0
-    const s0 = c.s
-    push((SENTINEL - 1) >> 8)
-    push((SENTINEL - 1) & 255)
-    c.pb = entry >>> 16
-    c.pc = entry & 0xffff
-    for (let i = 0; i < BUDGET; i++) {
-      c.step()
-      this.steps++
-      if (c.s === s0 && c.pc === SENTINEL) return
-    }
-    throw new Refusal(`step budget of ${BUDGET} spent`)
+    const r = callSubroutine(this.cpu, entry, { kind: 'jsr', maxSteps: BUDGET })
+    this.steps += r.steps
+    const why = describe(r, BUDGET)
+    if (why !== null) throw new Refusal(why)
   }
 
   /**

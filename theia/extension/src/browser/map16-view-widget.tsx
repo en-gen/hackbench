@@ -37,6 +37,7 @@
  */
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
+import { ProjectContext } from './project-context'
 import { ReactWidget, Message } from '@theia/core/lib/browser'
 import { WheelBinding, ZoomController } from './zoom-controller'
 import { ZoomStepper } from './zoom-stepper'
@@ -60,7 +61,6 @@ import {
   MAP16_TILESET_COUNT,
   SetMap16Result,
 } from '../common/map16-protocol'
-import { Map16FrontendClient } from './map16-push-client'
 import { CHAR_PX, QUADRANT_ORIGIN, TILE_PX, cropRegion, decodeRgba } from './map16-pixels'
 import { paintCharSheet, renderCharPalettes } from './map16-char-palettes'
 import {
@@ -83,6 +83,7 @@ import {
 import { decodeSwitchButton, type SwitchButtonImages } from './switch-toggle'
 import { ghostOf } from '../../../../src/rom/render/HiddenTiles'
 import { perfEnd, perfStart } from '../common/perf-marks'
+import { ProjectBound } from './project-bound'
 
 export { MAP16_VIEW_ID, map16WidgetId } from './map16-view-model'
 
@@ -133,12 +134,18 @@ interface Selection {
 }
 
 @injectable()
-export class Map16ViewWidget extends ReactWidget {
+export class Map16ViewWidget extends ReactWidget implements ProjectBound {
   @inject(Map16Service) protected readonly map16!: Map16Service
-  @inject(Map16FrontendClient) protected readonly pushClient!: Map16FrontendClient
+  @inject(ProjectContext) protected readonly projectContext!: ProjectContext
   @inject(ThemeService) protected readonly themes!: ThemeService
 
   protected options: Map16ViewOptions | undefined
+
+  readonly projectBound = true as const
+  /** Closed by the shell when another project opens (#628). */
+  get manifestPath(): string | undefined {
+    return this.options?.manifestPath
+  }
   protected result: LoadMap16Result | undefined
   protected error: string | undefined
   protected editError: string | undefined
@@ -214,7 +221,12 @@ export class Map16ViewWidget extends ReactWidget {
     this.node.tabIndex = 0
 
     this.toDispose.push(
-      this.pushClient.onChanged(manifestPath => {
+      this.projectContext.onEdit(event => {
+        if (event.subject === this.options?.manifestPath) void this.refresh()
+      }),
+    )
+    this.toDispose.push(
+      this.projectContext.onRomChanged(manifestPath => {
         if (manifestPath === this.options?.manifestPath) void this.refresh()
       }),
     )

@@ -62,13 +62,14 @@ export interface OpsLayer extends LayerBase {
 }
 
 /**
- * One 8x8 character's new pixels in one GFX file: the STAGED kind of
- * docs/layer-previews.md. Consecutive gfx layers replay as one re-encode per
- * file (src/rom/GfxLayer.ts), so the layer follows the user's edit and not
- * the compressor's.
+ * One Save's worth of 8x8 character edits, in any number of GFX files: the
+ * STAGED kind of docs/layer-previews.md. Consecutive gfx layers replay as one
+ * re-encode per file (src/rom/GfxLayer.ts), so the layer follows the user's
+ * edit and not the compressor's. Edits apply in order: the last pixel wins.
  */
-export interface GfxLayer extends LayerBase, GfxCharEdit {
+export interface GfxLayer extends LayerBase {
   kind: 'gfx'
+  chars: GfxCharEdit[]
 }
 
 /**
@@ -137,6 +138,19 @@ export class WorkingRom {
   /** The unedited cartridge, never mutated by anything in this class. */
   baseBytes(): Uint8Array {
     return this.base
+  }
+
+  /**
+   * File offsets of the words a word layer writes (a copier header counts),
+   * in op order; an op outside the cartridge, or whose 2-byte word would end
+   * past the file, is skipped. A gfx layer has
+   * none: it is addressed by file and character, not by ROM offset.
+   */
+  wordOffsets(layer: Layer): number[] {
+    if (layer.kind !== undefined) return []
+    return layer.ops
+      .map(op => opFileOffset(op, this.romSize, this.hasHeader))
+      .filter((o): o is number => o !== null && o + 2 <= this.base.length)
   }
 
   /** Whether the base file carries a 512-byte copier header. */
@@ -326,7 +340,7 @@ export class WorkingRom {
   scopeLine(index: number): string | null {
     if (this.layerStack[index]?.kind !== 'gfx') return null
     const n = this.bytesChangedBy(index)
-    return `Re-encodes the GFX arena: ${n} ${n === 1 ? 'byte' : 'bytes'} of the ROM changed, not just this character.`
+    return `Re-encodes the GFX arena: ${n} ${n === 1 ? 'byte' : 'bytes'} of the ROM changed, not just the characters drawn.`
   }
 
   /**
@@ -336,7 +350,7 @@ export class WorkingRom {
   private applyOnTop(layer: Layer): Uint8Array {
     const next = new Uint8Array(this.bytes())
     const replaced =
-      layer.kind === 'gfx' ? this.fold(next, [layer]) : this.applyWords(next, layer, true)
+      layer.kind === 'gfx' ? this.fold(next, layer.chars) : this.applyWords(next, layer, true)
     this.applied.set(this.layerStack.length, { from: this.layerStack.length, replaced })
     return next
   }
@@ -352,7 +366,7 @@ export class WorkingRom {
     const next = new Uint8Array(this.bytes())
     revert(next, top.replaced)
     if (top.from < k) {
-      const rest = this.layerStack.slice(top.from, k) as GfxLayer[]
+      const rest = (this.layerStack.slice(top.from, k) as GfxLayer[]).flatMap(l => l.chars)
       this.applied.set(k - 1, { from: top.from, replaced: this.fold(next, rest) })
     }
     this.applied.delete(k)
@@ -397,7 +411,7 @@ export class WorkingRom {
       const layer = layers[i]!
       if (layer.kind === 'gfx') {
         if (run.length === 0) runFrom = i
-        run.push(layer)
+        run.push(...layer.chars)
         continue
       }
       flush(i)

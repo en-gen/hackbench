@@ -8,7 +8,7 @@
  * A group with more than one variant expands to list them; a single-variant
  * group is a plain leaf, since there is nothing under it worth a second row.
  * Node ids are stable (`palette:<groupId>` / `palette:<groupId>:<vi>`) so a
- * reload after an edit elsewhere - PaletteFrontendClient.onChanged - can
+ * reload after an edit elsewhere - ProjectContext.onEdit - can
  * rebuild the tree from scratch and still restore which groups were open.
  */
 import * as React from '@theia/core/shared/react'
@@ -39,7 +39,6 @@ import {
   PaletteVariantDto,
 } from '../common/palette-protocol'
 import { ProjectContext } from './project-context'
-import { PaletteFrontendClient } from './palette-push-client'
 
 export const PALETTE_EXPLORER_ID = 'hackbench.palette-explorer'
 
@@ -90,7 +89,6 @@ export class PaletteExplorerWidget extends TreeWidget {
 
   @inject(PaletteService) protected readonly palettes!: PaletteService
   @inject(ProjectContext) protected readonly projectContext!: ProjectContext
-  @inject(PaletteFrontendClient) protected readonly pushClient!: PaletteFrontendClient
 
   /** Exposed for tests: the service's last answer for the open project. */
   result: LoadPaletteResult | undefined
@@ -98,6 +96,8 @@ export class PaletteExplorerWidget extends TreeWidget {
   protected manifestPath = ''
   /** Discards a response superseded by a later load(). */
   protected requestToken = 0
+  /** Set by a ROM change; the next load that gets as far as building the tree starts fresh. */
+  protected freshFor: string | undefined
   /** Reset at the start of every load() so note ids stay unique but stable within one render. */
   protected noteSeq = 0
 
@@ -138,12 +138,23 @@ export class PaletteExplorerWidget extends TreeWidget {
         void this.load(project?.manifestPath)
       }),
     )
+    // The base ROM moved: rebuild as a fresh open would, collapsed, nothing selected.
+    this.toDispose.push(
+      this.projectContext.onRomChanged(manifestPath => {
+        if (manifestPath !== this.manifestPath) return
+        this.model.clearSelection()
+        // Sticks until a load completes: a later non-fresh load (the context
+        // re-announce after a Properties save) must not bring the folds back.
+        this.freshFor = manifestPath
+        void this.load(manifestPath)
+      }),
+    )
     // A working-copy change - this widget's own edit, or one made from an
     // already-open group tab - re-fetches the SAME manifest and rebuilds the
     // tree, so a group's variant count or a warning note never goes stale.
     this.toDispose.push(
-      this.pushClient.onChanged(manifestPath => {
-        if (manifestPath === this.manifestPath) void this.load(manifestPath)
+      this.projectContext.onEdit(event => {
+        if (event.subject === this.manifestPath) void this.load(event.subject)
       }),
     )
     this.toDispose.push(
@@ -207,7 +218,9 @@ export class PaletteExplorerWidget extends TreeWidget {
     // root setter does not diff against the old one), so nothing carries
     // this forward unless this widget does it itself.
     const wasExpanded = new Set<string>()
-    this.collectExpanded(this.model.root, wasExpanded)
+    const fresh = this.freshFor === manifestPath
+    this.freshFor = undefined
+    if (!fresh) this.collectExpanded(this.model.root, wasExpanded)
 
     const { palettes, romName } = result
     const children: PaletteTreeNode[] = [this.note(romName)]

@@ -1,28 +1,18 @@
 import { ContainerModule } from '@theia/core/shared/inversify'
-import { ConnectionContainerModule } from '@theia/core/lib/node/messaging/connection-container-module'
-import {
-  PALETTE_SERVICE_PATH,
-  PaletteService,
-  PaletteServiceClient,
-} from '../common/palette-protocol'
+import { ConnectionHandler, RpcConnectionHandler } from '@theia/core/lib/common/messaging'
+import { PALETTE_SERVICE_PATH, PaletteService } from '../common/palette-protocol'
 import { PaletteServiceImpl } from './palette-server'
 
-// One PaletteServiceImpl per CONNECTION - see hackbench-backend-module.ts.
-// WorkingRomRegistry still resolves from the parent container.
-const paletteConnectionModule = ConnectionContainerModule.create(({ bind, bindBackendService }) => {
+// No client to push to: edits reach the frontend as the one edit event on the
+// project connection (working-copy-notifier.ts), so this is an ordinary
+// singleton. WorkingRomRegistry still resolves from the same container.
+export default new ContainerModule(bind => {
   bind(PaletteServiceImpl).toSelf().inSingletonScope()
   bind(PaletteService).toService(PaletteServiceImpl)
-  bindBackendService<PaletteService, PaletteServiceClient>(
-    PALETTE_SERVICE_PATH,
-    PaletteService,
-    (server, client) => {
-      server.setClient(client)
-      client.onDidCloseConnection(() => server.setClient(undefined))
-      return server
-    },
-  )
-})
-
-export default new ContainerModule(bind => {
-  bind(ConnectionContainerModule).toConstantValue(paletteConnectionModule)
+  bind(ConnectionHandler)
+    .toDynamicValue(
+      ctx =>
+        new RpcConnectionHandler(PALETTE_SERVICE_PATH, () => ctx.container.get(PaletteService)),
+    )
+    .inSingletonScope()
 })

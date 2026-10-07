@@ -1,5 +1,6 @@
 // Consumes: editorStore.cursorPx
 
+import { cycleColumn } from '../../../BlockContents'
 import type { Char } from '../../chars/Char'
 import type { CellBox, RenderTarget } from '../../RenderTarget'
 import { editorStore } from '../../stores/editorStore'
@@ -32,7 +33,10 @@ export type ItemType = 'star' | '1up' | 'vine'
 
 /** Pure per-column dispatch. Exported so tests / other tools can re-use it. */
 export function starOneUpVineItemAt(col: number): ItemType {
-  const m = (col % 16) % 3
+  // Column position comes from the shared resolver; the star slot is drawn as
+  // a plain star here although the ROM gives coin unless Mario is invincible
+  // (docs/rom/block-contents.md). PR B replaces this rendering.
+  const m = cycleColumn(0x11a, col)!.index
   if (m === 0) return 'star'
   if (m === 1) return '1up'
   return 'vine'

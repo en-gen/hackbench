@@ -52,6 +52,7 @@ import { CommandService, Emitter, MessageService } from '@theia/core/lib/common'
 import { OVERWORLD_FOCUS_COMMAND_ID, OVERWORLD_OPEN_AREA_COMMAND_ID } from './overworld-view-widget'
 import { overworldRows, opensArea, type AreaRow } from './map-explorer-areas'
 import { GfxService } from '../common/gfx-protocol'
+import { ProjectContext } from './project-context'
 import { orderSpecials } from './map-explorer-order'
 import {
   GroupedMapNodeDto,
@@ -171,6 +172,7 @@ export class MapExplorerWidget extends TreeWidget {
   @inject(ProjectService) protected readonly projects!: ProjectService
   @inject(MessageService) protected readonly messages!: MessageService
   @inject(GfxService) protected readonly gfx!: GfxService
+  @inject(ProjectContext) protected readonly projectContext!: ProjectContext
 
   /** Exposed for tests: the count the backend reported for this cartridge. */
   mapCount = 0
@@ -227,6 +229,15 @@ export class MapExplorerWidget extends TreeWidget {
     super.init()
     this.setRoot([])
 
+    // The base ROM moved: rebuild as a fresh open would, nothing selected.
+    this.toDispose.push(
+      this.projectContext.onRomChanged(manifestPath => {
+        if (manifestPath !== this.manifestPath) return
+        this.model.clearSelection()
+        void this.load(manifestPath)
+      }),
+    )
+
     // A multi-row selection (Ctrl/Shift+click) opens nothing: it is there to
     // build a group from, not to preview.
     this.toDispose.push(
@@ -252,6 +263,15 @@ export class MapExplorerWidget extends TreeWidget {
    */
   async load(manifestPath: string): Promise<void> {
     const generation = ++this.loadGeneration
+    // Another project's rows must not stay clickable while this one loads:
+    // a click would open a map bound to the new project with the old index.
+    if (manifestPath !== this.manifestPath) {
+      this.manifestPath = ''
+      // Theia carries selection ids across a root change (see restoreSelectionAndExpansion),
+      // so a same-named group in the new project would inherit the old selection.
+      this.model.clearSelection()
+      this.setRoot([])
+    }
     let result
     try {
       result = await this.projects.loadMaps(manifestPath)

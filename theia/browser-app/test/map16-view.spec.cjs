@@ -1482,8 +1482,8 @@ test('the tileset control says it is graphics-only on the Background tab', async
 
 /**
  * A PALETTE edit made through PaletteService visibly recolors an
- * ALREADY-OPEN Map16 view, with no manual reload - the push path
- * map16-push-client.ts and WorkingCopyNotifier exist for.
+ * ALREADY-OPEN Map16 view, with no manual reload - the push path the
+ * edit event (ProjectContext.onEdit) and WorkingCopyNotifier exist for.
  *
  * The edited address/color ($00B254, StandardColors row 0 col 4) was chosen
  * because tile $130's TL character ($30, color row 4) was decoded from the

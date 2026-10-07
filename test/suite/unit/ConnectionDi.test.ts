@@ -1,5 +1,5 @@
 /**
- * The DI wiring itself: two connections resolve their own PaletteServiceImpl
+ * The DI wiring itself: two connections resolve their own ProjectServiceImpl
  * (not the same shared instance), both keep sharing one WorkingRomRegistry,
  * and closing one connection's channel drops exactly its own WorkingRom
  * subscription while the other keeps getting pushed to. Reaches real
@@ -41,7 +41,6 @@ describe.skipIf(!theiaInstalled)('the connection-container wiring', () => {
   beforeAll(async () => {
     await import('../../../theia/node_modules/reflect-metadata')
     await import('../../../theia/extension/src/node/hackbench-backend-module')
-    await import('../../../theia/extension/src/node/palette-backend-module')
     await import(T + 'lib/common/messaging')
   }, 20000)
 
@@ -61,14 +60,21 @@ describe.skipIf(!theiaInstalled)('the connection-container wiring', () => {
     )
     const { WorkingRomRegistry } = await import('../../../src/project/WorkingRomRegistry')
     const hb = (await import('../../../theia/extension/src/node/hackbench-backend-module')).default
-    const pal = (await import('../../../theia/extension/src/node/palette-backend-module')).default
-    const { PALETTE_SERVICE_PATH, PaletteService } =
-      await import('../../../theia/extension/src/common/palette-protocol')
+    const { PROJECT_SERVICE_PATH, ProjectService } =
+      await import('../../../theia/extension/src/common/project-protocol')
 
     const working = new WorkingRom(fakeRom(), false)
     const root = new Container()
-    root.load(hb, pal)
-    const stub = { get: () => ({ status: 'ok', working, romPath: 'x', project: {} }) }
+    root.load(hb)
+    const stub = {
+      get: () => ({ status: 'ok', working, romPath: 'x', project: {} }),
+      editStack: () => ({ status: 'ok' }),
+      onRomChanged: () => () => {},
+      onWorkingCopy: (fn: (m: string, w: unknown) => void) => {
+        fn(MANIFEST, working)
+        return () => {}
+      },
+    }
     root.rebind(WorkingRomRegistry).toConstantValue(stub)
 
     function pipe() {
@@ -103,9 +109,9 @@ describe.skipIf(!theiaInstalled)('the connection-container wiring', () => {
       const handlers: any[] = child
         .getNamed(ContributionProvider, ConnectionHandler)
         .getContributions(true)
-      const h = handlers.find(x => x.path === PALETTE_SERVICE_PATH)
+      const h = handlers.find(x => x.path === PROJECT_SERVICE_PATH)
       const [back, front] = pipe()
-      const client = { onWorkingCopyChanged: vi.fn() }
+      const client = { onEditEvent: vi.fn(), onRomChanged: vi.fn() }
       const f = new RpcProxyFactory(client)
       f.listen(front)
       h.onConnection(back)
@@ -114,17 +120,17 @@ describe.skipIf(!theiaInstalled)('the connection-container wiring', () => {
 
     const A = connect()
     const B = connect()
-    const sa = A.child.get(PaletteService)
-    const sb = B.child.get(PaletteService)
+    const sa = A.child.get(ProjectService)
+    const sb = B.child.get(ProjectService)
     expect(sa).not.toBe(sb)
     expect(A.child.get(WorkingRomRegistry)).toBe(B.child.get(WorkingRomRegistry))
-    await sa.loadPalettes(MANIFEST)
-    await sb.loadPalettes(MANIFEST)
+    await sa.editStack(MANIFEST)
+    await sb.editStack(MANIFEST)
 
     working.append(layer('L1', '$391F', '$03E0'))
     await vi.waitFor(() => {
-      expect(A.client.onWorkingCopyChanged).toHaveBeenCalledTimes(1)
-      expect(B.client.onWorkingCopyChanged).toHaveBeenCalledTimes(1)
+      expect(A.client.onEditEvent).toHaveBeenCalledTimes(1)
+      expect(B.client.onEditEvent).toHaveBeenCalledTimes(1)
     })
 
     // Close B's channel the way the multiplexer does on a real disconnect.
@@ -134,7 +140,7 @@ describe.skipIf(!theiaInstalled)('the connection-container wiring', () => {
     expect(listenersAfter).toBe(listenersBefore - 1)
 
     working.append(layer('L2', '$03E0', '$001F'))
-    await vi.waitFor(() => expect(A.client.onWorkingCopyChanged).toHaveBeenCalledTimes(2))
-    expect(B.client.onWorkingCopyChanged).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(A.client.onEditEvent).toHaveBeenCalledTimes(2))
+    expect(B.client.onEditEvent).toHaveBeenCalledTimes(1)
   })
 })

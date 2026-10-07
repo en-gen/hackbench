@@ -2,8 +2,10 @@
  * Runs one SingleStepTests 65816 case against Cpu65816 and returns the
  * mismatches. Compares registers, flags and every memory byte the case lists
  * or the CPU wrote, and the ordered (address, value) bus writes against the
- * case's write cycles. Timing and other bus lines are ignored (the core does
- * not model them).
+ * case's write cycles (MVN/MVP excepted). Reads, dummy cycles, timing and the
+ * other bus lines are not compared (the core does not model them). Concessions:
+ * MVN/MVP (data cut at 100 cycles) and, in emulation mode, an 8-bit RMW's
+ * old-value write is collapsed. DISPUTED lists vectors excused for one named diff.
  */
 import { Cpu65816 } from '../../../src/rom/cpu/Cpu65816'
 
@@ -27,6 +29,48 @@ export interface StepCase {
   /** [address, value | null, bus flags]; flags[3] is 'w' on a write cycle. */
   cycles?: [number, number | null, string][]
 }
+
+/**
+ * Vectors the core deliberately disagrees with: Clark and Snes9x contradict
+ * the data (see Cpu65816.push). SingleStep.test.ts skips them in the main run
+ * and, when the data is present, asserts each one still MISMATCHES the core,
+ * so an exception that stops being needed goes red.
+ */
+export interface Disputed {
+  id: string
+  /** Upstream SingleStepTests/65816 issue numbers. */
+  issues: string
+  /** Vector file (`{op}.e`) the exception applies to; `matches` also checks it via the vector name. */
+  file: string
+  expected: number
+  matches(tc: StepCase): boolean
+  /** True only when EVERY diff line is of the disputed kind; any other line is a real failure. */
+  isDisputedDiff(diff: string[]): boolean
+}
+export const DISPUTED: Disputed[] = [
+  {
+    id: '(dp,X) pointer wrap, emulation, DL=0',
+    issues: 'issue 3',
+    file: 'e1.e',
+    expected: 1,
+    matches: tc => tc.name === 'e1 e 8669', // index 8668 in the file
+    // The pointer is read from a different place, so A and its flags differ, nothing else.
+    isDisputedDiff: diff =>
+      diff.some(l => l.startsWith('a: ')) && diff.every(l => /^[ap]: /.test(l)),
+  },
+  {
+    id: 'JSR (a,X) push wrap, emulation',
+    issues: 'issues 6 and 7',
+    file: 'fc.e',
+    expected: 43,
+    // The push of S and S-1 only differs when it crosses the page edge.
+    matches: tc => tc.name.startsWith('fc e ') && (tc.initial.s & 0xff) === 0,
+    // The low return byte lands at $00FF instead of $01FF: write order, and those two bytes only.
+    isDisputedDiff: diff =>
+      diff.some(l => l.startsWith('write order')) &&
+      diff.every(l => l.startsWith('write order') || /^\[(ff|1ff)\]: /.test(l)),
+  },
+]
 
 export function runCase(tc: StepCase, make: (bus: never) => Cpu65816 = defaultMake): string[] {
   const mem = new Map<number, number>(tc.initial.ram)
@@ -101,4 +145,31 @@ export function runCase(tc: StepCase, make: (bus: never) => Cpu65816 = defaultMa
 
 function defaultMake(bus: never): Cpu65816 {
   return new Cpu65816(bus)
+}
+
+/**
+ * Runs every case of one vector file; a DISPUTED vector is excused only for its disputed diff; a case that
+ * throws counts as a failure, never as a pass.
+ */
+export function tally(
+  cases: StepCase[],
+  run: (tc: StepCase) => string[] = runCase,
+): { failed: number; first: string[] } {
+  let failed = 0
+  const first: string[] = []
+  for (const tc of cases) {
+    let diff: string[]
+    try {
+      diff = run(tc)
+    } catch (e) {
+      diff = [String(e)]
+    }
+    // A disputed vector may differ from the core, but only in its disputed kind.
+    if (DISPUTED.some(d => d.matches(tc) && d.isDisputedDiff(diff))) continue
+    if (diff.length) {
+      failed++
+      if (first.length < 3) first.push(`${tc.name}: ${diff.join('; ')}`)
+    }
+  }
+  return { failed, first }
 }

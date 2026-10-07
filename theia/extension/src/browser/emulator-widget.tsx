@@ -26,7 +26,6 @@ import { VolumeSplitButton } from './volume-split-button'
 import { ControllerSession } from './controller-session'
 import { GamepadPanel } from './gamepad-panel'
 import { SaveSlotPicker, SaveSlotView } from './save-slot-picker'
-import { ProjectFrontendClient } from './project-push-client'
 import { CORE_FILTER, ROM_FILTER } from './file-filters'
 
 export const EMULATOR_VIEW_ID = 'hackbench.emulator-view'
@@ -58,7 +57,6 @@ export class EmulatorWidget extends ReactWidget {
   @inject(FileDialogService) protected readonly fileDialog!: FileDialogService
   @inject(MessageService) protected readonly messages!: MessageService
   @inject(StorageService) protected readonly storage!: StorageService
-  @inject(ProjectFrontendClient) protected readonly projectPush!: ProjectFrontendClient
   @inject(FileService) protected readonly files!: FileService
   /** Bound only in the Electron build. */
   @inject(OsLocaleService) @optional() protected readonly osLocale?: OsLocaleService
@@ -146,11 +144,16 @@ export class EmulatorWidget extends ReactWidget {
         void this.refresh()
       }),
     )
+    this.toDispose.push(
+      this.context.onRomChanged(manifestPath => {
+        if (manifestPath === this.context.current?.manifestPath) void this.refresh()
+      }),
+    )
     // Edits land in bursts (a colour drag is many layers), so ask once the
     // burst settles rather than once per layer.
     this.toDispose.push(
-      this.projectPush.onChanged(manifestPath => {
-        if (manifestPath !== this.lastManifestPath) return
+      this.context.onEdit(event => {
+        if (event.subject !== this.lastManifestPath) return
         clearTimeout(this.staleCheck)
         this.staleCheck = setTimeout(() => void this.checkStale(), 150)
       }),
@@ -490,6 +493,9 @@ export class EmulatorWidget extends ReactWidget {
       this.romDigest = rom.digest
       this.state = { kind: 'ready' }
       this.update()
+      // A running core booted from the OLD bytes: whether it is stale is a
+      // question about the new ones (a rebuild replaced them).
+      void this.checkStale()
     } catch (err) {
       if (mine !== this.refreshGeneration) return
       this.state = { kind: 'error', message: (err as Error).message }

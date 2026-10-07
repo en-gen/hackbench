@@ -19,7 +19,6 @@ import {
   SetColorResult,
 } from '../common/palette-protocol'
 import { ProjectContext } from './project-context'
-import { PaletteFrontendClient } from './palette-push-client'
 import { PaletteSwatchRow } from './palette-swatch-row'
 import { EditableWord, PaletteInspector } from './palette-inspector'
 import { animatedColumns, cellTitle, tabTitle, targetFor, viewWidgetId } from './palette-view-model'
@@ -41,7 +40,6 @@ interface CellSelection {
 export class PaletteGroupViewWidget extends ReactWidget {
   @inject(PaletteService) protected readonly palettes!: PaletteService
   @inject(ProjectContext) protected readonly context!: ProjectContext
-  @inject(PaletteFrontendClient) protected readonly pushClient!: PaletteFrontendClient
 
   /** Exposed for tests: the service's last answer. */
   result: LoadPaletteResult | undefined
@@ -60,7 +58,12 @@ export class PaletteGroupViewWidget extends ReactWidget {
     this.title.iconClass = 'codicon codicon-symbol-color'
     this.node.tabIndex = 0
     this.toDispose.push(
-      this.pushClient.onChanged(mp => {
+      this.context.onEdit(event => {
+        if (event.subject === this.options?.manifestPath) void this.fetch()
+      }),
+    )
+    this.toDispose.push(
+      this.context.onRomChanged(mp => {
         if (mp === this.options?.manifestPath) void this.fetch()
       }),
     )

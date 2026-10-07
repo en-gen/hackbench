@@ -7,18 +7,21 @@
  * cart's bytes do; the only inputs are the seed (SpriteSeed.ts) and the ROM.
  * See docs/ideas/sprite-gfx-interpreter.md for measurements.
  */
-import { Cpu65816 } from '../../cpu/Cpu65816'
+import type { Cpu65816 } from '../../cpu/Cpu65816'
+import { callSubroutine, describe, Refusal } from '../../cpu/call'
 import type { RomFile } from '../../RomFile'
-import { guardInstruction, Refusal } from './Guards'
+import { mapperProblem } from './Guards'
+import { smwMachine } from './Machine'
 import {
   checkGetRand,
   checkInitTables,
   ENTRY,
   resolveLoop,
+  resolveBlockSpawn,
   resolvePointer,
   resolveTables,
 } from './SpriteDispatch'
-import { SpriteBus } from './SpriteBus'
+import type { SpriteBus } from './SpriteBus'
 import { SPRITE_SEED, withSeed, type SpriteSeed } from './SpriteSeed'
 
 /** SMWDisX rammap.asm names, offsets into WRAM. */
@@ -74,8 +77,6 @@ const STEP_BUDGET = 200_000
 export const TOTAL_STEP_CAP = 1_000_000
 /** INIT retries allowed while the routine leaves status 1. */
 const MAX_INIT_FRAMES = 64
-/** Return address pushed under each call; the call is done when it is popped. */
-const SENTINEL = 0xff00
 
 export interface SpritePart {
   /** Entry in the OAM mirror, 0-127 ($0200 page first, then $0300). */
@@ -153,7 +154,22 @@ export interface SpriteModel {
   inputs?: number[]
 }
 
+/**
+ * A sprite spawned by the game's own item block spawn (the dispatcher CODE_0288DC and
+ * GenSpriteFromBlk, SMWDisX bank_02.asm:1097-1292, #566) instead of by the level loader: that
+ * code runs on the core in place of the loader's INIT. The game picks the slot itself (a free
+ * one, FindFreeSprSlot's for the egg, key, vine and balloon, SpriteMemorySetting from the
+ * seeded level state), writes the status and number from its tables, calls InitSpriteTables
+ * and writes the spawn cells; the sprite's INIT never runs, its status handler draws it.
+ * `inputs` are the absolute WRAM offsets it reads (its content index, TouchBlockXPos and the
+ * rest), seeded before it runs.
+ */
+export interface SpawnRun {
+  inputs: Record<number, number>
+}
+
 export interface RunOptions {
+  spawn?: SpawnRun
   probe?: Probe
   trackInputs?: boolean
 }
@@ -179,15 +195,9 @@ export class Machine {
     readonly seed: SpriteSeed,
     id: number,
   ) {
-    this.bus = new SpriteBus(rom)
-    this.cpu = new Cpu65816(this.bus)
-    const cpu = this.cpu
-    cpu.e = false
-    cpu.p = 0x34 // native, 8-bit M and X, IRQ off
-    cpu.s = 0x1ff
-    cpu.d = 0
-    cpu.db = 0
-    this.bus.onInstruction = guardInstruction
+    const m = smwMachine(rom)
+    this.bus = m.bus
+    this.cpu = m.cpu
     this.bus.onWramWrite = off => {
       this.touched.add(off)
       if (off === RAM.paletteIndexTable) this.modeWritten = true
@@ -325,29 +335,22 @@ export class Machine {
     w[RAM.status + n] = 1
   }
 
-  /** Runs a routine to its return; throws Refusal on a bad op, escape or budget. */
-  call(entry: number, kind: 'jsr' | 'jsl'): void {
-    const cpu = this.cpu
-    cpu.x = this.seed.slot
-    const s0 = cpu.s
-    const wr = (v: number) => {
-      this.bus.write(cpu.s, v)
-      cpu.s = (cpu.s - 1) & 0xffff
-    }
-    if (kind === 'jsl') wr(0x00)
-    wr((SENTINEL - 1) >> 8)
-    wr((SENTINEL - 1) & 0xff)
-    cpu.pb = entry >>> 16
-    cpu.pc = entry & 0xffff
+  /** Runs a routine to its return, from the native reset state with X = the slot; throws Refusal on a bad op, escape, unbalanced return or budget. */
+  call(entry: number, kind: 'jsr' | 'jsl', db?: number): void {
     const left = TOTAL_STEP_CAP - this.steps
-    if (left <= 0) throw new Refusal(`total step cap of ${TOTAL_STEP_CAP} spent across INIT and MAIN; the sprite does not settle`) // prettier-ignore
+    const capMsg = `total step cap of ${TOTAL_STEP_CAP} spent across INIT and MAIN; the sprite does not settle`
+    if (left <= 0) throw new Refusal(capMsg)
     const room = Math.min(STEP_BUDGET, left)
-    for (let i = 0; i < room; i++) {
-      cpu.step()
-      this.steps++
-      if (cpu.s === s0 && cpu.pc === SENTINEL) return
-    }
-    throw new Refusal(room < STEP_BUDGET ? `total step cap of ${TOTAL_STEP_CAP} spent across INIT and MAIN; the sprite does not settle` : `step budget of ${STEP_BUDGET} spent; the routine waits on state the seed lacks`) // prettier-ignore
+    const r = callSubroutine(this.cpu, entry, {
+      kind,
+      maxSteps: room,
+      regs: { x: this.seed.slot, ...(db === undefined ? {} : { db }) },
+    })
+    this.steps += r.steps
+    if (r.kind === 'returned') return
+    throw new Refusal(
+      r.kind === 'budget' && room < STEP_BUDGET ? capMsg : describe(r, STEP_BUDGET)!,
+    )
   }
 
   pos(): { x: number; y: number } {
@@ -441,6 +444,8 @@ export function runOnce(
     seedSource: seed.loaded ? 'rom-level-load' : 'generic',
     ...(seed.loaded ? {} : { seedReason: seed.loadRefusal ?? 'no level image was given' }),
   }
+  const mapper = mapperProblem(rom)
+  if (mapper) return { ...model, refusal: mapper }
   const loop = resolveLoop(rom)
   if (!loop.ok) return { ...model, refusal: loop.reason }
   const tables = resolveTables(rom, loop.handle)
@@ -453,7 +458,8 @@ export function runOnce(
   if (!init.ok) return { ...model, refusal: init.reason }
   const rand = checkGetRand(rom)
   if (!rand.ok) return { ...model, refusal: rand.reason }
-  const m = new Machine(rom, seed, id)
+  // A spawn finds its own slot, so the machine owns a copy of the seed whose slot it may update.
+  const m = new Machine(rom, opts.spawn ? { ...seed } : seed, id)
   if (opts.trackInputs) m.bus.inputs = new Set()
   try {
     // RNGCalc ($148B/C) is zero until the game first calls GetRand, its only
@@ -461,33 +467,46 @@ export function runOnce(
     // frame 0 of a level has run, so run the ROM's own GetRand once.
     const rngCells = m.bus.wram.subarray(RAM.rng, RAM.rng + 2)
     if (rngCells[0] === 0 && rngCells[1] === 0) m.call(ENTRY.getRand, 'jsl')
-    m.call(ENTRY.initSpriteTables, 'jsl')
-    let n = m.steps
     const w = m.bus.wram
+    if (opts.spawn) {
+      const spawn = resolveBlockSpawn(rom)
+      if (!spawn.ok) return { ...model, refusal: spawn.reason }
+      // Every slot empty, so the game's own search decides where the sprite goes.
+      for (let i = 0; i < 12; i++) w[RAM.status + i] = 0
+      for (const [k, v] of Object.entries(opts.spawn.inputs)) w[Number(k)] = v
+      // The code reads its tables through DB: the game reaches it from its own bank (PHK PLB), so enter it with DB = its bank.
+      m.call(spawn.entry, 'jsl', spawn.entry >>> 16)
+      const picked = Array.from({ length: 12 }, (_, i) => i).find(i => w[RAM.status + i] !== 0)
+      if (picked === undefined) return { ...model, refusal: 'the item block spawn found no free slot and spawned nothing' } // prettier-ignore
+      // From here the sprite is wherever the game put it.
+      m.seed.slot = picked
+      w[RAM.curSprite] = picked
+    } else m.call(ENTRY.initSpriteTables, 'jsl')
+    let n = m.steps
     // Status 1 -> CallSpriteInit, which sets status 8 and runs INIT. An INIT
     // that leaves status 1 runs again next frame, as the game does (the floating
     // platforms sink a few pixels per frame until they reach water).
     let frameNo = 0
     m.frame()
-    while (w[RAM.status + seed.slot] === 1 && frameNo < MAX_INIT_FRAMES) {
+    while (w[RAM.status + m.seed.slot] === 1 && frameNo < MAX_INIT_FRAMES) {
       frameNo++
-      w[RAM.trueFrame] = (seed.trueFrame + frameNo) & 0xff
-      w[RAM.effFrame] = (seed.effFrame + frameNo) & 0xff
+      w[RAM.trueFrame] = (m.seed.trueFrame + frameNo) & 0xff
+      w[RAM.effFrame] = (m.seed.effFrame + frameNo) & 0xff
       m.frame()
     }
     model.steps.push(m.steps - n)
     model.initFrames = frameNo + 1
-    const st = w[RAM.status + seed.slot]
+    const st = w[RAM.status + m.seed.slot]
     if (st === 0) return { ...model, emptyReason: 'INIT erased the sprite (status 0)' }
     if (st === 1)
       return { ...model, refusal: `INIT did not complete in ${MAX_INIT_FRAMES} frames: status stays 1, waiting on state the seed lacks` } // prettier-ignore
     const anchor = m.pos()
-    model.anchor = { ...anchor, rawX: seed.sprite.x, rawY: seed.sprite.y }
-    model.oamBase = w[RAM.oamIndex + seed.slot]
+    model.anchor = { ...anchor, rawX: m.seed.sprite.x, rawY: m.seed.sprite.y }
+    model.oamBase = w[RAM.oamIndex + m.seed.slot]
     probe?.(-1, w)
-    for (let p = 0; p < seed.mainPasses; p++) {
-      w[RAM.trueFrame] = (seed.trueFrame + frameNo + 1 + p) & 0xff
-      w[RAM.effFrame] = (seed.effFrame + frameNo + 1 + p) & 0xff
+    for (let p = 0; p < m.seed.mainPasses; p++) {
+      w[RAM.trueFrame] = (m.seed.trueFrame + frameNo + 1 + p) & 0xff
+      w[RAM.effFrame] = (m.seed.effFrame + frameNo + 1 + p) & 0xff
       for (let i = 0; i < RAM.oamEntries; i++) w[RAM.oam + 1 + i * 4] = 0xf0
       m.clearOamWrites()
       n = m.steps
@@ -507,7 +526,7 @@ export function runOnce(
     const first = model.passes.findIndex(p => p.parts.length > 0)
     if (first >= 0) model.chosen = first
     if (model.passes.every(p => p.parts.length === 0))
-      model.emptyReason = `drew no OAM tile in ${seed.mainPasses} passes (invisible by design, or the seed lacks state)` // prettier-ignore
+      model.emptyReason = `drew no OAM tile in ${m.seed.mainPasses} passes (invisible by design, or the seed lacks state)` // prettier-ignore
   } catch (e) {
     if (e instanceof Refusal) return { ...model, refusal: e.message }
     throw e

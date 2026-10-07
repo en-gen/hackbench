@@ -8,11 +8,10 @@
  * on and refused with a reason when it differs: the sprite loop ($01:808C,
  * `resolveLoop`, which also yields the setup and HandleSprite addresses),
  * InitSpriteTables ($07:F7D2, `checkInitTables`) and GetRand ($01:ACF9,
- * `checkGetRand`). SMWDisX bank_01.asm:98-125, bank_07.asm:1006,
+ * `checkGetRand`). SMWDisX bank_01.asm:110-127, bank_07.asm:1006,
  * bank_01.asm:6092. The level loader's entries are checked in LevelLoader.ts.
  */
 import type { RomFile } from '../../RomFile'
-import { loromToOffset } from '../../addressing'
 import { bytesAt, shapeMatches } from './Guards'
 
 export const ENTRY = {
@@ -21,12 +20,21 @@ export const ENTRY = {
   /**
    * JSL: the game's own per-frame sprite loop. Sets DB to bank 1 (PHK PLB),
    * then for slots $0B..0 runs the OAM-index and timer setup and HandleSprite
-   * (bank_01.asm:98-125). A routine that reads a bank-1 table through DB only
+   * (bank_01.asm:110-127). A routine that reads a bank-1 table through DB only
    * works under it, which is why the runner calls this and not HandleSprite.
    */
   spriteLoop: 0x01808c,
   /** Default HandleSprite address (bank_01.asm:181); `resolveLoop` reads the real one from the loop. */
   handleSprite: 0x018127,
+  /**
+   * JSL: CODE_0288DC (bank_02.asm:1097-1119), the item block spawn's dispatcher: by the content
+   * index it either takes the free slot FindFreeSprSlot picks (egg, key, vine, balloon) or falls
+   * to GenSpriteFromBlk (:1122), which writes the status and number, runs InitSpriteTables and
+   * places the sprite and writes its cells (:1139-1292). `resolveBlockSpawn` byte-checks it (#566).
+   */
+  blockSpawn: 0x0288dc,
+  /** JSL: FindFreeSprSlot (bank_02.asm:5513), which the dispatcher calls for the egg, key, vine and balloon. */
+  findFreeSprSlot: 0x02a9e4,
   /** JSL: GetRand, two steps of the RNG at `$148B/C` (bank_01.asm:6092). */
   getRand: 0x01acf9,
 } as const
@@ -52,6 +60,42 @@ export function checkInitTables(rom: RomFile): ShapeResult {
   return matches(b, [0x22, null, null, null, 0x22, null, null, null, 0x6b])
     ? { ok: true }
     : { ok: false, reason: 'InitSpriteTables is not JSL / JSL / RTL' }
+}
+
+/**
+ * The block spawn's fixed shapes (bank_02.asm:1097-1142), byte-checked, branch displacements free:
+ * the dispatcher CODE_0288DC (LDY _5 / CPY #$0B / BNE / LDA TouchBlockXPos / AND #$30 / CMP #$20 / BEQ /
+ * CPY #$10 / BEQ / CPY #$08 / BNE / LDA SpriteMemorySetting / BEQ / BNE / CPY #$0C / BNE / JSL FindFreeSprSlot /
+ * TYX / BPL / RTL), the free-slot countdown of GenSpriteFromBlk (LDX #$0B / LDA SpriteStatus,X / BEQ / DEX /
+ * CPX #$FF / BNE) and, at CODE_028922, its status write (STX abs / LDY _5 / LDA abs,Y / STA SpriteStatus,X).
+ * Anything else is refused.
+ */
+export function resolveBlockSpawn(
+  rom: RomFile,
+): { ok: true; entry: number } | { ok: false; reason: string } {
+  // prettier-ignore
+  const n = null
+  const dispatch = bytes(rom, ENTRY.blockSpawn, 41)
+  if (!matches(dispatch, [0xa4, 0x05, 0xc0, 0x0b, 0xd0, n, 0xa5, 0x9a, 0x29, 0x30, 0xc9, 0x20, 0xf0, n, 0xc0, 0x10, 0xf0, n, 0xc0, 0x08, 0xd0, n, 0xad, 0x92, 0x16, 0xf0, n, 0xd0, n, 0xc0, 0x0c, 0xd0, n, 0x22, n, n, n, 0xbb, 0x10, n, 0x6b])) // prettier-ignore
+    return { ok: false, reason: 'the item block spawn dispatcher is not the shape this reader knows' } // prettier-ignore
+  // The shape only proves bytes at fixed addresses: each free branch must land where the traced routine goes
+  // ([displacement offset, target offset], bank_02.asm:1097-1119), or a hack could jump past what was checked.
+  const s8 = (v: number) => (v > 127 ? v - 256 : v)
+  const lands: [number, number][] = [[5, 14], [13, 0x29], [17, 33], [21, 29], [26, 0x29], [28, 33], [32, 0x29], [39, 0x46]] // prettier-ignore
+  for (const [at, to] of lands)
+    if (at + 1 + s8(dispatch![at]!) !== to)
+      return { ok: false, reason: 'the item block spawn dispatcher branches somewhere this reader does not know' } // prettier-ignore
+  // And its call must reach the FindFreeSprSlot the game uses: the same address, with its own opening bytes.
+  const call = dispatch![34]! | (dispatch![35]! << 8) | (dispatch![36]! << 16)
+  if (call !== ENTRY.findFreeSprSlot || !matches(bytes(rom, call, 5), [0x64, 0x0e, 0x8b, 0x4b, 0xab]))
+    return { ok: false, reason: 'the item block spawn dispatcher does not call the FindFreeSprSlot this reader knows' } // prettier-ignore
+  const head = bytes(rom, ENTRY.blockSpawn + 0x29, 12)
+  if (!matches(head, [0xa2, 0x0b, 0xbd, 0xc8, 0x14, 0xf0, n, 0xca, 0xe0, 0xff, 0xd0, n]))
+    return { ok: false, reason: 'the item block spawn does not start with the free-slot countdown this reader knows' } // prettier-ignore
+  const status = bytes(rom, ENTRY.blockSpawn + 0x46, 11)
+  if (!matches(status, [0x8e, n, n, 0xa4, 0x05, 0xb9, n, n, 0x9d, 0xc8, 0x14]))
+    return { ok: false, reason: 'the item block spawn does not write the sprite status the way this reader knows' } // prettier-ignore
+  return { ok: true, entry: ENTRY.blockSpawn }
 }
 
 /** GetRand: PHY LDY #1 JSL step DEY JSL step PLY RTL (bank_01.asm:6092). */
@@ -190,11 +234,12 @@ export function resolvePointer(
 ): { ok: true; handler: ResolvedHandler } | { ok: false; reason: string } {
   if (id < 0 || id >= SPRITE_TABLE_COUNT)
     return { ok: false, reason: `id $${id.toString(16)} is past the ${SPRITE_TABLE_COUNT}-entry pointer table` } // prettier-ignore
-  const w = rom.readWord(table + id * 2)
+  const pair = bytesAt(rom, table + id * 2, 2)
+  const w = pair ? pair[0] | (pair[1] << 8) : null
   if (w === null) return { ok: false, reason: 'pointer table is not readable' }
   const address = 0x010000 | w
   // A code pointer lands in the cart's upper half; below $8000 is registers or WRAM.
-  if (w < 0x8000 || loromToOffset(address, rom.romSize) === null)
+  if (w < 0x8000 || bytesAt(rom, address, 1) === null)
     return { ok: false, reason: `pointer $${w.toString(16)} is not in ROM code` }
   return { ok: true, handler: { pointer: w, address } }
 }

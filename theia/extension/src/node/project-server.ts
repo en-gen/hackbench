@@ -26,6 +26,7 @@ import { buildMapDetails } from './map-details'
 import { L1ModelCache, mapScreen, toolbarArtOf } from './map-screen'
 import { mapCollision, mapCollisionCheck, probeStateOf } from './map-collision'
 import { mapSprites } from './map-sprites'
+import { mapBlockContents } from './map-block-contents'
 import { SWITCH_FLAGS_UNCLEARED } from '../../../../src/rom/ObjectExpander'
 import { exportPatch } from '../../../../src/project/ExportPatch'
 import { readRomBounded } from '../../../../src/project/BoundedRead'
@@ -52,12 +53,12 @@ import {
   MapCollisionResult,
   MapDetailsDto,
   MapScreenResult,
+  MapBlockContentsResult,
   MapSpritesResult,
   PalaceIconsResult,
   PatchFormatDto,
   ProjectDto,
   ProjectService,
-  ProjectServiceClient,
   RecentProjectDto,
   RomCheckDto,
   RomIdentityDto,
@@ -66,18 +67,15 @@ import {
   SwitchStateDto,
   WorkstationPathsDto,
 } from '../common/project-protocol'
-import { WorkingCopyNotifier } from './working-copy-notifier'
+import { forwardSetClient } from './project-connection'
 
 @injectable()
 export class ProjectServiceImpl implements ProjectService {
   private readonly recent = new RecentProjects()
   @inject(WorkingRomRegistry) protected readonly workingRoms!: WorkingRomRegistry
-  private readonly notifier = new WorkingCopyNotifier<ProjectServiceClient>()
   private readonly screens = new L1ModelCache()
 
-  setClient(client: ProjectServiceClient | undefined): void {
-    this.notifier.setClient(client)
-  }
+  readonly setClient = forwardSetClient(() => this.workingRoms)
 
   async createProject(req: CreateProjectRequest): Promise<ProjectDto> {
     const p = createProject(req)
@@ -120,15 +118,12 @@ export class ProjectServiceImpl implements ProjectService {
   ): Promise<MapScreenResult> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
-    // An edit made in any view must repaint an open map.
-    this.notifier.watch(manifestPath, r.working)
     return mapScreen(this.screens, r.working.bytes(), r.romPath, index, screen, switchFlags, switches) // prettier-ignore
   }
 
   async mapSprites(manifestPath: string, index: number): Promise<MapSpritesResult> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
-    this.notifier.watch(manifestPath, r.working)
     return mapSprites(this.screens, r.working.bytes(), r.romPath, index)
   }
 
@@ -146,11 +141,16 @@ export class ProjectServiceImpl implements ProjectService {
   ): Promise<MapCollisionResult> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
-    this.notifier.watch(manifestPath, r.working)
     const bytes = r.working.bytes()
     // An edit hands out new bytes: a probe still running for the old ones is abandoned.
     const state = probeStateOf(switchFlags, switches)
     return mapCollision(this.screens, bytes, r.romPath, index, state, () => r.working.bytes() !== bytes) // prettier-ignore
+  }
+
+  async mapBlockContents(manifestPath: string, index: number): Promise<MapBlockContentsResult> {
+    const r = this.located(manifestPath)
+    if (r.status !== 'ok') return r
+    return mapBlockContents(this.screens, r.working.bytes(), r.romPath, index)
   }
 
   async mapPalaceIcons(manifestPath: string, index: number): Promise<PalaceIconsResult> {
@@ -290,15 +290,7 @@ export class ProjectServiceImpl implements ProjectService {
     }
   }
 
-  /**
-   * Reading the stack is also where this service starts WATCHING the working
-   * copy: the frontend calls it when a project opens, and from then on an
-   * edit made in any view (a palette colour) pushes here too, so the Edit
-   * menu's enablement is never stale.
-   */
   async editStack(manifestPath: string): Promise<EditStackResult> {
-    const entry = this.workingRoms.get(manifestPath)
-    if (entry.status === 'ok') this.notifier.watch(manifestPath, entry.working)
     return this.workingRoms.editStack(manifestPath)
   }
 

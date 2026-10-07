@@ -5,6 +5,7 @@
  * backend service the frontend calls over JSON-RPC, and this file is the
  * contract both ends compile against.
  */
+import type { EditEvent } from '../../../../src/project/EditEvent'
 import type { ScreenPlanes } from '../../../../src/rom/model/ScreenPlanes'
 import type { Map16SwitchButtonImages, Map16SwitchKind } from './map16-protocol'
 
@@ -339,6 +340,37 @@ export type MapCollisionResult =
   | { status: 'stale' }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
+/** One block that holds an item (#566), at its map-pixel corner, drawn in the plane its bottom-right quadrant is in. */
+export interface BlockIndicatorDto {
+  plane: 'l1Low' | 'l1High' | 'l2Low' | 'l2High'
+  x: number
+  y: number
+  /** Key into `MapBlockContentsResult.arts`. */
+  art: string
+}
+
+/**
+ * A map's block content indicators (#566): each distinct item as 16 x 16 RGBA
+ * (base64, the full-block art; the view halves it for the resting state), and
+ * where each block shows which. `unavailable` is the tables' refusal, shown as
+ * a note, never a guess.
+ */
+export type MapBlockContentsResult =
+  | {
+      status: 'ok'
+      orientation: 'horizontal' | 'vertical'
+      screenCount: number
+      /** One screen's pixels, as `MapSpritesResult`. */
+      width: number
+      height: number
+      arts: Record<string, string>
+      indicators: BlockIndicatorDto[]
+      /** Contents that could not be drawn, and why. */
+      note?: string
+    }
+  | { status: 'unavailable'; reason: string }
+  | { status: 'rom-not-located'; baseRom: RomIdentityDto }
+
 /**
  * Which char switches a map is drawn with (#573): the blue and silver
  * P-switches and ON/OFF swap the chars they animate, not the grid. Per tab.
@@ -415,12 +447,22 @@ export type EditStackResult =
   | { status: 'io-error'; reason: string }
 
 /**
- * Pushed to the frontend when a project's working copy changes, so the Edit
- * menu's enablement reflects an edit made in any view. No payload beyond which
- * project: a subscriber re-fetches, same reasoning as PaletteServiceClient.
+ * Pushed to the frontend on the project connection, the ONE channel every view
+ * hears. Two events, because they ask different things of a view:
+ *
+ * - an edit: the working copy's bytes changed (src/project/EditEvent.ts); a
+ *   view re-reads, keeping the user's place.
+ * - a ROM swap: the ROM behind the project moved or became available; a view
+ *   rebuilds from scratch.
  */
 export interface ProjectServiceClient {
-  onWorkingCopyChanged(manifestPath: string): void
+  onEditEvent(event: EditEvent): void
+  /**
+   * The project's base ROM was swapped (relocated, or its working copy was
+   * rebuilt, or located after waiting for it): every view reading it must
+   * rebuild from scratch, unlike an edit, which keeps the user's place.
+   */
+  onRomChanged(manifestPath: string): void
 }
 
 export interface ProjectService {
@@ -483,6 +525,8 @@ export interface ProjectService {
 
   /** Every sprite of a map, drawn by the sprite interpreter or marked, from the working copy (#564, #585). */
   mapSprites(manifestPath: string, index: number): Promise<MapSpritesResult>
+  /** Where each item block of a map shows its contents, from the working copy (#566). */
+  mapBlockContents(manifestPath: string, index: number): Promise<MapBlockContentsResult>
 
   /** Whether the map's collision can be probed at all, without probing: the level loader's verdict and the level's shape (#435). */
   mapCollisionCheck(manifestPath: string, index: number): Promise<MapCollisionCheckResult>
