@@ -2471,3 +2471,37 @@ test('the grid is composited above the sprite layer', async ({ page }) => {
   // 80%: a sprite can animate between the two screenshots.
   expect(changed).toBeGreaterThanOrEqual(probe.pts.length * 0.8)
 })
+
+/**
+ * Assertions that run AFTER the sprites load (#589): the earlier tests' checks ran
+ * before the fetch resolved, or on a plane list that has no sprites plane.
+ */
+test.describe('sprite layer after load (#589)', () => {
+  test('no sprite note shows for a stream with an end marker, once the sprites have drawn', async ({
+    page,
+  }) => {
+    const project = await createProject(page, path.join(tmp, 'MyHack'))
+    await openMap(page, project.manifestPath, 0x106)
+    await expect(spritePlane(page, 0x106, 1)).toHaveAttribute('data-drawn', SPRITES_DRAWN)
+    await expect(page.locator(`${root(0x106)} [data-note="sprites"]`)).toHaveCount(0)
+  })
+
+  test('restoring the sprites toggle after the L1 toggle test flow shows drawn sprite canvases again', async ({
+    page,
+  }) => {
+    const project = await createProject(page, path.join(tmp, 'MyHack'))
+    await openMap(page, project.manifestPath, 0x105)
+    const planes = page.locator(`${root(0x105)} canvas[data-plane="sprites"]`)
+    await expect(planes.first()).toHaveAttribute('data-drawn', SPRITES_DRAWN)
+    const count = await planes.count()
+    expect(count).toBeGreaterThan(0)
+    const toggle = spriteToggle(page, 0x105)
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    for (let i = 0; i < count; i++) await expect(planes.nth(i)).toHaveCSS('visibility', 'hidden')
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    for (let i = 0; i < count; i++) await expect(planes.nth(i)).toHaveCSS('visibility', 'visible')
+    await expect(planes.first()).toHaveAttribute('data-drawn', SPRITES_DRAWN)
+  })
+})

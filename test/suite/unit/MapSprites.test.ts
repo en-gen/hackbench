@@ -6,10 +6,11 @@
  * `EngineResult`; the served drawer is the interpreter, #585), so CI needs no
  * cart; the corpus block at the end runs `mapSprites` over a vanilla map.
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import type { EngineResult } from '../../../src/rom/model/sprites/generic/SpriteDrawEngine'
 import type { LevelSprite } from '../../../src/rom/LevelParser'
 import { RomFile } from '../../../src/rom/RomFile'
+import { SmwRom } from '../../../src/rom/SmwRom'
 import {
   drawSprites,
   mapSprites,
@@ -186,7 +187,68 @@ describe('the sprite stream read', () => {
   })
 })
 
+describe('mapSprites with a stream in the ROM last bytes (#589)', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('answers ok with the sprites of a stream within the window of the ROM end', () => {
+    const buf = Buffer.alloc(0x80000)
+    buf.set([0, 0x10, 0x01, 0x10, 0xff], 0x7ffb0)
+    buf[0x7fd5] = 0x20 // LoROM map mode, so the copy parses as a cart
+    // A stub model build and pointer: this is the read path under test, not the pointer table.
+    vi.spyOn(SmwRom.prototype, 'getLevelSpritePointer').mockReturnValue(0x0fffb0)
+    const cache = new L1ModelCache(() => ({ ok: true, inputs: { ...MODEL, isVertical: false, screenCount: 1 } }) as never) // prettier-ignore
+    const r = mapSprites(cache, new Uint8Array(buf), 'x.sfc', 0)
+    expect(r).toMatchObject({ status: 'ok' })
+    if (r.status === 'ok') expect(r.sprites).toHaveLength(1)
+  })
+})
+
 describe('paintSpriteCanvas', () => {
+  const solid = (x0: number, y0: number, w: number, h: number, color: number): MapSpriteDto =>
+    ({ index: 0, id: 1, x: x0, y: y0, box: { x0, y0, x1: x0 + w, y1: y0 + h }, status: 'drawn', rgba: Buffer.from(new Uint8ClampedArray(w * h * 4).fill(color)).toString('base64') }) as MapSpriteDto // prettier-ignore
+  /** A canvas whose 2D context records clears and the pixels last put (ImageData is polyfilled for node). */
+  const recorder = () => {
+    const log: string[] = []
+    const put: Uint8ClampedArray[] = []
+    const canvas = { width: 0, height: 0, dataset: {} as DOMStringMap, getContext: () => ({ clearRect: () => log.push('clear'), putImageData: (d: { data: Uint8ClampedArray }) => (log.push('put'), put.push(d.data)) }) } // prettier-ignore
+    return { canvas, log, put }
+  }
+  const geo = { orientation: 'horizontal' as const, width: 16, height: 8 }
+  const withImageData = (fn: () => void) => {
+    vi.stubGlobal(
+      'ImageData',
+      class {
+        constructor(public data: Uint8ClampedArray) {}
+      },
+    )
+    try { fn() } finally { vi.unstubAllGlobals() } // prettier-ignore
+  }
+
+  it('clears before it puts, and clears when the screen has no sprites left (no stale picture)', () => {
+    withImageData(() => {
+      const { canvas, log } = recorder()
+      paintSpriteCanvas(canvas, { ...geo, sprites: [solid(0, 0, 4, 4, 9)] }, 0, 'a')
+      expect(log).toEqual(['clear', 'put'])
+      // The sprite is gone: the same screen repaints with a clear and no put.
+      log.length = 0
+      paintSpriteCanvas(canvas, { ...geo, sprites: [] }, 0, 'b')
+      expect(log).toEqual(['clear'])
+      expect(canvas.dataset.drawn).toBe('b')
+    })
+  })
+
+  it('paints the sprites of the screen asked for, not screen 0', () => {
+    withImageData(() => {
+      const { canvas, put } = recorder()
+      // Screen 0 holds a sprite at x 0; screen 1 holds one at x 16 + 2 (map pixels).
+      const sprites = [solid(0, 0, 4, 4, 11), solid(18, 0, 4, 4, 77)]
+      paintSpriteCanvas(canvas, { ...geo, sprites }, 1, 'c')
+      expect(put).toHaveLength(1)
+      expect(px(put[0]!, 16, 2, 0)[3]).toBe(77)
+      expect(px(put[0]!, 16, 0, 0)[3]).toBe(0)
+    })
+  })
+
   it('blanks a canvas of an earlier map when there are no sprites to paint', () => {
     const cleared: number[][] = []
     const canvas = { width: 8, height: 4, dataset: { drawn: '3:1' } as DOMStringMap, getContext: () => ({ clearRect: (...a: number[]) => cleared.push(a) }) } // prettier-ignore
