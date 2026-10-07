@@ -100,6 +100,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Develop builds again: `mapBlockContents` no longer calls a working-copy watch that moved into the project connection in #662, which broke the Theia type-check after #677 merged (#682).
+
 - Opening another project closes the previous project's GFX, Map16 and map views, so
   Ctrl+Z in a leftover view no longer undoes the new project's layer. A view with
   unsaved strokes asks first, and cancelling keeps the old project open (#628).
