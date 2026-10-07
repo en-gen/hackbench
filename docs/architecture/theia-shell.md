@@ -285,8 +285,8 @@ Type-checking the shell is a separate script from the root:
 npm run typecheck:theia
 ```
 
-It runs `tools/scripts/typecheck-theia.cjs`, which resolves TypeScript from
-`theia/extension` the way Node would (theia's pinned 5.4.5, never the root's
+It runs `tools/scripts/typecheck-theia.cjs`, which looks up TypeScript in
+`theia/extension`, then `theia`, as yarn lays it out (theia's pinned 5.4.5, never the root's
 6.x, so it matches CI's `yarn --cwd theia/extension typecheck`) and passes
 extra arguments through. A fresh worktree needs
 `yarn --cwd theia install --frozen-lockfile --ignore-scripts` first; without

@@ -52,7 +52,7 @@ describe('typecheck-theia.cjs', () => {
     const r = run(theia)
     expect(r.status).toBe(1)
     expect(r.stderr).toContain(
-      `typescript not found from ${path.join(theia, 'extension')}; run: yarn --cwd ${theia} install --frozen-lockfile --ignore-scripts`,
+      `typescript not found under ${path.join(theia, 'extension')} or ${theia}; run: yarn --cwd ${theia} install --frozen-lockfile --ignore-scripts`,
     )
   })
 
@@ -117,6 +117,20 @@ describe('typecheck-theia.cjs', () => {
     expect(r.status).toBe(1)
     expect(r.stderr).toContain('--frozen-lockfile --ignore-scripts')
     expect(fs.existsSync(ran)).toBe(false)
+  })
+
+  it('accepts a theia/node_modules junction to a checkout elsewhere', () => {
+    const root = tmp()
+    const theia = path.join(root, 'theia')
+    fs.mkdirSync(path.join(theia, 'extension'), { recursive: true })
+    const real = path.join(root, 'main-checkout')
+    const ran = path.join(root, 'junction-ran.json')
+    stubTsc(real, recorder(ran, "console.log('SENTINEL-JUNCTION')"))
+    fs.symlinkSync(path.join(real, 'node_modules'), path.join(theia, 'node_modules'), 'junction')
+    const r = run(theia)
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('SENTINEL-JUNCTION')
+    expect(fs.existsSync(ran)).toBe(true)
   })
 
   it('finds ../../theia from the script location when HB_THEIA_DIR is unset', () => {
