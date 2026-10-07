@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Block contents: a test pins the CODE_00F17F entry bytes in the gate reader pattern (#632).
 - A unit test pins the 22 of 501 horizontal maps where the level loader and the map view's
   object expander disagree on Layer 1 Map16, by differing-cell count (#649). Measured on one
   vanilla ROM, one machine, 2026-10-07; the comparison skips without the ROM corpus. 21 are boss
