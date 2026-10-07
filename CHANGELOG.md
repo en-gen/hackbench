@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Two Playwright tests pin the Maps zoom anchor across the gap between a zoom and its React
+  commit: a scroll landing there, and a second Zoom In before the first commit. They fail if
+  `restoreAnchor` runs from `sync` or the `renderedZoom` guard goes (#547).
+
 - A unit test pins tile $11A's star column over all 16 X columns: coin unless Mario is
   invincible, star only while invincible (`bank_00.asm:12887-12891`). The Maps view already
   draws it that way (#567).

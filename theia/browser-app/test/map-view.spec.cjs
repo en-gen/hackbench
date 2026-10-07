@@ -2544,3 +2544,103 @@ test.describe('ON/OFF tracks on $005', () => {
     }
   })
 })
+
+/**
+ * The zoom anchor survives events that land between a zoom change and the React commit that lays
+ * the strip out at it (#547). The commit is a later task than the frame that renders (React 19
+ * `createRoot`), so one page task can slip an event into that gap on purpose: a scroll (its event
+ * fires at the next frame, before the render) and a second zoom step (fired from a rAF queued after
+ * the render's). Each test records the layout it saw at the interleaving, so a drifted timing fails
+ * loudly instead of passing a case it no longer drives.
+ *
+ * Judged on the CONTENT pixel under the view centre, like the #526 button tests: a Zoom In keeps it
+ * fixed. An anchor restored early (from a scroll or reply, on the old layout) or consumed by an
+ * older commit is gone when the right commit lands, and the centre drifts by thousands of pixels.
+ */
+test.describe('zoom anchor across the commit gap (#547)', () => {
+  for (const index of [0x105, 0x109]) {
+    const name = `$${index.toString(16)}`
+    /** Zoomed to 100%, scrolled 60% along the main axis, so the anchor is far from the origin. */
+    const prepare = async page => {
+      const project = await createProject(page, path.join(tmp, 'MyHack'))
+      await openMap(page, project.manifestPath, index)
+      await settled(page, index)
+      await page.locator(`${root(index)} [data-control="zoom-actual"]`).click()
+      await expect.poll(() => zoomOf(page, index)).toBe(1)
+      await settled(page, index)
+      await page.evaluate(
+        ({ sel, f }) => {
+          const el = document.querySelector(`${sel} [data-control="map-scroller"]`)
+          el.scrollLeft = (el.scrollWidth - el.clientWidth) * f
+          el.scrollTop = (el.scrollHeight - el.clientHeight) * f
+        },
+        { sel: root(index), f: 0.6 },
+      )
+      await settled(page, index)
+      return probeView(page, index)
+    }
+
+    test(`${name}: a scroll between Zoom In and its commit does not consume the anchor`, async ({
+      page,
+    }) => {
+      const before = await prepare(page)
+      await page.evaluate(sel => {
+        const root = document.querySelector(sel)
+        const el = root.querySelector('[data-control="map-scroller"]')
+        const zoom = () => {
+          const c = root.querySelector('canvas[data-plane="l1Low"]')
+          return c.getBoundingClientRect().width / c.width
+        }
+        window.hbScrollSeen = []
+        el.addEventListener('scroll', () => window.hbScrollSeen.push(zoom()))
+        root.querySelector('[data-control="zoom-in"]').click()
+        // Same task, so the scroll event fires on the OLD layout, ahead of the render and its commit.
+        if (el.classList.contains('hb-vertical')) el.scrollTop += 40
+        else el.scrollLeft += 40
+      }, root(index))
+      await expect.poll(() => zoomOf(page, index)).toBe(2)
+      await settled(page, index)
+      const seen = await page.evaluate(() => window.hbScrollSeen)
+      expect(seen[0], 'precondition: the scroll event saw the old, 100% layout').toBe(1)
+      const after = await probeView(page, index)
+      expect(Math.abs(after.content - before.content)).toBeLessThan(1)
+    })
+
+    test(`${name}: a second Zoom In before the first commit lands keeps the anchor for the second`, async ({
+      page,
+    }) => {
+      const before = await prepare(page)
+      await page.evaluate(
+        sel =>
+          new Promise(resolve => {
+            const root = document.querySelector(sel)
+            const zoom = () => {
+              const c = root.querySelector('canvas[data-plane="l1Low"]')
+              return c.getBoundingClientRect().width / c.width
+            }
+            const seen = (window.hbLayouts = [])
+            new MutationObserver(() => {
+              const z = zoom()
+              if (seen[seen.length - 1] !== z) seen.push(z)
+            }).observe(root, { subtree: true, attributes: true, childList: true })
+            const zin = root.querySelector('[data-control="zoom-in"]')
+            zin.click()
+            // Queued after the widget's own render rAF: the render has laid out 200% when this
+            // runs, but its commit has not, so the controller moves on to 300% first.
+            requestAnimationFrame(() => {
+              zin.click()
+              resolve()
+            })
+          }),
+        root(index),
+      )
+      await expect.poll(() => zoomOf(page, index)).toBe(3)
+      await settled(page, index)
+      const seen = await page.evaluate(() => window.hbLayouts)
+      expect(seen.indexOf(2), 'precondition: a 200% commit landed first').toBeGreaterThanOrEqual(0)
+      expect(seen.indexOf(2)).toBeLessThan(seen.indexOf(3))
+      const after = await probeView(page, index)
+      expect(Math.abs(after.content - before.content)).toBeLessThan(1)
+    })
+  }
+})
