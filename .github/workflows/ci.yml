@@ -141,6 +141,10 @@ jobs:
       - name: Unit tests with coverage
         run: npm run test:unit -- --coverage --testTimeout=60000
 
+      # Wall-clock gates, alone: parallel load flakes them (#668).
+      - name: Timing gates (serial)
+        run: npm run test:timing
+
       # Runs when the tests FAIL too: that is the run worth having. Informational
       # only; Codecov being down never reds CI.
       - name: Upload coverage to Codecov

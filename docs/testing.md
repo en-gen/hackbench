@@ -618,6 +618,10 @@ false; each refusal fires; stale folders are swept and nothing else; a real
 plants a non-isolating harness and a snapshot/restore harness to show that
 last check can fail. It does not start a server.
 
+### Timing gates (`npm run test:timing`)
+
+Two tests judge wall-clock time and flake when another vitest file runs beside them: `perfPairedE2E.timing.test.ts` and `perfSampler.timing.test.ts` (#668, #537). The `*.timing.test.ts` name keeps them out of `npm run test:unit`; `vitest.timing.config.ts` runs them one file at a time, and CI runs them as a step after the unit tests. Run `test:timing` alone, never beside another vitest run, and after any change under `tools/perf/`. Even serially they can fail on a machine already loaded by other work.
+
 ## Commands
 
 ```bash

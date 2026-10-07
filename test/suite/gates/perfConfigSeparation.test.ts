@@ -113,6 +113,32 @@ describe('vitest.config.ts and vitest.perf.config.ts do not overlap', () => {
   })
 })
 
+describe('timing gates run serially, outside test:unit (#668, #537)', () => {
+  const read = (f: string) => fs.readFileSync(path.join(repoRoot, f), 'utf8')
+  const timingInclude = includeArrayFrom(read('vitest.timing.config.ts'))
+  const onDisk: string[] = []
+  walk(path.join(repoRoot, 'test', 'suite'), '.timing.test.ts', onDisk)
+
+  it('the default config excludes **/*.timing.test.ts', () => {
+    expect(read('vitest.config.ts')).toMatch(/exclude:\s*\[[^\]]*'\*\*\/\*\.timing\.test\.ts'/)
+  })
+
+  it('the timing config include resolves to exactly the two timing files', () => {
+    const matched = onDisk.filter(f => matchesAny(f, timingInclude)).sort()
+    expect(matched).toEqual([
+      'test/suite/gates/perfPairedE2E.timing.test.ts',
+      'test/suite/gates/perfSampler.timing.test.ts',
+    ])
+    expect(onDisk.sort()).toEqual(matched)
+  })
+
+  it('the timing config is serial and test:timing runs it', () => {
+    expect(read('vitest.timing.config.ts')).toMatch(/fileParallelism:\s*false/)
+    const pkg = JSON.parse(read('package.json'))
+    expect(pkg.scripts['test:timing']).toBe('vitest run --config vitest.timing.config.ts')
+  })
+})
+
 describe('the gh guard reaches both configs and the paired base round', () => {
   const globalSetups = (src: string): string[] => {
     const m = src.match(/globalSetup:\s*\[([^\]]*)\]/)

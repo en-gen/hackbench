@@ -1,5 +1,5 @@
 import * as path from 'path'
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 
 export default defineConfig({
   resolve: {
@@ -15,6 +15,8 @@ export default defineConfig({
       'test/suite/provider/**/*.test.ts',
       'test/suite/gates/**/*.test.ts',
     ],
+    // Wall-clock gates run alone through vitest.timing.config.ts (#668).
+    exclude: [...configDefaults.exclude, '**/*.timing.test.ts'],
     environment: 'node',
     globalSetup: ['test/suite/support/noRealGh.ts'],
     coverage: {
