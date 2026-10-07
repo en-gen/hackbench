@@ -39,6 +39,7 @@
  */
 
 import type { RomFile } from '../RomFile'
+import { mirror } from '../addressing'
 
 /** Operand width follows the M flag (8-bit accumulator immediates). */
 const M = -1
@@ -446,11 +447,10 @@ export interface WalkOptions {
   readonly blocked?: ReadonlySet<number>
 }
 
-/** Bank-mirror-insensitive key: $83:A118 and $03:A118 are the same code.
- *  It also merges $7E/$7F with $FE/$FF, which is NOT a mirror pair
- *  (`loromToOffset` rejects the first as WRAM and maps the second as ROM).
- *  Nothing executes from $FE/$FF, so the collision is theoretical. */
-const fold = (addr: number) => addr & 0x7fffff
+/** Key, not read: these addresses index `watch`/`blocked` and the visited
+ *  set, never a ROM read, so `mirror()` is right. Nothing executes from
+ *  $FE/$FF, so folding them onto $7E/$7F is theoretical here. */
+const fold = mirror
 
 const signed8 = (b: number) => (b > 0x7f ? b - 0x100 : b)
 /** `BRL`'s displacement needs no sign extension: the sum is masked to 16

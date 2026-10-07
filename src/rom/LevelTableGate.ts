@@ -12,7 +12,7 @@
 import { createHash } from 'crypto'
 import { RomFile, cachedByVersion } from './RomFile'
 import { BytePattern, WILD, findExactlyOneSite, matchesAt, matchesBytes } from './BytePattern'
-import { loromFromOffset } from './addressing'
+import { loromFromOffset, mirror } from './addressing'
 
 export type SpriteBankSource =
   { kind: 'fixed'; bank: number } | { kind: 'perLevel'; tableAddr: number }
@@ -231,11 +231,12 @@ function recognizedJmlAddr(rom: RomFile): number | null {
 
   const jmlSiteAddr = loromFromOffset(jml.offset)
   if (jmlSiteAddr === null) return null
-  const expectedReturn = (jmlSiteAddr + VT_JML.length - VT_TAIL.length) & 0x7fffff
-  const returns = VT_JML_RET_OFFS.map(off => readAddr(body, off) & 0x7fffff)
+  // Keys: both sides of the return comparison are normalized, never read through.
+  const expectedReturn = mirror(jmlSiteAddr + VT_JML.length - VT_TAIL.length)
+  const returns = VT_JML_RET_OFFS.map(off => mirror(readAddr(body, off)))
   if (!returns.every(r => r === expectedReturn)) return null
 
-  return addrs[0]! & 0x7fffff // strip bit 23 (bank +$80) mirror
+  return addrs[0]! // read, not key: `rom.readAt` takes the bank as written
 }
 
 function readAddr(bytes: Uint8Array, off: number): number {

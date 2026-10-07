@@ -304,6 +304,15 @@ describe('readVerticalTable', () => {
     expect(readVerticalTable(rom)).toEqual({ ok: true, table })
   })
 
+  it('reads a table the JML body names in bank $FE of a 4 MB ROM (read, not key; #513)', () => {
+    const rom = makeRom(0x400000)
+    const feTable = 0xfe9300 // file offset $3F1300; folded to $7E it would be WRAM
+    rom.writeAt(siteAt, vtJml(detourAt))
+    rom.writeAt(detourAt, vtJmlBody(feTable, ret))
+    rom.writeAt(feTable, table)
+    expect(readVerticalTable(rom)).toEqual({ ok: true, table })
+  })
+
   it('refuses when the taken path (body+22) is corrupted', () => {
     const rom = makeRom()
     rom.writeAt(siteAt, vtJml(detourAt))

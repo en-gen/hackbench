@@ -98,6 +98,21 @@ describe('readLevelGfxHook', () => {
     }
   })
 
+  it('compares FastROM-banked operands as keys: JSL, JML and each table (#513)', () => {
+    const fast = (rom: RomFile, at: number): void =>
+      rom.writeAt(at, [rom.readAt(at, 1)![0]! | 0x80])
+    // Older build: the JSL's bank byte.
+    const d = hooked('direct')
+    fast(d.rom, HOOK_AT + HOOK_LOADER + 22 + 2)
+    expect(read(d.rom, d.fp)).toEqual({ ok: true })
+    // Newer build: the JML's bank byte, then each table operand's, one by one.
+    for (const bankAt of [0x63, 0x18, 0x1e, 0x24].map(o => o + 2)) {
+      const s = hooked('stub')
+      fast(s.rom, HOOK_AT + HOOK_DISPATCHER + bankAt)
+      expect(read(s.rom, s.fp), `bank byte at +${bankAt.toString(16)}`).toEqual({ ok: true })
+    }
+  })
+
   it('refuses an unrecognized dispatcher, and one whose JML misses the decompression call', () => {
     const { rom, fp } = hooked('stub')
     expect(readLevelGfxHook(rom, HOOK_AT, PREPARE_GFX, TABLES, []).ok).toBe(false)
