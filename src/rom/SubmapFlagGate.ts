@@ -302,7 +302,7 @@ function loadHookMismatch(rom: RomFile): string | null {
     return '$05D89B holds no JSL before STA TranslevelNo.'
   }
   if (LOAD_HOOKS.some(p => matchesBytes(rom.readAt(at, p.length), p))) return null
-  return `the JSL reaches $${hex6(mirror(at))}, which is not a recognized loader.`
+  return `the JSL reaches $${hex6(at)}, which is not a recognized loader.`
 }
 
 /** The recognized hooks each stock check also accepts, and what to call them. */

@@ -166,7 +166,7 @@ describe('the JSL table loader at $05D89B', () => {
     (i, j) => {
       const rom = loader(i)
       flip(rom, LOADER_AT + j)
-      expect(failing(rom).join()).toContain('reaches $06EB00, which is not a recognized loader')
+      expect(failing(rom).join()).toContain('reaches $86EB00, which is not a recognized loader')
     },
   )
 })

@@ -9,7 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Bank-mirror masks (#513): lookup keys use `mirror()`; addresses that are read (`jslTarget`, GfxArena `long`, the vertical-table JML target) keep their bank, so a $FE/$FF target is no longer folded onto WRAM $7E/$7F.
 - A unit test pins tile $11A's star column over all 16 X columns: coin unless Mario is
   invincible, star only while invincible (`bank_00.asm:12887-12891`). The Maps view already
   draws it that way (#567).
@@ -114,6 +113,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Bank-mirror masks (#513): lookup keys use `mirror()`; addresses that are read (`jslTarget`, GfxArena `long`, the vertical-table JML target) keep their bank, so a $FE/$FF target is no longer folded onto WRAM $7E/$7F. Refusal reasons now show those addresses with the bank as written.
 - GFX decompression reads LC_LZ2 back-reference offsets in the byte order the ROM's own decompressor routine uses (J and E1 builds add an XBA that makes them little-endian), and the decompressor check now covers that routine, not only the entry: a ROM whose routine is neither known form is refused instead of decoded wrongly. A stock J, E0 or E1 ROM is still refused at the entry check (#696), so this changes no real ROM's verdict today; a little-endian ROM, once accepted, can be read but not saved. Checked on the 6-ROM corpus and the 101-hack store: no ROM that passed before is refused now (#274).
 - Map $005's ON/OFF track tile `$095`, hidden while the switch byte `$14AF` is 0, no longer draws as if shown. Its one-pixel diagonal fell wholly on the screen door's full-strength squares; a hidden tile with more pixels on those squares than on the dim ones is now drawn on the dim squares, in the map and Map16 views alike. `$094` (hidden while `$14AF` is 1) was already faint. The game's gate is `bank_01.asm:11985-11995` (#560).
 - `levelHasObjects` no longer rejects level modes $15-$1F: the game masks the mode with $1F and its six mode tables have 32 entries, so every mode $00-$1F is valid (#130).
