@@ -159,12 +159,12 @@ It does not fire on the first build, on a cached read, or on an edit.
 pushes it as `ProjectServiceClient.onRomChanged`. This event is deliberately
 not a CloudEvent.
 
-| Subscriber                                      | Edit (`onEdit`)                               | ROM changed (`onRomChanged`)                        |
-| ----------------------------------------------- | --------------------------------------------- | --------------------------------------------------- |
-| Palettes explorer                               | rebuild, keeps which groups were open         | rebuild as a fresh open: nothing selected, defaults |
-| Maps, Graphics, Audio explorers                 | not subscribed (see below)                    | rebuild as a fresh open                             |
-| Map, Map16, GFX, Palette-group, Overworld views | re-read                                       | re-read                                             |
-| Emulator, Edit menu                             | stale check / refresh                         | refresh                                             |
+| Subscriber                                      | Edit (`onEdit`)                       | ROM changed (`onRomChanged`)                        |
+| ----------------------------------------------- | ------------------------------------- | --------------------------------------------------- |
+| Palettes explorer                               | rebuild, keeps which groups were open | rebuild as a fresh open: nothing selected, defaults |
+| Maps, Graphics, Audio explorers                 | not subscribed (see below)            | rebuild as a fresh open                             |
+| Map, Map16, GFX, Palette-group, Overworld views | re-read                               | re-read                                             |
+| Emulator, Edit menu                             | stale check / refresh                 | refresh                                             |
 
 The Maps, Graphics and Audio explorers do not subscribe to edits because their
 rows come from tables that palette and Map16 word edits do not write, not
@@ -284,6 +284,16 @@ Type-checking the shell is a separate script from the root:
 ```bash
 npm run typecheck:theia
 ```
+
+It runs `tools/scripts/typecheck-theia.cjs`, which checks
+`theia/extension/node_modules/typescript`, then `theia/node_modules/typescript`,
+never searches ancestor directories, follows junctions at those two paths, and
+passes extra arguments through. A fresh worktree needs
+`yarn --cwd theia install --frozen-lockfile --ignore-scripts` first (it needs TypeScript in `theia/extension/node_modules` or
+`theia/node_modules`); without it the script exits 1 and says so (#669).
+`test/suite/gates/typecheckTheia.test.ts` covers the hint, the compiler
+choice, path resolution, argument and exit-status pass-through with stub
+compilers.
 
 ## Related reading
 

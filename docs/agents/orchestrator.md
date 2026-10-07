@@ -157,9 +157,15 @@ the approval to be CodeRabbit's, so a human approval merges it too.
   the thread. An unresolved thread withholds approval. Use the original
   implementer via `SendMessage` if available, else a fresh one given the
   brief and the PR. The `develop` ruleset dismisses stale approvals on push.
-- Before pushing a fix to a PR, the implementer disables auto-merge
-  (`gh pr merge <n> -R en-gen/hackbench --disable-auto`); the steward
-  re-enables it only after the verifier passes on the new head.
+- Auto-merge stays on across fix pushes. A push dismisses the stale approval
+  and CodeRabbit re-reviews, so nothing merges before the new head is
+  approved and green. After the verifier passes on the new head the steward
+  confirms `autoMergeRequest` is still set
+  (`gh pr view <n> --json autoMergeRequest`) and re-enables it only if a push
+  cleared it.
+  A merge can land before the verifier re-runs on the new head; the owner
+  accepts it (2026-10-04), and a verifier finding on a merged head becomes a
+  follow-up PR off develop.
 - CodeRabbit re-reviews each push by itself. Never comment
   `@coderabbitai review`, `full review` (the free plan has an hourly limit)
   or `@coderabbitai approve`.

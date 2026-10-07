@@ -141,6 +141,10 @@ jobs:
       - name: Unit tests with coverage
         run: npm run test:unit -- --coverage --testTimeout=60000
 
+      # Wall-clock gates, alone: parallel load flakes them (#668).
+      - name: Timing gates (serial)
+        run: npm run test:timing
+
       # Runs when the tests FAIL too: that is the run worth having. Informational
       # only; Codecov being down never reds CI.
       - name: Upload coverage to Codecov
@@ -231,11 +235,11 @@ jobs:
       - name: Install root dependencies
         run: npm ci
 
-      # Uses the extension's own pinned TypeScript. The root compiler is a
-      # later major and rejects the moduleResolution Theia 1.75 requires, so
-      # checking with it would be checking the wrong compiler.
+      # The script picks theia's pinned TypeScript; the root's later major
+      # rejects the moduleResolution Theia 1.75 requires. Theia is installed
+      # above, so its install hint never fires here.
       - name: Type-check extension
-        run: yarn --cwd theia/extension typecheck
+        run: npm run typecheck:theia
 
       # The one gate case that needs Theia: its own config-dir resolution
       # must land under Playwright's per-run folder. HB_REQUIRE_THEIA turns
