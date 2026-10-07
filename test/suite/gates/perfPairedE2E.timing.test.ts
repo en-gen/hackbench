@@ -13,7 +13,7 @@ import { compareRounds, mulberry32 } from '../../../tools/perf/compare.mjs'
 const repoRoot = path.resolve(__dirname, '../../..')
 
 describe('paired.mjs end to end: --plant makes that id REGRESSION', () => {
-  it('a planted 2x slowdown on core.lclz2.decompress.synthetic-64k regresses only that id', async () => {
+  it('a planted 3x slowdown on core.lclz2.decompress.synthetic-64k regresses only that id', async () => {
     // 10 rounds, not 5: at n=5 the bootstrap interval's lower bound is the
     // smallest round, so one load burst on the base side masks the plant.
     // A large factor (3x, versus the 10% core threshold) so this end-to-end
