@@ -91,12 +91,12 @@ describe('SmwRom.classifyLevels', () => {
     expect(result.overworld).toEqual([0x010]) // 0x011 dropped as dup
   })
 
-  it('skips levels whose header.levelMode > 20 (invalid)', () => {
+  it('keeps levels whose header.levelMode is 31 (valid, #130)', () => {
     const rom = make4MbRom()
     setL1Ptr(rom, 0x010, 0x068000)
     setLevelData(rom, 0x068000, [0, 0x1f, 0, 0, 0, 0x42, 0xff]) // mode = 31
     const smw = new SmwRom(rom)
-    expect(smw.classifyLevels(rootsOf(smw)).overworld).toEqual([])
+    expect(smw.classifyLevels(rootsOf(smw)).overworld).toEqual([0x010])
   })
 
   it('skips levels whose first object byte is the immediate $FF terminator', () => {
