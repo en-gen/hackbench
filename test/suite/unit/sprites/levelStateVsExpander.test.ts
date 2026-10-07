@@ -2,12 +2,14 @@
  * #649 step 2: pins WHERE the ROM-run level loader (LevelLoader.ts) and the TypeScript object
  * expander behind the map view (expandMap, as buildL1Inputs calls it) disagree on Layer 1 Map16.
  * Needs the ROM only. Measurement, not endorsement: a pinned map is a known difference.
- * Measured 2026-10-07, vanilla ROM, one machine, the 154 sprite-trace map ids (hex level numbers).
+ * Measured 2026-10-07, vanilla ROM, one machine, all 512 slots (hex ids). The loader runs with a fresh
+ * save's switch flags, so the expander is called with SWITCH_FLAGS_UNCLEARED (the map view itself
+ * passes the user's SwitchFlagsDto, project-server.ts:116-121).
  *
- * Layout: screen-major, $1B0 bytes a screen (SMWDisX bank_00.asm:6595-6620, DATA_00BA60), a
+ * Layout: screen-major, $1B0 bytes a screen (SMWDisX bank_00.asm:6595-6628, DATA_00BA60 then DATA_00BA70, 32 entries), a
  * screen row-major 16 wide (bank_00.asm:13295-13310: Y high nibble | X >> 4 | screen base).
  * Horizontal maps only; vertical ones are listed, not compared. Layer 1 is the first
- * `levelLength` screens (the table's L2 half starts at $1B00).
+ * `levelLength` screens, up to 32 (bank_00.asm:13299-13308 indexes by screen up to LevelScrLength).
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -43,11 +45,16 @@ function diffCells(wram: Uint8Array, grid: TileGrid, screens: number): number {
   return n
 }
 
-const IDS = '001 002 003 004 005 006 007 008 009 00a 00b 00c 00d 00e 00f 010 011 013 014 015 016 017 018 01a 01b 01c 01d 01f 020 021 022 023 024 093 094 095 096 097 098 099 09a 09b 0be 0bf 0c0 0c1 0c2 0c3 0c4 0c5 0c6 0c7 0c8 0c9 0ca 0cb 0cc 0cd 0ce 0cf 0d0 0d1 0d2 0d3 0d4 0d5 0d6 0d7 0d8 0d9 0db 101 102 103 104 105 106 107 109 10a 10b 10d 10e 10f 110 111 113 114 115 116 117 118 119 11a 11b 11c 11d 11e 11f 120 121 122 123 125 126 127 128 12a 12b 12c 12d 130 132 134 135 136 193 194 195 196 197 198 199 19a 19b 1bd 1be 1bf 1c0 1c1 1c2 1c3 1c4 1c5 1c6 1c7 1c8 1ca 1cc 1cd 1ce 1cf 1d0 1d1 1d2 1d3 1d4 1d5 1d6 1d7 1d8 1d9 1da 1db'.split(' ') // prettier-ignore
-const VERTICAL = ['0c2', '0db', '109', '12a', '134', '1ce']
-// 021: the loader writes $154 at screen 9 column 15, rows 0-6; the expander leaves $25.
-// The 15 mode-9 boss arenas: the expander pre-fills rows 11 and 13 ($32, $05), the loader holds $25 there.
-const DIFFERING = '021:7 095:32 096:16 097:16 098:32 099:32 09a:32 0cc:32 0d5:32 0d9:32 195:32 196:16 197:16 198:32 199:32 19a:32'.split(' ') // prettier-ignore
+const VERTICAL = '0c2 0db 0e7 0ea 0f7 108 109 12a 134 1ce 1ed'.split(' ')
+// Boss arenas: the game-mode init writes rows the loader lacks (GM12, #707): 15 mode-9 maps (095 098 099 09a 0cc 0d5 0d9 0df 0e2 0e5 195 198 199 19a 1de; rows 11 and
+// 13, 32 cells; the expander writes hi byte $00 where the ROM writes $32, bank_00.asm:3017-3020) and 6
+// mode-$0B maps 096 097 196 197 1eb 1f6 (row 5 pre-filled $05, 16 cells). The capture is right on these.
+// Mode-$10 Bowser maps 09b 19b 1c7: the ROM writes $3232 at row 12 of screens 0-1 (bank_00.asm:2925-2929
+// -> 3014-3023); neither source does, so they are L=E and not pinned.
+// 021 (7 cells): object $1F at x=143 y=18 size $FF, tileset 5, draws rows 18-33; CODE_0DA97D
+// (bank_0D.asm:2018-2031) carries LevelLoadPos into the next screen with no row-27 check, and cursor.ts
+// writeTile drops row >= grid.length. The loader is right, the expander is wrong (#300).
+const DIFFERING = '021:7 095:32 096:16 097:16 098:32 099:32 09a:32 0cc:32 0d5:32 0d9:32 0df:32 0e2:32 0e5:32 195:32 196:16 197:16 198:32 199:32 19a:32 1de:32 1eb:16 1f6:16'.split(' ') // prettier-ignore
 
 /** The map view's Layer 1 grid for a map: expandMap exactly as buildL1Inputs calls it (minus the L1-refusal for boss arenas). */
 function expanded(
@@ -61,7 +68,7 @@ function expanded(
   const vertical = isLevelModeVertical(h.levelMode, table)
   const { objects } = parseLevelObjects(raw, table)
   const grid = expandMap(objects, h.levelLength, rom, h.objectTileset, vertical, h.levelMode, undefined, SWITCH_FLAGS_UNCLEARED, { unverified: [], draw: drawInterpreted, primitives: VANILLA_PRIMITIVES }) // prettier-ignore
-  return { grid, screens: Math.min(h.levelLength, 16), vertical }
+  return { grid, screens: h.levelLength, vertical }
 }
 
 describe.skipIf(!hasRom(VANILLA))('level loader vs map-view expander: Layer 1 Map16 (#649)', () => {
@@ -73,24 +80,24 @@ describe.skipIf(!hasRom(VANILLA))('level loader vs map-view expander: Layer 1 Ma
     const counts: string[] = []
     const vertical: string[] = []
     let compared = 0
-    for (const id of IDS) {
+    for (let n = 0; n < 512; n++) {
+      const id = n.toString(16).padStart(3, '0')
       const e = expanded(rom, smw, id)
       if (e.vertical) { vertical.push(id); continue } // prettier-ignore
       const l = loadLevelState(rom, parseInt(id, 16))
       if (!l.ok) throw new Error(`${id}: ${l.reason}`)
       compared++
-      const n = diffCells(l.wram, e.grid, e.screens)
-      if (n) counts.push(`${id}:${n}`)
+      const cells = diffCells(l.wram, e.grid, e.screens)
+      if (cells) counts.push(`${id}:${cells}`)
     }
     return (cached = { counts, vertical, compared })
   }
 
   it('the loader and the expander disagree on exactly the pinned maps, by differing-cell count', () => {
-    expect(IDS.length).toBe(154)
     const r = real()
     expect(r.vertical).toEqual(VERTICAL)
-    expect(r.compared).toBe(148)
-    expect(r.counts).toEqual(DIFFERING) // 16 differ, so 132 of the 148 are identical
+    expect(r.compared).toBe(512 - VERTICAL.length)
+    expect(r.counts).toEqual(DIFFERING)
   }, 300_000)
 
   it('a planted cell in an identical or a differing map, either source, goes red', () => {
@@ -130,6 +137,13 @@ describe('diffCells on synthetic bytes', () => {
     expect(diffCells(w, g, 1)).toBe(0)
     g[26]!.length = 8 // the grid lacks the right-hand columns: 24 + 16 missing cells
     expect(diffCells(w, g, 2)).toBe(24)
+    // Layer 1 runs to 32 screens: a cell on screen 17 must count (a 16-screen cap hid 34 maps).
+    const far = mk()
+    far.g.forEach((r, y) => (far.g[y] = new Array(18 * 16).fill(0)))
+    expect(diffCells(far.w, far.g, 18)).toBe(0)
+    far.w[0xc800 + 17 * SCREEN + 26 * 16 + 15] = 1
+    expect(diffCells(far.w, far.g, 18)).toBe(1)
+    expect(diffCells(far.w, far.g, 16)).toBe(0)
     w[0xc800 + 2 * SCREEN] = 1 // past the compared screens
     expect(diffCells(w, g, 2)).toBe(24)
   })
