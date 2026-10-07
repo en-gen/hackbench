@@ -33,9 +33,10 @@ export type ItemType = 'star' | '1up' | 'vine'
 
 /** Pure per-column dispatch. Exported so tests / other tools can re-use it. */
 export function starOneUpVineItemAt(col: number): ItemType {
-  // Column position comes from the shared resolver; the star slot is drawn as
-  // a plain star here although the ROM gives coin unless Mario is invincible
-  // (docs/rom/block-contents.md). PR B replaces this rendering.
+  // Column position comes from the shared resolver. This reference model draws the
+  // star slot as a plain star although the ROM gives a coin unless Mario is invincible
+  // (bank_00.asm:12887-12891). The shipped Theia map view draws coin with star split in
+  // (map-block-contents.ts); this unshipped model is not changed (#567).
   const m = cycleColumn(0x11a, col)!.index
   if (m === 0) return 'star'
   if (m === 1) return '1up'
