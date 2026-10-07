@@ -22,12 +22,14 @@ export function hiddenPixelStrength(x: number, y: number, flip = false): number 
  *
  * A one-pixel diagonal lies wholly on one parity, so the checkerboard could
  * draw it entirely at full strength, indistinguishable from a drawn tile
- * (#560: ON/OFF track $095 with ON/OFF off). A picture that would get no dim
- * pixel is therefore drawn on the other squares: a hidden tile is never as
- * strong as a shown one. The tiles are the ON/OFF tracks: the game treats $094
- * as absent with ON/OFF on and $095 as absent with it off (SMWDisX
- * bank_01.asm:11985-11995, the line-guide probe), so each must read as hidden
- * in the other state.
+ * (#560: $095, drawn with the switch at $14AF == 1, shows its ghost with
+ * $14AF == 0). A picture with more pixels on the full-strength squares than
+ * on the dim ones is drawn on the other squares, so a ghost is never mostly
+ * full strength; a tie or a dim majority is left alone. The blank picture
+ * comes from the animated-tile switch on $14AF (AnimationLoader.ts SWITCH_RAM,
+ * rammap.asm:1665-1667); the game also treats $094 as absent with $14AF == 1
+ * and $095 as absent with $14AF == 0 (SMWDisX bank_01.asm:11985-11995, the
+ * line-guide probe).
  */
 export function overlayHidden(
   dst: Uint8ClampedArray,
@@ -38,20 +40,22 @@ export function overlayHidden(
 ): void {
   const writes = (x: number, y: number) =>
     dst[((y0 + y) * dstWidth + x0 + x) * 4 + 3] === 0 && alt[(y * 16 + x) * 4 + 3] !== 0
-  let dimmed = false
-  for (let y = 0; y < 16 && !dimmed; y++)
-    for (let x = 0; x < 16; x++)
-      if (writes(x, y) && hiddenPixelStrength(x, y) !== 1) {
-        dimmed = true
-        break
-      }
+  let full = 0
+  let dim = 0
+  for (let y = 0; y < 16; y++)
+    for (let x = 0; x < 16; x++) {
+      if (!writes(x, y)) continue
+      if (hiddenPixelStrength(x, y) === 1) full++
+      else dim++
+    }
+  const flip = full > dim
   for (let y = 0; y < 16; y++)
     for (let x = 0; x < 16; x++) {
       if (!writes(x, y)) continue
       const s = (y * 16 + x) * 4
       const d = ((y0 + y) * dstWidth + x0 + x) * 4
       dst.set(alt.subarray(s, s + 3), d)
-      dst[d + 3] = Math.round(alt[s + 3]! * hiddenPixelStrength(x, y, !dimmed))
+      dst[d + 3] = Math.round(alt[s + 3]! * hiddenPixelStrength(x, y, flip))
     }
 }
 

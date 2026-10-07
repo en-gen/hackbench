@@ -2473,9 +2473,9 @@ test('the grid is composited above the sprite layer', async ({ page }) => {
 })
 
 /**
- * The ON/OFF tracks on $005 (#560). Vanilla $094 is a diagonal drawn with ON/OFF off, $095 its
- * mirror drawn with ON/OFF on, each a one-pixel line. The screen door once drew $095 at full
- * strength with ON/OFF off, so both looked drawn in both states. Measured: $094 at column 152,
+ * The ON/OFF tracks on $005 (#560). Vanilla $094 is a diagonal drawn while the switch byte $14AF is
+ * 0, $095 its mirror drawn while it is 1, each a one-pixel line. The screen door once drew $095
+ * at full strength with $14AF 0, so both looked drawn in both states. Measured: $094 at column 152,
  * row 18 and $095 at column 151, row 20, both on screen 9.
  */
 test.describe('ON/OFF tracks on $005', () => {
@@ -2486,27 +2486,31 @@ test.describe('ON/OFF tracks on $005', () => {
     drawnOn: [151 - SCREEN * 16, 20, (x, y) => x === y],
   }
 
-  /** How many of a track's 16 pixels sit farther than the screen door's 25% from the cell's other pixels. */
+  /**
+   * How many of a track's 16 pixels the L1 planes draw at full alpha. Read from the planes
+   * themselves (255 drawn, 64 in the screen door, 0 clear), not from the composited screen:
+   * the ghost is within 64 of what lies under it, not of any one color.
+   */
   async function strong(page, [col, row, onTrack]) {
-    const px = await readScreen(page, 0x005, SCREEN)
-    const rgba = px.rgba
-    const at = (x, y) => {
-      const i = ((row * 16 + y) * 256 + col * 16 + x) * 4
-      return [rgba[i], rgba[i + 1], rgba[i + 2]]
-    }
-    const rest = []
-    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) if (!onTrack(x, y)) rest.push(at(x, y).join(',')) // prettier-ignore
-    const counts = new Map()
-    for (const c of rest) counts.set(c, (counts.get(c) ?? 0) + 1)
-    const back = [...counts.entries()]
-      .sort((a, b) => b[1] - a[1])[0][0]
-      .split(',')
-      .map(Number)
-    let n = 0
-    for (let y = 0; y < 16; y++)
-      for (let x = 0; x < 16; x++)
-        if (onTrack(x, y) && at(x, y).some((v, c) => Math.abs(v - back[c]) > 64)) n++
-    return n
+    return page.evaluate(
+      ({ rootSel, screen, col, row, anti }) => {
+        const on = anti ? (x, y) => x + y === 15 : (x, y) => x === y
+        const planes = ['l1Low', 'l1High']
+          .map(p =>
+            document.querySelector(`${rootSel} canvas[data-screen="${screen}"][data-plane="${p}"]`),
+          )
+          .filter(Boolean)
+          .map(c => c.getContext('2d').getImageData(0, 0, c.width, c.height))
+        let n = 0
+        for (let y = 0; y < 16; y++)
+          for (let x = 0; x < 16; x++) {
+            const i = ((row * 16 + y) * planes[0].width + col * 16 + x) * 4 + 3
+            if (on(x, y) && planes.some(d => d.data[i] === 255)) n++
+          }
+        return n
+      },
+      { rootSel: root(0x005), screen: SCREEN, col, row, anti: onTrack(15, 0) },
+    )
   }
 
   test('each track draws in full only in its own state and in the screen door in the other', async ({

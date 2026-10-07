@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest'
 import type { AnimationData } from '../../../src/rom/AnimationLoader'
 import type { VramState } from '../../../src/rom/GfxLoader'
 import { switchArtOf } from '../../../src/rom/SwitchAlternates'
-import { HIDDEN_TILE_DIM_ALPHA } from '../../../src/rom/render/HiddenTiles'
+import { HIDDEN_TILE_DIM_ALPHA, overlayHidden } from '../../../src/rom/render/HiddenTiles'
 import { drawL1Planes } from '../../../theia/extension/src/node/map-screen'
 import { COLORS, hGrid, inputs, sub, tile } from '../support/mapInputs'
 
@@ -79,7 +79,43 @@ describe('ON/OFF tracks draw only in their own switch state (#560)', () => {
     expect(off.every(a => a === 0)).toBe(true)
     expect(on).toHaveLength(16)
     // Drawn: every pixel at full strength. Hidden: the screen door, never a full-strength pixel.
+    // (`onOff` is $14AF == 1.)
     if (drawn) expect(on.every(a => a === 255)).toBe(true)
     else expect(on.every(a => a === dimmed)).toBe(true)
+  })
+})
+
+describe('overlayHidden flips by majority (#560)', () => {
+  const dimmed = Math.round(255 * HIDDEN_TILE_DIM_ALPHA)
+  const picture = (cells: [number, number][]) => {
+    const rgba = new Uint8ClampedArray(16 * 16 * 4)
+    for (const [x, y] of cells) rgba.set([9, 9, 9, 255], (y * 16 + x) * 4)
+    return rgba
+  }
+  const drawn = (cells: [number, number][]) => {
+    const dst = new Uint8ClampedArray(16 * 16 * 4)
+    overlayHidden(dst, 16, 0, 0, picture(cells))
+    return cells.map(([x, y]) => dst[(y * 16 + x) * 4 + 3]!)
+  }
+  const diagonal: [number, number][] = Array.from({ length: 16 }, (_, i) => [i, i])
+
+  it('a diagonal plus one odd pixel is still mostly dim, not 16 of 17 at full strength', () => {
+    const alphas = drawn([...diagonal, [1, 0]])
+    expect(alphas.filter(a => a === 255)).toHaveLength(1)
+    expect(alphas.filter(a => a === dimmed)).toHaveLength(16)
+  })
+
+  it('a mixed-parity picture with no majority keeps the checkerboard', () => {
+    const alphas = drawn([
+      [0, 0],
+      [1, 0],
+      [2, 0],
+      [3, 0],
+    ])
+    expect(alphas).toEqual([255, dimmed, 255, dimmed])
+  })
+
+  it('a dim majority is left alone', () => {
+    expect(drawn([[1, 0], [3, 0], [0, 0]])).toEqual([dimmed, dimmed, 255]) // prettier-ignore
   })
 })

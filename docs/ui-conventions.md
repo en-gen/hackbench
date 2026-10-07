@@ -167,9 +167,9 @@ border box and take no layout space.
   drawn with its switched-on art in a soft screen door, in color, never
   blank: a checkerboard on the tile's own pixel grid, full strength where
   x + y is even and 25% (`HIDDEN_TILE_DIM_ALPHA`) where odd
-  (`hiddenPixelStrength`, one rule for both surfaces, #643; a picture that
-  would get no dim pixel, such as a one-pixel diagonal lying wholly on the even
-  squares, is drawn on the odd squares instead, #560): in the
+  (`hiddenPixelStrength`, one rule for both surfaces, #643; a picture with more pixels on the
+  even squares than on the odd ones, such as a one-pixel diagonal, is drawn on the
+  odd squares instead, #560): in the
   inspector preview while its toggle is off, and in the Map16 sheet always,
   frame 0 held through animation (#574, #621). This is an editor deviation:
   the ROM shows nothing there. It is derived from the tile's `hidden`
