@@ -35,14 +35,13 @@ table. Do not port the routine.
 **If you are describing behaviour, you have lost the thread.** Every defect
 this project has shipped came from modelling instead of reading:
 
-| Defect                 | What it did                                                                      | What it should have done                  |
-| ---------------------- | -------------------------------------------------------------------------------- | ----------------------------------------- |
-| `screenHasExitTrigger` | invented Map16 tile scanning, cited an address with zero hits in the disassembly | read `DATA_05F800`                        |
-| `levelHasObjects()`    | invented a "modes 0-20 valid" rule with a fabricated line citation               | compare the L1 pointer against the filler |
-| exit-graph high byte   | derived it from `ExitTableHigh` bit 3, which the game never reads for this       | take it from the submap flag              |
+| Defect                 | What it did                                                                      | What it should have done     |
+| ---------------------- | -------------------------------------------------------------------------------- | ---------------------------- |
+| `screenHasExitTrigger` | invented Map16 tile scanning, cited an address with zero hits in the disassembly | read `DATA_05F800`           |
+| exit-graph high byte   | derived it from `ExitTableHigh` bit 3, which the game never reads for this       | take it from the submap flag |
 
-Both fabricated citations are tracked in issue #311. Neither was caught by
-tests; both were caught by someone re-reading the disassembly.
+The fabricated citation was not caught by tests; it was caught by someone
+re-reading the disassembly.
 
 **The one case where table-reading is not enough.** Lunar Magic replaces
 routines, not just data. `$05D8B1` holds the `BEQ` opcode `$F0` in a stock ROM

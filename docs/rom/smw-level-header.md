@@ -9,7 +9,7 @@ Located at the start of each level's L1 data in ROM.
 | 0    | 7–5   | bgPalette      | 0–7    | BG palette variant for CGRAM rows 0–1 |
 | 0    | 4–0   | levelLength    | 0–31   | Screen count = value + 1 |
 | 1    | 7–5   | bgColor        | 0–7    | Background color setting |
-| 1    | 4–0   | levelMode      | 0–20   | Level type (0=horizontal, etc.) |
+| 1    | 4–0   | levelMode      | 0–31   | Level type (0=horizontal, etc.) |
 | 2    | 7     | layer3Priority | 0–1    | Layer 3 priority flag |
 | 2    | 6–4   | music          | 0–7    | Music track index |
 | 2    | 3–0   | (unused/ext)   |        | Extended mode bits |

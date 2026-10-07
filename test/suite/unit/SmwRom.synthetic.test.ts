@@ -278,11 +278,11 @@ describe('levelHasObjects', () => {
     expect(new SmwRom(rom).levelHasObjects(0)).toBe(false)
   })
 
-  it('false when level mode > 20 (invalid)', () => {
+  it('true when level mode is 31 (valid, #130)', () => {
     const rom = make4MbRom()
     // Level mode = 31 (raw[1] & 0x1F)
     const smw = setupLevel(rom, [0x00, 0x1f, 0x00, 0x00, 0x00, 0x00])
-    expect(smw.levelHasObjects(0)).toBe(false)
+    expect(smw.levelHasObjects(0)).toBe(true)
   })
 
   it('false when first object byte is the immediate $FF terminator', () => {
