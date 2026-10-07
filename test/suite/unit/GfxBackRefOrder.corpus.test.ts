@@ -8,23 +8,32 @@ import { checkStockCompression } from '../../../src/rom/GfxArena'
 import { RomFile } from '../../../src/rom/RomFile'
 import { hasRom, INVICTUS, MAGIC, romPath, VANILLA } from '../support/corpus'
 
-describe.skipIf(!hasRom(VANILLA))('gate on the vanilla US ROM', () => {
-  it('accepts it as the stock decompressor, back-references big-endian', () => {
-    const r = checkStockCompression(RomFile.load(romPath(VANILLA)))
-    expect(r.ok && [r.kind, r.order]).toEqual(['stock', 'be'])
-  })
-})
+const CASES = [
+  [
+    'the vanilla US ROM',
+    VANILLA,
+    'stock',
+    'accepts it as the stock decompressor, back-references big-endian',
+  ],
+  [
+    'the Lunar Magic ROM',
+    MAGIC,
+    'stock',
+    'accepts it as the stock decompressor, back-references big-endian',
+  ],
+  [
+    'Invictus (fast LC_LZ2)',
+    INVICTUS,
+    'fast',
+    'accepts it as the fast routine, back-references big-endian as before',
+  ],
+] as const
 
-describe.skipIf(!hasRom(MAGIC))('gate on the Lunar Magic ROM', () => {
-  it('accepts it as the stock decompressor, back-references big-endian', () => {
-    const r = checkStockCompression(RomFile.load(romPath(MAGIC)))
-    expect(r.ok && [r.kind, r.order]).toEqual(['stock', 'be'])
+for (const [name, rom, kind, title] of CASES) {
+  describe.skipIf(!hasRom(rom))(`gate on ${name}`, () => {
+    it(title, () => {
+      const r = checkStockCompression(RomFile.load(romPath(rom)))
+      expect(r.ok && [r.kind, r.order]).toEqual([kind, 'be'])
+    })
   })
-})
-
-describe.skipIf(!hasRom(INVICTUS))('gate on Invictus (fast LC_LZ2)', () => {
-  it('accepts it as the fast routine, back-references big-endian as before', () => {
-    const r = checkStockCompression(RomFile.load(romPath(INVICTUS)))
-    expect(r.ok && [r.kind, r.order]).toEqual(['fast', 'be'])
-  })
-})
+}

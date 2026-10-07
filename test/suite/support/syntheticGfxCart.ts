@@ -9,7 +9,7 @@
  */
 import { createHash } from 'node:crypto'
 import { RomFile } from '../../../src/rom/RomFile'
-import { encode } from '../../../src/rom/LcLz2'
+import { encode, type BackRefOrder } from '../../../src/rom/LcLz2'
 import { COPIER_HEADER_SIZE, LOROM_BANK_SIZE, loromFromOffset } from '../../../src/rom/addressing'
 import { WILD } from '../../../src/rom/BytePattern'
 import { GFX_FILE_COUNT, LEVEL_GFX_CALLERS, PREPARE_GFX_PATTERN } from '../../../src/rom/GfxArena'
@@ -226,7 +226,7 @@ export const DISPATCH_AT = 56
 export const BACKREF_AT = 0x88
 /** ReadByte / XBA / ReadByte / [XBA] / TAX, then the copy loop and the jump back to the loop head. */
 // prettier-ignore
-export const backRefRoutine = (order: 'be' | 'le'): number[] => [
+export const backRefRoutine = (order: BackRefOrder): number[] => [
   0x20, 0x83, 0xb9, 0xeb, 0x20, 0x83, 0xb9, ...(order === 'le' ? [0xeb] : []), 0xaa, 0x5a, 0x9b,
   0xb7, 0x00, 0xbb, 0x7a, 0x97, 0x00, 0xc8, 0xe8, 0xc2, 0x20, 0xc6, 0x8d, 0xe2, 0x20, 0xd0, 0xee,
   0x4c, 0xe3, 0xb8,
@@ -234,10 +234,15 @@ export const backRefRoutine = (order: 'be' | 'le'): number[] => [
 /** PLA / BEQ +$17 / BMI to BACKREF_AT. */
 export const BACKREF_DISPATCH = [0x68, 0xf0, 0x17, 0x30, BACKREF_AT - DISPATCH_AT - 5]
 
+/** The routine's bytes for a byte order, or raw bytes passed through (for planted defects). */
+export type BackRefForm = BackRefOrder | number[]
+export const backRefBytes = (form: BackRefForm): number[] =>
+  typeof form === 'string' ? backRefRoutine(form) : form
+
 /** Plants the dispatch and the back-reference routine behind a stock entry. */
-export function plantBackRef(rom: RomFile, order: 'be' | 'le' | number[] = 'be'): void {
-  rom.writeAt(DECOMP_ENTRY + DISPATCH_AT, BACKREF_DISPATCH)
-  rom.writeAt(DECOMP_ENTRY + BACKREF_AT, typeof order === 'string' ? backRefRoutine(order) : order)
+export function plantBackRef(rom: RomFile, form: BackRefForm = 'be', entry = DECOMP_ENTRY): void {
+  rom.writeAt(entry + DISPATCH_AT, BACKREF_DISPATCH)
+  rom.writeAt(entry + BACKREF_AT, backRefBytes(form))
 }
 
 export interface CartOptions {
@@ -247,7 +252,7 @@ export interface CartOptions {
   /** Bytes at the decompressor entry. Defaults to the stock prologue. */
   entryBytes?: readonly number[]
   /** The back-reference routine behind the entry: a byte order, or raw bytes. Default big-endian. */
-  backRef?: 'be' | 'le' | number[]
+  backRef?: BackRefForm
   /** Files placed away from the packed cluster: index to file offset. */
   outliers?: Record<number, number>
   /** Bytes of $FF filler after the cluster. */
@@ -289,12 +294,9 @@ export function buildCart(opts: CartOptions = {}): SyntheticCart {
   const bankAt = (opts.bank ?? 0) * LOROM_BANK_SIZE
   buf.set(opts.routine ?? prepareGraphicsFile(), bankAt + ROUTINE_AT)
   buf.set(opts.entryBytes ?? STOCK_LCLZ2_ENTRY, bankAt + DECOMP_ENTRY - 0x8000)
-  const backRefOps = opts.backRef ?? 'be'
-  buf.set(BACKREF_DISPATCH, bankAt + DECOMP_ENTRY - 0x8000 + DISPATCH_AT)
-  buf.set(
-    typeof backRefOps === 'string' ? backRefRoutine(backRefOps) : backRefOps,
-    bankAt + DECOMP_ENTRY - 0x8000 + BACKREF_AT,
-  )
+  const entryAt = bankAt + DECOMP_ENTRY - 0x8000
+  buf.set(BACKREF_DISPATCH, entryAt + DISPATCH_AT)
+  buf.set(backRefBytes(opts.backRef ?? 'be'), entryAt + BACKREF_AT)
   const routineSnes = loromFromOffset(bankAt + ROUTINE_AT)!
   for (const c of LEVEL_GFX_CALLERS) buf.set(jsl(routineSnes), c - 0x8000)
   const uploadSite = opts.uploadSite === undefined ? uploadGfxFileSite() : opts.uploadSite

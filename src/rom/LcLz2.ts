@@ -156,8 +156,8 @@ export function decompress(
       }
       default: {
         // Back-reference (commands 4-7 alike): 2-byte index into the output
-        // buffer, in the ROM's byte order. Checked per byte, not once up front, because a
-        // self-referential run (addr inside this same command's span) is a
+        // buffer, in the ROM's byte order. Checked per byte, not once up
+        // front, because a self-referential run (addr inside this same command's span) is a
         // hardware-valid RLE idiom: out.length grows as the loop writes.
         if (i + 1 >= src.length) noTerminator()
         const first = src[i++]!

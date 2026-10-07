@@ -26,7 +26,7 @@ import { flip } from '../support/syntheticRom'
 import {
   BACKREF_AT,
   BACKREF_DISPATCH,
-  backRefRoutine,
+  backRefBytes,
   DISPATCH_AT,
   gfxStreams,
   plantFast,
@@ -131,7 +131,7 @@ function plantAnim(rom: RomFile, o: RomOpts = {}): void {
   put(routine + 0x4f, o.tail ?? tail(0x9000))
   put(routine + 0x56, o.entry ?? STOCK_LCLZ2_ENTRY)
   put(routine + 0x56 + DISPATCH_AT, BACKREF_DISPATCH)
-  put(routine + 0x56 + BACKREF_AT, backRefRoutine('be'))
+  put(routine + 0x56 + BACKREF_AT, backRefBytes('be'))
   put(0x00a2a5, o.jsl ?? [0x22, 0x39, 0xbb, 0x05])
   put(0x05bb39, o.anim ?? stockRoutine())
   // GFX32 where the stream ends, decoys where a start-bank or $8000 read would look.
@@ -171,7 +171,7 @@ describe('readAnimGfxSources', () => {
 
   it('carries the back-reference order of the decompressor to the animation reads', () => {
     const rom = animRom()
-    rom.writeAt(0x00b8de + BACKREF_AT, backRefRoutine('le'))
+    rom.writeAt(0x00b8de + BACKREF_AT, backRefBytes('le'))
     const r = readAnimGfxSources(rom)
     expect(r.ok && r.order).toBe('le')
   })
