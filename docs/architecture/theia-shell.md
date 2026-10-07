@@ -287,7 +287,7 @@ npm run typecheck:theia
 
 It runs `tools/scripts/typecheck-theia.cjs`, which looks up TypeScript in
 `theia/extension`, then `theia`, as yarn lays it out (theia's pinned 5.4.5, never the root's
-6.x, so it matches CI's `yarn --cwd theia/extension typecheck`) and passes
+6.x, and the same compiler as `yarn --cwd theia/extension typecheck`, which CI used before it ran this script) and passes
 extra arguments through. A fresh worktree needs
 `yarn --cwd theia install --frozen-lockfile --ignore-scripts` first (it needs TypeScript in `theia/extension/node_modules` or
 `theia/node_modules`); without it the script exits 1 and says so (#669).
