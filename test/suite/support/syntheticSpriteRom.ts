@@ -62,7 +62,7 @@ export interface SyntheticOptions {
     | 'updateRts'
     | 'scrollPop'
   /**
-   * UpdateScreenPosition carries a JML at $00:F6E4 (87 of 107 corpus hacks do) to $05:F000, which
+   * UpdateScreenPosition carries a JML at $00:F6E4 (86 of 107 corpus ROMs do) to $05:F000, which
    * does the rest of its work: 'jml' ends in RTL, 'loop' never returns, 'rts' ends in the wrong return.
    */
   updateHook?: 'jml' | 'loop' | 'rts'
