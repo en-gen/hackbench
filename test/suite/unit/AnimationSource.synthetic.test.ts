@@ -310,6 +310,12 @@ describe('stockAnimationUnreached', () => {
     })
   })
 
+  it('keeps the bank as written on a FastROM-banked non-stock target (#513)', () => {
+    expect(stockAnimationUnreached(animRom({ jsl: [0x22, 0x00, 0xeb, 0x86] }))).toEqual({
+      target: 0x86eb00,
+    })
+  })
+
   it('refuses when $00A2A5 is no longer a JSL', () => {
     const r = stockAnimationUnreached(animRom({ jsl: [0xea, 0xea, 0xea, 0xea] }))
     expect(r && 'reason' in r && r.reason).toMatch(/\$00A2A5/)
