@@ -688,32 +688,32 @@ function tablesOf(rom: RomFile): BlockContentTables {
   return t
 }
 
-// #567: $11A cycles star, 1-up, vine by X column; the star column is a star only while Mario is
-// invincible and a coin otherwise (bank_00.asm:12877-12891). Synthetic tables, no ROM.
+// #567: $11A's X-column cycle gives a star, 1-up or vine; the star is a star only while Mario is
+// invincible and a coin otherwise. Cycle bytes bank_00.asm:12868-12876, branch :12877-12891.
+// Synthetic tables with a made-up order (1-up, vine, star), so a resolver that hardcodes
+// vanilla's order fails; star and coin land on columns 2, 5, 8, 11 and 14. No ROM.
 describe('$11A star column is a coin unless Mario is invincible (#567)', () => {
   const ID = 0x11a
   const tables: BlockContentTables = {
     ...TABLES,
     selector: Uint8Array.from(SELECTOR.map((v, i) => (i === ID - FIRST_ITEM_BLOCK ? 0x81 : v))),
     columnCycle: Uint8Array.from(
-      CYCLE.map((v, i) => (i < 16 ? v : [0x07, 0x0a, 0x10][(i - 16) % 3])),
+      CYCLE.map((v, i) => (i < 16 ? v : [0x0a, 0x10, 0x07][(i - 16) % 3])),
     ),
   }
-  const star = TABLES.spriteInBlock[3]
+  const sprite = (content: number) => TABLES.spriteInBlock[content]
 
   it.each(Array.from({ length: 16 }, (_, col) => col))('column %i', col => {
     const alts = resolveOk(ID, col, tables).alternatives
-    if (col % 3 === 0) {
+    if (col % 3 === 2) {
       expect(alts.map(a => [a.when, a.content.kind])).toEqual([
         ['Mario is invincible', 'sprite'],
         [null, 'coin'],
       ])
-      expect(alts[0].content).toMatchObject({ sprite: star })
+      expect(alts[0].content).toMatchObject({ sprite: sprite(3) })
     } else {
-      expect(alts).toHaveLength(1)
-      expect(alts[0].when).toBeNull()
-      expect(alts[0].content.kind).toBe('sprite')
-      expect(alts[0].content).not.toMatchObject({ sprite: star })
+      expect(alts.map(a => [a.when, a.content.kind])).toEqual([[null, 'sprite']])
+      expect(alts[0].content).toMatchObject({ sprite: sprite(col % 3 === 0 ? 5 : 8) })
     }
   })
 })
