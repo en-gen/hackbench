@@ -107,6 +107,18 @@ describe('typecheck-theia.cjs', () => {
     expect(fs.existsSync(hoisted)).toBe(false)
   })
 
+  it('ignores a typescript installed above theia (root checkout) and prints the hint', () => {
+    const root = tmp()
+    const theia = path.join(root, 'theia')
+    fs.mkdirSync(path.join(theia, 'extension'), { recursive: true })
+    const ran = path.join(root, 'root-ran.json')
+    stubTsc(root, recorder(ran))
+    const r = run(theia)
+    expect(r.status).toBe(1)
+    expect(r.stderr).toContain('--frozen-lockfile --ignore-scripts')
+    expect(fs.existsSync(ran)).toBe(false)
+  })
+
   it('finds ../../theia from the script location when HB_THEIA_DIR is unset', () => {
     const root = tmp()
     fs.mkdirSync(path.join(root, 'tools', 'scripts'), { recursive: true })

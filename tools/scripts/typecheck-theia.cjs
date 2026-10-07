@@ -21,6 +21,9 @@ function main() {
   let tsc
   try {
     const pkg = require.resolve('typescript/package.json', { paths: [extension] })
+    // Node walks up past theia to the root checkout's TypeScript 6; refuse it.
+    const inside = path.resolve(pkg).startsWith(path.resolve(theia) + path.sep)
+    if (!inside) throw new Error('typescript resolved outside theia')
     tsc = path.join(path.dirname(pkg), 'bin', 'tsc')
   } catch {
     console.error(
