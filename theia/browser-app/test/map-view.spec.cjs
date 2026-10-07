@@ -2487,7 +2487,7 @@ test.describe('ON/OFF tracks on $005', () => {
   }
 
   /**
-   * How many of a track's 16 pixels the L1 planes draw at full alpha. Read from the planes
+   * How many of a track's 16 pixels the L1 planes draw at full alpha and in the screen door. Read from the planes
    * themselves (255 drawn, 64 in the screen door, 0 clear), not from the composited screen:
    * the ghost is within 64 of what lies under it, not of any one color.
    */
@@ -2501,11 +2501,13 @@ test.describe('ON/OFF tracks on $005', () => {
           )
           .filter(Boolean)
           .map(c => c.getContext('2d').getImageData(0, 0, c.width, c.height))
-        let n = 0
+        const n = { full: 0, dim: 0 }
         for (let y = 0; y < 16; y++)
           for (let x = 0; x < 16; x++) {
             const i = ((row * 16 + y) * planes[0].width + col * 16 + x) * 4 + 3
-            if (on(x, y) && planes.some(d => d.data[i] === 255)) n++
+            if (!on(x, y)) continue
+            if (planes.some(d => d.data[i] === 255)) n.full++
+            else if (planes.some(d => d.data[i] === 64)) n.dim++
           }
         return n
       },
@@ -2524,10 +2526,12 @@ test.describe('ON/OFF tracks on $005', () => {
     await expect(page.locator(`${root(0x005)} canvas[data-screen="${SCREEN}"][data-plane="l1Low"]`)).toHaveAttribute('data-drawn', /^\d+:0000:001:9$/) // prettier-ignore
     const on = [await strong(page, TRACKS.drawnOff), await strong(page, TRACKS.drawnOn)]
     // Not vacuous: a drawn track is strong at nearly every pixel (a sprite may cross one).
-    expect(off[0]).toBeGreaterThanOrEqual(12)
-    expect(on[1]).toBeGreaterThanOrEqual(12)
-    // Hidden: only the dim 25%, never a strong pixel.
-    expect(off[1]).toBe(0)
-    expect(on[0]).toBe(0)
+    expect(off[0].full).toBeGreaterThanOrEqual(12)
+    expect(on[1].full).toBeGreaterThanOrEqual(12)
+    // Hidden: the screen door's 25% is there (a blank track would fail), and no strong pixel.
+    for (const hidden of [off[1], on[0]]) {
+      expect(hidden.full).toBe(0)
+      expect(hidden.dim).toBeGreaterThan(0)
+    }
   })
 })
