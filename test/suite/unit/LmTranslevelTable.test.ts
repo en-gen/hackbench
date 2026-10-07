@@ -204,6 +204,12 @@ describe('deriveOverworldEntrances: Lunar Magic stored translevels', () => {
     )
   })
 
+  it('says the table is unreadable when its source address is past the end of the ROM', () => {
+    const r = derive(build(tableOf({ 0x01: 1 }), undefined, { stored: 0x3f8000 }))
+    expect(r.overworldReadable).toBe(false)
+    expect(r.notes.join(' ')).toMatch(/unreadable/)
+  })
+
   it('reads through the fast routine, and behind the prelude', () => {
     const t = tableOf({ 0x07: 9 })
     expect(walked(build(t, undefined, { fast: true }))).toEqual([[0x07, 9, 0x009]])
