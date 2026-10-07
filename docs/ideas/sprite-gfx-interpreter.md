@@ -591,17 +591,20 @@ The runner reads nothing from a capture. Rounds 4 to 7 in 11.2 used capture
 values inside the GRADER only (an "oracle seed", an upper bound). The runtime
 seed is now:
 
-| Value                                                             | Source                                                                                               |
-| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `$5B` `$5D` `$64` (level header cells)                            | the ROM's own header parse, run on the core (`LevelLoader.ts`, CODE_05D8B7 then CODE_05801E)         |
-| `$82-$83` slope pointer, `$1692` sprite memory, `$190E` buoyancy  | same run (tileset code, sprite header byte)                                                          |
-| `$85` `$86` water and slippery                                    | same run, via the Mario-entrance routine CODE_00A635                                                 |
-| Map16 low and high tables `$7E:C800`, `$7F:C800`                  | same run: every Layer 1 object expanded by the ROM's own object handlers                             |
-| `$71` `$76` `$19` `$187A` `$13F9` `$73` (Mario entrance and form) | CODE_00A635                                                                                          |
-| the level's own sprite list                                       | the ROM's loader spawns it; the runner zeroes all 12 status bytes so only the sprite under test runs |
-| placement, camera, Mario X/Y, `$13/$14`, pass count               | the caller's seed (a fixture or UI supplies them)                                                    |
-| `$148B/C` RNGCalc                                                 | the ROM's own GetRand, run once on the core (see below)                                              |
-| `$76` Mario direction                                             | the loaded image's value; the seed default is a fallback                                             |
+| Value                                                             | Source                                                                                                                                                                                                                                                                                         |
+| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `$5B` `$5D` `$64` (level header cells)                            | the ROM's header parse on the core: CODE_05D8B7 (`bank_05.asm:7227`), then CODE_05801E (20-74) via LoadLevel (67), which calls CODE_0584E3 at 428 (`$5B` stored at 553; `$5D` `$64` stores not traced)                                                                                         |
+| `$82-$83` slope pointer, `$1692` sprite memory, `$190E` buoyancy  | same run: `$82-$83` in CODE_0581FB (`bank_05.asm:261`, `268`; called at 429); `$1692` and `$190E` in CODE_05D8B7 (`bank_05.asm:7261`, `7264`)                                                                                                                                                  |
+| `$85` `$86` water and slippery                                    | same run, via CODE_00A635 (`bank_00.asm:4913`, called at 2651): `$85` stored at `bank_00.asm:5036`, `$86` at 4991                                                                                                                                                                              |
+| Map16 low and high tables `$7E:C800`, `$7F:C800`                  | filled by the same run, through LoadLevel (`bank_05.asm:67`) and LoadLevelData (442); the Layer 1 object handler dispatch and the handlers are run as ROM code, not traced here                                                                                                                |
+| `$71` `$76` `$19` `$187A` `$13F9` `$73` (Mario entrance and form) | CODE_00A635 (`bank_00.asm:4913`, called at 2651); `$71` is among its PlayerAnimation writes (4978, 5012); the other cells' stores are not traced here                                                                                                                                          |
+| `$1404`                                                           | ScreenScrollAtWill, incremented by GM11's screen setup (`bank_00.asm:2655`) (#648)                                                                                                                                                                                                             |
+| `$1462-$1469`, `$1E`, `$20` (graphics-layer positions)            | `$1462-$1469` from GM11's copy loop (`bank_00.asm:2645-2649`); `$1E` `$20` from CODE_00A796 (5089) and UpdateScreenPosition (13631), called at 2654, 2656 (#648); evidence scope as under the table                                                                                            |
+| `$5E` (last screen)                                               | GM11's screen setup stores `$20` to `$5E` (`bank_00.asm:2652`); the later level-data load CODE_0584E3 overwrites it from the header (`bank_05.asm:560`), so the final value is the header's. Vanilla, every map with a recorded WRAM image: `$5E` never mismatched Mesen, before or after #648 |
+| the level's own sprite list                                       | the loader calls CODE_02A751 at `bank_05.asm:72` when GameMode is below `$22` (compare at 69-71); its body is run as ROM code, not traced here; the runner zeroes all 12 status bytes, so only the sprite under test is initially active; sprites it spawns may run in the same frame (12.4)   |
+| placement, camera, Mario X/Y, `$13/$14`, pass count               | the caller's seed (a fixture or UI supplies them)                                                                                                                                                                                                                                              |
+| `$148B/C` RNGCalc                                                 | the ROM's own GetRand, run once on the core (CODE_01AD07, `bank_01.asm:6101-6121`, its only writer; see below)                                                                                                                                                                                 |
+| `$76` Mario direction                                             | the loaded image's value; the seed default is a fallback                                                                                                                                                                                                                                       |
 
 RNGCalc: its only writer is CODE_01AD07 (bank_01.asm:6101-6121), and one GetRand call from zero leaves 6 and 3, which is what every level-load capture held (98 of 98 maps). An earlier version of this table called it a constant with no ROM source; that was wrong.
 
@@ -743,8 +746,10 @@ that 13.1 byte-checked. Round 1's attribution ("all four first fail on Lunar
 Magic's JSL at `$05:D8B1`") described that lead-in, which the sublevel path
 never executes; it was the wrong thing to check and is gone. Now checked, in
 order: GM11's three calls (`$00:96F4` JSL CODE_05D796, `$00:9705` JSR CODE_00A635,
-`$00:9716` JSL CODE_05801E), the GM11 code between them (`$00:96F8` and `$00:9708`;
-the music upload between the first two is not modelled and not checked),
+`$00:9716` JSL CODE_05801E), the GM11 code between them (`$00:96F8` and `$00:9708`,
+both now RUN from the ROM's bytes since #648, with CODE_00A796 and UpdateScreenPosition
+checked at `$00:A796` and `$00:F6DB`; the music upload between the first two is not
+modelled and not checked),
 CODE_05D796's prologue and sublevel branch (`$05:D796`), the JMP into the pointer
 loader (`$05:D83B`), and the four entries of 13.1. The first failure per corpus ROM:
 
@@ -754,6 +759,18 @@ loader (`$05:D83B`), and the four entries of 13.1. The first failure per corpus 
 | Grand Poo World 1.2   | pointer loader at `$05:D8B7`           |
 | Invictus 1.0          | GM11 code at `$00:9708`                |
 | Seven Vanilla Levels  | GM11 code at `$00:9708` (its JSL hook) |
+
+Since #648 the UpdateScreenPosition shape is the 9 bytes `$00:F6DB-F6E3` (PHB PHK PLB REP LDA
+SEC, `bank_00.asm:13632-13637`), stopping before the SBC at `$00:F6E4` (13638), where 86 of the 107
+corpus ROMs (20 are vanilla; 9678 is all zeros there) have a JML hook; the hook runs on the core like the rest of the routine, under
+the same step cap and a stack guard that also refuses a return to `$00:9716` in another bank. Shape acceptance over the 107 corpus ROMs (one machine,
+2026-10-07): 14 with the old shapes, 7 with a 12-byte shape that covered `$F6E4`, 14 with the
+9-byte shape; the four ROMs above keep their first failure. Of the seven that flipped
+(10186, 5559, 6161, 6416, 6593, 6764, 9535), 5559, 6416 and 6593 load and run the
+new spans (`$1404` = 1, `$1462-$1469` populated, Map16 identical to the old loader on
+levels `$105` and `$000-$004`, bar 6416 level 0 whose data loader hits the step cap in both);
+10186, 6161, 6764 and 9535 hit the pointer loader's step cap on every level tried, as the old
+loader did.
 
 Witness: vanilla with `$05:D83B` = `4c 00 80` refuses. None of the four fails on
 `$00:A635` first; the BRA there is never the reported reason now.
