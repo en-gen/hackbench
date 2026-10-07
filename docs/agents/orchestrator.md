@@ -159,10 +159,10 @@ the approval to be CodeRabbit's, so a human approval merges it too.
   brief and the PR. The `develop` ruleset dismisses stale approvals on push.
 - Auto-merge stays on across fix pushes. A push dismisses the stale approval
   and CodeRabbit re-reviews, so nothing merges before the new head is
-  approved and green. After the verifier passes on the new head the steward
-  confirms `autoMergeRequest` is still set
-  (`gh pr view <n> --json autoMergeRequest`) and re-enables it only if a push
-  cleared it.
+  approved and green. After a fix push the steward confirms `autoMergeRequest`
+  is still set (`gh pr view <n> --json autoMergeRequest`) and re-enables it
+  only if the push cleared it. Nothing waits on the verifier. `needs-owner`
+  PRs stay off.
   A merge can land before the verifier re-runs on the new head; the owner
   accepts it (2026-10-04), and a verifier finding on a merged head becomes a
   follow-up PR off develop.
