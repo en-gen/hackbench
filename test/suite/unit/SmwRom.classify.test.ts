@@ -441,3 +441,27 @@ describe('SmwRom.enumerateAllLevels', () => {
     expect(all[1].name).toBe('AB')
   })
 })
+
+// ── levelHasObjects level-mode range (#130) ──────────────────────────────────
+
+describe('SmwRom.levelHasObjects level mode', () => {
+  // Every mode $00-$1F is a valid index into the six 32-entry mode tables
+  // (SMWDisX bank_05.asm:478-521); the header read masks with $1F (:539).
+  it.each(Array.from({ length: 0x20 }, (_, mode) => mode))(
+    'accepts level mode %s (decimal)',
+    mode => {
+      const rom = make4MbRom()
+      setL1Ptr(rom, 0x000, 0x068000)
+      // Header byte 1 carries bg color in bits 7-5 and the mode in bits 4-0.
+      setLevelData(rom, 0x068000, [0, 0xe0 | mode, 0, 0, 0, 0x42])
+      expect(new SmwRom(rom).levelHasObjects(0)).toBe(true)
+    },
+  )
+
+  it('still rejects an immediate object terminator in any mode', () => {
+    const rom = make4MbRom()
+    setL1Ptr(rom, 0x000, 0x068000)
+    setLevelData(rom, 0x068000, [0, 0x1f, 0, 0, 0, 0xff])
+    expect(new SmwRom(rom).levelHasObjects(0)).toBe(false)
+  })
+})

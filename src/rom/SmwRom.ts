@@ -278,14 +278,12 @@ export class SmwRom {
    * Returns true if the level has valid object data.
    *
    * Bank byte validation: vanilla level data is in banks $02-$09.
-   * Level mode check: modes 0-20 are valid (CODE_0584E3 line 539).
+   * The level mode is the header's second byte AND $1F (bank_05.asm:539) and
+   * indexes six 32-entry tables (bank_05.asm:478-521), so it needs no check.
    */
   levelHasObjects(index: number): boolean {
     const data = this.getLevelRawData(index)
     if (data === null || data.length <= 5) return false
-
-    const levelMode = data[1] & 0x1f
-    if (levelMode > 20) return false
 
     // data[5] is first object byte; 0xFF = immediate terminator
     return data[5] !== 0xff
@@ -535,8 +533,7 @@ export class SmwRom {
       if (ptr !== null) {
         const data = this.rom.readAt(ptr, 6)
         if (data && data.length >= 6) {
-          const mode = data[1] & 0x1f
-          hasData = mode <= 0x1f && data[5] !== undefined
+          hasData = data[5] !== undefined
         }
       }
       results.push({ index: i, hasData, name: hasData ? this.getLevelName(i, idx) : null })
