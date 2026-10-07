@@ -618,6 +618,12 @@ false; each refusal fires; stale folders are swept and nothing else; a real
 plants a non-isolating harness and a snapshot/restore harness to show that
 last check can fail. It does not start a server.
 
+- `npm run typecheck:theia` runs `tools/scripts/typecheck-theia.cjs`, which uses
+  `theia/node_modules/typescript` (5.4.5), never the root's 6.x. A fresh worktree
+  needs `yarn --cwd theia install --ignore-scripts` first; without it the script
+  exits 1 and says so (#669). `test/suite/gates/typecheckTheia.test.ts` covers both
+  paths with a stub compiler.
+
 ## Commands
 
 ```bash

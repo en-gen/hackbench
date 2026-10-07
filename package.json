@@ -198,7 +198,7 @@
     "test": "tsc -p tsconfig.test.json && vitest run",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
-    "typecheck:theia": "yarn --cwd theia/extension typecheck",
+    "typecheck:theia": "node tools/scripts/typecheck-theia.cjs",
     "capture:render": "npx tsx tools/scripts/render_capture.ts",
     "capture:gate": "npx tsx tools/scripts/capture_gate_cli.ts",
     "perf:core": "node tools/perf/run-core.mjs --out perf-core-results.json",
