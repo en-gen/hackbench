@@ -29,21 +29,6 @@ afterEach(() => {
 })
 
 describe('H1: plant scales the measured cost by the stated factor', () => {
-  it('a 1.3 factor measures within [1.2, 1.4] of an unplanted run', async () => {
-    const id = 'test.sampler.plant-precision'
-    const fn = () => busyMs(0.2)
-
-    delete process.env.HB_PERF_PLANT
-    const unplanted = await measureCase(id, fn)
-
-    process.env.HB_PERF_PLANT = `${id}=1.3`
-    const planted = await measureCase(id, fn)
-
-    const ratio = median(planted) / median(unplanted)
-    expect(ratio).toBeGreaterThanOrEqual(1.2)
-    expect(ratio).toBeLessThanOrEqual(1.4)
-  })
-
   it('a plant for a different id does not affect this one', async () => {
     const id = 'test.sampler.unaffected'
     const fn = () => busyMs(0.1)

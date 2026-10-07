@@ -197,6 +197,7 @@
     "gitnexus": "bash tools/scripts/gitnexus-refresh.sh",
     "test": "tsc -p tsconfig.test.json && vitest run",
     "test:unit": "vitest run",
+    "test:timing": "vitest run --config vitest.timing.config.ts",
     "test:unit:watch": "vitest",
     "typecheck:theia": "yarn --cwd theia/extension typecheck",
     "capture:render": "npx tsx tools/scripts/render_capture.ts",
