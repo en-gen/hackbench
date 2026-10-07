@@ -9,7 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Tests close three sprite-layer gaps from #564 (#589): `mapSprites` with a stream in the ROM's last bytes, `paintSpriteCanvas` clear and screen selection, and map-view assertions made after the sprites load.
 - The map view has a collision toggle (`layout-panel-dock` icon, after the layer buttons; command
   `hackbench.maps.toggleCollision`; off by default): floors, ceilings, slopes and walls as 2 px
   vector lines over the map, yellow for surfaces and purple for walls, with a tile the probe could
@@ -110,6 +109,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Map $005's ON/OFF track tile `$095`, hidden while the switch byte `$14AF` is 0, no longer draws as if shown. Its one-pixel diagonal fell wholly on the screen door's full-strength squares; a hidden tile with more pixels on those squares than on the dim ones is now drawn on the dim squares, in the map and Map16 views alike. `$094` (hidden while `$14AF` is 1) was already faint. The game's gate is `bank_01.asm:11985-11995` (#560).
 - `levelHasObjects` no longer rejects level modes $15-$1F: the game masks the mode with $1F and its six mode tables have 32 entries, so every mode $00-$1F is valid (#130).
 - Block contents resolver: tiles $021 and $022 now resolve to a coin and a 1-up when hit from below (`bank_00.asm:12195-12212`); $114 says a coin replaces the directional coins once a run has started (`bank_02.asm:1162-1172`); content id 0 gives nothing, and a balloon rewritten to the P-switch or egg sprite no longer gets their colour or contents (`bank_02.asm:1053-1054`, `:1215-1223`); a zero sprite entry with a live status reads as Sprite $00, as the ROM spawns it, and spawn status 0 is no sprite (`bank_01.asm:182-183`); the gate table is read from the ROM, and a differing Yoshi-loose copy is shown beside the normal one (`bank_02.asm:1143-1151`); $12A and $12B say they open only from the side; two surviving mutants are now pinned by tests; the doc's head-bump wording follows the gate table (`bank_00.asm:12850-12853`) (#672, #626).
 - `npm run typecheck:theia` uses theia's own TypeScript and exits 1 only when TypeScript is absent from both `theia/extension/node_modules` and `theia/node_modules`, naming `yarn --cwd theia install --frozen-lockfile --ignore-scripts` instead of failing with TS5107 under the root's TypeScript 6 (#669).
@@ -198,6 +198,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Tests close three sprite-layer gaps from #564 (#589): `mapSprites` with a stream in the ROM's last bytes, `paintSpriteCanvas` clear and screen selection, and map-view assertions made after the sprites load.
 - The two wall-clock gates (`perfPairedE2E`, the `perfSampler` plant-precision test) are named `*.timing.test.ts`, excluded from `npm run test:unit` and run serially by `npm run test:timing`, which CI runs after the unit tests (#668, #537).
 - Agent manual: auto-merge stays on across fix pushes.
 - `npm run gitnexus` no longer rewrites CLAUDE.md and AGENTS.md (`.gitnexusrc` and `--skip-agents-md`), so parallel worktrees stop conflicting on the generated counts, which are removed from the marked region (#644).

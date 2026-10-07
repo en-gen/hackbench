@@ -509,6 +509,12 @@ test('the L1 toggle hides and restores the foreground, per tab', async ({ page }
   await expect(l1).toHaveAttribute('aria-pressed', 'true')
   for (const plane of planeLocators(page, 0x105, 0, MAP_PLANES))
     await expect(plane).toHaveCSS('visibility', 'visible')
+  // MAP_PLANES has no sprites plane: the restored sprites are checked on their own canvases (#589).
+  const spriteCanvases = page.locator(`${root(0x105)} canvas[data-plane="sprites"]`)
+  await expect(spriteToggle(page, 0x105)).toHaveAttribute('aria-pressed', 'true')
+  await expect(spriteCanvases.first()).toHaveAttribute('data-drawn', SPRITES_DRAWN)
+  for (let i = 0; i < (await spriteCanvases.count()); i++)
+    await expect(spriteCanvases.nth(i)).toHaveCSS('visibility', 'visible')
   expect((await shownPixels(page, strip)).checksum).toBe(shown.checksum)
 })
 
@@ -1061,6 +1067,9 @@ test('a sprite stream with no end marker shows its note on the map tab', async (
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x106)
   const note = page.locator(`${root(0x106)} [data-note="sprites"]`)
+  // After load: the toggle is enabled (React rendered the reply) and the canvas has drawn.
+  await expect(spriteToggle(page, 0x106)).toBeEnabled()
+  await expect(spritePlane(page, 0x106, 1)).toHaveAttribute('data-drawn', SPRITES_DRAWN)
   await expect(note).toHaveCount(0)
   // Serve the same sprites with the truncation note, as a stream cut by the ROM's end would.
   await page.evaluate(async () => {
@@ -2473,35 +2482,65 @@ test('the grid is composited above the sprite layer', async ({ page }) => {
 })
 
 /**
- * Assertions that run AFTER the sprites load (#589): the earlier tests' checks ran
- * before the fetch resolved, or on a plane list that has no sprites plane.
+ * The ON/OFF tracks on $005 (#560). Vanilla $094 is a diagonal drawn while the switch byte $14AF is
+ * 0, $095 its mirror drawn while it is 1, each a one-pixel line. The screen door once drew $095
+ * at full strength with $14AF 0, so both looked drawn in both states. Measured: $094 at column 152,
+ * row 18 and $095 at column 151, row 20, both on screen 9.
  */
-test.describe('sprite layer after load (#589)', () => {
-  test('no sprite note shows for a stream with an end marker, once the sprites have drawn', async ({
-    page,
-  }) => {
-    const project = await createProject(page, path.join(tmp, 'MyHack'))
-    await openMap(page, project.manifestPath, 0x106)
-    await expect(spritePlane(page, 0x106, 1)).toHaveAttribute('data-drawn', SPRITES_DRAWN)
-    await expect(page.locator(`${root(0x106)} [data-note="sprites"]`)).toHaveCount(0)
-  })
+test.describe('ON/OFF tracks on $005', () => {
+  const SCREEN = 9
+  // [local column, row, on the track at cell pixel (x, y)]
+  const TRACKS = {
+    drawnOff: [152 - SCREEN * 16, 18, (x, y) => x + y === 15],
+    drawnOn: [151 - SCREEN * 16, 20, (x, y) => x === y],
+  }
 
-  test('restoring the sprites toggle after the L1 toggle test flow shows drawn sprite canvases again', async ({
+  /**
+   * How many of a track's 16 pixels the L1 planes draw at full alpha and in the screen door. Read from the planes
+   * themselves (255 drawn, 64 in the screen door, 0 clear), not from the composited screen:
+   * the ghost is within 64 of what lies under it, not of any one color.
+   */
+  async function strong(page, [col, row, onTrack]) {
+    return page.evaluate(
+      ({ rootSel, screen, col, row, anti }) => {
+        const on = anti ? (x, y) => x + y === 15 : (x, y) => x === y
+        const planes = ['l1Low', 'l1High']
+          .map(p =>
+            document.querySelector(`${rootSel} canvas[data-screen="${screen}"][data-plane="${p}"]`),
+          )
+          .filter(Boolean)
+          .map(c => c.getContext('2d').getImageData(0, 0, c.width, c.height))
+        const n = { full: 0, dim: 0 }
+        for (let y = 0; y < 16; y++)
+          for (let x = 0; x < 16; x++) {
+            const i = ((row * 16 + y) * planes[0].width + col * 16 + x) * 4 + 3
+            if (!on(x, y)) continue
+            if (planes.some(d => d.data[i] === 255)) n.full++
+            else if (planes.some(d => d.data[i] === 64)) n.dim++
+          }
+        return n
+      },
+      { rootSel: root(0x005), screen: SCREEN, col, row, anti: onTrack(15, 0) },
+    )
+  }
+
+  test('each track draws in full only in its own state and in the screen door in the other', async ({
     page,
   }) => {
     const project = await createProject(page, path.join(tmp, 'MyHack'))
-    await openMap(page, project.manifestPath, 0x105)
-    const planes = page.locator(`${root(0x105)} canvas[data-plane="sprites"]`)
-    await expect(planes.first()).toHaveAttribute('data-drawn', SPRITES_DRAWN)
-    const count = await planes.count()
-    expect(count).toBeGreaterThan(0)
-    const toggle = spriteToggle(page, 0x105)
-    await toggle.click()
-    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
-    for (let i = 0; i < count; i++) await expect(planes.nth(i)).toHaveCSS('visibility', 'hidden')
-    await toggle.click()
-    await expect(toggle).toHaveAttribute('aria-pressed', 'true')
-    for (let i = 0; i < count; i++) await expect(planes.nth(i)).toHaveCSS('visibility', 'visible')
-    await expect(planes.first()).toHaveAttribute('data-drawn', SPRITES_DRAWN)
+    await openMap(page, project.manifestPath, 0x005)
+    await showScreen(page, 0x005, SCREEN)
+    const off = [await strong(page, TRACKS.drawnOff), await strong(page, TRACKS.drawnOn)]
+    await page.locator(`${root(0x005)} [data-control="switch-onOff"]`).click()
+    await expect(page.locator(`${root(0x005)} canvas[data-screen="${SCREEN}"][data-plane="l1Low"]`)).toHaveAttribute('data-drawn', /^\d+:0000:001:9$/) // prettier-ignore
+    const on = [await strong(page, TRACKS.drawnOff), await strong(page, TRACKS.drawnOn)]
+    // Not vacuous: a drawn track is strong at nearly every pixel (a sprite may cross one).
+    expect(off[0].full).toBeGreaterThanOrEqual(12)
+    expect(on[1].full).toBeGreaterThanOrEqual(12)
+    // Hidden: the screen door's 25% is there (a blank track would fail), and no strong pixel.
+    for (const hidden of [off[1], on[0]]) {
+      expect(hidden.full).toBe(0)
+      expect(hidden.dim).toBeGreaterThan(0)
+    }
   })
 })

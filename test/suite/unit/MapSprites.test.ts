@@ -202,7 +202,10 @@ describe('mapSprites with a stream in the ROM last bytes (#589)', () => {
     const cache = new L1ModelCache(() => ({ ok: true, inputs: { ...MODEL, isVertical: false, screenCount: 1 } }) as never) // prettier-ignore
     const r = mapSprites(cache, new Uint8Array(buf), 'x.sfc', 0)
     expect(r).toMatchObject({ status: 'ok' })
-    if (r.status === 'ok') expect(r.sprites).toHaveLength(1)
+    if (r.status !== 'ok') return
+    expect(r.sprites).toHaveLength(1)
+    // The terminator was read: a window cut short before it would add the no-end-marker note.
+    expect(r.note ?? '').not.toMatch(/no end marker/)
   })
 })
 
@@ -210,16 +213,21 @@ describe('paintSpriteCanvas', () => {
   /** A canvas whose 2D context records clears and the pixels last put (ImageData is polyfilled for node). */
   const recorder = () => {
     const log: string[] = []
-    const put: Uint8ClampedArray[] = []
-    const canvas = { width: 0, height: 0, dataset: {} as DOMStringMap, getContext: () => ({ clearRect: () => log.push('clear'), putImageData: (d: { data: Uint8ClampedArray }) => (log.push('put'), put.push(d.data)) }) } // prettier-ignore
-    return { canvas, log, put }
+    const clears: number[][] = []
+    const put: { data: Uint8ClampedArray; width: number; height: number }[] = []
+    const canvas = { width: 0, height: 0, dataset: {} as DOMStringMap, getContext: () => ({ clearRect: (...a: number[]) => (log.push('clear'), clears.push(a)), putImageData: (d: (typeof put)[number]) => (log.push('put'), put.push(d)) }) } // prettier-ignore
+    return { canvas, log, put, clears }
   }
   const geo = { orientation: 'horizontal' as const, width: 16, height: 8 }
   const withImageData = (fn: () => void) => {
     vi.stubGlobal(
       'ImageData',
       class {
-        constructor(public data: Uint8ClampedArray) {}
+        constructor(
+          public data: Uint8ClampedArray,
+          public width: number,
+          public height: number,
+        ) {}
       },
     )
     try { fn() } finally { vi.unstubAllGlobals() } // prettier-ignore
@@ -227,9 +235,10 @@ describe('paintSpriteCanvas', () => {
 
   it('clears before it puts, and clears when the screen has no sprites left (no stale picture)', () => {
     withImageData(() => {
-      const { canvas, log } = recorder()
+      const { canvas, log, clears } = recorder()
       paintSpriteCanvas(canvas, { ...geo, sprites: [solid(0, 0, 4, 4, 9)] }, 0, 'a')
       expect(log).toEqual(['clear', 'put'])
+      expect(clears[0]).toEqual([0, 0, 16, 8])
       // The sprite is gone: the same screen repaints with a clear and no put.
       log.length = 0
       paintSpriteCanvas(canvas, { ...geo, sprites: [] }, 0, 'b')
@@ -245,8 +254,9 @@ describe('paintSpriteCanvas', () => {
       const sprites = [solid(0, 0, 4, 4, 11), solid(18, 0, 4, 4, 77)]
       paintSpriteCanvas(canvas, { ...geo, sprites }, 1, 'c')
       expect(put).toHaveLength(1)
-      expect(px(put[0]!, 16, 2, 0)[3]).toBe(77)
-      expect(px(put[0]!, 16, 0, 0)[3]).toBe(0)
+      expect([put[0]!.width, put[0]!.height]).toEqual([16, 8])
+      expect(px(put[0]!.data, 16, 2, 0)[3]).toBe(77)
+      expect(px(put[0]!.data, 16, 0, 0)[3]).toBe(0)
     })
   })
 
