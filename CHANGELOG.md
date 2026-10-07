@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A unit test pins tile $11A's star column over all 16 X columns: coin unless Mario is
   invincible, star only while invincible (`bank_00.asm:12887-12891`). The Maps view already
   draws it that way (#567).
-
+- Three corpus-gated sweeps pin where the sprite level loader differs from the Mesen captures (#649 step 1): the 66 of 154 maps whose Map16 tables differ (with each map's differing-tile count), the 18 of 98 maps whose loader Mario start ($94/$96) differs from the capture, and the maps where `readMarioStartPos` (the generic-seed fallback) differs from the loader. Measurement only; vanilla ROM, one machine.
 - The map view has a collision toggle (`layout-panel-dock` icon, after the layer buttons; command
   `hackbench.maps.toggleCollision`; off by default): floors, ceilings, slopes and walls as 2 px
   vector lines over the map, yellow for surfaces and purple for walls, with a tile the probe could
