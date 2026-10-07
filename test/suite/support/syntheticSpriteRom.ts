@@ -53,6 +53,11 @@ export interface SyntheticOptions {
     | 'updateTail'
     | 'scrollRtl'
     | 'updateRts'
+  /**
+   * UpdateScreenPosition carries a JML at $00:F6E4 (87 of 107 corpus hacks do) to $05:F000, which
+   * does the rest of its work: 'jml' ends in RTL, 'loop' never returns, 'rts' ends in the wrong return.
+   */
+  updateHook?: 'jml' | 'loop' | 'rts'
   /** The data loader executes COP after its shape bytes. */
   loaderCop?: boolean
   /** Break one shape of the item block spawn routine at $02:8905: its slot countdown or its status write. */
@@ -102,7 +107,16 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   // (the copied $1A: proves the pointer loader and the copy ran first) / STA $1E / LDA $71 (the
   // entrance setup's) / STA $20 / PLB / RTL.
   put(0x00a796, [bad('scroll', 0xc2), 0x20, 0xac, 0x13, 0x14, 0xf0, 0x03, 0x88, o.badLoader === 'scrollTail' ? 0xea : 0xd0, 0x00, 0xe2, 0x20, o.badLoader === 'scrollRtl' ? 0x6b : 0x60]) // prettier-ignore
-  put(0x00f6db, [bad('update', 0x8b), 0x4b, 0xab, 0xc2, 0x20, 0xad, 0x00, 0x00, 0x38, 0xe9, 0x0c, o.badLoader === 'updateTail' ? 0xea : 0x00, 0xe2, 0x20, 0xad, 0x62, 0x14, 0x85, 0x1e, 0xad, 0x71, 0x00, 0x85, 0x20, 0xab, o.badLoader === 'updateRts' ? 0x60 : 0x6b]) // prettier-ignore
+  const upd = [bad('update', 0x8b), 0x4b, 0xab, 0xc2, 0x20, 0xad, 0x00, 0x00, o.badLoader === 'updateTail' ? 0xea : 0x38, 0xe9, 0x0c, 0x00, 0xe2, 0x20, 0xad, 0x62, 0x14, 0x85, 0x1e, 0xad, 0x71, 0x00, 0x85, 0x20, 0xab, o.badLoader === 'updateRts' ? 0x60 : 0x6b] // prettier-ignore
+  // The vanilla-shaped bytes up to the hook site, then a JML to the rest of the routine.
+  put(0x00f6db, o.updateHook ? [...upd.slice(0, 9), 0x5c, 0x00, 0xf0, 0x05] : upd)
+  if (o.updateHook)
+    put(
+      0x05f000,
+      o.updateHook === 'loop'
+        ? [0x80, 0xfe]
+        : [...upd.slice(9, -1), o.updateHook === 'rts' ? 0x60 : 0x6b],
+    )
   // CODE_00A635 shape, then LDA $0000 / LDA #6 / STA $71 / RTS
   put(0x00a635, [bad('entrance', 0xad), 0xad, 0x14, 0x0d, 0xae, 0x14, 0x0d, 0x0c, 0x19, 0xd0, 0x0a, 0xad, 0x00, 0x00, 0xa9, 0x06, 0x85, 0x71, 0x60]) // prettier-ignore
   // CODE_05801E shape, STA $7EC800,X, LDA #$77 / STA $5E (CODE_0584E3 rewrites $5E, bank_05.asm:560,

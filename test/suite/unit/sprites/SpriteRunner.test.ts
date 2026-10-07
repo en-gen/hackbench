@@ -529,6 +529,24 @@ describe('level loader on a synthetic cart', () => {
     })
   })
 
+  it('a JML inside UpdateScreenPosition (a hack hook at $00:F6E4) runs and leaves the same state', () => {
+    const base = run()
+    const hooked = run({ updateHook: 'jml' })
+    if (!base.ok || !hooked.ok) throw new Error('refused')
+    for (const c of [0x1462, 0x1463, 0x1469, 0x1e, 0x20, 0x5e, 0x1404])
+      expect(hooked.wram[c], `cell ${c.toString(16)}`).toBe(base.wram[c])
+    expect(hooked.wram[0x1e]).toBe(7)
+    expect(hooked.wram[0x20]).toBe(6)
+  })
+
+  it('a hook that never returns hits the cap; one that returns on the wrong stack is unbalanced', () => {
+    expect(run({ updateHook: 'loop' })).toMatchObject({
+      ok: false,
+      reason: /screen position setup did not return/,
+    })
+    expect(run({ updateHook: 'rts' })).toMatchObject({ ok: false, reason: /stack unbalanced/ })
+  })
+
   it('a wrong-kind return inside the screen setup span is refused, not run on', () => {
     expect(run({ badLoader: 'scrollRtl' })).toMatchObject({ ok: false, reason: /stack unbalanced/ })
     expect(run({ badLoader: 'updateRts' })).toMatchObject({ ok: false, reason: /stack unbalanced/ })

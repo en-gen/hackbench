@@ -758,6 +758,18 @@ loader (`$05:D83B`), and the four entries of 13.1. The first failure per corpus 
 | Invictus 1.0          | GM11 code at `$00:9708`                |
 | Seven Vanilla Levels  | GM11 code at `$00:9708` (its JSL hook) |
 
+Since #648 the UpdateScreenPosition shape is the 9 bytes `$00:F6DB-F6E3` (PHB PHK PLB REP LDA
+SEC, `bank_00.asm:13632-13637`), stopping before the SBC at `$00:F6E4` (13638), where 87 of 107
+corpus ROMs have a JML hook; the hook runs on the core like the rest of the routine, under
+the same step cap and stack guard. Shape acceptance over the 107 corpus ROMs (one machine,
+2026-10-07): 14 with the old shapes, 7 with a 12-byte shape that covered `$F6E4`, 14 with the
+9-byte shape; the four ROMs above keep their first failure. Of the seven that flipped
+(10186, 5559, 6161, 6416, 6593, 6764, 9535), 5559, 6416 and 6593 load and run the
+new spans (`$1404` = 1, `$1462-$1469` populated, Map16 identical to the old loader on
+levels `$105` and `$000-$004`, bar 6416 level 0 whose data loader hits the step cap in both);
+10186, 6161, 6764 and 9535 hit the pointer loader's step cap on every level tried, as the old
+loader did.
+
 Witness: vanilla with `$05:D83B` = `4c 00 80` refuses. None of the four fails on
 `$00:A635` first; the BRA there is never the reported reason now.
 
