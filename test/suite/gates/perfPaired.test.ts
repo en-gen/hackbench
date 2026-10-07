@@ -4,7 +4,7 @@
  * failure, and a skipped result-doc validation are all mocked at the
  * spawnSync boundary so they are deterministic and fast. The real
  * end-to-end `--plant` run (spawning actual vitest, issue #413's acceptance
- * list) lives in perfPairedE2E.test.ts, unmocked.
+ * list) lives in perfPairedE2E.timing.test.ts, unmocked.
  */
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 import * as fs from 'node:fs'
