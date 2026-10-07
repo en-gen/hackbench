@@ -163,7 +163,7 @@ the approval to be CodeRabbit's, so a human approval merges it too.
   confirms `autoMergeRequest` is still set
   (`gh pr view <n> --json autoMergeRequest`) and re-enables it only if a push
   cleared it.
-  That can happen before the verifier re-runs on the new head; the owner
+  A merge can land before the verifier re-runs on the new head; the owner
   accepts it (2026-10-04), and a verifier finding on a merged head becomes a
   follow-up PR off develop.
 - CodeRabbit re-reviews each push by itself. Never comment
