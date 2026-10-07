@@ -57,6 +57,7 @@ export interface SyntheticOptions {
     | 'update'
     | 'scrollTail'
     | 'updateTail'
+    | 'updateOperand'
     | 'scrollRtl'
     | 'updateRts'
     | 'scrollPop'

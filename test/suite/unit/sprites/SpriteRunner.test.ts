@@ -554,16 +554,26 @@ describe('level loader on a synthetic cart', () => {
       ok: false,
       reason: expect.stringMatching(/UpdateScreenPosition/),
     })
+    // The LDA operand is exact ($142A), not a wildcard.
+    expect(run({ badLoader: 'updateOperand' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/UpdateScreenPosition/),
+    })
   })
 
   it('a JML inside UpdateScreenPosition (a hack hook at $00:F6E4) runs and leaves the same state', () => {
     const base = run()
     const hooked = run({ updateHook: 'jml' })
     if (!base.ok || !hooked.ok) throw new Error('refused')
-    for (const c of [0x1462, 0x1463, 0x1469, 0x1e, 0x20, 0x5e, 0x1404])
+    for (const c of [0x1462, 0x1463, 0x1469, 0x1e, 0x20, 0x5e, 0x1404, 0x142c, 0x142d])
       expect(hooked.wram[c], `cell ${c.toString(16)}`).toBe(base.wram[c])
     expect(hooked.wram[0x1e]).toBe(7)
     expect(hooked.wram[0x20]).toBe(6)
+    // The redo's STA $142C (SBC #$000C of 0 is $FFF4) and the hook's own copy of $1A-$21 to
+    // $7F:831F, taken before the stub writes $1E and $20.
+    expect([base.wram[0x142c], base.wram[0x142d]]).toEqual([0xf4, 0xff])
+    expect(Array.from(hooked.wram.subarray(0x1831f, 0x18327))).toEqual([7, 0, 0, 0, 0, 0, 0, 0])
+    expect(Array.from(base.wram.subarray(0x1831f, 0x18327))).toEqual([0, 0, 0, 0, 0, 0, 0, 0])
   })
 
   it('a hook that never returns hits the cap; one that returns on the wrong stack is unbalanced', () => {
