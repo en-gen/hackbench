@@ -19,4 +19,4 @@ if (!fs.existsSync(tsc)) {
 const r = spawnSync(process.execPath, [tsc, '-p', path.join(theia, 'extension'), '--noEmit'], {
   stdio: 'inherit',
 })
-process.exit(r.status === null ? 1 : r.status)
+process.exit(r.status ?? 1)
