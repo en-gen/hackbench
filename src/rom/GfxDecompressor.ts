@@ -26,10 +26,11 @@ const KEY_AT = 6
 
 /** Where the stock body's `PLA / BEQ / BMI` sits from the entry: the BMI's
  *  target is the back-reference routine, CODE_00B966 (bank_00.asm:6329-6331).
- *  The BEQ's own offset is not read, so only its opcode is checked. */
+ *  The BEQ's displacement is checked too: stock branches to CODE_00B930. */
 const DISPATCH_AT = 56
 const PLA = 0x68
 const BEQ = 0xf0
+const BEQ_OFFSET = 0x17
 const BMI = 0x30
 
 /** CODE_00B966 (bank_00.asm:6383-6403) as bytes: ReadByte / XBA / ReadByte / [XBA] / TAX, the copy
@@ -109,7 +110,7 @@ export function preludeKey(rom: RomFile, entry: number): number | null {
 export function readBackRefOrder(rom: RomFile, entry: number): BackRefOrder | null {
   const d = rom.readAt(entry + DISPATCH_AT, 5)
   const at = rom.readAt(entry + BODY_AT, 3) // JSR ReadByte, the entry's own
-  if (!d || !at || d[0] !== PLA || d[1] !== BEQ || d[3] !== BMI) return null
+  if (!d || !at || d[0] !== PLA || d[1] !== BEQ || d[2] !== BEQ_OFFSET || d[3] !== BMI) return null
   const target = entry + DISPATCH_AT + 5 + ((d[4]! << 24) >> 24)
   const readByte = at[1]! | (at[2]! << 8)
   for (const order of ['be', 'le'] as const) {

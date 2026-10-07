@@ -109,7 +109,7 @@ describe('the decompressor gate reads the back-reference routine', () => {
 
   it('refuses when the dispatch that reaches the routine is not PLA / BEQ / BMI', () => {
     const survived: number[] = []
-    for (const i of [0, 1, 3, 4]) {
+    for (const i of [0, 1, 2, 3, 4]) {
       const rom = buildCart().rom
       const bytes = [...BACKREF_DISPATCH]
       bytes[i] = (bytes[i]! + 1) & 0xff
