@@ -285,6 +285,16 @@ Type-checking the shell is a separate script from the root:
 npm run typecheck:theia
 ```
 
+It runs `tools/scripts/typecheck-theia.cjs`, which resolves TypeScript from
+`theia/extension` the way Node would (theia's pinned 5.4.5, never the root's
+6.x, so it matches CI's `yarn --cwd theia/extension typecheck`) and passes
+extra arguments through. A fresh worktree needs
+`yarn --cwd theia install --frozen-lockfile --ignore-scripts` first; without
+it the script exits 1 and says so (#669).
+`test/suite/gates/typecheckTheia.test.ts` covers the hint, the compiler
+choice, path resolution, argument and exit-status pass-through with stub
+compilers.
+
 ## Related reading
 
 - [overview.md](overview.md) - how the shell relates to the core

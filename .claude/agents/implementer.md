@@ -13,7 +13,7 @@ brief and `CLAUDE.md`; its rules are not repeated here.
 - **Gates.** lint, `format:check`, `test:unit`, and the Theia build when you
   touched `theia/` (`yarn --cwd theia/extension build` before
   `yarn --cwd theia build:browser`; the reverse bundles a stale backend).
-  A fresh worktree needs `yarn --cwd theia install --ignore-scripts` before
+  A fresh worktree needs `yarn --cwd theia install --frozen-lockfile --ignore-scripts` before
   `npm run typecheck:theia`.
 - **Playwright.** Write the specs the brief asks for; do not run them. The
   verifier does.
