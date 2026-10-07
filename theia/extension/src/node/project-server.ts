@@ -54,7 +54,6 @@ import {
   PatchFormatDto,
   ProjectDto,
   ProjectService,
-  ProjectServiceClient,
   RecentProjectDto,
   RomCheckDto,
   RomIdentityDto,
@@ -63,18 +62,15 @@ import {
   SwitchStateDto,
   WorkstationPathsDto,
 } from '../common/project-protocol'
-import { WorkingCopyNotifier } from './working-copy-notifier'
+import { forwardSetClient } from './project-connection'
 
 @injectable()
 export class ProjectServiceImpl implements ProjectService {
   private readonly recent = new RecentProjects()
   @inject(WorkingRomRegistry) protected readonly workingRoms!: WorkingRomRegistry
-  private readonly notifier = new WorkingCopyNotifier<ProjectServiceClient>()
   private readonly screens = new L1ModelCache()
 
-  setClient(client: ProjectServiceClient | undefined): void {
-    this.notifier.setClient(client)
-  }
+  readonly setClient = forwardSetClient(() => this.workingRoms)
 
   async createProject(req: CreateProjectRequest): Promise<ProjectDto> {
     const p = createProject(req)
@@ -117,15 +113,12 @@ export class ProjectServiceImpl implements ProjectService {
   ): Promise<MapScreenResult> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
-    // An edit made in any view must repaint an open map.
-    this.notifier.watch(manifestPath, r.working)
     return mapScreen(this.screens, r.working.bytes(), r.romPath, index, screen, switchFlags, switches) // prettier-ignore
   }
 
   async mapSprites(manifestPath: string, index: number): Promise<MapSpritesResult> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
-    this.notifier.watch(manifestPath, r.working)
     return mapSprites(this.screens, r.working.bytes(), r.romPath, index)
   }
 
@@ -266,15 +259,7 @@ export class ProjectServiceImpl implements ProjectService {
     }
   }
 
-  /**
-   * Reading the stack is also where this service starts WATCHING the working
-   * copy: the frontend calls it when a project opens, and from then on an
-   * edit made in any view (a palette colour) pushes here too, so the Edit
-   * menu's enablement is never stale.
-   */
   async editStack(manifestPath: string): Promise<EditStackResult> {
-    const entry = this.workingRoms.get(manifestPath)
-    if (entry.status === 'ok') this.notifier.watch(manifestPath, entry.working)
     return this.workingRoms.editStack(manifestPath)
   }
 

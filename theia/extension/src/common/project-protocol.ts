@@ -5,6 +5,7 @@
  * backend service the frontend calls over JSON-RPC, and this file is the
  * contract both ends compile against.
  */
+import type { EditEvent } from '../../../../src/project/EditEvent'
 import type { ScreenPlanes } from '../../../../src/rom/model/ScreenPlanes'
 import type { Map16SwitchButtonImages, Map16SwitchKind } from './map16-protocol'
 
@@ -385,12 +386,22 @@ export type EditStackResult =
   | { status: 'io-error'; reason: string }
 
 /**
- * Pushed to the frontend when a project's working copy changes, so the Edit
- * menu's enablement reflects an edit made in any view. No payload beyond which
- * project: a subscriber re-fetches, same reasoning as PaletteServiceClient.
+ * Pushed to the frontend on the project connection, the ONE channel every view
+ * hears. Two events, because they ask different things of a view:
+ *
+ * - an edit: the working copy's bytes changed (src/project/EditEvent.ts); a
+ *   view re-reads, keeping the user's place.
+ * - a ROM swap: the ROM behind the project moved or became available; a view
+ *   rebuilds from scratch.
  */
 export interface ProjectServiceClient {
-  onWorkingCopyChanged(manifestPath: string): void
+  onEditEvent(event: EditEvent): void
+  /**
+   * The project's base ROM was swapped (relocated, or its working copy was
+   * rebuilt, or located after waiting for it): every view reading it must
+   * rebuild from scratch, unlike an edit, which keeps the user's place.
+   */
+  onRomChanged(manifestPath: string): void
 }
 
 export interface ProjectService {

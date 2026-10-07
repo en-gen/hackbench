@@ -23,6 +23,7 @@
  */
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
+import { ProjectContext } from './project-context'
 import {
   ReactWidget,
   Message,
@@ -41,7 +42,6 @@ import {
   PALETTE_ROW_COUNT,
   gfxFormatLabel,
 } from '../common/gfx-protocol'
-import { GfxFrontendClient } from './gfx-push-client'
 import { WheelBinding, ZoomController } from './zoom-controller'
 import { ZoomStepper } from './zoom-stepper'
 import { GridOverlay } from './grid-overlay'
@@ -114,7 +114,7 @@ export class GfxViewWidget
   implements SaveableSource, StrokeHistory, ProjectBound
 {
   @inject(GfxService) protected readonly gfx!: GfxService
-  @inject(GfxFrontendClient) protected readonly pushClient!: GfxFrontendClient
+  @inject(ProjectContext) protected readonly projectContext!: ProjectContext
   @inject(ThemeService) protected readonly themes!: ThemeService
 
   protected options: GfxViewOptions | undefined
@@ -187,7 +187,12 @@ export class GfxViewWidget
     // copy) re-decodes this sheet, which is what makes an edit visibly
     // recolour an already-open GFX view without the user reopening it.
     this.toDispose.push(
-      this.pushClient.onChanged(manifestPath => {
+      this.projectContext.onEdit(event => {
+        if (event.subject === this.options?.manifestPath) void this.reload()
+      }),
+    )
+    this.toDispose.push(
+      this.projectContext.onRomChanged(manifestPath => {
         if (manifestPath === this.options?.manifestPath) void this.reload()
       }),
     )

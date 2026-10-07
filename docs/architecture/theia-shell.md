@@ -38,7 +38,7 @@ flowchart TB
     subgraph b["browser/ - renderer process"]
         w["widgets (.tsx)"]
         c["contributions<br/>commands, menus, views"]
-        pc["push clients"]
+        pc["ProjectContext<br/>event bus"]
     end
 
     subgraph cm["common/ - shared by both"]
@@ -70,59 +70,107 @@ back.
 
 ## How a service is wired
 
-hackbench, palette, GFX and Map16 - the four services that push to a
-client - bind their `*ServiceImpl` inside a `ConnectionContainerModule`
+hackbench - the only service that pushes to a client - binds its
+`ProjectServiceImpl` inside a `ConnectionContainerModule`
 (`@theia/core/lib/node/messaging/connection-container-module`), not as a
 plain backend-container singleton. Theia gives every top-level connection
 (one browser tab, one window) its own CHILD container built from that
-module, so each connection resolves its own `*ServiceImpl` instance and its
-own client - **this connection's own proxy back to the frontend**, never
-shared with another window. `WorkingRomRegistry` is the one thing these
-still share: it stays bound in the PARENT container, and the per-connection
-child resolves it there, which is what keeps an edit made through one
-window visible to every other window and view on the same project.
+module, so each connection resolves its own `ProjectServiceImpl` and its own
+client - **this connection's own proxy back to the frontend**, never shared
+with another window. `WorkingRomRegistry` is the one thing these still
+share: it stays bound in the PARENT container, and the per-connection child
+resolves it there, which is what keeps an edit made through one window
+visible to every other window and view on the same project.
 
-`music` and `emulator` never push to a client (no `setClient` in their
-protocol) and hold only machine-scoped, file-backed state (`CoreRegistry`,
-`WorkingRomRegistry`), so they stay ordinary backend-container singletons.
+`palette`, `gfx`, `map16`, `music` and `emulator` have no client (no
+`setClient` in their protocol), so they are ordinary backend-container
+singletons. They push nothing: an edit they make reaches every view through
+the project connection (below).
 
 ```mermaid
 sequenceDiagram
     participant W as widget
-    participant CC as per-connection container
-    participant S as PaletteServiceImpl
+    participant P as PaletteServiceImpl
     participant R as WorkingRomRegistry
+    participant N as project connection (WorkingCopyNotifier)
+    participant C as ProjectContext (frontend bus)
 
-    W->>CC: connect(PALETTE_SERVICE_PATH)
-    CC->>S: new PaletteServiceImpl(), setClient(proxy to W)
-    W->>S: setColor(...)
-    S->>R: get(manifestPath) - resolved from the PARENT container
-    R-->>S: the shared WorkingRom
-    S-->>W: onWorkingCopyChanged
+    W->>P: setColor(...)
+    P->>R: setWord(manifestPath, ...)
+    R-->>N: WorkingRom.onDidChange
+    N-->>C: onEditEvent(hackbench.edit.applied)
+    C-->>W: onEdit (every subscribed view)
 ```
 
-## Two notification paths
+## Notification paths
 
-This catches people out, so it is worth stating plainly.
+This catches people out, so it is worth stating plainly. Everything the
+backend tells the frontend leaves on ONE connection, the project service's,
+as one of two events, and arrives on one bus, `ProjectContext`. No other
+service has a client.
 
-**Server to frontend** goes over JSON-RPC via `WorkingCopyNotifier`. Its
+**Edit event** (`ProjectContext.onEdit`). A CloudEvents-shaped envelope
+(`src/project/EditEvent.ts`; the `cloudevents` package is imported for its
+types only, and ESLint refuses a value import). `type` is
+`hackbench.edit.applied` (an edit, a redo) or `hackbench.edit.reverted` (an
+undo, or the rollback of an edit that never reached disk). `subject` is the
+manifest path. `data` is `{ domain, ranges }`: `domain` is `palette`,
+`map16` or `gfx`; `ranges` are half-open `[start, end)` **file offsets** into
+the working copy's bytes (a copier header counts; they are not SNES
+addresses), coalesced, and empty for a gfx layer, which is addressed by file
+and character. Palette and Map16 are told apart by the op's `mask`: Map16
+always writes the full word, a colour never carries a mask, and that survives
+a reload where a field on the layer would not.
+
+It is built in one place. `WorkingCopyNotifier` is the only
+`WorkingRom.onDidChange` subscriber under `theia/extension/src/node`: the
+project service's `ProjectConnection` gives every working copy the registry
+holds, now or built later (`WorkingRomRegistry.onWorkingCopy`), to its
+per-connection notifier, and lets go of a copy the registry replaces.
 `watch` is idempotent per `WorkingRom` instance, keyed by a `Map` from that
-instance to its unsubscribe function, rather than a flag on the manifest
-path. `WorkingRomRegistry.get()` runs on every request, so without that
-guard each call would add another subscriber and a single edit would fire
-the client once per RPC call ever made. `setClient` doubles as the
-disconnect signal: passing `undefined` (wired to the client proxy's
-`onDidCloseConnection` in each `*-backend-module.ts`) calls every stored
-unsubscribe function and clears the map, so a closed window's dead proxy is
-never called again.
+instance to its unsubscribe function, so a single edit fires the client once.
+`setClient(undefined)` (wired to the client proxy's `onDidCloseConnection`)
+calls every stored unsubscribe function, so a closed window's dead proxy is
+never called again. A palette edit repainting an open GFX sheet is therefore
+this one event, not a call between servers.
 
-**Server to server** is not a separate mechanism. `WorkingCopyNotifier` is
-the only `WorkingRom.onDidChange` subscriber under `theia/extension/src/node`:
-an open GFX or Map16 view has its own connection's instance `watch`ing the
-same shared `WorkingRom` palette-server.ts writes through, and pushes to its
-own client exactly as palette-server.ts's does. A palette edit repainting an
-open GFX sheet is that instance's ordinary push, not a direct call between
-servers.
+**ROM changed** (`ProjectContext.onRomChanged`, #576). A separate event with
+the manifest path as payload, because it asks a view to rebuild from scratch
+where an edit asks it to re-read.
+`WorkingRomRegistry.onRomChanged` fires once per project when:
+
+- `relocate` swaps the ROM path (Project Properties);
+- `register` serves a project that was waiting for its ROM (the emulator's
+  "Locate ROM...");
+- a `get` finds the ROM of a project that was waiting for it (it reappeared
+  without `register` or `relocate`), so a view stuck on "Locate" refreshes.
+  Evidence scope: `WorkingRomRegistry.get()` keeps the waiting marker until the
+  copy is built; synthetic ROMs on one machine, pinned by two tests in
+  `test/suite/unit/RomChangedEvent.test.ts` ("a waiting project served by a
+  later get() is announced once, and a later register adds nothing" and "a
+  waiting project whose layer is unreadable keeps waiting; the get that
+  finally builds it fires once"), each seen red against the code without the
+  behaviour;
+- a rebuild replaces an existing cache entry (a header flip, or layers
+  rewritten under it).
+
+It does not fire on the first build, on a cached read, or on an edit.
+`RomChangedNotifier` (per connection, released by `setClient(undefined)`)
+pushes it as `ProjectServiceClient.onRomChanged`. This event is deliberately
+not a CloudEvent.
+
+| Subscriber                                      | Edit (`onEdit`)                               | ROM changed (`onRomChanged`)                        |
+| ----------------------------------------------- | --------------------------------------------- | --------------------------------------------------- |
+| Palettes explorer                               | rebuild, keeps which groups were open         | rebuild as a fresh open: nothing selected, defaults |
+| Maps, Graphics, Audio explorers                 | not subscribed (see below)                    | rebuild as a fresh open                             |
+| Map, Map16, GFX, Palette-group, Overworld views | re-read                                       | re-read                                             |
+| Emulator, Edit menu                             | stale check / refresh                         | refresh                                             |
+
+The Maps, Graphics and Audio explorers do not subscribe to edits because their
+rows come from tables that palette and Map16 word edits do not write, not
+because an edit can never matter: a GFX Save may change a GFX file's listing,
+and the Graphics explorer picks that up only on its next load. That is a
+known gap, not a decision.
 
 ## Views
 

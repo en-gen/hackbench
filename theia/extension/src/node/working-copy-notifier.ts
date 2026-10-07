@@ -1,5 +1,6 @@
 /**
- * Bridges WorkingRom's in-process change event to a JSON-RPC client.
+ * Bridges WorkingRom's in-process change event to a JSON-RPC client, as ONE
+ * edit event (src/project/EditEvent.ts) built here and nowhere else.
  *
  * One instance per CONNECTION, not per service: the `*-backend-module.ts`
  * files bind each `*ServiceImpl` inside a `ConnectionContainerModule`, so a
@@ -13,16 +14,15 @@
  * every subscription this instance made, so a closed window's dead proxy is
  * never called again.
  *
- * A palette edit reaching an open GFX view is not a separate mechanism:
- * gfx-server.ts's own connection has its own notifier instance, `watch`ing
- * the same shared `WorkingRom` and pushing to its own client exactly as
- * palette-server.ts's does. This is the only `WorkingRom.onDidChange`
- * subscriber under `theia/extension/src/node`.
+ * Only the project service holds one: every view hears every edit on that
+ * connection, whichever service made it. This is the only
+ * `WorkingRom.onDidChange` subscriber under `theia/extension/src/node`.
  */
 import { WorkingRom } from '../../../../src/project/WorkingRom'
+import { EditEvent, editEventFor } from '../../../../src/project/EditEvent'
 
 export interface WorkingCopyClient {
-  onWorkingCopyChanged(manifestPath: string): void
+  onEditEvent(event: EditEvent): void
 }
 
 export class WorkingCopyNotifier<Client extends WorkingCopyClient> {
@@ -37,12 +37,20 @@ export class WorkingCopyNotifier<Client extends WorkingCopyClient> {
     }
   }
 
+  /** Lets go of a copy the registry no longer holds, so it can be collected. */
+  unwatch(working: WorkingRom): void {
+    this.subscriptions.get(working)?.()
+    this.subscriptions.delete(working)
+  }
+
   /** Subscribes `working` to notify this service's current client, tagged with `manifestPath`. */
   watch(manifestPath: string, working: WorkingRom): void {
     if (this.subscriptions.has(working)) return
     this.subscriptions.set(
       working,
-      working.onDidChange(() => this.client?.onWorkingCopyChanged(manifestPath)),
+      working.onDidChange(change =>
+        this.client?.onEditEvent(editEventFor(manifestPath, change, working)),
+      ),
     )
   }
 }

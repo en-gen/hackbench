@@ -361,7 +361,7 @@ test('switching the palette row repaints the canvas', async ({ page }) => {
 /**
  * The feature's headline cross-view claim: a palette edit made through
  * PaletteService visibly recolours an ALREADY-OPEN GFX sheet, with no
- * manual reload - the entire point of `gfx-push-client.ts` and
+ * manual reload - the entire point of the edit event and
  * `WorkingCopyNotifier`. Nothing else in this suite exercises that push
  * path; every other GFX test either never edits a palette, or calls
  * `w.load(...)` itself, which would pass even if the push were dead.

@@ -13,20 +13,15 @@ import {
 } from '@theia/core/lib/browser/messaging/service-connection-provider'
 import { MAP16_SERVICE_PATH, Map16Service } from '../common/map16-protocol'
 import { Map16ViewWidget, MAP16_VIEW_ID } from './map16-view-widget'
-import { Map16FrontendClient } from './map16-push-client'
 
 export default new ContainerModule(bind => {
-  bind(Map16FrontendClient).toSelf().inSingletonScope()
-
   // The frontend cannot touch the filesystem, so decoding is a proxy onto
-  // the backend service over JSON-RPC, same shape as GfxService. The client
-  // lets a palette (or Map16) edit made elsewhere push a re-render into an
-  // already-open sheet.
+  // the backend service over JSON-RPC, same shape as GfxService. Edits made
+  // elsewhere arrive as ProjectContext.onEdit, not through this proxy.
   bind(Map16Service)
     .toDynamicValue(ctx => {
       const provider = ctx.container.get<ServiceConnectionProvider>(RemoteConnectionProvider)
-      const client = ctx.container.get(Map16FrontendClient)
-      return provider.createProxy<Map16Service>(MAP16_SERVICE_PATH, client)
+      return provider.createProxy<Map16Service>(MAP16_SERVICE_PATH)
     })
     .inSingletonScope()
 

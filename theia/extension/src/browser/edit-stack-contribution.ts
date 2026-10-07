@@ -19,7 +19,6 @@ import { CommandContribution, CommandRegistry, MessageService } from '@theia/cor
 import { ApplicationShell, CommonCommands } from '@theia/core/lib/browser'
 import { EditStackDto, EditStackResult, ProjectService } from '../common/project-protocol'
 import { ProjectContext } from './project-context'
-import { ProjectFrontendClient } from './project-push-client'
 import { handlesEditStack } from './edit-stack-gate'
 import { isStrokeHistory } from './gfx-view-widget'
 import { perfStart } from '../common/perf-marks'
@@ -36,7 +35,6 @@ const NOTHING: EditStackDto = {
 export class EditStackContribution implements CommandContribution {
   @inject(ProjectService) protected readonly projects!: ProjectService
   @inject(ProjectContext) protected readonly context!: ProjectContext
-  @inject(ProjectFrontendClient) protected readonly pushClient!: ProjectFrontendClient
   @inject(ApplicationShell) protected readonly shell!: ApplicationShell
   @inject(MessageService) protected readonly messages!: MessageService
 
@@ -46,10 +44,13 @@ export class EditStackContribution implements CommandContribution {
   @postConstruct()
   protected init(): void {
     this.context.onChanged(() => void this.refresh())
+    this.context.onRomChanged(manifestPath => {
+      if (manifestPath === this.context.current?.manifestPath) void this.refresh()
+    })
     // Any view's edit, not just this one's: the backend pushes on every
     // working-copy change, so a palette commit enables Undo here.
-    this.pushClient.onChanged(manifestPath => {
-      if (manifestPath === this.context.current?.manifestPath) void this.refresh()
+    this.context.onEdit(event => {
+      if (event.subject === this.context.current?.manifestPath) void this.refresh()
     })
   }
 

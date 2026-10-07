@@ -29,22 +29,14 @@ import {
   PaletteColorDto,
   PaletteGroupDto,
   PaletteService,
-  PaletteServiceClient,
   PaletteVariantDto,
   RomPalettesDto,
   SetColorResult,
 } from '../common/palette-protocol'
-import { WorkingCopyNotifier } from './working-copy-notifier'
 
 @injectable()
 export class PaletteServiceImpl implements PaletteService {
   @inject(WorkingRomRegistry) protected readonly workingRoms!: WorkingRomRegistry
-  private readonly notifier = new WorkingCopyNotifier<PaletteServiceClient>()
-
-  setClient(client: PaletteServiceClient | undefined): void {
-    this.notifier.setClient(client)
-  }
-
   async loadPalettes(manifestPath: string): Promise<LoadPaletteResult> {
     return this.currentPalettes(manifestPath)
   }
@@ -80,7 +72,6 @@ export class PaletteServiceImpl implements PaletteService {
   private currentPalettes(manifestPath: string): LoadPaletteResult {
     const r = this.workingRoms.get(manifestPath)
     if (r.status !== 'ok') return r
-    this.notifier.watch(manifestPath, r.working)
 
     let rom: SmwRom
     try {
