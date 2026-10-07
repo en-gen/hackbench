@@ -397,7 +397,7 @@ drop out by construction, because they never become entry maps.
     optimisation, not identity: the secondary-exit table names a **slot**. On
     vanilla, `$0EB`'s pointer is shared by `$0F0`, `$0FB`, `$1DA`, `$1E7` and
     `$1F9`; one was kept and four discarded.
-  - it gates on `levelHasObjects()`, the defect in issue #311, which rejects 24
+  - it gates on `levelHasObjects()`, through its `data[5] === $FF` terminator rule (issue #695), which rejects 24
     real rooms.
 
   Between them, 47 of the ROM's 235 real maps could never be a destination.

@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A unit test pins tile $11A's star column over all 16 X columns: coin unless Mario is
+  invincible, star only while invincible (`bank_00.asm:12887-12891`). The Maps view already
+  draws it that way (#567).
 - Three corpus-gated sweeps pin where the sprite level loader differs from the Mesen captures (#649 step 1): the 66 of 154 maps whose Map16 tables differ (with each map's differing-tile count), the 18 of 98 maps whose loader Mario start ($94/$96) differs from the capture, and the maps where `readMarioStartPos` (the generic-seed fallback) differs from the loader. Measurement only; vanilla ROM, one machine.
 - The map view has a collision toggle (`layout-panel-dock` icon, after the layer buttons; command
   `hackbench.maps.toggleCollision`; off by default): floors, ceilings, slopes and walls as 2 px
@@ -110,6 +113,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Map $005's ON/OFF track tile `$095`, hidden while the switch byte `$14AF` is 0, no longer draws as if shown. Its one-pixel diagonal fell wholly on the screen door's full-strength squares; a hidden tile with more pixels on those squares than on the dim ones is now drawn on the dim squares, in the map and Map16 views alike. `$094` (hidden while `$14AF` is 1) was already faint. The game's gate is `bank_01.asm:11985-11995` (#560).
+- `levelHasObjects` no longer rejects level modes $15-$1F: the game masks the mode with $1F and its six mode tables have 32 entries, so every mode $00-$1F is valid (#130).
+- Block contents resolver: tiles $021 and $022 now resolve to a coin and a 1-up when hit from below (`bank_00.asm:12195-12212`); $114 says a coin replaces the directional coins once a run has started (`bank_02.asm:1162-1172`); content id 0 gives nothing, and a balloon rewritten to the P-switch or egg sprite no longer gets their colour or contents (`bank_02.asm:1053-1054`, `:1215-1223`); a zero sprite entry with a live status reads as Sprite $00, as the ROM spawns it, and spawn status 0 is no sprite (`bank_01.asm:182-183`); the gate table is read from the ROM, and a differing Yoshi-loose copy is shown beside the normal one (`bank_02.asm:1143-1151`); $12A and $12B say they open only from the side; two surviving mutants are now pinned by tests; the doc's head-bump wording follows the gate table (`bank_00.asm:12850-12853`) (#672, #626).
 - `npm run typecheck:theia` uses theia's own TypeScript and exits 1 only when TypeScript is absent from both `theia/extension/node_modules` and `theia/node_modules`, naming `yarn --cwd theia install --frozen-lockfile --ignore-scripts` instead of failing with TS5107 under the root's TypeScript 6 (#669).
 
 - Develop builds again: `mapBlockContents` no longer calls a working-copy watch that moved into the project connection in #662, which broke the Theia type-check after #677 merged (#682).

@@ -49,7 +49,7 @@ describe.skipIf(!hasRom(VANILLA))('buildLevelExitGraph -- vanilla acceptance', (
   //
   // The universe is every slot whose L1 pointer is not the filler, taken from
   // buildLevelCatalog. It is deliberately NOT classifyLevels().subarea: that
-  // dedupes by L1 pointer and gates on levelHasObjects() (#311), and a
+  // dedupes by L1 pointer and gates on levelHasObjects() (#695), and a
   // destination is a SLOT, not a pointer. CODE_05D8B7 indexes Layer1Ptrs,
   // Layer2Ptrs and Ptrs05EC00 all by the same level number
   // (SMWDisX bank_05.asm:7227-7255), so two slots sharing L1 data are still
