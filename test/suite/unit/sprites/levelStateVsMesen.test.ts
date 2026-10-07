@@ -26,17 +26,23 @@ const sha8 = (): string =>
     .slice(0, 8)
 const root = hasRom(VANILLA) ? join(TRACE_DIR, sha8()) : ''
 
+/** Bytes in each Map16 table (the object interpreter buffer, objectHandlers/interpret.ts BUF_LEN). */
+const MAP16_LEN = 0x3800
+
 /** One map: the loader's WRAM, the captured Map16 tables, the capture's $94..$97 (if recorded). */
 interface In { id: string; wram: Uint8Array; lo: Buffer; hi: Buffer; levelEnd: number; mario: Buffer | null } // prettier-ignore
 
 /** Differing 16-bit tiles per map, and the maps whose every difference is the loader's $25 past the level where the capture holds $0000. */
-function map16Differences(ins: In[]): { counts: string[]; pastEndOnly: string[] } {
+function map16Differences(ins: In[], len = MAP16_LEN): { counts: string[]; pastEndOnly: string[] } {
   const counts: string[] = []
   const pastEndOnly: string[] = []
   for (const m of ins) {
+    // A short capture or loader buffer would compare fewer cells and could pass.
+    if (m.lo.length !== len || m.hi.length !== len || m.wram.length < 0x1c800 + len)
+      throw new Error(`${m.id}: Map16 buffers are not the full ${len}-byte table`)
     let n = 0
     let other = false
-    for (let i = 0; i < m.lo.length; i++) {
+    for (let i = 0; i < len; i++) {
       const got = (m.wram[0x1c800 + i]! << 8) | m.wram[0xc800 + i]!
       const cap = (m.hi[i]! << 8) | m.lo[i]!
       if (got === cap) continue
@@ -168,7 +174,7 @@ describe('level state comparators on synthetic bytes', () => {
       m.lo[i] = 0x25
     }
     f?.(m)
-    return map16Differences([m])
+    return map16Differences([m], 8)
   }
   it('Map16 compare sees either table, and reads the past-end rule on 16-bit tiles', () => {
     expect(syn()).toEqual({ counts: [], pastEndOnly: [] })
@@ -182,20 +188,34 @@ describe('level state comparators on synthetic bytes', () => {
     expect(pastEnd(5, m => (m.wram[0xc800 + 5] = 0x26))).toEqual([]) // loader not $25
   })
 
-  it('readMarioStartPos reads the secondary entrance, its X index from bits 7-5, and the X high byte', () => {
+  it('Map16 compare refuses a truncated or empty table instead of comparing fewer cells', () => {
+    const m: In = { id: 'x', wram: new Uint8Array(0x30000), lo: Buffer.alloc(MAP16_LEN), hi: Buffer.alloc(MAP16_LEN), levelEnd: 0, mario: null } // prettier-ignore
+    for (const bad of [
+      { lo: Buffer.alloc(8) },
+      { hi: Buffer.alloc(0) },
+      { wram: new Uint8Array(0x1c800) },
+    ])
+      expect(() => map16Differences([{ ...m, ...bad }])).toThrow(/full 14336-byte table/)
+    expect(map16Differences([m]).counts).toEqual([])
+  })
+
+  // The 3-bit X index is swept, each with a distinct X; odd indexes carry an X high byte (X above 224).
+  it.each([0, 1, 2, 3, 4, 5, 6, 7])('readMarioStartPos secondary entrance, X index %i', k => {
     const rom = RomFile.fromBytes('s.sfc', Buffer.alloc(0x100000))
     for (let i = 0; i < 16; i++) rom.writeAt(0x05d730 + i, [0x30 + i]) // Y low
     rom.writeAt(0x05d740 + 4, [1]) // Y high, index 4
-    for (let i = 0; i < 8; i++) rom.writeAt(0x05d750 + i, [0x20 + i * 8]) // X low
-    rom.writeAt(0x05d758 + 2, [1]) // X high, index 2: an X above 224
+    for (let i = 0; i < 8; i++) {
+      rom.writeAt(0x05d750 + i, [0x20 + i * 8]) // X low
+      rom.writeAt(0x05d758 + i, [i & 1]) // X high
+    }
     rom.writeAt(0x05f000 + 5, [3]) // level $05, primary: Y index 3
     rom.writeAt(0x05f200 + 5, [5]) // X index 5
     rom.writeAt(0x05f000 + 0x105, [3])
     rom.writeAt(0x05f200 + 0x105, [5]) // the same primary bytes for $105, so ignoring the entrance shows
     rom.writeAt(0x05f800 + 3, [0x05]) // secondary entrance 3 targets $105 (low byte; high bit is in $FC00)
-    rom.writeAt(0x05fc00 + 3, [(2 << 5) | 1]) // X index 2, target high bit 1
+    rom.writeAt(0x05fc00 + 3, [(k << 5) | 1]) // X index k, target high bit 1
     rom.writeAt(0x05fa00 + 3, [4]) // Y index 4
-    expect(readMarioStartPos(rom, 0x05)).toEqual({ x: 0x48, y: 0x33 })
-    expect(readMarioStartPos(rom, 0x105)).toEqual({ x: 0x130, y: 0x134 })
+    expect(readMarioStartPos(rom, 0x05)).toEqual({ x: 0x48 + 0x100, y: 0x33 })
+    expect(readMarioStartPos(rom, 0x105)).toEqual({ x: 0x20 + k * 8 + (k & 1) * 0x100, y: 0x134 })
   })
 })
