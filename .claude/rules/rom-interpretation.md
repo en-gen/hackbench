@@ -173,6 +173,17 @@ In practice:
   LoROM only, guarded (BRK, COP, WDM, WAI, STP and any fetch outside cart ROM
   refuse); P, S, D, DB and mode are reset between calls.
   Captures and Mesen are an oracle only, never a runtime input.
+  Extended to one more routine (owner decision 2026-10-06, #566): the item
+  block's own spawn, entered at its dispatcher `CODE_0288DC` and running
+  through `GenSpriteFromBlk` (`bank_02.asm:1097-1292`), runs on the core so
+  that a block item's slot, status, timers and cells come from the game and
+  not from a hand-ported dispatch. Same terms: byte-checked entry shape,
+  generic seeds (the block's content index and position; the loader's own
+  SpriteMemorySetting), step budgets, a plain refusal otherwise. Unlike the
+  other calls, whose DB is reset to 0, the spawn is entered with DB deliberately
+  set to the routine's own bank ($02), as the game reaches it, because it reads
+  its tables through DB. No other
+  routine is added by this.
 - Third bounded use, for block collision (owner comment on #435, 2026-10-06):
   the collision probe spike (`spikes/collision-probe/`, #633) and the planned
   `mapCollision` product run SMW's own Mario-versus-layer-1 routines

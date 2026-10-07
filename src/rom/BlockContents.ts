@@ -150,6 +150,8 @@ export type BlockContent =
   | {
       kind: 'sprite'
       sprite: number
+      /** The SpriteInBlock index the spawn is entered with (`_5`, bank_02.asm:1098): the item's content id. */
+      index: number
       status: number
       label: string
       /** OBJ attribute byte for the P-switch colour (DATA_028A42). */
@@ -251,7 +253,7 @@ function contentFor(id: number, c: Ctx): BlockContent | null {
     ].map(nameOf)
     label += ` (${alone}, or ${withYoshi} if a baby Yoshi exists or Yoshi is loose)`
   }
-  return { kind: 'sprite', sprite, status, label, attribute, position, caveat }
+  return { kind: 'sprite', sprite, index: id, status, label, attribute, position, caveat }
 }
 
 /** Drop empty contents; the last alternative is the unconditional one. */

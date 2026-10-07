@@ -310,6 +310,37 @@ export type MapSpritesResult =
   | { status: 'unavailable'; reason: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
+/** One block that holds an item (#566), at its map-pixel corner, drawn in the plane its bottom-right quadrant is in. */
+export interface BlockIndicatorDto {
+  plane: 'l1Low' | 'l1High' | 'l2Low' | 'l2High'
+  x: number
+  y: number
+  /** Key into `MapBlockContentsResult.arts`. */
+  art: string
+}
+
+/**
+ * A map's block content indicators (#566): each distinct item as 16 x 16 RGBA
+ * (base64, the full-block art; the view halves it for the resting state), and
+ * where each block shows which. `unavailable` is the tables' refusal, shown as
+ * a note, never a guess.
+ */
+export type MapBlockContentsResult =
+  | {
+      status: 'ok'
+      orientation: 'horizontal' | 'vertical'
+      screenCount: number
+      /** One screen's pixels, as `MapSpritesResult`. */
+      width: number
+      height: number
+      arts: Record<string, string>
+      indicators: BlockIndicatorDto[]
+      /** Contents that could not be drawn, and why. */
+      note?: string
+    }
+  | { status: 'unavailable'; reason: string }
+  | { status: 'rom-not-located'; baseRom: RomIdentityDto }
+
 /**
  * Which char switches a map is drawn with (#573): the blue and silver
  * P-switches and ON/OFF swap the chars they animate, not the grid. Per tab.
@@ -464,6 +495,8 @@ export interface ProjectService {
 
   /** Every sprite of a map, drawn by the sprite interpreter or marked, from the working copy (#564, #585). */
   mapSprites(manifestPath: string, index: number): Promise<MapSpritesResult>
+  /** Where each item block of a map shows its contents, from the working copy (#566). */
+  mapBlockContents(manifestPath: string, index: number): Promise<MapBlockContentsResult>
 
   /** The map toolbar's art: the palace blocks and the char switches' buttons. */
   mapPalaceIcons(manifestPath: string, index: number): Promise<PalaceIconsResult>

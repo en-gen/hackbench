@@ -19,14 +19,14 @@ theia/
 `extension/package.json` declares six `theiaExtensions` entries, each a
 frontend and backend pair:
 
-| Extension | Frontend | Backend | Service path |
-|-----------|----------|---------|--------------|
-| hackbench | shell, projects, commands | project server | `/services/hackbench-project` |
-| palette | palette view | palette server | `/services/hackbench-palette` |
-| music | audio view (BGM and SFX) | music server | `/services/hackbench-music` |
-| gfx | graphics view | GFX server | `/services/hackbench-gfx` |
-| map16 | Map16 tile editor | Map16 server | `/services/hackbench-map16` |
-| emulator | emulator view | emulator server | `/services/hackbench-emulator` |
+| Extension | Frontend                  | Backend         | Service path                   |
+| --------- | ------------------------- | --------------- | ------------------------------ |
+| hackbench | shell, projects, commands | project server  | `/services/hackbench-project`  |
+| palette   | palette view              | palette server  | `/services/hackbench-palette`  |
+| music     | audio view (BGM and SFX)  | music server    | `/services/hackbench-music`    |
+| gfx       | graphics view             | GFX server      | `/services/hackbench-gfx`      |
+| map16     | Map16 tile editor         | Map16 server    | `/services/hackbench-map16`    |
+| emulator  | emulator view             | emulator server | `/services/hackbench-emulator` |
 
 They are separate because each owns a view, a protocol and a server that can
 be reasoned about on its own, not because Theia requires it.
@@ -206,6 +206,26 @@ evidence: `docs/rom/level-rendering.md`.
 
 Views follow the active Theia theme rather than pinning their own colors,
 which `theia/browser-app/test/load-maps.spec.cjs` asserts.
+
+### The map tab's block content indicators (#566)
+
+`ProjectService.mapBlockContents(manifestPath, index)` returns the distinct
+16 x 16 item arts of a map (`arts`, by key) and where each item block shows
+which (`indicators`: plane, map-pixel corner, art key), from the working copy,
+with a plain-words `note` for blocks it does not draw. The tables' refusal
+comes back as `unavailable` and the tab shows the reason.
+The composite canvas of each screen stays native-size and is never given indicators. A screen that
+holds one also has a display canvas (`data-layer="display"`) over it, which hides the composite and shows
+the same picture at the zoom (`IndicatorDisplay`, `browser/map-view-model.ts`): the native composite
+scaled up, with each indicator's block cell recomposed at the zoom, its planes scaled by nearest
+sampling, its plane's indicators painted into the plane's copy and the planes stacked and put through
+color math as ever. So hiding a graphics layer hides its indicators, and a nearer plane or a sprite covers an
+indicator exactly as it covers its block. A hidden plane is left out of the plane set, not empty. A hover
+change recomposes only the cells it touches (about 2 ms at 3x on a screen with three blocks, measured in
+node), and the display is built once per screen and zoom. Screens with no indicator show the composite
+itself. Hover is tracked on the scroller (`onPointerMove`, and re-found on scroll, zoom and new replies);
+the topmost visible plane's block under the pointer expands. The display publishes the boxes it painted
+in `data-indicators`.
 
 ### The map tab's sprite layer (#564)
 

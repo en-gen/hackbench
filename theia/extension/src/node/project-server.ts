@@ -25,6 +25,7 @@ import {
 import { buildMapDetails } from './map-details'
 import { L1ModelCache, mapScreen, toolbarArtOf } from './map-screen'
 import { mapSprites } from './map-sprites'
+import { mapBlockContents } from './map-block-contents'
 import { SWITCH_FLAGS_UNCLEARED } from '../../../../src/rom/ObjectExpander'
 import { exportPatch } from '../../../../src/project/ExportPatch'
 import { readRomBounded } from '../../../../src/project/BoundedRead'
@@ -49,6 +50,7 @@ import {
   LoadMapsResult,
   MapDetailsDto,
   MapScreenResult,
+  MapBlockContentsResult,
   MapSpritesResult,
   PalaceIconsResult,
   PatchFormatDto,
@@ -120,6 +122,13 @@ export class ProjectServiceImpl implements ProjectService {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
     return mapSprites(this.screens, r.working.bytes(), r.romPath, index)
+  }
+
+  async mapBlockContents(manifestPath: string, index: number): Promise<MapBlockContentsResult> {
+    const r = this.located(manifestPath)
+    if (r.status !== 'ok') return r
+    this.notifier.watch(manifestPath, r.working)
+    return mapBlockContents(this.screens, r.working.bytes(), r.romPath, index)
   }
 
   async mapPalaceIcons(manifestPath: string, index: number): Promise<PalaceIconsResult> {

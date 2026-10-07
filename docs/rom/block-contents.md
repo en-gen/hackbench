@@ -113,6 +113,72 @@ resolver adds a "Yoshi is loose" alternative; vanilla's copies are identical.
 The "X column n of p" text uses the period found in DATA_00F100 and is dropped
 when the table has none.
 
+## Display
+
+Maps view, #566 PR B (`theia/extension/src/node/map-block-contents.ts`,
+`common/block-indicator.ts`). Owner decisions: spikes #605 (D4), #607
+(progressive split), #615 (C4a) and the rulings on #566 and #623.
+
+- The item at 8 x zoom screen pixels in the block's bottom-right quadrant, full
+  opacity, no outline; on hover it fills exactly the block (16 x zoom) and never
+  leaves it. The 16 x 16 art is scaled nearest-neighbour, as the spikes' CSS did.
+- Split indicators: the progressive blocks (mushroom, then flower or feather) and, by the #623 ruling,
+  the two-outcome blocks that include a coin ($11A column 0 of 3 and $122: coin, then star; $12D: coin,
+  then 1-up). The split runs along the anti-diagonal, bottom-left to top-right (x + y = 15 in the
+  16 x 16 art; owner ruling 2026-10-06, so the mirrored feather is not cut along its length). The
+  BASE item (the mushroom, or the coin) is the bottom-right half and the UPGRADE (flower, feather,
+  star, 1-up) the top-left half, the same at rest and on hover. The line of the owner's L1 pick runs
+  along it: black, one art pixel wide, scaling with zoom. It is drawn once per item, clipped to that
+  item's own triangle of the line pixel, so a line art pixel is black in each item's triangle where
+  that item is opaque (at 2x and 3x a pixel only one item paints shows a black triangle) and clear
+  where neither is. The art pixel and the triangle are tested at the screen pixel's centre. The split
+  elsewhere is hard: no blending.
+- Multi-coin ($11B, $123): the coin with a 5 x 5 white "+" (7 x 7 with a black
+  edge) baked into the bottom-right of its 16 x 16 art, its 7 x 7 origin at art pixel (8, 8), one pixel
+  in from the corner (owner ruling 2026-10-06), so its centre row and column are art row and column
+  11: odd, which centre sampling keeps at 1x (it samples art pixels 2i + 1), where the earlier origin
+  (9, 9) put them on 12 and lost them. $11C and $124: the plain coin.
+- Each cell resolves for its own X column; the P-switch uses the spawn
+  attribute of DATA_028A42.
+- Drawn IN the plane of the block's bottom-right subtile priority, at screen resolution
+  (owner ruling 2026-10-06): the native composite is untouched; a display canvas over it shows the same
+  picture at the zoom, with each indicator's block cell recomposed: its planes scaled by nearest sampling,
+  its plane's indicators painted into the plane's copy, then stacked and put through color math as ever. A nearer plane or a sprite covers an
+  indicator exactly as it covers its block, and hiding a graphics layer hides its indicators. No Contents toggle.
+- Not drawn, with a plain-words note: a Yoshi-loose variant, a block whose item
+  graphics are not loaded in this map, a sprite the interpreter refuses or that draws
+  nothing in its first frames, a spawn or coin routine that is not the traced one.
+- Item art is the sprite run on the 65816 core, as the map's sprite layer does (#585), set up
+  by the game's OWN block spawn (owner ruling 2026-10-06, the second bounded exception in
+  `.claude/rules/rom-interpretation.md`): the dispatcher `CODE_0288DC` (`bank_02.asm:1097-1119`) and
+  `GenSpriteFromBlk` (`:1122-1292`) run on the core, their shapes byte-checked
+  (`resolveBlockSpawn`), with the inputs they read seeded generically: the content index `_5` ($05),
+  which comes from the resolver (`BlockContent.index`, so the balloon family keeps its own), TouchBlockXPos
+  ($9A) and TouchBlockYPos ($98) from the block's position, LayerProcessing ($1933), YoshiIsLoose
+  ($18E2) and DirectCoinInit ($1432) cleared, SpriteMemorySetting ($1692) as the level loader left it,
+  and DB set to the code's bank. The dispatcher sends the egg, key, vine and balloon through
+  `FindFreeSprSlot` and the rest to `GenSpriteFromBlk`'s own countdown; the run reads whichever slot the
+  game filled. The code writes the status and number from StatusOfSprInBlk and SpriteInBlock, calls
+  InitSpriteTables, places the sprite and writes its cells (rise speed, timers, the P-switch colour, the
+  balloon's direction, C2, the egg's contents). The sprite's INIT never runs, so its status handler draws
+  it: a status-9 egg is the green stunned egg, a status-9 $04 a shell. Nothing about the spawn is ported in
+  `src/`; code that is not the shape checked, a spawn that fills no slot, or one that exceeds the step
+  budget refuses with a plain reason and the block is not drawn. The runner takes this as
+  `RunOptions.spawn`. Layer 2 blocks are spawned as layer 1 ones: the art does not depend on it.
+- The core's first frame is what is drawn (owner ruling 2026-10-06): the mirrored feather and the
+  star one pixel wider stay. Real-art line pixel counts on the anti-diagonal, pinned in the corpus
+  test: $11F 14, $120 12, $11A column 0 11, $12D 12 (on the old main diagonal: 13, 15, 12, 12).
+- Accepted (owner, 2026-10-06): the flying red coin of $125 column 1 ($7E) draws its wings only on
+  the core's first frame, and is shown that way.
+- The coin is not a sprite: its chars and palette are the immediates of the coin
+  draw (`bank_02.asm:3432-3441`), read behind a byte-pattern gate.
+- The Theia map view never used `StarOneUpVineBlockBehavior` or
+  `KeyCoinBalloonKoopaBlockBehavior` overlays (the reference webview model's);
+  they are untouched.
+- Evidence scope: item art checked by pixel counts on the vanilla ROM, one
+  machine (coin 132 opaque pixels, multi-coin 146, as spike #615 measured); a
+  status-9 egg has green pixels and a status-9 $04 differs from status 8.
+
 ## Tests
 
 CI has no ROM and the repo carries no vanilla table bytes: the unit tests run
