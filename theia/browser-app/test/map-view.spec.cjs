@@ -509,6 +509,12 @@ test('the L1 toggle hides and restores the foreground, per tab', async ({ page }
   await expect(l1).toHaveAttribute('aria-pressed', 'true')
   for (const plane of planeLocators(page, 0x105, 0, MAP_PLANES))
     await expect(plane).toHaveCSS('visibility', 'visible')
+  // MAP_PLANES has no sprites plane: the restored sprites are checked on their own canvases (#589).
+  const spriteCanvases = page.locator(`${root(0x105)} canvas[data-plane="sprites"]`)
+  await expect(spriteToggle(page, 0x105)).toHaveAttribute('aria-pressed', 'true')
+  await expect(spriteCanvases.first()).toHaveAttribute('data-drawn', SPRITES_DRAWN)
+  for (let i = 0; i < (await spriteCanvases.count()); i++)
+    await expect(spriteCanvases.nth(i)).toHaveCSS('visibility', 'visible')
   expect((await shownPixels(page, strip)).checksum).toBe(shown.checksum)
 })
 
@@ -1061,6 +1067,9 @@ test('a sprite stream with no end marker shows its note on the map tab', async (
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x106)
   const note = page.locator(`${root(0x106)} [data-note="sprites"]`)
+  // After load: the toggle is enabled (React rendered the reply) and the canvas has drawn.
+  await expect(spriteToggle(page, 0x106)).toBeEnabled()
+  await expect(spritePlane(page, 0x106, 1)).toHaveAttribute('data-drawn', SPRITES_DRAWN)
   await expect(note).toHaveCount(0)
   // Serve the same sprites with the truncation note, as a stream cut by the ROM's end would.
   await page.evaluate(async () => {

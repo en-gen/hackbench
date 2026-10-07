@@ -6,10 +6,11 @@
  * `EngineResult`; the served drawer is the interpreter, #585), so CI needs no
  * cart; the corpus block at the end runs `mapSprites` over a vanilla map.
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import type { EngineResult } from '../../../src/rom/model/sprites/generic/SpriteDrawEngine'
 import type { LevelSprite } from '../../../src/rom/LevelParser'
 import { RomFile } from '../../../src/rom/RomFile'
+import { SmwRom } from '../../../src/rom/SmwRom'
 import {
   drawSprites,
   mapSprites,
@@ -40,6 +41,9 @@ const part = (charNum: number, dx: number, dy: number, flipX = false) => ({ char
 const ok = (...parts: ReturnType<typeof part>[]): EngineResult => ({ ok: true, parts, identity: { spriteId: 0x10, mainHandler: 0, initHandler: 0, status: 'vanilla' } }) // prettier-ignore
 const decode = (d: MapSpriteDto) => new Uint8ClampedArray(Buffer.from(d.rgba, 'base64'))
 const sized = (d: MapSpriteDto) => [d.box.x1 - d.box.x0, d.box.y1 - d.box.y0] as const
+/** A w x h sprite whose every RGBA byte is `color`. */
+const solid = (x0: number, y0: number, w: number, h: number, color: number): MapSpriteDto =>
+  ({ index: 0, id: 1, x: x0, y: y0, box: { x0, y0, x1: x0 + w, y1: y0 + h }, status: 'drawn', rgba: Buffer.from(new Uint8ClampedArray(w * h * 4).fill(color)).toString('base64') }) as MapSpriteDto // prettier-ignore
 
 describe('drawSprites', () => {
   it('draws an engine miss as a 16x16 marker at the anchor, with the failure as its reason', () => {
@@ -186,7 +190,76 @@ describe('the sprite stream read', () => {
   })
 })
 
+describe('mapSprites with a stream in the ROM last bytes (#589)', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('answers ok with the sprites of a stream within the window of the ROM end', () => {
+    const buf = Buffer.alloc(0x80000)
+    buf.set([0, 0x10, 0x01, 0x10, 0xff], 0x7ffb0)
+    buf[0x7fd5] = 0x20 // LoROM map mode, so the copy parses as a cart
+    // A stub model build and pointer: this is the read path under test, not the pointer table.
+    vi.spyOn(SmwRom.prototype, 'getLevelSpritePointer').mockReturnValue(0x0fffb0)
+    const cache = new L1ModelCache(() => ({ ok: true, inputs: { ...MODEL, isVertical: false, screenCount: 1 } }) as never) // prettier-ignore
+    const r = mapSprites(cache, new Uint8Array(buf), 'x.sfc', 0)
+    expect(r).toMatchObject({ status: 'ok' })
+    if (r.status !== 'ok') return
+    expect(r.sprites).toHaveLength(1)
+    // The terminator was read: a window cut short before it would add the no-end-marker note.
+    expect(r.note ?? '').not.toMatch(/no end marker/)
+  })
+})
+
 describe('paintSpriteCanvas', () => {
+  /** A canvas whose 2D context records clears and the pixels last put (ImageData is polyfilled for node). */
+  const recorder = () => {
+    const log: string[] = []
+    const clears: number[][] = []
+    const put: { data: Uint8ClampedArray; width: number; height: number }[] = []
+    const canvas = { width: 0, height: 0, dataset: {} as DOMStringMap, getContext: () => ({ clearRect: (...a: number[]) => (log.push('clear'), clears.push(a)), putImageData: (d: (typeof put)[number]) => (log.push('put'), put.push(d)) }) } // prettier-ignore
+    return { canvas, log, put, clears }
+  }
+  const geo = { orientation: 'horizontal' as const, width: 16, height: 8 }
+  const withImageData = (fn: () => void) => {
+    vi.stubGlobal(
+      'ImageData',
+      class {
+        constructor(
+          public data: Uint8ClampedArray,
+          public width: number,
+          public height: number,
+        ) {}
+      },
+    )
+    try { fn() } finally { vi.unstubAllGlobals() } // prettier-ignore
+  }
+
+  it('clears before it puts, and clears when the screen has no sprites left (no stale picture)', () => {
+    withImageData(() => {
+      const { canvas, log, clears } = recorder()
+      paintSpriteCanvas(canvas, { ...geo, sprites: [solid(0, 0, 4, 4, 9)] }, 0, 'a')
+      expect(log).toEqual(['clear', 'put'])
+      expect(clears[0]).toEqual([0, 0, 16, 8])
+      // The sprite is gone: the same screen repaints with a clear and no put.
+      log.length = 0
+      paintSpriteCanvas(canvas, { ...geo, sprites: [] }, 0, 'b')
+      expect(log).toEqual(['clear'])
+      expect(canvas.dataset.drawn).toBe('b')
+    })
+  })
+
+  it('paints the sprites of the screen asked for, not screen 0', () => {
+    withImageData(() => {
+      const { canvas, put } = recorder()
+      // Screen 0 holds a sprite at x 0; screen 1 holds one at x 16 + 2 (map pixels).
+      const sprites = [solid(0, 0, 4, 4, 11), solid(18, 0, 4, 4, 77)]
+      paintSpriteCanvas(canvas, { ...geo, sprites }, 1, 'c')
+      expect(put).toHaveLength(1)
+      expect([put[0]!.width, put[0]!.height]).toEqual([16, 8])
+      expect(px(put[0]!.data, 16, 2, 0)[3]).toBe(77)
+      expect(px(put[0]!.data, 16, 0, 0)[3]).toBe(0)
+    })
+  })
+
   it('blanks a canvas of an earlier map when there are no sprites to paint', () => {
     const cleared: number[][] = []
     const canvas = { width: 8, height: 4, dataset: { drawn: '3:1' } as DOMStringMap, getContext: () => ({ clearRect: (...a: number[]) => cleared.push(a) }) } // prettier-ignore
@@ -210,8 +283,6 @@ describe('clearSpriteCanvas', () => {
 })
 
 describe('compositeSpriteScreen', () => {
-  const solid = (x0: number, y0: number, w: number, h: number, color: number): MapSpriteDto =>
-    ({ index: 0, id: 1, x: x0, y: y0, box: { x0, y0, x1: x0 + w, y1: y0 + h }, status: 'drawn', rgba: Buffer.from(new Uint8ClampedArray(w * h * 4).fill(color)).toString('base64') }) as MapSpriteDto // prettier-ignore
   const H = { orientation: 'horizontal' as const, width: 256, height: 432 }
   const V = { orientation: 'vertical' as const, width: 512, height: 256 }
 
