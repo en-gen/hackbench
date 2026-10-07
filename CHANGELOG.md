@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Two corpus-gated tests pin where the sprite level loader disagrees with the Mesen captures (#649 step 1): the 66 of 154 maps whose Map16 tables differ, and the 49 of 98 maps whose table-read Mario start differs from `$94/$96`. Measurement only; vanilla ROM, one machine.
 - The map view has a collision toggle (`layout-panel-dock` icon, after the layer buttons; command
   `hackbench.maps.toggleCollision`; off by default): floors, ceilings, slopes and walls as 2 px
   vector lines over the map, yellow for surfaces and purple for walls, with a tile the probe could
