@@ -2471,3 +2471,59 @@ test('the grid is composited above the sprite layer', async ({ page }) => {
   // 80%: a sprite can animate between the two screenshots.
   expect(changed).toBeGreaterThanOrEqual(probe.pts.length * 0.8)
 })
+
+/**
+ * The ON/OFF tracks on $005 (#560). Vanilla $094 is a diagonal drawn with ON/OFF off, $095 its
+ * mirror drawn with ON/OFF on, each a one-pixel line. The screen door once drew $095 at full
+ * strength with ON/OFF off, so both looked drawn in both states. Measured: $094 at column 152,
+ * row 18 and $095 at column 151, row 20, both on screen 9.
+ */
+test.describe('ON/OFF tracks on $005', () => {
+  const SCREEN = 9
+  // [local column, row, on the track at cell pixel (x, y)]
+  const TRACKS = {
+    drawnOff: [152 - SCREEN * 16, 18, (x, y) => x + y === 15],
+    drawnOn: [151 - SCREEN * 16, 20, (x, y) => x === y],
+  }
+
+  /** How many of a track's 16 pixels sit farther than the screen door's 25% from the cell's other pixels. */
+  async function strong(page, [col, row, onTrack]) {
+    const px = await readScreen(page, 0x005, SCREEN)
+    const rgba = px.rgba
+    const at = (x, y) => {
+      const i = ((row * 16 + y) * 256 + col * 16 + x) * 4
+      return [rgba[i], rgba[i + 1], rgba[i + 2]]
+    }
+    const rest = []
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) if (!onTrack(x, y)) rest.push(at(x, y).join(',')) // prettier-ignore
+    const counts = new Map()
+    for (const c of rest) counts.set(c, (counts.get(c) ?? 0) + 1)
+    const back = [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])[0][0]
+      .split(',')
+      .map(Number)
+    let n = 0
+    for (let y = 0; y < 16; y++)
+      for (let x = 0; x < 16; x++)
+        if (onTrack(x, y) && at(x, y).some((v, c) => Math.abs(v - back[c]) > 64)) n++
+    return n
+  }
+
+  test('each track draws in full only in its own state and in the screen door in the other', async ({
+    page,
+  }) => {
+    const project = await createProject(page, path.join(tmp, 'MyHack'))
+    await openMap(page, project.manifestPath, 0x005)
+    await showScreen(page, 0x005, SCREEN)
+    const off = [await strong(page, TRACKS.drawnOff), await strong(page, TRACKS.drawnOn)]
+    await page.locator(`${root(0x005)} [data-control="switch-onOff"]`).click()
+    await expect(page.locator(`${root(0x005)} canvas[data-screen="${SCREEN}"][data-plane="l1Low"]`)).toHaveAttribute('data-drawn', /^\d+:0000:001:9$/) // prettier-ignore
+    const on = [await strong(page, TRACKS.drawnOff), await strong(page, TRACKS.drawnOn)]
+    // Not vacuous: a drawn track is strong at nearly every pixel (a sprite may cross one).
+    expect(off[0]).toBeGreaterThanOrEqual(12)
+    expect(on[1]).toBeGreaterThanOrEqual(12)
+    // Hidden: only the dim 25%, never a strong pixel.
+    expect(off[1]).toBe(0)
+    expect(on[0]).toBe(0)
+  })
+})

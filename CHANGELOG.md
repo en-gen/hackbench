@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Fixed: the ON/OFF track hidden by its switch no longer draws as if shown. A one-pixel diagonal can fall wholly on the screen door's full-strength squares (vanilla `$095` with ON/OFF off), so a hidden tile that would get no dim pixel is now drawn on the dim squares; the map and Map16 views share the rule. The hidden-when-ON track rule is traced to `bank_01.asm:11985-11995` (#560).
 - The map view has a collision toggle (`layout-panel-dock` icon, after the layer buttons; command
   `hackbench.maps.toggleCollision`; off by default): floors, ceilings, slopes and walls as 2 px
   vector lines over the map, yellow for surfaces and purple for walls, with a tile the probe could
