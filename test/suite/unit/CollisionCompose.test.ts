@@ -222,15 +222,31 @@ describe('the probe without a cartridge', () => {
     expect(await floors(true)).toHaveLength(1)
   })
 
-  it('keys the cache on the flags and the P-switch', () => {
+  it('the full state keys a reply (palaces change the grid); the probe cache keys on the blue P-switch only', () => {
     const on = { flags: { green: false, yellow: true, blue: false, red: false }, bluePs: false }
     const off = { ...on, flags: { ...on.flags, yellow: false } }
     expect(stateKey(on)).not.toBe(stateKey(off))
     expect(stateKey({ ...off, bluePs: true })).not.toBe(stateKey(off))
     const c = new ProbeCache()
     c.set(7, 1, mk(), on)
-    expect(c.get(7, 1, on)).toBeDefined()
-    expect(c.get(7, 1, off)).toBeUndefined()
+    expect(c.get(7, 1, off)).toBeDefined() // a palace toggle reuses the tile
+    expect(c.get(7, 1, { ...off, bluePs: true })).toBeUndefined() // the P-switch does not
+    expect(c.get(3, 1, off)).toBeUndefined() // nor another tileset
+  })
+
+  it('a palace toggle probes no tile again; a blue P-switch toggle probes them all', async () => {
+    const r = rom(blocks([[0x30, FLAT], [0x44, WHEN(0x14ad)]])) // prettier-ignore
+    const cache = new ProbeCache()
+    const flags = { green: false, yellow: false, blue: false, red: false }
+    const run = async (state: { flags: typeof flags; bluePs: boolean }) => {
+      const out = await collisionLayer(r, 0, 7, [[0x44, 0x30]], cache, { wram: loaded(), state })
+      if (!out.ok) throw new Error(out.reason)
+      return out.probed
+    }
+    expect(await run({ flags, bluePs: false })).toBe(2)
+    expect(await run({ flags: { ...flags, yellow: true }, bluePs: false })).toBe(0)
+    expect(await run({ flags: { ...flags, red: true }, bluePs: false })).toBe(0)
+    expect(await run({ flags, bluePs: true })).toBe(2)
   })
 
   it('calibrates and measures a flat block: floor 0, underside 16', () => {

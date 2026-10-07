@@ -17,19 +17,27 @@ import {
   probeAir,
   NEUTRAL,
   Probe,
-  stateKey,
   type AirRuns,
   type Calibration,
   type ProbeState,
   type TileProbe,
 } from './TileProbe'
 
-/** Probe results for one ROM image, by tileset, state and tile id. */
+/**
+ * What a probed tile depends on, besides its tileset and id: the blue P-switch, not the palaces. On vanilla
+ * the block code reads SwitchBlockFlags only in the big palace switch (SMWDisX bank_00.asm:12508), whose two
+ * branches give the same collision, so a palace toggle changes the GRID (and so the composed reply, which
+ * keys on the full state) but no tile's result. A hack whose own blocks read $1F27-$1F2A needs the palace
+ * bits back in this key. The probe's WRAM still gets them either way.
+ */
+const probeKey = (s: ProbeState): string => String(+s.bluePs)
+
+/** Probe results for one ROM image, by tileset, P-switch and tile id. */
 export class ProbeCache {
   private readonly tiles = new Map<string, TileProbe>()
   private readonly preps = new Map<string, { cal: Calibration; air: AirRuns }>()
   private static key = (tileset: number, id: number, s: ProbeState) =>
-    `${tileset}:${stateKey(s)}:${id}`
+    `${tileset}:${probeKey(s)}:${id}`
 
   get(tileset: number, id: number, s: ProbeState = NEUTRAL): TileProbe | undefined {
     return this.tiles.get(ProbeCache.key(tileset, id, s))
@@ -39,10 +47,10 @@ export class ProbeCache {
   }
   /** The calibration and the level-of-air runs that every tile of this tileset shares. */
   prep(tileset: number, s: ProbeState = NEUTRAL): { cal: Calibration; air: AirRuns } | undefined {
-    return this.preps.get(`${tileset}:${stateKey(s)}`)
+    return this.preps.get(`${tileset}:${probeKey(s)}`)
   }
   setPrep(tileset: number, p: { cal: Calibration; air: AirRuns }, s: ProbeState = NEUTRAL): void {
-    this.preps.set(`${tileset}:${stateKey(s)}`, p)
+    this.preps.set(`${tileset}:${probeKey(s)}`, p)
   }
 }
 

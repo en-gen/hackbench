@@ -206,7 +206,12 @@ unknown cells are hatched. The overlay follows the view's four palace toggles an
 become $16A-$16D on 48 levels, and the probe's WRAM gets $1F27-$1F2A and $14AD to match). The silver
 P-switch also changes tiles ($12F becomes coin $2B under it) but is not modelled, so the overlay does
 not follow it; ON/OFF swaps chars, not tiles, so it does not matter here. Mario is small. The state is
-in every cache key.
+in the composed reply's key. The per-tile probe cache, calibration and level-of-air runs key on the
+tileset and the blue P-switch only, not the palaces: on vanilla the block code reads the palace flags
+only in the big palace switch (bank_00.asm:12508), whose two branches give the same collision, so a
+palace toggle reuses every cached tile and probes only the ids new to the map ($015 yellow: 1 tile, about
+20 ms warm, against re-probing the whole map). A hack whose blocks read $1F27-$1F2A needs the palace
+bits back in that key; the probe's WRAM gets them either way.
 
 The toggles live in `MapViewStateStore` (`browser/map-view-state-store.ts`, over the Theia-free
 `map-view-state.ts`), a per-tab flux-style store on Theia's `Emitter`: the buttons only `dispatch`
