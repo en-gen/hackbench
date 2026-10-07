@@ -36,50 +36,59 @@ describe('indicatorBox', () => {
   })
 })
 
+/** An art with the given anti-diagonal pixels opaque: pixel k is (x = k, y = 15 - k). */
+const onLine = (ks: number[]) => {
+  const a = new Uint8ClampedArray(BLOCK * BLOCK * 4)
+  for (const k of ks) a.set([0, 0, 255, 255], ((BLOCK - 1 - k) * BLOCK + k) * 4)
+  return a
+}
+
 describe('splitDiagonal', () => {
   const red = solid([255, 0, 0, 255])
   const blue = solid([0, 0, 255, 255])
-  const out = splitDiagonal(red, blue)
-  it('puts the small item bottom-left and the big item top-right, hard, off the diagonal', () => {
-    expect(at(out, 0, 15)).toEqual([255, 0, 0, 255])
-    expect(at(out, 15, 0)).toEqual([0, 0, 255, 255])
+  const out = splitDiagonal(red, blue) // red is the base, blue the upgrade
+  it('puts the base item bottom-right and the upgrade top-left, split along the anti-diagonal, hard', () => {
+    expect(at(out, 15, 15)).toEqual([255, 0, 0, 255]) // bottom-right: the base
+    expect(at(out, 0, 0)).toEqual([0, 0, 255, 255]) // top-left: the upgrade
+    expect(at(out, 15, 0)[3]).toBe(255) // top-right and bottom-left are on the line
     for (let y = 0; y < BLOCK; y++)
       for (let x = 0; x < BLOCK; x++)
-        if (x !== y) expect(at(out, x, y)).toEqual(at(y > x ? red : blue, x, y))
+        if (x + y !== 15) expect(at(out, x, y)).toEqual(at(x + y > 15 ? red : blue, x, y))
   })
-  it('splits every off-diagonal pixel once: 120 small, 120 big, 16 black', () => {
-    let small = 0
+  it('splits every off-line pixel once: 120 base, 120 upgrade, 16 black', () => {
+    let base = 0
     let black = 0
     for (let y = 0; y < BLOCK; y++)
       for (let x = 0; x < BLOCK; x++) {
         const p = at(out, x, y)
-        if (p[0] === 255) small++
+        if (p[0] === 255) base++
         if (p.join() === '0,0,0,255') black++
       }
-    expect([small, black]).toEqual([120, 16])
+    expect([base, black]).toEqual([120, 16])
   })
-  it('paints the line where EITHER item is opaque on the diagonal pixel, and nowhere else', () => {
-    // small (bottom-left) is opaque at the diagonal pixels 0-3 only; big (top-right) at 6-9 only.
-    const only = (cells: number[]) => {
-      const a = new Uint8ClampedArray(BLOCK * BLOCK * 4)
-      for (const c of cells) a.set([0, 0, 255, 255], (c * BLOCK + c) * 4)
-      return a
+  it('paints the line where EITHER item is opaque on the line pixel, and nowhere else', () => {
+    // The base (bottom-right) is opaque at line pixels 0-3 only; the upgrade (top-left) at 6-9 only.
+    const o = splitDiagonal(onLine([0, 1, 2, 3]), onLine([6, 7, 8, 9]))
+    // The alpha says which half(s): LINE_SMALL = the base's only, LINE_BIG = the upgrade's only, 255 = both.
+    for (let k = 0; k < BLOCK; k++) {
+      const want = k <= 3 ? LINE_SMALL : k >= 6 && k <= 9 ? LINE_BIG : 0
+      expect(at(o, k, 15 - k), `line pixel ${k}`).toEqual([0, 0, 0, want])
     }
-    const o = splitDiagonal(only([0, 1, 2, 3]), only([6, 7, 8, 9]))
-    // Opaque where either item is; the alpha says which half(s): 1 = bottom-left only, 2 = top-right only, 255 = both.
-    for (let d = 0; d < BLOCK; d++) {
-      const want = d <= 3 ? LINE_SMALL : d >= 6 && d <= 9 ? LINE_BIG : 0
-      expect(at(o, d, d), `diagonal pixel ${d}`).toEqual([0, 0, 0, want])
-    }
-    // Nothing off the diagonal is drawn: neither item paints there.
+    // Nothing off the line is drawn: neither item paints there.
     for (let y = 0; y < BLOCK; y++)
-      for (let x = 0; x < BLOCK; x++) if (x !== y) expect(at(o, x, y)[3]).toBe(0)
+      for (let x = 0; x < BLOCK; x++) if (x + y !== 15) expect(at(o, x, y)[3]).toBe(0)
   })
-  it('draws the whole diagonal black when both items are opaque, and keeps either side hard', () => {
+  it('draws the whole line black when both items are opaque, and keeps either side hard', () => {
     const o = splitDiagonal(red, blue)
-    for (let d = 0; d < BLOCK; d++) expect(at(o, d, d)).toEqual([0, 0, 0, 255])
-    expect(at(o, 5, 4)).toEqual([0, 0, 255, 255]) // above the diagonal: big
-    expect(at(o, 4, 5)).toEqual([255, 0, 0, 255]) // below it: small
+    for (let k = 0; k < BLOCK; k++) expect(at(o, k, 15 - k)).toEqual([0, 0, 0, 255])
+    expect(at(o, 8, 8)).toEqual([255, 0, 0, 255]) // below-right of the line: the base
+    expect(at(o, 7, 7)).toEqual([0, 0, 255, 255]) // above-left of it: the upgrade
+  })
+  it('is not the old main-diagonal split: the corners say which way it runs', () => {
+    expect(at(out, 0, 15)[3]).toBe(255) // bottom-left corner is a line pixel (black), not the base
+    expect(at(out, 0, 15)).toEqual([0, 0, 0, 255])
+    expect(at(out, 15, 15)).toEqual([255, 0, 0, 255])
+    expect(at(out, 0, 0)).toEqual([0, 0, 255, 255])
   })
 })
 
@@ -168,28 +177,30 @@ describe('paintIndicator', () => {
   })
 })
 
-describe('the line at sub-pixel level: each half of the diagonal pixel follows its own item', () => {
+describe('the line at sub-pixel level: each half of the line pixel follows its own item', () => {
   const W = 32
-  const only = (cells: number[]) => {
-    const a = new Uint8ClampedArray(BLOCK * BLOCK * 4)
-    for (const c of cells) a.set([9, 9, 9, 255], (c * BLOCK + c) * 4)
-    return a
-  }
-  // Diagonal art pixel 0: bottom-left item only. 1: top-right only. 2: both.
-  const art = splitDiagonal(only([0, 2]), only([1, 2]))
+  // Line pixels (x, 15 - x): x = 0 only the base (bottom-right half), x = 1 only the upgrade (top-left), x = 2 both.
+  const art = splitDiagonal(onLine([0, 2]), onLine([1, 2]))
   const p = new Uint8ClampedArray(W * W * 4)
   paintIndicator(p, W, W, 0, 0, art, 2, true)
   const lit = (x: number, y: number) => p[(y * W + x) * 4 + 3] !== 0
+  // A line pixel (k, 15 - k) is screen pixels (2k..2k+1, 30-2k..31-2k) at 2x.
+  const quad = (k: number) => [lit(2 * k, 30 - 2 * k), lit(2 * k + 1, 30 - 2 * k), lit(2 * k, 31 - 2 * k), lit(2 * k + 1, 31 - 2 * k)] // prettier-ignore
   it('shows a black triangle, not a square, where only one item is opaque, at 2x', () => {
-    // Art pixel 0 is dest (0..1, 0..1): bottom-left half only; the pixel above the diagonal stays clear.
-    expect([lit(0, 0), lit(1, 0), lit(0, 1), lit(1, 1)]).toEqual([true, false, true, true])
-    // Art pixel 1 is dest (2..3, 2..3): top-right half only.
-    expect([lit(2, 2), lit(3, 2), lit(2, 3), lit(3, 3)]).toEqual([true, true, false, true])
-    // Art pixel 2, both items: the whole square.
-    expect([lit(4, 4), lit(5, 4), lit(4, 5), lit(5, 5)]).toEqual([true, true, true, true])
+    // Only the base: its bottom-right triangle, the top-left screen pixel stays clear.
+    expect(quad(0)).toEqual([false, true, true, true])
+    // Only the upgrade: its top-left triangle, the bottom-right screen pixel stays clear.
+    expect(quad(1)).toEqual([true, true, true, false])
+    // Both items: the whole square.
+    expect(quad(2)).toEqual([true, true, true, true])
   })
-  it('paints every lit diagonal pixel black, and nothing on art pixels without a line', () => {
-    for (let y = 0; y < 6; y++) for (let x = 0; x < 6; x++) if (lit(x, y)) expect(Array.from(p.subarray((y * W + x) * 4, (y * W + x) * 4 + 4))).toEqual([0, 0, 0, 255]) // prettier-ignore
-    for (let y = 6; y < W; y++) for (let x = 0; x < W; x++) expect(lit(x, y)).toBe(false)
+  it('paints every lit pixel black, and nothing on art pixels without a line', () => {
+    for (let y = 0; y < W; y++)
+      for (let x = 0; x < W; x++) {
+        const px = Array.from(p.subarray((y * W + x) * 4, (y * W + x) * 4 + 4))
+        const onTheLine = [0, 1, 2].some(k => x >> 1 === k && y >> 1 === 15 - k)
+        expect(lit(x, y), `(${x}, ${y})`).toBe(onTheLine ? lit(x, y) : false)
+        if (lit(x, y)) expect(px).toEqual([0, 0, 0, 255])
+      }
   })
 })

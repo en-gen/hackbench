@@ -31,31 +31,29 @@ type Rgba = readonly [number, number, number, number]
 const px = (a: Uint8ClampedArray, i: number): Rgba => [a[i]!, a[i + 1]!, a[i + 2]!, a[i + 3]!]
 
 /**
- * The line's alpha on a diagonal art pixel only one item paints: the art has
- * no room for a half pixel, so the alpha says which triangle of the pixel is
- * black. 255 (the ordinary opaque value) is both halves. `paintIndicator`
- * turns these into triangles at screen resolution.
+ * The line's alpha on an anti-diagonal art pixel only one item paints: the art has no room for a
+ * half pixel, so the alpha says which triangle of the pixel is black. 255 (the ordinary opaque value)
+ * is both halves. `paintIndicator` turns these into triangles at screen resolution.
  */
-export const LINE_SMALL = 1 // bottom-left triangle only (the small item's half)
-export const LINE_BIG = 2 // top-right triangle only (the big item's half)
+export const LINE_SMALL = 1 // the base item's triangle only (bottom-right)
+export const LINE_BIG = 2 // the upgrade's triangle only (top-left)
 
 /**
- * Split indicators (#607 and the two-outcome blocks): a hard diagonal from the
- * top-left to the bottom-right corner, `small` below it (bottom-left), `big`
- * above it (top-right), with the owner's L1 line: black, one art pixel wide
- * (so it scales with zoom), on the diagonal. The mockup draws the line once per
- * item, each clipped to that item's own triangle of the diagonal pixel
- * (spikes/progressive-powerup-indicators gen.cjs, `diag`), so a diagonal art
- * pixel is black in the half of each item that is opaque there: both halves
- * (alpha 255), only the small item's (LINE_SMALL), only the big item's
- * (LINE_BIG), or clear. The rest of the split is hard: no blending.
+ * Split indicators (#607 and the two-outcome blocks; owner ruling 2026-10-06): the split runs along
+ * the anti-diagonal, bottom-left to top-right (x + y = 15 in the 16 x 16 art), so a mirrored feather
+ * is not cut along its length. The BASE item (`small`: the mushroom, or the coin of option A) is the
+ * bottom-right half, the UPGRADE (`big`: flower, feather, star, 1-up) the top-left half. On the
+ * line itself runs the owner's L1 line: black, one art pixel wide (so it scales with zoom). It is
+ * drawn once per item, each clipped to that item's own triangle of the line pixel, so a line art pixel
+ * is black in the half of each item that is opaque there: both halves (alpha 255), only the base's
+ * (LINE_SMALL), only the upgrade's (LINE_BIG), or clear. The rest of the split is hard: no blending.
  */
 export function splitDiagonal(small: Uint8ClampedArray, big: Uint8ClampedArray): Uint8ClampedArray {
   const out = new Uint8ClampedArray(BLOCK * BLOCK * 4)
   for (let y = 0; y < BLOCK; y++) {
     for (let x = 0; x < BLOCK; x++) {
       const i = (y * BLOCK + x) * 4
-      if (x !== y) out.set(px(y > x ? small : big, i), i)
+      if (x + y !== BLOCK - 1) out.set(px(x + y > BLOCK - 1 ? small : big, i), i)
       else {
         const [s, b] = [small[i + 3] !== 0, big[i + 3] !== 0]
         if (s || b) out.set([0, 0, 0, s && b ? 255 : s ? LINE_SMALL : LINE_BIG], i)
@@ -132,18 +130,18 @@ export function paintIndicator(
     for (let i = 0; i < w; i++) {
       const [dx, dy] = [box.x0 + i - origin[0], box.y0 + j - origin[1]]
       if (dx < 0 || dy < 0 || dx >= width || dy >= height) continue
-      // One sample point per screen pixel (its top-left corner in art pixels) picks both the art pixel and,
-      // for a half-painted diagonal pixel, which triangle of it the pixel lies in.
-      const [sx, sy] = [(i * BLOCK) / w, (j * BLOCK) / h]
+      // One sample point per screen pixel (its centre, in art pixels, as CSS nearest-neighbour samples) picks
+      // both the art pixel and, for a half-painted line pixel, which triangle of it the pixel lies in.
+      const [sx, sy] = [((i + 0.5) * BLOCK) / w, ((j + 0.5) * BLOCK) / h]
       const [ax, ay] = [Math.floor(sx), Math.floor(sy)]
       const from = (ay * BLOCK + ax) * 4
       const alpha = art[from + 3]!
       if (alpha === 0) continue
       if (alpha === LINE_SMALL || alpha === LINE_BIG) {
-        // Only one item paints this diagonal pixel: its line is that item's own triangle of it
-        // (the diagonal itself belongs to both).
-        const [u, v] = [sx - ax, sy - ay]
-        if (alpha === LINE_SMALL ? v < u : v > u) continue
+        // Only one item paints this anti-diagonal pixel: its line is that item's own triangle of it, split by
+        // the anti-diagonal u + v = 1 of the pixel (the line itself belongs to both).
+        const sum = sx - ax + (sy - ay)
+        if (alpha === LINE_SMALL ? sum < 1 : sum > 1) continue
         canvas.set([0, 0, 0, 255], (dy * width + dx) * 4)
         continue
       }

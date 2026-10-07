@@ -122,15 +122,17 @@ Maps view, #566 PR B (`theia/extension/src/node/map-block-contents.ts`,
 - The item at 8 x zoom screen pixels in the block's bottom-right quadrant, full
   opacity, no outline; on hover it fills exactly the block (16 x zoom) and never
   leaves it. The 16 x 16 art is scaled nearest-neighbour, as the spikes' CSS did.
-- Split indicators: the progressive blocks (mushroom bottom-left, item top-right)
-  and, by the #623 ruling, the two-outcome blocks that include a coin ($11A
-  column 0 of 3 and $122: coin bottom-left, star top-right; $12D: coin
-  bottom-left, 1-up top-right). A hard diagonal from top-left to bottom-right
-  with the owner's L1 line: black, one art pixel wide, scaling with zoom. It is
-  drawn once per item, clipped to that item's half of the diagonal pixel, so a
-  diagonal art pixel is black in each item's triangle where that item is opaque
-  (so at 2x and 3x a pixel only one item paints shows a black triangle) and clear
-  where neither is.
+- Split indicators: the progressive blocks (mushroom, then flower or feather) and, by the #623 ruling,
+  the two-outcome blocks that include a coin ($11A column 0 of 3 and $122: coin, then star; $12D: coin,
+  then 1-up). The split runs along the anti-diagonal, bottom-left to top-right (x + y = 15 in the
+  16 x 16 art; owner ruling 2026-10-06, so the mirrored feather is not cut along its length). The
+  BASE item (the mushroom, or the coin) is the bottom-right half and the UPGRADE (flower, feather,
+  star, 1-up) the top-left half, the same at rest and on hover. The line of the owner's L1 pick runs
+  along it: black, one art pixel wide, scaling with zoom. It is drawn once per item, clipped to that
+  item's own triangle of the line pixel, so a line art pixel is black in each item's triangle where
+  that item is opaque (at 2x and 3x a pixel only one item paints shows a black triangle) and clear
+  where neither is. The art pixel and the triangle are tested at the screen pixel's centre. The split
+  elsewhere is hard: no blending.
 - Multi-coin ($11B, $123): the coin with a 5 x 5 white "+" (7 x 7 with a black
   edge) baked into the corner of its 16 x 16 art. $11C and $124: the plain coin.
 - Each cell resolves for its own X column; the P-switch uses the spawn
@@ -161,8 +163,8 @@ Maps view, #566 PR B (`theia/extension/src/node/map-block-contents.ts`,
   budget refuses with a plain reason and the block is not drawn. The runner takes this as
   `RunOptions.spawn`. Layer 2 blocks are spawned as layer 1 ones: the art does not depend on it.
 - The core's first frame is what is drawn (owner ruling 2026-10-06): the mirrored feather and the
-  star one pixel wider on the diagonal stay. Real-art diagonal counts, pinned in the corpus test:
-  $11F 13, $120 15, $11A column 0 12, $12D 12. The mockup's static art gave 13, 12, 11, 12.
+  star one pixel wider stay. Real-art line pixel counts on the anti-diagonal, pinned in the corpus
+  test: $11F 14, $120 12, $11A column 0 11, $12D 12 (on the old main diagonal: 13, 15, 12, 12).
 - Accepted (owner, 2026-10-06): the flying red coin of $125 column 1 ($7E) draws its wings only on
   the core's first frame, and is shown that way.
 - The coin is not a sprite: its chars and palette are the immediates of the coin

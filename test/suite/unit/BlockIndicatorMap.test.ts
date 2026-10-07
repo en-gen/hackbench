@@ -172,15 +172,15 @@ describe('blockIndicators: placement', () => {
 })
 
 describe('blockIndicators: what is drawn', () => {
-  it('splits a progressive block: small item bottom-left, big item top-right, black on the diagonal', () => {
+  it('splits a progressive block along the anti-diagonal: the base item bottom-right, the upgrade top-left, black on the line', () => {
     const r = ok(blockIndicators(model([[0, 0, 0x113]]), TABLES, stubArt().art))
     const a = unb(r.arts[r.indicators[0]!.art]!)
-    expect(at(a, 0, 15)).toEqual(spriteColour(0x41))
-    expect(at(a, 15, 0)).toEqual(spriteColour(0x42))
-    for (let d = 0; d < 16; d++) expect(at(a, d, d)).toEqual([0, 0, 0, 255])
+    expect(at(a, 15, 15)).toEqual(spriteColour(0x41)) // the base (mushroom-like)
+    expect(at(a, 0, 0)).toEqual(spriteColour(0x42)) // the upgrade
+    for (let k = 0; k < 16; k++) expect(at(a, k, 15 - k)).toEqual([0, 0, 0, 255])
   })
 
-  it('draws star-or-coin ($11A column 0, $122) and coin-or-1-up ($12D) as coin bottom-left, the other item top-right', () => {
+  it('draws star-or-coin ($11A column 0, $122) and coin-or-1-up ($12D) as the coin bottom-right, the other item top-left', () => {
     const r = ok(
       blockIndicators(
         model([
@@ -194,9 +194,9 @@ describe('blockIndicators: what is drawn', () => {
     expect(r.note).toBeUndefined()
     expect(r.indicators).toHaveLength(2)
     const [star, oneUp] = r.indicators.map(i => unb(r.arts[i.art]!))
-    expect([at(star!, 0, 15), at(star!, 15, 0)]).toEqual([COIN, spriteColour(0x43)])
-    expect([at(oneUp!, 0, 15), at(oneUp!, 15, 0)]).toEqual([COIN, spriteColour(0x47)])
-    for (const a of [star!, oneUp!]) for (let d = 0; d < 16; d++) expect(at(a, d, d)).toEqual([0, 0, 0, 255]) // prettier-ignore
+    expect([at(star!, 15, 15), at(star!, 0, 0)]).toEqual([COIN, spriteColour(0x43)])
+    expect([at(oneUp!, 15, 15), at(oneUp!, 0, 0)]).toEqual([COIN, spriteColour(0x47)])
+    for (const a of [star!, oneUp!]) for (let k = 0; k < 16; k++) expect(at(a, k, 15 - k)).toEqual([0, 0, 0, 255]) // prettier-ignore
   })
 
   it('leaves a Yoshi-loose variant undrawn and says so in plain words', () => {
@@ -698,31 +698,31 @@ describe.skipIf(!hasRom(VANILLA))('mapBlockContents on the vanilla ROM', () => {
     expect(prog).toBeDefined()
     const art = new Uint8ClampedArray(Buffer.from(r.arts[prog!.art]!, 'base64'))
     const colour = (x: number, y: number) => art.subarray((y * 16 + x) * 4, (y * 16 + x) * 4 + 4).join() // prettier-ignore
-    const below = new Set<string>()
-    const above = new Set<string>()
-    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) if (art[(y * 16 + x) * 4 + 3]) (y > x ? below : above).add(colour(x, y)) // prettier-ignore
-    expect(below.size).toBeGreaterThan(0)
-    expect(above.size).toBeGreaterThan(0)
-    expect([...below].join('|')).not.toBe([...above].join('|'))
+    const base = new Set<string>()
+    const upgrade = new Set<string>()
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) if (art[(y * 16 + x) * 4 + 3]) (x + y > 15 ? base : upgrade).add(colour(x, y)) // prettier-ignore
+    expect(base.size).toBeGreaterThan(0)
+    expect(upgrade.size).toBeGreaterThan(0)
+    expect([...base].join('|')).not.toBe([...upgrade].join('|'))
     expect(at(r, 209, 15).map(i => i.art)).toEqual(['s78:8:']) // $11A at column 1 of 3: the 1-up
   })
 
-  it('draws $11A column 0 of 3 as the option A split: coin bottom-left, star top-right', () => {
+  it('draws $11A column 0 of 3 as the option A split: coin bottom-right, star top-left', () => {
     const r = run(0x10b)
     const [cell] = at(r, 176, 20) // 176 mod 16 = 0
     expect(cell?.art).toBe('coin/s76:8:')
     const art = unb(r.arts[cell!.art]!)
-    const opaque = (below: boolean) => {
+    const opaque = (base: boolean) => {
       const out: number[][] = []
       for (let y = 0; y < 16; y++)
         for (let x = 0; x < 16; x++)
-          if (y > x === below && y !== x && art[(y * 16 + x) * 4 + 3])
+          if (x + y > 15 === base && x + y !== 15 && art[(y * 16 + x) * 4 + 3])
             out.push(Array.from(art.subarray((y * 16 + x) * 4, (y * 16 + x) * 4 + 3)))
       return out
     }
     expect(opaque(true).length).toBeGreaterThan(10)
     expect(opaque(false).length).toBeGreaterThan(10)
-    // The coin's own pixels are below the diagonal, and the star's above it.
+    // The coin's own pixels are bottom-right of the line, and the star's top-left of it.
     const coin = romArtCoin()
     expect(opaque(true).some(p => coin.has(p.join()))).toBe(true)
     expect(opaque(false).every(p => !coin.has(p.join()) || p.join() === '0,0,0')).toBe(true)
@@ -760,21 +760,19 @@ describe.skipIf(!hasRom(VANILLA))('mapBlockContents on the vanilla ROM', () => {
     expect(koopa!.rgba).not.toBe(Buffer.from(draw(4, 9)).toString('base64'))
   })
 
-  // The L1 line (owner pick): per item, clipped to that item's half of the diagonal pixel, so a diagonal art
-  // pixel is black where EITHER item is opaque. The mockup (spikes/progressive-powerup-indicators gen.cjs, `diag`)
-  // counts 13, 12, 11 and 12 diagonal pixels for $11F, $120, $11A column 0 and $12D, from its own static, unflipped
-  // art. The core-run art matches it for $11F (13) and $12D (12) and differs for $120 (15) and $11A (12): the run
-  // draws the feather mirrored (its first pass is flipped) and the star one pixel wider on the diagonal. So the rule is
-  // asserted against the constituents of the real art, and the core's own counts are pinned: 13, 15, 12 and 12 (owner ruling
-  // 2026-10-06: the core's first frame stays, the mirrored feather and the wider star included).
-  const diagOf = (a: Uint8ClampedArray) => Array.from({ length: 16 }, (_, i) => a[(i * 16 + i) * 4 + 3] !== 0) // prettier-ignore
+  // The L1 line (owner pick) runs along the anti-diagonal (x + y = 15; owner ruling 2026-10-06, so the mirrored feather
+  // is not cut along its length). Per item, clipped to that item's triangle of the line pixel, so a line art pixel is black
+  // where EITHER item is opaque. The rule is asserted against the constituents of the real art, and the core's own counts
+  // of line pixels are pinned from the real art (the core's first frame, the mirrored feather and the wider star
+  // included): $11F 14, $120 12, $11A column 0 11, $12D 12. (On the old main diagonal they were 13, 15, 12, 12.)
+  const lineOf = (a: Uint8ClampedArray) => Array.from({ length: 16 }, (_, i) => a[((15 - i) * 16 + i) * 4 + 3] !== 0) // prettier-ignore
   it.each([
-    [0x105, 'mushroom / flower ($11F)', 's74:8:', 's75:8:', 13],
-    [0x002, 'mushroom / feather ($120)', 's74:8:', 's77:8:', 15],
-    [0x10b, 'coin / star ($11A column 0 of 3)', 'coin', 's76:8:', 12],
+    [0x105, 'mushroom / flower ($11F)', 's74:8:', 's75:8:', 14],
+    [0x002, 'mushroom / feather ($120)', 's74:8:', 's77:8:', 12],
+    [0x10b, 'coin / star ($11A column 0 of 3)', 'coin', 's76:8:', 11],
     [0x005, 'coin / 1-up ($12D)', 'coin', 's78:8:', 12],
   ] as const)(
-    'draws the line on every diagonal pixel either item paints: map %#, %s',
+    'draws the line on every anti-diagonal pixel either item paints: map %#, %s',
     (map, _name, small, big, pinned) => {
       // prettier-ignore
       const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
@@ -789,12 +787,12 @@ describe.skipIf(!hasRom(VANILLA))('mapBlockContents on the vanilla ROM', () => {
       const one = (k: string) => {
         const d = k === 'coin' ? art.coin(false) : art.sprite({ kind: 'sprite', sprite: parseInt(k.slice(1), 16), index: parseInt(k.slice(1), 16) - 0x73, status: 8, label: '' }, 5, 10) // prettier-ignore
         if (!('art' in d)) throw new Error(d.why)
-        return diagOf(d.art)
+        return lineOf(d.art)
       }
       const [a, b] = [one(small), one(big)]
-      const got = Array.from({ length: 16 }, (_, i) => split[(i * 16 + i) * 4 + 3] !== 0)
+      const got = Array.from({ length: 16 }, (_, i) => split[((15 - i) * 16 + i) * 4 + 3] !== 0)
       expect(got).toEqual(a.map((v, i) => v || b[i]!))
-      for (let i = 0; i < 16; i++) if (got[i]) expect(Array.from(split.subarray((i * 16 + i) * 4, (i * 16 + i) * 4 + 3))).toEqual([0, 0, 0]) // prettier-ignore
+      for (let i = 0; i < 16; i++) if (got[i]) expect(Array.from(split.subarray(((15 - i) * 16 + i) * 4, ((15 - i) * 16 + i) * 4 + 3))).toEqual([0, 0, 0]) // prettier-ignore
       expect(got.filter(Boolean).length).toBe(pinned)
     },
   )
@@ -812,8 +810,9 @@ describe.skipIf(!hasRom(VANILLA))('mapBlockContents on the vanilla ROM', () => {
     const mapped = mapBlockContents(new L1ModelCache(), bytes, romPath(VANILLA), 0x105)
     if (mapped.status !== 'ok') throw new Error(JSON.stringify(mapped))
     const art = unb(mapped.arts['s74:8:/s75:8:']!)
+    // The mushroom is the base: the bottom-right half, x + y > 15.
     const below: string[] = []
-    for (let y = 0; y < 16; y++) for (let x = 0; x < y; x++) if (art[(y * 16 + x) * 4 + 3]) below.push(Array.from(art.subarray((y * 16 + x) * 4, (y * 16 + x) * 4 + 3)).join()) // prettier-ignore
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) if (x + y > 15 && art[(y * 16 + x) * 4 + 3]) below.push(Array.from(art.subarray((y * 16 + x) * 4, (y * 16 + x) * 4 + 3)).join()) // prettier-ignore
     const [mush, oneUp] = [rowColours(row(0x74)), rowColours(row(0x78))]
     expect(below.length).toBeGreaterThan(20)
     expect(below.every(c => mush.has(c) || c === '0,0,0' || c === '255,255,255'), 'every mushroom pixel is one of its row').toBe(true) // prettier-ignore

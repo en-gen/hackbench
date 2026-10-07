@@ -380,7 +380,7 @@ test('a $11B indicator differs from a $11C indicator', async ({ page }) => {
   expect(white(multi)).toBeGreaterThan(white(single))
 })
 
-/** Pixels of a hovered progressive block by region of its 16 x 16 art: below, above and on the diagonal. */
+/** Pixels of a hovered progressive block by region of its 16 x 16 art: the base item (bottom-right of the anti-diagonal, x + y > 15), the upgrade (top-left, x + y < 15) and the line itself (x + y = 15). */
 async function hoveredSplit(page, index, col, row) {
   await setZoom(page, index, 3)
   const { cx, cy } = await reveal(page, index, col, row)
@@ -388,13 +388,13 @@ async function hoveredSplit(page, index, col, row) {
   await expect.poll(async () => (await ofBlock(page, index, col, row)).mine[0]?.hover).toBe(true)
   const b = await ofBlock(page, index, col, row)
   const [w, h] = [b.rect.x1 - b.rect.x0, b.rect.y1 - b.rect.y0]
-  const regions = { below: [], above: [], diag: [] }
+  const regions = { base: [], upgrade: [], line: [] }
   for (const d of b.pixels) {
     const [ax, ay] = [
       Math.floor(((d.x - b.rect.x0) * 16) / w),
       Math.floor(((d.y - b.rect.y0) * 16) / h),
     ]
-    regions[ay > ax ? 'below' : ay < ax ? 'above' : 'diag'].push({ ...d, ax, ay })
+    regions[ax + ay > 15 ? 'base' : ax + ay < 15 ? 'upgrade' : 'line'].push({ ...d, ax, ay })
   }
   return { b, regions }
 }
@@ -404,7 +404,7 @@ const shape = list => new Set(list.map(d => `${d.ax},${d.ay}`))
  * measure is a diff), and the two maps have different backgrounds, so a few edge pixels may differ. */
 const unlike = (a, b) => [...a].filter(k => !b.has(k)).length / Math.max(1, new Set([...a, ...b]).size) + [...b].filter(k => !a.has(k)).length / Math.max(1, new Set([...a, ...b]).size) // prettier-ignore
 
-test('a progressive block holds the mushroom bottom-left and its item top-right, split on the diagonal', async ({
+test('a progressive block holds the mushroom bottom-right and its item top-left, split on the anti-diagonal', async ({
   page,
 }) => {
   const project = await createProject(page)
@@ -412,13 +412,13 @@ test('a progressive block holds the mushroom bottom-left and its item top-right,
   const flower = await hoveredSplit(page, 0x105, 243, 17)
   await ready(page, project, 0x11a)
   const feather = await hoveredSplit(page, 0x11a, 69, 14)
-  // Both blocks hold the mushroom below the diagonal: the same art pixels, one for one.
-  expect(flower.regions.below.length).toBeGreaterThan(10)
-  // The same mushroom: the same art pixels (the level's palette may colour it differently), none on the diagonal.
-  expect(unlike(shape(flower.regions.below), shape(feather.regions.below))).toBeLessThan(0.06)
+  // Both blocks hold the mushroom as the base, bottom-right of the anti-diagonal: the same art pixels, one for one.
+  expect(flower.regions.base.length).toBeGreaterThan(10)
+  // The same mushroom: the same art pixels (the level's palette may colour it differently), none on the line.
+  expect(unlike(shape(flower.regions.base), shape(feather.regions.base))).toBeLessThan(0.06)
   // It is the mushroom in its own palette (red, not the 1-up's green): the unit test checks the exact row
   // against the ROM and the level's CGRAM; here the drawn pixels must be red-dominant and none green-dominant.
-  for (const half of [flower.regions.below, feather.regions.below]) {
+  for (const half of [flower.regions.base, feather.regions.base]) {
     expect(
       half.some(d => d.rgb[0] > 150 && d.rgb[1] < 90 && d.rgb[2] < 90),
       'a red mushroom pixel',
@@ -429,27 +429,27 @@ test('a progressive block holds the mushroom bottom-left and its item top-right,
     ).toBe(false)
   }
   // Above it the flower and the feather differ, and a block is not one item twice.
-  expect(flower.regions.above.length).toBeGreaterThan(10)
-  expect(colours(flower.regions.above)).not.toBe(colours(feather.regions.above))
-  expect(colours(flower.regions.above)).not.toBe(colours(flower.regions.below))
+  expect(flower.regions.upgrade.length).toBeGreaterThan(10)
+  expect(colours(flower.regions.upgrade)).not.toBe(colours(feather.regions.upgrade))
+  expect(colours(flower.regions.upgrade)).not.toBe(colours(flower.regions.base))
 })
 
-test('a split indicator has a black line on its diagonal, only on opaque pixels and inside the block', async ({
+test('a split indicator has a black line on its anti-diagonal, only on opaque pixels and inside the block', async ({
   page,
 }) => {
   const project = await createProject(page)
   await ready(page, project, 0x105)
   const { b, regions } = await hoveredSplit(page, 0x105, 243, 17)
-  expect(regions.diag.length, 'the diagonal has pixels').toBeGreaterThan(0)
+  expect(regions.line.length, 'the line has pixels').toBeGreaterThan(0)
   expect(
-    regions.diag.every(d => d.rgb.join() === '0,0,0'),
-    'every diagonal pixel is black',
+    regions.line.every(d => d.rgb.join() === '0,0,0'),
+    'every line pixel is black',
   ).toBe(true)
-  // The line stops at the items' edges: fewer than all 16 diagonal cells.
+  // The line stops at the items' edges: fewer than all 16 line cells.
   const px = bbox(b.pixels)
   expect(px.x0).toBeGreaterThanOrEqual(b.rect.x0)
   expect(px.y1).toBeLessThanOrEqual(b.rect.y1)
-  const cells = new Set(regions.diag.map(d => d.ax))
+  const cells = new Set(regions.line.map(d => d.ax))
   expect(cells.size).toBeLessThan(16)
   expect(cells.size).toBeGreaterThan(3)
 })
@@ -467,7 +467,7 @@ test('a cell shows the item of its own X column, in drawn pixels', async ({ page
   expect(key.pixels.length).toBeGreaterThan(8)
   expect(balloon.pixels.length).toBeGreaterThan(8)
   expect(look(key)).not.toBe(look(balloon))
-  // $111 on Funky, column 117 (117 mod 16 mod 3 = 2): the star alone, so no diagonal split line.
+  // $111 on Funky, column 117 (117 mod 16 mod 3 = 2): the star alone, so no split line.
   await ready(page, project, 0x125)
   await setZoom(page, 0x125, 2)
   const star = await ofBlock(page, 0x125, 117, 15)

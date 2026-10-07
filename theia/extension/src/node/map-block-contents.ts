@@ -55,10 +55,11 @@ export type Spec =
 
 /**
  * THE one place that chooses what a block draws (owner rulings on #566, #623).
- * Progressive blocks (#607) split mushroom (bottom-left) and item (top-right).
+ * Progressive blocks (#607) split the base (the mushroom, bottom-right) and the upgrade (top-left)
+ * along the anti-diagonal.
  * A block with two outcomes that are not progressive but include a coin ($11A
- * column 0 of 3, $122: star or coin; $12D: coin or 1-up) splits the same way, coin
- * bottom-left. A block with one possible content draws it; an empty branch
+ * column 0 of 3, $122: star or coin; $12D: coin or 1-up) splits the same way, the coin
+ * as the base (bottom-right). A block with one possible content draws it; an empty branch
  * (`none`) is no item. Null: an empty block. Any other pair (the Yoshi-loose
  * variants) is undrawn, with a plain-words reason.
  */
