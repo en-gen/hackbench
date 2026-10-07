@@ -41,6 +41,9 @@ const part = (charNum: number, dx: number, dy: number, flipX = false) => ({ char
 const ok = (...parts: ReturnType<typeof part>[]): EngineResult => ({ ok: true, parts, identity: { spriteId: 0x10, mainHandler: 0, initHandler: 0, status: 'vanilla' } }) // prettier-ignore
 const decode = (d: MapSpriteDto) => new Uint8ClampedArray(Buffer.from(d.rgba, 'base64'))
 const sized = (d: MapSpriteDto) => [d.box.x1 - d.box.x0, d.box.y1 - d.box.y0] as const
+/** A w x h sprite whose every RGBA byte is `color`. */
+const solid = (x0: number, y0: number, w: number, h: number, color: number): MapSpriteDto =>
+  ({ index: 0, id: 1, x: x0, y: y0, box: { x0, y0, x1: x0 + w, y1: y0 + h }, status: 'drawn', rgba: Buffer.from(new Uint8ClampedArray(w * h * 4).fill(color)).toString('base64') }) as MapSpriteDto // prettier-ignore
 
 describe('drawSprites', () => {
   it('draws an engine miss as a 16x16 marker at the anchor, with the failure as its reason', () => {
@@ -204,8 +207,6 @@ describe('mapSprites with a stream in the ROM last bytes (#589)', () => {
 })
 
 describe('paintSpriteCanvas', () => {
-  const solid = (x0: number, y0: number, w: number, h: number, color: number): MapSpriteDto =>
-    ({ index: 0, id: 1, x: x0, y: y0, box: { x0, y0, x1: x0 + w, y1: y0 + h }, status: 'drawn', rgba: Buffer.from(new Uint8ClampedArray(w * h * 4).fill(color)).toString('base64') }) as MapSpriteDto // prettier-ignore
   /** A canvas whose 2D context records clears and the pixels last put (ImageData is polyfilled for node). */
   const recorder = () => {
     const log: string[] = []
@@ -272,8 +273,6 @@ describe('clearSpriteCanvas', () => {
 })
 
 describe('compositeSpriteScreen', () => {
-  const solid = (x0: number, y0: number, w: number, h: number, color: number): MapSpriteDto =>
-    ({ index: 0, id: 1, x: x0, y: y0, box: { x0, y0, x1: x0 + w, y1: y0 + h }, status: 'drawn', rgba: Buffer.from(new Uint8ClampedArray(w * h * 4).fill(color)).toString('base64') }) as MapSpriteDto // prettier-ignore
   const H = { orientation: 'horizontal' as const, width: 256, height: 432 }
   const V = { orientation: 'vertical' as const, width: 512, height: 256 }
 
