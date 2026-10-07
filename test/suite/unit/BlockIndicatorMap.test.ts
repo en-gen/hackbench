@@ -65,6 +65,7 @@ const TABLES: BlockContentTables = {
     COPY.map((_, i) => (i === 14 ? 9 : 8)),
     0x80,
   ),
+  gate: Uint8Array.from({ length: 36 }, (_, i) => (i === 0x19 || i === 0x1a ? 0x03 : 0x08)),
   columnOverride: Uint8Array.from([0x61, 0x62, 0x63, 0x64]),
   columnOverrideStatus: Uint8Array.from([0x0a, 0x0b, 0x0c, 0x0d]),
   pSwitchAttribute: Uint8Array.from([0x06, 0x02]),
@@ -320,6 +321,7 @@ function cartBytes(opts: { coin?: number[]; twice?: boolean } = {}) {
   const b = new Uint8Array(0x80000)
   b[0x7fd5] = 0x20
   b.set(TABLES.selector, 0x7080)
+  b.set(TABLES.gate, 0x70a4)
   b.set(TABLES.columnCycle, 0x7100)
   b.set(TABLES.spriteInBlock, 0x108a3)
   b.set(TABLES.statusOfSprInBlk, 0x108c5)
