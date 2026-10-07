@@ -220,12 +220,34 @@ export const OPERAND_POSITIONS = new Set(
   PREPARE_GFX_PATTERN.flatMap((b, i) => (b === WILD ? [i] : [])),
 )
 
+/** Entry-relative spots of the stock body's PLA / BEQ / BMI and of the routine the BMI reaches,
+ *  restated from the 65816 encoding so a change to GfxDecompressor cannot move the tests. */
+export const DISPATCH_AT = 56
+export const BACKREF_AT = 0x88
+/** ReadByte / XBA / ReadByte / [XBA] / TAX, then the copy loop and the jump back to the loop head. */
+// prettier-ignore
+export const backRefRoutine = (order: 'be' | 'le'): number[] => [
+  0x20, 0x83, 0xb9, 0xeb, 0x20, 0x83, 0xb9, ...(order === 'le' ? [0xeb] : []), 0xaa, 0x5a, 0x9b,
+  0xb7, 0x00, 0xbb, 0x7a, 0x97, 0x00, 0xc8, 0xe8, 0xc2, 0x20, 0xc6, 0x8d, 0xe2, 0x20, 0xd0, 0xee,
+  0x4c, 0xe3, 0xb8,
+]
+/** PLA / BEQ +$17 / BMI to BACKREF_AT. */
+export const BACKREF_DISPATCH = [0x68, 0xf0, 0x17, 0x30, BACKREF_AT - DISPATCH_AT - 5]
+
+/** Plants the dispatch and the back-reference routine behind a stock entry. */
+export function plantBackRef(rom: RomFile, order: 'be' | 'le' | number[] = 'be'): void {
+  rom.writeAt(DECOMP_ENTRY + DISPATCH_AT, BACKREF_DISPATCH)
+  rom.writeAt(DECOMP_ENTRY + BACKREF_AT, typeof order === 'string' ? backRefRoutine(order) : order)
+}
+
 export interface CartOptions {
   /** Exactly GFX_FILE_COUNT compressed streams. */
   streams?: Uint8Array[]
   arenaAt?: number
   /** Bytes at the decompressor entry. Defaults to the stock prologue. */
   entryBytes?: readonly number[]
+  /** The back-reference routine behind the entry: a byte order, or raw bytes. Default big-endian. */
+  backRef?: 'be' | 'le' | number[]
   /** Files placed away from the packed cluster: index to file offset. */
   outliers?: Record<number, number>
   /** Bytes of $FF filler after the cluster. */
@@ -267,6 +289,12 @@ export function buildCart(opts: CartOptions = {}): SyntheticCart {
   const bankAt = (opts.bank ?? 0) * LOROM_BANK_SIZE
   buf.set(opts.routine ?? prepareGraphicsFile(), bankAt + ROUTINE_AT)
   buf.set(opts.entryBytes ?? STOCK_LCLZ2_ENTRY, bankAt + DECOMP_ENTRY - 0x8000)
+  const backRefOps = opts.backRef ?? 'be'
+  buf.set(BACKREF_DISPATCH, bankAt + DECOMP_ENTRY - 0x8000 + DISPATCH_AT)
+  buf.set(
+    typeof backRefOps === 'string' ? backRefRoutine(backRefOps) : backRefOps,
+    bankAt + DECOMP_ENTRY - 0x8000 + BACKREF_AT,
+  )
   const routineSnes = loromFromOffset(bankAt + ROUTINE_AT)!
   for (const c of LEVEL_GFX_CALLERS) buf.set(jsl(routineSnes), c - 0x8000)
   const uploadSite = opts.uploadSite === undefined ? uploadGfxFileSite() : opts.uploadSite
@@ -312,6 +340,7 @@ export function buildCart(opts: CartOptions = {}): SyntheticCart {
 export function plantGfxReadPath(rom: RomFile): void {
   rom.writeAt(0x8000 + ROUTINE_AT, prepareGraphicsFile())
   rom.writeAt(DECOMP_ENTRY, [...STOCK_LCLZ2_ENTRY])
+  plantBackRef(rom)
   const routineSnes = PREPARE_GFX
   for (const c of LEVEL_GFX_CALLERS) rom.writeAt(c, jsl(routineSnes))
   rom.writeAt(L3_ROUTINE, layer3Routine())

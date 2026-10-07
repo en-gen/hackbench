@@ -64,6 +64,31 @@ routine. On the fast routine the reader refuses a stream using any command
 above 4 (`commandRefusal`), 5 included: 5 decodes the same, but one
 `parseStream` check is the whole rule.
 
+## Back-reference byte order
+
+Command 4's two operand bytes are an output index. Stock reads them with
+`ReadByte / XBA / ReadByte`, so the first byte is the high one (big-endian);
+the Japanese and E1 builds add a second `XBA` after the second read
+(`bank_00.asm:6385-6389`, `ver_has_rev_gfx`), which makes it little-endian.
+CODE_00B966 is reached by the `BMI` after the stock body's `PLA / BEQ`
+(`bank_00.asm:6329-6331`), 56 bytes into the entry. `readBackRefOrder` follows
+that branch and matches the routine's 29 bytes (big-endian) or 30 (with the
+XBA) literally; any other routine, or a dispatch that is not `PLA / BEQ / BMI`,
+refuses the ROM as a replaced decompressor. The two forms are the only ones
+recognized; the check does not read the rest of the body.
+
+A stock J or E1 ROM is still refused at the entry: its `ReadByte` sits one byte
+later, so the entry's `JSR` operand differs from the US one. The little-endian
+form is reachable today only on a ROM whose entry is stock and whose routine
+has the XBA. The fast routine is read big-endian as before; that is carried
+over from the 18 hacks it was surveyed on, not derived from its bytes.
+`encode` writes big-endian only, so a little-endian ROM is readable but
+`checkWritableCompression` refuses to save its GFX.
+
+Survey scope, one machine, 2026-10-07: the 6-ROM corpus (6 accepted before and
+after), the 101-hack store (73 accepted, 28 refused before and after, same
+ROMs), the 729-cart non-SMW set (1 accepted, same before and after).
+
 ## Not recognized
 
 - LC_LZ3 behind the same `JSL / RTS` shape, 7 store hacks: zero fill,

@@ -24,6 +24,10 @@ import { frameZeroChars, playableAnimation, type FrameZeroChars } from '../../..
 import { map16DecodeStub } from '../support/syntheticMap16'
 import { flip } from '../support/syntheticRom'
 import {
+  BACKREF_AT,
+  BACKREF_DISPATCH,
+  backRefRoutine,
+  DISPATCH_AT,
   gfxStreams,
   plantFast,
   plantPrelude,
@@ -126,6 +130,8 @@ function plantAnim(rom: RomFile, o: RomOpts = {}): void {
   put(routine + 0x14, o.gfx33Call ?? [0x20, (routine + 0x56) & 0xff, (routine + 0x56) >> 8])
   put(routine + 0x4f, o.tail ?? tail(0x9000))
   put(routine + 0x56, o.entry ?? STOCK_LCLZ2_ENTRY)
+  put(routine + 0x56 + DISPATCH_AT, BACKREF_DISPATCH)
+  put(routine + 0x56 + BACKREF_AT, backRefRoutine('be'))
   put(0x00a2a5, o.jsl ?? [0x22, 0x39, 0xbb, 0x05])
   put(0x05bb39, o.anim ?? stockRoutine())
   // GFX32 where the stream ends, decoys where a start-bank or $8000 read would look.
@@ -159,12 +165,26 @@ describe('readAnimGfxSources', () => {
       gfx33: 0x01c000,
       gfx32Offset: 0x9000,
       kind: 'stock',
+      order: 'be',
     })
+  })
+
+  it('carries the back-reference order of the decompressor to the animation reads', () => {
+    const rom = animRom()
+    rom.writeAt(0x00b8de + BACKREF_AT, backRefRoutine('le'))
+    const r = readAnimGfxSources(rom)
+    expect(r.ok && r.order).toBe('le')
   })
 
   it('folds the FastROM mirror bit out of the bank', () => {
     const r = readAnimGfxSources(animRom({ head: head(0x81c000) }))
-    expect(r).toEqual({ ok: true, gfx33: 0x01c000, gfx32Offset: 0x9000, kind: 'stock' })
+    expect(r).toEqual({
+      ok: true,
+      gfx33: 0x01c000,
+      gfx32Offset: 0x9000,
+      kind: 'stock',
+      order: 'be',
+    })
   })
 
   it('follows the JSR operand to a relocated routine', () => {
@@ -175,6 +195,7 @@ describe('readAnimGfxSources', () => {
       gfx33: 0x01c000,
       gfx32Offset: 0x9000,
       kind: 'stock',
+      order: 'be',
     })
   })
 

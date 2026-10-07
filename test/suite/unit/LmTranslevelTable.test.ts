@@ -14,7 +14,11 @@ import { WILD } from '../../../src/rom/BytePattern'
 import { STOCK_LCLZ2_ENTRY } from '../../../src/rom/GfxDecompressor'
 import { blankStockRom, flip, SYNTHETIC_FINGERPRINTS } from '../support/syntheticRom'
 import {
+  BACKREF_AT,
+  BACKREF_DISPATCH,
+  backRefRoutine,
   DECOMP_ENTRY,
+  DISPATCH_AT,
   FAST_DIVERGENT_COMMANDS,
   PRELUDE_KEY_BYTES,
   plantFast,
@@ -72,6 +76,9 @@ const FAST_LENGTH = 0x1bc
 /** CODE_00B8DE's $AF-byte body from entry+5: the stock entry's tail, then arithmetic. */
 const BODY_AT = DECOMP_ENTRY + 5
 const BODY = [...STOCK_LCLZ2_ENTRY.slice(5), ...syntheticRoutine(0xaf - 5, 3).bytes]
+// The gate follows the dispatch to the back-reference routine, so the body carries both.
+BODY.splice(DISPATCH_AT - 5, BACKREF_DISPATCH.length, ...BACKREF_DISPATCH)
+BODY.splice(BACKREF_AT - 5, backRefRoutine('be').length, ...backRefRoutine('be'))
 const KNOWN = {
   stockBody: [createHash('sha256').update(Buffer.from(BODY)).digest('hex')],
   fast: [{ length: FAST_LENGTH, fingerprint: syntheticRoutine(FAST_LENGTH).sha }],

@@ -22,7 +22,9 @@
  *   1  Byte fill        - read 1 byte; write it `len` times
  *   2  Word fill        - read 2 bytes; alternate-write them `len` total bytes
  *   3  Increasing fill  - read 1 byte; write it then increment, `len` times
- *   4  Back-reference   - read 2-byte big-endian index into output; copy `len` bytes
+ *   4  Back-reference   - read a 2-byte index into output; copy `len` bytes.
+ *                         Big-endian on the US ROM; the ROM's own decompressor
+ *                         decides (see `BackRefOrder`)
  *
  * Commands 5, 6 and extended-7's real command all decode as command 4 on
  * hardware: `PLA / BEQ / BMI CODE_00B966` (bank_00.asm:6329-6331) branches on
@@ -37,6 +39,14 @@
  *   - SMWCentral / DataCrystal GFX format docs
  *   - YY-CHR source (LC_LZ2 reference implementation)
  */
+
+/**
+ * Byte order of a back-reference's 2-byte output index. The ROM's own
+ * decompressor decides: the Japanese and E1 builds carry one extra XBA in
+ * CODE_00B966 that swaps the two bytes (SMWDisX bank_00.asm:6383-6389).
+ * `GfxDecompressor.readDecompressor` reads it from the ROM's code.
+ */
+export type BackRefOrder = 'be' | 'le'
 
 /**
  * Decompress LC_LZ2-compressed data starting at `srcOffset`.
@@ -59,6 +69,8 @@
  * @param maxOutput  Output byte cap. Defaults to one 64 KB bank (`MAX_OUTPUT`,
  *                   declared with the encoder below), a safety bound rather
  *                   than a vanilla value.
+ * @param order      Back-reference byte order; big-endian unless the ROM's
+ *                   decompressor says otherwise.
  * @returns          Decompressed bytes as a Uint8Array
  */
 export function decompress(
@@ -67,6 +79,7 @@ export function decompress(
   initialBuffer?: Uint8Array,
   meter?: { consumed: number; terminated: boolean },
   maxOutput: number = MAX_OUTPUT,
+  order: BackRefOrder = 'be',
 ): Uint8Array {
   // initialBuffer: optional pre-filled output buffer. The decompressor writes starting at
   // position 0, overwriting the beginning while higher offsets remain intact. Backreferences
@@ -142,14 +155,14 @@ export function decompress(
         break
       }
       default: {
-        // Back-reference (commands 4-7 alike): 2-byte big-endian index into
-        // the output buffer. Checked per byte, not once up front, because a
+        // Back-reference (commands 4-7 alike): 2-byte index into the output
+        // buffer, in the ROM's byte order. Checked per byte, not once up front, because a
         // self-referential run (addr inside this same command's span) is a
         // hardware-valid RLE idiom: out.length grows as the loop writes.
         if (i + 1 >= src.length) noTerminator()
-        const addrHi = src[i++]
-        const addrLo = src[i++]
-        const addr = (addrHi << 8) | addrLo
+        const first = src[i++]!
+        const second = src[i++]!
+        const addr = order === 'be' ? (first << 8) | second : (second << 8) | first
         for (let n = 0; n < len; n++) {
           if (addr + n >= out.length) {
             fail(
@@ -173,6 +186,7 @@ export interface DecompressOptions {
   initialBuffer?: Uint8Array
   meter?: { consumed: number; terminated: boolean }
   maxOutput?: number
+  order?: BackRefOrder
 }
 
 /**
@@ -192,6 +206,7 @@ export function tryDecompress(
         options?.initialBuffer,
         options?.meter,
         options?.maxOutput,
+        options?.order,
       ),
     }
   } catch (err) {

@@ -109,6 +109,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- GFX decompression reads LC_LZ2 back-reference offsets in the byte order the ROM's own decompressor uses (the Japanese and E1 builds add an XBA that makes them little-endian), and the decompressor check now covers the whole back-reference routine, not only the entry: a ROM whose routine is neither known form is refused instead of decoded wrongly. A little-endian ROM can be read but not saved, since the encoder writes big-endian only. Checked on the 6-ROM corpus and the 101-hack store: no ROM that passed before is refused now (#274).
 - `npm run typecheck:theia` uses theia's own TypeScript and exits 1 only when TypeScript is absent from both `theia/extension/node_modules` and `theia/node_modules`, naming `yarn --cwd theia install --frozen-lockfile --ignore-scripts` instead of failing with TS5107 under the root's TypeScript 6 (#669).
 
 - Develop builds again: `mapBlockContents` no longer calls a working-copy watch that moved into the project connection in #662, which broke the Theia type-check after #677 merged (#682).

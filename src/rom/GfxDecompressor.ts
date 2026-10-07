@@ -8,7 +8,7 @@ import type { RomFile } from './RomFile'
 import { WILD, matchesBytes, type BytePattern } from './BytePattern'
 import { fingerprint } from './Fingerprint'
 import { formatAddr } from './addressing'
-import { parseStream } from './LcLz2'
+import { parseStream, type BackRefOrder } from './LcLz2'
 
 /** REP #$10 / LDY #$0000 / JSR ReadByte / CMP #$FF (bank_00.asm:6294-6300). */
 export const STOCK_LCLZ2_ENTRY: readonly number[] = [
@@ -23,6 +23,30 @@ export const XOR_PRELUDE: BytePattern = [
   0x08, 0xc2, 0x30, 0xa5, 0x8a, 0x49, WILD, WILD, 0x85, 0x8a, 0x28, 0xc2, 0x10, 0xa0, 0x00, 0x00, 0x6b,
 ]
 const KEY_AT = 6
+
+/** Where the stock body's `PLA / BEQ / BMI` sits from the entry: the BMI's
+ *  target is the back-reference routine, CODE_00B966 (bank_00.asm:6329-6331).
+ *  The BEQ's own offset is not read, so only its opcode is checked. */
+const DISPATCH_AT = 56
+const PLA = 0x68
+const BEQ = 0xf0
+const BMI = 0x30
+
+/** CODE_00B966, big-endian: ReadByte / XBA / ReadByte / TAX, the copy loop,
+ *  JMP back to the loop head (bank_00.asm:6383-6403). 29 bytes, so literal. */
+// prettier-ignore
+export const BACKREF_BE: BytePattern = [
+  0x20, 0x83, 0xb9, 0xeb, 0x20, 0x83, 0xb9, 0xaa, 0x5a, 0x9b, 0xb7, 0x00, 0xbb, 0x7a, 0x97, 0x00,
+  0xc8, 0xe8, 0xc2, 0x20, 0xc6, 0x8d, 0xe2, 0x20, 0xd0, 0xee, 0x4c, 0xe3, 0xb8,
+]
+/** The same routine with the extra XBA after the second ReadByte
+ *  (bank_00.asm:6387-6389), which swaps the two bytes: little-endian. */
+const XBA_AT = 7
+export const BACKREF_LE: BytePattern = [
+  ...BACKREF_BE.slice(0, XBA_AT),
+  0xeb,
+  ...BACKREF_BE.slice(XBA_AT),
+]
 
 /** A body entered by JSL, recognized by the SHA-256 of `length` bytes from its target. */
 export interface FastRoutine {
@@ -44,7 +68,8 @@ export const FAST_LCLZ2: readonly FastRoutine[] = [
 
 export type DecompressorKind = 'stock' | 'fast'
 export type Decompressor =
-  { ok: true; kind: DecompressorKind; key: number } | { ok: false; reason: string }
+  | { ok: true; kind: DecompressorKind; key: number; order: BackRefOrder }
+  | { ok: false; reason: string }
 
 /** The 24-bit JSL target at `snes`, bank bit 7 folded for the FastROM
  *  mirror, or null off a JSL opcode or off the ROM. */
@@ -69,6 +94,23 @@ export function preludeKey(rom: RomFile, entry: number): number | null {
   return p && matchesBytes(p, XOR_PRELUDE) ? p[KEY_AT]! | (p[KEY_AT + 1]! << 8) : null
 }
 
+/** The back-reference byte order of the stock body at `entry`, read from the
+ *  routine its dispatch branches to; null when the dispatch is not there or
+ *  the routine is neither known form. */
+export function readBackRefOrder(rom: RomFile, entry: number): BackRefOrder | null {
+  const d = rom.readAt(entry + DISPATCH_AT, 5)
+  if (!d || d[0] !== PLA || d[1] !== BEQ || d[3] !== BMI) return null
+  const target = entry + DISPATCH_AT + 5 + ((d[4]! << 24) >> 24)
+  for (const [form, order] of [
+    [BACKREF_BE, 'be'],
+    [BACKREF_LE, 'le'],
+  ] as const) {
+    const bytes = rom.readAt(target, form.length)
+    if (bytes && matchesBytes(bytes, form)) return order
+  }
+  return null
+}
+
 export function readDecompressor(
   rom: RomFile,
   entry: number,
@@ -88,12 +130,19 @@ export function readDecompressor(
     )
   }
   if (matchesBytes(head.subarray(BODY_AT), STOCK_LCLZ2_ENTRY.slice(BODY_AT))) {
-    return { ok: true, kind: 'stock', key }
+    const order = readBackRefOrder(rom, entry)
+    return order
+      ? { ok: true, kind: 'stock', key, order }
+      : replaced('an unrecognized back-reference routine')
   }
   const target = head[BODY_AT + 4] === 0x60 ? jslTarget(rom, entry + BODY_AT) : null // JSL / RTS
   if (target === null) return replaced('an unrecognized body')
   const known = fast.some(f => fingerprint(rom.readAt(target, f.length)) === f.fingerprint)
-  return known ? { ok: true, kind: 'fast', key } : replaced(`it calls ${formatAddr(target)}`)
+  // Both recognized builds are big-endian in use: the stream decoding is
+  // unchanged from before #274, not derived from their bytes.
+  return known
+    ? { ok: true, kind: 'fast', key, order: 'be' }
+    : replaced(`it calls ${formatAddr(target)}`)
 }
 
 /** Why `stream` has no single meaning on this decompressor, or null: the fast
