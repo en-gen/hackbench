@@ -1,6 +1,6 @@
 /**
  * BlockContents.ts - what an item block holds, from its acts-like Map16
- * number ($111-$12D) and map X column. Pure: no shell imports. Tables are
+ * number ($111-$12D, and $021-$024 when hit from below) and map X column. Pure: no shell imports. Tables are
  * read from the ROM by `readBlockContentTables` and passed in, so tests feed
  * synthetic bytes. Derivation and the resolved table: docs/rom/block-contents.md.
  *
@@ -15,13 +15,10 @@ import type { RomFile } from './RomFile'
 export const FIRST_ITEM_BLOCK = 0x111
 export const LAST_ITEM_BLOCK = 0x12d
 /**
- * Tiles $12A and $12B have gate mask $03 in DATA_00F0A4 (bank_00.asm:12762): a side
- * hit opens them, a head bump never does (gate, bank_00.asm:12850-12853).
- */
-const SIDE_ONLY_TILES: ReadonlySet<number> = new Set([0x12a, 0x12b])
-/**
- * Page-0 tiles $021-$024 reach the same code by a head bump while Mario moves up
- * (bank_00.asm:12199-12212): selector index = tile - 4, so $1D-$20.
+ * Page-0 tiles $021-$024 reach the same code while Mario moves up with his head point
+ * in the tile (PlayerYSpeed+1 negative; the point CODE_00F44D just loaded at the
+ * EC8A call is the head one, bank_00.asm:12194-12212, offsets bank_00.asm:11686-11699):
+ * selector index = tile - 4, so $1D-$20.
  */
 export const FIRST_UPWARD_TILE = 0x21
 export const LAST_UPWARD_TILE = 0x24
@@ -60,6 +57,8 @@ const nameOf = (sprite: number): string =>
 export interface BlockContentTables {
   readonly selector: Uint8Array // DATA_00F080
   readonly columnCycle: Uint8Array // DATA_00F100
+  /** DATA_00F0A4: which hit directions open each index (bit 3 head bump, 0-1 sides, 2 above). */
+  readonly gate: Uint8Array
   /**
    * SpriteInBlock, $0288A3, read contiguously like the ROM: the second copy
    * (used when Yoshi is loose) starts 17 bytes in, and an id past the table
@@ -128,6 +127,7 @@ function readGreenStarCoins(rom: RomFile): { value: number | null; reason?: stri
 
 const TABLE_SPECS = [
   ['selector', 'DATA_00F080', 0x00f080, 36],
+  ['gate', 'DATA_00F0A4', 0x00f0a4, 36],
   ['columnCycle', 'DATA_00F100', 0x00f100, 32],
   ['spriteInBlock', 'SpriteInBlock', 0x0288a3, SPRITE_SPAN],
   ['statusOfSprInBlk', 'StatusOfSprInBlk', 0x0288c5, STATUS_SPAN],
@@ -251,14 +251,18 @@ function contentFor(id: number, c: Ctx): BlockContent | null {
     caveat =
       i === 3 ? `reads past DATA_0288D6; spawn status $${hex} has no handler; ${layer2}` : layer2
   }
-  // A zero table byte is sprite $00, which the ROM spawns (bank_02.asm:1150-1151).
+  // Status 0 is no sprite: HandleSprite erases it (bank_01.asm:182-183), and the spawn
+  // writes the table status as is (bank_02.asm:1141-1142), after the rewrite's if any.
+  if (status === 0) return null
+  // A zero sprite byte with a live status is sprite $00, which the ROM spawns (bank_02.asm:1150-1151).
   let label = nameOf(sprite)
-  // After the rewrite the ROM branches past the P-switch, egg and directional-coin
-  // checks (bank_02.asm:1215-1223), so those apply only to an unrewritten sprite.
+  // The $45 check (bank_02.asm:1162-1164) runs while SpriteNumber is still the table's
+  // sprite, before the balloon rewrite (:1199-1212), so a rewrite to $45 never gets it.
   if (sprite === SPRITE_DIRECT_COINS && !rewritten) {
     // DirectCoinInit set: the spawn is erased and the coin path runs (bank_02.asm:1162-1168).
     label += ' (a coin instead, if a directional-coin run already started in this level)'
   }
+  // After the rewrite the ROM branches past the P-switch and egg checks (bank_02.asm:1215-1223).
   if (sprite === SPRITE_PSWITCH && !rewritten) {
     // CODE_028A2A (bank_02.asm:1280-1295): colour by column parity.
     attribute = at(t.pSwitchAttribute, col & 1, 'DATA_028A42')
@@ -295,14 +299,16 @@ function decode(value: number, c: Ctx): ContentAlternative[] {
     // Star only while InvinsibilityTimer is nonzero, else coin (bank_00.asm:12887-12891).
     // ASM reading, not yet confirmed in an emulator.
     return chain([
-      ['Mario is invincible', item],
+      ['Mario is invincible', item ?? EMPTY],
       [null, contentFor(CONTENT_COIN, c)],
     ])
   }
-  // Mushroom unless Powerup is nonzero (bank_00.asm:12882-12885). Content id 0 is the
-  // only empty one; it stays an empty branch under its condition, not an unconditional other branch.
+  // Mushroom unless Powerup is nonzero (bank_00.asm:12882-12885). An empty entry (content
+  // id 0 or spawn status 0) stays an empty branch under its condition.
+  const mushroom = contentFor(1, c)
+  if (!item && !mushroom) return []
   return chain([
-    ['Mario is small', contentFor(1, c)],
+    ['Mario is small', mushroom ?? EMPTY],
     [null, item ?? EMPTY],
   ])
 }
@@ -322,10 +328,12 @@ function describe(alts: readonly ContentAlternative[]): string {
 function describeAll(
   normal: readonly ContentAlternative[],
   loose: readonly ContentAlternative[] | null,
+  position: string | undefined,
 ): string {
-  if (!loose) return describe(normal)
+  const head = describe(normal) + (position ? ` (${position})` : '')
+  if (!loose) return head
   const inner = describe(loose)
-  return `${describe(normal)} (${inner === 'Nothing' ? 'nothing' : inner} if Yoshi is loose)`
+  return `${head} (${inner === 'Nothing' ? 'nothing' : inner} if Yoshi is loose)`
 }
 
 function altsFor(
@@ -345,10 +353,12 @@ function altsFor(
     return {
       alts:
         n === 0
-          ? chain([[null, oneUp]])
+          ? oneUp
+            ? chain([[null, oneUp]])
+            : []
           : chain([
               [when, contentFor(CONTENT_COIN, c)],
-              [null, oneUp],
+              [null, oneUp ?? EMPTY],
             ]),
       caveat:
         n === null ? (t.greenStarCoinsReason ?? 'the green star counter was not read') : undefined,
@@ -392,10 +402,24 @@ function resolveWith(
 ): BlockContents {
   const index = upward ? actsLike - 4 : actsLike - FIRST_ITEM_BLOCK
   const raw = at(t.selector, index, 'DATA_00F080')
+  // The gate (bank_00.asm:12850-12853): which hit directions open this index. Head bump
+  // is Y=0 (mask $08), sides Y=1,2 ($03), above Y=3 ($04); the upward tiles are a head bump.
+  const mask = at(t.gate, index, 'DATA_00F0A4')
+  const trigger = upward
+    ? ' (only when hit from below)'
+    : mask & 0x08
+      ? ''
+      : mask & 0x03
+        ? ' (only when hit from the side)'
+        : mask & 0x04
+          ? ' (only when hit from above)'
+          : null
+  const opens = upward ? (mask & 0x08) !== 0 : trigger !== null
   const normal = altsFor(raw, { t, col, loose: false })
+  if (!opens) Object.assign(normal, { alts: [], position: undefined })
   let alts = normal.alts
   // Vanilla's second copy is identical, so this adds nothing there (bank_02.asm:1143-1151).
-  const looseAlts = altsFor(raw, { t, col, loose: true }).alts
+  const looseAlts = opens ? altsFor(raw, { t, col, loose: true }).alts : []
   const differs = JSON.stringify(looseAlts) !== JSON.stringify(alts)
   const loose = differs ? looseAlts : null
   if (loose) {
@@ -407,14 +431,8 @@ function resolveWith(
   const sprites = contents.flatMap(x => (x.kind === 'sprite' ? [x] : []))
   const normalSprites = normal.alts.flatMap(a => (a.content.kind === 'sprite' ? [a.content] : []))
   const position = normal.position ?? sprites.find(x => x.position)?.position
-  const sideOnly = SIDE_ONLY_TILES.has(actsLike) && alts.length > 0
-  const trigger =
-    upward && alts.length
-      ? ' (only when hit from below)'
-      : sideOnly
-        ? ' (only when hit from the side)'
-        : ''
-  const condition = describeAll(normal.alts, loose) + (position ? ` (${position})` : '') + trigger
+  const condition =
+    describeAll(normal.alts, loose, position) + (alts.length && trigger ? trigger : '')
   const caveats = [
     ...new Set([
       ...sprites.flatMap(x => (x.caveat ? [x.caveat] : [])),

@@ -62,6 +62,8 @@ const TABLES: BlockContentTables = {
   columnCycle: Uint8Array.from(CYCLE),
   spriteInBlock: Uint8Array.from(SPRITES),
   statusOfSprInBlk: Uint8Array.from(STATUS),
+  // Head bump (mask $08) opens every index, except $19 and $1A, opened from the side ($03).
+  gate: Uint8Array.from({ length: 36 }, (_, i) => (i === 0x19 || i === 0x1a ? 0x03 : 0x08)),
   columnOverride: Uint8Array.from([0x61, 0x62, 0x63, 0x64]),
   columnOverrideStatus: Uint8Array.from([0x0a, 0x0b, 0x0c, 0x0d]),
   pSwitchAttribute: Uint8Array.from([0x04, 0x0c]),
@@ -207,6 +209,77 @@ describe('resolveBlockContents', () => {
       expect(resolveOk(0x118, col, zero).condition).toBe(`Sprite $00 (X column ${col + 1} of 4)`)
   })
 
+  it('F1: spawn status 0 is no sprite (HandleSprite erases it, bank_01.asm:182-183), whatever the sprite', () => {
+    const status = Uint8Array.from(STATUS)
+    status[3] = 0 // content 3, sprite $43
+    const t = { ...TABLES, statusOfSprInBlk: status }
+    expect(resolveOk(0x114, 0, t).condition).toBe('Nothing')
+    status[3] = 0x21
+    const sprites = Uint8Array.from(SPRITES)
+    sprites[3] = sprites[20] = 0
+    status[3] = 0
+    expect(resolveOk(0x114, 0, { ...t, spriteInBlock: sprites }).condition).toBe('Nothing')
+    // The balloon rewrite supplies the status: 0 there empties that column only.
+    const rw = { ...TABLES, columnOverrideStatus: Uint8Array.from([0, 0x0b, 0x0c, 0x0d]) }
+    expect(resolveOk(0x118, 0, rw).condition).toBe('Nothing')
+    expect(resolveOk(0x118, 1, rw).condition).toBe('Sprite $62 (X column 2 of 4)')
+    // Each empty item stays an empty branch under its condition.
+    const none = (i: number) => {
+      const st = Uint8Array.from(STATUS)
+      st[i] = 0
+      return { ...TABLES, statusOfSprInBlk: st }
+    }
+    expect(resolveOk(0x112, 0, none(2)).condition).toBe(`${SMALL} nothing`)
+    expect(resolveOk(0x112, 0, none(1)).condition).toBe(
+      'Nothing if Mario is small, otherwise Sprite $42',
+    )
+    expect(resolveOk(0x11c, 0, none(3)).condition).toBe(
+      'Nothing if Mario is invincible, otherwise Coin',
+    )
+    const noOneUp = none(5)
+    expect(resolveOk(0x11d, 0, noOneUp).condition).toBe(
+      'Coin if fewer than 7 coins are collected, otherwise nothing',
+    )
+    expect(resolveOk(0x11d, 0, { ...noOneUp, greenStarCoins: 0 }).condition).toBe('Nothing')
+  })
+
+  it('F2: a balloon rewritten to $45 gets no directional-coin clause (the check precedes the rewrite)', () => {
+    const t = { ...TABLES, columnOverride: Uint8Array.from([0x45, 0x62, 0x63, 0x64]) }
+    expect(resolveOk(0x118, 0, t).condition).toBe('Directional coins (X column 1 of 4)')
+  })
+
+  it('F4: the gate mask is read from the table, not the tile number', () => {
+    const gate = Uint8Array.from(TABLES.gate)
+    gate[0x116 - FIRST_ITEM_BLOCK] = 0x03 // a hack: $116 opens from the side only
+    gate[0x12a - FIRST_ITEM_BLOCK] = 0x08 // and $12A from below again
+    gate[0x118 - FIRST_ITEM_BLOCK] = 0x00 // $118 never opens
+    gate[0x119 - FIRST_ITEM_BLOCK] = 0x04 // $119 opens from above only
+    const sel = Uint8Array.from(SELECTOR)
+    sel[0x12a - FIRST_ITEM_BLOCK] = 0x09
+    const t = { ...TABLES, gate, selector: sel }
+    expect(resolveOk(0x116, 0, t).condition).toBe('Coin (only when hit from the side)')
+    expect(resolveOk(0x12a, 0, t).condition).toBe(SMALL + ' Sprite $46')
+    expect(resolveOk(0x118, 0, t).condition).toBe('Nothing')
+    expect(resolveOk(0x119, 0, t).condition).toContain('(only when hit from above)')
+    // The upward tiles need mask $08 at their index.
+    const up = Uint8Array.from(TABLES.selector)
+    up[0x1d] = 0x0c
+    const g2 = Uint8Array.from(TABLES.gate)
+    g2[0x1d] = 0
+    expect(resolveOk(0x21, 0, { ...TABLES, selector: up, gate: g2 }).condition).toBe('Nothing')
+    g2[0x1d] = 0x08
+    expect(resolveOk(0x21, 0, { ...TABLES, selector: up, gate: g2 }).condition).toBe(
+      'Coin (only when hit from below)',
+    )
+  })
+
+  it('F7: the X column follows the normal answer, before the Yoshi-loose one', () => {
+    const sprites = Uint8Array.from(SPRITES)
+    sprites[17 + 16] = 0x41 // the balloon's loose copy
+    const r = resolveOk(0x118, 0, { ...TABLES, spriteInBlock: sprites })
+    expect(r.condition).toBe('Sprite $61 (X column 1 of 4) (Sprite $41 if Yoshi is loose)')
+  })
+
   it('content id 0 keeps the progressive Mushroom branch and is empty otherwise', () => {
     const sel = Uint8Array.from(SELECTOR)
     sel[0x112 - FIRST_ITEM_BLOCK] = 0x01
@@ -220,10 +293,12 @@ describe('resolveBlockContents', () => {
     const sel = Uint8Array.from(SELECTOR)
     sel[0x113 - FIRST_ITEM_BLOCK] = 0x13 << 1 // second-copy index 2
     sel[0x112 - FIRST_ITEM_BLOCK] = 0x3f << 1 // far past both copies
-    const t = { ...TABLES, selector: sel }
+    const status = Uint8Array.from(STATUS)
+    status[0x13] = 0x30 // a live status, so the sprite spawns
+    const t = { ...TABLES, selector: sel, statusOfSprInBlk: status }
     // The loose copy of id $13 is index $24, past the 34 bytes that hold sprites: a zero.
     expect(resolveOk(0x113, 0, t).spriteIds).toEqual([0x42, 0])
-    expect(resolveOk(0x112, 0, t).condition).toBe('Sprite $00') // zero bytes past the table
+    expect(resolveOk(0x112, 0, t).condition).toBe('Nothing') // status 0 past the table: no sprite
   })
 
   it('a differing second SpriteInBlock copy adds a Yoshi is loose alternative; identical adds none', () => {
@@ -589,6 +664,7 @@ describe('readBlockContentTables on a synthetic ROM', () => {
     }
     expectFrom(t.selector, 0, 0xf080, 36)
     expectFrom(t.columnCycle, 0, 0xf100, 32)
+    expectFrom(t.gate, 0, 0xf0a4, 36)
     expectFrom(t.spriteInBlock, 2, 0x88a3, 0xa0)
     expectFrom(t.statusOfSprInBlk, 2, 0x88c5, 0x80)
     expectFrom(t.columnOverride, 2, 0x88d6, 4)

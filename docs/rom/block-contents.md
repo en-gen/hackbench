@@ -1,4 +1,4 @@
-# Block contents (acts-like $111-$12D)
+# Block contents (acts-like $111-$12D, and $021-$024)
 
 What an item block gives when hit, resolved by `src/rom/BlockContents.ts`
 (`resolveBlockContents`). Issue #566. Evidence: a re-read of SMWDisX
@@ -14,9 +14,13 @@ emulator unless stated.
    Y = 0 is a head bump (mask $08; the sprite-hit callers also pass 0,
    `bank_01.asm:3049`, `:3543`), Y = 1 and 2 are side hits (mask $01, $02,
    `bank_00.asm:12188-12191`), Y = 3 is from above (mask $04, `bank_00.asm:12461`).
-   Every index but these has mask $08 (head bump only): 0, 2 and 4 are $0C and
-   5 is $0F (so they also open from above), $19 and $1A (tiles $12A, $12B) are
-   $03, and $21 is $04. A head bump never opens $12A or $12B, only a side hit does.
+   Every index but these has mask $08 (head bump only): 0, 2 and 4 are $0C
+   (head bump and from above), 5 (tile $116) is $0F (also from the sides),
+   $19 and $1A (tiles $12A, $12B) are $03, and $21 is $04. A head bump never opens
+   $12A or $12B, only a side hit does. The resolver reads this table (`DATA_00F0A4`,
+   36 bytes, `bank_00.asm:12758-12763`) from the ROM: mask bit 3 set gives no
+   trigger text, otherwise the condition says "(only when hit from the side)" or
+   "(only when hit from above)", and a mask with none of those bits opens nothing.
 2. The selector byte `DATA_00F080[index]` (`bank_00.asm:12751`) is decoded at
    `CODE_00F1BA` (`bank_00.asm:12877-12891`):
    - bit 7 set and every other bit set: green star block (`bank_00.asm:12861-12866`).
@@ -54,12 +58,14 @@ bits 7-4.
 | $11C $124                               | coin                                                                              | -                                                                          | coin art                       |
 | $11D                                    | P-switch                                                                          | colour by column parity (even blue, odd silver; layer 2 depends on scroll) | $3E                            |
 | $11F                                    | progressive Fire Flower                                                           | Powerup                                                                    | $74 / $75                      |
-| $120 $12A                               | progressive Feather                                                               | Powerup                                                                    | $74 / $77                      |
+| $120 $12A                               | progressive Feather ($12A: side hit only)                                         | Powerup                                                                    | $74 / $77                      |
 | $121                                    | Star                                                                              | -                                                                          | $76                            |
 | $122                                    | star-or-coin                                                                      | InvinsibilityTimer                                                         | $76 or coin                    |
 | $125                                    | col%4 = 0 Key, 1 Flying red coin, 2 Balloon, 3 Green bouncing Koopa               | X column mod 4                                                             | $80 / $7E / $7D / $09          |
 | $126                                    | Yoshi egg                                                                         | egg holds Yoshi or a 1-up                                                  | $2C                            |
 | $127 $128                               | Green Koopa shell (status 9)                                                      | -                                                                          | $04                            |
+| $021 $022                               | coin ($021), 1-up ($022), only when hit from below (see below)                    | head point, Mario moving up                                                | coin art or $78                |
+| $023 $024                               | none                                                                              | -                                                                          | -                              |
 | $12D                                    | coin until 30 coins are collected, then 1-up                                      | GreenStarBlockCoins                                                        | coin art or $78                |
 
 Citations per row: selector `DATA_00F080` `bank_00.asm:12751-12756`;
@@ -84,6 +90,17 @@ reports sprite $09 with a caveat. The index uses `SpriteXPosLow`, which for a
 layer 2 block is minus `Layer23XRelPos` (`bank_02.asm:1184-1198`), so on layer 2
 the item depends on scroll position; the resolver gives the layer-1 answer.
 
+### $021-$024
+
+Page-0 tiles $021-$024 reach `CODE_00F17F` directly (`bank_00.asm:12194-12212`)
+when `PlayerYSpeed+1` is negative (Mario moving up), page 0 only, with index = tile - 4:
+$1D (coin), $1E (1-up), $1F and $20 (nothing). The call is the one whose
+`CODE_00F44D` has just loaded Mario's head point: X advances two per call from
+`CODE_00EB77`, and the Y offset at that call is the head's ($10 small, $08 big,
+`bank_00.asm:11686-11699`). Hand-traced from the source, not confirmed in an
+emulator. The resolver words it "(only when hit from below)". The spin-break entry (index
+$21, `bank_00.asm:12471-12472`) gives nothing and is not a tile.
+
 ## Not confirmed in an emulator
 
 - `$11A` col%3 = 0 and `$122` give a star only while Mario is already invincible,
@@ -100,15 +117,9 @@ the item depends on scroll position; the resolver gives the layer-1 answer.
 - Tiles $159 and $15A reach selector indices $22 and $23 (feather, Mushroom)
   through a tileset-gated branch of `CODE_00F160` (`bank_00.asm:12835-12845`,
   after `DATA_00A625`), outside $111-$12D. The resolver returns null for them.
-- Tiles $021-$024 reach `CODE_00F17F` directly while Mario moves up, page 0 only
-  (`bank_00.asm:12195-12212`), with index = tile - 4: $1D (coin), $1E (1-up),
-  $1F and $20 (nothing). The resolver resolves them, with the condition "only
-  when hit from below". The spin-break entry (index $21, `bank_00.asm:12471-12472`)
-  gives nothing and is not a tile.
-- $12A and $12B are opened only by a side hit (step 1). The resolver says so:
-  their condition reads "(only when hit from the side)" when they hold something
-  (vanilla's $12B holds nothing, so it reads plain "Nothing"). The tile list is
-  fixed from vanilla's gate masks; a hack that changes `DATA_00F0A4` is not detected.
+- Drawing: `theia/extension/src/node/map-block-contents.ts` still admits only
+  $111-$12D (`inRange`), so the Maps view does not yet draw $021 and $022 although the
+  resolver resolves them (tracked separately).
 
 ## Resolver output
 
@@ -122,13 +133,18 @@ for the Properties "Contains" row, and an optional `caveat`. Tables come from
 
 The resolver reads every table from the ROM and keys the special cases on the
 spawned sprite, as the ROM does (balloon rewrite `bank_02.asm:1199`, P-switch
-`bank_02.asm:1228`, Yoshi egg `bank_02.asm:1230`). A zero SpriteInBlock or
-DATA_0288D6 entry is what the ROM spawns: sprite $00, read as "Sprite $00" (the spawn
-writes SpriteNumber from the table with no zero check, `bank_02.asm:1150-1151`; a
-balloon rewrite does the same, `:1209-1212`). Content id 0 is the only empty case:
-it returns before any spawn (`bank_02.asm:1053-1054`), whatever SpriteInBlock[0]
-holds. A sprite produced by the balloon rewrite skips the P-switch, egg and
-directional-coin handling (`bank_02.asm:1215-1223`). Content ids of $11 and up read the bytes that
+`bank_02.asm:1228`, Yoshi egg `bank_02.asm:1230`). A SpriteInBlock or
+DATA_0288D6 byte of 0 with a live status is what the ROM spawns: sprite $00, read as
+"Sprite $00" (the spawn writes SpriteNumber from the table with no zero check,
+`bank_02.asm:1150-1151`; a balloon rewrite does the same, `:1209-1212`). The empty
+cases are content id 0, which returns before any spawn (`bank_02.asm:1053-1054`,
+whatever SpriteInBlock[0] holds), and spawn status 0, which `HandleSprite` erases
+(`bank_01.asm:182-183`; the spawn writes the table status as is, `bank_02.asm:1141-1142`,
+and the balloon rewrite's own status replaces it, `:1209-1210`). A sprite
+produced by the balloon rewrite skips the P-switch and egg handling
+(`bank_02.asm:1215-1223`). The directional-coin check (`bank_02.asm:1162-1164`) runs
+before the rewrite, while SpriteNumber is still the table's sprite, so a rewrite to
+$45 never gets it. Content ids of $11 and up read the bytes that
 follow the table (`bank_02.asm:1077-1089`). When the second SpriteInBlock copy
 (read while Yoshi is loose, `bank_02.asm:1143-1151`) differs from the first, the
 resolver shows both, as "Sprite $43 (Sprite $00 if Yoshi is loose)", lists both
