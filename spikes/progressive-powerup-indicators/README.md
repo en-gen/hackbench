@@ -104,8 +104,8 @@ read from the vanilla ROM by the probe; not run in an emulator.
    (progressive), star by column, restarting every screen; `$81` (id `$11A`)
    cycles star, 1-Up, vine.
 6. Content 3 with bit 0 (byte `$07`, id `$122`, and the star in the `$81`
-   cycle) is a star that becomes a coin when Mario already has a star
-   (`CODE_00F1C9`, `bank_00.asm:12887-12891`). That is state variance but not
+   cycle) is a star while Mario is invincible, otherwise a coin
+   (`CODE_00F1BA` dispatches to `CODE_00F1C9`, `bank_00.asm:12877-12891`). That is state variance but not
    a mushroom swap; out of scope here, the probe leaves it unflagged.
 
 Progressive ids and what they give (mushroom if small, otherwise):
@@ -142,3 +142,33 @@ Properties sample: "Mushroom if Mario is small, otherwise Fire Flower".
   counts), not by eye; the diagonal clip is CSS `clip-path`, so its edge is
   anti-aliased in the browser.
 - Only the hit from below triggers most of these blocks (`DATA_00F0A4`); not modelled.
+
+## Two-outcome blocks (#623)
+
+Same probe and generator, extended: `probe.ts` also renders D4 coin `$11C`, the
+split block `$11F`, C4a `$11B`, and the state-dependent `$11A` (column 0), `$122`
+and `$12D`; `gen.cjs` writes a second page, `two-outcome.html` (gitignored), with
+one sheet per option at 1x, 2x and 3x, at rest and on hover.
+
+- A: the diagonal, coin bottom-left, star or 1-Up top-right.
+- B: the coin only.
+- C: the conditional item only.
+- D: the coin with the item as a half-size badge in its top-right corner.
+
+Rules: `$11A` column 0 and `$122` give a star only while Mario is invincible, else a coin (`CODE_00F1BA` to `CODE_00F1C9`, `bank_00.asm:12877-12891`); `$12D` gives a 1-Up once its
+counter is zero, else a coin (`bank_00.asm:12861-12866`). ASM reading only; the
+probe throws if the tables stop saying so.
+
+## Diagonal line mock (#566 ruling, mock only)
+
+`gen.cjs` also writes `diagonal-line.html` (gitignored with the other pages):
+the split indicators with a black line on the top-left to bottom-right
+diagonal, only over opaque art, beside the current no-line split. L1 one art
+pixel wide, L2 one screen pixel wide, L3 one art pixel wide skipping
+near-black outline pixels. A new variant is one row of `LINES`, a new block one
+row of `LB`. The line is drawn once per item and clipped to that item's half,
+so it cannot land on a pixel the item does not paint.
+
+Pick (owner, recorded on #566): option A (coin bottom-left, star or 1-up
+top-right) with the diagonal line **L1**, one art pixel wide, scaling with zoom.
+L2 and L3 are not taken.
