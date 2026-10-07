@@ -127,7 +127,6 @@ export class ProjectServiceImpl implements ProjectService {
   async mapBlockContents(manifestPath: string, index: number): Promise<MapBlockContentsResult> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
-    this.notifier.watch(manifestPath, r.working)
     return mapBlockContents(this.screens, r.working.bytes(), r.romPath, index)
   }
 
