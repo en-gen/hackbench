@@ -136,7 +136,7 @@ const GATE_OPERAND_AT = 7
 
 /** DATA_00F0A4 from the operand of the AND.L that reads it, or why that read is not on this ROM. */
 function readGate(rom: RomFile): { bytes: Uint8Array } | { reason: string } {
-  const what = `the reader of ${GATE_LABEL} (bank_00.asm:12850-12853)`
+  const what = `the reader of ${GATE_LABEL} (bank_00.asm:12849-12853)`
   const site = findExactlyOneSite(rom, GATE_READER, what)
   if (!site.ok) return { reason: `${GATE_LABEL}: ${site.reason}` }
   const op = rom.readAtFileOffset(site.offset + GATE_OPERAND_AT, 3)!
@@ -146,7 +146,7 @@ function readGate(rom: RomFile): { bytes: Uint8Array } | { reason: string } {
   const bytes = slice(rom, operand, GATE_LENGTH)
   if (bytes) return { bytes }
   const hex = (n: number): string => `$${n.toString(16).toUpperCase().padStart(6, '0')}`
-  const first = Array.from({ length: GATE_LENGTH }, (_, i) => operand + i).find(
+  const first = Array.from({ length: GATE_LENGTH }, (_, i) => (operand + i) & 0xffffff).find(
     a => rom.readByte(a) === null,
   )!
   const mapped =
@@ -447,7 +447,7 @@ function resolveWith(
 ): BlockContents {
   const index = upward ? actsLike - 4 : actsLike - FIRST_ITEM_BLOCK
   const raw = at(t.selector, index, 'DATA_00F080')
-  // The gate (bank_00.asm:12850-12853): which hit directions open this index. Head bump
+  // The gate (bank_00.asm:12849-12853): which hit directions open this index. Head bump
   // is Y=0 (mask $08), sides Y=1,2 ($03), above Y=3 ($04); the upward tiles are a head bump.
   const mask = at(t.gate, index, 'DATA_00F0A4') & 0x0f // bits 4-7 never match: Y is 0-3
   const trigger = upward ? ' (only when hit from below)' : gateText(mask)

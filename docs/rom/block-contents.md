@@ -10,7 +10,7 @@ emulator unless stated.
 1. `CODE_00F17F` (`bank_00.asm:12846`) is entered with index = acts-like low
    byte - $11, valid 0-$1C (`bank_00.asm:12827-12831`), and a hit direction Y.
    A gate decides whether this hit opens the block:
-   `DATA_00F0EC[Y] & DATA_00F0A4[index]`, zero meaning no (`bank_00.asm:12850-12853`).
+   `DATA_00F0EC[Y] & DATA_00F0A4[index]`, zero meaning no (`bank_00.asm:12849-12853`).
    Y = 0 comes from every caller that hits a block from below, not only Mario's
    head bump: `CODE_00EFE8` (`bank_00.asm:12681`) and the sprite-hit callers
    (`bank_01.asm:3049`, `:3543`, `bank_02.asm:2863`) into `CODE_00F160`, `CODE_00ECFA`
@@ -238,7 +238,7 @@ A ROM that ends before a required table is refused: `readBlockContentTables` ret
 zeros as "Nothing".
 
 Only the gate table `DATA_00F0A4` is located through its reading instruction (`AND.L` in
-`CODE_00F17F`, `bank_00.asm:12850-12853`): a repointed operand is followed, and a missing or
+`CODE_00F17F`, `bank_00.asm:12849-12853`): a repointed operand is followed, and a missing or
 duplicated reader refuses. The other tables are still read at their vanilla addresses, so a hack
 that moves one of them is not detected (#632).
 The selector table `DATA_00F080` beside the gate moves with it in practice; that is tracked separately.

@@ -808,6 +808,12 @@ describe('readBlockContentTables on a synthetic ROM', () => {
     },
   )
 
+  it('an operand that wraps past $FFFFFF names a six-digit address (#632)', () => {
+    const t = readBlockContentTables(repointed(0xfffff0, 0x400000)) // 4 MB: $FFFFF0-$FFFFFF read, then wrap
+    const reason = isUnavailable(t) ? t.unavailable : ''
+    expect(reason).toContain('DATA_00F0A4 (36 bytes at $FFFFF0): $000000 is not ROM')
+  })
+
   // A near-miss site differing in one fixed byte is not a reader, so it must not make the real one ambiguous.
   it.each([
     ['TAX for TYX', 0, 0xaa],
