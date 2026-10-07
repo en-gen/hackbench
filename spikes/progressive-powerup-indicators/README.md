@@ -104,8 +104,8 @@ read from the vanilla ROM by the probe; not run in an emulator.
    (progressive), star by column, restarting every screen; `$81` (id `$11A`)
    cycles star, 1-Up, vine.
 6. Content 3 with bit 0 (byte `$07`, id `$122`, and the star in the `$81`
-   cycle) is a star that becomes a coin when Mario already has a star
-   (`CODE_00F1C9`, `bank_00.asm:12887-12891`). That is state variance but not
+   cycle) is a star while Mario is invincible, otherwise a coin
+   (`CODE_00F1BA` dispatches to `CODE_00F1C9`, `bank_00.asm:12877-12891`). That is state variance but not
    a mushroom swap; out of scope here, the probe leaves it unflagged.
 
 Progressive ids and what they give (mushroom if small, otherwise):
@@ -155,7 +155,7 @@ one sheet per option at 1x, 2x and 3x, at rest and on hover.
 - C: the conditional item only.
 - D: the coin with the item as a half-size badge in its top-right corner.
 
-Rules: `$11A` column 0 and `$122` give a star only while Mario is invincible, else a coin (`CODE_00F1C9`, `bank_00.asm:12887-12891`); `$12D` gives a 1-Up once its
+Rules: `$11A` column 0 and `$122` give a star only while Mario is invincible, else a coin (`CODE_00F1BA` to `CODE_00F1C9`, `bank_00.asm:12877-12891`); `$12D` gives a 1-Up once its
 counter is zero, else a coin (`bank_00.asm:12861-12866`). ASM reading only; the
 probe throws if the tables stop saying so.
 
