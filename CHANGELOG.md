@@ -214,6 +214,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tests close three sprite-layer gaps from #564 (#589): `mapSprites` with a stream in the ROM's last bytes, `paintSpriteCanvas` clear and screen selection, and map-view assertions made after the sprites load.
 - The two wall-clock gates (`perfPairedE2E`, the `perfSampler` plant-precision test) are named `*.timing.test.ts`, excluded from `npm run test:unit` and run serially by `npm run test:timing`, which CI runs after the unit tests (#668, #537).
 - Agent manual: auto-merge stays on across fix pushes.
+- Implementer agent file no longer tells agents to disable auto-merge before pushing a fix; a PR merges on green.
 - `npm run gitnexus` no longer rewrites CLAUDE.md and AGENTS.md (`.gitnexusrc` and `--skip-agents-md`), so parallel worktrees stop conflicting on the generated counts, which are removed from the marked region (#644).
 - "Show surfaces" editor overlay now consumes the shared `SurfacePath`
   module — same source of truth as the sprite-patrol scan. Both views
