@@ -620,7 +620,7 @@ last check can fail. It does not start a server.
 
 ### Timing gates (`npm run test:timing`)
 
-Two tests judge wall-clock time and flake when another vitest file runs beside them: `perfPairedE2E.timing.test.ts` and `perfSampler.timing.test.ts` (#668, #537). The `*.timing.test.ts` name keeps them out of `npm run test:unit`; `vitest.timing.config.ts` runs them one file at a time, and CI runs them as a step after the unit tests. Run `test:timing` alone, never beside another vitest run, and after any change under `tools/perf/`. Even serially they can fail on a machine already loaded by other work.
+Two tests judge wall-clock time and flake when another vitest file runs beside them: `perfPairedE2E.timing.test.ts` and `perfSampler.timing.test.ts` (#668, #537). The `*.timing.test.ts` name keeps them out of `npm run test:unit`; `vitest.timing.config.ts` runs them one file at a time, and CI runs them as a step after the unit tests. Run `test:timing` alone, never beside another vitest run, and after any change under `tools/perf/`. `npx vitest run <timing file>` under the default config finds nothing; use `npm run test:timing -- <filter>`. Even serially they can fail on a machine already loaded by other work.
 
 ## Commands
 
