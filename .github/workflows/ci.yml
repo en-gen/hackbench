@@ -235,11 +235,11 @@ jobs:
       - name: Install root dependencies
         run: npm ci
 
-      # Uses the extension's own pinned TypeScript. The root compiler is a
-      # later major and rejects the moduleResolution Theia 1.75 requires, so
-      # checking with it would be checking the wrong compiler.
+      # The script picks theia's pinned TypeScript; the root's later major
+      # rejects the moduleResolution Theia 1.75 requires. Theia is installed
+      # above, so its install hint never fires here.
       - name: Type-check extension
-        run: yarn --cwd theia/extension typecheck
+        run: npm run typecheck:theia
 
       # The one gate case that needs Theia: its own config-dir resolution
       # must land under Playwright's per-run folder. HB_REQUIRE_THEIA turns
