@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A unit test pins tile $11A's star column over all 16 X columns: coin unless Mario is invincible, star only while invincible (`bank_00.asm:12887-12891`); the Maps view already draws it as the coin with the star split in (#567).
+
 - The map view has a collision toggle (`layout-panel-dock` icon, after the layer buttons; command
   `hackbench.maps.toggleCollision`; off by default): floors, ceilings, slopes and walls as 2 px
   vector lines over the map, yellow for surfaces and purple for walls, with a tile the probe could

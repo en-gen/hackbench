@@ -688,6 +688,36 @@ function tablesOf(rom: RomFile): BlockContentTables {
   return t
 }
 
+// #567: $11A cycles star, 1-up, vine by X column; the star column is a star only while Mario is
+// invincible and a coin otherwise (bank_00.asm:12877-12891). Synthetic tables, no ROM.
+describe('$11A star column is a coin unless Mario is invincible (#567)', () => {
+  const ID = 0x11a
+  const tables: BlockContentTables = {
+    ...TABLES,
+    selector: Uint8Array.from(SELECTOR.map((v, i) => (i === ID - FIRST_ITEM_BLOCK ? 0x81 : v))),
+    columnCycle: Uint8Array.from(
+      CYCLE.map((v, i) => (i < 16 ? v : [0x07, 0x0a, 0x10][(i - 16) % 3])),
+    ),
+  }
+  const star = TABLES.spriteInBlock[3]
+
+  it.each(Array.from({ length: 16 }, (_, col) => col))('column %i', col => {
+    const alts = resolveOk(ID, col, tables).alternatives
+    if (col % 3 === 0) {
+      expect(alts.map(a => [a.when, a.content.kind])).toEqual([
+        ['Mario is invincible', 'sprite'],
+        [null, 'coin'],
+      ])
+      expect(alts[0].content).toMatchObject({ sprite: star })
+    } else {
+      expect(alts).toHaveLength(1)
+      expect(alts[0].when).toBeNull()
+      expect(alts[0].content.kind).toBe('sprite')
+      expect(alts[0].content).not.toMatchObject({ sprite: star })
+    }
+  })
+})
+
 // Loader tests on a synthetic LoROM image: bank b, address a lives at b * $8000 + (a & $7FFF).
 describe('readBlockContentTables on a synthetic ROM', () => {
   const at = (bank: number, addr: number): number => bank * 0x8000 + (addr & 0x7fff)
