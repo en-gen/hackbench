@@ -788,4 +788,21 @@ describe('loadAnimationDataOrReason: back-reference order', () => {
     expect(load(gfx33([0x00, 0x01]), false).ok).toBe(true)
     expect(load(gfx33([0x01, 0x00]), false).ok).toBe(false)
   })
+
+  // GFX32 decodes into a pre-filled buffer, so a copy index is valid up to its length (about
+  // $5D20): $00FF is in range and $FF00 is not, which tells the two orders apart.
+  const gfx32 = (addr: [number, number]): Uint8Array =>
+    Uint8Array.from([0x0c, ...lits, 0x8a, ...addr, 0xff])
+  const load32 = (stream: Uint8Array, le: boolean) => {
+    const rom = animRom({ gfx32Stream: stream })
+    if (le) plantBackRef(rom, 'le')
+    return loadAnimationDataOrReason(rom, 0)
+  }
+
+  it('decodes GFX32 in the routine order too', () => {
+    expect(load32(gfx32([0xff, 0x00]), true).ok).toBe(true)
+    expect(load32(gfx32([0xff, 0x00]), false).ok).toBe(false)
+    expect(load32(gfx32([0x00, 0xff]), false).ok).toBe(true)
+    expect(load32(gfx32([0x00, 0xff]), true).ok).toBe(false)
+  })
 })
