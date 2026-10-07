@@ -91,12 +91,12 @@ describe('SmwRom.classifyLevels', () => {
     expect(result.overworld).toEqual([0x010]) // 0x011 dropped as dup
   })
 
-  it('skips levels whose header.levelMode > 20 (invalid)', () => {
+  it('keeps levels whose header.levelMode is 31 (valid, #130)', () => {
     const rom = make4MbRom()
     setL1Ptr(rom, 0x010, 0x068000)
     setLevelData(rom, 0x068000, [0, 0x1f, 0, 0, 0, 0x42, 0xff]) // mode = 31
     const smw = new SmwRom(rom)
-    expect(smw.classifyLevels(rootsOf(smw)).overworld).toEqual([])
+    expect(smw.classifyLevels(rootsOf(smw)).overworld).toEqual([0x010])
   })
 
   it('skips levels whose first object byte is the immediate $FF terminator', () => {
@@ -439,5 +439,29 @@ describe('SmwRom.enumerateAllLevels', () => {
     })
     const all = smw.enumerateAllLevels(entrances)
     expect(all[1].name).toBe('AB')
+  })
+})
+
+// ── levelHasObjects level-mode range (#130) ──────────────────────────────────
+
+describe('SmwRom.levelHasObjects level mode', () => {
+  // Every mode $00-$1F is a valid index into the six 32-entry mode tables
+  // (SMWDisX bank_05.asm:480-509); the header read masks with $1F (:539).
+  it.each(Array.from({ length: 0x20 }, (_, mode) => mode))(
+    'accepts level mode %s (decimal)',
+    mode => {
+      const rom = make4MbRom()
+      setL1Ptr(rom, 0x000, 0x068000)
+      // Header byte 1 carries bg color in bits 7-5 and the mode in bits 4-0.
+      setLevelData(rom, 0x068000, [0, 0xe0 | mode, 0, 0, 0, 0x42])
+      expect(new SmwRom(rom).levelHasObjects(0)).toBe(true)
+    },
+  )
+
+  it('still rejects an immediate object terminator in any mode', () => {
+    const rom = make4MbRom()
+    setL1Ptr(rom, 0x000, 0x068000)
+    setLevelData(rom, 0x068000, [0, 0x1f, 0, 0, 0, 0xff])
+    expect(new SmwRom(rom).levelHasObjects(0)).toBe(false)
   })
 })
