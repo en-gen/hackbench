@@ -735,19 +735,9 @@ describe('readBlockContentTables on a synthetic ROM', () => {
   }
   // #632: PLX / AND.L DATA_00F0A4,X / BEQ, preceded by the LDA.L it masks (bank_00.asm:12850-12853).
   const GATE_SITE = 0x600
-  const gateReader = (operand: number): number[] => [
-    0xbf,
-    0xec,
-    0xf0,
-    0x00,
-    0xfa,
-    0x3f,
-    operand & 0xff,
-    (operand >> 8) & 0xff,
-    operand >> 16,
-    0xf0,
-    0x6f, // prettier-ignore
-  ]
+  // prettier-ignore
+  const gateReader = (operand: number): number[] =>
+    [0xbf, 0xec, 0xf0, 0x00, 0xfa, 0x3f, operand & 0xff, (operand >> 8) & 0xff, operand >> 16, 0xf0, 0x6f]
 
   it('reads every table from its own address and length', () => {
     const t = tablesOf(image())
