@@ -56,7 +56,7 @@
  */
 
 import { RomFile } from './RomFile'
-import { tryDecompress } from './LcLz2'
+import { tryDecompress, type BackRefOrder } from './LcLz2'
 import { formatAddr, loromToOffset } from './addressing'
 import { matchesAt, WILD, type BytePattern } from './BytePattern'
 import { PIXELS_PER_TILE } from './GraphicsDecoder'
@@ -291,7 +291,7 @@ function expand3bppTo4bpp(data3bpp: Uint8Array): Uint8Array {
 // ── Core loader ──────────────────────────────────────────────────────────────
 
 export type AnimGfxSources =
-  | { ok: true; gfx33: number; gfx32Offset: number; kind: DecompressorKind }
+  | { ok: true; gfx33: number; gfx32Offset: number; kind: DecompressorKind; order: BackRefOrder }
   | { ok: false; reason: string }
 
 /** GFX33's address and GFX32's in-bank offset, from CODE_00B888's own immediates, each
@@ -323,6 +323,7 @@ export function readAnimGfxSources(
     gfx33: bank | ((head[3]! | (head[4]! << 8)) ^ key),
     gfx32Offset: (tail[1]! | (tail[2]! << 8)) ^ key,
     kind: d.kind,
+    order: d.order,
   }
 }
 
@@ -435,7 +436,7 @@ function loadAnimatedTileBuffer(
   const refused = commandRefusal(sources.kind, gfx33Compressed)
   if (refused) return { ok: false, reason: `GFX33: ${refused}` }
   const meter = { consumed: 0, terminated: false }
-  const gfx33 = tryDecompress(gfx33Compressed, { meter })
+  const gfx33 = tryDecompress(gfx33Compressed, { meter, order: sources.order })
   if (!gfx33.ok) return gfx33
   if (gfx33.bytes.length === 0) return { ok: false, reason: 'GFX33 decompressed to no bytes' }
 
@@ -459,7 +460,10 @@ function loadAnimatedTileBuffer(
   if (!gfx32Compressed) return { ok: false, reason: 'GFX32 points outside the ROM' }
   const refused32 = commandRefusal(sources.kind, gfx32Compressed)
   if (refused32) return { ok: false, reason: `GFX32: ${refused32}` }
-  const gfx32 = tryDecompress(gfx32Compressed, { initialBuffer: preFilled })
+  const gfx32 = tryDecompress(gfx32Compressed, {
+    initialBuffer: preFilled,
+    order: sources.order,
+  })
   if (!gfx32.ok) return gfx32
   const buffer = gfx32.bytes
 

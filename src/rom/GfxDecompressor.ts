@@ -8,7 +8,7 @@ import type { RomFile } from './RomFile'
 import { WILD, matchesBytes, type BytePattern } from './BytePattern'
 import { fingerprint } from './Fingerprint'
 import { formatAddr } from './addressing'
-import { parseStream } from './LcLz2'
+import { parseStream, type BackRefOrder } from './LcLz2'
 
 /** REP #$10 / LDY #$0000 / JSR ReadByte / CMP #$FF (bank_00.asm:6294-6300). */
 export const STOCK_LCLZ2_ENTRY: readonly number[] = [
@@ -23,6 +23,40 @@ export const XOR_PRELUDE: BytePattern = [
   0x08, 0xc2, 0x30, 0xa5, 0x8a, 0x49, WILD, WILD, 0x85, 0x8a, 0x28, 0xc2, 0x10, 0xa0, 0x00, 0x00, 0x6b,
 ]
 const KEY_AT = 6
+
+/** Where the stock body's `PLA / BEQ / BMI` sits from the entry: the BMI's
+ *  target is the back-reference routine, CODE_00B966 (bank_00.asm:6329-6331).
+ *  The BEQ's displacement is checked too: stock branches to CODE_00B930. */
+const DISPATCH_AT = 56
+const PLA = 0x68
+const BEQ = 0xf0
+const BEQ_OFFSET = 0x17
+const BMI = 0x30
+
+/** CODE_00B966 (bank_00.asm:6383-6403) as bytes: ReadByte / XBA / ReadByte / [XBA] / TAX, the copy
+ *  loop, then a JMP back to the loop head. The three absolute operands (both JSR ReadByte and the
+ *  JMP) move with the build, so `backRefRoutine` takes them: `readBackRefOrder` derives them from
+ *  the entry's own bytes, ReadByte from entry+6 and the loop head from entry+5. The XBA after the
+ *  second read is the J and E1 difference (bank_00.asm:6387-6389), making the order little-endian.
+ *  A stock J or E1 ROM is still refused at the entry gate, whose JSR operand is US-only (#696). */
+// prettier-ignore
+const BACKREF_TAIL = [
+  0xaa, 0x5a, 0x9b, 0xb7, 0x00, 0xbb, 0x7a, 0x97, 0x00, 0xc8, 0xe8, 0xc2, 0x20, 0xc6, 0x8d, 0xe2,
+  0x20, 0xd0, 0xee, 0x4c,
+]
+const XBA = 0xeb
+export function backRefRoutine(order: BackRefOrder, readByte: number, loop: number): number[] {
+  const jsr = [0x20, readByte & 0xff, readByte >> 8]
+  return [
+    ...jsr,
+    XBA,
+    ...jsr,
+    ...(order === 'le' ? [XBA] : []),
+    ...BACKREF_TAIL,
+    loop & 0xff,
+    loop >> 8,
+  ]
+}
 
 /** A body entered by JSL, recognized by the SHA-256 of `length` bytes from its target. */
 export interface FastRoutine {
@@ -44,7 +78,8 @@ export const FAST_LCLZ2: readonly FastRoutine[] = [
 
 export type DecompressorKind = 'stock' | 'fast'
 export type Decompressor =
-  { ok: true; kind: DecompressorKind; key: number } | { ok: false; reason: string }
+  | { ok: true; kind: DecompressorKind; key: number; order: BackRefOrder }
+  | { ok: false; reason: string }
 
 /** The 24-bit JSL target at `snes`, bank bit 7 folded for the FastROM
  *  mirror, or null off a JSL opcode or off the ROM. */
@@ -69,6 +104,23 @@ export function preludeKey(rom: RomFile, entry: number): number | null {
   return p && matchesBytes(p, XOR_PRELUDE) ? p[KEY_AT]! | (p[KEY_AT + 1]! << 8) : null
 }
 
+/** The back-reference byte order of the stock body at `entry`, read from the
+ *  routine its dispatch branches to; null when the dispatch is not there or
+ *  the routine is neither known form. */
+export function readBackRefOrder(rom: RomFile, entry: number): BackRefOrder | null {
+  const d = rom.readAt(entry + DISPATCH_AT, 5)
+  const at = rom.readAt(entry + BODY_AT, 3) // JSR ReadByte, the entry's own
+  if (!d || !at || d[0] !== PLA || d[1] !== BEQ || d[2] !== BEQ_OFFSET || d[3] !== BMI) return null
+  const target = entry + DISPATCH_AT + 5 + ((d[4]! << 24) >> 24)
+  const readByte = at[1]! | (at[2]! << 8)
+  for (const order of ['be', 'le'] as const) {
+    const form = backRefRoutine(order, readByte, (entry + BODY_AT) & 0xffff)
+    const bytes = rom.readAt(target, form.length)
+    if (bytes && matchesBytes(bytes, form)) return order
+  }
+  return null
+}
+
 export function readDecompressor(
   rom: RomFile,
   entry: number,
@@ -88,12 +140,19 @@ export function readDecompressor(
     )
   }
   if (matchesBytes(head.subarray(BODY_AT), STOCK_LCLZ2_ENTRY.slice(BODY_AT))) {
-    return { ok: true, kind: 'stock', key }
+    const order = readBackRefOrder(rom, entry)
+    return order
+      ? { ok: true, kind: 'stock', key, order }
+      : replaced('an unrecognized back-reference routine')
   }
   const target = head[BODY_AT + 4] === 0x60 ? jslTarget(rom, entry + BODY_AT) : null // JSL / RTS
   if (target === null) return replaced('an unrecognized body')
   const known = fast.some(f => fingerprint(rom.readAt(target, f.length)) === f.fingerprint)
-  return known ? { ok: true, kind: 'fast', key } : replaced(`it calls ${formatAddr(target)}`)
+  // Both recognized builds are big-endian in use: the stream decoding is
+  // unchanged from before #274, not derived from their bytes.
+  return known
+    ? { ok: true, kind: 'fast', key, order: 'be' }
+    : replaced(`it calls ${formatAddr(target)}`)
 }
 
 /** Why `stream` has no single meaning on this decompressor, or null: the fast

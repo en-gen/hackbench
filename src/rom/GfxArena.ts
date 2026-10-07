@@ -34,7 +34,7 @@
 import { RomFile } from './RomFile'
 import { BytePattern, WILD, findPattern, matchesBytes } from './BytePattern'
 import { LOROM_BANK_SIZE, formatAddr, loromFromOffset, loromToOffset } from './addressing'
-import { parseStream } from './LcLz2'
+import { parseStream, type BackRefOrder } from './LcLz2'
 import {
   FAST_LCLZ2,
   type DecompressorKind,
@@ -130,7 +130,8 @@ export interface GfxPointerSites {
 }
 
 export type CompressionCheck =
-  { ok: true; sites: GfxPointerSites; kind: DecompressorKind } | { ok: false; reason: string }
+  | { ok: true; sites: GfxPointerSites; kind: DecompressorKind; order: BackRefOrder }
+  | { ok: false; reason: string }
 type SitesCheck = { ok: true; sites: GfxPointerSites } | { ok: false; reason: string }
 
 /** JSL PrepareGraphicsFile in UploadGFXFile: the level FG/BG loader
@@ -347,7 +348,24 @@ export function checkStockCompression(
   const resolved = resolveGfxPointerSites(rom, DISPATCHER_FINGERPRINTS)
   if (!resolved.ok) return resolved
   const d = readDecompressor(rom, resolved.sites.decompressorEntry, fast)
-  return d.ok ? { ok: true, sites: resolved.sites, kind: d.kind } : d
+  return d.ok ? { ok: true, sites: resolved.sites, kind: d.kind, order: d.order } : d
+}
+
+/** `checkStockCompression` for a caller that WRITES: the encoder emits
+ *  big-endian back-references only, so a ROM that reads them little-endian
+ *  can be read but not saved. */
+export function checkWritableCompression(
+  rom: RomFile,
+  fast: readonly FastRoutine[] = FAST_LCLZ2,
+): CompressionCheck {
+  const gate = checkStockCompression(rom, fast)
+  return gate.ok && gate.order !== 'be'
+    ? {
+        ok: false,
+        reason:
+          "this ROM's decompressor reads back-references little-endian, which the GFX encoder cannot write",
+      }
+    : gate
 }
 
 export interface GfxFileExtent {
@@ -496,7 +514,7 @@ export function layoutArena(
    *  depend on how earlier edits happened to be grouped. */
   layout: RomFile = rom,
 ): ArenaResult {
-  const gate = checkStockCompression(rom)
+  const gate = checkWritableCompression(rom)
   if (!gate.ok) return { status: 'unavailable', reason: gate.reason }
 
   for (let i = 0; i < GFX_FILE_COUNT; i++) {

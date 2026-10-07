@@ -405,7 +405,7 @@ export function readGfxFile(
   }
   const refused = commandRefusal(source.kind, compressed)
   if (refused) return { ok: false, reason: `GFX file $${hex2(fileIndex)}: ${refused}` }
-  return tryDecompress(compressed)
+  return tryDecompress(compressed, { order: source.order })
 }
 
 /**

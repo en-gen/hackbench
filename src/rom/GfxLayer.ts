@@ -17,6 +17,7 @@ import { COPIER_HEADER_SIZE, loromToOffset } from './addressing'
 import {
   GFX_FILE_COUNT,
   checkStockCompression,
+  checkWritableCompression,
   layoutArena,
   planRegions,
   readGfxFileTable,
@@ -112,7 +113,7 @@ export function foldGfxRun(
   encoder: GfxEncoder = encode,
 ): Overwritten[] {
   const rom = view(out)
-  const gate = checkStockCompression(rom)
+  const gate = checkWritableCompression(rom)
   if (!gate.ok) throw new GfxRefusal(gate.reason)
 
   const table = GfxTable.load(rom)

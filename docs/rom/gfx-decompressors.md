@@ -64,6 +64,37 @@ routine. On the fast routine the reader refuses a stream using any command
 above 4 (`commandRefusal`), 5 included: 5 decodes the same, but one
 `parseStream` check is the whole rule.
 
+## Back-reference byte order
+
+Command 4's two operand bytes are an output index. Stock reads them with
+`ReadByte / XBA / ReadByte`, so the first byte is the high one (big-endian);
+the Japanese and E1 builds add a second `XBA` after the second read
+(`bank_00.asm:6385-6389`, `ver_has_rev_gfx`), which makes it little-endian.
+CODE_00B966 is reached by the `BMI` after the stock body's `PLA / BEQ`
+(`bank_00.asm:6329-6331`), 56 bytes into the entry. `readBackRefOrder` follows
+that branch (a signed offset) and matches the routine, 29 bytes or 30 with the
+XBA. Its three absolute operands, both `JSR ReadByte` and the `JMP` to the loop
+head, move with the build, so they are derived from the entry's own bytes:
+ReadByte from the entry's `JSR` at entry+6, the loop head as entry+5. Layouts
+checked at the routine level against `SMW_*.sym`: US ($B8DE, ReadByte $B983),
+E0 ($B8F1, $B996, big-endian), J ($B87E, $B924, little-endian) and E1 ($B8F1,
+$B997, little-endian). Any other routine, or a dispatch that is not
+`PLA / BEQ / BMI`, refuses the ROM as a replaced decompressor. The check reads
+no other part of the body.
+
+A stock J, E0 or E1 ROM is still refused at the entry gate: the entry's `JSR`
+operand is `24 B9` on J, `96 B9` on E0 and `97 B9` on E1, not the US `83 B9`
+(en-gen/hackbench#696). So the little-endian read is reachable today only on a
+ROM whose entry is stock-shaped and whose routine has the XBA; the cartridge
+tests for it are synthetic. The fast routine is read big-endian as before; that
+is carried over from the 18 hacks it was surveyed on, not derived from its
+bytes. `encode` writes big-endian only, so a little-endian ROM is readable but
+`checkWritableCompression` refuses to save its GFX.
+
+Survey scope, one machine, 2026-10-07: the 6-ROM corpus (6 accepted before and
+after), the 101-hack store (73 accepted, 28 refused before and after, same
+ROMs), the 729-cart non-SMW set (1 accepted, same before and after).
+
 ## Not recognized
 
 - LC_LZ3 behind the same `JSL / RTS` shape, 7 store hacks: zero fill,
