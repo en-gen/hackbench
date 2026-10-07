@@ -8,9 +8,15 @@
  * Skipped without the vanilla ROM; the skip count is part of the report.
  */
 import { describe, it, expect } from 'vitest'
+import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { buildL1Inputs } from '../../../src/rom/model/L1Model'
-import { collisionLayer, ProbeCache } from '../../../src/rom/collision/MapCollision'
+import {
+  changedRanges,
+  collisionLayer,
+  ProbeCache,
+  rangesIntersect,
+} from '../../../src/rom/collision/MapCollision'
 import {
   calibrate,
   measureTile,
@@ -234,6 +240,88 @@ describe.skipIf(!hasRom(VANILLA))('collision probe on the vanilla ROM', () => {
       expect(covers(a.lines, x, y), `off ${x},${y}`).toBe(false)
     }
   }, 120_000)
+
+  it('after every edit of a sequence, the incrementally kept cache gives what a cold probe gives', async () => {
+    const level = 0x105
+    const b0 = new Uint8Array(freshRom().buffer)
+    const smw = new SmwRom(freshRom())
+    const l1 = smw.getLevelL1Pointer(level)!
+    const edits: [string, (r: ReturnType<typeof freshRom>) => void][] = [
+      ['move a level object one tile', r => r.writeAt(l1 + 6, [r.readByte(l1 + 6)! ^ 0x01])],
+      ['move another object a row', r => r.writeAt(l1 + 9, [r.readByte(l1 + 9)! ^ 0x10])],
+      ['a byte no run reads', r => r.writeAt(0x0f8000, [r.readByte(0x0f8000)! ^ 0xff])],
+      ...[0x00, 0x13, 0x2a, 0x37, 0x41].map((i): [string, (r: ReturnType<typeof freshRom>) => void] => [
+        `a behaviour table byte +$${i.toString(16)}`,
+        r => r.writeAt(0x00f05c + i, [r.readByte(0x00f05c + i)! ^ 0x04]),
+      ]), // prettier-ignore
+    ]
+    let [before, cache] = [b0, new ProbeCache()]
+    const grid = (b: Uint8Array) => {
+      const r = buildL1Inputs(
+        new SmwRom(RomFile.fromBytes(romPath(VANILLA), Buffer.from(b))),
+        level,
+        FLAGS,
+      )
+      if (!r.ok) throw new Error(r.reason)
+      return r.inputs
+    }
+    const ask = async (b: Uint8Array, c: ProbeCache) => {
+      const m = grid(b)
+      const t0 = Date.now()
+      const r = await collisionLayer(RomFile.fromBytes(romPath(VANILLA), Buffer.from(b)), level, m.header.objectTileset, m.grid, c) // prettier-ignore
+      if (!r.ok) throw new Error(r.reason)
+      return { r, ms: Date.now() - t0 }
+    }
+    const total = (await ask(b0, cache)).r.probed
+    // Edits that really change one tile's behaviour: a byte only that tile's runs read (not the level of air's).
+    const prep = (cache as any).preps.values().next().value
+    const only = (id: number): number => {
+      const d = (cache as any).tiles.get(`7:0:${id}`).deps.rom as number[]
+      for (let i = 0; i < d.length; i += 2)
+        for (let b = d[i]!; b < d[i + 1]!; b++)
+          if (!rangesIntersect([b, b + 1], prep.deps.rom)) return b
+      throw new Error(`tile $${id.toString(16)} reads nothing the air does not`)
+    }
+    // A byte only the level-of-air runs read: the shared calibration and air table go, and with them every tile.
+    const entries = [...(cache as any).tiles.values()]
+    const airOnly = ((): number => {
+      for (let i = 0; i < prep.deps.rom.length; i += 2)
+        for (let b = prep.deps.rom[i]; b < prep.deps.rom[i + 1]; b++)
+          if (!entries.some(e => rangesIntersect([b, b + 1], e.deps.rom))) return b
+      return prep.deps.rom[0]
+    })()
+    edits.push([`a byte only the level of air reads (file offset ${airOnly})`, r => (r.buffer[airOnly]! ^= 0x01)]) // prettier-ignore
+    for (const id of [0x130, 0x1aa, 0x1c4]) {
+      const at = only(id)
+      edits.push([
+        `a byte only tile $${id.toString(16)} reads (file offset ${at})`,
+        r => (r.buffer[at]! ^= 0x01),
+      ])
+    }
+    const report: string[] = [`cold ${total} tiles`]
+    for (const [name, edit] of edits) {
+      const rom = RomFile.fromBytes(romPath(VANILLA), Buffer.from(before))
+      edit(rom)
+      const after = new Uint8Array(rom.buffer)
+      expect(changedRanges(before, after).length, name).toBeGreaterThan(0)
+      cache = cache.migrate(changedRanges(before, after))
+      const inc = await ask(after, cache)
+      const fresh = await ask(after, new ProbeCache())
+      expect(inc.r.lines, name).toEqual(fresh.r.lines)
+      if (name.startsWith('a byte only')) expect(inc.r.dropped, name).toBeGreaterThan(0)
+      if (name.includes('level of air'))
+        expect(inc.r.dropped, name).toBeGreaterThanOrEqual(total) // the shared runs went: everything goes
+      else expect(inc.r.dropped, name).toBeLessThan(total) // otherwise never the whole cache for one edit
+      report.push(
+        `${name}: re-probed ${inc.r.probed} (dropped ${inc.r.dropped}), ${inc.ms} ms; cold ${fresh.ms} ms`,
+      )
+      before = after
+    }
+    ;(await import('node:fs')).writeFileSync(
+      process.env.TEMP + '/inc.txt',
+      report.join(String.fromCharCode(10)),
+    )
+  }, 300_000)
 
   describe('planted defects (the probe must go red)', () => {
     const cal = { foot: 32, head: 17 }

@@ -15,6 +15,7 @@
  */
 import { RomFile } from '../../../../src/rom/RomFile'
 import {
+  changedRanges,
   collisionLayer,
   collisionRefusal,
   ProbeCache,
@@ -51,6 +52,8 @@ export const probeStateOf = (flags: SwitchFlagsDto, switches: SwitchStateDto): P
   bluePs: switches.blue,
 })
 const byBytes = new WeakMap<Uint8Array, PerBytes>()
+/** The working-copy bytes last asked about per ROM path: an edit's new bytes inherit its probe results. */
+const lastByPath = new Map<string, Uint8Array>()
 
 const VERTICAL = 'Collision is not shown for vertical levels yet'
 
@@ -94,9 +97,15 @@ export async function mapCollision(
   const key = `${index}:${stateKey(state)}`
   let entry = byBytes.get(bytes)
   if (!entry) {
-    entry = { probes: new ProbeCache(), replies: new Map(), inflight: new Map(), latest: new Map() }
+    // An edit hands out new bytes, but only what its probes READ matters: carry the cache over, owing the
+    // changed ranges, and let the next probe of each tileset drop just the entries those bytes touch.
+    const prev = lastByPath.get(romPath)
+    const before = prev && prev !== bytes ? byBytes.get(prev) : undefined
+    const probes = before ? before.probes.migrate(changedRanges(prev!, bytes)) : new ProbeCache()
+    entry = { probes, replies: new Map(), inflight: new Map(), latest: new Map() }
     byBytes.set(bytes, entry)
   }
+  lastByPath.set(romPath, bytes)
   const kept = entry.replies.get(key)
   if (kept) {
     // LRU: a hit moves the map to the newest end.

@@ -19,6 +19,7 @@ import {
   Probe,
   type AirRuns,
   type Calibration,
+  type Deps,
   type ProbeState,
   type TileProbe,
 } from './TileProbe'
@@ -32,25 +33,106 @@ import {
  */
 const probeKey = (s: ProbeState): string => String(+s.bluePs)
 
-/** Probe results for one ROM image, by tileset, P-switch and tile id. */
+type Prep = { cal: Calibration; air: AirRuns; deps?: Deps }
+type Entry = { t: TileProbe; deps?: Deps }
+
+/** True when two sorted flat `[start, end)` range lists share a byte. */
+export function rangesIntersect(a: readonly number[], b: readonly number[]): boolean {
+  for (let i = 0, j = 0; i < a.length && j < b.length;) {
+    if (a[i + 1]! <= b[j]!) i += 2
+    else if (b[j + 1]! <= a[i]!) j += 2
+    else return true
+  }
+  return false
+}
+
+/** The byte ranges (flat `[start, end)`) where two images differ; a length change is everything. */
+export function changedRanges(a: Uint8Array, b: Uint8Array): number[] {
+  if (a.length !== b.length) return [0, Math.max(a.length, b.length)]
+  const out: number[] = []
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] === b[i]) continue
+    if (out.length && out[out.length - 1] === i) out[out.length - 1] = i + 1
+    else out.push(i, i + 1)
+  }
+  return out
+}
+
+/**
+ * Probe results for one ROM image, by tileset, P-switch and tile id, each with what it read (`Deps`). An edit
+ * does not empty it: `migrate` carries the entries to the new bytes marked for checking, and `validate` drops
+ * only those whose ROM reads meet the changed ranges, or whose seed-WRAM reads see another value in the seed
+ * now loaded. Tiles are checked lazily, per tileset, when a map of that tileset is next asked for.
+ */
 export class ProbeCache {
-  private readonly tiles = new Map<string, TileProbe>()
-  private readonly preps = new Map<string, { cal: Calibration; air: AirRuns }>()
+  private readonly tiles = new Map<string, Entry>()
+  private readonly preps = new Map<string, Prep>()
+  /** Changed ranges not yet checked against a tileset's entries. */
+  private pending = new Map<number, number[]>()
   private static key = (tileset: number, id: number, s: ProbeState) =>
     `${tileset}:${probeKey(s)}:${id}`
 
   get(tileset: number, id: number, s: ProbeState = NEUTRAL): TileProbe | undefined {
-    return this.tiles.get(ProbeCache.key(tileset, id, s))
+    return this.tiles.get(ProbeCache.key(tileset, id, s))?.t
   }
-  set(tileset: number, id: number, t: TileProbe, s: ProbeState = NEUTRAL): void {
-    this.tiles.set(ProbeCache.key(tileset, id, s), t)
+  set(tileset: number, id: number, t: TileProbe, s: ProbeState = NEUTRAL, deps?: Deps): void {
+    this.tiles.set(ProbeCache.key(tileset, id, s), { t, deps })
   }
   /** The calibration and the level-of-air runs that every tile of this tileset shares. */
-  prep(tileset: number, s: ProbeState = NEUTRAL): { cal: Calibration; air: AirRuns } | undefined {
+  prep(tileset: number, s: ProbeState = NEUTRAL): Prep | undefined {
     return this.preps.get(`${tileset}:${probeKey(s)}`)
   }
-  setPrep(tileset: number, p: { cal: Calibration; air: AirRuns }, s: ProbeState = NEUTRAL): void {
+  setPrep(tileset: number, p: Prep, s: ProbeState = NEUTRAL): void {
     this.preps.set(`${tileset}:${probeKey(s)}`, p)
+  }
+
+  /** A cache for the edited bytes: every entry kept, the changed ranges owed to each tileset's check. */
+  migrate(changed: readonly number[]): ProbeCache {
+    const next = new ProbeCache()
+    for (const [k, v] of this.tiles) next.tiles.set(k, v)
+    for (const [k, v] of this.preps) next.preps.set(k, v)
+    const tilesets = new Set([...this.preps.keys()].map(k => Number(k.split(':')[0])))
+    for (const t of tilesets) {
+      const owed = [...(this.pending.get(t) ?? []), ...changed]
+      // Merge by sorting the pairs: owed lists are short.
+      const pairs: [number, number][] = []
+      for (let i = 0; i < owed.length; i += 2) pairs.push([owed[i]!, owed[i + 1]!])
+      pairs.sort((a, b) => a[0] - b[0])
+      const flat: number[] = []
+      for (const [a, b] of pairs) {
+        if (flat.length && a <= flat[flat.length - 1]!)
+          flat[flat.length - 1] = Math.max(flat[flat.length - 1]!, b) // prettier-ignore
+        else flat.push(a, b)
+      }
+      next.pending.set(t, flat)
+    }
+    return next
+  }
+
+  stale(tileset: number): boolean {
+    return (this.pending.get(tileset)?.length ?? 0) > 0
+  }
+
+  /** Drops the tileset's entries the edits touched; `probe` is the seed now loaded. Returns how many tiles went. */
+  validate(tileset: number, probe: Probe): number {
+    const owed = this.pending.get(tileset) ?? []
+    this.pending.delete(tileset)
+    const changed = (d: Deps | undefined) =>
+      !!d && (rangesIntersect(d.rom, owed) || d.wram.some(([o, v]) => probe.seed(o) !== v))
+    let dropped = 0
+    for (const [k, p] of [...this.preps]) {
+      if (!k.startsWith(`${tileset}:`)) continue
+      const bad = changed(p.deps)
+      if (bad) this.preps.delete(k)
+      for (const [tk, e] of [...this.tiles]) {
+        if (!tk.startsWith(`${k}:`)) continue
+        if (bad || changed(e.deps)) {
+          this.tiles.delete(tk)
+          dropped++
+        }
+      }
+    }
+    return dropped
   }
 }
 
@@ -67,7 +149,7 @@ export function collisionRefusal(rom: RomFile, level: number): string | null {
 }
 
 export type CollisionLayer =
-  | { ok: true; lines: CollisionLine[]; probed: number; steps: number }
+  | { ok: true; lines: CollisionLine[]; probed: number; dropped: number; steps: number }
   | { ok: false; reason: string }
 
 export interface CollisionOptions {
@@ -95,28 +177,45 @@ export async function collisionLayer(
   opts: CollisionOptions = {},
 ): Promise<CollisionLayer> {
   const state = opts.state ?? NEUTRAL
+  const open = (): Probe | string => {
+    try {
+      const p = new Probe(rom, level, opts.wram)
+      p.state = state
+      return p.tileset === tileset ? p : `the loaded level's tileset ${p.tileset} differs from its header's ${tileset}` // prettier-ignore
+    } catch (err) {
+      return (err as Error).message
+    }
+  }
+  let probe: Probe | undefined
+  let dropped = 0
+  if (cache.stale(tileset)) {
+    const p = open()
+    if (typeof p === 'string') return { ok: false, reason: p }
+    dropped = cache.validate(tileset, (probe = p))
+  }
   const ids = [...new Set(grid.flat())].sort((a, b) => a - b)
   const todo = ids.filter(id => !cache.get(tileset, id, state))
   let probed = 0
   let steps = 0
   if (todo.length > 0) {
-    let probe: Probe
-    try {
-      probe = new Probe(rom, level, opts.wram)
-      probe.state = state
-    } catch (err) {
-      return { ok: false, reason: (err as Error).message }
-    }
-    if (probe.tileset !== tileset) {
-      return { ok: false, reason: `the loaded level's tileset ${probe.tileset} differs from its header's ${tileset}` } // prettier-ignore
+    if (!probe) {
+      const p = open()
+      if (typeof p === 'string') return { ok: false, reason: p }
+      probe = p
     }
     try {
       let prep = cache.prep(tileset, state)
-      if (!prep)
-        cache.setPrep(tileset, (prep = { cal: calibrate(probe), air: probeAir(probe) }), state)
+      if (!prep) {
+        probe.startDeps()
+        const cal = calibrate(probe)
+        const air = probeAir(probe)
+        cache.setPrep(tileset, (prep = { cal, air, deps: probe.takeDeps() }), state)
+      }
       for (const id of todo) {
         if (opts.cancelled?.()) return { ok: false, reason: SUPERSEDED }
-        cache.set(tileset, id, measureTile(probe, id, prep.cal, prep.air), state)
+        probe.startDeps()
+        const t = measureTile(probe, id, prep.cal, prep.air)
+        cache.set(tileset, id, t, state, probe.takeDeps())
         probed++
         await opts.yieldTurn?.()
       }
@@ -125,5 +224,11 @@ export async function collisionLayer(
     }
     steps = probe.steps
   }
-  return { ok: true, lines: compose(grid, id => cache.get(tileset, id, state)), probed, steps }
+  return {
+    ok: true,
+    lines: compose(grid, id => cache.get(tileset, id, state)),
+    probed,
+    dropped,
+    steps,
+  }
 }

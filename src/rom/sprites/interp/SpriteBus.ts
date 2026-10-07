@@ -30,6 +30,9 @@ export class SpriteBus implements Bus {
    */
   inputs: Set<number> | null = null
   private written = new Uint8Array(WRAM_SIZE)
+  /** When set, every ROM byte read is marked here (by buffer index) and listed once in `romList`: a run's ROM inputs. */
+  romSeen: Uint8Array | null = null
+  romList: number[] = []
   /** Forgets which WRAM bytes were written, so `inputs` reads them again (one run's inputs are not the last run's). */
   clearWritten(): void {
     this.written.fill(0)
@@ -63,7 +66,12 @@ export class SpriteBus implements Bus {
     const lo = addr & 0xffff
     if ((bank & 0x7f) < 0x40 && lo >= 0x2000 && lo < 0x4400) return this.readReg(lo)
     const off = loromToOffset(addr, this.rom.romSize)
-    return off === null ? 0 : this.rom.buffer[off + this.header]
+    if (off === null) return 0
+    if (this.romSeen && !this.romSeen[off + this.header]) {
+      this.romSeen[off + this.header] = 1
+      this.romList.push(off + this.header)
+    }
+    return this.rom.buffer[off + this.header]
   }
 
   private readReg(lo: number): number {

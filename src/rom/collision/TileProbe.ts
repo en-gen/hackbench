@@ -73,6 +73,16 @@ interface Result {
 }
 
 /** Mario's reference points against a flat block, read from the first contact, never assumed. */
+/**
+ * What a result was computed from, besides the tile: the ROM bytes its runs read (flat sorted `[start, end)`
+ * pairs of buffer indexes) and the seed WRAM bytes it read before writing them, with the values it saw.
+ * The seed level's own data is not listed unless a run read it, so a level-data edit invalidates nothing here.
+ */
+export interface Deps {
+  rom: number[]
+  wram: [offset: number, value: number][]
+}
+
 export interface Calibration {
   /** Landing: Mario's Y (cell-relative) when his feet meet a surface at the cell top, negated. */
   foot: number
@@ -89,6 +99,8 @@ export class Probe {
   private readonly base: Uint8Array
   private readonly dirty: number[] = []
   private readonly reads = new Set<number>()
+  private wramDeps: Set<number> | null = null
+  private readonly romLen: number
   readonly tileset: number
   steps = 0
   /** TrueFrame ($13) every run uses; 1 keeps the conveyor slopes from shoving Mario. A test seam otherwise. */
@@ -114,10 +126,38 @@ export class Probe {
     }
     this.bus = new SpriteBus(rom)
     this.bus.wram.set(this.base)
+    this.romLen = rom.buffer.length
     this.bus.onInstruction = guardInstruction
     this.bus.onWramWrite = o => this.dirty.push(o)
     this.cpu = new Cpu65816(this.bus)
     this.tileset = this.base[RAM.tileset]!
+  }
+
+  /** Starts listing the ROM and seed-WRAM bytes the runs read, until `takeDeps`. */
+  startDeps(): void {
+    this.bus.romSeen ??= new Uint8Array(this.romLen)
+    this.bus.romList = []
+    this.wramDeps = new Set()
+  }
+
+  takeDeps(): Deps {
+    const { romSeen, romList } = this.bus
+    const idx = [...romList].sort((a, b) => a - b)
+    const rom: number[] = []
+    for (const i of idx) {
+      if (rom.length && rom[rom.length - 1] === i) rom[rom.length - 1] = i + 1
+      else rom.push(i, i + 1)
+      romSeen![i] = 0
+    }
+    const wram = [...this.wramDeps!].sort((a, b) => a - b).map((o): [number, number] => [o, this.base[o]!]) // prettier-ignore
+    this.bus.romSeen = null
+    this.wramDeps = null
+    return { rom, wram }
+  }
+
+  /** The seed image's byte, to check a dependency against a newly loaded seed. */
+  seed(offset: number): number {
+    return this.base[offset]!
   }
 
   private w(a: number, v: number): void {
@@ -158,6 +198,10 @@ export class Probe {
    * `touched` says whether the routine read the cell's bytes; a run that did not is the same for every tile.
    */
   run(tile: number, s: Setup, track = false): Result {
+    const tracking = track || this.wramDeps !== null
+    // Forget what earlier runs wrote, THEN let this run's setup stores mark their bytes: a byte read
+    // after that is an input of the seed, not of the probe's own setup.
+    if (tracking) this.bus.clearWritten()
     // Restores every WRAM byte the last run changed.
     const wram = this.bus.wram
     for (const o of this.dirty) wram[o] = this.base[o]!
@@ -185,8 +229,8 @@ export class Probe {
     this.w(RAM.dir, s.dir ?? 0)
     this.reads.clear()
     // A byte an earlier run wrote (a coin collected rewrites the cell) would otherwise never be seen as read.
-    if (track) this.bus.clearWritten()
-    this.bus.inputs = track ? this.reads : null
+    // (the `written` flags were cleared at the top of the run, so this run's own setup stores count as writes)
+    this.bus.inputs = tracking ? this.reads : null
     this.call(ENTRY_RESET)
     this.w(RAM.tGround, 0)
     this.w(RAM.tAir, wram[RAM.air]!)
@@ -194,6 +238,7 @@ export class Probe {
     this.w(RAM.layerProc, 0)
     this.call(ENTRY_COLLIDE)
     this.bus.inputs = null
+    if (this.wramDeps) for (const o of this.reads) if (o !== CELL_LOW && o !== CELL_HIGH) this.wramDeps.add(o) // prettier-ignore
     return {
       blocked: wram[RAM.blocked]!,
       y: wram[RAM.yNext]! | (wram[RAM.yNext + 1]! << 8),

@@ -512,7 +512,11 @@ test('a working-copy edit refetches the open map and the overlay stays', async (
     { mp: project.manifestPath },
   )
   expect(edit.status).toBe('ok')
+  const t0 = Date.now()
   await expect.poll(revision, { timeout: 60000 }).toBeGreaterThan(r0)
+  // The edit touched no byte a probe read, so the cache is kept: the refresh is a recompose, not a re-probe
+  // (a cold $105 takes seconds). The bound is loose for a loaded runner and far below a cold probe.
+  expect(Date.now() - t0).toBeLessThan(1500)
   await expect(overlay(page, 0x105)).toHaveCount(1)
   expect(await linesOf(page, 0x105)).toEqual(before)
 })

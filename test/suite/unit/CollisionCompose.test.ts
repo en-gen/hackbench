@@ -6,7 +6,12 @@
  */
 import { describe, it, expect } from 'vitest'
 import { compose, type CollisionLine } from '../../../src/rom/collision/Compose'
-import { collisionLayer, ProbeCache, SUPERSEDED } from '../../../src/rom/collision/MapCollision'
+import {
+  changedRanges,
+  collisionLayer,
+  ProbeCache,
+  SUPERSEDED,
+} from '../../../src/rom/collision/MapCollision'
 import {
   stateKey,
   calibrate,
@@ -282,6 +287,74 @@ describe('the probe without a cartridge', () => {
     const p = new Probe(rom(MULTI), 0, loaded())
     measureTile(p, 0x36, CAL)
     expect([...probeAir(p).values()].some(r => r.touched)).toBe(true)
+  })
+
+  describe('an edit drops only the entries whose reads it touches (incremental equals fresh)', () => {
+    const grid = [[0x30, 0x32, 0x33]]
+    const bytes = (patch: (b: Uint8Array) => void = () => undefined) => {
+      const b = rom(MULTI).buffer.slice()
+      patch(b)
+      return b
+    }
+    const at33 =
+      0x6adb + MULTI.findIndex((_, i) => MULTI.slice(i, i + 4).join() === '165,150,201,90') + 3 // CMP #$5A of tile $33
+    const layer = (b: Uint8Array, cache: ProbeCache) =>
+      collisionLayer(RomFile.fromBytes('x.sfc', b), 0, 7, grid, cache, { wram: loaded() })
+    const run = async (b: Uint8Array, cache: ProbeCache) => {
+      const r = await layer(b, cache)
+      if (!r.ok) throw new Error(r.reason)
+      return r
+    }
+    const warm = async () => {
+      const [b0, cache] = [bytes(), new ProbeCache()]
+      expect((await run(b0, cache)).probed).toBe(3)
+      return { b0, cache }
+    }
+
+    it('a byte nothing read keeps every entry: no tile is probed again', async () => {
+      const { b0, cache } = await warm()
+      const b1 = bytes(b => (b[0x70000] ^= 0xff))
+      const next = cache.migrate(changedRanges(b0, b1))
+      expect(await run(b1, next)).toMatchObject({ probed: 0, dropped: 0 })
+    })
+
+    it('a byte inside one tile reads re-probes that tile only, and the result equals a fresh probe', async () => {
+      const { b0, cache } = await warm()
+      const b1 = bytes(b => (b[at33] = 0x60))
+      const next = cache.migrate(changedRanges(b0, b1))
+      const inc = await run(b1, next)
+      expect([inc.probed, inc.dropped]).toEqual([1, 1])
+      const fresh = await run(b1, new ProbeCache())
+      expect(inc.lines).toEqual(fresh.lines)
+      expect((await run(b0, new ProbeCache())).lines).not.toEqual(fresh.lines) // the edit really changed the answer
+    })
+
+    it('goes red when the invalidation ignores what was read: a stale result survives', async () => {
+      const { b0, cache } = await warm()
+      const b1 = bytes(b => (b[at33] = 0x60))
+      const blind = cache.migrate(changedRanges(b0, b0)) // the edit is not passed on
+      const stale = await run(b1, blind)
+      expect(stale.lines).not.toEqual((await run(b1, new ProbeCache())).lines)
+    })
+
+    it('a seed byte a run read drops what read it when the new seed differs; one nothing read does not', async () => {
+      // Tile $38 reads $1407 from the seed; the rest never read a seed byte.
+      const r = rom(blocks([[0x30, FLAT], [0x38, [0xad, 0x07, 0x14]]])).buffer // prettier-ignore
+      const g = [[0x30, 0x38]]
+      const ask = async (w: Uint8Array, cache: ProbeCache) => {
+        const out = await collisionLayer(RomFile.fromBytes('x.sfc', r), 0, 7, g, cache, { wram: w })
+        if (!out.ok) throw new Error(out.reason)
+        return out
+      }
+      const cache = new ProbeCache()
+      expect((await ask(loaded(), cache)).probed).toBe(2)
+      const unread = loaded()
+      unread[0x1f00] = 9
+      expect(await ask(unread, cache.migrate([0, 1]))).toMatchObject({ probed: 0, dropped: 0 })
+      const read = loaded()
+      read[0x1407] = 3
+      expect(await ask(read, cache.migrate([0, 1]))).toMatchObject({ probed: 1, dropped: 1 })
+    })
   })
 
   it('refuses a level of air no position of which reaches the cell', () => {

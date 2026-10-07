@@ -215,6 +215,26 @@ describe.skipIf(!hasRom(VANILLA))('mapCollision on the vanilla ROM', () => {
     expect(second).toEqual(first)
   }, 120_000)
 
+  it('an edit keeps the probe cache: a level-data move after a first reply probes at most the new ids', async () => {
+    const a = rom()
+    const cache = new L1ModelCache()
+    const probed: number[] = []
+    const real = (await import('../../../src/rom/collision/MapCollision')).collisionLayer
+    const counting = (async (...args: Parameters<typeof real>) => {
+      const r = await real(...args)
+      if (r.ok) probed.push(r.probed)
+      return r
+    }) as typeof real
+    const path = 'edit-keeps-cache.sfc' // its own path: earlier tests' bytes are not this cache's predecessors
+    const ask = (b: Uint8Array) => mapCollision(cache, b, path, 0x111, OFF, () => false, counting)
+    expect((await ask(a)).status).toBe('ok')
+    const edited = new Uint8Array(a)
+    edited[0x7ff00] ^= 0xff // a byte no probe run reads
+    expect((await ask(edited)).status).toBe('ok')
+    expect(probed[0]).toBeGreaterThan(20)
+    expect(probed[1]).toBe(0)
+  }, 120_000)
+
   it('a patched block routine changes what the working copy answers (here it breaks it: unavailable)', async () => {
     const patched = RomFile.fromBytes(romPath(VANILLA), rom())
     patched.writeAt(0x00eadb, [0x00]) // a BRK at the collision routine
