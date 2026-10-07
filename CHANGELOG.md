@@ -102,6 +102,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `npm run typecheck:theia` uses theia's own TypeScript and, in a worktree without `theia/node_modules`, exits 1 naming `yarn --cwd theia install --frozen-lockfile --ignore-scripts` instead of failing with TS5107 under the root's TypeScript 6 (#669).
 
+- Develop builds again: `mapBlockContents` no longer calls a working-copy watch that moved into the project connection in #662, which broke the Theia type-check after #677 merged (#682).
+
 - Opening another project closes the previous project's GFX, Map16 and map views, so
   Ctrl+Z in a leftover view no longer undoes the new project's layer. A view with
   unsaved strokes asks first, and cancelling keeps the old project open (#628).
@@ -184,6 +186,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Agent manual: auto-merge stays on across fix pushes.
 - `npm run gitnexus` no longer rewrites CLAUDE.md and AGENTS.md (`.gitnexusrc` and `--skip-agents-md`), so parallel worktrees stop conflicting on the generated counts, which are removed from the marked region (#644).
 - "Show surfaces" editor overlay now consumes the shared `SurfacePath`
   module — same source of truth as the sprite-patrol scan. Both views
