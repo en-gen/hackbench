@@ -502,6 +502,25 @@ describe('the probe without a cartridge', () => {
     })
   })
 
+  it('a tile that reads a palace flag and then refuses is cached per palace state, not reused as unknown', async () => {
+    const r = rom(
+      blocks([
+        [0x30, FLAT],
+        [0x42, [0xad, 0x28, 0x1f, 0x00]],
+      ]),
+    ) // LDA $1F28; BRK
+    const cache = new ProbeCache()
+    const off = { green: false, yellow: false, blue: false, red: false }
+    const ask = async (yellow: boolean) => {
+      const out = await collisionLayer(r, 0, 7, [[0x42]], cache, { wram: loaded(), state: { flags: { ...off, yellow }, bluePs: false } }) // prettier-ignore
+      if (!out.ok) throw new Error(out.reason)
+      return out
+    }
+    expect((await ask(false)).probed).toBe(1)
+    expect((await ask(true)).probed).toBe(1) // the refused run still read $1F28: yellow on is another entry
+    expect((await ask(true)).probed).toBe(0)
+  })
+
   it('a palace flag a tile reads, though the probe wrote it, keys that tile on the palace state', async () => {
     const r = rom(blocks([[0x30, FLAT], [0x41, WHEN(0x1f28)]])) // prettier-ignore
     const cache = new ProbeCache()

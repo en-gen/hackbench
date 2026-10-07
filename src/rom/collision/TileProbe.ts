@@ -246,17 +246,21 @@ export class Probe {
     // Each run starts from the same machine: no multiplier result or register left over from the last tile.
     this.bus.resetUnits()
     this.cpu.a = this.cpu.x = this.cpu.y = 0
-    this.call(ENTRY_RESET)
-    this.w(RAM.tGround, 0)
-    this.w(RAM.tAir, wram[RAM.air]!)
-    this.w(RAM.tScr, 0)
-    this.w(RAM.layerProc, 0)
-    this.call(ENTRY_COLLIDE)
-    this.bus.inputs = null
-    if (this.wramDeps) {
-      for (const o of this.reads) {
-        if (o >= RAM.palaces && o < RAM.palaces + 4) this.palaceRead = true
-        else if (o !== CELL_LOW && o !== CELL_HIGH) this.wramDeps.add(o)
+    try {
+      this.call(ENTRY_RESET)
+      this.w(RAM.tGround, 0)
+      this.w(RAM.tAir, wram[RAM.air]!)
+      this.w(RAM.tScr, 0)
+      this.w(RAM.layerProc, 0)
+      this.call(ENTRY_COLLIDE)
+    } finally {
+      // Also when the run refuses: what a refused run read still decides what its (unknown) result rests on.
+      this.bus.inputs = null
+      if (this.wramDeps) {
+        for (const o of this.reads) {
+          if (o >= RAM.palaces && o < RAM.palaces + 4) this.palaceRead = true
+          else if (o !== CELL_LOW && o !== CELL_HIGH) this.wramDeps.add(o)
+        }
       }
     }
     return {
