@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Bank-mirror masks (#513): lookup keys use `mirror()`; addresses that are read (`jslTarget`, GfxArena `long`, the vertical-table JML target) keep their bank, so a $FE/$FF target is no longer folded onto WRAM $7E/$7F.
 - A unit test pins tile $11A's star column over all 16 X columns: coin unless Mario is
   invincible, star only while invincible (`bank_00.asm:12887-12891`). The Maps view already
   draws it that way (#567).

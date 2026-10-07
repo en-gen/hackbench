@@ -16,6 +16,7 @@ import type { RomFile } from './RomFile'
 import { WILD, matchesBytes, type BytePattern } from './BytePattern'
 import { fingerprint } from './Fingerprint'
 import { long } from './GfxArena'
+import { mirror } from './addressing'
 import { jslTarget, type FastRoutine } from './GfxDecompressor'
 import { hex6 } from './hex'
 
@@ -268,7 +269,10 @@ function midwayHookMismatch(
       ...[b.indexAt, b.overrideAt].flatMap(e => [e + 1, e + 2, e + 3]),
     ]
     if (spanFingerprint(code, mask) !== b.fingerprint) continue
-    if (long(code!, b.indexAt + 1) !== 0x05d847 || long(code!, b.overrideAt + 1) !== 0x05d8a2) {
+    if (
+      mirror(long(code!, b.indexAt + 1)) !== 0x05d847 ||
+      mirror(long(code!, b.overrideAt + 1)) !== 0x05d8a2
+    ) {
       return `the hook at $${hex6(at)} does not return to $05D847 and $05D8A2.`
     }
     const helper = (at & 0xff0000) | code![b.helperAt + 1]! | (code![b.helperAt + 2]! << 8)
@@ -298,7 +302,7 @@ function loadHookMismatch(rom: RomFile): string | null {
     return '$05D89B holds no JSL before STA TranslevelNo.'
   }
   if (LOAD_HOOKS.some(p => matchesBytes(rom.readAt(at, p.length), p))) return null
-  return `the JSL reaches $${hex6(at)}, which is not a recognized loader.`
+  return `the JSL reaches $${hex6(mirror(at))}, which is not a recognized loader.`
 }
 
 /** The recognized hooks each stock check also accepts, and what to call them. */

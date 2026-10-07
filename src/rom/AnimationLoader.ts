@@ -57,7 +57,7 @@
 
 import { RomFile } from './RomFile'
 import { tryDecompress, type BackRefOrder } from './LcLz2'
-import { formatAddr, loromToOffset } from './addressing'
+import { formatAddr, loromToOffset, mirror } from './addressing'
 import { matchesAt, WILD, type BytePattern } from './BytePattern'
 import { PIXELS_PER_TILE } from './GraphicsDecoder'
 import { framesToMs } from './timing'
@@ -334,7 +334,8 @@ export function stockAnimationUnreached(
   const callAt = loromToOffset(LEVEL_ANIM_CALL, rom.romSize)
   const jsl = callAt === null ? null : matchesAt(rom, callAt, [0x22, WILD, WILD, WILD])
   if (!jsl) return { reason: 'the level animation call at $00A2A5 is no longer a JSL' }
-  const target = (jsl[1]! | (jsl[2]! << 8) | (jsl[3]! << 16)) & 0x7fffff
+  // Key, not read: compared to the canonical routine address, never read through.
+  const target = mirror(jsl[1]! | (jsl[2]! << 8) | (jsl[3]! << 16))
   return target === STOCK_ANIM_ROUTINE ? null : { target }
 }
 
