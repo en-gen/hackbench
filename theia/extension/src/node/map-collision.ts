@@ -57,7 +57,7 @@ const lastByPath = new Map<string, Uint8Array>()
 /** Forgets the carry between working-copy bytes (a test starts each case from nothing). */
 export const forgetCollisionCarry = (): void => lastByPath.clear()
 
-const VERTICAL = 'Collision is not shown for vertical levels yet'
+const VERTICAL = 'Collision is not shown for vertical maps yet'
 
 /**
  * Whether `mapCollision` can run for this map, without running it: the level's shape and the ROM's own

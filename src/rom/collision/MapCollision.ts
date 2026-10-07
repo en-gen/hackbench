@@ -13,10 +13,12 @@ import { loadLevelState } from '../sprites/interp/LevelLoader'
 import { compose, type CollisionLine } from './Compose'
 import {
   calibrate,
+  entryProblem,
   measureTile,
   probeAir,
   NEUTRAL,
   Probe,
+  stateKey,
   type AirRuns,
   type Calibration,
   type Deps,
@@ -25,13 +27,15 @@ import {
 } from './TileProbe'
 
 /**
- * What a probed tile depends on, besides its tileset and id: the blue P-switch, not the palaces. On vanilla
- * the block code reads SwitchBlockFlags only in the big palace switch (SMWDisX bank_00.asm:12508), whose two
- * branches give the same collision, so a palace toggle changes the GRID (and so the composed reply, which
- * keys on the full state) but no tile's result. A hack whose own blocks read $1F27-$1F2A needs the palace
- * bits back in this key. The probe's WRAM still gets them either way.
+ * What a probed tile depends on, besides its tileset and id: the blue P-switch always, and the palaces only
+ * when its runs READ them. On vanilla the block code reads SwitchBlockFlags only in the big palace switch
+ * (SMWDisX bank_00.asm:12508), whose two branches give the same collision, so a palace toggle changes the GRID
+ * (and so the composed reply, which keys on the full state) but no tile's result. The probe records any read of
+ * $1F27-$1F2A (`Deps.palace`, seen even though the probe sets them), and such an entry is cached per palace
+ * state, so a hack whose own blocks read the flags is still right after a toggle.
  */
 const probeKey = (s: ProbeState): string => String(+s.bluePs)
+const palaceBits = (s: ProbeState): string => stateKey(s).split(':')[0]!
 
 type Prep = { cal: Calibration; air: AirRuns; deps?: Deps }
 type Entry = { t: TileProbe; deps?: Deps }
@@ -69,21 +73,29 @@ export class ProbeCache {
   private readonly preps = new Map<string, Prep>()
   /** Changed ranges not yet checked against a tileset's entries. */
   private pending = new Map<number, number[]>()
-  private static key = (tileset: number, id: number, s: ProbeState) =>
-    `${tileset}:${probeKey(s)}:${id}`
+  /** `bits` is '-' for an entry that never read the palaces. */
+  private static key = (tileset: number, id: number, s: ProbeState, bits = '-') =>
+    `${tileset}:${probeKey(s)}:${bits}:${id}`
+  private static prepKey = (tileset: number, s: ProbeState, bits = '-') =>
+    `${tileset}:${probeKey(s)}:${bits}`
 
   get(tileset: number, id: number, s: ProbeState = NEUTRAL): TileProbe | undefined {
-    return this.tiles.get(ProbeCache.key(tileset, id, s))?.t
+    const plain = this.tiles.get(ProbeCache.key(tileset, id, s))
+    if (plain) return plain.t
+    return this.tiles.get(ProbeCache.key(tileset, id, s, palaceBits(s)))?.t
   }
   set(tileset: number, id: number, t: TileProbe, s: ProbeState = NEUTRAL, deps?: Deps): void {
-    this.tiles.set(ProbeCache.key(tileset, id, s), { t, deps })
+    this.tiles.set(ProbeCache.key(tileset, id, s, deps?.palace ? palaceBits(s) : '-'), { t, deps })
   }
   /** The calibration and the level-of-air runs that every tile of this tileset shares. */
   prep(tileset: number, s: ProbeState = NEUTRAL): Prep | undefined {
-    return this.preps.get(`${tileset}:${probeKey(s)}`)
+    return (
+      this.preps.get(ProbeCache.prepKey(tileset, s)) ??
+      this.preps.get(ProbeCache.prepKey(tileset, s, palaceBits(s)))
+    )
   }
   setPrep(tileset: number, p: Prep, s: ProbeState = NEUTRAL): void {
-    this.preps.set(`${tileset}:${probeKey(s)}`, p)
+    this.preps.set(ProbeCache.prepKey(tileset, s, p.deps?.palace ? palaceBits(s) : '-'), p)
   }
 
   /** A cache for the edited bytes: every entry kept, the changed ranges owed to each tileset's check. */
@@ -126,7 +138,8 @@ export class ProbeCache {
       const bad = changed(p.deps)
       if (bad) this.preps.delete(k)
       for (const [tk, e] of [...this.tiles]) {
-        if (!tk.startsWith(`${k}:`)) continue
+        // Any palace state of this tileset and P-switch: a dropped prep takes every tile that rests on it.
+        if (!tk.startsWith(`${k.split(':').slice(0, 2).join(':')}:`)) continue
         if (bad || changed(e.deps)) {
           this.tiles.delete(tk)
           dropped++
@@ -145,6 +158,8 @@ export const SUPERSEDED = 'superseded'
  * only ROM-dependent refusal, and it is found without probing a single tile.
  */
 export function collisionRefusal(rom: RomFile, level: number): string | null {
+  const reached = entryProblem(rom)
+  if (reached) return reached
   const l = loadLevelState(rom, level)
   return l.ok ? null : l.reason
 }
@@ -216,7 +231,10 @@ export async function collisionLayer(
         if (opts.cancelled?.()) return { ok: false, reason: SUPERSEDED }
         probe.startDeps()
         const t = measureTile(probe, id, prep.cal, prep.air)
-        cache.set(tileset, id, t, state, probe.takeDeps())
+        const deps = probe.takeDeps()
+        // A tile rests on the shared air runs, so if those read the palaces, so does it.
+        deps.palace ||= prep.deps?.palace
+        cache.set(tileset, id, t, state, deps)
         probed++
         await opts.yieldTurn?.()
       }

@@ -19,6 +19,8 @@ const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
 
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
 const ROM = process.env.HB_ROM || romPath(VANILLA)
+// A named skip, not a createProject throw per case, when the ROM is not on this machine (docs/testing.md).
+test.skip(!fs.existsSync(ROM), `vanilla ROM not present at ${ROM}`)
 
 const GET_SVC = `function getSvc(name) {
   const d = window.theia.container._bindingDictionary

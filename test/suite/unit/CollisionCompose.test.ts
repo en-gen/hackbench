@@ -9,6 +9,7 @@ import { compose, type CollisionLine } from '../../../src/rom/collision/Compose'
 import {
   changedRanges,
   collisionLayer,
+  collisionRefusal,
   ProbeCache,
   rangesIntersect,
   SUPERSEDED,
@@ -16,6 +17,7 @@ import {
 import {
   stateKey,
   calibrate,
+  entryProblem,
   measureTile,
   probeAir,
   Probe,
@@ -462,6 +464,71 @@ describe('the probe without a cartridge', () => {
       expect(after).toEqual(measureTile(new Probe(rom(INC), 0, loaded()), 0x3c, CAL))
       expect(after.floor).toEqual(NONE)
     })
+  })
+
+  describe('the entry gate: the ROM still calls the routines the probe enters', () => {
+    // CODE_00E92B and the layer 1 setup before its JSR CODE_00EADB (SMWDisX bank_00.asm:11723-11771), as bytes:
+    // the call to CODE_00EAA6, the stores to $8D/$8F/$8E/$1933 the probe stands in for, and the call itself.
+    const SITES: [number, number[]][] = [
+      [0x692b, [0x20, 0xa6, 0xea]],
+      [0x6938, [0xad, 0xef, 0x13, 0x85, 0x8d, 0x9c, 0xef, 0x13, 0xa5, 0x72, 0x85, 0x8f, 0xa5, 0x5b, 0x10, 0x30]], // prettier-ignore
+      [0x6978, [0x0e, 0xef, 0x13, 0xa5, 0x5b, 0x29, 0x41, 0x85, 0x8e, 0x0a, 0x30, 0x08, 0x9c, 0x33, 0x19, 0x06, 0x8d, 0x20, 0xdb, 0xea]], // prettier-ignore
+    ]
+    const image = (patch: (b: Uint8Array) => void = () => undefined) => {
+      const b = new Uint8Array(0x80000)
+      b[0x7fd5] = 0x20
+      for (const [at, bytes] of SITES) b.set(bytes, at)
+      patch(b)
+      return RomFile.fromBytes('x.sfc', b)
+    }
+
+    it('vanilla-shaped call sites pass', () => {
+      expect(entryProblem(image())).toBeNull()
+    })
+
+    it('a JSL hook in place of the call to the collision routine is refused, with where', () => {
+      const hooked = image(b => b.set([0x22, 0x00, 0x80, 0x10], 0x6978 + 17)) // JSL $108000 where JSR $EADB was
+      expect(entryProblem(hooked)).toMatch(/call site.*\$00E978/)
+      expect(entryProblem(image(b => (b[0x692b + 1] = 0x00)))).toMatch(/\$00E92B/) // the reset call rerouted
+      expect(entryProblem(image(b => (b[0x6938 + 4] = 0x8e)))).toMatch(/\$00E938/) // a changed store target (STA $8D to $8E)
+    })
+
+    it('the probe and the toggle check both refuse it, before any level is loaded', () => {
+      const hooked = image(b => b.set([0x22, 0x00, 0x80, 0x10], 0x6978 + 17))
+      expect(collisionRefusal(hooked, 0x105)).toMatch(/call site/)
+      expect(() => new Probe(hooked, 0x105)).toThrow(/call site/)
+      // And a ROM with the sites intact goes on to the loader, whose own verdict (a synthetic cart) is what remains.
+      expect(collisionRefusal(image(), 0x105)).toMatch(/not the vanilla shape/)
+    })
+  })
+
+  it('a palace flag a tile reads, though the probe wrote it, keys that tile on the palace state', async () => {
+    const r = rom(blocks([[0x30, FLAT], [0x41, WHEN(0x1f28)]])) // prettier-ignore
+    const cache = new ProbeCache()
+    const ask = async (yellow: boolean) => {
+      const flags = { green: false, yellow, blue: false, red: false }
+      const out = await collisionLayer(r, 0, 7, [[0x41]], cache, { wram: loaded(), state: { flags, bluePs: false } }) // prettier-ignore
+      if (!out.ok) throw new Error(out.reason)
+      return out
+    }
+    expect((await ask(false)).lines.filter(l => l.kind === 'floor')).toHaveLength(0)
+    expect((await ask(true)).lines.filter(l => l.kind === 'floor')).toHaveLength(1)
+    expect((await ask(true)).probed).toBe(0) // each palace state is cached on its own
+    // Palace reads only in the runs that miss the cell (so only the level of air makes them) still key the tile:
+    // it takes those runs' answers.
+    const airReads = rom([0xa5, 0x96, 0xc9, 0x60, 0xb0, 0x04, 0xad, 0x27, 0x1f, 0x60, ...blocks([[0x30, FLAT]])]) // prettier-ignore
+    const c3 = new ProbeCache()
+    const off = { green: false, yellow: false, blue: false, red: false }
+    const via = (yellow: boolean) => collisionLayer(airReads, 0, 7, [[0x30]], c3, { wram: loaded(), state: { flags: { ...off, yellow }, bluePs: false } }) // prettier-ignore
+    expect((await via(false)).ok).toBe(true)
+    expect(await via(true)).toMatchObject({ ok: true, probed: 1 })
+    // A tile that never reads the palace bytes still shares one result across palace states.
+    const plain = rom(blocks([[0x30, FLAT]]))
+    const c2 = new ProbeCache()
+    const flags = { green: false, yellow: false, blue: false, red: false }
+    await collisionLayer(plain, 0, 7, [[0x30]], c2, { wram: loaded() })
+    const again = await collisionLayer(plain, 0, 7, [[0x30]], c2, { wram: loaded(), state: { flags: { ...flags, red: true }, bluePs: false } }) // prettier-ignore
+    expect(again.ok && again.probed).toBe(0)
   })
 
   it('refuses a level of air no position of which reaches the cell', () => {

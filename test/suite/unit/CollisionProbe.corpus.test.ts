@@ -277,7 +277,7 @@ describe.skipIf(!hasRom(VANILLA))('collision probe on the vanilla ROM', () => {
     const prep = (cache as any).preps.values().next().value
     const used = new Set<number>() // each edit its own byte: a second flip of one byte would undo the first
     const only = (id: number): number => {
-      const d = (cache as any).tiles.get(`7:0:${id}`).deps.rom as number[]
+      const d = (cache as any).tiles.get(`7:0:-:${id}`).deps.rom as number[]
       for (let i = 0; i < d.length; i += 2)
         for (let b = d[i]!; b < d[i + 1]!; b++)
           if (!used.has(b) && !rangesIntersect([b, b + 1], prep.deps.rom)) return (used.add(b), b)

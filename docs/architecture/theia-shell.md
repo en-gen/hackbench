@@ -287,8 +287,10 @@ in the composed reply's key. The per-tile probe cache, calibration and level-of-
 tileset and the blue P-switch only, not the palaces: on vanilla the block code reads the palace flags
 only in the big palace switch (bank_00.asm:12508), whose two branches give the same collision, so a
 palace toggle reuses every cached tile and probes only the ids new to the map ($015 yellow: 1 tile, about
-20 ms warm, against re-probing the whole map). A hack whose blocks read $1F27-$1F2A needs the palace
-bits back in that key; the probe's WRAM gets them either way.
+20 ms warm, against re-probing the whole map). The probe records any read of $1F27-$1F2A (even though it sets them), and an entry that read them is cached per
+palace state, so a hack whose blocks read the flags stays right after a toggle. Before probing, the ROM's call
+sites into the two collision routines are byte-checked (`entryProblem`, bank_00.asm:11723-11771): a hook that
+reroutes them refuses with a reason, in the toggle's check as well as the probe.
 
 An edit does not empty the probe cache. Each cached result (tile, calibration, level-of-air runs) keeps
 the ROM bytes its runs read and the seed-WRAM bytes it read before writing them, with the values seen.

@@ -19,6 +19,7 @@ import type { RomFile } from '../RomFile'
 import { SWITCH_BLOCK_ORDER } from '../objectHandlers/cursor'
 import type { SpriteBus } from '../sprites/interp/SpriteBus'
 import { smwMachine } from '../sprites/interp/Machine'
+import { bytesAt, shapeMatches } from '../sprites/interp/Guards'
 import { loadLevelState } from '../sprites/interp/LevelLoader'
 
 const RAM = {
@@ -41,6 +42,26 @@ const CELL_LOW = LOW + CELL_AT
 const CELL_HIGH = 0x10000 + LOW + CELL_AT
 /** The synthetic cell the probed tile sits in, and its pixel origin (screen 0, 16 px cells). */
 export const CELL = { col: 8, row: 8, px: 128, py: 128 }
+/**
+ * The call sites that reach the two entry points, as bytes (`null` is any byte): CODE_00E92B's call to
+ * CODE_00EAA6, the stores to $8D/$8F the probe stands in for, and the layer 1 setup ($8E, $1933, $8D) before
+ * its JSR CODE_00EADB (SMWDisX bank_00.asm:11723-11771). A hack that reroutes either call (a JSL hook) leaves
+ * the stock routine at the entry addresses unreached, and the probe would draw it with confidence.
+ */
+const ENTRY_SITES: { at: number; want: (number | null)[] }[] = [
+  { at: 0x00e92b, want: [0x20, 0xa6, 0xea] },
+  { at: 0x00e938, want: [0xad, 0xef, 0x13, 0x85, 0x8d, 0x9c, 0xef, 0x13, 0xa5, 0x72, 0x85, 0x8f, 0xa5, null, 0x10, null] }, // prettier-ignore
+  { at: 0x00e978, want: [0x0e, 0xef, 0x13, 0xa5, null, 0x29, 0x41, 0x85, 0x8e, 0x0a, 0x30, null, 0x9c, 0x33, 0x19, 0x06, 0x8d, 0x20, 0xdb, 0xea] }, // prettier-ignore
+]
+
+/** Why the probe's entry points are not reached by this ROM's code, or null. */
+export function entryProblem(rom: RomFile): string | null {
+  for (const s of ENTRY_SITES)
+    if (!shapeMatches(bytesAt(rom, s.at, s.want.length), s.want))
+      return `the call site at $${s.at.toString(16).toUpperCase().padStart(6, '0')} is not the vanilla shape; the probe will not enter the collision routines`
+  return null
+}
+
 /**
  * The game state a probe runs in, on top of the fixed small Mario with the silver P-switch off (not modelled):
  * the four switch palaces and the blue P-switch. Part of every cache key.
@@ -79,6 +100,8 @@ interface Result {
  * The seed level's own data is not listed unless a run read it, so a level-data edit invalidates nothing here.
  */
 export interface Deps {
+  /** A run read $1F27-$1F2A (the palace flags), whether or not the probe had written them first. */
+  palace?: boolean
   rom: number[]
   wram: [offset: number, value: number][]
 }
@@ -100,6 +123,7 @@ export class Probe {
   private readonly dirty: number[] = []
   private readonly reads = new Set<number>()
   private wramDeps: Set<number> | null = null
+  private palaceRead = false
   private romSeenBuf: Uint8Array | null = null
   private readonly romLen: number
   readonly tileset: number
@@ -116,6 +140,8 @@ export class Probe {
   constructor(rom: RomFile, level: number, loaded?: Uint8Array) {
     if (loaded) this.base = loaded.slice()
     else {
+      const reached = entryProblem(rom)
+      if (reached) throw new Error(reached)
       const l = loadLevelState(rom, level)
       if (!l.ok) throw new Error(l.reason)
       this.base = l.wram.slice()
@@ -139,6 +165,7 @@ export class Probe {
     this.bus.romSeen = this.romSeenBuf ??= new Uint8Array(this.romLen) // cleared by `takeDeps`, so reused
     this.bus.romList = []
     this.wramDeps = new Set()
+    this.palaceRead = false
   }
 
   takeDeps(): Deps {
@@ -153,7 +180,7 @@ export class Probe {
     const wram = [...this.wramDeps!].sort((a, b) => a - b).map((o): [number, number] => [o, this.base[o]!]) // prettier-ignore
     this.bus.romSeen = null
     this.wramDeps = null
-    return { rom, wram }
+    return { rom, wram, palace: this.palaceRead }
   }
 
   /** The seed image's byte, to check a dependency against a newly loaded seed. */
@@ -197,7 +224,8 @@ export class Probe {
     this.w(RAM.scrLen, 3)
     // Assumed state: small Mario, P-switches and palaces off, nothing carried, ridden or wall-running.
     for (const a of [RAM.power, RAM.duck, RAM.wall, RAM.yoshi, RAM.carry, RAM.bluePs, RAM.silverPs, RAM.noteBlk, RAM.onSprite, RAM.onGround]) this.w(a, 0) // prettier-ignore
-    PALACE_ORDER.forEach((k, i) => this.w(RAM.palaces + i, +this.state.flags[k]))
+    // Direct stores, not bus writes: a read of a palace flag must be seen as a read (see `Deps.palace`).
+    PALACE_ORDER.forEach((k, i) => (wram[RAM.palaces + i] = +this.state.flags[k]))
     this.w(RAM.bluePs, this.state.bluePs ? 0x80 : 0)
     this.w16(RAM.xNext, s.x)
     this.w16(RAM.yNext, s.y)
@@ -225,7 +253,12 @@ export class Probe {
     this.w(RAM.layerProc, 0)
     this.call(ENTRY_COLLIDE)
     this.bus.inputs = null
-    if (this.wramDeps) for (const o of this.reads) if (o !== CELL_LOW && o !== CELL_HIGH) this.wramDeps.add(o) // prettier-ignore
+    if (this.wramDeps) {
+      for (const o of this.reads) {
+        if (o >= RAM.palaces && o < RAM.palaces + 4) this.palaceRead = true
+        else if (o !== CELL_LOW && o !== CELL_HIGH) this.wramDeps.add(o)
+      }
+    }
     return {
       blocked: wram[RAM.blocked]!,
       y: wram[RAM.yNext]! | (wram[RAM.yNext + 1]! << 8),
