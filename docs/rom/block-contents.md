@@ -11,16 +11,25 @@ emulator unless stated.
    byte - $11, valid 0-$1C (`bank_00.asm:12827-12831`), and a hit direction Y.
    A gate decides whether this hit opens the block:
    `DATA_00F0EC[Y] & DATA_00F0A4[index]`, zero meaning no (`bank_00.asm:12850-12853`).
-   Y = 0 is a head bump (mask $08; the sprite-hit callers also pass 0,
-   `bank_01.asm:3049`, `:3543`), Y = 1 and 2 are side hits (mask $01, $02,
-   `bank_00.asm:12188-12191`), Y = 3 is from above (mask $04, `bank_00.asm:12461`).
+   Y = 0 comes from every caller that hits a block from below, not only Mario's
+   head bump: `CODE_00EFE8` (`bank_00.asm:12681`) and the sprite-hit callers
+   (`bank_01.asm:3049`, `:3543`, `bank_02.asm:2863`) into `CODE_00F160`, `CODE_00ECFA`
+   (`bank_00.asm:12262`) into `CODE_00F127`, and the direct entry for tiles $021-$024
+   (`bank_00.asm:12211`). Y = 1 and 2 are side hits (mask $01, $02): `CODE_00EC7B`
+   (`bank_00.asm:12188-12193`) calls `CODE_00F127` with Y = `DATA_00E90A[PlayerBlockXSide] & 3`
+   (`bank_00.asm:11703-11704`). Y = 3 is from above (mask $04, `bank_00.asm:12461`,
+   `:12479`). Only Y = 0-3 reach the gate, so mask bits 4-7 never matter. Mask $08
+   therefore means "opened by the Y = 0 callers", not only Mario's head bump.
    Every index but these has mask $08 (head bump only): 0, 2 and 4 are $0C
    (head bump and from above), 5 (tile $116) is $0F (also from the sides),
    $19 and $1A (tiles $12A, $12B) are $03, and $21 is $04. A head bump never opens
    $12A or $12B, only a side hit does. The resolver reads this table (`DATA_00F0A4`,
-   36 bytes, `bank_00.asm:12758-12763`) from the ROM: mask bit 3 set gives no
-   trigger text, otherwise the condition says "(only when hit from the side)" or
-   "(only when hit from above)", and a mask with none of those bits opens nothing.
+   36 bytes, `bank_00.asm:12758-12763`) from the ROM. Mask bit 3 set gives no
+   trigger text. Otherwise the condition says "(only when hit from the side)" (both
+   side bits), "from one side" (one of them; which physical side each is was not
+   established), "from above", or a combination such as "from one side or above". A
+   mask with none of bits 0-3 opens nothing, and a closed gate also drops the
+   counter caveat.
 2. The selector byte `DATA_00F080[index]` (`bank_00.asm:12751`) is decoded at
    `CODE_00F1BA` (`bank_00.asm:12877-12891`):
    - bit 7 set and every other bit set: green star block (`bank_00.asm:12861-12866`).

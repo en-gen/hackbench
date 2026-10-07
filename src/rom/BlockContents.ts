@@ -394,6 +394,19 @@ export function resolveBlockContents(
   }
 }
 
+/**
+ * The trigger text for a gate mask (low nibble), null when nothing opens it. DATA_00F0EC[Y]
+ * is $08, $01, $02, $04 for Y = 0-3 (bank_00.asm:12773): head bump, the two sides, above.
+ * Bit 3 set needs no text. Which physical side Y = 1 and 2 are (DATA_00E90A[PlayerBlockXSide],
+ * bank_00.asm:11703-11704, :12061-12067) is not established, so one bit reads "one side".
+ */
+function gateText(mask: number): string | null {
+  if (mask & 0x08) return ''
+  const side = (mask & 0x03) === 0x03 ? 'the side' : mask & 0x03 ? 'one side' : ''
+  const parts = [side, mask & 0x04 ? 'above' : ''].filter(Boolean)
+  return parts.length ? ` (only when hit from ${parts.join(' or ')})` : null
+}
+
 function resolveWith(
   actsLike: number,
   col: number,
@@ -404,19 +417,11 @@ function resolveWith(
   const raw = at(t.selector, index, 'DATA_00F080')
   // The gate (bank_00.asm:12850-12853): which hit directions open this index. Head bump
   // is Y=0 (mask $08), sides Y=1,2 ($03), above Y=3 ($04); the upward tiles are a head bump.
-  const mask = at(t.gate, index, 'DATA_00F0A4')
-  const trigger = upward
-    ? ' (only when hit from below)'
-    : mask & 0x08
-      ? ''
-      : mask & 0x03
-        ? ' (only when hit from the side)'
-        : mask & 0x04
-          ? ' (only when hit from above)'
-          : null
+  const mask = at(t.gate, index, 'DATA_00F0A4') & 0x0f // bits 4-7 never match: Y is 0-3
+  const trigger = upward ? ' (only when hit from below)' : gateText(mask)
   const opens = upward ? (mask & 0x08) !== 0 : trigger !== null
   const normal = altsFor(raw, { t, col, loose: false })
-  if (!opens) Object.assign(normal, { alts: [], position: undefined })
+  if (!opens) Object.assign(normal, { alts: [], position: undefined, caveat: undefined })
   let alts = normal.alts
   // Vanilla's second copy is identical, so this adds nothing there (bank_02.asm:1143-1151).
   const looseAlts = opens ? altsFor(raw, { t, col, loose: true }).alts : []

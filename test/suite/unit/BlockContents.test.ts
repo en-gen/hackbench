@@ -236,11 +236,58 @@ describe('resolveBlockContents', () => {
     expect(resolveOk(0x11c, 0, none(3)).condition).toBe(
       'Nothing if Mario is invincible, otherwise Coin',
     )
+    // Both branches empty is a block with nothing, with no alternatives left.
+    const bothEmpty = Uint8Array.from(STATUS)
+    bothEmpty[1] = bothEmpty[2] = 0
+    const be = resolveOk(0x112, 0, { ...TABLES, statusOfSprInBlk: bothEmpty })
+    expect(be.condition).toBe('Nothing')
+    expect(be.alternatives).toEqual([])
     const noOneUp = none(5)
     expect(resolveOk(0x11d, 0, noOneUp).condition).toBe(
       'Coin if fewer than 7 coins are collected, otherwise nothing',
     )
-    expect(resolveOk(0x11d, 0, { ...noOneUp, greenStarCoins: 0 }).condition).toBe('Nothing')
+    const zero = resolveOk(0x11d, 0, { ...noOneUp, greenStarCoins: 0 })
+    expect(zero.condition).toBe('Nothing')
+    expect(zero.alternatives).toEqual([])
+  })
+
+  it('R2: the balloon rewrite supplies the status, so a table status of 0 does not empty it', () => {
+    const status = Uint8Array.from(STATUS)
+    status[16] = 0 // the balloon's own table status (bank_02.asm:1141-1142), overwritten at :1209-1210
+    const r = resolveOk(0x118, 0, { ...TABLES, statusOfSprInBlk: status })
+    expect(r.condition).toBe('Sprite $61 (X column 1 of 4)')
+  })
+
+  it('R3: a mixed gate mask names every direction that opens the block, and none for a head bump', () => {
+    const sel = Uint8Array.from(SELECTOR)
+    sel[0x116 - FIRST_ITEM_BLOCK] = 0x0c // coin
+    const text = (mask: number): string => {
+      const gate = Uint8Array.from(TABLES.gate)
+      gate[0x116 - FIRST_ITEM_BLOCK] = mask
+      return resolveOk(0x116, 0, { ...TABLES, selector: sel, gate }).condition
+    }
+    // DATA_00F0EC[0..3] = $08, $01, $02, $04 (Y = head bump, side, other side, above);
+    // only Y 0-3 reach the gate (bank_00.asm:12189-12191, :12461, :12479).
+    expect(text(0x01)).toBe('Coin (only when hit from one side)')
+    expect(text(0x02)).toBe('Coin (only when hit from one side)')
+    expect(text(0x03)).toBe('Coin (only when hit from the side)')
+    expect(text(0x04)).toBe('Coin (only when hit from above)')
+    expect(text(0x05)).toBe('Coin (only when hit from one side or above)')
+    expect(text(0x06)).toBe('Coin (only when hit from one side or above)')
+    expect(text(0x07)).toBe('Coin (only when hit from the side or above)')
+    expect(text(0x0c)).toBe('Coin')
+    expect(text(0x0f)).toBe('Coin')
+    expect(text(0xf0)).toBe('Nothing') // bits 4-7 never open anything
+    expect(text(0x00)).toBe('Nothing')
+  })
+
+  it('R4: a closed gate drops the counter caveat with the rest of the answer', () => {
+    const gate = Uint8Array.from(TABLES.gate)
+    gate[0x11d - FIRST_ITEM_BLOCK] = 0
+    const r = resolveOk(0x11d, 0, { ...TABLES, gate, greenStarCoins: null })
+    expect(r.condition).toBe('Nothing')
+    expect(r.caveat).toBeUndefined()
+    expect(resolveOk(0x11d, 0, { ...TABLES, greenStarCoins: null }).caveat).toBeDefined()
   })
 
   it('F2: a balloon rewritten to $45 gets no directional-coin clause (the check precedes the rewrite)', () => {
