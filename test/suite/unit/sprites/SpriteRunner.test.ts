@@ -502,7 +502,7 @@ describe('level loader on a synthetic cart', () => {
     expect(l.wram[0x1462]).toBe(7)
     expect(l.wram[0x1e]).toBe(7)
     expect(l.wram[0x20]).toBe(6)
-    expect(l.wram[0x5e]).toBe(0x20)
+    expect(l.wram[0x5e]).toBe(0x77) // the data stub's, written after GM11's STA $5E (so the data loader ran last)
     expect(l.wram[0x1404]).toBe(1)
   })
 
@@ -527,6 +527,11 @@ describe('level loader on a synthetic cart', () => {
       ok: false,
       reason: /UpdateScreenPosition/,
     })
+  })
+
+  it('a wrong-kind return inside the screen setup span is refused, not run on', () => {
+    expect(run({ badLoader: 'scrollRtl' })).toMatchObject({ ok: false, reason: /stack unbalanced/ })
+    expect(run({ badLoader: 'updateRts' })).toMatchObject({ ok: false, reason: /stack unbalanced/ })
   })
 
   it('refuses when the loader executes COP', () => {

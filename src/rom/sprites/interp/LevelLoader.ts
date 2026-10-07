@@ -30,6 +30,7 @@ import {
   runUntil,
   type CallResult,
 } from '../../cpu/call'
+import type { Cpu65816 } from '../../cpu/Cpu65816'
 import type { RomFile } from '../../RomFile'
 import { bytesAt, mapperProblem, shapeMatches } from './Guards'
 import { smwMachine } from './Machine'
@@ -39,7 +40,7 @@ import { withSeed, type SeedOverride, type SpriteSeed } from './SpriteSeed'
  * Instruction cap for the whole load (all five steps). The loader runs on the
  * Theia RPC thread (map-sprites.ts), so a ROM that passes the shapes and loops
  * must be refused quickly. Vanilla's worst level over all 512 level numbers is
- * 276,655 steps (one machine, 2026-10-06), so this is ~7x headroom.
+ * 276,864 steps (max over levels 0-511, one run, 2026-10-07), so this is ~7x headroom.
  */
 export const LOADER_TOTAL_CAP = 2_000_000
 
@@ -119,7 +120,16 @@ export function loadLevelState(rom: RomFile, level: number): LevelLoad {
       nativeReset(cpu)
       cpu.pb = 0
       cpu.pc = from
-      return runUntil(cpu, room, k => k.pb === 0 && k.pc === to)
+      // Like callSubroutine: arriving at `to` on any other S, or popping above the start S, is a
+      // wrong-kind or stray return (RTS from a JSL frame, RTL from a JSR frame), not a finished span.
+      const s0 = cpu.s
+      const unbalanced = (c: Cpu65816): CallResult => ({ kind: 'unbalanced', s: c.s, expected: s0, pb: c.pb, expectedPb: 0, steps: 0 }) // prettier-ignore
+      return runUntil(
+        cpu,
+        room,
+        k => k.pb === 0 && k.pc === to && k.s === s0,
+        k => (k.s > s0 || (k.pb === 0 && k.pc === to) ? unbalanced(k) : null),
+      )
     })
   try {
     // CODE_05D8B7 is entered mid-routine, after CODE_05D796's PHB; its PLB needs that byte.
