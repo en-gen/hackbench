@@ -191,36 +191,29 @@ describe('resolveBlockContents', () => {
     expect(resolveOk(0x11d, 0, own).caveat).toBe('why not')
   })
 
-  it('a hack table with a zero sprite degrades to Nothing, never throws', () => {
+  it('a zero sprite entry is what the ROM spawns, Sprite $00, never Nothing (bank_02.asm:1150-1151)', () => {
     const sprites = Uint8Array.from(SPRITES)
-    sprites[1] = sprites[18] = 0 // first-item slot: a progressive block keeps only its item
+    sprites[1] = sprites[18] = 0
     const noFirst = { ...TABLES, spriteInBlock: sprites }
     expect(resolveOk(0x112, 0, noFirst).condition).toBe(
-      'Nothing if Mario is small, otherwise Sprite $42',
+      'Sprite $00 if Mario is small, otherwise Sprite $42',
     )
     sprites[3] = sprites[20] = 0
-    expect(resolveOk(0x114, 0, noFirst).condition).toBe('Nothing')
+    const r = resolveOk(0x114, 0, noFirst)
+    expect(r.condition).toBe('Sprite $00')
+    expect(r.spriteIds).toEqual([0])
     const zero = { ...TABLES, columnOverride: Uint8Array.from([0, 0, 0, 0]) }
     for (let col = 0; col < 4; col++)
-      expect(resolveOk(0x118, col, zero).condition.startsWith('Nothing')).toBe(true)
+      expect(resolveOk(0x118, col, zero).condition).toBe(`Sprite $00 (X column ${col + 1} of 4)`)
   })
 
-  it('an empty branch of a progressive outcome keeps its condition', () => {
-    const sprites = Uint8Array.from(SPRITES)
-    sprites[2] = sprites[19] = 0 // the big item of tile $112
-    const noItem = { ...TABLES, spriteInBlock: sprites }
-    const r = resolveOk(0x112, 0, noItem)
+  it('content id 0 keeps the progressive Mushroom branch and is empty otherwise', () => {
+    const sel = Uint8Array.from(SELECTOR)
+    sel[0x112 - FIRST_ITEM_BLOCK] = 0x01
+    const r = resolveOk(0x112, 0, { ...TABLES, selector: sel })
     expect(r.condition).toBe(`${SMALL} nothing`)
     expect(r.spriteIds).toEqual([0x41])
     expect(r.progressive).toBeNull()
-    // The star-or-coin tile: the star branch is empty, the coin branch stays.
-    sprites[3] = sprites[20] = 0
-    expect(resolveOk(0x11c, 0, noItem).condition).toBe(
-      'Nothing if Mario is invincible, otherwise Coin',
-    )
-    // Both branches empty is a block with nothing.
-    sprites[1] = sprites[18] = 0
-    expect(resolveOk(0x112, 0, noItem).condition).toBe('Nothing')
   })
 
   it('a content id of $11 or more reads the contiguous bytes, as the ROM does', () => {
@@ -228,8 +221,9 @@ describe('resolveBlockContents', () => {
     sel[0x113 - FIRST_ITEM_BLOCK] = 0x13 << 1 // second-copy index 2
     sel[0x112 - FIRST_ITEM_BLOCK] = 0x3f << 1 // far past both copies
     const t = { ...TABLES, selector: sel }
-    expect(resolveOk(0x113, 0, t).spriteIds).toEqual([0x42])
-    expect(resolveOk(0x112, 0, t).condition).toBe('Nothing')
+    // The loose copy of id $13 is index $24, past the 34 bytes that hold sprites: a zero.
+    expect(resolveOk(0x113, 0, t).spriteIds).toEqual([0x42, 0])
+    expect(resolveOk(0x112, 0, t).condition).toBe('Sprite $00') // zero bytes past the table
   })
 
   it('a differing second SpriteInBlock copy adds a Yoshi is loose alternative; identical adds none', () => {
@@ -237,8 +231,32 @@ describe('resolveBlockContents', () => {
     const sprites = Uint8Array.from(SPRITES)
     sprites[17 + 3] = 0x46
     const r = resolveOk(0x114, 0, { ...TABLES, spriteInBlock: sprites })
-    expect(r.condition).toBe('Sprite $46 if Yoshi is loose, otherwise Sprite $43')
-    expect(r.spriteIds).toEqual([0x46, 0x43])
+    expect(r.condition).toBe('Sprite $43 (Sprite $46 if Yoshi is loose)')
+    expect(r.spriteIds).toEqual([0x43, 0x46])
+  })
+
+  it('#626: a loose copy of $00 shows Sprite $00, not nothing (bank_02.asm:1143-1151)', () => {
+    const sprites = Uint8Array.from(SPRITES)
+    sprites[17 + 3] = 0
+    const r = resolveOk(0x114, 0, { ...TABLES, spriteInBlock: sprites })
+    expect(r.condition).toBe('Sprite $43 (Sprite $00 if Yoshi is loose)')
+    expect(r.spriteIds).toEqual([0x43, 0])
+    expect(r.alternatives.map(a => a.when)).toEqual(['Yoshi is loose', null])
+  })
+
+  it('#626: $12A and $12B open only from the side, so they say so', () => {
+    const sel = Uint8Array.from(SELECTOR)
+    sel[0x12a - FIRST_ITEM_BLOCK] = 0x09
+    sel[0x12b - FIRST_ITEM_BLOCK] = 0x0c
+    const t = { ...TABLES, selector: sel }
+    expect(resolveOk(0x12a, 0, t).condition).toBe(
+      `${SMALL} Sprite $46 (only when hit from the side)`,
+    )
+    expect(resolveOk(0x12b, 0, t).condition).toBe('Coin (only when hit from the side)')
+    expect(resolve(0x12b).condition).toBe('Nothing') // an empty block has no trigger to state
+    expect(
+      resolveOk(0x129, 0, { ...TABLES, selector: Uint8Array.from(sel).fill(0x0c) }).condition,
+    ).toBe('Coin')
   })
 
   it('#672: tiles $021-$024 are entered only by a head bump, from selector indices $1D-$20', () => {
@@ -303,7 +321,7 @@ describe('resolveBlockContents', () => {
     const sprites = Uint8Array.from(SPRITES)
     sprites[17 + 4] = 0x44 // the big item, loose copy only
     const r = resolveOk(0x113, 0, { ...TABLES, spriteInBlock: sprites })
-    expect(r.spriteIds).toEqual([0x41, 0x44, 0x46])
+    expect(r.spriteIds).toEqual([0x41, 0x46, 0x44])
   })
 
   it('the egg condition reads its contents from the egg table', () => {
@@ -317,18 +335,6 @@ describe('resolveBlockContents', () => {
   it('a counter that starts at 0 gives the 1-up at once', () => {
     const r = resolveOk(0x11d, 0, { ...TABLES, greenStarCoins: 0 })
     expect(r.condition).toBe('Sprite $47')
-  })
-
-  it('an empty 1-up keeps the coin under its condition; a start of 0 with no 1-up is Nothing', () => {
-    const sprites = Uint8Array.from(SPRITES)
-    sprites[5] = sprites[22] = 0 // the 1-up slot, both copies
-    const t = { ...TABLES, spriteInBlock: sprites }
-    const r = resolveOk(0x11d, 0, t)
-    expect(r.condition).toBe('Coin if fewer than 7 coins are collected, otherwise nothing')
-    expect(r.alternatives).toHaveLength(2)
-    expect(r.alternatives[0].when).toBe('fewer than 7 coins are collected')
-    expect(resolveOk(0x11d, 0, { ...t, greenStarCoins: 0 }).condition).toBe('Nothing')
-    expect(resolveOk(0x11d, 0, { ...t, greenStarCoins: 0 }).alternatives).toEqual([])
   })
 
   it('a cycle period between 8 and 15 is reported', () => {
@@ -669,7 +675,7 @@ const VANILLA_FIXED: Record<number, [string, number[]]> = {
   0x127: ['Green Koopa shell', [0x04]],
   0x128: ['Green Koopa shell', [0x04]],
   0x129: ['Nothing', []],
-  0x12a: [FEATHER, [0x74, 0x77]],
+  0x12a: [`${FEATHER} (only when hit from the side)`, [0x74, 0x77]],
   0x12b: ['Nothing', []],
   0x12c: ['Nothing', []],
   0x12d: ['Coin if fewer than 30 coins are collected, otherwise 1-up', [0x78]],

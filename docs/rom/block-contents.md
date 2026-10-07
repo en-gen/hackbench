@@ -105,9 +105,10 @@ the item depends on scroll position; the resolver gives the layer-1 answer.
   $1F and $20 (nothing). The resolver resolves them, with the condition "only
   when hit from below". The spin-break entry (index $21, `bank_00.asm:12471-12472`)
   gives nothing and is not a tile.
-- $12A (and $12B, which holds nothing) is opened only by a side hit (step 1). The
-  resolver still reports $12A's feather without that condition: an open question
-  for the indicator, not changed here.
+- $12A and $12B are opened only by a side hit (step 1). The resolver says so:
+  their condition reads "(only when hit from the side)" when they hold something
+  (vanilla's $12B holds nothing, so it reads plain "Nothing"). The tile list is
+  fixed from vanilla's gate masks; a hack that changes `DATA_00F0A4` is not detected.
 
 ## Resolver output
 
@@ -122,12 +123,16 @@ for the Properties "Contains" row, and an optional `caveat`. Tables come from
 The resolver reads every table from the ROM and keys the special cases on the
 spawned sprite, as the ROM does (balloon rewrite `bank_02.asm:1199`, P-switch
 `bank_02.asm:1228`, Yoshi egg `bank_02.asm:1230`). A zero SpriteInBlock or
-DATA_0288D6 entry gives "Nothing", and so does content id 0 whatever SpriteInBlock[0]
-holds (`bank_02.asm:1053-1054`). A sprite produced by the balloon rewrite skips the
-P-switch, egg and directional-coin handling (`bank_02.asm:1215-1223`). Content ids of $11 and up read the bytes that
+DATA_0288D6 entry is what the ROM spawns: sprite $00, read as "Sprite $00" (the spawn
+writes SpriteNumber from the table with no zero check, `bank_02.asm:1150-1151`; a
+balloon rewrite does the same, `:1209-1212`). Content id 0 is the only empty case:
+it returns before any spawn (`bank_02.asm:1053-1054`), whatever SpriteInBlock[0]
+holds. A sprite produced by the balloon rewrite skips the P-switch, egg and
+directional-coin handling (`bank_02.asm:1215-1223`). Content ids of $11 and up read the bytes that
 follow the table (`bank_02.asm:1077-1089`). When the second SpriteInBlock copy
-(read while Yoshi is loose, `bank_02.asm:1143-1149`) differs from the first, the
-resolver adds a "Yoshi is loose" alternative; vanilla's copies are identical.
+(read while Yoshi is loose, `bank_02.asm:1143-1151`) differs from the first, the
+resolver shows both, as "Sprite $43 (Sprite $00 if Yoshi is loose)", lists both
+sprites in `spriteIds`, and adds a "Yoshi is loose" alternative; vanilla's copies are identical.
 The "X column n of p" text uses the period found in DATA_00F100 and is dropped
 when the table has none.
 

@@ -18,6 +18,11 @@ export const LAST_ITEM_BLOCK = 0x12d
  * Page-0 tiles $021-$024 reach the same code by a head bump while Mario moves up
  * (bank_00.asm:12199-12212): selector index = tile - 4, so $1D-$20.
  */
+/**
+ * Tiles $12A and $12B have gate mask $03 in DATA_00F0A4 (bank_00.asm:12762): a side
+ * hit opens them, a head bump never does (gate, bank_00.asm:12850-12853).
+ */
+const SIDE_ONLY_TILES: ReadonlySet<number> = new Set([0x12a, 0x12b])
 export const FIRST_UPWARD_TILE = 0x21
 export const LAST_UPWARD_TILE = 0x24
 
@@ -48,7 +53,8 @@ export const SPRITE_NAMES: Readonly<Record<number, string>> = {
   0x7e: 'Flying red coin',
   0x80: 'Key',
 }
-const nameOf = (sprite: number): string => SPRITE_NAMES[sprite] ?? `Sprite $${sprite.toString(16)}`
+const nameOf = (sprite: number): string =>
+  SPRITE_NAMES[sprite] ?? `Sprite $${sprite.toString(16).padStart(2, '0')}`
 
 /** ROM tables the resolver reads (SNES addresses from SMW_U.sym). */
 export interface BlockContentTables {
@@ -228,7 +234,6 @@ function contentFor(id: number, c: Ctx): BlockContent | null {
   const { t, col } = c
   if (id === 0) return null // bank_02.asm:1053-1054: content id 0 returns before any spawn
   let sprite = at(t.spriteInBlock, id + (c.loose ? 0x11 : 0), 'SpriteInBlock')
-  if (sprite === 0) return null
   let status = at(t.statusOfSprInBlk, id, 'StatusOfSprInBlk')
   let position: string | undefined
   let caveat: string | undefined
@@ -246,7 +251,7 @@ function contentFor(id: number, c: Ctx): BlockContent | null {
     caveat =
       i === 3 ? `reads past DATA_0288D6; spawn status $${hex} has no handler; ${layer2}` : layer2
   }
-  if (sprite === 0) return null
+  // A zero table byte is sprite $00, which the ROM spawns (bank_02.asm:1150-1151).
   let label = nameOf(sprite)
   // After the rewrite the ROM branches past the P-switch, egg and directional-coin
   // checks (bank_02.asm:1215-1223), so those apply only to an unrewritten sprite.
@@ -313,6 +318,16 @@ function describe(alts: readonly ContentAlternative[]): string {
     })
     .join(', ')
   return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+/** Normal answer, then the Yoshi-loose one in a parenthetical when the second copy differs. */
+function describeAll(
+  normal: readonly ContentAlternative[],
+  loose: readonly ContentAlternative[] | null,
+): string {
+  if (!loose) return describe(normal)
+  const inner = describe(loose)
+  return `${describe(normal)} (${inner === 'Nothing' ? 'nothing' : inner} if Yoshi is loose)`
 }
 
 function altsFor(
@@ -383,18 +398,27 @@ function resolveWith(
   const raw = at(t.selector, index, 'DATA_00F080')
   const normal = altsFor(raw, { t, col, loose: false })
   let alts = normal.alts
-  // Vanilla's second copy is identical, so this adds nothing there (bank_02.asm:1143-1149).
-  const loose = altsFor(raw, { t, col, loose: true }).alts
-  if (JSON.stringify(loose) !== JSON.stringify(alts)) {
+  // Vanilla's second copy is identical, so this adds nothing there (bank_02.asm:1143-1151).
+  const looseAlts = altsFor(raw, { t, col, loose: true }).alts
+  const differs = JSON.stringify(looseAlts) !== JSON.stringify(alts)
+  const loose = differs ? looseAlts : null
+  if (loose) {
     const tag = (w: string | null): string => ['Yoshi is loose', w].filter(Boolean).join(' and ')
-    alts = [...loose.map(a => ({ ...a, when: tag(a.when) })), ...alts]
+    alts = [...looseAlts.map(a => ({ ...a, when: tag(a.when) })), ...alts]
   }
 
   const contents = alts.map(a => a.content)
   const sprites = contents.flatMap(x => (x.kind === 'sprite' ? [x] : []))
+  const normalSprites = normal.alts.flatMap(a => (a.content.kind === 'sprite' ? [a.content] : []))
   const position = normal.position ?? sprites.find(x => x.position)?.position
-  const trigger = upward && alts.length ? ' (only when hit from below)' : ''
-  const condition = describe(alts) + (position ? ` (${position})` : '') + trigger
+  const sideOnly = SIDE_ONLY_TILES.has(actsLike) && alts.length > 0
+  const trigger =
+    upward && alts.length
+      ? ' (only when hit from below)'
+      : sideOnly
+        ? ' (only when hit from the side)'
+        : ''
+  const condition = describeAll(normal.alts, loose) + (position ? ` (${position})` : '') + trigger
   const caveats = [
     ...new Set([
       ...sprites.flatMap(x => (x.caveat ? [x.caveat] : [])),
@@ -411,7 +435,7 @@ function resolveWith(
       : null
   return {
     alternatives: alts,
-    spriteIds: [...new Set(sprites.map(x => x.sprite))],
+    spriteIds: [...new Set([...normalSprites, ...sprites].map(x => x.sprite))],
     progressive,
     multiCoin: contents.some(x => x.kind === 'multiCoin'),
     condition,
