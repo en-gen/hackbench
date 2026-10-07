@@ -14,11 +14,18 @@ import type { RomFile } from './RomFile'
 
 export const FIRST_ITEM_BLOCK = 0x111
 export const LAST_ITEM_BLOCK = 0x12d
+/**
+ * Page-0 tiles $021-$024 reach the same code by a head bump while Mario moves up
+ * (bank_00.asm:12199-12212): selector index = tile - 4, so $1D-$20.
+ */
+export const FIRST_UPWARD_TILE = 0x21
+export const LAST_UPWARD_TILE = 0x24
 
 /** Sprites the spawn code treats specially (bank_02.asm:1199, 1228, 1230). */
 const SPRITE_PSWITCH = 0x3e
 const SPRITE_YOSHI_EGG = 0x2c
 const SPRITE_BALLOON = 0x7d
+const SPRITE_DIRECT_COINS = 0x45 // bank_02.asm:1162-1168
 
 /** Colours for the two vanilla DATA_028A42 attribute values. */
 export const PSWITCH_COLOURS: Readonly<Record<number, string>> = { 0x06: 'blue', 0x02: 'silver' }
@@ -219,18 +226,21 @@ function contentFor(id: number, c: Ctx): BlockContent | null {
   if (id === CONTENT_COIN) return { kind: 'coin', label: 'Coin' }
   if (id === CONTENT_MULTICOIN) return { kind: 'multiCoin', label: 'Multiple coins' }
   const { t, col } = c
+  if (id === 0) return null // bank_02.asm:1053-1054: content id 0 returns before any spawn
   let sprite = at(t.spriteInBlock, id + (c.loose ? 0x11 : 0), 'SpriteInBlock')
   if (sprite === 0) return null
   let status = at(t.statusOfSprInBlk, id, 'StatusOfSprInBlk')
   let position: string | undefined
   let caveat: string | undefined
   let attribute: number | undefined
+  let rewritten = false
   const layer2 = 'on layer 2 the item depends on scroll position'
   if (sprite === SPRITE_BALLOON) {
     // bank_02.asm:1199-1212: the spawned balloon is rewritten by X column.
     const i = col & 3
     sprite = at(t.columnOverride, i, 'DATA_0288D6')
     status = at(t.columnOverrideStatus, i, 'DATA_0288D9')
+    rewritten = true
     position = `X column ${i + 1} of 4`
     const hex = status.toString(16).toUpperCase()
     caveat =
@@ -238,14 +248,20 @@ function contentFor(id: number, c: Ctx): BlockContent | null {
   }
   if (sprite === 0) return null
   let label = nameOf(sprite)
-  if (sprite === SPRITE_PSWITCH) {
+  // After the rewrite the ROM branches past the P-switch, egg and directional-coin
+  // checks (bank_02.asm:1215-1223), so those apply only to an unrewritten sprite.
+  if (sprite === SPRITE_DIRECT_COINS && !rewritten) {
+    // DirectCoinInit set: the spawn is erased and the coin path runs (bank_02.asm:1162-1168).
+    label += ' (a coin instead, if a directional-coin run already started in this level)'
+  }
+  if (sprite === SPRITE_PSWITCH && !rewritten) {
     // CODE_028A2A (bank_02.asm:1280-1295): colour by column parity.
     attribute = at(t.pSwitchAttribute, col & 1, 'DATA_028A42')
     const colour = PSWITCH_COLOURS[attribute ?? -1]
     if (colour) label += ` (${colour})`
     caveat = layer2
   }
-  if (sprite === SPRITE_YOSHI_EGG) {
+  if (sprite === SPRITE_YOSHI_EGG && !rewritten) {
     // bank_02.asm:1232-1251, DATA_0288A1.
     const [alone, withYoshi] = [
       at(t.eggContents, 0, 'DATA_0288A1'),
@@ -347,17 +363,24 @@ export function resolveBlockContents(
   t: BlockContentTables | TablesUnavailable,
 ): BlockContents | TablesUnavailable | null {
   if (isUnavailable(t)) return t
-  if (actsLike < FIRST_ITEM_BLOCK || actsLike > LAST_ITEM_BLOCK) return null
+  const upward = actsLike >= FIRST_UPWARD_TILE && actsLike <= LAST_UPWARD_TILE
+  if (!upward && (actsLike < FIRST_ITEM_BLOCK || actsLike > LAST_ITEM_BLOCK)) return null
   try {
-    return resolveWith(actsLike, col, t)
+    return resolveWith(actsLike, col, t, upward)
   } catch (e) {
     if (e instanceof ShortTable) return { kind: 'unavailable', unavailable: e.message }
     throw e
   }
 }
 
-function resolveWith(actsLike: number, col: number, t: BlockContentTables): BlockContents {
-  const raw = at(t.selector, actsLike - FIRST_ITEM_BLOCK, 'DATA_00F080')
+function resolveWith(
+  actsLike: number,
+  col: number,
+  t: BlockContentTables,
+  upward: boolean,
+): BlockContents {
+  const index = upward ? actsLike - 4 : actsLike - FIRST_ITEM_BLOCK
+  const raw = at(t.selector, index, 'DATA_00F080')
   const normal = altsFor(raw, { t, col, loose: false })
   let alts = normal.alts
   // Vanilla's second copy is identical, so this adds nothing there (bank_02.asm:1143-1149).
@@ -370,7 +393,8 @@ function resolveWith(actsLike: number, col: number, t: BlockContentTables): Bloc
   const contents = alts.map(a => a.content)
   const sprites = contents.flatMap(x => (x.kind === 'sprite' ? [x] : []))
   const position = normal.position ?? sprites.find(x => x.position)?.position
-  const condition = describe(alts) + (position ? ` (${position})` : '')
+  const trigger = upward && alts.length ? ' (only when hit from below)' : ''
+  const condition = describe(alts) + (position ? ` (${position})` : '') + trigger
   const caveats = [
     ...new Set([
       ...sprites.flatMap(x => (x.caveat ? [x.caveat] : [])),

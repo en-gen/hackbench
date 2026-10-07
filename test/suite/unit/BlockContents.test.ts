@@ -241,6 +241,71 @@ describe('resolveBlockContents', () => {
     expect(r.spriteIds).toEqual([0x46, 0x43])
   })
 
+  it('#672: tiles $021-$024 are entered only by a head bump, from selector indices $1D-$20', () => {
+    const sel = Uint8Array.from(SELECTOR)
+    sel[0x1d] = 0x0c // coin
+    sel[0x1e] = 0x0a // content 5
+    sel[0x1f] = sel[0x20] = 0
+    const t = { ...TABLES, selector: sel }
+    const r = (tile: number) => resolveBlockContents(tile, 0, t) as BlockContents
+    expect(r(0x21).condition).toBe('Coin (only when hit from below)')
+    expect(r(0x21).alternatives[0].content.kind).toBe('coin')
+    expect(r(0x22).condition).toBe('Sprite $47 (only when hit from below)')
+    expect(r(0x22).spriteIds).toEqual([0x47])
+    expect(r(0x23).condition).toBe('Nothing')
+    expect(r(0x24).condition).toBe('Nothing')
+    expect(resolveBlockContents(0x20, 0, t)).toBeNull()
+    expect(resolveBlockContents(0x25, 0, t)).toBeNull()
+    sel[0x1d] = 0x0e // a hack's table is followed, not vanilla's
+    expect(r(0x21).condition).toBe('Multiple coins (only when hit from below)')
+  })
+
+  it('#672: the directional-coin sprite carries its already-started condition', () => {
+    const sprites = Uint8Array.from(SPRITES)
+    sprites[3] = sprites[20] = 0x45
+    const r = resolveOk(0x114, 0, { ...TABLES, spriteInBlock: sprites })
+    expect(r.condition).toBe(
+      'Directional coins (a coin instead, if a directional-coin run already started in this level)',
+    )
+    expect(r.spriteIds).toEqual([0x45])
+    expect(resolve(0x114).condition).toBe('Sprite $43') // keyed on the sprite, not the tile
+  })
+
+  it('#626: a balloon rewritten to the P-switch or egg sprite gets neither special handling', () => {
+    for (const sprite of [0x3e, 0x2c]) {
+      const over = Uint8Array.from([sprite, 0x62, 0x63, 0x64])
+      const r = resolveOk(0x118, 0, { ...TABLES, columnOverride: over })
+      expect(r.condition).toBe(`${sprite === 0x3e ? 'P-switch' : 'Yoshi egg'} (X column 1 of 4)`)
+      expect(r.alternatives[0].content).toMatchObject({ attribute: undefined })
+    }
+  })
+
+  it('#626: content id 0 gives nothing even when SpriteInBlock[0] is set', () => {
+    const sprites = Uint8Array.from(SPRITES)
+    sprites[0] = sprites[17] = 0x74
+    const sel = Uint8Array.from(SELECTOR)
+    sel[0x114 - FIRST_ITEM_BLOCK] = 0x00
+    sel[0x112 - FIRST_ITEM_BLOCK] = 0x01 // progressive id 0: mushroom or nothing
+    const t = { ...TABLES, spriteInBlock: sprites, selector: sel }
+    expect(resolveOk(0x114, 0, t).condition).toBe('Nothing')
+    expect(resolveOk(0x112, 0, t).condition).toBe('Sprite $41 if Mario is small, otherwise nothing')
+  })
+
+  it('#672: selector $FE is a first-half column lookup; only $FF is the counter block', () => {
+    const sel = Uint8Array.from(SELECTOR)
+    sel[0x114 - FIRST_ITEM_BLOCK] = 0xfe
+    const t = { ...TABLES, selector: sel }
+    expect(resolveOk(0x114, 1, t).condition).toBe('Sprite $47 (X column 2 of 4)')
+    expect(resolveOk(0x114, 0, t).condition).not.toContain('coins are collected')
+  })
+
+  it('#672: a loose copy differing on one side of a progressive pair lists each sprite once', () => {
+    const sprites = Uint8Array.from(SPRITES)
+    sprites[17 + 4] = 0x44 // the big item, loose copy only
+    const r = resolveOk(0x113, 0, { ...TABLES, spriteInBlock: sprites })
+    expect(r.spriteIds).toEqual([0x41, 0x44, 0x46])
+  })
+
   it('the egg condition reads its contents from the egg table', () => {
     const eggs = Uint8Array.from([0x42, 0x43])
     const r = resolveOk(0x119, 0, { ...TABLES, eggContents: eggs })
@@ -582,7 +647,10 @@ const FEATHER = 'Mushroom if Mario is small, otherwise Feather'
 const VANILLA_FIXED: Record<number, [string, number[]]> = {
   0x112: ['Nothing', []],
   0x113: ['Nothing', []],
-  0x114: ['Directional coins', [0x45]],
+  0x114: [
+    'Directional coins (a coin instead, if a directional-coin run already started in this level)',
+    [0x45],
+  ],
   0x115: ['Nothing', []],
   0x116: ['Nothing', []],
   0x117: [FLOWER, [0x74, 0x75]],
@@ -617,6 +685,13 @@ describe.skipIf(!hasRom(VANILLA))('vanilla ROM: decoded contents of $111-$12D (c
       expect(at(Number(tile), col).condition).toBe(text)
       expect(at(Number(tile), col).spriteIds).toEqual(sprites)
     }
+  })
+
+  it('$021 is a coin and $022 a 1-up when hit from below; $023 and $024 give nothing', () => {
+    expect(at(0x21).condition).toBe('Coin (only when hit from below)')
+    expect(at(0x22).condition).toBe('1-up (only when hit from below)')
+    expect(at(0x23).condition).toBe('Nothing')
+    expect(at(0x24).condition).toBe('Nothing')
   })
 
   it('every vanilla tile is covered and the Yoshi-loose copy adds nothing', () => {
