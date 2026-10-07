@@ -275,11 +275,12 @@ describe.skipIf(!hasRom(VANILLA))('collision probe on the vanilla ROM', () => {
     const total = (await ask(b0, cache)).r.probed
     // Edits that really change one tile's behaviour: a byte only that tile's runs read (not the level of air's).
     const prep = (cache as any).preps.values().next().value
+    const used = new Set<number>() // each edit its own byte: a second flip of one byte would undo the first
     const only = (id: number): number => {
       const d = (cache as any).tiles.get(`7:0:${id}`).deps.rom as number[]
       for (let i = 0; i < d.length; i += 2)
         for (let b = d[i]!; b < d[i + 1]!; b++)
-          if (!rangesIntersect([b, b + 1], prep.deps.rom)) return b
+          if (!used.has(b) && !rangesIntersect([b, b + 1], prep.deps.rom)) return (used.add(b), b)
       throw new Error(`tile $${id.toString(16)} reads nothing the air does not`)
     }
     // A byte only the level-of-air runs read: the shared calibration and air table go, and with them every tile.
@@ -298,7 +299,6 @@ describe.skipIf(!hasRom(VANILLA))('collision probe on the vanilla ROM', () => {
         r => (r.buffer[at]! ^= 0x01),
       ])
     }
-    const report: string[] = [`cold ${total} tiles`]
     for (const [name, edit] of edits) {
       const rom = RomFile.fromBytes(romPath(VANILLA), Buffer.from(before))
       edit(rom)
@@ -312,15 +312,8 @@ describe.skipIf(!hasRom(VANILLA))('collision probe on the vanilla ROM', () => {
       if (name.includes('level of air'))
         expect(inc.r.dropped, name).toBeGreaterThanOrEqual(total) // the shared runs went: everything goes
       else expect(inc.r.dropped, name).toBeLessThan(total) // otherwise never the whole cache for one edit
-      report.push(
-        `${name}: re-probed ${inc.r.probed} (dropped ${inc.r.dropped}), ${inc.ms} ms; cold ${fresh.ms} ms`,
-      )
       before = after
     }
-    ;(await import('node:fs')).writeFileSync(
-      process.env.TEMP + '/inc.txt',
-      report.join(String.fromCharCode(10)),
-    )
   }, 300_000)
 
   describe('planted defects (the probe must go red)', () => {

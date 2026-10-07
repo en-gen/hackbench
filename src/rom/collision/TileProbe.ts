@@ -100,6 +100,7 @@ export class Probe {
   private readonly dirty: number[] = []
   private readonly reads = new Set<number>()
   private wramDeps: Set<number> | null = null
+  private romSeenBuf: Uint8Array | null = null
   private readonly romLen: number
   readonly tileset: number
   steps = 0
@@ -135,7 +136,7 @@ export class Probe {
 
   /** Starts listing the ROM and seed-WRAM bytes the runs read, until `takeDeps`. */
   startDeps(): void {
-    this.bus.romSeen ??= new Uint8Array(this.romLen)
+    this.bus.romSeen = this.romSeenBuf ??= new Uint8Array(this.romLen) // cleared by `takeDeps`, so reused
     this.bus.romList = []
     this.wramDeps = new Set()
   }
@@ -231,6 +232,9 @@ export class Probe {
     // A byte an earlier run wrote (a coin collected rewrites the cell) would otherwise never be seen as read.
     // (the `written` flags were cleared at the top of the run, so this run's own setup stores count as writes)
     this.bus.inputs = tracking ? this.reads : null
+    // Each run starts from the same machine: no multiplier result or register left over from the last tile.
+    this.bus.resetUnits()
+    this.cpu.a = this.cpu.x = this.cpu.y = 0
     this.call(ENTRY_RESET)
     this.w(RAM.tGround, 0)
     this.w(RAM.tAir, wram[RAM.air]!)

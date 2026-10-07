@@ -10,6 +10,7 @@ import {
   changedRanges,
   collisionLayer,
   ProbeCache,
+  rangesIntersect,
   SUPERSEDED,
 } from '../../../src/rom/collision/MapCollision'
 import {
@@ -354,6 +355,112 @@ describe('the probe without a cartridge', () => {
       const read = loaded()
       read[0x1407] = 3
       expect(await ask(read, cache.migrate([0, 1]))).toMatchObject({ probed: 1, dropped: 1 })
+    })
+  })
+
+  describe('the carry path on a synthetic ROM (the oracle CI can run)', () => {
+    // $31 sets $1407 and $3B starts the multiplier; $38 floors while $1407 is set and $3C while $4216 is nonzero;
+    // $3D is a block only the level of air walks past (its compare is read by no tile).
+    const INC = blocks([
+      [0x30, FLAT],
+      [0x31, [0xa9, 0x05, 0x8d, 0x07, 0x14]],
+      [0x38, WHEN(0x1407)],
+      [0x3b, [0xa9, 0x05, 0x8d, 0x02, 0x42, 0xa9, 0x05, 0x8d, 0x03, 0x42]],
+      [0x3c, WHEN(0x4216)],
+      [0x3d, [0x60]],
+    ])
+    const image = (patch: (b: Uint8Array) => void = () => undefined) => {
+      const b = rom(INC).buffer.slice()
+      patch(b)
+      return b
+    }
+    const at = (...pat: number[]) =>
+      0x6adb + INC.findIndex((_, i) => pat.every((v, k) => INC[i + k] === v))
+    const ts = (n: number) => {
+      const w = loaded()
+      w[0x1931] = n
+      return w
+    }
+    const ask = async (
+      b: Uint8Array,
+      cache: ProbeCache,
+      grid: number[][],
+      tileset = 7,
+      wram = ts(tileset),
+    ) => {
+      const out = await collisionLayer(RomFile.fromBytes('x.sfc', b), 0, tileset, grid, cache, {
+        wram,
+      })
+      if (!out.ok) throw new Error(out.reason)
+      return out
+    }
+    const G = [[0x30, 0x31, 0x38]]
+
+    it('two edits with no probe between them both stay owed (an edit is not forgotten by the next)', async () => {
+      const [b0, cache] = [image(), new ProbeCache()]
+      await ask(b0, cache, G)
+      const at38 = at(0xc9, 0x38) + 1 // the compare of tile $38: a byte only its own routine reads
+      const b1 = image(b => (b[at38] = 0x39))
+      const b2 = image(b => ((b[at38] = 0x39), (b[0x70000] ^= 0xff)))
+      const twice = cache.migrate(changedRanges(b0, b1)).migrate(changedRanges(b1, b2))
+      const inc = await ask(b2, twice, G)
+      expect(inc.lines).toEqual((await ask(b2, new ProbeCache(), G)).lines)
+      expect(inc.dropped).toBeGreaterThan(0)
+    })
+
+    it('every cached tileset is owed the ranges, not only the first', async () => {
+      const [b0, cache] = [image(), new ProbeCache()]
+      await ask(b0, cache, G, 7)
+      await ask(b0, cache, G, 3)
+      const b1 = image(b => (b[at(0xc9, 0x38) + 1] = 0x39))
+      const next = cache.migrate(changedRanges(b0, b1))
+      expect(next.stale(3)).toBe(true)
+      expect((await ask(b1, next, G, 3)).dropped).toBeGreaterThan(0)
+    })
+
+    it('a range of one byte is one byte, and touching ranges merge', () => {
+      expect(changedRanges(new Uint8Array([1, 2, 3, 4]), new Uint8Array([1, 9, 3, 4]))).toEqual([
+        1, 2,
+      ])
+      expect(changedRanges(new Uint8Array([1, 2, 3, 4]), new Uint8Array([9, 9, 3, 4]))).toEqual([
+        0, 2,
+      ])
+      expect(rangesIntersect([5, 6], [5, 6])).toBe(true)
+      expect(rangesIntersect([5, 6], [6, 7])).toBe(false)
+      expect(rangesIntersect([0, 2, 8, 9], [4, 5, 8, 9])).toBe(true)
+    })
+
+    it('a byte only the level of air read drops the shared runs, and every tile with them', async () => {
+      const [b0, cache] = [image(), new ProbeCache()]
+      await ask(b0, cache, G)
+      const b1 = image(b => (b[at(0xc9, 0x3d) + 1] ^= 0x01))
+      const next = cache.migrate(changedRanges(b0, b1))
+      expect((await ask(b1, next, G)).dropped).toBe(3)
+    })
+
+    it('an entry with no recorded reads is dropped, not trusted', () => {
+      const c = new ProbeCache()
+      c.set(7, 1, mk())
+      c.setPrep(7, { cal: CAL, air: new Map() })
+      expect(c.migrate([0, 1]).validate(7, { seed: () => 0 } as unknown as Probe)).toBe(1)
+    })
+
+    it('a seed byte an EARLIER tile in the same probe wrote is still a dependency of the tile that reads it', async () => {
+      const [b0, cache] = [image(), new ProbeCache()]
+      await ask(b0, cache, G) // $31 stores $1407 in its runs; $38 reads it in its own
+      const w = ts(7)
+      w[0x1407] = 3
+      const inc = await ask(b0, cache.migrate([0, 1]), G, 7, w)
+      expect(inc.dropped).toBeGreaterThan(0)
+      expect(inc.lines).toEqual((await ask(b0, new ProbeCache(), G, 7, w)).lines)
+    })
+
+    it('multiplier state of one tile does not leak into the next', () => {
+      const p = new Probe(rom(INC), 0, loaded())
+      measureTile(p, 0x3b, CAL)
+      const after = measureTile(p, 0x3c, CAL)
+      expect(after).toEqual(measureTile(new Probe(rom(INC), 0, loaded()), 0x3c, CAL))
+      expect(after.floor).toEqual(NONE)
     })
   })
 

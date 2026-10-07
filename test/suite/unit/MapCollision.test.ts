@@ -3,10 +3,12 @@
  * bytes. Synthetic maps for the refusals (a vertical level, a ROM whose loader refuses), the vanilla ROM for the
  * served path, the cache and the stale-reply rules.
  */
-import { describe, it, expect } from 'vitest'
+import { beforeEach, describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
-import { NEUTRAL } from '../../../src/rom/collision/TileProbe'
+import type { collisionLayer, ProbeCache } from '../../../src/rom/collision/MapCollision'
+import { NEUTRAL, type Probe } from '../../../src/rom/collision/TileProbe'
 import {
+  forgetCollisionCarry,
   mapCollision,
   mapCollisionCheck,
   probeStateOf,
@@ -15,6 +17,8 @@ import { L1ModelCache } from '../../../theia/extension/src/node/map-screen'
 import { hGrid, inputs, vGrid } from '../support/mapInputs'
 import { hasRom, romPath, VANILLA } from '../support/corpus'
 import { readFileSync } from 'node:fs'
+
+beforeEach(forgetCollisionCarry) // no case passes on an earlier case's carried cache
 
 const OFF = NEUTRAL
 const stub = (isVertical: boolean) =>
@@ -157,6 +161,65 @@ describe('mapCollision reply cache (synthetic layer)', () => {
     expect(l.calls).toEqual([])
     await ask(c, b, 0x101, l.fn)
     expect(l.calls).toEqual([0x101])
+  })
+})
+
+describe('the cache carried across working-copy bytes (synthetic layer)', () => {
+  // Fresh arrays per case (the module keys its caches on the array), each differing at its own byte.
+  let [A, B, C] = [synthetic(), synthetic(), synthetic()]
+  const fresh = () =>
+    ([A, B, C] = [0, 1, 2].map(n => {
+      const b = synthetic()
+      b[0x200 + n * 0x100] = 1
+      return b
+    }) as [Uint8Array, Uint8Array, Uint8Array])
+  // A layer that fills the cache the way a probe would (a tile and the shared prep, each with reads), and
+  // reports what the cache it was handed holds.
+  const seen: { stale: boolean; carried: boolean; dropped: number }[] = []
+  const layer = (async (_r: unknown, _l: number, _t: number, _g: unknown, cache: ProbeCache) => {
+    const carried = !!cache.get(7, 1)
+    const stale = cache.stale(7)
+    const dropped = cache.validate(7, { seed: () => 0 } as unknown as Probe)
+    seen.push({ stale, carried, dropped })
+    cache.setPrep(7, { cal: { foot: 32, head: 17 }, air: new Map(), deps: { rom: [0x100, 0x110], wram: [] } }) // prettier-ignore
+    cache.set(7, 1, { floor: [], ceil: [], wallL: false, wallR: false, hurt: false }, undefined, { rom: [0x100, 0x101], wram: [] }) // prettier-ignore
+    return { ok: true, lines: [], probed: 0, dropped: 0, steps: 0 }
+  }) as unknown as typeof collisionLayer
+  const ask = (b: Uint8Array, path = 'carry.sfc') =>
+    mapCollision(stub(false), b, path, 0x105, OFF, () => false, layer)
+  beforeEach(() => {
+    seen.length = 0
+    fresh()
+  })
+
+  it('new bytes of the same ROM inherit the previous bytes cache, owing the diff', async () => {
+    await ask(A)
+    await ask(B) // differs from A at $300 only: nothing read there
+    expect(seen).toEqual([
+      { stale: false, carried: false, dropped: 0 },
+      { stale: true, carried: true, dropped: 0 },
+    ])
+  })
+
+  it('an edit on a byte a tile read drops that tile when the next probe validates', async () => {
+    const touched = new Uint8Array(A)
+    touched[0x100] ^= 1 // inside the recorded read
+    await ask(A)
+    await ask(touched)
+    expect(seen[1]).toMatchObject({ carried: true, dropped: 1 }) // the tile (its prep went too, which is why)
+  })
+
+  it('each new bytes inherits from the last asked, so a chain of edits carries on', async () => {
+    await ask(A)
+    await ask(B)
+    await ask(C)
+    expect(seen.map(s => s.carried)).toEqual([false, true, true])
+  })
+
+  it('another ROM path starts from nothing', async () => {
+    await ask(A, 'one.sfc')
+    await ask(B, 'two.sfc')
+    expect(seen[1]).toMatchObject({ carried: false, stale: false })
   })
 })
 

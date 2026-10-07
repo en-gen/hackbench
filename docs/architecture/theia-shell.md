@@ -220,9 +220,10 @@ the next probe of a tileset (`ProbeCache.validate`) drops only entries whose ROM
 or whose seed reads differ in the freshly loaded seed. The grid and compose always re-run on the new
 bytes, so moving tiles in level data re-probes only ids new to the map (about 40 ms on $105), and a
 byte only one tile's code reads drops the tiles sharing it (a few ms to a fraction of a second);
-a byte the level-of-air runs read drops everything. Seed level data is not a dependency unless a run
-read it, which is what lets a level seed serve every level of its tileset. Evidence: vanilla, $105, a
-sequence of eight moves and byte edits, each equal to a cold probe.
+a byte the level-of-air runs read drops everything. Seed level data is a dependency only if a run read it. Tile results are otherwise reused across levels
+of a tileset without a per-level check (until an edit, when seed reads are compared): that rests on the
+cross-level test and a sweep of 800 level pairs with no wrong result, not on a check per level. Evidence:
+vanilla, $105, a sequence of twelve moves and byte edits, each equal to a cold probe.
 
 The toggles live in `MapViewStateStore` (`browser/map-view-state-store.ts`, over the Theia-free
 `map-view-state.ts`), a per-tab flux-style store on Theia's `Emitter`: the buttons only `dispatch`

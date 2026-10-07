@@ -193,6 +193,7 @@ export class MapViewWidget extends ReactWidget {
           // The refusal was for the old state: the toggle is enabled again until the cheap check says otherwise.
           this.collisionWhy = undefined
           this.collisionWhyKey = undefined
+          this.collisionProbed = false // so the check's answer is taken, not dropped for the probe's
           void this.checkCollision()
         }
         if (plan.refetch) void this.loadCollision()

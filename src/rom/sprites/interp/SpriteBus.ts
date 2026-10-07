@@ -33,6 +33,11 @@ export class SpriteBus implements Bus {
   /** When set, every ROM byte read is marked here (by buffer index) and listed once in `romList`: a run's ROM inputs. */
   romSeen: Uint8Array | null = null
   romList: number[] = []
+  /** Back to power-on: the multiply/divide unit and the PPU multiplier keep results between routines otherwise. */
+  resetUnits(): void {
+    this.mul = { a: 0, prod: 0, dividend: 0, quot: 0, rem: 0 }
+    this.ppuMul = { m7a: 0, prev: 0, result: 0 }
+  }
   /** Forgets which WRAM bytes were written, so `inputs` reads them again (one run's inputs are not the last run's). */
   clearWritten(): void {
     this.written.fill(0)

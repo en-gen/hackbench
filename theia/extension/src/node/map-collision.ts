@@ -54,6 +54,8 @@ export const probeStateOf = (flags: SwitchFlagsDto, switches: SwitchStateDto): P
 const byBytes = new WeakMap<Uint8Array, PerBytes>()
 /** The working-copy bytes last asked about per ROM path: an edit's new bytes inherit its probe results. */
 const lastByPath = new Map<string, Uint8Array>()
+/** Forgets the carry between working-copy bytes (a test starts each case from nothing). */
+export const forgetCollisionCarry = (): void => lastByPath.clear()
 
 const VERTICAL = 'Collision is not shown for vertical levels yet'
 

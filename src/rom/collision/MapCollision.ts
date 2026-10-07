@@ -118,7 +118,8 @@ export class ProbeCache {
     const owed = this.pending.get(tileset) ?? []
     this.pending.delete(tileset)
     const changed = (d: Deps | undefined) =>
-      !!d && (rangesIntersect(d.rom, owed) || d.wram.some(([o, v]) => probe.seed(o) !== v))
+      // No recorded reads is not "no dependency": it is unknown, so it goes.
+      !d || rangesIntersect(d.rom, owed) || d.wram.some(([o, v]) => probe.seed(o) !== v)
     let dropped = 0
     for (const [k, p] of [...this.preps]) {
       if (!k.startsWith(`${tileset}:`)) continue
