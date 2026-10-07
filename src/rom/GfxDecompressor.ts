@@ -32,21 +32,30 @@ const PLA = 0x68
 const BEQ = 0xf0
 const BMI = 0x30
 
-/** CODE_00B966, big-endian: ReadByte / XBA / ReadByte / TAX, the copy loop,
- *  JMP back to the loop head (bank_00.asm:6383-6403). 29 bytes, so literal. */
+/** CODE_00B966 (bank_00.asm:6383-6403) as bytes: ReadByte / XBA / ReadByte / [XBA] / TAX, the copy
+ *  loop, then a JMP back to the loop head. The three absolute operands (both JSR ReadByte and the
+ *  JMP) move with the build, so `backRefRoutine` takes them: `readBackRefOrder` derives them from
+ *  the entry's own bytes, ReadByte from entry+6 and the loop head from entry+5. The XBA after the
+ *  second read is the J and E1 difference (bank_00.asm:6387-6389), making the order little-endian.
+ *  A stock J or E1 ROM is still refused at the entry gate, whose JSR operand is US-only (#696). */
 // prettier-ignore
-export const BACKREF_BE: BytePattern = [
-  0x20, 0x83, 0xb9, 0xeb, 0x20, 0x83, 0xb9, 0xaa, 0x5a, 0x9b, 0xb7, 0x00, 0xbb, 0x7a, 0x97, 0x00,
-  0xc8, 0xe8, 0xc2, 0x20, 0xc6, 0x8d, 0xe2, 0x20, 0xd0, 0xee, 0x4c, 0xe3, 0xb8,
+const BACKREF_TAIL = [
+  0xaa, 0x5a, 0x9b, 0xb7, 0x00, 0xbb, 0x7a, 0x97, 0x00, 0xc8, 0xe8, 0xc2, 0x20, 0xc6, 0x8d, 0xe2,
+  0x20, 0xd0, 0xee, 0x4c,
 ]
-/** The same routine with the extra XBA after the second ReadByte
- *  (bank_00.asm:6387-6389), which swaps the two bytes: little-endian. */
-const XBA_AT = 7
-export const BACKREF_LE: BytePattern = [
-  ...BACKREF_BE.slice(0, XBA_AT),
-  0xeb,
-  ...BACKREF_BE.slice(XBA_AT),
-]
+const XBA = 0xeb
+export function backRefRoutine(order: BackRefOrder, readByte: number, loop: number): number[] {
+  const jsr = [0x20, readByte & 0xff, readByte >> 8]
+  return [
+    ...jsr,
+    XBA,
+    ...jsr,
+    ...(order === 'le' ? [XBA] : []),
+    ...BACKREF_TAIL,
+    loop & 0xff,
+    loop >> 8,
+  ]
+}
 
 /** A body entered by JSL, recognized by the SHA-256 of `length` bytes from its target. */
 export interface FastRoutine {
@@ -99,12 +108,12 @@ export function preludeKey(rom: RomFile, entry: number): number | null {
  *  the routine is neither known form. */
 export function readBackRefOrder(rom: RomFile, entry: number): BackRefOrder | null {
   const d = rom.readAt(entry + DISPATCH_AT, 5)
-  if (!d || d[0] !== PLA || d[1] !== BEQ || d[3] !== BMI) return null
+  const at = rom.readAt(entry + BODY_AT, 3) // JSR ReadByte, the entry's own
+  if (!d || !at || d[0] !== PLA || d[1] !== BEQ || d[3] !== BMI) return null
   const target = entry + DISPATCH_AT + 5 + ((d[4]! << 24) >> 24)
-  for (const [form, order] of [
-    [BACKREF_BE, 'be'],
-    [BACKREF_LE, 'le'],
-  ] as const) {
+  const readByte = at[1]! | (at[2]! << 8)
+  for (const order of ['be', 'le'] as const) {
+    const form = backRefRoutine(order, readByte, (entry + BODY_AT) & 0xffff)
     const bytes = rom.readAt(target, form.length)
     if (bytes && matchesBytes(bytes, form)) return order
   }

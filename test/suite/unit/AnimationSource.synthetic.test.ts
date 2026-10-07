@@ -25,8 +25,9 @@ import { map16DecodeStub } from '../support/syntheticMap16'
 import { flip } from '../support/syntheticRom'
 import {
   BACKREF_AT,
+  plantBackRef,
   BACKREF_DISPATCH,
-  backRefBytes,
+  backRefRoutine,
   DISPATCH_AT,
   gfxStreams,
   plantFast,
@@ -131,7 +132,7 @@ function plantAnim(rom: RomFile, o: RomOpts = {}): void {
   put(routine + 0x4f, o.tail ?? tail(0x9000))
   put(routine + 0x56, o.entry ?? STOCK_LCLZ2_ENTRY)
   put(routine + 0x56 + DISPATCH_AT, BACKREF_DISPATCH)
-  put(routine + 0x56 + BACKREF_AT, backRefBytes('be'))
+  put(routine + 0x56 + BACKREF_AT, backRefRoutine('be', 0xb983, (routine + 0x56 + 5) & 0xffff))
   put(0x00a2a5, o.jsl ?? [0x22, 0x39, 0xbb, 0x05])
   put(0x05bb39, o.anim ?? stockRoutine())
   // GFX32 where the stream ends, decoys where a start-bank or $8000 read would look.
@@ -171,7 +172,7 @@ describe('readAnimGfxSources', () => {
 
   it('carries the back-reference order of the decompressor to the animation reads', () => {
     const rom = animRom()
-    rom.writeAt(0x00b8de + BACKREF_AT, backRefBytes('le'))
+    plantBackRef(rom, 'le')
     const r = readAnimGfxSources(rom)
     expect(r.ok && r.order).toBe('le')
   })
@@ -764,5 +765,27 @@ describe('switch alternates', () => {
     const off = { blue: true, silver: false, onOff: true }
     expect(slotTiles(slot, off)[0]![0]).toBe(1)
     expect(slotTiles(slot, { ...off, silver: true })[0]![0]).toBe(2)
+  })
+})
+
+describe('loadAnimationDataOrReason: back-reference order', () => {
+  // 13 literals, then an 11-byte copy from index 1: the 24 bytes of one 3bpp tile.
+  const lits = Array.from({ length: 13 }, (_, i) => i + 1)
+  const gfx33 = (addr: [number, number]): Uint8Array =>
+    Uint8Array.from([0x0c, ...lits, 0x8a, ...addr, 0xff])
+  const load = (stream: Uint8Array, le: boolean) => {
+    const rom = animRom({ gfx33Stream: stream })
+    if (le) plantBackRef(rom, 'le')
+    return loadAnimationDataOrReason(rom, 0)
+  }
+
+  it('decodes GFX33 little-endian on a little-endian routine, and refuses the other order', () => {
+    expect(load(gfx33([0x01, 0x00]), true).ok).toBe(true)
+    expect(load(gfx33([0x00, 0x01]), true).ok).toBe(false)
+  })
+
+  it('decodes GFX33 big-endian on a big-endian routine, and refuses the other order', () => {
+    expect(load(gfx33([0x00, 0x01]), false).ok).toBe(true)
+    expect(load(gfx33([0x01, 0x00]), false).ok).toBe(false)
   })
 })

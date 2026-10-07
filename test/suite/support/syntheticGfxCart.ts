@@ -224,25 +224,38 @@ export const OPERAND_POSITIONS = new Set(
  *  restated from the 65816 encoding so a change to GfxDecompressor cannot move the tests. */
 export const DISPATCH_AT = 56
 export const BACKREF_AT = 0x88
-/** ReadByte / XBA / ReadByte / [XBA] / TAX, then the copy loop and the jump back to the loop head. */
+/** Where the little-endian routine sits: 30 bytes at +$88 would overrun ReadByte ($B983 on the
+ *  US entry), which its own JSRs call, and the space past it holds the synthetic pointer tables.
+ *  Behind the dispatch is free, and a negative BMI offset reaches it. */
+export const BACKREF_AT_LE = 0x10
+/** ReadByte / XBA / ReadByte / [XBA] / TAX, then the copy loop and the jump back to the loop head;
+ *  operands default to the US entry's, and take the J or E1 build's for the real-layout tests. */
 // prettier-ignore
-export const backRefRoutine = (order: BackRefOrder): number[] => [
-  0x20, 0x83, 0xb9, 0xeb, 0x20, 0x83, 0xb9, ...(order === 'le' ? [0xeb] : []), 0xaa, 0x5a, 0x9b,
-  0xb7, 0x00, 0xbb, 0x7a, 0x97, 0x00, 0xc8, 0xe8, 0xc2, 0x20, 0xc6, 0x8d, 0xe2, 0x20, 0xd0, 0xee,
-  0x4c, 0xe3, 0xb8,
+export const backRefRoutine = (order: BackRefOrder, readByte = 0xb983, loop = 0xb8e3): number[] => [
+  0x20, readByte & 0xff, readByte >> 8, 0xeb, 0x20, readByte & 0xff, readByte >> 8,
+  ...(order === 'le' ? [0xeb] : []), 0xaa, 0x5a, 0x9b, 0xb7, 0x00, 0xbb, 0x7a, 0x97, 0x00, 0xc8,
+  0xe8, 0xc2, 0x20, 0xc6, 0x8d, 0xe2, 0x20, 0xd0, 0xee, 0x4c, loop & 0xff, loop >> 8,
 ]
-/** PLA / BEQ +$17 / BMI to BACKREF_AT. */
-export const BACKREF_DISPATCH = [0x68, 0xf0, 0x17, 0x30, BACKREF_AT - DISPATCH_AT - 5]
+/** PLA / BEQ +$17 / BMI to the routine at `at`. */
+export const backRefDispatch = (at = BACKREF_AT): number[] => [
+  0x68,
+  0xf0,
+  0x17,
+  0x30,
+  at - DISPATCH_AT - 5,
+]
+export const BACKREF_DISPATCH = backRefDispatch()
 
 /** The routine's bytes for a byte order, or raw bytes passed through (for planted defects). */
 export type BackRefForm = BackRefOrder | number[]
 export const backRefBytes = (form: BackRefForm): number[] =>
   typeof form === 'string' ? backRefRoutine(form) : form
+export const backRefAt = (form: BackRefForm): number => (form === 'le' ? BACKREF_AT_LE : BACKREF_AT)
 
 /** Plants the dispatch and the back-reference routine behind a stock entry. */
 export function plantBackRef(rom: RomFile, form: BackRefForm = 'be', entry = DECOMP_ENTRY): void {
-  rom.writeAt(entry + DISPATCH_AT, BACKREF_DISPATCH)
-  rom.writeAt(entry + BACKREF_AT, backRefBytes(form))
+  rom.writeAt(entry + DISPATCH_AT, backRefDispatch(backRefAt(form)))
+  rom.writeAt(entry + backRefAt(form), backRefBytes(form))
 }
 
 export interface CartOptions {
@@ -295,8 +308,9 @@ export function buildCart(opts: CartOptions = {}): SyntheticCart {
   buf.set(opts.routine ?? prepareGraphicsFile(), bankAt + ROUTINE_AT)
   buf.set(opts.entryBytes ?? STOCK_LCLZ2_ENTRY, bankAt + DECOMP_ENTRY - 0x8000)
   const entryAt = bankAt + DECOMP_ENTRY - 0x8000
-  buf.set(BACKREF_DISPATCH, entryAt + DISPATCH_AT)
-  buf.set(backRefBytes(opts.backRef ?? 'be'), entryAt + BACKREF_AT)
+  const form = opts.backRef ?? 'be'
+  buf.set(backRefDispatch(backRefAt(form)), entryAt + DISPATCH_AT)
+  buf.set(backRefBytes(form), entryAt + backRefAt(form))
   const routineSnes = loromFromOffset(bankAt + ROUTINE_AT)!
   for (const c of LEVEL_GFX_CALLERS) buf.set(jsl(routineSnes), c - 0x8000)
   const uploadSite = opts.uploadSite === undefined ? uploadGfxFileSite() : opts.uploadSite

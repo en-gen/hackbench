@@ -17,6 +17,7 @@ import {
   BACKREF_AT,
   BACKREF_DISPATCH,
   backRefRoutine,
+  plantBackRef,
   DECOMP_ENTRY,
   DISPATCH_AT,
   FAST_DIVERGENT_COMMANDS,
@@ -91,12 +92,14 @@ interface Decomp {
   fast?: boolean
   /** The stored stream as is, in place of `table` encoded. */
   raw?: number[]
+  /** The XBA form of the back-reference routine behind the entry. */
+  le?: boolean
 }
 
 function build(
   table: Uint8Array,
   entry?: ReturnType<typeof lmEntry>,
-  { key, stored = key, fast, raw }: Decomp = {},
+  { key, stored = key, fast, raw, le }: Decomp = {},
 ): RomFile {
   entry ??= lmEntry(false, 2, false, stored)
   const rom = blankStockRom()
@@ -105,15 +108,16 @@ function build(
   rom.writeAt(0x00804d, [0x6b])
   rom.writeAt(DECOMP_ENTRY, STOCK_LCLZ2_ENTRY)
   rom.writeAt(BODY_AT, BODY)
+  if (le) plantBackRef(rom, 'le')
   if (key !== undefined) plantPrelude(rom, PRELUDE_AT, key)
   if (fast) plantFast(rom, FAST_AT, FAST_LENGTH)
   rom.writeAt(TABLE_AT, raw ?? [...encode(table)])
   return rom
 }
-const derive = (rom: RomFile) =>
+const derive = (rom: RomFile, known = KNOWN) =>
   deriveOverworldEntrances(new SmwRom(rom), undefined, {
     ...SYNTHETIC_FINGERPRINTS,
-    decompressor: KNOWN,
+    decompressor: known,
   })
 const tableOf = (entries: Record<number, number>): Uint8Array => {
   const t = new Uint8Array(0x1000)
@@ -277,5 +281,42 @@ describe('deriveOverworldEntrances: Lunar Magic stored translevels', () => {
   it('refuses a table shorter than the $800 tiles', () => {
     const rom = build(new Uint8Array(0x7ff))
     expect(derive(rom).notes[0]).toContain('short of $800')
+  })
+})
+
+describe('deriveOverworldEntrances: little-endian back-references', () => {
+  // 7 zeros, the literal 9, then a 1-byte copy from index 7 (so index 8 is 9 too), then zeros to $800.
+  const stream = (addr: [number, number]): number[] => [
+    0x26,
+    0x00,
+    0x00,
+    0x09,
+    0x80,
+    ...addr,
+    ...[0xe7, 0xff, 0x00, 0xe7, 0xff, 0x00], // two 1024-byte zero fills
+    0xff,
+  ]
+  const leKnown = (rom: RomFile) => ({
+    ...KNOWN,
+    stockBody: [
+      createHash('sha256')
+        .update(Buffer.from(rom.readAt(BODY_AT, 0xaf)!))
+        .digest('hex'),
+    ],
+  })
+  const translevels = (rom: RomFile) =>
+    derive(rom, leKnown(rom)).entrances.map(e => [e.bufferIndex, e.translevel])
+
+  it('reads the table little-endian when the routine has the XBA', () => {
+    const rom = build(new Uint8Array(), undefined, { raw: stream([0x07, 0x00]), le: true })
+    expect(translevels(rom)).toEqual([
+      [7, 9],
+      [8, 9],
+    ])
+  })
+
+  it('does not read a big-endian stream on a little-endian routine', () => {
+    const rom = build(new Uint8Array(), undefined, { raw: stream([0x00, 0x07]), le: true })
+    expect(translevels(rom)).toEqual([])
   })
 })
