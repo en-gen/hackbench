@@ -1,4 +1,4 @@
-# Block contents (acts-like $111-$12D)
+# Block contents (acts-like $111-$12D, and $021-$024)
 
 What an item block gives when hit, resolved by `src/rom/BlockContents.ts`
 (`resolveBlockContents`). Issue #566. Evidence: a re-read of SMWDisX
@@ -7,8 +7,29 @@ emulator unless stated.
 
 ## Mechanism
 
-1. A head bump on a page-1 tile reaches `CODE_00F17F` (`bank_00.asm:12846`)
-   with index = acts-like low byte - $11, valid 0-$1C (`bank_00.asm:12827-12831`).
+1. `CODE_00F17F` (`bank_00.asm:12846`) is entered with index = acts-like low
+   byte - $11, valid 0-$1C (`bank_00.asm:12827-12831`), and a hit direction Y.
+   A gate decides whether this hit opens the block:
+   `DATA_00F0EC[Y] & DATA_00F0A4[index]`, zero meaning no (`bank_00.asm:12850-12853`).
+   Y = 0 comes from every caller that hits a block from below, not only Mario's
+   head bump: `CODE_00EFE8` (`bank_00.asm:12681`) and the sprite-hit callers
+   (`bank_01.asm:3049`, `:3543`, `bank_02.asm:2863`) into `CODE_00F160`, `CODE_00ECFA`
+   (`bank_00.asm:12262`) into `CODE_00F127`, and the direct entry for tiles $021-$024
+   (`bank_00.asm:12211`). Y = 1 and 2 are side hits (mask $01, $02): `CODE_00EC7B`
+   (`bank_00.asm:12188-12193`) calls `CODE_00F127` with Y = `DATA_00E90A[PlayerBlockXSide] & 3`
+   (`bank_00.asm:11703-11704`). Y = 3 is from above (mask $04, `bank_00.asm:12461`,
+   `:12479`). Only Y = 0-3 reach the gate, so mask bits 4-7 never matter. Mask $08
+   therefore means "opened by the Y = 0 callers", not only Mario's head bump.
+   Every index but these has mask $08 (head bump only): 0, 2 and 4 are $0C
+   (head bump and from above), 5 (tile $116) is $0F (also from the sides),
+   $19 and $1A (tiles $12A, $12B) are $03, and $21 is $04. A head bump never opens
+   $12A or $12B, only a side hit does. The resolver reads this table (`DATA_00F0A4`,
+   36 bytes, `bank_00.asm:12758-12763`) from the ROM. Mask bit 3 set gives no
+   trigger text. Otherwise the condition says "(only when hit from the side)" (both
+   side bits), "from one side" (one of them; which physical side each is was not
+   established), "from above", or a combination such as "from one side or above". A
+   mask with none of bits 0-3 opens nothing, and a closed gate also drops the
+   counter caveat.
 2. The selector byte `DATA_00F080[index]` (`bank_00.asm:12751`) is decoded at
    `CODE_00F1BA` (`bank_00.asm:12877-12891`):
    - bit 7 set and every other bit set: green star block (`bank_00.asm:12861-12866`).
@@ -33,26 +54,28 @@ emulator unless stated.
 "col" is the map X column (block X / 16), taken mod 16 where the ROM uses pixel
 bits 7-4.
 
-| Tile                                    | Contents                                                            | Varies by                                                                  | Sprite                         |
-| --------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------ |
-| $111                                    | col%3 = 0 Fire Flower, 1 Feather (both progressive), 2 Star         | X column, Powerup                                                          | $74 small, else $75 / $77; $76 |
-| $112 $113 $115 $116 $11E $129 $12B $12C | none                                                                | -                                                                          | -                              |
-| $114                                    | Directional coins                                                   | -                                                                          | $45                            |
-| $117                                    | progressive Fire Flower (a flower block, not a turn block)          | Powerup                                                                    | $74 / $75                      |
-| $118                                    | progressive Feather                                                 | Powerup                                                                    | $74 / $77                      |
-| $119                                    | Star                                                                | -                                                                          | $76                            |
-| $11A                                    | col%3 = 0 star-or-coin, 1 1-up, 2 Vine                              | X column, InvinsibilityTimer                                               | $76 or coin; $78; $79          |
-| $11B $123                               | multi-coin                                                          | MulticoinTimer                                                             | coin art                       |
-| $11C $124                               | coin                                                                | -                                                                          | coin art                       |
-| $11D                                    | P-switch                                                            | colour by column parity (even blue, odd silver; layer 2 depends on scroll) | $3E                            |
-| $11F                                    | progressive Fire Flower                                             | Powerup                                                                    | $74 / $75                      |
-| $120 $12A                               | progressive Feather                                                 | Powerup                                                                    | $74 / $77                      |
-| $121                                    | Star                                                                | -                                                                          | $76                            |
-| $122                                    | star-or-coin                                                        | InvinsibilityTimer                                                         | $76 or coin                    |
-| $125                                    | col%4 = 0 Key, 1 Flying red coin, 2 Balloon, 3 Green bouncing Koopa | X column mod 4                                                             | $80 / $7E / $7D / $09          |
-| $126                                    | Yoshi egg                                                           | egg holds Yoshi or a 1-up                                                  | $2C                            |
-| $127 $128                               | Green Koopa shell (status 9)                                        | -                                                                          | $04                            |
-| $12D                                    | coin until 30 coins are collected, then 1-up                        | GreenStarBlockCoins                                                        | coin art or $78                |
+| Tile                                    | Contents                                                                          | Varies by                                                                  | Sprite                         |
+| --------------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------ |
+| $111                                    | col%3 = 0 Fire Flower, 1 Feather (both progressive), 2 Star                       | X column, Powerup                                                          | $74 small, else $75 / $77; $76 |
+| $112 $113 $115 $116 $11E $129 $12B $12C | none                                                                              | -                                                                          | -                              |
+| $114                                    | Directional coins, or a coin once a directional-coin run has started in the level | DirectCoinInit (`bank_02.asm:1162-1172`)                                   | $45                            |
+| $117                                    | progressive Fire Flower (a flower block, not a turn block)                        | Powerup                                                                    | $74 / $75                      |
+| $118                                    | progressive Feather                                                               | Powerup                                                                    | $74 / $77                      |
+| $119                                    | Star                                                                              | -                                                                          | $76                            |
+| $11A                                    | col%3 = 0 star-or-coin, 1 1-up, 2 Vine                                            | X column, InvinsibilityTimer                                               | $76 or coin; $78; $79          |
+| $11B $123                               | multi-coin                                                                        | MulticoinTimer                                                             | coin art                       |
+| $11C $124                               | coin                                                                              | -                                                                          | coin art                       |
+| $11D                                    | P-switch                                                                          | colour by column parity (even blue, odd silver; layer 2 depends on scroll) | $3E                            |
+| $11F                                    | progressive Fire Flower                                                           | Powerup                                                                    | $74 / $75                      |
+| $120 $12A                               | progressive Feather ($12A: side hit only)                                         | Powerup                                                                    | $74 / $77                      |
+| $121                                    | Star                                                                              | -                                                                          | $76                            |
+| $122                                    | star-or-coin                                                                      | InvinsibilityTimer                                                         | $76 or coin                    |
+| $125                                    | col%4 = 0 Key, 1 Flying red coin, 2 Balloon, 3 Green bouncing Koopa               | X column mod 4                                                             | $80 / $7E / $7D / $09          |
+| $126                                    | Yoshi egg                                                                         | egg holds Yoshi or a 1-up                                                  | $2C                            |
+| $127 $128                               | Green Koopa shell (status 9)                                                      | -                                                                          | $04                            |
+| $021 $022                               | coin ($021), 1-up ($022), only when hit from below (see below)                    | head point, Mario moving up                                                | coin art or $78                |
+| $023 $024                               | none                                                                              | -                                                                          | -                              |
+| $12D                                    | coin until 30 coins are collected, then 1-up                                      | GreenStarBlockCoins                                                        | coin art or $78                |
 
 Citations per row: selector `DATA_00F080` `bank_00.asm:12751-12756`;
 `DATA_00F100` `bank_00.asm:12778-12781` (both halves repeat every 3 columns and
@@ -76,6 +99,17 @@ reports sprite $09 with a caveat. The index uses `SpriteXPosLow`, which for a
 layer 2 block is minus `Layer23XRelPos` (`bank_02.asm:1184-1198`), so on layer 2
 the item depends on scroll position; the resolver gives the layer-1 answer.
 
+### $021-$024
+
+Page-0 tiles $021-$024 reach `CODE_00F17F` directly (`bank_00.asm:12194-12212`)
+when `PlayerYSpeed+1` is negative (Mario moving up), page 0 only, with index = tile - 4:
+$1D (coin), $1E (1-up), $1F and $20 (nothing). The call is the one whose
+`CODE_00F44D` has just loaded Mario's head point: X advances two per call from
+`CODE_00EB77`, and the Y offset at that call is the head's ($10 small, $08 big,
+`bank_00.asm:11686-11699`). Hand-traced from the source, not confirmed in an
+emulator. The resolver words it "(only when hit from below)". The spin-break entry (index
+$21, `bank_00.asm:12471-12472`) gives nothing and is not a tile.
+
 ## Not confirmed in an emulator
 
 - `$11A` col%3 = 0 and `$122` give a star only while Mario is already invincible,
@@ -92,6 +126,9 @@ the item depends on scroll position; the resolver gives the layer-1 answer.
 - Tiles $159 and $15A reach selector indices $22 and $23 (feather, Mushroom)
   through a tileset-gated branch of `CODE_00F160` (`bank_00.asm:12835-12845`,
   after `DATA_00A625`), outside $111-$12D. The resolver returns null for them.
+- Drawing: `theia/extension/src/node/map-block-contents.ts` still admits only
+  $111-$12D (`inRange`), so the Maps view does not yet draw $021 and $022 although the
+  resolver resolves them (tracked separately).
 
 ## Resolver output
 
@@ -105,11 +142,22 @@ for the Properties "Contains" row, and an optional `caveat`. Tables come from
 
 The resolver reads every table from the ROM and keys the special cases on the
 spawned sprite, as the ROM does (balloon rewrite `bank_02.asm:1199`, P-switch
-`bank_02.asm:1228`, Yoshi egg `bank_02.asm:1230`). A zero SpriteInBlock or
-DATA_0288D6 entry gives "Nothing". Content ids of $11 and up read the bytes that
+`bank_02.asm:1228`, Yoshi egg `bank_02.asm:1230`). A SpriteInBlock or
+DATA_0288D6 byte of 0 with a live status is what the ROM spawns: sprite $00, read as
+"Sprite $00" (the spawn writes SpriteNumber from the table with no zero check,
+`bank_02.asm:1150-1151`; a balloon rewrite does the same, `:1209-1212`). The empty
+cases are content id 0, which returns before any spawn (`bank_02.asm:1053-1054`,
+whatever SpriteInBlock[0] holds), and spawn status 0, which `HandleSprite` erases
+(`bank_01.asm:182-183`; the spawn writes the table status as is, `bank_02.asm:1141-1142`,
+and the balloon rewrite's own status replaces it, `:1209-1210`). A sprite
+produced by the balloon rewrite skips the P-switch and egg handling
+(`bank_02.asm:1215-1223`). The directional-coin check (`bank_02.asm:1162-1164`) runs
+before the rewrite, while SpriteNumber is still the table's sprite, so a rewrite to
+$45 never gets it. Content ids of $11 and up read the bytes that
 follow the table (`bank_02.asm:1077-1089`). When the second SpriteInBlock copy
-(read while Yoshi is loose, `bank_02.asm:1143-1149`) differs from the first, the
-resolver adds a "Yoshi is loose" alternative; vanilla's copies are identical.
+(read while Yoshi is loose, `bank_02.asm:1143-1151`) differs from the first, the
+resolver shows both, as "Sprite $43 (Sprite $00 if Yoshi is loose)", lists both
+sprites in `spriteIds`, and adds a "Yoshi is loose" alternative; vanilla's copies are identical.
 The "X column n of p" text uses the period found in DATA_00F100 and is dropped
 when the table has none.
 
