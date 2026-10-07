@@ -733,11 +733,11 @@ describe('readBlockContentTables on a synthetic ROM', () => {
     bytes.set(gateReader(0x00f0a4), GATE_SITE)
     return RomFile.fromBytes('synthetic.sfc', bytes)
   }
-  // #632: PLX / AND.L DATA_00F0A4,X / BEQ, preceded by the LDA.L it masks (bank_00.asm:12850-12853).
+  // #632: TYX / LDA.L / PLX / AND.L DATA_00F0A4,X / BEQ (CODE_00F17F, bank_00.asm:12849-12853).
   const GATE_SITE = 0x600
   // prettier-ignore
   const gateReader = (operand: number): number[] =>
-    [0xbf, 0xec, 0xf0, 0x00, 0xfa, 0x3f, operand & 0xff, (operand >> 8) & 0xff, operand >> 16, 0xf0, 0x6f]
+    [0xbb, 0xbf, 0xec, 0xf0, 0x00, 0xfa, 0x3f, operand & 0xff, (operand >> 8) & 0xff, operand >> 16, 0xf0, 0x6f]
 
   it('reads every table from its own address and length', () => {
     const t = tablesOf(image())
@@ -758,18 +758,70 @@ describe('readBlockContentTables on a synthetic ROM', () => {
 
   it('a hijacked gate reader refuses, naming the gate table (#632)', () => {
     const bytes = Uint8Array.from(image().buffer)
-    bytes.fill(0xea, GATE_SITE, GATE_SITE + 11)
+    bytes.fill(0xea, GATE_SITE, GATE_SITE + 12)
     const t = readBlockContentTables(RomFile.fromBytes('hijack.sfc', bytes))
     expect(isUnavailable(t)).toBe(true)
     if (isUnavailable(t)) expect(t.unavailable).toMatch(/DATA_00F0A4.*not present/)
   })
 
-  it('a repointed gate reader reads the gate table from the new address (#632)', () => {
+  // The gate table lives at bank:addr in `src`, 36 bytes of 0xaa, and the reader points there.
+  function repointed(operand: number, size = 0x20000): RomFile {
+    const bytes = new Uint8Array(size)
+    bytes.set(Uint8Array.from(image().buffer))
+    bytes.set(gateReader(operand), GATE_SITE)
+    return RomFile.fromBytes('repoint.sfc', bytes)
+  }
+  const AA = new Array(36).fill(0xaa)
+
+  it('a repointed gate reader follows the operand into another bank (#632)', () => {
+    const r = repointed(0x038000)
+    r.buffer.fill(0xaa, at(3, 0x8000), at(3, 0x8000) + 36)
+    expect(Array.from(tablesOf(r).gate)).toEqual(AA)
+  })
+
+  it('a FastROM mirror operand reads the same ROM bytes (#632)', () => {
+    const r = repointed(0x838000)
+    r.buffer.fill(0xaa, at(3, 0x8000), at(3, 0x8000) + 36)
+    expect(Array.from(tablesOf(r).gate)).toEqual(AA)
+  })
+
+  it('a $C0 operand reads bank $40 of the file (#632)', () => {
+    const r = repointed(0xc08ab4, 0x210000)
+    r.buffer.fill(0xaa, at(0x40, 0x8ab4), at(0x40, 0x8ab4) + 36)
+    expect(Array.from(tablesOf(r).gate)).toEqual(AA)
+  })
+
+  it('an operand past the end of the ROM refuses and says so (#632)', () => {
+    const t = readBlockContentTables(repointed(0x048000)) // file $20000 of $20000
+    expect(isUnavailable(t) && t.unavailable).toMatch(/DATA_00F0A4.*\$048000.*past the end/)
+  })
+
+  it.each([0x7e2000, 0x001234, 0x00fff0])(
+    'an operand that is not ROM, or leaves it mid-table, refuses and names it (#632)',
+    operand => {
+      const t = readBlockContentTables(repointed(operand))
+      const hex = operand.toString(16).toUpperCase().padStart(6, '0')
+      const reason = isUnavailable(t) ? t.unavailable : ''
+      expect(reason).toContain(`DATA_00F0A4 (36 bytes at $${hex})`)
+      expect(reason).toContain('is not ROM')
+      expect(reason).not.toContain('past the end')
+    },
+  )
+
+  // A near-miss site differing in one fixed byte is not a reader, so it must not make the real one ambiguous.
+  it.each([
+    ['TAX for TYX', 0, 0xaa],
+    ['LDA.L opcode', 1, 0xaf],
+    ['PLX opcode', 5, 0xfa ^ 0x20],
+    ['AND.L opcode', 6, 0x2f],
+    ['BEQ opcode', 10, 0xd0],
+  ])('a site with %s is not a gate reader (#632)', (_n, at, value) => {
     const bytes = Uint8Array.from(image().buffer)
-    bytes.set(gateReader(0x00f300), GATE_SITE)
-    bytes.fill(0xaa, at(0, 0xf300), at(0, 0xf300) + 36)
-    const t = tablesOf(RomFile.fromBytes('repoint.sfc', bytes))
-    expect(Array.from(t.gate)).toEqual(new Array(36).fill(0xaa))
+    const site = gateReader(0x00f300)
+    site[at] = value
+    bytes.set(site, 0x900)
+    const t = tablesOf(RomFile.fromBytes('near.sfc', bytes))
+    expect(t.gate[0]).toBe(mark(0, 0xf0a4))
   })
 
   it('a second gate reader is ambiguous and refuses (#632)', () => {

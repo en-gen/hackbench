@@ -11,6 +11,7 @@
 
 import { findExactlyOneSite, WILD, type BytePattern } from './BytePattern'
 import type { RomFile } from './RomFile'
+import { hiromToOffset, loromToOffset } from './addressing'
 
 export const FIRST_ITEM_BLOCK = 0x111
 export const LAST_ITEM_BLOCK = 0x12d
@@ -127,10 +128,11 @@ function readGreenStarCoins(rom: RomFile): { value: number | null; reason?: stri
 
 const GATE_LABEL = 'DATA_00F0A4'
 const GATE_LENGTH = 36
-// PLX / AND.L DATA_00F0A4,X / BEQ, after the LDA.L DATA_00F0EC,X it masks (bank_00.asm:12850-12853).
+// TYX / LDA.L DATA_00F0EC,X / PLX / AND.L DATA_00F0A4,X / BEQ (bank_00.asm:12849-12853). Without the
+// TYX, hack 19720 has an unrelated TAX / LDA.L / PLX / AND.L / BEQ that makes the site ambiguous.
 // prettier-ignore
-const GATE_READER: BytePattern = [0xbf, WILD, WILD, WILD, 0xfa, 0x3f, WILD, WILD, WILD, 0xf0, WILD]
-const GATE_OPERAND_AT = 6
+const GATE_READER: BytePattern = [0xbb, 0xbf, WILD, WILD, WILD, 0xfa, 0x3f, WILD, WILD, WILD, 0xf0, WILD]
+const GATE_OPERAND_AT = 7
 
 /** DATA_00F0A4 from the operand of the AND.L that reads it, or why that read is not on this ROM. */
 function readGate(rom: RomFile): { bytes: Uint8Array } | { reason: string } {
@@ -138,10 +140,19 @@ function readGate(rom: RomFile): { bytes: Uint8Array } | { reason: string } {
   const site = findExactlyOneSite(rom, GATE_READER, what)
   if (!site.ok) return { reason: `${GATE_LABEL}: ${site.reason}` }
   const op = rom.readAtFileOffset(site.offset + GATE_OPERAND_AT, 3)!
-  const bytes = rom.readAt(op[0]! | (op[1]! << 8) | (op[2]! << 16), GATE_LENGTH)
-  return bytes
-    ? { bytes: Uint8Array.from(bytes) }
-    : { reason: `${GATE_LABEL} (${GATE_LENGTH} bytes) runs past the end of this ROM` }
+  const operand = op[0]! | (op[1]! << 8) | (op[2]! << 16)
+  // Per byte, like the fixed tables: AND long,X carries into the bank, so a table that crosses a
+  // bank end does not continue in the next ROM bank.
+  const bytes = slice(rom, operand, GATE_LENGTH)
+  if (bytes) return { bytes }
+  const hex = (n: number): string => `$${n.toString(16).toUpperCase().padStart(6, '0')}`
+  const first = Array.from({ length: GATE_LENGTH }, (_, i) => operand + i).find(
+    a => rom.readByte(a) === null,
+  )!
+  const mapped =
+    rom.mapMode === 'hirom' ? hiromToOffset(first) : loromToOffset(first, Number.MAX_SAFE_INTEGER)
+  const why = mapped === null ? `${hex(first)} is not ROM` : `runs past the end of this ROM`
+  return { reason: `${GATE_LABEL} (${GATE_LENGTH} bytes at ${hex(operand)}): ${why}` }
 }
 
 const TABLE_SPECS = [
