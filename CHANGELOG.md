@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A unit test pins the 22 of 501 horizontal maps where the level loader and the map view's
+  object expander disagree on Layer 1 Map16, by differing-cell count (#649). Measured on one
+  vanilla ROM, one machine, 2026-10-07; the comparison skips without the ROM corpus. 21 are boss
+  arenas (15 mode-9 maps, rows 11 and 13: `MakeMode7BossArenaMap16`, `bank_00.asm:3014-3023`, hi
+  byte stored at `:3017-3020`; 6 mode-$0B maps, row 5 pre-fill: `bank_00.asm:2783-2784`) whose
+  fill is game-mode init, outside the GM11 sequence the loader models (#707). The 22nd is 021
+  (#300). Measurement only.
 - A unit test pins tile $11A's star column over all 16 X columns: coin unless Mario is
   invincible, star only while invincible (`bank_00.asm:12887-12891`). The Maps view already
   draws it that way (#567).
