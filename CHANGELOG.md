@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The sprite level loader now runs the rest of GM11LoadLevel's setup in the ROM's order: the layer
+  position copy and the screen setup (`$5E`, CODE_00A796, `$1404`, UpdateScreenPosition). Against
+  Mesen's recorded level state, 308 cell mismatches over 98 maps (`$1404`, `$1462-$1468`, `$1E`,
+  `$20`) fall to 8 on 4 boss rooms (`$1464/$1465`, set later by GM12); Map16 comparison unchanged
+  (88 of 154 identical). Vanilla, one machine (#648).
+
 ### Added
 
 - The map view has a collision toggle (`layout-panel-dock` icon, after the layer buttons; command

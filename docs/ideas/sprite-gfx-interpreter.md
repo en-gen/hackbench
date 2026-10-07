@@ -598,6 +598,7 @@ seed is now:
 | `$85` `$86` water and slippery                                    | same run, via the Mario-entrance routine CODE_00A635                                                 |
 | Map16 low and high tables `$7E:C800`, `$7F:C800`                  | same run: every Layer 1 object expanded by the ROM's own object handlers                             |
 | `$71` `$76` `$19` `$187A` `$13F9` `$73` (Mario entrance and form) | CODE_00A635                                                                                          |
+| `$5E`, `$1404`, `$1462-$1469`, `$1E`, `$20` (layer positions)     | GM11's own copy and screen setup (`bank_00.asm:2645-2656`), run between the calls (#648)             |
 | the level's own sprite list                                       | the ROM's loader spawns it; the runner zeroes all 12 status bytes so only the sprite under test runs |
 | placement, camera, Mario X/Y, `$13/$14`, pass count               | the caller's seed (a fixture or UI supplies them)                                                    |
 | `$148B/C` RNGCalc                                                 | the ROM's own GetRand, run once on the core (see below)                                              |
@@ -743,8 +744,10 @@ that 13.1 byte-checked. Round 1's attribution ("all four first fail on Lunar
 Magic's JSL at `$05:D8B1`") described that lead-in, which the sublevel path
 never executes; it was the wrong thing to check and is gone. Now checked, in
 order: GM11's three calls (`$00:96F4` JSL CODE_05D796, `$00:9705` JSR CODE_00A635,
-`$00:9716` JSL CODE_05801E), the GM11 code between them (`$00:96F8` and `$00:9708`;
-the music upload between the first two is not modelled and not checked),
+`$00:9716` JSL CODE_05801E), the GM11 code between them (`$00:96F8` and `$00:9708`,
+both now RUN from the ROM's bytes since #648, with CODE_00A796 and UpdateScreenPosition
+checked at `$00:A796` and `$00:F6DB`; the music upload between the first two is not
+modelled and not checked),
 CODE_05D796's prologue and sublevel branch (`$05:D796`), the JMP into the pointer
 loader (`$05:D83B`), and the four entries of 13.1. The first failure per corpus ROM:
 

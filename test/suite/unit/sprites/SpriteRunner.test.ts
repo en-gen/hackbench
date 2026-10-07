@@ -488,7 +488,7 @@ describe('level loader on a synthetic cart', () => {
   const run = (o: Parameters<typeof buildSyntheticRom>[0] = {}, level = 0x105) =>
     loadLevelState(buildSyntheticRom(o), level)
 
-  it('runs every entry: pointers, Mario entrance, then level data', () => {
+  it('runs every entry in GM11 order: pointers, layer copy, Mario entrance, screen setup, level data', () => {
     const l = run()
     if (!l.ok) throw new Error(l.reason)
     expect(l.wram[0x1692]).toBe(7) // CODE_05D8B7 stand-in
@@ -496,6 +496,14 @@ describe('level loader on a synthetic cart', () => {
     expect(l.wram[0xc800]).toBe(0x25) // CODE_05801E stand-in
     expect(l.wram[0x0e]).toBe(0x05)
     expect(l.wram[0x0f]).toBe(0x01)
+    // The GM11 spans (bank_00.asm:2645-2656), run from the cart's bytes; each cell needs the
+    // step before it: $1462 and $1E hold the pointer stub's $1A only if the copy ran after it,
+    // and $20 holds $71 only if the entrance setup ran before the screen setup.
+    expect(l.wram[0x1462]).toBe(7)
+    expect(l.wram[0x1e]).toBe(7)
+    expect(l.wram[0x20]).toBe(6)
+    expect(l.wram[0x5e]).toBe(0x20)
+    expect(l.wram[0x1404]).toBe(1)
   })
 
   it('refuses each differing entry with its name', () => {
@@ -511,6 +519,14 @@ describe('level loader on a synthetic cart', () => {
     expect(run({ badLoader: 'pointers' })).toMatchObject({ ok: false, reason: /pointer loader/ })
     expect(run({ badLoader: 'entrance' })).toMatchObject({ ok: false, reason: /entrance setup/ })
     expect(run({ badLoader: 'data' })).toMatchObject({ ok: false, reason: /data loader/ })
+    expect(run({ badLoader: 'scroll' })).toMatchObject({
+      ok: false,
+      reason: /Layer 2 scroll setup/,
+    })
+    expect(run({ badLoader: 'update' })).toMatchObject({
+      ok: false,
+      reason: /UpdateScreenPosition/,
+    })
   })
 
   it('refuses when the loader executes COP', () => {

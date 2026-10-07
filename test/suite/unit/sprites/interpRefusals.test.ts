@@ -106,10 +106,11 @@ describe('Machine.call: returns, budgets and the stack (F2, F4, F10)', () => {
 
 describe('level loader paths (F2, F14, F15)', () => {
   // Entry routines of the synthetic cart end at these addresses (see syntheticSpriteRom.ts): the
-  // pointer loader's PLB at $05:D8C7, the entrance setup's RTS at $00:A647, the data loader's PLP at $05:802C.
-  const PTR = 0x05d8c7
+  // pointer loader's PLB at $05:D8C9, the entrance setup's RTS at $00:A647, the data loader's PLP at $05:802C.
+  const PTR = 0x05d8c9
   const ENT = 0x00a647
   const DATA = 0x05802c
+  const UPD = 0x00f6e7 // UpdateScreenPosition's stub PLB, inside the screen setup span
   const loaded = (at: number, bytes: number[]) => {
     const rom = buildSyntheticRom()
     rom.writeAt(at, bytes)
@@ -135,6 +136,7 @@ describe('level loader paths (F2, F14, F15)', () => {
   it.each([
     ['level pointer loader', PTR],
     ['Mario entrance setup', ENT],
+    ['screen position setup', UPD],
     ['level data loader', DATA],
   ])('%s that never returns is refused by name', (name, at) => {
     const l = loaded(at, BRA_SELF)
@@ -144,8 +146,9 @@ describe('level loader paths (F2, F14, F15)', () => {
     })
   })
   it.each([
-    ['level pointer loader', PTR, /^BRK executed at \$05D8C7$/],
+    ['level pointer loader', PTR, /^BRK executed at \$05D8C9$/],
     ['Mario entrance setup', ENT, /^BRK executed at \$00A647$/],
+    ['screen position setup', UPD, /^BRK executed at \$00F6E7$/],
     ['level data loader', DATA, /^BRK executed at \$05802C$/],
   ])('%s that executes BRK is refused with its address', (_n, at, reason) => {
     const l = loaded(at, [0x00])
