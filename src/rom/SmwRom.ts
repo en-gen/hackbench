@@ -277,9 +277,8 @@ export class SmwRom {
   /**
    * Returns true if the level has valid object data.
    *
-   * Bank byte validation: vanilla level data is in banks $02-$09.
    * The level mode is the header's second byte AND $1F (bank_05.asm:539) and
-   * indexes six 32-entry tables (bank_05.asm:478-521), so it needs no check.
+   * indexes six 32-entry tables (bank_05.asm:480-509), so it needs no check.
    */
   levelHasObjects(index: number): boolean {
     const data = this.getLevelRawData(index)
@@ -423,7 +422,7 @@ export class SmwRom {
     // $0FB, $1DA, $1E7 and $1F9; the dedupe kept one and discarded four, but
     // the secondary-exit table names a SLOT, not a pointer, so all five are
     // distinct destinations. MapTree.ts documents both defects and routes
-    // around them the same way; levelHasObjects is issue #311.
+    // around them the same way; levelHasObjects's $FF terminator rule is issue #695.
     // (Inlined rather than calling buildLevelCatalog: LevelCatalog imports
     // SmwRom for a value, so depending on it here would be a runtime cycle.)
     const fillerPtr = this._findFillerL1Pointer()
@@ -532,9 +531,7 @@ export class SmwRom {
       let hasData = false
       if (ptr !== null) {
         const data = this.rom.readAt(ptr, 6)
-        if (data && data.length >= 6) {
-          hasData = data[5] !== undefined
-        }
+        hasData = data !== null && data.length >= 6
       }
       results.push({ index: i, hasData, name: hasData ? this.getLevelName(i, idx) : null })
     }
