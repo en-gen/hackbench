@@ -775,6 +775,17 @@ describe('readBlockContentTables on a synthetic ROM', () => {
     }
   })
 
+  it('a hijack over PHX and PHA alone, leaving the TYX reader intact, refuses (#632)', () => {
+    const bytes = Uint8Array.from(image().buffer)
+    bytes.set([0xea, 0xea], GATE_SITE) // the reader itself is still present, only the entry changed
+    const t = readBlockContentTables(RomFile.fromBytes('nop-entry.sfc', bytes))
+    expect(isUnavailable(t)).toBe(true)
+    if (isUnavailable(t)) {
+      expect(t.unavailable).toMatch(/DATA_00F0A4/)
+      expect(t.unavailable).toMatch(/CODE_00F17F/)
+    }
+  })
+
   // The gate table lives at bank:addr in `src`, 36 bytes of 0xaa, and the reader points there.
   function repointed(operand: number, size = 0x20000): RomFile {
     const bytes = new Uint8Array(size)
