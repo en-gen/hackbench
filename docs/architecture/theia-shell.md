@@ -248,6 +248,80 @@ the 16 px grid. The frontend cuts each bitmap per screen
 canvas per screen, stacked just under L1's priority plane. The `S` toggle
 hides those canvases with `visibility: hidden`, as L1 and L2 do.
 
+### The map tab's collision overlay (#435)
+
+`ProjectService.mapCollision(manifestPath, index)` returns a map's collision as
+tagged polylines in map pixels (`MapCollisionResult`: `width`, `height`, and
+`lines` of `kind` `floor`, `ceiling`, `wall` or `unknown`; an unknown line is
+the cell's closed outline). The lines come from SMW's own block collision run
+on the 65816 core (`src/rom/collision/`), not from `TileFactory.classify`, so a
+patched block routine would show; vanilla block code only for now.
+`node/map-collision.ts` is the pure module behind it; `project-server.ts` reads
+the working copy through `WorkingRomRegistry` and passes a `cancelled` check
+(the working copy's bytes moved on), so a probe for old bytes stops between
+tiles. It is a separate call from `mapScreen`: a cold map takes about 3 s of
+CPU (the probe yields to the event loop after every tile), then a revisit is a
+cache hit. Probe results are cached per working-copy bytes by tileset, game
+state and tile id; the composed reply per bytes and map (eight kept).
+
+A map the probe cannot run answers `unavailable` with the reason (the ROM's
+level loader refused it, or the level is vertical): the toolbar's
+`collision-toggle` is then disabled with that reason as its tooltip, never an
+empty overlay. Nothing is probed until the toggle is pressed: on map open the
+view calls the cheap `mapCollisionCheck` (the level's shape and the ROM's own
+level loader, no tile probed), which decides the toggle's state; `mapCollision`
+runs on the press and on every working-copy push while the overlay is on. With
+it off, an edit only drops the stale lines and the next press refetches. Replies
+to an older request are dropped by `generation`, as for sprites.
+
+The overlay (`browser/collision-overlay.tsx`) is one SVG inside the strip, in
+map coordinates, so it follows `ZoomController` by scaling its box.
+`vector-effect: non-scaling-stroke` keeps every line 2 CSS px wide. Surfaces
+(`#ffeb3b`) and walls (`#d500f9`) are separate `<g data-group>` elements;
+unknown cells are hatched. The overlay follows the view's four palace toggles and the blue P-switch
+(`mapCollision` takes the same flags as `mapScreen`: the grid is built with them, since $06A-$06D
+become $16A-$16D on 48 levels, and the probe's WRAM gets $1F27-$1F2A and $14AD to match). The silver
+P-switch also changes tiles ($12F becomes coin $2B under it) but is not modelled, so the overlay does
+not follow it; ON/OFF swaps chars, not tiles, so it does not matter here. Mario is small. The state is
+in the composed reply's key. The per-tile probe cache, calibration and level-of-air runs key on the
+tileset and the blue P-switch only, not the palaces: on vanilla the block code reads the palace flags
+only in the big palace switch (bank_00.asm:12508), whose two branches give the same collision, so a
+palace toggle reuses every cached tile and probes only the ids new to the map ($015 yellow: 1 tile, about
+20 ms warm, against re-probing the whole map). The probe records any read of $1F27-$1F2A (even though it sets them), and an entry that read them is cached per
+palace state, so a hack whose blocks read the flags stays right after a toggle. Before probing, the ROM's call
+sites into the two collision routines are byte-checked (`entryProblem`, bank_00.asm:11723-11771): a hook that
+reroutes them refuses with a reason, in the toggle's check as well as the probe.
+
+An edit does not empty the probe cache. Each cached result (tile, calibration, level-of-air runs) keeps
+the ROM bytes its runs read and the seed-WRAM bytes it read before writing them, with the values seen.
+`mapCollision` gives new working-copy bytes the previous bytes' cache, owing the diffed byte ranges;
+the next probe of a tileset (`ProbeCache.validate`) drops only entries whose ROM reads meet those ranges
+or whose seed reads differ in the freshly loaded seed. The grid and compose always re-run on the new
+bytes, so moving tiles in level data re-probes only ids new to the map (about 40 ms on $105), and a
+byte only one tile's code reads drops the tiles sharing it (a few ms to a fraction of a second);
+a byte the level-of-air runs read drops everything. Seed level data is a dependency only if a run read it. Tile results are otherwise reused across levels
+of a tileset without a per-level check (until an edit, when seed reads are compared): that rests on the
+cross-level test and a sweep of 800 level pairs with no wrong result, not on a check per level. Evidence:
+vanilla, $105, a sequence of twelve moves and byte edits, each equal to a cold probe.
+
+The toggles live in `MapViewStateStore` (`browser/map-view-state-store.ts`, over the Theia-free
+`map-view-state.ts`), a per-tab flux-style store on Theia's `Emitter`: the buttons only `dispatch`
+(`togglePalace`, `toggleSwitch`), the store replaces its state and fires `onDidChange({ state,
+changed })` once per real change, and three consumers decide for themselves. The toolbar re-renders for
+`aria-pressed`; layer 1 refetches the screens in view; the collision overlay follows `collisionPlan`:
+a palace or blue P-switch change drops its lines and any reply still on the way, asks again if the
+overlay is on, and, if the toggle was disabled by a probe's refusal for the old state, runs the cheap
+check again (a refusal is tied to its state key; only the cheap check's refusals are the map's). Lines
+are kept with the key they were probed for and drawn only for the current one. On the server a newer
+state asked for the same map stops the older probe at its next tile. Layers, grid and the collision
+toggle are still widget fields.
+
+The probe's calibration and level-of-air runs come from the first level probed on a tileset, then
+serve every later level of that tileset (checked identical on $105/$1C6; $105 and $111 differ, so
+tileset is in every cache key). Command `hackbench.maps.toggleCollision` is enabled only while a map
+tab is focused and its toggle is usable (`canToggleCollision`, the button's own test), in
+`grid-toggle-contribution.ts`.
+
 ## The emulator view
 
 The emulator runs a **libretro core that you supply**. HackBench ships no

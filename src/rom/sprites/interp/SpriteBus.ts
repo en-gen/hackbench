@@ -112,7 +112,22 @@ export class SpriteBus implements Bus {
   private mul: MulState = { a: 0, prod: 0, dividend: 0, quot: 0, rem: 0 }
   private ppuMul: PpuMulState = { m7a: 0, m7b: 0, prev: 0, result: 0 }
 
+  /** When set, every ROM byte read is marked here (by buffer index) and listed once in `romList`: a run's ROM inputs. */
+  romSeen: Uint8Array | null = null
+  romList: number[] = []
+
   constructor(private readonly rom: RomFile) {}
+
+  /** Back to power-on: the multiply/divide unit and the PPU multiplier keep results between routines otherwise. */
+  resetUnits(): void {
+    this.mul = { a: 0, prod: 0, dividend: 0, quot: 0, rem: 0 }
+    this.ppuMul = { m7a: 0, m7b: 0, prev: 0, result: 0 }
+  }
+
+  /** Forgets which WRAM bytes were written, so `inputs` reads them again (one run's inputs are not the last run's). */
+  clearWritten(): void {
+    this.written.fill(0)
+  }
 
   /** Copies the whole machine state (WRAM, read-before-write map, SRAM, multiplier latches, register write counts). */
   snapshot(): BusSnapshot {
@@ -158,6 +173,16 @@ export class SpriteBus implements Bus {
     const lo = addr & 0xffff
     if ((bank & 0x7f) < 0x40 && lo >= 0x2000 && lo < 0x4400) return this.readReg(lo)
     if (this.isSram(bank, lo)) return this.sram[lo]
+    if (this.romSeen) {
+      const off = romOffset(addr, this.rom.romSize)
+      if (off !== null) {
+        const i = off + (this.rom.hasHeader ? this.rom.buffer.length - this.rom.romSize : 0)
+        if (!this.romSeen[i]) {
+          this.romSeen[i] = 1
+          this.romList.push(i)
+        }
+      }
+    }
     return romByte(this.rom, addr) ?? 0
   }
 

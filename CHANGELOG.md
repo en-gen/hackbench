@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The map view has a collision toggle (`layout-panel-dock` icon, after the layer buttons; command
+  `hackbench.maps.toggleCollision`; off by default): floors, ceilings, slopes and walls as 2 px
+  vector lines over the map, yellow for surfaces and purple for walls, with a tile the probe could
+  not classify hatched. The lines come from SMW's own block collision run on the 65816 core, once
+  per Map16 tile on the map (cached per tileset and working copy), not from the hand-ported
+  classifier (#435). Nothing is probed until the toggle is pressed. The overlay follows the palace and blue P-switch toggles; the silver P-switch is not modelled. Vanilla block code and horizontal levels only; a ROM whose level loader
+  refuses, or a vertical level, disables the toggle with the reason. Cold map about 3 s on one
+  machine, a revisit from cache; checked against the spike's output on three vanilla maps, not
+  against an emulator.
 - The Maps view shows what a block holds: each item block carries its item at half size in the bottom-right quadrant, filling the block on hover, drawn in the block's own graphics layer at screen resolution so nearer graphics layers and sprites cover it. Progressive blocks and the two-outcome blocks show both items split along the anti-diagonal, the base item (mushroom or coin) bottom-right and the upgrade (flower, feather, star or 1-up) top-left, with a black line on it, multi-coin blocks a "+" on the coin, and each cell shows the item for its own column ($111 and $11A by X column, `bank_00.asm:12868-12876`; $125 by X column mod 4, `bank_02.asm:1199-1212`; the P-switch colour by column parity, `bank_02.asm:1280-1295`; traced in SMWDisX and checked over a census of vanilla's 512 map slots, 578 indicators, all drawn). Item art comes from running the game's own item-block spawn on the 65816 core; a block whose item cannot be drawn is listed in a note with the reason (#566).
 - 65816 core: emulation-mode `(dp,X)` and JSR (a,X) follow Clark and Snes9x, WAI and STP halt `step()`, WDM makes no read, and setting `e` applies the XCE invariant. The SingleStep harness gains planted-defect proofs and a named list of disputed vectors; CI now pins its edge cases and the SingleStep harness's own checks with synthetic tests (#646).
 - The GFX view paints: pick a palette color, click or drag on a tile sheet, and the pixel changes

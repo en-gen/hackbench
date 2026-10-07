@@ -24,6 +24,7 @@ import {
 } from '../../../../src/project/WorkingRomRegistry'
 import { buildMapDetails } from './map-details'
 import { L1ModelCache, mapScreen, toolbarArtOf } from './map-screen'
+import { mapCollision, mapCollisionCheck, probeStateOf } from './map-collision'
 import { mapSprites } from './map-sprites'
 import { mapBlockContents } from './map-block-contents'
 import { SWITCH_FLAGS_UNCLEARED } from '../../../../src/rom/ObjectExpander'
@@ -48,6 +49,8 @@ import {
   GroupedMapTreeDto,
   HackMetadataDto,
   LoadMapsResult,
+  MapCollisionCheckResult,
+  MapCollisionResult,
   MapDetailsDto,
   MapScreenResult,
   MapBlockContentsResult,
@@ -122,6 +125,26 @@ export class ProjectServiceImpl implements ProjectService {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
     return mapSprites(this.screens, r.working.bytes(), r.romPath, index)
+  }
+
+  async mapCollisionCheck(manifestPath: string, index: number): Promise<MapCollisionCheckResult> {
+    const r = this.located(manifestPath)
+    if (r.status !== 'ok') return r
+    return mapCollisionCheck(this.screens, r.working.bytes(), r.romPath, index)
+  }
+
+  async mapCollision(
+    manifestPath: string,
+    index: number,
+    switchFlags: SwitchFlagsDto,
+    switches: SwitchStateDto,
+  ): Promise<MapCollisionResult> {
+    const r = this.located(manifestPath)
+    if (r.status !== 'ok') return r
+    const bytes = r.working.bytes()
+    // An edit hands out new bytes: a probe still running for the old ones is abandoned.
+    const state = probeStateOf(switchFlags, switches)
+    return mapCollision(this.screens, bytes, r.romPath, index, state, () => r.working.bytes() !== bytes) // prettier-ignore
   }
 
   async mapBlockContents(manifestPath: string, index: number): Promise<MapBlockContentsResult> {
