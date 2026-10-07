@@ -446,7 +446,7 @@ describe('SmwRom.enumerateAllLevels', () => {
 
 describe('SmwRom.levelHasObjects level mode', () => {
   // Every mode $00-$1F is a valid index into the six 32-entry mode tables
-  // (SMWDisX bank_05.asm:478-521); the header read masks with $1F (:539).
+  // (SMWDisX bank_05.asm:480-509); the header read masks with $1F (:539).
   it.each(Array.from({ length: 0x20 }, (_, mode) => mode))(
     'accepts level mode %s (decimal)',
     mode => {
