@@ -7,25 +7,35 @@
 const { spawnSync } = require('child_process')
 const path = require('path')
 
-const override = process.env.HB_THEIA_DIR
-const theia = override || path.resolve(__dirname, '../../theia')
-const extension = path.join(theia, 'extension')
-if (override) console.error(`typecheck-theia: HB_THEIA_DIR is set, using ${theia}`)
-
-let tsc
-try {
-  const pkg = require.resolve('typescript/package.json', { paths: [extension] })
-  tsc = path.join(path.dirname(pkg), 'bin', 'tsc')
-} catch {
-  console.error(
-    `typescript not found from ${extension}; run: yarn --cwd ${theia} install --frozen-lockfile --ignore-scripts`,
-  )
-  process.exit(1)
+// A spawned child that dies by signal reports status null on POSIX; exit 1 then.
+function exitCodeOf(r) {
+  return r.status ?? 1
 }
 
-const r = spawnSync(
-  process.execPath,
-  [tsc, '-p', extension, '--noEmit', ...process.argv.slice(2)],
-  { stdio: 'inherit' },
-)
-process.exit(r.status ?? 1)
+function main() {
+  const override = process.env.HB_THEIA_DIR
+  const theia = override || path.resolve(__dirname, '../../theia')
+  const extension = path.join(theia, 'extension')
+  if (override) console.error(`typecheck-theia: HB_THEIA_DIR is set, using ${theia}`)
+
+  let tsc
+  try {
+    const pkg = require.resolve('typescript/package.json', { paths: [extension] })
+    tsc = path.join(path.dirname(pkg), 'bin', 'tsc')
+  } catch {
+    console.error(
+      `typescript not found from ${extension}; run: yarn --cwd ${theia} install --frozen-lockfile --ignore-scripts`,
+    )
+    process.exit(1)
+  }
+
+  const r = spawnSync(
+    process.execPath,
+    [tsc, '-p', extension, '--noEmit', ...process.argv.slice(2)],
+    { stdio: 'inherit' },
+  )
+  process.exit(exitCodeOf(r))
+}
+
+module.exports = { exitCodeOf }
+if (require.main === module) main()

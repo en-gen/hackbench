@@ -10,6 +10,7 @@ import { spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { createRequire } from 'module'
 
 const script = path.resolve(__dirname, '../../../tools/scripts/typecheck-theia.cjs')
 const dirs: string[] = []
@@ -78,6 +79,12 @@ describe('typecheck-theia.cjs', () => {
     fs.mkdirSync(path.join(theia, 'extension'), { recursive: true })
     stubTsc(theia, 'process.exit(2)')
     expect(run(theia).status).toBe(2)
+  })
+
+  it('maps a signal death (status null) to 1 and keeps a real status', () => {
+    const { exitCodeOf } = createRequire(__filename)(script)
+    expect(exitCodeOf({ status: null, signal: 'SIGKILL' })).toBe(1)
+    expect(exitCodeOf({ status: 2 })).toBe(2)
   })
 
   it('fails when the compiler is killed by a signal', () => {
