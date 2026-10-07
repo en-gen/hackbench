@@ -75,10 +75,15 @@ const PLUS: readonly (readonly number[])[] = [
 ]
 export const PLUS_SIZE = 7
 
-/** C4a (#615): the "+" baked into the bottom-right corner of the coin's 16 x 16 art, so it scales with the coin. */
+/**
+ * C4a (#615): the "+" baked into the bottom-right corner of the coin's 16 x 16 art, so it scales with the coin.
+ * Origin (8, 8), one pixel in from the corner (owner ruling 2026-10-06): its centre row and column are art
+ * row and column 11, odd, which centre sampling keeps at 1x (it takes art pixels 2i + 1), so the "+" does
+ * not lose its centre lines there. The 5 x 5 white cross and its 7 x 7 black edge are unchanged.
+ */
 export function bakePlus(coin: Uint8ClampedArray): Uint8ClampedArray {
   const out = coin.slice()
-  const at = BLOCK - PLUS_SIZE
+  const at = BLOCK - PLUS_SIZE - 1
   PLUS.forEach((row, dy) =>
     row.forEach((v, dx) => {
       if (v)

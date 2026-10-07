@@ -134,7 +134,10 @@ Maps view, #566 PR B (`theia/extension/src/node/map-block-contents.ts`,
   where neither is. The art pixel and the triangle are tested at the screen pixel's centre. The split
   elsewhere is hard: no blending.
 - Multi-coin ($11B, $123): the coin with a 5 x 5 white "+" (7 x 7 with a black
-  edge) baked into the corner of its 16 x 16 art. $11C and $124: the plain coin.
+  edge) baked into the bottom-right of its 16 x 16 art, its 7 x 7 origin at art pixel (8, 8), one pixel
+  in from the corner (owner ruling 2026-10-06), so its centre row and column are art row and column
+  11: odd, which centre sampling keeps at 1x (it samples art pixels 2i + 1), where the earlier origin
+  (9, 9) put them on 12 and lost them. $11C and $124: the plain coin.
 - Each cell resolves for its own X column; the P-switch uses the spawn
   attribute of DATA_028A42.
 - Drawn IN the plane of the block's bottom-right subtile priority, at screen resolution

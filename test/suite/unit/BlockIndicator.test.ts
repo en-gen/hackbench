@@ -103,18 +103,20 @@ describe('bakePlus', () => {
         const p = at(out, x, y)
         if (p.join() !== at(coin, x, y).join()) {
           diff++
-          expect(x).toBeGreaterThanOrEqual(9)
-          expect(y).toBeGreaterThanOrEqual(9)
+          expect(x).toBeGreaterThanOrEqual(8)
+          expect(y).toBeGreaterThanOrEqual(8)
+          expect(x).toBeLessThan(15) // inside the 16 x 16 art, one pixel in from the corner
+          expect(y).toBeLessThan(15)
         }
         if (p.join() === '255,255,255,255') white++
       }
     expect(white).toBe(9)
     expect(diff).toBe(25) // 9 white + 16 edge
-    expect(at(out, 12, 12)).toEqual([255, 255, 255, 255])
-    expect(at(out, 9, 12)).toEqual([0, 0, 0, 255])
+    expect(at(out, 11, 11)).toEqual([255, 255, 255, 255]) // the centre, on an odd art pixel
+    expect(at(out, 8, 11)).toEqual([0, 0, 0, 255])
   })
   it('does not mutate its input', () => {
-    expect(at(coin, 12, 12)).toEqual([200, 160, 0, 255])
+    expect(at(coin, 11, 11)).toEqual([200, 160, 0, 255])
   })
 })
 
@@ -164,6 +166,29 @@ describe('paintIndicator', () => {
     const p = new Uint8ClampedArray(W * W * 4)
     paintIndicator(p, W, W, 0, 0, two, 2, true)
     expect([at(p, 0, 0, W), at(p, 1, 1, W), at(p, 2, 0, W), at(p, 3, 1, W)]).toEqual([[255, 0, 0, 255], [255, 0, 0, 255], [0, 0, 255, 255], [0, 0, 255, 255]]) // prettier-ignore
+  })
+  it('keeps the "+" centre row and column white at 1x, 2x and 3x, at rest and on hover, inside the art', () => {
+    const plus = bakePlus(solid([200, 160, 0, 255]))
+    const white = (p: Uint8ClampedArray, x: number, y: number) =>
+      at(p, x, y, W).join() === '255,255,255,255'
+    for (const z of [1, 2, 3]) {
+      for (const hover of [false, true]) {
+        const p = new Uint8ClampedArray(W * W * 4)
+        const box = paintIndicator(p, W, W, 0, 0, plus, z, hover)
+        const [w, h] = [box.x1 - box.x0, box.y1 - box.y0]
+        // The art pixel each screen pixel samples, as `paintIndicator` does (its centre, in art pixels).
+        const art = (i: number, n: number) => Math.floor(((i + 0.5) * BLOCK) / n)
+        let [row, col] = [0, 0]
+        for (let j = 0; j < h; j++)
+          for (let i = 0; i < w; i++) {
+            if (!white(p, box.x0 + i, box.y0 + j)) continue
+            if (art(j, h) === 11) row++ // the centre row of the "+"
+            if (art(i, w) === 11) col++ // its centre column
+          }
+        expect(row, `centre row, ${z}x ${hover ? 'hover' : 'rest'}`).toBeGreaterThan(0)
+        expect(col, `centre column, ${z}x ${hover ? 'hover' : 'rest'}`).toBeGreaterThan(0)
+      }
+    }
   })
   it('keeps the "+" white pixels at 2x and 3x', () => {
     const plus = bakePlus(solid([200, 160, 0, 255]))

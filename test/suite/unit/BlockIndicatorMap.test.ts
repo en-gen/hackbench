@@ -369,8 +369,8 @@ describe('mapBlockContents on a synthetic cart', () => {
     expect(r.indicators.map(i => [i.plane, i.x, i.y, i.art])).toEqual([['l1Low', 32, 64, 'coin'], ['l1Low', 48, 64, 'multiCoin']]) // prettier-ignore
     const [coin, multi] = [unb(r.arts.coin!), unb(r.arts.multiCoin!)]
     expect(coin.some((v, i) => v !== multi[i])).toBe(true)
-    expect(at(multi, 12, 12)).toEqual([255, 255, 255, 255])
-    expect(at(coin, 12, 12)).not.toEqual([255, 255, 255, 255])
+    expect(at(multi, 11, 11)).toEqual([255, 255, 255, 255])
+    expect(at(coin, 11, 11)).not.toEqual([255, 255, 255, 255])
   })
 
   it('reports a ROM too short for its tables, and keeps one reply per bytes and map', () => {
