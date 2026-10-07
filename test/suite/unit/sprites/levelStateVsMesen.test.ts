@@ -31,7 +31,6 @@ function map16Differences(rom: RomFile): {
   capturedZeroOnly: string[]
   total: number
 } {
-  // prettier-ignore
   const diff: string[] = []
   const capturedZeroOnly: string[] = []
   const all = maps()
