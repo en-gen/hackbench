@@ -204,28 +204,36 @@ describe('paintIndicator', () => {
 
 describe('the line at sub-pixel level: each half of the line pixel follows its own item', () => {
   const W = 32
-  // Line pixels (x, 15 - x): x = 0 only the base (bottom-right half), x = 1 only the upgrade (top-left), x = 2 both.
-  const art = splitDiagonal(onLine([0, 2]), onLine([1, 2]))
+  // Every line pixel (x, 15 - x), in turn: 0 the base only (bottom-right half), 1 the upgrade only (top-left half),
+  // 2 both items, 3 neither; repeated down the whole line.
+  const kind = (k: number) => k % 4
+  const base = onLine(
+    Array.from({ length: BLOCK }, (_, k) => k).filter(k => kind(k) === 0 || kind(k) === 2),
+  )
+  const upgrade = onLine(
+    Array.from({ length: BLOCK }, (_, k) => k).filter(k => kind(k) === 1 || kind(k) === 2),
+  )
+  const art = splitDiagonal(base, upgrade)
   const p = new Uint8ClampedArray(W * W * 4)
   paintIndicator(p, W, W, 0, 0, art, 2, true)
   const lit = (x: number, y: number) => p[(y * W + x) * 4 + 3] !== 0
   // A line pixel (k, 15 - k) is screen pixels (2k..2k+1, 30-2k..31-2k) at 2x.
   const quad = (k: number) => [lit(2 * k, 30 - 2 * k), lit(2 * k + 1, 30 - 2 * k), lit(2 * k, 31 - 2 * k), lit(2 * k + 1, 31 - 2 * k)] // prettier-ignore
-  it('shows a black triangle, not a square, where only one item is opaque, at 2x', () => {
-    // Only the base: its bottom-right triangle, the top-left screen pixel stays clear.
-    expect(quad(0)).toEqual([false, true, true, true])
-    // Only the upgrade: its top-left triangle, the bottom-right screen pixel stays clear.
-    expect(quad(1)).toEqual([true, true, true, false])
-    // Both items: the whole square.
-    expect(quad(2)).toEqual([true, true, true, true])
+  const EXPECT: Record<number, boolean[]> = {
+    0: [false, true, true, true], // only the base: its bottom-right triangle, the top-left screen pixel clear
+    1: [true, true, true, false], // only the upgrade: its top-left triangle, the bottom-right screen pixel clear
+    2: [true, true, true, true], // both items: the whole square
+    3: [false, false, false, false], // neither: nothing
+  }
+  it('shows a black triangle, not a square, where only one item is opaque, at 2x, on every line pixel', () => {
+    for (let k = 0; k < BLOCK; k++) expect(quad(k), `line pixel ${k}`).toEqual(EXPECT[kind(k)])
   })
-  it('paints every lit pixel black, and nothing on art pixels without a line', () => {
+  it('paints every lit pixel black, and nothing off the line', () => {
     for (let y = 0; y < W; y++)
       for (let x = 0; x < W; x++) {
-        const px = Array.from(p.subarray((y * W + x) * 4, (y * W + x) * 4 + 4))
-        const onTheLine = [0, 1, 2].some(k => x >> 1 === k && y >> 1 === 15 - k)
-        expect(lit(x, y), `(${x}, ${y})`).toBe(onTheLine ? lit(x, y) : false)
-        if (lit(x, y)) expect(px).toEqual([0, 0, 0, 255])
+        const onTheLine = x >> 1 === (31 - y) >> 1 // art pixel (x >> 1, y >> 1) with x + y = 15
+        if (!onTheLine) expect(lit(x, y), `(${x}, ${y}) is off the line`).toBe(false)
+        if (lit(x, y)) expect(Array.from(p.subarray((y * W + x) * 4, (y * W + x) * 4 + 4))).toEqual([0, 0, 0, 255]) // prettier-ignore
       }
   })
 })
