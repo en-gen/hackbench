@@ -733,11 +733,11 @@ describe('readBlockContentTables on a synthetic ROM', () => {
     bytes.set(gateReader(0x00f0a4), GATE_SITE)
     return RomFile.fromBytes('synthetic.sfc', bytes)
   }
-  // #632: TYX / LDA.L / PLX / AND.L DATA_00F0A4,X / BEQ (CODE_00F17F, bank_00.asm:12849-12853).
+  // #632: PHX / PHA / TYX / LDA.L / PLX / AND.L DATA_00F0A4,X / BEQ (CODE_00F17F, bank_00.asm:12846-12853).
   const GATE_SITE = 0x600
   // prettier-ignore
   const gateReader = (operand: number): number[] =>
-    [0xbb, 0xbf, 0xec, 0xf0, 0x00, 0xfa, 0x3f, operand & 0xff, (operand >> 8) & 0xff, operand >> 16, 0xf0, 0x6f]
+    [0xda, 0x48, 0xbb, 0xbf, 0xec, 0xf0, 0x00, 0xfa, 0x3f, operand & 0xff, (operand >> 8) & 0xff, operand >> 16, 0xf0, 0x6f]
 
   it('reads every table from its own address and length', () => {
     const t = tablesOf(image())
@@ -758,10 +758,21 @@ describe('readBlockContentTables on a synthetic ROM', () => {
 
   it('a hijacked gate reader refuses, naming the gate table (#632)', () => {
     const bytes = Uint8Array.from(image().buffer)
-    bytes.fill(0xea, GATE_SITE, GATE_SITE + 12)
+    bytes.fill(0xea, GATE_SITE, GATE_SITE + 14)
     const t = readBlockContentTables(RomFile.fromBytes('hijack.sfc', bytes))
     expect(isUnavailable(t)).toBe(true)
     if (isUnavailable(t)) expect(t.unavailable).toMatch(/DATA_00F0A4.*not present/)
+  })
+
+  it('a JSL planted at the entry of CODE_00F17F refuses, naming DATA_00F0A4 (#632)', () => {
+    const bytes = Uint8Array.from(image().buffer)
+    bytes.set([0x22, 0x00, 0x80, 0x10], GATE_SITE) // JSL $108000; the rest of the routine stays intact
+    const t = readBlockContentTables(RomFile.fromBytes('jsl.sfc', bytes))
+    expect(isUnavailable(t)).toBe(true)
+    if (isUnavailable(t)) {
+      expect(t.unavailable).toMatch(/DATA_00F0A4/)
+      expect(t.unavailable).toMatch(/CODE_00F17F/)
+    }
   })
 
   // The gate table lives at bank:addr in `src`, 36 bytes of 0xaa, and the reader points there.
@@ -816,11 +827,11 @@ describe('readBlockContentTables on a synthetic ROM', () => {
 
   // A near-miss site differing in one fixed byte is not a reader, so it must not make the real one ambiguous.
   it.each([
-    ['TAX for TYX', 0, 0xaa],
-    ['LDA.L opcode', 1, 0xaf],
-    ['PLX opcode', 5, 0xfa ^ 0x20],
-    ['AND.L opcode', 6, 0x2f],
-    ['BEQ opcode', 10, 0xd0],
+    ['TAX for TYX', 2, 0xaa],
+    ['LDA.L opcode', 3, 0xaf],
+    ['PLX opcode', 7, 0xfa ^ 0x20],
+    ['AND.L opcode', 8, 0x2f],
+    ['BEQ opcode', 12, 0xd0],
   ])('a site with %s is not a gate reader (#632)', (_n, at, value) => {
     const bytes = Uint8Array.from(image().buffer)
     const site = gateReader(0x00f300)

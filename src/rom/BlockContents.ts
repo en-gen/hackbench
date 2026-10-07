@@ -128,15 +128,17 @@ function readGreenStarCoins(rom: RomFile): { value: number | null; reason?: stri
 
 const GATE_LABEL = 'DATA_00F0A4'
 const GATE_LENGTH = 36
-// TYX / LDA.L DATA_00F0EC,X / PLX / AND.L DATA_00F0A4,X / BEQ (bank_00.asm:12849-12853). Without the
-// TYX, hack 19720 has an unrelated TAX / LDA.L / PLX / AND.L / BEQ that makes the site ambiguous.
+// PHX / PHA / TYX / LDA.L DATA_00F0EC,X / PLX / AND.L DATA_00F0A4,X / BEQ: CODE_00F17F from its
+// entry (bank_00.asm:12846-12853). The entry is in the pattern so a hijack planted there breaks the
+// match; the TYX is still what disambiguates hack 19720, which has an unrelated TAX / LDA.L / PLX /
+// AND.L / BEQ.
 // prettier-ignore
-const GATE_READER: BytePattern = [0xbb, 0xbf, WILD, WILD, WILD, 0xfa, 0x3f, WILD, WILD, WILD, 0xf0, WILD]
-const GATE_OPERAND_AT = 7
+const GATE_READER: BytePattern = [0xda, 0x48, 0xbb, 0xbf, WILD, WILD, WILD, 0xfa, 0x3f, WILD, WILD, WILD, 0xf0, WILD]
+const GATE_OPERAND_AT = 9
 
 /** DATA_00F0A4 from the operand of the AND.L that reads it, or why that read is not on this ROM. */
 function readGate(rom: RomFile): { bytes: Uint8Array } | { reason: string } {
-  const what = `the reader of ${GATE_LABEL} (bank_00.asm:12849-12853)`
+  const what = `the reader of ${GATE_LABEL} (CODE_00F17F, bank_00.asm:12846-12853)`
   const site = findExactlyOneSite(rom, GATE_READER, what)
   if (!site.ok) return { reason: `${GATE_LABEL}: ${site.reason}` }
   const op = rom.readAtFileOffset(site.offset + GATE_OPERAND_AT, 3)!
