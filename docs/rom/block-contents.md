@@ -237,5 +237,7 @@ A ROM that ends before a required table is refused: `readBlockContentTables` ret
 `{ kind: 'unavailable', unavailable: reason }` and the resolver passes it through, instead of reading
 zeros as "Nothing".
 
-The table reads are not yet gated on the instructions that read them, so a hack that
-moves a table is not detected (#632).
+Only the gate table `DATA_00F0A4` is located through its reading instruction (`AND.L` in
+`CODE_00F17F`, `bank_00.asm:12850-12853`): a repointed operand is followed, and a missing or
+duplicated reader refuses. The other tables are still read at their vanilla addresses, so a hack
+that moves one of them is not detected (#632).

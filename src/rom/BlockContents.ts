@@ -9,7 +9,7 @@
  * Special cases are keyed on the SPAWNED SPRITE, as the ROM does, not on the tile.
  */
 
-import { findExactlyOneSite, WILD } from './BytePattern'
+import { findExactlyOneSite, WILD, type BytePattern } from './BytePattern'
 import type { RomFile } from './RomFile'
 
 export const FIRST_ITEM_BLOCK = 0x111
@@ -125,9 +125,27 @@ function readGreenStarCoins(rom: RomFile): { value: number | null; reason?: stri
     : { value }
 }
 
+const GATE_LABEL = 'DATA_00F0A4'
+const GATE_LENGTH = 36
+// PLX / AND.L DATA_00F0A4,X / BEQ, after the LDA.L DATA_00F0EC,X it masks (bank_00.asm:12850-12853).
+// prettier-ignore
+const GATE_READER: BytePattern = [0xbf, WILD, WILD, WILD, 0xfa, 0x3f, WILD, WILD, WILD, 0xf0, WILD]
+const GATE_OPERAND_AT = 6
+
+/** DATA_00F0A4 from the operand of the AND.L that reads it, or why that read is not on this ROM. */
+function readGate(rom: RomFile): { bytes: Uint8Array } | { reason: string } {
+  const what = `the reader of ${GATE_LABEL} (bank_00.asm:12850-12853)`
+  const site = findExactlyOneSite(rom, GATE_READER, what)
+  if (!site.ok) return { reason: `${GATE_LABEL}: ${site.reason}` }
+  const op = rom.readAtFileOffset(site.offset + GATE_OPERAND_AT, 3)!
+  const bytes = rom.readAt(op[0]! | (op[1]! << 8) | (op[2]! << 16), GATE_LENGTH)
+  return bytes
+    ? { bytes: Uint8Array.from(bytes) }
+    : { reason: `${GATE_LABEL} (${GATE_LENGTH} bytes) runs past the end of this ROM` }
+}
+
 const TABLE_SPECS = [
   ['selector', 'DATA_00F080', 0x00f080, 36],
-  ['gate', 'DATA_00F0A4', 0x00f0a4, 36],
   ['columnCycle', 'DATA_00F100', 0x00f100, 32],
   ['spriteInBlock', 'SpriteInBlock', 0x0288a3, SPRITE_SPAN],
   ['statusOfSprInBlk', 'StatusOfSprInBlk', 0x0288c5, STATUS_SPAN],
@@ -151,6 +169,9 @@ export function readBlockContentTables(rom: RomFile): BlockContentTables | Table
     }
     got[key] = bytes
   }
+  const gate = readGate(rom) // after the fixed tables, so a short ROM still names the first one cut off
+  if (!('bytes' in gate)) return { kind: 'unavailable', unavailable: gate.reason }
+  got.gate = gate.bytes
   const counter = readGreenStarCoins(rom)
   return {
     ...(got as unknown as Omit<BlockContentTables, 'greenStarCoins'>),

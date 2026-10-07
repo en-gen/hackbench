@@ -730,8 +730,24 @@ describe('readBlockContentTables on a synthetic ROM', () => {
     for (let a = 0xf000; a < 0xf200; a++) bytes[at(0, a)] = mark(0, a)
     for (let a = 0x8800; a < 0x8b00; a++) bytes[at(2, a)] = mark(2, a)
     for (const off of counterAt) bytes.set(COUNTER, off)
+    bytes.set(gateReader(0x00f0a4), GATE_SITE)
     return RomFile.fromBytes('synthetic.sfc', bytes)
   }
+  // #632: PLX / AND.L DATA_00F0A4,X / BEQ, preceded by the LDA.L it masks (bank_00.asm:12850-12853).
+  const GATE_SITE = 0x600
+  const gateReader = (operand: number): number[] => [
+    0xbf,
+    0xec,
+    0xf0,
+    0x00,
+    0xfa,
+    0x3f,
+    operand & 0xff,
+    (operand >> 8) & 0xff,
+    operand >> 16,
+    0xf0,
+    0x6f, // prettier-ignore
+  ]
 
   it('reads every table from its own address and length', () => {
     const t = tablesOf(image())
@@ -748,6 +764,29 @@ describe('readBlockContentTables on a synthetic ROM', () => {
     expectFrom(t.columnOverrideStatus, 2, 0x88d9, 4)
     expectFrom(t.pSwitchAttribute, 2, 0x8a42, 2)
     expectFrom(t.eggContents, 2, 0x88a1, 2)
+  })
+
+  it('a hijacked gate reader refuses, naming the gate table (#632)', () => {
+    const bytes = Uint8Array.from(image().buffer)
+    bytes.fill(0xea, GATE_SITE, GATE_SITE + 11)
+    const t = readBlockContentTables(RomFile.fromBytes('hijack.sfc', bytes))
+    expect(isUnavailable(t)).toBe(true)
+    if (isUnavailable(t)) expect(t.unavailable).toMatch(/DATA_00F0A4.*not present/)
+  })
+
+  it('a repointed gate reader reads the gate table from the new address (#632)', () => {
+    const bytes = Uint8Array.from(image().buffer)
+    bytes.set(gateReader(0x00f300), GATE_SITE)
+    bytes.fill(0xaa, at(0, 0xf300), at(0, 0xf300) + 36)
+    const t = tablesOf(RomFile.fromBytes('repoint.sfc', bytes))
+    expect(Array.from(t.gate)).toEqual(new Array(36).fill(0xaa))
+  })
+
+  it('a second gate reader is ambiguous and refuses (#632)', () => {
+    const bytes = Uint8Array.from(image().buffer)
+    bytes.set(gateReader(0x00f0a4), 0x900)
+    const t = readBlockContentTables(RomFile.fromBytes('two.sfc', bytes))
+    expect(isUnavailable(t) && t.unavailable).toMatch(/DATA_00F0A4.*more than once/)
   })
 
   it('a ROM that ends before a table refuses with a reason instead of reading zeros', () => {
@@ -790,6 +829,7 @@ describe('readBlockContentTables on a synthetic ROM', () => {
     const bytes = new Uint8Array(0x20000)
     bytes[0x7fd5] = 0x20
     bytes.set(COUNTER, 0x100)
+    bytes.set(gateReader(0x00f0a4), GATE_SITE)
     bytes.set([0xa9, 0x11, 0x8d, 0xc0, 0x0d], 0x400) // same load and store, no branch before it
     expect(tablesOf(RomFile.fromBytes('s.sfc', bytes)).greenStarCoins).toBe(0x2a)
   })
