@@ -16,11 +16,17 @@ import {
   stateDirFor,
 } from './protocol.mjs'
 
+// The hooks docs cap injected output at 10,000 characters; past that Claude
+// sees a file path and a 2,000-character preview. A role that is also the BA
+// gets a pointer to ba.md instead of its text, and any manual that would still
+// push the output over the cap becomes a pointer too.
+const CAP = 9500
 const MANUALS = {
   ba: ['ba.md'],
   'tech-lead': ['tech-lead.md'],
-  both: ['ba.md', 'tech-lead.md'],
+  both: ['tech-lead.md'],
 }
+const ALSO_BA = 'You are also the BA: read docs/agents/ba.md before your first reply.'
 
 function readIf(file) {
   return existsSync(file) ? readFileSync(file, 'utf8') : null
@@ -41,18 +47,27 @@ export function render(input, dirs) {
     out.push(`Session id: ${id}. Not registered: follow the first step of your manual.`)
   }
 
+  // Push text if it fits under the cap, else a one-line pointer to read it.
+  const pushFit = (text, pointer) => {
+    out.push(out.join('\n').length + text.length > CAP ? pointer : text)
+  }
   const role = reg ? reg.role : 'both'
+  if (role === 'both') out.push(ALSO_BA)
   for (const f of MANUALS[role] ?? MANUALS.both) {
     const text = readIf(path.join(dirs.docsDir, 'agents', f))
-    if (text) out.push(text)
+    if (text)
+      pushFit(text, `Read docs/agents/${f} before your first reply: it is too large to inject.`)
   }
-  if (reg && (reg.role === 'ba' || reg.role === 'both')) {
+  // A role that is also the BA reads ba.md, and its state file, itself.
+  if (reg && reg.role === 'ba') {
     const text = readIf(path.join(dirs.stateDir, 'ba.md'))
-    if (text) out.push(text)
+    if (text) pushFit(text, 'Read .claude/state/ba.md: it is too large to inject.')
   }
   if (reg && reg.team) {
     const text = readIf(path.join(dirs.stateDir, 'teams', `${reg.team}.md`))
-    if (text) out.push(text)
+    if (text) {
+      pushFit(text, `Read .claude/state/teams/${reg.team}.md: it is too large to inject.`)
+    }
   }
   return out.join('\n') + '\n'
 }

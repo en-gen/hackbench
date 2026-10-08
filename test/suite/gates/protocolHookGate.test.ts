@@ -99,13 +99,21 @@ describe('the protocol hook', () => {
     expect(r.out).toContain('# Alpha state')
   })
 
-  it('on session start for an unregistered session prints every manual and the first-step line', () => {
+  it('on session start for an unregistered session prints the tech-lead manual, a BA pointer and the first-step line', () => {
     fs.writeFileSync(path.join(docsDir, 'agents', 'tech-lead.md'), '# Tech lead manual\n')
     fs.writeFileSync(path.join(docsDir, 'agents', 'ba.md'), '# BA manual\n')
     const r = runHook({ session_id: 's9', hook_event_name: 'SessionStart', source: 'startup' })
     expect(r.out).toContain('Session id: s9. Not registered: follow the first step of your manual.')
     expect(r.out).toContain('# Tech lead manual')
-    expect(r.out).toContain('# BA manual')
+    expect(r.out).not.toContain('# BA manual')
+    expect(r.out).toContain('You are also the BA: read docs/agents/ba.md before your first reply.')
+  })
+
+  it('turns a manual that would pass the cap into a pointer', () => {
+    fs.writeFileSync(path.join(docsDir, 'agents', 'tech-lead.md'), 'x'.repeat(12000))
+    const r = runHook({ session_id: 's9', hook_event_name: 'SessionStart' })
+    expect(r.out).toContain('Read docs/agents/tech-lead.md before your first reply')
+    expect(r.out.length).toBeLessThan(10000)
   })
 
   it('never blocks a session: a broken protocol file becomes one line and exit 0', () => {
@@ -198,6 +206,5 @@ describe('the SessionStart injection stays under the hook cap', () => {
     })
     expect(r.stdout).toContain('Active protocols: night-shift, throttle')
     expect(r.stdout.length).toBeLessThan(CAP)
-    process.stderr.write(`cap measure ${role}: ${r.stdout.length}\n`)
   })
 })
