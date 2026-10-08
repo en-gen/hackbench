@@ -7,3 +7,4 @@ The morning brief after a night shift is `grep -l '^Proposed' docs/decisions/*.m
 | File | State | Decides |
 | --- | --- | --- |
 | [2026-10-07-agentic-protocols-design.md](2026-10-07-agentic-protocols-design.md) | Ruled | the protocols, session lifecycle and knowledge-base design |
+| [2026-10-04-bps-primary-patch-format.md](2026-10-04-bps-primary-patch-format.md) | Ruled | BPS is the default export format, IPS secondary |
