@@ -15,6 +15,7 @@ import {
   readdirSync,
   writeFileSync,
 } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 
 export const HEADINGS = ['Purpose', 'Group', 'Activation', 'Changes', 'Unchanged', 'Exit']
@@ -160,4 +161,41 @@ export function writeState(stateDir, state, logLine) {
   mkdirSync(stateDir, { recursive: true })
   writeFileSync(path.join(stateDir, STATE_FILE), JSON.stringify(state, null, 2) + '\n')
   appendFileSync(path.join(stateDir, LOG_FILE), logLine + '\n')
+}
+
+const SESSIONS_FILE = 'sessions.json'
+const ROLES = new Set(['ba', 'tech-lead', 'both'])
+
+export function mainCheckoutDir(cwd) {
+  const r = spawnSync('git', ['rev-parse', '--git-common-dir'], { cwd, encoding: 'utf8' })
+  if (r.status !== 0 || !r.stdout.trim()) return cwd
+  return path.dirname(path.resolve(cwd, r.stdout.trim()))
+}
+
+export function stateDirFor(cwd) {
+  return process.env.HACKBENCH_STATE_DIR || path.join(mainCheckoutDir(cwd), '.claude', 'state')
+}
+
+export function protocolsDirFor(cwd) {
+  return process.env.HACKBENCH_PROTOCOLS_DIR || path.join(cwd, 'docs', 'protocols')
+}
+
+export function readSessions(stateDir) {
+  const file = path.join(stateDir, SESSIONS_FILE)
+  if (!existsSync(file)) return {}
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'))
+  } catch {
+    return {}
+  }
+}
+
+export function registerSession(stateDir, sessionId, role, team, now) {
+  if (!ROLES.has(role)) throw new Error(`role must be ba, tech-lead or both; got "${role}"`)
+  if (role !== 'ba' && !team) throw new Error(`a ${role} session needs a team`)
+  const all = readSessions(stateDir)
+  all[sessionId] = { role, team: team ?? null, registered: now }
+  mkdirSync(stateDir, { recursive: true })
+  writeFileSync(path.join(stateDir, SESSIONS_FILE), JSON.stringify(all, null, 2) + '\n')
+  return all
 }

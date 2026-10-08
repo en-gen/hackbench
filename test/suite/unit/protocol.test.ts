@@ -230,3 +230,71 @@ describe('writeState', () => {
     ).toHaveLength(2)
   })
 })
+
+import { execFileSync } from 'child_process'
+import {
+  mainCheckoutDir,
+  stateDirFor,
+  protocolsDirFor,
+  readSessions,
+  registerSession,
+} from '../../../tools/scripts/protocol.mjs'
+
+describe('mainCheckoutDir', () => {
+  it('resolves a worktree to the main checkout', () => {
+    const main = tempDir('main-')
+    execFileSync('git', ['init', '-q', main])
+    execFileSync('git', ['-C', main, 'commit', '-q', '--allow-empty', '-m', 'root'], {
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: 't',
+        GIT_AUTHOR_EMAIL: 't@t',
+        GIT_COMMITTER_NAME: 't',
+        GIT_COMMITTER_EMAIL: 't@t',
+      },
+    })
+    const wt = path.join(tempDir('wt-'), 'w')
+    execFileSync('git', ['-C', main, 'worktree', 'add', '-q', wt])
+    expect(fs.realpathSync(mainCheckoutDir(wt))).toBe(fs.realpathSync(main))
+    expect(fs.realpathSync(mainCheckoutDir(main))).toBe(fs.realpathSync(main))
+  })
+
+  it('falls back to cwd outside git', () => {
+    const dir = tempDir('nogit-')
+    expect(mainCheckoutDir(dir)).toBe(dir)
+  })
+})
+
+describe('directory overrides', () => {
+  it('honour the environment variables', () => {
+    process.env.HACKBENCH_STATE_DIR = '/tmp/x'
+    process.env.HACKBENCH_PROTOCOLS_DIR = '/tmp/y'
+    expect(stateDirFor('.')).toBe('/tmp/x')
+    expect(protocolsDirFor('.')).toBe('/tmp/y')
+    delete process.env.HACKBENCH_STATE_DIR
+    delete process.env.HACKBENCH_PROTOCOLS_DIR
+    expect(protocolsDirFor('/repo')).toBe(path.join('/repo', 'docs', 'protocols'))
+  })
+})
+
+describe('sessions', () => {
+  it('registers and reads back', () => {
+    const dir = tempDir('state-')
+    expect(readSessions(dir)).toEqual({})
+    registerSession(dir, 'sess-1', 'tech-lead', 'alpha', NOW)
+    const all = registerSession(dir, 'sess-2', 'ba', null, NOW)
+    expect(all).toEqual({
+      'sess-1': { role: 'tech-lead', team: 'alpha', registered: NOW },
+      'sess-2': { role: 'ba', team: null, registered: NOW },
+    })
+    expect(readSessions(dir)).toEqual(all)
+  })
+
+  it('rejects an unknown role and a tech lead without a team', () => {
+    const dir = tempDir('state-')
+    expect(() => registerSession(dir, 's', 'pm', null, NOW)).toThrow(
+      /role must be ba, tech-lead or both/,
+    )
+    expect(() => registerSession(dir, 's', 'tech-lead', null, NOW)).toThrow(/needs a team/)
+  })
+})
