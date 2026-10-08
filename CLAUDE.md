@@ -4,9 +4,11 @@ Guidance for every Claude Code session in this repo: the main session and
 every role agent. Keep it short; every agent pays for every line on every
 call.
 
-- **Main session (not launched with a brief):** you are the orchestrator and
-  work from [docs/agents/orchestrator.md](docs/agents/orchestrator.md),
-  injected at session start. It holds merging, PRs, issues and delegation.
+- **Main session (not launched with a brief):** you are a BA or a tech lead.
+  The session hook injects [docs/agents/ba.md](docs/agents/ba.md) or
+  [docs/agents/tech-lead.md](docs/agents/tech-lead.md) by your registration,
+  both when unregistered, plus the active protocols every turn. Follow the
+  manual's first step before anything else.
 - **Role agents:** your role file in `.claude/agents/` plus this file.
 - **ROM rules** load automatically from `.claude/rules/rom-interpretation.md`
   when you read or edit `src/`, `test/`, `tools/` or the node backend. Read it

@@ -19,7 +19,7 @@ import {
 const MANUALS = {
   ba: ['ba.md'],
   'tech-lead': ['tech-lead.md'],
-  both: ['orchestrator.md', 'ba.md', 'tech-lead.md'],
+  both: ['ba.md', 'tech-lead.md'],
 }
 
 function readIf(file) {
