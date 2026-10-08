@@ -17,6 +17,7 @@ import {
 } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 export const HEADINGS = ['Purpose', 'Group', 'Activation', 'Changes', 'Unchanged', 'Exit']
 export const MAX_CHANGES_LINES = 15
@@ -198,4 +199,51 @@ export function registerSession(stateDir, sessionId, role, team, now) {
   mkdirSync(stateDir, { recursive: true })
   writeFileSync(path.join(stateDir, SESSIONS_FILE), JSON.stringify(all, null, 2) + '\n')
   return all
+}
+
+function cli(argv, cwd) {
+  const stateDir = stateDirFor(cwd)
+  const defs = loadProtocols(protocolsDirFor(cwd))
+  const [a, b, c] = argv
+  const now = new Date().toISOString()
+  if (a === 'status') {
+    const s = readState(stateDir, defs)
+    return { code: 0, out: { ...s, sessions: readSessions(stateDir) } }
+  }
+  if (a === 'register') {
+    if (!b || !c) return { code: 1, out: 'usage: protocol.mjs register <sessionId> <role> [team]' }
+    return { code: 0, out: registerSession(stateDir, b, c, argv[3] ?? null, now) }
+  }
+  if (!a || !b) {
+    return {
+      code: 1,
+      out: 'usage: protocol.mjs <name> on|off [--by <who>] | status | register <sessionId> <role> [team]',
+    }
+  }
+  const byIdx = argv.indexOf('--by')
+  const by = byIdx >= 0 && argv[byIdx + 1] ? argv[byIdx + 1] : 'unknown'
+  const r = applyChange(readState(stateDir, defs), defs, a, b, by, now)
+  if (r.error) return { code: 1, out: r.error }
+  writeState(stateDir, r.state, r.logLine)
+  const sessions = readSessions(stateDir)
+  const nudge = Object.entries(sessions).map(([sessionId, s]) => ({
+    sessionId,
+    role: s.role,
+    team: s.team,
+  }))
+  return { code: 0, out: { active: r.state.active, logLine: r.logLine, nudge } }
+}
+
+// The guard keeps the CLI from running when vitest or the hook imports this module.
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  let result
+  try {
+    result = cli(process.argv.slice(2), process.cwd())
+  } catch (err) {
+    result = { code: 1, out: err instanceof Error ? err.message : String(err) }
+  }
+  process.stdout.write(
+    (typeof result.out === 'string' ? result.out : JSON.stringify(result.out, null, 2)) + '\n',
+  )
+  process.exit(result.code)
 }
