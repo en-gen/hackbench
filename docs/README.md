@@ -11,6 +11,18 @@ on Eclipse Theia and Electron.
 | understand how it is put together      | [architecture/overview.md](architecture/overview.md)                                     |
 | know what a word means here            | [glossary.md](glossary.md)                                                               |
 | contribute                             | [codebase map](architecture/codebase-map.md), then [CONTRIBUTING.md](../CONTRIBUTING.md) |
+| know the house rules for docs         | [CONVENTIONS.md](CONVENTIONS.md)                                                         |
+
+## Current state
+
+What a freshly started session reads first. Keep it short; detail lives in the linked files.
+
+- **Open decisions.** See [decisions/README.md](decisions/README.md); Proposed files are waiting on the owner.
+- **Hypotheses.** [hypotheses.md](hypotheses.md) holds claims not yet established.
+- **Recent corrections.** Listed here when a primary source overturns a doc, newest first, one line each with the file corrected. (none yet)
+- **Conventions.** [CONVENTIONS.md](CONVENTIONS.md) is the contract: tags, citation, corrections, file shapes.
+- **Protocols.** [protocols/README.md](protocols/README.md) lists the modes the owner can enact.
+- **Runbooks.** [runbooks/README.md](runbooks/README.md) holds the methods.
 
 ## Guide
 
