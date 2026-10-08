@@ -363,11 +363,22 @@ describe('pointers obey the cap too', () => {
     expect(out.length).toBeLessThan(10000)
   })
 
+  // Fixed-length directories: the point where the BA line stops fitting depends
+  // on path length, which differs between Windows and Linux temp directories.
   it('drops a pointer that does not fit and says more was omitted', () => {
-    register('both', 'alpha')
-    fs.writeFileSync(path.join(stateDir, 'teams', 'alpha.md'), 't'.repeat(9000))
-    fs.writeFileSync(path.join(docsDir, 'agents', 'tech-lead.md'), 'm'.repeat(6000))
-    const out = render(START, { stateDir, protocolsDir, docsDir })
+    const longState = longDir('hook-state-', 199)
+    const longDocs = longDir('hook-docs-', 199)
+    fs.mkdirSync(path.join(longState, 'teams'))
+    fs.mkdirSync(path.join(longDocs, 'agents'))
+    fs.writeFileSync(path.join(longState, 'teams', 'alpha.md'), 't'.repeat(9000))
+    fs.writeFileSync(path.join(longDocs, 'agents', 'tech-lead.md'), 'm'.repeat(6000))
+    fs.writeFileSync(
+      path.join(longState, 'sessions.json'),
+      JSON.stringify({
+        [CLI_ID]: { desktopId: LOCAL_ID, role: 'both', team: 'alpha', registered: 'x' },
+      }),
+    )
+    const out = render(START, { stateDir: longState, protocolsDir, docsDir: longDocs })
     expect(out.length).toBeLessThan(10000)
     expect(out).toContain('(more omitted)')
   })
