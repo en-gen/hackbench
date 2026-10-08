@@ -10,7 +10,7 @@ Not recorded per ruling; each below is the owner's chosen option.
 
 ## Ruling
 
-Owner rulings, dates per line, wording not recorded. `[EST]`
+Owner rulings, dates per line, wording not recorded. `[INF]`
 
 1. Load-time data, not screen: maps show raw data as the game holds it at load (2026-09-24). Screen pictures only prove the drawing code reproduces SNES pixels. Example: the sliding Koopa on `$105` faces right (first real frame). No screen-derived commentary in the view.
 2. Render from map data once (2026-09-24): never stitch per-screen captures into a level-wide view (produced seams, frozen Marios, duplicated sprites). Renderer briefs name a map-data source per layer and carry a test that works with the windows directory absent.

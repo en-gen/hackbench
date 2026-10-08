@@ -10,7 +10,7 @@ BPS as default with IPS secondary; IPS as default.
 
 ## Ruling
 
-Reconfirmed by the owner 2026-10-04, wording not recorded. `[EST]`
+Reconfirmed by the owner 2026-10-04, wording not recorded. `[INF]`
 
 ## Why
 

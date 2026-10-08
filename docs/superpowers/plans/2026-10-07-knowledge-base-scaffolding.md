@@ -306,7 +306,7 @@ git commit -m "Docs: add the decisions record with the first ruling"
 
 - [ ] **Step 1: Read the source memory**
 
-Read `C:/Users/engenb/.claude/projects/C--Projects-hackbench/memory/project_overworld_area4_rendering_bug.md` in full. It is the only `[OPEN]` project fact in memory today.
+Read `project_overworld_area4_rendering_bug.md` in the session-memory directory for this project in full. It is the only `[OPEN]` project fact in memory today.
 
 - [ ] **Step 2: Write `docs/hypotheses.md`**
 
@@ -346,7 +346,7 @@ git commit -m "Docs: add the hypotheses ledger with H-1"
 
 - [ ] **Step 1: Read the source memories**
 
-Read these in full: `feedback_owner_launch_browser.md`, `feedback_ci_rerun.md`, `feedback_merge_detection_cleanup.md`, `feedback_gh_polling_rest.md`, all under `C:/Users/engenb/.claude/projects/C--Projects-hackbench/memory/`.
+Read these in full: `feedback_owner_launch_browser.md`, `feedback_ci_rerun.md`, `feedback_merge_detection_cleanup.md`, `feedback_gh_polling_rest.md`, all in the session-memory directory for this project.
 
 - [ ] **Step 2: Write `docs/runbooks/README.md`**
 
@@ -429,7 +429,7 @@ git commit -m "Docs: README gains the current-state section"
 **Files:**
 - Create: `docs/decisions/2026-10-04-bps-primary-patch-format.md`
 - Modify: `docs/decisions/README.md`
-- Modify (outside the repo): `C:/Users/engenb/.claude/projects/C--Projects-hackbench/memory/project_bps_primary_patch_format.md`
+- Modify (outside the repo): `project_bps_primary_patch_format.md` in the session-memory directory for this project
 
 - [ ] **Step 1: Read the memory file in full**
 

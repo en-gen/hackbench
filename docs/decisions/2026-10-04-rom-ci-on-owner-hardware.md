@@ -10,7 +10,7 @@ GitHub-hosted runners with the ROM as a secret; a self-hosted runner on the owne
 
 ## Ruling
 
-Owner policy 2026-10-04, wording not recorded. ROM-needing runs (e2e, captures, perf nightlies in hackbench-validation) execute on the owner's hardware via a self-hosted runner, pve01 (Proxmox) the intended host. ROM-free CI stays on GitHub-hosted runners in the public repo. `[EST]`
+Owner policy 2026-10-04, wording not recorded. ROM-needing runs (e2e, captures, perf nightlies in hackbench-validation) execute on the owner's hardware via a self-hosted runner. ROM-free CI stays on GitHub-hosted runners in the public repo. `[INF]`
 
 ## Why
 

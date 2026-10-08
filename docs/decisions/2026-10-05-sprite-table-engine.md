@@ -10,7 +10,7 @@ Hand-written per-sprite tables; a generic table engine plus annotations; interpr
 
 ## Ruling
 
-Owner rulings, dates per line, wording not recorded. `[EST]`
+Owner rulings, dates per line, wording not recorded. `[INF]`
 
 1. Drawing and placement must be interpreted from ROM code, because hacks carry custom sprites (2026-10-05). No hardcoded per-sprite values or delta tables from the disassembly (`$4F` InitPiranha's +8 X centering must come from running INIT). The table engine is a stopgap; the interpreter (spike `docs/ideas/sprite-gfx-interpreter.md`) is the target. A hand-written per-sprite table needs the owner's explicit OK.
 2. Architecture (2026-09-18): a generic table-driven engine (faithful, no editorial choices, callable with no map) plus an annotation layer. The roughly 40 bespoke `*Appearance` classes are retired, not extended. Descriptors store addresses, never values; key on the resolved handler pointer, not the sprite id; degrade honestly on an unrecognised handler. No generic "custom renderer" escape hatch; grow the vocabulary, each kind justified by more than one sprite.

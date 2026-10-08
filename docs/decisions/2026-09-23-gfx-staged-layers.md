@@ -10,7 +10,7 @@ Immediate commit per pixel; one layer per editing session; staged per 8x8 charac
 
 ## Ruling
 
-Owner ruling 2026-09-23, wording not recorded. Staged per 8x8 character, committed on Save or on moving to another character. `[EST]`
+Owner ruling 2026-09-23, wording not recorded. Staged per 8x8 character, committed on Save or on moving to another character. `[INF]`
 
 ## Why
 

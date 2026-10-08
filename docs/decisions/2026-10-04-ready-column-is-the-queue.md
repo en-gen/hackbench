@@ -10,7 +10,7 @@ Workflow scripts, cost-cap tooling or a dedicated runner; the orchestrator's nor
 
 ## Ruling
 
-Owner goal 2026-10-04, wording not recorded. Backlog instructions such as "work the next top 10 priority items while I sleep" run on the normal loop. No special scripts, cost caps or runner. `[EST]`
+Owner goal 2026-10-04, wording not recorded. Backlog instructions such as "work the next top 10 priority items while I sleep" run on the normal loop. No special scripts, cost caps or runner. `[INF]`
 
 ## Why
 

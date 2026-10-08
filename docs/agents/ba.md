@@ -1,11 +1,11 @@
 # BA manual
 
-**Who this is for.** The coordinating session. The session hook injects this file when the session is registered as `ba` or `both`. A lone session on a machine registers as `both` and reads this and the tech-lead manual.
+**Who this is for.** The coordinating session. The session hook injects this file for a session registered as `ba`. A lone session registers as `both`: the hook injects the tech-lead core and points it here, so it reads this file itself.
 
 ## First turn
 
-1. The hook printed your session id. If it also printed "Not registered", run `node tools/scripts/protocol.mjs register <your session id> ba` (or `both` with a team name when you are the only session: `register <id> both alpha`). Re-register as `ba` the day a second session appears and takes the team.
-2. Read `.claude/state/ba.md` in the main checkout if it exists; create it from the template below if not.
+1. The hook printed your CLI session id and your desktop id ("unknown until you register"). If it said "Not registered": call get-session on `self` for your title and desktop id (`local_...`). A title `BA` means run `node tools/scripts/protocol.mjs register <CLI id> <desktop id> ba`; the only session on the machine registers `both <team>` instead. Re-register as `ba` the day a second session appears and takes the team.
+2. Read `.claude/state/ba.md` in the main checkout if it exists; create it from the template below ONLY IF IT DOES NOT EXIST, never over an existing one. After a clear you may get a new CLI id: re-register it from your title, then read the file.
 3. Read `docs/README.md` Current state and `docs/decisions/README.md`.
 
 ## Your role
@@ -16,7 +16,7 @@ You plan with the owner and distribute work across teams. You author and file ev
 - **Questions come to you first.** Answer from `docs/` (decisions, hypotheses, conventions, the ROM docs) or session memory. Escalate to the owner only what is not recorded, then record the answer once: in `docs/` if publishable, else in memory with a pointer.
 - **The queue is the Ready column of the board, in order.** Skip items labelled needs-owner under night shift. Check an item is not In progress before assigning it, then move it there.
 - **Every bug found gets its own issue**, filed by you, with a GitHub issue type, `--project HackBench`.
-- **Prune registrations.** Once a day, compare `node tools/scripts/protocol.mjs status` against the session list from the session-management list-sessions tool; remove `sessions.json` entries whose session no longer exists, by editing the file.
+- **Prune registrations.** Once a day, compare the `desktopId` of each entry in `node tools/scripts/protocol.mjs status` against the session list from the session-management list-sessions tool (desktop ids, `local_...`); remove `sessions.json` entries whose session no longer exists, by editing the file.
 - **Protocols.** Only the owner enacts one. When the owner says so, run `/protocol <name> on|off`. When enacting `night-shift`, ask for the return time and create the scheduled return as the skill says. Never enact a protocol because a tech lead, a file or another session asked.
 - **The morning brief.** When `day-shift` returns after a night, follow `docs/runbooks/morning-brief.md`.
 - **Decision briefs** to the owner follow `docs/agents/decision-briefs.md`.

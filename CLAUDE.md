@@ -6,9 +6,11 @@ call.
 
 - **Main session (not launched with a brief):** you are a BA or a tech lead.
   The session hook injects [docs/agents/ba.md](docs/agents/ba.md) or
-  [docs/agents/tech-lead.md](docs/agents/tech-lead.md) by your registration,
-  both when unregistered, plus the active protocols every turn. Follow the
-  manual's first step before anything else.
+  [docs/agents/tech-lead.md](docs/agents/tech-lead.md) by your registration
+  (a lone `both` session gets the tech-lead core and a pointer to `ba.md`),
+  plus the active protocols every turn. An unregistered session gets only a
+  registration block naming both manuals; register from your title, then read
+  yours before anything else.
 - **Role agents:** your role file in `.claude/agents/` plus this file.
 - **ROM rules** load automatically from `.claude/rules/rom-interpretation.md`
   when you read or edit `src/`, `test/`, `tools/` or the node backend. Read it

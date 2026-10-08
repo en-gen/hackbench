@@ -10,7 +10,7 @@ Support every layout generically; detect one of three conventions (vanilla, magi
 
 ## Ruling
 
-Owner framing 2026-09-21, wording not recorded. Lunar Magic is the only other SMW ROM editor, so a ROM is in one of three conventions: vanilla (stock tables at stock addresses), magic (Lunar Magic: per-level palette override blocks at `$0EF600`, ExAnimation, expanded Map16 pages, relocated GFX), or ours. Detect which, then port to ours. `[EST]`
+Owner framing 2026-09-21, wording not recorded. Lunar Magic is the only other SMW ROM editor, so a ROM is in one of three conventions: vanilla (stock tables at stock addresses), magic (Lunar Magic: per-level palette override blocks at `$0EF600`, ExAnimation, expanded Map16 pages, relocated GFX), or ours. Detect which, then port to ours. `[INF]`
 
 ## Why
 

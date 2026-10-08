@@ -275,7 +275,7 @@ git commit -m "Docs: the decision-brief format"
 **Files:**
 - Modify: `CLAUDE.md` (the first bullet under the opening paragraph)
 - Modify: `docs/README.md` (Current state section)
-- Modify (outside the repo): `C:/Users/engenb/.claude/projects/C--Projects-hackbench/memory/feedback_handoff_in_chat.md`
+- Modify (outside the repo): `feedback_handoff_in_chat.md` in the session-memory directory for this project
 - Modify: `CHANGELOG.md`
 
 - [ ] **Step 1: `CLAUDE.md`**

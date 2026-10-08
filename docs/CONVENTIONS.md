@@ -35,7 +35,7 @@ A ruling is a file in `decisions/`, named `YYYY-MM-DD-<slug>.md`. Its first line
 - `Proposed YYYY-MM-DD (<team>)`
 - `Ruled YYYY-MM-DD (Brian)`
 
-Then the headings Question, Options considered, Ruling (the owner's words verbatim), Why, Applies to. Promotion edits the first line in place. `decisions/README.md` lists one line per file. Rulings no longer go to issues, the notes repository or session memory; those get a pointer.
+Then the headings Question, Options considered, Ruling (the owner's words verbatim where recorded; otherwise the line `wording not recorded`, the date, and the paraphrase tagged `[INF]`), Why, Applies to. Promotion edits the first line in place. `decisions/README.md` lists one line per file. Rulings no longer go to issues, the notes repository or session memory; those get a pointer.
 
 ## Protocols
 

@@ -10,7 +10,7 @@ The hand-ported classifier; running SMW block code on the 65816 core per Map16 t
 
 ## Ruling
 
-Owner choice 2026-10-05, wording not recorded. The core probe, composed node-side as polylines and drawn as SVG. `[EST]`
+Owner choice 2026-10-05, wording not recorded. The core probe, composed node-side as polylines and drawn as SVG. `[INF]`
 
 ## Why
 

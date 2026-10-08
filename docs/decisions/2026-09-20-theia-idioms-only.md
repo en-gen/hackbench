@@ -10,7 +10,7 @@ Eclipse Theia; a Lumino-only shell on `@lumino/application`.
 
 ## Ruling
 
-Owner ruling 2026-09-20, issue #382 (closed), wording not recorded. Theia desktop app; work in Theia idioms, never import `@lumino/*` directly. `[EST]`
+Owner ruling 2026-09-20, issue #382 (closed), wording not recorded. Theia desktop app; work in Theia idioms, never import `@lumino/*` directly. `[INF]`
 
 ## Why
 

@@ -10,7 +10,7 @@ Drop or shrink the review; keep it unchanged and track it.
 
 ## Ruling
 
-Owner decision 2026-10-04, wording not recorded. Keep the review unchanged, but track it. `[EST]`
+Owner decision 2026-10-04, wording not recorded. Keep the review unchanged, but track it. `[INF]`
 
 ## Why
 

@@ -156,3 +156,7 @@ context; they are for the owner.
 ### Issues and the board
 
 Issues are filed by the BA. Draft the title, type and acceptance criteria in your report; the BA files it. The [board](https://github.com/orgs/en-gen/projects/1) Status is the claim: Backlog, Ready, In progress, In review, Done. Check an issue is not In progress before starting it, then move it there; the steward moves it to In review when the PR opens. Touch only `en-gen` repos and projects.
+
+## Why a tech lead does no hands-on work
+
+The owner's target is that you are mostly idle, chatting. It is also the biggest cost lever: you run on Opus with the longest context, so every tool call you make re-reads all of it, while a `grunt` lookup starts fresh on Haiku. Hands-on work covers code, docs edits, repo greps, git inspection, test runs, PR plumbing, worktree cleanup and ROM probes.

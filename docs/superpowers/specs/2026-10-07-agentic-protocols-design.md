@@ -1,6 +1,7 @@
 # Agentic workflow: protocols, session lifecycle and the knowledge base
 
-Status: `[PROP]` until the owner ratifies. Designed 2026-10-07 in conversation
+Status: Ruled 2026-10-07 (Brian): "approved, write the plan". Items marked
+`[OPEN]` stay open until verified. Designed 2026-10-07 in conversation
 with the owner; every section below was approved in chat before this file was
 written. Scope is this repository. The design keeps a seam for an outer shell
 (Jeff's Neuromancer, a Symphony-style loop) to drive it later, but builds
@@ -182,6 +183,11 @@ in the root.
 `docs/agents/tech-lead.md`. Rules common to both stay in `CLAUDE.md`. A lone
 session registers as both and gets both manuals.
 
+Corrected 2026-10-07: was "a lone session registers as both and gets both
+manuals", because both manuals together pass the 10,000-character hook cap. A
+lone session gets the tech-lead core plus a pointer to `ba.md`, and the
+injected tech-lead manual is split into a core and an on-demand reference.
+
 ### 4.2 Registration replaces check-in
 
 `.claude/state/sessions.json`, gitignored, maps a session id to its role and
@@ -201,6 +207,12 @@ by four other tool definitions but was not loaded in the design session, so
 its availability is `[OPEN]`.
 
 The BA prunes entries for sessions that no longer appear in the session list.
+
+Corrected 2026-10-07: a registration carries two ids, because the hook receives
+the CLI session id while the session-management tools take the desktop id
+(`local_...`). The session title is the identity; the CLI id is a cache that
+may change on a clear, so a woken session re-registers from its title and never
+recreates its team state file.
 
 ### 4.3 The item loop, as a tech lead runs it
 
@@ -399,6 +411,8 @@ Four pull requests, in order, each one concern:
 
 Then the self-clear round trip and the night-shift dry run from section 8,
 which are verification runs, not PRs.
+
+Corrected 2026-10-07: delivered as one PR, because the owner ruled "why not do it in one".
 
 ## 10. Out of scope and open
 
