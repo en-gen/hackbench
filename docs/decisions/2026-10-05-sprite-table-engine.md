@@ -20,9 +20,9 @@ Owner rulings, dates per line, wording not recorded. `[INF]`
 
 ## Why
 
-Lines that name a `docs/sprites` or `docs/ideas` source carry its SMWDisX lines and evidence scope. The other ROM claims here (the deliberate-deviation examples) were migrated from session memory without citations; cite SMWDisX file:line before relying on them.
+Lines that name a `docs/sprites` or `docs/ideas` source carry its SMWDisX lines and evidence scope. The Monty Mole `$86` frame rests on a vanilla-ROM read with no bank line of its own; treat it as vanilla-only until a bank line is added.
 
-- Deliberate editor deviations, not to be "fixed" without asking: representative frame (`$4D` Monty Mole front-facing `$86`), staged composition (Pitchin Chuck baseball at +/-20 px), runtime-state defaults. `[EST]`
+- Deliberate editor deviations, not to be "fixed" without asking: representative frame (`$4D` Monty Mole front-facing `$86`), staged composition (Pitchin Chuck baseball at +/-20 px), runtime-state defaults. `[EST]` Sources: the Monty Mole emerged frame `$02` is big-tile `$86`, read from the vanilla ROM (`docs/sprites/sprite-4d-monty-mole.md`; scope: `vanilla.sfc` only, no bank line given there; the frame handler is `CODE_01E343`, SMWDisX `bank_01.asm:13388`, in `docs/sprites/sprite-engine-divergence.md`); the Pitchin Chuck +/-20 px baseball is the retired class's editor choice, listed in `docs/sprites/sprite-engine-divergence.md` section 4 "Deliberate editor choices" (a statement about editor code, not ROM behaviour; scope: the 40-class inventory of that report).
 - Facing is not a deviation: it derives from Mario's start (`faceRight = marioStartPx.x >= spritePx` via `SubHorizPos` writing `SpriteMisc157C`; X-flip applies when bit 0 is clear, so a sprite that never writes it renders flipped). Source: `docs/sprites/sprite-engine-divergence.md` "Facing is a render-time input" (`SubHorizPos` SMWDisX `bank_01.asm:6124`, `FaceMario` `bank_01.asm:847`, flip applied when the latch is clear); evidence scope there: static traces plus the six corpus ROM files, no emulator.
 - Comparing a renderer to the old classes uses four buckets: engine bug, existing bug, undetermined, deliberate editor choice. `[EST]`
 - All three palette sources shipped wrong in one night and no value-level test caught it; only looking at the render did. `[EST]`

@@ -262,7 +262,10 @@ Daily at 07:00 local on the owner's machine. The session:
    The fixer posts its plan summary on the issue and proceeds to a fix only
    when the active shift waives the plan gate (night-shift) or the owner has
    approved. Under day-shift it still bisects and classifies, which are
-   analysis, and stops before any fix lands until approved.
+   analysis, and stops before any fix lands until approved. Until the
+   self-clear round trip is recorded, `night-shift on` is refused mechanically
+   (the `Blocked:` line in `docs/protocols/night-shift.md`), so this fixer
+   runs under day-shift's gate.
 3. Bisects between the issue's base and candidate SHAs with
    `tools/perf/bisect.mjs --id <id>` (git worktrees, paired runs,
    `--only`), naming the first bad commit. For an app, startup or heap id

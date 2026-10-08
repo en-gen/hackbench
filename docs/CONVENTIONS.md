@@ -39,7 +39,7 @@ Then the headings Question, Options considered, Ruling (the owner's words verbat
 
 ## Protocols
 
-A protocol is a file in `protocols/` with exactly these H2 headings in this order: Purpose, Group, Activation, Changes, Unchanged, Exit. The H1 is the file stem. Changes is a numbered list of at most fifteen lines; it is injected into every session's context on every turn while the protocol is active. Group is `none`, a group name, or a group name followed by `(default)`.
+A protocol is a file in `protocols/` with exactly these H2 headings in this order: Purpose, Group, Activation, Changes, Unchanged, Exit. The H1 is the file stem. Changes is a numbered list of at most fifteen lines; it is injected into every session's context on every turn while the protocol is active. The first line of Activation may be `Blocked: <reason>`: `/protocol <name> on` then refuses with that reason and writes nothing, until a docs PR removes the line. Group is `none`, a group name, or a group name followed by `(default)`.
 
 ## What never goes in docs
 

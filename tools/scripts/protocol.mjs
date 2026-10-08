@@ -59,6 +59,11 @@ export function parseProtocolFile(text, stem) {
       `${stem}: Group must be "none", "<group>" or "<group> (default)"; found "${groupLine}"`,
     )
   }
+  // A protocol that must not be enacted yet says so on the first line of Activation.
+  const firstActivation = sections.Activation.map(l => l.trim()).find(Boolean) ?? ''
+  const bm = /^Blocked:\s*(.*)$/.exec(firstActivation)
+  if (bm && !bm[1]) throw new Error(`${stem}: Blocked needs a reason`)
+  const blocked = bm ? bm[1] : null
   const changes = sections.Changes.map(l => l.trimEnd()).filter(Boolean)
   if (changes.length === 0) throw new Error(`${stem}: Changes is empty`)
   if (changes.length > MAX_CHANGES_LINES) {
@@ -76,6 +81,7 @@ export function parseProtocolFile(text, stem) {
     name: stem,
     group: gm[1] === 'none' ? null : gm[1],
     isDefault: gm[2] === 'default',
+    blocked,
     changes,
   }
 }
@@ -164,6 +170,7 @@ export function applyChange(state, defs, name, verb, by, now) {
   const def = defs.get(name)
   if (!def) return { error: `unknown protocol "${name}"; known: ${[...defs.keys()].join(', ')}` }
   if (verb !== 'on' && verb !== 'off') return { error: 'verb must be on or off' }
+  if (verb === 'on' && def.blocked) return { error: `${name} is blocked: ${def.blocked}` }
   const active = new Set(state.active)
   const touched = []
   if (verb === 'on') {

@@ -10,6 +10,8 @@ shift
 
 ## Activation
 
+Blocked: until the self-clear round trip in the spec's section 8 is recorded as [EST] in docs/decisions/
+
 The owner, in chat, naming the return time; the BA runs the command and creates the scheduled return to `day-shift`.
 
 ## Changes
@@ -29,4 +31,4 @@ The deliverable loop (simplify, adversarial review, verify, ship), the auto-merg
 
 ## Exit
 
-`day-shift` returns by command or by the scheduled return. Every `[PROP]` made overnight stays `[PROP]` until the owner rules. The BA produces the morning brief (`docs/runbooks/morning-brief.md`). A night waiver is never precedent.
+`day-shift` returns by command or by the scheduled return. Every `[PROP]` made overnight stays `[PROP]` until the owner rules. The BA produces the morning brief (`docs/runbooks/morning-brief.md`). A night waiver is never precedent. The verification run that records the self-clear round trip removes the Blocked line from Activation, in a docs PR.

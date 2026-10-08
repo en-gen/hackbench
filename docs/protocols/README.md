@@ -10,4 +10,4 @@ Activate with `/protocol <name> on` or `off` (the command lands with the protoco
 | [night-shift](night-shift.md) | shift | unattended work from the Ready column |
 | [throttle](throttle.md) | none | a usage limit was hit |
 
-Protocols in the same group are mutually exclusive. Adding one: copy the six headings from an existing file, keep Changes under fifteen lines, and add a row here.
+A protocol whose Activation starts with `Blocked: <reason>` cannot be turned on until that line is removed. Protocols in the same group are mutually exclusive. Adding one: copy the six headings from an existing file, keep Changes under fifteen lines, and add a row here.

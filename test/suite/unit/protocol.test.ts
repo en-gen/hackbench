@@ -22,6 +22,7 @@ describe('parseProtocolFile', () => {
       name: 'alpha',
       group: null,
       isDefault: false,
+      blocked: null,
       changes: ['1. First.', '2. Second.'],
     })
   })
@@ -780,5 +781,65 @@ describe('unregisterSession', () => {
     }
     unregisterSession(dir, LOCAL_ID, { rename })
     expect(held).toBe(true)
+  })
+})
+
+describe('a blocked protocol', () => {
+  const BLOCKED = 'Blocked: until the round trip is recorded.' + '\n\n' + 'The owner.'
+
+  it('is read from the first line of Activation', () => {
+    expect(parseProtocolFile(protocol({ Activation: BLOCKED }), 'alpha').blocked).toBe(
+      'until the round trip is recorded.',
+    )
+  })
+
+  it('is not blocked by a Blocked line that is not first', () => {
+    const text = protocol({ Activation: 'The owner.' + '\n\n' + 'Blocked: later.' })
+    expect(parseProtocolFile(text, 'alpha').blocked).toBeNull()
+  })
+
+  it('rejects a Blocked line with no reason', () => {
+    expect(() => parseProtocolFile(protocol({ Activation: 'Blocked:' }), 'alpha')).toThrow(
+      /Blocked needs a reason/,
+    )
+  })
+
+  function blockedDefs() {
+    const dir = tempDir('protocols-')
+    writeProtocols(dir, {
+      day: protocol({ Group: 'shift (default)' }, 'day'),
+      night: protocol({ Group: 'shift', Activation: BLOCKED }, 'night'),
+    })
+    return loadProtocols(dir)
+  }
+
+  it('is refused by on with the reason, changing nothing', () => {
+    const defs = blockedDefs()
+    const r = applyChange(defaultState(defs), defs, 'night', 'on', 'owner', NOW)
+    expect(r).toEqual({ error: 'night is blocked: until the round trip is recorded.' })
+  })
+
+  it('can still be turned off, and does not affect the other protocols', () => {
+    const defs = blockedDefs()
+    const off = applyChange(
+      { active: ['night'], changed: null, by: null },
+      defs,
+      'night',
+      'off',
+      'owner',
+      NOW,
+    )
+    expect(off.state?.active).toEqual(['day'])
+    expect(applyChange(defaultState(defs), defs, 'day', 'on', 'owner', NOW).state?.active).toEqual([
+      'day',
+    ])
+  })
+
+  it('is how the real night-shift file is written until the round trip is recorded', () => {
+    const repoRoot = path.resolve(__dirname, '../../..')
+    const defs = loadProtocols(path.join(repoRoot, 'docs/protocols'))
+    expect(defs.get('night-shift')?.blocked).toMatch(/self-clear round trip/)
+    expect(defs.get('day-shift')?.blocked).toBeNull()
+    expect(defs.get('throttle')?.blocked).toBeNull()
   })
 })

@@ -34,6 +34,7 @@ afterEach(removeAll)
 const repoRoot = path.resolve(__dirname, '../../..')
 const script = path.join(repoRoot, 'tools/scripts/protocol.mjs')
 let stateDir: string
+let protocolsDir: string
 const CLI_ID = '2b245891-c391-4d73-9647-b5b41cea6c49'
 const LOCAL_ID = 'local_774e2af5-aaaa-4bbb-8ccc-000000000001'
 
@@ -41,7 +42,7 @@ function runFull(args: string[]): { code: number; stdout: string; stderr: string
   const r = spawnSync('node', [script, ...args], {
     cwd: repoRoot,
     encoding: 'utf8',
-    env: { ...process.env, HACKBENCH_STATE_DIR: stateDir },
+    env: { ...process.env, HACKBENCH_STATE_DIR: stateDir, HACKBENCH_PROTOCOLS_DIR: protocolsDir },
   })
   return { code: r.status ?? -1, stdout: r.stdout, stderr: r.stderr }
 }
@@ -52,7 +53,7 @@ function run(args: string[]): { code: number; out: string } {
       cwd: repoRoot,
       encoding: 'utf8',
       stdio: 'pipe',
-      env: { ...process.env, HACKBENCH_STATE_DIR: stateDir },
+      env: { ...process.env, HACKBENCH_STATE_DIR: stateDir, HACKBENCH_PROTOCOLS_DIR: protocolsDir },
     })
     return { code: 0, out }
   } catch (err) {
@@ -62,6 +63,19 @@ function run(args: string[]): { code: number; out: string } {
 }
 
 beforeEach(() => {
+  // The real night-shift.md is Blocked until the round trip is recorded; these tests
+  // enact it, so they use a copy without that line. The refusal is tested on the real dir.
+  protocolsDir = mk('protocols-')
+  fs.cpSync(path.join(repoRoot, 'docs/protocols'), protocolsDir, { recursive: true })
+  const nightFile = path.join(protocolsDir, 'night-shift.md')
+  fs.writeFileSync(
+    nightFile,
+    fs
+      .readFileSync(nightFile, 'utf8')
+      .split(/\r?\n/)
+      .filter(l => !l.startsWith('Blocked:'))
+      .join('\n'),
+  )
   stateDir = mk('protocol-state-')
 })
 
@@ -180,7 +194,12 @@ describe('the command takes the lock', () => {
     const r = spawnSync('node', [script, ...args], {
       cwd: repoRoot,
       encoding: 'utf8',
-      env: { ...process.env, HACKBENCH_STATE_DIR: stateDir, ...env },
+      env: {
+        ...process.env,
+        HACKBENCH_STATE_DIR: stateDir,
+        HACKBENCH_PROTOCOLS_DIR: protocolsDir,
+        ...env,
+      },
     })
     return { code: r.status ?? -1, out: `${r.stdout}${r.stderr}` }
   }
@@ -216,5 +235,25 @@ describe('the command takes the lock', () => {
     expect(r.removed).toBe(1)
     expect(r.sessions).toEqual({})
     expect(run(['unregister', 'nope']).code).not.toBe(0)
+  })
+})
+
+describe('the real night-shift protocol is blocked', () => {
+  function runReal(args: string[]) {
+    const r = spawnSync('node', [script, ...args], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env: { ...process.env, HACKBENCH_STATE_DIR: stateDir, HACKBENCH_PROTOCOLS_DIR: '' },
+    })
+    return { code: r.status ?? -1, out: `${r.stdout}${r.stderr}` }
+  }
+
+  it('refuses on, writes nothing, and leaves status and day-shift alone', () => {
+    const r = runReal(['night-shift', 'on', '--by', 'owner'])
+    expect(r.code).toBe(1)
+    expect(r.out).toMatch(/night-shift is blocked: until the self-clear round trip/)
+    expect(fs.existsSync(path.join(stateDir, 'protocols.json'))).toBe(false)
+    expect(fs.existsSync(path.join(stateDir, 'protocols.log'))).toBe(false)
+    expect(JSON.parse(runReal(['status']).out).active).toEqual(['day-shift'])
   })
 })
