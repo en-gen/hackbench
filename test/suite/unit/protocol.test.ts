@@ -119,3 +119,114 @@ describe('loadProtocols', () => {
     expect(defs.has('throttle')).toBe(true)
   })
 })
+
+import { readState, applyChange, writeState } from '../../../tools/scripts/protocol.mjs'
+
+function shiftDefs() {
+  const dir = tempDir('protocols-')
+  writeProtocols(dir, {
+    day: protocol({ Group: 'shift (default)' }, 'day'),
+    night: protocol({ Group: 'shift' }, 'night'),
+    throttle: protocol({}, 'throttle'),
+  })
+  return loadProtocols(dir)
+}
+const NOW = '2026-10-07T21:00:00.000Z'
+
+describe('readState', () => {
+  it('returns the defaults when no state file exists', () => {
+    expect(readState(tempDir('state-'), shiftDefs())).toEqual({
+      active: ['day'],
+      changed: null,
+      by: null,
+    })
+  })
+
+  it('drops an unknown name and restores a missing group default', () => {
+    const dir = tempDir('state-')
+    fs.writeFileSync(
+      path.join(dir, 'protocols.json'),
+      JSON.stringify({ active: ['ghost', 'throttle'], changed: NOW, by: 'x' }),
+    )
+    expect(readState(dir, shiftDefs()).active).toEqual(['day', 'throttle'])
+  })
+})
+
+describe('applyChange', () => {
+  it('refuses an unknown protocol', () => {
+    const r = applyChange(defaultState(shiftDefs()), shiftDefs(), 'bogus', 'on', 'owner', NOW)
+    expect(r).toEqual({
+      error: expect.stringMatching(/unknown protocol "bogus"; known: day, night, throttle/),
+    })
+  })
+
+  it('swaps the sibling out when a grouped protocol turns on', () => {
+    const defs = shiftDefs()
+    const r = applyChange(defaultState(defs), defs, 'night', 'on', 'owner', NOW)
+    expect(r.state).toEqual({ active: ['night'], changed: NOW, by: 'owner' })
+    expect(r.logLine).toBe(`${NOW} night on by owner (replaced day)`)
+  })
+
+  it('restores the group default when a grouped protocol turns off', () => {
+    const defs = shiftDefs()
+    const r = applyChange(
+      { active: ['night'], changed: NOW, by: 'owner' },
+      defs,
+      'night',
+      'off',
+      'owner',
+      NOW,
+    )
+    expect(r.state.active).toEqual(['day'])
+    expect(r.logLine).toBe(`${NOW} night off by owner (restored day)`)
+  })
+
+  it('refuses to turn off a group default', () => {
+    const defs = shiftDefs()
+    const r = applyChange(defaultState(defs), defs, 'day', 'off', 'owner', NOW)
+    expect(r).toEqual({
+      error: expect.stringMatching(/day is the default of group shift; turn on night instead/),
+    })
+  })
+
+  it('stacks an ungrouped protocol and removes it cleanly', () => {
+    const defs = shiftDefs()
+    const on = applyChange(defaultState(defs), defs, 'throttle', 'on', 'session:abc', NOW)
+    expect(on.state.active).toEqual(['day', 'throttle'])
+    expect(on.logLine).toBe(`${NOW} throttle on by session:abc`)
+    const off = applyChange(on.state, defs, 'throttle', 'off', 'owner', NOW)
+    expect(off.state.active).toEqual(['day'])
+  })
+
+  it('refuses to turn off something inactive and rejects a bad verb', () => {
+    const defs = shiftDefs()
+    expect(applyChange(defaultState(defs), defs, 'throttle', 'off', 'owner', NOW)).toEqual({
+      error: 'throttle is not active',
+    })
+    expect(applyChange(defaultState(defs), defs, 'throttle', 'maybe', 'owner', NOW)).toEqual({
+      error: 'verb must be on or off',
+    })
+  })
+})
+
+describe('writeState', () => {
+  it('creates the directory, writes the file and appends the log', () => {
+    const dir = path.join(tempDir('state-'), 'nested')
+    writeState(
+      dir,
+      { active: ['night'], changed: NOW, by: 'owner' },
+      `${NOW} night on by owner (replaced day)`,
+    )
+    writeState(
+      dir,
+      { active: ['day'], changed: NOW, by: 'owner' },
+      `${NOW} night off by owner (restored day)`,
+    )
+    expect(JSON.parse(fs.readFileSync(path.join(dir, 'protocols.json'), 'utf8')).active).toEqual([
+      'day',
+    ])
+    expect(
+      fs.readFileSync(path.join(dir, 'protocols.log'), 'utf8').split('\n').filter(Boolean),
+    ).toHaveLength(2)
+  })
+})

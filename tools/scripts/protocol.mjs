@@ -7,7 +7,14 @@
 // active member per group with a default) is the kind of rule people forget
 // at 3 am, and the hook that injects the result must never crash a session.
 
-import { readFileSync, readdirSync } from 'node:fs'
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from 'node:fs'
 import path from 'node:path'
 
 export const HEADINGS = ['Purpose', 'Group', 'Activation', 'Changes', 'Unchanged', 'Exit']
@@ -83,4 +90,74 @@ export function groupDefaults(defs) {
 
 export function defaultState(defs) {
   return { active: [...groupDefaults(defs).values()].sort(), changed: null, by: null }
+}
+
+const STATE_FILE = 'protocols.json'
+const LOG_FILE = 'protocols.log'
+
+export function readState(stateDir, defs) {
+  const file = path.join(stateDir, STATE_FILE)
+  let state = defaultState(defs)
+  if (existsSync(file)) {
+    try {
+      const raw = JSON.parse(readFileSync(file, 'utf8'))
+      state = {
+        active: Array.isArray(raw.active) ? raw.active : [],
+        changed: raw.changed ?? null,
+        by: raw.by ?? null,
+      }
+    } catch {
+      state = defaultState(defs)
+    }
+  }
+  const active = new Set(state.active.filter(n => defs.has(n)))
+  for (const [group, dflt] of groupDefaults(defs)) {
+    const hasMember = [...active].some(n => defs.get(n).group === group)
+    if (!hasMember) active.add(dflt)
+  }
+  return { ...state, active: [...active].sort() }
+}
+
+export function applyChange(state, defs, name, verb, by, now) {
+  const def = defs.get(name)
+  if (!def) return { error: `unknown protocol "${name}"; known: ${[...defs.keys()].join(', ')}` }
+  if (verb !== 'on' && verb !== 'off') return { error: 'verb must be on or off' }
+  const active = new Set(state.active)
+  const touched = []
+  if (verb === 'on') {
+    for (const d of defs.values()) {
+      if (def.group && d.group === def.group && d.name !== name && active.has(d.name)) {
+        active.delete(d.name)
+        touched.push(d.name)
+      }
+    }
+    active.add(name)
+  } else {
+    if (!active.has(name)) return { error: `${name} is not active` }
+    const dflt = def.group ? groupDefaults(defs).get(def.group) : undefined
+    if (dflt === name) {
+      const sibling = [...defs.values()].find(d => d.group === def.group && d.name !== name)
+      return {
+        error: `${name} is the default of group ${def.group}; turn on ${sibling ? sibling.name : 'another member'} instead`,
+      }
+    }
+    active.delete(name)
+    if (dflt) {
+      active.add(dflt)
+      touched.push(dflt)
+    }
+  }
+  const suffix = touched.length
+    ? ` (${verb === 'on' ? 'replaced' : 'restored'} ${touched.join(', ')})`
+    : ''
+  return {
+    state: { active: [...active].sort(), changed: now, by },
+    logLine: `${now} ${name} ${verb} by ${by}${suffix}`,
+  }
+}
+
+export function writeState(stateDir, state, logLine) {
+  mkdirSync(stateDir, { recursive: true })
+  writeFileSync(path.join(stateDir, STATE_FILE), JSON.stringify(state, null, 2) + '\n')
+  appendFileSync(path.join(stateDir, LOG_FILE), logLine + '\n')
 }
