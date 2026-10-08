@@ -31,4 +31,4 @@ The deliverable loop (simplify, adversarial review, verify, ship), the auto-merg
 
 ## Exit
 
-`day-shift` returns by command or by the scheduled return. Every `[PROP]` made overnight stays `[PROP]` until the owner rules. The BA produces the morning brief (`docs/runbooks/morning-brief.md`). A night waiver is never precedent. The verification run that records the self-clear round trip removes the Blocked line from Activation, in a docs PR.
+`day-shift` returns by command or by the scheduled return. Every `[PROP]` made overnight stays `[PROP]` until the owner rules. The BA produces the morning brief (`docs/runbooks/morning-brief.md`). A night waiver is never precedent. The verification run that records the self-clear round trip removes the Blocked line from Activation. The same PR updates the tests that pin it (`test/suite/unit/protocol.test.ts`, `test/suite/gates/protocolGate.test.ts`), so it is not docs-only and runs the full suite.
