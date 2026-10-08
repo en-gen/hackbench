@@ -1,6 +1,6 @@
 # Session Manuals and Lifecycle Implementation Plan
 
-Corrected 2026-10-07: registration takes both ids, because the hook's CLI id differs from the desktop id.
+Corrected 2026-10-07: registration takes both IDs because `tools/scripts/protocol.mjs` defines two distinct formats and validates each (`CLI_ID` for the hook's session id, `DESKTOP_ID` for the `local_...` id the session-management tools take); this is a property of the script, not of one run.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
