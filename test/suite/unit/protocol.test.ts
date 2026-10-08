@@ -262,13 +262,15 @@ describe('writeState', () => {
   })
 })
 
-import { execFileSync } from 'child_process'
+import { execFileSync, spawn } from 'child_process'
+import { pathToFileURL } from 'url'
 import {
   mainCheckoutDir,
   stateDirFor,
   protocolsDirFor,
   readSessions,
   registerSession,
+  withStateLock,
 } from '../../../tools/scripts/protocol.mjs'
 
 describe('mainCheckoutDir', () => {
@@ -298,12 +300,15 @@ describe('mainCheckoutDir', () => {
 
 describe('directory overrides', () => {
   it('honour the environment variables', () => {
-    process.env.HACKBENCH_STATE_DIR = '/tmp/x'
-    process.env.HACKBENCH_PROTOCOLS_DIR = '/tmp/y'
-    expect(stateDirFor('.')).toBe('/tmp/x')
-    expect(protocolsDirFor('.')).toBe('/tmp/y')
-    delete process.env.HACKBENCH_STATE_DIR
-    delete process.env.HACKBENCH_PROTOCOLS_DIR
+    try {
+      process.env.HACKBENCH_STATE_DIR = '/tmp/x'
+      process.env.HACKBENCH_PROTOCOLS_DIR = '/tmp/y'
+      expect(stateDirFor('.')).toBe('/tmp/x')
+      expect(protocolsDirFor('.')).toBe('/tmp/y')
+    } finally {
+      delete process.env.HACKBENCH_STATE_DIR
+      delete process.env.HACKBENCH_PROTOCOLS_DIR
+    }
     expect(protocolsDirFor('/repo')).toBe(path.join('/repo', 'docs', 'protocols'))
   })
 })
@@ -561,5 +566,69 @@ describe('re-registering after a clear', () => {
     expect(Object.keys(all).sort()).toEqual(
       [CLI_ID_2, '00000000-0000-4000-8000-000000000003'].sort(),
     )
+  })
+})
+
+describe('withStateLock', () => {
+  const protocolModule = path.resolve(__dirname, '../../../tools/scripts/protocol.mjs')
+
+  it('runs the function, returns its value and removes the lock file', () => {
+    const dir = tempDir('state-')
+    expect(withStateLock(dir, () => 42)).toBe(42)
+    expect(fs.existsSync(path.join(dir, '.lock'))).toBe(false)
+  })
+
+  it('removes the lock file when the function throws', () => {
+    const dir = tempDir('state-')
+    expect(() =>
+      withStateLock(dir, () => {
+        throw new Error('boom')
+      }),
+    ).toThrow(/boom/)
+    expect(fs.existsSync(path.join(dir, '.lock'))).toBe(false)
+  })
+
+  it('gives up with a clear error while another holder keeps the lock', () => {
+    const dir = tempDir('state-')
+    expect(() => withStateLock(dir, () => withStateLock(dir, () => 1, { timeoutMs: 100 }))).toThrow(
+      /could not lock/,
+    )
+  })
+
+  it('waits until another process releases the lock', () => {
+    const dir = tempDir('state-')
+    const holder = spawn(
+      'node',
+      [
+        '--input-type=module',
+        '-e',
+        `import { withStateLock } from ${JSON.stringify(pathToFileURL(protocolModule).href)}
+         withStateLock(${JSON.stringify(dir)}, () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 400))`,
+      ],
+      { stdio: 'ignore' },
+    )
+    const wait = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+    for (let i = 0; i < 200 && !fs.existsSync(path.join(dir, '.lock')); i++) wait(10)
+    expect(fs.existsSync(path.join(dir, '.lock'))).toBe(true)
+    const started = Date.now()
+    expect(withStateLock(dir, () => 'got it', { timeoutMs: 5000 })).toBe('got it')
+    expect(Date.now() - started).toBeGreaterThan(150)
+    holder.kill()
+  })
+
+  it('takes over a stale lock', () => {
+    const dir = tempDir('state-')
+    const lock = path.join(dir, '.lock')
+    fs.writeFileSync(lock, '')
+    const old = new Date(Date.now() - 60_000)
+    fs.utimesSync(lock, old, old)
+    expect(withStateLock(dir, () => 'got it', { timeoutMs: 500 })).toBe('got it')
+    expect(fs.existsSync(lock)).toBe(false)
+  })
+
+  it('does not take over a fresh lock', () => {
+    const dir = tempDir('state-')
+    fs.writeFileSync(path.join(dir, '.lock'), '')
+    expect(() => withStateLock(dir, () => 'x', { timeoutMs: 100 })).toThrow(/could not lock/)
   })
 })

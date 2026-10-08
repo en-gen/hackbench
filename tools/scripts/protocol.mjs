@@ -9,12 +9,15 @@
 
 import {
   appendFileSync,
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
   readdirSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { spawnSync } from 'node:child_process'
@@ -202,6 +205,37 @@ const RETRY_CODES = new Set(['EPERM', 'EBUSY'])
 const RENAME_ATTEMPTS = 20
 const sleepMs = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 
+// Every state write is a read-modify-write, and several sessions run the
+// command at once, so writers take a lock file. A lock older than the stale
+// limit belongs to a crashed process and is removed.
+export function withStateLock(stateDir, fn, { timeoutMs = 3000, staleMs = 10000 } = {}) {
+  mkdirSync(stateDir, { recursive: true })
+  const lock = path.join(stateDir, '.lock')
+  const deadline = Date.now() + timeoutMs
+  let fd
+  while (fd === undefined) {
+    try {
+      fd = openSync(lock, 'wx')
+    } catch (err) {
+      if (err?.code !== 'EEXIST' && !RETRY_CODES.has(err?.code)) throw err
+      try {
+        if (Date.now() - statSync(lock).mtimeMs > staleMs) rmSync(lock, { force: true })
+      } catch {
+        // The holder released it between the open and the stat; just try again.
+      }
+      if (Date.now() > deadline)
+        throw new Error(`could not lock ${stateDir} within ${timeoutMs} ms`, { cause: err })
+      sleepMs(10 + Math.floor(Math.random() * 41))
+    }
+  }
+  try {
+    return fn()
+  } finally {
+    closeSync(fd)
+    rmSync(lock, { force: true })
+  }
+}
+
 // Temp file in the same directory, then rename: a crash mid-write leaves the
 // old file, never a truncated one that the hook would read as defaults.
 function writeFileAtomic(file, text, rename = renameSync) {
@@ -281,13 +315,16 @@ export function registerSession(
   if (!ROLES.has(role)) throw new Error(`role must be ba, tech-lead or both; got "${role}"`)
   if (role !== 'ba' && !team) throw new Error(`a ${role} session needs a team`)
   if (team && !TEAM_NAME.test(team)) throw new Error(`team name must match ${TEAM_NAME}`)
-  const all = readSessions(stateDir)
-  // A clear gives the same desktop session a new CLI id; keep one entry per desktop id.
-  for (const [id, entry] of Object.entries(all)) if (entry?.desktopId === desktopId) delete all[id]
-  all[cliId] = { desktopId, role, team: team ?? null, registered: now }
-  mkdirSync(stateDir, { recursive: true })
-  writeFileAtomic(path.join(stateDir, SESSIONS_FILE), JSON.stringify(all, null, 2) + '\n', rename)
-  return all
+  return withStateLock(stateDir, () => {
+    const all = readSessions(stateDir)
+    // A clear gives the same desktop session a new CLI id; keep one entry per desktop id.
+    for (const [id, entry] of Object.entries(all)) {
+      if (entry?.desktopId === desktopId) delete all[id]
+    }
+    all[cliId] = { desktopId, role, team: team ?? null, registered: now }
+    writeFileAtomic(path.join(stateDir, SESSIONS_FILE), JSON.stringify(all, null, 2) + '\n', rename)
+    return all
+  })
 }
 
 const BY = /^(owner|schedule|session:local_[0-9a-f-]{36})$/
@@ -319,17 +356,20 @@ function cli(argv, cwd) {
       code: 1,
       out: `${BY_MESSAGE}\n${USAGE}`,
     }
-  const { state, warning } = readStateChecked(stateDir, defs)
-  const r = applyChange(state, defs, a, b, by, now)
-  if (r.error) return { code: 1, out: r.error, warn: warning }
-  // Computed before the write so a bad sessions file cannot leave a half-reported change.
-  const nudge = Object.values(readSessions(stateDir)).map(s => ({
-    desktopId: s.desktopId,
-    role: s.role,
-    team: s.team,
-  }))
-  writeState(stateDir, r.state, r.logLine)
-  return { code: 0, out: { active: r.state.active, logLine: r.logLine, nudge }, warn: warning }
+  // The whole read-apply-write is one critical section, so two commands cannot both start from the old state.
+  return withStateLock(stateDir, () => {
+    const { state, warning } = readStateChecked(stateDir, defs)
+    const r = applyChange(state, defs, a, b, by, now)
+    if (r.error) return { code: 1, out: r.error, warn: warning }
+    // Computed before the write so a bad sessions file cannot leave a half-reported change.
+    const nudge = Object.values(readSessions(stateDir)).map(s => ({
+      desktopId: s.desktopId,
+      role: s.role,
+      team: s.team,
+    }))
+    writeState(stateDir, r.state, r.logLine)
+    return { code: 0, out: { active: r.state.active, logLine: r.logLine, nudge }, warn: warning }
+  })
 }
 
 // The guard keeps the CLI from running when vitest or the hook imports this module.

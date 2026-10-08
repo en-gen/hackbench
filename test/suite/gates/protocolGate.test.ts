@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { execFileSync, spawnSync } from 'child_process'
+import { execFileSync, spawn, spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { pathToFileURL } from 'url'
 
 // Every temp directory a test makes is removed afterwards, like lintGate.test.ts.
 // Windows can refuse a removal while a just-exited child process lets go, so
@@ -104,12 +105,17 @@ describe('the protocol command, hardened', () => {
     expect(run(['throttle', 'off', '--by', 'bogus']).out).toMatch(/--by must be/)
     expect(run(['throttle', 'off', '--by']).out).toMatch(/--by must be/)
     expect(run(['throttle', 'off']).out).toMatch(/--by must be/)
-    // A change with no --by at all is refused with the usage line and writes nothing.
+    // A change with no --by at all is refused with the usage line and writes nothing:
+    // the log and the state file are byte-identical before and after.
+    const logFile = path.join(stateDir, 'protocols.log')
+    const stateFile = path.join(stateDir, 'protocols.json')
+    const logBefore = fs.readFileSync(logFile, 'utf8')
+    const stateBefore = fs.readFileSync(stateFile, 'utf8')
     const missing = run(['night-shift', 'on'])
     expect(missing.code).not.toBe(0)
     expect(missing.out).toMatch(/usage: protocol\.mjs/)
-    expect(fs.existsSync(path.join(stateDir, 'protocols.log'))).toBe(true)
-    expect(fs.readFileSync(path.join(stateDir, 'protocols.log'), 'utf8')).not.toMatch(/unknown/)
+    expect(fs.readFileSync(logFile, 'utf8')).toBe(logBefore)
+    expect(fs.readFileSync(stateFile, 'utf8')).toBe(stateBefore)
   })
 
   it('still enacts a change when the sessions file is corrupt', () => {
@@ -131,5 +137,34 @@ describe('the protocol command, hardened', () => {
     run(['register', '00000000-0000-4000-8000-000000000003', LOCAL_ID, 'tech-lead', 'alpha'])
     const on = JSON.parse(run(['night-shift', 'on', '--by', 'owner']).out)
     expect(on.nudge).toEqual([{ desktopId: LOCAL_ID, role: 'tech-lead', team: 'alpha' }])
+  })
+})
+
+// Eight processes call registerSession at the same instant (each sleeps
+// to a shared start time), every one a read-modify-write of sessions.json.
+// Evidence scope: with the lock bypassed, 3 runs on Windows 11, Node 22, local
+// disk left 1, 2 and 1 of 8 entries (and 5 earlier runs with busy-waiting
+// starts each left 1).
+describe('parallel registers', () => {
+  it('keep every entry', async () => {
+    const mod = pathToFileURL(script).href
+    const startAt = Date.now() + 1500
+    const ids = Array.from({ length: 8 }, (_, i) => `00000000-0000-4000-8000-00000000000${i}`)
+    await Promise.all(
+      ids.map(
+        (id, i) =>
+          new Promise<void>(resolve => {
+            const code = `import { registerSession } from ${JSON.stringify(mod)}
+              Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.max(0, ${startAt} - Date.now()))
+              registerSession(${JSON.stringify(stateDir)}, ${JSON.stringify(id)}, ${JSON.stringify('local_' + id)}, 'tech-lead', 'team${i}', 'x')`
+            spawn('node', ['--input-type=module', '-e', code], { stdio: 'ignore' }).on(
+              'close',
+              () => resolve(),
+            )
+          }),
+      ),
+    )
+    const sessions = JSON.parse(fs.readFileSync(path.join(stateDir, 'sessions.json'), 'utf8'))
+    expect(Object.keys(sessions).sort()).toEqual([...ids].sort())
   })
 })
