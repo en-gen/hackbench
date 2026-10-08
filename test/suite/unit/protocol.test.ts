@@ -120,7 +120,12 @@ describe('loadProtocols', () => {
   })
 })
 
-import { readState, applyChange, writeState } from '../../../tools/scripts/protocol.mjs'
+import {
+  readState,
+  readStateChecked,
+  applyChange,
+  writeState,
+} from '../../../tools/scripts/protocol.mjs'
 
 function shiftDefs() {
   const dir = tempDir('protocols-')
@@ -277,24 +282,159 @@ describe('directory overrides', () => {
   })
 })
 
+const CLI_ID = '2b245891-c391-4d73-9647-b5b41cea6c49'
+const CLI_ID_2 = '774e2af5-0000-4000-8000-000000000002'
+const LOCAL_ID = 'local_774e2af5-aaaa-4bbb-8ccc-000000000001'
+const LOCAL_ID_2 = 'local_774e2af5-aaaa-4bbb-8ccc-000000000002'
+
 describe('sessions', () => {
-  it('registers and reads back', () => {
+  it('registers both ids and reads back', () => {
     const dir = tempDir('state-')
     expect(readSessions(dir)).toEqual({})
-    registerSession(dir, 'sess-1', 'tech-lead', 'alpha', NOW)
-    const all = registerSession(dir, 'sess-2', 'ba', null, NOW)
+    registerSession(dir, CLI_ID, LOCAL_ID, 'tech-lead', 'alpha', NOW)
+    const all = registerSession(dir, CLI_ID_2, LOCAL_ID_2, 'ba', null, NOW)
     expect(all).toEqual({
-      'sess-1': { role: 'tech-lead', team: 'alpha', registered: NOW },
-      'sess-2': { role: 'ba', team: null, registered: NOW },
+      [CLI_ID]: { desktopId: LOCAL_ID, role: 'tech-lead', team: 'alpha', registered: NOW },
+      [CLI_ID_2]: { desktopId: LOCAL_ID_2, role: 'ba', team: null, registered: NOW },
     })
     expect(readSessions(dir)).toEqual(all)
   })
 
   it('rejects an unknown role and a tech lead without a team', () => {
     const dir = tempDir('state-')
-    expect(() => registerSession(dir, 's', 'pm', null, NOW)).toThrow(
+    expect(() => registerSession(dir, CLI_ID, LOCAL_ID, 'pm', null, NOW)).toThrow(
       /role must be ba, tech-lead or both/,
     )
-    expect(() => registerSession(dir, 's', 'tech-lead', null, NOW)).toThrow(/needs a team/)
+    expect(() => registerSession(dir, CLI_ID, LOCAL_ID, 'tech-lead', null, NOW)).toThrow(
+      /needs a team/,
+    )
+  })
+
+  it('rejects a malformed CLI id, desktop id or team name', () => {
+    const dir = tempDir('state-')
+    expect(() => registerSession(dir, 'nope', LOCAL_ID, 'ba', null, NOW)).toThrow(/CLI session id/)
+    expect(() => registerSession(dir, CLI_ID, CLI_ID, 'ba', null, NOW)).toThrow(/desktop id/)
+    expect(() => registerSession(dir, CLI_ID, LOCAL_ID, 'tech-lead', 'Alpha Team', NOW)).toThrow(
+      /team name/,
+    )
+  })
+
+  it('never creates or touches a state file', () => {
+    const dir = tempDir('state-')
+    registerSession(dir, CLI_ID, LOCAL_ID, 'tech-lead', 'alpha', NOW)
+    expect(fs.readdirSync(dir)).toEqual(['sessions.json'])
+  })
+
+  it('reads anything that is not a plain object as no sessions', () => {
+    const dir = tempDir('state-')
+    for (const body of ['[]', 'null', '"x"', '{bad', '﻿[1]']) {
+      fs.writeFileSync(path.join(dir, 'sessions.json'), body)
+      expect(readSessions(dir)).toEqual({})
+    }
+  })
+
+  it('reads a sessions file that starts with a BOM', () => {
+    const dir = tempDir('state-')
+    const body = { [CLI_ID]: { desktopId: LOCAL_ID, role: 'ba', team: null, registered: NOW } }
+    fs.writeFileSync(path.join(dir, 'sessions.json'), '﻿' + JSON.stringify(body))
+    expect(readSessions(dir)).toEqual(body)
+  })
+})
+
+describe('state hardening', () => {
+  it('applyChange sorts the active set even from an unsorted state', () => {
+    const defs = shiftDefs()
+    const r = applyChange(
+      { active: ['throttle', 'day'], changed: null, by: null },
+      defs,
+      'night',
+      'on',
+      'owner',
+      NOW,
+    )
+    expect(r.state.active).toEqual(['night', 'throttle'])
+  })
+
+  it('keeps the first non-default member when two group members are active', () => {
+    const dir = tempDir('state-')
+    fs.writeFileSync(
+      path.join(dir, 'protocols.json'),
+      JSON.stringify({ active: ['night', 'day'], changed: NOW, by: 'x' }),
+    )
+    expect(readState(dir, shiftDefs()).active).toEqual(['night'])
+    const defs = shiftDefs()
+    const two = fs.mkdtempSync(path.join(os.tmpdir(), 'state-'))
+    fs.writeFileSync(
+      path.join(two, 'protocols.json'),
+      JSON.stringify({ active: ['day', 'night'], changed: NOW, by: 'x' }),
+    )
+    expect(readState(two, defs).active).toEqual(['night'])
+  })
+
+  it('reads a state file that starts with a BOM', () => {
+    const dir = tempDir('state-')
+    fs.writeFileSync(
+      path.join(dir, 'protocols.json'),
+      '﻿' + JSON.stringify({ active: ['night'], changed: NOW, by: 'x' }),
+    )
+    const r = readStateChecked(dir, shiftDefs())
+    expect(r.state.active).toEqual(['night'])
+    expect(r.warning).toBeNull()
+  })
+
+  it('warns when the state file is unreadable and applies the defaults', () => {
+    const dir = tempDir('state-')
+    fs.writeFileSync(path.join(dir, 'protocols.json'), '{bad')
+    const r = readStateChecked(dir, shiftDefs())
+    expect(r.state.active).toEqual(['day'])
+    expect(r.warning).toBe('protocols.json unreadable, defaults applied')
+  })
+
+  it('does not warn when there is no state file', () => {
+    expect(readStateChecked(tempDir('state-'), shiftDefs()).warning).toBeNull()
+  })
+
+  it('writes the state through a temp file and leaves no stray files', () => {
+    const dir = tempDir('state-')
+    writeState(dir, { active: ['day'], changed: NOW, by: 'owner' }, `${NOW} x`)
+    expect(fs.readdirSync(dir).sort()).toEqual(['protocols.json', 'protocols.log'])
+  })
+
+  it('loads a protocol file that starts with a BOM', () => {
+    const dir = tempDir('protocols-')
+    writeProtocols(dir, { day: '﻿' + protocol({ Group: 'shift (default)' }, 'day') })
+    expect(loadProtocols(dir).get('day')?.isDefault).toBe(true)
+  })
+})
+
+describe('parser hardening', () => {
+  it('accepts a Changes list of exactly the limit', () => {
+    const lines = Array.from({ length: MAX_CHANGES_LINES }, (_, i) => `${i + 1}. Line.`).join('\n')
+    expect(parseProtocolFile(protocol({ Changes: lines }), 'alpha').changes).toHaveLength(
+      MAX_CHANGES_LINES,
+    )
+  })
+
+  it('rejects a duplicated heading', () => {
+    const text = protocol().replace('## Exit', '## Group\n\nshift\n\n## Exit')
+    expect(() => parseProtocolFile(text, 'alpha')).toThrow(/headings/)
+  })
+
+  it('rejects "none (default)"', () => {
+    expect(() => parseProtocolFile(protocol({ Group: 'none (default)' }), 'alpha')).toThrow(
+      /Group must be/,
+    )
+  })
+
+  it('rejects an empty Changes section', () => {
+    expect(() => parseProtocolFile(protocol({ Changes: '' }), 'alpha')).toThrow(/Changes is empty/)
+  })
+
+  it('rejects a Changes line over 200 characters', () => {
+    const long = `1. ${'x'.repeat(199)}`
+    expect(() => parseProtocolFile(protocol({ Changes: long }), 'alpha')).toThrow(/over 200/)
+    expect(
+      parseProtocolFile(protocol({ Changes: `1. ${'x'.repeat(197)}` }), 'alpha').changes,
+    ).toHaveLength(1)
   })
 })

@@ -13,6 +13,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  renameSync,
   writeFileSync,
 } from 'node:fs'
 import { spawnSync } from 'node:child_process'
@@ -21,23 +22,28 @@ import { fileURLToPath } from 'node:url'
 
 export const HEADINGS = ['Purpose', 'Group', 'Activation', 'Changes', 'Unchanged', 'Exit']
 export const MAX_CHANGES_LINES = 15
+export const MAX_CHANGES_LINE_CHARS = 200
+
+// Windows editors prepend a BOM, which JSON.parse and the heading match both reject.
+const stripBom = text => (text.charCodeAt(0) === 0xfeff ? text.slice(1) : text)
 
 export function parseProtocolFile(text, stem) {
-  const lines = text.split(/\r?\n/)
+  const lines = stripBom(text).split(/\r?\n/)
   const h1 = lines.find(l => l.startsWith('# '))
   if (!h1 || h1.slice(2).trim() !== stem) throw new Error(`${stem}: H1 must be "# ${stem}"`)
   const sections = {}
+  const found = []
   let current = null
   for (const line of lines) {
     const m = /^## (.+)$/.exec(line)
     if (m) {
       current = m[1].trim()
+      found.push(current)
       sections[current] = []
       continue
     }
     if (current) sections[current].push(line)
   }
-  const found = Object.keys(sections)
   if (found.join('|') !== HEADINGS.join('|')) {
     throw new Error(
       `${stem}: headings must be ${HEADINGS.join(', ')} in order; found ${found.join(', ')}`,
@@ -45,18 +51,24 @@ export function parseProtocolFile(text, stem) {
   }
   const groupLine = sections.Group.map(l => l.trim()).find(Boolean) ?? ''
   const gm = /^(none|[a-z][a-z0-9-]*)(?:\s*\((default)\))?$/.exec(groupLine)
-  if (!gm)
+  if (!gm || (gm[1] === 'none' && gm[2])) {
     throw new Error(
       `${stem}: Group must be "none", "<group>" or "<group> (default)"; found "${groupLine}"`,
     )
+  }
   const changes = sections.Changes.map(l => l.trimEnd()).filter(Boolean)
+  if (changes.length === 0) throw new Error(`${stem}: Changes is empty`)
   if (changes.length > MAX_CHANGES_LINES) {
     throw new Error(
       `${stem}: Changes has ${changes.length} lines; the limit is ${MAX_CHANGES_LINES}`,
     )
   }
-  if (!changes.every(l => /^\d+\. /.test(l)))
+  if (!changes.every(l => /^\d+\. /.test(l))) {
     throw new Error(`${stem}: Changes must be a numbered list`)
+  }
+  if (changes.some(l => l.length > MAX_CHANGES_LINE_CHARS)) {
+    throw new Error(`${stem}: a Changes line is over ${MAX_CHANGES_LINE_CHARS} characters`)
+  }
   return {
     name: stem,
     group: gm[1] === 'none' ? null : gm[1],
@@ -96,28 +108,53 @@ export function defaultState(defs) {
 
 const STATE_FILE = 'protocols.json'
 const LOG_FILE = 'protocols.log'
+export const UNREADABLE_STATE = 'protocols.json unreadable, defaults applied'
 
-export function readState(stateDir, defs) {
+// Returns the repaired state and a warning when the file exists but cannot be
+// used. The repair enforces the group invariant on read, so a hand-edited file
+// with two shift members cannot put both rule sets in front of a session.
+export function readStateChecked(stateDir, defs) {
   const file = path.join(stateDir, STATE_FILE)
   let state = defaultState(defs)
+  let warning = null
   if (existsSync(file)) {
     try {
-      const raw = JSON.parse(readFileSync(file, 'utf8'))
+      const raw = JSON.parse(stripBom(readFileSync(file, 'utf8')))
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('not an object')
       state = {
         active: Array.isArray(raw.active) ? raw.active : [],
         changed: raw.changed ?? null,
         by: raw.by ?? null,
       }
     } catch {
-      state = defaultState(defs)
+      warning = UNREADABLE_STATE
     }
   }
-  const active = new Set(state.active.filter(n => defs.has(n)))
-  for (const [group, dflt] of groupDefaults(defs)) {
-    const hasMember = [...active].some(n => defs.get(n).group === group)
-    if (!hasMember) active.add(dflt)
+  const defaults = groupDefaults(defs)
+  const keep = []
+  const seenGroups = new Map()
+  for (const name of state.active.filter(n => defs.has(n))) {
+    const group = defs.get(name).group
+    if (!group) {
+      keep.push(name)
+    } else if (!seenGroups.has(group)) {
+      seenGroups.set(group, name)
+      keep.push(name)
+    } else if (seenGroups.get(group) === defaults.get(group) && name !== defaults.get(group)) {
+      // The first member seen was the default and a non-default is active too: the non-default wins.
+      keep.splice(keep.indexOf(seenGroups.get(group)), 1, name)
+      seenGroups.set(group, name)
+    }
   }
-  return { ...state, active: [...active].sort() }
+  const active = new Set(keep)
+  for (const [group, dflt] of defaults) {
+    if (!seenGroups.has(group)) active.add(dflt)
+  }
+  return { state: { ...state, active: [...active].sort() }, warning }
+}
+
+export function readState(stateDir, defs) {
+  return readStateChecked(stateDir, defs).state
 }
 
 export function applyChange(state, defs, name, verb, by, now) {
@@ -158,14 +195,25 @@ export function applyChange(state, defs, name, verb, by, now) {
   }
 }
 
+// Temp file in the same directory, then rename: a crash mid-write leaves the
+// old file, never a truncated one that the hook would read as defaults.
+function writeFileAtomic(file, text) {
+  const tmp = `${file}.${process.pid}.tmp`
+  writeFileSync(tmp, text)
+  renameSync(tmp, file)
+}
+
 export function writeState(stateDir, state, logLine) {
   mkdirSync(stateDir, { recursive: true })
-  writeFileSync(path.join(stateDir, STATE_FILE), JSON.stringify(state, null, 2) + '\n')
+  writeFileAtomic(path.join(stateDir, STATE_FILE), JSON.stringify(state, null, 2) + '\n')
   appendFileSync(path.join(stateDir, LOG_FILE), logLine + '\n')
 }
 
 const SESSIONS_FILE = 'sessions.json'
 const ROLES = new Set(['ba', 'tech-lead', 'both'])
+const CLI_ID = /^[0-9a-f-]{36}$/
+const DESKTOP_ID = /^local_[0-9a-f-]{36}$/
+const TEAM_NAME = /^[a-z][a-z0-9-]{0,31}$/
 
 export function mainCheckoutDir(cwd) {
   const r = spawnSync('git', ['rev-parse', '--git-common-dir'], { cwd, encoding: 'utf8' })
@@ -181,57 +229,73 @@ export function protocolsDirFor(cwd) {
   return process.env.HACKBENCH_PROTOCOLS_DIR || path.join(cwd, 'docs', 'protocols')
 }
 
+// Anything that is not a plain object reads as no sessions, so a corrupt file
+// cannot take the hook or the command down.
 export function readSessions(stateDir) {
   const file = path.join(stateDir, SESSIONS_FILE)
   if (!existsSync(file)) return {}
   try {
-    return JSON.parse(readFileSync(file, 'utf8'))
+    const raw = JSON.parse(stripBom(readFileSync(file, 'utf8')))
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
   } catch {
     return {}
   }
 }
 
-export function registerSession(stateDir, sessionId, role, team, now) {
+// The hook receives the CLI session id; the session-management tools take the
+// desktop id (local_...). A registration carries both, keyed by the CLI id.
+// It never touches a team state file: that file is the handoff.
+export function registerSession(stateDir, cliId, desktopId, role, team, now) {
+  if (!CLI_ID.test(cliId)) throw new Error(`CLI session id must match ${CLI_ID}; got "${cliId}"`)
+  if (!DESKTOP_ID.test(desktopId)) {
+    throw new Error(`desktop id must match ${DESKTOP_ID}; got "${desktopId}"`)
+  }
   if (!ROLES.has(role)) throw new Error(`role must be ba, tech-lead or both; got "${role}"`)
   if (role !== 'ba' && !team) throw new Error(`a ${role} session needs a team`)
+  if (team && !TEAM_NAME.test(team)) throw new Error(`team name must match ${TEAM_NAME}`)
   const all = readSessions(stateDir)
-  all[sessionId] = { role, team: team ?? null, registered: now }
+  all[cliId] = { desktopId, role, team: team ?? null, registered: now }
   mkdirSync(stateDir, { recursive: true })
-  writeFileSync(path.join(stateDir, SESSIONS_FILE), JSON.stringify(all, null, 2) + '\n')
+  writeFileAtomic(path.join(stateDir, SESSIONS_FILE), JSON.stringify(all, null, 2) + '\n')
   return all
 }
+
+const BY = /^(owner|schedule|session:local_[0-9a-f-]{36})$/
+const BY_MESSAGE = '--by must be owner, schedule or session:<desktop id>'
+const USAGE =
+  'usage: protocol.mjs <name> on|off --by <owner|schedule|session:<desktop id>> | status | register <cliId> <desktopId> <role> [team]'
 
 function cli(argv, cwd) {
   const stateDir = stateDirFor(cwd)
   const defs = loadProtocols(protocolsDirFor(cwd))
-  const [a, b, c] = argv
+  const [a, b, c, d, e] = argv
   const now = new Date().toISOString()
   if (a === 'status') {
-    const s = readState(stateDir, defs)
-    return { code: 0, out: { ...s, sessions: readSessions(stateDir) } }
+    const { state, warning } = readStateChecked(stateDir, defs)
+    return { code: 0, out: { ...state, sessions: readSessions(stateDir) }, warn: warning }
   }
   if (a === 'register') {
-    if (!b || !c) return { code: 1, out: 'usage: protocol.mjs register <sessionId> <role> [team]' }
-    return { code: 0, out: registerSession(stateDir, b, c, argv[3] ?? null, now) }
+    if (!b || !c || !d) return { code: 1, out: USAGE }
+    return { code: 0, out: registerSession(stateDir, b, c, d, e ?? null, now) }
   }
-  if (!a || !b) {
-    return {
-      code: 1,
-      out: 'usage: protocol.mjs <name> on|off [--by <who>] | status | register <sessionId> <role> [team]',
-    }
+  if (!a || !b) return { code: 1, out: USAGE }
+  if (!defs.has(a)) {
+    return { code: 1, out: `unknown protocol "${a}"; known: ${[...defs.keys()].join(', ')}` }
   }
   const byIdx = argv.indexOf('--by')
-  const by = byIdx >= 0 && argv[byIdx + 1] ? argv[byIdx + 1] : 'unknown'
-  const r = applyChange(readState(stateDir, defs), defs, a, b, by, now)
-  if (r.error) return { code: 1, out: r.error }
-  writeState(stateDir, r.state, r.logLine)
-  const sessions = readSessions(stateDir)
-  const nudge = Object.entries(sessions).map(([sessionId, s]) => ({
-    sessionId,
+  const by = byIdx >= 0 ? argv[byIdx + 1] : undefined
+  if (by === undefined || !BY.test(by)) return { code: 1, out: BY_MESSAGE }
+  const { state, warning } = readStateChecked(stateDir, defs)
+  const r = applyChange(state, defs, a, b, by, now)
+  if (r.error) return { code: 1, out: r.error, warn: warning }
+  // Computed before the write so a bad sessions file cannot leave a half-reported change.
+  const nudge = Object.values(readSessions(stateDir)).map(s => ({
+    desktopId: s.desktopId,
     role: s.role,
     team: s.team,
   }))
-  return { code: 0, out: { active: r.state.active, logLine: r.logLine, nudge } }
+  writeState(stateDir, r.state, r.logLine)
+  return { code: 0, out: { active: r.state.active, logLine: r.logLine, nudge }, warn: warning }
 }
 
 // The guard keeps the CLI from running when vitest or the hook imports this module.
@@ -242,6 +306,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   } catch (err) {
     result = { code: 1, out: err instanceof Error ? err.message : String(err) }
   }
+  if (result.warn) process.stderr.write(result.warn + '\n')
   process.stdout.write(
     (typeof result.out === 'string' ? result.out : JSON.stringify(result.out, null, 2)) + '\n',
   )

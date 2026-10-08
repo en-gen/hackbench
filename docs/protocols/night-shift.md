@@ -15,7 +15,7 @@ The owner, in chat, naming the return time; the BA runs the command and creates 
 ## Changes
 
 1. Plan gate waived: a BA assignment is approval.
-2. A non-safety question takes the recommended option, marked `[PROP]`, and is filed as a Proposed decision in `docs/decisions/`. A safety decision (see `docs/agents/tech-lead.md`) stops the item instead.
+2. A non-safety question takes the recommended option, marked `[PROP]`, and is filed in `docs/decisions/` as Proposed. A safety decision (see `docs/agents/tech-lead.md`) stops the item.
 3. After a merge the tech lead clears itself and asks the BA "what's next" without waiting.
 4. The queue is the Ready column of the board, top down; items labelled needs-owner are skipped.
 5. A scope change ends the item: the handoff records the question as a Proposed decision and the next item starts.
