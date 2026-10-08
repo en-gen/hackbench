@@ -438,3 +438,102 @@ describe('parser hardening', () => {
     ).toHaveLength(1)
   })
 })
+
+describe('atomic writes survive a concurrent reader on Windows', () => {
+  const STATE = { active: ['day'], changed: NOW, by: 'owner' }
+
+  function errno(code: string): Error {
+    return Object.assign(new Error(`${code}: operation not permitted, rename`), { code })
+  }
+
+  function tmpFiles(dir: string): string[] {
+    return fs.readdirSync(dir).filter(f => f.endsWith('.tmp'))
+  }
+
+  it('writes through a temp file and renames it over the target', () => {
+    const dir = tempDir('state-')
+    const calls: string[][] = []
+    const rename = (from: string, to: string) => {
+      calls.push([from, to])
+      fs.renameSync(from, to)
+    }
+    writeState(dir, STATE, `${NOW} x`, { rename })
+    expect(calls).toHaveLength(1)
+    expect(calls[0][0]).toMatch(/\.tmp$/)
+    expect(path.basename(calls[0][1])).toBe('protocols.json')
+  })
+
+  it('writes the sessions file through a temp file too', () => {
+    const dir = tempDir('state-')
+    const calls: string[][] = []
+    const rename = (from: string, to: string) => {
+      calls.push([from, to])
+      fs.renameSync(from, to)
+    }
+    registerSession(dir, CLI_ID, LOCAL_ID, 'ba', null, NOW, { rename })
+    expect(calls[0][0]).toMatch(/\.tmp$/)
+    expect(path.basename(calls[0][1])).toBe('sessions.json')
+  })
+
+  it('retries EPERM and EBUSY, then succeeds and leaves no temp file', () => {
+    const dir = tempDir('state-')
+    let n = 0
+    const rename = (from: string, to: string) => {
+      n += 1
+      if (n === 1) throw errno('EPERM')
+      if (n === 2) throw errno('EBUSY')
+      fs.renameSync(from, to)
+    }
+    writeState(dir, STATE, `${NOW} x`, { rename })
+    expect(n).toBe(3)
+    expect(JSON.parse(fs.readFileSync(path.join(dir, 'protocols.json'), 'utf8')).active).toEqual([
+      'day',
+    ])
+    expect(tmpFiles(dir)).toEqual([])
+    expect(fs.readFileSync(path.join(dir, 'protocols.log'), 'utf8')).toContain(`${NOW} x`)
+  })
+
+  it('gives up after 20 attempts, throws the original error and removes the temp file', () => {
+    const dir = tempDir('state-')
+    let n = 0
+    const rename = () => {
+      n += 1
+      throw errno('EPERM')
+    }
+    expect(() => writeState(dir, STATE, `${NOW} x`, { rename })).toThrow(/EPERM/)
+    expect(n).toBe(20)
+    expect(tmpFiles(dir)).toEqual([])
+    expect(fs.existsSync(path.join(dir, 'protocols.log'))).toBe(false)
+  })
+
+  it('does not retry an error that is not EPERM or EBUSY', () => {
+    const dir = tempDir('state-')
+    let n = 0
+    const rename = () => {
+      n += 1
+      throw errno('ENOENT')
+    }
+    expect(() => writeState(dir, STATE, `${NOW} x`, { rename })).toThrow(/ENOENT/)
+    expect(n).toBe(1)
+    expect(tmpFiles(dir)).toEqual([])
+  })
+})
+
+describe('re-registering after a clear', () => {
+  it('drops every other entry with the same desktop id', () => {
+    const dir = tempDir('state-')
+    registerSession(dir, CLI_ID, LOCAL_ID, 'tech-lead', 'alpha', NOW)
+    registerSession(dir, CLI_ID_2, LOCAL_ID_2, 'ba', null, NOW)
+    const all = registerSession(
+      dir,
+      '00000000-0000-4000-8000-000000000003',
+      LOCAL_ID,
+      'tech-lead',
+      'alpha',
+      NOW,
+    )
+    expect(Object.keys(all).sort()).toEqual(
+      [CLI_ID_2, '00000000-0000-4000-8000-000000000003'].sort(),
+    )
+  })
+})

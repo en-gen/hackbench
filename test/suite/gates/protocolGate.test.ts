@@ -93,4 +93,11 @@ describe('the protocol command, hardened', () => {
     expect(JSON.parse(r.stdout).active).toEqual(['day-shift'])
     expect(r.stderr.trim()).toBe('protocols.json unreadable, defaults applied')
   })
+
+  it('nudges a re-registered session once, not once per CLI id', () => {
+    run(['register', CLI_ID, LOCAL_ID, 'tech-lead', 'alpha'])
+    run(['register', '00000000-0000-4000-8000-000000000003', LOCAL_ID, 'tech-lead', 'alpha'])
+    const on = JSON.parse(run(['night-shift', 'on', '--by', 'owner']).out)
+    expect(on.nudge).toEqual([{ desktopId: LOCAL_ID, role: 'tech-lead', team: 'alpha' }])
+  })
 })

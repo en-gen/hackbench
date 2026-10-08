@@ -14,6 +14,7 @@ import {
   readFileSync,
   readdirSync,
   renameSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs'
 import { spawnSync } from 'node:child_process'
@@ -195,17 +196,36 @@ export function applyChange(state, defs, name, verb, by, now) {
   }
 }
 
+// Windows refuses to rename over a file another process has open, and every
+// session's hook reads these files, so EPERM and EBUSY are retried briefly.
+const RETRY_CODES = new Set(['EPERM', 'EBUSY'])
+const RENAME_ATTEMPTS = 20
+const sleepMs = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+
 // Temp file in the same directory, then rename: a crash mid-write leaves the
 // old file, never a truncated one that the hook would read as defaults.
-function writeFileAtomic(file, text) {
+function writeFileAtomic(file, text, rename = renameSync) {
   const tmp = `${file}.${process.pid}.tmp`
-  writeFileSync(tmp, text)
-  renameSync(tmp, file)
+  try {
+    writeFileSync(tmp, text)
+    for (let attempt = 1; ; attempt++) {
+      try {
+        rename(tmp, file)
+        return
+      } catch (err) {
+        if (!RETRY_CODES.has(err?.code) || attempt >= RENAME_ATTEMPTS) throw err
+        sleepMs(10 + Math.floor(Math.random() * 41))
+      }
+    }
+  } catch (err) {
+    rmSync(tmp, { force: true })
+    throw err
+  }
 }
 
-export function writeState(stateDir, state, logLine) {
+export function writeState(stateDir, state, logLine, { rename = renameSync } = {}) {
   mkdirSync(stateDir, { recursive: true })
-  writeFileAtomic(path.join(stateDir, STATE_FILE), JSON.stringify(state, null, 2) + '\n')
+  writeFileAtomic(path.join(stateDir, STATE_FILE), JSON.stringify(state, null, 2) + '\n', rename)
   appendFileSync(path.join(stateDir, LOG_FILE), logLine + '\n')
 }
 
@@ -213,7 +233,7 @@ const SESSIONS_FILE = 'sessions.json'
 const ROLES = new Set(['ba', 'tech-lead', 'both'])
 const CLI_ID = /^[0-9a-f-]{36}$/
 const DESKTOP_ID = /^local_[0-9a-f-]{36}$/
-const TEAM_NAME = /^[a-z][a-z0-9-]{0,31}$/
+export const TEAM_NAME = /^[a-z][a-z0-9-]{0,31}$/
 
 export function mainCheckoutDir(cwd) {
   const r = spawnSync('git', ['rev-parse', '--git-common-dir'], { cwd, encoding: 'utf8' })
@@ -245,7 +265,15 @@ export function readSessions(stateDir) {
 // The hook receives the CLI session id; the session-management tools take the
 // desktop id (local_...). A registration carries both, keyed by the CLI id.
 // It never touches a team state file: that file is the handoff.
-export function registerSession(stateDir, cliId, desktopId, role, team, now) {
+export function registerSession(
+  stateDir,
+  cliId,
+  desktopId,
+  role,
+  team,
+  now,
+  { rename = renameSync } = {},
+) {
   if (!CLI_ID.test(cliId)) throw new Error(`CLI session id must match ${CLI_ID}; got "${cliId}"`)
   if (!DESKTOP_ID.test(desktopId)) {
     throw new Error(`desktop id must match ${DESKTOP_ID}; got "${desktopId}"`)
@@ -254,9 +282,11 @@ export function registerSession(stateDir, cliId, desktopId, role, team, now) {
   if (role !== 'ba' && !team) throw new Error(`a ${role} session needs a team`)
   if (team && !TEAM_NAME.test(team)) throw new Error(`team name must match ${TEAM_NAME}`)
   const all = readSessions(stateDir)
+  // A clear gives the same desktop session a new CLI id; keep one entry per desktop id.
+  for (const [id, entry] of Object.entries(all)) if (entry?.desktopId === desktopId) delete all[id]
   all[cliId] = { desktopId, role, team: team ?? null, registered: now }
   mkdirSync(stateDir, { recursive: true })
-  writeFileAtomic(path.join(stateDir, SESSIONS_FILE), JSON.stringify(all, null, 2) + '\n')
+  writeFileAtomic(path.join(stateDir, SESSIONS_FILE), JSON.stringify(all, null, 2) + '\n', rename)
   return all
 }
 

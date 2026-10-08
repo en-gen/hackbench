@@ -319,3 +319,66 @@ describe('the hook is wired', () => {
     expect(r.stdout).toMatch(/^Protocol hook error: /)
   })
 })
+
+describe('pointers obey the cap too', () => {
+  // A directory whose absolute path is exactly `total` characters long.
+  function longDir(prefix: string, total: number): string {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
+    const fill = total - base.length - 1
+    const dir = path.join(base, 'x'.repeat(fill))
+    fs.mkdirSync(dir, { recursive: true })
+    expect(dir.length).toBe(total)
+    return dir
+  }
+
+  it.each(['tech-lead', 'ba', 'both'])('stays under 10,000 with 199-character paths: %s', role => {
+    const longDocs = longDir('hook-docs-', 199)
+    fs.cpSync(path.join(repoRoot, 'docs', 'agents'), path.join(longDocs, 'agents'), {
+      recursive: true,
+    })
+    const longState = longDir('hook-state-', 199)
+    fs.mkdirSync(path.join(longState, 'teams'))
+    fs.writeFileSync(path.join(longState, 'teams', 'alpha.md'), 't'.repeat(1500))
+    fs.writeFileSync(path.join(longState, 'ba.md'), 'b'.repeat(1500))
+    fs.writeFileSync(
+      path.join(longState, 'protocols.json'),
+      JSON.stringify({ active: ['night-shift', 'throttle'], changed: null, by: null }),
+    )
+    fs.writeFileSync(
+      path.join(longState, 'sessions.json'),
+      JSON.stringify({
+        [CLI_ID]: {
+          desktopId: LOCAL_ID,
+          role,
+          team: role === 'ba' ? null : 'alpha',
+          registered: 'x',
+        },
+      }),
+    )
+    const out = render(START, {
+      stateDir: longState,
+      protocolsDir: path.join(repoRoot, 'docs', 'protocols'),
+      docsDir: longDocs,
+    })
+    expect(out.length).toBeLessThan(10000)
+  })
+
+  it('drops a pointer that does not fit and says more was omitted', () => {
+    register('both', 'alpha')
+    fs.writeFileSync(path.join(stateDir, 'teams', 'alpha.md'), 't'.repeat(9000))
+    fs.writeFileSync(path.join(docsDir, 'agents', 'tech-lead.md'), 'm'.repeat(6000))
+    const out = render(START, { stateDir, protocolsDir, docsDir })
+    expect(out.length).toBeLessThan(10000)
+    expect(out).toContain('(more omitted)')
+  })
+})
+
+describe('a hand-edited registration', () => {
+  it('treats a team name that is not a plain name as unregistered', () => {
+    register('tech-lead', '../../evil')
+    const r = runHook(START)
+    expect(r.out).toContain('Not registered')
+    expect(r.out).not.toContain('Registered as')
+    expect(r.out).not.toContain('evil.md')
+  })
+})

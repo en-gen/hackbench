@@ -14,6 +14,7 @@ import {
   readSessions,
   readStateChecked,
   stateDirFor,
+  TEAM_NAME,
 } from './protocol.mjs'
 
 // The hooks docs cap injected output at 10,000 characters; past that Claude
@@ -30,12 +31,25 @@ function readIf(file) {
 
 function sessionPart(out, input, dirs) {
   const cliId = input.session_id ?? 'unknown'
-  const reg = readSessions(dirs.stateDir)[cliId]
+  let reg = readSessions(dirs.stateDir)[cliId]
+  // sessions.json is hand-editable; a team name that is not a plain name could
+  // point the state-file read outside teams/, so it counts as unregistered.
+  if (reg && reg.team != null && !TEAM_NAME.test(String(reg.team))) reg = undefined
   const agents = file => path.resolve(dirs.docsDir, 'agents', file)
   const stateFile = (...p) => path.resolve(dirs.stateDir, ...p)
-  const fit = (text, pointer) => {
-    out.push([...out, text].join('\n').length + 1 > CAP ? pointer : text)
+  const fits = text => [...out, text].join('\n').length + 1 <= CAP
+  // Every line goes through the cap, pointers included: long paths made them
+  // push `both` past 10,000. Once one is dropped, nothing later is printed.
+  let omitted = false
+  const add = line => {
+    if (omitted) return
+    if (fits(line)) out.push(line)
+    else {
+      omitted = true
+      out.push('(more omitted)')
+    }
   }
+  const fit = (text, pointer) => add(fits(text) ? text : pointer)
 
   if (!reg) {
     const teamsDir = stateFile('teams')
@@ -44,15 +58,15 @@ function sessionPart(out, input, dirs) {
           .filter(f => f.endsWith('.md'))
           .map(f => f.slice(0, -3))
       : []
-    out.push(
-      `Session id: ${cliId}. Desktop id: unknown until you register.`,
+    add(`Session id: ${cliId}. Desktop id: unknown until you register.`)
+    add(
       `Not registered. Your title decides your role: "<Team> tech lead" registers tech-lead <team>; "BA" registers ba; the only session on the machine registers both <team>. Existing team files: ${teams.join(', ') || 'none'}. Then read your manual: ${agents('tech-lead.md')} or ${agents('ba.md')}.`,
     )
     return
   }
 
   const team = reg.team ? ` ${reg.team}` : ''
-  out.push(
+  add(
     `Session id: ${cliId}. Desktop id: ${reg.desktopId ?? 'unknown'}. Registered as ${reg.role}${team}.`,
   )
   if (reg.team) {
@@ -66,7 +80,7 @@ function sessionPart(out, input, dirs) {
     if (text) fit(text, `Read ${file} first: it is too large to inject.`)
   }
   if (reg.role === 'both') {
-    out.push(
+    add(
       `You are also the BA: read ${agents('ba.md')} before your first reply. Its state file, if any, is ${stateFile('ba.md')}.`,
     )
   }
