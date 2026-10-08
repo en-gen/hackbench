@@ -369,6 +369,16 @@ passes extra arguments through. A fresh worktree needs
 choice, path resolution, argument and exit-status pass-through with stub
 compilers.
 
+## Drag and drop
+
+Found on the map groups work, PR #562, 2026-09-25. `[EST]`
+
+- Theia's shell calls `preventDefault` on every `dragover` on the page (for file drops). Skipping it on a refused target does not show a no-drop cursor; set `dataTransfer.dropEffect = 'none'` explicitly. `event.defaultPrevented` is useless as a test signal.
+- Playwright: mouse-driven `locator.dragTo` does not work on the virtualized `TreeWidget`. Dispatch dragstart, dragenter, dragover, drop and dragend with one shared `DataTransfer`.
+- Send dragend to the source element handle, because the row's id changes once it moves.
+- A constructed `DataTransfer` ignores writes to `dropEffect`; read the widget's own verdict (for example `canDrop`).
+- Theia stamps `data-node-id` on the expansion toggle too; select `.theia-TreeNode[data-node-id=...]`.
+
 ## Related reading
 
 - [overview.md](overview.md) - how the shell relates to the core

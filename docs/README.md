@@ -23,6 +23,7 @@ What a freshly started session reads first. Keep it short; detail lives in the l
 - **Conventions.** [CONVENTIONS.md](CONVENTIONS.md) is the contract: tags, citation, corrections, file shapes.
 - **Protocols.** [protocols/README.md](protocols/README.md) lists the modes the owner can enact.
 - **Runbooks.** [runbooks/README.md](runbooks/README.md) holds the methods.
+- **Scratch decisions.** Notes that predate this knowledge base live in the owner's notes repository.
 
 ## Guide
 
