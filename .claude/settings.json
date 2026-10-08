@@ -8,7 +8,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node -e \"const {pathToFileURL}=require('url');const p=require('path').resolve(process.env.CLAUDE_PROJECT_DIR||'.','tools/scripts/protocol-inject.mjs');import(pathToFileURL(p).href)\""
+            "command": "node -e \"const {pathToFileURL}=require('url');const p=require('path').resolve(process.env.CLAUDE_PROJECT_DIR||'.','tools/scripts/protocol-inject.mjs');import(pathToFileURL(p).href).catch(e=>console.log('Protocol hook error: '+(e&&e.message||e)))\""
           }
         ]
       }
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node -e \"const {pathToFileURL}=require('url');const p=require('path').resolve(process.env.CLAUDE_PROJECT_DIR||'.','tools/scripts/protocol-inject.mjs');import(pathToFileURL(p).href)\""
+            "command": "node -e \"const {pathToFileURL}=require('url');const p=require('path').resolve(process.env.CLAUDE_PROJECT_DIR||'.','tools/scripts/protocol-inject.mjs');import(pathToFileURL(p).href).catch(e=>console.log('Protocol hook error: '+(e&&e.message||e)))\""
           }
         ]
       }

@@ -3,9 +3,12 @@ import { spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { render } from '../../../tools/scripts/protocol-inject.mjs'
 
 const repoRoot = path.resolve(__dirname, '../../..')
 const hook = path.join(repoRoot, 'tools/scripts/protocol-inject.mjs')
+const CLI_ID = '2b245891-c391-4d73-9647-b5b41cea6c49'
+const LOCAL_ID = 'local_774e2af5-aaaa-4bbb-8ccc-000000000001'
 let stateDir: string
 let protocolsDir: string
 let docsDir: string
@@ -49,11 +52,23 @@ function runHook(input: object): { code: number; out: string } {
   return { code: r.status ?? -1, out: `${r.stdout}${r.stderr}` }
 }
 
+function register(role: string, team: string | null): void {
+  fs.writeFileSync(
+    path.join(stateDir, 'sessions.json'),
+    JSON.stringify({
+      [CLI_ID]: { desktopId: LOCAL_ID, role, team, registered: 'x' },
+    }),
+  )
+}
+
+const START = { session_id: CLI_ID, hook_event_name: 'SessionStart', source: 'clear' }
+
 beforeEach(() => {
   stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hook-state-'))
   protocolsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hook-protocols-'))
   docsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hook-docs-'))
   fs.mkdirSync(path.join(docsDir, 'agents'))
+  fs.mkdirSync(path.join(stateDir, 'teams'))
   fs.writeFileSync(
     path.join(protocolsDir, 'alpha.md'),
     proto('alpha', 'shift (default)', ['1. Alpha rule.']),
@@ -70,7 +85,7 @@ describe('the protocol hook', () => {
       path.join(stateDir, 'protocols.json'),
       JSON.stringify({ active: ['beta'], changed: null, by: null }),
     )
-    const r = runHook({ session_id: 's1', hook_event_name: 'UserPromptSubmit' })
+    const r = runHook({ session_id: CLI_ID, hook_event_name: 'UserPromptSubmit' })
     expect(r.code).toBe(0)
     expect(r.out).toContain('Active protocols: beta')
     expect(r.out).toContain('2. Beta rule two.')
@@ -79,41 +94,73 @@ describe('the protocol hook', () => {
   })
 
   it('falls back to the group default with no state file', () => {
-    const r = runHook({ session_id: 's1', hook_event_name: 'UserPromptSubmit' })
+    const r = runHook({ session_id: CLI_ID, hook_event_name: 'UserPromptSubmit' })
     expect(r.out).toContain('Active protocols: alpha')
   })
 
-  it('on session start prints registration, manual and state file', () => {
+  it('prints one warning line when the state file is unreadable', () => {
+    fs.writeFileSync(path.join(stateDir, 'protocols.json'), '{bad')
+    const r = runHook({ session_id: CLI_ID, hook_event_name: 'UserPromptSubmit' })
+    expect(r.out).toContain('protocols.json unreadable, defaults applied')
+    expect(r.out).toContain('Active protocols: alpha')
+  })
+
+  it('on session start prints both ids, the state file, then the manual', () => {
     fs.writeFileSync(path.join(docsDir, 'agents', 'tech-lead.md'), '# Tech lead manual\n')
     fs.writeFileSync(path.join(docsDir, 'agents', 'ba.md'), '# BA manual\n')
-    fs.mkdirSync(path.join(stateDir, 'teams'))
     fs.writeFileSync(path.join(stateDir, 'teams', 'alpha.md'), '# Alpha state\n')
-    fs.writeFileSync(
-      path.join(stateDir, 'sessions.json'),
-      JSON.stringify({ s1: { role: 'tech-lead', team: 'alpha', registered: 'x' } }),
+    register('tech-lead', 'alpha')
+    const r = runHook(START)
+    expect(r.out).toContain(
+      `Session id: ${CLI_ID}. Desktop id: ${LOCAL_ID}. Registered as tech-lead alpha.`,
     )
-    const r = runHook({ session_id: 's1', hook_event_name: 'SessionStart', source: 'clear' })
-    expect(r.out).toContain('Session id: s1. Registered as tech-lead alpha.')
     expect(r.out).toContain('# Tech lead manual')
     expect(r.out).not.toContain('# BA manual')
-    expect(r.out).toContain('# Alpha state')
+    expect(r.out.indexOf('# Alpha state')).toBeGreaterThan(-1)
+    expect(r.out.indexOf('# Alpha state')).toBeLessThan(r.out.indexOf('# Tech lead manual'))
   })
 
-  it('on session start for an unregistered session prints the tech-lead manual, a BA pointer and the first-step line', () => {
+  it('injects the BA state file for a registered ba (M15)', () => {
+    fs.writeFileSync(path.join(docsDir, 'agents', 'ba.md'), '# BA manual\n')
+    fs.writeFileSync(path.join(stateDir, 'ba.md'), '# BA state file\n')
+    register('ba', null)
+    const r = runHook(START)
+    expect(r.out).toContain('# BA manual')
+    expect(r.out).toContain('# BA state file')
+  })
+
+  it('gives a registered both the core, a BA line, the team file and a BA state pointer', () => {
     fs.writeFileSync(path.join(docsDir, 'agents', 'tech-lead.md'), '# Tech lead manual\n')
     fs.writeFileSync(path.join(docsDir, 'agents', 'ba.md'), '# BA manual\n')
-    const r = runHook({ session_id: 's9', hook_event_name: 'SessionStart', source: 'startup' })
-    expect(r.out).toContain('Session id: s9. Not registered: follow the first step of your manual.')
+    fs.writeFileSync(path.join(stateDir, 'teams', 'alpha.md'), '# Alpha state\n')
+    fs.writeFileSync(path.join(stateDir, 'ba.md'), '# BA state file\n')
+    register('both', 'alpha')
+    const r = runHook(START)
     expect(r.out).toContain('# Tech lead manual')
+    expect(r.out).toContain('# Alpha state')
     expect(r.out).not.toContain('# BA manual')
-    expect(r.out).toContain('You are also the BA: read docs/agents/ba.md before your first reply.')
+    expect(r.out).not.toContain('# BA state file')
+    expect(r.out).toContain(
+      `You are also the BA: read ${path.resolve(docsDir, 'agents', 'ba.md')} before your first reply.`,
+    )
+    expect(r.out).toContain(path.resolve(stateDir, 'ba.md'))
   })
 
-  it('turns a manual that would pass the cap into a pointer', () => {
-    fs.writeFileSync(path.join(docsDir, 'agents', 'tech-lead.md'), 'x'.repeat(12000))
-    const r = runHook({ session_id: 's9', hook_event_name: 'SessionStart' })
-    expect(r.out).toContain('Read docs/agents/tech-lead.md before your first reply')
-    expect(r.out.length).toBeLessThan(10000)
+  it('gives an unregistered session no manual, only the registration block', () => {
+    fs.writeFileSync(path.join(docsDir, 'agents', 'tech-lead.md'), '# Tech lead manual\n')
+    fs.writeFileSync(path.join(docsDir, 'agents', 'ba.md'), '# BA manual\n')
+    fs.writeFileSync(path.join(stateDir, 'teams', 'alpha.md'), '# Alpha state\n')
+    fs.writeFileSync(path.join(stateDir, 'teams', 'bravo.md'), '# Bravo state\n')
+    const r = runHook(START)
+    expect(r.out).toContain(`Session id: ${CLI_ID}. Desktop id: unknown until you register.`)
+    expect(r.out).toContain('Not registered. Your title decides your role')
+    expect(r.out).toContain('Existing team files: alpha, bravo')
+    expect(r.out).toContain(path.resolve(docsDir, 'agents', 'tech-lead.md'))
+    expect(r.out).toContain(path.resolve(docsDir, 'agents', 'ba.md'))
+    expect(r.out).not.toContain('# Tech lead manual')
+    expect(r.out).not.toContain('# BA manual')
+    expect(r.out).not.toContain('# Alpha state')
+    expect(r.out).not.toContain('You are also the BA')
   })
 
   it('never blocks a session: a broken protocol file becomes one line and exit 0', () => {
@@ -121,9 +168,18 @@ describe('the protocol hook', () => {
       path.join(protocolsDir, 'broken.md'),
       '# broken\n\n## Purpose\n\nno other headings\n',
     )
-    const r = runHook({ session_id: 's1', hook_event_name: 'UserPromptSubmit' })
+    const r = runHook({ session_id: CLI_ID, hook_event_name: 'UserPromptSubmit' })
     expect(r.code).toBe(0)
     expect(r.out).toMatch(/^Protocol hook error: broken: headings must be/)
+  })
+
+  it('keeps the protocols block when the session part fails', () => {
+    fs.mkdirSync(path.join(stateDir, 'teams', 'alpha.md'))
+    register('tech-lead', 'alpha')
+    const r = runHook(START)
+    expect(r.code).toBe(0)
+    expect(r.out).toContain('Active protocols: alpha')
+    expect(r.out).toMatch(/Protocol hook: session part failed: /)
   })
 
   it('survives empty stdin', () => {
@@ -138,6 +194,87 @@ describe('the protocol hook', () => {
   })
 })
 
+// The hooks docs cap injected output at 10,000 characters; beyond that Claude
+// sees only a file path and a 2,000-character preview, which is how the old
+// orchestrator manual (11,194 characters) reached sessions. These render
+// against the REAL docs/ and docs/protocols/, so growing a manual or a
+// protocol past the cap turns them red instead of silently pointerising.
+describe('the SessionStart injection stays under the hook cap', () => {
+  const CAP = 10000
+
+  it.each([
+    ['tech-lead', 'tech-lead', 'alpha', '## Safety decisions'],
+    ['ba', 'ba', null, "## Keep the owner's time"],
+    ['both', 'both', 'alpha', '## Safety decisions'],
+  ])('registered as %s', (_label, role, team, onlyInManual) => {
+    fs.writeFileSync(
+      path.join(stateDir, 'protocols.json'),
+      JSON.stringify({ active: ['night-shift', 'throttle'], changed: null, by: null }),
+    )
+    register(role as string, team)
+    fs.writeFileSync(path.join(stateDir, 'ba.md'), 'b'.repeat(1500))
+    fs.writeFileSync(path.join(stateDir, 'teams', 'alpha.md'), 't'.repeat(1500))
+    const r = spawnSync('node', [hook], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      input: JSON.stringify(START),
+      env: {
+        ...process.env,
+        HACKBENCH_STATE_DIR: stateDir,
+        HACKBENCH_PROTOCOLS_DIR: '',
+        HACKBENCH_DOCS_DIR: '',
+        CLAUDE_PROJECT_DIR: repoRoot,
+      },
+    })
+    expect(r.stdout).toContain('Active protocols: night-shift, throttle')
+    expect(r.stdout).toContain(onlyInManual)
+    expect(r.stdout).not.toContain('too large to inject')
+    expect(r.stdout.length).toBeLessThan(CAP)
+  })
+})
+
+describe('the cap guard', () => {
+  function dirs() {
+    return { stateDir, protocolsDir, docsDir }
+  }
+
+  function renderWithManual(chars: number): string {
+    fs.writeFileSync(path.join(docsDir, 'agents', 'tech-lead.md'), 'm'.repeat(chars))
+    register('tech-lead', 'alpha')
+    return render(START, dirs())
+  }
+
+  it('hands the state file the room before the manual (M34)', () => {
+    fs.writeFileSync(
+      path.join(stateDir, 'protocols.json'),
+      JSON.stringify({ active: ['beta'], changed: null, by: null }),
+    )
+    fs.writeFileSync(path.join(stateDir, 'teams', 'alpha.md'), 't'.repeat(4000))
+    const out = renderWithManual(6300)
+    expect(out.length).toBeLessThan(10000)
+    expect(out).toContain('t'.repeat(4000))
+    expect(out).not.toContain('m'.repeat(6300))
+    expect(out).toContain(`Read ${path.resolve(docsDir, 'agents', 'tech-lead.md')}`)
+  })
+
+  it('pins the threshold: 9,500 characters is injected, 9,501 is a pointer (M35)', () => {
+    const base = renderWithManual(0).length
+    // render ends with one newline; adding text of n characters adds n + 1 (the join) + 1 (the end).
+    const fits = renderWithManual(9500 - base - 1)
+    expect(fits.length).toBe(9500)
+    expect(fits).not.toContain('too large to inject')
+    const over = renderWithManual(9500 - base)
+    expect(over).toContain('too large to inject')
+    expect(over.length).toBeLessThan(9500)
+  })
+
+  it('turns a manual that would land at 9,990 into a pointer (M35)', () => {
+    const base = renderWithManual(0).length
+    const out = renderWithManual(9990 - base - 1)
+    expect(out).toContain('too large to inject')
+  })
+})
+
 describe('the hook is wired', () => {
   function commandsFor(event: string): string[] {
     const settings = JSON.parse(
@@ -146,6 +283,18 @@ describe('the hook is wired', () => {
     return (settings.hooks[event] ?? []).flatMap((g: { hooks: { command: string }[] }) =>
       g.hooks.map(h => h.command),
     )
+  }
+
+  function runCommand(projectDir: string): { status: number | null; stdout: string } {
+    const command = commandsFor('UserPromptSubmit').find(c => c.includes('protocol-inject.mjs'))
+    const r = spawnSync(command ?? 'exit 1', {
+      shell: true,
+      cwd: repoRoot,
+      encoding: 'utf8',
+      input: JSON.stringify({ session_id: CLI_ID, hook_event_name: 'UserPromptSubmit' }),
+      env: { ...hookEnv(), CLAUDE_PROJECT_DIR: projectDir },
+    })
+    return { status: r.status, stdout: r.stdout + r.stderr }
   }
 
   it('settings.json runs protocol-inject.mjs on SessionStart and UserPromptSubmit', () => {
@@ -157,54 +306,16 @@ describe('the hook is wired', () => {
   // The settings command imports the script under `node -e`, where argv[1] is
   // unset; a main guard that only matched a direct invocation printed nothing.
   it('the settings.json command itself prints the active protocols', () => {
-    const command = commandsFor('UserPromptSubmit').find(c => c.includes('protocol-inject.mjs'))
-    const r = spawnSync(command ?? 'exit 1', {
-      shell: true,
-      cwd: repoRoot,
-      encoding: 'utf8',
-      input: JSON.stringify({ session_id: 's1', hook_event_name: 'UserPromptSubmit' }),
-      env: { ...hookEnv(), CLAUDE_PROJECT_DIR: repoRoot },
-    })
+    const r = runCommand(repoRoot)
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Active protocols: alpha')
   })
-})
 
-// The hooks docs cap injected output at 10,000 characters; beyond that Claude
-// sees only a file path and a 2,000-character preview, which is how the old
-// orchestrator manual (11,194 characters) reached sessions. This renders
-// against the REAL docs/ and docs/protocols/, not fixtures, so growing a
-// manual or a protocol past the cap turns this red.
-describe('the SessionStart injection stays under the hook cap', () => {
-  const CAP = 10000
-
-  it.each([
-    ['tech-lead', 'tech-lead', 'alpha'],
-    ['ba', 'ba', null],
-    ['both', 'both', 'alpha'],
-  ])('registered as %s', (_label, role, team) => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hook-cap-'))
-    fs.mkdirSync(path.join(dir, 'teams'))
-    fs.writeFileSync(
-      path.join(dir, 'protocols.json'),
-      JSON.stringify({ active: ['night-shift', 'throttle'], changed: null, by: null }),
-    )
-    fs.writeFileSync(path.join(dir, 'sessions.json'), JSON.stringify({ s1: { role, team } }))
-    fs.writeFileSync(path.join(dir, 'ba.md'), 'b'.repeat(1500))
-    fs.writeFileSync(path.join(dir, 'teams', 'alpha.md'), 't'.repeat(1500))
-    const r = spawnSync('node', [hook], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      input: JSON.stringify({ session_id: 's1', hook_event_name: 'SessionStart' }),
-      env: {
-        ...process.env,
-        HACKBENCH_STATE_DIR: dir,
-        HACKBENCH_PROTOCOLS_DIR: '',
-        HACKBENCH_DOCS_DIR: '',
-        CLAUDE_PROJECT_DIR: repoRoot,
-      },
-    })
-    expect(r.stdout).toContain('Active protocols: night-shift, throttle')
-    expect(r.stdout.length).toBeLessThan(CAP)
+  it('a missing script becomes one line and exit 0, not a stack trace', () => {
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'hook-empty-'))
+    const r = runCommand(empty)
+    expect(r.status).toBe(0)
+    expect(r.stdout.trim().split('\n')).toHaveLength(1)
+    expect(r.stdout).toMatch(/^Protocol hook error: /)
   })
 })
