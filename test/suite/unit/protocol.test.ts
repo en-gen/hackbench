@@ -71,3 +71,51 @@ describe('parseProtocolFile', () => {
     )
   })
 })
+
+import * as fs from 'fs'
+import * as os from 'os'
+import * as path from 'path'
+import { loadProtocols, groupDefaults, defaultState } from '../../../tools/scripts/protocol.mjs'
+
+function tempDir(prefix: string): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
+}
+
+function writeProtocols(dir: string, files: Record<string, string>): void {
+  for (const [name, body] of Object.entries(files)) {
+    fs.writeFileSync(path.join(dir, `${name}.md`), body)
+  }
+}
+
+describe('loadProtocols', () => {
+  it('loads every protocol file except README.md, sorted', () => {
+    const dir = tempDir('protocols-')
+    writeProtocols(dir, {
+      README: '# Protocols\n',
+      night: protocol({ Group: 'shift' }, 'night'),
+      day: protocol({ Group: 'shift (default)' }, 'day'),
+      throttle: protocol({}, 'throttle'),
+    })
+    const defs = loadProtocols(dir)
+    expect([...defs.keys()]).toEqual(['day', 'night', 'throttle'])
+    expect(groupDefaults(defs)).toEqual(new Map([['shift', 'day']]))
+    expect(defaultState(defs)).toEqual({ active: ['day'], changed: null, by: null })
+  })
+
+  it('rejects two defaults in one group', () => {
+    const dir = tempDir('protocols-')
+    writeProtocols(dir, {
+      a: protocol({ Group: 'shift (default)' }, 'a'),
+      b: protocol({ Group: 'shift (default)' }, 'b'),
+    })
+    expect(() => loadProtocols(dir)).toThrow(/group shift has two defaults/)
+  })
+
+  it('loads the real protocol files and finds day-shift as the shift default', () => {
+    const repoRoot = path.resolve(__dirname, '../../..')
+    const defs = loadProtocols(path.join(repoRoot, 'docs/protocols'))
+    expect(groupDefaults(defs).get('shift')).toBe('day-shift')
+    expect(defs.has('night-shift')).toBe(true)
+    expect(defs.has('throttle')).toBe(true)
+  })
+})

@@ -7,6 +7,9 @@
 // active member per group with a default) is the kind of rule people forget
 // at 3 am, and the hook that injects the result must never crash a session.
 
+import { readFileSync, readdirSync } from 'node:fs'
+import path from 'node:path'
+
 export const HEADINGS = ['Purpose', 'Group', 'Activation', 'Changes', 'Unchanged', 'Exit']
 export const MAX_CHANGES_LINES = 15
 
@@ -51,4 +54,33 @@ export function parseProtocolFile(text, stem) {
     isDefault: gm[2] === 'default',
     changes,
   }
+}
+
+export function loadProtocols(dir) {
+  const defs = new Map()
+  const files = readdirSync(dir)
+    .filter(f => f.endsWith('.md') && f !== 'README.md')
+    .sort()
+  for (const f of files) {
+    const stem = f.slice(0, -3)
+    defs.set(stem, parseProtocolFile(readFileSync(path.join(dir, f), 'utf8'), stem))
+  }
+  groupDefaults(defs)
+  return defs
+}
+
+export function groupDefaults(defs) {
+  const defaults = new Map()
+  for (const d of defs.values()) {
+    if (!d.group || !d.isDefault) continue
+    if (defaults.has(d.group)) {
+      throw new Error(`group ${d.group} has two defaults: ${defaults.get(d.group)} and ${d.name}`)
+    }
+    defaults.set(d.group, d.name)
+  }
+  return defaults
+}
+
+export function defaultState(defs) {
+  return { active: [...groupDefaults(defs).values()].sort(), changed: null, by: null }
 }
