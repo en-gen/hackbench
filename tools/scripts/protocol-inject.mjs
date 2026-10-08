@@ -87,7 +87,6 @@ const invoked = !process.argv[1] || path.resolve(process.argv[1]) === fileURLToP
 if (invoked) {
   const cwd = process.env.CLAUDE_PROJECT_DIR || process.cwd()
   const dirs = {
-    cwd,
     stateDir: stateDirFor(cwd),
     protocolsDir: protocolsDirFor(cwd),
     docsDir: process.env.HACKBENCH_DOCS_DIR || path.join(cwd, 'docs'),
