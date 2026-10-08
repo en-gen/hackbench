@@ -314,7 +314,11 @@ function cli(argv, cwd) {
   }
   const byIdx = argv.indexOf('--by')
   const by = byIdx >= 0 ? argv[byIdx + 1] : undefined
-  if (by === undefined || !BY.test(by)) return { code: 1, out: BY_MESSAGE }
+  if (by === undefined || !BY.test(by))
+    return {
+      code: 1,
+      out: `${BY_MESSAGE}\n${USAGE}`,
+    }
   const { state, warning } = readStateChecked(stateDir, defs)
   const r = applyChange(state, defs, a, b, by, now)
   if (r.error) return { code: 1, out: r.error, warn: warning }

@@ -256,7 +256,7 @@ Daily at 07:00 local on the owner's machine. The session:
 1. Lists open `perf-regression` issues whose board status is not In
    progress. None: exit quietly.
 2. Moves the oldest to In progress and works as the orchestrator
-   (`docs/agents/orchestrator.md`).
+   (`docs/agents/tech-lead.md`).
 3. Bisects between the issue's base and candidate SHAs with
    `tools/perf/bisect.mjs --id <id>` (git worktrees, paired runs,
    `--only`), naming the first bad commit. For an app, startup or heap id

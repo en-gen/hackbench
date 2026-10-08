@@ -78,6 +78,12 @@ describe('the protocol command, hardened', () => {
     expect(run(['throttle', 'off', '--by', 'bogus']).out).toMatch(/--by must be/)
     expect(run(['throttle', 'off', '--by']).out).toMatch(/--by must be/)
     expect(run(['throttle', 'off']).out).toMatch(/--by must be/)
+    // A change with no --by at all is refused with the usage line and writes nothing.
+    const missing = run(['night-shift', 'on'])
+    expect(missing.code).not.toBe(0)
+    expect(missing.out).toMatch(/usage: protocol\.mjs/)
+    expect(fs.existsSync(path.join(stateDir, 'protocols.log'))).toBe(true)
+    expect(fs.readFileSync(path.join(stateDir, 'protocols.log'), 'utf8')).not.toMatch(/unknown/)
   })
 
   it('still enacts a change when the sessions file is corrupt', () => {
