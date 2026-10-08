@@ -168,3 +168,53 @@ describe('parallel registers', () => {
     expect(Object.keys(sessions).sort()).toEqual([...ids].sort())
   })
 })
+
+describe('the command takes the lock', () => {
+  function holdLock(): string {
+    const lock = path.join(stateDir, '.lock')
+    fs.writeFileSync(lock, 'held-by-the-test')
+    return lock
+  }
+
+  function runWith(args: string[], env: Record<string, string>) {
+    const r = spawnSync('node', [script, ...args], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env: { ...process.env, HACKBENCH_STATE_DIR: stateDir, ...env },
+    })
+    return { code: r.status ?? -1, out: `${r.stdout}${r.stderr}` }
+  }
+
+  it('refuses a change while another process holds the lock, and writes nothing (L4)', () => {
+    holdLock()
+    const r = runWith(['night-shift', 'on', '--by', 'owner'], { HACKBENCH_LOCK_TIMEOUT_MS: '200' })
+    expect(r.code).toBe(1)
+    expect(r.out).toMatch(/could not lock/)
+    expect(fs.existsSync(path.join(stateDir, 'protocols.json'))).toBe(false)
+    expect(fs.existsSync(path.join(stateDir, 'protocols.log'))).toBe(false)
+  })
+
+  it('refuses a register while another process holds the lock', () => {
+    holdLock()
+    const r = runWith(['register', CLI_ID, LOCAL_ID, 'ba'], { HACKBENCH_LOCK_TIMEOUT_MS: '200' })
+    expect(r.code).toBe(1)
+    expect(r.out).toMatch(/could not lock/)
+  })
+
+  it('takes over a stale lock when the stale limit says so', () => {
+    const lock = holdLock()
+    const old = new Date(Date.now() - 60_000)
+    fs.utimesSync(lock, old, old)
+    const r = runWith(['night-shift', 'on', '--by', 'owner'], { HACKBENCH_LOCK_STALE_MS: '100' })
+    expect(r.code).toBe(0)
+    expect(fs.existsSync(lock)).toBe(false)
+  })
+
+  it('unregisters a desktop id through the command', () => {
+    run(['register', CLI_ID, LOCAL_ID, 'tech-lead', 'alpha'])
+    const r = JSON.parse(run(['unregister', LOCAL_ID]).out)
+    expect(r.removed).toBe(1)
+    expect(r.sessions).toEqual({})
+    expect(run(['unregister', 'nope']).code).not.toBe(0)
+  })
+})

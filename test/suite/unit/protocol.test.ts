@@ -271,6 +271,8 @@ import {
   readSessions,
   registerSession,
   withStateLock,
+  unregisterSession,
+  LOCK_DEFAULTS,
 } from '../../../tools/scripts/protocol.mjs'
 
 describe('mainCheckoutDir', () => {
@@ -630,5 +632,153 @@ describe('withStateLock', () => {
     const dir = tempDir('state-')
     fs.writeFileSync(path.join(dir, '.lock'), '')
     expect(() => withStateLock(dir, () => 'x', { timeoutMs: 100 })).toThrow(/could not lock/)
+  })
+})
+
+describe('withStateLock safety', () => {
+  const lockPath = (dir: string) => path.join(dir, '.lock')
+  const OLD = new Date(Date.now() - 60_000)
+
+  function staleLock(dir: string, token = 'old-holder'): void {
+    fs.writeFileSync(lockPath(dir), token)
+    fs.utimesSync(lockPath(dir), OLD, OLD)
+  }
+
+  it('writes a token into the lock file while held', () => {
+    const dir = tempDir('state-')
+    withStateLock(dir, () => {
+      expect(fs.readFileSync(lockPath(dir), 'utf8')).toMatch(/^\d+-[0-9a-f]{16}$/)
+    })
+  })
+
+  it('lets only one of two waiters take over the same stale lock', () => {
+    const dir = tempDir('state-')
+    staleLock(dir)
+    let ran = false
+    let delayed = false
+    // The first waiter has judged the lock stale; before it acts, another
+    // process completes its own takeover and now holds a fresh lock.
+    const afterStaleCheck = () => {
+      if (delayed) return
+      delayed = true
+      fs.rmSync(lockPath(dir))
+      fs.writeFileSync(lockPath(dir), 'taker-token')
+    }
+    expect(() =>
+      withStateLock(
+        dir,
+        () => {
+          ran = true
+        },
+        { timeoutMs: 300, staleMs: 30_000, afterStaleCheck },
+      ),
+    ).toThrow(/could not lock/)
+    expect(ran).toBe(false)
+    expect(fs.readFileSync(lockPath(dir), 'utf8')).toBe('taker-token')
+  })
+
+  it('leaves a lock alone that another holder took over, when the slow holder finishes', () => {
+    const dir = tempDir('state-')
+    withStateLock(dir, () => {
+      fs.writeFileSync(lockPath(dir), 'new-holder')
+    })
+    expect(fs.readFileSync(lockPath(dir), 'utf8')).toBe('new-holder')
+  })
+
+  it('refuses to write once the lock was taken over', () => {
+    const dir = tempDir('state-')
+    expect(() =>
+      withStateLock(dir, (assertHeld: () => void) => {
+        assertHeld()
+        fs.writeFileSync(lockPath(dir), 'new-holder')
+        assertHeld()
+      }),
+    ).toThrow(/lock lost/)
+  })
+
+  it('registerSession writes nothing when its lock was taken over', () => {
+    const dir = tempDir('state-')
+    const afterAcquire = () => fs.writeFileSync(lockPath(dir), 'new-holder')
+    expect(() =>
+      registerSession(dir, CLI_ID, LOCAL_ID, 'ba', null, NOW, { lock: { afterAcquire } }),
+    ).toThrow(/lock lost/)
+    expect(fs.existsSync(path.join(dir, 'sessions.json'))).toBe(false)
+  })
+
+  it('registerSession renames while still holding the lock (L6)', () => {
+    const dir = tempDir('state-')
+    let held = false
+    const rename = (from: string, to: string) => {
+      held = fs.existsSync(lockPath(dir))
+      fs.renameSync(from, to)
+    }
+    registerSession(dir, CLI_ID, LOCAL_ID, 'ba', null, NOW, { rename })
+    expect(held).toBe(true)
+  })
+
+  it('outwaits a crashed lock and takes it over', () => {
+    const dir = tempDir('state-')
+    fs.writeFileSync(lockPath(dir), 'crashed') // mtime now, so only waiting makes it stale
+    const started = Date.now()
+    expect(withStateLock(dir, () => 'ok', { staleMs: 300, timeoutMs: 1000 })).toBe('ok')
+    expect(Date.now() - started).toBeGreaterThan(250)
+  })
+
+  it('defaults to a timeout longer than the stale limit', () => {
+    expect(LOCK_DEFAULTS.timeoutMs).toBeGreaterThan(LOCK_DEFAULTS.staleMs)
+    expect(LOCK_DEFAULTS).toEqual({ timeoutMs: 15000, staleMs: 10000 })
+  })
+
+  it('treats a lock with a future mtime as stale once it is far enough off', () => {
+    const dir = tempDir('state-')
+    fs.writeFileSync(lockPath(dir), 'from-the-future')
+    const ahead = new Date(Date.now() + 3_600_000)
+    fs.utimesSync(lockPath(dir), ahead, ahead)
+    expect(withStateLock(dir, () => 'ok', { staleMs: 300, timeoutMs: 1000 })).toBe('ok')
+  })
+
+  it('reads its limits from the environment when no option is given', () => {
+    const dir = tempDir('state-')
+    fs.writeFileSync(lockPath(dir), 'held')
+    try {
+      process.env.HACKBENCH_LOCK_TIMEOUT_MS = '150'
+      expect(() => withStateLock(dir, () => 1)).toThrow(/within 150 ms/)
+      process.env.HACKBENCH_LOCK_STALE_MS = '50'
+      expect(withStateLock(dir, () => 'ok')).toBe('ok')
+    } finally {
+      delete process.env.HACKBENCH_LOCK_TIMEOUT_MS
+      delete process.env.HACKBENCH_LOCK_STALE_MS
+    }
+  })
+})
+
+describe('unregisterSession', () => {
+  it('removes every entry for a desktop id and keeps the others', () => {
+    const dir = tempDir('state-')
+    registerSession(dir, CLI_ID, LOCAL_ID, 'tech-lead', 'alpha', NOW)
+    registerSession(dir, CLI_ID_2, LOCAL_ID_2, 'ba', null, NOW)
+    const r = unregisterSession(dir, LOCAL_ID)
+    expect(r.removed).toBe(1)
+    expect(Object.keys(r.sessions)).toEqual([CLI_ID_2])
+    expect(Object.keys(readSessions(dir))).toEqual([CLI_ID_2])
+  })
+
+  it('reports zero removed for an unknown desktop id and rejects a malformed one', () => {
+    const dir = tempDir('state-')
+    registerSession(dir, CLI_ID, LOCAL_ID, 'ba', null, NOW)
+    expect(unregisterSession(dir, LOCAL_ID_2).removed).toBe(0)
+    expect(() => unregisterSession(dir, 'nope')).toThrow(/desktop id/)
+  })
+
+  it('writes under the lock', () => {
+    const dir = tempDir('state-')
+    registerSession(dir, CLI_ID, LOCAL_ID, 'ba', null, NOW)
+    let held = false
+    const rename = (from: string, to: string) => {
+      held = fs.existsSync(path.join(dir, '.lock'))
+      fs.renameSync(from, to)
+    }
+    unregisterSession(dir, LOCAL_ID, { rename })
+    expect(held).toBe(true)
   })
 })

@@ -9,10 +9,8 @@
 
 import {
   appendFileSync,
-  closeSync,
   existsSync,
   mkdirSync,
-  openSync,
   readFileSync,
   readdirSync,
   renameSync,
@@ -21,6 +19,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { spawnSync } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -206,33 +205,91 @@ const RENAME_ATTEMPTS = 20
 const sleepMs = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 
 // Every state write is a read-modify-write, and several sessions run the
-// command at once, so writers take a lock file. A lock older than the stale
-// limit belongs to a crashed process and is removed.
-export function withStateLock(stateDir, fn, { timeoutMs = 3000, staleMs = 10000 } = {}) {
+// command at once, so writers take a lock file holding a random token.
+//
+// A lock older than the stale limit belongs to a crashed or stalled process
+// and is taken over. Two waiters can judge the same lock stale, and a stalled
+// holder can wake up after losing it, so the token is what keeps them apart:
+// a takeover moves the lock aside and only discards it if it carries the token
+// that was judged stale (otherwise it puts the fresh lock back); the holder
+// removes the lock only if it is still its own, and re-checks before writing
+// (`assertHeld`) so a holder that lost the lock throws instead of overwriting
+// its successor's write. The check-then-write gap is not closed, only narrowed.
+export const LOCK_DEFAULTS = { timeoutMs: 15000, staleMs: 10000 }
+
+const envMs = (name, fallback) => {
+  const n = Number(process.env[name])
+  return Number.isFinite(n) && n > 0 ? n : fallback
+}
+
+const readToken = lock => {
+  try {
+    return readFileSync(lock, 'utf8')
+  } catch {
+    return null
+  }
+}
+
+function takeOverStale(lock, staleMs, afterStaleCheck) {
+  let judged
+  let mtimeMs
+  try {
+    mtimeMs = statSync(lock).mtimeMs
+    judged = readFileSync(lock, 'utf8')
+  } catch {
+    return // the holder released it meanwhile
+  }
+  // Absolute, so a lock stamped in the future (clock change) cannot wedge the state.
+  if (Math.abs(Date.now() - mtimeMs) <= staleMs) return
+  afterStaleCheck()
+  const aside = `${lock}.stale-${process.pid}-${randomBytes(4).toString('hex')}`
+  try {
+    renameSync(lock, aside)
+  } catch {
+    return // someone else took it over first
+  }
+  if (readToken(aside) === judged) {
+    rmSync(aside, { force: true })
+    return
+  }
+  // We moved a fresh lock that replaced the stale one; give it back.
+  try {
+    renameSync(aside, lock)
+  } catch {
+    rmSync(aside, { force: true })
+  }
+}
+
+export function withStateLock(stateDir, fn, opts = {}) {
+  const timeoutMs = opts.timeoutMs ?? envMs('HACKBENCH_LOCK_TIMEOUT_MS', LOCK_DEFAULTS.timeoutMs)
+  const staleMs = opts.staleMs ?? envMs('HACKBENCH_LOCK_STALE_MS', LOCK_DEFAULTS.staleMs)
+  const { afterStaleCheck = () => {}, afterAcquire = () => {} } = opts
   mkdirSync(stateDir, { recursive: true })
   const lock = path.join(stateDir, '.lock')
+  const token = `${process.pid}-${randomBytes(8).toString('hex')}`
   const deadline = Date.now() + timeoutMs
-  let fd
-  while (fd === undefined) {
+  for (;;) {
     try {
-      fd = openSync(lock, 'wx')
+      writeFileSync(lock, token, { flag: 'wx' })
+      break
     } catch (err) {
       if (err?.code !== 'EEXIST' && !RETRY_CODES.has(err?.code)) throw err
-      try {
-        if (Date.now() - statSync(lock).mtimeMs > staleMs) rmSync(lock, { force: true })
-      } catch {
-        // The holder released it between the open and the stat; just try again.
-      }
-      if (Date.now() > deadline)
+      takeOverStale(lock, staleMs, afterStaleCheck)
+      if (Date.now() > deadline) {
         throw new Error(`could not lock ${stateDir} within ${timeoutMs} ms`, { cause: err })
+      }
       sleepMs(10 + Math.floor(Math.random() * 41))
     }
   }
+  const assertHeld = () => {
+    if (readToken(lock) !== token)
+      throw new Error('lock lost: another process took over the state lock')
+  }
   try {
-    return fn()
+    afterAcquire()
+    return fn(assertHeld)
   } finally {
-    closeSync(fd)
-    rmSync(lock, { force: true })
+    if (readToken(lock) === token) rmSync(lock, { force: true })
   }
 }
 
@@ -306,7 +363,7 @@ export function registerSession(
   role,
   team,
   now,
-  { rename = renameSync } = {},
+  { rename = renameSync, lock = {} } = {},
 ) {
   if (!CLI_ID.test(cliId)) throw new Error(`CLI session id must match ${CLI_ID}; got "${cliId}"`)
   if (!DESKTOP_ID.test(desktopId)) {
@@ -315,22 +372,62 @@ export function registerSession(
   if (!ROLES.has(role)) throw new Error(`role must be ba, tech-lead or both; got "${role}"`)
   if (role !== 'ba' && !team) throw new Error(`a ${role} session needs a team`)
   if (team && !TEAM_NAME.test(team)) throw new Error(`team name must match ${TEAM_NAME}`)
-  return withStateLock(stateDir, () => {
-    const all = readSessions(stateDir)
-    // A clear gives the same desktop session a new CLI id; keep one entry per desktop id.
-    for (const [id, entry] of Object.entries(all)) {
-      if (entry?.desktopId === desktopId) delete all[id]
-    }
-    all[cliId] = { desktopId, role, team: team ?? null, registered: now }
-    writeFileAtomic(path.join(stateDir, SESSIONS_FILE), JSON.stringify(all, null, 2) + '\n', rename)
-    return all
-  })
+  return withStateLock(
+    stateDir,
+    assertHeld => {
+      const all = readSessions(stateDir)
+      // A clear gives the same desktop session a new CLI id; keep one entry per desktop id.
+      for (const [id, entry] of Object.entries(all)) {
+        if (entry?.desktopId === desktopId) delete all[id]
+      }
+      all[cliId] = { desktopId, role, team: team ?? null, registered: now }
+      assertHeld()
+      writeFileAtomic(
+        path.join(stateDir, SESSIONS_FILE),
+        JSON.stringify(all, null, 2) + '\n',
+        rename,
+      )
+      return all
+    },
+    lock,
+  )
+}
+
+// The BA prunes sessions that no longer exist; going through the lock keeps a
+// concurrent register from being lost.
+export function unregisterSession(stateDir, desktopId, { rename = renameSync, lock = {} } = {}) {
+  if (!DESKTOP_ID.test(desktopId)) {
+    throw new Error(`desktop id must match ${DESKTOP_ID}; got "${desktopId}"`)
+  }
+  return withStateLock(
+    stateDir,
+    assertHeld => {
+      const all = readSessions(stateDir)
+      let removed = 0
+      for (const [id, entry] of Object.entries(all)) {
+        if (entry?.desktopId === desktopId) {
+          delete all[id]
+          removed += 1
+        }
+      }
+      if (removed > 0) {
+        assertHeld()
+        writeFileAtomic(
+          path.join(stateDir, SESSIONS_FILE),
+          JSON.stringify(all, null, 2) + '\n',
+          rename,
+        )
+      }
+      return { removed, sessions: all }
+    },
+    lock,
+  )
 }
 
 const BY = /^(owner|schedule|session:local_[0-9a-f-]{36})$/
 const BY_MESSAGE = '--by must be owner, schedule or session:<desktop id>'
 const USAGE =
-  'usage: protocol.mjs <name> on|off --by <owner|schedule|session:<desktop id>> | status | register <cliId> <desktopId> <role> [team]'
+  'usage: protocol.mjs <name> on|off --by <owner|schedule|session:<desktop id>> | status | register <cliId> <desktopId> <role> [team] | unregister <desktopId>'
 
 function cli(argv, cwd) {
   const stateDir = stateDirFor(cwd)
@@ -340,6 +437,10 @@ function cli(argv, cwd) {
   if (a === 'status') {
     const { state, warning } = readStateChecked(stateDir, defs)
     return { code: 0, out: { ...state, sessions: readSessions(stateDir) }, warn: warning }
+  }
+  if (a === 'unregister') {
+    if (!b) return { code: 1, out: USAGE }
+    return { code: 0, out: unregisterSession(stateDir, b) }
   }
   if (a === 'register') {
     if (!b || !c || !d) return { code: 1, out: USAGE }
@@ -357,7 +458,7 @@ function cli(argv, cwd) {
       out: `${BY_MESSAGE}\n${USAGE}`,
     }
   // The whole read-apply-write is one critical section, so two commands cannot both start from the old state.
-  return withStateLock(stateDir, () => {
+  return withStateLock(stateDir, assertHeld => {
     const { state, warning } = readStateChecked(stateDir, defs)
     const r = applyChange(state, defs, a, b, by, now)
     if (r.error) return { code: 1, out: r.error, warn: warning }
@@ -367,6 +468,7 @@ function cli(argv, cwd) {
       role: s.role,
       team: s.team,
     }))
+    assertHeld()
     writeState(stateDir, r.state, r.logLine)
     return { code: 0, out: { active: r.state.active, logLine: r.logLine, nudge }, warn: warning }
   })
