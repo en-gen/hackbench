@@ -652,30 +652,31 @@ describe('withStateLock safety', () => {
     })
   })
 
-  it('lets only one of two waiters take over the same stale lock', () => {
+  it('discards a successor lock taken in the stale window instead of putting it back', () => {
     const dir = tempDir('state-')
     staleLock(dir)
     let ran = false
     let delayed = false
-    // The first waiter has judged the lock stale; before it acts, another
-    // process completes its own takeover and now holds a fresh lock.
+    // The waiter has judged the lock stale; before it acts, another process
+    // completes its own takeover and holds a fresh lock. Putting that lock
+    // back after removing it would replace a third waiter's lock at the
+    // then-empty path, so it stays gone and its holder fails assertHeld.
     const afterStaleCheck = () => {
       if (delayed) return
       delayed = true
       fs.rmSync(lockPath(dir))
       fs.writeFileSync(lockPath(dir), 'taker-token')
     }
-    expect(() =>
-      withStateLock(
-        dir,
-        () => {
-          ran = true
-        },
-        { timeoutMs: 300, staleMs: 30_000, afterStaleCheck },
-      ),
-    ).toThrow(/could not lock/)
-    expect(ran).toBe(false)
-    expect(fs.readFileSync(lockPath(dir), 'utf8')).toBe('taker-token')
+    withStateLock(
+      dir,
+      () => {
+        ran = true
+        expect(fs.readFileSync(lockPath(dir), 'utf8')).not.toBe('taker-token')
+      },
+      { timeoutMs: 300, staleMs: 30_000, afterStaleCheck },
+    )
+    expect(ran).toBe(true)
+    expect(fs.existsSync(lockPath(dir))).toBe(false)
   })
 
   it('leaves a lock alone that another holder took over, when the slow holder finishes', () => {

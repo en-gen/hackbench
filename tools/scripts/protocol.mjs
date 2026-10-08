@@ -215,13 +215,15 @@ const sleepMs = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 
 // command at once, so writers take a lock file holding a random token.
 //
 // A lock older than the stale limit belongs to a crashed or stalled process
-// and is taken over. Two waiters can judge the same lock stale, and a stalled
-// holder can wake up after losing it, so the token is what keeps them apart:
-// a takeover moves the lock aside and only discards it if it carries the token
-// that was judged stale (otherwise it puts the fresh lock back); the holder
-// removes the lock only if it is still its own, and re-checks before writing
-// (`assertHeld`) so a holder that lost the lock throws instead of overwriting
-// its successor's write. The check-then-write gap is not closed, only narrowed.
+// and is taken over. Two waiters can judge the same lock stale, a successor can
+// acquire it in the instant between one waiter's check and its removal, and a
+// stalled holder can wake up after losing it, so the token is what keeps them
+// apart: the holder removes the lock only if it is still its own, and re-checks
+// before writing (`assertHeld`) so a holder that lost the lock throws instead
+// of overwriting its successor's write. A removed lock is never put back (a
+// rename back would replace a third waiter's fresh lock at the empty path), so
+// a token never returns to the path once it has left it. The check-then-write
+// gap is not closed, only narrowed.
 export const LOCK_DEFAULTS = { timeoutMs: 15000, staleMs: 10000 }
 
 const envMs = (name, fallback) => {
@@ -238,33 +240,18 @@ const readToken = lock => {
 }
 
 function takeOverStale(lock, staleMs, afterStaleCheck) {
-  let judged
   let mtimeMs
   try {
     mtimeMs = statSync(lock).mtimeMs
-    judged = readFileSync(lock, 'utf8')
   } catch {
     return // the holder released it meanwhile
   }
   // Absolute, so a lock stamped in the future (clock change) cannot wedge the state.
   if (Math.abs(Date.now() - mtimeMs) <= staleMs) return
   afterStaleCheck()
-  const aside = `${lock}.stale-${process.pid}-${randomBytes(4).toString('hex')}`
-  try {
-    renameSync(lock, aside)
-  } catch {
-    return // someone else took it over first
-  }
-  if (readToken(aside) === judged) {
-    rmSync(aside, { force: true })
-    return
-  }
-  // We moved a fresh lock that replaced the stale one; give it back.
-  try {
-    renameSync(aside, lock)
-  } catch {
-    rmSync(aside, { force: true })
-  }
+  // This may remove a successor's fresh lock taken since the check; that holder
+  // then fails `assertHeld` and writes nothing. See above for why it is not put back.
+  rmSync(lock, { force: true })
 }
 
 export function withStateLock(stateDir, fn, opts = {}) {
