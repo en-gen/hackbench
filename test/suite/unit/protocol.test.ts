@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import { parseProtocolFile, HEADINGS, MAX_CHANGES_LINES } from '../../../tools/scripts/protocol.mjs'
 
 function protocol(overrides: Partial<Record<string, string>> = {}, stem = 'alpha'): string {
@@ -77,8 +77,34 @@ import * as os from 'os'
 import * as path from 'path'
 import { loadProtocols, groupDefaults, defaultState } from '../../../tools/scripts/protocol.mjs'
 
+// Every temp directory a test makes is removed afterwards, like lintGate.test.ts.
+// Windows can refuse a removal while a just-exited child process lets go, so
+// retry once and then ignore: hygiene must never fail a run.
+const made: string[] = []
+
+function mk(prefix: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
+  made.push(dir)
+  return dir
+}
+
+function removeAll(): void {
+  for (const dir of made.splice(0)) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true })
+        break
+      } catch {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
+      }
+    }
+  }
+}
+
+afterEach(removeAll)
+
 function tempDir(prefix: string): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
+  return mk(prefix)
 }
 
 function writeProtocols(dir: string, files: Record<string, string>): void {
@@ -363,7 +389,7 @@ describe('state hardening', () => {
     )
     expect(readState(dir, shiftDefs()).active).toEqual(['night'])
     const defs = shiftDefs()
-    const two = fs.mkdtempSync(path.join(os.tmpdir(), 'state-'))
+    const two = mk('state-')
     fs.writeFileSync(
       path.join(two, 'protocols.json'),
       JSON.stringify({ active: ['day', 'night'], changed: NOW, by: 'x' }),

@@ -1,9 +1,35 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { render } from '../../../tools/scripts/protocol-inject.mjs'
+
+// Every temp directory a test makes is removed afterwards, like lintGate.test.ts.
+// Windows can refuse a removal while a just-exited child process lets go, so
+// retry once and then ignore: hygiene must never fail a run.
+const made: string[] = []
+
+function mk(prefix: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
+  made.push(dir)
+  return dir
+}
+
+function removeAll(): void {
+  for (const dir of made.splice(0)) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true })
+        break
+      } catch {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
+      }
+    }
+  }
+}
+
+afterEach(removeAll)
 
 const repoRoot = path.resolve(__dirname, '../../..')
 const hook = path.join(repoRoot, 'tools/scripts/protocol-inject.mjs')
@@ -64,9 +90,9 @@ function register(role: string, team: string | null): void {
 const START = { session_id: CLI_ID, hook_event_name: 'SessionStart', source: 'clear' }
 
 beforeEach(() => {
-  stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hook-state-'))
-  protocolsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hook-protocols-'))
-  docsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hook-docs-'))
+  stateDir = mk('hook-state-')
+  protocolsDir = mk('hook-protocols-')
+  docsDir = mk('hook-docs-')
   fs.mkdirSync(path.join(docsDir, 'agents'))
   fs.mkdirSync(path.join(stateDir, 'teams'))
   fs.writeFileSync(
@@ -312,7 +338,7 @@ describe('the hook is wired', () => {
   })
 
   it('a missing script becomes one line and exit 0, not a stack trace', () => {
-    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'hook-empty-'))
+    const empty = mk('hook-empty-')
     const r = runCommand(empty)
     expect(r.status).toBe(0)
     expect(r.stdout.trim().split('\n')).toHaveLength(1)
@@ -323,7 +349,7 @@ describe('the hook is wired', () => {
 describe('pointers obey the cap too', () => {
   // A directory whose absolute path is exactly `total` characters long.
   function longDir(prefix: string, total: number): string {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
+    const base = mk(prefix)
     const fill = total - base.length - 1
     const dir = path.join(base, 'x'.repeat(fill))
     fs.mkdirSync(dir, { recursive: true })
