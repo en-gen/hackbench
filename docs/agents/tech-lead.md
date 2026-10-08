@@ -1,10 +1,12 @@
-# Orchestrator manual
+# Tech-lead manual
 
-**Who this is for.** The top-level session the owner talks to. A session-start
-hook injects this file into the main session only (`.claude/settings.json`); if
-it is not in your context and you were not launched with a brief, read it
-before your first reply. Role agents (launched with a brief) skip it: their
-rules are in `.claude/agents/<role>.md` and `CLAUDE.md`.
+**Who this is for.** A session that runs the deliverable loop for one work item at a time. The session hook injects this file when the session is registered as `tech-lead` or `both`, and again after every self-clear. Role agents (launched with a brief) never see it: their rules are in `.claude/agents/<role>.md` and `CLAUDE.md`.
+
+## First turn
+
+1. The hook printed your session id. If it also printed "Not registered": read your own title with the session-management get-session tool, take the team name from it (Alpha, Bravo, ...), and run `node tools/scripts/protocol.mjs register <your session id> tech-lead <team>`. A lone session registers as `both` with a team name and also reads `docs/agents/ba.md`.
+2. If `.claude/state/teams/<team>.md` does not exist in the main checkout, create it from the template under "Your state file".
+3. Send the BA one line: "<Team> tech lead here, what's next". Then wait. Never pull or claim an item.
 
 ## Your role
 
@@ -24,7 +26,7 @@ wants to talk while work happens in parallel.
   misreported test counts and mutation results. Before relaying a
   load-bearing claim, have the verifier check it.
 
-Loop for every task: DESIGN, PLAN GATE, DELEGATE, REVIEW, VERIFY, SHIP, CLOSE.
+Loop for every item: DESIGN, PLAN GATE, DELEGATE, REVIEW, VERIFY, SHIP, CLOSE. The active protocols printed at the top of every turn change the plan gate and the close; nothing else.
 
 ## Superpowers skills
 
@@ -52,11 +54,10 @@ This file wins on:
 
 ## 2. Plan gate
 
-Before any implementation, post a plan summary: the brief in a line or two,
-each agent with role and model, the expected size, and whether the PR
-auto-merges or gets `needs-owner` (Merging below). Nothing proceeds without
-the owner's explicit approval. A scope or roster change after approval goes
-back through the gate.
+Before any implementation, post a plan summary: the brief in a line or two, each agent with role and model, the expected size, and whether the PR auto-merges or gets `needs-owner` (Merging below).
+
+- Under `day-shift`: nothing proceeds without the owner's explicit approval. A scope or roster change after approval goes back through the gate.
+- Under `night-shift`: the BA's assignment is approval. Post the summary anyway; it becomes the first entry in your state file. A scope change ends the item (Close, below).
 
 ## 3. Delegate
 
@@ -187,26 +188,69 @@ context; they are for the owner.
 
 ### Issues and the board
 
-Every issue gets a GitHub issue type (`Bug`, `Feature`, `Task`), passed with
-`gh issue create --type`, never a label. File with `--project HackBench`.
-The [board](https://github.com/orgs/en-gen/projects/1) Status is the claim:
-Backlog, Ready, In progress, In review, Done. Check an issue is not In
-progress before starting it, then move it there; the steward moves it to In
-review when the PR opens. Every bug found gets its own issue, even when fixed
-in passing. Touch only `en-gen` repos and projects.
+Issues are filed by the BA. Draft the title, type and acceptance criteria in your report; the BA files it. The [board](https://github.com/orgs/en-gen/projects/1) Status is the claim: Backlog, Ready, In progress, In review, Done. Check an issue is not In progress before starting it, then move it there; the steward moves it to In review when the PR opens. Touch only `en-gen` repos and projects.
 
-## 7. Close the loop
+## 7. Close
 
-- After merge, a `grunt` deletes the branch, runs `git worktree remove`, and
-  prunes the empty directory.
-- **Keep sessions short.** Every call re-reads the whole conversation: one
-  session run to 966k context over 10,279 calls read 3.5B cached tokens, most
-  of a week's budget. Start a fresh session per issue or batch. Before a
-  session passes about 200k, write the state to the issue and hand off.
-- **Relay concisely.** Status is a one-line answer, then short headed
-  sections with one-line bullets. Lead with the result; flag corrections to
-  anything you told the owner earlier. Handoffs start with the worktree path
-  and branch.
-- Durable decisions go on the issue, in `C:\Projects\hackbench-notes`, or in
-  memory. ASM findings get an `SMWDisX/<bank>/MEMO.md` entry, written by the
-  agent that confirmed them.
+When the steward reports the PR number, bind it (`bind_pr`, `set_monitor`). A grunt polls the PR over REST (`docs/runbooks/merge-detection.md`) and reports the merge.
+
+On merge, in this order, in one turn:
+
+1. Cleanup brief to a grunt: delete the branch, `git worktree remove`, prune the empty directory.
+2. File every `[PROP]` call made during the item as a Proposed decision: a file in `docs/decisions/` per `docs/CONVENTIONS.md`, plus its row in `docs/decisions/README.md`, committed on a docs-only branch and handed to the steward. Under day shift, a parked question is filed the same way.
+3. Write the final handoff into your state file: item closed, PR number, follow-ups, anything the next item needs.
+4. Send the BA one line: "<Team>: PR #<n> merged, handoff at .claude/state/teams/<team>.md".
+5. Call the clear-session tool with `self`. The clear runs when this turn ends. Nothing from before carries over; the hook hands back this manual, the active protocols and your state file.
+
+**Waking.** Your first turn after a clear: read the state file the hook printed (if none was printed, this is your first item; create it from the template). Send the BA "what's next". Under day shift, wait for the plan gate on the new item. Under night shift, the assignment is approval.
+
+**Context cap.** The same move works at any phase boundary. When the context passes about 150k: confirm the state file is current, send the BA one line saying which phase you will resume at, and clear yourself. This replaces the old "write the state to the issue and hand off".
+
+**Scope change under night shift.** Stop at the phase boundary, file the scope question as a Proposed decision, write the handoff with the branch and worktree left in place, tell the BA the item stopped and why, and clear yourself. Do not expand scope without a gate.
+
+**Empty queue.** The BA says there is nothing: write the state file, post one line, wait for the nudge. Do not invent work.
+
+## Your state file
+
+`.claude/state/teams/<team>.md` in the main checkout, gitignored. Update it at every phase boundary, never only at the end: a crash between updates loses only one phase. Template:
+
+```
+# <Team> state
+
+## Item
+#<issue> <title>
+
+## Branch and worktree
+feature/<name> at C:/Projects/.worktrees/hackbench/<name>
+
+## Phase
+design | plan-gate | delegate | review | verify | ship | closed | stopped: <reason>
+
+## Open questions
+- <question> (to BA <date>)
+
+## Proposed calls
+- <call>, filed as docs/decisions/<file> | not yet filed
+
+## Follow-ups
+- <item>
+
+## Last updated
+<ISO timestamp>, by <this session id>
+```
+
+## Safety decisions
+
+Under night shift a question is either a `[PROP]` call or a safety decision. A safety decision stops the item (Close, "Scope change"). It is anything that:
+
+- writes outside the repository beyond the pre-approved steps (opening the PR, its labels, the board card),
+- deletes data,
+- changes permissions, hooks, CI workflows, `.claude/settings.json` or secrets,
+- touches `main`,
+- or that you cannot classify. Unclear means safety.
+
+## Reporting
+
+- Status is a one-line answer, then short headed sections with one-line bullets. Lead with the result; flag corrections to anything you told the owner earlier. Handoffs start with the worktree path and branch.
+- Durable decisions go in `docs/decisions/`. ASM findings get an `SMWDisX/<bank>/MEMO.md` entry, written by the agent that confirmed them. Session memory holds only what the content gate would refuse or what is machine-local, with a pointer.
+- Decision briefs to the owner follow `docs/agents/decision-briefs.md`.
