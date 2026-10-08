@@ -161,3 +161,43 @@ describe('the hook is wired', () => {
     expect(r.stdout).toContain('Active protocols: alpha')
   })
 })
+
+// The hooks docs cap injected output at 10,000 characters; beyond that Claude
+// sees only a file path and a 2,000-character preview, which is how the old
+// orchestrator manual (11,194 characters) reached sessions. This renders
+// against the REAL docs/ and docs/protocols/, not fixtures, so growing a
+// manual or a protocol past the cap turns this red.
+describe('the SessionStart injection stays under the hook cap', () => {
+  const CAP = 10000
+
+  it.each([
+    ['tech-lead', 'tech-lead', 'alpha'],
+    ['ba', 'ba', null],
+    ['both', 'both', 'alpha'],
+  ])('registered as %s', (_label, role, team) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hook-cap-'))
+    fs.mkdirSync(path.join(dir, 'teams'))
+    fs.writeFileSync(
+      path.join(dir, 'protocols.json'),
+      JSON.stringify({ active: ['night-shift', 'throttle'], changed: null, by: null }),
+    )
+    fs.writeFileSync(path.join(dir, 'sessions.json'), JSON.stringify({ s1: { role, team } }))
+    fs.writeFileSync(path.join(dir, 'ba.md'), 'b'.repeat(1500))
+    fs.writeFileSync(path.join(dir, 'teams', 'alpha.md'), 't'.repeat(1500))
+    const r = spawnSync('node', [hook], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      input: JSON.stringify({ session_id: 's1', hook_event_name: 'SessionStart' }),
+      env: {
+        ...process.env,
+        HACKBENCH_STATE_DIR: dir,
+        HACKBENCH_PROTOCOLS_DIR: '',
+        HACKBENCH_DOCS_DIR: '',
+        CLAUDE_PROJECT_DIR: repoRoot,
+      },
+    })
+    expect(r.stdout).toContain('Active protocols: night-shift, throttle')
+    expect(r.stdout.length).toBeLessThan(CAP)
+    process.stderr.write(`cap measure ${role}: ${r.stdout.length}\n`)
+  })
+})
