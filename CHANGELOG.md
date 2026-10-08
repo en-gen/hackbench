@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Agentic workflow: docs/ becomes the knowledge base (conventions, decisions, protocols, runbooks, hypotheses); /protocol <name> on|off enacts a mode for every session via a hook; BA and tech-lead manuals replace the orchestrator manual, with registration, state files and self-clear after merge.
 - Block contents: a test pins the CODE_00F17F entry bytes in the gate reader pattern (#632).
 - A unit test pins the 22 of 501 horizontal maps where the level loader and the map view's
   object expander disagree on Layer 1 Map16, by differing-cell count (#649). Measured on one
