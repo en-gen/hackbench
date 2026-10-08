@@ -15,7 +15,7 @@ on Eclipse Theia and Electron.
 
 ## Current state
 
-What a freshly started session reads first. Keep it short; detail lives in the linked files.
+The BA first-turn instructions direct the coordinating session to read this page's Current state after its state file (`docs/agents/ba.md`). Keep it short; detail lives in the linked files.
 
 - **Open decisions.** See [decisions/README.md](decisions/README.md); Proposed files are waiting on the owner.
 - **Hypotheses.** [hypotheses.md](hypotheses.md) holds claims not yet established.

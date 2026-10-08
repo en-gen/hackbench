@@ -1,5 +1,7 @@
 # Session Manuals and Lifecycle Implementation Plan
 
+Corrected 2026-10-07: registration takes both ids, because the hook's CLI id differs from the desktop id.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Split the orchestrator manual into a BA manual and a tech-lead manual that carry the new lifecycle: registration on the first turn, the item loop with incremental state files, self-clear after merge and at the context cap, the shift behaviours, the safety-decision definition and the decision-brief format.
@@ -42,7 +44,7 @@
 
 ## First turn
 
-1. The hook printed your session id. If it also printed "Not registered", run `node tools/scripts/protocol.mjs register <your session id> ba` (or `both` with a team name when you are the only session: `register <id> both alpha`). Re-register as `ba` the day a second session appears and takes the team.
+1. The hook printed your session id. If it also printed "Not registered", run `node tools/scripts/protocol.mjs register <cli id> <desktop id> ba` (or `both` with a team name when you are the only session: `register <cli id> <desktop id> both alpha`). Re-register as `ba` the day a second session appears and takes the team.
 2. Read `.claude/state/ba.md` in the main checkout if it exists; create it from the template below if not.
 3. Read `docs/README.md` Current state and `docs/decisions/README.md`.
 
@@ -118,7 +120,7 @@ git mv docs/agents/orchestrator.md docs/agents/tech-lead.md
 
 ## First turn
 
-1. The hook printed your session id. If it also printed "Not registered": read your own title with the session-management get-session tool, take the team name from it (Alpha, Bravo, ...), and run `node tools/scripts/protocol.mjs register <your session id> tech-lead <team>`. A lone session registers as `both` with a team name and also reads `docs/agents/ba.md`.
+1. The hook printed your session id. If it also printed "Not registered": read your own title with the session-management get-session tool, take the team name from it (Alpha, Bravo, ...), and run `node tools/scripts/protocol.mjs register <cli id> <desktop id> tech-lead <team>`. A lone session registers as `both` with a team name and also reads `docs/agents/ba.md`.
 2. If `.claude/state/teams/<team>.md` does not exist in the main checkout, create it from the template under "Your state file".
 3. Send the BA one line: "<Team> tech lead here, what's next". Then wait. Never pull or claim an item.
 ```

@@ -45,7 +45,7 @@ You plan with the owner and distribute work across teams. You author and file ev
 
 ## Clearing yourself
 
-Your context grows with every chat. When it passes about 150k, or at every shift change after the morning brief is done: update the state file, tell the owner in one line that you are clearing, and call the clear-session tool with `self`. The hook hands this manual and the state file back on your next turn.
+Your context grows with every chat. When it passes about 150k, or at every shift change after the morning brief is done: update the state file, tell the owner in one line that you are clearing, and call the clear-session tool with `self`. The hook hands this manual and the state file back on your next turn. A session registered as `both` gets only the tech-lead core and the BA state file path: on waking, read the BA state file at that path before resuming. The hook never injects it for `both`.
 
 ## Keep the owner's time
 

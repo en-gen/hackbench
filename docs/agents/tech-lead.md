@@ -60,7 +60,7 @@ When the steward reports the PR number, bind it (`bind_pr`, `set_monitor`). A gr
 
 ## Safety decisions
 
-Under night shift a question is a `[PROP]` call or a safety decision, which stops the item (Scope change above). A safety decision is anything that writes outside the repository beyond opening the PR, its labels and the board card; deletes data; changes permissions, hooks, CI workflows, `.claude/settings.json` or secrets; touches `main`; or that you cannot classify. Unclear means safety.
+Under night shift a question is a `[PROP]` call or a safety decision, which stops the item (Scope change above). A safety decision is anything that writes outside the repository beyond opening the PR, its labels and the board card; deletes data (the post-merge branch and worktree cleanup in Close is approved and is not a safety decision); changes permissions, hooks, CI workflows, `.claude/settings.json` or secrets; touches `main`; or that you cannot classify. Unclear means safety.
 
 ## Reporting
 

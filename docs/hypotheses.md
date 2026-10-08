@@ -12,11 +12,11 @@ Live thread: whether `PrepareGraphicsFile($14)` is missed in `loadVram` for the 
 
 | Evidence | Says | Source | Date |
 | --- | --- | --- | --- |
-| The `charBytePair` layout offset is not the cause | ruled out `[EST]` | investigating session, worktree notes | not recorded |
-| The `Map16Pointers` loop range (512 iterations, indices 0-255) is correct | ruled out `[EST]` | investigating session, worktree notes | not recorded |
-| The `map16ByteOffset` formula (`OW_TilePos_Calc`) is correct | ruled out `[EST]` | investigating session, worktree notes | not recorded |
-| The `blitChar` and `decodeTilemapWord` pixel render path is not the cause | ruled out `[EST]` | investigating session, worktree notes | not recorded |
-| The tile coordinates shown by the inspector UI are correct | ruled out `[EST]` | investigating session, worktree notes | not recorded |
+| The `charBytePair` layout offset is not the cause | unresolved `[OPEN]` | source not recovered | not recorded |
+| The `Map16Pointers` loop range (512 iterations, indices 0-255) is correct | unresolved `[OPEN]` | source not recovered | not recorded |
+| The `map16ByteOffset` formula (`OW_TilePos_Calc`) is correct | unresolved `[OPEN]` | source not recovered | not recorded |
+| The `blitChar` and `decodeTilemapWord` pixel render path is not the cause | unresolved `[OPEN]` | source not recovered | not recorded |
+| The tile coordinates shown by the inspector UI are correct | unresolved `[OPEN]` | source not recovered | not recorded |
 | `OBJECTGFXLIST` for tileset $15 may need `PrepareGraphicsFile($14)` that `loadVram` skips | open thread `[OPEN]` | investigating session, worktree notes | not recorded |
 
 What would resolve it: a Mesen capture of area 4 compared against the editor's render at those tiles, with the disassembly line that writes them.

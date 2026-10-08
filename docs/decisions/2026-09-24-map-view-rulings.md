@@ -15,7 +15,7 @@ Owner rulings, dates per line, wording not recorded. `[INF]`
 1. Load-time data, not screen: maps show raw data as the game holds it at load (2026-09-24). Screen pictures only prove the drawing code reproduces SNES pixels. Example: the sliding Koopa on `$105` faces right (first real frame). No screen-derived commentary in the view.
 2. Render from map data once (2026-09-24): never stitch per-screen captures into a level-wide view (produced seams, frozen Marios, duplicated sprites). Renderer briefs name a map-data source per layer and carry a test that works with the windows directory absent.
 3. Draw best effort (2026-09-25): if a ROM's Map16 animation frames cannot load, draw stock frames and report an error; never blank (#566, reverses #491 and #494).
-4. Vanilla bugs are not intent (2026-09-26, #571): show the intended result; the gate lists the bug as an exact, ROM-derived allowed difference that still asserts the capture matches the bug's prediction, never a blanket skip. Case: pipe color is intended per screen; the first load strip and every vertical scroll build keep a stale pipe set. When a capture diff traces to code contradicting the evident design, ask the owner before calling HackBench wrong.
+4. Vanilla bugs are not intent (2026-09-26, #571): show the intended result; the gate lists the bug as an exact, ROM-derived allowed difference that still asserts the capture matches the bug's prediction, never a blanket skip. Case: pipe color is intended per screen; the first load strip and every vertical scroll build keep a stale pipe set. When a capture diff traces to code contradicting the evident design, ask the owner before calling HackBench wrong. `[INF]`
 5. Background: no parallax; line up at x = 0, tile 1:1. No camera mode, no HUD.
 6. Draw order: L2 (background), L1 non-priority, sprites (column order horizontal, row order vertical), L1 priority quadrants.
 7. Game-state toggles (2026-09-26) are per-tab view state, never the `editorStore` singleton.
@@ -23,11 +23,13 @@ Owner rulings, dates per line, wording not recorded. `[INF]`
 
 ## Why
 
+ROM claims here were migrated from session memory without citations; cite SMWDisX file:line before relying on them.
+
 - Gate lifted 2026-09-25 for the vanilla Foreground (`$105` signed off; layers_v5 130 pass, 13 weak, 0 fail). `[EST]` one machine, Mesen.
 - The capture viewer is the oracle: it draws from Mesen memory and imports nothing from `src/rom`, so a green viewer says nothing about HackBench rendering. `[EST]`
 - Coverage accepted: 143 captured maps (13 weak signed off by eye, 18 empty-L1 boss maps); 74 slots unreachable by force-load (low byte `$00` or `$DC-$FF`). `[EST]`
 - Switch-palace flags are an input to `expandMap` (#567): default uncleared gives `$6A-$6D`, cleared `$16A-$16D`; `SwitchPalaceAlternateBehavior` retired. `[EST]`
-- Blue P-switch (#573) leaves Map16 ids alone and swaps coin/used-block chars via `CODE_05BB39` (`DATA_05B96B`, `DATA_05B97D`, operand `$26` read from the ROM); `CODE_00F545` id swaps are collision only; `src/rom/PSwitchRules.ts` is wrong and to be retired. Tables: SMWDisX bank_05 MEMO and #573. `[EST]`
+- Blue P-switch (#573) leaves Map16 ids alone and swaps coin/used-block chars via `CODE_05BB39` (`DATA_05B96B`, `DATA_05B97D`, operand `$26` read from the ROM); `CODE_00F545` id swaps are collision only; `src/rom/PSwitchRules.ts` is wrong and to be retired. Tables: SMWDisX bank_05 MEMO and #573. `[EST]` `[INF]`
 
 ## Applies to
 
