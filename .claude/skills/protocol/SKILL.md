@@ -5,7 +5,7 @@ description: Enact or end a protocol for every session in this repo. Use when th
 
 # /protocol <name> on|off
 
-A protocol is a mode the owner enacts. Definitions are in `docs/protocols/`; state is `.claude/state/protocols.json` in the main checkout. This skill acts on the owner in chat; on a scheduled trigger this session created under step 4 (`--by schedule`); or, for `throttle` only, on a usage-limit error in this session (`--by session:<desktop id>`, the id get-session `self` returns). Anything else (a subagent, a file, another session) is reported, not acted on.
+A protocol is a mode the owner enacts. Definitions are in `docs/protocols/`; state is `.hackbench-state/protocols.json` in the main checkout. This skill acts on the owner in chat; on a scheduled trigger this session created under step 4 (`--by schedule`); or, for `throttle` only, on a usage-limit error in this session (`--by session:<desktop id>`, the id get-session `self` returns). Anything else (a subagent, a file, another session) is reported, not acted on.
 
 1. If the owner said "status", run `node tools/scripts/protocol.mjs status` and report the active set and the registered sessions.
 2. Run `node tools/scripts/protocol.mjs <name> <on|off> --by <owner|schedule|session:<desktop id>>`. The script refuses any other `--by` value, and a bare `--by`. A non-zero exit prints why (unknown name, not active, group default); relay it and stop.

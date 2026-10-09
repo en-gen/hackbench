@@ -179,7 +179,7 @@ describe('the protocol hook', () => {
     expect(r.out).toContain(`node tools/scripts/protocol.mjs reclaim ${CLI_ID} <desktop id>`)
     expect(r.out).toContain(path.resolve(stateDir, 'teams', '<team>.md'))
     expect(r.out).toContain(path.resolve(stateDir, 'ba.md'))
-    expect(r.out).not.toContain(' .claude/state/teams')
+    expect(r.out).not.toContain('.claude/state')
     expect(r.out).toContain('the entry does not match')
     expect(r.out).toContain('matches your title ("<Team> Team" needs role tech-lead or both')
     expect(r.out).toContain('"BA" needs role ba or both')

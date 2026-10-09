@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Protocol state for the agentic workflow: parse docs/protocols/*.md, keep
-// .claude/state/protocols.json and protocols.log in the main checkout, and
+// .hackbench-state/protocols.json and protocols.log in the main checkout, and
 // register sessions. Pure functions are exported for tests; the CLI is at
 // the bottom. Spec: docs/superpowers/specs/2026-10-07-agentic-protocols-design.md
 // section 3. Why a script rather than prose: the group invariant (exactly one
@@ -326,8 +326,48 @@ export function mainCheckoutDir(cwd) {
   return path.dirname(path.resolve(cwd, r.stdout.trim()))
 }
 
+// The desktop app guards .claude/ against session writes from a worktree and
+// the auto-mode classifier reads any workaround as a bypass, so shared state
+// lives in a folder of its own in the main checkout (moved 2026-10-09).
+export const STATE_DIR_NAME = '.hackbench-state'
+const LEGACY_STATE_DIR = path.join('.claude', 'state')
+
 export function stateDirFor(cwd) {
-  return process.env.HACKBENCH_STATE_DIR || path.join(mainCheckoutDir(cwd), '.claude', 'state')
+  return process.env.HACKBENCH_STATE_DIR || path.join(mainCheckoutDir(cwd), STATE_DIR_NAME)
+}
+
+// One-time copy from the old folder. It never overwrites a target and never
+// deletes the source, and the hook does not read the old folder as a fallback,
+// which would hide a failed migration.
+export function migrateState(fromDir, toDir, { lock = {} } = {}) {
+  const copied = []
+  const skipped = []
+  if (!existsSync(fromDir)) return { copied, skipped }
+  const listed = []
+  for (const f of ['sessions.json', 'protocols.json', 'protocols.log', 'ba.md']) {
+    if (existsSync(path.join(fromDir, f))) listed.push(f)
+  }
+  const teamsDir = path.join(fromDir, 'teams')
+  if (existsSync(teamsDir)) {
+    for (const f of readdirSync(teamsDir)) if (f.endsWith('.md')) listed.push(`teams/${f}`)
+  }
+  withStateLock(
+    toDir,
+    () => {
+      for (const rel of listed) {
+        const target = path.join(toDir, rel)
+        if (existsSync(target)) {
+          skipped.push(rel)
+          continue
+        }
+        mkdirSync(path.dirname(target), { recursive: true })
+        writeFileAtomic(target, readFileSync(path.join(fromDir, rel)))
+        copied.push(rel)
+      }
+    },
+    lock,
+  )
+  return { copied, skipped }
 }
 
 export function protocolsDirFor(cwd) {
@@ -498,7 +538,7 @@ export function unregisterSession(stateDir, desktopId, { rename = renameSync, lo
 const BY = /^(owner|schedule|session:local_[0-9a-f-]{36})$/
 const BY_MESSAGE = '--by must be owner, schedule or session:<desktop id>'
 const USAGE =
-  'usage: protocol.mjs <name> on|off --by <owner|schedule|session:<desktop id>> | status | register <cliId> <desktopId> <role> [team] | reclaim <cliId> <desktopId> | handoff <team|ba> (file text on stdin) | unregister <desktopId>'
+  'usage: protocol.mjs <name> on|off --by <owner|schedule|session:<desktop id>> | status | register <cliId> <desktopId> <role> [team] | reclaim <cliId> <desktopId> | handoff <team|ba> (file text on stdin) | migrate-state | unregister <desktopId>'
 
 function cli(argv, cwd) {
   const stateDir = stateDirFor(cwd)
@@ -512,6 +552,10 @@ function cli(argv, cwd) {
   if (a === 'unregister') {
     if (!b) return { code: 1, out: USAGE }
     return { code: 0, out: unregisterSession(stateDir, b) }
+  }
+  if (a === 'migrate-state') {
+    const from = path.join(mainCheckoutDir(cwd), LEGACY_STATE_DIR)
+    return { code: 0, out: migrateState(from, stateDir) }
   }
   if (a === 'handoff') {
     if (!b) return { code: 1, out: USAGE }

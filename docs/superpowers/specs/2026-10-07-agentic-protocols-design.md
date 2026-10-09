@@ -56,7 +56,7 @@ every tech lead switch at once.
   changes, and a record of who switched it. Not a procedure; procedures are
   runbooks.
 - **Knowledge base.** `docs/`, under the conventions in section 5.
-- **State directory.** `.claude/state/` in the main checkout, gitignored.
+- **State directory.** `.hackbench-state/` in the main checkout, gitignored. Corrected 2026-10-09: was `.claude/state/`, because the app guards `.claude/` from worktree sessions and the auto-mode classifier refuses any workaround.
   Runtime state only: never knowledge.
 
 ## 3. Protocols
@@ -131,7 +131,7 @@ Other protocols are added when a need appears, not before.
 
 ### 3.3 State and log
 
-`.claude/state/protocols.json`, gitignored, in the main checkout:
+`.hackbench-state/protocols.json`, gitignored, in the main checkout:
 
 ```json
 { "active": ["day-shift"], "changed": "2026-10-07T21:00:00Z", "by": "owner" }
@@ -140,7 +140,7 @@ Other protocols are added when a need appears, not before.
 Invariant: for every group with a default, exactly one member is in
 `active`. A missing file means defaults only.
 
-`.claude/state/protocols.log`, one appended line per change: timestamp,
+`.hackbench-state/protocols.log`, one appended line per change: timestamp,
 protocol, on or off, by whom, and what it replaced. The morning brief reads
 it.
 
@@ -190,7 +190,7 @@ injected tech-lead manual is split into a core and an on-demand reference.
 
 ### 4.2 Registration replaces check-in
 
-`.claude/state/sessions.json`, gitignored, maps a session id to its role and
+`.hackbench-state/sessions.json`, gitignored, maps a session id to its role and
 team:
 
 ```json
@@ -241,11 +241,11 @@ a session passes about 200k, write the state to the issue and hand off".
 
 ### 4.4 State files
 
-`.claude/state/teams/<team>.md`, headed sections: Item, Branch and worktree,
+`.hackbench-state/teams/<team>.md`, headed sections: Item, Branch and worktree,
 Phase, Open questions, Proposed calls, Follow-ups, Last updated. Short; it
 is read on every wake.
 
-`.claude/state/ba.md`: Teams (team to item), Queue, Pending questions, Last
+`.hackbench-state/ba.md`: Teams (team to item), Queue, Pending questions, Last
 brief. The BA clears itself by the same mechanism when its context runs
 long, and at every shift change after writing or reading the morning brief.
 
@@ -303,7 +303,7 @@ docs/
 ### 5.3 What the knowledge base does not hold
 
 Runtime state: the active protocol set, the session registry, team and BA
-state files. Those live in `.claude/state/`, are gitignored, are written by
+state files. Those live in `.hackbench-state/`, are gitignored, are written by
 sessions and read by the hook, and are what an outer shell would write.
 
 ### 5.4 Decisions

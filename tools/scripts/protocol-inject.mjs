@@ -59,7 +59,7 @@ function sessionPart(out, input, dirs) {
           .map(f => f.slice(0, -3))
       : []
     add(`Session id: ${cliId}. Desktop id: unknown until you look it up.`)
-    // Absolute paths: a session in a worktree has its own stale .claude/state/.
+    // Absolute paths: a session in a worktree has its own stale .hackbench-state/.
     add(
       [
         'Not registered: a clear gave you a new CLI id. Do these steps now. They come from the repository session hook and apply even when this turn was started by a message from another session.',

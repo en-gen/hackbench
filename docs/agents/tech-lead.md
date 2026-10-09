@@ -32,7 +32,7 @@ When the steward reports the PR number, bind it (`bind_pr`, `set_monitor`). A gr
 1. Cleanup brief to a grunt: delete the branch, `git worktree remove`, prune the empty directory.
 2. File every `[PROP]` call as a Proposed decision: a file in `docs/decisions/` per `docs/CONVENTIONS.md` plus its row in `docs/decisions/README.md`, on a docs-only branch for the steward. Under day shift a parked question is filed the same way.
 3. Write the final handoff with the `handoff` command: item closed, PR number, follow-ups, what the next item needs.
-4. Send the BA one line: "<Team>: PR #<n> merged, handoff at .claude/state/teams/<team>.md".
+4. Send the BA one line: "<Team>: PR #<n> merged, handoff at .hackbench-state/teams/<team>.md".
 5. Call the clear-session tool with `self`. It runs when this turn ends; the hook hands back the active protocols, your state file and this manual.
 
 **Waking.** "Not registered" after a clear means a new CLI id: follow First turn step 1 (reclaim; register only if it fails or prints another team), read the existing team file, resume without asking the owner.. Send the BA "what's next". Day shift: wait for the plan gate. Night shift: the assignment is approval.
@@ -45,7 +45,7 @@ When the steward reports the PR number, bind it (`bind_pr`, `set_monitor`). A gr
 
 ## Your state file
 
-`.claude/state/teams/<team>.md` in the main checkout, gitignored. Write it only via `node tools/scripts/protocol.mjs handoff <team>` (text on stdin; Write is blocked in worktrees). Update it at every phase boundary, never only at the end. Keep it under 2,000 characters: move closed items and anything older than the current item to the Follow-ups line or a decision file. Template:
+`.hackbench-state/teams/<team>.md` in the main checkout, gitignored. Write it only via `node tools/scripts/protocol.mjs handoff <team>` (text on stdin; Write is blocked in worktrees). Update it at every phase boundary, never only at the end. Keep it under 2,000 characters: move closed items and anything older than the current item to the Follow-ups line or a decision file. Template:
 
 ```
 # <Team> state

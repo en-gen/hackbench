@@ -5,7 +5,7 @@
 ## First turn
 
 1. The hook printed your CLI session id and your desktop id ("unknown until you look it up"). If it said "Not registered": call get-session on `self` for your desktop id (`local_...`) and run `node tools/scripts/protocol.mjs reclaim <CLI id> <desktop id>`; if the printed role is ba or both, go to step 2. If it fails or prints another role, register from your title. A title `BA` means run `node tools/scripts/protocol.mjs register <CLI id> <desktop id> ba`; the only session on the machine registers `both <team>` instead. Re-register as `ba` the day a second session appears and takes the team.
-2. Read `.claude/state/ba.md` in the main checkout (the absolute path the hook prints, not a worktree copy) if it exists; create it from the template below with the `handoff ba` command ONLY IF IT DOES NOT EXIST, never over an existing one. After a clear you get a new CLI id: reclaim it by desktop id (step 1), then read the file; do not ask the owner.
+2. Read `.hackbench-state/ba.md` in the main checkout (the absolute path the hook prints, not a worktree copy) if it exists; create it from the template below with the `handoff ba` command ONLY IF IT DOES NOT EXIST, never over an existing one. After a clear you get a new CLI id: reclaim it by desktop id (step 1), then read the file; do not ask the owner.
 3. Read `docs/README.md` Current state and `docs/decisions/README.md`.
 
 ## Your role
@@ -24,7 +24,7 @@ You plan with the owner and distribute work across teams. You author and file ev
 
 ## Your state file
 
-`.claude/state/ba.md` in the main checkout, gitignored. Write it only with `node tools/scripts/protocol.mjs handoff ba` (full text on stdin; `ba` is a reserved name; the app blocks Write and Edit from a worktree). Update it whenever the map changes. Template:
+`.hackbench-state/ba.md` in the main checkout, gitignored. Write it only with `node tools/scripts/protocol.mjs handoff ba` (full text on stdin; `ba` is a reserved name; the app blocks Write and Edit from a worktree). Update it whenever the map changes. Template:
 
 ```
 # BA state

@@ -268,6 +268,8 @@ import { pathToFileURL } from 'url'
 import {
   mainCheckoutDir,
   stateDirFor,
+  STATE_DIR_NAME,
+  migrateState,
   protocolsDirFor,
   readSessions,
   registerSession,
@@ -300,6 +302,97 @@ describe('mainCheckoutDir', () => {
   it('falls back to cwd outside git', () => {
     const dir = tempDir('nogit-')
     expect(mainCheckoutDir(dir)).toBe(dir)
+  })
+})
+
+describe('the state directory', () => {
+  it('is .hackbench-state in the main checkout, also from a worktree', () => {
+    const main = tempDir('main-')
+    execFileSync('git', ['init', '-q', main])
+    execFileSync('git', ['-C', main, 'commit', '-q', '--allow-empty', '-m', 'root'], {
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: 't',
+        GIT_AUTHOR_EMAIL: 't@t',
+        GIT_COMMITTER_NAME: 't',
+        GIT_COMMITTER_EMAIL: 't@t',
+      },
+    })
+    const wt = path.join(tempDir('wt-'), 'w')
+    execFileSync('git', ['-C', main, 'worktree', 'add', '-q', wt])
+    const real = (p: string) => path.join(fs.realpathSync(path.dirname(p)), path.basename(p))
+    expect(STATE_DIR_NAME).toBe('.hackbench-state')
+    expect(real(stateDirFor(wt))).toBe(path.join(fs.realpathSync(main), '.hackbench-state'))
+    expect(stateDirFor(wt)).not.toContain(path.join('.claude', 'state'))
+  })
+})
+
+describe('the state directory is gitignored', () => {
+  it('git check-ignore accepts a file inside it', () => {
+    const root = path.resolve(__dirname, '../../..')
+    const r = spawnSync('git', ['check-ignore', '-q', `${STATE_DIR_NAME}/sessions.json`], {
+      cwd: root,
+    })
+    expect(r.status).toBe(0)
+  })
+})
+
+describe('migrateState', () => {
+  const seed = (from: string) => {
+    fs.mkdirSync(path.join(from, 'teams'), { recursive: true })
+    fs.writeFileSync(path.join(from, 'sessions.json'), '{"a":1}')
+    fs.writeFileSync(path.join(from, 'ba.md'), 'ba')
+    fs.writeFileSync(path.join(from, 'teams', 'alpha.md'), 'alpha')
+    fs.writeFileSync(path.join(from, 'teams', 'notes.txt'), 'ignored')
+  }
+
+  it('copies the state files and leaves the source intact', () => {
+    const from = tempDir('old-')
+    const to = path.join(tempDir('new-'), 'state')
+    seed(from)
+    const r = migrateState(from, to)
+    expect(r.copied.sort()).toEqual(['ba.md', 'sessions.json', 'teams/alpha.md'])
+    expect(fs.readFileSync(path.join(to, 'teams', 'alpha.md'), 'utf8')).toBe('alpha')
+    expect(fs.readFileSync(path.join(from, 'sessions.json'), 'utf8')).toBe('{"a":1}')
+    expect(fs.existsSync(path.join(to, 'teams', 'notes.txt'))).toBe(false)
+  })
+
+  it('never overwrites an existing target file', () => {
+    const from = tempDir('old-')
+    const to = tempDir('new-')
+    seed(from)
+    fs.writeFileSync(path.join(to, 'ba.md'), 'newer')
+    const r = migrateState(from, to)
+    expect(r.skipped).toEqual(['ba.md'])
+    expect(r.copied).not.toContain('ba.md')
+    expect(fs.readFileSync(path.join(to, 'ba.md'), 'utf8')).toBe('newer')
+  })
+
+  it('copes with a missing source directory', () => {
+    const to = path.join(tempDir('new-'), 'state')
+    expect(migrateState(path.join(tempDir('none-'), 'nope'), to)).toEqual({
+      copied: [],
+      skipped: [],
+    })
+  })
+
+  it('takes the lock and the command prints what it did', () => {
+    const main = tempDir('main-')
+    const old = path.join(main, '.claude', 'state')
+    seed(old)
+    const script = path.resolve(__dirname, '../../../tools/scripts/protocol.mjs')
+    const r = spawnSync('node', [script, 'migrate-state'], {
+      cwd: main,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        HACKBENCH_STATE_DIR: '',
+        HACKBENCH_PROTOCOLS_DIR: path.resolve(__dirname, '../../../docs/protocols'),
+      },
+    })
+    expect(r.status).toBe(0)
+    expect(JSON.parse(r.stdout).copied).toContain('sessions.json')
+    expect(fs.existsSync(path.join(main, '.hackbench-state', 'sessions.json'))).toBe(true)
   })
 })
 
