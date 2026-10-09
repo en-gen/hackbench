@@ -2587,10 +2587,11 @@ test.describe('zoom anchor across the commit gap (#547)', () => {
         const w = getSvc('ApplicationShell').getWidgetById(`hackbench.map-view:${id}`)
         const real = w.projects
         const release = (window.hbRelease = [])
+        const statuses = (window.hbReplyStatuses = [])
         w.projects = new Proxy(real, {
           get: (t, k) =>
             k === 'mapScreen'
-              ? (...a) => real.mapScreen(...a).then(r => new Promise(res => release.push(() => res(r)))) // prettier-ignore
+              ? (...a) => real.mapScreen(...a).then(r => (statuses.push(r.status), new Promise(res => release.push(() => res(r))))) // prettier-ignore
               : (...a) => real[k](...a),
         })
         w.refresh() // clears the screen cache and asks for the visible ones again
@@ -2620,6 +2621,7 @@ test.describe('zoom anchor across the commit gap (#547)', () => {
           return {
             pendingBefore,
             heldBefore,
+            replyStatuses: window.hbReplyStatuses,
             pendingAfter: w.pending.size,
             atClick,
             renderedAfterReply: rendered(),
@@ -2632,6 +2634,9 @@ test.describe('zoom anchor across the commit gap (#547)', () => {
       // the old one while the controller already held the new one.
       expect(seen.pendingBefore, 'replies were held').toBeGreaterThan(0)
       expect(seen.heldBefore, 'every pending reply was parked').toBe(seen.pendingBefore)
+      expect(seen.replyStatuses, 'every held reply took the ok path').toEqual(
+        Array(seen.heldBefore).fill('ok'),
+      )
       expect(seen.pendingAfter, 'the replies were processed before the commit').toBe(0)
       expect(seen.atClick.rendered).toBe('1')
       expect(seen.renderedAfterReply, 'no commit landed before the replies ran').toBe('1')
