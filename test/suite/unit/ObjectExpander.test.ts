@@ -961,6 +961,54 @@ describe('handle_0DA68E (ext 0x46 midway)', () => {
     expect(drawn(grid).sort()).toEqual(['40,4=35', '40,5=38'])
   })
 
+  // Sweeps over synthetic bytes (no ROM): every valid row, so one lucky row
+  // cannot pass. The old port drew the tape at (row, col-1) and the base at
+  // (row, col) for every column, which is what the "old cell" check forbids.
+  it('sweep, horizontal: col 0 of screens 0 and 2, rows 0-26', () => {
+    for (const col of [0, 32]) {
+      for (let row = 0; row <= 26; row++) {
+        const cells = drawn(run(col, row))
+        expect(cells).toHaveLength(2)
+        // Base: next screen, same row, column 0 of it.
+        expect(cells).toContain(`${row},${col + 16}=38`)
+        // Tape: column 15 of the object's own screen, one row up; rows 0 and
+        // 16 wrap inside their block (Y underflows) so they are pinned apart.
+        const tapeRow = row % 16 === 0 ? (row === 0 ? 15 : 4) : row - 1
+        const tapeCol = row === 16 ? col + 31 : col + 15
+        expect(cells).toContain(`${tapeRow},${tapeCol}=35`)
+        // The old wrong cells: previous screen's column 15 and the object's own.
+        if (col > 0) expect(cells.join()).not.toContain(`${row},${col - 1}=`)
+        expect(cells.join()).not.toContain(`${row},${col}=`)
+      }
+    }
+  })
+
+  it('sweep, horizontal: columns 1-15 and 17-31 keep the col-1 and col draw', () => {
+    for (let col = 1; col < 32; col++) {
+      if (col % 16 === 0) continue
+      for (let row = 0; row <= 26; row++)
+        expect(drawn(run(col, row))).toEqual([`${row},${col - 1}=35`, `${row},${col}=38`])
+    }
+  })
+
+  it('sweep, vertical: block-edge columns 0 and 16, a full screen of rows', () => {
+    for (const col of [0, 16]) {
+      for (let row = 32; row < 48; row++) {
+        const grid = createGrid(4, true)
+        const cur = makeCursorForHandler(HANDLER_ADDR, grid, setupRom(), 0, col, row, 0x46, 0)
+        cur.vertical = true
+        handle_0DA68E(cur)
+        const cells = drawn(grid)
+        expect(cells).toHaveLength(2)
+        // Tape stays in the object's own $100 block: last column, row above, Y wraps.
+        expect(cells).toContain(`${32 + ((row - 1) & 15)},${col + 15}=35`)
+        // Base is one horizontal stride ($1B0) further on: never the object's cell.
+        expect(cells.some(c => c.endsWith('=38'))).toBe(true)
+        expect(cells.join()).not.toContain(`${row},${col}=`)
+      }
+    }
+  })
+
   it('does the same at the first column of any screen', () => {
     expect(drawn(run(32, 10)).sort()).toEqual(['10,48=38', '9,47=35'].sort())
   })
