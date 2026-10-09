@@ -613,7 +613,10 @@ cell equal on every map that recorded a WRAM image; both Map16 tables
 byte-identical on 131 of 154 maps (re-captured 2026-10-09 at the real level
 load; the other 23 are 18 boss arenas and 5 that differ only past the map's
 end). Before that, 88 of 154 were identical: 45 maps had been recorded in the
-castle-entry scene (#649). Accuracy delta of ROM seed against oracle seed, layers_v5,
+castle-entry scene: GM `$14` with player animation `$0A`
+(`!PlayerAni_EnterCastle`, rammap.asm:575; the game sets it at bank_00.asm:4972-4978,
+and GM14Level is bank_00.asm:4405), about 500 frames before the real load (#649).
+Accuracy delta of ROM seed against oracle seed, layers_v5,
 chosen-frame policy: exact 932 against 914, shape 572 against 563, wrong 300
 against 344. Spawn tier: identical (both 2,714 exact before the grouping fix
 below). Test: `ROM-run level loader against Mesen level state`.
