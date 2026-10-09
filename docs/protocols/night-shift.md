@@ -12,7 +12,7 @@ shift
 
 The owner, in chat; the BA runs the command. There is no return time: night shift ends when the owner says it ends (`docs/decisions/2026-10-08-night-shift-ends-on-owner-word.md`).
 
-Self-clear: the resume-prompt flow passed 2026-10-09 on branch scripts (one throwaway session, auto mode, one machine) `[EST]`; the shipped flow is confirmed by the post-cutover Zulu run on develop `[OPEN]`. The BA enacts night shift only after that confirm (`docs/runbooks/state-cutover.md`).
+Self-clear: the resume-prompt flow passed 2026-10-09 on branch scripts (one throwaway session, auto mode, one machine) `[EST]`; the shipped flow is pending the post-cutover Zulu run on develop `[OPEN]`. The BA enacts night shift only after that confirm (`docs/runbooks/state-cutover.md`).
 
 ## Changes
 
