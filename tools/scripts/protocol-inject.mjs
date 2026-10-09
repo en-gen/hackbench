@@ -66,7 +66,7 @@ function sessionPart(out, input, dirs) {
         '(1) Call get-session on `self` for your title and desktop id (`local_...`).',
         `(2) Run \`node tools/scripts/protocol.mjs reclaim ${cliId} <desktop id>\`. It prints your team.`,
         `(3) If the printed entry matches your title ("<Team> Team" needs role tech-lead or both and that team; "BA" needs role ba or both), read ${stateFile('teams', '<team>.md')} (the BA reads ${stateFile('ba.md')}; a both session reads both) and your manual, and resume without asking the owner.`,
-        `(4) If reclaim fails or the entry does not match, register from your title: "<Team> Team" registers tech-lead <team> (create it in ${stateFile('teams')} only if the team file does not exist); "BA" registers ba; the only session on the machine registers both <team>. Any other title: do not register, carry on with the owner's request.`,
+        `(4) If reclaim fails or the entry does not match, register from your title: "<Team> Team" registers tech-lead <team> (if ${stateFile('teams', '<team>.md')} does not exist, create it with \`node tools/scripts/protocol.mjs handoff <team>\`, text on stdin, never the Write tool: the app blocks it from a worktree); "BA" registers ba; the only session on the machine registers both <team>. Any other title: do not register, carry on with the owner's request.`,
         `Manuals: ${agents('tech-lead.md')} or ${agents('ba.md')}.`,
       ].join('\n'),
     )

@@ -4,8 +4,8 @@
 
 ## First turn
 
-1. If the hook said "Not registered": get your desktop id (`local_...`) from get-session on `self`, then run `node tools/scripts/protocol.mjs reclaim <CLI id> <desktop id>`. If the printed entry matches your title (role tech-lead or both, your team), read your team file (the main checkout's `.claude/state/teams/`, the path the hook prints) and resume (see Waking). Otherwise register from your title (your title is your identity; the CLI id is a cache): `<Team> Team` (e.g. `Delta Team`) means `node tools/scripts/protocol.mjs register <CLI id> <desktop id> tech-lead <team>` (team in lowercase). A lone session registers `both <team>` and also reads `docs/agents/ba.md`.
-2. Create `teams/<team>.md` in the main checkout's `.claude/state/` (the directory the hook prints) from the template ONLY IF IT DOES NOT EXIST. NEVER OVERWRITE AN EXISTING TEAM FILE: it is the handoff. `register` never touches it.
+1. If the hook said "Not registered": get your desktop id (`local_...`) from get-session on `self`, then run `node tools/scripts/protocol.mjs reclaim <CLI id> <desktop id>`. If the printed entry matches your title (role tech-lead or both, your team), read the team file at the path the hook prints and resume (see Waking). Otherwise register from your title (your title is your identity; the CLI id is a cache): `<Team> Team` (e.g. `Delta Team`) means `node tools/scripts/protocol.mjs register <CLI id> <desktop id> tech-lead <team>` (team in lowercase). A lone session registers `both <team>` and also reads `docs/agents/ba.md`.
+2. Create the team file from the template ONLY IF IT DOES NOT EXIST, using the `handoff` command (Your state file). NEVER OVERWRITE AN EXISTING TEAM FILE: it is the handoff. `register` never touches it.
 3. Send the BA one line: "<Team> Team here, what's next". Then wait. Never pull or claim an item.
 
 ## Your role
@@ -31,11 +31,11 @@ When the steward reports the PR number, bind it (`bind_pr`, `set_monitor`). A gr
 
 1. Cleanup brief to a grunt: delete the branch, `git worktree remove`, prune the empty directory.
 2. File every `[PROP]` call as a Proposed decision: a file in `docs/decisions/` per `docs/CONVENTIONS.md` plus its row in `docs/decisions/README.md`, on a docs-only branch for the steward. Under day shift a parked question is filed the same way.
-3. Write the final handoff into your state file: item closed, PR number, follow-ups, what the next item needs.
+3. Write the final handoff with the `handoff` command: item closed, PR number, follow-ups, what the next item needs.
 4. Send the BA one line: "<Team>: PR #<n> merged, handoff at .claude/state/teams/<team>.md".
 5. Call the clear-session tool with `self`. It runs when this turn ends; the hook hands back the active protocols, your state file and this manual.
 
-**Waking.** "Not registered" after a clear means a new CLI id: follow First turn step 1 (reclaim; register only if it fails or prints another team), read the existing team file, resume without asking the owner. Never create from the template while one exists. Send the BA "what's next". Day shift: wait for the plan gate. Night shift: the assignment is approval.
+**Waking.** "Not registered" after a clear means a new CLI id: follow First turn step 1 (reclaim; register only if it fails or prints another team), read the existing team file, resume without asking the owner.. Send the BA "what's next". Day shift: wait for the plan gate. Night shift: the assignment is approval.
 
 **Context cap.** At any phase boundary past about 150k context: confirm the state file is current, tell the BA which phase you resume at, and clear yourself.
 
@@ -45,7 +45,7 @@ When the steward reports the PR number, bind it (`bind_pr`, `set_monitor`). A gr
 
 ## Your state file
 
-`.claude/state/teams/<team>.md` in the main checkout, gitignored. Update it at every phase boundary, never only at the end. Keep it under 2,000 characters: move closed items and anything older than the current item to the Follow-ups line or a decision file. Template:
+`.claude/state/teams/<team>.md` in the main checkout, gitignored. Write it only via `node tools/scripts/protocol.mjs handoff <team>` (text on stdin; Write is blocked in worktrees). Update it at every phase boundary, never only at the end. Keep it under 2,000 characters: move closed items and anything older than the current item to the Follow-ups line or a decision file. Template:
 
 ```
 # <Team> state

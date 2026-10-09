@@ -443,6 +443,27 @@ export function reclaimSession(
   return { cliId, ...all[cliId] }
 }
 
+// A session in an app-made worktree cannot use the Write tool on the main
+// checkout's .claude/ (the desktop app's guard refuses it), so the handoff
+// goes through this script, as sessions.json does. `ba` is reserved for the
+// BA's own state file. Same lock and atomic rename as the sessions file.
+export function writeHandoff(stateDir, team, text, { rename = renameSync, lock = {} } = {}) {
+  if (!TEAM_NAME.test(team)) throw new Error(`team name must match ${TEAM_NAME}; got "${team}"`)
+  if (!text.trim()) throw new Error('refusing empty handoff text; give the file on stdin')
+  const file =
+    team === 'ba' ? path.join(stateDir, 'ba.md') : path.join(stateDir, 'teams', `${team}.md`)
+  return withStateLock(
+    stateDir,
+    assertHeld => {
+      mkdirSync(path.dirname(file), { recursive: true })
+      assertHeld()
+      writeFileAtomic(file, text, rename)
+      return file
+    },
+    lock,
+  )
+}
+
 // The BA prunes sessions that no longer exist; going through the lock keeps a
 // concurrent register from being lost.
 export function unregisterSession(stateDir, desktopId, { rename = renameSync, lock = {} } = {}) {
@@ -477,7 +498,7 @@ export function unregisterSession(stateDir, desktopId, { rename = renameSync, lo
 const BY = /^(owner|schedule|session:local_[0-9a-f-]{36})$/
 const BY_MESSAGE = '--by must be owner, schedule or session:<desktop id>'
 const USAGE =
-  'usage: protocol.mjs <name> on|off --by <owner|schedule|session:<desktop id>> | status | register <cliId> <desktopId> <role> [team] | reclaim <cliId> <desktopId> | unregister <desktopId>'
+  'usage: protocol.mjs <name> on|off --by <owner|schedule|session:<desktop id>> | status | register <cliId> <desktopId> <role> [team] | reclaim <cliId> <desktopId> | handoff <team|ba> (file text on stdin) | unregister <desktopId>'
 
 function cli(argv, cwd) {
   const stateDir = stateDirFor(cwd)
@@ -491,6 +512,10 @@ function cli(argv, cwd) {
   if (a === 'unregister') {
     if (!b) return { code: 1, out: USAGE }
     return { code: 0, out: unregisterSession(stateDir, b) }
+  }
+  if (a === 'handoff') {
+    if (!b) return { code: 1, out: USAGE }
+    return { code: 0, out: writeHandoff(stateDir, b, readFileSync(0, 'utf8')) }
   }
   if (a === 'reclaim') {
     if (!b || !c) return { code: 1, out: USAGE }

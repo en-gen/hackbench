@@ -274,6 +274,7 @@ import {
   withStateLock,
   unregisterSession,
   reclaimSession,
+  writeHandoff,
   LOCK_DEFAULTS,
 } from '../../../tools/scripts/protocol.mjs'
 
@@ -952,6 +953,67 @@ describe('reclaimSession', () => {
     expect(bad.stdout).toMatch(/no registration/)
     expect(run('reclaim', NEW_CLI, LOCAL_ID).status).toBe(0)
     expect(readSessions(dir)[NEW_CLI]).toMatchObject({ team: 'alpha' })
+  })
+})
+
+describe('writeHandoff', () => {
+  it('writes the team file under teams/ and returns its path', () => {
+    const dir = tempDir('state-')
+    const file = writeHandoff(dir, 'alpha', '# Alpha\nstate\n')
+    expect(file).toBe(path.join(dir, 'teams', 'alpha.md'))
+    expect(fs.readFileSync(file, 'utf8')).toBe('# Alpha\nstate\n')
+  })
+
+  it('overwrites an existing file and leaves no temp file', () => {
+    const dir = tempDir('state-')
+    writeHandoff(dir, 'alpha', 'one')
+    writeHandoff(dir, 'alpha', 'two')
+    expect(fs.readFileSync(path.join(dir, 'teams', 'alpha.md'), 'utf8')).toBe('two')
+    expect(fs.readdirSync(path.join(dir, 'teams'))).toEqual(['alpha.md'])
+  })
+
+  it('writes the BA state file for the reserved name ba', () => {
+    const dir = tempDir('state-')
+    expect(writeHandoff(dir, 'ba', 'b')).toBe(path.join(dir, 'ba.md'))
+  })
+
+  it('writes atomically, under the lock', () => {
+    const dir = tempDir('state-')
+    let held = false
+    const rename = (from: string, to: string) => {
+      held = fs.existsSync(path.join(dir, '.lock'))
+      expect(fs.existsSync(to)).toBe(false)
+      fs.renameSync(from, to)
+    }
+    writeHandoff(dir, 'alpha', 'x', { rename })
+    expect(held).toBe(true)
+  })
+
+  it('refuses a bad team name or empty text and writes nothing', () => {
+    const dir = tempDir('state-')
+    for (const team of ['../x', 'A b', '']) {
+      expect(() => writeHandoff(dir, team, 'x')).toThrow(/team name/)
+    }
+    expect(() => writeHandoff(dir, 'alpha', '  \n')).toThrow(/empty/)
+    expect(fs.existsSync(path.join(dir, 'teams'))).toBe(false)
+  })
+
+  it('the command reads stdin, prints the path, and refuses empty stdin', () => {
+    const dir = tempDir('state-')
+    const script = path.resolve(__dirname, '../../../tools/scripts/protocol.mjs')
+    const run = (input: string, team = 'alpha') =>
+      spawnSync('node', [script, 'handoff', team], {
+        encoding: 'utf8',
+        input,
+        env: { ...process.env, HACKBENCH_STATE_DIR: dir },
+      })
+    const ok = run('# hello\n')
+    expect(ok.status).toBe(0)
+    expect(ok.stdout.trim()).toBe(path.join(dir, 'teams', 'alpha.md'))
+    expect(fs.readFileSync(path.join(dir, 'teams', 'alpha.md'), 'utf8')).toBe('# hello\n')
+    expect(run('', 'bravo').status).not.toBe(0)
+    expect(fs.existsSync(path.join(dir, 'teams', 'bravo.md'))).toBe(false)
+    expect(run('x', '../evil').status).not.toBe(0)
   })
 })
 
