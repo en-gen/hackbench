@@ -347,34 +347,26 @@ export function readSessions(stateDir) {
   }
 }
 
-// The hook receives the CLI session id; the session-management tools take the
-// desktop id (local_...). A registration carries both, keyed by the CLI id.
-// It never touches a team state file: that file is the handoff.
-export function registerSession(
-  stateDir,
-  cliId,
-  desktopId,
-  role,
-  team,
-  now,
-  { rename = renameSync, lock = {} } = {},
-) {
+function assertIds(cliId, desktopId) {
   if (!CLI_ID.test(cliId)) throw new Error(`CLI session id must match ${CLI_ID}; got "${cliId}"`)
   if (!DESKTOP_ID.test(desktopId)) {
     throw new Error(`desktop id must match ${DESKTOP_ID}; got "${desktopId}"`)
   }
-  if (!ROLES.has(role)) throw new Error(`role must be ba, tech-lead or both; got "${role}"`)
-  if (role !== 'ba' && !team) throw new Error(`a ${role} session needs a team`)
-  if (team && !TEAM_NAME.test(team)) throw new Error(`team name must match ${TEAM_NAME}`)
+}
+
+// A clear gives the same desktop session a new CLI id, so re-filing drops every
+// entry for the desktop id and keeps exactly one. `entryFor` sees the old
+// sessions and may throw, which happens before any write.
+function refileSession(stateDir, cliId, desktopId, entryFor, { rename = renameSync, lock = {} }) {
   return withStateLock(
     stateDir,
     assertHeld => {
       const all = readSessions(stateDir)
-      // A clear gives the same desktop session a new CLI id; keep one entry per desktop id.
-      for (const [id, entry] of Object.entries(all)) {
-        if (entry?.desktopId === desktopId) delete all[id]
+      const entry = entryFor(all)
+      for (const [id, old] of Object.entries(all)) {
+        if (old?.desktopId === desktopId) delete all[id]
       }
-      all[cliId] = { desktopId, role, team: team ?? null, registered: now }
+      all[cliId] = entry
       assertHeld()
       writeFileAtomic(
         path.join(stateDir, SESSIONS_FILE),
@@ -387,38 +379,50 @@ export function registerSession(
   )
 }
 
-// A clear gives the session a new CLI id but keeps its desktop id, so the
-// session re-files its own entry instead of re-deriving role and team from its
-// title. An unknown desktop id throws before any write.
+// The hook receives the CLI session id; the session-management tools take the
+// desktop id (local_...). A registration carries both, keyed by the CLI id.
+// It never touches a team state file: that file is the handoff.
+export function registerSession(
+  stateDir,
+  cliId,
+  desktopId,
+  role,
+  team,
+  now,
+  { rename = renameSync, lock = {} } = {},
+) {
+  assertIds(cliId, desktopId)
+  if (!ROLES.has(role)) throw new Error(`role must be ba, tech-lead or both; got "${role}"`)
+  if (role !== 'ba' && !team) throw new Error(`a ${role} session needs a team`)
+  if (team && !TEAM_NAME.test(team)) throw new Error(`team name must match ${TEAM_NAME}`)
+  return refileSession(
+    stateDir,
+    cliId,
+    desktopId,
+    () => ({ desktopId, role, team: team ?? null, registered: now }),
+    { rename, lock },
+  )
+}
+
+// Re-files the session's own entry, role and team kept, so it need not
+// re-derive them from its title.
 export function reclaimSession(
   stateDir,
   cliId,
   desktopId,
   { rename = renameSync, lock = {} } = {},
 ) {
-  if (!CLI_ID.test(cliId)) throw new Error(`CLI session id must match ${CLI_ID}; got "${cliId}"`)
-  if (!DESKTOP_ID.test(desktopId)) {
-    throw new Error(`desktop id must match ${DESKTOP_ID}; got "${desktopId}"`)
-  }
-  return withStateLock(
+  assertIds(cliId, desktopId)
+  return refileSession(
     stateDir,
-    assertHeld => {
-      const all = readSessions(stateDir)
-      const found = Object.entries(all).find(([, entry]) => entry?.desktopId === desktopId)
+    cliId,
+    desktopId,
+    all => {
+      const found = Object.values(all).find(entry => entry?.desktopId === desktopId)
       if (!found) throw new Error(`no registration for desktop id ${desktopId}; register instead`)
-      for (const [id, entry] of Object.entries(all)) {
-        if (entry?.desktopId === desktopId) delete all[id]
-      }
-      all[cliId] = found[1]
-      assertHeld()
-      writeFileAtomic(
-        path.join(stateDir, SESSIONS_FILE),
-        JSON.stringify(all, null, 2) + '\n',
-        rename,
-      )
-      return all
+      return found
     },
-    lock,
+    { rename, lock },
   )
 }
 
