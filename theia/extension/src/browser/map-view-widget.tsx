@@ -535,6 +535,11 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected readonly afterCommit = (): void => {
     // Only a commit that shows the CURRENT zoom: an older one still has the
     // old layout, and restoring on it would consume the anchor early.
+    // No test covers this guard (#547, ruled unreachable 2026-10-08): a stale-zoom
+    // commit needs a time-sliced render, which this widget never triggers under
+    // React 19.3 and Lumino 2.0.5, and two clicks before a commit batch into one
+    // commit at the newer zoom. Evidence: scheduling probe, 99 of 100 trials,
+    // shelved head 4c203811, one machine (issue #547 comment 3).
     if (this.renderedZoom === this.zoomController.value) this.wheelBinding?.restoreAnchor()
     this.sync()
   }
@@ -1046,6 +1051,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
         <div
           className={'hb-map-view-scroller' + (l.orientation === 'vertical' ? ' hb-vertical' : '')}
           data-control="map-scroller"
+          data-rendered-zoom={this.renderedZoom}
           ref={this.scrollerRef}
           onScroll={() => {
             this.requestVisible()

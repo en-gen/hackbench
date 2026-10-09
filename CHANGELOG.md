@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A Playwright test pins the Maps zoom anchor against a screen reply that lands between a zoom and its React commit; it fails if `restoreAnchor` runs from `sync` (#547). The scroller carries `data-rendered-zoom`. The `renderedZoom` guard is ruled unreachable from UI input and has no test: docs/decisions/2026-10-08-zoom-anchor-race-seam.md.
 - Agentic workflow: docs/ becomes the knowledge base (conventions, decisions, protocols, runbooks, hypotheses); /protocol <name> on|off enacts a mode for every session via a hook; BA and tech-lead manuals replace the orchestrator manual, with registration, state files and self-clear after merge.
 - Block contents: a test pins the CODE_00F17F entry bytes in the gate reader pattern (#632).
 - A unit test pins the 22 of 501 horizontal maps where the level loader and the map view's
