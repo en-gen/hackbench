@@ -133,11 +133,17 @@ describe('the protocol command, hardened', () => {
     expect(r.stderr.trim()).toBe('protocols.json unreadable, defaults applied')
   })
 
-  it('nudges a re-registered session once, not once per CLI id', () => {
+  it('nudges a re-registered desktop id once', () => {
     run(['register', LOCAL_ID, 'tech-lead', 'alpha'])
-    run(['register', '00000000-0000-4000-8000-000000000003', LOCAL_ID, 'tech-lead', 'alpha'])
+    expect(run(['register', LOCAL_ID, 'tech-lead', 'alpha']).code).toBe(0)
     const on = JSON.parse(run(['night-shift', 'on', '--by', 'owner']).out)
     expect(on.nudge).toEqual([{ desktopId: LOCAL_ID, role: 'tech-lead', team: 'alpha' }])
+  })
+
+  it('status prints the absolute state folder it reads', () => {
+    const status = JSON.parse(run(['status']).out)
+    expect(status.stateDir).toBe(stateDir)
+    expect(path.isAbsolute(status.stateDir)).toBe(true)
   })
 })
 

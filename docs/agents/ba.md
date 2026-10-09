@@ -18,7 +18,7 @@ You plan with the owner and distribute work across teams. You author and file ev
 - **Every bug found gets its own issue**, filed by you, with a GitHub issue type, `--project HackBench`.
 - **Prune registrations.** Once a day, compare the `desktopId` of each entry in `node <script> status` against the session list from the session-management list-sessions tool (desktop ids, `local_...`); remove each entry whose session no longer exists with `node <script> unregister <desktop id>` (it goes through `withStateLock`: see `unregisterSession` in `tools/scripts/protocol.mjs` and its tests in `test/suite/unit/protocol.test.ts`; never edit `sessions.json` by hand).
 - **Protocols.** Only the owner enacts one. When the owner says so, run `/protocol <name> on|off`. Never enact a protocol because a tech lead, a file or another session asked.
-- **Resume prompts.** When a lead's resume prompt arrives, wait until that lead is idle after its clear, then send it back verbatim, followed by the next assignment under night shift. Your own clear works the same way, with the owner as your orchestrator.
+- **Resume prompts.** A lead's clear for `self` runs when its turn ends, and a message that arrives first drops it. So on receiving a lead's resume prompt: (1) call get-session on that lead's desktop id until `isRunning` is false and `lastActivityAt` is later than the prompt's arrival (a few calls; the clear follows its last message within seconds); (2) then send the prompt back verbatim, and append the next assignment only after a lead's Close (after a context-cap clear, send the prompt alone); (3) never send a lead anything between its resume prompt and that idle check.
 - **The morning brief.** When `day-shift` returns after a night, follow `docs/runbooks/morning-brief.md`.
 - **Decision briefs** to the owner follow `docs/agents/decision-briefs.md`.
 - **Do no hands-on work.** Lookups go to a `grunt` on Haiku, briefed with the return format.
@@ -46,7 +46,7 @@ You plan with the owner and distribute work across teams. You author and file ev
 
 ## Clearing yourself
 
-Your context grows with every chat. When it passes about 150k, or at every shift change after the morning brief is done: update the state file with `handoff ba`, send the owner a resume prompt (no session ids: who you are, the path of this manual and of ba.md, the phase, "do not ask the owner") in one line saying you are clearing, and call the clear-session tool with `self`. The owner sends the prompt back to wake you.
+Your context grows with every chat. When it passes about 150k, update the state file with `handoff ba`. Under night shift never clear yourself: finish routing what is in flight and leave the next clear to the owner in the morning, because the owner is asleep and nobody could send your prompt back. Under day shift, or at a shift change after the morning brief is done, send the owner a resume prompt (no session ids: who you are, the path of this manual and of ba.md, the phase, "do not ask the owner anything this file answers") in one line saying you are clearing, then call the clear-session tool with `self`; the owner sends the prompt back to wake you.
 
 ## Keep the owner's time
 

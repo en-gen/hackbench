@@ -18,9 +18,9 @@ Ruling 1A (verify first, then enact night shift) stands, and option 3 is the des
 
 ## Evidence
 
-Scope: one throwaway session ("Zulu"), auto permission mode, one machine, 2026-10-09, branch scripts at f523f743, main-checkout hook at a6d2e754. `[EST]` from the verifier's transcript reads; the raw notes are not in the repository.
+Scope: one throwaway session ("Zulu"), auto permission mode, one machine, 2026-10-09, branch scripts at f523f743, main-checkout hook at a6d2e754. `[EST]` from the verifier's transcript reads; the raw notes are not in the repository. Run B used the f523f743 scripts, which had a `reclaim` command that was later removed; the shipped flow at the head that merges was not run end to end. The Zulu confirm on develop after the cutover is that run.
 
-- Desktop id across every clear: unchanged (`local_440cbd06-2415-4f43-8717-f8ef9da4a883`). The CLI session id changed on each clear: c34b7825-aa71-4662-8531-0f706b789660 to 83998a13-d354-4cb3-bc88-0d7c1aaa74ec (run A), then to 32de9dc6-46de-47d6-bee7-74940852f25d (run B). (These ids are evidence only; resume prompts must not carry ids.)
+- Same desktop id before and after every clear; the CLI session id changed on each clear (runs A and B). Ids are not recorded here: the auto-mode classifier refuses messages that contain them.
 - The app's PreToolUse:Write guard refuses a worktree session writing the main checkout's `.claude/`: "Edit the worktree's own .claude/ instead, or run that change from a non-worktree session."
 - The auto-mode classifier refused `register` plus `handoff` under `.claude/` ("[Auto-Mode Bypass]"), and refuses a message containing session ids ("[Credential Leakage]"). Shared state therefore moved to `.hackbench-state/` and resume prompts carry no ids.
 - The hook that ran after each clear is the main checkout's, not the worktree's: CLAUDE_PROJECT_DIR is the main checkout for a worktree session.

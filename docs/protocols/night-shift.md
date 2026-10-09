@@ -22,6 +22,7 @@ The owner, in chat; the BA runs the command. There is no return time: night shif
 6. A needs-owner PR opens with its label and waits; the launched build URL goes in the handoff. Only auto-merge items complete unattended.
 7. Tech leads run in auto permission mode so a self-clear does not block on a prompt.
 8. An empty queue means idle: write the state file, post one line to the BA, wait for the nudge.
+9. The BA never clears itself overnight; at its context cap it writes `ba.md`, finishes routing, and leaves the clear to the owner.
 
 ## Unchanged
 

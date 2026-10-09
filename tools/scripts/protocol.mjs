@@ -441,7 +441,10 @@ export function migrateState(fromDir, toDir, { lock = {} } = {}) {
     () => {
       for (const rel of listed) {
         const target = path.join(toDir, rel)
-        if (existsSync(target)) {
+        // A probe can leave an empty registry behind; that must not block the real one.
+        const emptyRegistry =
+          rel === 'sessions.json' && existsSync(target) && !Object.keys(readSessions(toDir)).length
+        if (existsSync(target) && !emptyRegistry) {
           skipped.push(rel)
           continue
         }
@@ -498,7 +501,11 @@ function cli(argv, cwd) {
   const now = new Date().toISOString()
   if (a === 'status') {
     const { state, warning } = readStateChecked(stateDir, defs)
-    return { code: 0, out: { ...state, sessions: readSessions(stateDir) }, warn: warning }
+    return {
+      code: 0,
+      out: { ...state, stateDir: path.resolve(stateDir), sessions: readSessions(stateDir) },
+      warn: warning,
+    }
   }
   if (a === 'unregister') {
     if (!b) return { code: 1, out: USAGE }

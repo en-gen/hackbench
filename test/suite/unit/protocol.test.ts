@@ -392,6 +392,22 @@ describe('migrateState', () => {
     expect(readSessions(to)[LOCAL_ID]).toEqual({ role: 'ba', team: null, registered: NOW })
   })
 
+  it('treats an empty target registry as absent but keeps a non-empty one', () => {
+    const from = tempDir('old-')
+    const to = tempDir('new-')
+    fs.writeFileSync(
+      path.join(from, 'sessions.json'),
+      JSON.stringify({
+        [CLI_ID]: { desktopId: LOCAL_ID, role: 'ba', team: null, registered: NOW },
+      }),
+    )
+    fs.writeFileSync(path.join(to, 'sessions.json'), '{}')
+    expect(migrateState(from, to).copied).toEqual(['sessions.json'])
+    expect(Object.keys(readSessions(to))).toEqual([LOCAL_ID])
+    const again = migrateState(from, to)
+    expect(again.skipped).toEqual(['sessions.json'])
+  })
+
   it('never overwrites an existing target file', () => {
     const from = tempDir('old-')
     const to = tempDir('new-')
