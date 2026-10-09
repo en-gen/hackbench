@@ -366,6 +366,14 @@ local function finishLevel()
   emu.stop(0)
 end
 
+local function resetSession()
+  S.cur = nil
+  S.f, S.calls, S.frames = 0, {}, {}
+  S.wramBlob, S.hiBlob, S.nWram, S.oamBlob, S.cgBlob, S.wmirBlob, S.vramBlobs = {}, {}, 0, {}, {}, {}, {}
+  S.perStatus, S.status0 = {}, 0
+  clearOwners()
+end
+
 local function onFrameLevel()
   local gm = r(A.GAME_MODE)
   if phase == "title" then
@@ -390,6 +398,20 @@ local function onFrameLevel()
     return
   end
   if phase == "wait" then
+    -- 43 maps open on the pre-level castle-entry scene: GM $14 with player
+    -- animation $0A (!PlayerAni_EnterCastle, rammap.asm:574) and a fixed
+    -- Map16 image; the real level loads ~430 frames later (#649 step 3, one
+    -- machine, vanilla). Skip that GM $14 span and arm on the next entry.
+    if M.skipIntro then
+      if gm ~= GM_LEVEL then M.skipIntro = false; resetSession(); deadline = S.frame + 900 end
+      return
+    end
+    if gm == GM_LEVEL and r(A.PLAYER_ANIM) == 0x0A and not M.sawIntro then
+      M.sawIntro, M.skipIntro = true, true
+      dlog(string.format("[INTRO] frame=%d gm=$14 anim=$0A; waiting for the real load", S.frame))
+      deadline = S.frame + 900
+      return
+    end
     if gm == GM_LEVEL then
       if observedPtr ~= expectPtr then
         dlog(string.format("[WRONG_LEVEL] expected %06X observed %s", expectPtr, tostring(observedPtr)))
@@ -414,11 +436,8 @@ local function onFrameLevel()
   if phase == "rec" then
     if gm ~= GM_LEVEL then
       dlog(string.format("[RESTART] frame=%d GameMode left $14 (now $%02X); session dropped", S.frame, gm))
-      S.cur = nil; phase = "wait"; deadline = S.frame + 900
-      S.f, S.calls, S.frames = 0, {}, {}
-      S.wramBlob, S.hiBlob, S.nWram, S.oamBlob, S.cgBlob, S.wmirBlob, S.vramBlobs = {}, {}, 0, {}, {}, {}, {}
-      S.perStatus, S.status0 = {}, 0
-      clearOwners()
+      phase = "wait"; deadline = S.frame + 900
+      resetSession()
       return
     end
     recFrame()
