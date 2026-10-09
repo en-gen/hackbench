@@ -48,6 +48,8 @@ export function loadState(path: string): { state: SweepState; text: string } | n
       { cause: err },
     )
   }
+  // Before the cursor existed the file was a bare array: it is the start of the store.
+  if (Array.isArray(state)) return { state: { cursor: 0, records: state as HackRecord[] }, text }
   const s = state as Partial<SweepState> | null
   if (!s || typeof s.cursor !== 'number' || !Array.isArray(s.records)) {
     throw new Error(`${path} is not a sweep state ({ cursor, records }); restore it or delete it`)
@@ -61,10 +63,13 @@ export interface SweepRun {
   size: number
   sweep: (h: SweepRun['index'][number]) => HackRecord
   log?: (line: string) => void
+  /** The file writer; a test makes it fail partway to prove the write order. */
+  write?: (path: string, text: string) => void
 }
 
 export function runSweep(run: SweepRun): void {
   const log = run.log ?? ((line: string) => void process.stdout.write(`${line}\n`))
+  const write = run.write ?? writeAtomic
   mkdirSync(run.outDir, { recursive: true })
   const resultsPath = join(run.outDir, 'results.json')
   const prev = loadState(resultsPath)
@@ -86,9 +91,9 @@ export function runSweep(run: SweepRun): void {
   const body = trackingIssueBody(prev ? diffRuns(prev.state.records, records) : null, summary)
   // results.json goes last: a death before it leaves the old state, so the rerun repeats this batch
   // against the same previous run instead of against itself.
-  if (prev) writeAtomic(join(run.outDir, 'results.prev.json'), prev.text)
-  writeAtomic(join(run.outDir, 'summary.md'), summary)
-  writeAtomic(join(run.outDir, 'tracking-issue.md'), body)
-  writeAtomic(resultsPath, JSON.stringify({ cursor: next, records }, null, 2))
+  if (prev) write(join(run.outDir, 'results.prev.json'), prev.text)
+  write(join(run.outDir, 'summary.md'), summary)
+  write(join(run.outDir, 'tracking-issue.md'), body)
+  write(resultsPath, JSON.stringify({ cursor: next, records }, null, 2))
   log(`wrote ${swept.length} records to ${run.outDir}`)
 }

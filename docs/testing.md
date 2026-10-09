@@ -554,7 +554,7 @@ hacks swept this run, the hacks added, and the hacks removed from the store.
 Records for hacks outside the batch that are still in the store are carried
 forward with `carried: true`, so `summary.md` covers the whole store and says
 how many records are fresh; a carried record is never reported as changed, and
-a record for a hack no longer in the store is dropped.
+a record for a hack no longer in the store is dropped. A bare-array `results.json` from before the cursor is read as a cursor of 0 and converted on the next write.
 
 ## Unit tests cannot reach an authenticated gh
 

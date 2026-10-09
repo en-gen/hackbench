@@ -1,10 +1,10 @@
 /** The sweep's state handling with no ROM: a fake sweeper stands in for the readers. */
-import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { describe, it, expect } from 'vitest'
 import { HackRecord } from '../../../tools/scripts/hackSweepReport'
-import { runSweep } from '../../../tools/scripts/hackSweepRun'
+import { runSweep, writeAtomic } from '../../../tools/scripts/hackSweepRun'
 
 type Entry = { smwc_id: number; name: string }
 const index: Entry[] = [1, 2, 3, 4].map(smwc_id => ({ smwc_id, name: `hack${smwc_id}` }))
@@ -16,6 +16,7 @@ const okRec = (h: Entry): HackRecord => ({
   readers: { maps: { verdict: 'ok', summary: 's' } },
   interop: { verdict: 'unchecked', reason: 'x' },
 })
+const crashed = { verdict: 'crash', error: 'E: x', frame: 'at f' } as const
 const fresh = (): string => mkdtempSync(join(tmpdir(), 'hb-sweeprun-'))
 const read = (dir: string, f: string): string => readFileSync(join(dir, f), 'utf8')
 const run = (dir: string, sweep: (h: Entry) => HackRecord, size = 2): void =>
@@ -75,9 +76,74 @@ describe('runSweep', () => {
     expect(read(dir, 'tracking-issue.md')).toContain('1 hack1 / maps: ok -> crash')
   })
 
-  it('rejects a results.json that parses but has the wrong shape', () => {
+  it('rejects an object with no numeric cursor, and one with no records', () => {
+    for (const text of ['{"records":[]}', '{"cursor":"1","records":[]}', '{"cursor":1}', '3']) {
+      const dir = fresh()
+      writeFileSync(join(dir, 'results.json'), text)
+      expect(() => run(dir, okRec)).toThrow(/results\.json/)
+    }
+  })
+
+  it('accepts a legacy bare array as the start of the store, and the next write converts it', () => {
     const dir = fresh()
-    writeFileSync(join(dir, 'results.json'), '[]')
-    expect(() => run(dir, okRec)).toThrow(/results\.json/)
+    const legacy = [okRec(index[0]!), { ...okRec(index[1]!), readers: { maps: crashed } }]
+    writeFileSync(join(dir, 'results.json'), JSON.stringify(legacy))
+    run(dir, okRec)
+    expect(read(dir, 'tracking-issue.md')).toContain('2 hacks compared')
+    expect(read(dir, 'tracking-issue.md')).toContain('2 hack2 / maps: crash -> ok')
+    expect(JSON.parse(read(dir, 'results.prev.json'))).toEqual(JSON.parse(JSON.stringify(legacy)))
+    expect(JSON.parse(read(dir, 'results.json')).cursor).toBe(3)
+  })
+
+  it('does not carry a hack that left the index, and lists it as removed', () => {
+    const dir = fresh()
+    run(dir, okRec)
+    const shrunk = index.filter(h => h.smwc_id !== 2)
+    runSweep({ outDir: dir, index: shrunk, size: 1, sweep: okRec, log: () => {} })
+    const ids = JSON.parse(read(dir, 'results.json')).records.map((r: HackRecord) => r.smwcId)
+    expect(ids).toEqual([1, 3])
+    expect(read(dir, 'tracking-issue.md')).toContain('2 hack2')
+    expect(read(dir, 'tracking-issue.md')).toMatch(/Removed from the store\s+- 2 hack2/)
+  })
+
+  it('writes results.json last: a write that fails earlier leaves it untouched', () => {
+    const dir = fresh()
+    run(dir, okRec)
+    const before = read(dir, 'results.json')
+    let n = 0
+    const write = (path: string, text: string): void => {
+      if (++n === 2) throw new Error('disk full')
+      writeAtomic(path, text)
+    }
+    expect(() =>
+      runSweep({ outDir: dir, index, size: 2, sweep: okRec, write, log: () => {} }),
+    ).toThrow('disk full')
+    expect(read(dir, 'results.json')).toBe(before)
+  })
+
+  it('summary.md counts the swept and the carried records', () => {
+    const dir = fresh()
+    run(dir, okRec)
+    run(dir, okRec)
+    expect(read(dir, 'summary.md')).toContain('4 hacks. 2 swept this run, 2 carried')
+  })
+})
+
+describe('writeAtomic', () => {
+  it('goes through a temp file and a rename, so a failed write leaves the old file', () => {
+    const dir = fresh()
+    const path = join(dir, 'f.json')
+    writeFileSync(path, 'old')
+    mkdirSync(`${path}.tmp`)
+    expect(() => writeAtomic(path, 'new')).toThrow()
+    expect(readFileSync(path, 'utf8')).toBe('old')
+  })
+  it('replaces the file and leaves no temp file', () => {
+    const dir = fresh()
+    const path = join(dir, 'f.json')
+    writeFileSync(path, 'old')
+    writeAtomic(path, 'new')
+    expect(readFileSync(path, 'utf8')).toBe('new')
+    expect(readdirSync(dir)).toEqual(['f.json'])
   })
 })
