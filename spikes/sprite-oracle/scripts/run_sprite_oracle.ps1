@@ -17,6 +17,7 @@ param(
   [int]$K = 0,                    # frames; default 3 (level) / 16 (spawn)
   [string]$SpawnLevel = "0bd",
   [string]$MesenExe = "", [string]$Rom = "", [string]$SavesDir = "", [string]$OutRoot = "",
+  [string]$SetName = "",         # level mode: output set under sprite-trace/ (default: the ROM SHA-1 prefix); must not exist
   [int]$TimeoutSec = 300
 )
 $ErrorActionPreference = "Stop"
@@ -30,7 +31,10 @@ $sha = (Get-FileHash -Path $Rom -Algorithm SHA1).Hash.ToLower().Substring(0, 8)
 $sub = if ($Mode -eq "level") { "sprite-trace" } else { "sprite-spawn" }
 $lua = Join-Path $PSScriptRoot ("../mesen/" + $(if ($Mode -eq "level") { "sprite_routine_trace.lua" } else { "sprite_spawn_extract.lua" }))
 $lua = (Resolve-Path $lua).Path
+if ($SetName) { $sha = $SetName }
 $root = Join-Path (Resolve-FullPath $fixtures) "$sub/$sha"
+# A level set is whole or absent: writing into one replaces its maps without a trace (#649).
+if ($Mode -eq "level" -and (Test-Path $root)) { throw "Set $root already exists; pass -SetName <new set>." }
 # ROM-derived bytes never go in a git checkout.
 $probe = $root
 while ($probe -and -not (Test-Path (Join-Path $probe ".git"))) { $probe = Split-Path $probe -Parent }

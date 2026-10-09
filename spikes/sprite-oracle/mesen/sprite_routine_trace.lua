@@ -366,6 +366,14 @@ local function finishLevel()
   emu.stop(0)
 end
 
+local function resetSession()
+  S.cur = nil
+  S.f, S.calls, S.frames = 0, {}, {}
+  S.wramBlob, S.hiBlob, S.nWram, S.oamBlob, S.cgBlob, S.wmirBlob, S.vramBlobs = {}, {}, 0, {}, {}, {}, {}
+  S.perStatus, S.status0 = {}, 0
+  clearOwners()
+end
+
 local function onFrameLevel()
   local gm = r(A.GAME_MODE)
   if phase == "title" then
@@ -390,6 +398,25 @@ local function onFrameLevel()
     return
   end
   if phase == "wait" then
+    -- 45 of 154 maps open on the pre-level castle-entry scene: GM $14 with player
+    -- animation $0A (!PlayerAni_EnterCastle, rammap.asm:575) and a fixed
+    -- Map16 image; the real level loads 479-500 frames later (#649, one
+    -- machine, vanilla). Skip that GM $14 span and arm on the next entry.
+    -- The same wait phase serves spawn mode, which was not re-run after this change.
+    if M.skipIntro then
+      if gm ~= GM_LEVEL then
+        -- The wrong-level guard must see the real load's pointer, not the intro's.
+        M.skipIntro, observedPtr, pLo, pMid = false, nil, nil, nil
+        resetSession(); deadline = S.frame + 900
+      elseif S.frame > deadline then dlog("[TIMEOUT] level"); emu.stop(13) end
+      return
+    end
+    if gm == GM_LEVEL and r(A.PLAYER_ANIM) == 0x0A and not M.sawIntro then
+      M.sawIntro, M.skipIntro = true, true
+      dlog(string.format("[INTRO] frame=%d gm=$14 anim=$0A; waiting for the real load", S.frame))
+      deadline = S.frame + 900
+      return
+    end
     if gm == GM_LEVEL then
       if observedPtr ~= expectPtr then
         dlog(string.format("[WRONG_LEVEL] expected %06X observed %s", expectPtr, tostring(observedPtr)))
@@ -414,11 +441,8 @@ local function onFrameLevel()
   if phase == "rec" then
     if gm ~= GM_LEVEL then
       dlog(string.format("[RESTART] frame=%d GameMode left $14 (now $%02X); session dropped", S.frame, gm))
-      S.cur = nil; phase = "wait"; deadline = S.frame + 900
-      S.f, S.calls, S.frames = 0, {}, {}
-      S.wramBlob, S.hiBlob, S.nWram, S.oamBlob, S.cgBlob, S.wmirBlob, S.vramBlobs = {}, {}, 0, {}, {}, {}, {}
-      S.perStatus, S.status0 = {}, 0
-      clearOwners()
+      phase = "wait"; deadline = S.frame + 900
+      resetSession()
       return
     end
     recFrame()

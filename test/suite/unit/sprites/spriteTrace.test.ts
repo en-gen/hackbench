@@ -14,7 +14,7 @@ import { runUntil } from '../../../../src/rom/cpu/call'
 import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { recordWrites, smwMachine } from '../../../../src/rom/sprites/interp/Machine'
 import type { RomFile } from '../../../../src/rom/RomFile'
-import { freshRom, hasRom, TOOLS_ROOT, VANILLA } from '../../support/corpus'
+import { freshRom, hasRom, SPRITE_TRACE_SET, TOOLS_ROOT, VANILLA } from '../../support/corpus'
 
 const TRACE_DIR = process.env.HACKBENCH_SPRITE_TRACE ?? join(TOOLS_ROOT, 'fixtures', 'sprite-trace')
 
@@ -29,11 +29,6 @@ interface Call {
   regs: { a: number; d: number; db: number; e: number; p: number; pb: number; pc: number; s: number; x: number; y: number } // prettier-ignore
   wram: number
   writes: number[]
-}
-
-function romSha(): string | null {
-  const dir = existsSync(TRACE_DIR) ? readdirSync(TRACE_DIR) : []
-  return dir.length ? dir[0] : null
 }
 
 function replay(rom: RomFile, root: string, map: string, wram: Buffer, c: Call) {
@@ -63,10 +58,10 @@ function replay(rom: RomFile, root: string, map: string, wram: Buffer, c: Call) 
   return { ok, first, n: want.length }
 }
 
-describe.skipIf(!existsSync(TRACE_DIR) || !hasRom(VANILLA))(
+describe.skipIf(!existsSync(join(TRACE_DIR, SPRITE_TRACE_SET)) || !hasRom(VANILLA))(
   'sprite call replay vs Mesen traces',
   () => {
-    const root = join(TRACE_DIR, romSha() ?? 'none')
+    const root = join(TRACE_DIR, SPRITE_TRACE_SET)
     const each = (f: (map: string, wram: Buffer, c: Call) => void): void => {
       for (const map of readdirSync(root).sort()) {
         const cp = join(root, map, 'calls.json')
@@ -89,12 +84,14 @@ describe.skipIf(!existsSync(TRACE_DIR) || !hasRom(VANILLA))(
       if (process.env.SPRITE_TRACE_OUT) writeFileSync(process.env.SPRITE_TRACE_OUT, JSON.stringify(results, null, 1)) // prettier-ignore
       // Exact, not a floor: a floor of 0.97 let the #593 low-first 16-bit RMW order back in
       // (1099 equal, tests green). This comparator seeds only Mesen's $7E:0000-$1FFF and Map16
-      // (no hi-WRAM windows), so 1110 of 1122 is its number; the spike comparator
+      // (no hi-WRAM windows), so 1566 of 1578 is its number (1110 of 1122 before the #649 re-capture
+      // of the 45 castle-entry maps added 456 calls, all write-for-write equal); the spike comparator
       // (spikes/sprite-oracle/oracle/compare_sprite_trace.mts), which seeds those windows too,
-      // prints 1122 of 1122. The 12 misses are named so a change in WHICH calls miss is red too:
+      // printed 1122 of 1122 on the old set (not re-run on the new one). The 12 misses are named
+      // so a change in WHICH calls miss is red too:
       // id $49 on map 0c3 and id $86 on maps 11e and 126, state the fixtures do not carry.
-      expect(results.length).toBe(1122)
-      expect(okN).toBe(1110)
+      expect(results.length).toBe(1578)
+      expect(okN).toBe(1566)
       expect(results.filter(r => !r.ok).map(r => `${r.map}:${r.i}`)).toEqual([
         '0c3:4', '0c3:7', '0c3:10', '0c3:13', // prettier-ignore
         '11e:1', '11e:2', '11e:3', '11e:4',
@@ -118,11 +115,13 @@ describe.skipIf(!existsSync(TRACE_DIR) || !hasRom(VANILLA))(
     })
 
     // The level state the runner seeds from the ROM's own loader (LevelLoader.ts) against
-    // what Mesen held when the level's sprites ran. Measured 2026-10-05, vanilla: both
-    // Map16 tables byte-identical on 88 of 154 maps (3 more differ only past the level's
-    // end, 63 differ inside it, cause not investigated), and every header and Mario-entrance
-    // cell equal on every map whose WRAM image was recorded. Asserted as floors, with the
-    // counts checked non-empty so a comparison of nothing cannot pass.
+    // what Mesen held when the level's sprites ran. Measured 2026-10-09, vanilla, one
+    // machine: both Map16 tables byte-identical on 131 of 154 maps. The other 23 are pinned in
+    // levelStateVsMesen.test.ts: 5 differ only past the map's end, 18 are boss arenas (the
+    // capture holds the game's arena fill, which the loader does not run). The 63 in-level
+    // differences of 2026-10-05 were the harness reading Map16 in the castle-entry scene (#649).
+    // Every header and Mario-entrance cell is equal on every map whose WRAM image was recorded.
+    // The counts are checked non-empty so a comparison of nothing cannot pass.
     it('ROM-run level loader against Mesen level state', () => {
       const rom = freshRom()
       const cells = [0x5b, 0x5d, 0x64, 0x71, 0x76, 0x82, 0x83, 0x85, 0x86, 0x1692, 0x190e, 0x19, 0x187a, 0x1404, 0x1e, 0x20, ...Array.from({ length: 8 }, (_, i) => 0x1462 + i)] // prettier-ignore
@@ -151,7 +150,7 @@ describe.skipIf(!existsSync(TRACE_DIR) || !hasRom(VANILLA))(
       }
       expect(maps).toBeGreaterThan(100)
       expect(withWram).toBeGreaterThan(50)
-      expect(identical).toBeGreaterThanOrEqual(85)
+      expect(identical).toBe(131)
       // The Iggy/Larry rooms (levels $096 $097 $196 $197) hold $FF90 in NextLayer1YPos
       // ($1464/$1465) in Mesen: GM12PrepLevel reaches CODE_0097BC (bank_00.asm:4854 -> 4863, IRQNMICommand
       // bit 7) -> 2763 (BVC .IggyLarry) -> 2793-2795, which stores -112. GM12 is part of level load
