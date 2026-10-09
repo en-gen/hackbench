@@ -11,7 +11,7 @@
  * longer runs are elided.
  */
 import { createHash } from 'crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
+import { existsSync, readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { RomFile } from '../../src/rom/RomFile'
 import { SmwRom } from '../../src/rom/SmwRom'
@@ -35,14 +35,10 @@ import {
   InteropRecord,
   ReaderOutcome,
   decideInterop,
-  diffRuns,
   gfxRefusals,
-  mergeCarried,
-  pickBatch,
   runReader,
-  summarize,
-  trackingIssueBody,
 } from './hackSweepReport'
+import { batchSize, runSweep } from './hackSweepRun'
 
 interface IndexEntry {
   smwc_id: number
@@ -213,19 +209,6 @@ function sweepOne(store: string, h: IndexEntry, vanilla: Uint8Array): HackRecord
   return { ...record, romSha256, romSize: bytes.length }
 }
 
-/** A bad value stops the run: a silent fallback would sweep a different batch than the operator asked for. */
-function batchSize(raw: string | undefined): number {
-  if (raw === undefined) return 50
-  if (!/^[1-9]\d*$/.test(raw.trim())) {
-    throw new Error(`HACKBENCH_SWEEP_BATCH must be a positive integer, got "${raw}"`)
-  }
-  return Number(raw)
-}
-
-function readJson<T>(path: string): T | null {
-  return existsSync(path) ? (JSON.parse(readFileSync(path, 'utf8')) as T) : null
-}
-
 if (require.main === module) {
   const store = process.env.HACKBENCH_HACKS ?? 'C:/Projects/hackbench-tools/hacks'
   const outDir = process.env.HACKBENCH_SWEEP_OUT ?? 'C:/Projects/hackbench-tools/sweep'
@@ -233,31 +216,6 @@ if (require.main === module) {
   const index = JSON.parse(readFileSync(join(store, 'index.json'), 'utf8')) as {
     hacks: IndexEntry[]
   }
-  mkdirSync(outDir, { recursive: true })
-  const cursorPath = join(outDir, 'cursor.json')
-  const cursor = readJson<{ cursor: number }>(cursorPath)?.cursor ?? 0
-  const { batch, next } = pickBatch(index.hacks, cursor, size)
   const vanilla = readFileSync(romPath(VANILLA))
-  const records: HackRecord[] = []
-  for (const h of batch) {
-    process.stdout.write(`${h.smwc_id} ${h.name}
-`)
-    records.push(sweepOne(store, h, vanilla))
-  }
-  const resultsPath = join(outDir, 'results.json')
-  const prevPath = join(outDir, 'results.prev.json')
-  if (existsSync(resultsPath)) renameSync(resultsPath, prevPath)
-  const prev = readJson<HackRecord[]>(prevPath)
-  // Records for hacks outside this batch stay, marked carried, so every run holds the whole store.
-  const all = prev ? mergeCarried(prev, records) : records
-  writeFileSync(resultsPath, JSON.stringify(all, null, 2))
-  const summary = summarize(all)
-  writeFileSync(join(outDir, 'summary.md'), summary)
-  writeFileSync(
-    join(outDir, 'tracking-issue.md'),
-    trackingIssueBody(prev ? diffRuns(prev, all) : null, summary),
-  )
-  writeFileSync(cursorPath, JSON.stringify({ cursor: next }))
-  process.stdout.write(`wrote ${records.length} records to ${outDir}
-`)
+  runSweep({ outDir, index: index.hacks, size, sweep: h => sweepOne(store, h, vanilla) })
 }

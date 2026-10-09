@@ -192,49 +192,73 @@ describe('diffRuns', () => {
       [rec(1, { maps: okR }), rec(3, { maps: crashR })],
     )
     expect(d.added).toEqual(['3 hack3'])
-    expect(d.notCovered).toEqual(['2 hack2'])
+    expect(d.removed).toEqual(['2 hack2'])
     expect(d.compared).toBe(1)
     expect(d.newCrashes).toEqual([])
   })
 
-  it('goes red on a diff that ignores verdict changes (planted defect)', () => {
-    const prev = [rec(1, { maps: okR })]
-    const cur = [rec(1, { maps: crashR })]
-    // Swapping the current run for the previous one is what a diff that never looks at verdicts sees.
-    const blind = diffRuns(prev, prev)
-    expect(blind.verdictChanges).toEqual([])
-    expect(diffRuns(prev, cur).verdictChanges).not.toEqual(blind.verdictChanges)
-    expect(diffRuns(prev, cur).newCrashes).toHaveLength(1)
+  it('goes red on a planted diff that ignores verdict changes', () => {
+    const catches = (diff: typeof diffRuns): boolean => {
+      const d = diff([rec(1, { maps: okR })], [rec(1, { maps: crashR })])
+      return d.newCrashes.length === 1 && d.verdictChanges.length === 1
+    }
+    expect(catches(diffRuns)).toBe(true)
+    // The planted defect compares the previous run with itself, so no verdict can differ.
+    expect(catches(prev => diffRuns(prev, prev))).toBe(false)
+  })
+
+  it('ranks blockers over the compared hacks only, not over every previous record', () => {
+    const prev = [rec(1, { v: gate('A') }), rec(2, { v: gate('B') }), rec(3, { v: gate('B') })]
+    const carry = (r: HackRecord): HackRecord => ({ ...r, carried: true })
+    const cur = [prev[0]!, carry(prev[1]!), carry(prev[2]!)]
+    expect(diffRuns(prev, cur).blockerMoves).toEqual([])
+  })
+
+  it('counts carried records and says so in the tracking body', () => {
+    const prev = [rec(1, { maps: okR }), rec(2, { maps: okR }), rec(3, { maps: okR })]
+    const cur = [prev[0]!, ...prev.slice(1).map((r): HackRecord => ({ ...r, carried: true }))]
+    const d = diffRuns(prev, cur)
+    expect(d.carried).toBe(2)
+    expect(trackingIssueBody(d, 's')).toContain('2 carried')
   })
 })
 
 describe('pickBatch', () => {
+  // The cursor is the next smwc_id to sweep, so a changed store cannot move it onto another hack.
   const index = [5, 1, 3, 2, 4].map(smwc_id => ({ smwc_id }))
   const ids = (b: { smwc_id: number }[]): number[] => b.map(h => h.smwc_id)
 
-  it('takes the next n in id order from the cursor and returns the next cursor', () => {
-    const r = pickBatch(index, 1, 2)
+  it('takes the next n in id order from the cursor and returns the next id', () => {
+    const r = pickBatch(index, 2, 2)
     expect(ids(r.batch)).toEqual([2, 3])
-    expect(r.next).toBe(3)
+    expect(r.next).toBe(4)
   })
   it('wraps past the end', () => {
     const r = pickBatch(index, 4, 3)
-    expect(ids(r.batch)).toEqual([5, 1, 2])
+    expect(ids(r.batch)).toEqual([4, 5, 1])
     expect(r.next).toBe(2)
   })
   it('covers every hack once when n is at or past the total', () => {
     for (const n of [5, 6, 100]) {
-      const r = pickBatch(index, 2, n)
+      const r = pickBatch(index, 3, n)
       expect(ids(r.batch).sort()).toEqual([1, 2, 3, 4, 5])
-      expect(r.next).toBe(2)
+      expect(r.next).toBe(3)
     }
   })
   it('returns nothing for an empty index', () => {
     expect(pickBatch([], 7, 3)).toEqual({ batch: [], next: 0 })
   })
-  it('reads a cursor past the end, or negative, as its place in the cycle', () => {
-    expect(ids(pickBatch(index, 12, 1).batch)).toEqual([3])
-    expect(ids(pickBatch(index, -1, 1).batch)).toEqual([5])
+  it('starts over from the first hack when the cursor is past every id', () => {
+    expect(ids(pickBatch(index, 99, 1).batch)).toEqual([1])
+    expect(ids(pickBatch(index, -4, 1).batch)).toEqual([1])
+  })
+  it('does not skip the next hack when the hack before the cursor is removed', () => {
+    const store = [1, 3, 4].map(smwc_id => ({ smwc_id }))
+    expect(ids(pickBatch(store, 3, 2).batch)).toEqual([3, 4])
+  })
+  it('does not re-sweep a hack when one is added before the cursor', () => {
+    const store = [0, 1, 2, 3, 4].map(smwc_id => ({ smwc_id }))
+    expect(ids(pickBatch(store, 3, 2).batch)).toEqual([3, 4])
   })
   it('visits every hack across successive runs', () => {
     let cursor = 0
@@ -269,17 +293,17 @@ describe('carry-forward across batches smaller than the store', () => {
     const d = diffRuns(prev, cur)
     expect(d.compared).toBe(1)
     expect(d.newCrashes).toEqual(['1 hack1 / maps'])
-    expect(d.notCovered).toEqual([])
+    expect(d.removed).toEqual([])
   })
 
   it('two runs of batch 2 over 4 hacks: the second diffs its own two and carries the first two', () => {
     const run1 = sweep([1, 2], okR)
-    const b = pickBatch(store, 2, 2)
+    const b = pickBatch(store, 3, 2)
     const swept = sweep(
       b.batch.map(h => h.smwc_id),
       crashR,
     )
-    const run2 = mergeCarried(run1, swept)
+    const run2 = mergeCarried(run1, swept, [1, 2, 3, 4])
     expect(run2.map(r => [r.smwcId, !!r.carried])).toEqual([
       [1, true],
       [2, true],
@@ -288,20 +312,28 @@ describe('carry-forward across batches smaller than the store', () => {
     ])
     const d = diffRuns(run1, run2)
     expect(d.added).toEqual(['3 hack3', '4 hack4'])
-    expect(d.notCovered).toEqual([])
+    expect(d.removed).toEqual([])
     expect(d.compared).toBe(0)
   })
 
   it('a re-swept hack replaces its carried record and is diffed against it', () => {
-    const run1 = mergeCarried(sweep([1, 2], okR), sweep([3], okR))
-    const run2 = mergeCarried(run1, sweep([1], crashR))
+    const run1 = mergeCarried(sweep([1, 2], okR), sweep([3], okR), [1, 2, 3])
+    const run2 = mergeCarried(run1, sweep([1], crashR), [1, 2, 3])
     expect(run2.find(r => r.smwcId === 1)?.carried).toBeUndefined()
     expect(run2.find(r => r.smwcId === 3)?.carried).toBe(true)
     expect(diffRuns(run1, run2).newCrashes).toEqual(['1 hack1 / maps'])
   })
 
   it('summarize says how many records were carried', () => {
-    const md = summarize(mergeCarried(sweep([1, 2], okR), sweep([3], okR)))
+    const md = summarize(mergeCarried(sweep([1, 2], okR), sweep([3], okR), [1, 2, 3]))
     expect(md).toContain('1 swept this run, 2 carried')
+  })
+
+  it('drops a hack no longer in the store and lists it as removed', () => {
+    const run1 = sweep([1, 2, 3], okR)
+    const run2 = mergeCarried(run1, sweep([1], okR), [1, 3])
+    expect(run2.map(r => r.smwcId)).toEqual([1, 3])
+    expect(diffRuns(run1, run2).removed).toEqual(['2 hack2'])
+    expect(summarize(run2)).toContain('2 hacks.')
   })
 })

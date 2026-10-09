@@ -160,7 +160,7 @@ export interface RunDiff {
   compared: number
   carried: number
   added: string[]
-  notCovered: string[]
+  removed: string[]
   newCrashes: string[]
   clearedCrashes: string[]
   verdictChanges: string[]
@@ -170,10 +170,17 @@ export interface RunDiff {
 
 const label = (r: HackRecord): string => `${r.smwcId} ${r.name}`
 
-/** The new results: this run's records, plus the previous run's for hacks outside the batch, marked carried. */
-export function mergeCarried(prev: HackRecord[], swept: HackRecord[]): HackRecord[] {
+/** This run's records, plus the previous run's for hacks outside the batch that are still in the store, marked carried. */
+export function mergeCarried(
+  prev: HackRecord[],
+  swept: HackRecord[],
+  storeIds: Iterable<number>,
+): HackRecord[] {
   const ids = new Set(swept.map(r => r.smwcId))
-  const kept = prev.filter(r => !ids.has(r.smwcId)).map(r => ({ ...r, carried: true as const }))
+  const inStore = new Set(storeIds)
+  const kept = prev
+    .filter(r => !ids.has(r.smwcId) && inStore.has(r.smwcId))
+    .map(r => ({ ...r, carried: true as const }))
   return [...swept.map(({ carried: _, ...r }) => r), ...kept].sort((a, b) => a.smwcId - b.smwcId)
 }
 
@@ -189,7 +196,7 @@ export function diffRuns(prev: HackRecord[], cur: HackRecord[], topBlockers = 8)
     compared: pairs.length,
     carried: cur.length - swept.length,
     added: swept.filter(r => !before.has(r.smwcId)).map(label),
-    notCovered: prev.filter(r => !after.has(r.smwcId)).map(label),
+    removed: prev.filter(r => !after.has(r.smwcId)).map(label),
     newCrashes: [],
     clearedCrashes: [],
     verdictChanges: [],
@@ -233,7 +240,10 @@ export function diffRuns(prev: HackRecord[], cur: HackRecord[], topBlockers = 8)
   return d
 }
 
-/** A stable order, so the cursor means the same hack next run; wraps, and tolerates any cursor. */
+/**
+ * Id order, from the first id at or past `cursor`, wrapping. The cursor is an id, not a position,
+ * so adding or removing a hack elsewhere in the store cannot shift it onto a different hack.
+ */
 export function pickBatch<T extends { smwc_id: number }>(
   index: readonly T[],
   cursor: number,
@@ -241,10 +251,11 @@ export function pickBatch<T extends { smwc_id: number }>(
 ): { batch: T[]; next: number } {
   const sorted = [...index].sort((a, b) => a.smwc_id - b.smwc_id)
   if (sorted.length === 0 || !(n > 0)) return { batch: [], next: 0 }
-  const start = ((Math.trunc(cursor) % sorted.length) + sorted.length) % sorted.length
+  const found = sorted.findIndex(h => h.smwc_id >= cursor)
+  const start = found < 0 ? 0 : found
   const count = Math.min(Math.trunc(n), sorted.length)
   const batch = Array.from({ length: count }, (_, i) => sorted[(start + i) % sorted.length]!)
-  return { batch, next: (start + count) % sorted.length }
+  return { batch, next: sorted[(start + count) % sorted.length]!.smwc_id }
 }
 
 /** Ids, names, verdicts and the summary only: nothing here is read from a ROM. */
@@ -265,7 +276,7 @@ export function trackingIssueBody(diff: RunDiff | null, summary: string): string
       ['Works on', diff.worksOn.map(w => `${w.view}: ${w.before} -> ${w.after}`)],
       ['Blocker ranking moves', diff.blockerMoves],
       ['Added (not in the previous run)', diff.added],
-      ['Not covered this run', diff.notCovered],
+      ['Removed from the store', diff.removed],
     ]
     for (const [title, items] of sections) out.push(`## ${title}`, '', ...list(items), '')
   }
