@@ -144,18 +144,54 @@ export function handle_0DA673(cur: Cursor): void {
  *
  * In-game this consults OWLevelTileSettings and MidwayFlag to decide whether
  * to emit the tape ($35) and base ($38). For an editor we always show the
- * midway post.
+ * midway post (the two gates are tracked separately, not ported here).
+ *
+ * Column 0 of a screen or block: the tape goes to column 15 of the row above,
+ * the base to column 0 of the next screen (SMWDisX bank_0D.asm:1625-1632,
+ * 1999-2015). Derivation in docs/rom/map-data-mechanics.md, "Midway tape at
+ * column 0".
+ *
+ * Evidence scope: horizontal, the committed L1 differential compares only row
+ * 18 at column 0 (it takes the first fitting row); vertical, SMWDisX trace plus
+ * an ad hoc interpreter run, not committed, no capture. Not modelled: vertical
+ * modes 3/4 at screen 14+, where the table jumps to $1B00 (DATA_00BB62,
+ * bank_00.asm:6779).
  */
 export function handle_0DA68E(cur: Cursor): void {
   // CODE_0DA68E inline tile immediates: +23 $35 (tape), +31 $38 (base).
   const tapeTile = readImmByte(cur, cur.handlerAddr + 23)
   const baseTile = readImmByte(cur, cur.handlerAddr + 31)
   const origCol = cur.col
+  const origRow = cur.row
   setPage0(cur)
-  cur.col = origCol - 1
-  writeTile(cur, tapeTile)
+  if (origCol % 16 !== 0) {
+    cur.col = origCol - 1
+    writeTile(cur, tapeTile)
+    cur.col = origCol
+    writeTile(cur, baseTile)
+    return
+  }
+  const { vertical } = cur
+  const block = vertical
+    ? (origRow >> 4) * 0x200 + (origCol >> 4) * 0x100
+    : (origCol >> 4) * MAP16_BYTES_PER_SCREEN_H + (origRow >> 4) * 0x100
+  const y = (origRow & 15) * 16
+  const put = (offset: number, tile: number): void => {
+    if (vertical) {
+      cur.row = (offset >> 9) * 16 + ((offset >> 4) & 15)
+      cur.col = ((offset >> 8) & 1) * 16 + (offset & 15)
+    } else {
+      const screen = Math.floor(offset / MAP16_BYTES_PER_SCREEN_H)
+      const within = offset - screen * MAP16_BYTES_PER_SCREEN_H
+      cur.row = within >> 4
+      cur.col = screen * 16 + (within & 15)
+    }
+    writeTile(cur, tile)
+  }
+  put(block + ((y - 1) & 0xff), tapeTile)
+  put(block + MAP16_BYTES_PER_SCREEN_H + y, baseTile)
+  cur.row = origRow
   cur.col = origCol
-  writeTile(cur, baseTile)
 }
 
 /**

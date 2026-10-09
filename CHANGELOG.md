@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   154 captured maps had a fixed Map16 image shared across maps; re-captured, the loader's Map16
   differences against Mesen fall from 66 maps to 23 (18 boss arenas, 5 past the map's end), and the
   sprite-trace replay grows from 1122 to 1578 calls (1566 write-for-write equal). Vanilla, one machine, Mesen 2.x; spawn mode shares the changed wait phase and was not re-run (#649).
+- The midway tape (extended object $46) at the first column of a screen draws where the game does:
+  the tape on the row above at column 15, and the base on the next screen in a horizontal level
+  (bank_0D.asm:1625-1632, #368). Vertical levels follow the same arithmetic on their $200-byte
+  screens, from an SMWDisX trace plus an ad hoc interpreter run that is not committed; modes 3/4 at
+  screen 14+ are not modelled. The committed differential compares only row 18 at column 0. The two
+  gates that hide the post are tracked in #635.
 - The sprite level loader now runs the rest of GM11LoadLevel's setup in the ROM's order: the layer
   position copy and the screen setup (CODE_00A796, `$1404`, UpdateScreenPosition). Against
   Mesen's recorded level state, 307 cell mismatches over 98 maps (`$1404`, `$1462-$1469`, `$1E`,
