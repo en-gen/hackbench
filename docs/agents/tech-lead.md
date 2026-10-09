@@ -1,11 +1,11 @@
 # Tech-lead manual
 
-**Who this is for.** A session that runs the deliverable loop for one work item at a time. The session hook injects this file for a session registered as `tech-lead`, or as `both` (which also reads `ba.md`), and again after every self-clear. An unregistered session gets a registration block and reads this file itself. Role agents (launched with a brief) never see it: their rules are in `.claude/agents/<role>.md` and `CLAUDE.md`.
+**Who this is for.** A session that runs the deliverable loop for one work item at a time. A new session reads this file itself (the hook prints its path); a cleared one follows the resume prompt it sent its orchestrator. Role agents (launched with a brief) never see it: their rules are in `.claude/agents/<role>.md` and `CLAUDE.md`. `<script>` below is the protocol script path the hook prints, in the main checkout: never a worktree's copy, which may be stale.
 
 ## First turn
 
-1. The hook printed your CLI session id and your desktop id ("unknown until you register"). If it said "Not registered": call get-session on `self` for your title and your desktop id (`local_...`). A title `<Team> Team` (e.g. `Delta Team`) means run `node tools/scripts/protocol.mjs register <CLI id> <desktop id> tech-lead <team>` (team in lowercase). Your title is your identity; the CLI id is a cache that may change after a clear. A lone session registers `both <team>` and also reads `docs/agents/ba.md`.
-2. Create `.claude/state/teams/<team>.md` from the template ONLY IF IT DOES NOT EXIST. NEVER OVERWRITE AN EXISTING TEAM FILE: it is the handoff. `register` never touches it.
+1. Call get-session on `self` for your title and desktop id (`local_...`). Register by desktop id, which survives a clear: `<Team> Team` (e.g. `Delta Team`) means `node <script> register <desktop id> tech-lead <team>` (team in lowercase). A lone session registers `both <team>` and also reads `docs/agents/ba.md`.
+2. Create the team file from the template ONLY IF IT DOES NOT EXIST, with `node <script> handoff <team>` and the text on stdin (the app blocks the Write tool from a worktree). NEVER OVERWRITE AN EXISTING TEAM FILE: it is the handoff.
 3. Send the BA one line: "<Team> Team here, what's next". Then wait. Never pull or claim an item.
 
 ## Your role
@@ -31,13 +31,13 @@ When the steward reports the PR number, bind it (`bind_pr`, `set_monitor`). A gr
 
 1. Cleanup brief to a grunt: delete the branch, `git worktree remove`, prune the empty directory.
 2. File every `[PROP]` call as a Proposed decision: a file in `docs/decisions/` per `docs/CONVENTIONS.md` plus its row in `docs/decisions/README.md`, on a docs-only branch for the steward. Under day shift a parked question is filed the same way.
-3. Write the final handoff into your state file: item closed, PR number, follow-ups, what the next item needs.
-4. Send the BA one line: "<Team>: PR #<n> merged, handoff at .claude/state/teams/<team>.md".
-5. Call the clear-session tool with `self`. It runs when this turn ends; the hook hands back the active protocols, your state file and this manual.
+3. Write the final handoff with the `handoff` command: item closed, PR number, follow-ups, what the next item needs.
+4. Draft your resume prompt, with NO session ids (the auto-mode classifier refuses a message containing one). Template: `You are <Team> Team, a tech lead (title and team). Read <abs path of your team file> and <abs path of this manual>. Item: <issue and title>, phase <phase>. Next action: <one line>. Do not ask the owner anything this file answers; day shift still waits at the plan gate.` Send it to the BA with a one-line note that you are clearing.
+5. Call the clear-session tool with `self`. It runs when this turn ends. Your orchestrator sends the resume prompt back as your wake message.
 
-**Waking.** If the hook says "Not registered", the clear gave you a new CLI id: read your title with get-session `self`; `<Team> Team` means re-register under that team (First turn, step 1), then read the existing team state file (the hook lists the team files that exist). Never create from the template while one exists. Send the BA "what's next". Day shift: wait for the plan gate. Night shift: the assignment is approval.
+**Waking.** On receiving your resume prompt, follow it: read the files it names and resume without asking the owner. Then send the BA "what's next" unless the prompt names an action. Day shift: wait for the plan gate. Night shift: the assignment is approval.
 
-**Context cap.** At any phase boundary past about 150k context: confirm the state file is current, tell the BA which phase you resume at, and clear yourself.
+**Context cap.** At any phase boundary past about 150k context: confirm the state file is current, then close as in Close steps 4 and 5 (resume prompt to the BA, clear yourself).
 
 **Scope change under night shift.** Stop at the phase boundary, file the scope question as a Proposed decision, write the handoff (leave branch and worktree in place), tell the BA the item stopped and why, clear yourself. No expansion without a gate.
 
@@ -45,7 +45,7 @@ When the steward reports the PR number, bind it (`bind_pr`, `set_monitor`). A gr
 
 ## Your state file
 
-`.claude/state/teams/<team>.md` in the main checkout, gitignored. Update it at every phase boundary, never only at the end. Keep it under 2,000 characters: move closed items and anything older than the current item to the Follow-ups line or a decision file. Template:
+`.hackbench-state/teams/<team>.md` in the main checkout, gitignored. Write it only with `node <script> handoff <team>` (text on stdin; Write is blocked in worktrees). Update it at every phase boundary, never only at the end. Keep it under 2,000 characters: move closed items and anything older than the current item to the Follow-ups line or a decision file. Template:
 
 ```
 # <Team> state

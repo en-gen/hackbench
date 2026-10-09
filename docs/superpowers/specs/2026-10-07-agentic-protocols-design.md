@@ -56,7 +56,7 @@ every tech lead switch at once.
   changes, and a record of who switched it. Not a procedure; procedures are
   runbooks.
 - **Knowledge base.** `docs/`, under the conventions in section 5.
-- **State directory.** `.claude/state/` in the main checkout, gitignored.
+- **State directory.** `.hackbench-state/` in the main checkout, gitignored. Corrected 2026-10-09: was `.claude/state/`, because the app guards `.claude/` from worktree sessions and the auto-mode classifier refuses any workaround.
   Runtime state only: never knowledge.
 
 ## 3. Protocols
@@ -113,7 +113,7 @@ the normal rules explicitly so night shift has something to override:
 Unchanged: the deliverable loop (simplify, adversarial review, verify, ship),
 auto-merge rules, CodeRabbit handling, the content and style gates, data and
 image rules, and every "never" in `CLAUDE.md`. Exit: `day-shift` returns, by
-command or by the schedule in section 6.7; every `[PROP]` made overnight
+command only (section 6.7 is superseded: Ruled 2026-10-08, no scheduled return); every `[PROP]` made overnight
 stays `[PROP]` until ruled; the BA produces the morning brief (section 6.1).
 
 **`throttle`.** No group; stacks with either shift. Activation: the owner, or
@@ -131,7 +131,7 @@ Other protocols are added when a need appears, not before.
 
 ### 3.3 State and log
 
-`.claude/state/protocols.json`, gitignored, in the main checkout:
+`.hackbench-state/protocols.json`, gitignored, in the main checkout:
 
 ```json
 { "active": ["day-shift"], "changed": "2026-10-07T21:00:00Z", "by": "owner" }
@@ -140,7 +140,7 @@ Other protocols are added when a need appears, not before.
 Invariant: for every group with a default, exactly one member is in
 `active`. A missing file means defaults only.
 
-`.claude/state/protocols.log`, one appended line per change: timestamp,
+`.hackbench-state/protocols.log`, one appended line per change: timestamp,
 protocol, on or off, by whom, and what it replaced. The morning brief reads
 it.
 
@@ -166,14 +166,23 @@ start. Two additions:
 
 - The session-start hook also prints the active protocols' Changes sections,
   and selects the manual to inject by the session's registration
-  (section 4.2). It fires on startup, resume and clear. `[INF]` that the
-  clear source fires it; the verifier proves it (section 8).
+  (section 4.2). Corrected 2026-10-09: the hook prints the active protocols
+  plus the protocol script path and the manual paths, and no longer selects
+  or injects a manual. It fires on startup, resume and clear. `[EST]` that it
+  fires after a clear (2026-10-09, one session;
+  `docs/decisions/2026-10-09-self-clear-round-trip.md`).
 - A prompt-submit hook prints the active protocol names and their Changes
   sections on every turn. Cost is bounded by the fifteen-line rule.
 
 Both resolve the main checkout from a worktree through the git common
 directory, so a session in `.claude/worktrees/` reads the same state as one
 in the root.
+
+Corrected 2026-10-09: the hook no longer selects a manual or injects a team
+file after a clear. A clear gives a new CLI session id, so the hook cannot find
+the registration; it prints two facts and one instruction instead, and the
+resume prompt the lead sent its orchestrator before clearing carries identity,
+file paths and the next action (runs A and B in the decision file).
 
 ## 4. Session lifecycle
 
@@ -190,14 +199,16 @@ injected tech-lead manual is split into a core and an on-demand reference.
 
 ### 4.2 Registration replaces check-in
 
-`.claude/state/sessions.json`, gitignored, maps a session id to its role and
-team:
+`.hackbench-state/sessions.json`, gitignored, maps a desktop id to its role and
+team (Corrected 2026-10-09: was keyed by CLI session id, because the hook saw the CLI id; a clear changes it, so the key is now the desktop id, which survives a clear):
 
 ```json
-{ "<session id>": { "role": "tech-lead", "team": "alpha", "registered": "..." } }
+{ "<desktop id>": { "role": "tech-lead", "team": "alpha", "registered": "..." } }
 ```
 
-On a session's first turn the hook finds no entry. The manual's first step
+On a session's first turn (Corrected 2026-10-09: the hook does not look up
+any entry; a new session reads its manual at the path the hook prints and
+registers by desktop id). The manual's first step
 is: read your own title, register yourself, create your team state file
 (section 4.4), and send the BA one line: "Alpha tech lead here, what's
 next". The owner starts a session, titles it, and walks away. Scale-out is
@@ -207,6 +218,8 @@ by four other tool definitions but was not loaded in the design session, so
 its availability is `[OPEN]`.
 
 The BA prunes entries for sessions that no longer appear in the session list.
+
+Corrected 2026-10-09: a registration is keyed by the desktop id alone and carries no CLI id; the hook no longer maps a session to its registration, and the resume prompt a lead sends its orchestrator before clearing carries identity (section 3.5). The note below is kept as history.
 
 Corrected 2026-10-07: a registration carries two ids, because the hook receives
 the CLI session id while the session-management tools take the desktop id
@@ -229,8 +242,10 @@ recreates its team state file.
    definition says the clear runs when the turn ends and the session is idle,
    and keeps the folder, model and permissions `[EST]`. Carina's rule that a
    session cannot clear itself is true of the slash command only.
-5. First turn after waking: the hook has injected the manual, the active
-   protocols and the team state file. Send the BA "what's next". Day shift
+5. First turn after waking (Corrected 2026-10-09: was "the hook has injected
+   the manual, the active protocols and the team state file"; the hook now
+   injects only the active protocols and prints paths, so the woken lead
+   follows its resume prompt and reads the files it names). Send the BA "what's next". Day shift
    waits for a plan gate on the new item; night shift treats the assignment
    as approval.
 
@@ -241,11 +256,11 @@ a session passes about 200k, write the state to the issue and hand off".
 
 ### 4.4 State files
 
-`.claude/state/teams/<team>.md`, headed sections: Item, Branch and worktree,
+`.hackbench-state/teams/<team>.md`, headed sections: Item, Branch and worktree,
 Phase, Open questions, Proposed calls, Follow-ups, Last updated. Short; it
 is read on every wake.
 
-`.claude/state/ba.md`: Teams (team to item), Queue, Pending questions, Last
+`.hackbench-state/ba.md`: Teams (team to item), Queue, Pending questions, Last
 brief. The BA clears itself by the same mechanism when its context runs
 long, and at every shift change after writing or reading the morning brief.
 
@@ -255,8 +270,12 @@ An unattended clear needs auto mode: the clear-session definition says the
 app asks the user in default mode and may decide without asking in auto
 mode `[EST]`. The night-shift protocol says tech leads run in auto mode; the
 owner sets it when starting a session for night work. Whether auto mode
-lets a self-clear through unattended is `[OPEN]` until the verifier shows
-it (section 8).
+lets a self-clear through unattended is `[OPEN]`. Evidence so far: no prompt
+blocked a clear in auto mode with an owner allow rule for clear_session, on
+branch scripts that still had `reclaim` (2026-10-09, one session;
+`docs/decisions/2026-10-09-self-clear-round-trip.md`) `[EST]`. The shipped
+flow has not run end to end. Resolved by the post-cutover Zulu confirm on
+develop, recorded with its commit.
 
 ## 5. The knowledge base is `docs/`
 
@@ -303,7 +322,7 @@ docs/
 ### 5.3 What the knowledge base does not hold
 
 Runtime state: the active protocol set, the session registry, team and BA
-state files. Those live in `.claude/state/`, are gitignored, are written by
+state files. Those live in `.hackbench-state/`, are gitignored, are written by
 sessions and read by the hook, and are what an outer shell would write.
 
 ### 5.4 Decisions
@@ -354,7 +373,7 @@ All eight approved by the owner on 2026-10-07.
    URL goes in the handoff. Only auto-merge items complete unattended.
 6. **Throttle self-activates on a usage-limit error.** The one exception to
    owner-only activation, logged with the trigger.
-7. **Day shift returns on a schedule.** The BA, when night shift is enacted,
+7. **Superseded 2026-10-08: day shift returns on the owner's word, not a schedule** (`docs/decisions/2026-10-08-night-shift-ends-on-owner-word.md`). Original text kept: day shift returns on a schedule. The BA, when night shift is enacted,
    creates a scheduled trigger in its own session for the return time the
    owner names, which runs the protocol command for `day-shift`. The owner
    can extend. `[INF]` that a session-scoped cron can invoke a repo skill;
@@ -385,9 +404,13 @@ the quality gates require.
   ones. Lands beside the existing lint-gate test.
 - **Self-clear round trip.** The verifier, on a throwaway session in auto
   mode: register, write a team state file, clear self, confirm from the
-  transcript that the hook fired after the clear and injected the file, and
-  that no permission prompt blocked. This is the load-bearing `[OPEN]` in
-  sections 3.5 and 4.5; nothing ships to night use until it is `[EST]`.
+  transcript that the hook fired after the clear, that the session followed its
+  resume prompt and read the file it named (Corrected 2026-10-09: was "injected
+  the file"), and that no permission prompt blocked. This remains the load-bearing `[OPEN]` in
+  sections 3.5 and 4.5. The resume-prompt design passed on branch scripts
+  (2026-10-09, one session, `docs/decisions/2026-10-09-self-clear-round-trip.md`)
+  `[EST]`; the shipped flow is confirmed by the post-cutover Zulu run on
+  develop, recorded with its commit.
 - **Nudge.** The command run against two registered throwaway sessions; both
   transcripts show the line.
 - **Night-shift dry run.** One evening, one team, one auto-merge item from
@@ -421,5 +444,5 @@ Corrected 2026-10-07: delivered as one PR, because the owner ruled "why not do i
 - Neuromancer. The seam is the state directory and the protocol files; no
   code here targets it. `[OPEN]` what runner it uses for Claude Code.
 - A start-session tool for the BA (section 4.2). `[OPEN]`
-- Whether a session-scoped cron can run a repo skill (section 6.7). `[OPEN]`
-- Auto mode and unattended self-clear (section 4.5). `[OPEN]`
+- Whether a session-scoped cron can run a repo skill (section 6.7). Moot: 6.7 is superseded.
+- Auto mode and unattended self-clear (section 4.5). `[OPEN]`: passed on branch scripts 2026-10-09 `[EST]`; the shipped flow awaits the post-cutover Zulu confirm on develop, recorded with its commit.

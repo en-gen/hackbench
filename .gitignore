@@ -126,6 +126,9 @@ build/*
 !build/icons
 !build/icons/**
 
+# Shared session and protocol state (registrations, team handoffs), main checkout only
+/.hackbench-state/
+
 # Claude / local agent state; agent roles, shared settings and house skills are tracked
 .claude/*
 !.claude/agents/

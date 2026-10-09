@@ -35,7 +35,6 @@ const repoRoot = path.resolve(__dirname, '../../..')
 const script = path.join(repoRoot, 'tools/scripts/protocol.mjs')
 let stateDir: string
 let protocolsDir: string
-const CLI_ID = '2b245891-c391-4d73-9647-b5b41cea6c49'
 const LOCAL_ID = 'local_774e2af5-aaaa-4bbb-8ccc-000000000001'
 
 function runFull(args: string[]): { code: number; stdout: string; stderr: string } {
@@ -63,19 +62,7 @@ function run(args: string[]): { code: number; out: string } {
 }
 
 beforeEach(() => {
-  // The real night-shift.md is Blocked until the round trip is recorded; these tests
-  // enact it, so they use a copy without that line. The refusal is tested on the real dir.
-  protocolsDir = mk('protocols-')
-  fs.cpSync(path.join(repoRoot, 'docs/protocols'), protocolsDir, { recursive: true })
-  const nightFile = path.join(protocolsDir, 'night-shift.md')
-  fs.writeFileSync(
-    nightFile,
-    fs
-      .readFileSync(nightFile, 'utf8')
-      .split(/\r?\n/)
-      .filter(l => !l.startsWith('Blocked:'))
-      .join('\n'),
-  )
+  protocolsDir = path.join(repoRoot, 'docs/protocols')
   stateDir = mk('protocol-state-')
 })
 
@@ -87,7 +74,7 @@ describe('the protocol command', () => {
   })
 
   it('enacts night-shift, lists registered sessions to nudge, and restores day-shift', () => {
-    run(['register', CLI_ID, LOCAL_ID, 'tech-lead', 'alpha'])
+    run(['register', LOCAL_ID, 'tech-lead', 'alpha'])
     const on = JSON.parse(run(['night-shift', 'on', '--by', 'owner']).out)
     expect(on.active).toEqual(['night-shift'])
     expect(on.nudge).toEqual([{ desktopId: LOCAL_ID, role: 'tech-lead', team: 'alpha' }])
@@ -108,7 +95,7 @@ describe('the protocol command', () => {
 describe('the protocol command, hardened', () => {
   it('refuses a malformed session id on register', () => {
     expect(run(['register', 'nope', LOCAL_ID, 'ba']).code).not.toBe(0)
-    expect(run(['register', CLI_ID, 'nope', 'ba']).code).not.toBe(0)
+    expect(run(['register', 'nope', 'ba']).code).not.toBe(0)
     expect(fs.existsSync(path.join(stateDir, 'sessions.json'))).toBe(false)
   })
 
@@ -146,11 +133,17 @@ describe('the protocol command, hardened', () => {
     expect(r.stderr.trim()).toBe('protocols.json unreadable, defaults applied')
   })
 
-  it('nudges a re-registered session once, not once per CLI id', () => {
-    run(['register', CLI_ID, LOCAL_ID, 'tech-lead', 'alpha'])
-    run(['register', '00000000-0000-4000-8000-000000000003', LOCAL_ID, 'tech-lead', 'alpha'])
+  it('nudges a re-registered desktop id once', () => {
+    run(['register', LOCAL_ID, 'tech-lead', 'alpha'])
+    expect(run(['register', LOCAL_ID, 'tech-lead', 'alpha']).code).toBe(0)
     const on = JSON.parse(run(['night-shift', 'on', '--by', 'owner']).out)
     expect(on.nudge).toEqual([{ desktopId: LOCAL_ID, role: 'tech-lead', team: 'alpha' }])
+  })
+
+  it('status prints the absolute state folder it reads', () => {
+    const status = JSON.parse(run(['status']).out)
+    expect(status.stateDir).toBe(stateDir)
+    expect(path.isAbsolute(status.stateDir)).toBe(true)
   })
 })
 
@@ -170,7 +163,7 @@ describe('parallel registers', () => {
           new Promise<void>(resolve => {
             const code = `import { registerSession } from ${JSON.stringify(mod)}
               Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.max(0, ${startAt} - Date.now()))
-              registerSession(${JSON.stringify(stateDir)}, ${JSON.stringify(id)}, ${JSON.stringify('local_' + id)}, 'tech-lead', 'team${i}', 'x')`
+              registerSession(${JSON.stringify(stateDir)}, ${JSON.stringify('local_' + id)}, 'tech-lead', 'team${i}', 'x')`
             spawn('node', ['--input-type=module', '-e', code], { stdio: 'ignore' }).on(
               'close',
               () => resolve(),
@@ -179,7 +172,7 @@ describe('parallel registers', () => {
       ),
     )
     const sessions = JSON.parse(fs.readFileSync(path.join(stateDir, 'sessions.json'), 'utf8'))
-    expect(Object.keys(sessions).sort()).toEqual([...ids].sort())
+    expect(Object.keys(sessions).sort()).toEqual(ids.map(id => 'local_' + id).sort())
   })
 })
 
@@ -215,7 +208,7 @@ describe('the command takes the lock', () => {
 
   it('refuses a register while another process holds the lock', () => {
     holdLock()
-    const r = runWith(['register', CLI_ID, LOCAL_ID, 'ba'], { HACKBENCH_LOCK_TIMEOUT_MS: '200' })
+    const r = runWith(['register', LOCAL_ID, 'ba'], { HACKBENCH_LOCK_TIMEOUT_MS: '200' })
     expect(r.code).toBe(1)
     expect(r.out).toMatch(/could not lock/)
   })
@@ -230,7 +223,7 @@ describe('the command takes the lock', () => {
   })
 
   it('unregisters a desktop id through the command', () => {
-    run(['register', CLI_ID, LOCAL_ID, 'tech-lead', 'alpha'])
+    run(['register', LOCAL_ID, 'tech-lead', 'alpha'])
     const r = JSON.parse(run(['unregister', LOCAL_ID]).out)
     expect(r.removed).toBe(1)
     expect(r.sessions).toEqual({})
@@ -238,22 +231,36 @@ describe('the command takes the lock', () => {
   })
 })
 
-describe('the real night-shift protocol is blocked', () => {
-  function runReal(args: string[]) {
+describe('a Blocked protocol is refused', () => {
+  // Synthetic: no shipped protocol is Blocked now, so the refusal is proved on a copy.
+  function runBlocked(args: string[]) {
+    const dir = mk('blocked-protocols-')
+    fs.cpSync(path.join(repoRoot, 'docs/protocols'), dir, { recursive: true })
+    const night = path.join(dir, 'night-shift.md')
+    fs.writeFileSync(
+      night,
+      fs
+        .readFileSync(night, 'utf8')
+        .replace(/## Activation\r?\n/, m => `${m}\nBlocked: planted for the test.\n`),
+    )
     const r = spawnSync('node', [script, ...args], {
       cwd: repoRoot,
       encoding: 'utf8',
-      env: { ...process.env, HACKBENCH_STATE_DIR: stateDir, HACKBENCH_PROTOCOLS_DIR: '' },
+      env: { ...process.env, HACKBENCH_STATE_DIR: stateDir, HACKBENCH_PROTOCOLS_DIR: dir },
     })
     return { code: r.status ?? -1, out: `${r.stdout}${r.stderr}` }
   }
 
   it('refuses on, writes nothing, and leaves status and day-shift alone', () => {
-    const r = runReal(['night-shift', 'on', '--by', 'owner'])
+    const r = runBlocked(['night-shift', 'on', '--by', 'owner'])
     expect(r.code).toBe(1)
-    expect(r.out).toMatch(/night-shift is blocked: until the self-clear round trip/)
+    expect(r.out).toMatch(/night-shift is blocked: planted for the test/)
     expect(fs.existsSync(path.join(stateDir, 'protocols.json'))).toBe(false)
     expect(fs.existsSync(path.join(stateDir, 'protocols.log'))).toBe(false)
-    expect(JSON.parse(runReal(['status']).out).active).toEqual(['day-shift'])
+    expect(JSON.parse(runBlocked(['status']).out).active).toEqual(['day-shift'])
+  })
+
+  it('the shipped night-shift enacts on the real protocols dir', () => {
+    expect(run(['night-shift', 'on', '--by', 'owner']).code).toBe(0)
   })
 })

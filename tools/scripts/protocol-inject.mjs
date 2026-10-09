@@ -1,93 +1,17 @@
 #!/usr/bin/env node
 // Session hook: prints the active protocols (every turn) and, on session
-// start, the session's registration, state file and manual. Never exits
-// non-zero: a failure here would block every prompt in every session, so a
-// broken protocol file becomes one visible line instead.
+// start, two facts and one instruction. It never exits non-zero: a failure
+// here would block every prompt in every session, so a broken protocol file
+// becomes one visible line instead. It no longer maps a session to a
+// registration or injects manuals: a clear gives a new CLI session id, so the
+// hook cannot find the registration, and the resume prompt a lead sends to its
+// orchestrator before clearing carries that instead.
 // Spec: docs/superpowers/specs/2026-10-07-agentic-protocols-design.md section 3.5.
 
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import {
-  loadProtocols,
-  protocolsDirFor,
-  readSessions,
-  readStateChecked,
-  stateDirFor,
-  TEAM_NAME,
-} from './protocol.mjs'
-
-// The hooks docs cap injected output at 10,000 characters; past that Claude
-// sees a file path and a 2,000-character preview. Anything that would push
-// the whole output (joining newlines and trailing newline included) past this
-// becomes a one-line pointer with an absolute path. The state file is added
-// before the manual, so the handoff always wins and the manual pointerises first.
-const CAP = 9500
-const MANUAL = { ba: 'ba.md', 'tech-lead': 'tech-lead.md', both: 'tech-lead.md' }
-
-function readIf(file) {
-  return existsSync(file) ? readFileSync(file, 'utf8') : null
-}
-
-function sessionPart(out, input, dirs) {
-  const cliId = input.session_id ?? 'unknown'
-  let reg = readSessions(dirs.stateDir)[cliId]
-  // sessions.json is hand-editable; a team name that is not a plain name could
-  // point the state-file read outside teams/, so it counts as unregistered.
-  if (reg && reg.team != null && !TEAM_NAME.test(String(reg.team))) reg = undefined
-  const agents = file => path.resolve(dirs.docsDir, 'agents', file)
-  const stateFile = (...p) => path.resolve(dirs.stateDir, ...p)
-  const fits = text => [...out, text].join('\n').length + 1 <= CAP
-  // Every line goes through the cap, pointers included: long paths made them
-  // push `both` past 10,000. Once one is dropped, nothing later is printed.
-  let omitted = false
-  const add = line => {
-    if (omitted) return
-    if (fits(line)) out.push(line)
-    else {
-      omitted = true
-      out.push('(more omitted)')
-    }
-  }
-  const fit = (text, pointer) => add(fits(text) ? text : pointer)
-
-  if (!reg) {
-    const teamsDir = stateFile('teams')
-    const teams = existsSync(teamsDir)
-      ? readdirSync(teamsDir)
-          .filter(f => f.endsWith('.md'))
-          .map(f => f.slice(0, -3))
-      : []
-    add(`Session id: ${cliId}. Desktop id: unknown until you register.`)
-    add(
-      `Not registered. Your title decides your role: "<Team> Team" registers tech-lead <team>; "BA" registers ba; the only session on the machine registers both <team>. Existing team files: ${teams.join(', ') || 'none'}. Then read your manual: ${agents('tech-lead.md')} or ${agents('ba.md')}.`,
-    )
-    return
-  }
-
-  const team = reg.team ? ` ${reg.team}` : ''
-  add(
-    `Session id: ${cliId}. Desktop id: ${reg.desktopId ?? 'unknown'}. Registered as ${reg.role}${team}.`,
-  )
-  if (reg.team) {
-    const file = stateFile('teams', `${reg.team}.md`)
-    const text = readIf(file)
-    if (text) fit(text, `Read ${file} first: it is too large to inject.`)
-  }
-  if (reg.role === 'ba') {
-    const file = stateFile('ba.md')
-    const text = readIf(file)
-    if (text) fit(text, `Read ${file} first: it is too large to inject.`)
-  }
-  if (reg.role === 'both') {
-    add(
-      `You are also the BA: read ${agents('ba.md')} before your first reply. Its state file, if any, is ${stateFile('ba.md')}.`,
-    )
-  }
-  const manual = agents(MANUAL[reg.role] ?? MANUAL.both)
-  const text = readIf(manual)
-  if (text) fit(text, `Read ${manual} before your first reply: it is too large to inject.`)
-}
+import { loadProtocols, protocolsDirFor, readStateChecked, stateDirFor } from './protocol.mjs'
 
 export function render(input, dirs) {
   const defs = loadProtocols(dirs.protocolsDir)
@@ -97,11 +21,14 @@ export function render(input, dirs) {
   out.push(`Active protocols: ${state.active.join(', ')}`)
   for (const name of state.active) out.push(`## ${name}`, ...defs.get(name).changes)
   if (input.hook_event_name === 'SessionStart') {
-    try {
-      sessionPart(out, input, dirs)
-    } catch (err) {
-      out.push(`Protocol hook: session part failed: ${err instanceof Error ? err.message : err}`)
-    }
+    // Absolute paths from the main checkout: a worktree's own copy may be stale.
+    const root = path.resolve(dirs.docsDir, '..')
+    const script = path.join(root, 'tools', 'scripts', 'protocol.mjs')
+    const agents = file => path.resolve(dirs.docsDir, 'agents', file)
+    out.push(
+      `Session id: ${input.session_id ?? 'unknown'}. Protocol script (main checkout): ${script}. State folder: ${dirs.stateDir}.`,
+      `A cleared session waits for its orchestrator's resume prompt and follows it. A new session reads its manual (${agents('tech-lead.md')} or ${agents('ba.md')}) and registers from its title.`,
+    )
   }
   return out.join('\n') + '\n'
 }
