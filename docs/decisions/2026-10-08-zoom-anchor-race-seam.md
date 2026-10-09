@@ -12,7 +12,7 @@ Issue #547 asks that each of four planted zoom-anchor defects turn a test red. P
 
 ## Ruling
 
-"2A". That is: rule the seam unreachable, keep the guard with an evidence-scoped comment, acceptance three of four plants red, close #548 on its 13 clean runs.
+2A, as listed above.
 
 ## Why
 

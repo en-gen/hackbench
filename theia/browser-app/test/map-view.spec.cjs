@@ -2591,7 +2591,6 @@ test.describe('zoom anchor across the commit gap (#547)', () => {
               ? (...a) => real.mapScreen(...a).then(r => new Promise(res => release.push(() => res(r)))) // prettier-ignore
               : (...a) => real[k](...a),
         })
-        w.hbRealProjects = real
         w.refresh() // clears the screen cache and asks for the visible ones again
       }, index)
       await expect.poll(() => page.evaluate(() => window.hbRelease.length)).toBeGreaterThan(0)
