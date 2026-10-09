@@ -21,13 +21,20 @@ export interface Known {
   why: number | string
   /** [absorbed disagreements, compared cases the predicate matches, digest] */
   expect: [number, number, string]
+  /** Absorb only differences off the object's own screen; an on-screen one is unexpected (#453). */
+  offScreenOnly?: boolean
 }
 
 const hi = (r: DiffRun) => r.size >> 4
 const lo = (r: DiffRun) => r.size & 0x0f
 const all = () => true
-const row = (routine: number, when: Known['when'], why: Known['why'], expect: Known['expect']): Known =>
-  ({ routine, when, why, expect }) // prettier-ignore
+const row = (
+  routine: number,
+  when: Known['when'],
+  why: Known['why'],
+  expect: Known['expect'],
+  offScreenOnly?: boolean,
+): Known => ({ routine, when, why, expect, ...(offScreenOnly && { offScreenOnly }) })
 
 /** In-range game behavior the ports do not follow (#369). */
 const UMBRELLA = 690
@@ -40,7 +47,7 @@ export const KNOWN_DISAGREEMENTS: Known[] = [
   // The port draws this only as the interpreter's refusal fallback; production draws it from the interpreter (#342).
   row(0x0dadeb, all, 440, [450, 480, 'cfbc58f35e']),
   // #350 wraps the counter now; the 257 rows run past the 27-row screen, which is #300.
-  row(0x0db49e, r => hi(r) === 0, 300, [240, 240, '25441b371f']),
+  row(0x0db49e, r => hi(r) === 0, 300, [240, 240, '25441b371f'], true),
   // #369: a zero nibble wraps a DEC/BNE counter to 256.
   ...([
     [0x0daa26, [195, 240, 'd73c1e0be0']],
@@ -140,7 +147,9 @@ export function tally(runs: DiffRun[], name: (r: DiffRun) => string): Tally {
     KNOWN_DISAGREEMENTS.forEach((k, i) => k.routine === r.leaf && k.when(r) && inside[i]++)
     if (!r.differs) continue
     const i = KNOWN_DISAGREEMENTS.findIndex(k => k.routine === r.leaf && k.when(r))
-    if (i >= 0) absorbed[i].push(r.digest)
+    if (i >= 0 && KNOWN_DISAGREEMENTS[i].offScreenOnly && r.ownScreenDiffers)
+      unexpected.push(`${name(r)} leaf ${hex6(r.leaf)}: own screen differs`)
+    else if (i >= 0) absorbed[i].push(r.digest)
     else unexpected.push(`${name(r)} leaf ${hex6(r.leaf)}`)
   }
   const digest = (ds: string[]) =>
