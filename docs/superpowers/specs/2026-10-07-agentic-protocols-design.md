@@ -166,8 +166,11 @@ start. Two additions:
 
 - The session-start hook also prints the active protocols' Changes sections,
   and selects the manual to inject by the session's registration
-  (section 4.2). It fires on startup, resume and clear. `[EST]` that it fires
-  after a clear (2026-10-09, one session; `docs/decisions/2026-10-09-self-clear-round-trip.md`).
+  (section 4.2). Corrected 2026-10-09: the hook prints the active protocols
+  plus the protocol script path and the manual paths, and no longer selects
+  or injects a manual. It fires on startup, resume and clear. `[EST]` that it
+  fires after a clear (2026-10-09, one session;
+  `docs/decisions/2026-10-09-self-clear-round-trip.md`).
 - A prompt-submit hook prints the active protocol names and their Changes
   sections on every turn. Cost is bounded by the fifteen-line rule.
 
@@ -267,9 +270,12 @@ An unattended clear needs auto mode: the clear-session definition says the
 app asks the user in default mode and may decide without asking in auto
 mode `[EST]`. The night-shift protocol says tech leads run in auto mode; the
 owner sets it when starting a session for night work. Whether auto mode
-lets a self-clear through unattended is `[EST]`: no prompt blocked a clear
-in auto mode with an owner allow rule for clear_session (2026-10-09, one
-session; `docs/decisions/2026-10-09-self-clear-round-trip.md`).
+lets a self-clear through unattended is `[OPEN]`. Evidence so far: no prompt
+blocked a clear in auto mode with an owner allow rule for clear_session, on
+branch scripts that still had `reclaim` (2026-10-09, one session;
+`docs/decisions/2026-10-09-self-clear-round-trip.md`) `[EST]`. The shipped
+flow has not run end to end. Resolved by the post-cutover Zulu confirm on
+develop, recorded with its commit.
 
 ## 5. The knowledge base is `docs/`
 
@@ -400,9 +406,11 @@ the quality gates require.
   mode: register, write a team state file, clear self, confirm from the
   transcript that the hook fired after the clear, that the session followed its
   resume prompt and read the file it named (Corrected 2026-10-09: was "injected
-  the file"), and that no permission prompt blocked. This was the load-bearing `[OPEN]` in
-  sections 3.5 and 4.5; it is now `[EST]` (2026-10-09, resume-prompt design,
-  `docs/decisions/2026-10-09-self-clear-round-trip.md`).
+  the file"), and that no permission prompt blocked. This remains the load-bearing `[OPEN]` in
+  sections 3.5 and 4.5. The resume-prompt design passed on branch scripts
+  (2026-10-09, one session, `docs/decisions/2026-10-09-self-clear-round-trip.md`)
+  `[EST]`; the shipped flow is confirmed by the post-cutover Zulu run on
+  develop, recorded with its commit.
 - **Nudge.** The command run against two registered throwaway sessions; both
   transcripts show the line.
 - **Night-shift dry run.** One evening, one team, one auto-merge item from
@@ -437,4 +445,4 @@ Corrected 2026-10-07: delivered as one PR, because the owner ruled "why not do i
   code here targets it. `[OPEN]` what runner it uses for Claude Code.
 - A start-session tool for the BA (section 4.2). `[OPEN]`
 - Whether a session-scoped cron can run a repo skill (section 6.7). Moot: 6.7 is superseded.
-- Auto mode and unattended self-clear (section 4.5). `[EST]` 2026-10-09.
+- Auto mode and unattended self-clear (section 4.5). `[OPEN]`: passed on branch scripts 2026-10-09 `[EST]`; the shipped flow awaits the post-cutover Zulu confirm on develop, recorded with its commit.

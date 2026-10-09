@@ -28,6 +28,8 @@ Scope: one throwaway session ("Zulu"), auto permission mode, one machine, 2026-1
 - Run B (resume-prompt wake, clear about 05:35:27Z, a local settings allow rule for clear_session in place): Zulu called get_session, reclaimed its registration, read its team file from the absolute path in the prompt (phase verify-run-1), and reported to Bravo. No permission prompt or approval wait found in the post-clear transcript. PASS.
 - Not observed: the clear-session tool's own result text; any case outside auto mode.
 
+Status: the resume-prompt design passed `[EST]` on branch scripts (above). The shipped flow is `[OPEN]` until the post-cutover Zulu confirm on develop is recorded with its commit; night shift is enacted only after that.
+
 ## Why
 
 The CLI id is not stable across a clear and the hook cannot read the old one, so the identity has to travel in a message the lead wrote itself. Sending it through the orchestrator makes the wake message authoritative to the woken session.
