@@ -814,6 +814,72 @@ describe('reclaimSession', () => {
     expect(fs.readFileSync(file).equals(before)).toBe(true)
   })
 
+  it('refuses a CLI id that belongs to another desktop session, changing nothing', () => {
+    const dir = tempDir('state-')
+    registerSession(dir, CLI_ID, LOCAL_ID, 'tech-lead', 'alpha', NOW)
+    registerSession(dir, CLI_ID_2, LOCAL_ID_2, 'tech-lead', 'bravo', NOW)
+    const file = path.join(dir, 'sessions.json')
+    const before = fs.readFileSync(file)
+    expect(() => reclaimSession(dir, CLI_ID, LOCAL_ID_2)).toThrow(/another session/)
+    expect(fs.readFileSync(file).equals(before)).toBe(true)
+  })
+
+  it('finds the entry for the desktop id wherever it sits in the file', () => {
+    const dir = tempDir('state-')
+    registerSession(dir, CLI_ID_2, LOCAL_ID_2, 'ba', null, NOW)
+    registerSession(dir, CLI_ID, LOCAL_ID, 'tech-lead', 'alpha', NOW)
+    expect(reclaimSession(dir, NEW_CLI, LOCAL_ID)).toMatchObject({
+      cliId: NEW_CLI,
+      role: 'tech-lead',
+      team: 'alpha',
+    })
+  })
+
+  it('refuses an entry the hook would not accept', () => {
+    const dir = tempDir('state-')
+    fs.writeFileSync(
+      path.join(dir, 'sessions.json'),
+      JSON.stringify({ [CLI_ID]: { desktopId: LOCAL_ID, role: 'tech-lead', team: '../../x' } }),
+    )
+    expect(() => reclaimSession(dir, NEW_CLI, LOCAL_ID)).toThrow(/invalid/)
+  })
+
+  it('keeps the newest of several entries for one desktop id', () => {
+    const dir = tempDir('state-')
+    fs.writeFileSync(
+      path.join(dir, 'sessions.json'),
+      JSON.stringify({
+        [CLI_ID]: { desktopId: LOCAL_ID, role: 'tech-lead', team: 'old', registered: '2026-01-01' },
+        [CLI_ID_2]: {
+          desktopId: LOCAL_ID,
+          role: 'tech-lead',
+          team: 'new',
+          registered: '2026-02-01',
+        },
+      }),
+    )
+    expect(reclaimSession(dir, NEW_CLI, LOCAL_ID).team).toBe('new')
+    expect(Object.keys(readSessions(dir))).toEqual([NEW_CLI])
+  })
+
+  it('keeps the original registered time and records reclaimed', () => {
+    const dir = tempDir('state-')
+    registerSession(dir, CLI_ID, LOCAL_ID, 'ba', null, NOW)
+    const e = reclaimSession(dir, NEW_CLI, LOCAL_ID, { now: 'later' })
+    expect(e).toMatchObject({ registered: NOW, reclaimed: 'later' })
+  })
+
+  it('prints usage when an argument is missing', () => {
+    const dir = tempDir('state-')
+    const script = path.resolve(__dirname, '../../../tools/scripts/protocol.mjs')
+    const r = spawnSync('node', [script, 'reclaim', NEW_CLI], {
+      encoding: 'utf8',
+      env: { ...process.env, HACKBENCH_STATE_DIR: dir },
+    })
+    expect(r.status).not.toBe(0)
+    expect(r.stdout).toMatch(/usage:/)
+  })
+
   it('validates both ids', () => {
     const dir = tempDir('state-')
     expect(() => reclaimSession(dir, 'nope', LOCAL_ID)).toThrow(/CLI session id/)

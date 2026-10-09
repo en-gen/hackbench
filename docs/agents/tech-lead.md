@@ -4,7 +4,7 @@
 
 ## First turn
 
-1. If the hook said "Not registered": get your desktop id (`local_...`) from get-session on `self`, then run `node tools/scripts/protocol.mjs reclaim <CLI id> <desktop id>`. On success read your team file and resume (see Waking). Only if reclaim fails, register from your title: `<Team> Team` (e.g. `Delta Team`) means `node tools/scripts/protocol.mjs register <CLI id> <desktop id> tech-lead <team>` (team in lowercase). A lone session registers `both <team>` and also reads `docs/agents/ba.md`.
+1. If the hook said "Not registered": get your desktop id (`local_...`) from get-session on `self`, then run `node tools/scripts/protocol.mjs reclaim <CLI id> <desktop id>`. If the printed team matches your title, read your team file (the main checkout's `.claude/state/teams/`, the path the hook prints) and resume (see Waking). Otherwise register from your title (your title is your identity; the CLI id is a cache): `<Team> Team` (e.g. `Delta Team`) means `node tools/scripts/protocol.mjs register <CLI id> <desktop id> tech-lead <team>` (team in lowercase). A lone session registers `both <team>` and also reads `docs/agents/ba.md`.
 2. Create `.claude/state/teams/<team>.md` from the template ONLY IF IT DOES NOT EXIST. NEVER OVERWRITE AN EXISTING TEAM FILE: it is the handoff. `register` never touches it.
 3. Send the BA one line: "<Team> Team here, what's next". Then wait. Never pull or claim an item.
 

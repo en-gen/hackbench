@@ -405,25 +405,38 @@ export function registerSession(
 }
 
 // Re-files the session's own entry, role and team kept, so it need not
-// re-derive them from its title.
+// re-derive them from its title. Refused when the new CLI id already belongs
+// to another desktop session (a wrong desktop id would swap two registrations),
+// or when the entry is one the hook would treat as unregistered (a reclaim
+// that cannot be read back would loop). `registered` stays the original
+// time; `reclaimed` records the clear. Returns only the reclaimed entry.
 export function reclaimSession(
   stateDir,
   cliId,
   desktopId,
-  { rename = renameSync, lock = {} } = {},
+  { rename = renameSync, lock = {}, now = new Date().toISOString() } = {},
 ) {
   assertIds(cliId, desktopId)
-  return refileSession(
+  const all = refileSession(
     stateDir,
     cliId,
     desktopId,
-    all => {
-      const found = Object.values(all).find(entry => entry?.desktopId === desktopId)
+    sessions => {
+      const mine = Object.values(sessions).filter(e => e?.desktopId === desktopId)
+      // Hand edits can leave several; the newest registration is the live one.
+      const found = mine.sort((x, y) => String(y.registered).localeCompare(String(x.registered)))[0]
       if (!found) throw new Error(`no registration for desktop id ${desktopId}; register instead`)
-      return found
+      if (sessions[cliId] && sessions[cliId].desktopId !== desktopId) {
+        throw new Error(`CLI id ${cliId} is registered to another session; check the desktop id`)
+      }
+      if (!ROLES.has(found.role) || (found.team != null && !TEAM_NAME.test(String(found.team)))) {
+        throw new Error(`the registration for ${desktopId} is invalid; register instead`)
+      }
+      return { ...found, reclaimed: now }
     },
     { rename, lock },
   )
+  return { cliId, ...all[cliId] }
 }
 
 // The BA prunes sessions that no longer exist; going through the lock keeps a
@@ -477,7 +490,7 @@ function cli(argv, cwd) {
   }
   if (a === 'reclaim') {
     if (!b || !c) return { code: 1, out: USAGE }
-    return { code: 0, out: reclaimSession(stateDir, b, c) }
+    return { code: 0, out: reclaimSession(stateDir, b, c, { now }) }
   }
   if (a === 'register') {
     if (!b || !c || !d) return { code: 1, out: USAGE }

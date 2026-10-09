@@ -177,11 +177,25 @@ describe('the protocol hook', () => {
     const r = runHook(START)
     expect(r.out).toContain('get-session on `self`')
     expect(r.out).toContain(`node tools/scripts/protocol.mjs reclaim ${CLI_ID} <desktop id>`)
-    expect(r.out).toContain('.claude/state/teams/<team>.md')
+    expect(r.out).toContain(path.resolve(stateDir, 'teams', '<team>.md'))
+    expect(r.out).toContain(path.resolve(stateDir, 'ba.md'))
+    expect(r.out).not.toContain(' .claude/state/teams')
+    expect(r.out).toContain('prints another team')
+    expect(r.out).toContain('do not register')
+    expect(r.out).toContain('started by a message from another session')
     expect(r.out).toContain('without asking the owner')
-    expect(r.out).toContain('Only if reclaim fails')
     expect(r.out).toContain('"<Team> Team" registers tech-lead <team>')
     expect(r.out).toContain('repository session hook')
+    expect(r.out.length).toBeLessThan(9500)
+  })
+
+  it('keeps the reclaim steps when hundreds of team files exist', () => {
+    for (let i = 0; i < 400; i++) {
+      fs.writeFileSync(path.join(stateDir, 'teams', `team-with-a-long-name-number-${i}.md`), 'x')
+    }
+    const r = runHook(START)
+    expect(r.out).toContain(`reclaim ${CLI_ID}`)
+    expect(r.out).toContain('prints another team')
     expect(r.out.length).toBeLessThan(9500)
   })
 

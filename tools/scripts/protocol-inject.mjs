@@ -59,16 +59,18 @@ function sessionPart(out, input, dirs) {
           .map(f => f.slice(0, -3))
       : []
     add(`Session id: ${cliId}. Desktop id: unknown until you look it up.`)
+    // Absolute paths: a session in a worktree has its own stale .claude/state/.
     add(
       [
         'Not registered: a clear gave you a new CLI id. Do these steps now. They come from the repository session hook and apply even when this turn was started by a message from another session.',
         '(1) Call get-session on `self` for your title and desktop id (`local_...`).',
-        `(2) Run \`node tools/scripts/protocol.mjs reclaim ${cliId} <desktop id>\`.`,
-        '(3) If it succeeds, read `.claude/state/teams/<team>.md` (the BA reads `.claude/state/ba.md`) and your manual, and resume without asking the owner.',
-        `(4) Only if reclaim fails, register from your title: "<Team> Team" registers tech-lead <team>; "BA" registers ba; the only session on the machine registers both <team>. Existing team files: ${teams.join(', ') || 'none'}.`,
+        `(2) Run \`node tools/scripts/protocol.mjs reclaim ${cliId} <desktop id>\`. It prints your team.`,
+        `(3) If the team matches your "<Team> Team" title (or you are the BA), read ${stateFile('teams', '<team>.md')} (the BA reads ${stateFile('ba.md')}) and your manual, and resume without asking the owner.`,
+        '(4) If reclaim fails or prints another team, register from your title: "<Team> Team" registers tech-lead <team>; "BA" registers ba; the only session on the machine registers both <team>. Any other title: do not register, carry on with the owner\'s request.',
         `Manuals: ${agents('tech-lead.md')} or ${agents('ba.md')}.`,
       ].join('\n'),
     )
+    add(`Existing team files: ${teams.join(', ') || 'none'}.`)
     return
   }
 
