@@ -890,15 +890,115 @@ describe('handle_0DA673 (ext 0x44/0x45 vertical pair)', () => {
 
 describe('handle_0DA68E (ext 0x46 midway)', () => {
   const HANDLER_ADDR = 0x0da68e
-  it('stamps $35 at col-1 and $38 at col', () => {
+  function setupRom(): RomFile {
     const rom = makeMockRom()
     rom.writeAt(HANDLER_ADDR + 23, [0x35])
     rom.writeAt(HANDLER_ADDR + 31, [0x38])
-    const grid = createGrid(1)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, rom, 0, 5, 10, 0x46, 0)
+    return rom
+  }
+  function run(col: number, row: number, vertical = false): ReturnType<typeof createGrid> {
+    const grid = vertical ? createGrid(8, true) : createGrid(3)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, setupRom(), 0, col, row, 0x46, 0)
+    cur.vertical = vertical
     handle_0DA68E(cur)
-    expect(grid[10][4]).toBe(0x35)
-    expect(grid[10][5]).toBe(0x38)
+    return grid
+  }
+  /** Every non-empty cell as "row,col=tile", sorted by row then column. */
+  const drawn = (grid: ReturnType<typeof createGrid>): string[] =>
+    grid.flatMap((r, y) =>
+      r.flatMap((t, x) => (t === TILE_EMPTY ? [] : [`${y},${x}=${t.toString(16)}`])),
+    )
+
+  it('stamps $35 at col-1 and $38 at col away from a screen edge', () => {
+    for (const row of [0, 2, 10, 18, 26])
+      expect(drawn(run(5, row))).toEqual([`${row},4=35`, `${row},5=38`])
+  })
+
+  // CODE_0DA68E: DEY puts Y on the row above at column 15; CODE_0DA95D's INY
+  // then reads as a screen edge, so the base lands on the next screen
+  // (bank_0D.asm:1625-1632, 1999-2002). Issue #368; oracle is the #351 differential.
+  it.each([
+    [2, '1,15=35', '2,16=38'],
+    [10, '9,15=35', '10,16=38'],
+    [18, '17,15=35', '18,16=38'],
+    [26, '25,15=35', '26,16=38'],
+    // Row 0 and 16 have no row above in their half: Y wraps to $FF.
+    [0, '15,15=35', '0,16=38'],
+    [16, '4,31=35', '16,16=38'],
+  ])('at column 0, row %i: tape and base follow the game', (row, tape, base) => {
+    expect(drawn(run(0, row)).sort()).toEqual([tape, base].sort())
+  })
+
+  // Vertical levels: same code, a different buffer. A screen is two $100-byte
+  // 16x16 blocks (left cols 0-15, right 16-31) and Y wraps inside its block,
+  // but CODE_0DA95D still adds the horizontal $1B0 stride, so the base lands in
+  // another block and not on the object's row. Evidence: SMWDisX trace plus an
+  // ad hoc interpreter run on a hand-built vertical pointer, not committed (the
+  // production interpreter refuses vertical levels); no capture. Modes 3/4 at
+  // screen 14+ jump to $1B00 (DATA_00BB62) and are not modelled.
+  it.each([
+    [32, 0, '47,15=35', '43,16=38'],
+    [33, 0, '32,15=35', '44,16=38'],
+    [37, 0, '36,15=35', '48,0=38'],
+    [32, 16, '47,31=35', '59,0=38'],
+    [37, 16, '36,31=35', '48,16=38'],
+    [47, 16, '46,31=35', '58,16=38'],
+  ])('vertical level, row %i col %i', (row, col, tape, base) => {
+    expect(drawn(run(col, row, true)).sort()).toEqual([tape, base].sort())
+  })
+
+  it('vertical level, column not on a block edge, keeps the col-1 and col draw', () => {
+    expect(drawn(run(5, 40, true)).sort()).toEqual(['40,4=35', '40,5=38'])
+  })
+
+  // Sweeps over synthetic bytes (no ROM): every valid row, so one lucky row
+  // cannot pass. The old port drew the tape at (row, col-1) and the base at
+  // (row, col) for every column, which is what the "old cell" check forbids.
+  it('sweep, horizontal: col 0 of screens 0 and 2, rows 0-26', () => {
+    for (const col of [0, 32]) {
+      for (let row = 0; row <= 26; row++) {
+        const cells = drawn(run(col, row))
+        expect(cells).toHaveLength(2)
+        // Base: next screen, same row, column 0 of it.
+        expect(cells).toContain(`${row},${col + 16}=38`)
+        // Tape: column 15 of the object's own screen, one row up; rows 0 and
+        // 16 wrap inside their block (Y underflows) so they are pinned apart.
+        const tapeRow = row % 16 === 0 ? (row === 0 ? 15 : 4) : row - 1
+        const tapeCol = row === 16 ? col + 31 : col + 15
+        expect(cells).toContain(`${tapeRow},${tapeCol}=35`)
+        // The old wrong cells: previous screen's column 15 and the object's own.
+        if (col > 0) expect(cells.join()).not.toContain(`${row},${col - 1}=`)
+        expect(cells.join()).not.toContain(`${row},${col}=`)
+      }
+    }
+  })
+
+  it('sweep, horizontal: columns 1-15 and 17-31 keep the col-1 and col draw', () => {
+    for (let col = 1; col < 32; col++) {
+      if (col % 16 === 0) continue
+      for (let row = 0; row <= 26; row++)
+        expect(drawn(run(col, row))).toEqual([`${row},${col - 1}=35`, `${row},${col}=38`])
+    }
+  })
+
+  it('sweep, vertical: block-edge columns 0 and 16, rows of eight screens', () => {
+    for (const col of [0, 16]) {
+      for (let row = 0; row < 112; row++) {
+        const cells = drawn(run(col, row, true))
+        // Tape: own $100 block, last column of it, row above with Y wrapping.
+        const tape = `${(row & ~15) + ((row - 1) & 15)},${col + 15}=35`
+        // Base: byte offset = block + $1B0 + local row * 16, split back into
+        // $200-byte screens (left half cols 0-15, right half 16-31).
+        const off = (row >> 4) * 0x200 + (col >> 4) * 0x100 + 0x1b0 + (row & 15) * 16
+        const half = off % 0x200 >= 0x100 ? 16 : 0
+        const base = `${Math.floor(off / 0x200) * 16 + ((off >> 4) & 15)},${half + (off & 15)}=38`
+        expect(cells.sort()).toEqual([tape, base].sort())
+      }
+    }
+  })
+
+  it('does the same at the first column of any screen', () => {
+    expect(drawn(run(32, 10)).sort()).toEqual(['10,48=38', '9,47=35'].sort())
   })
 })
 

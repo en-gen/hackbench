@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A cleared tech lead now resumes from a resume prompt it sends its orchestrator before clearing (no session ids), instead of relying on the hook. The session registry is keyed by desktop id, the hook prints the protocol script path and a short instruction, and shared state moves from `.claude/state/` to the gitignored `.hackbench-state/` (`protocol.mjs handoff` writes team and BA files, `migrate-state` converts the old files once; steps in `docs/runbooks/state-cutover.md`). Night shift is enactable and has no scheduled return (#725, #724).
+- The midway tape (extended object $46) at the first column of a screen draws where the game does:
+  the tape on the row above at column 15, and the base on the next screen in a horizontal level
+  (bank_0D.asm:1625-1632, #368). Vertical levels follow the same arithmetic on their $200-byte
+  screens, from an SMWDisX trace plus an ad hoc interpreter run that is not committed; modes 3/4 at
+  screen 14+ are not modelled. The committed differential compares only row 18 at column 0. The two
+  gates that hide the post are tracked in #635.
 - The sprite level loader now runs the rest of GM11LoadLevel's setup in the ROM's order: the layer
   position copy and the screen setup (CODE_00A796, `$1404`, UpdateScreenPosition). Against
   Mesen's recorded level state, 307 cell mismatches over 98 maps (`$1404`, `$1462-$1469`, `$1E`,

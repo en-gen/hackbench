@@ -39,7 +39,6 @@ export const KNOWN_DISAGREEMENTS: Known[] = [
   // Port bugs, one issue each.
   // The port draws this only as the interpreter's refusal fallback; production draws it from the interpreter (#342).
   row(0x0dadeb, all, 440, [450, 480, 'cfbc58f35e']),
-  row(0x0da68e, r => r.col === 0, 689, [1, 1, '1ac3aaa57d']),
   // #350 wraps the counter now; the 257 rows run past the 27-row screen, which is #300.
   row(0x0db49e, r => hi(r) === 0, 300, [240, 240, '25441b371f']),
   // #369: a zero nibble wraps a DEC/BNE counter to 256.
