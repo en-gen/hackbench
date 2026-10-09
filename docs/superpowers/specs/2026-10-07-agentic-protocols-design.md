@@ -196,11 +196,11 @@ injected tech-lead manual is split into a core and an on-demand reference.
 
 ### 4.2 Registration replaces check-in
 
-`.hackbench-state/sessions.json`, gitignored, maps a session id to its role and
-team:
+`.hackbench-state/sessions.json`, gitignored, maps a desktop id to its role and
+team (Corrected 2026-10-09: was keyed by CLI session id, because the hook saw the CLI id; a clear changes it, so the key is now the desktop id, which survives a clear):
 
 ```json
-{ "<session id>": { "role": "tech-lead", "team": "alpha", "registered": "..." } }
+{ "<desktop id>": { "role": "tech-lead", "team": "alpha", "registered": "..." } }
 ```
 
 On a session's first turn the hook finds no entry. The manual's first step
@@ -213,6 +213,8 @@ by four other tool definitions but was not loaded in the design session, so
 its availability is `[OPEN]`.
 
 The BA prunes entries for sessions that no longer appear in the session list.
+
+Corrected 2026-10-09: a registration is keyed by the desktop id alone and carries no CLI id; the hook no longer maps a session to its registration, and the resume prompt a lead sends its orchestrator before clearing carries identity (section 3.5). The note below is kept as history.
 
 Corrected 2026-10-07: a registration carries two ids, because the hook receives
 the CLI session id while the session-management tools take the desktop id

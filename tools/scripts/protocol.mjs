@@ -438,12 +438,21 @@ export function migrateState(fromDir, toDir, { lock = {} } = {}) {
   }
   withStateLock(
     toDir,
-    () => {
+    assertHeld => {
       for (const rel of listed) {
         const target = path.join(toDir, rel)
         // A probe can leave an empty registry behind; that must not block the real one.
-        const emptyRegistry =
-          rel === 'sessions.json' && existsSync(target) && !Object.keys(readSessions(toDir)).length
+        // Only a file that parses to exactly {} counts: a corrupt one may hold real entries.
+        let emptyRegistry = false
+        if (rel === 'sessions.json' && existsSync(target)) {
+          try {
+            const raw = JSON.parse(stripBom(readFileSync(target, 'utf8')))
+            emptyRegistry =
+              !!raw && typeof raw === 'object' && !Array.isArray(raw) && !Object.keys(raw).length
+          } catch {
+            emptyRegistry = false
+          }
+        }
         if (existsSync(target) && !emptyRegistry) {
           skipped.push(rel)
           continue
@@ -454,6 +463,7 @@ export function migrateState(fromDir, toDir, { lock = {} } = {}) {
           rel === 'sessions.json'
             ? JSON.stringify(convertSessions(readSessions(fromDir)), null, 2) + '\n'
             : readFileSync(source)
+        assertHeld()
         writeFileAtomic(target, body)
         copied.push(rel)
       }

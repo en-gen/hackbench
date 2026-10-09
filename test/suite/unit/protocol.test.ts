@@ -408,6 +408,29 @@ describe('migrateState', () => {
     expect(again.skipped).toEqual(['sessions.json'])
   })
 
+  it('skips a corrupt or non-empty target registry instead of overwriting it', () => {
+    const from = tempDir('old-')
+    for (const body of ['{"truncated": {"role": "ba"', '{"a":1}', '[]']) {
+      const to = tempDir('new-')
+      fs.writeFileSync(
+        path.join(from, 'sessions.json'),
+        JSON.stringify({ [CLI_ID]: { desktopId: LOCAL_ID, role: 'ba', team: null } }),
+      )
+      fs.writeFileSync(path.join(to, 'sessions.json'), body)
+      expect(migrateState(from, to).skipped).toEqual(['sessions.json'])
+      expect(fs.readFileSync(path.join(to, 'sessions.json'), 'utf8')).toBe(body)
+    }
+  })
+
+  it('checks the lock before each write', () => {
+    const from = tempDir('old-')
+    const to = tempDir('new-')
+    seed(from)
+    const afterAcquire = () => fs.writeFileSync(path.join(to, '.lock'), 'someone-else')
+    expect(() => migrateState(from, to, { lock: { afterAcquire } })).toThrow(/lock lost/)
+    expect(fs.existsSync(path.join(to, 'ba.md'))).toBe(false)
+  })
+
   it('never overwrites an existing target file', () => {
     const from = tempDir('old-')
     const to = tempDir('new-')
