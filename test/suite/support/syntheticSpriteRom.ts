@@ -21,6 +21,8 @@
  */
 import { RomFile } from '../../../src/rom/RomFile'
 
+import { putGm11Spans } from './syntheticGm11Spans'
+
 export interface SyntheticOptions {
   /** ADC operand of id 0's INIT shift. */
   initShift?: number
@@ -39,8 +41,31 @@ export interface SyntheticOptions {
   badGetRand?: boolean
   /** GetRand's two JSL banks use the FastROM mirror $81, as 36 of 101 hacks do. */
   fastRomGetRand?: boolean
-  /** Break one level-loader entry shape: 'lead' | 'pointers' | 'entrance' | 'data'. */
-  badLoader?: 'lead' | 'jump' | 'callsite' | 'pointers' | 'entrance' | 'data'
+  /**
+   * Break one level-loader entry shape (by its first byte: 'lead' 'jump' 'callsite' 'pointers' 'entrance'
+   * 'data' 'scroll' 'update'; by its last: 'scrollTail' 'updateTail'), or make a GM11-span routine
+   * return wrongly ('scrollRtl' 'updateRts') or pop above its frame and repair S ('scrollPop').
+   */
+  badLoader?:
+    | 'lead'
+    | 'jump'
+    | 'callsite'
+    | 'pointers'
+    | 'entrance'
+    | 'data'
+    | 'scroll'
+    | 'update'
+    | 'scrollTail'
+    | 'updateTail'
+    | 'updateOperand'
+    | 'scrollRtl'
+    | 'updateRts'
+    | 'scrollPop'
+  /**
+   * UpdateScreenPosition carries a JML at $00:F6E4 (86 of 107 corpus ROMs do) to $05:F000, which
+   * does the rest of its work: 'jml' ends in RTL, 'loop' never returns, 'rts' ends in the wrong return.
+   */
+  updateHook?: 'jml' | 'loop' | 'rts'
   /** The data loader executes COP after its shape bytes. */
   loaderCop?: boolean
   /** Break one shape of the item block spawn routine at $02:8905: its slot countdown or its status write. */
@@ -84,12 +109,14 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   put(0x009716, [0x22, 0x1e, 0x80, 0x05])
   put(0x05d796, [bad('lead', 0x8b), 0x4b, 0xab, 0xe2, 0x30, 0x9c, 0xcf, 0x13, 0xad, 0x95, 0x1b, 0xd0, 0x05, 0xac, 0x25, 0x14, 0xf0, 0x03, 0x20, 0xac, 0xdb, 0xad, 0x1a, 0x14, 0xd0, 0x03, 0x4c, 0x3e, 0xd8]) // prettier-ignore
   put(0x05d83b, [bad('jump', 0x4c), 0xb7, 0xd8])
-  // CODE_05D8B7 shape, then SEP #$30 / LDA #7 / STA $1692 / PLB / RTL
-  put(0x05d8b7, [bad('pointers', 0xc2), 0x30, 0xa5, 0x0e, 0x0a, 0x18, 0x65, 0x0e, 0xa8, 0xe2, 0x30, 0xa9, 0x07, 0x8d, 0x92, 0x16, 0xab, 0x6b]) // prettier-ignore
+  // CODE_05D8B7 shape, then SEP #$30 / LDA #7 / STA $1692 / STA $1A / PLB / RTL
+  put(0x05d8b7, [bad('pointers', 0xc2), 0x30, 0xa5, 0x0e, 0x0a, 0x18, 0x65, 0x0e, 0xa8, 0xe2, 0x30, 0xa9, 0x07, 0x8d, 0x92, 0x16, 0x85, 0x1a, 0xab, 0x6b]) // prettier-ignore
+  putGm11Spans(put, o)
   // CODE_00A635 shape, then LDA $0000 / LDA #6 / STA $71 / RTS
   put(0x00a635, [bad('entrance', 0xad), 0xad, 0x14, 0x0d, 0xae, 0x14, 0x0d, 0x0c, 0x19, 0xd0, 0x0a, 0xad, 0x00, 0x00, 0xa9, 0x06, 0x85, 0x71, 0x60]) // prettier-ignore
-  // CODE_05801E shape, STA $7EC800,X, then PLP RTL (or COP)
-  put(0x05801e, [bad('data', 0x08), 0xe2, 0x20, 0xc2, 0x10, 0xa2, 0x00, 0x00, 0xa9, 0x25, 0x9f, 0x00, 0xc8, 0x7e, ...(o.loaderCop ? [0x02, 0x00] : [0x28, 0x6b])]) // prettier-ignore
+  // CODE_05801E shape, STA $7EC800,X, LDA #$77 / STA $5E (CODE_0584E3 rewrites $5E, bank_05.asm:560,
+  // so only a data loader run AFTER the screen setup leaves $77), then PLP RTL (or COP)
+  put(0x05801e, [bad('data', 0x08), 0xe2, 0x20, 0xc2, 0x10, 0xa2, 0x00, 0x00, 0xa9, 0x25, 0x9f, 0x00, 0xc8, 0x7e, 0xa9, 0x77, 0x85, 0x5e, ...(o.loaderCop ? [0x02, 0x00] : [0x28, 0x6b])]) // prettier-ignore
   // $01:808C sprite loop: PHB PHK PLB, X = $0B..0 { STX $15E9; JSR setup; JSR handle }
   put(0x01808c, [
     0x8b, 0x4b, 0xab, 0xa2, o.badLoop ? 0x0a : 0x0b, 0x8e, 0xe9, 0x15, 0x20, 0xd2, 0x80, 0x20, 0x27, 0x81, 0xca,

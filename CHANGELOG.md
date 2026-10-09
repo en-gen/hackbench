@@ -7,12 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Tech-lead session titles are now "<Team> Team" (e.g. "Delta Team"), in the tech-lead manual and the unregistered-session hook text.
+
+### Fixed
+
+- The sprite level loader now runs the rest of GM11LoadLevel's setup in the ROM's order: the layer
+  position copy and the screen setup (CODE_00A796, `$1404`, UpdateScreenPosition). Against
+  Mesen's recorded level state, 307 cell mismatches over 98 maps (`$1404`, `$1462-$1469`, `$1E`,
+  `$20`) fall to 8 on 4 boss rooms (`$1464/$1465`, set by GM12PrepLevel, not GM11); Map16 comparison unchanged
+  (88 of 154 identical). Vanilla, one machine (#648). Loader acceptance over the 107 corpus ROMs
+  (shape check only): 14 before; 7 with a 12-byte UpdateScreenPosition shape, which 86 of the 107 defeat
+  with a JML at `$00:F6E4`; 14 again with the shape cut to the 9 bytes before that hook, so the
+  hook runs on the core. Seven hacks changed and changed back (10186, 5559, 6161, 6416, 6593,
+  6764, 9535); four of them (10186, 6161, 6764, 9535) were already refused at run time by the
+  pointer loader's step cap, before and after.
+
 ### Added
 
-- Two Playwright tests pin the Maps zoom anchor across the gap between a zoom and its React
-  commit: a scroll landing there, and a second Zoom In before the first commit. They fail if
-  `restoreAnchor` runs from `sync` or the `renderedZoom` guard goes (#547).
-
+- Agentic workflow: docs/ becomes the knowledge base (conventions, decisions, protocols, runbooks, hypotheses); /protocol <name> on|off enacts a mode for every session via a hook; BA and tech-lead manuals replace the orchestrator manual, with registration, state files and self-clear after merge.
+- Block contents: a test pins the CODE_00F17F entry bytes in the gate reader pattern (#632).
+- A unit test pins the 22 of 501 horizontal maps where the level loader and the map view's
+  object expander disagree on Layer 1 Map16, by differing-cell count (#649). Measured on one
+  vanilla ROM, one machine, 2026-10-07; the comparison skips without the ROM corpus. 21 are boss
+  arenas (15 mode-9 maps, rows 11 and 13: `MakeMode7BossArenaMap16`, `bank_00.asm:3014-3023`, hi
+  byte stored at `:3017-3020`; 6 mode-$0B maps, row 5 pre-fill: `bank_00.asm:2783-2784`) whose
+  fill is game-mode init, outside the GM11 sequence the loader models (#707). The 22nd is 021
+  (#300). Measurement only.
 - A unit test pins tile $11A's star column over all 16 X columns: coin unless Mario is
   invincible, star only while invincible (`bank_00.asm:12887-12891`). The Maps view already
   draws it that way (#567).
@@ -117,6 +139,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Block contents: the gate mask table DATA_00F0A4 is located through the AND.L that reads it, so a hijacked reader is refused with a reason and a repointed one is followed (#632).
+- Bank-mirror masks (#513): lookup keys use `mirror()`; addresses that are read (`jslTarget`, GfxArena `long`, the vertical-table JML target) keep their bank, so a $FE/$FF target is no longer folded onto WRAM $7E/$7F. Refusal reasons now show those addresses with the bank as written.
 - GFX decompression reads LC_LZ2 back-reference offsets in the byte order the ROM's own decompressor routine uses (J and E1 builds add an XBA that makes them little-endian), and the decompressor check now covers that routine, not only the entry: a ROM whose routine is neither known form is refused instead of decoded wrongly. A stock J, E0 or E1 ROM is still refused at the entry check (#696), so this changes no real ROM's verdict today; a little-endian ROM, once accepted, can be read but not saved. Checked on the 6-ROM corpus and the 101-hack store: no ROM that passed before is refused now (#274).
 - Map $005's ON/OFF track tile `$095`, hidden while the switch byte `$14AF` is 0, no longer draws as if shown. Its one-pixel diagonal fell wholly on the screen door's full-strength squares; a hidden tile with more pixels on those squares than on the dim ones is now drawn on the dim squares, in the map and Map16 views alike. `$094` (hidden while `$14AF` is 1) was already faint. The game's gate is `bank_01.asm:11985-11995` (#560).
 - `levelHasObjects` no longer rejects level modes $15-$1F: the game masks the mode with $1F and its six mode tables have 32 entries, so every mode $00-$1F is valid (#130).
@@ -210,6 +234,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tests close three sprite-layer gaps from #564 (#589): `mapSprites` with a stream in the ROM's last bytes, `paintSpriteCanvas` clear and screen selection, and map-view assertions made after the sprites load.
 - The two wall-clock gates (`perfPairedE2E`, the `perfSampler` plant-precision test) are named `*.timing.test.ts`, excluded from `npm run test:unit` and run serially by `npm run test:timing`, which CI runs after the unit tests (#668, #537).
 - Agent manual: auto-merge stays on across fix pushes.
+- Implementer agent file no longer tells agents to disable auto-merge before pushing a fix; it stays as the steward set it (on for ordinary PRs, off for `needs-owner`).
 - `npm run gitnexus` no longer rewrites CLAUDE.md and AGENTS.md (`.gitnexusrc` and `--skip-agents-md`), so parallel worktrees stop conflicting on the generated counts, which are removed from the marked region (#644).
 - "Show surfaces" editor overlay now consumes the shared `SurfacePath`
   module — same source of truth as the sprite-patrol scan. Both views

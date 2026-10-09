@@ -20,8 +20,9 @@ brief and `CLAUDE.md`; its rules are not repeated here.
 - **Fix findings.** The adversarial reviewer and the verifier report to you;
   fix each test first, or say why it is wrong. CodeRabbit threads on the PR
   are yours too: fix or reply with the reason, then resolve the thread.
-  Before pushing a fix to an open PR, disable auto-merge
-  (`gh pr merge <n> -R en-gen/hackbench --disable-auto`).
+  Auto-merge stays as the steward set it while you push fixes: on for
+  ordinary PRs (a PR merges on green), off for `needs-owner` PRs. Never toggle
+  it yourself.
 - **Push your feature branch** when done. Do not open the PR, merge, or touch
   `develop`.
 - **Docs are part of done.** Update the docs the brief names. Long ROM

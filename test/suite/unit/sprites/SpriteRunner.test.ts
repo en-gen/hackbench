@@ -25,7 +25,10 @@ describe('sprite loop reader', () => {
   })
   it('refuses a loop whose countdown matches more than once', () => {
     const dup = buildSyntheticRom({ dupLoop: true })
-    expect(resolveLoop(dup)).toMatchObject({ ok: false, reason: /more than once/ })
+    expect(resolveLoop(dup)).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/more than once/),
+    })
     expect(runSprite(dup, 0).refusal).toMatch(/more than once/)
   })
   it('refuses a loop that is not the countdown shape', () => {
@@ -46,11 +49,14 @@ describe('dispatch reader', () => {
   })
   it('refuses dispatch calls that do not reach one 16-bit ExecutePtr', () => {
     const t = resolveTables(buildSyntheticRom({ badExecutePtr: true }))
-    expect(t).toMatchObject({ ok: false, reason: /same routine/ })
+    expect(t).toMatchObject({ ok: false, reason: expect.stringMatching(/same routine/) })
     // Agreeing calls into a routine of another shape (here, a RTS) are refused too.
     const rts = buildSyntheticRom()
     rts.writeAt(0x0086fa, [0x60])
-    expect(resolveTables(rts)).toMatchObject({ ok: false, reason: /16-bit ExecutePtr/ })
+    expect(resolveTables(rts)).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/16-bit ExecutePtr/),
+    })
   })
   it('refuses an id past the table and a pointer below $8000', () => {
     const t = resolveTables(rom)
@@ -354,7 +360,7 @@ describe.skipIf(!hasRom(VANILLA))('ROM level loader (vanilla)', () => {
     rom.writeAt(0x05d83b, [0x4c, 0x00, 0x80])
     expect(loadLevelState(rom, 0x105)).toMatchObject({
       ok: false,
-      reason: /jump into the pointer loader/,
+      reason: expect.stringMatching(/jump into the pointer loader/),
     })
   })
   it('a planted header-decode defect changes the loaded state (the loader can go red)', () => {
@@ -488,7 +494,7 @@ describe('level loader on a synthetic cart', () => {
   const run = (o: Parameters<typeof buildSyntheticRom>[0] = {}, level = 0x105) =>
     loadLevelState(buildSyntheticRom(o), level)
 
-  it('runs every entry: pointers, Mario entrance, then level data', () => {
+  it('runs every entry in GM11 order: pointers, layer copy, Mario entrance, screen setup, level data', () => {
     const l = run()
     if (!l.ok) throw new Error(l.reason)
     expect(l.wram[0x1692]).toBe(7) // CODE_05D8B7 stand-in
@@ -496,25 +502,116 @@ describe('level loader on a synthetic cart', () => {
     expect(l.wram[0xc800]).toBe(0x25) // CODE_05801E stand-in
     expect(l.wram[0x0e]).toBe(0x05)
     expect(l.wram[0x0f]).toBe(0x01)
+    // The GM11 spans (bank_00.asm:2645-2656), run from the cart's bytes; each cell needs the
+    // step before it: $1462 and $1E hold the pointer stub's $1A only if the copy ran after it,
+    // and $20 holds $71 only if the entrance setup ran before the screen setup.
+    expect(l.wram[0x1462]).toBe(7)
+    expect(l.wram[0x1e]).toBe(7)
+    expect(l.wram[0x20]).toBe(6)
+    expect(l.wram[0x5e]).toBe(0x77) // the data stub's, written after GM11's STA $5E (so the data loader ran last)
+    expect(l.wram[0x1404]).toBe(1)
   })
 
   it('refuses each differing entry with its name', () => {
-    expect(run({ badLoader: 'lead' })).toMatchObject({ ok: false, reason: /CODE_05D796 prologue/ })
+    expect(run({ badLoader: 'lead' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/CODE_05D796 prologue/),
+    })
     expect(run({ badLoader: 'jump' })).toMatchObject({
       ok: false,
-      reason: /jump into the pointer loader/,
+      reason: expect.stringMatching(/jump into the pointer loader/),
     })
     expect(run({ badLoader: 'callsite' })).toMatchObject({
       ok: false,
-      reason: /GM11 call JSL CODE_05D796/,
+      reason: expect.stringMatching(/GM11 call JSL CODE_05D796/),
     })
-    expect(run({ badLoader: 'pointers' })).toMatchObject({ ok: false, reason: /pointer loader/ })
-    expect(run({ badLoader: 'entrance' })).toMatchObject({ ok: false, reason: /entrance setup/ })
-    expect(run({ badLoader: 'data' })).toMatchObject({ ok: false, reason: /data loader/ })
+    expect(run({ badLoader: 'pointers' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/pointer loader/),
+    })
+    expect(run({ badLoader: 'entrance' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/entrance setup/),
+    })
+    expect(run({ badLoader: 'data' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/data loader/),
+    })
+    expect(run({ badLoader: 'scroll' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/Layer 2 scroll setup/),
+    })
+    expect(run({ badLoader: 'update' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/UpdateScreenPosition/),
+    })
+    // The LAST byte of each new shape: a shape cut short of it (8 bytes for the update) would not see these.
+    expect(run({ badLoader: 'scrollTail' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/Layer 2 scroll setup/),
+    })
+    expect(run({ badLoader: 'updateTail' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/UpdateScreenPosition/),
+    })
+    // The LDA operand is exact ($142A), not a wildcard.
+    expect(run({ badLoader: 'updateOperand' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/UpdateScreenPosition/),
+    })
+  })
+
+  it('a JML inside UpdateScreenPosition (a hack hook at $00:F6E4) runs and leaves the same state', () => {
+    const base = run()
+    const hooked = run({ updateHook: 'jml' })
+    if (!base.ok || !hooked.ok) throw new Error('refused')
+    for (const c of [0x1462, 0x1463, 0x1469, 0x1e, 0x20, 0x5e, 0x1404, 0x142c, 0x142d])
+      expect(hooked.wram[c], `cell ${c.toString(16)}`).toBe(base.wram[c])
+    expect(hooked.wram[0x1e]).toBe(7)
+    expect(hooked.wram[0x20]).toBe(6)
+    // The redo's STA $142C (SBC #$000C of 0 is $FFF4) and the hook's own copy of $1A-$21 to
+    // $7F:831F, taken before the stub writes $1E and $20.
+    expect([base.wram[0x142c], base.wram[0x142d]]).toEqual([0xf4, 0xff])
+    expect(Array.from(hooked.wram.subarray(0x1831f, 0x18327))).toEqual([7, 0, 0, 0, 0, 0, 0, 0])
+    expect(Array.from(base.wram.subarray(0x1831f, 0x18327))).toEqual([0, 0, 0, 0, 0, 0, 0, 0])
+  })
+
+  it('a hook that never returns hits the cap; one that returns on the wrong stack is unbalanced', () => {
+    expect(run({ updateHook: 'loop' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/screen position setup did not return/),
+    })
+    // PLB then RTS from the bank-$05 hook lands on $9716 in bank $05: the guard names the bank.
+    expect(run({ updateHook: 'rts' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/bank [$]05/),
+    })
+  })
+
+  it('a wrong-kind return inside the screen setup span is refused, not run on', () => {
+    expect(run({ badLoader: 'scrollRtl' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/stack unbalanced/),
+    })
+    expect(run({ badLoader: 'updateRts' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/stack unbalanced/),
+    })
+  })
+
+  it('a span-internal return that pops above the start S is refused even if S is restored', () => {
+    // CODE_00A796 stub: PLA x3 (M is 16-bit after the shape's REP, so S=$0201 after the second), PHA x2 (S back to $01FF), JMP $970F; without the S-above-start clause this runs on.
+    expect(run({ badLoader: 'scrollPop' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/stack unbalanced at return [(]S=[$]0201, expected [$]01FF[)]/),
+    })
   })
 
   it('refuses when the loader executes COP', () => {
-    expect(run({ loaderCop: true })).toMatchObject({ ok: false, reason: /COP executed/ })
+    expect(run({ loaderCop: true })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/COP executed/),
+    })
   })
 })
 

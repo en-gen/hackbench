@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
-# CodeRabbit is the approving reviewer on develop (docs/agents/orchestrator.md
+# CodeRabbit is the approving reviewer on develop (docs/agents/tech-lead-reference.md
 # "Merging"): it
 # approves once its comments are resolved, and a PR with auto-merge on then
 # merges on green CI. Assertive, because for most PRs it is the only reviewer.

@@ -125,7 +125,7 @@ describe.skipIf(!existsSync(TRACE_DIR) || !hasRom(VANILLA))(
     // counts checked non-empty so a comparison of nothing cannot pass.
     it('ROM-run level loader against Mesen level state', () => {
       const rom = freshRom()
-      const cells = [0x5b, 0x5d, 0x64, 0x71, 0x76, 0x82, 0x83, 0x85, 0x86, 0x1692, 0x190e, 0x19, 0x187a] // prettier-ignore
+      const cells = [0x5b, 0x5d, 0x64, 0x71, 0x76, 0x82, 0x83, 0x85, 0x86, 0x1692, 0x190e, 0x19, 0x187a, 0x1404, 0x1e, 0x20, ...Array.from({ length: 8 }, (_, i) => 0x1462 + i)] // prettier-ignore
       let maps = 0
       let withWram = 0
       let identical = 0
@@ -152,7 +152,19 @@ describe.skipIf(!existsSync(TRACE_DIR) || !hasRom(VANILLA))(
       expect(maps).toBeGreaterThan(100)
       expect(withWram).toBeGreaterThan(50)
       expect(identical).toBeGreaterThanOrEqual(85)
-      expect(badCells).toEqual([])
+      // The Iggy/Larry rooms (levels $096 $097 $196 $197) hold $FF90 in NextLayer1YPos
+      // ($1464/$1465) in Mesen: GM12PrepLevel reaches CODE_0097BC (bank_00.asm:4854 -> 4863, IRQNMICommand
+      // bit 7) -> 2763 (BVC .IggyLarry) -> 2793-2795, which stores -112. GM12 is part of level load
+      // but not GM11, which the loader runs, so these cells stay unequal. $5E is not compared: CODE_0584E3
+      // rewrites it (bank_05.asm:560) after GM11's STA $5E, so it matched before and after. Named so a
+      // change in WHICH cells miss, or in the value, is red. Measured 2026-10-07, vanilla, one machine;
+      // before the GM11 spans were run the same comparison missed 307 cells over 98 maps.
+      const boss = ['096', '097', '196', '197']
+      expect(badCells).toEqual(boss.flatMap(m => [`${m} cell 1464`, `${m} cell 1465`]))
+      for (const m of boss) {
+        const w = readFileSync(join(root, m, 'wram.bin'))
+        expect([w[0x1464], w[0x1465]]).toEqual([0x90, 0xff])
+      }
     }, 300_000)
   },
 )

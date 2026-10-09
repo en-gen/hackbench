@@ -11,6 +11,20 @@ on Eclipse Theia and Electron.
 | understand how it is put together      | [architecture/overview.md](architecture/overview.md)                                     |
 | know what a word means here            | [glossary.md](glossary.md)                                                               |
 | contribute                             | [codebase map](architecture/codebase-map.md), then [CONTRIBUTING.md](../CONTRIBUTING.md) |
+| know the house rules for docs         | [CONVENTIONS.md](CONVENTIONS.md)                                                         |
+
+## Current state
+
+The BA first-turn instructions direct the coordinating session to read this page's Current state after its state file (`docs/agents/ba.md`). Keep it short; detail lives in the linked files.
+
+- **Open decisions.** See [decisions/README.md](decisions/README.md); Proposed files are waiting on the owner.
+- **Hypotheses.** [hypotheses.md](hypotheses.md) holds claims not yet established.
+- **Recent corrections.** Listed here when a primary source overturns a doc, newest first, one line each with the file corrected. (none yet)
+- **Conventions.** [CONVENTIONS.md](CONVENTIONS.md) is the contract: tags, citation, corrections, file shapes.
+- **Protocols.** [protocols/README.md](protocols/README.md) lists the modes the owner can enact.
+- **Runbooks.** [runbooks/README.md](runbooks/README.md) holds the methods.
+- **Sessions.** [agents/ba.md](agents/ba.md) and [agents/tech-lead.md](agents/tech-lead.md) are the injected manuals, [agents/tech-lead-reference.md](agents/tech-lead-reference.md) the on-demand rest of the tech-lead manual; [agents/decision-briefs.md](agents/decision-briefs.md) is how decisions reach the owner.
+- **Scratch decisions.** Notes that predate this knowledge base live in the owner's notes repository.
 
 ## Guide
 

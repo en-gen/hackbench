@@ -476,3 +476,13 @@ assignment exists, at the cost of rewriting a compressed block.
 | What the compare ladder at `$86F663-$86F67C` dispatches to                 | Decode the handlers at `$86F690-$86F6E0`. The bytes show each stub comparing the value `JSR $F608` returns against immediates and branching; what each branch does is not read. |
 | Whether the second acts-like table (the `LDA.l` at `$86F639`) is populated | Seven_Vanilla_Levels, Grand Poo World 2 and Invictus hold an operand there; contents not read on any ROM.                                                                       |
 | Whether the acts-like table format is stable across Lunar Magic versions   | ROMs with known, differing versions; none in the corpus carries version metadata.                                                                                               |
+
+## Layer 2 stride and wrap
+
+Corrected 2026-10-04 (#459 PR 2 adversarial review): was "L2 uses a different per-screen stride than L1 ($1B0 vs $200)", because that overgeneralised.
+
+- L2's per-screen stride equals L1's in every level mode except 3/4 and 5/6, where the L1 and L2 orientations differ. Write tables `Ptrs00BDA8` vs `Ptrs00BDE8`. SMWDisX `bank_00.asm:6999-7060`. `[EST]`
+- `loadL2Objects` builds the grid in L1's layout, so the map view does not depend on the stride. `[EST]`
+- `Layer2YPos` shifts image L2 and object-stream L2 alike. SMWDisX `bank_05.asm:7323-7328`. `[EST]`
+- BG2 is 64x64 8x8 tiles, so L2 wraps every 512 px vertically. SMWDisX `bank_00.asm:1270-1271`. `[EST]`
+- Treat the L2 grid as L1-shaped unless the level mode is 3 to 6. `[INF]`

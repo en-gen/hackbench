@@ -81,12 +81,14 @@ export type Decompressor =
   | { ok: true; kind: DecompressorKind; key: number; order: BackRefOrder }
   | { ok: false; reason: string }
 
-/** The 24-bit JSL target at `snes`, bank bit 7 folded for the FastROM
- *  mirror, or null off a JSL opcode or off the ROM. */
+/** The 24-bit JSL target at `snes`, bank kept, or null off a JSL opcode or off
+ *  the ROM. Read, not key: callers read through it, and folding $FE/$FF onto
+ *  $7E/$7F would make a 4 MB ROM's routine unreadable. A caller comparing it
+ *  to a canonical address wraps it in `mirror()`. */
 export function jslTarget(rom: RomFile, snes: number): number | null {
   const bytes = rom.readAt(snes, 4)
   if (!bytes || bytes[0] !== 0x22) return null
-  return (bytes[1]! | (bytes[2]! << 8) | (bytes[3]! << 16)) & 0x7fffff
+  return bytes[1]! | (bytes[2]! << 8) | (bytes[3]! << 16)
 }
 
 export const replacedReason = (entry: number, what: string): string =>
