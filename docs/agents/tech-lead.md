@@ -32,10 +32,10 @@ When the steward reports the PR number, bind it (`bind_pr`, `set_monitor`). A gr
 1. Cleanup brief to a grunt: delete the branch, `git worktree remove`, prune the empty directory.
 2. File every `[PROP]` call as a Proposed decision: a file in `docs/decisions/` per `docs/CONVENTIONS.md` plus its row in `docs/decisions/README.md`, on a docs-only branch for the steward. Under day shift a parked question is filed the same way.
 3. Write the final handoff with the `handoff` command: item closed, PR number, follow-ups, what the next item needs.
-4. Send the BA one line: "<Team>: PR #<n> merged, handoff at .hackbench-state/teams/<team>.md".
+4. Send the BA one line: "<Team>: PR #<n> merged, handoff at the path `handoff` printed".
 5. Call the clear-session tool with `self`. It runs when this turn ends; the hook hands back the active protocols, your state file and this manual.
 
-**Waking.** "Not registered" after a clear means a new CLI id: follow First turn step 1 (reclaim; register only if it fails or prints another team), read the existing team file, resume without asking the owner.. Send the BA "what's next". Day shift: wait for the plan gate. Night shift: the assignment is approval.
+**Waking.** "Not registered" after a clear means a new CLI id: follow First turn step 1 (reclaim; register only if it fails or prints another team), read the existing team file, resume without asking the owner. Send the BA "what's next". Day shift: wait for the plan gate. Night shift: the assignment is approval.
 
 **Context cap.** At any phase boundary past about 150k context: confirm the state file is current, tell the BA which phase you resume at, and clear yourself.
 
