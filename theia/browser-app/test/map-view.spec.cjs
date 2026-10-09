@@ -2544,3 +2544,108 @@ test.describe('ON/OFF tracks on $005', () => {
     }
   })
 })
+
+/**
+ * The zoom anchor survives a screen reply that lands between a zoom change and the React commit that
+ * lays the strip out at it (#547 plant 1: `restoreAnchor` called from `sync`). The reply's
+ * continuation is a microtask, so releasing a held reply in the same task as the click runs it ahead
+ * of the commit, on the old layout. The other half of the issue (the `renderedZoom` guard) is ruled
+ * unreachable from UI input: docs/decisions/2026-10-08-zoom-anchor-race-seam.md.
+ *
+ * Judged on the CONTENT pixel under the view centre, like the #526 button tests: a Zoom In keeps it
+ * fixed. An anchor restored early (on the old layout) is gone when the right commit lands, and the
+ * centre drifts by hundreds of content pixels (662 on $105, 260 on $109, one machine).
+ * Only the screen-reply route into `sync` is pinned; `restoreAnchor` planted in `requestVisible` (the
+ * scroll and rAF route) stays green.
+ */
+test.describe('zoom anchor across the commit gap (#547)', () => {
+  for (const index of [0x105, 0x109]) {
+    test(`$${index.toString(16)}: a screen reply landing before the Zoom In commit does not consume the anchor`, async ({
+      page,
+    }) => {
+      const project = await createProject(page, path.join(tmp, 'MyHack'))
+      await openMap(page, project.manifestPath, index)
+      await settled(page, index)
+      await page.locator(`${root(index)} [data-control="zoom-actual"]`).click()
+      await expect.poll(() => zoomOf(page, index)).toBe(1)
+      await settled(page, index)
+      // Scrolled 60% along the main axis, so the anchor is far from the origin.
+      await page.evaluate(
+        ({ sel, f }) => {
+          const el = document.querySelector(`${sel} [data-control="map-scroller"]`)
+          el.scrollLeft = (el.scrollWidth - el.clientWidth) * f
+          el.scrollTop = (el.scrollHeight - el.clientHeight) * f
+        },
+        { sel: root(index), f: 0.6 },
+      )
+      await settled(page, index)
+      const before = await probeView(page, index)
+
+      // Hold every screen reply. The stub replaces what w.projects POINTS TO (docs/testing.md
+      // "Playwright and RPC"); the real reply is fetched, then parked until released.
+      await page.evaluate(id => {
+        const w = getSvc('ApplicationShell').getWidgetById(`hackbench.map-view:${id}`)
+        const real = w.projects
+        const release = (window.hbRelease = [])
+        const statuses = (window.hbReplyStatuses = [])
+        w.projects = new Proxy(real, {
+          get: (t, k) =>
+            k === 'mapScreen'
+              ? (...a) => real.mapScreen(...a).then(r => (statuses.push(r.status), new Promise(res => release.push(() => res(r))))) // prettier-ignore
+              : (...a) => real[k](...a),
+        })
+        w.refresh() // clears the screen cache and asks for the visible ones again
+      }, index)
+      // Every in-flight request must have its reply parked, or a late one escapes the release.
+      await expect
+        .poll(() =>
+          page.evaluate(id => {
+            const w = getSvc('ApplicationShell').getWidgetById(`hackbench.map-view:${id}`)
+            return w.pending.size > 0 && window.hbRelease.length === w.pending.size
+          }, index),
+        )
+        .toBe(true)
+
+      const seen = await page.evaluate(
+        async ({ sel, id }) => {
+          const w = getSvc('ApplicationShell').getWidgetById(`hackbench.map-view:${id}`)
+          const scroller = document.querySelector(`${sel} [data-control="map-scroller"]`)
+          const rendered = () => scroller.getAttribute('data-rendered-zoom')
+          const pendingBefore = w.pending.size
+          const heldBefore = window.hbRelease.length
+          document.querySelector(`${sel} [data-control="zoom-in"]`).click()
+          const atClick = { rendered: rendered(), zoom: w.zoomController.value }
+          window.hbRelease.splice(0).forEach(f => f())
+          // The continuations (fetchScreen, then sync) are microtasks: they run in this drain.
+          for (let i = 0; i < 50 && w.pending.size; i++) await Promise.resolve()
+          return {
+            pendingBefore,
+            heldBefore,
+            replyStatuses: window.hbReplyStatuses,
+            pendingAfter: w.pending.size,
+            atClick,
+            renderedAfterReply: rendered(),
+            zoomAfterReply: w.zoomController.value,
+          }
+        },
+        { sel: root(index), id: index },
+      )
+      // Preconditions: replies were in flight, they were consumed, and the committed zoom was still
+      // the old one while the controller already held the new one.
+      expect(seen.pendingBefore, 'replies were held').toBeGreaterThan(0)
+      expect(seen.heldBefore, 'every pending reply was parked').toBe(seen.pendingBefore)
+      expect(seen.replyStatuses, 'every held reply took the ok path').toEqual(
+        Array(seen.heldBefore).fill('ok'),
+      )
+      expect(seen.pendingAfter, 'the replies were processed before the commit').toBe(0)
+      expect(seen.atClick.rendered).toBe('1')
+      expect(seen.renderedAfterReply, 'no commit landed before the replies ran').toBe('1')
+      expect(seen.zoomAfterReply, 'the controller already moved on').toBe(2)
+
+      await expect.poll(() => zoomOf(page, index)).toBe(2)
+      await settled(page, index)
+      const after = await probeView(page, index)
+      expect(Math.abs(after.content - before.content)).toBeLessThan(1)
+    })
+  }
+})
