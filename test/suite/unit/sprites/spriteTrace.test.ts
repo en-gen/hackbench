@@ -87,7 +87,8 @@ describe.skipIf(!existsSync(join(TRACE_DIR, SPRITE_TRACE_SET)) || !hasRom(VANILL
       // (no hi-WRAM windows), so 1566 of 1578 is its number (1110 of 1122 before the #649 re-capture
       // of the 45 castle-entry maps added 456 calls, all write-for-write equal); the spike comparator
       // (spikes/sprite-oracle/oracle/compare_sprite_trace.mts), which seeds those windows too,
-      // printed 1122 of 1122 on the old set (not re-run on the new one). The 12 misses are named so a change in WHICH calls miss is red too:
+      // printed 1122 of 1122 on the old set (not re-run on the new one). The 12 misses are named
+      // so a change in WHICH calls miss is red too:
       // id $49 on map 0c3 and id $86 on maps 11e and 126, state the fixtures do not carry.
       expect(results.length).toBe(1578)
       expect(okN).toBe(1566)
@@ -118,9 +119,9 @@ describe.skipIf(!existsSync(join(TRACE_DIR, SPRITE_TRACE_SET)) || !hasRom(VANILL
     // machine: both Map16 tables byte-identical on 131 of 154 maps. The other 23 are pinned in
     // levelStateVsMesen.test.ts: 5 differ only past the level's end, 18 are boss arenas (the
     // capture holds the game's arena fill, which the loader does not run). The 63 in-level
-    // differences of 2026-10-05 were the harness reading Map16 in the castle-entry scene (#649). every header and Mario-entrance
-    // cell equal on every map whose WRAM image was recorded. Asserted as floors, with the
-    // counts checked non-empty so a comparison of nothing cannot pass.
+    // differences of 2026-10-05 were the harness reading Map16 in the castle-entry scene (#649).
+    // Every header and Mario-entrance cell is equal on every map whose WRAM image was recorded.
+    // The counts are checked non-empty so a comparison of nothing cannot pass.
     it('ROM-run level loader against Mesen level state', () => {
       const rom = freshRom()
       const cells = [0x5b, 0x5d, 0x64, 0x71, 0x76, 0x82, 0x83, 0x85, 0x86, 0x1692, 0x190e, 0x19, 0x187a, 0x1404, 0x1e, 0x20, ...Array.from({ length: 8 }, (_, i) => 0x1462 + i)] // prettier-ignore
