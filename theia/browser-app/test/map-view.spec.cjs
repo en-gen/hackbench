@@ -2554,7 +2554,9 @@ test.describe('ON/OFF tracks on $005', () => {
  *
  * Judged on the CONTENT pixel under the view centre, like the #526 button tests: a Zoom In keeps it
  * fixed. An anchor restored early (on the old layout) is gone when the right commit lands, and the
- * centre drifts by thousands of pixels.
+ * centre drifts by hundreds of content pixels (662 on $105, 260 on $109, one machine).
+ * Only the screen-reply route into `sync` is pinned; `restoreAnchor` planted in `requestVisible` (the
+ * scroll and rAF route) stays green.
  */
 test.describe('zoom anchor across the commit gap (#547)', () => {
   for (const index of [0x105, 0x109]) {
@@ -2593,7 +2595,15 @@ test.describe('zoom anchor across the commit gap (#547)', () => {
         })
         w.refresh() // clears the screen cache and asks for the visible ones again
       }, index)
-      await expect.poll(() => page.evaluate(() => window.hbRelease.length)).toBeGreaterThan(0)
+      // Every in-flight request must have its reply parked, or a late one escapes the release.
+      await expect
+        .poll(() =>
+          page.evaluate(id => {
+            const w = getSvc('ApplicationShell').getWidgetById(`hackbench.map-view:${id}`)
+            return w.pending.size > 0 && window.hbRelease.length === w.pending.size
+          }, index),
+        )
+        .toBe(true)
 
       const seen = await page.evaluate(
         async ({ sel, id }) => {
@@ -2601,13 +2611,15 @@ test.describe('zoom anchor across the commit gap (#547)', () => {
           const scroller = document.querySelector(`${sel} [data-control="map-scroller"]`)
           const rendered = () => scroller.getAttribute('data-rendered-zoom')
           const pendingBefore = w.pending.size
+          const heldBefore = window.hbRelease.length
           document.querySelector(`${sel} [data-control="zoom-in"]`).click()
           const atClick = { rendered: rendered(), zoom: w.zoomController.value }
           window.hbRelease.splice(0).forEach(f => f())
           // The continuations (fetchScreen, then sync) are microtasks: they run in this drain.
-          for (let i = 0; i < 20; i++) await Promise.resolve()
+          for (let i = 0; i < 50 && w.pending.size; i++) await Promise.resolve()
           return {
             pendingBefore,
+            heldBefore,
             pendingAfter: w.pending.size,
             atClick,
             renderedAfterReply: rendered(),
@@ -2619,6 +2631,7 @@ test.describe('zoom anchor across the commit gap (#547)', () => {
       // Preconditions: replies were in flight, they were consumed, and the committed zoom was still
       // the old one while the controller already held the new one.
       expect(seen.pendingBefore, 'replies were held').toBeGreaterThan(0)
+      expect(seen.heldBefore, 'every pending reply was parked').toBe(seen.pendingBefore)
       expect(seen.pendingAfter, 'the replies were processed before the commit').toBe(0)
       expect(seen.atClick.rendered).toBe('1')
       expect(seen.renderedAfterReply, 'no commit landed before the replies ran').toBe('1')
