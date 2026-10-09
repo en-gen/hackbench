@@ -8,10 +8,14 @@ import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { hasRom, freshRom, VANILLA, CORPUS } from '../support/corpus'
 import { sweep, type DiffRun } from '../support/l1Differential'
-import { groupLeaves, agreeingStandardLeaves, formatTable } from '../support/leafGrouping'
+import {
+  groupLeaves,
+  agreeingStandardLeaves,
+  formatTable,
+  type LeafRow,
+} from '../support/leafGrouping'
 
-type Row = Pick<DiffRun, 'kind' | 'leaf' | 'top' | 'refusal' | 'differs'>
-const row = (leaf: number, o: Partial<Row> = {}): Row => ({
+const row = (leaf: number, o: Partial<LeafRow> = {}): LeafRow => ({
   kind: 'standard',
   leaf,
   top: 1,

@@ -1,7 +1,7 @@
 /** Groups differential runs by leaf routine (#653 Stage A). Pure, so CI can test it without a ROM. */
 import type { DiffRun } from './l1Differential'
 
-type Row = Pick<DiffRun, 'kind' | 'leaf' | 'top' | 'refusal' | 'differs'>
+export type LeafRow = Pick<DiffRun, 'kind' | 'leaf' | 'top' | 'refusal' | 'differs'>
 
 export interface LeafStats {
   cases: number
@@ -16,7 +16,7 @@ export interface LeafStats {
 export const leafKey = (leaf: number): number => leaf & 0x7fffff
 
 /** Standard rows only: extended objects have no leaf in the dispatchStandard sense. */
-export function groupLeaves(rows: readonly Row[]): Map<number, LeafStats> {
+export function groupLeaves(rows: readonly LeafRow[]): Map<number, LeafStats> {
   const out = new Map<number, LeafStats>()
   for (const r of rows) {
     if (r.kind !== 'standard') continue
@@ -32,7 +32,7 @@ export function groupLeaves(rows: readonly Row[]): Map<number, LeafStats> {
 }
 
 /** A leaf agrees when every one of its cases ran and matched. */
-export const agreeingStandardLeaves = (rows: readonly Row[]): number[] =>
+export const agreeingStandardLeaves = (rows: readonly LeafRow[]): number[] =>
   [...groupLeaves(rows)]
     .filter(([, s]) => s.agrees === s.cases)
     .map(([leaf]) => leaf)
