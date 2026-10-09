@@ -369,6 +369,16 @@ passes extra arguments through. A fresh worktree needs
 choice, path resolution, argument and exit-status pass-through with stub
 compilers.
 
+## Drag and drop
+
+Found on the map groups work, PR #562, 2026-09-25. `[EST]`
+
+- Theia's shell calls `preventDefault` on every `dragover` on the page (for file drops). Skipping it on a refused target does not show a no-drop cursor; set `dataTransfer.dropEffect = 'none'` explicitly. `event.defaultPrevented` is useless as a test signal.
+- Playwright: drag with the real pointer, as `theia/browser-app/test/map-groups.spec.cjs` does (`startDrag`, `hoverDragOver`): `mouse.down` on the source row, a short `mouse.move` past the browser drag threshold, `mouse.move` onto the target row, then `mouse.up`. Playwright routes it through Chromium's own drag pipeline, so the dragenter, dragover and drop events and the `DataTransfer` are the browser's. `locator.dragTo` is not used on the virtualized `TreeWidget`.
+- Synthetic `DragEvent`s dispatched on the rows passed while the real drag did nothing (#625): a constructed `DataTransfer` ignores writes to `dropEffect`. Do not use them.
+- Read the widget's own verdict while hovering (`canDrop`) and assert the tree is unchanged after a refused drop.
+- Theia stamps `data-node-id` on the expansion toggle too; select `.theia-TreeNode[data-node-id=...]`.
+
 ## Related reading
 
 - [overview.md](overview.md) - how the shell relates to the core

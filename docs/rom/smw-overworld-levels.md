@@ -523,3 +523,12 @@ No claim here was checked against a running ROM, and none was checked against an
 edited ROM. Per `CLAUDE.md`, a romhack can replace the routines traced above; in
 particular `CODE_04E5EE` and the increment at `bank_04.asm:6727` are ordinary
 code, and a hack may relocate or bypass them.
+
+## Level names and ids
+
+- The ROM holds a level name table at `$04A0FC` (96 entries x 2 bytes); `src/rom/SmwLevelNames.ts` decodes it (`decodeLevelName`, `getAllLevelNames`, `getLevelNameByIndex`). `[EST]`
+- Three external lists (a forum post, two LLM tables) were refuted against the ROM in one session, each claiming 76 entries and disagreeing, with entries at `$019`, `$01E`, `$112` pointing at the shared filler L1 `$068000`. `[EST]`
+- Report ids as `$XXX` hex. Add a name only when it comes from the decoder or the owner said it that turn; leave unverified names off.
+- Confirmed by the owner 2026-09-13: Yoshi's House `$104`, Valley Fortress `$111`, Red Switch Palace `$11B`. `[EST]`
+- Decoded, not separately confirmed: Green Switch Palace `$008`, Yellow `$014`, Blue `$121`. `[EST]`
+- `levelHasObjects()` is true for filler slots (`$012`, `$112`). Test a real slot by comparing its L1 pointer with the most frequent (filler) pointer. `[EST]`

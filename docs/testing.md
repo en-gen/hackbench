@@ -89,7 +89,7 @@ command deletes ignored files, and these are cartridges and captures that
 cannot be downloaded again. Outside the repo, git cannot reach them at all.
 The interactive dump scripts `tools/mesen/*.lua` and their README stay
 tracked in the repo; only the gitignored payload moved. The headless
-per-layer capture harness and its PowerShell runners are not here: they
+per-graphics-layer capture harness and its PowerShell runners are not here: they
 live in `en-gen/hackbench-validation` under `capture/`.
 
 Nothing in the suite hardcodes any of this. `test/suite/support/corpus.cjs`
@@ -634,6 +634,39 @@ npx vitest run test/suite/unit/LcLz2.synthetic.test.ts   # one file
 ```
 
 `test/suite/unit/romMapBoundaries.test.ts` (synthetic ROMs, `docs/mockups/rom-map.html` parser run in a vm) and `demoCaption.test.ts` (`OVERLAY` from `demo.cjs`, fake DOM) were each shown red on a planted defect, one machine: walking before the dedupe lookup (3 of 3 rom-map tests fail), the work-cap check placed before the repeat-pointer lookup (1 of 3), the work-cap check removed (2 of 3), and `innerHTML` restored in the caption (1 of 1).
+
+## Perf gates
+
+Settled by the owner 2026-09-28; design calls delegated to the orchestrator. Spec: `superpowers/specs/2026-09-28-perf-gates-design.md`.
+
+- Nightly paired benchmarks on GitHub-hosted runners, baseline and candidate in one job, every other night. `[EST]`
+- Measures core microbenchmarks, app timings, startup and heap; not emulator fps. `[EST]`
+- A local scheduled Claude session fixes regressions, with a PR under normal merge rules. `[EST]`
+- An intended cost is proposed through `accept.sh`; only the owner runs it. `[EST]`
+- Rules in the spec: the base advances only on an unflagged run; `perf-nightly-infra` for no-verdict runs; a plant run is green only when detected. `[EST]`
+- Issues: #413 core/detector, #414 app marks/specs, #415 `perf-nightly.yml` in hackbench-validation, #416 scheduled fixer and docs. #415 waits for the self-hosted runner. `[EST]`
+- Status as of 2026-09-29: the owner paused; #424 and PR #430 (#414) merged since. Re-check #415 (hackbench-validation PR 24) and #416 before assuming progress. `[OPEN]`
+- Known flakes #438, #443; leak #429. Numbers before 2026-09-27 are archive numbers; verify. `[OPEN]`
+- Guard against forged statuses: unit tests once reached the real authenticated `gh` and posted forged `perf-nightly` success statuses on develop. PR #539 (merged 2026-10-04) added the vitest globalSetup guard `test/suite/support/noRealGh.ts`; the suite no longer needs `--exclude perfAccept.test.ts`. `[EST]`
+- Statuses cannot be deleted, only superseded with `error`. A forged success is indistinguishable from a real `accept.sh` accept until #538 adds a marker. `[OPEN]`
+- A stray `perf-nightly` success: compare its description with the unit-test strings ("a reason", "a valid reason", "an intended cost") before trusting it. `[EST]`
+- Never print a gh credential in test output; assert with booleans.
+
+## Playwright and RPC
+
+- Assigning a wrapper over a Theia JSON-RPC proxy method in the page (for example `svc.mapCollision = wrapped`) never fires for the widget's own calls: the proxy builds a fresh function per property access. `[EST]` develop 00911ba2, 2026-10-07, #691.
+- Effect: `map-collision.spec.cjs` "toggle off probes nothing" passed its `toBe(0)` vacuously; the late-reply race case timed out waiting on the wrapper. `[EST]`
+- Rule: a spec that counts RPC calls needs a counter the app exposes (a widget data attribute or a server-side counter) or websocket frame inspection, and must prove the counter rises on a known call. `[PROP]`
+
+## The validation repository
+
+- `en-gen/hackbench-validation` is private and holds the Playwright e2e workflow (`e2e-playwright.yml`; builds the Theia browser shell and runs `theia/browser-app/test` against the requested ref, manually or via hackbench's manual-only `e2e-dispatch.yml`), the nightly run, the perf nightly (#415) and the Mesen per-graphics-layer capture harness (`capture/`). `[EST]`
+- map-diff was deleted 2026-09-25. `[EST]`
+- The CI secrets live there; `en-gen` is a Free org, so secrets are duplicated per repo. The ROM is pulled from OneDrive at run time. `[EST]`
+- `MAX_SKIPPED` gates on the known skips (emulator-view needs the core, gfx-view needs Invictus, music-view needs GPW2). Measured 8 on 2026-09-22; the emulator spec has since grown from 5 to 21 tests, so re-measure. `[OPEN]`
+- The libretro core is `snes9x_libretro.{js,wasm}` in the `hackbench-cores` checkout, outside every worktree. The app records its location in `core-registry.json` under the app data directory; read that first. `[EST]`
+- Run emulator specs from any worktree with `HB_CORE_JS` set to the core's `.js` path; without it the suite silently skips, and CI has no core and skips too. `[EST]`
+- Nightly cost is why e2e is not per-PR. `[EST]`
 
 ## Related docs
 
