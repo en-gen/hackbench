@@ -316,7 +316,6 @@ export function writeState(stateDir, state, logLine, { rename = renameSync } = {
 
 const SESSIONS_FILE = 'sessions.json'
 const ROLES = new Set(['ba', 'tech-lead', 'both'])
-const CLI_ID = /^[0-9a-f-]{36}$/
 const DESKTOP_ID = /^local_[0-9a-f-]{36}$/
 export const TEAM_NAME = /^[a-z][a-z0-9-]{0,31}$/
 
@@ -326,14 +325,100 @@ export function mainCheckoutDir(cwd) {
   return path.dirname(path.resolve(cwd, r.stdout.trim()))
 }
 
-// The desktop app guards .claude/ against session writes from a worktree and
-// the auto-mode classifier reads any workaround as a bypass, so shared state
-// lives in a folder of its own in the main checkout (moved 2026-10-09).
+// The desktop app guards .claude/ against session writes from a worktree, so
+// shared state lives in a folder of its own in the main checkout.
 export const STATE_DIR_NAME = '.hackbench-state'
 const LEGACY_STATE_DIR = path.join('.claude', 'state')
 
 export function stateDirFor(cwd) {
   return process.env.HACKBENCH_STATE_DIR || path.join(mainCheckoutDir(cwd), STATE_DIR_NAME)
+}
+
+export function protocolsDirFor(cwd) {
+  return process.env.HACKBENCH_PROTOCOLS_DIR || path.join(cwd, 'docs', 'protocols')
+}
+
+// Anything that is not a plain object reads as no sessions, so a corrupt file
+// cannot take the hook or the command down.
+export function readSessions(stateDir) {
+  const file = path.join(stateDir, SESSIONS_FILE)
+  if (!existsSync(file)) return {}
+  try {
+    const raw = JSON.parse(stripBom(readFileSync(file, 'utf8')))
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
+  } catch {
+    return {}
+  }
+}
+
+// The registry is keyed by desktop id (local_...), which survives a clear; a
+// CLI session id changes on every clear, so nothing can be keyed by it.
+// It never touches a team state file: that file is the handoff.
+export function registerSession(
+  stateDir,
+  desktopId,
+  role,
+  team,
+  now,
+  { rename = renameSync, lock = {} } = {},
+) {
+  if (!DESKTOP_ID.test(desktopId)) {
+    throw new Error(`desktop id must match ${DESKTOP_ID}; got "${desktopId}"`)
+  }
+  if (!ROLES.has(role)) throw new Error(`role must be ba, tech-lead or both; got "${role}"`)
+  if (role !== 'ba' && !team) throw new Error(`a ${role} session needs a team`)
+  if (team && !TEAM_NAME.test(team)) throw new Error(`team name must match ${TEAM_NAME}`)
+  return withStateLock(
+    stateDir,
+    assertHeld => {
+      const all = readSessions(stateDir)
+      all[desktopId] = { role, team: team ?? null, registered: now }
+      assertHeld()
+      writeFileAtomic(
+        path.join(stateDir, SESSIONS_FILE),
+        JSON.stringify(all, null, 2) + '\n',
+        rename,
+      )
+      return all
+    },
+    lock,
+  )
+}
+
+// A session in an app-made worktree cannot use the Write tool on the main
+// checkout's .claude/ (the desktop app's guard refuses it), and the auto-mode
+// classifier reads any workaround as a bypass; shared state therefore lives in
+// a folder of its own and is written through this script. `ba` is reserved for
+// the BA's own state file.
+export function writeHandoff(stateDir, team, text, { rename = renameSync, lock = {} } = {}) {
+  if (!TEAM_NAME.test(team)) throw new Error(`team name must match ${TEAM_NAME}; got "${team}"`)
+  if (!text.trim()) throw new Error('refusing empty handoff text; give the file on stdin')
+  const file =
+    team === 'ba' ? path.join(stateDir, 'ba.md') : path.join(stateDir, 'teams', `${team}.md`)
+  return withStateLock(
+    stateDir,
+    assertHeld => {
+      mkdirSync(path.dirname(file), { recursive: true })
+      assertHeld()
+      writeFileAtomic(file, text, rename)
+      return file
+    },
+    lock,
+  )
+}
+
+// Old sessions.json was keyed by CLI id with the desktop id inside. Re-key by
+// desktop id, keeping the newest entry per desktop id (undated counts oldest).
+export function convertSessions(old) {
+  const out = {}
+  for (const [key, e] of Object.entries(old ?? {})) {
+    const id = e?.desktopId ?? key
+    if (!DESKTOP_ID.test(id)) continue
+    const cur = out[id]
+    if (cur && String(cur.registered ?? '') >= String(e?.registered ?? '')) continue
+    out[id] = { role: e.role, team: e.team ?? null, registered: e.registered }
+  }
+  return out
 }
 
 // One-time copy from the old folder. It never overwrites a target and never
@@ -361,147 +446,18 @@ export function migrateState(fromDir, toDir, { lock = {} } = {}) {
           continue
         }
         mkdirSync(path.dirname(target), { recursive: true })
-        writeFileAtomic(target, readFileSync(path.join(fromDir, rel)))
+        const source = path.join(fromDir, rel)
+        const body =
+          rel === 'sessions.json'
+            ? JSON.stringify(convertSessions(readSessions(fromDir)), null, 2) + '\n'
+            : readFileSync(source)
+        writeFileAtomic(target, body)
         copied.push(rel)
       }
     },
     lock,
   )
   return { copied, skipped }
-}
-
-export function protocolsDirFor(cwd) {
-  return process.env.HACKBENCH_PROTOCOLS_DIR || path.join(cwd, 'docs', 'protocols')
-}
-
-// Anything that is not a plain object reads as no sessions, so a corrupt file
-// cannot take the hook or the command down.
-export function readSessions(stateDir) {
-  const file = path.join(stateDir, SESSIONS_FILE)
-  if (!existsSync(file)) return {}
-  try {
-    const raw = JSON.parse(stripBom(readFileSync(file, 'utf8')))
-    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
-  } catch {
-    return {}
-  }
-}
-
-function assertIds(cliId, desktopId) {
-  if (!CLI_ID.test(cliId)) throw new Error(`CLI session id must match ${CLI_ID}; got "${cliId}"`)
-  if (!DESKTOP_ID.test(desktopId)) {
-    throw new Error(`desktop id must match ${DESKTOP_ID}; got "${desktopId}"`)
-  }
-}
-
-// A clear gives the same desktop session a new CLI id, so re-filing drops every
-// entry for the desktop id and keeps exactly one. `entryFor` sees the old
-// sessions and may throw, which happens before any write.
-function refileSession(stateDir, cliId, desktopId, entryFor, { rename = renameSync, lock = {} }) {
-  return withStateLock(
-    stateDir,
-    assertHeld => {
-      const all = readSessions(stateDir)
-      const entry = entryFor(all)
-      for (const [id, old] of Object.entries(all)) {
-        if (old?.desktopId === desktopId) delete all[id]
-      }
-      all[cliId] = entry
-      assertHeld()
-      writeFileAtomic(
-        path.join(stateDir, SESSIONS_FILE),
-        JSON.stringify(all, null, 2) + '\n',
-        rename,
-      )
-      return all
-    },
-    lock,
-  )
-}
-
-// The hook receives the CLI session id; the session-management tools take the
-// desktop id (local_...). A registration carries both, keyed by the CLI id.
-// It never touches a team state file: that file is the handoff.
-export function registerSession(
-  stateDir,
-  cliId,
-  desktopId,
-  role,
-  team,
-  now,
-  { rename = renameSync, lock = {} } = {},
-) {
-  assertIds(cliId, desktopId)
-  if (!ROLES.has(role)) throw new Error(`role must be ba, tech-lead or both; got "${role}"`)
-  if (role !== 'ba' && !team) throw new Error(`a ${role} session needs a team`)
-  if (team && !TEAM_NAME.test(team)) throw new Error(`team name must match ${TEAM_NAME}`)
-  return refileSession(
-    stateDir,
-    cliId,
-    desktopId,
-    () => ({ desktopId, role, team: team ?? null, registered: now }),
-    { rename, lock },
-  )
-}
-
-// Re-files the session's own entry, role and team kept, so it need not
-// re-derive them from its title. Refused when the new CLI id already belongs
-// to another desktop session (a wrong desktop id would swap two registrations),
-// or when the entry is one the hook would treat as unregistered (a reclaim
-// that cannot be read back would loop). `registered` stays the original
-// time; `reclaimed` records the clear. Returns only the reclaimed entry.
-export function reclaimSession(
-  stateDir,
-  cliId,
-  desktopId,
-  { rename = renameSync, lock = {}, now = new Date().toISOString() } = {},
-) {
-  assertIds(cliId, desktopId)
-  const all = refileSession(
-    stateDir,
-    cliId,
-    desktopId,
-    sessions => {
-      const mine = Object.values(sessions).filter(e => e?.desktopId === desktopId)
-      // Hand edits can leave several; the newest registration is the live one,
-      // and an undated entry counts as the oldest.
-      const found = mine.sort((x, y) =>
-        String(y.registered ?? '').localeCompare(String(x.registered ?? '')),
-      )[0]
-      if (!found) throw new Error(`no registration for desktop id ${desktopId}; register instead`)
-      if (sessions[cliId] && sessions[cliId].desktopId !== desktopId) {
-        throw new Error(`CLI id ${cliId} is registered to another session; check the desktop id`)
-      }
-      const badTeam = found.team != null && !TEAM_NAME.test(String(found.team))
-      if (!ROLES.has(found.role) || badTeam || (found.role !== 'ba' && !found.team)) {
-        throw new Error(`the registration for ${desktopId} is invalid; register instead`)
-      }
-      return { ...found, reclaimed: now }
-    },
-    { rename, lock },
-  )
-  return { cliId, ...all[cliId] }
-}
-
-// A session in an app-made worktree cannot use the Write tool on the main
-// checkout's .claude/ (the desktop app's guard refuses it), so the handoff
-// goes through this script, as sessions.json does. `ba` is reserved for the
-// BA's own state file. Same lock and atomic rename as the sessions file.
-export function writeHandoff(stateDir, team, text, { rename = renameSync, lock = {} } = {}) {
-  if (!TEAM_NAME.test(team)) throw new Error(`team name must match ${TEAM_NAME}; got "${team}"`)
-  if (!text.trim()) throw new Error('refusing empty handoff text; give the file on stdin')
-  const file =
-    team === 'ba' ? path.join(stateDir, 'ba.md') : path.join(stateDir, 'teams', `${team}.md`)
-  return withStateLock(
-    stateDir,
-    assertHeld => {
-      mkdirSync(path.dirname(file), { recursive: true })
-      assertHeld()
-      writeFileAtomic(file, text, rename)
-      return file
-    },
-    lock,
-  )
 }
 
 // The BA prunes sessions that no longer exist; going through the lock keeps a
@@ -514,14 +470,9 @@ export function unregisterSession(stateDir, desktopId, { rename = renameSync, lo
     stateDir,
     assertHeld => {
       const all = readSessions(stateDir)
-      let removed = 0
-      for (const [id, entry] of Object.entries(all)) {
-        if (entry?.desktopId === desktopId) {
-          delete all[id]
-          removed += 1
-        }
-      }
-      if (removed > 0) {
+      const removed = desktopId in all ? 1 : 0
+      if (removed) {
+        delete all[desktopId]
         assertHeld()
         writeFileAtomic(
           path.join(stateDir, SESSIONS_FILE),
@@ -538,12 +489,12 @@ export function unregisterSession(stateDir, desktopId, { rename = renameSync, lo
 const BY = /^(owner|schedule|session:local_[0-9a-f-]{36})$/
 const BY_MESSAGE = '--by must be owner, schedule or session:<desktop id>'
 const USAGE =
-  'usage: protocol.mjs <name> on|off --by <owner|schedule|session:<desktop id>> | status | register <cliId> <desktopId> <role> [team] | reclaim <cliId> <desktopId> | handoff <team|ba> (file text on stdin) | migrate-state | unregister <desktopId>'
+  'usage: protocol.mjs <name> on|off --by <owner|schedule|session:<desktop id>> | status | register <desktopId> <role> [team] | handoff <team|ba> (file text on stdin) | migrate-state | unregister <desktopId>'
 
 function cli(argv, cwd) {
   const stateDir = stateDirFor(cwd)
   const defs = loadProtocols(protocolsDirFor(cwd))
-  const [a, b, c, d, e] = argv
+  const [a, b, c, d] = argv
   const now = new Date().toISOString()
   if (a === 'status') {
     const { state, warning } = readStateChecked(stateDir, defs)
@@ -561,13 +512,9 @@ function cli(argv, cwd) {
     if (!b) return { code: 1, out: USAGE }
     return { code: 0, out: writeHandoff(stateDir, b, readFileSync(0, 'utf8')) }
   }
-  if (a === 'reclaim') {
-    if (!b || !c) return { code: 1, out: USAGE }
-    return { code: 0, out: reclaimSession(stateDir, b, c, { now }) }
-  }
   if (a === 'register') {
-    if (!b || !c || !d) return { code: 1, out: USAGE }
-    return { code: 0, out: registerSession(stateDir, b, c, d, e ?? null, now) }
+    if (!b || !c) return { code: 1, out: USAGE }
+    return { code: 0, out: registerSession(stateDir, b, c, d ?? null, now) }
   }
   if (!a || !b) return { code: 1, out: USAGE }
   if (!defs.has(a)) {
@@ -586,8 +533,8 @@ function cli(argv, cwd) {
     const r = applyChange(state, defs, a, b, by, now)
     if (r.error) return { code: 1, out: r.error, warn: warning }
     // Computed before the write so a bad sessions file cannot leave a half-reported change.
-    const nudge = Object.values(readSessions(stateDir)).map(s => ({
-      desktopId: s.desktopId,
+    const nudge = Object.entries(readSessions(stateDir)).map(([desktopId, s]) => ({
+      desktopId,
       role: s.role,
       team: s.team,
     }))

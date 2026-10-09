@@ -172,45 +172,14 @@ describe('the protocol hook', () => {
     expect(r.out).toContain(path.resolve(stateDir, 'ba.md'))
   })
 
-  it('tells an unregistered session to reclaim by desktop id before registering', () => {
-    fs.writeFileSync(path.join(stateDir, 'teams', 'alpha.md'), '# Alpha state\n')
-    const r = runHook(START)
-    expect(r.out).toContain('get-session on `self`')
-    expect(r.out).toContain(`node tools/scripts/protocol.mjs reclaim ${CLI_ID} <desktop id>`)
-    expect(r.out).toContain(path.resolve(stateDir, 'teams', '<team>.md'))
-    expect(r.out).toContain(path.resolve(stateDir, 'ba.md'))
-    expect(r.out).not.toContain('.claude/state')
-    expect(r.out).toContain('the entry does not match')
-    expect(r.out).toContain('matches your title ("<Team> Team" needs role tech-lead or both')
-    expect(r.out).toContain('"BA" needs role ba or both')
-    expect(r.out).toContain('node tools/scripts/protocol.mjs handoff <team>')
-    expect(r.out).toContain('never the Write tool')
-    expect(r.out).toContain('do not register')
-    expect(r.out).toContain('started by a message from another session')
-    expect(r.out).toContain('without asking the owner')
-    expect(r.out).toContain('"<Team> Team" registers tech-lead <team>')
-    expect(r.out).toContain('repository session hook')
-    expect(r.out.length).toBeLessThan(9500)
-  })
-
-  it('keeps the reclaim steps when hundreds of team files exist', () => {
-    for (let i = 0; i < 400; i++) {
-      fs.writeFileSync(path.join(stateDir, 'teams', `team-with-a-long-name-number-${i}.md`), 'x')
-    }
-    const r = runHook(START)
-    expect(r.out).toContain(`reclaim ${CLI_ID}`)
-    expect(r.out).toContain('the entry does not match')
-    expect(r.out.length).toBeLessThan(9500)
-  })
-
   it('gives an unregistered session no manual, only the registration block', () => {
     fs.writeFileSync(path.join(docsDir, 'agents', 'tech-lead.md'), '# Tech lead manual\n')
     fs.writeFileSync(path.join(docsDir, 'agents', 'ba.md'), '# BA manual\n')
     fs.writeFileSync(path.join(stateDir, 'teams', 'alpha.md'), '# Alpha state\n')
     fs.writeFileSync(path.join(stateDir, 'teams', 'bravo.md'), '# Bravo state\n')
     const r = runHook(START)
-    expect(r.out).toContain(`Session id: ${CLI_ID}. Desktop id: unknown until you look it up.`)
-    expect(r.out).toContain('Not registered: a clear gave you a new CLI id')
+    expect(r.out).toContain(`Session id: ${CLI_ID}. Desktop id: unknown until you register.`)
+    expect(r.out).toContain('Not registered. Your title decides your role')
     expect(r.out).toContain('"<Team> Team" registers tech-lead <team>')
     expect(r.out).toContain('Existing team files: alpha, bravo')
     expect(r.out).toContain(path.resolve(docsDir, 'agents', 'tech-lead.md'))
