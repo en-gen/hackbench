@@ -203,7 +203,9 @@ team (Corrected 2026-10-09: was keyed by CLI session id, because the hook saw th
 { "<desktop id>": { "role": "tech-lead", "team": "alpha", "registered": "..." } }
 ```
 
-On a session's first turn the hook finds no entry. The manual's first step
+On a session's first turn (Corrected 2026-10-09: the hook does not look up
+any entry; a new session reads its manual at the path the hook prints and
+registers by desktop id). The manual's first step
 is: read your own title, register yourself, create your team state file
 (section 4.4), and send the BA one line: "Alpha tech lead here, what's
 next". The owner starts a session, titles it, and walks away. Scale-out is
@@ -237,8 +239,10 @@ recreates its team state file.
    definition says the clear runs when the turn ends and the session is idle,
    and keeps the folder, model and permissions `[EST]`. Carina's rule that a
    session cannot clear itself is true of the slash command only.
-5. First turn after waking: the hook has injected the manual, the active
-   protocols and the team state file. Send the BA "what's next". Day shift
+5. First turn after waking (Corrected 2026-10-09: was "the hook has injected
+   the manual, the active protocols and the team state file"; the hook now
+   injects only the active protocols and prints paths, so the woken lead
+   follows its resume prompt and reads the files it names). Send the BA "what's next". Day shift
    waits for a plan gate on the new item; night shift treats the assignment
    as approval.
 
@@ -394,8 +398,9 @@ the quality gates require.
   ones. Lands beside the existing lint-gate test.
 - **Self-clear round trip.** The verifier, on a throwaway session in auto
   mode: register, write a team state file, clear self, confirm from the
-  transcript that the hook fired after the clear and injected the file, and
-  that no permission prompt blocked. This was the load-bearing `[OPEN]` in
+  transcript that the hook fired after the clear, that the session followed its
+  resume prompt and read the file it named (Corrected 2026-10-09: was "injected
+  the file"), and that no permission prompt blocked. This was the load-bearing `[OPEN]` in
   sections 3.5 and 4.5; it is now `[EST]` (2026-10-09, resume-prompt design,
   `docs/decisions/2026-10-09-self-clear-round-trip.md`).
 - **Nudge.** The command run against two registered throwaway sessions; both
