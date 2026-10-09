@@ -124,8 +124,142 @@ const OK_MEANS: Record<string, string> = {
 
 const pct = (n: number, of: number): string => (of === 0 ? '-' : `${((100 * n) / of).toFixed(1)}%`)
 
+/** One ranking for summary.md and the run diff, so a gate cannot rank differently in each. */
+export function rankBlockers(
+  records: HackRecord[],
+  view: string,
+): [string, { sole: number; total: number }][] {
+  const tally = new Map<string, { sole: number; total: number }>()
+  for (const r of records) {
+    const x = r.readers[view]
+    if (x?.verdict !== 'unavailable') continue
+    const keys = [...new Set(x.reasons.map(blockerKey))]
+    for (const k of keys) {
+      const t = tally.get(k) ?? { sole: 0, total: 0 }
+      t.total++
+      if (keys.length === 1) t.sole++
+      tally.set(k, t)
+    }
+  }
+  return [...tally].sort((a, b) => b[1].sole - a[1].sole || b[1].total - a[1].total)
+}
+
+const viewsOf = (records: HackRecord[]): string[] => [
+  ...new Set(records.flatMap(r => Object.keys(r.readers))),
+]
+
+/** Works-on % per view, with the same `ok / reporting hacks` rule summarize prints. */
+function worksOn(records: HackRecord[], view: string): string {
+  const got = records.map(r => r.readers[view]).filter((x): x is ReaderRecord => !!x)
+  return pct(got.filter(x => x.verdict === 'ok').length, got.length)
+}
+
+export interface RunDiff {
+  compared: number
+  added: string[]
+  notCovered: string[]
+  newCrashes: string[]
+  clearedCrashes: string[]
+  verdictChanges: string[]
+  worksOn: { view: string; before: string; after: string }[]
+  blockerMoves: string[]
+}
+
+const label = (r: HackRecord): string => `${r.smwcId} ${r.name}`
+
+/** Only hacks in both runs are diffed: a hack in one run alone says nothing about change. */
+export function diffRuns(prev: HackRecord[], cur: HackRecord[], topBlockers = 8): RunDiff {
+  const before = new Map(prev.map(r => [r.smwcId, r]))
+  const after = new Map(cur.map(r => [r.smwcId, r]))
+  const pairs = cur.flatMap(c =>
+    before.has(c.smwcId) ? [[before.get(c.smwcId)!, c] as const] : [],
+  )
+  const d: RunDiff = {
+    compared: pairs.length,
+    added: cur.filter(r => !before.has(r.smwcId)).map(label),
+    notCovered: prev.filter(r => !after.has(r.smwcId)).map(label),
+    newCrashes: [],
+    clearedCrashes: [],
+    verdictChanges: [],
+    worksOn: [],
+    blockerMoves: [],
+  }
+  for (const [p, c] of pairs) {
+    for (const v of new Set([...Object.keys(p.readers), ...Object.keys(c.readers)])) {
+      const from = p.readers[v]?.verdict
+      const to = c.readers[v]?.verdict
+      if (!from || !to || from === to) continue
+      d.verdictChanges.push(`${label(c)} / ${v}: ${from} -> ${to}`)
+      if (to === 'crash') d.newCrashes.push(`${label(c)} / ${v}`)
+      if (from === 'crash') d.clearedCrashes.push(`${label(c)} / ${v}`)
+    }
+  }
+  // A crash that stays a crash is in neither list, so one that changes its error still reads as unchanged.
+  const pp = pairs.map(([p]) => p)
+  const cc = pairs.map(([, c]) => c)
+  for (const view of [...new Set([...viewsOf(pp), ...viewsOf(cc)])]) {
+    const b = worksOn(pp, view)
+    const a = worksOn(cc, view)
+    if (a !== b) d.worksOn.push({ view, before: b, after: a })
+    const rank = (rs: HackRecord[]): Map<string, number> =>
+      new Map(
+        rankBlockers(rs, view)
+          .slice(0, topBlockers)
+          .map(([k], i) => [k, i + 1]),
+      )
+    const rb = rank(pp)
+    const ra = rank(cc)
+    for (const gate of new Set([...rb.keys(), ...ra.keys()])) {
+      const f = rb.get(gate)
+      const t = ra.get(gate)
+      if (f !== t)
+        d.blockerMoves.push(
+          `${view}: ${gate}: ${f ? `#${f}` : 'unranked'} -> ${t ? `#${t}` : 'unranked'}`,
+        )
+    }
+  }
+  return d
+}
+
+/** A stable order, so the cursor means the same hack next run; wraps, and tolerates any cursor. */
+export function pickBatch<T extends { smwc_id: number }>(
+  index: readonly T[],
+  cursor: number,
+  n: number,
+): { batch: T[]; next: number } {
+  const sorted = [...index].sort((a, b) => a.smwc_id - b.smwc_id)
+  if (sorted.length === 0 || !(n > 0)) return { batch: [], next: 0 }
+  const start = ((Math.trunc(cursor) % sorted.length) + sorted.length) % sorted.length
+  const count = Math.min(Math.trunc(n), sorted.length)
+  const batch = Array.from({ length: count }, (_, i) => sorted[(start + i) % sorted.length]!)
+  return { batch, next: (start + count) % sorted.length }
+}
+
+/** Ids, names, verdicts and the summary only: nothing here is read from a ROM. */
+export function trackingIssueBody(diff: RunDiff | null, summary: string): string {
+  const list = (items: string[]): string[] => (items.length ? items.map(i => `- ${i}`) : ['None.'])
+  const out = ['# Hack sweep run', '']
+  if (!diff) {
+    out.push('First run: no earlier results to compare against.')
+  } else {
+    out.push(`${diff.compared} hacks compared with the previous run.`, '')
+    const sections: [string, string[]][] = [
+      ['New crashes', diff.newCrashes],
+      ['Cleared crashes', diff.clearedCrashes],
+      ['Verdict changes', diff.verdictChanges],
+      ['Works on', diff.worksOn.map(w => `${w.view}: ${w.before} -> ${w.after}`)],
+      ['Blocker ranking moves', diff.blockerMoves],
+      ['Added (not in the previous run)', diff.added],
+      ['Not covered this run', diff.notCovered],
+    ]
+    for (const [title, items] of sections) out.push(`## ${title}`, '', ...list(items), '')
+  }
+  out.push('<details><summary>Full summary</summary>', '', summary.trimEnd(), '', '</details>', '')
+  return out.join('\n')
+}
+
 export function summarize(records: HackRecord[], topBlockers = 8): string {
-  const views = [...new Set(records.flatMap(r => Object.keys(r.readers)))]
+  const views = viewsOf(records)
   const out = [`# Hack sweep`, '', `${records.length} hacks.`, '', '## Per view', '']
   out.push('| View | ok | unavailable | crash | works on |', '|---|---|---|---|---|')
   for (const v of views) {
@@ -150,21 +284,9 @@ export function summarize(records: HackRecord[], topBlockers = 8): string {
     '',
   )
   for (const v of views) {
-    const tally = new Map<string, { sole: number; total: number }>()
-    for (const r of records) {
-      const x = r.readers[v]
-      if (x?.verdict !== 'unavailable') continue
-      const keys = [...new Set(x.reasons.map(blockerKey))]
-      for (const k of keys) {
-        const t = tally.get(k) ?? { sole: 0, total: 0 }
-        t.total++
-        if (keys.length === 1) t.sole++
-        tally.set(k, t)
-      }
-    }
-    if (tally.size === 0) continue
+    const ranked = rankBlockers(records, v)
+    if (ranked.length === 0) continue
     out.push(`### ${v}`, '', '| only blocker | blocks | gate |', '|---|---|---|')
-    const ranked = [...tally].sort((a, b) => b[1].sole - a[1].sole || b[1].total - a[1].total)
     for (const [k, t] of ranked.slice(0, topBlockers)) out.push(`| ${t.sole} | ${t.total} | ${k} |`)
     out.push('')
   }

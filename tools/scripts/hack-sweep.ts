@@ -5,11 +5,12 @@
  *   npx tsx tools/scripts/hack-sweep.ts
  *
  * HACKBENCH_HACKS names the store (read only), HACKBENCH_SWEEP_OUT the output
- * directory. Output holds hashes, ids, names, verdicts and counts; a reason may
+ * directory, HACKBENCH_SWEEP_BATCH how many hacks one run covers (default 50;
+ * cursor.json in the output directory rotates which). Output holds hashes, ids, names, verdicts and counts; a reason may
  * quote one instruction's bytes, and longer runs are elided.
  */
 import { createHash } from 'crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { RomFile } from '../../src/rom/RomFile'
 import { SmwRom } from '../../src/rom/SmwRom'
@@ -33,9 +34,12 @@ import {
   InteropRecord,
   ReaderOutcome,
   decideInterop,
+  diffRuns,
   gfxRefusals,
+  pickBatch,
   runReader,
   summarize,
+  trackingIssueBody,
 } from './hackSweepReport'
 
 interface IndexEntry {
@@ -207,20 +211,49 @@ function sweepOne(store: string, h: IndexEntry, vanilla: Uint8Array): HackRecord
   return { ...record, romSha256, romSize: bytes.length }
 }
 
+/** A bad value stops the run: a silent fallback would sweep a different batch than the operator asked for. */
+function batchSize(raw: string | undefined): number {
+  if (raw === undefined) return 50
+  if (!/^[1-9]\d*$/.test(raw.trim())) {
+    throw new Error(`HACKBENCH_SWEEP_BATCH must be a positive integer, got "${raw}"`)
+  }
+  return Number(raw)
+}
+
+function readJson<T>(path: string): T | null {
+  return existsSync(path) ? (JSON.parse(readFileSync(path, 'utf8')) as T) : null
+}
+
 if (require.main === module) {
   const store = process.env.HACKBENCH_HACKS ?? 'C:/Projects/hackbench-tools/hacks'
   const outDir = process.env.HACKBENCH_SWEEP_OUT ?? 'C:/Projects/hackbench-tools/sweep'
+  const size = batchSize(process.env.HACKBENCH_SWEEP_BATCH)
   const index = JSON.parse(readFileSync(join(store, 'index.json'), 'utf8')) as {
     hacks: IndexEntry[]
   }
+  mkdirSync(outDir, { recursive: true })
+  const cursorPath = join(outDir, 'cursor.json')
+  const cursor = readJson<{ cursor: number }>(cursorPath)?.cursor ?? 0
+  const { batch, next } = pickBatch(index.hacks, cursor, size)
   const vanilla = readFileSync(romPath(VANILLA))
   const records: HackRecord[] = []
-  for (const h of index.hacks) {
-    process.stdout.write(`${h.smwc_id} ${h.name}\n`)
+  for (const h of batch) {
+    process.stdout.write(`${h.smwc_id} ${h.name}
+`)
     records.push(sweepOne(store, h, vanilla))
   }
-  mkdirSync(outDir, { recursive: true })
-  writeFileSync(join(outDir, 'results.json'), JSON.stringify(records, null, 2))
-  writeFileSync(join(outDir, 'summary.md'), summarize(records))
-  process.stdout.write(`wrote ${records.length} records to ${outDir}\n`)
+  const resultsPath = join(outDir, 'results.json')
+  const prevPath = join(outDir, 'results.prev.json')
+  if (existsSync(resultsPath)) renameSync(resultsPath, prevPath)
+  writeFileSync(resultsPath, JSON.stringify(records, null, 2))
+  const summary = summarize(records)
+  writeFileSync(join(outDir, 'summary.md'), summary)
+  const prev = readJson<HackRecord[]>(prevPath)
+  writeFileSync(
+    join(outDir, 'tracking-issue.md'),
+    trackingIssueBody(prev ? diffRuns(prev, records) : null, summary),
+  )
+  writeFileSync(cursorPath, JSON.stringify({ cursor: next }))
+  process.stdout.write(`wrote ${records.length} records to ${outDir}
+`)
 }

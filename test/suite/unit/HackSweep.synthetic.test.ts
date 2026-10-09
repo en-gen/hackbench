@@ -5,10 +5,13 @@ import {
   HackRecord,
   blockerKey,
   decideInterop,
+  diffRuns,
   gfxRefusals,
+  pickBatch,
   runReader,
   stripByteRuns,
   summarize,
+  trackingIssueBody,
 } from '../../../tools/scripts/hackSweepReport'
 
 describe('runReader', () => {
@@ -133,5 +136,123 @@ describe('summarize', () => {
     expect(md).toContain('- 5 hack 5: 3146240 bytes')
     expect(md).toContain('- match: 4')
     expect(md).toContain('- mismatch: 2 hack 2: b')
+  })
+})
+
+type Readers = HackRecord['readers']
+const rec = (smwcId: number, readers: Readers): HackRecord => ({
+  smwcId,
+  name: `hack${smwcId}`,
+  romSha256: null,
+  romSize: null,
+  readers,
+  interop: { verdict: 'unchecked', reason: 'x' },
+})
+const okR = { verdict: 'ok', summary: 's' } as const
+const gate = (...reasons: string[]): Readers['v'] => ({ verdict: 'unavailable', reasons })
+const crashR = { verdict: 'crash', error: 'E: boom', frame: 'at f' } as const
+
+describe('diffRuns', () => {
+  it('reports a new crash and a cleared crash, and counts only the hacks in both runs', () => {
+    const prev = [rec(1, { maps: okR }), rec(2, { maps: crashR })]
+    const cur = [rec(1, { maps: crashR }), rec(2, { maps: okR })]
+    const d = diffRuns(prev, cur)
+    expect(d.compared).toBe(2)
+    expect(d.newCrashes).toEqual(['1 hack1 / maps'])
+    expect(d.clearedCrashes).toEqual(['2 hack2 / maps'])
+  })
+
+  it('reports each verdict change per view and ignores a view that did not change', () => {
+    const prev = [rec(1, { maps: okR, sfx: okR })]
+    const cur = [rec(1, { maps: gate('g'), sfx: okR })]
+    const d = diffRuns(prev, cur)
+    expect(d.verdictChanges).toEqual(['1 hack1 / maps: ok -> unavailable'])
+    expect(d.newCrashes).toEqual([])
+  })
+
+  it('reports works-on before and after per view, over the shared hacks only', () => {
+    const prev = [rec(1, { maps: okR }), rec(2, { maps: okR }), rec(9, { maps: gate('g') })]
+    const cur = [rec(1, { maps: okR }), rec(2, { maps: gate('g') }), rec(8, { maps: okR })]
+    expect(diffRuns(prev, cur).worksOn).toEqual([
+      { view: 'maps', before: '100.0%', after: '50.0%' },
+    ])
+    expect(diffRuns([rec(1, { maps: okR })], [rec(1, { maps: okR })]).worksOn).toEqual([])
+  })
+
+  it('reports a blocker that moves up the ranking, and one that appears', () => {
+    const prev = [rec(1, { v: gate('A') }), rec(2, { v: gate('A') }), rec(3, { v: gate('B') })]
+    const cur = [rec(1, { v: gate('B') }), rec(2, { v: gate('B') }), rec(3, { v: gate('B') })]
+    expect(diffRuns(prev, cur).blockerMoves).toEqual(['v: A: #1 -> unranked', 'v: B: #2 -> #1'])
+  })
+
+  it('lists a hack in one run as added or not covered, and does not diff it', () => {
+    const d = diffRuns(
+      [rec(1, { maps: okR }), rec(2, { maps: okR })],
+      [rec(1, { maps: okR }), rec(3, { maps: crashR })],
+    )
+    expect(d.added).toEqual(['3 hack3'])
+    expect(d.notCovered).toEqual(['2 hack2'])
+    expect(d.compared).toBe(1)
+    expect(d.newCrashes).toEqual([])
+  })
+
+  it('goes red on a diff that ignores verdict changes (planted defect)', () => {
+    const prev = [rec(1, { maps: okR })]
+    const cur = [rec(1, { maps: crashR })]
+    // Swapping the current run for the previous one is what a diff that never looks at verdicts sees.
+    const blind = diffRuns(prev, prev)
+    expect(blind.verdictChanges).toEqual([])
+    expect(diffRuns(prev, cur).verdictChanges).not.toEqual(blind.verdictChanges)
+    expect(diffRuns(prev, cur).newCrashes).toHaveLength(1)
+  })
+})
+
+describe('pickBatch', () => {
+  const index = [5, 1, 3, 2, 4].map(smwc_id => ({ smwc_id }))
+  const ids = (b: { smwc_id: number }[]): number[] => b.map(h => h.smwc_id)
+
+  it('takes the next n in id order from the cursor and returns the next cursor', () => {
+    const r = pickBatch(index, 1, 2)
+    expect(ids(r.batch)).toEqual([2, 3])
+    expect(r.next).toBe(3)
+  })
+  it('wraps past the end', () => {
+    const r = pickBatch(index, 4, 3)
+    expect(ids(r.batch)).toEqual([5, 1, 2])
+    expect(r.next).toBe(2)
+  })
+  it('covers every hack once when n is at or past the total', () => {
+    for (const n of [5, 6, 100]) {
+      const r = pickBatch(index, 2, n)
+      expect(ids(r.batch).sort()).toEqual([1, 2, 3, 4, 5])
+      expect(r.next).toBe(2)
+    }
+  })
+  it('returns nothing for an empty index', () => {
+    expect(pickBatch([], 7, 3)).toEqual({ batch: [], next: 0 })
+  })
+  it('reads a cursor past the end, or negative, as its place in the cycle', () => {
+    expect(ids(pickBatch(index, 12, 1).batch)).toEqual([3])
+    expect(ids(pickBatch(index, -1, 1).batch)).toEqual([5])
+  })
+  it('visits every hack across successive runs', () => {
+    let cursor = 0
+    const seen = new Set<number>()
+    for (let run = 0; run < 3; run++) {
+      const r = pickBatch(index, cursor, 2)
+      ids(r.batch).forEach(i => seen.add(i))
+      cursor = r.next
+    }
+    expect(seen.size).toBe(5)
+  })
+})
+
+describe('trackingIssueBody', () => {
+  it('names the changes and embeds the summary; a first run says there is nothing to compare', () => {
+    const d = diffRuns([rec(1, { maps: okR })], [rec(1, { maps: crashR })])
+    const body = trackingIssueBody(d, '# Hack sweep\n')
+    expect(body).toContain('1 hack1 / maps: ok -> crash')
+    expect(body).toContain('# Hack sweep')
+    expect(trackingIssueBody(null, 's')).toContain('First run')
   })
 })

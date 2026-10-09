@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Hack sweep: runs a rotating batch (`HACKBENCH_SWEEP_BATCH`, default 50), keeps the previous results, and writes `tracking-issue.md` with the changes since the last run (#275).
+
 ### Changed
 
 - Tech-lead session titles are now "<Team> Team" (e.g. "Delta Team"), in the tech-lead manual and the unregistered-session hook text.
