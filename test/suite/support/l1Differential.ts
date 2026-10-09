@@ -49,8 +49,6 @@ export interface DiffRun {
   refusal: string | null
   /** Null when the port was not run (a refusal). */
   differs: boolean | null
-  /** Like `differs`, but only over the object's own screen (see sameScreen). */
-  ownScreenDiffers: boolean | null
   /** SHA-1 of the interpreter's writes, 12 hex digits. */
   digest: string
 }
@@ -64,7 +62,6 @@ export const PLACEMENTS: readonly { col: number; rows: readonly number[] }[] = [
 /** Screen 5, so objects that run left (diagonals, wide slopes) stay in the buffer. */
 const SCREEN = 5
 const GRID_SCREENS = 32
-const SCREEN_ROWS = 27
 
 /** One tileset per distinct dispatcher, read from the ROM's own table. */
 export function dispatcherTilesets(rom: RomFile): number[] {
@@ -106,18 +103,6 @@ function sameGrid(a: TileGrid, b: TileGrid): boolean {
     for (let c = 0; c < n; c++)
       if ((a[row][c] ?? TILE_EMPTY) !== (b[row][c] ?? TILE_EMPTY)) return false
   }
-  return true
-}
-
-/**
- * Compare only the 16 x 27 cells of one screen. An allow-list row for an
- * object that overruns its screen (#453) must not hide a difference on the
- * screen the object was placed on, only the spill past it.
- */
-export function sameScreen(a: TileGrid, b: TileGrid, screen: number): boolean {
-  for (let row = 0; row < SCREEN_ROWS; row++)
-    for (let c = screen * 16; c < screen * 16 + 16; c++)
-      if ((a[row][c] ?? TILE_EMPTY) !== (b[row][c] ?? TILE_EMPTY)) return false
   return true
 }
 
@@ -170,7 +155,6 @@ export function sweep(rom: RomFile): DiffRun[] {
         top: r.dispatches[kind === 'standard' ? 1 : 0] ?? 0,
         refusal: r.refusal?.reason ?? null,
         differs: null,
-        ownScreenDiffers: null,
         digest: digestOf(r.writes),
       }
       runs.push(run)
@@ -179,7 +163,6 @@ export function sweep(rom: RomFile): DiffRun[] {
       expandObject(port, object, rom, ts)
       applyWrites(mine, r.writes)
       run.differs = !sameGrid(port, mine)
-      run.ownScreenDiffers = !sameScreen(port, mine, SCREEN)
       if (run.differs || r.writes.length > 0)
         [port, mine] = [createGrid(GRID_SCREENS), createGrid(GRID_SCREENS)]
     }

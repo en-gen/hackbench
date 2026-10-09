@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createGrid } from '../../../src/rom/ObjectExpander'
-import { sameScreen, type DiffRun } from '../support/l1Differential'
+import { compareRun, sameScreen, type DiffRun } from '../support/l1Differential'
 import { KNOWN_DISAGREEMENTS, tally } from '../support/l1AllowList'
 
 // Synthetic grids and runs only: no ROM, so this runs in CI. Screen 5 is the
@@ -38,10 +38,27 @@ describe('sameScreen', () => {
   })
 
   it('ignores a difference in the first row past the screen', () => {
-    // The real grid has exactly 27 rows, so build one with a spare row.
+    // Guards the loop bound: the real grid has exactly 27 rows, so build one with a spare row.
     const [a, b] = [createGrid(8), createGrid(8)].map(g => [...g, [...g[0]]])
     b[27][FIRST] = 0x77
     expect(sameScreen(a, b, SCREEN)).toBe(true)
+  })
+})
+
+describe('compareRun', () => {
+  it('reports identical grids as false/false', () => {
+    const [a, b] = pair()
+    expect(compareRun(a, b)).toEqual({ differs: false, ownScreenDiffers: false })
+  })
+  it('reports a difference on the object screen as true/true', () => {
+    const [a, b] = pair()
+    b[4][FIRST + 2] = 0x77
+    expect(compareRun(a, b)).toEqual({ differs: true, ownScreenDiffers: true })
+  })
+  it('reports a difference only on the next screen as true/false', () => {
+    const [a, b] = pair()
+    b[4][(SCREEN + 1) * 16] = 0x77
+    expect(compareRun(a, b)).toEqual({ differs: true, ownScreenDiffers: false })
   })
 })
 
