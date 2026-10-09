@@ -12,9 +12,18 @@
  * planted-defect run asserts the same grader goes red, so a regression in the
  * runner moves a failing number, not just a log line.
  */
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import { unzip } from '../../../../tools/scripts/capture_render'
 import type { RomFile } from '../../../../src/rom/RomFile'
 import { runSprite } from '../../../../src/rom/sprites/interp/SpriteRunner'
@@ -56,12 +65,20 @@ function recordedFrames(r: Rec): RecordedPiece[][] {
   return (r.frames ?? []).flatMap(f => (f.tiles?.length ? [f.tiles] : []))
 }
 
-/** Map16 tables from the sprite-trace fixtures (same maps, same ROM), when present. */
-function traceMap16(map: string): { low: Uint8Array; high: Uint8Array } | undefined {
-  const dir = join(TOOLS_ROOT, 'fixtures', 'sprite-trace', SPRITE_TRACE_SET, map)
-  const lo = join(dir, 'map16_7ec800.bin')
-  const hi = join(dir, 'map16_7fc800.bin')
+/**
+ * Map16 tables from the sprite-trace fixtures (same maps, same ROM), when present. `strict` (oracle
+ * mode) throws on a missing table: grading on zero-filled Map16 would report an oracle result
+ * that lacks the capture's data.
+ */
+function traceMap16(
+  map: string,
+  strict = false,
+  root = join(TOOLS_ROOT, 'fixtures', 'sprite-trace', SPRITE_TRACE_SET),
+): { low: Uint8Array; high: Uint8Array } | undefined {
+  const lo = join(root, map, 'map16_7ec800.bin')
+  const hi = join(root, map, 'map16_7fc800.bin')
   if (existsSync(lo) && existsSync(hi)) return { low: readFileSync(lo), high: readFileSync(hi) }
+  if (strict) throw new Error(`map ${map}: Map16 table missing under ${root}`)
   return undefined
 }
 
@@ -114,7 +131,7 @@ function gradeAll(
       }
       loaded = loadedByMap.get(map)
     } else if (mode === 'oracle' && wram) {
-      loaded = oracleImage({ cells: oracleCells(wram), map16: traceMap16(map) })
+      loaded = oracleImage({ cells: oracleCells(wram), map16: traceMap16(map, true) })
     }
     const seed = withSeed({
       loaded,
@@ -203,4 +220,22 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     expect(base.by.exact ?? 0).toBeGreaterThan(sample / 4)
     expect(planted.by.exact ?? 0).toBeLessThan((base.by.exact ?? 0) / 4)
   }, 300_000)
+})
+
+describe('traceMap16 on a synthetic capture set', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'trace-'))
+  mkdirSync(join(dir, '0aa'))
+  writeFileSync(join(dir, '0aa', 'map16_7ec800.bin'), Buffer.from([1, 2]))
+  writeFileSync(join(dir, '0aa', 'map16_7fc800.bin'), Buffer.from([3, 4]))
+  mkdirSync(join(dir, '0bb'))
+  writeFileSync(join(dir, '0bb', 'map16_7ec800.bin'), Buffer.from([1]))
+  afterAll(() => rmSync(dir, { recursive: true, force: true }))
+
+  it('returns both tables; a missing one is undefined normally and an error in strict (oracle) mode', () => {
+    expect(traceMap16('0aa', true, dir)?.high).toEqual(Buffer.from([3, 4]))
+    expect(traceMap16('0bb', false, dir)).toBeUndefined()
+    expect(traceMap16('0cc', false, dir)).toBeUndefined()
+    expect(() => traceMap16('0bb', true, dir)).toThrow(/map 0bb: Map16 table missing/)
+    expect(() => traceMap16('0cc', true, dir)).toThrow(/map 0cc/)
+  })
 })

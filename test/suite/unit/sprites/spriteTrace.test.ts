@@ -117,7 +117,7 @@ describe.skipIf(!existsSync(join(TRACE_DIR, SPRITE_TRACE_SET)) || !hasRom(VANILL
     // The level state the runner seeds from the ROM's own loader (LevelLoader.ts) against
     // what Mesen held when the level's sprites ran. Measured 2026-10-09, vanilla, one
     // machine: both Map16 tables byte-identical on 131 of 154 maps. The other 23 are pinned in
-    // levelStateVsMesen.test.ts: 5 differ only past the level's end, 18 are boss arenas (the
+    // levelStateVsMesen.test.ts: 5 differ only past the map's end, 18 are boss arenas (the
     // capture holds the game's arena fill, which the loader does not run). The 63 in-level
     // differences of 2026-10-05 were the harness reading Map16 in the castle-entry scene (#649).
     // Every header and Mario-entrance cell is equal on every map whose WRAM image was recorded.

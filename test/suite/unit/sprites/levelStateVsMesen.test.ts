@@ -3,7 +3,7 @@
  * sprite-trace captures, so a change inside a differing map, or one that moves a map between
  * the identical and different sets, goes red. Measurement only: the pinned values are known
  * differences, not correct behaviour. Cause analysis and tile-pair buckets are on the issue.
- * Measured 2026-10-09, vanilla ROM, one machine, 154 captured maps (ids are hex level numbers),
+ * Measured 2026-10-09, vanilla ROM, one machine, 154 captured maps (ids are hex map slot indices),
  * against the set re-captured at the real level load (SPRITE_TRACE_SET; the 45 castle-entry maps were
  * re-run with the fixed harness, the rest copied unchanged). Before that, 66 maps differed. The Mesen
  * $94/$96 is the first sprite-call WRAM snapshot, not load time.
@@ -236,7 +236,7 @@ describe('level state comparators on synthetic bytes', () => {
     const mk = (id: string, ptr: number, b: number): Dump => ({ id, ptr, lo: Buffer.alloc(8, b), hi: Buffer.alloc(8, 0) }) // prettier-ignore
     expect(sharedImages([mk('a', 1, 1), mk('b', 2, 2), mk('c', 3, 3)])).toEqual([])
     expect(sharedImages([mk('a', 1, 1), mk('b', 2, 1), mk('c', 3, 3)])).toEqual([['a', 'b']])
-    expect(sharedImages([mk('a', 1, 1), mk('b', 1, 1)])).toEqual([]) // same level, same dump
+    expect(sharedImages([mk('a', 1, 1), mk('b', 1, 1)])).toEqual([]) // same pointer: outside this different-pointer check
     const m = mk('b', 2, 1)
     m.hi[7] = 1 // one byte in the hi table is enough to be a different image
     expect(sharedImages([mk('a', 1, 1), m])).toEqual([])

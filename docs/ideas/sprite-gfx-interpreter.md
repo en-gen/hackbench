@@ -611,7 +611,7 @@ RNGCalc: its only writer is CODE_01AD07 (bank_01.asm:6101-6121), and one GetRand
 Measured against Mesen (sprite-trace, vanilla): every header and entrance
 cell equal on every map that recorded a WRAM image; both Map16 tables
 byte-identical on 131 of 154 maps (re-captured 2026-10-09 at the real level
-load; the other 23 are 18 boss arenas and 5 that differ only past the level's
+load; the other 23 are 18 boss arenas and 5 that differ only past the map's
 end). Before that, 88 of 154 were identical: 45 maps had been recorded in the
 castle-entry scene (#649). Accuracy delta of ROM seed against oracle seed, layers_v5,
 chosen-frame policy: exact 932 against 914, shape 572 against 563, wrong 300
