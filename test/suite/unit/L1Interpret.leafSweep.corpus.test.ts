@@ -5,7 +5,8 @@
  */
 import { describe, it, expect } from 'vitest'
 import { writeFileSync } from 'node:fs'
-import { hasRom, freshRom, VANILLA, INVICTUS } from '../support/corpus'
+import { join } from 'node:path'
+import { hasRom, freshRom, VANILLA, CORPUS } from '../support/corpus'
 import { sweep, type DiffRun } from '../support/l1Differential'
 import { groupLeaves, agreeingStandardLeaves, formatTable } from '../support/leafGrouping'
 
@@ -43,28 +44,26 @@ describe('leaf grouping (synthetic)', () => {
     expect(g.get(0x0da8c3)).toEqual({ cases: 2, refused: {}, differs: 1, agrees: 1 })
   })
   it('renders no-cases leaves explicitly', () => {
-    expect(formatTable(groupLeaves(rows), [1, 9])).toContain('9\tno cases')
+    expect(formatTable(groupLeaves(rows), [1, 9])).toContain('000009\tno cases')
   })
 })
 
-// Leaf routines are 24-bit addresses; print them as hex in the table.
-const hexLeaves = (ls: readonly number[]) => ls.map(l => l.toString(16).padStart(6, '0'))
+// Report only (#653): the hacks assert nothing, the table is the product. The leaf set is
+// vanilla's, so every case needs the vanilla ROM too.
+let vanillaRuns: DiffRun[] | undefined
+const vanillaLeaves = () => agreeingStandardLeaves((vanillaRuns ??= sweep(freshRom(VANILLA))))
 
-describe.skipIf(!hasRom(VANILLA) || !hasRom(INVICTUS))('agreeing leaves across ROMs (#653)', () => {
-  it('vanilla has 61 agreeing standard leaves; Invictus sample table', () => {
-    const vanilla = sweep(freshRom(VANILLA))
-    const leaves = agreeingStandardLeaves(vanilla)
-    console.log(`vanilla agreeing leaves: ${leaves.length}\n${hexLeaves(leaves).join(' ')}`)
-    expect(leaves.length).toBe(61)
-
-    // Invictus: the most divergent engine in the corpus, so the leaves most likely to move.
-    const table = formatTable(groupLeaves(sweep(freshRom(INVICTUS))), leaves)
-      .split('\n')
-      .map((l, i) => l.replace(/^\d+/, hexLeaves(leaves)[i]))
-      .join('\n')
-    console.log(table)
-    if (process.env.LEAF_SWEEP_OUT) writeFileSync(process.env.LEAF_SWEEP_OUT, table)
-  }, 1_800_000)
-})
-
-// The full-CORPUS run is left out until the owner signs off on the Invictus sample.
+for (const name of CORPUS) {
+  describe.skipIf(!hasRom(name) || !hasRom(VANILLA))(`${name}: agreeing leaves (#653)`, () => {
+    it('tabulates the vanilla-agreeing leaves', () => {
+      const leaves = vanillaLeaves()
+      if (name === VANILLA) expect(leaves.length).toBe(61)
+      const runs = name === VANILLA ? vanillaRuns! : sweep(freshRom(name))
+      const table = formatTable(groupLeaves(runs), leaves)
+      console.log(`${name}
+${table}`)
+      const dir = process.env.LEAF_SWEEP_OUT
+      if (dir) writeFileSync(join(dir, `${name}.tsv`), table)
+    }, 600_000)
+  })
+}

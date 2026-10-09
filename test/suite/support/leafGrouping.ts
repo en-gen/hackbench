@@ -42,11 +42,12 @@ export function formatTable(g: Map<number, LeafStats>, leaves: readonly number[]
   return leaves
     .map(l => {
       const s = g.get(l)
-      if (!s) return `${l}\tno cases`
+      const hex = l.toString(16).padStart(6, '0')
+      if (!s) return `${hex}\tno cases`
       const refused = Object.entries(s.refused)
         .map(([k, n]) => `${k}: ${n}`)
         .join('; ')
-      return `${l}\t${s.cases}\trefused ${refused || 0}\tdiffers ${s.differs}\tagrees ${s.agrees}`
+      return `${hex}\t${s.cases}\trefused ${refused || 0}\tdiffers ${s.differs}\tagrees ${s.agrees}`
     })
     .join('\n')
 }
