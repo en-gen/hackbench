@@ -180,6 +180,7 @@ describe('the protocol hook', () => {
     const r = runHook(START)
     expect(r.out).toContain(`Session id: ${CLI_ID}. Desktop id: unknown until you register.`)
     expect(r.out).toContain('Not registered. Your title decides your role')
+    expect(r.out).toContain('"<Team> Team" registers tech-lead <team>')
     expect(r.out).toContain('Existing team files: alpha, bravo')
     expect(r.out).toContain(path.resolve(docsDir, 'agents', 'tech-lead.md'))
     expect(r.out).toContain(path.resolve(docsDir, 'agents', 'ba.md'))

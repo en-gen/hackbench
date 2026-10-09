@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Tech-lead session titles are now "<Team> Team" (e.g. "Delta Team"), in the tech-lead manual and the unregistered-session hook text.
+
 ### Fixed
 
 - The sprite level loader now runs the rest of GM11LoadLevel's setup in the ROM's order: the layer
