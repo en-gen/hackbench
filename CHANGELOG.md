@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A cleared tech lead now resumes from a resume prompt it sends its orchestrator before clearing (no session ids), instead of relying on the hook. The session registry is keyed by desktop id, the hook prints the protocol script path and a short instruction, and shared state moves from `.claude/state/` to the gitignored `.hackbench-state/` (`protocol.mjs handoff` writes team and BA files, `migrate-state` converts the old files once; steps in `docs/runbooks/state-cutover.md`). Night shift is enactable and has no scheduled return (#725, #724).
+- The Mesen sprite-trace harness no longer records the pre-level castle-entry scene as the level
+  (player animation `$0A`, `!PlayerAni_EnterCastle`, rammap.asm:575, set at bank_00.asm:4972-4978, at the first GM `$14`, GM14Level bank_00.asm:4405; it waits for the real load, about 500 frames later). 45 of
+  154 captured maps had a fixed Map16 image shared across maps; re-captured, the loader's Map16
+  differences against Mesen fall from 66 maps to 23 (18 boss arenas, 5 past the map's end), and the
+  sprite-trace replay grows from 1122 to 1578 calls (1566 write-for-write equal). Vanilla, one machine, Mesen 2.x; spawn mode shares the changed wait phase and was not re-run (#649).
 - The midway tape (extended object $46) at the first column of a screen draws where the game does:
   the tape on the row above at column 15, and the base on the next screen in a horizontal level
   (bank_0D.asm:1625-1632, #368). Vertical levels follow the same arithmetic on their $200-byte
