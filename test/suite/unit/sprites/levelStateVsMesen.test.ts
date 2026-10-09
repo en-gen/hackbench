@@ -70,8 +70,8 @@ interface Dump { id: string; ptr: number; lo: Buffer; hi: Buffer } // prettier-i
 
 /**
  * Groups of maps with DIFFERENT Level 1 pointers whose Map16 dumps are byte-identical. Before the
- * #649 harness fix, 43 maps opened on the castle-entry scene and shared three fixed images; a
- * level's own data cannot match another level's, so any group here is a pre-level image.
+ * #649 harness fix, 45 maps opened on the castle-entry scene and shared three fixed images
+ * (groups of 30, 10 and 5), so a new group here is suspect. Some groups are legitimate (SHARED_IMAGES).
  */
 function sharedImages(ds: Dump[]): string[][] {
   const by = new Map<string, Dump[]>()
@@ -82,6 +82,10 @@ function sharedImages(ds: Dump[]): string[][] {
   return [...by.values()].filter(g => new Set(g.map(d => d.ptr)).size > 1).map(g => g.map(d => d.id)) // prettier-ignore
 }
 
+/** Map folders of a capture set (the set also holds a PROVENANCE.md). */
+const maps = (root: string): string[] =>
+  readdirSync(root, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name).sort() // prettier-ignore
+
 const pins = (s: string): string[] => s.split(' ')
 const MAP16_COUNTS = pins(
   '002:2816 095:64 096:32 097:32 098:64 099:64 09a:64 09b:32 0be:2816 0c1:2816 0cc:64 0d5:64 0d9:64 102:2816 127:2816 195:64 196:32 197:32 198:64 199:64 19a:64 19b:32 1c7:32',
@@ -89,7 +93,7 @@ const MAP16_COUNTS = pins(
 // Level-independent dumps that different pointers legitimately share: the mode 9 and mode 16 boss
 // arenas (the capture holds the game's arena fill; these are the maps in MAP16_COUNTS above), and
 // 094/193/0d3, one-screen rooms that match the loader cell for cell. A castle-entry image would add
-// a 28-, 10- or 5-map group here; anything new is red.
+// a 30-, 10- or 5-map group here; anything new is red.
 const SHARED_IMAGES = [
   ['094', '0d3', '193'],
   ['095', '098', '099', '09a', '0cc', '0d5', '0d9', '195', '198', '199', '19a'],
@@ -111,7 +115,7 @@ describe.skipIf(!hasRom(VANILLA) || !existsSync(root))(
       if (cached) return cached
       const rom = freshRom()
       const smw = new SmwRom(rom)
-      return (cached = readdirSync(root).sort().map(id => {
+      return (cached = maps(root).map(id => {
         const l = loadLevelState(rom, parseInt(id, 16))
         if (!l.ok) throw new Error(`${id}: ${l.reason}`)
         const wp = join(root, id, 'wram.bin')
@@ -146,7 +150,7 @@ describe.skipIf(!hasRom(VANILLA) || !existsSync(root))(
     }, 300_000)
 
     it('no two maps with different Level 1 pointers share a Map16 dump (no castle-entry image survives)', () => {
-      const ds: Dump[] = readdirSync(root).sort().map(id => ({
+      const ds: Dump[] = maps(root).map(id => ({
         id,
         ptr: JSON.parse(readFileSync(join(root, id, 'meta.json'), 'utf8')).layer1Ptr as number,
         lo: readFileSync(join(root, id, 'map16_7ec800.bin')),
@@ -183,6 +187,10 @@ describe.skipIf(!hasRom(VANILLA) || !existsSync(root))(
     it('plants that break the past-end reading drop the map from it', () => {
       const past = (id: string, f: (m: In) => void) => map16Differences(plant(id, f)).pastEndOnly
       expect(past('002', m => (m.lo[0x200] = 0))).not.toContain('002') // $25 to $00 inside the level
+      // The 2816 past-end cells are rows $10-$1A of screens 16-31 on all 5 maps. The capture holds
+      // $0000 there (game state written after the load, writer not identified); the loader's $25 is
+      // the table fill (bank_05.asm:58-65). A new $0000 past 0be's end (4 screens, 1728) is still past-end.
+      expect(past('0be', m => (m.lo[0x1000] = 0))).toContain('0be')
       expect(past('002', m => ((m.lo[0x150] = 0), (m.hi[0x150] = 1)))).not.toContain('002') // capture $100
       expect(past('002', m => (m.hi[0x1c00] = 1))).not.toContain('002') // $100, past the end, not $0000
       expect(past('002', m => (m.wram[0xc800 + 0x1c00] = 0x26))).not.toContain('002') // loader not $25

@@ -398,12 +398,16 @@ local function onFrameLevel()
     return
   end
   if phase == "wait" then
-    -- 43 maps open on the pre-level castle-entry scene: GM $14 with player
-    -- animation $0A (!PlayerAni_EnterCastle, rammap.asm:574) and a fixed
-    -- Map16 image; the real level loads ~430 frames later (#649 step 3, one
+    -- 45 of 154 maps open on the pre-level castle-entry scene: GM $14 with player
+    -- animation $0A (!PlayerAni_EnterCastle, rammap.asm:575) and a fixed
+    -- Map16 image; the real level loads 479-500 frames later (#649, one
     -- machine, vanilla). Skip that GM $14 span and arm on the next entry.
+    -- The same wait phase serves spawn mode, which was not re-run after this change.
     if M.skipIntro then
-      if gm ~= GM_LEVEL then M.skipIntro = false; resetSession(); deadline = S.frame + 900
+      if gm ~= GM_LEVEL then
+        -- The wrong-level guard must see the real load's pointer, not the intro's.
+        M.skipIntro, observedPtr, pLo, pMid = false, nil, nil, nil
+        resetSession(); deadline = S.frame + 900
       elseif S.frame > deadline then dlog("[TIMEOUT] level"); emu.stop(13) end
       return
     end

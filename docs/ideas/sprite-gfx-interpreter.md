@@ -509,7 +509,7 @@ passes is lenient on frame choice: 16 to 64 passes moves 181 sprites from
 ### 11.3 Exact tier: call replay against Mesen (`sprite-trace`)
 
 Each recorded INIT or MAIN call (WRAM image and registers at entry, every
-write the call made) is replayed on the core: 1,110 of 1,122 calls over 77
+write the call made) is replayed on the core: 1,566 of 1,578 calls (1,110 of 1,122 before the #649 re-capture) over 77
 sprite ids are write-for-write equal (hardware multiply included; PPU writes
 the recorder dropped are not compared; order is exact, 16-bit read-modify-write
 stores high byte first, #593).
@@ -610,9 +610,10 @@ RNGCalc: its only writer is CODE_01AD07 (bank_01.asm:6101-6121), and one GetRand
 
 Measured against Mesen (sprite-trace, vanilla): every header and entrance
 cell equal on every map that recorded a WRAM image; both Map16 tables
-byte-identical on 88 of 154 maps, 3 more differ only past the level's end, 63
-differ inside the level (cause not investigated; Mesen may have captured after
-in-level changes). Accuracy delta of ROM seed against oracle seed, layers_v5,
+byte-identical on 131 of 154 maps (re-captured 2026-10-09 at the real level
+load; the other 23 are 18 boss arenas and 5 that differ only past the level's
+end). Before that, 88 of 154 were identical: 45 maps had been recorded in the
+castle-entry scene (#649). Accuracy delta of ROM seed against oracle seed, layers_v5,
 chosen-frame policy: exact 932 against 914, shape 572 against 563, wrong 300
 against 344. Spawn tier: identical (both 2,714 exact before the grouping fix
 below). Test: `ROM-run level loader against Mesen level state`.
