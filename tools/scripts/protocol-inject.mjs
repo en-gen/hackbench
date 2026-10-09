@@ -60,7 +60,7 @@ function sessionPart(out, input, dirs) {
       : []
     add(`Session id: ${cliId}. Desktop id: unknown until you register.`)
     add(
-      `Not registered. Your title decides your role: "<Team> tech lead" registers tech-lead <team>; "BA" registers ba; the only session on the machine registers both <team>. Existing team files: ${teams.join(', ') || 'none'}. Then read your manual: ${agents('tech-lead.md')} or ${agents('ba.md')}.`,
+      `Not registered. Your title decides your role: "<Team> Team" registers tech-lead <team>; "BA" registers ba; the only session on the machine registers both <team>. Existing team files: ${teams.join(', ') || 'none'}. Then read your manual: ${agents('tech-lead.md')} or ${agents('ba.md')}.`,
     )
     return
   }
