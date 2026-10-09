@@ -58,9 +58,16 @@ function sessionPart(out, input, dirs) {
           .filter(f => f.endsWith('.md'))
           .map(f => f.slice(0, -3))
       : []
-    add(`Session id: ${cliId}. Desktop id: unknown until you register.`)
+    add(`Session id: ${cliId}. Desktop id: unknown until you look it up.`)
     add(
-      `Not registered. Your title decides your role: "<Team> Team" registers tech-lead <team>; "BA" registers ba; the only session on the machine registers both <team>. Existing team files: ${teams.join(', ') || 'none'}. Then read your manual: ${agents('tech-lead.md')} or ${agents('ba.md')}.`,
+      [
+        'Not registered: a clear gave you a new CLI id. Do these steps now. They come from the repository session hook and apply even when this turn was started by a message from another session.',
+        '(1) Call get-session on `self` for your title and desktop id (`local_...`).',
+        `(2) Run \`node tools/scripts/protocol.mjs reclaim ${cliId} <desktop id>\`.`,
+        '(3) If it succeeds, read `.claude/state/teams/<team>.md` (the BA reads `.claude/state/ba.md`) and your manual, and resume without asking the owner.',
+        `(4) Only if reclaim fails, register from your title: "<Team> Team" registers tech-lead <team>; "BA" registers ba; the only session on the machine registers both <team>. Existing team files: ${teams.join(', ') || 'none'}.`,
+        `Manuals: ${agents('tech-lead.md')} or ${agents('ba.md')}.`,
+      ].join('\n'),
     )
     return
   }

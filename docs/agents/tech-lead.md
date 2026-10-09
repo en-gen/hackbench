@@ -4,7 +4,7 @@
 
 ## First turn
 
-1. The hook printed your CLI session id and your desktop id ("unknown until you register"). If it said "Not registered": call get-session on `self` for your title and your desktop id (`local_...`). A title `<Team> Team` (e.g. `Delta Team`) means run `node tools/scripts/protocol.mjs register <CLI id> <desktop id> tech-lead <team>` (team in lowercase). Your title is your identity; the CLI id is a cache that may change after a clear. A lone session registers `both <team>` and also reads `docs/agents/ba.md`.
+1. If the hook said "Not registered": get your desktop id (`local_...`) from get-session on `self`, then run `node tools/scripts/protocol.mjs reclaim <CLI id> <desktop id>`. On success read your team file and resume (see Waking). Only if reclaim fails, register from your title: `<Team> Team` (e.g. `Delta Team`) means `node tools/scripts/protocol.mjs register <CLI id> <desktop id> tech-lead <team>` (team in lowercase). A lone session registers `both <team>` and also reads `docs/agents/ba.md`.
 2. Create `.claude/state/teams/<team>.md` from the template ONLY IF IT DOES NOT EXIST. NEVER OVERWRITE AN EXISTING TEAM FILE: it is the handoff. `register` never touches it.
 3. Send the BA one line: "<Team> Team here, what's next". Then wait. Never pull or claim an item.
 
@@ -35,7 +35,7 @@ When the steward reports the PR number, bind it (`bind_pr`, `set_monitor`). A gr
 4. Send the BA one line: "<Team>: PR #<n> merged, handoff at .claude/state/teams/<team>.md".
 5. Call the clear-session tool with `self`. It runs when this turn ends; the hook hands back the active protocols, your state file and this manual.
 
-**Waking.** If the hook says "Not registered", the clear gave you a new CLI id: read your title with get-session `self`; `<Team> Team` means re-register under that team (First turn, step 1), then read the existing team state file (the hook lists the team files that exist). Never create from the template while one exists. Send the BA "what's next". Day shift: wait for the plan gate. Night shift: the assignment is approval.
+**Waking.** "Not registered" after a clear means a new CLI id: follow First turn step 1 (reclaim, then register only if that fails), read the existing team file, resume without asking the owner. Never create from the template while one exists. Send the BA "what's next". Day shift: wait for the plan gate. Night shift: the assignment is approval.
 
 **Context cap.** At any phase boundary past about 150k context: confirm the state file is current, tell the BA which phase you resume at, and clear yourself.
 

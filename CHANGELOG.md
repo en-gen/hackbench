@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A cleared session reclaims its registration by desktop id (`protocol.mjs reclaim <cliId> <desktopId>`, run from the unregistered hook text) and resumes from its team file instead of stopping to ask the owner (#725).
 - The sprite level loader now runs the rest of GM11LoadLevel's setup in the ROM's order: the layer
   position copy and the screen setup (CODE_00A796, `$1404`, UpdateScreenPosition). Against
   Mesen's recorded level state, 307 cell mismatches over 98 maps (`$1404`, `$1462-$1469`, `$1E`,

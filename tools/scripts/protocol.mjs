@@ -387,6 +387,41 @@ export function registerSession(
   )
 }
 
+// A clear gives the session a new CLI id but keeps its desktop id, so the
+// session re-files its own entry instead of re-deriving role and team from its
+// title. An unknown desktop id throws before any write.
+export function reclaimSession(
+  stateDir,
+  cliId,
+  desktopId,
+  { rename = renameSync, lock = {} } = {},
+) {
+  if (!CLI_ID.test(cliId)) throw new Error(`CLI session id must match ${CLI_ID}; got "${cliId}"`)
+  if (!DESKTOP_ID.test(desktopId)) {
+    throw new Error(`desktop id must match ${DESKTOP_ID}; got "${desktopId}"`)
+  }
+  return withStateLock(
+    stateDir,
+    assertHeld => {
+      const all = readSessions(stateDir)
+      const found = Object.entries(all).find(([, entry]) => entry?.desktopId === desktopId)
+      if (!found) throw new Error(`no registration for desktop id ${desktopId}; register instead`)
+      for (const [id, entry] of Object.entries(all)) {
+        if (entry?.desktopId === desktopId) delete all[id]
+      }
+      all[cliId] = found[1]
+      assertHeld()
+      writeFileAtomic(
+        path.join(stateDir, SESSIONS_FILE),
+        JSON.stringify(all, null, 2) + '\n',
+        rename,
+      )
+      return all
+    },
+    lock,
+  )
+}
+
 // The BA prunes sessions that no longer exist; going through the lock keeps a
 // concurrent register from being lost.
 export function unregisterSession(stateDir, desktopId, { rename = renameSync, lock = {} } = {}) {
@@ -421,7 +456,7 @@ export function unregisterSession(stateDir, desktopId, { rename = renameSync, lo
 const BY = /^(owner|schedule|session:local_[0-9a-f-]{36})$/
 const BY_MESSAGE = '--by must be owner, schedule or session:<desktop id>'
 const USAGE =
-  'usage: protocol.mjs <name> on|off --by <owner|schedule|session:<desktop id>> | status | register <cliId> <desktopId> <role> [team] | unregister <desktopId>'
+  'usage: protocol.mjs <name> on|off --by <owner|schedule|session:<desktop id>> | status | register <cliId> <desktopId> <role> [team] | reclaim <cliId> <desktopId> | unregister <desktopId>'
 
 function cli(argv, cwd) {
   const stateDir = stateDirFor(cwd)
@@ -435,6 +470,10 @@ function cli(argv, cwd) {
   if (a === 'unregister') {
     if (!b) return { code: 1, out: USAGE }
     return { code: 0, out: unregisterSession(stateDir, b) }
+  }
+  if (a === 'reclaim') {
+    if (!b || !c) return { code: 1, out: USAGE }
+    return { code: 0, out: reclaimSession(stateDir, b, c) }
   }
   if (a === 'register') {
     if (!b || !c || !d) return { code: 1, out: USAGE }

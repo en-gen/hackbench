@@ -4,8 +4,8 @@
 
 ## First turn
 
-1. The hook printed your CLI session id and your desktop id ("unknown until you register"). If it said "Not registered": call get-session on `self` for your title and desktop id (`local_...`). A title `BA` means run `node tools/scripts/protocol.mjs register <CLI id> <desktop id> ba`; the only session on the machine registers `both <team>` instead. Re-register as `ba` the day a second session appears and takes the team.
-2. Read `.claude/state/ba.md` in the main checkout if it exists; create it from the template below ONLY IF IT DOES NOT EXIST, never over an existing one. After a clear you may get a new CLI id: re-register it from your title, then read the file.
+1. The hook printed your CLI session id and your desktop id ("unknown until you register"). If it said "Not registered": call get-session on `self` for your desktop id (`local_...`) and run `node tools/scripts/protocol.mjs reclaim <CLI id> <desktop id>`; success means go to step 2. Only if reclaim fails, register from your title. A title `BA` means run `node tools/scripts/protocol.mjs register <CLI id> <desktop id> ba`; the only session on the machine registers `both <team>` instead. Re-register as `ba` the day a second session appears and takes the team.
+2. Read `.claude/state/ba.md` in the main checkout if it exists; create it from the template below ONLY IF IT DOES NOT EXIST, never over an existing one. After a clear you get a new CLI id: reclaim it by desktop id (step 1), then read the file; do not ask the owner.
 3. Read `docs/README.md` Current state and `docs/decisions/README.md`.
 
 ## Your role

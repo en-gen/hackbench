@@ -263,7 +263,7 @@ describe('writeState', () => {
   })
 })
 
-import { execFileSync, spawn } from 'child_process'
+import { execFileSync, spawn, spawnSync } from 'child_process'
 import { pathToFileURL } from 'url'
 import {
   mainCheckoutDir,
@@ -273,6 +273,7 @@ import {
   registerSession,
   withStateLock,
   unregisterSession,
+  reclaimSession,
   LOCK_DEFAULTS,
 } from '../../../tools/scripts/protocol.mjs'
 
@@ -782,6 +783,69 @@ describe('unregisterSession', () => {
     }
     unregisterSession(dir, LOCAL_ID, { rename })
     expect(held).toBe(true)
+  })
+})
+
+describe('reclaimSession', () => {
+  const NEW_CLI = '00000000-0000-4000-8000-0000000000aa'
+
+  it('moves the entry to the new CLI id', () => {
+    const dir = tempDir('state-')
+    registerSession(dir, CLI_ID, LOCAL_ID, 'tech-lead', 'alpha', NOW)
+    registerSession(dir, CLI_ID_2, LOCAL_ID_2, 'ba', null, NOW)
+    reclaimSession(dir, NEW_CLI, LOCAL_ID)
+    expect(Object.keys(readSessions(dir)).sort()).toEqual([CLI_ID_2, NEW_CLI].sort())
+    expect(readSessions(dir)[NEW_CLI].desktopId).toBe(LOCAL_ID)
+  })
+
+  it('keeps role and team', () => {
+    const dir = tempDir('state-')
+    registerSession(dir, CLI_ID, LOCAL_ID, 'tech-lead', 'alpha', NOW)
+    reclaimSession(dir, NEW_CLI, LOCAL_ID)
+    expect(readSessions(dir)[NEW_CLI]).toMatchObject({ role: 'tech-lead', team: 'alpha' })
+  })
+
+  it('refuses an unknown desktop id and leaves the file byte-identical', () => {
+    const dir = tempDir('state-')
+    registerSession(dir, CLI_ID, LOCAL_ID, 'tech-lead', 'alpha', NOW)
+    const file = path.join(dir, 'sessions.json')
+    const before = fs.readFileSync(file)
+    expect(() => reclaimSession(dir, NEW_CLI, LOCAL_ID_2)).toThrow(/no registration/)
+    expect(fs.readFileSync(file).equals(before)).toBe(true)
+  })
+
+  it('validates both ids', () => {
+    const dir = tempDir('state-')
+    expect(() => reclaimSession(dir, 'nope', LOCAL_ID)).toThrow(/CLI session id/)
+    expect(() => reclaimSession(dir, NEW_CLI, 'nope')).toThrow(/desktop id/)
+  })
+
+  it('writes under the lock', () => {
+    const dir = tempDir('state-')
+    registerSession(dir, CLI_ID, LOCAL_ID, 'ba', null, NOW)
+    let held = false
+    const rename = (from: string, to: string) => {
+      held = fs.existsSync(path.join(dir, '.lock'))
+      fs.renameSync(from, to)
+    }
+    reclaimSession(dir, NEW_CLI, LOCAL_ID, { rename })
+    expect(held).toBe(true)
+  })
+
+  it('the command exits non-zero with a message for an unknown desktop id', () => {
+    const dir = tempDir('state-')
+    const script = path.resolve(__dirname, '../../../tools/scripts/protocol.mjs')
+    const run = (...args: string[]) =>
+      spawnSync('node', [script, ...args], {
+        encoding: 'utf8',
+        env: { ...process.env, HACKBENCH_STATE_DIR: dir },
+      })
+    registerSession(dir, CLI_ID, LOCAL_ID, 'tech-lead', 'alpha', NOW)
+    const bad = run('reclaim', NEW_CLI, LOCAL_ID_2)
+    expect(bad.status).not.toBe(0)
+    expect(bad.stdout).toMatch(/no registration/)
+    expect(run('reclaim', NEW_CLI, LOCAL_ID).status).toBe(0)
+    expect(readSessions(dir)[NEW_CLI]).toMatchObject({ team: 'alpha' })
   })
 })
 
