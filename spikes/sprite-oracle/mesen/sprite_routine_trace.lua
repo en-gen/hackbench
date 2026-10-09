@@ -403,7 +403,8 @@ local function onFrameLevel()
     -- Map16 image; the real level loads ~430 frames later (#649 step 3, one
     -- machine, vanilla). Skip that GM $14 span and arm on the next entry.
     if M.skipIntro then
-      if gm ~= GM_LEVEL then M.skipIntro = false; resetSession(); deadline = S.frame + 900 end
+      if gm ~= GM_LEVEL then M.skipIntro = false; resetSession(); deadline = S.frame + 900
+      elseif S.frame > deadline then dlog("[TIMEOUT] level"); emu.stop(13) end
       return
     end
     if gm == GM_LEVEL and r(A.PLAYER_ANIM) == 0x0A and not M.sawIntro then
