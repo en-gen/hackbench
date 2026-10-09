@@ -413,16 +413,16 @@ innocent rename, which is the wrong failure mode twice over.
 Run against `test/suite/gates/lintGate.test.ts` (21 cases): one line of the
 rule disabled at a time, expecting the cases that need it to go red.
 
-| Planted defect                                              | Cases red |
-| ----------------------------------------------------------- | --------- |
-| `paths` entry for `cloudevents` renamed                     | 3         |
-| `patterns` entry `cloudevents/*` renamed                    | 1         |
-| `ImportExpression` selector (string literal) disabled       | 2         |
-| `ImportExpression` template-literal selector disabled       | 1         |
-| `require()` selector (string literal) disabled              | 1         |
-| `require()` template-literal selector disabled              | 1         |
-| `module.require()` selector (string literal) disabled       | 1         |
-| `module.require()` template-literal selector disabled       | 1         |
+| Planted defect                                        | Cases red |
+| ----------------------------------------------------- | --------- |
+| `paths` entry for `cloudevents` renamed               | 3         |
+| `patterns` entry `cloudevents/*` renamed              | 1         |
+| `ImportExpression` selector (string literal) disabled | 2         |
+| `ImportExpression` template-literal selector disabled | 1         |
+| `require()` selector (string literal) disabled        | 1         |
+| `require()` template-literal selector disabled        | 1         |
+| `module.require()` selector (string literal) disabled | 1         |
+| `module.require()` template-literal selector disabled | 1         |
 
 ## Viewing Mesen per-map captures
 
@@ -545,9 +545,10 @@ taken in id order from the position in `cursor.json` and wrapping at the end, so
 repeated runs rotate through the store. The previous `results.json` is renamed
 `results.prev.json` first, and `tracking-issue.md` is written beside the summary:
 new and cleared crashes, verdict changes, works-on % and blocker-rank moves for
-hacks in both runs, and the hacks added or not covered. With a batch smaller than
-the store, two consecutive runs hold different hacks, so the comparison is empty
-until the cursor wraps.
+hacks swept this run, and the hacks added. Records for hacks outside the batch
+are carried forward into `results.json` with `carried: true`, so `summary.md` covers
+the whole store and says how many records are fresh; a carried record is never
+reported as changed.
 
 ## Unit tests cannot reach an authenticated gh
 

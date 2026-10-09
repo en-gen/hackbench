@@ -36,6 +36,7 @@ import {
   decideInterop,
   diffRuns,
   gfxRefusals,
+  mergeCarried,
   pickBatch,
   runReader,
   summarize,
@@ -245,13 +246,15 @@ if (require.main === module) {
   const resultsPath = join(outDir, 'results.json')
   const prevPath = join(outDir, 'results.prev.json')
   if (existsSync(resultsPath)) renameSync(resultsPath, prevPath)
-  writeFileSync(resultsPath, JSON.stringify(records, null, 2))
-  const summary = summarize(records)
-  writeFileSync(join(outDir, 'summary.md'), summary)
   const prev = readJson<HackRecord[]>(prevPath)
+  // Records for hacks outside this batch stay, marked carried, so every run holds the whole store.
+  const all = prev ? mergeCarried(prev, records) : records
+  writeFileSync(resultsPath, JSON.stringify(all, null, 2))
+  const summary = summarize(all)
+  writeFileSync(join(outDir, 'summary.md'), summary)
   writeFileSync(
     join(outDir, 'tracking-issue.md'),
-    trackingIssueBody(prev ? diffRuns(prev, records) : null, summary),
+    trackingIssueBody(prev ? diffRuns(prev, all) : null, summary),
   )
   writeFileSync(cursorPath, JSON.stringify({ cursor: next }))
   process.stdout.write(`wrote ${records.length} records to ${outDir}

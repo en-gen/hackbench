@@ -7,6 +7,7 @@ import {
   decideInterop,
   diffRuns,
   gfxRefusals,
+  mergeCarried,
   pickBatch,
   runReader,
   stripByteRuns,
@@ -254,5 +255,53 @@ describe('trackingIssueBody', () => {
     expect(body).toContain('1 hack1 / maps: ok -> crash')
     expect(body).toContain('# Hack sweep')
     expect(trackingIssueBody(null, 's')).toContain('First run')
+  })
+})
+
+describe('carry-forward across batches smaller than the store', () => {
+  const store = [1, 2, 3, 4].map(smwc_id => ({ smwc_id }))
+  const sweep = (ids: number[], view: Readers['v']): HackRecord[] =>
+    ids.map(id => rec(id, { maps: view }))
+
+  it('does not report a carried record as changed, whatever its verdict differs by', () => {
+    const prev = sweep([1, 2], okR)
+    const cur = [rec(1, { maps: crashR }), { ...rec(2, { maps: crashR }), carried: true as const }]
+    const d = diffRuns(prev, cur)
+    expect(d.compared).toBe(1)
+    expect(d.newCrashes).toEqual(['1 hack1 / maps'])
+    expect(d.notCovered).toEqual([])
+  })
+
+  it('two runs of batch 2 over 4 hacks: the second diffs its own two and carries the first two', () => {
+    const run1 = sweep([1, 2], okR)
+    const b = pickBatch(store, 2, 2)
+    const swept = sweep(
+      b.batch.map(h => h.smwc_id),
+      crashR,
+    )
+    const run2 = mergeCarried(run1, swept)
+    expect(run2.map(r => [r.smwcId, !!r.carried])).toEqual([
+      [1, true],
+      [2, true],
+      [3, false],
+      [4, false],
+    ])
+    const d = diffRuns(run1, run2)
+    expect(d.added).toEqual(['3 hack3', '4 hack4'])
+    expect(d.notCovered).toEqual([])
+    expect(d.compared).toBe(0)
+  })
+
+  it('a re-swept hack replaces its carried record and is diffed against it', () => {
+    const run1 = mergeCarried(sweep([1, 2], okR), sweep([3], okR))
+    const run2 = mergeCarried(run1, sweep([1], crashR))
+    expect(run2.find(r => r.smwcId === 1)?.carried).toBeUndefined()
+    expect(run2.find(r => r.smwcId === 3)?.carried).toBe(true)
+    expect(diffRuns(run1, run2).newCrashes).toEqual(['1 hack1 / maps'])
+  })
+
+  it('summarize says how many records were carried', () => {
+    const md = summarize(mergeCarried(sweep([1, 2], okR), sweep([3], okR)))
+    expect(md).toContain('1 swept this run, 2 carried')
   })
 })

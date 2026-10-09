@@ -21,6 +21,8 @@ export interface HackRecord {
   romSize: number | null
   readers: Record<string, ReaderRecord>
   interop: InteropRecord
+  /** Set on a record kept from an earlier run; absent on one swept in this run. */
+  carried?: true
 }
 
 /** Output never carries ROM bytes: a run longer than an opcode and its operand is elided. */
@@ -156,6 +158,7 @@ function worksOn(records: HackRecord[], view: string): string {
 
 export interface RunDiff {
   compared: number
+  carried: number
   added: string[]
   notCovered: string[]
   newCrashes: string[]
@@ -167,16 +170,25 @@ export interface RunDiff {
 
 const label = (r: HackRecord): string => `${r.smwcId} ${r.name}`
 
-/** Only hacks in both runs are diffed: a hack in one run alone says nothing about change. */
+/** Only hacks swept this run and present before are diffed; a carried record did not run, so it cannot have changed. */
+/** The new results: this run's records, plus the previous run's for hacks outside the batch, marked carried. */
+export function mergeCarried(prev: HackRecord[], swept: HackRecord[]): HackRecord[] {
+  const ids = new Set(swept.map(r => r.smwcId))
+  const kept = prev.filter(r => !ids.has(r.smwcId)).map(r => ({ ...r, carried: true as const }))
+  return [...swept.map(({ carried: _, ...r }) => r), ...kept].sort((a, b) => a.smwcId - b.smwcId)
+}
+
 export function diffRuns(prev: HackRecord[], cur: HackRecord[], topBlockers = 8): RunDiff {
   const before = new Map(prev.map(r => [r.smwcId, r]))
   const after = new Map(cur.map(r => [r.smwcId, r]))
-  const pairs = cur.flatMap(c =>
+  const swept = cur.filter(r => !r.carried)
+  const pairs = swept.flatMap(c =>
     before.has(c.smwcId) ? [[before.get(c.smwcId)!, c] as const] : [],
   )
   const d: RunDiff = {
     compared: pairs.length,
-    added: cur.filter(r => !before.has(r.smwcId)).map(label),
+    carried: cur.length - swept.length,
+    added: swept.filter(r => !before.has(r.smwcId)).map(label),
     notCovered: prev.filter(r => !after.has(r.smwcId)).map(label),
     newCrashes: [],
     clearedCrashes: [],
@@ -242,7 +254,10 @@ export function trackingIssueBody(diff: RunDiff | null, summary: string): string
   if (!diff) {
     out.push('First run: no earlier results to compare against.')
   } else {
-    out.push(`${diff.compared} hacks compared with the previous run.`, '')
+    out.push(
+      `${diff.compared} hacks compared with the previous run; ${diff.carried} carried from earlier runs, not re-swept.`,
+      '',
+    )
     const sections: [string, string[]][] = [
       ['New crashes', diff.newCrashes],
       ['Cleared crashes', diff.clearedCrashes],
@@ -260,7 +275,15 @@ export function trackingIssueBody(diff: RunDiff | null, summary: string): string
 
 export function summarize(records: HackRecord[], topBlockers = 8): string {
   const views = viewsOf(records)
-  const out = [`# Hack sweep`, '', `${records.length} hacks.`, '', '## Per view', '']
+  const carried = records.filter(r => r.carried).length
+  const out = [
+    `# Hack sweep`,
+    '',
+    `${records.length} hacks.${carried ? ` ${records.length - carried} swept this run, ${carried} carried from earlier runs.` : ''}`,
+    '',
+    '## Per view',
+    '',
+  ]
   out.push('| View | ok | unavailable | crash | works on |', '|---|---|---|---|---|')
   for (const v of views) {
     const got = records.map(r => r.readers[v]).filter((x): x is ReaderRecord => !!x)
