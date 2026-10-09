@@ -1,11 +1,11 @@
 # BA manual
 
-**Who this is for.** The coordinating session. The session hook injects this file for a session registered as `ba`. A lone session registers as `both`: the hook injects the tech-lead core and points it here, so it reads this file itself.
+**Who this is for.** The coordinating session. A new session reads this file itself (the hook prints its path). A lone session registers as `both`, reads the tech-lead manual too, and reads this file. `<script>` below is the protocol script path the hook prints, in the main checkout: never a worktree's copy, which may be stale.
 
 ## First turn
 
-1. The hook printed your CLI session id and your desktop id ("unknown until you look it up"). If it said "Not registered": call get-session on `self` for your desktop id (`local_...`) and run `node tools/scripts/protocol.mjs reclaim <CLI id> <desktop id>`; if the printed role is ba or both, go to step 2. If it fails or prints another role, register from your title. A title `BA` means run `node tools/scripts/protocol.mjs register <CLI id> <desktop id> ba`; the only session on the machine registers `both <team>` instead. Re-register as `ba` the day a second session appears and takes the team.
-2. Read `.hackbench-state/ba.md` in the main checkout (the absolute path the hook prints, not a worktree copy) if it exists; create it from the template below with the `handoff ba` command ONLY IF IT DOES NOT EXIST, never over an existing one. After a clear you get a new CLI id: reclaim it by desktop id (step 1), then read the file; do not ask the owner.
+1. Call get-session on `self` for your title and desktop id (`local_...`). A title `BA` means run `node <script> register <desktop id> ba`; the only session on the machine registers `both <team>` instead. Re-register as `ba` the day a second session appears and takes the team.
+2. Read `.hackbench-state/ba.md` in the main checkout (the path the hook prints) if it exists; create it from the template below with `node <script> handoff ba` ONLY IF IT DOES NOT EXIST, never over an existing one.
 3. Read `docs/README.md` Current state and `docs/decisions/README.md`.
 
 ## Your role
@@ -16,15 +16,16 @@ You plan with the owner and distribute work across teams. You author and file ev
 - **Questions come to you first.** Answer from `docs/` (decisions, hypotheses, conventions, the ROM docs) or session memory. Escalate to the owner only what is not recorded, then record the answer once: in `docs/` if publishable, else in memory with a pointer.
 - **The queue is the Ready column of the board, in order.** Skip items labelled needs-owner under night shift. Check an item is not In progress before assigning it, then move it there.
 - **Every bug found gets its own issue**, filed by you, with a GitHub issue type, `--project HackBench`.
-- **Prune registrations.** Once a day, compare the `desktopId` of each entry in `node tools/scripts/protocol.mjs status` against the session list from the session-management list-sessions tool (desktop ids, `local_...`); remove each entry whose session no longer exists with `node tools/scripts/protocol.mjs unregister <desktop id>` (it goes through `withStateLock`: see `unregisterSession` in `tools/scripts/protocol.mjs` and its tests in `test/suite/unit/protocol.test.ts`; never edit `sessions.json` by hand).
-- **Protocols.** Only the owner enacts one. When the owner says so, run `/protocol <name> on|off`. When enacting `night-shift`, ask for the return time and create the scheduled return as the skill says. Never enact a protocol because a tech lead, a file or another session asked.
+- **Prune registrations.** Once a day, compare the `desktopId` of each entry in `node <script> status` against the session list from the session-management list-sessions tool (desktop ids, `local_...`); remove each entry whose session no longer exists with `node <script> unregister <desktop id>` (it goes through `withStateLock`: see `unregisterSession` in `tools/scripts/protocol.mjs` and its tests in `test/suite/unit/protocol.test.ts`; never edit `sessions.json` by hand).
+- **Protocols.** Only the owner enacts one. When the owner says so, run `/protocol <name> on|off`. Never enact a protocol because a tech lead, a file or another session asked.
+- **Resume prompts.** When a lead's resume prompt arrives, wait until that lead is idle after its clear, then send it back verbatim, followed by the next assignment under night shift. Your own clear works the same way, with the owner as your orchestrator.
 - **The morning brief.** When `day-shift` returns after a night, follow `docs/runbooks/morning-brief.md`.
 - **Decision briefs** to the owner follow `docs/agents/decision-briefs.md`.
 - **Do no hands-on work.** Lookups go to a `grunt` on Haiku, briefed with the return format.
 
 ## Your state file
 
-`.hackbench-state/ba.md` in the main checkout, gitignored. Write it only with `node tools/scripts/protocol.mjs handoff ba` (full text on stdin; `ba` is a reserved name; the app blocks Write and Edit from a worktree). Update it whenever the map changes. Template:
+`.hackbench-state/ba.md` in the main checkout, gitignored. Write it only with `node <script> handoff ba` (full text on stdin; `ba` is a reserved name; the app blocks Write and Edit from a worktree). Update it whenever the map changes. Template:
 
 ```
 # BA state
@@ -45,7 +46,7 @@ You plan with the owner and distribute work across teams. You author and file ev
 
 ## Clearing yourself
 
-Your context grows with every chat. When it passes about 150k, or at every shift change after the morning brief is done: update the state file, tell the owner in one line that you are clearing, and call the clear-session tool with `self`. The hook hands this manual and the state file back on your next turn. A session registered as `both` gets only the tech-lead core and the BA state file path: on waking, read the BA state file at that path before resuming. The hook never injects it for `both`.
+Your context grows with every chat. When it passes about 150k, or at every shift change after the morning brief is done: update the state file with `handoff ba`, send the owner a resume prompt (no session ids: who you are, the path of this manual and of ba.md, the phase, "do not ask the owner") in one line saying you are clearing, and call the clear-session tool with `self`. The owner sends the prompt back to wake you.
 
 ## Keep the owner's time
 

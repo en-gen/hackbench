@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- A cleared session reclaims its registration by desktop id (`protocol.mjs reclaim <cliId> <desktopId>`, run from the unregistered hook text) and resumes from its team file instead of stopping to ask the owner; team and BA state files are written through `protocol.mjs handoff`, since the app blocks the Write tool from a worktree. Shared session and protocol state moves from `.claude/state/` to the gitignored `.hackbench-state/`; `protocol.mjs migrate-state` copies the old files once, steps in `docs/runbooks/state-cutover.md` (#725).
+- A cleared tech lead now resumes from a resume prompt it sends its orchestrator before clearing (no session ids), instead of relying on the hook. The session registry is keyed by desktop id, the hook prints the protocol script path and a short instruction, and shared state moves from `.claude/state/` to the gitignored `.hackbench-state/` (`protocol.mjs handoff` writes team and BA files, `migrate-state` converts the old files once; steps in `docs/runbooks/state-cutover.md`). Night shift is enactable and has no scheduled return (#725, #724).
 - The sprite level loader now runs the rest of GM11LoadLevel's setup in the ROM's order: the layer
   position copy and the screen setup (CODE_00A796, `$1404`, UpdateScreenPosition). Against
   Mesen's recorded level state, 307 cell mismatches over 98 maps (`$1404`, `$1462-$1469`, `$1E`,

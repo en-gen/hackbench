@@ -113,7 +113,7 @@ the normal rules explicitly so night shift has something to override:
 Unchanged: the deliverable loop (simplify, adversarial review, verify, ship),
 auto-merge rules, CodeRabbit handling, the content and style gates, data and
 image rules, and every "never" in `CLAUDE.md`. Exit: `day-shift` returns, by
-command or by the schedule in section 6.7; every `[PROP]` made overnight
+command only (section 6.7 is superseded: Ruled 2026-10-08, no scheduled return); every `[PROP]` made overnight
 stays `[PROP]` until ruled; the BA produces the morning brief (section 6.1).
 
 **`throttle`.** No group; stacks with either shift. Activation: the owner, or
@@ -166,14 +166,20 @@ start. Two additions:
 
 - The session-start hook also prints the active protocols' Changes sections,
   and selects the manual to inject by the session's registration
-  (section 4.2). It fires on startup, resume and clear. `[INF]` that the
-  clear source fires it; the verifier proves it (section 8).
+  (section 4.2). It fires on startup, resume and clear. `[EST]` that it fires
+  after a clear (2026-10-09, one session; `docs/decisions/2026-10-09-self-clear-round-trip.md`).
 - A prompt-submit hook prints the active protocol names and their Changes
   sections on every turn. Cost is bounded by the fifteen-line rule.
 
 Both resolve the main checkout from a worktree through the git common
 directory, so a session in `.claude/worktrees/` reads the same state as one
 in the root.
+
+Corrected 2026-10-09: the hook no longer selects a manual or injects a team
+file after a clear. A clear gives a new CLI session id, so the hook cannot find
+the registration; it prints two facts and one instruction instead, and the
+resume prompt the lead sent its orchestrator before clearing carries identity,
+file paths and the next action (runs A and B in the decision file).
 
 ## 4. Session lifecycle
 
@@ -255,8 +261,9 @@ An unattended clear needs auto mode: the clear-session definition says the
 app asks the user in default mode and may decide without asking in auto
 mode `[EST]`. The night-shift protocol says tech leads run in auto mode; the
 owner sets it when starting a session for night work. Whether auto mode
-lets a self-clear through unattended is `[OPEN]` until the verifier shows
-it (section 8).
+lets a self-clear through unattended is `[EST]`: no prompt blocked a clear
+in auto mode with an owner allow rule for clear_session (2026-10-09, one
+session; `docs/decisions/2026-10-09-self-clear-round-trip.md`).
 
 ## 5. The knowledge base is `docs/`
 
@@ -354,7 +361,7 @@ All eight approved by the owner on 2026-10-07.
    URL goes in the handoff. Only auto-merge items complete unattended.
 6. **Throttle self-activates on a usage-limit error.** The one exception to
    owner-only activation, logged with the trigger.
-7. **Day shift returns on a schedule.** The BA, when night shift is enacted,
+7. **Superseded 2026-10-08: day shift returns on the owner's word, not a schedule** (`docs/decisions/2026-10-08-night-shift-ends-on-owner-word.md`). Original text kept: day shift returns on a schedule. The BA, when night shift is enacted,
    creates a scheduled trigger in its own session for the return time the
    owner names, which runs the protocol command for `day-shift`. The owner
    can extend. `[INF]` that a session-scoped cron can invoke a repo skill;
@@ -386,8 +393,9 @@ the quality gates require.
 - **Self-clear round trip.** The verifier, on a throwaway session in auto
   mode: register, write a team state file, clear self, confirm from the
   transcript that the hook fired after the clear and injected the file, and
-  that no permission prompt blocked. This is the load-bearing `[OPEN]` in
-  sections 3.5 and 4.5; nothing ships to night use until it is `[EST]`.
+  that no permission prompt blocked. This was the load-bearing `[OPEN]` in
+  sections 3.5 and 4.5; it is now `[EST]` (2026-10-09, resume-prompt design,
+  `docs/decisions/2026-10-09-self-clear-round-trip.md`).
 - **Nudge.** The command run against two registered throwaway sessions; both
   transcripts show the line.
 - **Night-shift dry run.** One evening, one team, one auto-merge item from
@@ -421,5 +429,5 @@ Corrected 2026-10-07: delivered as one PR, because the owner ruled "why not do i
 - Neuromancer. The seam is the state directory and the protocol files; no
   code here targets it. `[OPEN]` what runner it uses for Claude Code.
 - A start-session tool for the BA (section 4.2). `[OPEN]`
-- Whether a session-scoped cron can run a repo skill (section 6.7). `[OPEN]`
-- Auto mode and unattended self-clear (section 4.5). `[OPEN]`
+- Whether a session-scoped cron can run a repo skill (section 6.7). Moot: 6.7 is superseded.
+- Auto mode and unattended self-clear (section 4.5). `[EST]` 2026-10-09.

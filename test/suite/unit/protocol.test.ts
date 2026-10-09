@@ -263,13 +263,17 @@ describe('writeState', () => {
   })
 })
 
-import { execFileSync, spawn } from 'child_process'
+import { execFileSync, spawn, spawnSync } from 'child_process'
 import { pathToFileURL } from 'url'
 import {
   mainCheckoutDir,
   stateDirFor,
   protocolsDirFor,
   readSessions,
+  STATE_DIR_NAME,
+  migrateState,
+  convertSessions,
+  writeHandoff,
   registerSession,
   withStateLock,
   unregisterSession,
@@ -301,6 +305,193 @@ describe('mainCheckoutDir', () => {
   })
 })
 
+describe('the state directory', () => {
+  it('is .hackbench-state in the main checkout, also from a worktree', () => {
+    const main = tempDir('main-')
+    execFileSync('git', ['init', '-q', main])
+    execFileSync('git', ['-C', main, 'commit', '-q', '--allow-empty', '-m', 'root'], {
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: 't',
+        GIT_AUTHOR_EMAIL: 't@t',
+        GIT_COMMITTER_NAME: 't',
+        GIT_COMMITTER_EMAIL: 't@t',
+      },
+    })
+    const wt = path.join(tempDir('wt-'), 'w')
+    execFileSync('git', ['-C', main, 'worktree', 'add', '-q', wt])
+    const real = (p: string) => path.join(fs.realpathSync(path.dirname(p)), path.basename(p))
+    expect(STATE_DIR_NAME).toBe('.hackbench-state')
+    expect(real(stateDirFor(wt))).toBe(path.join(fs.realpathSync(main), '.hackbench-state'))
+    expect(stateDirFor(wt)).not.toContain(path.join('.claude', 'state'))
+  })
+})
+
+describe('the state directory is gitignored', () => {
+  it('git check-ignore accepts a file inside it', () => {
+    const root = path.resolve(__dirname, '../../..')
+    const r = spawnSync('git', ['check-ignore', '-q', `${STATE_DIR_NAME}/sessions.json`], {
+      cwd: root,
+    })
+    expect(r.status).toBe(0)
+  })
+})
+
+describe('convertSessions', () => {
+  it('re-keys by desktop id and keeps the newest entry per desktop id', () => {
+    const out = convertSessions({
+      [CLI_ID]: { desktopId: LOCAL_ID, role: 'tech-lead', team: 'old', registered: '2026-01-01' },
+      [CLI_ID_2]: { desktopId: LOCAL_ID, role: 'tech-lead', team: 'new', registered: '2026-02-01' },
+      other: { desktopId: LOCAL_ID_2, role: 'ba', team: null },
+      bad: { desktopId: 'nope', role: 'ba' },
+    })
+    expect(Object.keys(out).sort()).toEqual([LOCAL_ID, LOCAL_ID_2])
+    expect(out[LOCAL_ID]).toEqual({ role: 'tech-lead', team: 'new', registered: '2026-02-01' })
+  })
+
+  it('treats an undated entry as the oldest', () => {
+    const out = convertSessions({
+      a: { desktopId: LOCAL_ID, role: 'tech-lead', team: 'undated' },
+      b: { desktopId: LOCAL_ID, role: 'tech-lead', team: 'dated', registered: '2026-01-01' },
+    })
+    expect(out[LOCAL_ID].team).toBe('dated')
+  })
+})
+
+describe('migrateState', () => {
+  const seed = (from: string) => {
+    fs.mkdirSync(path.join(from, 'teams'), { recursive: true })
+    fs.writeFileSync(path.join(from, 'sessions.json'), '{"a":1}')
+    fs.writeFileSync(path.join(from, 'ba.md'), 'ba')
+    fs.writeFileSync(path.join(from, 'teams', 'alpha.md'), 'alpha')
+    fs.writeFileSync(path.join(from, 'teams', 'notes.txt'), 'ignored')
+  }
+
+  it('copies the state files and leaves the source intact', () => {
+    const from = tempDir('old-')
+    const to = path.join(tempDir('new-'), 'state')
+    seed(from)
+    const r = migrateState(from, to)
+    expect(r.copied.sort()).toEqual(['ba.md', 'sessions.json', 'teams/alpha.md'])
+    expect(fs.readFileSync(path.join(to, 'teams', 'alpha.md'), 'utf8')).toBe('alpha')
+    expect(fs.readFileSync(path.join(from, 'sessions.json'), 'utf8')).toBe('{"a":1}')
+    expect(fs.existsSync(path.join(to, 'teams', 'notes.txt'))).toBe(false)
+  })
+
+  it('writes sessions.json re-keyed by desktop id', () => {
+    const from = tempDir('old-')
+    const to = tempDir('new-')
+    fs.writeFileSync(
+      path.join(from, 'sessions.json'),
+      JSON.stringify({
+        [CLI_ID]: { desktopId: LOCAL_ID, role: 'ba', team: null, registered: NOW },
+      }),
+    )
+    migrateState(from, to)
+    expect(Object.keys(readSessions(to))).toEqual([LOCAL_ID])
+    expect(readSessions(to)[LOCAL_ID]).toEqual({ role: 'ba', team: null, registered: NOW })
+  })
+
+  it('never overwrites an existing target file', () => {
+    const from = tempDir('old-')
+    const to = tempDir('new-')
+    seed(from)
+    fs.writeFileSync(path.join(to, 'ba.md'), 'newer')
+    const r = migrateState(from, to)
+    expect(r.skipped).toEqual(['ba.md'])
+    expect(r.copied).not.toContain('ba.md')
+    expect(fs.readFileSync(path.join(to, 'ba.md'), 'utf8')).toBe('newer')
+  })
+
+  it('copes with a missing source directory', () => {
+    const to = path.join(tempDir('new-'), 'state')
+    expect(migrateState(path.join(tempDir('none-'), 'nope'), to)).toEqual({
+      copied: [],
+      skipped: [],
+    })
+  })
+
+  it('takes the lock and the command prints what it did', () => {
+    const main = tempDir('main-')
+    const old = path.join(main, '.claude', 'state')
+    seed(old)
+    const script = path.resolve(__dirname, '../../../tools/scripts/protocol.mjs')
+    const r = spawnSync('node', [script, 'migrate-state'], {
+      cwd: main,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        HACKBENCH_STATE_DIR: '',
+        HACKBENCH_PROTOCOLS_DIR: path.resolve(__dirname, '../../../docs/protocols'),
+      },
+    })
+    expect(r.status).toBe(0)
+    expect(JSON.parse(r.stdout).copied).toContain('sessions.json')
+    expect(fs.existsSync(path.join(main, '.hackbench-state', 'sessions.json'))).toBe(true)
+  })
+})
+
+describe('writeHandoff', () => {
+  it('writes the team file under teams/ and returns its path', () => {
+    const dir = tempDir('state-')
+    const file = writeHandoff(dir, 'alpha', '# Alpha\nstate\n')
+    expect(file).toBe(path.join(dir, 'teams', 'alpha.md'))
+    expect(fs.readFileSync(file, 'utf8')).toBe('# Alpha\nstate\n')
+  })
+
+  it('overwrites an existing file and leaves no temp file', () => {
+    const dir = tempDir('state-')
+    writeHandoff(dir, 'alpha', 'one')
+    writeHandoff(dir, 'alpha', 'two')
+    expect(fs.readFileSync(path.join(dir, 'teams', 'alpha.md'), 'utf8')).toBe('two')
+    expect(fs.readdirSync(path.join(dir, 'teams'))).toEqual(['alpha.md'])
+  })
+
+  it('writes the BA state file for the reserved name ba', () => {
+    const dir = tempDir('state-')
+    expect(writeHandoff(dir, 'ba', 'b')).toBe(path.join(dir, 'ba.md'))
+  })
+
+  it('writes atomically, under the lock', () => {
+    const dir = tempDir('state-')
+    let held = false
+    const rename = (from: string, to: string) => {
+      held = fs.existsSync(path.join(dir, '.lock'))
+      expect(fs.existsSync(to)).toBe(false)
+      fs.renameSync(from, to)
+    }
+    writeHandoff(dir, 'alpha', 'x', { rename })
+    expect(held).toBe(true)
+  })
+
+  it('refuses a bad team name or empty text and writes nothing', () => {
+    const dir = tempDir('state-')
+    for (const team of ['../x', 'A b', '']) {
+      expect(() => writeHandoff(dir, team, 'x')).toThrow(/team name/)
+    }
+    expect(() => writeHandoff(dir, 'alpha', '  \n')).toThrow(/empty/)
+    expect(fs.existsSync(path.join(dir, 'teams'))).toBe(false)
+  })
+
+  it('the command reads stdin, prints the path, and refuses empty stdin', () => {
+    const dir = tempDir('state-')
+    const script = path.resolve(__dirname, '../../../tools/scripts/protocol.mjs')
+    const run = (input: string, team = 'alpha') =>
+      spawnSync('node', [script, 'handoff', team], {
+        encoding: 'utf8',
+        input,
+        env: { ...process.env, HACKBENCH_STATE_DIR: dir },
+      })
+    const ok = run('# hello\n')
+    expect(ok.status).toBe(0)
+    expect(ok.stdout.trim()).toBe(path.join(dir, 'teams', 'alpha.md'))
+    expect(fs.readFileSync(path.join(dir, 'teams', 'alpha.md'), 'utf8')).toBe('# hello\n')
+    expect(run('', 'bravo').status).not.toBe(0)
+    expect(fs.existsSync(path.join(dir, 'teams', 'bravo.md'))).toBe(false)
+    expect(run('x', '../evil').status).not.toBe(0)
+  })
+})
+
 describe('directory overrides', () => {
   it('honour the environment variables', () => {
     try {
@@ -322,40 +513,38 @@ const LOCAL_ID = 'local_774e2af5-aaaa-4bbb-8ccc-000000000001'
 const LOCAL_ID_2 = 'local_774e2af5-aaaa-4bbb-8ccc-000000000002'
 
 describe('sessions', () => {
-  it('registers both ids and reads back', () => {
+  it('registers by desktop id and reads back', () => {
     const dir = tempDir('state-')
     expect(readSessions(dir)).toEqual({})
-    registerSession(dir, CLI_ID, LOCAL_ID, 'tech-lead', 'alpha', NOW)
-    const all = registerSession(dir, CLI_ID_2, LOCAL_ID_2, 'ba', null, NOW)
+    registerSession(dir, LOCAL_ID, 'tech-lead', 'alpha', NOW)
+    const all = registerSession(dir, LOCAL_ID_2, 'ba', null, NOW)
     expect(all).toEqual({
-      [CLI_ID]: { desktopId: LOCAL_ID, role: 'tech-lead', team: 'alpha', registered: NOW },
-      [CLI_ID_2]: { desktopId: LOCAL_ID_2, role: 'ba', team: null, registered: NOW },
+      [LOCAL_ID]: { role: 'tech-lead', team: 'alpha', registered: NOW },
+      [LOCAL_ID_2]: { role: 'ba', team: null, registered: NOW },
     })
     expect(readSessions(dir)).toEqual(all)
   })
 
   it('rejects an unknown role and a tech lead without a team', () => {
     const dir = tempDir('state-')
-    expect(() => registerSession(dir, CLI_ID, LOCAL_ID, 'pm', null, NOW)).toThrow(
+    expect(() => registerSession(dir, LOCAL_ID, 'pm', null, NOW)).toThrow(
       /role must be ba, tech-lead or both/,
     )
-    expect(() => registerSession(dir, CLI_ID, LOCAL_ID, 'tech-lead', null, NOW)).toThrow(
-      /needs a team/,
-    )
+    expect(() => registerSession(dir, LOCAL_ID, 'tech-lead', null, NOW)).toThrow(/needs a team/)
   })
 
-  it('rejects a malformed CLI id, desktop id or team name', () => {
+  it('rejects a malformed desktop id or team name', () => {
     const dir = tempDir('state-')
-    expect(() => registerSession(dir, 'nope', LOCAL_ID, 'ba', null, NOW)).toThrow(/CLI session id/)
-    expect(() => registerSession(dir, CLI_ID, CLI_ID, 'ba', null, NOW)).toThrow(/desktop id/)
-    expect(() => registerSession(dir, CLI_ID, LOCAL_ID, 'tech-lead', 'Alpha Team', NOW)).toThrow(
+    expect(() => registerSession(dir, 'nope', 'ba', null, NOW)).toThrow(/desktop id/)
+    expect(() => registerSession(dir, CLI_ID, 'ba', null, NOW)).toThrow(/desktop id/)
+    expect(() => registerSession(dir, LOCAL_ID, 'tech-lead', 'Alpha Team', NOW)).toThrow(
       /team name/,
     )
   })
 
   it('never creates or touches a state file', () => {
     const dir = tempDir('state-')
-    registerSession(dir, CLI_ID, LOCAL_ID, 'tech-lead', 'alpha', NOW)
+    registerSession(dir, LOCAL_ID, 'tech-lead', 'alpha', NOW)
     expect(fs.readdirSync(dir)).toEqual(['sessions.json'])
   })
 
@@ -369,7 +558,7 @@ describe('sessions', () => {
 
   it('reads a sessions file that starts with a BOM', () => {
     const dir = tempDir('state-')
-    const body = { [CLI_ID]: { desktopId: LOCAL_ID, role: 'ba', team: null, registered: NOW } }
+    const body = { [LOCAL_ID]: { role: 'ba', team: null, registered: NOW } }
     fs.writeFileSync(path.join(dir, 'sessions.json'), '﻿' + JSON.stringify(body))
     expect(readSessions(dir)).toEqual(body)
   })
@@ -504,7 +693,7 @@ describe('atomic writes survive a concurrent reader on Windows', () => {
       calls.push([from, to])
       fs.renameSync(from, to)
     }
-    registerSession(dir, CLI_ID, LOCAL_ID, 'ba', null, NOW, { rename })
+    registerSession(dir, LOCAL_ID, 'ba', null, NOW, { rename })
     expect(calls[0][0]).toMatch(/\.tmp$/)
     expect(path.basename(calls[0][1])).toBe('sessions.json')
   })
@@ -553,22 +742,14 @@ describe('atomic writes survive a concurrent reader on Windows', () => {
   })
 })
 
-describe('re-registering after a clear', () => {
-  it('drops every other entry with the same desktop id', () => {
+describe('re-registering', () => {
+  it('replaces the entry for the same desktop id and keeps the others', () => {
     const dir = tempDir('state-')
-    registerSession(dir, CLI_ID, LOCAL_ID, 'tech-lead', 'alpha', NOW)
-    registerSession(dir, CLI_ID_2, LOCAL_ID_2, 'ba', null, NOW)
-    const all = registerSession(
-      dir,
-      '00000000-0000-4000-8000-000000000003',
-      LOCAL_ID,
-      'tech-lead',
-      'alpha',
-      NOW,
-    )
-    expect(Object.keys(all).sort()).toEqual(
-      [CLI_ID_2, '00000000-0000-4000-8000-000000000003'].sort(),
-    )
+    registerSession(dir, LOCAL_ID, 'tech-lead', 'alpha', NOW)
+    registerSession(dir, LOCAL_ID_2, 'ba', null, NOW)
+    const all = registerSession(dir, LOCAL_ID, 'tech-lead', 'bravo', NOW)
+    expect(Object.keys(all).sort()).toEqual([LOCAL_ID, LOCAL_ID_2])
+    expect(all[LOCAL_ID].team).toBe('bravo')
   })
 })
 
@@ -702,7 +883,7 @@ describe('withStateLock safety', () => {
     const dir = tempDir('state-')
     const afterAcquire = () => fs.writeFileSync(lockPath(dir), 'new-holder')
     expect(() =>
-      registerSession(dir, CLI_ID, LOCAL_ID, 'ba', null, NOW, { lock: { afterAcquire } }),
+      registerSession(dir, LOCAL_ID, 'ba', null, NOW, { lock: { afterAcquire } }),
     ).toThrow(/lock lost/)
     expect(fs.existsSync(path.join(dir, 'sessions.json'))).toBe(false)
   })
@@ -714,7 +895,7 @@ describe('withStateLock safety', () => {
       held = fs.existsSync(lockPath(dir))
       fs.renameSync(from, to)
     }
-    registerSession(dir, CLI_ID, LOCAL_ID, 'ba', null, NOW, { rename })
+    registerSession(dir, LOCAL_ID, 'ba', null, NOW, { rename })
     expect(held).toBe(true)
   })
 
@@ -755,26 +936,26 @@ describe('withStateLock safety', () => {
 })
 
 describe('unregisterSession', () => {
-  it('removes every entry for a desktop id and keeps the others', () => {
+  it('removes the entry for a desktop id and keeps the others', () => {
     const dir = tempDir('state-')
-    registerSession(dir, CLI_ID, LOCAL_ID, 'tech-lead', 'alpha', NOW)
-    registerSession(dir, CLI_ID_2, LOCAL_ID_2, 'ba', null, NOW)
+    registerSession(dir, LOCAL_ID, 'tech-lead', 'alpha', NOW)
+    registerSession(dir, LOCAL_ID_2, 'ba', null, NOW)
     const r = unregisterSession(dir, LOCAL_ID)
     expect(r.removed).toBe(1)
-    expect(Object.keys(r.sessions)).toEqual([CLI_ID_2])
-    expect(Object.keys(readSessions(dir))).toEqual([CLI_ID_2])
+    expect(Object.keys(r.sessions)).toEqual([LOCAL_ID_2])
+    expect(Object.keys(readSessions(dir))).toEqual([LOCAL_ID_2])
   })
 
   it('reports zero removed for an unknown desktop id and rejects a malformed one', () => {
     const dir = tempDir('state-')
-    registerSession(dir, CLI_ID, LOCAL_ID, 'ba', null, NOW)
+    registerSession(dir, LOCAL_ID, 'ba', null, NOW)
     expect(unregisterSession(dir, LOCAL_ID_2).removed).toBe(0)
     expect(() => unregisterSession(dir, 'nope')).toThrow(/desktop id/)
   })
 
   it('writes under the lock', () => {
     const dir = tempDir('state-')
-    registerSession(dir, CLI_ID, LOCAL_ID, 'ba', null, NOW)
+    registerSession(dir, LOCAL_ID, 'ba', null, NOW)
     let held = false
     const rename = (from: string, to: string) => {
       held = fs.existsSync(path.join(dir, '.lock'))
@@ -836,10 +1017,10 @@ describe('a blocked protocol', () => {
     ])
   })
 
-  it('is how the real night-shift file is written until the round trip is recorded', () => {
+  it('is no longer how the real night-shift file is written', () => {
     const repoRoot = path.resolve(__dirname, '../../..')
     const defs = loadProtocols(path.join(repoRoot, 'docs/protocols'))
-    expect(defs.get('night-shift')?.blocked).toMatch(/self-clear round trip/)
+    expect(defs.get('night-shift')?.blocked).toBeNull()
     expect(defs.get('day-shift')?.blocked).toBeNull()
     expect(defs.get('throttle')?.blocked).toBeNull()
   })

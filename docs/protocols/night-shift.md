@@ -10,15 +10,13 @@ shift
 
 ## Activation
 
-Blocked: until the self-clear round trip in the spec's section 8 is recorded as [EST] in docs/decisions/
-
-The owner, in chat, naming the return time; the BA runs the command and creates the scheduled return to `day-shift`.
+The owner, in chat; the BA runs the command. There is no return time: night shift ends when the owner says it ends (`docs/decisions/2026-10-08-night-shift-ends-on-owner-word.md`).
 
 ## Changes
 
 1. Plan gate waived: a BA assignment is approval.
 2. A non-safety question takes the recommended option, marked `[PROP]`, and is filed in `docs/decisions/` as Proposed. A safety decision (see `docs/agents/tech-lead.md`) stops the item.
-3. After a merge the tech lead clears itself and asks the BA "what's next" without waiting.
+3. After a merge the tech lead sends its resume prompt to the BA and clears itself; the BA's reply wakes it with the next assignment.
 4. The queue is the Ready column of the board, top down; items labelled needs-owner are skipped.
 5. A scope change ends the item: the handoff records the question as a Proposed decision and the next item starts.
 6. A needs-owner PR opens with its label and waits; the launched build URL goes in the handoff. Only auto-merge items complete unattended.
@@ -31,4 +29,4 @@ The deliverable loop (simplify, adversarial review, verify, ship), the auto-merg
 
 ## Exit
 
-`day-shift` returns by command or by the scheduled return. Every `[PROP]` made overnight stays `[PROP]` until the owner rules. The BA produces the morning brief (`docs/runbooks/morning-brief.md`). A night waiver is never precedent. The verification run that records the self-clear round trip removes the Blocked line from Activation. The same PR updates the tests that pin it (`test/suite/unit/protocol.test.ts`, `test/suite/gates/protocolGate.test.ts`), so it is not docs-only and runs the full suite.
+`day-shift` returns by the owner's command only. Every `[PROP]` made overnight stays `[PROP]` until the owner rules. The BA produces the morning brief (`docs/runbooks/morning-brief.md`). A night waiver is never precedent.
