@@ -23,10 +23,9 @@ head 711b7e3). Spike code, not product code.
 | Mode  | Calls matching | OAM entries |
 | ----- | -------------- | ----------- |
 | level | 1122 of 1122   | 1162        |
+| spawn | 3495 of 3495   | 9875        |
 
 The level row was measured on the pre-#649 capture set (1122 calls); it was not re-run on the 1578-call set.
-
-| spawn | 3495 of 3495   | 9875        |
 
 Write order is compared as recorded: no swap is tolerated (the core writes a
 16-bit read-modify-write high byte first since #593; a low-first core diverges
@@ -49,6 +48,9 @@ byte-identical across 2 cold runs.
 Fixtures live outside git: `hackbench-tools/fixtures/sprite-trace|sprite-spawn/<set>/`. The sprite-trace set
 the tests read is `6b47bb75-realload-2026-10-09` (`SPRITE_TRACE_SET`, see its PROVENANCE.md); `6b47bb75/` is superseded.
 `run_sprite_oracle.ps1` refuses to write into an existing level set: pass `-SetName <new>`.
+A map that fails mid-run is therefore retried into a new set name and merged into the set by hand.
+The script dot-sources `scripts/config.ps1`, which is not in git; borrow
+`hackbench-validation/capture/scripts/config.ps1` (copy it in for the run, do not commit it).
 Mesen comes from `HB_MESEN`, the ROM from `HB_ROM`. Capture with
 `scripts/run_sprite_oracle.ps1`. Node cannot strip the core's TypeScript
 parameter properties, so bundle it first:

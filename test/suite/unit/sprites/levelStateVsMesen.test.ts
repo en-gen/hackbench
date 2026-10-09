@@ -191,6 +191,9 @@ describe.skipIf(!hasRom(VANILLA) || !existsSync(root))(
       // $0000 there (game state written after the load, writer not identified); the loader's $25 is
       // the table fill (bank_05.asm:58-65). A new $0000 past 0be's end (4 screens, 1728) is still past-end.
       expect(past('0be', m => (m.lo[0x1000] = 0))).toContain('0be')
+      // 002 is 16 screens, so its end is $1B00: just past it is past-end, the last cell inside it is not.
+      expect(past('002', m => (m.lo[0x1b80] = 0))).toContain('002')
+      expect(past('002', m => (m.lo[0x1aff] = 0))).not.toContain('002')
       expect(past('002', m => ((m.lo[0x150] = 0), (m.hi[0x150] = 1)))).not.toContain('002') // capture $100
       expect(past('002', m => (m.hi[0x1c00] = 1))).not.toContain('002') // $100, past the end, not $0000
       expect(past('002', m => (m.wram[0xc800 + 0x1c00] = 0x26))).not.toContain('002') // loader not $25
