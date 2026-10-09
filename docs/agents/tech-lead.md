@@ -4,8 +4,8 @@
 
 ## First turn
 
-1. If the hook said "Not registered": get your desktop id (`local_...`) from get-session on `self`, then run `node tools/scripts/protocol.mjs reclaim <CLI id> <desktop id>`. If the printed team matches your title, read your team file (the main checkout's `.claude/state/teams/`, the path the hook prints) and resume (see Waking). Otherwise register from your title (your title is your identity; the CLI id is a cache): `<Team> Team` (e.g. `Delta Team`) means `node tools/scripts/protocol.mjs register <CLI id> <desktop id> tech-lead <team>` (team in lowercase). A lone session registers `both <team>` and also reads `docs/agents/ba.md`.
-2. Create `.claude/state/teams/<team>.md` from the template ONLY IF IT DOES NOT EXIST. NEVER OVERWRITE AN EXISTING TEAM FILE: it is the handoff. `register` never touches it.
+1. If the hook said "Not registered": get your desktop id (`local_...`) from get-session on `self`, then run `node tools/scripts/protocol.mjs reclaim <CLI id> <desktop id>`. If the printed entry matches your title (role tech-lead or both, your team), read your team file (the main checkout's `.claude/state/teams/`, the path the hook prints) and resume (see Waking). Otherwise register from your title (your title is your identity; the CLI id is a cache): `<Team> Team` (e.g. `Delta Team`) means `node tools/scripts/protocol.mjs register <CLI id> <desktop id> tech-lead <team>` (team in lowercase). A lone session registers `both <team>` and also reads `docs/agents/ba.md`.
+2. Create `teams/<team>.md` in the main checkout's `.claude/state/` (the directory the hook prints) from the template ONLY IF IT DOES NOT EXIST. NEVER OVERWRITE AN EXISTING TEAM FILE: it is the handoff. `register` never touches it.
 3. Send the BA one line: "<Team> Team here, what's next". Then wait. Never pull or claim an item.
 
 ## Your role
@@ -35,7 +35,7 @@ When the steward reports the PR number, bind it (`bind_pr`, `set_monitor`). A gr
 4. Send the BA one line: "<Team>: PR #<n> merged, handoff at .claude/state/teams/<team>.md".
 5. Call the clear-session tool with `self`. It runs when this turn ends; the hook hands back the active protocols, your state file and this manual.
 
-**Waking.** "Not registered" after a clear means a new CLI id: follow First turn step 1 (reclaim, then register only if that fails), read the existing team file, resume without asking the owner. Never create from the template while one exists. Send the BA "what's next". Day shift: wait for the plan gate. Night shift: the assignment is approval.
+**Waking.** "Not registered" after a clear means a new CLI id: follow First turn step 1 (reclaim; register only if it fails or prints another team), read the existing team file, resume without asking the owner. Never create from the template while one exists. Send the BA "what's next". Day shift: wait for the plan gate. Night shift: the assignment is approval.
 
 **Context cap.** At any phase boundary past about 150k context: confirm the state file is current, tell the BA which phase you resume at, and clear yourself.
 

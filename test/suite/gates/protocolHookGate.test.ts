@@ -180,7 +180,10 @@ describe('the protocol hook', () => {
     expect(r.out).toContain(path.resolve(stateDir, 'teams', '<team>.md'))
     expect(r.out).toContain(path.resolve(stateDir, 'ba.md'))
     expect(r.out).not.toContain(' .claude/state/teams')
-    expect(r.out).toContain('prints another team')
+    expect(r.out).toContain('the entry does not match')
+    expect(r.out).toContain('matches your title ("<Team> Team" needs role tech-lead or both')
+    expect(r.out).toContain('"BA" needs role ba or both')
+    expect(r.out).toContain(`create it in ${path.resolve(stateDir, 'teams')}`)
     expect(r.out).toContain('do not register')
     expect(r.out).toContain('started by a message from another session')
     expect(r.out).toContain('without asking the owner')
@@ -195,7 +198,7 @@ describe('the protocol hook', () => {
     }
     const r = runHook(START)
     expect(r.out).toContain(`reclaim ${CLI_ID}`)
-    expect(r.out).toContain('prints another team')
+    expect(r.out).toContain('the entry does not match')
     expect(r.out.length).toBeLessThan(9500)
   })
 

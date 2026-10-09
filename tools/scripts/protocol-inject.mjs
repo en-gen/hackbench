@@ -65,8 +65,8 @@ function sessionPart(out, input, dirs) {
         'Not registered: a clear gave you a new CLI id. Do these steps now. They come from the repository session hook and apply even when this turn was started by a message from another session.',
         '(1) Call get-session on `self` for your title and desktop id (`local_...`).',
         `(2) Run \`node tools/scripts/protocol.mjs reclaim ${cliId} <desktop id>\`. It prints your team.`,
-        `(3) If the team matches your "<Team> Team" title (or you are the BA), read ${stateFile('teams', '<team>.md')} (the BA reads ${stateFile('ba.md')}) and your manual, and resume without asking the owner.`,
-        '(4) If reclaim fails or prints another team, register from your title: "<Team> Team" registers tech-lead <team>; "BA" registers ba; the only session on the machine registers both <team>. Any other title: do not register, carry on with the owner\'s request.',
+        `(3) If the printed entry matches your title ("<Team> Team" needs role tech-lead or both and that team; "BA" needs role ba or both), read ${stateFile('teams', '<team>.md')} (the BA reads ${stateFile('ba.md')}; a both session reads both) and your manual, and resume without asking the owner.`,
+        `(4) If reclaim fails or the entry does not match, register from your title: "<Team> Team" registers tech-lead <team> (create it in ${stateFile('teams')} only if the team file does not exist); "BA" registers ba; the only session on the machine registers both <team>. Any other title: do not register, carry on with the owner's request.`,
         `Manuals: ${agents('tech-lead.md')} or ${agents('ba.md')}.`,
       ].join('\n'),
     )

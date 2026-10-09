@@ -423,13 +423,17 @@ export function reclaimSession(
     desktopId,
     sessions => {
       const mine = Object.values(sessions).filter(e => e?.desktopId === desktopId)
-      // Hand edits can leave several; the newest registration is the live one.
-      const found = mine.sort((x, y) => String(y.registered).localeCompare(String(x.registered)))[0]
+      // Hand edits can leave several; the newest registration is the live one,
+      // and an undated entry counts as the oldest.
+      const found = mine.sort((x, y) =>
+        String(y.registered ?? '').localeCompare(String(x.registered ?? '')),
+      )[0]
       if (!found) throw new Error(`no registration for desktop id ${desktopId}; register instead`)
       if (sessions[cliId] && sessions[cliId].desktopId !== desktopId) {
         throw new Error(`CLI id ${cliId} is registered to another session; check the desktop id`)
       }
-      if (!ROLES.has(found.role) || (found.team != null && !TEAM_NAME.test(String(found.team)))) {
+      const badTeam = found.team != null && !TEAM_NAME.test(String(found.team))
+      if (!ROLES.has(found.role) || badTeam || (found.role !== 'ba' && !found.team)) {
         throw new Error(`the registration for ${desktopId} is invalid; register instead`)
       }
       return { ...found, reclaimed: now }

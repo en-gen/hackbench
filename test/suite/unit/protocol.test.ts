@@ -880,6 +880,46 @@ describe('reclaimSession', () => {
     expect(r.stdout).toMatch(/usage:/)
   })
 
+  it('refuses a non-ba entry without a team', () => {
+    const dir = tempDir('state-')
+    fs.writeFileSync(
+      path.join(dir, 'sessions.json'),
+      JSON.stringify({ [CLI_ID]: { desktopId: LOCAL_ID, role: 'tech-lead', team: null } }),
+    )
+    expect(() => reclaimSession(dir, NEW_CLI, LOCAL_ID)).toThrow(/invalid/)
+  })
+
+  it('treats an entry with no registered time as the oldest', () => {
+    const dir = tempDir('state-')
+    fs.writeFileSync(
+      path.join(dir, 'sessions.json'),
+      JSON.stringify({
+        [CLI_ID]: { desktopId: LOCAL_ID, role: 'tech-lead', team: 'undated' },
+        [CLI_ID_2]: {
+          desktopId: LOCAL_ID,
+          role: 'tech-lead',
+          team: 'dated',
+          registered: '2026-01-01',
+        },
+      }),
+    )
+    expect(reclaimSession(dir, NEW_CLI, LOCAL_ID).team).toBe('dated')
+  })
+
+  it('the command prints only the reclaimed entry', () => {
+    const dir = tempDir('state-')
+    const script = path.resolve(__dirname, '../../../tools/scripts/protocol.mjs')
+    registerSession(dir, CLI_ID, LOCAL_ID, 'tech-lead', 'alpha', NOW)
+    registerSession(dir, CLI_ID_2, LOCAL_ID_2, 'tech-lead', 'bravo', NOW)
+    const r = spawnSync('node', [script, 'reclaim', NEW_CLI, LOCAL_ID], {
+      encoding: 'utf8',
+      env: { ...process.env, HACKBENCH_STATE_DIR: dir },
+    })
+    expect(JSON.parse(r.stdout).team).toBe('alpha')
+    expect(r.stdout).not.toContain(CLI_ID_2)
+    expect(r.stdout).not.toContain('bravo')
+  })
+
   it('validates both ids', () => {
     const dir = tempDir('state-')
     expect(() => reclaimSession(dir, 'nope', LOCAL_ID)).toThrow(/CLI session id/)
