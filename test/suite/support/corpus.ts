@@ -20,6 +20,9 @@ export const MAGIC: string = core.MAGIC
 export const INVICTUS: string = core.INVICTUS
 export const ROM_DIR: string = core.ROM_DIR
 export const TOOLS_ROOT: string = core.TOOLS_ROOT
+/** The sprite-trace capture set under `fixtures/sprite-trace/`: the vanilla ROM's (SHA-1 6b47bb75) traces with the
+ *  45 castle-entry maps re-captured at the real level load (#649). `6b47bb75/` is the superseded set; do not point at it. */
+export const SPRITE_TRACE_SET = '6b47bb75-realload-2026-10-09'
 /** Where the `layers_v5` Mesen captures live (en-gen/hackbench#205); read-only. */
 export const CAPTURE_DIR: string = core.CAPTURE_DIR
 

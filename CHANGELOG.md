@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The Mesen sprite-trace harness no longer records the pre-level castle-entry scene as the level
+  (player animation `$0A` at the first GM `$14`; it waits for the real load, about 500 frames later). 45 of
+  154 captured maps had a fixed Map16 image shared across levels; re-captured, the loader's Map16
+  differences against Mesen fall from 66 maps to 23 (18 boss arenas, 5 past the level's end), and the
+  sprite-trace replay grows from 1122 to 1578 calls (1566 write-for-write equal). Vanilla, one machine, Mesen 2.x (#649).
 - The sprite level loader now runs the rest of GM11LoadLevel's setup in the ROM's order: the layer
   position copy and the screen setup (CODE_00A796, `$1404`, UpdateScreenPosition). Against
   Mesen's recorded level state, 307 cell mismatches over 98 maps (`$1404`, `$1462-$1469`, `$1E`,

@@ -25,6 +25,7 @@ import {
   freshRom,
   hasCaptures,
   hasRom,
+  SPRITE_TRACE_SET,
   TOOLS_ROOT,
   VANILLA,
 } from '../../support/corpus'
@@ -57,13 +58,10 @@ function recordedFrames(r: Rec): RecordedPiece[][] {
 
 /** Map16 tables from the sprite-trace fixtures (same maps, same ROM), when present. */
 function traceMap16(map: string): { low: Uint8Array; high: Uint8Array } | undefined {
-  const root = join(TOOLS_ROOT, 'fixtures', 'sprite-trace')
-  if (!existsSync(root)) return undefined
-  for (const sha of readdirSync(root)) {
-    const lo = join(root, sha, map, 'map16_7ec800.bin')
-    const hi = join(root, sha, map, 'map16_7fc800.bin')
-    if (existsSync(lo) && existsSync(hi)) return { low: readFileSync(lo), high: readFileSync(hi) }
-  }
+  const dir = join(TOOLS_ROOT, 'fixtures', 'sprite-trace', SPRITE_TRACE_SET, map)
+  const lo = join(dir, 'map16_7ec800.bin')
+  const hi = join(dir, 'map16_7fc800.bin')
+  if (existsSync(lo) && existsSync(hi)) return { low: readFileSync(lo), high: readFileSync(hi) }
   return undefined
 }
 

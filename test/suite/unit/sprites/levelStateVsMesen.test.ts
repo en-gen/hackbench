@@ -3,7 +3,9 @@
  * sprite-trace captures, so a change inside a differing map, or one that moves a map between
  * the identical and different sets, goes red. Measurement only: the pinned values are known
  * differences, not correct behaviour. Cause analysis and tile-pair buckets are on the issue.
- * Measured 2026-10-07, vanilla ROM, 154 captured maps (ids are hex level numbers). The Mesen
+ * Measured 2026-10-09, vanilla ROM, one machine, 154 captured maps (ids are hex level numbers),
+ * against the set re-captured at the real level load (SPRITE_TRACE_SET; the 45 castle-entry maps were
+ * re-run with the fixed harness, the rest copied unchanged). Before that, 66 maps differed. The Mesen
  * $94/$96 is the first sprite-call WRAM snapshot, not load time.
  */
 import { createHash } from 'node:crypto'
@@ -15,16 +17,10 @@ import { readMarioStartPos } from '../../../../src/rom/L3Loader'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
-import { freshRom, hasRom, romPath, TOOLS_ROOT, VANILLA } from '../../support/corpus'
+import { freshRom, hasRom, SPRITE_TRACE_SET, TOOLS_ROOT, VANILLA } from '../../support/corpus'
 
 const TRACE_DIR = process.env.HACKBENCH_SPRITE_TRACE ?? join(TOOLS_ROOT, 'fixtures', 'sprite-trace')
-// The capture directory is named for the first 8 hex digits of the ROM's SHA-1.
-const sha8 = (): string =>
-  createHash('sha1')
-    .update(readFileSync(romPath(VANILLA)))
-    .digest('hex')
-    .slice(0, 8)
-const root = hasRom(VANILLA) ? join(TRACE_DIR, sha8()) : ''
+const root = hasRom(VANILLA) ? join(TRACE_DIR, SPRITE_TRACE_SET) : ''
 
 /** Bytes in each Map16 table (the object interpreter buffer, objectHandlers/interpret.ts BUF_LEN). */
 const MAP16_LEN = 0x3800
@@ -69,11 +65,37 @@ const loaderVsMesen = (ins: In[]): string[] =>
 const fallbackVsLoader = (rom: RomFile, ins: In[]): string[] =>
   ins.map(m => gap(m.id, readMarioStartPos(rom, parseInt(m.id, 16)), xy(m.wram, 0x94))).filter(nonzero) // prettier-ignore
 
+/** A map's Level 1 pointer and its Map16 dump, for the shared-image check. */
+interface Dump { id: string; ptr: number; lo: Buffer; hi: Buffer } // prettier-ignore
+
+/**
+ * Groups of maps with DIFFERENT Level 1 pointers whose Map16 dumps are byte-identical. Before the
+ * #649 harness fix, 43 maps opened on the castle-entry scene and shared three fixed images; a
+ * level's own data cannot match another level's, so any group here is a pre-level image.
+ */
+function sharedImages(ds: Dump[]): string[][] {
+  const by = new Map<string, Dump[]>()
+  for (const d of ds) {
+    const k = createHash('md5').update(d.lo).update(d.hi).digest('hex')
+    by.set(k, [...(by.get(k) ?? []), d])
+  }
+  return [...by.values()].filter(g => new Set(g.map(d => d.ptr)).size > 1).map(g => g.map(d => d.id)) // prettier-ignore
+}
+
 const pins = (s: string): string[] => s.split(' ')
 const MAP16_COUNTS = pins(
-  '002:2816 004:713 007:982 00b:1404 00e:964 013:1017 01a:2854 01b:1266 01f:855 020:4599 021:530 093:231 094:228 095:64 096:32 097:32 098:64 099:64 09a:64 09b:32 0be:185 0bf:147 0c1:121 0c4:288 0c8:137 0cb:106 0cc:64 0d3:228 0d4:2198 0d5:64 0d6:4381 0d9:64 0db:1863 101:1982 102:2816 107:722 10d:1006 10e:1745 110:1759 111:3336 114:740 11c:2664 11d:1804 127:2816 193:228 194:231 195:64 196:32 197:32 198:64 199:64 19a:64 19b:32 1bd:1736 1c7:32 1cc:623 1cd:553 1ce:1103 1cf:1111 1d0:1011 1d1:288 1d3:760 1d4:496 1d9:740 1da:288 1db:793',
+  '002:2816 095:64 096:32 097:32 098:64 099:64 09a:64 09b:32 0be:2816 0c1:2816 0cc:64 0d5:64 0d9:64 102:2816 127:2816 195:64 196:32 197:32 198:64 199:64 19a:64 19b:32 1c7:32',
 )
-const PAST_END = ['002', '102', '127']
+// Level-independent dumps that different pointers legitimately share: the mode 9 and mode 16 boss
+// arenas (the capture holds the game's arena fill; these are the maps in MAP16_COUNTS above), and
+// 094/193/0d3, one-screen rooms that match the loader cell for cell. A castle-entry image would add
+// a 28-, 10- or 5-map group here; anything new is red.
+const SHARED_IMAGES = [
+  ['094', '0d3', '193'],
+  ['095', '098', '099', '09a', '0cc', '0d5', '0d9', '195', '198', '199', '19a'],
+  ['09b', '19b', '1c7'],
+]
+const PAST_END = ['002', '0be', '0c1', '102', '127']
 const LOADER_VS_MESEN = pins(
   '095:-16,256 096:-64,-65136 097:-64,-65136 098:-16,256 099:-16,256 09a:-16,256 09b:-16,256 0cc:-16,256 0d5:-16,256 0d9:-16,256 195:-16,256 196:-64,-65136 197:-64,-65136 198:-16,256 199:-16,256 19a:-16,256 19b:-16,256 1c7:-16,256',
 )
@@ -119,12 +141,23 @@ describe.skipIf(!hasRom(VANILLA) || !existsSync(root))(
       expect(real().length).toBe(154)
       const r = map16Differences(real())
       expect(r.counts).toEqual(MAP16_COUNTS)
-      expect(r.counts.length).toBe(66)
+      expect(r.counts.length).toBe(23)
       expect(r.pastEndOnly).toEqual(PAST_END)
     }, 300_000)
 
+    it('no two maps with different Level 1 pointers share a Map16 dump (no castle-entry image survives)', () => {
+      const ds: Dump[] = readdirSync(root).sort().map(id => ({
+        id,
+        ptr: JSON.parse(readFileSync(join(root, id, 'meta.json'), 'utf8')).layer1Ptr as number,
+        lo: readFileSync(join(root, id, 'map16_7ec800.bin')),
+        hi: readFileSync(join(root, id, 'map16_7fc800.bin')),
+      })) // prettier-ignore
+      expect(ds.length).toBe(154)
+      expect(sharedImages(ds)).toEqual(SHARED_IMAGES)
+    })
+
     it('Mario: the loader $94/$96 differs from the capture on exactly the pinned 18 maps, by these offsets', () => {
-      expect(real().filter(m => m.mario).length).toBe(98)
+      expect(real().filter(m => m.mario).length).toBe(139)
       expect(loaderVsMesen(real())).toEqual(LOADER_VS_MESEN)
     }, 300_000)
 
@@ -186,6 +219,16 @@ describe('level state comparators on synthetic bytes', () => {
     expect(pastEnd(3, () => {})).toEqual([]) // inside the level
     expect(pastEnd(5, m => (m.hi[5] = 1))).toEqual([]) // capture $100
     expect(pastEnd(5, m => (m.wram[0xc800 + 5] = 0x26))).toEqual([]) // loader not $25
+  })
+
+  it('shared-image check goes red on a planted duplicate, and ignores maps with the same pointer', () => {
+    const mk = (id: string, ptr: number, b: number): Dump => ({ id, ptr, lo: Buffer.alloc(8, b), hi: Buffer.alloc(8, 0) }) // prettier-ignore
+    expect(sharedImages([mk('a', 1, 1), mk('b', 2, 2), mk('c', 3, 3)])).toEqual([])
+    expect(sharedImages([mk('a', 1, 1), mk('b', 2, 1), mk('c', 3, 3)])).toEqual([['a', 'b']])
+    expect(sharedImages([mk('a', 1, 1), mk('b', 1, 1)])).toEqual([]) // same level, same dump
+    const m = mk('b', 2, 1)
+    m.hi[7] = 1 // one byte in the hi table is enough to be a different image
+    expect(sharedImages([mk('a', 1, 1), m])).toEqual([])
   })
 
   it('Map16 compare refuses a truncated or empty table instead of comparing fewer cells', () => {
