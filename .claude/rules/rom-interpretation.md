@@ -35,14 +35,13 @@ table. Do not port the routine.
 **If you are describing behaviour, you have lost the thread.** Every defect
 this project has shipped came from modelling instead of reading:
 
-| Defect                 | What it did                                                                      | What it should have done                  |
-| ---------------------- | -------------------------------------------------------------------------------- | ----------------------------------------- |
-| `screenHasExitTrigger` | invented Map16 tile scanning, cited an address with zero hits in the disassembly | read `DATA_05F800`                        |
-| `levelHasObjects()`    | invented a "modes 0-20 valid" rule with a fabricated line citation               | compare the L1 pointer against the filler |
-| exit-graph high byte   | derived it from `ExitTableHigh` bit 3, which the game never reads for this       | take it from the submap flag              |
+| Defect                 | What it did                                                                      | What it should have done     |
+| ---------------------- | -------------------------------------------------------------------------------- | ---------------------------- |
+| `screenHasExitTrigger` | invented Map16 tile scanning, cited an address with zero hits in the disassembly | read `DATA_05F800`           |
+| exit-graph high byte   | derived it from `ExitTableHigh` bit 3, which the game never reads for this       | take it from the submap flag |
 
-Both fabricated citations are tracked in issue #311. Neither was caught by
-tests; both were caught by someone re-reading the disassembly.
+The fabricated citation was not caught by tests; it was caught by someone
+re-reading the disassembly.
 
 **The one case where table-reading is not enough.** Lunar Magic replaces
 routines, not just data. `$05D8B1` holds the `BEQ` opcode `$F0` in a stock ROM
@@ -146,7 +145,7 @@ In practice:
 - The line is at ASSUMPTION, not at opcodes. **We are not building an
   emulator, but content we load for editing must be INTERPRETED, not assumed
   from the ROM.** Running the ROM to see what happens is out of scope outside
-  the two bounded exceptions below.
+  the three bounded exceptions below.
   Reading bytes - including opcodes - to determine what the ROM does with
   the content we are about to show the user is in scope and required.
 - Static control-flow reading is on the required side of that line. Walking
@@ -168,8 +167,30 @@ In practice:
   state (the ROM's own level loader run as code) and per-instance inputs (the
   placed sprite's position, camera, Mario); no per-sprite seed tables. An
   unknown entry shape is refused with a reason, and runs have step budgets (per
-  call and per sprite).
+  call and per sprite). The call loop, stack and budget checks are one helper
+  (`src/rom/cpu/call.ts`), and the machine is `src/rom/sprites/interp/Machine.ts`:
+  LoROM only, guarded (BRK, COP, WDM, WAI, STP and any fetch outside cart ROM
+  refuse); P, S, D, DB and mode are reset between calls.
   Captures and Mesen are an oracle only, never a runtime input.
+  Extended to one more routine (owner decision 2026-10-06, #566): the item
+  block's own spawn, entered at its dispatcher `CODE_0288DC` and running
+  through `GenSpriteFromBlk` (`bank_02.asm:1097-1292`), runs on the core so
+  that a block item's slot, status, timers and cells come from the game and
+  not from a hand-ported dispatch. Same terms: byte-checked entry shape,
+  generic seeds (the block's content index and position; the loader's own
+  SpriteMemorySetting), step budgets, a plain refusal otherwise. Unlike the
+  other calls, whose DB is reset to 0, the spawn is entered with DB deliberately
+  set to the routine's own bank ($02), as the game reaches it, because it reads
+  its tables through DB. No other
+  routine is added by this.
+- Third bounded use, for block collision (owner comment on #435, 2026-10-06):
+  the collision probe spike (`spikes/collision-probe/`, #633) and the planned
+  `mapCollision` product run SMW's own Mario-versus-layer-1 routines
+  (`CODE_00EAA6`, `CODE_00EADB`) on the same core, bus, guard and call helpers
+  over a synthetic level, seeded by the ROM's own level loader. Same limits as
+  the sprite exception: fixed entries, byte-checked shapes, step budgets, a
+  refusal with a reason, nothing else run. Do not extend it to other routines
+  without a decision of the same kind.
 - A derivation that truly cannot be read must be NAMED as a hack-fragility
   point and paired with honest degradation: compare the handler against its
   vanilla bytes and DECLINE TO ASSERT when it diverges, rather than rendering

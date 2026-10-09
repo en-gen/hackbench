@@ -15,6 +15,7 @@ import {
   popLayer,
   popRedoLayer,
   pushRedoLayer,
+  opsStamp,
   OPS_DIR,
   REDO_DIR,
 } from '../../../src/project/OpsStore'
@@ -92,6 +93,16 @@ describe('OpsStore', () => {
       old: '$391F',
       new: '$03E0',
     })
+  })
+})
+
+describe('OpsStore staged layers', () => {
+  it('a stray NNNN.json.tmp is not a layer and does not move opsStamp', () => {
+    appendLayer(tmp, layer('L1'))
+    const before = opsStamp(tmp).key
+    fs.writeFileSync(path.join(tmp, OPS_DIR, '0001.json.tmp'), '{"half":', 'utf8')
+    expect(loadLayers(tmp).map(l => l.id)).toEqual(['L1'])
+    expect(opsStamp(tmp).key).toBe(before)
   })
 })
 

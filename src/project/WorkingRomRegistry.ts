@@ -15,16 +15,22 @@ import { openProject, Project, RomIdentity, romIdentity } from './Project'
 import { readRomBounded } from './BoundedRead'
 import { RomRegistry } from './RomRegistry'
 import { RomFile } from '../rom/RomFile'
+import { GfxCharEdit, GfxRefusal } from '../rom/GfxLayer'
 import { Layer, WorkingRom } from './WorkingRom'
 import {
   loadLayers,
   appendLayer,
+  isGfxCharEdit,
   popLayer,
   loadRedoLayers,
   pushRedoLayer,
   popRedoLayer,
   clearRedo,
   opsStamp,
+  stageLayer,
+  commitLayer,
+  discardStaged,
+  StagedLayer,
 } from './OpsStore'
 
 /**
@@ -98,6 +104,11 @@ function addrHex(romAddr: number): string {
 /** `mismatch` names both hashes in full so a caller can shorten them for display. */
 export type RomCheck = { status: 'ok' } | { status: 'mismatch'; picked: string; expected: string }
 
+interface CopyListener {
+  built: (manifestPath: string, working: WorkingRom) => void
+  release?: (working: WorkingRom) => void
+}
+
 export class WorkingRomRegistry {
   private readonly cache = new Map<string, WorkingRomEntry>()
   /**
@@ -109,7 +120,54 @@ export class WorkingRomRegistry {
    */
   private readonly stamps = new Map<string, { key: string; takenAt: number }>()
 
+  private readonly romListeners = new Set<(manifestPath: string) => void>()
+  private readonly copyListeners = new Set<CopyListener>()
+  /**
+   * Projects whose `get` answered `rom-not-located`, with the ROM they wait
+   * for: the only ones a later registration can newly serve. They have no
+   * cache entry, so nothing else remembers them.
+   */
+  private readonly waiting = new Map<string, string>()
+
   constructor(private readonly registry: RomRegistry = new RomRegistry()) {}
+
+  /**
+   * Fires, once per project, when the ROM behind a project's working copy
+   * changes: `relocate`, a `register` that serves a project that was waiting
+   * for its ROM, a `get` that finds a waiting project's ROM again, or a rebuild
+   * that replaces a cached entry. NOT on the first build (a view asking for the
+   * project is already loading it) and NOT on edits (the edit event covers
+   * those).
+   */
+  onRomChanged(fn: (manifestPath: string) => void): () => void {
+    this.romListeners.add(fn)
+    return () => this.romListeners.delete(fn)
+  }
+
+  /**
+   * Called with every working copy this registry holds, now and as each one
+   * is built or rebuilt, so a subscriber (a connection's edit notifier) never
+   * has to wait for a request to learn a copy exists. `release` is called with
+   * a copy the registry stops holding (replaced, evicted, dropped), so the
+   * subscriber can let go of it too.
+   */
+  onWorkingCopy(
+    built: (manifestPath: string, working: WorkingRom) => void,
+    release?: (working: WorkingRom) => void,
+  ): () => void {
+    const listener = { built, release }
+    this.copyListeners.add(listener)
+    for (const [manifestPath, entry] of this.cache) built(manifestPath, entry.working)
+    return () => this.copyListeners.delete(listener)
+  }
+
+  private releaseCopy(working: WorkingRom): void {
+    for (const l of this.copyListeners) l.release?.(working)
+  }
+
+  private fireRomChanged(manifestPath: string): void {
+    for (const fn of this.romListeners) fn(manifestPath)
+  }
 
   /**
    * Remember where a ROM lives on this machine. Here rather than in a
@@ -117,7 +175,16 @@ export class WorkingRomRegistry {
    * base bytes behind the working copy's back (workingCopyGate.test.ts).
    */
   register(romPath: string): RomIdentity {
-    return this.registry.register(romPath)
+    const identity = this.registry.register(romPath)
+    for (const manifest of this.takeWaiting(identity.sha256)) this.fireRomChanged(manifest)
+    return identity
+  }
+
+  /** Projects that were waiting for the ROM `sha256`; they wait no longer. */
+  private takeWaiting(sha256: string): string[] {
+    const served = [...this.waiting].filter(([, sha]) => sha === sha256).map(([m]) => m)
+    for (const manifest of served) this.waiting.delete(manifest)
+    return served
   }
 
   /**
@@ -144,7 +211,8 @@ export class WorkingRomRegistry {
    * registry under its own hash nor give a header state for other bytes.
    * Every cached project on this ROM learns the new path; one whose
    * copier-header state changed is dropped, so the next `get` rebuilds it
-   * (Export Patch depends on that state). Callers push a refresh after.
+   * (Export Patch depends on that state). Announces the swap through
+   * `onRomChanged`, once per project, so callers push nothing themselves.
    */
   relocate(manifestPath: string, romPath: string): RomCheck {
     const expected = openProject(manifestPath).baseRom.sha256
@@ -154,15 +222,21 @@ export class WorkingRomRegistry {
     if (picked !== expected) return { status: 'mismatch', picked, expected }
     this.registry.registerBytes(absolute, bytes)
     const headered = RomFile.fromBytes(absolute, Buffer.from(bytes)).hasHeader
+    // The caller's project may have no cache entry yet (it was waiting on a
+    // missing ROM), so it is announced whether or not the loop meets it.
+    const moved = new Set([manifestPath, ...this.takeWaiting(expected)])
     for (const [manifest, entry] of [...this.cache]) {
       if (entry.project.baseRom.sha256 !== expected) continue
       if (entry.working.hasCopierHeader !== headered) {
         this.cache.delete(manifest)
         this.stamps.delete(manifest)
+        this.releaseCopy(entry.working)
       } else {
         entry.romPath = absolute
       }
+      moved.add(manifest)
     }
+    for (const manifest of moved) this.fireRomChanged(manifest)
     return { status: 'ok' }
   }
 
@@ -186,7 +260,7 @@ export class WorkingRomRegistry {
     // rejection. The cache entry is kept: a checkout can leave the manifest
     // briefly missing, and a rebuilt instance would strand every view
     // subscribed to the old one. A real base ROM change below does strand
-    // them; nothing yet tells those views to re-fetch.
+    // them, which is why it announces `onRomChanged`.
     let project: Project
     try {
       project = openProject(manifestPath)
@@ -209,12 +283,24 @@ export class WorkingRomRegistry {
     let romPath: string
     let working: WorkingRom
     let stamp: { key: string; takenAt: number }
+    let wasWaiting: boolean
     try {
       // Taken BEFORE the layers are read: a write landing in between then
       // shows as a changed stamp next call, rather than being stamped as seen.
       stamp = { key: opsStamp(project.directory).key, takenAt: Date.now() }
       const resolved = this.registry.resolveVerified(project.baseRom.sha256)
-      if (!resolved) return { status: 'rom-not-located', baseRom: project.baseRom }
+      if (!resolved) {
+        this.waiting.set(manifestPath, project.baseRom.sha256)
+        // A stale entry must not outlive the answer: when the ROM is found, the
+        // later build would look like a second swap after register announced it.
+        if (cached) {
+          this.cache.delete(manifestPath)
+          this.stamps.delete(manifestPath)
+          this.releaseCopy(cached.working)
+        }
+        return { status: 'rom-not-located', baseRom: project.baseRom }
+      }
+      wasWaiting = this.waiting.has(manifestPath)
       romPath = resolved.path
       const rom = RomFile.fromBytes(romPath, Buffer.from(resolved.bytes))
       working = new WorkingRom(rom.buffer, rom.hasHeader)
@@ -227,9 +313,18 @@ export class WorkingRomRegistry {
       return { status: 'unreadable', reason: (err as Error).message }
     }
 
+    // Only now: a failed build above must leave the project waiting, so the
+    // get that finally builds it still announces.
+    this.waiting.delete(manifestPath)
     const entry: WorkingRomEntry = { working, romPath, project }
     this.cache.set(manifestPath, entry)
     this.stamps.set(manifestPath, stamp)
+    // A rebuild strands every view holding the old instance (see above).
+    if (cached) this.releaseCopy(cached.working)
+    for (const l of this.copyListeners) l.built(manifestPath, working)
+    // A waiting project served here (the ROM reappeared without register or
+    // relocate) is announced too: a view stuck on "Locate" has no other cue.
+    if (cached || wasWaiting) this.fireRomChanged(manifestPath)
     return { status: 'ok', ...entry }
   }
 
@@ -262,7 +357,7 @@ export class WorkingRomRegistry {
    * match - a `stale` result here means a genuine race (another edit landed
    * first), not routine drift.
    *
-   * `working.append` runs BEFORE `appendLayer`'s disk write on purpose:
+   * `working.append` runs BEFORE the layer's disk write on purpose:
    * `append` is what validates `old`, and validating requires the layer to
    * already exist so `WorkingRom` can check it against the state below it -
    * there is no separate "just validate, do not apply" step to call first.
@@ -282,7 +377,7 @@ export class WorkingRomRegistry {
     | { status: 'io-error'; reason: string } {
     const r = this.get(manifestPath)
     if (r.status !== 'ok') return r
-    const { working, project } = r
+    const { working } = r
 
     const layer: Layer = {
       id: `edit-${Date.now().toString(36)}-${Math.floor(Math.random() * 0xffff).toString(36)}`,
@@ -291,25 +386,100 @@ export class WorkingRomRegistry {
       ops: [{ address: addrHex(req.romAddr), old: req.oldHex, new: req.newHex, mask: req.mask }],
     }
 
+    const redo = [...working.redoStack] // append ends it; persist puts it back on a failed write
     try {
       working.append(layer)
     } catch (err) {
       return { status: 'stale', reason: (err as Error).message }
     }
 
+    const failed = this.persist(manifestPath, r, layer, redo)
+    if (failed) return failed
+    return r
+  }
+
+  /**
+   * The disk half of an edit whose layer `append` has already put on the
+   * stack (staged write, clear redo, rename). `append` ended the redo future
+   * in memory, so a failure before the clear completed puts `redo` back
+   * (memory only; disk was never touched) and the held copy stays the live
+   * instance. After the clear the disk has lost it too, and the stamp drop
+   * reloads. The layer is popped straight back off either way: an edit live
+   * in memory but never on disk would show as committed, then be gone on
+   * reopen.
+   */
+  private persist(
+    manifestPath: string,
+    r: Extract<WorkingRomResult, { status: 'ok' }>,
+    layer: Layer,
+    redo: readonly Layer[],
+  ): { status: 'io-error'; reason: string } | null {
+    let staged: StagedLayer | undefined
+    let cleared = false
     try {
-      // `append` has already ended the redo future in memory; this is the
-      // same decision on disk. Done BEFORE the write so a failure leaves the
-      // two agreeing - a disk redo the working copy no longer knows about
-      // would come back, applicable, on the next launch.
-      clearRedo(project.directory)
-      appendLayer(project.directory, layer)
+      // Staged first so a failed write throws before clearRedo can destroy
+      // the redo history; the rename comes after the clear so the layer
+      // never sits on disk next to a redo future it ended.
+      staged = stageLayer(r.project.directory, layer)
+      clearRedo(r.project.directory)
+      cleared = true
+      commitLayer(staged)
+      return null
     } catch (err) {
-      working.pop() // roll back: it never actually took effect
+      if (staged) compensate(() => discardStaged(staged as StagedLayer))
+      r.working.pop()
+      if (!cleared) r.working.restoreRedo(redo)
       this.stamps.delete(manifestPath)
       return { status: 'io-error', reason: (err as Error).message }
     }
+  }
 
+  /**
+   * Append ONE gfx layer holding `chars`: what the GFX view's Save sends.
+   * Same order as setWord (append validates, then persist stages, clears
+   * redo and renames; popped back if that fails). A GfxRefusal (the arena would
+   * overflow, a character the file lacks) comes back as `refused` with the
+   * stack untouched.
+   */
+  setGfx(
+    manifestPath: string,
+    chars: readonly GfxCharEdit[],
+  ):
+    | WorkingRomResult
+    | { status: 'refused'; reason: string; overage?: number }
+    | { status: 'io-error'; reason: string } {
+    const r = this.get(manifestPath)
+    if (r.status !== 'ok') return r
+    const { working } = r
+    if (chars.length === 0) return { status: 'refused', reason: 'There is nothing to save.' }
+    const bad = chars.findIndex(c => !isGfxCharEdit(c))
+    if (bad >= 0) {
+      return {
+        status: 'refused',
+        reason: `Character ${bad} is malformed: it needs a whole-number file and tile, and one or more pixels with whole-number x, y and value.`,
+      }
+    }
+    const n = chars.length
+    const layer: Layer = {
+      id: `gfx-${Date.now().toString(36)}-${Math.floor(Math.random() * 0xffff).toString(36)}`,
+      label: `paint ${n} ${n === 1 ? 'character' : 'characters'}`,
+      kind: 'gfx',
+      // Copied: the stack must not alias objects the caller may reuse.
+      chars: chars.map(c => ({
+        file: c.file,
+        tile: c.tile,
+        pixels: c.pixels.map(p => ({ x: p.x, y: p.y, value: p.value })),
+      })),
+    }
+    const redo = [...working.redoStack] // append ends it; persist puts it back on a failed write
+    try {
+      working.append(layer)
+    } catch (err) {
+      const overage = err instanceof GfxRefusal ? err.overage : undefined
+      return { status: 'refused', reason: (err as Error).message, overage }
+    }
+    const failed = this.persist(manifestPath, r, layer, redo)
+    if (failed) return failed
     return r
   }
 
@@ -432,7 +602,12 @@ function sameLayers(a: readonly Layer[], b: readonly Layer[]): boolean {
   const key = (l: Layer): string =>
     JSON.stringify(
       l.kind === 'gfx'
-        ? [l.id, l.label, l.kind, l.file, l.tile, l.pixels.map(p => [p.x, p.y, p.value])]
+        ? [
+            l.id,
+            l.label,
+            l.kind,
+            l.chars.map(c => [c.file, c.tile, c.pixels.map(p => [p.x, p.y, p.value])]),
+          ]
         : l.kind === 'unreadable'
           ? [l.id, l.label, l.kind, l.reason]
           : [l.id, l.label, l.ops],

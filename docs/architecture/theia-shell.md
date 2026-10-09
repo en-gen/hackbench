@@ -19,14 +19,14 @@ theia/
 `extension/package.json` declares six `theiaExtensions` entries, each a
 frontend and backend pair:
 
-| Extension | Frontend | Backend | Service path |
-|-----------|----------|---------|--------------|
-| hackbench | shell, projects, commands | project server | `/services/hackbench-project` |
-| palette | palette view | palette server | `/services/hackbench-palette` |
-| music | audio view (BGM and SFX) | music server | `/services/hackbench-music` |
-| gfx | graphics view | GFX server | `/services/hackbench-gfx` |
-| map16 | Map16 tile editor | Map16 server | `/services/hackbench-map16` |
-| emulator | emulator view | emulator server | `/services/hackbench-emulator` |
+| Extension | Frontend                  | Backend         | Service path                   |
+| --------- | ------------------------- | --------------- | ------------------------------ |
+| hackbench | shell, projects, commands | project server  | `/services/hackbench-project`  |
+| palette   | palette view              | palette server  | `/services/hackbench-palette`  |
+| music     | audio view (BGM and SFX)  | music server    | `/services/hackbench-music`    |
+| gfx       | graphics view             | GFX server      | `/services/hackbench-gfx`      |
+| map16     | Map16 tile editor         | Map16 server    | `/services/hackbench-map16`    |
+| emulator  | emulator view             | emulator server | `/services/hackbench-emulator` |
 
 They are separate because each owns a view, a protocol and a server that can
 be reasoned about on its own, not because Theia requires it.
@@ -38,7 +38,7 @@ flowchart TB
     subgraph b["browser/ - renderer process"]
         w["widgets (.tsx)"]
         c["contributions<br/>commands, menus, views"]
-        pc["push clients"]
+        pc["ProjectContext<br/>event bus"]
     end
 
     subgraph cm["common/ - shared by both"]
@@ -70,59 +70,107 @@ back.
 
 ## How a service is wired
 
-hackbench, palette, GFX and Map16 - the four services that push to a
-client - bind their `*ServiceImpl` inside a `ConnectionContainerModule`
+hackbench - the only service that pushes to a client - binds its
+`ProjectServiceImpl` inside a `ConnectionContainerModule`
 (`@theia/core/lib/node/messaging/connection-container-module`), not as a
 plain backend-container singleton. Theia gives every top-level connection
 (one browser tab, one window) its own CHILD container built from that
-module, so each connection resolves its own `*ServiceImpl` instance and its
-own client - **this connection's own proxy back to the frontend**, never
-shared with another window. `WorkingRomRegistry` is the one thing these
-still share: it stays bound in the PARENT container, and the per-connection
-child resolves it there, which is what keeps an edit made through one
-window visible to every other window and view on the same project.
+module, so each connection resolves its own `ProjectServiceImpl` and its own
+client - **this connection's own proxy back to the frontend**, never shared
+with another window. `WorkingRomRegistry` is the one thing these still
+share: it stays bound in the PARENT container, and the per-connection child
+resolves it there, which is what keeps an edit made through one window
+visible to every other window and view on the same project.
 
-`music` and `emulator` never push to a client (no `setClient` in their
-protocol) and hold only machine-scoped, file-backed state (`CoreRegistry`,
-`WorkingRomRegistry`), so they stay ordinary backend-container singletons.
+`palette`, `gfx`, `map16`, `music` and `emulator` have no client (no
+`setClient` in their protocol), so they are ordinary backend-container
+singletons. They push nothing: an edit they make reaches every view through
+the project connection (below).
 
 ```mermaid
 sequenceDiagram
     participant W as widget
-    participant CC as per-connection container
-    participant S as PaletteServiceImpl
+    participant P as PaletteServiceImpl
     participant R as WorkingRomRegistry
+    participant N as project connection (WorkingCopyNotifier)
+    participant C as ProjectContext (frontend bus)
 
-    W->>CC: connect(PALETTE_SERVICE_PATH)
-    CC->>S: new PaletteServiceImpl(), setClient(proxy to W)
-    W->>S: setColor(...)
-    S->>R: get(manifestPath) - resolved from the PARENT container
-    R-->>S: the shared WorkingRom
-    S-->>W: onWorkingCopyChanged
+    W->>P: setColor(...)
+    P->>R: setWord(manifestPath, ...)
+    R-->>N: WorkingRom.onDidChange
+    N-->>C: onEditEvent(hackbench.edit.applied)
+    C-->>W: onEdit (every subscribed view)
 ```
 
-## Two notification paths
+## Notification paths
 
-This catches people out, so it is worth stating plainly.
+This catches people out, so it is worth stating plainly. Everything the
+backend tells the frontend leaves on ONE connection, the project service's,
+as one of two events, and arrives on one bus, `ProjectContext`. No other
+service has a client.
 
-**Server to frontend** goes over JSON-RPC via `WorkingCopyNotifier`. Its
+**Edit event** (`ProjectContext.onEdit`). A CloudEvents-shaped envelope
+(`src/project/EditEvent.ts`; the `cloudevents` package is imported for its
+types only, and ESLint refuses a value import). `type` is
+`hackbench.edit.applied` (an edit, a redo) or `hackbench.edit.reverted` (an
+undo, or the rollback of an edit that never reached disk). `subject` is the
+manifest path. `data` is `{ domain, ranges }`: `domain` is `palette`,
+`map16` or `gfx`; `ranges` are half-open `[start, end)` **file offsets** into
+the working copy's bytes (a copier header counts; they are not SNES
+addresses), coalesced, and empty for a gfx layer, which is addressed by file
+and character. Palette and Map16 are told apart by the op's `mask`: Map16
+always writes the full word, a colour never carries a mask, and that survives
+a reload where a field on the layer would not.
+
+It is built in one place. `WorkingCopyNotifier` is the only
+`WorkingRom.onDidChange` subscriber under `theia/extension/src/node`: the
+project service's `ProjectConnection` gives every working copy the registry
+holds, now or built later (`WorkingRomRegistry.onWorkingCopy`), to its
+per-connection notifier, and lets go of a copy the registry replaces.
 `watch` is idempotent per `WorkingRom` instance, keyed by a `Map` from that
-instance to its unsubscribe function, rather than a flag on the manifest
-path. `WorkingRomRegistry.get()` runs on every request, so without that
-guard each call would add another subscriber and a single edit would fire
-the client once per RPC call ever made. `setClient` doubles as the
-disconnect signal: passing `undefined` (wired to the client proxy's
-`onDidCloseConnection` in each `*-backend-module.ts`) calls every stored
-unsubscribe function and clears the map, so a closed window's dead proxy is
-never called again.
+instance to its unsubscribe function, so a single edit fires the client once.
+`setClient(undefined)` (wired to the client proxy's `onDidCloseConnection`)
+calls every stored unsubscribe function, so a closed window's dead proxy is
+never called again. A palette edit repainting an open GFX sheet is therefore
+this one event, not a call between servers.
 
-**Server to server** is not a separate mechanism. `WorkingCopyNotifier` is
-the only `WorkingRom.onDidChange` subscriber under `theia/extension/src/node`:
-an open GFX or Map16 view has its own connection's instance `watch`ing the
-same shared `WorkingRom` palette-server.ts writes through, and pushes to its
-own client exactly as palette-server.ts's does. A palette edit repainting an
-open GFX sheet is that instance's ordinary push, not a direct call between
-servers.
+**ROM changed** (`ProjectContext.onRomChanged`, #576). A separate event with
+the manifest path as payload, because it asks a view to rebuild from scratch
+where an edit asks it to re-read.
+`WorkingRomRegistry.onRomChanged` fires once per project when:
+
+- `relocate` swaps the ROM path (Project Properties);
+- `register` serves a project that was waiting for its ROM (the emulator's
+  "Locate ROM...");
+- a `get` finds the ROM of a project that was waiting for it (it reappeared
+  without `register` or `relocate`), so a view stuck on "Locate" refreshes.
+  Evidence scope: `WorkingRomRegistry.get()` keeps the waiting marker until the
+  copy is built; synthetic ROMs on one machine, pinned by two tests in
+  `test/suite/unit/RomChangedEvent.test.ts` ("a waiting project served by a
+  later get() is announced once, and a later register adds nothing" and "a
+  waiting project whose layer is unreadable keeps waiting; the get that
+  finally builds it fires once"), each seen red against the code without the
+  behaviour;
+- a rebuild replaces an existing cache entry (a header flip, or layers
+  rewritten under it).
+
+It does not fire on the first build, on a cached read, or on an edit.
+`RomChangedNotifier` (per connection, released by `setClient(undefined)`)
+pushes it as `ProjectServiceClient.onRomChanged`. This event is deliberately
+not a CloudEvent.
+
+| Subscriber                                      | Edit (`onEdit`)                       | ROM changed (`onRomChanged`)                        |
+| ----------------------------------------------- | ------------------------------------- | --------------------------------------------------- |
+| Palettes explorer                               | rebuild, keeps which groups were open | rebuild as a fresh open: nothing selected, defaults |
+| Maps, Graphics, Audio explorers                 | not subscribed (see below)            | rebuild as a fresh open                             |
+| Map, Map16, GFX, Palette-group, Overworld views | re-read                               | re-read                                             |
+| Emulator, Edit menu                             | stale check / refresh                 | refresh                                             |
+
+The Maps, Graphics and Audio explorers do not subscribe to edits because their
+rows come from tables that palette and Map16 word edits do not write, not
+because an edit can never matter: a GFX Save may change a GFX file's listing,
+and the Graphics explorer picks that up only on its next load. That is a
+known gap, not a decision.
 
 ## Views
 
@@ -139,6 +187,15 @@ Project-level commands (`New Project...`, `Open Project...`, `Open Recent
 Project...`, `Project Properties...`, `Export Patch`) live on the same
 category and are reachable from the File menu.
 
+Opening another project first closes every GFX, Map16 and map view of the old one
+(the widgets that implement `ProjectBound`), through the shell so a view with
+unsaved strokes asks. The switch aborts if any such view is still attached
+afterwards (a cancelled prompt, or a Save that failed), because Theia reports
+the close as done either way. A view still loading during the switch is
+disposed when `PreviewTabs` would attach it (#628). The palette explorer and
+the music, emulator and overworld views re-target on `ProjectContext.onChanged`;
+palette group views close themselves there.
+
 The map tab shows each screen as one composite canvas. The backend sends the
 six plane canvases per screen plus two plane lists (main and sub, bottom to
 top) and the CGADSUB and fixed color; the widget runs `composeScreen`
@@ -149,6 +206,26 @@ evidence: `docs/rom/level-rendering.md`.
 
 Views follow the active Theia theme rather than pinning their own colors,
 which `theia/browser-app/test/load-maps.spec.cjs` asserts.
+
+### The map tab's block content indicators (#566)
+
+`ProjectService.mapBlockContents(manifestPath, index)` returns the distinct
+16 x 16 item arts of a map (`arts`, by key) and where each item block shows
+which (`indicators`: plane, map-pixel corner, art key), from the working copy,
+with a plain-words `note` for blocks it does not draw. The tables' refusal
+comes back as `unavailable` and the tab shows the reason.
+The composite canvas of each screen stays native-size and is never given indicators. A screen that
+holds one also has a display canvas (`data-layer="display"`) over it, which hides the composite and shows
+the same picture at the zoom (`IndicatorDisplay`, `browser/map-view-model.ts`): the native composite
+scaled up, with each indicator's block cell recomposed at the zoom, its planes scaled by nearest
+sampling, its plane's indicators painted into the plane's copy and the planes stacked and put through
+color math as ever. So hiding a graphics layer hides its indicators, and a nearer plane or a sprite covers an
+indicator exactly as it covers its block. A hidden plane is left out of the plane set, not empty. A hover
+change recomposes only the cells it touches (about 2 ms at 3x on a screen with three blocks, measured in
+node), and the display is built once per screen and zoom. Screens with no indicator show the composite
+itself. Hover is tracked on the scroller (`onPointerMove`, and re-found on scroll, zoom and new replies);
+the topmost visible plane's block under the pointer expands. The display publishes the boxes it painted
+in `data-indicators`.
 
 ### The map tab's sprite layer (#564)
 
@@ -170,6 +247,80 @@ the 16 px grid. The frontend cuts each bitmap per screen
 (`compositeSpriteScreen`, `browser/map-view-model.ts`) into one `sprites`
 canvas per screen, stacked just under L1's priority plane. The `S` toggle
 hides those canvases with `visibility: hidden`, as L1 and L2 do.
+
+### The map tab's collision overlay (#435)
+
+`ProjectService.mapCollision(manifestPath, index)` returns a map's collision as
+tagged polylines in map pixels (`MapCollisionResult`: `width`, `height`, and
+`lines` of `kind` `floor`, `ceiling`, `wall` or `unknown`; an unknown line is
+the cell's closed outline). The lines come from SMW's own block collision run
+on the 65816 core (`src/rom/collision/`), not from `TileFactory.classify`, so a
+patched block routine would show; vanilla block code only for now.
+`node/map-collision.ts` is the pure module behind it; `project-server.ts` reads
+the working copy through `WorkingRomRegistry` and passes a `cancelled` check
+(the working copy's bytes moved on), so a probe for old bytes stops between
+tiles. It is a separate call from `mapScreen`: a cold map takes about 3 s of
+CPU (the probe yields to the event loop after every tile), then a revisit is a
+cache hit. Probe results are cached per working-copy bytes by tileset, game
+state and tile id; the composed reply per bytes and map (eight kept).
+
+A map the probe cannot run answers `unavailable` with the reason (the ROM's
+level loader refused it, or the level is vertical): the toolbar's
+`collision-toggle` is then disabled with that reason as its tooltip, never an
+empty overlay. Nothing is probed until the toggle is pressed: on map open the
+view calls the cheap `mapCollisionCheck` (the level's shape and the ROM's own
+level loader, no tile probed), which decides the toggle's state; `mapCollision`
+runs on the press and on every working-copy push while the overlay is on. With
+it off, an edit only drops the stale lines and the next press refetches. Replies
+to an older request are dropped by `generation`, as for sprites.
+
+The overlay (`browser/collision-overlay.tsx`) is one SVG inside the strip, in
+map coordinates, so it follows `ZoomController` by scaling its box.
+`vector-effect: non-scaling-stroke` keeps every line 2 CSS px wide. Surfaces
+(`#ffeb3b`) and walls (`#d500f9`) are separate `<g data-group>` elements;
+unknown cells are hatched. The overlay follows the view's four palace toggles and the blue P-switch
+(`mapCollision` takes the same flags as `mapScreen`: the grid is built with them, since $06A-$06D
+become $16A-$16D on 48 levels, and the probe's WRAM gets $1F27-$1F2A and $14AD to match). The silver
+P-switch also changes tiles ($12F becomes coin $2B under it) but is not modelled, so the overlay does
+not follow it; ON/OFF swaps chars, not tiles, so it does not matter here. Mario is small. The state is
+in the composed reply's key. The per-tile probe cache, calibration and level-of-air runs key on the
+tileset and the blue P-switch only, not the palaces: on vanilla the block code reads the palace flags
+only in the big palace switch (bank_00.asm:12508), whose two branches give the same collision, so a
+palace toggle reuses every cached tile and probes only the ids new to the map ($015 yellow: 1 tile, about
+20 ms warm, against re-probing the whole map). The probe records any read of $1F27-$1F2A (even though it sets them), and an entry that read them is cached per
+palace state, so a hack whose blocks read the flags stays right after a toggle. Before probing, the ROM's call
+sites into the two collision routines are byte-checked (`entryProblem`, bank_00.asm:11723-11771): a hook that
+reroutes them refuses with a reason, in the toggle's check as well as the probe.
+
+An edit does not empty the probe cache. Each cached result (tile, calibration, level-of-air runs) keeps
+the ROM bytes its runs read and the seed-WRAM bytes it read before writing them, with the values seen.
+`mapCollision` gives new working-copy bytes the previous bytes' cache, owing the diffed byte ranges;
+the next probe of a tileset (`ProbeCache.validate`) drops only entries whose ROM reads meet those ranges
+or whose seed reads differ in the freshly loaded seed. The grid and compose always re-run on the new
+bytes, so moving tiles in level data re-probes only ids new to the map (about 40 ms on $105), and a
+byte only one tile's code reads drops the tiles sharing it (a few ms to a fraction of a second);
+a byte the level-of-air runs read drops everything. Seed level data is a dependency only if a run read it. Tile results are otherwise reused across levels
+of a tileset without a per-level check (until an edit, when seed reads are compared): that rests on the
+cross-level test and a sweep of 800 level pairs with no wrong result, not on a check per level. Evidence:
+vanilla, $105, a sequence of twelve moves and byte edits, each equal to a cold probe.
+
+The toggles live in `MapViewStateStore` (`browser/map-view-state-store.ts`, over the Theia-free
+`map-view-state.ts`), a per-tab flux-style store on Theia's `Emitter`: the buttons only `dispatch`
+(`togglePalace`, `toggleSwitch`), the store replaces its state and fires `onDidChange({ state,
+changed })` once per real change, and three consumers decide for themselves. The toolbar re-renders for
+`aria-pressed`; layer 1 refetches the screens in view; the collision overlay follows `collisionPlan`:
+a palace or blue P-switch change drops its lines and any reply still on the way, asks again if the
+overlay is on, and, if the toggle was disabled by a probe's refusal for the old state, runs the cheap
+check again (a refusal is tied to its state key; only the cheap check's refusals are the map's). Lines
+are kept with the key they were probed for and drawn only for the current one. On the server a newer
+state asked for the same map stops the older probe at its next tile. Layers, grid and the collision
+toggle are still widget fields.
+
+The probe's calibration and level-of-air runs come from the first level probed on a tileset, then
+serve every later level of that tileset (checked identical on $105/$1C6; $105 and $111 differ, so
+tileset is in every cache key). Command `hackbench.maps.toggleCollision` is enabled only while a map
+tab is focused and its toggle is usable (`canToggleCollision`, the button's own test), in
+`grid-toggle-contribution.ts`.
 
 ## The emulator view
 
@@ -207,6 +358,26 @@ Type-checking the shell is a separate script from the root:
 ```bash
 npm run typecheck:theia
 ```
+
+It runs `tools/scripts/typecheck-theia.cjs`, which checks
+`theia/extension/node_modules/typescript`, then `theia/node_modules/typescript`,
+never searches ancestor directories, follows junctions at those two paths, and
+passes extra arguments through. A fresh worktree needs
+`yarn --cwd theia install --frozen-lockfile --ignore-scripts` first (it needs TypeScript in `theia/extension/node_modules` or
+`theia/node_modules`); without it the script exits 1 and says so (#669).
+`test/suite/gates/typecheckTheia.test.ts` covers the hint, the compiler
+choice, path resolution, argument and exit-status pass-through with stub
+compilers.
+
+## Drag and drop
+
+Found on the map groups work, PR #562, 2026-09-25. `[EST]`
+
+- Theia's shell calls `preventDefault` on every `dragover` on the page (for file drops). Skipping it on a refused target does not show a no-drop cursor; set `dataTransfer.dropEffect = 'none'` explicitly. `event.defaultPrevented` is useless as a test signal.
+- Playwright: drag with the real pointer, as `theia/browser-app/test/map-groups.spec.cjs` does (`startDrag`, `hoverDragOver`): `mouse.down` on the source row, a short `mouse.move` past the browser drag threshold, `mouse.move` onto the target row, then `mouse.up`. Playwright routes it through Chromium's own drag pipeline, so the dragenter, dragover and drop events and the `DataTransfer` are the browser's. `locator.dragTo` is not used on the virtualized `TreeWidget`.
+- Synthetic `DragEvent`s dispatched on the rows passed while the real drag did nothing (#625): a constructed `DataTransfer` ignores writes to `dropEffect`. Do not use them.
+- Read the widget's own verdict while hovering (`canDrop`) and assert the tree is unchanged after a refused drop.
+- Theia stamps `data-node-id` on the expansion toggle too; select `.theia-TreeNode[data-node-id=...]`.
 
 ## Related reading
 

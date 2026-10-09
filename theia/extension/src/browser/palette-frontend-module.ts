@@ -17,20 +17,15 @@ import { PaletteExplorerContribution } from './palette-explorer-contribution'
 import { createPaletteExplorerWidget, PALETTE_EXPLORER_ID } from './palette-explorer-widget'
 import { PaletteGroupViewWidget } from './palette-group-view-widget'
 import { PALETTE_GROUP_VIEW_ID } from './palette-view-model'
-import { PaletteFrontendClient } from './palette-push-client'
 
 export default new ContainerModule(bind => {
-  bind(PaletteFrontendClient).toSelf().inSingletonScope()
-
   // The frontend cannot touch the filesystem, so palette data is a proxy
-  // onto the backend service over JSON-RPC, same as ProjectService. The
-  // client (this connection's push target) is bound independent of the
-  // widget's own lifecycle: a push can arrive before the view is ever opened.
+  // onto the backend service over JSON-RPC, same as ProjectService.
+  // Edits arrive as ProjectContext.onEdit, not through this proxy.
   bind(PaletteService)
     .toDynamicValue(ctx => {
       const provider = ctx.container.get<ServiceConnectionProvider>(RemoteConnectionProvider)
-      const client = ctx.container.get(PaletteFrontendClient)
-      return provider.createProxy<PaletteService>(PALETTE_SERVICE_PATH, client)
+      return provider.createProxy<PaletteService>(PALETTE_SERVICE_PATH)
     })
     .inSingletonScope()
 

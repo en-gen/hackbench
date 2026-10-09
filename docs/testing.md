@@ -89,7 +89,7 @@ command deletes ignored files, and these are cartridges and captures that
 cannot be downloaded again. Outside the repo, git cannot reach them at all.
 The interactive dump scripts `tools/mesen/*.lua` and their README stay
 tracked in the repo; only the gitignored payload moved. The headless
-per-layer capture harness and its PowerShell runners are not here: they
+per-graphics-layer capture harness and its PowerShell runners are not here: they
 live in `en-gen/hackbench-validation` under `capture/`.
 
 Nothing in the suite hardcodes any of this. `test/suite/support/corpus.cjs`
@@ -112,14 +112,31 @@ and the suites SKIP rather than throwing during collection.
 `test/suite/unit/cpu/SingleStep.test.ts` runs `src/rom/cpu/Cpu65816.ts`
 against [SingleStepTests/65816](https://github.com/SingleStepTests/65816):
 512 files (`{op}.{n|e}.json`, 10,000 cases each), one `it` per file. The data
-is about 2.7 GB of data (3.2 GB as a git clone) and its license is unverified, so it is never vendored. Clone it to
-`<hackbench-tools>/singlestep65816/` or point `HACKBENCH_SINGLESTEP` at the
-clone (or its `v1` directory); without it every case skips. It checks
-registers, flags and memory; cycle and bus-line data are ignored. MVN/MVP
-files are cut by the data at 100 cycles, so the harness runs 14 byte moves
-and expects `pc + 2` (see `test/suite/support/singleStep.ts`). The synthetic
-`Cpu65816.test.ts` runs in CI and includes the planted-defect check that the
-harness goes red.
+is about 2.7 GB of data (3.2 GB as a git clone). It has no licence (GitHub
+reports none, upstream issue 9 asks for MIT and is open), so nothing is
+vendored. Clone it to `<hackbench-tools>/singlestep65816/` or point
+`HACKBENCH_SINGLESTEP` at the clone (or its `v1` directory); without it every
+case skips. The harness compares registers, flags, memory and the ordered
+write log from the vectors' cycles; reads, dummy cycles and timing are not
+compared. Concessions: MVN/MVP files are cut by the data at 100 cycles, so the
+harness runs 14 byte moves and expects `pc + 2`; in emulation mode a
+same-address write pair (an 8-bit RMW's old-value write) is collapsed (see
+`test/suite/support/singleStep.ts`). Ground truth is Clark and WDC
+documentation (<https://6502.org/tutorials/65c816opcodes.html>) confirmed by
+Snes9x or bsnes, not the vectors. (PEI is the one place Snes9x differs: it
+wraps the pointer at DL=0, while Clark and the vectors, which the core follows,
+do not.) `DISPUTED` in
+that file lists the 44 vectors where the core deliberately differs from the
+data (`e1.e` #8668, upstream issue 3; 43 `fc.e` page-cross vectors, issues 6
+and 7). The main run executes them rather than skipping them. A disputed vector
+is excused only when its whole diff is of the disputed kind: for `e1.e`, A (P
+may also differ); for `fc.e`, write order (the $FF and $1FF stack bytes may
+also differ). Any other difference counts as a failure. A corpus-gated test
+asserts that exactly 1 and 43 such vectors exist per file and that each one
+still differs from the core in that way, so an exception that stops being
+needed goes red. The synthetic `Cpu65816.test.ts` and `Cpu65816Edges.test.ts`
+run in CI; they hold the planted-defect proofs for the harness and the edge
+cases the random vectors rarely reach.
 
 ## Getting a ROM (locally)
 
@@ -391,6 +408,22 @@ same move `previewId` and `gateQuadrantWrite` made. A grep over source text
 passes when the bug returns under a different spelling and fails on an
 innocent rename, which is the wrong failure mode twice over.
 
+### `eslint.config.mjs` - cloudevents is imported for types only
+
+Run against `test/suite/gates/lintGate.test.ts` (21 cases): one line of the
+rule disabled at a time, expecting the cases that need it to go red.
+
+| Planted defect                                              | Cases red |
+| ----------------------------------------------------------- | --------- |
+| `paths` entry for `cloudevents` renamed                     | 3         |
+| `patterns` entry `cloudevents/*` renamed                    | 1         |
+| `ImportExpression` selector (string literal) disabled       | 2         |
+| `ImportExpression` template-literal selector disabled       | 1         |
+| `require()` selector (string literal) disabled              | 1         |
+| `require()` template-literal selector disabled              | 1         |
+| `module.require()` selector (string literal) disabled       | 1         |
+| `module.require()` template-literal selector disabled       | 1         |
+
 ## Viewing Mesen per-map captures
 
 The Mesen capture harness (`en-gen/hackbench-validation`, under
@@ -585,6 +618,12 @@ false; each refusal fires; stale folders are swept and nothing else; a real
 plants a non-isolating harness and a snapshot/restore harness to show that
 last check can fail. It does not start a server.
 
+- `npm run typecheck:theia` and its gate: see [theia-shell.md](architecture/theia-shell.md) (#669).
+
+### Timing gates (`npm run test:timing`)
+
+Two tests judge wall-clock time and flake when another vitest file runs beside them: `perfPairedE2E.timing.test.ts` and `perfSampler.timing.test.ts` (#668, #537). The `*.timing.test.ts` name keeps them out of `npm run test:unit`; `vitest.timing.config.ts` runs them one file at a time, and CI runs them as a step after the unit tests. Run `test:timing` alone, never beside another vitest run, and after any change under `tools/perf/`. `npx vitest run <timing file>` under the default config finds nothing; use `npm run test:timing -- <filter>`. Even serially they can fail on a machine already loaded by other work.
+
 ## Commands
 
 ```bash
@@ -595,6 +634,39 @@ npx vitest run test/suite/unit/LcLz2.synthetic.test.ts   # one file
 ```
 
 `test/suite/unit/romMapBoundaries.test.ts` (synthetic ROMs, `docs/mockups/rom-map.html` parser run in a vm) and `demoCaption.test.ts` (`OVERLAY` from `demo.cjs`, fake DOM) were each shown red on a planted defect, one machine: walking before the dedupe lookup (3 of 3 rom-map tests fail), the work-cap check placed before the repeat-pointer lookup (1 of 3), the work-cap check removed (2 of 3), and `innerHTML` restored in the caption (1 of 1).
+
+## Perf gates
+
+Settled by the owner 2026-09-28; design calls delegated to the orchestrator. Spec: `superpowers/specs/2026-09-28-perf-gates-design.md`.
+
+- Nightly paired benchmarks on GitHub-hosted runners, baseline and candidate in one job, every other night. `[EST]`
+- Measures core microbenchmarks, app timings, startup and heap; not emulator fps. `[EST]`
+- A local scheduled Claude session fixes regressions, with a PR under normal merge rules. `[EST]`
+- An intended cost is proposed through `accept.sh`; only the owner runs it. `[EST]`
+- Rules in the spec: the base advances only on an unflagged run; `perf-nightly-infra` for no-verdict runs; a plant run is green only when detected. `[EST]`
+- Issues: #413 core/detector, #414 app marks/specs, #415 `perf-nightly.yml` in hackbench-validation, #416 scheduled fixer and docs. #415 waits for the self-hosted runner. `[EST]`
+- Status as of 2026-09-29: the owner paused; #424 and PR #430 (#414) merged since. Re-check #415 (hackbench-validation PR 24) and #416 before assuming progress. `[OPEN]`
+- Known flakes #438, #443; leak #429. Numbers before 2026-09-27 are archive numbers; verify. `[OPEN]`
+- Guard against forged statuses: unit tests once reached the real authenticated `gh` and posted forged `perf-nightly` success statuses on develop. PR #539 (merged 2026-10-04) added the vitest globalSetup guard `test/suite/support/noRealGh.ts`; the suite no longer needs `--exclude perfAccept.test.ts`. `[EST]`
+- Statuses cannot be deleted, only superseded with `error`. A forged success is indistinguishable from a real `accept.sh` accept until #538 adds a marker. `[OPEN]`
+- A stray `perf-nightly` success: compare its description with the unit-test strings ("a reason", "a valid reason", "an intended cost") before trusting it. `[EST]`
+- Never print a gh credential in test output; assert with booleans.
+
+## Playwright and RPC
+
+- Assigning a wrapper over a Theia JSON-RPC proxy method in the page (for example `svc.mapCollision = wrapped`) never fires for the widget's own calls: the proxy builds a fresh function per property access. `[EST]` develop 00911ba2, 2026-10-07, #691.
+- Effect: `map-collision.spec.cjs` "toggle off probes nothing" passed its `toBe(0)` vacuously; the late-reply race case timed out waiting on the wrapper. `[EST]`
+- Rule: a spec that counts RPC calls needs a counter the app exposes (a widget data attribute or a server-side counter) or websocket frame inspection, and must prove the counter rises on a known call. `[PROP]`
+
+## The validation repository
+
+- `en-gen/hackbench-validation` is private and holds the Playwright e2e workflow (`e2e-playwright.yml`; builds the Theia browser shell and runs `theia/browser-app/test` against the requested ref, manually or via hackbench's manual-only `e2e-dispatch.yml`), the nightly run, the perf nightly (#415) and the Mesen per-graphics-layer capture harness (`capture/`). `[EST]`
+- map-diff was deleted 2026-09-25. `[EST]`
+- The CI secrets live there; `en-gen` is a Free org, so secrets are duplicated per repo. The ROM is pulled from OneDrive at run time. `[EST]`
+- `MAX_SKIPPED` gates on the known skips (emulator-view needs the core, gfx-view needs Invictus, music-view needs GPW2). Measured 8 on 2026-09-22; the emulator spec has since grown from 5 to 21 tests, so re-measure. `[OPEN]`
+- The libretro core is `snes9x_libretro.{js,wasm}` in the `hackbench-cores` checkout, outside every worktree. The app records its location in `core-registry.json` under the app data directory; read that first. `[EST]`
+- Run emulator specs from any worktree with `HB_CORE_JS` set to the core's `.js` path; without it the suite silently skips, and CI has no core and skips too. `[EST]`
+- Nightly cost is why e2e is not per-PR. `[EST]`
 
 ## Related docs
 

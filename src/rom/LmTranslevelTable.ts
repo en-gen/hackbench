@@ -100,7 +100,9 @@ export function readLmTranslevels(
   // (bank_00.asm:6406); this call stores its operand there, so it is keyed.
   const addr = src ^ d.key
   const data = rom.readUpTo(addr, 0x10000)
-  const table = data ? tryDecompress(data) : { ok: false as const, reason: 'unreadable' }
+  const table = data
+    ? tryDecompress(data, { order: d.order })
+    : { ok: false as const, reason: 'unreadable' }
   const why =
     (data && commandRefusal(d.kind, data)) ??
     (!table.ok

@@ -145,19 +145,7 @@ export type LoadPaletteResult =
 export type SetColorResult =
   LoadPaletteResult | { status: 'stale'; reason: string } | { status: 'io-error'; reason: string }
 
-/**
- * Pushed to the frontend when a project's working copy changes. No payload
- * beyond which project: a subscriber re-fetches (`loadPalettes`) rather than
- * being handed a diff, same reasoning as `SetColorResult`.
- */
-export interface PaletteServiceClient {
-  onWorkingCopyChanged(manifestPath: string): void
-}
-
 export interface PaletteService {
-  /** Registers the frontend's push target. Theia calls this once per connection. */
-  setClient(client: PaletteServiceClient | undefined): void
-
   /**
    * Every stock palette table the project's base cartridge holds.
    *

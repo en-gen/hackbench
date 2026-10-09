@@ -19,22 +19,17 @@ import { GFX_SERVICE_PATH, GfxService } from '../common/gfx-protocol'
 import { GfxExplorerContribution } from './gfx-explorer-contribution'
 import { createGfxExplorerWidget, GFX_EXPLORER_ID } from './gfx-explorer-widget'
 import { GfxViewWidget, GFX_VIEW_ID } from './gfx-view-widget'
-import { GfxFrontendClient } from './gfx-push-client'
 import { OverworldContribution } from './overworld-contribution'
 import { OverworldViewWidget, OVERWORLD_VIEW_ID } from './overworld-view-widget'
 
 export default new ContainerModule(bind => {
-  bind(GfxFrontendClient).toSelf().inSingletonScope()
-
   // The frontend cannot touch the filesystem, so decoding is a proxy onto
-  // the backend service over JSON-RPC, same shape as ProjectService. The
-  // client lets a palette edit made elsewhere push a re-render into an
-  // already-open sheet, rather than the user needing to reopen it.
+  // the backend service over JSON-RPC, same shape as ProjectService. A
+  // palette edit made elsewhere reaches an open sheet as ProjectContext.onEdit.
   bind(GfxService)
     .toDynamicValue(ctx => {
       const provider = ctx.container.get<ServiceConnectionProvider>(RemoteConnectionProvider)
-      const client = ctx.container.get(GfxFrontendClient)
-      return provider.createProxy<GfxService>(GFX_SERVICE_PATH, client)
+      return provider.createProxy<GfxService>(GFX_SERVICE_PATH)
     })
     .inSingletonScope()
 

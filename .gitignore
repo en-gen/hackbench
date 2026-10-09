@@ -126,11 +126,14 @@ build/*
 !build/icons
 !build/icons/**
 
-# Claude / local agent state; agent roles and shared settings are tracked
+# Claude / local agent state; agent roles, shared settings and house skills are tracked
 .claude/*
 !.claude/agents/
 !.claude/rules/
 !.claude/settings.json
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/protocol/
 
 # Python bytecode caches
 __pycache__/
@@ -169,3 +172,6 @@ src/**/*.js
 src/**/*.d.ts
 src/**/*.js.map
 src/**/*.d.ts.map
+
+# Vitest JSON reporter output
+.vitest/

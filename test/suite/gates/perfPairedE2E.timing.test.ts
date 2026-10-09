@@ -13,8 +13,10 @@ import { compareRounds, mulberry32 } from '../../../tools/perf/compare.mjs'
 const repoRoot = path.resolve(__dirname, '../../..')
 
 describe('paired.mjs end to end: --plant makes that id REGRESSION', () => {
-  it('a planted 2x slowdown on core.lclz2.decompress.synthetic-64k regresses only that id', async () => {
-    // A large factor (2x, versus the 10% core threshold) so this end-to-end
+  it('a planted 3x slowdown on core.lclz2.decompress.synthetic-64k regresses only that id', async () => {
+    // 10 rounds, not 5: at n=5 the bootstrap interval's lower bound is the
+    // smallest round, so one load burst on the base side masks the plant.
+    // A large factor (3x, versus the 10% core threshold) so this end-to-end
     // wall-clock measurement stays decisive even under full-suite CPU
     // contention, which the lint gate's own CLI_TIMEOUT_MS comment notes
     // affects timing-sensitive tests running alongside ~300 other files.
@@ -23,9 +25,9 @@ describe('paired.mjs end to end: --plant makes that id REGRESSION', () => {
       base: repoRoot,
       cand: repoRoot,
       suite: 'core',
-      rounds: 5,
+      rounds: 10,
       only: id,
-      plant: `${id}=2.0`,
+      plant: `${id}=3.0`,
     })
     const verdicts = compareRounds(doc.baseRounds, doc.candRounds, {
       rng: mulberry32(1),

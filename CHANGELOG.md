@@ -7,8 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Tech-lead session titles are now "<Team> Team" (e.g. "Delta Team"), in the tech-lead manual and the unregistered-session hook text.
+
+### Fixed
+
+- The sprite level loader now runs the rest of GM11LoadLevel's setup in the ROM's order: the layer
+  position copy and the screen setup (CODE_00A796, `$1404`, UpdateScreenPosition). Against
+  Mesen's recorded level state, 307 cell mismatches over 98 maps (`$1404`, `$1462-$1469`, `$1E`,
+  `$20`) fall to 8 on 4 boss rooms (`$1464/$1465`, set by GM12PrepLevel, not GM11); Map16 comparison unchanged
+  (88 of 154 identical). Vanilla, one machine (#648). Loader acceptance over the 107 corpus ROMs
+  (shape check only): 14 before; 7 with a 12-byte UpdateScreenPosition shape, which 86 of the 107 defeat
+  with a JML at `$00:F6E4`; 14 again with the shape cut to the 9 bytes before that hook, so the
+  hook runs on the core. Seven hacks changed and changed back (10186, 5559, 6161, 6416, 6593,
+  6764, 9535); four of them (10186, 6161, 6764, 9535) were already refused at run time by the
+  pointer loader's step cap, before and after.
+
 ### Added
 
+- Agentic workflow: docs/ becomes the knowledge base (conventions, decisions, protocols, runbooks, hypotheses); /protocol <name> on|off enacts a mode for every session via a hook; BA and tech-lead manuals replace the orchestrator manual, with registration, state files and self-clear after merge.
+- Block contents: a test pins the CODE_00F17F entry bytes in the gate reader pattern (#632).
+- A unit test pins the 22 of 501 horizontal maps where the level loader and the map view's
+  object expander disagree on Layer 1 Map16, by differing-cell count (#649). Measured on one
+  vanilla ROM, one machine, 2026-10-07; the comparison skips without the ROM corpus. 21 are boss
+  arenas (15 mode-9 maps, rows 11 and 13: `MakeMode7BossArenaMap16`, `bank_00.asm:3014-3023`, hi
+  byte stored at `:3017-3020`; 6 mode-$0B maps, row 5 pre-fill: `bank_00.asm:2783-2784`) whose
+  fill is game-mode init, outside the GM11 sequence the loader models (#707). The 22nd is 021
+  (#300). Measurement only.
+- A unit test pins tile $11A's star column over all 16 X columns: coin unless Mario is
+  invincible, star only while invincible (`bank_00.asm:12887-12891`). The Maps view already
+  draws it that way (#567).
+- Three corpus-gated sweeps pin where the sprite level loader differs from the Mesen captures (#649 step 1): the 66 of 154 maps whose Map16 tables differ (with each map's differing-tile count), the 18 of 98 maps whose loader Mario start ($94/$96) differs from the capture, and the maps where `readMarioStartPos` (the generic-seed fallback) differs from the loader. Measurement only; vanilla ROM, one machine.
+- The map view has a collision toggle (`layout-panel-dock` icon, after the layer buttons; command
+  `hackbench.maps.toggleCollision`; off by default): floors, ceilings, slopes and walls as 2 px
+  vector lines over the map, yellow for surfaces and purple for walls, with a tile the probe could
+  not classify hatched. The lines come from SMW's own block collision run on the 65816 core, once
+  per Map16 tile on the map (cached per tileset and working copy), not from the hand-ported
+  classifier (#435). Nothing is probed until the toggle is pressed. The overlay follows the palace and blue P-switch toggles; the silver P-switch is not modelled. Vanilla block code and horizontal levels only; a ROM whose level loader
+  refuses, or a vertical level, disables the toggle with the reason. Cold map about 3 s on one
+  machine, a revisit from cache; checked against the spike's output on three vanilla maps, not
+  against an emulator.
+- The Maps view shows what a block holds: each item block carries its item at half size in the bottom-right quadrant, filling the block on hover, drawn in the block's own graphics layer at screen resolution so nearer graphics layers and sprites cover it. Progressive blocks and the two-outcome blocks show both items split along the anti-diagonal, the base item (mushroom or coin) bottom-right and the upgrade (flower, feather, star or 1-up) top-left, with a black line on it, multi-coin blocks a "+" on the coin, and each cell shows the item for its own column ($111 and $11A by X column, `bank_00.asm:12868-12876`; $125 by X column mod 4, `bank_02.asm:1199-1212`; the P-switch colour by column parity, `bank_02.asm:1280-1295`; traced in SMWDisX and checked over a census of vanilla's 512 map slots, 578 indicators, all drawn). Item art comes from running the game's own item-block spawn on the 65816 core; a block whose item cannot be drawn is listed in a note with the reason (#566).
+- 65816 core: emulation-mode `(dp,X)` and JSR (a,X) follow Clark and Snes9x, WAI and STP halt `step()`, WDM makes no read, and setting `e` applies the XCE invariant. The SingleStep harness gains planted-defect proofs and a named list of disputed vectors; CI now pins its edge cases and the SingleStep harness's own checks with synthetic tests (#646).
+- The GFX view paints: pick a palette color, click or drag on a tile sheet, and the pixel changes
+  at once. Strokes can be undone and redone before Save; Save records them as one undoable op
+  layer (any number of 8x8 characters) and never writes the base ROM. Closing the view with
+  unsaved strokes asks first (#558). A gfx layer file now holds a `chars` list; the older
+  one-character form still reads.
 - The map view toolbar warns when the open level's mode is on an unverified list, which holds
   mode 1E only (sprite layering not verified, #617). Rendering is unchanged (#618).
 - The map view composites the main and sub screens for every level mode, with SNES color math:
@@ -98,6 +144,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (bank_0D.asm:1625-1632, #368). Vertical levels follow the same arithmetic on their $200-byte
   screens, checked against the L1 interpreter, not a capture. The two gates that hide the post
   are tracked in #635.
+- Block contents: the gate mask table DATA_00F0A4 is located through the AND.L that reads it, so a hijacked reader is refused with a reason and a repointed one is followed (#632).
+- Bank-mirror masks (#513): lookup keys use `mirror()`; addresses that are read (`jslTarget`, GfxArena `long`, the vertical-table JML target) keep their bank, so a $FE/$FF target is no longer folded onto WRAM $7E/$7F. Refusal reasons now show those addresses with the bank as written.
+- GFX decompression reads LC_LZ2 back-reference offsets in the byte order the ROM's own decompressor routine uses (J and E1 builds add an XBA that makes them little-endian), and the decompressor check now covers that routine, not only the entry: a ROM whose routine is neither known form is refused instead of decoded wrongly. A stock J, E0 or E1 ROM is still refused at the entry check (#696), so this changes no real ROM's verdict today; a little-endian ROM, once accepted, can be read but not saved. Checked on the 6-ROM corpus and the 101-hack store: no ROM that passed before is refused now (#274).
+- Map $005's ON/OFF track tile `$095`, hidden while the switch byte `$14AF` is 0, no longer draws as if shown. Its one-pixel diagonal fell wholly on the screen door's full-strength squares; a hidden tile with more pixels on those squares than on the dim ones is now drawn on the dim squares, in the map and Map16 views alike. `$094` (hidden while `$14AF` is 1) was already faint. The game's gate is `bank_01.asm:11985-11995` (#560).
+- `levelHasObjects` no longer rejects level modes $15-$1F: the game masks the mode with $1F and its six mode tables have 32 entries, so every mode $00-$1F is valid (#130).
+- Block contents resolver: tiles $021 and $022 now resolve to a coin and a 1-up when hit from below (`bank_00.asm:12195-12212`); $114 says a coin replaces the directional coins once a run has started (`bank_02.asm:1162-1172`); content id 0 gives nothing, and a balloon rewritten to the P-switch or egg sprite no longer gets their colour or contents (`bank_02.asm:1053-1054`, `:1215-1223`); a zero sprite entry with a live status reads as Sprite $00, as the ROM spawns it, and spawn status 0 is no sprite (`bank_01.asm:182-183`); the gate table is read from the ROM, and a differing Yoshi-loose copy is shown beside the normal one (`bank_02.asm:1143-1151`); $12A and $12B say they open only from the side; two surviving mutants are now pinned by tests; the doc's head-bump wording follows the gate table (`bank_00.asm:12850-12853`) (#672, #626).
+- `npm run typecheck:theia` uses theia's own TypeScript and exits 1 only when TypeScript is absent from both `theia/extension/node_modules` and `theia/node_modules`, naming `yarn --cwd theia install --frozen-lockfile --ignore-scripts` instead of failing with TS5107 under the root's TypeScript 6 (#669).
+
+- Develop builds again: `mapBlockContents` no longer calls a working-copy watch that moved into the project connection in #662, which broke the Theia type-check after #677 merged (#682).
+
+- Opening another project closes the previous project's GFX, Map16 and map views, so
+  Ctrl+Z in a leftover view no longer undoes the new project's layer. A view with
+  unsaved strokes asks first, and cancelling keeps the old project open (#628).
+- A `setWord` or GFX Save whose layer file write fails after an undo now keeps the redo
+  history, in memory and on disk, and the held working copy; a failure after the redo
+  clear still loses it, as before. Synthetic fault tests, no ROM (#634).
+- The sprite interpreter's machine is stricter and shared: one call helper (`src/rom/cpu/call.ts`) replaces four copies of the call loop and reports a wrong or unbalanced return, WAI, a fetch outside ROM, a HiROM cart and a runaway level load by their real cause (the level load now has a total step cap); the bus mirrors ROM past the image, models SRAM as a buffer and shares the Mode 7 latch; the Mesen replay test now asserts the exact 1110 of 1122 (#647).
 
 - Sprite $0A (Red Vertical Para-Koopa) and $0B (Red Horizontal Para-Koopa)
   patrol overlay no longer renders as a symmetric `±amplitudePx` band. Per
@@ -173,6 +236,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Tests close three sprite-layer gaps from #564 (#589): `mapSprites` with a stream in the ROM's last bytes, `paintSpriteCanvas` clear and screen selection, and map-view assertions made after the sprites load.
+- The two wall-clock gates (`perfPairedE2E`, the `perfSampler` plant-precision test) are named `*.timing.test.ts`, excluded from `npm run test:unit` and run serially by `npm run test:timing`, which CI runs after the unit tests (#668, #537).
+- Agent manual: auto-merge stays on across fix pushes.
+- Implementer agent file no longer tells agents to disable auto-merge before pushing a fix; it stays as the steward set it (on for ordinary PRs, off for `needs-owner`).
+- `npm run gitnexus` no longer rewrites CLAUDE.md and AGENTS.md (`.gitnexusrc` and `--skip-agents-md`), so parallel worktrees stop conflicting on the generated counts, which are removed from the marked region (#644).
 - "Show surfaces" editor overlay now consumes the shared `SurfacePath`
   module — same source of truth as the sprite-patrol scan. Both views
   agree on silhouette suppression, slope vs flat classification, and

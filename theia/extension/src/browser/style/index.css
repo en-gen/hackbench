@@ -369,6 +369,27 @@
   flex-direction: column;
 }
 
+/* The collision overlay (#435): above every screen's composite (z-index 100), in map pixels. */
+.hb-map-collision {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 200;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.hb-map-collision polyline {
+  fill: none;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.hb-map-collision [data-group='unknown'] polyline {
+  fill: inherit;
+  stroke-width: 1;
+}
+
 .hb-map-view-back-area {
   position: absolute;
   inset: 0;

@@ -10,9 +10,9 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { Cpu65816 } from '../../../../src/rom/cpu/Cpu65816'
+import { runUntil } from '../../../../src/rom/cpu/call'
 import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
-import { SpriteBus } from '../../../../src/rom/sprites/interp/SpriteBus'
+import { recordWrites, smwMachine } from '../../../../src/rom/sprites/interp/Machine'
 import type { RomFile } from '../../../../src/rom/RomFile'
 import { freshRom, hasRom, TOOLS_ROOT, VANILLA } from '../../support/corpus'
 
@@ -38,36 +38,27 @@ function romSha(): string | null {
 
 function replay(rom: RomFile, root: string, map: string, wram: Buffer, c: Call) {
   const pre = wram.subarray(c.wram * 0x2000, (c.wram + 1) * 0x2000)
-  const bus = new SpriteBus(rom)
-  bus.wram.set(pre)
+  const { bus, cpu } = smwMachine(rom, pre)
   bus.wram.set(readFileSync(join(root, map, 'map16_7ec800.bin')), 0xc800)
   bus.wram.set(readFileSync(join(root, map, 'map16_7fc800.bin')), 0x1c800)
-  const got: number[] = []
-  bus.onWramWrite = (off, v) => got.push(((0x7e0000 + off) * 256 + v) >>> 0)
-  // The recorder drops PPU writes it could not log ($2100-$21FF), so those are not compared.
-  bus.onHwWrite = (reg, v) => {
-    if (reg >= 0x2200) got.push(reg * 256 + v)
-  }
+  // The recorder drops PPU writes it could not log ($2100-$21FF), so those are not compared;
+  // WRAM addresses are 24-bit, so the one bound keeps them all.
+  const { log: got } = recordWrites(bus, a => a >= 0x2200)
   let lastOp = 0
-  bus.onInstruction = (_a, op) => {
+  const guard = bus.onInstruction
+  bus.onInstruction = (a, op) => {
     lastOp = op
+    guard?.(a, op)
   }
-  const cpu = new Cpu65816(bus)
   Object.assign(cpu, { e: !!c.regs.e, d: c.regs.d, db: c.regs.db, pb: c.regs.pb, pc: c.regs.pc, s: c.regs.s, a: c.regs.a, x: c.regs.x, y: c.regs.y }) // prettier-ignore
   cpu.p = c.regs.p
-  let err = ''
-  try {
-    for (let n = 0; n < 400_000; n++) {
-      cpu.step()
-      if (cpu.s === c.exitS && cpu.pb === c.regs.pb && lastOp === 0x60) break
-    }
-  } catch (e) {
-    err = String(e)
-  }
+  // Mid-routine entry from a recorded register set: no return frame, so run to the RTS at the recorded exit S.
+  const r = runUntil(cpu, 400_000, k => k.s === c.exitS && k.pb === c.regs.pb && lastOp === 0x60)
+  const err = r.kind === 'refused' ? r.reason : ''
   const want = c.writes.map(w => w >>> 0)
   let k = 0
   while (k < want.length && k < got.length && want[k] === got[k]) k++
-  const ok = !err && k === want.length && k === got.length
+  const ok = !err && r.kind === 'returned' && k === want.length && k === got.length
   const first = ok ? undefined : `${err} diverge@${k}/${want.length} want ${fmt(want[k])} got ${fmt(got[k])}` // prettier-ignore
   return { ok, first, n: want.length }
 }
@@ -96,10 +87,19 @@ describe.skipIf(!existsSync(TRACE_DIR) || !hasRom(VANILLA))(
       const ids = new Set(results.map(r => r.id)).size
       console.log(`replayed ${results.length} calls over ${ids} sprite ids, ${okN} write-for-write equal`) // prettier-ignore
       if (process.env.SPRITE_TRACE_OUT) writeFileSync(process.env.SPRITE_TRACE_OUT, JSON.stringify(results, null, 1)) // prettier-ignore
-      expect(results.length).toBeGreaterThan(0)
-      // Floor, not a target: the misses are state the fixtures do not carry (WRAM above $2000
-      // other than Map16). A regression in the core or bus drops this well below.
-      expect(okN / results.length).toBeGreaterThan(0.97)
+      // Exact, not a floor: a floor of 0.97 let the #593 low-first 16-bit RMW order back in
+      // (1099 equal, tests green). This comparator seeds only Mesen's $7E:0000-$1FFF and Map16
+      // (no hi-WRAM windows), so 1110 of 1122 is its number; the spike comparator
+      // (spikes/sprite-oracle/oracle/compare_sprite_trace.mts), which seeds those windows too,
+      // prints 1122 of 1122. The 12 misses are named so a change in WHICH calls miss is red too:
+      // id $49 on map 0c3 and id $86 on maps 11e and 126, state the fixtures do not carry.
+      expect(results.length).toBe(1122)
+      expect(okN).toBe(1110)
+      expect(results.filter(r => !r.ok).map(r => `${r.map}:${r.i}`)).toEqual([
+        '0c3:4', '0c3:7', '0c3:10', '0c3:13', // prettier-ignore
+        '11e:1', '11e:2', '11e:3', '11e:4',
+        '126:1', '126:2', '126:3', '126:4',
+      ]) // prettier-ignore
     }, 300_000)
 
     it('goes red when the ROM is planted with a defect', () => {
@@ -125,7 +125,7 @@ describe.skipIf(!existsSync(TRACE_DIR) || !hasRom(VANILLA))(
     // counts checked non-empty so a comparison of nothing cannot pass.
     it('ROM-run level loader against Mesen level state', () => {
       const rom = freshRom()
-      const cells = [0x5b, 0x5d, 0x64, 0x71, 0x76, 0x82, 0x83, 0x85, 0x86, 0x1692, 0x190e, 0x19, 0x187a] // prettier-ignore
+      const cells = [0x5b, 0x5d, 0x64, 0x71, 0x76, 0x82, 0x83, 0x85, 0x86, 0x1692, 0x190e, 0x19, 0x187a, 0x1404, 0x1e, 0x20, ...Array.from({ length: 8 }, (_, i) => 0x1462 + i)] // prettier-ignore
       let maps = 0
       let withWram = 0
       let identical = 0
@@ -152,7 +152,19 @@ describe.skipIf(!existsSync(TRACE_DIR) || !hasRom(VANILLA))(
       expect(maps).toBeGreaterThan(100)
       expect(withWram).toBeGreaterThan(50)
       expect(identical).toBeGreaterThanOrEqual(85)
-      expect(badCells).toEqual([])
+      // The Iggy/Larry rooms (levels $096 $097 $196 $197) hold $FF90 in NextLayer1YPos
+      // ($1464/$1465) in Mesen: GM12PrepLevel reaches CODE_0097BC (bank_00.asm:4854 -> 4863, IRQNMICommand
+      // bit 7) -> 2763 (BVC .IggyLarry) -> 2793-2795, which stores -112. GM12 is part of level load
+      // but not GM11, which the loader runs, so these cells stay unequal. $5E is not compared: CODE_0584E3
+      // rewrites it (bank_05.asm:560) after GM11's STA $5E, so it matched before and after. Named so a
+      // change in WHICH cells miss, or in the value, is red. Measured 2026-10-07, vanilla, one machine;
+      // before the GM11 spans were run the same comparison missed 307 cells over 98 maps.
+      const boss = ['096', '097', '196', '197']
+      expect(badCells).toEqual(boss.flatMap(m => [`${m} cell 1464`, `${m} cell 1465`]))
+      for (const m of boss) {
+        const w = readFileSync(join(root, m, 'wram.bin'))
+        expect([w[0x1464], w[0x1465]]).toEqual([0x90, 0xff])
+      }
     }, 300_000)
   },
 )

@@ -146,6 +146,14 @@ export class GfxExplorerWidget extends TreeWidget {
         }
       }),
     )
+    // The base ROM moved: rebuild as a fresh open would, nothing selected.
+    this.toDispose.push(
+      this.projectContext.onRomChanged(manifestPath => {
+        if (manifestPath !== this.manifestPath) return
+        this.model.clearSelection()
+        void this.load(manifestPath)
+      }),
+    )
     this.toDispose.push(
       this.model.onSelectionChanged(() => {
         this.fireOpen(this.model.selectedNodes[0] as GfxTreeNode | undefined, false)

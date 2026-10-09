@@ -43,7 +43,7 @@ function replay(base: Uint8Array, header: boolean, layers: readonly Layer[]): Ui
     run = []
   }
   for (const l of layers) {
-    if (l.kind === 'gfx') run.push(l)
+    if (l.kind === 'gfx') run.push(...l.chars)
     else if (l.kind === undefined) {
       flush()
       for (const op of l.ops) applyOp(out, op, romSize, header)
@@ -74,9 +74,7 @@ function walk(seed: number, headered: boolean, steps: number): string[] {
           id: `g${s}`,
           label: 'g',
           kind: 'gfx',
-          file: FILES[pick(7)]!,
-          tile: pick(11),
-          pixels,
+          chars: [{ file: FILES[pick(7)]!, tile: pick(11), pixels }],
         })
       } else if (x < 0.65) {
         const offset = 0x7000 + 2 * pick(8)

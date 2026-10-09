@@ -36,6 +36,7 @@ import {
   OWNER_NONE,
   SWITCH_FLAGS_UNCLEARED,
   type OwnerGrid,
+  SWITCH_BLOCK_ORDER,
   type SwitchFlags,
   type TileGrid,
 } from './cursor'
@@ -161,7 +162,7 @@ export function interpret(
   const writeBudget = opts.writeBudget ?? WRITE_BUDGET
   const primitives = opts.primitives
   const flags = env.switchFlags ?? SWITCH_FLAGS_UNCLEARED
-  const switches = [flags.green, flags.yellow, flags.blue, flags.red]
+  const switches = SWITCH_BLOCK_ORDER.map(k => flags[k])
   const sigSeen = cachedByVersion(SIG_CACHE, rom, () => new Map<string, boolean>())
 
   const dp: V[] = new Array(256).fill(null)

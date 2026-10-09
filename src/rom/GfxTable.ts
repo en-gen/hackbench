@@ -15,12 +15,12 @@
 import { RomFile } from './RomFile'
 import { BytePattern, WILD, findPattern } from './BytePattern'
 import { bytesPerTile, decodeTilesBatch, setTilePixel } from './GraphicsDecoder'
-import { inferGfxBpp, l3DepthUnknown } from './GfxLoader'
+import { gfxSource, inferGfxBpp, l3DepthUnknown } from './GfxLoader'
 import { tryDecompress, encode } from './LcLz2'
 import {
   ArenaResult,
   GFX_FILE_COUNT,
-  checkStockCompression,
+  checkWritableCompression,
   layoutArena,
   readGfxFileTable,
 } from './GfxArena'
@@ -86,13 +86,15 @@ export class GfxTable {
   ) {}
 
   static load(rom: RomFile): GfxTable {
+    const source = gfxSource(rom)
+    const backRefs = source.ok ? source.order : undefined
     const files = readGfxFileTable(rom).map((f): GfxFileState => {
       const readable = f.offset !== null && f.terminated
       const template = readable
         ? new Uint8Array(rom.readAtFileOffset(f.offset!, f.byteLength)!)
         : new Uint8Array(0)
       const decoded = readable
-        ? tryDecompress(template)
+        ? tryDecompress(template, { order: backRefs })
         : { ok: false as const, reason: 'the pointer table entry could not be read' }
       const bytes = decoded.ok ? decoded.bytes : new Uint8Array(0)
       const bpp = bytes.length > 0 ? inferGfxBpp(rom, f.index, bytes.length) : null
@@ -177,7 +179,7 @@ export function planGfxSave(
   table: GfxTable,
   encoder: GfxEncoder = encode,
 ): ArenaResult {
-  const gate = checkStockCompression(rom)
+  const gate = checkWritableCompression(rom)
   if (!gate.ok) return { status: 'unavailable', reason: gate.reason }
 
   const streams: Uint8Array[] = []

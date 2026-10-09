@@ -42,6 +42,12 @@ starting a shell. This is enforced by convention and stated at the top of
 each module. Everything that knows how to read a ROM lives here.
 `src/rom/cpu/` is a 65816 core over a `Bus` interface (registers, flags and
 memory effects per instruction, no timing, no SMW knowledge).
+`src/rom/collision/` runs SMW's own Mario-vs-layer-1 block code on that core
+to find what each Map16 tile does (`TileProbe.ts`: floor and ceiling depth per
+pixel column, blocked sides, hurt, or unknown when a run throws, spends its
+budget or leaves ROM), then composes the tiles of a map into floor, ceiling,
+wall and unknown polylines (`Compose.ts`). Method and evidence:
+`spikes/collision-probe/README.md`.
 
 **`theia/` is the application.** It consumes the core and adds the user
 interface. See [theia-shell.md](theia-shell.md).
@@ -62,6 +68,7 @@ a shipping target and receives no new features.
 | Graphics | `GfxLoader.ts`, `GraphicsDecoder.ts` | 2BPP/3BPP/4BPP tiles, BGR555 to RGBA |
 | Palettes | `PaletteLoader.ts`, `PaletteOp.ts` | CGRAM rows, per-level overrides, color ops |
 | Maps | `LevelParser.ts`, `ObjectExpander.ts`, `model/` | object and sprite streams, composition |
+| Collision | `collision/` | per-tile collision from the ROM's own block code, map polylines |
 | Projects | `project/` | `.hbproj`, layer stack, working copy, export |
 
 ## How a ROM becomes pixels

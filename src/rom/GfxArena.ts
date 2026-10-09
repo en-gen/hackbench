@@ -33,8 +33,8 @@
  */
 import { RomFile } from './RomFile'
 import { BytePattern, WILD, findPattern, matchesBytes } from './BytePattern'
-import { LOROM_BANK_SIZE, formatAddr, loromFromOffset, loromToOffset } from './addressing'
-import { parseStream } from './LcLz2'
+import { LOROM_BANK_SIZE, formatAddr, loromFromOffset, loromToOffset, mirror } from './addressing'
+import { parseStream, type BackRefOrder } from './LcLz2'
 import {
   FAST_LCLZ2,
   type DecompressorKind,
@@ -130,7 +130,8 @@ export interface GfxPointerSites {
 }
 
 export type CompressionCheck =
-  { ok: true; sites: GfxPointerSites; kind: DecompressorKind } | { ok: false; reason: string }
+  | { ok: true; sites: GfxPointerSites; kind: DecompressorKind; order: BackRefOrder }
+  | { ok: false; reason: string }
 type SitesCheck = { ok: true; sites: GfxPointerSites } | { ok: false; reason: string }
 
 /** JSL PrepareGraphicsFile in UploadGFXFile: the level FG/BG loader
@@ -203,9 +204,11 @@ export const DISPATCHER_FINGERPRINTS: readonly string[] = [
   '6a68ae67d6ee8b6978acfe37f81eb7e89a047c0033c97324bba347e8e63f340c',
 ]
 
-/** A 24-bit little-endian operand at `o`, FastROM bit dropped. */
+/** A 24-bit little-endian operand at `o`, bank kept: read, not key. The
+ *  dispatcher is read through this value, and folding $FE/$FF onto $7E/$7F
+ *  would make a 4 MB ROM's code unreadable. Comparisons wrap it in `mirror()`. */
 export const long = (b: Uint8Array, o: number): number =>
-  (b[o]! | (b[o + 1]! << 8) | (b[o + 2]! << 16)) & 0x7fffff
+  b[o]! | (b[o + 1]! << 8) | (b[o + 2]! << 16)
 
 export interface GfxTables {
   lo: number
@@ -242,7 +245,10 @@ export function readLevelGfxHook(
   if (code && matchesBytes(code, HOOK_DIRECT)) {
     const exitAt = branchTarget(code[HOOK_DIRECT_BRA + 1]!, loader + HOOK_DIRECT_BRA)
     const exit = rom.readAt(exitAt, HOOK_DIRECT_EXIT.length)
-    if (long(code, HOOK_DIRECT_JSL) !== prepareGfx || !matchesBytes(exit, HOOK_DIRECT_EXIT)) {
+    if (
+      mirror(long(code, HOOK_DIRECT_JSL)) !== prepareGfx ||
+      !matchesBytes(exit, HOOK_DIRECT_EXIT)
+    ) {
       return refuse(`its loader at ${formatAddr(loader)} does not call PrepareGraphicsFile`)
     }
     return { ok: true }
@@ -256,11 +262,15 @@ export function readLevelGfxHook(
   if (!d || fp === null || !fingerprints.includes(fp)) {
     return refuse(`its dispatcher at ${formatAddr(dispatcher)} is not a recognized build`)
   }
-  if (long(d, DISPATCHER_JML) !== prepareGfx + HOOK_JSR_INSTRUCTION_OFFSET) {
+  if (mirror(long(d, DISPATCHER_JML)) !== prepareGfx + HOOK_JSR_INSTRUCTION_OFFSET) {
     return refuse("its dispatcher does not reach PrepareGraphicsFile's decompression call")
   }
   const read = DISPATCHER_TABLES.map(o => long(d, o))
-  if (read[0] !== tables.lo || read[1] !== tables.hi || read[2] !== tables.bank) {
+  if (
+    mirror(read[0]!) !== tables.lo ||
+    mirror(read[1]!) !== tables.hi ||
+    mirror(read[2]!) !== tables.bank
+  ) {
     return refuse(
       `its dispatcher reads GFX tables at ${read.map(formatAddr).join(', ')}, ` +
         "not PrepareGraphicsFile's own",
@@ -302,7 +312,7 @@ function resolveGfxPointerSites(rom: RomFile, fingerprints: readonly string[]): 
   const primary = LEVEL_GFX_CALLERS[0]!
   const target = jslTarget(rom, primary)
   const hook =
-    target === null || target === matched
+    target === null || mirror(target) === matched
       ? null
       : readLevelGfxHook(rom, target, matched, tables, fingerprints)
   if (target === null || (hook && !hook.ok)) {
@@ -347,7 +357,24 @@ export function checkStockCompression(
   const resolved = resolveGfxPointerSites(rom, DISPATCHER_FINGERPRINTS)
   if (!resolved.ok) return resolved
   const d = readDecompressor(rom, resolved.sites.decompressorEntry, fast)
-  return d.ok ? { ok: true, sites: resolved.sites, kind: d.kind } : d
+  return d.ok ? { ok: true, sites: resolved.sites, kind: d.kind, order: d.order } : d
+}
+
+/** `checkStockCompression` for a caller that WRITES: the encoder emits
+ *  big-endian back-references only, so a ROM that reads them little-endian
+ *  can be read but not saved. */
+export function checkWritableCompression(
+  rom: RomFile,
+  fast: readonly FastRoutine[] = FAST_LCLZ2,
+): CompressionCheck {
+  const gate = checkStockCompression(rom, fast)
+  return gate.ok && gate.order !== 'be'
+    ? {
+        ok: false,
+        reason:
+          "this ROM's decompressor reads back-references little-endian, which the GFX encoder cannot write",
+      }
+    : gate
 }
 
 export interface GfxFileExtent {
@@ -496,7 +523,7 @@ export function layoutArena(
    *  depend on how earlier edits happened to be grouped. */
   layout: RomFile = rom,
 ): ArenaResult {
-  const gate = checkStockCompression(rom)
+  const gate = checkWritableCompression(rom)
   if (!gate.ok) return { status: 'unavailable', reason: gate.reason }
 
   for (let i = 0; i < GFX_FILE_COUNT; i++) {

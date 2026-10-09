@@ -16,17 +16,30 @@ import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message, Widget } from '@theia/core/lib/browser'
 import {
   MAP_PLANE_KEYS,
+  MapCollisionCheckResult,
+  MapCollisionResult,
   MapDetailsDto,
   MapPlaneKey,
   MapScreenResult,
+  MapBlockContentsResult,
   MapSpritesResult,
   ProjectService,
   SwitchFlagsDto,
   SwitchStateDto,
 } from '../common/project-protocol'
-import { ProjectFrontendClient } from './project-push-client'
+import { ProjectContext } from './project-context'
 import { decodeRgba, TILE_PX } from './map16-pixels'
-import { compositeSpriteScreen, paintSpriteCanvas, PALACES, screenKey } from './map-view-model'
+import {
+  compositeSpriteScreen,
+  decodeArts,
+  hoverTarget,
+  indicatorId,
+  IndicatorDisplay,
+  paintSpriteCanvas,
+  PALACES,
+  screenKey,
+  type Indicator,
+} from './map-view-model'
 import { SWITCH_ORDER } from './map16-view-model'
 import { decodeSwitchButton, SwitchToggle, type SwitchButtonImages } from './switch-toggle'
 import { LayerToggle } from './layer-icon'
@@ -35,10 +48,14 @@ import { slotLabel } from './map-explorer-widget'
 import { WheelBinding, ZoomController } from './zoom-controller'
 import { ZoomStepper } from './zoom-stepper'
 import { MapGridOverlay } from './grid-overlay'
+import { CollisionOverlay } from './collision-overlay'
+import { collisionKey, collisionPlan } from './map-view-state'
+import { MapViewStateStore } from './map-view-state-store'
 import { layer2Label } from './map-layer-labels'
 import { isUnverifiedMode } from '../../../../src/rom/model/UnverifiedModes'
 import { composeScreen, type SourceKey } from '../../../../src/rom/model/ColorMath'
 import { perfEnd, perfStart } from '../common/perf-marks'
+import { ProjectBound } from './project-bound'
 
 export { slotLabel }
 /** One screen's decoded planes; null is an empty plane, which draws nothing. */
@@ -64,9 +81,24 @@ export interface MapViewOptions {
 
 type Layout = Extract<MapScreenResult, { status: 'ok' }>
 type Sprites = Extract<MapSpritesResult, { status: 'ok' }>
+type Collision = Extract<MapCollisionResult, { status: 'ok' }>
+/** Why a collision reply (or check) leaves the overlay unavailable, or undefined when it does not. */
+function collisionWhyNot(
+  r: Exclude<MapCollisionResult, { status: 'stale' }> | MapCollisionCheckResult,
+): string | undefined {
+  if (r.status === 'ok' || r.status === 'available') return undefined
+  if (r.status === 'unavailable') return r.reason
+  return `The base ROM ${r.baseRom.title} is not on this machine`
+}
+
+type BlockContents = Extract<MapBlockContentsResult, { status: 'ok' }> & {
+  decoded: Map<string, Uint8ClampedArray>
+}
 /** The sprite canvases' key in place of a plane's: one per screen, between L2 and L1's priority plane. */
 const SPRITES = 'sprites'
-type LayerKey = MapPlaneKey | typeof SPRITES
+/** Each screen's display canvas: the screen at screen resolution when it holds indicators (#566). */
+const DISPLAY = 'display'
+type LayerKey = MapPlaneKey | typeof SPRITES | typeof DISPLAY
 type Palace = keyof SwitchFlagsDto
 type Switch = keyof SwitchStateDto
 
@@ -86,11 +118,17 @@ function AfterCommit({ run }: { run: () => void }): null {
 const palaceName = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
 
 @injectable()
-export class MapViewWidget extends ReactWidget {
+export class MapViewWidget extends ReactWidget implements ProjectBound {
   @inject(ProjectService) protected readonly projects!: ProjectService
-  @inject(ProjectFrontendClient) protected readonly pushClient!: ProjectFrontendClient
+  @inject(ProjectContext) protected readonly projectContext!: ProjectContext
 
   protected options: MapViewOptions | undefined
+
+  readonly projectBound = true as const
+  /** Closed by the shell when another project opens (#628). */
+  get manifestPath(): string | undefined {
+    return this.options?.manifestPath
+  }
   protected details: MapDetailsDto | undefined
   protected error: string | undefined
   protected mapLayout: Layout | undefined
@@ -98,8 +136,8 @@ export class MapViewWidget extends ReactWidget {
   /** Each palace's block, decoded once per load, or why it cannot be drawn. */
   protected icons = new Map<Palace, PalaceIcon>()
 
-  protected flags: SwitchFlagsDto = { yellow: false, green: false, red: false, blue: false }
-  protected switches: SwitchStateDto = { blue: false, silver: false, onOff: false }
+  /** The palaces and switches, this tab's own; buttons dispatch, consumers subscribe (see `init`). */
+  protected readonly view = new MapViewStateStore()
   /** The switch toggles' art (#574's), and why a kind has none. */
   protected switchArt: Partial<Record<Switch, SwitchButtonImages>> = {}
   protected switchWhy: Partial<Record<Switch, string>> = {}
@@ -115,6 +153,28 @@ export class MapViewWidget extends ReactWidget {
   protected spritesWhy: string | undefined
   /** Bumped when `sprites` is replaced, so a canvas painted from the old ones is repainted. */
   protected spritesVersion = 0
+  /** The collision overlay (#435); off by default. */
+  protected showCollision = false
+  /** The map's collision lines once read; `collisionWhy` is why there are none to show. */
+  protected collision: Collision | undefined
+  protected collisionWhy: string | undefined
+  /** The state key a probe's refusal was for; undefined when the cheap check refused (true of the map, whatever the state). */
+  protected collisionWhyKey: string | undefined
+  /** The state key `collision` was probed for. */
+  protected collisionKey: string | undefined
+  /** The cheap check or a probe has answered for this map; a probe's answer is the authority over the check's. */
+  protected collisionChecked = false
+  protected collisionProbed = false
+  /** Bumped per probe request: a reply for an older palace or P-switch state is dropped. */
+  protected collisionSeq = 0
+  /** Replies taken, for the overlay's test hook. */
+  protected collisionRevision = 0
+  /** Block content indicators (#566), once read; `blocksWhy` is why there are none to show. */
+  protected blocks: BlockContents | undefined
+  protected blocksWhy: string | undefined
+  protected blocksVersion = 0
+  /** The indicator under the pointer: it fills its block, the rest sit in their quadrants. */
+  protected hover: Indicator | undefined
   /** Fit mode until the user zooms; the fit is the cross axis filling the view (#526). */
   protected readonly zoomController = new ZoomController(ZOOMS, 1, () => this.measureFit())
   protected wheelBinding: WheelBinding | undefined
@@ -140,18 +200,55 @@ export class MapViewWidget extends ReactWidget {
     this.title.closable = true
     this.node.tabIndex = 0
     this.toDispose.push({ dispose: () => this.resizes.disconnect() })
+    this.toDispose.push(this.view)
+    // Three consumers of one store, each deciding for itself.
+    this.toDispose.push(
+      // The toolbar: aria-pressed and the palace art follow the state.
+      this.view.onDidChange(() => this.update()),
+    )
+    this.toDispose.push(
+      // Layer 1: the screens in view are drawn for the new state.
+      this.view.onDidChange(() => this.requestVisible()),
+    )
+    this.toDispose.push(
+      // The collision overlay: the palaces and the blue P-switch change the map's tiles, so its lines.
+      // On: ask again (a reply for an older state is dropped). Off: the lines are stale, the next press fetches.
+      this.view.onDidChange(c => {
+        const plan = collisionPlan(c, this.showCollision, this.collisionWhyKey !== undefined)
+        if (plan.drop) {
+          this.collisionSeq++ // a reply still on its way is for the old state
+          this.collision = undefined
+        }
+        if (plan.recheck) {
+          // The refusal was for the old state: the toggle is enabled again until the cheap check says otherwise.
+          this.collisionWhy = undefined
+          this.collisionWhyKey = undefined
+          this.collisionProbed = false // so the check's answer is taken, not dropped for the probe's
+          void this.checkCollision()
+        }
+        if (plan.refetch) void this.loadCollision()
+      }),
+    )
     this.zoomController.centreAnchored = true
     this.toDispose.push(this.zoomController)
     this.toDispose.push({ dispose: () => this.wheelBinding?.dispose() })
     this.toDispose.push(
       this.zoomController.onDidChange(() => {
         this.update()
-        requestAnimationFrame(() => this.requestVisible())
+        requestAnimationFrame(() => {
+          this.requestVisible()
+          this.updateHover()
+        })
       }),
     )
     this.zoomController.enterFit()
     this.toDispose.push(
-      this.pushClient.onChanged(manifestPath => {
+      this.projectContext.onEdit(event => {
+        if (event.subject === this.options?.manifestPath) this.refresh()
+      }),
+    )
+    this.toDispose.push(
+      this.projectContext.onRomChanged(manifestPath => {
         if (manifestPath === this.options?.manifestPath) this.refresh()
       }),
     )
@@ -169,6 +266,15 @@ export class MapViewWidget extends ReactWidget {
     this.mapLayout = undefined
     this.sprites = undefined
     this.spritesWhy = undefined
+    this.collision = undefined
+    this.collisionWhy = undefined
+    this.collisionWhyKey = undefined
+    this.collisionKey = undefined
+    this.collisionChecked = false
+    this.collisionProbed = false
+    this.blocks = undefined
+    this.blocksWhy = undefined
+    this.hover = undefined
     // A new map opens fitted, whatever zoom the last one was left at.
     this.zoomController.enterFit()
     // A reused (preview) tab keeps its strip across maps: blank it, and start at screen 0.
@@ -200,8 +306,65 @@ export class MapViewWidget extends ReactWidget {
     this.screenError = undefined
     void this.loadDetails()
     void this.loadIcons()
+    // Old indicators must not stay up as a picture of the edited map.
+    this.blocks = undefined
+    this.hover = undefined
+    this.blocksVersion++
     void this.loadSprites()
+    // The probe runs the ROM's code: it runs only while the overlay is on. Off, an edit drops the stale
+    // lines and the toggle's refusal is re-read (a cheap check, no probe); the next press fetches.
+    if (this.showCollision) void this.loadCollision()
+    else {
+      this.collision = undefined
+      this.collisionProbed = false
+      void this.checkCollision()
+    }
+    void this.loadBlocks()
     this.requestVisible()
+  }
+
+  /** Whether collision can be probed for this map at all, without probing: the toggle's enabled state. */
+  protected async checkCollision(): Promise<void> {
+    const o = this.options
+    if (!o) return
+    const generation = this.generation
+    const r = await this.projects
+      .mapCollisionCheck(o.manifestPath, o.index)
+      .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
+    // A probe that already answered knows more than the check: a late `available` must not undo its refusal.
+    if (generation !== this.generation || this.collisionProbed) return
+    this.setCollisionWhy(collisionWhyNot(r))
+    this.update()
+  }
+
+  protected async loadCollision(): Promise<void> {
+    const o = this.options
+    if (!o) return
+    const generation = this.generation
+    const seq = ++this.collisionSeq
+    const { flags, switches } = this.view.state
+    const key = collisionKey(this.view.state)
+    const r = await this.projects
+      .mapCollision(o.manifestPath, o.index, flags, switches)
+      .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
+    // An older map's or edit's lines must not land over a newer one.
+    if (generation !== this.generation || seq !== this.collisionSeq) return
+    // The working copy moved on under the probe; its push is on the way and will ask again.
+    if (r.status === 'stale') return
+    this.collision = r.status === 'ok' ? r : undefined
+    this.collisionKey = key
+    this.collisionRevision++
+    this.collisionProbed = true
+    this.setCollisionWhy(collisionWhyNot(r), key)
+    this.update()
+  }
+
+  /** A refusal turns the overlay off, so a disabled toggle never looks pressed and nothing is left to switch off. */
+  protected setCollisionWhy(why: string | undefined, probedFor?: string): void {
+    this.collisionWhy = why
+    this.collisionWhyKey = why ? probedFor : undefined
+    this.collisionChecked = true
+    if (why) this.showCollision = false
   }
 
   protected async loadSprites(): Promise<void> {
@@ -217,6 +380,27 @@ export class MapViewWidget extends ReactWidget {
     this.spritesWhy = r.status === 'ok' ? undefined : r.status === 'unavailable' ? r.reason : `The base ROM ${r.baseRom.title} is not on this machine` // prettier-ignore
     this.spritesVersion++
     this.update()
+    this.sync()
+  }
+
+  protected async loadBlocks(): Promise<void> {
+    const o = this.options
+    if (!o) return
+    const generation = this.generation
+    const r = await this.projects
+      .mapBlockContents(o.manifestPath, o.index)
+      .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
+    if (generation !== this.generation) return
+    this.blocks = r.status === 'ok' ? { ...r, decoded: decodeArts(r.arts) } : undefined
+    this.blocksWhy =
+      r.status === 'ok'
+        ? r.note
+        : r.status === 'unavailable'
+          ? `Block contents are not drawn: ${r.reason}`
+          : `Block contents are not drawn: the base ROM ${r.baseRom.title} is not on this machine`
+    this.blocksVersion++
+    this.update()
+    this.updateHover()
     this.sync()
   }
 
@@ -263,7 +447,7 @@ export class MapViewWidget extends ReactWidget {
   }
 
   protected key(screen: number): string {
-    return screenKey(this.flags, this.switches, screen)
+    return screenKey(this.view.state.flags, this.view.state.switches, screen)
   }
 
   /** The screens in view, plus MARGIN either side; screen 0 before the layout is known. */
@@ -293,7 +477,7 @@ export class MapViewWidget extends ReactWidget {
     const generation = this.generation
     let r: MapScreenResult
     try {
-      r = await this.projects.mapScreen(o.manifestPath, o.index, screen, { ...this.flags }, { ...this.switches }) // prettier-ignore
+      r = await this.projects.mapScreen(o.manifestPath, o.index, screen, this.view.state.flags, this.view.state.switches) // prettier-ignore
     } catch (err) {
       r = { status: 'unavailable', reason: (err as Error).message }
     }
@@ -366,6 +550,7 @@ export class MapViewWidget extends ReactWidget {
   protected readonly sync = (): void => {
     for (const [k, canvas] of this.canvases) {
       const [plane, s] = k.split(':') as [LayerKey, string]
+      if (plane === DISPLAY) continue
       if (plane === SPRITES) {
         this.syncSprites(canvas, Number(s))
         continue
@@ -388,6 +573,8 @@ export class MapViewWidget extends ReactWidget {
       }
     }
     for (const [s, canvas] of this.composites) this.paintComposite(s, canvas)
+    for (const [k, canvas] of this.canvases)
+      if (k.startsWith(`${DISPLAY}:`)) this.syncDisplay(canvas, Number(k.split(':')[1]))
   }
 
   /**
@@ -407,12 +594,7 @@ export class MapViewWidget extends ReactWidget {
     if (canvas.dataset.drawn === want) return
     canvas.width = shot.width
     canvas.height = shot.height
-    const planes: Partial<Record<SourceKey, Uint8ClampedArray | null>> = Object.fromEntries(
-      MAP_PLANE_KEYS.map(k => [k, this.layerShown(k) ? (shot.planes[k]?.data ?? null) : null]),
-    )
-    // The sprites are one more source, not in color math (their palette split is #564's to add).
-    const sp = this.sprites
-    planes.sprites = this.showSprites && sp ? compositeSpriteScreen(sp.sprites, s, sp) : null
+    const planes = this.shownPlanes(s, shot)
     const out = composeScreen({
       width: shot.width,
       height: shot.height,
@@ -422,6 +604,108 @@ export class MapViewWidget extends ReactWidget {
     })
     canvas.getContext('2d')?.putImageData(new ImageData(out, shot.width, shot.height), 0, 0)
     canvas.dataset.drawn = want
+  }
+
+  /** The sources a screen composes: a hidden layer's plane is left out (not empty), so its indicators go with it. */
+  protected shownPlanes(
+    s: number,
+    shot: ScreenImages,
+  ): Partial<Record<SourceKey, Uint8ClampedArray | null>> {
+    // prettier-ignore
+    const planes: Partial<Record<SourceKey, Uint8ClampedArray | null>> = {}
+    for (const k of MAP_PLANE_KEYS) if (this.layerShown(k)) planes[k] = shot.planes[k]?.data ?? null
+    // The sprites are one more source, not in color math (their palette split is #564's to add).
+    const sp = this.sprites
+    if (this.showSprites) planes.sprites = sp ? compositeSpriteScreen(sp.sprites, s, sp) : null
+    return planes
+  }
+
+  /** Each screen's picture at screen resolution, while it holds indicators: built once, then only hover cells are redone. */
+  protected readonly displays = new Map<number, { want: string; display: IndicatorDisplay }>()
+
+  /**
+   * The display canvas of screen `s` covers the native composite, which stays untouched, with the same
+   * picture at the zoom and the indicators drawn in their planes (`IndicatorDisplay`). `data-indicators`
+   * records the boxes it painted. A screen with none shows the composite itself.
+   */
+  protected syncDisplay(canvas: HTMLCanvasElement, s: number): void {
+    const [comp, shot, b] = [this.composites.get(s), this.screens.get(this.key(s)), this.blocks]
+    const hide = () => {
+      this.displays.delete(s)
+      if (canvas.width !== 0) canvas.width = 0
+      delete canvas.dataset.drawn
+      canvas.dataset.indicators = '[]'
+      if (comp) comp.style.visibility = ''
+    }
+    if (!comp?.dataset.drawn || !shot || !b) return hide()
+    const want = `${comp.dataset.drawn}:${this.blocksVersion}:${this.zoom}`
+    let cur = this.displays.get(s)
+    if (cur?.want !== want) {
+      const display = new IndicatorDisplay({
+        width: shot.width,
+        height: shot.height,
+        zoom: this.zoom,
+        screen: s,
+        geometry: b,
+        planes: this.shownPlanes(s, shot),
+        lists: shot.screens,
+        math: shot.math,
+        base: comp.getContext('2d')!.getImageData(0, 0, comp.width, comp.height).data,
+        indicators: b.indicators,
+        arts: b.decoded,
+      }, this.hoverOn(s) && indicatorId(this.hoverOn(s)!)) // prettier-ignore
+      if (!display.touches) return hide()
+      canvas.width = display.width
+      canvas.height = display.height
+      canvas
+        .getContext('2d')
+        ?.putImageData(new ImageData(display.image, display.width, display.height), 0, 0)
+      this.displays.set(s, (cur = { want, display }))
+    } else {
+      const hov = this.hoverOn(s)
+      for (const r of cur.display.setHover(hov && indicatorId(hov))) {
+        canvas.getContext('2d')?.putImageData(new ImageData(r.rgba, r.width, r.height), r.x, r.y)
+      }
+    }
+    canvas.dataset.drawn = want
+    canvas.dataset.indicators = JSON.stringify(cur.display.records())
+    comp.style.visibility = 'hidden'
+  }
+
+  /** The hovered indicator, when its block touches screen `s`. */
+  protected hoverOn(s: number): Indicator | undefined {
+    const h = this.hover
+    const b = this.blocks
+    if (!h || !b) return undefined
+    const [size, at] = b.orientation === 'vertical' ? [b.height, h.y] : [b.width, h.x]
+    return at + 16 > s * size && at < (s + 1) * size ? h : undefined
+  }
+
+  /** The pointer's client position over the strip, kept so a scroll or zoom can re-find the block under it. */
+  protected pointer: { x: number; y: number } | undefined
+
+  protected readonly onPointerMove = (e: React.MouseEvent): void => {
+    this.pointer = { x: e.clientX, y: e.clientY }
+    this.updateHover()
+  }
+
+  /** Finds the topmost visible block under the pointer; run on moves, scrolls, zooms and new replies. */
+  protected updateHover(): void {
+    const strip = this.scroller?.querySelector<HTMLElement>('.hb-map-view-strip')
+    const l = this.mapLayout
+    const p = this.pointer
+    if (!strip || !l || !this.blocks || !p) return this.setHover(undefined)
+    const r = strip.getBoundingClientRect()
+    const [x, y] = [(p.x - r.left) / this.zoom, (p.y - r.top) / this.zoom]
+    const order = this.layerOrder(l)
+    const shown = (q: Indicator['plane']) => order.includes(q) && this.layerShown(q)
+    this.setHover(hoverTarget(this.blocks.indicators, x, y, shown, q => order.indexOf(q)) ?? undefined) // prettier-ignore
+  }
+
+  protected setHover(next: Indicator | undefined): void {
+    if ((next && indicatorId(next)) === (this.hover && indicatorId(this.hover))) return
+    this.hover = next
+    this.sync()
   }
 
   protected compositeRef(s: number): (el: HTMLCanvasElement | null) => void {
@@ -490,16 +774,12 @@ export class MapViewWidget extends ReactWidget {
     requestAnimationFrame(() => this.requestVisible())
   }
 
-  protected togglePalace(p: Palace): void {
-    this.flags = { ...this.flags, [p]: !this.flags[p] }
-    this.update()
-    this.requestVisible()
+  protected togglePalace(palace: Palace): void {
+    this.view.dispatch({ type: 'togglePalace', palace })
   }
 
-  protected toggleSwitch(k: Switch): void {
-    this.switches = { ...this.switches, [k]: !this.switches[k] }
-    this.update()
-    this.requestVisible()
+  protected toggleSwitch(key: Switch): void {
+    this.view.dispatch({ type: 'toggleSwitch', key })
   }
 
   protected toggleL1(): void {
@@ -511,6 +791,33 @@ export class MapViewWidget extends ReactWidget {
   toggleGrid(): void {
     this.showGrid = !this.showGrid
     this.update()
+  }
+
+  /** Shows or hides the collision overlay (`hackbench.maps.toggleCollision`); a refused map stays off. */
+  toggleCollision(): void {
+    if (this.collisionWhy) return
+    this.showCollision = !this.showCollision
+    this.collisionSeq++ // off: a reply still on its way is not wanted; on: it is asked for afresh below
+    if (this.showCollision && !this.collisionCurrent()) void this.loadCollision()
+    this.update()
+  }
+
+  /** The lines, when they are for the state the toolbar shows now. */
+  protected collisionCurrent(): Collision | undefined {
+    return this.collisionKey === collisionKey(this.view.state) ? this.collision : undefined
+  }
+
+  /** Whether the collision toggle can be used: what `hackbench.maps.toggleCollision` and the button share. */
+  get canToggleCollision(): boolean {
+    return !this.collisionWhy
+  }
+
+  /** The collision toggle's tooltip: what pressing it does, or why it cannot. */
+  protected collisionLabel(): string {
+    if (this.collisionWhy) return `Collision unavailable: ${this.collisionWhy}`
+    if (this.showCollision)
+      return this.collisionCurrent() ? 'Hide collision' : 'Collision · reading the map'
+    return 'Show collision'
   }
 
   protected toggleL2(): void {
@@ -592,6 +899,23 @@ export class MapViewWidget extends ReactWidget {
             control="layer-sprites"
             onClick={() => this.toggleSprites()}
           />
+          <button
+            data-control="collision-toggle"
+            type="button"
+            className={
+              'hb-icon-btn' + (this.showCollision ? ' hb-icon-btn-on' : ' hb-icon-btn-off')
+            }
+            data-collision-state={
+              !this.collisionChecked ? 'checking' : this.collisionWhy ? 'refused' : 'ready'
+            }
+            aria-pressed={this.showCollision}
+            disabled={!this.canToggleCollision}
+            title={this.collisionLabel()}
+            aria-label={this.collisionLabel()}
+            onClick={() => this.toggleCollision()}
+          >
+            <span className="codicon codicon-layout-panel-dock" />
+          </button>
           <span className="hb-toolbar-sep" data-control="toolbar-sep" />
           {PALACES.map(p => this.renderToggle(p))}
           {SWITCH_ORDER.map(k => (
@@ -599,7 +923,7 @@ export class MapViewWidget extends ReactWidget {
               key={k}
               kind={k}
               images={this.switchArt[k]}
-              pressed={this.switches[k]}
+              pressed={this.view.state.switches[k]}
               reason={this.switchWhy[k]}
               scale={1}
               data={{ control: `switch-${k}` }}
@@ -646,6 +970,11 @@ export class MapViewWidget extends ReactWidget {
             {this.sprites.note}
           </div>
         )}
+        {this.blocksWhy && (
+          <div className="hb-map-view-note" data-note="block-contents">
+            {this.blocksWhy}
+          </div>
+        )}
         {this.mapLayout?.layerNotes.map(n => (
           <div key={n} className="hb-map-view-note" data-note="layers">
             {n}
@@ -663,7 +992,7 @@ export class MapViewWidget extends ReactWidget {
 
   protected renderToggle(p: Palace): React.ReactNode {
     const icon = this.icons.get(p)
-    const pressed = this.flags[p]
+    const pressed = this.view.state.flags[p]
     return (
       <PixelImageButton
         key={p}
@@ -718,7 +1047,15 @@ export class MapViewWidget extends ReactWidget {
           className={'hb-map-view-scroller' + (l.orientation === 'vertical' ? ' hb-vertical' : '')}
           data-control="map-scroller"
           ref={this.scrollerRef}
-          onScroll={() => this.requestVisible()}
+          onScroll={() => {
+            this.requestVisible()
+            this.updateHover()
+          }}
+          onMouseMove={this.onPointerMove}
+          onMouseLeave={() => {
+            this.pointer = undefined
+            this.setHover(undefined)
+          }}
         >
           {/* Bottom to top (planes by `screens`, composited per screen): the checkerboard, the back area, then the screens,
               so hiding a layer shows what is under it, down to nothing. */}
@@ -760,8 +1097,23 @@ export class MapViewWidget extends ReactWidget {
                   style={{ zIndex: 100 }}
                   ref={this.compositeRef(s)}
                 />
+                <canvas
+                  className="hb-map-view-plane hb-map-view-composite"
+                  data-layer="display"
+                  data-screen={s}
+                  style={{ zIndex: 101 }}
+                  ref={this.canvasRef(DISPLAY, s)}
+                />
               </div>
             ))}
+            {this.showCollision && this.collisionCurrent() && (
+              <CollisionOverlay
+                layer={this.collisionCurrent()!}
+                zoom={this.zoom}
+                owner={String(this.options?.index ?? '')}
+                revision={this.collisionRevision}
+              />
+            )}
           </div>
         </div>
         {this.showGrid && (

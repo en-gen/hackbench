@@ -4,9 +4,13 @@ Guidance for every Claude Code session in this repo: the main session and
 every role agent. Keep it short; every agent pays for every line on every
 call.
 
-- **Main session (not launched with a brief):** you are the orchestrator and
-  work from [docs/agents/orchestrator.md](docs/agents/orchestrator.md),
-  injected at session start. It holds merging, PRs, issues and delegation.
+- **Main session (not launched with a brief):** you are a BA or a tech lead.
+  The session hook injects [docs/agents/ba.md](docs/agents/ba.md) or
+  [docs/agents/tech-lead.md](docs/agents/tech-lead.md) by your registration
+  (a lone `both` session gets the tech-lead core and a pointer to `ba.md`),
+  plus the active protocols every turn. An unregistered session gets only a
+  registration block naming both manuals; register from your title, then read
+  yours before anything else.
 - **Role agents:** your role file in `.claude/agents/` plus this file.
 - **ROM rules** load automatically from `.claude/rules/rom-interpretation.md`
   when you read or edit `src/`, `test/`, `tools/` or the node backend. Read it
@@ -43,7 +47,7 @@ npm run format:check   # Prettier check mode, as CI runs it
 npm run test:unit      # Vitest unit tests (single run)
 npm run test:unit:watch
 npm run typecheck:theia
-npm run gitnexus       # refresh the index; never a bare `gitnexus analyze`
+npm run gitnexus       # refresh the index; a bare analyze skips the FTS repair
 ```
 
 The desktop app, from `theia/`. `build` and `start` target Electron, which
@@ -240,14 +244,14 @@ Every agent follows these. Role-specific rules are in `.claude/agents/`.
   owner and PRs.
 - Spawn a sub-agent only when it saves cost or context, by role, with an
   explicit `model`.
-- `npm run gitnexus` refreshes the index after a commit; never a bare
-  `gitnexus analyze`, which rewrites the marked region below with em-dashes.
+- `npm run gitnexus` refreshes the index after a commit. `.gitnexusrc` and the
+  script both stop analyze rewriting the marked region below (#644).
 
 <!-- gitnexus:start -->
 
 # GitNexus - Code Intelligence
 
-This project is indexed by GitNexus as **hackbench** (13349 symbols, 36106 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **hackbench**. Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root - it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

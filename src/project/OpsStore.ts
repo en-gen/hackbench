@@ -27,6 +27,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { Layer, Op } from './WorkingRom'
+import type { GfxCharEdit } from '../rom/GfxLayer'
 
 export const OPS_DIR = 'ops'
 /** The undone-layer area, nested inside `ops/`. */
@@ -59,12 +60,13 @@ function formatLayerFile(layer: Layer): string {
   if (layer.kind === 'unreadable')
     throw new Error(`${layer.id} was never read, so it cannot be written`)
   if (layer.kind === 'gfx') {
-    const pixelLines = layer.pixels.map(p => `    ${JSON.stringify(pixel(p))}`).join(',\n')
-    return (
-      head +
-      `  "kind": "gfx",\n  "file": ${layer.file},\n  "tile": ${layer.tile},\n` +
-      `  "pixels": [\n${pixelLines}\n  ]\n}\n`
-    )
+    const chars = layer.chars
+      .map(c => {
+        const lines = c.pixels.map(p => `        ${JSON.stringify(pixel(p))}`).join(',\n')
+        return `    {\n      "file": ${c.file},\n      "tile": ${c.tile},\n      "pixels": [\n${lines}\n      ]\n    }`
+      })
+      .join(',\n')
+    return head + `  "kind": "gfx",\n  "chars": [\n${chars}\n  ]\n}\n`
   }
   const opLines = layer.ops.map(o => `    ${JSON.stringify(o)}`).join(',\n')
   return head + `  "ops": [\n${opLines}\n  ]\n` + `}\n`
@@ -111,27 +113,47 @@ function loadFrom(dir: string, lenient = false): Layer[] {
       return { id, label, ops: parsed.ops as Op[] }
     }
     // Refused whole rather than half-read: a pixel that parses to something
-    // else would paint a character the user never drew.
-    const pixels = parsed.pixels as { x: number; y: number; value: number }[]
-    const ok =
-      isInt(parsed.file) &&
-      isInt(parsed.tile) &&
-      Array.isArray(pixels) &&
-      pixels.length > 0 && // a layer that changes nothing is not an edit
-      pixels.every(
-        p => typeof p === 'object' && p !== null && isInt(p.x) && isInt(p.y) && isInt(p.value),
-      )
-    if (!ok)
+    // else would paint a character the user never drew. The first form held
+    // one character at the top level; it reads as a one-element `chars`.
+    const raw = Array.isArray(parsed.chars)
+      ? (parsed.chars as unknown[])
+      : [{ file: parsed.file, tile: parsed.tile, pixels: parsed.pixels }]
+    if (raw.length === 0 || !raw.every(isGfxCharEdit))
       return refuse(`${path.join(dir, f)} is not a gfx layer this build understands`, id, label)
     return {
       id,
       label,
       kind: 'gfx',
-      file: parsed.file as number,
-      tile: parsed.tile as number,
-      pixels: pixels.map(pixel),
+      chars: (raw as GfxCharEdit[]).map(c => ({
+        file: c.file,
+        tile: c.tile,
+        pixels: c.pixels.map(pixel),
+      })),
     }
   })
+}
+
+const okPixel = (p: unknown): boolean => {
+  const q = p as { x: number; y: number; value: number }
+  return typeof q === 'object' && q !== null && isInt(q.x) && isInt(q.y) && isInt(q.value)
+}
+
+/**
+ * Whether `c` is a character edit a layer file may hold. The one rule behind
+ * both reading a layer back and accepting one to write (WorkingRomRegistry.setGfx),
+ * so nothing can be written that the next open refuses.
+ */
+export function isGfxCharEdit(c: unknown): boolean {
+  const q = c as { file: number; tile: number; pixels: unknown[] }
+  return (
+    typeof q === 'object' &&
+    q !== null &&
+    isInt(q.file) &&
+    isInt(q.tile) &&
+    Array.isArray(q.pixels) &&
+    q.pixels.length > 0 && // a character that changes nothing is not an edit
+    q.pixels.every(okPixel)
+  )
 }
 
 function appendTo(dir: string, layer: Layer): void {
@@ -199,7 +221,38 @@ export function loadLayers(projectDirectory: string): Layer[] {
  * persists what was already accepted in memory.
  */
 export function appendLayer(projectDirectory: string, layer: Layer): void {
-  appendTo(opsDir(projectDirectory), layer)
+  commitLayer(stageLayer(projectDirectory, layer))
+}
+
+/** A layer written under a temp name, not yet part of the stack. */
+export interface StagedLayer {
+  tmp: string
+  final: string
+}
+
+/**
+ * Writes the next layer as `NNNN.json.tmp`. layerFiles keeps only an exact
+ * `.json` suffix, so a staged file (or one a crash leaves behind) is invisible
+ * to load and to opsStamp until commitLayer renames it; a later stage at the
+ * same index overwrites it.
+ */
+export function stageLayer(projectDirectory: string, layer: Layer): StagedLayer {
+  const dir = opsDir(projectDirectory)
+  fs.mkdirSync(dir, { recursive: true })
+  const final = path.join(dir, `${String(layerFiles(dir).length).padStart(4, '0')}.json`)
+  const tmp = `${final}.tmp`
+  fs.writeFileSync(tmp, formatLayerFile(layer), 'utf8')
+  return { tmp, final }
+}
+
+/** Puts a staged layer on the stack. */
+export function commitLayer(staged: StagedLayer): void {
+  fs.renameSync(staged.tmp, staged.final)
+}
+
+/** Removes a staged layer that will not be committed. */
+export function discardStaged(staged: StagedLayer): void {
+  fs.unlinkSync(staged.tmp)
 }
 
 /** Deletes the top (most recently appended) layer file; see popFrom. */

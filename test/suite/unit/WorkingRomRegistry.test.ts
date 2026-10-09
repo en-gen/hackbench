@@ -21,6 +21,7 @@ import {
 import { GfxLayer, Layer, WorkingRom } from '../../../src/project/WorkingRom'
 import { loromToOffset } from '../../../src/rom/addressing'
 import { GfxTable } from '../../../src/rom/GfxTable'
+import type { GfxCharEdit } from '../../../src/rom/GfxLayer'
 import { RomFile } from '../../../src/rom/RomFile'
 import { buildCart } from '../support/syntheticGfxCart'
 
@@ -35,7 +36,7 @@ const fsFault = vi.hoisted(() => ({
 vi.mock('fs', async importOriginal => {
   const actual = await importOriginal<typeof import('fs')>()
   const wrapped: Record<string, unknown> = { ...actual }
-  for (const name of ['writeFileSync', 'unlinkSync', 'rmSync'] as const) {
+  for (const name of ['writeFileSync', 'unlinkSync', 'rmSync', 'renameSync'] as const) {
     const real = actual[name] as (...args: unknown[]) => unknown
     wrapped[name] = (...args: unknown[]) => {
       fsFault.hook?.(name, String(args[0]))
@@ -251,9 +252,7 @@ describe('WorkingRomRegistry', () => {
       id,
       label: id,
       kind: 'gfx',
-      file: 2,
-      tile: 0,
-      pixels: [{ x: 0, y: 0, value }],
+      chars: [{ file: 2, tile: 0, pixels: [{ x: 0, y: 0, value }] }],
     })
     const gfxPixel = (manifestPath: string, tile: number): number | undefined => {
       const bytes = Buffer.from(opened(manifestPath).w.bytes())
@@ -376,6 +375,166 @@ describe('WorkingRomRegistry', () => {
       expect(gfxPixel(manifestPath, tile)).toBe(value)
     })
 
+    describe('setGfx', () => {
+      const px = (value: number): GfxCharEdit['pixels'] => [{ x: 0, y: 0, value }]
+
+      it('appends ONE layer for several characters, to the stack and to disk, and ends redo', () => {
+        const { manifestPath, dir } = gfxProject()
+        const r = working.setGfx(manifestPath, [
+          { file: 2, tile: 0, pixels: px(5) },
+          { file: 2, tile: 1, pixels: px(6) },
+        ])
+        expect(r.status).toBe('ok')
+        expect(gfxPixel(manifestPath, 0)).toBe(5)
+        expect(gfxPixel(manifestPath, 1)).toBe(6)
+        expect(opened(manifestPath).w.stack).toHaveLength(1)
+        expect(loadLayers(dir)).toHaveLength(1)
+        working.undo(manifestPath)
+        expect(gfxPixel(manifestPath, 0)).not.toBe(5)
+        expect(gfxPixel(manifestPath, 1)).not.toBe(6)
+        working.redo(manifestPath)
+        expect(gfxPixel(manifestPath, 1)).toBe(6)
+      })
+
+      it('refuses a character the file lacks, and leaves stack and disk alone', () => {
+        const { manifestPath, dir } = gfxProject()
+        const r = working.setGfx(manifestPath, [
+          { file: 2, tile: 0, pixels: px(5) },
+          { file: 2, tile: 999, pixels: px(1) },
+        ])
+        expect(r.status).toBe('refused')
+        expect(opened(manifestPath).w.stack).toHaveLength(0)
+        expect(loadLayers(dir)).toHaveLength(0)
+      })
+
+      it('keeps the redo, in memory and on disk, when the layer write fails after an undo', () => {
+        const { manifestPath, dir } = gfxProject()
+        working.setGfx(manifestPath, [{ file: 2, tile: 0, pixels: px(5) }])
+        const undone = opened(manifestPath).w.stack[0].id
+        working.undo(manifestPath)
+        fsFault.hook = (call, target) => {
+          if (call === 'writeFileSync' && !target.includes(`${path.sep}redo${path.sep}`)) {
+            throw new Error('disk full')
+          }
+        }
+        const r = working.setGfx(manifestPath, [{ file: 2, tile: 1, pixels: px(6) }])
+        fsFault.hook = null
+        expect(r.status).toBe('io-error')
+        expect(loadLayers(dir)).toHaveLength(0)
+        expect(loadRedoLayers(dir).map(l => l.id)).toEqual([undone])
+        expect(working.editStack(manifestPath)).toMatchObject({ status: 'ok', canRedo: true })
+      })
+
+      it('keeps the held instance and its redo when the layer write fails after an undo', () => {
+        const { manifestPath } = gfxProject()
+        working.setGfx(manifestPath, [{ file: 2, tile: 0, pixels: px(5) }])
+        const held = opened(manifestPath).w
+        const undone = held.stack[0].id
+        working.undo(manifestPath)
+        fsFault.hook = (call, target) => {
+          if (call === 'writeFileSync' && !target.includes(`${path.sep}redo${path.sep}`)) {
+            throw new Error('disk full')
+          }
+        }
+        expect(working.setGfx(manifestPath, [{ file: 2, tile: 1, pixels: px(6) }]).status).toBe(
+          'io-error',
+        )
+        fsFault.hook = null
+        expect(opened(manifestPath).w).toBe(held)
+        expect(held.redoStack.map(l => l.id)).toEqual([undone])
+      })
+
+      it('pops the layer back off when the disk write fails', () => {
+        const { manifestPath } = gfxProject()
+        const held = opened(manifestPath).w // get() would reload from disk and hide a leak
+        fsFault.hook = call => {
+          if (call === 'writeFileSync') throw new Error('disk full')
+        }
+        const r = working.setGfx(manifestPath, [{ file: 2, tile: 0, pixels: px(5) }])
+        expect(r.status).toBe('io-error')
+        expect(held.stack).toHaveLength(0)
+      })
+
+      it.each([
+        [
+          'no pixels',
+          [
+            { file: 2, tile: 0, pixels: px(1) },
+            { file: 2, tile: 1, pixels: [] },
+          ],
+          /character 1.*one or more pixels/i,
+        ],
+        [
+          'a fractional tile',
+          [{ file: 2, tile: 0.5, pixels: px(1) }],
+          /character 0.*whole-number/i,
+        ],
+        ['no characters', [], /nothing to save/i],
+      ])('refuses a layer with %s, writes nothing, and the project still opens', (...c) => {
+        const [, chars, reason] = c
+        const { manifestPath, dir } = gfxProject()
+        const r = working.setGfx(manifestPath, chars)
+        expect(r.status).toBe('refused')
+        expect(r.status === 'refused' && r.reason).toMatch(reason)
+        expect(loadLayers(dir)).toHaveLength(0)
+        expect(new WorkingRomRegistry(romRegistry).get(manifestPath).status).toBe('ok')
+      })
+
+      it('keeps its own copy of the pixels: a caller mutating its array changes nothing', () => {
+        const { manifestPath } = gfxProject()
+        const edits = [{ file: 2, tile: 0, pixels: px(5) }]
+        working.setGfx(manifestPath, edits)
+        const held = opened(manifestPath).w
+        const bytes = Buffer.from(held.bytes())
+        edits[0]!.pixels[0]!.value = 1 // the caller reuses its objects
+        edits[0]!.pixels.push({ x: 1, y: 1, value: 2 })
+        const layer = held.stack[0]
+        expect(layer?.kind === 'gfx' && layer.chars[0]!.pixels).toEqual(px(5))
+        // The next get() agrees with disk, so the same working copy comes back.
+        expect(opened(manifestPath).w).toBe(held)
+        expect(Buffer.compare(bytes, Buffer.from(held.bytes()))).toBe(0)
+      })
+
+      it('a multi-character layer reopens to the live bytes, every character', () => {
+        const { manifestPath } = gfxProject()
+        const edits = [0, 1, 2].map(tile => ({
+          file: 2,
+          tile,
+          pixels: px(((gfxPixel(manifestPath, tile) ?? 0) + 1) & 7),
+        }))
+        expect(working.setGfx(manifestPath, edits).status).toBe('ok')
+        const live = Buffer.from(opened(manifestPath).w.bytes())
+        const fresh = new WorkingRomRegistry(romRegistry).get(manifestPath)
+        if (fresh.status !== 'ok') throw new Error(fresh.status)
+        expect(Buffer.compare(live, Buffer.from(fresh.working.bytes()))).toBe(0)
+        for (const e of edits) {
+          const t = GfxTable.load(new RomFile('f.sfc', Buffer.from(fresh.working.bytes())))
+          expect(t.tile(2, e.tile)![0]).toBe(e.pixels[0]!.value)
+        }
+      })
+
+      it('a refused Save after an undo leaves the redo layer, in memory and on disk', () => {
+        const { manifestPath, dir } = gfxProject()
+        working.setGfx(manifestPath, [{ file: 2, tile: 0, pixels: px(5) }])
+        working.undo(manifestPath)
+        expect(loadRedoLayers(dir)).toHaveLength(1)
+        expect(working.setGfx(manifestPath, [{ file: 2, tile: 999, pixels: px(1) }]).status).toBe(
+          'refused',
+        )
+        expect(working.editStack(manifestPath)).toMatchObject({ canRedo: true })
+        expect(loadRedoLayers(dir)).toHaveLength(1)
+      })
+
+      it('a good Save ends the redo future, on disk too', () => {
+        const { manifestPath, dir } = gfxProject()
+        working.setGfx(manifestPath, [{ file: 2, tile: 0, pixels: px(5) }])
+        working.undo(manifestPath)
+        working.setGfx(manifestPath, [{ file: 2, tile: 1, pixels: px(6) }])
+        expect(working.editStack(manifestPath)).toMatchObject({ canRedo: false })
+        expect(loadRedoLayers(dir)).toHaveLength(0)
+      })
+    })
+
     // ops/redo/ is not validated on open for word layers (a stale one opens
     // and refuses on redo). A damaged gfx layer there gets the same policy.
     it.each([
@@ -402,7 +561,10 @@ describe('WorkingRomRegistry', () => {
     it('reopens 4 runs of 10 gfx layers with one table decode per run', () => {
       const { manifestPath, dir } = gfxProject()
       for (let i = 0; i < 40; i++) {
-        appendLayer(dir, { ...gfxLayer(`g${i}`, 1 + (i % 7)), file: i })
+        appendLayer(dir, {
+          ...gfxLayer(`g${i}`, 1 + (i % 7)),
+          chars: [{ file: i, tile: 0, pixels: [{ x: 0, y: 0, value: 1 + (i % 7) }] }],
+        })
         if (i % 10 !== 9) continue
         const [o, n] = [(i - 9) / 10, (i + 1) / 10].map(v => `$${v.toString(16)}`)
         appendLayer(dir, {
@@ -584,9 +746,204 @@ describe('WorkingRomRegistry', () => {
       })
       expect(r.status).toBe('io-error')
       fsFault.hook = null
+      // The clear comes first: a write that ran before it would leave a layer on disk.
+      expect(loadLayers(dir)).toHaveLength(0)
 
       expect(loadRedoLayers(dir).map(l => l.id)).toEqual([mine])
       expect(working.editStack(manifestPath)).toMatchObject({ status: 'ok', canRedo: true })
+    })
+
+    // The write that fails is the layer's own; the redo future must survive
+    // it, in memory and on disk (#634).
+    it('a setWord whose layer write fails after an undo keeps the redo, in memory and on disk', () => {
+      const { manifestPath, dir, mine } = editedOnce()
+      working.undo(manifestPath)
+      fsFault.hook = (call, target) => {
+        if (call === 'writeFileSync' && !inRedo(target)) throw new Error('disk full')
+      }
+      const r = working.setWord(manifestPath, {
+        romAddr: MARIO_RED_ADDR,
+        oldHex: '$391F',
+        newHex: '$7C00',
+      })
+      fsFault.hook = null
+      expect(r.status).toBe('io-error')
+      expect(loadLayers(dir)).toHaveLength(0)
+      expect(loadRedoLayers(dir).map(l => l.id)).toEqual([mine])
+      expect(working.editStack(manifestPath)).toMatchObject({ status: 'ok', canRedo: true })
+    })
+
+    const wr = (oldHex: string, newHex: string) => ({ romAddr: MARIO_RED_ADDR, oldHex, newHex })
+    const tmpsIn = (dir: string) =>
+      fs.readdirSync(path.join(dir, 'ops')).filter(f => f.endsWith('.tmp'))
+
+    // A rebuilt instance would strand every subscriber that makes no further request.
+    it('a layer write that fails after an undo keeps the held instance and its redo', () => {
+      const { manifestPath, w, mine } = editedOnce()
+      working.undo(manifestPath)
+      fsFault.hook = (call, target) => {
+        if (call === 'writeFileSync' && !inRedo(target)) throw new Error('disk full')
+      }
+      expect(working.setWord(manifestPath, wr('$391F', '$2000')).status).toBe('io-error')
+      fsFault.hook = null
+      const r = working.get(manifestPath)
+      if (r.status !== 'ok') throw new Error('unreachable')
+      expect(r.working).toBe(w)
+      expect(w.redoStack.map(l => l.id)).toEqual([mine])
+    })
+
+    // The held-instance checks below read the registry's own copy, not editStack(),
+    // which rebuilds from disk and would hide a redo that was never restored in memory.
+    // A recursive clear that deletes one redo file and then throws: the held copy
+    // briefly has both layers, disk one. The dropped stamp makes the next get() rebuild from disk.
+    it('a redo clear that deletes one file before it throws reconciles on the next access', () => {
+      const { manifestPath, dir } = editedOnce()
+      working.setWord(manifestPath, wr('$1000', '$2000'))
+      working.undo(manifestPath)
+      working.undo(manifestPath)
+      fsFault.hook = (call, target) => {
+        if (call !== 'rmSync' || !inRedo(`${target}${path.sep}`)) return
+        fs.unlinkSync(path.join(target, '0001.json'))
+        throw new Error('locked')
+      }
+      expect(working.setWord(manifestPath, wr('$391F', '$3000')).status).toBe('io-error')
+      fsFault.hook = null
+
+      expect(loadLayers(dir)).toHaveLength(0)
+      expect(tmpsIn(dir)).toEqual([])
+      expect(loadRedoLayers(dir)).toHaveLength(1)
+      expect(working.editStack(manifestPath)).toMatchObject({ status: 'ok', canRedo: true })
+      const r = working.get(manifestPath)
+      if (r.status !== 'ok') throw new Error('unreachable')
+      expect(r.working.redoStack).toHaveLength(1)
+      // The survivor is the later layer; its `old` no longer matches the bytes below it, so redo refuses.
+      expect(working.redo(manifestPath)).toMatchObject({ status: 'stale' })
+    })
+
+    it('a redo clear that throws keeps the held instance and its redo', () => {
+      const { manifestPath, w, mine } = editedOnce()
+      working.undo(manifestPath)
+      fsFault.hook = call => {
+        if (call === 'rmSync') throw new Error('locked')
+      }
+      expect(working.setWord(manifestPath, wr('$391F', '$2000')).status).toBe('io-error')
+      fsFault.hook = null
+      const r = working.get(manifestPath)
+      if (r.status !== 'ok') throw new Error('unreachable')
+      expect(r.working).toBe(w)
+      expect(w.redoStack.map(l => l.id)).toEqual([mine])
+    })
+
+    it('a rename that fails after the clear keeps the held instance with an empty redo', () => {
+      const { manifestPath, w, dir } = editedOnce()
+      working.undo(manifestPath)
+      fsFault.hook = call => {
+        if (call === 'renameSync') throw new Error('locked')
+      }
+      expect(working.setWord(manifestPath, wr('$391F', '$2000')).status).toBe('io-error')
+      fsFault.hook = null
+      const r = working.get(manifestPath)
+      if (r.status !== 'ok') throw new Error('unreachable')
+      expect(r.working).toBe(w)
+      expect(w.redoStack).toEqual([])
+      expect(loadRedoLayers(dir)).toEqual([])
+    })
+
+    it('a rename that fails pops the failed edit from the held copy', () => {
+      const { manifestPath, w } = editedOnce()
+      fsFault.hook = call => {
+        if (call === 'renameSync') throw new Error('locked')
+      }
+      expect(working.setWord(manifestPath, wr('$1000', '$2000')).status).toBe('io-error')
+      fsFault.hook = null
+      expect(w.stack).toHaveLength(1)
+    })
+
+    it('a rename and a discard that both fail still report the rename and leave the store usable', () => {
+      const { manifestPath, w, dir } = editedOnce()
+      fsFault.hook = call => {
+        if (call === 'renameSync') throw new Error('locked')
+        if (call === 'unlinkSync') throw new Error('locked too')
+      }
+      const r = working.setWord(manifestPath, wr('$1000', '$2000'))
+      fsFault.hook = null
+      expect(r).toMatchObject({ status: 'io-error', reason: 'locked' })
+      expect(w.stack).toHaveLength(1)
+      // The stranded temp is not a layer: not loaded, and the next edit overwrites it.
+      expect(tmpsIn(dir)).toHaveLength(1)
+      expect(loadLayers(dir)).toHaveLength(1)
+      expect(working.setWord(manifestPath, wr('$1000', '$3000')).status).toBe('ok')
+      expect(loadLayers(dir).map(l => l.ops?.[0]?.new)).toEqual(['$1000', '$3000'])
+      const f = new WorkingRomRegistry(romRegistry).get(manifestPath)
+      if (f.status !== 'ok') throw new Error('unreachable')
+      expect(f.working.stack).toHaveLength(2)
+    })
+
+    it('a stranded temp from a failed rename is invisible to a fresh open', () => {
+      const { manifestPath, dir } = editedOnce()
+      fsFault.hook = call => {
+        if (call === 'renameSync' || call === 'unlinkSync') throw new Error('locked')
+      }
+      working.setWord(manifestPath, wr('$1000', '$2000'))
+      fsFault.hook = null
+      expect(tmpsIn(dir)).toEqual(['0001.json.tmp'])
+      expect(fs.readdirSync(path.join(dir, 'ops')).filter(f => f === '0001.json')).toEqual([])
+      const f = new WorkingRomRegistry(romRegistry).get(manifestPath)
+      if (f.status !== 'ok') throw new Error('unreachable')
+      expect(f.working.stack).toHaveLength(1)
+    })
+
+    it('a redo that dies mid-write leaves no partial layer file under its final name', () => {
+      const { manifestPath, dir, mine } = editedOnce()
+      working.undo(manifestPath)
+      fsFault.hook = (call, target) => {
+        if (call !== 'writeFileSync' || inRedo(target)) return
+        fsFault.hook = null
+        fs.writeFileSync(target, '{"half":', 'utf8')
+        throw new Error('power cut')
+      }
+      expect(working.redo(manifestPath).status).toBe('io-error')
+      fsFault.hook = null
+      expect(() => loadLayers(dir)).not.toThrow()
+      expect(loadLayers(dir)).toEqual([])
+      expect(loadRedoLayers(dir).map(l => l.id)).toEqual([mine])
+    })
+
+    it('a rename that fails after the redo clear leaves no layer and no temp, memory agreeing', () => {
+      const { manifestPath, dir } = editedOnce()
+      working.undo(manifestPath)
+      fsFault.hook = call => {
+        if (call === 'renameSync') throw new Error('locked')
+      }
+      const r = working.setWord(manifestPath, {
+        romAddr: MARIO_RED_ADDR,
+        oldHex: '$391F',
+        newHex: '$7C00',
+      })
+      fsFault.hook = null
+      expect(r.status).toBe('io-error')
+      expect(fs.readdirSync(path.join(dir, 'ops')).filter(f => f.endsWith('.json'))).toEqual([])
+      expect(fs.readdirSync(path.join(dir, 'ops')).filter(f => f.includes('.tmp'))).toEqual([])
+      expect(loadRedoLayers(dir)).toEqual([])
+      expect(working.editStack(manifestPath)).toMatchObject({ status: 'ok', canRedo: false })
+    })
+
+    it('a setWord whose layer write fails pops it from the held working copy', () => {
+      const { manifestPath } = makeProject()
+      const got = working.get(manifestPath)
+      if (got.status !== 'ok') throw new Error('unreachable')
+      const held = got.working // a later get() would reload from disk and hide a leak
+      fsFault.hook = call => {
+        if (call === 'writeFileSync') throw new Error('disk full')
+      }
+      const r = working.setWord(manifestPath, {
+        romAddr: MARIO_RED_ADDR,
+        oldHex: '$391F',
+        newHex: '$1000',
+      })
+      fsFault.hook = null
+      expect(r.status).toBe('io-error')
+      expect(held.stack).toHaveLength(0)
     })
   })
 

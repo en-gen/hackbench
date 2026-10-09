@@ -168,6 +168,14 @@ export class MusicExplorerWidget extends TreeWidget {
         }
       }),
     )
+    // The base ROM moved: rebuild as a fresh open would, nothing selected.
+    this.toDispose.push(
+      this.projectContext.onRomChanged(manifestPath => {
+        if (manifestPath !== this.manifestPath) return
+        this.model.clearSelection()
+        void this.load(manifestPath)
+      }),
+    )
   }
 
   protected reset(): void {

@@ -397,7 +397,7 @@ drop out by construction, because they never become entry maps.
     optimisation, not identity: the secondary-exit table names a **slot**. On
     vanilla, `$0EB`'s pointer is shared by `$0F0`, `$0FB`, `$1DA`, `$1E7` and
     `$1F9`; one was kept and four discarded.
-  - it gates on `levelHasObjects()`, the defect in issue #311, which rejects 24
+  - it gates on `levelHasObjects()`, through its `data[5] === $FF` terminator rule (issue #695), which rejects 24
     real rooms.
 
   Between them, 47 of the ROM's 235 real maps could never be a destination.
@@ -523,3 +523,12 @@ No claim here was checked against a running ROM, and none was checked against an
 edited ROM. Per `CLAUDE.md`, a romhack can replace the routines traced above; in
 particular `CODE_04E5EE` and the increment at `bank_04.asm:6727` are ordinary
 code, and a hack may relocate or bypass them.
+
+## Level names and ids
+
+- The ROM holds a level name table at `$04A0FC` (96 entries x 2 bytes); `src/rom/SmwLevelNames.ts` decodes it (`decodeLevelName`, `getAllLevelNames`, `getLevelNameByIndex`). `[EST]`
+- Three external lists (a forum post, two LLM tables) were refuted against the ROM in one session, each claiming 76 entries and disagreeing, with entries at `$019`, `$01E`, `$112` pointing at the shared filler L1 `$068000`. `[EST]`
+- Report ids as `$XXX` hex. Add a name only when it comes from the decoder or the owner said it that turn; leave unverified names off.
+- Confirmed by the owner 2026-09-13: Yoshi's House `$104`, Valley Fortress `$111`, Red Switch Palace `$11B`. `[EST]`
+- Decoded, not separately confirmed: Green Switch Palace `$008`, Yellow `$014`, Blue `$121`. `[EST]`
+- `levelHasObjects()` is true for filler slots (`$012`, `$112`). Test a real slot by comparing its L1 pointer with the most frequent (filler) pointer. `[EST]`
