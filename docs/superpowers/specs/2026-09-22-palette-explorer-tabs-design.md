@@ -23,16 +23,16 @@ labels without the row suffix).
 
 ## Decisions
 
-| Question                  | Decision                                                                                                                        |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| What a tree item opens    | Group row opens a tab of all its variants; variant row opens a tab of that one variant. Single-variant groups are leaves.       |
-| Preview vs pinned tabs    | Same as Graphics: single click opens the italic preview tab via `PreviewTabs.preview`, double click pins via `PreviewTabs.pin`. |
-| Where the inspector lives | Inside each tab, as a right-hand column beside the grid; wraps below the grid when the tab is docked narrow.                    |
-| Reuse                     | One view widget class for group and variant tabs, plus three shared React components (swatch row, inspector, frame strip).      |
-| Look                      | Today's swatch and hatch styling carries over unchanged.                                                                        |
-| Animation in the grid     | Static. An animated swatch carries a corner marker; the inspector preview plays it.                                             |
-| Animation timing          | Read-only facts in the inspector, never editable here.                                                                          |
-| Project switch            | Palette tabs close; the explorer reloads.                                                                                       |
+| Question | Decision |
+|---|---|
+| What a tree item opens | Group row opens a tab of all its variants; variant row opens a tab of that one variant. Single-variant groups are leaves. |
+| Preview vs pinned tabs | Same as Graphics: single click opens the italic preview tab via `PreviewTabs.preview`, double click pins via `PreviewTabs.pin`. |
+| Where the inspector lives | Inside each tab, as a right-hand column beside the grid; wraps below the grid when the tab is docked narrow. |
+| Reuse | One view widget class for group and variant tabs, plus three shared React components (swatch row, inspector, frame strip). |
+| Look | Today's swatch and hatch styling carries over unchanged. |
+| Animation in the grid | Static. An animated swatch carries a corner marker; the inspector preview plays it. |
+| Animation timing | Read-only facts in the inspector, never editable here. |
+| Project switch | Palette tabs close; the explorer reloads. |
 
 ## Components
 
@@ -175,7 +175,6 @@ is hidden. The grid never animates.
 Synthetic fixtures unless marked; CI has no ROM.
 
 Unit (vitest):
-
 - The animation DTO builder against a planted flash kernel: targets, frame
   `romAddr`s, `sharedWithOtherTargets`. With the kernel's opcode broken:
   `available: false`, notes present, no targets. Proven red by removing the
@@ -185,7 +184,6 @@ Unit (vitest):
 - `PaletteFrameStrip`: wraps at 9 and 17 frames; repeated-address highlight.
 
 Playwright (`theia/browser-app/test/`), asserting behaviour, not presence:
-
 - The Palettes icon is in the left activity bar; clicking it reveals the tree.
 - Single click on a group opens an italic preview tab; double click pins it;
   a variant row opens a tab with exactly one variant.

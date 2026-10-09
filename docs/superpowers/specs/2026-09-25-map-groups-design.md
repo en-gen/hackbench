@@ -103,7 +103,7 @@ case. The name prompt reports a clash rather than silently merging.
   6-ROM corpus: `Super Mario World (USA).vanilla.sfc` (headerless) and
   `.magic.sfc` (copier header) give the same hash.
 - The title check (`SmwRom.isVanilla`, `internalName.startsWith('SUPER
-MARIOWORLD')`) is NOT enough. Hacks keep the stock title. Only an exact
+  MARIOWORLD')`) is NOT enough. Hacks keep the stock title. Only an exact
   hash match seeds groups.
 - Seeding happens once, when a vanilla project is loaded and has no
   `meta/groups.json`. From then on the groups belong to the user: deleting
@@ -118,23 +118,22 @@ MARIOWORLD')`) is NOT enough. Hacks keep the stock title. Only an exact
   Names carry their area number, so a plain (but locale-numeric) sort by
   name lands them in world order rather than alphabetical order.
 
-  | Group                 | Slots                                       |
-  | --------------------- | ------------------------------------------- |
-  | 1. Yoshi's Island     | 104 105 106 103 102 101 014                 |
-  | 2. Donut Plains       | 015 009 005 006 007 00A 10B 004 013 003 008 |
-  | 3. Vanilla Dome       | 11A 118 10A 119 11C 109 001 002 107 00B 11B |
-  | 4. Twin Bridges       | 00F 010 00C 00D 011 00E                     |
-  | 5. Forest of Illusion | 11E 120 123 11F 020 11D 122 01F 121         |
-  | 6. Chocolate Island   | 022 024 023 01D 01C 01A 021 01B 117         |
-  | 7. Valley of Bowser   | 116 115 113 10F 110 114 111 10D 10E 018     |
-  | 8. Star World         | 134 130 132 135 136                         |
-  | 9. Special Zone       | 12A 12B 12C 12D 128 127 126 125             |
+  | Group | Slots |
+  |---|---|
+  | 1. Yoshi's Island | 104 105 106 103 102 101 014 |
+  | 2. Donut Plains | 015 009 005 006 007 00A 10B 004 013 003 008 |
+  | 3. Vanilla Dome | 11A 118 10A 119 11C 109 001 002 107 00B 11B |
+  | 4. Twin Bridges | 00F 010 00C 00D 011 00E |
+  | 5. Forest of Illusion | 11E 120 123 11F 020 11D 122 01F 121 |
+  | 6. Chocolate Island | 022 024 023 01D 01C 01A 021 01B 117 |
+  | 7. Valley of Bowser | 116 115 113 10F 110 114 111 10D 10E 018 |
+  | 8. Star World | 134 130 132 135 136 |
+  | 9. Special Zone | 12A 12B 12C 12D 128 127 126 125 |
 
   Left ungrouped: the 13 slots named STAR ROAD (012 016 01E 108 10C 124
   129 12E 12F 131 133 137 138), and 017 and 019, which hold a leftover name
   and have no overworld tile in the stock game (to be confirmed by the
   corpus test).
-
 - The corpus test checks every seeded slot is an entry map in the vanilla
   tree, and that the ROM's name for it matches the group it is in.
 
