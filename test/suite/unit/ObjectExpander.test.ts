@@ -896,9 +896,11 @@ describe('handle_0DA68E (ext 0x46 midway)', () => {
     rom.writeAt(HANDLER_ADDR + 31, [0x38])
     return rom
   }
-  function run(col: number, row: number): ReturnType<typeof createGrid> {
-    const grid = createGrid(3)
-    handle_0DA68E(makeCursorForHandler(HANDLER_ADDR, grid, setupRom(), 0, col, row, 0x46, 0))
+  function run(col: number, row: number, vertical = false): ReturnType<typeof createGrid> {
+    const grid = vertical ? createGrid(4, true) : createGrid(3)
+    const cur = makeCursorForHandler(HANDLER_ADDR, grid, setupRom(), 0, col, row, 0x46, 0)
+    cur.vertical = vertical
+    handle_0DA68E(cur)
     return grid
   }
   /** Every non-empty cell as "row,col=tile", sorted by row then column. */
@@ -934,31 +936,18 @@ describe('handle_0DA68E (ext 0x46 midway)', () => {
   // on a hand-built vertical pointer (the handler code does not read the level
   // layout); no capture.
   it.each([
-    [32, 0, 'r47 c15=35', 'r43 c16=38'],
-    [33, 0, 'r32 c15=35', 'r44 c16=38'],
-    [37, 0, 'r36 c15=35', 'r48 c0=38'],
-    [32, 16, 'r47 c31=35', 'r59 c0=38'],
-    [37, 16, 'r36 c31=35', 'r48 c16=38'],
-    [47, 16, 'r46 c31=35', 'r58 c16=38'],
+    [32, 0, '47,15=35', '43,16=38'],
+    [33, 0, '32,15=35', '44,16=38'],
+    [37, 0, '36,15=35', '48,0=38'],
+    [32, 16, '47,31=35', '59,0=38'],
+    [37, 16, '36,31=35', '48,16=38'],
+    [47, 16, '46,31=35', '58,16=38'],
   ])('vertical level, row %i col %i', (row, col, tape, base) => {
-    const grid = createGrid(4, true)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, setupRom(), 0, col, row, 0x46, 0)
-    cur.vertical = true
-    handle_0DA68E(cur)
-    const cells = drawn(grid).map(c => {
-      const [rc, t] = c.split('=')
-      const [r, cc] = rc.split(',')
-      return `r${r} c${cc}=${t}`
-    })
-    expect(cells.sort()).toEqual([tape, base].sort())
+    expect(drawn(run(col, row, true)).sort()).toEqual([tape, base].sort())
   })
 
   it('vertical level, column not on a block edge, keeps the col-1 and col draw', () => {
-    const grid = createGrid(4, true)
-    const cur = makeCursorForHandler(HANDLER_ADDR, grid, setupRom(), 0, 5, 40, 0x46, 0)
-    cur.vertical = true
-    handle_0DA68E(cur)
-    expect(drawn(grid).sort()).toEqual(['40,4=35', '40,5=38'])
+    expect(drawn(run(5, 40, true)).sort()).toEqual(['40,4=35', '40,5=38'])
   })
 
   // Sweeps over synthetic bytes (no ROM): every valid row, so one lucky row
@@ -994,11 +983,7 @@ describe('handle_0DA68E (ext 0x46 midway)', () => {
   it('sweep, vertical: block-edge columns 0 and 16, a full screen of rows', () => {
     for (const col of [0, 16]) {
       for (let row = 32; row < 48; row++) {
-        const grid = createGrid(4, true)
-        const cur = makeCursorForHandler(HANDLER_ADDR, grid, setupRom(), 0, col, row, 0x46, 0)
-        cur.vertical = true
-        handle_0DA68E(cur)
-        const cells = drawn(grid)
+        const cells = drawn(run(col, row, true))
         expect(cells).toHaveLength(2)
         // Tape stays in the object's own $100 block: last column, row above, Y wraps.
         expect(cells).toContain(`${32 + ((row - 1) & 15)},${col + 15}=35`)
