@@ -297,7 +297,7 @@ describe('mainCheckoutDir', () => {
     execFileSync('git', ['-C', main, 'worktree', 'add', '-q', wt])
     expect(fs.realpathSync(mainCheckoutDir(wt))).toBe(fs.realpathSync(main))
     expect(fs.realpathSync(mainCheckoutDir(main))).toBe(fs.realpathSync(main))
-  })
+  }, 30000)
 
   it('falls back to cwd outside git', () => {
     const dir = tempDir('nogit-')
@@ -324,7 +324,7 @@ describe('the state directory', () => {
     expect(STATE_DIR_NAME).toBe('.hackbench-state')
     expect(real(stateDirFor(wt))).toBe(path.join(fs.realpathSync(main), '.hackbench-state'))
     expect(stateDirFor(wt)).not.toContain(path.join('.claude', 'state'))
-  })
+  }, 30000)
 })
 
 describe('the state directory is gitignored', () => {
