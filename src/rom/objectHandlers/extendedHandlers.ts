@@ -146,19 +146,16 @@ export function handle_0DA673(cur: Cursor): void {
  * to emit the tape ($35) and base ($38). For an editor we always show the
  * midway post (the two gates are tracked separately, not ported here).
  *
- * Column 0 of a screen or block (bank_0D.asm:1625-1632, 1999-2015): DEY on
- * the 8-bit Y moves the tape to the row above, column 15, inside the same
- * $100 block (Y wraps to $FF at local row 0). The INY after it reads as an
- * edge, so the pointer gains a fixed $1B0 and Y reloads from LevelLoadPos
- * AND $F0: the base lands at `block + $1B0 + local row * 16`. Horizontally
- * that is column 0 of the next screen on the object's row (a screen is $1B0
- * bytes); in a vertical level, where a screen is $200 bytes, it is in another
- * block, not on the object's row. Both are the same offset arithmetic below.
+ * Column 0 of a screen or block: the tape goes to column 15 of the row above,
+ * the base to column 0 of the next screen (SMWDisX bank_0D.asm:1625-1632,
+ * 1999-2015). Derivation in docs/rom/map-data-mechanics.md, "Midway tape at
+ * column 0".
  *
- * Evidence scope: vanilla ROM; horizontal checked against the #351
- * interpreter at rows 0, 2, 10, 16, 18, 26; vertical against the same
- * interpreter on a hand-built vertical pointer, no capture and no emulator.
- * Columns other than a block's first keep the plain col-1 / col draw.
+ * Evidence scope: horizontal, the committed L1 differential compares only row
+ * 18 at column 0 (it takes the first fitting row); vertical, SMWDisX trace plus
+ * an ad hoc interpreter run, not committed, no capture. Not modelled: vertical
+ * modes 3/4 at screen 14+, where the table jumps to $1B00 (DATA_00BB62,
+ * bank_00.asm:6779).
  */
 export function handle_0DA68E(cur: Cursor): void {
   // CODE_0DA68E inline tile immediates: +23 $35 (tape), +31 $38 (base).

@@ -897,7 +897,7 @@ describe('handle_0DA68E (ext 0x46 midway)', () => {
     return rom
   }
   function run(col: number, row: number, vertical = false): ReturnType<typeof createGrid> {
-    const grid = vertical ? createGrid(4, true) : createGrid(3)
+    const grid = vertical ? createGrid(8, true) : createGrid(3)
     const cur = makeCursorForHandler(HANDLER_ADDR, grid, setupRom(), 0, col, row, 0x46, 0)
     cur.vertical = vertical
     handle_0DA68E(cur)
@@ -932,9 +932,10 @@ describe('handle_0DA68E (ext 0x46 midway)', () => {
   // Vertical levels: same code, a different buffer. A screen is two $100-byte
   // 16x16 blocks (left cols 0-15, right 16-31) and Y wraps inside its block,
   // but CODE_0DA95D still adds the horizontal $1B0 stride, so the base lands in
-  // another block and not on the object's row. Oracle: the #351 interpreter run
-  // on a hand-built vertical pointer (the handler code does not read the level
-  // layout); no capture.
+  // another block and not on the object's row. Evidence: SMWDisX trace plus an
+  // ad hoc interpreter run on a hand-built vertical pointer, not committed (the
+  // production interpreter refuses vertical levels); no capture. Modes 3/4 at
+  // screen 14+ jump to $1B00 (DATA_00BB62) and are not modelled.
   it.each([
     [32, 0, '47,15=35', '43,16=38'],
     [33, 0, '32,15=35', '44,16=38'],
@@ -980,16 +981,18 @@ describe('handle_0DA68E (ext 0x46 midway)', () => {
     }
   })
 
-  it('sweep, vertical: block-edge columns 0 and 16, a full screen of rows', () => {
+  it('sweep, vertical: block-edge columns 0 and 16, rows of eight screens', () => {
     for (const col of [0, 16]) {
-      for (let row = 32; row < 48; row++) {
+      for (let row = 0; row < 112; row++) {
         const cells = drawn(run(col, row, true))
-        expect(cells).toHaveLength(2)
-        // Tape stays in the object's own $100 block: last column, row above, Y wraps.
-        expect(cells).toContain(`${32 + ((row - 1) & 15)},${col + 15}=35`)
-        // Base is one horizontal stride ($1B0) further on: never the object's cell.
-        expect(cells.some(c => c.endsWith('=38'))).toBe(true)
-        expect(cells.join()).not.toContain(`${row},${col}=`)
+        // Tape: own $100 block, last column of it, row above with Y wrapping.
+        const tape = `${(row & ~15) + ((row - 1) & 15)},${col + 15}=35`
+        // Base: byte offset = block + $1B0 + local row * 16, split back into
+        // $200-byte screens (left half cols 0-15, right half 16-31).
+        const off = (row >> 4) * 0x200 + (col >> 4) * 0x100 + 0x1b0 + (row & 15) * 16
+        const half = off % 0x200 >= 0x100 ? 16 : 0
+        const base = `${Math.floor(off / 0x200) * 16 + ((off >> 4) & 15)},${half + (off & 15)}=38`
+        expect(cells.sort()).toEqual([tape, base].sort())
       }
     }
   })

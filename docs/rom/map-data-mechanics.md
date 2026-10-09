@@ -486,3 +486,14 @@ Corrected 2026-10-04 (#459 PR 2 adversarial review): was "L2 uses a different pe
 - `Layer2YPos` shifts image L2 and object-stream L2 alike. SMWDisX `bank_05.asm:7323-7328`. `[EST]`
 - BG2 is 64x64 8x8 tiles, so L2 wraps every 512 px vertically. SMWDisX `bank_00.asm:1270-1271`. `[EST]`
 - Treat the L2 grid as L1-shaped unless the level mode is 3 to 6. `[INF]`
+
+## Midway tape at column 0
+
+Extended object $46 (`CODE_0DA68E`, SMWDisX `bank_0D.asm:1618-1632`). Added for #368.
+
+- DEY on the 8-bit Y moves the tape to the row above, column 15, inside the same $100-byte block; at local row 0 Y wraps to $FF. `[EST]`
+- The INY after it reads as a screen edge (`bank_0D.asm:1999-2015`), so the pointer gains a fixed $1B0 and Y reloads from `LevelLoadPos` AND $F0. The base lands at `block + $1B0 + local row * 16`. `[EST]`
+- Horizontal: a screen is $1B0 bytes, so the base is column 0 of the next screen on the object's row. Vertical: a screen is $200 bytes, so the base lands in another block, not on the object's row. `[EST]`
+- Columns other than a block's first keep the plain col-1 / col draw. `[EST]`
+- Not modelled: vertical modes 3/4 at screen 14+ jump to $1B00 (`DATA_00BB62`, `bank_00.asm:6779`). The gates (OWLevelTileSettings bit 6, MidwayFlag) are #635.
+- Evidence: horizontal, the committed L1 differential compares row 18 at column 0 only. Vertical, the production interpreter refuses vertical levels, so the check was an ad hoc run, not committed. No capture. `[EST]`
