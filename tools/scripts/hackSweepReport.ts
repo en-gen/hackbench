@@ -170,7 +170,6 @@ export interface RunDiff {
 
 const label = (r: HackRecord): string => `${r.smwcId} ${r.name}`
 
-/** Only hacks swept this run and present before are diffed; a carried record did not run, so it cannot have changed. */
 /** The new results: this run's records, plus the previous run's for hacks outside the batch, marked carried. */
 export function mergeCarried(prev: HackRecord[], swept: HackRecord[]): HackRecord[] {
   const ids = new Set(swept.map(r => r.smwcId))
@@ -178,6 +177,7 @@ export function mergeCarried(prev: HackRecord[], swept: HackRecord[]): HackRecor
   return [...swept.map(({ carried: _, ...r }) => r), ...kept].sort((a, b) => a.smwcId - b.smwcId)
 }
 
+/** Only hacks swept this run and present before are diffed; a carried record did not run, so it cannot have changed. */
 export function diffRuns(prev: HackRecord[], cur: HackRecord[], topBlockers = 8): RunDiff {
   const before = new Map(prev.map(r => [r.smwcId, r]))
   const after = new Map(cur.map(r => [r.smwcId, r]))

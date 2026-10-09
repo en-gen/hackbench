@@ -6,8 +6,9 @@
  *
  * HACKBENCH_HACKS names the store (read only), HACKBENCH_SWEEP_OUT the output
  * directory, HACKBENCH_SWEEP_BATCH how many hacks one run covers (default 50;
- * cursor.json in the output directory rotates which). Output holds hashes, ids, names, verdicts and counts; a reason may
- * quote one instruction's bytes, and longer runs are elided.
+ * cursor.json in the output directory rotates which). Output holds hashes, ids,
+ * names, verdicts and counts; a reason may quote one instruction's bytes, and
+ * longer runs are elided.
  */
 import { createHash } from 'crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
