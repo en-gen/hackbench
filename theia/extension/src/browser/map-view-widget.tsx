@@ -537,7 +537,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     // old layout, and restoring on it would consume the anchor early.
     // Untested on purpose: no UI input yields a stale-zoom commit (Lumino
     // renders in a microtask, so render() sees the latest zoom before React's
-    // commit task; #547 comment 3, one machine). See docs/decisions/2026-10-08-zoom-anchor-race-seam.md.
+    // commit task; @lumino/messaging 2.0.5 dist/index.js:141-147). See
+    // docs/decisions/2026-10-08-zoom-anchor-race-seam.md.
     if (this.renderedZoom === this.zoomController.value) this.wheelBinding?.restoreAnchor()
     this.sync()
   }
