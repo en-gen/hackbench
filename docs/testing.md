@@ -413,16 +413,16 @@ innocent rename, which is the wrong failure mode twice over.
 Run against `test/suite/gates/lintGate.test.ts` (21 cases): one line of the
 rule disabled at a time, expecting the cases that need it to go red.
 
-| Planted defect                                        | Cases red |
-| ----------------------------------------------------- | --------- |
-| `paths` entry for `cloudevents` renamed               | 3         |
-| `patterns` entry `cloudevents/*` renamed              | 1         |
-| `ImportExpression` selector (string literal) disabled | 2         |
-| `ImportExpression` template-literal selector disabled | 1         |
-| `require()` selector (string literal) disabled        | 1         |
-| `require()` template-literal selector disabled        | 1         |
-| `module.require()` selector (string literal) disabled | 1         |
-| `module.require()` template-literal selector disabled | 1         |
+| Planted defect                                              | Cases red |
+| ----------------------------------------------------------- | --------- |
+| `paths` entry for `cloudevents` renamed                     | 3         |
+| `patterns` entry `cloudevents/*` renamed                    | 1         |
+| `ImportExpression` selector (string literal) disabled       | 2         |
+| `ImportExpression` template-literal selector disabled       | 1         |
+| `require()` selector (string literal) disabled              | 1         |
+| `require()` template-literal selector disabled              | 1         |
+| `module.require()` selector (string literal) disabled       | 1         |
+| `module.require()` template-literal selector disabled       | 1         |
 
 ## Viewing Mesen per-map captures
 
@@ -554,7 +554,9 @@ hacks swept this run, the hacks added, and the hacks removed from the store.
 Records for hacks outside the batch that are still in the store are carried
 forward with `carried: true`, so `summary.md` covers the whole store and says
 how many records are fresh; a carried record is never reported as changed, and
-a record for a hack no longer in the store is dropped. A bare-array `results.json` from before the cursor is read as a cursor of 0 and converted on the next write.
+a record for a hack no longer in the store is dropped. A bare-array
+`results.json` from before the cursor is read as a cursor of 0 and converted
+on the next write.
 
 ## Unit tests cannot reach an authenticated gh
 
