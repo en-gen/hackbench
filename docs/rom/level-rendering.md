@@ -290,7 +290,7 @@ quirk it is, plus the exact number of cases it absorbs and a digest of the
 interpreter's output, so an entry cannot quietly widen. A row flagged
 `offScreenOnly` (#453, only the #300 row today) absorbs only differences off
 the object's own screen; the port's own output is otherwise not pinned by the
-digest.
+digest (follow-up #751).
 
 ---
 
