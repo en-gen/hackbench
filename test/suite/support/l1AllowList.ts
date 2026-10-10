@@ -5,7 +5,7 @@
  * cases it covers, why, and three measured numbers: the disagreeing cases it
  * absorbs, all compared cases its predicate matches (agreeing ones too), and a
  * digest of the interpreter's output over the absorbed cases, plus a fourth
- * digest of the PORT's output over the same cases. Without that one, an
+ * digest of the PORT's output over the same cases. Without that one, a
  * disagreement row would absorb any change to the port's tiles unseen (#751).
  * Widening a predicate, a new disagreement landing under an old entry, or any
  * change in what either side draws for those cases moves a number and fails.
