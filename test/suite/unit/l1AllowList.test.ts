@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createGrid } from '../../../src/rom/ObjectExpander'
-import { compareRun, hex6, sameScreen, type DiffRun } from '../support/l1Differential'
+import { compareRun, hex6, portDigestOf, sameScreen, type DiffRun } from '../support/l1Differential'
 import { KNOWN_DISAGREEMENTS, aggregate, tally, type Known } from '../support/l1AllowList'
 
 // Synthetic grids and runs only: no ROM, so this runs in CI. Screen 5 is the
@@ -112,19 +112,29 @@ describe('tally and offScreenOnly', () => {
 describe('tally pins the port output (#751)', () => {
   const portLines = (u: string[]) => u.filter(l => l.includes('port output differs'))
 
+  // One row whose pinned counts and interpreter digest match the run, so only the
+  // port digest can trigger the line.
+  const single = (over: Partial<Known>): Known => ({
+    routine: LEAF,
+    when: () => true,
+    why: 440,
+    expect: [1, 1, aggregate(['aa']), aggregate(['pp'])],
+    ...over,
+  })
+  const LINE = '$0DB49E (#440): port output differs from the pinned digest'
+
   it('reports a planted port change under a non-#300 row', () => {
-    const t = tally([run({ leaf: 0x0dadeb, top: 0x0dadeb, portDigest: 'planted' })], name)
-    // The other rows absorb nothing in this synthetic list, so they differ from their pins too.
-    expect(portLines(t.unexpected)).toContain(
-      '$0DADEB (#440): port output differs from the pinned digest',
-    )
+    const row = single({})
+    expect(tally([run({})], name, [row]).unexpected).toEqual([])
+    expect(portLines(tally([run({ portDigest: 'planted' })], name, [row]).unexpected)).toEqual([
+      LINE,
+    ])
   })
 
   it('reports a planted port change in the #300 row off-screen spill', () => {
-    const t = tally([run({ ownScreenDiffers: false, portDigest: 'planted' })], name)
-    expect(portLines(t.unexpected)).toContain(
-      '$0DB49E (#300): port output differs from the pinned digest',
-    )
+    const row = single({ why: 300, offScreenOnly: true })
+    const t = tally([run({ ownScreenDiffers: false, portDigest: 'planted' })], name, [row])
+    expect(t.unexpected).toEqual([LINE.replace('#440', '#300')])
   })
 
   it('absorbs a run whose port aggregate matches the pinned value', () => {
@@ -164,5 +174,34 @@ describe('tally pins the port output (#751)', () => {
         label,
       ).toBe(true)
     }
+  })
+})
+
+describe('portDigestOf', () => {
+  const grid = () => createGrid(8)
+  const base = () => {
+    const g = grid()
+    g[3][FIRST + 2] = 0x41
+    return g
+  }
+
+  it('is stable for identical grids', () => {
+    expect(portDigestOf(base())).toBe(portDigestOf(base()))
+    expect(portDigestOf(base())).toMatch(/^[0-9a-f]{12}$/)
+  })
+  it('changes when a cell changes value', () => {
+    const g = base()
+    g[3][FIRST + 2] = 0x42
+    expect(portDigestOf(g)).not.toBe(portDigestOf(base()))
+  })
+  it('changes when a tile moves to another cell', () => {
+    const g = grid()
+    g[3][FIRST + 3] = 0x41
+    expect(portDigestOf(g)).not.toBe(portDigestOf(base()))
+  })
+  it('changes for a tile that spills onto screen 6', () => {
+    const g = base()
+    g[10][(SCREEN + 1) * 16 + 1] = 0x41
+    expect(portDigestOf(g)).not.toBe(portDigestOf(base()))
   })
 })

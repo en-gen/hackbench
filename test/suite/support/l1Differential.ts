@@ -105,7 +105,8 @@ const digestOf = (writes: BufferWrite[]): string => {
   return h.digest('hex').slice(0, 12)
 }
 
-const portDigestOf = (grid: TileGrid): string => {
+/** Skips TILE_EMPTY like sameGrid, so a port that starts or stops writing that tile is invisible. */
+export const portDigestOf = (grid: TileGrid): string => {
   const h = createHash('sha1')
   grid.forEach((cells, row) =>
     cells.forEach((tile, col) => tile !== TILE_EMPTY && h.update(`${row},${col},${tile};`)),

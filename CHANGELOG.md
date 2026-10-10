@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Layer 1 differential: the #300 allow-list row no longer hides port/interpreter differences on the object's own screen (#453).
-- Layer 1 differential: every allow-list row now pins the port's own output for the cases it absorbs, so a planted port change under any allow-listed case fails the differential (#751).
+- Layer 1 differential: every disagreement row now pins the port's own output for the cases it absorbs, so a planted port change under any allow-listed case fails the differential (#751).
 - Tech-lead session titles are now "<Team> Team" (e.g. "Delta Team"), in the tech-lead manual and the unregistered-session hook text.
 
 ### Fixed
