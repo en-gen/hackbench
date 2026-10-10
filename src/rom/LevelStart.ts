@@ -19,6 +19,18 @@ import type { RomFile } from './RomFile'
 import { isOverworldLevel, type SmwRom } from './SmwRom'
 import { parseLevelObjects } from './LevelParser'
 import {
+  DATA_05D730_ADDR as Y_LO,
+  DATA_05D740_ADDR as Y_HI,
+  DATA_05D750_ADDR as X_LO,
+  DATA_05D758_ADDR as X_HI,
+  DATA_05F000_ADDR as F000, // Y index (low nibble)
+  DATA_05F200_ADDR as F200, // X index (low 3 bits)
+  DATA_05F600_ADDR as F600, // screen (low 5 bits) and ScreenMode (bits 5-6)
+  DATA_05F800_ADDR as F800, // secondary: destination slot, low byte
+  DATA_05FA00_ADDR as FA00, // secondary: Y index (low nibble)
+  DATA_05FC00_ADDR as FC00, // secondary: X index (top 3 bits), screen (low 5)
+} from './L3Loader'
+import {
   deriveOverworldEntrances,
   STOCK_OVERWORLD_FINGERPRINTS,
   type OverworldFingerprints,
@@ -27,16 +39,6 @@ import {
 const ENTRY_BEQ = 0x05d8b1
 const BEQ = 0xf0
 
-const F000 = 0x05f000 // Y index (low nibble)
-const F200 = 0x05f200 // X index (low 3 bits)
-const F600 = 0x05f600 // screen (low 5 bits) and ScreenMode (bits 5-6)
-const F800 = 0x05f800 // secondary entrance: destination slot, low byte
-const FA00 = 0x05fa00 // secondary entrance: Y index (low nibble)
-const FC00 = 0x05fc00 // secondary entrance: X index (top 3 bits), screen (low 5)
-const Y_LO = 0x05d730
-const Y_HI = 0x05d740
-const X_LO = 0x05d750
-const X_HI = 0x05d758
 const SLOTS = 0x200
 
 /** A player position and the screen it falls on. */
@@ -51,7 +53,6 @@ export type LevelStart =
   | (Entrance & { ok: true; kind: 'main' | 'secondary'; hops: number })
   | { ok: false; reason: string }
 
-const hex = (n: number): string => `$${n.toString(16).toUpperCase().padStart(6, '0')}`
 const byte = (rom: RomFile, at: number): number => rom.readByte(at) ?? 0
 
 /** The loader's tail for either entrance kind (bank_05.asm:7313-7316, 7382-7387). */
@@ -88,12 +89,15 @@ export function readSecondaryEntrance(rom: RomFile, index: number, dest: number)
   return position(rom, isVertical(rom, dest), byte(rom, FA00 + index) & 0x0f, c >> 5, c & 0x1f)
 }
 
-/** The stock-opcode gate; null when the loader is the one these tables belong to. */
+/**
+ * The stock-opcode gate; null when the loader is the one these tables belong to.
+ * The text is shown in the UI, so it is plain words; the byte at $05D8B1 and
+ * the stock BEQ $F0 (bank_05.asm:7224) are in the header comment.
+ */
 export function startGate(rom: RomFile): string | null {
-  const b = rom.readByte(ENTRY_BEQ)
-  if (b === BEQ) return null
-  const got = (b ?? 0).toString(16).toUpperCase().padStart(2, '0')
-  return `${hex(ENTRY_BEQ)} holds $${got}, not the stock BEQ $F0, so this ROM's entrance loader is not the one the entrance tables belong to (bank_05.asm:7224).`
+  return rom.readByte(ENTRY_BEQ) === BEQ
+    ? null
+    : "This ROM replaces the game's level entrance code, so the start position cannot be read."
 }
 
 interface Found {
@@ -115,7 +119,7 @@ export function readLevelStart(
   const gate = startGate(rom.rom)
   if (gate) return { ok: false, reason: gate }
   if (!Number.isInteger(mapIndex) || mapIndex < 0 || mapIndex >= SLOTS) {
-    return { ok: false, reason: `Slot ${mapIndex} is outside the pointer table.` }
+    return { ok: false, reason: 'That map number does not exist.' }
   }
 
   const entrances = deriveOverworldEntrances(rom, undefined, fingerprints)

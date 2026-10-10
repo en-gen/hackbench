@@ -122,8 +122,11 @@ async function openMap(page, manifestPath, index) {
 }
 
 /** Waits until this open's start has been scrolled to, skipped or refused (`data-start`). */
+/** The map tab's scroller. */
+const scrollerOf = (page, index) => page.locator(`${root(index)} [data-control="map-scroller"]`)
+
 async function startSettled(page, index) {
-  await expect(page.locator(`${root(index)} [data-control="map-scroller"]`)).toHaveAttribute(
+  await expect(scrollerOf(page, index)).toHaveAttribute(
     'data-start',
     /^(placed|skipped|unavailable)$/,
     { timeout: 30000 },
@@ -132,7 +135,7 @@ async function startSettled(page, index) {
 
 /** The scroller's position and size, with the fit zoom it is laid out at. */
 function scrollState(page, index) {
-  return page.locator(`${root(index)} [data-control="map-scroller"]`).evaluate(el => ({
+  return scrollerOf(page, index).evaluate(el => ({
     top: el.scrollTop,
     left: el.scrollLeft,
     zoom: Number(el.dataset.renderedZoom),
@@ -407,7 +410,7 @@ test('$109 opens scrolled to its start: screen 6 in view, scrollTop above 0', as
 test('a map whose start is screen 0 opens at scroll 0', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
-  await expect(page.locator(`${root(0x105)} [data-control="map-scroller"]`)).toHaveAttribute('data-start', 'placed') // prettier-ignore
+  await expect(scrollerOf(page, 0x105)).toHaveAttribute('data-start', 'placed') // prettier-ignore
   const st = await scrollState(page, 0x105)
   expect([st.left, st.top]).toEqual([0, 0])
 })
@@ -429,7 +432,7 @@ test("a preview-tab change from $109 to another map scrolls to that map's start"
     await w.open({ manifestPath: mp, index: 0x1c1, label: '1c1', iconClass: '' })
   }, project.manifestPath)
   opened.push('hackbench.map-view:449')
-  await expect(page.locator(`${root(0x1c1)} [data-control="map-scroller"]`)).toHaveAttribute('data-start', 'placed') // prettier-ignore
+  await expect(scrollerOf(page, 0x1c1)).toHaveAttribute('data-start', 'placed') // prettier-ignore
   const st = await scrollState(page, 0x1c1)
   expect(st.top).toBe(0) // horizontal: the old map's vertical scroll is gone
   expect(st.left).toBeGreaterThan(0)
@@ -472,7 +475,7 @@ test('an unavailable start leaves the view at 0 and shows the reason', async ({ 
     await shell.activateWidget(w.id)
   }, project.manifestPath)
   opened.push('hackbench.map-view:265')
-  await expect(page.locator(`${root(0x109)} [data-control="map-scroller"]`)).toHaveAttribute('data-start', 'unavailable') // prettier-ignore
+  await expect(scrollerOf(page, 0x109)).toHaveAttribute('data-start', 'unavailable') // prettier-ignore
   expect((await scrollState(page, 0x109)).top).toBe(0)
   await expect(page.locator(`${root(0x109)} [data-control="map-start-note"]`)).toHaveAttribute('title', 'planted: no entrance') // prettier-ignore
 })
@@ -500,7 +503,7 @@ test('a late start reply for the previous map does not move the new one', async 
     await w.open({ manifestPath: mp, index: 0x105, label: '105', iconClass: '' })
   }, project.manifestPath)
   opened.push('hackbench.map-view:261')
-  await expect(page.locator(`${root(0x105)} [data-control="map-scroller"]`)).toHaveAttribute('data-start', 'placed', { timeout: 30000 }) // prettier-ignore
+  await expect(scrollerOf(page, 0x105)).toHaveAttribute('data-start', 'placed', { timeout: 30000 }) // prettier-ignore
   await page.waitForTimeout(2500) // past the held reply
   const st = await scrollState(page, 0x105)
   expect([st.left, st.top]).toEqual([0, 0])

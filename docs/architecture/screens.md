@@ -78,7 +78,7 @@ TRACED:
   index, `(submapFlag << 8) | byte`, `bank_05.asm:7103-7118`). Position is the table
   read above, screen = X high byte (horizontal) or Y high byte (vertical). Gate:
   `$05D8B1` must hold the stock `BEQ $F0` (`bank_05.asm:7224`); Lunar Magic JSLs out
-  of it, so any other byte is unavailable with the byte named, never the vanilla
+  of it, so any other byte is unavailable with a plain-words reason (no address in the UI), never the vanilla
   tables read as if they applied. A map no tile or exit leads to is unavailable too;
   the view then stays at screen 0 and says why. Not covered: the midway entrance,
   a slot reached only through shared map data (same Layer1Ptrs) or the bonus and
