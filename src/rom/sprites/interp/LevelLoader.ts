@@ -178,11 +178,15 @@ const NO_CLUSTER_SPRITES: Record<number, number> = Object.fromEntries([
  * its twelve slots empty: the sprite loop calls them after the slots while
  * ActivateClusterSprite is set (CODE_01808C, SMWDisX bank_01.asm:128-130),
  * so their OAM would read as the tested sprite's (map $101's castle flames
- * fill 123-127, CODE_02FA16, bank_02.asm:16240-16278). Their numbers are
- * cleared too, in case the sprite itself sets the flag.
+ * fill 124-127, and 123 as an overflow copy when a flame's X is $F0 or more,
+ * CODE_02FA16, bank_02.asm:16221-16278). Their numbers are cleared too, in
+ * case the sprite itself sets the flag. The clear belongs beside the slot
+ * clear in SpriteRunner.load; it is here because that file is mid-change
+ * (#798), so a seed built without levelSeed still runs them.
  */
 export function levelSeed(rom: RomFile, level: number, over: SeedOverride = {}): SpriteSeed {
   const l = loadLevelState(rom, level)
+  // These cells win over `over.ram`; a caller can still set them on the result through withSeed.
   const ram = { ...over.ram, ...NO_CLUSTER_SPRITES }
   return withSeed(l.ok ? { ...over, ram, loaded: l.wram } : { ...over, ram, loadRefusal: l.reason })
 }

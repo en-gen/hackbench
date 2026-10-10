@@ -3,11 +3,14 @@
  * test. The game's sprite loop runs the cluster sprites after the twelve slots
  * when ActivateClusterSprite ($18B8) is set (CODE_01808C, SMWDisX
  * bank_01.asm:128-130), and the level loader leaves them set up (the castle
- * flames of map $101 write OAM 123-127, CODE_02FA16, bank_02.asm:16240-16278).
+ * flames of map $101 write OAM 124-127, plus 123 as an overflow copy when a
+ * flame's X is $F0 or more, CODE_02FA16, bank_02.asm:16221-16278).
  *
  * Synthetic, no ROM: the synthetic cart's sprite loop gains that cluster call,
- * its level data loader spawns one cluster sprite, and the cluster routine
- * writes a tile into OAM slots 123-127.
+ * its level data loader spawns cluster sprites in the first and last of the 20
+ * cluster cells, and the cluster routine, when either cell holds a number,
+ * writes a tile into OAM slots 123-127. Id 40 sets $18B8 itself, so only the
+ * cleared numbers keep the level's cluster sprites from running for it.
  */
 import { describe, expect, it } from 'vitest'
 import { RomFile } from '../../../../src/rom/RomFile'
@@ -23,6 +26,8 @@ const CLUSTER_TILE = 0xaa
 const SLOTS = [123, 124, 125, 126, 127]
 /** The OAM entry synthetic id 0 draws into (its $0300-page store, syntheticSpriteRom.ts). */
 const OWN = 64
+/** A synthetic id whose MAIN sets ActivateClusterSprite, then draws as id 0 does. */
+const SETS_FLAG = 40
 
 function clusterRom(): RomFile {
   const bytes = new Uint8Array(buildSyntheticRom().buffer)
@@ -37,15 +42,20 @@ function clusterRom(): RomFile {
   // The cluster routine: X = Y = $50, tile $AA in slots 123-127 (bytes $03EC-$03FF), RTL.
   const at = (slot: number, k: number) => 0x200 + slot * 4 + k
   const sta = (a: number) => [0x8d, a & 0xff, a >> 8]
+  // LDA $1892 / ORA $18A5 / BEQ to the RTL: the first and last ClusterSpriteNumber cells.
   put(0x02f808, [
+    0xad, 0x92, 0x18, 0x0d, 0xa5, 0x18, 0xf0, 49,
     0xa9, 0x50, ...SLOTS.flatMap(s => [...sta(at(s, 0)), ...sta(at(s, 1))]),
     0xa9, CLUSTER_TILE, ...SLOTS.flatMap(s => sta(at(s, 2))),
     0x6b,
   ]) // prettier-ignore
   // Level data loader tail: JSL a stub that spawns one cluster sprite, then its own PLP / RTL.
   put(0x05801e + 18, [0x22, 0x00, 0xf1, 0x05, 0x28, 0x6b], 2)
-  // LDA #1 / STA $18B8 / LDA #5 / STA $1892 / RTL, as the vanilla loader leaves map $101.
-  put(0x05f100, [0xa9, 0x01, ...sta(0x18b8), 0xa9, 0x05, ...sta(0x1892), 0x6b])
+  // LDA #1 / STA $18B8 / LDA #5 / STA $1892 / STA $18A5 / RTL, as the vanilla loader leaves map $101 (cell 0).
+  put(0x05f100, [0xa9, 0x01, ...sta(0x18b8), 0xa9, 0x05, ...sta(0x1892), ...sta(0x18a5), 0x6b])
+  // Id 40's MAIN pointer (table at $01:8329) to LDA #1 / STA $18B8 / JMP id 0's MAIN ($8640).
+  put(0x018329 + SETS_FLAG * 2, [0x00, 0x98], 2)
+  put(0x019800, [0xa9, 0x01, ...sta(0x18b8), 0x4c, 0x40, 0x86])
   return RomFile.fromBytes('cluster.sfc', bytes)
 }
 
@@ -59,6 +69,7 @@ describe('cluster sprites in the level image (#809)', () => {
   it('the fixture spawns a cluster sprite that writes OAM 123-127', () => {
     expect(seed.loaded?.[0x18b8]).toBe(1)
     expect(seed.loaded?.[0x1892]).toBe(5)
+    expect(seed.loaded?.[0x18a5]).toBe(5)
     // Run on the loader's image alone (no run-alone override): the leak this test guards is real.
     const raw = runOnce(rom, 0, withSeed({ loaded: seed.loaded! }))
     expect(oamOf(raw)).toEqual([OWN, ...SLOTS])
@@ -66,6 +77,13 @@ describe('cluster sprites in the level image (#809)', () => {
 
   it('a sprite run from the level seed draws only the OAM it wrote', () => {
     expect(oamOf(runOnce(rom, 0, seed))).toEqual([OWN])
+  })
+
+  it('a sprite that sets ActivateClusterSprite itself still runs none of the level cluster sprites', () => {
+    // The fixture: with the loader's numbers kept, id 40's own flag runs them.
+    const kept = withSeed({ loaded: seed.loaded! })
+    expect(oamOf(runOnce(rom, SETS_FLAG, kept))).toEqual([OWN, ...SLOTS])
+    expect(oamOf(runOnce(rom, SETS_FLAG, seed))).toEqual([OWN])
   })
 
   it('the map view draws no cluster tile into the sprite', () => {
