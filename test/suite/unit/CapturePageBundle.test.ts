@@ -51,6 +51,7 @@ describe('the generated page runs standalone under the real CLI', () => {
       cwd: REPO_ROOT,
       shell: true,
       encoding: 'utf8',
+      timeout: 90_000, // below slow(105_000), so a stalled npx errors here
     })
     expect(run.error, run.stderr).toBeUndefined()
 

@@ -162,9 +162,17 @@ describe('the lint gate can fail', () => {
         const r = spawnSync(
           process.execPath,
           [ESLINT_BIN, '--max-warnings', '0', '--format', 'json', ...files],
-          { cwd: repoRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+          {
+            cwd: repoRoot,
+            encoding: 'utf8',
+            maxBuffer: 64 * 1024 * 1024,
+            // Below the hook budget: spawnSync blocks the worker, so Vitest
+            // cannot interrupt it; the child must die first and report.
+            timeout: Math.floor(ESLINT_TIMEOUT_MS * 0.9),
+          },
         )
         if (r.error) throw r.error
+        if (r.signal) throw new Error(`eslint killed by ${r.signal}`)
         // A config crash prints no JSON, so JSON.parse throws.
         const results: { filePath: string; messages: { ruleId: string | null }[] }[] = JSON.parse(
           r.stdout,
