@@ -10,12 +10,16 @@ import { fingerprint } from './Fingerprint'
 import { formatAddr } from './addressing'
 import { parseStream, type BackRefOrder } from './LcLz2'
 
-/** REP #$10 / LDY #$0000 / JSR ReadByte / CMP #$FF (bank_00.asm:6294-6300). */
+/** REP #$10 / LDY #$0000 / JSR ReadByte / CMP #$FF (bank_00.asm:6294-6300), US build. The JSR
+ *  operand (bytes 6..7) is build specific (SMWDisX SMW_*.sym), so `readDecompressor` does not
+ *  compare it; these bytes are the documented reference and a test fixture. */
 export const STOCK_LCLZ2_ENTRY: readonly number[] = [
   0xc2, 0x10, 0xa0, 0x00, 0x00, 0x20, 0x83, 0xb9, 0xc9, 0xff,
 ]
 /** Where the entry's first instruction pair ends and the body begins. */
 const BODY_AT = 5
+const JSR = 0x20
+const CMP_IMM_FF = [0xc9, 0xff]
 
 /** PHP / REP #$30 / LDA $8A / EOR #key / STA $8A / PLP / REP #$10 / LDY #$0000 / RTL */
 // prettier-ignore
@@ -37,8 +41,7 @@ const BMI = 0x30
  *  loop, then a JMP back to the loop head. The three absolute operands (both JSR ReadByte and the
  *  JMP) move with the build, so `backRefRoutine` takes them: `readBackRefOrder` derives them from
  *  the entry's own bytes, ReadByte from entry+6 and the loop head from entry+5. The XBA after the
- *  second read is the J and E1 difference (bank_00.asm:6387-6389), making the order little-endian.
- *  A stock J or E1 ROM is still refused at the entry gate, whose JSR operand is US-only (#696). */
+ *  second read is the J and E1 difference (bank_00.asm:6387-6389), making the order little-endian. */
 // prettier-ignore
 const BACKREF_TAIL = [
   0xaa, 0x5a, 0x9b, 0xb7, 0x00, 0xbb, 0x7a, 0x97, 0x00, 0xc8, 0xe8, 0xc2, 0x20, 0xc6, 0x8d, 0xe2,
@@ -57,6 +60,15 @@ export function backRefRoutine(order: BackRefOrder, readByte: number, loop: numb
     loop >> 8,
   ]
 }
+
+/** ReadByte (bank_00.asm:6405-6413), the routine every entry's JSR and the back-reference routine
+ *  call: it fetches the next byte through the $8A pointer and steps it. It holds no
+ *  absolute operand, so one pattern serves every build; the entry operand is only trusted once
+ *  it lands on these bytes. */
+// prettier-ignore
+const READ_BYTE: readonly number[] = [
+  0xa7, 0x8a, 0xa6, 0x8a, 0xe8, 0xd0, 0x05, 0xa2, 0x00, 0x80, 0xe6, 0x8c, 0x86, 0x8a, 0x60,
+]
 
 /** A body entered by JSL, recognized by the SHA-256 of `length` bytes from its target. */
 export interface FastRoutine {
@@ -112,7 +124,17 @@ export function preludeKey(rom: RomFile, entry: number): number | null {
 export function readBackRefOrder(rom: RomFile, entry: number): BackRefOrder | null {
   const d = rom.readAt(entry + DISPATCH_AT, 5)
   const at = rom.readAt(entry + BODY_AT, 3) // JSR ReadByte, the entry's own
-  if (!d || !at || d[0] !== PLA || d[1] !== BEQ || d[2] !== BEQ_OFFSET || d[3] !== BMI) return null
+  // The operand below is only an operand when this is a JSR; callers do not vouch for it.
+  if (
+    !d ||
+    !at ||
+    at[0] !== JSR ||
+    d[0] !== PLA ||
+    d[1] !== BEQ ||
+    d[2] !== BEQ_OFFSET ||
+    d[3] !== BMI
+  )
+    return null
   const target = entry + DISPATCH_AT + 5 + ((d[4]! << 24) >> 24)
   const readByte = at[1]! | (at[2]! << 8)
   for (const order of ['be', 'le'] as const) {
@@ -141,11 +163,17 @@ export function readDecompressor(
       `an unrecognized entry${target === null ? '' : ` that calls ${formatAddr(target)}`}`,
     )
   }
-  if (matchesBytes(head.subarray(BODY_AT), STOCK_LCLZ2_ENTRY.slice(BODY_AT))) {
+  // JSR <ReadByte> / CMP #$FF. The JSR operand varies by build and is verified by
+  // readBackRefOrder against the back-reference routine's own JSR (#696).
+  if (head[BODY_AT] === JSR && matchesBytes(head.subarray(BODY_AT + 3), CMP_IMM_FF)) {
     const order = readBackRefOrder(rom, entry)
-    return order
+    if (!order) return replaced('an unrecognized back-reference routine')
+    // The cross-check above only shows the entry and routine agree with each other.
+    const readByte = (entry & ~0xffff) | head[BODY_AT + 1]! | (head[BODY_AT + 2]! << 8)
+    const body = rom.readAt(readByte, READ_BYTE.length)
+    return body && matchesBytes(body, READ_BYTE)
       ? { ok: true, kind: 'stock', key, order }
-      : replaced('an unrecognized back-reference routine')
+      : replaced('an unrecognized ReadByte routine')
   }
   const target = head[BODY_AT + 4] === 0x60 ? jslTarget(rom, entry + BODY_AT) : null // JSL / RTS
   if (target === null) return replaced('an unrecognized body')
