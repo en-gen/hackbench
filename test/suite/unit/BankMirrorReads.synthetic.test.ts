@@ -48,7 +48,7 @@ describe('#704 inline bank masks', () => {
     putJsl(0x018320 + 6, target(2))
     for (const n of [0, 1, 2] as const) {
       const t = target(n)
-      if (t >>> 16 >= 0xfe) buf.set(execBytes, at(t))
+      if (t >>> 16 >= 0x40 && t >>> 16 !== 0x7e && t >>> 16 !== 0x7f) buf.set(execBytes, at(t))
     }
     return new RomFile('dispatch.sfc', buf)
   }
@@ -59,6 +59,16 @@ describe('#704 inline bank masks', () => {
   ])('checkExecutePtr reads ExecutePtr through bank $%s', (bank, _label) => {
     const rom = fourMeg(() => (bank << 16) | 0x86fa)
     expect(resolveTables(rom).ok).toBe(true)
+  })
+
+  it('checkExecutePtr accepts a low-half target that maps to ROM on a 4 MB cart ($40:06FA)', () => {
+    const rom = fourMeg(() => 0x4006fa)
+    expect(resolveTables(rom).ok).toBe(true)
+  })
+
+  it('checkExecutePtr refuses a low-half target in bank $00 (registers, not ROM)', () => {
+    const rom = fourMeg(n => (n === 1 ? 0x0006fa : 0x4006fa))
+    expect(resolveTables(rom).ok).toBe(false)
   })
 
   it('checkExecutePtr still equates a FastROM twin with its $00+ target', () => {

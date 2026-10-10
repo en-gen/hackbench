@@ -11,7 +11,7 @@
  * `checkGetRand`). SMWDisX bank_01.asm:110-127, bank_07.asm:1006,
  * bank_01.asm:6092. The level loader's entries are checked in LevelLoader.ts.
  */
-import { isLoRomRomAddress, mirror } from '../../addressing'
+import { mirror } from '../../addressing'
 import type { RomFile } from '../../RomFile'
 import { bytesAt, shapeMatches } from './Guards'
 
@@ -192,8 +192,10 @@ const EXECUTE_PTR_SHAPE: (number | null)[] = [
 function checkExecutePtr(rom: RomFile, jsl: number[][]): ShapeResult {
   // Keys fold the FastROM mirror ($80+ is the same code); the read keeps the raw bank (#513, #704).
   const targets = jsl.map(t => (t[2] << 16) | (t[1] << 8) | t[0])
-  // mirror() keys $7E and $FE alike, so a WRAM call must be refused before keying.
-  if (!targets.every(isLoRomRomAddress))
+  // mirror() keys $7E and $FE alike, so a WRAM call must be refused before keying. The
+  // test is the read's own mapping (readByte -> loromToOffset), not a bank-half rule: on a
+  // 4 MB ROM $40:06FA is ROM, while WRAM and past-the-data addresses read null.
+  if (targets.some(t => rom.readByte(t) === null))
     return { ok: false, reason: 'a dispatch call does not reach ROM' }
   if (new Set(targets.map(mirror)).size !== 1)
     return { ok: false, reason: 'the dispatch calls do not all reach the same routine' }
