@@ -181,4 +181,12 @@ describe('keyAccepted: which focused control lets a key drive the controller (#5
       expect(keyAccepted(el('BUTTON', 'tab'), c)).toBe(false)
     expect(keyAccepted(el('BUTTON', 'tab'), 'KeyX')).toBe(true)
   })
+  it('leaves Enter and Space to a button, role=button or tab, but not other keys', () => {
+    const targets = [el('BUTTON'), el('DIV', 'button'), el('DIV', 'tab')]
+    for (const t of targets) {
+      for (const c of ['Enter', 'NumpadEnter', 'Space']) expect(keyAccepted(t, c)).toBe(false)
+      expect(keyAccepted(t, 'KeyX')).toBe(true)
+    }
+    expect(keyAccepted(el('DIV'), 'Enter')).toBe(true)
+  })
 })
