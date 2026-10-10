@@ -26,7 +26,7 @@ import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { unzip } from '../../../../tools/scripts/capture_render'
 import type { RomFile } from '../../../../src/rom/RomFile'
-import { runSprite } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import { RAM, runSprite } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import {
@@ -38,6 +38,7 @@ import {
   TOOLS_ROOT,
   VANILLA,
 } from '../../support/corpus'
+import { gradedPass } from '../../support/gradeTimeline'
 import { oracleCells, oracleImage } from '../../support/oracleImage'
 import {
   grade,
@@ -55,6 +56,8 @@ interface Rec {
   cameraX: number
   cameraY: number
   marioAtInit?: { x: number; y: number }
+  initFrame?: number
+  drawnFrame?: number
   frames?: { frameIndex?: number; tiles?: RecordedPiece[] }[]
   firstFrameIndex?: number
   complete?: boolean
@@ -82,8 +85,18 @@ function traceMap16(
   return undefined
 }
 
-function loadAll(): { map: string; rec: Rec; wram: Uint8Array | null }[] {
-  const out: { map: string; rec: Rec; wram: Uint8Array | null }[] = []
+interface Loaded {
+  map: string
+  rec: Rec
+  wram: Uint8Array | null
+  /** capture_summary.json anchorFrame: when the sprites' MAIN starts running on hardware. */
+  anchorFrame?: number
+  /** scroll_pass.json marioStart: where Mario is held from the anchor on. */
+  marioStart?: { x: number; y: number }
+}
+
+function loadAll(): Loaded[] {
+  const out: Loaded[] = []
   for (const f of readdirSync(CAPTURE_DIR).sort()) {
     const p = join(CAPTURE_DIR, f)
     if (!f.endsWith('.zip')) continue
@@ -94,7 +107,13 @@ function loadAll(): { map: string; rec: Rec; wram: Uint8Array | null }[] {
     const j = JSON.parse(entries.get(key)!().toString('utf8'))
     const wk = [...entries.keys()].find(k => k.endsWith('frame_0000_wram.bin'))
     const wram = wk ? new Uint8Array(entries.get(wk)!()) : null
-    for (const rec of j.spawns ?? []) out.push({ map: name, rec, wram })
+    const jsonOf = (suffix: string): Record<string, unknown> => {
+      const k = [...entries.keys()].find(e => e.endsWith(suffix))
+      return k ? JSON.parse(entries.get(k)!().toString('utf8')) : {}
+    }
+    const anchorFrame = jsonOf('capture_summary.json').anchorFrame as number | undefined
+    const marioStart = jsonOf('scroll_pass.json').marioStart as Loaded['marioStart']
+    for (const rec of j.spawns ?? []) out.push({ map: name, rec, wram, anchorFrame, marioStart })
   }
   return out
 }
@@ -105,18 +124,21 @@ type Mode = 'rom' | 'generic' | 'oracle'
 /** Grades `all` (or its first `limit` gradable records) against `rom`. */
 function gradeAll(
   rom: RomFile,
-  all: ReturnType<typeof loadAll>,
+  all: Loaded[],
   opts: { mode?: Mode; limit?: number; passes?: number; trackInputs?: boolean } = {},
 ): {
   rows: Row[]
   by: Record<string, number>
   inputs: Map<number, { reads: number; nonzero: number }>
+  /** Records graded the old way (first drawing pass, Mario at marioAtInit throughout): a timeline field was missing or k out of range. */
+  fallbacks: number
 } {
   const mode = opts.mode ?? 'rom'
   const rows: Row[] = []
   const inputs = new Map<number, { reads: number; nonzero: number }>()
   const loadedByMap = new Map<string, Uint8Array | undefined>()
-  for (const { map, rec, wram } of all) {
+  let fallbacks = 0
+  for (const { map, rec, wram, anchorFrame, marioStart } of all) {
     if (opts.limit !== undefined && rows.length >= opts.limit) break
     const id = parseInt(rec.id.slice(1), 16)
     const want = recordedFrames(rec)
@@ -133,15 +155,38 @@ function gradeAll(
     } else if (mode === 'oracle' && wram) {
       loaded = oracleImage({ cells: oracleCells(wram), map16: traceMap16(map, true) })
     }
+    // Hardware timeline: INIT sees marioAtInit, MAIN sees marioStart, and the graded pass is the
+    // one the capture's drawn frame falls on. Without the fields, the old first-drawing-pass rule.
+    const k = gradedPass(rec.initFrame, anchorFrame, rec.drawnFrame)
+    const timed = k !== undefined && marioStart !== undefined
+    if (!timed) fallbacks++
     const seed = withSeed({
       loaded,
       slot: rec.slot,
-      mainPasses: opts.passes ?? 64,
+      mainPasses: Math.max(opts.passes ?? 64, timed ? k + 1 : 0),
       sprite: { x: rec.listX, y: rec.listY },
       camera: { x: rec.cameraX, y: rec.cameraY },
       mario: rec.marioAtInit ?? { x: rec.listX, y: rec.listY },
     })
-    const m = runSprite(rom, id, seed, { trackInputs: opts.trackInputs })
+    const probe = timed
+      ? (p: number, w: Uint8Array): void => {
+          if (p !== -1) return // after INIT, before the first MAIN pass
+          const put = (a: number, v: number): void => {
+            w[a] = v & 0xff
+            w[a + 1] = (v >> 8) & 0xff
+          }
+          put(RAM.marioXNext, marioStart.x)
+          put(RAM.marioXNow, marioStart.x)
+          put(RAM.marioYNext, marioStart.y)
+          put(RAM.marioYNow, marioStart.y)
+        }
+      : undefined
+    const m = runSprite(rom, id, seed, { trackInputs: opts.trackInputs, probe })
+    if (timed && m.passes[k]) {
+      // Nothing drawn on the pass the hardware drew on is the runner's miss: grade it empty, not wrong.
+      m.chosen = m.passes[k].parts.length ? k : undefined
+      if (m.chosen === undefined) m.emptyReason ??= `drew nothing at pass ${k}`
+    }
     for (const a of m.inputs ?? []) {
       const e = inputs.get(a) ?? { reads: 0, nonzero: 0 }
       e.reads++
@@ -170,11 +215,18 @@ function gradeAll(
   }
   const by: Record<string, number> = {}
   for (const r of rows) by[r.verdict] = (by[r.verdict] ?? 0) + 1
-  return { rows, by, inputs }
+  return { rows, by, inputs, fallbacks }
 }
 
 /** Floors for the 'rom' seed, 64 passes, chosen-frame policy; measured counts are in the docs. */
-const FLOOR = { graded: 1957, exact: 910, exactOrShape: 1480, maxRefused: 0, maxEmpty: 20 }
+const FLOOR = {
+  graded: 1957,
+  exact: 925,
+  exactOrShape: 1680,
+  maxRefused: 0,
+  maxEmpty: 30,
+  maxWrong: 175,
+}
 
 describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-load captures', () => {
   const all = hasCaptures() && hasRom(VANILLA) ? loadAll() : []
@@ -183,7 +235,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     const rom = freshRom()
     expect(all.length).toBeGreaterThan(0)
     const mode = (process.env.SPRITE_GRADE_SEED ?? 'rom') as Mode
-    const { rows, by, inputs } = gradeAll(rom, all, {
+    const { rows, by, inputs, fallbacks } = gradeAll(rom, all, {
       mode,
       passes: Number(process.env.SPRITE_GRADE_PASSES ?? 64),
       trackInputs: !!process.env.SPRITE_GRADE_INPUTS,
@@ -193,7 +245,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
         process.env.SPRITE_GRADE_INPUTS,
         JSON.stringify([...inputs].sort((a, b) => b[1].nonzero - a[1].nonzero)),
       )
-    const summary = `graded ${rows.length}: ${JSON.stringify(by)}`
+    const summary = `graded ${rows.length}: ${JSON.stringify(by)}, fallback ${fallbacks}`
     if (process.env.SPRITE_GRADE_OUT)
       writeFileSync(process.env.SPRITE_GRADE_OUT, JSON.stringify({ summary, rows }, null, 1))
     console.log(summary)
@@ -206,7 +258,31 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     expect((by.exact ?? 0) + (by.shape ?? 0)).toBeGreaterThanOrEqual(FLOOR.exactOrShape)
     expect(by.refused ?? 0).toBeLessThanOrEqual(FLOOR.maxRefused)
     expect(by.empty ?? 0).toBeLessThanOrEqual(FLOOR.maxEmpty)
+    expect(by.wrong ?? 0).toBeLessThanOrEqual(FLOOR.maxWrong)
+    // 38 records carry no initFrame (the spawned ones) and grade the old way.
+    expect(fallbacks).toBeLessThanOrEqual(40)
   }, 300_000)
+
+  // Mario at the hardware's position decides the Boo shy face (bank_01.asm:16250-16284), and the
+  // pose of $30 is only reached at pass 64 (bank_01.asm:13520); each failed before the timeline.
+  it.each([
+    ['1db', '$37', 864, 336],
+    ['1db', '$37', 944, 304],
+    ['11d', '$28', 272, 224],
+    ['01a', '$30', 272, 368],
+  ])(
+    'map %s %s at %i,%i grades exact',
+    (map, id, x, y) => {
+      const one = all.filter(
+        a => a.map === map && a.rec.id === id && a.rec.listX === x && a.rec.listY === y,
+      )
+      expect(one).toHaveLength(1)
+      const { rows, fallbacks } = gradeAll(freshRom(), one)
+      expect(fallbacks).toBe(0)
+      expect(rows.map(r => r.verdict)).toEqual(['exact'])
+    },
+    120_000,
+  )
 
   it('goes red when the dispatch is planted with a defect', () => {
     // The OAM tile stores of banks $01-$03 write the attribute byte instead: INIT and MAIN still
