@@ -1,24 +1,15 @@
 /**
- * A priority layer 1 tile draws in FRONT of a sprite that overlaps it, and a
- * non-priority one draws behind it (en-gen/hackbench#529). The draw order the map
- * tab composes is L2, L1 non-priority, sprites, L1 priority (ScreenPlanes puts
- * 'sprites' between l1Low and l1High); map-view.spec.cjs only pins the plane NAMES
- * and z-indexes, so a composite that painted the sprites last would still pass
- * there. This spec reads PIXELS of the composite canvas.
+ * A priority L1 tile draws in FRONT of an overlapping sprite, a non-priority one behind
+ * it (#529). map-view.spec.cjs pins only plane names and z-indexes, so a composite that
+ * painted sprites last would still pass there; this spec reads composite PIXELS.
  *
- * The case, measured on the vanilla ROM (one ROM, one run of the sprite and
- * screen modules): slot $20, screen 11. Three drawn sprites, id $33, OAM
- * priority 2 (the documented order), each lie under Map16 tile $004, whose four
- * subtile priority bits are set in the vanilla table. Where an opaque sprite
- * pixel lies under an opaque l1High pixel there are 176 pixels (56 + 56 + 64, in
- * boxes x 80-95 / y 384-394, x 112-127 / y 384-394, x 176-191 / y 384-395 of the
- * screen). Part (b) clears the four priority bits through the Map16 service's own
- * write path (the working-copy edit the Map16 view uses), which moves the tile to
- * l1Low, and the same pixels must show the sprite.
+ * Case (vanilla ROM, one run): slot $20, screen 11. Three id $33 sprites lie under
+ * Map16 tile $004, whose four priority bits are set, giving 176 pixels where an opaque
+ * sprite pixel is under an opaque l1High pixel. Part (b) clears those bits through the
+ * Map16 service write path, moving the tile to l1Low; the same pixels must show the sprite.
  *
- * Plant for the verifier: in src/rom/model/ScreenPlanes.ts, the line in `on`
- * that returns `[...bg.slice(0, at), 'sprites', ...bg.slice(at)]`, changed to
- * `[...bg, 'sprites']` (sprites above l1High), must turn part (a) red.
+ * Plant: in src/rom/model/ScreenPlanes.ts, `on` returning
+ * `[...bg, 'sprites']` instead of the slice-and-insert turns part (a) red.
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')
@@ -29,7 +20,7 @@ const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
 
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
 const ROM = process.env.HB_ROM || romPath(VANILLA)
-// A named skip, not a createProject throw, when the ROM is not on this machine (docs/testing.md).
+// Named skip when the ROM is absent (docs/testing.md).
 test.skip(!fs.existsSync(ROM), `vanilla ROM not present at ${ROM}`)
 
 const SLOT = 0x20
