@@ -114,7 +114,8 @@ describe('screen-fixed parts (#286)', () => {
     const loaded = new Uint8Array(0x2000)
     cam.forEach((v, i) => (loaded[0x1a + i] = v)) // $1A $1B $1C $1D, as the loader left Layer 1
     for (const i of status) loaded[0x1938 + i] = 1
-    for (const [oam, x, y] of [[3, 16, 48], [6, 70, 60], [7, 90, 50], [10, 0x40, 77]]) loaded.set([x!, y!], 0x200 + oam! * 4) // prettier-ignore
+    for (const [oam, x, y] of [[3, 16, 48], [6, 70, 60], [7, 90, 50], [10, 0x40, 77], [14, 0x40, 77]]) loaded.set([x!, y!], 0x200 + oam! * 4) // prettier-ignore
+    loaded[0x420 + 14] = 1 // OAM 14's X is the 9-bit 0x140 (size-table bit 0); OAM 10's stays 0x040
     loaded[0x200 + 8 * 4 + 2] = 5 // OAM 8: (0, 0) but a tile: a drawn entry, not the zero fill
     loaded.set([0, 0, 0, 0x30], 0x200 + 11 * 4) // OAM 11: (0, 0), tile 0, attribute $30: a drawn entry
     loaded[0x200 + 12 * 4] = 5 // OAM 12: X only
@@ -161,7 +162,8 @@ describe('screen-fixed parts (#286)', () => {
   })
 
   it('does not move a part at the X and Y of a non-zero loader entry (seed residue); a partial match is moved', () => {
-    // OAM 3 is the residue exactly; 6 differs in Y only, 7 in X only; 10 is residue by X's low byte (ox 320).
+    // OAM 3 is the residue exactly; 6 differs in Y only, 7 in X only; 10 has the low byte of X (ox 320 vs
+    // 0x40) but not bit 8, so it is moved; 14 matches all 9 bits of X, so it is residue.
     // OAM 8 is (0, 0) over a loader entry with only a tile, 11 over one with only an attribute: residue.
     // OAM 9 is (0, 0) over the zero fill: a real part, moved.
     const parts = () => [
@@ -173,8 +175,9 @@ describe('screen-fixed parts (#286)', () => {
       [8, 0, 0],
       [9, 0, 0],
       [11, 0, 0],
+      [14, 0x140, 77],
     ]
-    expect(dxy(draw(at(128, 112), runOf(parts)))).toEqual([[0 - 128, 0 - 112], [320 - 128, 77 - 112], [0 - 128, 192 - 112], [0 - 128, 0 - 112], [91 - 128, 50 + 192 - 112], [70 - 128, 61 + 192 - 112], [16 - 128, 48 - 112], [56, 256]]) // prettier-ignore
+    expect(dxy(draw(at(128, 112), runOf(parts)))).toEqual([[320 - 128, 77 - 112], [0 - 128, 0 - 112], [320 - 512 - 128, 77 + 192 - 112], [0 - 128, 192 - 112], [0 - 128, 0 - 112], [91 - 128, 50 + 192 - 112], [70 - 128, 61 + 192 - 112], [16 - 128, 48 - 112], [56, 256]]) // prettier-ignore
   })
 
   it('treats a loader entry as residue when any one of its four bytes is non-zero, and as the fill only when all are zero', () => {

@@ -376,7 +376,7 @@ export function interpDrawer(
  * Parts whose OAM position is the same with the camera moved are screen-fixed
  * (the Side Exit's flame, CODE_02F4EB, SMWDisX bank_02.asm:15531-15576, writes
  * screen coordinates): their map position is OAM + the loader's camera, not
- * the sprite's offset, and is not wrapped to a byte. A part whose X and Y are
+ * the sprite's offset, and is not wrapped to a byte. A part whose X (9 bits) and Y are
  * those the loader image already held at its (non-zero) OAM entry was not drawn
  * by this sprite (the level's own cluster sprites rewrite OAM 123-127 every frame) and
  * is left alone. Null when no part is screen-fixed.
@@ -397,7 +397,9 @@ function fixOffsets(
   // fill, not a drawn part, so a genuine part at (0, 0) must move.
   const residue = (p: SpritePart) => {
     const e = loaded.subarray(RAM.oam + p.oam * 4, RAM.oam + p.oam * 4 + 4)
-    return e.some(v => v) && e[0] === (p.ox & 0xff) && e[1] === p.oy
+    // X is 9 bits: bit 8 sits in the size table, one byte per OAM entry (SpriteRunner.readParts).
+    const x9 = e[0]! | ((loaded[RAM.oamSize + p.oam]! & 1) << 8)
+    return e.some(v => v) && x9 === p.ox && e[1] === p.oy
   }
   const same = (p: SpritePart) => !residue(p) && other.parts.some(q => q.oam === p.oam && q.ox === p.ox && q.oy === p.oy) // prettier-ignore
   if (!pass.parts.some(same)) return null
