@@ -12,7 +12,7 @@
 import { createHash } from 'node:crypto'
 import type { RomFile } from '../../../src/rom/RomFile'
 import { createGrid, expandObject, TILE_EMPTY } from '../../../src/rom/ObjectExpander'
-import type { LevelObject } from '../../../src/rom/LevelParser'
+import { SCREEN_H, type LevelObject } from '../../../src/rom/LevelParser'
 import type { TileGrid } from '../../../src/rom/objectHandlers/cursor'
 import {
   ADDR_TILESET_DISPATCH,
@@ -49,6 +49,8 @@ export interface DiffRun {
   refusal: string | null
   /** Null when the port was not run (a refusal). */
   differs: boolean | null
+  /** Like `differs`, but only over the object's own screen (see sameScreen). */
+  ownScreenDiffers: boolean | null
   /** SHA-1 of the interpreter's writes, 12 hex digits. */
   digest: string
 }
@@ -106,6 +108,23 @@ function sameGrid(a: TileGrid, b: TileGrid): boolean {
   return true
 }
 
+/**
+ * Compare only the 16 x 27 cells of one screen. An allow-list row for an
+ * object that overruns its screen (#453) must not hide a difference on the
+ * screen the object was placed on, only the spill past it.
+ */
+export function sameScreen(a: TileGrid, b: TileGrid, screen: number): boolean {
+  for (let row = 0; row < SCREEN_H; row++)
+    for (let c = screen * 16; c < screen * 16 + 16; c++)
+      if ((a[row][c] ?? TILE_EMPTY) !== (b[row][c] ?? TILE_EMPTY)) return false
+  return true
+}
+
+/** The per-case verdict sweep() records: whole-grid and own-screen-only. */
+export function compareRun(port: TileGrid, mine: TileGrid) {
+  return { differs: !sameGrid(port, mine), ownScreenDiffers: !sameScreen(port, mine, SCREEN) }
+}
+
 export function sweep(rom: RomFile): DiffRun[] {
   const cases: [Kind, number, number, number][] = []
   for (const ts of dispatcherTilesets(rom))
@@ -155,6 +174,7 @@ export function sweep(rom: RomFile): DiffRun[] {
         top: r.dispatches[kind === 'standard' ? 1 : 0] ?? 0,
         refusal: r.refusal?.reason ?? null,
         differs: null,
+        ownScreenDiffers: null,
         digest: digestOf(r.writes),
       }
       runs.push(run)
@@ -162,7 +182,7 @@ export function sweep(rom: RomFile): DiffRun[] {
       const object = { type: kind, objectNumber: obj, settings: size, x, y: row } as LevelObject
       expandObject(port, object, rom, ts)
       applyWrites(mine, r.writes)
-      run.differs = !sameGrid(port, mine)
+      Object.assign(run, compareRun(port, mine))
       if (run.differs || r.writes.length > 0)
         [port, mine] = [createGrid(GRID_SCREENS), createGrid(GRID_SCREENS)]
     }
