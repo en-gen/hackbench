@@ -666,6 +666,32 @@ Settled by the owner 2026-09-28; design calls delegated to the orchestrator. Spe
 - Counting RPC calls from websocket frames (`page.on('websocket')`, `framesent`): a msgpack fixstr is the byte `0xa0 + length` followed by the name, so match that byte before the name or `mapCollision` is found inside `mapCollisionCheck`. Strings are not bundled (`bundleStrings: false`, @theia/core 1.75.0 `rpc-message-encoder.js:47`). Prove the counter rises on a known call before trusting a zero. Blind spot: socket.io starts on HTTP long-polling (`ws-connection-source.js:180` passes no `transports`), so a call sent before the upgrade to websocket is not a `framesent`; wait for a binary `framesent` (RPC; the upgrade probe is text) before trusting the counter. `[EST]` Theia 1.75, one machine, #706.
 - Timing a widget race: replace the service PROPERTY on the widget (`w.projects = new Proxy(real, ...)`) with a stub whose reply is a promise you control, then in ONE `page.evaluate` click the control and release the reply. The continuation is a microtask and runs before React's commit task, so the reply lands on the old layout. Assert that precondition in the same evaluate (the `data-rendered-zoom` attribute still old). Trap: Lumino's update request is also a microtask, queued at the click and drained first, so the widget's `renderedZoom` FIELD is already the new zoom while replies run; read the `data-rendered-zoom` attribute (written at commit), never the field. Poll until every pending request has its reply parked (`pending.size > 0 && parked === pending.size`) before the click. `[EST]` verified at 24496d01, Maps zoom anchor (#547), one machine, React 19.3.
 
+## Sprite report
+
+`npm run sprite:report` (#828) grades every sprite in the `layers_v5` captures
+with the grader behind `spriteGrade.captures.test.ts` and commits a report to
+the private `hackbench-validation` repo at `reports/sprites/<hackbench sha>/`
+plus a copy at `reports/sprites/latest/`. One page per verdict (exact, shape,
+close, wrong, empty, refused), an index by sprite id, our frame beside the
+hardware (Mesen) frame, and an unticked `- [ ] corrupted` box per row. The
+frames are ROM graphics, so the report never goes in this repo; the script
+refuses any output path inside the checkout and never pushes.
+
+```bash
+npm run sprite:report                                        # commit to the sibling hackbench-validation
+npm run sprite:report -- --validation <dir>                  # or HACKBENCH_VALIDATION
+npm run sprite:report -- --out <dir> --no-commit             # same tree, nothing committed
+npm run sprite:report -- --sheet --map 105 --out <dir>       # one contact-sheet PNG (or --sprite 1b)
+```
+
+ROM and captures come from `corpus.ts` (`HACKBENCH_ROMS`, `HACKBENCH_CAPTURES`);
+a missing one exits non-zero naming it. The hardware side shows the recorded
+frame equal to ours when there is one, else the first. Both sides are drawn
+from the capture's own VRAM and palette, so a difference is in the pieces.
+Sheet borders: exact green, shape lime, close yellow, wrong red, empty and
+refused grey. The loop in `spriteReportRun.ts` mirrors `gradeAll`, which is
+private to the test file.
+
 ## The validation repository
 
 - `en-gen/hackbench-validation` is private and holds the Playwright e2e workflow (`e2e-playwright.yml`; builds the Theia browser shell and runs `theia/browser-app/test` against the requested ref, manually or via hackbench's manual-only `e2e-dispatch.yml`), the nightly run, the perf nightly (#415) and the Mesen per-graphics-layer capture harness (`capture/`). `[EST]`
