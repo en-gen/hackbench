@@ -210,9 +210,14 @@ read through `drawSpriteParts`; no emulator was run.
   that draws is served. Chars come from the map's VRAM (SP1-SP4), colors from
   its CGRAM; the palette row is the sprite's own, and the colors its code
   wrote to CGRAM override that row for that sprite only.
-- A part whose OAM position does not move when the camera moves (a second run, camera shifted 16 px)
-  is screen-fixed: it is placed at OAM + the loader's Layer 1 position, unwrapped, not
-  beside its sprite (the `$8C` flame on `$104`, #286; one Mesen capture, vanilla).
+- A part whose OAM position does not move when the camera moves (a second run, the camera shifted
+  13 x 11 px, only to the drawn pass) is screen-fixed: it is placed at OAM + the loader's Layer 1
+  position, X unwrapped from 9 bits, OAM Y $E0 and up above the screen, not beside its sprite.
+  Only for a sprite on the screen the loader starts on (its coordinate along the scroll axis inside
+  the loader's view), the one place OAM + that camera is what the game shows. A part whose X and Y
+  equal the loader image's own OAM entry at that index is residue (the level's cluster sprites
+  rewrite OAM 124-127 each frame, CODE_02FA16, `bank_02.asm:16230-16275`) and is left alone. Seen on one sprite: the `$8C` flame
+  on `$104` (#286, `bank_02.asm:15531-15576`; one Mesen capture, vanilla).
 - Each sprite is one bitmap at anchor + `dx`/`dy`, never snapped to the grid.
   A sprite the interpreter refuses (`refused: ...`, with its reason: an id
   past the table, an unknown entry shape, a spent step budget), one that draws
