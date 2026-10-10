@@ -77,9 +77,14 @@ TRACED:
   enters the destination's main entrance, a secondary exit its `DATA_05F800`
   index, `(submapFlag << 8) | byte`, `bank_05.asm:7103-7118`). Position is the table
   read above, screen = X high byte (horizontal) or Y high byte (vertical). Gate:
-  `$05D8B1` must hold the stock `BEQ $F0` (`bank_05.asm:7224`); Lunar Magic JSLs out
-  of it, so any other byte is unavailable with a plain-words reason (no address in the UI), never the vanilla
-  tables read as if they applied. A map no tile or exit leads to is unavailable too;
+  `$05D8B1` must hold the stock `BEQ $F0` (`bank_05.asm:7224`; Lunar Magic JSLs out
+  of it), and two spans are SHA-256 fingerprinted (vanilla only, one machine): the
+  screen-exit reads `$05D7E2`, 89 bytes (`bank_05.asm:7117-7161`) and the main
+  entrance reads `$05D938`, 105 bytes (`bank_05.asm:7289-7337`); they hold the masks and
+  shifts, which are not read from bytes. A slot holding the filler room is unavailable
+  too. Every refusal gives a fixed plain-words `reason` for the tooltip (no address, no
+  asm reference, no raw error text); the evidence is in `detail`, for logs and tests.
+  The vanilla tables are never read as if they applied. A map no tile or exit leads to is unavailable too;
   the view then stays at screen 0 and says why. Not covered: the midway entrance,
   a slot reached only through shared map data (same Layer1Ptrs) or the bonus and
   Yoshi Heaven paths. Evidence: vanilla `$109` resolves to screen 6, y 1680; one

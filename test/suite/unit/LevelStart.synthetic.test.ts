@@ -5,7 +5,14 @@
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom, ADDR } from '../../../src/rom/SmwRom'
-import { readLevelStart, startGate } from '../../../src/rom/LevelStart'
+import { WorkingRom } from '../../../src/project/WorkingRom'
+import {
+  readLevelStart,
+  startGate,
+  START_EXIT_SPAN,
+  START_MAIN_SPAN,
+} from '../../../src/rom/LevelStart'
+import { SCREEN_EXIT } from '../../../src/rom/SubmapFlagGate'
 import {
   plantLmEntryHook,
   plantOverworldTiles,
@@ -26,6 +33,9 @@ function blank(): RomFile {
   const rom = new RomFile('mock.smc', buf)
   plantStockSubmapCode(rom)
   plantOverworldTiles(rom)
+  // Every slot starts as the filler room, as on a real cart; a test claims the slots it uses.
+  for (let i = 0; i < 0x200; i++) rom.writeAt(ADDR.LEVEL_L1_PTR + i * 3, [0x00, 0xf0, 0x07])
+  rom.writeAt(0x07f000, [0, 0, 0, 0, 0, 0xff])
   // Position tables: nothing here is vanilla's, so a wrong index reads a visible wrong value.
   rom.writeAt(0x05d730, [0x00, 0x70, 0x90, 0xb0, 0x00, 0x00, 0x00, 0x00])
   rom.writeAt(0x05d740, [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
@@ -63,8 +73,8 @@ function world(): RomFile {
   room(rom, 0x0c4, 0x06e000)
   room(rom, 0x0d0, 0x06f000) // nothing leads here
   // $001: horizontal. Y index 1 ($70), X index 2 ($40), screen 3.
-  rom.writeAt(F000 + 1, [0x01])
-  rom.writeAt(F200 + 1, [0x02])
+  rom.writeAt(F000 + 1, [0xf1]) // high nibble is not the index
+  rom.writeAt(F200 + 1, [0xfa]) // bits 3-7 are the entrance type, not the index
   rom.writeAt(F600 + 1, [0x03])
   // $002: vertical (F600 bit 5). Y index 2 ($90), X index 1 ($80), screen 6.
   rom.writeAt(F000 + 2, [0x02])
@@ -74,7 +84,7 @@ function world(): RomFile {
   rom.writeAt(F200 + 0xc1, [0x03])
   rom.writeAt(F600 + 0xc1, [0x02])
   // Secondary entrances. $10 -> $0C0 horizontal: Y index 3, X index 4 ($60), screen 5.
-  secondary(rom, 0x10, 0xc0, 0x03, (4 << 5) | 5)
+  secondary(rom, 0x10, 0xc0, 0xf3, (3 << 5) | 5) // odd X index; high bits of the Y byte are flags
   // $11 -> $0C2 vertical: Y index 1 gives the low byte $70, the screen (4) the high byte; X index 2 ($40).
   rom.writeAt(F600 + 0xc2, [0x20])
   secondary(rom, 0x11, 0xc2, 0x01, (2 << 5) | 4)
@@ -116,7 +126,7 @@ describe('readLevelStart (synthetic)', () => {
       kind: 'secondary',
       hops: 1,
       screen: 5,
-      x: 0x560,
+      x: 0x520,
       y: 0xb0,
       vertical: false, // prettier-ignore
     })
@@ -154,6 +164,59 @@ describe('readLevelStart (synthetic)', () => {
     expect(start(rom, 0x0c3)).toMatchObject({ ok: true, hops: 1, screen: 8, y: 0x90 })
   })
 
+  it('a nearer parent wins even when its slot number is the higher one', () => {
+    const rom = world()
+    // $0C3 via $0C0 -> $030 (3 hops, $030 the lower slot) or via $0C5 (2 hops, the higher slot).
+    room(rom, 0x001, 0x068000, [{ to: 0xc0, via: 0x10 }, { to: 0xc5 }])
+    room(rom, 0x0c0, 0x06a000, [{ to: 0x30 }])
+    room(rom, 0x030, 0x06a800, [{ to: 0xc3, via: 0x15 }])
+    room(rom, 0x0c5, 0x06a900, [{ to: 0xc3, via: 0x14 }])
+    secondary(rom, 0x15, 0xc3, 0x00, 7)
+    secondary(rom, 0x14, 0xc3, 0x02, 8)
+    expect(start(rom, 0x0c3)).toMatchObject({ ok: true, hops: 2, screen: 8 })
+  })
+
+  it('at equal hops the lower parent slot wins, whatever its entrance index', () => {
+    const rom = world()
+    room(rom, 0x001, 0x068000, [{ to: 0xc0, via: 0x10 }, { to: 0xc5 }])
+    room(rom, 0x0c0, 0x06a000, [{ to: 0xc3, via: 0x15 }])
+    room(rom, 0x0c5, 0x06a900, [{ to: 0xc3, via: 0x14 }])
+    secondary(rom, 0x15, 0xc3, 0x00, 7) // from the lower parent, the higher index
+    secondary(rom, 0x14, 0xc3, 0x02, 8)
+    expect(start(rom, 0x0c3)).toMatchObject({ ok: true, hops: 2, screen: 7 })
+  })
+
+  it('at equal hops from one parent, the main entrance beats a secondary one', () => {
+    const rom = world()
+    room(rom, 0x001, 0x068000, [{ to: 0xc1, via: 0x16 }, { to: 0xc1 }])
+    secondary(rom, 0x16, 0xc1, 0x00, 9)
+    expect(start(rom, 0x0c1)).toMatchObject({ ok: true, kind: 'main', screen: 2 })
+  })
+
+  it('a submap exit enters the destination with the submap flag as bit 8 of the index', () => {
+    const rom = world()
+    room(rom, 0x101, 0x078000, [{ to: 0x1c0, via: 0x10 }])
+    room(rom, 0x1c0, 0x078800)
+    secondary(rom, 0x110, 0xc0, 0x00, 0x0a)
+    secondary(rom, 0x010, 0xc4, 0x00, 0x0b) // the main-map index $10, which names another map
+    expect(start(rom, 0x1c0)).toMatchObject({ ok: true, kind: 'secondary', screen: 0x0a })
+  })
+
+  it('a slot that holds the filler room is unavailable, even where tables look populated', () => {
+    const rom = world() // $012 is an entry-map slot with no room of its own
+    rom.writeAt(F600 + 0x12, [0x05])
+    const s = start(rom, 0x012)
+    expect(s.ok).toBe(false)
+    expect(!s.ok && s.reason).toMatch(/No map is stored/)
+  })
+
+  it('a slot number outside the pointer table does not exist', () => {
+    for (const bad of [-1, 0x200, 1.5, NaN]) {
+      const s = start(world(), bad)
+      expect(!s.ok && s.reason, String(bad)).toMatch(/does not exist/)
+    }
+  })
+
   it('a map nothing leads to is unavailable, with a reason', () => {
     const s = start(world(), 0x0d0)
     expect(s.ok).toBe(false)
@@ -186,5 +249,54 @@ describe('readLevelStart refuses a replaced entrance loader', () => {
       }
     }
     expect(startGate(world())).toBeNull()
+  })
+})
+
+describe('readLevelStart refuses changed entrance code, in plain words', () => {
+  const plain = (s: ReturnType<typeof start>) => {
+    expect(s.ok).toBe(false)
+    if (s.ok) return
+    expect(s.reason).not.toMatch(/\$[0-9A-Fa-f]{4,6}/)
+    expect(s.reason).not.toMatch(/\.asm|bank_/)
+    expect(s.detail).toMatch(/\$05[0-9A-F]{4}/) // the evidence stays, off the UI path
+  }
+
+  it('a screen-exit mismatch with $05D8B1 stock reads as plain words', () => {
+    const rom = world()
+    rom.writeAt(SCREEN_EXIT[1]!.addr, [0xad]) // LDA OWPlayerSubmap,Y -> $AD
+    expect(rom.readByte(0x05d8b1)).toBe(0xf0)
+    plain(start(rom, 0x0c0)) // an entry map never uses the exit code, so only a sub area is refused
+    expect(start(rom, 0x001).ok).toBe(true)
+  })
+
+  it('one flipped byte in the secondary-exit span, or the main-entrance span, is unavailable', () => {
+    for (const span of [START_EXIT_SPAN, START_MAIN_SPAN]) {
+      for (const at of [0, span.length >> 1, span.length - 1]) {
+        const rom = world()
+        const addr = span.addr + at
+        rom.writeAt(addr, [rom.readByte(addr)! ^ 0x01])
+        plain(start(rom, 0x001))
+        plain(start(rom, 0x0c0))
+      }
+    }
+    expect(start(world(), 0x001).ok).toBe(true)
+  })
+})
+
+describe('readLevelStart follows an edit layer', () => {
+  it('a layer that rewrites DATA_05F600 moves the start screen', () => {
+    // Through WorkingRom, which is what project-server reads (mapStart); the server itself needs Theia.
+    const base = world()
+    const working = new WorkingRom(Uint8Array.from(base.buffer), false)
+    const at = (b: Uint8Array) => readLevelStart(new SmwRom(new RomFile('w.smc', Buffer.from(b))), 0x001, SYNTHETIC_FINGERPRINTS) // prettier-ignore
+    expect(at(working.bytes())).toMatchObject({ ok: true, screen: 3 })
+    // The word at $05F601 is F600[$001] (low) and F600[$002] (high, $26 here).
+    working.append({
+      id: 'L1',
+      label: 'move start',
+      scope: 'edit',
+      ops: [{ address: '$05F601', old: '$2603', new: '$2607' }],
+    })
+    expect(at(working.bytes())).toMatchObject({ ok: true, screen: 7, x: 0x740 })
   })
 })

@@ -480,19 +480,58 @@ test('an unavailable start leaves the view at 0 and shows the reason', async ({ 
   await expect(page.locator(`${root(0x109)} [data-control="map-start-note"]`)).toHaveAttribute('title', 'planted: no entrance') // prettier-ignore
 })
 
-/** A start reply for the map the tab has since left is ignored. */
+/**
+ * A start reply for the map the tab has since left is ignored. $1C1's start is far along its own
+ * scroll axis (x 784, screen 3), so if its late reply reached $105 (horizontal, start 0) the view
+ * would move right. The earlier version held $109's reply, whose x of 128 clamps to 0 on a
+ * horizontal strip: it passed with the `seq !== this.startSeq` guard deleted.
+ */
 test('a late start reply for the previous map does not move the new one', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await page.evaluate(async mp => {
+    const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {
+      index: 0x1c1,
+    })
+    const real = w.projects
+    // $1C1's start is held for 2 s; the tab moves on to $105 meanwhile.
+    w.projects = new Proxy(real, {
+      get: (t, k) =>
+        k === 'mapStart'
+          ? (m, i) => i === 0x1c1 ? new Promise(r => setTimeout(r, 2000)).then(() => t.mapStart(m, i)) : t.mapStart(m, i) // prettier-ignore
+          : typeof t[k] === 'function'
+            ? t[k].bind(t)
+            : t[k],
+    })
+    await w.open({ manifestPath: mp, index: 0x1c1, label: '1c1', iconClass: '' })
+    const shell = getSvc('ApplicationShell')
+    await shell.addWidget(w, { area: 'main' })
+    await w.open({ manifestPath: mp, index: 0x105, label: '105', iconClass: '' })
+  }, project.manifestPath)
+  opened.push('hackbench.map-view:261')
+  await expect(scrollerOf(page, 0x105)).toHaveAttribute('data-start', 'placed', { timeout: 30000 }) // prettier-ignore
+  // The test only means something if the held start would have moved this strip.
+  const before = await scrollState(page, 0x105)
+  expect(centred(784, before.zoom, before.viewW, before.maxLeft)).toBeGreaterThan(0)
+  await page.waitForTimeout(2500) // past the held reply
+  const st = await scrollState(page, 0x105)
+  expect([st.left, st.top]).toEqual([0, 0])
+})
+
+/**
+ * A user who scrolls before the start reply arrives keeps their place: the start is skipped, not
+ * applied late. $109's reply is held 3 s; the strip is scrolled down meanwhile.
+ */
+test('a start reply that arrives after the user scrolled is skipped', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await page.evaluate(async mp => {
     const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {
       index: 0x109,
     })
     const real = w.projects
-    // $109's start is held for 2 s; the tab moves on to $105 meanwhile.
     w.projects = new Proxy(real, {
       get: (t, k) =>
         k === 'mapStart'
-          ? (m, i) => i === 0x109 ? new Promise(r => setTimeout(r, 2000)).then(() => t.mapStart(m, i)) : t.mapStart(m, i) // prettier-ignore
+          ? (m, i) => new Promise(r => setTimeout(r, 3000)).then(() => t.mapStart(m, i))
           : typeof t[k] === 'function'
             ? t[k].bind(t)
             : t[k],
@@ -500,13 +539,14 @@ test('a late start reply for the previous map does not move the new one', async 
     await w.open({ manifestPath: mp, index: 0x109, label: '109', iconClass: '' })
     const shell = getSvc('ApplicationShell')
     await shell.addWidget(w, { area: 'main' })
-    await w.open({ manifestPath: mp, index: 0x105, label: '105', iconClass: '' })
+    await shell.activateWidget(w.id)
   }, project.manifestPath)
-  opened.push('hackbench.map-view:261')
-  await expect(scrollerOf(page, 0x105)).toHaveAttribute('data-start', 'placed', { timeout: 30000 }) // prettier-ignore
-  await page.waitForTimeout(2500) // past the held reply
-  const st = await scrollState(page, 0x105)
-  expect([st.left, st.top]).toEqual([0, 0])
+  opened.push('hackbench.map-view:265')
+  await expect(scrollerOf(page, 0x109)).toHaveAttribute('data-start', 'pending')
+  await expect(page.locator(`${root(0x109)} canvas[data-screen="0"][data-plane="l1Low"]`)).toHaveAttribute('data-drawn', /\d/, { timeout: 15000 }) // prettier-ignore
+  await scrollerOf(page, 0x109).evaluate(el => { el.scrollTop = 100 }) // prettier-ignore
+  await expect(scrollerOf(page, 0x109)).toHaveAttribute('data-start', 'skipped', { timeout: 15000 })
+  expect((await scrollState(page, 0x109)).top).toBe(100)
 })
 
 /**

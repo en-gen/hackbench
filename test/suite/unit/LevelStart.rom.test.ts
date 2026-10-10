@@ -8,7 +8,7 @@ import { beforeAll, describe, it, expect } from 'vitest'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { readLevelStart } from '../../../src/rom/LevelStart'
 import { deriveOverworldEntrances } from '../../../src/rom/OverworldEntrances'
-import { freshRom, hasRom, INVICTUS, VANILLA } from '../support/corpus'
+import { freshRom, hasRom, INVICTUS, MAGIC, VANILLA } from '../support/corpus'
 
 describe.skipIf(!hasRom(VANILLA))('readLevelStart on the vanilla ROM', () => {
   // describe.skipIf still runs this body to collect tests, so the ROM loads in beforeAll.
@@ -55,6 +55,23 @@ describe.skipIf(!hasRom(VANILLA))('readLevelStart on the vanilla ROM', () => {
     const s = readLevelStart(rom, 0x0c5)
     expect(s.ok).toBe(false)
     expect(!s.ok && s.reason).toMatch(/No overworld tile or screen exit/)
+  })
+})
+
+describe.skipIf(!hasRom(MAGIC))('readLevelStart on the Lunar Magic-saved vanilla ROM', () => {
+  it('still resolves an entry map and a sub area through the fingerprinted spans', () => {
+    const rom = new SmwRom(freshRom(MAGIC))
+    expect(readLevelStart(rom, 0x109)).toMatchObject({ ok: true, screen: 6 })
+    expect(readLevelStart(rom, 0x0e6)).toMatchObject({ ok: true, kind: 'main', hops: 1 })
+  })
+})
+
+describe.skipIf(!hasRom(VANILLA))('readLevelStart on vanilla, filler slots', () => {
+  it('a root slot that holds the filler room is unavailable ($012, $019, $01E, $10C)', () => {
+    const rom = new SmwRom(freshRom(VANILLA))
+    for (const slot of [0x012, 0x019, 0x01e, 0x10c]) {
+      expect(readLevelStart(rom, slot).ok, `slot ${slot}`).toBe(false)
+    }
   })
 })
 

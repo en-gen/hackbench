@@ -11,9 +11,13 @@
  * transcribed below, not called.
  *
  * Gate: the whole table reading assumes the stock loader. Lunar Magic JSLs
- * out of `$05D8B1` (99 of 99 corpus hacks, #543); the stock byte there is the
- * `BEQ` `$F0` (bank_05.asm:7224). Anything else is unavailable, never the
- * vanilla tables read as if they still applied.
+ * out of `$05D8B1` (99 of 99 in the 2026-09-26 survey, #543); the stock byte there is the
+ * `BEQ` `$F0` (bank_05.asm:7224). Two further spans are fingerprinted, because
+ * the masks and shift counts of the decode live in them and are not read from
+ * bytes here: the screen-exit reads (bank_05.asm:7117-7161) and the main
+ * entrance reads (bank_05.asm:7289-7337). Anything else is unavailable, never
+ * the vanilla tables read as if they still applied. A failure's `reason` is
+ * fixed plain words for the UI; the addresses and bytes go in `detail`.
  */
 import type { RomFile } from './RomFile'
 import { isOverworldLevel, type SmwRom } from './SmwRom'
@@ -30,6 +34,8 @@ import {
   DATA_05FA00_ADDR as FA00, // secondary: Y index (low nibble)
   DATA_05FC00_ADDR as FC00, // secondary: X index (top 3 bits), screen (low 5)
 } from './L3Loader'
+import { buildLevelCatalog } from './LevelCatalog'
+import { stockCodeMismatch, type StockSpan } from './SubmapFlagGate'
 import {
   deriveOverworldEntrances,
   STOCK_OVERWORLD_FINGERPRINTS,
@@ -41,6 +47,30 @@ const BEQ = 0xf0
 
 const SLOTS = 0x200
 
+/**
+ * Vanilla builds, measured on one machine (Super Mario World (USA), 2026-10-10):
+ * SHA-256 of the span's bytes. Vanilla only; a hack with the same code at the
+ * same place would need its build added.
+ */
+export const START_EXIT_SPAN: StockSpan = Object.freeze({
+  addr: 0x05d7e2,
+  length: 89,
+  fingerprints: Object.freeze(['10d70c1c4662e0f3eea31fd5264e77610ec7522f51de8e2d5cd382ba34de2cd6']),
+  what: 'the secondary-exit entrance reads',
+  cite: 'bank_05.asm:7117-7161',
+})
+export const START_MAIN_SPAN: StockSpan = Object.freeze({
+  addr: 0x05d938,
+  length: 105,
+  fingerprints: Object.freeze(['8aef6567c3e5339d8dda27258a1189dd11c097e7de79ea488152c8cc9350981c']),
+  what: 'the main entrance reads',
+  cite: 'bank_05.asm:7289-7337',
+})
+
+const CODE_CHANGED =
+  "The game's overworld or screen-exit code has been changed, so the start position cannot be read."
+const fail = (reason: string, detail?: string): LevelStart => ({ ok: false, reason, detail })
+
 /** A player position and the screen it falls on. */
 export interface Entrance {
   screen: number
@@ -51,7 +81,7 @@ export interface Entrance {
 
 export type LevelStart =
   | (Entrance & { ok: true; kind: 'main' | 'secondary'; hops: number })
-  | { ok: false; reason: string }
+  | { ok: false; reason: string; detail?: string }
 
 const byte = (rom: RomFile, at: number): number => rom.readByte(at) ?? 0
 
@@ -117,20 +147,37 @@ export function readLevelStart(
   fingerprints: OverworldFingerprints = STOCK_OVERWORLD_FINGERPRINTS,
 ): LevelStart {
   const gate = startGate(rom.rom)
-  if (gate) return { ok: false, reason: gate }
+  if (gate) return fail(gate)
   if (!Number.isInteger(mapIndex) || mapIndex < 0 || mapIndex >= SLOTS) {
-    return { ok: false, reason: 'That map number does not exist.' }
+    return fail('That map number does not exist.')
+  }
+  const spans: [StockSpan, readonly string[] | undefined][] = [
+    [START_EXIT_SPAN, fingerprints.startExit],
+    [START_MAIN_SPAN, fingerprints.startMain],
+  ]
+  for (const [span, fp] of spans) {
+    const bad = stockCodeMismatch(rom.rom, [span], fp)
+    if (bad) return fail(CODE_CHANGED, bad)
+  }
+  // A filler slot's tables belong to no map: whatever they hold is padding.
+  if (!buildLevelCatalog(rom).entries[mapIndex]?.isReal) {
+    return fail('No map is stored in this slot.')
   }
 
   const entrances = deriveOverworldEntrances(rom, undefined, fingerprints)
   const { roots } = entrances
-  if (!roots) return { ok: false, reason: entrances.notes[0] ?? 'The overworld could not be read.' }
+  if (!roots) {
+    return fail(
+      'The overworld could not be read, so the start position cannot be found.',
+      entrances.notes[0],
+    )
+  }
   if (isOverworldLevel(mapIndex, roots)) {
     return { ...readMainEntrance(rom.rom, mapIndex), ok: true, kind: 'main', hops: 0 }
   }
 
   const { graph, unavailable } = rom.buildLevelExitGraph(roots, fingerprints.entry)
-  if (unavailable) return { ok: false, reason: unavailable }
+  if (unavailable) return fail(CODE_CHANGED, unavailable)
 
   // Screen-exit hops from an overworld tile, breadth first over the exit graph.
   const hops = new Map<number, number>()
@@ -168,9 +215,9 @@ export function readLevelStart(
     }
   }
   if (found.length === 0) {
-    return { ok: false, reason: 'No overworld tile or screen exit leads into this map.' }
+    return fail('No overworld tile or screen exit leads into this map.')
   }
-  // Ties: the nearer parent, a main entrance before a secondary one, then the lower index.
+  // Ties: fewest hops, then the lower parent slot, a main entrance before a secondary one, then the lower index.
   const cmp = (a: number[], b: number[]) => a.map((v, i) => v - b[i]!).find(d => d !== 0) ?? 0
   const first = found.sort((a, b) => cmp(a.key, b.key))[0]!
   return { ...first.at(), ok: true, kind: first.kind, hops: first.hops }
