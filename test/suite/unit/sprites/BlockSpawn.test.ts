@@ -1,18 +1,25 @@
 /**
  * The item block spawn on the core (#566): the game's own GenSpriteFromBlk runs in place of the
- * loader's INIT, so the sprite's status, timers and cells come from the ROM's routine. Synthetic cart only:
- * its routine is ours (shape bytes of the real one, our own body), so CI proves the runner's seeding,
- * its refusals and that nothing here is a constant.
+ * loader's INIT, so the sprite's status, timers and cells come from the ROM's routine. Synthetic cart, except
+ * the last block: its dispatcher is our own routine (gated by its own fingerprint, injected), its body ours with
+ * the real routine's short shapes, so CI proves the runner's seeding, its refusals and that nothing is a constant.
  */
 import { describe, expect, it } from 'vitest'
 import { runOnce, RAM, type SpawnRun } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { resolveBlockSpawn } from '../../../../src/rom/sprites/interp/SpriteDispatch'
+import { spanFingerprint } from '../../../../src/rom/SubmapFlagGate'
 import { SPRITE_SEED, withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { flip } from '../../support/syntheticRom'
-import { buildSyntheticRom, type SyntheticOptions } from '../../support/syntheticSpriteRom'
+import { freshRom, hasRom, VANILLA } from '../../support/corpus'
+import {
+  buildSyntheticRom,
+  SYNTHETIC_DISPATCHER as SYN,
+  SYNTHETIC_DISPATCHER_CODE,
+  type SyntheticOptions,
+} from '../../support/syntheticSpriteRom'
 
 const seed = withSeed({ slot: 3, sprite: { x: 0x80, y: 0x80 } }, SPRITE_SEED)
-const spawn = (content: number): SpawnRun => ({ inputs: { 0x05: content } })
+const spawn = (content: number): SpawnRun => ({ inputs: { 0x05: content }, dispatcher: SYN })
 
 /** The cells after the spawn and the first frame: status, $1540, $C2, sprite number, $1610 (INIT call count of id 13). */
 function cells(content: number, o: SyntheticOptions = {}, s = seed) {
@@ -59,9 +66,9 @@ describe('the item block spawn', () => {
     for (const bad of ['head', 'status'] as const) {
       const m = cells(1, { badSpawn: bad }).m
       expect(m.refusal, bad).toMatch(/item block spawn does not/)
-      expect(resolveBlockSpawn(buildSyntheticRom({ badSpawn: bad })).ok).toBe(false)
+      expect(resolveBlockSpawn(buildSyntheticRom({ badSpawn: bad }), SYN).ok).toBe(false)
     }
-    expect(resolveBlockSpawn(buildSyntheticRom())).toEqual({ ok: true, entry: 0x0288dc })
+    expect(resolveBlockSpawn(buildSyntheticRom(), SYN)).toEqual({ ok: true, entry: 0x0288dc })
   })
 
   it('refuses a spawn routine that exceeds the step budget', () => {
@@ -76,7 +83,7 @@ describe('the item block spawn', () => {
   })
 
   it('refuses a dispatcher that is not the shape it knows', () => {
-    expect(cells(1, { badSpawn: 'dispatch' }).m.refusal).toMatch(/dispatcher is not the shape/)
+    expect(cells(1, { badSpawn: 'dispatch' }).m.refusal).toMatch(/dispatcher is not a build/)
   })
 
   it('refuses when the game spawns nothing', () => {
@@ -85,60 +92,62 @@ describe('the item block spawn', () => {
   })
 })
 
-describe('the dispatcher gate refuses a single changed byte', () => {
+describe('the dispatcher gate: a masked SHA-256 of the span', () => {
   const ENTRY = 0x0288dc
+  const masked = [SYN.callAt, SYN.callAt + 1, SYN.callAt + 2]
 
-  it('refuses a flipped first opcode, with the reason', () => {
+  it('hashes the fixture routine to its committed fingerprint, operand masked', () => {
     const rom = buildSyntheticRom()
-    flip(rom, ENTRY) // LDY _5 becomes another instruction
-    const r = resolveBlockSpawn(rom)
-    expect(r).toMatchObject({ ok: false })
-    expect(!r.ok && r.reason).toMatch(/dispatcher is not the shape/)
-    expect(runOnce(rom, 0, seed, { spawn: spawn(1) }).refusal).toMatch(
-      /dispatcher is not the shape/,
-    )
+    expect(spanFingerprint(rom.readAt(ENTRY, SYN.length), masked)).toBe(SYN.fingerprints[0])
+    expect(SYN.length).toBe(SYNTHETIC_DISPATCHER_CODE.length)
   })
 
-  it('refuses a branch displacement that lands somewhere else, at offsets 13 and 39 and every other branch', () => {
-    for (const at of [5, 13, 17, 21, 26, 28, 32, 39]) {
-      const rom = buildSyntheticRom()
-      flip(rom, ENTRY + at)
-      const r = resolveBlockSpawn(rom)
-      expect(r.ok, `displacement at ${at}`).toBe(false)
-      expect(!r.ok && r.reason).toMatch(/branches somewhere/)
-    }
-  })
-
-  it('refuses a call that does not reach FindFreeSprSlot, or a FindFreeSprSlot that is not the one the game has', () => {
-    for (const at of [34, 35, 36]) {
-      const rom = buildSyntheticRom()
-      flip(rom, ENTRY + at)
-      const r = resolveBlockSpawn(rom)
-      expect(!r.ok && r.reason, `JSL operand byte ${at - 34}`).toMatch(/FindFreeSprSlot/)
-    }
-    // A call to another address that carries FindFreeSprSlot's opening bytes (STZ $0E / PHB PHK PLB) is refused too:
-    // the address is checked, not only what is found there.
-    const other = buildSyntheticRom()
-    other.writeAt(0x02a9f0, [0x64, 0x0e, 0x8b, 0x4b, 0xab, 0xa0, 0x07, 0xab, 0x6b])
-    other.writeAt(ENTRY + 34, [0xf0, 0xa9, 0x02]) // JSL $02A9F0
-    expect(resolveBlockSpawn(other)).toMatchObject({
-      ok: false,
-      reason: expect.stringMatching(/FindFreeSprSlot/),
-    })
+  it('accepts the synthetic routine only when its fingerprint is injected: the default is the real one', () => {
     const rom = buildSyntheticRom()
-    flip(rom, 0x02a9e4) // its own first opcode
-    expect(resolveBlockSpawn(rom)).toMatchObject({
-      ok: false,
-      reason: expect.stringMatching(/FindFreeSprSlot/),
-    })
+    expect(resolveBlockSpawn(rom)).toMatchObject({ ok: false, reason: expect.stringMatching(/dispatcher is not a build/) }) // prettier-ignore
+    expect(runOnce(rom, 0, seed, { spawn: { inputs: { 0x05: 1 } } }).refusal).toMatch(/dispatcher is not a build/) // prettier-ignore
+    expect(resolveBlockSpawn(rom, SYN)).toEqual({ ok: true, entry: ENTRY })
   })
 
-  it('refuses a change to any one of the 41 bytes', () => {
-    for (let i = 0; i < 41; i++) {
+  it('refuses a change to any hashed byte, branches and jump targets included, with the reason', () => {
+    let swept = 0
+    for (let i = 0; i < SYN.length; i++) {
+      if (masked.includes(i)) continue
       const rom = buildSyntheticRom()
       flip(rom, ENTRY + i)
-      expect(resolveBlockSpawn(rom).ok, `byte ${i}`).toBe(false)
+      const r = resolveBlockSpawn(rom, SYN)
+      expect(!r.ok && r.reason, `byte ${i}`).toMatch(/dispatcher is not a build/)
+      swept++
     }
-    expect(resolveBlockSpawn(buildSyntheticRom()).ok).toBe(true)
+    expect(swept).toBe(SYN.length - 3)
+    // The span ends where the routine does: a byte past it is not the dispatcher's.
+    const past = buildSyntheticRom()
+    flip(past, ENTRY + SYN.length)
+    expect(resolveBlockSpawn(past, SYN).ok).toBe(true)
+  })
+
+  it('leaves the JSL operand out of the hash and checks it as the call: any change reaches the FindFreeSprSlot refusal', () => {
+    for (const at of masked) {
+      const rom = buildSyntheticRom()
+      flip(rom, ENTRY + at)
+      const r = resolveBlockSpawn(rom, SYN)
+      expect(!r.ok && r.reason, `JSL operand byte ${at - SYN.callAt}`).toMatch(/does not call the FindFreeSprSlot/) // prettier-ignore
+    }
+    // Another address that carries FindFreeSprSlot's opening bytes is refused: the address is checked, not only what is there.
+    const other = buildSyntheticRom()
+    other.writeAt(0x02a9f0, [...(other.readAt(0x02a9e4, 9) ?? [])])
+    other.writeAt(ENTRY + SYN.callAt, [0xf0, 0xa9, 0x02]) // JSL $02A9F0
+    expect(resolveBlockSpawn(other, SYN)).toMatchObject({ ok: false, reason: expect.stringMatching(/FindFreeSprSlot/) }) // prettier-ignore
+    const rom = buildSyntheticRom()
+    flip(rom, 0x02a9e4) // its own first opcode
+    expect(resolveBlockSpawn(rom, SYN)).toMatchObject({ ok: false, reason: expect.stringMatching(/FindFreeSprSlot/) }) // prettier-ignore
+  })
+})
+
+describe.skipIf(!hasRom(VANILLA))('the real dispatcher fingerprint (vanilla ROM)', () => {
+  it("matches the game's own CODE_0288DC under the default gate, and the synthetic fingerprint does not", () => {
+    const rom = freshRom()
+    expect(resolveBlockSpawn(rom)).toEqual({ ok: true, entry: 0x0288dc })
+    expect(resolveBlockSpawn(rom, SYN).ok).toBe(false)
   })
 })

@@ -20,6 +20,7 @@
  * ($0703, with $0680 = 6), 22 through $2121/$2122; 23 sets one color directly then by the list, 24 appends a list color and requests the MainPalette upload in one frame, 25 sets two colors with one CGADD, 26 writes id 21's MainPalette list without requesting the upload, 28 writes mirror colors with no list header, 29 uploads a two-color list entry, 27 appends a list color in every MAIN pass, 30 burns ~196k steps per INIT and never leaves status 1. Options plant a defect for the oracle tests.
  */
 import { RomFile } from '../../../src/rom/RomFile'
+import type { DispatcherSpan } from '../../../src/rom/sprites/interp/SpriteDispatch'
 
 import { putGm11Spans } from './syntheticGm11Spans'
 
@@ -77,6 +78,27 @@ export interface SyntheticOptions {
 }
 
 const BANK = 0x8000
+
+/** Our own block spawn dispatcher, written for this fixture: index compare, JSL FindFreeSprSlot, fall-through. */
+// prettier-ignore
+export const SYNTHETIC_DISPATCHER_CODE: readonly number[] = Object.freeze([
+  0xa5, 0x05,             // LDA $05: the content index
+  0xc9, 0x0c,             // CMP #$0C
+  0xf0, 0x03,             // BEQ slot
+  0x4c, 0x05, 0x89,       // JMP $8905: GenSpriteFromBlk's own countdown
+  0x22, 0xe4, 0xa9, 0x02, // slot: JSL FindFreeSprSlot, Y = slot or $FF
+  0x5a, 0xfa,             // PHY / PLX: X = Y, N set when none was free
+  0x30, 0x03,             // BMI done
+  0x4c, 0x22, 0x89,       // JMP $8922: the status write
+  0x6b,                   // done: RTL
+])
+
+/** The gate's view of SYNTHETIC_DISPATCHER_CODE: the JSL operand masked, the rest hashed. */
+export const SYNTHETIC_DISPATCHER: DispatcherSpan = Object.freeze({
+  length: SYNTHETIC_DISPATCHER_CODE.length,
+  callAt: 10,
+  fingerprints: Object.freeze(['5e321bdaabc6e582f75144b988d69dda7e2942736697a29d06e5f5f2ec6b9f3b']),
+})
 
 export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   const rom = new Uint8Array(8 * BANK) // banks 0-7
@@ -189,9 +211,10 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   // 3: sprite 0 (draws a 16x16 piece), 8.
   put(0x0288a3, [0, 5, 13, 0, 0, 0, 0, 0, 0, 0, 0, 0, 13])
   put(0x0288c5, [0, 8, 9, 8, 0, 0, 0, 0, 0, 0, 0, 0, 9])
-  // The vanilla dispatcher CODE_0288DC byte for byte (its branches land on $028905 and $028922): content 12 (as
-  // CPY #$0C) goes through FindFreeSprSlot, which here always answers slot 7; every other index falls to $028905.
-  if (o.badSpawn !== 'dispatch') put(0x0288dc, [0xa4, 0x05, 0xc0, 0x0b, 0xd0, 0x08, 0xa5, 0x9a, 0x29, 0x30, 0xc9, 0x20, 0xf0, 0x1b, 0xc0, 0x10, 0xf0, 0x0f, 0xc0, 0x08, 0xd0, 0x07, 0xad, 0x92, 0x16, 0xf0, 0x0e, 0xd0, 0x04, 0xc0, 0x0c, 0xd0, 0x08, 0x22, 0xe4, 0xa9, 0x02, 0xbb, 0x10, 0x1e, 0x6b]) // prettier-ignore
+  // The dispatcher at $02:88DC: our own routine (not the game's), with the observable behaviour the runner needs.
+  // Content 12 goes through FindFreeSprSlot (which here always answers slot 7) and on a slot to the status write
+  // at $028922; every other index jumps to $028905. Its fingerprint is SYNTHETIC_DISPATCHER, injected by the tests.
+  if (o.badSpawn !== 'dispatch') put(0x0288dc, [...SYNTHETIC_DISPATCHER_CODE])
   put(0x02a9e4, [0x64, 0x0e, 0x8b, 0x4b, 0xab, 0xa0, 0x07, 0xab, 0x6b]) // FindFreeSprSlot stand-in (its STZ $0E / PHB PHK PLB opening): Y = 7
   put(0x028905, [o.badSpawn === 'head' ? 0xea : 0xa2, 0x0b, 0xbd, 0xc8, 0x14, 0xf0, 0x16, 0xca, 0xe0, 0xff, 0xd0, 0xf6, 0x6b]) // prettier-ignore
   put(0x028922, [o.badSpawn === 'status' ? 0xea : 0x8e, 0x61, 0x18, 0xa4, 0x05, 0xb9, 0xc5, 0x88, 0x9d, 0xc8, 0x14, 0xb9, 0xa3, 0x88, 0x95, 0x9e, 0x22, 0xd2, 0xf7, 0x07]) // prettier-ignore
