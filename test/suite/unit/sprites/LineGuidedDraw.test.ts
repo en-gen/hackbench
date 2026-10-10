@@ -39,7 +39,7 @@ describe('line-guided draw pass', () => {
  * Every vanilla $67, in stream order, as [x, y] where the first MAIN left it (INIT spot plus the winning probe
  * corner, bank_01.asm:12045), or null where the run erases it (a placement the INIT shift sends offscreen; a
  * known follow-up, pinned here so it cannot change unnoticed). Measured on the vanilla ROM with this runner;
- * slot $1F's first grinder (slot 7, 419) also matches the Mesen sprite-trace capture of its first MAIN call.
+ * slot $1F's first grinder (sprite slot 7, x 419) also matches the Mesen sprite-trace capture of its first MAIN call.
  */
 const GRINDERS: Record<number, ([number, number] | null)[]> = {
   0x1a: [[739, 356], null, [931, 356], null, null, [1371, 308], [1499, 324], [1723, 340], [1859, 324], [1923, 372], [2075, 260], [2179, 276], [2243, 292]], // prettier-ignore
