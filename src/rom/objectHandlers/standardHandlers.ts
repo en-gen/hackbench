@@ -2590,13 +2590,14 @@ function staircaseVariantA(cur: Cursor): void {
 export function staircaseVariantB(cur: Cursor): void {
   const H = (cur.size >> 4) & 0x0f
   const base = cur.handlerAddr
-  // Offsets from a one-off ROM byte dump (no committed test reads the vanilla bytes); each opcode is gated before anything is drawn (#519):
-  //   LDA #$3F             opcode at +30, imm at +31      (page-0 fill)
-  //   LDA.L DATA_0DC354,X  opcode at +46, operand at +47  (step edge)
-  //   LDA.L DATA_0DC350,X  opcode at +60, operand at +61  (step cap)
-  // AND #imm at +8 (bank_0D.asm:4938) is the X mask.
-  // Hard-coded, so pinned in offset order (#762): INC _0 +22 (4947), CMP #$01 +39 (4956),
-  // BEQ +55 (4963), and every JSR (4940-4968) to its SMWDisX target.
+  // Offsets are instruction lengths summed down bank_0D.asm:4933-4975; the labels
+  // CODE_0DC3FD (+37), CODE_0DC40D (+53) and Return0DC42B (+83) confirm them, and
+  // Ports519OpcodeGate.corpus checks the vanilla and magic ROMs draw. Read (#519):
+  // AND #imm +8 (4938, X mask), fill LDA #imm +30 (4951), edge LDA.L +46 (4959),
+  // cap LDA.L +60 (4965). Hard-coded, so pinned (#762): INC _0 +22 (4947),
+  // CMP #$01 +39 (4956), BEQ +55 (4963), and the JSRs at +11 (4940), +27 (4950),
+  // +32 (4952), +43 (4958), +50 (4960), +57 (4964), +64 (4966), +67 (4967),
+  // +70 (4968) to their SMWDisX targets.
   if (
     !gateOpcode(cur, 8, 0x29, 1) ||
     !gateJsr(cur, 11, 0x0da6b1) || // CODE_0DA6B1
@@ -3924,8 +3925,9 @@ export function handle_0DB9C0(cur: Cursor): void {
  * the body H times.
  */
 export function handle_0DBA4C(cur: Cursor): void {
-  // AND #imm at +4 (bank_0D.asm:4389) is the X mask; LDA.L at +18 and +34, CPX #imm
-  // at +27, BPL at +29 (4398, 4403-4404, 4406). The BPL sense and its displacement
+  // Offsets are instruction lengths summed down bank_0D.asm:4386-4412.
+  // AND #imm at +4 (4389) is the X mask; LDA.L at +18 (4398) and +34 (4406),
+  // CPX #imm at +27 (4403), BPL at +29 (4404). The BPL sense and its displacement
   // (+30, vanilla $03, over the JSR) decide which side of the threshold gets
   // page 1, so a changed branch refuses rather than render inverted (#519).
   if (
