@@ -17,7 +17,7 @@ function legacyCallers(dir: string, skip: (file: string) => boolean): string[] {
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
       const p = path.join(d, e.name)
       if (e.isDirectory()) {
-        if (e.name !== 'node_modules' && e.name !== 'lib' && e.name !== '__fixtures__') walk(p) // #796
+        if (e.name !== 'node_modules' && e.name !== 'lib') walk(p)
       } else if (
         /\.(ts|tsx)$/.test(e.name) &&
         !skip(p) &&

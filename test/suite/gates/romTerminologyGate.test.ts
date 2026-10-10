@@ -26,8 +26,7 @@ const RULES = { cart: BANNED, color: UK_COLOR }
 function sourceFiles(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap(e => {
     const p = path.join(dir, e.name)
-    // lintGate churns __fixtures__ mid-run; a listed file can vanish before it is read (#796).
-    if (e.isDirectory()) return e.name === '__fixtures__' ? [] : sourceFiles(p)
+    if (e.isDirectory()) return sourceFiles(p)
     return /\.tsx?$/.test(e.name) && !e.name.endsWith('.d.ts') ? [p] : []
   })
 }
