@@ -62,7 +62,7 @@ export function backRefRoutine(order: BackRefOrder, readByte: number, loop: numb
 }
 
 /** ReadByte (bank_00.asm:6405-6413), the routine every entry's JSR and the back-reference routine
- *  call: LDA [$8A] / LDX $8A / INX / BNE +5 / LDX #$8000 / INC $8C / STX $8A / RTS. It holds no
+ *  call: it fetches the next byte through the $8A pointer and steps it. It holds no
  *  absolute operand, so one pattern serves every build; the entry operand is only trusted once
  *  it lands on these bytes. */
 // prettier-ignore
