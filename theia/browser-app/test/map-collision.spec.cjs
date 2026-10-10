@@ -46,11 +46,13 @@ const opened = []
  * and upgrades, so a call sent before the upgrade is invisible here (docs/testing.md). Theia 1.75, one machine.
  */
 function countRpc(page) {
-  const counts = { mapCollision: 0, mapCollisionCheck: 0 }
+  const counts = { mapCollision: 0, mapCollisionCheck: 0, binaryFrames: 0 }
   page.on('websocket', ws =>
     ws.on('framesent', ({ payload }) => {
       const buf = Buffer.isBuffer(payload) ? payload : Buffer.from(payload)
-      for (const name of Object.keys(counts)) {
+      // Text frames are the upgrade probe; a binary frame is RPC, so it proves the switch to the websocket is done.
+      if (Buffer.isBuffer(payload)) counts.binaryFrames++
+      for (const name of ['mapCollision', 'mapCollisionCheck']) {
         const needle = Buffer.from(name)
         for (let at = buf.indexOf(needle); at > 0; at = buf.indexOf(needle, at + 1))
           if (buf[at - 1] === 0xa0 + needle.length) counts[name]++
@@ -60,17 +62,21 @@ function countRpc(page) {
   return counts
 }
 
-async function boot(page, url) {
+async function boot(page, url, counts) {
+  counts.binaryFrames = 0 // a second boot on another server must not inherit the first's frames
   await page.goto(url, { waitUntil: 'domcontentloaded' })
   await page.waitForSelector('#theia-app-shell', { timeout: 90000 })
+  // The fixed wait lets the shell settle. The counter reads only websocket frames, so also wait until RPC is
+  // flowing over the websocket (not merely the socket created), else a call sent while still on polling is missed.
   await page.waitForTimeout(4000)
+  await expect.poll(() => counts.binaryFrames, { timeout: 60000 }).toBeGreaterThan(0)
   await page.addScriptTag({ content: GET_SVC })
 }
 
 test.beforeEach(async ({ page }) => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-collision-'))
   rpc = countRpc(page)
-  await boot(page, APP)
+  await boot(page, APP, rpc)
 })
 
 test.afterEach(async ({ page }) => {
@@ -473,7 +479,7 @@ test('a second visit to a map is served from the backend cache', async ({ page }
   // shared server an earlier case's visit to $105 would make this one's "cold" visit warm.
   const server = await startTestServer({ wait: true })
   try {
-    await boot(page, server.url)
+    await boot(page, server.url, rpc)
     await cacheCase(page)
   } finally {
     server.stop()
