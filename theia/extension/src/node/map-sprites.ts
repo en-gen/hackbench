@@ -47,7 +47,7 @@ import type { LevelSprite } from '../../../../src/rom/LevelParser'
 import { getCharPixels, type VramState } from '../../../../src/rom/GfxLoader'
 import { bgr555ToRgba, type RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import { getPaletteColor } from '../../../../src/rom/PaletteLoader'
-import { readMarioStartPos } from '../../../../src/rom/L3Loader'
+import { readMarioStartPos } from '../../../../src/rom/MarioStartPos'
 import {
   runOnce,
   RAM,
@@ -346,6 +346,9 @@ export function interpDrawer(
   const mario = w
     ? { x: w[0x94]! | (w[0x95]! << 8), y: w[0x96]! | (w[0x97]! << 8) }
     : readMarioStartPos(rom, index)
+  // No start to seed the run with: refuse (compute turns this into an `unavailable` reply) rather than
+  // seed Mario at {0,0} or the default position.
+  if (!mario) throw new Error(`Mario start position unavailable: entrance tables unreadable for map ${index.toString(16)}`) // prettier-ignore
   // Layer 1 as the loader left it ($1A/$1C): where a screen-fixed part's OAM position is on the map.
   const loaderCam = w && { x: w[0x1a]! | (w[0x1b]! << 8), y: w[0x1c]! | (w[0x1d]! << 8) }
   // OAM + the loader's camera is what the game shows only for a sprite its start-of-level load loaded:
