@@ -17,7 +17,7 @@ import {
 } from '../LevelParser'
 import { drawInterpreted } from '../objectHandlers/interpretedDraw'
 import { VANILLA_PRIMITIVES } from '../objectHandlers/interpret'
-import { expandMap, type SwitchFlags, type TileGrid } from '../ObjectExpander'
+import { expandMapOwned, type Refusal, type SwitchFlags, type TileGrid } from '../ObjectExpander'
 import { loadMap16WithPipeVariants, map16TileCapacity, type Map16Tile } from '../Map16'
 import { gfxSource, loadVram, type VramState } from '../GfxLoader'
 import { loadExAnimData } from '../ExAnimationLoader'
@@ -84,6 +84,8 @@ export interface L1Inputs {
   animNote?: string
   /** Why an object's tiles come from a hand port the interpreter could not check (#342); empty when none. */
   unverified: string[]
+  /** Objects the expander drew as nothing (#301); the same reasons are in `unverified` for the screen note. */
+  refusals: Refusal[]
   /** CGRAM, 256 colors: any per-level override block, then the palette animation's representative frame (phase 0). */
   colors: RgbaColor[]
   /** CGRAM color 0, the backdrop the PPU shows where every layer is transparent. */
@@ -115,6 +117,8 @@ export interface L1Readings {
   crusher?: RgbaColor[] | null
   /** Why the expander drew an object from a port the interpreter could not check (#342). */
   unverified: string[]
+  /** Objects the expander refused (#301). Optional: callers that never expand have none. */
+  refusals?: Refusal[]
 }
 
 /** A level's CGRAM and backdrop: its override block, else the header's palettes and back-area color. */
@@ -189,12 +193,24 @@ export function assembleL1Inputs(r: L1Readings): L1Inputs {
     vram,
     animNote: notes.length > 0 ? notes.join(' ') : undefined,
     unverified: r.unverified,
+    refusals: r.refusals ?? [],
     colors: palette.colors,
     backArea: stored.backArea,
     switchArt: anim ? switchArtOf(anim, r.map16.tiles, vram, palette) : new Map(),
     variantSwitchArt: r.map16.pipeVariants.map(set =>
       anim ? switchArtOf(anim, set, vram, palette) : new Map(),
     ),
+  }
+}
+
+/**
+ * Put each refusal's reason on the screen note (`unverified`), naming the
+ * object, unless the handler already wrote that same line there (#301).
+ */
+export function foldRefusals(unverified: string[], refusals: readonly Refusal[]): void {
+  for (const r of refusals) {
+    if (unverified.includes(r.reason)) continue
+    unverified.push(`Object ${r.objectIndex}: ${r.reason}`)
   }
 }
 
@@ -217,8 +233,9 @@ export function buildL1Inputs(rom: SmwRom, index: number, flags: SwitchFlags): L
     const tileset = header.objectTileset
     // No levelNum: the Layer 3 overflow screens are not this map's own.
     const unverified: string[] = []
-    const grid = expandMap(objects, header.levelLength, rom.rom, tileset, isVertical, header.levelMode, undefined, flags, { unverified, draw: drawInterpreted, primitives: VANILLA_PRIMITIVES }) // prettier-ignore
+    const { grid, refusals } = expandMapOwned(objects, header.levelLength, rom.rom, tileset, isVertical, header.levelMode, undefined, flags, { unverified, draw: drawInterpreted, primitives: VANILLA_PRIMITIVES }) // prettier-ignore
 
+    foldRefusals(unverified, refusals)
     const gfx = gfxSource(rom.rom)
     if (!gfx.ok) return refuse(`GFX cannot be read: ${gfx.reason}`)
     const capacity = map16TileCapacity(rom.rom)
@@ -243,6 +260,7 @@ export function buildL1Inputs(rom: SmwRom, index: number, flags: SwitchFlags): L
       paletteAnim: detectPaletteAnimation(rom.rom).level,
       crusher: readCrusherColors(rom.rom, index, tileset),
       unverified,
+      refusals,
     })
     return { ok: true, inputs }
   } catch (err) {

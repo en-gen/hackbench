@@ -13,7 +13,7 @@
  * routine will correctly fall through to TILE_UNKNOWN until we port that routine.
  */
 
-import { Cursor } from './cursor'
+import { Cursor, refuseUnported } from './cursor'
 import type { RomFile } from '../RomFile'
 import { mirror } from '../addressing'
 import {
@@ -350,8 +350,7 @@ export function dispatchExtended(cur: Cursor): void {
   if (handler) {
     cur.handlerAddr = snesAddr
     handler(cur)
-  }
-  // else: unmapped extended handler -- silently no-op.
+  } else refuseUnported(cur, snesAddr)
 }
 
 /**
@@ -375,7 +374,7 @@ const DISPATCHER_PREAMBLE_SIZE = 10
  * Resolve a standard-object handler via the tileset dispatch → tileset-specific
  * table → object-number lookup chain. Works for any of the five dispatchers
  * because their layout is identical; individual handler addresses that we have
- * not ported yet silently no-op via the STANDARD_HANDLERS map.
+ * not ported yet are reported through `cur.refusals` and draw nothing.
  */
 export function dispatchStandard(cur: Cursor): void {
   if (cur.objNo < 1 || cur.objNo > STANDARD_HANDLER_COUNT) return
@@ -398,8 +397,7 @@ export function dispatchStandard(cur: Cursor): void {
   if (handler) {
     cur.handlerAddr = handlerAddr
     handler(cur)
-  }
-  // else: unmapped handler -- silently no-op.
+  } else refuseUnported(cur, handlerAddr)
 }
 
 /**

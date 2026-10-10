@@ -23,8 +23,10 @@ import {
   OwnerGrid,
   SWITCH_FLAGS_UNCLEARED,
   SwitchFlags,
+  Refusal,
   TileGrid,
 } from './objectHandlers/cursor'
+import { isRefusedLine } from './objectHandlers/interpretedGate'
 import { dispatchStandard, dispatchExtended } from './objectHandlers/dispatch'
 import type { InterpretedDraw, InterpretedSink } from './objectHandlers/interpretedDraw'
 
@@ -55,7 +57,7 @@ export function readLayer3Setting(rom: RomFile, levelNum: number): number {
   return (byte & 0xc0) >> 6
 }
 
-export type { TileGrid, OwnerGrid, SwitchFlags } from './objectHandlers/cursor'
+export type { TileGrid, OwnerGrid, SwitchFlags, Refusal } from './objectHandlers/cursor'
 export { OWNER_NONE, SWITCH_FLAGS_UNCLEARED, SWITCH_FLAGS_CLEARED } from './objectHandlers/cursor'
 
 const MAP16_OW_L1_VRAM_BUFFER_OFFSET = 0x1c00 // OWLayer1VramBuffer − Map16TilesLow
@@ -141,6 +143,7 @@ export function expandObject(
   switchFlags: SwitchFlags = SWITCH_FLAGS_UNCLEARED,
   draw: InterpretedDraw | null = null,
   vertical = false,
+  refusals: Refusal[] | null = null,
 ): void {
   if (obj.type === 'extended') {
     // For extended objects, LevelParser stores the extended type in `objectNumber`
@@ -160,6 +163,7 @@ export function expandObject(
       vertical,
     )
     cur.draw = draw
+    cur.refusals = refusals
     dispatchExtended(cur)
   } else {
     const cur = makeCursor(
@@ -176,6 +180,7 @@ export function expandObject(
       vertical,
     )
     cur.draw = draw
+    cur.refusals = refusals
     dispatchStandard(cur)
   }
 }
@@ -272,6 +277,8 @@ export function expandMap(
 export interface ExpandedMap {
   grid: TileGrid
   owners: OwnerGrid
+  /** Objects drawn as nothing, or short of what they should be; the grid is still best effort (#301). */
+  refusals: Refusal[]
 }
 
 /**
@@ -306,15 +313,28 @@ export function expandMapOwned(
 
   const owners: OwnerGrid = grid.map(row => new Array<number>(row.length).fill(OWNER_NONE))
 
-  // Built field by field: a widened sink must not carry `vertical` in.
-  const draw = sink && {
-    vertical: isVertical,
-    unverified: sink.unverified,
-    draw: sink.draw,
-    primitives: sink.primitives,
-  }
+  const refusals: Refusal[] = []
   for (let i = 0; i < objects.length; i++) {
-    expandObject(grid, objects[i], rom, tileset, owners, i, switchFlags, draw, isVertical)
+    // A scratch note list per object, merged after, so a refusal a handler
+    // records is attributed to this object even when an earlier object already
+    // put the same line in the caller's list. Only possible with a sink: without
+    // one, handlers have nowhere to say why (noteRefused takes the sink's list).
+    // Built field by field: a widened sink must not carry `vertical` in.
+    const notes: string[] = []
+    const draw = sink && {
+      vertical: isVertical,
+      unverified: notes,
+      draw: sink.draw,
+      primitives: sink.primitives,
+    }
+    expandObject(grid, objects[i], rom, tileset, owners, i, switchFlags, draw, isVertical, refusals)
+    if (!sink) continue
+    for (const line of notes) {
+      if (!sink.unverified.includes(line)) sink.unverified.push(line)
+      if (isRefusedLine(line)) {
+        refusals.push({ objectIndex: i, handler: parseInt(line.slice(9, 15), 16), reason: line })
+      }
+    }
   }
-  return { grid, owners }
+  return { grid, owners, refusals }
 }

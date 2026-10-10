@@ -53,6 +53,17 @@ export type TileGrid = number[][]
  */
 export type OwnerGrid = number[][]
 
+/**
+ * An object the expander could not draw (#301). `handler` is the SNES address
+ * the ROM's own dispatch table names, so a reader can tell a hack's repointed
+ * routine from a stock one.
+ */
+export interface Refusal {
+  objectIndex: number
+  handler: number
+  reason: string
+}
+
 /** No object drew this cell. */
 export const OWNER_NONE = -1
 
@@ -139,6 +150,8 @@ export interface Cursor {
   switchFlags: SwitchFlags
   /** Set by a caller that takes the interpreter's word for gated handlers (#342). */
   draw?: InterpretedDraw | null
+  /** Where dispatch reports an object it has no port for; null when the caller does not collect them (#301). */
+  refusals?: Refusal[] | null
   /**
    * True when the grid is a vertical level's (32 wide, 16 rows per screen).
    * Only handlers that address raw Map16 buffer offsets need it (ext $5F, #362).
@@ -528,4 +541,14 @@ export function saveBookmark(cur: Cursor): void {
 /** Restore column from bookmark (CODE_0DA6BA). */
 export function restoreBookmark(cur: Cursor): void {
   cur.col = cur.bookmarkCol
+}
+
+/** Report that dispatch found no port for `handler`; the object draws nothing. */
+export function refuseUnported(cur: Cursor, handler: number): void {
+  const at = '$' + handler.toString(16).toUpperCase().padStart(6, '0')
+  cur.refusals?.push({
+    objectIndex: cur.owner,
+    handler,
+    reason: `No port for the handler at ${at}, so the object is not drawn.`,
+  })
 }
