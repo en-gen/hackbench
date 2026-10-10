@@ -172,8 +172,10 @@ function gradeAll(
       loaded,
       slot: rec.slot,
       mainPasses: Math.max(opts.passes ?? 64, timed ? k + 1 : 0),
-      // Pass p runs at seed + 1 + p (INIT is one frame), so pass k lands on the frame counters the
-      // capture recorded at the draw. Without them every pass starts the animation at zero.
+      // Pass p runs at seed + 1 + p only when INIT takes one frame, so pass k lands on the frame
+      // counters the capture recorded at the draw. SpriteRunner adds a frame per INIT retry
+      // (initFrames > 1: 22 timed records, map 102 $5D x13 and $A4 x9), and those see the counters
+      // 1 or 2 high. Without the fields every pass starts the animation at zero.
       ...(timed && rec.trueFrame !== undefined && rec.effFrame !== undefined
         ? {
             trueFrame: (rec.trueFrame - 1 - k) & 0xff,
@@ -190,8 +192,9 @@ function gradeAll(
         }
       : undefined
     const m = runSprite(rom, id, seed, { trackInputs: opts.trackInputs, probe })
-    // Nothing drawn at the hardware's pass is a runner miss, graded wrong (not empty, which means
-    // no pass drew) and counted apart so it cannot hide in the wrong total.
+    // Nothing drawn at the hardware's pass is a runner miss, counted apart so it cannot hide in the
+    // wrong total. It grades wrong when some pass draws; when none does (map 102 $5D) grade()
+    // returns empty whatever m.chosen is (test/suite/support/spriteGrade.ts:87).
     if (timed && m.passes[k]) {
       if (m.passes[k].parts.length) m.chosen = k
       else {
@@ -233,12 +236,14 @@ function gradeAll(
 /** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. */
 const FLOOR = {
   graded: 1957,
-  exact: 950,
+  exact: 960,
   exactOrShape: 1740,
   maxRefused: 0,
   maxEmpty: 20,
   maxWrong: 175,
   maxMissAtK: 30,
+  // 25 measured; a runner that stops counting misses (or stops grading at k) drops below.
+  minMissAtK: 20,
 }
 
 describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-load captures', () => {
@@ -263,8 +268,9 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
       writeFileSync(process.env.SPRITE_GRADE_OUT, JSON.stringify({ summary, rows }, null, 1))
     console.log(summary)
     if (mode !== 'rom') return
-    // The corpus does not tell anchor-based k from init-based k (an initOnly mutant passes these
-    // floors and the named cases); only gradeTimeline.test.ts pins that arithmetic.
+    // The corpus does tell anchor-based k from init-based k: an initOnly mutant (base initFrame + 1)
+    // measured exact 902 against 969 in one run, below the exact floor; gradeTimeline.test.ts pins
+    // the arithmetic itself. An effOnly mutant (trueFrame left 0) measured exact 958, below 960.
     // Floors: measured 2026-10-10 (docs section 13.3) minus a tolerance. The mutants they
     // were set against (X not set to the slot, level sprites not zeroed, INIT retry
     // removed) all fall below them.
@@ -277,10 +283,11 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     // 38 records carry no initFrame (the spawned ones) and grade the old way.
     expect(fallbacks).toBeLessThanOrEqual(40)
     expect(missAtK).toBeLessThanOrEqual(FLOOR.maxMissAtK)
+    expect(missAtK).toBeGreaterThanOrEqual(FLOOR.minMissAtK)
   }, 300_000)
 
   // Mario at the hardware's position decides the Boo shy face (bank_01.asm:16250-16284), and the
-  // pose of $30 is only reached at pass 64 (bank_01.asm:13520); each failed before the timeline.
+  // pose of $30 is only reached at pass 64 (k = 64, measured from the capture record); each failed before the timeline.
   it.each([
     ['1db', '$37', 864, 336],
     ['1db', '$37', 944, 304],
@@ -299,6 +306,19 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     },
     120_000,
   )
+
+  // A miss at k: the model draws nothing on the hardware's pass, which grades wrong. Without
+  // `m.chosen = k` the grader falls back to the first drawing pass and the detail changes.
+  it('map 102 $A4 at 912,400 misses at k and grades wrong, not empty', () => {
+    const one = all.filter(
+      a => a.map === '102' && a.rec.id === '$A4' && a.rec.listX === 912 && a.rec.listY === 400,
+    )
+    expect(one).toHaveLength(1)
+    const { rows, missAtK } = gradeAll(freshRom(), one)
+    expect(missAtK).toBe(1)
+    expect(rows[0].verdict).toBe('wrong')
+    expect(rows[0].detail).toMatch(/model drew 0/)
+  }, 120_000)
 
   it('goes red when the dispatch is planted with a defect', () => {
     // The OAM tile stores of banks $01-$03 write the attribute byte instead: INIT and MAIN still

@@ -729,7 +729,9 @@ measured count minus about 3%. Mutants applied to the runner, one at a time:
 
 ### 13.3 Headline numbers re-derived (vanilla, one machine)
 
-Layers_v5, 1,957 sprites, 64 passes, chosen-frame policy, set membership:
+Layers_v5, 1,957 sprites, 64 passes, chosen-frame policy, set membership
+(the three seed rows below predate the timeline change; only the headline row
+was re-measured on it):
 
 | Seed                                   | exact | shape | close | wrong | refused | empty |
 | -------------------------------------- | ----- | ----- | ----- | ----- | ------- | ----- |
@@ -745,11 +747,22 @@ Headline row on the hardware timeline (#844, one machine, 2026-10-10, develop
 | before: first drawing pass, Mario fixed | 936   | 572   | 136   | 300   | 13    | n/a      | n/a     |
 | after: graded pass k, marioStart, clock | 969   | 792   | 19    | 164   | 13    | 38       | 25      |
 
-`missAtK` counts timed records whose graded pass drew nothing (graded wrong, not
-empty). The exact/shape split is skewed by the end-of-pass offset: a review
-probe found 184 records that move one frame before the draw grade shape, not
-exact. Fixing that needs the draw-time position in `SpriteRunner.ts` and
-`spriteGrade.ts`, a separate item.
+`missAtK` counts timed records whose graded pass drew nothing: 25, of which 12
+grade wrong ("model drew 0", the nine map 102 `$A4` among them) and 13 grade
+empty (map 102 `$5D`, where no pass draws, so `grade()` returns empty at
+`test/suite/support/spriteGrade.ts:87` whatever `chosen` is). The exact/shape
+split is skewed by the end-of-pass offset: a review probe found 184 records that
+move one frame before the draw grade shape, not exact. Fixing that needs the
+draw-time position in `SpriteRunner.ts` and `spriteGrade.ts`, a separate item.
+
+Timeline checks (one machine, one run each): the corpus tells anchor-based k from
+init-based k (an initOnly mutant, base `initFrame + 1`, gives exact 902 against 969) and pins the frame-counter seed (trueFrame left 0 gives exact 958, below the
+960 floor). The grader assumes pass p runs at seed + 1 + p, true only for a
+single-frame INIT; 22 timed records have `initFrames > 1` (map 102 `$5D` x13,
+`$A4` x9) and see the counters 1 or 2 high. Subtracting `initFrames - 1` from the
+seed changed none of the 22 verdicts (13 empty and 9 wrong before and after) and
+no others, so the grader keeps the simpler seed. The `$30` k = 64 case is
+measured from the capture record.
 
 Delta from the `$0200` page fix on the headline row: exact 932 to 936, empty 17
 to 13 (the four are sprites that draw only there). Spawn tier (201 ids, 16
