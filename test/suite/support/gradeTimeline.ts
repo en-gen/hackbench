@@ -18,3 +18,18 @@ export function gradedPass(
   const k = drawnFrame! - Math.max(anchorFrame!, initFrame! + 1)
   return k >= 0 && k <= MAX_GRADED_PASS ? k : undefined
 }
+
+/** Mario's WRAM cells: $94/$96 (Next) and $D1/$D3 (Now), each 16 bit little endian. */
+const MARIO_CELLS = [0x94, 0x96, 0xd1, 0xd3] as const
+
+/** Writes the capture's marioStart into both copies of Mario's position (after INIT, before MAIN). */
+export function writeMarioStart(w: Uint8Array, m: { x: number; y: number }): void {
+  const put = (a: number, v: number): void => {
+    w[a] = v & 0xff
+    w[a + 1] = (v >> 8) & 0xff
+  }
+  put(MARIO_CELLS[0], m.x)
+  put(MARIO_CELLS[1], m.y)
+  put(MARIO_CELLS[2], m.x)
+  put(MARIO_CELLS[3], m.y)
+}

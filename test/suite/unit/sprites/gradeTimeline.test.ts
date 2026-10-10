@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { gradedPass, MAX_GRADED_PASS } from '../../support/gradeTimeline'
+import { gradedPass, MAX_GRADED_PASS, writeMarioStart } from '../../support/gradeTimeline'
 
 describe('gradedPass (no ROM)', () => {
   it('counts passes from the anchor when the anchor is after INIT', () => {
@@ -25,5 +25,12 @@ describe('gradedPass (no ROM)', () => {
     expect(gradedPass(943, 987, 986)).toBeUndefined() // drawn before MAIN could run
     expect(gradedPass(0, 0, 1 + MAX_GRADED_PASS)).toBe(MAX_GRADED_PASS)
     expect(gradedPass(0, 0, 2 + MAX_GRADED_PASS)).toBeUndefined()
+  })
+
+  it('writes marioStart to all four cells, both bytes each', () => {
+    const w = new Uint8Array(0x100)
+    writeMarioStart(w, { x: 0x1234, y: 0x0156 })
+    expect([w[0x94], w[0x95], w[0xd1], w[0xd2]]).toEqual([0x34, 0x12, 0x34, 0x12])
+    expect([w[0x96], w[0x97], w[0xd3], w[0xd4]]).toEqual([0x56, 0x01, 0x56, 0x01])
   })
 })

@@ -624,7 +624,12 @@ below). Test: `ROM-run level loader against Mesen level state`.
 ### 12.2 Frame policy and set-membership grading
 
 The model carries `chosen`: the first pass at or after INIT that draws at least
-one tile, within a cap of 64. Grading: the chosen frame's parts must equal SOME
+one tile, within a cap of 64. Since #844 the captures test overrides it on the
+hardware timeline: INIT with `marioAtInit`, MAIN with the capture's `marioStart`,
+frame counters seeded so pass k meets the recorded `trueFrame`/`effFrame`, and
+graded pass k = drawnFrame - max(anchorFrame, initFrame + 1), with the run
+extended to k+1 passes (cap 255). Records with no `initFrame` (38, the spawned
+ones) keep the first-drawing-pass rule and the 64-pass cap. Grading: the chosen frame's parts must equal SOME
 frame Mesen recorded for that sprite (all recorded frames, not one).
 
 Layers_v5, 1,957 recorded sprites, ROM seed unless stated:
@@ -731,6 +736,20 @@ Layers_v5, 1,957 sprites, 64 passes, chosen-frame policy, set membership:
 | ROM-run level loader (headline)        | 936   | 572   | 136   | 300   | 0       | 13    |
 | oracle (capture level cells and Map16) | 942   | 565   | 131   | 318   | 0       | 1     |
 | generic (placement only)               | 951   | 469   | 130   | 327   | 56      | 24    |
+
+Headline row on the hardware timeline (#844, one machine, 2026-10-10, develop
+9f5956e8 plus the branch, vanilla ROM, layers_v5), end-of-pass offsets:
+
+| Grader                                  | exact | shape | close | wrong | empty | fallback | missAtK |
+| --------------------------------------- | ----- | ----- | ----- | ----- | ----- | -------- | ------- |
+| before: first drawing pass, Mario fixed | 936   | 572   | 136   | 300   | 13    | n/a      | n/a     |
+| after: graded pass k, marioStart, clock | 969   | 792   | 19    | 164   | 13    | 38       | 25      |
+
+`missAtK` counts timed records whose graded pass drew nothing (graded wrong, not
+empty). The exact/shape split is skewed by the end-of-pass offset: a review
+probe found 184 records that move one frame before the draw grade shape, not
+exact. Fixing that needs the draw-time position in `SpriteRunner.ts` and
+`spriteGrade.ts`, a separate item.
 
 Delta from the `$0200` page fix on the headline row: exact 932 to 936, empty 17
 to 13 (the four are sprites that draw only there). Spawn tier (201 ids, 16
