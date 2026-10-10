@@ -437,7 +437,7 @@ export type Probe = (pass: number, wram: Uint8Array) => void
 /**
  * The grinder draws, then its line step snaps it onto the track (SMWDisX bank_01.asm:12194-12204,
  * corner stores 12054-12061), so the first draw is at the off-track spawn spot and the next is on it (#126).
- * $67 only: the other line-guided ids share the order and are a pending follow-up.
+ * $67 only: the other line-guided ids share the order; that family is follow-up #792.
  */
 const DRAWS_BEFORE_LINE_SNAP: ReadonlySet<number> = new Set([0x67])
 
@@ -544,8 +544,9 @@ export function runOnce(
     if (m.bus.inputs) model.inputs = [...m.bus.inputs].sort((a, b) => a - b)
     const first = model.passes.findIndex(p => p.parts.length > 0)
     if (first >= 0) model.chosen = first
-    // $67: the pass after the first draw, if it draws too; the anchor is wherever the chosen draw ran.
-    if (snaps && first >= 0 && model.passes[first + 1]?.parts.length) model.chosen = first + 1
+    // $67: a first draw at pass 0 ran at the off-track INIT spot, so the pass after it (if it draws) is the
+    // first on-track one. A first draw later than pass 0 is already on the track: no advance.
+    if (snaps && first === 0 && model.passes[1]?.parts.length) model.chosen = 1
     if (snaps && model.chosen !== undefined)
       model.anchor = { ...model.anchor!, ...model.passes[model.chosen]!.origin }
     if (model.passes.every(p => p.parts.length === 0))
@@ -581,7 +582,7 @@ export function runSprite(
   const a = runOnce(rom, id, seed, opts)
   if (a.refusal) return a
   const other = seed.mario.x >= seed.sprite.x ? seed.sprite.x - 0x40 : seed.sprite.x + 0x40
-  const b = runOnce(rom, id, withSeed({ mario: { x: other, y: seed.mario.y } }, seed))
+  const b = runOnce(rom, id, withSeed({ mario: { x: other, y: seed.mario.y } }, seed), opts)
   if (!b.refusal && partsKey(a) !== partsKey(b)) a.dependsOn.push('marioX')
   return a
 }

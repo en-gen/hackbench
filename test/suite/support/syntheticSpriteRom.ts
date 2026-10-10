@@ -81,6 +81,10 @@ export interface SyntheticOptions {
   grinderDrawsOnce?: boolean
   /** Id 103 draws on its second MAIN only. */
   grinderDrawsOnPass1?: boolean
+  /** Id 103 draws from its second MAIN onward (already on its track at the first draw). */
+  grinderDrawsFromPass1?: boolean
+  /** Id 31's MAIN pointer is id 103's handler: the shape matches, the id does not. */
+  id31IsGrinder?: boolean
 }
 
 const BANK = 0x8000
@@ -188,6 +192,7 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   mainTable[31] = 0x9300
   mainTable[32] = 0x92a0
   mainTable[103] = 0x9200
+  if (o.id31IsGrinder) mainTable[31] = 0x9500
   for (const id of [20, 21, 22, 23, 24, 25]) mainTable[id] = 0x8640
   const words = (t: number[]) => t.flatMap(w => [w & 0xff, w >> 8])
   put(0x018170 + 11, words(initTable))

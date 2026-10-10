@@ -85,6 +85,19 @@ describe('line-guided draw pass', () => {
     expect(at(g)).toBe(at(other))
   })
 
+  it('keeps a $67 that is already on its track at its first drawn pass (pass 1), not the one after', () => {
+    const g = run(103, { grinderDrawsFromPass1: true })
+    expect(g.passes.slice(0, 3).map(p => p.parts.length > 0)).toEqual([false, true, true])
+    expect(g.chosen).toBe(1)
+    expect(g.anchor!.x).toBe(0x84)
+  })
+
+  it('applies the snap rule to id $67 only: another id whose MAIN is the grinder handler is generic', () => {
+    const g = run(31, { id31IsGrinder: true })
+    expect(g.chosen).toBe(0)
+    expect(g.anchor!.x).toBe(0x80)
+  })
+
   it('accepts the cart it was fingerprinted on, and no other', () => {
     const rom = buildSyntheticRom()
     expect(grinderDrawsBeforeSnap(rom, GRINDER_HANDLER, GRINDER_DISPATCH_SHA)).toBe(true)
@@ -121,7 +134,7 @@ describe('line-guided draw pass', () => {
 
 /**
  * Every vanilla $67, in stream order, as [x, y] where the first MAIN left it (INIT spot plus the winning probe
- * corner, bank_01.asm:12054-12061), or null where the run erases it: not yet investigated (hypothesis: INIT moves X
+ * corner, bank_01.asm:12054-12061), or null where the run erases it: not yet investigated, #793 (hypothesis: INIT moves X
  * by -$140, bank_01.asm:11793-11799, away from the spawn-centred camera); pinned here so it cannot change unnoticed. Measured on the vanilla ROM with this runner;
  * slot $1F's first grinder (sprite slot 7, x 419) also matches the Mesen sprite-trace capture of its first MAIN call.
  */
@@ -180,7 +193,7 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla grinder, on the vanilla ROM', (
         expect(m.chosen, `#${i}`).toBe(1)
         const pass = m.passes[1]!
         expect(pass.origin, `#${i}`).toEqual({ x: want[i]![0], y: want[i]![1] })
-        // The grinder's own pieces are the lowest OAM entries; slot $1F's level also draws four unrelated ones.
+        // The grinder's own pieces are the lowest OAM entries; slot $1F's level also draws four unrelated ones (#793).
         const body = [...pass.parts].sort((a, b) => a.oam - b.oam).slice(0, 4)
         expect(body.map(q => [q.dx, q.dy]).sort(), `#${i}`).toEqual([[-16, -16], [-16, 0], [0, -16], [0, 0]]) // prettier-ignore
       })
