@@ -256,7 +256,7 @@ function readAddr(bytes: Uint8Array, off: number): number {
 // is the empty-stream check that follows, and anchors the run to this routine.
 // The check is found by pattern, then its route is proved: the 12 bytes before
 // it are LoadLevel's prologue (:425-429), so the entry falls straight into it;
-// exactly one JSR in the entry's bank calls that entry, in the shape of :66-69;
+// exactly one JSR of the bank_05.asm:66-69 shape in the entry's bank calls it;
 // and the BEQs' common target is LoadLevelDone (:474-477). Evidence scope: the
 // call site is proved, not the chain from the game mode to it (a hooked
 // intermediate caller is not seen); stock and .magic carts only.
@@ -316,9 +316,15 @@ function computeBossModes(rom: RomFile): BossModes {
   // LayerProcessing address the entry's own STZ names. Distance past the
   // check proves nothing (a BRA back to the Layer-1 read is also "past").
   const entryAt = site.offset - ENTRY_LEN
+  // Fall-through and the branch run inside one bank; a window that straddles a
+  // bank edge is not LoadLevel. LoROM banks are 0x8000 file bytes.
+  const doneAt = site.offset + targets[0]!
+  if (entryAt >> 15 !== site.offset >> 15 || doneAt >> 15 !== site.offset >> 15) {
+    return { ok: false, reason: `${BOSS_WHAT} spans a bank boundary` }
+  }
   const entry = matchesAt(rom, entryAt, LOAD_LEVEL_ENTRY)
   if (!entry) return { ok: false, reason: `${BOSS_WHAT} is not preceded by LoadLevel's prologue` }
-  const done = matchesAt(rom, site.offset + targets[0]!, LOAD_LEVEL_DONE)
+  const done = matchesAt(rom, doneAt, LOAD_LEVEL_DONE)
   if (!done || done[1] !== entry[LAYER_PROC_OFF] || done[2] !== entry[LAYER_PROC_OFF + 1]) {
     return { ok: false, reason: `${BOSS_WHAT} branches to something other than LoadLevelDone` }
   }

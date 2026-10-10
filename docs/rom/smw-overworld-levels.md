@@ -400,7 +400,7 @@ drop out by construction, because they never become entry maps.
   - it gated on `levelHasObjects()`, whose `data[5] === $FF` rule rejected 24 real rooms (issue #695). All 24 are
     boss-mode rooms, for which `LoadLevel` never reads Layer 1 (`bank_05.asm:431-437`); fixed by reading those
     modes from the loader's own bytes, on ROMs whose `LoadLevel` check is stock (2 of 6 corpus ROMs, one
-    machine). The check is accepted only behind `LoadLevel`'s prologue (`:425-429`), with exactly one call site into that entry (`:66-69`) and its BEQs landing on `LoadLevelDone` (`:474-477`); the chain from the game mode to that call site is not walked. On the 4 corpus hacks Lunar Magic replaces the check's first instruction with `JSL $0FF7F0`
+    machine). The check is accepted only behind `LoadLevel`'s prologue (`:425-429`), with exactly one call site of the `:66-69` shape into that entry and its BEQs landing on `LoadLevelDone` (`:474-477`); the prologue, the entry, the check and the BEQ target must all sit in one bank; the chain from the game mode to that call site is not walked. On the corpus the route and destination refusals are exercised only by synthetic fixtures: all 4 hacks are refused earlier, because the check is absent. On the 4 corpus hacks Lunar Magic replaces the check's first instruction with `JSL $0FF7F0`
     plus a `NOP`, so the check is refused and those rooms keep the old result.
 
   Between them, 47 of the ROM's 235 real maps could never be a destination.

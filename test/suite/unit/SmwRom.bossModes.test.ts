@@ -45,15 +45,17 @@ function makeRom(
     done?: number[]
     callerTarget?: number | typeof NO_CALLER
     callers?: number
+    callerShift?: number // moves every caller by this SNES amount (0x10000 = next bank)
   } = {},
 ): RomFile {
   const buf = Buffer.alloc(0x400000, 0x00)
   buf[0x7fd5] = 0x20
   const rom = new RomFile('mock.smc', buf)
+  const base = CHECK_AT
   const check = opts.check === undefined ? bossCheck([0x09, 0x0b, 0x10]) : opts.check
   if (check) {
     for (let c = 0; c < (opts.copies ?? 1); c++) {
-      const at = CHECK_AT + c * 0x100
+      const at = base + c * 0x100
       rom.writeAt(at, opts.entry ?? loaderEntry())
       rom.writeAt(at + BASE, check)
       // The BEQs' common target, relative to the check's first byte.
@@ -61,10 +63,10 @@ function makeRom(
       if (target >= BASE + check.length) rom.writeAt(at + target, opts.done ?? DONE)
     }
     // The caller: STZ.W LevelLoadObject / JSR entry / SEP #$30 / LDA.W (bank_05.asm:66-69).
-    const callAt = loromFromOffset(CHECK_AT)! & 0xffff
+    const callAt = base & 0xffff
     const tgt = opts.callerTarget === undefined ? callAt : opts.callerTarget
     for (let n = 0; tgt !== NO_CALLER && n < (opts.callers ?? 1); n++) {
-      rom.writeAt(CHECK_AT - 0x40 - n * 0x10, [0x9c, 0x30, 0x19, 0x20, tgt & 0xff, tgt >> 8, 0xe2, 0x30, 0xad]) // prettier-ignore
+      rom.writeAt(base - 0x40 - n * 0x10 + (opts.callerShift ?? 0), [0x9c, 0x30, 0x19, 0x20, tgt & 0xff, tgt >> 8, 0xe2, 0x30, 0xad]) // prettier-ignore
     }
   }
   rom.writeAt(ADDR.LEVEL_L1_PTR, [0x00, 0x80, 0x06])
@@ -194,6 +196,52 @@ describe('levelHasObjects boss modes (#695)', () => {
   it('refuses a check whose only call site is retargeted elsewhere', () => {
     const target = (loromFromOffset(CHECK_AT)! & 0xffff) + 0x40
     expect(readBossModes(makeRom({ callerTarget: target })).ok).toBe(false)
+  })
+
+  it.each([0, 3, 6, 9])('refuses a prologue with byte %i corrupted', i => {
+    const entry = loaderEntry()
+    entry[i] = 0xea
+    expect(readBossModes(makeRom({ entry })).ok).toBe(false)
+  })
+
+  it.each([
+    ['PLP', 3],
+    ['STZ operand', 2],
+  ])('refuses a LoadLevelDone with its %s byte changed', (_what, i) => {
+    const done = [...DONE]
+    done[i] = 0xea
+    expect(readBossModes(makeRom({ done })).ok).toBe(false)
+  })
+
+  it.each([0, 6, 7, 8])('refuses a call site with byte %i changed', i => {
+    // Mutate the one shaped caller: no shaped site is left.
+    const rom = makeRom()
+    const at = CHECK_AT - 0x40
+    rom.writeAt(at + i, [0xea])
+    expect(readBossModes(rom).ok).toBe(false)
+  })
+
+  it('refuses when the only shaped caller is in another bank', () => {
+    expect(readBossModes(makeRom({ callerShift: 0x10000 })).ok).toBe(false)
+  })
+
+  /** The vanilla layout built by file offset, so the entry can straddle a bank edge. */
+  function atFileOffset(entryOff: number): RomFile {
+    const rom = makeRom({ check: null })
+    const lo = loromFromOffset(entryOff)! & 0xffff
+    rom.buffer.set(loaderEntry(), entryOff)
+    rom.buffer.set(bossCheck([0x09, 0x0b, 0x10]), entryOff + BASE)
+    rom.buffer.set(DONE, entryOff + BASE + 0x5a) // BEQ at +6, end +7, displacement 0x53
+    rom.buffer.set([0x9c, 0x30, 0x19, 0x20, lo & 0xff, lo >> 8, 0xe2, 0x30, 0xad], entryOff - 0x40)
+    return rom
+  }
+
+  it('refuses a check whose prologue sits in the previous bank', () => {
+    expect(readBossModes(atFileOffset(0x27ff8)).ok).toBe(false) // check at 0x28004
+  })
+
+  it('accepts the same layout inside one bank (control for the bank-boundary refusal)', () => {
+    expect(readBossModes(atFileOffset(0x28100)).ok).toBe(true)
   })
 
   it('refuses a check whose entry has two call sites (the route is not unique)', () => {
