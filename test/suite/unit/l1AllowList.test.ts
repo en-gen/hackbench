@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { createGrid } from '../../../src/rom/ObjectExpander'
+import type { InterpretResult } from '../../../src/rom/objectHandlers/interpret'
 import {
   compareRun,
   hex6,
   portDigestOf,
+  newRig,
   recordedGrid,
   sameScreen,
   sameWritten,
+  stepCase,
   type DiffRun,
 } from '../support/l1Differential'
 import {
@@ -107,20 +110,25 @@ describe('tally and offScreenOnly', () => {
   })
 
   it('absorbs an off-screen-only difference on the flagged row', () => {
-    const t = tally([run({})], name)
+    const t = tally([run({})], name, KNOWN_DISAGREEMENTS, [])
     expect(screenLines(t.unexpected)).toEqual([])
     expect(t.disagreements.find(d => d.why === 300)?.expect[0]).toBe(1)
   })
 
   it('refuses an own-screen difference on the flagged row', () => {
-    const t = tally([run({ ownScreenDiffers: true })], name)
+    const t = tally([run({ ownScreenDiffers: true })], name, KNOWN_DISAGREEMENTS, [])
     expect(screenLines(t.unexpected)).toHaveLength(1)
     expect(t.unexpected[0]).toContain('own screen differs')
     expect(t.disagreements.find(d => d.why === 300)?.expect[0]).toBe(0)
   })
 
   it('still absorbs an own-screen difference on an unflagged row', () => {
-    const t = tally([run({ leaf: 0x0dadeb, ownScreenDiffers: true })], name)
+    const t = tally(
+      [run({ leaf: 0x0dadeb, ownScreenDiffers: true })],
+      name,
+      KNOWN_DISAGREEMENTS,
+      [],
+    )
     expect(screenLines(t.unexpected)).toEqual([])
   })
 })
@@ -165,7 +173,7 @@ describe('tally pins the port output (#751)', () => {
   })
 
   it('emits the port aggregate as the fourth element, empty when nothing is absorbed', () => {
-    const t = tally([], name)
+    const t = tally([], name, KNOWN_DISAGREEMENTS, [])
     expect(t.disagreements.every(d => d.expect[3] === '')).toBe(true)
     expect(aggregate([])).toBe('')
   })
@@ -189,7 +197,7 @@ describe('tally pins the port output (#751)', () => {
       )
       const absorbed = candidates.find(r => k.when(r))
       expect(absorbed, `no synthetic run reaches $${k.routine.toString(16)}`).toBeDefined()
-      const t = tally([{ ...absorbed!, portDigest: 'bogus' }], name)
+      const t = tally([{ ...absorbed!, portDigest: 'bogus' }], name, KNOWN_DISAGREEMENTS, [])
       // The first row matching the run is the one that absorbs it (tally uses findIndex).
       const owner = KNOWN_DISAGREEMENTS.findIndex(
         o =>
@@ -365,5 +373,94 @@ describe('tally and writes of the empty tile $25 (#759)', () => {
     expect(KNOWN_DISAGREEMENTS.filter(k => k.emptyTilesOnly).map(k => k.routine)).toEqual([
       0x0da71b, 0x0da760, 0x0dc2e9,
     ])
+  })
+})
+
+describe('sameWritten compares keys and values, not only sizes', () => {
+  const cells = (...e: [number, number, number][]) =>
+    new Map(e.map(([row, col, v]) => [row * 0x10000 + col, v] as [number, number]))
+  it('same size, different key: $25 at (4,81) against $25 at (4,80)', () => {
+    expect(sameWritten(cells([4, 81, 0x25]), cells([4, 80, 0x25]))).toBe(false)
+  })
+  it('same key, different value', () => {
+    expect(sameWritten(cells([4, 81, 0x25]), cells([4, 81, 0x41]))).toBe(false)
+  })
+  it('equal maps are equal', () => {
+    expect(sameWritten(cells([4, 81, 0x25]), cells([4, 81, 0x25]))).toBe(true)
+  })
+})
+
+describe('stepCase: the per-case wiring of sweep, with a stub expander (#759)', () => {
+  const REFUSED = { reason: 'write outside the tile buffer' } as InterpretResult['refusal']
+  const fresh = () =>
+    run({ differs: null, ownScreenDiffers: null, writtenDiffers: null, portDigest: null })
+  const put =
+    (...c: [number, number, number][]) =>
+    (g: number[][]) =>
+      c.forEach(([row, col, v]) => (g[row][col] = v))
+  const digestOfCells = (...c: [number, number, number][]) => {
+    const g = recordedGrid(8)
+    put(...c)(g.grid)
+    return portDigestOf(g.written)
+  }
+  // The interpreter's low-byte write of tile `v` at (row, col) of screen 0.
+  const iw = (row: number, col: number, v: number) => ({
+    addr: 0x7ec800 + row * 16 + col,
+    value: v,
+  })
+
+  it('a refusal runs the port and digests its written cells', () => {
+    const [rig, r] = [newRig(), fresh()]
+    let calls = 0
+    stepCase(rig, r, { writes: [], refusal: REFUSED }, g => (calls++, put([3, 85, 0x41])(g)))
+    expect(calls).toBe(1)
+    expect(r.portDigest).toBe(digestOfCells([3, 85, 0x41]))
+    expect(r.portDigest).not.toBe(digestOfCells())
+    expect([r.differs, r.ownScreenDiffers, r.writtenDiffers]).toEqual([null, null, null])
+  })
+  it('a refusal resets the port grid, so the next case starts clean', () => {
+    const rig = newRig()
+    stepCase(rig, fresh(), { writes: [], refusal: REFUSED }, put([3, 85, 0x41]))
+    expect(rig.port.raw[3][85]).toBe(0x25)
+    expect(rig.port.written.size).toBe(0)
+    const next = fresh()
+    stepCase(rig, next, { writes: [], refusal: null }, () => {})
+    expect([next.differs, next.writtenDiffers, next.portDigest]).toEqual([false, false, null])
+  })
+  it('a refusal whose port throws digests the throw and the cells written before it', () => {
+    const boom = (msg: string, ...c: [number, number, number][]) => {
+      const [rig, r] = [newRig(), fresh()]
+      stepCase(rig, r, { writes: [], refusal: REFUSED }, g => {
+        put(...c)(g)
+        throw new Error(msg)
+      })
+      return { rig, digest: r.portDigest }
+    }
+    const a = boom('boom', [3, 85, 0x41])
+    expect(a.digest).toMatch(/^[0-9a-f]{12}$/)
+    expect(a.digest).not.toBe(digestOfCells([3, 85, 0x41]))
+    expect(a.digest).not.toBe(boom('bang', [3, 85, 0x41]).digest)
+    expect(a.digest).not.toBe(boom('boom').digest)
+    expect(a.rig.port.raw[3][85]).toBe(0x25) // reset after the partial write
+  })
+  it('an agreeing case with $25 written only by the port is writtenDiffers, with a port digest', () => {
+    const [rig, r] = [newRig(), fresh()]
+    stepCase(rig, r, { writes: [], refusal: null }, put([4, 81, 0x25]))
+    expect([r.differs, r.ownScreenDiffers, r.writtenDiffers]).toEqual([false, false, true])
+    expect(r.portDigest).toBe(digestOfCells([4, 81, 0x25]))
+    expect(rig.port.written.size).toBe(0) // reset
+  })
+  it('an agreeing case with identical writes is neither, and has no port digest', () => {
+    const [rig, r] = [newRig(), fresh()]
+    stepCase(rig, r, { writes: [iw(3, 5, 0x41)], refusal: null }, put([3, 5, 0x41]))
+    expect([r.differs, r.writtenDiffers, r.portDigest]).toEqual([false, false, null])
+    expect(rig.mine.raw[3][5]).toBe(0x25) // both grids reset after a write
+  })
+  it('a case whose grids differ is differs, with a port digest and both grids reset', () => {
+    const [rig, r] = [newRig(), fresh()]
+    stepCase(rig, r, { writes: [], refusal: null }, put([3, 85, 0x41]))
+    expect([r.differs, r.writtenDiffers]).toEqual([true, true])
+    expect(r.portDigest).toBe(digestOfCells([3, 85, 0x41]))
+    expect(rig.port.raw[3][85]).toBe(0x25)
   })
 })

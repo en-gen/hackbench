@@ -9,9 +9,11 @@
  * #759) over the same cases. Without that one, a disagreement row would absorb
  * a change to what the port writes unseen (#751).
  * Widening a predicate, a new disagreement landing under an old entry, or a
- * change in what either side writes for the cases a row absorbs moves a number
- * and fails. This covers the disagreement rows and the refusal entries below,
- * and nothing else: an agreeing case outside them is compared, not pinned.
+ * change in what either side writes for the cases a disagreement row absorbs
+ * moves a number and fails. A refusal entry pins its case count and the PORT's
+ * written cells for its cases; the interpreter side of a refusal is pinned by
+ * the count only. Nothing else is pinned: an agreeing case outside the
+ * disagreement rows is compared, not pinned.
  *
  * To regenerate after a deliberate change, run the corpus test and copy the
  * `actual` side of the failing diff.
