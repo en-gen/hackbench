@@ -98,6 +98,11 @@ therefore replays the calls stamped strictly before its frame.
 line sizes) and does not wrap the offset from the sprite, so a piece more than
 128 lines away keeps its distance (#811). The recorder stores a relative dy
 modulo 256 (`headless_capture.lua:1389`), so `unwrapDy` restores the multiple
-of 256 that puts the piece on the visible window -32..223. Evidence: synthetic
+of 256 that puts the piece on the visible window -32..223. A relative piece that unwraps to a line wholly above the top edge was parked
+in the below-screen band and is dropped, as the entries path does. Evidence: synthetic
 records and sweeps in `CaptureOracle.synthetic.test.ts` and
-`CaptureRender.synthetic.test.ts`; no real capture was re-rendered.
+`CaptureRender.synthetic.test.ts`; no capture page was re-rendered. The intended fix is the $104 flame; a
+develop-vs-branch `spriteFrame` diff over 9 local captures (106 spawns, 4
+changed) shows map $1D4's stray sprite $33 tile (list indices 7, 9, 11) also
+moves, to about 160 lines above each sprite (screen line 48), where the SNES
+drew it; develop drew it below.

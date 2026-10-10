@@ -219,6 +219,12 @@ describe('Sprites layer', () => {
       expect(D.pieceOffset(0, y, 1000, 300, 1000, 200)[1]).toBe(y - 100)
   })
 
+  it('unwrapDy window runs -32..223 (#811)', () => {
+    expect(D.unwrapDy(-33, 500, 500)).toBe(223)
+    expect(D.unwrapDy(-32, 500, 500)).toBe(-32)
+    expect(D.unwrapDy(223, 500, 500)).toBe(223)
+  })
+
   it('unwrapDy picks the multiple of 256 that lands on the visible screen (#811)', () => {
     for (let sy = -32; sy < 224; sy += 5)
       for (let line = -32; line < 224; line += 11) {

@@ -146,7 +146,7 @@ export function sameShape(a: SpritePiece[], b: SpritePiece[]) {
  * (a sprite above the level top reads ~65532), so signed from 16 bits, not
  * wrapped at 256.
  */
-const spriteScreenY = (spriteY: number, camY: number) =>
+export const spriteScreenY = (spriteY: number, camY: number) =>
   ((spriteY - camY + 0x8000) & 0xffff) - 0x8000
 
 /**
@@ -156,8 +156,8 @@ const spriteScreenY = (spriteY: number, camY: number) =>
  * 224 or more is a piece straddling the top edge, read as line - 256 (agrees
  * with oamEntry for the pieces the caller keeps, at 8/16/32-line sizes); the
  * offset is not wrapped, since a piece can sit more than 128 lines from its
- * sprite (the $104 flame, #811). Pieces parked wholly below the screen are
- * dropped by the caller first.
+ * sprite (the $104 flame, #811). The caller drops pieces parked wholly
+ * below the screen first (OAM line 224 or more, bottom at or before 256).
  */
 // prettier-ignore
 export function pieceOffset(oamX9: number, oamY: number, spriteX: number, spriteY: number, camX: number, camY: number) {

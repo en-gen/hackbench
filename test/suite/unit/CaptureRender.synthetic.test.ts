@@ -868,6 +868,19 @@ describe('recorded piece dy past 127 (#811)', () => {
   it('keeps dy as recorded when the record lacks y or cameraY', () => {
     expect(dyOf(spriteFrame(rec([0, 8], { y: undefined }), 0))).toEqual([0, 8])
   })
+  it('takes y and cameraY from the frame itself, not the record', () => {
+    const f = { frameIndex: 0, y: 112, cameraY: 0, tiles: tiles([0]) }
+    expect(dyOf(spriteFrame(rec([0], { frames: [f] }), 0))).toEqual([0])
+  })
+  it('keeps dy as recorded when cameraY is absent, however large y is', () => {
+    expect(dyOf(spriteFrame(rec([0], { y: 300, cameraY: undefined }), 0))).toEqual([0])
+  })
+  it('drops a piece parked below the screen, as the entries path does', () => {
+    // Sprite at screen line 0; an 8-line piece at line 248 records dy -8 and would draw above the top.
+    const r = (large: boolean) => ({ x: 128, y: 100, cameraX: 0, cameraY: 100, frames: [{ frameIndex: 0, tiles: [{ dx: 0, dy: -8, tile: 0, attr: 0, large }] }] }) // prettier-ignore
+    expect(dyOf(spriteFrame(r(false), 0))).toEqual([])
+    expect(dyOf(spriteFrame(r(true), 0))).toEqual([-8]) // 16 lines at 248 straddles the top edge
+  })
   it('leaves an ordinary dy alone, across the sprite positions on screen', () => {
     for (let sy = 0; sy < 220; sy += 9) {
       expect(dyOf(spriteFrame(rec([-4, 4], { y: 192 + sy }), 0))).toEqual([-4, 4])
