@@ -47,7 +47,6 @@ const BA_PINS: [number, number][] = [
   [18, 0xbf],
   [27, 0xe0],
   [29, 0x10],
-  [30, 0x03],
   [34, 0xbf],
 ]
 const plantsBA = (addr: number, imm = 2, mask = 0x0f): [number, number[]][] => [
@@ -197,7 +196,7 @@ const spanRefusal = (addr: number, operandAt: number): string =>
 
 describe('an opcode that matches but whose operand runs past the cart refuses (#519)', () => {
   it.each([
-    ['0DBA4C', handle_0DBA4C, plantsBA, 0x12, BA_PINS.filter(([o]) => o !== 30)],
+    ['0DBA4C', handle_0DBA4C, plantsBA, 0x12, BA_PINS],
     ['0DC3D8', staircaseVariantB, plantsC3, 0x21, C3_PINS],
   ] as const)(
     '%s: every gated opcode with an operand, as the last readable byte',
@@ -224,6 +223,17 @@ const operandRefusal = (addr: number, at: number, want: number, found: number): 
   `Handler ${hx(addr, 6)} refused: the operand at ${hx(at, 6)} is ${hx(found, 2)}, not the ${hx(want, 2)} the port assumes, so the object is not drawn.`
 const jsrRefusal = (addr: number, at: number, want: number, found: number): string =>
   `Handler ${hx(addr, 6)} refused: the JSR at ${hx(at, 6)} calls ${hx(found, 6)}, not ${hx(want, 6)} as the port assumes, so the object is not drawn.`
+
+describe('0DBA4C refuses when the BPL displacement at +30 changes, naming it an operand (#519)', () => {
+  it.each([VANILLA_BA, RELOCATED].map(a => [hx(a, 6), a] as const))('handler at %s', (_h, addr) => {
+    for (const found of replacements(0x03)) {
+      const rom = cartWith([...plantsBA(addr), [addr + 30, [found]]])
+      const { grid, unverified } = run(rom, handle_0DBA4C, addr, 0x12)
+      expect(grid, `found $${found.toString(16)}`).toEqual(blank())
+      expect(unverified).toEqual([operandRefusal(addr, addr + 30, 0x03, found)])
+    }
+  })
+})
 
 describe('0DC3D8 refuses when a hard-coded operand or JSR target changes (#762)', () => {
   describe.each([VANILLA_C3, RELOCATED])('handler at $%#x', addr => {

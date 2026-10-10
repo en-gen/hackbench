@@ -565,7 +565,7 @@ function gateOpcode(cur: Cursor, offset: number, opcode: number, operandLength =
     return false
   }
   if (operandLength > 0 && cur.rom.readAt(at, operandLength + 1) === null) {
-    const why = `the required operand span at $${(at + 1).toString(16).toUpperCase().padStart(6, '0')} is outside the ROM`
+    const why = `the required operand span at $${hex6(at + 1)} is outside the ROM`
     noteRefused(cur.draw?.unverified, cur.handlerAddr, at, opcode, found, why)
     return false
   }
@@ -3932,8 +3932,7 @@ export function handle_0DBA4C(cur: Cursor): void {
     !gateOpcode(cur, 4, 0x29, 1) ||
     !gateOpcode(cur, 18, 0xbf, 3) ||
     !gateOpcode(cur, 27, 0xe0, 1) ||
-    !gateOpcode(cur, 29, 0x10, 1) ||
-    !gateOpcode(cur, 30, 0x03) ||
+    !gateFixed(cur, 29, 0x10, 0x03) ||
     !gateOpcode(cur, 34, 0xbf, 3)
   )
     return
