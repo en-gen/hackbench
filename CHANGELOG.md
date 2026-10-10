@@ -10,8 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Docs (#750): the hack corpus note now states 101 hacks, all patched, and scopes its "of 99" survey figures to the 2026-09-26 survey.
+- Unit tests: the control-bytes and test-registration walks skip `__fixtures__`, so a concurrent lintGate run no longer fails them with ENOENT (#754).
 - Test-only (#653 Stage A): a per-ROM report of which standard object leaves the interpreter agrees on, across the corpus.
 - Layer 1 differential: the #300 allow-list row no longer hides port/interpreter differences on the object's own screen (#453).
+- Layer 1 differential: every disagreement row now pins the port's own output for the cases it absorbs, so a planted change to the port's non-empty tiles under any absorbed case fails the differential. Refusals (the port never runs for them) and the empty tile $25 (the port digest skips it, like the comparison) stay unpinned (#759) (#751).
 - Tech-lead session titles are now "<Team> Team" (e.g. "Delta Team"), in the tech-lead manual and the unregistered-session hook text.
 
 ### Fixed

@@ -22,7 +22,7 @@
 
 - `$05D8B1` holds the Lunar Magic `JSL` on 99 of 99. `CLAUDE.md` once cited "4 of 6"; that claim is outdated. `[EST]`
 - `CODE_0580BD` is intact, but its leading `JSL` target is redirected on most hacks. Verify call targets as well as bytes. `[EST]`
-- 31 of 99 (survey, #589) moved all 63 standard handlers into the `$8D` mirror. That is a bank-mirror artifact; filter it before counting custom handlers. `[EST]`
+- 31 of 99 (measured on the 99 patched at the time, #589) moved all 63 standard handlers into the `$8D` mirror. That is a bank-mirror artifact; filter it before counting custom handlers. `[EST]`
 
 ## Lunar Magic version marker
 
