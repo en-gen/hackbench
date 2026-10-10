@@ -9,15 +9,16 @@
 import { describe, expect, it } from 'vitest'
 import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { runOnce, type SpritePart } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import { interpDrawer } from '../../../../theia/extension/src/node/map-sprites'
 import { freshRom, hasRom, VANILLA } from '../../support/corpus'
 
 const LEVELS = [0x105, 0x106, 0x1c5]
 
-/** Pass 0 as { pos, body parts, wing parts }, from a fresh vanilla or patched ROM. */
+/** The served pass (`passes[chosen]`, as modelResult reads it) as { pos, body parts, wing parts }, from a fresh vanilla or patched ROM. */
 function draw(rom: ReturnType<typeof freshRom>, id: number, level: number) {
   const m = runOnce(rom, id, levelSeed(rom, level))
   expect(m.refusal).toBeUndefined()
-  const pass = m.passes[0]!
+  const pass = m.passes[m.chosen!]!
   const size = (n: number) => pass.parts.filter((p: SpritePart) => p.size === n)
   return { pos: pass.pos, all: pass.parts, body: size(16), wings: size(8) }
 }
@@ -48,6 +49,32 @@ describe.skipIf(!hasRom(VANILLA))('flying coin and 1-Up wings (#636), vanilla RO
       })
     }
   }
+
+  // Through the drawer the app serves: 16 x 16 body = 4 EnginePart, each wing = 1.
+  it.each([0x7e, 0x7f])(
+    'sprite %i via interpDrawer on level 0x105: body (4 parts) plus wings at dx -3 / +11, same tile, mirrored',
+    id => {
+      const sprite = {
+        screen: 0,
+        x: 5,
+        y: 10,
+        spriteId: id,
+        extraBit: false,
+        raw: [0, 0, 0],
+        index: 0,
+      }
+      const draw = interpDrawer(freshRom(), 0x105, { isVertical: false, screenCount: 0x14 })
+      const r = draw(sprite as never)
+      if (!r.ok) throw new Error(r.reason)
+      const wings = r.parts.filter(p => p.charNum === 0x45d)
+      expect(r.parts).toHaveLength(6)
+      expect(wings.map(w => [w.dx, w.flipX]).sort()).toEqual([
+        [-3, true],
+        [11, false],
+      ])
+      expect(wings.every(w => w.dy === wings[0]!.dy)).toBe(true)
+    },
+  )
 
   it('Key $80 is the control: one part, no wings', () => {
     for (const level of LEVELS) expect(draw(freshRom(), 0x80, level).all).toHaveLength(1)
