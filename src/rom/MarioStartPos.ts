@@ -13,14 +13,14 @@ const Y_HI = 0x05d740
 const X_LO = 0x05d750
 const X_HI = 0x05d758
 
-/** The lowest secondary entrance targeting `levelId`, or null. Lowest index is this reader's tie rule. */
-function secondaryEntrance(rom: RomFile, levelId: number): number | null {
+/** The lowest secondary entrance targeting `mapId`, or null. Lowest index is this reader's tie rule. */
+function secondaryEntrance(rom: RomFile, mapId: number): number | null {
   // The exit's entrance index is (submap flag << 8) | ExitTableLow and the target map's bit 8 is that
   // same flag (bank_05.asm:7103-7119), so candidates share the map's bit 8 and F800 holds the low byte.
   // DATA_05FC00 bit 0 is the entrance's screen bit, not the target (bank_05.asm:7147-7148, 7382).
   for (let low = 0; low < 0x100; low++) {
-    const e = (levelId & 0x100) | low
-    if (rom.readByte(F800 + e) === (levelId & 0xff)) return e
+    const e = (mapId & 0x100) | low
+    if (rom.readByte(F800 + e) === (mapId & 0xff)) return e
   }
   return null
 }
@@ -61,13 +61,13 @@ function entranceNudge(rom: RomFile, type: number): { x: number; y: number } {
  * targets falls back to its primary bytes. No stock-code gate on the tables: this is the fallback
  * for a ROM whose loader the interpreter refuses, and its caller draws such results as unverified.
  */
-export function readMarioStartPos(rom: RomFile, levelId: number): { x: number; y: number } {
+export function readMarioStartPos(rom: RomFile, mapId: number): { x: number; y: number } {
   const b = (a: number): number => rom.readByte(a) ?? 0
-  let yByte = b(F000 + levelId)
-  let xIdx = b(F200 + levelId) & 0x07
-  let screen = b(F600 + levelId) & 0x1f
-  let type = (b(F200 + levelId) >> 3) & 0x07
-  const e = levelId >= 0x100 ? secondaryEntrance(rom, levelId) : null
+  let yByte = b(F000 + mapId)
+  let xIdx = b(F200 + mapId) & 0x07
+  let screen = b(F600 + mapId) & 0x1f
+  let type = (b(F200 + mapId) >> 3) & 0x07
+  const e = mapId >= 0x100 ? secondaryEntrance(rom, mapId) : null
   if (e !== null) {
     yByte = b(FA00 + e)
     xIdx = (b(FC00 + e) >> 5) & 0x07
@@ -77,7 +77,7 @@ export function readMarioStartPos(rom: RomFile, levelId: number): { x: number; y
   const yIdx = yByte & 0x0f
   let x = (b(X_HI + xIdx) << 8) | b(X_LO + xIdx)
   let y = (b(Y_HI + yIdx) << 8) | b(Y_LO + yIdx)
-  if (b(F600 + levelId) & 0x20) y = (screen << 8) | (y & 0xff)
+  if (b(F600 + mapId) & 0x20) y = (screen << 8) | (y & 0xff)
   else x = (screen << 8) | (x & 0xff)
   const n = entranceNudge(rom, type)
   return { x: x | n.x, y: y | n.y }

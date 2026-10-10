@@ -70,7 +70,7 @@ describe('readMarioStartPos puts the entrance screen in the high byte', () => {
     expect(readMarioStartPos(rom, 0x105)).toEqual({ x: 0x230, y: 0x34 })
     // A map below $100 never uses a secondary entrance.
     rom.writeAt(0x05f800 + 0x05, [0x05])
-    expect(readMarioStartPos(rom, 0x05).x).toBe(0x20 + 0)
+    expect(readMarioStartPos(rom, 0x05).x).toBe(0x20)
   })
 })
 
