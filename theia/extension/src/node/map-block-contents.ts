@@ -244,8 +244,9 @@ export function spawnInputs(content: number, x: number, y: number): Record<numbe
   }
 }
 
+// index -1: spawned from a block, not by the start-of-level load, so no SpriteLoadStatus entry is its own (map-sprites refuses it).
 const fake = (spriteId: number, x: number, y: number) =>
-  ({ screen: 0, x, y, spriteId, extraBit: false, raw: [0, 0, 0], index: 0 }) as LevelSprite
+  ({ screen: 0, x, y, spriteId, extraBit: false, raw: [0, 0, 0], index: -1 }) as LevelSprite
 
 /** The ROM-backed art: sprites spawned by the game's own routine and run on the core, the coin from its draw immediates. */
 export function romArt(rom: RomFile, index: number, model: MapInputs): ItemArt {

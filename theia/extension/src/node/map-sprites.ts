@@ -50,6 +50,7 @@ import { getPaletteColor } from '../../../../src/rom/PaletteLoader'
 import { readMarioStartPos } from '../../../../src/rom/MarioStartPos'
 import {
   runOnce,
+  RAM,
   type SpriteModel as RunModel,
   type PaletteWrite,
   type SpritePart,
@@ -319,6 +320,9 @@ export function modelResult(m: RunModel): SpriteDrawResult {
   }
 }
 
+/** SpriteLoadStatus, SMWDisX rammap.asm:1968 (SMW_U.sym 00001938): one byte per sprite list entry, 128 of them. */
+const SPRITE_LOAD_STATUS = 0x1938
+
 /**
  * The interpreter over this cart, for the level `index`: `levelSeed` runs the
  * ROM's own loader, Mario at the level's start, one sprite run alone per call.
@@ -332,9 +336,10 @@ export function interpDrawer(
   index: number,
   model: { isVertical: boolean; screenCount: number },
   run: (rom: RomFile, id: number, seed: SpriteSeed) => RunModel = runOnce,
+  seedFor: (rom: RomFile, index: number) => SpriteSeed = levelSeed,
 ): SpriteDrawer {
   // The loader runs once per map, not per sprite.
-  const base = levelSeed(rom, index)
+  const base = seedFor(rom, index)
   // Mario's start is what the ROM-run loader left in $94/$96 (the entrance it ran); the
   // table re-derivation is only for a generic seed, which has no loader image.
   const w = base.loaded
@@ -344,15 +349,65 @@ export function interpDrawer(
   // No start to seed the run with: refuse (compute turns this into an `unavailable` reply) rather than
   // seed Mario at {0,0} or the default position.
   if (!mario) throw new Error(`Mario start position unavailable: entrance tables unreadable for map ${index.toString(16)}`) // prettier-ignore
+  // Layer 1 as the loader left it ($1A/$1C): where a screen-fixed part's OAM position is on the map.
+  const loaderCam = w && { x: w[0x1a]! | (w[0x1b]! << 8), y: w[0x1c]! | (w[0x1d]! << 8) }
+  // OAM + the loader's camera is what the game shows only for a sprite its start-of-level load loaded:
+  // the loader runs CODE_05801E -> CODE_02A751 (bank_05.asm:72), which marks each loaded sprite's
+  // SpriteLoadStatus byte ($1938 + list index, bank_02.asm:5285) and clears a generator's or a
+  // no-free-slot sprite's (5345, 5419). 128 entries; a later index is not tracked, so not placed.
   // Only the map's own shape is added to a generic seed; a loaded one ignores it.
   const shape = { level: { screenMode: model.isVertical ? 1 : 0, screens: model.screenCount } }
   return s => {
     const [x, y] = [pixelX(s), s.y * TILE]
     const camera = cameraFor(x, y, model.isVertical, model.screenCount)
-    return modelResult(
-      run(rom, s.spriteId, withSeed({ sprite: { x, y }, camera, mario, ...shape }, base)),
-    )
+    const seed = (camera: { x: number; y: number }, extra = {}) => withSeed({ sprite: { x, y }, camera, mario, ...shape, ...extra }, base) // prettier-ignore
+    const m = run(rom, s.spriteId, seed(camera))
+    const at = m.chosen
+    if (!w || !loaderCam || at === undefined || !m.anchor || s.index < 0 || s.index >= 128 || !w[SPRITE_LOAD_STATUS + s.index]) return modelResult(m) // prettier-ignore
+    // Probe: the camera moved 13 x 11 px (not a multiple of the 8 px tile pitch, so a neighbour
+    // tile cannot alias) towards the sprite's screen centre, so it stays drawn; run only to the drawn pass.
+    const shifted = { x: camera.x + (x - camera.x < 128 ? -13 : 13), y: camera.y + (y - camera.y < 112 ? -11 : 11) } // prettier-ignore
+    const probe = run(rom, s.spriteId, seed(shifted, { mainPasses: at + 1 }))
+    return modelResult(fixOffsets(m, probe, loaderCam, w) ?? m)
   }
+}
+
+/**
+ * Parts whose OAM position is the same with the camera moved are screen-fixed
+ * (the Side Exit's flame, CODE_02F4EB, SMWDisX bank_02.asm:15531-15576, writes
+ * screen coordinates): their map position is OAM + the loader's camera, not
+ * the sprite's offset, and is not wrapped to a byte. A part whose X and Y are
+ * those the loader image already held at its (non-zero) OAM entry was not drawn
+ * by this sprite (the level's own cluster sprites rewrite OAM 123-127 every frame) and
+ * is left alone. Null when no part is screen-fixed.
+ */
+function fixOffsets(
+  m: RunModel,
+  probe: RunModel,
+  cam: { x: number; y: number },
+  loaded: Uint8Array,
+): RunModel | null {
+  const at = m.chosen
+  const pass = at === undefined ? undefined : m.passes[at]
+  const other = at === undefined ? undefined : probe.passes[at]
+  if (!m.anchor || !pass || !other) return null
+  const anchor = m.anchor
+  // Residue: the loader's entry is the part's X and Y, in an entry that is not all zero. Tile and
+  // attribute are not compared: the castle-flame cluster rewrites them. An all-zero entry is the loader's
+  // fill, not a drawn part, so a genuine part at (0, 0) must move.
+  const residue = (p: SpritePart) => {
+    const e = loaded.subarray(RAM.oam + p.oam * 4, RAM.oam + p.oam * 4 + 4)
+    return e.some(v => v) && e[0] === (p.ox & 0xff) && e[1] === p.oy
+  }
+  const same = (p: SpritePart) => !residue(p) && other.parts.some(q => q.oam === p.oam && q.ox === p.ox && q.oy === p.oy) // prettier-ignore
+  if (!pass.parts.some(same)) return null
+  // X is 9 bits (bit 8 is the sign); OAM Y $E0-$FF is above the screen's top edge.
+  const parts = pass.parts.map(p =>
+    same(p)
+      ? { ...p, dx: (p.ox > 255 ? p.ox - 512 : p.ox) + cam.x - anchor.x, dy: (p.oy >= 0xe0 ? p.oy - 256 : p.oy) + cam.y - anchor.y } // prettier-ignore
+      : p,
+  )
+  return { ...m, passes: m.passes.map((q, i) => (i === at ? { ...q, parts } : q)) }
 }
 
 /** A sprite stream's bytes: up to the window, fewer when the ROM ends first (as SmwRom.getLevelRawData reads). */

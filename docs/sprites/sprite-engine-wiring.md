@@ -87,10 +87,10 @@ sprite id carries the message, including which pointer moved and to where.
 
 There are THREE marker states, not two:
 
-| Marks | Meaning | Actionable? |
-|---|---|---|
-| blue ticks | the engine drew this sprite | n/a |
-| amber ticks + pip | the ROM repointed the handler, shipped appearance drawn | no, it is a property of the ROM |
+| Marks               | Meaning                                                                      | Actionable?                                      |
+| ------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------ |
+| blue ticks          | the engine drew this sprite                                                  | n/a                                              |
+| amber ticks + pip   | the ROM repointed the handler, shipped appearance drawn                      | no, it is a property of the ROM                  |
 | magenta ticks + pip | the engine READ the ROM and could not interpret it, shipped appearance drawn | yes: an engine gap or a partly rewritten handler |
 
 The magenta state was previously amber as well, and logged nothing, so
@@ -165,24 +165,24 @@ the five bespoke descriptors, which were all that existed when it was written;
 `45e9e1e` added the eleven-member `Spr0to13Gfx` walk family, and those are the
 densely placed ones. Re-measured across all 512 level slots:
 
-| Sprite | Placements | Maps | First few maps |
-|---|---|---|---|
-| `$00` Green Koopa, no shell | 2 | 2 | `$00D`, `$106` |
-| `$01` Red Koopa, no shell | 6 | 3 | `$00D`, `$106`, `$11F` |
-| `$02` Blue Koopa, no shell | 16 | 5 | `$008`, `$00D`, `$10A`, `$12D`, `$135` |
-| `$03` Yellow Koopa, no shell | 5 | 4 | `$006`, `$115`, `$11B`, `$12D` |
-| `$04` Green Koopa | 20 | 8 | `$0C7`, `$0F7`, `$10B`, `$115`, `$119` |
-| `$05` Red Koopa | 70 | 20 | `$005`, `$006`, `$008`, `$023`, `$0C7` |
-| `$06` Blue Koopa | 36 | 11 | `$005`, `$006`, `$023`, `$0C7`, `$0F7` |
-| `$07` Yellow Koopa | 8 | 4 | `$0C7`, `$0F7`, `$128`, `$134` |
-| `$0F` Goomba | 8 | 2 | `$006`, `$11E` |
-| `$11` Buzzy Beetle | 86 | 9 | `$009`, `$10A`, `$117`, `$118`, `$11A` |
-| `$13` Spiny | 40 | 4 | `$001`, `$01C`, `$121`, `$136` |
-| `$14` | 0 | 0 | none |
-| `$1F` | 2 | 2 | `$11C` (col 22, row 21), `$1FE` (col 39, row 0) |
-| `$2C` | 5 | 5 | `$130`, `$132`, `$134`, `$135`, `$136` |
-| `$4D` | 14 | 2 | `$010` x12, `$106` x2 |
-| `$4E` | 21 | 3 | `$010` x18, `$106` x3 |
+| Sprite                       | Placements | Maps | First few maps                                  |
+| ---------------------------- | ---------- | ---- | ----------------------------------------------- |
+| `$00` Green Koopa, no shell  | 2          | 2    | `$00D`, `$106`                                  |
+| `$01` Red Koopa, no shell    | 6          | 3    | `$00D`, `$106`, `$11F`                          |
+| `$02` Blue Koopa, no shell   | 16         | 5    | `$008`, `$00D`, `$10A`, `$12D`, `$135`          |
+| `$03` Yellow Koopa, no shell | 5          | 4    | `$006`, `$115`, `$11B`, `$12D`                  |
+| `$04` Green Koopa            | 20         | 8    | `$0C7`, `$0F7`, `$10B`, `$115`, `$119`          |
+| `$05` Red Koopa              | 70         | 20   | `$005`, `$006`, `$008`, `$023`, `$0C7`          |
+| `$06` Blue Koopa             | 36         | 11   | `$005`, `$006`, `$023`, `$0C7`, `$0F7`          |
+| `$07` Yellow Koopa           | 8          | 4    | `$0C7`, `$0F7`, `$128`, `$134`                  |
+| `$0F` Goomba                 | 8          | 2    | `$006`, `$11E`                                  |
+| `$11` Buzzy Beetle           | 86         | 9    | `$009`, `$10A`, `$117`, `$118`, `$11A`          |
+| `$13` Spiny                  | 40         | 4    | `$001`, `$01C`, `$121`, `$136`                  |
+| `$14`                        | 0          | 0    | none                                            |
+| `$1F`                        | 2          | 2    | `$11C` (col 22, row 21), `$1FE` (col 39, row 0) |
+| `$2C`                        | 5          | 5    | `$130`, `$132`, `$134`, `$135`, `$136`          |
+| `$4D`                        | 14         | 2    | `$010` x12, `$106` x2                           |
+| `$4E`                        | 21         | 3    | `$010` x18, `$106` x3                           |
 
 297 placements for the walk family against 42 for the bespoke five, so the
 walk family is what a reviewer will actually be looking at. `$005` and `$0C7`
@@ -210,6 +210,31 @@ read through `drawSpriteParts`; no emulator was run.
   that draws is served. Chars come from the map's VRAM (SP1-SP4), colors from
   its CGRAM; the palette row is the sprite's own, and the colors its code
   wrote to CGRAM override that row for that sprite only.
+- A part whose OAM position does not move when the camera moves (a second run, the camera shifted
+  13 x 11 px, only to the drawn pass) is screen-fixed: it is placed at OAM + the loader's Layer 1
+  position, X unwrapped from 9 bits, OAM Y $E0 and up above the screen, not beside its sprite.
+  Only for a sprite the game's own start-of-level load loaded, read from the loader image: the
+  loader runs CODE_05801E, whose `JSL CODE_02A751` (`bank_05.asm:69-72`: the call runs during level load; only the ending game
+  modes, GameMode `$0100` ($22 and up, `rammap.asm:980`), skip it, and GameMode is 0 in the loader
+  image on all 512 vanilla slots, so it is always taken)
+  reaches that load (`bank_02.asm:5169`), which sets SpriteLoadStatus (`$1938` + list index,
+  `rammap.asm:1968`) to 1 per loaded sprite (`bank_02.asm:5285`) and back to 0 for a generator
+  (`5345`) or when no sprite slot is free (`5418-5419`). A byte of 0, a list index of 128 or more
+  (the table's size) or no loader image keeps the offsets. The level-start clear CODE_02ABF2 (`bank_02.asm:5786-5789`)
+  zeroes only `$00-$3F` of the 128 entries, and the loader image starts from zeroed RAM, so entries
+  64-127 may differ from hardware (vanilla unaffected: the longest list is 65 entries, and nothing
+  at index 64 or above is loaded). Against a span read from the column
+  loop, 8 vanilla sprites inside it were not loaded (generators `$D5`, `$D7`, `$D9`, `$CF`; no free
+  slot `$AA`, `$AA`, `$26`, `$25`) and none was loaded outside it (one machine, 488 maps). The game
+  loads a sprite where it starts, not where it always is. A part whose X and Y equal a non-zero
+  loader-image OAM entry is residue (the level's cluster sprites rewrite OAM 123-127 each frame,
+  CODE_02FA16, `bank_02.asm:16230-16279`) and is left alone. Tile and attribute are not compared:
+  the rewrite changes them (vanilla `$1F`, `$1D4`: tile $E4, attribute $09 in the image, $E2 and
+  $49 in the run). Any non-zero byte makes an entry count; an all-zero entry is the loader's fill,
+  so a genuine part at (0, 0) still moves. Seen: the `$8C` flame on `$104` (#286,
+  `bank_02.asm:15531-15576`; one Mesen capture, vanilla) and the `$C6` disco balls at X=384 on
+  `$10E` and `$1BD` (CODE_03C4A5, `bank_03.asm:7948-7953`, a constant screen position; ROM-traced,
+  not captured).
 - Each sprite is one bitmap at anchor + `dx`/`dy`, never snapped to the grid.
   A sprite the interpreter refuses (`refused: ...`, with its reason: an id
   past the table, an unknown entry shape, a spent step budget), one that draws
