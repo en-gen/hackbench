@@ -2,11 +2,11 @@
 
 > **Bottom line**
 >
-> - Pixel parity holds: a WebGL2 `RenderTarget` equals the CPU `CanvasRenderTarget` byte for byte on all 3072 corpus levels (6 ROMs x 512 ids), 0 failed; also on the canvas (default framebuffer) path on vanilla, and after a palette-only edit on 3 levels. `[EST]`
+> - Pixel parity holds: a WebGL2 `RenderTarget` equals the CPU `CanvasRenderTarget` byte for byte on all 3072 corpus levels (6 ROMs x 512 ids), 0 failed; also on the canvas (default framebuffer) path on vanilla, and after a palette-only edit on 3 levels (CPU reference substitutes rows matched by content, the same rule GL uses, so it cannot detect two palette indices with equal colours sharing a row). `[EST]`
 > - WebGL does not make a full repaint faster: median 0.93x over 512 vanilla levels, GL slower on 59% of them, because the model walk (`SmwMap.render`) and the per-blit palette-row lookup dominate. Keying rows by array identity, which also passes parity on static palettes, would make it 1.50x. `[EST]`
-> - The wins measured here come from an indexed representation, not from WebGL: palette-only repaint (3.1x median against a CPU target that has no cheaper path by harness choice) and payload size (63x smaller raw on `$10A`, but only 3x once both sides are gzipped). Palette-only is a stand-in: a single ROM palette-row edit is not expressible through today's `RenderTarget`. A CPU indexed compositor was not built, so WebGL over it is unproven. `[OPEN]`
+> - The wins measured here come from an indexed representation, not from WebGL: palette-only repaint (3.1x median against a CPU target that has no cheaper path by harness choice) and payload size (63x smaller raw on `$10A`, but only 3x once both sides are gzipped). `[EST]` Palette-only is a stand-in: a single ROM palette-row edit is not expressible through today's `RenderTarget`, with content or identity keys alike. A CPU indexed compositor was not built, so WebGL over it is unproven. `[OPEN]`
 > - The CPU arm is the model path through `CanvasRenderTarget`, not the shipped Theia widget (which draws `map-screen.ts` planes), so no ratio here is against what ships. `[EST]`
-> - Chromium evicted the oldest of 17 contexts in the Playwright build; with the emulator holding one, map tabs get at most 15. Electron's own limit was not measured. `[OPEN]`
+> - Chromium evicted the oldest of 17 contexts in the Playwright build; with the emulator holding one, map tabs get at most 15. `[EST]` (Playwright Chromium). Electron's own limit was not measured. `[OPEN]`
 > - An indexed map representation is worth a spike against the shipped widget; WebGL over a CPU indexed compositor is unproven. `[PROP]`
 
 ## Provenance
@@ -38,7 +38,7 @@ The spike swaps only the target.
 
 - One `R8UI` atlas texture holds every tile: 128 tiles per row, 1024 x 2048 texels (32768 tiles, 2 MiB). A tile is keyed by the identity of the `Uint8Array` that `Char.getPixels()` returns, in first-seen order. `$10A` uses 156 tiles. `[EST]`
 - Palette rows live in a 16 x 256 `RGBA8` texture. `blit8x8` gets `RgbaColor[]`, not an index. Default key: a hash of the 16 RGB entries (alpha ignored, the CPU writes 255), compared on a hit; the texture row is the order of first appearance of a distinct content in one map. Two palette rows with equal colours share a texture row. `[EST]`
-- Alternative key, `fastRows`: the array's identity. `Palette.row()` returns one reused scratch array per row index, so identity is a valid key while palettes are static. It passes full parity on vanilla and Invictus (512 of 512 each). Not checked: a retained store across palette animation, where a reused array holds changing colours. `[OPEN]`
+- Alternative key, `fastRows`: the array's identity. `Palette.row()` returns one reused scratch array per row index, so identity is a valid key while palettes are static. It passes full parity on vanilla and Invictus (512 of 512 each), run with a fresh `GlStore` per render (`page.ts:54-55`), not the retained store the speed arm uses. On a cache miss it still falls through to content dedupe (`gl.ts:113-116`), so two palette indices with equal colours still share one texture row. Not checked: a retained store across palette animation, where a reused array holds changing colours. `[OPEN]`
 - Rows shorter than 16 are padded with black. The CPU aborts a tile that reads past a short row; parity held, so none did (81,968 short-row blits on vanilla). These rows do not come from `Palette.row`. `[EST]` for the counts, `[INF]` for the source.
 - Each `blit8x8` appends one instance (x, y, tile, row | flipX | flipY | alpha) to an `Int32Array`; `commit()` uploads it and the dirty atlas rows; one `drawArraysInstanced(TRIANGLES, 0, 6, n)` draws a segment with `texelFetch` and no filtering. Instance order inside a draw call gives the CPU's overdraw order. `fillRect` ends a segment (0 calls in the corpus with sprites off). `[EST]`
 - Hidden-tile blends (alpha < 1) use their own segment: the harness copies the framebuffer and the shader blends from the copy with ties to even, because fixed-function blending rounds ties up. During development the first pass failed 2 of 3 levels by 1 on some channels (about 244 px on `$10A`); that output did not survive, so the cause is inferred. `[INF]` Alpha values are quantised to 1/256 (0 inexact across all 3072 maps). Overlapping alpha tiles inside one segment would read a stale copy; parity held, so none overlapped. `[INF]`
@@ -56,7 +56,7 @@ Whole-map `readPixels` against the CPU `ImageData` buffer, every id 0..511 per R
 | Invictus 1.0 | 512 | 512 | 0 | 0 | 347,536 |
 | Seven Vanilla Levels | 512 | 512 | 0 | 0 | 20,760 |
 
-3072 compared, 3072 passed, 0 skipped, 1 run. Without the corpus only the synthetic fixture runs (1 clean case, 4 planted). Further runs, vanilla: canvas path (default framebuffer, flipped in the shader, un-flipped on read) 512 of 512; identity-keyed rows 512 of 512 (and 512 of 512 on Invictus). Palette-only: after a full draw, one palette row is rewritten and uploaded with `texSubImage2D`, and the replay is compared with a CPU render of the same edited palette (rows matched by content): 0 px differ on `$10A`, `$0F7`, `$105`, where the edit changed 2,268,493, 221,806 and 537,971 px. `[EST]`
+3072 compared, 3072 passed, 0 skipped, 1 run; this table is from the first harness run, and the default path is logically unchanged since (not re-run). Without the corpus only the synthetic fixture runs (1 clean case, 4 planted). Further runs, vanilla: canvas path (default framebuffer, flipped in the shader, un-flipped on read) 512 of 512; identity-keyed rows 512 of 512 (and 512 of 512 on Invictus). Palette-only: after a full draw, one palette row is rewritten and uploaded with `texSubImage2D`, and the replay is compared with a CPU render of the same edited palette (rows matched by content): 0 px differ on `$10A`, `$0F7`, `$105`, where the edit changed 2,268,493, 221,806 and 537,971 px. `[EST]`
 
 ## 2. The check goes red on planted defects
 
@@ -97,11 +97,12 @@ Sweep: all 512 vanilla ids, 7 iterations each, one run; per-level median CPU ove
 | full, CPU / GL warm | 0.93 | 0.83 | 1.46 | 41.4% |
 | full, CPU / GL cold | 0.73 | 0.64 | 1.29 | 30.3% |
 | full, CPU / GL warm, identity-keyed | 1.50 | 1.32 | 2.56 | 97.9% |
-| palette-only, CPU full / GL | 3.10 | 2.30 | 9.22 | 98.8% |
+| palette-only, CPU palette-only (= full repaint) / GL | 3.10 | 2.30 | 9.22 | 98.8% |
+| palette-only, CPU full / GL | 3.00 | 2.2 | 9.35 | not recorded |
 
 By CPU repaint cost: under 5 ms (343 levels) full 0.88x, palette-only 2.73x (GL 1.1 ms against CPU 3.0); 5 to 15 ms (107) 1.27x and 5.46x (1.3 against 6.7); over 15 ms (62) 1.32x and 8.95x (2.4 against 20.9). `[EST]`
 
-The palette-only rows compare an indexed repaint with a CPU target that cannot do one. They measure the value of a retained, indexed representation, not of WebGL. Not measured: a real ROM palette edit end to end; content-keyed rows cannot express one ROM palette row through today's interface (identity keying could, for static palettes). `[OPEN]` Resolve with a palette-index interface and a CPU indexed compositor as the control.
+The palette-only rows compare an indexed repaint with a CPU target that cannot do one. They measure the value of a retained, indexed representation, not of WebGL. Not measured: a real ROM palette edit end to end; content-keyed rows cannot express one ROM palette row through today's interface (identity keying does not either: it falls through to content dedupe on a miss). `[OPEN]` Resolve with a palette-index interface and a CPU indexed compositor as the control.
 
 ## 4. JSON-RPC bytes
 
@@ -125,7 +126,7 @@ The widget fetches the visible screens plus a margin of 1, lazily and cached (`m
 | `$1EC` | 5,899,892 | 44,037 | 39,148 | 10,872 | 9,595 |
 | `$0F7` | 2,797,948 | 36,018 | 112,536 | 24,468 | 24,156 |
 
-Raw, the window is 25x to 151x smaller (`$0F7` 25x, `$10A` 73x, `$1EC` 151x); gzipped it is 1.3x to 4.1x smaller. Twelve levels were sampled (those plus `$11E $024 $1F8 $001 $111 $1D2`); the other seven are in the harness output, not tabled. Whether the Theia JSON-RPC channel compresses was not checked, so raw is the upper bound and gzipped the lower. `[OPEN]` Resolve by reading the websocket extension negotiation in a running Theia.
+Raw, the window is 25x to 151x smaller (`$0F7` 25x, `$10A` 73x, `$1EC` 151x). The gzip comparison is not a strict bound: today is gzipped as one stream (`bytes.ts:82`), valid only with deflate context takeover across messages; the indexed arm is gzip then base64 (`bytes.ts:86,90`, +1.33x) with palette rows uncompressed. On that basis the whole-map gzip ratio is 1.29x to 4.38x over all 12 sampled levels. Twelve levels were sampled (those plus `$11E $024 $1F8 $001 $111 $1D2`); the other seven are in the harness output, not tabled. Whether the Theia JSON-RPC channel compresses was not checked, so raw and gzipped are two readings, not bounds. `[OPEN]` Resolve by reading the websocket extension negotiation in a running Theia.
 
 ## 5. Memory
 
@@ -177,11 +178,11 @@ Idle frames over 25 ms, per 240: 1 in every `$10A` run, 1, 1 and 2 in the `$0F7`
 
 ## Recommendation `[PROP]`
 
-Do not build WebGL for full-repaint speed: 0.93x median. Worth a spike against the shipped widget: an indexed map representation (retained tile and palette tables, an instance or tilemap list), which is where the palette-only and payload gains came from. WebGL over a CPU indexed compositor is unproven; that control was not built. `[PROP]`
+Do not build WebGL for full-repaint speed: 0.93x median with content-keyed rows, 1.50x with identity-keyed rows (parity on static palettes, fresh store). Worth a spike against the shipped widget: an indexed map representation (retained tile and palette tables, an instance or tilemap list), which is where the palette-only and payload gains came from. WebGL over a CPU indexed compositor is unproven; that control was not built. `[PROP]`
 
 Conditions if any GL path follows:
 
-1. Row keys: identity keying passed parity on static palettes and cuts the walk 1.5x; whether it survives palette animation, and whether `RenderTarget` needs a palette index for single-row edits, are open. `[OPEN]`
+1. Row keys: identity keying passed parity on static palettes with a fresh store per render and cuts the walk 1.5x; it still shares a texture row between equal-colour palette indices, so it cannot express a single ROM palette-row edit. Whether it survives palette animation on a retained store, and what palette-index interface a single-row edit needs, are open. `[OPEN]`
 2. Never one context per tab: share one or free it on hide (31.5 ms to rebuild); map tabs get at most 15. `[PROP]`
 3. Bound the alpha framebuffer copy to the segment's box; 8 full copies are 14 MB of the `$10A` GPU total. `[PROP]`
 4. Shrink the atlas to the map's tile count. `[PROP]`
