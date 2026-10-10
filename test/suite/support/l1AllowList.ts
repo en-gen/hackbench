@@ -62,7 +62,6 @@ const row = (
 
 /** In-range game behavior the ports do not follow (#369). */
 const UMBRELLA = 690
-const EMPTY = 'the ROM writes $25 into blank footprint cells; the port skips them (#759)'
 const DRIFT =
   'no bookmark restore: once a row crosses a screen edge the next row starts a screen right'
 
@@ -124,12 +123,12 @@ export const KNOWN_DISAGREEMENTS: Known[] = [
     [0x0dec8e, [4, 4, '665cdc19b7', 'e895f739fd']],
   ] as [number, Known['expect']][]).map(([a, e]) => row(a, r => r.col === 15, DRIFT, e)),
   row(0x0dbadc, all, 'rows wrap through LevelLoadPos, not _E, and blocks step $B0 (bank_0D.asm:4433-4470)', [558, 584, '8ab91c97a6', '8edf17dcaf']),
-  // #759: grids agree, the written-cell maps do not. The ROM stores $25 across the blank cells of the object's rectangle; the port skips them.
+  // #773: the ROM writes $25 into blank footprint cells; the port skips them (grids agree, written-cell maps differ; pinned by #759).
   ...([
     [0x0da71b, [3, 3, 'e71f66dc6c', 'c777abd7ea']],
     [0x0da760, [3, 3, 'ace326f422', '018586d827']],
     [0x0dc2e9, [2, 3, '8ed789c7b2', 'edc48da7f4']],
-  ] as [number, Known['expect']][]).map(([a, e]) => row(a, all, EMPTY, e, false, true)),
+  ] as [number, Known['expect']][]).map(([a, e]) => row(a, all, 773, e, false, true)),
 ]
 
 export interface KnownRefusal {
