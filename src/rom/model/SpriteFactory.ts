@@ -819,16 +819,15 @@ export function buildSprites(
     }
 
     // $2E (Spike Top) - 2-frame animation per WallFollowersMain bank_02.asm:8079-8091.
-    // Tiles at SprTilemap[tilemapBase+0/1] alternate every 8 ticks; direction is
-    // hardcoded to 0 (DATA_02BCC7[0]=$00, no flip), which is wrong when Mario spawns
-    // left of the sprite. See SpikeTopAppearance.fromTables.
+    // Facing follows InitSpikeTop (bank_01.asm:602): Mario strictly left (SubHorizPos Y=1)
+    // is direction 4, else 0; see SpikeTopAppearance.fromTables for the flip it draws.
     if (s.spriteId === 0x2e) {
       out.push(
         new Sprite(
           s.spriteId,
           s.x * 16,
           s.y * 16,
-          SpikeTopAppearance.fromTables(chars, tables, placeholder),
+          SpikeTopAppearance.fromTables(chars, tables, placeholder, marioStartPx.x < s.x * 16),
           behavior,
         ),
       )

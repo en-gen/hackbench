@@ -112,8 +112,8 @@ function findFillerPointer(pointers: readonly number[]): FillerAnalysis {
 /**
  * Builds the level catalog. A slot is real when its L1 pointer differs from
  * the computed filler value -- decided by pointer identity alone, never via
- * levelHasObjects(), which has its own documented, unrelated defect (see
- * SmwRom.ts) that this catalog does not need and does not route around. A
+ * levelHasObjects(), which cannot spot filler (the filler room holds
+ * well-formed objects), so this catalog does not need it. A
  * real slot is parseable when SmwRom.getLevelRawData can read it back at
  * all, which needs only the five header bytes before the ROM ends: editors
  * can place a level in the ROM's last bytes. Unparseable real slots are the

@@ -54,6 +54,9 @@ export const GENERAL_SPR_GFX_PROP_ADDR = 0x019cdb
 export const SPRITE_166E_VALS_ADDR = 0x07f3fe
 export const SPR_0_TO_13_PROP_ADDR = 0x0188f0
 export const YOSHI_PAL_ADDR = 0x018335
+export const WALL_FOLLOW_ATTR_ADDR = 0x02bcc7
+/** `ORA.W DATA_02BCC7,Y` in WallFollowersMain (bank_02.asm:8089), at $02:BD17 on vanilla US 1.0. */
+export const WALL_FOLLOW_ORA_ADDR = 0x02bd17
 
 export const SPR_TILEMAP_OFFSET_COUNT = 0x54 // sprites 0x00..0x53
 export const SPR_TILEMAP_LEN = 0xfc // 0x9C7F - 0x9B83
@@ -61,6 +64,7 @@ export const GENERAL_SPR_GFX_PROP_COUNT = 24 // 6 groups × 4 corners
 export const SPRITE_166E_VALS_COUNT = 0x100
 export const SPR_0_TO_13_PROP_COUNT = 0x14 // sprites 0x00..0x13
 export const YOSHI_PAL_COUNT = 4
+export const WALL_FOLLOW_ATTR_COUNT = 16 // DATA_02BCC7: directions 0..7, then the wall-side set
 
 /** Raw sprite tile layout data read from ROM. */
 export interface SpriteTileTables {
@@ -84,10 +88,28 @@ export interface SpriteTileTables {
    *  (bank_01.asm:463) overwrites SpriteOBJAttribute with the entry chosen by
    *  (SpriteXPosLow >> 4) & 3, so Sprite166EVals[$2C] never reaches the screen. */
   yoshiPal: Uint8Array
+  /** DATA_02BCC7 (bank_02.asm:8051): OBJ flip bits WallFollowersMain ORs into a
+   *  Spike Top's attribute, indexed by its direction ($C2). Absent on synthetic
+   *  tables; absent means the flip is not modelled. */
+  wallFollowAttr?: Uint8Array
   /** Which shared draw routine each sprite's handler reaches on THIS cart,
    *  read by `GfxRoutineReader`. Absent on synthetically built tables, which
    *  then fall back to the frozen overrides below. */
   gfxRoutines?: ReadonlyMap<number, GfxRoutineReading>
+}
+
+/**
+ * True when the instruction at WALL_FOLLOW_ORA_ADDR is still `ORA abs,Y` ($19)
+ * naming the low 16 bits of WALL_FOLLOW_ATTR_ADDR. A hack that moves or rewrites
+ * that read makes the vanilla table the wrong one, so the flip is left
+ * unmodelled, never read from the vanilla address. The operand is 16-bit, so it
+ * names a bank-2 address only while DB is the routine's bank, as the other `.W`
+ * table read in WallFollowersMain (bank_02.asm:8085) already assumes. Checked on
+ * vanilla US 1.0 only.
+ */
+function wallFollowTableIsRead(rom: RomFile): boolean {
+  const ins = rom.readAt(WALL_FOLLOW_ORA_ADDR, 3)
+  return !!ins && ins[0] === 0x19 && (ins[1] | (ins[2] << 8)) === (WALL_FOLLOW_ATTR_ADDR & 0xffff)
 }
 
 export function readSpriteTileTables(rom: RomFile): SpriteTileTables | null {
@@ -99,6 +121,9 @@ export function readSpriteTileTables(rom: RomFile): SpriteTileTables | null {
   const rawAttr = rom.readAt(SPRITE_166E_VALS_ADDR, SPRITE_166E_VALS_COUNT)
   const spr0to13Prop = rom.readAt(SPR_0_TO_13_PROP_ADDR, SPR_0_TO_13_PROP_COUNT)
   const yoshiPal = rom.readAt(YOSHI_PAL_ADDR, YOSHI_PAL_COUNT)
+  const wallFollowAttr = wallFollowTableIsRead(rom)
+    ? rom.readAt(WALL_FOLLOW_ATTR_ADDR, WALL_FOLLOW_ATTR_COUNT)
+    : null
   if (
     !tilemap ||
     !tilemapOffset ||
@@ -123,6 +148,8 @@ export function readSpriteTileTables(rom: RomFile): SpriteTileTables | null {
     spriteAttr,
     spr0to13Prop: new Uint8Array(spr0to13Prop),
     yoshiPal: new Uint8Array(yoshiPal),
+    // Model-only table: a failed read leaves it absent, never nulls the tables the served engine uses.
+    ...(wallFollowAttr ? { wallFollowAttr: new Uint8Array(wallFollowAttr) } : {}),
     // 84 handler walks, about 22 ms on vanilla cold. `readGfxRoutines`
     // caches per cart on `RomFile.version`, which matters because a map
     // build reruns on every toolbar change and this was the largest single
@@ -243,8 +270,8 @@ export const SPRITE_BASE_TILE_OVERRIDES: Readonly<Record<number, number>> = {
   0x7c: 0x6e, // Princess Peach
   // PowerUpGfxRt: PowerUpTiles[sprite - $74], bank_01.asm:9528-9530, 9632-9637 (#99)
   0x7d: 0xe4, // Balloon
-  0x7e: 0xe8, // Flying Red coin (body only; wing tiles from CODE_019E95 not modelled)
-  0x7f: 0x24, // Flying yellow 1-Up (body only; wings not modelled)
+  0x7e: 0xe8, // Flying Red coin (body only: this table serves the table-engine oracle and the reference extension; the served interpreter draws the wings via CODE_019E95, #636)
+  0x7f: 0x24, // Flying yellow 1-Up (body only, as $7E; the served interpreter draws the wings, #636)
   0x80: 0xec, // Key - PowerUpGfxRt with PowerUpTiles[$0C], bank_01.asm:9528
   0x81: 0x80, // Changing item from translucent block
   0x82: 0xe4, // Bonus game sprite
