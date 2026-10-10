@@ -5,10 +5,13 @@
  * cases it covers, why, and three measured numbers: the disagreeing cases it
  * absorbs, all compared cases its predicate matches (agreeing ones too), and a
  * digest of the interpreter's output over the absorbed cases, plus a fourth
- * digest of the PORT's output over the same cases. Without that one, a
- * disagreement row would absorb a change to the port's non-empty tiles unseen (#751).
- * Widening a predicate, a new disagreement landing under an old entry, or any
- * change in what either side draws for those cases (the port side: non-empty tiles only, #759) moves a number and fails.
+ * digest of the PORT's written cells (last value per cell, $25 writes included,
+ * #759) over the same cases. Without that one, a disagreement row would absorb
+ * a change to what the port writes unseen (#751).
+ * Widening a predicate, a new disagreement landing under an old entry, or a
+ * change in what either side writes for the cases a row absorbs moves a number
+ * and fails. This covers the disagreement rows and the refusal entries below,
+ * and nothing else: an agreeing case outside them is compared, not pinned.
  *
  * To regenerate after a deliberate change, run the corpus test and copy the
  * `actual` side of the failing diff.
@@ -30,6 +33,12 @@ export interface Known {
    * draws onto screen 6, and a port bug there would be absorbed.
    */
   offScreenOnly?: boolean
+  /**
+   * Absorb only cases where the grids agree but the written-cell maps differ,
+   * that is, the two sides disagree only on writes of the empty tile $25
+   * (#759). Such a row never absorbs a case whose grids differ.
+   */
+  emptyTilesOnly?: boolean
 }
 
 const hi = (r: DiffRun) => r.size >> 4
@@ -41,10 +50,19 @@ const row = (
   why: Known['why'],
   expect: Known['expect'],
   offScreenOnly?: boolean,
-): Known => ({ routine, when, why, expect, ...(offScreenOnly && { offScreenOnly }) })
+  emptyTilesOnly?: boolean,
+): Known => ({
+  routine,
+  when,
+  why,
+  expect,
+  ...(offScreenOnly && { offScreenOnly }),
+  ...(emptyTilesOnly && { emptyTilesOnly }),
+})
 
 /** In-range game behavior the ports do not follow (#369). */
 const UMBRELLA = 690
+const EMPTY = 'the ROM writes $25 into blank footprint cells; the port skips them (#759)'
 const DRIFT =
   'no bookmark restore: once a row crosses a screen edge the next row starts a screen right'
 
@@ -58,7 +76,7 @@ export const KNOWN_DISAGREEMENTS: Known[] = [
   // #369: a zero nibble wraps a DEC/BNE counter to 256.
   ...([
     [0x0daa26, [195, 240, 'd73c1e0be0', '19148e7d53']],
-    [0x0db224, [240, 240, '47589a6414', 'edc7077ba2']],
+    [0x0db224, [240, 240, '47589a6414', 'ccccf59395']],
     [0x0db51f, [240, 240, 'e9f5ff5b18', '2bbf5ceee4']],
     [0x0dc5d8, [48, 48, 'd99ec01f7d', '482f43160c']],
     [0x0dd1a5, [48, 48, 'e1b74da3b5', 'e8cbeb214b']],
@@ -96,7 +114,7 @@ export const KNOWN_DISAGREEMENTS: Known[] = [
   ] as [number, Known['expect']][]).map(([a, e]) => row(a, r => !r.fits, UMBRELLA, e)),
   // Game quirks: the port draws the intent. bank_0D/MEMO.md has the traces.
   row(0x0dc4c9, r => r.col + lo(r) >= 15, `${DRIFT} (U only; E1 adds it, bank_0D.asm:5079-5090)`, [336, 336, 'c16790ce2b', '60cddfc005']),
-  row(0x0dec33, r => r.col !== 0, `${DRIFT} (bank_0D.asm:7857-7872)`, [2, 2, '6556ac72bc', '2cc0031fb7']),
+  row(0x0dec33, r => r.col !== 0, `${DRIFT} (bank_0D.asm:7857-7872)`, [2, 2, '6556ac72bc', '6b947cd2c8']),
   ...([
     [0x0deabf, [1, 1, '9a044613d3', '726064714a']],
     [0x0deb6a, [1, 1, 'ee50ee8005', 'a02af6b4f3']],
@@ -105,28 +123,40 @@ export const KNOWN_DISAGREEMENTS: Known[] = [
     [0x0da846, [2, 2, '954b2caa48', '2e541834ae']],
     [0x0dec8e, [4, 4, '665cdc19b7', 'e895f739fd']],
   ] as [number, Known['expect']][]).map(([a, e]) => row(a, r => r.col === 15, DRIFT, e)),
-  row(0x0dbadc, all, 'rows wrap through LevelLoadPos, not _E, and blocks step $B0 (bank_0D.asm:4433-4470)', [558, 584, '8ab91c97a6', 'bbbb0a75b9']),
+  row(0x0dbadc, all, 'rows wrap through LevelLoadPos, not _E, and blocks step $B0 (bank_0D.asm:4433-4470)', [558, 584, '8ab91c97a6', '8edf17dcaf']),
+  // #759: grids agree, the written-cell maps do not. The ROM stores $25 across the blank cells of the object's rectangle; the port skips them.
+  ...([
+    [0x0da71b, [3, 3, 'e71f66dc6c', 'c777abd7ea']],
+    [0x0da760, [3, 3, 'ace326f422', '018586d827']],
+    [0x0dc2e9, [2, 3, '8ed789c7b2', 'edc48da7f4']],
+  ] as [number, Known['expect']][]).map(([a, e]) => row(a, all, EMPTY, e, false, true)),
 ]
 
 export interface KnownRefusal {
   reason: string
   top: number
   count: number
+  /**
+   * Aggregate digest of the port's written cells over these cases, run on a
+   * clean grid only to be pinned (a refusal never reaches the port in
+   * production). Pins the port for these cases, not the interpreter's refusal.
+   */
+  port: string
 }
 
 /** Keyed by the top-level handler: a sub-dispatch past its table has no routine of its own. */
 // prettier-ignore
 export const KNOWN_REFUSALS: KnownRefusal[] = [
-  { reason: 'is not ROM', top: 0, count: 42 }, // ext $02-$0F are null
-  { reason: 'is not ROM', top: 0x0dcf53, count: 480 }, // index past the inline table
-  { reason: 'is not ROM', top: 0x0dd070, count: 576 },
-  { reason: 'not in the allowed set', top: 0x0dd070, count: 96 }, // runs on into the bytes after it
-  { reason: 'unknown pointer byte at $65', top: 0x0da512, count: 3 }, // ext $00 reads the level stream
-  { reason: 'write budget', top: 0x0defa8, count: 3 }, // size 0: 256 x 256 cells
-  { reason: 'write outside the tile buffer', top: 0x0da53d, count: 3 }, // ext $01 writes $1928
-  { reason: 'write outside the tile buffer', top: 0x0db604, count: 48 }, // low nibble 0 wraps 256 wide
-  { reason: 'write outside the tile buffer', top: 0x0ddf3a, count: 48 }, // castle wall size 0 (bank_0D/MEMO.md)
-  { reason: 'write into the direct page', top: 0x0dbadc, count: 184 }, // drift runs the pointer into WRAM
+  { reason: 'is not ROM', top: 0, count: 42, port: '38f9660605' }, // ext $02-$0F are null
+  { reason: 'is not ROM', top: 0x0dcf53, count: 480, port: '1717f2e840' }, // index past the inline table
+  { reason: 'is not ROM', top: 0x0dd070, count: 576, port: '730b0666ba' },
+  { reason: 'not in the allowed set', top: 0x0dd070, count: 96, port: '654eab20b7' }, // runs on into the bytes after it
+  { reason: 'unknown pointer byte at $65', top: 0x0da512, count: 3, port: '79c2f30954' }, // ext $00 reads the level stream
+  { reason: 'write budget', top: 0x0defa8, count: 3, port: 'a6fe4419ff' }, // size 0: 256 x 256 cells
+  { reason: 'write outside the tile buffer', top: 0x0da53d, count: 3, port: '79c2f30954' }, // ext $01 writes $1928
+  { reason: 'write outside the tile buffer', top: 0x0db604, count: 48, port: 'e80ec0f3ad' }, // low nibble 0 wraps 256 wide
+  { reason: 'write outside the tile buffer', top: 0x0ddf3a, count: 48, port: 'f6c1be05b3' }, // castle wall size 0 (bank_0D/MEMO.md)
+  { reason: 'write into the direct page', top: 0x0dbadc, count: 184, port: 'dbc22c984f' }, // drift runs the pointer into WRAM
 ]
 
 export interface Tally {
@@ -145,24 +175,36 @@ export function tally(
   runs: DiffRun[],
   name: (r: DiffRun) => string,
   known: Known[] = KNOWN_DISAGREEMENTS,
+  knownRefusals: KnownRefusal[] = KNOWN_REFUSALS,
 ): Tally {
   const absorbed = known.map(() => [] as string[])
   const ported = known.map(() => [] as string[])
   const inside = known.map(() => 0)
-  const refused = KNOWN_REFUSALS.map(() => 0)
+  const refused = knownRefusals.map(() => 0)
+  const refusedPort = knownRefusals.map(() => [] as string[])
   const unexpected: string[] = []
   const unexplainedRefusals: string[] = []
   for (const r of runs) {
     if (r.refusal !== null) {
-      const i = KNOWN_REFUSALS.findIndex(k => k.top === r.top && r.refusal?.includes(k.reason))
-      if (i >= 0) refused[i]++
-      else unexplainedRefusals.push(`${name(r)} (${hex6(r.top)}): ${r.refusal}`)
+      const i = knownRefusals.findIndex(k => k.top === r.top && r.refusal?.includes(k.reason))
+      if (i >= 0) {
+        refused[i]++
+        refusedPort[i].push(r.portDigest ?? '')
+      } else unexplainedRefusals.push(`${name(r)} (${hex6(r.top)}): ${r.refusal}`)
       continue
     }
     if (r.differs === null) continue
     known.forEach((k, i) => k.routine === r.leaf && k.when(r) && inside[i]++)
+    if (!r.differs && r.writtenDiffers) {
+      const e = known.findIndex(k => k.emptyTilesOnly && k.routine === r.leaf && k.when(r))
+      if (e >= 0) {
+        absorbed[e].push(r.digest)
+        ported[e].push(r.portDigest ?? '')
+      } else unexpected.push(`${name(r)} leaf ${hex6(r.leaf)}: empty-tile writes differ`)
+      continue
+    }
     if (!r.differs) continue
-    const i = known.findIndex(k => k.routine === r.leaf && k.when(r))
+    const i = known.findIndex(k => !k.emptyTilesOnly && k.routine === r.leaf && k.when(r))
     if (i >= 0 && known[i].offScreenOnly && r.ownScreenDiffers)
       unexpected.push(`${name(r)} leaf ${hex6(r.leaf)}: own screen differs`)
     else if (i >= 0) {
@@ -186,9 +228,20 @@ export function tally(
         `${d.routine} (${typeof d.why === 'number' ? '#' : ''}${d.why}): port output differs from the pinned digest`,
       )
   })
+  knownRefusals.forEach((k, i) => {
+    const port = aggregate(refusedPort[i])
+    if (port !== k.port)
+      unexpected.push(
+        `refusal ${hex6(k.top)} "${k.reason}": port output differs from the pinned digest`,
+      )
+  })
   return {
     disagreements,
-    refusals: KNOWN_REFUSALS.map((k, i) => ({ ...k, count: refused[i] })),
+    refusals: knownRefusals.map((k, i) => ({
+      ...k,
+      count: refused[i],
+      port: aggregate(refusedPort[i]),
+    })),
     unexpected,
     unexplainedRefusals,
   }
