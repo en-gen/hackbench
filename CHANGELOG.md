@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The smw-mcp server config (`.mcp.json`) pointed `ROM_PATH` at a vanilla ROM path that does not exist; it now points at `hackbench-fixturesoms`.
+
 - Spike Top ($2E) in the model path faces by Mario's start X (unflipped with Mario strictly left, X-flipped otherwise; a static approximation, as for Dry Bones and Chucks), reading the flip from the ROM's table only while the ORA that reads it is intact; the served map view already did, now pinned by a test (44 vanilla placements, vanilla US 1.0, one machine) (#134); the map $1BF gap that note left open, readMarioStartPos dropping the entrance screen from Mario's X, is closed by #781 (see Changed).
 - Midway tape (ext $46): the port now honours the game's two gates, OWLevelTileSettings bit 6 and MidwayFlag, via an optional `Cursor.ram`; editor defaults are 0, so every map view is unchanged (synthetic fixtures, no emulator run) (#635).
 - Three more inline bank masks no longer fold $FE/$FF onto WRAM: the animation GFX33 read, the sprite dispatch ExecutePtr check and the palette-animation PHK/PLB data bank keep their raw bank, and the dispatch check refuses a call whose target does not read as ROM (WRAM, or an address the ROM size does not map) (#704; synthetic 4 MB fixtures, one machine).
