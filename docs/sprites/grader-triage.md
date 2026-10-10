@@ -57,7 +57,7 @@ T2 1 + T3 1 + the one shared with B = 37. Unexplained: U 8 + T3 1 = 9.
 
 ## Evidence and fix criteria
 
-**G1, grader band filter (31).** `passPieces` drops any part with OAM Y in 224-255 as "parked";
+**G1, grader band filter (31).** `passPieces` drops a part as "parked" only when its whole extent lies in OAM Y 224-255 (`oy >= 224 && oy + size <= 256`, `spriteGrade.ts:58`);
 the recorder (`hackbench-validation/capture/mesen/headless_capture.lua`, the `shown` count) treats only
 Y = $F0 as hidden, and the captures hold parts at Y 232 and 248, so such a part is in the capture and not in
 ours. Probe: with the band filter off, 31 of 31 listed cases leave "wrong"; over all 1,957 the
@@ -87,9 +87,8 @@ on purpose), so two options: grade any pass against any frame (grader-only), or 
 to pass N. Assert for N=4: wrong over all graded at most 190 and exact at least 880.
 
 **K, stationary-shell list ids (35).** All 35 are $04-$07 whose list byte is $DA-$DD and whose capture
-record has `initFrame` null: 38 records in all 1,957 have it null, every one a $DA-$DE list id, and all 35 Koopa
-records are wrong. The level loader turns list ids $DA and up into sprite number `id - $DA + 4` with status
-9, no INIT (`SMWDisX bank_02.asm:5339-5340`, `:5360-5373`, `:5455-5461`). The runner
+record has `initFrame` null: 38 of the 2,262 spawn records in `layers_v5` (not of the 1,957 gradable) have it null: 35 Koopa records (list ids $DA-$DC, sprites $04-$07) and 3 records labelled $39 (list id $DE, maps 021 x2 and 11d; not part of this cause). All 35 Koopa
+records are wrong. The level loader sends every list id from $DA up to $E0 to status 9 (`bank_02.asm:5348-5350`) and, for the Koopa ids, makes the sprite number `id - $DA + 4`; no INIT (`SMWDisX bank_02.asm:5339-5340`, `:5348-5350`, `:5360-5373`, `:5455-5461`). The runner
 seeds the number alone with status 1, so it runs a walking Koopa's INIT and draws two parts where the
 capture shows one. This is a real product defect: the map draws a walking Koopa for a stationary shell.
 Not run: that status 9 reproduces the captured pose. Fix: map list ids to number and status as the loader
@@ -135,5 +134,5 @@ assertion above; K is the user-visible defect and should go first.
 
 - One ROM, one capture set; B's 72 shape-only cases mix pose and movement, which this probe did not separate.
 - Cause order matters: a case needing two fixes shows under the first (G1, A, B).
-- The `initFrame` null finding is exact for this set (38 of 1,957); why those slots lack an INIT is read from the
+- The `initFrame` null finding is exact for this set (38 of 2,262 spawn records); why those slots lack an INIT is read from the
   ROM, not run.
