@@ -10,6 +10,9 @@ import {
   readLevelSprites,
   readL3SmashLoadPos,
   readSmashCodeGate,
+  L3_SMASH_SITES,
+  SMASH_REFUSED,
+  SPRITES_UNREADABLE,
 } from '../../../src/rom/L3Smash'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
@@ -34,7 +37,7 @@ describe('l3SmashPos (synthetic sprite lists)', () => {
     expect(at(16, 0xa0)).toEqual({ ok: true, pos: { x: 16, y: 0 } })
   })
 
-  it('a sprite below $A0 refuses (negative Y is not modelled), never an empty success', () => {
+  it('a sprite with y past $A0 (lower on screen) refuses (negative Y is not modelled), never an empty success', () => {
     expect(l3SmashPos([spr(0x89, 16, 0x110)], 16)).toMatchObject({ ok: false })
     expect(l3SmashPos([spr(0x89, 16, 0xb0)], 16)).toMatchObject({ ok: false })
   })
@@ -74,6 +77,24 @@ function smashRom(): RomFile {
   rom.writeAt(MAIN, [0x22, SITE & 0xff, SITE >> 8, 0x00]) // JSL CODE_00FF61, over the region's first bytes' neighbours
   return rom
 }
+describe('L3_SMASH_SITES (no ROM)', () => {
+  it('pins the three fingerprinted regions exactly', () => {
+    expect(L3_SMASH_SITES.map(s => [s.addr, s.length])).toEqual([
+      [0x00ff61, 50],
+      [0x02a7f6, 0x1e8],
+      [0x02aca1, 64],
+    ])
+  })
+
+  it('readL3SmashLoadPos gates on L3_SMASH_SITES by default (a stub-only cart is refused)', () => {
+    const rom = smashRom()
+    rom.writeAt(0x05d750, [0x10])
+    rom.writeAt(0x05f600 + 0x1f, [0])
+    const r = readL3SmashLoadPos(rom, 0x1f, { sprites: () => [spr(0x89, 288, 0)] })
+    expect(r).toEqual({ ok: false, reason: SMASH_REFUSED })
+  })
+})
+
 describe('readSmashCodeGate (synthetic code)', () => {
   it('passes the chain it was built from and refuses each planted change', () => {
     expect(readSmashCodeGate(smashRom(), sites)).toBe(true)
@@ -132,7 +153,7 @@ describe('readL3SmashLoadPos (synthetic cart)', () => {
   it('refuses when Mario start or the sprite stream cannot be read, and a level without a smasher needs no gate', () => {
     const cut = new RomFile('cut.sfc', Buffer.alloc(0x20000, 0))
     expect(readL3SmashLoadPos(cut, LEVEL, one)).toMatchObject({ ok: false })
-    expect(readL3SmashLoadPos(withStart(smashRom(), 0), LEVEL, { sites, sprites: () => null })).toMatchObject({ ok: false }) // prettier-ignore
+    expect(readL3SmashLoadPos(withStart(smashRom(), 0), LEVEL, { sites, sprites: () => null })).toEqual({ ok: false, reason: SPRITES_UNREADABLE }) // prettier-ignore
     const bare = withStart(new RomFile('z.sfc', Buffer.alloc(0x80000, 0)), 0)
     expect(readL3SmashLoadPos(bare, LEVEL, { sprites: () => [spr(0x33, 16, 0)] })).toEqual({ ok: true, pos: null }) // prettier-ignore
   })
@@ -158,6 +179,9 @@ describe('readLevelSprites (synthetic pointer site)', () => {
     expect(ok?.map(s => s.spriteId)).toEqual([0x89])
     const endless = [0, ...Array.from({ length: 0x1ff }, (_, i) => [0x00, 0x00, 0x33][i % 3]!)]
     expect(readLevelSprites(romWith(endless), 3)).toBeNull()
+    // $FF bytes sit off the 3-byte record grid in an unterminated stream: stepping by 1 would stop at one
+    const offGrid = [0, ...Array.from({ length: 0x1ff }, (_, i) => [0x00, 0xff, 0x33][i % 3]!)]
+    expect(readLevelSprites(romWith(offGrid), 3)).toBeNull()
     expect(readLevelSprites(new RomFile('none.sfc', Buffer.alloc(0x400000, 0)), 3)).toBeNull()
   })
 })

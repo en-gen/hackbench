@@ -27,6 +27,7 @@ const INIT_PTR_TABLE = 0x01817d
 const SMASH_WINDOW_END = 0x190
 const CAMERA_LEFT_OF_CENTRE = 0x80
 export const SMASH_REFUSED = 'Layer 3 not drawn yet: hooked layer 3 smash sprite'
+export const SPRITES_UNREADABLE = 'Layer 3 not drawn yet: sprite data unreadable'
 
 /**
  * SHA-256 of the stock bytes (over the 32-byte pattern threshold): CODE_00FF61..RTL, the sprite
@@ -85,8 +86,8 @@ export function l3SmashPos(sprites: readonly LevelSprite[], startX: number): L3S
   // The parser's x and y are in 16 px units (LevelParser.ts:491-512).
   const x = loaded[0]!.x * 16
   const y = loaded[0]!.y * 16
-  // Above $A0 Layer3YPos goes negative; the hardware's 10-bit wrap is not modelled, so say so.
-  if (y > 0xa0) return { ok: false, reason: 'Layer 3 not drawn yet: smash sprite above $A0' }
+  // Below $A0 on screen (y > $A0) Layer3YPos goes negative; the hardware's 10-bit wrap is not modelled, so say so.
+  if (y > 0xa0) return { ok: false, reason: 'Layer 3 not drawn yet: smash sprite below $A0' }
   return { ok: true, pos: { x: x >= 0x100 ? 0x100 : x, y: 0xa0 - y } }
 }
 
@@ -117,7 +118,7 @@ export function readL3SmashLoadPos(
   reads: SmashReads = {},
 ): L3SmashResult {
   const sprites = (reads.sprites ?? readLevelSprites)(rom, levelId)
-  if (!sprites) return { ok: false, reason: SMASH_REFUSED }
+  if (!sprites) return { ok: false, reason: SPRITES_UNREADABLE }
   const start = readMarioStartPos(rom, levelId)
   if (!start) return { ok: false, reason: 'Layer 3 not drawn yet: Mario start unreadable' }
   const found = l3SmashPos(sprites, start.x)
