@@ -14,9 +14,12 @@
 import { existsSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { SmwRom } from '../../src/rom/SmwRom'
-import { BOSS_ARENA_SCREENS, SWITCH_FLAGS_UNCLEARED } from '../../src/rom/ObjectExpander'
+import {
+  BOSS_ARENA_SCREENS,
+  SWITCH_FLAGS_UNCLEARED,
+  type Refusal,
+} from '../../src/rom/ObjectExpander'
 import { buildL1Inputs } from '../../src/rom/model/L1Model'
-import type { Refusal } from '../../src/rom/ObjectExpander'
 import {
   decodeSubTileWord,
   encodeSubTileWord,

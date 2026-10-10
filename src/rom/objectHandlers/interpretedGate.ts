@@ -14,7 +14,7 @@ export const isInterpretedHandler = (a: number): boolean => INTERPRETED_HANDLERS
 /** True for a line noteRefused wrote, as opposed to a drawn-but-unverified one (#301). */
 export const isRefusedLine = (line: string): boolean => /^Handler \$[0-9A-F]{6} refused:/.test(line)
 
-const hex6 = (n: number): string => '$' + n.toString(16).toUpperCase().padStart(6, '0')
+export const hex6 = (n: number): string => '$' + n.toString(16).toUpperCase().padStart(6, '0')
 
 /** Record, once, that a port drew `handler` with the interpreter unable to vouch for it. */
 export function noteUnverified(unverified: string[], handler: number, why: string): void {

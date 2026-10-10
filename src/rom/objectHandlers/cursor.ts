@@ -30,6 +30,7 @@
 
 import type { InterpretedDraw } from './interpretedDraw'
 import { RomFile } from '../RomFile'
+import { hex6 } from './interpretedGate'
 
 /** Map16 RAM bytes per horizontal-level screen: 27 rows x 16 cols. */
 export const MAP16_BYTES_PER_SCREEN_H = 0x1b0
@@ -545,10 +546,9 @@ export function restoreBookmark(cur: Cursor): void {
 
 /** Report that dispatch found no port for `handler`; the object draws nothing. */
 export function refuseUnported(cur: Cursor, handler: number): void {
-  const at = '$' + handler.toString(16).toUpperCase().padStart(6, '0')
   cur.refusals?.push({
     objectIndex: cur.owner,
     handler,
-    reason: `No port for the handler at ${at}, so the object is not drawn.`,
+    reason: `No port for the handler at ${hex6(handler)}, so the object is not drawn.`,
   })
 }

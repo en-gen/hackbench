@@ -6,8 +6,8 @@
  *
  * Synthetic cart, so this runs in CI without the corpus. The port reads the
  * 65816 opcodes JSR abs = $20 and JMP abs = $4C (SMWDisX bank_0D.asm:3597,
- * 3614, 8477). A refusal draws nothing and is reported through the
- * sink and expandMapOwned's `refusals` (#301); CODE_0DDF3A's bare gates are not yet.
+ * 3614, 8477). A refusal draws nothing and is reported through the sink and
+ * expandMapOwned's `refusals` (#301); CODE_0DDF3A's bare gates are not yet.
  */
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
