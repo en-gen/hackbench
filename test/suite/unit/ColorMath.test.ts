@@ -258,6 +258,26 @@ describe('the sprite layer as a source (#564)', () => {
   })
 })
 
+describe('layer 1 priority against sprites (#529)', () => {
+  // The first case's own value: it fails a compositor that lets an opaque sprite win over l1High whatever the list order. (The list plant in ScreenPlanes also reddens six existing tests.)
+  const run = (planes: ScreenInput['planes']) => [
+    ...composeScreen({
+      width: 1,
+      height: 1,
+      math: null,
+      lists: screenPlanes(0x13, 0x00, false),
+      planes,
+    }),
+  ]
+  const sprite = plane(c5(1, 2, 3))
+  it('an opaque l1High pixel draws over the sprite pixel under it', () => {
+    expect(run({ sprites: sprite, l1High: plane(c5(9, 8, 7)) })).toEqual(rgba(c5(9, 8, 7)))
+  })
+  it('the same tile in the low plane draws behind the sprite', () => {
+    expect(run({ sprites: sprite, l1Low: plane(c5(9, 8, 7)) })).toEqual(rgba(c5(1, 2, 3)))
+  })
+})
+
 describe('effectiveCgadsub', () => {
   it('drops BG3 where CODE_009FB8 clears it, keeps it for the camera-locked byte', () => {
     expect(effectiveCgadsub(0x24, true)).toBe(0x20)

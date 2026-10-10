@@ -23,6 +23,7 @@ import vm from 'node:vm'
 import { afterAll, describe, expect, it } from 'vitest'
 import * as core from '../support/corpus.cjs'
 import { captureFiles } from './fixtures/captureFixture'
+import { slow } from '../support/loadTimeout'
 
 const REPO_ROOT: string = core.REPO_ROOT
 const TMP = mkdtempSync(join(tmpdir(), 'hb-page-bundle-'))
@@ -36,7 +37,9 @@ function writeTree(dir: string, files: Record<string, Buffer>) {
 }
 
 describe('the generated page runs standalone under the real CLI', () => {
-  it('renders a map with npx tsx render_capture.ts and the page script draws in a fresh node:vm', () => {
+  // 52.3 s worst over 10 runs (npx tsx is not a dependency; npx resolution dominates when idle, about 2 s of 2.5 s, observed and not proven under load), two concurrent full unit runs, 32-core machine, 2026-10-09/10
+  // prettier-ignore
+  it('renders a map with npx tsx render_capture.ts and the page script draws in a fresh node:vm', slow(105_000), () => {
     const inDir = join(TMP, 'in')
     const outDir = join(TMP, 'out')
     writeTree(join(inDir, '105'), captureFiles(false, undefined, [8]))
@@ -48,6 +51,7 @@ describe('the generated page runs standalone under the real CLI', () => {
       cwd: REPO_ROOT,
       shell: true,
       encoding: 'utf8',
+      timeout: 90_000, // below slow(105_000), so a stalled npx errors here
     })
     expect(run.error, run.stderr).toBeUndefined()
 
@@ -88,5 +92,5 @@ describe('the generated page runs standalone under the real CLI', () => {
     // Non-empty output: at least one drawn (non-transparent) pixel.
     const opaque = Array.from(imageData!.data).some((b, i) => i % 4 === 3 && b !== 0)
     expect(opaque).toBe(true)
-  }, 30_000)
+  })
 })

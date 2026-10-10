@@ -76,6 +76,24 @@ function walk(dir: string, suffix: string, out: string[]): void {
   }
 }
 
+// #754/#796: the skip above had no test; deleting it left every gate green.
+describe('walk skips __fixtures__ (#754, #796)', () => {
+  it('returns the real file and not a matching file under __fixtures__', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'walkfix-'))
+    try {
+      fs.mkdirSync(path.join(d, '__fixtures__', 'run-x'), { recursive: true })
+      fs.writeFileSync(path.join(d, '__fixtures__', 'run-x', 'a.test.ts'), 'x')
+      fs.writeFileSync(path.join(d, 'real.test.ts'), 'x')
+      const out: string[] = []
+      walk(d, '.test.ts', out)
+      expect(out.map(f => path.basename(f))).toEqual(['real.test.ts'])
+      expect(out.some(f => f.includes('__fixtures__'))).toBe(false)
+    } finally {
+      fs.rmSync(d, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('vitest.config.ts and vitest.perf.config.ts do not overlap', () => {
   const unitConfig = fs.readFileSync(path.join(repoRoot, 'vitest.config.ts'), 'utf8')
   const perfConfig = fs.readFileSync(path.join(repoRoot, 'vitest.perf.config.ts'), 'utf8')

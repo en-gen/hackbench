@@ -1,3 +1,4 @@
+import * as os from 'os'
 import * as path from 'path'
 import { configDefaults, defineConfig } from 'vitest/config'
 
@@ -18,6 +19,8 @@ export default defineConfig({
     // Wall-clock gates run alone through vitest.timing.config.ts (#668).
     exclude: [...configDefaults.exclude, '**/*.timing.test.ts'],
     environment: 'node',
+    // Two concurrent full runs at the default (about one worker per core) oversubscribe the CPU; 9 of 10 runs green at the default in 5 paired samples, 32-core machine, 2026-10-10. Floor 2 keeps a 2-core CI runner at 2.
+    maxWorkers: Math.max(2, Math.floor(os.availableParallelism() / 2)),
     globalSetup: ['test/suite/support/noRealGh.ts'],
     coverage: {
       provider: 'v8',
