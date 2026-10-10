@@ -20,6 +20,7 @@ import {
   resolveBlockSpawn,
   resolvePointer,
   resolveTables,
+  type DispatcherSpan,
 } from './SpriteDispatch'
 import type { SpriteBus } from './SpriteBus'
 import { SPRITE_SEED, withSeed, type SpriteSeed } from './SpriteSeed'
@@ -166,6 +167,8 @@ export interface SpriteModel {
  */
 export interface SpawnRun {
   inputs: Record<number, number>
+  /** Replaces the real dispatcher build; for a synthetic ROM only. */
+  dispatcher?: DispatcherSpan
 }
 
 export interface RunOptions {
@@ -469,7 +472,7 @@ export function runOnce(
     if (rngCells[0] === 0 && rngCells[1] === 0) m.call(ENTRY.getRand, 'jsl')
     const w = m.bus.wram
     if (opts.spawn) {
-      const spawn = resolveBlockSpawn(rom)
+      const spawn = resolveBlockSpawn(rom, opts.spawn.dispatcher)
       if (!spawn.ok) return { ...model, refusal: spawn.reason }
       // Every slot empty, so the game's own search decides where the sprite goes.
       for (let i = 0; i < 12; i++) w[RAM.status + i] = 0

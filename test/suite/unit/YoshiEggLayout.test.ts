@@ -42,7 +42,7 @@ const romPresent = hasRom(VANILLA)
 const POISON_TILEMAP_OFFSET = 0x94
 const POISON_BASE_CHAR = 0x40
 
-/** Four distinct bytes, unlike vanilla's $09,$07,$05,$07 which repeats $07.
+/** Four distinct bytes, where vanilla's table repeats a value, so a read from the wrong entry shows.
  *  Decoded: palettes 8/9/10/11, char-high set on all four. */
 const SYN_YOSHI_PAL = [0x01, 0x03, 0x05, 0x07] as const
 

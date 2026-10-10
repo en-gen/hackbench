@@ -13,6 +13,7 @@
  */
 import { mirror } from '../../addressing'
 import type { RomFile } from '../../RomFile'
+import { spanFingerprint } from '../../SubmapFlagGate'
 import { bytesAt, shapeMatches } from './Guards'
 
 export const ENTRY = {
@@ -31,7 +32,7 @@ export const ENTRY = {
    * JSL: CODE_0288DC (bank_02.asm:1097-1119), the item block spawn's dispatcher: by the content
    * index it either takes the free slot FindFreeSprSlot picks (egg, key, vine, balloon) or falls
    * to GenSpriteFromBlk (:1122), which writes the status and number, runs InitSpriteTables and
-   * places the sprite and writes its cells (:1139-1292). `resolveBlockSpawn` byte-checks it (#566).
+   * places the sprite and writes its cells (:1139-1292). `resolveBlockSpawn` fingerprints it (#566, #812).
    */
   blockSpawn: 0x0288dc,
   /** JSL: FindFreeSprSlot (bank_02.asm:5513), which the dispatcher calls for the egg, key, vine and balloon. */
@@ -64,30 +65,46 @@ export function checkInitTables(rom: RomFile): ShapeResult {
 }
 
 /**
- * The block spawn's fixed shapes (bank_02.asm:1097-1142), byte-checked, branch displacements free:
- * the dispatcher CODE_0288DC (LDY _5 / CPY #$0B / BNE / LDA TouchBlockXPos / AND #$30 / CMP #$20 / BEQ /
- * CPY #$10 / BEQ / CPY #$08 / BNE / LDA SpriteMemorySetting / BEQ / BNE / CPY #$0C / BNE / JSL FindFreeSprSlot /
- * TYX / BPL / RTL), the free-slot countdown of GenSpriteFromBlk (LDX #$0B / LDA SpriteStatus,X / BEQ / DEX /
- * CPX #$FF / BNE) and, at CODE_028922, its status write (STX abs / LDY _5 / LDA abs,Y / STA SpriteStatus,X).
- * Anything else is refused.
+ * A recognised build of the block spawn dispatcher at `ENTRY.blockSpawn`: `length` bytes hashed as one span
+ * (SHA-256, `spanFingerprint`) with the three JSL FindFreeSprSlot operand bytes at `callAt` zeroed, because
+ * that operand is read and checked on its own. Branch displacements are hashed, so where each one lands is
+ * fixed by the fingerprint and needs no separate check.
+ */
+export interface DispatcherSpan {
+  length: number
+  callAt: number
+  fingerprints: readonly string[]
+}
+
+/**
+ * CODE_0288DC (bank_02.asm:1097-1119): by the content index it calls FindFreeSprSlot or falls to
+ * GenSpriteFromBlk at +$29; a free slot goes to the status write at +$46. Vanilla, measured on the ROM
+ * by the corpus test in BlockSpawn.test.ts (#812). 41 bytes, past the 32-byte literal limit, so hashed.
+ */
+export const BLOCK_SPAWN_DISPATCHER: DispatcherSpan = Object.freeze({
+  length: 41,
+  callAt: 34,
+  fingerprints: Object.freeze(['566e8d0a1dc1ecdf2f2399f8f74692e790564aaf8b63f2a461eea234014ea0c8']),
+})
+
+/**
+ * The block spawn's fixed shapes (bank_02.asm:1097-1142): the dispatcher by fingerprint, then the
+ * free-slot countdown of GenSpriteFromBlk (LDX #$0B / LDA SpriteStatus,X / BEQ / DEX / CPX #$FF / BNE)
+ * and, at CODE_028922, its status write (STX abs / LDY _5 / LDA abs,Y / STA SpriteStatus,X), byte-checked.
+ * Anything else is refused. `dispatcher` replaces the real build for a synthetic ROM.
  */
 export function resolveBlockSpawn(
   rom: RomFile,
+  dispatcher: DispatcherSpan = BLOCK_SPAWN_DISPATCHER,
 ): { ok: true; entry: number } | { ok: false; reason: string } {
-  // prettier-ignore
   const n = null
-  const dispatch = bytes(rom, ENTRY.blockSpawn, 41)
-  if (!matches(dispatch, [0xa4, 0x05, 0xc0, 0x0b, 0xd0, n, 0xa5, 0x9a, 0x29, 0x30, 0xc9, 0x20, 0xf0, n, 0xc0, 0x10, 0xf0, n, 0xc0, 0x08, 0xd0, n, 0xad, 0x92, 0x16, 0xf0, n, 0xd0, n, 0xc0, 0x0c, 0xd0, n, 0x22, n, n, n, 0xbb, 0x10, n, 0x6b])) // prettier-ignore
-    return { ok: false, reason: 'the item block spawn dispatcher is not the shape this reader knows' } // prettier-ignore
-  // The shape only proves bytes at fixed addresses: each free branch must land where the traced routine goes
-  // ([displacement offset, target offset], bank_02.asm:1097-1119), or a hack could jump past what was checked.
-  const s8 = (v: number) => (v > 127 ? v - 256 : v)
-  const lands: [number, number][] = [[5, 14], [13, 0x29], [17, 33], [21, 29], [26, 0x29], [28, 33], [32, 0x29], [39, 0x46]] // prettier-ignore
-  for (const [at, to] of lands)
-    if (at + 1 + s8(dispatch![at]!) !== to)
-      return { ok: false, reason: 'the item block spawn dispatcher branches somewhere this reader does not know' } // prettier-ignore
-  // And its call must reach the FindFreeSprSlot the game uses: the same address, with its own opening bytes.
-  const call = dispatch![34]! | (dispatch![35]! << 8) | (dispatch![36]! << 16)
+  const { length, callAt } = dispatcher
+  const dispatch = rom.readAt(ENTRY.blockSpawn, length)
+  const fp = spanFingerprint(dispatch, [callAt, callAt + 1, callAt + 2])
+  if (fp === null || !dispatcher.fingerprints.includes(fp))
+    return { ok: false, reason: 'the item block spawn dispatcher is not a build this reader knows' } // prettier-ignore
+  // The operand is masked from the hash, so its call must reach the FindFreeSprSlot the game uses: the same address, with its own opening bytes.
+  const call = dispatch![callAt]! | (dispatch![callAt + 1]! << 8) | (dispatch![callAt + 2]! << 16)
   if (call !== ENTRY.findFreeSprSlot || !matches(bytes(rom, call, 5), [0x64, 0x0e, 0x8b, 0x4b, 0xab]))
     return { ok: false, reason: 'the item block spawn dispatcher does not call the FindFreeSprSlot this reader knows' } // prettier-ignore
   const head = bytes(rom, ENTRY.blockSpawn + 0x29, 12)
