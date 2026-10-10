@@ -328,6 +328,39 @@ describe('buildL2Inputs (synthetic ROM)', () => {
     expect(r).toMatchObject({ ok: false, reason: expect.stringMatching(/L2 is vertical but L1 is horizontal/) }) // prettier-ignore
   })
 
+  // LoadLevel skips the Layer 2 pass in six modes (bank_05.asm:444-457, #637); sweep all 32.
+  it('every level mode the game gives no L2 objects is refused before the stream is read, and only those', () => {
+    const skipped = [0x0a, 0x0c, 0x0d, 0x0e, 0x11, 0x1e]
+    const rom = romWith([ptr(0x00, 0x90, 0x0c)])
+    for (let mode = 0; mode < 32; mode++) {
+      objects([[1]])
+      const m = inputs(hGrid(1), false, 1)
+      const r = buildL2Inputs(smw(rom), LEVEL, { ...m, header: { ...m.header, levelMode: mode } })
+      const read = vi.mocked(L2LoaderReal.loadL2Objects).mock.calls.length > 0
+      if (skipped.includes(mode)) {
+        expect(r, `mode ${mode}`).toMatchObject({ ok: false, reason: expect.stringMatching(/does not load layer 2 objects in level mode/) }) // prettier-ignore
+        expect(read, `mode ${mode}`).toBe(false)
+      } else {
+        expect(r.ok, `mode ${mode}`).toBe(true)
+      }
+      vi.mocked(L2LoaderReal.loadL2Objects).mockReset()
+    }
+  })
+
+  it('a skipped mode with L1 vertical gives the mode as the reason, not an orientation mismatch', () => {
+    objects([[1]])
+    // Entry $01 everywhere: L1 vertical, L2 horizontal, as the vanilla table has for modes 3, $0A, $0D.
+    const rom = { rom: romWith([ptr(0x00, 0x90, 0x0c)]), getVerticalTable: () => ({ ok: true, table: new Array(32).fill(1) }) } as unknown as SmwRom // prettier-ignore
+    const at = (mode: number) => {
+      const m = inputs(vGrid(1), true, 1)
+      return buildL2Inputs(rom, LEVEL, { ...m, header: { ...m.header, levelMode: mode } })
+    }
+    expect(at(0x0a)).toMatchObject({ ok: false, reason: expect.stringMatching(/level mode \$0A/) })
+    expect(at(0x0d)).toMatchObject({ ok: false, reason: expect.stringMatching(/level mode \$0D/) })
+    // Mode 3 does load L2 objects, so its mismatch refusal stands.
+    expect(at(0x03)).toMatchObject({ ok: false, reason: expect.stringMatching(/L2 is horizontal but L1 is vertical/) }) // prettier-ignore
+  })
+
   it('an unreadable object stream and a throw are each refused, never a partial grid', () => {
     const rom = romWith([ptr(0x00, 0x90, 0x0c)])
     vi.mocked(L2LoaderReal.loadL2Objects).mockReturnValueOnce(null)

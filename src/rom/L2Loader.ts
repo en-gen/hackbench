@@ -106,6 +106,18 @@ export function readL2Pointer(rom: RomFile, level: number): number | null {
   return (bk << 16) | (hi << 8) | lo
 }
 
+/**
+ * Level modes in which LoadLevel ends after Layer 1 and never expands the L2
+ * object stream (SMWDisX bank_05.asm:444-457). These are code immediates, not a
+ * table: a hack that patches the compares is not detected (#637).
+ */
+const MODES_WITHOUT_L2_OBJECTS: readonly number[] = [0x0a, 0x0c, 0x0d, 0x0e, 0x11, 0x1e]
+
+/** False when the game never loads an L2 object stream in this level mode. */
+export function levelModeLoadsL2Objects(levelMode: number): boolean {
+  return !MODES_WITHOUT_L2_OBJECTS.includes(levelMode & 0x1f)
+}
+
 /** True if the L2 pointer indicates a preset BG (bank byte $FF). */
 export function isPresetPtr(ptr: number): boolean {
   return ((ptr >> 16) & 0xff) === 0xff

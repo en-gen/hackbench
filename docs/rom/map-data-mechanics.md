@@ -486,6 +486,8 @@ Corrected 2026-10-04 (#459 PR 2 adversarial review): was "L2 uses a different pe
 - `Layer2YPos` shifts image L2 and object-stream L2 alike. SMWDisX `bank_05.asm:7323-7328`. `[EST]`
 - BG2 is 64x64 8x8 tiles, so L2 wraps every 512 px vertically. SMWDisX `bank_00.asm:1270-1271`. `[EST]`
 - Treat the L2 grid as L1-shaped unless the level mode is 3 to 6. `[INF]`
+- Level modes $0A, $0C, $0D, $0E, $11 and $1E have no L2 object stream: `LoadLevel` ends after Layer 1 (SMWDisX `bank_05.asm:444-457`), and `CODE_058883` uploads no L2 strips in them (`bank_05.asm:1023-1059`). So `Ptrs00BDE8`'s `DATA_00BC16` entries for $0A and $0D (`bank_00.asm:7044`, `7047`; $200 a screen) never lay out an L2 object, and VerticalTable bit 1 agrees with the `Ptrs00BDE8` stride in every mode that does load one. The map view refuses L2 objects in those modes (#637). `[EST]`
+- Corpus, #637: vanilla and `.magic` have no map in those modes with an object-stream L2 pointer; the 4 hacks have 43 (20 in $0A, 22 in $0E, 1 in $11). The compares at $0583D9 are byte-identical to vanilla on all 6 ROMs. Seven_Vanilla_Levels replaces two instructions before them with `JSL $0FF7F0` and `JSL $0DE1F0`; the 160 bytes read at $0FF7F0 and the routine at $0DE1F0 store to neither `LevelModeSetting` nor `LayerProcessing`, but a `JSR` inside $0FF7F0 was not followed. `[EST]`
 
 ## Midway tape at column 0
 
