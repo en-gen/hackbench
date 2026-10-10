@@ -132,7 +132,7 @@ export function renderPieces(pieces: DrawPiece[], src: FrameSource, scale = 2): 
 }
 
 /** Verdict border colours for the contact sheet. */
-export const BORDER: Record<ReportVerdict, number[]> = {
+const BORDER: Record<ReportVerdict, number[]> = {
   exact: [60, 200, 90],
   shape: [170, 210, 60],
   close: [235, 200, 50],
@@ -167,11 +167,7 @@ export function contactSheet(cells: SheetCell[], cols = 6): Rgba {
       if (!img) return
       const bx = ox + pad + side * (half + pad)
       for (let y = 0; y < img.h; y++)
-        for (let x = 0; x < img.w; x++)
-          px.set(
-            img.px.subarray((y * img.w + x) * 4, (y * img.w + x) * 4 + 4),
-            ((oy + pad + y) * w + bx + x) * 4,
-          )
+        px.set(img.px.subarray(y * img.w * 4, (y + 1) * img.w * 4), ((oy + pad + y) * w + bx) * 4)
     })
   })
   return { w, h, px }
@@ -194,10 +190,7 @@ export function encodePng(img: Rgba): Buffer {
   ihdr[9] = 6
   const raw = Buffer.alloc(img.h * (1 + img.w * 4))
   for (let y = 0; y < img.h; y++)
-    Buffer.from(img.px.subarray(y * img.w * 4, (y + 1) * img.w * 4)).copy(
-      raw,
-      y * (1 + img.w * 4) + 1,
-    )
+    raw.set(img.px.subarray(y * img.w * 4, (y + 1) * img.w * 4), y * (1 + img.w * 4) + 1)
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     chunk('IHDR', ihdr),

@@ -28,6 +28,7 @@ import {
   buildReport,
   contactSheet,
   encodePng,
+  VERDICTS,
   isInside,
   renderPieces,
   type FrameSource,
@@ -130,6 +131,7 @@ export function commitReport(
 /** Exit 0, 1 (missing input or nothing graded) or 2 (usage or refused path). */
 export function run(argv: string[], io: Io): number {
   const fail = (code: number, msg: string): number => (io.log(msg), code)
+  const ok = (msg: string): number => fail(0, msg)
   const a = parseArgs(argv)
   if (typeof a === 'string') return fail(2, a)
   const missing = [
@@ -160,17 +162,13 @@ export function run(argv: string[], io: Io): number {
     .map(([v, l]) => `${v} ${l!.length}`)
     .join(', ')
   if (a.sheet) {
-    const order = ['exact', 'shape', 'close', 'wrong', 'empty', 'refused']
     const cells = [...graded]
-      .sort((x, y) => order.indexOf(x.verdict) - order.indexOf(y.verdict))
+      .sort((x, y) => VERDICTS.indexOf(x.verdict) - VERDICTS.indexOf(y.verdict))
       .map(g => ({ verdict: g.verdict, ours: g.oursImg, hardware: g.hardwareImg }))
     const name = `sprite-sheet-${a.filter.map !== undefined ? `map-${a.filter.map.toString(16)}` : `sprite-${a.filter.sprite!.toString(16)}`}.png`
     writeTree(resolve(a.out!), new Map([[name, encodePng(contactSheet(cells))]]))
-    return (
-      io.log(
-        `${join(resolve(a.out!), name)}: ${graded.length} sprites (${tally}); each cell is ours then hardware, border exact green, shape lime, close yellow, wrong red, empty/refused grey`,
-      ),
-      0
+    return ok(
+      `${join(resolve(a.out!), name)}: ${graded.length} sprites (${tally}); each cell is ours then hardware, border exact green, shape lime, close yellow, wrong red, empty/refused grey`,
     )
   }
   const { sha, dirty } = io.sha()
@@ -197,20 +195,14 @@ export function run(argv: string[], io: Io): number {
   for (const [k, v] of buildReport(rows, { sha, dirty })) files.set(k, v)
   if (a.commit) {
     const made = commitReport(target!, sha, files)
-    return (
-      io.log(
-        `${made ? 'committed' : 'no change to commit'} in ${target}: ${graded.length} sprites (${tally}). Not pushed.`,
-      ),
-      0
+    return ok(
+      `${made ? 'committed' : 'no change to commit'} in ${target}: ${graded.length} sprites (${tally}). Not pushed.`,
     )
   }
   for (const dir of [sha, 'latest'])
     writeTree(join(resolve(a.out!), 'reports', 'sprites', dir), files)
-  return (
-    io.log(
-      `${join(resolve(a.out!), 'reports', 'sprites', sha)}: ${graded.length} sprites (${tally}). Nothing committed.`,
-    ),
-    0
+  return ok(
+    `${join(resolve(a.out!), 'reports', 'sprites', sha)}: ${graded.length} sprites (${tally}). Nothing committed.`,
   )
 }
 
