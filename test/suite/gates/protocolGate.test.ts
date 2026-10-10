@@ -4,6 +4,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { pathToFileURL } from 'url'
+import { slow } from '../support/loadTimeout'
 
 // Every temp directory a test makes is removed afterwards, like lintGate.test.ts.
 // Windows can refuse a removal while a just-exited child process lets go, so
@@ -99,7 +100,8 @@ describe('the protocol command, hardened', () => {
     expect(fs.existsSync(path.join(stateDir, 'sessions.json'))).toBe(false)
   })
 
-  it('accepts only owner, schedule or session:<desktop id> for --by', () => {
+  // 5.8 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10
+  it('accepts only owner, schedule or session:<desktop id> for --by', slow(12_000), () => {
     expect(run(['night-shift', 'on', '--by', 'schedule']).code).toBe(0)
     expect(run(['night-shift', 'off', '--by', 'owner']).code).toBe(0)
     expect(run(['throttle', 'on', '--by', `session:${LOCAL_ID}`]).code).toBe(0)
@@ -153,7 +155,8 @@ describe('the protocol command, hardened', () => {
 // disk left 1, 2 and 1 of 8 entries (and 5 earlier runs with busy-waiting
 // starts each left 1).
 describe('parallel registers', () => {
-  it('keep every entry', async () => {
+  // Timed out at the 5 s default in 2 of 10 loaded runs (two concurrent full unit runs, 32-core machine, 2026-10-09/10), true duration unknown; idle about 2.3 s.
+  it('keep every entry', slow(13_000), async () => {
     const mod = pathToFileURL(script).href
     const startAt = Date.now() + 1500
     const ids = Array.from({ length: 8 }, (_, i) => `00000000-0000-4000-8000-00000000000${i}`)

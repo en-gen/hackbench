@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { slow } from '../support/loadTimeout'
 
 const ROOT = path.resolve(__dirname, '../../..')
 const SCANNED = ['src', 'theia/extension/src', 'test', 'tools']
@@ -33,7 +34,8 @@ function hasControlByte(text: string): boolean {
 }
 
 describe('control bytes gate', () => {
-  it('no source file contains a raw control byte', () => {
+  // 17.5 s worst, solo full unit run on a shared 32-core machine, 2026-10-09/10
+  it('no source file contains a raw control byte', slow(36_000), () => {
     // Tripwire per root: a moved or wholly skipped root must not hide behind the others.
     const perRoot = SCANNED.map(d => ({ d, files: sourceFiles(path.join(ROOT, d)) }))
     expect(perRoot.filter(r => r.files.length === 0).map(r => r.d)).toEqual([])

@@ -433,7 +433,7 @@ rule disabled at a time, expecting the cases that need it to go red.
 
 | Planted defect                                        | Cases red |
 | ----------------------------------------------------- | --------- |
-| `paths` entry for `cloudevents` renamed               | 3         |
+| `paths` entry for `cloudevents` renamed               | 1         |
 | `patterns` entry `cloudevents/*` renamed              | 1         |
 | `ImportExpression` selector (string literal) disabled | 2         |
 | `ImportExpression` template-literal selector disabled | 1         |

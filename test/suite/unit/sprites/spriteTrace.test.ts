@@ -15,6 +15,7 @@ import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { recordWrites, smwMachine } from '../../../../src/rom/sprites/interp/Machine'
 import type { RomFile } from '../../../../src/rom/RomFile'
 import { freshRom, hasRom, SPRITE_TRACE_SET, TOOLS_ROOT, VANILLA } from '../../support/corpus'
+import { slow } from '../../support/loadTimeout'
 
 const TRACE_DIR = process.env.HACKBENCH_SPRITE_TRACE ?? join(TOOLS_ROOT, 'fixtures', 'sprite-trace')
 
@@ -99,7 +100,8 @@ describe.skipIf(!existsSync(join(TRACE_DIR, SPRITE_TRACE_SET)) || !hasRom(VANILL
       ]) // prettier-ignore
     }, 300_000)
 
-    it('goes red when the ROM is planted with a defect', () => {
+    // 5.0 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10
+    it('goes red when the ROM is planted with a defect', slow(10_000), () => {
       const rom = freshRom()
       // HandleSprite starts LDA $14C8,X ($BD); a NOP there changes every call it makes.
       rom.writeAt(0x018127, [0xea])

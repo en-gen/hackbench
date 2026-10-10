@@ -15,6 +15,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import { assertGuardActive } from '../support/noRealGh'
 import { findBash, resolveGitBash } from '../support/gitBash'
+import { expectGhReachedOrAbsent } from '../support/ghSpawnReached'
 
 const repoRoot = path.resolve(__dirname, '../../..')
 const script = path.join(repoRoot, 'tools', 'perf', 'accept.sh')
@@ -196,13 +197,16 @@ describe('the suite-wide guard', { timeout: 90000 }, () => {
   })
 
   it('a spawn with no shell is not authenticated (on win32 it reaches gh.exe)', () => {
-    const r = spawnSync('gh', ['auth', 'status'], { encoding: 'utf8', timeout: 20000 })
+    // The 20 s kill fired in 8 of 10 loaded runs (186 ms idle), and a killed spawn
+    // has status null, which passed the check below vacuously.
+    const r = spawnSync('gh', ['auth', 'status'], { encoding: 'utf8', timeout: 60_000 })
+    expectGhReachedOrAbsent(r)
     expect(r.status).not.toBe(0)
     expect(`${r.stdout}${r.stderr}`).not.toMatch(/Logged in/)
   })
 
   it.skipIf(process.platform !== 'win32')('blocks gh through cmd.exe via gh.cmd', () => {
-    const r = spawnSync('gh auth status', { shell: true, encoding: 'utf8', timeout: 20000 })
+    const r = spawnSync('gh auth status', { shell: true, encoding: 'utf8', timeout: 60_000 })
     expect(r.status).toBe(99)
     expect(`${r.stdout}${r.stderr}`).toMatch(/gh blocked/)
   })
