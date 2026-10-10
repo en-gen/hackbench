@@ -47,7 +47,7 @@ import type { LevelSprite } from '../../../../src/rom/LevelParser'
 import { getCharPixels, type VramState } from '../../../../src/rom/GfxLoader'
 import { bgr555ToRgba, type RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import { getPaletteColor } from '../../../../src/rom/PaletteLoader'
-import { readMarioStartPos } from '../../../../src/rom/L3Loader'
+import { readMarioStartPos } from '../../../../src/rom/MarioStartPos'
 import {
   runOnce,
   type SpriteModel as RunModel,

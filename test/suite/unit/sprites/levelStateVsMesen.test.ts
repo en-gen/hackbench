@@ -13,7 +13,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseLevelHeader } from '../../../../src/rom/LevelParser'
-import { readMarioStartPos } from '../../../../src/rom/L3Loader'
+import { readMarioStartPos } from '../../../../src/rom/MarioStartPos'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
@@ -103,8 +103,12 @@ const PAST_END = ['002', '0be', '0c1', '102', '127']
 const LOADER_VS_MESEN = pins(
   '095:-16,256 096:-64,-65136 097:-64,-65136 098:-16,256 099:-16,256 09a:-16,256 09b:-16,256 0cc:-16,256 0d5:-16,256 0d9:-16,256 195:-16,256 196:-64,-65136 197:-64,-65136 198:-16,256 199:-16,256 19a:-16,256 19b:-16,256 1c7:-16,256',
 )
+// After #781 (the entrance screen in Mario's position) 38 of the 154 differ, was 52. Two causes, both by design:
+// X short by 8 (type 6 also Y by 2) is the entrance-type nudge in CODE_00A716-00A740 (bank_00.asm), not modelled
+// here; the 1xx rows with a large gap are sub areas where this reads the secondary entrance and the loader (which
+// leaves UseSecondaryExit 0) the primary bytes. Full 512-map sweep: MarioStartPos.test.ts.
 const FALLBACK_VS_LOADER = pins(
-  '00a:-8,0 00b:-8,0 011:-8,0 018:-8,0 0be:-8,0 0bf:-8,0 0c0:-8,0 0c1:-776,0 0c2:-8,-768 0c3:-8,0 0c6:-8,0 0d0:-4104,-2 0d1:-1800,-2 0d2:-8,0 0d7:-8,0 0d8:-1032,0 0db:0,-768 102:0,80 109:0,-1280 10a:112,80 10d:112,16 10f:0,32 110:0,-256 115:112,-48 116:112,-80 119:112,128 120:-8,0 123:208,-96 12a:0,-1024 12c:208,0 130:-8,0 1be:-8,0 1bf:-768,0 1c0:-8,0 1c1:-776,0 1c4:-264,0 1c5:-8,0 1c6:-8,0 1ca:-8,0 1ce:-8,-1024 1d5:-8,0 1d9:-768,0 1db:-768,0',
+  '00a:-8,0 00b:-8,0 011:-8,0 018:-8,0 0be:-8,0 0bf:-8,0 0c0:-8,0 0c1:-8,0 0c2:-8,0 0c3:-8,0 0c6:-8,0 0d0:-8,-2 0d1:-8,-2 0d2:-8,0 0d7:-8,0 0d8:-8,0 102:1280,80 10a:3952,80 10d:3440,16 10f:768,32 110:1280,-256 115:2928,-48 116:2416,-80 119:3952,128 120:-8,0 123:3536,-96 12c:2512,0 130:-8,0 1be:-8,0 1c0:-8,0 1c1:-8,0 1c4:-8,0 1c5:-8,0 1c6:-8,0 1ca:-8,0 1ce:-8,0 1d5:-8,0',
 )
 
 describe.skipIf(!hasRom(VANILLA) || !existsSync(root))(
@@ -269,7 +273,14 @@ describe('level state comparators on synthetic bytes', () => {
     rom.writeAt(0x05f800 + 3, [0x05]) // secondary entrance 3 targets $105 (low byte; high bit is in $FC00)
     rom.writeAt(0x05fc00 + 3, [(k << 5) | 1]) // X index k, target high bit 1
     rom.writeAt(0x05fa00 + 3, [4]) // Y index 4
-    expect(readMarioStartPos(rom, 0x05)).toEqual({ x: 0x48 + 0x100, y: 0x33 })
-    expect(readMarioStartPos(rom, 0x105)).toEqual({ x: 0x20 + k * 8 + (k & 1) * 0x100, y: 0x134 })
+    // Horizontal: the entrance's screen (here 1, FC00 bit 0) replaces the X high byte (bank_05.asm:7382-7383).
+    expect(readMarioStartPos(rom, 0x05)).toEqual({ x: 0x48, y: 0x33 })
+    expect(readMarioStartPos(rom, 0x105)).toEqual({ x: 0x100 + 0x20 + k * 8, y: 0x134 })
+    // Vertical (DATA_05F600 bit 5): the screen goes to Y and X keeps its DATA_05D758 high byte.
+    rom.writeAt(0x05f600 + 0x105, [0x20])
+    expect(readMarioStartPos(rom, 0x105)).toEqual({
+      x: 0x20 + k * 8 + (k & 1) * 0x100,
+      y: 0x100 + 0x34,
+    })
   })
 })

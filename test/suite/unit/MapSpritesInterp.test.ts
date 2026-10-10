@@ -14,7 +14,7 @@ import { SmwRom } from '../../../src/rom/SmwRom'
 import { loadLevelState } from '../../../src/rom/sprites/interp/LevelLoader'
 import { runOnce } from '../../../src/rom/sprites/interp/SpriteRunner'
 import { withSeed, type SpriteSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
-import { readMarioStartPos } from '../../../src/rom/L3Loader'
+import { readMarioStartPos } from '../../../src/rom/MarioStartPos'
 import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
 import type { SpriteModel, SpritePart } from '../../../src/rom/sprites/interp/SpriteRunner'
 import {
