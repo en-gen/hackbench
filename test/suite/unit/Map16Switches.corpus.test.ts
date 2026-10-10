@@ -9,6 +9,7 @@ import { loadAnimationData, switchesForChars } from '../../../src/rom/AnimationL
 import { decodeMap16Sheet } from '../../../theia/extension/src/node/map16-decode'
 import type { Map16SheetDto } from '../../../theia/extension/src/common/map16-protocol'
 import { CORPUS, VANILLA, hasRom, romPath } from '../support/corpus'
+import { slow } from '../support/loadTimeout'
 
 const GPW2 = CORPUS[2]!
 // Tileset 0's $000 cites animated chars no switch touches.
@@ -62,7 +63,8 @@ describe.skipIf(!hasRom(VANILLA))('map16 switches (vanilla corpus, tileset 0)', 
 // 2026-09-26: on vanilla no tile in any L1 (foreground) or L2 (background) tileset loses
 // one, so every switch a vanilla tile's chars follow changes that tile.
 describe.skipIf(!hasRom(VANILLA))('map16 switches: toggles dropped as no-ops (vanilla)', () => {
-  it('drops none, in every tileset of both layers', () => {
+  // 5.9 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-10
+  it('drops none, in every tileset of both layers', slow(12000), () => {
     const rom = SmwRom.open(romPath(VANILLA))
     const lost: string[] = []
     for (const layer of ['fg', 'bg'] as const)
