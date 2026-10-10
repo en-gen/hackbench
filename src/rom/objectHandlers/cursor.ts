@@ -34,6 +34,9 @@ import { RomFile } from '../RomFile'
 /** Map16 RAM bytes per horizontal-level screen: 27 rows x 16 cols. */
 export const MAP16_BYTES_PER_SCREEN_H = 0x1b0
 
+/** Rows per horizontal-level screen ($1B0 / 16). */
+const MAP16_ROWS_PER_SCREEN_H = 27
+
 /** A 2D tile grid; grid[row][col] = 9-bit Map16 tile ID (page << 8 | low). */
 export type TileGrid = number[][]
 
@@ -300,17 +303,34 @@ export function advanceCol(cur: Cursor): void {
 }
 
 /**
+ * CODE_0DA97D (bank_0D.asm:2018-2031) adds $10 to LevelLoadPos and carries with
+ * no row-27 check, so a horizontal screen's $1B0 bytes spill linearly into the
+ * next screen: row 27 is the next screen's row 0, 16 columns on (#300). Vertical
+ * levels use another stride, so they keep the flat row count.
+ *
+ * Returns true when the step crossed into the next screen.
+ */
+function stepRow(cur: Cursor): boolean {
+  cur.row += 1
+  if (cur.vertical || cur.row !== MAP16_ROWS_PER_SCREEN_H) return false
+  cur.row = 0
+  cur.col += 16
+  return true
+}
+
+/**
  * Advance cursor to next row, resetting column to the bookmark.
  * Mirrors the pattern: JSR CODE_0DA6BA (restore saved ptr) + JSR CODE_0DA97D (row++).
  */
 export function nextRow(cur: Cursor): void {
-  cur.row += 1
+  // The restored pointer is the saved one, so a screen carry moves the bookmark too.
+  if (stepRow(cur)) cur.bookmarkCol += 16
   cur.col = cur.bookmarkCol
 }
 
 /** Advance row without resetting col (raw CODE_0DA97D). */
 export function advanceRowRaw(cur: Cursor): void {
-  cur.row += 1
+  stepRow(cur)
 }
 
 /**

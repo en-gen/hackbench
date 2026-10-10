@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Layer 1 row advance (`nextRow`, `advanceRowRaw`) now carries into the next screen at row 27 like CODE_0DA97D on horizontal levels (#300). The object $1F handler still needs to use it, so level $021 column 159 rows 0-6 stay missing for now.
 
 - Test-only pin: a priority layer 1 tile draws in front of an overlapping sprite, and behind it once its priority bit is cleared. A Playwright spec reads the map tab's composite pixels on vanilla map $20 (screen 11, one ROM), and a unit test pins the compose order on synthetic planes (#529). No behaviour change.
 - Test-only (#164): object $37 high-coordinate band stepping pinned by a synthetic test: five bands at stride $40 cross the $1B0 screen boundary onto the next screen (SMWDisX bank_0D.asm:7128, bank_05.asm:778-781). Already fixed by en-gen/hackbench-archive#569/#598. Evidence: synthetic cart, no ROM; the seven Invictus placements in #164 were not replayed.

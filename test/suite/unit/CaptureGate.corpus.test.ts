@@ -266,3 +266,20 @@ describe('L1 data gate: capture directory absent', () => {
     expect(results.every(r => r.unavailable)).toBe(true)
   })
 })
+
+describe.skipIf(!corpusReady)('L1 data gate: $021 rows past 26 (#300)', () => {
+  let result: GateResult
+  beforeAll(() => {
+    ;[result] = runGate(romPath(VANILLA), CAPTURE_DIR, [0x21], undefined, Infinity)
+  }, TIMEOUT)
+
+  it('is read', () => {
+    expect(result.unavailable).toBeUndefined()
+  })
+
+  // #300: flips to a plain it() once handle_0DB51F advances through advanceRowRaw (CODE_0DA97D, bank_0D.asm:2018-2031)
+  it.fails('column 159 rows 0-6 hold $154 x6 then $155 (no grid mismatch there)', () => {
+    const cells = result.mismatches.filter(m => m.table === 'grid').map(m => m.cell)
+    expect(cells.filter(c => /^159,[0-6]$/.test(c))).toEqual([])
+  })
+})
