@@ -760,8 +760,8 @@ describe('a relocated overworld upload', () => {
     const near = Array.from({ length: 16 }, (_, n) => 0x0100 + n)
     const far = Array.from({ length: 16 }, (_, n) => 0x7000 + n)
     const d = detectPaletteAnimation(
-      buildRom({
-        size: 0x400000,
+      relocated({
+        size: 0x400000, // a 4 MB cart, where $FE/$FF is ROM
         relocate: {
           at,
           lead: [0x8b, 0x4b, 0xab], // PHB / PHK / PLB
