@@ -163,12 +163,26 @@ export function loadLevelState(rom: RomFile, level: number): LevelLoad {
   return { ok: true, wram: w, steps }
 }
 
+/** $18B8 ActivateClusterSprite and the 20 ClusterSpriteNumber cells from $1892 (rammap.asm:1872, 1855). */
+const NO_CLUSTER_SPRITES: Record<number, number> = Object.fromEntries([
+  [0x18b8, 0],
+  ...Array.from({ length: 20 }, (_, i) => [0x1892 + i, 0]),
+])
+
 /**
  * A seed for `level` with the ROM-run level state when the loader accepts the
  * ROM, else a generic seed that records why in `loadRefusal` (the model then
  * reports `seedSource: 'generic'` with that reason).
+ *
+ * The level's cluster sprites do not run (#809), as the runner already keeps
+ * its twelve slots empty: the sprite loop calls them after the slots while
+ * ActivateClusterSprite is set (CODE_01808C, SMWDisX bank_01.asm:128-130),
+ * so their OAM would read as the tested sprite's (map $101's castle flames
+ * fill 123-127, CODE_02FA16, bank_02.asm:16240-16278). Their numbers are
+ * cleared too, in case the sprite itself sets the flag.
  */
 export function levelSeed(rom: RomFile, level: number, over: SeedOverride = {}): SpriteSeed {
   const l = loadLevelState(rom, level)
-  return withSeed(l.ok ? { ...over, loaded: l.wram } : { ...over, loadRefusal: l.reason })
+  const ram = { ...over.ram, ...NO_CLUSTER_SPRITES }
+  return withSeed(l.ok ? { ...over, ram, loaded: l.wram } : { ...over, ram, loadRefusal: l.reason })
 }
