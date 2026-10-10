@@ -142,12 +142,18 @@ test('the toolbar button matches the map toolbar and toggles a right fly-out whi
   await expect(button).toHaveClass(/hb-icon-btn-on/)
   const flyout = page.locator(`${VIEW} .hb-pad-flyout`)
   await expect(flyout).toBeVisible()
+  // toBeVisible passes on the slide-in's first frame, 320px to the right.
+  await flyout.evaluate(el => Promise.all(el.getAnimations().map(a => a.finished)))
   const edge = await page.evaluate(() => {
-    const body = document.querySelector('#hackbench\\.emulator-view .hb-emulator-body')
+    const body = document.querySelector('#hackbench\\.emulator-view .hb-emulator-main')
     const f = document.querySelector('#hackbench\\.emulator-view .hb-pad-flyout')
     return Math.abs(body.getBoundingClientRect().right - f.getBoundingClientRect().right)
   })
   expect(edge, 'fly-out is not on the right edge').toBeLessThan(2)
+  // The toolbar button stays reachable with the fly-out open (#587).
+  const btn = await button.boundingBox()
+  const fly = await flyout.boundingBox()
+  expect(btn.y + btn.height, 'fly-out covers the toolbar').toBeLessThanOrEqual(fly.y + 1)
 
   // The game keeps running with it open.
   const frames = () =>
@@ -517,4 +523,52 @@ test('controller colors follow the region, and the style override wins and persi
     return w.controllers.settings.style
   })
   expect(persisted).toBe('na')
+})
+
+test('keys light the drawing while focus is on the Controllers button or in the fly-out (#508)', async ({
+  page,
+}) => {
+  test.setTimeout(120000)
+  await bootWithSpy(page, 'KeyFocus')
+  await openFlyout(page)
+  const litBtns = () =>
+    page.evaluate(() =>
+      [
+        ...document.querySelectorAll(
+          '#hackbench\\.emulator-view [data-player="1"] [data-btn].hb-pad-on',
+        ),
+      ].map(e => Number(e.getAttribute('data-btn'))),
+    )
+  const focused = () => page.evaluate(() => document.activeElement?.getAttribute('aria-label'))
+  // The click that opened the fly-out left focus on the Controllers button.
+  expect(await focused()).toBe('Controllers')
+  await page.keyboard.down('ArrowRight')
+  await expect.poll(litBtns).toEqual([7])
+  expect(await seen(page)).toEqual([[0, 7, 1]])
+  // Moving focus inside the panel keeps the held key held.
+  await page.locator(`${VIEW} .hb-pad-flyout`).click({ position: { x: 4, y: 4 } })
+  expect(await litBtns()).toEqual([7])
+  await page.keyboard.up('ArrowRight')
+  await expect.poll(litBtns).toEqual([])
+  expect(await seen(page)).toEqual([
+    [0, 7, 1],
+    [0, 7, 0],
+  ])
+  // A tab uses the arrows to move between players: they are not game input.
+  await page.locator(`${VIEW} [role="tab"]:has-text("Player 1")`).focus()
+  await page.evaluate(() => (window.__hbSeen.length = 0))
+  await page.keyboard.press('ArrowRight')
+  expect(await seen(page)).toEqual([])
+  // Focus leaving the panel releases a held key.
+  await page.locator(`${VIEW} button[aria-label="Controllers"]`).focus()
+  await page.keyboard.down('ArrowUp')
+  await expect.poll(() => seen(page)).toEqual([[0, 4, 1]])
+  await page.evaluate(() => document.activeElement.blur())
+  await expect
+    .poll(() => seen(page))
+    .toEqual([
+      [0, 4, 1],
+      [0, 4, 0],
+    ])
+  await page.keyboard.up('ArrowUp')
 })

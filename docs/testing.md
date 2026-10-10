@@ -667,6 +667,7 @@ Settled by the owner 2026-09-28; design calls delegated to the orchestrator. Spe
 - `MAX_SKIPPED` gates on the known skips (emulator-view needs the core, gfx-view needs Invictus, music-view needs GPW2). Measured 8 on 2026-09-22; the emulator spec has since grown from 5 to 21 tests, so re-measure. `[OPEN]`
 - The libretro core is `snes9x_libretro.{js,wasm}` in the `hackbench-cores` checkout, outside every worktree. The app records its location in `core-registry.json` under the app data directory; read that first. `[EST]`
 - Run emulator specs from any worktree with `HB_CORE_JS` set to the core's `.js` path; without it the suite silently skips, and CI has no core and skips too. `[EST]`
+- `HB_CORE_JS` is the absolute path to `snes9x_libretro.js` (its `.wasm` must sit beside it). `emulator-view` and `emulator-gamepad` read it; unset, they look for `vendor/cores/snes9x-wasm/` inside the worktree, which never exists, so every test skips and the run still exits 0. Set it, e.g. `HB_CORE_JS=C:/Projects/hackbench-cores/snes9x-wasm/snes9x_libretro.js`, and check the run reports passed, not skipped. `[EST]`
 - Nightly cost is why e2e is not per-PR. `[EST]`
 
 ## Related docs

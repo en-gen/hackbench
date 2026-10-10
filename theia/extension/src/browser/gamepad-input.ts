@@ -120,3 +120,28 @@ export function pollPads(
     hub.replace(port, 'pad', pad?.connected ? padButtons(pad) : new Set())
   })
 }
+
+/** The slice of a DOM element keyAccepted reads, so it tests without a DOM. */
+export interface KeyTargetLike {
+  tagName?: string
+  isContentEditable?: boolean
+  getAttribute(name: string): string | null
+}
+
+const ARROW_CODES = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
+
+/**
+ * Whether a keydown aimed at `target`, inside the emulator panel, may drive
+ * the controller (#508). Focus on the Controllers button or in the fly-out
+ * must not silence the keyboard, but a control that uses the key itself keeps
+ * it: a select (arrows, letters), a text field, and the Players tabs (arrows).
+ */
+export function keyAccepted(target: KeyTargetLike | null, code: string): boolean {
+  if (!target) return false
+  const tag = (target.tagName ?? '').toUpperCase()
+  if (tag === 'SELECT' || tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) {
+    return false
+  }
+  if (target.getAttribute('role') === 'tab' && ARROW_CODES.has(code)) return false
+  return true
+}

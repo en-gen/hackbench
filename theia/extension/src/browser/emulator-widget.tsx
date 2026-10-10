@@ -24,6 +24,7 @@ import { CoreFrameMeter } from './emulator-frame-meter'
 import { VolumeState, effectiveGain, parseVolumeState } from './audio-volume'
 import { VolumeSplitButton } from './volume-split-button'
 import { ControllerSession } from './controller-session'
+import { keyAccepted } from './gamepad-input'
 import { GamepadPanel } from './gamepad-panel'
 import { SaveSlotPicker, SaveSlotView } from './save-slot-picker'
 import { CORE_FILTER, ROM_FILTER } from './file-filters'
@@ -207,9 +208,9 @@ export class EmulatorWidget extends ReactWidget {
   }
 
   /**
-   * Controller keys, only while the panel itself has focus (click the
-   * screen): arrows on the volume slider and Enter on a focused button keep
-   * their usual meaning, and modified keys stay Theia's shortcuts.
+   * Controller keys, while focus is anywhere in the panel (click the screen,
+   * the Controllers button or the fly-out): a control that uses the key
+   * itself keeps it (keyAccepted), and modified keys stay Theia's shortcuts.
    */
   protected onKey(e: KeyboardEvent, down: boolean): void {
     // A release always goes through: a key pressed here and let go after
@@ -219,7 +220,15 @@ export class EmulatorWidget extends ReactWidget {
       this.controllers.key(e.code, false)
       return
     }
-    if (e.target !== this.node || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return
+    if (
+      !this.node.contains(e.target as Node | null) ||
+      e.ctrlKey ||
+      e.altKey ||
+      e.metaKey ||
+      e.isComposing
+    )
+      return
+    if (!keyAccepted(e.target as Element | null, e.code)) return
     if (!this.driver.isRunning() || !this.controllers.keyboardAssigned) return
     if (this.controllers.key(e.code, true)) {
       e.preventDefault()
@@ -819,23 +828,27 @@ export class EmulatorWidget extends ReactWidget {
             <span className="codicon codicon-game" />
           </button>
         </div>
-        <div className="hb-emulator-stage">
-          <div ref={this.screenRef} className="hb-emulator-screen" />
+        {/* The fly-out's containing block: it covers the stage, never the
+            toolbar, whose Controllers button must stay clickable (#587). */}
+        <div className="hb-emulator-main">
+          <div className="hb-emulator-stage">
+            <div ref={this.screenRef} className="hb-emulator-screen" />
+          </div>
+          {this.controllers.padsOpen && (
+            <GamepadPanel
+              settings={this.controllers.settings}
+              scheme={this.controllers.scheme()}
+              pads={this.controllers.connectedPads()}
+              pressed={port => this.controllers.hub.pressed(port)}
+              active={player => this.controllers.isActive(player)}
+              onSelect={player => this.controllers.selectPlayer(player)}
+              onKeyboard={(player, on) => this.controllers.setKeyboard(player, on)}
+              onPad={(player, pad) => this.controllers.setPad(player, pad)}
+              onStyle={style => this.controllers.setStyle(style)}
+              onClose={() => this.controllers.togglePads(false)}
+            />
+          )}
         </div>
-        {this.controllers.padsOpen && (
-          <GamepadPanel
-            settings={this.controllers.settings}
-            scheme={this.controllers.scheme()}
-            pads={this.controllers.connectedPads()}
-            pressed={port => this.controllers.hub.pressed(port)}
-            active={player => this.controllers.isActive(player)}
-            onSelect={player => this.controllers.selectPlayer(player)}
-            onKeyboard={(player, on) => this.controllers.setKeyboard(player, on)}
-            onPad={(player, pad) => this.controllers.setPad(player, pad)}
-            onStyle={style => this.controllers.setStyle(style)}
-            onClose={() => this.controllers.togglePads(false)}
-          />
-        )}
       </div>
     )
   }
