@@ -23,6 +23,7 @@ const frag = (name: string, text: string) =>
 const log = (text: string = BASE) => fs.writeFileSync(path.join(root, 'CHANGELOG.md'), text)
 const readLog = () => fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8')
 const files = () => fs.readdirSync(path.join(root, 'changelog.d')).sort()
+const snapshot = () => files().map(f => fs.readFileSync(path.join(root, 'changelog.d', f), 'utf8'))
 const run = (...extra: string[]) =>
   spawnSync(process.execPath, [script, '1.2.0', '--date', '2026-10-10', '--root', root, ...extra], {
     encoding: 'utf8',
@@ -67,14 +68,12 @@ describe('changelog-combine', () => {
     log()
     frag('1-good.md', '### Added\n- fine\n')
     frag('2-bad.md', bad)
-    const before = files().map(f => fs.readFileSync(path.join(root, 'changelog.d', f), 'utf8'))
+    const before = snapshot()
     const r = run()
     expect(r.status).not.toBe(0)
     expect(r.stderr).toContain('2-bad.md')
     expect(readLog()).toBe(BASE)
-    expect(files().map(f => fs.readFileSync(path.join(root, 'changelog.d', f), 'utf8'))).toEqual(
-      before,
-    )
+    expect(snapshot()).toEqual(before)
   })
 
   it('leaves CHANGELOG.md unchanged and exits 0 with no fragments', () => {

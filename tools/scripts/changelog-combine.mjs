@@ -7,10 +7,11 @@
 
 import { existsSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 export const SECTIONS = ['Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security']
 
-// Returns { sections: Map<name, lines[]> } or throws with a message naming the file.
+// Returns Map<section, lines[]>, or throws with a message naming the file.
 export function parseFragment(name, text) {
   const sections = new Map()
   let cur = null
@@ -97,5 +98,4 @@ function main(argv) {
   return 0
 }
 
-import { fileURLToPath } from 'node:url'
 if (process.argv[1] === fileURLToPath(import.meta.url)) process.exitCode = main(process.argv)
