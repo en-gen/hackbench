@@ -331,18 +331,23 @@ export function screenResult(
         : null,
     layer2Interactive: model.l3?.layer2Interactive ?? false,
     note:
-      [
-        ...new Set([...model.unverified, ...(model.l2?.ok ? (model.l2.l2.unverified ?? []) : [])]),
-        model.animNote,
-      ]
-        .filter(Boolean)
-        .join(' ') || undefined,
+      [...model.unverified, ...l2Notes(model), model.animNote].filter(Boolean).join(' ') ||
+      undefined,
     layerNotes: [
       model.l2 && !model.l2.ok ? `The background is not drawn: ${model.l2.reason}` : '',
       model.orderNote ? `Layer order unverified, drawn as BG mode 1: ${model.orderNote}` : '',
     ].filter(Boolean),
     backdrop: [model.backArea[0], model.backArea[1], model.backArea[2]],
   }
+}
+
+/**
+ * Layer 2's build notes, as the map note shows them: a line layer 1 already carries (the map-wide
+ * dispatch note) is dropped, the rest say which layer they come from (#493).
+ */
+function l2Notes(model: MapInputs): string[] {
+  const own = model.l2?.ok ? (model.l2.l2.unverified ?? []) : []
+  return own.filter(n => !model.unverified.includes(n)).map(n => `Layer 2: ${n}`)
 }
 
 /** Each palace's block for the wire: per ROM, so the same on every map. */

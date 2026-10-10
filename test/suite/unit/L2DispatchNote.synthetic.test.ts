@@ -5,6 +5,8 @@
  */
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
+import { createGrid, expandObject } from '../../../src/rom/ObjectExpander'
+import { parseL2Objects } from '../../../src/rom/LevelParser'
 import { loadL2Objects } from '../../../src/rom/L2Loader'
 import { STANDARD_HANDLERS } from '../../../src/rom/objectHandlers/dispatch'
 import { ADDR_TILESET_DISPATCH } from '../../../src/rom/objectHandlers/romData'
@@ -56,5 +58,42 @@ describe('loadL2Objects dispatch note (#493)', () => {
     const stock = loadL2Objects(cart(), 0x078000, 1, 0, false)!
     const hooked = loadL2Objects(cart(hook), 0x078000, 1, 0, false)!
     expect(hooked.grid).toEqual(stock.grid)
+  })
+
+  // Object 1 reaches `handler` through the stock dispatcher; the stream holds that one object.
+  const via = (handler: number, edit: (b: Buffer) => void = () => {}) =>
+    cart(b => {
+      b.set(long(handler), off(DISPATCHER + 10))
+      edit(b)
+    })
+  const nullSinkGrid = (rom: RomFile) => {
+    const grid = createGrid(1)
+    for (const o of parseL2Objects(rom.readAt(0x078000, 0x2000)!, 1, false))
+      expandObject(grid, o, rom, 0)
+    return grid
+  }
+
+  it('a handler refused by the #452 opcode gate puts its refusal in the notes and draws nothing', () => {
+    // handle_0DB49E reads a JSR at +19; the zeroed byte there is not $20.
+    const rom = via(0x0db49e)
+    const r = loadL2Objects(rom, 0x078000, 1, 0, false)!
+    expect(r.unverified).toHaveLength(2) // the JSR at +19 and the JMP at +52
+    for (const n of r.unverified) expect(n).toContain('$0DB49E refused')
+    expect(r.grid).toEqual(createGrid(1))
+    // With the JSR in place the same handler draws, so the empty grid above is the gate's doing.
+    const ok = via(
+      0x0db49e,
+      b => ((b[off(0x0db49e + 19)] = 0x20), (b[off(0x0db49e + 34 + 18)] = 0x4c)),
+    )
+    expect(loadL2Objects(ok, 0x078000, 1, 0, false)!.grid).not.toEqual(createGrid(1))
+  })
+
+  it('a gated pipe variant ($0DADEB) is drawn by the port: grid equals the null-sink grid, no note', () => {
+    // handle_0DAB3E at object 1, variant 0 (size 0) -> table at +18 -> CODE_0DADEB.
+    const rom = via(0x0dab3e, b => b.set(long(0x0dadeb), off(0x0dab3e + 18)))
+    const r = loadL2Objects(rom, 0x078000, 1, 0, false)!
+    expect(r.unverified).toEqual([])
+    expect(r.grid).toEqual(nullSinkGrid(rom))
+    expect(r.grid).not.toEqual(createGrid(1)) // the port drew something, so a no-op draw would differ
   })
 })

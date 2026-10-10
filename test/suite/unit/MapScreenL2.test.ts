@@ -227,10 +227,10 @@ describe('the wire carries four planes in the view stacking order (synthetic)', 
     expect(wireOf(mapOf(m, { ok: true, l2 })).layerNotes).toEqual([])
   })
 
-  it("L2's dispatch note joins L1's in the map note, and the same note shows once (#493)", () => {
+  it("L2's dispatch note joins L1's in the map note, a line L1 already has is dropped, the rest say Layer 2 (#493)", () => {
     const m = { ...inputs(hGrid(1), false, 1), unverified: ['hooked $0DA415'] }
     const l2 = { ...l2Of(nullGrid(27, 16), tiles2(solid)), unverified: ['hooked $0DA415', 'hooked $0DA106'] } // prettier-ignore
-    expect(wireOf(mapOf(m, { ok: true, l2 })).note).toBe('hooked $0DA415 hooked $0DA106')
+    expect(wireOf(mapOf(m, { ok: true, l2 })).note).toBe('hooked $0DA415 Layer 2: hooked $0DA106')
     expect(wireOf(mapOf(m)).note).toBe('hooked $0DA415')
   })
 })
