@@ -237,6 +237,19 @@ describe('readLevelStart (synthetic)', () => {
     expect(!s.ok && s.reason).toMatch(/No overworld tile or screen exit/)
   })
 
+  it('an unterminated parent does not make its destination a reachable stepping stone', () => {
+    const rom = world()
+    room(rom, 0x0c5, 0x06e800, [{ to: 0xc6 }])
+    room(rom, 0x0c6, 0x06e900)
+    rom.writeAt(F200 + 0xc6, [0x03])
+    // Same unterminated $002 as above: its only edge is to $0C5, whose own exit to $0C6 is well formed.
+    rom.writeAt(0x06f100, [0, 0, 0, 0, 0, 0x00, 0x01, 0x00, 0xc5])
+    rom.writeAt(ADDR.LEVEL_L1_PTR + 0x002 * 3, [0x00, 0xf1, 0x06])
+    const s = start(rom, 0x0c6)
+    expect(s.ok).toBe(false)
+    expect(!s.ok && s.reason).toMatch(/No overworld tile or screen exit/)
+  })
+
   it('an index whose DATA_05F800 byte names another map is not an entrance here', () => {
     const rom = world()
     rom.writeAt(F800 + 0x10, [0xc4]) // the exit now lands in $0C4, not $0C0
