@@ -146,7 +146,14 @@ function wrappedBase64Run(text) {
   return longest
 }
 
-const EXEMPTABLE_RULES = new Set(['base64', 'data-uri', 'byte-tokens', 'disasm-listing', 'em-dash'])
+const EXEMPTABLE_RULES = new Set([
+  'base64',
+  'data-uri',
+  'byte-tokens',
+  'disasm-listing',
+  'em-dash',
+  'rom-provenance',
+])
 
 // Only at the start of a line, inside a comment marker, with a non-empty
 // reason. Never matches a JS/TS string VALUE that merely contains this
@@ -207,13 +214,14 @@ function countByteTokens(text) {
     count += (m.match(/[0-9a-fA-F]{4}/g) || []).length * 2
     return ' '.repeat(m.length)
   })
-  // Decimal byte arrays: [12, 200, 255, 3, ...]
-  for (const m of t.matchAll(/\[([\d\s,]+)\]/g)) {
+  // Decimal byte arrays: [12, 200, 255, 3, ...]. A 0x element may sit inside
+  // (#812); runs of 2+ 0x tokens were blanked above, so nothing counts twice.
+  for (const m of t.matchAll(/\[([\da-fA-Fx\s,]+)\]/g)) {
     const nums = m[1]
       .split(',')
       .map(s => s.trim())
       .filter(Boolean)
-    const valid = nums.filter(n => /^\d+$/.test(n) && +n <= 255)
+    const valid = nums.filter(n => (/^\d+$/.test(n) && +n <= 255) || /^0x[0-9a-fA-F]{1,2}$/.test(n))
     if (valid.length >= 2) count += valid.length
   }
   // One-per-line data directives: db/dw/dl/.byte/.word, hex or decimal.
@@ -248,6 +256,29 @@ function countDisasmLines(text) {
   return n
 }
 
+// A comment claiming the data below came from the game (#812). Content alone
+// cannot tell a 4-byte ROM copy from an invented one; the claim can.
+const PROVENANCE_CLAIM =
+  /^\s*(?:\/\/|#|\/\*+|\*)[^\n]*\b(?:vanilla\s+\$[0-9a-f]|(?:copied|taken|lifted|dumped) from\b|ROM bytes\b|real ROM (?:bytes|data|values)\b)/i
+const PROVENANCE_WINDOW = 3
+const COMMENT_LINE = /^\s*(?:\/\/|#|\/\*|\*)/
+const NUM = /(?:0x[0-9a-fA-F]+|\$[0-9a-fA-F]+|\d+)/.source
+const NUMERIC_ARRAY = new RegExp(String.raw`\[\s*${NUM}(?:\s*,\s*${NUM})+\s*,?\s*\]`)
+
+function hasRomProvenance(text) {
+  const lines = text.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    if (!PROVENANCE_CLAIM.test(lines[i])) continue
+    // Code lines only: a literal quoted inside a comment is a citation, not a copy.
+    const window = lines
+      .slice(i + 1, i + 1 + PROVENANCE_WINDOW)
+      .filter(l => !COMMENT_LINE.test(l))
+      .join('\n')
+    if (NUMERIC_ARRAY.test(window)) return true
+  }
+  return false
+}
+
 /** Text-content rules shared by blob content, commit messages and tag
  * bodies. `path` is a label only (may be synthetic, e.g. "<commit SHA>"). */
 export function checkTextContent(path, text) {
@@ -273,6 +304,8 @@ export function checkTextContent(path, text) {
 
   const byteCount = countByteTokens(text)
   if (byteCount > BYTE_TOKEN_THRESHOLD) push('byte-tokens', { count: byteCount })
+
+  if (hasRomProvenance(text)) push('rom-provenance')
 
   const disasmLines = countDisasmLines(text)
   if (disasmLines >= DISASM_LINE_THRESHOLD) push('disasm-listing', { count: disasmLines })

@@ -20,6 +20,7 @@ import * as path from 'path'
 import {
   checkBlob,
   checkPath,
+  checkTextContent,
   DEFAULT_MAX_BLOB_BYTES,
   DEFAULT_MAX_TOTAL_BYTES,
   effectiveLimits,
@@ -184,6 +185,76 @@ describe('checkBlob: content sniffing', () => {
 
   it('lockfiles are never content-sniffed', () => {
     expect(checkBlob('package-lock.json', Buffer.from(`"${'A'.repeat(400)}"`))).toEqual([])
+  })
+})
+
+describe('rom-provenance (#812): a "taken from the game" comment over an inline byte literal', () => {
+  const hit = (...lines: string[]) =>
+    rule(checkTextContent('x.ts', lines.join('\n'))).includes('rom-provenance')
+  const claim = '// Vanilla $0123: an OAM entry'
+
+  it('plants the reported shape (invented values) and blocks it', () => {
+    expect(hit(claim, 'x.set([1, 2, 0x0a, 0x0b], 4)')).toBe(true)
+  })
+
+  it.each([
+    ['decimal only', '[1, 2, 3]'],
+    ['hex only', '[0x01, 0x02]'],
+    ['$hex', '[$01, $0a, $0b]'],
+    ['mixed', '[1, 0x02, $03]'],
+    ['two elements', '[7, 9]'],
+    ['32 elements', `[${Array.from({ length: 32 }, (_, i) => i).join(', ')}]`],
+  ])('blocks %s', (_n, lit) => {
+    expect(hit(claim, `f(${lit})`)).toBe(true)
+  })
+
+  it.each([1, 2, 3])('blocks a literal %i line(s) below the claim', gap => {
+    expect(hit(claim, ...Array(gap - 1).fill('// more'), 'f([1, 2])')).toBe(true)
+  })
+
+  it('blocks block-comment and JSDoc claims, and other phrasings', () => {
+    expect(hit('/* Vanilla $0123 row */', 'f([1, 2])')).toBe(true)
+    expect(hit('/**', ' * Copied from the ROM:', ' */', 'f([1, 2])')).toBe(true)
+    expect(hit('// real ROM bytes', 'f([1, 2])')).toBe(true)
+  })
+
+  it('does not block: invented-values comment, no literal, literal too far, single element', () => {
+    expect(hit('// Invented values', 'f([1, 2, 0x0a, 0x0b])')).toBe(false)
+    expect(hit(claim, 'f(x)')).toBe(false)
+    expect(hit(claim, '//', '//', '//', '//', 'f([1, 2])')).toBe(false)
+    expect(hit(claim, 'f([1])')).toBe(false)
+    expect(hit('const label = "vanilla"', 'f([1, 2])')).toBe(false) // not a comment
+  })
+
+  it('the pragma exempts it', () => {
+    const text = [
+      '// content-gate: allow rom-provenance -- invented, mirrors a layout',
+      claim,
+      'f([1, 2])',
+    ].join('\n')
+    expect(checkTextContent('x.ts', text)).toEqual([])
+  })
+
+  it('a decimal array with ONE 0x element still counts toward byte-tokens', () => {
+    // Old regex [\d\s,]+ failed on the lone 0x element and counted 0.
+    const big = Array.from({ length: 1100 }, (_, i) => i % 256).join(', ')
+    expect(rule(checkTextContent('x.ts', `[${big}, 0x0a]`))).toContain('byte-tokens')
+  })
+
+  it('develop-clean: no tracked text file trips rom-provenance', () => {
+    const files = execFileSync('git', ['ls-files'], { cwd: repoRoot, encoding: 'utf8' })
+      .split('\n')
+      .filter(f => /\.(ts|tsx|js|mjs|cjs|md|json|css|lua|sh|yml|yaml)$/.test(f))
+    const hits: string[] = []
+    for (const f of files) {
+      const full = path.join(repoRoot, f)
+      if (!fs.existsSync(full)) continue
+      const buf = fs.readFileSync(full)
+      if (buf.includes(0)) continue
+      if (checkTextContent(f, buf.toString('utf8')).some(h => h.rule === 'rom-provenance'))
+        hits.push(f)
+    }
+    expect(hits).toEqual([])
   })
 })
 

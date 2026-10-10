@@ -40,6 +40,14 @@ messages and annotated tag bodies get the same text-content rules. An
 in-file `content-gate: allow <rule> -- <reason>` pragma, only at the
 start of a comment line, exempts one file from one content rule.
 
+`rom-provenance` (#812): a comment that says the data below was copied from
+the game (`vanilla $<address>`, `copied|taken|lifted|dumped from`, `ROM
+bytes`, `real ROM bytes|data|values`) followed within 3 lines by a code line
+holding a numeric array literal of 2+ elements (decimal, `0x`, `$`, mixed)
+blocks. A 4-byte copy cannot be told from invented values by content, so the
+claim is the signal; say "invented values" instead, or add the pragma. A
+decimal array with one `0x` element now counts toward `byte-tokens` too.
+
 Modes: `staged` (pre-commit), `range BASE HEAD` (CI), `push REMOTE`
 (`.githooks/pre-push`, reading stdin ref-updates and querying the remote
 live via `git ls-remote` rather than trusting local, possibly stale,
