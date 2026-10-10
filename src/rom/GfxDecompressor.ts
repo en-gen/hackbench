@@ -10,11 +10,9 @@ import { fingerprint } from './Fingerprint'
 import { formatAddr } from './addressing'
 import { parseStream, type BackRefOrder } from './LcLz2'
 
-/** REP #$10 / LDY #$0000 / JSR ReadByte / CMP #$FF (bank_00.asm:6294-6300), as the US build
- *  lays it out. Only bytes 0..4 gate the entry: the JSR operand (bytes 6..7) is build specific
- *  (US $B983, J $B924, E0 $B996, E1 $B997; SMWDisX SMW_*.sym), so `readDecompressor` matches
- *  the JSR opcode and the CMP and leaves the operand to the back-reference routine's cross-check.
- *  The US bytes stay here as the documented reference and for tests that plant a stock entry. */
+/** REP #$10 / LDY #$0000 / JSR ReadByte / CMP #$FF (bank_00.asm:6294-6300), US build. The JSR
+ *  operand (bytes 6..7) is build specific (SMWDisX SMW_*.sym), so `readDecompressor` does not
+ *  compare it; these bytes are the documented reference and a test fixture. */
 export const STOCK_LCLZ2_ENTRY: readonly number[] = [
   0xc2, 0x10, 0xa0, 0x00, 0x00, 0x20, 0x83, 0xb9, 0xc9, 0xff,
 ]
