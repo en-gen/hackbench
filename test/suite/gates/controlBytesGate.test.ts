@@ -38,6 +38,8 @@ describe('control bytes gate', () => {
     const perRoot = SCANNED.map(d => ({ d, files: sourceFiles(path.join(ROOT, d)) }))
     expect(perRoot.filter(r => r.files.length === 0).map(r => r.d)).toEqual([])
     const files = perRoot.flatMap(r => r.files)
+    // Total floor too: a scan that collapses to a handful of files must still fail.
+    expect(files.length).toBeGreaterThan(100)
     const offenders = files
       .filter(f => hasControlByte(fs.readFileSync(f, 'latin1')))
       .map(f => path.relative(ROOT, f))
