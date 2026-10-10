@@ -9,6 +9,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import setup, { assertGuardActive, guardEnv, SENTINEL, TOKEN_VARS } from '../support/noRealGh'
+import { expectGhReachedOrAbsent } from '../support/ghSpawnReached'
 
 // Hardcoded on purpose: importing TOKEN_VARS would let a dropped name pass unseen.
 const FOUR_TOKENS = ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN']
@@ -130,8 +131,13 @@ describe('guardEnv (pure)', () => {
 })
 
 describe('a reached gh is unauthenticated (no-shell spawn)', { timeout: 90000 }, () => {
-  const token = (env: NodeJS.ProcessEnv) =>
-    spawnSync('gh', ['auth', 'token'], { encoding: 'utf8', env, timeout: 20000 })
+  // The 20 s kill fired in 2 of 10 loaded runs (186 ms idle), and a killed spawn
+  // has no output and a null status, which passed every check below vacuously.
+  const token = (env: NodeJS.ProcessEnv) => {
+    const r = spawnSync('gh', ['auth', 'token'], { encoding: 'utf8', env, timeout: 60_000 })
+    expectGhReachedOrAbsent(r)
+    return r
+  }
 
   it('prints only the sentinel, or is the failing shim', () => {
     const r = token(process.env)

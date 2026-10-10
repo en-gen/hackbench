@@ -8,6 +8,7 @@ import * as path from 'path'
 import * as os from 'os'
 import { execFileSync, spawnSync } from 'child_process'
 import { buildSync } from 'esbuild'
+import { slow } from '../support/loadTimeout'
 import {
   readRomBounded,
   readManifestBounded,
@@ -340,18 +341,21 @@ function readInChild(target: string): { status: number | null; stderr: string } 
     logLevel: 'silent',
   })
   const script = `try { require(${JSON.stringify(out)}).readRomBounded(${JSON.stringify(target)}) } catch (e) { console.error(e.message); process.exit(3) }`
-  const r = spawnSync(process.execPath, ['-e', script], { timeout: 5000, encoding: 'utf8' })
+  const r = spawnSync(process.execPath, ['-e', script], { timeout: 20_000, encoding: 'utf8' })
   return { status: r.status, stderr: r.stderr }
 }
 
 describe('reader in a child process', () => {
-  it('refuses a directory (proves the harness)', () => {
+  // 15.3 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-10 (the
+  // esbuild bundle plus a node spawn); the 20 s spawn kill sits under the 40 s test budget.
+  it('refuses a directory (proves the harness)', slow(40_000), () => {
     const r = readInChild(tmp)
     expect(r.status).toBe(3)
     expect(r.stderr).toMatch(NOT_FILE)
   })
   describe.skipIf(process.platform === 'win32')('POSIX only', () => {
-    it('refuses a FIFO without hanging', () => {
+    // The 20 s spawn kill must fire before the test budget does, or a hang reads as a timeout.
+    it('refuses a FIFO without hanging', slow(40_000), () => {
       const fifo = path.join(tmp, 'pipe')
       execFileSync('mkfifo', [fifo])
       const r = readInChild(fifo)
