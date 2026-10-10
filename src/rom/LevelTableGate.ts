@@ -285,6 +285,7 @@ const LOAD_LEVEL_DONE: BytePattern = [0x9c, WILD, WILD, 0x28, 0x60] // STZ.W Lay
 // STZ.W LevelLoadObject / JSR LoadLevel / SEP #$30 / LDA.W GameMode, with the
 // JSR operand left for the entry's own address.
 const CALL_TAIL: BytePattern = [0xe2, 0x30, 0xad]
+const CALLER_LEN = 3 + 3 + CALL_TAIL.length // STZ.W + JSR + tail
 
 export type BossModes = { ok: true; modes: ReadonlySet<number> } | { ok: false; reason: string }
 
@@ -316,10 +317,16 @@ function computeBossModes(rom: RomFile): BossModes {
   // LayerProcessing address the entry's own STZ names. Distance past the
   // check proves nothing (a BRA back to the Layer-1 read is also "past").
   const entryAt = site.offset - ENTRY_LEN
-  // Fall-through and the branch run inside one bank; a window that straddles a
-  // bank edge is not LoadLevel. LoROM banks are 0x8000 file bytes.
+  // Fall-through and the branch run inside one bank; the CPU does not advance
+  // its program bank, so every matched span must END in the bank it starts in.
+  // LoROM banks are 0x8000 file bytes.
   const doneAt = site.offset + targets[0]!
-  if (entryAt >> 15 !== site.offset >> 15 || doneAt >> 15 !== site.offset >> 15) {
+  const bank = (at: number): number => at >> 15
+  if (
+    bank(entryAt) !== bank(site.offset + BOSS_CHECK.length - 1) ||
+    bank(doneAt) !== bank(site.offset) ||
+    bank(doneAt + LOAD_LEVEL_DONE.length - 1) !== bank(site.offset)
+  ) {
     return { ok: false, reason: `${BOSS_WHAT} spans a bank boundary` }
   }
   const entry = matchesAt(rom, entryAt, LOAD_LEVEL_ENTRY)
@@ -332,7 +339,10 @@ function computeBossModes(rom: RomFile): BossModes {
   if (entryAddr === null) return { ok: false, reason: `${BOSS_WHAT} is outside the ROM map` }
   const jsr = [0x20, entryAddr & 0xff, (entryAddr >> 8) & 0xff]
   const callers = findPattern(rom, [0x9c, WILD, WILD, ...jsr, ...CALL_TAIL]).filter(
-    at => loromFromOffset(at) !== null && loromFromOffset(at)! >> 16 === entryAddr >> 16,
+    at =>
+      loromFromOffset(at) !== null &&
+      loromFromOffset(at)! >> 16 === entryAddr >> 16 &&
+      bank(at + CALLER_LEN - 1) === bank(at),
   )
   if (callers.length !== 1) {
     return {

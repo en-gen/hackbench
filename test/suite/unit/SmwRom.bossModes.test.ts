@@ -158,9 +158,12 @@ describe('levelHasObjects boss modes (#695)', () => {
 
   it('reads BEQ displacements as signed: a backward branch is not a far-forward one', () => {
     // As unsigned bytes the three targets agree (247); as signed they agree at -9,
-    // before the check, so the check is refused.
+    // before the check, so the check is refused. LoadLevelDone is planted at the
+    // unsigned target, so a decoder that drops sign extension would accept.
     const check = bossCheck([0x09, 0x0b, 0x10], [0xf0, 0xec, 0xe8])
-    expect(readBossModes(makeRom({ check })).ok).toBe(false)
+    const rom = makeRom({ check })
+    rom.writeAt(CHECK_AT + BASE + 247, DONE)
+    expect(readBossModes(rom).ok).toBe(false)
   })
 
   it('refuses backward targets that agree only under sign extension', () => {
@@ -226,18 +229,29 @@ describe('levelHasObjects boss modes (#695)', () => {
   })
 
   /** The vanilla layout built by file offset, so the entry can straddle a bank edge. */
-  function atFileOffset(entryOff: number): RomFile {
+  function atFileOffset(entryOff: number, callerOff = entryOff - 0x40): RomFile {
     const rom = makeRom({ check: null })
     const lo = loromFromOffset(entryOff)! & 0xffff
     rom.buffer.set(loaderEntry(), entryOff)
     rom.buffer.set(bossCheck([0x09, 0x0b, 0x10]), entryOff + BASE)
     rom.buffer.set(DONE, entryOff + BASE + 0x5a) // BEQ at +6, end +7, displacement 0x53
-    rom.buffer.set([0x9c, 0x30, 0x19, 0x20, lo & 0xff, lo >> 8, 0xe2, 0x30, 0xad], entryOff - 0x40)
+    rom.buffer.set([0x9c, 0x30, 0x19, 0x20, lo & 0xff, lo >> 8, 0xe2, 0x30, 0xad], callerOff)
     return rom
   }
 
   it('refuses a check whose prologue sits in the previous bank', () => {
     expect(readBossModes(atFileOffset(0x27ff8)).ok).toBe(false) // check at 0x28004
+  })
+
+  it('refuses a LoadLevelDone whose last bytes run into the next bank', () => {
+    // Entry 0x27f98: prologue and check fit, the BEQs land on 0x27ffe, and the
+    // 5-byte LoadLevelDone ends at 0x28002. The CPU does not change program bank.
+    expect(readBossModes(atFileOffset(0x27f98)).ok).toBe(false)
+  })
+
+  it('refuses a call site whose 9 bytes run into the next bank', () => {
+    // Caller starts at 0x27ffa (bank $04, same as the entry) and ends at 0x28002.
+    expect(readBossModes(atFileOffset(0x27e00, 0x27ffa)).ok).toBe(false)
   })
 
   it('accepts the same layout inside one bank (control for the bank-boundary refusal)', () => {
