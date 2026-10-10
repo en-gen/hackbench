@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Map view: the L2 kind (image or object stream) now comes from the game's own per-level-mode uploader table, read by its bytes, not from the L2 pointer's bank. A map whose pointer disagrees with its mode, or whose mode uploads no L2, is refused with a reason; vanilla output is unchanged (#506).
+- Layer 1 differential: the #300 allow-list row no longer hides port/interpreter differences on the object's own screen (#453).
 - Tech-lead session titles are now "<Team> Team" (e.g. "Delta Team"), in the tech-lead manual and the unregistered-session hook text.
 
 ### Fixed
