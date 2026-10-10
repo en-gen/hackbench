@@ -168,6 +168,27 @@ describe('CODE_0DDF3A castle wall (synthetic cart)', () => {
     expect(cells(g, 6, 64, 16)).toEqual(Array(16).fill(E))
   })
 
+  it('five bands at stride $40 from $50 with the high bit set carry bands 3-5 onto the next screen (#164)', () => {
+    // Defaults for start $50 (bank_0D.asm:7107-7134), stride $40 and band count 5.
+    // The column count stays the cart's 12, not the game's 16 (bank_0D.asm:7114).
+    // Lower half adds $100
+    // (bank_05.asm:778-781). Bands at Map16 byte offsets $150/$190/$1D0/$210/$250
+    // of screen 4; $1B0 per screen, so the last three land on screen 5 rows 2, 6, 10.
+    // Row-space stepping would put them at rows 29, 33, 37 and drop them.
+    const edit: Edit = (b, h) => {
+      b[h + 10] = 0x50
+      b[h + 18] = 0x04 // 5 bands
+      b[h + 41] = 0x40
+    }
+    const g = run(cart(edit), 64, 16, 0x09, 7)
+    const bands: [number, number][] = [[4, 21], [4, 25], [5, 2], [5, 6], [5, 10]] // prettier-ignore
+    for (const [s, r] of bands) expect(cells(g, r, s * 16, 12)).toEqual(Array(12).fill(p1(FILL)))
+    let filled = 0
+    for (const r of g) for (const v of r.slice(64, 96)) if (v === p1(FILL)) filled++
+    expect(filled).toBe(5 * 12)
+    for (const r of [13, 17, 21]) expect(cells(g, r, 80, 16)).toEqual(Array(16).fill(E))
+  })
+
   it('stamps at column 13 wrap to the next screen at its row start', () => {
     // Pointer $C810 + $2D: row 3, col 13. Size $09 & 7 = 1 copy, onto screen 3.
     const g = run(cart(), 32, 0, 0x09)

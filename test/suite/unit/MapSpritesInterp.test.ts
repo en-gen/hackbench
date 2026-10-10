@@ -14,7 +14,7 @@ import { SmwRom } from '../../../src/rom/SmwRom'
 import { loadLevelState } from '../../../src/rom/sprites/interp/LevelLoader'
 import { runOnce } from '../../../src/rom/sprites/interp/SpriteRunner'
 import { withSeed, type SpriteSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
-import { readMarioStartPos } from '../../../src/rom/L3Loader'
+import { readMarioStartPos } from '../../../src/rom/MarioStartPos'
 import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
 import type { SpriteModel, SpritePart } from '../../../src/rom/sprites/interp/SpriteRunner'
 import {
@@ -163,6 +163,25 @@ describe('a refused level loader marks every sprite unverified', () => {
     expect(seeds[0]!.loaded).toBeUndefined()
     expect(seeds[0]).toMatchObject({ level: { screenMode: 1, screens: 3 } })
     expect(r.note).toMatch(/^Unverified: 1 sprites level loader refused/)
+  })
+})
+
+describe('interpDrawer refuses when Mario has no start (#781)', () => {
+  // The loader refuses a blank cart, so the table re-derivation is the only source of Mario's start;
+  // one unreadable table byte must give a refusal (compute turns the throw into `unavailable`), not {0,0}.
+  const blank = RomFile.fromBytes('blank.sfc', Buffer.alloc(0x80000))
+  const withheld = (addr: number): RomFile =>
+    Object.create(blank, { readByte: { value: (a: number) => (a === addr ? null : blank.readByte(a)) } }) as RomFile // prettier-ignore
+  const shape = { isVertical: false, screenCount: 2 }
+  it('builds the drawer with every byte readable (the control)', () => {
+    expect(() => interpDrawer(blank, 7, shape, () => model({}))).not.toThrow()
+  })
+  it.each([
+    ['DATA_05F000', 0x05f000 + 7],
+    ['DATA_05F200', 0x05f200 + 7],
+    ['DATA_05D758 (X high)', 0x05d758],
+  ])('throws the unavailable refusal when %s cannot be read', (_n, addr) => {
+    expect(() => interpDrawer(withheld(addr), 7, shape, () => model({}))).toThrow(/Mario start position unavailable/) // prettier-ignore
   })
 })
 
@@ -317,7 +336,7 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
       const built = new L1ModelCache().get(b, romPath(VANILLA), map, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
       if (!built.ok) throw new Error(built.reason)
       const sprites = parseLevelSprites(rom.rom.readUpTo(rom.getLevelSpritePointer(map)!, 0x200)!, built.inputs.isVertical) // prettier-ignore
-      const eng = engineDrawer(rom.rom, readMarioStartPos(rom.rom, map).x)!
+      const eng = engineDrawer(rom.rom, readMarioStartPos(rom.rom, map)!.x)!
       const interp = interpDrawer(rom.rom, map, built.inputs)
       const both = wrap(interp)
       for (const s of sprites) {
@@ -448,7 +467,7 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     if (!level.ok) throw new Error(level.reason)
     const sprite = parseLevelSprites(rom.rom.readUpTo(rom.getLevelSpritePointer(map)!, 0x200)!, false).find(x => x.spriteId === 0x1f)! // prettier-ignore
     const [x, y] = [sprite.x * 16, sprite.y * 16]
-    const m = runOnce(rom.rom, 0x1f, withSeed({ sprite: { x, y }, camera: cameraFor(x, y, false, 20), mario: readMarioStartPos(rom.rom, map), loaded: level.wram })) // prettier-ignore
+    const m = runOnce(rom.rom, 0x1f, withSeed({ sprite: { x, y }, camera: cameraFor(x, y, false, 20), mario: readMarioStartPos(rom.rom, map)!, loaded: level.wram })) // prettier-ignore
     const written = m.passes.at(-1)!.palette
     const note = engineDrawer(rom.rom, 0)!(sprite)
     if (!note.ok || !('paletteNote' in note) || !note.paletteNote) throw new Error('engine has no dynamicCgram note') // prettier-ignore
@@ -480,12 +499,12 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     expect(withColors.rgba).not.toBe(without.rgba)
   })
 
-  it("the served seed on $1C5 carries the loader's Mario (136, 368), not the table's (128, 368)", () => {
+  it("the served seed on $1C5 carries the loader's Mario (136, 368), which the table reader now also gives", () => {
     const b = bytes()
     const rom = new SmwRom(RomFile.fromBytes('x.sfc', Buffer.from(b)))
     const built = new L1ModelCache().get(b, romPath(VANILLA), 0x1c5, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
     if (!built.ok) throw new Error(built.reason)
-    expect(readMarioStartPos(rom.rom, 0x1c5)).toEqual({ x: 128, y: 368 }) // what the table says
+    expect(readMarioStartPos(rom.rom, 0x1c5)).toEqual({ x: 136, y: 368 }) // the table, entrance-type nudge included (was 128 before #781)
     const seeds: SpriteSeed[] = []
     const draw = interpDrawer(rom.rom, 0x1c5, built.inputs, (r, id, seed) => (seeds.push(seed), runOnce(r, id, seed))) // prettier-ignore
     const s = parseLevelSprites(
