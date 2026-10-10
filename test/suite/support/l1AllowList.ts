@@ -6,9 +6,9 @@
  * absorbs, all compared cases its predicate matches (agreeing ones too), and a
  * digest of the interpreter's output over the absorbed cases, plus a fourth
  * digest of the PORT's output over the same cases. Without that one, a
- * disagreement row would absorb any change to the port's tiles unseen (#751).
+ * disagreement row would absorb a change to the port's non-empty tiles unseen (#751).
  * Widening a predicate, a new disagreement landing under an old entry, or any
- * change in what either side draws for those cases moves a number and fails.
+ * change in what either side draws for those cases (the port side: non-empty tiles only, #759) moves a number and fails.
  *
  * To regenerate after a deliberate change, run the corpus test and copy the
  * `actual` side of the failing diff.

@@ -154,7 +154,7 @@ describe('tally pins the port output (#751)', () => {
     expect(aggregate([])).toBe('')
   })
 
-  it('flags a bogus port digest under every row (swept over all rows)', () => {
+  it('flags a bogus port digest under every disagreement row (swept over all rows)', () => {
     const sizes = Array.from({ length: 256 }, (_v, i) => i)
     for (const k of KNOWN_DISAGREEMENTS) {
       const candidates = [0, 3, 15].flatMap(col =>
