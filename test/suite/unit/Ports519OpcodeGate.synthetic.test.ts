@@ -17,6 +17,7 @@ import {
   handle_0DBA4C,
   staircaseVariantB,
 } from '../../../src/rom/objectHandlers/standardHandlers'
+import { C3_FIXED, C3_JSRS, c3StructurePlants } from '../support/staircaseB'
 
 const COL = 16
 const ROW = 2
@@ -66,12 +67,15 @@ const C3_PINS: [number, number][] = [
   [30, 0xa9],
   [46, 0xbf],
   [60, 0xbf],
-]
+  ...C3_FIXED.map(([off, op]): [number, number] => [off, op]),
+  ...C3_JSRS.map(([off]): [number, number] => [off, 0x20]),
+].sort((a, b) => a[0] - b[0])
 const plantsC3 = (addr: number, mask = 0x03): [number, number[]][] => [
   [addr + 8, [0x29, mask]],
   [addr + 30, [0xa9, FILL]],
   [addr + 46, [0xbf, ...long(T_B)]],
   [addr + 60, [0xbf, ...long(T_A)]],
+  ...c3StructurePlants(addr),
   [T_A, cap],
   [T_B, edge],
 ]
@@ -173,13 +177,16 @@ describe('a pinned read just past the 512 KiB cart refuses with "nothing" (#519)
   })
 })
 
-/** The cart's last readable byte is SNES $0F:FFFF (file offset 0x7FFFF); bytes planted past it are dropped. */
-const LAST = 0x0fffff
+/**
+ * A 448 KiB cart whose last readable byte is SNES $0D:FFFF (file offset 0x6FFFF), so a handler
+ * ending there keeps bank $0D and its JSR targets match (#762); bytes planted past it are dropped.
+ */
+const LAST = 0x0dffff
 function clippedCart(plants: [number, number[]][]): RomFile {
-  const buf = Buffer.alloc(0x80000, 0x00)
+  const buf = Buffer.alloc(0x70000, 0x00)
   buf[0x7fd5] = 0x20
   for (const [snes, bytes] of plants) {
-    const off = loromToOffset(snes, 0x80000)
+    const off = loromToOffset(snes, buf.length)
     if (off === null || off >= buf.length) continue
     buf.set(bytes.slice(0, buf.length - off), off)
   }
@@ -210,5 +217,57 @@ describe('an opcode that matches but whose operand runs past the cart refuses (#
     const { grid, unverified } = run(clippedCart([[LAST, [0xbf]]]), handle_0DB571, addr, 0x68)
     expect(grid).toEqual(blank())
     expect(unverified).toEqual([spanRefusal(addr, LAST + 1)])
+  })
+})
+
+const operandRefusal = (addr: number, at: number, want: number, found: number): string =>
+  `Handler ${hx(addr, 6)} refused: the operand at ${hx(at, 6)} is ${hx(found, 2)}, not the ${hx(want, 2)} the port assumes, so the object is not drawn.`
+const jsrRefusal = (addr: number, at: number, want: number, found: number): string =>
+  `Handler ${hx(addr, 6)} refused: the JSR at ${hx(at, 6)} calls ${hx(found, 6)}, not ${hx(want, 6)} as the port assumes, so the object is not drawn.`
+
+describe('0DC3D8 refuses when a hard-coded operand or JSR target changes (#762)', () => {
+  describe.each([VANILLA_C3, RELOCATED])('handler at $%#x', addr => {
+    for (const [off, , operand] of C3_FIXED) {
+      it(`operand at +${off + 1} (expected $${operand.toString(16)}): every replacement draws nothing and names the address`, () => {
+        for (const found of replacements(operand)) {
+          const rom = cartWith([...plantsC3(addr), [addr + off + 1, [found]]])
+          const { grid, unverified } = run(rom, staircaseVariantB, addr, 0x21)
+          expect(grid, `found $${found.toString(16)}`).toEqual(blank())
+          expect(unverified).toEqual([operandRefusal(addr, addr + off + 1, operand, found)])
+        }
+      })
+    }
+
+    for (const [off, target] of C3_JSRS) {
+      it(`JSR at +${off} (expected $${target.toString(16)}): a retargeted low or high byte draws nothing`, () => {
+        for (const half of [0, 1]) {
+          const want = (target >> (8 * half)) & 0xff
+          for (const b of replacements(want)) {
+            const found = (target & ~(0xff << (8 * half))) | (b << (8 * half))
+            const rom = cartWith([...plantsC3(addr), [addr + off + 1 + half, [b]]])
+            const { grid, unverified } = run(rom, staircaseVariantB, addr, 0x21)
+            expect(grid, `byte ${half} = $${b.toString(16)}`).toEqual(blank())
+            expect(unverified).toEqual([jsrRefusal(addr, addr + off, target, found)])
+          }
+        }
+      })
+    }
+  })
+
+  it('a handler moved out of bank $0D with vanilla operands calls that bank, so it refuses', () => {
+    for (const addr of [0x0e9000, 0x0c9000, 0x8e9000]) {
+      const { grid, unverified } = run(cartWith(plantsC3(addr)), staircaseVariantB, addr, 0x21)
+      expect(grid).toEqual(blank())
+      expect(unverified).toEqual([
+        jsrRefusal(addr, addr + 11, 0x0da6b1, (addr & 0xff0000) | 0xa6b1),
+      ])
+    }
+  })
+
+  it('a handler in the FastROM mirror of bank $0D ($8D) calls the same routines, so it draws', () => {
+    const addr = 0x8d9000
+    const { grid, unverified } = run(cartWith(plantsC3(addr)), staircaseVariantB, addr, 0x21)
+    expect(grid).not.toEqual(blank())
+    expect(unverified).toEqual([])
   })
 })

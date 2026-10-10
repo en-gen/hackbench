@@ -29,6 +29,7 @@ import {
   staircaseVariantB,
 } from '../../../src/rom/objectHandlers/standardHandlers'
 import { STANDARD_HANDLERS } from '../../../src/rom/objectHandlers/dispatch'
+import { c3StructurePlants } from '../support/staircaseB'
 
 const COL = 16
 const ROW = 2
@@ -221,6 +222,8 @@ describe('0DC3D8 (staircase variant B) draws H+2 rows, the last without a cap (s
     [addr + 30, [0xa9, FILL]],
     [addr + 46, [0xbf, ...long(T_EDGE)]],
     [addr + 60, [0xbf, ...long(T_CAP)]],
+    // The hard-coded INC, CMP, BEQ and JSR targets (#762).
+    ...c3StructurePlants(addr),
     [T_CAP, cap],
     [T_EDGE, edge],
   ]

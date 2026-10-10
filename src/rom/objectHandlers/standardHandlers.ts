@@ -44,6 +44,7 @@ import {
   MAP16_BYTES_PER_SCREEN_H,
 } from './cursor'
 import { mirror } from '../addressing'
+import { hex2, hex6 } from '../hex'
 import { isInterpretedHandler, noteRefused, noteUnverified } from './interpretedGate'
 // No ADDR_DATA_* imports: every handler resolves its table addresses and
 // immediate tile IDs dynamically from its own bytecode via cur.handlerAddr.
@@ -569,6 +570,35 @@ function gateOpcode(cur: Cursor, offset: number, opcode: number, operandLength =
     return false
   }
   return true
+}
+
+/**
+ * gateOpcode, then the one operand byte must be `operand`: for an instruction
+ * the port hard-codes rather than reads (#762), so a changed operand refuses.
+ */
+function gateFixed(cur: Cursor, offset: number, opcode: number, operand: number): boolean {
+  if (!gateOpcode(cur, offset, opcode, 1)) return false
+  const at = cur.handlerAddr + offset + 1
+  const found = cur.rom.readByte(at) ?? 0
+  if (found === operand) return true
+  const why = `the operand at $${hex6(at)} is $${hex2(found)}, not the $${hex2(operand)} the port assumes`
+  noteRefused(cur.draw?.unverified, cur.handlerAddr, at, operand, found, why)
+  return false
+}
+
+/**
+ * gateOpcode for a JSR whose callee the port models inline, then its target
+ * (in the handler's bank, FastROM mirror folded) must be `target` (#762). A
+ * hack that retargets the call runs other code, so the port refuses.
+ */
+function gateJsr(cur: Cursor, offset: number, target: number): boolean {
+  if (!gateOpcode(cur, offset, 0x20, 2)) return false
+  const at = cur.handlerAddr + offset
+  const found = resolveJsrTarget(cur, at) ?? 0
+  if ((found & 0x7fffff) === target) return true
+  const why = `the JSR at $${hex6(at)} calls $${hex6(found)}, not $${hex6(target)} as the port assumes`
+  noteRefused(cur.draw?.unverified, cur.handlerAddr, at, 0x20, 0x20, why)
+  return false
 }
 
 /**
@@ -2565,11 +2595,25 @@ export function staircaseVariantB(cur: Cursor): void {
   //   LDA.L DATA_0DC354,X  opcode at +46, operand at +47  (step edge)
   //   LDA.L DATA_0DC350,X  opcode at +60, operand at +61  (step cap)
   // AND #imm at +8 (bank_0D.asm:4938) is the X mask.
+  // Hard-coded, so pinned in offset order (#762): INC _0 +22 (4947), CMP #$01 +39 (4956),
+  // BEQ +55 (4963), and every JSR (4940-4968) to its SMWDisX target.
   if (
     !gateOpcode(cur, 8, 0x29, 1) ||
+    !gateJsr(cur, 11, 0x0da6b1) || // CODE_0DA6B1
+    !gateFixed(cur, 22, 0xe6, 0x00) ||
+    !gateJsr(cur, 27, 0x0daa0d) || // StzTo6ePointer
     !gateOpcode(cur, 30, 0xa9, 1) ||
+    !gateJsr(cur, 32, 0x0da95b) || // CODE_0DA95B
+    !gateFixed(cur, 39, 0xc9, 0x01) ||
+    !gateJsr(cur, 43, 0x0daa08) || // Sta1To6ePointer
     !gateOpcode(cur, 46, 0xbf, 3) ||
-    !gateOpcode(cur, 60, 0xbf, 3)
+    !gateJsr(cur, 50, 0x0da95b) ||
+    !gateFixed(cur, 55, 0xf0, 0x1a) || // displacement to Return0DC42B
+    !gateJsr(cur, 57, 0x0daa08) ||
+    !gateOpcode(cur, 60, 0xbf, 3) ||
+    !gateJsr(cur, 64, 0x0da95b) ||
+    !gateJsr(cur, 67, 0x0da6ba) || // CODE_0DA6BA
+    !gateJsr(cur, 70, 0x0da97d) // CODE_0DA97D
   )
     return
   const X = cur.size & readImmByte(cur, base + 9)
