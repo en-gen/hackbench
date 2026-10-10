@@ -2,9 +2,9 @@
  * #636: $7E (flying red coin) and $7F (flying 1-Up) draw a 16 x 16 body plus
  * two 8 x 8 wings in the served interpreter path. The wings come from
  * CODE_019E95 (SMWDisX bank_01.asm:4083-4142), called from CODE_01C27C
- * (bank_01.asm:9040-9041). Needs the vanilla ROM; CI has none, and the
- * interpreter has no synthetic path that reaches a real sprite handler, so
- * this file is skipped there rather than faked.
+ * (bank_01.asm:9040-9041). Needs the vanilla ROM; CI has none, and no
+ * synthetic fixture was built that runs a real sprite handler, so this file
+ * is skipped there rather than faked.
  */
 import { describe, expect, it } from 'vitest'
 import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
@@ -24,16 +24,12 @@ function draw(rom: ReturnType<typeof freshRom>, id: number, level: number) {
 }
 
 describe.skipIf(!hasRom(VANILLA))('flying coin and 1-Up wings (#636), vanilla ROM', () => {
-  // Expected wing places, from the routine, not from the probe:
-  // CODE_019E95 moves the sprite to (X-2, Y+2) (bank_01.asm:4084-4101), draws
-  // the left wing there, then moves X +4 and draws the right one (4117-4129).
-  // KoopaWingDispXLo/DispY/Tiles/GfxProp (bank_01.asm:4006-4019), frame 0:
-  // left = index 0: dx $FF (-1), dy $FC (-4), tile $5D, prop $46 (X flip);
-  // right = index 2 (157C = 1): dx $09, dy $FC, tile $5D, prop $06.
-  // So left ox = X-2-1 = X-3, right ox = X-2+4+9 = X+11, both oy = Y+2-4 = Y-2.
+  // Expected wing offsets (left X-3, right X+11, both Y-2), frame 0:
+  // derivation in docs/sprites/sprite-engine-divergence.md (flying coin
+  // wings), from SMWDisX bank_01.asm:4006-4019, 4083-4142.
   for (const id of [0x7e, 0x7f]) {
     for (const level of LEVELS) {
-      it(`$${id.toString(16)} on level $${level.toString(16)}: body plus two mirrored wings`, () => {
+      it(`$${id.toString(16)} on slot $${level.toString(16)}: body plus two mirrored wings`, () => {
         const { pos, all, body, wings } = draw(freshRom(), id, level)
         expect(all).toHaveLength(3)
         expect(body).toHaveLength(1)
@@ -52,7 +48,7 @@ describe.skipIf(!hasRom(VANILLA))('flying coin and 1-Up wings (#636), vanilla RO
 
   // Through the drawer the app serves: 16 x 16 body = 4 EnginePart, each wing = 1.
   it.each([0x7e, 0x7f])(
-    'sprite %i via interpDrawer on level 0x105: body (4 parts) plus wings at dx -3 / +11, same tile, mirrored',
+    'sprite %i via interpDrawer on slot 0x105: body (4 parts) plus wings at dx -3 / +11, same tile, mirrored',
     id => {
       const sprite = {
         screen: 0,
