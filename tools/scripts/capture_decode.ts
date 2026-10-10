@@ -171,7 +171,9 @@ export function pieceOffset(oamX9: number, oamY: number, spriteX: number, sprite
  * hackbench-validation capture/mesen/headless_capture.lua:1389, where sn.sy
  * is the sprite's level Y minus Layer1YPos, set at :1279-1283). Choose the
  * multiple of 256 that puts the piece on the visible window -32..223, which
- * is 256 wide and so unique.
+ * is 256 wide and so unique. Limit: OBJ pieces run to 64 lines, so a 64-line
+ * piece whose top is above line -32 yet still reaches the screen is placed
+ * 256 lines too low (and then dropped as parked); 32 lines or less is exact.
  */
 export function unwrapDy(dy: number, spriteY: number, camY: number) {
   const v = dy + spriteScreenY(spriteY, camY)
