@@ -360,7 +360,7 @@ export function interpDrawer(
     const seed = (camera: { x: number; y: number }, extra = {}) => withSeed({ sprite: { x, y }, camera, mario, ...shape, ...extra }, base) // prettier-ignore
     const m = run(rom, s.spriteId, seed(camera))
     const at = m.chosen
-    if (!w || !loaderCam || at === undefined || !m.anchor || s.index >= 128 || !w[SPRITE_LOAD_STATUS + s.index]) return modelResult(m) // prettier-ignore
+    if (!w || !loaderCam || at === undefined || !m.anchor || s.index < 0 || s.index >= 128 || !w[SPRITE_LOAD_STATUS + s.index]) return modelResult(m) // prettier-ignore
     // Probe: the camera moved 13 x 11 px (not a multiple of the 8 px tile pitch, so a neighbour
     // tile cannot alias) towards the sprite's screen centre, so it stays drawn; run only to the drawn pass.
     const shifted = { x: camera.x + (x - camera.x < 128 ? -13 : 13), y: camera.y + (y - camera.y < 112 ? -11 : 11) } // prettier-ignore
@@ -389,8 +389,9 @@ function fixOffsets(
   const other = at === undefined ? undefined : probe.passes[at]
   if (!m.anchor || !pass || !other) return null
   const anchor = m.anchor
-  // Residue: the loader's entry is the part's whole OAM entry (X, Y, tile byte, attribute). An all-zero
-  // entry is the loader's fill, not a drawn part, so a genuine part at (0, 0) must move.
+  // Residue: the loader's entry is the part's X and Y, in an entry that is not all zero. Tile and
+  // attribute are not compared: the castle-flame cluster rewrites them. An all-zero entry is the loader's
+  // fill, not a drawn part, so a genuine part at (0, 0) must move.
   const residue = (p: SpritePart) => {
     const e = loaded.subarray(RAM.oam + p.oam * 4, RAM.oam + p.oam * 4 + 4)
     return e.some(v => v) && e[0] === (p.ox & 0xff) && e[1] === p.oy

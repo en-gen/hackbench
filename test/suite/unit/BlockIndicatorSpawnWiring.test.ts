@@ -5,6 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 
+const drawn: number[] = []
 const calls: { id: number; slot: number; inputs: Record<number, number> | undefined }[] = []
 
 vi.mock('../../../src/rom/sprites/interp/SpriteRunner', async importOriginal => ({
@@ -29,7 +30,8 @@ vi.mock('../../../theia/extension/src/node/map-sprites', async importOriginal =>
       _model: unknown,
       run: (r: unknown, id: number, s: { slot: number }) => unknown,
     ) =>
-    (s: { spriteId: number }) => {
+    (s: { spriteId: number; index: number }) => {
+      drawn.push(s.index)
       run(_rom, s.spriteId, { slot: 7 })
       return { ok: false, reason: 'refused: recorded' }
     },
@@ -63,6 +65,13 @@ describe('romArt hands the spawn its inputs', () => {
       [3, 16, 16],
       [11, 32, 48],
     ])
+  })
+
+  it('never hands the drawer a list index: a block-spawned sprite must not read an unrelated SpriteLoadStatus entry', () => {
+    // Index 0 would read list entry 0's status ($1938) and could take the start-of-level screen-fixed placement.
+    drawn.length = 0
+    romArt({} as never, 0x105, model).sprite(item(1), 0, 0)
+    expect(drawn).toEqual([-1])
   })
 
   it('runs the spawn in the machine slot the caller names, not the seed the drawer was handed', () => {
