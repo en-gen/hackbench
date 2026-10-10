@@ -545,7 +545,8 @@ export function runOnce(
     const first = model.passes.findIndex(p => p.parts.length > 0)
     if (first >= 0) model.chosen = first
     // $67: a first draw at pass 0 ran at the off-track INIT spot, so the pass after it (if it draws) is the
-    // first on-track one. A first draw later than pass 0 is already on the track: no advance.
+    // first on-track one. A first draw later than pass 0 is already on the track: no advance. When pass 0
+    // draws and pass 1 does not, pass 0 stays even if a later pass draws on track.
     if (snaps && first === 0 && model.passes[1]?.parts.length) model.chosen = 1
     if (snaps && model.chosen !== undefined)
       model.anchor = { ...model.anchor!, ...model.passes[model.chosen]!.origin }
@@ -582,7 +583,8 @@ export function runSprite(
   const a = runOnce(rom, id, seed, opts)
   if (a.refusal) return a
   const other = seed.mario.x >= seed.sprite.x ? seed.sprite.x - 0x40 : seed.sprite.x + 0x40
-  const b = runOnce(rom, id, withSeed({ mario: { x: other, y: seed.mario.y } }, seed), opts)
+  // opts carry over, but not `probe`: a caller's probe watches the real run, not the mirrored one.
+  const b = runOnce(rom, id, withSeed({ mario: { x: other, y: seed.mario.y } }, seed), { ...opts, probe: undefined }) // prettier-ignore
   if (!b.refusal && partsKey(a) !== partsKey(b)) a.dependsOn.push('marioX')
   return a
 }

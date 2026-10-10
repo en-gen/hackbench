@@ -93,6 +93,9 @@ describe('line-guided draw pass', () => {
   })
 
   it('applies the snap rule to id $67 only: another id whose MAIN is the grinder handler is generic', () => {
+    const rom = buildSyntheticRom({ id31IsGrinder: true })
+    // The alias passes the shape gate, so the id check alone is what keeps id 31 generic.
+    expect(grinderDrawsBeforeSnap(rom, 0x019500, GRINDER_DISPATCH_SHA)).toBe(true)
     const g = run(31, { id31IsGrinder: true })
     expect(g.chosen).toBe(0)
     expect(g.anchor!.x).toBe(0x80)
@@ -193,7 +196,7 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla grinder, on the vanilla ROM', (
         expect(m.chosen, `#${i}`).toBe(1)
         const pass = m.passes[1]!
         expect(pass.origin, `#${i}`).toEqual({ x: want[i]![0], y: want[i]![1] })
-        // The grinder's own pieces are the lowest OAM entries; slot $1F's level also draws four unrelated ones (#793).
+        // The grinder's own pieces are the lowest OAM entries; slot $1F's level also draws four more, not yet explained (#793).
         const body = [...pass.parts].sort((a, b) => a.oam - b.oam).slice(0, 4)
         expect(body.map(q => [q.dx, q.dy]).sort(), `#${i}`).toEqual([[-16, -16], [-16, 0], [0, -16], [0, 0]]) // prettier-ignore
       })
