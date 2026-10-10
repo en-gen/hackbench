@@ -233,6 +233,23 @@ describe('the wire carries four planes in the view stacking order (synthetic)', 
     expect(wireOf(mapOf(m, { ok: true, l2 })).note).toBe('hooked $0DA415 Layer 2: hooked $0DA106')
     expect(wireOf(mapOf(m)).note).toBe('hooked $0DA415')
   })
+
+  it('the map note reads L1, then L2, then the animation note (#493)', () => {
+    const m = { ...inputs(hGrid(1), false, 1), unverified: ['one'], animNote: 'anim' }
+    const l2 = { ...l2Of(nullGrid(27, 16), tiles2(solid)), unverified: ['two'] }
+    expect(wireOf(mapOf(m, { ok: true, l2 })).note).toBe('one Layer 2: two anim')
+  })
+
+  it('L2 notes alone, only duplicates, two lines, and a refused L2 each read as the code does (#493)', () => {
+    const base = inputs(hGrid(1), false, 1)
+    const withL2 = (m: L1Inputs, notes: string[]) => mapOf(m, { ok: true, l2: { ...l2Of(nullGrid(27, 16), tiles2(solid)), unverified: notes } }) // prettier-ignore
+    expect(wireOf(withL2(base, ['x'])).note).toBe('Layer 2: x')
+    const dup = { ...base, unverified: ['a', 'b'] }
+    expect(wireOf(withL2(dup, ['a', 'b'])).note).toBe('a b')
+    expect(wireOf(withL2(base, ['x', 'y'])).note).toBe('Layer 2: x Layer 2: y')
+    // A refused background carries no notes: only its layerNote speaks.
+    expect(wireOf(mapOf(base, { ok: false, reason: 'gone' })).note).toBeUndefined()
+  })
 })
 
 // ── The core's L2 reading ────────────────────────────────────────────────────

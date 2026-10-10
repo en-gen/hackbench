@@ -88,8 +88,8 @@ describe('loadL2Objects dispatch note (#493)', () => {
     expect(loadL2Objects(ok, 0x078000, 1, 0, false)!.grid).not.toEqual(createGrid(1))
   })
 
-  it('a gated pipe variant ($0DADEB) is drawn by the port: grid equals the null-sink grid, no note', () => {
-    // handle_0DAB3E at object 1, variant 0 (size 0) -> table at +18 -> CODE_0DADEB.
+  it('the interpreter-gated slope handler CODE_0DADEB (bank_0D.asm:2671) is drawn by the port: grid equals the null-sink grid, no note', () => {
+    // CODE_0DAB3E (bank_0D.asm:2278) at object 1, variant 0 (size 0) -> table at +18 -> CODE_0DADEB.
     const rom = via(0x0dab3e, b => b.set(long(0x0dadeb), off(0x0dab3e + 18)))
     const r = loadL2Objects(rom, 0x078000, 1, 0, false)!
     expect(r.unverified).toEqual([])
