@@ -13,7 +13,7 @@ and Invictus 1.0. Measured 2026-09-17, re-measured 2026-09-28, one machine,
 with HackBench's stream walkers (`getObjectStreamLength` skipping the
 5-byte header for L1 and L2, `getSpriteStreamLength`). No emulator run.
 The four edited hacks carry Lunar Magic's `$05D8B1` hook, as do 99 of 99
-hacks in the #275 store (#311); attributing a byte pattern to Lunar Magic
+hacks in the #275 store at that time (#311; the store held 101 as of 2026-10-10, see `docs/rom/hack-corpus.md`); attributing a byte pattern to Lunar Magic
 here is inferred from that hook, not from its documentation.
 
 ## 1. What happens when a map grows
