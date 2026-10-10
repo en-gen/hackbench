@@ -447,6 +447,14 @@ captures folder is only read. The pages embed ROM-derived bytes, so
 `<out-dir>` is refused when it is inside the repo, or is, contains or
 lies inside the captures folder.
 
+The sprite grader has two tiers against these captures. Tier 1
+(`spriteGrade.ts`) grades OAM shape relative to the sprite. Tier 2
+(`spritePosition.ts`, `SpritePosition.test.ts`, #830) grades where the
+pieces sit on the map: the model's first drawn pass against the capture's
+first OAM write, both as screen position plus that side's camera. It reports
+exact, off and missing per sprite and holds floors (vanilla, one machine,
+2026-10-10: 513 exact, 1381 off, 63 missing of 1957).
+
 A map's result comes from its Foreground, Background and Effects checks;
 Sprites are informational and never decide it. Exit codes:
 
