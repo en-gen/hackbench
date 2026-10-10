@@ -20,7 +20,19 @@ describe('capture_render folder kind (#854)', () => {
   it('still reports a layers folder without its summary as incomplete', () => {
     const l = load({ 'vram.bin': 'x', 'ppu.json': '{}' })
     expect(l.verdict).toBe('unavailable')
-    expect(l.detail).toMatch(/^no capture_summary.json: layers folder/)
+    expect(l.detail).toMatch(/^no capture_summary.json: not a sprite-trace folder/)
     expect(l.detail).toMatch(/incomplete/)
   })
+
+  // Only both trace files mark a sprite trace; either one alone is a partial folder.
+  it.each(['calls.json', 'frames.json'])(
+    'treats a folder holding only %s as not a finished trace',
+    f => {
+      const l = load({ [f]: '[]' })
+      expect(l.verdict).toBe('unavailable')
+      expect(l.detail).toMatch(/^no capture_summary.json: not a sprite-trace folder/)
+      expect(l.detail).toMatch(/incomplete/)
+      expect(l.detail).not.toContain('this viewer compares layers captures only')
+    },
+  )
 })
