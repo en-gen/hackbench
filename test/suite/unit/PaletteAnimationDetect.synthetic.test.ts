@@ -755,7 +755,10 @@ describe('a relocated overworld upload', () => {
   })
 
   // #704: a PHK/PLB data bank is a READ address; $FE/$FF is ROM on a 4 MB cart.
-  it.each([0xfe, 0xff])('reads the table through a PHK/PLB data bank $%i', bank => {
+  it.each([
+    [0xfe, 'FE'],
+    [0xff, 'FF'],
+  ])('reads the table through a PHK/PLB data bank $%s', (bank, _label) => {
     const at = (bank << 16) | 0x8000
     const near = Array.from({ length: 16 }, (_, n) => 0x0100 + n)
     const far = Array.from({ length: 16 }, (_, n) => 0x7000 + n)

@@ -11,7 +11,7 @@
  * `checkGetRand`). SMWDisX bank_01.asm:110-127, bank_07.asm:1006,
  * bank_01.asm:6092. The level loader's entries are checked in LevelLoader.ts.
  */
-import { mirror } from '../../addressing'
+import { isLoRomRomAddress, mirror } from '../../addressing'
 import type { RomFile } from '../../RomFile'
 import { bytesAt, shapeMatches } from './Guards'
 
@@ -192,6 +192,9 @@ const EXECUTE_PTR_SHAPE: (number | null)[] = [
 function checkExecutePtr(rom: RomFile, jsl: number[][]): ShapeResult {
   // Keys fold the FastROM mirror ($80+ is the same code); the read keeps the raw bank (#513, #704).
   const targets = jsl.map(t => (t[2] << 16) | (t[1] << 8) | t[0])
+  // mirror() keys $7E and $FE alike, so a WRAM call must be refused before keying.
+  if (!targets.every(isLoRomRomAddress))
+    return { ok: false, reason: 'a dispatch call reaches WRAM, not ROM' }
   if (new Set(targets.map(mirror)).size !== 1)
     return { ok: false, reason: 'the dispatch calls do not all reach the same routine' }
   if (!matches(bytes(rom, targets[0], EXECUTE_PTR_SHAPE.length), EXECUTE_PTR_SHAPE))

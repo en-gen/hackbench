@@ -53,7 +53,10 @@ describe('#704 inline bank masks', () => {
     return new RomFile('dispatch.sfc', buf)
   }
 
-  it.each([0xfe, 0xff])('checkExecutePtr reads ExecutePtr through bank %i', bank => {
+  it.each([
+    [0xfe, 'FE'],
+    [0xff, 'FF'],
+  ])('checkExecutePtr reads ExecutePtr through bank $%s', (bank, _label) => {
     const rom = fourMeg(() => (bank << 16) | 0x86fa)
     expect(resolveTables(rom).ok).toBe(true)
   })
@@ -61,6 +64,11 @@ describe('#704 inline bank masks', () => {
   it('checkExecutePtr still equates a FastROM twin with its $00+ target', () => {
     const rom = fourMeg(n => (n === 1 ? 0x8086fa : 0x0086fa))
     expect(resolveTables(rom).ok).toBe(true)
+  })
+
+  it('checkExecutePtr refuses a WRAM call that mirror() would key as the ROM one', () => {
+    const rom = fourMeg(n => (n === 1 ? 0x7e86fa : 0xfe86fa))
+    expect(resolveTables(rom).ok).toBe(false)
   })
 
   it('checkExecutePtr still refuses calls that reach different routines', () => {
