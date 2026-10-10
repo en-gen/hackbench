@@ -196,7 +196,11 @@ describe('the suite-wide guard', { timeout: 90000 }, () => {
   })
 
   it('a spawn with no shell is not authenticated (on win32 it reaches gh.exe)', () => {
-    const r = spawnSync('gh', ['auth', 'status'], { encoding: 'utf8', timeout: 20000 })
+    // The 20 s kill fired in 8 of 10 loaded runs (186 ms idle), and a killed spawn
+    // has status null, which passed the check below vacuously.
+    const r = spawnSync('gh', ['auth', 'status'], { encoding: 'utf8', timeout: 60_000 })
+    expect(r.error).toBeUndefined()
+    expect(r.signal).toBeNull()
     expect(r.status).not.toBe(0)
     expect(`${r.stdout}${r.stderr}`).not.toMatch(/Logged in/)
   })

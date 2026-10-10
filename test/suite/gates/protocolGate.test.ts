@@ -99,7 +99,7 @@ describe('the protocol command, hardened', () => {
     expect(fs.existsSync(path.join(stateDir, 'sessions.json'))).toBe(false)
   })
 
-  // 5.8 s worst over 10 runs, two concurrent full unit runs plus other worktrees' tests, 32-core machine, 2026-10-10
+  // 5.8 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10
   it('accepts only owner, schedule or session:<desktop id> for --by', () => {
     expect(run(['night-shift', 'on', '--by', 'schedule']).code).toBe(0)
     expect(run(['night-shift', 'off', '--by', 'owner']).code).toBe(0)
@@ -154,7 +154,7 @@ describe('the protocol command, hardened', () => {
 // disk left 1, 2 and 1 of 8 entries (and 5 earlier runs with busy-waiting
 // starts each left 1).
 describe('parallel registers', () => {
-  // 6.2 s worst over 10 runs, two concurrent full unit runs plus other worktrees' tests, 32-core machine, 2026-10-10
+  // Timed out at the 5 s default in 2 of 10 loaded runs (two concurrent full unit runs, 32-core machine, 2026-10-09/10), true duration unknown; idle about 2.3 s.
   it('keep every entry', async () => {
     const mod = pathToFileURL(script).href
     const startAt = Date.now() + 1500

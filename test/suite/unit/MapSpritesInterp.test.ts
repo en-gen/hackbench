@@ -380,7 +380,7 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     expect(pinned(rows)).toEqual(PINNED_ROWS)
   })
 
-  // 5.9 s worst over 10 runs, two concurrent full unit runs plus other worktrees' tests, 32-core machine, 2026-10-10
+  // 5.9 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10
   it('goes red on a planted defect: one part shifted by a pixel is a disagreement', () => {
     const base = tally(compare())
     const planted = tally(
@@ -405,7 +405,7 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     expect(pinned(rows)).not.toEqual(PINNED_ROWS)
   })
 
-  // 7.3 s worst over 10 runs, two concurrent full unit runs plus other worktrees' tests, 32-core machine, 2026-10-10
+  // 7.3 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10
   it('caches an ok reply per bytes and map, at most 8 of them (least recently used out), and never an unavailable one', () => {
     const b = bytes()
     const c = new L1ModelCache()

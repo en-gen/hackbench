@@ -149,7 +149,7 @@ describe.skipIf(!hasRom(VANILLA) || !existsSync(root))(
       expect(r.pastEndOnly).toEqual(PAST_END)
     }, 300_000)
 
-    // 16.0 s worst over 10 runs, two concurrent full unit runs plus other worktrees' tests, 32-core machine, 2026-10-10
+    // 16.0 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10
     it('no two maps with different Level 1 pointers share a Map16 dump (no castle-entry image survives)', () => {
       const ds: Dump[] = maps(root).map(id => ({
         id,

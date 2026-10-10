@@ -33,7 +33,7 @@ function hasControlByte(text: string): boolean {
 }
 
 describe('control bytes gate', () => {
-  // 17.5 s worst, solo full unit run under other worktrees' load, 32-core machine, 2026-10-10
+  // 17.5 s worst, solo full unit run on a shared 32-core machine, 2026-10-09/10
   it('no source file contains a raw control byte', () => {
     // Tripwire per root: a moved or wholly skipped root must not hide behind the others.
     const perRoot = SCANNED.map(d => ({ d, files: sourceFiles(path.join(ROOT, d)) }))

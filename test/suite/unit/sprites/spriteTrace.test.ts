@@ -99,7 +99,7 @@ describe.skipIf(!existsSync(join(TRACE_DIR, SPRITE_TRACE_SET)) || !hasRom(VANILL
       ]) // prettier-ignore
     }, 300_000)
 
-    // 5.0 s worst over 10 runs, two concurrent full unit runs plus other worktrees' tests, 32-core machine, 2026-10-10
+    // 5.0 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10
     it('goes red when the ROM is planted with a defect', () => {
       const rom = freshRom()
       // HandleSprite starts LDA $14C8,X ($BD); a NOP there changes every call it makes.

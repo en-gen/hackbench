@@ -94,7 +94,7 @@ describe('sync and async functions are both measured correctly', () => {
     expect(median(samples)).toBeGreaterThan(0)
   })
 
-  // 5.05 s worst over 10 runs, two concurrent full unit runs plus other worktrees' tests, 32-core machine, 2026-10-10
+  // Timed out at the 5 s default in 1 of 10 loaded runs (two concurrent full unit runs, 32-core machine, 2026-10-09/10), true duration unknown; idle 0.34 s.
   it('an async function is awaited per call, not raced', async () => {
     let inFlight = 0
     let maxInFlight = 0

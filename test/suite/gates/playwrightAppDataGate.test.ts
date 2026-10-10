@@ -256,7 +256,7 @@ describe.skipIf(process.platform === 'darwin')('Playwright app-data isolation (#
     expect(fs.existsSync(root)).toBe(true)
   })
 
-  // 5.7 s worst over 10 runs, two concurrent full unit runs plus other worktrees' tests, 32-core machine, 2026-10-10
+  // 5.7 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10
   it('start-test-server gives its server the folder it names, and marks it with the port', () => {
     const { root, env } = prepareTestServer(3999)
     try {

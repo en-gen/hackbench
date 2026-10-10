@@ -36,7 +36,7 @@ function writeTree(dir: string, files: Record<string, Buffer>) {
 }
 
 describe('the generated page runs standalone under the real CLI', () => {
-  // 52.3 s worst over 10 runs (npx tsx is not a dependency, so npx resolves it per spawn), two concurrent full unit runs plus other worktrees' tests, 32-core machine, 2026-10-10
+  // 52.3 s worst over 10 runs (npx tsx is not a dependency; npx resolution dominates when idle, about 2 s of 2.5 s, observed and not proven under load), two concurrent full unit runs, 32-core machine, 2026-10-09/10
   it('renders a map with npx tsx render_capture.ts and the page script draws in a fresh node:vm', () => {
     const inDir = join(TMP, 'in')
     const outDir = join(TMP, 'out')

@@ -287,7 +287,7 @@ describe('test registration gate', () => {
     expect(files.some(f => f.endsWith('MapTree.test.ts'))).toBe(true)
   })
 
-  // 16.0 s worst (pre-#770 base), full unit run under other worktrees' load, 32-core machine, 2026-10-10
+  // 16.0 s in one run of a concurrent pair on the pre-#770 base (loaded max since: 8.3 s), 32-core machine, 2026-10-09/10
   it('no suite decides from the filesystem how many cases it registers', () => {
     const offences = files
       .map(f => path.relative(SUITE_DIR, f))

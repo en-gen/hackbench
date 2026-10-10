@@ -78,8 +78,10 @@ afterAll(() => {
  * busy teaches people to ignore it, so the budget is stated rather than
  * inherited. It is a timeout, not a weakening: the assertions are unchanged.
  */
-// 102.6 s worst single ESLint case over 10 runs (via npx), two concurrent full unit runs plus other worktrees' tests, 32-core machine, 2026-10-10
-const CLI_TIMEOUT_MS = 200_000
+// 102.6 s worst via npx over 10 loaded runs (two concurrent full unit runs, 32-core machine, 2026-10-09/10); 28.9 s worst direct in one full run.
+const ESLINT_TIMEOUT_MS = 120_000
+// About 2x the 4.3 s loaded worst. Pure package.json cases need no timeout.
+const PRETTIER_TIMEOUT_MS = 10_000
 
 describe('the lint gate can fail', () => {
   it(
@@ -91,7 +93,7 @@ describe('the lint gate can fail', () => {
       )
       expect(exitCodeOf(ESLINT_BIN, ['--max-warnings', '0', file])).not.toBe(0)
     },
-    CLI_TIMEOUT_MS,
+    ESLINT_TIMEOUT_MS,
   )
 
   it(
@@ -105,7 +107,7 @@ describe('the lint gate can fail', () => {
       const file = writeFixture('cjs.ts', "const fs = require('fs')\nexport default fs\n")
       expect(exitCodeOf(ESLINT_BIN, ['--max-warnings', '0', file])).not.toBe(0)
     },
-    CLI_TIMEOUT_MS,
+    ESLINT_TIMEOUT_MS,
   )
 
   it(
@@ -122,62 +124,78 @@ describe('the lint gate can fail', () => {
       )
       expect(exitCodeOf(ESLINT_BIN, ['--max-warnings', '0', type])).toBe(0)
     },
-    CLI_TIMEOUT_MS,
+    ESLINT_TIMEOUT_MS,
   )
 
-  // One ESLint spawn lints all eight bypass files: a cold ESLint costs 3 to
-  // 22 s per spawn under load (#771), and these cases only need a per-file verdict.
-  const BYPASSES: [string, string][] = [
-    [
-      'a subpath value import',
-      "import { x } from 'cloudevents/dist/event/cloudevent'\nexport default x\n",
-    ],
-    ['a dynamic import()', "export const load = () => import('cloudevents')\n"],
-    ['a dynamic import() of a subpath', "export const load = () => import('cloudevents/dist')\n"],
-    ['a require() in a .cjs file', "const ce = require('cloudevents')\nmodule.exports = ce\n"],
-    ['a template-literal import()', 'export const load = () => import(`cloudevents`)\n'],
-    ['a template-literal require() in a .cjs file', 'module.exports = require(`cloudevents`)\n'],
-    ['a module.require() in a .cjs file', "module.exports = module.require('cloudevents')\n"],
-    [
-      'a template-literal module.require() in a .cjs file',
-      'module.exports = module.require(`cloudevents`)\n',
-    ],
-  ]
-  let bypassVerdict: Map<string, number>
-  beforeAll(() => {
-    const dir = path.join(fixtureRoot, `bypass-${process.pid}-${Date.now()}`)
-    fs.mkdirSync(dir, { recursive: true })
-    try {
-      const files = BYPASSES.map(([name, body], i) => {
-        const file = path.join(dir, `ce-bypass-${i}${name.includes('.cjs') ? '.cjs' : '.ts'}`)
-        fs.writeFileSync(file, body)
-        return file
-      })
-      // A config crash prints no JSON, so JSON.parse throws and every case goes red.
-      const r = spawnSync(
-        process.execPath,
-        [ESLINT_BIN, '--max-warnings', '0', '--format', 'json', ...files],
-        { cwd: repoRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
-      )
-      const results: { filePath: string; errorCount: number; warningCount: number }[] = JSON.parse(
-        r.stdout,
-      )
-      bypassVerdict = new Map(
-        results.map(x => [path.basename(x.filePath), x.errorCount + x.warningCount]),
-      )
-      expect(bypassVerdict.size).toBe(BYPASSES.length)
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true })
-    }
-  }, CLI_TIMEOUT_MS)
+  // One ESLint spawn lints all eight bypass files: a cold ESLint costs about 4
+  // to 103 s per spawn across 10 loaded runs (#771), and these cases only need
+  // a per-file verdict. Nested so a crash here cannot skip the cases above and below.
+  describe('cloudevents bypasses', () => {
+    const BYPASSES: [string, string][] = [
+      [
+        'a subpath value import',
+        "import { x } from 'cloudevents/dist/event/cloudevent'\nexport default x\n",
+      ],
+      ['a dynamic import()', "export const load = () => import('cloudevents')\n"],
+      ['a dynamic import() of a subpath', "export const load = () => import('cloudevents/dist')\n"],
+      ['a require() in a .cjs file', "const ce = require('cloudevents')\nmodule.exports = ce\n"],
+      ['a template-literal import()', 'export const load = () => import(`cloudevents`)\n'],
+      ['a template-literal require() in a .cjs file', 'module.exports = require(`cloudevents`)\n'],
+      ['a module.require() in a .cjs file', "module.exports = module.require('cloudevents')\n"],
+      [
+        'a template-literal module.require() in a .cjs file',
+        'module.exports = module.require(`cloudevents`)\n',
+      ],
+    ]
+    let bypassVerdict: Map<string, number> | undefined
+    let setupError: unknown
+    beforeAll(() => {
+      const dir = path.join(fixtureRoot, `bypass-${process.pid}-${Date.now()}`)
+      try {
+        fs.mkdirSync(dir, { recursive: true })
+        const files = BYPASSES.map(([name, body], i) => {
+          const file = path.join(dir, `ce-bypass-${i}${name.includes('.cjs') ? '.cjs' : '.ts'}`)
+          fs.writeFileSync(file, body)
+          return file
+        })
+        const r = spawnSync(
+          process.execPath,
+          [ESLINT_BIN, '--max-warnings', '0', '--format', 'json', ...files],
+          { cwd: repoRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+        )
+        if (r.error) throw r.error
+        // A config crash prints no JSON, so JSON.parse throws.
+        const results: { filePath: string; messages: { ruleId: string | null }[] }[] = JSON.parse(
+          r.stdout,
+        )
+        // Only the two restriction rules count: an ignore pattern yields a
+        // "File ignored" warning, which must not read as a rejection.
+        bypassVerdict = new Map(
+          results.map(x => [
+            path.basename(x.filePath),
+            x.messages.filter(
+              m => m.ruleId === 'no-restricted-imports' || m.ruleId === 'no-restricted-syntax',
+            ).length,
+          ]),
+        )
+        expect(bypassVerdict.size).toBe(BYPASSES.length)
+      } catch (err) {
+        // Kept, not thrown: a throwing hook would report the cases below as skipped.
+        setupError = err
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true })
+      }
+    }, ESLINT_TIMEOUT_MS)
 
-  it.each(BYPASSES.map(([name], i) => [name, i] as const))(
-    'rejects cloudevents through %s',
-    (name, i) => {
-      const ext = name.includes('.cjs') ? '.cjs' : '.ts'
-      expect(bypassVerdict.get(`ce-bypass-${i}${ext}`)).toBeGreaterThan(0)
-    },
-  )
+    it.each(BYPASSES.map(([name], i) => [name, i] as const))(
+      'rejects cloudevents through %s',
+      (name, i) => {
+        if (setupError) throw setupError
+        const ext = name.includes('.cjs') ? '.cjs' : '.ts'
+        expect(bypassVerdict?.get(`ce-bypass-${i}${ext}`)).toBeGreaterThan(0)
+      },
+    )
+  })
 
   it(
     'accepts a clean file, so the gate is not simply always red',
@@ -188,7 +206,7 @@ describe('the lint gate can fail', () => {
       )
       expect(exitCodeOf(ESLINT_BIN, ['--max-warnings', '0', file])).toBe(0)
     },
-    CLI_TIMEOUT_MS,
+    ESLINT_TIMEOUT_MS,
   )
 
   it(
@@ -202,26 +220,18 @@ describe('the lint gate can fail', () => {
       )
       expect(exitCodeOf(ESLINT_BIN, [file])).toBe(0)
     },
-    CLI_TIMEOUT_MS,
+    ESLINT_TIMEOUT_MS,
   )
 
-  it(
-    'binds the gate to the real script: npm run lint keeps --max-warnings 0',
-    () => {
-      expect(pkg.scripts.lint).toContain('--max-warnings 0')
-    },
-    CLI_TIMEOUT_MS,
-  )
+  it('binds the gate to the real script: npm run lint keeps --max-warnings 0', () => {
+    expect(pkg.scripts.lint).toContain('--max-warnings 0')
+  })
 
-  it(
-    'lints every tree that holds product or test code',
-    () => {
-      for (const dir of ['src', 'test', 'tools', 'theia']) {
-        expect(pkg.scripts.lint).toContain(dir)
-      }
-    },
-    CLI_TIMEOUT_MS,
-  )
+  it('lints every tree that holds product or test code', () => {
+    for (const dir of ['src', 'test', 'tools', 'theia']) {
+      expect(pkg.scripts.lint).toContain(dir)
+    }
+  })
 })
 
 describe('the format gate can fail', () => {
@@ -231,7 +241,7 @@ describe('the format gate can fail', () => {
       const file = writeFixture('ugly.ts', 'export const a   =    {b:1,c:  2};\n')
       expect(exitCodeOf(PRETTIER_BIN, [...PRETTIER_CHECK, file])).not.toBe(0)
     },
-    CLI_TIMEOUT_MS,
+    PRETTIER_TIMEOUT_MS,
   )
 
   it(
@@ -242,7 +252,7 @@ describe('the format gate can fail', () => {
       const file = writeFixture('style.ts', 'export const greeting = "hi";\n')
       expect(exitCodeOf(PRETTIER_BIN, [...PRETTIER_CHECK, file])).not.toBe(0)
     },
-    CLI_TIMEOUT_MS,
+    PRETTIER_TIMEOUT_MS,
   )
 
   it(
@@ -251,7 +261,7 @@ describe('the format gate can fail', () => {
       const file = writeFixture('pretty.ts', "export const greeting = 'hi'\n")
       expect(exitCodeOf(PRETTIER_BIN, [...PRETTIER_CHECK, file])).toBe(0)
     },
-    CLI_TIMEOUT_MS,
+    PRETTIER_TIMEOUT_MS,
   )
 
   it(
@@ -260,29 +270,21 @@ describe('the format gate can fail', () => {
       const file = writeFixture('ugly.css', '.a{color:red;background:blue}\n')
       expect(exitCodeOf(PRETTIER_BIN, [...PRETTIER_CHECK, file])).not.toBe(0)
     },
-    CLI_TIMEOUT_MS,
+    PRETTIER_TIMEOUT_MS,
   )
 
-  it(
-    'binds the gate to the real script: format:check runs prettier --check',
-    () => {
-      expect(pkg.scripts['format:check']).toContain('prettier')
-      expect(pkg.scripts['format:check']).toContain('--check')
-    },
-    CLI_TIMEOUT_MS,
-  )
+  it('binds the gate to the real script: format:check runs prettier --check', () => {
+    expect(pkg.scripts['format:check']).toContain('prettier')
+    expect(pkg.scripts['format:check']).toContain('--check')
+  })
 
-  it(
-    'formats only JS/TS/CSS, never prose or config',
-    () => {
-      // `prettier --write .` also rewrites Markdown, YAML and JSON. That
-      // reformats CLAUDE.md and AGENTS.md, and CLAUDE.md carries a generated
-      // region plus a no-em-dash rule that the pre-commit gate then blocks.
-      // Caught in review when the unscoped glob swept 60+ docs.
-      for (const script of [pkg.scripts.format, pkg.scripts['format:check']]) {
-        expect(script).toContain('{ts,tsx,js,mjs,cjs,css}')
-      }
-    },
-    CLI_TIMEOUT_MS,
-  )
+  it('formats only JS/TS/CSS, never prose or config', () => {
+    // `prettier --write .` also rewrites Markdown, YAML and JSON. That
+    // reformats CLAUDE.md and AGENTS.md, and CLAUDE.md carries a generated
+    // region plus a no-em-dash rule that the pre-commit gate then blocks.
+    // Caught in review when the unscoped glob swept 60+ docs.
+    for (const script of [pkg.scripts.format, pkg.scripts['format:check']]) {
+      expect(script).toContain('{ts,tsx,js,mjs,cjs,css}')
+    }
+  })
 })
