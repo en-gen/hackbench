@@ -34,9 +34,10 @@ function hasControlByte(text: string): boolean {
 
 describe('control bytes gate', () => {
   it('no source file contains a raw control byte', () => {
-    const files = SCANNED.flatMap(d => sourceFiles(path.join(ROOT, d)))
-    // Tripwire: a moved directory must not pass by scanning nothing.
-    expect(files.length).toBeGreaterThan(100)
+    // Tripwire per root: a moved or wholly skipped root must not hide behind the others.
+    const perRoot = SCANNED.map(d => ({ d, files: sourceFiles(path.join(ROOT, d)) }))
+    expect(perRoot.filter(r => r.files.length === 0).map(r => r.d)).toEqual([])
+    const files = perRoot.flatMap(r => r.files)
     const offenders = files
       .filter(f => hasControlByte(fs.readFileSync(f, 'latin1')))
       .map(f => path.relative(ROOT, f))

@@ -262,6 +262,11 @@ Order of preference, highest to lowest:
 When in doubt, ask on the PR whether the test has any ROM-derived bytes
 in it.
 
+`lintGate.test.ts` creates and deletes files under `test/suite/gates/__fixtures__`
+while other workers run, so any walker over `test/` must skip that directory
+(#754). The three walkers that do: `sourceFiles` in `controlBytesGate.test.ts`,
+`testFiles` in `testRegistrationGate.test.ts`, and the scan in `romTerminologyGate.test.ts`.
+
 ## Proving an oracle can fail
 
 A test that cannot go red is worse than no test, because it reports

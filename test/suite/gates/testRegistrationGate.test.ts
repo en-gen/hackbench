@@ -22,6 +22,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
 
 const SUITE_DIR = path.resolve(__dirname, '..')
@@ -531,3 +532,17 @@ function testFiles(dir: string): string[] {
   }
   return out
 }
+
+describe('testFiles walk', () => {
+  it('skips __fixtures__, where lintGate churns files (#754)', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'testfiles-'))
+    try {
+      fs.mkdirSync(path.join(d, '__fixtures__'))
+      fs.writeFileSync(path.join(d, '__fixtures__', 'x.test.ts'), '')
+      fs.writeFileSync(path.join(d, 'real.test.ts'), '')
+      expect(testFiles(d).map(f => path.relative(d, f))).toEqual(['real.test.ts'])
+    } finally {
+      fs.rmSync(d, { recursive: true, force: true })
+    }
+  })
+})
