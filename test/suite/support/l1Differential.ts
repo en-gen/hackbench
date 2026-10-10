@@ -53,6 +53,12 @@ export interface DiffRun {
   ownScreenDiffers: boolean | null
   /** SHA-1 of the interpreter's writes, 12 hex digits. */
   digest: string
+  /**
+   * SHA-1 of the port's non-empty cells (row, col, tile) over the whole grid,
+   * 12 hex digits. Null unless `differs`: an agreeing port needs no pin, and a
+   * refusal never runs the port.
+   */
+  portDigest: string | null
 }
 
 /** Columns 0 and 15 put every screen-edge crossing on the first or last write. */
@@ -96,6 +102,15 @@ function translates(upper: BufferWrite[], lower: BufferWrite[]): boolean {
 const digestOf = (writes: BufferWrite[]): string => {
   const h = createHash('sha1')
   for (const w of writes) h.update(`${w.addr},${w.value};`)
+  return h.digest('hex').slice(0, 12)
+}
+
+/** Skips TILE_EMPTY like sameGrid, so a port that starts or stops writing that tile is invisible. */
+export const portDigestOf = (grid: TileGrid): string => {
+  const h = createHash('sha1')
+  grid.forEach((cells, row) =>
+    cells.forEach((tile, col) => tile !== TILE_EMPTY && h.update(`${row},${col},${tile};`)),
+  )
   return h.digest('hex').slice(0, 12)
 }
 
@@ -176,6 +191,7 @@ export function sweep(rom: RomFile): DiffRun[] {
         differs: null,
         ownScreenDiffers: null,
         digest: digestOf(r.writes),
+        portDigest: null,
       }
       runs.push(run)
       if (r.refusal) continue
@@ -183,6 +199,8 @@ export function sweep(rom: RomFile): DiffRun[] {
       expandObject(port, object, rom, ts)
       applyWrites(mine, r.writes)
       Object.assign(run, compareRun(port, mine))
+      // Before the reset below: the grid still holds this case's port output.
+      if (run.differs) run.portDigest = portDigestOf(port)
       if (run.differs || r.writes.length > 0)
         [port, mine] = [createGrid(GRID_SCREENS), createGrid(GRID_SCREENS)]
     }

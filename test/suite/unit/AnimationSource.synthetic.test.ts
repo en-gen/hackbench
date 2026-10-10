@@ -26,6 +26,7 @@ import { flip } from '../support/syntheticRom'
 import {
   BACKREF_AT,
   plantBackRef,
+  READ_BYTE_BODY,
   BACKREF_DISPATCH,
   backRefRoutine,
   DISPATCH_AT,
@@ -133,6 +134,7 @@ function plantAnim(rom: RomFile, o: RomOpts = {}): void {
   put(routine + 0x56, o.entry ?? STOCK_LCLZ2_ENTRY)
   put(routine + 0x56 + DISPATCH_AT, BACKREF_DISPATCH)
   put(routine + 0x56 + BACKREF_AT, backRefRoutine('be', 0xb983, (routine + 0x56 + 5) & 0xffff))
+  put(0xb983, READ_BYTE_BODY)
   put(0x00a2a5, o.jsl ?? [0x22, 0x39, 0xbb, 0x05])
   put(0x05bb39, o.anim ?? stockRoutine())
   // GFX32 where the stream ends, decoys where a start-bank or $8000 read would look.

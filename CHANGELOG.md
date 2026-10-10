@@ -9,12 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Docs (#750): the hack corpus note now states 101 hacks, all patched, and scopes its "of 99" survey figures to the 2026-09-26 survey.
+- Unit tests: the control-bytes and test-registration walks skip `__fixtures__`, so a concurrent lintGate run no longer fails them with ENOENT (#754).
+- Test-only (#653 Stage A): a per-ROM report of which standard object leaves the interpreter agrees on, across the corpus.
 - Layer 1 differential: the #300 allow-list row no longer hides port/interpreter differences on the object's own screen (#453).
+- Layer 1 differential: every disagreement row now pins the port's own output for the cases it absorbs, so a planted change to the port's non-empty tiles under any absorbed case fails the differential. Refusals (the port never runs for them) and the empty tile $25 (the port digest skips it, like the comparison) stay unpinned (#759) (#751).
 - Tech-lead session titles are now "<Team> Team" (e.g. "Delta Team"), in the tech-lead manual and the unregistered-session hook text.
 
 ### Fixed
 
 - Spike Top ($2E) in the model path faces by Mario's start X (unflipped with Mario strictly left, X-flipped otherwise; a static approximation, as for Dry Bones and Chucks), reading the flip from the ROM's table; the served map view already did, now pinned by a test (44 vanilla placements, vanilla US 1.0, one machine) (#134).
+- GFX decompressor entry gate: the JSR ReadByte operand is no longer compared to the US constant; it is cross-checked against the back-reference routine and the ReadByte bytes it lands on, so the J, E0 and E1 operand sets are accepted (#696; synthetic fixtures from the SMWDisX sym operands, no J or E ROM in the corpus). A real J or E ROM is still refused earlier, at the US-only level-loader caller address $00AA6B (#774). The dormant ExGFX reader (#491/#528) now decodes in the order the gate reads.
+- Emulator view: the Controllers fly-out no longer covers the Controllers button (it sits below the toolbar), and keyboard presses light the controller drawing while focus is on that button or inside the fly-out (#587, #508; emulator-gamepad Playwright spec, 15 passed, 0 skipped, one Windows machine).
+- Collision overlay spec counts its probe calls from the websocket frames and holds the race reply on the widget's own service, so the zero-probe and late-reply cases can no longer pass or hang without testing anything (#706).
 - A cleared tech lead now resumes from a resume prompt it sends its orchestrator before clearing (no session ids), instead of relying on the hook. The session registry is keyed by desktop id, the hook prints the protocol script path and a short instruction, and shared state moves from `.claude/state/` to the gitignored `.hackbench-state/` (`protocol.mjs handoff` writes team and BA files, `migrate-state` converts the old files once; steps in `docs/runbooks/state-cutover.md`). Night shift is enactable and has no scheduled return (#725, #724).
 - The Mesen sprite-trace harness no longer records the pre-level castle-entry scene as the level
   (player animation `$0A`, `!PlayerAni_EnterCastle`, rammap.asm:575, set at bank_00.asm:4972-4978, at the first GM `$14`, GM14Level bank_00.asm:4405; it waits for the real load, about 500 frames later). 45 of

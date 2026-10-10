@@ -5,6 +5,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
 
 const ROOT = path.resolve(__dirname, '../../..')
@@ -14,10 +15,15 @@ const SCANNED = ['src', 'theia/extension/src', 'test', 'tools']
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/
 
+// lintGate.test.ts creates and deletes files under __fixtures__ while this walk runs
+// (#754: ENOENT on readFileSync). Skipping the directory is deterministic; an
+// ENOENT catch would also hide a real missing file.
+const SKIPPED_DIRS = new Set(['node_modules', '__fixtures__'])
+
 function sourceFiles(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap(e => {
     const p = path.join(dir, e.name)
-    if (e.isDirectory()) return e.name === 'node_modules' ? [] : sourceFiles(p)
+    if (e.isDirectory()) return SKIPPED_DIRS.has(e.name) ? [] : sourceFiles(p)
     return /\.(ts|tsx|js|cjs|mjs)$/.test(e.name) ? [p] : []
   })
 }
@@ -28,8 +34,11 @@ function hasControlByte(text: string): boolean {
 
 describe('control bytes gate', () => {
   it('no source file contains a raw control byte', () => {
-    const files = SCANNED.flatMap(d => sourceFiles(path.join(ROOT, d)))
-    // Tripwire: a moved directory must not pass by scanning nothing.
+    // Tripwire per root: a moved or wholly skipped root must not hide behind the others.
+    const perRoot = SCANNED.map(d => ({ d, files: sourceFiles(path.join(ROOT, d)) }))
+    expect(perRoot.filter(r => r.files.length === 0).map(r => r.d)).toEqual([])
+    const files = perRoot.flatMap(r => r.files)
+    // Total floor too: a scan that collapses to a handful of files must still fail.
     expect(files.length).toBeGreaterThan(100)
     const offenders = files
       .filter(f => hasControlByte(fs.readFileSync(f, 'latin1')))
@@ -42,5 +51,17 @@ describe('control bytes gate', () => {
       expect(hasControlByte(`const re = /[${planted}]/`)).toBe(true)
     }
     expect(hasControlByte('a\tb\r\nc\n')).toBe(false)
+  })
+
+  it('does not walk __fixtures__, where lintGate churns files (#754)', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ctrlbytes-'))
+    try {
+      fs.mkdirSync(path.join(d, '__fixtures__', 'run-1'), { recursive: true })
+      fs.writeFileSync(path.join(d, '__fixtures__', 'run-1', 'a.ts'), 'x')
+      fs.writeFileSync(path.join(d, 'real.ts'), 'x')
+      expect(sourceFiles(d).map(f => path.relative(d, f))).toEqual(['real.ts'])
+    } finally {
+      fs.rmSync(d, { recursive: true, force: true })
+    }
   })
 })
