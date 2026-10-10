@@ -669,6 +669,21 @@ attribute source, and a per-part 16x16 size flag. That is a real per-frame
 offset requirement, and it is the reason to expect this kind to grow. It would
 also delete `WingedSpriteAppearance`.
 
+**Flying coin and 1-Up wings ($7E, $7F; #636).** Both call `CODE_019E95`
+(`bank_01.asm:4083-4142`) from `CODE_01C27C` (`bank_01.asm:9040-9041`); the
+other caller is `bank_01.asm:6187`. Position arithmetic, read from the routine:
+it saves, then moves the sprite to (X-2, Y+2) (`4084-4101`), zeroes
+`SpriteMisc157C` and takes the frame from `SpriteMisc1570` (`4107-4116`), draws
+the left wing, moves X by +4, sets `SpriteMisc157C` to 1 (`4117-4129`), draws
+the right wing, and restores everything. Frame 0 reads `KoopaWingDispXLo` /
+`KoopaWingDispY` / `KoopaWingTiles` / `KoopaWingGfxProp` (`bank_01.asm:4006-4019`)
+at index 0 for the left wing (dx $FF, dy $FC, tile $5D, prop $46, X flip) and
+index 2 for the right (dx $09, dy $FC, tile $5D, prop $06). So the left wing
+lands at X-3 and the right at X+11, both at Y-2 relative to the sprite
+position. `test/suite/unit/sprites/FlyingCoinWings.test.ts` asserts those
+offsets; evidence scope: the served interpreter on the vanilla ROM, three slots,
+frame 0, one machine.
+
 **Estimate.** Of the 201 sprite slots, the handlers that write extra OAM
 around a shared routine are: `$1F`, the Dry Bones / Bony Beetle family, the
 five winged `Spr0to13` ids, the winged Goomba, and one untraced site. Call it
