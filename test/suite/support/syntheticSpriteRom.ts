@@ -5,7 +5,6 @@
  * routine below is written here, so CI (which has no cart) exercises the
  * runner, the dispatch reader and the refusal paths.
  *
- *
  * Ids: 0 shifts +8 in INIT and draws one 16x16 piece; 1 shifts (+8,-1) with a
  * Y borrow; 2 draws a flip that follows Mario's side; 3 takes its tile from
  * the hardware multiplier; 4 executes COP in MAIN; 5 draws nothing; 6 has an
@@ -80,6 +79,8 @@ export interface SyntheticOptions {
   alteredGrinder?: boolean
   /** Id 103 draws on its first MAIN only. */
   grinderDrawsOnce?: boolean
+  /** Id 103 draws on its second MAIN only. */
+  grinderDrawsOnPass1?: boolean
 }
 
 const BANK = 0x8000

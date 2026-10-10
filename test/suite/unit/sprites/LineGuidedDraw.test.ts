@@ -14,13 +14,24 @@ import {
 import { parseLevelSprites } from '../../../../src/rom/LevelParser'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
+import {
+  DISPATCH_PINNED,
+  ENTRY_PINNED,
+  grinderDrawsBeforeSnap,
+} from '../../../../src/rom/sprites/interp/LineGuided'
 import { runOnce, type SpriteModel } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { SPRITE_SEED, withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { hasRom, romPath, VANILLA } from '../../support/corpus'
+import {
+  GRINDER_DISPATCH_AT,
+  GRINDER_DISPATCH_SHA,
+  GRINDER_HANDLER,
+} from '../../support/syntheticGrinder'
 import { buildSyntheticRom, type SyntheticOptions } from '../../support/syntheticSpriteRom'
 
 const seed = withSeed({ slot: 3, sprite: { x: 0x80, y: 0x80 } }, SPRITE_SEED)
-const run = (id: number, o: SyntheticOptions = {}) => runOnce(buildSyntheticRom(o), id, seed)
+const run = (id: number, o: SyntheticOptions = {}) =>
+  runOnce(buildSyntheticRom(o), id, seed, { grinderDispatchSha: GRINDER_DISPATCH_SHA })
 
 describe('line-guided draw pass', () => {
   it('draws another id at its first pass, at the position the draw ran', () => {
@@ -63,6 +74,35 @@ describe('line-guided draw pass', () => {
     expect(g.chosen).toBe(0)
     expect(g.anchor!.x).toBe(0x80)
     expect(g.passes[0]!.parts[0]!.dx).toBe(0)
+  })
+
+  it('puts the anchor where the chosen draw ran when only pass 1 draws: where the generic id lands', () => {
+    const [g, other] = [run(103, { grinderDrawsOnPass1: true }), run(32)]
+    expect(g.chosen).toBe(1)
+    expect(g.anchor!.x).toBe(0x84)
+    const at = (m: typeof g) => m.anchor!.x + m.passes[m.chosen!]!.parts[0]!.dx
+    expect(at(g)).toBe(0x84)
+    expect(at(g)).toBe(at(other))
+  })
+
+  it('accepts the cart it was fingerprinted on, and no other', () => {
+    const rom = buildSyntheticRom()
+    expect(grinderDrawsBeforeSnap(rom, GRINDER_HANDLER, GRINDER_DISPATCH_SHA)).toBe(true)
+    // The default digest is vanilla's: the synthetic handler is not it.
+    expect(grinderDrawsBeforeSnap(rom, GRINDER_HANDLER)).toBe(false)
+  })
+
+  it('refuses a changed byte at every pinned offset of the entry and of the dispatch span', () => {
+    const flip = (at: number) => {
+      const rom = buildSyntheticRom()
+      rom.writeAt(at, [rom.readAt(at, 1)![0]! ^ 0x01])
+      return grinderDrawsBeforeSnap(rom, GRINDER_HANDLER, GRINDER_DISPATCH_SHA)
+    }
+    expect(ENTRY_PINNED).toHaveLength(14)
+    expect(DISPATCH_PINNED).toHaveLength(26)
+    for (const i of ENTRY_PINNED) expect(flip(GRINDER_HANDLER + i), `entry +${i}`).toBe(false)
+    for (const i of DISPATCH_PINNED)
+      expect(flip(GRINDER_DISPATCH_AT + i), `dispatch +${i}`).toBe(false)
   })
 
   it('reports where each pass drew from: the INIT anchor, or for $67 the position the pass before left', () => {

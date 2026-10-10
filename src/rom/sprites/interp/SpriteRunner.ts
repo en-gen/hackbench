@@ -90,7 +90,7 @@ export interface SpritePart {
   priority: number
   flipX: boolean
   flipY: boolean
-  /** Pixels from the pass's draw origin (`PassResult.origin`): the post-INIT position, except for $67 (see `DRAWS_BEFORE_LINE_SNAP`). */
+  /** Pixels from the pass's draw origin (`PassResult.origin`): the post-INIT position, except for $67 on a vanilla-shaped handler. */
   dx: number
   dy: number
   /** Raw attribute byte, for graders that compare it whole. */
@@ -110,7 +110,7 @@ export interface PassResult {
   pass: number
   /** Level position of the sprite at the end of this pass. */
   pos: { x: number; y: number }
-  /** The position this pass's parts are measured from: `SpriteModel.anchor`, except for $67, where it is the position the pass before left (where the draw ran). */
+  /** Where this pass's parts are measured from: `SpriteModel.anchor`, except for $67 on a vanilla-shaped handler (where the pass before left it). */
   origin: { x: number; y: number }
   parts: SpritePart[]
   /** Palette or graphics uploads the pass wrote registers for. */
@@ -176,6 +176,8 @@ export interface RunOptions {
   spawn?: SpawnRun
   probe?: Probe
   trackInputs?: boolean
+  /** The dispatch digest the $67 gate accepts; a test hook, so a synthetic cart brings its own (default: vanilla's). */
+  grinderDispatchSha?: string
 }
 
 export { Refusal }
@@ -433,13 +435,9 @@ function uploadsOf(m: Machine, before: Map<number, number>): string[] {
 export type Probe = (pass: number, wram: Uint8Array) => void
 
 /**
- * Sprites whose MAIN draws BEFORE it moves, and whose first move snaps them onto their line: the
- * grinder draws (CODE_01DC0B) and only then runs the line step CODE_01D74D (SMWDisX
- * bank_01.asm:12194-12204). That step's CODE_01D8A4 stores the winning probe corner into X/Y
- * (12054-12061) and later steps set X/Y from the line table (11920-11929, 12101). The first draw is at
- * the spawn position, which is not on the track; the first draw after the snap is. #126.
- * Deliberately $67 only: the other line-guided ids ($62, $64-$66, $68) share the order and are a
- * pending follow-up. The rule also needs the cart's handler to have the vanilla shape (LineGuided.ts).
+ * The grinder draws, then its line step snaps it onto the track (SMWDisX bank_01.asm:12194-12204,
+ * corner stores 12054-12061), so the first draw is at the off-track spawn spot and the next is on it (#126).
+ * $67 only: the other line-guided ids share the order and are a pending follow-up.
  */
 const DRAWS_BEFORE_LINE_SNAP: ReadonlySet<number> = new Set([0x67])
 
@@ -517,7 +515,8 @@ export function runOnce(
       return { ...model, refusal: `INIT did not complete in ${MAX_INIT_FRAMES} frames: status stays 1, waiting on state the seed lacks` } // prettier-ignore
     const anchor = m.pos()
     const snaps =
-      DRAWS_BEFORE_LINE_SNAP.has(id) && grinderDrawsBeforeSnap(rom, mains.handler.address)
+      DRAWS_BEFORE_LINE_SNAP.has(id) &&
+      grinderDrawsBeforeSnap(rom, mains.handler.address, opts.grinderDispatchSha)
     model.anchor = { ...anchor, rawX: m.seed.sprite.x, rawY: m.seed.sprite.y }
     model.oamBase = w[RAM.oamIndex + m.seed.slot]
     probe?.(-1, w)
@@ -531,7 +530,7 @@ export function runOnce(
       m.frame()
       model.steps.push(m.steps - n)
       probe?.(p, w)
-      // Where this pass's draw ran: the position the previous pass left (a draw precedes its own move).
+      // The draw ran before this pass's own move, so for $67 it ran where the pass before left it.
       const origin = snaps ? (model.passes[p - 1]?.pos ?? anchor) : anchor
       model.passes.push({
         pass: p,
@@ -545,12 +544,10 @@ export function runOnce(
     if (m.bus.inputs) model.inputs = [...m.bus.inputs].sort((a, b) => a - b)
     const first = model.passes.findIndex(p => p.parts.length > 0)
     if (first >= 0) model.chosen = first
-    // The pass after the first draw, when it draws too (first+1 is not 'the second pass' when the first draw is later),
-    // and the position the first drawn pass left: where that draw ran, so the box follows the body.
-    if (snaps && first >= 0 && model.passes[first + 1]?.parts.length) {
-      model.chosen = first + 1
-      model.anchor = { ...model.anchor!, ...model.passes[first]!.pos }
-    }
+    // $67: the pass after the first draw, if it draws too; the anchor is wherever the chosen draw ran.
+    if (snaps && first >= 0 && model.passes[first + 1]?.parts.length) model.chosen = first + 1
+    if (snaps && model.chosen !== undefined)
+      model.anchor = { ...model.anchor!, ...model.passes[model.chosen]!.origin }
     if (model.passes.every(p => p.parts.length === 0))
       model.emptyReason = `drew no OAM tile in ${m.seed.mainPasses} passes (invisible by design, or the seed lacks state)` // prettier-ignore
   } catch (e) {

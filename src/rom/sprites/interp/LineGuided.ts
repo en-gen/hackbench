@@ -1,34 +1,48 @@
 /**
- * Whether a cart's line-guided grinder ($67) still has the vanilla order: its MAIN draws, and only
- * then runs the line step that snaps it onto the track. A hack that rewrites the handler gets the
- * runner's generic rule instead, so nothing here is a claim about a cart it has not read.
+ * Whether a cart's line-guided grinder ($67) still dispatches in the vanilla order: draw, then the
+ * line step. A hack that rewrites the handler gets the runner's generic rule. The gate reads the
+ * dispatch shape (opcodes and the branches inside it), not the routines it calls.
  */
 import type { RomFile } from '../../RomFile'
+import { fingerprint } from '../../Fingerprint'
 
-/** null matches any byte (operands that name a label or a constant). */
-type Shape = readonly (number | null)[]
+/** LineGrinder to its JMP (SMWDisX bank_01.asm:11837-11846), under the ~32-byte literal limit; null = free operand. */
+const ENTRY: readonly (number | null)[] = [0xa5, 0x13, 0x29, 0x07, 0x1d, 0x26, 0x16, 0x05, 0x9d, 0xd0, 0x05, 0xa9, null, 0x8d, null, null, 0x4c] // prettier-ignore
 
-/**
- * LineGrinder (SMWDisX bank_01.asm:11837-11846) to its `JMP CODE_01D9A7`: LDA TrueFrame / AND #7 /
- * ORA SpriteMisc1626,X / ORA SpriteLock / BNE / LDA #sfx / STA SPCIO1 / JMP.
- */
-const ENTRY: Shape = [0xa5, 0x13, 0x29, 0x07, 0x1d, 0x26, 0x16, 0x05, 0x9d, 0xd0, null, 0xa9, null, 0x8d, null, null, 0x4c] // prettier-ignore
+/** Offsets of ENTRY's pinned bytes (the rest are operands that name a constant or a register). */
+export const ENTRY_PINNED = ENTRY.flatMap((v, i) => (v === null ? [] : [i]))
 
 /**
- * CODE_01D9A7 (bank_01.asm:12182-12204) for sprite $67: the number tests ($64, $65, $68), the CMP #$67
- * arm, JSR CODE_01DC0B (the draw, offset 23), JSR MarioSprInteractRt (26), BRA to the `+` (29), the
- * other arm (31-37) and `+ JMP CODE_01D74D` (38), the line step.
+ * CODE_01D9A7's $67 arm, 41 bytes (bank_01.asm:12182-12204), is over the literal limit
+ * (docs/rom/level-table-gate.md), so it is pinned as the SHA-256 of the span with these operand
+ * offsets zeroed: the JSR/JSL/JMP targets and the two branches that leave the span. Branches that stay
+ * inside it (13, 18, 22) are hashed, so the draw JSR (23) stays ahead of the JMP to the line step (38).
  */
-const DISPATCH: Shape = [0xb5, 0x9e, 0xc9, 0x64, 0xf0, null, 0xc9, 0x65, 0x90, null, 0xc9, 0x68, 0xd0, null, 0x20, null, null, 0x80, null, 0xc9, 0x67, 0xd0, null, 0x20, null, null, 0x20, null, null, 0x80, 0x07, 0x20, null, null, 0x22, null, null, null, 0x4c] // prettier-ignore
+export const DISPATCH_LEN = 41
+export const DISPATCH_OPERANDS: readonly number[] = [5, 9, 15, 16, 24, 25, 27, 28, 32, 33, 35, 36, 37, 39, 40] // prettier-ignore
+export const DISPATCH_PINNED = Array.from({ length: DISPATCH_LEN }, (_, i) => i).filter(
+  i => !DISPATCH_OPERANDS.includes(i),
+)
 
-const matches = (b: Uint8Array, shape: Shape): boolean =>
-  b.length >= shape.length && shape.every((v, i) => v === null || b[i] === v)
+/** Vanilla's masked-span digest, from the unmodified US ROM (one cart). */
+export const VANILLA_DISPATCH_SHA =
+  '75b5f1f4e0388d88ee79255d53b610623edfb734405f6ce1544dfe5503af57c7'
 
-/** `handler`: the 24-bit address the ROM's own MAIN pointer table gives for $67. */
-export function grinderDrawsBeforeSnap(rom: RomFile, handler: number): boolean {
+export function dispatchDigest(span: Uint8Array | null): string | null {
+  if (!span || span.length < DISPATCH_LEN) return null
+  const masked = Uint8Array.from(span.subarray(0, DISPATCH_LEN))
+  for (const i of DISPATCH_OPERANDS) masked[i] = 0
+  return fingerprint(masked)
+}
+
+/** `handler`: the 24-bit address from the ROM's own MAIN pointer table for $67; `sha`: the dispatch digest to accept. */
+export function grinderDrawsBeforeSnap(
+  rom: RomFile,
+  handler: number,
+  sha = VANILLA_DISPATCH_SHA,
+): boolean {
   const entry = rom.readAt(handler, ENTRY.length + 2)
-  if (!entry || !matches(entry, ENTRY)) return false
+  if (!entry || ENTRY_PINNED.some(i => entry[i] !== ENTRY[i])) return false
   const target = (handler & 0xff0000) | entry[ENTRY.length]! | (entry[ENTRY.length + 1]! << 8)
-  const body = rom.readAt(target, DISPATCH.length)
-  return !!body && matches(body, DISPATCH)
+  return dispatchDigest(rom.readAt(target, DISPATCH_LEN)) === sha
 }
