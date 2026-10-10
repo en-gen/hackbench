@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest'
 import {
   SMASH_SPRITE_ID,
   l3SmashPos,
+  readLevelSprites,
   readL3SmashLoadPos,
   readSmashCodeGate,
 } from '../../../src/rom/L3Smash'
@@ -18,65 +19,146 @@ import { VANILLA, hasRom, romPath } from '../support/corpus'
 
 /** A sprite at pixel (x, y); the parser keeps 16 px units. */
 const spr = (spriteId: number, x: number, y: number): LevelSprite => ({ spriteId, x: x / 16, y: y / 16, screen: x >> 8, extraBit: false, raw: [], index: 0, streamOffset: 0 }) // prettier-ignore
-const SMASH = SMASH_SPRITE_ID
 
 describe('l3SmashPos (synthetic sprite lists)', () => {
+  it('the sprite id is the literal $89 (Layer 3 smash, bank_01.asm:1035)', () => {
+    expect(SMASH_SPRITE_ID).toBe(0x89)
+  })
+
   it('X is the sprite X inside $00-$FF and $100 beyond it; Y is $A0 minus the sprite Y', () => {
-    const at = (x: number, y: number) => l3SmashPos([spr(SMASH, x, y)], 16)
+    const at = (x: number, y: number) => l3SmashPos([spr(0x89, x, y)], 16)
     expect(at(112, 0)).toEqual({ ok: true, pos: { x: 112, y: 160 } })
     expect(at(288, 0)).toEqual({ ok: true, pos: { x: 256, y: 160 } })
-    expect(at(255, 0x30)).toEqual({ ok: true, pos: { x: 255, y: 0x70 } })
+    expect(at(240, 0x30)).toEqual({ ok: true, pos: { x: 240, y: 0x70 } })
     expect(at(256, 0)).toMatchObject({ pos: { x: 256 } })
+    expect(at(16, 0xa0)).toEqual({ ok: true, pos: { x: 16, y: 0 } })
+  })
+
+  it('a sprite below $A0 refuses (negative Y is not modelled), never an empty success', () => {
+    expect(l3SmashPos([spr(0x89, 16, 0x110)], 16)).toMatchObject({ ok: false })
+    expect(l3SmashPos([spr(0x89, 16, 0xb0)], 16)).toMatchObject({ ok: false })
   })
 
   it('no smasher, or one past the start-up load window ($190), leaves layer 3 where CODE_00A007 put it', () => {
     expect(l3SmashPos([spr(0x33, 112, 0)], 16)).toEqual({ ok: true, pos: null })
-    expect(l3SmashPos([spr(SMASH, 0x190, 0)], 16)).toMatchObject({ pos: { x: 0x100 } })
-    expect(l3SmashPos([spr(SMASH, 0x191, 0)], 16)).toEqual({ ok: true, pos: null })
+    expect(l3SmashPos([spr(0x89, 0x190, 0)], 16)).toMatchObject({ pos: { x: 0x100 } })
+    expect(l3SmashPos([spr(0x89, 0x1a0, 0)], 16)).toEqual({ ok: true, pos: null })
   })
 
   it('refuses, with a reason, two loaded smashers and a start where camera X is not known to be 0', () => {
-    expect(l3SmashPos([spr(SMASH, 16, 0), spr(SMASH, 32, 0)], 16)).toMatchObject({ ok: false })
-    expect(l3SmashPos([spr(SMASH, 16, 0)], 0x80)).toMatchObject({ ok: false })
-    expect(l3SmashPos([spr(SMASH, 16, 0)], 0x7f)).toMatchObject({ ok: true })
+    expect(l3SmashPos([spr(0x89, 16, 0), spr(0x89, 32, 0)], 16)).toMatchObject({ ok: false })
+    expect(l3SmashPos([spr(0x89, 16, 0)], 0x80)).toMatchObject({ ok: false })
+    expect(l3SmashPos([spr(0x89, 16, 0)], 0x7f)).toMatchObject({ ok: true })
   })
 })
 
-describe('readSmashCodeGate (synthetic code)', () => {
-  const MAIN = 0x02d3ea
-  const STUB = 0x01883d
-  const SITE = 0x00ff61
-  const body = Array.from({ length: 50 }, (_, i) => (i * 7 + 3) & 0xff)
-  const romOf = () => {
-    const rom = new RomFile('smash.sfc', Buffer.alloc(0x80000, 0))
-    rom.writeAt(0x00ffd5, [0x20])
-    rom.writeAt(0x0185cc + SMASH * 2, [STUB & 0xff, (STUB >> 8) & 0xff])
-    rom.writeAt(STUB, [0x8b, 0xa9, 0x02, 0x48, 0xab, 0x22, MAIN & 0xff, (MAIN >> 8) & 0xff, 0x02])
-    rom.writeAt(MAIN, [0x22, SITE & 0xff, SITE >> 8, 0x00])
-    rom.writeAt(SITE, body)
-    return rom
-  }
-  const site = { addr: SITE, length: 50, sha256: createHash('sha256').update(Buffer.from(body)).digest('hex') } // prettier-ignore
+const MAIN = 0x02d3ea
+const STUB = 0x01883d
+const INIT = 0x01843d
+const SITE = 0x00ff61
+const MAIN_TABLE = 0x0185cc + 0x89 * 2
+const INIT_TABLE = 0x01817d + 0x89 * 2
+/** Three code regions of distinct bytes (stand-ins for the position routine, the sprite loader and the sweep). */
+const REGIONS = [SITE, 0x02a7f6, 0x02aca1].map((addr, i) => ({ addr, bytes: Array.from({ length: 40 }, (_, k) => (k * 7 + i * 31 + 3) & 0xff) })) // prettier-ignore
+const sites = REGIONS.map(r => ({ addr: r.addr, length: 40, sha256: createHash('sha256').update(Buffer.from(r.bytes)).digest('hex') })) // prettier-ignore
 
+/** A cart with the sprite $89 chain and the three regions, built from literals. */
+function smashRom(): RomFile {
+  const rom = new RomFile('smash.sfc', Buffer.alloc(0x80000, 0))
+  rom.writeAt(0x00ffd5, [0x20])
+  rom.writeAt(MAIN_TABLE, [STUB & 0xff, (STUB >> 8) & 0xff])
+  rom.writeAt(INIT_TABLE, [INIT & 0xff, (INIT >> 8) & 0xff])
+  rom.writeAt(INIT, [0x60])
+  rom.writeAt(STUB, [0x8b, 0xa9, 0x02, 0x48, 0xab, 0x22, MAIN & 0xff, (MAIN >> 8) & 0xff, 0x02])
+  for (const r of REGIONS) rom.writeAt(r.addr, r.bytes)
+  rom.writeAt(MAIN, [0x22, SITE & 0xff, SITE >> 8, 0x00]) // JSL CODE_00FF61, over the region's first bytes' neighbours
+  return rom
+}
+describe('readSmashCodeGate (synthetic code)', () => {
   it('passes the chain it was built from and refuses each planted change', () => {
-    expect(readSmashCodeGate(romOf(), site)).toBe(true)
-    for (const [what, at] of [
-      ['the pointer table entry', 0x0185cc + SMASH * 2],
+    expect(readSmashCodeGate(smashRom(), sites)).toBe(true)
+    const plants: [string, number][] = [
+      ['the main pointer entry', MAIN_TABLE],
+      ['the init pointer entry', INIT_TABLE],
+      ['the init body (not a bare RTS)', INIT],
+      ['the stub PHB', STUB],
       ['the stub JSL', STUB + 5],
+      ['the stub JSL bank', STUB + 8],
       ['the main routine opening JSL', MAIN],
       ['the position routine', SITE + 20],
-    ] as const) {
-      const rom = romOf()
+      ['the sprite loader (a JML in it)', 0x02a7f6 + 30],
+      ['the start-up sweep', 0x02aca1 + 10],
+    ]
+    for (const [what, at] of plants) {
+      const rom = smashRom()
       rom.writeAt(at, [rom.readByte(at)! ^ 0x55])
-      expect(readSmashCodeGate(rom, site), what).toBe(false)
+      expect(readSmashCodeGate(rom, sites), what).toBe(false)
     }
   })
 })
 
-describe('readL3SmashLoadPos refuses on a ROM that has no sprite pointer site', () => {
-  it('says why, rather than answering', () => {
-    const rom = new RomFile('none.sfc', Buffer.alloc(0x80000, 0))
-    expect(readL3SmashLoadPos(rom, 0x1f)).toMatchObject({ ok: false })
+describe('readL3SmashLoadPos (synthetic cart)', () => {
+  const LEVEL = 0x1f
+  /** Mario's start X on `screen`: X index 0 = xLo in the tables, F600 low five bits = the screen. */
+  const withStart = (rom: RomFile, screen: number, xLo = 0x10) => {
+    rom.writeAt(0x05d750, [xLo])
+    rom.writeAt(0x05f600 + LEVEL, [screen])
+    return rom
+  }
+  const one = { sprites: () => [spr(0x89, 288, 0)], sites }
+
+  it('gives the smasher position on a stock-shaped cart', () => {
+    expect(readL3SmashLoadPos(withStart(smashRom(), 0), LEVEL, one)).toEqual({ ok: true, pos: { x: 256, y: 160 } }) // prettier-ignore
+  })
+
+  it('refuses when the position routine, the stub or the sweep is hooked (the gate is on the path)', () => {
+    for (const at of [SITE + 20, STUB + 8, 0x02aca1 + 10]) {
+      const rom = withStart(smashRom(), 0)
+      rom.writeAt(at, [rom.readByte(at)! ^ 0xff])
+      expect(readL3SmashLoadPos(rom, LEVEL, one), at.toString(16)).toMatchObject({ ok: false })
+    }
+  })
+
+  it('refuses for a start on screen 2 (X $210), and at $80 but not $7F on screen 0', () => {
+    expect(readL3SmashLoadPos(withStart(smashRom(), 2), LEVEL, one)).toMatchObject({ ok: false })
+    expect(readL3SmashLoadPos(withStart(smashRom(), 0, 0x7f), LEVEL, one)).toMatchObject({
+      ok: true,
+    })
+    expect(readL3SmashLoadPos(withStart(smashRom(), 0, 0x80), LEVEL, one)).toMatchObject({
+      ok: false,
+    })
+  })
+
+  it('refuses when Mario start or the sprite stream cannot be read, and a level without a smasher needs no gate', () => {
+    const cut = new RomFile('cut.sfc', Buffer.alloc(0x20000, 0))
+    expect(readL3SmashLoadPos(cut, LEVEL, one)).toMatchObject({ ok: false })
+    expect(readL3SmashLoadPos(withStart(smashRom(), 0), LEVEL, { sites, sprites: () => null })).toMatchObject({ ok: false }) // prettier-ignore
+    const bare = withStart(new RomFile('z.sfc', Buffer.alloc(0x80000, 0)), 0)
+    expect(readL3SmashLoadPos(bare, LEVEL, { sprites: () => [spr(0x33, 16, 0)] })).toEqual({ ok: true, pos: null }) // prettier-ignore
+  })
+})
+
+describe('readLevelSprites (synthetic pointer site)', () => {
+  /** CODE_05D8B7's shape (LevelTableGate.test.ts): index, mid, lead-in, fixed bank 9; level 3 stream at $09:8000. */
+  const romWith = (stream: number[]) => {
+    const rom = new RomFile('spr.sfc', Buffer.alloc(0x400000, 0))
+    rom.writeAt(0x00ffd5, [0x20])
+    const at = 0x05d000
+    rom.writeAt(at - 9, [0xa5, 0x0e, 0x0a, 0xa8])
+    rom.writeAt(at - 5, [0xa9, 0x00, 0x00, 0xe2, 0x20])
+    rom.writeAt(at, [0xb9, 0x00, 0xec, 0x85, 0xce, 0xb9, 0x01, 0xec, 0x85, 0xcf])
+    rom.writeAt(at + 10, [0xa9, 0x09, 0x85, 0xd0])
+    rom.writeAt(0x05ec00 + 3 * 2, [0x00, 0x80])
+    rom.writeAt(0x098000, stream)
+    return rom
+  }
+
+  it('reads the level stream through its pointer and bank, and refuses one with no terminator in the read', () => {
+    const ok = readLevelSprites(romWith([0, 0x00, 0x00, 0x89, 0xff]), 3)
+    expect(ok?.map(s => s.spriteId)).toEqual([0x89])
+    const endless = [0, ...Array.from({ length: 0x1ff }, (_, i) => [0x00, 0x00, 0x33][i % 3]!)]
+    expect(readLevelSprites(romWith(endless), 3)).toBeNull()
+    expect(readLevelSprites(new RomFile('none.sfc', Buffer.alloc(0x400000, 0)), 3)).toBeNull()
   })
 })
 

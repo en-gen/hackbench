@@ -249,7 +249,7 @@ export function drawL3Planes(l3: L3Inputs, screen: number): L3Planes {
     if (y < 0 || y >= height) continue
     // Tiles sit at Layer3XPos-shifted columns (camera X at load is 0); a start left of 0 clips the first tile.
     for (let sx = -(xOff & 7); sx < width; sx += 8) {
-      const word = cell(r, ((x0 + sx + xOff) % (cols * 8)) >> 3)
+      const word = cell(r, ((((x0 + sx + xOff) % (cols * 8)) + cols * 8) % (cols * 8)) >> 3)
       const pixels = l3.chars[(word & 0x3ff) >> 7]?.[word & 0x7f]
       if (!word || !pixels) continue
       const p = word & 0x2000 ? 1 : 0
@@ -258,7 +258,10 @@ export function drawL3Planes(l3: L3Inputs, screen: number): L3Planes {
         if (outY < 0 || outY >= height) continue
         for (let tx = 0; tx < 8; tx++) {
           const v = pixels[((word & 0x8000 ? 7 - ty : ty) << 3) | (word & 0x4000 ? 7 - tx : tx)]!
-          const color = v === 0 || sx + tx < 0 ? undefined : l3.colors[((word >> 10) & 7) * 4 + v]
+          const color =
+            v === 0 || sx + tx < 0 || sx + tx >= width
+              ? undefined
+              : l3.colors[((word >> 10) & 7) * 4 + v]
           if (!color) continue
           planes[p]!.set(color, (outY * width + sx + tx) * 4)
           drew[p] = true
