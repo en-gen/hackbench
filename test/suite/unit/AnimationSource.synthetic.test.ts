@@ -219,11 +219,14 @@ describe('readAnimGfxSources', () => {
     ['FE', 0xfe8000, 0x400000],
     ['FE, ending in FF', 0xfefff0, 0x400000],
     ['FF', 0xff8000, 0x400000],
-  ])('plantAnim puts GFX32 where a stream starting in bank $%s ends, past 2 MB', (_, at, size) => {
-    const berry = (rom: RomFile): number[] =>
-      Array.from(loadAnimationData(rom, 0)!.frames[0]!.find(s => s.charBase === 0x80)!.tiles[0]!)
-    expect(berry(animRom({ size, gfx33At: at, head: head(at) }))).toEqual(new Array(64).fill(4))
-  })
+  ])(
+    'plantAnim puts GFX32 in the raw bank GFX33 ends in, not a file-offset bank (raw bank $%s)',
+    (_, at, size) => {
+      const berry = (rom: RomFile): number[] =>
+        Array.from(loadAnimationData(rom, 0)!.frames[0]!.find(s => s.charBase === 0x80)!.tiles[0]!)
+      expect(berry(animRom({ size, gfx33At: at, head: head(at) }))).toEqual(new Array(64).fill(4))
+    },
+  )
 
   it('follows the JSR operand to a relocated routine', () => {
     const rom = animRom({ routineAt: 0x00c100 })
