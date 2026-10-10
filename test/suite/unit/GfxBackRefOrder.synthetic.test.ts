@@ -291,6 +291,16 @@ describe('readDecompressor accepts each real build and refuses a mismatched entr
     if (!d.ok) expect(d.reason).toMatch(/ReadByte/)
   })
 
+  it('accepts a relocated but intact ReadByte whose operand high byte is not $B9', () => {
+    // Every real build has high byte $B9; without this the high-byte shift in the operand
+    // build could be pinned to $B9 and no fixture would notice.
+    const rom = entryRom(0xb8de, 0xc000, 0xb8e3, 'be')
+    rom.writeAt(0xb983, new Array(READ_BYTE_BODY.length).fill(0))
+    const d = readDecompressor(rom, 0xb8de)
+    expect(d.ok && d.kind).toBe('stock')
+    expect(d.ok && d.order).toBe('be')
+  })
+
   it('refuses a one-byte change anywhere in ReadByte, in every build', () => {
     const survived: string[] = []
     for (const [name, e, rb, loop, o] of BUILDS)
