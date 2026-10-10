@@ -197,6 +197,11 @@ test('at a narrow panel the fly-out still leaves the toolbar button reachable (#
     expect(panelW, 'the panel did not get narrow').toBeLessThanOrEqual(300)
     const nFly = await flyout.boundingBox()
     expect(nFly.width, 'fly-out wider than the narrow panel').toBeLessThanOrEqual(300)
+    const panel = await page.locator(VIEW).boundingBox()
+    expect(nFly.x, 'fly-out spills past the panel left edge').toBeGreaterThanOrEqual(panel.x)
+    expect(nFly.x + nFly.width, 'fly-out spills past the panel right edge').toBeLessThanOrEqual(
+      panel.x + panel.width,
+    )
     const nBtn = await button.boundingBox()
     expect(nBtn.y + nBtn.height, 'narrow: fly-out covers the toolbar').toBeLessThanOrEqual(
       nFly.y + 1,
@@ -220,12 +225,7 @@ test('closing the fly-out from its Close button returns focus to the panel so ke
   await page.locator(`${VIEW} button[aria-label="Close controllers"]`).focus()
   await page.keyboard.press('Enter')
   await expect(page.locator(`${VIEW} .hb-pad-flyout`)).toHaveCount(0)
-  expect(
-    await page.evaluate(() =>
-      document.getElementById('hackbench.emulator-view').contains(document.activeElement),
-    ),
-    'focus fell out of the widget',
-  ).toBe(true)
+  await expect(page.locator(`${VIEW} button[aria-label="Controllers"]`)).toBeFocused()
   await page.keyboard.press('KeyX')
   await expect
     .poll(() => seen(page))
