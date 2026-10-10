@@ -139,6 +139,11 @@ export function handle_0DA673(cur: Cursor): void {
   cur.row -= 1
 }
 
+// WRAM addresses the midway gates read (same values as interpret.ts GAME_STATE).
+const WRAM_TRANSLEVEL_NO = 0x13bf
+const WRAM_MIDWAY_FLAG = 0x13ce
+const WRAM_OW_LEVEL_TILE_SETTINGS = 0x1ea2
+
 /**
  * CODE_0DA68E (bank_0D.asm line 1618) -- ext type 0x46: midway point.
  *
@@ -160,9 +165,9 @@ export function handle_0DA673(cur: Cursor): void {
  * bank_00.asm:6779).
  */
 export function handle_0DA68E(cur: Cursor): void {
-  const translevel = cur.ram?.get(0x13bf) ?? 0
-  if (((cur.ram?.get(0x1ea2 + translevel) ?? 0) & 0x40) !== 0) return
-  if ((cur.ram?.get(0x13ce) ?? 0) !== 0) return
+  const ram = (addr: number): number => cur.ram?.get(addr) ?? 0
+  if ((ram(WRAM_OW_LEVEL_TILE_SETTINGS + ram(WRAM_TRANSLEVEL_NO)) & 0x40) !== 0) return
+  if (ram(WRAM_MIDWAY_FLAG) !== 0) return
   // CODE_0DA68E inline tile immediates: +23 $35 (tape), +31 $38 (base).
   const tapeTile = readImmByte(cur, cur.handlerAddr + 23)
   const baseTile = readImmByte(cur, cur.handlerAddr + 31)

@@ -495,6 +495,6 @@ Extended object $46 (`CODE_0DA68E`, SMWDisX `bank_0D.asm:1618-1632`). Added for 
 - The INY after it reads as a screen edge (`bank_0D.asm:1999-2015`), so the pointer gains a fixed $1B0 and Y reloads from `LevelLoadPos` AND $F0. The base lands at `block + $1B0 + local row * 16`. `[EST]`
 - Horizontal: a screen is $1B0 bytes, so the base is column 0 of the next screen on the object's row. Vertical: a screen is $200 bytes, so the base lands in another block, not on the object's row. `[EST]`
 - Columns other than a block's first keep the plain col-1 / col draw. `[EST]`
-- Not modelled: vertical modes 3/4 at screen 14+ jump to $1B00 (`DATA_00BB62`, `bank_00.asm:6779`). 
+- Not modelled: vertical modes 3/4 at screen 14+ jump to $1B00 (`DATA_00BB62`, `bank_00.asm:6779`).
 - Evidence: horizontal, the committed L1 differential compares row 18 at column 0 only. Vertical, the production interpreter refuses vertical levels, so the check was an ad hoc run, not committed. No capture. `[EST]`
 - Gates (#635): the game draws nothing when `OWLevelTileSettings[TranslevelNo]` ($1EA2+X, X = $13BF) has bit 6, or `MidwayFlag` ($13CE) is nonzero (`bank_0D.asm:1619-1624`). The port reads both from `Cursor.ram` (same address space as the interpreter's `InterpretEnv.ram`), default 0, so every editor view draws the post the author placed, as for a fresh save; a view that hid it would hide authored content. Evidence: SMWDisX read plus synthetic fixtures; no emulator run. `[EST]`
