@@ -78,12 +78,15 @@ TRACED:
   index, `(submapFlag << 8) | byte`, `bank_05.asm:7103-7118`). Position is the table
   read above, screen = X high byte (horizontal) or Y high byte (vertical). Gate:
   `$05D8B1` must hold the stock `BEQ $F0` (`bank_05.asm:7224`; Lunar Magic JSLs out
-  of it), and two spans are SHA-256 fingerprinted (vanilla only, one machine): the
-  screen-exit reads `$05D7E2`, 89 bytes (`bank_05.asm:7117-7161`) and the main
-  entrance reads `$05D938`, 105 bytes (`bank_05.asm:7289-7337`); they hold the masks and
-  shifts, which are not read from bytes. A slot holding the filler room is unavailable
+  of it), and two spans are SHA-256 fingerprinted (vanilla and the Lunar Magic-saved
+  vanilla ROM hash the same; one machine): the secondary-exit reads `$05D7D4`, 103 bytes,
+  from the UseSecondaryExit test through the entrance-type store (`bank_05.asm:7111-7161`),
+  and the main entrance reads `$05D938`, 223 bytes, through the screen mask and the
+  high-byte stores, up to `CODE_05DA17` (`bank_05.asm:7289-7395`); they hold the masks,
+  shifts and stores, which are not read from bytes. The midway and Yoshi-intro code
+  inside the main span is fingerprinted with it; nothing outside the two spans is. A slot holding the filler room is unavailable
   too. Every refusal gives a fixed plain-words `reason` for the tooltip (no address, no
-  asm reference, no raw error text); the evidence is in `detail`, for logs and tests.
+  asm reference, no raw error text); the evidence is in `detail`, for tests and debugging.
   The vanilla tables are never read as if they applied. A map no tile or exit leads to is unavailable too;
   the view then stays at screen 0 and says why. Not covered: the midway entrance,
   a slot reached only through shared map data (same Layer1Ptrs) or the bonus and

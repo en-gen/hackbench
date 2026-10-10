@@ -493,11 +493,12 @@ test('a late start reply for the previous map does not move the new one', async 
       index: 0x1c1,
     })
     const real = w.projects
-    // $1C1's start is held for 2 s; the tab moves on to $105 meanwhile.
+    // $1C1's start is held on a promise the test releases once the tab has moved on to $105.
+    const held = new Promise(r => { window.__releaseStart = r }) // prettier-ignore
     w.projects = new Proxy(real, {
       get: (t, k) =>
         k === 'mapStart'
-          ? (m, i) => i === 0x1c1 ? new Promise(r => setTimeout(r, 2000)).then(() => t.mapStart(m, i)) : t.mapStart(m, i) // prettier-ignore
+          ? (m, i) => i === 0x1c1 ? held.then(() => t.mapStart(m, i)).finally(() => { window.__startServed = true }) : t.mapStart(m, i) // prettier-ignore
           : typeof t[k] === 'function'
             ? t[k].bind(t)
             : t[k],
@@ -512,14 +513,16 @@ test('a late start reply for the previous map does not move the new one', async 
   // The test only means something if the held start would have moved this strip.
   const before = await scrollState(page, 0x105)
   expect(centred(784, before.zoom, before.viewW, before.maxLeft)).toBeGreaterThan(0)
-  await page.waitForTimeout(2500) // past the held reply
+  await page.evaluate(() => window.__releaseStart())
+  await page.waitForFunction(() => window.__startServed === true) // the late reply has been delivered
+  await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))) // prettier-ignore
   const st = await scrollState(page, 0x105)
   expect([st.left, st.top]).toEqual([0, 0])
 })
 
 /**
  * A user who scrolls before the start reply arrives keeps their place: the start is skipped, not
- * applied late. $109's reply is held 3 s; the strip is scrolled down meanwhile.
+ * applied late. $109's reply is held on a promise the test releases after the strip is scrolled.
  */
 test('a start reply that arrives after the user scrolled is skipped', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
@@ -528,10 +531,11 @@ test('a start reply that arrives after the user scrolled is skipped', async ({ p
       index: 0x109,
     })
     const real = w.projects
+    const held = new Promise(r => { window.__releaseStart = r }) // prettier-ignore
     w.projects = new Proxy(real, {
       get: (t, k) =>
         k === 'mapStart'
-          ? (m, i) => new Promise(r => setTimeout(r, 3000)).then(() => t.mapStart(m, i))
+          ? (m, i) => held.then(() => t.mapStart(m, i))
           : typeof t[k] === 'function'
             ? t[k].bind(t)
             : t[k],
@@ -545,6 +549,7 @@ test('a start reply that arrives after the user scrolled is skipped', async ({ p
   await expect(scrollerOf(page, 0x109)).toHaveAttribute('data-start', 'pending')
   await expect(page.locator(`${root(0x109)} canvas[data-screen="0"][data-plane="l1Low"]`)).toHaveAttribute('data-drawn', /\d/, { timeout: 15000 }) // prettier-ignore
   await scrollerOf(page, 0x109).evaluate(el => { el.scrollTop = 100 }) // prettier-ignore
+  await page.evaluate(() => window.__releaseStart())
   await expect(scrollerOf(page, 0x109)).toHaveAttribute('data-start', 'skipped', { timeout: 15000 })
   expect((await scrollState(page, 0x109)).top).toBe(100)
 })

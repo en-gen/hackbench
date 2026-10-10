@@ -7,6 +7,7 @@ import {
   OVERWORLD_INDEX_BODY,
   SCREEN_EXIT,
   spanFingerprint,
+  type StockSpan,
 } from '../../../src/rom/SubmapFlagGate'
 import { START_EXIT_SPAN, START_MAIN_SPAN } from '../../../src/rom/LevelStart'
 import { BONUS_CALL } from '../../../src/rom/BonusEntrances'
@@ -50,23 +51,37 @@ function syntheticCall(): Buffer {
 }
 
 /**
+ * LevelStart's spans as planted: NOPs, plus a few opcode bytes at literal addresses (never from the span
+ * constants, so a moved span or a changed length breaks the fingerprint match and goes red with no corpus):
+ * the secondary-exit span keeps SCREEN_EXIT's own LDA DATA_05F800, the main span its LDA DATA_05F600,Y
+ * and the `AND #$1F` screen mask.
+ */
+const START_EXIT_PLANT: readonly [number, readonly number[]][] = [[0x05d7e2, [0xb9, 0x00, 0xf8]]]
+const START_MAIN_PLANT: readonly [number, readonly number[]][] = [
+  [0x05d938, [0xb9, 0x00, 0xf6]],
+  [0x05d9f0, [0x29, 0x1f]],
+]
+function syntheticSpan(span: StockSpan, plant: typeof START_EXIT_PLANT): Buffer {
+  const bytes = nops(span.length)
+  for (const [at, run] of plant) bytes.set(run, at - span.addr)
+  return bytes
+}
+function plantSpan(rom: RomFile, span: StockSpan, plant: typeof START_EXIT_PLANT): void {
+  rom.writeAt(span.addr, nops(span.length))
+  for (const [at, run] of plant) rom.writeAt(at, [...run])
+}
+
+/**
  * The fingerprinted spans are vanilla code and never committed (CLAUDE.md),
  * so a synthetic ROM fills them with NOPs. Pass this to the reader under test;
  * the stock defaults refuse it.
  */
-/** LevelStart's spans as planted: NOPs, but the secondary-exit span keeps SCREEN_EXIT's own LDA DATA_05F800. */
-function syntheticExitSpan(): Buffer {
-  const span = nops(START_EXIT_SPAN.length)
-  span.set([0xb9, 0x00, 0xf8], 0)
-  return span
-}
-
 export const SYNTHETIC_FINGERPRINTS: OverworldFingerprints = Object.freeze({
   entry: Object.freeze([fingerprint(nops(OVERWORLD_INDEX_BODY.length))!]),
   walk: Object.freeze([fingerprint(nops(WALK_PROLOGUE_LENGTH))!]),
   bonus: Object.freeze([spanFingerprint(syntheticCall(), BONUS_CALL.mask)!]),
-  startExit: Object.freeze([fingerprint(syntheticExitSpan())!]),
-  startMain: Object.freeze([fingerprint(nops(START_MAIN_SPAN.length))!]),
+  startExit: Object.freeze([fingerprint(syntheticSpan(START_EXIT_SPAN, START_EXIT_PLANT))!]),
+  startMain: Object.freeze([fingerprint(syntheticSpan(START_MAIN_SPAN, START_MAIN_PLANT))!]),
 })
 
 /**
@@ -79,8 +94,8 @@ export function plantStockSubmapCode(rom: RomFile): void {
     if ('fingerprints' in c) rom.writeAt(c.addr, nops(c.length))
     else rom.writeAt(c.addr, [...c.bytes])
   }
-  rom.writeAt(START_EXIT_SPAN.addr, syntheticExitSpan())
-  rom.writeAt(START_MAIN_SPAN.addr, nops(START_MAIN_SPAN.length))
+  plantSpan(rom, START_EXIT_SPAN, START_EXIT_PLANT)
+  plantSpan(rom, START_MAIN_SPAN, START_MAIN_PLANT)
   rom.writeAt(0x05d8a2, [0xc9, 0x25, 0x90, 0x03, 0x38, 0xe9, 0x24])
   rom.writeAt(0x05d8b4, [0x01])
   rom.writeAt(0x05d7d1, [0x01])

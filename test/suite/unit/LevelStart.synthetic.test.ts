@@ -4,6 +4,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
+import { deriveOverworldEntrances } from '../../../src/rom/OverworldEntrances'
 import { SmwRom, ADDR } from '../../../src/rom/SmwRom'
 import { WorkingRom } from '../../../src/project/WorkingRom'
 import {
@@ -33,7 +34,7 @@ function blank(): RomFile {
   const rom = new RomFile('mock.smc', buf)
   plantStockSubmapCode(rom)
   plantOverworldTiles(rom)
-  // Every slot starts as the filler room, as on a real cart; a test claims the slots it uses.
+  // Every slot starts as the filler room, as on a real ROM; a test claims the slots it uses.
   for (let i = 0; i < 0x200; i++) rom.writeAt(ADDR.LEVEL_L1_PTR + i * 3, [0x00, 0xf0, 0x07])
   rom.writeAt(0x07f000, [0, 0, 0, 0, 0, 0xff])
   // Position tables: nothing here is vanilla's, so a wrong index reads a visible wrong value.
@@ -280,6 +281,45 @@ describe('readLevelStart refuses changed entrance code, in plain words', () => {
       }
     }
     expect(start(world(), 0x001).ok).toBe(true)
+  })
+})
+
+describe('readLevelStart: the screen mask and the span bounds', () => {
+  it('a flipped screen mask ($05D9F1, the AND #$1F operand) is unavailable, not a wrong screen', () => {
+    const rom = world()
+    expect(rom.readByte(0x05d9f1)).toBe(0x1f)
+    expect(start(rom, 0x001).ok).toBe(true)
+    rom.writeAt(0x05d9f1, [0x3f])
+    expect(start(rom, 0x001).ok).toBe(false)
+    expect(start(rom, 0x0c0).ok).toBe(false)
+  })
+
+  it('the spans start and end where the cited instructions do, on a test-built layout', () => {
+    // Literal addresses, not the constants: moving a span or changing a length goes red here, no corpus.
+    const rom = world()
+    expect(START_EXIT_SPAN.addr).toBe(0x05d7d4) // LDA UseSecondaryExit, bank_05.asm:7111: 14 bytes before 7117
+    expect(START_EXIT_SPAN.addr + 14).toBe(0x05d7e2) // LDA DATA_05F800,Y (7117)
+    expect([...rom.readAt(0x05d7e2, 3)!]).toEqual([0xb9, 0x00, 0xf8])
+    expect(START_EXIT_SPAN.addr + START_EXIT_SPAN.length).toBe(0x05d83b) // the JMP at 7162
+    expect(START_MAIN_SPAN.addr).toBe(0x05d938) // LDA DATA_05F600,Y (7289)
+    expect([...rom.readAt(0x05d938, 3)!]).toEqual([0xb9, 0x00, 0xf6])
+    expect([...rom.readAt(0x05d9f0, 2)!]).toEqual([0x29, 0x1f]) // AND #$1F (7377)
+    expect(START_MAIN_SPAN.addr + START_MAIN_SPAN.length).toBe(0x05da17) // CODE_05DA17 (7396)
+  })
+})
+
+describe('readLevelStart when the overworld cannot be read', () => {
+  it('gives the fixed plain reason, never the derivation note', () => {
+    const rom = world()
+    const broken = { ...SYNTHETIC_FINGERPRINTS, entry: ['00'.repeat(32)] }
+    const note = deriveOverworldEntrances(new SmwRom(rom), undefined, broken).notes[0]
+    expect(note).toMatch(/Overworld not readable/)
+    const s = readLevelStart(new SmwRom(rom), 0x001, broken)
+    expect(s.ok).toBe(false)
+    if (s.ok) return
+    expect(s.reason).toBe('The overworld could not be read, so the start position cannot be found.')
+    expect(s.reason).not.toBe(note)
+    expect(s.detail).toBe(note)
   })
 })
 

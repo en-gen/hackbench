@@ -13,11 +13,14 @@
  * Gate: the whole table reading assumes the stock loader. Lunar Magic JSLs
  * out of `$05D8B1` (99 of 99 in the 2026-09-26 survey, #543); the stock byte there is the
  * `BEQ` `$F0` (bank_05.asm:7224). Two further spans are fingerprinted, because
- * the masks and shift counts of the decode live in them and are not read from
- * bytes here: the screen-exit reads (bank_05.asm:7117-7161) and the main
- * entrance reads (bank_05.asm:7289-7337). Anything else is unavailable, never
- * the vanilla tables read as if they still applied. A failure's `reason` is
- * fixed plain words for the UI; the addresses and bytes go in `detail`.
+ * the masks, shift counts and high-byte stores of the decode live in them and
+ * are not read from bytes here: the secondary-exit reads, from the
+ * UseSecondaryExit test through the LevelEntranceType store (bank_05.asm:7111-7161),
+ * and the main entrance reads through the screen mask and the high-byte stores
+ * (bank_05.asm:7289-7395, up to CODE_05DA17). The span between them is not
+ * fingerprinted, so a change to code outside both is not detected. Anything else is
+ * unavailable, never the vanilla tables read as if they still applied. A failure's
+ * `reason` is fixed plain words for the UI; the addresses and bytes go in `detail`, for tests and debugging.
  */
 import type { RomFile } from './RomFile'
 import { isOverworldLevel, type SmwRom } from './SmwRom'
@@ -49,22 +52,23 @@ const SLOTS = 0x200
 
 /**
  * Vanilla builds, measured on one machine (Super Mario World (USA), 2026-10-10):
- * SHA-256 of the span's bytes. Vanilla only; a hack with the same code at the
- * same place would need its build added.
+ * SHA-256 of the span's bytes. The Lunar Magic-saved vanilla ROM hashes the
+ * same (same machine, 2026-10-10); a hack with the same code at the same place
+ * would need its build added.
  */
 export const START_EXIT_SPAN: StockSpan = Object.freeze({
-  addr: 0x05d7e2,
-  length: 89,
-  fingerprints: Object.freeze(['10d70c1c4662e0f3eea31fd5264e77610ec7522f51de8e2d5cd382ba34de2cd6']),
+  addr: 0x05d7d4,
+  length: 103,
+  fingerprints: Object.freeze(['d46956e1645730be7b772338cc6bdd937d229da6440508ae76f9bab61a3e5784']),
   what: 'the secondary-exit entrance reads',
-  cite: 'bank_05.asm:7117-7161',
+  cite: 'bank_05.asm:7111-7161',
 })
 export const START_MAIN_SPAN: StockSpan = Object.freeze({
   addr: 0x05d938,
-  length: 105,
-  fingerprints: Object.freeze(['8aef6567c3e5339d8dda27258a1189dd11c097e7de79ea488152c8cc9350981c']),
+  length: 223,
+  fingerprints: Object.freeze(['b15ac14d6888f3bbfd791fcc64d2886931066205711cc93cc134aeb005d77618']),
   what: 'the main entrance reads',
-  cite: 'bank_05.asm:7289-7337',
+  cite: 'bank_05.asm:7289-7395',
 })
 
 const CODE_CHANGED =

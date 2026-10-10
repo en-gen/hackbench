@@ -395,10 +395,9 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const o = this.options
     if (!o) return
     const generation = this.generation
-    const r = await this.projects.mapCollisionCheck(o.manifestPath, o.index).catch(() => ({
-      status: 'unavailable' as const,
-      reason: 'The start position could not be read just now.',
-    }))
+    const r = await this.projects
+      .mapCollisionCheck(o.manifestPath, o.index)
+      .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
     // A probe that already answered knows more than the check: a late `available` must not undo its refusal.
     if (generation !== this.generation || this.collisionProbed) return
     this.setCollisionWhy(collisionWhyNot(r))
@@ -414,10 +413,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const key = collisionKey(this.view.state)
     const r = await this.projects
       .mapCollision(o.manifestPath, o.index, flags, switches)
-      .catch(() => ({
-        status: 'unavailable' as const,
-        reason: 'The start position could not be read just now.',
-      }))
+      .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
     // An older map's or edit's lines must not land over a newer one.
     if (generation !== this.generation || seq !== this.collisionSeq) return
     // The working copy moved on under the probe; its push is on the way and will ask again.
@@ -442,10 +438,9 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const o = this.options
     if (!o) return
     const generation = this.generation
-    const r = await this.projects.mapSprites(o.manifestPath, o.index).catch(() => ({
-      status: 'unavailable' as const,
-      reason: 'The start position could not be read just now.',
-    }))
+    const r = await this.projects
+      .mapSprites(o.manifestPath, o.index)
+      .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
     // An older map's or edit's sprites must not land over a newer one.
     if (generation !== this.generation) return
     this.sprites = r.status === 'ok' ? r : undefined
@@ -459,10 +454,9 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const o = this.options
     if (!o) return
     const generation = this.generation
-    const r = await this.projects.mapBlockContents(o.manifestPath, o.index).catch(() => ({
-      status: 'unavailable' as const,
-      reason: 'The start position could not be read just now.',
-    }))
+    const r = await this.projects
+      .mapBlockContents(o.manifestPath, o.index)
+      .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
     if (generation !== this.generation) return
     this.blocks = r.status === 'ok' ? { ...r, decoded: decodeArts(r.arts) } : undefined
     this.blocksWhy =
@@ -499,10 +493,9 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const o = this.options
     if (!o) return
     const generation = this.generation
-    const r = await this.projects.mapPalaceIcons(o.manifestPath, o.index).catch(() => ({
-      status: 'unavailable' as const,
-      reason: 'The start position could not be read just now.',
-    }))
+    const r = await this.projects
+      .mapPalaceIcons(o.manifestPath, o.index)
+      .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
     // An older map's or edit's art must not land over a newer one.
     if (generation !== this.generation) return
     const image = (b64: string): FrameImage => ({ width: 16, height: 16, rgba: decodeRgba(b64) })
