@@ -4,7 +4,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { describe, it, expect } from 'vitest'
 import { HackRecord } from '../../../tools/scripts/hackSweepReport'
-import { runSweep, writeAtomic } from '../../../tools/scripts/hackSweepRun'
+import { batchSize, runSweep, writeAtomic } from '../../../tools/scripts/hackSweepRun'
 
 type Entry = { smwc_id: number; name: string }
 const index: Entry[] = [1, 2, 3, 4].map(smwc_id => ({ smwc_id, name: `hack${smwc_id}` }))
@@ -145,5 +145,16 @@ describe('writeAtomic', () => {
     writeAtomic(path, 'new')
     expect(readFileSync(path, 'utf8')).toBe('new')
     expect(readdirSync(dir)).toEqual(['f.json'])
+  })
+})
+
+describe('batchSize', () => {
+  it('defaults to 50 and parses a positive integer', () => {
+    expect(batchSize(undefined)).toBe(50)
+    expect(batchSize('7')).toBe(7)
+  })
+
+  it.each(['', '0', '-3', '2.5', 'abc', '50abc', '1e2'])('refuses %j', raw => {
+    expect(() => batchSize(raw)).toThrow(/HACKBENCH_SWEEP_BATCH/)
   })
 })
