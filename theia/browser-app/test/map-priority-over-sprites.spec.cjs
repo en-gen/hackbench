@@ -8,7 +8,8 @@
  * sprite pixel is under an opaque l1High pixel. Part (b) clears those bits through the
  * Map16 service write path, moving the tile to l1Low; the same pixels must show the sprite.
  *
- * Plant (by code and data, not a recorded run; the verifier run will record it): in
+ * Plant (recorded once by the verifier on 510e090c, one run, one machine: part (a) red,
+ * Expected 176, Received 0): in
  * src/rom/model/ScreenPlanes.ts, `on` returning `[...bg, 'sprites']` instead of the
  * slice-and-insert should turn part (a) red. ScreenPlanes.test and MapScreenL3.test catch
  * that plant too; this spec's value is the pixel-level check on a real map.
@@ -80,10 +81,11 @@ function probe(page, at) {
       const q = s => document.querySelector(s)
       const sprites = px(q(sel.sprites))
       const high = px(q(sel.high))
+      const low = px(q(sel.low))
       const compCanvas = planesOf(rootSel, sel.screen)[0]
       const comp = px(compCanvas)
       // Flat pixel indices are only comparable across canvases of one size.
-      for (const c of [q(sel.sprites), q(sel.high)])
+      for (const c of [q(sel.sprites), q(sel.high), q(sel.low)])
         if (c.width !== compCanvas.width || c.height !== compCanvas.height)
           throw new Error('plane and composite canvases differ in size')
       const pixels = at ?? [...Array(sprites.length / 4).keys()].filter(p => sprites[p * 4 + 3] === 255 && high[p * 4 + 3] === 255) // prettier-ignore
@@ -92,6 +94,7 @@ function probe(page, at) {
         pixels,
         spriteOpaque: pixels.filter(p => sprites[p * 4 + 3] === 255).length,
         highOpaque: pixels.filter(p => high[p * 4 + 3] === 255).length,
+        lowOpaque: pixels.filter(p => low[p * 4 + 3] === 255).length,
         compIsHigh: pixels.filter(p => same(comp, high, p)).length,
         compIsSprite: pixels.filter(p => same(comp, sprites, p)).length,
         highDiffersFromSprite: pixels.filter(p => !same(high, sprites, p)).length,
@@ -99,7 +102,12 @@ function probe(page, at) {
     },
     {
       rootSel: root,
-      sel: { sprites: plane('sprites'), high: plane('l1High'), screen: SCREEN },
+      sel: {
+        sprites: plane('sprites'),
+        high: plane('l1High'),
+        low: plane('l1Low'),
+        screen: SCREEN,
+      },
       at,
     },
   )
@@ -150,6 +158,7 @@ test('an L1 priority tile draws over an overlapping sprite; with priority cleare
     .toBe(n)
   const after = await probe(page, before.pixels)
   expect(after.highOpaque, 'the tile left the priority plane').toBe(0)
+  expect(after.lowOpaque, 'the tile moved to l1Low').toBe(n)
   expect(after.spriteOpaque, 'the sprites did not move: still opaque at every pixel').toBe(n)
   expect(after.compIsSprite, 'with priority clear the sprite is drawn over the tile').toBe(n)
   expect(after.compIsHigh).toBe(0)
