@@ -571,12 +571,8 @@ export function handle_0DB571(cur: Cursor): void {
   if (X < 0 || X > 7) return
 
   // LDA.L DATA_0DB569,X at handler offset +11 (operand at +12), gated on $BF (#452).
-  const tableAddr = readGatedLongOperand(cur, 12)
-  if (tableAddr === null) {
-    const at = cur.handlerAddr + 11
-    noteRefused(cur.draw?.unverified, cur.handlerAddr, at, 0xbf, cur.rom.readByte(at))
-    return
-  }
+  if (!gateOpcode(cur, 11, 0xbf)) return
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 12)
   setPage0(cur) // StzTo6ePointer
   writeTile(cur, cur.rom.readByte(tableAddr + X) ?? 0)
 }
