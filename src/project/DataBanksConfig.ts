@@ -17,12 +17,6 @@ import { readMeta, writeMeta } from './ProjectMeta'
 
 const FILE = 'meta/data-banks.json'
 
-interface Config {
-  version: 1
-  rom: string
-  banks: Record<string, unknown>
-}
-
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
 
@@ -51,7 +45,8 @@ export function resolveDataBanks(
 ): DataBanks {
   try {
     const raw = readMeta(manifestPath, 'data-banks')
-    let config: Config | undefined
+    // A file made for another base ROM describes that ROM, so start over.
+    let banks: Record<string, unknown> = {}
     if (raw !== undefined) {
       if (
         !isRecord(raw) ||
@@ -60,11 +55,8 @@ export function resolveDataBanks(
         !isRecord(raw.banks)
       )
         throw new Error('expected { "version": 1, "rom": "<sha256>", "banks": { ... } }')
-      config = { version: 1, rom: raw.rom, banks: raw.banks }
+      if (raw.rom === baseSha256) banks = raw.banks
     }
-    // Made for another base ROM: its values describe that ROM, so start over.
-    if (config && config.rom !== baseSha256) config = undefined
-    const banks = config?.banks ?? {}
 
     let objectCode: BankResult
     if (banks.objectCode !== undefined) {

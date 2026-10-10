@@ -12,6 +12,7 @@
  * No VS Code or Theia imports, same rule as the rest of src/rom/.
  */
 import { cachedByVersion, type RomFile } from './RomFile'
+import { ENTRY_STANDARD } from './objectHandlers/interpret'
 
 /** The bank, or why none could be named. A refusal is data: readers note it and draw the port. */
 export type BankResult = { bank: number } | { notFound: string }
@@ -21,7 +22,7 @@ export interface DataBanks {
 }
 
 /** Low 16 bits of CODE_0DA40F, the entry the loader's JSL must reach (bank_0D.asm:1319). */
-const ENTRY_LOW = 0xa40f
+const ENTRY_LOW = ENTRY_STANDARD & 0xffff
 /** LevLoadNrmObj: SEP #$30; JSL; RTS (bank_05.asm:805-808). */
 const LOADER_ROUTINE = 0x0586ea
 const LOADER_LEN = 7
