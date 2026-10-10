@@ -144,6 +144,13 @@ export interface Cursor {
    * Only handlers that address raw Map16 buffer offsets need it (ext $5F, #362).
    */
   vertical: boolean
+  /**
+   * Game-state RAM a gated handler reads, by WRAM address; unset reads are 0.
+   * Same key space and default as InterpretEnv.ram, so the port and the #351
+   * interpreter see one editor state (fresh save: no midway taken, no tile
+   * cleared). Production callers leave it unset (#635).
+   */
+  ram?: ReadonlyMap<number, number>
 }
 
 export function makeCursor(

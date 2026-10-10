@@ -914,6 +914,66 @@ describe('handle_0DA68E (ext 0x46 midway)', () => {
       expect(drawn(run(5, row))).toEqual([`${row},4=35`, `${row},5=38`])
   })
 
+  // #635: CODE_0DA68E draws nothing when OWLevelTileSettings[TranslevelNo] has
+  // bit 6 or MidwayFlag is nonzero (bank_0D.asm:1619-1624). Synthetic RAM only.
+  describe('gates (#635)', () => {
+    const SETTINGS = 0x1ea2
+    const MIDWAY = 0x13ce
+    const TRANSLEVEL = 0x13bf
+    const runWith = (ram: Map<number, number>, col = 5, row = 10): string[] => {
+      const grid = createGrid(3)
+      const cur = makeCursorForHandler(HANDLER_ADDR, grid, setupRom(), 0, col, row, 0x46, 0)
+      cur.ram = ram
+      handle_0DA68E(cur)
+      return drawn(grid)
+    }
+    const post = ['10,4=35', '10,5=38']
+
+    it('draws the post with no state (editor default)', () => {
+      expect(runWith(new Map())).toEqual(post)
+    })
+
+    it.each([0, 1, 2, 3, 4, 5, 6, 7])('settings bit %i: only bit 6 suppresses', bit => {
+      const ram = new Map([
+        [TRANSLEVEL, 0x13],
+        [SETTINGS + 0x13, 1 << bit],
+      ])
+      expect(runWith(ram)).toEqual(bit === 6 ? [] : post)
+    })
+
+    it('bit 6 suppresses at column 0 too (tape and base)', () => {
+      const ram = new Map([
+        [TRANSLEVEL, 0x13],
+        [SETTINGS + 0x13, 0xff],
+      ])
+      expect(runWith(ram, 0, 10)).toEqual([])
+    })
+
+    it("another translevel's bit 6 does not suppress", () => {
+      const ram = new Map([
+        [TRANSLEVEL, 0x13],
+        [SETTINGS + 0x14, 0x40],
+        [SETTINGS, 0x40],
+      ])
+      expect(runWith(ram)).toEqual(post)
+    })
+
+    it.each([1, 2, 0x40, 0x80, 0xff])('MidwayFlag %i suppresses', v => {
+      expect(runWith(new Map([[MIDWAY, v]]))).toEqual([])
+    })
+
+    it('MidwayFlag 0 with settings bit 6 clear draws', () => {
+      expect(
+        runWith(
+          new Map([
+            [MIDWAY, 0],
+            [SETTINGS, 0xbf],
+          ]),
+        ),
+      ).toEqual(post)
+    })
+  })
+
   // CODE_0DA68E: DEY puts Y on the row above at column 15; CODE_0DA95D's INY
   // then reads as a screen edge, so the base lands on the next screen
   // (bank_0D.asm:1625-1632, 1999-2002). Issue #368; oracle is the #351 differential.

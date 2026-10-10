@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Midway tape (ext $46): the port now honours the game's two gates, OWLevelTileSettings bit 6 and MidwayFlag, via an optional `Cursor.ram`; editor defaults are 0, so every map view is unchanged (synthetic fixtures, no emulator run) (#635).
 - Emulator view: the Controllers fly-out no longer covers the Controllers button (it sits below the toolbar), and keyboard presses light the controller drawing while focus is on that button or inside the fly-out (#587, #508; emulator-gamepad Playwright spec, 15 passed, 0 skipped, one Windows machine).
 - Collision overlay spec counts its probe calls from the websocket frames and holds the race reply on the widget's own service, so the zero-probe and late-reply cases can no longer pass or hang without testing anything (#706).
 - A cleared tech lead now resumes from a resume prompt it sends its orchestrator before clearing (no session ids), instead of relying on the hook. The session registry is keyed by desktop id, the hook prints the protocol script path and a short instruction, and shared state moves from `.claude/state/` to the gitignored `.hackbench-state/` (`protocol.mjs handoff` writes team and BA files, `migrate-state` converts the old files once; steps in `docs/runbooks/state-cutover.md`). Night shift is enactable and has no scheduled return (#725, #724).
