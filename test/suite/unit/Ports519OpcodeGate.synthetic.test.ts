@@ -12,7 +12,11 @@ import { RomFile } from '../../../src/rom/RomFile'
 import { loromToOffset } from '../../../src/rom/addressing'
 import { createGrid } from '../../../src/rom/ObjectExpander'
 import { makeCursor, TileGrid, Cursor } from '../../../src/rom/objectHandlers/cursor'
-import { handle_0DBA4C, staircaseVariantB } from '../../../src/rom/objectHandlers/standardHandlers'
+import {
+  handle_0DB571,
+  handle_0DBA4C,
+  staircaseVariantB,
+} from '../../../src/rom/objectHandlers/standardHandlers'
 
 const COL = 16
 const ROW = 2
@@ -166,5 +170,45 @@ describe('a pinned read just past the 512 KiB cart refuses with "nothing" (#519)
     expect(grid).toEqual(blank())
     expect(unverified).toHaveLength(1)
     expect(unverified[0]).toContain(`${hx(addr + off, 6)} is nothing, not the ${hx(op, 2)} opcode`)
+  })
+})
+
+/** The cart's last readable byte is SNES $0F:FFFF (file offset 0x7FFFF); bytes planted past it are dropped. */
+const LAST = 0x0fffff
+function clippedCart(plants: [number, number[]][]): RomFile {
+  const buf = Buffer.alloc(0x80000, 0x00)
+  buf[0x7fd5] = 0x20
+  for (const [snes, bytes] of plants) {
+    const off = loromToOffset(snes, 0x80000)
+    if (off === null || off >= buf.length) continue
+    buf.set(bytes.slice(0, buf.length - off), off)
+  }
+  return new RomFile('synthetic.sfc', buf)
+}
+const spanRefusal = (addr: number, operandAt: number): string =>
+  `Handler ${hx(addr, 6)} refused: the required operand span at ${hx(operandAt, 6)} is outside the ROM, so the object is not drawn.`
+
+describe('an opcode that matches but whose operand runs past the cart refuses (#519)', () => {
+  it.each([
+    ['0DBA4C', handle_0DBA4C, plantsBA, 0x12, BA_PINS.filter(([o]) => o !== 30)],
+    ['0DC3D8', staircaseVariantB, plantsC3, 0x21, C3_PINS],
+  ] as const)(
+    '%s: every gated opcode with an operand, as the last readable byte',
+    (_n, handler, plants, size, pins) => {
+      for (const [off, op] of pins) {
+        const addr = LAST - off
+        const { grid, unverified } = run(clippedCart(plants(addr)), handler, addr, size)
+        expect(grid, `+${off}`).toEqual(blank())
+        expect(unverified, `+${off}`).toEqual([spanRefusal(addr, LAST + 1)])
+        expect(op).toBeGreaterThan(0)
+      }
+    },
+  )
+
+  it('0DB571: the $BF long-load as the last readable byte', () => {
+    const addr = LAST - 11
+    const { grid, unverified } = run(clippedCart([[LAST, [0xbf]]]), handle_0DB571, addr, 0x68)
+    expect(grid).toEqual(blank())
+    expect(unverified).toEqual([spanRefusal(addr, LAST + 1)])
   })
 })

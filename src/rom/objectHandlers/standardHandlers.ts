@@ -550,16 +550,25 @@ export function handle_0DB075(cur: Cursor): void {
 }
 
 /**
- * True when the handler's byte at `offset` is `opcode`; otherwise records the
- * refusal (#452, #519) and returns false, so the caller draws nothing. With no
- * draw context the refusal still happens but is not recorded.
+ * True when the handler's byte at `offset` is `opcode` and its `operandLength`
+ * operand bytes are inside the ROM; otherwise records the refusal (#452, #519)
+ * and returns false, so the caller draws nothing. Without the span check the
+ * operand readers return 0 past the end and the handler draws invented data.
+ * With no draw context the refusal still happens but is not recorded.
  */
-function gateOpcode(cur: Cursor, offset: number, opcode: number): boolean {
+function gateOpcode(cur: Cursor, offset: number, opcode: number, operandLength = 0): boolean {
   const at = cur.handlerAddr + offset
   const found = cur.rom.readByte(at)
-  if (found === opcode) return true
-  noteRefused(cur.draw?.unverified, cur.handlerAddr, at, opcode, found)
-  return false
+  if (found !== opcode) {
+    noteRefused(cur.draw?.unverified, cur.handlerAddr, at, opcode, found)
+    return false
+  }
+  if (operandLength > 0 && cur.rom.readAt(at, operandLength + 1) === null) {
+    const why = `the required operand span at $${(at + 1).toString(16).toUpperCase().padStart(6, '0')} is outside the ROM`
+    noteRefused(cur.draw?.unverified, cur.handlerAddr, at, opcode, found, why)
+    return false
+  }
+  return true
 }
 
 /**
@@ -572,7 +581,7 @@ export function handle_0DB571(cur: Cursor): void {
   if (X < 0 || X > 7) return
 
   // LDA.L DATA_0DB569,X at handler offset +11 (operand at +12), gated on $BF (#452).
-  if (!gateOpcode(cur, 11, 0xbf)) return
+  if (!gateOpcode(cur, 11, 0xbf, 3)) return
   const tableAddr = readLongOperand(cur, cur.handlerAddr + 12)
   setPage0(cur) // StzTo6ePointer
   writeTile(cur, cur.rom.readByte(tableAddr + X) ?? 0)
@@ -2551,16 +2560,16 @@ function staircaseVariantA(cur: Cursor): void {
 export function staircaseVariantB(cur: Cursor): void {
   const H = (cur.size >> 4) & 0x0f
   const base = cur.handlerAddr
-  // Verified via ROM byte dump; every opcode is gated before anything is drawn (#519):
+  // Offsets from a one-off ROM byte dump (no committed test reads the vanilla bytes); each opcode is gated before anything is drawn (#519):
   //   LDA #$3F             opcode at +30, imm at +31      (page-0 fill)
   //   LDA.L DATA_0DC354,X  opcode at +46, operand at +47  (step edge)
   //   LDA.L DATA_0DC350,X  opcode at +60, operand at +61  (step cap)
   // AND #imm at +8 (bank_0D.asm:4938) is the X mask.
   if (
-    !gateOpcode(cur, 8, 0x29) ||
-    !gateOpcode(cur, 30, 0xa9) ||
-    !gateOpcode(cur, 46, 0xbf) ||
-    !gateOpcode(cur, 60, 0xbf)
+    !gateOpcode(cur, 8, 0x29, 1) ||
+    !gateOpcode(cur, 30, 0xa9, 1) ||
+    !gateOpcode(cur, 46, 0xbf, 3) ||
+    !gateOpcode(cur, 60, 0xbf, 3)
   )
     return
   const X = cur.size & readImmByte(cur, base + 9)
@@ -3876,12 +3885,12 @@ export function handle_0DBA4C(cur: Cursor): void {
   // (+30, vanilla $03, over the JSR) decide which side of the threshold gets
   // page 1, so a changed branch refuses rather than render inverted (#519).
   if (
-    !gateOpcode(cur, 4, 0x29) ||
-    !gateOpcode(cur, 18, 0xbf) ||
-    !gateOpcode(cur, 27, 0xe0) ||
-    !gateOpcode(cur, 29, 0x10) ||
+    !gateOpcode(cur, 4, 0x29, 1) ||
+    !gateOpcode(cur, 18, 0xbf, 3) ||
+    !gateOpcode(cur, 27, 0xe0, 1) ||
+    !gateOpcode(cur, 29, 0x10, 1) ||
     !gateOpcode(cur, 30, 0x03) ||
-    !gateOpcode(cur, 34, 0xbf)
+    !gateOpcode(cur, 34, 0xbf, 3)
   )
     return
   const X = cur.size & readImmByte(cur, cur.handlerAddr + 5)

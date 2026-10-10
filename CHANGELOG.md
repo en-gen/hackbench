@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Standard objects $34 (CODE_0DBA4C) and the variant B staircase (CODE_0DC3D8) read their CPX threshold and gate every opcode they read through; a hack that changes one now refuses the object with a recorded reason instead of drawing from vanilla assumptions (#519).
+- Standard objects $34 (CODE_0DBA4C) and the variant B staircase (CODE_0DC3D8): CODE_0DBA4C reads its CPX threshold and X mask from the handler, CODE_0DC3D8 reads its X mask, and both check every opcode they read through and that its operand is inside the ROM, refusing the object with a recorded reason otherwise (#519).
 - Docs (#750): the hack corpus note now states 101 hacks, all patched, and scopes its "of 99" survey figures to the 2026-09-26 survey.
 - Unit tests: the control-bytes and test-registration walks skip `__fixtures__`, so a concurrent lintGate run no longer fails them with ENOENT (#754).
 - Test-only (#653 Stage A): a per-ROM report of which standard object leaves the interpreter agrees on, across the corpus.
