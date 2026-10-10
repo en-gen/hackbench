@@ -456,7 +456,7 @@ swept either side and level at one placement gives the same rule
 (`SpikeTopAppearance.fromTables`) now takes the same direction from
 `marioStartPx` and reads `DATA_02BCC7`, with the same EOR.
 
-Open (to be filed separately, not fixed here): `readMarioStartPos`
+Open (tracked as #781, not fixed here): `readMarioStartPos`
 (`L3Loader.ts:292-317`) builds Mario's X only from `DATA_05D750`/`D758` and
 ignores the entrance's screen, so it gives 16 where the ROM-run loader gives 784
 (map `$1BF`). It IS served: `map-sprites.ts:340-343` falls back to it when the
