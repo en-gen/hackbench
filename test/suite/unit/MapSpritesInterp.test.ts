@@ -19,7 +19,6 @@ import type { MapSpriteDto } from '../../../theia/extension/src/common/project-p
 import type { SpriteModel, SpritePart } from '../../../src/rom/sprites/interp/SpriteRunner'
 import {
   cameraFor,
-  startLoadWindow,
   drawSprites,
   engineDrawer,
   interpDrawer,
@@ -110,45 +109,33 @@ describe('cameraFor', () => {
 
 describe('screen-fixed parts (#286)', () => {
   // The loader left Layer 1 at (0, 192), as Yoshi's House ($104) does at load; OAM 3, 6 and 7 hold residue.
-  const loader = (cam = [0, 0, 0xc0, 0]) => {
+  // SpriteLoadStatus ($1938 + list index, bank_02.asm:5285): `status` lists the indexes the start-of-level load marked.
+  const loader = (cam = [0, 0, 0xc0, 0], status: number[] = [0]) => {
     const loaded = new Uint8Array(0x2000)
     cam.forEach((v, i) => (loaded[0x1a + i] = v)) // $1A $1B $1C $1D, as the loader left Layer 1
+    for (const i of status) loaded[0x1938 + i] = 1
     for (const [oam, x, y] of [[3, 16, 48], [6, 70, 60], [7, 90, 50], [10, 0x40, 77]]) loaded.set([x!, y!], 0x200 + oam! * 4) // prettier-ignore
     loaded[0x200 + 8 * 4 + 2] = 5 // OAM 8: (0, 0) but a tile: a drawn entry, not the zero fill
+    loaded.set([0, 0, 0, 0x30], 0x200 + 11 * 4) // OAM 11: (0, 0), tile 0, attribute $30: a drawn entry
+    loaded[0x200 + 12 * 4] = 5 // OAM 12: X only
+    loaded[0x200 + 13 * 4 + 1] = 5 // OAM 13: Y only
     return withSeed({ loaded })
   }
-  /** The start-load routine as SMWDisX writes it (bank_02.asm:5837-5910), position bytes `lo`/`hi`, with the back-up and column operands. */
-  const body = (lo: number, hi: number, back: number, cols: number) => [0xa5, 0x55, 0x48, 0xa9, 1, 0x85, 0x55, 0xa5, lo, 0x48, 0x38, 0xe9, back, 0x85, lo, 0xa5, hi, 0x48, 0xe9, 0, 0x85, hi, 0x9c, 0xcb, 0x61, 0x20, 2, 0xa8, 0x20, 2, 0xa8, 0xa5, lo, 0x18, 0x69, 16, 0x85, lo, 0xa5, hi, 0x69, 0, 0x85, hi, 0xee, 0xcb, 0x61, 0xad, 0xcb, 0x61, 0xc9, cols, 0x90, 0xe3] // prettier-ignore
-  const HEAD = [0xa5, 0x5b, 0x4a, 0x90, 0x40] // LDA ScreenMode; LSR A; BCC CODE_02ACA1 ($02AC5C + 5 + $40)
-  /** A cart whose two routines read back `back` and `columns`; `bend(addr, bytes)` may damage one routine. */
-  const cart = (
-    back = 0x60,
-    columns = 0x20,
-    bend: (at: number, b: number[]) => void = () => {},
-  ) => {
-    const r = RomFile.fromBytes('cart.sfc', Buffer.alloc(0x80000))
-    const parts: [number, number[]][] = [[0x02ac5c, HEAD], [0x02ac61, body(0x1c, 0x1d, back, columns)], [0x02aca1, body(0x1a, 0x1b, back, columns)]] // prettier-ignore
-    for (const [a, b] of parts) {
-      const c = [...b]
-      bend(a, c)
-      r.writeAt(a, c)
-    }
-    return r
-  }
-  const at = (x: number, y: number) => ({ index: 0, x: x / 16, y: y / 16, spriteId: 0x8c, screen: 0, extraBit: false, raw: [], streamOffset: 0 }) as LevelSprite // prettier-ignore
+  const blank = RomFile.fromBytes('blank.sfc', Buffer.alloc(0x80000))
+  const at = (x: number, y: number, index = 0) => ({ index, x: x / 16, y: y / 16, spriteId: 0x8c, screen: 0, extraBit: false, raw: [], streamOffset: 0 }) as LevelSprite // prettier-ignore
   const s8 = (v: number) => (((v & 0xff) + 128) & 0xff) - 128
   type Cam = { x: number; y: number }
   type Run = (r: RomFile, i: number, s: SpriteSeed) => SpriteModel
-  /** A run like the runner's: the anchor is the sprite; `parts(cam)` lists [oam, ox, oy]; they are pass `chosen` of `mainPasses`. */
+  /** A run like the runner's: the anchor is the sprite; `parts(cam)` lists [oam, ox, oy, char, attr]; they are pass `chosen` of `mainPasses`. */
   const runOf =
     (parts: (cam: Cam) => number[][], chosen = 0): Run =>
     (_r, _i, seed) => {
       const { camera: cam, sprite: sp } = seed
-      const mk = ([oam, ox, oy]: number[]) => part({ oam: oam!, ox: ox!, oy: oy!, dx: ox! - (sp.x - cam.x), dy: s8(oy! - (sp.y - cam.y)) }) // prettier-ignore
+      const mk = ([oam, ox, oy, char = 0, attr = 0]: number[]) => part({ oam: oam!, ox: ox!, oy: oy!, char, attr, dx: ox! - (sp.x - cam.x), dy: s8(oy! - (sp.y - cam.y)) }) // prettier-ignore
       const passes = Array.from({ length: seed.mainPasses }, (_, pass) => ({ pass, pos: { x: 0, y: 0 }, parts: pass === chosen ? parts(cam).map(mk) : [], uploads: [], palette: [] })) // prettier-ignore
       return model({ anchor: { x: sp.x, y: sp.y, rawX: sp.x, rawY: sp.y }, passes, chosen })
     }
-  const draw = (s: LevelSprite, run: Run, o: { cam?: number[]; vertical?: boolean; rom?: RomFile } = {}) => interpDrawer(o.rom ?? cart(), 0x104, { isVertical: !!o.vertical, screenCount: 2 }, run, () => loader(o.cam))(s) // prettier-ignore
+  const draw = (s: LevelSprite, run: Run, o: { cam?: number[]; vertical?: boolean; status?: number[] } = {}) => interpDrawer(blank, 0x104, { isVertical: !!o.vertical, screenCount: 2 }, run, () => loader(o.cam, o.status))(s) // prettier-ignore
   const dxy = (r: ReturnType<SpriteDrawer>) => (r.ok ? r.parts.map(p => [p.dx, p.dy]) : r) // highest OAM first
   // One part ignores the camera (OAM 184,176, as CODE_02F4EB writes, bank_02.asm:15531-15576), one follows it.
   const flame = (c: Cam) => [[0, 184, 176], [1, 132 - c.x, 120 - c.y]] // prettier-ignore
@@ -173,9 +160,10 @@ describe('screen-fixed parts (#286)', () => {
     expect(dxy(r)).toEqual([[255 + 320 - 336, 50 + 432 - 112], [24 + 320 - 336, -32 + 432 - 112], [-256 + 320 - 336, 40 + 432 - 112], [20 + 320 - 336, 30 + 432 - 112], [-16 + 320 - 336, -24 + 432 - 112]]) // prettier-ignore
   })
 
-  it('does not move a part the loader image already had at that OAM position (seed residue); a partial match is moved', () => {
+  it('does not move a part at the X and Y of a non-zero loader entry (seed residue); a partial match is moved', () => {
     // OAM 3 is the residue exactly; 6 differs in Y only, 7 in X only; 10 is residue by X's low byte (ox 320).
-    // OAM 8 is (0, 0) over a loader entry with a tile: residue. OAM 9 is (0, 0) over the zero fill: a real part, moved.
+    // OAM 8 is (0, 0) over a loader entry with only a tile, 11 over one with only an attribute: residue.
+    // OAM 9 is (0, 0) over the zero fill: a real part, moved.
     const parts = () => [
       [3, 16, 48],
       [6, 70, 61],
@@ -184,8 +172,35 @@ describe('screen-fixed parts (#286)', () => {
       [10, 0x140, 77],
       [8, 0, 0],
       [9, 0, 0],
+      [11, 0, 0],
     ]
-    expect(dxy(draw(at(128, 112), runOf(parts)))).toEqual([[320 - 128, 77 - 112], [0 - 128, 192 - 112], [0 - 128, 0 - 112], [91 - 128, 50 + 192 - 112], [70 - 128, 61 + 192 - 112], [16 - 128, 48 - 112], [56, 256]]) // prettier-ignore
+    expect(dxy(draw(at(128, 112), runOf(parts)))).toEqual([[0 - 128, 0 - 112], [320 - 128, 77 - 112], [0 - 128, 192 - 112], [0 - 128, 0 - 112], [91 - 128, 50 + 192 - 112], [70 - 128, 61 + 192 - 112], [16 - 128, 48 - 112], [56, 256]]) // prettier-ignore
+  })
+
+  it('treats a loader entry as residue when any one of its four bytes is non-zero, and as the fill only when all are zero', () => {
+    // Each entry has a single non-zero byte (OAM 12 X, 13 Y, 8 tile, 11 attribute); the part repeats its X and Y.
+    const one = (oam: number, x: number, y: number) => dxy(draw(at(128, 112), runOf(() => [[0, 184, 176], [oam, x, y]]))) // prettier-ignore
+    expect(one(12, 5, 0)).toEqual([[5 - 128, 0 - 112], [56, 256]]) // prettier-ignore
+    expect(one(13, 0, 5)).toEqual([[0 - 128, 5 - 112], [56, 256]]) // prettier-ignore
+    expect(one(8, 0, 0)).toEqual([[-128, -112], [56, 256]]) // prettier-ignore
+    expect(one(11, 0, 0)).toEqual([[-128, -112], [56, 256]]) // prettier-ignore
+    expect(one(9, 0, 0)).toEqual([
+      [-128, 192 - 112],
+      [56, 256],
+    ]) // all zero: the fill, a real part, moved // prettier-ignore
+  })
+
+  it('does not compare tile or attribute: a cluster entry whose tile and attribute changed since the image is still residue', () => {
+    // Vanilla $1F: the image holds OAM 124 at (80, 48) tile $E4 attribute $09; the run rewrites it $E2 / $49.
+    const seed = loader()
+    seed.loaded!.set([80, 48, 0xe4, 0x09], 0x200 + 124 * 4)
+    const run: Run = (r, i, s) => {
+      const m = runOf(() => [[0, 184, 176], [124, 80, 48]])(r, i, s) // prettier-ignore
+      m.passes.forEach(p => p.parts.forEach(q => ((q.char = 0x1e2), (q.attr = 0x49))))
+      return m
+    }
+    const d = interpDrawer(blank, 0x1f, { isVertical: false, screenCount: 2 }, run, () => seed)
+    expect(dxy(d(at(128, 112)))).toEqual([[80 - 128, 48 - 112], [56, 256]]) // prettier-ignore
   })
 
   it('probes after a drawn main run only, 13 px by 11 px towards its screen centre, only to the drawn pass', () => {
@@ -206,89 +221,47 @@ describe('screen-fixed parts (#286)', () => {
     ])
   })
 
-  it('runs once, no probe, when nothing drew, the run refused, the loader gave no image or the sprite is outside the loader view', () => {
+  it('runs once, no probe, when nothing drew, the run refused, the loader gave no image or the game did not load the sprite', () => {
     let runs = 0
     const count =
       (m: Run | SpriteModel): Run =>
       (r, i, s) => (runs++, typeof m === 'function' ? m(r, i, s) : m)
     const one = (m: Run | SpriteModel, s = at(128, 112), seedFor = () => loader()) => {
       runs = 0
-      interpDrawer(cart(), 0x104, { isVertical: false, screenCount: 2 }, count(m), seedFor)(s)
+      interpDrawer(blank, 0x104, { isVertical: false, screenCount: 2 }, count(m), seedFor)(s)
       return runs
     }
     expect(one(runOf(flame))).toBe(2) // control: this one does probe
     expect(one(model({ emptyReason: 'drew no tile', passes: [] }))).toBe(1)
     expect(one(model({ refusal: 'step budget spent' }))).toBe(1)
     expect(one(runOf(flame), at(128, 112), () => withSeed({}))).toBe(1)
-    expect(one(runOf(flame), at(1544, 112))).toBe(1)
+    expect(one(runOf(flame), at(128, 112), () => loader(undefined, []))).toBe(1)
   })
 
-  it('leaves a sprite outside the loader view at its offsets; the view is the scroll axis: X on a horizontal map, Y on a vertical one', () => {
-    const only = () => [[0, 184, 176]]
-    const spot = (s: LevelSprite, vertical: boolean) => dxy(draw(s, runOf(only), { vertical }))
-    expect(spot(at(1544, 112), false)).toEqual([[-1104, 64]]) // camera (256, 0); X 1544 is outside the start-load span
-    expect(spot(at(1544, 224), false)).toEqual([[-1104, 64]]) // Y 224 is inside the loader's Y range, which does not matter here
-    expect(spot(at(1544, 224), true)).toEqual([[184 - 1544, 176 + 192 - 224]]) // vertical: Y 224 is inside [96, 608)
-    expect(spot(at(1544, 80), true)).toEqual([[-1104, 96]]) // vertical: Y 80 is outside [96, 608)
-  })
-
-  /** Is a sprite at (x, y) placed from the loader camera (true), or left at its offsets (false)? */
-  const placed = (
-    x: number,
-    y: number,
-    o: { cam?: number[]; vertical?: boolean; rom?: RomFile } = {},
-  ) => {
+  /** Is a sprite at list index `idx` placed from the loader camera (true), or left at its offsets (false)? */
+  const placed = (idx: number, status?: number[], x = 128) => {
     const r = dxy(
       draw(
-        at(x, y),
+        at(x, 112, idx),
         runOf(() => [[0, 184, 176]]),
-        o,
+        { status },
       ),
     )
-    const cam = o.cam ?? [0, 0, 0xc0, 0]
-    const fixed = [[184 + (cam[0]! | (cam[1]! << 8)) - x, 176 + (cam[2]! | (cam[3]! << 8)) - y]] // prettier-ignore
-    return JSON.stringify(r) === JSON.stringify(fixed)
+    return JSON.stringify(r) === JSON.stringify([[184 - x, 176 + 192 - 112]])
   }
 
-  it('places a part for a sprite in the start-load span [camera - back, + columns x 16) and not outside it, both edges, both axes', () => {
-    // Horizontal, camera X 0: [-96, 416); a sprite is on the map at X >= 0 only.
-    expect([16, 400, 416, 432].map(x => placed(x, 112))).toEqual([true, true, false, false])
-    // Camera X 512: [416, 928).
-    const far = { cam: [0, 2, 0xc0, 0] }
-    expect([400, 416, 912, 928].map(x => placed(x, 112, far))).toEqual([false, true, true, false])
-    // Camera X 56: the span starts below 0 (screens left of the map are skipped) but still ends 512 px after its start.
-    const near = { cam: [56, 0, 0xc0, 0] } // not a multiple of 16: the span starts on a column
-    expect([448, 464].map(x => placed(x, 112, near))).toEqual([true, false])
-    // Vertical, camera Y 192: [96, 608), on Y.
-    const v = { vertical: true }
-    expect([80, 96, 592, 608].map(y => placed(16, y, v))).toEqual([false, true, true, false])
-    // The X of a vertical map's sprite does not matter: only Y is the scroll axis.
-    expect(placed(1536, 224, v)).toBe(true)
+  it('places a part only for a sprite whose SpriteLoadStatus byte ($1938 + list index) the start-of-level load set', () => {
+    // Status 1 on indexes 0 and 5, 0 elsewhere: the byte is read at the sprite's own index, not index 0.
+    expect([0, 1, 5, 6].map(i => placed(i, [0, 5]))).toEqual([true, false, true, false])
+    // Not tied to the loader camera's screen: a sprite far from it is placed all the same when loaded.
+    expect(placed(0, [0], 1544)).toBe(true)
+    // Cleared by the game (a generator, or no free slot: bank_02.asm:5345, 5419) or never loaded: old placement.
+    expect(placed(0, [])).toBe(false)
   })
 
-  it('reads the span from the ROM: other operands move the window, and a changed routine means nothing is placed', () => {
-    expect([80, 96].map(x => placed(x, 112, { rom: cart(32, 8) }))).toEqual([true, false]) // [-32, 96)
-    const bytes = (vertical: boolean) =>
-      body(vertical ? 0x1c : 0x1a, vertical ? 0x1d : 0x1b, 0x60, 0x20)
-    // Operands the span does not depend on (the wildcards) still read; any other byte changed refuses.
-    const free = new Set([1, 6, 12, 23, 24, 45, 46, 48, 49, 51])
-    for (const vertical of [false, true]) {
-      const at0 = vertical ? 0x02ac61 : 0x02aca1
-      const got = bytes(vertical).map((_, i) => {
-        const r = cart(0x60, 0x20, (a, b) => a === at0 && (b[i] = (b[i]! + 1) & 0xff))
-        return startLoadWindow(r, vertical) !== null
-      })
-      expect(got).toEqual(bytes(vertical).map((_, i) => free.has(i)))
-    }
-    // The vertical entry's own head: its BCC must still land on the horizontal body.
-    const head = (i: number) =>
-      cart(0x60, 0x20, (a, b) => a === 0x02ac5c && (b[i] = (b[i]! + 1) & 0xff))
-    for (const i of [0, 2, 3, 4]) expect(startLoadWindow(head(i), true)).toBeNull()
-    expect(
-      placed(128, 112, { rom: cart(0x60, 0x20, (a, b) => a === 0x02aca1 && (b[11] = 0xe5)) }),
-    ).toBe(false)
-    expect(startLoadWindow(cart(0x60, 0x20), false)).toEqual({ back: 0x60, columns: 0x20 })
-    expect(startLoadWindow(RomFile.fromBytes('blank.sfc', Buffer.alloc(0x80000)), false)).toBeNull()
+  it('reads 128 status entries: the last is read, an index past it is not tracked and not placed', () => {
+    expect(placed(127, [127])).toBe(true)
+    expect(placed(128, [128])).toBe(false)
   })
 
   it('places a part of a later pass: the probe is read at the drawn pass, not the first', () => {
@@ -299,9 +272,7 @@ describe('screen-fixed parts (#286)', () => {
   it('is not poisoned by an instance that drew nothing: a later one that draws is still placed from the loader camera', () => {
     // $8C draws only when SpriteXPosLow bit 4 is clear (bank_02.asm:15517-15519).
     const run: Run = (r, i, s) => (s.sprite.x & 16 ? model({ emptyReason: 'drew no tile', passes: [] }) : runOf(flame)(r, i, s)) // prettier-ignore
-    const d = interpDrawer(cart(), 0x104, { isVertical: false, screenCount: 2 }, run, () =>
-      loader(),
-    )
+    const d = interpDrawer(blank, 0x104, { isVertical: false, screenCount: 2 }, run, () => loader())
     expect(d(at(144, 112)).ok).toBe(false)
     expect(dxy(d(at(128, 112)))).toEqual([
       [4, 8],
@@ -310,7 +281,7 @@ describe('screen-fixed parts (#286)', () => {
   })
 
   it('leaves parts alone when the loader gave no image', () => {
-    const r = interpDrawer(cart(), 0x104, { isVertical: false, screenCount: 2 }, runOf(flame), () => withSeed({}))(at(128, 112)) // prettier-ignore
+    const r = interpDrawer(blank, 0x104, { isVertical: false, screenCount: 2 }, runOf(flame), () => withSeed({}))(at(128, 112)) // prettier-ignore
     expect(dxy(r)).toEqual([
       [4, 8],
       [56, 64],
@@ -649,11 +620,6 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
       expect(at).toContainEqual(['drawn', 120, 232])
       expect(at).not.toContainEqual(['drawn', 376, 40])
     }
-  })
-
-  it('the start-load span reads 96 back and 32 columns, both axes (cross-check of the vanilla operands, never a default)', () => {
-    const rom = RomFile.load(romPath(VANILLA))
-    expect([startLoadWindow(rom, false), startLoadWindow(rom, true)]).toEqual([{ back: 96, columns: 32 }, { back: 96, columns: 32 }]) // prettier-ignore
   })
 
   it('$4F on $105 is served at its stream position plus (8, -1): INIT moved it, not a table', () => {

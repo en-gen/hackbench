@@ -213,22 +213,23 @@ read through `drawSpriteParts`; no emulator was run.
 - A part whose OAM position does not move when the camera moves (a second run, the camera shifted
   13 x 11 px, only to the drawn pass) is screen-fixed: it is placed at OAM + the loader's Layer 1
   position, X unwrapped from 9 bits, OAM Y $E0 and up above the screen, not beside its sprite.
-  Only for a sprite the start-of-level sprite load covers: CODE_02ACA1 (vertical maps: the twin
-  entered from CODE_02AC5C) backs the scroll position up by an operand, then loads 16 px columns
-  (rows) for a counted number of steps, `bank_02.asm:5837-5910`; on vanilla that is 96 back and 32
-  columns, so [camera - 96, camera + 416) on the scroll axis, screens left of the map skipped
-  (`bank_02.asm:5227-5249`). Both operands are read from the ROM behind an opcode gate; a routine
-  that does not match means no placement at all, never the vanilla values. Not read: the offset
-  DATA_02A7F6[1] (0 on vanilla). The game also skips a sprite when no sprite slot is free
-  (`bank_02.asm:5400-5420`), which this does not model, and the window says where a sprite LOADS,
-  not where it always is: one loaded at start that never despawns offscreen is shown at that
-  place, one that despawns is gone. A part whose X and Y equal a non-zero loader-image OAM entry
-  at that index is residue (the level's cluster sprites rewrite OAM 123-127 each frame, CODE_02FA16,
-  `bank_02.asm:16230-16279`, which also writes OAM 123 for X >= $F0 at 16266-16278) and is left
-  alone; a zero entry is the loader's fill (486 of 512 vanilla slots), so a genuine part at (0, 0)
-  still moves. Seen: the `$8C` flame on `$104` (#286, `bank_02.asm:15531-15576`; one Mesen
-  capture, vanilla) and the `$C6` disco balls at X=384 on `$10E` and `$1BD` (CODE_03C4A5,
-  `bank_03.asm:7948-7953`, a constant screen position; ROM-traced, not captured).
+  Only for a sprite the game's own start-of-level load loaded, read from the loader image: the
+  loader runs CODE_05801E, whose `JSL CODE_02A751` (`bank_05.asm:72`, level modes below $22)
+  reaches that load (`bank_02.asm:5169`), which sets SpriteLoadStatus (`$1938` + list index,
+  `rammap.asm:1968`) to 1 per loaded sprite (`bank_02.asm:5285`) and back to 0 for a generator
+  (`5345`) or when no sprite slot is free (`5418-5419`). A byte of 0, a list index of 128 or more
+  (the table's size) or no loader image keeps the offsets. Against a span read from the column
+  loop, 8 vanilla sprites inside it were not loaded (generators `$D5`, `$D7`, `$D9`, `$CF`; no free
+  slot `$AA`, `$AA`, `$26`, `$25`) and none was loaded outside it (one machine, 488 maps). The game
+  loads a sprite where it starts, not where it always is. A part whose X and Y equal a non-zero
+  loader-image OAM entry is residue (the level's cluster sprites rewrite OAM 123-127 each frame,
+  CODE_02FA16, `bank_02.asm:16230-16279`) and is left alone. Tile and attribute are not compared:
+  the rewrite changes them (vanilla `$1F`, `$1D4`: tile $E4, attribute $09 in the image, $E2 and
+  $49 in the run). Any non-zero byte makes an entry count; an all-zero entry is the loader's fill,
+  so a genuine part at (0, 0) still moves. Seen: the `$8C` flame on `$104` (#286,
+  `bank_02.asm:15531-15576`; one Mesen capture, vanilla) and the `$C6` disco balls at X=384 on
+  `$10E` and `$1BD` (CODE_03C4A5, `bank_03.asm:7948-7953`, a constant screen position; ROM-traced,
+  not captured).
 - Each sprite is one bitmap at anchor + `dx`/`dy`, never snapped to the grid.
   A sprite the interpreter refuses (`refused: ...`, with its reason: an id
   past the table, an unknown entry shape, a spent step budget), one that draws
