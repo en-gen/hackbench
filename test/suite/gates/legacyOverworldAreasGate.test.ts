@@ -6,6 +6,7 @@
 import { describe, it, expect } from 'vitest'
 import * as fs from 'fs'
 import * as path from 'path'
+import { slow } from '../support/loadTimeout'
 
 const root = path.resolve(__dirname, '../../..')
 const LEGACY = /\bloadOverworld(Areas)?\b/
@@ -34,7 +35,8 @@ function legacyCallers(dir: string, skip: (file: string) => boolean): string[] {
 describe('legacy overworld loaders', () => {
   const definer = (f: string): boolean => f.endsWith(path.join('src', 'rom', 'OverworldLoader.ts'))
 
-  it('are not referenced from the core or the Theia extension', () => {
+  // 6.6 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10
+  it('are not referenced from the core or the Theia extension', slow(14_000), () => {
     expect(legacyCallers(path.join(root, 'src/rom'), definer)).toEqual([])
     expect(legacyCallers(path.join(root, 'src/project'), definer)).toEqual([])
     expect(legacyCallers(path.join(root, 'theia/extension/src'), definer)).toEqual([])
@@ -53,7 +55,8 @@ describe('legacy overworld loaders', () => {
     expect(body).not.toMatch(LEGACY)
   })
 
-  it('the scan can fail: it finds the definer when not skipped', () => {
+  // 6.3 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-10
+  it('the scan can fail: it finds the definer when not skipped', slow(13000), () => {
     expect(legacyCallers(path.join(root, 'src/rom'), () => false)).toContain(
       'src/rom/OverworldLoader.ts',
     )
