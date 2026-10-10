@@ -61,11 +61,10 @@ export interface DiffRun {
    */
   writtenDiffers: boolean | null
   /**
-   * SHA-1 of the port's written cells (row, col, last value, $25 included)
-   * over the whole grid, 12 hex digits. Set when `differs` or `writtenDiffers`, and for a refusal,
-   * where the port is run on a clean grid only to be pinned (#759); `threw:
-   * <message>` is digested if the port throws. Null for an agreeing run: it
-   * needs no pin.
+   * SHA-1 of the port's written cells (row, col, last value, $25 included),
+   * 12 hex digits. Set when `differs` or `writtenDiffers`, and for a refusal,
+   * where the port runs on a clean grid only to be pinned (#759); `threw:
+   * <message>` is digested if it throws. Null for an agreeing run.
    */
   portDigest: string | null
 }
@@ -153,8 +152,8 @@ export const sameWritten = (a: WrittenCells, b: WrittenCells): boolean =>
 
 /**
  * Digest of the cells the port wrote (last value each, in cell order), $25
- * included. A port that starts or stops writing $25 changes it; one that
- * rewrites a cell with the value it already held does not leave the map.
+ * included. A port that starts or stops writing $25 changes it; only each
+ * cell's last value counts, not how often or in what order it was written.
  */
 export const portDigestOf = (written: WrittenCells): string => {
   const h = createHash('sha1')
@@ -250,16 +249,15 @@ export function sweep(rom: RomFile): DiffRun[] {
       mine.written.clear()
       if (r.refusal) {
         // The port runs only to be pinned: a refusal says nothing about it otherwise.
-        let threw = false
         try {
           expandObject(port.grid, object, rom, ts)
           run.portDigest = portDigestOf(port.written)
         } catch (e) {
-          threw = true
           const msg = e instanceof Error ? e.message : String(e)
           run.portDigest = createHash('sha1').update(`threw: ${msg}`).digest('hex').slice(0, 12)
         }
-        if (threw || port.written.size > 0) port = recordedGrid(GRID_SCREENS)
+        // A throw before any write leaves the grid clean; any write is recorded.
+        if (port.written.size > 0) port = recordedGrid(GRID_SCREENS)
         continue
       }
       expandObject(port.grid, object, rom, ts)

@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Test-only (#653 Stage A): a per-ROM report of which standard object leaves the interpreter agrees on, across the corpus.
 - Layer 1 differential: the #300 allow-list row no longer hides port/interpreter differences on the object's own screen (#453).
-- Layer 1 differential: every disagreement row pins the port's written cells (last value per cell, writes of the empty tile $25 included), and every refusal entry pins the port's output on a clean grid for its cases (#759) (#751). Not pinned: an agreeing case outside those rows and entries is compared, not pinned. Three rows absorb the 8 vanilla cases (extended $82, $83, $84) where the grids agree but the ROM writes $25 into blank footprint cells and the port does not.
+- Layer 1 differential: every disagreement row pins the port's written cells (last value per cell, writes of the empty tile $25 included), and every refusal entry pins the port's output on a clean grid for its cases (#759) (#751). Three rows absorb the 8 vanilla cases (extended $82, $83, $84) where the grids agree but the ROM writes $25 into blank footprint cells and the port does not (#773). An agreeing case outside the rows and entries is compared, not pinned.
 - Tech-lead session titles are now "<Team> Team" (e.g. "Delta Team"), in the tech-lead manual and the unregistered-session hook text.
 
 ### Fixed
