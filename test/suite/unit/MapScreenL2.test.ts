@@ -226,6 +226,13 @@ describe('the wire carries four planes in the view stacking order (synthetic)', 
     expect(wire.layerNotes).toEqual(['Layer order unverified, drawn as BG mode 1: because'])
     expect(wireOf(mapOf(m, { ok: true, l2 })).layerNotes).toEqual([])
   })
+
+  it("L2's dispatch note joins L1's in the map note, and the same note shows once (#493)", () => {
+    const m = { ...inputs(hGrid(1), false, 1), unverified: ['hooked $0DA415'] }
+    const l2 = { ...l2Of(nullGrid(27, 16), tiles2(solid)), unverified: ['hooked $0DA415', 'hooked $0DA106'] } // prettier-ignore
+    expect(wireOf(mapOf(m, { ok: true, l2 })).note).toBe('hooked $0DA415 hooked $0DA106')
+    expect(wireOf(mapOf(m)).note).toBe('hooked $0DA415')
+  })
 })
 
 // ── The core's L2 reading ────────────────────────────────────────────────────
@@ -246,7 +253,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
     ({ rom, getVerticalTable: () => ({ ok: true, table: new Array(32).fill(l2Vertical ? 3 : 0) }) }) as unknown as SmwRom // prettier-ignore
   const one = tile(7, [sub(1, 3), sub(1, 3), sub(1, 3), sub(1, 3)])
   const objects = (grid: number[][]) =>
-    vi.mocked(L2LoaderReal.loadL2Objects).mockReturnValue({ grid })
+    vi.mocked(L2LoaderReal.loadL2Objects).mockReturnValue({ grid, unverified: [] })
   const image = () => {
     vi.mocked(Map16Real.readL2Map16Table).mockReturnValue({ ok: true, value: [0] })
     vi.mocked(Map16Real.loadMap16Tiles).mockReturnValue(tiles2(one))
@@ -291,6 +298,12 @@ describe('buildL2Inputs (synthetic ROM)', () => {
     expect(l2.dy).toBe(0x20 - 0xc0)
     expect(l2.tiles[1]).toEqual(m.map16.tiles[1]) // L1's own table, not vanilla's
     expect(vi.mocked(L2LoaderReal.loadL2Objects).mock.calls[0]!.slice(2)).toEqual([1, 0, false])
+  })
+
+  it('an object build dispatch notes ride on the L2 inputs (#493)', () => {
+    vi.mocked(L2LoaderReal.loadL2Objects).mockReturnValue({ grid: [[1]], unverified: ['hooked'] })
+    const l2 = ok(buildL2Inputs(smw(romWith([ptr(0x00, 0x90, 0x0c)])), LEVEL, inputs(hGrid(1), false, 1))) // prettier-ignore
+    expect(l2.unverified).toEqual(['hooked'])
   })
 
   it('the high bytes follow the ScreenMode at level entry (F600 bit 5), and L2 only when VertLayer2Setting is not 3', () => {

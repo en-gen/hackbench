@@ -33,6 +33,8 @@ export interface L2Inputs {
    * objects alike: Layer2YPos comes from DATA_05D70C either way (bank_05.asm:7323-7328).
    */
   dy: number
+  /** Dispatch-path notes from the object build (#493), deduped by the caller; absent for an image. */
+  unverified?: string[]
 }
 
 export type L2Result = { ok: true; l2: L2Inputs } | { ok: false; reason: string }
@@ -89,6 +91,7 @@ export function buildL2Inputs(rom: SmwRom, index: number, l1: L1Inputs): L2Resul
         grid: objects.grid.map(row => row.map(id => (id === L2_EMPTY_TILE ? null : id))),
         tiles: withPaletteOr(l1.map16.tiles, l2PaletteOrForTileset(header.objectTileset)),
         dy: dy(),
+        unverified: objects.unverified,
       },
     }
   } catch (err) {

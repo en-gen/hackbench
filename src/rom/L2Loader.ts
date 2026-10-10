@@ -31,6 +31,7 @@ import { decompressRle1 } from './LcRle1'
 import { parseL2Objects, SCREEN_W, SCREEN_H, type LevelSprite } from './LevelParser'
 import { expandObject, createGrid, SWITCH_FLAGS_UNCLEARED } from './ObjectExpander'
 import { OWNER_NONE } from './objectHandlers/cursor'
+import type { InterpretedSink } from './objectHandlers/interpretedDraw'
 import { findSecondaryEntranceForLevel } from './L3Loader'
 
 /** L2 pointer table base. 3 bytes per level: lo, hi, bank. */
@@ -213,7 +214,7 @@ export function loadL2Objects(
   screens: number,
   objectTileset: number,
   isVertical = false,
-): { grid: number[][] } | null {
+): { grid: number[][]; unverified: string[] } | null {
   if (isPresetPtr(ptr)) return null
 
   const snesAddr = ptr & 0xffffff
@@ -227,8 +228,12 @@ export function loadL2Objects(
   // mirrors L1's - in vanilla SMW, L2 verticality tracks L1 closely.
   const objects = parseL2Objects(raw, screens, isVertical)
   const grid = createGrid(screens, isVertical)
+  // L2 draws from the ports; the sink only collects the dispatch-path note (#493). Its draw
+  // always declines, so no gated handler is interpreted and the grid matches the null-sink
+  // output, and a missing draw would add a spurious "no interpreter" note to stock maps.
+  const unverified: string[] = []
+  const sink: InterpretedSink = { unverified, draw: () => false, primitives: [] }
   for (const obj of objects) {
-    // L2 draws from the ports
     expandObject(
       grid,
       obj,
@@ -237,11 +242,11 @@ export function loadL2Objects(
       null,
       OWNER_NONE,
       SWITCH_FLAGS_UNCLEARED,
-      null,
+      { ...sink, vertical: isVertical },
       isVertical,
     )
   }
-  return { grid }
+  return { grid, unverified }
 }
 
 // Re-export for callers that want the canonical grid dimensions without

@@ -330,7 +330,13 @@ export function screenResult(
           }
         : null,
     layer2Interactive: model.l3?.layer2Interactive ?? false,
-    note: [...model.unverified, model.animNote].filter(Boolean).join(' ') || undefined,
+    note:
+      [
+        ...new Set([...model.unverified, ...(model.l2?.ok ? (model.l2.l2.unverified ?? []) : [])]),
+        model.animNote,
+      ]
+        .filter(Boolean)
+        .join(' ') || undefined,
     layerNotes: [
       model.l2 && !model.l2.ok ? `The background is not drawn: ${model.l2.reason}` : '',
       model.orderNote ? `Layer order unverified, drawn as BG mode 1: ${model.orderNote}` : '',
