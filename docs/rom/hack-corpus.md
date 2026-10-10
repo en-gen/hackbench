@@ -2,17 +2,17 @@
 
 > **Bottom line**
 >
-> - The store holds 101 SMWC hacks, all patched; counted 2026-10-10 by `ls patches | wc -l` and index.json `patch_result`, and 101 of 101 built ROMs match their index sha256 and size. Entry 27209 (ARMAGEDDON) is typed Tool-Assisted, Pit. `[EST]`
+> - The store holds 101 SMWC hacks, all patched; counted 2026-10-10 by `ls patches | wc -l` and index.json `patch_result`, and 101 of 101 built ROMs match their index sha256. Entry 27209 (ARMAGEDDON) is typed Tool-Assisted, Pit. `[EST]`
 > - Every "of 99" figure below was measured on the 99 hacks patched at the 2026-09-26 survey (#543), before 41112 was added; they were not re-derived on 101. `[EST]`
 > - 97 of 99 keep the core tables and routines HackBench reads; the two exceptions are the old hex-edited hacks 5551 and 9678. `[EST]`
 > - Palettes are edited in place, never relocated. `[EST]`
 > - Detection is required for: a replaced LC_LZ2 decompressor (17 of 99), absent or relocated MAP16AppTable readers (12 of 99). `[EST]`
 
-| Source                                                                     | Identifier                                                                                  | As of                                                                        | Retrieved  |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ---------- |
-| SMWC top-download list, patched onto vanilla copies with npm `rom-patcher` | store `hackbench-tools/hacks` (`patches/<smwc id>/`, `roms/<id>.sfc`, `index.json`, 427 MB) | built 2026-09-26 (41112 added later that day, retried after the survey's 99) | 2026-09-26 |
-| Survey script                                                              | `scripts/hack-survey.js`, smw-mcp branch `feature/hack-survey`                              | 2026-09-26                                                                   | 2026-09-26 |
-| Results and outliers                                                       | en-gen/hackbench#543                                                                        | 2026-09-26                                                                   | 2026-09-26 |
+| Source                                                                     | Identifier                                                                                                | As of                                                                        | Retrieved  |
+| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ---------- |
+| SMWC top-download list, patched onto vanilla copies with npm `rom-patcher` | store `hackbench-tools/hacks` (`patches/<smwc id>/`, `roms/<id>.sfc`, `index.json`, 433 MB at 2026-10-10) | built 2026-09-26 (41112 added later that day, retried after the survey's 99) | 2026-09-26 |
+| Survey script                                                              | `scripts/hack-survey.js`, smw-mcp branch `feature/hack-survey`                                            | 2026-09-26                                                                   | 2026-09-26 |
+| Results and outliers                                                       | en-gen/hackbench#543                                                                                      | 2026-09-26                                                                   | 2026-09-26 |
 
 ## Held on 97 of 99
 
