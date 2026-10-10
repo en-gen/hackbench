@@ -18,8 +18,6 @@ export interface ScreenPiece {
   large: boolean
 }
 
-export type Placed = ScreenPiece
-
 export type PositionVerdict = 'exact' | 'off' | 'missing'
 
 export interface PositionGrade {
@@ -43,14 +41,10 @@ const parked = (p: ScreenPiece): boolean => p.y >= 224 && p.y + (p.large ? 16 : 
  * (the runner's readParts takes it the same way) and Y as the 8-bit line. Both
  * sides use this one transform, so any wrap cancels.
  */
-export function toMap(pieces: ScreenPiece[], cam: { x: number; y: number }): Placed[] {
+export function toMap(pieces: ScreenPiece[], cam: { x: number; y: number }): ScreenPiece[] {
   return pieces
     .filter(p => !parked(p))
-    .map(p => ({
-      x: cam.x + p.x,
-      y: cam.y + p.y,
-      large: p.large,
-    }))
+    .map(p => ({ x: cam.x + p.x, y: cam.y + p.y, large: p.large }))
 }
 
 /** The capture's pieces at its first OAM write. */
@@ -68,13 +62,13 @@ export function modelPieces(m: SpriteModel): ScreenPiece[] {
   return m.passes[m.chosen].parts.map(q => ({ x: q.ox, y: q.oy, large: q.size === 16 }))
 }
 
-const key = (p: Placed): string => `${p.x},${p.y},${+p.large}`
-const sorted = (ps: Placed[]): string => ps.map(key).sort().join(';')
+const key = (p: ScreenPiece): string => `${p.x},${p.y},${+p.large}`
+const sorted = (ps: ScreenPiece[]): string => ps.map(key).sort().join(';')
 
-export function gradePosition(got: Placed[], want: Placed[]): PositionGrade {
+export function gradePosition(got: ScreenPiece[], want: ScreenPiece[]): PositionGrade {
   if (!got.length || !want.length) return { verdict: 'missing' }
   if (sorted(got) === sorted(want)) return { verdict: 'exact' }
-  const lo = (ps: Placed[], f: (p: Placed) => number): number => Math.min(...ps.map(f))
+  const lo = (ps: ScreenPiece[], f: (p: ScreenPiece) => number): number => Math.min(...ps.map(f))
   return {
     verdict: 'off',
     delta: {
