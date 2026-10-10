@@ -55,7 +55,8 @@ describe('legacy overworld loaders', () => {
     expect(body).not.toMatch(LEGACY)
   })
 
-  it('the scan can fail: it finds the definer when not skipped', () => {
+  // 6.3 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-10
+  it('the scan can fail: it finds the definer when not skipped', slow(13000), () => {
     expect(legacyCallers(path.join(root, 'src/rom'), () => false)).toContain(
       'src/rom/OverworldLoader.ts',
     )

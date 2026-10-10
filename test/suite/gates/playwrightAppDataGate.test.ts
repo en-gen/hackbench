@@ -271,7 +271,8 @@ describe.skipIf(process.platform === 'darwin')('Playwright app-data isolation (#
     }
   })
 
-  it('stale per-run folders older than a day are swept, and nothing else', () => {
+  // 4.7 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-10
+  it('stale per-run folders older than a day are swept, and nothing else', slow(10000), () => {
     const mk = (name: string, ageDays: number, pid?: number, file = MARKER) => {
       const p = path.join(os.tmpdir(), name)
       fs.mkdirSync(p, { recursive: true })

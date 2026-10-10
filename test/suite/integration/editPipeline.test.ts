@@ -12,6 +12,7 @@ import { encodeIps, decodeIps } from '../../../src/rom/Ips'
 import { buildMapPayload } from '../../../src/rom/model/MapBuilder'
 import { deleteSprite } from '../../../src/rom/LevelEdits'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
+import { slow } from '../support/loadTimeout'
 
 /**
  * The edit pipeline against a real cart: locate a sprite in the ROM's own
@@ -123,7 +124,8 @@ describe.skipIf(!hasRom(VANILLA))('edit pipeline against a real ROM', () => {
     expect(spritesOf(bothFromBase)[i].x).toBe(startX + 1)
   })
 
-  it('dropping the top layer rebuilds the state before it', () => {
+  // 4.9 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-10
+  it('dropping the top layer rebuilds the state before it', slow(10000), () => {
     const smw = rom()
     const lv = movableLevels(smw, 1)[0]
     const base = new Uint8Array(smw.rom.buffer)
@@ -155,7 +157,8 @@ describe.skipIf(!hasRom(VANILLA))('edit pipeline against a real ROM', () => {
     expect(patched[layer.patches[0].offset]).not.toBe(smw.rom.buffer[layer.patches[0].offset])
   })
 
-  it('a layer survives a round trip through a real IPS file', () => {
+  // 4.6 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-10
+  it('a layer survives a round trip through a real IPS file', slow(10000), () => {
     const smw = rom()
     const lv = movableLevels(smw, 1)[0]
     const base = new Uint8Array(smw.rom.buffer)

@@ -363,7 +363,9 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     return out
   }
 
-  it('lists where they disagree in parts relative to the anchor, and goes red when that list changes', () => {
+  // 4.6 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-10
+  // prettier-ignore
+  it('lists where they disagree in parts relative to the anchor, and goes red when that list changes', slow(10_000), () => {
     const rows = compare()
     const t = tally(rows)
     console.log(
