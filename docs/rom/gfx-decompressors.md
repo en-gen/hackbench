@@ -82,12 +82,25 @@ $B997, little-endian). Any other routine, or a dispatch that is not
 `PLA / BEQ / BMI`, refuses the ROM as a replaced decompressor. The check reads
 no other part of the body.
 
-A stock J, E0 or E1 ROM is still refused at the entry gate: the entry's `JSR`
-operand is `24 B9` on J, `96 B9` on E0 and `97 B9` on E1, not the US `83 B9`
-(en-gen/hackbench#696). So the little-endian read is reachable today only on a
-ROM whose entry is stock-shaped and whose routine has the XBA; the cartridge
-tests for it are synthetic. The fast routine is read big-endian as before; that
-is carried over from the 18 hacks it was surveyed on, not derived from its
+The entry gate (#696) matches the `JSR` opcode at entry+5 and `CMP #$FF` at
+entry+8..9, not the `JSR` operand, which differs per build (`24 B9` on J, `96 B9`
+on E0, `97 B9` on E1, `83 B9` on US). The operand is accepted only when the
+back-reference routine's own `JSR` names the same address and that address holds
+ReadByte's 15-byte body (`bank_00.asm:6405-6413`: the routine that fetches the
+next compressed byte through the $8A pointer and steps it; it has no absolute
+operand, so one pattern serves every build). Without that last check an entry and routine that
+agree on any address would pass. `readBackRefOrder` also checks the `JSR` opcode
+itself.
+
+Evidence scope: synthetic fixtures built from the SMWDisX `SMW_*.sym` operands;
+no J or E ROM is in the corpus. A real J, E0 or E1 ROM is still refused earlier,
+before `readDecompressor` runs: `resolveGfxPointerSites` reads the US-only caller
+at `$00AA6B` (on E0 and E1 that address is in SetallFGBG80, `bank_00.asm:5396-5399`;
+on J it is CODE_00AACD, `SMW_J.sym:3863`, inside UploadGFXFile, which starts at
+$00AA09, `SMW_J.sym:12205`). That is #774, not fixed here. The ExGFX reader
+`loadExGfxFile` (dormant, #491/#528) takes its order from the same gate and
+falls back to big-endian when the ROM has no readable decompressor. The fast
+routine is read big-endian as before; that is carried over from the 18 hacks it was surveyed on, not derived from its
 bytes. `encode` writes big-endian only, so a little-endian ROM is readable but
 `checkWritableCompression` refuses to save its GFX.
 

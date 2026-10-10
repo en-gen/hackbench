@@ -11,6 +11,7 @@
  * `checkGetRand`). SMWDisX bank_01.asm:110-127, bank_07.asm:1006,
  * bank_01.asm:6092. The level loader's entries are checked in LevelLoader.ts.
  */
+import { mirror } from '../../addressing'
 import type { RomFile } from '../../RomFile'
 import { bytesAt, shapeMatches } from './Guards'
 
@@ -189,9 +190,14 @@ const EXECUTE_PTR_SHAPE: (number | null)[] = [
 
 /** The three dispatch JSLs (HandleSprite, CallSpriteInit, CallSpriteMain) must reach one ExecutePtr. */
 function checkExecutePtr(rom: RomFile, jsl: number[][]): ShapeResult {
-  // Normalise the FastROM mirror: $80+ banks are the same code.
-  const targets = jsl.map(t => ((t[2] & 0x7f) << 16) | (t[1] << 8) | t[0])
-  if (new Set(targets).size !== 1)
+  // Keys fold the FastROM mirror ($80+ is the same code); the read keeps the raw bank (#513, #704).
+  const targets = jsl.map(t => (t[2] << 16) | (t[1] << 8) | t[0])
+  // mirror() keys $7E and $FE alike, so a WRAM call must be refused before keying. The
+  // test is the read's own mapping (readByte -> loromToOffset), not a bank-half rule: on a
+  // 4 MB ROM $40:06FA is ROM, while WRAM and past-the-data addresses read null.
+  if (targets.some(t => rom.readByte(t) === null))
+    return { ok: false, reason: 'a dispatch call does not reach ROM' }
+  if (new Set(targets.map(mirror)).size !== 1)
     return { ok: false, reason: 'the dispatch calls do not all reach the same routine' }
   if (!matches(bytes(rom, targets[0], EXECUTE_PTR_SHAPE.length), EXECUTE_PTR_SHAPE))
     return { ok: false, reason: 'the dispatch calls do not reach the 16-bit ExecutePtr' }
