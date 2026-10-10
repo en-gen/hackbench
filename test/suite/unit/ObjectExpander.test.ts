@@ -958,6 +958,17 @@ describe('handle_0DA68E (ext 0x46 midway)', () => {
       expect(runWith(ram)).toEqual(post)
     })
 
+    // TranslevelNo is read with an 8-bit index (interpret.ts:188/:305): $13C0 is
+    // not its high byte. A 16-bit read would index $1EA2+$113 and miss this.
+    it('TranslevelNo is 8-bit: $13C0 is ignored', () => {
+      const ram = new Map([
+        [TRANSLEVEL, 0x13],
+        [TRANSLEVEL + 1, 1],
+        [SETTINGS + 0x13, 0x40],
+      ])
+      expect(runWith(ram)).toEqual([])
+    })
+
     it.each([1, 2, 0x40, 0x80, 0xff])('MidwayFlag %i suppresses', v => {
       expect(runWith(new Map([[MIDWAY, v]]))).toEqual([])
     })

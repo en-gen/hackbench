@@ -149,7 +149,9 @@ const WRAM_OW_LEVEL_TILE_SETTINGS = 0x1ea2
  *
  * Gates (bank_0D.asm:1619-1624): nothing is drawn when
  * OWLevelTileSettings[TranslevelNo] ($1EA2+X) has bit 6 (the overworld's
- * "midway reached" tile flag) or MidwayFlag ($13CE) is nonzero. Both come from
+ * "midway reached" tile flag: set at bank_04.asm:1442-1449, bit 7 set and
+ * bit 6 cleared on beating the level, bank_04.asm:1462-1465) or
+ * MidwayFlag ($13CE) is nonzero. Both come from
  * cur.ram, default 0: the editor shows the post the author placed, as for a
  * fresh save. #635.
  *
