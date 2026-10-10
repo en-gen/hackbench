@@ -242,3 +242,47 @@ function recognizedJmlAddr(rom: RomFile): number | null {
 function readAddr(bytes: Uint8Array, off: number): number {
   return bytes[off]! | (bytes[off + 1]! << 8) | (bytes[off + 2]! << 16)
 }
+
+// LoadLevel's boss-mode check (bank_05.asm:432-437, then :439-442): for the
+// modes it compares, Layer 1 is never read. The modes are the CMP immediates,
+// read here rather than assumed. The trailing LDY/LDA [Layer1DataPtr],Y/CMP #$FF
+// is the empty-stream check that follows, and anchors the run to this routine.
+const BOSS_WHAT = "LoadLevel's boss-mode check (bank_05.asm:432-437)"
+const LEVEL_MODE_ADDR = [0x25, 0x19] // LevelModeSetting, $1925
+// prettier-ignore
+const BOSS_CHECK: BytePattern = [
+  0xad, WILD, WILD, // LDA.W LevelModeSetting
+  0xc9, WILD, 0xf0, WILD, // CMP #imm / BEQ LoadLevelDone
+  0xc9, WILD, 0xf0, WILD,
+  0xc9, WILD, 0xf0, WILD,
+  0xa0, 0x00, 0xb7, 0x65, 0xc9, 0xff, // LDY #0 / LDA [Layer1DataPtr],Y / CMP #$FF
+]
+const BOSS_CMP_OFFS = [4, 8, 12]
+const BOSS_BEQ_OFFS = [6, 10, 14] // displacement byte of each BEQ
+
+export type BossModes = { ok: true; modes: ReadonlySet<number> } | { ok: false; reason: string }
+
+const bossModesCache = new WeakMap<RomFile, { version: number; value: BossModes }>()
+
+/** The level modes LoadLevel skips Layer 1 for, read from its own CMP
+ *  immediates. Refuses when the check is absent, ambiguous, reads another
+ *  RAM byte, or its three BEQs do not share one target. */
+export function readBossModes(rom: RomFile): BossModes {
+  return cachedByVersion(bossModesCache, rom, () => computeBossModes(rom))
+}
+
+function computeBossModes(rom: RomFile): BossModes {
+  const site = findExactlyOneSite(rom, BOSS_CHECK, BOSS_WHAT)
+  if (!site.ok) return site
+  const b = rom.readAtFileOffset(site.offset, BOSS_CHECK.length)!
+  if (b[1] !== LEVEL_MODE_ADDR[0] || b[2] !== LEVEL_MODE_ADDR[1]) {
+    return { ok: false, reason: `${BOSS_WHAT} reads a RAM byte other than LevelModeSetting` }
+  }
+  // Each BEQ's target is its own end plus a signed displacement; all three
+  // must land on one address, or one of them is not "skip to LoadLevelDone".
+  const targets = BOSS_BEQ_OFFS.map(o => o + 1 + ((b[o]! << 24) >> 24))
+  if (!targets.every(t => t === targets[0])) {
+    return { ok: false, reason: `${BOSS_WHAT} branches to different places` }
+  }
+  return { ok: true, modes: new Set(BOSS_CMP_OFFS.map(o => b[o]!)) }
+}

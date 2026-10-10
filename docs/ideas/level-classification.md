@@ -112,7 +112,8 @@ place.
 check plus `levelHasObjects()`, and dedupes by L1 pointer. Three defects follow:
 
 1. `levelHasObjects()` returns true for filler slots, so filler enters the list
-   (`$012` and `$112` both do on vanilla).
+   (`$012` and `$112` both do on vanilla). It also used to reject 24 real
+   boss-mode rooms through its `$FF` rule; that part is fixed (#695).
 2. Dedup by L1 pointer alone merges slots that differ in L2 or sprite data,
    which are different levels (`$015` and `$017` on vanilla).
 3. The range check admits `$000`, which no overworld tile can reach.

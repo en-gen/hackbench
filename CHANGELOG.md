@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `levelHasObjects` no longer rejects boss-mode rooms whose Layer-1 stream is only $FF: the game never reads Layer 1 for those modes, and the modes are read from the loader's own CMP immediates, not assumed (#695). Vanilla ROM: 24 slots flipped, 6 more slots in `classifyLevels` output after pointer dedupe; the loader pattern matched on 2 of 6 corpus ROMs (the vanilla and `.magic` carts) and refused on the 4 hacks, which flip 0; one machine.
 - Docs (#750): the hack corpus note now states 101 hacks, all patched, and scopes its "of 99" survey figures to the 2026-09-26 survey.
 - Unit tests: the control-bytes and test-registration walks skip `__fixtures__`, so a concurrent lintGate run no longer fails them with ENOENT (#754).
 - Test-only (#653 Stage A): a per-ROM report of which standard object leaves the interpreter agrees on, across the corpus.

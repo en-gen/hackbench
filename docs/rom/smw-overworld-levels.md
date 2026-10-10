@@ -397,8 +397,9 @@ drop out by construction, because they never become entry maps.
     optimisation, not identity: the secondary-exit table names a **slot**. On
     vanilla, `$0EB`'s pointer is shared by `$0F0`, `$0FB`, `$1DA`, `$1E7` and
     `$1F9`; one was kept and four discarded.
-  - it gates on `levelHasObjects()`, through its `data[5] === $FF` terminator rule (issue #695), which rejects 24
-    real rooms.
+  - it gated on `levelHasObjects()`, whose `data[5] === $FF` rule rejected 24 real rooms (issue #695). All 24 are
+    boss-mode rooms, for which `LoadLevel` never reads Layer 1 (`bank_05.asm:432-437`); fixed by reading those
+    modes from the loader's own bytes.
 
   Between them, 47 of the ROM's 235 real maps could never be a destination.
   `buildLevelExitGraph` now takes its map universe from pointer identity, the
@@ -531,4 +532,4 @@ code, and a hack may relocate or bypass them.
 - Report ids as `$XXX` hex. Add a name only when it comes from the decoder or the owner said it that turn; leave unverified names off.
 - Confirmed by the owner 2026-09-13: Yoshi's House `$104`, Valley Fortress `$111`, Red Switch Palace `$11B`. `[EST]`
 - Decoded, not separately confirmed: Green Switch Palace `$008`, Yellow `$014`, Blue `$121`. `[EST]`
-- `levelHasObjects()` is true for filler slots (`$012`, `$112`). Test a real slot by comparing its L1 pointer with the most frequent (filler) pointer. `[EST]`
+- `levelHasObjects()` is true for filler slots (`$012`, `$112`), and true for boss-mode rooms whose stream is only `$FF` when the loader's boss-mode check is recognized (#695). Test a real slot by comparing its L1 pointer with the most frequent (filler) pointer. `[EST]`
