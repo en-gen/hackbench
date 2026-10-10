@@ -887,6 +887,13 @@ describe('recorded piece dy past 127 (#811)', () => {
     expect(dyOf(spriteFrame(r(false), 0))).toBeUndefined()
     expect(dyOf(spriteFrame(r(true), 0))).toEqual([-8]) // 16 lines at 248 straddles the top edge
   })
+  it('sizes a relative piece by sizeXHigh alone when it has no large flag', () => {
+    // Same shape as the drop test above, but the size comes only from sizeXHigh 2 (large).
+    const f = { x: 128, y: 100, cameraX: 0, cameraY: 100, frames: [{ frameIndex: 0, tiles: [{ dx: 0, dy: -8, tile: 0, attr: 0, sizeXHigh: 2 }] }] } // prettier-ignore
+    expect(dyOf(spriteFrame(f, 0))).toEqual([-8])
+    f.frames[0].tiles[0].sizeXHigh = 0
+    expect(dyOf(spriteFrame(f, 0))).toBeUndefined()
+  })
   it('keeps a piece that reaches onto the screen, across both sides of the boundary', () => {
     // Sprite at screen line 0: an 8-line piece at dy -7 ends on line 1 (kept); dy -8 ends on 0 (dropped).
     const at = (y: number, dy: number) => dyOf(spriteFrame(rec([dy], { y, cameraY: y }), 0))

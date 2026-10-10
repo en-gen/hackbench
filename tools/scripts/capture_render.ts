@@ -306,19 +306,22 @@ function framePieces(frame: Rec, rec: Rec, obsel: number): D.SpritePiece[] | nul
   // A relative piece unwrapped to a line above the top edge whose bottom is also above it
   // was parked in the below-screen band (recorded modulo 256): hidden, as in the entries path.
   const unwrapped = (p: Rec) => (at[1] === null || at[3] === null ? num(p.dy)! : D.unwrapDy(num(p.dy)!, at[1], at[3])) // prettier-ignore
+  // The 2-bit sizeXHigh (bit 1 = size select), or a boolean `large` standing in for it.
+  const hiOf = (p: Rec) =>
+    typeof p.large === 'boolean' ? (p.large ? 2 : 0) : (num(p.sizeXHigh) ?? 0)
   const kept = entries
     .filter(p => {
       if (relative) {
         if (at[1] === null || at[3] === null) return true
         const line = unwrapped(p) + D.spriteScreenY(at[1], at[3])
-        return !(line < 0 && line + D.objSize(obsel, p.large === true ? 1 : 0)[1] <= 0)
+        return !(line < 0 && line + D.objSize(obsel, (hiOf(p) >> 1) & 1)[1] <= 0)
       }
       const y = num(p.y) ?? 0
       // An entry parked in the band below the screen is hidden, not part of the picture.
-      return !(y >= 224 && y + D.objSize(obsel, ((num(p.sizeXHigh) ?? 0) >> 1) & 1)[1] <= 256)
+      return !(y >= 224 && y + D.objSize(obsel, (hiOf(p) >> 1) & 1)[1] <= 256)
     })
     .map((p, k) => {
-      const hi = typeof p.large === 'boolean' ? (p.large ? 2 : 0) : (num(p.sizeXHigh) ?? 0)
+      const hi = hiOf(p)
       const [dx, dy] = relative
         ? [num(p.dx)!, unwrapped(p)]
         : D.pieceOffset((num(p.x) ?? 0) + (hi & 1) * 256, num(p.y) ?? 0, at[0]!, at[1]!, at[2]!, at[3]!) // prettier-ignore
