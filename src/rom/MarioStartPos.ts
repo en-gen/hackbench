@@ -11,7 +11,8 @@ const X_HI = 0x05d758
 
 /**
  * The entrance-type nudge CODE_00A635 applies after the loader (bank_00.asm:5019-5060): types 3, 4 and
- * 7 OR a mask into X, type 6 ORs one into X and one into Y. The masks are read from the LDA operands.
+ * 7 OR a mask into X, type 6 ORs one into X and one into Y. Type 7 reaches it only when
+ * SkipMidwayCastleIntro and KeyholeTimer are 0 (bank_00.asm:5037-5039), the overworld-entry case. The masks are read from the LDA operands.
  * If the code at those sites is not the stock shape the nudge is OMITTED, not replaced by a stock
  * constant (rom-interpretation.md recipe): the caller already draws this fallback as unverified.
  */
@@ -19,13 +20,14 @@ function entranceNudge(rom: RomFile, type: number): { x: number; y: number } {
   const at = (a: number, n: number): number[] => Array.from({ length: n }, (_, i) => rom.readByte(a + i) ?? -1) // prettier-ignore
   const none = { x: 0, y: 0 }
   if (type !== 3 && type !== 4 && type !== 6 && type !== 7) return none
-  // Every byte that decides which types reach a nudge, mask operands aside: BEQ, CMP #$05, BNE
-  // ($00A6D8, bank_00.asm:4988-4990), CMP #$06/BCC/BNE ($00A716, 5019-5021), LDA #$04/CLC/ADC #$03
-  // ($00A73E, 5040-5043), CPY #$06/BCC ($00A752, 5048-5049).
+  // Every opcode and branch offset on the paths to a nudge, mask operands aside: BEQ/CMP #$05/BNE
+  // ($00A6D8, bank_00.asm:4988-4990), CMP #$06/BCC/BNE ($00A716, 5020-5022), type 7's entry
+  // LDA/ORA/BNE CODE_00A6E0 ($00A736, 5036-5039), LDA #$04/CLC/ADC #$03 ($00A73E, 5040-5043),
+  // CPY #$06/BCC ($00A752, 5052-5053). Not gated: the data those loads read.
   const stock: [number, number[]][] = [
-    [0x00a6d8, [0xf0]], [0x00a6da, [0xc9, 0x05, 0xd0]],
-    [0x00a716, [0xc9, 0x06, 0x90]], [0x00a71a, [0xd0]],
-    [0x00a73e, [0xa9, 0x04, 0x18, 0x69, 0x03]], [0x00a752, [0xc0, 0x06, 0x90]],
+    [0x00a6d8, [0xf0, 0x06, 0xc9, 0x05, 0xd0, 0x38]], [0x00a716, [0xc9, 0x06, 0x90, 0x26, 0xd0, 0x18]],
+    [0x00a736, [0xad, 0xcf, 0x13, 0x0d, 0x34, 0x14, 0xd0, 0xa2]], [0x00a73e, [0xa9, 0x04, 0x18, 0x69, 0x03]],
+    [0x00a752, [0xc0, 0x06, 0x90, 0x12]],
   ] // prettier-ignore
   if (stock.some(([a, w]) => at(a, w.length).some((v, i) => v !== w[i]))) return none
   if (type === 6) {
@@ -48,10 +50,11 @@ function entranceNudge(rom: RomFile, type: number): { x: number; y: number } {
  * (7317-7322).
  *
  * Every map reads its PRIMARY entrance, entry maps $100+ included: the overworld enters them with
- * UseSecondaryExit 0 (bank_05.asm:7111-7112, 7300-7337). A secondary entrance is a return entrance
- * a sub area's screen exit uses, not where a map starts. No stock-code gate on the tables: this is
- * the fallback for a ROM whose loader the interpreter refuses, and its caller draws such results as
- * unverified.
+ * UseSecondaryExit 0 (bank_05.asm:7091-7093, 7164-7226, 7300-7337; Clear_1A_13D3 zeroes $13D3-$1BA1,
+ * bank_00.asm:4375-4385). This models map load by the primary path, which is where the overworld puts
+ * Mario in an entry map; for a sub area the real arrival point depends on the screen exit, not the
+ * map. No stock-code gate on the tables: this is the fallback for a ROM whose loader the interpreter
+ * refuses, and its caller draws such results as unverified.
  */
 export function readMarioStartPos(rom: RomFile, mapId: number): { x: number; y: number } {
   const b = (a: number): number => rom.readByte(a) ?? 0

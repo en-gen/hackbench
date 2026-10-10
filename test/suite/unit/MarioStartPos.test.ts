@@ -35,8 +35,8 @@ describe('readMarioStartPos puts the entrance screen in the high byte', () => {
     expect(readMarioStartPos(rom, 7)).toEqual({ x: 0x138, y: (s << 8) | 0x35 })
   })
 
-  // The overworld enters a $1xx map by its primary path (UseSecondaryExit 0, bank_05.asm:7111-7112,
-  // 7300-7337), so a DATA_05F800 entry targeting it must not move Mario: the reader stays on DATA_05F000/F200.
+  // The overworld enters a $1xx map by its primary path (UseSecondaryExit 0: Clear_1A_13D3 zeroes
+  // $13D3-$1BA1, bank_00.asm:4375-4385; overworld path bank_05.asm:7091-7093, 7164-7226, 7300), so a DATA_05F800 entry targeting it must not move Mario: the reader stays on DATA_05F000/F200.
   it('a $1xx map with a DATA_05F800 entry targeting it still reads its PRIMARY entrance', () => {
     const rom = tables()
     rom.writeAt(0x05f800 + 0x103, [0x05]) // entrance $103 targets $105
@@ -62,6 +62,7 @@ function withNudgeCode(m = 0x08, n = 0x02): RomFile {
   const rom = tables()
   rom.writeAt(0x00a6d8, [0xf0, 0x06, 0xc9, 0x05, 0xd0, 0x38]) // BEQ, CMP #$05, BNE
   rom.writeAt(0x00a716, [0xc9, 0x06, 0x90, 0x26, 0xd0, 0x18]) // CMP #$06, BCC, BNE
+  rom.writeAt(0x00a736, [0xad, 0xcf, 0x13, 0x0d, 0x34, 0x14, 0xd0, 0xa2]) // LDA, ORA, BNE CODE_00A6E0 (type 7 entry)
   rom.writeAt(0x00a73e, [0xa9, 0x04, 0x18, 0x69, 0x03]) // LDA #$04, CLC, ADC #$03
   rom.writeAt(0x00a752, [0xc0, 0x06, 0x90, 0x12]) // CPY #$06, BCC
   rom.writeAt(0x00a726, [0xa9, m, 0x04, 0x94, 0xa9, n, 0x04, 0x96])
@@ -104,6 +105,16 @@ describe('readMarioStartPos entrance-type nudge (bank_00.asm:5019-5060)', () => 
     ['ADC #$03 operand', 0x00a742, [0x02], [3, 4, 7]],
     ['ADC opcode', 0x00a741, [0xe9], [3]],
     ['BCC after CPY', 0x00a754, [0xb0], [3]],
+    // Branch OPERANDS and the type 7 entry (bank_00.asm:5036-5039): a changed offset retargets the nudge.
+    ['BNE CODE_00A6E0 offset (type 7)', 0x00a73d, [0x80], [7]],
+    ['BNE CODE_00A6E0 opcode (type 7)', 0x00a73c, [0xf0], [7]],
+    ['LDA SkipMidwayCastleIntro (type 7)', 0x00a736, [0xae], [7]],
+    ['ORA KeyholeTimer (type 7)', 0x00a739, [0x0c], [7]],
+    ['BEQ offset', 0x00a6d9, [0x07], [3]],
+    ['BNE offset after CMP #$05', 0x00a6dd, [0x39], [3]],
+    ['BCC offset after CMP #$06', 0x00a719, [0x28], [3]],
+    ['BNE offset after BCC', 0x00a71b, [0x19], [3]],
+    ['BCC offset after CPY', 0x00a755, [0x13], [3]],
   ])('omits the nudge when the code changed: %s', (_n, at, bytes, types) => {
     for (const type of types as number[]) {
       const rom = withNudgeCode()
@@ -115,7 +126,7 @@ describe('readMarioStartPos entrance-type nudge (bank_00.asm:5019-5060)', () => 
 })
 
 // The loader runs the PRIMARY path for every map (UseSecondaryExit 0) and so does the overworld's entry into an
-// entry map ($1xx included, bank_05.asm:7111-7112, 7300-7337), so the reader reads primary bytes only.
+// entry map ($1xx included, bank_05.asm:7091-7093, 7164-7226, 7300-7337), so the reader reads primary bytes only.
 // Measured on the vanilla ROM, one machine: see the sweep below for the count of maps compared.
 describe.skipIf(!hasRom(VANILLA))('readMarioStartPos vs the ROM loader, every vanilla map', () => {
   it('equals the loader $94/$96 on all 512 maps', () => {
