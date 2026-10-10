@@ -626,6 +626,10 @@ last check can fail. It does not start a server.
 
 - `npm run typecheck:theia` and its gate: see [theia-shell.md](architecture/theia-shell.md) (#669).
 
+### Corpus sweeps (`npm run test:corpus`)
+
+Sweeps that run an interpreter over every ROM in the hack corpus take minutes, not seconds: the #653 leaf sweep (`L1Interpret.leafSweep.nightly.test.ts`) is about ten minutes. The `*.nightly.test.ts` name keeps them out of `npm run test:unit`; `vitest.corpus.config.ts` runs them, and the nightly run calls `npm run test:corpus`. There is no opt-in variable: with the ROMs present they run, with none they skip as every corpus test does (`describe.skipIf`), so a run that reports zero skipped has the corpus. Set `LEAF_SWEEP_OUT=<dir>` to also write one table per ROM. Take the run lock before a full run (ownership rule), as for `test:unit`. CI has no ROMs and does not run it; the synthetic grouping tests stay in `test:unit`. Evidence scope: split of #653 Stage A, 2026-10-10 (owner ruling D8 C).
+
 ### Timing gates (`npm run test:timing`)
 
 Two tests judge wall-clock time and flake when another vitest file runs beside them: `perfPairedE2E.timing.test.ts` and `perfSampler.timing.test.ts` (#668, #537). The `*.timing.test.ts` name keeps them out of `npm run test:unit`; `vitest.timing.config.ts` runs them one file at a time, and CI runs them as a step after the unit tests. Run `test:timing` alone, never beside another vitest run, and after any change under `tools/perf/`. `npx vitest run <timing file>` under the default config finds nothing; use `npm run test:timing -- <filter>`. Even serially they can fail on a machine already loaded by other work.

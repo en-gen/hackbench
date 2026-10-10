@@ -16,8 +16,9 @@ export default defineConfig({
       'test/suite/provider/**/*.test.ts',
       'test/suite/gates/**/*.test.ts',
     ],
-    // Wall-clock gates run alone through vitest.timing.config.ts (#668).
-    exclude: [...configDefaults.exclude, '**/*.timing.test.ts'],
+    // Wall-clock gates run alone through vitest.timing.config.ts (#668); the
+    // minutes-long corpus sweeps run through vitest.corpus.config.ts (#653).
+    exclude: [...configDefaults.exclude, '**/*.timing.test.ts', '**/*.nightly.test.ts'],
     environment: 'node',
     // Two concurrent full runs at the default (about one worker per core) oversubscribe the CPU; 9 of 10 runs green at the default in 5 paired samples, 32-core machine, 2026-10-10. Floor 2 keeps a 2-core CI runner at 2.
     maxWorkers: Math.max(2, Math.floor(os.availableParallelism() / 2)),
