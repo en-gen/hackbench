@@ -72,7 +72,6 @@ function expectFacing(
   shape: { isVertical: boolean; screenCount: number },
   s: LevelSprite,
 ) {
-  // prettier-ignore
   const x = s.x * 16
   for (const m of [x - 200, x - 17, x - 1]) expect(allSame(servedFlips(rom, map, shape, s, Math.max(0, m)), false), `Mario at ${m}`).toBe(true) // prettier-ignore
   for (const m of [x, x + 1, x + 17, x + 200]) expect(allSame(servedFlips(rom, map, shape, s, m), true), `Mario at ${m}`).toBe(true) // prettier-ignore
