@@ -139,12 +139,21 @@ export function handle_0DA673(cur: Cursor): void {
   cur.row -= 1
 }
 
+// WRAM addresses the midway gates read (same values as interpret.ts GAME_STATE).
+const WRAM_TRANSLEVEL_NO = 0x13bf
+const WRAM_MIDWAY_FLAG = 0x13ce
+const WRAM_OW_LEVEL_TILE_SETTINGS = 0x1ea2
+
 /**
  * CODE_0DA68E (bank_0D.asm line 1618) -- ext type 0x46: midway point.
  *
- * In-game this consults OWLevelTileSettings and MidwayFlag to decide whether
- * to emit the tape ($35) and base ($38). For an editor we always show the
- * midway post (the two gates are tracked separately, not ported here).
+ * Gates (bank_0D.asm:1619-1624): nothing is drawn when
+ * OWLevelTileSettings[TranslevelNo] ($1EA2+X) has bit 6 (the overworld's
+ * "midway reached" tile flag: set at bank_04.asm:1442-1449, bit 7 set and
+ * bit 6 cleared on beating the level, bank_04.asm:1462-1465) or
+ * MidwayFlag ($13CE) is nonzero. Both come from
+ * cur.ram, default 0: the editor shows the post the author placed, as for a
+ * fresh save. #635.
  *
  * Column 0 of a screen or block: the tape goes to column 15 of the row above,
  * the base to column 0 of the next screen (SMWDisX bank_0D.asm:1625-1632,
@@ -158,6 +167,9 @@ export function handle_0DA673(cur: Cursor): void {
  * bank_00.asm:6779).
  */
 export function handle_0DA68E(cur: Cursor): void {
+  const ram = (addr: number): number => cur.ram?.get(addr) ?? 0
+  if ((ram(WRAM_OW_LEVEL_TILE_SETTINGS + ram(WRAM_TRANSLEVEL_NO)) & 0x40) !== 0) return
+  if (ram(WRAM_MIDWAY_FLAG) !== 0) return
   // CODE_0DA68E inline tile immediates: +23 $35 (tape), +31 $38 (base).
   const tapeTile = readImmByte(cur, cur.handlerAddr + 23)
   const baseTile = readImmByte(cur, cur.handlerAddr + 31)
