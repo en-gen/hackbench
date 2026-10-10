@@ -397,7 +397,7 @@ export class L1ModelCache {
   /** A model was built with the banks in force then, so a hand edit to them drops the models of these bytes. */
   useBanks(bytes: Uint8Array, banks: DataBanks): void {
     const before = this.banks.get(bytes)
-    if (before && JSON.stringify(before) !== JSON.stringify(banks)) this.byBytes.delete(bytes)
+    if (!before || JSON.stringify(before) !== JSON.stringify(banks)) this.byBytes.delete(bytes)
     this.banks.set(bytes, banks)
   }
 

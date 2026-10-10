@@ -44,4 +44,13 @@ describe('L1ModelCache data banks', () => {
     cache.get(a, 'x.sfc', 1, FLAGS)
     expect(seen).toEqual([banks(0x0d), banks(0x2d)])
   })
+
+  it('drops a model built before any banks were registered when the first banks arrive', () => {
+    const { cache, seen } = spy()
+    const a = blank()
+    cache.get(a, 'x.sfc', 1, FLAGS)
+    cache.useBanks(a, banks(0x2d))
+    cache.get(a, 'x.sfc', 1, FLAGS)
+    expect(seen).toEqual([undefined, banks(0x2d)])
+  })
 })
