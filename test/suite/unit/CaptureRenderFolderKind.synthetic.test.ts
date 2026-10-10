@@ -13,7 +13,11 @@ describe('capture_render folder kind (#854)', () => {
   it('names a finished sprite-trace folder and does not call it aborted', () => {
     const l = load({ 'calls.json': '[]', 'frames.json': '[]', 'meta.json': '{}' })
     expect(l.verdict).toBe('unavailable')
-    expect(l.detail).toContain('sprite-trace folder')
+    // The fallback says "not a sprite-trace folder", so a bare "sprite-trace folder" match
+    // passes with the branch removed; pin the branch's own wording and rule the fallback out.
+    expect(l.detail).toMatch(/this viewer compares layers captures only/)
+    expect(l.detail).not.toMatch(/incomplete/)
+    expect(l.detail).not.toMatch(/not a sprite-trace/)
     expect(l.detail).not.toMatch(/abort/)
   })
 
