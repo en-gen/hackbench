@@ -211,20 +211,4 @@ describe.each([VANILLA, MAGIC])('%s', name => {
   })
 })
 
-// These JSL into other code instead of PrepareGraphicsFile, so Y is not known to hold the file.
-const JSL_ELSEWHERE = [
-  'Grand Poo World 2 1.1.sfc',
-  'GrandPooWorld_V1.2.sfc',
-  'Invictus 1.0.sfc',
-  'Seven_Vanilla_Levels.sfc',
-]
-describe.each(JSL_ELSEWHERE)('%s', name => {
-  describe.skipIf(!hasRom(name))('JSL elsewhere', () => {
-    it('refuses, with a note, rather than read the triggers', () => {
-      const rom = freshRom(name)
-      const r = filterSomeRamPath(rom, 0x1e, 0x11)
-      expect(r.ok ? '' : r.reason).toMatch(/does not call the stock PrepareGraphicsFile/)
-      expect(filterSomeRamNote(rom, 0x11)).toMatch(/unverified/)
-    })
-  })
-})
+// The 4 ROMs whose JSL goes to the upload hook are covered in GfxUploadHook.test.ts (#411).

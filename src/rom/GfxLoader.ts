@@ -32,12 +32,13 @@ import {
   findUnique,
   matchesAt,
 } from './BytePattern'
-import { LOROM_BANK_SIZE, loromFromOffset, loromToOffset } from './addressing'
+import { LOROM_BANK_SIZE, loromFromOffset, loromToOffset, mirror } from './addressing'
 import { fingerprint } from './Fingerprint'
 import { decodeTilesBatch, PIXELS_PER_TILE } from './GraphicsDecoder'
 import { tryDecompress } from './LcLz2'
 import { FAST_LCLZ2, type FastRoutine, commandRefusal } from './GfxDecompressor'
 import { hex2 } from './hex'
+import { HookShape, UPLOAD_HOOK_SHAPES, YVerdict, readHookY, recognizesHook } from './GfxUploadHook'
 import {
   CompressionCheck,
   GFX_FILE_COUNT,
@@ -558,7 +559,15 @@ export const STOCK_FILTER_BODY = [
 ]
 
 type FilterDispatch =
-  | { ok: true; tilesetMin: number; tilesetFile: number; anyFile: number; body: string | null }
+  | {
+      ok: true
+      tilesetMin: number
+      tilesetFile: number
+      anyFile: number
+      body: string | null
+      /** Set when the entry JSL goes somewhere other than the stock routine. */
+      hook: { entry: number; y: YVerdict } | null
+    }
   | { ok: false; reason: string }
 
 const _filterCache = new WeakMap<RomFile, { version: number; value: FilterDispatch }>()
@@ -584,8 +593,14 @@ function readFilterDispatch(rom: RomFile): FilterDispatch {
     const b = rom.readAtFileOffset(site.offset, UPLOAD_GFX_DISPATCH.length)!
     const snes = (i: number, bank: number): number => bank | b[i]! | (b[i + 1]! << 8)
     const prepare = findUnique(rom, PREPARE_GFX_PATTERN)
-    if (prepare === null || loromToOffset(snes(1, b[3]! << 16), rom.romSize) !== prepare)
+    const callee = snes(1, b[3]! << 16)
+    const stock = prepare !== null && loromToOffset(callee, rom.romSize) === prepare
+    const prepareAt = prepare === null ? null : loromFromOffset(prepare)
+    if (!stock && (prepareAt === null || !rom.readAt(callee, 1)))
       return refuse('does not call the stock PrepareGraphicsFile, which keeps the file index in Y')
+    // A hook's verdict is read once here; whether it is a known one is decided
+    // per call, against the shapes the caller passes.
+    const hook = stock ? null : { entry: callee, y: readHookY(rom, callee, prepareAt!) }
     const { tilesetMin, tilesetFile, anyFile, jmp } = UPLOAD_GFX_OPERANDS
     // JMP abs stays in the dispatch's own bank.
     const target = loromToOffset(snes(jmp, at & 0xff0000), rom.romSize)
@@ -599,6 +614,7 @@ function readFilterDispatch(rom: RomFile): FilterDispatch {
       tilesetFile: b[tilesetFile]!,
       anyFile: b[anyFile]!,
       body: fingerprint(body),
+      hook,
     }
   })
 }
@@ -614,9 +630,28 @@ export function filterSomeRamPath(
   fileIndex: number,
   objectTileset: number,
   stockBody: readonly string[] = STOCK_FILTER_BODY,
+  hookShapes: readonly HookShape[] = UPLOAD_HOOK_SHAPES,
 ): FilterSomeRamPath {
   const d = readFilterDispatch(rom)
   if (!d.ok) return { ok: false, reason: `${d.reason}, so which GFX files it filters is unknown` }
+  const unknown = (why: string): FilterSomeRamPath => ({
+    ok: false,
+    reason: `UploadGFXFile's FilterSomeRAM dispatch (bank_00.asm:5401-5422) ${why}, so which GFX files it filters is unknown`,
+  })
+  if (d.hook) {
+    const addr = (a: number): string => `$${mirror(a).toString(16).toUpperCase().padStart(6, '0')}`
+    const at = addr(d.hook.entry)
+    if (!recognizesHook(rom, d.hook.entry, hookShapes))
+      return unknown(
+        `does not call the stock PrepareGraphicsFile, which keeps the file index in Y, and the code it calls at ${at} is not a recognized hook`,
+      )
+    if (d.hook.y.kind === 'clobbered')
+      return unknown(
+        `calls the hook at ${at}, which writes Y outside a PHY/PLY pair at ${addr(d.hook.y.at)}; Y is not the file index the dispatch compares`,
+      )
+    if (d.hook.y.kind === 'unknown')
+      return unknown(`calls the hook at ${at}, whose effect on Y is not read: ${d.hook.y.reason}`)
+  }
   const hit =
     fileIndex === d.anyFile || (fileIndex === d.tilesetFile && objectTileset >= d.tilesetMin)
   if (!hit) return { ok: true, filtered: false }
