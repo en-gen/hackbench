@@ -62,8 +62,9 @@ export function buildL2Inputs(rom: SmwRom, index: number, l1: L1Inputs): L2Resul
   // byte from DATA_05FC00 (bank_05.asm:7147-7148, 7376-7388), which this view does not read (#505).
   const entryVertical = ((rom.rom.readByte(0x05f600 + index) ?? 0) & 0x20) !== 0
   const dy = (): number => readInitialLayer1YPos(rom.rom, index, entryVertical) - readInitialLayer2YPos(rom.rom, index, entryVertical) // prettier-ignore
-  // The game picks the uploader by level mode (CODE_058955, bank_05.asm:1099-1135); the pointer's
-  // bank byte must agree with it, or the map is one the game would draw differently (#506).
+  // The game picks the uploader by level mode (bank_05.asm:1099-1135); the pointer's bank byte must
+  // agree with it, or the game would draw the map differently (#506). That is the level-load upload
+  // (CODE_058955) only; scroll-time uploads go through CODE_058883, which is not checked here.
   const uploaders = readL2UploaderTable(rom.rom)
   if (!uploaders.ok) return refuse(uploaders.reason)
   const mode = header.levelMode & 0x1f

@@ -5,19 +5,20 @@
  */
 import type { RomFile } from '../../../src/rom/RomFile'
 
-export const CALLER_AT = 0x0580bd
-export const SITE_AT = 0x058955
+// Made-up addresses and a made-up mode mapping: the stock ones are asserted only in the
+// corpus-gated tests, read from the ROM (docs/testing.md, no vanilla tables committed).
+export const CALLER_AT = 0x069000
+export const SITE_AT = 0x06a000
 export const EXEC_AT = 0x00d000
-export const IMAGE_AT = 0x058d7a
-export const OBJ_A_AT = 0x058b8d
-export const OBJ_B_AT = 0x058c71
-export const NONE_AT = 0x058c70
+export const IMAGE_AT = 0x07a000
+export const OBJ_A_AT = 0x07b000
+export const OBJ_B_AT = 0x07c000
+export const NONE_AT = 0x07d000
 
-export const IMAGE_MODES = [0x00, 0x0a, 0x0c, 0x0d, 0x0e, 0x11, 0x1e]
-export const OBJECT_MODES = [1, 2, 3, 4, 5, 6, 7, 8, 0x0f, 0x1f]
-export type StockKind = 'image' | 'objects' | 'none'
-export const stockKind = (mode: number): StockKind =>
-  IMAGE_MODES.includes(mode) ? 'image' : OBJECT_MODES.includes(mode) ? 'objects' : 'none'
+export type PlantedKind = 'image' | 'objects' | 'none'
+/** Mode % 4: 0 image, 1 and 3 objects, 2 nothing; every kind appears, interleaved. */
+export const plantedKind = (mode: number): PlantedKind =>
+  (['image', 'objects', 'none', 'objects'] as const)[mode % 4]!
 
 const long = (a: number) => [a & 0xff, (a >> 8) & 0xff, (a >> 16) & 0xff]
 // prettier-ignore
@@ -28,12 +29,12 @@ const imageHead = [0x08, 0xe2, 0x30, 0xad, 0x2b, 0x19, 0x29, 0x0f, 0x0a, 0x8d, 0
 const execHead = [0x84, 0x05, 0x7a, 0x84, 0x02, 0xc2, 0x30, 0x29, 0xff, 0x00, 0x85, 0x03, 0x0a, 0x65, 0x03, 0xa8]
 // REP #$30 / JSL CODE_0588EC / JSL CODE_058955 / JSL UploadOneMap16Strip
 // prettier-ignore
-const callerBytes = [0xc2, 0x30, 0x22, 0xec, 0x88, 0x05, 0x22, 0x55, 0x89, 0x05, 0x22, 0xad, 0x87, 0x00]
+const callerBytes = [0xc2, 0x30, 0x22, 0x10, 0x91, 0x06, 0x22, ...long(SITE_AT), 0x22, 0x20, 0x92, 0x06]
 
 const stockTarget = (m: number): number =>
-  ({ image: IMAGE_AT, objects: OBJ_A_AT, none: NONE_AT })[stockKind(m)]
+  ({ image: IMAGE_AT, objects: OBJ_A_AT, none: NONE_AT })[plantedKind(m)]
 
-/** Plant the stock chain; `target` overrides what each mode jumps to. */
+/** Plant the planted chain; `target` overrides what each mode jumps to. */
 export function plantUploaderTable(
   rom: RomFile,
   target: (mode: number) => number = stockTarget,

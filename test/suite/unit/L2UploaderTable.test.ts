@@ -20,7 +20,7 @@ import {
   OBJ_A_AT,
   SITE_AT,
   plantUploaderTable,
-  stockKind,
+  plantedKind,
 } from '../support/l2UploaderRom'
 
 const fresh = (plant = true): RomFile => {
@@ -40,10 +40,10 @@ const kinds = (rom: RomFile) => {
 }
 
 describe('readL2UploaderTable (synthetic)', () => {
-  it('maps every one of the 32 modes to the stock kind', () => {
+  it('maps every one of the 32 modes to the planted kind', () => {
     const k = kinds(fresh())
     expect(k).toHaveLength(32)
-    for (let m = 0; m < 32; m++) expect(k[m], `mode ${m}`).toBe(stockKind(m))
+    for (let m = 0; m < 32; m++) expect(k[m], `mode ${m}`).toBe(plantedKind(m))
   })
 
   it('classifies by the target bytes, so a relocated routine still reads', () => {
@@ -59,11 +59,12 @@ describe('readL2UploaderTable (synthetic)', () => {
     noSite.writeAt(SITE_AT, [0x00])
     expect(refusal(noSite)).toMatch(/dispatch .* not present/)
     const twice = fresh()
-    twice.writeAt(0x0590bd, Array.from(twice.readAt(CALLER_AT, 14)!))
+    twice.writeAt(0x06b000, Array.from(twice.readAt(CALLER_AT, 14)!))
     expect(refusal(twice)).toMatch(/matches more than once/)
   })
 
   it.each([
+    ['SEP opcode', SITE_AT],
     ['SEP operand', SITE_AT + 1],
     ['LDA opcode', SITE_AT + 2],
     ['LevelModeSetting operand', SITE_AT + 3],
@@ -74,6 +75,26 @@ describe('readL2UploaderTable (synthetic)', () => {
     expect(readL2UploaderTable(rom).ok).toBe(false)
   })
 
+  it('a second run of three JSLs with no REP #$30 before it is not a second caller', () => {
+    const rom = fresh()
+    rom.writeAt(0x06b000, [0xea, 0x22, 0x10, 0x91, 0x06, 0x22, 0x20, 0x92, 0x06, 0x22, 0x30, 0x93, 0x06]) // prettier-ignore
+    expect(readL2UploaderTable(rom).ok).toBe(true)
+  })
+
+  it('a patch made after a read is seen by the next read (cache keyed on the ROM version)', () => {
+    const rom = fresh()
+    expect(readL2UploaderTable(rom).ok).toBe(true)
+    rom.writeAt(SITE_AT + 5, [0x6b])
+    expect(readL2UploaderTable(rom).ok).toBe(false)
+  })
+
+  it('refuses when the dispatch sits so late in the ROM that the 32 pointers do not fit', () => {
+    const rom = fresh()
+    rom.writeAt(CALLER_AT + 7, [0xe0, 0xff, 0x0f]) // file offset 0x7ffe0, 105 bytes needed
+    rom.writeAt(0x0fffe0, [0xe2, 0x30, 0xad, 0x25, 0x19, 0x22, EXEC_AT & 0xff, (EXEC_AT >> 8) & 0xff, 0x00]) // prettier-ignore
+    expect(refusal(rom)).toMatch(/has no pointer table after it/)
+  })
+
   it('refuses when the JSL no longer reaches ExecutePtrLong', () => {
     const rom = fresh()
     rom.writeAt(EXEC_AT + 2, [0x5a])
@@ -82,8 +103,8 @@ describe('readL2UploaderTable (synthetic)', () => {
 
   it('a target with unknown bytes makes only that mode unrecognized', () => {
     const rom = fresh()
-    rom.writeAt(0x078000, [0xea, 0xea, 0xea, 0xea])
-    plantUploaderTable(rom, m => (m === 3 ? 0x078000 : [OBJ_A_AT, IMAGE_AT, NONE_AT][m % 3]!))
+    rom.writeAt(0x079000, [0xea, 0xea, 0xea, 0xea])
+    plantUploaderTable(rom, m => (m === 3 ? 0x079000 : [OBJ_A_AT, IMAGE_AT, NONE_AT][m % 3]!))
     const k = kinds(rom)
     expect(k[3]).toBe('unrecognized')
     expect(k.filter(x => x === 'unrecognized')).toHaveLength(1)
@@ -131,7 +152,7 @@ describe('buildL2Inputs picks the kind by level mode (synthetic)', () => {
 
   it('sweeps all 32 modes against both pointer kinds: nothing-modes and disagreements refuse', () => {
     for (let mode = 0; mode < 32; mode++) {
-      const kind = stockKind(mode)
+      const kind = plantedKind(mode)
       for (const bank of [0xff, 0x0c]) {
         const r = buildL2Inputs(smw(romWithPtr(bank)), 5, withMode(mode))
         const agrees = (kind === 'image') === (bank === 0xff)
@@ -145,7 +166,7 @@ describe('buildL2Inputs picks the kind by level mode (synthetic)', () => {
 
   it('an unrecognized target and a missing table each refuse with a reason', () => {
     const rom = romWithPtr(0x0c)
-    plantUploaderTable(rom, () => 0x078000)
+    plantUploaderTable(rom, () => 0x079000)
     expect(buildL2Inputs(smw(rom), 5, withMode(1))).toMatchObject({
       ok: false,
       reason: expect.stringMatching(/not a routine this reader recognizes/),
@@ -156,6 +177,12 @@ describe('buildL2Inputs picks the kind by level mode (synthetic)', () => {
     })
   })
 })
+
+// The stock mapping, asserted only against the real carts (bank_05.asm:1103-1134).
+const STOCK_IMAGE = [0x00, 0x0a, 0x0c, 0x0d, 0x0e, 0x11, 0x1e]
+const STOCK_OBJECTS = [1, 2, 3, 4, 5, 6, 7, 8, 0x0f, 0x1f]
+const stockKind = (m: number) =>
+  STOCK_IMAGE.includes(m) ? 'image' : STOCK_OBJECTS.includes(m) ? 'objects' : 'none'
 
 describe.each([VANILLA, MAGIC])('the real %s', name => {
   it.skipIf(!hasRom(name))(

@@ -277,6 +277,22 @@ match and the "mutation" silently becomes a no-op that looks like a pass.
 Three of the entries below were added only after a first pass showed the
 test could not fail. That is the point of doing it.
 
+### `src/rom/L2UploaderTable.ts` - L2 uploader by level mode
+
+Run against `L2UploaderTable.test.ts` and `MapScreenL2.test.ts` (54 tests); one
+line changed per row, synthetic ROMs, no corpus needed.
+
+| Planted defect                                    | Tests red |
+| ------------------------------------------------- | --------- |
+| Drop `REP #$30` from the caller pattern           | 11        |
+| Cache the table without the ROM version           | 1         |
+| Wildcard the `SEP` opcode of the dispatch         | 2         |
+| Drop the ExecutePtrLong gate                      | 1         |
+| Drop the "no pointer table after it" refusal      | 1         |
+| Classify an unknown target as objects             | 4         |
+| `buildL2Inputs`: drop the "uploads no L2" refusal | 1         |
+| `buildL2Inputs`: drop the pointer-bank check      | 3         |
+
 ### `src/rom/MusicData.ts` - level music table
 
 | Planted defect                                                  | Files red |
