@@ -279,6 +279,29 @@ describe('SmwRom.buildLevelExitGraph', () => {
     const smw = new SmwRom(rom)
     expect(graphOf(smw).graph.has(0x170)).toBe(false)
   })
+
+  // #505: the map view needs every way into a map, including the edges the graph drops.
+  it('records how each map is entered: overworld, primary exit, secondary entrance ids', () => {
+    const rom = make4MbRom()
+    // Root $010 (flag 0): secondary exits $20 -> $050 and $21 -> $010 itself.
+    setL1Ptr(rom, 0x010, 0x068000)
+    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitObj(0x20, true), ...exitObj(0x21, true), 0xff]) // prettier-ignore
+    rom.writeAt(ADDR.SEC_EXIT_DEST + 0x20, [0x50, 0x10])
+    // $050: a primary exit back to the root, and a second secondary entrance to itself.
+    setL1Ptr(rom, 0x050, 0x06a000)
+    setLevelData(rom, 0x06a000, [0, 0, 0, 0, 0, ...exitObj(0x10, false), ...exitObj(0x22, true), 0xff]) // prettier-ignore
+    rom.writeAt(ADDR.SEC_EXIT_DEST + 0x22, [0x50])
+    const result = graphOf(new SmwRom(rom))
+    expect(result.entrances?.get(0x010)).toEqual({
+      overworld: true,
+      primary: true,
+      secondary: [0x21],
+    })
+    expect(result.entrances?.get(0x050)).toEqual({ overworld: false, primary: false, secondary: [0x20, 0x22] }) // prettier-ignore
+    // The graph itself still drops the self-loops and the edge into a root.
+    expect(result.graph.get(0x010)).toEqual([0x050])
+    expect(result.graph.has(0x050)).toBe(false)
+  })
 })
 
 // ── the submap-flag gate (#486) ──────────────────────────────────────────────

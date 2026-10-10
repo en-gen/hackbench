@@ -104,6 +104,22 @@ export function isOverworldLevel(index: number, roots: OverworldRoots | null): b
 export interface LevelExitGraph {
   graph: Map<number, number[]>
   unavailable: string | null
+  /** Every way into each real map the walk reaches, edges the graph drops included. Absent when unavailable. */
+  entrances?: Map<number, MapEntrances>
+}
+
+/**
+ * How the game can enter a map, which picks the data its level load reads (bank_05.asm:7111-7162,
+ * 7300-7337): from the overworld or by a primary screen exit, the map's own DATA_05F400/F600; by a
+ * secondary exit, that entrance's row of DATA_05FA00/FC00 (#505).
+ */
+export interface MapEntrances {
+  /** An overworld launch tile enters it: the map is a root. */
+  overworld: boolean
+  /** A screen exit without the secondary flag enters it. */
+  primary: boolean
+  /** Secondary entrance ids (the index into DATA_05F800 and its sibling tables) that enter it, ascending. */
+  secondary: number[]
 }
 
 export interface RomSummary {
@@ -498,6 +514,10 @@ export class SmwRom {
     // Index-pointer dequeue rather than Array.shift(), which is O(n) per call
     // and would make this BFS O(n^2) over the 512-slot table.
     const graph = new Map<number, number[]>()
+    const entrances = new Map<number, MapEntrances>()
+    const entrancesOf = (map: number): MapEntrances =>
+      entrances.get(map) ?? entrances.set(map, { overworld: false, primary: false, secondary: [] }).get(map)! // prettier-ignore
+    for (const root of overworld) entrancesOf(root).overworld = true
     let qi = 0
     while (qi < queue.length) {
       const cur = queue[qi++]!
@@ -511,6 +531,13 @@ export class SmwRom {
         const destLow = spec.isSecondary ? destTable[high | spec.rawByte] : spec.rawByte
         if (destLow === undefined) continue
         const dest = high | destLow
+        // Before the graph's filter: a pipe back into a root (seeded above) or into the same map still enters it.
+        if (validDestinations.has(dest) || entrances.has(dest)) {
+          const into = entrancesOf(dest)
+          if (!spec.isSecondary) into.primary = true
+          else if (!into.secondary.includes(high | spec.rawByte))
+            into.secondary.push(high | spec.rawByte)
+        }
         if (dest === cur || !validDestinations.has(dest)) continue
 
         if (!dests.includes(dest)) dests.push(dest)
@@ -521,8 +548,9 @@ export class SmwRom {
       }
       if (dests.length > 0) graph.set(cur, dests)
     }
+    for (const e of entrances.values()) e.secondary.sort((a, b) => a - b)
 
-    return { graph, unavailable: null }
+    return { graph, unavailable: null, entrances }
   }
 
   /** Name for `index`, from the overworld walk's own entrances, not a bias

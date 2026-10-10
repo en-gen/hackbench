@@ -226,6 +226,15 @@ describe('the wire carries four planes in the view stacking order (synthetic)', 
     expect(wire.layerNotes).toEqual(['Layer order unverified, drawn as BG mode 1: because'])
     expect(wireOf(mapOf(m, { ok: true, l2 })).layerNotes).toEqual([])
   })
+
+  it('an unverified background height is a details note on a map that still draws (#505)', () => {
+    const m = inputs(hGrid(1), false, 1)
+    const l2 = { ...l2Of(nullGrid(27, 16), tiles2(solid)), note: 'Background height unverified: x' }
+    l2.grid[0]![0] = 1
+    const wire = wireOf(mapOf(m, { ok: true, l2 }))
+    expect(wire.planes.l2Low).toBeTruthy()
+    expect(wire.layerNotes).toEqual(['Background height unverified: x'])
+  })
 })
 
 // ── The core's L2 reading ────────────────────────────────────────────────────
@@ -310,6 +319,71 @@ describe('buildL2Inputs (synthetic ROM)', () => {
     expect(dy(0x03, 1)).toBe(0x20 - 0xc0) // and is absent when bit 5 is clear, gate or no gate
   })
 
+  describe('the entrances that reach the map (#505)', () => {
+    // The primary data: L1 $20, L2 $C0 (romWith's F400) and, vertical, high byte 3 (F600 $23).
+    // Secondary entrance A: FA00 $20 -> L1 index 2 ($40), L2 index 0 ($60); FC00 $E5 -> high byte 5
+    // (bits 7-5 are Mario's X index, bank_05.asm:7147-7153). B and C hold other values.
+    const A = 0x1be
+    const B = 0x0c4
+    const C = 0x0c5
+    const entry = (d710: number, f600 = 0x23) =>
+      romWith([
+        ptr(0x00, 0x90, 0x0c),
+        [0x05f600 + LEVEL, [f600]],
+        [0x05d710, [d710]],
+        [0x05fa00 + A, [0x20]],
+        [0x05fc00 + A, [0xe5]],
+        [0x05fa00 + B, [0x60]], // L1 index 2, L2 index 1 ($90): a different height
+        [0x05fc00 + B, [0x05]],
+        [0x05fa00 + C, [0x20]], // A's values again
+        [0x05fc00 + C, [0x05]],
+      ])
+    const via = (overworld: boolean, primary: boolean, ...secondary: number[]) => ({ overworld, primary, secondary }) // prettier-ignore
+    const build = (rom: RomFile, entrances: ReturnType<typeof via>, vertical = true) => {
+      objects([[1]])
+      return ok(buildL2Inputs(smw(rom, vertical), LEVEL, inputs(vertical ? vGrid(1) : hGrid(1), vertical, 1), entrances)) // prettier-ignore
+    }
+
+    it('a map reached only by a secondary entrance takes its low bytes from FA00 and its high byte from FC00', () => {
+      expect(build(entry(1), via(false, false, A))).toMatchObject({ dy: 0x540 - 0x560, note: undefined }) // prettier-ignore
+      expect(build(entry(3), via(false, false, A)).dy).toBe(0x540 - 0x60) // L2's high byte stays 0 at setting 3
+      expect(build(entry(3, 0x03), via(false, false, A), false).dy).toBe(0x40 - 0x60) // not vertical: no high bytes
+      // The primary data, by contrast, for a map entered from the overworld only.
+      expect(build(entry(3), via(true, false)).dy).toBe(0x320 - 0xc0)
+    })
+
+    it('entrances that agree draw without a note; ones that disagree draw the first and say the height is unverified', () => {
+      expect(build(entry(1), via(false, false, A, C)).note).toBeUndefined()
+      const split = build(entry(1), via(false, false, A, B))
+      expect(split.dy).toBe(0x540 - 0x560) // A, the lowest id
+      expect(split.note).toMatch(/height unverified.*2 different heights.*secondary entrance \$1BE/)
+      // A primary entrance is drawn ahead of any secondary one.
+      expect(build(entry(1), via(false, true, A)).dy).toBe(0x320 - 0x3c0)
+      expect(build(entry(1), via(false, true, A)).note).toMatch(/drawn as entered by a screen exit/)
+    })
+
+    it('the midway restart skips both high-byte writes (bank_05.asm:7362-7373), which only matters when L2 keeps its own', () => {
+      // F400 bits 7-4 name the midway screen; the tape sets MidwayFlag only when they are nonzero.
+      const withMidway = (d710: number) => {
+        const rom = entry(d710)
+        rom.writeAt(0x05f400 + LEVEL, [0x10 | (1 << 2) | 2])
+        return rom
+      }
+      expect(build(withMidway(1), via(true, false)).note).toBeUndefined() // both high bytes 3 or both 0: same relation
+      const midway = build(withMidway(3), via(true, false))
+      expect(midway.dy).toBe(0x320 - 0xc0)
+      expect(midway.note).toMatch(/from the midway point/)
+      expect(build(entry(3), via(true, false)).note).toBeUndefined() // no midway screen: no restart there
+    })
+
+    it('a map nothing is known to reach keeps the primary reading, with no note', () => {
+      expect(build(entry(3), via(false, false))).toMatchObject({
+        dy: 0x320 - 0xc0,
+        note: undefined,
+      })
+    })
+  })
+
   it('tileset 3 ORs palette bit 2 into every L2 object subtile, and no image tile', () => {
     objects([[1]])
     const objRom = romWith([ptr(0x00, 0x90, 0x0c)])
@@ -369,18 +443,31 @@ describe('the map build adds the background and the layer order (synthetic)', ()
     expect(noted).toEqual(plain)
   })
 
-  it('the cache reads the BG mode once per working-copy bytes, not once per map', () => {
-    const seen: unknown[] = []
-    const cache = new L1ModelCache((_rom, _index, _flags, bgMode) => {
-      seen.push(bgMode!())
-      return ok()
-    })
+  it('the cache reads the BG mode and the entrances once per working-copy bytes, not once per map', () => {
+    const seen: unknown[][] = []
+    const cache = new L1ModelCache(
+      (_rom, _index, _flags, bgMode, _l1, entrances) => {
+        seen.push([bgMode!(), entrances!()])
+        return ok()
+      },
+      () => new Map(),
+    )
     const bytes = bgModeRom().buffer
     mapScreen(cache, bytes, 'x.sfc', 5, 0, UNCLEARED)
     mapScreen(cache, bytes, 'x.sfc', 6, 0, UNCLEARED)
     mapScreen(cache, bgModeRom().buffer, 'x.sfc', 5, 0, UNCLEARED) // an edit: new bytes
-    expect(seen[0]).toBe(seen[1])
-    expect(seen[2]).not.toBe(seen[0])
+    for (const k of [0, 1]) {
+      expect(seen[0]![k]).toBe(seen[1]![k])
+      expect(seen[2]![k]).not.toBe(seen[0]![k])
+    }
+  })
+
+  it("the build hands the background this map's entrances (#505)", () => {
+    const rom = new SmwRom(bgModeRom(1))
+    const asked: number[] = []
+    const entrances = () => ({ get: (i: number) => (asked.push(i), undefined) }) as unknown as Map<number, never> // prettier-ignore
+    buildMapInputs(rom, 5, UNCLEARED, undefined, ok, entrances)
+    expect(asked).toEqual([5])
   })
 })
 
