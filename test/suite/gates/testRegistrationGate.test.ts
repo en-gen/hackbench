@@ -287,6 +287,7 @@ describe('test registration gate', () => {
     expect(files.some(f => f.endsWith('MapTree.test.ts'))).toBe(true)
   })
 
+  // 16.0 s worst (pre-#770 base), full unit run under other worktrees' load, 32-core machine, 2026-10-10
   it('no suite decides from the filesystem how many cases it registers', () => {
     const offences = files
       .map(f => path.relative(SUITE_DIR, f))
@@ -296,7 +297,7 @@ describe('test registration gate', () => {
       )
     const report = offences.map(o => `${o.file}:${o.line} [${o.rule}] ${o.text}`)
     expect(report, `use describe.skipIf / it.skipIf instead:\n${report.join('\n')}`).toEqual([])
-  })
+  }, 32_000)
 })
 
 /**

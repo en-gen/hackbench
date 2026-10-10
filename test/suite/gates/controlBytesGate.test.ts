@@ -33,6 +33,7 @@ function hasControlByte(text: string): boolean {
 }
 
 describe('control bytes gate', () => {
+  // 17.5 s worst, solo full unit run under other worktrees' load, 32-core machine, 2026-10-10
   it('no source file contains a raw control byte', () => {
     // Tripwire per root: a moved or wholly skipped root must not hide behind the others.
     const perRoot = SCANNED.map(d => ({ d, files: sourceFiles(path.join(ROOT, d)) }))
@@ -44,7 +45,7 @@ describe('control bytes gate', () => {
       .filter(f => hasControlByte(fs.readFileSync(f, 'latin1')))
       .map(f => path.relative(ROOT, f))
     expect(offenders).toEqual([])
-  })
+  }, 36_000)
 
   it('flags a planted NUL, unit separator or DEL, and passes tab, LF and CR', () => {
     for (const planted of ['\x00', '\x1f', '\x7f', '\x0b']) {
