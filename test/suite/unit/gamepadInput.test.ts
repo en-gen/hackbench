@@ -5,6 +5,7 @@ import {
   PadLike,
   pollPads,
   padButtons,
+  keyAccepted,
 } from '../../../theia/extension/src/browser/gamepad-input'
 import { DEFAULT_ASSIGNMENTS } from '../../../theia/extension/src/browser/controller-settings'
 
@@ -157,5 +158,35 @@ describe('pollPads port routing', () => {
     const { sent, hub: h } = hub()
     pollPads(h, [pad([0], [0, 0, 0, 0], false)], DEFAULT_ASSIGNMENTS)
     expect(sent).toEqual([])
+  })
+})
+
+describe('keyAccepted: which focused control lets a key drive the controller (#508)', () => {
+  const el = (tagName: string, role?: string, isContentEditable = false) => ({
+    tagName,
+    isContentEditable,
+    getAttribute: (n: string) => (n === 'role' ? (role ?? null) : null),
+  })
+  it('accepts the panel, a button and a plain div', () => {
+    for (const t of ['DIV', 'BUTTON', 'ASIDE']) expect(keyAccepted(el(t), 'ArrowRight')).toBe(true)
+  })
+  it('refuses controls that consume keys, and a missing target', () => {
+    for (const t of ['SELECT', 'INPUT', 'TEXTAREA', 'select'])
+      expect(keyAccepted(el(t), 'KeyX')).toBe(false)
+    expect(keyAccepted(el('DIV', undefined, true), 'KeyX')).toBe(false)
+    expect(keyAccepted(null, 'KeyX')).toBe(false)
+  })
+  it('refuses arrows on a tab but not other keys', () => {
+    for (const c of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
+      expect(keyAccepted(el('BUTTON', 'tab'), c)).toBe(false)
+    expect(keyAccepted(el('BUTTON', 'tab'), 'KeyX')).toBe(true)
+  })
+  it('leaves Enter and Space to a button, role=button or tab, but not other keys', () => {
+    const targets = [el('BUTTON'), el('DIV', 'button'), el('DIV', 'tab')]
+    for (const t of targets) {
+      for (const c of ['Enter', 'NumpadEnter', 'Space']) expect(keyAccepted(t, c)).toBe(false)
+      expect(keyAccepted(t, 'KeyX')).toBe(true)
+    }
+    expect(keyAccepted(el('DIV'), 'Enter')).toBe(true)
   })
 })
