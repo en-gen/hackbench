@@ -113,7 +113,7 @@ describe.skipIf(!existsSync(join(TRACE_DIR, SPRITE_TRACE_SET)) || !hasRom(VANILL
       })
       expect(tried).toBe(20)
       expect(equal).toBe(0)
-    }, 1_0000)
+    }, 10_000)
 
     // The level state the runner seeds from the ROM's own loader (LevelLoader.ts) against
     // what Mesen held when the level's sprites ran. Measured 2026-10-09, vanilla, one

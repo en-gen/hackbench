@@ -107,5 +107,5 @@ describe('sync and async functions are both measured correctly', () => {
     const samples = await measureCase('test.sampler.async', fn)
     expect(samples).toHaveLength(20)
     expect(maxInFlight).toBe(1)
-  }, 1_0000)
+  }, 10_000)
 })
