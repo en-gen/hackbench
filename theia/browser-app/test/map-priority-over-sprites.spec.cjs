@@ -8,8 +8,10 @@
  * sprite pixel is under an opaque l1High pixel. Part (b) clears those bits through the
  * Map16 service write path, moving the tile to l1Low; the same pixels must show the sprite.
  *
- * Plant: in src/rom/model/ScreenPlanes.ts, `on` returning
- * `[...bg, 'sprites']` instead of the slice-and-insert turns part (a) red.
+ * Plant (by code and data, not a recorded run; the verifier run will record it): in
+ * src/rom/model/ScreenPlanes.ts, `on` returning `[...bg, 'sprites']` instead of the
+ * slice-and-insert should turn part (a) red. ScreenPlanes.test and MapScreenL3.test catch
+ * that plant too; this spec's value is the pixel-level check on a real map.
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')
@@ -78,7 +80,12 @@ function probe(page, at) {
       const q = s => document.querySelector(s)
       const sprites = px(q(sel.sprites))
       const high = px(q(sel.high))
-      const comp = px(planesOf(rootSel, sel.screen)[0])
+      const compCanvas = planesOf(rootSel, sel.screen)[0]
+      const comp = px(compCanvas)
+      // Flat pixel indices are only comparable across canvases of one size.
+      for (const c of [q(sel.sprites), q(sel.high)])
+        if (c.width !== compCanvas.width || c.height !== compCanvas.height)
+          throw new Error('plane and composite canvases differ in size')
       const pixels = at ?? [...Array(sprites.length / 4).keys()].filter(p => sprites[p * 4 + 3] === 255 && high[p * 4 + 3] === 255) // prettier-ignore
       const same = (a, b, p) => [0, 1, 2, 3].every(k => a[p * 4 + k] === b[p * 4 + k])
       return {

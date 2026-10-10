@@ -259,7 +259,7 @@ describe('the sprite layer as a source (#564)', () => {
 })
 
 describe('layer 1 priority against sprites (#529)', () => {
-  // The lists come from screenPlanes, so moving 'sprites' after l1High there turns the first case red.
+  // The first case's own value: it fails a compositor that lets an opaque sprite win over l1High whatever the list order. (The list plant in ScreenPlanes also reddens six existing tests.)
   const run = (planes: ScreenInput['planes']) => [
     ...composeScreen({
       width: 1,
