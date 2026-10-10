@@ -3,11 +3,11 @@
  * one extra XBA in CODE_00B966 (SMWDisX bank_00.asm:6383-6389), so their
  * back-references are little-endian. The decoder reads the order from the
  * ROM's own routine and the gate refuses a routine that is neither form.
- * A stock J or E1 ROM is still refused earlier, at the entry gate (its entry's
- * ReadByte operand differs from the US one; follow-up #696), so the
- * cartridge-level little-endian cases here are synthetic: a US-shaped entry
- * with the XBA routine behind it. The real J and E1 operand sets are checked
- * at the routine level, through `readBackRefOrder`.
+ * The entry gate (#696) takes the JSR ReadByte operand from the entry itself
+ * and accepts it only when the back-reference routine's own JSRs name the
+ * same operand, so the real J, E0 and E1 operand sets are swept through
+ * `readDecompressor` below. Those are synthetic fixtures built from the
+ * SMWDisX sym operands; no J or E ROM is in the corpus.
  *
  * Synthetic cartridges only: every byte is built in the test or in
  * `syntheticGfxCart`, written from the 65816 encoding. No ROM needed.
@@ -16,7 +16,7 @@ import { describe, it, expect } from 'vitest'
 import { decompress, tryDecompress } from '../../../src/rom/LcLz2'
 import { checkStockCompression, checkWritableCompression } from '../../../src/rom/GfxArena'
 import { readGfxFile } from '../../../src/rom/GfxLoader'
-import { readBackRefOrder } from '../../../src/rom/GfxDecompressor'
+import { readBackRefOrder, readDecompressor } from '../../../src/rom/GfxDecompressor'
 import { RomFile } from '../../../src/rom/RomFile'
 import { GfxTable, planGfxSave } from '../../../src/rom/GfxTable'
 import { GfxRefusal, foldGfxRun, readGfxBase } from '../../../src/rom/GfxLayer'
@@ -29,6 +29,8 @@ import {
   DECOMP_ENTRY,
   DISPATCH_AT,
   gfxStreams,
+  plantReadByte,
+  READ_BYTE_BODY,
 } from '../support/syntheticGfxCart'
 
 // Three literals, then a 2-byte copy from output index 1: 10 20 30 20 30.
@@ -120,13 +122,14 @@ describe('the decompressor gate reads the back-reference routine', () => {
   })
 
   it('finds the routine through the BMI, not at a fixed address', () => {
-    // Relocate the routine 4 bytes on and repoint the BMI: still accepted, so
+    // Relocate the routine 4 bytes back (forward would run over ReadByte) and repoint the BMI: still accepted, so
     // the gate follows the branch. Left at the old spot it would be refused.
     const rom = buildCart({ backRef: backRefRoutine('le') }).rom
     rom.writeAt(DECOMP_ENTRY + BACKREF_AT, new Array(40).fill(0))
-    rom.writeAt(DECOMP_ENTRY + BACKREF_AT + 4, backRefRoutine('le'))
+    rom.writeAt(DECOMP_ENTRY + BACKREF_AT - 4, backRefRoutine('le'))
+    plantReadByte(rom) // the zeroes run over it
     expect(checkStockCompression(rom).ok).toBe(false)
-    rom.writeAt(DECOMP_ENTRY + DISPATCH_AT + 4, [BACKREF_AT + 4 - DISPATCH_AT - 5])
+    rom.writeAt(DECOMP_ENTRY + DISPATCH_AT + 4, [BACKREF_AT - 4 - DISPATCH_AT - 5])
     const r = checkStockCompression(rom)
     expect(r.ok && r.order).toBe('le')
   })
@@ -215,5 +218,105 @@ describe('a little-endian ROM through the readers and writers', () => {
     const before = new Uint8Array(out)
     expect(() => foldGfxRun(out, false, readGfxBase(before), [])).toThrow(GfxRefusal)
     expect(out).toEqual(before)
+  })
+})
+
+// The entry gate itself (#696). Fixtures are built from the SMWDisX SMW_*.sym operands.
+describe('readDecompressor accepts each real build and refuses a mismatched entry', () => {
+  function entryRom(entry: number, readByte: number, loop: number, order: 'be' | 'le') {
+    const buf = Buffer.alloc(0x10000, 0)
+    buf[0x7fd5] = 0x20
+    const rom = new RomFile('layout.sfc', buf)
+    rom.writeAt(entry, [0xc2, 0x10, 0xa0, 0x00, 0x00, 0x20, readByte & 0xff, readByte >> 8])
+    rom.writeAt(entry + 8, [0xc9, 0xff])
+    rom.writeAt(entry + DISPATCH_AT, backRefDispatch(BACKREF_AT))
+    rom.writeAt(entry + BACKREF_AT, backRefRoutine(order, readByte, loop))
+    plantReadByte(rom, readByte)
+    return rom
+  }
+
+  it.each(BUILDS)('%s: accepted as stock with the order its routine has', (_n, e, rb, loop, o) => {
+    const d = readDecompressor(entryRom(e, rb, loop, o), e)
+    expect(d.ok && d.kind).toBe('stock')
+    expect(d.ok && d.order).toBe(o)
+  })
+
+  it('refuses every opcode but JSR at entry+5, here and in readBackRefOrder', () => {
+    const survived: number[] = []
+    for (let op = 0; op < 256; op++) {
+      if (op === 0x20) continue
+      const rom = entryRom(0xb8de, 0xb983, 0xb8e3, 'be')
+      rom.writeAt(0xb8de + 5, [op])
+      if (readDecompressor(rom, 0xb8de).ok || readBackRefOrder(rom, 0xb8de) !== null)
+        survived.push(op)
+    }
+    expect(survived).toEqual([])
+  })
+
+  it('refuses every CMP byte but $C9 $FF', () => {
+    const survived: string[] = []
+    for (const [i, good] of [
+      [8, 0xc9],
+      [9, 0xff],
+    ] as const)
+      for (let v = 0; v < 256; v++) {
+        if (v === good) continue
+        const rom = entryRom(0xb8de, 0xb983, 0xb8e3, 'be')
+        rom.writeAt(0xb8de + i, [v])
+        if (readDecompressor(rom, 0xb8de).ok) survived.push(`+${i}=${v}`)
+      }
+    expect(survived).toEqual([])
+  })
+
+  it('refuses a one-bit flip of either entry operand byte, the routine left intact', () => {
+    const survived: string[] = []
+    for (const [i, byte] of [
+      [6, 0x83],
+      [7, 0xb9],
+    ] as const)
+      for (let bit = 0; bit < 8; bit++) {
+        const rom = entryRom(0xb8de, 0xb983, 0xb8e3, 'be')
+        rom.writeAt(0xb8de + i, [byte ^ (1 << bit)])
+        if (readDecompressor(rom, 0xb8de).ok) survived.push(`+${i} bit ${bit}`)
+      }
+    expect(survived).toEqual([])
+  })
+
+  it('refuses an operand and routine that agree on an address that is not ReadByte', () => {
+    // Entry and routine both name $C000, where an RTS stands: self-consistent, not ReadByte.
+    const rom = entryRom(0xb8de, 0xc000, 0xb8e3, 'be')
+    rom.writeAt(0xc000, [0x60])
+    const d = readDecompressor(rom, 0xb8de)
+    expect(d.ok).toBe(false)
+    if (!d.ok) expect(d.reason).toMatch(/ReadByte/)
+  })
+
+  it('accepts a relocated but intact ReadByte whose operand high byte is not $B9', () => {
+    // Every real build has high byte $B9; without this the high-byte shift in the operand
+    // build could be pinned to $B9 and no fixture would notice.
+    const rom = entryRom(0xb8de, 0xc000, 0xb8e3, 'be')
+    rom.writeAt(0xb983, new Array(READ_BYTE_BODY.length).fill(0))
+    const d = readDecompressor(rom, 0xb8de)
+    expect(d.ok && d.kind).toBe('stock')
+    expect(d.ok && d.order).toBe('be')
+  })
+
+  it('refuses a one-byte change anywhere in ReadByte, in every build', () => {
+    const survived: string[] = []
+    for (const [name, e, rb, loop, o] of BUILDS)
+      for (let i = 0; i < READ_BYTE_BODY.length; i++) {
+        const rom = entryRom(e, rb, loop, o)
+        rom.writeAt(rb + i, [(READ_BYTE_BODY[i]! + 1) & 0xff])
+        if (readDecompressor(rom, e).ok) survived.push(`${name}+${i}`)
+      }
+    expect(survived).toEqual([])
+  })
+
+  it('refuses when the back-reference routine is missing', () => {
+    const rom = entryRom(0xb87e, 0xb924, 0xb883, 'le')
+    rom.writeAt(0xb87e + BACKREF_AT, new Array(40).fill(0))
+    const d = readDecompressor(rom, 0xb87e)
+    expect(d.ok).toBe(false)
+    if (!d.ok) expect(d.reason).toMatch(/back-reference routine/)
   })
 })
