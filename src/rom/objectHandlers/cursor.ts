@@ -267,6 +267,24 @@ function claimCell(cur: Cursor): void {
   orow[cur.col] = cur.owner
 }
 
+/**
+ * The high-byte half of a skipped tile store: StzTo6ePointer (bank_0D.asm:2112-2114)
+ * runs `STA [Map16HighPtr],Y` with A = 0 before every entry, so an entry whose
+ * low-byte store is skipped (a $25 in the ext $82/$83/$84 tables,
+ * bank_0D.asm:1736-1740, 4797-4803) still zeroes the cell's page and leaves its
+ * low byte. A blank cell therefore reads $25, as the interpreter records.
+ * Not claimed for the owner grid: the low byte, the visible tile, is not drawn.
+ * Evidence: the interpreter agrees on the 8 vanilla cases (#773).
+ */
+export function clearPageKeepLow(cur: Cursor): void {
+  if (cur.row < 0 || cur.row >= cur.grid.length) return
+  if (cur.col < 0 || cur.col >= 0x200) return
+  const low = peekExistingLow(cur)
+  const row = cur.grid[cur.row]
+  while (row.length < cur.col) row.push(0x25)
+  row[cur.col] = low
+}
+
 /** Sta1To6ePointer (bank_0D line 2107) -- next tile is on page 1 ($100-$1FF). */
 export function setPage1(cur: Cursor): void {
   cur.page = 1

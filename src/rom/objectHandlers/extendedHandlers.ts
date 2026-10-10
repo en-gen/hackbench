@@ -18,6 +18,7 @@ import {
   restoreBookmark,
   nextRow,
   peekExistingLow,
+  clearPageKeepLow,
   readLongOperand,
   readGatedLongOperand,
   readImmByte,
@@ -440,7 +441,8 @@ export function handle_0DEABF(cur: Cursor): void {
  * we decide what low byte to stamp at the cursor and then advance one column.
  *
  * ASM decision tree:
- *   A == $25  → JMP CODE_0DA95D       (skip write; just advance cursor)
+ *   A == $25  → JMP CODE_0DA95D       (skip the low-byte store and advance; the caller's
+ *                                      StzTo6ePointer has still zeroed the high byte)
  *   A <  $49  → JMP CODE_0DA95B at +2 (write A as-is, advance)
  *   A <  $54  → JMP CODE_0DA95B at +2 (write A as-is, advance)
  *   else      → read existing low byte at cursor and blend:
@@ -460,6 +462,7 @@ export function handle_0DEABF(cur: Cursor): void {
  */
 function hillsideMergeWriteAdvance(cur: Cursor, A: number): void {
   if (A === 0x25) {
+    clearPageKeepLow(cur) // the caller's StzTo6ePointer already ran (#773)
     advanceCol(cur)
     return
   }
@@ -1166,6 +1169,7 @@ export function handle_0DC2E9(cur: Cursor): void {
     for (let col = 0; col < 8; col++) {
       const tile = cur.rom.readByte(addr + X++) ?? 0
       if (tile !== 0x25) writeTile(cur, tile)
+      else clearPageKeepLow(cur) // StzTo6ePointer runs for every entry (#773)
       advanceCol(cur)
     }
     writeTile(cur, cur.rom.readByte(addr + X++) ?? 0)
