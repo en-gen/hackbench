@@ -416,11 +416,11 @@ inline comment blocks. All of it is recoverable with
 `git show d1d6bcd`; the point of writing it down is that nobody will
 think to look.
 
-### `$2E` Spike Top: the direction the appearance hardcodes
+### `$2E` Spike Top: the direction the appearance formerly hardcoded
 
-`SpikeTopAppearance.fromTables` hardcodes `flipX: false, flipY: false`,
-and its JSDoc still says "Direction defaults to 0 (`DATA_02BCC7[0]=$00`
-so no flip)". The lines that justified the word "defaults", and recorded
+Before the correction below (#134), `SpikeTopAppearance.fromTables`
+hardcoded `flipX: false, flipY: false`, and its JSDoc said "Direction
+defaults to 0 (`DATA_02BCC7[0]=$00` so no flip)". The lines that justified the word "defaults", and recorded
 what the other case is, went with the overlay. Re-traced in `SMWDisX` at
 `366e8c7`:
 
@@ -443,16 +443,29 @@ what the other case is, went with the overlay. Re-traced in `SMWDisX` at
   (`ADC.W DATA_02BCB7,Y`, `bank_02.asm:8085`) is `$00` in both cases, so
   only the flip differs.
 
-The consequence nothing in the tree records today: direction is not
-always 0. A Spike Top spawning with Mario to its LEFT starts at direction
-4 and the game draws it X-flipped, so the hardcoded `flipX: false` is the
-wrong pose for that placement. "Defaults to 0" reads like a derived
-constant; it is a static-editor approximation.
+Correction (#134): the table alone is not the drawn pose. `GenericSprGfxRt2`
+enters `SubSprGfx2Entry1` (`bank_01.asm:4148`), which EORs `OBJ_XFlip` into the
+attribute when `SpriteMisc157C` is 0 (`bank_01.asm:4166-4171`), and nothing sets
+`$157C` for a Spike Top. So direction 4 (Mario LEFT, table `$40`) draws
+UNFLIPPED and direction 0 (Mario right or level, table `$00`) draws X-flipped.
+Measured on the served interpreter path (`map-sprites.ts` `interpDrawer`,
+vanilla US 1.0): 40 of the 44 vanilla placements start with Mario left and draw
+unflipped, 4 (map `$1BF`) start with Mario right and draw flipped, and Mario
+swept either side and level at one placement gives the same rule
+(`test/suite/unit/SpikeTopFacing.test.ts`). The model path
+(`SpikeTopAppearance.fromTables`) now takes the same direction from
+`marioStartPx` and reads `DATA_02BCC7`, with the same EOR.
 
-It is fixable without a behavior port, from the same `marioStartPx`
-argument `SpriteFactory` already uses for `$30`/`$32` Dry Bones and the
-Chucks. Not done here: this branch removes things, and a rendering change
-wants its own PR and its own test.
+Open (tracked as #781, not fixed here): `readMarioStartPos`
+(`L3Loader.ts:292-317`) builds Mario's X only from `DATA_05D750`/`D758` and
+ignores the entrance's screen, so it gives 16 where the ROM-run loader gives 784
+(map `$1BF`). It IS served: `map-sprites.ts:340-343` falls back to it when the
+loader refuses (a generic seed, i.e. hacks), and it also feeds Dry Bones and
+Chuck facing. For Spike Top it puts Mario left of all 44 vanilla placements, so
+the model path draws the 4 `$1BF` ones unflipped where the served path draws
+them flipped. The model path itself is reached only by
+`src/providers/MapEditorProvider.ts` (reference-only). `SubHorizPos` compares
+`PlayerXPosNow` (`$94`), the same value the loader image holds.
 
 ### `$AC`/`$AD` Wood Spike: where the sharp tip sits in the tip tile
 
