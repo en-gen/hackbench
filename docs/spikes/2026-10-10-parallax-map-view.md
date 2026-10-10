@@ -19,6 +19,8 @@ layer 2 and layer 3 placed by the game's own rules.
   renderer: one 256x224 screen composes in 12 to 16 ms against a 5 ms budget.
   So scroll-anchored parallax (#503) cannot be the first step.
 - A one-screen preview on camera drag costs one compose, which is workable.
+- Addendum (D32, gutter): the game never draws layer 2 or 3 past the
+  foreground, so a gutter holds actions, not background; see the last section.
 - Two open items could change numbers, not the shape: the game's vertical
   calibration disagrees with its per-frame rule for rate 1/32 (Q2), and layer 3
   drifts with time, so a still picture needs a stated phase (Q2, Q3).
@@ -249,3 +251,122 @@ the speed work. #521: built as B.
 intact, and gives "a logical way" a concrete shape: a camera, with every rate
 read from the ROM. File a follow-up to settle the vertical calibration with a
 core trace before the rate 3 case ships.
+
+## Addendum: a gutter beyond the foreground, and add-screen room
+
+Owner note, D32: the background can extend beyond the foreground; a "gutter"
+around the drawn map would leave room to append or prepend a screen.
+
+### G1. Is there layer 2 or layer 3 past the foreground?
+
+The game's camera is clamped to the level, so it never shows any. Horizontal
+camera X is clamped to 0 at the left, and at the right to `(LastScreenHoriz - 1)
+<< 8`, the left edge of the last screen (SMWDisX `bank_00.asm:13679-13691`).
+`[EST]` (code reading, not run.) At horizontal rate 1/2 layer 2 only ever shows
+camera X / 2 up to that plus 256, which is inside the map; at 1:1 it ends at the
+last screen's edge. Past either end there is no frame in which the game draws
+layer 2 or 3. `[INF]`
+
+What the data holds, per kind of layer 2 `[EST]` (code reading, vanilla, one ROM):
+
+- Preset image (462 of 488 maps): a 32-column Map16 grid, 512 px wide
+  (`L2_TILEMAP_COLS`, `L2Loader.ts`), tiled across the map by
+  `tilePresetGrid` (`c % 32`). BG2 is a 64x64 tilemap, so it wraps every 512 px
+  (`bank_00.asm:1270-1271`; "Layer 2 stride and wrap" in
+  `docs/rom/map-data-mechanics.md`). More columns would be
+  the same 512 px repeating: the wrap, shown where the game never looks.
+- Object stream (26 maps): a grid exactly as wide as layer 1, from layer 1's
+  screen count (`loadL2Objects`; the game reuses `LevelScrLength`). Past the
+  last screen there is no data; a picture there is invented (ruling 1).
+- Layer 3: not read per map for this addendum. `[OPEN]` Same 64x64 wrap
+  assumed, extent per map unmeasured.
+
+So drawing past the bounds is a repeat of the wrap (never seen in the game) or
+nothing; ruling 2 forbids padding an object grid with guessed tiles. `[INF]`
+
+### G2. What a gutter is, and how it meets zoom
+
+Fit mode fills the cross axis only: `measureFit` divides the view height (width,
+for a vertical map) by the map's height (`map-view-widget.tsx`). `ZoomController`
+holds the zoom and anchors on the centre or cursor (`zoom-controller.ts`,
+`enterFit`, `refit`). So padding on the long axis leaves the fit zoom unchanged;
+padding on the cross axis would lower it. `[EST]` (read.) Two shapes:
+
+- Zoom-scaled (map-pixel padding) shrinks to a few pixels at fit and offsets
+  every hit test and anchor.
+- Fixed: a strip of constant screen pixels (a CSS width) on each end of the
+  scroller, outside `.hb-map-view-strip`. Map coordinates stay exact; hover code
+  reads the strip's rect (`updateHover`), so it does not move. `[INF]` from the
+  code shape, not built.
+
+It shows empty checkerboard (`hb-checkerboard`) with the actions on it, not
+layer 2 or 3 (G1).
+
+### G3. Add a screen before or after
+
+What the ROM allows `[EST]` (SMWDisX, header read, vanilla layout):
+
+- The count is the low 5 bits of the first layer 1 header byte, plus one:
+  1 to 32 screens (`bank_05.asm:524-529`). Layer 2 object streams use layer 1's
+  count, not their own.
+- The same count serves both orientations. An even level mode stores it as
+  `LastScreenHoriz` (and 1 as `LastScreenVert`); an odd mode swaps them
+  (`bank_05.asm:554-561`). So the maximum is 32 for a horizontal map and 32 for
+  a vertical one; `!LevelMaxScreens` is 32 too (`bank_00.asm:2652-2653`). The
+  gutter hides its add action at 32.
+- Whether all 32 are addressable by objects in a vertical map, and whether the
+  level data still fits its ROM space, is `[OPEN]`; not read here.
+
+Appending is cheap: raise the count by one; nothing else moves. `[INF]`
+
+Prepending is a rewrite. A new first screen pushes every screen number up by
+one: all layer 1 objects, the layer 2 object stream when present, all sprites
+(`parseLevelSprites`), the per-screen exit table
+(`parseLevelScreenExits`), and the header count. Pointers in other levels that
+land here by screen (entrances, secondary exits) are `[OPEN]`: not traced. A
+preset image also slides 256 px against the foreground, half its 512 px period,
+so it would no longer match the author's alignment. `[INF]`
+
+An existing issue for adding or removing screens: one `gh search issues` call
+returned none, so none is named. `[OPEN]`
+
+### Options
+
+#### E. No gutter; add-screen as commands only
+
+- Pros: no layout cost. Cons: the owner asked for room; the action hides in a
+  menu. #503, #521: unchanged by this.
+
+#### F. Fixed empty gutter hosting add-screen actions
+
+A constant-width strip at each end of the scroller, outside the strip, empty,
+holding "add screen before" and "add screen after". Hidden at 32 screens.
+
+- Pros: honours rulings 1 and 2; no coordinate change; fit zoom unaffected;
+  works with B. Cons: the action is an edit and needs its own issue; prepend is
+  large; an empty gutter is not the background the owner pictured.
+
+#### G. Gutter that draws layer 2 and 3 past the bounds
+
+- Pros: matches the owner's picture literally. Cons: nothing to draw for
+  object-stream layer 2 (G1); for a preset it draws a repeat the game never
+  shows; recompose per scroll, the cost of C. Breaks ruling 1.
+
+How they combine with A to D: the gutter is orthogonal. E and F work with any of
+A, B, C or D, because neither draws layer 2 or 3. G only makes sense with C or D
+(scroll-anchored drawing) and inherits their budget miss (Q5).
+
+### Recommendation
+
+**[PROP] F, with B.** Fixed empty gutter, actions only, hidden at 32 screens;
+append ships first, prepend as a later issue because it rewrites every screen
+reference. The background is not extended: the game never shows it, and the only
+data there is a repeat or nothing.
+
+- #521: rewritten to B as proposed; its camera clamp stays the ROM-read range,
+  not the gutter. #503: absorbed into #521, as in B; the gutter does not revive
+  it.
+- New issue to file `[PROP]`: add screen after, then before, with the shift
+  list above as acceptance.
+
+Citations: `check_citations` on 12, all matched. `[EST]`
