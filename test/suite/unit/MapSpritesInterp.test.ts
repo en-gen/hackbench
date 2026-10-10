@@ -316,11 +316,7 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
       const built = new L1ModelCache().get(b, romPath(VANILLA), map, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
       if (!built.ok) throw new Error(built.reason)
       const sprites = parseLevelSprites(rom.rom.readUpTo(rom.getLevelSpritePointer(map)!, 0x200)!, built.inputs.isVertical) // prettier-ignore
-      // The engine gets the Mario the interpreter ran with (the loader's $94), not the table reader's
-      // secondary-entrance start, so the two drawers are compared on the same facing.
-      const l = loadLevelState(rom.rom, map)
-      if (!l.ok) throw new Error(l.reason)
-      const eng = engineDrawer(rom.rom, l.wram[0x94]! | (l.wram[0x95]! << 8))!
+      const eng = engineDrawer(rom.rom, readMarioStartPos(rom.rom, map).x)!
       const interp = interpDrawer(rom.rom, map, built.inputs)
       const both = wrap(interp)
       for (const s of sprites) {

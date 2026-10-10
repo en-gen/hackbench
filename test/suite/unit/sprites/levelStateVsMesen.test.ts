@@ -103,12 +103,9 @@ const PAST_END = ['002', '0be', '0c1', '102', '127']
 const LOADER_VS_MESEN = pins(
   '095:-16,256 096:-64,-65136 097:-64,-65136 098:-16,256 099:-16,256 09a:-16,256 09b:-16,256 0cc:-16,256 0d5:-16,256 0d9:-16,256 195:-16,256 196:-64,-65136 197:-64,-65136 198:-16,256 199:-16,256 19a:-16,256 19b:-16,256 1c7:-16,256',
 )
-// After #781 (entrance screen and entrance-type nudge in Mario's position) 17 of the 154 differ, was 52: every one
-// a sub area where this reads the secondary entrance (the play path) and the loader, which leaves UseSecondaryExit
-// 0, the primary bytes. Full 512-map sweep: MarioStartPos.test.ts.
-const FALLBACK_VS_LOADER = pins(
-  '102:1288,80 103:2168,-48 105:2056,-46 106:4312,0 10a:3952,80 10b:2672,-128 10f:776,32 113:2056,-80 116:2424,-80 117:1656,0 118:4104,240 119:3960,128 11a:3696,0 11f:2264,-16 123:1032,-32 127:2680,-16 12c:2520,0',
-)
+// After #781 (entrance screen, entrance-type nudge, primary entrance for every map) the fallback equals the loader's
+// $94/$96 on all captured maps; was 52 differing. Vanilla ROM, one machine. Full 512-map sweep: MarioStartPos.test.ts.
+const FALLBACK_VS_LOADER: string[] = []
 
 describe.skipIf(!hasRom(VANILLA) || !existsSync(root))(
   'level state vs Mesen: known differences (#649)',
@@ -168,7 +165,7 @@ describe.skipIf(!hasRom(VANILLA) || !existsSync(root))(
       expect(loaderVsMesen(real())).toEqual(LOADER_VS_MESEN)
     }, 300_000)
 
-    it("Mario: readMarioStartPos (the generic-seed fallback) differs from the loader's $94/$96 only on the pinned sub areas", () => {
+    it("Mario: readMarioStartPos (the generic-seed fallback) equals the loader's $94/$96 on every captured map", () => {
       expect(fallbackVsLoader(freshRom(), real())).toEqual(FALLBACK_VS_LOADER)
     }, 300_000)
 
@@ -256,8 +253,9 @@ describe('level state comparators on synthetic bytes', () => {
     expect(map16Differences([m]).counts).toEqual([])
   })
 
-  // The 3-bit X index is swept, each with a distinct X; odd indexes carry an X high byte (X above 224).
-  it.each([0, 1, 2, 3, 4, 5, 6, 7])('readMarioStartPos secondary entrance, X index %i', k => {
+  // The 3-bit primary X index is swept, each with a distinct X; odd indexes carry an X high byte (X above 224).
+  // A DATA_05F800 entry targeting $105 is a decoy: the reader stays on the primary entrance.
+  it.each([0, 1, 2, 3, 4, 5, 6, 7])('readMarioStartPos primary entrance, X index %i', k => {
     const rom = RomFile.fromBytes('s.sfc', Buffer.alloc(0x100000))
     for (let i = 0; i < 16; i++) rom.writeAt(0x05d730 + i, [0x30 + i]) // Y low
     rom.writeAt(0x05d740 + 4, [1]) // Y high, index 4
@@ -265,18 +263,16 @@ describe('level state comparators on synthetic bytes', () => {
       rom.writeAt(0x05d750 + i, [0x20 + i * 8]) // X low
       rom.writeAt(0x05d758 + i, [i & 1]) // X high
     }
-    rom.writeAt(0x05f000 + 5, [3]) // level $05, primary: Y index 3
-    rom.writeAt(0x05f200 + 5, [5]) // X index 5
-    rom.writeAt(0x05f000 + 0x105, [3])
-    rom.writeAt(0x05f200 + 0x105, [5]) // the same primary bytes for $105, so ignoring the entrance shows
-    rom.writeAt(0x05f800 + 0x103, [0x05]) // secondary entrance $103 targets $105 (index bit 8 = the map's bit 8)
-    rom.writeAt(0x05fc00 + 0x103, [(k << 5) | 1]) // X index k, screen 1
-    rom.writeAt(0x05fa00 + 0x103, [4]) // Y index 4
-    // Horizontal: the entrance's screen (here 1, FC00 bit 0) replaces the X high byte (bank_05.asm:7382-7383).
-    expect(readMarioStartPos(rom, 0x05)).toEqual({ x: 0x48, y: 0x33 })
+    rom.writeAt(0x05f000 + 0x105, [4]) // Y index 4
+    rom.writeAt(0x05f200 + 0x105, [k]) // X index k
+    rom.writeAt(0x05f800 + 0x103, [0x05]) // decoy secondary entrance targeting $105
+    rom.writeAt(0x05fc00 + 0x103, [(7 << 5) | 5])
+    rom.writeAt(0x05fa00 + 0x103, [0x0f])
+    // Horizontal: the entrance's screen (DATA_05F600, here 1) replaces the X high byte (bank_05.asm:7382-7383).
+    rom.writeAt(0x05f600 + 0x105, [1])
     expect(readMarioStartPos(rom, 0x105)).toEqual({ x: 0x100 + 0x20 + k * 8, y: 0x134 })
     // Vertical (DATA_05F600 bit 5): the screen goes to Y and X keeps its DATA_05D758 high byte.
-    rom.writeAt(0x05f600 + 0x105, [0x20])
+    rom.writeAt(0x05f600 + 0x105, [0x21])
     expect(readMarioStartPos(rom, 0x105)).toEqual({
       x: 0x20 + k * 8 + (k & 1) * 0x100,
       y: 0x100 + 0x34,

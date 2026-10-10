@@ -40,10 +40,11 @@ export interface LevelHeader {
    */
   timeLimit: number
   /**
-   * Mario's starting pixel position at level load. Primary levels pick from
-   * DATA_05F000/DATA_05F200 via DATA_05D730/740/750/758; sublevels pick from
-   * the secondary entrance that targets them. See `readMarioStartPos` in
-   * MarioStartPos.ts. Used by sprite handlers that depend on Mario's spawn side
+   * Mario's starting pixel position at map load. Every map, entry maps $100+
+   * included, picks its primary entrance from DATA_05F000/DATA_05F200 via
+   * DATA_05D730/740/750/758, plus the entrance screen (DATA_05F600) and type
+   * nudge. A sub area's secondary entrance is a return entrance and is not
+   * read. See `readMarioStartPos` in MarioStartPos.ts. Used by sprite handlers that depend on Mario's spawn side
    * (e.g. FaceMario → Dry Bones flip direction) and as an editor anchor.
    */
   marioStartPx: { x: number; y: number }
