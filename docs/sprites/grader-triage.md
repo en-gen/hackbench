@@ -76,10 +76,10 @@ attributes by slot (C). Assert: the part list for $33 at map 1d4 416,240 has no 
 30 listed cases grade close or better.
 
 **B, graded pass (161: 89 exact at a later pass, 72 shape-only).** The policy grades the first pass that
-draws (`SpriteModel.chosen`, pass 0 in all 161). No recorded frame equals it, but a later pass equals one
+draws (`SpriteModel.chosen`, the first pass with any OAM parts, `SpriteRunner.ts:526-527`; it is pass 0 in 153 of the 161, pass 4 in 5, 11 in 2, 19 in 1; the probe read the same `chosen`, so the counts stand). No recorded frame equals it, but a later pass equals one
 exactly (89) or up to position (72, sprites that move: $72 41 of 72 shape cases, $09 16). The match is at pass 1
 for 96, passes 2-8 for 35, pass 9 or later for 30. The capture's first complete draw is 4 or more frames after INIT
-in 1,881 of 1,919 records with an `initFrame` (4: 626, 5: 390), so pass 0 is a pose hardware does not
+in 1,881 of 1,919 records with an `initFrame` (4: 626, 5: 390), so the first drawing pass is usually a pose hardware does not
 show first; $3D (map 00a) pass 0 draws a pose in neither of its two captured frames while passes 1-3 draw a captured one. Probe of
 alternative policies over all 1,957 (first drawing pass at or after N, on the probe's own part filter, so N=0 is 296 and not 300): wrong 296 (N=0), 212 (1), 185 (4); exact
 938, 858, 892; shape 573, 746, 752. Fix is a policy decision (map editor shows "first drawing pass"
