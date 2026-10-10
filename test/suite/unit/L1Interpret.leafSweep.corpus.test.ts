@@ -83,13 +83,17 @@ describe('leaf grouping (synthetic)', () => {
       row(0, { refusal: 'jml', differs: null }),
       row(0x8d0001),
       row(7, { refusal: 'x', differs: null }),
+      row(0x10, { refusal: 'y', differs: null }),
+      row(0x11, { differs: true }),
+      row(0x12, { differs: null }),
     ]
     expect(formatHeader(groupLeaves(r), [7])).toBe(
       [
         'leaf keys are folded (bank bit 23 cleared)',
-        'standard cases 3; refused by reason: jml: 1; x: 1',
+        'standard cases 6; refused by reason: jml: 1; x: 1; y: 1',
         'refused before any leaf dispatch (key 000000): 1',
-        'cases on keys outside the vanilla set: 1 across 1 keys',
+        'cases on keys outside the vanilla set: 4 across 4 keys',
+        'outside outcomes: refused 1; differs 1; agrees 1; not run 1',
       ].join(NL),
     )
   })

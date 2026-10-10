@@ -67,12 +67,18 @@ export function formatHeader(g: Map<number, LeafStats>, leaves: readonly number[
   let cases = 0
   let outside = 0
   let outsideKeys = 0
+  // Outcomes outside the set show whether those hack leaves refuse, differ or agree; report only.
+  const out = { refused: 0, differs: 0, agrees: 0, notRun: 0 }
   for (const [k, s] of g) {
     cases += s.cases
     for (const [why, n] of Object.entries(s.refused)) refused[why] = (refused[why] ?? 0) + n
     if (!keep.has(k) && k !== NO_LEAF) {
       outside += s.cases
       outsideKeys++
+      out.refused += Object.values(s.refused).reduce((a, b) => a + b, 0)
+      out.differs += s.differs
+      out.agrees += s.agrees
+      out.notRun += s.notRun
     }
   }
   const before = g.get(NO_LEAF)?.cases ?? 0
@@ -81,5 +87,6 @@ export function formatHeader(g: Map<number, LeafStats>, leaves: readonly number[
     `standard cases ${cases}; refused by reason: ${reasons(refused) || 0}`,
     `refused before any leaf dispatch (key ${hex6(NO_LEAF)}): ${before}`,
     `cases on keys outside the vanilla set: ${outside} across ${outsideKeys} keys`,
+    `outside outcomes: refused ${out.refused}; differs ${out.differs}; agrees ${out.agrees}; not run ${out.notRun}`,
   ].join('\n')
 }
