@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The layer 1 object code bank is located from the ROM's own loader jump when a project opens and recorded in an editable `meta/data-banks.json`; a hand edit wins over detection and a failed detection says why (#755).
+
 ### Changed
 
 - Tests (#771): the lint gate runs the local eslint and prettier directly and lints its eight cloudevents bypass files in one spawn, in its own describe so a crash turns all eight red rather than skipping cases; 25 tests got per-test timeouts through `loadTimeout`, raised to at least CI's 60 s `--testTimeout` when `CI` is set, and the lint gate's ESLint and Prettier spawns got their own budgets alongside them; 11 are sized from measured durations (10 runs of two concurrent full unit runs, one 32-core machine, 2026-10-09/10; controlBytesGate from one full run, testRegistrationGate from a pre-#770 pair) and 2 (perfSampler, protocolGate "keep every entry") are estimates where only a 5 s timeout fire was observed. The other 10 (RomReadBounds directory and FIFO, Map16Switches, legacyOverworldAreasGate, contentGate, WorkingRomRegistry, editPipeline x2, playwrightAppDataGate, MapSpritesInterp) are sized from a later verification of 5 pairs of concurrent full unit runs at 4d97152d (10 runs, 32-core machine, 2026-10-10), where 4 of the 10 runs failed on them or passed at 90% of their 5 s default; the RomReadBounds child spawn kill moved from 5 s to 20 s, still red when it fires. The no-shell `gh` spawns in perfAccept and noRealGh no longer pass vacuously when killed at 20 s. The two that still ran near their limit in the 38af1126 pairs (CaptureRender damaged PNG, worst 5.09 s; Project createProject ROM check, worst 4.7 s; 5 pairs, 10 runs, 32-core machine, 2026-10-10) got `slow(11_000)` and `slow(10_000)`. `vitest.config.ts` caps `maxWorkers` at half the cores, floor 2, because two concurrent full runs at the default oversubscribe the CPU (9 of 10 green at the default in those 5 pairs). No global timeout changed.
