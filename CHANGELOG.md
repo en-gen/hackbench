@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Standard objects $34 (CODE_0DBA4C) and the variant B staircase (CODE_0DC3D8) read their CPX threshold and gate every opcode they read through; a hack that changes one now refuses the object with a recorded reason instead of drawing from vanilla assumptions (#519).
 - Layer 1 differential: the #300 allow-list row no longer hides port/interpreter differences on the object's own screen (#453).
 - Tech-lead session titles are now "<Team> Team" (e.g. "Delta Team"), in the tech-lead manual and the unregistered-session hook text.
 

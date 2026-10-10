@@ -146,8 +146,10 @@ describe('0DBA4C (std $34) draws a top tile and exactly H body tiles (synthetic 
 
   describe.each([VANILLA_ADDR, RELOCATED])('handler at $%#x', addr => {
     const rom = cartWith([
-      [addr + 19, long(T_TOP)],
-      [addr + 35, long(T_BODY)],
+      // The gated opcodes (#519): LDA.L at +18/+34, CPX #2 at +27, BPL at +29.
+      [addr + 18, [0xbf, ...long(T_TOP)]],
+      [addr + 27, [0xe0, 0x02, 0x10]],
+      [addr + 34, [0xbf, ...long(T_BODY)]],
       [T_TOP, top],
       [T_BODY, body],
     ])
@@ -213,9 +215,10 @@ describe('0DC3D8 (staircase variant B) draws H+2 rows, the last without a cap (s
   const T_EDGE = 0x0d8200
 
   const plants = (addr: number): [number, number[]][] => [
-    [addr + 31, [FILL]],
-    [addr + 47, long(T_EDGE)],
-    [addr + 61, long(T_CAP)],
+    // The gated opcodes (#519): LDA #imm at +30, LDA.L at +46 and +60.
+    [addr + 30, [0xa9, FILL]],
+    [addr + 46, [0xbf, ...long(T_EDGE)]],
+    [addr + 60, [0xbf, ...long(T_CAP)]],
     [T_CAP, cap],
     [T_EDGE, edge],
   ]

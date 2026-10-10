@@ -550,6 +550,18 @@ export function handle_0DB075(cur: Cursor): void {
 }
 
 /**
+ * True when the handler's byte at `offset` is `opcode`; otherwise records the
+ * refusal (#452, #519) and returns false, so the caller draws nothing.
+ */
+function gateOpcode(cur: Cursor, offset: number, opcode: number): boolean {
+  const at = cur.handlerAddr + offset
+  const found = cur.rom.readByte(at)
+  if (found === opcode) return true
+  noteRefused(cur.draw?.unverified, cur.handlerAddr, at, opcode, found)
+  return false
+}
+
+/**
  * ADDR_0DB571 (bank_0D.asm line 3715) -- single-tile stamp for extended objects $68-$6F.
  *
  * X = size - $68. Writes DATA_0DB569[X] at the cursor.
@@ -2543,10 +2555,11 @@ export function staircaseVariantB(cur: Cursor): void {
   const X = cur.size & 0x03
   const H = (cur.size >> 4) & 0x0f
   const base = cur.handlerAddr
-  // Verified via ROM byte dump:
+  // Verified via ROM byte dump; every opcode is gated before anything is drawn (#519):
   //   LDA #$3F             opcode at +30, imm at +31      (page-0 fill)
   //   LDA.L DATA_0DC354,X  opcode at +46, operand at +47  (step edge)
   //   LDA.L DATA_0DC350,X  opcode at +60, operand at +61  (step cap)
+  if (!gateOpcode(cur, 30, 0xa9) || !gateOpcode(cur, 46, 0xbf) || !gateOpcode(cur, 60, 0xbf)) return
   const fillTile = readImmByte(cur, base + 31)
   const addrEdge = readLongOperand(cur, base + 47)
   const addrCap = readLongOperand(cur, base + 61)
@@ -3854,8 +3867,19 @@ export function handle_0DB9C0(cur: Cursor): void {
  */
 export function handle_0DBA4C(cur: Cursor): void {
   const X = cur.size & 0x0f
+  // LDA.L at +18 and +34, CPX #imm at +27, BPL at +29 (bank_0D.asm:4398, 4402-4403, 4406).
+  // The BPL sense decides which side of the threshold gets page 1, so a flipped
+  // branch refuses rather than render inverted (#519).
+  if (
+    !gateOpcode(cur, 18, 0xbf) ||
+    !gateOpcode(cur, 27, 0xe0) ||
+    !gateOpcode(cur, 29, 0x10) ||
+    !gateOpcode(cur, 34, 0xbf)
+  )
+    return
   const addrTop = readLongOperand(cur, cur.handlerAddr + 19) // DATA_0DBA44
   const addrBody = readLongOperand(cur, cur.handlerAddr + 35) // DATA_0DBA48
+  const threshold = readImmByte(cur, cur.handlerAddr + 28)
   const topTile = cur.rom.readByte(addrTop + X) ?? 0
   const bodyTile = cur.rom.readByte(addrBody + X) ?? 0
 
@@ -3866,7 +3890,8 @@ export function handle_0DBA4C(cur: Cursor): void {
   const H = (cur.size >> 4) & 0x0f
   for (let r = 0; r < H; r++) {
     advanceRowRaw(cur)
-    if (X < 2) setPage1(cur)
+    // CPX #imm sets N from bit 7 of (X - imm); BPL skips the page-1 store when N is clear.
+    if (((X - threshold) & 0x80) !== 0) setPage1(cur)
     else cur.page = ((cur.grid[cur.row]?.[cur.col] ?? 0) >> 8) & 1
     writeTile(cur, bodyTile)
   }
