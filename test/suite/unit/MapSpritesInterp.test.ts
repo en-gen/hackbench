@@ -316,7 +316,11 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
       const built = new L1ModelCache().get(b, romPath(VANILLA), map, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
       if (!built.ok) throw new Error(built.reason)
       const sprites = parseLevelSprites(rom.rom.readUpTo(rom.getLevelSpritePointer(map)!, 0x200)!, built.inputs.isVertical) // prettier-ignore
-      const eng = engineDrawer(rom.rom, readMarioStartPos(rom.rom, map).x)!
+      // The engine gets the Mario the interpreter ran with (the loader's $94), not the table reader's
+      // secondary-entrance start, so the two drawers are compared on the same facing.
+      const l = loadLevelState(rom.rom, map)
+      if (!l.ok) throw new Error(l.reason)
+      const eng = engineDrawer(rom.rom, l.wram[0x94]! | (l.wram[0x95]! << 8))!
       const interp = interpDrawer(rom.rom, map, built.inputs)
       const both = wrap(interp)
       for (const s of sprites) {
@@ -473,12 +477,12 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     expect(withColors.rgba).not.toBe(without.rgba)
   })
 
-  it("the served seed on $1C5 carries the loader's Mario (136, 368), not the table's (128, 368)", () => {
+  it("the served seed on $1C5 carries the loader's Mario (136, 368), which the table reader now also gives", () => {
     const b = bytes()
     const rom = new SmwRom(RomFile.fromBytes('x.sfc', Buffer.from(b)))
     const built = new L1ModelCache().get(b, romPath(VANILLA), 0x1c5, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
     if (!built.ok) throw new Error(built.reason)
-    expect(readMarioStartPos(rom.rom, 0x1c5)).toEqual({ x: 128, y: 368 }) // what the table says
+    expect(readMarioStartPos(rom.rom, 0x1c5)).toEqual({ x: 136, y: 368 }) // the table, entrance-type nudge included (was 128 before #781)
     const seeds: SpriteSeed[] = []
     const draw = interpDrawer(rom.rom, 0x1c5, built.inputs, (r, id, seed) => (seeds.push(seed), runOnce(r, id, seed))) // prettier-ignore
     const s = parseLevelSprites(

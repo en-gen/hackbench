@@ -35,15 +35,15 @@ describe('readMarioStartPos puts the entrance screen in the high byte', () => {
     expect(readMarioStartPos(rom, 7)).toEqual({ x: 0x138, y: (s << 8) | 0x35 })
   })
 
-  // findSecondaryEntranceForLevel reads the target's bit 8 from DATA_05FC00 bit 0, which is also
-  // the screen's bit 0, so an entrance into a map $100+ can only sit on an odd screen here.
-  it.each([...Array(0x10).keys()].map(k => k * 2 + 1))(
+  // The entrance index is (map & $100) | low and DATA_05F800 holds the target's low byte, so every
+  // screen 0..$1F is reachable, even and odd (bank_05.asm:7103-7119).
+  it.each([...Array(0x20).keys()])(
     'secondary entrance on screen %i, horizontal then vertical',
     s => {
       const rom = tables()
-      rom.writeAt(0x05f800 + 3, [0x05]) // entrance 3 targets $105
-      rom.writeAt(0x05fa00 + 3, [0x04]) // Y index 4: low $34, high 0
-      rom.writeAt(0x05fc00 + 3, [(2 << 5) | s]) // X index 2: low $30, high 0
+      rom.writeAt(0x05f800 + 0x103, [0x05]) // entrance $103 targets $105
+      rom.writeAt(0x05fa00 + 0x103, [0x04]) // Y index 4: low $34, high 0
+      rom.writeAt(0x05fc00 + 0x103, [(2 << 5) | s]) // X index 2: low $30, high 0
       rom.writeAt(0x05f000 + 0x105, [0x0f]) // the primary bytes differ, so ignoring the entrance shows
       rom.writeAt(0x05f200 + 0x105, [0x07])
       rom.writeAt(0x05f600 + 0x105, [0]) // horizontal
@@ -52,20 +52,85 @@ describe('readMarioStartPos puts the entrance screen in the high byte', () => {
       expect(readMarioStartPos(rom, 0x105)).toEqual({ x: 0x30, y: (s << 8) | 0x34 })
     },
   )
+
+  it('selects by entrance index, not by DATA_05FC00 bit 0, and takes the lowest on a tie', () => {
+    const rom = tables()
+    // A decoy the old FC00-bit-0 rule would pick for $105: entrance 3, F800 = $05, FC00 bit 0 set.
+    rom.writeAt(0x05f800 + 3, [0x05])
+    rom.writeAt(0x05fc00 + 3, [(7 << 5) | 1])
+    rom.writeAt(0x05fa00 + 3, [0x0f])
+    // The real one: entrance $105 (bit 8 matches the map), screen 2 (even).
+    rom.writeAt(0x05f800 + 0x105, [0x05])
+    rom.writeAt(0x05fc00 + 0x105, [(2 << 5) | 2])
+    rom.writeAt(0x05fa00 + 0x105, [0x04])
+    expect(readMarioStartPos(rom, 0x105)).toEqual({ x: 0x230, y: 0x34 })
+    // A tie between $105 and $107 (same target): the lower index wins.
+    rom.writeAt(0x05f800 + 0x107, [0x05])
+    rom.writeAt(0x05fc00 + 0x107, [(4 << 5) | 9])
+    expect(readMarioStartPos(rom, 0x105)).toEqual({ x: 0x230, y: 0x34 })
+    // A map below $100 never uses a secondary entrance.
+    rom.writeAt(0x05f800 + 0x05, [0x05])
+    expect(readMarioStartPos(rom, 0x05).x).toBe(0x20 + 0)
+  })
+})
+
+/** Tables plus the stock code shape the nudge reads (bank_00.asm:A716, A726, A752, A756). */
+function withNudgeCode(m = 0x08, n = 0x02): RomFile {
+  const rom = tables()
+  rom.writeAt(0x00a716, [0xc9, 0x06])
+  rom.writeAt(0x00a752, [0xc0, 0x06])
+  rom.writeAt(0x00a726, [0xa9, m, 0x04, 0x94, 0xa9, n, 0x04, 0x96])
+  rom.writeAt(0x00a756, [0xa9, m, 0x04, 0x94])
+  return rom
+}
+
+describe('readMarioStartPos entrance-type nudge (CODE_00A716-00A75A)', () => {
+  // Type is DATA_05F200 bits 5:3; X idx 0 gives $20, Y idx 0 gives $30. Masks differ from stock so a hard-coded
+  // $08/$02 would show; types 3, 4, 7 OR X, type 6 ORs X and Y, 0, 1, 2 and 5 do nothing.
+  it.each([0, 1, 2, 3, 4, 5, 6, 7])('type %i', type => {
+    const rom = withNudgeCode(0x41, 0x05)
+    rom.writeAt(0x05f200 + 7, [type << 3])
+    rom.writeAt(0x05f000 + 7, [0])
+    const got = readMarioStartPos(rom, 7)
+    const x = [3, 4, 6, 7].includes(type) ? 0x20 | 0x41 : 0x20
+    const y = type === 6 ? 0x30 | 0x05 : 0x30
+    expect(got).toEqual({ x, y })
+  })
+
+  it('a secondary entrance takes its type from DATA_05FE00', () => {
+    const rom = withNudgeCode()
+    rom.writeAt(0x05f800 + 0x103, [0x05])
+    rom.writeAt(0x05fe00 + 0x103, [0x07])
+    expect(readMarioStartPos(rom, 0x105).x & 0x08).toBe(0x08)
+    rom.writeAt(0x05fe00 + 0x103, [0x02])
+    expect(readMarioStartPos(rom, 0x105).x & 0x08).toBe(0)
+  })
+
+  it.each([
+    ['CMP #$06 opcode', 0x00a716, [0xc5], [3, 6]],
+    ['CPY #$06 operand', 0x00a753, [0x05], [3, 6]],
+    ['type 6 first LDA', 0x00a726, [0xa5], [6]],
+    ['type 6 TSB $96', 0x00a72d, [0x95], [6]],
+    ['types 3,4,7 TSB', 0x00a758, [0x14], [3]],
+  ])('omits the nudge when the code changed: %s', (_n, at, bytes, types) => {
+    for (const type of types as number[]) {
+      const rom = withNudgeCode()
+      rom.writeAt(at as number, bytes as number[])
+      rom.writeAt(0x05f200 + 7, [type << 3])
+      expect(readMarioStartPos(rom, 7)).toEqual({ x: 0x20, y: 0x30 })
+    }
+  })
 })
 
 // The loader (levelSeed's source) runs the PRIMARY path for every map, UseSecondaryExit being 0
-// (loadLevelState sets only $0E/$0F), so a sub area with a targeting entrance differs from it by design.
-// Measured 2026-10-10, vanilla ROM, one machine: 512 maps, the loader ran all 512, 57 differ, all explained:
-//  - X short by 8 (type 6 also Y by 2): the entrance-type nudge in CODE_00A716-00A740 (bank_00.asm),
-//    which the loader's $94/$96 carry and this reader does not model. Entrance types 3, 4, 6, 7.
-//  - sub areas that findSecondaryEntranceForLevel resolves: this reader follows the entrance, the loader
-//    the primary bytes (the screen part of the gap is the entrance's screen vs the map's own).
-const NUDGE = '0:-8,0 a:-8,0 b:-8,0 11:-8,0 18:-8,0 be:-8,0 bf:-8,0 c0:-8,0 c1:-8,0 c2:-8,0 c3:-8,0 c6:-8,0 d0:-8,-2 d1:-8,-2 d2:-8,0 d7:-8,0 d8:-8,0 dd:-8,0 e0:-8,0 e1:-8,0 e3:-8,0 e9:-8,0 f5:-8,-2 f6:-8,-2 f7:-8,0 f8:-8,0 ff:-8,0 120:-8,0 130:-8,0 1be:-8,0 1c0:-8,0 1c1:-8,0 1c4:-8,0 1c5:-8,0 1c6:-8,0 1c9:-8,0 1ca:-8,0 1cb:-8,0 1ce:-8,0 1d5:-8,0 1df:-8,0 1e0:-8,0 1e5:-8,0 1f5:-8,0 1f8:-8,0 1fd:-8,0' // prettier-ignore
-const SECONDARY = '100:360,112 102:1280,80 10a:3952,80 10d:3440,16 10f:768,32 110:1280,-256 115:2928,-48 116:2416,-80 119:3952,128 123:3536,-96 12c:2512,0' // prettier-ignore
+// (loadLevelState sets only $0E/$0F), so a sub area with a targeting entrance differs from it by design:
+// this reader follows the entrance, as the game does. Measured 2026-10-10, vanilla ROM, one machine: the
+// loader ran all 512 maps, and 18 differ, all sub areas. Every primary-path map ($000-$0FF and the rest)
+// equals the loader's $94/$96 exactly, entrance screen and type nudge included.
+const SUB_AREAS = '100:-8,-224 102:1288,80 103:2168,-48 105:2056,-46 106:4312,0 10a:3952,80 10b:2672,-128 10f:776,32 113:2056,-80 116:2424,-80 117:1656,0 118:4104,240 119:3960,128 11a:3696,0 11f:2264,-16 123:1032,-32 127:2680,-16 12c:2520,0' // prettier-ignore
 
 describe.skipIf(!hasRom(VANILLA))('readMarioStartPos vs the ROM loader, every vanilla map', () => {
-  it('equals the loader $94/$96 on all 512 maps but the 57 pinned ones', () => {
+  it('equals the loader $94/$96 on all 512 maps but the 18 pinned sub areas', () => {
     const rom = freshRom()
     let ran = 0
     const refused: number[] = []
@@ -82,12 +147,12 @@ describe.skipIf(!hasRom(VANILLA))('readMarioStartPos vs the ROM loader, every va
       if (got.x !== x || got.y !== y) diffs.push(`${m.toString(16)}:${got.x - x},${got.y - y}`)
     }
     expect({ ran, refused }).toEqual({ ran: 512, refused: [] })
-    expect(diffs).toEqual([...NUDGE.split(' '), ...SECONDARY.split(' ')].sort((a, b) => parseInt(a, 16) - parseInt(b, 16))) // prettier-ignore
+    expect(diffs).toEqual(SUB_AREAS.split(' '))
   }, 600_000)
 })
 
 // Spike Top ($2E) faces Mario's side (bank_01.asm:602-612), so a wrong start X flips it. Before #781 the
-// 4 placements on map $1BF faced the other way from the loader's Mario (X 16 against 784); 0 of 44 now.
+// 4 placements on map $1BF faced the other way from the loader's Mario (X 16 against 784); 0 of 35 outside the pinned sub areas; the other 9 (sub areas $10b, $11a) follow their secondary entrance.
 describe.skipIf(!hasRom(VANILLA))(
   'Spike Top facing from the start position, all vanilla placements',
   () => {
@@ -108,7 +173,10 @@ describe.skipIf(!hasRom(VANILLA))(
           if (readMarioStartPos(rom.rom, m).x < s.x * 16 !== loaderX < s.x * 16) wrong.push(m.toString(16)) // prettier-ignore
         }
       }
-      expect({ n, wrong }).toEqual({ n: 44, wrong: [] })
+      expect(n).toBe(44)
+      // Only the pinned sub areas, which follow their secondary entrance, may differ from the loader.
+      const subs = SUB_AREAS.split(' ').map(d => d.split(':')[0])
+      for (const w of wrong) expect(subs).toContain(w)
     }, 120_000)
   },
 )

@@ -103,12 +103,11 @@ const PAST_END = ['002', '0be', '0c1', '102', '127']
 const LOADER_VS_MESEN = pins(
   '095:-16,256 096:-64,-65136 097:-64,-65136 098:-16,256 099:-16,256 09a:-16,256 09b:-16,256 0cc:-16,256 0d5:-16,256 0d9:-16,256 195:-16,256 196:-64,-65136 197:-64,-65136 198:-16,256 199:-16,256 19a:-16,256 19b:-16,256 1c7:-16,256',
 )
-// After #781 (the entrance screen in Mario's position) 38 of the 154 differ, was 52. Two causes, both by design:
-// X short by 8 (type 6 also Y by 2) is the entrance-type nudge in CODE_00A716-00A740 (bank_00.asm), not modelled
-// here; the 1xx rows with a large gap are sub areas where this reads the secondary entrance and the loader (which
-// leaves UseSecondaryExit 0) the primary bytes. Full 512-map sweep: MarioStartPos.test.ts.
+// After #781 (entrance screen and entrance-type nudge in Mario's position) 17 of the 154 differ, was 52: every one
+// a sub area where this reads the secondary entrance (the play path) and the loader, which leaves UseSecondaryExit
+// 0, the primary bytes. Full 512-map sweep: MarioStartPos.test.ts.
 const FALLBACK_VS_LOADER = pins(
-  '00a:-8,0 00b:-8,0 011:-8,0 018:-8,0 0be:-8,0 0bf:-8,0 0c0:-8,0 0c1:-8,0 0c2:-8,0 0c3:-8,0 0c6:-8,0 0d0:-8,-2 0d1:-8,-2 0d2:-8,0 0d7:-8,0 0d8:-8,0 102:1280,80 10a:3952,80 10d:3440,16 10f:768,32 110:1280,-256 115:2928,-48 116:2416,-80 119:3952,128 120:-8,0 123:3536,-96 12c:2512,0 130:-8,0 1be:-8,0 1c0:-8,0 1c1:-8,0 1c4:-8,0 1c5:-8,0 1c6:-8,0 1ca:-8,0 1ce:-8,0 1d5:-8,0',
+  '102:1288,80 103:2168,-48 105:2056,-46 106:4312,0 10a:3952,80 10b:2672,-128 10f:776,32 113:2056,-80 116:2424,-80 117:1656,0 118:4104,240 119:3960,128 11a:3696,0 11f:2264,-16 123:1032,-32 127:2680,-16 12c:2520,0',
 )
 
 describe.skipIf(!hasRom(VANILLA) || !existsSync(root))(
@@ -169,7 +168,7 @@ describe.skipIf(!hasRom(VANILLA) || !existsSync(root))(
       expect(loaderVsMesen(real())).toEqual(LOADER_VS_MESEN)
     }, 300_000)
 
-    it("Mario: readMarioStartPos (the generic-seed fallback) falls short of the loader's $94/$96 on the pinned maps", () => {
+    it("Mario: readMarioStartPos (the generic-seed fallback) differs from the loader's $94/$96 only on the pinned sub areas", () => {
       expect(fallbackVsLoader(freshRom(), real())).toEqual(FALLBACK_VS_LOADER)
     }, 300_000)
 
@@ -270,9 +269,9 @@ describe('level state comparators on synthetic bytes', () => {
     rom.writeAt(0x05f200 + 5, [5]) // X index 5
     rom.writeAt(0x05f000 + 0x105, [3])
     rom.writeAt(0x05f200 + 0x105, [5]) // the same primary bytes for $105, so ignoring the entrance shows
-    rom.writeAt(0x05f800 + 3, [0x05]) // secondary entrance 3 targets $105 (low byte; high bit is in $FC00)
-    rom.writeAt(0x05fc00 + 3, [(k << 5) | 1]) // X index k, target high bit 1
-    rom.writeAt(0x05fa00 + 3, [4]) // Y index 4
+    rom.writeAt(0x05f800 + 0x103, [0x05]) // secondary entrance $103 targets $105 (index bit 8 = the map's bit 8)
+    rom.writeAt(0x05fc00 + 0x103, [(k << 5) | 1]) // X index k, screen 1
+    rom.writeAt(0x05fa00 + 0x103, [4]) // Y index 4
     // Horizontal: the entrance's screen (here 1, FC00 bit 0) replaces the X high byte (bank_05.asm:7382-7383).
     expect(readMarioStartPos(rom, 0x05)).toEqual({ x: 0x48, y: 0x33 })
     expect(readMarioStartPos(rom, 0x105)).toEqual({ x: 0x100 + 0x20 + k * 8, y: 0x134 })
