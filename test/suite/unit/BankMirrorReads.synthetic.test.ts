@@ -66,10 +66,16 @@ describe('#704 inline bank masks', () => {
     expect(resolveTables(rom).ok).toBe(true)
   })
 
-  it('checkExecutePtr refuses a WRAM call that mirror() would key as the ROM one', () => {
-    const rom = fourMeg(n => (n === 1 ? 0x7e86fa : 0xfe86fa))
-    expect(resolveTables(rom).ok).toBe(false)
-  })
+  it.each([
+    ['FE', '7E', 0xfe, 0x7e],
+    ['FF', '7F', 0xff, 0x7f],
+  ])(
+    'checkExecutePtr refuses a WRAM call ($%s vs $%s) that mirror() would key as the ROM one',
+    (_romLabel, _wramLabel, romBank, wramBank) => {
+      const rom = fourMeg(n => (n === 1 ? (wramBank << 16) | 0x86fa : (romBank << 16) | 0x86fa))
+      expect(resolveTables(rom).ok).toBe(false)
+    },
+  )
 
   it('checkExecutePtr still refuses calls that reach different routines', () => {
     const rom = fourMeg(n => (n === 1 ? 0x0186fa : 0x0086fa))

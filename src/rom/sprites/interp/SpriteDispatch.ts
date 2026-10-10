@@ -194,7 +194,7 @@ function checkExecutePtr(rom: RomFile, jsl: number[][]): ShapeResult {
   const targets = jsl.map(t => (t[2] << 16) | (t[1] << 8) | t[0])
   // mirror() keys $7E and $FE alike, so a WRAM call must be refused before keying.
   if (!targets.every(isLoRomRomAddress))
-    return { ok: false, reason: 'a dispatch call reaches WRAM, not ROM' }
+    return { ok: false, reason: 'a dispatch call does not reach ROM' }
   if (new Set(targets.map(mirror)).size !== 1)
     return { ok: false, reason: 'the dispatch calls do not all reach the same routine' }
   if (!matches(bytes(rom, targets[0], EXECUTE_PTR_SHAPE.length), EXECUTE_PTR_SHAPE))
