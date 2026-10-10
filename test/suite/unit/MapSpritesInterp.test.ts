@@ -191,16 +191,16 @@ describe('screen-fixed parts (#286)', () => {
   })
 
   it('does not compare tile or attribute: a cluster entry whose tile and attribute changed since the image is still residue', () => {
-    // Vanilla $1F: the image holds OAM 124 at (80, 48) tile $E4 attribute $09; the run rewrites it $E2 / $49.
+    // Invented values: the image holds OAM 100 at (37, 29) with tile $5A and attribute $13; the run rewrites them to $13C / $71.
     const seed = loader()
-    seed.loaded!.set([80, 48, 0xe4, 0x09], 0x200 + 124 * 4)
+    seed.loaded!.set([37, 29, 0x5a, 0x13], 0x200 + 100 * 4)
     const run: Run = (r, i, s) => {
-      const m = runOf(() => [[0, 184, 176], [124, 80, 48]])(r, i, s) // prettier-ignore
-      m.passes.forEach(p => p.parts.forEach(q => ((q.char = 0x1e2), (q.attr = 0x49))))
+      const m = runOf(() => [[0, 184, 176], [100, 37, 29]])(r, i, s) // prettier-ignore
+      m.passes.forEach(p => p.parts.forEach(q => ((q.char = 0x13c), (q.attr = 0x71))))
       return m
     }
     const d = interpDrawer(blank, 0x1f, { isVertical: false, screenCount: 2 }, run, () => seed)
-    expect(dxy(d(at(128, 112)))).toEqual([[80 - 128, 48 - 112], [56, 256]]) // prettier-ignore
+    expect(dxy(d(at(128, 112)))).toEqual([[37 - 128, 29 - 112], [56, 256]]) // prettier-ignore
   })
 
   it('probes after a drawn main run only, 13 px by 11 px towards its screen centre, only to the drawn pass', () => {
