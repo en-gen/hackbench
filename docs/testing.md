@@ -546,6 +546,24 @@ quote one instruction's bytes; any longer run is elided. Neither file is
 committed. The sweep is hand-run, since CI has no store; its verdict and
 summary code is tested in `HackSweep.synthetic.test.ts`.
 
+Each run covers `HACKBENCH_SWEEP_BATCH` hacks (default 50, a positive integer),
+taken in id order from the cursor and wrapping at the end, so repeated runs
+rotate through the store. The cursor is the next smwc_id, not a position, so
+adding or removing a hack does not skip or repeat another. `results.json` holds
+`{ cursor, records }`; it is read and checked before any sweeping (a truncated
+file stops the run with a message and nothing is overwritten), the previous one
+is copied to `results.prev.json`, and every file is written through a temp file
+and a rename, `results.json` last, so a killed run leaves the old state and the
+next run repeats the batch. `tracking-issue.md` is written beside the summary:
+new and cleared crashes, verdict changes, works-on % and blocker-rank moves for
+hacks swept this run, the hacks added, and the hacks removed from the store.
+Records for hacks outside the batch that are still in the store are carried
+forward with `carried: true`, so `summary.md` covers the whole store and says
+how many records are fresh; a carried record is never reported as changed, and
+a record for a hack no longer in the store is dropped. A bare-array
+`results.json` from before the cursor is read as a cursor of 0 and converted
+on the next write.
+
 ## Unit tests cannot reach an authenticated gh
 
 `test/suite/support/noRealGh.ts` is a vitest `globalSetup` (#486: a test ran

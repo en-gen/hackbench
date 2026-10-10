@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Hack sweep: runs a rotating batch (`HACKBENCH_SWEEP_BATCH`, default 50), keeps the previous results, and writes `tracking-issue.md` with the changes since the last run (#275).
+
 ### Changed
 
 - Test-only (#164): object $37 high-coordinate band stepping pinned by a synthetic test: five bands at stride $40 cross the $1B0 screen boundary onto the next screen (SMWDisX bank_0D.asm:7128, bank_05.asm:778-781). Already fixed by en-gen/hackbench-archive#569/#598. Evidence: synthetic cart, no ROM; the seven Invictus placements in #164 were not replayed.
