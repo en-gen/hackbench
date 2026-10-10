@@ -10,8 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Map view: the L2 kind (image or object stream) now comes from the game's own per-level-mode uploader table, read by its bytes, not from the L2 pointer's bank. A map whose pointer disagrees with its mode, or whose mode uploads no L2, is refused with a reason; on vanilla and magic, one sweep of maps 0-$1FF, one machine, no map changed (#506). Targets are recognized by their opening bytes only.
+- Unit tests: the control-bytes and test-registration walks skip `__fixtures__`, so a concurrent lintGate run no longer fails them with ENOENT (#754).
 - Test-only (#653 Stage A): a per-ROM report of which standard object leaves the interpreter agrees on, across the corpus.
 - Layer 1 differential: the #300 allow-list row no longer hides port/interpreter differences on the object's own screen (#453).
+- Layer 1 differential: every disagreement row now pins the port's own output for the cases it absorbs, so a planted change to the port's non-empty tiles under any absorbed case fails the differential. Refusals (the port never runs for them) and the empty tile $25 (the port digest skips it, like the comparison) stay unpinned (#759) (#751).
 - Tech-lead session titles are now "<Team> Team" (e.g. "Delta Team"), in the tech-lead manual and the unregistered-session hook text.
 
 ### Fixed

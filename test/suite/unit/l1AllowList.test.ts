@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createGrid } from '../../../src/rom/ObjectExpander'
-import { compareRun, sameScreen, type DiffRun } from '../support/l1Differential'
-import { KNOWN_DISAGREEMENTS, tally } from '../support/l1AllowList'
+import { compareRun, hex6, portDigestOf, sameScreen, type DiffRun } from '../support/l1Differential'
+import { KNOWN_DISAGREEMENTS, aggregate, tally, type Known } from '../support/l1AllowList'
 
 // Synthetic grids and runs only: no ROM, so this runs in CI. Screen 5 is the
 // screen the sweep places objects on (columns 80-95, rows 0-26).
@@ -77,9 +77,12 @@ const run = (over: Partial<DiffRun>): DiffRun => ({
   differs: true,
   ownScreenDiffers: false,
   digest: 'aa',
+  portDigest: 'pp',
   ...over,
 })
 const name = () => 'run'
+/** Port-pin lines are covered below; these older tests look at the screen verdict only. */
+const screenLines = (u: string[]) => u.filter(l => !l.includes('port output'))
 
 describe('tally and offScreenOnly', () => {
   it('flags only the #300 row', () => {
@@ -89,19 +92,116 @@ describe('tally and offScreenOnly', () => {
 
   it('absorbs an off-screen-only difference on the flagged row', () => {
     const t = tally([run({})], name)
-    expect(t.unexpected).toEqual([])
+    expect(screenLines(t.unexpected)).toEqual([])
     expect(t.disagreements.find(d => d.why === 300)?.expect[0]).toBe(1)
   })
 
   it('refuses an own-screen difference on the flagged row', () => {
     const t = tally([run({ ownScreenDiffers: true })], name)
-    expect(t.unexpected).toHaveLength(1)
+    expect(screenLines(t.unexpected)).toHaveLength(1)
     expect(t.unexpected[0]).toContain('own screen differs')
     expect(t.disagreements.find(d => d.why === 300)?.expect[0]).toBe(0)
   })
 
   it('still absorbs an own-screen difference on an unflagged row', () => {
     const t = tally([run({ leaf: 0x0dadeb, ownScreenDiffers: true })], name)
-    expect(t.unexpected).toEqual([])
+    expect(screenLines(t.unexpected)).toEqual([])
+  })
+})
+
+describe('tally pins the port output (#751)', () => {
+  const portLines = (u: string[]) => u.filter(l => l.includes('port output differs'))
+
+  // One row whose pinned counts and interpreter digest match the run, so only the
+  // port digest can trigger the line.
+  const single = (over: Partial<Known>): Known => ({
+    routine: LEAF,
+    when: () => true,
+    why: 440,
+    expect: [1, 1, aggregate(['aa']), aggregate(['pp'])],
+    ...over,
+  })
+  const LINE = '$0DB49E (#440): port output differs from the pinned digest'
+
+  it('reports a planted port change under a non-#300 row', () => {
+    const row = single({})
+    expect(tally([run({})], name, [row]).unexpected).toEqual([])
+    expect(portLines(tally([run({ portDigest: 'planted' })], name, [row]).unexpected)).toEqual([
+      LINE,
+    ])
+  })
+
+  it('reports a planted port change in the #300 row off-screen spill', () => {
+    const row = single({ why: 300, offScreenOnly: true })
+    const t = tally([run({ ownScreenDiffers: false, portDigest: 'planted' })], name, [row])
+    expect(t.unexpected).toEqual([LINE.replace('#440', '#300')])
+  })
+
+  it('absorbs a run whose port aggregate matches the pinned value', () => {
+    const row: Known = {
+      routine: LEAF,
+      when: () => true,
+      why: 1,
+      expect: [1, 1, aggregate(['aa']), aggregate(['pp'])],
+    }
+    expect(tally([run({})], name, [row]).unexpected).toEqual([])
+    expect(tally([run({ portDigest: 'qq' })], name, [row]).unexpected).toHaveLength(1)
+  })
+
+  it('emits the port aggregate as the fourth element, empty when nothing is absorbed', () => {
+    const t = tally([], name)
+    expect(t.disagreements.every(d => d.expect[3] === '')).toBe(true)
+    expect(aggregate([])).toBe('')
+  })
+
+  it('flags a bogus port digest under every disagreement row (swept over all rows)', () => {
+    const sizes = Array.from({ length: 256 }, (_v, i) => i)
+    for (const k of KNOWN_DISAGREEMENTS) {
+      const candidates = [0, 3, 15].flatMap(col =>
+        [true, false].flatMap(fits =>
+          sizes.map(size => run({ leaf: k.routine, top: k.routine, col, fits, size })),
+        ),
+      )
+      const absorbed = candidates.find(r => k.when(r))
+      expect(absorbed, `no synthetic run reaches $${k.routine.toString(16)}`).toBeDefined()
+      const t = tally([{ ...absorbed!, portDigest: 'bogus' }], name)
+      // The first row matching the run is the one that absorbs it (tally uses findIndex).
+      const owner = KNOWN_DISAGREEMENTS.findIndex(o => o.routine === k.routine && o.when(absorbed!))
+      const label = `$${k.routine.toString(16)} ${String(k.why)}`
+      expect(t.disagreements[owner].expect[3], label).toBe(aggregate(['bogus']))
+      expect(
+        portLines(t.unexpected).some(l => l.startsWith(hex6(k.routine))),
+        label,
+      ).toBe(true)
+    }
+  })
+})
+
+describe('portDigestOf', () => {
+  const grid = () => createGrid(8)
+  const base = () => {
+    const g = grid()
+    g[3][FIRST + 2] = 0x41
+    return g
+  }
+
+  it('is stable for identical grids', () => {
+    expect(portDigestOf(base())).toBe(portDigestOf(base()))
+    expect(portDigestOf(base())).toMatch(/^[0-9a-f]{12}$/)
+  })
+  it('changes when a cell changes value', () => {
+    const g = base()
+    g[3][FIRST + 2] = 0x42
+    expect(portDigestOf(g)).not.toBe(portDigestOf(base()))
+  })
+  it('changes when a tile moves to another cell', () => {
+    const g = grid()
+    g[3][FIRST + 3] = 0x41
+    expect(portDigestOf(g)).not.toBe(portDigestOf(base()))
+  })
+  it('changes for a tile that spills onto screen 6', () => {
+    const g = base()
+    g[10][(SCREEN + 1) * 16 + 1] = 0x41
+    expect(portDigestOf(g)).not.toBe(portDigestOf(base()))
   })
 })
