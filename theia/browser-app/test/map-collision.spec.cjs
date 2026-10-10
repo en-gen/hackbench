@@ -42,7 +42,8 @@ const opened = []
  * a fresh function per property access, so the widget never calls the wrapper. The frames are socket.io binary
  * attachments of msgpack, where a short string is one byte 0xa0 + length, then the characters. A name counts
  * only when that byte is its own, so `mapCollision` is never found inside `mapCollisionCheck` (0xb1 prefix).
- * Registered before the first goto, so the socket is seen opening. Read off Theia 1.75 frames, one machine.
+ * Registered before the first goto. It sees only frames sent over the websocket: socket.io starts on HTTP long-polling
+ * and upgrades, so a call sent before the upgrade is invisible here (docs/testing.md). Theia 1.75, one machine.
  */
 function countRpc(page) {
   const counts = { mapCollision: 0, mapCollisionCheck: 0 }
@@ -339,15 +340,7 @@ test('a palace toggle with the overlay on changes the collision lines and the la
   expect(await linesOf(page, 0x15)).toEqual(off)
 })
 
-/**
- * The race: the overlay on for the unpressed state, a reply held back, off, yellow pressed, the old reply
- * lands, on. The lines shown must be the yellow ones, not the old state's.
- */
-test('off, a palace toggle, the old reply landing late, then on shows the new state', async ({
-  page,
-}) => {
-  const project = await createProject(page, path.join(tmp, 'MyHack'))
-  await openMap(page, project.manifestPath, 0x15)
+async function holdFirstReply(page) {
   // Hold the first mapCollision reply: the widget's own `projects` property is swapped for a Proxy, since a
   // wrapper on the RPC proxy is never reached (docs/testing.md, Playwright and RPC).
   await page.evaluate(() => {
@@ -371,6 +364,34 @@ test('off, a palace toggle, the old reply landing late, then on shows the new st
       },
     })
   })
+}
+
+async function yellowFloor(page) {
+  const lines = await linesOf(page, 0x15)
+  return lines.some(l => {
+    if (!l.startsWith('floor:')) return false
+    const pts = l
+      .slice(6)
+      .split(' ')
+      .map(p => p.split(',').map(Number))
+    return (
+      pts.every(([, y]) => y === 384) &&
+      Math.min(...pts.map(p => p[0])) <= 1888 &&
+      Math.max(...pts.map(p => p[0])) >= 1952
+    )
+  })
+}
+
+/**
+ * The race: the overlay on for the unpressed state, a reply held back, off, yellow pressed, the old reply
+ * lands, on. The lines shown must be the yellow ones, not the old state's.
+ */
+test('off, a palace toggle, the old reply landing late, then on shows the new state', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x15)
+  await holdFirstReply(page)
   await expect(toggle(page, 0x15)).toHaveAttribute('data-collision-state', 'ready', {
     timeout: 30000,
   })
@@ -383,22 +404,40 @@ test('off, a palace toggle, the old reply landing late, then on shows the new st
   await page.waitForTimeout(500)
   await toggle(page, 0x15).click() // on, for yellow
   await expect(overlay(page, 0x15)).toHaveCount(1, { timeout: 60000 })
-  const lines = await linesOf(page, 0x15)
-  const along = lines.some(l => {
-    if (!l.startsWith('floor:')) return false
-    const pts = l
-      .slice(6)
-      .split(' ')
-      .map(p => p.split(',').map(Number))
-    return (
-      pts.every(([, y]) => y === 384) &&
-      Math.min(...pts.map(p => p[0])) <= 1888 &&
-      Math.max(...pts.map(p => p[0])) >= 1952
-    )
-  })
+  const along = await yellowFloor(page)
   expect(along, 'the yellow "!" blocks have a floor at y 384, x 1888-1952').toBe(true)
   // The held reply and the yellow one: two probe calls, so the "on" really asked again.
   expect(rpc.mapCollision).toBeGreaterThanOrEqual(2)
+})
+
+/**
+ * The seq guard alone (#691, `seq !== this.collisionSeq`). The case above releases the held reply before the
+ * second "on", so the palace drop and the collisionKey check force a fresh fetch with or without the guard. Here
+ * the second "on" has already been answered when the stale reply lands: only the seq guard keeps it out.
+ */
+test('a stale reply landing after the yellow overlay is up does not replace it', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x15)
+  await holdFirstReply(page)
+  await expect(toggle(page, 0x15)).toHaveAttribute('data-collision-state', 'ready', {
+    timeout: 30000,
+  })
+  await toggle(page, 0x15).click() // on, unpressed; the reply is held
+  await expect.poll(() => page.evaluate(() => !!window.__release), { timeout: 60000 }).toBe(true)
+  await toggle(page, 0x15).click() // off
+  await page.locator(`${root(0x15)} [data-control="palace-yellow"]`).click()
+  await toggle(page, 0x15).click() // on, for yellow: asks afresh, not held
+  await expect(overlay(page, 0x15)).toHaveCount(1, { timeout: 60000 })
+  expect(await yellowFloor(page), 'yellow overlay up before the stale reply').toBe(true)
+  const revision = await overlay(page, 0x15).getAttribute('data-revision')
+  await page.evaluate(() => window.__release()) // the stale reply lands now
+  // A bounded settle, not a poll: the pass condition is that nothing changes, so there is no event to wait for.
+  await page.waitForTimeout(500)
+  await expect(overlay(page, 0x15)).toHaveCount(1)
+  expect(await yellowFloor(page), 'the stale reply left the yellow floor').toBe(true)
+  expect(await overlay(page, 0x15).getAttribute('data-revision')).toBe(revision)
 })
 
 test('the command toggles the overlay like the button, and is disabled where the button is', async ({
@@ -429,7 +468,8 @@ test('the command toggles the overlay like the button, and is disabled where the
 })
 
 test('a second visit to a map is served from the backend cache', async ({ page }) => {
-  // Its own backend: the probe cache is process-wide and carries over per ROM path (map-collision.ts), so on the
+  // Its own backend, started from this worktree's built lib/backend/main.js (own-backend.cjs), not the server
+  // HB_APP_URL points at: the probe cache is process-wide and carries over per ROM path (map-collision.ts), so on the
   // shared server an earlier case's visit to $105 would make this one's "cold" visit warm.
   const server = await startTestServer({ wait: true })
   try {
@@ -567,7 +607,9 @@ test('a working-copy edit refetches the open map and the overlay stays', async (
   await expect.poll(revision, { timeout: 60000 }).toBeGreaterThan(r0)
   // The edit touched no byte a probe read, so the cache is kept: the refresh is a recompose, not a re-probe
   // (a cold $105 probe took 3.4-5.8 s in 3 cache-case visits). Measured 368-958 ms over 5 runs on develop
-  // 63bbfdd7, one machine, a warm shared server; the bound sits between that and the cold probe, so a re-probe fails it.
+  // 63bbfdd7 (a warm shared server, not in file order); in file order, after the 13 cases before it on a fresh
+  // server, 872-950 ms over 5 runs on this branch (the 1,915 ms of #706 on 00911ba2 was also in file order, before
+  // the cache case had its own server). One machine. The bound sits above those and below the cold probe, so a re-probe fails it.
   expect(Date.now() - t0).toBeLessThan(2500)
   await expect(overlay(page, 0x105)).toHaveCount(1)
   expect(await linesOf(page, 0x105)).toEqual(before)
