@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Three more inline bank masks no longer fold $FE/$FF onto WRAM: the animation GFX33 read, the sprite dispatch ExecutePtr check and the palette-animation PHK/PLB data bank keep their raw bank, and the dispatch check refuses a call whose target does not read as ROM (WRAM, or an address the ROM size does not map) (#704; synthetic 4 MB fixtures, one machine).
 - GFX decompressor entry gate: the JSR ReadByte operand is no longer compared to the US constant; it is cross-checked against the back-reference routine and the ReadByte bytes it lands on, so the J, E0 and E1 operand sets are accepted (#696; synthetic fixtures from the SMWDisX sym operands, no J or E ROM in the corpus). A real J or E ROM is still refused earlier, at the US-only level-loader caller address $00AA6B (#774). The dormant ExGFX reader (#491/#528) now decodes in the order the gate reads.
 - Emulator view: the Controllers fly-out no longer covers the Controllers button (it sits below the toolbar), and keyboard presses light the controller drawing while focus is on that button or inside the fly-out (#587, #508; emulator-gamepad Playwright spec, 15 passed, 0 skipped, one Windows machine).
 - Collision overlay spec counts its probe calls from the websocket frames and holds the race reply on the widget's own service, so the zero-probe and late-reply cases can no longer pass or hang without testing anything (#706).
