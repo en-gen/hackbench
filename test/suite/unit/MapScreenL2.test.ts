@@ -28,6 +28,7 @@ import { MAP_PLANE_KEYS } from '../../../theia/extension/src/common/project-prot
 import { palaceArt } from '../../../src/rom/SwitchArt'
 import { renderMap16Tile } from '../../../src/rom/TileRenderer'
 import { VANILLA, MAGIC, hasRom, romPath } from '../support/corpus'
+import { plantUploaderTable } from '../support/l2UploaderRom'
 import { bgModeRom } from '../support/bgModeRom'
 import { hGrid, inputs, px, sub, tile, vGrid } from '../support/mapInputs'
 
@@ -232,9 +233,21 @@ describe('the wire carries four planes in the view stacking order (synthetic)', 
 
 describe('buildL2Inputs (synthetic ROM)', () => {
   const LEVEL = 5
+  // Mode 1 is an object-stream mode and mode 0 an image mode in the planted stock dispatch (#506).
+  const inp = (
+    grid: number[][],
+    vertical: boolean,
+    screens: number,
+    tileset = 0,
+    mode = 1,
+  ): L1Inputs => {
+    const m = inputs(grid, vertical, screens, tileset)
+    return { ...m, header: { ...m.header, levelMode: mode } }
+  }
   // DATA_05D708 (L1 Y) index 1 = $20; DATA_05D70C (L2 Y) index 2 = $C0.
   const romWith = (writes: [number, number[]][] = []) => {
     const rom = new RomFile('l2.sfc', Buffer.alloc(0x80000, 0))
+    plantUploaderTable(rom)
     rom.writeAt(0x05d708, [0x00, 0x20, 0x40, 0x80])
     rom.writeAt(0x05d70c, [0x60, 0x90, 0xc0, 0x00])
     rom.writeAt(0x05f400 + LEVEL, [(1 << 2) | 2])
@@ -258,23 +271,25 @@ describe('buildL2Inputs (synthetic ROM)', () => {
   }
 
   it('an image tiles across the map: 27 rows by 16 columns a screen, or 32 wide by 16 rows stacked', () => {
-    const h = ok(buildL2Inputs(smw(image()), LEVEL, inputs(hGrid(3), false, 3)))
+    const h = ok(buildL2Inputs(smw(image()), LEVEL, inp(hGrid(3), false, 3, 0, 0)))
     expect([h.kind, h.grid.length, h.grid[0]!.length]).toEqual(['image', 27, 48])
     expect([h.grid[0]![0], h.grid[0]![4], h.grid[0]![5], h.grid[0]![32]]).toEqual([7, 7, 0x25, 7]) // the 32-wide pattern repeats; $25 draws
-    const v = ok(buildL2Inputs(smw(image()), LEVEL, inputs(vGrid(2), true, 2)))
+    const v = ok(buildL2Inputs(smw(image()), LEVEL, inp(vGrid(2), true, 2, 0, 0)))
     expect([v.grid.length, v.grid[0]!.length]).toEqual([32, 32])
     // The BG plane is 32 rows and the pattern 27: rows 27-31 are empty, then it repeats.
     expect([v.grid[26]![0], v.grid[27]![0], v.grid[31]![0]]).toEqual([0x25, null, null])
   })
 
   it('an image sits Layer1YPos - Layer2YPos down, like an object stream (bank_05.asm:7323-7328)', () => {
-    expect(ok(buildL2Inputs(smw(image()), LEVEL, inputs(hGrid(1), false, 1))).dy).toBe(0x20 - 0xc0)
+    expect(ok(buildL2Inputs(smw(image()), LEVEL, inp(hGrid(1), false, 1, 0, 0))).dy).toBe(
+      0x20 - 0xc0,
+    )
   })
 
   it('an image whose Map16 table cannot be read is refused with that reason, not drawn from vanilla', () => {
     const rom = romWith([ptr(0x00, 0x80, 0xff), [0x0c8000, [0x00, 0x07, 0xff, 0xff]]])
     // The zeroed ROM has no BG fill loop, so the core's own reader declines.
-    expect(buildL2Inputs(smw(rom), LEVEL, inputs(hGrid(1), false, 1))).toMatchObject({ ok: false, reason: expect.stringMatching(/Map16 table cannot be read/) }) // prettier-ignore
+    expect(buildL2Inputs(smw(rom), LEVEL, inp(hGrid(1), false, 1, 0, 0))).toMatchObject({ ok: false, reason: expect.stringMatching(/Map16 table cannot be read/) }) // prettier-ignore
   })
 
   it('an object stream keeps its ids, empties $25, and sits Layer1YPos - Layer2YPos down', () => {
@@ -282,7 +297,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       [0x25, 1],
       [1, 0x25],
     ])
-    const m = inputs(hGrid(1), false, 1)
+    const m = inp(hGrid(1), false, 1)
     const l2 = ok(buildL2Inputs(smw(romWith([ptr(0x00, 0x90, 0x0c)])), LEVEL, m))
     expect(l2.grid).toEqual([
       [null, 1],
@@ -299,7 +314,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
     const entry = (f600: number, d710: number) =>
       romWith([ptr(0x00, 0x90, 0x0c), [0x05f600 + LEVEL, [f600]], [0x05d710, [d710]], [0x05f000 + LEVEL, [0x00]]]) // prettier-ignore
     const dy = (f600: number, d710: number, vertical = true) =>
-      ok(buildL2Inputs(smw(entry(f600, d710), vertical), LEVEL, inputs(vertical ? vGrid(1) : hGrid(1), vertical, 1))).dy // prettier-ignore
+      ok(buildL2Inputs(smw(entry(f600, d710), vertical), LEVEL, inp(vertical ? vGrid(1) : hGrid(1), vertical, 1))).dy // prettier-ignore
     expect(dy(0x23, 3)).toBe(0x320 - 0xc0) // L1 gets the high byte, L2's stays 0
     expect(dy(0x23, 1)).toBe(0x320 - 0x3c0) // both have it
     expect(vi.mocked(L2LoaderReal.loadL2Objects).mock.calls[0]!.slice(2)).toEqual([1, 0, true])
@@ -313,34 +328,36 @@ describe('buildL2Inputs (synthetic ROM)', () => {
   it('tileset 3 ORs palette bit 2 into every L2 object subtile, and no image tile', () => {
     objects([[1]])
     const objRom = romWith([ptr(0x00, 0x90, 0x0c)])
-    const palettes = (rom: RomFile, tileset: number, id: number) => {
-      const t = ok(buildL2Inputs(smw(rom), LEVEL, inputs(hGrid(1), false, 1, tileset))).tiles[id]!
+    const palettes = (rom: RomFile, tileset: number, id: number, mode = 1) => {
+      const t = ok(buildL2Inputs(smw(rom), LEVEL, inp(hGrid(1), false, 1, tileset, mode))).tiles[
+        id
+      ]!
       return [t.tl, t.tr, t.bl, t.br].map(s => s.palette)
     }
     expect(palettes(objRom, 3, 1)).toEqual([4, 4, 4, 4])
     expect(palettes(objRom, 0, 1)).toEqual([0, 0, 0, 0])
-    expect(palettes(image(), 3, 7)).toEqual([3, 3, 3, 3]) // an image keeps its own, as the core's L2Preset does
+    expect(palettes(image(), 3, 7, 0)).toEqual([3, 3, 3, 3]) // an image keeps its own, as the core's L2Preset does
   })
 
   it('an L2 whose orientation differs from L1 is refused with both named', () => {
     objects([[1]])
-    const r = buildL2Inputs(smw(romWith([ptr(0x00, 0x90, 0x0c)]), true), LEVEL, inputs(hGrid(1), false, 1)) // prettier-ignore
+    const r = buildL2Inputs(smw(romWith([ptr(0x00, 0x90, 0x0c)]), true), LEVEL, inp(hGrid(1), false, 1)) // prettier-ignore
     expect(r).toMatchObject({ ok: false, reason: expect.stringMatching(/L2 is vertical but L1 is horizontal/) }) // prettier-ignore
   })
 
   it('an unreadable object stream and a throw are each refused, never a partial grid', () => {
     const rom = romWith([ptr(0x00, 0x90, 0x0c)])
     vi.mocked(L2LoaderReal.loadL2Objects).mockReturnValueOnce(null)
-    expect(buildL2Inputs(smw(rom), LEVEL, inputs(hGrid(1), false, 1))).toMatchObject({ ok: false, reason: expect.stringMatching(/object stream .* cannot be read/) }) // prettier-ignore
+    expect(buildL2Inputs(smw(rom), LEVEL, inp(hGrid(1), false, 1))).toMatchObject({ ok: false, reason: expect.stringMatching(/object stream .* cannot be read/) }) // prettier-ignore
     vi.mocked(L2LoaderReal.loadL2Objects).mockImplementationOnce(() => {
       throw new Error('boom')
     })
-    expect(buildL2Inputs(smw(rom), LEVEL, inputs(hGrid(1), false, 1))).toMatchObject({ ok: false, reason: expect.stringMatching(/boom/) }) // prettier-ignore
+    expect(buildL2Inputs(smw(rom), LEVEL, inp(hGrid(1), false, 1))).toMatchObject({ ok: false, reason: expect.stringMatching(/boom/) }) // prettier-ignore
   })
 
   it('a pointer outside the ROM is refused', () => {
     const rom = new RomFile('tiny.sfc', Buffer.alloc(0x8000, 0))
-    expect(buildL2Inputs(smw(rom), LEVEL, inputs(hGrid(1), false, 1))).toMatchObject({ ok: false }) // prettier-ignore
+    expect(buildL2Inputs(smw(rom), LEVEL, inp(hGrid(1), false, 1))).toMatchObject({ ok: false }) // prettier-ignore
   })
 })
 

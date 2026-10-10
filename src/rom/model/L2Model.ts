@@ -19,6 +19,7 @@ import {
 } from '../L2Loader'
 import { readInitialLayer1YPos } from '../L3Loader'
 import { isLevelModeVerticalL2, SCREEN_H_VERT, SCREEN_W_VERT } from '../LevelParser'
+import { readL2UploaderTable } from '../L2UploaderTable'
 import { loadMap16Tiles, readL2Map16Table, type Map16Tile } from '../Map16'
 import type { L1Inputs } from './L1Model'
 
@@ -49,10 +50,10 @@ function withPaletteOr(tiles: readonly Map16Tile[], mask: number): Map16Tile[] {
 
 /** Read one map's L2, or why it cannot be read. Never a vanilla fallback. */
 export function buildL2Inputs(rom: SmwRom, index: number, l1: L1Inputs): L2Result {
+  const { screenCount: screens, isVertical, header } = l1
   const refuse = (reason: string): L2Result => ({ ok: false, reason })
   const ptr = readL2Pointer(rom.rom, index)
   if (ptr === null) return refuse(`The L2 pointer of map ${hex3(index)} is outside the ROM`)
-  const { screenCount: screens, isVertical, header } = l1
   // The level-start relation `Layer1YPos - Layer2YPos`, the view's representative frame; later
   // vertical scrolling moves L2 against L1 when VertLayer2Setting != 1. The high bytes follow the
   // ScreenMode the entry code builds from F600 bits 5-6 (bank_05.asm:7292-7299, 7379-7381), not the
@@ -61,17 +62,32 @@ export function buildL2Inputs(rom: SmwRom, index: number, l1: L1Inputs): L2Resul
   // byte from DATA_05FC00 (bank_05.asm:7147-7148, 7376-7388), which this view does not read (#505).
   const entryVertical = ((rom.rom.readByte(0x05f600 + index) ?? 0) & 0x20) !== 0
   const dy = (): number => readInitialLayer1YPos(rom.rom, index, entryVertical) - readInitialLayer2YPos(rom.rom, index, entryVertical) // prettier-ignore
+  // The game picks the uploader by level mode (CODE_058955, bank_05.asm:1099-1135); the pointer's
+  // bank byte must agree with it, or the map is one the game would draw differently (#506).
+  const uploaders = readL2UploaderTable(rom.rom)
+  if (!uploaders.ok) return refuse(uploaders.reason)
+  const mode = header.levelMode & 0x1f
+  const entry = uploaders.entries[mode]!
+  const modeName = `level mode $${mode.toString(16).padStart(2, '0')}`
+  if (entry.kind === 'unrecognized') {
+    return refuse(`The L2 uploader for ${modeName} (at $${entry.target.toString(16)}) is not a routine this reader recognizes`) // prettier-ignore
+  }
+  if (entry.kind === 'none') return refuse(`${modeName} uploads no L2`)
+  const preset = isPresetPtr(ptr)
+  if (preset !== (entry.kind === 'image')) {
+    return refuse(`${modeName} uploads an L2 ${entry.kind === 'image' ? 'image' : 'object stream'}, but the L2 pointer of ${hex3(index)} is ${preset ? 'an image' : 'an object stream'}`) // prettier-ignore
+  }
   try {
-    if (isPresetPtr(ptr)) {
-      const preset = loadL2Preset(rom.rom, ptr)
-      if (!preset) return refuse(`The background image at the L2 pointer of ${hex3(index)} cannot be read`) // prettier-ignore
+    if (preset) {
+      const image = loadL2Preset(rom.rom, ptr)
+      if (!image) return refuse(`The background image at the L2 pointer of ${hex3(index)} cannot be read`) // prettier-ignore
       const table = readL2Map16Table(rom.rom)
       if (!table.ok) return refuse(`The background's Map16 table cannot be read: ${table.reason}`)
       const cols = isVertical ? SCREEN_W_VERT : screens * 16
       const rows = isVertical ? screens * SCREEN_H_VERT : 27
       return {
         ok: true,
-        l2: { kind: 'image', grid: tilePresetGrid(preset, cols, rows), tiles: loadMap16Tiles(rom.rom, table.value), dy: dy() }, // prettier-ignore
+        l2: { kind: 'image', grid: tilePresetGrid(image, cols, rows), tiles: loadMap16Tiles(rom.rom, table.value), dy: dy() }, // prettier-ignore
       }
     }
     const vertical = rom.getVerticalTable()
