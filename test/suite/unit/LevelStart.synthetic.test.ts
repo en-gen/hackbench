@@ -251,7 +251,7 @@ describe('readLevelStart refuses a replaced entrance loader', () => {
     plantLmEntryHook(rom)
     const s = start(rom, 0x001)
     expect(s.ok).toBe(false)
-    expect(!s.ok && s.reason).toMatch(/replaces the game's level entrance code/)
+    expect(!s.ok && s.reason).toMatch(/replaces the game's map entrance code/)
   })
 
   it('every opcode but BEQ $F0 refuses, for entry maps and sub areas alike', () => {

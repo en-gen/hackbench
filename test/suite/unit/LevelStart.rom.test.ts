@@ -79,6 +79,6 @@ describe.skipIf(!hasRom(INVICTUS))('readLevelStart on a hack', () => {
   it('is unavailable with a plain-words reason, and gives no vanilla answer', () => {
     const s = readLevelStart(new SmwRom(freshRom(INVICTUS)), 0x109)
     expect(s.ok).toBe(false)
-    expect(!s.ok && s.reason).toMatch(/replaces the game's level entrance code/)
+    expect(!s.ok && s.reason).toMatch(/replaces the game's map entrance code/)
   })
 })

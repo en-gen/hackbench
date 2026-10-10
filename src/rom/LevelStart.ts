@@ -131,7 +131,7 @@ export function readSecondaryEntrance(rom: RomFile, index: number, dest: number)
 export function startGate(rom: RomFile): string | null {
   return rom.readByte(ENTRY_BEQ) === BEQ
     ? null
-    : "This ROM replaces the game's level entrance code, so the start position cannot be read."
+    : "This ROM replaces the game's map entrance code, so the start position cannot be read."
 }
 
 interface Found {
@@ -183,7 +183,7 @@ export function readLevelStart(
   const { graph, unavailable } = rom.buildLevelExitGraph(roots, fingerprints.entry)
   if (unavailable) return fail(CODE_CHANGED, unavailable)
 
-  // Screen-exit hops from an overworld tile, breadth first over the exit graph.
+  // Screen-exit hops from an overworld tile, breadth first over the screen exit graph.
   const hops = new Map<number, number>()
   const queue = [...graph.keys()].filter(s => isOverworldLevel(s, roots))
   for (const s of queue) hops.set(s, 0)
@@ -195,7 +195,7 @@ export function readLevelStart(
     }
   }
 
-  // Every exit object that lands here, as the entrance it indexes. A primary
+  // Every screen exit object that lands here, as the entrance it indexes. A primary
   // exit's byte is the destination's low byte, so it enters the MAIN
   // entrance; a secondary exit's byte indexes DATA_05F800 with the submap
   // flag, which is bit 8 of the destination (bank_05.asm:7103-7118).
@@ -204,7 +204,7 @@ export function readLevelStart(
     const h = hops.get(from)
     const raw = h === undefined || !dests.includes(mapIndex) ? null : rom.getLevelRawData(from)
     if (h === undefined || !raw) continue
-    // A stream that ran off the buffer lost sync: its "exits" are not trustworthy, so none is used.
+    // A stream that ran off the buffer lost sync: its "screen exits" are not trustworthy, so none is used.
     const parsed = parseLevelObjects(raw, [])
     if (!parsed.terminated) continue
     for (const o of parsed.objects) {

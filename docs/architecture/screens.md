@@ -85,8 +85,8 @@ TRACED:
   high-byte stores, up to `CODE_05DA17` (`bank_05.asm:7289-7395`); they hold the masks,
   shifts and stores, which are not read from bytes. The midway and Yoshi-intro code
   inside the main span is fingerprinted with it; nothing outside the two spans is. A slot holding the filler room is unavailable
-  too. An exit read from a parent stream that never reaches `$FF` is ignored
-  (`LevelStart.ts`; the shared exit graph in `SmwRom.ts` still counts it for hop distance, which only orders candidates). Every refusal gives a fixed plain-words `reason` for the tooltip (no address, no
+  too. A screen exit read from a parent stream that never reaches `$FF` is ignored
+  (`LevelStart.ts`; the shared screen exit graph in `SmwRom.ts` still counts it for hop distance, which only orders candidates). Every refusal gives a fixed plain-words `reason` for the tooltip (no address, no
   asm reference, no raw error text); the evidence is in `detail`, for tests and debugging.
   The vanilla tables are never read as if they applied. A map no tile or exit leads to is unavailable too;
   the view then stays at screen 0 and says why. Not covered: the midway entrance,
@@ -104,7 +104,7 @@ INFERENCE:
 
 - That these halves are what players and tools call a sub-screen. The ASM calls
   them "halves"; the word is not in SMWDisX for level layout.
-- That an exit object's `_A & $1F` is a 5-bit screen number, not a Y nibble plus
+- That a screen exit object's `_A & $1F` is a 5-bit screen number, not a Y nibble plus
   a half bit.
 
 NOT TRACED:
