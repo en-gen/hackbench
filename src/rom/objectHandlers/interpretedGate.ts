@@ -11,15 +11,36 @@ const INTERPRETED_HANDLERS: ReadonlySet<number> = new Set([0x0dadeb])
 
 export const isInterpretedHandler = (a: number): boolean => INTERPRETED_HANDLERS.has(mirror(a))
 
-/** True for a line noteRefused wrote, as opposed to a drawn-but-unverified one (#301). */
-export const isRefusedLine = (line: string): boolean => /^Handler \$[0-9A-F]{6} refused:/.test(line)
-
 export const hex6 = (n: number): string => '$' + n.toString(16).toUpperCase().padStart(6, '0')
 
 /** Record, once, that a port drew `handler` with the interpreter unable to vouch for it. */
 export function noteUnverified(unverified: string[], handler: number, why: string): void {
   const line = `Handler ${hex6(handler)} is drawn by the built-in model, not verified against this ROM: ${why}.`
   if (!unverified.includes(line)) unverified.push(line)
+}
+
+const h2 = (n: number): string => '$' + n.toString(16).toUpperCase().padStart(2, '0')
+
+/** The note for a handler that refused on an opcode gate; `parseRefusedLine` reads it back (#301). */
+export function formatRefusedLine(
+  handler: number,
+  opcodeAt: number,
+  expected: number,
+  found: number | null,
+): string {
+  const was = found === null ? 'nothing' : h2(found)
+  return `Handler ${hex6(handler)} refused: the byte at ${hex6(opcodeAt)} is ${was}, not the ${h2(expected)} opcode it reads through, so the object is not drawn.`
+}
+
+/**
+ * The handler of a line `formatRefusedLine` wrote, or null for any other note
+ * (a drawn-but-unverified one, a dispatch-path one). Kept beside the format so
+ * the two change together; the expander uses it to attribute the line to an
+ * object without a change at every noteRefused call site.
+ */
+export function parseRefusedLine(line: string): { handler: number; reason: string } | null {
+  const m = /^Handler \$([0-9A-F]{6}) refused:/.exec(line)
+  return m ? { handler: parseInt(m[1], 16), reason: line } : null
 }
 
 /**
@@ -34,8 +55,6 @@ export function noteRefused(
   expected: number,
   found: number | null,
 ): void {
-  const h2 = (n: number): string => '$' + n.toString(16).toUpperCase().padStart(2, '0')
-  const was = found === null ? 'nothing' : h2(found)
-  const line = `Handler ${hex6(handler)} refused: the byte at ${hex6(opcodeAt)} is ${was}, not the ${h2(expected)} opcode it reads through, so the object is not drawn.`
+  const line = formatRefusedLine(handler, opcodeAt, expected, found)
   if (unverified && !unverified.includes(line)) unverified.push(line)
 }

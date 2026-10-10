@@ -11,6 +11,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, vi, afterAll } from 'vitest'
+import * as L1 from '../../../src/rom/model/L1Model'
 import { deriveOk, runGate, gateMap, checkGrid, hashMismatches as hashOf, type GateResult } from '../../../tools/scripts/capture_gate' // prettier-ignore
 import { parseArgs, report, matchesKnown, type KnownEntry } from '../../../tools/scripts/capture_gate_cli' // prettier-ignore
 import { RomFile } from '../../../src/rom/RomFile'
@@ -18,6 +19,12 @@ import { SmwRom } from '../../../src/rom/SmwRom'
 import { BOSS_ARENA_SCREENS } from '../../../src/rom/ObjectExpander'
 import type { GridMeta } from '../../../tools/scripts/capture_decode'
 import { captureFiles } from './fixtures/captureFixture'
+
+// Pass-through, so one test can hand gateMap a refusal without a cart that draws one (#301).
+vi.mock('../../../src/rom/model/L1Model', async importOriginal => {
+  const real = await importOriginal<typeof L1>()
+  return { ...real, buildL1Inputs: vi.fn(real.buildL1Inputs) }
+})
 
 /** A ROM buffer that passes only `SmwRom`'s own LoROM map-mode check ($7FD5 = $20); no level data, no header table. */ // prettier-ignore
 function blankSmwRom(): SmwRom {
@@ -213,6 +220,14 @@ describe('gateMap: capture-side refusals (F2)', () => {
     const result = gateMap(rom, paletteAnim, 0x105, read(files))
     expect(result.ok).toBe(false)
     expect(result.unavailable).toBeDefined()
+  })
+
+  it('an expander refusal -> unavailable, not a verdict on a grid the ROM never drew (#301)', () => {
+    const refusal = { objectIndex: 2, handler: 0x0dfff0, reason: 'No port.' }
+    vi.mocked(L1.buildL1Inputs).mockReturnValueOnce({ ok: true, inputs: { refusals: [refusal] } } as never) // prettier-ignore
+    const result = gateMap(rom, paletteAnim, 0x105, read(captureFiles()))
+    expect(result.ok).toBe(false)
+    expect(result.unavailable).toMatch(/refused 1 object/)
   })
 
   it('BG12NBA_210B missing from ppu.json -> unavailable, not ok or a default', () => {

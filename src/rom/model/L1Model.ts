@@ -205,12 +205,16 @@ export function assembleL1Inputs(r: L1Readings): L1Inputs {
 
 /**
  * Put each refusal's reason on the screen note (`unverified`), naming the
- * object, unless the handler already wrote that same line there (#301).
+ * object. A gate refusal's bare line (one per distinct reason, written by the
+ * handler) is replaced by the first object's numbered line, so no reason shows
+ * twice and two refused objects show as two lines (#301).
  */
 export function foldRefusals(unverified: string[], refusals: readonly Refusal[]): void {
   for (const r of refusals) {
-    if (unverified.includes(r.reason)) continue
-    unverified.push(`Object ${r.objectIndex}: ${r.reason}`)
+    const line = `Object ${r.objectIndex}: ${r.reason}`
+    const bare = unverified.indexOf(r.reason)
+    if (bare >= 0) unverified[bare] = line
+    else if (!unverified.includes(line)) unverified.push(line)
   }
 }
 

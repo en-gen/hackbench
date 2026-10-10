@@ -550,7 +550,8 @@ export function checkPalette(
 /** Why a map with refusals is unavailable, or undefined when nothing was refused. */
 export function refusalsReason(refusals: readonly Refusal[]): string | undefined {
   if (refusals.length === 0) return undefined
-  return `the expander refused ${refusals.length} object(s): ${refusals.map(r => `#${r.objectIndex} ${r.reason}`).join(' ')}`
+  const objects = new Set(refusals.map(r => r.objectIndex)).size
+  return `the expander refused ${objects} object(s): ${refusals.map(r => `#${r.objectIndex} ${r.reason}`).join(' ')}`
 }
 
 const MAX_REPORTED = 25

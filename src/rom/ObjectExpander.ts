@@ -26,7 +26,7 @@ import {
   Refusal,
   TileGrid,
 } from './objectHandlers/cursor'
-import { isRefusedLine } from './objectHandlers/interpretedGate'
+import { parseRefusedLine } from './objectHandlers/interpretedGate'
 import { dispatchStandard, dispatchExtended } from './objectHandlers/dispatch'
 import type { InterpretedDraw, InterpretedSink } from './objectHandlers/interpretedDraw'
 
@@ -247,7 +247,8 @@ function applyMode11BossArena(grid: TileGrid): void {
  * `sink` is required: a caller that hands over a note array and the drawing
  * function gets the interpreter path for the gated handlers (#342), and a
  * refusal draws the port and adds its reason to the array. `null` opts out (the port draws, nobody is told),
- * for the reference extension and for callers that read a single tile.
+ * for the reference extension and for callers that read a single tile. Refusals
+ * are not collected here; use expandMapOwned (#301).
  */
 export function expandMap(
   objects: LevelObject[],
@@ -277,7 +278,7 @@ export function expandMap(
 export interface ExpandedMap {
   grid: TileGrid
   owners: OwnerGrid
-  /** Objects drawn as nothing, or short of what they should be; the grid is still best effort (#301). */
+  /** Objects drawn as nothing; the grid is still best effort (#301). */
   refusals: Refusal[]
 }
 
@@ -290,6 +291,10 @@ export interface ExpandedMap {
  * the Layer 3 overflow region happen before any object runs, so those cells
  * stay OWNER_NONE and clicking them selects nothing, which is correct: no
  * object drew them and no object edit can change them.
+ *
+ * `refusals` lists objects drawn as nothing (#301). With a null `sink` only
+ * unported handlers are reported: an opcode-gate refusal (#452) is a note a
+ * handler writes into the sink, so without one it is not recorded.
  */
 export function expandMapOwned(
   objects: LevelObject[],
@@ -331,9 +336,8 @@ export function expandMapOwned(
     if (!sink) continue
     for (const line of notes) {
       if (!sink.unverified.includes(line)) sink.unverified.push(line)
-      if (isRefusedLine(line)) {
-        refusals.push({ objectIndex: i, handler: parseInt(line.slice(9, 15), 16), reason: line })
-      }
+      const refused = parseRefusedLine(line)
+      if (refused) refusals.push({ objectIndex: i, ...refused })
     }
   }
   return { grid, owners, refusals }

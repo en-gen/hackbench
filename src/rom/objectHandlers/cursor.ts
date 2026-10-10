@@ -56,8 +56,9 @@ export type OwnerGrid = number[][]
 
 /**
  * An object the expander could not draw (#301). `handler` is the SNES address
- * the ROM's own dispatch table names, so a reader can tell a hack's repointed
- * routine from a stock one.
+ * the ROM's own dispatch table names, mirrored to the bank $0D-style form the
+ * handler maps use (0 for an empty entry), so a reader can tell a hack's
+ * repointed routine from a stock one.
  */
 export interface Refusal {
   objectIndex: number
@@ -544,11 +545,14 @@ export function restoreBookmark(cur: Cursor): void {
   cur.col = cur.bookmarkCol
 }
 
-/** Report that dispatch found no port for `handler`; the object draws nothing. */
+/** Report that dispatch found no port for `handler` (0: an empty entry); the object draws nothing. */
 export function refuseUnported(cur: Cursor, handler: number): void {
   cur.refusals?.push({
     objectIndex: cur.owner,
     handler,
-    reason: `No port for the handler at ${hex6(handler)}, so the object is not drawn.`,
+    reason:
+      handler === 0
+        ? 'The dispatch entry is empty, so the object is not drawn.'
+        : `No port for the handler at ${hex6(handler)}, so the object is not drawn.`,
   })
 }

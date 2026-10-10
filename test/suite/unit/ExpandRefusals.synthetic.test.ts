@@ -8,6 +8,12 @@ import { expandMapOwned, SWITCH_FLAGS_UNCLEARED, TILE_EMPTY } from '../../../src
 import type { LevelObject } from '../../../src/rom/LevelParser'
 import { foldRefusals } from '../../../src/rom/model/L1Model'
 import { refusalsReason } from '../../../tools/scripts/capture_gate'
+import { ADDR_EXTENDED_DISPATCH } from '../../../src/rom/objectHandlers/romData'
+import {
+  formatRefusedLine,
+  parseRefusedLine,
+  noteRefused,
+} from '../../../src/rom/objectHandlers/interpretedGate'
 
 const DISPATCHER = 0x0da500
 const UNPORTED = 0x0dfff0
@@ -61,6 +67,34 @@ describe('expandMapOwned refusals (#301)', () => {
     rom.writeAt(FILL + 2, [JMP, 0xce, 0xec]) // JMP $0DECCE, the rect core
     const r = run(rom, [obj(2, 6), obj(1, 3), obj(1, 9)], null)
     expect(r.refusals.map(x => x.objectIndex)).toEqual([1, 2])
+    // The ported object (index 0) left its mark on the owner grid; the refused ones did not.
+    const owned = new Set(r.owners.flat())
+    expect(owned.has(0)).toBe(true)
+    expect(owned.has(1) || owned.has(2)).toBe(false)
+  })
+
+  const extObj = (n: number): LevelObject => ({ ...obj(n, 3), type: 'extended' }) as LevelObject
+
+  it('an extended object routed to an address with no port is refused', () => {
+    const rom = cart(FILL)
+    rom.writeAt(ADDR_EXTENDED_DISPATCH + 5 * 3, [0xf0, 0xff, 0x0d])
+    const r = run(rom, [extObj(5)], null)
+    expect(r.refusals).toEqual([
+      { objectIndex: 0, handler: UNPORTED, reason: expect.stringContaining('$0DFFF0') },
+    ])
+  })
+
+  it('an extended object whose dispatch entry is $000000 is refused, not silently blank', () => {
+    const r = run(cart(FILL), [extObj(5)], null)
+    expect(r.refusals).toHaveLength(1)
+    expect(r.refusals[0]).toMatchObject({ objectIndex: 0, handler: 0 })
+    expect(r.refusals[0].reason).toMatch(/dispatch entry is empty/)
+  })
+
+  it('a standard object whose dispatch entry is $000000 is refused too', () => {
+    const r = run(cart(0), [obj(1, 3)], null)
+    expect(r.refusals).toHaveLength(1)
+    expect(r.refusals[0].reason).toMatch(/dispatch entry is empty/)
   })
 
   it('a refusal a handler records through the sink is attributed to its own object, every time', () => {
@@ -79,20 +113,40 @@ describe('expandMapOwned refusals (#301)', () => {
 
   it('findings that are not refusals (the stock-path notes) do not become refusals', () => {
     const sink = { unverified: [] as string[], primitives: [], draw: () => false }
-    const r = run(cart(UNPORTED), [], sink)
+    const rom = cart(FILL)
+    rom.writeAt(FILL + 1, [0x02])
+    rom.writeAt(FILL + 2, [JMP, 0xce, 0xec])
+    const r = run(rom, [obj(2, 6)], sink)
+    // The zeroed cart fails the dispatcher pins, so the sink holds that note...
+    expect(sink.unverified.some(l => l.includes('is not the stock routine'))).toBe(true)
+    // ...yet the object drew, and the note is not a refusal.
     expect(r.refusals).toEqual([])
+    expect(new Set(r.owners.flat()).has(0)).toBe(true)
   })
 
-  it('foldRefusals names the object and does not repeat a reason already in the list', () => {
-    const unverified = ['Handler $0DB571 refused: x.']
+  it('foldRefusals numbers every refused object, replacing the bare gate line rather than duplicating it', () => {
+    const unverified = ['Handler $0DB571 refused: x.', 'other note']
     foldRefusals(unverified, [
       { objectIndex: 4, handler: 0x0db571, reason: 'Handler $0DB571 refused: x.' },
+      { objectIndex: 6, handler: 0x0db571, reason: 'Handler $0DB571 refused: x.' },
       { objectIndex: 5, handler: 0x0dfff0, reason: 'No port for the handler at $0DFFF0.' },
     ])
     expect(unverified).toEqual([
-      'Handler $0DB571 refused: x.',
+      'Object 4: Handler $0DB571 refused: x.',
+      'other note',
+      'Object 6: Handler $0DB571 refused: x.',
       'Object 5: No port for the handler at $0DFFF0.',
     ])
+  })
+
+  it('the refused-line format and its parser round-trip, and ignore other notes', () => {
+    const list: string[] = []
+    noteRefused(list, 0x0db571, 0x0db600, 0xbf, 0x5c)
+    expect(list).toEqual([formatRefusedLine(0x0db571, 0x0db600, 0xbf, 0x5c)])
+    expect(parseRefusedLine(list[0])).toEqual({ handler: 0x0db571, reason: list[0] })
+    expect(parseRefusedLine(formatRefusedLine(0x0d0001, 0, 1, null))?.handler).toBe(0x0d0001)
+    expect(parseRefusedLine('Handler $0DADEB is drawn by the built-in model, not verified.')).toBeNull() // prettier-ignore
+    expect(parseRefusedLine('Object dispatch at $0DA415 is not the stock routine')).toBeNull()
   })
 
   it('the capture gate calls a map with a refusal unavailable, and one without ok', () => {
@@ -100,5 +154,13 @@ describe('expandMapOwned refusals (#301)', () => {
     const why = refusalsReason([{ objectIndex: 7, handler: 0x0dfff0, reason: 'No port.' }])
     expect(why).toContain('#7')
     expect(why).toContain('No port.')
+    expect(why).toContain('refused 1 object(s)')
+    // Two lines for one object (a handler can refuse twice) are still one object.
+    expect(
+      refusalsReason([
+        { objectIndex: 7, handler: 1, reason: 'a' },
+        { objectIndex: 7, handler: 1, reason: 'b' },
+      ]),
+    ).toContain('refused 1 object(s)')
   })
 })

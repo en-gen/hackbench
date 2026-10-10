@@ -10,7 +10,7 @@
  * Each entry in those tables is a 24-bit SNES pointer to a handler routine. We
  * read the pointer from the ROM, then look it up in a TypeScript map keyed by
  * that same SNES address. This way, ROM hacks that repoint a handler to a fresh
- * routine will correctly fall through to TILE_UNKNOWN until we port that routine.
+ * routine is reported through `cur.refusals` and draws nothing until we port it.
  */
 
 import { Cursor, refuseUnported } from './cursor'
@@ -344,7 +344,7 @@ export function dispatchExtended(cur: Cursor): void {
   const idx = cur.objNo & 0xff
   if (idx >= EXTENDED_DISPATCH_COUNT) return
   const addr = readLongPointer(cur.rom, ADDR_EXTENDED_DISPATCH + idx * 3)
-  if (addr === null || addr === 0) return
+  if (addr === null) return refuseUnported(cur, 0)
   const snesAddr = mirror(addr)
   const handler = EXTENDED_HANDLERS[snesAddr]
   if (handler) {
