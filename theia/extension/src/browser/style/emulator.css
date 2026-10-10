@@ -33,6 +33,15 @@
   color: var(--theia-foreground);
 }
 
+/* Holds the stage and the controllers fly-out, which anchors to this box. */
+.hb-emulator-main {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
 .hb-emulator-stage {
   display: flex;
   align-items: center;

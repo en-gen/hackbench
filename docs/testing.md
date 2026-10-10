@@ -430,16 +430,16 @@ innocent rename, which is the wrong failure mode twice over.
 Run against `test/suite/gates/lintGate.test.ts` (21 cases): one line of the
 rule disabled at a time, expecting the cases that need it to go red.
 
-| Planted defect                                              | Cases red |
-| ----------------------------------------------------------- | --------- |
-| `paths` entry for `cloudevents` renamed                     | 3         |
-| `patterns` entry `cloudevents/*` renamed                    | 1         |
-| `ImportExpression` selector (string literal) disabled       | 2         |
-| `ImportExpression` template-literal selector disabled       | 1         |
-| `require()` selector (string literal) disabled              | 1         |
-| `require()` template-literal selector disabled              | 1         |
-| `module.require()` selector (string literal) disabled       | 1         |
-| `module.require()` template-literal selector disabled       | 1         |
+| Planted defect                                        | Cases red |
+| ----------------------------------------------------- | --------- |
+| `paths` entry for `cloudevents` renamed               | 3         |
+| `patterns` entry `cloudevents/*` renamed              | 1         |
+| `ImportExpression` selector (string literal) disabled | 2         |
+| `ImportExpression` template-literal selector disabled | 1         |
+| `require()` selector (string literal) disabled        | 1         |
+| `require()` template-literal selector disabled        | 1         |
+| `module.require()` selector (string literal) disabled | 1         |
+| `module.require()` template-literal selector disabled | 1         |
 
 ## Viewing Mesen per-map captures
 
@@ -674,6 +674,7 @@ Settled by the owner 2026-09-28; design calls delegated to the orchestrator. Spe
 - Assigning a wrapper over a Theia JSON-RPC proxy method in the page (for example `svc.mapCollision = wrapped`) never fires for the widget's own calls: the proxy builds a fresh function per property access. `[EST]` develop 00911ba2, 2026-10-07, #691.
 - Effect: `map-collision.spec.cjs` "toggle off probes nothing" passed its `toBe(0)` vacuously; the late-reply race case timed out waiting on the wrapper. `[EST]`
 - Rule: a spec that counts RPC calls needs a counter the app exposes (a widget data attribute or a server-side counter) or websocket frame inspection, and must prove the counter rises on a known call. `[PROP]`
+- Counting RPC calls from websocket frames (`page.on('websocket')`, `framesent`): a msgpack fixstr is the byte `0xa0 + length` followed by the name, so match that byte before the name or `mapCollision` is found inside `mapCollisionCheck`. Strings are not bundled (`bundleStrings: false`, @theia/core 1.75.0 `rpc-message-encoder.js:47`). Prove the counter rises on a known call before trusting a zero. Blind spot: socket.io starts on HTTP long-polling (`ws-connection-source.js:180` passes no `transports`), so a call sent before the upgrade to websocket is not a `framesent`; wait for a binary `framesent` (RPC; the upgrade probe is text) before trusting the counter. `[EST]` Theia 1.75, one machine, #706.
 - Timing a widget race: replace the service PROPERTY on the widget (`w.projects = new Proxy(real, ...)`) with a stub whose reply is a promise you control, then in ONE `page.evaluate` click the control and release the reply. The continuation is a microtask and runs before React's commit task, so the reply lands on the old layout. Assert that precondition in the same evaluate (the `data-rendered-zoom` attribute still old). Trap: Lumino's update request is also a microtask, queued at the click and drained first, so the widget's `renderedZoom` FIELD is already the new zoom while replies run; read the `data-rendered-zoom` attribute (written at commit), never the field. Poll until every pending request has its reply parked (`pending.size > 0 && parked === pending.size`) before the click. `[EST]` verified at 24496d01, Maps zoom anchor (#547), one machine, React 19.3.
 
 ## The validation repository
@@ -683,7 +684,8 @@ Settled by the owner 2026-09-28; design calls delegated to the orchestrator. Spe
 - The CI secrets live there; `en-gen` is a Free org, so secrets are duplicated per repo. The ROM is pulled from OneDrive at run time. `[EST]`
 - `MAX_SKIPPED` gates on the known skips (emulator-view needs the core, gfx-view needs Invictus, music-view needs GPW2). Measured 8 on 2026-09-22; the emulator spec has since grown from 5 to 21 tests, so re-measure. `[OPEN]`
 - The libretro core is `snes9x_libretro.{js,wasm}` in the `hackbench-cores` checkout, outside every worktree. The app records its location in `core-registry.json` under the app data directory; read that first. `[EST]`
-- Run emulator specs from any worktree with `HB_CORE_JS` set to the core's `.js` path; without it the suite silently skips, and CI has no core and skips too. `[EST]`
+- Run emulator specs from any worktree with `HB_CORE_JS` set to the core's `.js` path; without it the suite skips when the core is also missing from the fallback path (see below), and CI has no core and skips too. `[EST]`
+- `HB_CORE_JS` is the absolute path to `snes9x_libretro.js` (its `.wasm` must sit beside it). `emulator-view` and `emulator-gamepad` read it; unset, they fall back to the documented path (`vendor/cores/snes9x-wasm/` inside the worktree) and skip only if the core is missing there too, which in a worktree it usually is; a skipped run still exits 0. Set it, e.g. `HB_CORE_JS=C:/Projects/hackbench-cores/snes9x-wasm/snes9x_libretro.js`, and check the run reports passed, not skipped. `[EST]`
 - Nightly cost is why e2e is not per-PR. `[EST]`
 
 ## Related docs
