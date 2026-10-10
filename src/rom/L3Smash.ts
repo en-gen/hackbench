@@ -9,8 +9,7 @@
  * (bank_05.asm:7170) and stays 0 while Mario starts left of the screen centre; any other start is
  * refused, not guessed. Captured frame 0 on maps $01F and $1D4 (layers_v5): (256,160) and (112,160).
  */
-import { createHash } from 'crypto'
-import type { CodeSite } from './L3CodeGate'
+import { readL3CodeGate, type CodeSite } from './L3CodeGate'
 import { readMarioStartPos } from './L3Loader'
 import { readSpritePointerSite } from './LevelTableGate'
 import { parseLevelSprites, type LevelSprite } from './LevelParser'
@@ -46,8 +45,7 @@ export function readSmashCodeGate(rom: RomFile, site: CodeSite = L3_SMASH_SITE):
   const main = rom.readAt((0x02 << 16) | (stub![7]! << 8) | stub![6]!, 4)
   const [a, b, c] = [site.addr & 0xff, (site.addr >> 8) & 0xff, site.addr >> 16]
   if (!startsWith(main, [0x22, a, b, c])) return false
-  const body = rom.readAt(site.addr, site.length)
-  return !!body && createHash('sha256').update(Buffer.from(body)).digest('hex') === site.sha256
+  return readL3CodeGate(rom, [site]).ok
 }
 
 /** Pure part: the smashers among a level's sprites, Mario's start X, and the position they give layer 3. */
