@@ -21,3 +21,4 @@ The morning brief after a night shift is `grep -l '^Proposed' docs/decisions/*.m
 | [2026-10-04-ready-column-is-the-queue.md](2026-10-04-ready-column-is-the-queue.md) | Ruled | the Ready column is the queue for unattended runs |
 | [2026-10-05-collision-overlay-via-core.md](2026-10-05-collision-overlay-via-core.md) | Ruled | collision overlay derives from the 65816 core |
 | [2026-10-04-review-ledger.md](2026-10-04-review-ledger.md) | Ruled | keep adversarial review, track it |
+| [2026-10-10-map-editor-scope.md](2026-10-10-map-editor-scope.md) | Ruled | the map editor chooses backgrounds; no live background editing |
