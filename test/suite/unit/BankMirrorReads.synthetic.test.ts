@@ -16,12 +16,18 @@ const romWith = (at: number, bytes: number[]): RomFile => {
 }
 
 describe('read addresses keep bank $FE/$FF', () => {
-  it.each([0xfe, 0xff])('jslTarget returns bank %i unfolded', bank => {
+  it.each([
+    ['FE', 0xfe],
+    ['FF', 0xff],
+  ])('jslTarget returns bank $%s unfolded', (_label, bank) => {
     const rom = romWith(0, [0x22, 0x34, 0x92, bank])
     expect(jslTarget(rom, 0x008000)).toBe((bank << 16) | 0x9234)
   })
 
-  it.each([0xfe, 0xff])('GfxArena long() returns bank %i unfolded', bank => {
+  it.each([
+    ['FE', 0xfe],
+    ['FF', 0xff],
+  ])('GfxArena long() returns bank $%s unfolded', (_label, bank) => {
     expect(long(Uint8Array.of(0x34, 0x92, bank), 0)).toBe((bank << 16) | 0x9234)
   })
 
@@ -54,9 +60,9 @@ describe('#704 inline bank masks', () => {
   }
 
   it.each([
-    [0xfe, 'FE'],
-    [0xff, 'FF'],
-  ])('checkExecutePtr reads ExecutePtr through bank $%s', (bank, _label) => {
+    ['FE', 0xfe],
+    ['FF', 0xff],
+  ])('checkExecutePtr reads ExecutePtr through bank $%s', (_label, bank) => {
     const rom = fourMeg(() => (bank << 16) | 0x86fa)
     expect(resolveTables(rom).ok).toBe(true)
   })

@@ -138,7 +138,8 @@ function plantAnim(rom: RomFile, o: RomOpts = {}): void {
   put(0x00a2a5, o.jsl ?? [0x22, 0x39, 0xbb, 0x05])
   put(0x05bb39, o.anim ?? stockRoutine())
   // GFX32 where the stream ends, decoys where a start-bank or $8000 read would look.
-  const endBank = (loromToOffset(gfx33, size)! + stream.length) >> 15
+  // Raw bank arithmetic as AnimationLoader does: a file-offset bank would fold $FE onto $7E (WRAM).
+  const endBank = (gfx33 >> 16) + (((gfx33 & 0x7fff) + stream.length) >> 15)
   put(((gfx33 >> 16) << 16) | 0x8000, encode(tiles4bpp(8)))
   put(((gfx33 >> 16) << 16) | 0x9000, encode(tiles4bpp(8)))
   put((endBank << 16) | 0x9000, o.gfx32Stream ?? encode(tiles4bpp(4)))
@@ -193,9 +194,9 @@ describe('readAnimGfxSources', () => {
 
   // Synthetic 4 MB cart: $FE/$FF is real ROM there; a $7E/$7F fold would name WRAM.
   it.each([
-    [0xfe, 'FE'],
-    [0xff, 'FF'],
-  ])('keeps GFX33 bank $%s unfolded on a 4 MB cart (#704)', (bank, _label) => {
+    ['FE', 0xfe],
+    ['FF', 0xff],
+  ])('keeps GFX33 bank $%s unfolded on a 4 MB cart (#704)', (_label, bank) => {
     const r = readAnimGfxSources(animRom({ size: 0x400000, head: head((bank << 16) | 0x8000) }))
     expect(r).toMatchObject({ ok: true, gfx33: (bank << 16) | 0x8000 })
   })
@@ -209,6 +210,23 @@ describe('readAnimGfxSources', () => {
     const berry = r.ok && r.data.frames[0]!.find(s => s.charBase === 0x80)!
     expect(berry && Array.from(berry.tiles[0]!)).toEqual(new Array(64).fill(4))
   })
+
+  // plantAnim must place GFX32 in the raw bank GFX33 ends in, as production reads it. A
+  // file-offset bank folds $FE/$FF onto $7E/$7F, where the plant is silently dropped (#778).
+  it.each([
+    ['41', 0x41c000, 0x240000],
+    ['7D', 0x7dc000, 0x400000],
+    ['FE', 0xfe8000, 0x400000],
+    ['FE, ending in FF', 0xfefff0, 0x400000],
+    ['FF', 0xff8000, 0x400000],
+  ])(
+    'plantAnim puts GFX32 in the raw bank GFX33 ends in, not a file-offset bank (raw bank $%s)',
+    (_, at, size) => {
+      const berry = (rom: RomFile): number[] =>
+        Array.from(loadAnimationData(rom, 0)!.frames[0]!.find(s => s.charBase === 0x80)!.tiles[0]!)
+      expect(berry(animRom({ size, gfx33At: at, head: head(at) }))).toEqual(new Array(64).fill(4))
+    },
+  )
 
   it('follows the JSR operand to a relocated routine', () => {
     const rom = animRom({ routineAt: 0x00c100 })
