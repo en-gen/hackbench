@@ -142,15 +142,42 @@ export function sameShape(a: SpritePiece[], b: SpritePiece[]) {
 }
 
 /**
+ * The sprite's screen line: level Y minus camera Y, both 16-bit memory words
+ * (a sprite above the level top reads ~65532), so signed from 16 bits, not
+ * wrapped at 256.
+ */
+export const spriteScreenY = (spriteY: number, camY: number) =>
+  ((spriteY - camY + 0x8000) & 0xffff) - 0x8000
+
+/**
  * An OAM entry's offset from its sprite, both read the same frame. OAM X is
  * 9 bits (low byte plus high-table bit 8) and wraps, so the offset is taken
- * modulo 512 into -256..255, never by reading X as signed; Y modulo 256
- * into -128..127.
+ * modulo 512 into -256..255, never by reading X as signed. Y is a screen line:
+ * 224 or more is a piece straddling the top edge, read as line - 256 (agrees
+ * with oamEntry for the pieces the caller keeps, at 8/16/32-line sizes); the
+ * offset is not wrapped, since a piece can sit more than 128 lines from its
+ * sprite (the $104 flame, #811). The caller drops pieces parked wholly
+ * below the screen first (OAM line 224 or more, bottom at or before 256).
  */
 // prettier-ignore
 export function pieceOffset(oamX9: number, oamY: number, spriteX: number, spriteY: number, camX: number, camY: number) {
   const wrap = (v: number, m: number) => (((((v % m) + m) % m) + m / 2) % m) - m / 2
-  return [wrap(oamX9 - (spriteX - camX), 512), wrap(oamY - (spriteY - camY), 256)]
+  const screenY = oamY >= 224 ? oamY - 256 : oamY
+  return [wrap(oamX9 - (spriteX - camX), 512), screenY - spriteScreenY(spriteY, camY)]
+}
+
+/**
+ * A recorded dy is the true offset modulo 256 in -128..127 (the recorder,
+ * hackbench-validation capture/mesen/headless_capture.lua:1389, where sn.sy
+ * is the sprite's level Y minus Layer1YPos, set at :1279-1283). Choose the
+ * multiple of 256 that puts the piece on the visible window -32..223, which
+ * is 256 wide and so unique. Limit: OBJ pieces run to 64 lines, so a 64-line
+ * piece whose top is above line -32 yet still reaches the screen is placed
+ * 256 lines too low (and then dropped as parked); 32 lines or less is exact.
+ */
+export function unwrapDy(dy: number, spriteY: number, camY: number) {
+  const v = dy + spriteScreenY(spriteY, camY)
+  return dy + (((((v + 32) % 256) + 256) % 256) - 32 - v)
 }
 
 /** One window as the SNES comparison needs it: its own VRAM, palette, OAM and scroll. */

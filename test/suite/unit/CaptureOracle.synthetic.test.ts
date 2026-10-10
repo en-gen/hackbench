@@ -194,6 +194,53 @@ describe('Sprites layer', () => {
     expect(D.pieceOffset(264 + 48, 110, 1264, 300, 1000, 200)).toEqual([48, 10])
     expect(D.pieceOffset(8, 100, 504 + 1000, 300, 1000, 200)).toEqual([16, 0]) // wraps past 511
   })
+
+  it('does not wrap the Y offset: a piece far above or below its sprite keeps its distance (#811)', () => {
+    // Sprite at screen y 100 (spriteY 300, camY 200); sweep the piece's screen line.
+    for (let y = 0; y < 224; y += 7) {
+      expect(D.pieceOffset(0, y, 1000, 300, 1000, 200)[1]).toBe(y - 100)
+    }
+    // Past +127 and past -128 relative to the sprite: sprite at screen y 10 and 200.
+    expect(D.pieceOffset(0, 200, 1000, 210, 1000, 200)[1]).toBe(190)
+    expect(D.pieceOffset(0, 5, 1000, 400, 1000, 200)[1]).toBe(-195)
+    // Sprite off the screen below, piece drawn well above it (past -255).
+    expect(D.pieceOffset(0, 20, 1000, 600, 1000, 200)[1]).toBe(-380)
+  })
+
+  it('reads the sprite-to-camera difference as signed 16 bits, never mod 256 (#811)', () => {
+    // A sprite above the level top reads 65532 against camera 0: screen y -4.
+    expect(D.pieceOffset(0, 4, 1000, 65532, 1000, 0)[1]).toBe(8)
+  })
+
+  it('puts the $E0 boundary exactly at line 224 (#811)', () => {
+    expect(D.pieceOffset(0, 223, 1000, 300, 1000, 200)[1]).toBe(123)
+    expect(D.pieceOffset(0, 224, 1000, 300, 1000, 200)[1]).toBe(-132)
+    for (let y = 216; y < 224; y++)
+      expect(D.pieceOffset(0, y, 1000, 300, 1000, 200)[1]).toBe(y - 100)
+  })
+
+  it('unwrapDy window runs -32..223 (#811)', () => {
+    expect(D.unwrapDy(-33, 500, 500)).toBe(223)
+    expect(D.unwrapDy(-32, 500, 500)).toBe(-32)
+    expect(D.unwrapDy(223, 500, 500)).toBe(223)
+  })
+
+  it('unwrapDy picks the multiple of 256 that lands on the visible screen (#811)', () => {
+    for (let sy = -32; sy < 224; sy += 5)
+      for (let line = -32; line < 224; line += 11) {
+        const trueDy = line - sy
+        const recorded = ((((trueDy + 128) % 256) + 256) % 256) - 128
+        expect(D.unwrapDy(recorded, 500 + sy, 500)).toBe(trueDy)
+      }
+  })
+
+  it('reads an OAM line of $E0 or more as above the top edge (#811)', () => {
+    // Straddling piece at line 240 is screen y -16; sprite at screen y 4.
+    expect(D.pieceOffset(0, 240, 1000, 204, 1000, 200)[1]).toBe(-20)
+    for (let y = 224; y < 256; y += 5) {
+      expect(D.pieceOffset(0, y, 1000, 300, 1000, 200)[1]).toBe(y - 256 - 100)
+    }
+  })
 })
 
 // A char whose every pixel is color c (4bpp) at byte address a.
