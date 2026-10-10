@@ -112,10 +112,39 @@ async function openMap(page, manifestPath, index) {
     { mp: manifestPath, index },
   )
   opened.push(`hackbench.map-view:${index}`)
+  // The map opens on its start (#339), which is not always screen 0: wait for that to settle,
+  // then for any screen to have arrived. A test that needs screen 0 of a map starting
+  // elsewhere scrolls to it with showScreen.
+  await startSettled(page, index)
   await expect(
-    page.locator(`${root(index)} canvas[data-screen="0"][data-plane="l1Low"]`),
-  ).toHaveAttribute('data-drawn', drawn(0), { timeout: 30000 })
+    page.locator(`${root(index)} canvas[data-plane="l1Low"][data-drawn]`).first(),
+  ).toHaveAttribute('data-drawn', /^\d+:\d{4}:\d{3}:\d+$/, { timeout: 30000 })
 }
+
+/** Waits until this open's start has been scrolled to, skipped or refused (`data-start`). */
+async function startSettled(page, index) {
+  await expect(page.locator(`${root(index)} [data-control="map-scroller"]`)).toHaveAttribute(
+    'data-start',
+    /^(placed|skipped|unavailable)$/,
+    { timeout: 30000 },
+  )
+}
+
+/** The scroller's position and size, with the fit zoom it is laid out at. */
+function scrollState(page, index) {
+  return page.locator(`${root(index)} [data-control="map-scroller"]`).evaluate(el => ({
+    top: el.scrollTop,
+    left: el.scrollLeft,
+    zoom: Number(el.dataset.renderedZoom),
+    viewH: el.clientHeight,
+    viewW: el.clientWidth,
+    maxTop: el.scrollHeight - el.clientHeight,
+    maxLeft: el.scrollWidth - el.clientWidth,
+  }))
+}
+
+/** Where centring pixel `at` of the scroll axis puts the scroll: clamped to the strip (#339). */
+const centred = (at, zoom, view, max) => Math.min(Math.max(at * zoom - view / 2, 0), max)
 
 async function activate(page, index) {
   await page.evaluate(async id => {
@@ -271,6 +300,8 @@ for (const index of [0x009, 0x013, 0x105, 0x106, 0x12c, 0x109]) {
     await openMap(page, project.manifestPath, index)
     await page.waitForTimeout(500)
     for (const screen of [0, 1]) {
+      // A map that opens on its start (#339) has scrolled away from these: bring each into view.
+      await showScreen(page, index, screen)
       const px = await readScreen(page, index, screen)
       expect(px.distinct, `screen ${screen} colors`).toBeGreaterThan(1)
     }
@@ -326,7 +357,10 @@ test('a reused tab paints screen 0 of the next map', async ({ page }) => {
   await expectEveryVisibleScreenDrawn(page, 0x106)
 })
 
-/** A reused tab starts the next map at its first screen, not where the last one was scrolled. */
+/**
+ * A reused tab starts the next map on ITS start, not where the last map was scrolled (#339; it
+ * was a reset to 0 before). $106 starts on screen 0, so here the start is the beginning.
+ */
 test('a reused tab resets the scroll for the next map', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
@@ -342,8 +376,134 @@ test('a reused tab resets the scroll for the next map', async ({ page }) => {
   await expect(
     page.locator(`${root(0x106)} canvas[data-screen="0"][data-plane="l1Low"]`),
   ).toHaveAttribute('data-drawn', drawn(0), { timeout: 15000 })
+  await startSettled(page, 0x106)
   expect(await scroller(0x106).evaluate(el => [el.scrollLeft, el.scrollTop])).toEqual([0, 0])
   await expectEveryVisibleScreenDrawn(page, 0x106)
+})
+
+/**
+ * The map opens on where the player first enters it (#339). $109 is vertical, 7 screens, entered
+ * at screen 6, y 1680 (LevelStart.rom.test.ts pins both on the vanilla ROM): the strip scrolls
+ * DOWN to the player, and screen 6 is on screen and painted. Screen 0 is not.
+ */
+test('$109 opens scrolled to its start: screen 6 in view, scrollTop above 0', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x109)
+  const st = await scrollState(page, 0x109)
+  expect(st.top).toBeGreaterThan(0)
+  expect(st.left).toBe(0)
+  // y 1680 on the scroll axis, centred where the strip allows (here the strip's end clamps it).
+  expect(st.top).toBeCloseTo(centred(1680, st.zoom, st.viewH, st.maxTop), 0)
+  await expect
+    .poll(async () => (await readViewport(page, 0x109)).screens.map(s => s.screen), {
+      timeout: 15000,
+    }) // prettier-ignore
+    .toContain(6)
+  expect((await readViewport(page, 0x109)).screens.map(s => s.screen)).not.toContain(0)
+  await expectEveryVisibleScreenDrawn(page, 0x109)
+})
+
+/** A map that starts on screen 0 stays at 0 on both axes. */
+test('a map whose start is screen 0 opens at scroll 0', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x105)
+  await expect(page.locator(`${root(0x105)} [data-control="map-scroller"]`)).toHaveAttribute('data-start', 'placed') // prettier-ignore
+  const st = await scrollState(page, 0x105)
+  expect([st.left, st.top]).toEqual([0, 0])
+})
+
+/** A preview tab changing map goes to the new map's start, in its own orientation. */
+test("a preview-tab change from $109 to another map scrolls to that map's start", async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x109)
+  // $1C1 starts on screen 3 of a horizontal map (the vanilla ROM; LevelStart.rom.test.ts reads the same entrance).
+  const start = await page.evaluate(
+    mp => getSvc('Symbol(ProjectService)').mapStart(mp, 0x1c1),
+    project.manifestPath,
+  )
+  expect(start).toMatchObject({ status: 'ok', screen: 3, vertical: false })
+  await page.evaluate(async mp => {
+    const w = getSvc('ApplicationShell').getWidgetById('hackbench.map-view:265')
+    await w.open({ manifestPath: mp, index: 0x1c1, label: '1c1', iconClass: '' })
+  }, project.manifestPath)
+  opened.push('hackbench.map-view:449')
+  await expect(page.locator(`${root(0x1c1)} [data-control="map-scroller"]`)).toHaveAttribute('data-start', 'placed') // prettier-ignore
+  const st = await scrollState(page, 0x1c1)
+  expect(st.top).toBe(0) // horizontal: the old map's vertical scroll is gone
+  expect(st.left).toBeGreaterThan(0)
+  expect(st.left).toBeCloseTo(centred(start.x, st.zoom, st.viewW, st.maxLeft), 0)
+  await expect
+    .poll(async () => (await readViewport(page, 0x1c1)).screens.map(s => s.screen), {
+      timeout: 15000,
+    }) // prettier-ignore
+    .toContain(3)
+})
+
+/** The scroll is applied once per open: a later zoom and fit never put the view back on the start. */
+test('after the start is placed, a user scroll and a refit are not overridden', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x109)
+  await expect.poll(async () => (await scrollState(page, 0x109)).top).toBeGreaterThan(0)
+  const sel = `${root(0x109)} [data-control="map-scroller"]`
+  await page.locator(sel).evaluate(el => { el.scrollTop = 0 }) // prettier-ignore
+  await page.locator(`${root(0x109)} [data-control="zoom-fit"]`).click()
+  await page.waitForTimeout(500)
+  expect((await scrollState(page, 0x109)).top).toBe(0)
+})
+
+/** No readable entrance: the view stays at 0 and says why, in words that carry no issue number. */
+test('an unavailable start leaves the view at 0 and shows the reason', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await page.evaluate(async mp => {
+    const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {
+      index: 0x109,
+    })
+    const real = w.projects
+    w.projects = new Proxy(real, {
+      get: (t, k) => k === 'mapStart' ? async () => ({ status: 'unavailable', reason: 'planted: no entrance' }) : typeof t[k] === 'function' ? t[k].bind(t) : t[k], // prettier-ignore
+    })
+    await w.open({ manifestPath: mp, index: 0x109, label: '109', iconClass: '' })
+    const shell = getSvc('ApplicationShell')
+    await shell.addWidget(w, { area: 'main' })
+    await shell.activateWidget(w.id)
+  }, project.manifestPath)
+  opened.push('hackbench.map-view:265')
+  await expect(page.locator(`${root(0x109)} [data-control="map-scroller"]`)).toHaveAttribute('data-start', 'unavailable') // prettier-ignore
+  expect((await scrollState(page, 0x109)).top).toBe(0)
+  await expect(page.locator(`${root(0x109)} [data-control="map-start-note"]`)).toHaveAttribute('title', 'planted: no entrance') // prettier-ignore
+})
+
+/** A start reply for the map the tab has since left is ignored. */
+test('a late start reply for the previous map does not move the new one', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await page.evaluate(async mp => {
+    const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {
+      index: 0x109,
+    })
+    const real = w.projects
+    // $109's start is held for 2 s; the tab moves on to $105 meanwhile.
+    w.projects = new Proxy(real, {
+      get: (t, k) =>
+        k === 'mapStart'
+          ? (m, i) => i === 0x109 ? new Promise(r => setTimeout(r, 2000)).then(() => t.mapStart(m, i)) : t.mapStart(m, i) // prettier-ignore
+          : typeof t[k] === 'function'
+            ? t[k].bind(t)
+            : t[k],
+    })
+    await w.open({ manifestPath: mp, index: 0x109, label: '109', iconClass: '' })
+    const shell = getSvc('ApplicationShell')
+    await shell.addWidget(w, { area: 'main' })
+    await w.open({ manifestPath: mp, index: 0x105, label: '105', iconClass: '' })
+  }, project.manifestPath)
+  opened.push('hackbench.map-view:261')
+  await expect(page.locator(`${root(0x105)} [data-control="map-scroller"]`)).toHaveAttribute('data-start', 'placed', { timeout: 30000 }) // prettier-ignore
+  await page.waitForTimeout(2500) // past the held reply
+  const st = await scrollState(page, 0x105)
+  expect([st.left, st.top]).toEqual([0, 0])
 })
 
 /**
@@ -426,9 +586,8 @@ test('a reused tab going from a horizontal to a vertical map draws screen 0', as
     await w.open({ manifestPath: mp, index: 0x109, label: '109', iconClass: '' })
   }, project.manifestPath)
   opened.push('hackbench.map-view:265')
-  await expect(
-    page.locator(`${root(0x109)} canvas[data-screen="0"][data-plane="l1Low"]`),
-  ).toHaveAttribute('data-drawn', drawn(0), { timeout: 15000 })
+  await startSettled(page, 0x109)
+  await showScreen(page, 0x109, 0) // $109 opens on its start (#339); screen 0 is up the strip
   // Every canvas is blank or this map's: none holds a $105 picture.
   const marks = await page.locator(`${root(0x109)} canvas[data-screen]`).evaluateAll(cs => cs.map(c => c.dataset.drawn ?? null)) // prettier-ignore
   const current = await page.locator(`${root(0x109)} canvas[data-screen="0"][data-plane="l1Low"]`).getAttribute('data-drawn') // prettier-ignore
@@ -1219,6 +1378,7 @@ test('an L2 priority tile draws over an L1 low tile, from a working-copy edit', 
 }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0xe7)
+  await showScreen(page, 0xe7, 0) // $0E7 opens on its start (#339), which is not screen 0
   const spot = { x: 3, y: 13 * 16 + 3 }
   const read = () =>
     page.evaluate(

@@ -17,6 +17,7 @@ import { RecentProjects } from '../../../../src/project/RecentProjects'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { buildMapTree, MapTree } from '../../../../src/rom/MapTree'
+import { readLevelStart } from '../../../../src/rom/LevelStart'
 import {
   WorkingRomEntry,
   WorkingRomRegistry,
@@ -55,6 +56,7 @@ import {
   MapScreenResult,
   MapBlockContentsResult,
   MapSpritesResult,
+  MapStartResult,
   PalaceIconsResult,
   PatchFormatDto,
   ProjectDto,
@@ -125,6 +127,15 @@ export class ProjectServiceImpl implements ProjectService {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
     return mapSprites(this.screens, r.working.bytes(), r.romPath, index)
+  }
+
+  async mapStart(manifestPath: string, index: number): Promise<MapStartResult> {
+    const r = this.located(manifestPath)
+    if (r.status !== 'ok') return r
+    const s = readLevelStart(romOf(r), index)
+    return s.ok
+      ? { status: 'ok', screen: s.screen, x: s.x, y: s.y, vertical: s.vertical }
+      : { status: 'unavailable', reason: s.reason }
   }
 
   async mapCollisionCheck(manifestPath: string, index: number): Promise<MapCollisionCheckResult> {

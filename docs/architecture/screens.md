@@ -71,6 +71,19 @@ TRACED:
   `DATA_05F200` X index, screen in `DATA_05F600` (`bank_05.asm:7300-7337`).
   Secondary: `DATA_05FA00` Y index, `DATA_05FC00` screen and X index
   (`bank_05.asm:7117-7161`).
+- **Start position** (#339, `src/rom/LevelStart.ts`). The Maps view opens on the map's
+  first entrance in play order: the main entrance for an entry map, otherwise the
+  entrance of the screen exit the fewest hops from an overworld tile (a primary exit
+  enters the destination's main entrance, a secondary exit its `DATA_05F800`
+  index, `(submapFlag << 8) | byte`, `bank_05.asm:7103-7118`). Position is the table
+  read above, screen = X high byte (horizontal) or Y high byte (vertical). Gate:
+  `$05D8B1` must hold the stock `BEQ $F0` (`bank_05.asm:7224`); Lunar Magic JSLs out
+  of it, so any other byte is unavailable with the byte named, never the vanilla
+  tables read as if they applied. A map no tile or exit leads to is unavailable too;
+  the view then stays at screen 0 and says why. Not covered: the midway entrance,
+  a slot reached only through shared map data (same Layer1Ptrs) or the bonus and
+  Yoshi Heaven paths. Evidence: vanilla `$109` resolves to screen 6, y 1680; one
+  machine, one ROM revision.
 - **Orientation decides which high byte survives** (`bank_05.asm:7375-7395`: 7379 tests ScrMode_Layer1Vert, 7382-7383 horizontal, 7386-7387 vertical).
   Horizontal: X high is overwritten with the screen number, so the entrance's Y
   high byte is the top or bottom half. Vertical: Y high is overwritten with the

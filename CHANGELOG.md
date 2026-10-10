@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Maps view (#339): a map now opens scrolled to where the player first enters it (vertical maps scroll down to it), read from the entrance tables; when the ROM's entrance loader is not the stock one, it stays at screen 0 and says the start is unavailable.
 - Docs (#750): the hack corpus note now states 101 hacks, all patched, and scopes its "of 99" survey figures to the 2026-09-26 survey.
 - Unit tests: the control-bytes and test-registration walks skip `__fixtures__`, so a concurrent lintGate run no longer fails them with ENOENT (#754).
 - Test-only (#653 Stage A): a per-ROM report of which standard object leaves the interpreter agrees on, across the corpus.
