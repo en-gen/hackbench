@@ -32,7 +32,7 @@ The spike swaps only the target.
 - Sprites are off (`editorStore.setLayerToggle('sprites', false)`): no OAM priority or sprite pixel arrays. Colour math (`ColorMath.ts`) and Mode 7 are untouched. `[EST]`
 - Not measured: Electron's Chromium (Theia pins Electron 42.10.0 in `theia/electron-app/package.json`; its Chromium was not read), a second GPU, another OS, compositor memory. `[OPEN]` Resolve by running the harness inside the Electron app.
 - `performance.now()` values are multiples of 0.1 ms, so sub-millisecond cells are coarse. One machine, one GPU. `[EST]`
-- No run lock was taken: `docs/protocols/` names none, and one harness process ran at a time. `[EST]`
+- No run lock was taken. The team protocol's run lock covers Theia builds, Playwright and the unit-test run, and a GPU spike falls outside it as written; one harness process ran at a time. `[EST]`
 
 ## Design as built
 
@@ -126,7 +126,7 @@ The widget fetches the visible screens plus a margin of 1, lazily and cached (`m
 | `$1EC` | 5,899,892 | 44,037 | 39,148 | 10,872 | 9,595 |
 | `$0F7` | 2,797,948 | 36,018 | 112,536 | 24,468 | 24,156 |
 
-Raw, the window is 25x to 151x smaller (`$0F7` 25x, `$10A` 73x, `$1EC` 151x). The gzip comparison is not a strict bound: today is gzipped as one stream (`bytes.ts:82`), valid only with deflate context takeover across messages; the indexed arm is gzip then base64 (`bytes.ts:86,90`, +1.33x) with palette rows uncompressed. On that basis the whole-map gzip ratio is 1.29x to 4.38x over all 12 sampled levels. Twelve levels were sampled (those plus `$11E $024 $1F8 $001 $111 $1D2`); the other seven are in the harness output, not tabled. Whether the Theia JSON-RPC channel compresses was not checked, so raw and gzipped are two readings, not bounds. `[OPEN]` Resolve by reading the websocket extension negotiation in a running Theia.
+Raw, the window is 25x to 151x smaller (`$0F7` 25x, `$10A` 73x, `$1EC` 151x). The gzip comparison is not a strict bound: today is gzipped as one stream (`bytes.ts:82`), valid only with deflate context takeover across messages; the indexed arm is gzip then base64 (`bytes.ts:86,90`, +1.33x) with palette rows uncompressed. On that basis the gzipped ratio is 1.3x to 4.1x over the 5 tabled windows and 1.29x to 4.38x over all 12 sampled levels. Twelve levels were sampled (those plus `$11E $024 $1F8 $001 $111 $1D2`); the other seven are in the harness output, not tabled. Whether the Theia JSON-RPC channel compresses was not checked, so raw and gzipped are two readings, not bounds. `[OPEN]` Resolve by reading the websocket extension negotiation in a running Theia.
 
 ## 5. Memory
 
