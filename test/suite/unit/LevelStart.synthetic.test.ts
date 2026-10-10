@@ -224,6 +224,19 @@ describe('readLevelStart (synthetic)', () => {
     expect(!s.ok && s.reason).toMatch(/No overworld tile or screen exit/)
   })
 
+  it('an exit read from a parent stream that never reaches $FF is not an entrance', () => {
+    const rom = world()
+    room(rom, 0x0c5, 0x06e800)
+    rom.writeAt(F200 + 0xc5, [0x03])
+    // $002's stream now holds one primary exit to $0C5 and no $FF: the parse runs off the buffer (terminated false).
+    // Free space, all zero after the exit, so no $FF turns up inside the 0x2000-byte read.
+    rom.writeAt(0x06f100, [0, 0, 0, 0, 0, 0x00, 0x01, 0x00, 0xc5])
+    rom.writeAt(ADDR.LEVEL_L1_PTR + 0x002 * 3, [0x00, 0xf1, 0x06])
+    const s = start(rom, 0x0c5)
+    expect(s.ok).toBe(false)
+    expect(!s.ok && s.reason).toMatch(/No overworld tile or screen exit/)
+  })
+
   it('an index whose DATA_05F800 byte names another map is not an entrance here', () => {
     const rom = world()
     rom.writeAt(F800 + 0x10, [0xc4]) // the exit now lands in $0C4, not $0C0

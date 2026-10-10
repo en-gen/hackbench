@@ -204,7 +204,10 @@ export function readLevelStart(
     const h = hops.get(from)
     const raw = h === undefined || !dests.includes(mapIndex) ? null : rom.getLevelRawData(from)
     if (h === undefined || !raw) continue
-    for (const o of parseLevelObjects(raw, []).objects) {
+    // A stream that ran off the buffer lost sync: its "exits" are not trustworthy, so none is used.
+    const parsed = parseLevelObjects(raw, [])
+    if (!parsed.terminated) continue
+    for (const o of parsed.objects) {
       if (o.screenExitDest === undefined) continue
       const low = o.screenExitDest & 0xff
       if (o.screenExitIsSecondary) {

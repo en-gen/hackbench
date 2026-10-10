@@ -121,10 +121,10 @@ async function openMap(page, manifestPath, index) {
   ).toHaveAttribute('data-drawn', /^\d+:\d{4}:\d{3}:\d+$/, { timeout: 30000 })
 }
 
-/** Waits until this open's start has been scrolled to, skipped or refused (`data-start`). */
 /** The map tab's scroller. */
 const scrollerOf = (page, index) => page.locator(`${root(index)} [data-control="map-scroller"]`)
 
+/** Waits until this open's start has been scrolled to, skipped or refused (`data-start`). */
 async function startSettled(page, index) {
   await expect(scrollerOf(page, index)).toHaveAttribute(
     'data-start',
