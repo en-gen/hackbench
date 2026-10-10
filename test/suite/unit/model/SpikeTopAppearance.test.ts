@@ -5,9 +5,9 @@
  *   animBit = (EffFrame >> 3) & 1  →  SpriteMisc1602 = DATA_02BCB7[dir] + animBit
  *   dir 0, Misc1564=0 → base=$00 → SpriteMisc1602 cycles 0→1 every 8 game frames
  *
- * Direction is hardcoded to 0 (no flip, DATA_02BCC7[0]=$00); direction 4,
- * the Mario-spawns-left case, is not modelled. See
- * docs/sprites/sprite-overlay-removal.md.
+ * Facing (#134): direction 4 when Mario spawns strictly left, else 0; the flip is
+ * DATA_02BCC7[direction] XOR $40 (SubSprGfx2Entry1 with $157C = 0). See the
+ * fromTables JSDoc and docs/sprites/sprite-overlay-removal.md.
  * Frame 0 uses tilemap[tilemapBase + 0]; frame 1 uses tilemap[tilemapBase + 1].
  * The tick counter toggles every ANIM_TICKS=8 calls to tickAnimation().
  *
@@ -227,5 +227,47 @@ describe('SpikeTopAppearance.fromTables - ?? fallback branches', () => {
     const tables: SpriteTileTables = { ...makeTables(), dispX: [], dispY: [] }
     const app = SpikeTopAppearance.fromTables(makeChars(), tables, namedChar(0xff))
     expect(app.parts0.every(p => p.dx === 0 && p.dy === 0)).toBe(true)
+  })
+})
+
+describe('SpikeTopAppearance.fromTables - facing (#134)', () => {
+  // DATA_02BCC7 stand-in: only indices 0 and 4 are read. Drawn flip = table bit 6 XOR $40.
+  const attrTable = (at0: number, at4: number) => {
+    const t = new Uint8Array(16)
+    t[0] = at0
+    t[4] = at4
+    return t
+  }
+  const withAttr = (wallFollowAttr?: Uint8Array): SpriteTileTables => ({ ...makeTables(), wallFollowAttr }) // prettier-ignore
+  const build = (marioLeft: boolean, wallFollowAttr?: Uint8Array) =>
+    SpikeTopAppearance.fromTables(makeChars(), withAttr(wallFollowAttr), namedChar(0xff), marioLeft)
+  const fillsOf = (a: SpikeTopAppearance) => a.parts0.map(p => p.char.getPixels()[0])
+  const TL = CHAR_FILL[OBJ_BASE + CHAR_HIGH + TILE_A]
+  const TR = CHAR_FILL[OBJ_BASE + CHAR_HIGH + TILE_A + 1]
+  const BL = CHAR_FILL[OBJ_BASE + CHAR_HIGH + TILE_A + 0x10]
+  const BR = CHAR_FILL[OBJ_BASE + CHAR_HIGH + TILE_A + 0x11]
+
+  it('Mario left (direction 4, table $40) draws unflipped, corners in plain order', () => {
+    const a = build(true, attrTable(0x00, 0x40))
+    expect(a.parts0.every(p => !p.flipX)).toBe(true)
+    expect(fillsOf(a)).toEqual([TL, TR, BL, BR])
+  })
+
+  it('Mario right or level (direction 0, table $00) draws X-flipped, columns mirrored', () => {
+    const a = build(false, attrTable(0x00, 0x40))
+    expect(a.parts0.every(p => p.flipX) && a.parts1.every(p => p.flipX)).toBe(true)
+    expect(fillsOf(a)).toEqual([TR, TL, BR, BL])
+    // The positions stay the table's; only which char sits where changes.
+    expect(a.parts0.map(p => p.dx)).toEqual([0, 8, 0, 8])
+  })
+
+  it('the flip comes from the table byte, not a constant: swapping the table swaps the poses', () => {
+    expect(build(true, attrTable(0x40, 0x00)).parts0.every(p => p.flipX)).toBe(true)
+    expect(build(false, attrTable(0x40, 0x00)).parts0.every(p => !p.flipX)).toBe(true)
+  })
+
+  it('without the table the flip is not modelled: unflipped on both sides', () => {
+    expect(build(true).parts0.some(p => p.flipX)).toBe(false)
+    expect(build(false).parts0.some(p => p.flipX)).toBe(false)
   })
 })
