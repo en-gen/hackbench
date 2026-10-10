@@ -60,6 +60,11 @@ const cart = (s: Shape): RomFile => {
 const COL = 20
 const ROW = 3
 const key = (row: number, col: number): number => row * 0x10000 + col
+/** Grid position of table entry i. */
+const cellOf = (s: Shape, i: number): [number, number] => [
+  ROW + Math.floor(i / s.cols),
+  COL + (i % s.cols),
+]
 
 function draw(s: Shape, prefill: (g: TileGrid) => void = () => {}) {
   const rec = recordedGrid(4)
@@ -76,7 +81,7 @@ function draw(s: Shape, prefill: (g: TileGrid) => void = () => {}) {
 function expectedBlank(s: Shape): WrittenCells {
   const t = tableFor(s)
   const m: WrittenCells = new Map()
-  t.forEach((v, i) => m.set(key(ROW + Math.floor(i / s.cols), COL + (i % s.cols)), v))
+  t.forEach((v, i) => m.set(key(...cellOf(s, i)), v))
   return m
 }
 
@@ -95,8 +100,7 @@ describe.each(SHAPES)('$name: the high-byte store under a skipped entry (#773)',
   it('clears the page of a page-1 cell under a $25 entry and keeps its low byte', () => {
     const t = tableFor(s)
     const i = t.indexOf(TILE_EMPTY)
-    const r = ROW + Math.floor(i / s.cols)
-    const c = COL + (i % s.cols)
+    const [r, c] = cellOf(s, i)
     const { grid } = draw(s, g => (g[r][c] = 0x141))
     expect(grid[r][c]).toBe(0x041)
   })
@@ -104,14 +108,16 @@ describe.each(SHAPES)('$name: the high-byte store under a skipped entry (#773)',
     const t = tableFor(s)
     const i = t.indexOf(TILE_EMPTY)
     const { owners } = draw(s)
-    expect(owners[ROW + Math.floor(i / s.cols)][COL + (i % s.cols)]).toBe(OWNER_NONE)
+    const [r, c] = cellOf(s, i)
+    expect(owners[r][c]).toBe(OWNER_NONE)
     expect(owners[ROW][COL]).toBe(7)
   })
   it('leaves the visible grid as it was on a blank grid', () => {
     const { raw } = draw(s)
     const t = tableFor(s)
     t.forEach((v, i) => {
-      expect(raw[ROW + Math.floor(i / s.cols)][COL + (i % s.cols)]).toBe(v)
+      const [r, c] = cellOf(s, i)
+      expect(raw[r][c]).toBe(v)
     })
     expect(createGrid(4)[ROW][COL - 1]).toBe(TILE_EMPTY)
     expect(raw[ROW][COL - 1]).toBe(TILE_EMPTY)

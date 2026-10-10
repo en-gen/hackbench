@@ -272,9 +272,8 @@ function claimCell(cur: Cursor): void {
  * runs `STA [Map16HighPtr],Y` with A = 0 before every entry, so an entry whose
  * low-byte store is skipped (a $25 in the ext $82/$83/$84 tables,
  * bank_0D.asm:1736-1740, 4797-4803) still zeroes the cell's page and leaves its
- * low byte. A blank cell therefore reads $25, as the interpreter records.
- * Not claimed for the owner grid: the low byte, the visible tile, is not drawn.
- * Evidence: the interpreter agrees on the 8 vanilla cases (#773).
+ * low byte, so a blank cell reads $25. Not claimed for the owner grid: no tile
+ * is drawn. The interpreter agrees on the 8 vanilla cases (#773).
  */
 export function clearPageKeepLow(cur: Cursor): void {
   if (cur.row < 0 || cur.row >= cur.grid.length) return
