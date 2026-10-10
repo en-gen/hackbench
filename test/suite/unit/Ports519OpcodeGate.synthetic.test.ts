@@ -2,15 +2,15 @@
  * CODE_0DBA4C and CODE_0DC3D8 read operands and a threshold from the handler's
  * own bytes (#519). A hack that rewrote the CPX #imm, the BPL or any opcode the
  * port reads through must change the output or refuse, never draw from vanilla
- * assumptions. CPX/BPL: bank_0D.asm:4402-4403 (CODE_0DBA67); loads 4398 and
- * 4406; CODE_0DC3D8 starts at bank_0D.asm:4933.
+ * assumptions. CPX/BPL: bank_0D.asm:4403-4404 (CODE_0DBA67); loads 4398 and
+ * 4406, AND #$0F at 4389; CODE_0DC3D8 starts at bank_0D.asm:4933.
  *
  * Synthetic cart only (no ROM bytes), so this runs in CI.
  */
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { loromToOffset } from '../../../src/rom/addressing'
-import { createGrid, TILE_EMPTY } from '../../../src/rom/ObjectExpander'
+import { createGrid } from '../../../src/rom/ObjectExpander'
 import { makeCursor, TileGrid, Cursor } from '../../../src/rom/objectHandlers/cursor'
 import { handle_0DBA4C, staircaseVariantB } from '../../../src/rom/objectHandlers/standardHandlers'
 
@@ -38,14 +38,17 @@ const body = Array.from({ length: 16 }, (_, i) => 0x40 + i)
 
 /** 0DBA4C's gated bytes: [offset, opcode]. */
 const BA_PINS: [number, number][] = [
+  [4, 0x29],
   [18, 0xbf],
   [27, 0xe0],
   [29, 0x10],
+  [30, 0x03],
   [34, 0xbf],
 ]
-const plantsBA = (addr: number, imm = 2): [number, number[]][] => [
+const plantsBA = (addr: number, imm = 2, mask = 0x0f): [number, number[]][] => [
+  [addr + 4, [0x29, mask]],
   [addr + 18, [0xbf, ...long(T_A)]],
-  [addr + 27, [0xe0, imm, 0x10]],
+  [addr + 27, [0xe0, imm, 0x10, 0x03]],
   [addr + 34, [0xbf, ...long(T_B)]],
   [T_A, top],
   [T_B, body],
@@ -55,11 +58,13 @@ const FILL = 0x7e
 const cap = [0x60, 0x61, 0x62, 0x63]
 const edge = [0x50, 0x51, 0x52, 0x53]
 const C3_PINS: [number, number][] = [
+  [8, 0x29],
   [30, 0xa9],
   [46, 0xbf],
   [60, 0xbf],
 ]
-const plantsC3 = (addr: number): [number, number[]][] => [
+const plantsC3 = (addr: number, mask = 0x03): [number, number[]][] => [
+  [addr + 8, [0x29, mask]],
   [addr + 30, [0xa9, FILL]],
   [addr + 46, [0xbf, ...long(T_B)]],
   [addr + 60, [0xbf, ...long(T_A)]],
@@ -132,8 +137,26 @@ describe.each([
   },
 )
 
-describe('refusal reads TILE_EMPTY everywhere (sanity)', () => {
-  it('blank grid is all empty', () => {
-    expect(blank().every(r => r.every(c => c === TILE_EMPTY))).toBe(true)
+describe('X masks come from the AND #imm (#519)', () => {
+  it('0DBA4C: AND #$07 at +5 makes size $0A read entry 2', () => {
+    const { grid } = run(cartWith(plantsBA(RELOCATED, 2, 0x07)), handle_0DBA4C, RELOCATED, 0x1a)
+    expect(grid[ROW][COL]).toBe(0x100 | top[2])
+  })
+  it('0DC3D8: AND #$01 at +9 makes size $02 read entry 0', () => {
+    const { grid } = run(cartWith(plantsC3(RELOCATED, 0x01)), staircaseVariantB, RELOCATED, 0x02)
+    expect(grid[ROW][COL]).toBe(0x100 | cap[0])
+  })
+})
+
+describe('a pinned read past the end of the cart refuses with "nothing" (#519)', () => {
+  it.each([
+    ['0DBA4C', handle_0DBA4C, 4, 0x29],
+    ['0DC3D8', staircaseVariantB, 8, 0x29],
+  ] as const)('%s', (_n, handler, off, op) => {
+    const addr = 0x0ffffe - off + 0x100 // handler+off lands beyond the 512 KiB cart
+    const { grid, unverified } = run(cartWith([]), handler, addr, 0x12)
+    expect(grid).toEqual(blank())
+    expect(unverified).toHaveLength(1)
+    expect(unverified[0]).toContain(`${hx(addr + off, 6)} is nothing, not the ${hx(op, 2)} opcode`)
   })
 })

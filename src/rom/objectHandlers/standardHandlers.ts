@@ -551,7 +551,8 @@ export function handle_0DB075(cur: Cursor): void {
 
 /**
  * True when the handler's byte at `offset` is `opcode`; otherwise records the
- * refusal (#452, #519) and returns false, so the caller draws nothing.
+ * refusal (#452, #519) and returns false, so the caller draws nothing. With no
+ * draw context the refusal still happens but is not recorded.
  */
 function gateOpcode(cur: Cursor, offset: number, opcode: number): boolean {
   const at = cur.handlerAddr + offset
@@ -2548,14 +2549,21 @@ function staircaseVariantA(cur: Cursor): void {
  *   _0 = H+1 (4946-4947), so the routine draws H+2 rows (#361).
  */
 export function staircaseVariantB(cur: Cursor): void {
-  const X = cur.size & 0x03
   const H = (cur.size >> 4) & 0x0f
   const base = cur.handlerAddr
   // Verified via ROM byte dump; every opcode is gated before anything is drawn (#519):
   //   LDA #$3F             opcode at +30, imm at +31      (page-0 fill)
   //   LDA.L DATA_0DC354,X  opcode at +46, operand at +47  (step edge)
   //   LDA.L DATA_0DC350,X  opcode at +60, operand at +61  (step cap)
-  if (!gateOpcode(cur, 30, 0xa9) || !gateOpcode(cur, 46, 0xbf) || !gateOpcode(cur, 60, 0xbf)) return
+  // AND #imm at +8 (bank_0D.asm:4938) is the X mask.
+  if (
+    !gateOpcode(cur, 8, 0x29) ||
+    !gateOpcode(cur, 30, 0xa9) ||
+    !gateOpcode(cur, 46, 0xbf) ||
+    !gateOpcode(cur, 60, 0xbf)
+  )
+    return
+  const X = cur.size & readImmByte(cur, base + 9)
   const fillTile = readImmByte(cur, base + 31)
   const addrEdge = readLongOperand(cur, base + 47)
   const addrCap = readLongOperand(cur, base + 61)
@@ -3853,26 +3861,30 @@ export function handle_0DB9C0(cur: Cursor): void {
  *   V (low nibble, X)  = the full nibble (0-15) indexing both tables.
  *   H (high nibble)    = count (H rows written below the top).
  *
- * X >= 2 body cells keep the cell's own high byte: Sta1To6ePointer stores it at
- * the current cell (bank_0D.asm:2107-2110) and CPX #$02 / BPL skips it
- * (4403-4405), so the port reads the page from the grid (#458).
+ * Body cells keep the cell's own high byte when the BPL is taken: Sta1To6ePointer
+ * stores page 1 at the current cell (bank_0D.asm:2107-2110) unless CPX #imm
+ * (vanilla #$02) leaves N clear for X - imm, so the port reads the page from the
+ * grid in that case and sets page 1 when bit 7 of (X - imm) is set (4403-4405, #458).
  *
  * ASM path: JSR Sta1To6ePointer once up-front, then STA top tile, JMP to
  * CODE_0DBA74 (advance row, DEC _0, BPL; bank_0D.asm:4408-4411), which runs
  * the body H times.
  */
 export function handle_0DBA4C(cur: Cursor): void {
-  const X = cur.size & 0x0f
-  // LDA.L at +18 and +34, CPX #imm at +27, BPL at +29 (bank_0D.asm:4398, 4402-4403, 4406).
-  // The BPL sense decides which side of the threshold gets page 1, so a flipped
-  // branch refuses rather than render inverted (#519).
+  // AND #imm at +4 (bank_0D.asm:4389) is the X mask; LDA.L at +18 and +34, CPX #imm
+  // at +27, BPL at +29 (4398, 4403-4404, 4406). The BPL sense and its displacement
+  // (+30, vanilla $03, over the JSR) decide which side of the threshold gets
+  // page 1, so a changed branch refuses rather than render inverted (#519).
   if (
+    !gateOpcode(cur, 4, 0x29) ||
     !gateOpcode(cur, 18, 0xbf) ||
     !gateOpcode(cur, 27, 0xe0) ||
     !gateOpcode(cur, 29, 0x10) ||
+    !gateOpcode(cur, 30, 0x03) ||
     !gateOpcode(cur, 34, 0xbf)
   )
     return
+  const X = cur.size & readImmByte(cur, cur.handlerAddr + 5)
   const addrTop = readLongOperand(cur, cur.handlerAddr + 19) // DATA_0DBA44
   const addrBody = readLongOperand(cur, cur.handlerAddr + 35) // DATA_0DBA48
   const threshold = readImmByte(cur, cur.handlerAddr + 28)
