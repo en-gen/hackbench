@@ -220,15 +220,9 @@ export class EmulatorWidget extends ReactWidget {
       this.controllers.key(e.code, false)
       return
     }
-    if (
-      !this.node.contains(e.target as Node | null) ||
-      e.ctrlKey ||
-      e.altKey ||
-      e.metaKey ||
-      e.isComposing
-    )
-      return
-    if (!keyAccepted(e.target as Element | null, e.code)) return
+    const target = e.target as Element | null
+    if (!this.node.contains(target) || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return
+    if (!keyAccepted(target, e.code)) return
     if (!this.driver.isRunning() || !this.controllers.keyboardAssigned) return
     if (this.controllers.key(e.code, true)) {
       e.preventDefault()
