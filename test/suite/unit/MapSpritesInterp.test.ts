@@ -165,6 +165,25 @@ describe('a refused level loader marks every sprite unverified', () => {
   })
 })
 
+describe('interpDrawer refuses when Mario has no start (#781)', () => {
+  // The loader refuses a blank cart, so the table re-derivation is the only source of Mario's start;
+  // one unreadable table byte must give a refusal (compute turns the throw into `unavailable`), not {0,0}.
+  const blank = RomFile.fromBytes('blank.sfc', Buffer.alloc(0x80000))
+  const withheld = (addr: number): RomFile =>
+    Object.create(blank, { readByte: { value: (a: number) => (a === addr ? null : blank.readByte(a)) } }) as RomFile // prettier-ignore
+  const shape = { isVertical: false, screenCount: 2 }
+  it('builds the drawer with every byte readable (the control)', () => {
+    expect(() => interpDrawer(blank, 7, shape, () => model({}))).not.toThrow()
+  })
+  it.each([
+    ['DATA_05F000', 0x05f000 + 7],
+    ['DATA_05F200', 0x05f200 + 7],
+    ['DATA_05D758 (X high)', 0x05d758],
+  ])('throws the unavailable refusal when %s cannot be read', (_n, addr) => {
+    expect(() => interpDrawer(withheld(addr), 7, shape, () => model({}))).toThrow(/Mario start position unavailable/) // prettier-ignore
+  })
+})
+
 describe('drawSprites with the interpreter', () => {
   it('draws at the anchor the drawer reports, not the stream position, and keeps the reason of a refusal', () => {
     const s = { index: 0, x: 2, y: 2, spriteId: 0x4f, screen: 0, extraBit: false, raw: [], streamOffset: 0 } as LevelSprite // prettier-ignore
