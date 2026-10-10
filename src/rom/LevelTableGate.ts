@@ -243,11 +243,11 @@ function readAddr(bytes: Uint8Array, off: number): number {
   return bytes[off]! | (bytes[off + 1]! << 8) | (bytes[off + 2]! << 16)
 }
 
-// LoadLevel's boss-mode check (bank_05.asm:432-437, then :439-442): for the
+// LoadLevel's boss-mode check (bank_05.asm:431-437, then :438-442): for the
 // modes it compares, Layer 1 is never read. The modes are the CMP immediates,
 // read here rather than assumed. The trailing LDY/LDA [Layer1DataPtr],Y/CMP #$FF
 // is the empty-stream check that follows, and anchors the run to this routine.
-const BOSS_WHAT = "LoadLevel's boss-mode check (bank_05.asm:432-437)"
+const BOSS_WHAT = "LoadLevel's boss-mode check (bank_05.asm:431-437)"
 const LEVEL_MODE_ADDR = [0x25, 0x19] // LevelModeSetting, $1925
 // prettier-ignore
 const BOSS_CHECK: BytePattern = [
@@ -283,6 +283,11 @@ function computeBossModes(rom: RomFile): BossModes {
   const targets = BOSS_BEQ_OFFS.map(o => o + 1 + ((b[o]! << 24) >> 24))
   if (!targets.every(t => t === targets[0])) {
     return { ok: false, reason: `${BOSS_WHAT} branches to different places` }
+  }
+  // LoadLevelDone lies past the empty-stream check. A target inside the run
+  // lands on or before the Layer-1 read, so those modes DO read Layer 1.
+  if (targets[0]! < BOSS_CHECK.length) {
+    return { ok: false, reason: `${BOSS_WHAT} branches into the Layer-1 read, not past it` }
   }
   return { ok: true, modes: new Set(BOSS_CMP_OFFS.map(o => b[o]!)) }
 }

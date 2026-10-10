@@ -398,8 +398,10 @@ drop out by construction, because they never become entry maps.
     vanilla, `$0EB`'s pointer is shared by `$0F0`, `$0FB`, `$1DA`, `$1E7` and
     `$1F9`; one was kept and four discarded.
   - it gated on `levelHasObjects()`, whose `data[5] === $FF` rule rejected 24 real rooms (issue #695). All 24 are
-    boss-mode rooms, for which `LoadLevel` never reads Layer 1 (`bank_05.asm:432-437`); fixed by reading those
-    modes from the loader's own bytes.
+    boss-mode rooms, for which `LoadLevel` never reads Layer 1 (`bank_05.asm:431-437`); fixed by reading those
+    modes from the loader's own bytes, on ROMs whose `LoadLevel` check is stock (2 of 6 corpus ROMs, one
+    machine). On the 4 corpus hacks Lunar Magic replaces the check's first instruction with `JSL $0FF7F0`
+    plus a `NOP`, so the check is refused and those rooms keep the old result.
 
   Between them, 47 of the ROM's 235 real maps could never be a destination.
   `buildLevelExitGraph` now takes its map universe from pointer identity, the

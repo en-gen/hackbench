@@ -1,6 +1,6 @@
 /**
  * levelHasObjects and the boss-mode exemption (#695). LoadLevel never reads
- * Layer 1 for its boss modes (SMWDisX bank_05.asm:432-437), so an $FF-only
+ * Layer 1 for its boss modes (SMWDisX bank_05.asm:431-437), so an $FF-only
  * stream there is a real room. The modes come from the loader's own CMP
  * immediates; these tests plant that check synthetically, so they need no ROM.
  */
@@ -14,7 +14,7 @@ import { VANILLA, hasRom, romPath } from '../support/corpus'
 const CHECK_AT = 0x05b000 // not the vanilla address: the match is by shape
 const LEVEL_PTR = 0x068000
 
-/** bank_05.asm:430-442 as encoded: LDA $1925, three CMP/BEQ pairs, then the empty-stream check. */
+/** bank_05.asm:431-442 as encoded: LDA $1925, three CMP/BEQ pairs, then the empty-stream check. */
 function bossCheck(modes: [number, number, number], beq = [0x53, 0x4f, 0x4b]): number[] {
   return [
     0xad, 0x25, 0x19,
@@ -94,6 +94,40 @@ describe('levelHasObjects boss modes (#695)', () => {
 
   it('refuses a check whose BEQs do not share a target', () => {
     const check = bossCheck([0x09, 0x0b, 0x10], [0x53, 0x4f, 0x10])
+    expect(readBossModes(makeRom({ check })).ok).toBe(false)
+  })
+
+  it.each([
+    ['LDA [Layer1DataPtr],Y direct page byte', 18, 0x66],
+    ['the closing CMP immediate', 20, 0xfe],
+  ])('refuses a check whose trailing anchor differs: %s', (_what, at, value) => {
+    const check = bossCheck([0x09, 0x0b, 0x10])
+    check[at] = value
+    expect(readBossModes(makeRom({ check })).ok).toBe(false)
+  })
+
+  it('refuses a check whose BEQs all land on the empty-stream check (they DO read Layer 1)', () => {
+    // Targets: 6+1+8, 10+1+4, 14+1+0 = 15, the LDY #0 itself.
+    const check = bossCheck([0x09, 0x0b, 0x10], [0x08, 0x04, 0x00])
+    expect(readBossModes(makeRom({ check })).ok).toBe(false)
+  })
+
+  it('accepts a common target exactly at the end of the check', () => {
+    // 6+1+14, 10+1+10, 14+1+6 = 21
+    const check = bossCheck([0x09, 0x0b, 0x10], [0x0e, 0x0a, 0x06])
+    expect(readBossModes(makeRom({ check })).ok).toBe(true)
+  })
+
+  it('reads BEQ displacements as signed: a backward branch is not a far-forward one', () => {
+    // As unsigned bytes the three targets agree (247); as signed they agree at -9,
+    // before the check, so the check is refused.
+    const check = bossCheck([0x09, 0x0b, 0x10], [0xf0, 0xec, 0xe8])
+    expect(readBossModes(makeRom({ check })).ok).toBe(false)
+  })
+
+  it('refuses backward targets that agree only under sign extension', () => {
+    // Signed: 7-14=-7, 11-18=-7, 15-22=-7. Unsigned bytes 0xf2/0xee/0xea give 249/245/241.
+    const check = bossCheck([0x09, 0x0b, 0x10], [0xf2, 0xee, 0xea])
     expect(readBossModes(makeRom({ check })).ok).toBe(false)
   })
 

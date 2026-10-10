@@ -276,13 +276,12 @@ export class SmwRom {
   }
 
   /**
-   * Whether the slot's Layer-1 data is a room the game can load: true when
-   * the loader never reads the stream for this level mode, or when the stream
-   * starts with an object.
+   * True when the slot's Layer-1 stream starts with an object, or when this
+   * level's mode is one the recognized loader never reads Layer 1 for.
    *
-   * LoadLevel skips Layer 1 outright for the boss modes (bank_05.asm:432-437),
+   * LoadLevel skips Layer 1 outright for the boss modes (bank_05.asm:431-437),
    * so a stream that is just $FF there is a real room, not an empty one. For
-   * any other mode a first byte of $FF is an empty stream (:439-442). The
+   * any other mode a first byte of $FF is an empty stream (:438-442). The
    * boss modes are read from the loader's own bytes (readBossModes); when it
    * is not recognized only the stream rule applies, never the stock modes.
    *

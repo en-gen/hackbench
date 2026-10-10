@@ -10,7 +10,10 @@
  *    vanilla, $0EB's pointer is shared by $0F0, $0FB, $1DA, $1E7 and $1F9, and
  *    the four later ones were discarded.
  *  - it gated on levelHasObjects(), whose data[5] === $FF rule rejected 24 real boss-mode rooms
- *    (issue #695, since fixed: LoadLevel never reads Layer 1 for those modes).
+ *    (issue #695: LoadLevel never reads Layer 1 for those modes). Fixed only on ROMs whose
+ *    LoadLevel check is stock: 2 of 6 corpus ROMs, one machine. On the 4 corpus hacks Lunar Magic
+ *    replaces the check's first instruction with JSL $0FF7F0 + NOP, so the check is refused
+ *    and those rooms keep the old result.
  *
  * Together those made 47 real maps ineligible as a destination, so no entry
  * map's chain could ever reach them.
