@@ -5,7 +5,7 @@
  * routine below is written here, so CI (which has no cart) exercises the
  * runner, the dispatch reader and the refusal paths.
  *
- * Ids: 0 shifts +8 in INIT and draws one 16x16 piece; 1 shifts (+8,-1) with a
+ * Ids 31 and 103 draw at X then move X by +4 each MAIN. Ids: 0 shifts +8 in INIT and draws one 16x16 piece; 1 shifts (+8,-1) with a
  * Y borrow; 2 draws a flip that follows Mario's side; 3 takes its tile from
  * the hardware multiplier; 4 executes COP in MAIN; 5 draws nothing; 6 has an
  * INIT pointer below $8000; 7, 8 and 9 end INIT with status $9, $0 and $1; 10
@@ -178,6 +178,7 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   mainTable[28] = 0x8640
   mainTable[26] = 0x8640
   mainTable[27] = 0x8e40
+  mainTable[31] = mainTable[103] = 0x9200
   for (const id of [20, 21, 22, 23, 24, 25]) mainTable[id] = 0x8640
   const words = (t: number[]) => t.flatMap(w => [w & 0xff, w >> 8])
   put(0x018170 + 11, words(initTable))
@@ -257,6 +258,8 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   put(0x018e40, [0xac, 0x81, 0x06, 0xa9, 0x02, 0x99, 0x82, 0x06, 0xa9, 0xd1, 0x99, 0x83, 0x06, 0xa9, 0xff, 0x99, 0x84, 0x06, 0xa9, 0x03, 0x99, 0x85, 0x06, 0xa9, 0x00, 0x99, 0x86, 0x06, 0x98, 0x18, 0x69, 0x04, 0x8d, 0x81, 0x06, 0x60]) // prettier-ignore
   // id 30 INIT: burns 196,608 steps (65,536 x DEY, NOP, BNE: under the 200,000 per-call budget) and leaves status 1, so the game retries it every frame.
   put(0x019100, [0xc2, 0x10, 0xa0, 0x00, 0x00, 0x88, 0xea, 0xd0, 0xfc, 0xe2, 0x10, 0xa9, 0x01, 0x9d, 0xc8, 0x14, 0x60]) // prettier-ignore
+  // ids 31 and 103 (the id the runner treats as line-guided): draw one 16x16 piece at the sprite's X, THEN move X by +4, as the grinder's MAIN draws before its line step.
+  put(0x019200, [...draw([0xa9, 0x24, 0x99, 0x02, 0x03], [0xa9, 0x0a, 0x99, 0x03, 0x03]).slice(0, -1), 0xb5, 0xe4, 0x18, 0x69, 0x04, 0x95, 0xe4, 0x60]) // prettier-ignore
   // INIT routines that leave status 9, 0 and 1.
   for (const [addr, status] of [
     [0x018730, 9],

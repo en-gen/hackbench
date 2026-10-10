@@ -428,6 +428,14 @@ function uploadsOf(m: Machine, before: Map<number, number>): string[] {
 /** Debug hook: sees WRAM after INIT (pass -1) and after each MAIN pass. */
 export type Probe = (pass: number, wram: Uint8Array) => void
 
+/**
+ * Sprites whose MAIN draws BEFORE it moves, and whose first move snaps them onto their line: the
+ * grinder draws (CODE_01DC0B) and only then runs CODE_01D74D (bank_01.asm:12194-12204), whose
+ * CODE_01D8A4 stores the winning probe corner into its X/Y (bank_01.asm:12045). The first draw is at the
+ * spawn position, which is not on the track; the first draw after the snap is. #126.
+ */
+const DRAWS_BEFORE_LINE_SNAP: ReadonlySet<number> = new Set([0x67])
+
 /** Run once with a seed; no dependsOn analysis (half the cost of `runSprite`). */
 export function runOnce(
   rom: RomFile,
@@ -501,6 +509,7 @@ export function runOnce(
     if (st === 1)
       return { ...model, refusal: `INIT did not complete in ${MAX_INIT_FRAMES} frames: status stays 1, waiting on state the seed lacks` } // prettier-ignore
     const anchor = m.pos()
+    const snaps = DRAWS_BEFORE_LINE_SNAP.has(id)
     model.anchor = { ...anchor, rawX: m.seed.sprite.x, rawY: m.seed.sprite.y }
     model.oamBase = w[RAM.oamIndex + m.seed.slot]
     probe?.(-1, w)
@@ -514,10 +523,12 @@ export function runOnce(
       m.frame()
       model.steps.push(m.steps - n)
       probe?.(p, w)
+      // Where this pass's draw ran: the position the previous pass left (a draw precedes its own move).
+      const at = snaps ? (model.passes[p - 1]?.pos ?? anchor) : anchor
       model.passes.push({
         pass: p,
         pos: m.pos(),
-        parts: readParts(m, anchor),
+        parts: readParts(m, at),
         uploads: uploadsOf(m, hw),
         palette: m.paletteWrites(),
       })
@@ -525,6 +536,11 @@ export function runOnce(
     if (m.bus.inputs) model.inputs = [...m.bus.inputs].sort((a, b) => a - b)
     const first = model.passes.findIndex(p => p.parts.length > 0)
     if (first >= 0) model.chosen = first
+    // The pass after the first draw, when it draws too, and the anchor its draw used (the box follows the body).
+    if (snaps && first >= 0 && model.passes[first + 1]?.parts.length) {
+      model.chosen = first + 1
+      model.anchor = { ...model.anchor!, ...model.passes[first]!.pos }
+    }
     if (model.passes.every(p => p.parts.length === 0))
       model.emptyReason = `drew no OAM tile in ${m.seed.mainPasses} passes (invisible by design, or the seed lacks state)` // prettier-ignore
   } catch (e) {
