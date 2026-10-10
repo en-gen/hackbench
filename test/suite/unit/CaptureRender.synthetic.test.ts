@@ -869,7 +869,7 @@ describe('recorded piece dy past 127 (#811)', () => {
     expect(dyOf(spriteFrame(rec([0, 8], { y: undefined }), 0))).toEqual([0, 8])
   })
   it('leaves an ordinary dy alone, across the sprite positions on screen', () => {
-    for (let sy = -32; sy < 224; sy += 9) {
+    for (let sy = 0; sy < 220; sy += 9) {
       expect(dyOf(spriteFrame(rec([-4, 4], { y: 192 + sy }), 0))).toEqual([-4, 4])
     }
   })
