@@ -7,6 +7,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
+import type { DataBanks } from '../../../src/rom/DataBanks'
 import {
   createGrid,
   expandMapOwned,
@@ -793,13 +794,13 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
       expect(expand(rom, 0x35).unverified).toEqual([])
     })
 
-    it('refuses a JSL bank that is not $0D or its $8D mirror: one bit off $8D, bits 0-6', () => {
+    it('reads the object code from whatever bank the loader JSL names: bits 0-6 off $8D find no code there, so the port is drawn', () => {
       const passed: number[] = []
       for (let k = 0; k < 7; k++) {
         const rom = prodCart({ loader: loaderBytes([lo(ENTRY), hi(ENTRY), 0x8d ^ (1 << k)]) })
         const r = expand(rom, 0x35)
         const drawsPort = JSON.stringify(r.grid) === JSON.stringify(port(rom, 0x35))
-        if (!/loader/.test(r.unverified[0] ?? '') || !drawsPort) passed.push(k)
+        if (r.unverified.length !== 1 || !drawsPort) passed.push(k)
       }
       expect(passed).toEqual([])
     })
@@ -814,17 +815,48 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
       for (const part of ['branch', 'call', 'loader'] as const)
         for (let i = 0; i < stock[part].length; i++)
           for (let bit = 0; bit < 8; bit++) {
-            // The JSL's bank byte may be its $8D mirror: bit 7 of that byte is not a difference.
-            if (part === 'loader' && i === 5 && bit === 7) continue
+            // The JSL's bank byte is the recorded bank, not a pinned byte: the test above covers it.
+            if (part === 'loader' && i === 5) continue
             const bytes = stock[part].slice()
             bytes[i] ^= 1 << bit
             const rom = prodCart({ [part]: bytes })
             const r = expand(rom, 0x35)
             const drawsPort = JSON.stringify(r.grid) === JSON.stringify(port(rom, 0x35))
-            const want = part === 'loader' ? (i >= 3 && i <= 5 ? JSL : ROUTINE) : SITE_MESSAGE[part]
+            const want = part === 'loader' ? (i >= 3 && i <= 4 ? JSL : ROUTINE) : SITE_MESSAGE[part]
             if (!want.test(r.unverified[0] ?? '') || !drawsPort) passed.push(`${part}[${i}]^${bit}`) // prettier-ignore
           }
       expect(passed).toEqual([])
+    })
+
+    describe('the recorded bank is what the interpreter reads (#755)', () => {
+      const withBanks = (rom: RomFile, objectCode: DataBanks['objectCode']) =>
+        RomFile.fromBytes(rom.filePath, rom.buffer, { objectCode })
+
+      it('draws from the interpreter with the recorded vanilla bank, and the control differs by the bank alone', () => {
+        const r = expand(withBanks(good(), { bank: 0x0d }), 0x35)
+        expect(lips(r.grid)).toEqual(STAIRS)
+        expect(r.unverified).toEqual([])
+      })
+
+      it('a planted wrong bank sends the read to bytes that are not code: refused, port drawn', () => {
+        const planted = withBanks(good(), { bank: 0x0e })
+        const r = expand(planted, 0x35)
+        expect(r.unverified).toHaveLength(1)
+        expect(r.grid).toEqual(port(planted, 0x35))
+      })
+
+      it('a bank recorded as not found refuses with its reason, drawing the port', () => {
+        const rom = withBanks(good(), { notFound: 'because I said so' })
+        const r = expand(rom, 0x35)
+        expect(r.unverified[0]).toMatch(/because I said so/)
+        expect(r.grid).toEqual(port(rom, 0x35))
+      })
+
+      it('the recorded bank wins over the loader bytes', () => {
+        // Loader says $8D (a mirror that works); the record says $0E (empty): the record is read.
+        const rom = withBanks(prodCart({ loader: loaderBytes([lo(ENTRY), hi(ENTRY), 0x8d]) }), { bank: 0x0e }) // prettier-ignore
+        expect(expand(rom, 0x35).unverified).toHaveLength(1)
+      })
     })
 
     it('refuses a cart where the loader routine is absent', () => {

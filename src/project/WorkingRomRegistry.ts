@@ -15,6 +15,8 @@ import { openProject, Project, RomIdentity, romIdentity } from './Project'
 import { readRomBounded } from './BoundedRead'
 import { RomRegistry } from './RomRegistry'
 import { RomFile } from '../rom/RomFile'
+import type { DataBanks } from '../rom/DataBanks'
+import { resolveDataBanks } from './DataBanksConfig'
 import { GfxCharEdit, GfxRefusal } from '../rom/GfxLayer'
 import { Layer, WorkingRom } from './WorkingRom'
 import {
@@ -45,6 +47,8 @@ export interface WorkingRomEntry {
   working: WorkingRom
   romPath: string
   project: Project
+  /** Detected on the base ROM, hand edits applied (meta/data-banks.json); a reader attaches it to the RomFile it builds. */
+  dataBanks: DataBanks
 }
 
 export type WorkingRomResult =
@@ -282,6 +286,7 @@ export class WorkingRomRegistry {
 
     let romPath: string
     let working: WorkingRom
+    let dataBanks: DataBanks
     let stamp: { key: string; takenAt: number }
     let wasWaiting: boolean
     try {
@@ -303,6 +308,8 @@ export class WorkingRomRegistry {
       wasWaiting = this.waiting.has(manifestPath)
       romPath = resolved.path
       const rom = RomFile.fromBytes(romPath, Buffer.from(resolved.bytes))
+      // From the BASE bytes, before the working copy takes the buffer over: a patch layer never moves the config.
+      dataBanks = resolveDataBanks(manifestPath, rom, project.baseRom.sha256)
       working = new WorkingRom(rom.buffer, rom.hasHeader)
       const persisted = persistedOps(project.directory)
       working.restore(persisted.applied)
@@ -316,7 +323,7 @@ export class WorkingRomRegistry {
     // Only now: a failed build above must leave the project waiting, so the
     // get that finally builds it still announces.
     this.waiting.delete(manifestPath)
-    const entry: WorkingRomEntry = { working, romPath, project }
+    const entry: WorkingRomEntry = { working, romPath, project, dataBanks }
     this.cache.set(manifestPath, entry)
     this.stamps.set(manifestPath, stamp)
     // A rebuild strands every view holding the old instance (see above).

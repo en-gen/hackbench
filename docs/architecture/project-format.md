@@ -65,6 +65,7 @@ MyHack/
                      data, not ROM content; see SaveStore.ts)
   meta/              user metadata, one JSON file per concern
     aliases.json     user-supplied names (ROM ids to names; see Aliases.ts)
+    data-banks.json  where the ROM keeps the code HackBench reads (DataBanksConfig.ts)
 ```
 
 `ops/`, `export/` and `meta/` are created on first use. `levels/` and
@@ -76,6 +77,18 @@ is `ops/`.
 The manifest holds project identity: the base ROM plus the hack's name,
 title, summary, authors and version. `meta/` holds user metadata that never
 becomes ROM bytes, one JSON file per concern, through `ProjectMeta.ts`.
+
+`meta/data-banks.json` is detect once, hand edit wins (#755). Opening the
+project reads the loader's long jump in the BASE ROM to find the layer 1
+object code bank (`DataBanks.ts`) and writes `{ "version": 1, "rom": "<base sha256>",
+"banks": { "objectCode": "$0D" } }`, or `{ "notFound": "<reason>" }` when the
+jump does not look like the loader's. Detection fills only an absent entry;
+a value already in the file always wins, so a person can correct it by hand.
+A file whose `rom` is a different base ROM is rewritten. A value that is not
+`$00`-`$FF` hex, or a file that is not valid, refuses with a reason naming
+the file, and the layer 1 drawing falls back to its port instead of guessing.
+The backend reads the file when it builds the working copy, so an edit shows
+on the next project open.
 
 ## What a layer looks like
 

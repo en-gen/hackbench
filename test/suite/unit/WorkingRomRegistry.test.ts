@@ -92,6 +92,21 @@ describe('WorkingRomRegistry', () => {
     expect(r.status).toBe('rom-not-located')
   })
 
+  it('records the data banks from the BASE ROM on build; a hand edit wins on the next build (#755)', () => {
+    const { manifestPath } = makeProject()
+    const file = path.join(path.dirname(manifestPath), 'meta', 'data-banks.json')
+    const first = working.get(manifestPath)
+    if (first.status !== 'ok') throw new Error('not ok')
+    expect(first.dataBanks.objectCode).toHaveProperty('notFound') // the fake cart has no loader
+    const config = JSON.parse(fs.readFileSync(file, 'utf8'))
+    expect(config.rom).toBe(first.project.baseRom.sha256)
+
+    config.banks.objectCode = '$8D'
+    fs.writeFileSync(file, JSON.stringify(config))
+    const again = new WorkingRomRegistry(romRegistry).get(manifestPath)
+    expect(again.status === 'ok' && again.dataBanks.objectCode).toEqual({ bank: 0x8d })
+  })
+
   it('setWord records one persisted edit layer and updates bytes()', () => {
     const { manifestPath } = makeProject()
     const r1 = working.setWord(manifestPath, {

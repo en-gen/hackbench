@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The layer 1 object code bank is located from the ROM's own loader jump when a project opens and recorded in an editable `meta/data-banks.json`; a hand edit wins over detection and a failed detection says why (#755).
+
 ### Changed
 
 - Tech-lead session titles are now "<Team> Team" (e.g. "Delta Team"), in the tech-lead manual and the unregistered-session hook text.

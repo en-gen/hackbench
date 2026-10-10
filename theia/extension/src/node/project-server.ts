@@ -262,6 +262,8 @@ export class ProjectServiceImpl implements ProjectService {
   private located(manifestPath: string): Exclude<WorkingRomResult, { status: 'unreadable' }> {
     const r = this.workingRoms.get(manifestPath)
     if (r.status === 'unreadable') throw new Error(r.reason)
+    // The map models read the loader's object code bank from the project's config, keyed by these bytes.
+    if (r.status === 'ok') this.screens.useBanks(r.working.bytes(), r.dataBanks)
     return r
   }
 
