@@ -292,6 +292,7 @@ line changed per row, synthetic ROMs, no corpus needed.
 | Classify an unknown target as objects             | 4         |
 | `buildL2Inputs`: drop the "uploads no L2" refusal | 1         |
 | `buildL2Inputs`: drop the pointer-bank check      | 3         |
+| `buildL2Inputs`: mask the mode with `$0F`         | 1         |
 
 ### `src/rom/MusicData.ts` - level music table
 

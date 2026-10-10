@@ -46,6 +46,12 @@ describe('readL2UploaderTable (synthetic)', () => {
     for (let m = 0; m < 32; m++) expect(k[m], `mode ${m}`).toBe(plantedKind(m))
   })
 
+  it('modes m and m + 16 are told apart (the mode is masked with $1F, not $0F)', () => {
+    const k = kinds(fresh())
+    expect(Array.from({ length: 16 }, (_, m) => k[m] !== k[m + 16]).some(Boolean)).toBe(true)
+    expect(k.slice(16)).toEqual(Array.from({ length: 16 }, (_, m) => plantedKind(m + 16)))
+  })
+
   it('classifies by the target bytes, so a relocated routine still reads', () => {
     const rom = fresh()
     rom.writeAt(0x068000, Array.from(rom.readAt(IMAGE_AT, 14)!))

@@ -16,9 +16,12 @@ export const OBJ_B_AT = 0x07c000
 export const NONE_AT = 0x07d000
 
 export type PlantedKind = 'image' | 'objects' | 'none'
-/** Mode % 4: 0 image, 1 and 3 objects, 2 nothing; every kind appears, interleaved. */
+/**
+ * `(mode + bit 4) % 4`: every kind appears, interleaved, and mode m differs from m + 16, so a
+ * reader that masks the mode with $0F instead of $1F is caught.
+ */
 export const plantedKind = (mode: number): PlantedKind =>
-  (['image', 'objects', 'none', 'objects'] as const)[mode % 4]!
+  (['image', 'objects', 'none', 'objects'] as const)[(mode + (mode >> 4)) % 4]!
 
 const long = (a: number) => [a & 0xff, (a >> 8) & 0xff, (a >> 16) & 0xff]
 // prettier-ignore
