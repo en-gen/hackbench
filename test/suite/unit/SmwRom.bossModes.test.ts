@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom, ADDR, LEVEL_COUNT } from '../../../src/rom/SmwRom'
 import { buildLevelCatalog } from '../../../src/rom/LevelCatalog'
+import { loromFromOffset } from '../../../src/rom/addressing'
 import { readBossModes } from '../../../src/rom/LevelTableGate'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
 
@@ -25,12 +26,47 @@ function bossCheck(modes: [number, number, number], beq = [0x53, 0x4f, 0x4b]): n
   ] // prettier-ignore
 }
 
-function makeRom(opts: { check?: number[] | null; copies?: number } = {}): RomFile {
+const LAYER_PROC = [0x28, 0x19] // STZ.W operand shared by the entry and LoadLevelDone
+const BASE = 12 // the check's offset from the entry
+const NO_CALLER = Symbol('no caller')
+
+/** PHP / SEP #$30 / STZ.W / JSR / JSR, ahead of the check (bank_05.asm:425-429). */
+function loaderEntry(): number[] {
+  return [0x08, 0xe2, 0x30, 0x9c, ...LAYER_PROC, 0x20, 0x10, 0x84, 0x20, 0xfb, 0x81] // prettier-ignore
+}
+/** LoadLevelDone (bank_05.asm:474-477): STZ.W / PLP / RTS. */
+const DONE = [0x9c, ...LAYER_PROC, 0x28, 0x60]
+
+function makeRom(
+  opts: {
+    check?: number[] | null
+    copies?: number
+    entry?: number[]
+    done?: number[]
+    callerTarget?: number | typeof NO_CALLER
+    callers?: number
+  } = {},
+): RomFile {
   const buf = Buffer.alloc(0x400000, 0x00)
   buf[0x7fd5] = 0x20
   const rom = new RomFile('mock.smc', buf)
   const check = opts.check === undefined ? bossCheck([0x09, 0x0b, 0x10]) : opts.check
-  if (check) for (let c = 0; c < (opts.copies ?? 1); c++) rom.writeAt(CHECK_AT + c * 0x100, check)
+  if (check) {
+    for (let c = 0; c < (opts.copies ?? 1); c++) {
+      const at = CHECK_AT + c * 0x100
+      rom.writeAt(at, opts.entry ?? loaderEntry())
+      rom.writeAt(at + BASE, check)
+      // The BEQs' common target, relative to the check's first byte.
+      const target = BASE + 7 + ((check[6]! << 24) >> 24)
+      if (target >= BASE + check.length) rom.writeAt(at + target, opts.done ?? DONE)
+    }
+    // The caller: STZ.W LevelLoadObject / JSR entry / SEP #$30 / LDA.W (bank_05.asm:66-69).
+    const callAt = loromFromOffset(CHECK_AT)! & 0xffff
+    const tgt = opts.callerTarget === undefined ? callAt : opts.callerTarget
+    for (let n = 0; tgt !== NO_CALLER && n < (opts.callers ?? 1); n++) {
+      rom.writeAt(CHECK_AT - 0x40 - n * 0x10, [0x9c, 0x30, 0x19, 0x20, tgt & 0xff, tgt >> 8, 0xe2, 0x30, 0xad]) // prettier-ignore
+    }
+  }
   rom.writeAt(ADDR.LEVEL_L1_PTR, [0x00, 0x80, 0x06])
   return rom
 }
@@ -131,10 +167,43 @@ describe('levelHasObjects boss modes (#695)', () => {
     expect(readBossModes(makeRom({ check })).ok).toBe(false)
   })
 
+  it('refuses a common target whose bytes loop back (BRA -8), not LoadLevelDone', () => {
+    // Target 21 holds 80 F8: BRA to the Layer-1 read. Distance alone would accept it.
+    const check = bossCheck([0x09, 0x0b, 0x10], [0x0e, 0x0a, 0x06])
+    expect(readBossModes(makeRom({ check, done: [0x80, 0xf8, 0x28, 0x60] })).ok).toBe(false)
+  })
+
+  it.each([
+    ['PLP RTS without the STZ', [0xea, 0xea, 0xea, 0x28, 0x60]],
+    ['STZ to another address', [0x9c, 0x29, 0x19, 0x28, 0x60]],
+    ['no RTS', [0x9c, ...LAYER_PROC, 0x28, 0xea]],
+  ])('refuses a target that is not LoadLevelDone: %s', (_what, done) => {
+    expect(readBossModes(makeRom({ done })).ok).toBe(false)
+  })
+
+  it('refuses a check whose entry bytes are not the LoadLevel prologue', () => {
+    const entry = loaderEntry()
+    entry[1] = 0xc2 // REP, not SEP
+    expect(readBossModes(makeRom({ entry })).ok).toBe(false)
+  })
+
+  it('refuses a check that nothing calls (the loader entry has no call site)', () => {
+    expect(readBossModes(makeRom({ callerTarget: NO_CALLER })).ok).toBe(false)
+  })
+
+  it('refuses a check whose only call site is retargeted elsewhere', () => {
+    const target = (loromFromOffset(CHECK_AT)! & 0xffff) + 0x40
+    expect(readBossModes(makeRom({ callerTarget: target })).ok).toBe(false)
+  })
+
+  it('refuses a check whose entry has two call sites (the route is not unique)', () => {
+    expect(readBossModes(makeRom({ callers: 2 })).ok).toBe(false)
+  })
+
   it('re-reads after the ROM is edited', () => {
     const rom = makeRom()
     expect(readBossModes(rom).ok).toBe(true)
-    rom.writeAt(CHECK_AT + 4, [0x08]) // first CMP immediate
+    rom.writeAt(CHECK_AT + BASE + 4, [0x08]) // first CMP immediate
     const r = readBossModes(rom)
     expect(r.ok && [...r.modes].sort((a, b) => a - b)).toEqual([0x08, 0x0b, 0x10])
   })
