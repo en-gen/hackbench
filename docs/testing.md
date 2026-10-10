@@ -450,10 +450,16 @@ lies inside the captures folder.
 The sprite grader has two tiers against these captures. Tier 1
 (`spriteGrade.ts`) grades OAM shape relative to the sprite. Tier 2
 (`spritePosition.ts`, `SpritePosition.test.ts`, #830) grades where the
-pieces sit on the map: the model's first drawn pass against the capture's
-first OAM write, both as screen position plus that side's camera. It reports
-exact, off and missing per sprite and holds floors (vanilla, one machine,
-2026-10-10: 513 exact, 1381 off, 63 missing of 1957).
+pieces sit on the map: the capture's drawing at `drawnFrame` (the first frame
+with every tile complete, not the first OAM write) against the model's pass
+`chosen + (drawnFrame - firstRealFrame)`, which is 3 to 15 frames on. Both
+sides are placed with the capture camera, which the model is seeded with, so
+position is compared in map coordinates and the camera does not affect the
+result. Graded captures never set X bit 8; the 9-bit X is synthetic-only
+coverage. It reports exact, off, missing, lagged (target pass past the pass
+count) and refused per sprite and per id (`SPRITE_POSITION_OUT=<file>` dumps
+the records) and holds floors (vanilla, one machine, 2026-10-10: 1307 exact,
+527 off, 41 missing, 82 lagged, 0 refused of 1957).
 
 A map's result comes from its Foreground, Background and Effects checks;
 Sprites are informational and never decide it. Exit codes:
