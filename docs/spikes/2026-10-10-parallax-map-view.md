@@ -4,7 +4,30 @@ Issue #848, owner decision D32 (2026-10-10): "explore if there's a logical way
 to do the parallax". An exploration, not a build. No production code changed;
 the two probes behind the numbers were throwaway scripts, not committed.
 
+## Ruled 2026-10-10 (Brian), D48
+
+The owner ruled on the three open questions. The recommendations below are
+kept as history and marked superseded.
+
+- Parallax: option **C**. Whole-map, scroll-anchored. #503 stands as written;
+  #521 stays a separate issue. This overrules the [PROP] B below.
+- Editing, verbatim: "There will be no live editing of backgrounds in the map
+  editor". In plain words: layer 2 is never clicked or edited in the map
+  editor, so no hit-test inversion is needed for it (Q4 and C's "editing must
+  invert the shift" no longer apply).
+- Gutter, new option **H**, verbatim: "I want half a screen width of gutter on
+  each end with ui to add a screen. The background should fade in a gradient to
+  the edges". In plain words:
+  - 128 map pixels on each end, scaling with zoom.
+  - Add-after ships first; add-before is a separate issue.
+  - The add control is hidden at 32 screens.
+- Prerequisite: C missed the 5 ms budget in Q5 (12 to 16 ms per screen), so C
+  carries a renderer-speed prerequisite; #503 is blocked on that work.
+
 ## Bottom line
+
+**Superseded by D48 (above): C for parallax, no layer 2 editing, gutter H.**
+The text below is the spike's original conclusion, kept as history.
 
 There is a logical way, and it is a **preview camera, not a change to the map
 picture**. The map view stays what ruling 5 made it (load-time data, layer 2
@@ -248,7 +271,7 @@ the speed work. #521: built as B.
 
 ### Recommendation
 
-**[PROP] B.** It is the only option that meets the budget today, keeps ruling 5
+**[PROP] B (superseded by D48: the owner chose C).** It is the only option that meets the budget today, keeps ruling 5
 intact, and gives "a logical way" a concrete shape: a camera, with every rate
 read from the ROM. File a follow-up to settle the vertical calibration with a
 core trace before the rate 3 case ships.
@@ -357,13 +380,30 @@ and a label without covering map content. `[INF]` (a design size, not measured.)
   shows; recompose per scroll, the cost of C. Breaks ruling 1.
 - #503: revived as its prerequisite, blocked on the speed work. #521: unaffected.
 
+#### H. Half-screen zoom-scaled gutter with a fading background (ruled, D48)
+
+The owner's option: 128 map pixels (half a screen) on each end, add-screen UI
+in it, and the background fading out in a gradient toward the edges.
+
+- Differs from F: F is 64 constant screen pixels and empty; H is 128 map pixels
+  and shows background. Differs from G2's fixed shape: H is the zoom-scaled
+  shape, so it is a few pixels at fit zoom and shifts hit tests and anchors by
+  128 map pixels.
+- Differs from G: G draws layer 2 and 3 past the bounds without limit; H draws
+  only 128 px, faded, so the repeat or missing data (G1) is mostly masked.
+- Pros: matches the owner's picture. Cons: needs C's scroll-anchored drawing
+  and its speed prerequisite; for an object-stream layer 2 there is still no
+  data past the end, so the fade must go to empty, not to guessed tiles
+  (ruling 2).
+- Add-after ships first; add-before is separate (G3). Control hidden at 32.
+
 How they combine with A to D: the gutter is orthogonal. E and F work with any of
 A, B, C or D, because neither draws layer 2 or 3. G only makes sense with C or D
 (scroll-anchored drawing) and inherits their budget miss (Q5).
 
 ### Recommendation
 
-**[PROP] F, with B.** Fixed empty gutter, actions only, hidden at 32 screens;
+**[PROP] F, with B (superseded by D48: the owner chose H, with C).** Fixed empty gutter, actions only, hidden at 32 screens;
 append ships first, prepend as a later issue because it rewrites every screen
 reference. The background is not extended: the game never shows it, and the only
 data there is a repeat or nothing.
