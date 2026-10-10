@@ -3858,7 +3858,7 @@ export function handle_0DB9C0(cur: Cursor): void {
  * DATA_0DBA44[X] (page 1), and all following rows use DATA_0DBA48[X].
  *
  * Size byte: HHHHVVVV
- *   V (low nibble, X)  = the full nibble (0-15) indexing both tables.
+ *   V (low nibble, X)  = size AND the AND #imm at +5 (vanilla #$0F), indexing both tables.
  *   H (high nibble)    = count (H rows written below the top).
  *
  * Body cells keep the cell's own high byte when the BPL is taken: Sta1To6ePointer

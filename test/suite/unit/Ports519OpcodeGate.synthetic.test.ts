@@ -33,7 +33,7 @@ function cartWith(plants: [number, number[]][]): RomFile {
   return new RomFile('synthetic.sfc', buf)
 }
 
-const top = Array.from({ length: 16 }, (_, i) => 0x20 + i)
+const top = Array.from({ length: 32 }, (_, i) => 0x20 + i)
 const body = Array.from({ length: 16 }, (_, i) => 0x40 + i)
 
 /** 0DBA4C's gated bytes: [offset, opcode]. */
@@ -55,7 +55,7 @@ const plantsBA = (addr: number, imm = 2, mask = 0x0f): [number, number[]][] => [
 ]
 
 const FILL = 0x7e
-const cap = [0x60, 0x61, 0x62, 0x63]
+const cap = [0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67]
 const edge = [0x50, 0x51, 0x52, 0x53]
 const C3_PINS: [number, number][] = [
   [8, 0x29],
@@ -142,18 +142,26 @@ describe('X masks come from the AND #imm (#519)', () => {
     const { grid } = run(cartWith(plantsBA(RELOCATED, 2, 0x07)), handle_0DBA4C, RELOCATED, 0x1a)
     expect(grid[ROW][COL]).toBe(0x100 | top[2])
   })
+  it('0DBA4C: AND #$1F at +5 makes size $1A read entry $1A (a hardcoded &$0F would read 10)', () => {
+    const { grid } = run(cartWith(plantsBA(RELOCATED, 2, 0x1f)), handle_0DBA4C, RELOCATED, 0x1a)
+    expect(grid[ROW][COL]).toBe(0x100 | top[0x1a])
+  })
   it('0DC3D8: AND #$01 at +9 makes size $02 read entry 0', () => {
     const { grid } = run(cartWith(plantsC3(RELOCATED, 0x01)), staircaseVariantB, RELOCATED, 0x02)
     expect(grid[ROW][COL]).toBe(0x100 | cap[0])
   })
+  it('0DC3D8: AND #$07 at +9 makes size $06 read cap entry 6 (a hardcoded &$03 would read 2)', () => {
+    const { grid } = run(cartWith(plantsC3(RELOCATED, 0x07)), staircaseVariantB, RELOCATED, 0x06)
+    expect(grid[ROW][COL]).toBe(0x100 | cap[6])
+  })
 })
 
-describe('a pinned read past the end of the cart refuses with "nothing" (#519)', () => {
+describe('a pinned read just past the 512 KiB cart refuses with "nothing" (#519)', () => {
   it.each([
     ['0DBA4C', handle_0DBA4C, 4, 0x29],
     ['0DC3D8', staircaseVariantB, 8, 0x29],
   ] as const)('%s', (_n, handler, off, op) => {
-    const addr = 0x0ffffe - off + 0x100 // handler+off lands beyond the 512 KiB cart
+    const addr = 0x108000 - off // the pinned read lands at $10:8000 = file offset 0x80000, the first byte past the cart
     const { grid, unverified } = run(cartWith([]), handler, addr, 0x12)
     expect(grid).toEqual(blank())
     expect(unverified).toHaveLength(1)
