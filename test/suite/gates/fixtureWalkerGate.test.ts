@@ -20,7 +20,7 @@ const GATES = __dirname
 
 /** A recursive walker: reads a directory with entry types, then recurses. */
 const WALKS = /readdirSync\([^)]*withFileTypes/
-export function unguardedWalkers(files: Record<string, string>): string[] {
+function unguardedWalkers(files: Record<string, string>): string[] {
   return Object.entries(files)
     .filter(([, text]) => WALKS.test(text) && !text.includes('__fixtures__'))
     .map(([name]) => name)
