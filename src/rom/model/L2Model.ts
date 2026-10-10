@@ -50,10 +50,10 @@ function withPaletteOr(tiles: readonly Map16Tile[], mask: number): Map16Tile[] {
 
 /** Read one map's L2, or why it cannot be read. Never a vanilla fallback. */
 export function buildL2Inputs(rom: SmwRom, index: number, l1: L1Inputs): L2Result {
-  const { screenCount: screens, isVertical, header } = l1
   const refuse = (reason: string): L2Result => ({ ok: false, reason })
   const ptr = readL2Pointer(rom.rom, index)
   if (ptr === null) return refuse(`The L2 pointer of map ${hex3(index)} is outside the ROM`)
+  const { screenCount: screens, isVertical, header } = l1
   // The level-start relation `Layer1YPos - Layer2YPos`, the view's representative frame; later
   // vertical scrolling moves L2 against L1 when VertLayer2Setting != 1. The high bytes follow the
   // ScreenMode the entry code builds from F600 bits 5-6 (bank_05.asm:7292-7299, 7379-7381), not the

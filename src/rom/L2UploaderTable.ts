@@ -55,6 +55,8 @@ const RTL: BytePattern = [0x6b] // Return058C70
 const cartOffset = (rom: RomFile, snes: number): number | null =>
   loromToOffset(snes, rom.romSize, false)
 
+const long = (b: Uint8Array, i: number): number => b[i]! | (b[i + 1]! << 8) | (b[i + 2]! << 16)
+
 const cache = new WeakMap<RomFile, { version: number; value: L2UploaderTable }>()
 
 /** The 32 per-mode uploader kinds, or why the dispatch cannot be read. */
@@ -75,21 +77,20 @@ function compute(rom: RomFile): L2UploaderTable {
   const caller = findExactlyOneSite(rom, CALLER, 'the strip loop that calls the L2 uploader (bank_05.asm:111-114)') // prettier-ignore
   if (!caller.ok) return caller
   const call = rom.readAtFileOffset(caller.offset + CALL_OFF, 4)!
-  const siteAt = cartOffset(rom, call[1]! | (call[2]! << 8) | (call[3]! << 16))
+  const siteAt = cartOffset(rom, long(call, 1))
   if (siteAt === null || !matchesAt(rom, siteAt, SITE)) {
     return { ok: false, reason: `${WHAT} is not present on this ROM` }
   }
-  const site = { offset: siteAt }
-  const jsl = rom.readAtFileOffset(site.offset + JSL_OFF, 4)!
-  const exec = cartOffset(rom, jsl[1]! | (jsl[2]! << 8) | (jsl[3]! << 16))
+  const jsl = rom.readAtFileOffset(siteAt + JSL_OFF, 4)!
+  const exec = cartOffset(rom, long(jsl, 1))
   if (exec === null || !matchesAt(rom, exec, EXEC_PTR_LONG)) {
     return { ok: false, reason: `${WHAT} no longer calls ExecutePtrLong` }
   }
-  const raw = rom.readAtFileOffset(site.offset + TABLE_OFF, MODES * 3)
+  const raw = rom.readAtFileOffset(siteAt + TABLE_OFF, MODES * 3)
   if (raw === null) return { ok: false, reason: `${WHAT} has no pointer table after it` }
   const entries: L2UploaderEntry[] = []
   for (let m = 0; m < MODES; m++) {
-    const target = raw[m * 3]! | (raw[m * 3 + 1]! << 8) | (raw[m * 3 + 2]! << 16)
+    const target = long(raw, m * 3)
     entries.push({ kind: classify(rom, target), target })
   }
   return { ok: true, entries }
