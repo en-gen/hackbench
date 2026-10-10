@@ -3,7 +3,7 @@
  * cart (#773). A $25 entry in their tables skips the low-byte store, but
  * StzTo6ePointer (bank_0D.asm:2112-2114) has already zeroed the cell's high
  * byte at [Map16HighPtr],Y, so the cell is still written: low byte kept, page 0
- * (call sites bank_0D.asm:1696-1697, 1725-1726, 4797-4803). A port that only
+ * (call sites bank_0D.asm:1695, 1724; $84 skip bank_0D.asm:4804-4808). A port that only
  * sets its page leaves a page-1 cell under a skipped entry on page 1, and
  * leaves a blank cell unwritten where the interpreter writes $25.
  *
@@ -11,7 +11,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
-import { createGrid, TILE_EMPTY } from '../../../src/rom/ObjectExpander'
+import { TILE_EMPTY } from '../../../src/rom/ObjectExpander'
 import {
   OWNER_NONE,
   makeCursor,
@@ -49,29 +49,49 @@ const tableFor = (s: Shape): number[] =>
     i % 3 === 1 && i % s.cols !== s.cols - 1 ? TILE_EMPTY : 0x30 + (i % 0x10),
   )
 
-const cart = (s: Shape): RomFile => {
+const cart = (s: Shape, table: number[] = tableFor(s)): RomFile => {
   const buf = Buffer.alloc(0x80000, 0x00)
   buf[0x7fd5] = 0x20
   buf.set([TABLE & 0xff, (TABLE >> 8) & 0xff, TABLE >> 16], off(s.at) + s.operand)
-  buf.set(tableFor(s), off(TABLE))
+  buf.set(table, off(TABLE))
   return new RomFile('synthetic.sfc', buf)
 }
 
+const createGridRows = (): number => recordedGrid(4).raw.length
 const COL = 20
 const ROW = 3
 const key = (row: number, col: number): number => row * 0x10000 + col
 /** Grid position of table entry i. */
-const cellOf = (s: Shape, i: number): [number, number] => [
-  ROW + Math.floor(i / s.cols),
-  COL + (i % s.cols),
+const cellOf = (s: Shape, i: number, row = ROW, col = COL): [number, number] => [
+  row + Math.floor(i / s.cols),
+  col + (i % s.cols),
 ]
 
-function draw(s: Shape, prefill: (g: TileGrid) => void = () => {}) {
+interface Opts {
+  prefill?: (g: TileGrid) => void
+  row?: number
+  col?: number
+  table?: number[]
+  rowLen?: number // truncate every grid row to this length first
+}
+
+function draw(s: Shape, o: Opts = {}) {
   const rec = recordedGrid(4)
-  prefill(rec.grid)
+  if (o.rowLen !== undefined) rec.raw.forEach(r => (r.length = o.rowLen!))
+  o.prefill?.(rec.grid)
   rec.written.clear()
   const owners = rec.raw.map(r => r.map(() => OWNER_NONE))
-  const cur = makeCursor(rec.grid, cart(s), 0, COL, ROW, s.objNo, 0, owners, 7)
+  const cur = makeCursor(
+    rec.grid,
+    cart(s, o.table),
+    0,
+    o.col ?? COL,
+    o.row ?? ROW,
+    s.objNo,
+    0,
+    owners,
+    7,
+  )
   cur.handlerAddr = s.at
   s.handler(cur)
   return { ...rec, owners }
@@ -90,7 +110,7 @@ describe.each(SHAPES)('$name: the high-byte store under a skipped entry (#773)',
     const { written } = draw(s)
     expect(sameWritten(written, expectedBlank(s))).toBe(true)
   })
-  it('the comparison goes red on a skipping port: a map without the $25 cells differs', () => {
+  it('sameWritten rejects a written map that lacks the $25 cells', () => {
     const skipping: WrittenCells = new Map(
       [...expectedBlank(s)].filter(([, v]) => v !== TILE_EMPTY),
     )
@@ -101,7 +121,7 @@ describe.each(SHAPES)('$name: the high-byte store under a skipped entry (#773)',
     const t = tableFor(s)
     const i = t.indexOf(TILE_EMPTY)
     const [r, c] = cellOf(s, i)
-    const { grid } = draw(s, g => (g[r][c] = 0x141))
+    const { grid } = draw(s, { prefill: g => (g[r][c] = 0x141) })
     expect(grid[r][c]).toBe(0x041)
   })
   it('does not make the object the owner of a cell it left blank', () => {
@@ -119,7 +139,37 @@ describe.each(SHAPES)('$name: the high-byte store under a skipped entry (#773)',
       const [r, c] = cellOf(s, i)
       expect(raw[r][c]).toBe(v)
     })
-    expect(createGrid(4)[ROW][COL - 1]).toBe(TILE_EMPTY)
     expect(raw[ROW][COL - 1]).toBe(TILE_EMPTY)
+  })
+  it.runIf(s.objNo === 0x84)(
+    'stores a $25 in the 9th column as a normal write, replacing the prior cell',
+    () => {
+      const t = tableFor(s)
+      const i = s.cols - 1 // last entry of footprint row 0
+      t[i] = TILE_EMPTY
+      const [r, c] = cellOf(s, i)
+      const { grid } = draw(s, { table: t, prefill: g => (g[r][c] = 0x141) })
+      expect(grid[r][c]).toBe(TILE_EMPTY) // a skipped store would keep $41
+    },
+  )
+  it('does not write below the last grid row', () => {
+    const last = createGridRows() - 1
+    expect(() => draw(s, { row: last })).not.toThrow()
+    const { written } = draw(s, { row: last })
+    expect([...written.keys()].every(k => Math.floor(k / 0x10000) <= last)).toBe(true)
+  })
+  it('does not write at or past column $200', () => {
+    const { written, raw } = draw(s, { col: 0x1fc })
+    expect([...written.keys()].filter(k => k % 0x10000 >= 0x200)).toEqual([])
+    expect(raw.every(r => r.length <= 0x200)).toBe(true)
+  })
+  it('pads a row shorter than the start column with $25, as writeTile does', () => {
+    const t = tableFor(s)
+    t[s.cols] = TILE_EMPTY // first entry of footprint row 1 is skipped
+    const { raw } = draw(s, { table: t, rowLen: 10, col: 12 })
+    const r = ROW + 1
+    expect(raw[r].length).toBe(12 + s.cols)
+    expect(Array.from({ length: 12 }, (_, c) => raw[r][c])).toEqual(Array(12).fill(TILE_EMPTY))
+    expect(raw[r][12]).toBe(TILE_EMPTY)
   })
 })

@@ -271,9 +271,12 @@ function claimCell(cur: Cursor): void {
  * The high-byte half of a skipped tile store: StzTo6ePointer (bank_0D.asm:2112-2114)
  * runs `STA [Map16HighPtr],Y` with A = 0 before every entry, so an entry whose
  * low-byte store is skipped (a $25 in the ext $82/$83/$84 tables,
- * bank_0D.asm:1736-1740, 4797-4803) still zeroes the cell's page and leaves its
+ * bank_0D.asm:1736-1740, 4804-4808) still zeroes the cell's page and leaves its
  * low byte, so a blank cell reads $25. Not claimed for the owner grid: no tile
- * is drawn. The interpreter agrees on the 8 vanilla cases (#773).
+ * is drawn. The interpreter's applyWrites (interpret.ts ~578-582) claims owners
+ * for every buffer write, but drawInterpreted runs standard objects only, so
+ * the owner grids are not compared today. The interpreter agrees on the 8
+ * vanilla cases (#773).
  */
 export function clearPageKeepLow(cur: Cursor): void {
   if (cur.row < 0 || cur.row >= cur.grid.length) return

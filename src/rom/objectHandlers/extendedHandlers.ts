@@ -452,8 +452,9 @@ export function handle_0DEABF(cur: Cursor): void {
  *               then advance one column.
  *
  * The $25-in check at the top matters because the data tables are padded with
- * $25 (empty) to preserve grid shape; stamping $25 on top would clobber
- * whatever terrain was drawn underneath. The $54-range blend is how the
+ * $25 (empty) to preserve grid shape; a $25 entry skips only the low-byte
+ * store (the caller's StzTo6ePointer has already cleared the page byte), so
+ * the terrain's low byte is kept. The $54-range blend is how the
  * hillside's outer cap/slope tiles merge with pre-existing ground or other
  * hill tiles.
  *
@@ -490,14 +491,15 @@ function hillsideMergeWriteAdvance(cur: Cursor, A: number): void {
  * Stamps a 9-wide × 5-tall grid of tiles from DATA_0DA6EE into the level
  * tilemap. The data is read row-major (X increments linearly through 45
  * entries). Each tile passes through the CODE_0DA78D hillside-merge helper
- * so $25 entries act as "leave cell alone" padding and out-of-range tiles
+ * so $25 entries skip the low-byte store (the page byte is still cleared)
+ * and out-of-range tiles
  * blend with whatever terrain is already at the destination.
  *
  * Used on the overworld and in grass/hill-themed levels for the large
  * hillside silhouette behind foreground terrain.
  */
 export function handle_0DA71B(cur: Cursor): void {
-  // LDA.L DATA_0DA6EE operand lives at handler +19 (opcode $BF at +18).
+  // LDA.L DATA_0DA6EE operand lives at handler +23 (opcode $BF at +22).
   // Layout:
   //   +0  LDY  LevelLoadPos           (2 bytes)
   //   +2  LDA #$08 / STA _0           (4 bytes)
@@ -1153,8 +1155,9 @@ export function handle_0DEC68(cur: Cursor): void {
 
 /**
  * CODE_0DC2E9 (bank_0D.asm line 4797) -- 14×9 page-0 grid with transparency
- * (ext $84). Tile $25 (TILE_EMPTY) in DATA_0DC26B is transparent: no write,
- * but column still advances (CODE_0DA95D = advanceCol).
+ * (ext $84). Tile $25 (TILE_EMPTY) in DATA_0DC26B skips the low-byte store
+ * (bank_0D.asm:4804-4808) but the page byte is still cleared
+ * (clearPageKeepLow); the column advances (CODE_0DA95D = advanceCol).
  * The 9th tile per row is always written.
  *
  * DATA_0DC26B operand at handler+12.
