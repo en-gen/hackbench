@@ -189,8 +189,9 @@ describe('checkBlob: content sniffing', () => {
 })
 
 describe('rom-provenance (#812): a "taken from the game" comment over an inline byte literal', () => {
-  const hit = (...lines: string[]) =>
-    rule(checkTextContent('x.ts', lines.join('\n'))).includes('rom-provenance')
+  const hitAt = (file: string, ...lines: string[]) =>
+    rule(checkTextContent(file, lines.join('\n'))).includes('rom-provenance')
+  const hit = (...lines: string[]) => hitAt('x.ts', ...lines)
   const claim = '// Vanilla $0123: an OAM entry'
 
   it('plants the reported shape (invented values) and blocks it', () => {
@@ -221,7 +222,7 @@ describe('rom-provenance (#812): a "taken from the game" comment over an inline 
   it('does not block: invented-values comment, no literal, literal too far, single element', () => {
     expect(hit('// Invented values', 'f([1, 2, 0x0a, 0x0b])')).toBe(false)
     expect(hit(claim, 'f(x)')).toBe(false)
-    expect(hit(claim, '//', '//', '//', '//', 'f([1, 2])')).toBe(false)
+    expect(hit(claim, '//', '//', '//', 'f([1, 2])')).toBe(false) // exactly 4 below
     expect(hit(claim, 'f([1])')).toBe(false)
     expect(hit('const label = "vanilla"', 'f([1, 2])')).toBe(false) // not a comment
   })
@@ -235,10 +236,42 @@ describe('rom-provenance (#812): a "taken from the game" comment over an inline 
     expect(checkTextContent('x.ts', text)).toEqual([])
   })
 
-  it('a decimal array with ONE 0x element still counts toward byte-tokens', () => {
-    // Old regex [\d\s,]+ failed on the lone 0x element and counted 0.
-    const big = Array.from({ length: 1100 }, (_, i) => i % 256).join(', ')
-    expect(rule(checkTextContent('x.ts', `[${big}, 0x0a]`))).toContain('byte-tokens')
+  it('blocks more phrasings, and a real ROM data claim', () => {
+    expect(hit('// real ROM data', 'f([1, 2])')).toBe(true)
+    expect(hit('// Vanilla 0x0123', 'f([1, 2])')).toBe(true)
+    expect(hit('// vanilla ROM at $0123', 'f([1, 2])')).toBe(true)
+    expect(hit('// from the ROM at $0123', 'f([1, 2])')).toBe(true)
+  })
+
+  it('closes the cheap bypasses', () => {
+    const trailing = ['x.set([1, 2, 3, 4])', '// vanilla $0123'].join(' ')
+    expect(hit(trailing)).toBe(true) // claim on the code line
+    expect(hit(claim, '/* x */ f([1, 2, 3, 4])')).toBe(true) // block comment is not the whole line
+    expect(hit(claim, 'f([', '  1,', '  2,', '])')).toBe(true) // one element per line
+  })
+
+  it('a literal quoted inside a comment is a citation, not a copy', () => {
+    expect(hit(claim, '// [1, 2]')).toBe(false)
+    expect(hit(claim, ' * [1, 2]')).toBe(false)
+  })
+
+  it('markdown headings and bullets are not comments', () => {
+    expect(hitAt('x.md', '# Vanilla $0123', 'f([1, 2])')).toBe(false)
+    expect(hitAt('x.md', '* copied from the table', 'f([1, 2])')).toBe(false)
+    expect(hitAt('x.md', '// Vanilla $0123', 'f([1, 2])')).toBe(true)
+  })
+
+  it('a huge unclosed literal after a claim neither throws nor hangs', () => {
+    const huge = `f([1,${'1,'.repeat(2_000_000)}`
+    expect(() => hit(claim, huge)).not.toThrow()
+    expect(hit(claim, huge)).toBe(true)
+  })
+
+  it('a decimal array with 0x elements interleaved still counts toward byte-tokens', () => {
+    // Alternating tokens are never a 0x run, so only the array rule can count them:
+    // 1200 with the fix, 600 if the 0x clause is dropped (threshold 1024).
+    const big = Array.from({ length: 600 }, () => '1, 0x0a').join(', ')
+    expect(rule(checkTextContent('x.ts', `[${big}]`))).toContain('byte-tokens')
   })
 
   it('develop-clean: no tracked text file trips rom-provenance', () => {
@@ -246,14 +279,17 @@ describe('rom-provenance (#812): a "taken from the game" comment over an inline 
       .split('\n')
       .filter(f => /\.(ts|tsx|js|mjs|cjs|md|json|css|lua|sh|yml|yaml)$/.test(f))
     const hits: string[] = []
+    let scanned = 0
     for (const f of files) {
       const full = path.join(repoRoot, f)
       if (!fs.existsSync(full)) continue
       const buf = fs.readFileSync(full)
       if (buf.includes(0)) continue
+      scanned++
       if (checkTextContent(f, buf.toString('utf8')).some(h => h.rule === 'rom-provenance'))
         hits.push(f)
     }
+    expect(scanned).toBeGreaterThan(500)
     expect(hits).toEqual([])
   })
 })

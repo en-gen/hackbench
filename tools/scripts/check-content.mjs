@@ -256,25 +256,42 @@ function countDisasmLines(text) {
   return n
 }
 
-// A comment claiming the data below came from the game (#812). Content alone
-// cannot tell a 4-byte ROM copy from an invented one; the claim can.
-const PROVENANCE_CLAIM =
-  /^\s*(?:\/\/|#|\/\*+|\*)[^\n]*\b(?:vanilla\s+\$[0-9a-f]|(?:copied|taken|lifted|dumped) from\b|ROM bytes\b|real ROM (?:bytes|data|values)\b)/i
+// A comment claiming the data near it came from the game (#812). Content
+// alone cannot tell a 4-byte ROM copy from an invented one; the claim can.
+const CLAIM_PHRASE =
+  /\b(?:vanilla\s+(?:ROM\s+)?(?:at\s+)?(?:\$|0x)[0-9a-f]|(?:copied|taken|lifted|dumped) from\b|from the (?:vanilla )?ROM\s+at\s+(?:\$|0x)[0-9a-f]|ROM bytes\b|real ROM (?:bytes|data|values)\b)/i
 const PROVENANCE_WINDOW = 3
-const COMMENT_LINE = /^\s*(?:\/\/|#|\/\*|\*)/
+// In markdown a leading # or * is a heading or bullet, not a comment.
+const COMMENT_LEAD = /^\s*(?:\/\/|#|\/\*|\*)/
+const COMMENT_LEAD_MD = /^\s*(?:\/\/|\/\*)/
 const NUM = /(?:0x[0-9a-fA-F]+|\$[0-9a-fA-F]+|\d+)/.source
-const NUMERIC_ARRAY = new RegExp(String.raw`\[\s*${NUM}(?:\s*,\s*${NUM})+\s*,?\s*\]`)
+// Opening only: a literal may run on for many lines, and an unbounded
+// closing-bracket match can overflow the regex stack on a huge unclosed one.
+const LITERAL_OPEN = new RegExp(String.raw`\[\s*${NUM}\s*,\s*${NUM}`)
 
-function hasRomProvenance(text) {
-  const lines = text.split('\n')
-  for (let i = 0; i < lines.length; i++) {
-    if (!PROVENANCE_CLAIM.test(lines[i])) continue
+/** Splits a line into its comment text and its code text. */
+function splitComment(line, lead) {
+  const block = /^\s*(?:\/\*.*?\*\/\s*)+/.exec(line)
+  const rest = block ? line.slice(block[0].length) : line
+  if (rest.trim() === '' || lead.test(rest)) return { comment: line, code: '' }
+  const at = rest.search(/\s\/\/\s/)
+  if (at < 0) return { comment: block ? block[0] : '', code: rest }
+  return { comment: (block ? block[0] : '') + rest.slice(at), code: rest.slice(0, at) }
+}
+
+function hasRomProvenance(path, text) {
+  const lead = /\.md$/i.test(path) ? COMMENT_LEAD_MD : COMMENT_LEAD
+  const parts = text.split('\n').map(l => splitComment(l, lead))
+  for (let i = 0; i < parts.length; i++) {
+    if (!CLAIM_PHRASE.test(parts[i].comment)) continue
+    if (LITERAL_OPEN.test(parts[i].code)) return true // claim trails the literal's own line
+    if (parts[i].code !== '') continue
     // Code lines only: a literal quoted inside a comment is a citation, not a copy.
-    const window = lines
+    const below = parts
       .slice(i + 1, i + 1 + PROVENANCE_WINDOW)
-      .filter(l => !COMMENT_LINE.test(l))
+      .map(p => p.code)
       .join('\n')
-    if (NUMERIC_ARRAY.test(window)) return true
+    if (LITERAL_OPEN.test(below)) return true
   }
   return false
 }
@@ -305,7 +322,7 @@ export function checkTextContent(path, text) {
   const byteCount = countByteTokens(text)
   if (byteCount > BYTE_TOKEN_THRESHOLD) push('byte-tokens', { count: byteCount })
 
-  if (hasRomProvenance(text)) push('rom-provenance')
+  if (hasRomProvenance(path, text)) push('rom-provenance')
 
   const disasmLines = countDisasmLines(text)
   if (disasmLines >= DISASM_LINE_THRESHOLD) push('disasm-listing', { count: disasmLines })
