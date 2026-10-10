@@ -146,7 +146,14 @@ function wrappedBase64Run(text) {
   return longest
 }
 
-const EXEMPTABLE_RULES = new Set(['base64', 'data-uri', 'byte-tokens', 'disasm-listing', 'em-dash'])
+const EXEMPTABLE_RULES = new Set([
+  'base64',
+  'data-uri',
+  'byte-tokens',
+  'disasm-listing',
+  'em-dash',
+  'rom-provenance',
+])
 
 // Only at the start of a line, inside a comment marker, with a non-empty
 // reason. Never matches a JS/TS string VALUE that merely contains this
@@ -207,13 +214,14 @@ function countByteTokens(text) {
     count += (m.match(/[0-9a-fA-F]{4}/g) || []).length * 2
     return ' '.repeat(m.length)
   })
-  // Decimal byte arrays: [12, 200, 255, 3, ...]
-  for (const m of t.matchAll(/\[([\d\s,]+)\]/g)) {
+  // Decimal byte arrays: [12, 200, 255, 3, ...]. A 0x element may sit inside
+  // (#812); runs of 2+ 0x tokens were blanked above, so nothing counts twice.
+  for (const m of t.matchAll(/\[([\da-fA-Fx\s,]+)\]/g)) {
     const nums = m[1]
       .split(',')
       .map(s => s.trim())
       .filter(Boolean)
-    const valid = nums.filter(n => /^\d+$/.test(n) && +n <= 255)
+    const valid = nums.filter(n => (/^\d+$/.test(n) && +n <= 255) || /^0x[0-9a-fA-F]{1,2}$/.test(n))
     if (valid.length >= 2) count += valid.length
   }
   // One-per-line data directives: db/dw/dl/.byte/.word, hex or decimal.
@@ -248,6 +256,46 @@ function countDisasmLines(text) {
   return n
 }
 
+// A comment claiming the data near it came from the game (#812). Content
+// alone cannot tell a 4-byte ROM copy from an invented one; the claim can.
+const CLAIM_PHRASE =
+  /\b(?:vanilla\s+(?:ROM\s+)?(?:at\s+)?(?:\$|0x)[0-9a-f]|(?:copied|taken|lifted|dumped) from\b|from the (?:vanilla )?ROM\s+at\s+(?:\$|0x)[0-9a-f]|ROM bytes\b|real ROM (?:bytes|data|values)\b)/i
+const PROVENANCE_WINDOW = 3
+// In markdown a leading # or * is a heading or bullet, not a comment.
+const COMMENT_LEAD = /^\s*(?:\/\/|#|\/\*|\*)/
+const COMMENT_LEAD_MD = /^\s*(?:\/\/|\/\*)/
+const NUM = /(?:0x[0-9a-fA-F]+|\$[0-9a-fA-F]+|\d+)/.source
+// Opening only: a literal may run on for many lines, and an unbounded
+// closing-bracket match can overflow the regex stack on a huge unclosed one.
+const LITERAL_OPEN = new RegExp(String.raw`\[\s*${NUM}\s*,\s*${NUM}`)
+
+/** Splits a line into its comment text and its code text. */
+function splitComment(line, lead) {
+  const block = /^\s*(?:\/\*.*?\*\/\s*)+/.exec(line)
+  const rest = block ? line.slice(block[0].length) : line
+  if (rest.trim() === '' || lead.test(rest)) return { comment: line, code: '' }
+  const at = rest.search(/\s\/\/\s/)
+  if (at < 0) return { comment: block ? block[0] : '', code: rest }
+  return { comment: (block ? block[0] : '') + rest.slice(at), code: rest.slice(0, at) }
+}
+
+function hasRomProvenance(path, text) {
+  const lead = /\.md$/i.test(path) ? COMMENT_LEAD_MD : COMMENT_LEAD
+  const parts = text.split('\n').map(l => splitComment(l, lead))
+  for (let i = 0; i < parts.length; i++) {
+    if (!CLAIM_PHRASE.test(parts[i].comment)) continue
+    if (LITERAL_OPEN.test(parts[i].code)) return true // claim trails the literal's own line
+    if (parts[i].code !== '') continue
+    // Code lines only: a literal quoted inside a comment is a citation, not a copy.
+    const below = parts
+      .slice(i + 1, i + 1 + PROVENANCE_WINDOW)
+      .map(p => p.code)
+      .join('\n')
+    if (LITERAL_OPEN.test(below)) return true
+  }
+  return false
+}
+
 /** Text-content rules shared by blob content, commit messages and tag
  * bodies. `path` is a label only (may be synthetic, e.g. "<commit SHA>"). */
 export function checkTextContent(path, text) {
@@ -273,6 +321,8 @@ export function checkTextContent(path, text) {
 
   const byteCount = countByteTokens(text)
   if (byteCount > BYTE_TOKEN_THRESHOLD) push('byte-tokens', { count: byteCount })
+
+  if (hasRomProvenance(path, text)) push('rom-provenance')
 
   const disasmLines = countDisasmLines(text)
   if (disasmLines >= DISASM_LINE_THRESHOLD) push('disasm-listing', { count: disasmLines })
