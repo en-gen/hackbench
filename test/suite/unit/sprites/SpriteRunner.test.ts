@@ -5,7 +5,7 @@
  */
 import { levelSeed, loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { describe, expect, it } from 'vitest'
-import { runSprite, TOTAL_STEP_CAP } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import { runOnce, runSprite, TOTAL_STEP_CAP } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import {
   resolveLoop,
   resolvePointer,
@@ -238,6 +238,25 @@ describe('runner on a synthetic cart', () => {
   it('flags dependsOn marioX by diffing a run with Mario on the other side', () => {
     expect(runSprite(rom, 2).dependsOn).toEqual(['marioX'])
     expect(runSprite(rom, 0).dependsOn).toEqual([])
+  })
+
+  it('hands the mirrored-Mario run the other options of the caller, but not its probe', () => {
+    let reads = 0
+    let probes = 0
+    const opts = {
+      probe: () => void probes++,
+      get grinderDispatchSha() {
+        reads++
+        return undefined
+      },
+    }
+    runSprite(rom, 103, SPRITE_SEED, opts)
+    // Spreading the opts reads the getter once; dropping them would leave only run a's own read.
+    expect(reads).toBeGreaterThan(1)
+    const once = probes
+    probes = 0
+    runOnce(rom, 103, SPRITE_SEED, { probe: opts.probe })
+    expect(once).toBe(probes)
   })
 
   it('models the multiply unit', () => {

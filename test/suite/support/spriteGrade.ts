@@ -52,13 +52,12 @@ const keys = (ps: RecordedPiece[], f: (p: RecordedPiece) => string): string =>
 
 /** The model's parts for one pass, as the recorded shape, offsets from the pass's own position. */
 export function passPieces(m: SpriteModel, pass: number): RecordedPiece[] {
-  const a = m.anchor!
   const p = m.passes[pass]
   return p.parts
     .filter(q => !(q.oy >= 224 && q.oy + q.size <= 256)) // parked below the screen, as the capture drops them
     .map(q => ({
-      dx: q.dx + (a.x - p.pos.x),
-      dy: q.dy + (a.y - p.pos.y),
+      dx: q.dx + (p.origin.x - p.pos.x),
+      dy: q.dy + (p.origin.y - p.pos.y),
       tile: q.char & 0xff,
       attr: q.attr,
       large: q.size === 16,

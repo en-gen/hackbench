@@ -73,9 +73,23 @@ describe('interpParts', () => {
 describe('modelResult', () => {
   it('serves the chosen pass at the anchor INIT left, and says why when there is nothing to draw', () => {
     const passes = [
-      { pass: 0, pos: { x: 0, y: 0 }, parts: [], uploads: [], palette: [] },
-      { pass: 1, pos: { x: 0, y: 0 }, parts: [part({ char: 5, dx: 2 })], uploads: [], palette: [] },
-      { pass: 2, pos: { x: 0, y: 0 }, parts: [part({ char: 9 })], uploads: [], palette: [] },
+      { pass: 0, pos: { x: 0, y: 0 }, origin: { x: 0, y: 0 }, parts: [], uploads: [], palette: [] },
+      {
+        pass: 1,
+        pos: { x: 0, y: 0 },
+        origin: { x: 0, y: 0 },
+        parts: [part({ char: 5, dx: 2 })],
+        uploads: [],
+        palette: [],
+      },
+      {
+        pass: 2,
+        pos: { x: 0, y: 0 },
+        origin: { x: 0, y: 0 },
+        parts: [part({ char: 9 })],
+        uploads: [],
+        palette: [],
+      },
     ]
     const r = modelResult(
       model({ anchor: { x: 104, y: 51, rawX: 96, rawY: 52 }, passes, chosen: 1 }),
@@ -88,7 +102,7 @@ describe('modelResult', () => {
 })
 
 describe('modelResult unverified', () => {
-  const drawn = { anchor: { x: 1, y: 1, rawX: 1, rawY: 1 }, passes: [{ pass: 0, pos: { x: 0, y: 0 }, parts: [part({})], uploads: [], palette: [] }], chosen: 0 } // prettier-ignore
+  const drawn = { anchor: { x: 1, y: 1, rawX: 1, rawY: 1 }, passes: [{ pass: 0, pos: { x: 0, y: 0 }, origin: { x: 0, y: 0 }, parts: [part({})], uploads: [], palette: [] }], chosen: 0 } // prettier-ignore
   it('is unverified exactly when the model says its seed was generic', () => {
     const g = modelResult(model({ ...drawn, seedSource: 'generic', seedReason: 'no stock loader' }))
     expect(g).toMatchObject({ ok: true, unverified: 'level loader refused (no stock loader); drawn from a placement-only seed' }) // prettier-ignore
@@ -142,7 +156,7 @@ describe('a refused level loader marks every sprite unverified', () => {
     ...ranModel(anchor),
   })
   const ranModel = (anchor: boolean): SpriteModel =>
-    model(anchor ? { anchor: { x: 16, y: 16, rawX: 16, rawY: 16 }, passes: [{ pass: 0, pos: { x: 0, y: 0 }, parts: [part({ char: 0 })], uploads: [], palette: [] }], chosen: 0 } : { refusal: 'loop' }) // prettier-ignore
+    model(anchor ? { anchor: { x: 16, y: 16, rawX: 16, rawY: 16 }, passes: [{ pass: 0, pos: { x: 0, y: 0 }, origin: { x: 0, y: 0 }, parts: [part({ char: 0 })], uploads: [], palette: [] }], chosen: 0 } : { refusal: 'loop' }) // prettier-ignore
   const sprite = (i: number) => ({ index: i, x: 1, y: 1, spriteId: 1, screen: 0, extraBit: false, raw: [], streamOffset: 0 }) as LevelSprite // prettier-ignore
   const chars = { sp1: [new Uint8Array(64).fill(3)] }
 
