@@ -7,6 +7,10 @@
  * Found by bytes, and each target is classified by the opening bytes of its own
  * routine rather than its address, so a relocated routine still resolves and an
  * unrecognized one refuses for that mode alone instead of passing as vanilla.
+ *
+ * Limit: only a routine's opening 14-16 bytes are fingerprinted. A hack that keeps them and
+ * changes the body further on (say, an early PLP/RTL) still classifies as stock; walking the
+ * body is its own issue, like the other hack hooks (#764).
  */
 import { RomFile, cachedByVersion } from './RomFile'
 import { loromToOffset } from './addressing'
