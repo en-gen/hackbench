@@ -143,9 +143,8 @@ describe('screen-fixed parts (#286)', () => {
     d(sprite)
     expect(runs).toBe(4) // fixed part found: both instances run twice
     runs = 0
-    const plain = (r: RomFile, i: number, sd: SpriteSeed) => (runs++, fakeRun(r, i, sd))
     const only = (r: RomFile, i: number, sd: SpriteSeed) => {
-      const m = plain(r, i, sd)
+      const m = counting(r, i, sd)
       m.passes[0]!.parts.shift()
       return m
     }

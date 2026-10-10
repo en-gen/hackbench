@@ -371,12 +371,13 @@ export function interpDrawer(
 function fixOffsets(m: RunModel, probe: RunModel, cam: { x: number; y: number }): RunModel | null {
   const pass = m.chosen === undefined ? undefined : m.passes[m.chosen]
   const other = probe.chosen === undefined ? undefined : probe.passes[probe.chosen]
-  if (!m.anchor || !pass || !other) return null
+  const anchor = m.anchor
+  if (!anchor || !pass || !other) return null
   const same = (p: SpritePart) => other.parts.some(q => q.oam === p.oam && q.ox === p.ox && q.oy === p.oy) // prettier-ignore
   if (!pass.parts.some(same)) return null
   const parts = pass.parts.map(p =>
     same(p)
-      ? { ...p, dx: (p.ox > 255 ? p.ox - 512 : p.ox) + cam.x - m.anchor!.x, dy: p.oy + cam.y - m.anchor!.y } // prettier-ignore
+      ? { ...p, dx: (p.ox > 255 ? p.ox - 512 : p.ox) + cam.x - anchor.x, dy: p.oy + cam.y - anchor.y } // prettier-ignore
       : p,
   )
   return { ...m, passes: m.passes.map((q, i) => (i === m.chosen ? { ...q, parts } : q)) }
