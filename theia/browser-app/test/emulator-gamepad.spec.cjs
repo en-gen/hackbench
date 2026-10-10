@@ -155,24 +155,8 @@ test('the toolbar button matches the map toolbar and toggles a right fly-out whi
   const fly = await flyout.boundingBox()
   expect(btn.y + btn.height, 'fly-out covers the toolbar').toBeLessThanOrEqual(fly.y + 1)
 
-  // The same at a narrow panel, where the bug showed (#587).
   await button.click()
   await expect(flyout).toHaveCount(0)
-  await page.evaluate(() => {
-    document.getElementById('hackbench.emulator-view').style.width = '300px'
-  })
-  await button.click()
-  await expect(flyout).toBeVisible()
-  await flyout.evaluate(el => Promise.all(el.getAnimations().map(a => a.finished)))
-  const nBtn = await button.boundingBox()
-  const nFly = await flyout.boundingBox()
-  expect(nBtn.y + nBtn.height, 'narrow: fly-out covers the toolbar').toBeLessThanOrEqual(nFly.y + 1)
-  await button.click()
-  await expect(flyout).toHaveCount(0)
-  await expect(button).toHaveAttribute('aria-pressed', 'false')
-  await page.evaluate(() => {
-    document.getElementById('hackbench.emulator-view').style.width = ''
-  })
   await button.click()
   await expect(flyout).toBeVisible()
 
@@ -186,6 +170,69 @@ test('the toolbar button matches the map toolbar and toggles a right fly-out whi
   await button.click()
   await expect(flyout).toHaveCount(0)
   await expect(button).toHaveAttribute('aria-pressed', 'false')
+})
+
+test('at a narrow panel the fly-out still leaves the toolbar button reachable (#587)', async ({
+  page,
+}) => {
+  test.setTimeout(120000)
+  await bootWithSpy(page, 'Narrow')
+  // Lumino only rewrites its inline width when its cached width changes, so
+  // restore the old value rather than clearing it.
+  const oldWidth = await page.evaluate(
+    () => document.getElementById('hackbench.emulator-view').style.width,
+  )
+  await page.evaluate(() => {
+    document.getElementById('hackbench.emulator-view').style.width = '300px'
+  })
+  try {
+    const button = page.locator(`${VIEW} button[aria-label="Controllers"]`)
+    const flyout = page.locator(`${VIEW} .hb-pad-flyout`)
+    await button.click()
+    await expect(flyout).toBeVisible()
+    await flyout.evaluate(el => Promise.all(el.getAnimations().map(a => a.finished)))
+    const panelW = await page.evaluate(
+      () => document.getElementById('hackbench.emulator-view').getBoundingClientRect().width,
+    )
+    expect(panelW, 'the panel did not get narrow').toBeLessThanOrEqual(300)
+    const nFly = await flyout.boundingBox()
+    expect(nFly.width, 'fly-out wider than the narrow panel').toBeLessThanOrEqual(300)
+    const nBtn = await button.boundingBox()
+    expect(nBtn.y + nBtn.height, 'narrow: fly-out covers the toolbar').toBeLessThanOrEqual(
+      nFly.y + 1,
+    )
+    await button.click()
+    await expect(flyout).toHaveCount(0)
+    await expect(button).toHaveAttribute('aria-pressed', 'false')
+  } finally {
+    await page.evaluate(w => {
+      document.getElementById('hackbench.emulator-view').style.width = w
+    }, oldWidth)
+  }
+})
+
+test('closing the fly-out from its Close button returns focus to the panel so keys still play (#508)', async ({
+  page,
+}) => {
+  test.setTimeout(120000)
+  await bootWithSpy(page, 'CloseFocus')
+  await openFlyout(page)
+  await page.locator(`${VIEW} button[aria-label="Close controllers"]`).focus()
+  await page.keyboard.press('Enter')
+  await expect(page.locator(`${VIEW} .hb-pad-flyout`)).toHaveCount(0)
+  expect(
+    await page.evaluate(() =>
+      document.getElementById('hackbench.emulator-view').contains(document.activeElement),
+    ),
+    'focus fell out of the widget',
+  ).toBe(true)
+  await page.keyboard.press('KeyX')
+  await expect
+    .poll(() => seen(page))
+    .toEqual([
+      [0, 8, 1],
+      [0, 8, 0],
+    ])
 })
 
 test('pad buttons map by position to the right port, send edges once, and release on disconnect', async ({

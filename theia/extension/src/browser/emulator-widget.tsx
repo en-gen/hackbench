@@ -231,6 +231,16 @@ export class EmulatorWidget extends ReactWidget {
   }
 
   /**
+   * Close the fly-out from inside it. Its Close button unmounts while focused,
+   * which would drop focus to the page body and kill every key (#508), so focus
+   * goes back to the Controllers button, still inside the panel.
+   */
+  protected closePads(): void {
+    this.controllers.togglePads(false)
+    this.node.querySelector<HTMLElement>('button[aria-label="Controllers"]')?.focus()
+  }
+
+  /**
    * The only way the core is discarded: the save game is flushed to the
    * project first, so Stop, Reload, closing the tab and switching project
    * write progress made since the last periodic save. The write is an RPC
@@ -839,7 +849,7 @@ export class EmulatorWidget extends ReactWidget {
               onKeyboard={(player, on) => this.controllers.setKeyboard(player, on)}
               onPad={(player, pad) => this.controllers.setPad(player, pad)}
               onStyle={style => this.controllers.setStyle(style)}
-              onClose={() => this.controllers.togglePads(false)}
+              onClose={() => this.closePads()}
             />
           )}
         </div>
