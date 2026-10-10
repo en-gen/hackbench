@@ -37,7 +37,7 @@ import { fingerprint } from './Fingerprint'
 import { decodeTilesBatch, PIXELS_PER_TILE } from './GraphicsDecoder'
 import { tryDecompress } from './LcLz2'
 import { FAST_LCLZ2, type FastRoutine, commandRefusal } from './GfxDecompressor'
-import { hex2 } from './hex'
+import { hex2, hex6 } from './hex'
 import { HookShape, UPLOAD_HOOK_SHAPES, YVerdict, readHookY, recognizesHook } from './GfxUploadHook'
 import {
   CompressionCheck,
@@ -639,7 +639,7 @@ export function filterSomeRamPath(
     reason: `UploadGFXFile's FilterSomeRAM dispatch (bank_00.asm:5401-5422) ${why}, so which GFX files it filters is unknown`,
   })
   if (d.hook) {
-    const addr = (a: number): string => `$${mirror(a).toString(16).toUpperCase().padStart(6, '0')}`
+    const addr = (a: number): string => `$${hex6(mirror(a))}`
     const at = addr(d.hook.entry)
     if (!recognizesHook(rom, d.hook.entry, hookShapes))
       return unknown(

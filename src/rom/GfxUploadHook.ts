@@ -18,6 +18,7 @@
 import type { RomFile } from './RomFile'
 import { mirror } from './addressing'
 import { fingerprint } from './Fingerprint'
+import { hex6 } from './hex'
 import { instructionLength } from './dispatch/HandlerWalk'
 
 export interface HookShape {
@@ -105,7 +106,7 @@ export function readHookY(rom: RomFile, entry: number, prepareGfx: number): YVer
   const stock = mirror(prepareGfx)
 
   const note = (addr: number, why: string): void => {
-    notes.push(`${why} at $${addr.toString(16).toUpperCase().padStart(6, '0')}`)
+    notes.push(`${why} at $${hex6(addr)}`)
   }
 
   function walk(start: number, m: boolean, x: boolean, depth: number): Summary {
@@ -135,6 +136,7 @@ export function readHookY(rom: RomFile, entry: number, prepareGfx: number): YVer
       }
       const rel8 = (head[1]! << 24) >> 24
       const absTarget = bank(s.addr) | head[1]! | (head[2]! << 8)
+      const longTarget = (absTarget & 0xffff) | (head[3]! << 16)
       if (UNREAD.has(op) || UNREAD_STACK.has(op)) {
         note(s.addr, `an instruction (opcode $${op.toString(16)}) that is not read`)
       } else if (op === 0xc2 || op === 0xe2) {
@@ -179,9 +181,9 @@ export function readHookY(rom: RomFile, entry: number, prepareGfx: number): YVer
       } else if (op === 0x82) {
         todo.push({ ...s, addr: ((next + (head[1]! | (head[2]! << 8))) & 0xffff) | bank(s.addr) })
       } else if (op === 0x4c) todo.push({ ...s, addr: absTarget })
-      else if (op === 0x5c) todo.push({ ...s, addr: head[1]! | (head[2]! << 8) | (head[3]! << 16) })
+      else if (op === 0x5c) todo.push({ ...s, addr: longTarget })
       else if (op === 0x20 || op === 0x22) {
-        const target = op === 0x20 ? absTarget : head[1]! | (head[2]! << 8) | (head[3]! << 16)
+        const target = op === 0x20 ? absTarget : longTarget
         const sub =
           mirror(target) === stock
             ? { returns: true, y: 0 as Y, at: 0, flagsKept: true }
