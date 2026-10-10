@@ -61,6 +61,15 @@ export function backRefRoutine(order: BackRefOrder, readByte: number, loop: numb
   ]
 }
 
+/** ReadByte (bank_00.asm:6405-6413), the routine every entry's JSR and the back-reference routine
+ *  call: LDA [$8A] / LDX $8A / INX / BNE +5 / LDX #$8000 / INC $8C / STX $8A / RTS. It holds no
+ *  absolute operand, so one pattern serves every build; the entry operand is only trusted once
+ *  it lands on these bytes. */
+// prettier-ignore
+const READ_BYTE: readonly number[] = [
+  0xa7, 0x8a, 0xa6, 0x8a, 0xe8, 0xd0, 0x05, 0xa2, 0x00, 0x80, 0xe6, 0x8c, 0x86, 0x8a, 0x60,
+]
+
 /** A body entered by JSL, recognized by the SHA-256 of `length` bytes from its target. */
 export interface FastRoutine {
   length: number
@@ -158,9 +167,13 @@ export function readDecompressor(
   // readBackRefOrder against the back-reference routine's own JSR (#696).
   if (head[BODY_AT] === JSR && matchesBytes(head.subarray(BODY_AT + 3), CMP_IMM_FF)) {
     const order = readBackRefOrder(rom, entry)
-    return order
+    if (!order) return replaced('an unrecognized back-reference routine')
+    // The cross-check above only shows the entry and routine agree with each other.
+    const readByte = (entry & ~0xffff) | head[BODY_AT + 1]! | (head[BODY_AT + 2]! << 8)
+    const body = rom.readAt(readByte, READ_BYTE.length)
+    return body && matchesBytes(body, READ_BYTE)
       ? { ok: true, kind: 'stock', key, order }
-      : replaced('an unrecognized back-reference routine')
+      : replaced('an unrecognized ReadByte routine')
   }
   const target = head[BODY_AT + 4] === 0x60 ? jslTarget(rom, entry + BODY_AT) : null // JSL / RTS
   if (target === null) return replaced('an unrecognized body')

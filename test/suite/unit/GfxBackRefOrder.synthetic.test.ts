@@ -29,6 +29,8 @@ import {
   DECOMP_ENTRY,
   DISPATCH_AT,
   gfxStreams,
+  plantReadByte,
+  READ_BYTE_BODY,
 } from '../support/syntheticGfxCart'
 
 // Three literals, then a 2-byte copy from output index 1: 10 20 30 20 30.
@@ -120,13 +122,14 @@ describe('the decompressor gate reads the back-reference routine', () => {
   })
 
   it('finds the routine through the BMI, not at a fixed address', () => {
-    // Relocate the routine 4 bytes on and repoint the BMI: still accepted, so
+    // Relocate the routine 4 bytes back (forward would run over ReadByte) and repoint the BMI: still accepted, so
     // the gate follows the branch. Left at the old spot it would be refused.
     const rom = buildCart({ backRef: backRefRoutine('le') }).rom
     rom.writeAt(DECOMP_ENTRY + BACKREF_AT, new Array(40).fill(0))
-    rom.writeAt(DECOMP_ENTRY + BACKREF_AT + 4, backRefRoutine('le'))
+    rom.writeAt(DECOMP_ENTRY + BACKREF_AT - 4, backRefRoutine('le'))
+    plantReadByte(rom) // the zeroes run over it
     expect(checkStockCompression(rom).ok).toBe(false)
-    rom.writeAt(DECOMP_ENTRY + DISPATCH_AT + 4, [BACKREF_AT + 4 - DISPATCH_AT - 5])
+    rom.writeAt(DECOMP_ENTRY + DISPATCH_AT + 4, [BACKREF_AT - 4 - DISPATCH_AT - 5])
     const r = checkStockCompression(rom)
     expect(r.ok && r.order).toBe('le')
   })
@@ -228,6 +231,7 @@ describe('readDecompressor accepts each real build and refuses a mismatched entr
     rom.writeAt(entry + 8, [0xc9, 0xff])
     rom.writeAt(entry + DISPATCH_AT, backRefDispatch(BACKREF_AT))
     rom.writeAt(entry + BACKREF_AT, backRefRoutine(order, readByte, loop))
+    plantReadByte(rom, readByte)
     return rom
   }
 
@@ -237,34 +241,65 @@ describe('readDecompressor accepts each real build and refuses a mismatched entr
     expect(d.ok && d.order).toBe(o)
   })
 
-  it('refuses any other opcode at entry+5', () => {
+  it('refuses every opcode but JSR at entry+5, here and in readBackRefOrder', () => {
     const survived: number[] = []
-    for (const op of [0x22, 0x4c, 0xea, 0x60, 0x00, 0x21]) {
+    for (let op = 0; op < 256; op++) {
+      if (op === 0x20) continue
       const rom = entryRom(0xb8de, 0xb983, 0xb8e3, 'be')
       rom.writeAt(0xb8de + 5, [op])
-      if (readDecompressor(rom, 0xb8de).ok) survived.push(op)
-      expect(readBackRefOrder(rom, 0xb8de)).toBeNull()
+      if (readDecompressor(rom, 0xb8de).ok || readBackRefOrder(rom, 0xb8de) !== null)
+        survived.push(op)
     }
     expect(survived).toEqual([])
   })
 
-  it('refuses a CMP that is not CMP #$FF', () => {
-    for (const [i, v] of [
-      [8, 0xc8],
-      [9, 0xfe],
-    ] as const) {
-      const rom = entryRom(0xb8de, 0xb983, 0xb8e3, 'be')
-      rom.writeAt(0xb8de + i, [v])
-      expect(readDecompressor(rom, 0xb8de).ok).toBe(false)
-    }
+  it('refuses every CMP byte but $C9 $FF', () => {
+    const survived: string[] = []
+    for (const [i, good] of [
+      [8, 0xc9],
+      [9, 0xff],
+    ] as const)
+      for (let v = 0; v < 256; v++) {
+        if (v === good) continue
+        const rom = entryRom(0xb8de, 0xb983, 0xb8e3, 'be')
+        rom.writeAt(0xb8de + i, [v])
+        if (readDecompressor(rom, 0xb8de).ok) survived.push(`+${i}=${v}`)
+      }
+    expect(survived).toEqual([])
   })
 
-  it('refuses an entry operand that disagrees with the routine, in either byte', () => {
-    for (const rb of [0xb924, 0xb883, 0xb984]) {
-      const rom = entryRom(0xb8de, 0xb983, 0xb8e3, 'be')
-      rom.writeAt(0xb8de + 6, [rb & 0xff, rb >> 8])
-      expect(readDecompressor(rom, 0xb8de).ok).toBe(false)
-    }
+  it('refuses a one-bit flip of either entry operand byte, the routine left intact', () => {
+    const survived: string[] = []
+    for (const [i, byte] of [
+      [6, 0x83],
+      [7, 0xb9],
+    ] as const)
+      for (let bit = 0; bit < 8; bit++) {
+        const rom = entryRom(0xb8de, 0xb983, 0xb8e3, 'be')
+        rom.writeAt(0xb8de + i, [byte ^ (1 << bit)])
+        if (readDecompressor(rom, 0xb8de).ok) survived.push(`+${i} bit ${bit}`)
+      }
+    expect(survived).toEqual([])
+  })
+
+  it('refuses an operand and routine that agree on an address that is not ReadByte', () => {
+    // Entry and routine both name $C000, where an RTS stands: self-consistent, not ReadByte.
+    const rom = entryRom(0xb8de, 0xc000, 0xb8e3, 'be')
+    rom.writeAt(0xc000, [0x60])
+    const d = readDecompressor(rom, 0xb8de)
+    expect(d.ok).toBe(false)
+    if (!d.ok) expect(d.reason).toMatch(/ReadByte/)
+  })
+
+  it('refuses a one-byte change anywhere in ReadByte, in every build', () => {
+    const survived: string[] = []
+    for (const [name, e, rb, loop, o] of BUILDS)
+      for (let i = 0; i < READ_BYTE_BODY.length; i++) {
+        const rom = entryRom(e, rb, loop, o)
+        rom.writeAt(rb + i, [(READ_BYTE_BODY[i]! + 1) & 0xff])
+        if (readDecompressor(rom, e).ok) survived.push(`${name}+${i}`)
+      }
+    expect(survived).toEqual([])
   })
 
   it('refuses when the back-reference routine is missing', () => {

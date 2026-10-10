@@ -41,7 +41,7 @@
 import type { AnimationData, AnimFrameSlot } from './AnimationLoader'
 import { ANIM_INTERVAL_MS } from './AnimationLoader'
 import { tryDecompress } from './LcLz2'
-import { checkStockCompression } from './GfxArena'
+import { gfxSource } from './GfxLoader'
 import { decode4bpp, PIXELS_PER_TILE } from './GraphicsDecoder'
 import type { RomFile } from './RomFile'
 
@@ -240,7 +240,7 @@ function loadExGfxFile(rom: RomFile, fileNum: number): Uint8Array | null {
   if (!compressed) return null
   // The ROM's own back-reference order when its decompressor reads as one we know (#696).
   // Known gap: with no readable decompressor this decodes big-endian, as it always has.
-  const gate = checkStockCompression(rom)
+  const gate = gfxSource(rom)
   const result = tryDecompress(compressed, gate.ok ? { order: gate.order } : undefined)
   return result.ok && result.bytes.length > 0 ? result.bytes : null
 }

@@ -85,12 +85,20 @@ no other part of the body.
 The entry gate (#696) matches the `JSR` opcode at entry+5 and `CMP #$FF` at
 entry+8..9, not the `JSR` operand, which differs per build (`24 B9` on J, `96 B9`
 on E0, `97 B9` on E1, `83 B9` on US). The operand is accepted only when the
-back-reference routine's own `JSR` names the same address. `readBackRefOrder`
-also checks the `JSR` opcode itself. Evidence scope: synthetic fixtures built
-from the SMWDisX `SMW_*.sym` operands; no J or E ROM is in the corpus, and
-nothing fingerprints ReadByte's body. `loadExGfxFile` reads ExGFX in the order
-the gate reports, and falls back to big-endian when the ROM has no readable
-decompressor. The fast routine is read big-endian as before; that
+back-reference routine's own `JSR` names the same address and that address holds
+ReadByte's 15 bytes (`bank_00.asm:6405-6413`: `LDA [$8A] / LDX $8A / INX /
+BNE +5 / LDX #$8000 / INC $8C / STX $8A / RTS`, no absolute operand, so one
+pattern serves every build). Without that last check an entry and routine that
+agree on any address would pass. `readBackRefOrder` also checks the `JSR` opcode
+itself.
+
+Evidence scope: synthetic fixtures built from the SMWDisX `SMW_*.sym` operands;
+no J or E ROM is in the corpus. A real J, E0 or E1 ROM is still refused earlier,
+before `readDecompressor` runs: `resolveGfxPointerSites` reads the US-only caller
+at `$00AA6B` (on E0 and E1 that address is in SetallFGBG80, `bank_00.asm:5396-5399`;
+on J it is mid-UploadGFXFile). That is a follow-up, not fixed here. The ExGFX
+reader `loadExGfxFile` (dormant, #491/#528) takes its order from the same gate
+and falls back to big-endian when the ROM has no readable decompressor. The fast routine is read big-endian as before; that
 is carried over from the 18 hacks it was surveyed on, not derived from its
 bytes. `encode` writes big-endian only, so a little-endian ROM is readable but
 `checkWritableCompression` refuses to save its GFX.
