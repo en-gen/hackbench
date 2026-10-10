@@ -11,6 +11,7 @@ import type { Cpu65816 } from '../../cpu/Cpu65816'
 import { callSubroutine, describe, Refusal } from '../../cpu/call'
 import type { RomFile } from '../../RomFile'
 import { mapperProblem } from './Guards'
+import { grinderDrawsBeforeSnap } from './LineGuided'
 import { smwMachine } from './Machine'
 import {
   checkGetRand,
@@ -89,7 +90,7 @@ export interface SpritePart {
   priority: number
   flipX: boolean
   flipY: boolean
-  /** Pixels from the post-INIT sprite position. */
+  /** Pixels from the pass's draw origin (`PassResult.origin`): the post-INIT position, except for $67 (see `DRAWS_BEFORE_LINE_SNAP`). */
   dx: number
   dy: number
   /** Raw attribute byte, for graders that compare it whole. */
@@ -109,6 +110,8 @@ export interface PassResult {
   pass: number
   /** Level position of the sprite at the end of this pass. */
   pos: { x: number; y: number }
+  /** The position this pass's parts are measured from: `SpriteModel.anchor`, except for $67, where it is the position the pass before left (where the draw ran). */
+  origin: { x: number; y: number }
   parts: SpritePart[]
   /** Palette or graphics uploads the pass wrote registers for. */
   uploads: string[]
@@ -127,7 +130,7 @@ export interface SpriteModel {
   refusal?: string
   /** Why no part was drawn across all passes, when the run completed. */
   emptyReason?: string
-  /** Position after INIT, and the raw placement it started from. */
+  /** Position after INIT, and the raw placement it started from. For $67 on a vanilla-shaped handler: the position its drawn (chosen) pass drew at, after the line snap. */
   anchor?: { x: number; y: number; rawX: number; rawY: number }
   /**
    * Where the level state came from: the ROM's own level loader, or a generic
@@ -143,8 +146,9 @@ export interface SpriteModel {
   passes: PassResult[]
   /**
    * The frame policy: index of the first pass at or after INIT that draws at
-   * least one tile (within the pass cap), absent when none does. A policy, not
-   * a claim about which frame a map should show.
+   * least one tile (within the pass cap), absent when none does; for $67 on a vanilla-shaped
+   * handler, the pass after that when it draws too (#126). A policy, not a claim about which
+   * frame a map should show.
    */
   chosen?: number
   dependsOn: DependsOn[]
@@ -430,9 +434,12 @@ export type Probe = (pass: number, wram: Uint8Array) => void
 
 /**
  * Sprites whose MAIN draws BEFORE it moves, and whose first move snaps them onto their line: the
- * grinder draws (CODE_01DC0B) and only then runs CODE_01D74D (bank_01.asm:12194-12204), whose
- * CODE_01D8A4 stores the winning probe corner into its X/Y (bank_01.asm:12045). The first draw is at the
- * spawn position, which is not on the track; the first draw after the snap is. #126.
+ * grinder draws (CODE_01DC0B) and only then runs the line step CODE_01D74D (SMWDisX
+ * bank_01.asm:12194-12204). That step's CODE_01D8A4 stores the winning probe corner into X/Y
+ * (12054-12061) and later steps set X/Y from the line table (11920-11929, 12101). The first draw is at
+ * the spawn position, which is not on the track; the first draw after the snap is. #126.
+ * Deliberately $67 only: the other line-guided ids ($62, $64-$66, $68) share the order and are a
+ * pending follow-up. The rule also needs the cart's handler to have the vanilla shape (LineGuided.ts).
  */
 const DRAWS_BEFORE_LINE_SNAP: ReadonlySet<number> = new Set([0x67])
 
@@ -509,7 +516,8 @@ export function runOnce(
     if (st === 1)
       return { ...model, refusal: `INIT did not complete in ${MAX_INIT_FRAMES} frames: status stays 1, waiting on state the seed lacks` } // prettier-ignore
     const anchor = m.pos()
-    const snaps = DRAWS_BEFORE_LINE_SNAP.has(id)
+    const snaps =
+      DRAWS_BEFORE_LINE_SNAP.has(id) && grinderDrawsBeforeSnap(rom, mains.handler.address)
     model.anchor = { ...anchor, rawX: m.seed.sprite.x, rawY: m.seed.sprite.y }
     model.oamBase = w[RAM.oamIndex + m.seed.slot]
     probe?.(-1, w)
@@ -524,11 +532,12 @@ export function runOnce(
       model.steps.push(m.steps - n)
       probe?.(p, w)
       // Where this pass's draw ran: the position the previous pass left (a draw precedes its own move).
-      const at = snaps ? (model.passes[p - 1]?.pos ?? anchor) : anchor
+      const origin = snaps ? (model.passes[p - 1]?.pos ?? anchor) : anchor
       model.passes.push({
         pass: p,
         pos: m.pos(),
-        parts: readParts(m, at),
+        origin: { x: origin.x, y: origin.y },
+        parts: readParts(m, origin),
         uploads: uploadsOf(m, hw),
         palette: m.paletteWrites(),
       })
@@ -536,7 +545,8 @@ export function runOnce(
     if (m.bus.inputs) model.inputs = [...m.bus.inputs].sort((a, b) => a - b)
     const first = model.passes.findIndex(p => p.parts.length > 0)
     if (first >= 0) model.chosen = first
-    // The pass after the first draw, when it draws too, and the anchor its draw used (the box follows the body).
+    // The pass after the first draw, when it draws too (first+1 is not 'the second pass' when the first draw is later),
+    // and the position the first drawn pass left: where that draw ran, so the box follows the body.
     if (snaps && first >= 0 && model.passes[first + 1]?.parts.length) {
       model.chosen = first + 1
       model.anchor = { ...model.anchor!, ...model.passes[first]!.pos }

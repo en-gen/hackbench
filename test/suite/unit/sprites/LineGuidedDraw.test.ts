@@ -6,14 +6,21 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { L1ModelCache } from '../../../../theia/extension/src/node/map-screen'
-import { mapSprites } from '../../../../theia/extension/src/node/map-sprites'
-import { runOnce } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import {
+  interpDrawer,
+  mapSprites,
+  readStream,
+} from '../../../../theia/extension/src/node/map-sprites'
+import { parseLevelSprites } from '../../../../src/rom/LevelParser'
+import { RomFile } from '../../../../src/rom/RomFile'
+import { SmwRom } from '../../../../src/rom/SmwRom'
+import { runOnce, type SpriteModel } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { SPRITE_SEED, withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { hasRom, romPath, VANILLA } from '../../support/corpus'
-import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
+import { buildSyntheticRom, type SyntheticOptions } from '../../support/syntheticSpriteRom'
 
 const seed = withSeed({ slot: 3, sprite: { x: 0x80, y: 0x80 } }, SPRITE_SEED)
-const run = (id: number) => runOnce(buildSyntheticRom(), id, seed)
+const run = (id: number, o: SyntheticOptions = {}) => runOnce(buildSyntheticRom(o), id, seed)
 
 describe('line-guided draw pass', () => {
   it('draws another id at its first pass, at the position the draw ran', () => {
@@ -33,12 +40,49 @@ describe('line-guided draw pass', () => {
     expect(part.ox).toBe(a.passes[0]!.parts[0]!.ox + 4)
     expect(part.dx).toBe(0)
   })
+
+  it('falls back to the first drawn pass when the pass after it draws nothing', () => {
+    const g = run(103, { grinderDrawsOnce: true })
+    expect(g.chosen).toBe(0)
+    expect(g.anchor!.x).toBe(0x80)
+    expect(g.passes[0]!.parts).toHaveLength(1)
+    expect(g.passes[1]!.parts).toHaveLength(0)
+  })
+
+  it('leaves another id that first draws on pass 1, and moves every pass, relative to the INIT anchor', () => {
+    const g = run(32)
+    expect(g.chosen).toBe(1)
+    expect(g.anchor!.x).toBe(0x80)
+    // Drawn after one +4 move: four pixels from the INIT anchor, as every other id's parts are.
+    expect(g.passes[1]!.parts[0]!.dx).toBe(4)
+    expect(g.passes[1]!.origin.x).toBe(0x80)
+  })
+
+  it('draws $67 at the first drawn pass when its handler is not the vanilla shape (a hack)', () => {
+    const g = run(103, { alteredGrinder: true })
+    expect(g.chosen).toBe(0)
+    expect(g.anchor!.x).toBe(0x80)
+    expect(g.passes[0]!.parts[0]!.dx).toBe(0)
+  })
+
+  it('reports where each pass drew from: the INIT anchor, or for $67 the position the pass before left', () => {
+    expect(
+      run(103)
+        .passes.slice(0, 3)
+        .map(p => p.origin.x),
+    ).toEqual([0x80, 0x84, 0x88])
+    expect(
+      run(31)
+        .passes.slice(0, 3)
+        .map(p => p.origin.x),
+    ).toEqual([0x80, 0x80, 0x80])
+  })
 })
 
 /**
  * Every vanilla $67, in stream order, as [x, y] where the first MAIN left it (INIT spot plus the winning probe
- * corner, bank_01.asm:12045), or null where the run erases it (a placement the INIT shift sends offscreen; a
- * known follow-up, pinned here so it cannot change unnoticed). Measured on the vanilla ROM with this runner;
+ * corner, bank_01.asm:12054-12061), or null where the run erases it: not yet investigated (hypothesis: INIT moves X
+ * by -$140, bank_01.asm:11793-11799, away from the spawn-centred camera); pinned here so it cannot change unnoticed. Measured on the vanilla ROM with this runner;
  * slot $1F's first grinder (sprite slot 7, x 419) also matches the Mesen sprite-trace capture of its first MAIN call.
  */
 const GRINDERS: Record<number, ([number, number] | null)[]> = {
@@ -70,6 +114,35 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla grinder, on the vanilla ROM', (
           expect(d.status, `#${i}`).toBe('drawn')
           expect([d.x, d.y], `#${i}`).toEqual(w)
         }
+      })
+    }, 120_000)
+
+    it(`slot $${Number(slot).toString(16)}: each drawn grinder's four body pieces sit 16 px around the anchor it reports`, () => {
+      const path = romPath(VANILLA)
+      const bytes = new Uint8Array(readFileSync(path))
+      const rom = new SmwRom(RomFile.fromBytes(path, Buffer.from(bytes)))
+      const built = new L1ModelCache().get(bytes, path, Number(slot), { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
+      if (!built.ok) throw new Error(built.reason)
+      const data = readStream(rom.rom, rom.getLevelSpritePointer(Number(slot))!)
+      const ran: SpriteModel[] = []
+      const draw = interpDrawer(rom.rom, Number(slot), built.inputs, (r, id, sd) => {
+        const m = runOnce(r, id, sd)
+        ran.push(m)
+        return m
+      })
+      const grinders = parseLevelSprites(data, built.inputs.isVertical).filter(
+        x => x.spriteId === 0x67,
+      )
+      grinders.forEach((g, i) => {
+        draw(g)
+        const m = ran.at(-1)!
+        if (want[i] === null) return expect(m.chosen, `#${i}`).toBeUndefined()
+        expect(m.chosen, `#${i}`).toBe(1)
+        const pass = m.passes[1]!
+        expect(pass.origin, `#${i}`).toEqual({ x: want[i]![0], y: want[i]![1] })
+        // The grinder's own pieces are the lowest OAM entries; slot $1F's level also draws four unrelated ones.
+        const body = [...pass.parts].sort((a, b) => a.oam - b.oam).slice(0, 4)
+        expect(body.map(q => [q.dx, q.dy]).sort(), `#${i}`).toEqual([[-16, -16], [-16, 0], [0, -16], [0, 0]]) // prettier-ignore
       })
     }, 120_000)
   }
