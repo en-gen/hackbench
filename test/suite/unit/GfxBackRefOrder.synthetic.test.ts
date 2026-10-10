@@ -3,11 +3,11 @@
  * one extra XBA in CODE_00B966 (SMWDisX bank_00.asm:6383-6389), so their
  * back-references are little-endian. The decoder reads the order from the
  * ROM's own routine and the gate refuses a routine that is neither form.
- * A stock J or E1 ROM is still refused earlier, at the entry gate (its entry's
- * ReadByte operand differs from the US one; follow-up #696), so the
- * cartridge-level little-endian cases here are synthetic: a US-shaped entry
- * with the XBA routine behind it. The real J and E1 operand sets are checked
- * at the routine level, through `readBackRefOrder`.
+ * The entry gate (#696) takes the JSR ReadByte operand from the entry itself
+ * and accepts it only when the back-reference routine's own JSRs name the
+ * same operand, so the real J, E0 and E1 operand sets are swept through
+ * `readDecompressor` below. Those are synthetic fixtures built from the
+ * SMWDisX sym operands; no J or E ROM is in the corpus.
  *
  * Synthetic cartridges only: every byte is built in the test or in
  * `syntheticGfxCart`, written from the 65816 encoding. No ROM needed.
@@ -16,7 +16,7 @@ import { describe, it, expect } from 'vitest'
 import { decompress, tryDecompress } from '../../../src/rom/LcLz2'
 import { checkStockCompression, checkWritableCompression } from '../../../src/rom/GfxArena'
 import { readGfxFile } from '../../../src/rom/GfxLoader'
-import { readBackRefOrder } from '../../../src/rom/GfxDecompressor'
+import { readBackRefOrder, readDecompressor } from '../../../src/rom/GfxDecompressor'
 import { RomFile } from '../../../src/rom/RomFile'
 import { GfxTable, planGfxSave } from '../../../src/rom/GfxTable'
 import { GfxRefusal, foldGfxRun, readGfxBase } from '../../../src/rom/GfxLayer'
@@ -215,5 +215,63 @@ describe('a little-endian ROM through the readers and writers', () => {
     const before = new Uint8Array(out)
     expect(() => foldGfxRun(out, false, readGfxBase(before), [])).toThrow(GfxRefusal)
     expect(out).toEqual(before)
+  })
+})
+
+// The entry gate itself (#696). Fixtures are built from the SMWDisX SMW_*.sym operands.
+describe('readDecompressor accepts each real build and refuses a mismatched entry', () => {
+  function entryRom(entry: number, readByte: number, loop: number, order: 'be' | 'le') {
+    const buf = Buffer.alloc(0x10000, 0)
+    buf[0x7fd5] = 0x20
+    const rom = new RomFile('layout.sfc', buf)
+    rom.writeAt(entry, [0xc2, 0x10, 0xa0, 0x00, 0x00, 0x20, readByte & 0xff, readByte >> 8])
+    rom.writeAt(entry + 8, [0xc9, 0xff])
+    rom.writeAt(entry + DISPATCH_AT, backRefDispatch(BACKREF_AT))
+    rom.writeAt(entry + BACKREF_AT, backRefRoutine(order, readByte, loop))
+    return rom
+  }
+
+  it.each(BUILDS)('%s: accepted as stock with the order its routine has', (_n, e, rb, loop, o) => {
+    const d = readDecompressor(entryRom(e, rb, loop, o), e)
+    expect(d.ok && d.kind).toBe('stock')
+    expect(d.ok && d.order).toBe(o)
+  })
+
+  it('refuses any other opcode at entry+5', () => {
+    const survived: number[] = []
+    for (const op of [0x22, 0x4c, 0xea, 0x60, 0x00, 0x21]) {
+      const rom = entryRom(0xb8de, 0xb983, 0xb8e3, 'be')
+      rom.writeAt(0xb8de + 5, [op])
+      if (readDecompressor(rom, 0xb8de).ok) survived.push(op)
+      expect(readBackRefOrder(rom, 0xb8de)).toBeNull()
+    }
+    expect(survived).toEqual([])
+  })
+
+  it('refuses a CMP that is not CMP #$FF', () => {
+    for (const [i, v] of [
+      [8, 0xc8],
+      [9, 0xfe],
+    ] as const) {
+      const rom = entryRom(0xb8de, 0xb983, 0xb8e3, 'be')
+      rom.writeAt(0xb8de + i, [v])
+      expect(readDecompressor(rom, 0xb8de).ok).toBe(false)
+    }
+  })
+
+  it('refuses an entry operand that disagrees with the routine, in either byte', () => {
+    for (const rb of [0xb924, 0xb883, 0xb984]) {
+      const rom = entryRom(0xb8de, 0xb983, 0xb8e3, 'be')
+      rom.writeAt(0xb8de + 6, [rb & 0xff, rb >> 8])
+      expect(readDecompressor(rom, 0xb8de).ok).toBe(false)
+    }
+  })
+
+  it('refuses when the back-reference routine is missing', () => {
+    const rom = entryRom(0xb87e, 0xb924, 0xb883, 'le')
+    rom.writeAt(0xb87e + BACKREF_AT, new Array(40).fill(0))
+    const d = readDecompressor(rom, 0xb87e)
+    expect(d.ok).toBe(false)
+    if (!d.ok) expect(d.reason).toMatch(/back-reference routine/)
   })
 })
