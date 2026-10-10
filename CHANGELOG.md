@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Test-only (#636): pins that the served interpreter draws a 16 x 16 body plus two mirrored 8 x 8 wings for sprites $7E and $7F (CODE_019E95), with a planted defect (the call NOPed) that removes the wings. Evidence: vanilla ROM, 3 levels (0x105, 0x106, 0x1c5), one machine. A scan found 0 vanilla level placements of $7E/$7F (0x400-byte horizontal stream window). The "wings not modelled" comments on the table oracle are corrected; no rendering change.
 - Docs (#750): the hack corpus note now states 101 hacks, all patched, and scopes its "of 99" survey figures to the 2026-09-26 survey.
 - Unit tests: the control-bytes and test-registration walks skip `__fixtures__`, so a concurrent lintGate run no longer fails them with ENOENT (#754).
 - Test-only (#653 Stage A): a per-ROM report of which standard object leaves the interpreter agrees on, across the corpus.
