@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Spike Top ($2E) in the model path faces by Mario's start X like the game (unflipped with Mario strictly left, X-flipped otherwise), reading the flip from the ROM's table; the served map view already did, now pinned by a test (44 vanilla placements, vanilla US 1.0, one machine) (#134).
+- Spike Top ($2E) in the model path faces by Mario's start X (unflipped with Mario strictly left, X-flipped otherwise; a static approximation, as for Dry Bones and Chucks), reading the flip from the ROM's table; the served map view already did, now pinned by a test (44 vanilla placements, vanilla US 1.0, one machine) (#134).
 - A cleared tech lead now resumes from a resume prompt it sends its orchestrator before clearing (no session ids), instead of relying on the hook. The session registry is keyed by desktop id, the hook prints the protocol script path and a short instruction, and shared state moves from `.claude/state/` to the gitignored `.hackbench-state/` (`protocol.mjs handoff` writes team and BA files, `migrate-state` converts the old files once; steps in `docs/runbooks/state-cutover.md`). Night shift is enactable and has no scheduled return (#725, #724).
 - The Mesen sprite-trace harness no longer records the pre-level castle-entry scene as the level
   (player animation `$0A`, `!PlayerAni_EnterCastle`, rammap.asm:575, set at bank_00.asm:4972-4978, at the first GM `$14`, GM14Level bank_00.asm:4405; it waits for the real load, about 500 frames later). 45 of

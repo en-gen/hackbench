@@ -38,6 +38,10 @@ export class SpikeTopAppearance implements SpriteAppearance {
    * level draws X-flipped, the reverse of the table alone. Evidence scope: the
    * served interpreter, 44 vanilla placements; see docs/sprites/sprite-overlay-removal.md.
    * Y flip (bit 7) is not modelled: it is clear at both indices on vanilla.
+   * Hack fragility (reference-only path; the served interpreter is authoritative): the
+   * direction rule is hardcoded from InitSpikeTop's vanilla code, the `$157C = 0` EOR is
+   * assumed, and the table is read at fixed `$02:BCC7`, so a hack changing any of them
+   * draws the vanilla pose here.
    * Without `tables.wallFollowAttr` the flip is not modelled (false, as before).
    *
    * Frame 0: SprTilemap[tilemapBase + 0], Frame 1: SprTilemap[tilemapBase + 1].

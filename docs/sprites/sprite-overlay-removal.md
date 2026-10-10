@@ -456,10 +456,16 @@ swept either side and level at one placement gives the same rule
 (`SpikeTopAppearance.fromTables`) now takes the same direction from
 `marioStartPx` and reads `DATA_02BCC7`, with the same EOR.
 
-Open: `readMarioStartPos` (`L3Loader.ts`) puts Mario left of all 44 placements,
-the ROM-run loader puts him right of the 4 in map `$1BF`, so the model path
-still draws those 4 unflipped where the served path draws them flipped. Only
-`src/providers/MapEditorProvider.ts` (reference-only) reaches the model path.
+Open (to be filed separately, not fixed here): `readMarioStartPos`
+(`L3Loader.ts:292-317`) builds Mario's X only from `DATA_05D750`/`D758` and
+ignores the entrance's screen, so it gives 16 where the ROM-run loader gives 784
+(map `$1BF`). It IS served: `map-sprites.ts:340-343` falls back to it when the
+loader refuses (a generic seed, i.e. hacks), and it also feeds Dry Bones and
+Chuck facing. For Spike Top it puts Mario left of all 44 vanilla placements, so
+the model path draws the 4 `$1BF` ones unflipped where the served path draws
+them flipped. The model path itself is reached only by
+`src/providers/MapEditorProvider.ts` (reference-only). `SubHorizPos` compares
+`PlayerXPosNow` (`$94`), the same value the loader image holds.
 
 ### `$AC`/`$AD` Wood Spike: where the sharp tip sits in the tip tile
 

@@ -12,6 +12,8 @@
  */
 import { beforeAll, describe, it, expect } from 'vitest'
 import { parseLevelSprites, type LevelSprite } from '../../../src/rom/LevelParser'
+import { Char } from '../../../src/rom/model/chars/Char'
+import { StaticPixelsBehavior } from '../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { buildSprites } from '../../../src/rom/model/SpriteFactory'
@@ -48,7 +50,7 @@ function placements(bytes: Uint8Array) {
 }
 
 /** The served parts' X flips for one placement, with Mario's X forced to `marioX` (null: the level's own). */
-function servedFlips(
+function servedParts(
   rom: RomFile,
   map: number,
   shape: { isVertical: boolean; screenCount: number },
@@ -60,7 +62,20 @@ function servedFlips(
     runOnce(r, id, marioX === null ? seed : { ...seed, mario: { ...seed.mario, x: marioX } })
   const got = interpDrawer(rom, map, shape, run)(s)
   if (!got.ok) throw new Error(got.reason)
-  return got.parts.map(p => p.flipX)
+  return got.parts
+}
+
+const servedFlips = (...a: Parameters<typeof servedParts>) => servedParts(...a).map(p => p.flipX)
+
+/** A char for every OBJ char number the interpreter can name, so the model's part ids are comparable. */
+const OBJ_CHARS = new Map(
+  Array.from({ length: 0x200 }, (_, i) => [0x400 + i, new Char(0x400 + i, new StaticPixelsBehavior(new Uint8Array(64)))] as const), // prettier-ignore
+)
+
+/** Corner keys (char, flip, offset from the set's top-left), order-free. */
+const keys = (ps: { charNum: number; flipX: boolean; dx: number; dy: number }[]) => {
+  const [mx, my] = [Math.min(...ps.map(p => p.dx)), Math.min(...ps.map(p => p.dy))]
+  return ps.map(p => [p.charNum, +p.flipX, p.dx - mx, p.dy - my].join(',')).sort()
 }
 
 const allSame = (f: boolean[], v: boolean) => f.length === 4 && f.every(x => x === v)
@@ -119,11 +134,20 @@ describe.skipIf(!hasRom(VANILLA))('served Spike Top facing (interpreter, vanilla
       // Each placement with Mario just left, level and just right of it: the model's own
       // start puts Mario left on all 44, so one pose alone would prove little.
       for (const marioX of [Math.max(0, x - 1), x, x + 40]) {
-        const model = buildSprites(rom.rom, [s], new Map(), [], { x: marioX, y: 0 }, new Map())
-        const modelFlips = (model[0].appearance as SpikeTopAppearance).parts0.map(p => p.flipX)
-        const served = servedFlips(rom.rom, map, shape, s, marioX)
-        expect(modelFlips, `map ${map.toString(16)} x=${x} Mario ${marioX}`).toEqual(served)
-        poses[allSame(served, false) ? 'unflipped' : 'flipped']++
+        const model = buildSprites(rom.rom, [s], OBJ_CHARS, [], { x: marioX, y: 0 }, new Map())
+        const modelParts = (model[0].appearance as SpikeTopAppearance).parts0
+        const served = servedParts(rom.rom, map, shape, s, marioX)
+        const at = `map ${map.toString(16)} x=${x} Mario ${marioX}`
+        // Char, flip and position of every corner, positions relative to the set's own corner.
+        expect(keys(modelParts.map(p => ({ charNum: p.char.id, ...p }))), at).toEqual(keys(served))
+        poses[
+          allSame(
+            served.map(p => p.flipX),
+            false,
+          )
+            ? 'unflipped'
+            : 'flipped'
+        ]++
       }
     }
     expect(poses.unflipped).toBeGreaterThan(0)

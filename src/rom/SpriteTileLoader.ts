@@ -114,8 +114,7 @@ export function readSpriteTileTables(rom: RomFile): SpriteTileTables | null {
     !gfxPropBuf ||
     !rawAttr ||
     !spr0to13Prop ||
-    !yoshiPal ||
-    !wallFollowAttr
+    !yoshiPal
   )
     return null
   // Match LoadSpriteTables (bank_07.asm:978) - only the low nibble of
@@ -131,7 +130,8 @@ export function readSpriteTileTables(rom: RomFile): SpriteTileTables | null {
     spriteAttr,
     spr0to13Prop: new Uint8Array(spr0to13Prop),
     yoshiPal: new Uint8Array(yoshiPal),
-    wallFollowAttr: new Uint8Array(wallFollowAttr),
+    // Model-only table: a failed read leaves it absent, never nulls the tables the served engine uses.
+    ...(wallFollowAttr ? { wallFollowAttr: new Uint8Array(wallFollowAttr) } : {}),
     // 84 handler walks, about 22 ms on vanilla cold. `readGfxRoutines`
     // caches per cart on `RomFile.version`, which matters because a map
     // build reruns on every toolbar change and this was the largest single
