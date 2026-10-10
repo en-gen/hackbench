@@ -39,7 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- WebGL2 map renderer spike findings (`docs/spikes/webgl2-map-renderer-spike.md`): byte parity with the CPU target on 3072 corpus levels, palette-only repaint 3.7x faster, full repaint 1.12x, wire 29x to 173x smaller; conditional go. Harness not committed.
+- WebGL2 map renderer spike findings (`docs/spikes/webgl2-map-renderer-spike.md`): byte parity with the CPU model target on 3072 corpus levels, but full repaint 0.93x (not faster); palette-only repaint and payload gains come from an indexed representation, not WebGL, and the CPU arm is not the shipped widget. Proposes an indexed-representation spike, not a WebGL build. Harness not committed.
 - A Playwright test pins the Maps zoom anchor against a screen reply that lands between a zoom and its React commit; it fails if `restoreAnchor` runs from `sync` (#547). The scroller carries `data-rendered-zoom`. The `renderedZoom` guard is ruled unreachable from UI input and has no test: docs/decisions/2026-10-08-zoom-anchor-race-seam.md.
 - Agentic workflow: docs/ becomes the knowledge base (conventions, decisions, protocols, runbooks, hypotheses); /protocol <name> on|off enacts a mode for every session via a hook; BA and tech-lead manuals replace the orchestrator manual, with registration, state files and self-clear after merge.
 - Block contents: a test pins the CODE_00F17F entry bytes in the gate reader pattern (#632).
