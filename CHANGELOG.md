@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Three more inline bank masks no longer fold $FE/$FF onto WRAM: the animation GFX33 read, the sprite dispatch ExecutePtr check and the palette-animation PHK/PLB data bank keep their raw bank (#704; synthetic 4 MB fixtures, one machine).
 - A cleared tech lead now resumes from a resume prompt it sends its orchestrator before clearing (no session ids), instead of relying on the hook. The session registry is keyed by desktop id, the hook prints the protocol script path and a short instruction, and shared state moves from `.claude/state/` to the gitignored `.hackbench-state/` (`protocol.mjs handoff` writes team and BA files, `migrate-state` converts the old files once; steps in `docs/runbooks/state-cutover.md`). Night shift is enactable and has no scheduled return (#725, #724).
 - The Mesen sprite-trace harness no longer records the pre-level castle-entry scene as the level
   (player animation `$0A`, `!PlayerAni_EnterCastle`, rammap.asm:575, set at bank_00.asm:4972-4978, at the first GM `$14`, GM14Level bank_00.asm:4405; it waits for the real load, about 500 frames later). 45 of

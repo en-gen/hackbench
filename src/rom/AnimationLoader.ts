@@ -317,7 +317,8 @@ export function readAnimGfxSources(
   const d = readDecompressor(rom, entry, fast)
   if (!d.ok) return d
   const key = d.key
-  const bank = (head[8]! & 0x7f) << 16
+  // A read address keeps its bank: a $7F fold would turn $FE/$FF (ROM on a 4 MB cart) into WRAM (#513, #704).
+  const bank = head[8]! << 16
   return {
     ok: true,
     gfx33: bank | ((head[3]! | (head[4]! << 8)) ^ key),

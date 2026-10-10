@@ -11,6 +11,7 @@
  * `checkGetRand`). SMWDisX bank_01.asm:110-127, bank_07.asm:1006,
  * bank_01.asm:6092. The level loader's entries are checked in LevelLoader.ts.
  */
+import { mirror } from '../../addressing'
 import type { RomFile } from '../../RomFile'
 import { bytesAt, shapeMatches } from './Guards'
 
@@ -189,9 +190,9 @@ const EXECUTE_PTR_SHAPE: (number | null)[] = [
 
 /** The three dispatch JSLs (HandleSprite, CallSpriteInit, CallSpriteMain) must reach one ExecutePtr. */
 function checkExecutePtr(rom: RomFile, jsl: number[][]): ShapeResult {
-  // Normalise the FastROM mirror: $80+ banks are the same code.
-  const targets = jsl.map(t => ((t[2] & 0x7f) << 16) | (t[1] << 8) | t[0])
-  if (new Set(targets).size !== 1)
+  // Keys fold the FastROM mirror ($80+ is the same code); the read keeps the raw bank (#513, #704).
+  const targets = jsl.map(t => (t[2] << 16) | (t[1] << 8) | t[0])
+  if (new Set(targets.map(mirror)).size !== 1)
     return { ok: false, reason: 'the dispatch calls do not all reach the same routine' }
   if (!matches(bytes(rom, targets[0], EXECUTE_PTR_SHAPE.length), EXECUTE_PTR_SHAPE))
     return { ok: false, reason: 'the dispatch calls do not reach the 16-bit ExecutePtr' }
