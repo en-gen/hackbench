@@ -118,7 +118,8 @@ Layer 3 has no single rule (`bank_05.asm:5504-5571`, `CODE_05C40C`). `[EST]`
   (`:5515-5518`). A parallax rule, like layer 2.
 - Other tilesets: `L3X` accumulates a time-driven drift plus layer 1's
   per-frame camera delta 1:1 (`:5556-5568`), and `L3Y = L1Y` (`:5571`). Y is 1:1
-  with the camera; X depends on elapsed frames, not only on the camera.
+  with the camera; X depends on elapsed frames, not only on the camera. A
+  non-zero `SpriteLock` skips the drift (`:5522-5523`, branch to `CODE_05C48D`).
 - Tide layers (`Layer3TideSetting` non-zero) take a separate path at the top
   of the routine. Not read in detail. `[OPEN]`
 
@@ -335,22 +336,26 @@ returned none, so none is named. `[OPEN]`
 #### E. No gutter; add-screen as commands only
 
 - Pros: no layout cost. Cons: the owner asked for room; the action hides in a
-  menu. #503, #521: unchanged by this.
+  menu. #503, #521: unchanged by this (fate as in A to D).
 
 #### F. Fixed empty gutter hosting add-screen actions
 
 A constant-width strip at each end of the scroller, outside the strip, empty,
 holding "add screen before" and "add screen after". Hidden at 32 screens.
+Width: 64 screen pixels per end, constant at every zoom, enough for one button
+and a label without covering map content. `[INF]` (a design size, not measured.)
 
 - Pros: honours rulings 1 and 2; no coordinate change; fit zoom unaffected;
   works with B. Cons: the action is an edit and needs its own issue; prepend is
   large; an empty gutter is not the background the owner pictured.
+- #503, #521: unaffected; they follow A to D.
 
 #### G. Gutter that draws layer 2 and 3 past the bounds
 
 - Pros: matches the owner's picture literally. Cons: nothing to draw for
   object-stream layer 2 (G1); for a preset it draws a repeat the game never
   shows; recompose per scroll, the cost of C. Breaks ruling 1.
+- #503: revived as its prerequisite, blocked on the speed work. #521: unaffected.
 
 How they combine with A to D: the gutter is orthogonal. E and F work with any of
 A, B, C or D, because neither draws layer 2 or 3. G only makes sense with C or D
@@ -366,7 +371,7 @@ data there is a repeat or nothing.
 - #521: rewritten to B as proposed; its camera clamp stays the ROM-read range,
   not the gutter. #503: absorbed into #521, as in B; the gutter does not revive
   it.
-- New issue to file `[PROP]`: add screen after, then before, with the shift
-  list above as acceptance.
+- New issue to file as part of this recommendation: add screen after, then
+  before, with the shift list above as acceptance.
 
 Citations: `check_citations` on 12, all matched. `[EST]`
