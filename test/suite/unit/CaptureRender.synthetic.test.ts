@@ -839,6 +839,42 @@ describe('sprite animation frame', () => {
   })
 })
 
+describe('recorded piece dy past 127 (#811)', () => {
+  // Shaped like the $104 capture: sprite at screen y -80 (y 112, camera 192), OAM lines $B0 and $B8,
+  // so the true dy are 256 and 264; the recorder stores them modulo 256 as 0 and 8.
+  const tiles = (dys: number[]) =>
+    dys.map((dy, k) => ({ dx: 0, dy, tile: k, attr: 0, large: false }))
+  const rec = (dys: number[], over = {}) => ({ x: 128, y: 112, cameraX: 0, cameraY: 192, frames: [{ frameIndex: 0, tiles: tiles(dys) }], ...over }) // prettier-ignore
+  const dyOf = (r: ReturnType<typeof spriteFrame>) => r.pieces?.map(p => p.dy)
+
+  it('unwraps the recorded dy to the offset that lands on the visible screen', () => {
+    expect(dyOf(spriteFrame(rec([0, 8]), 0))).toEqual([256, 264])
+  })
+  it('agrees with the entries path for the same pieces', () => {
+    const entries = [176, 184].map((y, k) => ({
+      entry: k,
+      x: 128,
+      y,
+      tile: k,
+      attr: 0,
+      sizeXHigh: 2,
+    }))
+    const viaEntries = spriteFrame(
+      { x: 128, y: 112, cameraX: 0, cameraY: 192, frames: [], entries },
+      0,
+    )
+    expect(dyOf(viaEntries)).toEqual([256, 264])
+  })
+  it('keeps dy as recorded when the record lacks y or cameraY', () => {
+    expect(dyOf(spriteFrame(rec([0, 8], { y: undefined }), 0))).toEqual([0, 8])
+  })
+  it('leaves an ordinary dy alone, across the sprite positions on screen', () => {
+    for (let sy = -32; sy < 224; sy += 9) {
+      expect(dyOf(spriteFrame(rec([-4, 4], { y: 192 + sy }), 0))).toEqual([-4, 4])
+    }
+  })
+})
+
 describe('map sprites against their recorded frames', () => {
   // List entry 0 recorded with one 16x16 tile; a window shows it later with another flip.
   function capture(recordAttr: number, windowAttr: number) {

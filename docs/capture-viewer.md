@@ -94,7 +94,10 @@ therefore replays the calls stamped strictly before its frame.
 ## OBJ Y offset
 
 `pieceOffset` reads an OAM Y of $E0 or more as a line above the top edge
-(y - 256, the same rule as `oamEntry`) and does not wrap the offset from the
-sprite, so a piece more than 128 lines away keeps its distance (#811).
-Evidence: synthetic sweeps in `CaptureOracle.synthetic.test.ts`; no real
-capture was re-rendered for this change.
+(y - 256; agrees with `oamEntry` for the pieces the caller keeps, at 8/16/32
+line sizes) and does not wrap the offset from the sprite, so a piece more than
+128 lines away keeps its distance (#811). The recorder stores a relative dy
+modulo 256 (`headless_capture.lua:1389`), so `unwrapDy` restores the multiple
+of 256 that puts the piece on the visible window -32..223. Evidence: synthetic
+records and sweeps in `CaptureOracle.synthetic.test.ts` and
+`CaptureRender.synthetic.test.ts`; no real capture was re-rendered.

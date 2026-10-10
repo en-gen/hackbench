@@ -313,7 +313,7 @@ function framePieces(frame: Rec, rec: Rec, obsel: number): D.SpritePiece[] | nul
     .map((p, k) => {
       const hi = typeof p.large === 'boolean' ? (p.large ? 2 : 0) : (num(p.sizeXHigh) ?? 0)
       const [dx, dy] = relative
-        ? [num(p.dx)!, num(p.dy)!]
+        ? [num(p.dx)!, at[1] === null || at[3] === null ? num(p.dy)! : D.unwrapDy(num(p.dy)!, at[1], at[3])]
         : D.pieceOffset((num(p.x) ?? 0) + (hi & 1) * 256, num(p.y) ?? 0, at[0]!, at[1]!, at[2]!, at[3]!) // prettier-ignore
       return { i: num(p.entry) ?? k, dx, dy, tile: num(p.tile) ?? 0, attr: num(p.attr) ?? 0, large: (hi >> 1) & 1 } // prettier-ignore
     })
