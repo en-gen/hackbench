@@ -8,7 +8,7 @@
  * Mario strictly left gives direction $C2 = 4, else 0; the drawn attribute is
  * DATA_02BCC7[$C2] with OBJ_XFlip then EORed in by SubSprGfx2Entry1 ($157C = 0). So
  * Mario left draws unflipped and Mario right or level draws X-flipped. Evidence
- * scope: vanilla US 1.0, one level (the pose) and all 44 vanilla placements (the sweep).
+ * scope: vanilla US 1.0, one map (the pose) and all 44 vanilla placements (the sweep).
  */
 import { beforeAll, describe, it, expect, vi } from 'vitest'
 import { parseLevelSprites, type LevelSprite } from '../../../src/rom/LevelParser'
@@ -50,7 +50,7 @@ function placements(bytes: Uint8Array) {
   return { rom, out }
 }
 
-/** The served parts' X flips for one placement, with Mario's X forced to `marioX` (null: the level's own). */
+/** The served parts' X flips for one placement, with Mario's X forced to `marioX` (null: the map's own). */
 function servedParts(
   rom: RomFile,
   map: number,
