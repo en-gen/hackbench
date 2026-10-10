@@ -29,10 +29,16 @@ export function parseFragment(name, text) {
     }
     if (h) {
       if (!SECTIONS.includes(h[1])) throw new Error(`${name}: unknown section "${h[1]}"`)
-      cur = sections.get(h[1]) ?? []
+      // A second heading would reuse the first one's entries and pass the empty check.
+      if (sections.has(h[1])) throw new Error(`${name}: repeated heading "${h[1]}"`)
+      cur = []
       sections.set(h[1], cur)
     } else if (line.trim()) {
       if (!cur) throw new Error(`${name}: text before the first "### <Section>" heading`)
+      // changelog.d/README.md: a bullet, or a continuation indented two spaces.
+      if (!line.startsWith('- ') && !line.startsWith('  ')) {
+        throw new Error(`${name}: each line must start with "- " or be indented two spaces`)
+      }
       if (cur.length === 0 && !line.startsWith('- ')) {
         throw new Error(`${name}: first entry under a heading must start with "- "`)
       }
@@ -99,11 +105,18 @@ function main(argv) {
   const date = opt('--date') ?? new Date().toISOString().slice(0, 10)
   const root = opt('--root') ?? process.cwd()
   const version = args[0]
+  // Leftovers are typos like "--dat": refuse rather than release with today's date.
+  const realDate = d => {
+    const t = new Date(`${d}T00:00:00Z`)
+    return !Number.isNaN(t.getTime()) && t.toISOString().slice(0, 10) === d
+  }
   if (
     missingValue ||
+    args.length !== 1 ||
     !version ||
     !/^\d+\.\d+\.\d+\S*$/.test(version) ||
-    !/^\d{4}-\d{2}-\d{2}$/.test(date)
+    !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+    !realDate(date)
   ) {
     console.error('usage: changelog-combine.mjs <version> [--date YYYY-MM-DD] [--root DIR]')
     return 2

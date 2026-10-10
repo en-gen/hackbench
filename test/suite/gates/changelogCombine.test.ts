@@ -163,6 +163,8 @@ describe('changelog-combine', () => {
     ['a release heading', '### Added\n- a\n## [9.9.9]\n'],
     ['a #### heading', '#### Added\n- a\n'],
     ['a first entry without a bullet', '### Added\nplain\n'],
+    ['a repeated heading', '### Added\n- valid\n### Added\n'],
+    ['plain text after a bullet', '### Added\n- valid\nplain text\n'],
     ['a 0-byte file', ''],
   ])('refuses a fragment with %s', (_n, bad) => {
     log()
@@ -183,6 +185,27 @@ describe('changelog-combine', () => {
         '## [0.1.0] - 2026-04-17\n\nInitial.\n',
     )
     expect(files()).toEqual(['README.MD'])
+  })
+
+  it('keeps an indented continuation line under its bullet', () => {
+    log()
+    frag('1-a.md', '### Added\n- a\n  more of a\n- b\n')
+    expect(run().status).toBe(0)
+    expect(readLog()).toContain('### Added\n\n- a\n  more of a\n- b\n\n')
+  })
+
+  it.each([
+    ['a mistyped option', ['1.2.0', '--dat', '2026-10-10']],
+    ['an extra positional', ['1.2.0', '1.3.0']],
+    ['an impossible calendar date', ['1.2.0', '--date', '2026-02-30']],
+  ])('refuses %s with usage and exit 2, writing nothing', (_n, args) => {
+    log()
+    frag('1-a.md', '### Added\n- a\n')
+    const r = spawnSync(process.execPath, [script, ...args, '--root', root], { encoding: 'utf8' })
+    expect(r.status).toBe(2)
+    expect(r.stderr).toContain('usage:')
+    expect(readLog()).toBe(BASE)
+    expect(files()).toEqual(['1-a.md'])
   })
 
   it('refuses --date with no value', () => {
