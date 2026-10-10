@@ -332,24 +332,54 @@ export function interpDrawer(
   index: number,
   model: { isVertical: boolean; screenCount: number },
   run: (rom: RomFile, id: number, seed: SpriteSeed) => RunModel = runOnce,
+  seedFor: (rom: RomFile, index: number) => SpriteSeed = levelSeed,
 ): SpriteDrawer {
   // The loader runs once per map, not per sprite.
-  const base = levelSeed(rom, index)
+  const base = seedFor(rom, index)
   // Mario's start is what the ROM-run loader left in $94/$96 (the entrance it ran); the
   // table re-derivation is only for a generic seed, which has no loader image.
   const w = base.loaded
   const mario = w
     ? { x: w[0x94]! | (w[0x95]! << 8), y: w[0x96]! | (w[0x97]! << 8) }
     : readMarioStartPos(rom, index)
+  // Layer 1 as the loader left it ($1A/$1C): where a screen-fixed part's OAM position is on the map.
+  const loaderCam = w && { x: w[0x1a]! | (w[0x1b]! << 8), y: w[0x1c]! | (w[0x1d]! << 8) }
   // Only the map's own shape is added to a generic seed; a loaded one ignores it.
   const shape = { level: { screenMode: model.isVertical ? 1 : 0, screens: model.screenCount } }
+  // Ids whose first run showed no screen-fixed part: later ones skip the probe run.
+  const noFixed = new Set<number>()
   return s => {
     const [x, y] = [pixelX(s), s.y * TILE]
     const camera = cameraFor(x, y, model.isVertical, model.screenCount)
-    return modelResult(
-      run(rom, s.spriteId, withSeed({ sprite: { x, y }, camera, mario, ...shape }, base)),
-    )
+    const seed = (camera: { x: number; y: number }) => withSeed({ sprite: { x, y }, camera, mario, ...shape }, base) // prettier-ignore
+    const m = run(rom, s.spriteId, seed(camera))
+    if (!loaderCam || noFixed.has(s.spriteId)) return modelResult(m)
+    // Probe: the camera moved 16 px towards the sprite's screen centre, so it stays drawn.
+    const probe = run(rom, s.spriteId, seed({ x: camera.x + (x - camera.x < 128 ? -16 : 16), y: camera.y + (y - camera.y < 112 ? -16 : 16) })) // prettier-ignore
+    const fixed = fixOffsets(m, probe, loaderCam)
+    if (!fixed) noFixed.add(s.spriteId)
+    return modelResult(fixed ?? m)
   }
+}
+
+/**
+ * Parts whose OAM position is the same with the camera moved are screen-fixed
+ * (the Side Exit's flame, CODE_02F4EB, SMWDisX bank_02.asm:15525-15563, writes
+ * screen coordinates): their map position is OAM + the loader's camera, not
+ * the sprite's offset, and is not wrapped to a byte. Null when none is.
+ */
+function fixOffsets(m: RunModel, probe: RunModel, cam: { x: number; y: number }): RunModel | null {
+  const pass = m.chosen === undefined ? undefined : m.passes[m.chosen]
+  const other = probe.chosen === undefined ? undefined : probe.passes[probe.chosen]
+  if (!m.anchor || !pass || !other) return null
+  const same = (p: SpritePart) => other.parts.some(q => q.oam === p.oam && q.ox === p.ox && q.oy === p.oy) // prettier-ignore
+  if (!pass.parts.some(same)) return null
+  const parts = pass.parts.map(p =>
+    same(p)
+      ? { ...p, dx: (p.ox > 255 ? p.ox - 512 : p.ox) + cam.x - m.anchor!.x, dy: p.oy + cam.y - m.anchor!.y } // prettier-ignore
+      : p,
+  )
+  return { ...m, passes: m.passes.map((q, i) => (i === m.chosen ? { ...q, parts } : q)) }
 }
 
 /** A sprite stream's bytes: up to the window, fewer when the ROM ends first (as SmwRom.getLevelRawData reads). */

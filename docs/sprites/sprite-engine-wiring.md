@@ -210,6 +210,9 @@ read through `drawSpriteParts`; no emulator was run.
   that draws is served. Chars come from the map's VRAM (SP1-SP4), colors from
   its CGRAM; the palette row is the sprite's own, and the colors its code
   wrote to CGRAM override that row for that sprite only.
+- A part whose OAM position does not move when the camera moves (a second run, camera shifted 16 px)
+  is screen-fixed: it is placed at OAM + the loader's Layer 1 position, unwrapped, not
+  beside its sprite (the `$8C` flame on `$104`, #286; one Mesen capture, vanilla).
 - Each sprite is one bitmap at anchor + `dx`/`dy`, never snapped to the grid.
   A sprite the interpreter refuses (`refused: ...`, with its reason: an id
   past the table, an unknown entry shape, a spent step budget), one that draws

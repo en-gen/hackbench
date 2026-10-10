@@ -107,6 +107,60 @@ describe('cameraFor', () => {
   })
 })
 
+describe('screen-fixed parts (#286)', () => {
+  // The loader left Layer 1 at (0, 192), as Yoshi's House ($104) does at load.
+  const loaded = new Uint8Array(0x2000)
+  loaded[0x1c] = 192
+  const base = withSeed({ loaded })
+  const blank = RomFile.fromBytes('blank.sfc', Buffer.alloc(0x80000))
+  const sprite = { index: 0, x: 8, y: 7, spriteId: 0x8c, screen: 0, extraBit: false, raw: [], streamOffset: 0 } as LevelSprite // prettier-ignore
+  const s8 = (v: number) => (((v & 0xff) + 128) & 0xff) - 128
+  // A run like the runner's: the anchor is the sprite (128,112); one part ignores the camera
+  // (OAM 184,176, as CODE_02F4EB writes, bank_02.asm:15525-15563), one follows it.
+  const fakeRun = (_r: RomFile, _i: number, seed: SpriteSeed): SpriteModel => {
+    const cam = seed.camera
+    const mk = (oam: number, ox: number, oy: number) => part({ oam, ox, oy, dx: ox - (128 - cam.x), dy: s8(oy - (112 - cam.y)) }) // prettier-ignore
+    const parts = [mk(0, 184, 176), mk(1, 132 - cam.x, 120 - cam.y)]
+    return model({ anchor: { x: 128, y: 112, rawX: 128, rawY: 112 }, passes: [{ pass: 0, pos: { x: 0, y: 0 }, parts, uploads: [], palette: [] }], chosen: 0 }) // prettier-ignore
+  }
+  const draw = (run = fakeRun) => interpDrawer(blank, 0x104, { isVertical: false, screenCount: 2 }, run, () => base)(sprite) // prettier-ignore
+
+  it('places a part whose OAM ignores the camera at OAM + the loader camera, unwrapped; a camera-relative part stays', () => {
+    const r = draw()
+    expect(r.ok && r.parts.map(p => [p.dx, p.dy])).toEqual([
+      [4, 8],
+      [56, 256],
+    ])
+    // Map position of the fixed part: anchor + offset = (184, 368), inside the fireplace.
+    expect(r.ok && [128 + r.parts[1]!.dx, 112 + r.parts[1]!.dy]).toEqual([184, 368])
+  })
+
+  it('probes a sprite id once while no part is screen-fixed, and every time once one is', () => {
+    let runs = 0
+    const counting = (r: RomFile, i: number, sd: SpriteSeed) => (runs++, fakeRun(r, i, sd))
+    const d = interpDrawer(blank, 0x104, { isVertical: false, screenCount: 2 }, counting, () => base) // prettier-ignore
+    d(sprite)
+    d(sprite)
+    expect(runs).toBe(4) // fixed part found: both instances run twice
+    runs = 0
+    const plain = (r: RomFile, i: number, sd: SpriteSeed) => (runs++, fakeRun(r, i, sd))
+    const only = (r: RomFile, i: number, sd: SpriteSeed) => {
+      const m = plain(r, i, sd)
+      m.passes[0]!.parts.shift()
+      return m
+    }
+    const e = interpDrawer(blank, 0x104, { isVertical: false, screenCount: 2 }, only, () => base) // prettier-ignore
+    e(sprite)
+    e(sprite)
+    expect(runs).toBe(3) // first: normal + probe; second: normal only
+  })
+
+  it('leaves parts alone when the loader gave no image', () => {
+    const r = interpDrawer(blank, 0x104, { isVertical: false, screenCount: 2 }, fakeRun, () => withSeed({}))(sprite) // prettier-ignore
+    expect(r.ok && r.parts.map(p => p.dy)).toEqual([8, 64])
+  })
+})
+
 describe('drawSprites with runtime palette writes', () => {
   const s = { index: 0, x: 0, y: 0, spriteId: 1, screen: 0, extraBit: false, raw: [], streamOffset: 0 } as LevelSprite // prettier-ignore
   const chars = { sp1: [Uint8Array.from([1, 2, ...new Array(62).fill(0)])] }
@@ -419,6 +473,14 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     get(0x001) // the ninth: the least recently used ($106) goes, not $105
     expect(get(0x105)).toBe(first)
     expect(get(0x106)).not.toBe(second)
+  })
+
+  it('$8C (Side Exit) on $104 draws its flame at map (184, 368), inside the fireplace, not at the list position (#286)', () => {
+    const r = mapSprites(new L1ModelCache(), bytes(), romPath(VANILLA), 0x104)
+    if (r.status !== 'ok') throw new Error(JSON.stringify(r))
+    const flame = r.sprites.filter(d => d.id === 0x8c)
+    // One Mesen capture of vanilla $104: OAM (184,176) with Layer 1 Y 192. x0/y0 is the box's top-left.
+    expect(flame.map(d => [d.status, d.box.x0, d.box.y0])).toEqual([['drawn', 184, 368]])
   })
 
   it('$4F on $105 is served at its stream position plus (8, -1): INIT moved it, not a table', () => {
