@@ -321,6 +321,33 @@ export function modelResult(m: RunModel): SpriteDrawResult {
 }
 
 /**
+ * The span of the level's sprite stream the game loads at level start, along one axis: read from
+ * the ROM's start-load routine (CODE_02ACA1 horizontal, its vertical twin entered from CODE_02AC5C,
+ * SMWDisX bank_02.asm:5837-5910), which backs the scroll position up by SBC #imm, calls
+ * CODE_02A802 twice per column, steps 16 px, and runs while the column count is below CMP #imm.
+ * Vanilla reads 96 and 32 (cross-checked in the test, never used as a default), so the window is
+ * [camera - 96, camera + 416). Null when any gated byte is not the one expected: the caller
+ * then places nothing (the old behaviour). Not read: DATA_02A7F6[1] (the offset added, 0 on vanilla).
+ */
+export function startLoadWindow(
+  rom: RomFile,
+  vertical: boolean,
+): { back: number; columns: number } | null {
+  const body = vertical ? 0x02ac61 : 0x02aca1
+  if (vertical) {
+    // LDA ScreenMode; LSR A; BCC CODE_02ACA1: the horizontal body is what a horizontal map runs.
+    const head = rom.readAt(0x02ac5c, 5)
+    if (!head || head[0] !== 0xa5 || head[2] !== 0x4a || head[3] !== 0x90 || 0x02ac5c + 5 + head[4]! !== 0x02aca1) return null // prettier-ignore
+  }
+  const b = rom.readAt(body, 54)
+  if (!b) return null
+  const [lo, hi] = vertical ? [0x1c, 0x1d] : [0x1a, 0x1b]
+  // [offset, expected]; the wildcards (ScrollDir, ScreenMode's RAM and TileGenerateTrackB's address) are left out.
+  const fixed: [number, number][] = [[0, 0xa5], [2, 0x48], [3, 0xa9], [4, 1], [5, 0x85], [7, 0xa5], [8, lo], [9, 0x48], [10, 0x38], [11, 0xe9], [13, 0x85], [14, lo], [15, 0xa5], [16, hi], [17, 0x48], [18, 0xe9], [19, 0], [20, 0x85], [21, hi], [22, 0x9c], [25, 0x20], [26, 0x02], [27, 0xa8], [28, 0x20], [29, 0x02], [30, 0xa8], [31, 0xa5], [32, lo], [33, 0x18], [34, 0x69], [35, 16], [36, 0x85], [37, lo], [38, 0xa5], [39, hi], [40, 0x69], [41, 0], [42, 0x85], [43, hi], [44, 0xee], [47, 0xad], [50, 0xc9], [52, 0x90], [53, 0xe3]] // prettier-ignore
+  return fixed.every(([i, v]) => b[i] === v) ? { back: b[12]!, columns: b[51]! } : null
+}
+
+/**
  * The interpreter over this cart, for the level `index`: `levelSeed` runs the
  * ROM's own loader, Mario at the level's start, one sprite run alone per call.
  * When the loader refuses (a hack that moves its entry points) the model
@@ -345,9 +372,11 @@ export function interpDrawer(
     : readMarioStartPos(rom, index)
   // Layer 1 as the loader left it ($1A/$1C): where a screen-fixed part's OAM position is on the map.
   const loaderCam = w && { x: w[0x1a]! | (w[0x1b]! << 8), y: w[0x1c]! | (w[0x1d]! << 8) }
-  // OAM + the loader's camera is what the game shows only for a sprite on the screen the loader
-  // starts on; the scroll axis decides (a horizontal map loads sprites by column, a vertical by row).
-  const [axis, span] = model.isVertical ? (['y', 224] as const) : (['x', 256] as const)
+  // OAM + the loader's camera is what the game shows only for a sprite the start-load pass loads,
+  // read from the ROM; the scroll axis decides (a horizontal map loads by column, a vertical by row).
+  // Unreadable: nothing is placed.
+  const axis = model.isVertical ? 'y' : 'x'
+  const win = startLoadWindow(rom, model.isVertical)
   // Only the map's own shape is added to a generic seed; a loaded one ignores it.
   const shape = { level: { screenMode: model.isVertical ? 1 : 0, screens: model.screenCount } }
   return s => {
@@ -356,9 +385,12 @@ export function interpDrawer(
     const seed = (camera: { x: number; y: number }, extra = {}) => withSeed({ sprite: { x, y }, camera, mario, ...shape, ...extra }, base) // prettier-ignore
     const m = run(rom, s.spriteId, seed(camera))
     const at = m.chosen
-    if (!w || !loaderCam || at === undefined || !m.anchor) return modelResult(m)
-    const here = { x, y }[axis] - loaderCam[axis]
-    if (here < 0 || here >= span) return modelResult(m)
+    if (!w || !loaderCam || !win || at === undefined || !m.anchor) return modelResult(m)
+    // 16 px columns from the backed-up position; screens left of the map's start are skipped
+    // (BMI), which a sprite at X or Y >= 0 never reaches, but they still count towards the 32.
+    const first = (loaderCam[axis] - win.back) & ~15
+    const here = { x, y }[axis]
+    if (here < first || here >= first + win.columns * 16) return modelResult(m)
     // Probe: the camera moved 13 x 11 px (not a multiple of the 8 px tile pitch, so a neighbour
     // tile cannot alias) towards the sprite's screen centre, so it stays drawn; run only to the drawn pass.
     const shifted = { x: camera.x + (x - camera.x < 128 ? -13 : 13), y: camera.y + (y - camera.y < 112 ? -11 : 11) } // prettier-ignore
@@ -372,8 +404,8 @@ export function interpDrawer(
  * (the Side Exit's flame, CODE_02F4EB, SMWDisX bank_02.asm:15531-15576, writes
  * screen coordinates): their map position is OAM + the loader's camera, not
  * the sprite's offset, and is not wrapped to a byte. A part whose X and Y are
- * those the loader image already held at its OAM index was not drawn by this
- * sprite (the level's own cluster sprites rewrite OAM 124-127 every frame) and
+ * those the loader image already held at its (non-zero) OAM entry was not drawn
+ * by this sprite (the level's own cluster sprites rewrite OAM 123-127 every frame) and
  * is left alone. Null when no part is screen-fixed.
  */
 function fixOffsets(
@@ -388,7 +420,11 @@ function fixOffsets(
   const other = at === undefined ? undefined : probe.passes[at]
   if (!m.anchor || !pass || !other) return null
   const anchor = m.anchor
-  const residue = (p: SpritePart) => loaded[RAM.oam + p.oam * 4] === (p.ox & 0xff) && loaded[RAM.oam + p.oam * 4 + 1] === p.oy // prettier-ignore
+  // A zero entry is the loader's fill, not a drawn part: a genuine part at (0, 0) must move.
+  const residue = (p: SpritePart) => {
+    const e = loaded.subarray(RAM.oam + p.oam * 4, RAM.oam + p.oam * 4 + 4)
+    return e.some(v => v) && e[0] === (p.ox & 0xff) && e[1] === p.oy
+  }
   const same = (p: SpritePart) => !residue(p) && other.parts.some(q => q.oam === p.oam && q.ox === p.ox && q.oy === p.oy) // prettier-ignore
   if (!pass.parts.some(same)) return null
   // X is 9 bits (bit 8 is the sign); OAM Y $E0-$FF is above the screen's top edge.
