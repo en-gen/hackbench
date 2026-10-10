@@ -176,6 +176,13 @@ export function commitReport(
   force = false,
 ): boolean {
   const paths = [`reports/sprites/${key}`, 'reports/sprites/latest']
+  // Untracked or edited files in <key>/ are an owner's; a rerun would delete them.
+  if (
+    !force &&
+    existsSync(join(repo, paths[0])) &&
+    git(repo, 'status', '--porcelain', '--', paths[0]).trim()
+  )
+    throw new Error(`${paths[0]} has uncommitted changes; --force replaces them. Nothing written.`)
   placeReport(join(repo, 'reports', 'sprites'), key, files, force)
   try {
     git(repo, 'add', '-A', '--', ...paths)
@@ -186,7 +193,8 @@ export function commitReport(
     const err = e as { stderr?: string; stdout?: string; message: string }
     for (const undo of [
       ['reset', '-q', '--', ...paths],
-      ['checkout', '-q', '--', 'reports/sprites/latest'], // fails on a first run, nothing tracked yet
+      ['checkout', '-q', '--', paths[0]], // each fails on a first run, nothing tracked yet
+      ['checkout', '-q', '--', paths[1]],
       ['clean', '-fdq', '--', ...paths],
     ])
       try {
@@ -238,8 +246,12 @@ export function run(argv: string[], io: Io): number {
   const inRepo = (p: string): string | undefined =>
     isInside(p, io.repoRoot) ? 'the hackbench checkout' : undefined
   if (a.sheet || !a.commit) {
+    let near = resolve(a.out!)
+    while (!existsSync(near) && dirname(near) !== near) near = dirname(near)
     const bad =
-      inRepo(a.out!) ?? (target && isInside(a.out!, target) ? 'the validation repo' : undefined)
+      inRepo(a.out!) ??
+      (target && isInside(a.out!, target) ? 'the validation repo' : undefined) ??
+      hackbenchRepo(near, io.repoRoot)
     if (bad) return fail(2, `refusing ${a.out}: it is inside ${bad}. Nothing written.`)
   } else {
     if (!target || !io.exists(join(target, '.git')))
@@ -303,6 +315,19 @@ export function run(argv: string[], io: Io): number {
   } catch (e) {
     return fail(1, (e as Error).message)
   }
+}
+
+/** The recorded frame to draw against ours, in OAM order when the entries fit; `note` says when they do not. */
+export function hardwareFrame(
+  m: SpriteModel,
+  want: RecordedPiece[][],
+  entries: Entry[] | undefined,
+): { pieces: RecordedPiece[]; note?: string } {
+  const hw = gradedFrame(m, want)
+  const ordered = oamOrder(hw, entries)
+  return ordered || hw.length < 2
+    ? { pieces: ordered ?? hw }
+    : { pieces: hw, note: 'hardware overlap order unknown' }
 }
 
 interface Rec {
@@ -419,14 +444,12 @@ export function gradeCaptures(f: Filter): Graded[] {
       const m = runSprite(rom, id, seed)
       const g = grade(m, want)
       const ours = m.chosen !== undefined && !m.refusal ? passPieces(m, m.chosen) : []
-      const hw = gradedFrame(m, want)
-      const ordered = oamOrder(hw, rec.entries)
-      const note = ordered || hw.length < 2 ? undefined : 'hardware overlap order unknown'
+      const hw = hardwareFrame(m, want, rec.entries)
       out.push({
         map, id, slot: rec.slot, verdict: g.verdict,
-        detail: [g.detail, note].filter(Boolean).join('. ') || undefined,
+        detail: [g.detail, hw.note].filter(Boolean).join('. ') || undefined,
         oursImg: src ? renderPieces(ours, src) : null,
-        hardwareImg: src ? renderPieces(ordered ?? hw, src) : null,
+        hardwareImg: src ? renderPieces(hw.pieces, src) : null,
       }) // prettier-ignore
     }
   }

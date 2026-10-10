@@ -38,6 +38,7 @@ import {
 import {
   gradeCaptures,
   gradedFrame,
+  hardwareFrame,
   oamOrder,
   run,
   type Graded,
@@ -241,6 +242,43 @@ describe('run', () => {
     const changed = git(v, 'show', '--name-only', '--format=', 'HEAD')
     expect(changed).not.toMatch(/notes\.txt|staged\.txt/)
     expect(git(v, 'status', '--porcelain')).toContain('A  staged.txt')
+    expect(git(v, 'status', '--porcelain')).toContain('?? notes.txt')
+  })
+  it('refuses to replace untracked or edited files in <key>/ unless --force', () => {
+    const v = mkRepo('v10')
+    run(['--validation', v], io())
+    const dir = join(v, 'reports', 'sprites', 'deadbeef')
+    writeFileSync(join(dir, 'notes.md'), 'mine')
+    const c = io()
+    expect(run(['--validation', v], c)).toBe(1)
+    expect(c.out.join()).toContain('uncommitted')
+    expect(readFileSync(join(dir, 'notes.md'), 'utf8')).toBe('mine')
+    rmSync(join(dir, 'notes.md'))
+    writeFileSync(join(dir, 'index.md'), 'edited')
+    expect(run(['--validation', v], io())).toBe(1)
+    expect(readFileSync(join(dir, 'index.md'), 'utf8')).toBe('edited')
+    expect(run(['--validation', v, '--force'], io())).toBe(0)
+  })
+  it('restores an already-committed <key>/ and latest/ when a rerun fails to commit', () => {
+    const v = mkRepo('v11')
+    run(['--validation', v], io())
+    git(v, 'config', 'core.hooksPath', join(v, '.git', 'hooks'))
+    const hook = join(v, '.git', 'hooks', 'pre-commit')
+    writeFileSync(hook, '#!/bin/sh\nexit 1\n')
+    chmodSync(hook, 0o755)
+    const other = (): Graded[] =>
+      graded().map(g => ({ ...g, oursImg: img(7), hardwareImg: img(8) }))
+    expect(run(['--validation', v], io({ grade: other }))).toBe(1)
+    expect(git(v, 'status', '--porcelain')).toBe('')
+  })
+  it('refuses --out and --sheet output inside a repo that shares the hackbench git store', () => {
+    const main = mkRepo('hbmain2')
+    const wt = join(tmp, 'hbwt2')
+    git(main, 'worktree', 'add', '-q', wt, '-b', 'wt2')
+    const c = io({ repoRoot: wt })
+    expect(run(['--out', join(main, 'o4'), '--no-commit'], c)).toBe(2)
+    expect(run(['--sheet', '--map', '1', '--out', join(main, 'o5')], c)).toBe(2)
+    expect(existsSync(join(main, 'o4')) || existsSync(join(main, 'o5'))).toBe(false)
   })
   it('keys a dirty tree as <sha>-dirty', () => {
     const v = mkRepo('v7')
@@ -407,6 +445,37 @@ describe('oamOrder', () => {
     expect(oamOrder(frame, undefined)).toBeNull()
     expect(oamOrder(frame, [ent(9, 54, 1), ent(3, 99, 2)])).toBeNull()
     expect(oamOrder(frame, [ent(9, 54, 1)])).toBeNull()
+  })
+  it('compares attr, dy and the X high bit', () => {
+    const e = (entry: number, x: number, y: number, attr: number, hi = 0, tile = 1) => ({
+      entry,
+      x,
+      y,
+      tile,
+      attr,
+      sizeXHigh: hi,
+    })
+    const two = [piece(0, 1, 0x20), { ...piece(246, 2, 0x20), dy: 8 }]
+    const ok = [e(5, 54, 100, 0x20), e(2, 44, 108, 0x20, 1, 2)]
+    expect(oamOrder(two, ok)!.map(p => p.tile)).toEqual([2, 1])
+    expect(oamOrder(two, [ok[0], { ...ok[1], attr: 0x22 }])).toBeNull() // attr
+    expect(oamOrder(two, [ok[0], { ...ok[1], y: 109 }])).toBeNull() // dy
+    expect(oamOrder(two, [ok[0], { ...ok[1], sizeXHigh: 0 }])).toBeNull() // X >= 256
+  })
+})
+
+describe('hardwareFrame', () => {
+  const ours = model([piece(0, 1), piece(4, 2)])
+  const want = [[piece(0, 1), piece(4, 2)]]
+  const ents = [
+    { entry: 9, x: 54, y: 100, tile: 1, attr: 0, sizeXHigh: 0 },
+    { entry: 3, x: 58, y: 100, tile: 2, attr: 0, sizeXHigh: 0 },
+  ]
+  it('labels a frame of 2+ pieces whose entries do not fit, and only that', () => {
+    expect(hardwareFrame(ours, want, undefined).note).toBe('hardware overlap order unknown')
+    expect(hardwareFrame(ours, want, ents).note).toBeUndefined()
+    expect(hardwareFrame(ours, want, ents).pieces.map(p => p.tile)).toEqual([2, 1])
+    expect(hardwareFrame(model([piece(0, 1)]), [[piece(0, 1)]], undefined).note).toBeUndefined()
   })
 })
 
