@@ -63,7 +63,7 @@ const loaderVsMesen = (ins: In[]): string[] =>
 
 /** The generic-seed fallback (readMarioStartPos) minus the loader's $94/$96, on maps where they differ. */
 const fallbackVsLoader = (rom: RomFile, ins: In[]): string[] =>
-  ins.map(m => gap(m.id, readMarioStartPos(rom, parseInt(m.id, 16)), xy(m.wram, 0x94))).filter(nonzero) // prettier-ignore
+  ins.map(m => gap(m.id, readMarioStartPos(rom, parseInt(m.id, 16))!, xy(m.wram, 0x94))).filter(nonzero) // prettier-ignore
 
 /** A map's Level 1 pointer and its Map16 dump, for the shared-image check. */
 interface Dump { id: string; ptr: number; lo: Buffer; hi: Buffer } // prettier-ignore

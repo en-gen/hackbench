@@ -70,6 +70,32 @@ function withNudgeCode(m = 0x08, n = 0x02): RomFile {
   return rom
 }
 
+describe('readMarioStartPos refuses unreadable entrance tables (#800 review)', () => {
+  // One unreadable byte at a time, so each of the seven reads is proven to be checked on its own:
+  // a read that fell back to 0 would give a plausible-looking {x, y} instead of null.
+  const idx = (): RomFile => {
+    const rom = tables()
+    rom.writeAt(0x05f000 + 7, [0x05]) // Y index 5
+    rom.writeAt(0x05f200 + 7, [0x03]) // X index 3
+    return rom
+  }
+  const reads = [
+    ['DATA_05F000', 0x05f000 + 7], ['DATA_05F200', 0x05f200 + 7], ['DATA_05F600', 0x05f600 + 7],
+    ['DATA_05D730 (Y low)', 0x05d730 + 5], ['DATA_05D740 (Y high)', 0x05d740 + 5],
+    ['DATA_05D750 (X low)', 0x05d750 + 3], ['DATA_05D758 (X high)', 0x05d758 + 3],
+  ] as const // prettier-ignore
+  it('reads fine with every byte present', () => {
+    expect(readMarioStartPos(idx(), 7)).toEqual({ x: 0x38, y: 0x135 }) // screen 0
+  })
+  it.each(reads)('returns null when %s cannot be read', (_n, addr) => {
+    const real = idx()
+    const holey = {
+      readByte: (a: number) => (a === addr ? null : real.readByte(a)),
+    } as unknown as RomFile
+    expect(readMarioStartPos(holey, 7)).toBeNull()
+  })
+})
+
 describe('readMarioStartPos entrance-type nudge (bank_00.asm:5019-5060)', () => {
   // Type is DATA_05F200 bits 5:3; X idx 0 gives $20, Y idx 0 gives $30. Masks differ from stock so a hard-coded
   // $08/$02 would show; types 3, 4, 7 OR X, type 6 ORs X and Y, 0, 1, 2 and 5 do nothing.
@@ -88,7 +114,7 @@ describe('readMarioStartPos entrance-type nudge (bank_00.asm:5019-5060)', () => 
     const rom = withNudgeCode(0x08, 0x02)
     rom.writeAt(0x05d750 + 5, [0x28])
     rom.writeAt(0x05f200 + 7, [(3 << 3) | 5])
-    expect(readMarioStartPos(rom, 7).x).toBe(0x28)
+    expect(readMarioStartPos(rom, 7)!.x).toBe(0x28)
   })
 
   it.each([
@@ -169,7 +195,7 @@ describe.skipIf(!hasRom(VANILLA))(
           if (s.spriteId !== 0x2e || !l.ok) continue
           n++
           const loaderX = l.wram[0x94]! | (l.wram[0x95]! << 8)
-          if (readMarioStartPos(rom.rom, m).x < s.x * 16 !== loaderX < s.x * 16) wrong.push(m.toString(16)) // prettier-ignore
+          if (readMarioStartPos(rom.rom, m)!.x < s.x * 16 !== loaderX < s.x * 16) wrong.push(m.toString(16)) // prettier-ignore
         }
       }
       expect(n).toBe(44)

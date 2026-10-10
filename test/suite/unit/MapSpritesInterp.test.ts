@@ -316,7 +316,7 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
       const built = new L1ModelCache().get(b, romPath(VANILLA), map, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
       if (!built.ok) throw new Error(built.reason)
       const sprites = parseLevelSprites(rom.rom.readUpTo(rom.getLevelSpritePointer(map)!, 0x200)!, built.inputs.isVertical) // prettier-ignore
-      const eng = engineDrawer(rom.rom, readMarioStartPos(rom.rom, map).x)!
+      const eng = engineDrawer(rom.rom, readMarioStartPos(rom.rom, map)!.x)!
       const interp = interpDrawer(rom.rom, map, built.inputs)
       const both = wrap(interp)
       for (const s of sprites) {
@@ -441,7 +441,7 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     if (!level.ok) throw new Error(level.reason)
     const sprite = parseLevelSprites(rom.rom.readUpTo(rom.getLevelSpritePointer(map)!, 0x200)!, false).find(x => x.spriteId === 0x1f)! // prettier-ignore
     const [x, y] = [sprite.x * 16, sprite.y * 16]
-    const m = runOnce(rom.rom, 0x1f, withSeed({ sprite: { x, y }, camera: cameraFor(x, y, false, 20), mario: readMarioStartPos(rom.rom, map), loaded: level.wram })) // prettier-ignore
+    const m = runOnce(rom.rom, 0x1f, withSeed({ sprite: { x, y }, camera: cameraFor(x, y, false, 20), mario: readMarioStartPos(rom.rom, map)!, loaded: level.wram })) // prettier-ignore
     const written = m.passes.at(-1)!.palette
     const note = engineDrawer(rom.rom, 0)!(sprite)
     if (!note.ok || !('paletteNote' in note) || !note.paletteNote) throw new Error('engine has no dynamicCgram note') // prettier-ignore

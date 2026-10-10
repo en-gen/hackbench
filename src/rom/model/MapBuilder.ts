@@ -151,6 +151,9 @@ export function buildMapWithGraph(
   // `mapStore.marioSpawnX` copy below any more; see src/rom/model/CLAUDE.md.
   // Hoisted above buildL2.
   const marioStartPx = readMarioStartPos(rom.rom, levelId)
+  // buildSprites and SmwMap need a position; with unreadable entrance tables there is none to give,
+  // and a {0,0} would read as a real start on screen 0.
+  if (!marioStartPx) throw new Error(`Mario start position unavailable: entrance tables unreadable for map ${levelId.toString(16)}`) // prettier-ignore
 
   // Layer-2 scroll/parallax settings. CODE_05D26E (bank_05.asm:7268-7277)
   // reads $05F000+idx, takes the top nibble, and looks up per-axis rate
@@ -189,8 +192,8 @@ export function buildMapWithGraph(
         layer2ScrollBits: setupState.layer2ScrollBits,
         horizLayer2Setting,
         vertLayer2Setting,
-        marioSpawnX: marioStartPx?.x ?? 0,
-        marioSpawnY: marioStartPx?.y ?? 0,
+        marioSpawnX: marioStartPx.x,
+        marioSpawnY: marioStartPx.y,
         screenMode: header.levelMode,
         horizLayer1Setting: isVertical ? 0 : 1,
       })
@@ -232,7 +235,7 @@ export function buildMapWithGraph(
     levelOrientation: orientation,
     screenPipeVariantIdx,
     initialCameraYPx,
-    marioSpawnX: marioStartPx?.x ?? 0,
+    marioSpawnX: marioStartPx.x,
     scrollSimulator,
   })
   const map = new SmwMap(

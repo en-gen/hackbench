@@ -341,6 +341,9 @@ export function interpDrawer(
   const mario = w
     ? { x: w[0x94]! | (w[0x95]! << 8), y: w[0x96]! | (w[0x97]! << 8) }
     : readMarioStartPos(rom, index)
+  // No start to seed the run with: refuse (compute turns this into an `unavailable` reply) rather than
+  // seed Mario at {0,0} or the default position.
+  if (!mario) throw new Error(`Mario start position unavailable: entrance tables unreadable for map ${index.toString(16)}`) // prettier-ignore
   // Only the map's own shape is added to a generic seed; a loaded one ignores it.
   const shape = { level: { screenMode: model.isVertical ? 1 : 0, screens: model.screenCount } }
   return s => {

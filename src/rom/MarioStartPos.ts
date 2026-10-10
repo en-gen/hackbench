@@ -55,16 +55,28 @@ function entranceNudge(rom: RomFile, type: number): { x: number; y: number } {
  * Mario in an entry map; for a sub area the real arrival point depends on the screen exit, not the
  * map. No stock-code gate on the tables: this is the fallback for a ROM whose loader the interpreter
  * refuses, and its caller draws such results as unverified.
+ *
+ * Returns null when any of the seven table bytes cannot be read; callers refuse rather than default.
  */
-export function readMarioStartPos(rom: RomFile, mapId: number): { x: number; y: number } {
-  const b = (a: number): number => rom.readByte(a) ?? 0
-  const yIdx = b(F000 + mapId) & 0x0f
-  const xIdx = b(F200 + mapId) & 0x07
-  const type = (b(F200 + mapId) >> 3) & 0x07
-  const screen = b(F600 + mapId) & 0x1f
-  let x = (b(X_HI + xIdx) << 8) | b(X_LO + xIdx)
-  let y = (b(Y_HI + yIdx) << 8) | b(Y_LO + yIdx)
-  if (b(F600 + mapId) & 0x20) y = (screen << 8) | (y & 0xff)
+export function readMarioStartPos(rom: RomFile, mapId: number): { x: number; y: number } | null {
+  // An unreadable table byte (a ROM cut short of the tables) is a refusal, not a 0: a zero would
+  // draw as a plausible start on screen 0.
+  const f0 = rom.readByte(F000 + mapId)
+  const f2 = rom.readByte(F200 + mapId)
+  const f6 = rom.readByte(F600 + mapId)
+  if (f0 === null || f2 === null || f6 === null) return null
+  const yIdx = f0 & 0x0f
+  const xIdx = f2 & 0x07
+  const type = (f2 >> 3) & 0x07
+  const screen = f6 & 0x1f
+  const yLo = rom.readByte(Y_LO + yIdx)
+  const yHi = rom.readByte(Y_HI + yIdx)
+  const xLo = rom.readByte(X_LO + xIdx)
+  const xHi = rom.readByte(X_HI + xIdx)
+  if (yLo === null || yHi === null || xLo === null || xHi === null) return null
+  let x = (xHi << 8) | xLo
+  let y = (yHi << 8) | yLo
+  if (f6 & 0x20) y = (screen << 8) | (y & 0xff)
   else x = (screen << 8) | (x & 0xff)
   const n = entranceNudge(rom, type)
   return { x: x | n.x, y: y | n.y }
