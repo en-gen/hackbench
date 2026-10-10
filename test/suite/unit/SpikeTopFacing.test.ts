@@ -10,12 +10,13 @@
  * Mario left draws unflipped and Mario right or level draws X-flipped. Evidence
  * scope: vanilla US 1.0, one level (the pose) and all 44 vanilla placements (the sweep).
  */
-import { beforeAll, describe, it, expect } from 'vitest'
+import { beforeAll, describe, it, expect, vi } from 'vitest'
 import { parseLevelSprites, type LevelSprite } from '../../../src/rom/LevelParser'
 import { Char } from '../../../src/rom/model/chars/Char'
 import { StaticPixelsBehavior } from '../../../src/rom/model/chars/behaviors/StaticPixelsBehavior'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
+import { readSpriteTileTables, WALL_FOLLOW_ATTR_ADDR } from '../../../src/rom/SpriteTileLoader'
 import { buildSprites } from '../../../src/rom/model/SpriteFactory'
 import type { SpikeTopAppearance } from '../../../src/rom/model/sprites/appearances/SpikeTopAppearance'
 import {
@@ -153,4 +154,21 @@ describe.skipIf(!hasRom(VANILLA))('served Spike Top facing (interpreter, vanilla
     expect(poses.unflipped).toBeGreaterThan(0)
     expect(poses.flipped).toBeGreaterThan(0)
   }, 120_000)
+})
+
+describe('readSpriteTileTables without the $02BCC7 table (synthetic)', () => {
+  it('a failed wall-follow read leaves that table absent and keeps the rest', () => {
+    const buf = Buffer.alloc(0x400000, 0)
+    buf[0x7fd5] = 0x20 // LoROM marker
+    const rom = new RomFile('mock.smc', buf)
+    expect(readSpriteTileTables(rom)?.wallFollowAttr).toBeInstanceOf(Uint8Array)
+    const real = rom.readAt.bind(rom)
+    vi.spyOn(rom, 'readAt').mockImplementation((a, n) =>
+      a === WALL_FOLLOW_ATTR_ADDR ? null : real(a, n),
+    )
+    const t = readSpriteTileTables(rom)
+    expect(t).not.toBeNull()
+    expect(t!.wallFollowAttr).toBeUndefined()
+    expect(t!.tilemap.length).toBeGreaterThan(0)
+  })
 })
