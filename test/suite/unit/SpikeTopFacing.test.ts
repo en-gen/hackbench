@@ -156,11 +156,34 @@ describe.skipIf(!hasRom(VANILLA))('served Spike Top facing (interpreter, vanilla
   }, 120_000)
 })
 
+// $02:BD17 = file $13D17: ORA.W DATA_02BCC7,Y (bank_02.asm:8089) = 19 C7 BC.
+const gatedRom = (patch?: (b: Buffer) => void): RomFile => {
+  const buf = Buffer.alloc(0x400000, 0)
+  buf[0x7fd5] = 0x20 // LoROM marker
+  buf.set([0x19, 0xc7, 0xbc], 0x13d17)
+  patch?.(buf)
+  return new RomFile('mock.smc', buf)
+}
+
+describe('readSpriteTileTables gates the $02BCC7 read on WallFollowersMain (synthetic)', () => {
+  it('gate bytes present: the table is read', () => {
+    expect(readSpriteTileTables(gatedRom())?.wallFollowAttr).toHaveLength(16)
+  })
+  it.each([
+    ['opcode changed (LDA abs,Y)', 0x13d17, 0xb9],
+    ['operand low changed', 0x13d18, 0xc8],
+    ['operand high changed', 0x13d19, 0xbd],
+  ])('%s: the table is absent, the rest kept', (_n, at, v) => {
+    const t = readSpriteTileTables(gatedRom(b => (b[at] = v)))
+    expect(t).not.toBeNull()
+    expect(t!.wallFollowAttr).toBeUndefined()
+    expect(t!.tilemap.length).toBeGreaterThan(0)
+  })
+})
+
 describe('readSpriteTileTables without the $02BCC7 table (synthetic)', () => {
   it('a failed wall-follow read leaves that table absent and keeps the rest', () => {
-    const buf = Buffer.alloc(0x400000, 0)
-    buf[0x7fd5] = 0x20 // LoROM marker
-    const rom = new RomFile('mock.smc', buf)
+    const rom = gatedRom()
     expect(readSpriteTileTables(rom)?.wallFollowAttr).toBeInstanceOf(Uint8Array)
     const real = rom.readAt.bind(rom)
     vi.spyOn(rom, 'readAt').mockImplementation((a, n) =>

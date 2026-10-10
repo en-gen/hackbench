@@ -416,11 +416,11 @@ inline comment blocks. All of it is recoverable with
 `git show d1d6bcd`; the point of writing it down is that nobody will
 think to look.
 
-### `$2E` Spike Top: the direction the appearance hardcodes
+### `$2E` Spike Top: the direction the appearance formerly hardcoded
 
-`SpikeTopAppearance.fromTables` hardcodes `flipX: false, flipY: false`,
-and its JSDoc still says "Direction defaults to 0 (`DATA_02BCC7[0]=$00`
-so no flip)". The lines that justified the word "defaults", and recorded
+Before the correction below (#134), `SpikeTopAppearance.fromTables`
+hardcoded `flipX: false, flipY: false`, and its JSDoc said "Direction
+defaults to 0 (`DATA_02BCC7[0]=$00` so no flip)". The lines that justified the word "defaults", and recorded
 what the other case is, went with the overlay. Re-traced in `SMWDisX` at
 `366e8c7`:
 

@@ -646,6 +646,7 @@ describe('buildSprites - $2E Spike Top faces by Mario X, flip read from the cart
     const buf = Buffer.alloc(0x400000, 0x00)
     buf[0x7fd5] = 0x20
     buf.fill(0x80, 0x13cc7, 0x13cc7 + 16)
+    buf.set([0x19, 0xc7, 0xbc], 0x13d17) // the gate: ORA.W DATA_02BCC7,Y at $02:BD17
     buf[0x13cc7] = at0
     buf[0x13cc7 + 4] = at4
     return new RomFile('mock-spiketop.smc', buf)

@@ -55,6 +55,8 @@ export const SPRITE_166E_VALS_ADDR = 0x07f3fe
 export const SPR_0_TO_13_PROP_ADDR = 0x0188f0
 export const YOSHI_PAL_ADDR = 0x018335
 export const WALL_FOLLOW_ATTR_ADDR = 0x02bcc7
+/** `ORA.W DATA_02BCC7,Y` in WallFollowersMain (bank_02.asm:8089), at $02:BD17 on vanilla US 1.0. */
+export const WALL_FOLLOW_ORA_ADDR = 0x02bd17
 
 export const SPR_TILEMAP_OFFSET_COUNT = 0x54 // sprites 0x00..0x53
 export const SPR_TILEMAP_LEN = 0xfc // 0x9C7F - 0x9B83
@@ -96,6 +98,20 @@ export interface SpriteTileTables {
   gfxRoutines?: ReadonlyMap<number, GfxRoutineReading>
 }
 
+/**
+ * True when the instruction at WALL_FOLLOW_ORA_ADDR is still `ORA abs,Y` ($19)
+ * naming the low 16 bits of WALL_FOLLOW_ATTR_ADDR. A hack that moves or rewrites
+ * that read makes the vanilla table the wrong one, so the flip is left
+ * unmodelled, never read from the vanilla address. The operand is 16-bit, so it
+ * names a bank-2 address only while DB is the routine's bank, as the other `.W`
+ * table read in WallFollowersMain (bank_02.asm:8085) already assumes. Checked on
+ * vanilla US 1.0 only.
+ */
+function wallFollowTableIsRead(rom: RomFile): boolean {
+  const ins = rom.readAt(WALL_FOLLOW_ORA_ADDR, 3)
+  return !!ins && ins[0] === 0x19 && (ins[1] | (ins[2] << 8)) === (WALL_FOLLOW_ATTR_ADDR & 0xffff)
+}
+
 export function readSpriteTileTables(rom: RomFile): SpriteTileTables | null {
   const tilemap = rom.readAt(SPR_TILEMAP_ADDR, SPR_TILEMAP_LEN)
   const tilemapOffset = rom.readAt(SPR_TILEMAP_OFFSET_ADDR, SPR_TILEMAP_OFFSET_COUNT)
@@ -105,7 +121,9 @@ export function readSpriteTileTables(rom: RomFile): SpriteTileTables | null {
   const rawAttr = rom.readAt(SPRITE_166E_VALS_ADDR, SPRITE_166E_VALS_COUNT)
   const spr0to13Prop = rom.readAt(SPR_0_TO_13_PROP_ADDR, SPR_0_TO_13_PROP_COUNT)
   const yoshiPal = rom.readAt(YOSHI_PAL_ADDR, YOSHI_PAL_COUNT)
-  const wallFollowAttr = rom.readAt(WALL_FOLLOW_ATTR_ADDR, WALL_FOLLOW_ATTR_COUNT)
+  const wallFollowAttr = wallFollowTableIsRead(rom)
+    ? rom.readAt(WALL_FOLLOW_ATTR_ADDR, WALL_FOLLOW_ATTR_COUNT)
+    : null
   if (
     !tilemap ||
     !tilemapOffset ||
