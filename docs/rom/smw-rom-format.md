@@ -224,7 +224,7 @@ Each table is 512 entries × 3 bytes = 1536 bytes. Each entry is a 24-bit SNES a
 | $05E600 | Layer 2 data pointers |
 | $05EC00 | Sprite data pointers |
 
-**Layer 2 bank byte:** If the bank byte of the L2 pointer entry is `$FF`, the pointed-to data is a **background tilemap** compressed in LC_RLE1. Otherwise it is object data in the same format as Layer 1 (but without a primary header - objects start at byte 0).
+**Layer 2 kind:** The game picks the L2 uploader by level mode, through a 32-entry long-pointer table after the `JSL ExecutePtrLong` at `CODE_058955` (`bank_05.asm:1099-1135`); `src/rom/L2UploaderTable.ts` reads it by bytes. An image mode points at a **background tilemap** whose pointer bank byte is `$FF`; an object mode points at object data in the same format as Layer 1 (but without a primary header - objects start at byte 0). HackBench cross-checks the bank byte against the mode's kind and refuses a map where they disagree, or whose mode uploads no L2 (#506). The level-load upload only; the scroll-time table (`CODE_058883`) is not checked.
 
 ### Primary Level Header (5 bytes, start of Layer 1 object data)
 
