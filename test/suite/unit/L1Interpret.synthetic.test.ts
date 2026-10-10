@@ -838,6 +838,26 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
         expect(r.unverified).toEqual([])
       })
 
+      it('reads and draws from a bank that is neither $0D nor its $8D mirror: the entry stub is live only in $2D', () => {
+        const BANK = 0x2d
+        const src = prodCart({
+          bank: BANK,
+          variantBank: 0x0d,
+          loader: loaderBytes([lo(ENTRY), hi(ENTRY), BANK]),
+        })
+        const bytes = new Uint8Array(0x180000)
+        bytes.set(src.buffer)
+        const from = 0x0d * 0x8000
+        bytes.copyWithin(BANK * 0x8000, from, from + 0x8000)
+        // The port pins and reads its tables in $0D, so they stay; only the entry stub there is spoiled (RTL),
+        // so a read that still entered at $0D would reach no dispatch.
+        bytes[from + (ENTRY & 0x7fff)] = RTL
+        const rom = RomFile.fromBytes('moved', bytes, { objectCode: { bank: BANK } })
+        const r = expand(rom, 0x35)
+        expect(lips(r.grid)).toEqual(STAIRS)
+        expect(r.unverified).toEqual([])
+      })
+
       it('a planted wrong bank sends the read to bytes that are not code: refused, port drawn', () => {
         const planted = withBanks(good(), { bank: 0x0e })
         const r = expand(planted, 0x35)

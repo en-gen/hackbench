@@ -277,6 +277,12 @@ export class WorkingRomRegistry {
       cached.project = project
       try {
         if (this.opsMatch(manifestPath, cached.working, project.directory)) {
+          // Read again every time, so a hand edit shows without a rebuild: one small file, a few byte reads.
+          cached.dataBanks = resolveDataBanks(
+            manifestPath,
+            RomFile.fromBytes(cached.romPath, cached.working.baseBytes()),
+            project.baseRom.sha256,
+          )
           return { status: 'ok', ...cached }
         }
       } catch (err) {

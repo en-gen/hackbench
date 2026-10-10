@@ -68,6 +68,18 @@ describe('resolveDataBanks', () => {
     expect(onDisk()).toEqual({ version: 1, rom: SHA, banks: { objectCode: '$8D' } })
   })
 
+  it('replaces a broken file made for a different base ROM with fresh detection', () => {
+    put({ version: 1, rom: 'b'.repeat(64), banks: [] })
+    expect(resolve(baseWith(0x8d)).objectCode).toEqual({ bank: 0x8d })
+    expect(onDisk()).toEqual({ version: 1, rom: SHA, banks: { objectCode: '$8D' } })
+  })
+
+  it('refuses a notFound value that carries anything else', () => {
+    const text = put({ version: 1, rom: SHA, banks: { objectCode: { notFound: 'x', extra: 1 } } })
+    expect(why(resolve(baseWith(0x0d)))).toMatch(/data-banks\.json/)
+    expect(fs.readFileSync(file, 'utf8')).toBe(text)
+  })
+
   it('records not found with its reason, and reads it back without re-detecting', () => {
     const r = resolve(productionCart([RTL], { pins: false }))
     expect(why(r)).toMatch(/loader/)
@@ -87,8 +99,8 @@ describe('resolveDataBanks', () => {
   it.each([
     '{ nope',
     '[]',
-    '{"version":1,"rom":"x","banks":[]}',
-    '{"version":2,"rom":"x","banks":{}}',
+    `{"version":1,"rom":"${SHA}","banks":[]}`,
+    `{"version":2,"rom":"${SHA}","banks":{}}`,
   ])('refuses a file that is not a v1 config (%s) and leaves it alone', text => {
     put(text)
     expect(why(resolve(baseWith(0x0d)))).toMatch(/data-banks\.json/)

@@ -5,9 +5,9 @@
  * First slice: the layer 1 object code bank. LoadLevelData branches to
  * `JSR LevLoadNrmObj` for a standard object (SMWDisX bank_05.asm:783-788) and
  * that routine is `SEP #$30; JSL CODE_0DA40F; RTS` (bank_05.asm:805-808). The
- * JSL operand's bank byte is the bank: $0D on vanilla, $8D on the 31 of 99
- * corpus hacks that mirror it (docs/rom/hack-corpus.md). A hack that re-points
- * the JSL to its own hook is out of scope and reports not found.
+ * JSL operand's bank byte is the bank: $0D on vanilla, $8D on hacks that use
+ * the FastROM mirror. A hack that re-points the JSL to its own hook is out of
+ * scope and reports not found.
  *
  * No VS Code or Theia imports, same rule as the rest of src/rom/.
  */

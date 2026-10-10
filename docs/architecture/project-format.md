@@ -87,8 +87,9 @@ a value already in the file always wins, so a person can correct it by hand.
 A file whose `rom` is a different base ROM is rewritten. A value that is not
 `$00`-`$FF` hex, or a file that is not valid, refuses with a reason naming
 the file, and the layer 1 drawing falls back to its port instead of guessing.
-The backend reads the file when it builds the working copy, so an edit shows
-on the next project open.
+The backend reads the file on every request for the working copy, so an edit
+shows on the next map request without reopening the project; the map models
+built with the old bank are dropped.
 
 ## What a layer looks like
 

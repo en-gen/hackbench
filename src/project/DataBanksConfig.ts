@@ -47,7 +47,9 @@ export function resolveDataBanks(
     const raw = readMeta(manifestPath, 'data-banks')
     // A file made for another base ROM describes that ROM, so start over.
     let banks: Record<string, unknown> = {}
-    if (raw !== undefined) {
+    // Compared before the shape is checked: a broken file made for another ROM is not this ROM's problem.
+    const other = isRecord(raw) && typeof raw.rom === 'string' && raw.rom !== baseSha256
+    if (raw !== undefined && !other) {
       if (
         !isRecord(raw) ||
         raw.version !== 1 ||
@@ -55,7 +57,7 @@ export function resolveDataBanks(
         !isRecord(raw.banks)
       )
         throw new Error('expected { "version": 1, "rom": "<sha256>", "banks": { ... } }')
-      if (raw.rom === baseSha256) banks = raw.banks
+      banks = raw.banks
     }
 
     let objectCode: BankResult

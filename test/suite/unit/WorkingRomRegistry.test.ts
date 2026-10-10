@@ -107,6 +107,31 @@ describe('WorkingRomRegistry', () => {
     expect(again.status === 'ok' && again.dataBanks.objectCode).toEqual({ bank: 0x8d })
   })
 
+  it('a hand edit is seen by the SAME registry on its next get, with no rebuild (#755)', () => {
+    const { manifestPath } = makeProject()
+    const file = path.join(path.dirname(manifestPath), 'meta', 'data-banks.json')
+    const first = working.get(manifestPath)
+    if (first.status !== 'ok') throw new Error('not ok')
+    const config = JSON.parse(fs.readFileSync(file, 'utf8'))
+    config.banks.objectCode = '$2D'
+    fs.writeFileSync(file, JSON.stringify(config))
+    const again = working.get(manifestPath)
+    expect(again.status === 'ok' && again.working).toBe(first.working) // served from the cache
+    expect(again.status === 'ok' && again.dataBanks.objectCode).toEqual({ bank: 0x2d })
+  })
+
+  it('a project folder that refuses the write still gets the detection, not a config refusal (#755)', () => {
+    const { manifestPath } = makeProject()
+    fsFault.hook = (_call, target) => {
+      if (target.includes('data-banks')) throw new Error('EACCES: read-only')
+    }
+    const r = working.get(manifestPath)
+    const why = r.status === 'ok' && (r.dataBanks.objectCode as { notFound?: string }).notFound
+    expect(why).toMatch(/loader/)
+    expect(why).not.toMatch(/data-banks\.json/)
+    expect(fs.existsSync(path.join(path.dirname(manifestPath), 'meta', 'data-banks.json'))).toBe(false) // prettier-ignore
+  })
+
   it('setWord records one persisted edit layer and updates bytes()', () => {
     const { manifestPath } = makeProject()
     const r1 = working.setWord(manifestPath, {
