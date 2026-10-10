@@ -118,9 +118,15 @@ async function openMap(page, manifestPath, index) {
     { mp: manifestPath, index },
   )
   opened.push(`hackbench.map-view:${index}`)
+  // The map opens on its start (#339), not always screen 0: wait for that, then for a screen.
+  await expect(page.locator(`${root(index)} [data-control="map-scroller"]`)).toHaveAttribute(
+    'data-start',
+    /^(placed|skipped|unavailable)$/,
+    { timeout: 30000 },
+  )
   await expect(
-    page.locator(`${root(index)} canvas[data-screen="0"][data-plane="l1Low"]`),
-  ).toHaveAttribute('data-drawn', /^\d+:\d{4}:\d{3}:0$/, { timeout: 30000 })
+    page.locator(`${root(index)} canvas[data-plane="l1Low"][data-drawn]`).first(),
+  ).toHaveAttribute('data-drawn', /^\d+:\d{4}:\d{3}:\d+$/, { timeout: 30000 })
 }
 
 /** Turns the overlay on and waits for the lines (a cold map is probed on the backend: seconds). */

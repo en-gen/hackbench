@@ -350,6 +350,17 @@ export interface BlockIndicatorDto {
 }
 
 /**
+ * Where the player first enters a map (#339), from the working copy: `ok`
+ * carries the screen and the entrance's pixel position, `unavailable` says
+ * why not (a replaced entrance loader, or nothing leads into the map). The
+ * view then stays at screen 0 and shows the reason.
+ */
+export type MapStartResult =
+  | { status: 'ok'; screen: number; x: number; y: number; vertical: boolean }
+  | { status: 'unavailable'; reason: string }
+  | { status: 'rom-not-located'; baseRom: RomIdentityDto }
+
+/**
  * A map's block content indicators (#566): each distinct item as 16 x 16 RGBA
  * (base64, the full-block art; the view halves it for the resting state), and
  * where each block shows which. `unavailable` is the tables' refusal, shown as
@@ -527,6 +538,8 @@ export interface ProjectService {
   mapSprites(manifestPath: string, index: number): Promise<MapSpritesResult>
   /** Where each item block of a map shows its contents, from the working copy (#566). */
   mapBlockContents(manifestPath: string, index: number): Promise<MapBlockContentsResult>
+  /** Where the player first enters a map, read from the working copy (#339). */
+  mapStart(manifestPath: string, index: number): Promise<MapStartResult>
 
   /** Whether the map's collision can be probed at all, without probing: the level loader's verdict and the level's shape (#435). */
   mapCollisionCheck(manifestPath: string, index: number): Promise<MapCollisionCheckResult>
