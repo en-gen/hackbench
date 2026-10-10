@@ -8,11 +8,11 @@
 > - Palettes are edited in place, never relocated. `[EST]`
 > - Detection is required for: a replaced LC_LZ2 decompressor (25 of 146, was 17 of 99), absent or relocated MAP16AppTable readers (15 of 146, was 12 of 99). `[EST]`
 
-| Source                                                                     | Identifier                                                                                                | As of                                                                        | Retrieved  |
-| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ---------- |
+| Source                                                                     | Identifier                                                                                                | As of                                                      | Retrieved  |
+| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ---------- |
 | SMWC top-download list, patched onto vanilla copies with npm `rom-patcher` | store `hackbench-tools/hacks` (`patches/<smwc id>/`, `roms/<id>.sfc`, `index.json`, 604 MB at 2026-10-10) | built 2026-09-26 and 2026-10-10 (146 built of 151 entries) | 2026-09-26 |
-| Survey script                                                              | `scripts/hack-survey.js`, smw-mcp branch `feature/hack-survey`                                            | 2026-09-26                                                                   | 2026-09-26 |
-| Results and outliers                                                       | en-gen/hackbench#543                                                                                      | 2026-09-26                                                                   | 2026-09-26 |
+| Survey script                                                              | `scripts/hack-survey.js`, smw-mcp branch `feature/hack-survey`                                            | 2026-09-26                                                 | 2026-09-26 |
+| Results and outliers                                                       | en-gen/hackbench#543                                                                                      | 2026-09-26                                                 | 2026-09-26 |
 
 ## Held on 144 of 146
 
