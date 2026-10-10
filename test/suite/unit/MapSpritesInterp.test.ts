@@ -264,6 +264,10 @@ describe('screen-fixed parts (#286)', () => {
     expect(placed(128, [128])).toBe(false)
   })
 
+  it('refuses a negative list index: $1937 (= $1938 - 1) set does not place it', () => {
+    expect(placed(-1, [-1])).toBe(false)
+  })
+
   it('places a part of a later pass: the probe is read at the drawn pass, not the first', () => {
     const r = draw(at(128, 112), runOf(flame, 2))
     expect(dxy(r)).toEqual([[4, 8], [56, 256]]) // prettier-ignore
