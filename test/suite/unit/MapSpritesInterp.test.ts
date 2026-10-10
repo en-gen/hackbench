@@ -32,6 +32,7 @@ import {
 import { L1ModelCache } from '../../../theia/extension/src/node/map-screen'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
 import { COLORS } from '../support/mapInputs'
+import { slow } from '../support/loadTimeout'
 
 const part = (o: Partial<SpritePart>): SpritePart => ({ oam: 0, char: 0, size: 8, palette: 9, priority: 2, flipX: false, flipY: false, dx: 0, dy: 0, attr: 0, ox: 0, oy: 0, ...o }) // prettier-ignore
 const model = (o: Partial<SpriteModel>): SpriteModel => ({ id: 1, passes: [], dependsOn: [], steps: [], ...o }) // prettier-ignore
@@ -381,7 +382,8 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
   })
 
   // 5.9 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10
-  it('goes red on a planted defect: one part shifted by a pixel is a disagreement', () => {
+  // prettier-ignore
+  it('goes red on a planted defect: one part shifted by a pixel is a disagreement', slow(12_000), () => {
     const base = tally(compare())
     const planted = tally(
       compare(d => s => {
@@ -391,7 +393,7 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     )
     expect(planted).not.toEqual(base)
     expect(planted).not.toEqual(EXPECTED)
-  }, 12_000)
+  })
 
   it('goes red when a part changes INSIDE a row that already differs (the verdict counts stay equal)', () => {
     const rows = compare(d => s => {
@@ -406,7 +408,8 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
   })
 
   // 7.3 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10
-  it('caches an ok reply per bytes and map, at most 8 of them (least recently used out), and never an unavailable one', () => {
+  // prettier-ignore
+  it('caches an ok reply per bytes and map, at most 8 of them (least recently used out), and never an unavailable one', slow(15_000), () => {
     const b = bytes()
     const c = new L1ModelCache()
     const get = (m: number) => mapSprites(c, b, romPath(VANILLA), m)
@@ -421,7 +424,7 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     get(0x001) // the ninth: the least recently used ($106) goes, not $105
     expect(get(0x105)).toBe(first)
     expect(get(0x106)).not.toBe(second)
-  }, 15_000)
+  })
 
   it('$4F on $105 is served at its stream position plus (8, -1): INIT moved it, not a table', () => {
     const b = bytes()

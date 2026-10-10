@@ -24,6 +24,7 @@ import { describe, it, expect } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { slow } from '../support/loadTimeout'
 
 const SUITE_DIR = path.resolve(__dirname, '..')
 
@@ -288,7 +289,7 @@ describe('test registration gate', () => {
   })
 
   // 16.0 s in one run of a concurrent pair on the pre-#770 base (loaded max since: 8.3 s), 32-core machine, 2026-10-09/10
-  it('no suite decides from the filesystem how many cases it registers', () => {
+  it('no suite decides from the filesystem how many cases it registers', slow(32_000), () => {
     const offences = files
       .map(f => path.relative(SUITE_DIR, f))
       .filter(rel => !EXEMPT.has(rel))
@@ -297,7 +298,7 @@ describe('test registration gate', () => {
       )
     const report = offences.map(o => `${o.file}:${o.line} [${o.rule}] ${o.text}`)
     expect(report, `use describe.skipIf / it.skipIf instead:\n${report.join('\n')}`).toEqual([])
-  }, 32_000)
+  })
 })
 
 /**

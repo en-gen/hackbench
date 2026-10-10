@@ -18,6 +18,7 @@ import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { freshRom, hasRom, SPRITE_TRACE_SET, TOOLS_ROOT, VANILLA } from '../../support/corpus'
+import { slow } from '../../support/loadTimeout'
 
 const TRACE_DIR = process.env.HACKBENCH_SPRITE_TRACE ?? join(TOOLS_ROOT, 'fixtures', 'sprite-trace')
 const root = hasRom(VANILLA) ? join(TRACE_DIR, SPRITE_TRACE_SET) : ''
@@ -150,7 +151,8 @@ describe.skipIf(!hasRom(VANILLA) || !existsSync(root))(
     }, 300_000)
 
     // 16.0 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10
-    it('no two maps with different Level 1 pointers share a Map16 dump (no castle-entry image survives)', () => {
+    // prettier-ignore
+    it('no two maps with different Level 1 pointers share a Map16 dump (no castle-entry image survives)', slow(32_000), () => {
       const ds: Dump[] = maps(root).map(id => ({
         id,
         ptr: JSON.parse(readFileSync(join(root, id, 'meta.json'), 'utf8')).layer1Ptr as number,
@@ -159,7 +161,7 @@ describe.skipIf(!hasRom(VANILLA) || !existsSync(root))(
       })) // prettier-ignore
       expect(ds.length).toBe(154)
       expect(sharedImages(ds)).toEqual(SHARED_IMAGES)
-    }, 32_000)
+    })
 
     it('Mario: the loader $94/$96 differs from the capture on exactly the pinned 18 maps, by these offsets', () => {
       expect(real().filter(m => m.mario).length).toBe(139)

@@ -6,6 +6,7 @@
 import { describe, it, expect } from 'vitest'
 import * as fs from 'fs'
 import * as path from 'path'
+import { slow } from '../support/loadTimeout'
 
 const root = path.resolve(__dirname, '../../..')
 const LEGACY = /\bloadOverworld(Areas)?\b/
@@ -35,11 +36,11 @@ describe('legacy overworld loaders', () => {
   const definer = (f: string): boolean => f.endsWith(path.join('src', 'rom', 'OverworldLoader.ts'))
 
   // 6.6 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10
-  it('are not referenced from the core or the Theia extension', () => {
+  it('are not referenced from the core or the Theia extension', slow(14_000), () => {
     expect(legacyCallers(path.join(root, 'src/rom'), definer)).toEqual([])
     expect(legacyCallers(path.join(root, 'src/project'), definer)).toEqual([])
     expect(legacyCallers(path.join(root, 'theia/extension/src'), definer)).toEqual([])
-  }, 14_000)
+  })
 
   it('overworldCgram, which Theia calls, does not reference them either', () => {
     // The definer file is skipped above (it holds the legacy loaders themselves), so name the

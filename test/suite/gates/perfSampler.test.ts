@@ -9,6 +9,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { measureCase } from '../../perf/support/perfCase'
+import { slow } from '../support/loadTimeout'
 
 function median(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b)
@@ -95,7 +96,7 @@ describe('sync and async functions are both measured correctly', () => {
   })
 
   // Timed out at the 5 s default in 1 of 10 loaded runs (two concurrent full unit runs, 32-core machine, 2026-10-09/10), true duration unknown; idle 0.34 s.
-  it('an async function is awaited per call, not raced', async () => {
+  it('an async function is awaited per call, not raced', slow(10_000), async () => {
     let inFlight = 0
     let maxInFlight = 0
     const fn = async () => {
@@ -107,5 +108,5 @@ describe('sync and async functions are both measured correctly', () => {
     const samples = await measureCase('test.sampler.async', fn)
     expect(samples).toHaveLength(20)
     expect(maxInFlight).toBe(1)
-  }, 10_000)
+  })
 })

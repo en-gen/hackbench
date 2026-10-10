@@ -16,6 +16,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from
 import { execFileSync, spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
+import { loadTimeout } from '../support/loadTimeout'
 
 const repoRoot = path.resolve(__dirname, '../../..')
 const fixtureRoot = path.join(repoRoot, 'test/suite/gates/__fixtures__')
@@ -79,9 +80,9 @@ afterAll(() => {
  * inherited. It is a timeout, not a weakening: the assertions are unchanged.
  */
 // 102.6 s worst via npx over 10 loaded runs (two concurrent full unit runs, 32-core machine, 2026-10-09/10); 28.9 s worst direct in one full run.
-const ESLINT_TIMEOUT_MS = 120_000
-// About 2x the 4.3 s loaded worst. Pure package.json cases need no timeout.
-const PRETTIER_TIMEOUT_MS = 10_000
+const ESLINT_TIMEOUT_MS = loadTimeout(120_000)
+// About 2x the 4.3 s loaded worst (10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10). Pure package.json cases need no timeout.
+const PRETTIER_TIMEOUT_MS = loadTimeout(10_000)
 
 describe('the lint gate can fail', () => {
   it(
@@ -128,7 +129,7 @@ describe('the lint gate can fail', () => {
   )
 
   // One ESLint spawn lints all eight bypass files: a cold ESLint costs about 4
-  // to 103 s per spawn across 10 loaded runs (#771), and these cases only need
+  // to 103 s per spawn via npx across 10 loaded runs (#771; direct bin worst 28.9 s, one run), and these cases only need
   // a per-file verdict. Nested so a crash here cannot skip the cases above and below.
   describe('cloudevents bypasses', () => {
     const BYPASSES: [string, string][] = [

@@ -18,6 +18,7 @@ import { appDataDir } from '../../../src/project/appData'
 import { RecentProjects, defaultRecentPath } from '../../../src/project/RecentProjects'
 import { defaultRegistryPath } from '../../../src/project/RomRegistry'
 import { defaultCoreRegistryPath } from '../../../src/project/CoreRegistry'
+import { slow } from '../support/loadTimeout'
 
 const nodeRequire = createRequire(__filename)
 const BROWSER_APP = path.resolve(__dirname, '../../../theia/browser-app')
@@ -257,7 +258,8 @@ describe.skipIf(process.platform === 'darwin')('Playwright app-data isolation (#
   })
 
   // 5.7 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10
-  it('start-test-server gives its server the folder it names, and marks it with the port', () => {
+  // prettier-ignore
+  it('start-test-server gives its server the folder it names, and marks it with the port', slow(12_000), () => {
     const { root, env } = prepareTestServer(3999)
     try {
       expect(isUnder(root, os.tmpdir())).toBe(true)
@@ -267,7 +269,7 @@ describe.skipIf(process.platform === 'darwin')('Playwright app-data isolation (#
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }
-  }, 12_000)
+  })
 
   it('stale per-run folders older than a day are swept, and nothing else', () => {
     const mk = (name: string, ageDays: number, pid?: number, file = MARKER) => {

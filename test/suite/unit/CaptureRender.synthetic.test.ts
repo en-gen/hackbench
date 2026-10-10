@@ -31,6 +31,7 @@ import {
   unzip,
 } from '../../../tools/scripts/capture_render'
 import { addr64, captureFiles, idAt, NAMES, POS } from './fixtures/captureFixture'
+import { slow } from '../support/loadTimeout'
 
 type Files = Record<string, Buffer>
 type Obj = Record<string, unknown>
@@ -1342,7 +1343,7 @@ describe('capture run', () => {
   })
 
   // 7.9 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10
-  it('makes an unreadable zip unavailable, says why, and renders the rest', () => {
+  it('makes an unreadable zip unavailable, says why, and renders the rest', slow(16_000), () => {
     const input = join(root, 'bad')
     const good = zip(under('10a/', files))
     const resize = (z: Buffer, by: number) => {
@@ -1375,5 +1376,5 @@ describe('capture run', () => {
     expect(log).toContain('10e: both a folder and a zip; the folder is read')
     expect(log).toMatch(/\$10E +incomplete/)
     expect(log).toMatch(/\$105 +incomplete/)
-  }, 16_000)
+  })
 })
