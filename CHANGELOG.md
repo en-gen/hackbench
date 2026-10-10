@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Object $37 high-coordinate band stepping pinned by a synthetic test: five bands at stride $40 cross the $1B0 screen boundary onto the next screen (#164; already fixed by #569/#598).
+- Test-only (#164): object $37 high-coordinate band stepping pinned by a synthetic test: five bands at stride $40 cross the $1B0 screen boundary onto the next screen (#164; already fixed by en-gen/hackbench-archive#569/#598).
 - `levelHasObjects` no longer rejects boss-mode rooms whose Layer-1 stream is only $FF: the game never reads Layer 1 for those modes, and the modes are read from the loader's own CMP immediates, not assumed (#695). Vanilla ROM: 24 slots flipped, 6 more slots in `classifyLevels` output after pointer dedupe; the loader pattern matched on 2 of 6 corpus ROMs (the vanilla and `.magic` carts) and refused on the 4 hacks, which flip 0, because Lunar Magic replaces the check's first instruction with `JSL $0FF7F0` plus a `NOP` there; the check is accepted only when it sits behind `LoadLevel`'s prologue, its one call site of the `bank_05.asm:66-69` shape targets that entry, all in one bank, and its branches land on a `LoadLevelDone` (STZ/PLP/RTS) shape; a hooked caller further up the chain is not seen; the fix holds only on ROMs whose `LoadLevel` check is stock; one machine.
 - Test-only (#778): `plantAnim` now plants GFX32 in the raw bank ($FE/$FF no longer fold onto WRAM), proven on synthetic 4 MB ROMs; `mirror()` doc states its $7E/$FE keying; bank values in #704 test titles print as hex.
 - Docs (#750): the hack corpus note now states 101 hacks, all patched, and scopes its "of 99" survey figures to the 2026-09-26 survey.

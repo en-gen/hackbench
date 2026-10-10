@@ -169,7 +169,9 @@ describe('CODE_0DDF3A castle wall (synthetic cart)', () => {
   })
 
   it('five bands at stride $40 from $50 with the high bit set carry bands 3-5 onto the next screen (#164)', () => {
-    // Defaults: start $50 (bank_0D.asm:7107-7134), lower half adds $100
+    // Defaults for start $50 (bank_0D.asm:7107-7134), stride $40 and band count 5.
+    // The column count stays the cart's 12, not the game's 16 (bank_0D.asm:7114).
+    // Lower half adds $100
     // (bank_05.asm:778-781). Bands at Map16 byte offsets $150/$190/$1D0/$210/$250
     // of screen 4; $1B0 per screen, so the last three land on screen 5 rows 2, 6, 10.
     // Row-space stepping would put them at rows 29, 33, 37 and drop them.
