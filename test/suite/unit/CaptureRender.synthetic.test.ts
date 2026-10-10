@@ -1341,6 +1341,7 @@ describe('capture run', () => {
     expect(crc32Js(big)).toBe(crc32(big))
   })
 
+  // 7.9 s worst over 10 runs, two concurrent full unit runs plus other worktrees' tests, 32-core machine, 2026-10-10
   it('makes an unreadable zip unavailable, says why, and renders the rest', () => {
     const input = join(root, 'bad')
     const good = zip(under('10a/', files))
@@ -1374,5 +1375,5 @@ describe('capture run', () => {
     expect(log).toContain('10e: both a folder and a zip; the folder is read')
     expect(log).toMatch(/\$10E +incomplete/)
     expect(log).toMatch(/\$105 +incomplete/)
-  })
+  }, 16_000)
 })

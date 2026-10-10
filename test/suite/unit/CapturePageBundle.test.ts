@@ -36,6 +36,7 @@ function writeTree(dir: string, files: Record<string, Buffer>) {
 }
 
 describe('the generated page runs standalone under the real CLI', () => {
+  // 52.3 s worst over 10 runs (npx tsx is not a dependency, so npx resolves it per spawn), two concurrent full unit runs plus other worktrees' tests, 32-core machine, 2026-10-10
   it('renders a map with npx tsx render_capture.ts and the page script draws in a fresh node:vm', () => {
     const inDir = join(TMP, 'in')
     const outDir = join(TMP, 'out')
@@ -88,5 +89,5 @@ describe('the generated page runs standalone under the real CLI', () => {
     // Non-empty output: at least one drawn (non-transparent) pixel.
     const opaque = Array.from(imageData!.data).some((b, i) => i % 4 === 3 && b !== 0)
     expect(opaque).toBe(true)
-  }, 30_000)
+  }, 105_000)
 })

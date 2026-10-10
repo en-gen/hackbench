@@ -94,6 +94,7 @@ describe('sync and async functions are both measured correctly', () => {
     expect(median(samples)).toBeGreaterThan(0)
   })
 
+  // 5.05 s worst over 10 runs, two concurrent full unit runs plus other worktrees' tests, 32-core machine, 2026-10-10
   it('an async function is awaited per call, not raced', async () => {
     let inFlight = 0
     let maxInFlight = 0
@@ -106,5 +107,5 @@ describe('sync and async functions are both measured correctly', () => {
     const samples = await measureCase('test.sampler.async', fn)
     expect(samples).toHaveLength(20)
     expect(maxInFlight).toBe(1)
-  })
+  }, 1_0000)
 })

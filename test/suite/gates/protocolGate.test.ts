@@ -99,6 +99,7 @@ describe('the protocol command, hardened', () => {
     expect(fs.existsSync(path.join(stateDir, 'sessions.json'))).toBe(false)
   })
 
+  // 5.8 s worst over 10 runs, two concurrent full unit runs plus other worktrees' tests, 32-core machine, 2026-10-10
   it('accepts only owner, schedule or session:<desktop id> for --by', () => {
     expect(run(['night-shift', 'on', '--by', 'schedule']).code).toBe(0)
     expect(run(['night-shift', 'off', '--by', 'owner']).code).toBe(0)
@@ -117,7 +118,7 @@ describe('the protocol command, hardened', () => {
     expect(missing.out).toMatch(/usage: protocol\.mjs/)
     expect(fs.readFileSync(logFile, 'utf8')).toBe(logBefore)
     expect(fs.readFileSync(stateFile, 'utf8')).toBe(stateBefore)
-  })
+  }, 12_000)
 
   it('still enacts a change when the sessions file is corrupt', () => {
     fs.writeFileSync(path.join(stateDir, 'sessions.json'), '[1,2]')
@@ -153,6 +154,7 @@ describe('the protocol command, hardened', () => {
 // disk left 1, 2 and 1 of 8 entries (and 5 earlier runs with busy-waiting
 // starts each left 1).
 describe('parallel registers', () => {
+  // 6.2 s worst over 10 runs, two concurrent full unit runs plus other worktrees' tests, 32-core machine, 2026-10-10
   it('keep every entry', async () => {
     const mod = pathToFileURL(script).href
     const startAt = Date.now() + 1500
@@ -173,7 +175,7 @@ describe('parallel registers', () => {
     )
     const sessions = JSON.parse(fs.readFileSync(path.join(stateDir, 'sessions.json'), 'utf8'))
     expect(Object.keys(sessions).sort()).toEqual(ids.map(id => 'local_' + id).sort())
-  })
+  }, 13_000)
 })
 
 describe('the command takes the lock', () => {

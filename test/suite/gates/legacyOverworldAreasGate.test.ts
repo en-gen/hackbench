@@ -34,11 +34,12 @@ function legacyCallers(dir: string, skip: (file: string) => boolean): string[] {
 describe('legacy overworld loaders', () => {
   const definer = (f: string): boolean => f.endsWith(path.join('src', 'rom', 'OverworldLoader.ts'))
 
+  // 6.6 s worst over 10 runs, two concurrent full unit runs plus other worktrees' tests, 32-core machine, 2026-10-10
   it('are not referenced from the core or the Theia extension', () => {
     expect(legacyCallers(path.join(root, 'src/rom'), definer)).toEqual([])
     expect(legacyCallers(path.join(root, 'src/project'), definer)).toEqual([])
     expect(legacyCallers(path.join(root, 'theia/extension/src'), definer)).toEqual([])
-  })
+  }, 14_000)
 
   it('overworldCgram, which Theia calls, does not reference them either', () => {
     // The definer file is skipped above (it holds the legacy loaders themselves), so name the

@@ -12,8 +12,8 @@
  * `--max-warnings 0` fails these tests instead of silently defanging CI.
  */
 
-import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
-import { execFileSync } from 'child_process'
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from 'vitest'
+import { execFileSync, spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
 
@@ -29,12 +29,17 @@ const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf
 // Prettier also reads .gitignore, which now lists the fixture dir, and then
 // silently skips the file and exits 0, so every 'rejects' case would go green
 // on nothing. Naming .prettierignore alone keeps the fixtures checked.
-const PRETTIER_CHECK = ['prettier', '--ignore-path', '.prettierignore', '--check']
+const PRETTIER_CHECK = ['--ignore-path', '.prettierignore', '--check']
 
-/** Runs a CLI and returns its exit code, never throwing on failure. */
-function exitCodeOf(cmd: string, args: string[]): number {
+// The local bins run by node directly: `npx` re-resolves the package on every
+// call, which was the slowest part of a case under load (#771).
+const ESLINT_BIN = path.join(repoRoot, 'node_modules/eslint/bin/eslint.js')
+const PRETTIER_BIN = path.join(repoRoot, 'node_modules/prettier/bin/prettier.cjs')
+
+/** Runs a node script and returns its exit code, never throwing on failure. */
+function exitCodeOf(script: string, args: string[]): number {
   try {
-    execFileSync(cmd, args, { cwd: repoRoot, stdio: 'pipe', shell: process.platform === 'win32' })
+    execFileSync(process.execPath, [script, ...args], { cwd: repoRoot, stdio: 'pipe' })
     return 0
   } catch (err) {
     return (err as { status?: number }).status ?? -1
@@ -73,7 +78,8 @@ afterAll(() => {
  * busy teaches people to ignore it, so the budget is stated rather than
  * inherited. It is a timeout, not a weakening: the assertions are unchanged.
  */
-const CLI_TIMEOUT_MS = 30000
+// 102.6 s worst single ESLint case over 10 runs (via npx), two concurrent full unit runs plus other worktrees' tests, 32-core machine, 2026-10-10
+const CLI_TIMEOUT_MS = 200_000
 
 describe('the lint gate can fail', () => {
   it(
@@ -83,7 +89,7 @@ describe('the lint gate can fail', () => {
         'unused.ts',
         'export function f(): number {\n  const dead = 1\n  return 2\n}\n',
       )
-      expect(exitCodeOf('npx', ['eslint', '--max-warnings', '0', file])).not.toBe(0)
+      expect(exitCodeOf(ESLINT_BIN, ['--max-warnings', '0', file])).not.toBe(0)
     },
     CLI_TIMEOUT_MS,
   )
@@ -97,7 +103,7 @@ describe('the lint gate can fail', () => {
       // widened. `no-undef` deliberately does NOT work here: typescript-eslint
       // turns it off for .ts because the compiler already reports it.
       const file = writeFixture('cjs.ts', "const fs = require('fs')\nexport default fs\n")
-      expect(exitCodeOf('npx', ['eslint', '--max-warnings', '0', file])).not.toBe(0)
+      expect(exitCodeOf(ESLINT_BIN, ['--max-warnings', '0', file])).not.toBe(0)
     },
     CLI_TIMEOUT_MS,
   )
@@ -109,17 +115,19 @@ describe('the lint gate can fail', () => {
         'ce-value.ts',
         "import { CloudEvent } from 'cloudevents'\nexport const e = CloudEvent\n",
       )
-      expect(exitCodeOf('npx', ['eslint', '--max-warnings', '0', value])).not.toBe(0)
+      expect(exitCodeOf(ESLINT_BIN, ['--max-warnings', '0', value])).not.toBe(0)
       const type = writeFixture(
         'ce-type.ts',
         "import type { CloudEventV1 } from 'cloudevents'\nexport type E = CloudEventV1<string>\n",
       )
-      expect(exitCodeOf('npx', ['eslint', '--max-warnings', '0', type])).toBe(0)
+      expect(exitCodeOf(ESLINT_BIN, ['--max-warnings', '0', type])).toBe(0)
     },
     CLI_TIMEOUT_MS,
   )
 
-  it.each([
+  // One ESLint spawn lints all eight bypass files: a cold ESLint costs 3 to
+  // 22 s per spawn under load (#771), and these cases only need a per-file verdict.
+  const BYPASSES: [string, string][] = [
     [
       'a subpath value import',
       "import { x } from 'cloudevents/dist/event/cloudevent'\nexport default x\n",
@@ -134,13 +142,41 @@ describe('the lint gate can fail', () => {
       'a template-literal module.require() in a .cjs file',
       'module.exports = module.require(`cloudevents`)\n',
     ],
-  ])(
+  ]
+  let bypassVerdict: Map<string, number>
+  beforeAll(() => {
+    const dir = path.join(fixtureRoot, `bypass-${process.pid}-${Date.now()}`)
+    fs.mkdirSync(dir, { recursive: true })
+    try {
+      const files = BYPASSES.map(([name, body], i) => {
+        const file = path.join(dir, `ce-bypass-${i}${name.includes('.cjs') ? '.cjs' : '.ts'}`)
+        fs.writeFileSync(file, body)
+        return file
+      })
+      // A config crash prints no JSON, so JSON.parse throws and every case goes red.
+      const r = spawnSync(
+        process.execPath,
+        [ESLINT_BIN, '--max-warnings', '0', '--format', 'json', ...files],
+        { cwd: repoRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+      )
+      const results: { filePath: string; errorCount: number; warningCount: number }[] = JSON.parse(
+        r.stdout,
+      )
+      bypassVerdict = new Map(
+        results.map(x => [path.basename(x.filePath), x.errorCount + x.warningCount]),
+      )
+      expect(bypassVerdict.size).toBe(BYPASSES.length)
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  }, CLI_TIMEOUT_MS)
+
+  it.each(BYPASSES.map(([name], i) => [name, i] as const))(
     'rejects cloudevents through %s',
-    (name, body) => {
-      const file = writeFixture(name.includes('.cjs') ? 'ce-bypass.cjs' : 'ce-bypass.ts', body)
-      expect(exitCodeOf('npx', ['eslint', '--max-warnings', '0', file])).not.toBe(0)
+    (name, i) => {
+      const ext = name.includes('.cjs') ? '.cjs' : '.ts'
+      expect(bypassVerdict.get(`ce-bypass-${i}${ext}`)).toBeGreaterThan(0)
     },
-    CLI_TIMEOUT_MS,
   )
 
   it(
@@ -150,7 +186,7 @@ describe('the lint gate can fail', () => {
         'clean.ts',
         'export function add(a: number, b: number): number {\n  return a + b\n}\n',
       )
-      expect(exitCodeOf('npx', ['eslint', '--max-warnings', '0', file])).toBe(0)
+      expect(exitCodeOf(ESLINT_BIN, ['--max-warnings', '0', file])).toBe(0)
     },
     CLI_TIMEOUT_MS,
   )
@@ -164,7 +200,7 @@ describe('the lint gate can fail', () => {
         'unused.ts',
         'export function f(): number {\n  const dead = 1\n  return 2\n}\n',
       )
-      expect(exitCodeOf('npx', ['eslint', file])).toBe(0)
+      expect(exitCodeOf(ESLINT_BIN, [file])).toBe(0)
     },
     CLI_TIMEOUT_MS,
   )
@@ -193,7 +229,7 @@ describe('the format gate can fail', () => {
     'rejects a misformatted file',
     () => {
       const file = writeFixture('ugly.ts', 'export const a   =    {b:1,c:  2};\n')
-      expect(exitCodeOf('npx', [...PRETTIER_CHECK, file])).not.toBe(0)
+      expect(exitCodeOf(PRETTIER_BIN, [...PRETTIER_CHECK, file])).not.toBe(0)
     },
     CLI_TIMEOUT_MS,
   )
@@ -204,7 +240,7 @@ describe('the format gate can fail', () => {
       // Semicolons and double quotes are what Prettier defaults to and this
       // repo does not use. A config that lost `semi: false` passes this file.
       const file = writeFixture('style.ts', 'export const greeting = "hi";\n')
-      expect(exitCodeOf('npx', [...PRETTIER_CHECK, file])).not.toBe(0)
+      expect(exitCodeOf(PRETTIER_BIN, [...PRETTIER_CHECK, file])).not.toBe(0)
     },
     CLI_TIMEOUT_MS,
   )
@@ -213,7 +249,7 @@ describe('the format gate can fail', () => {
     'accepts a correctly formatted file',
     () => {
       const file = writeFixture('pretty.ts', "export const greeting = 'hi'\n")
-      expect(exitCodeOf('npx', [...PRETTIER_CHECK, file])).toBe(0)
+      expect(exitCodeOf(PRETTIER_BIN, [...PRETTIER_CHECK, file])).toBe(0)
     },
     CLI_TIMEOUT_MS,
   )
@@ -222,7 +258,7 @@ describe('the format gate can fail', () => {
     'checks CSS too',
     () => {
       const file = writeFixture('ugly.css', '.a{color:red;background:blue}\n')
-      expect(exitCodeOf('npx', [...PRETTIER_CHECK, file])).not.toBe(0)
+      expect(exitCodeOf(PRETTIER_BIN, [...PRETTIER_CHECK, file])).not.toBe(0)
     },
     CLI_TIMEOUT_MS,
   )

@@ -380,6 +380,7 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     expect(pinned(rows)).toEqual(PINNED_ROWS)
   })
 
+  // 5.9 s worst over 10 runs, two concurrent full unit runs plus other worktrees' tests, 32-core machine, 2026-10-10
   it('goes red on a planted defect: one part shifted by a pixel is a disagreement', () => {
     const base = tally(compare())
     const planted = tally(
@@ -390,7 +391,7 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     )
     expect(planted).not.toEqual(base)
     expect(planted).not.toEqual(EXPECTED)
-  })
+  }, 12_000)
 
   it('goes red when a part changes INSIDE a row that already differs (the verdict counts stay equal)', () => {
     const rows = compare(d => s => {
@@ -404,6 +405,7 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     expect(pinned(rows)).not.toEqual(PINNED_ROWS)
   })
 
+  // 7.3 s worst over 10 runs, two concurrent full unit runs plus other worktrees' tests, 32-core machine, 2026-10-10
   it('caches an ok reply per bytes and map, at most 8 of them (least recently used out), and never an unavailable one', () => {
     const b = bytes()
     const c = new L1ModelCache()
@@ -419,7 +421,7 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     get(0x001) // the ninth: the least recently used ($106) goes, not $105
     expect(get(0x105)).toBe(first)
     expect(get(0x106)).not.toBe(second)
-  })
+  }, 15_000)
 
   it('$4F on $105 is served at its stream position plus (8, -1): INIT moved it, not a table', () => {
     const b = bytes()

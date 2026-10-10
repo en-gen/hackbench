@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Tests (#771): the lint gate runs the local eslint and prettier directly and lints its eight cloudevents bypass files in one spawn; eleven other tests that timed out at 5 s or 30 s got per-test timeouts sized from measurements (two concurrent full unit runs, one 32-core machine, 2026-10-10). No global timeout changed.
 - Docs (#750): the hack corpus note now states 101 hacks, all patched, and scopes its "of 99" survey figures to the 2026-09-26 survey.
 - Unit tests: the control-bytes and test-registration walks skip `__fixtures__`, so a concurrent lintGate run no longer fails them with ENOENT (#754).
 - Test-only (#653 Stage A): a per-ROM report of which standard object leaves the interpreter agrees on, across the corpus.

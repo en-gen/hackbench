@@ -149,6 +149,7 @@ describe.skipIf(!hasRom(VANILLA) || !existsSync(root))(
       expect(r.pastEndOnly).toEqual(PAST_END)
     }, 300_000)
 
+    // 16.0 s worst over 10 runs, two concurrent full unit runs plus other worktrees' tests, 32-core machine, 2026-10-10
     it('no two maps with different Level 1 pointers share a Map16 dump (no castle-entry image survives)', () => {
       const ds: Dump[] = maps(root).map(id => ({
         id,
@@ -158,7 +159,7 @@ describe.skipIf(!hasRom(VANILLA) || !existsSync(root))(
       })) // prettier-ignore
       expect(ds.length).toBe(154)
       expect(sharedImages(ds)).toEqual(SHARED_IMAGES)
-    })
+    }, 32_000)
 
     it('Mario: the loader $94/$96 differs from the capture on exactly the pinned 18 maps, by these offsets', () => {
       expect(real().filter(m => m.mario).length).toBe(139)
