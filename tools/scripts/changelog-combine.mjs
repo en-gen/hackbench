@@ -11,12 +11,22 @@ import { fileURLToPath } from 'node:url'
 
 export const SECTIONS = ['Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security']
 
+// Editors on Windows save a BOM and CRLF; neither may leak into the output.
+const readText = f =>
+  readFileSync(f, 'utf8')
+    .replace(/^\uFEFF/, '')
+    .replace(/\r\n/g, '\n')
+
 // Returns Map<section, lines[]>, or throws with a message naming the file.
 export function parseFragment(name, text) {
   const sections = new Map()
   let cur = null
   for (const line of text.split(/\r?\n/)) {
     const h = /^### (.*\S)\s*$/.exec(line)
+    // A stray "## [9.9.9]" or "#### Added" would corrupt the release or vanish as an entry.
+    if (line.startsWith('#') && !h) {
+      throw new Error(`${name}: only "### <Section>" headings are allowed`)
+    }
     if (h) {
       if (!SECTIONS.includes(h[1])) throw new Error(`${name}: unknown section "${h[1]}"`)
       cur = sections.get(h[1]) ?? []
@@ -36,12 +46,22 @@ export function parseFragment(name, text) {
   return sections
 }
 
-export function combine(changelog, fragments, version, date) {
+// [Unreleased] ends at the next release heading or, with no prior release, at the
+// link reference block that would otherwise be swallowed into the release.
+function unreleasedBounds(changelog) {
   const m = /^## \[Unreleased\][^\n]*\n/m.exec(changelog)
   if (!m) throw new Error('CHANGELOG.md has no "## [Unreleased]" heading')
   const bodyStart = m.index + m[0].length
-  const next = changelog.slice(bodyStart).search(/^## \[/m)
-  const bodyEnd = next === -1 ? changelog.length : bodyStart + next
+  const next = changelog.slice(bodyStart).search(/^(## \[|\[[^\]]+\]: )/m)
+  return { bodyStart, bodyEnd: next === -1 ? changelog.length : bodyStart + next }
+}
+
+export function combine(changelog, fragments, version, date) {
+  const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  if (new RegExp(`^## \\[${escaped}\\]`, 'm').test(changelog)) {
+    throw new Error(`CHANGELOG.md already has a "## [${version}]" section`)
+  }
+  const { bodyStart, bodyEnd } = unreleasedBounds(changelog)
   const preamble = []
   const merged = new Map()
   let cur = null
@@ -67,32 +87,67 @@ export function combine(changelog, fragments, version, date) {
 
 function main(argv) {
   const args = argv.slice(2)
+  let missingValue = false
   const opt = n => {
     const i = args.indexOf(n)
-    return i === -1 ? undefined : args.splice(i, 2)[1]
+    if (i === -1) return undefined
+    const v = args.splice(i, 2)[1]
+    // A bare "--date" must not fall back to today's date and release silently.
+    if (v === undefined || v.startsWith('--')) missingValue = true
+    return v
   }
   const date = opt('--date') ?? new Date().toISOString().slice(0, 10)
   const root = opt('--root') ?? process.cwd()
   const version = args[0]
-  if (!version || !/^\d+\.\d+\.\d+\S*$/.test(version) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+  if (
+    missingValue ||
+    !version ||
+    !/^\d+\.\d+\.\d+\S*$/.test(version) ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(date)
+  ) {
     console.error('usage: changelog-combine.mjs <version> [--date YYYY-MM-DD] [--root DIR]')
     return 2
   }
   const dir = join(root, 'changelog.d')
   const names = existsSync(dir)
     ? readdirSync(dir)
-        .filter(n => n.endsWith('.md') && n !== 'README.md')
+        .filter(n => /\.md$/i.test(n) && n.toLowerCase() !== 'readme.md')
         .sort()
     : []
-  if (names.length === 0) return 0
+  const file = join(root, 'CHANGELOG.md')
+  if (names.length === 0) {
+    // A silent no-op looks like a release that shipped the lines already there.
+    if (existsSync(file)) {
+      const text = readText(file)
+      const { bodyStart, bodyEnd } = unreleasedBounds(text)
+      if (text.slice(bodyStart, bodyEnd).trim()) {
+        console.error(
+          'changelog-combine: [Unreleased] has lines but changelog.d is empty; nothing was released',
+        )
+      }
+    }
+    return 0
+  }
+  let left = names
   try {
     // Validate everything before any write so a bad fragment leaves no partial release.
-    const parsed = names.map(n => parseFragment(n, readFileSync(join(dir, n), 'utf8')))
-    const file = join(root, 'CHANGELOG.md')
-    writeFileSync(file, combine(readFileSync(file, 'utf8'), parsed, version, date))
-    for (const n of names) unlinkSync(join(dir, n))
+    const parsed = names.map(n => parseFragment(n, readText(join(dir, n))))
+    writeFileSync(file, combine(readText(file), parsed, version, date))
   } catch (e) {
     console.error(`changelog-combine: ${e.message}`)
+    return 1
+  }
+  try {
+    while (left.length) {
+      unlinkSync(join(dir, left[0]))
+      left = left.slice(1)
+    }
+  } catch (e) {
+    // Re-running would now fold the same fragments into the version twice.
+    console.error(
+      `changelog-combine: CHANGELOG.md is already written, but ${e.message}. ` +
+        `Delete these fragments by hand: ${left.join(', ')}`,
+    )
     return 1
   }
   return 0

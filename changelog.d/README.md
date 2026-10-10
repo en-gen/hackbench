@@ -17,3 +17,6 @@ entries is refused.
 At release, `npm run changelog:release -- <version> [--date YYYY-MM-DD]` folds
 every fragment (this README excluded) and any lines already under
 `[Unreleased]` into a new `## [<version>]` section, then deletes the fragments.
+
+Blank lines inside an entry are not kept. The release step does not touch the
+compare links at the foot of `CHANGELOG.md`; update them by hand.
