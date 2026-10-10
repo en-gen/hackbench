@@ -4,10 +4,27 @@
  * covered by spriteGrade.captures.test.ts.
  */
 import { execFileSync } from 'child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
+import type { SpriteModel } from '../../../src/rom/sprites/interp/SpriteRunner'
+import { runSprite } from '../../../src/rom/sprites/interp/SpriteRunner'
+import { loadLevelState } from '../../../src/rom/sprites/interp/LevelLoader'
+import { withSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
+import { CAPTURE_DIR, VANILLA, freshRom, hasCaptures, hasRom } from '../support/corpus'
+import { grade } from '../support/spriteGrade'
+import { unzip } from '../../../tools/scripts/capture_render'
 import {
   VERDICTS,
   buildReport,
@@ -18,7 +35,14 @@ import {
   type ReportRow,
   type ReportVerdict,
 } from '../../../tools/scripts/spriteReport'
-import { closestFrame, run, type Graded, type Io } from '../../../tools/scripts/spriteReportRun'
+import {
+  gradeCaptures,
+  gradedFrame,
+  oamOrder,
+  run,
+  type Graded,
+  type Io,
+} from '../../../tools/scripts/spriteReportRun'
 
 const tmp = mkdtempSync(join(tmpdir(), 'sprite-report-'))
 afterAll(() => rmSync(tmp, { recursive: true, force: true }))
@@ -64,6 +88,28 @@ describe('buildReport', () => {
     for (const id of ids) expect(index).toContain(`#${id})`)
     expect(count(index, /^- [0-9A-F]{2} map/gm)).toBe(total)
   })
+  it('states each page count in its header and each count and the total in the index', () => {
+    for (const v of VERDICTS)
+      expect(files.get(`${v}.md`)).toContain(`# ${v} (${COUNTS[v]})
+`)
+    const index = files.get('index.md')!
+    expect(index).toContain(`${rows().length} graded.`)
+    for (const v of VERDICTS) expect(index).toContain(`[${v}](${v}.md): ${COUNTS[v]}`)
+  })
+  it('keeps anchors apart for rows sharing map, id and slot', () => {
+    const same = ['exact', 'exact', 'wrong'].map((verdict): ReportRow => ({
+      map: '001',
+      id: 5,
+      slot: 2,
+      verdict: verdict as ReportVerdict,
+    }))
+    const page = buildReport(same, { sha: 'x', dirty: false })
+    const ids = [...page.get('exact.md')!.matchAll(/<a id="([^"]+)">/g)].map(m => m[1])
+    expect(new Set(ids).size).toBe(2)
+    const index = page.get('index.md')!
+    for (const id of ids) expect(index).toContain(`(exact.md#${id})`)
+    expect(index).toMatch(/\(wrong\.md#m001-s05-2-2\)/)
+  })
   it('links ours and hardware images, and says so when one is absent', () => {
     const page = buildReport(
       [
@@ -83,6 +129,18 @@ describe('isInside', () => {
     expect(isInside(tmp, tmp)).toBe(true)
     expect(isInside(tmp + '-other', tmp)).toBe(false)
     expect(isInside(join(tmp, '..'), tmp)).toBe(false)
+  })
+  it('follows a junction out of the root, and into it', () => {
+    const [root, other] = [join(tmp, 'jroot'), join(tmp, 'jother')]
+    mkdirSync(root)
+    mkdirSync(other)
+    symlinkSync(root, join(other, 'link'), 'junction')
+    expect(isInside(join(other, 'link', 'x', 'y'), root)).toBe(true)
+    symlinkSync(other, join(root, 'out'), 'junction')
+    expect(isInside(join(root, 'out', 'x'), root)).toBe(false)
+  })
+  it.skipIf(process.platform !== 'win32')('ignores case on win32 paths', () => {
+    expect(isInside(join(tmp.toUpperCase(), 'A'), tmp.toLowerCase())).toBe(true)
   })
 })
 
@@ -174,6 +232,72 @@ describe('run', () => {
     expect(readFileSync(join(o, files[0])).subarray(1, 4).toString()).toBe('PNG')
     expect(git(v, 'rev-list', '--count', 'HEAD').trim()).toBe('1')
   })
+  it('does not sweep unrelated files into the commit, staged or not', () => {
+    const v = mkRepo('v6')
+    writeFileSync(join(v, 'notes.txt'), 'x')
+    writeFileSync(join(v, 'staged.txt'), 'y')
+    git(v, 'add', 'staged.txt')
+    expect(run(['--validation', v], io())).toBe(0)
+    const changed = git(v, 'show', '--name-only', '--format=', 'HEAD')
+    expect(changed).not.toMatch(/notes\.txt|staged\.txt/)
+    expect(git(v, 'status', '--porcelain')).toContain('A  staged.txt')
+  })
+  it('keys a dirty tree as <sha>-dirty', () => {
+    const v = mkRepo('v7')
+    const c = io({ sha: () => ({ sha: 'abc', dirty: true }) })
+    expect(run(['--validation', v], c)).toBe(0)
+    expect(existsSync(join(v, 'reports', 'sprites', 'abc-dirty', 'index.md'))).toBe(true)
+    expect(existsSync(join(v, 'reports', 'sprites', 'abc'))).toBe(false)
+  })
+  it('refuses to overwrite a folder with a ticked checkbox unless --force', () => {
+    const v = mkRepo('v8')
+    run(['--validation', v], io())
+    const page = join(v, 'reports', 'sprites', 'deadbeef', 'exact.md')
+    writeFileSync(page, readFileSync(page, 'utf8').replace('- [ ]', '- [x]'))
+    git(v, 'commit', '-qam', 'reviewed')
+    const c = io()
+    expect(run(['--validation', v], c)).toBe(1)
+    expect(c.out.join()).toContain('ticked')
+    expect(readFileSync(page, 'utf8')).toContain('- [x]')
+    expect(run(['--validation', v, '--force'], io())).toBe(0)
+    expect(readFileSync(page, 'utf8')).not.toContain('- [x]')
+  })
+  it('undoes a failed commit: non-zero, git error shown, nothing staged or left behind', () => {
+    const v = mkRepo('v9')
+    git(v, 'config', 'core.hooksPath', join(v, '.git', 'hooks'))
+    const hook = join(v, '.git', 'hooks', 'pre-commit')
+    writeFileSync(hook, '#!/bin/sh\necho hook-said-no >&2\nexit 1\n')
+    chmodSync(hook, 0o755)
+    const c = io()
+    expect(run(['--validation', v], c)).toBe(1)
+    expect(c.out.join()).toContain('hook-said-no')
+    expect(git(v, 'status', '--porcelain')).toBe('')
+    expect(existsSync(join(v, 'reports', 'sprites', 'latest'))).toBe(false)
+  })
+  it('refuses a validation target that shares a git store with the hackbench checkout', () => {
+    const main = mkRepo('hbmain')
+    const wt = join(tmp, 'hbwt')
+    git(main, 'worktree', 'add', '-q', wt, '-b', 'wt')
+    expect(run(['--validation', main], io({ repoRoot: wt }))).toBe(2)
+    expect(existsSync(join(main, 'reports'))).toBe(false)
+  })
+  it('refuses an origin naming en-gen/hackbench, accepts hackbench-validation', () => {
+    const [bad, good] = [mkRepo('o-bad'), mkRepo('o-good')]
+    git(bad, 'remote', 'add', 'origin', 'https://github.com/en-gen/hackbench.git')
+    git(good, 'remote', 'add', 'origin', 'git@github.com:en-gen/hackbench-validation.git')
+    expect(run(['--validation', bad], io())).toBe(2)
+    expect(existsSync(join(bad, 'reports'))).toBe(false)
+    expect(run(['--validation', good], io())).toBe(0)
+  })
+  it('--no-commit clears a stale latest/ and needs --out', () => {
+    const o = join(tmp, 'o3')
+    run(['--out', o, '--no-commit'], io())
+    run(['--out', o, '--no-commit'], io({ grade: () => graded().slice(0, 1) }))
+    expect(readdirSync(join(o, 'reports', 'sprites', 'latest', 'img'))).toHaveLength(2)
+    const c = io()
+    expect(run(['--no-commit'], c)).toBe(2)
+    expect(c.out.join()).toContain('--no-commit needs --out')
+  })
   it('rejects --sheet with neither or both filters, and --out without --no-commit', () => {
     expect(run(['--sheet', '--out', tmp], io())).toBe(2)
     expect(run(['--sheet', '--map', '1', '--sprite', '2', '--out', tmp], io())).toBe(2)
@@ -207,11 +331,125 @@ describe('frames and sheet', () => {
   })
 })
 
-describe('closestFrame', () => {
-  const a = [{ dx: 0, dy: 0, tile: 1, attr: 0, large: false }]
-  const b = [{ dx: 0, dy: 0, tile: 2, attr: 0x10, large: false }]
-  it('picks the recorded frame equal to ours, ignoring priority bits, else the first', () => {
-    expect(closestFrame([a, b], [{ ...b[0], attr: 0 }])).toBe(b)
-    expect(closestFrame([a, b], [{ ...a[0], tile: 9 }])).toBe(a)
+const piece = (dx: number, tile: number, attr = 0, large = false) => ({
+  dx,
+  dy: 0,
+  tile,
+  attr,
+  large,
+})
+/** A model whose chosen pass drew exactly `ours`, anchored at the origin. */
+const model = (ours: ReturnType<typeof piece>[]): SpriteModel =>
+  ({
+    chosen: 0,
+    anchor: { x: 0, y: 0 },
+    passes: [
+      {
+        pos: { x: 0, y: 0 },
+        parts: ours.map(p => ({
+          dx: p.dx,
+          dy: p.dy,
+          oy: 0,
+          char: p.tile,
+          attr: p.attr,
+          size: p.large ? 16 : 8,
+        })),
+      },
+    ],
+  }) as unknown as SpriteModel
+
+describe('gradedFrame', () => {
+  const ours = [piece(0, 1)]
+  const [wrong, shape, exact] = [[piece(0, 9)], [piece(5, 1)], [piece(0, 1, 0x10)]]
+  it('shows the frame the grader scored best, not the first, for shape rows too', () => {
+    expect(grade(model(ours), [wrong, shape]).verdict).toBe('shape')
+    expect(gradedFrame(model(ours), [wrong, shape])).toBe(shape)
+    expect(gradedFrame(model(ours), [wrong, shape, exact])).toBe(exact)
   })
+  it('breaks ties toward the first frame', () => {
+    const shape2 = [piece(7, 1)]
+    expect(gradedFrame(model(ours), [wrong, shape, shape2])).toBe(shape)
+    expect(gradedFrame(model(ours), [shape2, shape])).toBe(shape2)
+  })
+})
+
+describe('oamOrder', () => {
+  // Two overlapping 8x8 pieces. The capture lists them sorted as JSON text
+  // (tile 1 before tile 2) but OAM entry 3 is tile 2 and entry 9 is tile 1.
+  const frame = [piece(0, 1), piece(4, 2)]
+  const ent = (entry: number, x: number, tile: number) => ({
+    entry,
+    x,
+    y: 100,
+    tile,
+    attr: 0,
+    sizeXHigh: 0,
+  })
+  const entries = [ent(9, 54, 1), ent(3, 58, 2)]
+  it('returns the pieces in OAM index order', () => {
+    expect(oamOrder(frame, entries)!.map(p => p.tile)).toEqual([2, 1])
+  })
+  it('draws the lower OAM entry on top where the pieces overlap', () => {
+    const vram = new Uint8Array(0x10000)
+    vram.fill(0xff, 0, 32) // tile 0: every pixel colour 15
+    const pal = new Uint8Array(768)
+    pal.set([10, 20, 30], (128 + 15) * 3) // object palette row 0
+    pal.set([200, 0, 0], (128 + 16 + 15) * 3) // row 1, attr bit 1
+    const src = { vram, pal, obsel: 0 }
+    const [a, b] = [piece(0, 0, 0), piece(4, 0, 2)]
+    const at = (r: NonNullable<ReturnType<typeof renderPieces>>) => [
+      ...r.px.subarray(8 * 4, 8 * 4 + 3),
+    ] // x=4, scaled 2x
+    expect(at(renderPieces([a, b], src)!)).toEqual([10, 20, 30])
+    expect(at(renderPieces([b, a], src)!)).toEqual([200, 0, 0])
+  })
+  it('is null when the entries do not fit the frame', () => {
+    expect(oamOrder(frame, undefined)).toBeNull()
+    expect(oamOrder(frame, [ent(9, 54, 1), ent(3, 99, 2)])).toBeNull()
+    expect(oamOrder(frame, [ent(9, 54, 1)])).toBeNull()
+  })
+})
+
+describe.skipIf(!hasRom(VANILLA) || !hasCaptures())('gradeCaptures on the corpus', () => {
+  it('tallies as the grade loop does and puts every sprite on exactly one page', () => {
+    const rom = freshRom()
+    const want: Record<string, number> = {}
+    let total = 0
+    for (const file of readdirSync(CAPTURE_DIR).sort()) {
+      if (!file.endsWith('.zip')) continue
+      const entries = unzip(readFileSync(join(CAPTURE_DIR, file)))
+      const key = [...entries.keys()].find(k => k.endsWith('sprite_spawns.json'))
+      if (!key) continue
+      const map = parseInt(file.slice(0, -4), 16)
+      const lvl = loadLevelState(rom, map)
+      for (const rec of JSON.parse(entries.get(key)!().toString('utf8')).spawns ?? []) {
+        const id = parseInt(rec.id.slice(1), 16)
+        const frames = (rec.frames ?? []).flatMap((f: any) => (f.tiles?.length ? [f.tiles] : []))
+        if (!frames.length || id > 0xc8) continue
+        const seed = withSeed({
+          loaded: lvl.ok ? lvl.wram : undefined,
+          slot: rec.slot,
+          mainPasses: 64,
+          sprite: { x: rec.listX, y: rec.listY },
+          camera: { x: rec.cameraX, y: rec.cameraY },
+          mario: rec.marioAtInit ?? { x: rec.listX, y: rec.listY },
+        })
+        const v = grade(runSprite(rom, id, seed), frames).verdict
+        want[v] = (want[v] ?? 0) + 1
+        total++
+      }
+    }
+    const got = gradeCaptures({})
+    const tally: Record<string, number> = {}
+    for (const g of got) tally[g.verdict] = (tally[g.verdict] ?? 0) + 1
+    expect(tally).toEqual(want)
+    expect(got).toHaveLength(total)
+    expect(total).toBe(1957)
+    const pages = buildReport(got, { sha: 'x', dirty: false })
+    const anchors = [...pages].flatMap(([k, t]) =>
+      k === 'index.md' ? [] : [...t.matchAll(/<a id="([^"]+)">/g)].map(m => m[1]),
+    )
+    expect(anchors).toHaveLength(total)
+    expect(new Set(anchors).size).toBe(total)
+  }, 600_000)
 })

@@ -1,11 +1,12 @@
 /**
  * Sprite report, the pure half (#828): page text, frame pixels, PNG bytes, the
- * path guard. No fs and no ROM, so a synthetic test reaches all of it. The
+ * path guard. No ROM, so a synthetic test reaches all of it. The
  * rendered frames are ROM graphics (copyrighted): spriteReportRun.ts writes
  * them only outside this repository.
  */
 import { deflateSync } from 'zlib'
-import { relative, resolve, isAbsolute } from 'path'
+import { existsSync, realpathSync } from 'fs'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'path'
 import { crc32 } from './capture_render'
 import { objAttr, objSize, drawObj } from './capture_draw'
 
@@ -199,8 +200,20 @@ export function encodePng(img: Rgba): Buffer {
   ])
 }
 
-/** True when `path` is `root` or lies under it (both resolved; case-insensitive on win32 paths). */
+/** `p` resolved, with its nearest existing ancestor realpath'd so junctions and 8.3 or UNC spellings compare equal. */
+function real(p: string): string {
+  let head = resolve(p)
+  const tail: string[] = []
+  while (!existsSync(head) && dirname(head) !== head) {
+    tail.unshift(basename(head))
+    head = dirname(head)
+  }
+  const r = join(realpathSync.native(head), ...tail)
+  return process.platform === 'win32' ? r.toLowerCase() : r
+}
+
+/** True when `path` is `root` or lies under it, after following links in the existing part of both. */
 export function isInside(path: string, root: string): boolean {
-  const rel = relative(resolve(root).toLowerCase(), resolve(path).toLowerCase())
+  const rel = relative(real(root), real(path))
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }

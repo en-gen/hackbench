@@ -7,9 +7,20 @@
  * and is not edited here.
  */
 import { execFileSync } from 'child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'fs'
+import { tmpdir } from 'os'
 import { dirname, join, resolve } from 'path'
-import { runSprite } from '../../src/rom/sprites/interp/SpriteRunner'
+import { runSprite, type SpriteModel } from '../../src/rom/sprites/interp/SpriteRunner'
 import { loadLevelState } from '../../src/rom/sprites/interp/LevelLoader'
 import { withSeed } from '../../src/rom/sprites/interp/SpriteSeed'
 import {
@@ -58,15 +69,16 @@ export interface Args {
   validation?: string
   out?: string
   commit: boolean
+  force: boolean
   sheet: boolean
   filter: Filter
 }
 
 const USAGE =
-  'usage: sprite-report [--validation <dir>] | --out <dir> --no-commit | --sheet (--map <hex> | --sprite <hex>) --out <dir>'
+  'usage: sprite-report [--validation <dir>] [--force] | --out <dir> --no-commit | --sheet (--map <hex> | --sprite <hex>) --out <dir>'
 
 export function parseArgs(argv: string[]): Args | string {
-  const a: Args = { commit: true, sheet: false, filter: {} }
+  const a: Args = { commit: true, force: false, sheet: false, filter: {} }
   for (let i = 0; i < argv.length; i++) {
     const v = argv[i]
     const next = (): string => argv[++i] ?? ''
@@ -74,6 +86,7 @@ export function parseArgs(argv: string[]): Args | string {
     else if (v === '--out') a.out = next()
     else if (v === '--no-commit') a.commit = false
     else if (v === '--sheet') a.sheet = true
+    else if (v === '--force') a.force = true
     else if (v === '--map') a.filter.map = parseInt(next(), 16)
     else if (v === '--sprite') a.filter.sprite = parseInt(next(), 16)
     else return `unknown argument ${v}\n${USAGE}`
@@ -110,22 +123,103 @@ export function writeTree(dir: string, files: Map<string, string | Buffer>): voi
 }
 
 const git = (cwd: string, ...args: string[]): string =>
-  execFileSync('git', ['-c', 'core.autocrlf=false', '-C', cwd, ...args], { encoding: 'utf8' })
+  execFileSync('git', ['-c', 'core.autocrlf=false', '-C', cwd, ...args], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
 
-/** Writes reports/sprites/<sha>/ and a fresh latest/ in `repo`, then commits just those. Returns false when nothing changed. */
+const TICKED = /^- \[x\]/im
+
+/** Throws when `<key>/` holds a ticked checkbox (a reviewer's work) and `force` is off. */
+function refuseTicked(dir: string, force: boolean): void {
+  if (force || !existsSync(dir)) return
+  const hit = (d: string): boolean =>
+    readdirSync(d, { withFileTypes: true }).some(e =>
+      e.isDirectory()
+        ? hit(join(d, e.name))
+        : e.name.endsWith('.md') && TICKED.test(readFileSync(join(d, e.name), 'utf8')),
+    )
+  if (hit(dir))
+    throw new Error(`${dir} has ticked checkboxes; --force overwrites them. Nothing written.`)
+}
+
+/**
+ * Builds the tree in a scratch dir, then replaces reports/sprites/<key>/ and a
+ * fresh latest/ under `base`. Ticks belong in <key>/ (kept, refused unless
+ * forced); latest/ is regenerated every run and is never the place to tick.
+ */
+export function placeReport(
+  base: string,
+  key: string,
+  files: Map<string, string | Buffer>,
+  force: boolean,
+): void {
+  refuseTicked(join(base, key), force)
+  const scratch = mkdtempSync(join(tmpdir(), 'sprite-report-'))
+  try {
+    writeTree(scratch, files)
+    for (const dir of [key, 'latest']) {
+      rmSync(join(base, dir), { recursive: true, force: true })
+      mkdirSync(join(base, dir), { recursive: true })
+      cpSync(scratch, join(base, dir), { recursive: true })
+    }
+  } finally {
+    rmSync(scratch, { recursive: true, force: true })
+  }
+}
+
+/** Places the report in `repo` and commits only <key>/ and latest/. Returns false when nothing changed; a failed commit is undone and rethrown. */
 export function commitReport(
   repo: string,
-  sha: string,
+  key: string,
   files: Map<string, string | Buffer>,
+  force = false,
 ): boolean {
-  const base = join(repo, 'reports', 'sprites')
-  rmSync(join(base, 'latest'), { recursive: true, force: true })
-  rmSync(join(base, sha), { recursive: true, force: true })
-  for (const dir of [sha, 'latest']) writeTree(join(base, dir), files)
-  git(repo, 'add', '-A', '--', 'reports/sprites')
-  if (!git(repo, 'status', '--porcelain', '--', 'reports/sprites').trim()) return false
-  git(repo, 'commit', '-m', `Sprite report for hackbench ${sha}`, '--', 'reports/sprites')
-  return true
+  const paths = [`reports/sprites/${key}`, 'reports/sprites/latest']
+  placeReport(join(repo, 'reports', 'sprites'), key, files, force)
+  try {
+    git(repo, 'add', '-A', '--', ...paths)
+    if (!git(repo, 'status', '--porcelain', '--', ...paths).trim()) return false
+    git(repo, 'commit', '-m', `Sprite report for hackbench ${key}`, '--', ...paths)
+    return true
+  } catch (e) {
+    const err = e as { stderr?: string; stdout?: string; message: string }
+    for (const undo of [
+      ['reset', '-q', '--', ...paths],
+      ['checkout', '-q', '--', 'reports/sprites/latest'], // fails on a first run, nothing tracked yet
+      ['clean', '-fdq', '--', ...paths],
+    ])
+      try {
+        git(repo, ...undo)
+      } catch {
+        // best effort; the thrown message below is the one that matters
+      }
+    throw new Error(
+      `git commit failed, report undone: ${err.stderr || err.stdout || err.message}`,
+      { cause: e },
+    )
+  }
+}
+
+/** The common git dir of the repo holding `dir`, or undefined when it is no repo. */
+const commonDir = (dir: string): string | undefined => {
+  try {
+    return realpathSync.native(resolve(dir, git(dir, 'rev-parse', '--git-common-dir').trim()))
+  } catch {
+    return undefined
+  }
+}
+/** Why `dir` is a hackbench repo (same git store as the checkout, or an origin naming en-gen/hackbench), else undefined. */
+export function hackbenchRepo(dir: string, repoRoot: string): string | undefined {
+  const [mine, theirs] = [commonDir(repoRoot), commonDir(dir)]
+  if (mine && mine === theirs) return 'it shares its git store with the hackbench checkout'
+  try {
+    const url = git(dir, 'config', '--get', 'remote.origin.url').trim()
+    if (/en-gen\/hackbench(\.git)?\/?$/i.test(url)) return `its origin is ${url}`
+  } catch {
+    // no origin
+  }
+  return undefined
 }
 
 /** Exit 0, 1 (missing input or nothing graded) or 2 (usage or refused path). */
@@ -155,6 +249,8 @@ export function run(argv: string[], io: Io): number {
       )
     if (inRepo(target))
       return fail(2, `refusing ${target}: it is inside the hackbench checkout. Nothing written.`)
+    const why = hackbenchRepo(target, io.repoRoot)
+    if (why) return fail(2, `refusing ${target}: ${why}. Nothing written.`)
   }
   const graded = io.grade(a.filter)
   if (!graded.length) return fail(1, 'no graded sprites matched. Nothing written.')
@@ -172,6 +268,7 @@ export function run(argv: string[], io: Io): number {
     )
   }
   const { sha, dirty } = io.sha()
+  const key = dirty ? `${sha}-dirty` : sha
   const files = new Map<string, string | Buffer>()
   const rows = graded.map((g, n) => {
     const stem = `img/${g.map}-${g.id.toString(16)}-${g.slot}-${n}`
@@ -193,17 +290,19 @@ export function run(argv: string[], io: Io): number {
     return row
   })
   for (const [k, v] of buildReport(rows, { sha, dirty })) files.set(k, v)
-  if (a.commit) {
-    const made = commitReport(target!, sha, files)
-    return ok(
-      `${made ? 'committed' : 'no change to commit'} in ${target}: ${graded.length} sprites (${tally}). Not pushed.`,
-    )
+  try {
+    if (a.commit) {
+      const made = commitReport(target!, key, files, a.force)
+      return ok(
+        `${made ? 'committed' : 'no change to commit'} in ${target}: ${graded.length} sprites (${tally}). Not pushed.`,
+      )
+    }
+    const base = join(resolve(a.out!), 'reports', 'sprites')
+    placeReport(base, key, files, a.force)
+    return ok(`${join(base, key)}: ${graded.length} sprites (${tally}). Nothing committed.`)
+  } catch (e) {
+    return fail(1, (e as Error).message)
   }
-  for (const dir of [sha, 'latest'])
-    writeTree(join(resolve(a.out!), 'reports', 'sprites', dir), files)
-  return ok(
-    `${join(resolve(a.out!), 'reports', 'sprites', sha)}: ${graded.length} sprites (${tally}). Nothing committed.`,
-  )
 }
 
 interface Rec {
@@ -214,6 +313,7 @@ interface Rec {
   cameraX: number
   cameraY: number
   marioAtInit?: { x: number; y: number }
+  entries?: Entry[]
   frames?: { tiles?: RecordedPiece[] }[]
 }
 
@@ -230,15 +330,64 @@ function frameSource(entries: Map<string, () => Buffer>): FrameSource | undefine
   return { vram: new Uint8Array(vram()), pal: palette(new Uint8Array(cgram())), obsel }
 }
 
-const pieceKey = (ps: RecordedPiece[]): string =>
-  ps
-    .map(p => [p.dx, p.dy, p.tile, p.attr & 0xcf, +p.large].join())
-    .sort()
-    .join(';')
+/**
+ * The recorded frame the grader scores best against our chosen pass: grade()
+ * against each frame singly, best verdict wins, ties go to the first. Empty and
+ * refused models tie everywhere and show the first frame.
+ */
+export function gradedFrame(m: SpriteModel, want: RecordedPiece[][]): RecordedPiece[] {
+  const rank = want.map(w => VERDICTS.indexOf(grade(m, [w]).verdict))
+  return want[rank.indexOf(Math.min(...rank))]
+}
 
-/** The recorded frame the grader matched when one is identical to ours (priority bits ignored), else the first. */
-export function closestFrame(want: RecordedPiece[][], ours: RecordedPiece[]): RecordedPiece[] {
-  return want.find(w => pieceKey(w) === pieceKey(ours)) ?? want[0]
+interface Entry {
+  entry: number
+  x: number
+  y: number
+  tile: number
+  attr: number
+  sizeXHigh: number
+}
+
+/**
+ * `frame` in OAM index order. The capture sorts each frame's tiles as JSON
+ * text, so only the record's `entries` (headless_capture.lua:1352) know the
+ * order; a piece is matched to the entry with its tile, attr and size under one
+ * shared offset. Null when no offset explains every piece (the entries are
+ * another frame's, or absent).
+ */
+export function oamOrder(
+  frame: RecordedPiece[],
+  entries: Entry[] | undefined,
+): RecordedPiece[] | null {
+  if (!entries || entries.length !== frame.length) return null
+  const es = entries.map(e => ({
+    ...e,
+    x: e.x + (e.sizeXHigh & 1) * 256,
+    large: (e.sizeXHigh & 2) !== 0,
+  }))
+  const same = (p: RecordedPiece, e: (typeof es)[0]): boolean =>
+    p.tile === e.tile && p.attr === e.attr && p.large === e.large
+  const mod = (a: number, m: number): number => ((a % m) + m) % m
+  for (const e0 of es.filter(e => same(frame[0], e))) {
+    const [tx, ty] = [frame[0].dx - e0.x, frame[0].dy - e0.y]
+    const used = new Set<number>()
+    const hit: { p: RecordedPiece; n: number }[] = []
+    for (const p of frame) {
+      const e = es.find(
+        c =>
+          !used.has(c.entry) &&
+          same(p, c) &&
+          !mod(p.dx - c.x - tx, 512) &&
+          !mod(p.dy - c.y - ty, 256),
+      )
+      if (!e) break
+      used.add(e.entry)
+      hit.push({ p, n: e.entry })
+    }
+    if (hit.length === frame.length) return hit.sort((a, b) => a.n - b.n).map(h => h.p)
+  }
+  return null
 }
 
 /** Grades every captured sprite (or the filtered ones) with the 'rom' seed and 64 passes, as the accuracy test does. */
@@ -270,10 +419,14 @@ export function gradeCaptures(f: Filter): Graded[] {
       const m = runSprite(rom, id, seed)
       const g = grade(m, want)
       const ours = m.chosen !== undefined && !m.refusal ? passPieces(m, m.chosen) : []
+      const hw = gradedFrame(m, want)
+      const ordered = oamOrder(hw, rec.entries)
+      const note = ordered || hw.length < 2 ? undefined : 'hardware overlap order unknown'
       out.push({
-        map, id, slot: rec.slot, verdict: g.verdict, detail: g.detail,
+        map, id, slot: rec.slot, verdict: g.verdict,
+        detail: [g.detail, note].filter(Boolean).join('. ') || undefined,
         oursImg: src ? renderPieces(ours, src) : null,
-        hardwareImg: src ? renderPieces(closestFrame(want, ours), src) : null,
+        hardwareImg: src ? renderPieces(ordered ?? hw, src) : null,
       }) // prettier-ignore
     }
   }

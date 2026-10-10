@@ -686,9 +686,18 @@ npm run sprite:report -- --sheet --map 105 --out <dir>       # one contact-sheet
 
 ROM and captures come from `corpus.ts` (`HACKBENCH_ROMS`, `HACKBENCH_CAPTURES`);
 a missing one exits non-zero naming it. The hardware side shows the recorded
-frame equal to ours when there is one, else the first. Both sides are drawn
-from the capture's own VRAM and palette, so a difference is in the pieces.
-Sheet borders: exact green, shape lime, close yellow, wrong red, empty and
+frame the grader scores best against our chosen pass (`grade` against each
+frame singly, ties to the first), drawn in OAM index order recovered from the
+record's `entries` (the capture sorts each frame's tiles as JSON text, so its
+list is not OAM order); a row whose entries do not fit the frame says
+"hardware overlap order unknown". Both sides are drawn from the capture's own
+VRAM and palette, so a difference is in the pieces. A dirty tree writes
+`<sha>-dirty/`. Tick the checkboxes in the `<sha>/` folder: `latest/` is
+regenerated every run, and a run refuses to replace a `<sha>/` that has a
+ticked box unless `--force`. Only `reports/sprites/<key>` and `latest` are
+staged and committed; a failed commit is undone and exits non-zero. The target
+is refused when it shares a git store with the hackbench checkout (a worktree
+of it included) or its origin names en-gen/hackbench. Sheet borders: exact green, shape lime, close yellow, wrong red, empty and
 refused grey. The loop in `spriteReportRun.ts` mirrors `gradeAll`, which is
 private to the test file.
 
