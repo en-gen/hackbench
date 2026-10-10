@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Test-only pin: a priority layer 1 tile draws in front of an overlapping sprite, and behind it once its priority bit is cleared. A Playwright spec reads the map tab's composite pixels on vanilla map $20 (screen 11, one ROM), and a unit test pins the compose order on synthetic planes (#529). No behaviour change.
 - Layer 1 differential: the #300 allow-list row no longer hides port/interpreter differences on the object's own screen (#453).
 - Tech-lead session titles are now "<Team> Team" (e.g. "Delta Team"), in the tech-lead manual and the unregistered-session hook text.
 
