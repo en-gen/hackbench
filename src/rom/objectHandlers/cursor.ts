@@ -144,6 +144,13 @@ export interface Cursor {
    * Only handlers that address raw Map16 buffer offsets need it (ext $5F, #362).
    */
   vertical: boolean
+  /**
+   * Game-state RAM a gated handler reads, by WRAM address; unset reads are 0.
+   * Same key space and default as InterpretEnv.ram, so the port and the #351
+   * interpreter see one editor state (fresh save: no midway taken, no tile
+   * cleared). Production callers leave it unset (#635).
+   */
+  ram?: ReadonlyMap<number, number>
 }
 
 export function makeCursor(
@@ -258,6 +265,23 @@ function claimCell(cur: Cursor): void {
   if (!orow) return
   while (orow.length < cur.col) orow.push(OWNER_NONE)
   orow[cur.col] = cur.owner
+}
+
+/**
+ * The high-byte half of a skipped tile store: the ROM zeroes the cell's page
+ * even when a $25 table entry skips the low byte, so a blank cell reads $25
+ * (SMWDisX bank_0D.asm:2112-2114 StzTo6ePointer; skips at 1736-1740 and
+ * 4804-4808; see SMWDisX bank_0D/MEMO.md, "Hillside tables and
+ * StzTo6ePointer"). No owner is claimed: no tile is drawn, unlike
+ * `applyWrites` in interpret.ts, which claims every buffer write.
+ */
+export function clearPageKeepLow(cur: Cursor): void {
+  if (cur.row < 0 || cur.row >= cur.grid.length) return
+  if (cur.col < 0 || cur.col >= 0x200) return
+  const low = peekExistingLow(cur)
+  const row = cur.grid[cur.row]
+  while (row.length < cur.col) row.push(0x25)
+  row[cur.col] = low
 }
 
 /** Sta1To6ePointer (bank_0D line 2107) -- next tile is on page 1 ($100-$1FF). */
