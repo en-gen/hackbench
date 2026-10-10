@@ -144,13 +144,17 @@ export function sameShape(a: SpritePiece[], b: SpritePiece[]) {
 /**
  * An OAM entry's offset from its sprite, both read the same frame. OAM X is
  * 9 bits (low byte plus high-table bit 8) and wraps, so the offset is taken
- * modulo 512 into -256..255, never by reading X as signed; Y modulo 256
- * into -128..127.
+ * modulo 512 into -256..255, never by reading X as signed. Y is a screen line
+ * (as in oamEntry): a line of 224 or more is a piece straddling the top edge,
+ * so it reads as line - 256, and the offset is not wrapped, because a piece
+ * can sit more than 128 lines from its sprite (the $104 flame, #811). Pieces
+ * parked wholly below the screen are dropped by the caller first.
  */
 // prettier-ignore
 export function pieceOffset(oamX9: number, oamY: number, spriteX: number, spriteY: number, camX: number, camY: number) {
   const wrap = (v: number, m: number) => (((((v % m) + m) % m) + m / 2) % m) - m / 2
-  return [wrap(oamX9 - (spriteX - camX), 512), wrap(oamY - (spriteY - camY), 256)]
+  const screenY = oamY >= 224 ? oamY - 256 : oamY
+  return [wrap(oamX9 - (spriteX - camX), 512), screenY - (spriteY - camY)]
 }
 
 /** One window as the SNES comparison needs it: its own VRAM, palette, OAM and scroll. */

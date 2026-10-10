@@ -90,3 +90,11 @@ A GenerateTile call reaches a picture only from the next frame: on
 layers_v4 `$01C` and `$116` every call stamped with a picture's own frame
 was not yet in that picture's VRAM (5 calls, 3 pictures). A window
 therefore replays the calls stamped strictly before its frame.
+
+## OBJ Y offset
+
+`pieceOffset` reads an OAM Y of $E0 or more as a line above the top edge
+(y - 256, the same rule as `oamEntry`) and does not wrap the offset from the
+sprite, so a piece more than 128 lines away keeps its distance (#811).
+Evidence: synthetic sweeps in `CaptureOracle.synthetic.test.ts`; no real
+capture was re-rendered for this change.

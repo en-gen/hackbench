@@ -194,6 +194,26 @@ describe('Sprites layer', () => {
     expect(D.pieceOffset(264 + 48, 110, 1264, 300, 1000, 200)).toEqual([48, 10])
     expect(D.pieceOffset(8, 100, 504 + 1000, 300, 1000, 200)).toEqual([16, 0]) // wraps past 511
   })
+
+  it('does not wrap the Y offset: a piece far above or below its sprite keeps its distance (#811)', () => {
+    // Sprite at screen y 100 (spriteY 300, camY 200); sweep the piece's screen line.
+    for (let y = 0; y < 224; y += 7) {
+      expect(D.pieceOffset(0, y, 1000, 300, 1000, 200)[1]).toBe(y - 100)
+    }
+    // Past +127 and past -128 relative to the sprite: sprite at screen y 10 and 200.
+    expect(D.pieceOffset(0, 200, 1000, 210, 1000, 200)[1]).toBe(190)
+    expect(D.pieceOffset(0, 5, 1000, 400, 1000, 200)[1]).toBe(-195)
+    // Sprite off the screen below, piece drawn well above it (past -255).
+    expect(D.pieceOffset(0, 20, 1000, 600, 1000, 200)[1]).toBe(-380)
+  })
+
+  it('reads an OAM line of $E0 or more as above the top edge (#811)', () => {
+    // Straddling piece at line 240 is screen y -16; sprite at screen y 4.
+    expect(D.pieceOffset(0, 240, 1000, 204, 1000, 200)[1]).toBe(-20)
+    for (let y = 224; y < 256; y += 5) {
+      expect(D.pieceOffset(0, y, 1000, 300, 1000, 200)[1]).toBe(y - 256 - 100)
+    }
+  })
 })
 
 // A char whose every pixel is color c (4bpp) at byte address a.
