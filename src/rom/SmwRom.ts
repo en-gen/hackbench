@@ -37,6 +37,7 @@ import {
   stockCodeMismatch,
 } from './SubmapFlagGate'
 import {
+  readBossModes,
   readSpritePointerSite,
   readVerticalTable,
   SpritePointerSite,
@@ -275,16 +276,26 @@ export class SmwRom {
   }
 
   /**
-   * Returns true if the level has valid object data.
+   * True when the slot's Layer-1 stream starts with an object, or when this
+   * level's mode is one the recognized loader never reads Layer 1 for.
    *
-   * The level mode is the header's second byte AND $1F (bank_05.asm:539) and
-   * indexes six 32-entry tables (bank_05.asm:480-509), so it needs no check.
+   * LoadLevel skips Layer 1 outright for the boss modes (bank_05.asm:431-437),
+   * so a stream that is just $FF there is a real room, not an empty one. For
+   * any other mode a first byte of $FF is an empty stream (:438-442). The
+   * boss modes are read from the loader's own bytes (readBossModes); when it
+   * is not recognized only the stream rule applies, never the stock modes.
+   *
+   * The mode is the header's second byte AND $1F (bank_05.asm:539) and
+   * indexes six 32-entry tables (bank_05.asm:480-509), so it needs no range check.
+   * This does not detect filler: the filler room holds well-formed objects.
    */
   levelHasObjects(index: number): boolean {
     const data = this.getLevelRawData(index)
     if (data === null || data.length <= 5) return false
 
-    // data[5] is first object byte; 0xFF = immediate terminator
+    const boss = readBossModes(this.rom)
+    if (boss.ok && boss.modes.has(data[1] & 0x1f)) return true
+
     return data[5] !== 0xff
   }
 
@@ -422,7 +433,7 @@ export class SmwRom {
     // $0FB, $1DA, $1E7 and $1F9; the dedupe kept one and discarded four, but
     // the secondary-exit table names a SLOT, not a pointer, so all five are
     // distinct destinations. MapTree.ts documents both defects and routes
-    // around them the same way; levelHasObjects's $FF terminator rule is issue #695.
+    // around them the same way; levelHasObjects once rejected 24 boss-mode rooms (#695).
     // (Inlined rather than calling buildLevelCatalog: LevelCatalog imports
     // SmwRom for a value, so depending on it here would be a runtime cycle.)
     const fillerPtr = this._findFillerL1Pointer()
