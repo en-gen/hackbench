@@ -54,9 +54,17 @@ export interface DiffRun {
   /** SHA-1 of the interpreter's writes, 12 hex digits. */
   digest: string
   /**
-   * SHA-1 of the port's non-empty cells (row, col, tile) over the whole grid,
-   * 12 hex digits. Null unless `differs`: an agreeing port needs no pin, and a
-   * refusal never runs the port.
+   * The port's written-cell map and the interpreter's differ (see
+   * WrittenCells), $25 writes included. Null for a refusal. An agreeing run
+   * (`differs` false) with this true means the two sides disagree only on
+   * writes of the empty tile $25.
+   */
+  writtenDiffers: boolean | null
+  /**
+   * SHA-1 of the port's written cells (row, col, last value, $25 included),
+   * 12 hex digits. Set when `differs` or `writtenDiffers`, and for a refusal,
+   * where the port runs on a clean grid only to be pinned (#759); `threw:
+   * <message>` plus the cells written before the throw is digested if it throws. Null for an agreeing run.
    */
   portDigest: string | null
 }
@@ -105,12 +113,52 @@ const digestOf = (writes: BufferWrite[]): string => {
   return h.digest('hex').slice(0, 12)
 }
 
-/** Skips TILE_EMPTY like sameGrid, so a port that starts or stops writing that tile is invisible. */
-export const portDigestOf = (grid: TileGrid): string => {
+/** Last value written to each cell, keyed row * 0x10000 + col. */
+export type WrittenCells = Map<number, number>
+
+/**
+ * A blank grid whose row arrays record every index assignment. The grid is
+ * pre-filled with TILE_EMPTY, so a write of $25 onto a $25 cell is invisible
+ * in grid state; the record is what sees it. Reads and stored values are
+ * unchanged. Not a sentinel fill: the port READS cells (peekExistingLow in
+ * cursor.ts; standardHandlers.ts:3870 and :4906), so pre-filling with another
+ * value would change what it writes. The Proxy has no get trap, and whole-grid
+ * scans go through `raw`. Measured on L1Interpret.corpus.test.ts alone, one
+ * machine, vanilla: about 172 s before #759, 228-234 s after (about +35%).
+ */
+export function recordedGrid(screens: number): {
+  grid: TileGrid
+  /** The same row arrays without the Proxy: whole-grid scans (compare) stay fast. */
+  raw: TileGrid
+  written: WrittenCells
+} {
+  const raw = createGrid(screens)
+  const grid = raw.map(cells => cells)
+  const written: WrittenCells = new Map()
+  raw.forEach((cells, row) => {
+    grid[row] = new Proxy(cells, {
+      set(target, key, value) {
+        const col = typeof key === 'string' ? Number(key) : NaN
+        if (Number.isInteger(col) && col >= 0) written.set(row * 0x10000 + col, value as number)
+        return Reflect.set(target, key, value)
+      },
+    })
+  })
+  return { grid, raw, written }
+}
+
+export const sameWritten = (a: WrittenCells, b: WrittenCells): boolean =>
+  a.size === b.size && [...a].every(([k, v]) => b.get(k) === v)
+
+/**
+ * Digest of the cells the port wrote (last value each, in cell order), $25
+ * included. A port that starts or stops writing $25 changes it; only each
+ * cell's last value counts, not how often or in what order it was written.
+ */
+export const portDigestOf = (written: WrittenCells): string => {
   const h = createHash('sha1')
-  grid.forEach((cells, row) =>
-    cells.forEach((tile, col) => tile !== TILE_EMPTY && h.update(`${row},${col},${tile};`)),
-  )
+  for (const k of [...written.keys()].sort((a, b) => a - b))
+    h.update(`${Math.floor(k / 0x10000)},${k % 0x10000},${written.get(k)};`)
   return h.digest('hex').slice(0, 12)
 }
 
@@ -140,6 +188,60 @@ export function compareRun(port: TileGrid, mine: TileGrid) {
   return { differs: !sameGrid(port, mine), ownScreenDiffers: !sameScreen(port, mine, SCREEN) }
 }
 
+/** The port's and the interpreter's recorded grids, reused while a case leaves them untouched. */
+export interface Rig {
+  port: ReturnType<typeof recordedGrid>
+  mine: ReturnType<typeof recordedGrid>
+}
+export const newRig = (): Rig => ({
+  port: recordedGrid(GRID_SCREENS),
+  mine: recordedGrid(GRID_SCREENS),
+})
+
+/**
+ * One case's verdict, filled into `run`. `expand` draws the port's version of
+ * the object onto the grid it is given (sweep passes expandObject). A refusal
+ * runs the port only to pin it: a clean grid, its written cells digested (or
+ * `threw: <message>` plus the cells written before the throw), then a reset
+ * if anything was written. Otherwise the written-cell maps and grids are
+ * compared and both grids reset after any write.
+ */
+export function stepCase(
+  rig: Rig,
+  run: DiffRun,
+  r: Pick<InterpretResult, 'writes' | 'refusal'>,
+  expand: (grid: TileGrid) => void,
+): void {
+  // The record is per case; the grids are reused only while untouched.
+  rig.port.written.clear()
+  rig.mine.written.clear()
+  if (r.refusal) {
+    try {
+      expand(rig.port.grid)
+      run.portDigest = portDigestOf(rig.port.written)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      run.portDigest = createHash('sha1')
+        .update(`threw: ${msg};${portDigestOf(rig.port.written)}`)
+        .digest('hex')
+        .slice(0, 12)
+    }
+    // A throw before any write leaves the grid clean; any write is recorded.
+    if (rig.port.written.size > 0) rig.port = recordedGrid(GRID_SCREENS)
+    return
+  }
+  expand(rig.port.grid)
+  applyWrites(rig.mine.grid, r.writes)
+  Object.assign(run, compareRun(rig.port.raw, rig.mine.raw))
+  run.writtenDiffers = !sameWritten(rig.port.written, rig.mine.written)
+  // Before the reset below: the record still holds this case's port output.
+  if (run.differs || run.writtenDiffers) run.portDigest = portDigestOf(rig.port.written)
+  if (run.differs || r.writes.length > 0 || rig.port.written.size > 0) {
+    rig.port = recordedGrid(GRID_SCREENS)
+    rig.mine = recordedGrid(GRID_SCREENS)
+  }
+}
+
 export function sweep(rom: RomFile): DiffRun[] {
   const cases: [Kind, number, number, number][] = []
   for (const ts of dispatcherTilesets(rom))
@@ -148,8 +250,7 @@ export function sweep(rom: RomFile): DiffRun[] {
   for (let e = 0; e < EXTENDED_DISPATCH_COUNT; e++) cases.push(['extended', 0, e, e])
 
   const runs: DiffRun[] = []
-  let port = createGrid(GRID_SCREENS)
-  let mine = createGrid(GRID_SCREENS)
+  const rig = newRig()
   for (const { col, rows } of PLACEMENTS) {
     const x = SCREEN * 16 + col
     for (const [kind, ts, obj, size] of cases) {
@@ -190,19 +291,13 @@ export function sweep(rom: RomFile): DiffRun[] {
         refusal: r.refusal?.reason ?? null,
         differs: null,
         ownScreenDiffers: null,
+        writtenDiffers: null,
         digest: digestOf(r.writes),
         portDigest: null,
       }
       runs.push(run)
-      if (r.refusal) continue
       const object = { type: kind, objectNumber: obj, settings: size, x, y: row } as LevelObject
-      expandObject(port, object, rom, ts)
-      applyWrites(mine, r.writes)
-      Object.assign(run, compareRun(port, mine))
-      // Before the reset below: the grid still holds this case's port output.
-      if (run.differs) run.portDigest = portDigestOf(port)
-      if (run.differs || r.writes.length > 0)
-        [port, mine] = [createGrid(GRID_SCREENS), createGrid(GRID_SCREENS)]
+      stepCase(rig, run, r, grid => expandObject(grid, object, rom, ts))
     }
   }
   return runs

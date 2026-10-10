@@ -179,15 +179,35 @@ describe('readAnimGfxSources', () => {
     expect(r.ok && r.order).toBe('le')
   })
 
-  it('folds the FastROM mirror bit out of the bank', () => {
+  // #513/#704: GFX33's bank is a READ address, so it keeps the bank as written.
+  it('keeps the FastROM bank of the GFX33 read address', () => {
     const r = readAnimGfxSources(animRom({ head: head(0x81c000) }))
     expect(r).toEqual({
       ok: true,
-      gfx33: 0x01c000,
+      gfx33: 0x81c000,
       gfx32Offset: 0x9000,
       kind: 'stock',
       order: 'be',
     })
+  })
+
+  // Synthetic 4 MB cart: $FE/$FF is real ROM there; a $7E/$7F fold would name WRAM.
+  it.each([
+    [0xfe, 'FE'],
+    [0xff, 'FF'],
+  ])('keeps GFX33 bank $%s unfolded on a 4 MB cart (#704)', (bank, _label) => {
+    const r = readAnimGfxSources(animRom({ size: 0x400000, head: head((bank << 16) | 0x8000) }))
+    expect(r).toMatchObject({ ok: true, gfx33: (bank << 16) | 0x8000 })
+  })
+
+  // The GFX32 bank derives from the raw GFX33 bank: a $7F mask would read WRAM, not ROM.
+  it('reads GFX32 from bank $FE when GFX33 ends there on a 4 MB cart (#704)', () => {
+    const rom = animRom({ size: 0x400000, gfx33At: 0xfe8000, head: head(0xfe8000) })
+    rom.writeAt(0xfe9000, [...encode(tiles4bpp(4))])
+    const r = loadAnimationDataOrReason(rom, 0)
+    expect(r.ok).toBe(true)
+    const berry = r.ok && r.data.frames[0]!.find(s => s.charBase === 0x80)!
+    expect(berry && Array.from(berry.tiles[0]!)).toEqual(new Array(64).fill(4))
   })
 
   it('follows the JSR operand to a relocated routine', () => {
