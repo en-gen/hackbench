@@ -267,6 +267,23 @@ function claimCell(cur: Cursor): void {
   orow[cur.col] = cur.owner
 }
 
+/**
+ * The high-byte half of a skipped tile store: the ROM zeroes the cell's page
+ * even when a $25 table entry skips the low byte, so a blank cell reads $25
+ * (SMWDisX bank_0D.asm:2112-2114 StzTo6ePointer; skips at 1736-1740 and
+ * 4804-4808; see SMWDisX bank_0D/MEMO.md, "Hillside tables and
+ * StzTo6ePointer"). No owner is claimed: no tile is drawn, unlike
+ * `applyWrites` in interpret.ts, which claims every buffer write.
+ */
+export function clearPageKeepLow(cur: Cursor): void {
+  if (cur.row < 0 || cur.row >= cur.grid.length) return
+  if (cur.col < 0 || cur.col >= 0x200) return
+  const low = peekExistingLow(cur)
+  const row = cur.grid[cur.row]
+  while (row.length < cur.col) row.push(0x25)
+  row[cur.col] = low
+}
+
 /** Sta1To6ePointer (bank_0D line 2107) -- next tile is on page 1 ($100-$1FF). */
 export function setPage1(cur: Cursor): void {
   cur.page = 1

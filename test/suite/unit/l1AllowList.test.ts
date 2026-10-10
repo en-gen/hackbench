@@ -369,10 +369,8 @@ describe('tally and writes of the empty tile $25 (#759)', () => {
     expect(t.unexpected).toContain(`run leaf ${hex6(LEAF)}`)
     expect(t.disagreements[0].expect[0]).toBe(0)
   })
-  it('the real allow-list has emptyTilesOnly rows only for the three measured extended leaves', () => {
-    expect(KNOWN_DISAGREEMENTS.filter(k => k.emptyTilesOnly).map(k => k.routine)).toEqual([
-      0x0da71b, 0x0da760, 0x0dc2e9,
-    ])
+  it('the real allow-list has no emptyTilesOnly row: #773 closed the last three', () => {
+    expect(KNOWN_DISAGREEMENTS.filter(k => k.emptyTilesOnly)).toEqual([])
   })
 })
 
