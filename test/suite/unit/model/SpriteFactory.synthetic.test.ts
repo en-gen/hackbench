@@ -50,6 +50,7 @@
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { buildSprites } from '../../../../src/rom/model/SpriteFactory'
+import { SpikeTopAppearance } from '../../../../src/rom/model/sprites/appearances/SpikeTopAppearance'
 import { StaticSpriteAppearance } from '../../../../src/rom/model/sprites/appearances/StaticSpriteAppearance'
 import type { LevelSprite } from '../../../../src/rom/LevelParser'
 import type { Char } from '../../../../src/rom/model/chars/Char'
@@ -633,5 +634,37 @@ describe('buildSprites - charHigh=0x100 TRUE arm (attr bit 0 set)', () => {
   it('0x64 with charHigh=0x100: attr&0x01 set → TRUE arm', () => {
     const r = buildSprites(romHC, [sprite(0x64)], NO_CHARS, [], MARIO_LEFT, NO_TILES)
     expect(r).toHaveLength(1)
+  })
+})
+
+// -- $2E Spike Top facing (#134) ---------------------------------------------
+
+describe('buildSprites - $2E Spike Top faces by Mario X, flip read from the cart table', () => {
+  // DATA_02BCC7 at $02:BCC7 = file $13CC7. Planted: direction 0 -> $00, direction 4 -> $40,
+  // with the other bytes distinct so a wrong index cannot pass.
+  function romWithFlipTable(at0: number, at4: number): RomFile {
+    const buf = Buffer.alloc(0x400000, 0x00)
+    buf[0x7fd5] = 0x20
+    buf.fill(0x80, 0x13cc7, 0x13cc7 + 16)
+    buf[0x13cc7] = at0
+    buf[0x13cc7 + 4] = at4
+    return new RomFile('mock-spiketop.smc', buf)
+  }
+  const flipOf = (rom: RomFile, marioX: number): boolean[] => {
+    const r = buildSprites(rom, [sprite(0x2e, 5, 5)], NO_CHARS, [], { x: marioX, y: 0 }, NO_TILES)
+    return (r[0].appearance as SpikeTopAppearance).parts0.map(p => p.flipX)
+  }
+  const X = 5 * 16 // the sprite's pixel X
+
+  it('sweeps Mario across the sprite: strictly left is unflipped, equal and right are flipped', () => {
+    const rom = romWithFlipTable(0x00, 0x40)
+    for (const m of [0, X - 64, X - 1]) expect(flipOf(rom, m)).toEqual([false, false, false, false])
+    for (const m of [X, X + 1, X + 64, 4000]) expect(flipOf(rom, m)).toEqual([true, true, true, true]) // prettier-ignore
+  })
+
+  it('reads the table: with the two entries swapped the sides swap', () => {
+    const rom = romWithFlipTable(0x40, 0x00)
+    expect(flipOf(rom, X - 1)).toEqual([true, true, true, true])
+    expect(flipOf(rom, X)).toEqual([false, false, false, false])
   })
 })

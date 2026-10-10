@@ -443,16 +443,23 @@ what the other case is, went with the overlay. Re-traced in `SMWDisX` at
   (`ADC.W DATA_02BCB7,Y`, `bank_02.asm:8085`) is `$00` in both cases, so
   only the flip differs.
 
-The consequence nothing in the tree records today: direction is not
-always 0. A Spike Top spawning with Mario to its LEFT starts at direction
-4 and the game draws it X-flipped, so the hardcoded `flipX: false` is the
-wrong pose for that placement. "Defaults to 0" reads like a derived
-constant; it is a static-editor approximation.
+Correction (#134): the table alone is not the drawn pose. `GenericSprGfxRt2`
+enters `SubSprGfx2Entry1` (`bank_01.asm:4148`), which EORs `OBJ_XFlip` into the
+attribute when `SpriteMisc157C` is 0 (`bank_01.asm:4166-4171`), and nothing sets
+`$157C` for a Spike Top. So direction 4 (Mario LEFT, table `$40`) draws
+UNFLIPPED and direction 0 (Mario right or level, table `$00`) draws X-flipped.
+Measured on the served interpreter path (`map-sprites.ts` `interpDrawer`,
+vanilla US 1.0): 40 of the 44 vanilla placements start with Mario left and draw
+unflipped, 4 (map `$1BF`) start with Mario right and draw flipped, and Mario
+swept either side and level at one placement gives the same rule
+(`test/suite/unit/SpikeTopFacing.test.ts`). The model path
+(`SpikeTopAppearance.fromTables`) now takes the same direction from
+`marioStartPx` and reads `DATA_02BCC7`, with the same EOR.
 
-It is fixable without a behavior port, from the same `marioStartPx`
-argument `SpriteFactory` already uses for `$30`/`$32` Dry Bones and the
-Chucks. Not done here: this branch removes things, and a rendering change
-wants its own PR and its own test.
+Open: `readMarioStartPos` (`L3Loader.ts`) puts Mario left of all 44 placements,
+the ROM-run loader puts him right of the 4 in map `$1BF`, so the model path
+still draws those 4 unflipped where the served path draws them flipped. Only
+`src/providers/MapEditorProvider.ts` (reference-only) reaches the model path.
 
 ### `$AC`/`$AD` Wood Spike: where the sharp tip sits in the tip tile
 
