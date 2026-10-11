@@ -78,7 +78,8 @@ function top(i: ScreenInput, list: readonly SourceKey[], at: number, flips?: Map
   let rgb = sum.map(v => Math.round(v / cover)) as unknown as Rgb
   const door = flips && coveredSprite(i, list, at, k)
   if (door) {
-    const w = hiddenPixelStrength(i.doors![at / 4]! & 1, 0, flips.get(i.doors![at / 4]! >> 1))
+    const d = i.doors![at / 4]!
+    const w = hiddenPixelStrength(d & 1, 0, flips.get(d >> 1))
     rgb = rgb.map((v, c) => Math.round(v * (1 - w) + door[c]! * w)) as unknown as Rgb
   }
   return { rgb, cover, bit }
