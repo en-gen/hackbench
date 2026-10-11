@@ -429,8 +429,16 @@ export async function fetchHack(
       writeFileSync(nodePath.join(dir, `patch.${result.format}`), patch.bytes)
       writeFileSync(nodePath.join(store, 'roms', `${item.id}.sfc`), rom)
     } catch (e) {
-      rmSync(dir, { recursive: true, force: true })
-      rmSync(nodePath.join(store, 'roms', `${item.id}.sfc`), { force: true }) // hack-sweep falls back to this path
+      // ENOTDIR: a parent is a file, so nothing can sit at this path.
+      const clear = (p: string) => {
+        try {
+          rmSync(p, { recursive: true, force: true })
+        } catch (c) {
+          if ((c as NodeJS.ErrnoException).code !== 'ENOTDIR') throw c
+        }
+      }
+      clear(dir)
+      clear(nodePath.join(store, 'roms', `${item.id}.sfc`)) // hack-sweep falls back to this path
       failure = `store write failed: ${String(e instanceof Error ? e.message : e).slice(0, 200)}`
     }
   }

@@ -22,7 +22,7 @@
 
 - `$05D8B1` holds the Lunar Magic `JSL` on 145 of 146 (149 of 152 with the corpus). Was 98 of 99 at the 2026-09-26 survey: hack 9678 lacks it, and the earlier "99 of 99" in this doc was wrong. The six-ROM corpus alone holds the JSL on 4 of 6 ROMs (the figure `CLAUDE.md` once cited), which is the same corpus count inside the 149 of 152. `[EST]`
 - `CODE_0580BD` is intact, but its leading `JSL` target is redirected on most hacks. Verify call targets as well as bytes. `[EST]`
-- 39 of 146 (was 31 of 99 at 2026-09-26, #589; 42 of 152 with the corpus) moved all 63 standard handlers into the `$8D` mirror. That is a bank-mirror artifact; filter it before counting custom handlers. `[EST]`
+- 39 of 146 (was 31 of 99 at 2026-09-26, #589; 42 of 152 with the corpus) have all 63 standard handlers placed in bank `$8D` (measured placement only; no SMWDisX trace explains it, so the cause is unverified). Check where the handlers sit before counting custom ones. `[EST]`
 
 ## Lunar Magic version marker
 
