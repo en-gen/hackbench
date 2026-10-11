@@ -159,15 +159,15 @@ export type L2ObjectGate = 'loads' | 'skipped' | 'unrecognized'
 
 /**
  * Whether the game loads an L2 object stream in this level mode. 'skipped' needs the mode in the
- * ten AND the stock chain that skips them; an unreadable or hijacked CMP site keeps today's
- * behaviour ('loads' only when readable and not CMP, else 'skipped': fail closed). A stock CMP
- * with a changed chain is 'unrecognized': the skip logic was rerouted and is not emulated (#637,
- * D51; the hijack itself is #876). Evidence: synthetic fixtures, plus the vanilla cart (corpus).
+ * ten AND the stock chain that skips them; a readable non-CMP (hijacked) site keeps today's
+ * behaviour ('loads'). An unreadable site, or a stock CMP with a changed chain, is 'unrecognized':
+ * fail closed without claiming game behaviour; the skip logic was rerouted and is not emulated
+ * (#637, D51; the hijack itself is #876). Evidence: synthetic fixtures, plus the vanilla cart (corpus).
  */
 export function l2ObjectGate(rom: RomFile, levelMode: number): L2ObjectGate {
   if (!MODES_WITHOUT_L2_OBJECTS.includes(levelMode & 0x1f)) return 'loads'
   const opcode = rom.readByte(L2_PRESET_CMP_SITE)
-  if (opcode === null) return 'skipped'
+  if (opcode === null) return 'unrecognized'
   if (opcode !== OPCODE_CMP_IMM) return 'loads'
   return skipChainIsStock(rom) ? 'skipped' : 'unrecognized'
 }

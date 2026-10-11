@@ -10,6 +10,9 @@ import * as L2LoaderReal from '../../../../src/rom/L2Loader'
 import type * as L2LoaderMod from '../../../../src/rom/L2Loader'
 import { parseLevelHeader } from '../../../../src/rom/LevelParser'
 import { buildL2 } from '../../../../src/rom/model/L2Factory'
+import { buildL2Inputs } from '../../../../src/rom/model/L2Model'
+import type { L1Inputs } from '../../../../src/rom/model/L1Model'
+import type { SmwRom } from '../../../../src/rom/SmwRom'
 import { SKIP_CHAIN_AT, SKIP_CHAIN_B_AT, writeStockSkipChain } from '../../support/skipChain'
 import { freshRom, hasRom, VANILLA } from '../../support/corpus'
 
@@ -58,6 +61,21 @@ describe('buildL2 in level modes without a Layer 2 pass (synthetic)', () => {
   it('an unreadable site admits no stream in a skipped mode', () => {
     const tiny = new RomFile('tiny.sfc', Buffer.alloc(0x1000, 0)) // a fresh copy: no shared state
     expect(L2LoaderReal.levelModeLoadsL2Objects(tiny, 0x0a)).toBe(false)
+  })
+
+  // Unknown is not a claim about the game: the refusal must not say the game loads no stream.
+  it('an unreadable site is unrecognized, and the refusal does not claim game behaviour', () => {
+    const real = rom.readByte.bind(rom)
+    const spy = vi.spyOn(rom, 'readByte').mockImplementation(a => (a === SITE ? null : real(a)))
+    try {
+      expect(L2LoaderReal.l2ObjectGate(rom, 0x0a)).toBe('unrecognized')
+      const header = parseLevelHeader(Uint8Array.from([0, 0x0a, 0, 0, 0]))
+      const res = buildL2Inputs({ rom } as unknown as SmwRom, LEVEL, { screenCount: 1, isVertical: false, header } as unknown as L1Inputs) // prettier-ignore
+      expect(res.ok).toBe(false)
+      expect(res.ok ? '' : res.reason).not.toMatch(/loads no layer 2 objects/i)
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   // Hack-only path (D51): the skip branch is rerouted but CMP #$FF is stock; nothing is guessed.
