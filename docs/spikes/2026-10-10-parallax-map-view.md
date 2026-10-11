@@ -4,6 +4,8 @@ Issue #848, owner decision D32 (2026-10-10): "explore if there's a logical way
 to do the parallax". An exploration, not a build. No production code changed;
 the two probes behind the numbers were throwaway scripts, not committed.
 
+Expected size: 150 to 250 lines (issue #848), raised by the owner's gutter addendum (D32) and the D48 ruling; this doc is 422 lines.
+
 ## Ruled 2026-10-10 (Brian), D48
 
 The owner ruled on the three open questions. The recommendations below are
@@ -42,8 +44,9 @@ layer 2 and layer 3 placed by the game's own rules.
   renderer: one 256x224 screen composes in 12 to 16 ms against a 5 ms budget.
   So scroll-anchored parallax (#503) cannot be the first step.
 - A one-screen preview on camera drag costs one compose, which is workable.
-- Addendum (D32, gutter): the game never draws layer 2 or 3 past the
-  foreground, so a gutter holds actions, not background; see the last section.
+- Addendum (D32, gutter): under the traced camera clamp the game does not draw
+  layer 2 past the foreground, and the layer 3 bound is unmeasured, so a gutter
+  holds actions, not background; see the last section.
 - Two open items could change numbers, not the shape: the game's vertical
   calibration disagrees with its per-frame rule for rate 1/32 (Q2), and layer 3
   drifts with time, so a still picture needs a stated phase (Q2, Q3).
@@ -288,8 +291,10 @@ camera X is clamped to 0 at the left, and at the right to `(LastScreenHoriz - 1)
 << 8`, the left edge of the last screen (SMWDisX `bank_00.asm:13679-13691`).
 `[EST]` (code reading, not run.) At horizontal rate 1/2 layer 2 only ever shows
 camera X / 2 up to that plus 256, which is inside the map; at 1:1 it ends at the
-last screen's edge. Past either end there is no frame in which the game draws
-layer 2 or 3. `[INF]`
+last screen's edge. Layer 2 is not drawn past either end under the traced
+camera clamp. `[INF]` Layer 3 adds a time-driven drift on other tilesets when
+SpriteLock is clear, so its bound with a nonzero drift phase is unmeasured.
+`[OPEN]`
 
 What the data holds, per kind of layer 2 `[EST]` (code reading, vanilla, one ROM):
 
@@ -345,7 +350,7 @@ Appending is cheap: raise the count by one; nothing else moves. `[INF]`
 
 Prepending is a rewrite. A new first screen pushes every screen number up by
 one: all layer 1 objects, the layer 2 object stream when present, all sprites
-(`parseLevelSprites`), the per-screen exit table
+(`parseLevelSprites`), the screen exit table
 (`parseLevelScreenExits`), and the header count. Pointers in other levels that
 land here by screen (entrances, secondary exits) are `[OPEN]`: not traced. A
 preset image also slides 256 px against the foreground, half its 512 px period,

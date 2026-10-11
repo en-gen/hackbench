@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Spike (#848): `docs/spikes/2026-10-10-parallax-map-view.md` answers whether the map view can show layer 2 and layer 3 parallax. Findings only, no behaviour change: the rates are readable from the ROM, a per-scroll redraw misses the 5 ms budget (12 to 16 ms per screen, Node, one machine), and a preview camera is proposed (#521) over a scroll-anchored toggle (#503).
+- Spike (#848): `docs/spikes/2026-10-10-parallax-map-view.md` answers whether the map view can show layer 2 and layer 3 parallax. Findings only, no behaviour change: the rates are readable from the ROM, a per-scroll redraw misses the 5 ms budget (12 to 16 ms per screen, Node, one machine), and the preview-camera proposal is superseded by D48, which selects scroll-anchored option C (#503); #521 stays a separate issue.
 
 ### Changed
 
