@@ -26,21 +26,26 @@ It equals the 61 addresses listed in #653 exactly (no leaf added or missing).
 | --- | ---: | ---: | ---: | ---: |
 | Super Mario World (USA), vanilla | 197,952 | 0 | 0 | 197,952 |
 | Vanilla re-saved by Lunar Magic | 197,952 | 0 | 0 | 197,952 |
-| Seven Vanilla Levels | 167,232 | 68,826 | 0 | 96,395 |
+| Seven Vanilla Levels | 167,232 | 68,826 | 0 | 98,406 |
 | Grand Poo World 2 1.1 | 0 | 0 | 0 | 0 |
 | Grand Poo World 1.2 | 171,072 | 0 | 0 | 171,072 |
 | Invictus 1.0 | 167,232 | 0 | 0 | 167,232 |
 
+- Agrees is cases minus refused minus differs (167,232 - 68,826 - 0 = 98,406
+  for Seven Vanilla Levels); the per-leaf table's refused and case columns sum
+  to the same 68,826 and 167,232. Scope: the fixed grid on one machine, as
+  above; nothing here counts cases outside the 61 leaves.
 - Four ROMs (vanilla, the Lunar Magic re-save, Grand Poo World 1.2, Invictus):
   the interpreter refuses 0 cases and differs on 0 cases across all 61 leaves.
 - Seven Vanilla Levels: refuses 68,826 of 167,232 cases (41%), on 52 of the 61
   leaves; no leaf is refused in full. The ROM-wide dominant reason is
-  `REP/SEP $21 touches flags other than M/X` (84,244 of its refusals, counting
-  keys outside the 61). The 9 leaves with no refusal: 0DAB0D, 0DB075, 0DB705,
+  a REP/SEP instruction touching flags other than M/X (84,244 of its refusals,
+  counting keys outside the 61). The 9 leaves with no refusal: 0DAB0D, 0DB075, 0DB705,
   0DB966, 0DBA4C, 0DC44F, 0DCF33, 0DED6B, 0DED99.
 - Grand Poo World 2 1.1: every one of 241,920 cases is refused before any leaf
-  dispatch (key 000000, `opcode $5C is not in the allowed set`, a JML at the
-  dispatcher entry). No leaf has a single case, so routing would fall back to
+  dispatch (key 000000, an opcode outside the interpreter's allowed set; the
+  sweep reports only that, and this report does not claim which instruction
+  the hack placed at the entry). No leaf has a single case, so routing would fall back to
   the port everywhere on this ROM.
 - Differs is 0 on the 61 leaves for every ROM. Hack-specific differences exist
   only on leaves outside the 61 (for example 8,517 cases on the Magic,
