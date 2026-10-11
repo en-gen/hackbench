@@ -97,7 +97,7 @@ export function buildL2(
     return new L2Preset(preset.page, grid, bgTiles)
   }
 
-  if (!levelModeLoadsL2Objects(header.levelMode)) return null
+  if (!levelModeLoadsL2Objects(rom, header.levelMode)) return null
   // Object-stream L2 reuses L1's Map16 table + orientation.
   const isVerticalL2 = isLevelModeVerticalL2(header.levelMode, verticalTable)
   const objL2 = loadL2Objects(rom, ptr, screens, header.objectTileset, isVerticalL2)

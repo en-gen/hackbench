@@ -107,15 +107,25 @@ export function readL2Pointer(rom: RomFile, level: number): number | null {
 }
 
 /**
- * Level modes in which LoadLevel ends after Layer 1 and never expands the L2
- * object stream (SMWDisX bank_05.asm:444-457). These are code immediates, not a
- * table: a hack that patches the compares is not detected (#637).
+ * Level modes in which the game loads no L2 object stream: boss modes $09/$0B/$10 exit LoadLevel
+ * before Layer 1, and $00/$0A/$0C/$0D/$0E/$11/$1E end it after Layer 1 (SMWDisX bank_05.asm:431-457).
  */
-const MODES_WITHOUT_L2_OBJECTS: readonly number[] = [0x0a, 0x0c, 0x0d, 0x0e, 0x11, 0x1e]
+const MODES_WITHOUT_L2_OBJECTS: readonly number[] = [0x00, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x10, 0x11, 0x1e] // prettier-ignore
 
-/** False when the game never loads an L2 object stream in this level mode. */
-export function levelModeLoadsL2Objects(levelMode: number): boolean {
-  return !MODES_WITHOUT_L2_OBJECTS.includes(levelMode & 0x1f)
+// The first instruction after the L2-pointer bank load in CODE_05801E is CMP #$FF (bank_05.asm:33);
+// Lunar Magic replaces it with a JML to its per-level background check. Only the opcode is compared
+// (not a byte run), so any other byte there counts as a hijack.
+const L2_PRESET_CMP_SITE = 0x05803b
+const OPCODE_CMP_IMM = 0xc9
+
+/**
+ * False when the game never loads an L2 object stream in this level mode. Applies only while the
+ * level-load site is stock; a hacked ROM may load a layer 2 in these modes, so it keeps today's
+ * behaviour (#637, owner ruling D51). Evidence: synthetic fixtures; corpus count in the docs.
+ */
+export function levelModeLoadsL2Objects(rom: RomFile, levelMode: number): boolean {
+  if (!MODES_WITHOUT_L2_OBJECTS.includes(levelMode & 0x1f)) return true
+  return rom.readByte(L2_PRESET_CMP_SITE) !== OPCODE_CMP_IMM
 }
 
 /** True if the L2 pointer indicates a preset BG (bank byte $FF). */

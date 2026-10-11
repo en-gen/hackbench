@@ -76,10 +76,8 @@ export function buildL2Inputs(rom: SmwRom, index: number, l1: L1Inputs): L2Resul
       }
     }
     // Before the orientation check: modes $0A and $0D would otherwise be refused for a layout mismatch the game never meets.
-    if (!levelModeLoadsL2Objects(header.levelMode)) {
-      return refuse(
-        `The game does not load layer 2 objects in level mode $${hex2(header.levelMode)}`,
-      )
+    if (!levelModeLoadsL2Objects(rom.rom, header.levelMode)) {
+      return refuse(`The game loads no layer 2 objects in level mode $${hex2(header.levelMode)}`)
     }
     const vertical = rom.getVerticalTable()
     if (!vertical.ok) return refuse(vertical.reason)
