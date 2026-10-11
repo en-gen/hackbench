@@ -562,7 +562,11 @@ forward with `carried: true`, so `summary.md` covers the whole store and says
 how many records are fresh; a carried record is never reported as changed, and
 a record for a hack no longer in the store is dropped. A bare-array
 `results.json` from before the cursor is read as a cursor of 0 and converted
-on the next write.
+on the next write. Evidence scope for all of the above: 51 synthetic-fixture
+cases in `HackSweep.synthetic.test.ts` and `HackSweepRun.synthetic.test.ts`
+(in-memory and temp-directory stores, none skipped), including a planted
+mid-run death and a failing earlier write; not yet observed on a run against
+the real hack store.
 
 ## Unit tests cannot reach an authenticated gh
 
