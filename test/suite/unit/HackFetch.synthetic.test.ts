@@ -249,8 +249,8 @@ describe('hack-fetch command pieces (synthetic)', () => {
   it('reads an index only when it parses and holds a hacks array of records with ids', () => {
     expect(readIndex('{"hacks":[{"smwc_id":3}]}').hacks).toHaveLength(1)
     expect(() => readIndex('not json')).toThrow(/index\.json/)
-    expect(() => readIndex('{}')).toThrow(/hacks/)
-    expect(() => readIndex('{"hacks":{}}')).toThrow(/hacks/)
+    expect(() => readIndex('{}')).toThrow('no hacks array')
+    expect(() => readIndex('{"hacks":{}}')).toThrow('no hacks array')
     expect(() => readIndex('{"hacks":[null]}')).toThrow(/record/)
     expect(() => readIndex('{"hacks":[{"smwc_id":"3"}]}')).toThrow(/smwc_id/)
   })
