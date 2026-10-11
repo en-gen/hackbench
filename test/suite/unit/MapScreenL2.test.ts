@@ -236,6 +236,9 @@ describe('the wire carries four planes in the view stacking order (synthetic)', 
 
 // ── The core's L2 reading ────────────────────────────────────────────────────
 
+// Written out, not imported, so the test cannot agree with the source by construction.
+const NO_L2_OBJECT_MODES = [0x00, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x10, 0x11, 0x1e]
+
 describe('buildL2Inputs (synthetic ROM)', () => {
   const LEVEL = 5
   // DATA_05D708 (L1 Y) index 1 = $20; DATA_05D70C (L2 Y) index 2 = $C0.
@@ -337,14 +340,13 @@ describe('buildL2Inputs (synthetic ROM)', () => {
 
   // The game loads no L2 objects in ten modes (bank_05.asm:431-457, #637); sweep all 32.
   it('every level mode the game gives no L2 objects is refused before the stream is read, and only those', () => {
-    const skipped = [0x00, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x10, 0x11, 0x1e]
     const rom = romWith([ptr(0x00, 0x90, 0x0c)])
     for (let mode = 0; mode < 32; mode++) {
       objects([[1]])
       const m = inputs(hGrid(1), false, 1)
       const r = buildL2Inputs(smw(rom), LEVEL, { ...m, header: { ...m.header, levelMode: mode } })
       const read = vi.mocked(L2LoaderReal.loadL2Objects).mock.calls.length > 0
-      if (skipped.includes(mode)) {
+      if (NO_L2_OBJECT_MODES.includes(mode)) {
         expect(r, `mode ${mode}`).toMatchObject({ ok: false, reason: expect.stringMatching(/loads no layer 2 objects in level mode/) }) // prettier-ignore
         expect(read, `mode ${mode}`).toBe(false)
       } else {
@@ -355,7 +357,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
   })
 
   it('a hijacked L2 check site keeps the stream behaviour in all ten skipped modes', () => {
-    for (const mode of [0x00, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x10, 0x11, 0x1e]) {
+    for (const mode of NO_L2_OBJECT_MODES) {
       objects([[1]])
       const rom = romWith([ptr(0x00, 0x90, 0x0c), [0x05803b, [0x5c]]]) // JML, as Lunar Magic patches it
       const m = inputs(hGrid(1), false, 1)

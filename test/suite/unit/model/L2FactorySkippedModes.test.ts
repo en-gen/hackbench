@@ -1,8 +1,8 @@
 /**
  * #637: the game's LoadLevel loads no Layer 2 objects in ten level modes
- * (SMWDisX bank_05.asm:431-457), unless the level-load site is hijacked, so `buildL2` must not expand an L2 object
- * stream there. Synthetic ROM; the stream reader is mocked so the test can
- * see whether it was asked.
+ * (SMWDisX bank_05.asm:431-457), unless the level-load site is hijacked, so `buildL2` must not
+ * expand an L2 object stream there. Synthetic ROM; the stream reader is mocked so the test can see
+ * whether it was asked.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { RomFile } from '../../../../src/rom/RomFile'
