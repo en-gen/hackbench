@@ -161,15 +161,37 @@ export function placeReport(
 ): void {
   refuseTicked(join(base, key), force)
   const scratch = mkdtempSync(join(tmpdir(), 'sprite-report-'))
+  const backup = mkdtempSync(join(tmpdir(), 'sprite-report-backup-'))
+  const dirs = [key, 'latest']
+  const existed = dirs.map(d => existsSync(join(base, d)))
   try {
     writeTree(scratch, files)
-    for (const dir of [key, 'latest']) {
-      rmSync(join(base, dir), { recursive: true, force: true })
-      mkdirSync(join(base, dir), { recursive: true })
-      cpSync(scratch, join(base, dir), { recursive: true })
+    // Copies of the old folders, so a failed replacement below can put them back.
+    dirs.forEach(
+      (d, i) => existed[i] && cpSync(join(base, d), join(backup, d), { recursive: true }),
+    )
+    try {
+      for (const dir of dirs) {
+        rmSync(join(base, dir), { recursive: true, force: true })
+        mkdirSync(join(base, dir), { recursive: true })
+        cpSync(scratch, join(base, dir), { recursive: true })
+      }
+    } catch (e) {
+      try {
+        dirs.forEach((d, i) => {
+          rmSync(join(base, d), { recursive: true, force: true })
+          if (existed[i]) cpSync(join(backup, d), join(base, d), { recursive: true })
+        })
+      } catch (restore) {
+        throw new Error(`${(e as Error).message}; the old report was not fully restored`, {
+          cause: restore,
+        })
+      }
+      throw e
     }
   } finally {
     rmSync(scratch, { recursive: true, force: true })
+    rmSync(backup, { recursive: true, force: true })
   }
 }
 

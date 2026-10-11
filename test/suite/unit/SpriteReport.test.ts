@@ -44,6 +44,7 @@ import {
   hackbenchRepo,
   isValidationRepo,
   oamOrder,
+  placeReport,
   run,
   type Graded,
   type Io,
@@ -487,6 +488,37 @@ describe('run', () => {
     expect(git(v, 'rev-parse', 'HEAD')).toBe(before)
     expect(git(v, 'status', '--porcelain')).toBe('')
     expect(readFileSync(idx, 'utf8')).toBe(was)
+  })
+  it('placeReport restores both prior folders when the replacement throws partway', () => {
+    const base = join(tmp, 'place-restore')
+    const seed = (dir: string, text: string): void => {
+      mkdirSync(join(base, dir, 'sub'), { recursive: true })
+      writeFileSync(join(base, dir, 'index.md'), text)
+      writeFileSync(join(base, dir, 'sub', 'keep.md'), `${text}-sub`)
+    }
+    seed('k1', 'old-key')
+    seed('latest', 'old-latest')
+    const real = vi.mocked(cpSync).getMockImplementation()!
+    let n = 0
+    // Fail the copy that fills base/latest, after <key>/ was already replaced; backups use cpSync too.
+    vi.mocked(cpSync).mockImplementation((...a: Parameters<typeof cpSync>) => {
+      if (String(a[1]).startsWith(join(base, 'latest')) && ++n === 1)
+        throw new Error('EBUSY: planted')
+      return real(...a)
+    })
+    try {
+      expect(() => placeReport(base, 'k1', new Map([['index.md', 'new']]), true)).toThrow(/planted/)
+    } finally {
+      vi.mocked(cpSync).mockImplementation(real)
+    }
+    for (const [d, text] of [
+      ['k1', 'old-key'],
+      ['latest', 'old-latest'],
+    ]) {
+      expect(readFileSync(join(base, d, 'index.md'), 'utf8')).toBe(text)
+      expect(readFileSync(join(base, d, 'sub', 'keep.md'), 'utf8')).toBe(`${text}-sub`)
+    }
+    expect(readdirSync(tmpdir()).filter(f => f.startsWith('sprite-report-backup-'))).toEqual([])
   })
   it('does not claim "undone" when an undo step fails', () => {
     const v = mkRepo('v13b')
