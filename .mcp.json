@@ -7,7 +7,7 @@
         "C:\\Projects\\smw-mcp\\dist\\index.js"
       ],
       "env": {
-        "ROM_PATH": "C:\\Users\\engenb\\OneDrive\\hackbench-fixtures\\Super Mario World (USA).vanilla.sfc",
+        "ROM_PATH": "C:\\Users\\engenb\\OneDrive\\hackbench-fixtures\\roms\\Super Mario World (USA).vanilla.sfc",
         "DISASM_PATH": "C:\\Projects\\SMWDisX"
       }
     }

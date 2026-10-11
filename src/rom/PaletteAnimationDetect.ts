@@ -732,7 +732,7 @@ function walkToCgramWrite(
     }
 
     if (opcode === OP_PHK && rom.readByte(at + 1) === OP_PLB) {
-      dbr = (at >>> 16) & 0x7f
+      dbr = at >>> 16 // a data bank for reads keeps $FE/$FF (#704)
       at += 2
       continue
     }

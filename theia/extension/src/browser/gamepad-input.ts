@@ -120,3 +120,36 @@ export function pollPads(
     hub.replace(port, 'pad', pad?.connected ? padButtons(pad) : new Set())
   })
 }
+
+/** The slice of a DOM element keyAccepted reads, so it tests without a DOM. */
+export interface KeyTargetLike {
+  tagName?: string
+  isContentEditable?: boolean
+  getAttribute(name: string): string | null
+}
+
+const ACTIVATE_CODES = new Set(['Enter', 'NumpadEnter', 'Space'])
+const ARROW_CODES = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
+
+/**
+ * Whether a keydown aimed at `target`, inside the emulator panel, may drive
+ * the controller (#508). Focus on the Controllers button or in the fly-out
+ * must not silence the keyboard, but a control that uses the key itself keeps
+ * it: a select (arrows, letters), a text field, the Players tabs (arrows),
+ * and a button (Enter, Space).
+ */
+export function keyAccepted(target: KeyTargetLike | null, code: string): boolean {
+  if (!target) return false
+  const tag = (target.tagName ?? '').toUpperCase()
+  if (tag === 'SELECT' || tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) {
+    return false
+  }
+  const role = target.getAttribute('role')
+  if (role === 'tab' && ARROW_CODES.has(code)) return false
+  // Enter and Space are Start and Select in the default map, and also how a
+  // focused button activates: the button keeps them or it can never be pressed.
+  if (ACTIVATE_CODES.has(code) && (tag === 'BUTTON' || role === 'button' || role === 'tab')) {
+    return false
+  }
+  return true
+}

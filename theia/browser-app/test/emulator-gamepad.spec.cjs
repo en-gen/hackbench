@@ -142,12 +142,23 @@ test('the toolbar button matches the map toolbar and toggles a right fly-out whi
   await expect(button).toHaveClass(/hb-icon-btn-on/)
   const flyout = page.locator(`${VIEW} .hb-pad-flyout`)
   await expect(flyout).toBeVisible()
+  // toBeVisible passes on the slide-in's first frame, 320px to the right.
+  await flyout.evaluate(el => Promise.all(el.getAnimations().map(a => a.finished)))
   const edge = await page.evaluate(() => {
-    const body = document.querySelector('#hackbench\\.emulator-view .hb-emulator-body')
+    const body = document.querySelector('#hackbench\\.emulator-view .hb-emulator-main')
     const f = document.querySelector('#hackbench\\.emulator-view .hb-pad-flyout')
     return Math.abs(body.getBoundingClientRect().right - f.getBoundingClientRect().right)
   })
   expect(edge, 'fly-out is not on the right edge').toBeLessThan(2)
+  // The toolbar button stays reachable with the fly-out open (#587).
+  const btn = await button.boundingBox()
+  const fly = await flyout.boundingBox()
+  expect(btn.y + btn.height, 'fly-out covers the toolbar').toBeLessThanOrEqual(fly.y + 1)
+
+  await button.click()
+  await expect(flyout).toHaveCount(0)
+  await button.click()
+  await expect(flyout).toBeVisible()
 
   // The game keeps running with it open.
   const frames = () =>
@@ -159,6 +170,69 @@ test('the toolbar button matches the map toolbar and toggles a right fly-out whi
   await button.click()
   await expect(flyout).toHaveCount(0)
   await expect(button).toHaveAttribute('aria-pressed', 'false')
+})
+
+test('at a narrow panel the fly-out still leaves the toolbar button reachable (#587)', async ({
+  page,
+}) => {
+  test.setTimeout(120000)
+  await bootWithSpy(page, 'Narrow')
+  // Lumino only rewrites its inline width when its cached width changes, so
+  // restore the old value rather than clearing it.
+  const oldWidth = await page.evaluate(
+    () => document.getElementById('hackbench.emulator-view').style.width,
+  )
+  await page.evaluate(() => {
+    document.getElementById('hackbench.emulator-view').style.width = '300px'
+  })
+  try {
+    const button = page.locator(`${VIEW} button[aria-label="Controllers"]`)
+    const flyout = page.locator(`${VIEW} .hb-pad-flyout`)
+    await button.click()
+    await expect(flyout).toBeVisible()
+    await flyout.evaluate(el => Promise.all(el.getAnimations().map(a => a.finished)))
+    const panelW = await page.evaluate(
+      () => document.getElementById('hackbench.emulator-view').getBoundingClientRect().width,
+    )
+    expect(panelW, 'the panel did not get narrow').toBeLessThanOrEqual(300)
+    const nFly = await flyout.boundingBox()
+    expect(nFly.width, 'fly-out wider than the narrow panel').toBeLessThanOrEqual(300)
+    const panel = await page.locator(VIEW).boundingBox()
+    expect(nFly.x, 'fly-out spills past the panel left edge').toBeGreaterThanOrEqual(panel.x)
+    expect(nFly.x + nFly.width, 'fly-out spills past the panel right edge').toBeLessThanOrEqual(
+      panel.x + panel.width,
+    )
+    const nBtn = await button.boundingBox()
+    expect(nBtn.y + nBtn.height, 'narrow: fly-out covers the toolbar').toBeLessThanOrEqual(
+      nFly.y + 1,
+    )
+    await button.click()
+    await expect(flyout).toHaveCount(0)
+    await expect(button).toHaveAttribute('aria-pressed', 'false')
+  } finally {
+    await page.evaluate(w => {
+      document.getElementById('hackbench.emulator-view').style.width = w
+    }, oldWidth)
+  }
+})
+
+test('closing the fly-out from its Close button returns focus to the panel so keys still play (#508)', async ({
+  page,
+}) => {
+  test.setTimeout(120000)
+  await bootWithSpy(page, 'CloseFocus')
+  await openFlyout(page)
+  await page.locator(`${VIEW} button[aria-label="Close controllers"]`).focus()
+  await page.keyboard.press('Enter')
+  await expect(page.locator(`${VIEW} .hb-pad-flyout`)).toHaveCount(0)
+  await expect(page.locator(`${VIEW} button[aria-label="Controllers"]`)).toBeFocused()
+  await page.keyboard.press('KeyX')
+  await expect
+    .poll(() => seen(page))
+    .toEqual([
+      [0, 8, 1],
+      [0, 8, 0],
+    ])
 })
 
 test('pad buttons map by position to the right port, send edges once, and release on disconnect', async ({
@@ -517,4 +591,78 @@ test('controller colors follow the region, and the style override wins and persi
     return w.controllers.settings.style
   })
   expect(persisted).toBe('na')
+})
+
+test('Enter and Space activate a focused button instead of pressing Start or Select (#508)', async ({
+  page,
+}) => {
+  test.setTimeout(120000)
+  await bootWithSpy(page, 'KeyButtons')
+  const button = page.locator(`${VIEW} button[aria-label="Controllers"]`)
+  await button.focus()
+  await page.evaluate(() => (window.__hbSeen.length = 0))
+  await page.keyboard.press('Enter')
+  await expect(button).toHaveAttribute('aria-pressed', 'true')
+  await page.keyboard.press('Space')
+  await expect(button).toHaveAttribute('aria-pressed', 'false')
+  await button.press('Enter')
+  const close = page.locator(`${VIEW} .hb-pad-flyout button[aria-label="Close controllers"]`)
+  await close.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.locator(`${VIEW} .hb-pad-flyout`)).toHaveCount(0)
+  await expect(button).toHaveAttribute('aria-pressed', 'false')
+  expect(await seen(page), 'Enter or Space reached the core').toEqual([])
+})
+
+test('keys light the drawing while focus is on the Controllers button or in the fly-out (#508)', async ({
+  page,
+}) => {
+  test.setTimeout(120000)
+  await bootWithSpy(page, 'KeyFocus')
+  await openFlyout(page)
+  const litBtns = () =>
+    page.evaluate(() =>
+      [
+        ...document.querySelectorAll(
+          '#hackbench\\.emulator-view [data-player="1"] [data-btn].hb-pad-on',
+        ),
+      ].map(e => Number(e.getAttribute('data-btn'))),
+    )
+  const focused = () => page.evaluate(() => document.activeElement?.getAttribute('aria-label'))
+  // The click that opened the fly-out left focus on the Controllers button.
+  expect(await focused()).toBe('Controllers')
+  await page.keyboard.down('ArrowRight')
+  await expect.poll(litBtns).toEqual([7])
+  expect(await seen(page)).toEqual([[0, 7, 1]])
+  // Moving focus inside the panel keeps the held key held.
+  await page.locator(`${VIEW} .hb-pad-flyout`).click({ position: { x: 4, y: 4 } })
+  expect(await litBtns()).toEqual([7])
+  await page.evaluate(() => (window.__hbSeen.length = 0))
+  await page.keyboard.up('ArrowRight')
+  await expect.poll(litBtns).toEqual([])
+  expect(await seen(page)).toEqual([[0, 7, 0]])
+  // Focus on a real control in the fly-out (not its padding) still drives the
+  // pad: a mapped key that is neither Enter nor Space.
+  await page.locator(`${VIEW} .hb-pad-flyout button[aria-label="Close controllers"]`).focus()
+  await page.keyboard.down('KeyX')
+  await expect.poll(litBtns).toEqual([8])
+  await page.keyboard.up('KeyX')
+  await expect.poll(litBtns).toEqual([])
+  // A tab uses the arrows to move between players: they are not game input.
+  await page.locator(`${VIEW} [role="tab"]:has-text("Player 1")`).focus()
+  await page.evaluate(() => (window.__hbSeen.length = 0))
+  await page.keyboard.press('ArrowRight')
+  expect(await seen(page)).toEqual([])
+  // Focus leaving the panel releases a held key.
+  await page.locator(`${VIEW} button[aria-label="Controllers"]`).focus()
+  await page.keyboard.down('ArrowUp')
+  await expect.poll(() => seen(page)).toEqual([[0, 4, 1]])
+  await page.evaluate(() => document.activeElement.blur())
+  await expect
+    .poll(() => seen(page))
+    .toEqual([
+      [0, 4, 1],
+      [0, 4, 0],
+    ])
+  await page.keyboard.up('ArrowUp')
 })

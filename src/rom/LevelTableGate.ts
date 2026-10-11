@@ -11,7 +11,14 @@
  */
 import { createHash } from 'crypto'
 import { RomFile, cachedByVersion } from './RomFile'
-import { BytePattern, WILD, findExactlyOneSite, matchesAt, matchesBytes } from './BytePattern'
+import {
+  BytePattern,
+  WILD,
+  findExactlyOneSite,
+  findPattern,
+  matchesAt,
+  matchesBytes,
+} from './BytePattern'
 import { loromFromOffset, mirror } from './addressing'
 
 export type SpriteBankSource =
@@ -241,4 +248,107 @@ function recognizedJmlAddr(rom: RomFile): number | null {
 
 function readAddr(bytes: Uint8Array, off: number): number {
   return bytes[off]! | (bytes[off + 1]! << 8) | (bytes[off + 2]! << 16)
+}
+
+// LoadLevel's boss-mode check (bank_05.asm:431-437, then :438-442): for the
+// modes it compares, Layer 1 is never read. The modes are the CMP immediates,
+// read here rather than assumed. The trailing LDY/LDA [Layer1DataPtr],Y/CMP #$FF
+// is the empty-stream check that follows, and anchors the run to this routine.
+// The check is found by pattern, then its route is proved: the 12 bytes before
+// it are LoadLevel's prologue (:425-429), so the entry falls straight into it;
+// exactly one JSR of the bank_05.asm:66-69 shape in the entry's bank calls it;
+// and the BEQs' common target is LoadLevelDone (:474-477). Evidence scope: the
+// call site is proved, not the chain from the game mode to it (a hooked
+// intermediate caller is not seen); stock and .magic carts only.
+const BOSS_WHAT = "LoadLevel's boss-mode check (bank_05.asm:431-437)"
+const LEVEL_MODE_ADDR = [0x25, 0x19] // LevelModeSetting, $1925
+// prettier-ignore
+const BOSS_CHECK: BytePattern = [
+  0xad, WILD, WILD, // LDA.W LevelModeSetting
+  0xc9, WILD, 0xf0, WILD, // CMP #imm / BEQ LoadLevelDone
+  0xc9, WILD, 0xf0, WILD,
+  0xc9, WILD, 0xf0, WILD,
+  0xa0, 0x00, 0xb7, 0x65, 0xc9, 0xff, // LDY #0 / LDA [Layer1DataPtr],Y / CMP #$FF
+]
+const BOSS_CMP_OFFS = [4, 8, 12]
+const BOSS_BEQ_OFFS = [6, 10, 14] // displacement byte of each BEQ
+// prettier-ignore
+const LOAD_LEVEL_ENTRY: BytePattern = [
+  0x08, 0xe2, 0x30, // PHP / SEP #$30
+  0x9c, WILD, WILD, // STZ.W LayerProcessing
+  0x20, WILD, WILD, 0x20, WILD, WILD, // JSR header / JSR CODE_0581FB
+]
+const ENTRY_LEN = LOAD_LEVEL_ENTRY.length
+const LAYER_PROC_OFF = 4
+// prettier-ignore
+const LOAD_LEVEL_DONE: BytePattern = [0x9c, WILD, WILD, 0x28, 0x60] // STZ.W LayerProcessing / PLP / RTS
+// STZ.W LevelLoadObject / JSR LoadLevel / SEP #$30 / LDA.W GameMode, with the
+// JSR operand left for the entry's own address.
+const CALL_TAIL: BytePattern = [0xe2, 0x30, 0xad]
+const CALLER_LEN = 3 + 3 + CALL_TAIL.length // STZ.W + JSR + tail
+
+export type BossModes = { ok: true; modes: ReadonlySet<number> } | { ok: false; reason: string }
+
+const bossModesCache = new WeakMap<RomFile, { version: number; value: BossModes }>()
+
+/** The level modes LoadLevel skips Layer 1 for, read from its own CMP
+ *  immediates. Refuses when the check is absent, ambiguous, reads another
+ *  RAM byte, its BEQs do not share one target or that target is not
+ *  LoadLevelDone, it does not sit behind LoadLevel's prologue, or the entry
+ *  does not have exactly one call site of the bank_05.asm:66-69 shape. */
+export function readBossModes(rom: RomFile): BossModes {
+  return cachedByVersion(bossModesCache, rom, () => computeBossModes(rom))
+}
+
+function computeBossModes(rom: RomFile): BossModes {
+  const site = findExactlyOneSite(rom, BOSS_CHECK, BOSS_WHAT)
+  if (!site.ok) return site
+  const b = rom.readAtFileOffset(site.offset, BOSS_CHECK.length)!
+  if (b[1] !== LEVEL_MODE_ADDR[0] || b[2] !== LEVEL_MODE_ADDR[1]) {
+    return { ok: false, reason: `${BOSS_WHAT} reads a RAM byte other than LevelModeSetting` }
+  }
+  // Each BEQ's target is its own end plus a signed displacement; all three
+  // must land on one address, or one of them is not "skip to LoadLevelDone".
+  const targets = BOSS_BEQ_OFFS.map(o => o + 1 + ((b[o]! << 24) >> 24))
+  if (!targets.every(t => t === targets[0])) {
+    return { ok: false, reason: `${BOSS_WHAT} branches to different places` }
+  }
+  // The target must BE LoadLevelDone, shape and operand: the same
+  // LayerProcessing address the entry's own STZ names. Distance past the
+  // check proves nothing (a BRA back to the Layer-1 read is also "past").
+  const entryAt = site.offset - ENTRY_LEN
+  // Fall-through and the branch run inside one bank; the CPU does not advance
+  // its program bank, so every matched span must END in the bank it starts in.
+  // LoROM banks are 0x8000 file bytes.
+  const doneAt = site.offset + targets[0]!
+  const bank = (at: number): number => at >> 15
+  if (
+    bank(entryAt) !== bank(site.offset + BOSS_CHECK.length - 1) ||
+    bank(doneAt) !== bank(site.offset) ||
+    bank(doneAt + LOAD_LEVEL_DONE.length - 1) !== bank(site.offset)
+  ) {
+    return { ok: false, reason: `${BOSS_WHAT} spans a bank boundary` }
+  }
+  const entry = matchesAt(rom, entryAt, LOAD_LEVEL_ENTRY)
+  if (!entry) return { ok: false, reason: `${BOSS_WHAT} is not preceded by LoadLevel's prologue` }
+  const done = matchesAt(rom, doneAt, LOAD_LEVEL_DONE)
+  if (!done || done[1] !== entry[LAYER_PROC_OFF] || done[2] !== entry[LAYER_PROC_OFF + 1]) {
+    return { ok: false, reason: `${BOSS_WHAT} branches to something other than LoadLevelDone` }
+  }
+  const entryAddr = loromFromOffset(entryAt)
+  if (entryAddr === null) return { ok: false, reason: `${BOSS_WHAT} is outside the ROM map` }
+  const jsr = [0x20, entryAddr & 0xff, (entryAddr >> 8) & 0xff]
+  const callers = findPattern(rom, [0x9c, WILD, WILD, ...jsr, ...CALL_TAIL]).filter(
+    at =>
+      loromFromOffset(at) !== null &&
+      loromFromOffset(at)! >> 16 === entryAddr >> 16 &&
+      bank(at + CALLER_LEN - 1) === bank(at),
+  )
+  if (callers.length !== 1) {
+    return {
+      ok: false,
+      reason: `${BOSS_WHAT} has ${callers.length} call sites into its entry, not 1`,
+    }
+  }
+  return { ok: true, modes: new Set(BOSS_CMP_OFFS.map(o => b[o]!)) }
 }

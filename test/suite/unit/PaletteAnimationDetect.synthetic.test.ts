@@ -754,6 +754,33 @@ describe('a relocated overworld upload', () => {
     expect(d.overworld.targets[0]!.colors[0]).toBe(0x7000)
   })
 
+  // #704: a PHK/PLB data bank is a READ address; $FE/$FF is ROM on a 4 MB cart.
+  it.each([
+    [0xfe, 'FE'],
+    [0xff, 'FF'],
+  ])('reads the table through a PHK/PLB data bank $%s', (bank, _label) => {
+    const at = (bank << 16) | 0x8000
+    const near = Array.from({ length: 16 }, (_, n) => 0x0100 + n)
+    const far = Array.from({ length: 16 }, (_, n) => 0x7000 + n)
+    const d = detectPaletteAnimation(
+      relocated({
+        size: 0x400000, // a 4 MB cart, where $FE/$FF is ROM
+        relocate: {
+          at,
+          lead: [0x8b, 0x4b, 0xab], // PHB / PHK / PLB
+          chain: [{ cgramIdx: 0x6d, table: 0xb60c }],
+        },
+        tables: [
+          { at: 0x00b60c, words: near },
+          { at: (bank << 16) | 0xb60c, words: far },
+        ],
+      }),
+    )
+    expect(d.overworld.available).toBe(true)
+    expect(d.overworld.targets[0]!.tableAddr).toBe((bank << 16) | 0xb60c)
+    expect(d.overworld.targets[0]!.colors[0]).toBe(0x7000)
+  })
+
   // R3: a write with no arithmetic must not inherit numbers nothing read.
   it('refuses a chain whose first write has no arithmetic of its own', () => {
     const d = detectPaletteAnimation(

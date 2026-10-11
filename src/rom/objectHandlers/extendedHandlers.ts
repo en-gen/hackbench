@@ -18,6 +18,7 @@ import {
   restoreBookmark,
   nextRow,
   peekExistingLow,
+  clearPageKeepLow,
   readLongOperand,
   readGatedLongOperand,
   readImmByte,
@@ -139,12 +140,21 @@ export function handle_0DA673(cur: Cursor): void {
   cur.row -= 1
 }
 
+// WRAM addresses the midway gates read (same values as interpret.ts GAME_STATE).
+const WRAM_TRANSLEVEL_NO = 0x13bf
+const WRAM_MIDWAY_FLAG = 0x13ce
+const WRAM_OW_LEVEL_TILE_SETTINGS = 0x1ea2
+
 /**
  * CODE_0DA68E (bank_0D.asm line 1618) -- ext type 0x46: midway point.
  *
- * In-game this consults OWLevelTileSettings and MidwayFlag to decide whether
- * to emit the tape ($35) and base ($38). For an editor we always show the
- * midway post (the two gates are tracked separately, not ported here).
+ * Gates (bank_0D.asm:1619-1624): nothing is drawn when
+ * OWLevelTileSettings[TranslevelNo] ($1EA2+X) has bit 6 (the overworld's
+ * "midway reached" tile flag: set at bank_04.asm:1442-1449, bit 7 set and
+ * bit 6 cleared on beating the level, bank_04.asm:1462-1465) or
+ * MidwayFlag ($13CE) is nonzero. Both come from
+ * cur.ram, default 0: the editor shows the post the author placed, as for a
+ * fresh save. #635.
  *
  * Column 0 of a screen or block: the tape goes to column 15 of the row above,
  * the base to column 0 of the next screen (SMWDisX bank_0D.asm:1625-1632,
@@ -158,6 +168,9 @@ export function handle_0DA673(cur: Cursor): void {
  * bank_00.asm:6779).
  */
 export function handle_0DA68E(cur: Cursor): void {
+  const ram = (addr: number): number => cur.ram?.get(addr) ?? 0
+  if ((ram(WRAM_OW_LEVEL_TILE_SETTINGS + ram(WRAM_TRANSLEVEL_NO)) & 0x40) !== 0) return
+  if (ram(WRAM_MIDWAY_FLAG) !== 0) return
   // CODE_0DA68E inline tile immediates: +23 $35 (tape), +31 $38 (base).
   const tapeTile = readImmByte(cur, cur.handlerAddr + 23)
   const baseTile = readImmByte(cur, cur.handlerAddr + 31)
@@ -428,7 +441,8 @@ export function handle_0DEABF(cur: Cursor): void {
  * we decide what low byte to stamp at the cursor and then advance one column.
  *
  * ASM decision tree:
- *   A == $25  → JMP CODE_0DA95D       (skip write; just advance cursor)
+ *   A == $25  → JMP CODE_0DA95D       (skip the low-byte store and advance; the caller's
+ *                                      StzTo6ePointer has still zeroed the high byte)
  *   A <  $49  → JMP CODE_0DA95B at +2 (write A as-is, advance)
  *   A <  $54  → JMP CODE_0DA95B at +2 (write A as-is, advance)
  *   else      → read existing low byte at cursor and blend:
@@ -438,8 +452,9 @@ export function handle_0DEABF(cur: Cursor): void {
  *               then advance one column.
  *
  * The $25-in check at the top matters because the data tables are padded with
- * $25 (empty) to preserve grid shape; stamping $25 on top would clobber
- * whatever terrain was drawn underneath. The $54-range blend is how the
+ * $25 (empty) to preserve grid shape; a $25 entry skips only the low-byte
+ * store (the caller's StzTo6ePointer has already cleared the page byte), so
+ * the terrain's low byte is kept. The $54-range blend is how the
  * hillside's outer cap/slope tiles merge with pre-existing ground or other
  * hill tiles.
  *
@@ -448,6 +463,7 @@ export function handle_0DEABF(cur: Cursor): void {
  */
 function hillsideMergeWriteAdvance(cur: Cursor, A: number): void {
   if (A === 0x25) {
+    clearPageKeepLow(cur) // the caller's StzTo6ePointer already ran (#773)
     advanceCol(cur)
     return
   }
@@ -475,14 +491,15 @@ function hillsideMergeWriteAdvance(cur: Cursor, A: number): void {
  * Stamps a 9-wide × 5-tall grid of tiles from DATA_0DA6EE into the level
  * tilemap. The data is read row-major (X increments linearly through 45
  * entries). Each tile passes through the CODE_0DA78D hillside-merge helper
- * so $25 entries act as "leave cell alone" padding and out-of-range tiles
+ * so $25 entries skip the low-byte store (the page byte is still cleared)
+ * and out-of-range tiles
  * blend with whatever terrain is already at the destination.
  *
  * Used on the overworld and in grass/hill-themed levels for the large
  * hillside silhouette behind foreground terrain.
  */
 export function handle_0DA71B(cur: Cursor): void {
-  // LDA.L DATA_0DA6EE operand lives at handler +19 (opcode $BF at +18).
+  // LDA.L DATA_0DA6EE operand lives at handler +23 (opcode $BF at +22).
   // Layout:
   //   +0  LDY  LevelLoadPos           (2 bytes)
   //   +2  LDA #$08 / STA _0           (4 bytes)
@@ -1138,8 +1155,9 @@ export function handle_0DEC68(cur: Cursor): void {
 
 /**
  * CODE_0DC2E9 (bank_0D.asm line 4797) -- 14×9 page-0 grid with transparency
- * (ext $84). Tile $25 (TILE_EMPTY) in DATA_0DC26B is transparent: no write,
- * but column still advances (CODE_0DA95D = advanceCol).
+ * (ext $84). Tile $25 (TILE_EMPTY) in DATA_0DC26B skips the low-byte store
+ * (bank_0D.asm:4804-4808) but the page byte is still cleared
+ * (clearPageKeepLow); the column advances (CODE_0DA95D = advanceCol).
  * The 9th tile per row is always written.
  *
  * DATA_0DC26B operand at handler+12.
@@ -1154,6 +1172,7 @@ export function handle_0DC2E9(cur: Cursor): void {
     for (let col = 0; col < 8; col++) {
       const tile = cur.rom.readByte(addr + X++) ?? 0
       if (tile !== 0x25) writeTile(cur, tile)
+      else clearPageKeepLow(cur) // StzTo6ePointer runs for every entry (#773)
       advanceCol(cur)
     }
     writeTile(cur, cur.rom.readByte(addr + X++) ?? 0)
