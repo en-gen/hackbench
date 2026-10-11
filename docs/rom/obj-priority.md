@@ -189,9 +189,12 @@ behind graphics layer tiles". In three parts:
    (partly covered sprites included) draws in the door; uncovered pixels draw
    normally. Stacked covering planes show the nearest one's colour.
 3. Keep #564 for ordinary sprite pixels (no colour math); door pixels take the covering
-   plane's colour-math bit. Hover-to-opaque is #879,
-   not here: each sprite has its own door id (`doors` value `id << 1 | parity`),
-   so a sprite's door can later be switched off by id.
+   plane's colour-math bit. Hover-to-opaque (#879, owner ruling D52 part 1): each
+   sprite has its own door id (`doors` value `id << 1 | parity`); while the pointer
+   is over a sprite (the door id at that pixel, the topmost sprite there), `lift`
+   names that id and its covered pixels draw at full strength instead of through
+   the door. Only door pixels read the weight, so an uncovered sprite does not
+   change, and leaving restores the door exactly. The colour-math bit is as in 3.
 
 The checkerboard phase of a sprite depends on which graphics layers are shown: the
 swap decision counts only the pixels a shown plane covers, so hiding a graphics layer

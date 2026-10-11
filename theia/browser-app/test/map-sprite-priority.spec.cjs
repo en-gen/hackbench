@@ -102,9 +102,8 @@ function probe(page, pixels) {
   )
 }
 
-test('a priority 1 sprite draws behind layer 1 low tiles: the pipe covers the piranha plant', async ({
-  page,
-}) => {
+/** Opens map $105 with the sprites drawn on screen 7. */
+async function openMap(page) {
   const project = await page.evaluate(
     ({ romPath, directory }) =>
       getSvc('Symbol(ProjectService)').createProject({ romPath, name: 'MyHack', directory }),
@@ -124,6 +123,12 @@ test('a priority 1 sprite draws behind layer 1 low tiles: the pipe covers the pi
   await page.locator(plane('l1Low')).evaluate(el => el.scrollIntoView({ inline: 'start', block: 'nearest' })) // prettier-ignore
   await expect(page.locator(plane('l1Low'))).toHaveAttribute('data-drawn', /^\d+:0000:000:7$/, { timeout: 30000 }) // prettier-ignore
   await expect(page.locator(plane('sprites'))).toHaveAttribute('data-drawn', /^\d+:\d+$/, { timeout: 30000 }) // prettier-ignore
+}
+
+test('a priority 1 sprite draws behind layer 1 low tiles: the pipe covers the piranha plant', async ({
+  page,
+}) => {
+  await openMap(page)
 
   const on = await probe(page)
   expect(on.at.behind.length, 'the plant overlaps the pipe here').toBeGreaterThanOrEqual(MIN_BEHIND) // prettier-ignore
@@ -184,4 +189,51 @@ test('a priority 1 sprite draws behind layer 1 low tiles: the pipe covers the pi
     same(on.shown, off.shown),
     'the control: every other-sprite pixel over no layer 1 shows',
   ).toBe(0)
+})
+
+/** The composite's native pixel `p` in client coordinates, scrolled into view. */
+async function clientOf(page, p) {
+  return page.evaluate(
+    ({ rootSel, screen, p }) => {
+      const c = planesOf(rootSel, screen)[0]
+      c.scrollIntoView({ inline: 'center', block: 'center' })
+      const r = c.getBoundingClientRect()
+      return { x: r.left + (((p % c.width) + 0.5) * r.width) / c.width, y: r.top + ((Math.floor(p / c.width) + 0.5) * r.height) / c.height } // prettier-ignore
+    },
+    { rootSel: root, screen: SCREEN, p },
+  )
+}
+
+test('hovering a hidden sprite draws it opaque, leaving restores the door exactly, an uncovered sprite is unchanged (#879)', async ({
+  page,
+}) => {
+  await openMap(page)
+  const on = await probe(page)
+  const behind = on.at.behind
+  const [plantPixel, otherPixel] = [behind[behind.length >> 1], on.at.shown[on.at.shown.length >> 1]] // prettier-ignore
+  const read = () => probe(page, on.at)
+  const rgb = c => c.split(',').slice(0, 3).map(Number)
+  const same = (a, b) => a.filter((c, i) => c === b[i]).length
+  const before = await read()
+  // Hover an uncovered sprite: nothing the plant or the other sprites show changes.
+  const other = await clientOf(page, otherPixel)
+  await page.mouse.move(other.x, other.y)
+  await page.waitForTimeout(500)
+  const hoverOther = await read()
+  expect(same(hoverOther.behind, before.behind), 'the covered plant is untouched').toBe(behind.length) // prettier-ignore
+  expect(same(hoverOther.shown, before.shown), 'the uncovered sprite is untouched').toBe(on.at.shown.length) // prettier-ignore
+
+  // Hover the plant: its covered pixels turn to the sprite colour, both squares of the door.
+  const plant = await clientOf(page, plantPixel)
+  await page.mouse.move(plant.x, plant.y)
+  await expect.poll(async () => same((await read()).behind, before.behind), { timeout: 15000 }).toBeLessThan(behind.length / 2) // prettier-ignore
+  const lifted = await read()
+  const sameAsSprite = behind.filter((_, i) => rgb(lifted.behind[i]).every((v, k) => Math.abs(v - on.spriteRgb[i][k]) <= 8)).length // prettier-ignore
+  expect(sameAsSprite / behind.length, 'the plant draws at the sprite colour over the pipe').toBeGreaterThan(0.9) // prettier-ignore
+  expect(same(lifted.shown, before.shown), 'the uncovered sprite still unchanged').toBe(on.at.shown.length) // prettier-ignore
+
+  // Leave: the door pixels come back byte for byte.
+  await page.mouse.move(2, 2)
+  await expect.poll(async () => same((await read()).behind, before.behind), { timeout: 15000 }).toBe(behind.length) // prettier-ignore
+  expect((await read()).shown).toEqual(before.shown)
 })

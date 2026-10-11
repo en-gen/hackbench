@@ -31,6 +31,7 @@ import { ProjectContext } from './project-context'
 import { decodeRgba, TILE_PX } from './map16-pixels'
 import {
   spriteDoors,
+  doorIdAt,
   spritePlanes,
   decodeArts,
   hoverTarget,
@@ -176,6 +177,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected blocksVersion = 0
   /** The indicator under the pointer: it fills its block, the rest sit in their quadrants. */
   protected hover: Indicator | undefined
+  /** The sprite under the pointer (#879): its door id on one screen, drawn opaque through covering tiles. */
+  protected lift: { screen: number; id: number } | undefined
+  /** Door maps by screen for the hit test, valid for the `spritesVersion` they were built at. */
+  protected readonly doorMaps = new Map<string, Uint32Array | null>()
   /** Fit mode until the user zooms; the fit is the cross axis filling the view (#526). */
   protected readonly zoomController = new ZoomController(ZOOMS, 1, () => this.measureFit())
   protected wheelBinding: WheelBinding | undefined
@@ -378,6 +383,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     // An older map's or edit's sprites must not land over a newer one.
     if (generation !== this.generation) return
     this.sprites = r.status === 'ok' ? r : undefined
+    this.lift = undefined
     this.spritesWhy = r.status === 'ok' ? undefined : r.status === 'unavailable' ? r.reason : `The base ROM ${r.baseRom.title} is not on this machine` // prettier-ignore
     this.spritesVersion++
     this.update()
@@ -595,7 +601,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       }
       return
     }
-    const want = `${this.generation}:${this.key(s)}:${+this.showL1}${+this.showL2}${+this.showL3}${+this.showSprites}:${this.spritesVersion}`
+    const lift = this.liftOn(s)
+    const want = `${this.generation}:${this.key(s)}:${+this.showL1}${+this.showL2}${+this.showL3}${+this.showSprites}:${this.spritesVersion}:${lift ?? ''}` // prettier-ignore
     if (canvas.dataset.drawn === want) return
     canvas.width = shot.width
     canvas.height = shot.height
@@ -607,6 +614,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       lists: shot.screens,
       math: shot.math,
       doors: this.showSprites ? spriteDoors(this.sprites, s) : null,
+      lift,
     })
     canvas.getContext('2d')?.putImageData(new ImageData(out, shot.width, shot.height), 0, 0)
     canvas.dataset.drawn = want
@@ -656,6 +664,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
         lists: shot.screens,
         math: shot.math,
         doors: this.showSprites ? spriteDoors(this.sprites, s) : null,
+        lift: this.liftOn(s),
         base: comp.getContext('2d')!.getImageData(0, 0, comp.width, comp.height).data,
         indicators: b.indicators,
         arts: b.decoded,
@@ -676,6 +685,34 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     canvas.dataset.drawn = want
     canvas.dataset.indicators = JSON.stringify(cur.display.records())
     comp.style.visibility = 'hidden'
+  }
+
+  /** The lifted sprite's door id when it is on screen `s`. */
+  protected liftOn(s: number): number | undefined {
+    return this.lift?.screen === s ? this.lift.id : undefined
+  }
+
+  /** The sprite under the strip pixel (x, y), native units. */
+  protected liftAt(x: number, y: number): typeof this.lift {
+    const g = this.sprites
+    if (g && this.showSprites) {
+      const vertical = g.orientation === 'vertical'
+      const s = Math.floor(vertical ? y / g.height : x / g.width)
+      const key = `${this.spritesVersion}:${s}`
+      if (!this.doorMaps.has(key)) {
+        if (this.doorMaps.size > 64) this.doorMaps.clear()
+        this.doorMaps.set(key, s >= 0 ? spriteDoors(g, s) : null)
+      }
+      const id = doorIdAt(this.doorMaps.get(key) ?? null, g.width, x - (vertical ? 0 : s * g.width), y - (vertical ? s * g.height : 0)) // prettier-ignore
+      if (id) return { screen: s, id }
+    }
+    return undefined
+  }
+
+  protected setLift(next: typeof this.lift): void {
+    if (next?.screen === this.lift?.screen && next?.id === this.lift?.id) return
+    this.lift = next
+    this.sync()
   }
 
   /** The hovered indicator, when its block touches screen `s`. */
@@ -700,9 +737,14 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const strip = this.scroller?.querySelector<HTMLElement>('.hb-map-view-strip')
     const l = this.mapLayout
     const p = this.pointer
-    if (!strip || !l || !this.blocks || !p) return this.setHover(undefined)
+    if (!strip || !l || !p) {
+      this.setLift(undefined)
+      return this.setHover(undefined)
+    }
     const r = strip.getBoundingClientRect()
     const [x, y] = [(p.x - r.left) / this.zoom, (p.y - r.top) / this.zoom]
+    this.setLift(this.liftAt(x, y))
+    if (!this.blocks) return this.setHover(undefined)
     const order = this.layerOrder(l)
     const shown = (q: Indicator['plane']) => order.includes(q) && this.layerShown(q)
     this.setHover(hoverTarget(this.blocks.indicators, x, y, shown, q => order.indexOf(q)) ?? undefined) // prettier-ignore
@@ -1062,6 +1104,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
           onMouseLeave={() => {
             this.pointer = undefined
             this.setHover(undefined)
+            this.setLift(undefined)
           }}
         >
           {/* Bottom to top (planes by `screens`, composited per screen): the checkerboard, the back area, then the screens,
