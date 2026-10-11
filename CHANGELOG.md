@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Tools (#828): `npm run sprite:report` grades every captured sprite with id $00-$C8 and at least one recorded frame, with the accuracy test's grader and commits a browsable report (one page per verdict, our frame beside the Mesen frame, an unticked `corrupted` box per row) to the private validation repo; `--sheet` writes one contact-sheet PNG outside both repos. Local only, never pushes, refuses any output inside this checkout or its git store; a dirty tree writes `<sha>-dirty/`, and `--force` replaces a ticked or edited `<sha>/`. Vanilla ROM and layers_v5 captures, one machine: 1957 graded (exact 936, shape 572, wrong 300, close 136, empty 13).
+
 ### Changed
 
 - Docs (#829): `docs/sprites/grader-triage.md` sorts the 300 sprites the grader calls wrong, plus the 37 table-versus-interpreter rows, into 8 cause categories (31 grader band filter, 30 castle-flame cluster sprites, 161 first-pass policy, 35 stationary-shell list ids, 12 spawned companions, 14 absent companion, 9 platform sink, 8 unexplained) and 3 no-fix rows; vanilla ROM, `layers_v5`, one machine, 2026-10-10, develop at 9f5956e8. No code changed.
