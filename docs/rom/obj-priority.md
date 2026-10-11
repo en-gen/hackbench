@@ -138,7 +138,7 @@ read off the attribute byte the ROM wrote to the OAM mirror (bits 5:4,
 Each screen's list (`ScreenPlanes.ts`) names four sprite sources:
 
 - `sprites0`, `sprites1` and `sprites3` at their slots in the section 1
-  table, filtered to the layers the screen designates;
+  table, filtered to the graphics layers the screen designates;
 - `sprites2` just before `l1High` (the owner's ruling, #564), or at its
   table slot on a screen without layer 1. The ruling differs from the table
   in one pair: the table draws BG2.1 over OBJ.2, the ruling draws OBJ.2 over
@@ -181,17 +181,17 @@ side. The main screen only. Done in `composeScreen` from a `doors` map
 (nearest), so parity stays on native sprite pixels at any zoom.
 
 Owner ruling D52 (final): "Same screen door effect for any sprites drawn
-behind layer tiles". In three parts:
+behind graphics layer tiles". In three parts:
 
 1. A sprite pixel a tile covers is not hidden; it draws in the door.
 2. Follow the hardware order: OBJ priority 0 and 1 draw under layer 2 as well
-   as under layer 1, so a sprite pixel covered by an opaque tile of ANY layer
+   as under layer 1, so a sprite pixel covered by an opaque tile of ANY graphics layer
    (partly covered sprites included) draws in the door; uncovered pixels draw
    normally. Stacked covering planes show the nearest one's colour.
 3. Keep #564 (sprites take no part in colour math). Hover-to-opaque is #879,
    not here: each sprite has its own door id (`doors` value `id << 1 | parity`),
    so a sprite's door can later be switched off by id.
 
-The checkerboard phase of a sprite depends on which layers are shown: the
-swap decision counts only the pixels a shown plane covers, so hiding a layer
+The checkerboard phase of a sprite depends on which graphics layers are shown: the
+swap decision counts only the pixels a shown plane covers, so hiding a graphics layer
 can flip a sprite's squares.
