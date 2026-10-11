@@ -152,6 +152,8 @@ export interface SpriteModel {
    * frame a map should show.
    */
   chosen?: number
+  /** Why a $67 on a vanilla-shaped handler stayed on its first drawn pass although the next one draws. */
+  lineStepReason?: string
   dependsOn: DependsOn[]
   /** Instruction counts: INIT, then each MAIN pass. */
   steps: number[]
@@ -550,7 +552,12 @@ export function runOnce(
     // $67: a first draw at pass 0 ran at the off-track INIT spot, so the pass after it (if it draws) is the
     // first on-track one. A first draw later than pass 0 is already on the track: no advance. When pass 0
     // draws and pass 1 does not, pass 0 stays even if a later pass draws on track.
-    if (snaps && first === 0 && model.passes[1]?.parts.length) model.chosen = 1
+    // The advance is only earned if the line step moved the sprite on pass 0; a fingerprint match cannot prove it.
+    if (snaps && first === 0 && model.passes[1]?.parts.length) {
+      const p0 = model.passes[0]!.pos
+      if (p0.x !== anchor.x || p0.y !== anchor.y) model.chosen = 1
+      else model.lineStepReason = 'the line step did not move the sprite on pass 0: kept the first drawn pass' // prettier-ignore
+    }
     if (snaps && model.chosen !== undefined)
       model.anchor = { ...model.anchor!, ...model.passes[model.chosen]!.origin }
     if (model.passes.every(p => p.parts.length === 0))

@@ -76,6 +76,20 @@ describe('line-guided draw pass', () => {
     expect(g.passes[0]!.parts[0]!.dx).toBe(0)
   })
 
+  it('keeps pass 0 when the line step does not move the sprite: no "on-track" claim for an unmoved draw', () => {
+    // The call targets and fingerprint still match, but the step routine at $019290 is RTS.
+    const rom = buildSyntheticRom()
+    rom.writeAt(0x019290, [0x60])
+    expect(grinderDrawsBeforeSnap(rom, GRINDER_HANDLER, GRINDER_DISPATCH)).toBe(true)
+    const g = runOnce(rom, 103, seed, { grinderDispatch: GRINDER_DISPATCH })
+    expect(g.passes[1]!.parts).toHaveLength(1)
+    expect(g.chosen).toBe(0)
+    expect(g.anchor!.x).toBe(0x80)
+    expect(g.lineStepReason).toMatch(/did not move/)
+    // The inverse: the unmodified cart (step is the +4 move) still advances to pass 1 and gives no reason.
+    expect(run(103).lineStepReason).toBeUndefined()
+  })
+
   it('puts the anchor where the chosen draw ran when only pass 1 draws: where the generic id lands', () => {
     const [g, other] = [run(103, { grinderDrawsOnPass1: true }), run(32)]
     expect(g.chosen).toBe(1)
