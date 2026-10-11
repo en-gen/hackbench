@@ -400,8 +400,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
         objects([[1]])
         const m = inputs(hGrid(1), false, 1)
         const r = buildL2Inputs(smw(rom), LEVEL, { ...m, header: { ...m.header, levelMode: mode } })
-        if (mode === 0x03) expect(r.ok, 'a loading mode never consults the chain').toBe(true)
-        else expect(r, `mode ${mode}`).toMatchObject({ ok: false, reason: expect.stringMatching(/skip chain.*not recognized/) }) // prettier-ignore
+        expect(r, `mode ${mode}`).toMatchObject({ ok: false, reason: expect.stringMatching(/skip chain.*not recognized/) }) // prettier-ignore
         vi.mocked(L2LoaderReal.loadL2Objects).mockReset()
       }
     }

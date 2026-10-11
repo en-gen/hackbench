@@ -98,12 +98,41 @@ describe('buildL2 in level modes without a Layer 2 pass (synthetic)', () => {
       rom.writeAt(SITE, [0xc9])
       rom.writeAt(SKIP_CHAIN_B_AT + 5, [0xea, 0xea]) // the mode $0A compare is neutered
       expect(L2LoaderReal.l2ObjectGate(rom, 0x0a)).toBe('unrecognized')
-      expect(L2LoaderReal.l2ObjectGate(rom, 0x03)).toBe('loads')
       vi.mocked(L2LoaderReal.loadL2Objects).mockReturnValue({ grid: [[1]] })
       expect(l2At(0x0a)).toBeNull()
       expect(vi.mocked(L2LoaderReal.loadL2Objects)).not.toHaveBeenCalled()
     } finally {
       writeStockSkipChain(rom)
+    }
+  })
+
+  // Owner ruling D57 B: a hack that adds a CMP/BEQ pair for a non-ten mode must not get objects drawn there.
+  it('a chain extended with a non-ten mode is unrecognized for every mode, and the factory refuses', () => {
+    try {
+      rom.writeAt(SITE, [0xc9])
+      rom.writeAt(SKIP_CHAIN_B_AT + 5, [0xc9, 0x05]) // the mode $0A compare now names mode $05
+      for (const mode of [0x05, 0x0a, 0x03]) expect(L2LoaderReal.l2ObjectGate(rom, mode), `mode ${mode}`).toBe('unrecognized') // prettier-ignore
+      const header = parseLevelHeader(Uint8Array.from([0, 0x05, 0, 0, 0]))
+      const res = buildL2Inputs({ rom } as unknown as SmwRom, LEVEL, { screenCount: 1, isVertical: false, header } as unknown as L1Inputs) // prettier-ignore
+      expect(res.ok ? '' : res.reason).toMatch(/not recognized/i)
+      vi.mocked(L2LoaderReal.loadL2Objects).mockReturnValue({ grid: [[1]] })
+      expect(l2At(0x05)).toBeNull()
+      expect(vi.mocked(L2LoaderReal.loadL2Objects)).not.toHaveBeenCalled()
+    } finally {
+      writeStockSkipChain(rom)
+    }
+  })
+
+  it('a stock chain and a hijacked site still load a non-ten mode', () => {
+    rom.writeAt(SITE, [0xc9])
+    expect(L2LoaderReal.l2ObjectGate(rom, 0x05)).toBe('loads')
+    rom.writeAt(SITE, [0x5c])
+    rom.writeAt(SKIP_CHAIN_B_AT + 5, [0xc9, 0x05])
+    try {
+      expect(L2LoaderReal.l2ObjectGate(rom, 0x05)).toBe('loads')
+    } finally {
+      writeStockSkipChain(rom)
+      rom.writeAt(SITE, [0xc9])
     }
   })
 
