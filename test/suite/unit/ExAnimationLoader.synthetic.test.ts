@@ -16,6 +16,7 @@ import {
   loadExAnimData,
   readExAnimLevel,
 } from '../../../src/rom/ExAnimationLoader'
+import { plantBackRef, plantGfxReadPath } from '../support/syntheticGfxCart'
 
 /**
  * Hand-built LC_LZ2 stream that decompresses to 128 bytes of $42, terminated
@@ -247,6 +248,32 @@ describe('loadExAnimData - happy paths', () => {
     expect(data!.frames[0][0].tiles.length).toBe(4) // EXANIM_TILES_PER_SLOT
     // A parseable block behind a redirected JSL is still not installed.
     expect(loadExAnimData(rom, 0)).toBeNull()
+  })
+
+  // #696: the ExGFX stream is read in the order the ROM's own back-reference routine has.
+  // Three literals, then a 2-byte copy from output index 1, the index little-endian.
+  const LE_COPY = [0x02, 0x10, 0x20, 0x30, 0x81, 0x01, 0x00, 0xff]
+  const BE_COPY = [0x02, 0x10, 0x20, 0x30, 0x81, 0x00, 0x01, 0xff]
+
+  it('decodes an ExGFX file in the ROM little-endian order (synthetic J/E1-shaped decompressor)', () => {
+    const rom = buildExAnimRom({ streamBytes: LE_COPY })
+    plantGfxReadPath(rom)
+    plantBackRef(rom, 'le')
+    expect(readExAnimLevel(rom, 0)).not.toBeNull()
+  })
+
+  it('still decodes big-endian on a ROM whose decompressor reads big-endian', () => {
+    const rom = buildExAnimRom({ streamBytes: BE_COPY })
+    plantGfxReadPath(rom)
+    expect(readExAnimLevel(rom, 0)).not.toBeNull()
+    const le = buildExAnimRom({ streamBytes: LE_COPY })
+    plantGfxReadPath(le)
+    expect(readExAnimLevel(le, 0)).toBeNull()
+  })
+
+  it('keeps decoding big-endian when the ROM has no readable decompressor (known gap)', () => {
+    expect(readExAnimLevel(buildExAnimRom({ streamBytes: BE_COPY }), 0)).not.toBeNull()
+    expect(readExAnimLevel(buildExAnimRom({ streamBytes: LE_COPY }), 0)).toBeNull()
   })
 
   it('handles fileNum >= $100 via the HI table (different lookup branch)', () => {

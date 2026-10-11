@@ -30,6 +30,7 @@
 
 import type { InterpretedDraw } from './interpretedDraw'
 import { RomFile } from '../RomFile'
+import { hex6 } from './interpretedGate'
 
 /** Map16 RAM bytes per horizontal-level screen: 27 rows x 16 cols. */
 export const MAP16_BYTES_PER_SCREEN_H = 0x1b0
@@ -52,6 +53,18 @@ export type TileGrid = number[][]
  * than object handlers, so they stay unowned and are not selectable.
  */
 export type OwnerGrid = number[][]
+
+/**
+ * An object the expander could not draw (#301). `handler` is the SNES address
+ * the ROM's own dispatch table names, mirrored to the bank $0D-style form the
+ * handler maps use (0 for an empty entry), so a reader can tell a hack's
+ * repointed routine from a stock one.
+ */
+export interface Refusal {
+  objectIndex: number
+  handler: number
+  reason: string
+}
 
 /** No object drew this cell. */
 export const OWNER_NONE = -1
@@ -139,11 +152,20 @@ export interface Cursor {
   switchFlags: SwitchFlags
   /** Set by a caller that takes the interpreter's word for gated handlers (#342). */
   draw?: InterpretedDraw | null
+  /** Where dispatch reports an object it has no port for; null when the caller does not collect them (#301). */
+  refusals?: Refusal[] | null
   /**
    * True when the grid is a vertical level's (32 wide, 16 rows per screen).
    * Only handlers that address raw Map16 buffer offsets need it (ext $5F, #362).
    */
   vertical: boolean
+  /**
+   * Game-state RAM a gated handler reads, by WRAM address; unset reads are 0.
+   * Same key space and default as InterpretEnv.ram, so the port and the #351
+   * interpreter see one editor state (fresh save: no midway taken, no tile
+   * cleared). Production callers leave it unset (#635).
+   */
+  ram?: ReadonlyMap<number, number>
 }
 
 export function makeCursor(
@@ -258,6 +280,23 @@ function claimCell(cur: Cursor): void {
   if (!orow) return
   while (orow.length < cur.col) orow.push(OWNER_NONE)
   orow[cur.col] = cur.owner
+}
+
+/**
+ * The high-byte half of a skipped tile store: the ROM zeroes the cell's page
+ * even when a $25 table entry skips the low byte, so a blank cell reads $25
+ * (SMWDisX bank_0D.asm:2112-2114 StzTo6ePointer; skips at 1736-1740 and
+ * 4804-4808; see SMWDisX bank_0D/MEMO.md, "Hillside tables and
+ * StzTo6ePointer"). No owner is claimed: no tile is drawn, unlike
+ * `applyWrites` in interpret.ts, which claims every buffer write.
+ */
+export function clearPageKeepLow(cur: Cursor): void {
+  if (cur.row < 0 || cur.row >= cur.grid.length) return
+  if (cur.col < 0 || cur.col >= 0x200) return
+  const low = peekExistingLow(cur)
+  const row = cur.grid[cur.row]
+  while (row.length < cur.col) row.push(0x25)
+  row[cur.col] = low
 }
 
 /** Sta1To6ePointer (bank_0D line 2107) -- next tile is on page 1 ($100-$1FF). */
@@ -504,4 +543,16 @@ export function saveBookmark(cur: Cursor): void {
 /** Restore column from bookmark (CODE_0DA6BA). */
 export function restoreBookmark(cur: Cursor): void {
   cur.col = cur.bookmarkCol
+}
+
+/** Report that dispatch found no port for `handler` (0: an empty entry); the object draws nothing. */
+export function refuseUnported(cur: Cursor, handler: number): void {
+  cur.refusals?.push({
+    objectIndex: cur.owner,
+    handler,
+    reason:
+      handler === 0
+        ? 'The dispatch entry is empty, so the object is not drawn.'
+        : `No port for the handler at ${hex6(handler)}, so the object is not drawn.`,
+  })
 }

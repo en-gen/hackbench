@@ -10,10 +10,10 @@
  * Each entry in those tables is a 24-bit SNES pointer to a handler routine. We
  * read the pointer from the ROM, then look it up in a TypeScript map keyed by
  * that same SNES address. This way, ROM hacks that repoint a handler to a fresh
- * routine will correctly fall through to TILE_UNKNOWN until we port that routine.
+ * routine is reported through `cur.refusals` and draws nothing until we port it.
  */
 
-import { Cursor } from './cursor'
+import { Cursor, refuseUnported } from './cursor'
 import type { RomFile } from '../RomFile'
 import { mirror } from '../addressing'
 import {
@@ -344,14 +344,13 @@ export function dispatchExtended(cur: Cursor): void {
   const idx = cur.objNo & 0xff
   if (idx >= EXTENDED_DISPATCH_COUNT) return
   const addr = readLongPointer(cur.rom, ADDR_EXTENDED_DISPATCH + idx * 3)
-  if (addr === null || addr === 0) return
+  if (addr === null) return refuseUnported(cur, 0)
   const snesAddr = mirror(addr)
   const handler = EXTENDED_HANDLERS[snesAddr]
   if (handler) {
     cur.handlerAddr = snesAddr
     handler(cur)
-  }
-  // else: unmapped extended handler -- silently no-op.
+  } else refuseUnported(cur, snesAddr)
 }
 
 /**
@@ -375,7 +374,7 @@ const DISPATCHER_PREAMBLE_SIZE = 10
  * Resolve a standard-object handler via the tileset dispatch → tileset-specific
  * table → object-number lookup chain. Works for any of the five dispatchers
  * because their layout is identical; individual handler addresses that we have
- * not ported yet silently no-op via the STANDARD_HANDLERS map.
+ * not ported yet are reported through `cur.refusals` and draw nothing.
  */
 export function dispatchStandard(cur: Cursor): void {
   if (cur.objNo < 1 || cur.objNo > STANDARD_HANDLER_COUNT) return
@@ -398,8 +397,7 @@ export function dispatchStandard(cur: Cursor): void {
   if (handler) {
     cur.handlerAddr = handlerAddr
     handler(cur)
-  }
-  // else: unmapped handler -- silently no-op.
+  } else refuseUnported(cur, handlerAddr)
 }
 
 /**

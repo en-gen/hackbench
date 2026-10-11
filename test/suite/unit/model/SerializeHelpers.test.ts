@@ -330,6 +330,12 @@ describe('serializeAppearance - SpikeTopAppearance → kind=spikeTop', () => {
     const d = serializeSprite(makeSprite(app))
     expect(d.appearance.kind).toBe('spikeTop')
   })
+
+  it('carries a flipped pose across the payload boundary (#134)', () => {
+    const flipped = [{ char: MOCK_CHAR, palette: 8, flipX: true, flipY: false, dx: 8, dy: 0 }]
+    const d = serializeSprite(makeSprite(new SpikeTopAppearance(flipped, flipped)))
+    expect(d.appearance).toMatchObject({ parts0: [{ flipX: true }], parts1: [{ flipX: true }] })
+  })
 })
 
 describe('serializeAppearance - MontyMoleAppearance → kind=montyMole', () => {

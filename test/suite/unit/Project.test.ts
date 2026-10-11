@@ -20,6 +20,7 @@ import {
   INITIAL_HACK_VERSION,
   updateProject,
 } from '../../../src/project/Project'
+import { slow } from '../support/loadTimeout'
 
 const COPIER_HEADER_SIZE = 512
 
@@ -149,7 +150,8 @@ describe('createProject', () => {
     }
   })
 
-  it('does not modify the ROM it was created from', () => {
+  // Worst 4.7 s in 10 runs, 5 concurrent pairs at 38af1126, 32-core machine, 2026-10-10.
+  it('does not modify the ROM it was created from', slow(10_000), () => {
     const rom = fakeRom()
     const romPath = writeRom('cart.sfc', rom)
     createProject({ romPath, name: 'MyHack', directory: path.join(tmp, 'my-hack') })
