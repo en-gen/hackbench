@@ -24,6 +24,7 @@ import { GfxTable } from '../../../src/rom/GfxTable'
 import type { GfxCharEdit } from '../../../src/rom/GfxLayer'
 import { RomFile } from '../../../src/rom/RomFile'
 import { buildCart } from '../support/syntheticGfxCart'
+import { slow } from '../support/loadTimeout'
 
 /**
  * Fault injection for the write paths: `fsFault.hook`, when set, runs before
@@ -558,7 +559,8 @@ describe('WorkingRomRegistry', () => {
     })
 
     // Runs of ten, so replaying per layer (40 decodes) and per run (4) differ.
-    it('reopens 4 runs of 10 gfx layers with one table decode per run', () => {
+    // 5.1 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-10
+    it('reopens 4 runs of 10 gfx layers with one table decode per run', slow(11000), () => {
       const { manifestPath, dir } = gfxProject()
       for (let i = 0; i < 40; i++) {
         appendLayer(dir, {
