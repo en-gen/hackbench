@@ -156,7 +156,7 @@ describe('a refused level loader marks every sprite unverified', () => {
     ...ranModel(anchor),
   })
   const ranModel = (anchor: boolean): SpriteModel =>
-    model(anchor ? { anchor: { x: 16, y: 16, rawX: 16, rawY: 16 }, passes: [{ pass: 0, pos: { x: 0, y: 0 }, origin: { x: 0, y: 0 }, parts: [part({ char: 0 })], uploads: [], palette: [] }], chosen: 0 } : { refusal: 'loop' }) // prettier-ignore
+    model(anchor ? { anchor: { x: 16, y: 16, rawX: 16, rawY: 16 }, passes: [{ pass: 0, pos: { x: 16, y: 16 }, origin: { x: 16, y: 16 }, parts: [part({ char: 0 })], uploads: [], palette: [] }], chosen: 0 } : { refusal: 'loop' }) // prettier-ignore
   const sprite = (i: number) => ({ index: i, x: 1, y: 1, spriteId: 1, screen: 0, extraBit: false, raw: [], streamOffset: 0 }) as LevelSprite // prettier-ignore
   const chars = { sp1: [new Uint8Array(64).fill(3)] }
 
