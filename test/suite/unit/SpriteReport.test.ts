@@ -17,7 +17,7 @@ import {
   writeFileSync,
 } from 'fs'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { join, resolve } from 'path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import type { SpriteModel } from '../../../src/rom/sprites/interp/SpriteRunner'
 import { runSprite } from '../../../src/rom/sprites/interp/SpriteRunner'
@@ -40,6 +40,8 @@ import {
   gradeCaptures,
   gradedFrame,
   hardwareFrame,
+  hackbenchRepo,
+  isValidationRepo,
   oamOrder,
   run,
   type Graded,
@@ -352,6 +354,7 @@ describe('run', () => {
       ['--sheet', '--map', '--out', tmp],
       ['--sheet', '--out', tmp, '--map'],
       ['--sheet', '--sprite', 'g1', '--out', tmp],
+      ['--sheet', '--sprite', '1g', '--out', tmp],
     ]) {
       const c = io()
       expect(run(argv, c), argv.join(' ')).toBe(2)
@@ -375,6 +378,55 @@ describe('run', () => {
     git(r, 'remote', 'add', 'upstream', 'git@github.com:someone/hackbench.git')
     expect(run(['--out', join(r, 'o'), '--no-commit'], io())).toBe(2)
     expect(existsSync(join(r, 'o'))).toBe(false)
+  })
+  it('checks every remote, not just the first: origin validation + upstream hackbench', () => {
+    const r = mkRepo('r-two')
+    git(r, 'remote', 'add', 'upstream', 'https://github.com/en-gen/hackbench.git')
+    expect(run(['--validation', r], io())).toBe(2)
+    expect(existsSync(join(r, 'reports'))).toBe(false)
+    expect(run(['--out', join(r, 'o'), '--no-commit'], io())).toBe(2)
+    expect(existsSync(join(r, 'o'))).toBe(false)
+  })
+  it('says a remote URL, not a remote name, in the refusals', () => {
+    const v = mkRepo('w-none', 'https://github.com/someone/notes.git')
+    const c = io()
+    run(['--validation', v], c)
+    expect(c.out.join()).toContain('no remote URL ends in hackbench-validation')
+    const f = mkRepo('w-fork', 'https://github.com/someone/hackbench.git')
+    const c2 = io()
+    run(['--validation', f], c2)
+    expect(c2.out.join()).toContain('a remote is https://github.com/someone/hackbench.git')
+  })
+  it('the inRepo guard refuses a nested repo that looks like the validation repo', () => {
+    const nested = join(tmp, 'hb', 'nested')
+    mkdirSync(nested, { recursive: true })
+    git(nested, 'init', '-q')
+    git(nested, 'remote', 'add', 'origin', VALIDATION_URL)
+    const c = io()
+    expect(run(['--validation', nested], c)).toBe(2)
+    expect(c.out).toEqual([
+      `refusing ${resolve(nested)}: it is inside the hackbench checkout. Nothing written.`,
+    ])
+  })
+  it('matches local clone spellings of hackbench, not look-alikes', () => {
+    const refused = [
+      'C:\\x\\hackbench',
+      'C:\\x\\hackbench\\',
+      'C:/x/hackbench/.git',
+      'C:\\x\\hackbench\\.git',
+      'hackbench',
+    ]
+    const fine = ['https://github.com/someone/not-hackbench.git', 'x/my-hackbench']
+    const root = join(tmp, 'hb')
+    for (const u of refused) {
+      const r = mkRepo(`u-${refused.indexOf(u)}`, u)
+      expect(hackbenchRepo(r, root), u).toContain(u)
+    }
+    for (const u of fine)
+      expect(hackbenchRepo(mkRepo(`f-${fine.indexOf(u)}`, u), root), u).toBeUndefined()
+    for (const u of ['C:\\x\\hackbench-validation\\', 'C:/x/hackbench-validation/.git'])
+      expect(isValidationRepo(mkRepo(`v-${u.length}`, u)), u).toBe(true)
+    expect(isValidationRepo(mkRepo('v-my', 'x/my-hackbench-validation'))).toBe(false)
   })
   it('names the cause once in the refusal: shared store, then the checkout', () => {
     const main = mkRepo('msg-main')
@@ -418,11 +470,25 @@ describe('run', () => {
       })
     const c = io({ grade: () => graded().slice(0, 1) })
     expect(run(['--validation', v, '--force'], c)).toBe(1)
-    expect(c.out.join()).toContain('report undone')
+    expect(c.out.join()).toContain('copying the report failed, report undone')
     expect(c.out.join()).toContain('planted')
     expect(git(v, 'rev-parse', 'HEAD')).toBe(before)
     expect(git(v, 'status', '--porcelain')).toBe('')
     expect(readFileSync(idx, 'utf8')).toBe(was)
+  })
+  it('does not claim "undone" when an undo step fails', () => {
+    const v = mkRepo('v13b')
+    const real = vi.mocked(cpSync).getMockImplementation()!
+    vi.mocked(cpSync)
+      .mockImplementationOnce(real)
+      .mockImplementationOnce(() => {
+        writeFileSync(join(v, '.git', 'index.lock'), '') // makes `git reset` fail
+        throw new Error('EBUSY: planted')
+      })
+    const c = io()
+    expect(run(['--validation', v], c)).toBe(1)
+    expect(c.out.join()).toContain('copying the report failed, report NOT fully undone')
+    expect(c.out.join()).not.toMatch(/report undone/)
   })
   it('does not roll back over an owner file when the ticked-box check refuses', () => {
     const v = mkRepo('v14')

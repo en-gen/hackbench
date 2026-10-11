@@ -669,7 +669,7 @@ Settled by the owner 2026-09-28; design calls delegated to the orchestrator. Spe
 ## Sprite report
 
 `npm run sprite:report` (#828) grades each sprite in the `layers_v5` captures
-with id `$00`-`$C8` and at least one recorded frame (zips without
+with id `$00`-`$C8` and at least one recorded frame with tiles (zips without
 `sprite_spawns.json` are skipped) with the grader behind `spriteGrade.captures.test.ts` and commits a report to
 the private `hackbench-validation` repo at `reports/sprites/<hackbench sha>/`
 plus a copy at `reports/sprites/latest/`. One page per verdict (exact, shape,
@@ -697,12 +697,12 @@ VRAM and palette, so a difference is in the pieces. A dirty tree writes
 `<sha>-dirty/`. Tick the checkboxes in the `<sha>/` folder: `latest/` is
 regenerated every run, and a run refuses to replace a `<sha>/` that has a
 ticked box, or with uncommitted edits or extra files, unless `--force`. Only
-`reports/sprites/<key>` and `latest` are staged and committed; a failed commit
-(or a copy that throws partway) is undone (both folders restored) and exits
-non-zero. The commit target must have a remote named `hackbench-validation`.
+`reports/sprites/<key>` and `latest` are staged and committed; a failed step
+(the copy, `git add`, `git status` or `git commit`) is undone (both folders restored) and exits
+non-zero, naming the step; the message says "undone" only when every undo step succeeded. The commit target must have a remote URL ending in `hackbench-validation`.
 The target, and any `--out` or `--sheet` path, is refused when it shares a git
 store with the hackbench checkout (a worktree of it included) or any of its
-remotes (a fork too) is named `hackbench`. An `--out` on a drive or share that
+remote URLs (a fork too, a local clone path included) ends in `hackbench`. An `--out` on a drive or share that
 does not exist exits 2. Sheet borders: exact green, shape lime, close yellow, wrong
 red, empty and refused grey. The loop in `spriteReportRun.ts` mirrors `gradeAll`, which is
 private to the test file.

@@ -190,27 +190,38 @@ export function commitReport(
     throw new Error(`${paths[0]} has uncommitted changes; --force replaces them. Nothing written.`)
   const base = join(repo, 'reports', 'sprites')
   refuseTicked(join(base, key), force) // outside the try: the rollback's clean would delete an owner's untracked files
+  let step = 'copying the report'
   try {
     placeReport(base, key, files, true) // ticks checked above; a throw mid-replace is rolled back below
+    step = 'git add'
     git(repo, 'add', '-A', '--', ...paths)
+    step = 'git status'
     if (!git(repo, 'status', '--porcelain', '--', ...paths).trim()) return false
+    step = 'git commit'
     git(repo, 'commit', '-m', `Sprite report for hackbench ${key}`, '--', ...paths)
     return true
   } catch (e) {
     const err = e as { stderr?: string; stdout?: string; message: string }
+    let undone = true
+    const tracked = (path: string): boolean => {
+      try {
+        return git(repo, 'ls-files', '--', path).trim() !== '' // checkout of an untracked path would fail
+      } catch {
+        return true // cannot tell; try the checkout and let a failure count
+      }
+    }
     for (const undo of [
       ['reset', '-q', '--', ...paths],
-      ['checkout', '-q', '--', paths[0]], // each fails on a first run, nothing tracked yet
-      ['checkout', '-q', '--', paths[1]],
+      ...paths.filter(tracked).map(path => ['checkout', '-q', '--', path]),
       ['clean', '-fdq', '--', ...paths],
     ])
       try {
         git(repo, ...undo)
       } catch {
-        // best effort; the thrown message below is the one that matters
+        undone = false // keep going: the remaining steps still help, but the message must not claim success
       }
     throw new Error(
-      `git commit failed, report undone: ${err.stderr || err.stdout || err.message}`,
+      `${step} failed, report ${undone ? 'undone' : 'NOT fully undone (check git status in ' + repo + ')'}: ${err.stderr || err.stdout || err.message}`,
       { cause: e },
     )
   }
@@ -224,6 +235,11 @@ const commonDir = (dir: string): string | undefined => {
     return undefined
   }
 }
+/** The last path segment must be the name itself (so not-hackbench never matches); a trailing `.git`, `/.git`, `\.git` or a slash is allowed. */
+const urlEndingIn = (name: string): RegExp =>
+  new RegExp(String.raw`(^|[:/\\])${name}([/\\]?\.git)?[/\\]?$`, 'i')
+const HACKBENCH_URL = urlEndingIn('hackbench')
+const VALIDATION_URL = urlEndingIn('hackbench-validation')
 /** Every remote URL of the repo holding `dir`; none when it has no remotes or is no repo. */
 const remoteUrls = (dir: string): string[] => {
   try {
@@ -235,16 +251,16 @@ const remoteUrls = (dir: string): string[] => {
     return []
   }
 }
-/** Why `dir` is a hackbench repo (same git store as the checkout, or any remote, a fork included, named hackbench), else undefined. */
+/** Why `dir` is a hackbench repo (same git store as the checkout, or any remote URL, a fork included, ending in hackbench), else undefined. */
 export function hackbenchRepo(dir: string, repoRoot: string): string | undefined {
   const [mine, theirs] = [commonDir(repoRoot), commonDir(dir)]
   if (mine && mine === theirs) return 'it shares its git store with the hackbench checkout'
-  const url = remoteUrls(dir).find(u => /[:/]hackbench(\.git)?\/?$/i.test(u))
+  const url = remoteUrls(dir).find(u => HACKBENCH_URL.test(u))
   return url ? `a remote is ${url}` : undefined
 }
-/** True when a remote of `dir` is named hackbench-validation: a commit target is confirmed, not merely "not hackbench". */
+/** True when a remote URL of `dir` ends in hackbench-validation: a commit target is confirmed, not merely "not hackbench". */
 export const isValidationRepo = (dir: string): boolean =>
-  remoteUrls(dir).some(u => /[:/]hackbench-validation(\.git)?\/?$/i.test(u))
+  remoteUrls(dir).some(u => VALIDATION_URL.test(u))
 
 /** Exit 0, 1 (missing input or nothing graded) or 2 (usage or refused path). */
 export function run(argv: string[], io: Io): number {
@@ -285,7 +301,7 @@ export function run(argv: string[], io: Io): number {
     if (!isValidationRepo(target))
       return fail(
         2,
-        `refusing ${target}: no remote is named hackbench-validation, so it is not confirmed as the validation repo. Nothing written.`,
+        `refusing ${target}: no remote URL ends in hackbench-validation, so it is not confirmed as the validation repo. Nothing written.`,
       )
   }
   const graded = io.grade(a.filter)
