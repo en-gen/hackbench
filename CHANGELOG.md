@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Tools (#828): `npm run sprite:report` grades every captured sprite with id $00-$C8 and at least one recorded frame, with the accuracy test's grader (on the hardware timeline of #867: graded pass, Mario and frame-counter seeds) and commits a browsable report (one page per verdict, our frame beside the Mesen frame, an unticked `corrupted` box per row) to the private validation repo; `--sheet` writes one contact-sheet PNG outside both repos. Local only, never pushes, refuses any output inside this checkout or its git store; a dirty tree writes `<sha>-dirty/`, and `--force` replaces a ticked or edited `<sha>/`. Vanilla ROM and layers_v5 captures, one machine: 1957 graded (exact 969, shape 792, wrong 164, close 19, empty 13).
+
 ### Changed
 
 - Content gate (#812): new `rom-provenance` rule blocks a comment claiming the data below was copied from the game (`vanilla $<address>`, `copied from`, `ROM bytes`) over a numeric array literal of 2+ elements within 3 lines; it reads `//` (trailing, spaced or not), `/* */` blocks carried across lines, and markdown `<!-- -->`, skipping delimiters inside strings and regex literals (a quoted `"[1, 2]"` is not a literal); and a decimal array with a `0x` element now counts toward `byte-tokens`. Evidence: synthetic fixtures; a scan of `git ls-files` on develop finds 0 hits without pragmas; it blocks dd6e9c33's file (range mode, one machine).
@@ -34,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Maps (#286): the fireplace flame on `$104` (Yoshi's House) now draws inside the fireplace instead of 192 px above it. Its sprite, `$8C` (Side Exit), writes constant screen positions into OAM (`SMWDisX bank_02.asm:15531-15542`), so a part that does not move when the camera moves is placed from the level's own starting camera, for a sprite the game's own start-of-level load loaded (read from the level loader's SpriteLoadStatus byte for that sprite, set at `SMWDisX bank_02.asm:5282-5284`; no loader image means the old placement). Evidence is vanilla only: `$104` is one Mesen capture; the two `$C6` disco balls on `$10E` and `$1BD` move for the same reason (constant OAM X `$78`, Y `$28`, `SMWDisX bank_03.asm:7949-7953`) but are traced from the ROM, not captured. Vs develop: 512 vanilla slots (488 with sprites, 3239 sprites), three sprites change, one machine.
 - The smw-mcp server config (`.mcp.json`) pointed `ROM_PATH` at a vanilla ROM path that does not exist (checked on the maintainer's machine, 2026-10-10); it now points into `hackbench-fixtures/roms/`.
 - Spike Top ($2E) in the model path faces by Mario's start X (unflipped with Mario strictly left, X-flipped otherwise; a static approximation, as for Dry Bones and Chucks), reading the flip from the ROM's table only while the ORA that reads it is intact; the served map view already did, now pinned by a test (44 vanilla placements, vanilla US 1.0, one machine) (#134); the map $1BF gap that note left open, readMarioStartPos dropping the entrance screen from Mario's X, is closed by #781 (see Changed).
 - Midway tape (ext $46): the port now honours the game's two gates, OWLevelTileSettings bit 6 and MidwayFlag, via an optional `Cursor.ram`; editor defaults are 0, so every map view is unchanged (synthetic fixtures, no emulator run) (#635).
@@ -66,6 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- WebGL2 map renderer spike findings (`docs/spikes/webgl2-map-renderer-spike.md`): byte parity with the CPU `CanvasRenderTarget` on 3072 corpus slots (6 ROMs x 512), but full repaint 0.93x median CPU over GL on the 512 vanilla slots (not faster); palette-only repaint (a stand-in against a CPU target with no cheaper path, not a renderer measurement) and payload gains come from an indexed representation, not WebGL, and the CPU arm is not the shipped widget. One machine, Playwright Chromium only; Electron's Chromium was not measured. Proposes an indexed-representation spike, not a WebGL build. Harness not committed.
 - A Playwright test pins the Maps zoom anchor against a screen reply that lands between a zoom and its React commit; it fails if `restoreAnchor` runs from `sync` (#547). The scroller carries `data-rendered-zoom`. The `renderedZoom` guard is ruled unreachable from UI input and has no test: docs/decisions/2026-10-08-zoom-anchor-race-seam.md.
 - Agentic workflow: docs/ becomes the knowledge base (conventions, decisions, protocols, runbooks, hypotheses); /protocol <name> on|off enacts a mode for every session via a hook; BA and tech-lead manuals replace the orchestrator manual, with registration, state files and self-clear after merge.
 - Block contents: a test pins the CODE_00F17F entry bytes in the gate reader pattern (#632).
