@@ -27,33 +27,33 @@ never change size, such as a palette color. Most edits do change size:
 Some data also cannot move freely because the game's code fixes where it may
 live. Sprite data is the clearest case: the pointer is 2 bytes from
 `Ptrs05EC00` and the code hard-sets the bank to `$07`
-(SMWDisX `bank_05.asm:7253-7258`). Once bank `$07` is full no level can gain
+(SMWDisX `bank_05.asm:7253-7258`). Once bank `$07` is full no map can gain
 sprites until the code reads a full pointer from a new table.
 
 [../rom/map-data-mechanics.md](../rom/map-data-mechanics.md) measured the same
 thing from the other side: on vanilla, adding one object to any of 182 tightly
 packed Layer 1 maps corrupts the map stored after it. It also counts 14517
 unreferenced bytes in banks `$06` and `$07`, but only in the sense that no L1,
-L2 or sprite table pointer reaches them. That is not a free-space figure.
-Part of it is known code and data: `$07F000-$07FC8F` (3216 bytes) holds
-`DATA_07F000`, `CODE_07F1CA`, `InitSpriteTables` (`$07F7D2`), `CircleCoords`
-and `LineGuideData00` (`SMW_U.sym`), so the note's 6289-byte tail
-`$07E76F-$07FFFF` is mostly not free. Its free part is the two `freespace.txt`
-runs `$07E76F-$07EFFF` and `$07FC90-$07FFFF`. The entrance-scene and Chocolate
-Island 2 data (for example `CI2Sub2Level6E9FB`, `bank_06.asm:304`) is reached by
-other readers (see the reader inventory) and plausibly sits in the rest. The
+L2 or sprite table pointer reaches them. That is not a free-space figure. Part
+of it is known code and data: `$07F000-$07FC8F` (3216 bytes) holds
+`DATA_07F000`, `CODE_07F1CA`, `InitSpriteTables` (`$07F7D2`), `CircleCoords` and
+`LineGuideData00` (`SMW_U.sym`), so the note's 6289-byte tail `$07E76F-$07FFFF`
+is mostly not free. Its free part is the two `freespace.txt` runs
+`$07E76F-$07EFFF` and `$07FC90-$07FFFF`. The entrance-scene and Chocolate Island
+2 data (for example `CI2Sub2Level6E9FB`, `bank_06.asm:304`) is reached by other
+readers (see the reader inventory) and plausibly sits in the rest. The
 `freespace.txt` runs in banks `$06` and `$07` (U column, 8 runs) sum to 8991
-bytes. The 5526-byte difference from 14517 is 3216 bytes of bank-`$07` code
-plus a remainder of 2310 bytes (1803 in `$06`: 6325 unreferenced less 4522
-free; 507 in `$07`: 8192 less 3216 less 4469), assuming all 8 free runs lie
-inside the note's 20 unreferenced runs, whose attribution (entrance-scene and Chocolate
+bytes. The 5526-byte difference from 14517 is 3216 bytes of bank-`$07` code plus
+a remainder of 2310 bytes (1803 in `$06`: 6325 unreferenced less 4522 free; 507
+in `$07`: 8192 less 3216 less 4469), assuming all 8 free runs lie inside the
+note's 20 unreferenced runs, whose attribution (entrance-scene and Chocolate
 Island 2 data, suspected) is UNCONFIRMED.
 
 ## The pipeline
 
 ```
 edits per resource -> resource content -> build -> working copy -> BPS
- (ops/, undoable)    (level 105 L1,        encode      (every view      (Export Patch,
+ (ops/, undoable)    (slot 105 L1,         encode      (every view      (Export Patch,
                       sprite list 105,     place        reads it)        unchanged)
                       GFX 14, song 3)      fix pointers
                                            install hooks
@@ -79,12 +79,11 @@ edits per resource -> resource content -> build -> working copy -> BPS
    describes a resized ROM
    ([../decisions/2026-10-04-bps-primary-patch-format.md](../decisions/2026-10-04-bps-primary-patch-format.md));
    `src/rom/Bps.ts` writes the target length. The IPS path does not:
-   `diffPatches` in `src/project/ExportPatch.ts` compares only up to the
-   shorter of the two buffers, so an expanded ROM exported as IPS would lose
-   its tail. **[PROP]** Export refuses IPS whenever the working copy's size
-   differs from the base, with a message pointing at BPS. That is a small
-   change to `ExportPatch.ts` and belongs with the first slice that can grow
-   the ROM.
+   `diffPatches` in `src/project/ExportPatch.ts` compares only up to the shorter
+   of the two buffers, so an expanded ROM exported as IPS would lose its tail.
+   **[PROP]** Export refuses IPS whenever the working copy's size differs from
+   the base, with a message pointing at BPS. That is a small change to
+   `ExportPatch.ts` and belongs with the first slice that can grow the ROM.
 
 A resource is one of three kinds, as in the issue: **data** (object list,
 sprite list, GFX file, song, Map16 page, palette; each with an encoder),
@@ -99,7 +98,7 @@ The issue's five principles, restated so each can be checked in review.
    stays at its base address. An edited one stays in place if the new encoding
    fits in its old block, otherwise it moves and the old block is freed. The
    ROM grows (#218) only when no free space fits. A full repack would break
-   hacks whose own code points at data addresses and would make a one-level
+   hacks whose own code points at data addresses and would make a one-map
    edit export as most of the ROM. The GFX arena note already shows the cost
    of even a contiguous relay: one pixel in the first file exported 102,185
    changed bytes (vanilla, one machine).
@@ -133,7 +132,7 @@ questions below can lean on them:
    with a reader the inventory does not list, or one that cannot be
    rewritten, is refused. A block that more than one pointer reaches is
    **shared**: the build counts its readers, edits it only after giving the
-   edited level a private copy, and never frees a block that still has one.
+   edited map a private copy, and never frees a block that still has one.
 
 ## Open question 1: how hook bytes are produced
 
@@ -144,20 +143,23 @@ traced in SMWDisX `bank_05.asm:7253-7258`. It is **not needed by the first
 edit slice**: `freespace.txt` (U column) lists five runs in bank `$07`
 (`$0780ED` 19 B, `$07A179` 1159 B, `$07C226` 218 B, `$07E76F` 2193 B,
 `$07FC90` 880 B; 4469 B in all), so early sprite growth fits without a hook.
-The hook is its own later slice, built when bank `$07` runs out. Two things to design in before then, both from the reader inventory:
-the Chocolate Island 2 loader inherits its sprite bank from the earlier
-hard-set (`bank_05.asm:7558-7559`), so a 3-byte hook must keep bank `$07` for
-those loads or move their lists with them; and the sprite loop indexes the
-list with an 8-bit `Y` (`bank_02.asm:5250-5253`), so a list, header included,
-must stay under 256 bytes: a header, three bytes per sprite and a terminator,
-so at most 84 sprites, exactly (1 + 3x84 + 1 = 254 bytes; `LDY.B` at
-`bank_02.asm:5251`; the `.B` form is the evidence, the processor flag was not
-traced). The sprite encoder refuses a longer list, hook or not.
-(`map-data-mechanics.md` quotes a 128-sprite, 386-byte ceiling from the
-`SpriteLoadStatus` table; the 8-bit index bites first.) "Sprite lists may live in any bank" is
-therefore true only after a hook exists, and for hacks only where a known hook
-is already read through: of the four corpus hacks, `LevelTableGate` accepts
-the sprite read on two (see Address discovery below).
+The hook is its own later slice, built when bank `$07` runs out. Two things to
+design in before then, both from the reader inventory: the Chocolate Island 2
+loader inherits its sprite bank from the earlier hard-set
+(`bank_05.asm:7558-7559`), so a 3-byte hook must keep bank `$07` for those loads
+or move their lists with them; and the sprite loop indexes the list with an
+8-bit `Y` (`LDY.B #$01`, `bank_02.asm:5251`; loop `:5252-5271`), so a list,
+header included, stays under 256 bytes: a header, three bytes per sprite and a
+terminator, so at most 84 sprites (1 + 3x84 + 1 = 254). `Y` is 8-bit: `SEP #$30`
+at `bank_00.asm:35`, no `REP` on the path `GameLoop` (`:49-58`), `GM14Level`
+(`:4405`), `CODE_028AB1` (`:4535`), the only caller of `LoadSprFromLevel`
+(`bank_02.asm:1410`); callees are not each traced, but `LDX.B #$00` (`:5250`)
+needs 8-bit `X`. 84 is an engine limit, below the 128-sprite `SpriteLoadStatus`
+ceiling (`map-data-mechanics.md`). The encoder refuses a longer list, hook or
+not. "Sprite lists may live in any bank" is therefore true only after a hook
+exists, and for hacks only where a known hook is already read through: of the
+four corpus hacks, `LevelTableGate` accepts the sprite read on two (see Address
+discovery below).
 
 Options:
 
@@ -200,19 +202,19 @@ and size on a hack that already moved things.
 Order, **[PROP]**:
 
 1. **Sprite lists and Layer 1 object lists.** They unblock #24. Both are
-   pointer-indexed per level.
+   pointer-indexed per slot.
 2. **GFX files**, because #218 and the painter need them.
 3. **Music last.** It needs a different treatment (below).
 
 What the static trace supports:
 
-| Resource    | Pointer table                                                                    | Entry                  | Notes                                                                                                                                    |
-| ----------- | -------------------------------------------------------------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Sprite list | `Ptrs05EC00`, `bank_05.asm:8708-9220`, 512 entries                               | 2 bytes                | Bank hard-set to `$07` (`:7253-7258`); needs a hook to leave it.                                                                         |
-| Layer 1     | `Layer1Ptrs`, `bank_05.asm:7680-8192`, 512 entries                               | 3 bytes                | Loaded at `:7235-7239`, index is level times 3 (`:7229-7233`). Full pointer, but Chocolate Island 2 levels inherit its bank (inventory). |
-| Layer 2     | `Layer2Ptrs`, `bank_05.asm:8194-8707`, 512 entries                               | 3 bytes                | Loaded at `:7241-7246`. Two kinds of entry, see the inventory: object streams (any bank) and backgrounds.                                |
-| GFX file    | `GFXFilesLow` `bank_00.asm:6415`, `GFXFilesHigh` `:6467`, `GFXFilesBank` `:6519` | three tables, 50 files | Used by `PrepareGraphicsFile` (`bank_00.asm:6571-6591`).                                                                                 |
-| BGM         | `LevelMusicTable`, `bank_05.asm:513-520`                                         | 8 ids                  | The bank upload is hard-set (`UploadMusicBank1`, `bank_00.asm:145-151`, to `MusicBank1`, `bank_0E.asm:2353`).                            |
+| Resource    | Pointer table                                                                    | Entry                  | Notes                                                                                                                               |
+| ----------- | -------------------------------------------------------------------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Sprite list | `Ptrs05EC00`, `bank_05.asm:8708-9220`, 512 entries                               | 2 bytes                | Bank hard-set to `$07` (`:7253-7258`); needs a hook to leave it.                                                                    |
+| Layer 1     | `Layer1Ptrs`, `bank_05.asm:7680-8192`, 512 entries                               | 3 bytes                | Loaded at `:7235-7239`, slot index times 3 (`:7229-7233`). Full pointer, but Chocolate Island 2 slots inherit its bank (inventory). |
+| Layer 2     | `Layer2Ptrs`, `bank_05.asm:8194-8707`, 512 entries                               | 3 bytes                | Loaded at `:7241-7246`. Two kinds of entry, see the inventory: object streams (any bank) and backgrounds.                           |
+| GFX file    | `GFXFilesLow` `bank_00.asm:6415`, `GFXFilesHigh` `:6467`, `GFXFilesBank` `:6519` | three tables, 50 files | Used by `PrepareGraphicsFile` (`bank_00.asm:6571-6591`).                                                                            |
+| BGM         | `LevelMusicTable`, `bank_05.asm:513-520`                                         | 8 ids                  | The bank upload is hard-set (`UploadMusicBank1`, `bank_00.asm:145-151`, to `MusicBank1`, `bank_0E.asm:2353`).                       |
 
 One ROM fact is settled by a static read: `CODE_00B8DE`
 (`bank_00.asm:6294-6302`) is a loop that reads bytes until `$FF` and
@@ -224,16 +226,15 @@ table byte for most entries; see the inventory.
 ### Reader inventory
 
 Rule 7 needs every reader of a resource. This is the inventory from a static
-read of SMWDisX (U ROM), 2026-10-11. Its completeness scope is exactly this:
-a text search of the SMWDisX source tree (done, 2026-10-11) finds the labels
-`Layer1Ptrs`, `Layer2Ptrs` and `Ptrs05EC00` read only at
-`bank_05.asm:7235-7255` (they also appear at their definitions, `:7680`,
-`:8194`, `:8708`), and every store into `Layer1DataPtr`, `Layer2DataPtr` and
-`SpriteDataPtr` was listed and classified (below). Not done: a search for
-readers that use a literal address instead of a label, and a committed trace
-of the whole. A hack-added reader would not appear in either. So the list is
-not proven complete (see Unconfirmed facts), and a resource whose reader is
-not here is refused.
+read of SMWDisX (U ROM), 2026-10-11. Its completeness scope is exactly this: a
+text search of the SMWDisX source tree (done, 2026-10-11) finds the labels
+`Layer1Ptrs`, `Layer2Ptrs` and `Ptrs05EC00` read only at `bank_05.asm:7235-7255`
+(they also appear at their definitions, `:7680`, `:8194`, `:8708`), and every
+store into `Layer1DataPtr`, `Layer2DataPtr` and `SpriteDataPtr` was listed and
+classified (below). Not done: a search for readers that use a literal address
+instead of a label, and a committed trace of the whole. A hack-added reader
+would not appear in either. So the list is not proven complete (see Unconfirmed
+facts), and a resource whose reader is not here is refused.
 
 **Sprite lists.**
 
@@ -256,14 +257,14 @@ not here is refused.
 - `PtrsLong05D766` (`bank_05.asm:7057-7063`, read `:7473-7478`): 3-byte
   pointers for the ghost house, castle and no-Yoshi entrance scenes. The
   blocks are in bank `$07` (`bank_07.asm:3`).
-- Chocolate Island 2 (`ChocIsld2Layer1`, `bank_05.asm:7515-7524`): 9 entries,
-  8 distinct blocks (only `CI2Sub7Level6EC7E` repeats), read as 16 bits under `REP #$20` (`:7555-7557`); the bank
-  stays whatever the level's `Layer1Ptrs` entry set. So every target (for
-  example `CI2Sub2Level6E9FB`, `bank_06.asm:304`) must share a bank with the
-  Chocolate Island 2 levels' own Layer 1 blocks. Three blocks are shared
-  with `Layer1Ptrs`: `CI2Sub8Level0CD`, `CI2Sub4Level0CE` and
-  `CI2Sub3Level0CF` (`bank_05.asm:7886-7888`). **[PROP]** Slice 1 refuses to move
-  any of these blocks; a later slice moves the group together within one
+- Chocolate Island 2 (`ChocIsld2Layer1`, `bank_05.asm:7515-7524`): 9 entries, 8
+  distinct blocks (only `CI2Sub7Level6EC7E` repeats), read as 16 bits under
+  `REP #$20` (`:7555-7557`); the bank stays whatever the slot's `Layer1Ptrs`
+  entry set. So every target (for example `CI2Sub2Level6E9FB`, `bank_06.asm:304`) must
+  share a bank with the Chocolate Island 2 slots' own Layer 1 blocks. Three
+  blocks are shared with `Layer1Ptrs`: `CI2Sub8Level0CD`, `CI2Sub4Level0CE` and
+  `CI2Sub3Level0CF` (`bank_05.asm:7886-7888`). **[PROP]** Slice 1 refuses to
+  move any of these blocks; a later slice moves the group together within one
   bank, or adds a hook that reads a full pointer.
 
 **Layer 2.** Two different things share one table.
@@ -286,15 +287,14 @@ not here is refused.
   `ChocIsld2Layer2` (`bank_05.asm:7537-7546`, read `:7560-7561`).
 
 **Other stores into the data pointers, found by that search and classified.**
-They are not readers of the three level tables, so they do not touch a
+They are not readers of the three pointer tables, so they do not touch a
 resource this document moves, but they are listed so the classification can be
 checked. `bank_05.asm:465-470` copies the Layer 2 pointer into Layer 1 ("level
 to load" chaining). `bank_00.asm:7180` and `bank_04.asm:5725` point Layer 1 at
 block-loading and overworld character data. `bank_0C.asm:696-730` and
-`:3315-3329` set both pointers from ending and credits tables
-(`DATA_0C93C1`, `DATA_0CAD58`) with bank `$0C`; those streams live in bank
-`$0C` and are out of scope. `bank_0D.asm:1415-1427` only advances an existing
-pointer.
+`:3315-3329` set both pointers from ending and credits tables (`DATA_0C93C1`,
+`DATA_0CAD58`) with bank `$0C`; those streams live in bank `$0C` and are out of
+scope. `bank_0D.asm:1415-1427` only advances an existing pointer.
 
 **GFX files.** The three-table read in `PrepareGraphicsFile`
 (`bank_00.asm:6571-6591`). The stream reader carries into the next bank
@@ -374,7 +374,7 @@ Options:
   (`old`), as byte ops do, so undo works on a clone. The `old` of a pixel op
   is a small color index; of a list op, the removed entry. These are
   ROM-derived but of the same order of size as today's exception. Where the
-  old value would be a whole block (deleting a level's sprite list), the op
+  old value would be a whole block (deleting a map's sprite list), the op
   should instead be invertible from the base alone and carry no copy.
 - _GFX._ Pixel ops are applied to the decoded tile bitmap and the build
   re-encodes. [../gfx-arena-budget.md](../gfx-arena-budget.md) records that an
@@ -426,12 +426,11 @@ Options:
   or Map16 tile is refused, not dropped.
 - Not rewriting keeps a project written by today's build opening in today's
   build, and keeps the portable-undo property of old layers.
-- B is kept only as a rule: any raw byte op that survives conversion is
-  checked against the final layout, and a build in which a byte op targets a
-  moved resource fails with a message naming the layer. B alone is rejected
-  because it gives every build two semantics, and "byte ops after layout"
-  silently changes the meaning of old layers once a resource gains a
-  size-changing edit.
+- B is kept only as a rule: any raw byte op that survives conversion is checked
+  against the final layout, and a build in which a byte op targets a moved
+  resource fails with a message naming the layer. B alone is rejected because it
+  gives every build two semantics, and "byte ops after layout" silently changes
+  the meaning of old layers once a resource gains a size-changing edit.
 - C is rejected because it makes old projects unreadable by older builds for
   no gain.
 - **GfxArena. [PROP] replaced, on a schedule.** Until GFX is migrated (it is
@@ -585,7 +584,7 @@ PR.
    that loads the built ROM in the libretro core, reaches the point where the
    moved data is read, and confirms it loads. A toy loader cannot catch bank
    coupling of the Chocolate Island 2 kind, so only this check covers slice 1.
-   The oracle is concrete: after the level loads, read the game's sprite
+   The oracle is concrete: after the map loads, read the game's sprite
    tables and the Layer 1 tilemap out of the core's WRAM and compare them with
    what our own decoder produces for the edited content. The project's rule
    (derive state from the core, never write through it) applies. This check
@@ -596,7 +595,7 @@ PR.
    red on a planted mismatch, with no core involved. The comparison covers
    spawned sprites only, not sprites still unspawned off-screen. A second,
    move-only plant relocates an unedited list and the WRAM must match the base
-   ROM's own load of that level; a build that moves but corrupts, or reads the
+   ROM's own load of that map; a build that moves but corrupts, or reads the
    wrong table, turns it red. Step 3 says unedited resources are never moved,
    so the plant needs a seam: **[PROP]** a test-only build input,
    `forceRelocate`, naming resources the allocator must treat as dirty and
@@ -635,7 +634,7 @@ PR.
 ## Re-scoping of the dependent issues
 
 **#24, save a modified level back to the ROM.** It stops being "write bytes at
-the level's addresses". It becomes the first consumer of the build: the
+the map's addresses". It becomes the first consumer of the build: the
 editor emits sprite and Layer 1 object ops on resources, and Save runs the
 build. It must not ship on byte ops. Scope for the first slice is vanilla,
 sprite and Layer 1 object lists, placed in the vanilla fill runs, with the

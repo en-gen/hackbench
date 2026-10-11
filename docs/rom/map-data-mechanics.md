@@ -367,9 +367,13 @@ indexes `SpriteLoadStatus` (`bank_02.asm:5282, 5285`), declared `skip 128`
 (`rammap.asm:1968`). **A map holds at most 128 sprites**; the 129th writes
 past the table into `ExitTableLow` (`rammap.asm:1969`), the per-screen
 screen-exit table. That would be 386 bytes of stream, but the loop's index
-`Y` is loaded with `LDY.B` (`bank_02.asm:5251`) and steps 3 per sprite, so an
-8-bit index limits a list to under 256 bytes, 84 sprites exactly (1 + 3x84 + 1 = 254), before the
-128-sprite ceiling (the `.B` form is the evidence; the flag was not traced).
+`Y` is loaded with `LDY.B #$01` (`bank_02.asm:5251`) and steps 3 per sprite
+(`:5261, 5268-5269`), so an 8-bit index limits a list to under 256 bytes, 84
+sprites exactly (1 + 3x84 + 1 = 254), before the 128-sprite ceiling. `Y` is
+8-bit: `SEP #$30` at `bank_00.asm:35`, no `REP` in `GameLoop` (`:49-58`) or
+`GM14Level` (`:4405`) before `CODE_028AB1` (`:4535`) reaches `LoadSprFromLevel`
+(`bank_02.asm:1410`); callees before it are not each traced, but the 8-bit
+immediates (`LDX.B #$00`, `:5250`) need it. An engine limit.
 Vanilla's longest is 197 bytes, 65 sprites.
 
 Hack sprite streams are only partly measured. Walked from bank `$07`, as the
