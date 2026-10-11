@@ -4,6 +4,7 @@
 // what made [Unreleased] the most common merge conflict.
 //
 // Usage: changelog-combine.mjs <version> [--date YYYY-MM-DD] [--root DIR]
+// (--date=YYYY-MM-DD is not supported; the value is a separate argument.)
 
 import { existsSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -35,12 +36,11 @@ export function parseFragment(name, text) {
       sections.set(h[1], cur)
     } else if (line.trim()) {
       if (!cur) throw new Error(`${name}: text before the first "### <Section>" heading`)
-      // changelog.d/README.md: a bullet, or a continuation indented two spaces.
-      if (!line.startsWith('- ') && !line.startsWith('  ')) {
-        throw new Error(`${name}: each line must start with "- " or be indented two spaces`)
-      }
-      if (cur.length === 0 && !line.startsWith('- ')) {
-        throw new Error(`${name}: first entry under a heading must start with "- "`)
+      // changelog.d/README.md: a bullet, or (after the first) a two-space continuation.
+      if (!line.startsWith('- ') && !(cur.length > 0 && line.startsWith('  '))) {
+        throw new Error(
+          `${name}: each line must start with "- " or, after the first, be indented two spaces`,
+        )
       }
       cur.push(line)
     }
@@ -102,7 +102,12 @@ function main(argv) {
     if (v === undefined || v.startsWith('--')) missingValue = true
     return v
   }
-  const date = opt('--date') ?? new Date().toISOString().slice(0, 10)
+  // Local date: the UTC slice stamps tomorrow on an evening release west of Greenwich.
+  const today = new Date()
+  const localDate = [today.getFullYear(), today.getMonth() + 1, today.getDate()]
+    .map((n, i) => String(n).padStart(i ? 2 : 4, '0'))
+    .join('-')
+  const date = opt('--date') ?? localDate
   const root = opt('--root') ?? process.cwd()
   const version = args[0]
   // Leftovers are typos like "--dat": refuse rather than release with today's date.
@@ -118,7 +123,9 @@ function main(argv) {
     !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
     !realDate(date)
   ) {
-    console.error('usage: changelog-combine.mjs <version> [--date YYYY-MM-DD] [--root DIR]')
+    console.error(
+      'usage: changelog-combine.mjs <version> [--date YYYY-MM-DD] [--root DIR] (--date=VALUE is not supported)',
+    )
     return 2
   }
   const dir = join(root, 'changelog.d')

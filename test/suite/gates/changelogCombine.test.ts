@@ -160,19 +160,39 @@ describe('changelog-combine', () => {
   })
 
   it.each([
-    ['a release heading', '### Added\n- a\n## [9.9.9]\n'],
-    ['a #### heading', '#### Added\n- a\n'],
-    ['a first entry without a bullet', '### Added\nplain\n'],
-    ['a repeated heading', '### Added\n- valid\n### Added\n'],
-    ['plain text after a bullet', '### Added\n- valid\nplain text\n'],
-    ['a 0-byte file', ''],
-  ])('refuses a fragment with %s', (_n, bad) => {
+    ['a release heading', '### Added\n- a\n## [9.9.9]\n', /only "### <Section>"/],
+    ['a #### heading', '#### Added\n- a\n', /only "### <Section>"/],
+    ['a first entry without a bullet', '### Added\nplain\n', /must start with/],
+    ['an indented first line', '### Added\n  indented first\n', /must start with/],
+    ['a repeated heading', '### Added\n- valid\n### Added\n- other\n', /repeated heading "Added"/],
+    ['plain text after a bullet', '### Added\n- valid\nplain text\n', /must start with/],
+    ['a one-space continuation', '### Added\n- a\n one space\n', /must start with/],
+    ['a bullet without its space', '### Added\n- a\n-foo\n', /must start with/],
+    ['a tab continuation', '### Added\n- a\n\tmore\n', /must start with/],
+    ['a 0-byte file', '', /no "### <Section>" heading/],
+  ])('refuses a fragment with %s', (_n, bad, msg) => {
     log()
     frag('2-bad.md', bad)
     const r = run()
     expect(r.status).not.toBe(0)
     expect(r.stderr).toContain('2-bad.md')
+    expect(r.stderr).toMatch(msg)
     expect(readLog()).toBe(BASE)
+  })
+
+  it('stamps the LOCAL date when --date is omitted', () => {
+    log()
+    frag('1-a.md', '### Added\n- a\n')
+    const local = (d: Date) =>
+      [d.getFullYear(), d.getMonth() + 1, d.getDate()]
+        .map((n, i) => String(n).padStart(i ? 2 : 4, '0'))
+        .join('-')
+    const before = local(new Date())
+    const r = spawnSync(process.execPath, [script, '1.2.0', '--root', root], { encoding: 'utf8' })
+    const after = local(new Date())
+    expect(r.status).toBe(0)
+    // before/after bracket a midnight crossing during the spawn.
+    expect([before, after].some(d => readLog().includes(`## [1.2.0] - ${d}`))).toBe(true)
   })
 
   it('reads CRLF and BOM input, and .MD fragments but not README.MD', () => {
