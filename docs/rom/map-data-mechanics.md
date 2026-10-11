@@ -51,10 +51,10 @@ the 17 L2 blocks as overlapping the block after them.
 
 On vanilla, all map data sits in banks `$06` and `$07`:
 
-| bank                      | referenced by a pointer | not referenced | largest free run        |
-| ------------------------- | ----------------------- | -------------- | ----------------------- |
-| `$06` (`$068000-$06FFFF`) | 26443 B                 | 6325 B         | 2759 B at file `$37539` |
-| `$07` (`$078000-$07FFFF`) | 24576 B                 | 8192 B         | 6289 B at file `$3E76F` |
+| bank                      | referenced by a pointer | not referenced | largest free run                    |
+| ------------------------- | ----------------------- | -------------- | ----------------------------------- |
+| `$06` (`$068000-$06FFFF`) | 26443 B                 | 6325 B         | 2759 B at file `$37539`             |
+| `$07` (`$078000-$07FFFF`) | 24576 B                 | 8192 B         | 2193 B at `$07E76F` (file `$3E76F`) |
 
 14517 unreferenced bytes in total, in 20 runs (9 in bank `$06`, 11 in
 `$07`), 8 of them 256 bytes or larger. **Unverified:** this checks only that no L1, L2 or sprite pointer
@@ -284,8 +284,8 @@ sprite data is stored in bank 07" (`bank_05.asm:7257-7258`).
 
 **On a stock ROM, L1 and L2 data can be relocated anywhere; sprite data
 cannot leave bank `$07` without an ASM patch.** Bank `$07` is 32 KB, already
-holds 24576 referenced bytes on vanilla, and its largest free run is the
-unconfirmed 6289-byte tail.
+holds 24576 referenced bytes on vanilla, and its largest free run is
+2193 bytes (`$07E76F`); the 6289-byte tail around it is not all free.
 
 All four corpus hacks carry exactly such a patch. `$05D8F5` becomes a `JSL`
 to a routine that loads the bank from a 512-byte per-slot table at
@@ -368,7 +368,7 @@ indexes `SpriteLoadStatus` (`bank_02.asm:5282, 5285`), declared `skip 128`
 past the table into `ExitTableLow` (`rammap.asm:1969`), the per-screen
 screen-exit table. That would be 386 bytes of stream, but the loop's index
 `Y` is loaded with `LDY.B` (`bank_02.asm:5251`) and steps 3 per sprite, so an
-8-bit index limits a list to under 256 bytes, about 84 sprites, before the
+8-bit index limits a list to under 256 bytes, 84 sprites exactly (1 + 3x84 + 1 = 254), before the
 128-sprite ceiling (the `.B` form is the evidence; the flag was not traced).
 Vanilla's longest is 197 bytes, 65 sprites.
 
