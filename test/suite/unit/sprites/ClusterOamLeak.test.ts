@@ -87,6 +87,8 @@ describe('cluster sprites in the level image (#809)', () => {
   it.each(carts)(
     'cell $cell: a sprite run from the level seed draws only the OAM it wrote',
     ({ rom, seed }) => {
+      // The flag clear itself: the zeroed number cells alone would keep the routine idle.
+      expect(seed.ram[0x18b8]).toBe(0)
       expect(oamOf(runOnce(rom, 0, seed))).toEqual([OWN])
     },
   )
