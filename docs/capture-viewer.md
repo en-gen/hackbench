@@ -85,8 +85,14 @@ to BG3 only. A picture whose band covers every line compares nothing, and
 its layer reads as not compared.
 
 A picture with no recorded line (or -1) is masked on lines 0..36 instead
-(`!StatusBarHeight`, `constants.asm:57`); Morton and Roy rooms record 45
-(`bank_00.asm:423-432`). The rows come from one function,
+(`!StatusBarHeight`, `constants.asm:57`). Morton and Roy rooms record 45
+(`bank_00.asm:423-432`, `constants.asm:138`). There the IRQ does not write
+the playfield layer 3 scroll: those rooms set `IRQNMICommand` bit 7, the IRQ
+branches to `CODE_0083BA` (`bank_00.asm:449-450`), and `CODE_0083F3`
+(`:505-511`) switches to mode 7 from line 45, which hides layer 3 (the floor
+IRQ is `CODE_0083D0`, `:489-496`). Bowser's room skips the IRQ
+(`bank_00.asm:415-421`) and is mode 7 all frame, so layer 3 is never
+displayed and the fallback hides nothing on screen. The rows come from one function,
 `tools/scripts/statusBarMask.ts` (#880).
 
 ## GenerateTile

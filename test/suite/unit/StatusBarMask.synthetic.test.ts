@@ -23,13 +23,19 @@ function differ(row: number, rows: number | null): number {
 }
 
 describe('status bar mask (#880)', () => {
-  it('is 37 rows (lines 0..36) by default and 46 (0..45) for Morton/Roy', () => {
+  it('falls back to lines 0..36 and takes a recorded line over the constant', () => {
     expect(STATUS_BAR_HEIGHT).toBe(36)
-    expect(statusBarRows()).toBe(37)
-    expect(statusBarRows(undefined, true)).toBe(46)
-    expect(statusBarRows(-1)).toBe(37) // no interrupt seen: constant
-    expect(statusBarRows(45)).toBe(46) // the capture's own line wins
-    expect(statusBarRows(36, true)).toBe(37) // recorded line over the flag
+    expect(statusBarRows()).toBe(STATUS_BAR_HEIGHT + 1)
+    expect(statusBarRows(null)).toBe(STATUS_BAR_HEIGHT + 1)
+    expect(statusBarRows(-1)).toBe(STATUS_BAR_HEIGHT + 1) // no interrupt seen: constant
+    expect(statusBarRows(45)).toBe(46) // Morton/Roy: the capture's own line wins
+    expect(statusBarRows(30)).toBe(31) // a recorded line below the constant narrows it
+    expect(statusBarRows(0)).toBe(1) // line 0 is a real recorded line, not "none"
+  })
+
+  it('irqLine 0 masks exactly line 0', () => {
+    expect(differ(0, statusBarRows(0))).toBe(0)
+    expect(differ(1, statusBarRows(0))).toBe(4)
   })
 
   it('unmasked, planted bar pixels on lines 0 and 36 go red; masked they stay green', () => {
@@ -39,11 +45,14 @@ describe('status bar mask (#880)', () => {
     }
   })
 
-  it('is not too wide: line 37 (46 in Morton/Roy) still goes red, line 45 is masked there', () => {
+  // Literal 36/37/45/46 are the independent oracle: they fail if the
+  // exported constant is mutated.
+  it('is not too wide: line 37 still goes red by default; with irqLine 45 line 45 is masked and 46 is red', () => {
+    expect(differ(36, statusBarRows())).toBe(0)
     expect(differ(37, statusBarRows())).toBe(4)
-    expect(differ(45, statusBarRows())).toBe(4) // Morton/Roy row, outside a normal room's bar
-    expect(differ(45, statusBarRows(undefined, true))).toBe(0)
-    expect(differ(46, statusBarRows(undefined, true))).toBe(4)
+    expect(differ(45, statusBarRows())).toBe(4) // outside a normal room's bar
+    expect(differ(45, statusBarRows(45))).toBe(0)
+    expect(differ(46, statusBarRows(45))).toBe(4)
   })
 
   it('goes red when its constant is wrong (planted 35 and 38 fail the boundary)', () => {
