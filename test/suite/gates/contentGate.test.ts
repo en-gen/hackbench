@@ -237,6 +237,20 @@ describe('rom-provenance (#812): a "taken from the game" comment over an inline 
     expect(hit('// copied from the ROM, no ROM bytes elsewhere', 'f([1, 2])')).toBe(true)
   })
 
+  it.each([
+    '// not only copied from the ROM, also reordered',
+    '// The original, not patched ROM bytes',
+    '// never modified ROM bytes',
+    '// no header ROM bytes from bank 05',
+    '// not invented copied from the ROM',
+    '// not invented, but copied from the ROM',
+    '// not one single byte differs: ROM bytes',
+    '// casino ROM bytes',
+    '// no ROM bytes here; copied from the ROM at $8000',
+  ])('a negator that is not directly before the phrase does not deny it: %s', c => {
+    expect(hit(c, 'f([1, 2, 3])')).toBe(true)
+  })
+
   it('the pragma exempts it', () => {
     const text = [
       '// content-gate: allow rom-provenance -- invented, mirrors a layout',

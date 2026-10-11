@@ -261,9 +261,10 @@ function countDisasmLines(text) {
 const CLAIM_PHRASE =
   /\b(?:vanilla\s+(?:ROM\s+)?(?:at\s+)?(?:\$|0x)[0-9a-f]|(?:copied|taken|lifted|dumped) from\b|from the (?:vanilla )?ROM\s+at\s+(?:\$|0x)[0-9a-f]|ROM bytes\b|real ROM (?:bytes|data|values)\b)/i
 const PROVENANCE_WINDOW = 3
-// "(no ROM bytes)", "not copied from the ROM": a negator up to two words
-// before the phrase denies the claim (D59). One unnegated match still claims.
-const NEGATED_BEFORE = /\b(?:no|not|never|without)\s+(?:\w+\s+){0,2}$/i
+// "(no ROM bytes)", "not copied from the ROM": a negator directly before
+// the phrase (one the/any/real allowed between) denies the claim (D59); "not
+// only" and any other word between do not. One unnegated match still claims.
+const NEGATED_BEFORE = /\b(?:no|not|never|without)\s+(?:(?:the|any|real)\s+)?$/i
 function claimsProvenance(comment) {
   const re = new RegExp(CLAIM_PHRASE.source, 'gi')
   for (const m of comment.matchAll(re)) {
