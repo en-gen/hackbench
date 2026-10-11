@@ -397,9 +397,9 @@ function fixOffsets(
   // fill, not a drawn part, so a genuine part at (0, 0) must move.
   const residue = (p: SpritePart) => {
     const e = loaded.subarray(RAM.oam + p.oam * 4, RAM.oam + p.oam * 4 + 4)
-    // X is 9 bits: bit 8 sits in the size table, one byte per OAM entry (SpriteRunner.readParts).
+    // X is 9 bits: bit 8 sits in the size table, one byte per OAM entry (SpriteRunner.readParts); it counts as non-zero.
     const x9 = e[0]! | ((loaded[RAM.oamSize + p.oam]! & 1) << 8)
-    return e.some(v => v) && x9 === p.ox && e[1] === p.oy
+    return (e.some(v => v) || x9 > 255) && x9 === p.ox && e[1] === p.oy
   }
   const same = (p: SpritePart) => !residue(p) && other.parts.some(q => q.oam === p.oam && q.ox === p.ox && q.oy === p.oy) // prettier-ignore
   if (!pass.parts.some(same)) return null

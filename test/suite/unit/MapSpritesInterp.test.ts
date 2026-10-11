@@ -121,6 +121,7 @@ describe('screen-fixed parts (#286)', () => {
     loaded.set([0, 0, 0, 0x30], 0x200 + 11 * 4) // OAM 11: (0, 0), tile 0, attribute $30: a drawn entry
     loaded[0x200 + 12 * 4] = 5 // OAM 12: X only
     loaded[0x200 + 13 * 4 + 1] = 5 // OAM 13: Y only
+    loaded[0x420 + 15] = 1 // OAM 15: four zero main bytes, only the size-table (X bit 8) set: X 256, Y 0
     return withSeed({ loaded })
   }
   const blank = RomFile.fromBytes('blank.sfc', Buffer.alloc(0x80000))
@@ -192,6 +193,11 @@ describe('screen-fixed parts (#286)', () => {
       [-128, 192 - 112],
       [56, 256],
     ]) // all zero: the fill, a real part, moved // prettier-ignore
+  })
+
+  it('treats a loader entry whose only non-zero bit is the size-table X bit 8 as residue (X 256, Y 0)', () => {
+    // Residue keeps its own position (256 - 128, 0 - 112); the other part is moved by the start camera (56, 256).
+    expect(dxy(draw(at(128, 112), runOf(() => [[0, 184, 176], [15, 256, 0]])))).toEqual([[256 - 128, 0 - 112], [56, 256]]) // prettier-ignore
   })
 
   it('does not compare tile or attribute: a cluster entry whose tile and attribute changed since the image is still residue', () => {
