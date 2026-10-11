@@ -141,10 +141,13 @@ describe('modelPieces and gradeRecord (synthetic model)', () => {
     expect(gradeRecord(m, 0, [e(1, 240)], cam0).verdict).toBe('missing')
   })
 
-  it('a never-drew model is missing within the pass count and lagged past it', () => {
-    const v = (lag: number) => gradeRecord(fake(undefined, []), lag, [e(1, 1)], cam0).verdict
+  it('a never-drew model is missing within the pass count and lagged from the pass count up', () => {
+    // two passes: indices 0 and 1 are valid, lag 2 is the first one past the end
+    const v = (lag: number) => gradeRecord(fake(undefined, [[], []]), lag, [e(1, 1)], cam0).verdict
     expect(v(0)).toBe('missing')
-    expect(v(1)).toBe('lagged')
+    expect(v(1)).toBe('missing')
+    expect(v(2)).toBe('lagged')
+    expect(v(3)).toBe('lagged')
   })
 
   it('a record without drawnFrame or firstRealFrame (no lag) is missing, with a detail', () => {

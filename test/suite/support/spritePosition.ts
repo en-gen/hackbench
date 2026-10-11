@@ -117,8 +117,8 @@ export function gradeRecord(
   if (m.refusal !== undefined) return { verdict: 'refused' }
   if (lag === undefined)
     return { verdict: 'missing', detail: 'record lacks drawnFrame or firstRealFrame' }
-  // A lag past the pass count is lagged even for a model that never drew.
-  if (m.chosen === undefined && lag > m.passes.length) return { verdict: 'lagged' }
+  // A lag at or past the pass count has no pass to read: lagged even for a model that never drew.
+  if (m.chosen === undefined && lag >= m.passes.length) return { verdict: 'lagged' }
   const got = modelPieces(m, lag)
   if (got === undefined) return { verdict: 'lagged' }
   const cap = capturePieces(entries)
