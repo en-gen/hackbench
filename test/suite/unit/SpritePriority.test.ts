@@ -11,7 +11,13 @@ import { runSprite, type SpritePart } from '../../../src/rom/sprites/interp/Spri
 import { composeScreen, type SourceKey } from '../../../src/rom/model/ColorMath'
 import { screenPlanes } from '../../../src/rom/model/ScreenPlanes'
 import { drawSprites, interpParts } from '../../../theia/extension/src/node/map-sprites'
-import { spriteDoors, spritePlanes } from '../../../theia/extension/src/browser/map-view-model'
+import {
+  decodeArts,
+  IndicatorDisplay,
+  spriteDoors,
+  spritePlanes,
+} from '../../../theia/extension/src/browser/map-view-model'
+import { decodeRgba } from '../../../theia/extension/src/browser/map16-pixels'
 import { COLORS, px } from '../support/mapInputs'
 import { buildSyntheticRom } from '../support/syntheticSpriteRom'
 
@@ -172,13 +178,13 @@ describe('a sprite pixel a tile covers draws through it in the hidden-tile scree
     const r = scene({ x: 10, y: 10, bg: 'l1Low' })
     for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) expect(at(r, x, y)).toEqual(SPRITE_RGB)
   })
-  it('OBJ priority 0 and 1 under layer 2 stay hidden (D52 part 2, undecided)', () => {
+  it('OBJ priority 0 and 1 under layer 2 draw in the door too (D52 part 2: the hardware order)', () => {
     for (const priority of [0, 1])
       for (const bg of ['l2Low', 'l2High'] as const) {
         const r = scene({ x: 10, y: 10, priority, bg, main: 0x12 })
         for (let y = 0; y < 8; y++)
           for (let x = 0; x < 8; x++)
-            expect(at(r, x, y), `p${priority} ${bg} ${x},${y}`).toEqual([31, 32, 33])
+            expect(at(r, x, y), `p${priority} ${bg} ${x},${y}`).toEqual(lerp([31, 32, 33], SPRITE_RGB, (x + y) % 2 === 0 ? 1 : HIDE)) // prettier-ignore
       }
   })
   it('OBJ priority 0 under layer 1 is covered and gets the door; priority 2 under layer 2 high too', () => {
@@ -187,4 +193,194 @@ describe('a sprite pixel a tile covers draws through it in the hidden-tile scree
     )
     expect(at(scene({ x: 10, y: 10, priority: 2, bg: 'l2High', main: 0x12 }), 0, 1)).toEqual(lerp([31, 32, 33], SPRITE_RGB, HIDE)) // prettier-ignore
   })
+})
+
+describe('the door against an independent per-pixel oracle (D52, #795)', () => {
+  const W = 32
+  const HIDE = 0.25
+  const L2_RGB = [31, 32, 33]
+  const lerp = (tile: number[], sprite: number[], s: number) => tile.map((v, k) => Math.round(v * (1 - s) + sprite[k]! * s)) // prettier-ignore
+  const maskTile = (on: (x: number, y: number) => boolean) => Uint8Array.from({ length: 64 }, (_, i) => (on(i % 8, i >> 3) ? 1 : 0)) // prettier-ignore
+  type Spec = { x: number; y: number; char: number; flipX?: boolean; priority?: number }
+  type Plane = 'l1High' | 'l1Low' | 'l2Low'
+
+  /** `specs` sprites (char n is tiles[n]) under the planes in `planes`, each covering where its function says. */
+  function run(
+    specs: Spec[],
+    tiles: Uint8Array[],
+    planes: Partial<Record<Plane, (x: number, y: number) => boolean>>,
+    main = 0x17,
+  ) {
+    // prettier-ignore
+    const model = { vram: { sp1: tiles }, colors: COLORS }
+    const sprites = specs.map((_, i) => ({ ...spr, index: i })) as LevelSprite[]
+    const dtos = drawSprites(sprites, model, s => {
+      const sp = specs[s.index]!
+      return { ok: true, parts: interpParts([oam({ priority: sp.priority ?? 2, char: sp.char, flipX: sp.flipX ?? false })]), anchor: { x: sp.x, y: sp.y }, identity } // prettier-ignore
+    }) // prettier-ignore
+    const input: Partial<Record<SourceKey, Uint8ClampedArray | null>> = {}
+    for (const [k, covers] of Object.entries(planes)) {
+      const plane = new Uint8ClampedArray(W * W * 4)
+      for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) if (covers(x, y)) plane.set([...(k.startsWith('l1') ? L1_RGB : L2_RGB), 255], (y * W + x) * 4) // prettier-ignore
+      input[k as SourceKey] = plane
+    }
+    const sp = { orientation: 'horizontal' as const, width: W, height: W, sprites: dtos }
+    const out = composeScreen({ width: W, height: W, planes: { ...input, ...spritePlanes(sp, 0) }, doors: spriteDoors(sp, 0), lists: screenPlanes(main, 0x00, false), math: null }) // prettier-ignore
+    return { out, dtos }
+  }
+
+  /**
+   * The expected composite of every on-screen pixel of every sprite, from the sprite's own bitmap and none
+   * of the code under test: `tile(x, y)` is the covering plane color there (null: uncovered), the door
+   * strength is the (lx + ly) parity on the bitmap, swapped when more covered pixels sit on the full
+   * squares than on the dim ones.
+   */
+  function expectDoors(
+    r: ReturnType<typeof run>,
+    tile: (x: number, y: number) => number[] | null,
+    label: string,
+  ) {
+    // prettier-ignore
+    for (const [n, dto] of r.dtos.entries()) {
+      const { x0, y0, x1, y1 } = dto.box
+      const rgba = decodeRgba(dto.rgba)
+      let full = 0
+      let dim = 0
+      const cells: [number, number, number[] | null][] = []
+      for (let ly = 0; ly < y1 - y0; ly++)
+        for (let lx = 0; lx < x1 - x0; lx++) {
+          const [x, y] = [x0 + lx, y0 + ly]
+          if (!rgba[(ly * (x1 - x0) + lx) * 4 + 3] || x < 0 || y < 0 || x >= W || y >= W) continue
+          const t = tile(x, y)
+          cells.push([lx, ly, t])
+          if (t && (lx + ly) % 2 === 0) full++
+          else if (t) dim++
+        }
+      const flip = full > dim
+      expect(cells.length, `${label} sprite ${n} draws something on screen`).toBeGreaterThan(0)
+      for (const [lx, ly, t] of cells) {
+        const got = px(r.out, W, x0 + lx, y0 + ly).slice(0, 3)
+        const strength = ((lx + ly) % 2 === 0) !== flip ? 1 : HIDE
+        expect(got, `${label} sprite ${n} pixel ${lx},${ly} at ${x0 + lx},${y0 + ly}`).toEqual(t ? lerp(t, SPRITE_RGB, strength) : SPRITE_RGB) // prettier-ignore
+      }
+    }
+  }
+  const SOLID = new Uint8Array(64).fill(1)
+
+  it('two sprites with different swap decisions, each decided on its own covered pixels', () => {
+    const fullOnly = maskTile((x, y) => (x + y) % 2 === 0)
+    const dimMajor = maskTile((x, y) => (x + y) % 2 === 1 || x === 0)
+    for (const flipX of [false, true]) {
+      const r = run([{ x: 4, y: 5, char: 0 }, { x: 18, y: 17, char: 1, flipX }], [fullOnly, dimMajor], { l1High: () => true }) // prettier-ignore
+      expectDoors(r, () => L1_RGB, `flipX ${flipX}`)
+    }
+  })
+
+  it('the swap is per sprite, not one shared flip: a full-squares-only sprite swaps, a solid one does not', () => {
+    const r = run([{ x: 4, y: 4, char: 0 }, { x: 18, y: 18, char: 1 }], [maskTile((x, y) => (x + y) % 2 === 0), SOLID], { l1High: () => true }) // prettier-ignore
+    expect(px(r.out, W, 4, 4).slice(0, 3)).toEqual(lerp(L1_RGB, SPRITE_RGB, HIDE))
+    expect(px(r.out, W, 18, 18).slice(0, 3)).toEqual(lerp(L1_RGB, SPRITE_RGB, 1))
+  })
+
+  it('a sprite at every screen edge offset, covered by a full layer 1 plane', () => {
+    for (let o = -7; o < W; o++) {
+      expectDoors(
+        run([{ x: o, y: 9, char: 0 }], [SOLID], { l1High: () => true }),
+        () => L1_RGB,
+        `x ${o}`,
+      )
+      expectDoors(
+        run([{ x: 9, y: o, char: 0 }], [SOLID], { l1High: () => true }),
+        () => L1_RGB,
+        `y ${o}`,
+      )
+    }
+  })
+
+  it('the last column and row take the door, and a cut sprite decides its swap on the pixels on screen', () => {
+    const half = maskTile((x, y) => (x + y) % 2 === 0 || x < 3)
+    for (const [x, y] of [
+      [W - 8, W - 8],
+      [W - 3, W - 5],
+      [W - 1, 4],
+      [4, W - 1],
+    ] as const) {
+      const r = run([{ x, y, char: 0 }], [half], { l1High: () => true })
+      expectDoors(r, () => L1_RGB, `edge ${x},${y}`)
+      expect(px(r.out, W, Math.min(W - 1, x + 7), Math.min(W - 1, y + 7)).slice(0, 3), `edge ${x},${y} corner`).not.toEqual(SPRITE_RGB) // prettier-ignore
+    }
+  })
+
+  it('a partly covered sprite with unequal full and dim counts: the swap follows the covered pixels only', () => {
+    // Uncovered left (x < 3) is drawn on the dim squares only (12 pixels); the covered part has 5 pixels on the
+    // full squares and 1 on a dim one. Counted over the covered part the sprite swaps; counted over every
+    // pixel (full 5, dim 13) it would not.
+    const tile = maskTile((x, y) => (x < 3 && (x + y) % 2 === 1) || (x >= 3 && y < 2 && ((x + y) % 2 === 0 || (x === 3 && y === 0)))) // prettier-ignore
+    for (const [x, y] of [
+      [10, 10],
+      [11, 10],
+      [10, 11],
+      [11, 11],
+    ] as const) {
+      const r = run([{ x, y, char: 0 }], [tile], { l1High: cx => cx >= x + 3 })
+      expectDoors(r, cx => (cx >= x + 3 ? L1_RGB : null), `shift ${x},${y}`)
+    }
+  })
+
+  it('stacked layer 2 and layer 1 low planes over a priority 0 sprite: the door shows the nearer one', () => {
+    const at0 = [{ x: 10, y: 10, char: 0, priority: 0 }]
+    expectDoors(
+      run(at0, [SOLID], { l2Low: () => true, l1Low: () => true }),
+      () => L1_RGB,
+      'l2Low+l1Low',
+    )
+    expectDoors(run(at0, [SOLID], { l2Low: () => true }), () => L2_RGB, 'l2Low')
+  })
+})
+
+describe('IndicatorDisplay keeps the sprite door under an indicator cell (D52, #795)', () => {
+  const W = 32
+  const G32 = { orientation: 'horizontal' as const, width: W, height: W }
+  const ART = decodeArts({ a: Buffer.from(new Uint8Array(16 * 16 * 4).map((_, i) => (i % 4 === 0 ? 200 : i % 4 === 3 ? 255 : 0))).toString('base64') }) // prettier-ignore
+  // Sprite 0 straddles the indicator cell's edge (x 12..19, the cell ends at 16): its columns 0..3 in the cell
+  // hold 8 dim-square pixels, its columns 4..7 outside hold 16 full-square ones. The whole sprite swaps; the
+  // cell's pixels alone would not. Sprite 1 is solid.
+  const tiles = [Uint8Array.from({ length: 64 }, (_, i) => { const [x, y] = [i % 8, i >> 3]; return (x < 4 && y < 4 && (x + y) % 2 === 1) || (x >= 4 && (x + y) % 2 === 0) ? 1 : 0 }), new Uint8Array(64).fill(1)] // prettier-ignore
+  const lerp = (t: number[], s: number[], a: number) => t.map((v, k) => Math.round(v * (1 - a) + s[k]! * a)) // prettier-ignore
+  const specs = [
+    { x: 12, y: 5 },
+    { x: 20, y: 6 },
+  ]
+  const dtos = drawSprites(specs.map((_, i) => ({ ...spr, index: i })) as LevelSprite[], { vram: { sp1: tiles }, colors: COLORS }, s => ({ ok: true, parts: interpParts([oam({ char: s.index })]), anchor: specs[s.index]!, identity })) // prettier-ignore
+  const sp = { ...G32, sprites: dtos }
+  const covered = (x: number) => x >= 8 // layer 1 high covers both sprites
+  const l1 = new Uint8ClampedArray(W * W * 4)
+  for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) if (covered(x)) l1.set([...L1_RGB, 255], (y * W + x) * 4) // prettier-ignore
+  const planes = { l1High: l1, l2Low: null, ...spritePlanes(sp, 0) }
+  const lists = screenPlanes(0x17, 0x00, false)
+  const base = composeScreen({ width: W, height: W, planes, lists, math: null, doors: spriteDoors(sp, 0) }) // prettier-ignore
+
+  for (const zoom of [1, 2, 3]) {
+    it(`zoom ${zoom}: every sprite pixel in the cell is the native composite's, door included`, () => {
+      // Indicator on layer 2 low at the cell (0, 0) .. (16, 16): it lies under sprite 0 and layer 1 high.
+      const d = new IndicatorDisplay({ width: W, height: W, zoom, screen: 0, geometry: G32, planes, lists, math: null, base, indicators: [{ plane: 'l2Low', x: 0, y: 0, art: 'a' }], arts: ART, doors: spriteDoors(sp, 0) }) // prettier-ignore
+      expect(d.touches).toBe(true)
+      let doorPixels = 0
+      for (const dto of dtos.slice(0, 1)) {
+        const { x0, y0, x1, y1 } = dto.box
+        for (let y = y0; y < y1; y++)
+          for (let x = x0; x < x1; x++) {
+            if (!px(base, W, x, y)[3]) continue
+            const want = px(base, W, x, y)
+            if (covered(x)) doorPixels++
+            for (let dy = 0; dy < zoom; dy++)
+              for (let dx = 0; dx < zoom; dx++)
+                expect(px(d.image, d.width, x * zoom + dx, y * zoom + dy), `native ${x},${y}`).toEqual(want) // prettier-ignore
+          }
+      }
+      expect(doorPixels, 'the cell has door pixels to compare').toBeGreaterThan(0)
+      // The swap puts the sprite's dim-square pixel (local 1, 0) at full strength only if the whole sprite decides.
+      expect(px(base, W, 13, 5).slice(0, 3)).toEqual(lerp(L1_RGB, SPRITE_RGB, 1))
+    })
+  }
 })

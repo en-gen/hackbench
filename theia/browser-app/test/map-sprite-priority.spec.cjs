@@ -1,19 +1,26 @@
 /**
- * A sprite drawn at OAM priority 1 goes behind layer 1's low tiles (#795). Before #795 every sprite
- * pixel sat at one slot, over l1Low, so a Jumping Piranha Plant drew over the pipe it rises from.
+ * A sprite drawn at OAM priority 1 goes behind layer 1's low tiles (#795), and what a tile covers is
+ * not hidden: the sprite pixel draws through the tile in the hidden-tile screen door (D52, parts 1 to 3).
+ * Before #795 every sprite pixel sat at one slot, over l1Low, so a Jumping Piranha Plant drew over the
+ * pipe it rises from.
  *
- * Case (vanilla ROM, one machine, 2026-10-10): map $105, screen 7. All 236 opaque sprite pixels
- * there that meet an opaque l1Low pixel (with no l1High pixel) are sprite index 11 (id $4F), which
- * the interpreter's OAM gives priority 1. Found by sweeping all 512 vanilla maps with the
- * node-side `mapSprites` and `mapScreen`: 50 maps change their composite, $105 is the one the
- * other map-view specs already open. The plant is fully behind the pipe. The same probe measured
- * 376 sprite pixels over no layer 1 on that screen, all priority 2 pixels of OTHER sprites, not the
- * plant's; they are the control that the composite draws sprites at all.
+ * Case (vanilla ROM, one machine, 2026-10-10): map $105, screen 7. 236 opaque sprite pixels there meet
+ * an opaque l1Low pixel (with no l1High pixel); they are sprite index 11 (id $4F), which the
+ * interpreter's OAM gives priority 1. Found by sweeping all 512 vanilla maps with the node-side
+ * `mapSprites` and `mapScreen`. The same probe measured 376 sprite pixels over no layer 1 on that
+ * screen, all priority 2 pixels of OTHER sprites; they are the control that the composite draws
+ * sprites at all.
  *
- * The check: at every overlap pixel the composite with sprites shown equals the composite with
- * them hidden (the pipe covers the plant), while at the control pixels it does not. Plant for the
- * verifier: in theia/extension/src/node/map-sprites.ts `blit`, `prio[at1] = 2` instead of the
- * part's priority should turn the "behind the pipe" assertion red (0 of 236).
+ * The check: at the overlap pixels the composite with sprites shown is NOT the one with them hidden
+ * (the plant shows through the pipe), each pixel blends the sprite colour into the pipe at one of two
+ * strengths (full, or HIDDEN_TILE_DIM_ALPHA = 0.25), and horizontal neighbours alternate between the
+ * two (the checkerboard on the sprite's own grid; its phase is not asserted here, the unit tests pin
+ * it). Strengths are read back from the pixels with a tolerance, because the map's colour math may
+ * move a channel. At the control pixels hiding the sprites changes every pixel. Plants for the
+ * verifier: in theia/extension/src/node/map-sprites.ts `blit`, `prio[at1] = 2` instead of the part's
+ * priority leaves 0 overlap pixels (the "overlap" assertion goes red); in
+ * src/rom/model/ColorMath.ts `coveredSprite`, `return null` leaves the plant hidden (the "differs from
+ * the hidden composite" assertion goes red).
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')
@@ -77,11 +84,13 @@ function probe(page, pixels) {
       const px = c => c.getContext('2d').getImageData(0, 0, c.width, c.height).data
       const comp = px(planesOf(rootSel, screen)[0])
       const read = ps => ps.map(p => [0, 1, 2, 3].map(k => comp[p * 4 + k]).join(','))
-      if (pixels) return { behind: read(pixels.behind), shown: read(pixels.shown) }
+      const width = planesOf(rootSel, screen)[0].width
+      if (pixels) return { width, behind: read(pixels.behind), shown: read(pixels.shown) }
       const [sprites, low, high] = [sel.sprites, sel.low, sel.high].map(s => px(document.querySelector(s))) // prettier-ignore
       const all = [...Array(sprites.length / 4).keys()].filter(p => sprites[p * 4 + 3] === 255 && high[p * 4 + 3] === 0) // prettier-ignore
       const at = { behind: all.filter(p => low[p * 4 + 3] === 255), shown: all.filter(p => low[p * 4 + 3] === 0) } // prettier-ignore
-      return { at, behind: read(at.behind), shown: read(at.shown) }
+      const spriteRgb = at.behind.map(p => [0, 1, 2].map(k => sprites[p * 4 + k]))
+      return { width, at, spriteRgb, behind: read(at.behind), shown: read(at.shown) }
     },
     {
       rootSel: root,
@@ -134,7 +143,42 @@ test('a priority 1 sprite draws behind layer 1 low tiles: the pipe covers the pi
   const off = await probe(page, on.at)
 
   const same = (a, b) => a.filter((c, i) => c === b[i]).length
-  expect(same(on.behind, off.behind), 'behind the pipe the sprite changes no pixel').toBe(on.at.behind.length) // prettier-ignore
+  const rgb = c => c.split(',').slice(0, 3).map(Number)
+  // Each pixel: the share of the sprite colour in it, from the channel where sprite and pipe differ most.
+  const strength = on.at.behind.map((p, i) => {
+    const [got, hid, spr] = [rgb(on.behind[i]), rgb(off.behind[i]), on.spriteRgb[i]]
+    const k = [0, 1, 2].reduce(
+      (m, c) => (Math.abs(spr[c] - hid[c]) > Math.abs(spr[m] - hid[m]) ? c : m),
+      0,
+    )
+    return spr[k] === hid[k] ? null : (got[k] - hid[k]) / (spr[k] - hid[k])
+  })
+  const known = strength.filter(v => v !== null)
+  expect(known.length, 'the sprite colour differs from the pipe at most overlap pixels').toBeGreaterThan(on.at.behind.length / 2) // prettier-ignore
+  expect(
+    on.at.behind.length - same(on.behind, off.behind),
+    'the plant shows through the pipe: the composite differs from the sprites-hidden one',
+  ).toBeGreaterThan(on.at.behind.length / 2)
+  const TOL = 0.2
+  const full = v => Math.abs(v - 1) < TOL
+  const dim = v => Math.abs(v - 0.25) < TOL
+  expect(
+    known.every(v => full(v) || dim(v)),
+    'every pixel is at full strength or the 25% dim',
+  ).toBe(true)
+  const [nFull, nDim] = [known.filter(full).length, known.filter(dim).length]
+  expect(Math.min(nFull, nDim) / known.length, 'both squares of the door are used, about half each').toBeGreaterThan(0.3) // prettier-ignore
+  let pairs = 0
+  let alternating = 0
+  on.at.behind.forEach((p, i) => {
+    const j = on.at.behind.indexOf(p + 1)
+    if (j < 0 || p % on.width === on.width - 1 || strength[i] === null || strength[j] === null)
+      return
+    pairs++
+    if (full(strength[i]) !== full(strength[j])) alternating++
+  })
+  expect(pairs, 'horizontal neighbours inside the plant to compare').toBeGreaterThan(50)
+  expect(alternating / pairs, 'neighbours alternate between the two strengths: a checkerboard').toBeGreaterThan(0.95) // prettier-ignore
   expect(
     same(on.shown, off.shown),
     'the control: every other-sprite pixel over no layer 1 shows',

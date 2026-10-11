@@ -31,9 +31,14 @@ export interface ScreenInput {
   /**
    * Per pixel, 0 or (sprite id << 1 | its (x + y) parity on the sprite's own grid): a sprite pixel
    * a tile covers then draws through that tile in the hidden-tile screen door (D52, #795).
-   * Not modeled for OBJ priority 0 and 1 under layer 2 (D52 part 2: they stay hidden). Main screen only.
+   * Every priority draws under a tile, as the hardware orders them (D52 part 2). Main screen only.
    */
   doors?: Uint32Array | null
+  /**
+   * The swap decision per door id when `doors` is a cropped or scaled view of a larger screen, whose own
+   * pixels would not give the screen's counts (`doorFlips` over the native input). Default: counted here.
+   */
+  flips?: Map<number, boolean>
 }
 
 const LAYER_BIT = { l1: 0x01, l2: 0x02, l3: 0x04 } as const
@@ -87,23 +92,21 @@ function top(i: ScreenInput, list: readonly SourceKey[], at: number, flips?: Map
 
 /**
  * The sprite pixel (its RGB) a fully covering tile hides, or null. `k` is the list slot below the
- * covering plane (the scan stopped at k + 1). OBJ priority 0 and 1 under layer 2 are left hidden:
- * D52 part 2 is undecided.
+ * covering plane (the scan stopped at k + 1).
  */
 function coveredSprite(i: ScreenInput, list: readonly SourceKey[], at: number, k: number) {
   if (!i.doors || !i.doors[at / 4]! || k + 1 >= list.length) return null
-  const cover = list[k + 1]!
   for (; k >= 0; k--) {
     const key = list[k]!
     const data = i.planes[key]
     if (!key.startsWith('sprites') || !data || data[at + 3] === 0) continue
-    return (key === 'sprites0' || key === 'sprites1') && cover.startsWith('l2') ? null : data.subarray(at, at + 3) // prettier-ignore
+    return data.subarray(at, at + 3)
   }
   return null
 }
 
 /** Per covered sprite, whether its door squares are swapped: the rule `overlayHidden` applies to a tile, over the covered pixels. */
-function doorFlips(i: ScreenInput): Map<number, boolean> | undefined {
+export function doorFlips(i: ScreenInput): Map<number, boolean> | undefined {
   const doors = i.doors
   if (!doors) return undefined
   const counts = new Map<number, [number, number]>()
@@ -143,7 +146,7 @@ function mathPixel(math: ColorMathInput, main: Layer | null, sub: Layer | null):
 export function composeScreen(i: ScreenInput): Uint8ClampedArray {
   const out = new Uint8ClampedArray(i.width * i.height * 4)
   const math = i.math
-  const flips = doorFlips(i)
+  const flips = i.flips ?? doorFlips(i)
   for (let p = 0; p < i.width * i.height; p++) {
     const at = p * 4
     const main = top(i, i.lists.main, at, flips)

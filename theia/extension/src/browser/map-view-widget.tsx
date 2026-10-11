@@ -655,6 +655,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
         planes: this.shownPlanes(s, shot),
         lists: shot.screens,
         math: shot.math,
+        doors: this.showSprites ? spriteDoors(this.sprites, s) : null,
         base: comp.getContext('2d')!.getImageData(0, 0, comp.width, comp.height).data,
         indicators: b.indicators,
         arts: b.decoded,

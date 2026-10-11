@@ -12,6 +12,7 @@ import type {
 import { BLOCK, indicatorBox, paintIndicator, type Box } from '../common/block-indicator'
 import {
   composeScreen,
+  doorFlips,
   type SourceKey,
   type ScreenInput,
 } from '../../../../src/rom/model/ColorMath'
@@ -260,6 +261,8 @@ export interface DisplaySource {
   math: ScreenInput['math']
   /** The native composite of those same planes: every pixel outside an indicator is its scaled copy. */
   base: Uint8ClampedArray
+  /** The native sprite door map of `spriteDoors`: scaled with the cell, its parity stays on native sprite pixels. */
+  doors?: Uint32Array | null
   indicators: readonly Indicator[]
   arts: ReadonlyMap<string, Uint8ClampedArray>
 }
@@ -283,6 +286,8 @@ export class IndicatorDisplay {
   private readonly mine: readonly Indicator[]
   private readonly left: number
   private readonly top: number
+  /** The swap decisions of the native screen, which a cell's own pixels would miscount. */
+  private readonly flips: Map<number, boolean> | undefined
 
   constructor(
     private readonly src: DisplaySource,
@@ -302,6 +307,8 @@ export class IndicatorDisplay {
         q.y < this.top + g.height,
     )
     this.hoverId = hoverId
+    const { doors, planes, lists } = src
+    this.flips = doors ? doorFlips({ width: src.width, height: src.height, planes, lists, math: null, doors }) : undefined // prettier-ignore
     this.image = scaleNearest(src.base, src.width, src.height, this.width, this.height)
     for (const r of this.mine.map(q => this.rect(q))) this.put(r, this.compose(r))
   }
@@ -362,7 +369,9 @@ export class IndicatorDisplay {
       }
       planes[k] = cell
     }
-    return composeScreen({ width: rw, height: rh, planes, lists: s.lists, math: s.math })
+    // The door map scales like a plane (nearest), so a cell pixel keeps its native sprite pixel's parity.
+    const doors = s.doors && new Uint32Array(scaleRegion(new Uint8ClampedArray(s.doors.buffer, s.doors.byteOffset, s.doors.byteLength), s.width, s.height, this.width, this.height, r).buffer) // prettier-ignore
+    return composeScreen({ width: rw, height: rh, planes, lists: s.lists, math: s.math, doors, flips: this.flips }) // prettier-ignore
   }
 
   /** The item box lies inside its block cell, so the cells meeting is enough. */

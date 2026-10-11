@@ -177,5 +177,17 @@ strength, `doorFlip`). The squares are on the sprite's own pixel grid
 (its bitmap origin), and the flip is decided per sprite per screen over its
 covered pixels, so a sprite cut by a screen edge can flip differently on each
 side. The main screen only. Done in `composeScreen` from a `doors` map
-(`spriteDoors`). OBJ priority 0 and 1 under layer 2 are left fully hidden
-(D52 part 2 is undecided).
+(`spriteDoors`); the indicator display scales the same map with its cells
+(nearest), so parity stays on native sprite pixels at any zoom.
+
+Owner ruling D52 (final): "Same screen door effect for any sprites drawn
+behind layer tiles". In three parts:
+
+1. A sprite pixel a tile covers is not hidden; it draws in the door.
+2. Follow the hardware order: OBJ priority 0 and 1 draw under layer 2 as well
+   as under layer 1, so a sprite pixel covered by an opaque tile of ANY layer
+   (partly covered sprites included) draws in the door; uncovered pixels draw
+   normally. Stacked covering planes show the nearest one's colour.
+3. Keep #564 (sprites take no part in colour math). Hover-to-opaque is #879,
+   not here: each sprite has its own door id (`doors` value `id << 1 | parity`),
+   so a sprite's door can later be switched off by id.
