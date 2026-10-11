@@ -346,9 +346,11 @@ describe('buildL2Inputs (synthetic ROM)', () => {
         [0x05fc00 + C, [0x05]],
       ])
     const via = (overworld: boolean, primary: boolean, ...secondary: number[]) => ({ overworld, primary, secondary }) // prettier-ignore
+    /** These fixtures hold no level-load code; the gate itself is pinned below. */
+    const stock = () => null
     const build = (rom: RomFile, entrances: ReturnType<typeof via>, vertical = true) => {
       objects([[1]])
-      return ok(buildL2Inputs(smw(rom, vertical), LEVEL, inputs(vertical ? vGrid(1) : hGrid(1), vertical, 1), entrances)) // prettier-ignore
+      return ok(buildL2Inputs(smw(rom, vertical), LEVEL, inputs(vertical ? vGrid(1) : hGrid(1), vertical, 1), entrances, stock)) // prettier-ignore
     }
 
     it('a map reached only by a secondary entrance takes its low bytes from FA00 and its high byte from FC00', () => {
@@ -409,7 +411,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       const smw = new SmwRom(rom)
       const reached = readMapEntrances(smw, SYNTHETIC_FINGERPRINTS)?.get(0x177)
       expect(reached).toEqual({ overworld: false, primary: false, secondary: [0x110, 0x111] })
-      const l2 = ok(buildL2Inputs(smw, 0x177, inputs(hGrid(1), false, 1), reached))
+      const l2 = ok(buildL2Inputs(smw, 0x177, inputs(hGrid(1), false, 1), reached, stock))
       expect(l2).toMatchObject({ kind: 'image', dy: 0x40 - 0x60 })
       expect(l2.note).toBe('Background height unverified: drawn as entered through secondary entrance $110; entered through secondary entrance $111 it starts at a different height.') // prettier-ignore
       // A graph that throws leaves the map to the older reading instead of refusing it.
@@ -424,6 +426,23 @@ describe('buildL2Inputs (synthetic ROM)', () => {
         dy: 0x320 - 0xc0,
         note: undefined,
       })
+    })
+
+    // CodeRabbit on #872: the position tables are only the game's while the code that reads them is.
+    it('code that is not the stock level load keeps the drawing and says the height is unverified', () => {
+      objects([[1]])
+      const m = inputs(vGrid(1), true, 1)
+      // The default gate reads the ROM: this fixture reaches the loader (the JSL the gate's first
+      // check reads) but holds none of its position code.
+      const rom = entry(3)
+      rom.writeAt(0x0096f4, [0x22, 0x96, 0xd7, 0x05])
+      const gated = ok(buildL2Inputs(smw(rom, true), LEVEL, m))
+      expect(gated.dy).toBe(0x320 - 0xc0) // still the best reading
+      expect(gated.note).toMatch(/^Background height unverified: \$05D7EA \(the secondary entrance position reads, bank_05\.asm:7120-7162\) is not a recognized build/) // prettier-ignore
+      // A failed gate and disagreeing entrances: both reasons, one note.
+      objects([[1]])
+      const both = ok(buildL2Inputs(smw(entry(1), true), LEVEL, m, via(false, false, A, B), () => 'boom.')) // prettier-ignore
+      expect(both.note).toBe('Background height unverified: boom. Drawn as entered through secondary entrance $1BE; entered through secondary entrance $0C4 it starts at a different height.') // prettier-ignore
     })
   })
 

@@ -7,6 +7,7 @@
  */
 import type { MapEntrances, SmwRom } from '../SmwRom'
 import type { RomFile } from '../RomFile'
+import { LEVEL_START_Y, stockCodeMismatch } from '../SubmapFlagGate'
 import { hex3s as hex3 } from '../hex'
 import {
   isPresetPtr,
@@ -102,13 +103,14 @@ function dyFromEntrances(
   if (differ.length === 0) return { dy: dys[0]! }
   return {
     dy: dys[0]!,
-    note: `Background height unverified: drawn as entered ${pathWords(paths[0]!)}; entered ${differ.join(', ')} it starts at a different height.`, // prettier-ignore
+    note: `drawn as entered ${pathWords(paths[0]!)}; entered ${differ.join(', ')} it starts at a different height.`, // prettier-ignore
   }
 }
 
 /**
  * Read one map's L2, or why it cannot be read. Never a vanilla fallback. `entrances` is how the
- * game enters the map (`SmwRom.buildLevelExitGraph`). Without it the position is the older
+ * game enters the map (`SmwRom.buildLevelExitGraph`); `startGate` names why the level-load code
+ * is not stock, or null. Without entrances the position is the older
  * reading: F400/F600 for a $0xx map, and for a $1xx map the low bytes of the first FA00 entrance
  * `findSecondaryEntranceForLevel` names, mixed with the map's own F600 high byte.
  */
@@ -117,6 +119,7 @@ export function buildL2Inputs(
   index: number,
   l1: L1Inputs,
   entrances?: MapEntrances,
+  startGate: (rom: RomFile) => string | null = rom => stockCodeMismatch(rom, LEVEL_START_Y),
 ): L2Result {
   const refuse = (reason: string): L2Result => ({ ok: false, reason })
   const ptr = readL2Pointer(rom.rom, index)
@@ -130,7 +133,11 @@ export function buildL2Inputs(
   const entryVertical = ((rom.rom.readByte(0x05f600 + index) ?? 0) & 0x20) !== 0
   const known = dyFromEntrances(rom.rom, index, entrances)
   const dy = (): number => known?.dy ?? readInitialLayer1YPos(rom.rom, index, entryVertical) - readInitialLayer2YPos(rom.rom, index, entryVertical) // prettier-ignore
-  const note = known?.note
+  // The tables are the game's only while the code reading them is stock (LEVEL_START_Y): if not,
+  // the best reading still draws, said to be unverified.
+  const gate = startGate(rom.rom)
+  const why = [gate, known?.note && gate ? `D${known.note.slice(1)}` : known?.note].filter(Boolean)
+  const note = why.length ? `Background height unverified: ${why.join(' ')}` : undefined
   try {
     if (isPresetPtr(ptr)) {
       const preset = loadL2Preset(rom.rom, ptr)
