@@ -229,6 +229,14 @@ describe('rom-provenance (#812): a "taken from the game" comment over an inline 
     expect(hit('const label = "vanilla"', 'f([1, 2])')).toBe(false) // not a comment
   })
 
+  it('a negated claim is not a claim; the unnegated one still blocks', () => {
+    expect(hit('// Invented layout (no ROM bytes)', 'f([1, 2])')).toBe(false)
+    expect(hit('// not copied from the ROM', 'f([1, 2])')).toBe(false)
+    expect(hit('// contains no real ROM data', 'f([1, 2])')).toBe(false)
+    expect(hit('// Invented layout (ROM bytes)', 'f([1, 2])')).toBe(true)
+    expect(hit('// copied from the ROM, no ROM bytes elsewhere', 'f([1, 2])')).toBe(true)
+  })
+
   it('the pragma exempts it', () => {
     const text = [
       '// content-gate: allow rom-provenance -- invented, mirrors a layout',
@@ -660,14 +668,49 @@ describe(
       fs.rmSync(blobFile, { recursive: true, force: true })
     })
 
-    it('a defect only on a side branch (not on the default branch) is still found', () => {
+    // D59 A (#812): history scans commits reachable from the checked ref plus
+    // tags, never other open branches (their blobs failed an unrelated PR).
+    const plantOnSide = () => {
       run('git', ['checkout', '-qb', 'side'])
       writeFile('side-defect.asm', 'LDA #$00\n')
       run('git', ['add', 'side-defect.asm'])
       run('git', ['commit', '-q', '-m', 'side defect'])
       run('git', ['checkout', '-q', 'master'])
-      const out = gateOutput('history')
-      expect(out).toMatch(/side-defect\.asm/)
+    }
+
+    it('a defect only on an unmerged side branch is NOT found from HEAD', () => {
+      plantOnSide()
+      expect(gateExit('history')).toBe(0)
+      expect(gateOutput('history')).not.toMatch(/side-defect\.asm/)
+    })
+
+    it('the same defect is found once the side branch is merged into HEAD', () => {
+      plantOnSide()
+      run('git', ['merge', '-q', '--no-ff', '-m', 'merge side', 'side'])
+      expect(gateExit('history')).toBe(1)
+      expect(gateOutput('history')).toMatch(/side-defect\.asm/)
+    })
+
+    it('an explicit ref names the side branch and finds its defect', () => {
+      plantOnSide()
+      expect(gateExit('history', 'side')).toBe(1)
+      expect(gateOutput('history', 'side')).toMatch(/side-defect\.asm/)
+    })
+
+    it('a rom-provenance hit only on an unmerged branch passes from HEAD, blocks when merged', () => {
+      run('git', ['checkout', '-qb', 'side'])
+      writeFile('prov.ts', '// Vanilla $0123: an OAM entry\nx.set([1, 2, 0x0a, 0x0b], 4)\n')
+      run('git', ['add', 'prov.ts'])
+      run('git', ['commit', '-q', '-m', 'prov'])
+      run('git', ['checkout', '-q', 'master'])
+      expect(gateExit('history')).toBe(0)
+      run('git', ['merge', '-q', '--no-ff', '-m', 'merge side', 'side'])
+      expect(gateExit('history')).toBe(1)
+      expect(gateOutput('history')).toMatch(/rom-provenance/)
+    })
+
+    it('a bad ref exits 2 (fail closed)', () => {
+      expect(gateExit('history', 'no-such-ref')).toBe(2)
     })
 
     it('a defect reachable only via an annotated tag on its commit is still found', () => {

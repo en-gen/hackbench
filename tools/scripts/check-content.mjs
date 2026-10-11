@@ -10,7 +10,7 @@
 // Exports checkPath/checkBlob/checkTextContent/evaluateEntry as pure
 // functions for unit tests; everything else is CLI plumbing. Modes:
 // staged, range BASE HEAD, push <remote> (reads stdin ref-update lines),
-// history.
+// history [REF] (HEAD and tags; never other branches, D59).
 
 import { spawnSync } from 'node:child_process'
 import { readFileSync, existsSync } from 'node:fs'
@@ -261,6 +261,16 @@ function countDisasmLines(text) {
 const CLAIM_PHRASE =
   /\b(?:vanilla\s+(?:ROM\s+)?(?:at\s+)?(?:\$|0x)[0-9a-f]|(?:copied|taken|lifted|dumped) from\b|from the (?:vanilla )?ROM\s+at\s+(?:\$|0x)[0-9a-f]|ROM bytes\b|real ROM (?:bytes|data|values)\b)/i
 const PROVENANCE_WINDOW = 3
+// "(no ROM bytes)", "not copied from the ROM": a negator up to two words
+// before the phrase denies the claim (D59). One unnegated match still claims.
+const NEGATED_BEFORE = /\b(?:no|not|never|without)\s+(?:\w+\s+){0,2}$/i
+function claimsProvenance(comment) {
+  const re = new RegExp(CLAIM_PHRASE.source, 'gi')
+  for (const m of comment.matchAll(re)) {
+    if (!NEGATED_BEFORE.test(comment.slice(0, m.index))) return true
+  }
+  return false
+}
 // Whole-line comment leads besides the delimiters the scanner tracks. In
 // markdown a leading # or * is a heading or bullet, so it has none.
 const LINE_LEAD = /^\s*[#*]/
@@ -350,7 +360,7 @@ function splitComments(path, text) {
 function hasRomProvenance(path, text) {
   const parts = splitComments(path, text)
   for (let i = 0; i < parts.length; i++) {
-    if (!CLAIM_PHRASE.test(parts[i].comment)) continue
+    if (!claimsProvenance(parts[i].comment)) continue
     if (LITERAL_OPEN.test(parts[i].code)) return true // claim trails the literal's own line
     if (parts[i].code !== '') continue
     // Code lines only: a literal quoted inside a comment is a citation, not a copy.
@@ -918,12 +928,19 @@ function runPush(remote, stdinText) {
   return dedupeReport(hits)
 }
 
-function runHistory() {
+/** D59 A (#812): scan commits reachable from `ref` plus tags, never other
+ * open branches, so an unmerged branch's blobs cannot fail an unrelated
+ * ref. Tags stay: they are published content. */
+function runHistory(ref = 'HEAD') {
   assertNoGrafts()
   if (git(['rev-parse', '--is-shallow-repository']).toString().trim() === 'true') {
     throw new GateError('history mode refuses a shallow clone: run against full history')
   }
-  const { entries, messages } = walkRawDiff(['--all'], { reverse: true })
+  if (ref.startsWith('-')) throw new GateError(`history: bad ref '${ref}'`)
+  const resolved = spawnGit(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`])
+  if (resolved.status !== 0) throw new GateError(`history: cannot resolve ref '${ref}'`)
+  const revs = [resolved.stdout.toString().trim(), '--tags']
+  const { entries, messages } = walkRawDiff(revs, { reverse: true })
   const hits = [...evaluateEntries(entries, messages, true)]
   try {
     hits.push(...tagBodyHits(true))
@@ -935,13 +952,16 @@ function runHistory() {
   // Fail on any blob/tree reachable only via a tag/ref pointing at it
   // directly, never via a commit's tree walk. `rev-list --objects` prints
   // an empty path both for that case AND for a commit's legitimate root
-  // tree, so root trees (collected from every commit reachable via --all)
+  // tree, so root trees (collected from every commit in the scanned rev set)
   // are the one allowed exception - a blob can never legitimately have an
   // empty path, root or not.
   const rootTrees = new Set(
-    git(['log', '--all', '--format=%T']).toString('utf8').split('\n').filter(Boolean),
+    git(['log', ...revs, '--format=%T'])
+      .toString('utf8')
+      .split('\n')
+      .filter(Boolean),
   )
-  const objLines = git(['rev-list', '--objects', '--all'])
+  const objLines = git(['rev-list', '--objects', ...revs])
     .toString('utf8')
     .split('\n')
     .filter(Boolean)
@@ -999,10 +1019,10 @@ function main(argv) {
     const stdinText = readFileSync(0, 'utf8')
     hits = runPush(rest[0], stdinText)
   } else if (mode === 'history') {
-    hits = runHistory()
+    hits = runHistory(rest[0])
   } else {
     process.stderr.write(
-      'usage: check-content.mjs [staged | range BASE HEAD | push REMOTE | history]\n',
+      'usage: check-content.mjs [staged | range BASE HEAD | push REMOTE | history [REF]]\n',
     )
     process.exit(2)
   }
