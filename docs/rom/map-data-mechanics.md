@@ -366,6 +366,11 @@ past the table into `ExitTableLow` (`rammap.asm:1969`), the per-screen
 screen-exit table. That is 386 bytes of stream at most. Vanilla's longest
 is 197 bytes, 65 sprites.
 
+The level-start clear CODE_02ABF2 (`bank_02.asm:5786-5789`) zeroes only
+`SpriteLoadStatus` entries `$00-$3F` of the 128; the loader image starts from
+zeroed RAM, so entries 64-127 may differ from hardware (vanilla unaffected: no
+sprite at index 64 or above is loaded).
+
 Hack sprite streams are only partly measured. Walked from bank `$07`, as the
 2026-09-17 measurement did, they reach 2189 bytes; that was the wrong bank.
 Walked from the `$0EF100` bank byte, Seven_Vanilla_Levels peaks at 236

@@ -17,9 +17,9 @@ resolutions, any image files, and whether it auto-merges or needs the owner.
   the markdown it prints into the body. Do not open the images.
 - **Open** with `gh pr create -R en-gen/hackbench --base develop --body-file <file>`.
 - **Merge mode.** `needs-owner`: add that label and leave auto-merge off.
-  Otherwise `gh pr merge <n> -R en-gen/hackbench --auto --squash`, then
+  Otherwise `gh pr merge <n> -R en-gen/hackbench --auto --squash --author-email engenb@gmail.com`, then
   confirm with `gh pr view <n> --json autoMergeRequest`; it has failed
-  silently before.
+  silently before. An existing auto-merge request keeps its old email: run `--disable-auto` first, then re-arm (#612).
 - **Board.** Move the issue's card to In review.
 - **Never** merge, approve, comment `@coderabbitai`, push code, or change
   branch protection.
