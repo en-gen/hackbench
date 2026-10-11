@@ -13,13 +13,16 @@
  * (headless_capture.lua:1305-1311), which is the model's pass 0
  * (SpriteRunner.ts:509-524), so the target is pass `drawnFrame - firstRealFrame`
  * itself; `chosen` (the first drawing pass) is not added. Measured lag over the
- * 1957 graded records: 1 to 116 frames. `lagged` is dominated (80 of 80
- * measured) by captures that ran 31 or more MAIN frames before drawing (likely
+ * 1957 graded records: 1 to 116 frames. All 80 `lagged` records are
+ * captures whose first draw came 31 to 89 frames after the first MAIN (likely
  * the level fade-in; not traced). Not re-aligned to the first draw.
  *   exact    every piece position matches
  *   off      both sides drew, positions differ; `delta` is the anchor (min x/y) gap
- *   missing  one side drew nothing
- *   lagged   the target pass is past the model's pass count (not graded)
+ *   missing  one side drew nothing once parked pieces are dropped, the other drew
+ *            on screen; or the record has no drawnFrame or firstRealFrame
+ *   parked   both sides drew only parked pieces, at matching positions (agreement)
+ *   late     the model had not drawn yet at the target pass, the capture had
+ *   lagged   the target pass is past the model's pass count, drew or not (not graded)
  *   refused  the model run was refused
  */
 import type { SpriteModel } from '../../../src/rom/sprites/interp/SpriteRunner'
@@ -32,7 +35,7 @@ export interface ScreenPiece {
 }
 
 export type PositionVerdict = 'exact' | 'off' | 'missing'
-export type RecordVerdict = PositionVerdict | 'lagged' | 'refused'
+export type RecordVerdict = PositionVerdict | 'parked' | 'late' | 'lagged' | 'refused'
 
 export interface PositionGrade {
   verdict: PositionVerdict
@@ -55,9 +58,13 @@ const parked = (p: ScreenPiece): boolean => p.y >= 224 && p.y + (p.large ? 16 : 
  * (the runner's readParts takes it the same way) and Y as the 8-bit line. Both
  * sides use this one transform and one camera, so any wrap cancels.
  */
-export function toMap(pieces: ScreenPiece[], cam: { x: number; y: number }): ScreenPiece[] {
+export function toMap(
+  pieces: ScreenPiece[],
+  cam: { x: number; y: number },
+  keepParked = false,
+): ScreenPiece[] {
   return pieces
-    .filter(p => !parked(p))
+    .filter(p => keepParked || !parked(p))
     .map(p => ({ x: cam.x + p.x, y: cam.y + p.y, large: p.large }))
 }
 
@@ -100,15 +107,27 @@ export function gradePosition(got: ScreenPiece[], want: ScreenPiece[]): Position
   }
 }
 
-/** One corpus record: refused and lagged are told apart from missing. */
+/** One corpus record: refused, lagged, late and parked are told apart from missing. */
 export function gradeRecord(
   m: SpriteModel,
-  lag: number,
+  lag: number | undefined,
   entries: CaptureEntry[],
   cam: { x: number; y: number },
-): { verdict: RecordVerdict; delta?: { x: number; y: number } } {
+): { verdict: RecordVerdict; delta?: { x: number; y: number }; detail?: string } {
   if (m.refusal !== undefined) return { verdict: 'refused' }
+  if (lag === undefined)
+    return { verdict: 'missing', detail: 'record lacks drawnFrame or firstRealFrame' }
+  // A lag past the pass count is lagged even for a model that never drew.
+  if (m.chosen === undefined && lag > m.passes.length) return { verdict: 'lagged' }
   const got = modelPieces(m, lag)
   if (got === undefined) return { verdict: 'lagged' }
-  return gradePosition(toMap(got, cam), toMap(capturePieces(entries), cam))
+  const cap = capturePieces(entries)
+  const want = toMap(cap, cam)
+  if (m.chosen !== undefined && lag < m.chosen && want.length) return { verdict: 'late' }
+  // Both sides drew, but only parked pieces: compare them unfiltered.
+  if (!want.length && !toMap(got, cam).length && got.length && cap.length) {
+    const g = gradePosition(toMap(got, cam, true), toMap(cap, cam, true))
+    return g.verdict === 'exact' ? { verdict: 'parked' } : g
+  }
+  return gradePosition(toMap(got, cam), want)
 }

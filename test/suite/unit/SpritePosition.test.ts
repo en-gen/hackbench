@@ -135,8 +135,38 @@ describe('modelPieces and gradeRecord (synthetic model)', () => {
     expect(gradeRecord(m, 2, [e(100, 51), e(108, 51, 2)], cam0).verdict).toBe('off')
   })
 
-  it('a pass before the first draw has no pieces: missing, not lagged', () => {
-    expect(gradeRecord(m, 0, [e(1, 1)], cam0).verdict).toBe('missing')
+  it('a pass before the first draw, while the capture drew on screen: late, not missing', () => {
+    expect(gradeRecord(m, 0, [e(1, 1)], cam0).verdict).toBe('late')
+    // the capture drew only a parked piece: nothing on screen to be late for
+    expect(gradeRecord(m, 0, [e(1, 240)], cam0).verdict).toBe('missing')
+  })
+
+  it('a never-drew model is missing within the pass count and lagged past it', () => {
+    const v = (lag: number) => gradeRecord(fake(undefined, []), lag, [e(1, 1)], cam0).verdict
+    expect(v(0)).toBe('missing')
+    expect(v(1)).toBe('lagged')
+  })
+
+  it('a record without drawnFrame or firstRealFrame (no lag) is missing, with a detail', () => {
+    const g = gradeRecord(m, undefined, [e(100, 50)], cam0)
+    expect(g.verdict).toBe('missing')
+    expect(g.detail).toMatch(/drawnFrame/)
+  })
+
+  it('both sides drawing only parked pieces: parked when they match, off when not', () => {
+    const pk = fake(0, [[part(0, 240, 8), part(8, 240, 8)]])
+    const g = (es: CaptureEntry[]) => gradeRecord(pk, 0, es, cam0)
+    expect(g([e(8, 240), e(0, 240)]).verdict).toBe('parked')
+    expect(g([e(0, 240), e(16, 240)])).toEqual({ verdict: 'off', delta: { x: 0, y: 0 } })
+    expect(g([e(0, 241), e(8, 241)])).toEqual({ verdict: 'off', delta: { x: 0, y: -1 } })
+    expect(gradeRecord(pk, 0, [e(0, 240)], cam0).verdict).toBe('off')
+  })
+
+  it('missing is one side drawing nothing after parking while the other is on screen', () => {
+    const pk = fake(0, [[part(0, 240, 8)]])
+    expect(gradeRecord(pk, 0, [e(1, 1)], cam0).verdict).toBe('missing')
+    expect(gradeRecord(pk, 0, [], cam0).verdict).toBe('missing')
+    expect(gradeRecord(m, 2, [e(1, 240)], cam0).verdict).toBe('missing')
   })
 
   it('tells lagged, refused and missing apart', () => {
@@ -199,8 +229,8 @@ function loadAll(): { map: string; rec: Rec }[] {
   return out
 }
 
-/** Measured 2026-10-10, one machine, vanilla ROM: exact 1366, off 469, missing 42, lagged 80, refused 0 of 1957; each bound has 1% headroom (at least 1). Pairing at pass drawnFrame - firstRealFrame. */
-const FLOOR = { graded: 1957, exact: 1352, maxOff: 474, maxLagged: 81, maxMissing: 43, maxRefused: 1 } // prettier-ignore
+/** Measured 2026-10-10, one machine, vanilla ROM: exact 1366, off 469, missing 23, parked 18, late 1, lagged 80, refused 0 of 1957; each bound has 1% headroom (at least 1). Pairing at pass drawnFrame - firstRealFrame. */
+const FLOOR = { graded: 1957, exact: 1352, maxOff: 474, maxLagged: 81, maxMissing: 24, maxParked: 19, maxLate: 2, maxRefused: 1 } // prettier-ignore
 /** The ten ids with the most exact records: exact count measured, minus 1. */
 const ID_FLOOR: Record<string, number> = {
   $C2: 82,
@@ -216,7 +246,7 @@ const ID_FLOOR: Record<string, number> = {
 }
 
 type Counts = Record<RecordVerdict, number>
-const zero = (): Counts => ({ exact: 0, off: 0, missing: 0, lagged: 0, refused: 0 })
+const zero = (): Counts => ({ exact: 0, off: 0, missing: 0, parked: 0, late: 0, lagged: 0, refused: 0 }) // prettier-ignore
 
 describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
   'sprite position vs level-load captures',
@@ -247,7 +277,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
           mario: rec.marioAtInit ?? { x: rec.listX, y: rec.listY },
         })
         const entries = (rec.entries ?? []).map(q => ({ ...q, y: q.y + dy }))
-        const lag = (rec.drawnFrame ?? 0) - (rec.firstRealFrame ?? 0)
+        const lag = rec.drawnFrame === undefined || rec.firstRealFrame === undefined ? undefined : rec.drawnFrame - rec.firstRealFrame // prettier-ignore
         const g = gradeRecord(runSprite(rom, id, seed), lag, entries, cam)
         by[g.verdict]++
         const c = perId.get(rec.id) ?? perId.set(rec.id, zero()).get(rec.id)!
@@ -274,6 +304,8 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
       expect(by.off).toBeLessThanOrEqual(FLOOR.maxOff)
       expect(by.lagged).toBeLessThanOrEqual(FLOOR.maxLagged)
       expect(by.missing).toBeLessThanOrEqual(FLOOR.maxMissing)
+      expect(by.parked).toBeLessThanOrEqual(FLOOR.maxParked)
+      expect(by.late).toBeLessThanOrEqual(FLOOR.maxLate)
       expect(by.refused).toBeLessThanOrEqual(FLOOR.maxRefused)
       for (const [id, floor] of Object.entries(ID_FLOOR))
         expect(perId.get(id)?.exact ?? 0, id).toBeGreaterThanOrEqual(floor)
