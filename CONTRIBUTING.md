@@ -131,7 +131,7 @@ added.
 - [ ] Views read the working copy, not the base ROM
 - [ ] New feature ships with a Playwright spec, and any new gate with a proof it can fail
 - [ ] No `.smc` / `.sfc` / `.rom` / `.ips` / `.bps` files staged
-- [ ] User-facing changes noted in `CHANGELOG.md` under `[Unreleased]`
+- [ ] User-facing changes noted in a new `changelog.d/<issue>-<slug>.md` file (not in `CHANGELOG.md`)
 - [ ] Commit messages explain *why* (the *what* is in the diff)
 
 ## Commit style
