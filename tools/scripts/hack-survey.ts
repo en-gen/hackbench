@@ -18,7 +18,7 @@ const out = flagValue(process.argv, '--out')
 const vanilla = new Uint8Array(readFileSync(romPath(VANILLA)))
 const cal = calibrate(vanilla)
 const index = readIndex(readFileSync(join(store, 'index.json'), 'utf8'))
-const built = builtFiles(index.hacks as Parameters<typeof builtFiles>[0])
+const built = builtFiles(index.hacks)
 const facts = (path: string): RomFacts =>
   surveyRom(vanilla, new Uint8Array(readFileSync(path)), cal)
 const hacks = built.map(f => facts(join(store, f)))

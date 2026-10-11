@@ -1,4 +1,5 @@
-import { isAbsolute, relative, resolve } from 'path'
+import { realpathSync } from 'fs'
+import * as nodePath from 'path'
 import { inflateRawSync } from 'zlib'
 import { applyBps } from '../../src/rom/Bps'
 import { decodeIps } from '../../src/rom/Ips'
@@ -36,26 +37,41 @@ export function candidates(items: readonly ListingItem[], known: ReadonlySet<num
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
 
+/** Why a listing row is unsafe to dereference, or null when it is fine. */
+function rowProblem(r: unknown): string | null {
+  if (!isRecord(r)) return 'row is not an object'
+  if (!Number.isSafeInteger(r.id) || (r.id as number) <= 0) return 'id is not a positive integer'
+  if (typeof r.name !== 'string') return 'name is not a string'
+  if (!Array.isArray(r.authors) || !r.authors.every(a => isRecord(a) && typeof a.name === 'string'))
+    return 'authors is not a list of {name}'
+  if (typeof r.downloads !== 'number' || typeof r.rating_count !== 'number')
+    return 'downloads or rating_count is not a number'
+  if (r.rating !== null && typeof r.rating !== 'number') return 'rating is not a number or null'
+  if (typeof r.download_url !== 'string' || !r.download_url.startsWith('https://'))
+    return 'download_url is not https'
+  if (!isRecord(r.fields)) return 'fields is not an object'
+  return null
+}
+
 /**
  * Listing rows that are safe to dereference: ids become directory and file names, so only a
- * positive integer passes, and the download link must be https. Others are dropped.
+ * positive integer passes, and the download link must be https. Others are dropped;
+ * onDrop hears how many and why the first went.
  */
-export function validListing(page: unknown): ListingItem[] {
+export function validListing(
+  page: unknown,
+  onDrop?: (dropped: number, firstReason: string) => void,
+): ListingItem[] {
   if (!isRecord(page) || !Array.isArray(page.data)) throw new Error('listing has no data array')
-  return page.data.filter((r): r is ListingItem => {
-    if (!isRecord(r) || !Number.isSafeInteger(r.id) || (r.id as number) <= 0) return false
-    return (
-      typeof r.name === 'string' &&
-      Array.isArray(r.authors) &&
-      r.authors.every(a => isRecord(a) && typeof a.name === 'string') &&
-      typeof r.downloads === 'number' &&
-      typeof r.rating_count === 'number' &&
-      (r.rating === null || typeof r.rating === 'number') &&
-      typeof r.download_url === 'string' &&
-      r.download_url.startsWith('https://') &&
-      isRecord(r.fields)
-    )
+  let dropped = 0
+  let first = ''
+  const kept = page.data.filter((r): r is ListingItem => {
+    const why = rowProblem(r)
+    if (why && !dropped++) first = why
+    return !why
   })
+  if (dropped) onDrop?.(dropped, first)
+  return kept
 }
 
 /** index.json as text: parses, holds a hacks array, and every record carries a numeric smwc_id. */
@@ -84,24 +100,46 @@ export function flagValue(argv: readonly string[], name: string): string | undef
   return v
 }
 
-/** True when the store would sit inside the repository, where git could pick up its ROMs. */
-export function storeInsideRepo(store: string, repoRoot: string): boolean {
-  const rel = relative(resolve(repoRoot), resolve(store))
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+/** The real path of the nearest existing ancestor plus the rest, so a link into the repo is seen. */
+function realish(p: string): string {
+  const rest: string[] = []
+  let cur = nodePath.resolve(p)
+  for (;;) {
+    try {
+      return nodePath.join(realpathSync.native(cur), ...rest.reverse())
+    } catch {
+      const up = nodePath.dirname(cur)
+      if (up === cur) return nodePath.resolve(p)
+      rest.push(nodePath.basename(cur))
+      cur = up
+    }
+  }
 }
 
-/** Last path part of an archive entry, whichever separator it uses; null when nothing safe is left. */
-export function patchBasename(entry: string): string | null {
-  const name = entry.split(/[\\/]/).pop() ?? ''
-  return name === '' || name === '.' || name === '..' ? null : name
+/**
+ * True when the store would sit inside the repository, where git could pick up its ROMs.
+ * The default path module also resolves links; a named one (the tests pass win32 or posix)
+ * compares the paths as given.
+ */
+export function storeInsideRepo(
+  store: string,
+  repoRoot: string,
+  p: typeof nodePath = nodePath,
+): boolean {
+  const real = p === nodePath ? realish : (x: string) => x
+  const rel = p.relative(p.resolve(real(repoRoot)), p.resolve(real(store)))
+  if (rel === '') return true
+  return rel !== '..' && !rel.startsWith('..' + p.sep) && !p.isAbsolute(rel)
 }
 
-/** HTTPS only, in and after redirects; -f turns an HTTP error (429 included) into a failure. */
+/**
+ * HTTPS only, in and after redirects. No -f: it would drop the body of a 403 or 429 block page
+ * and hide the HTML stop. The HTTP status is printed after any body on stdout instead.
+ */
 export function curlArgs(url: string, out?: string): string[] {
   return [
     '-s',
     '-S',
-    '-f',
     '-L',
     '--proto',
     '=https',
@@ -111,13 +149,35 @@ export function curlArgs(url: string, out?: string): string[] {
     '120',
     '--max-filesize',
     '104857600',
+    '-w',
+    '%{http_code}',
     ...(out ? ['-o', out] : []),
     url,
   ]
 }
 
+/** curl's stdout, body then the three-digit status that -w appended. */
+export function splitStatus(stdout: Uint8Array): { status: number; body: Uint8Array } {
+  const tail = new TextDecoder().decode(stdout.subarray(Math.max(0, stdout.length - 3)))
+  if (!/^\d{3}$/.test(tail)) throw new Error('curl printed no HTTP status')
+  return { status: Number(tail), body: stdout.subarray(0, stdout.length - 3) }
+}
+
 /** SMW Central blocked the request; the one error that stops the whole run. */
 export class HtmlStop extends Error {}
+
+/**
+ * A 429 or 5xx, or any HTML answer, is the stop (nothing is recorded, nothing bypassed). Any other
+ * non-200 is an ordinary error. Either way the run ends and the hack is not marked failed,
+ * so a rate limit or an outage never becomes permanent.
+ */
+export function checkResponse(status: number, body: Uint8Array, url: string): void {
+  if (status === 429 || status >= 500 || looksLikeHtml(body))
+    throw new HtmlStop(
+      `HTTP ${status} or an HTML answer from ${url}; stopping (see docs/runbooks/smwc-api.md)`,
+    )
+  if (status !== 200) throw new Error(`HTTP ${status} from ${url}`)
+}
 
 const MAX_ROM = 0x1000000 // the same 16 MiB limit as src/rom/Bps.ts
 
@@ -145,7 +205,8 @@ export function applyPatch(
 export interface ArchiveResult {
   failure: string | null
   format: 'bps' | 'ips' | null
-  patch: { name: string; bytes: Uint8Array } | null
+  /** The archive entry the patch came from (recorded in the index; never used as a file name). */
+  patch: { entry: string; bytes: Uint8Array } | null
   rom: Uint8Array | null
 }
 
@@ -167,10 +228,8 @@ export function processArchive(zip: Uint8Array, vanilla: Uint8Array): ArchiveRes
       zip,
       entries.find(e => e.name === choice.file)!,
     )
-    const name = patchBasename(choice.file)
-    if (!name) return none(`unusable patch name ${choice.file}`)
     const rom = applyPatch(vanilla, bytes, choice.format)
-    const patch = { name, bytes }
+    const patch = { entry: choice.file, bytes }
     if (typeof rom === 'string')
       return {
         failure: `${choice.format} apply failed: ${rom}`,
@@ -220,6 +279,8 @@ export interface Provenance {
   item: ListingItem
   patchSha256: string | null
   patchFormat: string | null
+  /** Entry name inside the archive; the file in the store is always patch.<format>. */
+  patchEntry?: string | null
   sourceZipSha256: string | null
   patchedRomSha256: string | null
   patchedRomSize: number | null
@@ -242,6 +303,7 @@ export function indexRecord(p: Provenance): Record<string, unknown> {
     downloads: i.downloads,
     difficulty: i.fields.difficulty ?? '',
     patch_url: i.download_url,
+    patch_entry: p.patchEntry ?? null,
     patch_format: p.patchFormat,
     patch_result: p.failure ? 'failed' : 'success',
     patch_sha256: p.patchSha256,

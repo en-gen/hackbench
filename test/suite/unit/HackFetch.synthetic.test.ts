@@ -1,17 +1,22 @@
 /** The pure parts of hack-fetch (#543): each refusal is pinned so a loosened check goes red. */
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'fs'
+import { tmpdir } from 'os'
+import { join, posix, win32 } from 'path'
 import { describe, it, expect } from 'vitest'
 import { deflateRawSync } from 'zlib'
 import {
   applyPatch,
   candidates,
+  checkResponse,
+  HtmlStop,
   curlArgs,
   flagValue,
   indexRecord,
   looksLikeHtml,
-  patchBasename,
   pickPatch,
   processArchive,
   readIndex,
+  splitStatus,
   storeInsideRepo,
   unsafeEntry,
   validListing,
@@ -105,6 +110,7 @@ describe('hack-fetch (synthetic)', () => {
       sourceZipSha256: 'z',
       patchedRomSha256: 'r',
       patchedRomSize: 8,
+      patchEntry: 'dir/Hack.bps',
       baseRomSha256: 'b',
       date: '2026-10-10',
     }
@@ -113,6 +119,7 @@ describe('hack-fetch (synthetic)', () => {
       patch_result: 'success',
       patched_rom_file: 'roms/7.sfc',
       smwc_type: 'Standard',
+      patch_entry: 'dir/Hack.bps',
       authors: ['a'],
     })
     const failed = indexRecord({
@@ -142,6 +149,14 @@ describe('hack-fetch (synthetic)', () => {
   it('skips a UTF-8 byte-order mark before judging a blocked answer', () => {
     expect(looksLikeHtml(new Uint8Array([0xef, 0xbb, 0xbf, ...bytes('<html>')]))).toBe(true)
     expect(looksLikeHtml(new Uint8Array([0xef, 0xbb, 0xbf, ...bytes('{"data":[]}')]))).toBe(false)
+    // Each of the three bytes counts: a partial or altered mark is not skipped.
+    for (const mark of [
+      [0xef, 0xbb],
+      [0xef, 0x00, 0xbf],
+      [0xef, 0xbb, 0x00],
+      [0x00, 0xbb, 0xbf],
+    ])
+      expect(looksLikeHtml(new Uint8Array([...mark, ...bytes('<html>')]))).toBe(false)
   })
 })
 
@@ -164,6 +179,8 @@ describe('hack-fetch zip refusals (synthetic)', () => {
   it('refuses more than 5000 entries', () => {
     expect(() => zipEntries(patched(oneZip(), 'eocd', 10, 5001, 2))).toThrow('5001 entries')
     expect(zipEntries(patched(oneZip(), 'eocd', 10, 1, 2))).toHaveLength(1)
+    // Exactly 5000 passes the count limit (and then fails on the one record that exists).
+    expect(() => zipEntries(patched(oneZip(), 'eocd', 10, 5000, 2))).toThrow('bad central')
   })
   it('refuses a central directory whose signature is wrong', () => {
     expect(() => zipEntries(patched(oneZip(), 'cd', 0, 0x12345678))).toThrow('bad central')
@@ -195,9 +212,11 @@ describe('hack-fetch zip refusals (synthetic)', () => {
   it('refuses entry ranges that leave the archive', () => {
     const zip = oneZip()
     const e = zipEntries(zip)[0]!
-    expect(() => zipRead(zip, { ...e, offset: zip.length })).toThrow('range')
-    expect(() => zipRead(zip, { ...e, offset: zip.length + 1000 })).toThrow('range')
-    expect(() => zipRead(zip, { ...e, csize: zip.length })).toThrow('range')
+    const outside = 'outside the archive'
+    expect(() => zipRead(zip, { ...e, offset: zip.length })).toThrow(outside)
+    expect(() => zipRead(zip, { ...e, offset: zip.length - 10 })).toThrow(outside)
+    expect(() => zipRead(zip, { ...e, offset: zip.length + 1000 })).toThrow(outside)
+    expect(() => zipRead(zip, { ...e, csize: zip.length })).toThrow(outside)
   })
 })
 
@@ -223,27 +242,67 @@ describe('hack-fetch command pieces (synthetic)', () => {
     expect([...out.subarray(0, 4)]).toEqual([1, 1, 9, 1])
   })
 
-  it('writes only the last path part of a patch name, either separator, never a dot name', () => {
-    expect(patchBasename('a/b/Hack.bps')).toBe('Hack.bps')
-    expect(patchBasename(String.raw`a\b\Hack.bps`)).toBe('Hack.bps')
-    expect(patchBasename('Hack.bps')).toBe('Hack.bps')
-    for (const bad of ['dir/', '..', 'a/..', '.']) expect(patchBasename(bad)).toBeNull()
-  })
-
   it('treats a store inside the repository as a refusal, a sibling as fine', () => {
-    expect(storeInsideRepo('/r/repo/hacks', '/r/repo')).toBe(true)
-    expect(storeInsideRepo('/r/repo', '/r/repo')).toBe(true)
-    expect(storeInsideRepo('/r/repo/../hacks', '/r/repo')).toBe(false)
-    expect(storeInsideRepo('/r/repo-tools/hacks', '/r/repo')).toBe(false)
+    expect(storeInsideRepo('/r/repo/hacks', '/r/repo', posix)).toBe(true)
+    expect(storeInsideRepo('/r/repo', '/r/repo', posix)).toBe(true)
+    expect(storeInsideRepo('/r/repo/../hacks', '/r/repo', posix)).toBe(false)
+    expect(storeInsideRepo('/r/repo-tools/hacks', '/r/repo', posix)).toBe(false)
+    expect(storeInsideRepo('/r', '/r/repo', posix)).toBe(false) // the parent of the repo
+    expect(storeInsideRepo('C:\r', 'C:\r\repo', win32)).toBe(false)
+    expect(storeInsideRepo('/r/..hacks', '/r', posix)).toBe(true) // a child named "..hacks", not a parent
+    expect(storeInsideRepo('C:\\r\\repo\\hacks', 'C:\\r\\repo', win32)).toBe(true)
+    expect(storeInsideRepo('c:\\R\\Repo\\hacks', 'C:\\r\\repo', win32)).toBe(true)
+    expect(storeInsideRepo('C:\\r\\repo-tools\\hacks', 'C:\\r\\repo', win32)).toBe(false)
+    expect(storeInsideRepo('D:\\hacks', 'C:\\r\\repo', win32)).toBe(false) // another drive
+    expect(storeInsideRepo('D:\\r\\repo\\hacks', 'C:\\r\\repo', win32)).toBe(false)
   })
 
-  it('builds curl arguments that allow https only, follow only to https, and fail on HTTP errors', () => {
+  it('follows a link into the repository when judging the store', () => {
+    const root = mkdtempSync(join(tmpdir(), 'hb-store-'))
+    try {
+      mkdirSync(join(root, 'repo'))
+      symlinkSync(join(root, 'repo'), join(root, 'link'), 'junction')
+      expect(storeInsideRepo(join(root, 'link', 'hacks'), join(root, 'repo'))).toBe(true)
+      expect(storeInsideRepo(join(root, 'elsewhere', 'hacks'), join(root, 'repo'))).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('builds curl arguments that allow https only, follow only to https, and report the HTTP status instead of failing on it', () => {
     const a = curlArgs('https://x/y.zip', '/t/o.zip')
-    expect(a).toContain('-f')
+    expect(a).not.toContain('-f') // -f would drop the body of a 403 or 429 HTML block
+    expect(a.join(' ')).toContain('-w %{http_code}')
     expect(a.join(' ')).toContain('--proto =https')
     expect(a.join(' ')).toContain('--proto-redir =https')
     expect(a.at(-1)).toBe('https://x/y.zip')
     expect(curlArgs('https://x').includes('-o')).toBe(false)
+  })
+
+  it('splits the trailing status off curl output', () => {
+    const r = splitStatus(bytes('{"a":1}200'))
+    expect(r.status).toBe(200)
+    expect(new TextDecoder().decode(r.body)).toBe('{"a":1}')
+    expect(splitStatus(bytes('429')).status).toBe(429)
+    expect(() => splitStatus(bytes('xy'))).toThrow('status')
+    expect(() => splitStatus(bytes('body'))).toThrow('status')
+  })
+
+  it('a 403, 429 or 5xx is a stop, an HTML 200 too, and a plain 404 is an ordinary error', () => {
+    const html = bytes('<html>blocked</html>')
+    const json = bytes('{"data":[]}')
+    for (const status of [403, 429, 500, 503]) {
+      expect(() => checkResponse(status, html, 'u')).toThrow(HtmlStop)
+    }
+    expect(() => checkResponse(429, json, 'u')).toThrow(HtmlStop)
+    expect(() => checkResponse(503, new Uint8Array(), 'u')).toThrow(HtmlStop)
+    expect(() => checkResponse(200, html, 'u')).toThrow(HtmlStop)
+    for (const status of [404, 410]) {
+      expect(() => checkResponse(status, json, 'u')).toThrow(`HTTP ${status}`)
+      expect(() => checkResponse(status, json, 'u')).not.toThrow(HtmlStop)
+    }
+    expect(() => checkResponse(200, json, 'u')).not.toThrow()
+    expect(() => checkResponse(302, json, 'u')).toThrow('HTTP 302')
   })
 
   it('reads an index only when it parses and holds a hacks array of records with ids', () => {
@@ -263,12 +322,27 @@ describe('hack-fetch command pieces (synthetic)', () => {
       item(8, { download_url: 'file:///etc/passwd' }),
       { ...item(9), authors: null },
       item(-4),
+      item(0),
+      { ...item(10), rating: 'five' },
+      { ...item(11), authors: [{ name: 1 }] },
+      { ...item(12), authors: ['x'] },
+      item(13, { rating: null }),
       item(1.5),
       null,
     ]
-    expect(validListing({ data: rows }).map(i => i.id)).toEqual([5])
+    expect(validListing({ data: rows }).map(i => i.id)).toEqual([5, 13])
     expect(() => validListing({})).toThrow(/data/)
     expect(() => validListing(null)).toThrow(/data/)
+  })
+
+  it('reports how many rows it dropped and why the first one went', () => {
+    const seen: [number, string][] = []
+    validListing({ data: [item(1), item(0), item(-2), item(3)] }, (n, why) => seen.push([n, why]))
+    expect(seen).toHaveLength(1)
+    expect(seen[0]![0]).toBe(2)
+    expect(seen[0]![1]).toMatch(/id/)
+    validListing({ data: [item(1)] }, (n, why) => seen.push([n, why]))
+    expect(seen).toHaveLength(1) // nothing dropped, nothing reported
   })
 
   it('a path-traversal id never reaches the candidate list', () => {
@@ -309,7 +383,7 @@ describe('hack-fetch command pieces (synthetic)', () => {
       expect(run(makeZip([['a.ips', bytes('junk'), 0]])).failure).toMatch(/ips apply failed/)
       const good = run(makeZip([[String.raw`sub\a.ips`, ips([0, 0, 2, 0, 1, 9]), 0]]))
       expect(good.failure).toBeNull()
-      expect(good.patch?.name).toBe('a.ips')
+      expect(good.patch?.entry).toBe(String.raw`sub\a.ips`)
       expect([...good.rom!.subarray(0, 3)]).toEqual([1, 1, 9])
     })
   })

@@ -12,10 +12,13 @@
  * Downloads are untrusted: each goes in its own new directory under
  * HACKBENCH_FETCH_TMP (default the OS temp dir), removed when the hack is done,
  * has its listing vetted before one file is read from it, and nothing in it is
- * ever executed. Only the HTML stop ends the run; any other failure (download,
- * archive, patch) is recorded (patch_result "failed") so it is not retried.
- * The store must sit outside the repository.
- * Writes: patches/<id>/<patch>, roms/<id>.sfc, index.json (previous copy kept
+ * ever executed. HTTPS only (curl --proto =https, also after redirects). The run ends
+ * with nothing recorded on: a 429 or 5xx, any HTML answer (the stop), any other HTTP
+ * status, and a curl failure such as a timeout; none of these is permanent, so the hack
+ * is tried again next run. Only what the archive, the patch or the store write does
+ * (no or several patches, unsafe names, a patch that will not apply) is recorded as
+ * patch_result "failed" and not retried. The store must sit outside the repository.
+ * Writes: patches/<id>/patch.<bps|ips> (the entry name is kept in index.json as patch_entry), roms/<id>.sfc, index.json (previous copy kept
  * as index.json.bak-<date>). Prints ids, names and hashes; no ROM bytes.
  */
 import { execFileSync } from 'child_process'
@@ -34,13 +37,13 @@ import { join, resolve } from 'path'
 import { romPath, VANILLA } from '../../test/suite/support/corpus'
 import {
   candidates,
+  checkResponse,
   curlArgs,
   flagValue,
-  HtmlStop,
   indexRecord,
-  looksLikeHtml,
   processArchive,
   readIndex,
+  splitStatus,
   storeInsideRepo,
   validListing,
   type ListingItem,
@@ -55,20 +58,28 @@ async function curl(url: string, out?: string): Promise<Buffer> {
   const wait = lastCall + 6500 - Date.now()
   if (wait > 0) await sleep(wait)
   lastCall = Date.now()
-  const body = execFileSync('curl', curlArgs(url, out), { maxBuffer: 1 << 28 })
-  const bytes = out ? readFileSync(out) : body
-  if (looksLikeHtml(bytes))
-    throw new HtmlStop(`HTML answer from ${url}; stopping (see docs/runbooks/smwc-api.md)`)
+  const stdout = execFileSync('curl', curlArgs(url, out), { maxBuffer: 1 << 28 })
+  const { status, body } = splitStatus(stdout)
+  const bytes = out ? readFileSync(out) : Buffer.from(body)
+  checkResponse(status, bytes, url)
   return bytes
 }
 
 async function listing(pages: number): Promise<ListingItem[]> {
   const items: ListingItem[] = []
   for (let n = 1; n <= pages; n++)
-    items.push(...validListing(JSON.parse((await curl(`${API}&n=${n}`)).toString('utf8'))))
+    items.push(
+      ...validListing(JSON.parse((await curl(`${API}&n=${n}`)).toString('utf8')), (k, why) =>
+        console.error(`listing page ${n}: dropped ${k} unusable row(s), first: ${why}`),
+      ),
+    )
   return items
 }
 
+/**
+ * A download or network error, or any HTTP error, ends the run with nothing recorded, so it is
+ * retried next time. Only what the archive, the patch or the store write does is recorded as failed.
+ */
 async function fetchOne(
   item: ListingItem,
   vanilla: Uint8Array,
@@ -76,35 +87,35 @@ async function fetchOne(
   index: { hacks: Record<string, unknown>[] },
 ): Promise<void> {
   const dir = mkdtempSync(join(process.env.HACKBENCH_FETCH_TMP ?? tmpdir(), `hack-${item.id}-`))
-  let zipBytes: Uint8Array | null = null
-  let result = processArchive(new Uint8Array(), vanilla)
+  let zipBytes: Uint8Array
   try {
     const zip = join(dir, 'download.zip')
     await curl(item.download_url, zip)
     zipBytes = readFileSync(zip)
-    result = processArchive(zipBytes, vanilla)
-  } catch (e) {
-    if (e instanceof HtmlStop) throw e
-    result = {
-      ...result,
-      failure: `download failed: ${String(e instanceof Error ? e.message : e).slice(0, 200)}`,
-    }
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
-  const { failure, patch, rom } = result
+  const result = processArchive(zipBytes, vanilla)
+  let { failure } = result
+  const { patch, rom } = result
   if (patch && rom && !failure) {
-    mkdirSync(join(store, 'patches', String(item.id)), { recursive: true })
-    mkdirSync(join(store, 'roms'), { recursive: true })
-    writeFileSync(join(store, 'patches', String(item.id), patch.name), patch.bytes)
-    writeFileSync(join(store, 'roms', `${item.id}.sfc`), rom)
+    // The stored name is fixed: an archive entry name is hostile input and never reaches the disk.
+    try {
+      mkdirSync(join(store, 'patches', String(item.id)), { recursive: true })
+      mkdirSync(join(store, 'roms'), { recursive: true })
+      writeFileSync(join(store, 'patches', String(item.id), `patch.${result.format}`), patch.bytes)
+      writeFileSync(join(store, 'roms', `${item.id}.sfc`), rom)
+    } catch (e) {
+      failure = `store write failed: ${String(e instanceof Error ? e.message : e).slice(0, 200)}`
+    }
   }
   index.hacks.push(
     indexRecord({
       item,
       patchSha256: patch ? sha(patch.bytes) : null,
       patchFormat: result.format,
-      sourceZipSha256: zipBytes ? sha(zipBytes) : null,
+      patchEntry: patch?.entry ?? null,
+      sourceZipSha256: sha(zipBytes),
       patchedRomSha256: failure || !rom ? null : sha(rom),
       patchedRomSize: failure || !rom ? null : rom.length,
       baseRomSha256: sha(vanilla),

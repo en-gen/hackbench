@@ -205,15 +205,15 @@ export function figures(facts: readonly RomFacts[]): Figures {
 }
 
 /** Store-relative ROM paths of the successful builds; a path that leaves the store is refused. */
-export function builtFiles(
-  hacks: readonly { smwc_id: number; patch_result?: string; patched_rom_file?: string | null }[],
-): string[] {
+export function builtFiles(hacks: readonly Record<string, unknown>[]): string[] {
   return hacks
     .filter(h => h.patch_result === 'success' && h.patched_rom_file)
     .map(h => {
       const f = h.patched_rom_file
       if (typeof f !== 'string' || unsafeEntry(f))
-        throw new Error(`hack ${h.smwc_id}: patched_rom_file ${String(f)} is not inside the store`)
+        throw new Error(
+          `hack ${String(h.smwc_id)}: patched_rom_file ${String(f)} is not inside the store`,
+        )
       return f
     })
 }
