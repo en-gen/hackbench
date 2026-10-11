@@ -838,6 +838,19 @@ describe('sprite animation frame', () => {
     expect(r.pieces).toEqual([{ i: 5, dx: 0, dy: 0, tile: 7, attr: 0, large: 1 }])
     expect(r.reason).toBe('')
   })
+
+  it('hides only OAM Y $F0, not the 224-255 band (#838)', () => {
+    const e = (entry: number, y: number) => ({
+      entry,
+      x: 100,
+      y,
+      tile: entry,
+      attr: 0,
+      sizeXHigh: 0,
+    })
+    const single = { x: 100, y: 50, cameraX: 0, cameraY: 0, frames: [], entries: [e(1, 232), e(2, 248), e(3, 0xf0)] } // prettier-ignore
+    expect(spriteFrame(single, 0).pieces?.map(p => p.tile)).toEqual([1, 2])
+  })
 })
 
 describe('map sprites against their recorded frames', () => {
