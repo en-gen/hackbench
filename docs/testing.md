@@ -452,14 +452,17 @@ The sprite grader has two tiers against these captures. Tier 1
 (`spritePosition.ts`, `SpritePosition.test.ts`, #830) grades where the
 pieces sit on the map: the capture's drawing at `drawnFrame` (the first frame
 with every tile complete, not the first OAM write) against the model's pass
-`chosen + (drawnFrame - firstRealFrame)`, which is 3 to 15 frames on. Both
-sides are placed with the capture camera, which the model is seeded with, so
-position is compared in map coordinates and the camera does not affect the
-result. Graded captures never set X bit 8; the 9-bit X is synthetic-only
+`drawnFrame - firstRealFrame`, counted from the model's pass 0 (the first
+MAIN after INIT, as the capture's `firstRealFrame` is), so `chosen` is not
+added; the lag is 1 to 116 frames over the 1957 graded records. Both sides
+are placed with the capture camera; the model is seeded with the camera at
+`drawnFrame`. Positions are compared in map coordinates. Graded captures never set X bit 8; the 9-bit X is synthetic-only
 coverage. It reports exact, off, missing, lagged (target pass past the pass
 count) and refused per sprite and per id (`SPRITE_POSITION_OUT=<file>` dumps
-the records) and holds floors (vanilla, one machine, 2026-10-10: 1307 exact,
-527 off, 41 missing, 82 lagged, 0 refused of 1957).
+the records) and holds floors with 1% headroom (vanilla, one machine, 2026-10-10 measured: 1366 exact,
+469 off, 42 missing, 80 lagged, 0 refused of 1957). `lagged` is dominated by
+captures that ran 31 or more MAIN frames before drawing (all 80 measured;
+likely the level fade-in, not traced); it is not re-aligned to the first draw.
 
 A map's result comes from its Foreground, Background and Effects checks;
 Sprites are informational and never decide it. Exit codes:

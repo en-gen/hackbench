@@ -9,8 +9,13 @@
  *
  * Pairing: the capture's `entries[]` are the drawing at `drawnFrame`, the first
  * frame with every tile complete on screen (headless_capture.lua:1372,1401),
- * not the first OAM write. The model is graded at `chosen + (drawnFrame -
- * firstRealFrame)`, 3 to 15 frames on in the corpus.
+ * not the first OAM write. `firstRealFrame` is the first MAIN after INIT
+ * (headless_capture.lua:1305-1311), which is the model's pass 0
+ * (SpriteRunner.ts:509-524), so the target is pass `drawnFrame - firstRealFrame`
+ * itself; `chosen` (the first drawing pass) is not added. Measured lag over the
+ * 1957 graded records: 1 to 116 frames. `lagged` is dominated (80 of 80
+ * measured) by captures that ran 31 or more MAIN frames before drawing (likely
+ * the level fade-in; not traced). Not re-aligned to the first draw.
  *   exact    every piece position matches
  *   off      both sides drew, positions differ; `delta` is the anchor (min x/y) gap
  *   missing  one side drew nothing
@@ -69,12 +74,13 @@ export function capturePieces(entries: CaptureEntry[]): ScreenPiece[] {
 }
 
 /**
- * The model's pieces at pass `chosen + lag` (raw OAM position, `ox` the 9-bit
- * X). [] when no pass drew; undefined when the target pass is past the pass count.
+ * The model's pieces at pass `lag`, counted from pass 0 = the first MAIN (raw
+ * OAM position, `ox` the 9-bit X). [] when no pass drew or the pass drew
+ * nothing; undefined when the target pass is past the pass count.
  */
 export function modelPieces(m: SpriteModel, lag = 0): ScreenPiece[] | undefined {
   if (m.chosen === undefined) return []
-  const pass = m.passes[m.chosen + lag]
+  const pass = m.passes[lag]
   return pass && pass.parts.map(q => ({ x: q.ox, y: q.oy, large: q.size === 16 }))
 }
 

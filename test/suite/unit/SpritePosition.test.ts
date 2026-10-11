@@ -7,9 +7,9 @@
  *   P3 toMap drops the camera                -> the camera tests
  *   P4 capturePieces drops sizeXHigh bit 0   -> the 9-bit X test
  *   P5 gradePosition says exact for any non-empty pair -> every off test
- *   P6 key ignores `large`; P7 set not multiset; P8 parked `<=` -> `<`;
+ *   P6 key ignores `large`; P7 set not multiset; P8 parked `<=` -> `<`, `>=224` -> `>224` or `>=240`;
  *      P9 delta max not min                  -> the matching synthetic tests
- *   P10 grading at `chosen` not `chosen + lag`, or y + 1 -> the model tests, and
+ *   P10 grading at `chosen`, at `chosen + lag`, or y + 1 -> the model tests, and
  *      the corpus planted-defect test
  * Graded captures never set X bit 8, so the 9-bit X test is synthetic-only
  * coverage. Both sides use the capture camera, so the camera tests exercise
@@ -115,28 +115,59 @@ const fake = (chosen: number | undefined, passes: ReturnType<typeof part>[][], r
   ({ chosen, refusal, passes: passes.map(parts => ({ parts })) }) as unknown as SpriteModel
 
 describe('modelPieces and gradeRecord (synthetic model)', () => {
+  // chosen 1 (first drawing pass), exact pass for lag 2 is pass 2, not chosen + 2 = 3
   const m = fake(1, [[], [part(10, 20, 8)], [part(100, 50, 8), part(108, 50, 16)], [part(1, 1, 8)]])
 
-  it('reads the pass chosen + lag, raw ox and oy, large only for size 16', () => {
-    expect(modelPieces(m, 1)).toEqual([
+  it('reads pass `lag` itself (pass 0 is the first MAIN), raw ox and oy, large only for size 16', () => {
+    expect(modelPieces(m, 2)).toEqual([
       { x: 100, y: 50, large: false },
       { x: 108, y: 50, large: true },
     ])
-    expect(modelPieces(m)).toEqual([{ x: 10, y: 20, large: false }])
+    expect(modelPieces(m, 1)).toEqual([{ x: 10, y: 20, large: false }])
+    expect(modelPieces(m, 3)).toEqual([{ x: 1, y: 1, large: false }])
   })
 
-  it('grades the drawn frame, not the first draw', () => {
+  it('grades the drawn frame: lag counts from pass 0, so chosen is not added', () => {
     const entries = [e(100, 50), e(108, 50, 2)]
-    expect(gradeRecord(m, 1, entries, cam0).verdict).toBe('exact')
-    expect(gradeRecord(m, 0, entries, cam0).verdict).toBe('off')
-    expect(gradeRecord(m, 1, [e(100, 51), e(108, 51, 2)], cam0).verdict).toBe('off')
+    expect(gradeRecord(m, 2, entries, cam0).verdict).toBe('exact')
+    expect(gradeRecord(m, 1, entries, cam0).verdict).toBe('off')
+    expect(gradeRecord(m, 3, entries, cam0).verdict).toBe('off')
+    expect(gradeRecord(m, 2, [e(100, 51), e(108, 51, 2)], cam0).verdict).toBe('off')
+  })
+
+  it('a pass before the first draw has no pieces: missing, not lagged', () => {
+    expect(gradeRecord(m, 0, [e(1, 1)], cam0).verdict).toBe('missing')
   })
 
   it('tells lagged, refused and missing apart', () => {
     const v = (x: SpriteModel, lag: number): RecordVerdict => gradeRecord(x, lag, [e(1, 1)], cam0).verdict // prettier-ignore
-    expect(v(m, 3)).toBe('lagged')
+    expect(v(m, 4)).toBe('lagged')
     expect(v(fake(undefined, [[]]), 0)).toBe('missing')
     expect(v(fake(undefined, [], 'no loop'), 0)).toBe('refused')
+  })
+})
+
+describe('parked rule boundary (matches spriteGrade.ts passPieces)', () => {
+  const one = place([e(100, 50)])
+  const withExtra = (y: number, size = 0) => place([e(100, 50), e(0, y, size)])
+
+  it('keeps a small piece at y=223 (above the parked band)', () => {
+    expect(gradePosition(withExtra(223), one).verdict).toBe('off')
+  })
+
+  it('drops a small piece at y=224, the first parked line', () => {
+    expect(gradePosition(withExtra(224), one).verdict).toBe('exact')
+  })
+
+  it('drops small pieces anywhere in 224..248 (guards >=240)', () => {
+    for (const y of [224, 232, 239, 240, 248])
+      expect(gradePosition(withExtra(y), one).verdict, `y=${y}`).toBe('exact')
+  })
+
+  it('keeps a large piece at y=241 (it ends past 256), drops one at y=240', () => {
+    expect(gradePosition(withExtra(241, 2), one).verdict).toBe('off')
+    expect(gradePosition(withExtra(240, 2), one).verdict).toBe('exact')
+    expect(gradePosition(withExtra(224, 2), one).verdict).toBe('exact')
   })
 })
 
@@ -168,20 +199,20 @@ function loadAll(): { map: string; rec: Rec }[] {
   return out
 }
 
-/** Measured 2026-10-10, one machine, vanilla ROM: exact 1307, off 527, missing 41, lagged 82, refused 0; floors within 1%. Pairing at chosen + (drawnFrame - firstRealFrame). */
-const FLOOR = { graded: 1957, exact: 1294, maxOff: 532, maxLagged: 82, maxMissing: 41, maxRefused: 0 } // prettier-ignore
+/** Measured 2026-10-10, one machine, vanilla ROM: exact 1366, off 469, missing 42, lagged 80, refused 0 of 1957; each bound has 1% headroom (at least 1). Pairing at pass drawnFrame - firstRealFrame. */
+const FLOOR = { graded: 1957, exact: 1352, maxOff: 474, maxLagged: 81, maxMissing: 43, maxRefused: 1 } // prettier-ignore
 /** The ten ids with the most exact records: exact count measured, minus 1. */
 const ID_FLOOR: Record<string, number> = {
   $C2: 82,
   $73: 50,
   $11: 48,
   $4F: 46,
+  $33: 45,
   $6F: 43,
   $7B: 42,
+  $3D: 38,
   $09: 36,
-  $3D: 35,
-  $BA: 33,
-  $05: 32,
+  $72: 34,
 }
 
 type Counts = Record<RecordVerdict, number>
