@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Tools (#828): `npm run sprite:report` grades every captured sprite with the accuracy test's grader and commits a browsable report (one page per verdict, our frame beside the Mesen frame, an unticked `corrupted` box per row) to the private validation repo; `--sheet` writes one contact-sheet PNG outside both repos. Local only, never pushes, refuses any output inside this checkout or its git store; a dirty tree writes `<sha>-dirty/`, and `--force` replaces a ticked or edited `<sha>/`. Vanilla ROM and layers_v5 captures, one machine: 1957 graded (exact 936, shape 572, wrong 300, close 136, empty 13).
+- Tools (#828): `npm run sprite:report` grades every captured sprite with id $00-$C8 and at least one recorded frame, with the accuracy test's grader and commits a browsable report (one page per verdict, our frame beside the Mesen frame, an unticked `corrupted` box per row) to the private validation repo; `--sheet` writes one contact-sheet PNG outside both repos. Local only, never pushes, refuses any output inside this checkout or its git store; a dirty tree writes `<sha>-dirty/`, and `--force` replaces a ticked or edited `<sha>/`. Vanilla ROM and layers_v5 captures, one machine: 1957 graded (exact 936, shape 572, wrong 300, close 136, empty 13).
 
 ### Changed
 

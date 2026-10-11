@@ -208,7 +208,13 @@ function real(p: string): string {
     tail.unshift(basename(head))
     head = dirname(head)
   }
-  const r = join(realpathSync.native(head), ...tail)
+  let r: string
+  try {
+    r = join(realpathSync.native(head), ...tail)
+  } catch {
+    // a root that does not exist (unmapped drive, absent UNC share) has nothing to follow
+    r = join(head, ...tail)
+  }
   return process.platform === 'win32' ? r.toLowerCase() : r
 }
 

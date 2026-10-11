@@ -6,6 +6,7 @@
 import { execFileSync } from 'child_process'
 import {
   chmodSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -17,7 +18,7 @@ import {
 } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import type { SpriteModel } from '../../../src/rom/sprites/interp/SpriteRunner'
 import { runSprite } from '../../../src/rom/sprites/interp/SpriteRunner'
 import { loadLevelState } from '../../../src/rom/sprites/interp/LevelLoader'
@@ -44,6 +45,12 @@ import {
   type Graded,
   type Io,
 } from '../../../tools/scripts/spriteReportRun'
+
+// Wraps cpSync so one test can make the copy throw partway; everything else is the real fs.
+vi.mock('fs', async orig => {
+  const a = await orig<typeof import('fs')>()
+  return { ...a, cpSync: vi.fn(a.cpSync) }
+})
 
 const tmp = mkdtempSync(join(tmpdir(), 'sprite-report-'))
 afterAll(() => rmSync(tmp, { recursive: true, force: true }))
@@ -147,10 +154,12 @@ describe('isInside', () => {
 
 const img = (n: number): Graded['oursImg'] => ({ w: 2, h: 2, px: new Uint8Array(16).fill(n) })
 const graded = (): Graded[] => rows().map(r => ({ ...r, oursImg: img(100), hardwareImg: img(200) }))
-const mkRepo = (name: string): string => {
+const VALIDATION_URL = 'git@github.com:en-gen/hackbench-validation.git'
+const mkRepo = (name: string, remote: string | null = VALIDATION_URL): string => {
   const d = join(tmp, name)
   mkdirSync(d)
   git(d, 'init', '-q')
+  if (remote) git(d, 'remote', 'add', 'origin', remote)
   git(d, 'config', 'user.email', 't@example.com')
   git(d, 'config', 'user.name', 't')
   git(d, 'commit', '-q', '--allow-empty', '-m', 'init')
@@ -320,9 +329,10 @@ describe('run', () => {
     expect(existsSync(join(main, 'reports'))).toBe(false)
   })
   it('refuses an origin naming en-gen/hackbench, accepts hackbench-validation', () => {
-    const [bad, good] = [mkRepo('o-bad'), mkRepo('o-good')]
-    git(bad, 'remote', 'add', 'origin', 'https://github.com/en-gen/hackbench.git')
-    git(good, 'remote', 'add', 'origin', 'git@github.com:en-gen/hackbench-validation.git')
+    const [bad, good] = [
+      mkRepo('o-bad', 'https://github.com/en-gen/hackbench.git'),
+      mkRepo('o-good'),
+    ]
     expect(run(['--validation', bad], io())).toBe(2)
     expect(existsSync(join(bad, 'reports'))).toBe(false)
     expect(run(['--validation', good], io())).toBe(0)
@@ -335,6 +345,115 @@ describe('run', () => {
     const c = io()
     expect(run(['--no-commit'], c)).toBe(2)
     expect(c.out.join()).toContain('--no-commit needs --out')
+  })
+  it('rejects a missing, flag-like or non-hex --map and --sprite operand with usage', () => {
+    for (const argv of [
+      ['--sheet', '--map', 'zz', '--out', tmp],
+      ['--sheet', '--map', '--out', tmp],
+      ['--sheet', '--out', tmp, '--map'],
+      ['--sheet', '--sprite', 'g1', '--out', tmp],
+    ]) {
+      const c = io()
+      expect(run(argv, c), argv.join(' ')).toBe(2)
+      expect(c.out.join()).toMatch(/needs a hex number/)
+    }
+    expect(run(['--sheet', '--map', 'C8', '--out', join(tmp, 'hexok')], io())).toBe(0)
+  })
+  it('refuses a commit target no remote of which is named hackbench-validation', () => {
+    for (const [name, remote] of [
+      ['t-none', null],
+      ['t-fork', 'https://github.com/someone/hackbench.git'],
+      ['t-other', 'https://github.com/someone/notes.git'],
+    ] as const) {
+      const v = mkRepo(name, remote)
+      expect(run(['--validation', v], io()), name).toBe(2)
+      expect(existsSync(join(v, 'reports')), name).toBe(false)
+    }
+  })
+  it('refuses --out in a repo whose non-origin remote is a hackbench fork', () => {
+    const r = mkRepo('r-fork', null)
+    git(r, 'remote', 'add', 'upstream', 'git@github.com:someone/hackbench.git')
+    expect(run(['--out', join(r, 'o'), '--no-commit'], io())).toBe(2)
+    expect(existsSync(join(r, 'o'))).toBe(false)
+  })
+  it('names the cause once in the refusal: shared store, then the checkout', () => {
+    const main = mkRepo('msg-main')
+    const wt = join(tmp, 'msg-wt')
+    git(main, 'worktree', 'add', '-q', wt, '-b', 'msgwt')
+    const out = join(main, 'o')
+    const c = io({ repoRoot: wt })
+    run(['--out', out, '--no-commit'], c)
+    expect(c.out).toEqual([
+      `refusing ${out}: it shares its git store with the hackbench checkout. Nothing written.`,
+    ])
+    const c2 = io()
+    const inside = join(tmp, 'hb', 'x')
+    run(['--out', inside, '--no-commit'], c2)
+    expect(c2.out).toEqual([
+      `refusing ${inside}: it is inside the hackbench checkout. Nothing written.`,
+    ])
+  })
+  it('sees an owner file in <key>/ even when status.showUntrackedFiles is no', () => {
+    const v = mkRepo('v12')
+    run(['--validation', v], io())
+    git(v, 'config', 'status.showUntrackedFiles', 'no')
+    const mine = join(v, 'reports', 'sprites', 'deadbeef', 'notes.md')
+    writeFileSync(mine, 'mine')
+    const c = io()
+    expect(run(['--validation', v], c)).toBe(1)
+    expect(c.out.join()).toContain('uncommitted')
+    expect(readFileSync(mine, 'utf8')).toBe('mine')
+  })
+  it('undoes a copy that throws partway through the replacement', () => {
+    const v = mkRepo('v13')
+    run(['--validation', v], io())
+    const before = git(v, 'rev-parse', 'HEAD')
+    const idx = join(v, 'reports', 'sprites', 'latest', 'index.md')
+    const was = readFileSync(idx, 'utf8')
+    const real = vi.mocked(cpSync).getMockImplementation()!
+    vi.mocked(cpSync)
+      .mockImplementationOnce(real)
+      .mockImplementationOnce(() => {
+        throw new Error('EBUSY: planted')
+      })
+    const c = io({ grade: () => graded().slice(0, 1) })
+    expect(run(['--validation', v, '--force'], c)).toBe(1)
+    expect(c.out.join()).toContain('report undone')
+    expect(c.out.join()).toContain('planted')
+    expect(git(v, 'rev-parse', 'HEAD')).toBe(before)
+    expect(git(v, 'status', '--porcelain')).toBe('')
+    expect(readFileSync(idx, 'utf8')).toBe(was)
+  })
+  it('does not roll back over an owner file when the ticked-box check refuses', () => {
+    const v = mkRepo('v14')
+    run(['--validation', v], io())
+    const page = join(v, 'reports', 'sprites', 'deadbeef', 'exact.md')
+    writeFileSync(page, readFileSync(page, 'utf8').replace('- [ ]', '- [x]'))
+    git(v, 'commit', '-qam', 'reviewed')
+    const mine = join(v, 'reports', 'sprites', 'latest', 'mine.md')
+    writeFileSync(mine, 'mine')
+    expect(run(['--validation', v], io())).toBe(1)
+    expect(readFileSync(mine, 'utf8')).toBe('mine')
+  })
+  it('a sheet that cannot be written exits 1 with the reason', () => {
+    const blocker = join(tmp, 'blocker')
+    writeFileSync(blocker, 'a file where a directory is needed')
+    const c = io()
+    expect(run(['--sheet', '--map', '1', '--out', join(blocker, 'sub')], c)).toBe(1)
+    expect(c.out.join()).toContain('could not write the sheet')
+  })
+  it.skipIf(process.platform !== 'win32')('--out on a drive that does not exist exits 2', () => {
+    const free = [...'QRSTUVWXYZ'].find(l => !existsSync(`${l}:\\`))!
+    const dead = `${free}:\\nope\\x`
+    for (const argv of [
+      ['--out', dead, '--no-commit'],
+      ['--sheet', '--map', '1', '--out', dead],
+    ]) {
+      const c = io()
+      expect(run(argv, c)).toBe(2)
+      expect(c.out.join()).toContain('does not exist')
+    }
+    expect(isInside(dead, tmp)).toBe(false)
   })
   it('rejects --sheet with neither or both filters, and --out without --no-commit', () => {
     expect(run(['--sheet', '--out', tmp], io())).toBe(2)

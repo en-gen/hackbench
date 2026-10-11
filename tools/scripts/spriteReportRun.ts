@@ -87,9 +87,13 @@ export function parseArgs(argv: string[]): Args | string {
     else if (v === '--no-commit') a.commit = false
     else if (v === '--sheet') a.sheet = true
     else if (v === '--force') a.force = true
-    else if (v === '--map') a.filter.map = parseInt(next(), 16)
-    else if (v === '--sprite') a.filter.sprite = parseInt(next(), 16)
-    else return `unknown argument ${v}\n${USAGE}`
+    else if (v === '--map' || v === '--sprite') {
+      const s = next()
+      if (!/^[0-9a-f]+$/i.test(s))
+        return `${v} needs a hex number, got '${s}'
+${USAGE}`
+      a.filter[v === '--map' ? 'map' : 'sprite'] = parseInt(s, 16)
+    } else return `unknown argument ${v}\n${USAGE}`
   }
   if (a.sheet && (a.filter.map === undefined) === (a.filter.sprite === undefined))
     return `--sheet needs exactly one of --map, --sprite\n${USAGE}`
@@ -180,11 +184,14 @@ export function commitReport(
   if (
     !force &&
     existsSync(join(repo, paths[0])) &&
-    git(repo, 'status', '--porcelain', '--', paths[0]).trim()
+    // --untracked-files=all: status.showUntrackedFiles=no in the repo would hide an owner's new file
+    git(repo, 'status', '--porcelain', '--untracked-files=all', '--', paths[0]).trim()
   )
     throw new Error(`${paths[0]} has uncommitted changes; --force replaces them. Nothing written.`)
-  placeReport(join(repo, 'reports', 'sprites'), key, files, force)
+  const base = join(repo, 'reports', 'sprites')
+  refuseTicked(join(base, key), force) // outside the try: the rollback's clean would delete an owner's untracked files
   try {
+    placeReport(base, key, files, true) // ticks checked above; a throw mid-replace is rolled back below
     git(repo, 'add', '-A', '--', ...paths)
     if (!git(repo, 'status', '--porcelain', '--', ...paths).trim()) return false
     git(repo, 'commit', '-m', `Sprite report for hackbench ${key}`, '--', ...paths)
@@ -217,18 +224,27 @@ const commonDir = (dir: string): string | undefined => {
     return undefined
   }
 }
-/** Why `dir` is a hackbench repo (same git store as the checkout, or an origin naming en-gen/hackbench), else undefined. */
+/** Every remote URL of the repo holding `dir`; none when it has no remotes or is no repo. */
+const remoteUrls = (dir: string): string[] => {
+  try {
+    return git(dir, 'config', '--get-regexp', '^remote\\..*\\.url$')
+      .split('\n')
+      .map(l => l.replace(/^\S+\s+/, '').trim())
+      .filter(Boolean)
+  } catch {
+    return []
+  }
+}
+/** Why `dir` is a hackbench repo (same git store as the checkout, or any remote, a fork included, named hackbench), else undefined. */
 export function hackbenchRepo(dir: string, repoRoot: string): string | undefined {
   const [mine, theirs] = [commonDir(repoRoot), commonDir(dir)]
   if (mine && mine === theirs) return 'it shares its git store with the hackbench checkout'
-  try {
-    const url = git(dir, 'config', '--get', 'remote.origin.url').trim()
-    if (/en-gen\/hackbench(\.git)?\/?$/i.test(url)) return `its origin is ${url}`
-  } catch {
-    // no origin
-  }
-  return undefined
+  const url = remoteUrls(dir).find(u => /[:/]hackbench(\.git)?\/?$/i.test(u))
+  return url ? `a remote is ${url}` : undefined
 }
+/** True when a remote of `dir` is named hackbench-validation: a commit target is confirmed, not merely "not hackbench". */
+export const isValidationRepo = (dir: string): boolean =>
+  remoteUrls(dir).some(u => /[:/]hackbench-validation(\.git)?\/?$/i.test(u))
 
 /** Exit 0, 1 (missing input or nothing graded) or 2 (usage or refused path). */
 export function run(argv: string[], io: Io): number {
@@ -244,25 +260,33 @@ export function run(argv: string[], io: Io): number {
   const validation = findValidation(io.repoRoot, io.env, io.exists)
   const target = a.validation ? resolve(a.validation) : validation
   const inRepo = (p: string): string | undefined =>
-    isInside(p, io.repoRoot) ? 'the hackbench checkout' : undefined
+    isInside(p, io.repoRoot) ? 'it is inside the hackbench checkout' : undefined
   if (a.sheet || !a.commit) {
     let near = resolve(a.out!)
     while (!existsSync(near) && dirname(near) !== near) near = dirname(near)
     const bad =
       inRepo(a.out!) ??
-      (target && isInside(a.out!, target) ? 'the validation repo' : undefined) ??
+      (target && isInside(a.out!, target) ? 'it is inside the validation repo' : undefined) ??
       hackbenchRepo(near, io.repoRoot)
-    if (bad) return fail(2, `refusing ${a.out}: it is inside ${bad}. Nothing written.`)
+    if (bad) return fail(2, `refusing ${a.out}: ${bad}. Nothing written.`)
+    if (!existsSync(near))
+      return fail(
+        2,
+        `refusing ${a.out}: ${near} does not exist (no such drive or share). Nothing written.`,
+      )
   } else {
     if (!target || !io.exists(join(target, '.git')))
       return fail(
         1,
         `missing: the validation repo checkout (${target ?? 'no sibling hackbench-validation found; pass --validation'}). Nothing written.`,
       )
-    if (inRepo(target))
-      return fail(2, `refusing ${target}: it is inside the hackbench checkout. Nothing written.`)
-    const why = hackbenchRepo(target, io.repoRoot)
+    const why = inRepo(target) ?? hackbenchRepo(target, io.repoRoot)
     if (why) return fail(2, `refusing ${target}: ${why}. Nothing written.`)
+    if (!isValidationRepo(target))
+      return fail(
+        2,
+        `refusing ${target}: no remote is named hackbench-validation, so it is not confirmed as the validation repo. Nothing written.`,
+      )
   }
   const graded = io.grade(a.filter)
   if (!graded.length) return fail(1, 'no graded sprites matched. Nothing written.')
@@ -274,7 +298,11 @@ export function run(argv: string[], io: Io): number {
       .sort((x, y) => VERDICTS.indexOf(x.verdict) - VERDICTS.indexOf(y.verdict))
       .map(g => ({ verdict: g.verdict, ours: g.oursImg, hardware: g.hardwareImg }))
     const name = `sprite-sheet-${a.filter.map !== undefined ? `map-${a.filter.map.toString(16)}` : `sprite-${a.filter.sprite!.toString(16)}`}.png`
-    writeTree(resolve(a.out!), new Map([[name, encodePng(contactSheet(cells))]]))
+    try {
+      writeTree(resolve(a.out!), new Map([[name, encodePng(contactSheet(cells))]]))
+    } catch (e) {
+      return fail(1, `could not write the sheet to ${a.out}: ${(e as Error).message}`)
+    }
     return ok(
       `${join(resolve(a.out!), name)}: ${graded.length} sprites (${tally}); each cell is ours then hardware, border exact green, shape lime, close yellow, wrong red, empty/refused grey`,
     )
