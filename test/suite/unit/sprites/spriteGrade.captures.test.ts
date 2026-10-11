@@ -3,9 +3,12 @@
  * `sprite_spawns.json`, vanilla). Gated on the captures AND the vanilla ROM.
  *
  * Tier 1 (graded here): the sprite's OAM shape relative to its own position.
- * Tier 2 (not graded): absolute position and which frame Mesen caught, since
- * the captures record the first on-screen draw of a sprite that was free to
- * move and Mario was somewhere else. Set SPRITE_GRADE_OUT to a file path to
+ * Tier 2 (not graded): absolute position. The frame Mesen caught IS graded now: pass
+ * k = drawnFrame - max(anchorFrame, initFrame + 1), with Mario at marioAtInit for INIT
+ * and marioStart for MAIN and the frame counters seeded from the record (#844). Offsets
+ * are still measured from the END-of-pass position, which skews exact vs shape (a sprite
+ * that moved within the pass grades shape); the fix needs the draw-time position in
+ * SpriteRunner.ts and spriteGrade.ts, a separate item. Set SPRITE_GRADE_OUT to a file path to
  * dump every graded record as JSON for classification.
  *
  * The headline run asserts FLOORS (the measured count minus a tolerance) and a
@@ -38,6 +41,7 @@ import {
   TOOLS_ROOT,
   VANILLA,
 } from '../../support/corpus'
+import { gradedPass, writeMarioStart } from '../../support/gradeTimeline'
 import { oracleCells, oracleImage } from '../../support/oracleImage'
 import {
   grade,
@@ -55,6 +59,10 @@ interface Rec {
   cameraX: number
   cameraY: number
   marioAtInit?: { x: number; y: number }
+  initFrame?: number
+  drawnFrame?: number
+  trueFrame?: number
+  effFrame?: number
   frames?: { frameIndex?: number; tiles?: RecordedPiece[] }[]
   firstFrameIndex?: number
   complete?: boolean
@@ -82,8 +90,18 @@ function traceMap16(
   return undefined
 }
 
-function loadAll(): { map: string; rec: Rec; wram: Uint8Array | null }[] {
-  const out: { map: string; rec: Rec; wram: Uint8Array | null }[] = []
+interface Loaded {
+  map: string
+  rec: Rec
+  wram: Uint8Array | null
+  /** capture_summary.json anchorFrame: when the sprites' MAIN starts running on hardware. */
+  anchorFrame?: number
+  /** scroll_pass.json marioStart: where Mario is held from the anchor on. */
+  marioStart?: { x: number; y: number }
+}
+
+function loadAll(): Loaded[] {
+  const out: Loaded[] = []
   for (const f of readdirSync(CAPTURE_DIR).sort()) {
     const p = join(CAPTURE_DIR, f)
     if (!f.endsWith('.zip')) continue
@@ -94,7 +112,13 @@ function loadAll(): { map: string; rec: Rec; wram: Uint8Array | null }[] {
     const j = JSON.parse(entries.get(key)!().toString('utf8'))
     const wk = [...entries.keys()].find(k => k.endsWith('frame_0000_wram.bin'))
     const wram = wk ? new Uint8Array(entries.get(wk)!()) : null
-    for (const rec of j.spawns ?? []) out.push({ map: name, rec, wram })
+    const jsonOf = (suffix: string): Record<string, unknown> => {
+      const k = [...entries.keys()].find(e => e.endsWith(suffix))
+      return k ? JSON.parse(entries.get(k)!().toString('utf8')) : {}
+    }
+    const anchorFrame = jsonOf('capture_summary.json').anchorFrame as number | undefined
+    const marioStart = jsonOf('scroll_pass.json').marioStart as Loaded['marioStart']
+    for (const rec of j.spawns ?? []) out.push({ map: name, rec, wram, anchorFrame, marioStart })
   }
   return out
 }
@@ -105,18 +129,24 @@ type Mode = 'rom' | 'generic' | 'oracle'
 /** Grades `all` (or its first `limit` gradable records) against `rom`. */
 function gradeAll(
   rom: RomFile,
-  all: ReturnType<typeof loadAll>,
+  all: Loaded[],
   opts: { mode?: Mode; limit?: number; passes?: number; trackInputs?: boolean } = {},
 ): {
   rows: Row[]
   by: Record<string, number>
   inputs: Map<number, { reads: number; nonzero: number }>
+  /** Records graded the old way (first drawing pass, Mario at marioAtInit throughout): a timeline field was missing or k out of range. */
+  fallbacks: number
+  /** Timed records whose graded pass drew nothing (graded wrong). */
+  missAtK: number
 } {
   const mode = opts.mode ?? 'rom'
   const rows: Row[] = []
   const inputs = new Map<number, { reads: number; nonzero: number }>()
   const loadedByMap = new Map<string, Uint8Array | undefined>()
-  for (const { map, rec, wram } of all) {
+  let fallbacks = 0
+  let missAtK = 0
+  for (const { map, rec, wram, anchorFrame, marioStart } of all) {
     if (opts.limit !== undefined && rows.length >= opts.limit) break
     const id = parseInt(rec.id.slice(1), 16)
     const want = recordedFrames(rec)
@@ -133,15 +163,45 @@ function gradeAll(
     } else if (mode === 'oracle' && wram) {
       loaded = oracleImage({ cells: oracleCells(wram), map16: traceMap16(map, true) })
     }
+    // Hardware timeline: INIT sees marioAtInit, MAIN sees marioStart, and the graded pass is the
+    // one the capture's drawn frame falls on. Without the fields, the old first-drawing-pass rule.
+    const k = gradedPass(rec.initFrame, anchorFrame, rec.drawnFrame)
+    const timed = k !== undefined && marioStart !== undefined
+    if (!timed) fallbacks++
     const seed = withSeed({
       loaded,
       slot: rec.slot,
-      mainPasses: opts.passes ?? 64,
+      mainPasses: Math.max(opts.passes ?? 64, timed ? k + 1 : 0),
+      // Pass p runs at seed + 1 + p only when INIT takes one frame, so pass k lands on the frame
+      // counters the capture recorded at the draw. SpriteRunner adds a frame per INIT retry
+      // (initFrames > 1: 22 timed records, map 102 $5D x13 and $A4 x9), and those see the counters
+      // 1 or 2 high. Without the fields every pass starts the animation at zero.
+      ...(timed && rec.trueFrame !== undefined && rec.effFrame !== undefined
+        ? {
+            trueFrame: (rec.trueFrame - 1 - k) & 0xff,
+            effFrame: (rec.effFrame - 1 - k) & 0xff,
+          }
+        : {}),
       sprite: { x: rec.listX, y: rec.listY },
       camera: { x: rec.cameraX, y: rec.cameraY },
       mario: rec.marioAtInit ?? { x: rec.listX, y: rec.listY },
     })
-    const m = runSprite(rom, id, seed, { trackInputs: opts.trackInputs })
+    const probe = timed
+      ? (p: number, w: Uint8Array): void => {
+          if (p === -1) writeMarioStart(w, marioStart) // after INIT, before the first MAIN pass
+        }
+      : undefined
+    const m = runSprite(rom, id, seed, { trackInputs: opts.trackInputs, probe })
+    // Nothing drawn at the hardware's pass is a runner miss, counted apart so it cannot hide in the
+    // wrong total. It grades wrong when some pass draws; when none does (map 102 $5D) grade()
+    // returns empty whatever m.chosen is (test/suite/support/spriteGrade.ts:87).
+    if (timed && m.passes[k]) {
+      if (m.passes[k].parts.length) m.chosen = k
+      else {
+        m.chosen = k
+        missAtK++
+      }
+    }
     for (const a of m.inputs ?? []) {
       const e = inputs.get(a) ?? { reads: 0, nonzero: 0 }
       e.reads++
@@ -170,11 +230,23 @@ function gradeAll(
   }
   const by: Record<string, number> = {}
   for (const r of rows) by[r.verdict] = (by[r.verdict] ?? 0) + 1
-  return { rows, by, inputs }
+  return { rows, by, inputs, fallbacks, missAtK }
 }
 
-/** Floors for the 'rom' seed, 64 passes, chosen-frame policy; measured counts are in the docs. */
-const FLOOR = { graded: 1957, exact: 910, exactOrShape: 1480, maxRefused: 0, maxEmpty: 20 }
+/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. */
+const FLOOR = {
+  graded: 1957,
+  exact: 960,
+  exactOrShape: 1740,
+  maxRefused: 0,
+  maxEmpty: 20,
+  maxWrong: 175,
+  maxMissAtK: 30,
+  // 38 measured (spawned records without initFrame); all-timed would read 0.
+  minFallbacks: 30,
+  // 25 measured; a runner that stops counting misses (or stops grading at k) drops below.
+  minMissAtK: 20,
+}
 
 describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-load captures', () => {
   const all = hasCaptures() && hasRom(VANILLA) ? loadAll() : []
@@ -183,7 +255,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     const rom = freshRom()
     expect(all.length).toBeGreaterThan(0)
     const mode = (process.env.SPRITE_GRADE_SEED ?? 'rom') as Mode
-    const { rows, by, inputs } = gradeAll(rom, all, {
+    const { rows, by, inputs, fallbacks, missAtK } = gradeAll(rom, all, {
       mode,
       passes: Number(process.env.SPRITE_GRADE_PASSES ?? 64),
       trackInputs: !!process.env.SPRITE_GRADE_INPUTS,
@@ -193,12 +265,15 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
         process.env.SPRITE_GRADE_INPUTS,
         JSON.stringify([...inputs].sort((a, b) => b[1].nonzero - a[1].nonzero)),
       )
-    const summary = `graded ${rows.length}: ${JSON.stringify(by)}`
+    const summary = `graded ${rows.length}: ${JSON.stringify(by)}, fallback ${fallbacks}, missAtK ${missAtK}`
     if (process.env.SPRITE_GRADE_OUT)
       writeFileSync(process.env.SPRITE_GRADE_OUT, JSON.stringify({ summary, rows }, null, 1))
     console.log(summary)
     if (mode !== 'rom') return
-    // Floors: measured 2026-10-05 (docs section 12) minus a tolerance. The mutants they
+    // The corpus does tell anchor-based k from init-based k: an initOnly mutant (base initFrame + 1)
+    // measured exact 902 against 969 in one run, below the exact floor; gradeTimeline.test.ts pins
+    // the arithmetic itself. An effOnly mutant (trueFrame left 0) measured exact 958, below 960.
+    // Floors: measured 2026-10-10 (docs section 13.3) minus a tolerance. The mutants they
     // were set against (X not set to the slot, level sprites not zeroed, INIT retry
     // removed) all fall below them.
     expect(rows.length).toBe(FLOOR.graded)
@@ -206,7 +281,47 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     expect((by.exact ?? 0) + (by.shape ?? 0)).toBeGreaterThanOrEqual(FLOOR.exactOrShape)
     expect(by.refused ?? 0).toBeLessThanOrEqual(FLOOR.maxRefused)
     expect(by.empty ?? 0).toBeLessThanOrEqual(FLOOR.maxEmpty)
+    expect(by.wrong ?? 0).toBeLessThanOrEqual(FLOOR.maxWrong)
+    // 38 records carry no initFrame (the spawned ones) and grade the old way.
+    expect(fallbacks).toBeGreaterThanOrEqual(FLOOR.minFallbacks)
+    expect(fallbacks).toBeLessThanOrEqual(40)
+    expect(missAtK).toBeLessThanOrEqual(FLOOR.maxMissAtK)
+    expect(missAtK).toBeGreaterThanOrEqual(FLOOR.minMissAtK)
   }, 300_000)
+
+  // Mario at the hardware's position decides the Boo shy face (bank_01.asm:16250-16284), and the
+  // pose of $30 is only reached at pass 64 (k = 64, measured from the capture record); each failed before the timeline.
+  it.each([
+    ['1db', '$37', 864, 336],
+    ['1db', '$37', 944, 304],
+    ['11d', '$28', 272, 224],
+    ['01a', '$30', 272, 368],
+  ])(
+    'map %s %s at %i,%i grades exact',
+    (map, id, x, y) => {
+      const one = all.filter(
+        a => a.map === map && a.rec.id === id && a.rec.listX === x && a.rec.listY === y,
+      )
+      expect(one).toHaveLength(1)
+      const { rows, fallbacks } = gradeAll(freshRom(), one)
+      expect(fallbacks).toBe(0)
+      expect(rows.map(r => r.verdict)).toEqual(['exact'])
+    },
+    120_000,
+  )
+
+  // A miss at k: the model draws nothing on the hardware's pass, which grades wrong. Without
+  // `m.chosen = k` the grader falls back to the first drawing pass and the detail changes.
+  it('map 102 $A4 at 912,400 misses at k and grades wrong, not empty', () => {
+    const one = all.filter(
+      a => a.map === '102' && a.rec.id === '$A4' && a.rec.listX === 912 && a.rec.listY === 400,
+    )
+    expect(one).toHaveLength(1)
+    const { rows, missAtK } = gradeAll(freshRom(), one)
+    expect(missAtK).toBe(1)
+    expect(rows[0].verdict).toBe('wrong')
+    expect(rows[0].detail).toMatch(/model drew 0/)
+  }, 120_000)
 
   it('goes red when the dispatch is planted with a defect', () => {
     // The OAM tile stores of banks $01-$03 write the attribute byte instead: INIT and MAIN still
