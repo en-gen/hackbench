@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Spike (#848): `docs/spikes/2026-10-10-parallax-map-view.md` answers whether the map view can show layer 2 and layer 3 parallax. Findings only, no behaviour change: the rates are readable from the ROM, a per-scroll redraw misses the 5 ms budget (12 to 16 ms per screen, Node, one machine), and the preview-camera proposal is superseded by D48, which selects scroll-anchored option C (#503); #521 stays a separate issue.
+
 ### Changed
 
 - Docs (#829): `docs/sprites/grader-triage.md` sorts the 300 sprites the grader calls wrong, plus the 37 table-versus-interpreter rows, into 8 cause categories (31 grader band filter, 30 castle-flame cluster sprites, 161 first-pass policy, 35 stationary-shell list ids, 12 spawned companions, 14 absent companion, 9 platform sink, 8 unexplained) and 3 no-fix rows; vanilla ROM, `layers_v5`, one machine, 2026-10-10, develop at 9f5956e8. No code changed.
