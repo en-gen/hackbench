@@ -6,13 +6,14 @@
  * there that meet an opaque l1Low pixel (with no l1High pixel) are sprite index 11 (id $4F), which
  * the interpreter's OAM gives priority 1. Found by sweeping all 512 vanilla maps with the
  * node-side `mapSprites` and `mapScreen`: 50 maps change their composite, $105 is the one the
- * other map-view specs already open. The same probe measured 376 sprite pixels over no layer 1
- * on that screen, all of which the sprite changes.
+ * other map-view specs already open. The plant is fully behind the pipe. The same probe measured
+ * 376 sprite pixels over no layer 1 on that screen, all priority 2 pixels of OTHER sprites, not the
+ * plant's; they are the control that the composite draws sprites at all.
  *
- * The check: at every such overlap pixel the composite with sprites shown equals the composite
- * with them hidden (the pipe covers the plant), while at the sprite-only pixels it does not (the
- * sprite is drawn). Plant for the verifier: in theia/extension/src/node/map-sprites.ts `blit`,
- * `prio[at1] = 2` instead of the part's priority should turn the first assertion red (0 of 236).
+ * The check: at every overlap pixel the composite with sprites shown equals the composite with
+ * them hidden (the pipe covers the plant), while at the control pixels it does not. Plant for the
+ * verifier: in theia/extension/src/node/map-sprites.ts `blit`, `prio[at1] = 2` instead of the
+ * part's priority should turn the "behind the pipe" assertion red (0 of 236).
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')
@@ -116,7 +117,10 @@ test('a priority 1 sprite draws behind layer 1 low tiles: the pipe covers the pi
 
   const on = await probe(page)
   expect(on.at.behind.length, 'the plant overlaps the pipe here').toBeGreaterThanOrEqual(MIN_BEHIND) // prettier-ignore
-  expect(on.at.shown.length, 'and shows above it').toBeGreaterThanOrEqual(MIN_SHOWN)
+  expect(
+    on.at.shown.length,
+    'other sprites on the screen draw over no layer 1 (the control)',
+  ).toBeGreaterThanOrEqual(MIN_SHOWN)
 
   // Hide the sprites: the composite is redrawn without them.
   const toggle = page.locator(`${root} [data-control="layer-sprites"]`)
@@ -131,5 +135,8 @@ test('a priority 1 sprite draws behind layer 1 low tiles: the pipe covers the pi
 
   const same = (a, b) => a.filter((c, i) => c === b[i]).length
   expect(same(on.behind, off.behind), 'behind the pipe the sprite changes no pixel').toBe(on.at.behind.length) // prettier-ignore
-  expect(same(on.shown, off.shown), 'above the pipe every sprite pixel shows').toBe(0)
+  expect(
+    same(on.shown, off.shown),
+    'the control: every other-sprite pixel over no layer 1 shows',
+  ).toBe(0)
 })

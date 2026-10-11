@@ -145,17 +145,21 @@ Each screen's list (`ScreenPlanes.ts`) names four sprite sources:
   `l2High`. No vanilla map draws an `l2High` pixel (swept 0 of 488 maps,
   `map-view.spec.cjs`), so the two agree on vanilla.
 
-On a mode 0 screen (main BG1, BG3, OBJ) with the BG3 bit clear the main
-list is `l3Low, sprites0, l3High, sprites1, l1Low, sprites2, l1High,
+On a level mode 0 screen (main $15: BG1, BG3, OBJ, `bank_05.asm:486`)
+with the BG3 bit clear the main list is `l3Low, sprites0, l3High, sprites1, l1Low, sprites2, l1High,
 sprites3`.
 
 OBJ against OBJ is decided before the BG: the PPU keeps the opaque pixel of
-the lowest OAM index and only then compares that pixel's priority with the
-BG, so a low-index priority 0 part hides a priority 3 part under it and
-both go behind BG1.0. That is hardware behaviour (the OBJ line buffer in
-snes9x and bsnes), not a ROM trace. Within a sprite, `map-sprites.ts`
-blits parts from the highest OAM index down and keeps the winner's
-priority per pixel. Between sprites the view's own order (column, then
+the OAM entry first in its priority rotation and only then compares that
+pixel's priority with the BG, so a low-index priority 0 part hides a
+priority 3 part under it and both go behind BG1.0. That is hardware
+behaviour, not a ROM trace. SMW's NMI sets the rotation bit and starts it at
+`OAMAddress` (`bank_00.asm:563-566`), which is cleared to 0
+(`bank_00.asm:779`), so the lowest index wins. The exception is Roy,
+Morton and Ludwig's rooms, which set it to slot 100
+(`bank_00.asm:2775-2776`); the map view does not model that. Within a
+sprite, `map-sprites.ts` blits parts from the highest OAM index down and
+keeps the winner's priority per pixel. Between sprites the view's own order (column, then
 stream index) picks the winner, as before #795; the game's OAM slot
 assignment between sprites is not modelled.
 

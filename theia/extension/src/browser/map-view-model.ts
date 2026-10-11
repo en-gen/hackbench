@@ -16,7 +16,7 @@ import {
   type ScreenInput,
 } from '../../../../src/rom/model/ColorMath'
 import { SPRITE_KEYS, type SpriteKey } from '../../../../src/rom/model/ScreenPlanes'
-import { decodeRgba } from './map16-pixels'
+import { decodeBase64Bytes, decodeRgba } from './map16-pixels'
 import { SWITCH_ORDER } from './map16-view-model'
 
 export const PALACES: readonly (keyof SwitchFlagsDto)[] = ['yellow', 'green', 'red', 'blue']
@@ -67,7 +67,7 @@ function spriteLayer(
     const [cy0, cy1] = [Math.max(y0, top), Math.min(y1, top + g.height)]
     if (cx0 >= cx1 || cy0 >= cy1) continue
     let bmp = decoded.get(s)
-    if (!bmp) decoded.set(s, (bmp = { rgba: decodeRgba(s.rgba), prio: s.priority ? new Uint8Array(decodeRgba(s.priority).buffer) : null })) // prettier-ignore
+    if (!bmp) decoded.set(s, (bmp = { rgba: decodeRgba(s.rgba), prio: s.priority ? decodeBase64Bytes(s.priority) : null })) // prettier-ignore
     out ??= { rgba: new Uint8ClampedArray(g.width * g.height * 4), prio: new Uint8Array(g.width * g.height) } // prettier-ignore
     for (let y = cy0; y < cy1; y++) {
       for (let x = cx0; x < cx1; x++) {

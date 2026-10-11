@@ -207,9 +207,10 @@ export function drawSprites(
     }
     const width = box.x1 - box.x0
     const out = new Uint8ClampedArray(width * (box.y1 - box.y0) * 4)
-    // The PPU keeps the lowest OAM index's opaque pixel and only then compares ITS priority with
-    // the BG (snes9x and bsnes OBJ line buffers; hardware, not a ROM trace), so a pixel's priority
-    // is the part that wins it, whatever the parts under it hold.
+    // The PPU keeps the opaque pixel of the OAM entry first in its rotation and only then compares
+    // ITS priority with the BG (hardware, not a ROM trace), so a pixel's priority is the part that
+    // wins it. SMW starts the rotation at OAMAddress (bank_00.asm:563-566): 0 (:779), so the lowest
+    // index wins, except in Roy, Morton and Ludwig's rooms, where slot 100 does (:2775-2776; not modelled).
     const prio = new Uint8Array(width * (box.y1 - box.y0)).fill(2)
     const dyn = res.paletteNote ? dynamic(res.paletteNote) : []
     // The sprite's own CGRAM writes (WRAM upload list, palette mirror, direct), per sprite.
