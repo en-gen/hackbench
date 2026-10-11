@@ -404,28 +404,34 @@ describe('readLevelStart fails closed when a table byte is past the ROM end', ()
     rom.readByte = (a: number) => (a === addr ? null : real(a))
     return rom
   }
-  // Slot -> every table byte its start reads. Vertical $002 reads the X high table, horizontal $001 the Y one.
-  const reads: [string, number, number[]][] = [
-    ['entry map $001 (main)', 0x001, [F000 + 1, F200 + 1, F600 + 1, 0x05d731, 0x05d741, 0x05d752]],
-    ['entry map $002 (vertical main)', 0x002, [F000 + 2, F200 + 2, F600 + 2, 0x05d732, 0x05d751, 0x05d759]],
-    ['secondary $0C0 via $10', 0x0c0, [F800 + 0x10, FA00 + 0x10, FC00 + 0x10, F600 + 0xc0, 0x05d733, 0x05d744, 0x05d754]],
-    ['secondary $0C2 via $11 (vertical)', 0x0c2, [F800 + 0x11, FA00 + 0x11, FC00 + 0x11, F600 + 0xc2, 0x05d751, 0x05d758 + 2]],
-    ['main-entered sub area $0C1', 0x0c1, [F000 + 0xc1, F200 + 0xc1, F600 + 0xc1]],
+  // Slot -> the table bytes its start reads (`must`: withholding one refuses) and the ones the
+  // other orientation would read (`never`: withholding one changes nothing). Addresses follow the
+  // indexes world() plants: Y_LO $05D730, Y_HI $05D740, X_LO $05D750, X_HI $05D758.
+  const reads: [string, number, number[], number[]][] = [
+    ['entry map $001 (Y idx 1, X idx 2)', 0x001, [F000 + 1, F200 + 1, F600 + 1, 0x05d731, 0x05d741, 0x05d752], [0x05d75a]],
+    ['entry map $002 (vertical, Y idx 2, X idx 1)', 0x002, [F000 + 2, F200 + 2, F600 + 2, 0x05d732, 0x05d751, 0x05d759], [0x05d742]],
+    ['secondary $0C0 via $10 (Y idx 3, X idx 3)', 0x0c0, [F800 + 0x10, FA00 + 0x10, FC00 + 0x10, F600 + 0xc0, 0x05d733, 0x05d743, 0x05d753], [0x05d75b]],
+    ['secondary $0C2 via $11 (vertical, Y idx 1, X idx 2)', 0x0c2, [F800 + 0x11, FA00 + 0x11, FC00 + 0x11, F600 + 0xc2, 0x05d731, 0x05d752, 0x05d75a], [0x05d741]],
+    ['main-entered sub area $0C1 (Y idx 0, X idx 3)', 0x0c1, [F000 + 0xc1, F200 + 0xc1, F600 + 0xc1, 0x05d730, 0x05d740, 0x05d753], [0x05d75b]],
   ] // prettier-ignore
 
   it('every table byte a start reads: withholding it refuses, in plain words', () => {
     let n = 0
-    for (const [what, slot, addrs] of reads) {
+    for (const [what, slot, must, never] of reads) {
       expect(start(world(), slot).ok, `${what} reads fine with nothing withheld`).toBe(true)
-      for (const addr of addrs) {
+      for (const addr of must) {
         const s = start(withheld(addr), slot)
-        // A byte this slot never reads (e.g. the Y high table on a vertical map) may leave it ok.
-        if (s.ok) continue
+        expect(s.ok, `${what} @ $${addr.toString(16)} must refuse`).toBe(false)
         n++
-        expect(s.reason, `${what} @ $${addr.toString(16)}`).toBe(CUT)
+        expect(!s.ok && s.reason, `${what} @ $${addr.toString(16)}`).toBe(CUT)
+      }
+      for (const addr of never) {
+        expect(start(withheld(addr), slot).ok, `${what} never reads $${addr.toString(16)}`).toBe(
+          true,
+        )
       }
     }
-    expect(n).toBeGreaterThanOrEqual(15)
+    expect(n).toBe(reads.reduce((t, r) => t + r[2].length, 0))
   })
 
   it('a missing DATA_05F800 byte is not a match for a destination whose low byte is zero', () => {
