@@ -24,6 +24,7 @@ import { runSprite } from '../../../src/rom/sprites/interp/SpriteRunner'
 import { loadLevelState } from '../../../src/rom/sprites/interp/LevelLoader'
 import { withSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
 import { CAPTURE_DIR, VANILLA, freshRom, hasCaptures, hasRom } from '../support/corpus'
+import { timelineFor } from '../support/gradeTimeline'
 import { grade } from '../support/spriteGrade'
 import { unzip } from '../../../tools/scripts/capture_render'
 import {
@@ -687,19 +688,27 @@ describe.skipIf(!hasRom(VANILLA) || !hasCaptures())('gradeCaptures on the corpus
       if (!key) continue
       const map = parseInt(file.slice(0, -4), 16)
       const lvl = loadLevelState(rom, map)
+      const jsonOf = (suffix: string): any => { const k = [...entries.keys()].find(e => e.endsWith(suffix)); return k ? JSON.parse(entries.get(k)!().toString('utf8')) : {} } // prettier-ignore
+      const anchorFrame: number | undefined = jsonOf('capture_summary.json').anchorFrame
+      const marioStart = jsonOf('scroll_pass.json').marioStart
       for (const rec of JSON.parse(entries.get(key)!().toString('utf8')).spawns ?? []) {
         const id = parseInt(rec.id.slice(1), 16)
         const frames = (rec.frames ?? []).flatMap((f: any) => (f.tiles?.length ? [f.tiles] : []))
         if (!frames.length || id > 0xc8) continue
+        // The hardware timeline, as spriteGrade.captures.test.ts grades it (#867).
+        const t = timelineFor(rec, anchorFrame, marioStart)
         const seed = withSeed({
           loaded: lvl.ok ? lvl.wram : undefined,
           slot: rec.slot,
-          mainPasses: 64,
+          mainPasses: t.mainPasses,
+          ...t.seedExtra,
           sprite: { x: rec.listX, y: rec.listY },
           camera: { x: rec.cameraX, y: rec.cameraY },
           mario: rec.marioAtInit ?? { x: rec.listX, y: rec.listY },
         })
-        const v = grade(runSprite(rom, id, seed), frames).verdict
+        const m = runSprite(rom, id, seed, { probe: t.probe })
+        if (t.timed && m.passes[t.k!]) m.chosen = t.k
+        const v = grade(m, frames).verdict
         want[v] = (want[v] ?? 0) + 1
         total++
       }

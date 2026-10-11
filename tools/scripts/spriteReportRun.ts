@@ -31,6 +31,7 @@ import {
   hasRom,
   romPath,
 } from '../../test/suite/support/corpus'
+import { timelineFor } from '../../test/suite/support/gradeTimeline'
 import { grade, passPieces, type RecordedPiece } from '../../test/suite/support/spriteGrade'
 import { palette } from './capture_draw'
 import { parseNum } from './capture_decode'
@@ -382,6 +383,10 @@ interface Rec {
   cameraX: number
   cameraY: number
   marioAtInit?: { x: number; y: number }
+  initFrame?: number
+  drawnFrame?: number
+  trueFrame?: number
+  effFrame?: number
   entries?: Entry[]
   frames?: { tiles?: RecordedPiece[] }[]
 }
@@ -459,7 +464,7 @@ export function oamOrder(
   return null
 }
 
-/** Grades every captured sprite (or the filtered ones) with the 'rom' seed and 64 passes, as the accuracy test does. */
+/** Grades every captured sprite (or the filtered ones) with the 'rom' seed on the hardware timeline, as the accuracy test does. */
 export function gradeCaptures(f: Filter): Graded[] {
   const rom = freshRom()
   const out: Graded[] = []
@@ -468,6 +473,9 @@ export function gradeCaptures(f: Filter): Graded[] {
     const map = file.slice(0, -4)
     if (f.map !== undefined && parseInt(map, 16) !== f.map) continue
     const entries = unzip(readFileSync(join(CAPTURE_DIR, file)))
+    const jsonOf = (suffix: string): Record<string, unknown> => { const k = [...entries.keys()].find(e => e.endsWith(suffix)); return k ? JSON.parse(entries.get(k)!().toString('utf8')) : {} } // prettier-ignore
+    const anchorFrame = jsonOf('capture_summary.json').anchorFrame as number | undefined
+    const marioStart = jsonOf('scroll_pass.json').marioStart as { x: number; y: number } | undefined
     const key = [...entries.keys()].find(k => k.endsWith('sprite_spawns.json'))
     if (!key) continue
     const spawns: Rec[] = JSON.parse(entries.get(key)!().toString('utf8')).spawns ?? []
@@ -477,15 +485,19 @@ export function gradeCaptures(f: Filter): Graded[] {
       const id = parseInt(rec.id.slice(1), 16)
       const want = (rec.frames ?? []).flatMap(fr => (fr.tiles?.length ? [fr.tiles] : []))
       if (!want.length || id > 0xc8 || (f.sprite !== undefined && id !== f.sprite)) continue
+      // Hardware timeline (#867): mirrors gradeAll in spriteGrade.captures.test.ts (copied loop, shared gradedPass/writeMarioStart).
+      const t = timelineFor(rec, anchorFrame, marioStart)
       const seed = withSeed({
         loaded: lvl.ok ? lvl.wram : undefined,
         slot: rec.slot,
-        mainPasses: 64,
+        mainPasses: t.mainPasses,
+        ...t.seedExtra,
         sprite: { x: rec.listX, y: rec.listY },
         camera: { x: rec.cameraX, y: rec.cameraY },
         mario: rec.marioAtInit ?? { x: rec.listX, y: rec.listY },
       })
-      const m = runSprite(rom, id, seed)
+      const m = runSprite(rom, id, seed, { probe: t.probe })
+      if (t.timed && m.passes[t.k!]) m.chosen = t.k
       const g = grade(m, want)
       const ours = m.chosen !== undefined && !m.refusal ? passPieces(m, m.chosen) : []
       const hw = hardwareFrame(m, want, rec.entries)
