@@ -21,8 +21,8 @@ never change size, such as a palette color. Most edits do change size:
   compressed GFX file can grow from a one-pixel change.
 - Vanilla's GFX region has 755 bytes of slack for all 50 files
   ([../gfx-arena-budget.md](../gfx-arena-budget.md), 6 ROMs, one machine).
-  Both Grand Poo World ROMs in that corpus have none; Invictus is refused
-  outright (it replaces the decompressor).
+  Both Grand Poo World ROMs there have none; Invictus is refused outright (it
+  replaces the decompressor).
 
 Some data also cannot move freely because the game's code fixes where it may
 live. Sprite data is the clearest case: the pointer is 2 bytes from
@@ -305,8 +305,7 @@ stream may legitimately span a bank boundary.
 (private copy before an edit, never freed while a reader remains). This is also
 the detection rule for #178.
 
-**Address discovery.** Follow the ROM's own pointers; never hard-code a vanilla
-address for a hack.
+**Address discovery.** Follow the ROM's own pointers; never hard-code a vanilla address for a hack.
 
 - Read the table the game reads. The build resolves the table's own location
   through the code that indexes it, using the fingerprint convention below, so
