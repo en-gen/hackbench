@@ -5,7 +5,13 @@
  * a "clean" case, so the clean case pins non-zero expectations too.
  */
 import { describe, it, expect } from 'vitest'
-import { calibrate, figures, offsetOf, surveyRom } from '../../../tools/scripts/hackSurvey'
+import {
+  builtFiles,
+  calibrate,
+  figures,
+  offsetOf,
+  surveyRom,
+} from '../../../tools/scripts/hackSurvey'
 
 const SIZE = 0x100000
 const put = (rom: Uint8Array, addr: number, bytes: readonly number[]) => {
@@ -16,6 +22,7 @@ const APP_READ = [
   0x29, 0x06, 0x00, 0xaa, 0xa9, 0x33, 0x01, 0x0a, 0xa8, 0xa9, 0x07, 0x00, 0x85, 0x00, 0xbf, 0x00,
   0x80, 0x0e, 0x99, 0xbe, 0x0f, 0xc8, 0xc8, 0x18, 0x69, 0x08, 0x00, 0xc6, 0x00, 0x10, 0xf3,
 ]
+const MOVED_LEAD = [0xb9, 0x00, 0xed, 0x85, 0xce, 0xb9, 0x01, 0xed, 0x85, 0xcf]
 const SPRITE_LEAD = [0xb9, 0x00, 0xec, 0x85, 0xce, 0xb9, 0x01, 0xec, 0x85, 0xcf]
 
 function vanilla(): Uint8Array {
@@ -70,6 +77,14 @@ describe('hack survey figures (synthetic)', () => {
       },
       { handlersAllIn8D: 1 },
     ],
+    ['moved sprite lead-in operands', r => put(r, 0x05eb00, [...MOVED_LEAD]), { coreHeld: 0 }],
+    ['a removed sprite lead-in', r => put(r, 0x05eb00, [0xea, 0xea]), { spriteTableUnresolved: 1 }],
+    [
+      'a sprite lead-in whose two operands are not adjacent',
+      r => put(r, 0x05eb06, [0x05, 0xec]),
+      { spriteTableUnresolved: 1 },
+    ],
+    ['a second sprite lead-in', r => put(r, 0x05f000, SPRITE_LEAD), { spriteTableUnresolved: 1 }],
     ['no version marker', r => put(r, 0x0ff0a0, [0x00]), { lmMarker: 0 }],
     [
       'a JML at the dispatch',
@@ -90,4 +105,17 @@ describe('hack survey figures (synthetic)', () => {
       expect(got).not.toEqual(clean)
     })
   }
+
+  it('lists only successful builds, and refuses a built path that leaves the store', () => {
+    expect(
+      builtFiles([
+        { smwc_id: 1, patch_result: 'success', patched_rom_file: 'roms/1.sfc' },
+        { smwc_id: 2, patch_result: 'failed', patched_rom_file: null },
+      ]),
+    ).toEqual(['roms/1.sfc'])
+    for (const bad of ['../x.sfc', '/abs.sfc', 'C:/x.sfc', 7])
+      expect(() =>
+        builtFiles([{ smwc_id: 3, patch_result: 'success', patched_rom_file: bad as string }]),
+      ).toThrow(/patched_rom_file/)
+  })
 })

@@ -7,6 +7,8 @@
  * trimmed to the checks behind the doc's figures. Addresses are the ones cited
  * there; a verdict is a byte comparison against vanilla, not a reader's gate.
  */
+import { unsafeEntry } from './hackFetch'
+
 const BANK = 0x8000
 const WILD = -1
 
@@ -200,4 +202,18 @@ export function figures(facts: readonly RomFacts[]): Figures {
     },
     sa1Remap: count(r => r.sa1Remap),
   }
+}
+
+/** Store-relative ROM paths of the successful builds; a path that leaves the store is refused. */
+export function builtFiles(
+  hacks: readonly { smwc_id: number; patch_result?: string; patched_rom_file?: string | null }[],
+): string[] {
+  return hacks
+    .filter(h => h.patch_result === 'success' && h.patched_rom_file)
+    .map(h => {
+      const f = h.patched_rom_file
+      if (typeof f !== 'string' || unsafeEntry(f))
+        throw new Error(`hack ${h.smwc_id}: patched_rom_file ${String(f)} is not inside the store`)
+      return f
+    })
 }
