@@ -10,6 +10,7 @@ import * as L2LoaderReal from '../../../../src/rom/L2Loader'
 import type * as L2LoaderMod from '../../../../src/rom/L2Loader'
 import { parseLevelHeader } from '../../../../src/rom/LevelParser'
 import { buildL2 } from '../../../../src/rom/model/L2Factory'
+import { SKIP_CHAIN_B_AT, writeStockSkipChain } from '../../support/skipChain'
 import { freshRom, hasRom, VANILLA } from '../../support/corpus'
 
 vi.mock('../../../../src/rom/L2Loader', async importOriginal => {
@@ -25,6 +26,7 @@ const SITE = 0x05803b // CMP #$FF at the L2 preset check (bank_05.asm:33); Lunar
 describe('buildL2 in level modes without a Layer 2 pass (synthetic)', () => {
   const rom = new RomFile('l2.sfc', Buffer.alloc(0x80000, 0))
   rom.writeAt(0x05e600 + LEVEL * 3, [0x00, 0x90, 0x0c]) // an object-stream L2 pointer, not a $FF preset
+  writeStockSkipChain(rom)
 
   const l2At = (mode: number) => {
     const header = parseLevelHeader(Uint8Array.from([0, mode, 0, 0, 0]))
@@ -53,6 +55,28 @@ describe('buildL2 in level modes without a Layer 2 pass (synthetic)', () => {
   })
 
   // Any byte but the stock CMP opcode is a hijack, not just JML ($5C): a mutant `=== 0x5C` must die.
+  // Unreadable is not "not C9": with the site off the end of the ROM no stream is admitted (fail closed).
+  it('an unreadable site admits no stream in a skipped mode', () => {
+    const tiny = new RomFile('tiny.sfc', Buffer.alloc(0x1000, 0))
+    expect(L2LoaderReal.levelModeLoadsL2Objects(tiny, 0x0a)).toBe(false)
+  })
+
+  // Hack-only path (D51): the skip branch is rerouted but CMP #$FF is stock; nothing is guessed.
+  it('a changed skip chain with a stock site reports unrecognized, and no stream is read', () => {
+    rom.writeAt(SITE, [0xc9])
+    rom.writeAt(SKIP_CHAIN_B_AT + 5, [0xea, 0xea]) // the mode $0A compare is neutered
+    expect(L2LoaderReal.l2ObjectGate(rom, 0x0a)).toBe('unrecognized')
+    expect(L2LoaderReal.l2ObjectGate(rom, 0x03)).toBe('loads')
+    vi.mocked(L2LoaderReal.loadL2Objects).mockReturnValue({ grid: [[1]] })
+    expect(l2At(0x0a)).toBeNull()
+    expect(vi.mocked(L2LoaderReal.loadL2Objects)).not.toHaveBeenCalled()
+    writeStockSkipChain(rom)
+    expect(L2LoaderReal.l2ObjectGate(rom, 0x0a)).toBe('skipped')
+    rom.writeAt(SKIP_CHAIN_B_AT + 7, [0x10]) // the BEQ for mode $0A now lands elsewhere: the stream could run
+    expect(L2LoaderReal.l2ObjectGate(rom, 0x0a)).toBe('unrecognized')
+    writeStockSkipChain(rom)
+  })
+
   it('treats every non-CMP byte at the site as a hijack', () => {
     for (const byte of [0x22, 0x00, 0x4c]) {
       rom.writeAt(SITE, [byte])
@@ -80,6 +104,10 @@ describe('buildL2 in level modes without a Layer 2 pass (synthetic)', () => {
 
 // Proves the gate is ON for the stock ROM (corpus only; the synthetic cases above run in CI).
 describe.skipIf(!hasRom(VANILLA))('levelModeLoadsL2Objects on the vanilla ROM', () => {
+  it('recognizes the stock skip chain', () => {
+    expect(L2LoaderReal.l2ObjectGate(freshRom(), 0x0a)).toBe('skipped')
+  })
+
   it('refuses every skipped mode and allows the loading ones', () => {
     const vanilla = freshRom()
     for (let mode = 0; mode < 32; mode++) {

@@ -9,7 +9,7 @@ import type { SmwRom } from '../SmwRom'
 import { hex2, hex3s as hex3 } from '../hex'
 import {
   isPresetPtr,
-  levelModeLoadsL2Objects,
+  l2ObjectGate,
   l2PaletteOrForTileset,
   L2_EMPTY_TILE,
   loadL2Objects,
@@ -76,7 +76,11 @@ export function buildL2Inputs(rom: SmwRom, index: number, l1: L1Inputs): L2Resul
       }
     }
     // Before the orientation check: modes $0A and $0D would otherwise be refused for a layout mismatch the game never meets.
-    if (!levelModeLoadsL2Objects(rom.rom, header.levelMode)) {
+    const gate = l2ObjectGate(rom.rom, header.levelMode)
+    if (gate === 'unrecognized') {
+      return refuse(`Layer 2 not drawn: the mode-skip chain of this ROM is not recognized (level mode $${hex2(header.levelMode)})`) // prettier-ignore
+    }
+    if (gate === 'skipped') {
       return refuse(`The game loads no layer 2 objects in level mode $${hex2(header.levelMode)}`)
     }
     const vertical = rom.getVerticalTable()

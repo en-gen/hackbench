@@ -29,6 +29,7 @@ import { palaceArt } from '../../../src/rom/SwitchArt'
 import { renderMap16Tile } from '../../../src/rom/TileRenderer'
 import { VANILLA, MAGIC, hasRom, romPath } from '../support/corpus'
 import { bgModeRom } from '../support/bgModeRom'
+import { SKIP_CHAIN_B_AT, writeStockSkipChain } from '../support/skipChain'
 import { hGrid, inputs as baseInputs, px, sub, tile, vGrid } from '../support/mapInputs'
 
 // Level mode 1: mode 0 is one the game loads no L2 objects in (#637), which the helper's zero header would hit.
@@ -248,6 +249,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
     rom.writeAt(0x05d70c, [0x60, 0x90, 0xc0, 0x00])
     rom.writeAt(0x05f400 + LEVEL, [(1 << 2) | 2])
     rom.writeAt(0x05803b, [0xc9]) // stock CMP #$FF at the L2 preset check (bank_05.asm:33)
+    writeStockSkipChain(rom)
     for (const [addr, bytes] of writes) rom.writeAt(addr, bytes)
     return rom
   }
@@ -387,6 +389,29 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       const r = buildL2Inputs(smw(rom), LEVEL, { ...m, header: { ...m.header, levelMode: 0x0a } })
       expect(r.ok, `site ${byte}`).toBe(true)
     }
+  })
+
+  // A ROM that reroutes the skip branch but keeps CMP #$FF would otherwise read as "no objects", silently.
+  it('a changed mode-skip chain with a stock CMP site is refused as unrecognized, in every mode', () => {
+    for (const patch of [[0x0a], [0x1e]]) {
+      const rom = romWith([ptr(0x00, 0x90, 0x0c)])
+      rom.writeAt(SKIP_CHAIN_B_AT + 5 + 4 * (patch[0] === 0x0a ? 0 : 5), [0xea, 0xea]) // the compare is neutered, so the stream could run
+      for (const mode of [0x0a, 0x1e, 0x03]) {
+        objects([[1]])
+        const m = inputs(hGrid(1), false, 1)
+        const r = buildL2Inputs(smw(rom), LEVEL, { ...m, header: { ...m.header, levelMode: mode } })
+        if (mode === 0x03) expect(r.ok, 'a loading mode never consults the chain').toBe(true)
+        else expect(r, `mode ${mode}`).toMatchObject({ ok: false, reason: expect.stringMatching(/skip chain.*not recognized/) }) // prettier-ignore
+        vi.mocked(L2LoaderReal.loadL2Objects).mockReset()
+      }
+    }
+  })
+
+  it('a stock ROM keeps the plain refusal, never the unrecognized one', () => {
+    objects([[1]])
+    const m = inputs(hGrid(1), false, 1)
+    const r = buildL2Inputs(smw(romWith([ptr(0x00, 0x90, 0x0c)])), LEVEL, { ...m, header: { ...m.header, levelMode: 0x0a } }) // prettier-ignore
+    expect(r).toMatchObject({ ok: false, reason: expect.stringMatching(/loads no layer 2 objects in level mode \$0A/) }) // prettier-ignore
   })
 
   it('a skipped mode with L1 vertical gives the mode as the reason, not an orientation mismatch', () => {

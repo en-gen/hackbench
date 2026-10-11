@@ -118,14 +118,63 @@ const MODES_WITHOUT_L2_OBJECTS: readonly number[] = [0x00, 0x09, 0x0a, 0x0b, 0x0
 const L2_PRESET_CMP_SITE = 0x05803b
 const OPCODE_CMP_IMM = 0xc9
 
+// LoadLevel's two mode-compare chains (bank_05.asm:431-437 and 444-457): LDA.W LevelModeSetting,
+// then CMP #mode / BEQ LoadLevelDone pairs. The second starts 28 bytes after the first (the Layer 1
+// load sits between) and opens with a bare BEQ for mode $00. Read as structure, not hashed.
+const SKIP_CHAIN_AT = 0x0583b8
+const SKIP_CHAIN_B_OFFSET = 28
+const SKIP_CHAIN_LENGTH = SKIP_CHAIN_B_OFFSET + 29
+const OPCODE_LDA_ABS = 0xad
+const OPCODE_BEQ = 0xf0
+const LEVEL_MODE_SETTING = [0x25, 0x19]
+
+/** True when both chains compare exactly the ten skipped modes and every BEQ reaches one target. */
+function skipChainIsStock(rom: RomFile): boolean {
+  const b = rom.readAt(SKIP_CHAIN_AT, SKIP_CHAIN_LENGTH)
+  if (!b) return false
+  let target: number | null = null
+  const beqOk = (at: number): boolean => {
+    if (b[at] !== OPCODE_BEQ) return false
+    const t = at + 2 + ((b[at + 1]! << 24) >> 24)
+    target ??= t
+    return t === target
+  }
+  const chainOk = (start: number, leadingBeq: boolean, modes: readonly number[]): boolean => {
+    if (b[start] !== OPCODE_LDA_ABS || b[start + 1] !== LEVEL_MODE_SETTING[0] || b[start + 2] !== LEVEL_MODE_SETTING[1]) return false // prettier-ignore
+    let at = start + 3
+    if (leadingBeq) {
+      if (!beqOk(at)) return false
+      at += 2
+    }
+    for (const m of modes) {
+      if (b[at] !== OPCODE_CMP_IMM || b[at + 1] !== m || !beqOk(at + 2)) return false
+      at += 4
+    }
+    return true
+  }
+  return chainOk(0, false, [0x09, 0x0b, 0x10]) && chainOk(SKIP_CHAIN_B_OFFSET, true, [0x0a, 0x0c, 0x0d, 0x0e, 0x11, 0x1e]) // prettier-ignore
+}
+
+export type L2ObjectGate = 'loads' | 'skipped' | 'unrecognized'
+
 /**
- * False when the game never loads an L2 object stream in this level mode. Applies only while the
- * level-load site is stock: a hijacked ROM reroutes the layer 2 pointer, so it keeps today's
- * behaviour (#637, owner ruling D51; the hijack itself is #876). Evidence: synthetic fixtures.
+ * Whether the game loads an L2 object stream in this level mode. 'skipped' needs the mode in the
+ * ten AND the stock chain that skips them; an unreadable or hijacked CMP site keeps today's
+ * behaviour ('loads' only when readable and not CMP, else 'skipped': fail closed). A stock CMP
+ * with a changed chain is 'unrecognized': the skip logic was rerouted and is not emulated (#637,
+ * D51; the hijack itself is #876). Evidence: synthetic fixtures, plus the vanilla cart (corpus).
  */
+export function l2ObjectGate(rom: RomFile, levelMode: number): L2ObjectGate {
+  if (!MODES_WITHOUT_L2_OBJECTS.includes(levelMode & 0x1f)) return 'loads'
+  const opcode = rom.readByte(L2_PRESET_CMP_SITE)
+  if (opcode === null) return 'skipped'
+  if (opcode !== OPCODE_CMP_IMM) return 'loads'
+  return skipChainIsStock(rom) ? 'skipped' : 'unrecognized'
+}
+
+/** False unless the stream loads; an unrecognized chain loads none either (see `l2ObjectGate`). */
 export function levelModeLoadsL2Objects(rom: RomFile, levelMode: number): boolean {
-  if (!MODES_WITHOUT_L2_OBJECTS.includes(levelMode & 0x1f)) return true
-  return rom.readByte(L2_PRESET_CMP_SITE) !== OPCODE_CMP_IMM
+  return l2ObjectGate(rom, levelMode) === 'loads'
 }
 
 /** True if the L2 pointer indicates a preset BG (bank byte $FF). */
