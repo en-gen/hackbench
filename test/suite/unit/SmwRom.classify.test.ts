@@ -287,20 +287,47 @@ describe('SmwRom.buildLevelExitGraph', () => {
     setL1Ptr(rom, 0x010, 0x068000)
     setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitObj(0x20, true), ...exitObj(0x21, true), 0xff]) // prettier-ignore
     rom.writeAt(ADDR.SEC_EXIT_DEST + 0x20, [0x50, 0x10])
-    // $050: a primary exit back to the root, and a second secondary entrance to itself.
+    // $050: two primary exits, to itself and back to the root.
     setL1Ptr(rom, 0x050, 0x06a000)
-    setLevelData(rom, 0x06a000, [0, 0, 0, 0, 0, ...exitObj(0x10, false), ...exitObj(0x22, true), 0xff]) // prettier-ignore
-    rom.writeAt(ADDR.SEC_EXIT_DEST + 0x22, [0x50])
+    setLevelData(rom, 0x06a000, [0, 0, 0, 0, 0, ...exitObj(0x50, false), ...exitObj(0x10, false), 0xff]) // prettier-ignore
     const result = graphOf(new SmwRom(rom))
-    expect(result.entrances?.get(0x010)).toEqual({
-      overworld: true,
-      primary: true,
-      secondary: [0x21],
-    })
-    expect(result.entrances?.get(0x050)).toEqual({ overworld: false, primary: false, secondary: [0x20, 0x22] }) // prettier-ignore
+    expect(result.entrances?.get(0x010)).toEqual({ overworld: true, primary: true, secondary: [0x21] }) // prettier-ignore
+    expect(result.entrances?.get(0x050)).toEqual({ overworld: false, primary: true, secondary: [0x20] }) // prettier-ignore
     // The graph itself still drops the self-loops and the edge into a root.
     expect(result.graph.get(0x010)).toEqual([0x050])
     expect(result.graph.has(0x050)).toBe(false)
+  })
+
+  it('the secondary id carries the submap high byte: a $1xx root names entrance $1xx', () => {
+    const rom = make4MbRom()
+    setL1Ptr(rom, 0x105, 0x068000) // root, flag 1
+    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitObj(0x10, true), 0xff])
+    setL1Ptr(rom, 0x177, 0x06a000)
+    setLevelData(rom, 0x06a000, [0, 0, 0, 0, 0, 0x42, 0xff])
+    rom.writeAt(ADDR.SEC_EXIT_DEST + 0x110, [0x77])
+    expect(graphOf(new SmwRom(rom)).entrances?.get(0x177)?.secondary).toEqual([0x110])
+  })
+
+  // UseSecondaryExit is one byte, rewritten by every screen-exit object the load parses
+  // (bank_0D.asm:1436-1438), and the exit path reads it once (bank_05.asm:7111-7112).
+  it('one secondary flag per map: the last screen-exit object parsed sets it for every exit', () => {
+    const graphFor = (exits: number[]) => {
+      const rom = make4MbRom()
+      setL1Ptr(rom, 0x010, 0x068000)
+      setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exits, 0xff])
+      for (const [i, m] of [0x050, 0x051, 0x060, 0x061].entries()) {
+        setL1Ptr(rom, m, 0x06a000 + i * 0x100)
+        setLevelData(rom, 0x06a000 + i * 0x100, [0, 0, 0, 0, 0, 0x42, 0xff])
+      }
+      rom.writeAt(ADDR.SEC_EXIT_DEST + 0x50, [0x60, 0x61])
+      return graphOf(new SmwRom(rom))
+    }
+    const lastSecondary = graphFor([...exitObj(0x50, false), ...exitObj(0x51, true)])
+    expect(lastSecondary.graph.get(0x010)).toEqual([0x060, 0x061])
+    expect(lastSecondary.entrances?.get(0x060)).toEqual({ overworld: false, primary: false, secondary: [0x50] }) // prettier-ignore
+    const lastPrimary = graphFor([...exitObj(0x51, true), ...exitObj(0x50, false)])
+    expect(lastPrimary.graph.get(0x010)).toEqual([0x051, 0x050])
+    expect(lastPrimary.entrances?.get(0x051)).toEqual({ overworld: false, primary: true, secondary: [] }) // prettier-ignore
   })
 })
 

@@ -15,7 +15,10 @@
  * planes by its tile priority bit, drawn on every non-Mode-7 level mode (#561, #562).
  */
 import { SmwRom, type MapEntrances } from '../../../../src/rom/SmwRom'
-import { deriveOverworldEntrances } from '../../../../src/rom/OverworldEntrances'
+import {
+  deriveOverworldEntrances,
+  type OverworldFingerprints,
+} from '../../../../src/rom/OverworldEntrances'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SCREEN_H, SCREEN_W, SCREEN_W_VERT, SCREEN_H_VERT } from '../../../../src/rom/LevelParser'
 import {
@@ -382,11 +385,16 @@ export function buildMapInputs(
 
 /**
  * How the game enters each map, from the exit graph; undefined when the graph is unavailable or
- * throws, so the background falls back to the primary reading instead of refusing the map.
+ * throws, so the background falls back to the older reading instead of refusing the map.
+ * `fingerprints` replaces the stock ones; for a synthetic ROM.
  */
-export function readMapEntrances(rom: SmwRom): ReadonlyMap<number, MapEntrances> | undefined {
+export function readMapEntrances(
+  rom: SmwRom,
+  fingerprints?: OverworldFingerprints,
+): ReadonlyMap<number, MapEntrances> | undefined {
   try {
-    return rom.buildLevelExitGraph(deriveOverworldEntrances(rom).roots).entrances
+    const roots = deriveOverworldEntrances(rom, undefined, fingerprints).roots
+    return rom.buildLevelExitGraph(roots, fingerprints?.entry).entrances
   } catch {
     return undefined
   }

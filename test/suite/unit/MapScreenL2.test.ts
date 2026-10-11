@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
-import { SmwRom } from '../../../src/rom/SmwRom'
+import { ADDR, SmwRom } from '../../../src/rom/SmwRom'
 import * as Map16Real from '../../../src/rom/Map16'
 import * as L2LoaderReal from '../../../src/rom/L2Loader'
 import type * as Map16Mod from '../../../src/rom/Map16'
@@ -20,6 +20,7 @@ import {
   drawL2Planes,
   L1ModelCache,
   mapScreen,
+  readMapEntrances,
   screenResult,
   toolbarArtOf,
   type MapInputs,
@@ -29,6 +30,12 @@ import { palaceArt } from '../../../src/rom/SwitchArt'
 import { renderMap16Tile } from '../../../src/rom/TileRenderer'
 import { VANILLA, MAGIC, hasRom, romPath } from '../support/corpus'
 import { bgModeRom } from '../support/bgModeRom'
+import {
+  plantOverworldTiles,
+  plantStockSubmapCode,
+  SYNTHETIC_FINGERPRINTS,
+} from '../support/syntheticRom'
+import { FG_GATE_MAPS } from '../../../tools/scripts/fgGateMaps'
 import { hGrid, inputs, px, sub, tile, vGrid } from '../support/mapInputs'
 
 vi.mock('../../../src/rom/Map16', async importOriginal => {
@@ -356,7 +363,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       expect(build(entry(1), via(false, false, A, C)).note).toBeUndefined()
       const split = build(entry(1), via(false, false, A, B))
       expect(split.dy).toBe(0x540 - 0x560) // A, the lowest id
-      expect(split.note).toMatch(/height unverified.*2 different heights.*secondary entrance \$1BE/)
+      expect(split.note).toBe('Background height unverified: drawn as entered through secondary entrance $1BE; entered through secondary entrance $0C4 it starts at a different height.') // prettier-ignore
       // A primary entrance is drawn ahead of any secondary one.
       expect(build(entry(1), via(false, true, A)).dy).toBe(0x320 - 0x3c0)
       expect(build(entry(1), via(false, true, A)).note).toMatch(/drawn as entered by a screen exit/)
@@ -372,8 +379,44 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       expect(build(withMidway(1), via(true, false)).note).toBeUndefined() // both high bytes 3 or both 0: same relation
       const midway = build(withMidway(3), via(true, false))
       expect(midway.dy).toBe(0x320 - 0xc0)
-      expect(midway.note).toMatch(/from the midway point/)
+      expect(midway.note).toMatch(
+        /drawn as entered from the overworld; entered from the midway point it starts/,
+      )
       expect(build(entry(3), via(true, false)).note).toBeUndefined() // no midway screen: no restart there
+    })
+
+    // Through the node side's own reader: the exit graph's ids (the $1xx half included) reach a
+    // background image's note. Also the image branch's note, beside the object branch's above.
+    it('end to end: readMapEntrances feeds a background image its $1xx entrances', () => {
+      const buf = Buffer.alloc(0x400000, 0)
+      buf[0x7fd5] = 0x20 // the map mode byte
+      const rom = new RomFile('e2e.sfc', buf)
+      plantStockSubmapCode(rom)
+      plantOverworldTiles(rom)
+      const l1Ptr = (map: number, at: number) => rom.writeAt(ADDR.LEVEL_L1_PTR + map * 3, [at & 0xff, (at >> 8) & 0xff, at >> 16]) // prettier-ignore
+      l1Ptr(0x105, 0x068000) // a submap root: its exits index the $1xx half
+      rom.writeAt(0x068000, [0, 0, 0, 0, 0, 0x00, 0x02, 0x00, 0x10, 0x00, 0x02, 0x00, 0x11, 0xff])
+      l1Ptr(0x177, 0x06a000)
+      rom.writeAt(0x06a000, [0, 0, 0, 0, 0, 0x42, 0xff])
+      rom.writeAt(ADDR.SEC_EXIT_DEST + 0x110, [0x77, 0x77])
+      rom.writeAt(0x05fa00 + 0x110, [0x20, 0x60]) // L2 index 0 ($60), then 1 ($90)
+      rom.writeAt(0x05d708, [0x00, 0x20, 0x40, 0x80])
+      rom.writeAt(0x05d70c, [0x60, 0x90, 0xc0, 0x00])
+      rom.writeAt(0x05e600 + 0x177 * 3, [0x00, 0x80, 0xff])
+      rom.writeAt(0x0c8000, [0x84, 0x07, 0xff, 0xff])
+      vi.mocked(Map16Real.readL2Map16Table).mockReturnValue({ ok: true, value: [0] })
+      vi.mocked(Map16Real.loadMap16Tiles).mockReturnValue(tiles2(one))
+      const smw = new SmwRom(rom)
+      const reached = readMapEntrances(smw, SYNTHETIC_FINGERPRINTS)?.get(0x177)
+      expect(reached).toEqual({ overworld: false, primary: false, secondary: [0x110, 0x111] })
+      const l2 = ok(buildL2Inputs(smw, 0x177, inputs(hGrid(1), false, 1), reached))
+      expect(l2).toMatchObject({ kind: 'image', dy: 0x40 - 0x60 })
+      expect(l2.note).toBe('Background height unverified: drawn as entered through secondary entrance $110; entered through secondary entrance $111 it starts at a different height.') // prettier-ignore
+      // A graph that throws leaves the map to the older reading instead of refusing it.
+      vi.spyOn(smw, 'buildLevelExitGraph').mockImplementation(() => {
+        throw new Error('boom')
+      })
+      expect(readMapEntrances(smw, SYNTHETIC_FINGERPRINTS)).toBeUndefined()
     })
 
     it('a map nothing is known to reach keeps the primary reading, with no note', () => {
@@ -555,4 +598,27 @@ describe.each([VANILLA, MAGIC])('every slot of %s', name => {
     },
     600_000,
   )
+})
+
+// The roster effect (#505), vanilla, as measured when the entrances landed: no background moves,
+// and $118 alone is noted, for its secondary entrance $1C3.
+describe.skipIf(!hasRom(VANILLA))('the entrances over the 143-map roster', () => {
+  it('move no background and note $118 only, naming entrance $1C3', () => {
+    const rom = new SmwRom(RomFile.load(romPath(VANILLA)))
+    const entrances = readMapEntrances(rom)!
+    const moved: number[] = []
+    const noted = new Map<number, string>()
+    for (const index of FG_GATE_MAPS) {
+      const built = buildL1Inputs(rom, index, UNCLEARED)
+      if (!built.ok) continue
+      const before = buildL2Inputs(rom, index, built.inputs)
+      const after = buildL2Inputs(rom, index, built.inputs, entrances.get(index))
+      if (!before.ok || !after.ok) continue
+      if (before.l2.dy !== after.l2.dy) moved.push(index)
+      if (after.l2.note) noted.set(index, after.l2.note)
+    }
+    expect(moved).toEqual([])
+    expect([...noted.keys()]).toEqual([0x118])
+    expect(noted.get(0x118)).toBe('Background height unverified: drawn as entered from the overworld; entered through secondary entrance $1C3 it starts at a different height.') // prettier-ignore
+  }, 600_000)
 })

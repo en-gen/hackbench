@@ -478,15 +478,18 @@ export class SmwRom {
       } catch {
         continue
       }
-      const specs = parsed.objects
-        .filter(o => o.screenExitDest !== undefined)
-        .map(o => ({
-          isSecondary: o.screenExitIsSecondary === true,
-          // LevelParser folds a dead ExitTableHigh-derived bit into bit 8 of
-          // screenExitDest (see LevelParser.ts); mask it back off to recover
-          // the object's raw extra byte.
-          rawByte: o.screenExitDest! & 0xff,
-        }))
+      const exits = parsed.objects.filter(o => o.screenExitDest !== undefined)
+      // UseSecondaryExit is one byte that every screen-exit object rewrites as the load parses
+      // it (bank_0D.asm:1436-1438), read once by the exit path (bank_05.asm:7111-7112): the
+      // last object's flag holds for every exit of the map.
+      const isSecondary = exits.at(-1)?.screenExitIsSecondary === true
+      const specs = exits.map(o => ({
+        isSecondary,
+        // LevelParser folds a dead ExitTableHigh-derived bit into bit 8 of
+        // screenExitDest (see LevelParser.ts); mask it back off to recover
+        // the object's raw extra byte.
+        rawByte: o.screenExitDest! & 0xff,
+      }))
       if (specs.length > 0) exitsByLevel.set(levelIdx, specs)
     }
 

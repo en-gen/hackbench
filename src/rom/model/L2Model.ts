@@ -98,17 +98,19 @@ function dyFromEntrances(
   ]
   if (paths.length === 0) return null
   const dys = paths.map(p => entryDy(rom, index, p))
-  const heights = new Set(dys).size
-  if (heights === 1) return { dy: dys[0]! }
+  const differ = paths.filter((_, i) => dys[i] !== dys[0]).map(pathWords)
+  if (differ.length === 0) return { dy: dys[0]! }
   return {
     dy: dys[0]!,
-    note: `Background height unverified: the ${paths.length} ways into this map (${paths.map(pathWords).join(', ')}) start it at ${heights} different heights; drawn as entered ${pathWords(paths[0]!)}.`, // prettier-ignore
+    note: `Background height unverified: drawn as entered ${pathWords(paths[0]!)}; entered ${differ.join(', ')} it starts at a different height.`, // prettier-ignore
   }
 }
 
 /**
  * Read one map's L2, or why it cannot be read. Never a vanilla fallback. `entrances` is how the
- * game enters the map (`SmwRom.buildLevelExitGraph`); without it the position is the primary one.
+ * game enters the map (`SmwRom.buildLevelExitGraph`). Without it the position is the older
+ * reading: F400/F600 for a $0xx map, and for a $1xx map the low bytes of the first FA00 entrance
+ * `findSecondaryEntranceForLevel` names, mixed with the map's own F600 high byte.
  */
 export function buildL2Inputs(
   rom: SmwRom,
@@ -124,7 +126,7 @@ export function buildL2Inputs(
   // vertical scrolling moves L2 against L1 when VertLayer2Setting != 1. The high bytes follow the
   // ScreenMode the entry code builds from F600 bits 5-6 (bank_05.asm:7292-7299, 7379-7381), not the
   // VerticalTable, which the header parse applies later (:552-553). With no known entrance, the
-  // level's own F400/F600 (FA00 for a $1xx slot's first targeting entrance, the older reading).
+  // older reading described above.
   const entryVertical = ((rom.rom.readByte(0x05f600 + index) ?? 0) & 0x20) !== 0
   const known = dyFromEntrances(rom.rom, index, entrances)
   const dy = (): number => known?.dy ?? readInitialLayer1YPos(rom.rom, index, entryVertical) - readInitialLayer2YPos(rom.rom, index, entryVertical) // prettier-ignore
