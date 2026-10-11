@@ -40,14 +40,33 @@ messages and annotated tag bodies get the same text-content rules. An
 in-file `content-gate: allow <rule> -- <reason>` pragma, only at the
 start of a comment line, exempts one file from one content rule.
 
+`rom-provenance` (#812): a comment that says nearby data was copied from the
+game (`vanilla $<address>` or `0x<address>`, `copied|taken|lifted|dumped
+from`, `from the ROM at $<address>`, `ROM bytes`, `real ROM
+bytes|data|values`), either leading and followed within 3 lines by a CODE
+line, or trailing on the literal's own line, blocks when that code holds a
+numeric array literal opening of 2+ elements (decimal, `0x`, `$`, mixed). A
+literal inside a comment is a citation and never counts. Comments are `//`
+(trailing too, spaced or not), `/* */` (open blocks carry across lines),
+and a leading `#` or `*`; delimiters inside quoted strings are skipped. In
+`.md` files a leading `#` or `*` is a heading or bullet, not a comment;
+`<!-- -->` is one, and `/*` opens a block only at line start. A 4-byte copy
+cannot be told from invented values by content, so the claim is the signal;
+say "invented values" instead, or add the pragma. A decimal array with `0x`
+elements mixed in counts toward `byte-tokens` too.
+
 Modes: `staged` (pre-commit), `range BASE HEAD` (CI), `push REMOTE`
 (`.githooks/pre-push`, reading stdin ref-updates and querying the remote
 live via `git ls-remote` rather than trusting local, possibly stale,
-remote-tracking refs), and `history` (every blob reachable from every ref
-
-- the repo-migration oracle, run in CI only once public; also refuses a
-  shallow clone, a grafts file, and a tag/ref pointing at a blob or tree
-  outside any commit's tree).
+remote-tracking refs), and `history [REF]` (the repo-migration oracle, run
+in CI only once public: every blob reachable from `REF`, default `HEAD`,
+plus tags, never other branches, so an unmerged branch cannot fail an
+unrelated ref (unless tagged) (D59 A); a ref
+that does not resolve exits 2; it also refuses a shallow clone, a grafts file,
+and a tag pointing at a blob or tree outside any commit's tree). Trade-off of
+D59 A: a branch pushed with no PR, or a PR whose base is not develop, main or
+feature/\*\*, gets no server-side scan until it is merged or PR'd; the
+pre-push hook is the only check there.
 
 Read budget (#461): before any content is buffered, object sizes are
 checked with `git cat-file --batch-check`. A blob over 32 MiB, or (in
@@ -665,6 +684,47 @@ Settled by the owner 2026-09-28; design calls delegated to the orchestrator. Spe
 - Rule: a spec that counts RPC calls needs a counter the app exposes (a widget data attribute or a server-side counter) or websocket frame inspection, and must prove the counter rises on a known call. `[PROP]`
 - Counting RPC calls from websocket frames (`page.on('websocket')`, `framesent`): a msgpack fixstr is the byte `0xa0 + length` followed by the name, so match that byte before the name or `mapCollision` is found inside `mapCollisionCheck`. Strings are not bundled (`bundleStrings: false`, @theia/core 1.75.0 `rpc-message-encoder.js:47`). Prove the counter rises on a known call before trusting a zero. Blind spot: socket.io starts on HTTP long-polling (`ws-connection-source.js:180` passes no `transports`), so a call sent before the upgrade to websocket is not a `framesent`; wait for a binary `framesent` (RPC; the upgrade probe is text) before trusting the counter. `[EST]` Theia 1.75, one machine, #706.
 - Timing a widget race: replace the service PROPERTY on the widget (`w.projects = new Proxy(real, ...)`) with a stub whose reply is a promise you control, then in ONE `page.evaluate` click the control and release the reply. The continuation is a microtask and runs before React's commit task, so the reply lands on the old layout. Assert that precondition in the same evaluate (the `data-rendered-zoom` attribute still old). Trap: Lumino's update request is also a microtask, queued at the click and drained first, so the widget's `renderedZoom` FIELD is already the new zoom while replies run; read the `data-rendered-zoom` attribute (written at commit), never the field. Poll until every pending request has its reply parked (`pending.size > 0 && parked === pending.size`) before the click. `[EST]` verified at 24496d01, Maps zoom anchor (#547), one machine, React 19.3.
+
+## Sprite report
+
+`npm run sprite:report` (#828) grades each sprite in the `layers_v5` captures
+with id `$00`-`$C8` and at least one recorded frame with tiles (zips without
+`sprite_spawns.json` are skipped) with the grader behind `spriteGrade.captures.test.ts` and commits a report to
+the private `hackbench-validation` repo at `reports/sprites/<hackbench sha>/`
+plus a copy at `reports/sprites/latest/`. One page per verdict (exact, shape,
+close, wrong, empty, refused), an index by sprite id, our frame beside the
+hardware (Mesen) frame, and an unticked `- [ ] corrupted` box per row. The
+frames are ROM graphics, so the report never goes in this repo; the script
+refuses any output path inside the checkout and never pushes.
+
+```bash
+npm run sprite:report                                        # commit to the sibling hackbench-validation
+npm run sprite:report -- --validation <dir>                  # or HACKBENCH_VALIDATION
+npm run sprite:report -- --out <dir> --no-commit             # same tree, nothing committed
+npm run sprite:report -- --sheet --map 105 --out <dir>       # one contact-sheet PNG (or --sprite 1b)
+```
+
+ROM and captures come from `corpus.ts` (`HACKBENCH_ROMS`, `HACKBENCH_CAPTURES`);
+a missing one exits non-zero naming it. The hardware side shows the recorded
+frame the grader scores best against our chosen pass (`grade` against each
+frame singly, ties to the first), drawn in OAM index order recovered from the
+record's `entries` (the capture sorts each frame's tiles as JSON text, so its
+list is not OAM order). The hardware order is exact except on rows labeled
+"hardware overlap order unknown": there the entries did not fit the frame and
+it is drawn in the capture's order. Both sides are drawn from the capture's own
+VRAM and palette, so a difference is in the pieces. A dirty tree writes
+`<sha>-dirty/`. Tick the checkboxes in the `<sha>/` folder: `latest/` is
+regenerated every run, and a run refuses to replace a `<sha>/` that has a
+ticked box, or with uncommitted edits or extra files, unless `--force`. Only
+`reports/sprites/<key>` and `latest` are staged and committed; a failed step
+(the copy, `git add`, `git status` or `git commit`) is undone (both folders restored) and exits
+non-zero, naming the step (`git add -f`, so a repo that ignores `*.png` still commits the frame images); the message says "undone" only when every undo step succeeded. The commit target must have a remote URL ending in `hackbench-validation`.
+The target, and any `--out` or `--sheet` path, is refused when it shares a git
+store with the hackbench checkout (a worktree of it included) or any of its
+remote URLs (a fork too, a local clone path included) ends in `hackbench`. An `--out` on a drive or share that
+does not exist exits 2. Sheet borders: exact green, shape lime, close yellow, wrong
+red, empty and refused grey. The loop in `spriteReportRun.ts` mirrors `gradeAll`, which is
+private to the test file.
 
 ## The validation repository
 
