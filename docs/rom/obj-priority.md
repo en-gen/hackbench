@@ -165,3 +165,17 @@ assignment between sprites is not modelled.
 
 A marker (a sprite the interpreter refused) has no OAM entry and keeps
 priority 2.
+
+## A covered sprite pixel is not hidden (editor ruling D52, not hardware)
+
+The hardware draws no OBJ pixel a nearer BG tile covers. The editor does not
+hide things from the owner (D52 part 1): a sprite pixel that a nearer plane
+fully covers draws through that tile in the hidden-tile screen door
+(`render/HiddenTiles.ts`: half the pixels at full strength, half at
+`HIDDEN_TILE_DIM_ALPHA`, parity flipped when the pixels would be mostly full
+strength, `doorFlip`). The squares are on the sprite's own pixel grid
+(its bitmap origin), and the flip is decided per sprite per screen over its
+covered pixels, so a sprite cut by a screen edge can flip differently on each
+side. The main screen only. Done in `composeScreen` from a `doors` map
+(`spriteDoors`). OBJ priority 0 and 1 under layer 2 are left fully hidden
+(D52 part 2 is undecided).

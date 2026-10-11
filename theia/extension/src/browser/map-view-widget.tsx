@@ -30,6 +30,7 @@ import {
 import { ProjectContext } from './project-context'
 import { decodeRgba, TILE_PX } from './map16-pixels'
 import {
+  spriteDoors,
   spritePlanes,
   decodeArts,
   hoverTarget,
@@ -605,6 +606,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       planes,
       lists: shot.screens,
       math: shot.math,
+      doors: this.showSprites ? spriteDoors(this.sprites, s) : null,
     })
     canvas.getContext('2d')?.putImageData(new ImageData(out, shot.width, shot.height), 0, 0)
     canvas.dataset.drawn = want

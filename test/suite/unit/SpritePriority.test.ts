@@ -11,7 +11,7 @@ import { runSprite, type SpritePart } from '../../../src/rom/sprites/interp/Spri
 import { composeScreen, type SourceKey } from '../../../src/rom/model/ColorMath'
 import { screenPlanes } from '../../../src/rom/model/ScreenPlanes'
 import { drawSprites, interpParts } from '../../../theia/extension/src/node/map-sprites'
-import { spritePlanes } from '../../../theia/extension/src/browser/map-view-model'
+import { spriteDoors, spritePlanes } from '../../../theia/extension/src/browser/map-view-model'
 import { COLORS, px } from '../support/mapInputs'
 import { buildSyntheticRom } from '../support/syntheticSpriteRom'
 
@@ -103,5 +103,88 @@ describe('spritePlanes', () => {
     const none = { sprites0: null, sprites1: null, sprites2: null, sprites3: null }
     expect(spritePlanes({ ...G, sprites: [] }, 0)).toEqual(none)
     expect(spritePlanes(undefined, 0)).toEqual(none)
+  })
+})
+
+describe('a sprite pixel a tile covers draws through it in the hidden-tile screen door (D52, #795)', () => {
+  const HIDE = 0.25
+  const SIZE = 32
+  const lerp = (tile: number[], sprite: number[], s: number) => tile.map((v, k) => Math.round(v * (1 - s) + sprite[k]! * s)) // prettier-ignore
+  /** An 8x8 tile of color 1 where `on(x, y)`, else transparent. */
+  const tileOf = (on: (x: number, y: number) => boolean) => ({ vram: { sp1: [Uint8Array.from({ length: 64 }, (_, i) => (on(i % 8, i >> 3) ? 1 : 0))] }, colors: COLORS }) // prettier-ignore
+
+  /** One 8x8 sprite at (x, y) under `bg` plane cells chosen by `covers`: the composite and the sprite's box. */
+  function scene(opts: {
+    x: number
+    y: number
+    priority?: number
+    bg: Bg | 'l2Low' | 'l2High'
+    covers?: (x: number, y: number) => boolean
+    on?: (x: number, y: number) => boolean
+    main?: number
+  }) {
+    // prettier-ignore
+    const model = opts.on ? tileOf(opts.on) : MODEL
+    const sprite = { ...spr, x: 0, y: 0 }
+    const [dto] = drawSprites([sprite], model, () => ({ ok: true, parts: interpParts([oam({ priority: opts.priority ?? 2 })]), anchor: { x: opts.x, y: opts.y }, identity })) // prettier-ignore
+    const plane = new Uint8ClampedArray(SIZE * SIZE * 4)
+    for (let y = 0; y < SIZE; y++) for (let x = 0; x < SIZE; x++) if (!opts.covers || opts.covers(x, y)) plane.set([...(opts.bg.startsWith('l1') ? L1_RGB : opts.bg.startsWith('l2') ? [31, 32, 33] : L3_RGB), 255], (y * SIZE + x) * 4) // prettier-ignore
+    const sp = { orientation: 'horizontal' as const, width: SIZE, height: SIZE, sprites: [dto!] }
+    const out = composeScreen({ width: SIZE, height: SIZE, planes: { [opts.bg]: plane, ...spritePlanes(sp, 0) }, doors: spriteDoors(sp, 0), lists: screenPlanes(opts.main ?? 0x15, 0x00, false), math: null }) // prettier-ignore
+    return { out, box: dto!.box }
+  }
+  const at = (r: ReturnType<typeof scene>, x: number, y: number) =>
+    px(r.out, SIZE, r.box.x0 + x, r.box.y0 + y).slice(0, 3)
+
+  it('a fully covered sprite: half its pixels at full strength, half at 25%, on its own pixel grid', () => {
+    for (let ox = 0; ox < 8; ox++) {
+      for (let oy = 0; oy < 8; oy++) {
+        const r = scene({ x: 8 + ox, y: 8 + oy, bg: 'l1High' })
+        for (let y = 0; y < 8; y++)
+          for (let x = 0; x < 8; x++)
+            expect(at(r, x, y), `offset ${ox},${oy} pixel ${x},${y}`).toEqual(lerp(L1_RGB, SPRITE_RGB, (x + y) % 2 === 0 ? 1 : HIDE)) // prettier-ignore
+      }
+    }
+  })
+  it('the parity flip: a sprite drawn only on the full-strength squares comes out dim, as a ghost tile does', () => {
+    const r = scene({ x: 9, y: 11, bg: 'l1High', on: (x, y) => (x + y) % 2 === 0 })
+    for (let y = 0; y < 8; y++)
+      for (let x = 0; x < 8; x++)
+        if ((x + y) % 2 === 0) expect(at(r, x, y)).toEqual(lerp(L1_RGB, SPRITE_RGB, HIDE))
+        else expect(at(r, x, y)).toEqual(L1_RGB)
+  })
+  it('a dim-majority sprite keeps the squares (no flip)', () => {
+    const r = scene({ x: 9, y: 11, bg: 'l1High', on: (x, y) => (x + y) % 2 === 1 })
+    for (let y = 0; y < 8; y++)
+      for (let x = 0; x < 8; x++)
+        if ((x + y) % 2 === 1) expect(at(r, x, y)).toEqual(lerp(L1_RGB, SPRITE_RGB, HIDE))
+  })
+  it('a partly covered sprite: only the covered pixels change, the rest are the sprite exactly', () => {
+    for (let ox = 0; ox < 8; ox++) {
+      const [x0, y0] = [8 + ox, 10]
+      const r = scene({ x: x0, y: y0, bg: 'l1High', covers: x => x >= x0 + 4 })
+      for (let y = 0; y < 8; y++)
+        for (let x = 0; x < 8; x++)
+          expect(at(r, x, y), `offset ${ox} pixel ${x},${y}`).toEqual(x < 4 ? SPRITE_RGB : lerp(L1_RGB, SPRITE_RGB, (x + y) % 2 === 0 ? 1 : HIDE)) // prettier-ignore
+    }
+  })
+  it('an uncovered sprite is unchanged', () => {
+    const r = scene({ x: 10, y: 10, bg: 'l1Low' })
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) expect(at(r, x, y)).toEqual(SPRITE_RGB)
+  })
+  it('OBJ priority 0 and 1 under layer 2 stay hidden (D52 part 2, undecided)', () => {
+    for (const priority of [0, 1])
+      for (const bg of ['l2Low', 'l2High'] as const) {
+        const r = scene({ x: 10, y: 10, priority, bg, main: 0x12 })
+        for (let y = 0; y < 8; y++)
+          for (let x = 0; x < 8; x++)
+            expect(at(r, x, y), `p${priority} ${bg} ${x},${y}`).toEqual([31, 32, 33])
+      }
+  })
+  it('OBJ priority 0 under layer 1 is covered and gets the door; priority 2 under layer 2 high too', () => {
+    expect(at(scene({ x: 10, y: 10, priority: 0, bg: 'l1Low' }), 0, 1)).toEqual(
+      lerp(L1_RGB, SPRITE_RGB, HIDE),
+    )
+    expect(at(scene({ x: 10, y: 10, priority: 2, bg: 'l2High', main: 0x12 }), 0, 1)).toEqual(lerp([31, 32, 33], SPRITE_RGB, HIDE)) // prettier-ignore
   })
 })

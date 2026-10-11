@@ -42,6 +42,8 @@ const decoded = new WeakMap<MapSpriteDto, { rgba: Uint8ClampedArray; prio: Uint8
 interface SpriteLayer {
   rgba: Uint8ClampedArray
   prio: Uint8Array
+  /** Per pixel, 0 or ((winning sprite's place in the stack + 1) << 1 | its local (x + y) parity), for the screen door. */
+  door: Uint32Array
 }
 
 /**
@@ -61,14 +63,14 @@ function spriteLayer(
   const [left, top] = vertical ? [0, screen * g.height] : [screen * g.width, 0]
   const order = [...sprites].sort((a, b) => (vertical ? a.y - b.y : a.x - b.x) || a.index - b.index)
   let out: SpriteLayer | null = null
-  for (const s of order) {
+  for (const [n, s] of order.entries()) {
     const { x0, y0, x1, y1 } = s.box
     const [cx0, cx1] = [Math.max(x0, left), Math.min(x1, left + g.width)]
     const [cy0, cy1] = [Math.max(y0, top), Math.min(y1, top + g.height)]
     if (cx0 >= cx1 || cy0 >= cy1) continue
     let bmp = decoded.get(s)
     if (!bmp) decoded.set(s, (bmp = { rgba: decodeRgba(s.rgba), prio: s.priority ? decodeBase64Bytes(s.priority) : null })) // prettier-ignore
-    out ??= { rgba: new Uint8ClampedArray(g.width * g.height * 4), prio: new Uint8Array(g.width * g.height) } // prettier-ignore
+    out ??= { rgba: new Uint8ClampedArray(g.width * g.height * 4), prio: new Uint8Array(g.width * g.height), door: new Uint32Array(g.width * g.height) } // prettier-ignore
     for (let y = cy0; y < cy1; y++) {
       for (let x = cx0; x < cx1; x++) {
         const from = (y - y0) * (x1 - x0) + (x - x0)
@@ -77,6 +79,7 @@ function spriteLayer(
         out.rgba.set(bmp.rgba.subarray(from * 4, from * 4 + 4), to * 4)
         // No priority: a placeholder, at the pre-#795 slot.
         out.prio[to] = bmp.prio ? bmp.prio[from]! : 2
+        out.door[to] = ((n + 1) << 1) | ((x - x0 + (y - y0)) & 1)
       }
     }
   }
@@ -106,6 +109,18 @@ export function spritePlanes(
     plane.set(layer.rgba.subarray(i * 4, i * 4 + 4), i * 4)
   })
   return planes
+}
+
+/**
+ * One screen's sprite door map for `composeScreen` (D52): which sprite owns each pixel and its
+ * parity on the sprite's own pixel grid, so a covered sprite pixel draws through the tile at the
+ * hidden-tile screen door's strength. Null where no sprite reaches the screen.
+ */
+export function spriteDoors(
+  sp: (ScreenGeometry & { sprites: readonly MapSpriteDto[] }) | undefined,
+  screen: number,
+): Uint32Array | null {
+  return (sp && spriteLayer(sp.sprites, screen, sp)?.door) ?? null
 }
 
 /** The canvas surface the sprite painter needs: a subset of HTMLCanvasElement. */

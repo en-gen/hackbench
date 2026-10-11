@@ -12,6 +12,7 @@
  * Participation in math is keyed by layer (LAYER_BIT), so OBJ (bit $10, palettes
  * 4-7 only, #564) arrives later as one more input plane, not a redesign.
  */
+import { doorFlip, hiddenPixelStrength } from '../render/HiddenTiles'
 import type { ListKey } from './ScreenPlanes'
 
 export type Rgb = readonly [number, number, number]
@@ -27,6 +28,12 @@ export interface ScreenInput {
   planes: Partial<Record<SourceKey, Uint8ClampedArray | null>>
   lists: { main: readonly SourceKey[]; sub: readonly SourceKey[] }
   math: ColorMathInput | null
+  /**
+   * Per pixel, 0 or (sprite id << 1 | its (x + y) parity on the sprite's own grid): a sprite pixel
+   * a tile covers then draws through that tile in the hidden-tile screen door (D52, #795).
+   * Not modeled for OBJ priority 0 and 1 under layer 2 (D52 part 2: they stay hidden). Main screen only.
+   */
+  doors?: Uint32Array | null
 }
 
 const LAYER_BIT = { l1: 0x01, l2: 0x02, l3: 0x04 } as const
@@ -51,11 +58,12 @@ const to8 = (v: number) => (v << 3) | (v >> 2)
  * The topmost plane's CGADSUB membership then applies to the blend: an editor affordance, not
  * hardware, and it differs only when the two layers differ in membership.
  */
-function top(i: ScreenInput, list: readonly SourceKey[], at: number) {
+function top(i: ScreenInput, list: readonly SourceKey[], at: number, flips?: Map<number, boolean>) {
   let sum = [0, 0, 0]
   let cover = 0
   let bit = 0
-  for (let k = list.length - 1; k >= 0 && cover < 1; k--) {
+  let k = list.length - 1
+  for (; k >= 0 && cover < 1; k--) {
     const data = i.planes[list[k]!]
     const a = data ? data[at + 3]! / 255 : 0
     if (!data || a === 0) continue
@@ -67,8 +75,48 @@ function top(i: ScreenInput, list: readonly SourceKey[], at: number) {
     cover += w
   }
   if (cover === 0) return null
-  const rgb = sum.map(v => Math.round(v / cover)) as unknown as Rgb
+  let rgb = sum.map(v => Math.round(v / cover)) as unknown as Rgb
+  const door = flips && coveredSprite(i, list, at, k)
+  if (door) {
+    const w = hiddenPixelStrength(i.doors![at / 4]! & 1, 0, flips.get(i.doors![at / 4]! >> 1))
+    rgb = rgb.map((v, c) => Math.round(v * (1 - w) + door[c]! * w)) as unknown as Rgb
+  }
   return { rgb, cover, bit }
+}
+
+/**
+ * The sprite pixel (its RGB) a fully covering tile hides, or null. `k` is the list slot below the
+ * covering plane (the scan stopped at k + 1). OBJ priority 0 and 1 under layer 2 are left hidden:
+ * D52 part 2 is undecided.
+ */
+function coveredSprite(i: ScreenInput, list: readonly SourceKey[], at: number, k: number) {
+  if (!i.doors || !i.doors[at / 4]! || k + 1 >= list.length) return null
+  const cover = list[k + 1]!
+  for (; k >= 0; k--) {
+    const key = list[k]!
+    const data = i.planes[key]
+    if (!key.startsWith('sprites') || !data || data[at + 3] === 0) continue
+    return (key === 'sprites0' || key === 'sprites1') && cover.startsWith('l2') ? null : data.subarray(at, at + 3) // prettier-ignore
+  }
+  return null
+}
+
+/** Per covered sprite, whether its door squares are swapped: the rule `overlayHidden` applies to a tile, over the covered pixels. */
+function doorFlips(i: ScreenInput): Map<number, boolean> | undefined {
+  const doors = i.doors
+  if (!doors) return undefined
+  const counts = new Map<number, [number, number]>()
+  for (let p = 0; p < doors.length; p++) {
+    if (!doors[p]) continue
+    const list = i.lists.main
+    let k = list.length - 1
+    for (let cover = 0; k >= 0 && cover < 1; k--) cover += (i.planes[list[k]!]?.[p * 4 + 3] ?? 0) / 255 * (1 - cover) // prettier-ignore
+    if (!coveredSprite(i, list, p * 4, k)) continue
+    const c = counts.get(doors[p]! >> 1) ?? [0, 0]
+    c[hiddenPixelStrength(doors[p]! & 1, 0) === 1 ? 0 : 1]++
+    counts.set(doors[p]! >> 1, c)
+  }
+  return new Map([...counts].map(([id, [full, dim]]) => [id, doorFlip(full, dim)]))
 }
 
 /** One channel in 5-bit space: add or subtract, optionally halve, clamp to 31. */
@@ -94,9 +142,10 @@ function mathPixel(math: ColorMathInput, main: Layer | null, sub: Layer | null):
 export function composeScreen(i: ScreenInput): Uint8ClampedArray {
   const out = new Uint8ClampedArray(i.width * i.height * 4)
   const math = i.math
+  const flips = doorFlips(i)
   for (let p = 0; p < i.width * i.height; p++) {
     const at = p * 4
-    const main = top(i, i.lists.main, at)
+    const main = top(i, i.lists.main, at, flips)
     // Unverified tables (no math): the stack as is, the back area showing where nothing draws.
     // Sub is ignored: every math-null verdict carries FALLBACK_SCREENS, whose sub list is empty.
     if (!math) {
