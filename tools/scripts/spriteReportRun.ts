@@ -161,11 +161,12 @@ export function placeReport(
 ): void {
   refuseTicked(join(base, key), force)
   const scratch = mkdtempSync(join(tmpdir(), 'sprite-report-'))
-  const backup = mkdtempSync(join(tmpdir(), 'sprite-report-backup-'))
+  let backup = ''
   const dirs = [key, 'latest']
   const existed = dirs.map(d => existsSync(join(base, d)))
   try {
     writeTree(scratch, files)
+    backup = mkdtempSync(join(tmpdir(), 'sprite-report-backup-'))
     // Copies of the old folders, so a failed replacement below can put them back.
     dirs.forEach(
       (d, i) => existed[i] && cpSync(join(base, d), join(backup, d), { recursive: true }),
@@ -191,7 +192,7 @@ export function placeReport(
     }
   } finally {
     rmSync(scratch, { recursive: true, force: true })
-    rmSync(backup, { recursive: true, force: true })
+    if (backup) rmSync(backup, { recursive: true, force: true })
   }
 }
 
