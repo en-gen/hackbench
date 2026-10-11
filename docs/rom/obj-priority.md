@@ -188,7 +188,8 @@ behind graphics layer tiles". In three parts:
    as under layer 1, so a sprite pixel covered by an opaque tile of ANY graphics layer
    (partly covered sprites included) draws in the door; uncovered pixels draw
    normally. Stacked covering planes show the nearest one's colour.
-3. Keep #564 (sprites take no part in colour math). Hover-to-opaque is #879,
+3. Keep #564 for ordinary sprite pixels (no colour math); door pixels take the covering
+   plane's colour-math bit. Hover-to-opaque is #879,
    not here: each sprite has its own door id (`doors` value `id << 1 | parity`),
    so a sprite's door can later be switched off by id.
 
