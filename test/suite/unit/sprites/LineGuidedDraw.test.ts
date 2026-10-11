@@ -24,14 +24,14 @@ import { SPRITE_SEED, withSeed } from '../../../../src/rom/sprites/interp/Sprite
 import { hasRom, romPath, VANILLA } from '../../support/corpus'
 import {
   GRINDER_DISPATCH_AT,
-  GRINDER_DISPATCH_SHA,
+  GRINDER_DISPATCH,
   GRINDER_HANDLER,
 } from '../../support/syntheticGrinder'
 import { buildSyntheticRom, type SyntheticOptions } from '../../support/syntheticSpriteRom'
 
 const seed = withSeed({ slot: 3, sprite: { x: 0x80, y: 0x80 } }, SPRITE_SEED)
 const run = (id: number, o: SyntheticOptions = {}) =>
-  runOnce(buildSyntheticRom(o), id, seed, { grinderDispatchSha: GRINDER_DISPATCH_SHA })
+  runOnce(buildSyntheticRom(o), id, seed, { grinderDispatch: GRINDER_DISPATCH })
 
 describe('line-guided draw pass', () => {
   it('draws another id at its first pass, at the position the draw ran', () => {
@@ -95,7 +95,7 @@ describe('line-guided draw pass', () => {
   it('applies the snap rule to id $67 only: another id whose MAIN is the grinder handler is generic', () => {
     const rom = buildSyntheticRom({ id31IsGrinder: true })
     // The alias passes the shape gate, so the id check alone is what keeps id 31 generic.
-    expect(grinderDrawsBeforeSnap(rom, 0x019500, GRINDER_DISPATCH_SHA)).toBe(true)
+    expect(grinderDrawsBeforeSnap(rom, 0x019500, GRINDER_DISPATCH)).toBe(true)
     const g = run(31, { id31IsGrinder: true })
     expect(g.chosen).toBe(0)
     expect(g.anchor!.x).toBe(0x80)
@@ -103,7 +103,7 @@ describe('line-guided draw pass', () => {
 
   it('accepts the cart it was fingerprinted on, and no other', () => {
     const rom = buildSyntheticRom()
-    expect(grinderDrawsBeforeSnap(rom, GRINDER_HANDLER, GRINDER_DISPATCH_SHA)).toBe(true)
+    expect(grinderDrawsBeforeSnap(rom, GRINDER_HANDLER, GRINDER_DISPATCH)).toBe(true)
     // The default digest is vanilla's: the synthetic handler is not it.
     expect(grinderDrawsBeforeSnap(rom, GRINDER_HANDLER)).toBe(false)
   })
@@ -112,13 +112,33 @@ describe('line-guided draw pass', () => {
     const flip = (at: number) => {
       const rom = buildSyntheticRom()
       rom.writeAt(at, [rom.readAt(at, 1)![0]! ^ 0x01])
-      return grinderDrawsBeforeSnap(rom, GRINDER_HANDLER, GRINDER_DISPATCH_SHA)
+      return grinderDrawsBeforeSnap(rom, GRINDER_HANDLER, GRINDER_DISPATCH)
     }
     expect(ENTRY_PINNED).toHaveLength(14)
-    expect(DISPATCH_PINNED).toHaveLength(26)
+    expect(DISPATCH_PINNED).toHaveLength(28)
     for (const i of ENTRY_PINNED) expect(flip(GRINDER_HANDLER + i), `entry +${i}`).toBe(false)
     for (const i of DISPATCH_PINNED)
       expect(flip(GRINDER_DISPATCH_AT + i), `dispatch +${i}`).toBe(false)
+  })
+
+  it('refuses a changed call or jump target: every target operand byte, low and high, several values', () => {
+    const TARGET_OPERANDS = [15, 16, 24, 25, 27, 28, 32, 33, 35, 36, 37, 39, 40]
+    const flip = (at: number, x: number) => {
+      const rom = buildSyntheticRom()
+      rom.writeAt(at, [rom.readAt(at, 1)![0]! ^ x])
+      return grinderDrawsBeforeSnap(rom, GRINDER_HANDLER, GRINDER_DISPATCH)
+    }
+    const accepted = TARGET_OPERANDS.flatMap(i =>
+      [0x01, 0x10, 0x7f, 0xff].filter(x => flip(GRINDER_DISPATCH_AT + i, x)).map(x => `+${i}^${x}`),
+    )
+    expect(accepted).toEqual([])
+  })
+
+  it('reads a call target through the FastROM mirror: a JSL to bank $81, or the handler at $81, is the same routine', () => {
+    const rom = buildSyntheticRom()
+    expect(grinderDrawsBeforeSnap(rom, GRINDER_HANDLER | 0x800000, GRINDER_DISPATCH)).toBe(true)
+    rom.writeAt(GRINDER_DISPATCH_AT + 37, [0x81])
+    expect(grinderDrawsBeforeSnap(rom, GRINDER_HANDLER, GRINDER_DISPATCH)).toBe(true)
   })
 
   it('reports where each pass drew from: the INIT anchor, or for $67 the position the pass before left', () => {

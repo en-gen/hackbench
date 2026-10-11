@@ -4,13 +4,16 @@
  * id 103 handler has the opcode SKELETON of the vanilla grinder's (operands that name a label are free), which
  * is what `grinderDrawsBeforeSnap` reads.
  */
+import type { DispatchShape } from '../../../src/rom/sprites/interp/LineGuided'
 import type { SyntheticOptions } from './syntheticSpriteRom'
 
-/** Where id 103's handler sits, and the masked-span digest of its dispatch block (the gate's expected fingerprint here, not vanilla's). */
+/** Where id 103's handler sits, and the shape of its dispatch block (the gate's expected shape here, not vanilla's). */
 export const GRINDER_HANDLER = 0x019200
 export const GRINDER_DISPATCH_AT = 0x019220
-export const GRINDER_DISPATCH_SHA =
-  'aed603a8b556f94c1ea1287557db71af564cdb82e3aaee1aa6566463873cffc3'
+export const GRINDER_DISPATCH: DispatchShape = {
+  sha: 'b0a612c755212e49d450d6043bad791dc6421eb05d5a1e006ff000e0406decbd',
+  targets: [0x018600, 0x019400, 0x019280, 0x019280, 0x019282, 0x019290],
+}
 
 /** `drawSub`: the shared one-piece draw routine, ending in RTS. */
 export function putGrinderRoutines(
@@ -64,10 +67,12 @@ export function putGrinderRoutines(
     dispatchAt & 0xff,
     (dispatchAt >> 8) & 0xff,
   ]
-  const dispatch = (ltBranch: number) => [0xb5, 0x9e, 0xc9, o.alteredGrinder ? 0x5f : 0x60, 0xf0, 0x30, 0xc9, 0x61, 0x90, ltBranch, 0xc9, 0x69, 0xd0, 0x05, 0x20, 0x00, 0x86, 0x80, 0x07, 0xc9, 0x67, 0xd0, 0x08, 0x20, 0x00, 0x94, 0x20, 0x80, 0x92, 0x80, 0x07, 0x20, 0x80, 0x92, 0x22, 0x82, 0x92, 0x01, 0x4c, 0x90, 0x92] // prettier-ignore
+  const dispatch = [0xb5, 0x9e, 0xc9, o.alteredGrinder ? 0x5f : 0x60, 0xf0, 0x30, 0xc9, 0x61, 0x90, 0x30, 0xc9, 0x69, 0xd0, 0x05, 0x20, 0x00, 0x86, 0x80, 0x07, 0xc9, 0x67, 0xd0, 0x08, 0x20, 0x00, 0x94, 0x20, 0x80, 0x92, 0x80, 0x07, 0x20, 0x80, 0x92, 0x22, 0x82, 0x92, 0x01, 0x4c, 0x90, 0x92] // prettier-ignore
   put(GRINDER_HANDLER, handler(GRINDER_DISPATCH_AT))
-  put(GRINDER_DISPATCH_AT, dispatch(0x30))
-  // A second copy for id 31 (its $9E is 31, so the `< $61` branch, a masked operand, is aimed at the draw JSR).
+  put(GRINDER_DISPATCH_AT, dispatch)
+  // A second copy for id 31: its $9E is 31, so it takes the `< $61` branch out of the span (+$3A), where the
+  // draw, interact and line step run as in the $67 arm.
   put(0x019500, handler(0x019520))
-  put(0x019520, dispatch(0x0d))
+  put(0x019520, dispatch)
+  put(0x01955a, [0x20, 0x00, 0x94, 0x20, 0x80, 0x92, 0x4c, 0x90, 0x92])
 }

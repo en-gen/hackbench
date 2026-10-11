@@ -245,7 +245,7 @@ describe('runner on a synthetic cart', () => {
     let probes = 0
     const opts = {
       probe: () => void probes++,
-      get grinderDispatchSha() {
+      get grinderDispatch() {
         reads++
         return undefined
       },

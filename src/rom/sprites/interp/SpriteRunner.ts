@@ -11,7 +11,7 @@ import type { Cpu65816 } from '../../cpu/Cpu65816'
 import { callSubroutine, describe, Refusal } from '../../cpu/call'
 import type { RomFile } from '../../RomFile'
 import { mapperProblem } from './Guards'
-import { grinderDrawsBeforeSnap } from './LineGuided'
+import { type DispatchShape, grinderDrawsBeforeSnap } from './LineGuided'
 import { smwMachine } from './Machine'
 import {
   checkGetRand,
@@ -176,8 +176,8 @@ export interface RunOptions {
   spawn?: SpawnRun
   probe?: Probe
   trackInputs?: boolean
-  /** The dispatch digest the $67 gate accepts; a test hook, so a synthetic cart brings its own (default: vanilla's). */
-  grinderDispatchSha?: string
+  /** The dispatch shape the $67 gate accepts; a test hook, so a synthetic cart brings its own (default: vanilla's). */
+  grinderDispatch?: DispatchShape
 }
 
 export { Refusal }
@@ -516,7 +516,7 @@ export function runOnce(
     const anchor = m.pos()
     const snaps =
       DRAWS_BEFORE_LINE_SNAP.has(id) &&
-      grinderDrawsBeforeSnap(rom, mains.handler.address, opts.grinderDispatchSha)
+      grinderDrawsBeforeSnap(rom, mains.handler.address, opts.grinderDispatch)
     model.anchor = { ...anchor, rawX: m.seed.sprite.x, rawY: m.seed.sprite.y }
     model.oamBase = w[RAM.oamIndex + m.seed.slot]
     probe?.(-1, w)
