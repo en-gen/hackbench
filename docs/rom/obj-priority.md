@@ -127,3 +127,72 @@ Two things the pass model cannot express, and does not try to: the
 status-bar rows, where the NMI forces BG3 priority regardless of the header
 (§1), and anything HDMA does mid-frame. Both are per-scanline register
 state; a still compositor picks one scanline's worth.
+
+## 5. The map view composites each OAM priority (#795)
+
+The map tab's sprites are run by the interpreter, so a part's priority is
+read off the attribute byte the ROM wrote to the OAM mirror (bits 5:4,
+`SpritePart.priority`), not looked up: the level loader's `SpriteProperties`
+(section 2) and any handler's lowering reach it as the game left them.
+
+Each screen's list (`ScreenPlanes.ts`) names four sprite sources:
+
+- `sprites0`, `sprites1` and `sprites3` at their slots in the section 1
+  table, filtered to the graphics layers the screen designates;
+- `sprites2` just before `l1High` (the owner's ruling, #564), or at its
+  table slot on a screen without layer 1. The ruling differs from the table
+  in one pair: the table draws BG2.1 over OBJ.2, the ruling draws OBJ.2 over
+  `l2High`. No vanilla map draws an `l2High` pixel (swept 0 of 488 maps,
+  `map-view.spec.cjs`), so the two agree on vanilla.
+
+On a level mode 0 screen (main $15: BG1, BG3, OBJ, `bank_05.asm:486`)
+with the BG3 bit clear the main list is `l3Low, sprites0, l3High, sprites1, l1Low, sprites2, l1High,
+sprites3`.
+
+OBJ against OBJ is decided before the BG: the PPU keeps the opaque pixel of
+the OAM entry first in its priority rotation and only then compares that
+pixel's priority with the BG, so a low-index priority 0 part hides a
+priority 3 part under it and both go behind BG1.0. That is hardware
+behaviour, not a ROM trace. SMW's NMI sets the rotation bit and starts it at
+`OAMAddress` (`bank_00.asm:563-566`), which is cleared to 0
+(`bank_00.asm:779`), so the lowest index wins. The exception is Roy,
+Morton and Ludwig's rooms, which set it to slot 100
+(`bank_00.asm:2775-2776`); the map view does not model that. Within a
+sprite, `map-sprites.ts` blits parts from the highest OAM index down and
+keeps the winner's priority per pixel. Between sprites the view's own order (column, then
+stream index) picks the winner, as before #795; the game's OAM slot
+assignment between sprites is not modelled.
+
+A marker (a sprite the interpreter refused) has no OAM entry and keeps
+priority 2.
+
+## A covered sprite pixel is not hidden (editor ruling D52, not hardware)
+
+The hardware draws no OBJ pixel a nearer BG tile covers. The editor does not
+hide things from the owner (D52 part 1): a sprite pixel that a nearer plane
+fully covers draws through that tile in the hidden-tile screen door
+(`render/HiddenTiles.ts`: half the pixels at full strength, half at
+`HIDDEN_TILE_DIM_ALPHA`, parity flipped when the pixels would be mostly full
+strength, `doorFlip`). The squares are on the sprite's own pixel grid
+(its bitmap origin), and the flip is decided per sprite per screen over its
+covered pixels, so a sprite cut by a screen edge can flip differently on each
+side. The main screen only. Done in `composeScreen` from a `doors` map
+(`spriteDoors`); the indicator display scales the same map with its cells
+(nearest), so parity stays on native sprite pixels at any zoom.
+
+Owner ruling D52 (final): "Same screen door effect for any sprites drawn
+behind graphics layer tiles". In three parts:
+
+1. A sprite pixel a tile covers is not hidden; it draws in the door.
+2. Follow the hardware order: OBJ priority 0 and 1 draw under layer 2 as well
+   as under layer 1, so a sprite pixel covered by an opaque tile of ANY graphics layer
+   (partly covered sprites included) draws in the door; uncovered pixels draw
+   normally. Stacked covering planes show the nearest one's colour.
+3. Keep #564 for ordinary sprite pixels (no colour math); door pixels take the covering
+   plane's colour-math bit. Hover-to-opaque is #879,
+   not here: each sprite has its own door id (`doors` value `id << 1 | parity`),
+   so a sprite's door can later be switched off by id.
+
+The checkerboard phase of a sprite depends on which graphics layers are shown: the
+swap decision counts only the pixels a shown plane covers, so hiding a graphics layer
+can flip a sprite's squares.
