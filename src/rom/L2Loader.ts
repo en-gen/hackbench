@@ -120,8 +120,8 @@ const OPCODE_CMP_IMM = 0xc9
 
 /**
  * False when the game never loads an L2 object stream in this level mode. Applies only while the
- * level-load site is stock; a hacked ROM may load a layer 2 in these modes, so it keeps today's
- * behaviour (#637, owner ruling D51). Evidence: synthetic fixtures; corpus count in the docs.
+ * level-load site is stock: a hijacked ROM reroutes the layer 2 pointer, so it keeps today's
+ * behaviour (#637, owner ruling D51; the hijack itself is #876). Evidence: synthetic fixtures.
  */
 export function levelModeLoadsL2Objects(rom: RomFile, levelMode: number): boolean {
   if (!MODES_WITHOUT_L2_OBJECTS.includes(levelMode & 0x1f)) return true

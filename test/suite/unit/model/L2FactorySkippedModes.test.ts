@@ -51,6 +51,31 @@ describe('buildL2 in level modes without a Layer 2 pass (synthetic)', () => {
     }
     rom.writeAt(SITE, [0xc9])
   })
+
+  // Any byte but the stock CMP opcode is a hijack, not just JML ($5C): a mutant `=== 0x5C` must die.
+  it('treats every non-CMP byte at the site as a hijack', () => {
+    for (const byte of [0x22, 0x00, 0x4c]) {
+      rom.writeAt(SITE, [byte])
+      vi.mocked(L2LoaderReal.loadL2Objects).mockReturnValue({ grid: [[1]] })
+      expect(l2At(0x0a), `site ${byte}`).not.toBeNull()
+      vi.mocked(L2LoaderReal.loadL2Objects).mockReset()
+    }
+    rom.writeAt(SITE, [0xc9])
+  })
+
+  // The gate sits after the preset branch: a $FF pointer is a background image in every mode.
+  it('still builds a $FF preset background in skipped modes on a stock site', () => {
+    const preset = new RomFile('l2p.sfc', Buffer.alloc(0x80000, 0))
+    preset.writeAt(0x05e600 + LEVEL * 3, [0x00, 0x80, 0xff])
+    preset.writeAt(0x0c8000, [0x84, 0x07, 0xff, 0xff])
+    preset.writeAt(SITE, [0xc9])
+    for (const mode of [0x00, 0x0a]) {
+      const header = parseLevelHeader(Uint8Array.from([0, mode, 0, 0, 0]))
+      const l2 = buildL2(preset, LEVEL, header, 1, false, new Map(), new Map(), new Map(), null, 0, new Array<number>(32).fill(0)) // prettier-ignore
+      expect(l2, `mode ${mode}`).not.toBeNull()
+      expect(vi.mocked(L2LoaderReal.loadL2Objects), `mode ${mode}`).not.toHaveBeenCalled()
+    }
+  })
 })
 
 // Proves the gate is ON for the stock ROM (corpus only; the synthetic cases above run in CI).

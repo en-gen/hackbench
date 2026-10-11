@@ -277,6 +277,17 @@ describe('buildL2Inputs (synthetic ROM)', () => {
     expect([v.grid[26]![0], v.grid[27]![0], v.grid[31]![0]]).toEqual([0x25, null, null])
   })
 
+  it('a $FF preset pointer is an image in skipped modes too, on a stock site', () => {
+    for (const mode of [0x00, 0x0a]) {
+      const m = inputs(hGrid(1), false, 1)
+      const r = buildL2Inputs(smw(image()), LEVEL, {
+        ...m,
+        header: { ...m.header, levelMode: mode },
+      })
+      expect(ok(r).kind, `mode ${mode}`).toBe('image')
+    }
+  })
+
   it('an image sits Layer1YPos - Layer2YPos down, like an object stream (bank_05.asm:7323-7328)', () => {
     expect(ok(buildL2Inputs(smw(image()), LEVEL, inputs(hGrid(1), false, 1))).dy).toBe(0x20 - 0xc0)
   })
@@ -365,6 +376,16 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       expect(r.ok, `mode ${mode}`).toBe(true)
       expect(vi.mocked(L2LoaderReal.loadL2Objects).mock.calls.length, `mode ${mode}`).toBe(1)
       vi.mocked(L2LoaderReal.loadL2Objects).mockReset()
+    }
+  })
+
+  it('a non-JML byte at the site is a hijack too', () => {
+    for (const byte of [0x22, 0x00]) {
+      objects([[1]])
+      const rom = romWith([ptr(0x00, 0x90, 0x0c), [0x05803b, [byte]]])
+      const m = inputs(hGrid(1), false, 1)
+      const r = buildL2Inputs(smw(rom), LEVEL, { ...m, header: { ...m.header, levelMode: 0x0a } })
+      expect(r.ok, `site ${byte}`).toBe(true)
     }
   })
 
