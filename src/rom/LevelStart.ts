@@ -73,6 +73,8 @@ export const START_MAIN_SPAN: StockSpan = Object.freeze({
 
 const CODE_CHANGED =
   "The game's overworld or screen-exit code has been changed, so the start position cannot be read."
+const TABLES_CUT =
+  'The ROM ends before the level entrance tables, so the start position cannot be read.'
 const fail = (reason: string, detail?: string): LevelStart => ({ ok: false, reason, detail })
 
 /** A player position and the screen it falls on. */
@@ -87,7 +89,11 @@ export type LevelStart =
   | (Entrance & { ok: true; kind: 'main' | 'secondary'; hops: number })
   | { ok: false; reason: string; detail?: string }
 
-const byte = (rom: RomFile, at: number): number => rom.readByte(at) ?? 0
+/**
+ * A table byte, or null past the ROM end. No default: a missing byte read as 0
+ * would build a plausible position from nothing.
+ */
+const byte = (rom: RomFile, at: number): number | null => rom.readByte(at)
 
 /** The loader's tail for either entrance kind (bank_05.asm:7313-7316, 7382-7387). */
 function position(
@@ -96,31 +102,34 @@ function position(
   yIdx: number,
   xIdx: number,
   scr: number,
-): Entrance {
-  const x = ((vertical ? byte(rom, X_HI + xIdx) : scr) << 8) | byte(rom, X_LO + xIdx)
-  const y = ((vertical ? scr : byte(rom, Y_HI + yIdx)) << 8) | byte(rom, Y_LO + yIdx)
+): Entrance | null {
+  const [xh, xl, yh, yl] = [X_HI + xIdx, X_LO + xIdx, Y_HI + yIdx, Y_LO + yIdx].map(a =>
+    byte(rom, a),
+  )
+  if (xl === null || yl === null || (vertical ? xh : yh) === null) return null
+  const x = ((vertical ? xh! : scr) << 8) | xl
+  const y = ((vertical ? scr : yh!) << 8) | yl
   return { x, y, screen: vertical ? y >> 8 : x >> 8, vertical }
 }
 
-/** ScreenMode bit 0 = vertical, from F600 bits 5-6 (bank_05.asm:7292-7299). */
-const isVertical = (rom: RomFile, slot: number): boolean =>
-  ((byte(rom, F600 + slot) >> 5) & 1) === 1
-
-/** CODE_05D8B7 with UseSecondaryExit clear (bank_05.asm:7300-7395). */
-export function readMainEntrance(rom: RomFile, slot: number): Entrance {
-  return position(
-    rom,
-    isVertical(rom, slot),
-    byte(rom, F000 + slot) & 0x0f,
-    byte(rom, F200 + slot) & 0x07,
-    byte(rom, F600 + slot) & 0x1f,
-  )
+/** ScreenMode bit 0 = vertical, from F600 bits 5-6 (bank_05.asm:7292-7299); null if unreadable. */
+const isVertical = (rom: RomFile, slot: number): boolean | null => {
+  const m = byte(rom, F600 + slot)
+  return m === null ? null : ((m >> 5) & 1) === 1
 }
 
-/** Secondary entrance `index` arriving in `dest` (bank_05.asm:7113-7161, then 7338-7395). */
-export function readSecondaryEntrance(rom: RomFile, index: number, dest: number): Entrance {
-  const c = byte(rom, FC00 + index)
-  return position(rom, isVertical(rom, dest), byte(rom, FA00 + index) & 0x0f, c >> 5, c & 0x1f)
+/** CODE_05D8B7 with UseSecondaryExit clear (bank_05.asm:7300-7395); null if a table byte is past the ROM end. */
+export function readMainEntrance(rom: RomFile, slot: number): Entrance | null {
+  const [vertical, y, x, scr] = [isVertical(rom, slot), byte(rom, F000 + slot), byte(rom, F200 + slot), byte(rom, F600 + slot)] // prettier-ignore
+  if (vertical === null || y === null || x === null || scr === null) return null
+  return position(rom, vertical, y & 0x0f, x & 0x07, scr & 0x1f)
+}
+
+/** Secondary entrance `index` arriving in `dest` (bank_05.asm:7113-7161, then 7338-7395); null if unreadable. */
+export function readSecondaryEntrance(rom: RomFile, index: number, dest: number): Entrance | null {
+  const [vertical, y, c] = [isVertical(rom, dest), byte(rom, FA00 + index), byte(rom, FC00 + index)]
+  if (vertical === null || y === null || c === null) return null
+  return position(rom, vertical, y & 0x0f, c >> 5, c & 0x1f)
 }
 
 /**
@@ -138,7 +147,7 @@ interface Found {
   key: number[]
   kind: 'main' | 'secondary'
   hops: number
-  at: () => Entrance
+  at: () => Entrance | null
 }
 
 /**
@@ -177,7 +186,8 @@ export function readLevelStart(
     )
   }
   if (isOverworldLevel(mapIndex, roots)) {
-    return { ...readMainEntrance(rom.rom, mapIndex), ok: true, kind: 'main', hops: 0 }
+    const at = readMainEntrance(rom.rom, mapIndex)
+    return at ? { ...at, ok: true, kind: 'main', hops: 0 } : fail(TABLES_CUT)
   }
 
   const { graph, unavailable } = rom.buildLevelExitGraph(roots, fingerprints.entry)
@@ -224,11 +234,13 @@ export function readLevelStart(
       const low = o.screenExitDest & 0xff
       if (o.screenExitIsSecondary) {
         const index = (mapIndex & 0x100) | low
-        if (byte(rom.rom, F800 + index) !== (mapIndex & 0xff)) continue
-        const at = (): Entrance => readSecondaryEntrance(rom.rom, index, mapIndex)
+        const dest = byte(rom.rom, F800 + index)
+        if (dest === null) return fail(TABLES_CUT)
+        if (dest !== (mapIndex & 0xff)) continue
+        const at = () => readSecondaryEntrance(rom.rom, index, mapIndex)
         found.push({ key: [h + 1, from, 1, index], kind: 'secondary', hops: h + 1, at })
       } else if (low === (mapIndex & 0xff)) {
-        const at = (): Entrance => readMainEntrance(rom.rom, mapIndex)
+        const at = () => readMainEntrance(rom.rom, mapIndex)
         found.push({ key: [h + 1, from, 0, 0], kind: 'main', hops: h + 1, at })
       }
     }
@@ -239,5 +251,6 @@ export function readLevelStart(
   // Ties: fewest hops, then the lower parent slot, a main entrance before a secondary one, then the lower index.
   const cmp = (a: number[], b: number[]) => a.map((v, i) => v - b[i]!).find(d => d !== 0) ?? 0
   const first = found.sort((a, b) => cmp(a.key, b.key))[0]!
-  return { ...first.at(), ok: true, kind: first.kind, hops: first.hops }
+  const at = first.at()
+  return at ? { ...at, ok: true, kind: first.kind, hops: first.hops } : fail(TABLES_CUT)
 }

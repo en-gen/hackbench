@@ -394,3 +394,50 @@ describe('readLevelStart follows an edit layer', () => {
     expect(at(working.bytes())).toMatchObject({ ok: true, screen: 7, x: 0x740 })
   })
 })
+
+describe('readLevelStart fails closed when a table byte is past the ROM end', () => {
+  const CUT = 'The ROM ends before the level entrance tables, so the start position cannot be read.'
+  /** The ROM, but `readByte` has nothing at `addr` (a ROM cut short there). */
+  const withheld = (addr: number): RomFile => {
+    const rom = world()
+    const real = rom.readByte.bind(rom)
+    rom.readByte = (a: number) => (a === addr ? null : real(a))
+    return rom
+  }
+  // Slot -> every table byte its start reads. Vertical $002 reads the X high table, horizontal $001 the Y one.
+  const reads: [string, number, number[]][] = [
+    ['entry map $001 (main)', 0x001, [F000 + 1, F200 + 1, F600 + 1, 0x05d731, 0x05d741, 0x05d752]],
+    ['entry map $002 (vertical main)', 0x002, [F000 + 2, F200 + 2, F600 + 2, 0x05d732, 0x05d751, 0x05d759]],
+    ['secondary $0C0 via $10', 0x0c0, [F800 + 0x10, FA00 + 0x10, FC00 + 0x10, F600 + 0xc0, 0x05d733, 0x05d744, 0x05d754]],
+    ['secondary $0C2 via $11 (vertical)', 0x0c2, [F800 + 0x11, FA00 + 0x11, FC00 + 0x11, F600 + 0xc2, 0x05d751, 0x05d758 + 2]],
+    ['main-entered sub area $0C1', 0x0c1, [F000 + 0xc1, F200 + 0xc1, F600 + 0xc1]],
+  ] // prettier-ignore
+
+  it('every table byte a start reads: withholding it refuses, in plain words', () => {
+    let n = 0
+    for (const [what, slot, addrs] of reads) {
+      expect(start(world(), slot).ok, `${what} reads fine with nothing withheld`).toBe(true)
+      for (const addr of addrs) {
+        const s = start(withheld(addr), slot)
+        // A byte this slot never reads (e.g. the Y high table on a vertical map) may leave it ok.
+        if (s.ok) continue
+        n++
+        expect(s.reason, `${what} @ $${addr.toString(16)}`).toBe(CUT)
+      }
+    }
+    expect(n).toBeGreaterThanOrEqual(15)
+  })
+
+  it('a missing DATA_05F800 byte is not a match for a destination whose low byte is zero', () => {
+    const rom = world()
+    room(rom, 0x000, 0x078000) // low byte $00
+    room(rom, 0x001, 0x068000, [{ to: 0x00, via: 0x20 }])
+    secondary(rom, 0x20, 0x00, 0x00, 5)
+    const real = rom.readByte.bind(rom)
+    expect(start(rom, 0x000)).toMatchObject({ ok: true, kind: 'secondary' }) // the real byte matches
+    rom.readByte = (a: number) => (a === F800 + 0x20 ? null : real(a))
+    const s = start(rom, 0x000)
+    expect(s.ok).toBe(false)
+    expect(!s.ok && s.reason).toBe(CUT)
+  })
+})
