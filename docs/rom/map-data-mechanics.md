@@ -366,6 +366,11 @@ past the table into `ExitTableLow` (`rammap.asm:1969`), the per-screen
 screen-exit table. That is 386 bytes of stream at most. Vanilla's longest
 is 197 bytes, 65 sprites.
 
+The level-start clear CODE_02ABF2 (`bank_02.asm:5786-5789`) zeroes only
+`SpriteLoadStatus` entries `$00-$3F` of the 128; the loader image starts from
+zeroed RAM, so entries 64-127 may differ from hardware (vanilla unaffected: no
+sprite at index 64 or above is loaded).
+
 Hack sprite streams are only partly measured. Walked from bank `$07`, as the
 2026-09-17 measurement did, they reach 2189 bytes; that was the wrong bank.
 Walked from the `$0EF100` bank byte, Seven_Vanilla_Levels peaks at 236
@@ -486,6 +491,7 @@ Corrected 2026-10-04 (#459 PR 2 adversarial review): was "L2 uses a different pe
 - `Layer2YPos` shifts image L2 and object-stream L2 alike. SMWDisX `bank_05.asm:7323-7328`. `[EST]`
 - BG2 is 64x64 8x8 tiles, so L2 wraps every 512 px vertically. SMWDisX `bank_00.asm:1270-1271`. `[EST]`
 - Treat the L2 grid as L1-shaped unless the level mode is 3 to 6. `[INF]`
+- The game loads no L2 object stream in level modes $00, $09, $0A, $0B, $0C, $0D, $0E, $10, $11 and $1E: the boss modes $09/$0B/$10 leave `LoadLevel` before Layer 1 (SMWDisX `bank_05.asm:431-437`), the rest end it after Layer 1 (`bank_05.asm:444-457`, mode $00 via the BEQ at 444-445). The map view builds no L2 there and says so in plain words (#637, owner ruling D51). The rule applies only while the opcode at $05803B (`CMP #$FF` on the L2 pointer bank, `bank_05.asm:33`) is $C9. Lunar Magic JMLs over it and reroutes the L2 pointer (its non-$FF pointers in these modes are most likely its own background data, follow-up #876), so any other byte there turns the rule off and hack maps keep today's behaviour; the skip chain at `bank_05.asm:444-457` is byte-identical to vanilla in all four LM hacks, so this is not a claim that the game loads an object stream there. The rule matters only for a stock ROM given an object-stream pointer in one of these modes (an edit): on the corpus vanilla ROM, 0 of 512 slots in these modes have one (all are $FF presets; one machine, one probe). With a stock $C9 the two LoadLevel compare chains (`bank_05.asm:431-437`, `444-457`) are checked by structure (LDA.W of the mode setting, then CMP/BEQ pairs for exactly the ten modes, every BEQ reaching one target); a non-stock chain refuses with "skip chain not recognized" and no stream is read. The four Lunar Magic hacks in the corpus put a JSL at chain A ($0583B8) but carry $5C at $05803B, so they take the hijack path and are unaffected; chain B is identical to vanilla in them. With a stock $C9 and a non-stock chain, the refusal applies to every level mode, not just the ten, because a hack may have added a mode to the chain and the chain is not parsed per mode (owner ruling D57 B; hack support is not a priority). An unreadable $05803B refuses in every mode too (it cannot be read on LoROM in practice). Evidence: synthetic fixtures (all 32 modes on both sides of the gate, one planted change per chain element) plus a corpus-gated vanilla check. `[EST]`
 
 ## Midway tape at column 0
 
