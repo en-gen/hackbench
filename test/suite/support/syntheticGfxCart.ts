@@ -236,6 +236,14 @@ export const backRefRoutine = (order: BackRefOrder, readByte = 0xb983, loop = 0x
   ...(order === 'le' ? [0xeb] : []), 0xaa, 0x5a, 0x9b, 0xb7, 0x00, 0xbb, 0x7a, 0x97, 0x00, 0xc8,
   0xe8, 0xc2, 0x20, 0xc6, 0x8d, 0xe2, 0x20, 0xd0, 0xee, 0x4c, loop & 0xff, loop >> 8,
 ]
+/** ReadByte (bank_00.asm:6405-6413) from its 65816 encoding, GraphicsCompPtr = $8A:
+ *  the fetch-and-step-pointer routine. */
+// prettier-ignore
+export const READ_BYTE_BODY = [
+  0xa7, 0x8a, 0xa6, 0x8a, 0xe8, 0xd0, 0x05, 0xa2, 0x00, 0x80, 0xe6, 0x8c, 0x86, 0x8a, 0x60,
+]
+export const plantReadByte = (rom: RomFile, at = 0xb983): void => rom.writeAt(at, READ_BYTE_BODY)
+
 /** PLA / BEQ +$17 / BMI to the routine at `at`. */
 export const backRefDispatch = (at = BACKREF_AT): number[] => [
   0x68,
@@ -253,7 +261,13 @@ export const backRefBytes = (form: BackRefForm): number[] =>
 export const backRefAt = (form: BackRefForm): number => (form === 'le' ? BACKREF_AT_LE : BACKREF_AT)
 
 /** Plants the dispatch and the back-reference routine behind a stock entry. */
-export function plantBackRef(rom: RomFile, form: BackRefForm = 'be', entry = DECOMP_ENTRY): void {
+export function plantBackRef(
+  rom: RomFile,
+  form: BackRefForm = 'be',
+  entry = DECOMP_ENTRY,
+  readByte = 0xb983,
+): void {
+  plantReadByte(rom, readByte)
   rom.writeAt(entry + DISPATCH_AT, backRefDispatch(backRefAt(form)))
   rom.writeAt(entry + backRefAt(form), backRefBytes(form))
 }
@@ -311,6 +325,7 @@ export function buildCart(opts: CartOptions = {}): SyntheticCart {
   const form = opts.backRef ?? 'be'
   buf.set(backRefDispatch(backRefAt(form)), entryAt + DISPATCH_AT)
   buf.set(backRefBytes(form), entryAt + backRefAt(form))
+  buf.set(READ_BYTE_BODY, bankAt + 0xb983 - 0x8000)
   const routineSnes = loromFromOffset(bankAt + ROUTINE_AT)!
   for (const c of LEVEL_GFX_CALLERS) buf.set(jsl(routineSnes), c - 0x8000)
   const uploadSite = opts.uploadSite === undefined ? uploadGfxFileSite() : opts.uploadSite

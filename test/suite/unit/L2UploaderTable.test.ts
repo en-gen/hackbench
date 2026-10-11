@@ -12,6 +12,7 @@ import { buildL1Inputs } from '../../../src/rom/model/L1Model'
 import { SWITCH_FLAGS_UNCLEARED as UNCLEARED } from '../../../src/rom/ObjectExpander'
 import { VANILLA, MAGIC, hasRom, romPath } from '../support/corpus'
 import { hGrid, inputs } from '../support/mapInputs'
+import { writeStockSkipChain } from '../support/skipChain'
 import {
   CALLER_AT,
   EXEC_AT,
@@ -126,6 +127,8 @@ describe('readL2UploaderTable (synthetic)', () => {
   })
 })
 
+const SKIPPED = [0x00, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x10, 0x11, 0x1e]
+
 describe('buildL2Inputs picks the kind by level mode (synthetic)', () => {
   const smw = (rom: RomFile) =>
     ({
@@ -139,13 +142,15 @@ describe('buildL2Inputs picks the kind by level mode (synthetic)', () => {
   const romWithPtr = (bank: number) => {
     const rom = fresh()
     rom.writeAt(0x05e600 + 5 * 3, [0x00, 0x90, bank])
+    rom.writeAt(0x05803b, [0xc9]) // a stock L2 check site, so the #637 gate is not a hijack
+    writeStockSkipChain(rom)
     return rom
   }
 
-  it('mode 0 (an image mode) with an object-stream pointer refuses, naming the mode', () => {
-    expect(buildL2Inputs(smw(romWithPtr(0x0c)), 5, withMode(0))).toMatchObject({
+  it('mode 4 (an image mode) with an object-stream pointer refuses, naming the mode', () => {
+    expect(buildL2Inputs(smw(romWithPtr(0x0c)), 5, withMode(4))).toMatchObject({
       ok: false,
-      reason: expect.stringMatching(/level mode \$00 uploads an L2 image, but .* object stream/),
+      reason: expect.stringMatching(/level mode \$04 uploads an L2 image, but .* object stream/),
     })
   })
 
@@ -163,7 +168,10 @@ describe('buildL2Inputs picks the kind by level mode (synthetic)', () => {
         const r = buildL2Inputs(smw(romWithPtr(bank)), 5, withMode(mode))
         const agrees = (kind === 'image') === (bank === 0xff)
         const mine = r.ok ? '' : /uploads|recognizes|dispatch/.test(r.reason) ? r.reason : ''
-        if (kind === 'none') expect(mine, `mode ${mode}`).toMatch(/uploads no L2/)
+        // A stream pointer in the ten skipped modes is the #637 gate's refusal, which runs first.
+        if (bank === 0x0c && SKIPPED.includes(mode)) {
+          expect(r, `mode ${mode}`).toMatchObject({ ok: false, reason: expect.stringMatching(/loads no layer 2 objects/) }) // prettier-ignore
+        } else if (kind === 'none') expect(mine, `mode ${mode}`).toMatch(/uploads no L2/)
         else if (!agrees) expect(mine, `mode ${mode} bank ${bank}`).toMatch(/uploads an L2/)
         else expect(mine, `mode ${mode} bank ${bank}`).toBe('')
       }

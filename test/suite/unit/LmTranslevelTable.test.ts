@@ -18,6 +18,7 @@ import {
   BACKREF_DISPATCH,
   backRefRoutine,
   plantBackRef,
+  READ_BYTE_BODY,
   DECOMP_ENTRY,
   DISPATCH_AT,
   FAST_DIVERGENT_COMMANDS,
@@ -80,6 +81,7 @@ const BODY = [...STOCK_LCLZ2_ENTRY.slice(5), ...syntheticRoutine(0xaf - 5, 3).by
 // The gate follows the dispatch to the back-reference routine, so the body carries both.
 BODY.splice(DISPATCH_AT - 5, BACKREF_DISPATCH.length, ...BACKREF_DISPATCH)
 BODY.splice(BACKREF_AT - 5, backRefRoutine('be').length, ...backRefRoutine('be'))
+BODY.splice(0xb983 - DECOMP_ENTRY - 5, READ_BYTE_BODY.length, ...READ_BYTE_BODY)
 const KNOWN = {
   stockBody: [createHash('sha256').update(Buffer.from(BODY)).digest('hex')],
   fast: [{ length: FAST_LENGTH, fingerprint: syntheticRoutine(FAST_LENGTH).sha }],

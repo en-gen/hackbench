@@ -366,6 +366,11 @@ past the table into `ExitTableLow` (`rammap.asm:1969`), the per-screen
 screen-exit table. That is 386 bytes of stream at most. Vanilla's longest
 is 197 bytes, 65 sprites.
 
+The level-start clear CODE_02ABF2 (`bank_02.asm:5786-5789`) zeroes only
+`SpriteLoadStatus` entries `$00-$3F` of the 128; the loader image starts from
+zeroed RAM, so entries 64-127 may differ from hardware (vanilla unaffected: no
+sprite at index 64 or above is loaded).
+
 Hack sprite streams are only partly measured. Walked from bank `$07`, as the
 2026-09-17 measurement did, they reach 2189 bytes; that was the wrong bank.
 Walked from the `$0EF100` bank byte, Seven_Vanilla_Levels peaks at 236
@@ -486,14 +491,17 @@ Corrected 2026-10-04 (#459 PR 2 adversarial review): was "L2 uses a different pe
 - `Layer2YPos` shifts image L2 and object-stream L2 alike. SMWDisX `bank_05.asm:7323-7328`. `[EST]`
 - BG2 is 64x64 8x8 tiles, so L2 wraps every 512 px vertically. SMWDisX `bank_00.asm:1270-1271`. `[EST]`
 - Treat the L2 grid as L1-shaped unless the level mode is 3 to 6. `[INF]`
+- The game loads no L2 object stream in level modes $00, $09, $0A, $0B, $0C, $0D, $0E, $10, $11 and $1E: the boss modes $09/$0B/$10 leave `LoadLevel` before Layer 1 (SMWDisX `bank_05.asm:431-437`), the rest end it after Layer 1 (`bank_05.asm:444-457`, mode $00 via the BEQ at 444-445). The map view builds no L2 there and says so in plain words (#637, owner ruling D51). The rule applies only while the opcode at $05803B (`CMP #$FF` on the L2 pointer bank, `bank_05.asm:33`) is $C9. Lunar Magic JMLs over it and reroutes the L2 pointer (its non-$FF pointers in these modes are most likely its own background data, follow-up #876), so any other byte there turns the rule off and hack maps keep today's behaviour; the skip chain at `bank_05.asm:444-457` is byte-identical to vanilla in all four LM hacks, so this is not a claim that the game loads an object stream there. The rule matters only for a stock ROM given an object-stream pointer in one of these modes (an edit): on the corpus vanilla ROM, 0 of 512 slots in these modes have one (all are $FF presets; one machine, one probe). With a stock $C9 the two LoadLevel compare chains (`bank_05.asm:431-437`, `444-457`) are checked by structure (LDA.W of the mode setting, then CMP/BEQ pairs for exactly the ten modes, every BEQ reaching one target); a non-stock chain refuses with "skip chain not recognized" and no stream is read. The four Lunar Magic hacks in the corpus put a JSL at chain A ($0583B8) but carry $5C at $05803B, so they take the hijack path and are unaffected; chain B is identical to vanilla in them. With a stock $C9 and a non-stock chain, the refusal applies to every level mode, not just the ten, because a hack may have added a mode to the chain and the chain is not parsed per mode (owner ruling D57 B; hack support is not a priority). An unreadable $05803B refuses in every mode too (it cannot be read on LoROM in practice). Evidence: synthetic fixtures (all 32 modes on both sides of the gate, one planted change per chain element) plus a corpus-gated vanilla check. `[EST]`
 
 ## Midway tape at column 0
 
-Extended object $46 (`CODE_0DA68E`, SMWDisX `bank_0D.asm:1618-1632`). Added for #368.
+Extended object $46 (`CODE_0DA68E`, SMWDisX `bank_0D.asm:1618-1633`). Added for #368.
 
 - DEY on the 8-bit Y moves the tape to the row above, column 15, inside the same $100-byte block; at local row 0 Y wraps to $FF. `[EST]`
 - The INY after it reads as a screen edge (`bank_0D.asm:1999-2015`), so the pointer gains a fixed $1B0 and Y reloads from `LevelLoadPos` AND $F0. The base lands at `block + $1B0 + local row * 16`. `[EST]`
 - Horizontal: a screen is $1B0 bytes, so the base is column 0 of the next screen on the object's row. Vertical: a screen is $200 bytes, so the base lands in another block, not on the object's row. `[EST]`
 - Columns other than a block's first keep the plain col-1 / col draw. `[EST]`
-- Not modelled: vertical modes 3/4 at screen 14+ jump to $1B00 (`DATA_00BB62`, `bank_00.asm:6779`). The gates (OWLevelTileSettings bit 6, MidwayFlag) are #635.
+- Not modelled: vertical modes 3/4 at screen 14+ jump to $1B00 (`DATA_00BB62`, `bank_00.asm:6779`).
 - Evidence: horizontal, the committed L1 differential compares row 18 at column 0 only. Vertical, the production interpreter refuses vertical levels, so the check was an ad hoc run, not committed. No capture. `[EST]`
+- Gates (#635): the game draws nothing when `OWLevelTileSettings[TranslevelNo]` ($1EA2+X, X = $13BF) has bit 6, or `MidwayFlag` ($13CE) is nonzero (`bank_0D.asm:1619-1624`). The port reads both from `Cursor.ram` (same address space as the interpreter's `InterpretEnv.ram`), default 0, so every editor view draws the post the author placed, as for a fresh save; a view that hid it would hide authored content. Evidence: SMWDisX read plus synthetic fixtures; no emulator run. `[EST]`
+- Seeding `Cursor.ram` (#635): whoever seeds it must source `TranslevelNo` ($13BF) from the overworld tile entered (`bank_05.asm:7214-7215`), so a sub area uses its entry map's translevel, not one derived from the level number.

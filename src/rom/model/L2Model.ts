@@ -6,9 +6,11 @@
  * table, plus the shift that puts L2 where the game shows it.
  */
 import type { SmwRom } from '../SmwRom'
-import { hex3s as hex3 } from '../hex'
+import { hex2, hex3s as hex3 } from '../hex'
 import {
   isPresetPtr,
+  l2ObjectGate,
+  isSkippedLevelMode,
   l2PaletteOrForTileset,
   L2_EMPTY_TILE,
   loadL2Objects,
@@ -62,21 +64,39 @@ export function buildL2Inputs(rom: SmwRom, index: number, l1: L1Inputs): L2Resul
   // byte from DATA_05FC00 (bank_05.asm:7147-7148, 7376-7388), which this view does not read (#505).
   const entryVertical = ((rom.rom.readByte(0x05f600 + index) ?? 0) & 0x20) !== 0
   const dy = (): number => readInitialLayer1YPos(rom.rom, index, entryVertical) - readInitialLayer2YPos(rom.rom, index, entryVertical) // prettier-ignore
+  const preset = isPresetPtr(ptr)
+  // Order (D51 B, #506): develop's #637 gate owns the object-stream path in the ten skipped modes,
+  // so it runs before the table; a preset ($FF) pointer is an image in every mode, skipped or not
+  // (the image routine runs for modes $00/$0A, bank_05.asm:1104, 1114, independent of LoadLevel's
+  // skips, :444-457), and goes straight to the table. The table decides every other case.
+  if (!preset) {
+    const gate = l2ObjectGate(rom.rom, header.levelMode)
+    if (gate === 'unrecognized') {
+      return refuse(`Layer 2 not drawn: the mode-skip chain of this ROM is not recognized (level mode $${hex2(header.levelMode)})`) // prettier-ignore
+    }
+    if (gate === 'skipped') {
+      return refuse(`The game loads no layer 2 objects in level mode $${hex2(header.levelMode)}`)
+    }
+  }
+  // A hijacked check site leaves a skipped mode's stream behaviour as it was (gate 'loads'); the
+  // table has nothing to add there.
+  const hijackedSkip = !preset && isSkippedLevelMode(header.levelMode)
   // The game picks the uploader by level mode (bank_05.asm:1099-1135); the pointer's bank byte must
   // agree with it, or the game would draw the map differently (#506). That is the level-load upload
   // (CODE_058955) only; scroll-time uploads go through CODE_058883, which is not checked here.
-  const uploaders = readL2UploaderTable(rom.rom)
-  if (!uploaders.ok) return refuse(uploaders.reason)
-  const mode = header.levelMode & 0x1f
-  const entry = uploaders.entries[mode]!
-  const modeName = `level mode $${mode.toString(16).padStart(2, '0')}`
-  if (entry.kind === 'unrecognized') {
-    return refuse(`The L2 uploader for ${modeName} (at $${entry.target.toString(16)}) is not a routine this reader recognizes`) // prettier-ignore
-  }
-  if (entry.kind === 'none') return refuse(`${modeName} uploads no L2`)
-  const preset = isPresetPtr(ptr)
-  if (preset !== (entry.kind === 'image')) {
-    return refuse(`${modeName} uploads an L2 ${entry.kind === 'image' ? 'image' : 'object stream'}, but the L2 pointer of ${hex3(index)} is ${preset ? 'an image' : 'an object stream'}`) // prettier-ignore
+  if (!hijackedSkip) {
+    const uploaders = readL2UploaderTable(rom.rom)
+    if (!uploaders.ok) return refuse(uploaders.reason)
+    const mode = header.levelMode & 0x1f
+    const entry = uploaders.entries[mode]!
+    const modeName = `level mode $${mode.toString(16).padStart(2, '0')}`
+    if (entry.kind === 'unrecognized') {
+      return refuse(`The L2 uploader for ${modeName} (at $${entry.target.toString(16)}) is not a routine this reader recognizes`) // prettier-ignore
+    }
+    if (entry.kind === 'none') return refuse(`${modeName} uploads no L2`)
+    if (preset !== (entry.kind === 'image')) {
+      return refuse(`${modeName} uploads an L2 ${entry.kind === 'image' ? 'image' : 'object stream'}, but the L2 pointer of ${hex3(index)} is ${preset ? 'an image' : 'an object stream'}`) // prettier-ignore
+    }
   }
   try {
     if (preset) {
@@ -91,6 +111,7 @@ export function buildL2Inputs(rom: SmwRom, index: number, l1: L1Inputs): L2Resul
         l2: { kind: 'image', grid: tilePresetGrid(image, cols, rows), tiles: loadMap16Tiles(rom.rom, table.value), dy: dy() }, // prettier-ignore
       }
     }
+    // After the gate and the table, before the orientation check: modes $0A and $0D would otherwise be refused for a layout mismatch the game never meets.
     const vertical = rom.getVerticalTable()
     if (!vertical.ok) return refuse(vertical.reason)
     const l2Vertical = isLevelModeVerticalL2(header.levelMode, vertical.table)

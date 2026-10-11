@@ -17,6 +17,7 @@ import { execFileSync, spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { slow } from '../support/loadTimeout'
 import {
   checkBlob,
   checkPath,
@@ -68,7 +69,8 @@ describe('checkPath: hard-blocked extensions, never allow-listed', () => {
     expect(checkPath('tools/mesen/README.md')).toEqual([])
   })
 
-  it('test/fixtures/README.md is exempt', () => {
+  // 5.4 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-10
+  it('test/fixtures/README.md is exempt', slow(11000), () => {
     expect(checkPath('test/fixtures/README.md')).toEqual([])
   })
 })

@@ -31,6 +31,7 @@ import {
   unzip,
 } from '../../../tools/scripts/capture_render'
 import { addr64, captureFiles, idAt, NAMES, POS } from './fixtures/captureFixture'
+import { slow } from '../support/loadTimeout'
 
 type Files = Record<string, Buffer>
 type Obj = Record<string, unknown>
@@ -1179,27 +1180,32 @@ describe('PNG decode', () => {
     expect(read('absent')).toBeNull()
   })
 
-  it('makes a damaged PNG a capture error: that map unavailable, the run goes on', () => {
-    const short = png(2, 2, () => [0, 0, 0], { rows: Buffer.from([0, 1, 2, 3, 4, 5, 6]) }) // one row of two
-    expect(() => pngRgba(short)).toThrow('inflates to 7 bytes, not 14')
-    const badFilter = png(1, 1, () => [], { rows: Buffer.from([9, 1, 2, 3]) })
-    expect(() => pngRgba(badFilter)).toThrow('filter 9')
-    const garbled = png(1, 1, () => [1, 2, 3])
-    garbled.fill(0xff, 41, 47) // inside the IDAT stream
-    expect(() => pngRgba(garbled)).toThrow('does not inflate')
-    const root = join(TMP, 'png')
-    const files = captureFiles(false, undefined, [8])
-    picture(files, 'screen_00', 'bg2', short, SENTINEL)
-    writeTree(join(root, 'in', '10a'), files)
-    picture(files, 'screen_00', 'bg2', garbled, SENTINEL)
-    writeTree(join(root, 'in', '10b'), files)
-    writeTree(join(root, 'in', '105'), captureFiles())
-    const lines: string[] = []
-    expect(runCapture(join(root, 'in'), join(root, 'out'), l => lines.push(l))).toBe(2)
-    expect(lines.join('\n')).toMatch(/\$10A +unavailable a 2x2 PNG inflates to 7 bytes/)
-    expect(lines.join('\n')).toMatch(/\$10B +unavailable a PNG does not inflate/)
-    expect(existsSync(join(root, 'out', '105', 'viewer.html'))).toBe(true)
-  })
+  // Worst 5.09 s in 10 runs, 5 concurrent pairs at 38af1126, 32-core machine, 2026-10-10.
+  it(
+    'makes a damaged PNG a capture error: that map unavailable, the run goes on',
+    slow(11_000),
+    () => {
+      const short = png(2, 2, () => [0, 0, 0], { rows: Buffer.from([0, 1, 2, 3, 4, 5, 6]) }) // one row of two
+      expect(() => pngRgba(short)).toThrow('inflates to 7 bytes, not 14')
+      const badFilter = png(1, 1, () => [], { rows: Buffer.from([9, 1, 2, 3]) })
+      expect(() => pngRgba(badFilter)).toThrow('filter 9')
+      const garbled = png(1, 1, () => [1, 2, 3])
+      garbled.fill(0xff, 41, 47) // inside the IDAT stream
+      expect(() => pngRgba(garbled)).toThrow('does not inflate')
+      const root = join(TMP, 'png')
+      const files = captureFiles(false, undefined, [8])
+      picture(files, 'screen_00', 'bg2', short, SENTINEL)
+      writeTree(join(root, 'in', '10a'), files)
+      picture(files, 'screen_00', 'bg2', garbled, SENTINEL)
+      writeTree(join(root, 'in', '10b'), files)
+      writeTree(join(root, 'in', '105'), captureFiles())
+      const lines: string[] = []
+      expect(runCapture(join(root, 'in'), join(root, 'out'), l => lines.push(l))).toBe(2)
+      expect(lines.join('\n')).toMatch(/\$10A +unavailable a 2x2 PNG inflates to 7 bytes/)
+      expect(lines.join('\n')).toMatch(/\$10B +unavailable a PNG does not inflate/)
+      expect(existsSync(join(root, 'out', '105', 'viewer.html'))).toBe(true)
+    },
+  )
 })
 
 describe('map-wide render', () => {
@@ -1341,7 +1347,8 @@ describe('capture run', () => {
     expect(crc32Js(big)).toBe(crc32(big))
   })
 
-  it('makes an unreadable zip unavailable, says why, and renders the rest', () => {
+  // 7.9 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10
+  it('makes an unreadable zip unavailable, says why, and renders the rest', slow(16_000), () => {
     const input = join(root, 'bad')
     const good = zip(under('10a/', files))
     const resize = (z: Buffer, by: number) => {
