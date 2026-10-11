@@ -608,15 +608,20 @@ describe.skipIf(!hasRom(VANILLA))('the entrances over the 143-map roster', () =>
     const entrances = readMapEntrances(rom)!
     const moved: number[] = []
     const noted = new Map<number, string>()
+    let compared = 0
     for (const index of FG_GATE_MAPS) {
       const built = buildL1Inputs(rom, index, UNCLEARED)
       if (!built.ok) continue
       const before = buildL2Inputs(rom, index, built.inputs)
       const after = buildL2Inputs(rom, index, built.inputs, entrances.get(index))
       if (!before.ok || !after.ok) continue
+      compared++
       if (before.l2.dy !== after.l2.dy) moved.push(index)
       if (after.l2.note) noted.set(index, after.l2.note)
     }
+    // Every roster map builds both layers on vanilla (measured 2026-10-10): none is skipped.
+    expect(compared).toBe(FG_GATE_MAPS.length)
+    expect(FG_GATE_MAPS.length).toBe(143)
     expect(moved).toEqual([])
     expect([...noted.keys()]).toEqual([0x118])
     expect(noted.get(0x118)).toBe('Background height unverified: drawn as entered from the overworld; entered through secondary entrance $1C3 it starts at a different height.') // prettier-ignore
