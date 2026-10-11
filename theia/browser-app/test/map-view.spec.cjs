@@ -1063,6 +1063,56 @@ test('$4F on $105 is served at its stream position plus the (8, -1) its INIT add
   ])
 })
 
+/**
+ * #126: a vanilla grinder ($67) draws, then steps onto its line, so its first drawn pass is at the
+ * off-track spawn spot and the second is on the track. $01A's first grinder draws on both passes.
+ * Values from the interpreter on vanilla (LineGuidedDraw.test.ts pins the same anchor): pass 1 at
+ * (739, 356), pass 0 at (735, 352). The two passes draw different frames with the same opaque count,
+ * so the frame is told apart by checksumOf over the served bitmap: 896249997 for pass 1's,
+ * 3767367845 for pass 0's (both measured, one machine, 2026-10-10).
+ */
+test('a vanilla grinder is served on its track, in its second frame, not at its spawn spot', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x01a)
+  const reply = await page.evaluate(
+    mp => getSvc('Symbol(ProjectService)').mapSprites(mp, 0x01a),
+    project.manifestPath,
+  )
+  expect(reply.status).toBe('ok')
+  const grinder = reply.sprites.find(s => s.id === 0x67)
+  expect(grinder).toMatchObject({ x: 739, y: 356, status: 'drawn' })
+  // The four 16 x 16 body pieces sit around the anchor: a 32 x 32 box, not the spawn spot's (719, 336).
+  expect(grinder.box).toEqual({ x0: 723, y0: 340, x1: 755, y1: 372 })
+  const sum = await page.evaluate(
+    rgba => checksumOf(Uint8Array.from(atob(rgba), ch => ch.charCodeAt(0))),
+    grinder.rgba,
+  )
+  expect(sum, 'the second pass frame, not the first (3767367845)').toBe(896249997)
+
+  // And the canvas holds that bitmap at that box (screen 2 starts at x 512).
+  await showScreen(page, 0x01a, 2)
+  await expect(spritePlane(page, 0x01a, 2)).toHaveAttribute('data-drawn', SPRITES_DRAWN)
+  const same = await page.evaluate(
+    ({ sel, s }) => {
+      const ctx = document.querySelector(sel).getContext('2d')
+      const got = ctx.getImageData(s.box.x0 - 512, s.box.y0, 32, 32).data
+      const want = Uint8Array.from(atob(s.rgba), ch => ch.charCodeAt(0))
+      let opaque = 0
+      for (let i = 0; i < want.length; i += 4) {
+        if (want[i + 3] !== 255) continue
+        opaque++
+        for (let k = 0; k < 4; k++) if (got[i + k] !== want[i + k]) return { opaque, ok: false }
+      }
+      return { opaque, ok: true }
+    },
+    { sel: `${root(0x01a)} canvas[data-screen="2"][data-plane="sprites"]`, s: grinder },
+  )
+  expect(same.opaque).toBeGreaterThan(0)
+  expect(same.ok, 'the canvas holds the served bitmap at its box').toBe(true)
+})
+
 test('a sprite stream with no end marker shows its note on the map tab', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x106)
