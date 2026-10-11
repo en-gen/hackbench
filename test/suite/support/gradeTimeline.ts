@@ -43,10 +43,11 @@ interface TimedRec {
 }
 
 /**
- * Per-record seed and probe for grading on the hardware timeline, mirrors gradeAll in spriteGrade.captures.test.ts (not shared with it) for the loops that
- * must agree with it. `k` is undefined (and `timed` false) when a field is
- * missing or out of range: the caller then grades the old way. Otherwise the caller seeds
- * `seedExtra`, runs with `probe`, and sets `m.chosen = k` when `m.passes[k]` exists.
+ * Per-record seed and probe for grading on the hardware timeline. It mirrors gradeAll in
+ * spriteGrade.captures.test.ts (that loop is a copy, not a caller) for the report and its test.
+ * `k` is undefined (and `timed` false) when a field is missing or out of range: the caller then
+ * grades the old way. Otherwise it seeds `seedExtra`, runs with `probe`, and sets `m.chosen = k`
+ * when `m.passes[k]` exists.
  */
 export function timelineFor(
   rec: TimedRec,
