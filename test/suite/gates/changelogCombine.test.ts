@@ -168,7 +168,11 @@ describe('changelog-combine', () => {
     ['plain text after a bullet', '### Added\n- valid\nplain text\n', /must start with/],
     ['a one-space continuation', '### Added\n- a\n one space\n', /must start with/],
     ['a bullet without its space', '### Added\n- a\n-foo\n', /must start with/],
-    ['a tab continuation', '### Added\n- a\n\tmore\n', /must start with/],
+    ['a tab continuation', '### Added\n- a\n\tmore\n', /tab/],
+    ['a tab inside a continuation', '### Added\n- a\n  \tmore\n', /tab/],
+    ['a tab inside a bullet', '### Added\n- a\tb\n', /tab/],
+    ['an indented # line', '### Added\n- a\n  # x\n', /only "### <Section>"/],
+    ['an indented ### line', '### Added\n- a\n  ### Fixed\n', /only "### <Section>"/],
     ['a 0-byte file', '', /no "### <Section>" heading/],
   ])('refuses a fragment with %s', (_n, bad, msg) => {
     log()
@@ -178,6 +182,7 @@ describe('changelog-combine', () => {
     expect(r.stderr).toContain('2-bad.md')
     expect(r.stderr).toMatch(msg)
     expect(readLog()).toBe(BASE)
+    expect(files()).toEqual(['2-bad.md'])
   })
 
   it('stamps the LOCAL date when --date is omitted', () => {

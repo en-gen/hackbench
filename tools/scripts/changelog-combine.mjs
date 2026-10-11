@@ -25,7 +25,8 @@ export function parseFragment(name, text) {
   for (const line of text.split(/\r?\n/)) {
     const h = /^### (.*\S)\s*$/.exec(line)
     // A stray "## [9.9.9]" or "#### Added" would corrupt the release or vanish as an entry.
-    if (line.startsWith('#') && !h) {
+    // An indented "  # x" would otherwise pass as a continuation line.
+    if (line.trimStart().startsWith('#') && !h) {
       throw new Error(`${name}: only "### <Section>" headings are allowed`)
     }
     if (h) {
@@ -36,6 +37,7 @@ export function parseFragment(name, text) {
       sections.set(h[1], cur)
     } else if (line.trim()) {
       if (!cur) throw new Error(`${name}: text before the first "### <Section>" heading`)
+      if (line.includes('	')) throw new Error(`${name}: tabs are not allowed in entries`)
       // changelog.d/README.md: a bullet, or (after the first) a two-space continuation.
       if (!line.startsWith('- ') && !(cur.length > 0 && line.startsWith('  '))) {
         throw new Error(
