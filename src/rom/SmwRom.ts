@@ -482,7 +482,7 @@ export class SmwRom {
       // UseSecondaryExit is one byte that every screen-exit object rewrites as the load parses
       // it (bank_0D.asm:1436-1438), read once by the exit path (bank_05.asm:7111-7112): the
       // last object's flag holds for every exit of the map.
-      const isSecondary = exits.at(-1)?.screenExitIsSecondary === true
+      const isSecondary = exits[exits.length - 1]?.screenExitIsSecondary === true
       const specs = exits.map(o => ({
         isSecondary,
         // LevelParser folds a dead ExitTableHigh-derived bit into bit 8 of
