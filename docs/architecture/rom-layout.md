@@ -21,7 +21,8 @@ never change size, such as a palette color. Most edits do change size:
   compressed GFX file can grow from a one-pixel change.
 - Vanilla's GFX region has 755 bytes of slack for all 50 files
   ([../gfx-arena-budget.md](../gfx-arena-budget.md), 6 ROMs, one machine).
-  Two of the four editable hacks in that corpus have none.
+  Both Grand Poo World ROMs in that corpus have none; Invictus is refused
+  outright because it replaces the decompressor.
 
 Some data also cannot move freely because the game's code fixes where it may
 live. Sprite data is the clearest case: the pointer is 2 bytes from
@@ -31,9 +32,12 @@ sprites until the code reads a full pointer from a new table.
 
 [../rom/map-data-mechanics.md](../rom/map-data-mechanics.md) measured the same
 thing from the other side: on vanilla, adding one object to any of 182 tightly
-packed Layer 1 maps corrupts the map stored after it, and the unreferenced runs
-in banks `$06` and `$07` total 14517 bytes (that note's scope: no L1, L2 or
-sprite pointer reaches them; it does not prove nothing else uses them).
+packed Layer 1 maps corrupts the map stored after it. It also counts 14517
+unreferenced bytes in banks `$06` and `$07`, but only in the sense that no L1,
+L2 or sprite table pointer reaches them. That is not a free-space figure: the
+entrance-scene and Chocolate Island 2 data (for example `CI2Sub2Level6E9FB`,
+`bank_06.asm:304`) is reached by other readers (see the reader inventory), and
+whether the count includes it is UNCONFIRMED.
 
 ## The pipeline
 
@@ -52,15 +56,23 @@ edits per resource -> resource content -> build -> working copy -> BPS
    gives its current content: a list of sprites, a list of objects, a bitmap of
    tiles. This is decoded, in-memory data, never stored in the project.
 3. **Build.** For each resource whose content differs from base, in a fixed
-   order: encode it to its ROM form, place it (in place if it fits, otherwise
+   order (resource kind in the order palette, Map16, GFX, Layer 1, Layer 2,
+   sprite list, then ascending numeric id inside a kind; layers always replay
+   in stack order, whatever order the input arrives in): encode it to its ROM form, place it (in place if it fits, otherwise
    in free space), rewrite every pointer to it, and install any code hook the
    new placement needs. Resources that were not edited are not touched.
 4. **Working copy.** The result is the working copy that every view already
    reads. The rule in `CLAUDE.md` is unchanged: views never read base bytes.
 5. **BPS.** Export Patch diffs the working copy against base. BPS already
    describes a resized ROM
-   ([../decisions/2026-10-04-bps-primary-patch-format.md](../decisions/2026-10-04-bps-primary-patch-format.md)),
-   so export needs no change.
+   ([../decisions/2026-10-04-bps-primary-patch-format.md](../decisions/2026-10-04-bps-primary-patch-format.md));
+   `src/rom/Bps.ts` writes the target length. The IPS path does not:
+   `diffPatches` in `src/project/ExportPatch.ts` compares only up to the
+   shorter of the two buffers, so an expanded ROM exported as IPS would lose
+   its tail. **[PROP]** Export refuses IPS whenever the working copy's size
+   differs from the base, with a message pointing at BPS. That is a small
+   change to `ExportPatch.ts` and belongs with the first slice that can grow
+   the ROM.
 
 A resource is one of three kinds, as in the issue: **data** (object list,
 sprite list, GFX file, song, Map16 page, palette; each with an encoder),
@@ -88,9 +100,23 @@ The issue's five principles, restated so each can be checked in review.
    (question 3).
 4. **The build is deterministic.** Same project, same base ROM, byte-identical
    output. No clock, no random, no iteration over an unordered map.
-5. **Hooks are layers.** A hook is installed only when an edit needs it, is
-   recorded with its signature so it is never installed twice, and is undone
-   like any other layer.
+5. **Hooks are derived, not stored layers. [PROP]** The issue's principle says
+   "hooks are layers". This document departs from it on purpose, because a
+   stored hook layer has no answer for three cases: two edit layers that need
+   the same hook, undoing a hook layer while data that depends on it remains,
+   and where the signature is kept. The model instead: the build decides, from
+   the final resource content, which hooks that content needs, and installs
+   them. The three properties the principle wanted still hold:
+   *only when needed* (no resource needs the hook, no hook is written);
+   *never twice* (the build fingerprints the site first; if our stub, or a
+   known foreign hook, is already there it is not written again); and *undone
+   like any other layer* (undoing the last layer that needs the hook rebuilds
+   from base, and the hook is simply not derived; undoing a layer that does
+   not need it leaves it in place because other data still does). The
+   signature lives in the code itself, the stub's own bytes at the traced
+   site, so the project stores nothing extra. The cost: a hook has no
+   undo entry of its own, so the user sees "this edit needed a code change" as
+   a build note rather than a stack item.
 
 Two further rules follow from the Safety section and are stated here so the
 questions below can lean on them:
@@ -98,16 +124,31 @@ questions below can lean on them:
 6. **Refuse before guessing.** Where the build cannot prove it understands a
    resource's layout on this ROM, that resource is read-only. It is never
    relocated on a guess.
-7. **A move is all or nothing.** A resource is moved only if every pointer to
-   it that the build knows of is rewritten in the same build. If a pointer
-   cannot be located or reached, the move is refused.
+7. **A move is all or nothing, and every reader is proven.** A resource is
+   moved only if every reader of it is listed in the reader inventory below
+   with an SMWDisX trace, and every one of those pointers is rewritten (or
+   covered by a hook) in the same build. A resource with a reader the
+   inventory does not list, or one that cannot be rewritten, is refused. A
+   block that more than one pointer reaches is **shared**: the build counts
+   its readers, edits it only after giving the edited level a private copy,
+   and never frees a block that still has a reader.
 
 ## Open question 1: how hook bytes are produced
 
 A hook is a few bytes of 65816 code that make the game read a table we placed.
-The first needed one is the sprite pointer: replace the 2-byte `Ptrs05EC00`
-read plus the hard-set bank with a full 3-byte read, at the site traced in
-SMWDisX `bank_05.asm:7253-7258`.
+The first one that can be needed is the sprite pointer: replace the 2-byte
+`Ptrs05EC00` read plus the hard-set bank with a full 3-byte read, at the site
+traced in SMWDisX `bank_05.asm:7253-7258`. It is **not needed by the first
+edit slice**: the vanilla fill runs `$07E76F-$07EFFF` and `$07FC90-$07FFFF`
+(`freespace.txt`, U column) are in bank `$07`, so early sprite growth fits
+without a hook. The hook is its own later slice, built when bank `$07` runs
+out. Two things to design in before then, both from the reader inventory:
+the Chocolate Island 2 loader inherits its sprite bank from the earlier
+hard-set (`bank_05.asm:7558-7559`), so a 3-byte hook must keep bank `$07` for
+those loads or move their lists with them; and the sprite loop indexes the
+list with an 8-bit `Y` (`bank_02.asm:5250-5253`), so a list, header included,
+must stay under 256 bytes. The sprite encoder refuses a longer list; this
+limit holds with or without a hook.
 
 Options:
 
@@ -163,18 +204,74 @@ What the static trace supports:
 | ----------- | -------------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------- |
 | Sprite list | `Ptrs05EC00`, `bank_05.asm:8708-9220`, 512 entries                               | 2 bytes                | Bank hard-set to `$07` (`:7253-7258`); needs a hook to leave it.                                              |
 | Layer 1     | `Layer1Ptrs`, `bank_05.asm:7680-8192`, 512 entries                               | 3 bytes                | Loaded at `:7235-7239`, index is level times 3 (`:7229-7233`). Full pointer, any bank.                        |
-| Layer 2     | `Layer2Ptrs`, `bank_05.asm:8194-8707`, 512 entries                               | 3 bytes                | Loaded at `:7241-7246`.                                                                                       |
+| Layer 2     | `Layer2Ptrs`, `bank_05.asm:8194-8707`, 512 entries                               | 3 bytes                | Loaded at `:7241-7246`. Two kinds of entry, see the inventory: object streams (any bank) and backgrounds.    |
 | GFX file    | `GFXFilesLow` `bank_00.asm:6415`, `GFXFilesHigh` `:6467`, `GFXFilesBank` `:6519` | three tables, 50 files | Used by `PrepareGraphicsFile` (`bank_00.asm:6571-6591`).                                                      |
 | BGM         | `LevelMusicTable`, `bank_05.asm:513-520`                                         | 8 ids                  | The bank upload is hard-set (`UploadMusicBank1`, `bank_00.asm:145-151`, to `MusicBank1`, `bank_0E.asm:2353`). |
 
-Two ROM facts that were UNCONFIRMED in the brief are settled by the lines
-above. The Layer 2 bank byte is the third byte of the table entry, read
-directly into `Layer2DataPtr+2` (`bank_05.asm:7245-7246`); unlike sprites, no
-bank is hard-set for Layer 1 or Layer 2. And `CODE_00B8DE`
+One ROM fact is settled by a static read: `CODE_00B8DE`
 (`bank_00.asm:6294-6302`) is a loop that reads bytes until `$FF` and
 dispatches on the top three bits of a header byte, which matches the LC_LZ2
 description in [../rom/gfx-decompressors.md](../rom/gfx-decompressors.md);
-that is a static reading, not a run.
+that is a static reading, not a run. An earlier draft also called the Layer 2
+bank "settled" as a plain third table byte. That was wrong, see below.
+
+### Reader inventory
+
+Rule 7 needs every reader of a resource. This is the inventory from a static
+read of SMWDisX (U ROM). It is the best list this document can give; it is not
+proven complete (see Unconfirmed facts), and a resource whose reader is not
+here is refused.
+
+**Sprite lists.**
+
+- The level loader: 2-byte entry from `Ptrs05EC00`, bank hard-set to `$07`
+  (`bank_05.asm:7253-7258`).
+- The immediate load of `EmptySprites` (`$07C3EE`, `SMW_U.sym` line 8790) at
+  `bank_05.asm:7449-7454`, a literal address rather than a table read. The
+  same block is also the target of many `Ptrs05EC00` entries (for example
+  `bank_05.asm:8898`, `:8927`, `:8939`), so it is shared.
+- Chocolate Island 2 (`ChocIsld2Sprites`, `bank_05.asm:7527-7535`): a 16-bit
+  pointer read at `:7558-7559`, bank inherited from the earlier hard-set. Its
+  block `CI2Sub8Sprites0CD` is also a `Ptrs05EC00` target
+  (`bank_05.asm:8914`), so it is shared.
+
+**Layer 1 object lists.**
+
+- The level loader: full 3-byte entry from `Layer1Ptrs`
+  (`bank_05.asm:7235-7239`).
+- `PtrsLong05D766` (`bank_05.asm:7057-7063`, read `:7473-7478`): 3-byte
+  pointers for the ghost house, castle and no-Yoshi entrance scenes. The
+  blocks are in bank `$07` (`bank_07.asm:3`).
+- Chocolate Island 2 (`ChocIsld2Layer1`, `bank_05.asm:7515-7524`): 16-bit,
+  read at `:7556-7557`, bank inherited from the earlier `Layer1Ptrs` load.
+  `CI2Sub8Level0CD` is shared with `Layer1Ptrs` (`bank_05.asm:7886`).
+
+**Layer 2.** Two different things share one table.
+
+- *Object streams*: the entry's third byte is a real bank, any bank works,
+  loaded at `bank_05.asm:7241-7246`.
+- *Backgrounds*: most entries are `dw <address> : db $FF`. The `$FF` is a
+  marker, not a bank. The loader tests for it (`bank_05.asm:32-34`), forces
+  the bank to `$0C` (`:48-49`, "All backgrounds are stored in bank 0C"), and
+  picks the background's Map16 page by comparing the 16-bit address with
+  `DATA_0CE8FE` (`:37-40`). So a background is locked to bank `$0C`, and its
+  address carries meaning: moving it across that address changes its Map16
+  page. The ending sequence repeats the pattern (`bank_0C.asm:707-719`).
+  Backgrounds are therefore a separate resource kind, **not relocatable** in
+  the first slices; object streams are.
+- Other readers: `PtrsLong05D778` (`bank_05.asm:7065-7071`, read
+  `:7479-7484`, mixing a real long pointer with `$FF` backgrounds) and
+  `ChocIsld2Layer2` (`bank_05.asm:7537-7546`, read `:7560-7561`).
+
+**GFX files.** The three-table read in `PrepareGraphicsFile`
+(`bank_00.asm:6571-6591`). The stream reader carries into the next bank
+(`ReadByte`, `bank_00.asm:6405-6413`), unlike the object loaders, so a GFX
+stream may legitimately span a bank boundary.
+
+**Shared blocks.** Several pointers can reach one block (the examples above).
+The build keeps a reader count per block. Editing a shared block gives the
+edited level a private copy; the shared original stays for the other readers
+and is never freed while one remains. This is also the detection rule for #178.
 
 **Address discovery.** Follow the ROM's own pointers; never hard-code a vanilla
 address for a hack.
@@ -197,14 +294,18 @@ address for a hack.
   bytes are stored as the digest, not the bytes (copyright rule). Example: the
   per-slot sprite bank table that all four corpus hacks carry
   ([../rom/map-data-mechanics.md](../rom/map-data-mechanics.md), scope: that
-  note's four-hack corpus) is a known hook; with it present, sprite lists may
-  live in any bank and the build writes that table instead of installing ours.
+  note's four-hack corpus) is a known hook. `LevelTableGate` accepts its
+  sprite read on two of the four (Grand Poo World 1.2 and Seven Vanilla
+  Levels) and refuses it on Grand Poo World 2 and Invictus, whose detours
+  branch on live RAM ([../rom/level-table-gate.md](../rom/level-table-gate.md)).
+  So with the known hook present, the build writes that table instead of
+  installing ours on those two; on the other two, sprite lists are read-only.
 - **Unrecognised layout on a hack: that resource is read-only.** A different
   or modified table, an unfamiliar replacement of the loading code, or a size
   that does not parse all lead to the same answer: the build refuses to
   relocate it. Reading it for display may still work; writing does not.
 
-**Scope rule (D51): vanilla first.** The first implementation targets vanilla
+**Scope rule: vanilla first (owner priority).** The first implementation targets vanilla
 and refuses everything else per resource. Hack support grows one known hook at
 a time, each with its signature and its tests.
 
@@ -215,7 +316,8 @@ trace before it is scheduled.
 
 Trade-off: starting with sprite and object lists delays GFX and music, but it
 is the smallest set that makes "save a modified level" real, and it exercises
-every part of the pipeline (parse, encode, place, pointer, hook) once.
+every part of the pipeline except the hook (parse, encode, place, pointer);
+the hook follows as its own slice.
 
 ## Open question 3: how an edit is stored
 
@@ -259,41 +361,61 @@ Options:
   records the resource's base fingerprint so that replay over a different base
   is refused instead of silently misapplied.
 
-## Open question 4: migration of palette layers
+## Open question 4: migration of existing layers
 
-Existing projects hold byte-op layers; palette edits are the only kind. A
-palette color is a fixed-size, fixed-address word.
+Existing projects hold three kinds of layer, not one:
+
+- **Palette byte ops**, `{ address, old, new }` (`src/rom/PaletteOp.ts`).
+- **Map16 word ops**, the same op shape with a full-word mask
+  (`FULL_WORD_MASK`, `theia/extension/src/node/map16-decode.ts:754`). A Map16
+  subtile word is real data in all 16 bits, not a color.
+- **GFX pixel layers**, `"kind": "gfx"` with `chars` of `{ file, tile, pixels }`
+  (`src/project/OpsStore.ts:62-69`, `src/rom/GfxLayer.ts`). These are folded
+  by `GfxArena`, which re-lays the whole packed region and rewrites the 150
+  pointer bytes on every save ([../gfx-arena-budget.md](../gfx-arena-budget.md)).
+  That is exactly what rule 1 forbids for the general case.
+
+Palette and Map16 ops are fixed-size and fixed-address, so they cannot move.
+GFX layers are already semantic (they say which pixels the user changed).
 
 Options:
 
-- **A. Convert on load.** Each existing palette byte-op layer is read as a
-  palette-resource edit (set color N of palette P). The on-disk layer files
-  are left untouched and stay readable.
-- **B. Mixed stack.** The stack holds both byte-op layers and resource layers;
-  byte ops are applied after layout. Needs a refusal when a byte op targets
-  bytes inside a resource that moved.
-- **C. Rewrite the files** to the new format on first open.
+- **A. Convert on load, in memory.** Palette and Map16 ops become resource
+  edits (set color N of palette P; set subtile of Map16 tile T). GFX layers
+  become GFX-resource pixel ops, which they already nearly are. On-disk files
+  are left untouched.
+- **B. Mixed stack.** Byte-op layers and resource layers coexist; byte ops are
+  applied after layout, with a refusal when one targets a moved resource.
+- **C. Rewrite the files** to a new format on first open.
 
-**[PROP] A, converting in memory, never rewriting files.**
+**[PROP] A for all three kinds, converting in memory, never rewriting files.**
 
-- A palette op never changes size and never moves, so it converts without
-  loss: address and old/new words map to a palette index and a color. A layer
-  whose address cannot be mapped to a known palette slot is refused, not
-  dropped.
+- A palette or Map16 op never changes size and never moves, so it converts
+  without loss. A layer whose address cannot be mapped to a known palette slot
+  or Map16 tile is refused, not dropped.
 - Not rewriting keeps a project written by today's build opening in today's
   build, and keeps the portable-undo property of old layers.
-- B is still needed as a rule, not as the design: any raw byte op that
-  survives conversion is checked against the final layout, and a build in
-  which a byte op targets a moved resource fails with a message naming the
-  layer. B alone is rejected because it makes every future build carry two
-  semantics, and because "byte ops after layout" silently changes the meaning
-  of old layers when a resource later gains a size-changing edit.
+- B is kept only as a rule: any raw byte op that survives conversion is
+  checked against the final layout, and a build in which a byte op targets a
+  moved resource fails with a message naming the layer. B alone is rejected
+  because it gives every build two semantics, and "byte ops after layout"
+  silently changes the meaning of old layers once a resource gains a
+  size-changing edit.
 - C is rejected because it makes old projects unreadable by older builds for
   no gain.
+- **GfxArena. [PROP] replaced, on a schedule.** Until GFX is migrated (it is
+  second in the catalogue), `GfxArena` stays as shipped and is knowingly exempt
+  from rule 1. When GFX moves to the build, per-file placement replaces the
+  whole-region relay: only an edited file's stream is placed, in place when it
+  fits. The structure-preserving encoder in `GfxLayer.ts` and `GfxTable.ts` is
+  kept, because it is what makes unedited files reproduce byte for byte. The
+  region-wide relay and its 102,185-byte export cost for a one-pixel edit in
+  the first file are retired with it.
 
-Conversion is tested on synthetic palette layers (no ROM): convert, build, and
-compare to the old applier's result byte for byte; plus a planted defect (wrong
-palette index) that must turn the comparison red.
+Conversion is tested on synthetic layers of all three kinds (no ROM): convert,
+build, and compare to the old applier's result byte for byte; plus a planted
+defect (wrong palette index, wrong Map16 mask) that must turn the comparison
+red.
 
 ## Open question 5: free space
 
@@ -319,31 +441,45 @@ build.
 
 **How the build finds free space.**
 
-- _Vanilla._ The candidates are the fill runs SMWDisX lists as free
-  (`freespace.txt`, for example the run at file offsets `$05FD0D..$05FFFF`
-  that [../gfx-arena-budget.md](../gfx-arena-budget.md) already uses). Each
-  candidate must also read as all fill in the ROM, must not be referenced by
-  any pointer the build knows, and must not cross a bank boundary (the loaders
-  advance 16 bits and never carry into the bank byte, `bank_05.asm:689-695` as
-  quoted in map-data-mechanics). A longer fill run is not evidence that nothing
-  else owns it, so only the listed runs count. Placement honours per-resource
-  bank rules: sprite lists stay in bank `$07` until the sprite hook is
-  installed, then may go anywhere.
-- _Hack._ Free space cannot be known from the disassembly. The candidates
-  are, in order: (1) the old block of a resource this build is moving;
-  (2) space appended past the end of the ROM, which cannot collide with
-  anything (the #218 path); (3) nothing else by default. Fill runs inside a
-  hack are never claimed on a guess, and RATS-tagged blocks are never
-  allocated into. A user-confirmed fill run could be added later as an
-  explicit choice; it is not proposed here.
-- _Order._ The allocator is deterministic: candidates are sorted by address and
+- *Vanilla.* The candidates are the fill runs SMWDisX lists as free in
+  `freespace.txt`. That file lists SNES addresses (for example `$0BFD0D` to
+  `$0BFFFF`, the run that is file offsets `$05FD0D..$05FFFF` in
+  [../gfx-arena-budget.md](../gfx-arena-budget.md)), one column per ROM
+  version, and its basis for each run is "all `$FF`" in that version. It beats
+  a scan for long `$FF` runs because a scan cannot tell fill from data that
+  happens to be `$FF` (the GFX note makes the same point). The build uses the
+  U column, and refuses J and E ROMs, because the columns differ. Each run
+  must also read as all fill in the actual ROM, must not be reached by any
+  reader in the inventory, and must lie inside one bank for the loaders that
+  do not carry across banks (the object and sprite loaders advance 16 bits,
+  `bank_05.asm:689-695` as quoted in map-data-mechanics). That rule is per
+  loader: the GFX stream reader does carry (`bank_00.asm:6409-6411`), so a GFX
+  block may cross a boundary. The run `$0EF0F0-$0EFFFF` is excluded even
+  though the list shows it free, because the corpus hacks keep their sprite
+  bank table at `$0EF100`
+  ([../rom/level-table-gate.md](../rom/level-table-gate.md)). Placement honours
+  per-resource bank rules: sprite lists stay in bank `$07` until the sprite
+  hook exists (two of the vanilla runs are in `$07`).
+- *Hack.* Free space cannot be known from the disassembly. The candidates
+  are, in order: (1) the old block of a resource this build is moving, only
+  if no RATS tag and no reader in the inventory claims it (a block another
+  tool tagged is never reused, even if our pointer used to point at it);
+  (2) space appended past the end of the ROM. Appending is safer than
+  anything else, not collision-proof: it changes the header size byte, the
+  checksum and the mapping, and stops at the 4 MB ceiling, so #218 owns those
+  checks. (3) Nothing else by default. Fill runs inside a hack are never
+  claimed on a guess, and RATS-tagged blocks are never allocated into. A
+  user-confirmed fill run could be an explicit later choice; it is not
+  proposed here.
+- *Order.* The allocator is deterministic: candidates are sorted by address and
   the first that fits wins. First-fit is simple and reproducible; best-fit can
   come later if fragmentation shows up in measurements.
 
-The vanilla free total is small (14517 unreferenced bytes in banks `$06` and
-`$07`, per the map-data note and with its caveat), so expansion is expected to
-be the usual path for any real editing session. That makes #218 part of the
-design's critical path, not an afterthought.
+The vanilla supply is small. Only the `freespace.txt` runs count as free (two
+in bank `$07`, `$07E76F-$07EFFF` and `$07FC90-$07FFFF`, plus the GFX tail); the
+14517 figure does not, see the Problem section. So expansion is expected to be
+the usual path for a real editing session, and #218 is on the design's
+critical path.
 
 ## Safety
 
@@ -353,8 +489,16 @@ PR.
 
 1. **Boot check per hook.** Every hook has a check that loads the built ROM
    in the libretro core, reaches the point where the moved data is read, and
-   confirms the moved data loads. The core is the oracle; the project's rule
-   (derive state from the core, never write through it) applies.
+   confirms the moved data loads. The oracle is concrete: after the level
+   loads, read the game's sprite tables and the Layer 1 tilemap out of the
+   core's WRAM and compare them with what our own decoder produces for the
+   edited content. The project's rule (derive state from the core, never write
+   through it) applies. This check needs a ROM and the core, so it cannot run
+   in CI: it runs on owner hardware, and its tests use `describe.skipIf`.
+   What CI runs instead is everything with a synthetic cart: byte-level stub
+   tests, the toy-loader relocation tests (item 3), and a test that the boot
+   check's comparison logic itself goes red on a planted mismatch, with no
+   core involved.
 2. **The check must be shown able to fail.** A committed test plants a broken
    hook (wrong target, wrong register width, missing restore) and proves the
    boot check goes red. A check that has only ever passed does not count.
@@ -369,12 +513,19 @@ PR.
    mean a test is not registering.
 5. **Determinism.** Building the same project twice, and in a different
    process, gives byte-identical output. The test compares full byte arrays,
-   and a planted defect (iteration order dependent on insertion order, or a
-   timestamp written into a block) must turn it red. Claims carry their scope:
-   "N runs, one machine", never a bare "deterministic".
-6. **Signature drift.** A hook's signature is recorded with the layer. A later
-   build that finds the signature at the site but different bytes refuses, so
-   a hook edited by another tool is not overwritten.
+   and the planted defects must be ones that can actually go red: the same
+   project built from permuted layer and resource input orders must give
+   identical bytes (an order-dependent allocator turns it red), and the clock
+   is injected, so a planted version that writes the clock into a block
+   differs between two injected times. (Map iteration order and a bare
+   timestamp are not valid plants: the first is insertion-ordered, the second
+   only differs if the clock ticks.) Claims carry their scope: "N runs, one
+   machine", never a bare "deterministic".
+6. **Signature drift.** The build fingerprints each hook site before it
+   writes. If the site matches the base code or our stub, it proceeds. If it
+   matches a known foreign hook, it adopts it (rule 2). If it matches none of
+   these, another tool changed it, so the build refuses and writes nothing
+   there.
 7. **Copyright.** No ROM-derived bytes are committed. Matched patterns over 32
    bytes are digests, and a hook stub contains only code this project wrote.
 
@@ -384,19 +535,25 @@ PR.
 the level's addresses". It becomes the first consumer of the build: the
 editor emits sprite and Layer 1 object ops on resources, and Save runs the
 build. It must not ship on byte ops. Scope for the first slice is vanilla,
-sprite and Layer 1 lists, with the sprite hook; hack ROMs refuse per
-resource.
+sprite and Layer 1 object lists, placed in the vanilla fill runs, with the
+sprite-list 256-byte limit enforced and shared blocks copied before editing.
+The sprite hook is not in this slice: vanilla bank `$07` has free runs, so no
+first edit needs it. It is a later slice, when bank `$07` runs out. Hack ROMs
+refuse per resource. Backgrounds (Layer 2 entries ending in `$FF`) are not
+editable by relocation.
 
 **#57, free space manager.** It is the allocator described in question 5, not
 a separate UI feature. First slice: the deterministic first-fit allocator over
 the vanilla candidate set, RATS read and write, and the expansion tail. Any
 view of free space is a reader of the allocator's state.
 
-**#178, relocate shared sprite pointers before editing.** One case of rule 7.
-Where two levels share one sprite block, editing one must either give it a
-private copy or refuse; the build finds the sharing by comparing pointer
-targets across the whole table, not by assuming it. The fix is part of the
-pointer rewrite, not a pre-pass in the editor.
+**#178, relocate shared sprite pointers before editing.** One case of rule 7
+and the shared-block rule. Many `Ptrs05EC00` entries point at one block
+(`EmptySprites`), and `CI2Sub8Sprites0CD` is reached from both
+`Ptrs05EC00` and `ChocIsld2Sprites`. The build finds sharing by counting every
+reader in the inventory, not only the table, copies a shared block before
+editing it, and never frees a block that still has a reader. The fix is part
+of the build's pointer handling, not a pre-pass in the editor.
 
 **#218, ROM expansion.** The build's last resort, and on a hack the usual
 route. It owns growing the file, the header and checksum consequences, and the
@@ -416,17 +573,22 @@ hacks is the main reason the design cannot treat expansion as rare.
   free at its end. The list's final range ends at `$0FFFFF`, which is
   consistent with a 512 KB ROM, but that is the list's own bound, not a read of
   the ROM.
-- Whether any sprite-pointer reader other than the one at
-  `bank_05.asm:7253-7258` exists (for example in the overworld or in a boss
-  room). A hook is only complete if every reader is covered; the first sprite
-  hook needs a search of the disassembly for all of them.
-- The same question for Layer 1 and GFX pointer readers: the traces cited
-  above are the main load sites, not a proven complete list of readers.
+- Completeness of the reader inventory. It lists the readers found by static
+  reading of the cited regions; a search of the whole disassembly for every
+  other reference to these tables and blocks (including the overworld and
+  boss rooms) is still to be done and must be a committed trace before any
+  resource is moved.
+- Whether the 14517-byte unreferenced count includes entrance-scene and
+  Chocolate Island 2 data.
+- How the Layer 2 background address range is partitioned between Map16 pages
+  beyond the single compare at `DATA_0CE8FE`; relocating backgrounds is out of
+  scope until that is traced.
 - That first-fit is adequate; no fragmentation measurement exists.
 
-Settled during this write-up, by static reading of SMWDisX only: the Layer 2
-bank byte comes from the table entry (`bank_05.asm:7245-7246`), and
-`CODE_00B8DE` is the LC_LZ2 loop (`bank_00.asm:6294-6302`).
+Settled during this write-up, by static reading of SMWDisX only:
+`CODE_00B8DE` is the LC_LZ2 loop (`bank_00.asm:6294-6302`). The earlier claim
+that the Layer 2 bank byte is always a real bank was wrong and is corrected
+in the reader inventory.
 
 ## Related reading
 
