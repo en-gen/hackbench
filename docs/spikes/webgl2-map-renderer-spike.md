@@ -2,8 +2,8 @@
 
 > **Bottom line**
 >
-> - Pixel parity holds: a WebGL2 `RenderTarget` equals the CPU `CanvasRenderTarget` byte for byte on all 3072 corpus levels (6 ROMs x 512 ids), 0 failed; also on the canvas (default framebuffer) path on vanilla, and after a palette-only edit on 3 levels (CPU reference substitutes rows matched by content, the same rule GL uses, so it cannot detect two palette indices with equal colours sharing a row). `[EST]`
-> - WebGL does not make a full repaint faster: median 0.93x over 512 vanilla levels, GL slower on 59% of them, because the model walk (`SmwMap.render`) and the per-blit palette-row lookup dominate. Keying rows by array identity, which also passes parity on static palettes, would make it 1.50x. `[EST]`
+> - Pixel parity holds: a WebGL2 `RenderTarget` equals the CPU `CanvasRenderTarget` byte for byte on all 3072 corpus slots (6 ROMs x 512 slot ids), 0 failed; also on the canvas (default framebuffer) path on vanilla, and after a palette-only edit on 3 slots (CPU reference substitutes rows matched by content, the same rule GL uses, so it cannot detect two palette indices with equal colours sharing a row). `[EST]`
+> - WebGL does not make a full repaint faster: median 0.93x over 512 vanilla slots, GL slower on 59% of them, because the model walk (`SmwMap.render`) and the per-blit palette-row lookup dominate. Keying rows by array identity, which also passes parity on static palettes, would make it 1.50x. `[EST]`
 > - The wins measured here come from an indexed representation, not from WebGL: palette-only repaint (3.1x median against a CPU target that has no cheaper path by harness choice) and payload size (63x smaller raw on `$10A`, but only 3x once both sides are gzipped). `[EST]` Palette-only is a stand-in: a single ROM palette-row edit is not expressible through today's `RenderTarget`, with content or identity keys alike. A CPU indexed compositor was not built, so WebGL over it is unproven. `[OPEN]`
 > - The CPU arm is the model path through `CanvasRenderTarget`, not the shipped Theia widget (which draws `map-screen.ts` planes), so no ratio here is against what ships. `[EST]`
 > - Chromium evicted the oldest of 17 contexts in the Playwright build; with the emulator holding one, map tabs get at most 15. `[EST]` (Playwright Chromium). Electron's own limit was not measured. `[OPEN]`
@@ -41,7 +41,7 @@ The spike swaps only the target.
 - Alternative key, `fastRows`: the array's identity. `Palette.row()` returns one reused scratch array per row index, so identity is a valid key while palettes are static. It passes full parity on vanilla and Invictus (512 of 512 each), run with a fresh `GlStore` per render (`page.ts:54-55`), not the retained store the speed arm uses. On a cache miss it still falls through to content dedupe (`gl.ts:113-116`), so two palette indices with equal colours still share one texture row. Not checked: a retained store across palette animation, where a reused array holds changing colours. `[OPEN]`
 - Rows shorter than 16 are padded with black. The CPU aborts a tile that reads past a short row; parity held, so none did (81,968 short-row blits on vanilla). These rows do not come from `Palette.row`. `[EST]` for the counts, `[INF]` for the source.
 - Each `blit8x8` appends one instance (x, y, tile, row | flipX | flipY | alpha) to an `Int32Array`; `commit()` uploads it and the dirty atlas rows; one `drawArraysInstanced(TRIANGLES, 0, 6, n)` draws a segment with `texelFetch` and no filtering. Instance order inside a draw call gives the CPU's overdraw order. `fillRect` ends a segment (0 calls in the corpus with sprites off). `[EST]`
-- Hidden-tile blends (alpha < 1) use their own segment: the harness copies the framebuffer and the shader blends from the copy with ties to even, because fixed-function blending rounds ties up. During development the first pass failed 2 of 3 levels by 1 on some channels (about 244 px on `$10A`); that output did not survive, so the cause is inferred. `[INF]` Alpha values are quantised to 1/256 (0 inexact across all 3072 maps). Overlapping alpha tiles inside one segment would read a stale copy; parity held, so none overlapped. `[INF]`
+- Hidden-tile blends (alpha < 1) use their own segment: the harness copies the framebuffer and the shader blends from the copy with ties to even, because fixed-function blending rounds ties up. During development the first pass failed 2 of 3 slots by 1 on some channels (about 244 px on `$10A`); that output did not survive, so the cause is inferred. `[INF]` Alpha values are quantised to 1/256 (0 inexact across all 3072 maps). Overlapping alpha tiles inside one segment would read a stale copy. Parity held on the tested corpus (no output mismatch), which is consistent with no overlap but does not prove it: overlapping tiles whose colours match the framebuffer would also match. No direct overlap check was run. `[INF]`
 
 ## 1. Pixel parity
 
@@ -62,14 +62,14 @@ Whole-map `readPixels` against the CPU `ImageData` buffer, every id 0..511 per R
 
 A smoke test, not coverage evidence. Each plant changes only the GL arm.
 
-| Plant | How | Synthetic (px differing of 27,968) | Corpus levels red, of 3072 |
+| Plant | How | Synthetic (px differing of 27,968) | Corpus slots red, of 3072 |
 |---|---|---|---|
 | palette row swapped | texture row id + 1 mod rows | 27,423 | 3,069 |
 | horizontal flip inverted | flipX negated per blit | 26,715 | 3,069 |
 | tile index off by one | atlas slot + 1 | 26,681 | 3,069 |
 | priority planes swapped | corpus: `map.passes()` patched so each BG pass draws the other phase; synthetic: the two groups drawn in reverse | 21,922 | 2,987 |
 
-Clean synthetic run: 0 px differ. The fixture is built in code, no ROM: 64 random tiles with index 0 gaps, 12 random palette rows, two overlapping groups of 1,500 blits with negative offsets, 60 blits at alpha 0.5 over random colours (odd channel sums are rounding ties), two `fillRect`s. Levels that stay green under a plant are ones where the plant changes nothing (8 vanilla levels for priority). No plant exercises the tie-to-even path itself. `[EST]`
+Clean synthetic run: 0 px differ. The fixture is built in code, no ROM: 64 random tiles with index 0 gaps, 12 random palette rows, two overlapping groups of 1,500 blits with negative offsets, 60 blits at alpha 0.5 over random colours (odd channel sums are rounding ties), two `fillRect`s. Levels that stay green under a plant are ones where the plant changes nothing (8 vanilla slots for priority). No plant exercises the tie-to-even path itself. `[EST]`
 
 ## 3. Speed: edit-to-repaint
 
@@ -90,9 +90,9 @@ GL warm splits into the walk and the draw: `$10A` 23.6 + 10.5, `$0F7` 17.8 + 3.3
 
 `$10A` GL is not unimodal; the median hides it. Sorted, GL warm clusters at 25.2 to 26.5 ms (8 of 31), 29.4 to 38.1 (13), 45 to 49 (9), plus one 71.1. Draw time: 2.2 to 3.2 (8), 4.5 to 12.5 (13), 21.2 to 23.4 (9), plus one 47.5. Palette-only: 1.4 to 1.6 (9), 7.1 to 9.5 (12), 16 to 17.8 (10). `$10A` has 8 alpha segments, each copying the 14 MB framebuffer; `$0F7` has none and is steady (draw 3.0 to 3.5 in 29 of 31). Whether the segments cause the clusters is unprofiled. `[OPEN]` Resolve with a GPU timer query, or a run with alpha segments disabled.
 
-Sweep: all 512 vanilla ids, 7 iterations each, one run; per-level median CPU over GL.
+Sweep: all 512 vanilla ids, 7 iterations each, one run; per-slot median CPU over GL.
 
-| | median | p10 | p90 | levels where GL is faster |
+| | median | p10 | p90 | slots where GL is faster |
 |---|---|---|---|---|
 | full, CPU / GL warm | 0.93 | 0.83 | 1.46 | 41.4% |
 | full, CPU / GL cold | 0.73 | 0.64 | 1.29 | 30.3% |
@@ -100,15 +100,15 @@ Sweep: all 512 vanilla ids, 7 iterations each, one run; per-level median CPU ove
 | palette-only, CPU palette-only (= full repaint) / GL | 3.10 | 2.30 | 9.22 | 98.8% |
 | palette-only, CPU full / GL | 3.00 | 2.2 | 9.35 | not recorded |
 
-By CPU repaint cost: under 5 ms (343 levels) full 0.88x, palette-only 2.73x (GL 1.1 ms against CPU 3.0); 5 to 15 ms (107) 1.27x and 5.46x (1.3 against 6.7); over 15 ms (62) 1.32x and 8.95x (2.4 against 20.9). `[EST]`
+By CPU repaint cost: under 5 ms (343 slots) full 0.88x, palette-only 2.73x (GL 1.1 ms against CPU 3.0); 5 to 15 ms (107 slots) 1.27x and 5.46x (1.3 against 6.7); over 15 ms (62 slots) 1.32x and 8.95x (2.4 against 20.9). `[EST]`
 
 The palette-only rows compare an indexed repaint with a CPU target that cannot do one. They measure the value of a retained, indexed representation, not of WebGL. Not measured: a real ROM palette edit end to end; content-keyed rows cannot express one ROM palette row through today's interface (identity keying does not either: it falls through to content dedupe on a miss). `[OPEN]` Resolve with a palette-index interface and a CPU indexed compositor as the control.
 
 ## 4. JSON-RPC bytes
 
-Today: `JSON.stringify(mapScreen(...))` for every screen, all planes, vanilla. Indexed: recorded from the same level's `blit8x8` calls, 8 bytes per instance, 64 per unique tile (1 byte per pixel), 48 per palette row, then base64. Both arms raw and gzipped (gzip of the concatenated JSON; of instances and tiles separately for the indexed arm; palette rows uncompressed). Today's planes come from `renderMap16Tile`, the indexed arm from the model, so instance counts are the model's. Sprites are in neither. Bytes, deterministic.
+Today: `JSON.stringify(mapScreen(...))` for every screen, all planes, vanilla. Indexed: recorded from the same slot's `blit8x8` calls, 8 bytes per instance, 64 per unique tile (1 byte per pixel), 48 per palette row, then base64. Both arms raw and gzipped (gzip of the concatenated JSON; of instances and tiles separately for the indexed arm; palette rows uncompressed). Today's planes come from `renderMap16Tile`, the indexed arm from the model, so instance counts are the model's. Sprites are in neither. Byte counts are exact for the listed slots, the stated serialization (`JSON.stringify`, 8/64/48-byte records, base64) and the harness's gzip; they were not re-run across machines or zlib versions.
 
-| level | screens | today raw | today gzip | indexed b64 | indexed gzip |
+| slot | screens | today raw | today gzip | indexed b64 | indexed gzip |
 |---|---|---|---|---|---|
 | `$10A` | 32 | 51,918,406 | 641,412 | 820,288 | 210,456 |
 | `$0F7` | 26 | 18,186,678 | 177,775 | 628,056 | 131,560 |
@@ -118,7 +118,7 @@ Today: `JSON.stringify(mapScreen(...))` for every screen, all planes, vanilla. I
 
 The widget fetches the visible screens plus a margin of 1, lazily and cached (`map-view-widget.tsx:107,454-470`), so a window of 4 screens is the fairer unit. First 4 screens (`$0F7` is vertical and windowed by y):
 
-| level | today raw | today gzip | indexed b64 | indexed gzip | indexed per screen, whole map |
+| slot | today raw | today gzip | indexed b64 | indexed gzip | indexed per screen, whole map |
 |---|---|---|---|---|---|
 | `$10A` | 7,079,620 | 74,977 | 96,748 | 27,652 | 25,634 |
 | `$105` | 4,720,356 | 38,771 | 98,072 | 23,332 | 22,474 |
@@ -126,7 +126,7 @@ The widget fetches the visible screens plus a margin of 1, lazily and cached (`m
 | `$1EC` | 5,899,892 | 44,037 | 39,148 | 10,872 | 9,595 |
 | `$0F7` | 2,797,948 | 36,018 | 112,536 | 24,468 | 24,156 |
 
-Raw, the window is 25x to 151x smaller (`$0F7` 25x, `$10A` 73x, `$1EC` 151x). The gzip comparison is not a strict bound: today is gzipped as one stream (`bytes.ts:82`), valid only with deflate context takeover across messages; the indexed arm is gzip then base64 (`bytes.ts:86,90`, +1.33x) with palette rows uncompressed. On that basis the gzipped ratio is 1.3x to 4.1x over the 5 tabled windows and 1.29x to 4.38x over all 12 sampled levels. Twelve levels were sampled (those plus `$11E $024 $1F8 $001 $111 $1D2`); the other seven are in the harness output, not tabled. Whether the Theia JSON-RPC channel compresses was not checked, so raw and gzipped are two readings, not bounds. `[OPEN]` Resolve by reading the websocket extension negotiation in a running Theia.
+Raw, the window is 25x to 151x smaller (`$0F7` 25x, `$10A` 73x, `$1EC` 151x). The gzip comparison is not a strict bound: today is gzipped as one stream (`bytes.ts:82`), valid only with deflate context takeover across messages; the indexed arm is gzip then base64 (`bytes.ts:86,90`, +1.33x) with palette rows uncompressed. On that basis the gzipped ratio is 1.3x to 4.1x over the 5 tabled windows and 1.29x to 4.38x over all 12 sampled slots. Twelve slots were sampled (those plus `$11E $024 $1F8 $001 $111 $1D2`); the other seven are in the harness output, not tabled. Whether the Theia JSON-RPC channel compresses was not checked, so raw and gzipped are two readings, not bounds. `[OPEN]` Resolve by reading the websocket extension negotiation in a running Theia.
 
 ## 5. Memory
 
