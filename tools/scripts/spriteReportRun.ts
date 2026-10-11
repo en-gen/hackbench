@@ -162,6 +162,7 @@ export function placeReport(
   refuseTicked(join(base, key), force)
   const scratch = mkdtempSync(join(tmpdir(), 'sprite-report-'))
   let backup = ''
+  let keep = false
   const dirs = [key, 'latest']
   const existed = dirs.map(d => existsSync(join(base, d)))
   try {
@@ -178,21 +179,28 @@ export function placeReport(
         cpSync(scratch, join(base, dir), { recursive: true })
       }
     } catch (e) {
-      try {
-        dirs.forEach((d, i) => {
+      // Each folder is restored on its own, so one failure cannot strand the other.
+      let failed: unknown
+      dirs.forEach((d, i) => {
+        try {
           rmSync(join(base, d), { recursive: true, force: true })
           if (existed[i]) cpSync(join(backup, d), join(base, d), { recursive: true })
-        })
-      } catch (restore) {
-        throw new Error(`${(e as Error).message}; the old report was not fully restored`, {
-          cause: restore,
-        })
+        } catch (restore) {
+          failed ??= restore
+        }
+      })
+      if (failed) {
+        keep = true // the backup is the only intact copy now
+        throw new Error(
+          `${(e as Error).message}; the old report was not fully restored, the original is kept in ${backup} (${(failed as Error).message})`,
+          { cause: e },
+        )
       }
       throw e
     }
   } finally {
     rmSync(scratch, { recursive: true, force: true })
-    if (backup) rmSync(backup, { recursive: true, force: true })
+    if (backup && !keep) rmSync(backup, { recursive: true, force: true })
   }
 }
 

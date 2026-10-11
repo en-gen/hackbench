@@ -520,6 +520,48 @@ describe('run', () => {
     }
     expect(readdirSync(tmpdir()).filter(f => f.startsWith('sprite-report-backup-'))).toEqual([])
   })
+  it('placeReport restores each folder independently and keeps the backup when a restore fails', () => {
+    const base = join(tmp, 'place-restore-fail')
+    for (const [d, text] of [
+      ['k2', 'old-key'],
+      ['latest', 'old-latest'],
+    ]) {
+      mkdirSync(join(base, d), { recursive: true })
+      writeFileSync(join(base, d, 'index.md'), text)
+    }
+    const real = vi.mocked(cpSync).getMockImplementation()!
+    let toK2 = 0
+    let toLatest = 0
+    vi.mocked(cpSync).mockImplementation((...a: Parameters<typeof cpSync>) => {
+      const dest = String(a[1])
+      if (dest.startsWith(join(base, 'latest')) && ++toLatest === 1)
+        throw new Error('EBUSY: replace planted')
+      // The 1st copy into k2 is the replacement; the 2nd is its restore.
+      if (dest.startsWith(join(base, 'k2')) && ++toK2 === 2) throw new Error('EIO: restore planted')
+      return real(...a)
+    })
+    let msg = ''
+    try {
+      try {
+        placeReport(base, 'k2', new Map([['index.md', 'new']]), true)
+      } catch (e) {
+        msg = (e as Error).message
+      }
+    } finally {
+      vi.mocked(cpSync).mockImplementation(real)
+    }
+    const kept = /(\S*sprite-report-backup-\S+?)(?:;|$|\s)/.exec(msg)?.[1]
+    try {
+      expect(msg).toContain('replace planted')
+      expect(msg).toContain('not fully restored')
+      expect(kept, msg).toBeDefined()
+      expect(existsSync(kept!)).toBe(true)
+      expect(readFileSync(join(kept!, 'k2', 'index.md'), 'utf8')).toBe('old-key')
+      expect(readFileSync(join(base, 'latest', 'index.md'), 'utf8')).toBe('old-latest')
+    } finally {
+      if (kept) rmSync(kept, { recursive: true, force: true })
+    }
+  })
   it('does not claim "undone" when an undo step fails', () => {
     const v = mkRepo('v13b')
     const real = vi.mocked(cpSync).getMockImplementation()!
