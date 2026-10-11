@@ -10,7 +10,7 @@ import * as L2LoaderReal from '../../../../src/rom/L2Loader'
 import type * as L2LoaderMod from '../../../../src/rom/L2Loader'
 import { parseLevelHeader } from '../../../../src/rom/LevelParser'
 import { buildL2 } from '../../../../src/rom/model/L2Factory'
-import { SKIP_CHAIN_B_AT, writeStockSkipChain } from '../../support/skipChain'
+import { SKIP_CHAIN_AT, SKIP_CHAIN_B_AT, writeStockSkipChain } from '../../support/skipChain'
 import { freshRom, hasRom, VANILLA } from '../../support/corpus'
 
 vi.mock('../../../../src/rom/L2Loader', async importOriginal => {
@@ -54,29 +54,55 @@ describe('buildL2 in level modes without a Layer 2 pass (synthetic)', () => {
     rom.writeAt(SITE, [0xc9])
   })
 
-  // Any byte but the stock CMP opcode is a hijack, not just JML ($5C): a mutant `=== 0x5C` must die.
   // Unreadable is not "not C9": with the site off the end of the ROM no stream is admitted (fail closed).
   it('an unreadable site admits no stream in a skipped mode', () => {
-    const tiny = new RomFile('tiny.sfc', Buffer.alloc(0x1000, 0))
+    const tiny = new RomFile('tiny.sfc', Buffer.alloc(0x1000, 0)) // a fresh copy: no shared state
     expect(L2LoaderReal.levelModeLoadsL2Objects(tiny, 0x0a)).toBe(false)
   })
 
   // Hack-only path (D51): the skip branch is rerouted but CMP #$FF is stock; nothing is guessed.
+  // Each case plants one change in a stock chain and restores it in finally, so a failure cannot leak.
+  const withStockSite = (plant: () => void, expectGate: string) => {
+    try {
+      rom.writeAt(SITE, [0xc9])
+      writeStockSkipChain(rom)
+      expect(L2LoaderReal.l2ObjectGate(rom, 0x0a)).toBe('skipped')
+      plant()
+      expect(L2LoaderReal.l2ObjectGate(rom, 0x0a)).toBe(expectGate)
+    } finally {
+      writeStockSkipChain(rom)
+      rom.writeAt(SITE, [0xc9])
+    }
+  }
+
   it('a changed skip chain with a stock site reports unrecognized, and no stream is read', () => {
-    rom.writeAt(SITE, [0xc9])
-    rom.writeAt(SKIP_CHAIN_B_AT + 5, [0xea, 0xea]) // the mode $0A compare is neutered
-    expect(L2LoaderReal.l2ObjectGate(rom, 0x0a)).toBe('unrecognized')
-    expect(L2LoaderReal.l2ObjectGate(rom, 0x03)).toBe('loads')
-    vi.mocked(L2LoaderReal.loadL2Objects).mockReturnValue({ grid: [[1]] })
-    expect(l2At(0x0a)).toBeNull()
-    expect(vi.mocked(L2LoaderReal.loadL2Objects)).not.toHaveBeenCalled()
-    writeStockSkipChain(rom)
-    expect(L2LoaderReal.l2ObjectGate(rom, 0x0a)).toBe('skipped')
-    rom.writeAt(SKIP_CHAIN_B_AT + 7, [0x10]) // the BEQ for mode $0A now lands elsewhere: the stream could run
-    expect(L2LoaderReal.l2ObjectGate(rom, 0x0a)).toBe('unrecognized')
-    writeStockSkipChain(rom)
+    try {
+      rom.writeAt(SITE, [0xc9])
+      rom.writeAt(SKIP_CHAIN_B_AT + 5, [0xea, 0xea]) // the mode $0A compare is neutered
+      expect(L2LoaderReal.l2ObjectGate(rom, 0x0a)).toBe('unrecognized')
+      expect(L2LoaderReal.l2ObjectGate(rom, 0x03)).toBe('loads')
+      vi.mocked(L2LoaderReal.loadL2Objects).mockReturnValue({ grid: [[1]] })
+      expect(l2At(0x0a)).toBeNull()
+      expect(vi.mocked(L2LoaderReal.loadL2Objects)).not.toHaveBeenCalled()
+    } finally {
+      writeStockSkipChain(rom)
+    }
   })
 
+  it('a BEQ that reaches a different target than the rest is unrecognized', () => {
+    // +7 is the BEQ opcode, +8 its offset byte: changing the offset moves only the target.
+    withStockSite(() => rom.writeAt(SKIP_CHAIN_B_AT + 8, [0x10]), 'unrecognized')
+  })
+
+  it('a changed first chain (mode $09 compare neutered) is unrecognized', () => {
+    withStockSite(() => rom.writeAt(SKIP_CHAIN_AT + 3, [0xea, 0xea]), 'unrecognized')
+  })
+
+  it('a chain that loads a different address than LevelModeSetting is unrecognized', () => {
+    withStockSite(() => rom.writeAt(SKIP_CHAIN_B_AT + 1, [0x00, 0x00]), 'unrecognized')
+  })
+
+  // Any byte but the stock CMP opcode is a hijack, not just JML ($5C): a mutant `=== 0x5C` must die.
   it('treats every non-CMP byte at the site as a hijack', () => {
     for (const byte of [0x22, 0x00, 0x4c]) {
       rom.writeAt(SITE, [byte])
