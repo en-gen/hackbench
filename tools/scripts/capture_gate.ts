@@ -14,7 +14,11 @@
 import { existsSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { SmwRom } from '../../src/rom/SmwRom'
-import { BOSS_ARENA_SCREENS, SWITCH_FLAGS_UNCLEARED } from '../../src/rom/ObjectExpander'
+import {
+  BOSS_ARENA_SCREENS,
+  SWITCH_FLAGS_UNCLEARED,
+  type Refusal,
+} from '../../src/rom/ObjectExpander'
 import { buildL1Inputs } from '../../src/rom/model/L1Model'
 import {
   decodeSubTileWord,
@@ -543,6 +547,13 @@ export function checkPalette(
 
 // ── Orchestration ────────────────────────────────────────────────────────────
 
+/** Why a map with refusals is unavailable, or undefined when nothing was refused. */
+export function refusalsReason(refusals: readonly Refusal[]): string | undefined {
+  if (refusals.length === 0) return undefined
+  const objects = new Set(refusals.map(r => r.objectIndex)).size
+  return `the expander refused ${objects} object(s): ${refusals.map(r => `#${r.objectIndex} ${r.reason}`).join(' ')}`
+}
+
 const MAX_REPORTED = 25
 
 /** Every table for one map: `read` from `openMap`; the gate needs only the load sample, so `windows` is always []. */
@@ -572,6 +583,10 @@ export function gateMap(
   // the switch palaces uncleared: the fresh-save state `layers_v5` was taken in.
   const built = buildL1Inputs(rom, id, SWITCH_FLAGS_UNCLEARED)
   if (!built.ok) return unavailable(id, built.reason)
+  // An object the expander refused is missing from the grid, so every verdict
+  // below would grade a grid the ROM never drew (#301).
+  const refused = refusalsReason(built.inputs.refusals)
+  if (refused) return unavailable(id, refused)
   const { header, isVertical, map16, anim, colors } = built.inputs
   const romGrid = built.inputs.grid
   const vram = built.inputs.rawVram
