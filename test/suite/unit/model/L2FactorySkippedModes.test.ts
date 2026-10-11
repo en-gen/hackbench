@@ -68,7 +68,7 @@ describe('buildL2 in level modes without a Layer 2 pass (synthetic)', () => {
     const real = rom.readByte.bind(rom)
     const spy = vi.spyOn(rom, 'readByte').mockImplementation(a => (a === SITE ? null : real(a)))
     try {
-      expect(L2LoaderReal.l2ObjectGate(rom, 0x0a)).toBe('unrecognized')
+      for (let mode = 0; mode < 32; mode++) expect(L2LoaderReal.l2ObjectGate(rom, mode), `mode ${mode}`).toBe('unrecognized') // prettier-ignore
       const header = parseLevelHeader(Uint8Array.from([0, 0x0a, 0, 0, 0]))
       const res = buildL2Inputs({ rom } as unknown as SmwRom, LEVEL, { screenCount: 1, isVertical: false, header } as unknown as L1Inputs) // prettier-ignore
       expect(res.ok).toBe(false)
@@ -107,11 +107,11 @@ describe('buildL2 in level modes without a Layer 2 pass (synthetic)', () => {
   })
 
   // Owner ruling D57 B: a hack that adds a CMP/BEQ pair for a non-ten mode must not get objects drawn there.
-  it('a chain extended with a non-ten mode is unrecognized for every mode, and the factory refuses', () => {
+  it('a chain whose $0A compare is rewritten to $05 is unrecognized for every mode, and the factory refuses', () => {
     try {
       rom.writeAt(SITE, [0xc9])
       rom.writeAt(SKIP_CHAIN_B_AT + 5, [0xc9, 0x05]) // the mode $0A compare now names mode $05
-      for (const mode of [0x05, 0x0a, 0x03]) expect(L2LoaderReal.l2ObjectGate(rom, mode), `mode ${mode}`).toBe('unrecognized') // prettier-ignore
+      for (let mode = 0; mode < 32; mode++) expect(L2LoaderReal.l2ObjectGate(rom, mode), `mode ${mode}`).toBe('unrecognized') // prettier-ignore
       const header = parseLevelHeader(Uint8Array.from([0, 0x05, 0, 0, 0]))
       const res = buildL2Inputs({ rom } as unknown as SmwRom, LEVEL, { screenCount: 1, isVertical: false, header } as unknown as L1Inputs) // prettier-ignore
       expect(res.ok ? '' : res.reason).toMatch(/not recognized/i)
@@ -129,7 +129,7 @@ describe('buildL2 in level modes without a Layer 2 pass (synthetic)', () => {
     rom.writeAt(SITE, [0x5c])
     rom.writeAt(SKIP_CHAIN_B_AT + 5, [0xc9, 0x05])
     try {
-      expect(L2LoaderReal.l2ObjectGate(rom, 0x05)).toBe('loads')
+      for (let mode = 0; mode < 32; mode++) expect(L2LoaderReal.l2ObjectGate(rom, mode), `mode ${mode}`).toBe('loads') // prettier-ignore
     } finally {
       writeStockSkipChain(rom)
       rom.writeAt(SITE, [0xc9])

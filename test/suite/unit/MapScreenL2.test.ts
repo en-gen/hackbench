@@ -396,11 +396,12 @@ describe('buildL2Inputs (synthetic ROM)', () => {
     for (const patch of [[0x0a], [0x1e]]) {
       const rom = romWith([ptr(0x00, 0x90, 0x0c)])
       rom.writeAt(SKIP_CHAIN_B_AT + 5 + 4 * (patch[0] === 0x0a ? 0 : 5), [0xea, 0xea]) // the compare is neutered, so the stream could run
-      for (const mode of [0x0a, 0x1e, 0x03]) {
+      for (let mode = 0; mode < 32; mode++) {
         objects([[1]])
         const m = inputs(hGrid(1), false, 1)
         const r = buildL2Inputs(smw(rom), LEVEL, { ...m, header: { ...m.header, levelMode: mode } })
         expect(r, `mode ${mode}`).toMatchObject({ ok: false, reason: expect.stringMatching(/skip chain.*not recognized/) }) // prettier-ignore
+        expect(vi.mocked(L2LoaderReal.loadL2Objects), `mode ${mode}`).not.toHaveBeenCalled()
         vi.mocked(L2LoaderReal.loadL2Objects).mockReset()
       }
     }
