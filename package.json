@@ -227,7 +227,6 @@
     "prettier": "^3.9.9",
     "style-loader": "^4.0.0",
     "ts-loader": "^9.6.2",
-    "tsx": "4.20.6",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.71.0",
     "vitest": "^5.0.3",
