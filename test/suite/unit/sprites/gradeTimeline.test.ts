@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { gradedPass, MAX_GRADED_PASS, writeMarioStart } from '../../support/gradeTimeline'
+import {
+  gradedPass,
+  MAX_GRADED_PASS,
+  timelineFor,
+  writeMarioStart,
+} from '../../support/gradeTimeline'
 
 describe('gradedPass (no ROM)', () => {
   it('counts passes from the anchor when the anchor is after INIT', () => {
@@ -32,5 +37,44 @@ describe('gradedPass (no ROM)', () => {
     writeMarioStart(w, { x: 0x1234, y: 0x0156 })
     expect([w[0x94], w[0x95], w[0xd1], w[0xd2]]).toEqual([0x34, 0x12, 0x34, 0x12])
     expect([w[0x96], w[0x97], w[0xd3], w[0xd4]]).toEqual([0x56, 0x01, 0x56, 0x01])
+  })
+})
+
+describe('timelineFor (no ROM)', () => {
+  const rec = { initFrame: 100, drawnFrame: 110, trueFrame: 50, effFrame: 60 }
+
+  it('seeds pass k, the frame counters and Mario for a timed record', () => {
+    const t = timelineFor(rec, 90, { x: 0x1234, y: 0x56 })
+    expect(t.k).toBe(9) // 110 - max(90, 101)
+    expect(t.timed).toBe(true)
+    expect(t.mainPasses).toBe(64)
+    expect(t.seedExtra).toEqual({ trueFrame: (50 - 1 - 9) & 0xff, effFrame: (60 - 1 - 9) & 0xff })
+    const w = new Uint8Array(0x100)
+    t.probe!(0, w) // only the pass -1 hook (after INIT) writes Mario
+    expect(w[0x94]).toBe(0)
+    t.probe!(-1, w)
+    expect([w[0x94], w[0x95], w[0x96], w[0xd1], w[0xd3]]).toEqual([0x34, 0x12, 0x56, 0x34, 0x56])
+  })
+
+  it('runs enough passes to reach a late k and wraps the counters to a byte', () => {
+    const t = timelineFor({ ...rec, drawnFrame: 400, trueFrame: 3 }, 90, { x: 0, y: 0 })
+    expect(t.k).toBeUndefined() // 400 - 101 = 299 > MAX_GRADED_PASS
+    const u = timelineFor({ ...rec, drawnFrame: 301, trueFrame: 3 }, 90, { x: 0, y: 0 })
+    expect(u.k).toBe(200)
+    expect(u.mainPasses).toBe(201)
+    expect(u.seedExtra.trueFrame).toBe((3 - 1 - 200) & 0xff)
+  })
+
+  it('falls back to the old grade with no seed, probe or extra passes', () => {
+    for (const t of [
+      timelineFor({ ...rec, drawnFrame: undefined }, 90, { x: 1, y: 1 }),
+      timelineFor(rec, undefined, { x: 1, y: 1 }),
+      timelineFor(rec, 90, undefined), // k is fine, marioStart missing
+    ]) {
+      expect(t.timed).toBe(false)
+      expect(t.mainPasses).toBe(64)
+      expect(t.seedExtra).toEqual({})
+      expect(t.probe).toBeUndefined()
+    }
   })
 })
