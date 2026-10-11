@@ -46,8 +46,11 @@ from`, `from the ROM at $<address>`, `ROM bytes`, `real ROM
 bytes|data|values`), either leading and followed within 3 lines by a CODE
 line, or trailing on the literal's own line, blocks when that code holds a
 numeric array literal opening of 2+ elements (decimal, `0x`, `$`, mixed). A
-literal inside a comment line is a citation and never counts. In `.md` files
-a leading `#` or `*` is a heading or bullet, not a comment. A 4-byte copy
+literal inside a comment is a citation and never counts. Comments are `//`
+(trailing too, spaced or not), `/* */` (open blocks carry across lines),
+and a leading `#` or `*`; delimiters inside quoted strings are skipped. In
+`.md` files a leading `#` or `*` is a heading or bullet, not a comment;
+`<!-- -->` is one, and `/*` opens a block only at line start. A 4-byte copy
 cannot be told from invented values by content, so the claim is the signal;
 say "invented values" instead, or add the pragma. A decimal array with `0x`
 elements mixed in counts toward `byte-tokens` too.

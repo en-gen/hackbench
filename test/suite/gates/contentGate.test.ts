@@ -263,6 +263,27 @@ describe('rom-provenance (#812): a "taken from the game" comment over an inline 
     expect(hitAt('x.md', '// Vanilla $0123', 'f([1, 2])')).toBe(true)
   })
 
+  it('markdown HTML comments are comments, on one line or several', () => {
+    expect(hitAt('x.md', '<!-- Vanilla $0123 -->', 'f([1, 2])')).toBe(true)
+    expect(hitAt('x.md', '<!--', 'Vanilla $0123', '-->', 'f([1, 2])')).toBe(true)
+    expect(hitAt('x.md', '<!-- invented -->', 'f([1, 2])')).toBe(false)
+  })
+
+  it('trailing claims without spaces, trailing block comments, unstarred block lines', () => {
+    expect(hit('f([1, 2])// vanilla $0123')).toBe(true)
+    expect(hit('f([1, 2]) /* vanilla $0123 */')).toBe(true)
+    expect(hit('/*', 'Vanilla $0123: an OAM entry', '*/', 'f([1, 2])')).toBe(true)
+    // A literal inside the claim's own block is a citation, so the block must stay open.
+    expect(hit('/*', 'Vanilla $0123: an OAM entry', 'f([1, 2])', '*/')).toBe(false)
+    expect(hit('/*/ Vanilla $0123 */', 'f([1, 2])')).toBe(true) // the opener's * never closes it
+  })
+
+  it('comment delimiters inside strings and URLs do not open comments', () => {
+    // An opened-by-mistake block would swallow the claim and the literal below it.
+    expect(hit("const g = 'src/**/*.ts'", claim, 'f([1, 2])')).toBe(true)
+    expect(hit("f('http://x', [1, 2])")).toBe(false)
+  })
+
   it('a huge unclosed literal after a claim neither throws nor hangs', () => {
     const huge = `f([1,${'1,'.repeat(2_000_000)}`
     expect(() => hit(claim, huge)).not.toThrow()

@@ -261,27 +261,70 @@ function countDisasmLines(text) {
 const CLAIM_PHRASE =
   /\b(?:vanilla\s+(?:ROM\s+)?(?:at\s+)?(?:\$|0x)[0-9a-f]|(?:copied|taken|lifted|dumped) from\b|from the (?:vanilla )?ROM\s+at\s+(?:\$|0x)[0-9a-f]|ROM bytes\b|real ROM (?:bytes|data|values)\b)/i
 const PROVENANCE_WINDOW = 3
-// In markdown a leading # or * is a heading or bullet, not a comment.
-const COMMENT_LEAD = /^\s*(?:\/\/|#|\/\*|\*)/
-const COMMENT_LEAD_MD = /^\s*(?:\/\/|\/\*)/
+// Whole-line comment leads besides the delimiters the scanner tracks. In
+// markdown a leading # or * is a heading or bullet, so it has none.
+const LINE_LEAD = /^\s*[#*]/
 const NUM = /(?:0x[0-9a-fA-F]+|\$[0-9a-fA-F]+|\d+)/.source
 // Opening only: a literal may run on for many lines, and an unbounded
 // closing-bracket match can overflow the regex stack on a huge unclosed one.
 const LITERAL_OPEN = new RegExp(String.raw`\[\s*${NUM}\s*,\s*${NUM}`)
 
-/** Splits a line into its comment text and its code text. */
-function splitComment(line, lead) {
-  const block = /^\s*(?:\/\*.*?\*\/\s*)+/.exec(line)
-  const rest = block ? line.slice(block[0].length) : line
-  if (rest.trim() === '' || lead.test(rest)) return { comment: line, code: '' }
-  const at = rest.search(/\s\/\/\s/)
-  if (at < 0) return { comment: block ? block[0] : '', code: rest }
-  return { comment: (block ? block[0] : '') + rest.slice(at), code: rest.slice(0, at) }
+/**
+ * Splits each line into its comment text and its code text, carrying an open
+ * block comment (`/* ... *\/`, and `<!-- ... -->` in markdown) across lines.
+ * Outside markdown, quoted strings are skipped so a glob like '**\/*.ts' or a
+ * URL opens nothing; markdown prose has apostrophes, so there a `/*` opens a
+ * block only at line start and `//` needs whitespace before it.
+ */
+function splitComments(path, text) {
+  const md = /\.md$/i.test(path)
+  const token = md ? /\/\/|\/\*|<!--/g : /["'`]|\/\/|\/\*/g
+  let close = null // the closing delimiter of an open block comment
+  return text.split('\n').map(line => {
+    if (!close && !md && LINE_LEAD.test(line)) return { comment: line, code: '' }
+    let comment = ''
+    let code = ''
+    let i = 0
+    while (i < line.length) {
+      if (close) {
+        const end = line.indexOf(close, i)
+        const stop = end < 0 ? line.length : end + close.length
+        comment += line.slice(i, stop)
+        i = stop
+        if (end >= 0) close = null
+        continue
+      }
+      token.lastIndex = i
+      const m = token.exec(line)
+      if (!m) break
+      code += line.slice(i, m.index)
+      i = m.index
+      const t = m[0]
+      const before = line.slice(0, i)
+      if (t === '//' && (!md || /(?:^|\s)$/.test(before))) {
+        comment += line.slice(i)
+        i = line.length
+      } else if ((t === '/*' && (!md || before.trim() === '')) || t === '<!--') {
+        close = t === '/*' ? '*/' : '-->'
+        comment += t
+        i += t.length
+      } else if (t.length === 1) {
+        let j = i + 1 // a quoted string, to its closing quote or the line end
+        while (j < line.length && line[j] !== t) j += line[j] === '\\' ? 2 : 1
+        code += line.slice(i, j + 1)
+        i = j + 1
+      } else {
+        code += t
+        i += t.length
+      }
+    }
+    if (i < line.length) code += line.slice(i)
+    return { comment, code: code.trim() === '' ? '' : code }
+  })
 }
 
 function hasRomProvenance(path, text) {
-  const lead = /\.md$/i.test(path) ? COMMENT_LEAD_MD : COMMENT_LEAD
-  const parts = text.split('\n').map(l => splitComment(l, lead))
+  const parts = splitComments(path, text)
   for (let i = 0; i < parts.length; i++) {
     if (!CLAIM_PHRASE.test(parts[i].comment)) continue
     if (LITERAL_OPEN.test(parts[i].code)) return true // claim trails the literal's own line
