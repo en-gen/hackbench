@@ -250,6 +250,34 @@ describe('readLevelStart (synthetic)', () => {
     expect(!s.ok && s.reason).toMatch(/No overworld tile or screen exit/)
   })
 
+  it('an unterminated parent deeper than the roots is not a stepping stone either', () => {
+    const rom = world()
+    // $001 (an overworld level) -> $0C5 (well formed) -> $0C6 (never reaches $FF) -> $0C7 -> $0C8.
+    room(rom, 0x001, 0x068000, [{ to: 0xc5 }])
+    room(rom, 0x0c5, 0x06e800, [{ to: 0xc6 }])
+    room(rom, 0x0c7, 0x06ea00, [{ to: 0xc8 }])
+    room(rom, 0x0c8, 0x06eb00)
+    rom.writeAt(F200 + 0xc8, [0x03])
+    rom.writeAt(0x06f100, [0, 0, 0, 0, 0, 0x00, 0x01, 0x00, 0xc7])
+    rom.writeAt(ADDR.LEVEL_L1_PTR + 0x0c6 * 3, [0x00, 0xf1, 0x06])
+    const s = start(rom, 0x0c8)
+    expect(s.ok).toBe(false)
+    expect(!s.ok && s.reason).toMatch(/No overworld tile or screen exit/)
+  })
+
+  it('an exit whose destination byte is $FF is followed: the game reads that byte unchecked', () => {
+    // [00 01 00 FF] FF: the $FF at the destination position is data, the next $FF terminates
+    // (CODE_0DA512, bank_0D.asm:1417-1419; $FF is tested only at an object start, bank_05.asm:792-795).
+    const rom = world()
+    room(rom, 0x001, 0x068000, [{ to: 0xff }])
+    room(rom, 0x0ff, 0x06ec00)
+    rom.writeAt(F200 + 0xff, [0x03])
+    rom.writeAt(F600 + 0xff, [0x02])
+    const s = start(rom, 0x0ff)
+    expect(s.ok).toBe(true)
+    expect(s.ok && s.hops).toBe(1)
+  })
+
   it('an index whose DATA_05F800 byte names another map is not an entrance here', () => {
     const rom = world()
     rom.writeAt(F800 + 0x10, [0xc4]) // the exit now lands in $0C4, not $0C0
