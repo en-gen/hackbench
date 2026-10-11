@@ -1,5 +1,7 @@
-import { realpathSync } from 'fs'
+import { createHash } from 'crypto'
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from 'fs'
 import * as nodePath from 'path'
+const sha = (b: Uint8Array) => createHash('sha256').update(b).digest('hex')
 import { inflateRawSync } from 'zlib'
 import { applyBps } from '../../src/rom/Bps'
 import { decodeIps } from '../../src/rom/Ips'
@@ -163,7 +165,7 @@ export function splitStatus(stdout: Uint8Array): { status: number; body: Uint8Ar
   return { status: Number(tail), body: stdout.subarray(0, stdout.length - 3) }
 }
 
-/** SMW Central blocked the request; the one error that stops the whole run. */
+/** SMW Central blocked or throttled the request (HTML page, 429, 5xx). Like every download error it ends the run unrecorded. */
 export class HtmlStop extends Error {}
 
 /**
@@ -239,6 +241,7 @@ export function processArchive(zip: Uint8Array, vanilla: Uint8Array): ArchiveRes
       }
     return { failure: null, format: choice.format, patch, rom }
   } catch (e) {
+    if (e instanceof ZipStructureError) throw e
     return none(e instanceof Error ? e.message : String(e))
   }
 }
@@ -317,6 +320,9 @@ export function indexRecord(p: Provenance): Record<string, unknown> {
   }
 }
 
+/** A zip that is damaged, empty or cut short: the download is bad, not a decision about the hack. */
+export class ZipStructureError extends Error {}
+
 export interface ZipEntry {
   name: string
   method: number
@@ -338,18 +344,18 @@ export function zipEntries(zip: Uint8Array): ZipEntry[] {
       break
     }
   }
-  if (eocd < 0) throw new Error('not a zip: no end-of-central-directory record')
+  if (eocd < 0) throw new ZipStructureError('not a zip: no end-of-central-directory record')
   const count = v.getUint16(eocd + 10, true)
   let p = v.getUint32(eocd + 16, true)
   if (count > MAX_ENTRIES) throw new Error(`zip lists ${count} entries`)
   const out: ZipEntry[] = []
   for (let n = 0; n < count; n++) {
     if (p + 46 > zip.length || v.getUint32(p, true) !== 0x02014b50)
-      throw new Error('bad central directory')
+      throw new ZipStructureError('bad central directory')
     const nameLen = v.getUint16(p + 28, true)
     const extra = v.getUint16(p + 30, true) + v.getUint16(p + 32, true)
     // The whole record, name and extra and comment fields included, must lie inside the archive.
-    if (p + 46 + nameLen + extra > zip.length) throw new Error('bad central directory')
+    if (p + 46 + nameLen + extra > zip.length) throw new ZipStructureError('bad central directory')
     out.push({
       name: new TextDecoder().decode(zip.subarray(p + 46, p + 46 + nameLen)),
       method: v.getUint16(p + 10, true),
@@ -368,12 +374,67 @@ export function zipRead(zip: Uint8Array, e: ZipEntry): Uint8Array {
   const size = e.method === 0 ? Math.max(e.usize, e.csize) : e.usize
   if (size > MAX_UNPACKED) throw new Error(`${e.name}: ${size} bytes unpacked is over the limit`)
   const v = new DataView(zip.buffer, zip.byteOffset, zip.byteLength)
-  if (e.offset + 30 > zip.length) throw new Error(`${e.name}: entry range is outside the archive`)
-  if (v.getUint32(e.offset, true) !== 0x04034b50) throw new Error(`${e.name}: bad local header`)
+  if (e.offset + 30 > zip.length)
+    throw new ZipStructureError(`${e.name}: entry range is outside the archive`)
+  if (v.getUint32(e.offset, true) !== 0x04034b50)
+    throw new ZipStructureError(`${e.name}: bad local header`)
   const start = e.offset + 30 + v.getUint16(e.offset + 26, true) + v.getUint16(e.offset + 28, true)
-  if (start + e.csize > zip.length) throw new Error(`${e.name}: entry range is outside the archive`)
+  if (start + e.csize > zip.length)
+    throw new ZipStructureError(`${e.name}: entry range is outside the archive`)
   const raw = zip.subarray(start, start + e.csize)
   if (e.method === 0) return raw
   if (e.method === 8) return new Uint8Array(inflateRawSync(raw, { maxOutputLength: MAX_UNPACKED }))
   throw new Error(`${e.name}: unsupported zip method ${e.method}`)
+}
+
+/** A fetch result: the index record to append and the line to print. */
+export interface Fetched {
+  record: Record<string, unknown>
+  line: string
+}
+
+/**
+ * Everything one hack's fetch decides, with curl injected so a test can fake it. Any error from
+ * download(), a stop answer, or a damaged archive throws before anything is written or recorded
+ * (retried next run). Only a well-formed archive's own problems become a "failed" record.
+ * The stored name is fixed (patch.<format>): an archive entry name is hostile and never hits disk.
+ */
+export async function fetchHack(
+  item: ListingItem,
+  vanilla: Uint8Array,
+  store: string,
+  download: (url: string) => Promise<{ status: number; bytes: Uint8Array }>,
+): Promise<Fetched> {
+  const { status, bytes } = await download(item.download_url)
+  checkResponse(status, bytes, item.download_url)
+  const result = processArchive(bytes, vanilla)
+  let { failure } = result
+  const { patch, rom } = result
+  if (patch && rom && !failure) {
+    const dir = nodePath.join(store, 'patches', String(item.id))
+    try {
+      rmSync(dir, { recursive: true, force: true }) // a re-fetch must not leave two patch files
+      mkdirSync(dir, { recursive: true })
+      mkdirSync(nodePath.join(store, 'roms'), { recursive: true })
+      writeFileSync(nodePath.join(dir, `patch.${result.format}`), patch.bytes)
+      writeFileSync(nodePath.join(store, 'roms', `${item.id}.sfc`), rom)
+    } catch (e) {
+      rmSync(dir, { recursive: true, force: true })
+      failure = `store write failed: ${String(e instanceof Error ? e.message : e).slice(0, 200)}`
+    }
+  }
+  const record = indexRecord({
+    item,
+    patchSha256: patch ? sha(patch.bytes) : null,
+    patchFormat: result.format,
+    patchEntry: patch?.entry ?? null,
+    sourceZipSha256: sha(bytes),
+    patchedRomSha256: failure || !rom ? null : sha(rom),
+    patchedRomSize: failure || !rom ? null : rom.length,
+    baseRomSha256: sha(vanilla),
+    failure,
+    date: new Date().toISOString().slice(0, 10),
+  })
+  const line = `${item.id} ${item.name}: ${failure ? `FAILED ${failure}` : `ok ${rom!.length} bytes sha256 ${sha(rom!)}`}`
+  return { record, line }
 }

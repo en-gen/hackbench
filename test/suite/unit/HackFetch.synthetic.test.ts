@@ -1,5 +1,13 @@
 /** The pure parts of hack-fetch (#543): each refusal is pinned so a loosened check goes red. */
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'fs'
 import { tmpdir } from 'os'
 import { join, posix, win32 } from 'path'
 import { describe, it, expect } from 'vitest'
@@ -8,6 +16,8 @@ import {
   applyPatch,
   candidates,
   checkResponse,
+  fetchHack,
+  ZipStructureError,
   HtmlStop,
   curlArgs,
   flagValue,
@@ -303,6 +313,9 @@ describe('hack-fetch command pieces (synthetic)', () => {
     }
     expect(() => checkResponse(200, json, 'u')).not.toThrow()
     expect(() => checkResponse(302, json, 'u')).toThrow('HTTP 302')
+    expect(() => checkResponse(500, json, 'u')).toThrow(HtmlStop)
+    for (const status of [204, 206])
+      expect(() => checkResponse(status, json, 'u')).toThrow(`HTTP ${status}`)
   })
 
   it('reads an index only when it parses and holds a hacks array of records with ids', () => {
@@ -374,10 +387,13 @@ describe('hack-fetch command pieces (synthetic)', () => {
           ]),
         ).failure,
       ).toMatch(/2 patch files/)
+      // A damaged or empty download is not a decision about the hack: it ends the run unrecorded.
       const zip = makeZip([['a.ips', bytes('x'), 0]])
       new DataView(zip.buffer).setUint32(0, 0, true)
-      expect(run(zip).failure).toMatch(/bad local header/)
-      expect(run(bytes('<html>')).failure).toMatch(/not a zip/)
+      expect(() => run(zip)).toThrow(ZipStructureError)
+      expect(() => run(bytes('<html>'))).toThrow(ZipStructureError)
+      expect(() => run(new Uint8Array())).toThrow(ZipStructureError)
+      expect(() => run(patched(oneZip(), 'cd', 28, 60000, 2))).toThrow(ZipStructureError)
     })
     it('records a patch that fails to apply, and returns the ROM for one that does', () => {
       expect(run(makeZip([['a.ips', bytes('junk'), 0]])).failure).toMatch(/ips apply failed/)
@@ -385,6 +401,87 @@ describe('hack-fetch command pieces (synthetic)', () => {
       expect(good.failure).toBeNull()
       expect(good.patch?.entry).toBe(String.raw`sub\a.ips`)
       expect([...good.rom!.subarray(0, 3)]).toEqual([1, 1, 9])
+    })
+  })
+
+  describe('fetchHack, with a fake curl and a real temp store', () => {
+    const goodZip = () =>
+      makeZip([
+        [
+          'sub/Weird<name>.ips',
+          new Uint8Array([...bytes('PATCH'), 0, 0, 2, 0, 1, 9, ...bytes('EOF')]),
+          0,
+        ],
+      ])
+    const withStore = async (f: (store: string) => Promise<void>) => {
+      const store = mkdtempSync(join(tmpdir(), 'hb-fetch-'))
+      try {
+        await f(store)
+      } finally {
+        rmSync(store, { recursive: true, force: true })
+      }
+    }
+    const answer = (status: number, body: Uint8Array) => async () => ({ status, bytes: body })
+    const untouched = (store: string) => expect(readdirSync(store)).toEqual([])
+
+    it('stores a good hack as patch.<format>, never under the archive entry name', async () => {
+      await withStore(async store => {
+        const r = await fetchHack(item(7), vanilla, store, answer(200, goodZip()))
+        expect(r.record).toMatchObject({
+          patch_result: 'success',
+          patch_entry: 'sub/Weird<name>.ips',
+        })
+        expect(readdirSync(join(store, 'patches', '7'))).toEqual(['patch.ips'])
+        expect(existsSync(join(store, 'roms', '7.sfc'))).toBe(true)
+      })
+    })
+    it('ends the run with nothing recorded or written on an HTML 200, a 403 page, a throw, an empty 200', async () => {
+      await withStore(async store => {
+        const html = bytes('<html>blocked</html>')
+        await expect(fetchHack(item(7), vanilla, store, answer(200, html))).rejects.toThrow(
+          HtmlStop,
+        )
+        await expect(fetchHack(item(7), vanilla, store, answer(403, html))).rejects.toThrow(
+          HtmlStop,
+        )
+        await expect(
+          fetchHack(item(7), vanilla, store, async () => {
+            throw new Error('curl exit 28')
+          }),
+        ).rejects.toThrow('curl exit 28')
+        await expect(
+          fetchHack(item(7), vanilla, store, answer(200, new Uint8Array())),
+        ).rejects.toThrow(ZipStructureError)
+        untouched(store)
+      })
+    })
+    it('records a well-formed archive with no patch as failed, and writes nothing', async () => {
+      await withStore(async store => {
+        const r = await fetchHack(
+          item(7),
+          vanilla,
+          store,
+          answer(200, makeZip([['r.txt', bytes('x'), 0]])),
+        )
+        expect(r.record).toMatchObject({ patch_result: 'failed', patched_rom_file: null })
+        untouched(store)
+      })
+    })
+    it('removes patches/<id> when a store write fails, and clears a stale patch on a re-fetch', async () => {
+      await withStore(async store => {
+        const dir = join(store, 'patches', '7')
+        mkdirSync(dir, { recursive: true })
+        writeFileSync(join(dir, 'patch.bps'), 'stale')
+        await fetchHack(item(7), vanilla, store, answer(200, goodZip()))
+        expect(readdirSync(dir)).toEqual(['patch.ips'])
+        rmSync(join(store, 'patches'), { recursive: true })
+        rmSync(join(store, 'roms'), { recursive: true })
+        writeFileSync(join(store, 'roms'), 'a file where the roms directory belongs')
+        const r = await fetchHack(item(7), vanilla, store, answer(200, goodZip()))
+        expect(r.record).toMatchObject({ patch_result: 'failed' })
+        expect(String(r.record.failure_reason)).toMatch(/store write failed/)
+        expect(existsSync(join(store, 'patches', '7'))).toBe(false)
+      })
     })
   })
 })

@@ -22,16 +22,7 @@
  * as index.json.bak-<date>). Prints ids, names and hashes; no ROM bytes.
  */
 import { execFileSync } from 'child_process'
-import { createHash } from 'crypto'
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'fs'
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
 import { romPath, VANILLA } from '../../test/suite/support/corpus'
@@ -40,8 +31,7 @@ import {
   checkResponse,
   curlArgs,
   flagValue,
-  indexRecord,
-  processArchive,
+  fetchHack,
   readIndex,
   splitStatus,
   storeInsideRepo,
@@ -50,82 +40,46 @@ import {
 } from './hackFetch'
 
 const API = 'https://www.smwcentral.net/ajax.php?a=getsectionlist&s=smwhacks&u=0&o=downloads&d=desc'
-const sha = (b: Uint8Array) => createHash('sha256').update(b).digest('hex')
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 let lastCall = 0
 
-async function curl(url: string, out?: string): Promise<Buffer> {
+/** One rate-limited curl call; the status and body go to the caller, who decides what they mean. */
+async function curl(url: string, out?: string): Promise<{ status: number; bytes: Buffer }> {
   const wait = lastCall + 6500 - Date.now()
   if (wait > 0) await sleep(wait)
   lastCall = Date.now()
-  const stdout = execFileSync('curl', curlArgs(url, out), { maxBuffer: 1 << 28 })
-  const { status, body } = splitStatus(stdout)
-  const bytes = out ? readFileSync(out) : Buffer.from(body)
+  const { status, body } = splitStatus(
+    execFileSync('curl', curlArgs(url, out), { maxBuffer: 1 << 28 }),
+  )
+  return { status, bytes: out ? readFileSync(out) : Buffer.from(body) }
+}
+
+/** A listing page as text, checked by the same status rules as a download. */
+async function listPage(url: string): Promise<string> {
+  const { status, bytes } = await curl(url)
   checkResponse(status, bytes, url)
-  return bytes
+  return bytes.toString('utf8')
 }
 
 async function listing(pages: number): Promise<ListingItem[]> {
   const items: ListingItem[] = []
   for (let n = 1; n <= pages; n++)
     items.push(
-      ...validListing(JSON.parse((await curl(`${API}&n=${n}`)).toString('utf8')), (k, why) =>
+      ...validListing(JSON.parse(await listPage(`${API}&n=${n}`)), (k, why) =>
         console.error(`listing page ${n}: dropped ${k} unusable row(s), first: ${why}`),
       ),
     )
   return items
 }
 
-/**
- * A download or network error, or any HTTP error, ends the run with nothing recorded, so it is
- * retried next time. Only what the archive, the patch or the store write does is recorded as failed.
- */
-async function fetchOne(
-  item: ListingItem,
-  vanilla: Uint8Array,
-  store: string,
-  index: { hacks: Record<string, unknown>[] },
-): Promise<void> {
-  const dir = mkdtempSync(join(process.env.HACKBENCH_FETCH_TMP ?? tmpdir(), `hack-${item.id}-`))
-  let zipBytes: Uint8Array
+/** A download goes in its own new directory, removed afterwards; nothing in it is executed. */
+async function download(url: string) {
+  const dir = mkdtempSync(join(process.env.HACKBENCH_FETCH_TMP ?? tmpdir(), 'hack-'))
   try {
-    const zip = join(dir, 'download.zip')
-    await curl(item.download_url, zip)
-    zipBytes = readFileSync(zip)
+    return await curl(url, join(dir, 'download.zip'))
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
-  const result = processArchive(zipBytes, vanilla)
-  let { failure } = result
-  const { patch, rom } = result
-  if (patch && rom && !failure) {
-    // The stored name is fixed: an archive entry name is hostile input and never reaches the disk.
-    try {
-      mkdirSync(join(store, 'patches', String(item.id)), { recursive: true })
-      mkdirSync(join(store, 'roms'), { recursive: true })
-      writeFileSync(join(store, 'patches', String(item.id), `patch.${result.format}`), patch.bytes)
-      writeFileSync(join(store, 'roms', `${item.id}.sfc`), rom)
-    } catch (e) {
-      failure = `store write failed: ${String(e instanceof Error ? e.message : e).slice(0, 200)}`
-    }
-  }
-  index.hacks.push(
-    indexRecord({
-      item,
-      patchSha256: patch ? sha(patch.bytes) : null,
-      patchFormat: result.format,
-      patchEntry: patch?.entry ?? null,
-      sourceZipSha256: sha(zipBytes),
-      patchedRomSha256: failure || !rom ? null : sha(rom),
-      patchedRomSize: failure || !rom ? null : rom.length,
-      baseRomSha256: sha(vanilla),
-      failure,
-      date: new Date().toISOString().slice(0, 10),
-    }),
-  )
-  console.log(
-    `${item.id} ${item.name}: ${failure ? `FAILED ${failure}` : `ok ${rom!.length} bytes sha256 ${sha(rom!)}`}`,
-  )
 }
 
 async function main() {
@@ -159,7 +113,9 @@ async function main() {
       'nothing to fetch: id not in the listed pages, or all listed hacks are in the store',
     )
   for (const item of items) {
-    await fetchOne(item!, vanilla, store, index)
+    const fetched = await fetchHack(item!, vanilla, store, download)
+    index.hacks.push(fetched.record)
+    console.log(fetched.line)
     const backup = `${indexPath}.bak-${new Date().toISOString().slice(0, 10)}`
     if (!existsSync(backup)) copyFileSync(indexPath, backup) // the first copy of the day, from before this run
     writeFileSync(
