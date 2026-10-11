@@ -285,8 +285,14 @@ test could not fail. That is the point of doing it.
 
 ### `src/rom/L2UploaderTable.ts` - L2 uploader by level mode
 
-Run against `L2UploaderTable.test.ts` and `MapScreenL2.test.ts` (54 tests); one
-line changed per row, synthetic ROMs, no corpus needed.
+Run against `L2UploaderTable.test.ts` and `MapScreenL2.test.ts`; one
+line changed per row, synthetic ROMs, no corpus needed. Command:
+`npx vitest run test/suite/unit/L2UploaderTable.test.ts test/suite/unit/MapScreenL2.test.ts`.
+With the corpus: 2 files passed, 62 tests passed, 0 skipped. With
+`HACKBENCH_ROMS` pointing at an empty directory: 2 files passed, 52 tests
+passed, 10 skipped. Measured 2026-10-11, one machine, after the develop
+merge. These are the counts for these two files only; the full `test:unit`
+counts are reported in the PR.
 
 | Planted defect                                    | Tests red |
 | ------------------------------------------------- | --------- |
