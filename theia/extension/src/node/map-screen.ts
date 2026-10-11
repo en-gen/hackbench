@@ -16,6 +16,7 @@
  */
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { RomFile } from '../../../../src/rom/RomFile'
+import type { DataBanks } from '../../../../src/rom/DataBanks'
 import { SCREEN_H, SCREEN_W, SCREEN_W_VERT, SCREEN_H_VERT } from '../../../../src/rom/LevelParser'
 import {
   pipeVariantIndex,
@@ -388,7 +389,17 @@ export class L1ModelCache {
   /** The BG mode reading scans the ROM, so it is made once per bytes, not per map. */
   private readonly modes = new WeakMap<Uint8Array, BgModeResult>()
 
+  /** The project's resolved data banks for these bytes (meta/data-banks.json); absent means detect from the bytes. */
+  private readonly banks = new WeakMap<Uint8Array, DataBanks>()
+
   constructor(private readonly build: typeof buildMapInputs = buildMapInputs) {}
+
+  /** A model was built with the banks in force then, so a hand edit to them drops the models of these bytes. */
+  useBanks(bytes: Uint8Array, banks: DataBanks): void {
+    const before = this.banks.get(bytes)
+    if (!before || JSON.stringify(before) !== JSON.stringify(banks)) this.byBytes.delete(bytes)
+    this.banks.set(bytes, banks)
+  }
 
   get(bytes: Uint8Array, romPath: string, index: number, flags: SwitchFlagsDto): MapInputsResult {
     let models = this.byBytes.get(bytes)
@@ -398,7 +409,9 @@ export class L1ModelCache {
     if (!built) {
       // A copy: the working copy's array is shared and must not be mutated.
       try {
-        const rom = new SmwRom(RomFile.fromBytes(romPath, Buffer.from(bytes)))
+        const rom = new SmwRom(
+          RomFile.fromBytes(romPath, Buffer.from(bytes), this.banks.get(bytes)),
+        )
         const bgMode = () => this.modes.get(bytes) ?? this.modes.set(bytes, readLevelBgMode(rom.rom)).get(bytes)! // prettier-ignore
         built = this.build(rom, index, flags, bgMode)
       } catch (err) {
