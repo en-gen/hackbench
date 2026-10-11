@@ -16,7 +16,11 @@ const chain = (at: number, modes: number[], leadingBeq: boolean): number[] => {
   return out
 }
 
-/** The stock skip chains, built from their structure (no ROM bytes): ten modes in two runs. */
+/**
+ * Synthetic skip chains: ten mode numbers in two runs, assembled at runtime from the ISA
+ * (LDA.W, CMP #imm, BEQ rel8; the RAM address is the SMWDisX label) with an invented branch
+ * target. No ROM run is reproduced: no byte sequence here is read from or matches the cartridge.
+ */
 export function writeStockSkipChain(rom: RomFile): void {
   rom.writeAt(SKIP_CHAIN_AT, chain(SKIP_CHAIN_AT, [0x09, 0x0b, 0x10], false))
   rom.writeAt(SKIP_CHAIN_B_AT, chain(SKIP_CHAIN_B_AT, [0x0a, 0x0c, 0x0d, 0x0e, 0x11, 0x1e], true))
