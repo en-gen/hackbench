@@ -303,18 +303,16 @@ function framePieces(frame: Rec, rec: Rec, _obsel: number): D.SpritePiece[] | nu
   const at = [frame.x ?? rec.x, frame.y ?? rec.y, frame.cameraX ?? rec.cameraX, frame.cameraY ?? rec.cameraY].map(num) // prettier-ignore
   const relative = entries.every(p => num(p.dx) !== null && num(p.dy) !== null)
   if (!relative && at.some(v => v === null)) return null
-  return (
-    entries
-      // Only Y $F0 is hidden; the recorder keeps Y 224-255 entries (headless_capture.lua:1352, #838).
-      .filter(p => relative || (num(p.y) ?? 0) !== 0xf0)
-      .map((p, k) => {
-        const hi = typeof p.large === 'boolean' ? (p.large ? 2 : 0) : (num(p.sizeXHigh) ?? 0)
-        const [dx, dy] = relative
+  // Only Y $F0 is hidden; the recorder keeps Y 224-255 entries (headless_capture.lua:1352, #838).
+  return entries
+    .filter(p => relative || (num(p.y) ?? 0) !== 0xf0)
+    .map((p, k) => {
+      const hi = typeof p.large === 'boolean' ? (p.large ? 2 : 0) : (num(p.sizeXHigh) ?? 0)
+      const [dx, dy] = relative
         ? [num(p.dx)!, num(p.dy)!]
         : D.pieceOffset((num(p.x) ?? 0) + (hi & 1) * 256, num(p.y) ?? 0, at[0]!, at[1]!, at[2]!, at[3]!) // prettier-ignore
-        return { i: num(p.entry) ?? k, dx, dy, tile: num(p.tile) ?? 0, attr: num(p.attr) ?? 0, large: (hi >> 1) & 1 } // prettier-ignore
-      })
-  )
+      return { i: num(p.entry) ?? k, dx, dy, tile: num(p.tile) ?? 0, attr: num(p.attr) ?? 0, large: (hi >> 1) & 1 } // prettier-ignore
+    })
 }
 
 /**
