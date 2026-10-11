@@ -284,6 +284,19 @@ describe('rom-provenance (#812): a "taken from the game" comment over an inline 
     expect(hit("f('http://x', [1, 2])")).toBe(false)
   })
 
+  it('a quoted array is a label, not a literal; a regex quote opens no string', () => {
+    expect(hit(claim, 'const label = "[1, 2]"')).toBe(false)
+    expect(hit(claim, 'const label = `[1, 2]`')).toBe(false)
+    // A quote inside a regex literal must not swallow the trailing claim.
+    expect(hit("const re = /'/; const bytes = [1, 2]; // Vanilla $0123")).toBe(true)
+    expect(hit('const re = /[/"]/; const bytes = [1, 2]; // Vanilla $0123')).toBe(true)
+    expect(hit('const re = /\\//; const bytes = [1, 2]; // Vanilla $0123')).toBe(true)
+    // Division is not a regex: the quote after it still opens a string.
+    expect(hit("const q = a / b + ' // Vanilla $0123 [1, 2]'")).toBe(false)
+    // Read as a regex, `/ b; ... [1, 2]; /` would mask the literal and eat the `//`.
+    expect(hit('const n = a / b; const bytes = [1, 2]; // Vanilla $0123')).toBe(true)
+  })
+
   it('a huge unclosed literal after a claim neither throws nor hangs', () => {
     const huge = `f([1,${'1,'.repeat(2_000_000)}`
     expect(() => hit(claim, huge)).not.toThrow()

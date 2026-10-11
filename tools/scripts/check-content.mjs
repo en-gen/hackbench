@@ -269,6 +269,24 @@ const NUM = /(?:0x[0-9a-fA-F]+|\$[0-9a-fA-F]+|\d+)/.source
 // closing-bracket match can overflow the regex stack on a huge unclosed one.
 const LITERAL_OPEN = new RegExp(String.raw`\[\s*${NUM}\s*,\s*${NUM}`)
 
+// A `/` opens a regex literal at line start, after an operator or
+// punctuator, or after a keyword that takes an expression.
+const REGEX_START =
+  /(?:^|[(,=:[!&|?{};+\-*%<>~^]|\b(?:return|typeof|case|in|of|void|delete|throw|yield|await))\s*$/
+
+/** Index just past the regex literal opening at `i`, or -1 if it does not close on the line. */
+function regexEnd(line, i) {
+  let inClass = false
+  for (let j = i + 1; j < line.length; j++) {
+    const c = line[j]
+    if (c === '\\') j++
+    else if (c === '[') inClass = true
+    else if (c === ']') inClass = false
+    else if (c === '/' && !inClass) return j + 1
+  }
+  return -1
+}
+
 /**
  * Splits each line into its comment text and its code text, carrying an open
  * block comment (`/* ... *\/`, and `<!-- ... -->` in markdown) across lines.
@@ -278,7 +296,7 @@ const LITERAL_OPEN = new RegExp(String.raw`\[\s*${NUM}\s*,\s*${NUM}`)
  */
 function splitComments(path, text) {
   const md = /\.md$/i.test(path)
-  const token = md ? /\/\/|\/\*|<!--/g : /["'`]|\/\/|\/\*/g
+  const token = md ? /\/\/|\/\*|<!--/g : /\/\/|\/\*|["'`/]/g
   let close = null // the closing delimiter of an open block comment
   return text.split('\n').map(line => {
     if (!close && !md && LINE_LEAD.test(line)) return { comment: line, code: '' }
@@ -308,10 +326,16 @@ function splitComments(path, text) {
         close = t === '/*' ? '*/' : '-->'
         comment += t
         i += t.length
+      } else if (t === '/') {
+        // A regex literal is skipped like a string, so a quote inside it opens
+        // nothing; after an operand the slash is division and stays code.
+        const end = REGEX_START.test(before) ? regexEnd(line, i) : -1
+        code += end < 0 ? t : '""'
+        i = end < 0 ? i + 1 : end
       } else if (t.length === 1) {
         let j = i + 1 // a quoted string, to its closing quote or the line end
         while (j < line.length && line[j] !== t) j += line[j] === '\\' ? 2 : 1
-        code += line.slice(i, j + 1)
+        code += '""' // masked: a quoted "[1, 2]" is a label, not a literal
         i = j + 1
       } else {
         code += t
