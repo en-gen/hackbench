@@ -30,7 +30,7 @@ import {
   candidates,
   checkResponse,
   curlArgs,
-  flagValue,
+  positiveIntFlag,
   fetchHack,
   readIndex,
   splitStatus,
@@ -93,11 +93,11 @@ async function main() {
   const index = readIndex(readFileSync(indexPath, 'utf8'))
   const known = new Set(index.hacks.map(h => h.smwc_id as number))
   const vanilla = new Uint8Array(readFileSync(vanillaPath))
-  const wanted = flagValue(process.argv, '--id')
+  const wanted = process.argv.includes('--id')
+    ? String(positiveIntFlag(process.argv, '--id', 1))
+    : undefined
   if (wanted && known.has(Number(wanted))) throw new Error(`${wanted} is already in the store`)
-  const pages = Number(
-    flagValue(process.argv, '--pages') ?? (process.argv.includes('--list') ? 1 : 3),
-  )
+  const pages = positiveIntFlag(process.argv, '--pages', process.argv.includes('--list') ? 1 : 3)
   const listed = await listing(pages)
   const missing = candidates(listed, known)
   if (process.argv.includes('--list')) {
@@ -106,7 +106,7 @@ async function main() {
   }
   const ids = wanted
     ? [Number(wanted)]
-    : missing.slice(0, Number(flagValue(process.argv, '--count') ?? 1)).map(c => c.id)
+    : missing.slice(0, positiveIntFlag(process.argv, '--count', 1)).map(c => c.id)
   const items = ids.map(id => listed.find(i => i.id === id))
   if (!ids.length || items.some(i => !i))
     throw new Error(

@@ -21,6 +21,7 @@ import {
   HtmlStop,
   curlArgs,
   flagValue,
+  positiveIntFlag,
   indexRecord,
   looksLikeHtml,
   pickPatch,
@@ -370,6 +371,13 @@ describe('hack-fetch command pieces (synthetic)', () => {
     expect(() => flagValue(['--out', '--count'], '--out')).toThrow('--out needs a value')
   })
 
+  it('a numeric flag must be a positive safe integer, else an error naming the flag', () => {
+    expect(positiveIntFlag(['--pages', '3'], '--pages', 1)).toBe(3)
+    expect(positiveIntFlag(['--list'], '--pages', 1)).toBe(1)
+    for (const bad of ['abc', '0', '-2', '1.5', '', '1e3x', '9007199254740993'])
+      expect(() => positiveIntFlag(['--count', bad], '--count', 1)).toThrow('--count')
+  })
+
   describe('processArchive', () => {
     const run = (z: Uint8Array) => processArchive(z, vanilla)
     it('refuses an unsafe entry name before reading anything', () => {
@@ -465,6 +473,16 @@ describe('hack-fetch command pieces (synthetic)', () => {
         )
         expect(r.record).toMatchObject({ patch_result: 'failed', patched_rom_file: null })
         untouched(store)
+      })
+    })
+    it('removes a stale roms/<id>.sfc when the store write fails, so no reader falls back to it', async () => {
+      await withStore(async store => {
+        mkdirSync(join(store, 'roms'), { recursive: true })
+        writeFileSync(join(store, 'roms', '7.sfc'), 'stale rom from an earlier fetch')
+        writeFileSync(join(store, 'patches'), 'a file where the patches directory belongs')
+        const r = await fetchHack(item(7), vanilla, store, answer(200, goodZip()))
+        expect(r.record).toMatchObject({ patch_result: 'failed', patched_rom_file: null })
+        expect(existsSync(join(store, 'roms', '7.sfc'))).toBe(false)
       })
     })
     it('removes patches/<id> when a store write fails, and clears a stale patch on a re-fetch', async () => {

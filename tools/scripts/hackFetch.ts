@@ -102,6 +102,16 @@ export function flagValue(argv: readonly string[], name: string): string | undef
   return v
 }
 
+/** A flag's positive safe integer, or the fallback when absent; anything else names the flag. */
+export function positiveIntFlag(argv: readonly string[], name: string, fallback: number): number {
+  const v = flagValue(argv, name)
+  if (v === undefined) return fallback
+  const n = Number(v)
+  if (!/^\d+$/.test(v) || !Number.isSafeInteger(n) || n < 1)
+    throw new Error(`${name} needs a positive whole number, got "${v}"`)
+  return n
+}
+
 /** The real path of the nearest existing ancestor plus the rest, so a link into the repo is seen. */
 function realish(p: string): string {
   const rest: string[] = []
@@ -420,6 +430,7 @@ export async function fetchHack(
       writeFileSync(nodePath.join(store, 'roms', `${item.id}.sfc`), rom)
     } catch (e) {
       rmSync(dir, { recursive: true, force: true })
+      rmSync(nodePath.join(store, 'roms', `${item.id}.sfc`), { force: true }) // hack-sweep falls back to this path
       failure = `store write failed: ${String(e instanceof Error ? e.message : e).slice(0, 200)}`
     }
   }
