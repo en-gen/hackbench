@@ -58,9 +58,10 @@ elements mixed in counts toward `byte-tokens` too.
 Modes: `staged` (pre-commit), `range BASE HEAD` (CI), `push REMOTE`
 (`.githooks/pre-push`, reading stdin ref-updates and querying the remote
 live via `git ls-remote` rather than trusting local, possibly stale,
-remote-tracking refs), and `history [REF]` (the repo-migration oracle, run in CI only once public:
-every blob reachable from `REF`, default `HEAD`, plus tags, never other
-branches, so an unmerged branch cannot fail an unrelated ref (D59 A); a ref
+remote-tracking refs), and `history [REF]` (the repo-migration oracle, run
+in CI only once public: every blob reachable from `REF`, default `HEAD`,
+plus tags, never other branches, so an unmerged branch cannot fail an
+unrelated ref (unless tagged) (D59 A); a ref
 that does not resolve exits 2; it also refuses a shallow clone, a grafts file,
 and a tag pointing at a blob or tree outside any commit's tree). Trade-off of
 D59 A: a branch pushed with no PR, or a PR whose base is not develop, main or

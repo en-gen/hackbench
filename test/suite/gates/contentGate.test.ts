@@ -233,6 +233,7 @@ describe('rom-provenance (#812): a "taken from the game" comment over an inline 
     expect(hit('// Invented layout (no ROM bytes)', 'f([1, 2])')).toBe(false)
     expect(hit('// not copied from the ROM', 'f([1, 2])')).toBe(false)
     expect(hit('// contains no real ROM data', 'f([1, 2])')).toBe(false)
+    expect(hit('// not the ROM bytes', 'f([1, 2, 3])')).toBe(false)
     expect(hit('// Invented layout (ROM bytes)', 'f([1, 2])')).toBe(true)
     expect(hit('// copied from the ROM, no ROM bytes elsewhere', 'f([1, 2])')).toBe(true)
   })
