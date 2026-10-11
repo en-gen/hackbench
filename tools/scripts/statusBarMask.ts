@@ -15,12 +15,9 @@
  *   !StatusBarHeight+9 = 45. Any other room keeps 36.
  *
  * Picture line y shows scanline y + 1 (docs/capture-viewer.md, Status bar
- * band), so a timer V masks lines 0..V, V + 1 rows.
- *
- * Prefer the capture's own statusBar.irqLine (the V-timer the game really
- * wrote, so it already carries the Morton/Roy 45); fall back to the constant
- * when a capture has none. A capture cannot say Morton/Roy any other way
- * than that line, so the fallback takes an explicit flag.
+ * band), so a timer V masks lines 0..V, V + 1 rows. Prefer the capture's own
+ * statusBar.irqLine (it already carries the Morton/Roy 45); the constant is
+ * the fallback, and only the explicit mortonRoy flag can widen it.
  */
 export const STATUS_BAR_HEIGHT = 36
 export const MORTON_ROY_EXTRA = 9
