@@ -37,7 +37,10 @@ unreferenced bytes in banks `$06` and `$07`, but only in the sense that no L1,
 L2 or sprite table pointer reaches them. That is not a free-space figure: the
 entrance-scene and Chocolate Island 2 data (for example `CI2Sub2Level6E9FB`,
 `bank_06.asm:304`) is reached by other readers (see the reader inventory), and
-whether the count includes it is UNCONFIRMED.
+that data is not reached by the three tables the note scanned, so it plausibly
+sits inside the count. Summing the `freespace.txt` runs in banks `$06` and
+`$07` (U column, 8 runs) gives 8991 bytes; the 5526-byte difference from 14517
+is consistent with that data, but the split is UNCONFIRMED.
 
 ## The pipeline
 
@@ -100,23 +103,10 @@ The issue's five principles, restated so each can be checked in review.
    (question 3).
 4. **The build is deterministic.** Same project, same base ROM, byte-identical
    output. No clock, no random, no iteration over an unordered map.
-5. **Hooks are derived, not stored layers. [PROP]** The issue's principle says
-   "hooks are layers". This document departs from it on purpose, because a
-   stored hook layer has no answer for three cases: two edit layers that need
-   the same hook, undoing a hook layer while data that depends on it remains,
-   and where the signature is kept. The model instead: the build decides, from
-   the final resource content, which hooks that content needs, and installs
-   them. The three properties the principle wanted still hold:
-   *only when needed* (no resource needs the hook, no hook is written);
-   *never twice* (the build fingerprints the site first; if our stub, or a
-   known foreign hook, is already there it is not written again); and *undone
-   like any other layer* (undoing the last layer that needs the hook rebuilds
-   from base, and the hook is simply not derived; undoing a layer that does
-   not need it leaves it in place because other data still does). The
-   signature lives in the code itself, the stub's own bytes at the traced
-   site, so the project stores nothing extra. The cost: a hook has no
-   undo entry of its own, so the user sees "this edit needed a code change" as
-   a build note rather than a stack item.
+5. **A hook is installed only when an edit needs it, never twice, and goes
+   away with the edit that needed it.** The issue words this "hooks are
+   layers". Whether a hook is a stored layer or derived by the build is open
+   question 6, where this document proposes derived and says what that changes.
 
 Two further rules follow from the Safety section and are stated here so the
 questions below can lean on them:
@@ -148,7 +138,10 @@ hard-set (`bank_05.asm:7558-7559`), so a 3-byte hook must keep bank `$07` for
 those loads or move their lists with them; and the sprite loop indexes the
 list with an 8-bit `Y` (`bank_02.asm:5250-5253`), so a list, header included,
 must stay under 256 bytes. The sprite encoder refuses a longer list; this
-limit holds with or without a hook.
+limit holds with or without a hook. "Sprite lists may live in any bank" is
+therefore true only after a hook exists, and for hacks only where a known hook
+is already read through: of the four corpus hacks, `LevelTableGate` accepts
+the sprite read on two (see Address discovery below).
 
 Options:
 
@@ -212,13 +205,18 @@ One ROM fact is settled by a static read: `CODE_00B8DE`
 (`bank_00.asm:6294-6302`) is a loop that reads bytes until `$FF` and
 dispatches on the top three bits of a header byte, which matches the LC_LZ2
 description in [../rom/gfx-decompressors.md](../rom/gfx-decompressors.md);
-that is a static reading, not a run. An earlier draft also called the Layer 2
-bank "settled" as a plain third table byte. That was wrong, see below.
+that is a static reading, not a run. The Layer 2 bank is not a plain third
+table byte for most entries; see the inventory.
 
 ### Reader inventory
 
 Rule 7 needs every reader of a resource. This is the inventory from a static
-read of SMWDisX (U ROM). It is the best list this document can give; it is not
+read of SMWDisX (U ROM), 2026-10-11. Its completeness scope is exactly this:
+a text search of the SMWDisX source tree finds the labels `Layer1Ptrs`,
+`Layer2Ptrs` and `Ptrs05EC00` only in `bank_05.asm:7235-7255`, and every store
+into `Layer1DataPtr`, `Layer2DataPtr` and `SpriteDataPtr` was listed and
+classified (below). A reader that uses a literal address instead of a label,
+or that a hack added, would not appear in that search. So the list is not
 proven complete (see Unconfirmed facts), and a resource whose reader is not
 here is refused.
 
@@ -256,12 +254,26 @@ here is refused.
   picks the background's Map16 page by comparing the 16-bit address with
   `DATA_0CE8FE` (`:37-40`). So a background is locked to bank `$0C`, and its
   address carries meaning: moving it across that address changes its Map16
-  page. The ending sequence repeats the pattern (`bank_0C.asm:707-719`).
+  page. The ending sequence repeats the page compare and the bank `$0C` force
+  (`bank_0C.asm:707-719`).
   Backgrounds are therefore a separate resource kind, **not relocatable** in
-  the first slices; object streams are.
+  the first slices; object streams are. In the U ROM table, a count of lines
+  at `bank_05.asm:8195-8707` finds 486 entries of the `$FF` form and 26 `dl`
+  long pointers.
 - Other readers: `PtrsLong05D778` (`bank_05.asm:7065-7071`, read
   `:7479-7484`, mixing a real long pointer with `$FF` backgrounds) and
   `ChocIsld2Layer2` (`bank_05.asm:7537-7546`, read `:7560-7561`).
+
+**Other stores into the data pointers, found by that search and classified.**
+They are not readers of the three level tables, so they do not touch a
+resource this document moves, but they are listed so the classification can be
+checked. `bank_05.asm:465-470` copies the Layer 2 pointer into Layer 1 ("level
+to load" chaining). `bank_00.asm:7180` and `bank_04.asm:5725` point Layer 1 at
+block-loading and overworld character data. `bank_0C.asm:696-730` and
+`:3315-3329` set both pointers from ending and credits tables
+(`DATA_0C93C1`, `DATA_0CAD58`) with bank `$0C`; those streams live in bank
+`$0C` and are out of scope. `bank_0D.asm:1415-1427` only advances an existing
+pointer.
 
 **GFX files.** The three-table read in `PrepareGraphicsFile`
 (`bank_00.asm:6571-6591`). The stream reader carries into the next bank
@@ -481,6 +493,44 @@ in bank `$07`, `$07E76F-$07EFFF` and `$07FC90-$07FFFF`, plus the GFX tail); the
 the usual path for a real editing session, and #218 is on the design's
 critical path.
 
+## Open question 6: hook model
+
+The issue says "hooks are layers". A stored hook layer leaves three things
+undefined: two edit layers that need the same hook, undoing a hook layer while
+data that depends on it remains, and where the hook's signature lives.
+
+Options:
+
+- **A. Derived by the build.** The build decides, from the final resource
+  content, which hooks it needs and installs them. A hook has no layer of its
+  own.
+- **B. Stored hook layers.** Installing a hook is an entry in the stack, with
+  its site fingerprint recorded in the layer.
+
+**[PROP] A.** It departs from the issue's wording, so this is what is kept:
+
+- _Only when needed._ No resource needs the hook, no hook is written.
+- _Never twice._ Before writing, the build fingerprints the site (the
+  convention under Address discovery). If our stub or a known foreign hook is
+  already there, nothing is written. The fingerprint and the stub bytes live in
+  source, tested by the byte-level stub test; the project stores nothing extra
+  (the same position as question 5).
+- _Two layers, one hook._ Both layers' content is built, the hook is derived
+  once. Under B the second layer would have to detect the first's hook or
+  install it twice.
+- _Undo._ Undoing a layer rebuilds from base. If no remaining content needs the
+  hook it is not derived; if other content still does, it is. Under B, undoing
+  the hook layer first would leave data pointing at a table the game no longer
+  reads, and the stack would need dependency tracking to prevent it.
+- _Cost._ The user has no stack item for "this edit needed a code change". The
+  build reports it as a note. A project cannot pin a hook that nothing uses,
+  which is acceptable because an unused hook has no purpose.
+- _Determinism._ The set of hooks is a function of final content, so rule 4
+  holds without recording order.
+
+Safety 6 covers a site that matches neither our stub, the base code nor a known
+foreign hook: the build refuses and writes nothing there.
+
 ## Safety
 
 A broken hook crashes the game. It does not draw one wrong tile. This section
@@ -578,17 +628,17 @@ hacks is the main reason the design cannot treat expansion as rare.
   other reference to these tables and blocks (including the overworld and
   boss rooms) is still to be done and must be a committed trace before any
   resource is moved.
-- Whether the 14517-byte unreferenced count includes entrance-scene and
-  Chocolate Island 2 data.
+- The exact composition of the 5526 bytes between the map note's 14517
+  unreferenced bytes and the 8991 that `freespace.txt` lists in banks `$06`
+  and `$07` (entrance-scene and Chocolate Island 2 data is the suspected
+  part).
 - How the Layer 2 background address range is partitioned between Map16 pages
   beyond the single compare at `DATA_0CE8FE`; relocating backgrounds is out of
   scope until that is traced.
 - That first-fit is adequate; no fragmentation measurement exists.
 
-Settled during this write-up, by static reading of SMWDisX only:
-`CODE_00B8DE` is the LC_LZ2 loop (`bank_00.asm:6294-6302`). The earlier claim
-that the Layer 2 bank byte is always a real bank was wrong and is corrected
-in the reader inventory.
+Read statically from SMWDisX only (not run): `CODE_00B8DE` is the LC_LZ2 loop
+(`bank_00.asm:6294-6302`).
 
 ## Related reading
 
