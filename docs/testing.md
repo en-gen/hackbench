@@ -40,14 +40,33 @@ messages and annotated tag bodies get the same text-content rules. An
 in-file `content-gate: allow <rule> -- <reason>` pragma, only at the
 start of a comment line, exempts one file from one content rule.
 
+`rom-provenance` (#812): a comment that says nearby data was copied from the
+game (`vanilla $<address>` or `0x<address>`, `copied|taken|lifted|dumped
+from`, `from the ROM at $<address>`, `ROM bytes`, `real ROM
+bytes|data|values`), either leading and followed within 3 lines by a CODE
+line, or trailing on the literal's own line, blocks when that code holds a
+numeric array literal opening of 2+ elements (decimal, `0x`, `$`, mixed). A
+literal inside a comment is a citation and never counts. Comments are `//`
+(trailing too, spaced or not), `/* */` (open blocks carry across lines),
+and a leading `#` or `*`; delimiters inside quoted strings are skipped. In
+`.md` files a leading `#` or `*` is a heading or bullet, not a comment;
+`<!-- -->` is one, and `/*` opens a block only at line start. A 4-byte copy
+cannot be told from invented values by content, so the claim is the signal;
+say "invented values" instead, or add the pragma. A decimal array with `0x`
+elements mixed in counts toward `byte-tokens` too.
+
 Modes: `staged` (pre-commit), `range BASE HEAD` (CI), `push REMOTE`
 (`.githooks/pre-push`, reading stdin ref-updates and querying the remote
 live via `git ls-remote` rather than trusting local, possibly stale,
-remote-tracking refs), and `history` (every blob reachable from every ref
-
-- the repo-migration oracle, run in CI only once public; also refuses a
-  shallow clone, a grafts file, and a tag/ref pointing at a blob or tree
-  outside any commit's tree).
+remote-tracking refs), and `history [REF]` (the repo-migration oracle, run
+in CI only once public: every blob reachable from `REF`, default `HEAD`,
+plus tags, never other branches, so an unmerged branch cannot fail an
+unrelated ref (unless tagged) (D59 A); a ref
+that does not resolve exits 2; it also refuses a shallow clone, a grafts file,
+and a tag pointing at a blob or tree outside any commit's tree). Trade-off of
+D59 A: a branch pushed with no PR, or a PR whose base is not develop, main or
+feature/\*\*, gets no server-side scan until it is merged or PR'd; the
+pre-push hook is the only check there.
 
 Read budget (#461): before any content is buffered, object sizes are
 checked with `git cat-file --batch-check`. A blob over 32 MiB, or (in
