@@ -109,8 +109,8 @@ once its comments are resolved (`.coderabbit.yaml`); GitHub cannot require
 the approval to be CodeRabbit's, so a human approval merges it too.
 
 - Once the verifier has passed, the steward turns on auto-merge
-  (`gh pr merge <n> -R en-gen/hackbench --auto --squash`) and confirms it took
-  (`gh pr view <n> --json autoMergeRequest`); the command has failed silently.
+  (`gh pr merge <n> -R en-gen/hackbench --auto --squash --author-email engenb@gmail.com`) and confirms it took
+  (`gh pr view <n> --json autoMergeRequest`); the command has failed silently. An existing auto-merge request keeps its old email: run `--disable-auto` first, then re-arm (#612).
 - A significant UI change or a feature addition gets the `needs-owner` label
   instead, and auto-merge stays off. One that changes the UI also gets the
   verified build launched for the owner by the verifier: random port,
