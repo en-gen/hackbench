@@ -699,7 +699,7 @@ regenerated every run, and a run refuses to replace a `<sha>/` that has a
 ticked box, or with uncommitted edits or extra files, unless `--force`. Only
 `reports/sprites/<key>` and `latest` are staged and committed; a failed step
 (the copy, `git add`, `git status` or `git commit`) is undone (both folders restored) and exits
-non-zero, naming the step; the message says "undone" only when every undo step succeeded. The commit target must have a remote URL ending in `hackbench-validation`.
+non-zero, naming the step (`git add -f`, so a repo that ignores `*.png` still commits the frame images); the message says "undone" only when every undo step succeeded. The commit target must have a remote URL ending in `hackbench-validation`.
 The target, and any `--out` or `--sheet` path, is refused when it shares a git
 store with the hackbench checkout (a worktree of it included) or any of its
 remote URLs (a fork too, a local clone path included) ends in `hackbench`. An `--out` on a drive or share that

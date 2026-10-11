@@ -209,6 +209,17 @@ describe('run', () => {
     expect(changed.filter(f => f.endsWith('-ours.png'))).toHaveLength(rows().length * 2)
     expect(git(v, 'status', '--porcelain')).toBe('')
   })
+  it('commits the frame images even when the repo ignores *.png', () => {
+    const v = mkRepo('v2png')
+    writeFileSync(join(v, '.gitignore'), '*.png\n')
+    git(v, 'add', '.gitignore')
+    git(v, 'commit', '-qm', 'ignore png')
+    expect(run(['--validation', v], io())).toBe(0)
+    const changed = git(v, 'show', '--name-only', '--format=', 'HEAD').split('\n').filter(Boolean)
+    expect(changed.filter(f => f.endsWith('-ours.png'))).toHaveLength(rows().length * 2)
+    expect(changed.filter(f => f.endsWith('-hardware.png'))).toHaveLength(rows().length * 2)
+    expect(git(v, 'status', '--porcelain')).toBe('')
+  })
   it('replaces latest/ on a second run', () => {
     const v = mkRepo('v3')
     run(['--validation', v], io())

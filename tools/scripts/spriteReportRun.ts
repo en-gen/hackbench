@@ -194,7 +194,7 @@ export function commitReport(
   try {
     placeReport(base, key, files, true) // ticks checked above; a throw mid-replace is rolled back below
     step = 'git add'
-    git(repo, 'add', '-A', '--', ...paths)
+    git(repo, 'add', '-f', '-A', '--', ...paths) // -f: a repo that ignores *.png must still commit the frames the Markdown links
     step = 'git status'
     if (!git(repo, 'status', '--porcelain', '--', ...paths).trim()) return false
     step = 'git commit'
