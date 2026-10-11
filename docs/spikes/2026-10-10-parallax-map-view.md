@@ -4,7 +4,7 @@ Issue #848, owner decision D32 (2026-10-10): "explore if there's a logical way
 to do the parallax". An exploration, not a build. No production code changed;
 the two probes behind the numbers were throwaway scripts, not committed.
 
-Expected size: 150 to 250 lines (issue #848), raised by the owner's gutter addendum (D32) and the D48 ruling; this doc is 422 lines.
+Expected size: 150 to 250 lines (issue #848); this doc is 422 lines. The overrun comes from the D32 gutter addendum and the D48 ruling. No revised limit was set; the owner rules on the size at merge (needs-owner).
 
 ## Ruled 2026-10-10 (Brian), D48
 
@@ -14,7 +14,7 @@ kept as history and marked superseded.
 - Parallax: option **C**. Whole-map, scroll-anchored. #503 stands as written;
   #521 stays a separate issue. This overrules the [PROP] B below.
 - Editing, verbatim: "There will be no live editing of backgrounds in the map
-  editor". In plain words: layer 2 is never clicked or edited in the map
+  editor". In plain words: Layer 2 is never clicked or edited in the map
   editor, so no hit-test inversion is needed for it (Q4 and C's "editing must
   invert the shift" no longer apply).
 - Gutter, new option **H**, verbatim: "I want half a screen width of gutter on
@@ -28,16 +28,16 @@ kept as history and marked superseded.
 
 ## Bottom line
 
-**Superseded by D48 (above): C for parallax, no layer 2 editing, gutter H.**
+**Superseded by D48 (above): C for parallax, no Layer 2 editing, gutter H.**
 The text below is the spike's original conclusion, kept as history.
 
 There is a logical way, and it is a **preview camera, not a change to the map
-picture**. The map view stays what ruling 5 made it (load-time data, layer 2
+picture**. The map view stays what ruling 5 made it (load-time data, Layer 2
 at x = 0, tiles 1:1, `docs/decisions/2026-09-24-map-view-rulings.md`). A
 draggable 256x224 camera (#521) shows the composed screen for that camera with
-layer 2 and layer 3 placed by the game's own rules.
+Layer 2 and Layer 3 placed by the game's own rules.
 
-- The rules are small and exact: horizontal layer 2 is locked, 1:1 or 1/2 of
+- The rules are small and exact: horizontal Layer 2 is locked, 1:1 or 1/2 of
   the camera; vertical is locked, 1:1, 1/2 or 1/32, plus a load-time offset.
   439 of the 488 readable vanilla maps use horizontal 1/2.
 - Redrawing the map on every scroll is **not affordable** in the current
@@ -45,10 +45,10 @@ layer 2 and layer 3 placed by the game's own rules.
   So scroll-anchored parallax (#503) cannot be the first step.
 - A one-screen preview on camera drag costs one compose, which is workable.
 - Addendum (D32, gutter): under the traced camera clamp the game does not draw
-  layer 2 past the foreground, and the layer 3 bound is unmeasured, so a gutter
+  Layer 2 past the foreground, and the Layer 3 bound is unmeasured, so a gutter
   holds actions, not background; see the last section.
 - Two open items could change numbers, not the shape: the game's vertical
-  calibration disagrees with its per-frame rule for rate 1/32 (Q2), and layer 3
+  calibration disagrees with its per-frame rule for rate 1/32 (Q2), and Layer 3
   drifts with time, so a still picture needs a stated phase (Q2, Q3).
 
 ## Provenance
@@ -84,11 +84,11 @@ map and diverges only as the camera moves. `[INF]` from ruling 1, the `dy`
 comment in `L2Model.ts` and #781. Caveat from the rulings file: force-load
 starts are suspect where a map's entrance differs from its main one. `[OPEN]`
 
-## Q2. How the layer 2 and layer 3 scroll rates apply
+## Q2. How the Layer 2 and Layer 3 scroll rates apply
 
 ### Layer 2: the rate rule
 
-Each frame `UpdateScreenPosition` derives layer 2 from layer 1 (SMWDisX
+Each frame `UpdateScreenPosition` derives Layer 2 from layer 1 (SMWDisX
 `bank_00.asm:13727-13733` horizontal, `13735-13749` vertical). `[EST]`
 
 | Setting | Horizontal `Layer2XPos`  | Vertical `Layer2YPos`                         |
@@ -98,9 +98,9 @@ Each frame `UpdateScreenPosition` derives layer 2 from layer 1 (SMWDisX
 | 2       | `Layer1XPos` >> 1        | (`Layer1YPos` >> 1) + `BackgroundVertOffset`  |
 | 3 or up | same as 2                | (`Layer1YPos` >> 5) + `BackgroundVertOffset`  |
 
-Setting 0 does not pin layer 2 to the screen: the position stays at its seed
+Setting 0 does not pin Layer 2 to the screen: the position stays at its seed
 and the camera moves over it. Horizontal 1/2 is `L2X = camX / 2`, so at camera
-X layer 2 sits `camX / 2` pixels left of where the map view draws it. That
+X Layer 2 sits `camX / 2` pixels left of where the map view draws it. That
 holds for any viewport width. `[INF]` from the table.
 
 ### Where the settings come from
@@ -116,14 +116,14 @@ Vanilla tally, 488 maps, one ROM, header settings only `[EST]`:
 - Vertical: 0 on 12 maps, 1 on 93, 2 (1/2) on 88, 3 (1/32) on 295.
 - The commonest pair is horizontal 1/2 with vertical 1/32 (295 maps).
 
-### Maps where layer 2 is an object layer
+### Maps where Layer 2 is an object layer
 
-Layer 2 is a foreground there ("layer 2 interactive", `VerticalTable` bit 7,
+Layer 2 is a foreground there ("Layer 2 interactive", `VerticalTable` bit 7,
 `bank_00.asm:11736-11738`). Vanilla has 14 such maps, plus 12 non-interactive
-maps whose layer 2 is an object stream; the other 462 use a preset image.
+maps whose Layer 2 is an object stream; the other 462 use a preset image.
 All 26 object-layer maps have horizontal 0 or 1 and vertical 0 or 1, so
-**the header gives them no parallax**: layer 2 moves with layer 1 or stays put.
-The interactive ones are the maps where showing layer 2 offset would be wrong,
+**the header gives them no parallax**: Layer 2 moves with layer 1 or stays put.
+The interactive ones are the maps where showing Layer 2 offset would be wrong,
 because the player collides with it. `[EST]` (tally). Whether scroll commands
 move them is `[OPEN]` (next).
 
@@ -141,7 +141,7 @@ keeps screen behaviour out of the map view anyway.
 Layer 3 has no single rule (`bank_05.asm:5504-5571`, `CODE_05C40C`). `[EST]`
 
 - Tilesets 1 (castle) and 3 (underground), no tide: `L3X = L1X / 2`
-  (`:5515-5518`). A parallax rule, like layer 2.
+  (`:5515-5518`). A parallax rule, like Layer 2.
 - Other tilesets: `L3X` accumulates a time-driven drift plus layer 1's
   per-frame camera delta 1:1 (`:5556-5568`), and `L3Y = L1Y` (`:5571`). Y is 1:1
   with the camera; X depends on elapsed frames, not only on the camera. A
@@ -149,7 +149,7 @@ Layer 3 has no single rule (`bank_05.asm:5504-5571`, `CODE_05C40C`). `[EST]`
 - Tide layers (`Layer3TideSetting` non-zero) take a separate path at the top
   of the routine. Not read in detail. `[OPEN]`
 
-So a still picture of layer 3 needs a stated drift phase, and the honest one is
+So a still picture of Layer 3 needs a stated drift phase, and the honest one is
 the load-time seed (ruling 1). Layer 3 stays 1:1 in the map, as the issue says.
 
 ### The calibration discrepancy
@@ -158,17 +158,17 @@ Level entry calibrates `BackgroundVertOffset` so the per-frame vertical rule
 reproduces the seeded `Layer2YPos` (`CODE_00A796`, `bank_00.asm:5089-5112`).
 Reading that routine, setting 3 or up shifts layer 1's Y by 3 bits there but by
 5 bits per frame (`:13735-13749`). The bank_00 MEMO states 5 for both. If the
-code reading is right, the 295 rate-3 maps move layer 2 on the first frame by
+code reading is right, the 295 rate-3 maps move Layer 2 on the first frame by
 (camera Y at load) x (1/8 - 1/32) relative to the seed. `[OPEN]` Code reading
-only, not run. Settle it with a core trace before #521 draws vertical layer 2
+only, not run. Settle it with a core trace before #521 draws vertical Layer 2
 for rate 3.
 
-Citations: `check_citations` on 20, 19 matched, 1 two lines off (the layer 3
+Citations: `check_citations` on 20, 19 matched, 1 two lines off (the Layer 3
 `L3Y = L1Y` store, now `:5571`); the corrected set was re-run before commit. `[EST]`
 
 ## Q3. The #105 scroll-range indicator
 
-#105 asks for a translucent box showing the range layer 3 will scroll, so the
+#105 asks for a translucent box showing the range Layer 3 will scroll, so the
 designer sees what the background does in play. Parallax does not replace it.
 
 - Parallax answers "where is it at this camera"; the indicator answers "how
@@ -179,16 +179,16 @@ designer sees what the background does in play. Parallax does not replace it.
 - Layer 2 object streams already have bounds (`computeL2ScrollRange`, `src/rom/L2Loader.ts`); animated ranges are undecoded (#246).
 
 Answer: **alongside, with parallax only in the preview.** In the preview,
-layer 3 is drawn at its load-time phase with the box over it, so the drift is
+Layer 3 is drawn at its load-time phase with the box over it, so the drift is
 visible against the camera. `[INF]`
 
-## Q4. Editing: where does a click on layer 2 land
+## Q4. Editing: where does a click on Layer 2 land
 
 Today nothing in the map view places tiles. The toolbar toggles layers, and the
 pointer only feeds hover indicators for block items (`map-view-widget.tsx`,
 `updateHover`, `onMouseMove`). `[EST]` (read of the file's pointer handlers.)
 So the question is about the future.
-If layer 2 is drawn offset, a point in the picture is not the layer 2 cell
+If Layer 2 is drawn offset, a point in the picture is not the Layer 2 cell
 under it. With camera `c` and rate `r` the cell is the picture point plus
 `c * (1 - r)` horizontally, plus the vertical equivalent. Every hit test, the
 hover indicators (placed in map pixels per plane) and any drag handle would
@@ -196,7 +196,7 @@ need that inverse. `[INF]`
 
 That is where the 1:1 map earns its keep: one coordinate system. #503 already
 says parallax should force off while editing. Answer: **editing stays in the
-1:1 view; the preview is read-only**, so the layer 2 cell under a click is never
+1:1 view; the preview is read-only**, so the Layer 2 cell under a click is never
 ambiguous. The recommended option needs no change to the hover code.
 
 ## Q5. Redraw cost against the budget
@@ -206,11 +206,11 @@ l3High`, `MAP_PLANE_KEYS`). Those canvases are hidden sources (opacity 0). What
 the user sees is **one CPU-composited canvas per screen**: `paintComposite` in
 `map-view-widget.tsx` calls `composeScreen` (`src/rom/model/ColorMath.ts`),
 which walks every pixel, resolves priority between planes, applies color math,
-then `putImageData`. `[EST]` (read.) So layer 2 cannot be moved by a CSS transform, as #503 assumed: it is baked into
+then `putImageData`. `[EST]` (read.) So Layer 2 cannot be moved by a CSS transform, as #503 assumed: it is baked into
 the screen composite with layer 1's priority and the sub screen math. A shift
 means recomposing every visible screen. `[INF]` from that structure.
 
-`composeScreen` alone, one 256x224 screen, synthetic opaque planes (layer 2
+`composeScreen` alone, one 256x224 screen, synthetic opaque planes (Layer 2
 full, layer 1 at 40%, the rest sparse), 40 warm iterations after one dropped,
 Node v26.3.1 (V8), one machine, 2026-10-10. Not measured: a browser, the
 `putImageData` upload, GPU, several screens. `[EST]`
@@ -247,7 +247,7 @@ per scroll event.
 ### B. Preview camera only (#521 rewritten)
 
 A draggable 256x224 camera, default at the start, with an inset or overlay
-preview: layer 1, layer 2 by the rate rule, layer 3 at load-time phase, color
+preview: layer 1, Layer 2 by the rate rule, Layer 3 at load-time phase, color
 math, composed on demand. The map picture is unchanged.
 
 - Pros: honours rulings 1, 2 and 5; one compose per drag; no coordinate
@@ -284,19 +284,19 @@ core trace before the rate 3 case ships.
 Owner note, D32: the background can extend beyond the foreground; a "gutter"
 around the drawn map would leave room to append or prepend a screen.
 
-### G1. Is there layer 2 or layer 3 past the foreground?
+### G1. Is there Layer 2 or Layer 3 past the foreground?
 
 The game's camera is clamped to the level, so it never shows any. Horizontal
 camera X is clamped to 0 at the left, and at the right to `(LastScreenHoriz - 1)
 << 8`, the left edge of the last screen (SMWDisX `bank_00.asm:13679-13691`).
-`[EST]` (code reading, not run.) At horizontal rate 1/2 layer 2 only ever shows
+`[EST]` (code reading, not run.) At horizontal rate 1/2 Layer 2 only ever shows
 camera X / 2 up to that plus 256, which is inside the map; at 1:1 it ends at the
 last screen's edge. Layer 2 is not drawn past either end under the traced
 camera clamp. `[INF]` Layer 3 adds a time-driven drift on other tilesets when
 SpriteLock is clear, so its bound with a nonzero drift phase is unmeasured.
 `[OPEN]`
 
-What the data holds, per kind of layer 2 `[EST]` (code reading, vanilla, one ROM):
+What the data holds, per kind of Layer 2 `[EST]` (code reading, vanilla, one ROM):
 
 - Preset image (462 of 488 maps): a 32-column Map16 grid, 512 px wide
   (`L2_TILEMAP_COLS`, `L2Loader.ts`), tiled across the map by
@@ -329,7 +329,7 @@ padding on the cross axis would lower it. `[EST]` (read.) Two shapes:
   code shape, not built.
 
 It shows empty checkerboard (`hb-checkerboard`) with the actions on it, not
-layer 2 or 3 (G1).
+Layer 2 or 3 (G1).
 
 ### G3. Add a screen before or after
 
@@ -349,7 +349,7 @@ What the ROM allows `[EST]` (SMWDisX, header read, vanilla layout):
 Appending is cheap: raise the count by one; nothing else moves. `[INF]`
 
 Prepending is a rewrite. A new first screen pushes every screen number up by
-one: all layer 1 objects, the layer 2 object stream when present, all sprites
+one: all layer 1 objects, the Layer 2 object stream when present, all sprites
 (`parseLevelSprites`), the screen exit table
 (`parseLevelScreenExits`), and the header count. Pointers in other levels that
 land here by screen (entrances, secondary exits) are `[OPEN]`: not traced. A
@@ -378,10 +378,10 @@ and a label without covering map content. `[INF]` (a design size, not measured.)
   large; an empty gutter is not the background the owner pictured.
 - #503, #521: unaffected; they follow A to D.
 
-#### G. Gutter that draws layer 2 and 3 past the bounds
+#### G. Gutter that draws Layer 2 and 3 past the bounds
 
 - Pros: matches the owner's picture literally. Cons: nothing to draw for
-  object-stream layer 2 (G1); for a preset it draws a repeat the game never
+  object-stream Layer 2 (G1); for a preset it draws a repeat the game never
   shows; recompose per scroll, the cost of C. Breaks ruling 1.
 - #503: revived as its prerequisite, blocked on the speed work. #521: unaffected.
 
@@ -394,16 +394,16 @@ in it, and the background fading out in a gradient toward the edges.
   and shows background. Differs from G2's fixed shape: H is the zoom-scaled
   shape, so it is a few pixels at fit zoom and shifts hit tests and anchors by
   128 map pixels.
-- Differs from G: G draws layer 2 and 3 past the bounds without limit; H draws
+- Differs from G: G draws Layer 2 and 3 past the bounds without limit; H draws
   only 128 px, faded, so the repeat or missing data (G1) is mostly masked.
 - Pros: matches the owner's picture. Cons: needs C's scroll-anchored drawing
-  and its speed prerequisite; for an object-stream layer 2 there is still no
+  and its speed prerequisite; for an object-stream Layer 2 there is still no
   data past the end, so the fade must go to empty, not to guessed tiles
   (ruling 2).
 - Add-after ships first; add-before is separate (G3). Control hidden at 32.
 
 How they combine with A to D: the gutter is orthogonal. E and F work with any of
-A, B, C or D, because neither draws layer 2 or 3. G only makes sense with C or D
+A, B, C or D, because neither draws Layer 2 or 3. G only makes sense with C or D
 (scroll-anchored drawing) and inherits their budget miss (Q5).
 
 ### Recommendation
