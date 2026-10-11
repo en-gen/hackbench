@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest'
 import type { LevelSprite } from '../../../src/rom/LevelParser'
 import { runSprite, type SpritePart } from '../../../src/rom/sprites/interp/SpriteRunner'
-import { composeScreen, type SourceKey } from '../../../src/rom/model/ColorMath'
+import { composeScreen, type ScreenInput, type SourceKey } from '../../../src/rom/model/ColorMath'
 import { screenPlanes } from '../../../src/rom/model/ScreenPlanes'
 import { drawSprites, interpParts } from '../../../theia/extension/src/node/map-sprites'
 import {
@@ -202,7 +202,7 @@ describe('the door against an independent per-pixel oracle (D52, #795)', () => {
   const lerp = (tile: number[], sprite: number[], s: number) => tile.map((v, k) => Math.round(v * (1 - s) + sprite[k]! * s)) // prettier-ignore
   const maskTile = (on: (x: number, y: number) => boolean) => Uint8Array.from({ length: 64 }, (_, i) => (on(i % 8, i >> 3) ? 1 : 0)) // prettier-ignore
   type Spec = { x: number; y: number; char: number; flipX?: boolean; priority?: number }
-  type Plane = 'l1High' | 'l1Low' | 'l2Low'
+  type Plane = 'l1High' | 'l1Low' | 'l2Low' | 'l3High'
 
   /** `specs` sprites (char n is tiles[n]) under the planes in `planes`, each covering where its function says. */
   function run(
@@ -210,6 +210,7 @@ describe('the door against an independent per-pixel oracle (D52, #795)', () => {
     tiles: Uint8Array[],
     planes: Partial<Record<Plane, (x: number, y: number) => boolean>>,
     main = 0x17,
+    opts: { bg3?: boolean; lists?: ScreenInput['lists']; math?: ScreenInput['math'] } = {},
   ) {
     // prettier-ignore
     const model = { vram: { sp1: tiles }, colors: COLORS }
@@ -221,11 +222,11 @@ describe('the door against an independent per-pixel oracle (D52, #795)', () => {
     const input: Partial<Record<SourceKey, Uint8ClampedArray | null>> = {}
     for (const [k, covers] of Object.entries(planes)) {
       const plane = new Uint8ClampedArray(W * W * 4)
-      for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) if (covers(x, y)) plane.set([...(k.startsWith('l1') ? L1_RGB : L2_RGB), 255], (y * W + x) * 4) // prettier-ignore
+      for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) if (covers(x, y)) plane.set([...(k.startsWith('l1') ? L1_RGB : k.startsWith('l3') ? L3_RGB : L2_RGB), 255], (y * W + x) * 4) // prettier-ignore
       input[k as SourceKey] = plane
     }
     const sp = { orientation: 'horizontal' as const, width: W, height: W, sprites: dtos }
-    const out = composeScreen({ width: W, height: W, planes: { ...input, ...spritePlanes(sp, 0) }, doors: spriteDoors(sp, 0), lists: screenPlanes(main, 0x00, false), math: null }) // prettier-ignore
+    const out = composeScreen({ width: W, height: W, planes: { ...input, ...spritePlanes(sp, 0) }, doors: spriteDoors(sp, 0), lists: opts.lists ?? screenPlanes(main, 0x00, opts.bg3 ?? false), math: opts.math ?? null }) // prettier-ignore
     return { out, dtos }
   }
 
@@ -325,6 +326,30 @@ describe('the door against an independent per-pixel oracle (D52, #795)', () => {
       const r = run([{ x, y, char: 0 }], [tile], { l1High: cx => cx >= x + 3 })
       expectDoors(r, cx => (cx >= x + 3 ? L1_RGB : null), `shift ${x},${y}`)
     }
+  })
+
+  it('a later sprite transparent pixel does not take over an earlier sprite door id', () => {
+    // A is solid at (10, 10); B at (11, 10) is transparent except one odd-parity pixel (the count must not tie). Pixel (11, 10) is A's local (1, 0): dim.
+    const r = run([{ x: 10, y: 10, char: 0 }, { x: 11, y: 10, char: 1 }], [SOLID, maskTile((x, y) => x === 7 && y === 6)], { l1High: () => true }) // prettier-ignore
+    expect(px(r.out, W, 11, 10).slice(0, 3)).toEqual(lerp(L1_RGB, SPRITE_RGB, HIDE))
+    expectDoors(r, () => L1_RGB, 'transparent overlap')
+  })
+
+  it('a priority 2 sprite under an opaque layer 3 priority tile takes the door', () => {
+    const r = run([{ x: 10, y: 10, char: 0, priority: 2 }], [SOLID], { l3High: () => true }, 0x15, { bg3: true }) // prettier-ignore
+    expectDoors(r, () => L3_RGB, 'l3High')
+    expect(px(r.out, W, 10, 11).slice(0, 3)).toEqual(lerp(L3_RGB, SPRITE_RGB, HIDE))
+  })
+
+  it('the door is main screen only: a sprite under a sub screen plane gets none', () => {
+    const to8 = (c: number) => ((c >> 3) << 3) | (c >> 5)
+    const lists = { main: ['l1Low'] as SourceKey[], sub: ['sprites2', 'l2Low'] as SourceKey[] }
+    // Colour math adds the sub screen to the empty main screen (CGADSUB $20: the backdrop adds), so the
+    // output is the sub screen's top pixel: layer 2 over the sprite, no door, in 5-bit colour.
+    const r = run([{ x: 10, y: 10, char: 0 }], [SOLID], { l2Low: () => true }, 0x17, { lists, math: { cgadsub: 0x20, fixed: [0, 0, 0] } }) // prettier-ignore
+    for (let y = 10; y < 18; y++)
+      for (let x = 10; x < 18; x++)
+        expect(px(r.out, W, x, y).slice(0, 3), `${x},${y}`).toEqual(L2_RGB.map(to8))
   })
 
   it('stacked layer 2 and layer 1 low planes over a priority 0 sprite: the door shows the nearer one', () => {

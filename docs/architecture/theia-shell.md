@@ -252,6 +252,14 @@ priority (attribute bits 5:4) of the part that wins the pixel (#795). The
 composite does not use the canvas: `spritePlanes` splits each screen's
 sprites into `sprites0` to `sprites3`, which `screenPlanes` places at their
 mode 1 slots ([obj-priority.md](../rom/obj-priority.md) section 5).
+A sprite pixel a nearer tile covers draws in the hidden-tile screen door (D52):
+`spriteDoors` returns, per screen, a `Uint32Array` of `sprite id << 1 | parity`
+on the sprite's own pixel grid, passed to `composeScreen` as `doors`. The swap
+decision per id (`doorFlips`) is counted over the whole native screen; a
+caller that composes a crop or a scaled cell passes the native result as
+`flips`. `IndicatorDisplay` does this: it scales `doors` with each cell
+(nearest) and reuses the native flips, so a covered sprite pixel under an
+indicator cell keeps its door at any zoom. Main screen only.
 
 ### The map tab's collision overlay (#435)
 

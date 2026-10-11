@@ -18,7 +18,8 @@
  * it). Strengths are read back from the pixels with a tolerance, because the map's colour math may
  * move a channel. At the control pixels hiding the sprites changes every pixel. Plants for the
  * verifier: in theia/extension/src/node/map-sprites.ts `blit`, `prio[at1] = 2` instead of the part's
- * priority leaves 0 overlap pixels (the "overlap" assertion goes red); in
+ * priority puts the plant over the pipe, so every pixel is at full strength (the "both squares of the
+ * door are used" assertion goes red; the overlap count is not what fails); in
  * src/rom/model/ColorMath.ts `coveredSprite`, `return null` leaves the plant hidden (the "differs from
  * the hidden composite" assertion goes red).
  */

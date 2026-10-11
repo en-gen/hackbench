@@ -191,3 +191,7 @@ behind layer tiles". In three parts:
 3. Keep #564 (sprites take no part in colour math). Hover-to-opaque is #879,
    not here: each sprite has its own door id (`doors` value `id << 1 | parity`),
    so a sprite's door can later be switched off by id.
+
+The checkerboard phase of a sprite depends on which layers are shown: the
+swap decision counts only the pixels a shown plane covers, so hiding a layer
+can flip a sprite's squares.
