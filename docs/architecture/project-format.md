@@ -155,6 +155,7 @@ and the repository's content policy for the rule this bends and why.
 
 ## Related reading
 
+- [rom-layout.md](rom-layout.md) - proposed design for size-changing edits (resources, build, relocation)
 - [overview.md](overview.md) - how the project layer fits the whole
 - [../guide/getting-started.md](../guide/getting-started.md) - creating one
 - [../glossary.md](../glossary.md) - "Working copy", "Op", and friends
