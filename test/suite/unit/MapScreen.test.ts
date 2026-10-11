@@ -107,7 +107,7 @@ import { VANILLA, hasRom, romPath } from '../support/corpus'
 
 vi.mock('../../../src/rom/ObjectExpander', async importOriginal => {
   const real = await importOriginal<typeof Expander>()
-  return { ...real, expandMap: vi.fn(real.expandMap) }
+  return { ...real, expandMapOwned: vi.fn(real.expandMapOwned) }
 })
 
 // Pass-through wrappers, so one test can stub the readers a fake ROM cannot satisfy (#342).
@@ -147,7 +147,7 @@ vi.mock('../../../src/rom/ExAnimationLoader', async importOriginal => {
 // A test that refuses early leaves its `...Once` stubs queued; put every wrapper back to pass-through.
 afterEach(() => {
   for (const f of [
-    Expander.expandMap,
+    Expander.expandMapOwned,
     ParserReal.parseLevelObjects,
     Map16Real.loadMap16WithPipeVariants,
     Map16Real.map16TileCapacity,
@@ -640,8 +640,8 @@ describe('buildL1Inputs (synthetic)', () => {
     expect(r.inputs.colors.slice(12, 16)).toEqual(crusher)
   })
 
-  it('passes the switch flags to expandMap', () => {
-    const spy = vi.mocked(Expander.expandMap)
+  it('passes the switch flags to expandMapOwned', () => {
+    const spy = vi.mocked(Expander.expandMapOwned)
     spy.mockClear()
     buildL1Inputs(fakeRom(0), 0x105, YELLOW)
     expect(spy).toHaveBeenCalledTimes(1)
@@ -658,7 +658,7 @@ describe('buildL1Inputs (synthetic)', () => {
     vi.mocked(ExReal.loadExAnimData).mockReturnValueOnce(null)
     vi.mocked(Map16Real.loadMap16WithPipeVariants).mockReturnValueOnce({ tiles: [], pipeVariants: [] } as never) // prettier-ignore
     vi.mocked(GfxReal.loadVram).mockReturnValueOnce({} as never)
-    const spy = vi.mocked(Expander.expandMap)
+    const spy = vi.mocked(Expander.expandMapOwned)
     const real = spy.getMockImplementation()!
     spy.mockImplementationOnce((...a) => {
       ;(a[8] as { unverified: string[] }).unverified.push('NOTE FROM THE EXPANDER')
@@ -668,6 +668,24 @@ describe('buildL1Inputs (synthetic)', () => {
     if (!r.ok) throw new Error(r.reason)
     expect(r.inputs.unverified).toEqual(['NOTE FROM THE EXPANDER'])
     expect((screenResult(r.inputs, 0) as { note?: string }).note).toContain('NOTE FROM THE EXPANDER') // prettier-ignore
+  })
+
+  it('numbers an expander refusal in inputs.unverified and keeps it in inputs.refusals (#301)', () => {
+    vi.mocked(GfxReal.gfxSource).mockReturnValueOnce({ ok: true } as never)
+    vi.mocked(Map16Real.map16TileCapacity).mockReturnValueOnce({} as never)
+    vi.mocked(StockReal.readLevelCol1).mockReturnValueOnce({ bg: 0, obj: 0 } as never)
+    vi.mocked(AnimReal.loadAnimationDataOrReason).mockReturnValueOnce({ ok: false, reason: 'stub' })
+    vi.mocked(ExReal.loadExAnimData).mockReturnValueOnce(null)
+    vi.mocked(Map16Real.loadMap16WithPipeVariants).mockReturnValueOnce({ tiles: [], pipeVariants: [] } as never) // prettier-ignore
+    vi.mocked(GfxReal.loadVram).mockReturnValueOnce({} as never)
+    const spy = vi.mocked(Expander.expandMapOwned)
+    const real = spy.getMockImplementation()!
+    const refusal = { objectIndex: 3, handler: 0x0dfff0, reason: 'REFUSED FOR TEST' }
+    spy.mockImplementationOnce((...a) => ({ ...real(...a), refusals: [refusal] }))
+    const r = buildL1Inputs(fakeRom(0), 0x105, UNCLEARED)
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.inputs.refusals).toEqual([refusal])
+    expect(r.inputs.unverified).toContain('Object 3: REFUSED FOR TEST')
   })
 
   // A cart whose object $12 reaches CODE_0DADEB as pipe variant 5 (via the tileset dispatch,
@@ -708,8 +726,8 @@ describe('buildL1Inputs (synthetic)', () => {
     expect((screenResult(r.inputs, 0) as { note?: string }).note).toContain(r.inputs.unverified[0]!)
   })
 
-  it('hands expandMap a note sink, not an opt-out, so refusals can reach the inputs (#342)', () => {
-    const spy = vi.mocked(Expander.expandMap)
+  it('hands expandMapOwned a note sink, not an opt-out, so refusals can reach the inputs (#342)', () => {
+    const spy = vi.mocked(Expander.expandMapOwned)
     spy.mockClear()
     buildL1Inputs(fakeRom(0), 0x105, UNCLEARED)
     expect(spy.mock.calls[0]![8]).toMatchObject({
@@ -1138,7 +1156,7 @@ describe.skipIf(!romPresent)('map-screen (vanilla ROM)', () => {
   }
 
   it('carries a note the expander pushes into inputs.unverified and into the wire note (#342)', () => {
-    const spy = vi.mocked(Expander.expandMap)
+    const spy = vi.mocked(Expander.expandMapOwned)
     const real = spy.getMockImplementation()!
     spy.mockImplementationOnce((...a) => {
       ;(a[8] as { unverified: string[] }).unverified.push('NOTE FROM THE EXPANDER')
