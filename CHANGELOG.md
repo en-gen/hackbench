@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Tools (#828): `npm run sprite:report` grades every captured sprite with id $00-$C8 and at least one recorded frame, with the accuracy test's grader (on the hardware timeline of #867: graded pass, Mario and frame-counter seeds) and commits a browsable report (one page per verdict, our frame beside the Mesen frame, an unticked `corrupted` box per row) to the private validation repo; `--sheet` writes one contact-sheet PNG outside both repos. Local only, never pushes, refuses any output inside this checkout or its git store; a dirty tree writes `<sha>-dirty/`, and `--force` replaces a ticked or edited `<sha>/`. Vanilla ROM and layers_v5 captures, one machine: 1957 graded (exact 969, shape 792, wrong 164, close 19, empty 13).
+
 ### Changed
 
 - Agent docs: every auto-merge command (steward, tech-lead reference) now passes `--author-email engenb@gmail.com`, so squash commits carry the owner email; an existing request keeps its old email until `--disable-auto` and a re-arm (#612).
