@@ -248,7 +248,7 @@ describe('hack-fetch command pieces (synthetic)', () => {
     expect(storeInsideRepo('/r/repo/../hacks', '/r/repo', posix)).toBe(false)
     expect(storeInsideRepo('/r/repo-tools/hacks', '/r/repo', posix)).toBe(false)
     expect(storeInsideRepo('/r', '/r/repo', posix)).toBe(false) // the parent of the repo
-    expect(storeInsideRepo('C:\r', 'C:\r\repo', win32)).toBe(false)
+    expect(storeInsideRepo('C:\\r', 'C:\\r\\repo', win32)).toBe(false)
     expect(storeInsideRepo('/r/..hacks', '/r', posix)).toBe(true) // a child named "..hacks", not a parent
     expect(storeInsideRepo('C:\\r\\repo\\hacks', 'C:\\r\\repo', win32)).toBe(true)
     expect(storeInsideRepo('c:\\R\\Repo\\hacks', 'C:\\r\\repo', win32)).toBe(true)
