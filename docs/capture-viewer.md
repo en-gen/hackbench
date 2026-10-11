@@ -84,6 +84,11 @@ line y shows scanline y + 1, so lines 0..V are left out. The band applies
 to BG3 only. A picture whose band covers every line compares nothing, and
 its layer reads as not compared.
 
+A picture with no recorded line (or -1) is masked on lines 0..36 instead
+(`!StatusBarHeight`, `constants.asm:57`); Morton and Roy rooms record 45
+(`bank_00.asm:423-432`). The rows come from one function,
+`tools/scripts/statusBarMask.ts` (#880).
+
 ## GenerateTile
 
 A GenerateTile call reaches a picture only from the next frame: on
