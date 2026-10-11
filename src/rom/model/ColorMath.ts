@@ -61,7 +61,7 @@ function top(i: ScreenInput, list: readonly SourceKey[], at: number) {
     if (!data || a === 0) continue
     // Sprites take no part in color math yet: palettes 4-7 only (snes9x gfx.cpp:819) needs the
     // sprite palette split, which #564's pixels do not carry.
-    if (cover === 0) bit = list[k] === 'sprites' ? 0 : LAYER_BIT[list[k]!.slice(0, 2) as keyof typeof LAYER_BIT] // prettier-ignore
+    if (cover === 0) bit = list[k]!.startsWith('sprites') ? 0 : LAYER_BIT[list[k]!.slice(0, 2) as keyof typeof LAYER_BIT] // prettier-ignore
     const w = a * (1 - cover)
     sum = sum.map((v, c) => v + data[at + c]! * w)
     cover += w

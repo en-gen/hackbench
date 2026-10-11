@@ -127,3 +127,37 @@ Two things the pass model cannot express, and does not try to: the
 status-bar rows, where the NMI forces BG3 priority regardless of the header
 (§1), and anything HDMA does mid-frame. Both are per-scanline register
 state; a still compositor picks one scanline's worth.
+
+## 5. The map view composites each OAM priority (#795)
+
+The map tab's sprites are run by the interpreter, so a part's priority is
+read off the attribute byte the ROM wrote to the OAM mirror (bits 5:4,
+`SpritePart.priority`), not looked up: the level loader's `SpriteProperties`
+(section 2) and any handler's lowering reach it as the game left them.
+
+Each screen's list (`ScreenPlanes.ts`) names four sprite sources:
+
+- `sprites0`, `sprites1` and `sprites3` at their slots in the section 1
+  table, filtered to the layers the screen designates;
+- `sprites2` just before `l1High` (the owner's ruling, #564), or at its
+  table slot on a screen without layer 1. The ruling differs from the table
+  in one pair: the table draws BG2.1 over OBJ.2, the ruling draws OBJ.2 over
+  `l2High`. No vanilla map draws an `l2High` pixel (swept 0 of 488 maps,
+  `map-view.spec.cjs`), so the two agree on vanilla.
+
+On a mode 0 screen (main BG1, BG3, OBJ) with the BG3 bit clear the main
+list is `l3Low, sprites0, l3High, sprites1, l1Low, sprites2, l1High,
+sprites3`.
+
+OBJ against OBJ is decided before the BG: the PPU keeps the opaque pixel of
+the lowest OAM index and only then compares that pixel's priority with the
+BG, so a low-index priority 0 part hides a priority 3 part under it and
+both go behind BG1.0. That is hardware behaviour (the OBJ line buffer in
+snes9x and bsnes), not a ROM trace. Within a sprite, `map-sprites.ts`
+blits parts from the highest OAM index down and keeps the winner's
+priority per pixel. Between sprites the view's own order (column, then
+stream index) picks the winner, as before #795; the game's OAM slot
+assignment between sprites is not modelled.
+
+A marker (a sprite the interpreter refused) has no OAM entry and keeps
+priority 2.

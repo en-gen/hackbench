@@ -100,7 +100,8 @@ export interface SpriteModel {
  * `reason` is a refusal in the interpreter's own words.
  */
 export type SpriteDrawResult =
-  | (Extract<EngineResult, { ok: true }> & {
+  | (Omit<Extract<EngineResult, { ok: true }>, 'parts'> & {
+      parts: DrawPart[]
       anchor?: { x: number; y: number }
       /** CGRAM colors the sprite's own code set by its drawn frame (interpreter only). */
       runtimePalette?: PaletteWrite[]
@@ -109,6 +110,9 @@ export type SpriteDrawResult =
     })
   | Extract<EngineResult, { ok: false }>
   | { ok: false; reason: string; unverified?: string }
+
+/** A part with its OAM priority (attribute bits 5:4); the table engine's parts have none and draw at 2. */
+export type DrawPart = EnginePart & { priority?: number }
 
 /** Runs a drawer for one sprite; injected so the placement math is tested without a cart. */
 export type SpriteDrawer = (sprite: LevelSprite) => SpriteDrawResult
@@ -153,11 +157,12 @@ function placeholder(s: LevelSprite, reason: string, unverified?: string): MapSp
 const base64 = (b: Uint8ClampedArray) =>
   Buffer.from(b.buffer, b.byteOffset, b.byteLength).toString('base64')
 
-/** The part's pixels into `out` (bitmap origin `ox, oy`), color index 0 left clear. */
+/** The part's pixels into `out` and its priority into `prio` (bitmap origin `ox, oy`), color index 0 left clear. */
 function blit(
   out: Uint8ClampedArray,
+  prio: Uint8Array,
   width: number,
-  p: EnginePart,
+  p: DrawPart,
   at: [number, number],
   pixels: Uint8Array,
   row: (c: number) => RgbaColor,
@@ -166,7 +171,9 @@ function blit(
     for (let tx = 0; tx < 8; tx++) {
       const v = pixels[(p.flipY ? 7 - ty : ty) * 8 + (p.flipX ? 7 - tx : tx)]!
       if (v === 0) continue
-      out.set(row(v), ((at[1] + ty) * width + at[0] + tx) * 4)
+      const at1 = (at[1] + ty) * width + at[0] + tx
+      out.set(row(v), at1 * 4)
+      prio[at1] = p.priority ?? 2
     }
   }
 }
@@ -200,6 +207,10 @@ export function drawSprites(
     }
     const width = box.x1 - box.x0
     const out = new Uint8ClampedArray(width * (box.y1 - box.y0) * 4)
+    // The PPU keeps the lowest OAM index's opaque pixel and only then compares ITS priority with
+    // the BG (snes9x and bsnes OBJ line buffers; hardware, not a ROM trace), so a pixel's priority
+    // is the part that wins it, whatever the parts under it hold.
+    const prio = new Uint8Array(width * (box.y1 - box.y0)).fill(2)
     const dyn = res.paletteNote ? dynamic(res.paletteNote) : []
     // The sprite's own CGRAM writes (WRAM upload list, palette mirror, direct), per sprite.
     const runtime = new Map<number, number>()
@@ -213,7 +224,7 @@ export function drawSprites(
         const set = runtime.get(p.palette * 16 + c)
         return set !== undefined ? bgr555ToRgba(set) : getPaletteColor(model, p.palette, c)
       }
-      blit(out, width, p, [ax + p.dx - box.x0, ay + p.dy - box.y0], pixels[i]!, row)
+      blit(out, prio, width, p, [ax + p.dx - box.x0, ay + p.dy - box.y0], pixels[i]!, row)
     })
     return {
       index: s.index,
@@ -222,6 +233,7 @@ export function drawSprites(
       y: ay,
       box,
       rgba: base64(out),
+      priority: base64(new Uint8ClampedArray(prio.buffer)),
       status: 'drawn',
       ...('unverified' in res && res.unverified ? { unverified: res.unverified } : {}),
     }
@@ -264,12 +276,12 @@ const neighbour = (char: number, cx: number, cy: number): number =>
 /**
  * The interpreter's `chosen` frame as drawable parts. A 16 x 16 OAM entry is
  * four 8 x 8 chars (tile, +1, +$10, +$11, wrapping as `neighbour` says: a
- * flip swaps which char sits where). Highest OAM index first, so the lower index (higher priority) is
+ * flip swaps which char sits where). Highest OAM index first, so the lower index (in front of the other OBJs) is
  * blitted last and wins an overlap. `char` is the 9-bit OBJ char; hackbench
  * numbers OBJ chars from $400.
  */
-export function interpParts(parts: readonly SpritePart[]): EnginePart[] {
-  const out: EnginePart[] = []
+export function interpParts(parts: readonly SpritePart[]): DrawPart[] {
+  const out: DrawPart[] = []
   for (const p of [...parts].sort((a, b) => b.oam - a.oam)) {
     const cells = p.size === 16 ? ([[0, 0], [1, 0], [0, 1], [1, 1]] as const) : ([[0, 0]] as const) // prettier-ignore
     for (const [cx, cy] of cells) {
@@ -277,6 +289,7 @@ export function interpParts(parts: readonly SpritePart[]): EnginePart[] {
       out.push({
         charNum: 0x400 + (p.size === 16 ? neighbour(p.char, cx, cy) : p.char),
         palette: p.palette,
+        priority: p.priority,
         flipX: p.flipX,
         flipY: p.flipY,
         dx: p.dx + (p.size === 16 ? col * 8 : 0),

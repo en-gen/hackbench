@@ -285,6 +285,12 @@ export interface MapSpriteDto {
   y: number
   box: { x0: number; y0: number; x1: number; y1: number }
   rgba: string
+  /**
+   * Each pixel's OAM priority 0-3 (#795), one byte per `box` pixel, base64: the
+   * attribute bits 5:4 of the part that wins the pixel. Absent on a placeholder,
+   * which has no OAM entry and keeps the pre-#795 slot, priority 2.
+   */
+  priority?: string
   status: 'drawn' | 'placeholder'
   reason?: string
   /**

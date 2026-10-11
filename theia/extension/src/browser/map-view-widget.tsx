@@ -30,7 +30,7 @@ import {
 import { ProjectContext } from './project-context'
 import { decodeRgba, TILE_PX } from './map16-pixels'
 import {
-  compositeSpriteScreen,
+  spritePlanes,
   decodeArts,
   hoverTarget,
   indicatorId,
@@ -618,9 +618,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     // prettier-ignore
     const planes: Partial<Record<SourceKey, Uint8ClampedArray | null>> = {}
     for (const k of MAP_PLANE_KEYS) if (this.layerShown(k)) planes[k] = shot.planes[k]?.data ?? null
-    // The sprites are one more source, not in color math (their palette split is #564's to add).
-    const sp = this.sprites
-    if (this.showSprites) planes.sprites = sp ? compositeSpriteScreen(sp.sprites, s, sp) : null
+    // The sprites are four more sources, one per OAM priority (#795), not in color math (their palette split is #564's to add).
+    if (this.showSprites) Object.assign(planes, spritePlanes(this.sprites, s))
     return planes
   }
 
@@ -1133,9 +1132,14 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     )
   }
 
-  /** The sources bottom to top over both screens (sprites included: `screenPlanes` places them), for stacking the source canvases. */
+  /**
+   * The sources bottom to top over both screens, for stacking the source canvases. The one sprite
+   * canvas (every priority) stands at OBJ.2's place; the other priorities have no canvas of their own.
+   */
   protected layerOrder(l: Layout): LayerKey[] {
-    return [...l.screens.sub, ...l.screens.main]
+    return [...l.screens.sub, ...l.screens.main].flatMap(k =>
+      k === 'sprites2' ? [SPRITES] : k.startsWith('sprites') ? [] : [k as MapPlaneKey],
+    )
   }
 
   protected layerShown(plane: LayerKey): boolean {

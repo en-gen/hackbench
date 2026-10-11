@@ -247,6 +247,11 @@ the 16 px grid. The frontend cuts each bitmap per screen
 (`compositeSpriteScreen`, `browser/map-view-model.ts`) into one `sprites`
 canvas per screen, stacked just under L1's priority plane. The `S` toggle
 hides those canvases with `visibility: hidden`, as L1 and L2 do.
+Each drawn sprite also carries `priority`, one byte per pixel: the OAM
+priority (attribute bits 5:4) of the part that wins the pixel (#795). The
+composite does not use the canvas: `spritePlanes` splits each screen's
+sprites into `sprites0` to `sprites3`, which `screenPlanes` places at their
+mode 1 slots ([obj-priority.md](../rom/obj-priority.md) section 5).
 
 ### The map tab's collision overlay (#435)
 

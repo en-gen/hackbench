@@ -15,6 +15,7 @@ import {
   type SourceKey,
   type ScreenInput,
 } from '../../../../src/rom/model/ColorMath'
+import { SPRITE_KEYS, type SpriteKey } from '../../../../src/rom/model/ScreenPlanes'
 import { decodeRgba } from './map16-pixels'
 import { SWITCH_ORDER } from './map16-view-model'
 
@@ -35,41 +36,76 @@ export interface ScreenGeometry {
   height: number
 }
 
-const decoded = new WeakMap<MapSpriteDto, Uint8ClampedArray>()
+const decoded = new WeakMap<MapSpriteDto, { rgba: Uint8ClampedArray; prio: Uint8Array | null }>()
+
+/** One screen's sprite pixels and each pixel's OAM priority (#795). */
+interface SpriteLayer {
+  rgba: Uint8ClampedArray
+  prio: Uint8Array
+}
 
 /**
- * One screen's sprite canvas, or null when no sprite reaches it. A sprite is one
+ * One screen's sprites, or null when no sprite reaches it. A sprite is one
  * bitmap in map pixels, so one that crosses a screen edge is cut into every screen
  * it overlaps, and what spills past the map's top or bottom is clipped. Sprites
  * stack in column order on a horizontal map and row order on a vertical one (the
- * stream's order breaks ties), later ones on top.
+ * stream's order breaks ties), later ones on top; a pixel keeps the priority of
+ * the sprite that wins it.
  */
-export function compositeSpriteScreen(
+function spriteLayer(
   sprites: readonly MapSpriteDto[],
   screen: number,
   g: ScreenGeometry,
-): Uint8ClampedArray | null {
+): SpriteLayer | null {
   const vertical = g.orientation === 'vertical'
   const [left, top] = vertical ? [0, screen * g.height] : [screen * g.width, 0]
   const order = [...sprites].sort((a, b) => (vertical ? a.y - b.y : a.x - b.x) || a.index - b.index)
-  let out: Uint8ClampedArray | null = null
+  let out: SpriteLayer | null = null
   for (const s of order) {
     const { x0, y0, x1, y1 } = s.box
     const [cx0, cx1] = [Math.max(x0, left), Math.min(x1, left + g.width)]
     const [cy0, cy1] = [Math.max(y0, top), Math.min(y1, top + g.height)]
     if (cx0 >= cx1 || cy0 >= cy1) continue
     let bmp = decoded.get(s)
-    if (!bmp) decoded.set(s, (bmp = decodeRgba(s.rgba)))
-    out ??= new Uint8ClampedArray(g.width * g.height * 4)
+    if (!bmp) decoded.set(s, (bmp = { rgba: decodeRgba(s.rgba), prio: s.priority ? new Uint8Array(decodeRgba(s.priority).buffer) : null })) // prettier-ignore
+    out ??= { rgba: new Uint8ClampedArray(g.width * g.height * 4), prio: new Uint8Array(g.width * g.height) } // prettier-ignore
     for (let y = cy0; y < cy1; y++) {
       for (let x = cx0; x < cx1; x++) {
-        const from = ((y - y0) * (x1 - x0) + (x - x0)) * 4
-        if (bmp[from + 3] === 0) continue
-        out.set(bmp.subarray(from, from + 4), ((y - top) * g.width + (x - left)) * 4)
+        const from = (y - y0) * (x1 - x0) + (x - x0)
+        if (bmp.rgba[from * 4 + 3] === 0) continue
+        const to = (y - top) * g.width + (x - left)
+        out.rgba.set(bmp.rgba.subarray(from * 4, from * 4 + 4), to * 4)
+        // No priority: a placeholder, at the pre-#795 slot.
+        out.prio[to] = bmp.prio ? bmp.prio[from]! : 2
       }
     }
   }
   return out
+}
+
+/** One screen's sprite canvas (every priority together), or null when no sprite reaches it. */
+export function compositeSpriteScreen(
+  sprites: readonly MapSpriteDto[],
+  screen: number,
+  g: ScreenGeometry,
+): Uint8ClampedArray | null {
+  return spriteLayer(sprites, screen, g)?.rgba ?? null
+}
+
+/** One screen's sprites split by OAM priority, the four sources `screenPlanes` places; null where none (or none read). */
+export function spritePlanes(
+  sp: (ScreenGeometry & { sprites: readonly MapSpriteDto[] }) | undefined,
+  screen: number,
+): Record<SpriteKey, Uint8ClampedArray | null> {
+  const planes: Record<SpriteKey, Uint8ClampedArray | null> = { sprites0: null, sprites1: null, sprites2: null, sprites3: null } // prettier-ignore
+  const layer = sp && spriteLayer(sp.sprites, screen, sp)
+  if (!layer) return planes
+  layer.prio.forEach((p, i) => {
+    if (layer.rgba[i * 4 + 3] === 0) return
+    const plane = (planes[SPRITE_KEYS[p]!] ??= new Uint8ClampedArray(layer.rgba.length))
+    plane.set(layer.rgba.subarray(i * 4, i * 4 + 4), i * 4)
+  })
+  return planes
 }
 
 /** The canvas surface the sprite painter needs: a subset of HTMLCanvasElement. */
