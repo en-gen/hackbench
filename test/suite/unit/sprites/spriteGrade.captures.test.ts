@@ -242,6 +242,8 @@ const FLOOR = {
   maxEmpty: 20,
   maxWrong: 175,
   maxMissAtK: 30,
+  // 38 measured (spawned records without initFrame); all-timed would read 0.
+  minFallbacks: 30,
   // 25 measured; a runner that stops counting misses (or stops grading at k) drops below.
   minMissAtK: 20,
 }
@@ -281,6 +283,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     expect(by.empty ?? 0).toBeLessThanOrEqual(FLOOR.maxEmpty)
     expect(by.wrong ?? 0).toBeLessThanOrEqual(FLOOR.maxWrong)
     // 38 records carry no initFrame (the spawned ones) and grade the old way.
+    expect(fallbacks).toBeGreaterThanOrEqual(FLOOR.minFallbacks)
     expect(fallbacks).toBeLessThanOrEqual(40)
     expect(missAtK).toBeLessThanOrEqual(FLOOR.maxMissAtK)
     expect(missAtK).toBeGreaterThanOrEqual(FLOOR.minMissAtK)

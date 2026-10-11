@@ -640,6 +640,9 @@ Layers_v5, 1,957 recorded sprites, ROM seed unless stated:
 | chosen frame, oracle seed                   | 914   | 563   | 131   | 344   | 0       | 5     |
 | chosen frame, generic seed (no level state) | 931   | 469   | 130   | 343   | 56      | 28    |
 
+These rows predate #844 (first drawing pass, Mario fixed); the current
+headline is in section 13.3.
+
 The 280 sprites between chosen and best-of-64 are animation phase: Mesen's
 recorded frames come later than the first draw (Rip Van Fish asleep is tile
 `$AE` first, `$8C/$8E` later). That is a frame-choice policy gap, not a seed
@@ -735,7 +738,7 @@ was re-measured on it):
 
 | Seed                                   | exact | shape | close | wrong | refused | empty |
 | -------------------------------------- | ----- | ----- | ----- | ----- | ------- | ----- |
-| ROM-run level loader (headline)        | 936   | 572   | 136   | 300   | 0       | 13    |
+| ROM-run level loader (before #844)     | 936   | 572   | 136   | 300   | 0       | 13    |
 | oracle (capture level cells and Map16) | 942   | 565   | 131   | 318   | 0       | 1     |
 | generic (placement only)               | 951   | 469   | 130   | 327   | 56      | 24    |
 
