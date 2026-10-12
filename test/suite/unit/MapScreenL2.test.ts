@@ -376,6 +376,31 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       return ok(buildL2Inputs(smw(rom, vertical), LEVEL, inputs(vertical ? vGrid(1) : hGrid(1), vertical, 1), entrances, stock)) // prettier-ignore
     }
 
+    // D51 B: the #637 object gate refuses first, so the entrances never change a refusal or add the
+    // height note to it. Disagreeing entrances and a failing start gate both present throughout.
+    it('the object gate refuses first with disagreeing entrances and a failed start gate, in every mode', () => {
+      const disagree = via(true, false, A)
+      const failed = () => 'the loader differs'
+      const at = (rom: RomFile, mode: number) => {
+        objects([[1]])
+        const m = inputs(vGrid(1), true, 1)
+        return buildL2Inputs(smw(rom, true), LEVEL, { ...m, header: { ...m.header, levelMode: mode } }, disagree, failed) // prettier-ignore
+      }
+      const stockRom = entry(3)
+      const chainRom = entry(3)
+      chainRom.writeAt(SKIP_CHAIN_B_AT + 5, [0xea, 0xea])
+      for (let mode = 0; mode < 32; mode++) {
+        const hex = mode.toString(16).toUpperCase().padStart(2, '0')
+        const skipped = NO_L2_OBJECT_MODES.includes(mode)
+        const plain = at(stockRom, mode)
+        if (skipped)
+          expect(plain, `mode ${mode}`).toEqual({ ok: false, reason: `The game loads no layer 2 objects in level mode $${hex}` }) // prettier-ignore
+        else
+          expect(plain.ok && plain.l2.note, `mode ${mode}`).toMatch(/^Background height unverified/)
+        expect(at(chainRom, mode), `mode ${mode}`).toEqual({ ok: false, reason: `Layer 2 not drawn: the mode-skip chain of this ROM is not recognized (level mode $${hex})` }) // prettier-ignore
+      }
+    })
+
     it('a map reached only by a secondary entrance takes its low bytes from FA00 and its high byte from FC00', () => {
       expect(build(entry(1), via(false, false, A))).toMatchObject({ dy: 0x540 - 0x560, note: undefined }) // prettier-ignore
       expect(build(entry(3), via(false, false, A)).dy).toBe(0x540 - 0x60) // L2's high byte stays 0 at setting 3
