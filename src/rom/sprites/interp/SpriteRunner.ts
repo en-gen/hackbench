@@ -11,6 +11,7 @@ import type { Cpu65816 } from '../../cpu/Cpu65816'
 import { callSubroutine, describe, Refusal } from '../../cpu/call'
 import type { RomFile } from '../../RomFile'
 import { mapperProblem } from './Guards'
+import { type DispatchShape, grinderDrawsBeforeSnap } from './LineGuided'
 import { smwMachine } from './Machine'
 import {
   checkGetRand,
@@ -90,7 +91,7 @@ export interface SpritePart {
   priority: number
   flipX: boolean
   flipY: boolean
-  /** Pixels from the post-INIT sprite position. */
+  /** Pixels from the pass's draw origin (`PassResult.origin`): the post-INIT position, except for $67 on a vanilla-shaped handler. */
   dx: number
   dy: number
   /** Raw attribute byte, for graders that compare it whole. */
@@ -110,6 +111,8 @@ export interface PassResult {
   pass: number
   /** Level position of the sprite at the end of this pass. */
   pos: { x: number; y: number }
+  /** Where this pass's parts are measured from: `SpriteModel.anchor`, except for $67 on a vanilla-shaped handler (where the pass before left it). */
+  origin: { x: number; y: number }
   parts: SpritePart[]
   /** Palette or graphics uploads the pass wrote registers for. */
   uploads: string[]
@@ -128,7 +131,7 @@ export interface SpriteModel {
   refusal?: string
   /** Why no part was drawn across all passes, when the run completed. */
   emptyReason?: string
-  /** Position after INIT, and the raw placement it started from. */
+  /** Position after INIT, and the raw placement it started from. For $67 on a vanilla-shaped handler: the position its drawn (chosen) pass drew at, after the line snap. */
   anchor?: { x: number; y: number; rawX: number; rawY: number }
   /**
    * Where the level state came from: the ROM's own level loader, or a generic
@@ -144,10 +147,13 @@ export interface SpriteModel {
   passes: PassResult[]
   /**
    * The frame policy: index of the first pass at or after INIT that draws at
-   * least one tile (within the pass cap), absent when none does. A policy, not
-   * a claim about which frame a map should show.
+   * least one tile (within the pass cap), absent when none does; for $67 on a vanilla-shaped
+   * handler, the pass on the line: two after it when each step moved the sprite and draws (#126). A policy, not a claim about which
+   * frame a map should show.
    */
   chosen?: number
+  /** Why a $67 on a vanilla-shaped handler stayed on its first drawn pass although the next one draws. */
+  lineStepReason?: string
   dependsOn: DependsOn[]
   /** Instruction counts: INIT, then each MAIN pass. */
   steps: number[]
@@ -175,6 +181,8 @@ export interface RunOptions {
   spawn?: SpawnRun
   probe?: Probe
   trackInputs?: boolean
+  /** The dispatch shape the $67 gate accepts; a test hook, so a synthetic cart brings its own (default: vanilla's). */
+  grinderDispatch?: DispatchShape
 }
 
 export { Refusal }
@@ -431,6 +439,14 @@ function uploadsOf(m: Machine, before: Map<number, number>): string[] {
 /** Debug hook: sees WRAM after INIT (pass -1) and after each MAIN pass. */
 export type Probe = (pass: number, wram: Uint8Array) => void
 
+/**
+ * The grinder draws, then its line step moves it (SMWDisX bank_01.asm:12194-12204, corner stores 12054-12061),
+ * so it draws three different spots: the off-track INIT spot, the probe corner the first MAIN snapped to, and the
+ * line point the walk then set. The editor draws the third (#126).
+ * $67 only: the other line-guided ids share the order; that family is follow-up #792.
+ */
+const DRAWS_BEFORE_LINE_SNAP: ReadonlySet<number> = new Set([0x67])
+
 /** Run once with a seed; no dependsOn analysis (half the cost of `runSprite`). */
 export function runOnce(
   rom: RomFile,
@@ -504,6 +520,9 @@ export function runOnce(
     if (st === 1)
       return { ...model, refusal: `INIT did not complete in ${MAX_INIT_FRAMES} frames: status stays 1, waiting on state the seed lacks` } // prettier-ignore
     const anchor = m.pos()
+    const snaps =
+      DRAWS_BEFORE_LINE_SNAP.has(id) &&
+      grinderDrawsBeforeSnap(rom, mains.handler.address, opts.grinderDispatch)
     model.anchor = { ...anchor, rawX: m.seed.sprite.x, rawY: m.seed.sprite.y }
     model.oamBase = w[RAM.oamIndex + m.seed.slot]
     probe?.(-1, w)
@@ -517,10 +536,13 @@ export function runOnce(
       m.frame()
       model.steps.push(m.steps - n)
       probe?.(p, w)
+      // The draw ran before this pass's own move, so for $67 it ran where the pass before left it.
+      const origin = snaps ? (model.passes[p - 1]?.pos ?? anchor) : anchor
       model.passes.push({
         pass: p,
         pos: m.pos(),
-        parts: readParts(m, anchor),
+        origin: { x: origin.x, y: origin.y },
+        parts: readParts(m, origin),
         uploads: uploadsOf(m, hw),
         palette: m.paletteWrites(),
       })
@@ -528,6 +550,21 @@ export function runOnce(
     if (m.bus.inputs) model.inputs = [...m.bus.inputs].sort((a, b) => a - b)
     const first = model.passes.findIndex(p => p.parts.length > 0)
     if (first >= 0) model.chosen = first
+    // $67 draws before its own move (SMWDisX bank_01.asm:12194-12204). Pass 0 draws at the off-track INIT spot,
+    // pass 1 at the probe-corner spot the first MAIN snapped to (CODE_01D8A4, 12045-12061), pass 2 at the spot the
+    // line walk then set, which is on the line (CODE_01D768 / CODE_01D7B0, 11863-11930; Mesen capture 6b47bb75 slot
+    // $1F: (415,336) -> (419,340) -> (431,336)). Each step is only taken if the pass before it moved the sprite
+    // and the next pass draws; a fingerprint match cannot prove that. A first draw after pass 0 is already on track.
+    if (snaps && first === 0 && model.passes[1]?.parts.length) {
+      const [q0, q1] = [model.passes[0]!.pos, model.passes[1]!.pos]
+      const moved = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+        a.x !== b.x || a.y !== b.y
+      if (!moved(q0, anchor))
+        model.lineStepReason = 'the line step did not move the sprite on pass 0: kept the first drawn pass' // prettier-ignore
+      else model.chosen = model.passes[2]?.parts.length && moved(q0, q1) ? 2 : 1
+    }
+    if (snaps && model.chosen !== undefined)
+      model.anchor = { ...model.anchor!, ...model.passes[model.chosen]!.origin }
     if (model.passes.every(p => p.parts.length === 0))
       model.emptyReason = `drew no OAM tile in ${m.seed.mainPasses} passes (invisible by design, or the seed lacks state)` // prettier-ignore
   } catch (e) {
@@ -561,7 +598,8 @@ export function runSprite(
   const a = runOnce(rom, id, seed, opts)
   if (a.refusal) return a
   const other = seed.mario.x >= seed.sprite.x ? seed.sprite.x - 0x40 : seed.sprite.x + 0x40
-  const b = runOnce(rom, id, withSeed({ mario: { x: other, y: seed.mario.y } }, seed))
+  // opts carry over, but not `probe`: a caller's probe watches the real run, not the mirrored one.
+  const b = runOnce(rom, id, withSeed({ mario: { x: other, y: seed.mario.y } }, seed), { ...opts, probe: undefined }) // prettier-ignore
   if (!b.refusal && partsKey(a) !== partsKey(b)) a.dependsOn.push('marioX')
   return a
 }
