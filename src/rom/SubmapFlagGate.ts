@@ -127,6 +127,30 @@ export const SCREEN_EXIT: readonly StockCode[] = [
 ]
 
 /**
+ * The level load's start-position code the map view's L2 height reads tables through (#505):
+ * the secondary entrance block, and CODE_05D8B7 from the DATA_05F000 read to CODE_05DA17 (the
+ * settings, ScreenMode, primary rows, midway branch and high bytes). Vanilla only, measured; on
+ * the 4 corpus hacks both spans differ, so their heights are unverified.
+ */
+export const LEVEL_START_Y: readonly (StockCode | StockSpan)[] = [
+  REACH,
+  {
+    addr: 0x05d7ea,
+    length: 84,
+    fingerprints: ['0205f62a9a66930567e58633c6a3c4420bea50ae960a91bceeede88a71cac967'],
+    what: 'the secondary entrance position reads',
+    cite: 'bank_05.asm:7120-7162',
+  },
+  {
+    addr: 0x05d90d,
+    length: 0x05da17 - 0x05d90d,
+    fingerprints: ['e46e2778b7b31911e83daf9531dbc9b5bd56f49aa10b594e4e354476f9969d23'],
+    what: 'the level start positions',
+    cite: 'bank_05.asm:7268-7395',
+  },
+]
+
+/**
  * The high byte `LDA #imm` at `at` loads for a submap, or a refusal: the
  * pointer table has $200 slots, so only 0 and 1 name one.
  */

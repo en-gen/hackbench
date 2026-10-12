@@ -8,7 +8,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { openProject } from './Project'
 
-export type MetaConcern = 'aliases' | 'groups'
+export type MetaConcern = 'aliases' | 'groups' | 'data-banks'
 
 export const META_DIR = 'meta'
 
