@@ -66,13 +66,13 @@ Layer 2 and Layer 3 placed by the game's own rules.
 
 ## Q1. Which camera is the picture drawn for?
 
-A map is wider than one screen, so a parallax picture needs one camera.
+A map wider than one screen needs one camera, so a parallax picture is drawn for one camera.
 
 - View centre: moves with scroll, so the picture changes while the user only
   looks. At fit zoom nothing scrolls (#521 says the same), so there is no
   camera at all. Rejected. `[INF]`
 - Player's start: already the load-time truth. The map view draws the
-  level-start relation (`dy`, `L2Model.ts`) and the start is read for every map
+  map-start relation (`dy`, `L2Model.ts`) and the start is read for every map
   (`readMarioStartPos`, #781). Stable.
 - Draggable camera (#521): an explicit camera at any zoom; defaults to the
   start, clamped to the camera's ROM-read range. The only one that answers
@@ -286,7 +286,7 @@ around the drawn map would leave room to append or prepend a screen.
 
 ### G1. Is there Layer 2 or Layer 3 past the foreground?
 
-The game's camera is clamped to the level, so it never shows any. Horizontal
+The game's camera is clamped to the map, so it never shows any. Horizontal
 camera X is clamped to 0 at the left, and at the right to `(LastScreenHoriz - 1)
 << 8`, the left edge of the last screen (SMWDisX `bank_00.asm:13679-13691`).
 `[EST]` (code reading, not run.) At horizontal rate 1/2 Layer 2 only ever shows
@@ -344,15 +344,15 @@ What the ROM allows `[EST]` (SMWDisX, header read, vanilla layout):
   a vertical one; `!LevelMaxScreens` is 32 too (`bank_00.asm:2652-2653`). The
   gutter hides its add action at 32.
 - Whether all 32 are addressable by objects in a vertical map, and whether the
-  level data still fits its ROM space, is `[OPEN]`; not read here.
+  map data still fits its ROM space, is `[OPEN]`; not read here.
 
 Appending is cheap: raise the count by one; nothing else moves. `[INF]`
 
 Prepending is a rewrite. A new first screen pushes every screen number up by
 one: all layer 1 objects, the Layer 2 object stream when present, all sprites
 (`parseLevelSprites`), the screen exit table
-(`parseLevelScreenExits`), and the header count. Pointers in other levels that
-land here by screen (entrances, secondary exits) are `[OPEN]`: not traced. A
+(`parseLevelScreenExits`), and the header count. Pointers in other maps that
+land here by screen (screen exits, secondary entrances) are `[OPEN]`: not traced. A
 preset image also slides 256 px against the foreground, half its 512 px period,
 so it would no longer match the author's alignment. `[INF]`
 
