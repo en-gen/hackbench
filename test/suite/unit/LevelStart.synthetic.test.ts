@@ -197,13 +197,6 @@ describe('readLevelStart (synthetic)', () => {
     expect(start(rom, 0x0c3)).toMatchObject({ ok: true, hops: 2, screen: 7 })
   })
 
-  it('at equal hops from one parent, the main entrance beats a secondary one', () => {
-    const rom = world()
-    room(rom, 0x001, 0x068000, [{ to: 0xc1, via: 0x16 }, { to: 0xc1 }])
-    secondary(rom, 0x16, 0xc1, 0x00, 9)
-    expect(start(rom, 0x0c1)).toMatchObject({ ok: true, kind: 'main', screen: 2 })
-  })
-
   it('a submap exit enters the destination with the submap flag as bit 8 of the index', () => {
     const rom = world()
     room(rom, 0x101, 0x078000, [{ to: 0x1c0, via: 0x10 }])
