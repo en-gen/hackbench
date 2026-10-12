@@ -857,8 +857,13 @@ describe('sprite animation frame', () => {
       attr: 0,
       sizeXHigh: 0,
     })
-    const single = { x: 100, y: 50, cameraX: 0, cameraY: 0, frames: [], entries: [e(1, 232), e(2, 248), e(3, 0xf0)] } // prettier-ignore
-    expect(spriteFrame(single, 0).pieces?.map(p => p.tile)).toEqual([1, 2])
+    // Sweep the whole 224-255 band: a filter that also drops Y 255 (or any one Y) must go red.
+    const ys = Array.from({ length: 32 }, (_, k) => 224 + k)
+    const single = { x: 100, y: 50, cameraX: 0, cameraY: 0, frames: [], entries: ys.map(y => e(y, y)) } // prettier-ignore
+    const kept = spriteFrame(single, 0).pieces?.map(p => p.tile) ?? []
+    expect(kept).toHaveLength(31)
+    expect(kept).toEqual(ys.filter(y => y !== 0xf0))
+    expect(kept).not.toContain(0xf0)
   })
 })
 
