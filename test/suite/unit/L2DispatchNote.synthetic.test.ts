@@ -8,6 +8,10 @@ import { RomFile } from '../../../src/rom/RomFile'
 import { createGrid, expandObject } from '../../../src/rom/ObjectExpander'
 import { parseL2Objects } from '../../../src/rom/LevelParser'
 import { loadL2Objects } from '../../../src/rom/L2Loader'
+import { buildL2Inputs } from '../../../src/rom/model/L2Model'
+import type { L1Inputs } from '../../../src/rom/model/L1Model'
+import type { SmwRom } from '../../../src/rom/SmwRom'
+import { writeStockSkipChain } from '../support/skipChain'
 import { STANDARD_HANDLERS } from '../../../src/rom/objectHandlers/dispatch'
 import { ADDR_TILESET_DISPATCH } from '../../../src/rom/objectHandlers/romData'
 
@@ -95,5 +99,31 @@ describe('loadL2Objects dispatch note (#493)', () => {
     expect(r.unverified).toEqual([])
     expect(r.grid).toEqual(nullSinkGrid(rom))
     expect(r.grid).not.toEqual(createGrid(1)) // the port drew something, so a no-op draw would differ
+  })
+})
+
+// MapScreenL2 mocks loadL2Objects, so only this unmocked path proves the real loader's note
+// survives buildL2Inputs onto the L2 inputs (#493).
+describe('buildL2Inputs over the real loader (#493)', () => {
+  const build = (edit: (b: Buffer) => void) => {
+    const rom = cart(b => {
+      b.set([0x00, 0x80, 0x07], off(0x05e600)) // level 0 L2 pointer -> $078000, an object stream
+      b[off(0x05803b)] = 0xc9 // stock CMP #$FF at the L2 preset check
+      edit(b)
+    })
+    writeStockSkipChain(rom)
+    const smw = { rom, getVerticalTable: () => ({ ok: true, table: new Array(32).fill(0) }) }
+    const l1 = { screenCount: 1, isVertical: false, header: { levelMode: 1, objectTileset: 0 }, map16: { tiles: [] } } // prettier-ignore
+    return buildL2Inputs(smw as unknown as SmwRom, 0, l1 as unknown as L1Inputs)
+  }
+
+  it('a hooked $0DA415 reaches l2.unverified; stock bytes leave it empty', () => {
+    const hooked = build(hook)
+    if (!hooked.ok) throw new Error(hooked.reason)
+    expect(hooked.l2.unverified).toHaveLength(1)
+    expect(hooked.l2.unverified![0]).toContain('$0DA415')
+    const stock = build(() => {})
+    if (!stock.ok) throw new Error(stock.reason)
+    expect(stock.l2.unverified).toEqual([])
   })
 })

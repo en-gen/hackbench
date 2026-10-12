@@ -301,10 +301,8 @@ export function loadL2Objects(
   // mirrors L1's - in vanilla SMW, L2 verticality tracks L1 closely.
   const objects = parseL2Objects(raw, screens, isVertical)
   const grid = createGrid(screens, isVertical)
-  // L2 draws from the ports; the sink collects the notes the ports write (#493): the dispatch-path
-  // note and the #452 opcode-gate refusals (a refused handler draws nothing). Its draw always
-  // declines, so no gated handler is interpreted and the grid matches the null-sink output; a
-  // missing draw would add a spurious "no interpreter" note to stock maps.
+  // Returning false from draw preserves the null-sink grid. A sink without a draw callback would
+  // record 'no interpreter was supplied' for an interpreted handler, a spurious note on stock maps.
   const unverified: string[] = []
   const sink = { unverified, draw: () => false, primitives: [], vertical: isVertical }
   for (const obj of objects) {
