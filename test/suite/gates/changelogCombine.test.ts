@@ -261,19 +261,10 @@ describe('changelog-combine', () => {
         GIT_CONFIG_NOSYSTEM: '1',
       }
       for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE']) delete env[k]
-      return spawnSync(
-        'git',
-        ['-C', root, '-c', `core.hooksPath=${hooks}`, '-c', 'commit.gpgsign=false'].concat([
-          '-c',
-          'core.autocrlf=false',
-          '-c',
-          'user.name=t',
-          '-c',
-          'user.email=t@t',
-          ...a,
-        ]),
-        { encoding: 'utf8', env },
-      )
+      const cfg = ['core.hooksPath=' + hooks, 'commit.gpgsign=false', 'core.autocrlf=false']
+      cfg.push('user.name=t', 'user.email=t@t')
+      const args = ['-C', root, ...cfg.flatMap(c => ['-c', c]), ...a]
+      return spawnSync('git', args, { encoding: 'utf8', env })
     }
     const ok = (...a: string[]) => expect(git(...a).status, a.join(' ')).toBe(0)
     const branches = (edit: (b: string) => void) => {
