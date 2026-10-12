@@ -1355,6 +1355,66 @@ test('$4F on $105 is served at its stream position plus the (8, -1) its INIT add
   ])
 })
 
+/**
+ * #126: a vanilla grinder ($67) draws, then steps onto its line, so its first drawn pass is at the
+ * off-track spawn spot, the second at the probe-corner spot and the third on the track. $01A's first
+ * grinder draws on all three. Values from the interpreter on vanilla (LineGuidedDraw.test.ts pins the same
+ * anchor): pass 2 at (751, 367), pass 1 at (739, 356), pass 0 at (735, 352). Passes 1 and 2 draw the same
+ * frame and pass 0 another with the same opaque count, so the frame is told apart by checksumOf over the
+ * served bitmap: 896249997 for passes 1 and 2, 3767367845 for pass 0 (pass 2's position and checksum recomputed
+ * offline with the widget's functions on the vanilla ROM, one machine, 2026-10-11; pass 0's is the
+ * 2026-10-10 measurement).
+ */
+test('a vanilla grinder is served on its track, at the third pass, not at its spawn spot', async ({
+  page,
+}) => {
+  // The pinned numbers are the vanilla ROM's; a custom HB_ROM or a missing corpus ROM cannot match them.
+  test.skip(
+    !!process.env.HB_ROM || !fs.existsSync(romPath(VANILLA)),
+    'needs the vanilla corpus ROM',
+  )
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x01a)
+  const reply = await page.evaluate(
+    mp => getSvc('Symbol(ProjectService)').mapSprites(mp, 0x01a),
+    project.manifestPath,
+  )
+  expect(reply.status).toBe('ok')
+  const grinder = reply.sprites.find(s => s.id === 0x67)
+  expect(grinder).toMatchObject({ x: 751, y: 367, status: 'drawn' })
+  // The four 16 x 16 body pieces sit around the anchor: a 32 x 32 box, not the spawn spot's (719, 336)
+  // or the probe corner's (723, 340).
+  expect(grinder.box).toEqual({ x0: 735, y0: 351, x1: 767, y1: 383 })
+  const sum = await page.evaluate(
+    rgba => checksumOf(Uint8Array.from(atob(rgba), ch => ch.charCodeAt(0))),
+    grinder.rgba,
+  )
+  expect(sum, 'the third pass frame (same as the second), not the first (3767367845)').toBe(
+    896249997,
+  )
+
+  // And the canvas holds that bitmap at that box (screen 2 starts at x 512).
+  await showScreen(page, 0x01a, 2)
+  await expect(spritePlane(page, 0x01a, 2)).toHaveAttribute('data-drawn', SPRITES_DRAWN)
+  const same = await page.evaluate(
+    ({ sel, s }) => {
+      const ctx = document.querySelector(sel).getContext('2d')
+      const got = ctx.getImageData(s.box.x0 - 512, s.box.y0, 32, 32).data
+      const want = Uint8Array.from(atob(s.rgba), ch => ch.charCodeAt(0))
+      let opaque = 0
+      for (let i = 0; i < want.length; i += 4) {
+        if (want[i + 3] !== 255) continue
+        opaque++
+        for (let k = 0; k < 4; k++) if (got[i + k] !== want[i + k]) return { opaque, ok: false }
+      }
+      return { opaque, ok: true }
+    },
+    { sel: `${root(0x01a)} canvas[data-screen="2"][data-plane="sprites"]`, s: grinder },
+  )
+  expect(same.opaque).toBeGreaterThan(0)
+  expect(same.ok, 'the canvas holds the served bitmap at its box').toBe(true)
+})
+
 test('a sprite stream with no end marker shows its note on the map tab', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x106)

@@ -52,7 +52,6 @@ const keys = (ps: RecordedPiece[], f: (p: RecordedPiece) => string): string =>
 
 /** The model's parts for one pass, as the recorded shape, offsets from the pass's own position. */
 export function passPieces(m: SpriteModel, pass: number): RecordedPiece[] {
-  const a = m.anchor!
   const p = m.passes[pass]
   // Only Y $F0 (parked) is absent from a recorded frame: the capture keeps a frame only when no
   // written entry has it (hackbench-validation headless_capture.lua:1352, gate at 1371-1372).
@@ -60,8 +59,8 @@ export function passPieces(m: SpriteModel, pass: number): RecordedPiece[] {
   return p.parts
     .filter(q => q.oy !== 0xf0)
     .map(q => ({
-      dx: q.dx + (a.x - p.pos.x),
-      dy: q.dy + (a.y - p.pos.y),
+      dx: q.dx + (p.origin.x - p.pos.x),
+      dy: q.dy + (p.origin.y - p.pos.y),
       tile: q.char & 0xff,
       attr: q.attr,
       large: q.size === 16,
