@@ -320,6 +320,34 @@ describe('drawL3Planes (synthetic)', () => {
     expect(px(p, 256, 3, 0x30 + 3)[0]).toBe(L3_COLOR)
   })
 
+  it('Layer3XPos at load shifts every column left by that many pixels, a part tile included (#807)', () => {
+    const p = drawL3Planes(l3Of([word(8, 4, L3_WORD(false))], { xPx: 0x23 }), 0).l3Low!
+    // Column 4 starts at x 32 and sits at 32 - 35 = -3: only its last 5 pixels show.
+    expect([alpha(p, 0, 3), alpha(p, 4, 3), alpha(p, 5, 3)]).toEqual([255, 255, 0])
+  })
+
+  it('a part tile at the right edge stays in its row (#807)', () => {
+    // xPx 3: column 32 starts at screen x 253, so its last 5 pixels would spill into the next row.
+    const p = drawL3Planes(l3Of([word(8, 32, L3_WORD(false))], { xPx: 3, yPx: 64 - 100 }), 0).l3Low!
+    expect([alpha(p, 255, 103), alpha(p, 0, 104), alpha(p, 4, 104)]).toEqual([255, 0, 0])
+  })
+
+  it('the same tile on the bottom row does not throw (#807)', () => {
+    const run = () =>
+      drawL3Planes(l3Of([word(8, 32, L3_WORD(false))], { xPx: 3, yPx: 64 - 424 }), 0)
+    expect(run).not.toThrow()
+    expect(alpha(run().l3Low, 255, 427)).toBe(255)
+  })
+
+  it('a negative or large Layer3XPos wraps the 64-column tilemap instead of reading a missing cell (#807)', () => {
+    const w = [word(8, 63, L3_WORD(false)), word(8, 0, L3_WORD(false))]
+    for (const xPx of [-8, 512 - 8, 1024 - 8]) {
+      const p = drawL3Planes(l3Of(w, { xPx }), 0).l3Low!
+      // column 63 sits at screen x 0 for an xPx of 504 mod 512
+      expect([alpha(p, 3, 3), alpha(p, 8 + 3, 3)], `xPx ${xPx}`).toEqual([255, 255])
+    }
+  })
+
   it('palettes above 3 select their own CGRAM colors (palette P is P*4 + color)', () => {
     for (const pal of [3, 4, 5, 7]) {
       const p = drawL3Planes(l3Of([word(8, 0, (pal << 10) | 2)]), 0).l3Low!
@@ -367,8 +395,10 @@ describe('maps layer 3 is not drawn on (synthetic)', () => {
   })
 })
 
+const noSmash = () => ({ ok: true as const, pos: null })
+
 describe('tide or not, by the settings byte (synthetic)', () => {
-  const verdictFor = (byte: number, ts = 0) => buildL3Verdict(withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: ts, setting: 2, settingsByte: byte, word: L3_WORD(false), row: 30 }), 5, l1Of(0, ts, false), BG_OK, chars, GATE_OK) // prettier-ignore
+  const verdictFor = (byte: number, ts = 0) => buildL3Verdict(withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: ts, setting: 2, settingsByte: byte, word: L3_WORD(false), row: 30 }), 5, l1Of(0, ts, false), BG_OK, chars, GATE_OK, noSmash) // prettier-ignore
 
   it('$02, $50 and $7F are tides (256 px repeat); $80 and $C0 are not (512 px)', () => {
     expect([0x02, 0x50, 0x7f, 0x80, 0xc0].map(b => verdictFor(b).l3?.tide)).toEqual([true, true, true, false, false]) // prettier-ignore
@@ -461,3 +491,17 @@ describe.skipIf(!hasRom(VANILLA))(
     }, 60_000)
   },
 )
+
+describe('a $80 level under a smash sprite (synthetic, #807)', () => {
+  const rom = () => withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: 1, setting: 2, settingsByte: 0x80, word: L3_WORD(false) }) // prettier-ignore
+  const verdictWith = (smash: Parameters<typeof buildL3Verdict>[6]) => buildL3Verdict(rom(), 5, l1Of(0, 1, false), BG_OK, chars, GATE_OK, smash) // prettier-ignore
+
+  it('takes the smasher position, and keeps $D0 with X 0 when no smasher is loaded', () => {
+    expect(verdictWith(() => ({ ok: true, pos: { x: 256, y: 160 } })).l3).toMatchObject({ xPx: 256, yPx: 160 }) // prettier-ignore
+    expect(verdictWith(noSmash).l3).toMatchObject({ xPx: 0, yPx: 0xd0 })
+  })
+
+  it('refuses with the reason when the smash read refuses', () => {
+    expect(verdictWith(() => ({ ok: false, reason: 'because' }))).toMatchObject({ l3: null, reason: 'because' }) // prettier-ignore
+  })
+})

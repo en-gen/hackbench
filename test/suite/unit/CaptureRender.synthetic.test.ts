@@ -847,6 +847,107 @@ describe('sprite animation frame', () => {
     expect(r.pieces).toEqual([{ i: 5, dx: 0, dy: 0, tile: 7, attr: 0, large: 1 }])
     expect(r.reason).toBe('')
   })
+
+  it('hides only OAM Y $F0, not the 224-255 band (#838)', () => {
+    const e = (entry: number, y: number) => ({
+      entry,
+      x: 100,
+      y,
+      tile: entry,
+      attr: 0,
+      sizeXHigh: 0,
+    })
+    // Sweep the whole 224-255 band: a filter that also drops Y 255 (or any one Y) must go red.
+    const ys = Array.from({ length: 32 }, (_, k) => 224 + k)
+    const single = { x: 100, y: 50, cameraX: 0, cameraY: 0, frames: [], entries: ys.map(y => e(y, y)) } // prettier-ignore
+    const kept = spriteFrame(single, 0).pieces?.map(p => p.tile) ?? []
+    expect(kept).toHaveLength(31)
+    expect(kept).toEqual(ys.filter(y => y !== 0xf0))
+    expect(kept).not.toContain(0xf0)
+  })
+})
+
+describe('recorded piece dy past 127 (#811)', () => {
+  // Shaped like the $104 capture: sprite at screen y -80 (y 112, camera 192), OAM lines $B0 and $B8,
+  // so the true dy are 256 and 264; the recorder stores them modulo 256 as 0 and 8.
+  const tiles = (dys: number[]) =>
+    dys.map((dy, k) => ({ dx: 0, dy, tile: k, attr: 0, large: false }))
+  const rec = (dys: number[], over = {}) => ({ x: 128, y: 112, cameraX: 0, cameraY: 192, frames: [{ frameIndex: 0, tiles: tiles(dys) }], ...over }) // prettier-ignore
+  const dyOf = (r: ReturnType<typeof spriteFrame>) => r.pieces?.map(p => p.dy)
+
+  it('unwraps the recorded dy to the offset that lands on the visible screen', () => {
+    expect(dyOf(spriteFrame(rec([0, 8]), 0))).toEqual([256, 264])
+  })
+  it('agrees with the entries path for the same pieces', () => {
+    const entries = [176, 184].map((y, k) => ({
+      entry: k,
+      x: 128,
+      y,
+      tile: k,
+      attr: 0,
+      sizeXHigh: 2,
+    }))
+    const viaEntries = spriteFrame(
+      { x: 128, y: 112, cameraX: 0, cameraY: 192, frames: [], entries },
+      0,
+    )
+    expect(dyOf(viaEntries)).toEqual([256, 264])
+  })
+  it('keeps dy as recorded when the record lacks y or cameraY', () => {
+    expect(dyOf(spriteFrame(rec([0, 8], { y: undefined }), 0))).toEqual([0, 8])
+  })
+  it('takes cameraY from the frame itself, not the record', () => {
+    const f = { frameIndex: 0, y: 112, cameraY: 0, tiles: tiles([0]) }
+    expect(dyOf(spriteFrame(rec([0], { frames: [f] }), 0))).toEqual([0])
+  })
+  it('takes y from the frame itself when only the frame has it', () => {
+    // Record y 300 would read dy 0 as 0 against cameraY 0 (line 300, wholly below: dropped);
+    // the frame's y 100 puts the sprite on line 100, so the piece is kept.
+    const f = { frameIndex: 0, y: 100, cameraY: 0, tiles: tiles([0]) }
+    expect(dyOf(spriteFrame(rec([0], { y: 300, cameraY: 0, frames: [f] }), 0))).toEqual([0])
+  })
+  it('keeps dy as recorded when cameraY is absent, however large y is', () => {
+    expect(dyOf(spriteFrame(rec([0], { y: 300, cameraY: undefined }), 0))).toEqual([0])
+  })
+  it('keeps a piece recorded in the 224-255 band, both sizes, at every sprite line', () => {
+    // The recorder omits Y $F0 pieces itself, so a relative piece is always kept (ruling on #811).
+    const r = (y: number, dy: number, large: boolean) => ({ x: 128, y, cameraX: 0, cameraY: y, frames: [{ frameIndex: 0, tiles: [{ dx: 0, dy, tile: 0, attr: 0, large }] }] }) // prettier-ignore
+    for (const large of [false, true]) {
+      for (const y of [0, 100, 224, 1000]) {
+        for (let dy = -128; dy <= 255; dy++) {
+          expect(
+            dyOf(spriteFrame(r(y, dy, large), 0)),
+            `y ${y} dy ${dy} large ${large}`,
+          ).toHaveLength(1)
+        }
+      }
+    }
+  })
+  it('keeps a dy -8 piece whatever size it reads from, large or sizeXHigh', () => {
+    const f = { x: 128, y: 100, cameraX: 0, cameraY: 100, frames: [{ frameIndex: 0, tiles: [{ dx: 0, dy: -8, tile: 0, attr: 0, sizeXHigh: 2 }] }] } // prettier-ignore
+    expect(dyOf(spriteFrame(f, 0))).toEqual([-8])
+    f.frames[0].tiles[0].sizeXHigh = 0
+    expect(dyOf(spriteFrame(f, 0))).toEqual([-8])
+  })
+  it('keeps pieces on both sides of the old top-edge boundary', () => {
+    const at = (y: number, dy: number) => dyOf(spriteFrame(rec([dy], { y, cameraY: y }), 0))
+    for (const y of [0, 100, 224, 1000]) for (const dy of [-9, -8, -7, 0]) expect(at(y, dy)).toEqual([dy]) // prettier-ignore
+  })
+  it('keeps a piece whose sprite-to-camera difference reads signed 16 bits', () => {
+    // y 0xFFFC against cameraY 0 is line -4, not 65532; the piece is kept at every dy swept.
+    for (let dy = -8; dy <= 8; dy++) {
+      expect(dyOf(spriteFrame(rec([dy], { y: 0xfffc, cameraY: 0 }), 0))).toEqual([dy])
+    }
+  })
+  it('draws a lone piece in the 224-255 band instead of reporting parked off screen', () => {
+    const r = spriteFrame({ x: 128, y: 100, cameraX: 0, cameraY: 100, frames: [{ frameIndex: 0, tiles: [{ dx: 0, dy: -8, tile: 0, attr: 0, large: false }] }] }, 0) // prettier-ignore
+    expect(r.pieces).toHaveLength(1)
+  })
+  it('leaves an ordinary dy alone, across the sprite positions on screen', () => {
+    for (let sy = 0; sy < 220; sy += 9) {
+      expect(dyOf(spriteFrame(rec([-4, 4], { y: 192 + sy }), 0))).toEqual([-4, 4])
+    }
+  })
 })
 
 describe('map sprites against their recorded frames', () => {

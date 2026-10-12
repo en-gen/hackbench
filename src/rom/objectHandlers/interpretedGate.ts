@@ -54,7 +54,10 @@ export function noteRefused(
   opcodeAt: number,
   expected: number,
   found: number | null,
+  reason?: string,
 ): void {
-  const line = formatRefusedLine(handler, opcodeAt, expected, found)
+  const line = reason
+    ? `Handler ${hex6(handler)} refused: ${reason}, so the object is not drawn.`
+    : formatRefusedLine(handler, opcodeAt, expected, found)
   if (unverified && !unverified.includes(line)) unverified.push(line)
 }
