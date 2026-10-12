@@ -34,6 +34,8 @@ import {
   doorIdAt,
   liftIfCovered,
   spritePlanes,
+  flamePlanes,
+  withFlameKeys,
   decodeArts,
   hoverTarget,
   indicatorId,
@@ -623,7 +625,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       width: shot.width,
       height: shot.height,
       planes,
-      lists: shot.screens,
+      lists: withFlameKeys(shot.screens),
       math: shot.math,
       doors: this.showSprites ? spriteDoors(this.sprites, s) : null,
       lift: this.lift,
@@ -649,7 +651,11 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const planes: Partial<Record<SourceKey, Uint8ClampedArray | null>> = {}
     for (const k of MAP_PLANE_KEYS) if (this.layerShown(k)) planes[k] = shot.planes[k]?.data ?? null
     // The sprites are four more sources, one per OAM priority (#795), not in color math (their palette split is #564's to add).
-    if (this.showSprites) Object.assign(planes, spritePlanes(this.sprites, s))
+    if (this.showSprites) {
+      Object.assign(planes, spritePlanes(this.sprites, s))
+      // The Layer 2 flames (#894) ride Layer 2's routing; its priority plane is read even while Layer 2 is hidden.
+      Object.assign(planes, flamePlanes(this.sprites, s, shot.planes.l2High?.data))
+    }
     return planes
   }
 
@@ -681,7 +687,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
         screen: s,
         geometry: b,
         planes: this.shownPlanes(s, shot),
-        lists: shot.screens,
+        lists: withFlameKeys(shot.screens),
         math: shot.math,
         doors: this.showSprites ? spriteDoors(this.sprites, s) : null,
         lift: this.lift,

@@ -1,0 +1,80 @@
+/**
+ * #894: the castle flames on the map view compose over Layer 2 and under Layer 1, follow the
+ * sprite toggle, and take no part in the sprite hover/door logic. Synthetic pixels, no ROM.
+ */
+import { describe, expect, it } from 'vitest'
+import { composeScreen, type SourceKey } from '../../../src/rom/model/ColorMath'
+import {
+  compositeSpriteScreen,
+  flamePlanes,
+  spriteDoors,
+  spritePlanes,
+  withFlameKeys,
+} from '../../../theia/extension/src/browser/map-view-model'
+import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
+
+const G = { orientation: 'horizontal' as const, width: 4, height: 1 }
+/** A 4 x 1 screen: flame green on pixels 1-2, drawn from a 2 px wide DTO at x 1. */
+const dto = (fixedTo?: 'layer2'): MapSpriteDto => ({
+  index: fixedTo ? -1 : 0,
+  id: 0xe6,
+  x: 1,
+  y: 0,
+  box: { x0: 1, y0: 0, x1: 3, y1: 1 },
+  rgba: Buffer.from([0, 255, 0, 255, 0, 255, 0, 255]).toString('base64'),
+  priority: Buffer.from([0, 0]).toString('base64'),
+  status: 'drawn',
+  ...(fixedTo ? { fixedTo } : {}),
+})
+const px = (c: [number, number, number, number][]) => new Uint8ClampedArray(c.flat())
+const RED: [number, number, number, number] = [255, 0, 0, 255]
+const BLUE: [number, number, number, number] = [0, 0, 255, 255]
+const NONE: [number, number, number, number] = [0, 0, 0, 0]
+
+describe('Layer 2 flame planes', () => {
+  it('a flame pixel joins the plane of the Layer 2 pixel it covers (high where l2High is opaque)', () => {
+    const l2High = px([NONE, NONE, RED, NONE])
+    const p = flamePlanes({ ...G, sprites: [dto('layer2')] }, 0, l2High)
+    expect([...p.spritesL2Low!]).toEqual([0, 0, 0, 0, 0, 255, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0])
+    expect([...p.spritesL2High!]).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 0, 255, 0, 0, 0, 0])
+    expect(flamePlanes({ ...G, sprites: [dto('layer2')] }, 0, null).spritesL2High).toBeNull()
+    expect(flamePlanes({ ...G, sprites: [dto()] }, 0, null)).toEqual({ spritesL2Low: null, spritesL2High: null }) // prettier-ignore
+  })
+
+  it('the ordinary sprite planes, canvas and doors leave them out', () => {
+    const sp = { ...G, sprites: [dto('layer2')] }
+    expect(spritePlanes(sp, 0)).toEqual({ sprites0: null, sprites1: null, sprites2: null, sprites3: null }) // prettier-ignore
+    expect(compositeSpriteScreen(sp.sprites, 0, G)).toBeNull()
+    expect(spriteDoors(sp, 0)).toBeNull()
+  })
+
+  it('withFlameKeys puts each flame plane right above its Layer 2 plane, only where sprites are listed', () => {
+    const lists = { main: ['l2Low', 'l1Low', 'l2High', 'sprites2', 'l1High'] as SourceKey[], sub: ['l2Low', 'l1Low'] as SourceKey[] } // prettier-ignore
+    expect(withFlameKeys(lists)).toEqual({
+      main: ['l2Low', 'spritesL2Low', 'l1Low', 'l2High', 'spritesL2High', 'sprites2', 'l1High'],
+      sub: ['l2Low', 'l1Low'],
+    })
+  })
+
+  it('composed: over Layer 2, under Layer 1 (both of its priorities), gone when the planes are left out', () => {
+    const l2Low = px([RED, RED, NONE, NONE])
+    const l2High = px([NONE, NONE, RED, NONE])
+    const l1Low = px([NONE, BLUE, NONE, NONE])
+    const l1High = px([NONE, NONE, BLUE, NONE])
+    const flames = flamePlanes({ ...G, sprites: [dto('layer2')] }, 0, l2High)
+    const lists = withFlameKeys({ main: ['l2Low', 'l1Low', 'l2High', 'sprites2', 'l1High'] as SourceKey[], sub: [] }) // prettier-ignore
+    const base = { width: 4, height: 1, lists, math: null }
+    const out = (planes: Parameters<typeof composeScreen>[0]['planes']) => [...composeScreen({ ...base, planes })] // prettier-ignore
+    const shown = out({ l2Low, l2High, l1Low, l1High, ...flames })
+    const at = (x: number) => shown.slice(x * 4, x * 4 + 4)
+    expect(at(0)).toEqual(RED) // Layer 2 alone
+    expect(at(1)).toEqual(BLUE) // flame over l2Low, but l1Low is over the flame
+    expect(at(2)).toEqual(BLUE) // flame over l2High, l1High over the flame
+    const gone = out({ l2Low, l2High, l1Low, l1High })
+    expect(gone.slice(4, 8)).toEqual(BLUE)
+    // Without Layer 1 on pixels 1-2 the flame itself shows, over the red.
+    const open = out({ l2Low, l2High, ...flames })
+    expect(open.slice(4, 12)).toEqual([0, 255, 0, 255, 0, 255, 0, 255])
+    expect(out({ l2Low, l2High }).slice(4, 8)).toEqual(RED)
+  })
+})

@@ -55,6 +55,11 @@ import {
   type PaletteWrite,
   type SpritePart,
 } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import {
+  castleFlames,
+  VANILLA_FLAME_ROUTINES,
+  type FlameRoutines,
+} from '../../../../src/rom/sprites/interp/CastleFlames'
 import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { withSeed, type SpriteSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { readSpriteTileTables } from '../../../../src/rom/SpriteTileLoader'
@@ -426,6 +431,65 @@ function fixOffsets(
   return { ...m, passes: m.passes.map((q, i) => (i === at ? { ...q, parts } : q)) }
 }
 
+/** Sprite $E6, whose spawn puts the castle flames on Layer 2 (CODE_02AAC0, SMWDisX bank_02.asm:5636-5637). */
+const CASTLE_FLAMES_ID = 0xe6
+
+/**
+ * The castle flames (#894): the ROM's own spawn and draw run with Layer 2 at zero give each flame's
+ * position in Layer 2 space; Layer 2 repeats every 256 px (a flame's byte position wraps), so a copy
+ * stands at every 256 px in X and Y across the map, `dy` pixels below that (the map's Layer1YPos -
+ * Layer2YPos, as the background is drawn). A stream without a plain $E6 has none. A run that is refused
+ * or a char that is not loaded draws none, and says so in the note.
+ */
+export function castleFlameSprites(
+  rom: RomFile,
+  seed: SpriteSeed,
+  sprites: readonly LevelSprite[],
+  model: SpriteModel & { isVertical: boolean; screenCount: number },
+  dy: number | undefined,
+  dynamic?: (note: PaletteNote) => RgbaColor[],
+  routines: FlameRoutines = VANILLA_FLAME_ROUTINES,
+): { sprites: MapSpriteDto[]; note?: string } {
+  if (!sprites.some(s => s.spriteId === CASTLE_FLAMES_ID && !(s.raw[0]! & EXTRA_BITS))) return { sprites: [] } // prettier-ignore
+  const none = (why: string) => ({ sprites: [], note: `The castle flames are not drawn: ${why}.` })
+  if (dy === undefined) return none('the background position is unknown')
+  const run = castleFlames(rom, seed, routines)
+  if (!run.ok) return none(run.reason)
+  if (run.parts.length === 0) return none('the routines drew nothing')
+  const { w, h } = screenTiles(model.isVertical)
+  const [mapW, mapH] = model.isVertical ? [w * TILE, model.screenCount * h * TILE] : [model.screenCount * w * TILE, h * TILE] // prettier-ignore
+  // One bitmap per flame per copy, not one per copy: a copy spans the whole width of its flames.
+  const jobs: { x: number; y: number; parts: DrawPart[] }[] = []
+  for (const flame of run.parts) {
+    const parts = interpParts([flame])
+    const [x0, x1] = [Math.min(...parts.map(p => p.dx)), Math.max(...parts.map(p => p.dx)) + 8]
+    const [y0, y1] = [Math.min(...parts.map(p => p.dy)), Math.max(...parts.map(p => p.dy)) + 8]
+    // Copies at every 256 px, from one before the map; only those that reach it are kept.
+    for (let x = -256; x < mapW; x += 256)
+      for (let y = (((dy % 256) + 256) % 256) - 512; y < mapH; y += 256)
+        if (x + x1 > 0 && x + x0 < mapW && y + y1 > 0 && y + y0 < mapH) jobs.push({ x, y, parts })
+  }
+  // One fake stream entry per bitmap, at the copy's origin; the drawer answers with that flame's parts.
+  const entry = (n: number): LevelSprite => ({ screen: 0, x: 0, y: 0, spriteId: CASTLE_FLAMES_ID, extraBit: false, raw: [0, 0, 0], index: -1 - n, streamOffset: 0 }) // prettier-ignore
+  const draw: SpriteDrawer = s => {
+    const job = jobs[-1 - s.index]!
+    return {
+      ok: true,
+      parts: job.parts,
+      anchor: job,
+      identity: { spriteId: CASTLE_FLAMES_ID, mainHandler: 0, initHandler: 0, status: 'vanilla' },
+    }
+  }
+  const drawn = drawSprites(
+    jobs.map((_, n) => entry(n)),
+    model,
+    draw,
+    dynamic,
+  )
+  if (drawn.some(d => d.status !== 'drawn')) return none('their chars are not loaded')
+  return { sprites: drawn.map(d => ({ ...d, fixedTo: 'layer2' as const })) }
+}
+
 /** A sprite stream's bytes: up to the window, fewer when the ROM ends first (as SmwRom.getLevelRawData reads). */
 export const readStream = (rom: RomFile, ptr: number, window = STREAM_WINDOW) =>
   rom.readUpTo(ptr, window)
@@ -522,12 +586,22 @@ function compute(
     // A stream in the ROM's last bytes is still a stream (as SmwRom.getLevelRawData reads).
     const data = ptr === null ? null : readStream(rom.rom, ptr)
     if (!data) return { status: 'unavailable', reason: `No sprite data at the pointer for slot ${index.toString(16)}` } // prettier-ignore
-    const draw = interpDrawer(rom.rom, index, model)
+    // The level loader runs once; the sprites and the castle flames both start from its image.
+    const base = levelSeed(rom.rom, index)
+    const draw = interpDrawer(rom.rom, index, model, runOnce, () => base)
     const dynamic = (n: PaletteNote) => {
       const b = rom.rom.readAt(n.entryAddr, n.colors * 2)
       return b ? Array.from({ length: n.colors }, (_, i) => bgr555ToRgba(b[i * 2]! | (b[i * 2 + 1]! << 8))) : [] // prettier-ignore
     }
-    return spriteLayer(data, model, draw, dynamic)
+    const layer = spriteLayer(data, model, draw, dynamic)
+    const stream = parseLevelSprites(data, model.isVertical)
+    const flames = castleFlameSprites(rom.rom, base, stream, model, model.l2?.ok ? model.l2.l2.dy : undefined, dynamic) // prettier-ignore
+    if (flames.sprites.length === 0 && !flames.note) return layer
+    return {
+      ...layer,
+      sprites: [...layer.sprites, ...flames.sprites],
+      note: [layer.note, flames.note].filter(Boolean).join(' ') || undefined,
+    }
   } catch (err) {
     return { status: 'unavailable', reason: (err as Error).message }
   }

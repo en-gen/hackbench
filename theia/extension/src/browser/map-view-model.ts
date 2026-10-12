@@ -16,7 +16,7 @@ import {
   type SourceKey,
   type ScreenInput,
 } from '../../../../src/rom/model/ColorMath'
-import { SPRITE_KEYS, type SpriteKey } from '../../../../src/rom/model/ScreenPlanes'
+import { SPRITE_KEYS, type FlameKey, type SpriteKey } from '../../../../src/rom/model/ScreenPlanes'
 import { decodeBase64Bytes, decodeRgba } from './map16-pixels'
 import { SWITCH_ORDER } from './map16-view-model'
 
@@ -59,10 +59,13 @@ function spriteLayer(
   sprites: readonly MapSpriteDto[],
   screen: number,
   g: ScreenGeometry,
+  onLayer2 = false,
 ): SpriteLayer | null {
   const vertical = g.orientation === 'vertical'
   const [left, top] = vertical ? [0, screen * g.height] : [screen * g.width, 0]
-  const order = [...sprites].sort((a, b) => (vertical ? a.y - b.y : a.x - b.x) || a.index - b.index)
+  const order = sprites
+    .filter(s => !!s.fixedTo === onLayer2)
+    .sort((a, b) => (vertical ? a.y - b.y : a.x - b.x) || a.index - b.index)
   let out: SpriteLayer | null = null
   for (const [n, s] of order.entries()) {
     const { x0, y0, x1, y1 } = s.box
@@ -110,6 +113,45 @@ export function spritePlanes(
     plane.set(layer.rgba.subarray(i * 4, i * 4 + 4), i * 4)
   })
   return planes
+}
+
+/**
+ * One screen's Layer 2 sprites (the castle flames, #894) in two planes: a flame pixel goes to the plane of the
+ * Layer 2 pixel it covers (`l2High` opaque there: high), so Layer 1 stays over it whichever way Layer 2 is
+ * routed. `l2High` is the screen's Layer 2 priority plane, kept even while Layer 2 is hidden. Null planes where none.
+ */
+export function flamePlanes(
+  sp: (ScreenGeometry & { sprites: readonly MapSpriteDto[] }) | undefined,
+  screen: number,
+  l2High: Uint8ClampedArray | null | undefined,
+): Record<FlameKey, Uint8ClampedArray | null> {
+  const planes: Record<FlameKey, Uint8ClampedArray | null> = {
+    spritesL2Low: null,
+    spritesL2High: null,
+  }
+  const layer = sp && spriteLayer(sp.sprites, screen, sp, true)
+  if (!layer) return planes
+  for (let i = 0; i < layer.rgba.length; i += 4) {
+    if (layer.rgba[i + 3] === 0) continue
+    const key = l2High && l2High[i + 3]! > 0 ? 'spritesL2High' : 'spritesL2Low'
+    const plane = (planes[key] ??= new Uint8ClampedArray(layer.rgba.length))
+    plane.set(layer.rgba.subarray(i, i + 4), i)
+  }
+  return planes
+}
+
+/**
+ * A screen's plane lists with the flame planes placed: `spritesL2Low` right above `l2Low`, `spritesL2High`
+ * right above `l2High`, on a list that shows sprites (OBJ designated) and the Layer 2 plane. Others unchanged.
+ */
+export function withFlameKeys<L extends { main: readonly SourceKey[]; sub: readonly SourceKey[] }>(
+  lists: L,
+): L {
+  const put = (list: readonly SourceKey[]): SourceKey[] =>
+    list.some(k => k.startsWith('sprites'))
+      ? (list.flatMap(k => (k === 'l2Low' ? [k, 'spritesL2Low'] : k === 'l2High' ? [k, 'spritesL2High'] : [k])) as SourceKey[]) // prettier-ignore
+      : [...list]
+  return { ...lists, main: put(lists.main), sub: put(lists.sub) }
 }
 
 /**

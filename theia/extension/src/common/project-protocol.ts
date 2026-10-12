@@ -294,6 +294,12 @@ export interface MapSpriteDto {
   status: 'drawn' | 'placeholder'
   reason?: string
   /**
+   * Set on a pixel group the map's cluster code draws on Layer 2 (sprite $E6's castle flames, #894):
+   * it stands in the map's pixels like any sprite but belongs to no stream entry (`index` is negative),
+   * and the view composes it over Layer 2 and under Layer 1, not in the OAM priority planes.
+   */
+  fixedTo?: 'layer2'
+  /**
    * Present when the sprite was run from a placement-only seed because the
    * level loader refused this ROM: drawn, but not run from the level's state.
    */
