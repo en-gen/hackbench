@@ -102,9 +102,8 @@ function probe(page, pixels) {
   )
 }
 
-test('a priority 1 sprite draws behind layer 1 low tiles: the pipe covers the piranha plant', async ({
-  page,
-}) => {
+/** Opens map $105 with the sprites drawn on screen 7. */
+async function openMap(page) {
   const project = await page.evaluate(
     ({ romPath, directory }) =>
       getSvc('Symbol(ProjectService)').createProject({ romPath, name: 'MyHack', directory }),
@@ -124,6 +123,12 @@ test('a priority 1 sprite draws behind layer 1 low tiles: the pipe covers the pi
   await page.locator(plane('l1Low')).evaluate(el => el.scrollIntoView({ inline: 'start', block: 'nearest' })) // prettier-ignore
   await expect(page.locator(plane('l1Low'))).toHaveAttribute('data-drawn', /^\d+:0000:000:7$/, { timeout: 30000 }) // prettier-ignore
   await expect(page.locator(plane('sprites'))).toHaveAttribute('data-drawn', /^\d+:\d+$/, { timeout: 30000 }) // prettier-ignore
+}
+
+test('a priority 1 sprite draws behind layer 1 low tiles: the pipe covers the piranha plant', async ({
+  page,
+}) => {
+  await openMap(page)
 
   const on = await probe(page)
   expect(on.at.behind.length, 'the plant overlaps the pipe here').toBeGreaterThanOrEqual(MIN_BEHIND) // prettier-ignore
@@ -184,4 +189,62 @@ test('a priority 1 sprite draws behind layer 1 low tiles: the pipe covers the pi
     same(on.shown, off.shown),
     'the control: every other-sprite pixel over no layer 1 shows',
   ).toBe(0)
+})
+
+/** The composite's native pixel `p` in client coordinates, scrolled into view. */
+async function clientOf(page, p) {
+  return page.evaluate(
+    ({ rootSel, screen, p }) => {
+      const c = planesOf(rootSel, screen)[0]
+      c.scrollIntoView({ inline: 'center', block: 'center' })
+      const r = c.getBoundingClientRect()
+      return { x: r.left + (((p % c.width) + 0.5) * r.width) / c.width, y: r.top + ((Math.floor(p / c.width) + 0.5) * r.height) / c.height } // prettier-ignore
+    },
+    { rootSel: root, screen: SCREEN, p },
+  )
+}
+
+test('hovering a hidden sprite draws it opaque, leaving restores the door exactly, an uncovered sprite is unchanged (#879)', async ({
+  page,
+}) => {
+  await openMap(page)
+  const on = await probe(page)
+  const behind = on.at.behind
+  const [plantPixel, otherPixel] = [behind[behind.length >> 1], on.at.shown[on.at.shown.length >> 1]] // prettier-ignore
+  const read = () => probe(page, on.at)
+  const rgb = c => c.split(',').slice(0, 3).map(Number)
+  const same = (a, b) => a.filter((c, i) => c === b[i]).length
+  const before = await read()
+  // The composites' cache keys: a hover that lifts nothing must not repaint any screen (S1/S3). The plant's
+  // covered pixels all sit on SCREEN here, so a second-screen lift is not asserted (nothing to invent).
+  const drawn = () => page.locator(`${root} .hb-map-view-composite`).evaluateAll(cs => cs.map(c => c.dataset.drawn)) // prettier-ignore
+  // Scroll to the sprite first: scrollIntoView paints screens that were unpainted, which is not a hover paint.
+  const other = await clientOf(page, otherPixel)
+  let last = ''
+  await expect.poll(async () => { const now = JSON.stringify(await drawn()); const settled = now === last; last = now; return settled }, { timeout: 15000 }).toBe(true) // prettier-ignore
+  const drawnBefore = await drawn()
+  expect(drawnBefore.length, 'composites to compare').toBeGreaterThan(0)
+  // Hover an uncovered sprite: nothing the plant or the other sprites show changes.
+  await page.mouse.move(other.x, other.y)
+  await page.waitForTimeout(500)
+  const hoverOther = await read()
+  expect(await drawn(), 'an uncovered hover repaints no screen').toEqual(drawnBefore)
+  expect(same(hoverOther.behind, before.behind), 'the covered plant is untouched').toBe(behind.length) // prettier-ignore
+  expect(same(hoverOther.shown, before.shown), 'the uncovered sprite is untouched').toBe(on.at.shown.length) // prettier-ignore
+
+  // Hover the plant: its covered pixels turn to the sprite colour, both squares of the door.
+  const plant = await clientOf(page, plantPixel)
+  await page.mouse.move(plant.x, plant.y)
+  // A lift changes only the dim squares of the door (full ones are already at the sprite colour), so about half
+  // the pixels change, not all; the rest of the check is the sprite colour everywhere below.
+  await expect.poll(async () => behind.length - same((await read()).behind, before.behind), { timeout: 15000 }).toBeGreaterThanOrEqual(behind.length * 0.3) // prettier-ignore
+  const lifted = await read()
+  const sameAsSprite = behind.filter((_, i) => rgb(lifted.behind[i]).every((v, k) => Math.abs(v - on.spriteRgb[i][k]) <= 8)).length // prettier-ignore
+  expect(sameAsSprite / behind.length, 'the plant draws at the sprite colour over the pipe').toBe(1) // prettier-ignore
+  expect(same(lifted.shown, before.shown), 'the uncovered sprite still unchanged').toBe(on.at.shown.length) // prettier-ignore
+
+  // Leave: the door pixels come back byte for byte.
+  await page.mouse.move(2, 2)
+  await expect.poll(async () => same((await read()).behind, before.behind), { timeout: 15000 }).toBe(behind.length) // prettier-ignore
+  expect((await read()).shown).toEqual(before.shown)
 })

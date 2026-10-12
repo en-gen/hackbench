@@ -39,6 +39,8 @@ export interface ScreenInput {
    * pixels would not give the screen's counts (`doorFlips` over the native input). Default: counted here.
    */
   flips?: Map<number, boolean>
+  /** The door id (sprite) under the pointer: its covered pixels draw at full strength, not through the door (#879). */
+  lift?: number
 }
 
 const LAYER_BIT = { l1: 0x01, l2: 0x02, l3: 0x04 } as const
@@ -84,7 +86,7 @@ function top(i: ScreenInput, list: readonly SourceKey[], at: number, flips?: Map
   const door = flips && coveredSprite(i, list, at, k)
   if (door) {
     const d = i.doors![at / 4]!
-    const w = hiddenPixelStrength(d & 1, 0, flips.get(d >> 1))
+    const w = d >> 1 === i.lift ? 1 : hiddenPixelStrength(d & 1, 0, flips.get(d >> 1))
     rgb = rgb.map((v, c) => Math.round(v * (1 - w) + door[c]! * w)) as unknown as Rgb
   }
   return { rgb, cover, bit }

@@ -260,6 +260,10 @@ caller that composes a crop or a scaled cell passes the native result as
 `flips`. `IndicatorDisplay` does this: it scales `doors` with each cell
 (nearest) and reuses the native flips, so a covered sprite pixel under an
 indicator cell keeps its door at any zoom. Main screen only.
+Hover (#879): the widget finds the sprite under the pointer with `doorIdAt`
+(the door id at the native pixel) and passes it as `lift` to `composeScreen`
+and `IndicatorDisplay`; that sprite's covered pixels draw opaque. The lift is
+part of the composite's cache key for the screens whose door map holds the id, so a lifted frame is never kept as the normal one and other screens do not repaint. The id is global to the map, so a sprite crossing a screen edge lifts on each screen it reaches; a sprite with no covered pixel on any composed screen never lifts.
 
 ### The map tab's collision overlay (#435)
 

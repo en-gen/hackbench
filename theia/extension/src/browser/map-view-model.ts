@@ -124,6 +124,25 @@ export function spriteDoors(
   return (sp && spriteLayer(sp.sprites, screen, sp)?.door) ?? null
 }
 
+/**
+ * The sprite under a native pixel of one screen's door map (its door id), or 0 for none. The id is n+1
+ * in the map-wide x-sorted order `spriteLayer` assigns, so the topmost sprite at the pixel wins (#879).
+ */
+export function doorIdAt(doors: Uint32Array | null, width: number, x: number, y: number): number {
+  if (!doors || x < 0 || y < 0 || x >= width) return 0
+  return (doors[Math.floor(y) * width + Math.floor(x)] ?? 0) >> 1
+}
+
+/** S3: a sprite lifts only when some painted screen's tiles cover it; otherwise there is nothing to repaint. */
+export function liftIfCovered(
+  id: number,
+  covered: Iterable<ReadonlySet<number>>,
+): number | undefined {
+  if (!id) return undefined
+  for (const c of covered) if (c.has(id)) return id
+  return undefined
+}
+
 /** The canvas surface the sprite painter needs: a subset of HTMLCanvasElement. */
 interface SpriteCanvas {
   width: number
@@ -263,6 +282,8 @@ export interface DisplaySource {
   base: Uint8ClampedArray
   /** The native sprite door map of `spriteDoors`: scaled with the cell, its parity stays on native sprite pixels. */
   doors?: Uint32Array | null
+  /** The hovered sprite's door id (#879), passed on to every cell's compose. */
+  lift?: number
   indicators: readonly Indicator[]
   arts: ReadonlyMap<string, Uint8ClampedArray>
 }
@@ -371,7 +392,7 @@ export class IndicatorDisplay {
     }
     // The door map scales like a plane (nearest), so a cell pixel keeps its native sprite pixel's parity.
     const doors = s.doors && new Uint32Array(scaleRegion(new Uint8ClampedArray(s.doors.buffer, s.doors.byteOffset, s.doors.byteLength), s.width, s.height, this.width, this.height, r).buffer) // prettier-ignore
-    return composeScreen({ width: rw, height: rh, planes, lists: s.lists, math: s.math, doors, flips: this.flips }) // prettier-ignore
+    return composeScreen({ width: rw, height: rh, planes, lists: s.lists, math: s.math, doors, flips: this.flips, lift: s.lift }) // prettier-ignore
   }
 
   /** The item box lies inside its block cell, so the cells meeting is enough. */
