@@ -30,7 +30,10 @@ import {
 import { ProjectContext } from './project-context'
 import { decodeRgba, TILE_PX } from './map16-pixels'
 import {
-  compositeSpriteScreen,
+  spriteDoors,
+  doorIdAt,
+  liftIfCovered,
+  spritePlanes,
   decodeArts,
   hoverTarget,
   indicatorId,
@@ -53,7 +56,12 @@ import { collisionKey, collisionPlan } from './map-view-state'
 import { MapViewStateStore } from './map-view-state-store'
 import { layer2Label } from './map-layer-labels'
 import { isUnverifiedMode } from '../../../../src/rom/model/UnverifiedModes'
-import { composeScreen, type SourceKey } from '../../../../src/rom/model/ColorMath'
+import {
+  composeScreen,
+  doorFlips,
+  type ScreenInput,
+  type SourceKey,
+} from '../../../../src/rom/model/ColorMath'
 import { perfEnd, perfStart } from '../common/perf-marks'
 import { ProjectBound } from './project-bound'
 
@@ -175,6 +183,13 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected blocksVersion = 0
   /** The indicator under the pointer: it fills its block, the rest sit in their quadrants. */
   protected hover: Indicator | undefined
+  /** The sprite under the pointer (#879): its door id, global to the map, drawn opaque on every screen it covers. */
+  protected lift: number | undefined
+  /** Door maps (and the ids in each) by screen for the hit test, valid for the `spritesVersion` they were built at. */
+  protected readonly doorMaps = new Map<number, { doors: Uint32Array | null; ids: Set<number> }>()
+  protected doorMapsVersion = -1
+  /** Per composed screen, the door ids with a covered pixel: a sprite without one never lifts (#879). */
+  protected readonly coveredIds = new Map<number, ReadonlySet<number>>()
   /** Fit mode until the user zooms; the fit is the cross axis filling the view (#526). */
   protected readonly zoomController = new ZoomController(ZOOMS, 1, () => this.measureFit())
   protected wheelBinding: WheelBinding | undefined
@@ -302,6 +317,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected refresh(): void {
     this.generation++
     this.screens.clear()
+    this.coveredIds.clear()
+    this.lift = undefined
     this.pending.clear()
     this.screenError = undefined
     void this.loadDetails()
@@ -377,6 +394,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     // An older map's or edit's sprites must not land over a newer one.
     if (generation !== this.generation) return
     this.sprites = r.status === 'ok' ? r : undefined
+    this.lift = undefined
+    this.coveredIds.clear()
     this.spritesWhy = r.status === 'ok' ? undefined : r.status === 'unavailable' ? r.reason : `The base ROM ${r.baseRom.title} is not on this machine` // prettier-ignore
     this.spritesVersion++
     this.update()
@@ -594,18 +613,29 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       }
       return
     }
-    const want = `${this.generation}:${this.key(s)}:${+this.showL1}${+this.showL2}${+this.showL3}${+this.showSprites}:${this.spritesVersion}`
+    const lift = this.liftOn(s)
+    const want = `${this.generation}:${this.key(s)}:${+this.showL1}${+this.showL2}${+this.showL3}${+this.showSprites}:${this.spritesVersion}:${lift ?? ''}` // prettier-ignore
     if (canvas.dataset.drawn === want) return
     canvas.width = shot.width
     canvas.height = shot.height
     const planes = this.shownPlanes(s, shot)
-    const out = composeScreen({
+    const input: ScreenInput = {
       width: shot.width,
       height: shot.height,
       planes,
       lists: shot.screens,
       math: shot.math,
-    })
+      doors: this.showSprites ? spriteDoors(this.sprites, s) : null,
+      lift: this.lift,
+    }
+    const flips = doorFlips(input)
+    const covered = new Set(flips?.keys())
+    const before = this.coveredIds.get(s)
+    this.coveredIds.set(s, covered)
+    // A pointer already resting on a hidden sprite lifts it once its screen is first painted (or its set changes); a
+    // repeat paint with the same set stays quiet, so paint -> updateHover -> paint cannot loop.
+    if (!before || before.size !== covered.size || [...covered].some(id => !before.has(id))) queueMicrotask(() => this.updateHover()) // prettier-ignore
+    const out = composeScreen({ ...input, flips })
     canvas.getContext('2d')?.putImageData(new ImageData(out, shot.width, shot.height), 0, 0)
     canvas.dataset.drawn = want
   }
@@ -618,9 +648,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     // prettier-ignore
     const planes: Partial<Record<SourceKey, Uint8ClampedArray | null>> = {}
     for (const k of MAP_PLANE_KEYS) if (this.layerShown(k)) planes[k] = shot.planes[k]?.data ?? null
-    // The sprites are one more source, not in color math (their palette split is #564's to add).
-    const sp = this.sprites
-    if (this.showSprites) planes.sprites = sp ? compositeSpriteScreen(sp.sprites, s, sp) : null
+    // The sprites are four more sources, one per OAM priority (#795), not in color math (their palette split is #564's to add).
+    if (this.showSprites) Object.assign(planes, spritePlanes(this.sprites, s))
     return planes
   }
 
@@ -654,6 +683,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
         planes: this.shownPlanes(s, shot),
         lists: shot.screens,
         math: shot.math,
+        doors: this.showSprites ? spriteDoors(this.sprites, s) : null,
+        lift: this.lift,
         base: comp.getContext('2d')!.getImageData(0, 0, comp.width, comp.height).data,
         indicators: b.indicators,
         arts: b.decoded,
@@ -674,6 +705,42 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     canvas.dataset.drawn = want
     canvas.dataset.indicators = JSON.stringify(cur.display.records())
     comp.style.visibility = 'hidden'
+  }
+
+  /** The lift as part of screen `s`'s cache key: only a screen whose door map holds the id changes with it. */
+  protected liftOn(s: number): number | undefined {
+    return this.lift !== undefined && this.showSprites && this.screenDoors(s).ids.has(this.lift) ? this.lift : undefined // prettier-ignore
+  }
+
+  protected screenDoors(s: number): { doors: Uint32Array | null; ids: Set<number> } {
+    if (this.doorMapsVersion !== this.spritesVersion) {
+      this.doorMaps.clear()
+      this.doorMapsVersion = this.spritesVersion
+    }
+    let d = this.doorMaps.get(s)
+    if (!d) {
+      if (this.doorMaps.size >= 64) this.doorMaps.clear()
+      const doors = s >= 0 ? spriteDoors(this.sprites, s) : null
+      d = { doors, ids: new Set(doors ? Array.from(doors, v => v >> 1) : []) }
+      this.doorMaps.set(s, d)
+    }
+    return d
+  }
+
+  /** The door id of the sprite under the strip pixel (x, y), native units, when a tile covers some of it (S3). */
+  protected liftAt(x: number, y: number): number | undefined {
+    const g = this.sprites
+    if (!g || !this.showSprites) return undefined
+    const vertical = g.orientation === 'vertical'
+    const s = Math.floor(vertical ? y / g.height : x / g.width)
+    const id = doorIdAt(this.screenDoors(s).doors, g.width, x - (vertical ? 0 : s * g.width), y - (vertical ? s * g.height : 0)) // prettier-ignore
+    return liftIfCovered(id, this.coveredIds.values())
+  }
+
+  protected setLift(next: number | undefined): void {
+    if (next === this.lift) return
+    this.lift = next
+    this.sync()
   }
 
   /** The hovered indicator, when its block touches screen `s`. */
@@ -698,9 +765,14 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const strip = this.scroller?.querySelector<HTMLElement>('.hb-map-view-strip')
     const l = this.mapLayout
     const p = this.pointer
-    if (!strip || !l || !this.blocks || !p) return this.setHover(undefined)
+    if (!strip || !l || !p) {
+      this.setLift(undefined)
+      return this.setHover(undefined)
+    }
     const r = strip.getBoundingClientRect()
     const [x, y] = [(p.x - r.left) / this.zoom, (p.y - r.top) / this.zoom]
+    this.setLift(this.liftAt(x, y))
+    if (!this.blocks) return this.setHover(undefined)
     const order = this.layerOrder(l)
     const shown = (q: Indicator['plane']) => order.includes(q) && this.layerShown(q)
     this.setHover(hoverTarget(this.blocks.indicators, x, y, shown, q => order.indexOf(q)) ?? undefined) // prettier-ignore
@@ -1060,6 +1132,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
           onMouseLeave={() => {
             this.pointer = undefined
             this.setHover(undefined)
+            this.setLift(undefined)
           }}
         >
           {/* Bottom to top (planes by `screens`, composited per screen): the checkerboard, the back area, then the screens,
@@ -1133,9 +1206,14 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     )
   }
 
-  /** The sources bottom to top over both screens (sprites included: `screenPlanes` places them), for stacking the source canvases. */
+  /**
+   * The sources bottom to top over both screens, for stacking the source canvases. The one sprite
+   * canvas (every priority) stands at OBJ.2's place; the other priorities have no canvas of their own.
+   */
   protected layerOrder(l: Layout): LayerKey[] {
-    return [...l.screens.sub, ...l.screens.main]
+    return [...l.screens.sub, ...l.screens.main].flatMap(k =>
+      k === 'sprites2' ? [SPRITES] : k.startsWith('sprites') ? [] : [k as MapPlaneKey],
+    )
   }
 
   protected layerShown(plane: LayerKey): boolean {

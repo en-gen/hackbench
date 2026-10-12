@@ -118,6 +118,8 @@ function png(
   return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), ...(opts.plte ? [chunk('PLTE', opts.plte)] : []), chunk('IDAT', idat), chunk('IEND', Buffer.alloc(0))]) // prettier-ignore
 }
 const onePixelPng = (rgb: number[]) => png(1, 1, () => rgb)
+// 1 x 40: lines 0..36 are the status bar's (#880), so a BG3 picture needs lines below it to compare anything.
+const tallPng = (rgb: number[]) => png(1, 40, () => rgb)
 
 /** A zip of `entries`, each stored (0), deflated (8) or labelled with another method. */
 function zip(entries: [string, Buffer][] | Files, method = 8) {
@@ -249,7 +251,7 @@ describe('verdict and exit code', () => {
     const files = passing()
     expect(runW(files).verdict).toBe('pass')
     // Our BG3 draws nothing at (0, 0); this SNES picture is opaque there.
-    files['windows/screen_00/layer_bg3.png'] = onePixelPng([8, 8, 8])
+    files['windows/screen_00/layer_bg3.png'] = tallPng([8, 8, 8])
     const failing = runW(files)
     expect(failing.checks!.rows.map(r => r.result)).toEqual(['pass', 'pass', 'fail', 'informational']) // prettier-ignore
     expect(failing.verdict).toBe('fail')
@@ -459,15 +461,22 @@ describe('scroll-pass windows', () => {
       files['windows/screen_00/layer_bg2_data.json'] = withLine
       return runW(files)
     }
-    const all = at()
-    expect(all.snes!.bg3).toEqual([38 * 8 + 8])
-    expect(all.detail).toContain('Effects compared on every line where a picture has no status-bar interrupt line') // prettier-ignore
+    const all = at() // no recorded line: the shared constant masks lines 0..36 (#880)
+    expect(all.snes!.bg3).toEqual([16])
+    expect(all.detail).toContain('Effects compared below line 36 where a picture has no status-bar interrupt line') // prettier-ignore
     const below = at(36)
     expect(below.snes!.bg3).toEqual([16]) // lines 37 and 40: line 36 is the last one left out
     expect(below.snes!.bg2).toEqual([38 * 8 + 8]) // the band is BG3's alone
     expect(below.detail).toContain("Effects compared below each picture's status-bar interrupt line (36)") // prettier-ignore
     expect(at(40).snes!.bg3).toEqual([0]) // line 40 now inside the band
-    expect(at(-1).snes!.bg3).toEqual([38 * 8 + 8]) // -1: no interrupt seen on that frame
+    expect(at(-1).snes!.bg3).toEqual([16]) // -1: no interrupt seen on that frame, constant applies
+    // Morton/Roy: the recorded line is 45, so a planted difference on line 45
+    // is masked and the first one on line 46 is not (#880).
+    expect(at(45).snes!.bg3).toEqual([0]) // lines 37..40 now inside the band
+    const mr = png(8, 48, (_, y) => (y === 45 || y === 46 ? [8, 8, 8] : [255, 0, 255]))
+    picture(files, 'screen_00', 'bg3', mr, SENTINEL)
+    expect(at(45).snes!.bg3).toEqual([8])
+    expect(at(36).snes!.bg3).toEqual([16]) // the wrong (non-Morton) line would count line 45 too
     // A band covering every line compares nothing: not compared, never a pass.
     const covered = at(300)
     expect(covered.snes!.bg3).toBeNull()
@@ -743,7 +752,7 @@ describe('page', () => {
   it('has no SNES overlay controls; the same-moment counts are in Checks', () => {
     const files = captureFiles(false, undefined, [8])
     // A 1x1 PNG, transparent to the sentinel.
-    for (const n of ['bg1', 'bg2', 'bg3', 'obj']) picture(files, 'screen_00', n, onePixelPng([255, 0, 255]), SENTINEL) // prettier-ignore
+    for (const n of ['bg1', 'bg2', 'bg3', 'obj']) picture(files, 'screen_00', n, n === 'bg3' ? tallPng([255, 0, 255]) : onePixelPng([255, 0, 255]), SENTINEL) // prettier-ignore
     const l = runW(files)
     const html = page(l)
     for (const gone of ['id=refsel', 'id=op', 'id=diff', 'refnote', 'snestotal', 'data:image/png'])
@@ -757,7 +766,7 @@ describe('page', () => {
 
   it('leaves the status bar cells the capture names out of Effects and its comparison', () => {
     const files = captureFiles(false, undefined, [8])
-    picture(files, 'screen_00', 'bg3', onePixelPng([255, 0, 255]), SENTINEL)
+    picture(files, 'screen_00', 'bg3', tallPng([255, 0, 255]), SENTINEL)
     // BG3SC $53: map at word $5000, 64x64. $5420 is the right-hand screen, row 1, column 0.
     files['status_bar_cells.json'] = j({ available: true, reason: null, tilemapWordAddrs: [0x5000, 0x5001, 0x5420] }) // prettier-ignore
     const l = runW(files)

@@ -246,8 +246,8 @@ describe('the sprite layer as a source (#564)', () => {
       width: 1,
       height: 1,
       math: { cgadsub: 0x11, fixed: BACK }, // layer 1 and the OBJ bit in CGADSUB: sprites still take no part
-      lists: { main: ['l1Low', 'sprites'], sub: ['l2Low'] },
-      planes: { l1Low: plane(c5(10, 10, 10)), l2Low: plane(c5(4, 4, 4)), sprites: sprite ? plane(sprite) : null }, // prettier-ignore
+      lists: { main: ['l1Low', 'sprites2'], sub: ['l2Low'] },
+      planes: { l1Low: plane(c5(10, 10, 10)), l2Low: plane(c5(4, 4, 4)), sprites2: sprite ? plane(sprite) : null }, // prettier-ignore
     }),
   ]
   it('a sprite pixel covers layer 1 and takes no part in the math', () => {
@@ -271,10 +271,10 @@ describe('layer 1 priority against sprites (#529)', () => {
   ]
   const sprite = plane(c5(1, 2, 3))
   it('an opaque l1High pixel draws over the sprite pixel under it', () => {
-    expect(run({ sprites: sprite, l1High: plane(c5(9, 8, 7)) })).toEqual(rgba(c5(9, 8, 7)))
+    expect(run({ sprites2: sprite, l1High: plane(c5(9, 8, 7)) })).toEqual(rgba(c5(9, 8, 7)))
   })
   it('the same tile in the low plane draws behind the sprite', () => {
-    expect(run({ sprites: sprite, l1Low: plane(c5(9, 8, 7)) })).toEqual(rgba(c5(1, 2, 3)))
+    expect(run({ sprites2: sprite, l1Low: plane(c5(9, 8, 7)) })).toEqual(rgba(c5(1, 2, 3)))
   })
 })
 
