@@ -244,11 +244,36 @@ describe('changelog-combine', () => {
   })
 
   describe('merging branches', () => {
+    // Isolated from the machine's git config: a global post-checkout hook once
+    // pushed these tests past vitest's 5 s timeout under load (#892).
     const git = (...a: string[]) => {
-      const r = spawnSync('git', ['-C', root, '-c', 'user.name=t', '-c', 'user.email=t@t', ...a], {
-        encoding: 'utf8',
-      })
-      return r
+      // Shared empty dir and file, outside the repo under test; os.devNull is
+      // not openable by git on Windows.
+      const iso = path.join(os.tmpdir(), 'chlog-git-isolation')
+      const hooks = path.join(iso, 'hooks')
+      const emptyCfg = path.join(iso, 'empty.gitconfig')
+      fs.mkdirSync(hooks, { recursive: true })
+      fs.appendFileSync(emptyCfg, '')
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        GIT_CONFIG_GLOBAL: emptyCfg,
+        GIT_CONFIG_SYSTEM: emptyCfg,
+        GIT_CONFIG_NOSYSTEM: '1',
+      }
+      for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE']) delete env[k]
+      return spawnSync(
+        'git',
+        ['-C', root, '-c', `core.hooksPath=${hooks}`, '-c', 'commit.gpgsign=false'].concat([
+          '-c',
+          'core.autocrlf=false',
+          '-c',
+          'user.name=t',
+          '-c',
+          'user.email=t@t',
+          ...a,
+        ]),
+        { encoding: 'utf8', env },
+      )
     }
     const ok = (...a: string[]) => expect(git(...a).status, a.join(' ')).toBe(0)
     const branches = (edit: (b: string) => void) => {
@@ -266,6 +291,30 @@ describe('changelog-combine', () => {
       ok('checkout', '-q', 'main')
       ok('merge', '--no-ff', '-m', 'ma', 'a')
     }
+
+    it('ignores a global core.hooksPath (#892)', () => {
+      const hookDir = path.join(root, 'planted-hooks')
+      const marker = path.join(root, 'hook-ran')
+      fs.mkdirSync(hookDir)
+      const sh = '#!/bin/sh\n' + 'echo x > "$(dirname "$0")/../hook-ran"\n'
+      fs.writeFileSync(path.join(hookDir, 'post-checkout'), sh, { mode: 0o755 })
+      const globalCfg = path.join(root, 'planted.gitconfig')
+      const hp = hookDir.split(path.sep).join('/')
+      fs.writeFileSync(globalCfg, '[core]\n\thooksPath = ' + hp + '\n')
+      const saved = process.env.GIT_CONFIG_GLOBAL
+      process.env.GIT_CONFIG_GLOBAL = globalCfg
+      try {
+        ok('init', '-q', '-b', 'main')
+        fs.writeFileSync(path.join(root, 'f'), 'x')
+        ok('add', 'f')
+        ok('commit', '-q', '-m', 'c')
+        ok('checkout', '-q', '-b', 'other')
+      } finally {
+        if (saved === undefined) delete process.env.GIT_CONFIG_GLOBAL
+        else process.env.GIT_CONFIG_GLOBAL = saved
+      }
+      expect(fs.existsSync(marker)).toBe(false)
+    })
 
     it('lets two branches each add a fragment and merge without conflict', () => {
       branches(b => frag(`${b}.md`, `### Added\n- from ${b}\n`))
