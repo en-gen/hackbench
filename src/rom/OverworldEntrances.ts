@@ -150,6 +150,9 @@ export interface OverworldFingerprints {
   decompressor?: LmDecompressors
   /** BonusEntrances' CODE_05D796 span; its own stock builds when absent. */
   bonus?: readonly string[]
+  /** LevelStart's screen-exit and main-entrance read spans; their own stock builds when absent. */
+  startExit?: readonly string[]
+  startMain?: readonly string[]
 }
 export const STOCK_OVERWORLD_FINGERPRINTS: OverworldFingerprints = Object.freeze({
   entry: OVERWORLD_INDEX_BODY.fingerprints,

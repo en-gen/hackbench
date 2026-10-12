@@ -71,10 +71,10 @@ const L3_PTR_TABLE = 0x059000
 const L3_PTR_ENTRY_SIZE = 3
 
 /** SNES address of DATA_05F000 (per-level primary-entrance Y settings byte). */
-const DATA_05F000_ADDR = 0x05f000
+export const DATA_05F000_ADDR = 0x05f000
 
 /** SNES address of DATA_05F200 (per-level primary-entrance settings byte). */
-const DATA_05F200_ADDR = 0x05f200
+export const DATA_05F200_ADDR = 0x05f200
 
 /**
  * SNES address of DATA_05F400 - per-level Layer1/Layer2 startup Y-index byte.
@@ -91,28 +91,28 @@ const DATA_05F400_ADDR = 0x05f400
  * Indexed by low nibble of the entrance-Y byte (DATA_05F000 primary, DATA_05FA00 secondary).
  * bank_05.asm:7045-7049.
  */
-const DATA_05D730_ADDR = 0x05d730
-const DATA_05D740_ADDR = 0x05d740
+export const DATA_05D730_ADDR = 0x05d730
+export const DATA_05D740_ADDR = 0x05d740
 
 /**
  * Mario start X lookup - low byte at $05D750, high byte at $05D758.
  * Primary: indexed by low 3 bits of DATA_05F200 (bank_05.asm:7311).
  * Secondary: indexed by top 3 bits of DATA_05FC00 (bank_05.asm:7153).
  */
-const DATA_05D750_ADDR = 0x05d750
-const DATA_05D758_ADDR = 0x05d758
+export const DATA_05D750_ADDR = 0x05d750
+export const DATA_05D758_ADDR = 0x05d758
 
 /** SNES address of DATA_05F600 (first level-data byte per level - holds vertical page for vert levels). */
-const DATA_05F600_ADDR = 0x05f600
+export const DATA_05F600_ADDR = 0x05f600
 
 /** SNES address of DATA_05F800 - secondary-entrance target level LOW byte (indexed by entrance ID). */
-const DATA_05F800_ADDR = 0x05f800
+export const DATA_05F800_ADDR = 0x05f800
 
 /** SNES address of DATA_05FA00 - secondary-entrance settings (bits 5:4 index DATA_05D708 for camera Y). */
-const DATA_05FA00_ADDR = 0x05fa00
+export const DATA_05FA00_ADDR = 0x05fa00
 
 /** SNES address of DATA_05FC00 - secondary-entrance extra bits (bit 0 is target level HIGH byte). */
-const DATA_05FC00_ADDR = 0x05fc00
+export const DATA_05FC00_ADDR = 0x05fc00
 
 /**
  * SNES address of DATA_05D708 - initial Layer1YPos (camera Y) low-byte table.
