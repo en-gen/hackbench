@@ -293,7 +293,7 @@ describe('changelog-combine', () => {
       fs.writeFileSync(path.join(hookDir, 'post-checkout'), sh, { mode: 0o755 })
       const globalCfg = path.join(root, 'planted.gitconfig')
       const hp = hookDir.split(path.sep).join('/')
-      fs.writeFileSync(globalCfg, '[core]\n\thooksPath = ' + hp + '\n')
+      fs.writeFileSync(globalCfg, '[core]\n\thooksPath = ' + hp + '\n[hackbench]\n\tprobe = 1\n')
       const saved = process.env.GIT_CONFIG_GLOBAL
       process.env.GIT_CONFIG_GLOBAL = globalCfg
       try {
