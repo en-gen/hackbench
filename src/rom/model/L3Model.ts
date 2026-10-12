@@ -17,6 +17,7 @@ import type { BgModeResult } from '../BgMode'
 import { layoutRefusal, readModeLayouts } from '../LevelScreenTables'
 import { HOOKED_L3_CODE, readL3CodeGate, type L3CodeGate } from '../L3CodeGate'
 import { l3LoadTimeY, loadL3Tilemap, readInitialLayer1YPos } from '../L3Loader'
+import { readL3SmashLoadPos, type L3SmashResult } from '../L3Smash'
 import { readLayer3Setting } from '../ObjectExpander'
 import type { L1Inputs } from './L1Model'
 import { effectiveCgadsub } from './ColorMath'
@@ -29,6 +30,8 @@ export interface L3Inputs {
   chars: GfxSheet[]
   /** CGRAM; BG3's 2bpp palette P is colors P*4..P*4+3. */
   colors: RgbaColor[]
+  /** Layer3XPos at load (0 unless a smash sprite sets it, #807); camera X at load is 0. Absent: 0. */
+  xPx?: number
   /** Layer3YPos at load, and Layer1YPos at load: a tile row R sits at level Y R*8 - yPx + camYPx. */
   yPx: number
   camYPx: number
@@ -59,6 +62,7 @@ export function buildL3Verdict(
   bg: BgModeResult,
   chars: (rom: RomFile) => GfxSheet[] | null = readL3Chars,
   gate: L3CodeGate = readL3CodeGate(rom),
+  smash: (rom: RomFile, index: number) => L3SmashResult = readL3SmashLoadPos,
 ): L3Verdict {
   const priority = l1.header.layer3Priority
   const base = { priority, screens: FALLBACK_SCREENS, cgadsub: null, layer2Interactive: false }
@@ -108,6 +112,13 @@ export function buildL3Verdict(
       cgadsub: effectiveCgadsub(layout.cgadsub, !kept),
     })
   }
+  // A $80 byte's Y is $D0 until a loaded Layer 3 Smash sprite writes X and Y from its own place (#807).
+  let pos = { x: 0, y: yPx }
+  if (load.settingsByte === 0x80) {
+    const found = smash(rom, index)
+    if (!found.ok) return none(found.reason)
+    if (found.pos) pos = found.pos
+  }
   // The GFX loader (CODE_00A993) is a third piece of layer 3 code: hooked, or any file failing to load, leaves no chars.
   const sheets = chars(rom)
   if (!sheets || sheets.length === 0) return none(HOOKED_L3_CODE)
@@ -118,7 +129,8 @@ export function buildL3Verdict(
       tilemap: load.tilemap,
       chars: sheets,
       colors: l1.colors,
-      yPx,
+      xPx: pos.x,
+      yPx: pos.y,
       camYPx: readInitialLayer1YPos(rom, index),
       // $00 is Layer3TideSetting 0: no tide (it is camera-locked or Castle1/Underground1's half-speed scroll).
       tide: load.settingsByte !== 0 && load.settingsByte < 0x80,

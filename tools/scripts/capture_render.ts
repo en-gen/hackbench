@@ -295,7 +295,7 @@ export function pipeAt(p: Pipes, frame: number): PipeInfo {
 }
 
 /** OAM entries of one recorded frame, relative to the sprite, hidden ones dropped. */
-function framePieces(frame: Rec, rec: Rec, obsel: number): D.SpritePiece[] | null {
+function framePieces(frame: Rec, rec: Rec, _obsel: number): D.SpritePiece[] | null {
   // A recorded frame lists `tiles` (dx, dy, tile, attr, large), front first;
   // a record with no recorded frames lists its OAM `entries` by index.
   const entries = list(frame.tiles ?? frame.entries, 'sprite_spawns.json tiles')
@@ -304,13 +304,9 @@ function framePieces(frame: Rec, rec: Rec, obsel: number): D.SpritePiece[] | nul
   const at = [frame.x ?? rec.x, frame.y ?? rec.y, frame.cameraX ?? rec.cameraX, frame.cameraY ?? rec.cameraY].map(num) // prettier-ignore
   const relative = entries.every(p => num(p.dx) !== null && num(p.dy) !== null)
   if (!relative && at.some(v => v === null)) return null
+  // Only Y $F0 is hidden; the recorder keeps Y 224-255 entries (headless_capture.lua:1352, #838).
   return entries
-    .filter(p => {
-      if (relative) return true
-      const y = num(p.y) ?? 0
-      // An entry parked in the band below the screen is hidden, not part of the picture.
-      return !(y >= 224 && y + D.objSize(obsel, ((num(p.sizeXHigh) ?? 0) >> 1) & 1)[1] <= 256)
-    })
+    .filter(p => relative || (num(p.y) ?? 0) !== 0xf0)
     .map((p, k) => {
       const hi = typeof p.large === 'boolean' ? (p.large ? 2 : 0) : (num(p.sizeXHigh) ?? 0)
       const [dx, dy] = relative
