@@ -5,10 +5,13 @@
  * stream expanded like L1's. The result is data, not pixels: ids into a Map16
  * table, plus the shift that puts L2 where the game shows it.
  */
-import type { SmwRom } from '../SmwRom'
-import { hex3s as hex3 } from '../hex'
+import type { MapEntrances, SmwRom } from '../SmwRom'
+import type { RomFile } from '../RomFile'
+import { LEVEL_START_Y, stockCodeMismatch } from '../SubmapFlagGate'
+import { hex2, hex3s as hex3 } from '../hex'
 import {
   isPresetPtr,
+  l2ObjectGate,
   l2PaletteOrForTileset,
   L2_EMPTY_TILE,
   loadL2Objects,
@@ -35,6 +38,8 @@ export interface L2Inputs {
   dy: number
   /** Dispatch-path notes from the object build (#493), deduped by the caller; absent for an image. */
   unverified?: string[]
+  /** Why `dy` is unverified: the entrances that reach the map start L2 at different heights (#505). */
+  note?: string
 }
 
 export type L2Result = { ok: true; l2: L2Inputs } | { ok: false; reason: string }
@@ -49,8 +54,76 @@ function withPaletteOr(tiles: readonly Map16Tile[], mask: number): Map16Tile[] {
   return tiles.map(t => ({ ...t, tl: sub(t.tl), tr: sub(t.tr), bl: sub(t.bl), br: sub(t.br) }))
 }
 
-/** Read one map's L2, or why it cannot be read. Never a vanilla fallback. */
-export function buildL2Inputs(rom: SmwRom, index: number, l1: L1Inputs): L2Result {
+/** One way into a map, in the order the view prefers when they disagree. */
+type EntryPath = { kind: 'overworld' | 'exit' | 'midway' } | { kind: 'secondary'; id: number }
+
+const PATH_WORDS = { overworld: 'from the overworld', exit: 'by a screen exit', midway: 'from the midway point' } // prettier-ignore
+const pathWords = (p: EntryPath): string => (p.kind === 'secondary' ? `through secondary entrance ${hex3(p.id)}` : PATH_WORDS[p.kind]) // prettier-ignore
+
+/**
+ * `Layer1YPos - Layer2YPos` as the level load leaves them for one way in. Low bytes: a primary
+ * entry indexes DATA_05D708/D70C with F400 bits 3-2 / 1-0 (bank_05.asm:7323-7335), a secondary one
+ * with that entrance's FA00 bits 5-4 / 7-6 (:7120-7146). High bytes: only when F600 bit 5 makes the
+ * ScreenMode vertical (:7292-7299, 7379-7381), from `_1 & $1F`, `_1` being F600 or the entrance's
+ * FC00 (:7147-7148, 7336-7337, 7376-7388); L2's only when VertLayer2Setting != 3 (:7390-7393).
+ * The midway restart jumps past both high-byte writes, which stay 0 (:7287-7288, 7362-7373).
+ */
+function entryDy(rom: RomFile, index: number, path: EntryPath): number {
+  const byte = (addr: number) => rom.readByte(addr) ?? 0
+  const sec = path.kind === 'secondary'
+  const lows = byte(sec ? 0x05fa00 + path.id : 0x05f400 + index)
+  const l1 = byte(0x05d708 + ((lows >> (sec ? 4 : 2)) & 3))
+  const l2 = byte(0x05d70c + ((lows >> (sec ? 6 : 0)) & 3))
+  const vertical = (byte(0x05f600 + index) & 0x20) !== 0
+  if (!vertical || path.kind === 'midway') return l1 - l2
+  const high = (sec ? byte(0x05fc00 + path.id) : byte(0x05f600 + index)) & 0x1f
+  const l2High = byte(0x05d710 + (byte(0x05f000 + index) >> 4)) === 3 ? 0 : high // :7268-7277
+  return ((high << 8) | l1) - ((l2High << 8) | l2)
+}
+
+/**
+ * The map's `dy` from the entrances that reach it, or null when none is known (an orphan, a bonus
+ * map, an unavailable exit graph). Disagreeing entrances draw the first and say so.
+ */
+function dyFromEntrances(
+  rom: RomFile,
+  index: number,
+  via?: MapEntrances,
+): { dy: number; note?: string } | null {
+  if (!via) return null
+  // A midway restart needs MidwayFlag, which the tape (Map16 $038) sets only while DisableMidway,
+  // F400[map] >> 4 at the overworld entry, is nonzero (bank_00.asm:13042-13050; bank_05.asm:7349-7357).
+  const midway = (rom.readByte(0x05f400 + index) ?? 0) >> 4 !== 0
+  const paths: EntryPath[] = [
+    ...(via.overworld ? [{ kind: 'overworld' as const }] : []),
+    ...(via.primary ? [{ kind: 'exit' as const }] : []),
+    ...(via.overworld && midway ? [{ kind: 'midway' as const }] : []),
+    ...via.secondary.map(id => ({ kind: 'secondary' as const, id })),
+  ]
+  if (paths.length === 0) return null
+  const dys = paths.map(p => entryDy(rom, index, p))
+  const differ = paths.filter((_, i) => dys[i] !== dys[0]).map(pathWords)
+  if (differ.length === 0) return { dy: dys[0]! }
+  return {
+    dy: dys[0]!,
+    note: `drawn as entered ${pathWords(paths[0]!)}; entered ${differ.join(', ')} it starts at a different height.`, // prettier-ignore
+  }
+}
+
+/**
+ * Read one map's L2, or why it cannot be read. Never a vanilla fallback. `entrances` is how the
+ * game enters the map (`SmwRom.buildLevelExitGraph`); `startGate` names why the level-load code
+ * is not stock, or null. Without entrances the position is the older
+ * reading: F400/F600 for a $0xx map, and for a $1xx map the low bytes of the first FA00 entrance
+ * `findSecondaryEntranceForLevel` names, mixed with the map's own F600 high byte.
+ */
+export function buildL2Inputs(
+  rom: SmwRom,
+  index: number,
+  l1: L1Inputs,
+  entrances?: MapEntrances,
+  startGate: (rom: RomFile) => string | null = rom => stockCodeMismatch(rom, LEVEL_START_Y),
+): L2Result {
   const refuse = (reason: string): L2Result => ({ ok: false, reason })
   const ptr = readL2Pointer(rom.rom, index)
   if (ptr === null) return refuse(`The L2 pointer of map ${hex3(index)} is outside the ROM`)
@@ -58,11 +131,16 @@ export function buildL2Inputs(rom: SmwRom, index: number, l1: L1Inputs): L2Resul
   // The level-start relation `Layer1YPos - Layer2YPos`, the view's representative frame; later
   // vertical scrolling moves L2 against L1 when VertLayer2Setting != 1. The high bytes follow the
   // ScreenMode the entry code builds from F600 bits 5-6 (bank_05.asm:7292-7299, 7379-7381), not the
-  // VerticalTable, which the header parse applies later (:552-553). The values are the level's own
-  // F400/F600; a sublevel reached by a secondary entrance takes its low bytes from FA00 and its high
-  // byte from DATA_05FC00 (bank_05.asm:7147-7148, 7376-7388), which this view does not read (#505).
+  // VerticalTable, which the header parse applies later (:552-553). With no known entrance, the
+  // older reading described above.
   const entryVertical = ((rom.rom.readByte(0x05f600 + index) ?? 0) & 0x20) !== 0
-  const dy = (): number => readInitialLayer1YPos(rom.rom, index, entryVertical) - readInitialLayer2YPos(rom.rom, index, entryVertical) // prettier-ignore
+  const known = dyFromEntrances(rom.rom, index, entrances)
+  const dy = (): number => known?.dy ?? readInitialLayer1YPos(rom.rom, index, entryVertical) - readInitialLayer2YPos(rom.rom, index, entryVertical) // prettier-ignore
+  // The tables are the game's only while the code reading them is stock (LEVEL_START_Y): if not,
+  // the best reading still draws, said to be unverified.
+  const gate = startGate(rom.rom)
+  const why = [gate, known?.note && gate ? `D${known.note.slice(1)}` : known?.note].filter(Boolean)
+  const note = why.length ? `Background height unverified: ${why.join(' ')}` : undefined
   try {
     if (isPresetPtr(ptr)) {
       const preset = loadL2Preset(rom.rom, ptr)
@@ -73,8 +151,16 @@ export function buildL2Inputs(rom: SmwRom, index: number, l1: L1Inputs): L2Resul
       const rows = isVertical ? screens * SCREEN_H_VERT : 27
       return {
         ok: true,
-        l2: { kind: 'image', grid: tilePresetGrid(preset, cols, rows), tiles: loadMap16Tiles(rom.rom, table.value), dy: dy() }, // prettier-ignore
+        l2: { kind: 'image', grid: tilePresetGrid(preset, cols, rows), tiles: loadMap16Tiles(rom.rom, table.value), dy: dy(), note }, // prettier-ignore
       }
+    }
+    // Before the orientation check: modes $0A and $0D would otherwise be refused for a layout mismatch the game never meets.
+    const objectGate = l2ObjectGate(rom.rom, header.levelMode)
+    if (objectGate === 'unrecognized') {
+      return refuse(`Layer 2 not drawn: the mode-skip chain of this ROM is not recognized (level mode $${hex2(header.levelMode)})`) // prettier-ignore
+    }
+    if (objectGate === 'skipped') {
+      return refuse(`The game loads no layer 2 objects in level mode $${hex2(header.levelMode)}`)
     }
     const vertical = rom.getVerticalTable()
     if (!vertical.ok) return refuse(vertical.reason)
@@ -92,6 +178,7 @@ export function buildL2Inputs(rom: SmwRom, index: number, l1: L1Inputs): L2Resul
         tiles: withPaletteOr(l1.map16.tiles, l2PaletteOrForTileset(header.objectTileset)),
         dy: dy(),
         unverified: objects.unverified,
+        note,
       },
     }
   } catch (err) {

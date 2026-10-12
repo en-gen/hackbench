@@ -17,17 +17,19 @@ const SET = ['l3Low', 'sp0', 'sp1', 'l2Low', 'l1Low', 'sp2', 'l2High', 'l1High',
 const CLEAR = ['l3Low', 'sp0', 'l3High', 'sp1', 'l2Low', 'l1Low', 'sp2', 'l2High', 'l1High', 'sp3']
 const BITS: Record<string, number> = { l1: 1, l2: 2, l3: 4 }
 /**
- * One screen: the BG planes its mask names, and one 'sprites' when bit $10 is set. Sprites go just
- * before l1High (the owner's ruling, #564); with no layer 1 there, at the OBJ priority 2 slot of the
- * table above (the slot between BG1's low and high planes).
+ * One screen: the BG planes its mask names and, when bit $10 is set, the four OBJ priorities (#795).
+ * OBJ.0, .1 and .3 at their table slots; OBJ.2 just before l1High (the owner's ruling, #564), or with
+ * no layer 1 there at its own slot of the table above (between BG1's low and high planes).
  */
 const on = (order: string[], mask: number) => {
-  const bg = order.filter(k => !k.startsWith('sp') && mask & BITS[k.slice(0, 2)]!)
-  if (!(mask & 0x10)) return bg
-  const at = bg.includes('l1High')
-    ? bg.indexOf('l1High')
-    : order.slice(0, order.indexOf('sp2')).filter(k => bg.includes(k)).length
-  return [...bg.slice(0, at), 'sprites', ...bg.slice(at)]
+  const obj = !!(mask & 0x10)
+  const keep = order.filter(k => (k.startsWith('sp') ? obj && k !== 'sp2' : mask & BITS[k.slice(0, 2)]!)) // prettier-ignore
+  const list = keep.map(k => (k.startsWith('sp') ? `sprites${k[2]}` : k))
+  if (!obj) return list
+  const at = list.includes('l1High')
+    ? list.indexOf('l1High')
+    : order.slice(0, order.indexOf('sp2')).filter(k => keep.includes(k)).length
+  return [...list.slice(0, at), 'sprites2', ...list.slice(at)]
 }
 const expected = (main: number, sub: number, pri: boolean) => ({
   main: on(pri ? SET : CLEAR, main),
@@ -62,11 +64,11 @@ describe('screenPlanes: all 32 modes, both priority bits', () => {
   })
   it('the #561 standard layout is the case main $15, sub $02', () => {
     expect(screenPlanes(0x15, 0x02, true)).toEqual<ScreenPlanes>({
-      main: ['l3Low', 'l1Low', 'sprites', 'l1High', 'l3High'],
+      main: ['l3Low', 'sprites0', 'sprites1', 'l1Low', 'sprites2', 'l1High', 'sprites3', 'l3High'],
       sub: ['l2Low', 'l2High'],
     })
     expect(screenPlanes(0x15, 0x02, false)).toEqual<ScreenPlanes>({
-      main: ['l3Low', 'l3High', 'l1Low', 'sprites', 'l1High'],
+      main: ['l3Low', 'sprites0', 'l3High', 'sprites1', 'l1Low', 'sprites2', 'l1High', 'sprites3'],
       sub: ['l2Low', 'l2High'],
     })
   })
@@ -79,14 +81,15 @@ describe('screenPlanes: all 32 modes, both priority bits', () => {
     // Mode 1E: main $01 (BG1), sub $16 (BG2, BG3, OBJ). OBJ priority 2 sits after BG3.0 and BG2.0.
     const r = screenPlanes(0x01, 0x16, true)
     expect(r.main).toEqual(['l1Low', 'l1High'])
-    expect(r.sub).toEqual(['l3Low', 'l2Low', 'sprites', 'l2High', 'l3High'])
-    expect(screenPlanes(0x01, 0x16, false).sub).toEqual(['l3Low', 'l3High', 'l2Low', 'sprites', 'l2High']) // prettier-ignore
+    expect(r.sub).toEqual(['l3Low', 'sprites0', 'sprites1', 'l2Low', 'sprites2', 'l2High', 'sprites3', 'l3High']) // prettier-ignore
+    expect(screenPlanes(0x01, 0x16, false).sub).toEqual(['l3Low', 'sprites0', 'l3High', 'sprites1', 'l2Low', 'sprites2', 'l2High', 'sprites3']) // prettier-ignore
   })
-  it('fallback is the old BG1/BG2 order, sprites included', () => {
+  it('fallback is the old BG1/BG2 order, the four OBJ priorities placed as on a screen with BG1 and BG2', () => {
     expect(FALLBACK_SCREENS).toEqual({
-      main: ['l2Low', 'l1Low', 'l2High', 'sprites', 'l1High'],
+      main: ['sprites0', 'sprites1', 'l2Low', 'l1Low', 'l2High', 'sprites2', 'l1High', 'sprites3'],
       sub: [],
     })
+    expect(FALLBACK_SCREENS.main).toEqual(screenPlanes(0x13, 0, true).main)
   })
 })
 
@@ -100,7 +103,13 @@ describe('the per-mode oracle can fail (planted defects, a smoke test)', () => {
     // A BG4 bit that changes the answer.
     const bg4Breaks: typeof screenPlanes = (m, s, p) =>
       m & 8 ? { main: [], sub: [] } : screenPlanes(m, s, p)
-    for (const bad of [swapHigh, subFromMain, bg4Breaks]) {
+    // OBJ priorities collapsed to one slot, the pre-#795 behaviour.
+    const oneObjSlot: typeof screenPlanes = (m, s, p) => {
+      const r = screenPlanes(m, s, p)
+      const one = (l: ScreenPlanes['main']) => l.filter(k => !['sprites0', 'sprites1', 'sprites3'].includes(k)) // prettier-ignore
+      return { main: one(r.main), sub: one(r.sub) }
+    }
+    for (const bad of [swapHigh, subFromMain, bg4Breaks, oneObjSlot]) {
       expect(wrong(bad).length).toBeGreaterThan(0)
     }
   })
