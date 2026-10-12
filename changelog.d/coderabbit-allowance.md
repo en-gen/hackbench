@@ -1,3 +1,3 @@
 ### Changed
 
-- CodeRabbit no longer re-reviews every push (the OSS allowance is about one review per hour), and the adversarial reviewer pre-checks the diff against `.coderabbit.yaml` path instructions.
+- CodeRabbit automatic reviews and the PR summary are off; every review is requested explicitly, since the OSS allowance is about one review per hour. The adversarial reviewer pre-checks the diff against `.coderabbit.yaml` path instructions.
