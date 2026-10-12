@@ -243,26 +243,28 @@ describe('changelog-combine', () => {
     expect(readLog()).toBe(BASE)
   })
 
-  describe('merging branches', () => {
+  // 12 serial git spawns each: 4.5 s was measured while many processes started at
+  // once, so the 5 s default is too close (#892).
+  describe('merging branches', { timeout: 30_000 }, () => {
     // Isolated from the machine's git config: a global post-checkout hook once
     // pushed these tests past vitest's 5 s timeout under load (#892).
     const git = (...a: string[]) => {
-      // Shared empty dir and file, outside the repo under test; os.devNull is
-      // not openable by git on Windows.
-      const iso = path.join(os.tmpdir(), 'chlog-git-isolation')
-      const hooks = path.join(iso, 'hooks')
-      const emptyCfg = path.join(iso, 'empty.gitconfig')
-      fs.mkdirSync(hooks, { recursive: true })
-      fs.appendFileSync(emptyCfg, '')
+      // /dev/null works as a config path on Windows git too; os.devNull does not.
+      // Nothing is created outside the repo under test.
       const env: NodeJS.ProcessEnv = {
         ...process.env,
-        GIT_CONFIG_GLOBAL: emptyCfg,
-        GIT_CONFIG_SYSTEM: emptyCfg,
+        GIT_CONFIG_GLOBAL: '/dev/null',
+        GIT_CONFIG_SYSTEM: '/dev/null',
         GIT_CONFIG_NOSYSTEM: '1',
       }
-      for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE']) delete env[k]
-      const cfg = ['core.hooksPath=' + hooks, 'commit.gpgsign=false', 'core.autocrlf=false']
-      cfg.push('user.name=t', 'user.email=t@t')
+      const drop = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_CONFIG_PARAMETERS']
+      for (const k of Object.keys(env)) {
+        if (drop.includes(k) || k === 'GIT_CONFIG_COUNT' || /^GIT_CONFIG_(KEY|VALUE)_/.test(k))
+          delete env[k]
+      }
+      // A path that does not exist: git finds no hooks there.
+      const cfg = ['core.hooksPath=' + path.join(root, 'no-hooks'), 'commit.gpgsign=false']
+      cfg.push('core.autocrlf=false', 'user.name=t', 'user.email=t@t')
       const args = ['-C', root, ...cfg.flatMap(c => ['-c', c]), ...a]
       return spawnSync('git', args, { encoding: 'utf8', env })
     }
@@ -300,6 +302,9 @@ describe('changelog-combine', () => {
         ok('add', 'f')
         ok('commit', '-q', '-m', 'c')
         ok('checkout', '-q', '-b', 'other')
+        // A plain global key must not leak in either (the hook alone is also
+        // blocked by the -c hooksPath, so it cannot prove the env isolation).
+        expect(git('config', 'hackbench.probe').status).not.toBe(0)
       } finally {
         if (saved === undefined) delete process.env.GIT_CONFIG_GLOBAL
         else process.env.GIT_CONFIG_GLOBAL = saved
