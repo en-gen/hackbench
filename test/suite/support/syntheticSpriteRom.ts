@@ -80,6 +80,8 @@ export interface SyntheticOptions {
   alteredGrinder?: boolean
   /** Id 103 draws on its first MAIN only. */
   grinderDrawsOnce?: boolean
+  /** Id 103 draws on passes 0 and 1 only. */
+  grinderDrawsTwice?: boolean
   /** Id 103 draws on its second MAIN only. */
   grinderDrawsOnPass1?: boolean
   /** Id 103 draws from its second MAIN onward (already on its track at the first draw). */

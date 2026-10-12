@@ -36,11 +36,13 @@ export function putGrinderRoutines(
   // The draw subroutine; id 103 may draw on its first MAIN only (count in $1650,X).
   const gate = o.grinderDrawsOnce
     ? [0xc9, 0x02, 0x90, 0x01, 0x60] // draws while the count is below 2: pass 0 only
-    : o.grinderDrawsOnPass1
-      ? [0xc9, 0x02, 0xf0, 0x01, 0x60] // draws when the count is exactly 2: pass 1 only
-      : o.grinderDrawsFromPass1
-        ? [0xc9, 0x02, 0xb0, 0x01, 0x60] // draws once the count reaches 2: pass 1 onward
-        : null
+    : o.grinderDrawsTwice
+      ? [0xc9, 0x03, 0x90, 0x01, 0x60] // draws while the count is below 3: passes 0 and 1
+      : o.grinderDrawsOnPass1
+        ? [0xc9, 0x02, 0xf0, 0x01, 0x60] // draws when the count is exactly 2: pass 1 only
+        : o.grinderDrawsFromPass1
+          ? [0xc9, 0x02, 0xb0, 0x01, 0x60] // draws once the count reaches 2: pass 1 onward
+          : null
   put(0x019400, [...(gate ? [0xfe, 0x50, 0x16, 0xbd, 0x50, 0x16, ...gate] : []), ...drawSub])
   put(0x019282, [0x6b])
   put(0x019280, [0x60])

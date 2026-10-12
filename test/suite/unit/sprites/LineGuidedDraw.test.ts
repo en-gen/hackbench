@@ -1,9 +1,10 @@
 /**
- * The line-guided grinder ($67) is drawn at the first frame after it attaches to its line (#126).
+ * The line-guided grinder ($67) is drawn where the line walk puts it, two passes after its first draw (#126).
  * Synthetic cart: ids 31 and 103 draw one piece at SpriteXPos and then move +4 (hand-written opcodes),
- * so CI (no cart) proves the rule picks the second drawn pass for $67 only.
+ * so CI (no cart) proves the rule picks the third drawn pass for $67 only.
  */
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { L1ModelCache } from '../../../../theia/extension/src/node/map-screen'
 import {
@@ -21,7 +22,7 @@ import {
 } from '../../../../src/rom/sprites/interp/LineGuided'
 import { runOnce, type SpriteModel } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { SPRITE_SEED, withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
-import { hasRom, romPath, VANILLA } from '../../support/corpus'
+import { hasRom, romPath, SPRITE_TRACE_SET, TOOLS_ROOT, VANILLA } from '../../support/corpus'
 import {
   GRINDER_DISPATCH_AT,
   GRINDER_DISPATCH,
@@ -41,15 +42,22 @@ describe('line-guided draw pass', () => {
     expect(m.passes[0]!.parts[0]!.dx).toBe(0)
   })
 
-  it('draws $67 at the second pass, with the anchor where that draw happened (draw, then move)', () => {
+  it('draws $67 at the third pass, with the anchor where that draw happened (draw, then move)', () => {
     const [a, g] = [run(31), run(103)]
+    expect(g.chosen).toBe(2)
+    expect(g.anchor!.x).toBe(0x88)
+    // The same OAM X as the other id's third pass, and the body is centred on the anchor it reports.
+    const part = g.passes[2]!.parts[0]!
+    expect(part.ox).toBe(a.passes[2]!.parts[0]!.ox)
+    expect(part.ox).toBe(a.passes[0]!.parts[0]!.ox + 8)
+    expect(part.dx).toBe(0)
+  })
+
+  it('stops at the second pass when the third draws nothing, and at the first when the second does not', () => {
+    const g = run(103, { grinderDrawsTwice: true })
+    expect(g.passes.slice(0, 3).map(p => p.parts.length > 0)).toEqual([true, true, false])
     expect(g.chosen).toBe(1)
     expect(g.anchor!.x).toBe(0x84)
-    // The same OAM X as the other id's second pass, and the body is centred on the anchor it reports.
-    const part = g.passes[1]!.parts[0]!
-    expect(part.ox).toBe(a.passes[1]!.parts[0]!.ox)
-    expect(part.ox).toBe(a.passes[0]!.parts[0]!.ox + 4)
-    expect(part.dx).toBe(0)
   })
 
   it('falls back to the first drawn pass when the pass after it draws nothing', () => {
@@ -86,7 +94,7 @@ describe('line-guided draw pass', () => {
     expect(g.chosen).toBe(0)
     expect(g.anchor!.x).toBe(0x80)
     expect(g.lineStepReason).toMatch(/did not move/)
-    // The inverse: the unmodified cart (step is the +4 move) still advances to pass 1 and gives no reason.
+    // The inverse: the unmodified cart (step is the +4 move) still advances and gives no reason.
     expect(run(103).lineStepReason).toBeUndefined()
   })
 
@@ -99,7 +107,7 @@ describe('line-guided draw pass', () => {
     expect(at(g)).toBe(at(other))
   })
 
-  it('keeps a $67 that is already on its track at its first drawn pass (pass 1), not the one after', () => {
+  it('keeps a $67 that first draws on pass 1 at that pass: it is already on its track', () => {
     const g = run(103, { grinderDrawsFromPass1: true })
     expect(g.passes.slice(0, 3).map(p => p.parts.length > 0)).toEqual([false, true, true])
     expect(g.chosen).toBe(1)
@@ -170,27 +178,38 @@ describe('line-guided draw pass', () => {
 })
 
 /**
- * Every vanilla $67, in stream order, as [x, y] where the first MAIN left it (INIT spot plus the winning probe
- * corner, bank_01.asm:12054-12061), or null where the run erases it: not yet investigated, #793 (hypothesis: INIT moves X
- * by -$140, bank_01.asm:11793-11799, away from the spawn-centred camera); pinned here so it cannot change unnoticed. Measured on the vanilla ROM with this runner;
- * slot $1F's first grinder (sprite slot 7, x 419) also matches the Mesen sprite-trace capture of its first MAIN call.
+ * Every vanilla $67, in stream order, as [x, y] where the line walk left it after the second MAIN: the spot the
+ * third pass draws at, on the line (SMWDisX bank_01.asm:11863-11930), or null where the run erases it: not yet
+ * investigated, #793 (hypothesis: INIT moves X by -$140, bank_01.asm:11793-11799, away from the spawn-centred
+ * camera); pinned here so it cannot change unnoticed. Measured on the vanilla ROM with this runner.
  */
 const GRINDERS: Record<number, ([number, number] | null)[]> = {
-  0x1a: [[739, 356], null, [931, 356], null, null, [1371, 308], [1499, 324], [1723, 340], [1859, 324], [1923, 372], [2075, 260], [2179, 276], [2243, 292]], // prettier-ignore
+  0x1a: [[751, 367], null, [943, 367], null, null, [1360, 319], [1503, 335], [1727, 351], [1871, 335], [1935, 368], [2079, 271], [2176, 287], [2255, 303]], // prettier-ignore
   0x1f: [
-    [419, 340],
-    [547, 324],
-    [707, 340],
-    [827, 324],
-    [1083, 324],
-    [1243, 308],
-    [1307, 292],
+    [431, 336],
+    [559, 320],
+    [719, 336],
+    [816, 335],
+    [1072, 335],
+    [1232, 319],
+    [1311, 303],
   ],
+}
+
+/**
+ * Where a line tile draws its line inside its 16x16 cell (the tile pictures of slots $1A and $1F, rendered
+ * and read as numbers): $90 at x 0, $91 at x 15, $92 at y 0, $93 at y 15.
+ */
+const LINE_EDGE: Record<number, (x: number, y: number) => boolean> = {
+  0x90: x => x === 0,
+  0x91: x => x === 15,
+  0x92: (_, y) => y === 0,
+  0x93: (_, y) => y === 15,
 }
 
 describe.skipIf(!hasRom(VANILLA))('every vanilla grinder, on the vanilla ROM', () => {
   for (const [slot, want] of Object.entries(GRINDERS)) {
-    it(`slot $${Number(slot).toString(16)}: ${want.length} placements drawn where the line snap left them`, () => {
+    it(`slot $${Number(slot).toString(16)}: ${want.length} placements drawn where the line walk left them`, () => {
       const bytes = new Uint8Array(readFileSync(romPath(VANILLA)))
       const r = mapSprites(new L1ModelCache(), bytes, romPath(VANILLA), Number(slot))
       expect(r.status).toBe('ok')
@@ -227,8 +246,8 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla grinder, on the vanilla ROM', (
         draw(g)
         const m = ran.at(-1)!
         if (want[i] === null) return expect(m.chosen, `#${i}`).toBeUndefined()
-        expect(m.chosen, `#${i}`).toBe(1)
-        const pass = m.passes[1]!
+        expect(m.chosen, `#${i}`).toBe(2)
+        const pass = m.passes[2]!
         expect(pass.origin, `#${i}`).toEqual({ x: want[i]![0], y: want[i]![1] })
         // The grinder's own pieces are the lowest OAM entries; slot $1F's level also draws four more, not yet explained (#793).
         const body = [...pass.parts].sort((a, b) => a.oam - b.oam).slice(0, 4)
@@ -237,3 +256,59 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla grinder, on the vanilla ROM', (
     }, 120_000)
   }
 })
+
+describe.skipIf(!hasRom(VANILLA))('line-guided grinder sweep (all 17 drawn, vanilla)', () => {
+  it('draws each one on the edge of its line tile', () => {
+    const path = romPath(VANILLA)
+    const bytes = new Uint8Array(readFileSync(path))
+    let drawn = 0
+    // The 3 undrawn $1A grinders (indices 1, 3, 4) are #793, not this rule: GRINDERS marks them null.
+    for (const slot of [0x1a, 0x1f]) {
+      const built = new L1ModelCache().get(bytes, path, slot, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
+      if (!built.ok) throw new Error(built.reason)
+      const grid = built.inputs.grid as number[][]
+      const r = mapSprites(new L1ModelCache(), bytes, path, slot)
+      if (r.status !== 'ok') throw new Error(`slot ${slot}: ${r.status}`)
+      r.sprites
+        .filter(d => d.id === 0x67 && d.status === 'drawn')
+        .forEach(d => {
+          const tile = (grid[d.y >> 4]?.[d.x >> 4] ?? -1) & 0xff
+          const on = LINE_EDGE[tile]
+          expect(on, `slot ${slot} (${d.x},${d.y}): tile $${tile.toString(16)} is not a line-guide tile`).toBeDefined() // prettier-ignore
+          expect(on!(d.x & 15, d.y & 15), `slot ${slot} (${d.x},${d.y}) tile $${tile.toString(16)}`).toBe(true) // prettier-ignore
+          drawn++
+        })
+    }
+    expect(drawn).toBe(17)
+  }, 120_000)
+})
+
+const TRACE_SLOT_7 = join(TOOLS_ROOT, 'fixtures', 'sprite-trace', SPRITE_TRACE_SET, '01f')
+
+describe.skipIf(!hasRom(VANILLA) || !existsSync(TRACE_SLOT_7))(
+  'Mesen capture, slot $1F grinder in sprite slot 7',
+  () => {
+    it('is drawn where the capture left it after the line pull, (431,336)', () => {
+      // The capture's WRAM snapshots are 8 KiB per call, taken as the next call starts. Sprite slot 7 reads
+      // (400,336) after the load, (415,336) after INIT, (419,340) after the first MAIN and (431,336) after the second.
+      const calls = JSON.parse(readFileSync(join(TRACE_SLOT_7, 'calls.json'), 'utf8')) as { slot: number; kind: string; wram: number }[] // prettier-ignore
+      const wram = readFileSync(join(TRACE_SLOT_7, 'wram.bin'))
+      const at = (k: number) => [wram[k * 8192 + 0xe4 + 7]! | (wram[k * 8192 + 0x14e0 + 7]! << 8), wram[k * 8192 + 0xd8 + 7]! | (wram[k * 8192 + 0x14d4 + 7]! << 8)] // prettier-ignore
+      const mains = calls.filter(c => c.slot === 7 && c.kind === 'main')
+      expect(mains).toHaveLength(2)
+      expect(at(mains[0]!.wram)).toEqual([415, 336])
+      expect(at(mains[1]!.wram)).toEqual([419, 340])
+      const lastWram = mains[1]!.wram + 1
+      expect(at(lastWram)).toEqual([431, 336])
+      const r = mapSprites(
+        new L1ModelCache(),
+        new Uint8Array(readFileSync(romPath(VANILLA))),
+        romPath(VANILLA),
+        0x1f,
+      )
+      if (r.status !== 'ok') throw new Error(r.status)
+      const first = r.sprites.filter(d => d.id === 0x67)[0]!
+      expect([first.x, first.y]).toEqual(at(lastWram))
+    }, 120_000)
+  },
+)

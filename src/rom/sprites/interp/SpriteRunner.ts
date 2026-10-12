@@ -148,7 +148,7 @@ export interface SpriteModel {
   /**
    * The frame policy: index of the first pass at or after INIT that draws at
    * least one tile (within the pass cap), absent when none does; for $67 on a vanilla-shaped
-   * handler, the pass after that when it draws too (#126). A policy, not a claim about which
+   * handler, the pass on the line: two after it when each step moved the sprite and draws (#126). A policy, not a claim about which
    * frame a map should show.
    */
   chosen?: number
@@ -549,14 +549,19 @@ export function runOnce(
     if (m.bus.inputs) model.inputs = [...m.bus.inputs].sort((a, b) => a - b)
     const first = model.passes.findIndex(p => p.parts.length > 0)
     if (first >= 0) model.chosen = first
-    // $67: a first draw at pass 0 ran at the off-track INIT spot, so the pass after it (if it draws) is the
-    // first on-track one. A first draw later than pass 0 is already on the track: no advance. When pass 0
-    // draws and pass 1 does not, pass 0 stays even if a later pass draws on track.
-    // The advance is only earned if the line step moved the sprite on pass 0; a fingerprint match cannot prove it.
+    // $67 draws before its own move (SMWDisX bank_01.asm:12194-12204). Pass 0 draws at the off-track INIT spot,
+    // pass 1 at the probe-corner spot the first MAIN snapped to (CODE_01D8A4, 12045-12061), pass 2 at the spot the
+    // line walk then set, which is on the line (CODE_01D768 / CODE_01D7B0, 11863-11930; Mesen capture 6b47bb75 slot
+    // $1F: (415,336) -> (419,340) -> (431,336)). Each step is only taken if the pass before it moved the sprite
+    // and the next pass draws; a fingerprint match cannot prove that. A first draw after pass 0 is already on track.
     if (snaps && first === 0 && model.passes[1]?.parts.length) {
-      const p0 = model.passes[0]!.pos
-      if (p0.x !== anchor.x || p0.y !== anchor.y) model.chosen = 1
-      else model.lineStepReason = 'the line step did not move the sprite on pass 0: kept the first drawn pass' // prettier-ignore
+      const [q0, q1] = [model.passes[0]!.pos, model.passes[1]!.pos]
+      if (q0.x === anchor.x && q0.y === anchor.y)
+        model.lineStepReason = 'the line step did not move the sprite on pass 0: kept the first drawn pass' // prettier-ignore
+      else {
+        model.chosen = 1
+        if (model.passes[2]?.parts.length && (q1.x !== q0.x || q1.y !== q0.y)) model.chosen = 2
+      }
     }
     if (snaps && model.chosen !== undefined)
       model.anchor = { ...model.anchor!, ...model.passes[model.chosen]!.origin }
