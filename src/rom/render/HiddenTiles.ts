@@ -15,6 +15,10 @@ export function hiddenPixelStrength(x: number, y: number, flip = false): number 
   return ((x + y) % 2 === 0) !== flip ? 1 : HIDDEN_TILE_DIM_ALPHA
 }
 
+/** Whether a picture with `full` pixels on the full-strength squares and `dim` on the dim ones is
+ * drawn on the other squares (see `overlayHidden`); shared with the sprite door (#795). */
+export const doorFlip = (full: number, dim: number): boolean => full > dim
+
 /**
  * Writes 16x16 `alt` into `dst` (row width `dstWidth` px) at (x0, y0) in the
  * screen door, where `dst` is still transparent. Parity is the pixel's place
@@ -48,7 +52,7 @@ export function overlayHidden(
       if (hiddenPixelStrength(x, y) === 1) full++
       else dim++
     }
-  const flip = full > dim
+  const flip = doorFlip(full, dim)
   for (let y = 0; y < 16; y++)
     for (let x = 0; x < 16; x++) {
       if (!writes(x, y)) continue

@@ -247,6 +247,23 @@ the 16 px grid. The frontend cuts each bitmap per screen
 (`compositeSpriteScreen`, `browser/map-view-model.ts`) into one `sprites`
 canvas per screen, stacked just under L1's priority plane. The `S` toggle
 hides those canvases with `visibility: hidden`, as L1 and L2 do.
+Each drawn sprite also carries `priority`, one byte per pixel: the OAM
+priority (attribute bits 5:4) of the part that wins the pixel (#795). The
+composite does not use the canvas: `spritePlanes` splits each screen's
+sprites into `sprites0` to `sprites3`, which `screenPlanes` places at their
+mode 1 slots ([obj-priority.md](../rom/obj-priority.md) section 5).
+A sprite pixel a nearer tile covers draws in the hidden-tile screen door (D52):
+`spriteDoors` returns, per screen, a `Uint32Array` of `sprite id << 1 | parity`
+on the sprite's own pixel grid, passed to `composeScreen` as `doors`. The swap
+decision per id (`doorFlips`) is counted over the whole native screen; a
+caller that composes a crop or a scaled cell passes the native result as
+`flips`. `IndicatorDisplay` does this: it scales `doors` with each cell
+(nearest) and reuses the native flips, so a covered sprite pixel under an
+indicator cell keeps its door at any zoom. Main screen only.
+Hover (#879): the widget finds the sprite under the pointer with `doorIdAt`
+(the door id at the native pixel) and passes it as `lift` to `composeScreen`
+and `IndicatorDisplay`; that sprite's covered pixels draw opaque. The lift is
+part of the composite's cache key for the screens whose door map holds the id, so a lifted frame is never kept as the normal one and other screens do not repaint. The id is global to the map, so a sprite crossing a screen edge lifts on each screen it reaches; a sprite with no covered pixel on any composed screen never lifts.
 
 ### The map tab's collision overlay (#435)
 

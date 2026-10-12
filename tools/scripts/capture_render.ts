@@ -27,6 +27,7 @@ import { inflateRawSync, inflateSync } from 'zlib'
 import { buildSync } from 'esbuild'
 import * as D from './capture_decode'
 import * as Draw from './capture_draw'
+import { maskStatusBar, statusBarRows, STATUS_BAR_HEIGHT } from './statusBarMask'
 import type { GridMeta, Mismatch, PipeInfo } from './capture_decode'
 
 const { hex, hexWord } = D
@@ -385,7 +386,14 @@ function readLevel(read: Reader, level: string, windows: string[]): Level {
   const b64 = (b: Buffer) => b.toString('base64')
   const bad = (p: string[]) => unavailable(p.join('; '))
   const summary = json('capture_summary.json')
-  if (!summary) return bad(['no capture_summary.json: the capture aborted'])
+  if (!summary) {
+    // A sprite-trace folder never has a summary by design (sprite_routine_trace.lua writes calls.json and
+    // frames.json instead), so a folder lacking both and the summary is an incomplete layers capture.
+    if (read('calls.json') && read('frames.json')) return bad(['sprite-trace folder: this viewer compares layers captures only (it has no capture_summary.json)']) // prettier-ignore
+    return bad([
+      'no capture_summary.json: not a sprite-trace folder; the layers capture is incomplete',
+    ])
+  }
   if (summary.identityGate !== 'pass') return bad([`identity gate: ${summary.identityGate}`])
   if (summary.layer1 && summary.layer1 !== 'map16') return bad([`Layer 1: ${summary.layer1}`])
   // The load sample, the first: the map's graphics and palettes come from it.
@@ -655,7 +663,7 @@ function readLevel(read: Reader, level: string, windows: string[]): Level {
   const bandNote =
     bg3Refs.length && !lines.includes(undefined)
       ? `Effects compared below each picture's status-bar interrupt line (${lines.join(', ')})`
-      : 'Effects compared on every line where a picture has no status-bar interrupt line'
+      : `Effects compared below line ${STATUS_BAR_HEIGHT} where a picture has no status-bar interrupt line`
   const drawIn: D.LevelInput = {
     meta,
     order: order!,
@@ -716,8 +724,7 @@ function readLevel(read: Reader, level: string, windows: string[]): Level {
         if (!v || !png) return null
         const w = { ...v, pal: D.palette(v.cgram ?? cgram), player, hideBg3: [...hideBg3] }
         const local = D.windowLayer(name, w, png.w, png.h)
-        if (name === 'bg3' && r.irqLine !== undefined)
-          local.skip.fill(1, 0, Math.min(png.h, r.irqLine + 1) * png.w)
+        if (name === 'bg3') maskStatusBar(local.skip, png.w, png.h, statusBarRows(r.irqLine))
         const pic = { x: 0, y: 0, w: png.w, h: png.h, px: png.px, sentinel: r.sentinel, skip: local.skip } // prettier-ignore
         const { n, differ } = D.refDiff(local.rgba, local.opaque, png.w, png.h, pic, 0)
         return n ? differ : null
