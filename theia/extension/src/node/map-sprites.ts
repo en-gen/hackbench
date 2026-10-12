@@ -50,6 +50,7 @@ import { getPaletteColor } from '../../../../src/rom/PaletteLoader'
 import { readMarioStartPos } from '../../../../src/rom/MarioStartPos'
 import {
   runOnce,
+  RAM,
   type SpriteModel as RunModel,
   type PaletteWrite,
   type SpritePart,
@@ -100,7 +101,8 @@ export interface SpriteModel {
  * `reason` is a refusal in the interpreter's own words.
  */
 export type SpriteDrawResult =
-  | (Extract<EngineResult, { ok: true }> & {
+  | (Omit<Extract<EngineResult, { ok: true }>, 'parts'> & {
+      parts: DrawPart[]
       anchor?: { x: number; y: number }
       /** CGRAM colors the sprite's own code set by its drawn frame (interpreter only). */
       runtimePalette?: PaletteWrite[]
@@ -109,6 +111,9 @@ export type SpriteDrawResult =
     })
   | Extract<EngineResult, { ok: false }>
   | { ok: false; reason: string; unverified?: string }
+
+/** A part with its OAM priority (attribute bits 5:4); the table engine's parts have none and draw at 2. */
+export type DrawPart = EnginePart & { priority?: number }
 
 /** Runs a drawer for one sprite; injected so the placement math is tested without a cart. */
 export type SpriteDrawer = (sprite: LevelSprite) => SpriteDrawResult
@@ -153,11 +158,12 @@ function placeholder(s: LevelSprite, reason: string, unverified?: string): MapSp
 const base64 = (b: Uint8ClampedArray) =>
   Buffer.from(b.buffer, b.byteOffset, b.byteLength).toString('base64')
 
-/** The part's pixels into `out` (bitmap origin `ox, oy`), color index 0 left clear. */
+/** The part's pixels into `out` and its priority into `prio` (bitmap origin `ox, oy`), color index 0 left clear. */
 function blit(
   out: Uint8ClampedArray,
+  prio: Uint8Array,
   width: number,
-  p: EnginePart,
+  p: DrawPart,
   at: [number, number],
   pixels: Uint8Array,
   row: (c: number) => RgbaColor,
@@ -166,7 +172,9 @@ function blit(
     for (let tx = 0; tx < 8; tx++) {
       const v = pixels[(p.flipY ? 7 - ty : ty) * 8 + (p.flipX ? 7 - tx : tx)]!
       if (v === 0) continue
-      out.set(row(v), ((at[1] + ty) * width + at[0] + tx) * 4)
+      const at1 = (at[1] + ty) * width + at[0] + tx
+      out.set(row(v), at1 * 4)
+      prio[at1] = p.priority ?? 2
     }
   }
 }
@@ -200,6 +208,11 @@ export function drawSprites(
     }
     const width = box.x1 - box.x0
     const out = new Uint8ClampedArray(width * (box.y1 - box.y0) * 4)
+    // The PPU keeps the opaque pixel of the OAM entry first in its rotation and only then compares
+    // ITS priority with the BG (hardware, not a ROM trace), so a pixel's priority is the part that
+    // wins it. SMW starts the rotation at OAMAddress (bank_00.asm:563-566): 0 (:779), so the lowest
+    // index wins, except in Roy, Morton and Ludwig's rooms, where slot 100 does (:2775-2776; not modelled).
+    const prio = new Uint8Array(width * (box.y1 - box.y0)).fill(2)
     const dyn = res.paletteNote ? dynamic(res.paletteNote) : []
     // The sprite's own CGRAM writes (WRAM upload list, palette mirror, direct), per sprite.
     const runtime = new Map<number, number>()
@@ -213,7 +226,7 @@ export function drawSprites(
         const set = runtime.get(p.palette * 16 + c)
         return set !== undefined ? bgr555ToRgba(set) : getPaletteColor(model, p.palette, c)
       }
-      blit(out, width, p, [ax + p.dx - box.x0, ay + p.dy - box.y0], pixels[i]!, row)
+      blit(out, prio, width, p, [ax + p.dx - box.x0, ay + p.dy - box.y0], pixels[i]!, row)
     })
     return {
       index: s.index,
@@ -222,6 +235,7 @@ export function drawSprites(
       y: ay,
       box,
       rgba: base64(out),
+      priority: base64(new Uint8ClampedArray(prio.buffer)),
       status: 'drawn',
       ...('unverified' in res && res.unverified ? { unverified: res.unverified } : {}),
     }
@@ -264,12 +278,12 @@ const neighbour = (char: number, cx: number, cy: number): number =>
 /**
  * The interpreter's `chosen` frame as drawable parts. A 16 x 16 OAM entry is
  * four 8 x 8 chars (tile, +1, +$10, +$11, wrapping as `neighbour` says: a
- * flip swaps which char sits where). Highest OAM index first, so the lower index (higher priority) is
+ * flip swaps which char sits where). Highest OAM index first, so the lower index (in front of the other OBJs) is
  * blitted last and wins an overlap. `char` is the 9-bit OBJ char; hackbench
  * numbers OBJ chars from $400.
  */
-export function interpParts(parts: readonly SpritePart[]): EnginePart[] {
-  const out: EnginePart[] = []
+export function interpParts(parts: readonly SpritePart[]): DrawPart[] {
+  const out: DrawPart[] = []
   for (const p of [...parts].sort((a, b) => b.oam - a.oam)) {
     const cells = p.size === 16 ? ([[0, 0], [1, 0], [0, 1], [1, 1]] as const) : ([[0, 0]] as const) // prettier-ignore
     for (const [cx, cy] of cells) {
@@ -277,6 +291,7 @@ export function interpParts(parts: readonly SpritePart[]): EnginePart[] {
       out.push({
         charNum: 0x400 + (p.size === 16 ? neighbour(p.char, cx, cy) : p.char),
         palette: p.palette,
+        priority: p.priority,
         flipX: p.flipX,
         flipY: p.flipY,
         dx: p.dx + (p.size === 16 ? col * 8 : 0),
@@ -319,6 +334,9 @@ export function modelResult(m: RunModel): SpriteDrawResult {
   }
 }
 
+/** SpriteLoadStatus, SMWDisX rammap.asm:1968 (SMW_U.sym 00001938): one byte per sprite list entry, 128 of them. */
+const SPRITE_LOAD_STATUS = 0x1938
+
 /**
  * The interpreter over this cart, for the level `index`: `levelSeed` runs the
  * ROM's own loader, Mario at the level's start, one sprite run alone per call.
@@ -332,9 +350,10 @@ export function interpDrawer(
   index: number,
   model: { isVertical: boolean; screenCount: number },
   run: (rom: RomFile, id: number, seed: SpriteSeed) => RunModel = runOnce,
+  seedFor: (rom: RomFile, index: number) => SpriteSeed = levelSeed,
 ): SpriteDrawer {
   // The loader runs once per map, not per sprite.
-  const base = levelSeed(rom, index)
+  const base = seedFor(rom, index)
   // Mario's start is what the ROM-run loader left in $94/$96 (the entrance it ran); the
   // table re-derivation is only for a generic seed, which has no loader image.
   const w = base.loaded
@@ -344,15 +363,67 @@ export function interpDrawer(
   // No start to seed the run with: refuse (compute turns this into an `unavailable` reply) rather than
   // seed Mario at {0,0} or the default position.
   if (!mario) throw new Error(`Mario start position unavailable: entrance tables unreadable for map ${index.toString(16)}`) // prettier-ignore
+  // Layer 1 as the loader left it ($1A/$1C): where a screen-fixed part's OAM position is on the map.
+  const loaderCam = w && { x: w[0x1a]! | (w[0x1b]! << 8), y: w[0x1c]! | (w[0x1d]! << 8) }
+  // OAM + the loader's camera is what the game shows only for a sprite its start-of-level load loaded:
+  // the loader runs CODE_05801E -> CODE_02A751 (bank_05.asm:72), which marks each loaded sprite's
+  // SpriteLoadStatus byte ($1938 + list index, bank_02.asm:5285) and clears a generator's or a
+  // no-free-slot sprite's (5345, 5419). 128 entries; a later index is not tracked, so not placed.
   // Only the map's own shape is added to a generic seed; a loaded one ignores it.
   const shape = { level: { screenMode: model.isVertical ? 1 : 0, screens: model.screenCount } }
   return s => {
     const [x, y] = [pixelX(s), s.y * TILE]
     const camera = cameraFor(x, y, model.isVertical, model.screenCount)
-    return modelResult(
-      run(rom, s.spriteId, withSeed({ sprite: { x, y }, camera, mario, ...shape }, base)),
-    )
+    const seed = (camera: { x: number; y: number }, extra = {}) => withSeed({ sprite: { x, y }, camera, mario, ...shape, ...extra }, base) // prettier-ignore
+    const m = run(rom, s.spriteId, seed(camera))
+    const at = m.chosen
+    if (!w || !loaderCam || at === undefined || !m.anchor || s.index < 0 || s.index >= 128 || !w[SPRITE_LOAD_STATUS + s.index]) return modelResult(m) // prettier-ignore
+    // Probe: the camera moved 13 x 11 px (not a multiple of the 8 px tile pitch, so a neighbour
+    // tile cannot alias) towards the sprite's screen centre, so it stays drawn; run only to the drawn pass.
+    const shifted = { x: camera.x + (x - camera.x < 128 ? -13 : 13), y: camera.y + (y - camera.y < 112 ? -11 : 11) } // prettier-ignore
+    const probe = run(rom, s.spriteId, seed(shifted, { mainPasses: at + 1 }))
+    return modelResult(fixOffsets(m, probe, loaderCam, w) ?? m)
   }
+}
+
+/**
+ * Parts whose OAM position is the same with the camera moved are screen-fixed
+ * (the Side Exit's flame, CODE_02F4EB, SMWDisX bank_02.asm:15531-15576, writes
+ * screen coordinates): their map position is OAM + the loader's camera, not
+ * the sprite's offset, and is not wrapped to a byte. A part whose X (9 bits) and Y are
+ * those the loader image already held at its (non-zero) OAM entry was not drawn
+ * by this sprite (the level's own cluster sprites rewrite OAM 123-127 every frame) and
+ * is left alone. Null when no part is screen-fixed.
+ */
+function fixOffsets(
+  m: RunModel,
+  probe: RunModel,
+  cam: { x: number; y: number },
+  loaded: Uint8Array,
+): RunModel | null {
+  const at = m.chosen
+  const pass = at === undefined ? undefined : m.passes[at]
+  const other = at === undefined ? undefined : probe.passes[at]
+  if (!m.anchor || !pass || !other) return null
+  const anchor = m.anchor
+  // Residue: the loader's entry is the part's X and Y, in an entry that is not all zero. Tile and
+  // attribute are not compared: the castle-flame cluster rewrites them. An all-zero entry is the loader's
+  // fill, not a drawn part, so a genuine part at (0, 0) must move.
+  const residue = (p: SpritePart) => {
+    const e = loaded.subarray(RAM.oam + p.oam * 4, RAM.oam + p.oam * 4 + 4)
+    // X is 9 bits: bit 8 sits in the size table, one byte per OAM entry (SpriteRunner.readParts); it counts as non-zero.
+    const x9 = e[0]! | ((loaded[RAM.oamSize + p.oam]! & 1) << 8)
+    return (e.some(v => v) || x9 > 255) && x9 === p.ox && e[1] === p.oy
+  }
+  const same = (p: SpritePart) => !residue(p) && other.parts.some(q => q.oam === p.oam && q.ox === p.ox && q.oy === p.oy) // prettier-ignore
+  if (!pass.parts.some(same)) return null
+  // X is 9 bits (bit 8 is the sign); OAM Y $E0-$FF is above the screen's top edge.
+  const parts = pass.parts.map(p =>
+    same(p)
+      ? { ...p, dx: (p.ox > 255 ? p.ox - 512 : p.ox) + cam.x - anchor.x, dy: (p.oy >= 0xe0 ? p.oy - 256 : p.oy) + cam.y - anchor.y } // prettier-ignore
+      : p,
+  )
+  return { ...m, passes: m.passes.map((q, i) => (i === at ? { ...q, parts } : q)) }
 }
 
 /** A sprite stream's bytes: up to the window, fewer when the ROM ends first (as SmwRom.getLevelRawData reads). */
