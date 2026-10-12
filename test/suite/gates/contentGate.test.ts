@@ -21,6 +21,7 @@ import { slow } from '../support/loadTimeout'
 import {
   checkBlob,
   checkPath,
+  checkTextContent,
   DEFAULT_MAX_BLOB_BYTES,
   DEFAULT_MAX_TOTAL_BYTES,
   effectiveLimits,
@@ -186,6 +187,169 @@ describe('checkBlob: content sniffing', () => {
 
   it('lockfiles are never content-sniffed', () => {
     expect(checkBlob('package-lock.json', Buffer.from(`"${'A'.repeat(400)}"`))).toEqual([])
+  })
+})
+
+describe('rom-provenance (#812): a "taken from the game" comment over an inline byte literal', () => {
+  const hitAt = (file: string, ...lines: string[]) =>
+    rule(checkTextContent(file, lines.join('\n'))).includes('rom-provenance')
+  const hit = (...lines: string[]) => hitAt('x.ts', ...lines)
+  const claim = '// Vanilla $0123: an OAM entry'
+
+  it('plants the reported shape (invented values) and blocks it', () => {
+    expect(hit(claim, 'x.set([1, 2, 0x0a, 0x0b], 4)')).toBe(true)
+  })
+
+  it.each([
+    ['decimal only', '[1, 2, 3]'],
+    ['hex only', '[0x01, 0x02]'],
+    ['$hex', '[$01, $0a, $0b]'],
+    ['mixed', '[1, 0x02, $03]'],
+    ['two elements', '[7, 9]'],
+    ['32 elements', `[${Array.from({ length: 32 }, (_, i) => i).join(', ')}]`],
+  ])('blocks %s', (_n, lit) => {
+    expect(hit(claim, `f(${lit})`)).toBe(true)
+  })
+
+  it.each([1, 2, 3])('blocks a literal %i line(s) below the claim', gap => {
+    expect(hit(claim, ...Array(gap - 1).fill('// more'), 'f([1, 2])')).toBe(true)
+  })
+
+  it('blocks block-comment and JSDoc claims, and other phrasings', () => {
+    expect(hit('/* Vanilla $0123 row */', 'f([1, 2])')).toBe(true)
+    expect(hit('/**', ' * Copied from the ROM:', ' */', 'f([1, 2])')).toBe(true)
+    expect(hit('// real ROM bytes', 'f([1, 2])')).toBe(true)
+  })
+
+  it('does not block: invented-values comment, no literal, literal too far, single element', () => {
+    expect(hit('// Invented values', 'f([1, 2, 0x0a, 0x0b])')).toBe(false)
+    expect(hit(claim, 'f(x)')).toBe(false)
+    expect(hit(claim, '//', '//', '//', 'f([1, 2])')).toBe(false) // exactly 4 below
+    expect(hit(claim, 'f([1])')).toBe(false)
+    expect(hit('const label = "vanilla"', 'f([1, 2])')).toBe(false) // not a comment
+  })
+
+  it('a negated claim is not a claim; the unnegated one still blocks', () => {
+    expect(hit('// Invented layout (no ROM bytes)', 'f([1, 2])')).toBe(false)
+    expect(hit('// not copied from the ROM', 'f([1, 2])')).toBe(false)
+    expect(hit('// contains no real ROM data', 'f([1, 2])')).toBe(false)
+    expect(hit('// not the ROM bytes', 'f([1, 2, 3])')).toBe(false)
+    expect(hit('// Invented layout (ROM bytes)', 'f([1, 2])')).toBe(true)
+    expect(hit('// copied from the ROM, no ROM bytes elsewhere', 'f([1, 2])')).toBe(true)
+  })
+
+  it.each([
+    '// not only copied from the ROM, also reordered',
+    '// The original, not patched ROM bytes',
+    '// never modified ROM bytes',
+    '// no header ROM bytes from bank 05',
+    '// not invented copied from the ROM',
+    '// not invented, but copied from the ROM',
+    '// not one single byte differs: ROM bytes',
+    '// casino ROM bytes',
+    '// no ROM bytes here; copied from the ROM at $8000',
+  ])('a negator that is not directly before the phrase does not deny it: %s', c => {
+    expect(hit(c, 'f([1, 2, 3])')).toBe(true)
+  })
+
+  it('the pragma exempts it', () => {
+    const text = [
+      '// content-gate: allow rom-provenance -- invented, mirrors a layout',
+      claim,
+      'f([1, 2])',
+    ].join('\n')
+    expect(checkTextContent('x.ts', text)).toEqual([])
+  })
+
+  it('blocks more phrasings, and a real ROM data claim', () => {
+    expect(hit('// real ROM data', 'f([1, 2])')).toBe(true)
+    expect(hit('// Vanilla 0x0123', 'f([1, 2])')).toBe(true)
+    expect(hit('// vanilla ROM at $0123', 'f([1, 2])')).toBe(true)
+    expect(hit('// from the ROM at $0123', 'f([1, 2])')).toBe(true)
+  })
+
+  it('closes the cheap bypasses', () => {
+    const trailing = ['x.set([1, 2, 3, 4])', '// vanilla $0123'].join(' ')
+    expect(hit(trailing)).toBe(true) // claim on the code line
+    expect(hit(claim, '/* x */ f([1, 2, 3, 4])')).toBe(true) // block comment is not the whole line
+    expect(hit(claim, 'f([', '  1,', '  2,', '])')).toBe(true) // one element per line
+  })
+
+  it('a literal quoted inside a comment is a citation, not a copy', () => {
+    expect(hit(claim, '// [1, 2]')).toBe(false)
+    expect(hit(claim, ' * [1, 2]')).toBe(false)
+  })
+
+  it('markdown headings and bullets are not comments', () => {
+    expect(hitAt('x.md', '# Vanilla $0123', 'f([1, 2])')).toBe(false)
+    expect(hitAt('x.md', '* copied from the table', 'f([1, 2])')).toBe(false)
+    expect(hitAt('x.md', '// Vanilla $0123', 'f([1, 2])')).toBe(true)
+  })
+
+  it('markdown HTML comments are comments, on one line or several', () => {
+    expect(hitAt('x.md', '<!-- Vanilla $0123 -->', 'f([1, 2])')).toBe(true)
+    expect(hitAt('x.md', '<!--', 'Vanilla $0123', '-->', 'f([1, 2])')).toBe(true)
+    expect(hitAt('x.md', '<!-- invented -->', 'f([1, 2])')).toBe(false)
+  })
+
+  it('trailing claims without spaces, trailing block comments, unstarred block lines', () => {
+    expect(hit('f([1, 2])// vanilla $0123')).toBe(true)
+    expect(hit('f([1, 2]) /* vanilla $0123 */')).toBe(true)
+    expect(hit('/*', 'Vanilla $0123: an OAM entry', '*/', 'f([1, 2])')).toBe(true)
+    // A literal inside the claim's own block is a citation, so the block must stay open.
+    expect(hit('/*', 'Vanilla $0123: an OAM entry', 'f([1, 2])', '*/')).toBe(false)
+    expect(hit('/*/ Vanilla $0123 */', 'f([1, 2])')).toBe(true) // the opener's * never closes it
+  })
+
+  it('comment delimiters inside strings and URLs do not open comments', () => {
+    // An opened-by-mistake block would swallow the claim and the literal below it.
+    expect(hit("const g = 'src/**/*.ts'", claim, 'f([1, 2])')).toBe(true)
+    expect(hit("f('http://x', [1, 2])")).toBe(false)
+  })
+
+  it('a quoted array is a label, not a literal; a regex quote opens no string', () => {
+    expect(hit(claim, 'const label = "[1, 2]"')).toBe(false)
+    expect(hit(claim, 'const label = `[1, 2]`')).toBe(false)
+    // A quote inside a regex literal must not swallow the trailing claim.
+    expect(hit("const re = /'/; const bytes = [1, 2]; // Vanilla $0123")).toBe(true)
+    expect(hit('const re = /[/"]/; const bytes = [1, 2]; // Vanilla $0123')).toBe(true)
+    expect(hit('const re = /\\//; const bytes = [1, 2]; // Vanilla $0123')).toBe(true)
+    // Division is not a regex: the quote after it still opens a string.
+    expect(hit("const q = a / b + ' // Vanilla $0123 [1, 2]'")).toBe(false)
+    // Read as a regex, `/ b; ... [1, 2]; /` would mask the literal and eat the `//`.
+    expect(hit('const n = a / b; const bytes = [1, 2]; // Vanilla $0123')).toBe(true)
+  })
+
+  it('a huge unclosed literal after a claim neither throws nor hangs', () => {
+    const huge = `f([1,${'1,'.repeat(2_000_000)}`
+    expect(() => hit(claim, huge)).not.toThrow()
+    expect(hit(claim, huge)).toBe(true)
+  })
+
+  it('a decimal array with 0x elements interleaved still counts toward byte-tokens', () => {
+    // Alternating tokens are never a 0x run, so only the array rule can count them:
+    // 1200 with the fix, 600 if the 0x clause is dropped (threshold 1024).
+    const big = Array.from({ length: 600 }, () => '1, 0x0a').join(', ')
+    expect(rule(checkTextContent('x.ts', `[${big}]`))).toContain('byte-tokens')
+  })
+
+  it('develop-clean: no tracked text file trips rom-provenance', () => {
+    const files = execFileSync('git', ['ls-files'], { cwd: repoRoot, encoding: 'utf8' })
+      .split('\n')
+      .filter(f => /\.(ts|tsx|js|mjs|cjs|md|json|css|lua|sh|yml|yaml)$/.test(f))
+    const hits: string[] = []
+    let scanned = 0
+    for (const f of files) {
+      const full = path.join(repoRoot, f)
+      if (!fs.existsSync(full)) continue
+      const buf = fs.readFileSync(full)
+      if (buf.includes(0)) continue
+      scanned++
+      if (checkTextContent(f, buf.toString('utf8')).some(h => h.rule === 'rom-provenance'))
+        hits.push(f)
+    }
+    expect(scanned).toBeGreaterThan(500)
+    expect(hits).toEqual([])
   })
 })
 
@@ -519,14 +683,49 @@ describe(
       fs.rmSync(blobFile, { recursive: true, force: true })
     })
 
-    it('a defect only on a side branch (not on the default branch) is still found', () => {
+    // D59 A (#812): history scans commits reachable from the checked ref plus
+    // tags, never other open branches (their blobs failed an unrelated PR).
+    const plantOnSide = () => {
       run('git', ['checkout', '-qb', 'side'])
       writeFile('side-defect.asm', 'LDA #$00\n')
       run('git', ['add', 'side-defect.asm'])
       run('git', ['commit', '-q', '-m', 'side defect'])
       run('git', ['checkout', '-q', 'master'])
-      const out = gateOutput('history')
-      expect(out).toMatch(/side-defect\.asm/)
+    }
+
+    it('a defect only on an unmerged side branch is NOT found from HEAD', () => {
+      plantOnSide()
+      expect(gateExit('history')).toBe(0)
+      expect(gateOutput('history')).not.toMatch(/side-defect\.asm/)
+    })
+
+    it('the same defect is found once the side branch is merged into HEAD', () => {
+      plantOnSide()
+      run('git', ['merge', '-q', '--no-ff', '-m', 'merge side', 'side'])
+      expect(gateExit('history')).toBe(1)
+      expect(gateOutput('history')).toMatch(/side-defect\.asm/)
+    })
+
+    it('an explicit ref names the side branch and finds its defect', () => {
+      plantOnSide()
+      expect(gateExit('history', 'side')).toBe(1)
+      expect(gateOutput('history', 'side')).toMatch(/side-defect\.asm/)
+    })
+
+    it('a rom-provenance hit only on an unmerged branch passes from HEAD, blocks when merged', () => {
+      run('git', ['checkout', '-qb', 'side'])
+      writeFile('prov.ts', '// Vanilla $0123: an OAM entry\nx.set([1, 2, 0x0a, 0x0b], 4)\n')
+      run('git', ['add', 'prov.ts'])
+      run('git', ['commit', '-q', '-m', 'prov'])
+      run('git', ['checkout', '-q', 'master'])
+      expect(gateExit('history')).toBe(0)
+      run('git', ['merge', '-q', '--no-ff', '-m', 'merge side', 'side'])
+      expect(gateExit('history')).toBe(1)
+      expect(gateOutput('history')).toMatch(/rom-provenance/)
+    })
+
+    it('a bad ref exits 2 (fail closed)', () => {
+      expect(gateExit('history', 'no-such-ref')).toBe(2)
     })
 
     it('a defect reachable only via an annotated tag on its commit is still found', () => {

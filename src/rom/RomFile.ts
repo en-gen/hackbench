@@ -1,4 +1,5 @@
 import * as fs from 'fs'
+import type { DataBanks } from './DataBanks'
 import { hasCopierHeader, loromToOffset, hiromToOffset, COPIER_HEADER_SIZE } from './addressing'
 
 /**
@@ -37,9 +38,16 @@ export class RomFile {
   readonly hasHeader: boolean
   readonly romSize: number
   readonly mapMode: RomMapMode
+  /**
+   * The data banks the backend resolved for this project (detection plus the
+   * project's hand edits, `meta/data-banks.json`). Absent: readers detect
+   * from these bytes (`dataBanksOf`).
+   */
+  readonly dataBanks?: DataBanks
 
-  constructor(filePath: string, buffer: Buffer | Uint8Array) {
+  constructor(filePath: string, buffer: Buffer | Uint8Array, dataBanks?: DataBanks) {
     this.filePath = filePath
+    this.dataBanks = dataBanks
     this.buffer = buffer as Buffer
     this.hasHeader = hasCopierHeader(buffer.length)
     this.romSize = buffer.length - (this.hasHeader ? COPIER_HEADER_SIZE : 0)
@@ -53,8 +61,8 @@ export class RomFile {
   /** Construct a RomFile from raw bytes. Used by the webview to
    *  reconstruct a reader from the `Uint8Array` shipped in the
    *  modelPayload. */
-  static fromBytes(filePath: string, bytes: Uint8Array): RomFile {
-    return new RomFile(filePath, bytes)
+  static fromBytes(filePath: string, bytes: Uint8Array, dataBanks?: DataBanks): RomFile {
+    return new RomFile(filePath, bytes, dataBanks)
   }
 
   private _detectMapMode(): RomMapMode {
