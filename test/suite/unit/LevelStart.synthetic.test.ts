@@ -65,7 +65,13 @@ const start = (rom: RomFile, slot: number) =>
 /** Two entry maps ($001 horizontal, $002 vertical) and sub areas beneath them. */
 function world(): RomFile {
   const rom = blank()
-  room(rom, 0x001, 0x068000, [{ to: 0xc0, via: 0x10 }, { to: 0xc1 }, { to: 0xc4, via: 0x13 }])
+  // One screen-exit flag per map (the last exit object's; bank_0D.asm:1436-1438), so a map's exits are all
+  // primary or all secondary: $001 and $002 use secondary entrances, $003 the primary exit into $0C1.
+  room(rom, 0x001, 0x068000, [
+    { to: 0xc0, via: 0x10 },
+    { to: 0xc4, via: 0x13 },
+  ])
+  room(rom, 0x003, 0x06a400, [{ to: 0xc1 }])
   room(rom, 0x002, 0x069000, [{ to: 0xc2, via: 0x11 }])
   room(rom, 0x0c0, 0x06a000, [{ to: 0xc3, via: 0x12 }])
   room(rom, 0x0c1, 0x06b000)
@@ -179,7 +185,11 @@ describe('readLevelStart (synthetic)', () => {
 
   it('at equal hops the lower parent slot wins, whatever its entrance index', () => {
     const rom = world()
-    room(rom, 0x001, 0x068000, [{ to: 0xc0, via: 0x10 }, { to: 0xc5 }])
+    room(rom, 0x001, 0x068000, [
+      { to: 0xc0, via: 0x10 },
+      { to: 0xc5, via: 0x17 },
+    ])
+    secondary(rom, 0x17, 0xc5, 0x00, 0)
     room(rom, 0x0c0, 0x06a000, [{ to: 0xc3, via: 0x15 }])
     room(rom, 0x0c5, 0x06a900, [{ to: 0xc3, via: 0x14 }])
     secondary(rom, 0x15, 0xc3, 0x00, 7) // from the lower parent, the higher index
