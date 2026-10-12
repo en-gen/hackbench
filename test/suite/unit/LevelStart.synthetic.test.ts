@@ -2,7 +2,7 @@
  * Where a map is first entered (#339), on synthetic ROMs: every byte is built
  * here, so no corpus is needed (bank_05.asm:7300-7395, 7103-7161).
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { deriveOverworldEntrances } from '../../../src/rom/OverworldEntrances'
 import { SmwRom, ADDR } from '../../../src/rom/SmwRom'
@@ -20,6 +20,26 @@ import {
   plantStockSubmapCode,
   SYNTHETIC_FINGERPRINTS,
 } from '../support/syntheticRom'
+
+// The sweep reuses one overworld derivation (570 ms a call under coverage) and records the ranges it
+// read (readByte goes through readAt), so the sweep can prove it never reads a withheld byte.
+const memo = vi.hoisted(() => ({ on: false, hit: undefined as unknown, reads: [] as number[][] }))
+vi.mock('../../../src/rom/OverworldEntrances', async orig => {
+  const m = await orig<typeof import('../../../src/rom/OverworldEntrances')>()
+  const derive: typeof m.deriveOverworldEntrances = (sm, ...rest) => {
+    if (!memo.on) return m.deriveOverworldEntrances(sm, ...rest)
+    const f = sm.rom
+    const readAt = f.readAt
+    f.readAt = (a, n) => (memo.reads.push([a, n]), readAt.call(f, a, n))
+    try {
+      memo.hit ??= m.deriveOverworldEntrances(sm, ...rest)
+    } finally {
+      f.readAt = readAt
+    }
+    return memo.hit as ReturnType<typeof derive>
+  }
+  return { ...m, deriveOverworldEntrances: derive }
+})
 
 const F000 = 0x05f000
 const F200 = 0x05f200
@@ -401,8 +421,7 @@ describe('readLevelStart follows an edit layer', () => {
 describe('readLevelStart fails closed when a table byte is past the ROM end', () => {
   const CUT = 'The ROM ends before the level entrance tables, so the start position cannot be read.'
   /** The ROM, but `readByte` has nothing at `addr` (a ROM cut short there). */
-  const withheld = (addr: number): RomFile => {
-    const rom = world()
+  const withheld = (rom: RomFile, addr: number): RomFile => {
     const real = rom.readByte.bind(rom)
     rom.readByte = (a: number) => (a === addr ? null : real(a))
     return rom
@@ -420,21 +439,40 @@ describe('readLevelStart fails closed when a table byte is past the ROM end', ()
 
   it('every table byte a start reads: withholding it refuses, in plain words', () => {
     let n = 0
-    for (const [what, slot, must, never] of reads) {
-      expect(start(world(), slot).ok, `${what} reads fine with nothing withheld`).toBe(true)
-      for (const addr of must) {
-        const s = start(withheld(addr), slot)
-        expect(s.ok, `${what} @ $${addr.toString(16)} must refuse`).toBe(false)
-        n++
-        expect(!s.ok && s.reason, `${what} @ $${addr.toString(16)}`).toBe(CUT)
-      }
-      for (const addr of never) {
-        expect(start(withheld(addr), slot).ok, `${what} never reads $${addr.toString(16)}`).toBe(
-          true,
-        )
+    // One world and one overworld derivation for the whole sweep, not one per byte.
+    const rom = world()
+    const readByte = rom.readByte
+    const at = (addr: number, slot: number) => {
+      try {
+        return start(withheld(rom, addr), slot)
+      } finally {
+        rom.readByte = readByte
       }
     }
-    expect(n).toBe(reads.reduce((t, r) => t + r[2].length, 0))
+    memo.on = true
+    try {
+      start(rom, 0x001)
+      const read = (a: number) => memo.reads.some(([t, len]) => a >= t! && a < t! + len!)
+      expect(
+        reads.flatMap(r => [...r[2], ...r[3]]).filter(read),
+        'the shared derivation read a swept byte',
+      ).toEqual([])
+      for (const [what, slot, must, never] of reads) {
+        expect(start(rom, slot).ok, `${what} reads fine with nothing withheld`).toBe(true)
+        for (const addr of must) {
+          const s = at(addr, slot)
+          expect(s.ok, `${what} @ $${addr.toString(16)} must refuse`).toBe(false)
+          n++
+          expect(!s.ok && s.reason, `${what} @ $${addr.toString(16)}`).toBe(CUT)
+        }
+        for (const addr of never) {
+          expect(at(addr, slot).ok, `${what} never reads $${addr.toString(16)}`).toBe(true)
+        }
+      }
+      expect(n).toBe(reads.reduce((t, r) => t + r[2].length, 0))
+    } finally {
+      memo.on = false
+    }
   })
 
   it('a missing DATA_05F800 byte is not a match for a destination whose low byte is zero', () => {
