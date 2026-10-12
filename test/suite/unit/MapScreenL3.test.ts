@@ -198,7 +198,7 @@ describe('buildL3Verdict: screens, math and the layer 2 role', () => {
     buildL3Verdict(r, 5, l1Of(mode, 0, pri), BG_OK, chars, GATE_OK)
   const MODE_0E_SCREENS = {
     main: ['l3Low', 'l3High'],
-    sub: ['l2Low', 'l1Low', 'l2High', 'sprites', 'l1High'],
+    sub: ['sprites0', 'sprites1', 'l2Low', 'l1Low', 'l2High', 'sprites2', 'l1High', 'sprites3'],
   }
 
   it('mode 0E style: BG3 alone on main, BG1 and BG2 on sub, CGADSUB minus BG3', () => {
@@ -210,7 +210,7 @@ describe('buildL3Verdict: screens, math and the layer 2 role', () => {
   it('an interactive mode draws layer 3 (the #561 refusal is gone) and reports layer 2 interactive', () => {
     const r = v(rom({ main: 0x17, sub: 0x00, special: 0, vertical: 0x80 }))
     expect(r).toMatchObject({ reason: null, layer2Interactive: true })
-    expect(r.screens.main).toEqual(['l3Low', 'l3High', 'l2Low', 'l1Low', 'l2High', 'sprites', 'l1High']) // prettier-ignore
+    expect(r.screens.main).toEqual(['l3Low', 'sprites0', 'l3High', 'sprites1', 'l2Low', 'l1Low', 'l2High', 'sprites2', 'l1High', 'sprites3']) // prettier-ignore
   })
   it('mode 11 style: BG2 on main but not interactive, math kept minus BG3', () => {
     const r = v(rom({ main: 0x17, sub: 0x00, cgadsub: 0xff, special: 0, vertical: 0 }))
@@ -433,14 +433,17 @@ describe.skipIf(!hasRom(VANILLA))(
       const table = pri
         ? ['l3Low', 'sp0', 'sp1', 'l2Low', 'l1Low', 'sp2', 'l2High', 'l1High', 'sp3', 'l3High']
         : ['l3Low', 'sp0', 'l3High', 'sp1', 'l2Low', 'l1Low', 'sp2', 'l2High', 'l1High', 'sp3']
-      const bg = table.filter(
-        k => !k.startsWith('sp') && mask & ({ l1: 1, l2: 2, l3: 4 } as Record<string, number>)[k.slice(0, 2)]!, // prettier-ignore
+      const obj = !!(mask & 0x10)
+      const keep = table.filter(
+        k =>
+        k.startsWith('sp') ? obj && k !== 'sp2' : mask & ({ l1: 1, l2: 2, l3: 4 } as Record<string, number>)[k.slice(0, 2)]!, // prettier-ignore
       )
-      if (!(mask & 0x10)) return bg
-      const at = bg.includes('l1High')
-        ? bg.indexOf('l1High')
-        : table.slice(0, table.indexOf('sp2')).filter(k => bg.includes(k)).length
-      return [...bg.slice(0, at), 'sprites', ...bg.slice(at)]
+      const list = keep.map(k => (k.startsWith('sp') ? `sprites${k[2]}` : k))
+      if (!obj) return list
+      const at = list.includes('l1High')
+        ? list.indexOf('l1High')
+        : table.slice(0, table.indexOf('sp2')).filter(k => keep.includes(k)).length
+      return [...list.slice(0, at), 'sprites2', ...list.slice(at)]
     }
 
     it('priority bit, plane lists, math and skip decision agree on every slot', () => {
