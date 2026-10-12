@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest'
 import { composeScreen, type ScreenInput } from '../../../src/rom/model/ColorMath'
 import { screenPlanes } from '../../../src/rom/model/ScreenPlanes'
-import { doorIdAt } from '../../../theia/extension/src/browser/map-view-model'
+import { doorIdAt, liftIfCovered } from '../../../theia/extension/src/browser/map-view-model'
 
 const W = 8
 const H = 2
@@ -76,5 +76,14 @@ describe('doorIdAt, the hover hit test', () => {
     expect(doorIdAt(doors, W, 7, 0)).toBe(0)
     for (const [x, y] of [[-1, 0], [W, 0], [0, -1], [0, H]]) expect(doorIdAt(doors, W, x!, y!)).toBe(0) // prettier-ignore
     expect(doorIdAt(null, W, 0, 0)).toBe(0)
+  })
+})
+
+describe('liftIfCovered, the S3 rule', () => {
+  it('lifts only an id some painted screen covers', () => {
+    expect(liftIfCovered(3, [new Set([1]), new Set([3])])).toBe(3)
+    expect(liftIfCovered(3, [new Set([1]), new Set([2])])).toBeUndefined()
+    expect(liftIfCovered(0, [new Set([0])])).toBeUndefined()
+    expect(liftIfCovered(3, [])).toBeUndefined()
   })
 })

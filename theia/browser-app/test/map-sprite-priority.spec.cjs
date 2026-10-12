@@ -215,11 +215,17 @@ test('hovering a hidden sprite draws it opaque, leaving restores the door exactl
   const rgb = c => c.split(',').slice(0, 3).map(Number)
   const same = (a, b) => a.filter((c, i) => c === b[i]).length
   const before = await read()
+  // The composites' cache keys: a hover that lifts nothing must not repaint any screen (S1/S3). The plant's
+  // covered pixels all sit on SCREEN here, so a second-screen lift is not asserted (nothing to invent).
+  const drawn = () => page.locator(`${root} .hb-map-view-composite`).evaluateAll(cs => cs.map(c => c.dataset.drawn)) // prettier-ignore
+  const drawnBefore = await drawn()
+  expect(drawnBefore.length, 'composites to compare').toBeGreaterThan(0)
   // Hover an uncovered sprite: nothing the plant or the other sprites show changes.
   const other = await clientOf(page, otherPixel)
   await page.mouse.move(other.x, other.y)
   await page.waitForTimeout(500)
   const hoverOther = await read()
+  expect(await drawn(), 'an uncovered hover repaints no screen').toEqual(drawnBefore)
   expect(same(hoverOther.behind, before.behind), 'the covered plant is untouched').toBe(behind.length) // prettier-ignore
   expect(same(hoverOther.shown, before.shown), 'the uncovered sprite is untouched').toBe(on.at.shown.length) // prettier-ignore
 

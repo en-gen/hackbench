@@ -32,6 +32,7 @@ import { decodeRgba, TILE_PX } from './map16-pixels'
 import {
   spriteDoors,
   doorIdAt,
+  liftIfCovered,
   spritePlanes,
   decodeArts,
   hoverTarget,
@@ -316,6 +317,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected refresh(): void {
     this.generation++
     this.screens.clear()
+    this.coveredIds.clear()
+    this.lift = undefined
     this.pending.clear()
     this.screenError = undefined
     void this.loadDetails()
@@ -626,7 +629,12 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       lift: this.lift,
     }
     const flips = doorFlips(input)
-    this.coveredIds.set(s, new Set(flips?.keys()))
+    const covered = new Set(flips?.keys())
+    const before = this.coveredIds.get(s)
+    this.coveredIds.set(s, covered)
+    // A pointer already resting on a hidden sprite lifts it once its screen is first painted (or its set changes); a
+    // repeat paint with the same set stays quiet, so paint -> updateHover -> paint cannot loop.
+    if (!before || before.size !== covered.size || [...covered].some(id => !before.has(id))) queueMicrotask(() => this.updateHover()) // prettier-ignore
     const out = composeScreen({ ...input, flips })
     canvas.getContext('2d')?.putImageData(new ImageData(out, shot.width, shot.height), 0, 0)
     canvas.dataset.drawn = want
@@ -726,7 +734,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const vertical = g.orientation === 'vertical'
     const s = Math.floor(vertical ? y / g.height : x / g.width)
     const id = doorIdAt(this.screenDoors(s).doors, g.width, x - (vertical ? 0 : s * g.width), y - (vertical ? s * g.height : 0)) // prettier-ignore
-    return id && [...this.coveredIds.values()].some(c => c.has(id)) ? id : undefined
+    return liftIfCovered(id, this.coveredIds.values())
   }
 
   protected setLift(next: number | undefined): void {
