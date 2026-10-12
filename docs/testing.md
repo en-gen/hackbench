@@ -466,6 +466,29 @@ captures folder is only read. The pages embed ROM-derived bytes, so
 `<out-dir>` is refused when it is inside the repo, or is, contains or
 lies inside the captures folder.
 
+The sprite grader has two tiers against these captures. Tier 1
+(`spriteGrade.ts`) grades OAM shape relative to the sprite. Tier 2
+(`spritePosition.ts`, `SpritePosition.test.ts`, #830) grades where the
+pieces sit on the map: the capture's drawing at `drawnFrame` (the first frame
+with every tile complete, not the first OAM write) against the model's pass
+`drawnFrame - firstRealFrame`, counted from the model's pass 0 (the first
+MAIN after INIT, as the capture's `firstRealFrame` is), so `chosen` is not
+added; the lag is 1 to 116 frames over the 1957 graded records. Both sides
+are placed with the capture camera; the model is seeded with the camera at
+`drawnFrame`. Positions are compared in map coordinates. Graded captures never
+set X bit 8; the 9-bit X is synthetic-only coverage. It reports exact, off,
+missing (one side drew nothing once parked pieces are dropped, the other drew
+on screen, or the record lacks `drawnFrame` or `firstRealFrame`), parked (both
+sides drew only parked pieces, at matching positions: agreement), late (the
+model had not drawn yet at the target pass, the capture had), lagged (target
+pass past the pass count, drew or not) and refused, per sprite and per id
+(`SPRITE_POSITION_OUT=<file>` dumps the records), and holds a bound per verdict
+with 1% headroom (vanilla, one machine, 2026-10-10 measured: 1366 exact, 469
+off, 23 missing, 18 parked, 1 late, 80 lagged, 0 refused of 1957). All 80
+lagged records are captures whose first draw came 31 to 89 frames after the
+first MAIN (likely the level fade-in, not traced); it is not re-aligned to the
+first draw.
+
 A map's result comes from its Foreground, Background and Effects checks;
 Sprites are informational and never decide it. Exit codes:
 
