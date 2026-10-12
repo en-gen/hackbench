@@ -255,6 +255,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       }),
     )
     this.zoomController.centreAnchored = true
+    // A user zoom while the start is pending is the user taking over, as a scroll is (#787).
+    this.zoomController.onUserZoom = () => {
+      if (this.startState === 'pending') this.movedBeforeStart = true
+    }
     this.toDispose.push(this.zoomController)
     this.toDispose.push({ dispose: () => this.wheelBinding?.dispose() })
     this.toDispose.push(

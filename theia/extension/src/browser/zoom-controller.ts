@@ -62,6 +62,12 @@ export class ZoomController implements Disposable {
    * `restoreAnchor` the host calls after its commit.
    */
   centreAnchored = false
+  /**
+   * Called when the USER asks for a zoom that will change it: the + / - buttons, Ctrl + wheel
+   * (both through `step`), Actual size and the Fit button. Never for `refit`, or for a `enterFit`
+   * without `anchored` (a map load), so a host can tell a user zoom from its own.
+   */
+  onUserZoom: (() => void) | undefined
   /** Set by `bindWheel`: keeps the view centre fixed across a jump to `target`. */
   private anchorCentre: ((target: number) => void) | undefined
 
@@ -128,8 +134,9 @@ export class ZoomController implements Disposable {
     if (!this.fitZoom) return
     const target = this.fitZoom() ?? this.zoom
     // `anchored` is for the Fit button; a map load (a new strip) must not anchor.
-    if (opts?.anchored && this.centreAnchored && Math.abs(target - this.zoom) > EPS) {
-      this.anchorCentre?.(target)
+    if (opts?.anchored && Math.abs(target - this.zoom) > EPS) {
+      this.onUserZoom?.()
+      if (this.centreAnchored) this.anchorCentre?.(target)
     }
     this.set(target, true)
   }
@@ -144,7 +151,10 @@ export class ZoomController implements Disposable {
   /** Exactly 100%, anchored on the view centre once a wheel binding exists. */
   actualSize(): void {
     // Armed only for a real jump: a stale anchor would snap a later scroll back.
-    if (this.fit || Math.abs(1 - this.zoom) > EPS) this.anchorCentre?.(1)
+    if (this.fit || Math.abs(1 - this.zoom) > EPS) {
+      this.onUserZoom?.()
+      this.anchorCentre?.(1)
+    }
     this.set(1, false)
   }
 
@@ -159,6 +169,7 @@ export class ZoomController implements Disposable {
         ? this.levels.find(l => l > this.zoom + EPS)
         : [...this.levels].reverse().find(l => l < this.zoom - EPS)
     if (next === undefined) return false
+    this.onUserZoom?.()
     if (this.centreAnchored) this.anchorCentre?.(next)
     return this.set(next, false)
   }
