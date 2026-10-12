@@ -14,7 +14,9 @@ const model = (parts: ReturnType<typeof part>[]): SpriteModel =>
   ({
     id: 0,
     anchor: { x: 0, y: 0, rawX: 0, rawY: 0 },
-    passes: [{ pass: 0, pos: { x: 0, y: 0 }, parts, uploads: [], palette: [] }],
+    passes: [
+      { pass: 0, pos: { x: 0, y: 0 }, origin: { x: 0, y: 0 }, parts, uploads: [], palette: [] },
+    ],
     chosen: 0,
   }) as unknown as SpriteModel
 
