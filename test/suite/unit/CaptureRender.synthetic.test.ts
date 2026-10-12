@@ -847,6 +847,24 @@ describe('sprite animation frame', () => {
     expect(r.pieces).toEqual([{ i: 5, dx: 0, dy: 0, tile: 7, attr: 0, large: 1 }])
     expect(r.reason).toBe('')
   })
+
+  it('hides only OAM Y $F0, not the 224-255 band (#838)', () => {
+    const e = (entry: number, y: number) => ({
+      entry,
+      x: 100,
+      y,
+      tile: entry,
+      attr: 0,
+      sizeXHigh: 0,
+    })
+    // Sweep the whole 224-255 band: a filter that also drops Y 255 (or any one Y) must go red.
+    const ys = Array.from({ length: 32 }, (_, k) => 224 + k)
+    const single = { x: 100, y: 50, cameraX: 0, cameraY: 0, frames: [], entries: ys.map(y => e(y, y)) } // prettier-ignore
+    const kept = spriteFrame(single, 0).pieces?.map(p => p.tile) ?? []
+    expect(kept).toHaveLength(31)
+    expect(kept).toEqual(ys.filter(y => y !== 0xf0))
+    expect(kept).not.toContain(0xf0)
+  })
 })
 
 describe('recorded piece dy past 127 (#811)', () => {

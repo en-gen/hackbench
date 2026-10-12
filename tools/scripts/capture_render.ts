@@ -317,9 +317,8 @@ function framePieces(frame: Rec, rec: Rec, obsel: number): D.SpritePiece[] | nul
         const line = unwrapped(p) + D.spriteScreenY(at[1], at[3])
         return !(line < 0 && line + D.objSize(obsel, (hiOf(p) >> 1) & 1)[1] <= 0)
       }
-      const y = num(p.y) ?? 0
-      // An entry parked in the band below the screen is hidden, not part of the picture.
-      return !(y >= 224 && y + D.objSize(obsel, (hiOf(p) >> 1) & 1)[1] <= 256)
+      // Only Y $F0 is hidden; the recorder keeps Y 224-255 entries (headless_capture.lua:1352, #838).
+      return (num(p.y) ?? 0) !== 0xf0
     })
     .map((p, k) => {
       const hi = hiOf(p)

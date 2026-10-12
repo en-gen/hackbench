@@ -60,9 +60,10 @@ T2 1 + T3 1 + the one shared with B = 37. Unexplained: U 8 + T3 1 = 9.
 **G1, grader band filter (31).** `passPieces` drops a part as "parked" only when its whole extent lies in OAM Y 224-255 (`oy >= 224 && oy + size <= 256`, `spriteGrade.ts:58`);
 the recorder (`hackbench-validation/capture/mesen/headless_capture.lua`, the `shown` count) treats only
 Y = $F0 as hidden, and the captures hold parts at Y 232 and 248, so such a part is in the capture and not in
-ours. Probe: with the band filter off, 31 of 31 listed cases leave "wrong"; over all 1,957 the
+ours. Probe (an earlier baseline than the #838 result below, before #844 moved the grading pass): with the band filter off, 31 of 31 listed cases leave "wrong"; over all 1,957 the
 chosen-pass grade moves from exact 936 / shape 572 / close 136 / wrong 300 to 960 / 575 / 140 / 269, and
-none of the 1,957 gets a worse grade (31 better). Fix: the grader keeps every part whose Y is not $F0. Assert: a synthetic part at
+none of the 1,957 gets a worse grade (31 better). **Fixed by #838** (`passPieces` and the render's `framePieces` now drop only Y = $F0; chosen-pass grade on the 1,957 moved from exact 969 / shape 792 / close 19 / wrong 164 / empty 13 to 995 / 805 / 19 / 125 / 13: 26 wrong to exact, 13 wrong to shape, none worse; one machine, hackbench-tools corpus of 2026-10-10).
+Original fix text: the grader keeps every part whose Y is not $F0. Assert: a synthetic part at
 OAM Y 248 is kept; the 31 listed cases grade no worse than close; wrong falls to 269 or lower.
 
 **A, castle-flame cluster sprites (30).** Our chosen pass carries OAM entries 124-127 (four large
