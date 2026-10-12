@@ -156,8 +156,8 @@ export const spriteScreenY = (spriteY: number, camY: number) =>
  * 224 or more is a piece straddling the top edge, read as line - 256 (agrees
  * with oamEntry for the pieces the caller keeps, at 8/16/32-line sizes); the
  * offset is not wrapped, since a piece can sit more than 128 lines from its
- * sprite (the $104 flame, #811). The caller drops pieces parked wholly
- * below the screen first (OAM line 224 or more, bottom at or before 256).
+ * sprite (the $104 flame, #811). Nothing is dropped for being below the
+ * screen; the caller hides only OAM Y $F0 (#838, #874).
  */
 // prettier-ignore
 export function pieceOffset(oamX9: number, oamY: number, spriteX: number, spriteY: number, camX: number, camY: number) {
@@ -173,7 +173,7 @@ export function pieceOffset(oamX9: number, oamY: number, spriteX: number, sprite
  * multiple of 256 that puts the piece on the visible window -32..223, which
  * is 256 wide and so unique. Limit: OBJ pieces run to 64 lines, so a 64-line
  * piece whose top is above line -32 yet still reaches the screen is placed
- * 256 lines too low (and then dropped as parked); 32 lines or less is exact.
+ * 256 lines too low (drawn off screen, not dropped); 32 lines or less is exact.
  */
 export function unwrapDy(dy: number, spriteY: number, camY: number) {
   const v = dy + spriteScreenY(spriteY, camY)

@@ -322,7 +322,7 @@ function framePieces(frame: Rec, rec: Rec): D.SpritePiece[] | null {
         : D.pieceOffset((num(p.x) ?? 0) + (hi & 1) * 256, num(p.y) ?? 0, at[0]!, at[1]!, at[2]!, at[3]!) // prettier-ignore
       return { i: num(p.entry) ?? k, dx, dy, tile: num(p.tile) ?? 0, attr: num(p.attr) ?? 0, large: (hi >> 1) & 1 } // prettier-ignore
     })
-  // Only the entries path can empty the list (all Y $F0); callers take min/max over the pieces.
+  // The list can be empty (all entries Y $F0, or a recorded frame with tiles: []); callers take min/max over the pieces.
   return kept.length ? kept : null
 }
 
@@ -351,7 +351,7 @@ export function spriteFrame(rec: Rec, _obsel: number) {
   const pieces = framePieces(chosen, rec)
   // Every recorded frame, for checking against what the SNES drew.
   const recorded = frames.map(f => framePieces(f, rec)).filter(p => p !== null)
-  if (!pieces) return { pieces: null, reason: 'Its recorded frame lacks OAM entries or their position, or has them all parked off screen', frames: note, recorded } // prettier-ignore
+  if (!pieces) return { pieces: null, reason: 'Its recorded frame lacks OAM entries or their position, or has only Y $F0 (hidden) entries or no pieces', frames: note, recorded } // prettier-ignore
   const reason = exact ? '' : noIndex ? 'No frame index; the earliest recorded frame is drawn' : 'First animation frame not observed; the earliest recorded frame is drawn' // prettier-ignore
   return { pieces, reason, frames: note, recorded }
 }

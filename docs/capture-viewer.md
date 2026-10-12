@@ -114,10 +114,10 @@ modulo 256 (`headless_capture.lua:1389`), so `unwrapDy` restores the multiple
 of 256 that puts the piece on the visible window -32..223. Limit: OBJ pieces
 run to 64 lines, so a 64-line piece whose top is above line -32 yet still
 reaches the screen is placed 256 lines too low;
-pieces of 32 lines or less are exact. The viewer keeps relative pieces
-in the 224-255 band (the recorder already omits Y $F0); only the entries path
-drops Y $F0, and a frame left with no pieces draws nothing. Evidence: synthetic records and sweeps in
-`CaptureOracle.synthetic.test.ts` and `CaptureRender.synthetic.test.ts`; no
+pieces of 32 lines or less are exact. The viewer keeps relative pieces in the
+224-255 band (the recorder already omits Y $F0); only the entries path drops
+Y $F0, and a frame left with no pieces draws nothing. Evidence: synthetic
+records and sweeps in `CaptureOracle.synthetic.test.ts` and `CaptureRender.synthetic.test.ts`; no
 capture page was re-rendered. The intended fix is the $104 flame. One
 machine, local captures only (not committed): a develop-vs-branch
 `spriteFrame` diff over 9 captures (106 spawns, 4 changed) shows map $1D4's
