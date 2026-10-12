@@ -460,13 +460,14 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       const buf = Buffer.alloc(0x400000, 0)
       buf[0x7fd5] = 0x20 // the map mode byte
       const rom = new RomFile('e2e.sfc', buf)
+      plantUploaderTable(rom, () => IMAGE_AT) // an image in every mode, so the #506 table agrees with the $FF pointer
       plantStockSubmapCode(rom)
       plantOverworldTiles(rom)
       const l1Ptr = (map: number, at: number) => rom.writeAt(ADDR.LEVEL_L1_PTR + map * 3, [at & 0xff, (at >> 8) & 0xff, at >> 16]) // prettier-ignore
       l1Ptr(0x105, 0x068000) // a submap root: its exits index the $1xx half
       rom.writeAt(0x068000, [0, 0, 0, 0, 0, 0x00, 0x02, 0x00, 0x10, 0x00, 0x02, 0x00, 0x11, 0xff])
-      l1Ptr(0x177, 0x06a000)
-      rom.writeAt(0x06a000, [0, 0, 0, 0, 0, 0x42, 0xff])
+      l1Ptr(0x177, 0x06b000) // clear of the planted uploader chain at $06A000
+      rom.writeAt(0x06b000, [0, 0, 0, 0, 0, 0x42, 0xff])
       rom.writeAt(ADDR.SEC_EXIT_DEST + 0x110, [0x77, 0x77])
       rom.writeAt(0x05fa00 + 0x110, [0x20, 0x60]) // L2 index 0 ($60), then 1 ($90)
       rom.writeAt(0x05d708, [0x00, 0x20, 0x40, 0x80])
