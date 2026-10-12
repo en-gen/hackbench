@@ -27,6 +27,7 @@ import { inflateRawSync, inflateSync } from 'zlib'
 import { buildSync } from 'esbuild'
 import * as D from './capture_decode'
 import * as Draw from './capture_draw'
+import { maskStatusBar, statusBarRows, STATUS_BAR_HEIGHT } from './statusBarMask'
 import type { GridMeta, Mismatch, PipeInfo } from './capture_decode'
 
 const { hex, hexWord } = D
@@ -662,7 +663,7 @@ function readLevel(read: Reader, level: string, windows: string[]): Level {
   const bandNote =
     bg3Refs.length && !lines.includes(undefined)
       ? `Effects compared below each picture's status-bar interrupt line (${lines.join(', ')})`
-      : 'Effects compared on every line where a picture has no status-bar interrupt line'
+      : `Effects compared below line ${STATUS_BAR_HEIGHT} where a picture has no status-bar interrupt line`
   const drawIn: D.LevelInput = {
     meta,
     order: order!,
@@ -723,8 +724,7 @@ function readLevel(read: Reader, level: string, windows: string[]): Level {
         if (!v || !png) return null
         const w = { ...v, pal: D.palette(v.cgram ?? cgram), player, hideBg3: [...hideBg3] }
         const local = D.windowLayer(name, w, png.w, png.h)
-        if (name === 'bg3' && r.irqLine !== undefined)
-          local.skip.fill(1, 0, Math.min(png.h, r.irqLine + 1) * png.w)
+        if (name === 'bg3') maskStatusBar(local.skip, png.w, png.h, statusBarRows(r.irqLine))
         const pic = { x: 0, y: 0, w: png.w, h: png.h, px: png.px, sentinel: r.sentinel, skip: local.skip } // prettier-ignore
         const { n, differ } = D.refDiff(local.rgba, local.opaque, png.w, png.h, pic, 0)
         return n ? differ : null
