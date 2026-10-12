@@ -14,7 +14,11 @@
  * parallax, and shifted vertically by its initial Layer2YPos (#113). L3 is two
  * planes by its tile priority bit, drawn on every non-Mode-7 level mode (#561, #562).
  */
-import { SmwRom } from '../../../../src/rom/SmwRom'
+import { SmwRom, type MapEntrances } from '../../../../src/rom/SmwRom'
+import {
+  deriveOverworldEntrances,
+  type OverworldFingerprints,
+} from '../../../../src/rom/OverworldEntrances'
 import { RomFile } from '../../../../src/rom/RomFile'
 import type { DataBanks } from '../../../../src/rom/DataBanks'
 import { SCREEN_H, SCREEN_W, SCREEN_W_VERT, SCREEN_H_VERT } from '../../../../src/rom/LevelParser'
@@ -334,6 +338,7 @@ export function screenResult(
     note: [...model.unverified, model.animNote].filter(Boolean).join(' ') || undefined,
     layerNotes: [
       model.l2 && !model.l2.ok ? `The background is not drawn: ${model.l2.reason}` : '',
+      model.l2?.ok ? (model.l2.l2.note ?? '') : '',
       model.orderNote ? `Layer order unverified, drawn as BG mode 1: ${model.orderNote}` : '',
     ].filter(Boolean),
     backdrop: [model.backArea[0], model.backArea[1], model.backArea[2]],
@@ -363,6 +368,7 @@ export function buildMapInputs(
   flags: SwitchFlagsDto,
   bgMode: () => BgModeResult = () => readLevelBgMode(rom.rom),
   l1: typeof buildL1Inputs = buildL1Inputs,
+  entrances: () => ReadonlyMap<number, MapEntrances> | undefined = () => readMapEntrances(rom),
 ): MapInputsResult {
   const built = l1(rom, index, flags)
   if (!built.ok) return built
@@ -371,10 +377,27 @@ export function buildMapInputs(
     ok: true,
     inputs: {
       ...built.inputs,
-      l2: buildL2Inputs(rom, index, built.inputs),
+      l2: buildL2Inputs(rom, index, built.inputs, entrances()?.get(index)),
       l3: buildL3Verdict(rom.rom, index, built.inputs, bg),
       orderNote: bg.ok ? undefined : bg.reason,
     },
+  }
+}
+
+/**
+ * How the game enters each map, from the exit graph; undefined when the graph is unavailable or
+ * throws, so the background falls back to the older reading instead of refusing the map.
+ * `fingerprints` replaces the stock ones; for a synthetic ROM.
+ */
+export function readMapEntrances(
+  rom: SmwRom,
+  fingerprints?: OverworldFingerprints,
+): ReadonlyMap<number, MapEntrances> | undefined {
+  try {
+    const roots = deriveOverworldEntrances(rom, undefined, fingerprints).roots
+    return rom.buildLevelExitGraph(roots, fingerprints?.entry).entrances
+  } catch {
+    return undefined
   }
 }
 
@@ -388,11 +411,16 @@ export class L1ModelCache {
   private readonly arts = new WeakMap<Uint8Array, Record<Palace, PalaceArt>>()
   /** The BG mode reading scans the ROM, so it is made once per bytes, not per map. */
   private readonly modes = new WeakMap<Uint8Array, BgModeResult>()
+  /** So is the exit graph the entrances come from. */
+  private readonly entrances = new WeakMap<Uint8Array, ReadonlyMap<number, MapEntrances> | undefined>() // prettier-ignore
 
   /** The project's resolved data banks for these bytes (meta/data-banks.json); absent means detect from the bytes. */
   private readonly banks = new WeakMap<Uint8Array, DataBanks>()
 
-  constructor(private readonly build: typeof buildMapInputs = buildMapInputs) {}
+  constructor(
+    private readonly build: typeof buildMapInputs = buildMapInputs,
+    private readonly readEntrances: typeof readMapEntrances = readMapEntrances,
+  ) {}
 
   /** A model was built with the banks in force then, so a hand edit to them drops the models of these bytes. */
   useBanks(bytes: Uint8Array, banks: DataBanks): void {
@@ -413,7 +441,11 @@ export class L1ModelCache {
           RomFile.fromBytes(romPath, Buffer.from(bytes), this.banks.get(bytes)),
         )
         const bgMode = () => this.modes.get(bytes) ?? this.modes.set(bytes, readLevelBgMode(rom.rom)).get(bytes)! // prettier-ignore
-        built = this.build(rom, index, flags, bgMode)
+        const entrances = () => {
+          if (!this.entrances.has(bytes)) this.entrances.set(bytes, this.readEntrances(rom))
+          return this.entrances.get(bytes)
+        }
+        built = this.build(rom, index, flags, bgMode, undefined, entrances)
       } catch (err) {
         built = { ok: false, reason: (err as Error).message }
       }
