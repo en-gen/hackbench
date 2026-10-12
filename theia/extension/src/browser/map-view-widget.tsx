@@ -55,7 +55,12 @@ import { collisionKey, collisionPlan } from './map-view-state'
 import { MapViewStateStore } from './map-view-state-store'
 import { layer2Label } from './map-layer-labels'
 import { isUnverifiedMode } from '../../../../src/rom/model/UnverifiedModes'
-import { composeScreen, type SourceKey } from '../../../../src/rom/model/ColorMath'
+import {
+  composeScreen,
+  doorFlips,
+  type ScreenInput,
+  type SourceKey,
+} from '../../../../src/rom/model/ColorMath'
 import { perfEnd, perfStart } from '../common/perf-marks'
 import { ProjectBound } from './project-bound'
 
@@ -177,10 +182,13 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected blocksVersion = 0
   /** The indicator under the pointer: it fills its block, the rest sit in their quadrants. */
   protected hover: Indicator | undefined
-  /** The sprite under the pointer (#879): its door id on one screen, drawn opaque through covering tiles. */
-  protected lift: { screen: number; id: number } | undefined
-  /** Door maps by screen for the hit test, valid for the `spritesVersion` they were built at. */
-  protected readonly doorMaps = new Map<string, Uint32Array | null>()
+  /** The sprite under the pointer (#879): its door id, global to the map, drawn opaque on every screen it covers. */
+  protected lift: number | undefined
+  /** Door maps (and the ids in each) by screen for the hit test, valid for the `spritesVersion` they were built at. */
+  protected readonly doorMaps = new Map<number, { doors: Uint32Array | null; ids: Set<number> }>()
+  protected doorMapsVersion = -1
+  /** Per composed screen, the door ids with a covered pixel: a sprite without one never lifts (#879). */
+  protected readonly coveredIds = new Map<number, ReadonlySet<number>>()
   /** Fit mode until the user zooms; the fit is the cross axis filling the view (#526). */
   protected readonly zoomController = new ZoomController(ZOOMS, 1, () => this.measureFit())
   protected wheelBinding: WheelBinding | undefined
@@ -384,6 +392,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     if (generation !== this.generation) return
     this.sprites = r.status === 'ok' ? r : undefined
     this.lift = undefined
+    this.coveredIds.clear()
     this.spritesWhy = r.status === 'ok' ? undefined : r.status === 'unavailable' ? r.reason : `The base ROM ${r.baseRom.title} is not on this machine` // prettier-ignore
     this.spritesVersion++
     this.update()
@@ -607,15 +616,18 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     canvas.width = shot.width
     canvas.height = shot.height
     const planes = this.shownPlanes(s, shot)
-    const out = composeScreen({
+    const input: ScreenInput = {
       width: shot.width,
       height: shot.height,
       planes,
       lists: shot.screens,
       math: shot.math,
       doors: this.showSprites ? spriteDoors(this.sprites, s) : null,
-      lift,
-    })
+      lift: this.lift,
+    }
+    const flips = doorFlips(input)
+    this.coveredIds.set(s, new Set(flips?.keys()))
+    const out = composeScreen({ ...input, flips })
     canvas.getContext('2d')?.putImageData(new ImageData(out, shot.width, shot.height), 0, 0)
     canvas.dataset.drawn = want
   }
@@ -664,7 +676,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
         lists: shot.screens,
         math: shot.math,
         doors: this.showSprites ? spriteDoors(this.sprites, s) : null,
-        lift: this.liftOn(s),
+        lift: this.lift,
         base: comp.getContext('2d')!.getImageData(0, 0, comp.width, comp.height).data,
         indicators: b.indicators,
         arts: b.decoded,
@@ -687,30 +699,38 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     comp.style.visibility = 'hidden'
   }
 
-  /** The lifted sprite's door id when it is on screen `s`. */
+  /** The lift as part of screen `s`'s cache key: only a screen whose door map holds the id changes with it. */
   protected liftOn(s: number): number | undefined {
-    return this.lift?.screen === s ? this.lift.id : undefined
+    return this.lift !== undefined && this.showSprites && this.screenDoors(s).ids.has(this.lift) ? this.lift : undefined // prettier-ignore
   }
 
-  /** The sprite under the strip pixel (x, y), native units. */
-  protected liftAt(x: number, y: number): typeof this.lift {
-    const g = this.sprites
-    if (g && this.showSprites) {
-      const vertical = g.orientation === 'vertical'
-      const s = Math.floor(vertical ? y / g.height : x / g.width)
-      const key = `${this.spritesVersion}:${s}`
-      if (!this.doorMaps.has(key)) {
-        if (this.doorMaps.size > 64) this.doorMaps.clear()
-        this.doorMaps.set(key, s >= 0 ? spriteDoors(g, s) : null)
-      }
-      const id = doorIdAt(this.doorMaps.get(key) ?? null, g.width, x - (vertical ? 0 : s * g.width), y - (vertical ? s * g.height : 0)) // prettier-ignore
-      if (id) return { screen: s, id }
+  protected screenDoors(s: number): { doors: Uint32Array | null; ids: Set<number> } {
+    if (this.doorMapsVersion !== this.spritesVersion) {
+      this.doorMaps.clear()
+      this.doorMapsVersion = this.spritesVersion
     }
-    return undefined
+    let d = this.doorMaps.get(s)
+    if (!d) {
+      if (this.doorMaps.size >= 64) this.doorMaps.clear()
+      const doors = s >= 0 ? spriteDoors(this.sprites, s) : null
+      d = { doors, ids: new Set(doors ? Array.from(doors, v => v >> 1) : []) }
+      this.doorMaps.set(s, d)
+    }
+    return d
   }
 
-  protected setLift(next: typeof this.lift): void {
-    if (next?.screen === this.lift?.screen && next?.id === this.lift?.id) return
+  /** The door id of the sprite under the strip pixel (x, y), native units, when a tile covers some of it (S3). */
+  protected liftAt(x: number, y: number): number | undefined {
+    const g = this.sprites
+    if (!g || !this.showSprites) return undefined
+    const vertical = g.orientation === 'vertical'
+    const s = Math.floor(vertical ? y / g.height : x / g.width)
+    const id = doorIdAt(this.screenDoors(s).doors, g.width, x - (vertical ? 0 : s * g.width), y - (vertical ? s * g.height : 0)) // prettier-ignore
+    return id && [...this.coveredIds.values()].some(c => c.has(id)) ? id : undefined
+  }
+
+  protected setLift(next: number | undefined): void {
+    if (next === this.lift) return
     this.lift = next
     this.sync()
   }

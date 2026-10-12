@@ -226,10 +226,12 @@ test('hovering a hidden sprite draws it opaque, leaving restores the door exactl
   // Hover the plant: its covered pixels turn to the sprite colour, both squares of the door.
   const plant = await clientOf(page, plantPixel)
   await page.mouse.move(plant.x, plant.y)
-  await expect.poll(async () => same((await read()).behind, before.behind), { timeout: 15000 }).toBeLessThan(behind.length / 2) // prettier-ignore
+  // A lift changes only the dim squares of the door (full ones are already at the sprite colour), so about half
+  // the pixels change, not all; the rest of the check is the sprite colour everywhere below.
+  await expect.poll(async () => behind.length - same((await read()).behind, before.behind), { timeout: 15000 }).toBeGreaterThanOrEqual(behind.length * 0.3) // prettier-ignore
   const lifted = await read()
   const sameAsSprite = behind.filter((_, i) => rgb(lifted.behind[i]).every((v, k) => Math.abs(v - on.spriteRgb[i][k]) <= 8)).length // prettier-ignore
-  expect(sameAsSprite / behind.length, 'the plant draws at the sprite colour over the pipe').toBeGreaterThan(0.9) // prettier-ignore
+  expect(sameAsSprite / behind.length, 'the plant draws at the sprite colour over the pipe').toBe(1) // prettier-ignore
   expect(same(lifted.shown, before.shown), 'the uncovered sprite still unchanged').toBe(on.at.shown.length) // prettier-ignore
 
   // Leave: the door pixels come back byte for byte.

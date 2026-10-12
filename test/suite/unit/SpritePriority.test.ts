@@ -408,4 +408,24 @@ describe('IndicatorDisplay keeps the sprite door under an indicator cell (D52, #
       expect(px(base, W, 13, 5).slice(0, 3)).toEqual(lerp(L1_RGB, SPRITE_RGB, 1))
     })
   }
+
+  it('a lift (hover, #879) reaches the indicator cell: the lifted sprite is opaque there, as natively', () => {
+    // A solid sprite at x 4..11, half under layer 1 high (x >= 8) and wholly inside the cell: half its covered pixels are dim.
+    const dto2 = drawSprites([{ ...spr, index: 0 }] as LevelSprite[], { vram: { sp1: tiles }, colors: COLORS }, () => ({ ok: true, parts: interpParts([oam({ char: 1 })]), anchor: { x: 4, y: 5 }, identity })) // prettier-ignore
+    const sp2 = { ...G32, sprites: dto2 }
+    const [doors, planes2] = [
+      spriteDoors(sp2, 0),
+      { l1High: l1, l2Low: null, ...spritePlanes(sp2, 0) },
+    ]
+    const plain = composeScreen({ width: W, height: W, planes: planes2, lists, math: null, doors }) // prettier-ignore
+    const lifted = composeScreen({ width: W, height: W, planes: planes2, lists, math: null, doors, lift: 1 }) // prettier-ignore
+    const d = new IndicatorDisplay({ width: W, height: W, zoom: 1, screen: 0, geometry: G32, planes: planes2, lists, math: null, base: lifted, indicators: [{ plane: 'l2Low', x: 0, y: 0, art: 'a' }], arts: ART, doors, lift: 1 }) // prettier-ignore
+    let changed = 0
+    for (let y = 5; y < 13; y++)
+      for (let x = 8; x < 12; x++) {
+        if (px(lifted, W, x, y).join() !== px(plain, W, x, y).join()) changed++
+        expect(px(d.image, d.width, x, y), `native ${x},${y}`).toEqual(px(lifted, W, x, y))
+      }
+    expect(changed, 'the lift changes covered pixels inside the cell').toBeGreaterThan(0)
+  })
 })
