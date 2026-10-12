@@ -10,7 +10,7 @@
 // Exports checkPath/checkBlob/checkTextContent/evaluateEntry as pure
 // functions for unit tests; everything else is CLI plumbing. Modes:
 // staged, range BASE HEAD, push <remote> (reads stdin ref-update lines),
-// history.
+// history [REF] (HEAD and tags; never other branches, D59).
 
 import { spawnSync } from 'node:child_process'
 import { readFileSync, existsSync } from 'node:fs'
@@ -146,7 +146,14 @@ function wrappedBase64Run(text) {
   return longest
 }
 
-const EXEMPTABLE_RULES = new Set(['base64', 'data-uri', 'byte-tokens', 'disasm-listing', 'em-dash'])
+const EXEMPTABLE_RULES = new Set([
+  'base64',
+  'data-uri',
+  'byte-tokens',
+  'disasm-listing',
+  'em-dash',
+  'rom-provenance',
+])
 
 // Only at the start of a line, inside a comment marker, with a non-empty
 // reason. Never matches a JS/TS string VALUE that merely contains this
@@ -207,13 +214,14 @@ function countByteTokens(text) {
     count += (m.match(/[0-9a-fA-F]{4}/g) || []).length * 2
     return ' '.repeat(m.length)
   })
-  // Decimal byte arrays: [12, 200, 255, 3, ...]
-  for (const m of t.matchAll(/\[([\d\s,]+)\]/g)) {
+  // Decimal byte arrays: [12, 200, 255, 3, ...]. A 0x element may sit inside
+  // (#812); runs of 2+ 0x tokens were blanked above, so nothing counts twice.
+  for (const m of t.matchAll(/\[([\da-fA-Fx\s,]+)\]/g)) {
     const nums = m[1]
       .split(',')
       .map(s => s.trim())
       .filter(Boolean)
-    const valid = nums.filter(n => /^\d+$/.test(n) && +n <= 255)
+    const valid = nums.filter(n => (/^\d+$/.test(n) && +n <= 255) || /^0x[0-9a-fA-F]{1,2}$/.test(n))
     if (valid.length >= 2) count += valid.length
   }
   // One-per-line data directives: db/dw/dl/.byte/.word, hex or decimal.
@@ -248,6 +256,124 @@ function countDisasmLines(text) {
   return n
 }
 
+// A comment claiming the data near it came from the game (#812). Content
+// alone cannot tell a 4-byte ROM copy from an invented one; the claim can.
+const CLAIM_PHRASE =
+  /\b(?:vanilla\s+(?:ROM\s+)?(?:at\s+)?(?:\$|0x)[0-9a-f]|(?:copied|taken|lifted|dumped) from\b|from the (?:vanilla )?ROM\s+at\s+(?:\$|0x)[0-9a-f]|ROM bytes\b|real ROM (?:bytes|data|values)\b)/i
+const PROVENANCE_WINDOW = 3
+// "(no ROM bytes)", "not copied from the ROM": a negator directly before
+// the phrase (one the/any/real allowed between) denies the claim (D59); "not
+// only" and any other word between do not. One unnegated match still claims.
+const NEGATED_BEFORE = /\b(?:no|not|never|without)\s+(?:(?:the|any|real)\s+)?$/i
+function claimsProvenance(comment) {
+  const re = new RegExp(CLAIM_PHRASE.source, 'gi')
+  for (const m of comment.matchAll(re)) {
+    if (!NEGATED_BEFORE.test(comment.slice(0, m.index))) return true
+  }
+  return false
+}
+// Whole-line comment leads besides the delimiters the scanner tracks. In
+// markdown a leading # or * is a heading or bullet, so it has none.
+const LINE_LEAD = /^\s*[#*]/
+const NUM = /(?:0x[0-9a-fA-F]+|\$[0-9a-fA-F]+|\d+)/.source
+// Opening only: a literal may run on for many lines, and an unbounded
+// closing-bracket match can overflow the regex stack on a huge unclosed one.
+const LITERAL_OPEN = new RegExp(String.raw`\[\s*${NUM}\s*,\s*${NUM}`)
+
+// A `/` opens a regex literal at line start, after an operator or
+// punctuator, or after a keyword that takes an expression.
+const REGEX_START =
+  /(?:^|[(,=:[!&|?{};+\-*%<>~^]|\b(?:return|typeof|case|in|of|void|delete|throw|yield|await))\s*$/
+
+/** Index just past the regex literal opening at `i`, or -1 if it does not close on the line. */
+function regexEnd(line, i) {
+  let inClass = false
+  for (let j = i + 1; j < line.length; j++) {
+    const c = line[j]
+    if (c === '\\') j++
+    else if (c === '[') inClass = true
+    else if (c === ']') inClass = false
+    else if (c === '/' && !inClass) return j + 1
+  }
+  return -1
+}
+
+/**
+ * Splits each line into its comment text and its code text, carrying an open
+ * block comment (`/* ... *\/`, and `<!-- ... -->` in markdown) across lines.
+ * Outside markdown, quoted strings are skipped so a glob like '**\/*.ts' or a
+ * URL opens nothing; markdown prose has apostrophes, so there a `/*` opens a
+ * block only at line start and `//` needs whitespace before it.
+ */
+function splitComments(path, text) {
+  const md = /\.md$/i.test(path)
+  const token = md ? /\/\/|\/\*|<!--/g : /\/\/|\/\*|["'`/]/g
+  let close = null // the closing delimiter of an open block comment
+  return text.split('\n').map(line => {
+    if (!close && !md && LINE_LEAD.test(line)) return { comment: line, code: '' }
+    let comment = ''
+    let code = ''
+    let i = 0
+    while (i < line.length) {
+      if (close) {
+        const end = line.indexOf(close, i)
+        const stop = end < 0 ? line.length : end + close.length
+        comment += line.slice(i, stop)
+        i = stop
+        if (end >= 0) close = null
+        continue
+      }
+      token.lastIndex = i
+      const m = token.exec(line)
+      if (!m) break
+      code += line.slice(i, m.index)
+      i = m.index
+      const t = m[0]
+      const before = line.slice(0, i)
+      if (t === '//' && (!md || /(?:^|\s)$/.test(before))) {
+        comment += line.slice(i)
+        i = line.length
+      } else if ((t === '/*' && (!md || before.trim() === '')) || t === '<!--') {
+        close = t === '/*' ? '*/' : '-->'
+        comment += t
+        i += t.length
+      } else if (t === '/') {
+        // A regex literal is skipped like a string, so a quote inside it opens
+        // nothing; after an operand the slash is division and stays code.
+        const end = REGEX_START.test(before) ? regexEnd(line, i) : -1
+        code += end < 0 ? t : '""'
+        i = end < 0 ? i + 1 : end
+      } else if (t.length === 1) {
+        let j = i + 1 // a quoted string, to its closing quote or the line end
+        while (j < line.length && line[j] !== t) j += line[j] === '\\' ? 2 : 1
+        code += '""' // masked: a quoted "[1, 2]" is a label, not a literal
+        i = j + 1
+      } else {
+        code += t
+        i += t.length
+      }
+    }
+    if (i < line.length) code += line.slice(i)
+    return { comment, code: code.trim() === '' ? '' : code }
+  })
+}
+
+function hasRomProvenance(path, text) {
+  const parts = splitComments(path, text)
+  for (let i = 0; i < parts.length; i++) {
+    if (!claimsProvenance(parts[i].comment)) continue
+    if (LITERAL_OPEN.test(parts[i].code)) return true // claim trails the literal's own line
+    if (parts[i].code !== '') continue
+    // Code lines only: a literal quoted inside a comment is a citation, not a copy.
+    const below = parts
+      .slice(i + 1, i + 1 + PROVENANCE_WINDOW)
+      .map(p => p.code)
+      .join('\n')
+    if (LITERAL_OPEN.test(below)) return true
+  }
+  return false
+}
+
 /** Text-content rules shared by blob content, commit messages and tag
  * bodies. `path` is a label only (may be synthetic, e.g. "<commit SHA>"). */
 export function checkTextContent(path, text) {
@@ -273,6 +399,8 @@ export function checkTextContent(path, text) {
 
   const byteCount = countByteTokens(text)
   if (byteCount > BYTE_TOKEN_THRESHOLD) push('byte-tokens', { count: byteCount })
+
+  if (hasRomProvenance(path, text)) push('rom-provenance')
 
   const disasmLines = countDisasmLines(text)
   if (disasmLines >= DISASM_LINE_THRESHOLD) push('disasm-listing', { count: disasmLines })
@@ -801,12 +929,19 @@ function runPush(remote, stdinText) {
   return dedupeReport(hits)
 }
 
-function runHistory() {
+/** D59 A (#812): scan commits reachable from `ref` plus tags, never other
+ * open branches, so an unmerged branch's blobs cannot fail an unrelated
+ * ref. Tags stay: they are published content. */
+function runHistory(ref = 'HEAD') {
   assertNoGrafts()
   if (git(['rev-parse', '--is-shallow-repository']).toString().trim() === 'true') {
     throw new GateError('history mode refuses a shallow clone: run against full history')
   }
-  const { entries, messages } = walkRawDiff(['--all'], { reverse: true })
+  if (ref.startsWith('-')) throw new GateError(`history: bad ref '${ref}'`)
+  const resolved = spawnGit(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`])
+  if (resolved.status !== 0) throw new GateError(`history: cannot resolve ref '${ref}'`)
+  const revs = [resolved.stdout.toString().trim(), '--tags']
+  const { entries, messages } = walkRawDiff(revs, { reverse: true })
   const hits = [...evaluateEntries(entries, messages, true)]
   try {
     hits.push(...tagBodyHits(true))
@@ -818,13 +953,16 @@ function runHistory() {
   // Fail on any blob/tree reachable only via a tag/ref pointing at it
   // directly, never via a commit's tree walk. `rev-list --objects` prints
   // an empty path both for that case AND for a commit's legitimate root
-  // tree, so root trees (collected from every commit reachable via --all)
+  // tree, so root trees (collected from every commit in the scanned rev set)
   // are the one allowed exception - a blob can never legitimately have an
   // empty path, root or not.
   const rootTrees = new Set(
-    git(['log', '--all', '--format=%T']).toString('utf8').split('\n').filter(Boolean),
+    git(['log', ...revs, '--format=%T'])
+      .toString('utf8')
+      .split('\n')
+      .filter(Boolean),
   )
-  const objLines = git(['rev-list', '--objects', '--all'])
+  const objLines = git(['rev-list', '--objects', ...revs])
     .toString('utf8')
     .split('\n')
     .filter(Boolean)
@@ -882,10 +1020,10 @@ function main(argv) {
     const stdinText = readFileSync(0, 'utf8')
     hits = runPush(rest[0], stdinText)
   } else if (mode === 'history') {
-    hits = runHistory()
+    hits = runHistory(rest[0])
   } else {
     process.stderr.write(
-      'usage: check-content.mjs [staged | range BASE HEAD | push REMOTE | history]\n',
+      'usage: check-content.mjs [staged | range BASE HEAD | push REMOTE | history [REF]]\n',
     )
     process.exit(2)
   }
