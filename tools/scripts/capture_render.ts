@@ -295,7 +295,7 @@ export function pipeAt(p: Pipes, frame: number): PipeInfo {
 }
 
 /** OAM entries of one recorded frame, relative to the sprite, hidden ones dropped. */
-function framePieces(frame: Rec, rec: Rec, obsel: number): D.SpritePiece[] | null {
+function framePieces(frame: Rec, rec: Rec): D.SpritePiece[] | null {
   // A recorded frame lists `tiles` (dx, dy, tile, attr, large), front first;
   // a record with no recorded frames lists its OAM `entries` by index.
   const entries = list(frame.tiles ?? frame.entries, 'sprite_spawns.json tiles')
@@ -304,19 +304,14 @@ function framePieces(frame: Rec, rec: Rec, obsel: number): D.SpritePiece[] | nul
   const at = [frame.x ?? rec.x, frame.y ?? rec.y, frame.cameraX ?? rec.cameraX, frame.cameraY ?? rec.cameraY].map(num) // prettier-ignore
   const relative = entries.every(p => num(p.dx) !== null && num(p.dy) !== null)
   if (!relative && at.some(v => v === null)) return null
-  // A relative piece unwrapped to a line above the top edge whose bottom is also above it
-  // was parked in the below-screen band (recorded modulo 256): hidden, as in the entries path.
+  // The recorder keeps a relative dy modulo 256 and omits Y $F0 pieces itself, so none is dropped here.
   const unwrapped = (p: Rec) => (at[1] === null || at[3] === null ? num(p.dy)! : D.unwrapDy(num(p.dy)!, at[1], at[3])) // prettier-ignore
   // The 2-bit sizeXHigh (bit 1 = size select), or a boolean `large` standing in for it.
   const hiOf = (p: Rec) =>
     typeof p.large === 'boolean' ? (p.large ? 2 : 0) : (num(p.sizeXHigh) ?? 0)
   const kept = entries
     .filter(p => {
-      if (relative) {
-        if (at[1] === null || at[3] === null) return true
-        const line = unwrapped(p) + D.spriteScreenY(at[1], at[3])
-        return !(line < 0 && line + D.objSize(obsel, (hiOf(p) >> 1) & 1)[1] <= 0)
-      }
+      if (relative) return true
       // Only Y $F0 is hidden; the recorder keeps Y 224-255 entries (headless_capture.lua:1352, #838).
       return (num(p.y) ?? 0) !== 0xf0
     })
@@ -327,8 +322,7 @@ function framePieces(frame: Rec, rec: Rec, obsel: number): D.SpritePiece[] | nul
         : D.pieceOffset((num(p.x) ?? 0) + (hi & 1) * 256, num(p.y) ?? 0, at[0]!, at[1]!, at[2]!, at[3]!) // prettier-ignore
       return { i: num(p.entry) ?? k, dx, dy, tile: num(p.tile) ?? 0, attr: num(p.attr) ?? 0, large: (hi >> 1) & 1 } // prettier-ignore
     })
-  // Every piece parked off screen: nothing to draw, the same as a frame with no entries
-  // (callers take min/max over the pieces, which would be +-Infinity on none).
+  // Only the entries path can empty the list (all Y $F0); callers take min/max over the pieces.
   return kept.length ? kept : null
 }
 
@@ -339,10 +333,10 @@ function framePieces(frame: Rec, rec: Rec, obsel: number): D.SpritePiece[] | nul
  * A record with no recorded frames draws the OAM entries it recorded when
  * it first drew.
  */
-export function spriteFrame(rec: Rec, obsel: number) {
+export function spriteFrame(rec: Rec, _obsel: number) {
   const frames = list(rec.frames, 'sprite_spawns.json frames')
   if (!frames.length) {
-    const pieces = framePieces(rec, rec, obsel)
+    const pieces = framePieces(rec, rec)
     return pieces
       ? { pieces, reason: '', recorded: [pieces] }
       : { pieces: null, reason: 'Its record lacks the sprite position, camera or OAM entries of one frame', recorded: [] } // prettier-ignore
@@ -354,9 +348,9 @@ export function spriteFrame(rec: Rec, obsel: number) {
   const listed = frames.map(f => (num(f.frameIndex) === null ? '?' : String(num(f.frameIndex)))).join(', ') // prettier-ignore
   const drawn = num(chosen.frameIndex)
   const note = `frame ${drawn === null ? '(no index)' : drawn} drawn; recorded frames ${listed}`
-  const pieces = framePieces(chosen, rec, obsel)
+  const pieces = framePieces(chosen, rec)
   // Every recorded frame, for checking against what the SNES drew.
-  const recorded = frames.map(f => framePieces(f, rec, obsel)).filter(p => p !== null)
+  const recorded = frames.map(f => framePieces(f, rec)).filter(p => p !== null)
   if (!pieces) return { pieces: null, reason: 'Its recorded frame lacks OAM entries or their position, or has them all parked off screen', frames: note, recorded } // prettier-ignore
   const reason = exact ? '' : noIndex ? 'No frame index; the earliest recorded frame is drawn' : 'First animation frame not observed; the earliest recorded frame is drawn' // prettier-ignore
   return { pieces, reason, frames: note, recorded }

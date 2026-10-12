@@ -909,40 +909,39 @@ describe('recorded piece dy past 127 (#811)', () => {
   it('keeps dy as recorded when cameraY is absent, however large y is', () => {
     expect(dyOf(spriteFrame(rec([0], { y: 300, cameraY: undefined }), 0))).toEqual([0])
   })
-  it('drops a piece parked below the screen, as the entries path does', () => {
-    // Sprite at screen line 0; an 8-line piece at line 248 records dy -8 and would draw above the top.
-    const r = (large: boolean) => ({ x: 128, y: 100, cameraX: 0, cameraY: 100, frames: [{ frameIndex: 0, tiles: [{ dx: 0, dy: -8, tile: 0, attr: 0, large }] }] }) // prettier-ignore
-    expect(dyOf(spriteFrame(r(false), 0))).toBeUndefined()
-    expect(dyOf(spriteFrame(r(true), 0))).toEqual([-8]) // 16 lines at 248 straddles the top edge
+  it('keeps a piece recorded in the 224-255 band, both sizes, at every sprite line', () => {
+    // The recorder omits Y $F0 pieces itself, so a relative piece is always kept (ruling on #811).
+    const r = (y: number, dy: number, large: boolean) => ({ x: 128, y, cameraX: 0, cameraY: y, frames: [{ frameIndex: 0, tiles: [{ dx: 0, dy, tile: 0, attr: 0, large }] }] }) // prettier-ignore
+    for (const large of [false, true]) {
+      for (const y of [0, 100, 224, 1000]) {
+        for (let dy = -128; dy <= 255; dy++) {
+          expect(
+            dyOf(spriteFrame(r(y, dy, large), 0)),
+            `y ${y} dy ${dy} large ${large}`,
+          ).toHaveLength(1)
+        }
+      }
+    }
   })
-  it('sizes a relative piece by sizeXHigh alone when it has no large flag', () => {
-    // Same shape as the drop test above, but the size comes only from sizeXHigh 2 (large).
+  it('keeps a dy -8 piece whatever size it reads from, large or sizeXHigh', () => {
     const f = { x: 128, y: 100, cameraX: 0, cameraY: 100, frames: [{ frameIndex: 0, tiles: [{ dx: 0, dy: -8, tile: 0, attr: 0, sizeXHigh: 2 }] }] } // prettier-ignore
     expect(dyOf(spriteFrame(f, 0))).toEqual([-8])
     f.frames[0].tiles[0].sizeXHigh = 0
-    expect(dyOf(spriteFrame(f, 0))).toBeUndefined()
+    expect(dyOf(spriteFrame(f, 0))).toEqual([-8])
   })
-  it('keeps a piece that reaches onto the screen, across both sides of the boundary', () => {
-    // Sprite at screen line 0: an 8-line piece at dy -7 ends on line 1 (kept); dy -8 ends on 0 (dropped).
+  it('keeps pieces on both sides of the old top-edge boundary', () => {
     const at = (y: number, dy: number) => dyOf(spriteFrame(rec([dy], { y, cameraY: y }), 0))
-    for (const y of [0, 100, 224, 1000]) {
-      expect(at(y, -7)).toEqual([-7])
-      expect(at(y, -8)).toBeUndefined()
+    for (const y of [0, 100, 224, 1000]) for (const dy of [-9, -8, -7, 0]) expect(at(y, dy)).toEqual([dy]) // prettier-ignore
+  })
+  it('keeps a piece whose sprite-to-camera difference reads signed 16 bits', () => {
+    // y 0xFFFC against cameraY 0 is line -4, not 65532; the piece is kept at every dy swept.
+    for (let dy = -8; dy <= 8; dy++) {
+      expect(dyOf(spriteFrame(rec([dy], { y: 0xfffc, cameraY: 0 }), 0))).toEqual([dy])
     }
-    expect(at(100, -7)).toEqual([-7])
   })
-  it('reads the sprite-to-camera difference as signed 16 bits inside the filter', () => {
-    // y 0xFFFC against cameraY 0 is line -4, not 65532: the dy -4 piece ends on line 0, so it is dropped.
-    expect(dyOf(spriteFrame(rec([-4], { y: 0xfffc, cameraY: 0 }), 0))).toBeUndefined()
-    expect(dyOf(spriteFrame(rec([-3], { y: 0xfffc, cameraY: 0 }), 0))).toEqual([-3])
-  })
-  it('draws nothing, with a reason, when every piece is parked off screen', () => {
-    // Would be an empty piece list, and Infinity bounds in the mismatch report.
+  it('draws a lone piece in the 224-255 band instead of reporting parked off screen', () => {
     const r = spriteFrame({ x: 128, y: 100, cameraX: 0, cameraY: 100, frames: [{ frameIndex: 0, tiles: [{ dx: 0, dy: -8, tile: 0, attr: 0, large: false }] }] }, 0) // prettier-ignore
-    expect(r.pieces).toBeNull()
-    expect(r.reason).toContain('parked off screen')
-    expect(r.recorded).toEqual([])
-    expect((r as { frames?: string }).frames).toContain('frame 0 drawn')
+    expect(r.pieces).toHaveLength(1)
   })
   it('leaves an ordinary dy alone, across the sprite positions on screen', () => {
     for (let sy = 0; sy < 220; sy += 9) {
