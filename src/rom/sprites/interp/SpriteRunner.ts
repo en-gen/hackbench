@@ -556,12 +556,11 @@ export function runOnce(
     // and the next pass draws; a fingerprint match cannot prove that. A first draw after pass 0 is already on track.
     if (snaps && first === 0 && model.passes[1]?.parts.length) {
       const [q0, q1] = [model.passes[0]!.pos, model.passes[1]!.pos]
-      if (q0.x === anchor.x && q0.y === anchor.y)
+      const moved = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+        a.x !== b.x || a.y !== b.y
+      if (!moved(q0, anchor))
         model.lineStepReason = 'the line step did not move the sprite on pass 0: kept the first drawn pass' // prettier-ignore
-      else {
-        model.chosen = 1
-        if (model.passes[2]?.parts.length && (q1.x !== q0.x || q1.y !== q0.y)) model.chosen = 2
-      }
+      else model.chosen = model.passes[2]?.parts.length && moved(q0, q1) ? 2 : 1
     }
     if (snaps && model.chosen !== undefined)
       model.anchor = { ...model.anchor!, ...model.passes[model.chosen]!.origin }
