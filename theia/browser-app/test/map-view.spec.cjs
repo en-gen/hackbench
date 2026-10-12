@@ -582,10 +582,21 @@ test('a start reply after the user scrolled away and back to 0 is skipped', asyn
   opened.push('hackbench.map-view:265')
   await expect(scrollerOf(page, 0x109)).toHaveAttribute('data-start', 'pending')
   await expect(page.locator(`${root(0x109)} canvas[data-screen="0"][data-plane="l1Low"]`)).toHaveAttribute('data-drawn', /\d/, { timeout: 15000 }) // prettier-ignore
-  await scrollerOf(page, 0x109).evaluate(el => { el.scrollTop = 100 }) // prettier-ignore
-  await expect.poll(async () => (await scrollState(page, 0x109)).top).toBe(100)
-  await scrollerOf(page, 0x109).evaluate(el => { el.scrollTop = 0 }) // prettier-ignore
-  await expect.poll(async () => (await scrollState(page, 0x109)).top).toBe(0)
+  // Each write waits for its own scroll event (registered before the write), so the widget's
+  // handler sees 100 and then 0 as two events, not one frame that only shows 0.
+  const scrollTo = top =>
+    scrollerOf(page, 0x109).evaluate(
+      (el, y) =>
+        new Promise(r => {
+          el.addEventListener('scroll', () => r(), { once: true })
+          el.scrollTop = y
+        }),
+      top,
+    )
+  await scrollTo(100)
+  expect((await scrollState(page, 0x109)).top).toBe(100)
+  await scrollTo(0)
+  expect((await scrollState(page, 0x109)).top).toBe(0)
   await page.evaluate(() => window.__releaseStart())
   await expect(scrollerOf(page, 0x109)).toHaveAttribute('data-start', 'skipped', { timeout: 15000 })
   expect((await scrollState(page, 0x109)).top).toBe(0)

@@ -1197,12 +1197,13 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
           data-start={this.startState}
           ref={this.scrollerRef}
           onScroll={e => {
-            // The widget writes no offset before the start is placed (init resets to 0; the
-            // start's own scrollTo runs after the state leaves 'pending'), so any offset seen
-            // here is the user's; remember it even if they scroll back to 0.
+            // The widget writes no offset while the start is pending (init resets to 0). The
+            // start's own scrollTo runs before the state leaves 'pending', but its scroll event
+            // is delivered after, so it never counts. Any offset seen here is the user's:
+            // remember it even if they scroll back to 0. Only the scroll axis, as placeStart reads.
             const t = e.currentTarget
-            if (this.startState === 'pending' && (t.scrollTop !== 0 || t.scrollLeft !== 0))
-              this.movedBeforeStart = true
+            const at = l.orientation === 'vertical' ? t.scrollTop : t.scrollLeft
+            if (this.startState === 'pending' && at !== 0) this.movedBeforeStart = true
             this.requestVisible()
             this.updateHover()
           }}
