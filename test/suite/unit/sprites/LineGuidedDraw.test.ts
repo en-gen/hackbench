@@ -53,7 +53,7 @@ describe('line-guided draw pass', () => {
     expect(part.dx).toBe(0)
   })
 
-  it('stops at the second pass when the third draws nothing, and at the first when the second does not', () => {
+  it('stops at the second pass when the third draws nothing', () => {
     const g = run(103, { grinderDrawsTwice: true })
     expect(g.passes.slice(0, 3).map(p => p.parts.length > 0)).toEqual([true, true, false])
     expect(g.chosen).toBe(1)
@@ -110,6 +110,19 @@ describe('line-guided draw pass', () => {
   it('keeps a $67 that first draws on pass 1 at that pass: it is already on its track', () => {
     const g = run(103, { grinderDrawsFromPass1: true })
     expect(g.passes.slice(0, 3).map(p => p.parts.length > 0)).toEqual([false, true, true])
+    expect(g.chosen).toBe(1)
+    expect(g.anchor!.x).toBe(0x84)
+  })
+
+  it('keeps pass 1 when the first MAIN moved the sprite but the second did not, though pass 2 draws', () => {
+    // The step routine at $019290 moves +4 on its first call only (count in $1650,X), then returns: pass 0 -> 0x84, pass 1 -> 0x84.
+    // Dropping the moved(q0, q1) guard, or testing q0 against the anchor instead, would pick pass 2.
+    const rom = buildSyntheticRom()
+    rom.writeAt(0x019290, [0xfe, 0x50, 0x16, 0xbd, 0x50, 0x16, 0xc9, 0x02, 0x90, 0x01, 0x60, 0xb5, 0xe4, 0x18, 0x69, 0x04, 0x95, 0xe4, 0x60]) // prettier-ignore
+    expect(grinderDrawsBeforeSnap(rom, GRINDER_HANDLER, GRINDER_DISPATCH)).toBe(true)
+    const g = runOnce(rom, 103, seed, { grinderDispatch: GRINDER_DISPATCH })
+    expect(g.passes.slice(0, 3).map(p => p.parts.length > 0)).toEqual([true, true, true])
+    expect(g.passes[1]!.pos).toEqual(g.passes[0]!.pos)
     expect(g.chosen).toBe(1)
     expect(g.anchor!.x).toBe(0x84)
   })
@@ -259,6 +272,8 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla grinder, on the vanilla ROM', (
 
 describe.skipIf(!hasRom(VANILLA))('line-guided grinder sweep (all 17 drawn, vanilla)', () => {
   it('draws each one on the edge of its line tile', () => {
+    // Proves "on the line" only: every point of a line tile's edge is a cell corner, so this cannot tell pass 2
+    // from pass 3. The GRINDERS table above and the Mesen capture test below pin which pass.
     const path = romPath(VANILLA)
     const bytes = new Uint8Array(readFileSync(path))
     let drawn = 0
@@ -298,7 +313,11 @@ describe.skipIf(!hasRom(VANILLA) || !existsSync(TRACE_SLOT_7))(
       expect(mains).toHaveLength(2)
       expect(at(mains[0]!.wram)).toEqual([415, 336])
       expect(at(mains[1]!.wram)).toEqual([419, 340])
-      const lastWram = mains[1]!.wram + 1
+      // The snapshot after the second MAIN is the next call's: take it from calls.json, not from index arithmetic.
+      const next = calls[calls.indexOf(mains[1]!) + 1]
+      expect(next, 'a call follows slot 7 second MAIN').toBeDefined()
+      const lastWram = next!.wram
+      expect(lastWram).toBe(mains[1]!.wram + 1)
       expect(at(lastWram)).toEqual([431, 336])
       const r = mapSprites(
         new L1ModelCache(),

@@ -440,8 +440,9 @@ function uploadsOf(m: Machine, before: Map<number, number>): string[] {
 export type Probe = (pass: number, wram: Uint8Array) => void
 
 /**
- * The grinder draws, then its line step snaps it onto the track (SMWDisX bank_01.asm:12194-12204,
- * corner stores 12054-12061), so the first draw is at the off-track spawn spot and the next is on it (#126).
+ * The grinder draws, then its line step moves it (SMWDisX bank_01.asm:12194-12204, corner stores 12054-12061),
+ * so it draws three different spots: the off-track INIT spot, the probe corner the first MAIN snapped to, and the
+ * line point the walk then set. The editor draws the third (#126).
  * $67 only: the other line-guided ids share the order; that family is follow-up #792.
  */
 const DRAWS_BEFORE_LINE_SNAP: ReadonlySet<number> = new Set([0x67])
