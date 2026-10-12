@@ -36,7 +36,14 @@ import {
   SYNTHETIC_FINGERPRINTS,
 } from '../support/syntheticRom'
 import { FG_GATE_MAPS } from '../../../tools/scripts/fgGateMaps'
-import { hGrid, inputs, px, sub, tile, vGrid } from '../support/mapInputs'
+import { SKIP_CHAIN_B_AT, writeStockSkipChain } from '../support/skipChain'
+import { hGrid, inputs as baseInputs, px, sub, tile, vGrid } from '../support/mapInputs'
+
+// Level mode 1: mode 0 is one the game loads no L2 objects in (#637), which the helper's zero header would hit.
+const inputs: typeof baseInputs = (...a) => {
+  const m = baseInputs(...a)
+  return { ...m, header: { ...m.header, levelMode: 1 } }
+}
 
 vi.mock('../../../src/rom/Map16', async importOriginal => {
   const real = await importOriginal<typeof Map16Mod>()
@@ -246,6 +253,9 @@ describe('the wire carries four planes in the view stacking order (synthetic)', 
 
 // ── The core's L2 reading ────────────────────────────────────────────────────
 
+// Written out, not imported, so the test cannot agree with the source by construction.
+const NO_L2_OBJECT_MODES = [0x00, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x10, 0x11, 0x1e]
+
 describe('buildL2Inputs (synthetic ROM)', () => {
   const LEVEL = 5
   // DATA_05D708 (L1 Y) index 1 = $20; DATA_05D70C (L2 Y) index 2 = $C0.
@@ -254,6 +264,8 @@ describe('buildL2Inputs (synthetic ROM)', () => {
     rom.writeAt(0x05d708, [0x00, 0x20, 0x40, 0x80])
     rom.writeAt(0x05d70c, [0x60, 0x90, 0xc0, 0x00])
     rom.writeAt(0x05f400 + LEVEL, [(1 << 2) | 2])
+    rom.writeAt(0x05803b, [0xc9]) // stock CMP #$FF at the L2 preset check (bank_05.asm:33)
+    writeStockSkipChain(rom)
     for (const [addr, bytes] of writes) rom.writeAt(addr, bytes)
     return rom
   }
@@ -281,6 +293,17 @@ describe('buildL2Inputs (synthetic ROM)', () => {
     expect([v.grid.length, v.grid[0]!.length]).toEqual([32, 32])
     // The BG plane is 32 rows and the pattern 27: rows 27-31 are empty, then it repeats.
     expect([v.grid[26]![0], v.grid[27]![0], v.grid[31]![0]]).toEqual([0x25, null, null])
+  })
+
+  it('a $FF preset pointer is an image in skipped modes too, on a stock site', () => {
+    for (const mode of [0x00, 0x0a]) {
+      const m = inputs(hGrid(1), false, 1)
+      const r = buildL2Inputs(smw(image()), LEVEL, {
+        ...m,
+        header: { ...m.header, levelMode: mode },
+      })
+      expect(ok(r).kind, `mode ${mode}`).toBe('image')
+    }
   })
 
   it('an image sits Layer1YPos - Layer2YPos down, like an object stream (bank_05.asm:7323-7328)', () => {
@@ -462,6 +485,83 @@ describe('buildL2Inputs (synthetic ROM)', () => {
     objects([[1]])
     const r = buildL2Inputs(smw(romWith([ptr(0x00, 0x90, 0x0c)]), true), LEVEL, inputs(hGrid(1), false, 1)) // prettier-ignore
     expect(r).toMatchObject({ ok: false, reason: expect.stringMatching(/L2 is vertical but L1 is horizontal/) }) // prettier-ignore
+  })
+
+  // The game loads no L2 objects in ten modes (bank_05.asm:431-457, #637); sweep all 32.
+  it('every level mode the game gives no L2 objects is refused before the stream is read, and only those', () => {
+    const rom = romWith([ptr(0x00, 0x90, 0x0c)])
+    for (let mode = 0; mode < 32; mode++) {
+      objects([[1]])
+      const m = inputs(hGrid(1), false, 1)
+      const r = buildL2Inputs(smw(rom), LEVEL, { ...m, header: { ...m.header, levelMode: mode } })
+      const read = vi.mocked(L2LoaderReal.loadL2Objects).mock.calls.length > 0
+      if (NO_L2_OBJECT_MODES.includes(mode)) {
+        expect(r, `mode ${mode}`).toMatchObject({ ok: false, reason: expect.stringMatching(/loads no layer 2 objects in level mode/) }) // prettier-ignore
+        expect(read, `mode ${mode}`).toBe(false)
+      } else {
+        expect(r.ok, `mode ${mode}`).toBe(true)
+      }
+      vi.mocked(L2LoaderReal.loadL2Objects).mockReset()
+    }
+  })
+
+  it('a hijacked L2 check site keeps the stream behaviour in all ten skipped modes', () => {
+    for (const mode of NO_L2_OBJECT_MODES) {
+      objects([[1]])
+      const rom = romWith([ptr(0x00, 0x90, 0x0c), [0x05803b, [0x5c]]]) // JML, as Lunar Magic patches it
+      const m = inputs(hGrid(1), false, 1)
+      const r = buildL2Inputs(smw(rom), LEVEL, { ...m, header: { ...m.header, levelMode: mode } })
+      expect(r.ok, `mode ${mode}`).toBe(true)
+      expect(vi.mocked(L2LoaderReal.loadL2Objects).mock.calls.length, `mode ${mode}`).toBe(1)
+      vi.mocked(L2LoaderReal.loadL2Objects).mockReset()
+    }
+  })
+
+  it('a non-JML byte at the site is a hijack too', () => {
+    for (const byte of [0x22, 0x00]) {
+      objects([[1]])
+      const rom = romWith([ptr(0x00, 0x90, 0x0c), [0x05803b, [byte]]])
+      const m = inputs(hGrid(1), false, 1)
+      const r = buildL2Inputs(smw(rom), LEVEL, { ...m, header: { ...m.header, levelMode: 0x0a } })
+      expect(r.ok, `site ${byte}`).toBe(true)
+    }
+  })
+
+  // A ROM that reroutes the skip branch but keeps CMP #$FF would otherwise read as "no objects", silently.
+  it('a changed mode-skip chain with a stock CMP site is refused as unrecognized, in every mode', () => {
+    for (const patch of [[0x0a], [0x1e]]) {
+      const rom = romWith([ptr(0x00, 0x90, 0x0c)])
+      rom.writeAt(SKIP_CHAIN_B_AT + 5 + 4 * (patch[0] === 0x0a ? 0 : 5), [0xea, 0xea]) // the compare is neutered, so the stream could run
+      for (let mode = 0; mode < 32; mode++) {
+        objects([[1]])
+        const m = inputs(hGrid(1), false, 1)
+        const r = buildL2Inputs(smw(rom), LEVEL, { ...m, header: { ...m.header, levelMode: mode } })
+        expect(r, `mode ${mode}`).toMatchObject({ ok: false, reason: expect.stringMatching(/skip chain.*not recognized/) }) // prettier-ignore
+        expect(vi.mocked(L2LoaderReal.loadL2Objects), `mode ${mode}`).not.toHaveBeenCalled()
+        vi.mocked(L2LoaderReal.loadL2Objects).mockReset()
+      }
+    }
+  })
+
+  it('a stock ROM keeps the plain refusal, never the unrecognized one', () => {
+    objects([[1]])
+    const m = inputs(hGrid(1), false, 1)
+    const r = buildL2Inputs(smw(romWith([ptr(0x00, 0x90, 0x0c)])), LEVEL, { ...m, header: { ...m.header, levelMode: 0x0a } }) // prettier-ignore
+    expect(r).toMatchObject({ ok: false, reason: expect.stringMatching(/loads no layer 2 objects in level mode \$0A/) }) // prettier-ignore
+  })
+
+  it('a skipped mode with L1 vertical gives the mode as the reason, not an orientation mismatch', () => {
+    objects([[1]])
+    // Entry $01 everywhere: L1 vertical, L2 horizontal, as the vanilla table has for modes 3, $0A, $0D.
+    const rom = { rom: romWith([ptr(0x00, 0x90, 0x0c)]), getVerticalTable: () => ({ ok: true, table: new Array(32).fill(1) }) } as unknown as SmwRom // prettier-ignore
+    const at = (mode: number) => {
+      const m = inputs(vGrid(1), true, 1)
+      return buildL2Inputs(rom, LEVEL, { ...m, header: { ...m.header, levelMode: mode } })
+    }
+    expect(at(0x0a)).toMatchObject({ ok: false, reason: expect.stringMatching(/level mode \$0A/) })
+    expect(at(0x0d)).toMatchObject({ ok: false, reason: expect.stringMatching(/level mode \$0D/) })
+    // Mode 3 does load L2 objects, so its mismatch refusal stands.
+    expect(at(0x03)).toMatchObject({ ok: false, reason: expect.stringMatching(/L2 is horizontal but L1 is vertical/) }) // prettier-ignore
   })
 
   it('an unreadable object stream and a throw are each refused, never a partial grid', () => {

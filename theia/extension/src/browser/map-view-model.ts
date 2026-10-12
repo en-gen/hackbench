@@ -12,10 +12,12 @@ import type {
 import { BLOCK, indicatorBox, paintIndicator, type Box } from '../common/block-indicator'
 import {
   composeScreen,
+  doorFlips,
   type SourceKey,
   type ScreenInput,
 } from '../../../../src/rom/model/ColorMath'
-import { decodeRgba } from './map16-pixels'
+import { SPRITE_KEYS, type SpriteKey } from '../../../../src/rom/model/ScreenPlanes'
+import { decodeBase64Bytes, decodeRgba } from './map16-pixels'
 import { SWITCH_ORDER } from './map16-view-model'
 
 export const PALACES: readonly (keyof SwitchFlagsDto)[] = ['yellow', 'green', 'red', 'blue']
@@ -35,41 +37,91 @@ export interface ScreenGeometry {
   height: number
 }
 
-const decoded = new WeakMap<MapSpriteDto, Uint8ClampedArray>()
+const decoded = new WeakMap<MapSpriteDto, { rgba: Uint8ClampedArray; prio: Uint8Array | null }>()
+
+/** One screen's sprite pixels and each pixel's OAM priority (#795). */
+interface SpriteLayer {
+  rgba: Uint8ClampedArray
+  prio: Uint8Array
+  /** Per pixel, 0 or ((winning sprite's place in the stack + 1) << 1 | its local (x + y) parity), for the screen door. */
+  door: Uint32Array
+}
 
 /**
- * One screen's sprite canvas, or null when no sprite reaches it. A sprite is one
+ * One screen's sprites, or null when no sprite reaches it. A sprite is one
  * bitmap in map pixels, so one that crosses a screen edge is cut into every screen
  * it overlaps, and what spills past the map's top or bottom is clipped. Sprites
  * stack in column order on a horizontal map and row order on a vertical one (the
- * stream's order breaks ties), later ones on top.
+ * stream's order breaks ties), later ones on top; a pixel keeps the priority of
+ * the sprite that wins it.
  */
-export function compositeSpriteScreen(
+function spriteLayer(
   sprites: readonly MapSpriteDto[],
   screen: number,
   g: ScreenGeometry,
-): Uint8ClampedArray | null {
+): SpriteLayer | null {
   const vertical = g.orientation === 'vertical'
   const [left, top] = vertical ? [0, screen * g.height] : [screen * g.width, 0]
   const order = [...sprites].sort((a, b) => (vertical ? a.y - b.y : a.x - b.x) || a.index - b.index)
-  let out: Uint8ClampedArray | null = null
-  for (const s of order) {
+  let out: SpriteLayer | null = null
+  for (const [n, s] of order.entries()) {
     const { x0, y0, x1, y1 } = s.box
     const [cx0, cx1] = [Math.max(x0, left), Math.min(x1, left + g.width)]
     const [cy0, cy1] = [Math.max(y0, top), Math.min(y1, top + g.height)]
     if (cx0 >= cx1 || cy0 >= cy1) continue
     let bmp = decoded.get(s)
-    if (!bmp) decoded.set(s, (bmp = decodeRgba(s.rgba)))
-    out ??= new Uint8ClampedArray(g.width * g.height * 4)
+    if (!bmp) decoded.set(s, (bmp = { rgba: decodeRgba(s.rgba), prio: s.priority ? decodeBase64Bytes(s.priority) : null })) // prettier-ignore
+    out ??= { rgba: new Uint8ClampedArray(g.width * g.height * 4), prio: new Uint8Array(g.width * g.height), door: new Uint32Array(g.width * g.height) } // prettier-ignore
     for (let y = cy0; y < cy1; y++) {
       for (let x = cx0; x < cx1; x++) {
-        const from = ((y - y0) * (x1 - x0) + (x - x0)) * 4
-        if (bmp[from + 3] === 0) continue
-        out.set(bmp.subarray(from, from + 4), ((y - top) * g.width + (x - left)) * 4)
+        const from = (y - y0) * (x1 - x0) + (x - x0)
+        if (bmp.rgba[from * 4 + 3] === 0) continue
+        const to = (y - top) * g.width + (x - left)
+        out.rgba.set(bmp.rgba.subarray(from * 4, from * 4 + 4), to * 4)
+        // No priority: a placeholder, at the pre-#795 slot.
+        out.prio[to] = bmp.prio ? bmp.prio[from]! : 2
+        out.door[to] = ((n + 1) << 1) | ((x - x0 + (y - y0)) & 1)
       }
     }
   }
   return out
+}
+
+/** One screen's sprite canvas (every priority together), or null when no sprite reaches it. */
+export function compositeSpriteScreen(
+  sprites: readonly MapSpriteDto[],
+  screen: number,
+  g: ScreenGeometry,
+): Uint8ClampedArray | null {
+  return spriteLayer(sprites, screen, g)?.rgba ?? null
+}
+
+/** One screen's sprites split by OAM priority, the four sources `screenPlanes` places; null where none (or none read). */
+export function spritePlanes(
+  sp: (ScreenGeometry & { sprites: readonly MapSpriteDto[] }) | undefined,
+  screen: number,
+): Record<SpriteKey, Uint8ClampedArray | null> {
+  const planes: Record<SpriteKey, Uint8ClampedArray | null> = { sprites0: null, sprites1: null, sprites2: null, sprites3: null } // prettier-ignore
+  const layer = sp && spriteLayer(sp.sprites, screen, sp)
+  if (!layer) return planes
+  layer.prio.forEach((p, i) => {
+    if (layer.rgba[i * 4 + 3] === 0) return
+    const plane = (planes[SPRITE_KEYS[p]!] ??= new Uint8ClampedArray(layer.rgba.length))
+    plane.set(layer.rgba.subarray(i * 4, i * 4 + 4), i * 4)
+  })
+  return planes
+}
+
+/**
+ * One screen's sprite door map for `composeScreen` (D52): which sprite owns each pixel and its
+ * parity on the sprite's own pixel grid, so a covered sprite pixel draws through the tile at the
+ * hidden-tile screen door's strength. Null where no sprite reaches the screen.
+ */
+export function spriteDoors(
+  sp: (ScreenGeometry & { sprites: readonly MapSpriteDto[] }) | undefined,
+  screen: number,
+): Uint32Array | null {
+  return (sp && spriteLayer(sp.sprites, screen, sp)?.door) ?? null
 }
 
 /** The canvas surface the sprite painter needs: a subset of HTMLCanvasElement. */
@@ -209,6 +261,8 @@ export interface DisplaySource {
   math: ScreenInput['math']
   /** The native composite of those same planes: every pixel outside an indicator is its scaled copy. */
   base: Uint8ClampedArray
+  /** The native sprite door map of `spriteDoors`: scaled with the cell, its parity stays on native sprite pixels. */
+  doors?: Uint32Array | null
   indicators: readonly Indicator[]
   arts: ReadonlyMap<string, Uint8ClampedArray>
 }
@@ -232,6 +286,8 @@ export class IndicatorDisplay {
   private readonly mine: readonly Indicator[]
   private readonly left: number
   private readonly top: number
+  /** The swap decisions of the native screen, which a cell's own pixels would miscount. */
+  private readonly flips: Map<number, boolean> | undefined
 
   constructor(
     private readonly src: DisplaySource,
@@ -251,6 +307,8 @@ export class IndicatorDisplay {
         q.y < this.top + g.height,
     )
     this.hoverId = hoverId
+    const { doors, planes, lists } = src
+    this.flips = doors ? doorFlips({ width: src.width, height: src.height, planes, lists, math: null, doors }) : undefined // prettier-ignore
     this.image = scaleNearest(src.base, src.width, src.height, this.width, this.height)
     for (const r of this.mine.map(q => this.rect(q))) this.put(r, this.compose(r))
   }
@@ -311,7 +369,9 @@ export class IndicatorDisplay {
       }
       planes[k] = cell
     }
-    return composeScreen({ width: rw, height: rh, planes, lists: s.lists, math: s.math })
+    // The door map scales like a plane (nearest), so a cell pixel keeps its native sprite pixel's parity.
+    const doors = s.doors && new Uint32Array(scaleRegion(new Uint8ClampedArray(s.doors.buffer, s.doors.byteOffset, s.doors.byteLength), s.width, s.height, this.width, this.height, r).buffer) // prettier-ignore
+    return composeScreen({ width: rw, height: rh, planes, lists: s.lists, math: s.math, doors, flips: this.flips }) // prettier-ignore
   }
 
   /** The item box lies inside its block cell, so the cells meeting is enough. */

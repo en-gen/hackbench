@@ -8,9 +8,10 @@
 import type { MapEntrances, SmwRom } from '../SmwRom'
 import type { RomFile } from '../RomFile'
 import { LEVEL_START_Y, stockCodeMismatch } from '../SubmapFlagGate'
-import { hex3s as hex3 } from '../hex'
+import { hex2, hex3s as hex3 } from '../hex'
 import {
   isPresetPtr,
+  l2ObjectGate,
   l2PaletteOrForTileset,
   L2_EMPTY_TILE,
   loadL2Objects,
@@ -150,6 +151,14 @@ export function buildL2Inputs(
         ok: true,
         l2: { kind: 'image', grid: tilePresetGrid(preset, cols, rows), tiles: loadMap16Tiles(rom.rom, table.value), dy: dy(), note }, // prettier-ignore
       }
+    }
+    // Before the orientation check: modes $0A and $0D would otherwise be refused for a layout mismatch the game never meets.
+    const objectGate = l2ObjectGate(rom.rom, header.levelMode)
+    if (objectGate === 'unrecognized') {
+      return refuse(`Layer 2 not drawn: the mode-skip chain of this ROM is not recognized (level mode $${hex2(header.levelMode)})`) // prettier-ignore
+    }
+    if (objectGate === 'skipped') {
+      return refuse(`The game loads no layer 2 objects in level mode $${hex2(header.levelMode)}`)
     }
     const vertical = rom.getVerticalTable()
     if (!vertical.ok) return refuse(vertical.reason)
