@@ -89,7 +89,7 @@ TRACED:
   both as an entrance and as a stepping stone in the reachability walk (`LevelStart.ts`; the
   shared screen exit graph in `SmwRom.ts` still holds those edges for its other callers; synthetic ROM tests). Every refusal gives a fixed plain-words `reason` for the tooltip (no address, no
   asm reference, no raw error text); the evidence is in `detail`, for tests and debugging.
-  A ROM cut short before any entrance table byte (`$05F000`-`$05FC00`, or the position tables) is unavailable, never read as zeros. The vanilla tables are never read as if they applied. A map no tile or exit leads to is unavailable too;
+  A ROM cut short before any entrance table byte (`$05F000`-`$05FC00`, or the position tables) is unavailable, never read as zeros. The vanilla tables are never read as if they applied. A map no tile or screen exit leads to is unavailable too;
   the view then stays at screen 0 and says why. Not covered: the midway entrance,
   a slot reached only through shared map data (same Layer1Ptrs) or the bonus and
   Yoshi Heaven paths. Evidence: vanilla `$109` resolves to screen 6, y 1680; one
