@@ -36,6 +36,6 @@ ones)? Which ROM? -->
 - [ ] New behavior is covered by a unit test (or the PR explains why not)
 - [ ] Core logic stays in `src/rom/` / `src/project/` with no shell imports (no Theia, no VS Code)
 - [ ] No ROM-derived content (ROMs, patches, dumps, ripped graphics, disassembly); the content gate enforces this
-- [ ] User-facing changes noted in `CHANGELOG.md` under `[Unreleased]`
+- [ ] User-facing changes noted in a new `changelog.d/<issue>-<slug>.md` file (not in `CHANGELOG.md`)
 - [ ] Significant UI change or feature addition: `needs-owner` label added, auto-merge left off
 - [ ] Change to what the app shows: before/after images embedded
