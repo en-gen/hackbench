@@ -20,5 +20,12 @@ Try to prove it incorrect. Follow your brief and `CLAUDE.md`.
   reference and number in the diff and its PR text; confirm or refute each.
 - **Scrap over patch.** If the approach is fundamentally flawed, say so.
 - **Docs.** Report gaps in the docs the brief names.
+- **CodeRabbit pre-flight.** Before reporting, read `.coderabbit.yaml`
+  `path_instructions` (and the house rules they cite); check the diff against
+  each one matching a changed path. List each that applies and whether the diff
+  passes, so CodeRabbit's allowance is not spent on what you can catch. Recurring
+  misses: `docs/glossary.md` terms, claims with no evidence scope, single-case
+  tests over an input range (sweep it), corpus tests without `skipIf`, comments
+  that narrate WHAT not WHY, stale fixtures in tests merged from develop.
 - **Report** each finding with `file:line`, witness input, severity, and
   evidence scope (what you ran, where, how many times).

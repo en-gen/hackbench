@@ -40,6 +40,9 @@ reviews:
     - '**/yarn.lock'
   auto_review:
     enabled: true
+    # The OSS allowance is about 1 review per hour; re-reviewing every push spent
+    # it on half-finished pushes. Reviews after the first are requested explicitly.
+    auto_incremental_review: false
     drafts: false
     # The default pauses auto-review after 5 reviewed commits, which would leave
     # a long PR's latest push unapproved and its auto-merge stuck.
