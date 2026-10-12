@@ -385,7 +385,14 @@ function readLevel(read: Reader, level: string, windows: string[]): Level {
   const b64 = (b: Buffer) => b.toString('base64')
   const bad = (p: string[]) => unavailable(p.join('; '))
   const summary = json('capture_summary.json')
-  if (!summary) return bad(['no capture_summary.json: the capture aborted'])
+  if (!summary) {
+    // A sprite-trace folder never has a summary by design (sprite_routine_trace.lua writes calls.json and
+    // frames.json instead), so a folder lacking both and the summary is an incomplete layers capture.
+    if (read('calls.json') && read('frames.json')) return bad(['sprite-trace folder: this viewer compares layers captures only (it has no capture_summary.json)']) // prettier-ignore
+    return bad([
+      'no capture_summary.json: not a sprite-trace folder; the layers capture is incomplete',
+    ])
+  }
   if (summary.identityGate !== 'pass') return bad([`identity gate: ${summary.identityGate}`])
   if (summary.layer1 && summary.layer1 !== 'map16') return bad([`Layer 1: ${summary.layer1}`])
   // The load sample, the first: the map's graphics and palettes come from it.
