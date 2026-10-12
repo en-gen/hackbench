@@ -216,6 +216,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected startWhy: string | undefined
   /** Where this open's start stands, for the strip's `data-start` (a test waits on it, not on a timer). */
   protected startState: 'pending' | 'placed' | 'skipped' | 'unavailable' = 'pending'
+  /** The view left offset 0 while the start was pending, even if it came back: the user has taken over. */
+  protected movedBeforeStart = false
 
   @postConstruct()
   protected init(): void {
@@ -311,6 +313,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.pendingStart = undefined
     this.startWhy = undefined
     this.startState = 'pending'
+    this.movedBeforeStart = false
     void this.loadStart(++this.startSeq)
     this.update()
     this.refresh()
@@ -358,7 +361,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const extent = l.screenCount * (vertical ? l.height : l.width) * this.zoom
     if ((vertical ? strip.offsetHeight : strip.offsetWidth) < extent - 1) return
     this.pendingStart = undefined
-    if ((vertical ? el.scrollTop : el.scrollLeft) !== 0) {
+    if (this.movedBeforeStart || (vertical ? el.scrollTop : el.scrollLeft) !== 0) {
       this.startState = 'skipped'
       return this.update()
     }
@@ -1193,7 +1196,13 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
           data-rendered-zoom={this.renderedZoom}
           data-start={this.startState}
           ref={this.scrollerRef}
-          onScroll={() => {
+          onScroll={e => {
+            // The widget writes no offset before the start is placed (init resets to 0; the
+            // start's own scrollTo runs after the state leaves 'pending'), so any offset seen
+            // here is the user's; remember it even if they scroll back to 0.
+            const t = e.currentTarget
+            if (this.startState === 'pending' && (t.scrollTop !== 0 || t.scrollLeft !== 0))
+              this.movedBeforeStart = true
             this.requestVisible()
             this.updateHover()
           }}

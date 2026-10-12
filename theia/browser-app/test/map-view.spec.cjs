@@ -555,6 +555,43 @@ test('a start reply that arrives after the user scrolled is skipped', async ({ p
 })
 
 /**
+ * Scrolling away and back to 0 while the start is pending is still the user taking over: the
+ * late reply must not pull the view to the start (CodeRabbit, #787).
+ */
+test('a start reply after the user scrolled away and back to 0 is skipped', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await page.evaluate(async mp => {
+    const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {
+      index: 0x109,
+    })
+    const real = w.projects
+    const held = new Promise(r => { window.__releaseStart = r }) // prettier-ignore
+    w.projects = new Proxy(real, {
+      get: (t, k) =>
+        k === 'mapStart'
+          ? (m, i) => held.then(() => t.mapStart(m, i))
+          : typeof t[k] === 'function'
+            ? t[k].bind(t)
+            : t[k],
+    })
+    await w.open({ manifestPath: mp, index: 0x109, label: '109', iconClass: '' })
+    const shell = getSvc('ApplicationShell')
+    await shell.addWidget(w, { area: 'main' })
+    await shell.activateWidget(w.id)
+  }, project.manifestPath)
+  opened.push('hackbench.map-view:265')
+  await expect(scrollerOf(page, 0x109)).toHaveAttribute('data-start', 'pending')
+  await expect(page.locator(`${root(0x109)} canvas[data-screen="0"][data-plane="l1Low"]`)).toHaveAttribute('data-drawn', /\d/, { timeout: 15000 }) // prettier-ignore
+  await scrollerOf(page, 0x109).evaluate(el => { el.scrollTop = 100 }) // prettier-ignore
+  await expect.poll(async () => (await scrollState(page, 0x109)).top).toBe(100)
+  await scrollerOf(page, 0x109).evaluate(el => { el.scrollTop = 0 }) // prettier-ignore
+  await expect.poll(async () => (await scrollState(page, 0x109)).top).toBe(0)
+  await page.evaluate(() => window.__releaseStart())
+  await expect(scrollerOf(page, 0x109)).toHaveAttribute('data-start', 'skipped', { timeout: 15000 })
+  expect((await scrollState(page, 0x109)).top).toBe(0)
+})
+
+/**
  * The pixels actually on screen inside `locator`'s content box, read from a
  * screenshot: its scrollbar track and border are the theme's, not the map's,
  * so they are left out (inset 1px for the widget's focus outline).
