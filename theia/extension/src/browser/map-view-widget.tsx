@@ -208,6 +208,16 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected readonly resizes = new ResizeObserver(() => this.fitStrip())
   /** Bumped on every invalidation, so a reply to an older request is dropped. */
   protected generation = 0
+  /** Bumped only by `open`, so the start reply of an earlier map is dropped; an edit's refresh leaves it (#339). */
+  protected startSeq = 0
+  /** Where the player first enters this map, until the view has been scrolled to it once. */
+  protected pendingStart: { x: number; y: number } | undefined
+  /** Why the start is not known: the view stays at screen 0 and says so. */
+  protected startWhy: string | undefined
+  /** Where this open's start stands, for the strip's `data-start` (a test waits on it, not on a timer). */
+  protected startState: 'pending' | 'placed' | 'skipped' | 'unavailable' = 'pending'
+  /** The view left offset 0 while the start was pending, even if it came back: the user has taken over. */
+  protected movedBeforeStart = false
 
   @postConstruct()
   protected init(): void {
@@ -245,6 +255,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       }),
     )
     this.zoomController.centreAnchored = true
+    // A user zoom while the start is pending is the user taking over, as a scroll is (#787).
+    this.zoomController.onUserZoom = () => {
+      if (this.startState === 'pending') this.movedBeforeStart = true
+    }
     this.toDispose.push(this.zoomController)
     this.toDispose.push({ dispose: () => this.wheelBinding?.dispose() })
     this.toDispose.push(
@@ -300,8 +314,68 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       delete c.dataset.drawn
     }
     this.scroller?.scrollTo(0, 0)
+    this.pendingStart = undefined
+    this.startWhy = undefined
+    this.startState = 'pending'
+    this.movedBeforeStart = false
+    void this.loadStart(++this.startSeq)
     this.update()
     this.refresh()
+  }
+
+  /**
+   * Asks where the player first enters this map (#339). Once per `open`: a later refit, zoom or
+   * scroll never re-applies it, and a reply for a map the tab has moved on from is dropped.
+   */
+  protected async loadStart(seq: number): Promise<void> {
+    const o = this.options
+    if (!o) return
+    const r = await this.projects.mapStart(o.manifestPath, o.index).catch(() => ({
+      status: 'unavailable' as const,
+      reason: 'The start position could not be read just now.',
+    }))
+    if (seq !== this.startSeq) return
+    if (r.status === 'ok') {
+      this.pendingStart = { x: r.x, y: r.y }
+      this.placeStart()
+      return
+    }
+    this.startState = 'unavailable'
+    this.startWhy =
+      r.status === 'unavailable'
+        ? r.reason
+        : `The base ROM ${r.baseRom.title} is not on this machine.`
+    this.update()
+  }
+
+  /**
+   * Scrolls the start onto the centre of the scroll axis, once the strip is laid out at its fit
+   * zoom; called on every commit and reply until it has run, then never again for this open.
+   * Skipped (and dropped) when the user has already scrolled.
+   */
+  protected placeStart(): void {
+    const start = this.pendingStart
+    const l = this.mapLayout
+    const el = this.scroller
+    const strip = el?.querySelector<HTMLElement>('.hb-map-view-strip')
+    if (!start || !l || !el || !strip || this.renderedZoom !== this.zoom) return
+    const vertical = l.orientation === 'vertical'
+    const fit = this.zoomController.fitting ? this.measureFit() : undefined
+    if (fit !== undefined && Math.abs(fit - this.zoom) > 1e-6) return
+    const extent = l.screenCount * (vertical ? l.height : l.width) * this.zoom
+    if ((vertical ? strip.offsetHeight : strip.offsetWidth) < extent - 1) return
+    this.pendingStart = undefined
+    if (this.movedBeforeStart || (vertical ? el.scrollTop : el.scrollLeft) !== 0) {
+      this.startState = 'skipped'
+      return this.update()
+    }
+    const view = vertical ? el.clientHeight : el.clientWidth
+    const max = (vertical ? el.scrollHeight : el.scrollWidth) - view
+    const at = Math.min(Math.max((vertical ? start.y : start.x) * this.zoom - view / 2, 0), max)
+    el.scrollTo(vertical ? { top: at } : { left: at })
+    this.startState = 'placed'
+    this.update()
+    this.requestVisible()
   }
 
   /** Which slot this tab currently shows, so a pin can retire the preview of it. */
@@ -559,6 +633,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     // commit task; @lumino/messaging 2.0.5 dist/index.js:141-147). See
     // docs/decisions/2026-10-08-zoom-anchor-race-seam.md.
     if (this.renderedZoom === this.zoomController.value) this.wheelBinding?.restoreAnchor()
+    this.placeStart()
     this.sync()
   }
 
@@ -1123,8 +1198,16 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
           className={'hb-map-view-scroller' + (l.orientation === 'vertical' ? ' hb-vertical' : '')}
           data-control="map-scroller"
           data-rendered-zoom={this.renderedZoom}
+          data-start={this.startState}
           ref={this.scrollerRef}
-          onScroll={() => {
+          onScroll={e => {
+            // The widget writes no offset while the start is pending (init resets to 0). The
+            // start's own scrollTo runs before the state leaves 'pending', but its scroll event
+            // is delivered after, so it never counts. Any offset seen here is the user's:
+            // remember it even if they scroll back to 0. Only the scroll axis, as placeStart reads.
+            const t = e.currentTarget
+            const at = l.orientation === 'vertical' ? t.scrollTop : t.scrollLeft
+            if (this.startState === 'pending' && at !== 0) this.movedBeforeStart = true
             this.requestVisible()
             this.updateHover()
           }}
@@ -1275,6 +1358,14 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
             `${d.spriteCount} sprites`
           ) : (
             <span title={d.spriteUnavailable}>sprites unavailable</span>
+          )}
+          {this.startWhy && (
+            <>
+              {' · '}
+              <span data-control="map-start-note" title={this.startWhy}>
+                start unavailable
+              </span>
+            </>
           )}
         </div>
         {/* With the facts, not in the folded header: it qualifies the picture. */}
