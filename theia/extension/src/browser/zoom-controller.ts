@@ -64,8 +64,9 @@ export class ZoomController implements Disposable {
   centreAnchored = false
   /**
    * Called when the USER asks for a zoom that will change it: the + / - buttons, Ctrl + wheel
-   * (both through `step`), Actual size and the Fit button. Never for `refit`, or for a `enterFit`
+   * (both through `step`), Actual size and the Fit button. Never for `refit`, or for an `enterFit`
    * without `anchored` (a map load), so a host can tell a user zoom from its own.
+   * `actualSize` counts any change of fit state: leaving fit fires even if the fit zoom was already 1.
    */
   onUserZoom: (() => void) | undefined
   /** Set by `bindWheel`: keeps the view centre fixed across a jump to `target`. */
