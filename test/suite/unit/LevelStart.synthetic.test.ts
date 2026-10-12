@@ -450,26 +450,29 @@ describe('readLevelStart fails closed when a table byte is past the ROM end', ()
       }
     }
     memo.on = true
-    start(rom, 0x001)
-    const read = (a: number) => memo.reads.some(([t, len]) => a >= t! && a < t! + len!)
-    expect(
-      reads.flatMap(r => r[2]).filter(read),
-      'the shared derivation read a swept byte',
-    ).toEqual([])
-    for (const [what, slot, must, never] of reads) {
-      expect(start(rom, slot).ok, `${what} reads fine with nothing withheld`).toBe(true)
-      for (const addr of must) {
-        const s = at(addr, slot)
-        expect(s.ok, `${what} @ $${addr.toString(16)} must refuse`).toBe(false)
-        n++
-        expect(!s.ok && s.reason, `${what} @ $${addr.toString(16)}`).toBe(CUT)
+    try {
+      start(rom, 0x001)
+      const read = (a: number) => memo.reads.some(([t, len]) => a >= t! && a < t! + len!)
+      expect(
+        reads.flatMap(r => [...r[2], ...r[3]]).filter(read),
+        'the shared derivation read a swept byte',
+      ).toEqual([])
+      for (const [what, slot, must, never] of reads) {
+        expect(start(rom, slot).ok, `${what} reads fine with nothing withheld`).toBe(true)
+        for (const addr of must) {
+          const s = at(addr, slot)
+          expect(s.ok, `${what} @ $${addr.toString(16)} must refuse`).toBe(false)
+          n++
+          expect(!s.ok && s.reason, `${what} @ $${addr.toString(16)}`).toBe(CUT)
+        }
+        for (const addr of never) {
+          expect(at(addr, slot).ok, `${what} never reads $${addr.toString(16)}`).toBe(true)
+        }
       }
-      for (const addr of never) {
-        expect(at(addr, slot).ok, `${what} never reads $${addr.toString(16)}`).toBe(true)
-      }
+      expect(n).toBe(reads.reduce((t, r) => t + r[2].length, 0))
+    } finally {
+      memo.on = false
     }
-    expect(n).toBe(reads.reduce((t, r) => t + r[2].length, 0))
-    memo.on = false
   })
 
   it('a missing DATA_05F800 byte is not a match for a destination whose low byte is zero', () => {
