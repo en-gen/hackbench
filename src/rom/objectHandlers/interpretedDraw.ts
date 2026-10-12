@@ -8,7 +8,6 @@
  */
 
 import type { Cursor } from './cursor'
-import type { RomFile } from '../RomFile'
 import {
   ENTRY_STANDARD,
   applyWrites,
@@ -19,36 +18,7 @@ import {
 } from './interpret'
 import { mirror } from '../addressing'
 import { noteUnverified } from './interpretedGate'
-
-/** LevLoadNrmObj: SEP #$30; JSL CODE_0DA40F; RTS (bank_05.asm:805-808). */
-const LOADER_ROUTINE = 0x0586ea
-const LOADER_LEN = 7
-/** The `JSR LevLoadNrmObj` in LoadLevelData (bank_05.asm:788): where the loader reaches that routine. */
-const LOADER_CALL_SITE = 0x0586cf
-/** `LDA LvlLoadObjNo; BNE +6` (bank_05.asm:783-784): the branch that sends a standard object to that call. */
-const LOADER_BRANCH = 0x0586c5
-const LOADER_BRANCH_BYTES = [0xa5, 0x5a, 0xd0, 0x06]
-
-/**
- * Why the loader no longer reaches ENTRY_STANDARD, or null when it does. The
- * routine is read as bytes: SEP, JSL, RTS, with the JSL operand compared
- * bank-mirror normalized, and so is the JSR that reaches it. A hack that re-points the JSL is drawn from the port.
- */
-function loaderProblem(rom: RomFile): string | null {
-  const branch = rom.readAt(LOADER_BRANCH, LOADER_BRANCH_BYTES.length)
-  if (!branch || LOADER_BRANCH_BYTES.some((v, i) => branch[i] !== v))
-    return `the loader's branch to its standard-object call at ${hex6(LOADER_BRANCH)} is not LDA $5A, BNE +6`
-  const call = rom.readAt(LOADER_CALL_SITE, 3)
-  if (!call || call[0] !== 0x20 || (call[1] | (call[2] << 8)) !== (LOADER_ROUTINE & 0xffff))
-    return `the loader's call at ${hex6(LOADER_CALL_SITE)} is not JSR ${hex6(LOADER_ROUTINE)}`
-  const b = rom.readAt(LOADER_ROUTINE, LOADER_LEN)
-  if (!b || b[0] !== 0xe2 || b[1] !== 0x30 || b[2] !== 0x22 || b[6] !== 0x60)
-    return `the loader's routine at ${hex6(LOADER_ROUTINE)} is not SEP, JSL, RTS`
-  const to = b[3] | (b[4] << 8) | (b[5] << 16)
-  return mirror(to) === mirror(ENTRY_STANDARD)
-    ? null
-    : `the loader's JSL at ${hex6(LOADER_ROUTINE + 2)} reaches ${hex6(to)}, not ${hex6(ENTRY_STANDARD)}`
-}
+import { dataBanksOf } from '../DataBanks'
 
 export interface InterpretedDraw {
   vertical: boolean
@@ -74,11 +44,14 @@ export function drawInterpreted(cur: Cursor, handler: number, ctx: InterpretedDr
     return false
   }
   if (ctx.vertical) return note('vertical levels are not interpreted yet')
-  const why = loaderProblem(cur.rom)
-  if (why) return note(why)
+  // The object code bank is the recorded one (detected, or hand-edited in the project's data-banks.json); a
+  // missing or malformed record refuses rather than guessing vanilla's $0D.
+  const found = dataBanksOf(cur.rom).objectCode
+  if ('notFound' in found) return note(found.notFound)
+  const inBank = (a: number): number => (found.bank << 16) | (a & 0xffff)
   const r = interpret(
     cur.rom,
-    ENTRY_STANDARD,
+    inBank(ENTRY_STANDARD),
     horizontalPlacement('standard', cur.objNo, cur.size, cur.col, cur.row),
     { tileset: cur.tileset, switchFlags: cur.switchFlags },
     {
@@ -89,7 +62,7 @@ export function drawInterpreted(cur: Cursor, handler: number, ctx: InterpretedDr
   if (r.refusal) return note(`${r.refusal.reason} at ${hex6(r.refusal.at)}`)
   const reached = r.dispatches[r.dispatches.length - 1]
   if (reached === undefined) return note('the run reached no dispatch')
-  if (mirror(reached) !== mirror(handler))
+  if (mirror(reached) !== mirror(handler) && mirror(reached) !== mirror(inBank(handler)))
     return note(`the ROM's dispatch reaches ${hex6(reached)}`)
   applyWrites(cur.grid, r.writes, cur.owners, cur.owner)
   return true
