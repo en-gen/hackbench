@@ -220,6 +220,11 @@ const LINE_EDGE: Record<number, (x: number, y: number) => boolean> = {
   0x93: (_, y) => y === 15,
 }
 
+// Needs no ROM: an empty or truncated table would otherwise leave the sweep below asserting nothing.
+it('the grinder table covers both configured slots, $1a and $1f', () => {
+  expect(Object.keys(GRINDERS).sort()).toEqual([String(0x1a), String(0x1f)])
+})
+
 describe.skipIf(!hasRom(VANILLA))('every vanilla grinder, on the vanilla ROM', () => {
   for (const [slot, want] of Object.entries(GRINDERS)) {
     it(`slot $${Number(slot).toString(16)}: ${want.length} placements drawn where the line walk left them`, () => {

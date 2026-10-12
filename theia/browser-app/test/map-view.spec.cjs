@@ -1076,6 +1076,11 @@ test('$4F on $105 is served at its stream position plus the (8, -1) its INIT add
 test('a vanilla grinder is served on its track, at the third pass, not at its spawn spot', async ({
   page,
 }) => {
+  // The pinned numbers are the vanilla ROM's; a custom HB_ROM or a missing corpus ROM cannot match them.
+  test.skip(
+    !!process.env.HB_ROM || !fs.existsSync(romPath(VANILLA)),
+    'needs the vanilla corpus ROM',
+  )
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x01a)
   const reply = await page.evaluate(
