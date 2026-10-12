@@ -353,8 +353,8 @@ export function screenResult(
 }
 
 /**
- * Layer 2's build notes, as the map note shows them: a line layer 1 already carries (the map-wide
- * dispatch note) is dropped, the rest say which layer they come from (#493).
+ * Layer 2's build notes for the map note. Duplicates of a layer 1 note are suppressed so the
+ * map-wide dispatch note is not repeated once per layer (#493).
  */
 function l2Notes(model: MapInputs): string[] {
   const own = model.l2?.ok ? (model.l2.l2.unverified ?? []) : []
