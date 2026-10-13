@@ -155,6 +155,10 @@ function skipChainIsStock(rom: RomFile): boolean {
   return chainOk(0, false, [0x09, 0x0b, 0x10]) && chainOk(SKIP_CHAIN_B_OFFSET, true, [0x0a, 0x0c, 0x0d, 0x0e, 0x11, 0x1e]) // prettier-ignore
 }
 
+/** True for the ten modes whose stock chain skips the L2 object stream, whatever the ROM's chain says. */
+export const isSkippedLevelMode = (levelMode: number): boolean =>
+  MODES_WITHOUT_L2_OBJECTS.includes(levelMode & 0x1f)
+
 export type L2ObjectGate = 'loads' | 'skipped' | 'unrecognized'
 
 /**

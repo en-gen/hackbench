@@ -12,6 +12,7 @@ import { hex2, hex3s as hex3 } from '../hex'
 import {
   isPresetPtr,
   l2ObjectGate,
+  isSkippedLevelMode,
   l2PaletteOrForTileset,
   L2_EMPTY_TILE,
   loadL2Objects,
@@ -22,6 +23,7 @@ import {
 } from '../L2Loader'
 import { readInitialLayer1YPos } from '../L3Loader'
 import { isLevelModeVerticalL2, SCREEN_H_VERT, SCREEN_W_VERT } from '../LevelParser'
+import { readL2UploaderTable } from '../L2UploaderTable'
 import { loadMap16Tiles, readL2Map16Table, type Map16Tile } from '../Map16'
 import type { L1Inputs } from './L1Model'
 
@@ -141,20 +143,12 @@ export function buildL2Inputs(
   const gate = startGate(rom.rom)
   const why = [gate, known?.note && gate ? `D${known.note.slice(1)}` : known?.note].filter(Boolean)
   const note = why.length ? `Background height unverified: ${why.join(' ')}` : undefined
-  try {
-    if (isPresetPtr(ptr)) {
-      const preset = loadL2Preset(rom.rom, ptr)
-      if (!preset) return refuse(`The background image at the L2 pointer of ${hex3(index)} cannot be read`) // prettier-ignore
-      const table = readL2Map16Table(rom.rom)
-      if (!table.ok) return refuse(`The background's Map16 table cannot be read: ${table.reason}`)
-      const cols = isVertical ? SCREEN_W_VERT : screens * 16
-      const rows = isVertical ? screens * SCREEN_H_VERT : 27
-      return {
-        ok: true,
-        l2: { kind: 'image', grid: tilePresetGrid(preset, cols, rows), tiles: loadMap16Tiles(rom.rom, table.value), dy: dy(), note }, // prettier-ignore
-      }
-    }
-    // Before the orientation check: modes $0A and $0D would otherwise be refused for a layout mismatch the game never meets.
+  const preset = isPresetPtr(ptr)
+  // Order (D51 B, #506): develop's #637 gate owns the object-stream path in the ten skipped modes,
+  // so it runs before the table; a preset ($FF) pointer is an image in every mode, skipped or not
+  // (the image routine runs for modes $00/$0A, bank_05.asm:1104, 1114, independent of LoadLevel's
+  // skips, :444-457), and goes straight to the table. The table decides every other case.
+  if (!preset) {
     const objectGate = l2ObjectGate(rom.rom, header.levelMode)
     if (objectGate === 'unrecognized') {
       return refuse(`Layer 2 not drawn: the mode-skip chain of this ROM is not recognized (level mode $${hex2(header.levelMode)})`) // prettier-ignore
@@ -162,6 +156,41 @@ export function buildL2Inputs(
     if (objectGate === 'skipped') {
       return refuse(`The game loads no layer 2 objects in level mode $${hex2(header.levelMode)}`)
     }
+  }
+  // A hijacked check site leaves a skipped mode's stream behaviour as it was (gate 'loads'); the
+  // table has nothing to add there.
+  const hijackedSkip = !preset && isSkippedLevelMode(header.levelMode)
+  // The game picks the uploader by level mode (bank_05.asm:1099-1135); the pointer's bank byte must
+  // agree with it, or the game would draw the map differently (#506). That is the level-load upload
+  // (CODE_058955) only; scroll-time uploads go through CODE_058883, which is not checked here.
+  if (!hijackedSkip) {
+    const uploaders = readL2UploaderTable(rom.rom)
+    if (!uploaders.ok) return refuse(uploaders.reason)
+    const mode = header.levelMode & 0x1f
+    const entry = uploaders.entries[mode]!
+    const modeName = `level mode $${mode.toString(16).padStart(2, '0')}`
+    if (entry.kind === 'unrecognized') {
+      return refuse(`The L2 uploader for ${modeName} (at $${entry.target.toString(16)}) is not a routine this reader recognizes`) // prettier-ignore
+    }
+    if (entry.kind === 'none') return refuse(`${modeName} uploads no L2`)
+    if (preset !== (entry.kind === 'image')) {
+      return refuse(`${modeName} uploads an L2 ${entry.kind === 'image' ? 'image' : 'object stream'}, but the L2 pointer of ${hex3(index)} is ${preset ? 'an image' : 'an object stream'}`) // prettier-ignore
+    }
+  }
+  try {
+    if (preset) {
+      const image = loadL2Preset(rom.rom, ptr)
+      if (!image) return refuse(`The background image at the L2 pointer of ${hex3(index)} cannot be read`) // prettier-ignore
+      const table = readL2Map16Table(rom.rom)
+      if (!table.ok) return refuse(`The background's Map16 table cannot be read: ${table.reason}`)
+      const cols = isVertical ? SCREEN_W_VERT : screens * 16
+      const rows = isVertical ? screens * SCREEN_H_VERT : 27
+      return {
+        ok: true,
+        l2: { kind: 'image', grid: tilePresetGrid(image, cols, rows), tiles: loadMap16Tiles(rom.rom, table.value), dy: dy(), note }, // prettier-ignore
+      }
+    }
+    // After the gate and the table, before the orientation check: modes $0A and $0D would otherwise be refused for a layout mismatch the game never meets.
     const vertical = rom.getVerticalTable()
     if (!vertical.ok) return refuse(vertical.reason)
     const l2Vertical = isLevelModeVerticalL2(header.levelMode, vertical.table)

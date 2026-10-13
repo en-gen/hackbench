@@ -51,16 +51,19 @@ the 17 L2 blocks as overlapping the block after them.
 
 On vanilla, all map data sits in banks `$06` and `$07`:
 
-| bank                      | referenced by a pointer | not referenced | largest free run        |
-| ------------------------- | ----------------------- | -------------- | ----------------------- |
-| `$06` (`$068000-$06FFFF`) | 26443 B                 | 6325 B         | 2759 B at file `$37539` |
-| `$07` (`$078000-$07FFFF`) | 24576 B                 | 8192 B         | 6289 B at file `$3E76F` |
+| bank                      | referenced by a pointer | not referenced | largest free run                    |
+| ------------------------- | ----------------------- | -------------- | ----------------------------------- |
+| `$06` (`$068000-$06FFFF`) | 26443 B                 | 6325 B         | 2759 B at file `$37539`             |
+| `$07` (`$078000-$07FFFF`) | 24576 B                 | 8192 B         | 2193 B at `$07E76F` (file `$3E76F`) |
 
 14517 unreferenced bytes in total, in 20 runs (9 in bank `$06`, 11 in
 `$07`), 8 of them 256 bytes or larger. **Unverified:** this checks only that no L1, L2 or sprite pointer
 reaches these runs. It does not establish that nothing else in the ROM uses
-them, and the disassembly has no label at `$07E800`, so the 6289-byte tail
-is unidentified rather than confirmed free.
+them. The 6289-byte tail `$07E76F-$07FFFF` is not all free: `$07F000-$07FC8F`
+(3216 bytes) is code and data per `SMW_U.sym` (`DATA_07F000`, `CODE_07F1CA`,
+`InitSpriteTables` at `$07F7D2`, `CircleCoords`, `LineGuideData00`). Only
+`freespace.txt`'s U-column runs `$07E76F-$07EFFF` and `$07FC90-$07FFFF` are
+listed free; the rest of the 14517 is unattributed.
 
 ### A relocated block cannot cross a bank boundary
 
@@ -281,8 +284,8 @@ sprite data is stored in bank 07" (`bank_05.asm:7257-7258`).
 
 **On a stock ROM, L1 and L2 data can be relocated anywhere; sprite data
 cannot leave bank `$07` without an ASM patch.** Bank `$07` is 32 KB, already
-holds 24576 referenced bytes on vanilla, and its largest free run is the
-unconfirmed 6289-byte tail.
+holds 24576 referenced bytes on vanilla, and its largest free run is
+2193 bytes (`$07E76F`); the 6289-byte tail around it is not all free.
 
 All four corpus hacks carry exactly such a patch. `$05D8F5` becomes a `JSL`
 to a routine that loads the bank from a 512-byte per-slot table at
@@ -363,8 +366,15 @@ The ceiling: `X` counts stream entries (`INX`, `bank_02.asm:5270`) and
 indexes `SpriteLoadStatus` (`bank_02.asm:5282, 5285`), declared `skip 128`
 (`rammap.asm:1968`). **A map holds at most 128 sprites**; the 129th writes
 past the table into `ExitTableLow` (`rammap.asm:1969`), the per-screen
-screen-exit table. That is 386 bytes of stream at most. Vanilla's longest
-is 197 bytes, 65 sprites.
+screen-exit table. That would be 386 bytes of stream, but the loop's index
+`Y` is loaded with `LDY.B #$01` (`bank_02.asm:5251`) and steps 3 per sprite
+(`:5261, 5268-5269`), so an 8-bit index limits a list to under 256 bytes, 84
+sprites exactly (1 + 3x84 + 1 = 254), before the 128-sprite ceiling. `Y` is
+8-bit: `SEP #$30` at `bank_00.asm:35`, no `REP` in `GameLoop` (`:49-58`) or
+`GM14Level` (`:4405`) before `CODE_028AB1` (`:4535`) reaches `LoadSprFromLevel`
+(`bank_02.asm:1410`); callees before it are not each traced, but the 8-bit
+immediates (`LDX.B #$00`, `:5250`) need it. An engine limit.
+Vanilla's longest is 197 bytes, 65 sprites.
 
 The level-start clear CODE_02ABF2 (`bank_02.asm:5786-5789`) zeroes only
 `SpriteLoadStatus` entries `$00-$3F` of the 128; the loader image starts from
@@ -472,7 +482,7 @@ assignment exists, at the cost of rewriting a compressed block.
 
 | question                                                                   | what it would take                                                                                                                                                              |
 | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Whether the 6289 unreferenced bytes at file `$3E76F` are free              | A full ROM coverage map, not just the three map pointer tables (#57).                                                                                                           |
+| Whether the unreferenced bytes outside `freespace.txt` runs are free       | A full ROM coverage map, not just the three map pointer tables (#57).                                                                                                           |
 | Why relocated L1 blocks carry a median 8 bytes of slack                    | The padding distribution across more edited ROMs; the corpus has four.                                                                                                          |
 | How Grand Poo World 2 and Invictus load sprite data                        | Decode the `$05D8E6` detour ([level-table-gate.md](level-table-gate.md)).                                                                                                       |
 | What HackBench must write to expand a ROM file                             | The internal header's size byte and the mapper's expectations. Not investigated.                                                                                                |

@@ -1,0 +1,3 @@
+### Changed
+
+- Test-only (#830): the sprite grader grades position on the map (tier 2) against the Mesen captures, at the capture's drawn frame (model pass drawnFrame - firstRealFrame, counted from the first MAIN) with exact, off, missing, lagged and refused counts, per id, and floors (vanilla, one machine, measured, out of 1957: 1366 exact, 469 off, 23 missing, 18 parked, 1 late, 80 lagged, 0 refused). Synthetic tests, no ROM, cover 1 px off in x and in y, the multiset key, the parked rule, the model pairing and the 9-bit X (synthetic-only: graded captures never set X bit 8). No behaviour change.

@@ -131,6 +131,7 @@ exception is the op format itself.
 ## Related reading
 
 - [project-format.md](project-format.md) - what a `.hbproj` is
+- [rom-layout.md](rom-layout.md) - proposed resource-based layout for size-changing edits
 - [theia-shell.md](theia-shell.md) - how the application is assembled
 - [codebase-map.md](codebase-map.md) - where things live, and what tests run where
 - [../glossary.md](../glossary.md) - the domain vocabulary, which is not optional
