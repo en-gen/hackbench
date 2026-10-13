@@ -12,6 +12,7 @@ import { buildL2Inputs } from '../../../src/rom/model/L2Model'
 import type { L1Inputs } from '../../../src/rom/model/L1Model'
 import type { SmwRom } from '../../../src/rom/SmwRom'
 import { writeStockSkipChain } from '../support/skipChain'
+import { plantUploaderTable, OBJ_A_AT } from '../support/l2UploaderRom'
 import { STANDARD_HANDLERS } from '../../../src/rom/objectHandlers/dispatch'
 import { ADDR_TILESET_DISPATCH } from '../../../src/rom/objectHandlers/romData'
 
@@ -111,6 +112,7 @@ describe('buildL2Inputs over the real loader (#493)', () => {
       b[off(0x05803b)] = 0xc9 // stock CMP #$FF at the L2 preset check
       edit(b)
     })
+    plantUploaderTable(rom, () => OBJ_A_AT) // every mode streams objects (bank_05.asm:111-114)
     writeStockSkipChain(rom)
     const smw = { rom, getVerticalTable: () => ({ ok: true, table: new Array(32).fill(0) }) }
     const l1 = { screenCount: 1, isVertical: false, header: { levelMode: 1, objectTileset: 0 }, map16: { tiles: [] } } // prettier-ignore
