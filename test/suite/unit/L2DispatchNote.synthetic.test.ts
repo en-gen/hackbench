@@ -126,4 +126,19 @@ describe('buildL2Inputs over the real loader (#493)', () => {
     if (!stock.ok) throw new Error(stock.reason)
     expect(stock.l2.unverified).toEqual([])
   })
+
+  it('a two-note stream (the #452 refusals) arrives whole, in order', () => {
+    // Same two refusals as the loader test above; a model keeping only the first note fails here.
+    const r = build(b => b.set(long(0x0db49e), off(DISPATCHER + 10)))
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.l2.unverified).toHaveLength(2)
+    const direct = loadL2Objects(
+      cart(b => b.set(long(0x0db49e), off(DISPATCHER + 10))),
+      0x078000,
+      1,
+      0,
+      false,
+    )!
+    expect(r.l2.unverified).toEqual(direct.unverified)
+  })
 })
