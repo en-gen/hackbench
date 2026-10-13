@@ -242,6 +242,30 @@ describe('the wire carries four planes in the view stacking order (synthetic)', 
     expect(wireOf(mapOf(m, { ok: true, l2 })).layerNotes).toEqual([])
   })
 
+  it("L2's dispatch note joins L1's in the map note, a line L1 already has is dropped, the rest say Layer 2 (#493)", () => {
+    const m = { ...inputs(hGrid(1), false, 1), unverified: ['hooked $0DA415'] }
+    const l2 = { ...l2Of(nullGrid(27, 16), tiles2(solid)), unverified: ['hooked $0DA415', 'hooked $0DA106'] } // prettier-ignore
+    expect(wireOf(mapOf(m, { ok: true, l2 })).note).toBe('hooked $0DA415 Layer 2: hooked $0DA106')
+    expect(wireOf(mapOf(m)).note).toBe('hooked $0DA415')
+  })
+
+  it('the map note reads L1, then L2, then the animation note (#493)', () => {
+    const m = { ...inputs(hGrid(1), false, 1), unverified: ['one'], animNote: 'anim' }
+    const l2 = { ...l2Of(nullGrid(27, 16), tiles2(solid)), unverified: ['two'] }
+    expect(wireOf(mapOf(m, { ok: true, l2 })).note).toBe('one Layer 2: two anim')
+  })
+
+  it('L2 notes alone, only duplicates, two lines, and a refused L2 each read as the code does (#493)', () => {
+    const base = inputs(hGrid(1), false, 1)
+    const withL2 = (m: L1Inputs, notes: string[]) => mapOf(m, { ok: true, l2: { ...l2Of(nullGrid(27, 16), tiles2(solid)), unverified: notes } }) // prettier-ignore
+    expect(wireOf(withL2(base, ['x'])).note).toBe('Layer 2: x')
+    const dup = { ...base, unverified: ['a', 'b'] }
+    expect(wireOf(withL2(dup, ['a', 'b'])).note).toBe('a b')
+    expect(wireOf(withL2(base, ['x', 'y'])).note).toBe('Layer 2: x Layer 2: y')
+    // A refused background carries no notes: only its layerNote speaks.
+    expect(wireOf(mapOf(base, { ok: false, reason: 'gone' })).note).toBeUndefined()
+  })
+
   it('an unverified background height is a details note on a map that still draws (#505)', () => {
     const m = inputs(hGrid(1), false, 1)
     const l2 = { ...l2Of(nullGrid(27, 16), tiles2(solid)), note: 'Background height unverified: x' }
@@ -291,7 +315,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
     ({ rom, getVerticalTable: () => ({ ok: true, table: new Array(32).fill(l2Vertical ? 3 : 0) }) }) as unknown as SmwRom // prettier-ignore
   const one = tile(7, [sub(1, 3), sub(1, 3), sub(1, 3), sub(1, 3)])
   const objects = (grid: number[][]) =>
-    vi.mocked(L2LoaderReal.loadL2Objects).mockReturnValue({ grid })
+    vi.mocked(L2LoaderReal.loadL2Objects).mockReturnValue({ grid, unverified: [] })
   const image = () => {
     vi.mocked(Map16Real.readL2Map16Table).mockReturnValue({ ok: true, value: [0] })
     vi.mocked(Map16Real.loadMap16Tiles).mockReturnValue(tiles2(one))
@@ -349,6 +373,12 @@ describe('buildL2Inputs (synthetic ROM)', () => {
     expect(l2.dy).toBe(0x20 - 0xc0)
     expect(l2.tiles[1]).toEqual(m.map16.tiles[1]) // L1's own table, not vanilla's
     expect(vi.mocked(L2LoaderReal.loadL2Objects).mock.calls[0]!.slice(2)).toEqual([1, 0, false])
+  })
+
+  it('an object build dispatch notes ride on the L2 inputs (#493)', () => {
+    vi.mocked(L2LoaderReal.loadL2Objects).mockReturnValue({ grid: [[1]], unverified: ['hooked'] })
+    const l2 = ok(buildL2Inputs(smw(romWith([ptr(0x00, 0x90, 0x0c)])), LEVEL, inputs(hGrid(1), false, 1))) // prettier-ignore
+    expect(l2.unverified).toEqual(['hooked'])
   })
 
   it('the high bytes follow the ScreenMode at level entry (F600 bit 5), and L2 only when VertLayer2Setting is not 3', () => {

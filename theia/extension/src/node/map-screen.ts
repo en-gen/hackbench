@@ -340,7 +340,9 @@ export function screenResult(
           }
         : null,
     layer2Interactive: model.l3?.layer2Interactive ?? false,
-    note: [...model.unverified, model.animNote].filter(Boolean).join(' ') || undefined,
+    note:
+      [...model.unverified, ...l2Notes(model), model.animNote].filter(Boolean).join(' ') ||
+      undefined,
     layerNotes: [
       model.l2 && !model.l2.ok ? `The background is not drawn: ${model.l2.reason}` : '',
       model.l2?.ok ? (model.l2.l2.note ?? '') : '',
@@ -348,6 +350,15 @@ export function screenResult(
     ].filter(Boolean),
     backdrop: [model.backArea[0], model.backArea[1], model.backArea[2]],
   }
+}
+
+/**
+ * Layer 2's build notes for the map note. Duplicates of a layer 1 note are suppressed so the
+ * map-wide dispatch note is not repeated once per layer (#493).
+ */
+function l2Notes(model: MapInputs): string[] {
+  const own = model.l2?.ok ? (model.l2.l2.unverified ?? []) : []
+  return own.filter(n => !model.unverified.includes(n)).map(n => `Layer 2: ${n}`)
 }
 
 /** Each palace's block for the wire: per ROM, so the same on every map. */

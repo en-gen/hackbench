@@ -38,6 +38,8 @@ export interface L2Inputs {
    * objects alike: Layer2YPos comes from DATA_05D70C either way (bank_05.asm:7323-7328).
    */
   dy: number
+  /** Dispatch-path notes from the object build (#493), deduped by the caller; absent for an image. */
+  unverified?: string[]
   /** Why `dy` is unverified: the entrances that reach the map start L2 at different heights (#505). */
   note?: string
 }
@@ -204,6 +206,7 @@ export function buildL2Inputs(
         grid: objects.grid.map(row => row.map(id => (id === L2_EMPTY_TILE ? null : id))),
         tiles: withPaletteOr(l1.map16.tiles, l2PaletteOrForTileset(header.objectTileset)),
         dy: dy(),
+        unverified: objects.unverified,
         note,
       },
     }

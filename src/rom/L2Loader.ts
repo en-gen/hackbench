@@ -291,7 +291,7 @@ export function loadL2Objects(
   screens: number,
   objectTileset: number,
   isVertical = false,
-): { grid: number[][] } | null {
+): { grid: number[][]; unverified: string[] } | null {
   if (isPresetPtr(ptr)) return null
 
   const snesAddr = ptr & 0xffffff
@@ -305,8 +305,11 @@ export function loadL2Objects(
   // mirrors L1's - in vanilla SMW, L2 verticality tracks L1 closely.
   const objects = parseL2Objects(raw, screens, isVertical)
   const grid = createGrid(screens, isVertical)
+  // Returning false from draw preserves the null-sink grid. A sink without a draw callback would
+  // record 'no interpreter was supplied' for an interpreted handler, a spurious note on stock maps.
+  const unverified: string[] = []
+  const sink = { unverified, draw: () => false, primitives: [], vertical: isVertical }
   for (const obj of objects) {
-    // L2 draws from the ports
     expandObject(
       grid,
       obj,
@@ -315,11 +318,11 @@ export function loadL2Objects(
       null,
       OWNER_NONE,
       SWITCH_FLAGS_UNCLEARED,
-      null,
+      sink,
       isVertical,
     )
   }
-  return { grid }
+  return { grid, unverified }
 }
 
 // Re-export for callers that want the canonical grid dimensions without
