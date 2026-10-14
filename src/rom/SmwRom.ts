@@ -140,7 +140,6 @@ export interface RomSummary {
 export function mapUsesSecondaryExits(
   exits: ReadonlyArray<{ screenExitIsSecondary?: boolean }>,
 ): boolean {
-  // prettier-ignore
   return exits[exits.length - 1]?.screenExitIsSecondary === true
 }
 
