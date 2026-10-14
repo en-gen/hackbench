@@ -411,8 +411,55 @@ describe('SNES decoders', () => {
       [1, 0],
       [3, 1],
     ]
-    expect(D.layerOrder(0x09)).toEqual([[2, 1], ...mid, [3, 0], [2, 0]])
-    expect(D.layerOrder(0x01)).toEqual([...mid, [2, 1], [3, 0], [2, 0]])
+    expect(D.layerOrder(0x09, 0x1f, 0)).toEqual([[2, 1], ...mid, [3, 0], [2, 0]])
+    expect(D.layerOrder(0x01, 0x1f, 0)).toEqual([...mid, [2, 1], [3, 0], [2, 0]])
+  })
+
+  // Layer 0 BG1, 1 BG2, 2 BG3, 3 OBJ; TM/TS bit 4 is OBJ. Index of the first/last pass of a layer.
+  const at = (o: number[][], layer: number, prio: number) =>
+    o.findIndex(([l, p]) => l === layer && p === prio)
+
+  it('draws a sub-screen-only layer behind the main screen (#903: TM $15, TS $02)', () => {
+    const o = D.layerOrder(0x01, 0x15, 0x02)
+    expect(at(o, 2, 1)).toBeLessThan(at(o, 1, 1)) // Layer 3 over Layer 2
+    expect(at(o, 0, 0)).toBeLessThan(at(o, 2, 1)) // Layer 1 low still over Layer 3
+    expect(at(o, 0, 0)).toBeLessThan(at(o, 1, 0))
+  })
+
+  it('keeps Layer 3 under Layer 2 when both are on the main screen (TM $17, TS $00)', () => {
+    const o = D.layerOrder(0x01, 0x17, 0x00)
+    expect(at(o, 1, 0)).toBeLessThan(at(o, 2, 1))
+  })
+
+  it('puts a lone main-screen Layer 3 over the sub-screen layers (TM $04, TS $13)', () => {
+    const o = D.layerOrder(0x01, 0x04, 0x13)
+    const l3 = Math.max(at(o, 2, 0), at(o, 2, 1))
+    for (const [i, [l]] of o.entries()) if (l !== 2) expect(i).toBeGreaterThan(l3)
+  })
+
+  it('sweeps every TM/TS pair and both BG3 priorities: main before sub-only before neither, nothing hidden', () => {
+    for (const bgmode of [1, 9])
+      for (let tm = 0; tm < 32; tm++)
+        for (let ts = 0; ts < 32; ts++) {
+          const o = D.layerOrder(bgmode, tm, ts)
+          expect(o).toHaveLength(10)
+          const tier = (l: number) => {
+            const bit = 1 << (l === 3 ? 4 : l)
+            return tm & bit ? 0 : ts & bit ? 1 : 2
+          }
+          const tiers = o.map(([l]) => tier(l))
+          expect(tiers).toEqual([...tiers].sort())
+          if (tm === 0x1f) expect(o).toEqual(D.layerOrder(bgmode, 0x1f, 0)) // TS is moot when TM has everything
+        }
+  })
+
+  it('a planted layerOrder that ignores TS is caught by the #903 assertions', () => {
+    const ignoresTs = (bgmode: number) => D.layerOrder(bgmode, 0x1f, 0)
+    const o = ignoresTs(0x01)
+    expect(at(o, 2, 1) < at(o, 1, 1)).toBe(false) // the real one passes this
+    expect(
+      at(D.layerOrder(0x01, 0x15, 0x02), 2, 1) < at(D.layerOrder(0x01, 0x15, 0x02), 1, 1),
+    ).toBe(true)
   })
 
   it('decodes OAM with the high table, OBSEL sizes and both name bases', () => {
