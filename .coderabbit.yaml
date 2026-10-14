@@ -13,7 +13,7 @@ tone_instructions: >-
 reviews:
   profile: assertive
   request_changes_workflow: true
-  high_level_summary: true
+  high_level_summary: false
   poem: false
   review_status: true
   # These re-include files CodeRabbit skips by default. Images, dumps, archives
@@ -39,7 +39,12 @@ reviews:
     - '**/package-lock.json'
     - '**/yarn.lock'
   auto_review:
-    enabled: true
+    # Owner ruling 2026-10-12: every review is requested explicitly (the OSS
+    # allowance is about 1 review per hour, so a new PR no longer gets an
+    # automatic first review). The PR summary is off for the same reason. This
+    # file outranks the CodeRabbit UI settings, so it must say what the UI says.
+    enabled: false
+    auto_incremental_review: false
     drafts: false
     # The default pauses auto-review after 5 reviewed commits, which would leave
     # a long PR's latest push unapproved and its auto-merge stuck.

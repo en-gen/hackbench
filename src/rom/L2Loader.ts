@@ -155,6 +155,10 @@ function skipChainIsStock(rom: RomFile): boolean {
   return chainOk(0, false, [0x09, 0x0b, 0x10]) && chainOk(SKIP_CHAIN_B_OFFSET, true, [0x0a, 0x0c, 0x0d, 0x0e, 0x11, 0x1e]) // prettier-ignore
 }
 
+/** True for the ten modes whose stock chain skips the L2 object stream, whatever the ROM's chain says. */
+export const isSkippedLevelMode = (levelMode: number): boolean =>
+  MODES_WITHOUT_L2_OBJECTS.includes(levelMode & 0x1f)
+
 export type L2ObjectGate = 'loads' | 'skipped' | 'unrecognized'
 
 /**
@@ -287,7 +291,7 @@ export function loadL2Objects(
   screens: number,
   objectTileset: number,
   isVertical = false,
-): { grid: number[][] } | null {
+): { grid: number[][]; unverified: string[] } | null {
   if (isPresetPtr(ptr)) return null
 
   const snesAddr = ptr & 0xffffff
@@ -301,8 +305,11 @@ export function loadL2Objects(
   // mirrors L1's - in vanilla SMW, L2 verticality tracks L1 closely.
   const objects = parseL2Objects(raw, screens, isVertical)
   const grid = createGrid(screens, isVertical)
+  // Returning false from draw preserves the null-sink grid. A sink without a draw callback would
+  // record 'no interpreter was supplied' for an interpreted handler, a spurious note on stock maps.
+  const unverified: string[] = []
+  const sink = { unverified, draw: () => false, primitives: [], vertical: isVertical }
   for (const obj of objects) {
-    // L2 draws from the ports
     expandObject(
       grid,
       obj,
@@ -311,11 +318,11 @@ export function loadL2Objects(
       null,
       OWNER_NONE,
       SWITCH_FLAGS_UNCLEARED,
-      null,
+      sink,
       isVertical,
     )
   }
-  return { grid }
+  return { grid, unverified }
 }
 
 // Re-export for callers that want the canonical grid dimensions without

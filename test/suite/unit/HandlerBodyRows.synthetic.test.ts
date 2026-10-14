@@ -29,6 +29,7 @@ import {
   staircaseVariantB,
 } from '../../../src/rom/objectHandlers/standardHandlers'
 import { STANDARD_HANDLERS } from '../../../src/rom/objectHandlers/dispatch'
+import { c3StructurePlants } from '../support/staircaseB'
 
 const COL = 16
 const ROW = 2
@@ -146,8 +147,11 @@ describe('0DBA4C (std $34) draws a top tile and exactly H body tiles (synthetic 
 
   describe.each([VANILLA_ADDR, RELOCATED])('handler at $%#x', addr => {
     const rom = cartWith([
-      [addr + 19, long(T_TOP)],
-      [addr + 35, long(T_BODY)],
+      // The gated opcodes (#519): AND at +4, LDA.L at +18/+34, CPX #2 at +27, BPL at +29, displacement at +30.
+      [addr + 4, [0x29, 0x0f]],
+      [addr + 18, [0xbf, ...long(T_TOP)]],
+      [addr + 27, [0xe0, 0x02, 0x10, 0x03]],
+      [addr + 34, [0xbf, ...long(T_BODY)]],
       [T_TOP, top],
       [T_BODY, body],
     ])
@@ -213,9 +217,13 @@ describe('0DC3D8 (staircase variant B) draws H+2 rows, the last without a cap (s
   const T_EDGE = 0x0d8200
 
   const plants = (addr: number): [number, number[]][] => [
-    [addr + 31, [FILL]],
-    [addr + 47, long(T_EDGE)],
-    [addr + 61, long(T_CAP)],
+    // The gated opcodes (#519): AND at +8, LDA #imm at +30, LDA.L at +46 and +60.
+    [addr + 8, [0x29, 0x03]],
+    [addr + 30, [0xa9, FILL]],
+    [addr + 46, [0xbf, ...long(T_EDGE)]],
+    [addr + 60, [0xbf, ...long(T_CAP)]],
+    // The hard-coded INC, CMP, BEQ and JSR targets (#762).
+    ...c3StructurePlants(addr),
     [T_CAP, cap],
     [T_EDGE, edge],
   ]

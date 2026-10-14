@@ -5,11 +5,13 @@
  *   npx tsx tools/scripts/hack-sweep.ts
  *
  * HACKBENCH_HACKS names the store (read only), HACKBENCH_SWEEP_OUT the output
- * directory. Output holds hashes, ids, names, verdicts and counts; a reason may
- * quote one instruction's bytes, and longer runs are elided.
+ * directory, HACKBENCH_SWEEP_BATCH how many hacks one run covers (default 50;
+ * the cursor kept in results.json rotates which). Output holds hashes, ids,
+ * names, verdicts and counts; a reason may quote one instruction's bytes, and
+ * longer runs are elided.
  */
 import { createHash } from 'crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { RomFile } from '../../src/rom/RomFile'
 import { SmwRom } from '../../src/rom/SmwRom'
@@ -35,8 +37,8 @@ import {
   decideInterop,
   gfxRefusals,
   runReader,
-  summarize,
 } from './hackSweepReport'
+import { batchSize, runSweep } from './hackSweepRun'
 
 interface IndexEntry {
   smwc_id: number
@@ -210,17 +212,10 @@ function sweepOne(store: string, h: IndexEntry, vanilla: Uint8Array): HackRecord
 if (require.main === module) {
   const store = process.env.HACKBENCH_HACKS ?? 'C:/Projects/hackbench-tools/hacks'
   const outDir = process.env.HACKBENCH_SWEEP_OUT ?? 'C:/Projects/hackbench-tools/sweep'
+  const size = batchSize(process.env.HACKBENCH_SWEEP_BATCH)
   const index = JSON.parse(readFileSync(join(store, 'index.json'), 'utf8')) as {
     hacks: IndexEntry[]
   }
   const vanilla = readFileSync(romPath(VANILLA))
-  const records: HackRecord[] = []
-  for (const h of index.hacks) {
-    process.stdout.write(`${h.smwc_id} ${h.name}\n`)
-    records.push(sweepOne(store, h, vanilla))
-  }
-  mkdirSync(outDir, { recursive: true })
-  writeFileSync(join(outDir, 'results.json'), JSON.stringify(records, null, 2))
-  writeFileSync(join(outDir, 'summary.md'), summarize(records))
-  process.stdout.write(`wrote ${records.length} records to ${outDir}\n`)
+  runSweep({ outDir, index: index.hacks, size, sweep: h => sweepOne(store, h, vanilla) })
 }

@@ -655,6 +655,7 @@ const model = (ours: ReturnType<typeof piece>[]): SpriteModel =>
     passes: [
       {
         pos: { x: 0, y: 0 },
+        origin: { x: 0, y: 0 },
         parts: ours.map(p => ({
           dx: p.dx,
           dy: p.dy,

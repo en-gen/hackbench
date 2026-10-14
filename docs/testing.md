@@ -302,6 +302,29 @@ match and the "mutation" silently becomes a no-op that looks like a pass.
 Three of the entries below were added only after a first pass showed the
 test could not fail. That is the point of doing it.
 
+### `src/rom/L2UploaderTable.ts` - L2 uploader by level mode
+
+Run against `L2UploaderTable.test.ts` and `MapScreenL2.test.ts`; one
+line changed per row, synthetic ROMs, no corpus needed. Command:
+`npx vitest run test/suite/unit/L2UploaderTable.test.ts test/suite/unit/MapScreenL2.test.ts`.
+With the corpus: 2 files passed, 62 tests passed, 0 skipped. With
+`HACKBENCH_ROMS` pointing at an empty directory: 2 files passed, 52 tests
+passed, 10 skipped. Measured 2026-10-11, one machine, after the develop
+merge. These are the counts for these two files only; the full `test:unit`
+counts are reported in the PR.
+
+| Planted defect                                    | Tests red |
+| ------------------------------------------------- | --------- |
+| Drop `REP #$30` from the caller pattern           | 11        |
+| Cache the table without the ROM version           | 1         |
+| Wildcard the `SEP` opcode of the dispatch         | 2         |
+| Drop the ExecutePtrLong gate                      | 1         |
+| Drop the "no pointer table after it" refusal      | 1         |
+| Classify an unknown target as objects             | 4         |
+| `buildL2Inputs`: drop the "uploads no L2" refusal | 1         |
+| `buildL2Inputs`: drop the pointer-bank check      | 3         |
+| `buildL2Inputs`: mask the mode with `$0F`         | 1         |
+
 ### `src/rom/MusicData.ts` - level music table
 
 | Planted defect                                                  | Files red |
@@ -466,6 +489,29 @@ captures folder is only read. The pages embed ROM-derived bytes, so
 `<out-dir>` is refused when it is inside the repo, or is, contains or
 lies inside the captures folder.
 
+The sprite grader has two tiers against these captures. Tier 1
+(`spriteGrade.ts`) grades OAM shape relative to the sprite. Tier 2
+(`spritePosition.ts`, `SpritePosition.test.ts`, #830) grades where the
+pieces sit on the map: the capture's drawing at `drawnFrame` (the first frame
+with every tile complete, not the first OAM write) against the model's pass
+`drawnFrame - firstRealFrame`, counted from the model's pass 0 (the first
+MAIN after INIT, as the capture's `firstRealFrame` is), so `chosen` is not
+added; the lag is 1 to 116 frames over the 1957 graded records. Both sides
+are placed with the capture camera; the model is seeded with the camera at
+`drawnFrame`. Positions are compared in map coordinates. Graded captures never
+set X bit 8; the 9-bit X is synthetic-only coverage. It reports exact, off,
+missing (one side drew nothing once parked pieces are dropped, the other drew
+on screen, or the record lacks `drawnFrame` or `firstRealFrame`), parked (both
+sides drew only parked pieces, at matching positions: agreement), late (the
+model had not drawn yet at the target pass, the capture had), lagged (target
+pass past the pass count, drew or not) and refused, per sprite and per id
+(`SPRITE_POSITION_OUT=<file>` dumps the records), and holds a bound per verdict
+with 1% headroom (vanilla, one machine, 2026-10-10 measured: 1366 exact, 469
+off, 23 missing, 18 parked, 1 late, 80 lagged, 0 refused of 1957). All 80
+lagged records are captures whose first draw came 31 to 89 frames after the
+first MAIN (likely the level fade-in, not traced); it is not re-aligned to the
+first draw.
+
 A map's result comes from its Foreground, Background and Effects checks;
 Sprites are informational and never decide it. Exit codes:
 
@@ -565,6 +611,28 @@ quote one instruction's bytes; any longer run is elided. Neither file is
 committed. The sweep is hand-run, since CI has no store; its verdict and
 summary code is tested in `HackSweep.synthetic.test.ts`.
 
+Each run covers `HACKBENCH_SWEEP_BATCH` hacks (default 50, a positive integer),
+taken in id order from the cursor and wrapping at the end, so repeated runs
+rotate through the store. The cursor is the next smwc_id, not a position, so
+adding or removing a hack does not skip or repeat another. `results.json` holds
+`{ cursor, records }`; it is read and checked before any sweeping (a truncated
+file stops the run with a message and nothing is overwritten), the previous one
+is copied to `results.prev.json`, and every file is written through a temp file
+and a rename, `results.json` last, so a killed run leaves the old state and the
+next run repeats the batch. `tracking-issue.md` is written beside the summary:
+new and cleared crashes, verdict changes, works-on % and blocker-rank moves for
+hacks swept this run, the hacks added, and the hacks removed from the store.
+Records for hacks outside the batch that are still in the store are carried
+forward with `carried: true`, so `summary.md` covers the whole store and says
+how many records are fresh; a carried record is never reported as changed, and
+a record for a hack no longer in the store is dropped. A bare-array
+`results.json` from before the cursor is read as a cursor of 0 and converted
+on the next write. Evidence scope for all of the above: 51 synthetic-fixture
+cases in `HackSweep.synthetic.test.ts` and `HackSweepRun.synthetic.test.ts`
+(in-memory and temp-directory stores, none skipped), including a planted
+mid-run death and a failing earlier write; not yet observed on a run against
+the real hack store.
+
 ## Unit tests cannot reach an authenticated gh
 
 `test/suite/support/noRealGh.ts` is a vitest `globalSetup` (#486: a test ran
@@ -644,6 +712,10 @@ plants a non-isolating harness and a snapshot/restore harness to show that
 last check can fail. It does not start a server.
 
 - `npm run typecheck:theia` and its gate: see [theia-shell.md](architecture/theia-shell.md) (#669).
+
+### Corpus sweeps (`npm run test:corpus`)
+
+Sweeps that run an interpreter over every ROM in the hack corpus take minutes, not seconds: the #653 leaf sweep (`L1Interpret.leafSweep.nightly.test.ts`) is about ten minutes (546 s for its six tests in one run, one machine, run lock held, 2026-10-10, per the PR #822 body). The `*.nightly.test.ts` name keeps them out of `npm run test:unit`; `vitest.corpus.config.ts` runs them, and the nightly runner is meant to call `npm run test:corpus`, but it is not wired yet: its owner must add that command. There is no opt-in variable. The leaf sweep registers one case per corpus name and runs a case only when both that ROM and the vanilla ROM are present; otherwise that case skips (`describe.skipIf(!hasRom(name) || !hasRom(VANILLA))`), so it is per case, not all-or-nothing, and a run that reports zero skipped has the whole corpus. Set `LEAF_SWEEP_OUT=<dir>` to also write one table per ROM. Take the run lock before a full run (ownership rule), as for `test:unit`. CI has no ROMs and does not run it; the synthetic grouping tests stay in `test:unit`. Evidence scope: split of #653 Stage A, 2026-10-10 (owner ruling D8 C).
 
 ### Timing gates (`npm run test:timing`)
 

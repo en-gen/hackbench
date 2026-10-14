@@ -699,3 +699,74 @@ describe('ZoomController - fit mode', () => {
     })
   })
 })
+
+describe('ZoomController.onUserZoom - fires for a user zoom only', () => {
+  const LEVELS = [1, 2, 3, 4]
+  const make = (initial: number, fit: number | undefined = 1.5) => {
+    const h = { fit }
+    const c = new ZoomController(LEVELS, initial, () => h.fit)
+    const spy = vi.fn()
+    c.onUserZoom = spy
+    return { h, c, spy }
+  }
+
+  it('step fires once per real step', () => {
+    const { c, spy } = make(1)
+    c.step(1)
+    expect(spy).toHaveBeenCalledTimes(1)
+    c.step(1)
+    expect(spy).toHaveBeenCalledTimes(2)
+    c.step(-1)
+    expect(spy).toHaveBeenCalledTimes(3)
+  })
+
+  it('step does not fire when clamped at either end of the range', () => {
+    const { c, spy } = make(4)
+    c.step(1)
+    expect(spy).not.toHaveBeenCalled()
+    const low = make(1)
+    low.c.step(-1)
+    expect(low.spy).not.toHaveBeenCalled()
+  })
+
+  it('actualSize fires from a zoom other than 1', () => {
+    const { c, spy } = make(3)
+    c.actualSize()
+    expect(spy).toHaveBeenCalledTimes(1)
+  })
+
+  it('actualSize fires when leaving fit mode, even if the fit zoom was already 1', () => {
+    const { c, spy } = make(2, 1)
+    c.enterFit()
+    expect(c.value).toBe(1)
+    expect(c.fitting).toBe(true)
+    c.actualSize()
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(c.fitting).toBe(false)
+  })
+
+  it('actualSize does not fire when already at 100% outside fit mode', () => {
+    const { c, spy } = make(1)
+    c.actualSize()
+    expect(spy).not.toHaveBeenCalled()
+  })
+
+  it('anchored enterFit fires only when the target differs from the current zoom', () => {
+    const moving = make(1, 1.5)
+    moving.c.enterFit({ anchored: true })
+    expect(moving.spy).toHaveBeenCalledTimes(1)
+    const same = make(1, 1)
+    same.c.enterFit({ anchored: true })
+    expect(same.spy).not.toHaveBeenCalled()
+  })
+
+  it('un-anchored enterFit and refit never fire', () => {
+    const { h, c, spy } = make(1, 1.5)
+    c.enterFit()
+    expect(c.value).toBe(1.5)
+    h.fit = 1.2
+    c.refit()
+    expect(c.value).toBe(1.2)
+    expect(spy).not.toHaveBeenCalled()
+  })
+})
