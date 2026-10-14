@@ -267,7 +267,15 @@ describe('changelog-combine', () => {
         GIT_CONFIG_SYSTEM: '/dev/null',
         GIT_CONFIG_NOSYSTEM: '1',
       }
-      const drop = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_CONFIG_PARAMETERS']
+      const drop = [
+        'GIT_DIR',
+        'GIT_WORK_TREE',
+        'GIT_INDEX_FILE',
+        'GIT_CONFIG_PARAMETERS',
+        'GIT_COMMON_DIR',
+        'GIT_OBJECT_DIRECTORY',
+        'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+      ]
       for (const k of Object.keys(env)) {
         if (drop.includes(k) || k === 'GIT_CONFIG_COUNT' || /^GIT_CONFIG_(KEY|VALUE)_/.test(k))
           delete env[k]
@@ -323,6 +331,37 @@ describe('changelog-combine', () => {
         else process.env.GIT_CONFIG_GLOBAL = saved
       }
       expect(fs.existsSync(marker)).toBe(false)
+    })
+
+    it("does not run a hook planted in the repo's own .git/hooks (#892)", () => {
+      ok('init', '-q', '-b', 'main')
+      const marker = path.join(root, 'repo-hook-ran')
+      const mk = marker.split(path.sep).join('/')
+      // Goes red if the helper stops setting core.hooksPath: git then runs this.
+      for (const h of ['post-checkout', 'post-commit'])
+        fs.writeFileSync(path.join(root, '.git', 'hooks', h), `#!/bin/sh\necho x > "${mk}"\n`, {
+          mode: 0o755,
+        })
+      fs.writeFileSync(path.join(root, 'f'), 'x')
+      ok('add', 'f')
+      ok('commit', '-q', '-m', 'c')
+      ok('checkout', '-q', '-b', 'other')
+      expect(fs.existsSync(marker)).toBe(false)
+    })
+
+    it('drops GIT_OBJECT_DIRECTORY from the process env (#892)', () => {
+      const saved = process.env.GIT_OBJECT_DIRECTORY
+      process.env.GIT_OBJECT_DIRECTORY = path.join(root, 'bogus-objects')
+      try {
+        ok('init', '-q', '-b', 'main')
+        fs.writeFileSync(path.join(root, 'f'), 'x')
+        ok('add', 'f')
+        ok('commit', '-q', '-m', 'c')
+      } finally {
+        if (saved === undefined) delete process.env.GIT_OBJECT_DIRECTORY
+        else process.env.GIT_OBJECT_DIRECTORY = saved
+      }
+      expect(fs.existsSync(path.join(root, 'bogus-objects'))).toBe(false)
     })
 
     it('lets two branches each add a fragment and merge without conflict', () => {
