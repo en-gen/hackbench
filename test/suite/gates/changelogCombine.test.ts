@@ -25,8 +25,10 @@ const log = (text: string = BASE) => fs.writeFileSync(path.join(root, 'CHANGELOG
 const readLog = () => fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8')
 const files = () => fs.readdirSync(path.join(root, 'changelog.d')).sort()
 const snapshot = () => files().map(f => fs.readFileSync(path.join(root, 'changelog.d', f), 'utf8'))
-const run = (preload?: string) =>
-  spawnSync(
+// A crash (seen as exit 3221226505 = 0xC0000409 on Windows) or a null status
+// otherwise fails as "expected null to be 0", with no trace of why (#892).
+const run = (preload?: string) => {
+  const r = spawnSync(
     process.execPath,
     [
       ...(preload ? ['--import', preload] : []),
@@ -39,6 +41,12 @@ const run = (preload?: string) =>
     ],
     { encoding: 'utf8' },
   )
+  if (r.error || r.status === null || r.status > 2) {
+    const why = `status=${r.status} signal=${r.signal} error=${r.error} stderr=${r.stderr}`
+    throw new Error('changelog-combine spawn failed: ' + why)
+  }
+  return r
+}
 
 describe('changelog-combine', () => {
   it('folds three fragments in two sections into one grouped release and deletes them', () => {
@@ -243,8 +251,10 @@ describe('changelog-combine', () => {
     expect(readLog()).toBe(BASE)
   })
 
-  // 12 serial git spawns each: 4.5 s was measured while many processes started at
-  // once, so the 5 s default is too close (#892).
+  // 12-13 serial git spawns each. 4.5 s was seen once under many simultaneous
+  // processes (before the config isolation below); after it, the slowest merge
+  // test took 3.26 s in a 32-at-once run, one Windows machine. 30 s is headroom
+  // over the 5 s default, not a measurement (#892).
   describe('merging branches', { timeout: 30_000 }, () => {
     // Isolated from the machine's git config: a global post-checkout hook once
     // pushed these tests past vitest's 5 s timeout under load (#892).
@@ -263,7 +273,10 @@ describe('changelog-combine', () => {
           delete env[k]
       }
       // A path that does not exist: git finds no hooks there.
+      // maintenance.auto=false: git otherwise detaches `git maintenance run --auto`
+      // after each commit, about 5 extra git.exe starts per test (GIT_TRACE2, one machine).
       const cfg = ['core.hooksPath=' + path.join(root, 'no-hooks'), 'commit.gpgsign=false']
+      cfg.push('maintenance.auto=false')
       cfg.push('core.autocrlf=false', 'user.name=t', 'user.email=t@t')
       const args = ['-C', root, ...cfg.flatMap(c => ['-c', c]), ...a]
       return spawnSync('git', args, { encoding: 'utf8', env })
