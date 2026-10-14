@@ -44,6 +44,7 @@ import {
   MAP16_BYTES_PER_SCREEN_H,
 } from './cursor'
 import { mirror } from '../addressing'
+import { hex2, hex6 } from '../hex'
 import { isInterpretedHandler, noteRefused, noteUnverified } from './interpretedGate'
 // No ADDR_DATA_* imports: every handler resolves its table addresses and
 // immediate tile IDs dynamically from its own bytecode via cur.handlerAddr.
@@ -550,6 +551,57 @@ export function handle_0DB075(cur: Cursor): void {
 }
 
 /**
+ * True when the handler's byte at `offset` is `opcode` and its `operandLength`
+ * operand bytes are inside the ROM; otherwise records the refusal (#452, #519)
+ * and returns false, so the caller draws nothing. Without the span check the
+ * operand readers return 0 past the end and the handler draws invented data.
+ * With no draw context the refusal still happens but is not recorded.
+ */
+function gateOpcode(cur: Cursor, offset: number, opcode: number, operandLength = 0): boolean {
+  const at = cur.handlerAddr + offset
+  const found = cur.rom.readByte(at)
+  if (found !== opcode) {
+    noteRefused(cur.draw?.unverified, cur.handlerAddr, at, opcode, found)
+    return false
+  }
+  if (operandLength > 0 && cur.rom.readAt(at, operandLength + 1) === null) {
+    const why = `the required operand span at $${hex6(at + 1)} is outside the ROM`
+    noteRefused(cur.draw?.unverified, cur.handlerAddr, at, opcode, found, why)
+    return false
+  }
+  return true
+}
+
+/**
+ * gateOpcode, then the one operand byte must be `operand`: for an instruction
+ * the port hard-codes rather than reads (#762), so a changed operand refuses.
+ */
+function gateFixed(cur: Cursor, offset: number, opcode: number, operand: number): boolean {
+  if (!gateOpcode(cur, offset, opcode, 1)) return false
+  const at = cur.handlerAddr + offset + 1
+  const found = cur.rom.readByte(at) ?? 0
+  if (found === operand) return true
+  const why = `the operand at $${hex6(at)} is $${hex2(found)}, not the $${hex2(operand)} the port assumes`
+  noteRefused(cur.draw?.unverified, cur.handlerAddr, at, operand, found, why)
+  return false
+}
+
+/**
+ * gateOpcode for a JSR whose callee the port models inline, then its target
+ * (in the handler's bank, FastROM mirror folded) must be `target` (#762). A
+ * hack that retargets the call runs other code, so the port refuses.
+ */
+function gateJsr(cur: Cursor, offset: number, target: number): boolean {
+  if (!gateOpcode(cur, offset, 0x20, 2)) return false
+  const at = cur.handlerAddr + offset
+  const found = resolveJsrTarget(cur, at) ?? 0
+  if ((found & 0x7fffff) === target) return true
+  const why = `the JSR at $${hex6(at)} calls $${hex6(found)}, not $${hex6(target)} as the port assumes`
+  noteRefused(cur.draw?.unverified, cur.handlerAddr, at, 0x20, 0x20, why)
+  return false
+}
+
+/**
  * ADDR_0DB571 (bank_0D.asm line 3715) -- single-tile stamp for extended objects $68-$6F.
  *
  * X = size - $68. Writes DATA_0DB569[X] at the cursor.
@@ -559,12 +611,8 @@ export function handle_0DB571(cur: Cursor): void {
   if (X < 0 || X > 7) return
 
   // LDA.L DATA_0DB569,X at handler offset +11 (operand at +12), gated on $BF (#452).
-  const tableAddr = readGatedLongOperand(cur, 12)
-  if (tableAddr === null) {
-    const at = cur.handlerAddr + 11
-    noteRefused(cur.draw?.unverified, cur.handlerAddr, at, 0xbf, cur.rom.readByte(at))
-    return
-  }
+  if (!gateOpcode(cur, 11, 0xbf, 3)) return
+  const tableAddr = readLongOperand(cur, cur.handlerAddr + 12)
   setPage0(cur) // StzTo6ePointer
   writeTile(cur, cur.rom.readByte(tableAddr + X) ?? 0)
 }
@@ -2540,13 +2588,36 @@ function staircaseVariantA(cur: Cursor): void {
  *   _0 = H+1 (4946-4947), so the routine draws H+2 rows (#361).
  */
 export function staircaseVariantB(cur: Cursor): void {
-  const X = cur.size & 0x03
   const H = (cur.size >> 4) & 0x0f
   const base = cur.handlerAddr
-  // Verified via ROM byte dump:
-  //   LDA #$3F             opcode at +30, imm at +31      (page-0 fill)
-  //   LDA.L DATA_0DC354,X  opcode at +46, operand at +47  (step edge)
-  //   LDA.L DATA_0DC350,X  opcode at +60, operand at +61  (step cap)
+  // Offsets are instruction lengths summed down bank_0D.asm:4933-4975; the labels
+  // CODE_0DC3FD (+37), CODE_0DC40D (+53) and Return0DC42B (+83) confirm them, and
+  // Ports519OpcodeGate.corpus checks the vanilla and magic ROMs draw. Read (#519):
+  // AND #imm +8 (4938, X mask), fill LDA #imm +30 (4951), edge LDA.L +46 (4959),
+  // cap LDA.L +60 (4965). Hard-coded, so pinned (#762): INC _0 +22 (4947),
+  // CMP #$01 +39 (4956), BEQ +55 (4963), and the JSRs at +11 (4940), +27 (4950),
+  // +32 (4952), +43 (4958), +50 (4960), +57 (4964), +64 (4966), +67 (4967),
+  // +70 (4968) to their SMWDisX targets.
+  if (
+    !gateOpcode(cur, 8, 0x29, 1) ||
+    !gateJsr(cur, 11, 0x0da6b1) || // CODE_0DA6B1
+    !gateFixed(cur, 22, 0xe6, 0x00) ||
+    !gateJsr(cur, 27, 0x0daa0d) || // StzTo6ePointer
+    !gateOpcode(cur, 30, 0xa9, 1) ||
+    !gateJsr(cur, 32, 0x0da95b) || // CODE_0DA95B
+    !gateFixed(cur, 39, 0xc9, 0x01) ||
+    !gateJsr(cur, 43, 0x0daa08) || // Sta1To6ePointer
+    !gateOpcode(cur, 46, 0xbf, 3) ||
+    !gateJsr(cur, 50, 0x0da95b) ||
+    !gateFixed(cur, 55, 0xf0, 0x1a) || // displacement to Return0DC42B
+    !gateJsr(cur, 57, 0x0daa08) ||
+    !gateOpcode(cur, 60, 0xbf, 3) ||
+    !gateJsr(cur, 64, 0x0da95b) ||
+    !gateJsr(cur, 67, 0x0da6ba) || // CODE_0DA6BA
+    !gateJsr(cur, 70, 0x0da97d) // CODE_0DA97D
+  )
+    return
+  const X = cur.size & readImmByte(cur, base + 9)
   const fillTile = readImmByte(cur, base + 31)
   const addrEdge = readLongOperand(cur, base + 47)
   const addrCap = readLongOperand(cur, base + 61)
@@ -3841,21 +3912,36 @@ export function handle_0DB9C0(cur: Cursor): void {
  * DATA_0DBA44[X] (page 1), and all following rows use DATA_0DBA48[X].
  *
  * Size byte: HHHHVVVV
- *   V (low nibble, X)  = the full nibble (0-15) indexing both tables.
+ *   V (low nibble, X)  = size AND the AND #imm at +5 (vanilla #$0F), indexing both tables.
  *   H (high nibble)    = count (H rows written below the top).
  *
- * X >= 2 body cells keep the cell's own high byte: Sta1To6ePointer stores it at
- * the current cell (bank_0D.asm:2107-2110) and CPX #$02 / BPL skips it
- * (4403-4405), so the port reads the page from the grid (#458).
+ * Body cells keep the cell's own high byte when the BPL is taken: Sta1To6ePointer
+ * stores page 1 at the current cell (bank_0D.asm:2107-2110) unless CPX #imm
+ * (vanilla #$02) leaves N clear for X - imm, so the port reads the page from the
+ * grid in that case and sets page 1 when bit 7 of (X - imm) is set (4403-4405, #458).
  *
  * ASM path: JSR Sta1To6ePointer once up-front, then STA top tile, JMP to
  * CODE_0DBA74 (advance row, DEC _0, BPL; bank_0D.asm:4408-4411), which runs
  * the body H times.
  */
 export function handle_0DBA4C(cur: Cursor): void {
-  const X = cur.size & 0x0f
+  // Offsets are instruction lengths summed down bank_0D.asm:4386-4412.
+  // AND #imm at +4 (4389) is the X mask; LDA.L at +18 (4398) and +34 (4406),
+  // CPX #imm at +27 (4403), BPL at +29 (4404). The BPL sense and its displacement
+  // (+30, vanilla $03, over the JSR) decide which side of the threshold gets
+  // page 1, so a changed branch refuses rather than render inverted (#519).
+  if (
+    !gateOpcode(cur, 4, 0x29, 1) ||
+    !gateOpcode(cur, 18, 0xbf, 3) ||
+    !gateOpcode(cur, 27, 0xe0, 1) ||
+    !gateFixed(cur, 29, 0x10, 0x03) ||
+    !gateOpcode(cur, 34, 0xbf, 3)
+  )
+    return
+  const X = cur.size & readImmByte(cur, cur.handlerAddr + 5)
   const addrTop = readLongOperand(cur, cur.handlerAddr + 19) // DATA_0DBA44
   const addrBody = readLongOperand(cur, cur.handlerAddr + 35) // DATA_0DBA48
+  const threshold = readImmByte(cur, cur.handlerAddr + 28)
   const topTile = cur.rom.readByte(addrTop + X) ?? 0
   const bodyTile = cur.rom.readByte(addrBody + X) ?? 0
 
@@ -3866,7 +3952,8 @@ export function handle_0DBA4C(cur: Cursor): void {
   const H = (cur.size >> 4) & 0x0f
   for (let r = 0; r < H; r++) {
     advanceRowRaw(cur)
-    if (X < 2) setPage1(cur)
+    // CPX #imm sets N from bit 7 of (X - imm); BPL skips the page-1 store when N is clear.
+    if (((X - threshold) & 0x80) !== 0) setPage1(cur)
     else cur.page = ((cur.grid[cur.row]?.[cur.col] ?? 0) >> 8) & 1
     writeTile(cur, bodyTile)
   }

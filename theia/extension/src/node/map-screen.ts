@@ -248,11 +248,13 @@ export function drawL3Planes(l3: L3Inputs, screen: number): L3Planes {
   }
   const planes = [0, 1].map(() => new Uint8ClampedArray(width * height * 4))
   const drew = [false, false]
+  const xOff = l3.xPx ?? 0
   for (let r = L3_HUD_ROW_CUTOFF; r < end; r++) {
     const y = r * 8 - l3.yPx + l3.camYPx
     if (y < 0 || y >= height) continue
-    for (let sx = 0; sx < width; sx += 8) {
-      const word = cell(r, ((x0 + sx) % (cols * 8)) >> 3)
+    // Tiles sit at Layer3XPos-shifted columns (camera X at load is 0); a start left of 0 clips the first tile.
+    for (let sx = -(xOff & 7); sx < width; sx += 8) {
+      const word = cell(r, ((((x0 + sx + xOff) % (cols * 8)) + cols * 8) % (cols * 8)) >> 3)
       const pixels = l3.chars[(word & 0x3ff) >> 7]?.[word & 0x7f]
       if (!word || !pixels) continue
       const p = word & 0x2000 ? 1 : 0
@@ -261,7 +263,10 @@ export function drawL3Planes(l3: L3Inputs, screen: number): L3Planes {
         if (outY < 0 || outY >= height) continue
         for (let tx = 0; tx < 8; tx++) {
           const v = pixels[((word & 0x8000 ? 7 - ty : ty) << 3) | (word & 0x4000 ? 7 - tx : tx)]!
-          const color = v === 0 ? undefined : l3.colors[((word >> 10) & 7) * 4 + v]
+          const color =
+            v === 0 || sx + tx < 0 || sx + tx >= width
+              ? undefined
+              : l3.colors[((word >> 10) & 7) * 4 + v]
           if (!color) continue
           planes[p]!.set(color, (outY * width + sx + tx) * 4)
           drew[p] = true
@@ -335,7 +340,9 @@ export function screenResult(
           }
         : null,
     layer2Interactive: model.l3?.layer2Interactive ?? false,
-    note: [...model.unverified, model.animNote].filter(Boolean).join(' ') || undefined,
+    note:
+      [...model.unverified, ...l2Notes(model), model.animNote].filter(Boolean).join(' ') ||
+      undefined,
     layerNotes: [
       model.l2 && !model.l2.ok ? `The background is not drawn: ${model.l2.reason}` : '',
       model.l2?.ok ? (model.l2.l2.note ?? '') : '',
@@ -343,6 +350,15 @@ export function screenResult(
     ].filter(Boolean),
     backdrop: [model.backArea[0], model.backArea[1], model.backArea[2]],
   }
+}
+
+/**
+ * Layer 2's build notes for the map note. Duplicates of a layer 1 note are suppressed so the
+ * map-wide dispatch note is not repeated once per layer (#493).
+ */
+function l2Notes(model: MapInputs): string[] {
+  const own = model.l2?.ok ? (model.l2.l2.unverified ?? []) : []
+  return own.filter(n => !model.unverified.includes(n)).map(n => `Layer 2: ${n}`)
 }
 
 /** Each palace's block for the wire: per ROM, so the same on every map. */

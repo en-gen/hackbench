@@ -34,10 +34,11 @@ ROM
 │                           bgPalette          L1 tileGrid
 │                           levelLength     (Map16 IDs per cell)
 │
-├─ L2 data ──($05E600 interleaved ptr table, stride 3)──► check bank byte
-│                                  │
-│                         ┌────────┴────────────┐
-│                    bank ≠ $FF              bank = $FF
+├─ L2 data ──($05E600 interleaved ptr table, stride 3)──► kind: level-mode dispatch
+│                                  │            (bank_05.asm:1099-1135, read by
+│                                  │             L2UploaderTable.ts); bank byte
+│                         ┌────────┴──────┐      is cross-checked against it
+│                    objects mode        image mode (bank = $FF)
 │                  parseL2Objects()      LC_RLE1 tilemap ⚠ not yet impl.
 │                         │
 │                    expandLevel()
