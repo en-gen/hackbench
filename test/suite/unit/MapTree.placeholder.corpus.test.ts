@@ -39,9 +39,14 @@ describe.skipIf(!hasRoms())('placeholders change no map the tree already listed'
       const rom = new SmwRom(freshRom(name))
       const tree = buildMapTree(rom)
 
-      // The pre-#901 rule, recomputed from the parts this change does not touch.
+      // The pre-#901 rule, recomputed independently of the catalog: the catalog's filler was
+      // the mode of all 512 pointers (zero included) and a map was any slot not holding it.
       const catalog = buildLevelCatalog(rom)
-      const maps = new Set(catalog.entries.filter(e => e.isReal).map(e => e.index))
+      const pointers = Array.from({ length: LEVEL_COUNT }, (_, i) => rom.getLevelL1Pointer(i) ?? 0)
+      const tally = new Map<number, number>()
+      for (const p of pointers) tally.set(p, (tally.get(p) ?? 0) + 1)
+      const oldFiller = [...tally].reduce((a, b) => (b[1] > a[1] ? b : a))[0]
+      const maps = new Set(pointers.flatMap((p, i) => (p === oldFiller ? [] : [i])))
       const entrance = deriveOverworldEntrances(rom, catalog)
       const roots = [...maps].filter(i => isOverworldLevel(i, entrance.roots)).sort((a, b) => a - b)
       const { graph } = rom.buildLevelExitGraph(entrance.roots)
@@ -58,15 +63,17 @@ describe.skipIf(!hasRoms())('placeholders change no map the tree already listed'
         ).toEqual(reachableSlots(n.index, graph, stops))
       }
       const real = tree.unassigned.filter(n => !n.placeholder).map(n => n.index)
-      const reached = new Set([
-        ...tree.special.map(n => n.index),
-        ...tree.bonus.map(n => n.index),
-        ...tree.overworld.map(n => n.index),
-      ])
-      expect(
-        real.every(i => maps.has(i) && !reached.has(i)),
-        name,
-      ).toBe(true)
+      // Everything the old tree placed outside Unassigned: specials, bonus rooms, roots, sub areas.
+      const placed = new Set(
+        [...tree.special, ...tree.bonus, ...tree.overworld].flatMap(n => [
+          n.index,
+          ...n.children.map(c => c.index),
+        ]),
+      )
+      expect(real, `${name} real orphans`).toEqual(
+        [...maps].filter(i => !placed.has(i)).sort((a, b) => a - b),
+      )
+      expect(tree.mapCount, name).toBe(maps.size)
       expect(tree.mapCount, name).toBe(catalog.realCount)
       expect(tree.mapCount + tree.counts.placeholders, name).toBe(
         maps.size + catalog.placeholderCount,

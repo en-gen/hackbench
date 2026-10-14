@@ -136,8 +136,9 @@ export interface RomSummary {
 const PLACEHOLDER_MIN_REPEATS = 10
 
 /**
- * The shared placeholder Layer 1 pointer, and how many of `pointers` use it,
- * or null when no pointer repeats enough. The single home of the repeat rule:
+ * The shared placeholder Layer 1 pointer, how many of `pointers` use it, and
+ * how many use the next most common one (for a caller judging confidence), or
+ * null when no pointer repeats enough. The single home of the repeat rule:
  * SmwRom's exit graph and the map tree both ask here, so they cannot
  * disagree on which slots are placeholders.
  *
@@ -146,12 +147,16 @@ const PLACEHOLDER_MIN_REPEATS = 10
  */
 export function findPlaceholderPointer(
   pointers: readonly number[],
-): { pointer: number; count: number } | null {
+): { pointer: number; count: number; runnerUpCount: number } | null {
   const counts = new Map<number, number>()
   for (const ptr of pointers) if (ptr) counts.set(ptr, (counts.get(ptr) ?? 0) + 1)
-  let best: { pointer: number; count: number } | null = null
-  for (const [pointer, count] of counts) if (!best || count > best.count) best = { pointer, count }
-  return best && best.count >= PLACEHOLDER_MIN_REPEATS ? best : null
+  let best: { pointer: number; count: number; runnerUpCount: number } | null = null
+  for (const [pointer, count] of counts) {
+    if (best === null) best = { pointer, count, runnerUpCount: 0 }
+    else if (count > best.count) best = { pointer, count, runnerUpCount: best.count }
+    else if (count > best.runnerUpCount) best.runnerUpCount = count
+  }
+  return best !== null && best.count >= PLACEHOLDER_MIN_REPEATS ? best : null
 }
 
 /**

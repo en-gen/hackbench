@@ -148,7 +148,7 @@ export function buildMapTree(
   const catalog = buildLevelCatalog(rom)
   // A placeholder slot is listed but is not a map: it is never a root, a
   // destination or an entry map, which is how the exit graph already treats it.
-  const maps = new Set(catalog.entries.filter(e => e.isReal && !e.placeholder).map(e => e.index))
+  const maps = new Set(catalog.entries.filter(e => e.isReal).map(e => e.index))
   const placeholders = catalog.entries.filter(e => e.placeholder).map(e => e.index)
   const notes = [...catalog.notes]
 

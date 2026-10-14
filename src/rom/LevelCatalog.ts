@@ -22,12 +22,12 @@ import { SmwRom, LEVEL_COUNT, findPlaceholderPointer } from './SmwRom'
 export interface CatalogEntry {
   index: number
   l1Pointer: number
-  /** True when l1Pointer is not the per-ROM filler value. */
+  /** True when the slot has a pointer and it is not the shared placeholder room. */
   isReal: boolean
   /**
-   * True when l1Pointer is the shared placeholder room (the one findPlaceholderPointer
-   * names). Independent of isReal: the catalog's filler is the mode of all
-   * 512 slots, the placeholder is a pointer repeated enough to be a room.
+   * True when l1Pointer is the shared placeholder room, the one pointer
+   * findPlaceholderPointer names (SmwRom's exit graph asks the same helper).
+   * Exactly the pointered slots that are not real.
    */
   placeholder: boolean
   /** True when the slot's level data could actually be read back. */
@@ -56,7 +56,7 @@ export interface CatalogEntry {
 
 export interface LevelCatalog {
   entries: CatalogEntry[]
-  /** Most frequent L1 pointer across all 512 slots -- this ROM's filler value. */
+  /** The placeholder pointer (SmwRom.findPlaceholderPointer), or 0 when no pointer repeats enough. */
   fillerPointer: number
   /** Slots sharing the placeholder room, read from the pointer table; 0 when the ROM has none. */
   placeholderCount: number
@@ -73,53 +73,18 @@ export interface LevelCatalog {
   notes: string[]
 }
 
-interface FillerAnalysis {
-  pointer: number
-  count: number
-  runnerUpCount: number
-}
-
 /**
- * The mode heuristic can only report a *statistical* filler, not a verified
- * one: nothing here can tell a true filler apart from a real sublevel that
- * happens to be reused often. These thresholds gate how much to trust that
- * mode before treating isReal/parseable as meaningful. Measured corpus
- * margins are comfortable (mode counts hold 150-269 of the 512 slots, with
- * the largest runner-up seen at just 8), so neither threshold fires on real
- * ROMs; they exist for the ROMs that would silently invert without them.
+ * The placeholder pointer is only a statistical call: nothing here can tell it
+ * from a real sublevel reused often. When the runner-up is more than half as
+ * common, the roles may be swapped, so say so rather than invert silently.
+ * Measured corpus margins are comfortable (placeholder 158-277 slots, largest
+ * runner-up 8), so this never fires on a real ROM.
  */
-const MIN_FILLER_SHARE = 0.1
-const MIN_FILLER_MARGIN_RATIO = 2
+const MIN_PLACEHOLDER_MARGIN_RATIO = 2
 
 /**
- * The filler L1 pointer padding unused slots, found empirically as the mode
- * of all 512 entries -- never hardcoded. It is $068000 on vanilla but must
- * not be assumed to hold elsewhere; see docs/ideas/level-classification.md.
- * Also reports the mode's count and the runner-up's count so the caller can
- * judge confidence -- see MIN_FILLER_SHARE / MIN_FILLER_MARGIN_RATIO.
- */
-function findFillerPointer(pointers: readonly number[]): FillerAnalysis {
-  const counts = new Map<number, number>()
-  for (const ptr of pointers) counts.set(ptr, (counts.get(ptr) ?? 0) + 1)
-
-  let pointer = pointers[0] ?? 0
-  let count = 0
-  let runnerUpCount = 0
-  for (const [ptr, c] of counts) {
-    if (c > count) {
-      runnerUpCount = count
-      count = c
-      pointer = ptr
-    } else if (c > runnerUpCount) {
-      runnerUpCount = c
-    }
-  }
-  return { pointer, count, runnerUpCount }
-}
-
-/**
- * Builds the level catalog. A slot is real when its L1 pointer differs from
- * the computed filler value -- decided by pointer identity alone, never via
+ * Builds the level catalog. A slot is real when it has a pointer and that
+ * pointer is not the shared placeholder -- decided by pointer identity alone, never via
  * levelHasObjects(), which cannot spot filler (the filler room holds
  * well-formed objects), so this catalog does not need it. A
  * real slot is parseable when SmwRom.getLevelRawData can read it back at
@@ -130,7 +95,6 @@ function findFillerPointer(pointers: readonly number[]): FillerAnalysis {
  */
 export function buildLevelCatalog(rom: SmwRom): LevelCatalog {
   const pointers = Array.from({ length: LEVEL_COUNT }, (_, i) => rom.getLevelL1Pointer(i) ?? 0)
-  const filler = findFillerPointer(pointers)
   const placeholder = findPlaceholderPointer(pointers)
 
   const entries: CatalogEntry[] = []
@@ -141,7 +105,7 @@ export function buildLevelCatalog(rom: SmwRom): LevelCatalog {
 
   for (let i = 0; i < LEVEL_COUNT; i++) {
     const l1Pointer = pointers[i]!
-    const isReal = l1Pointer !== filler.pointer
+    const isReal = l1Pointer !== 0 && l1Pointer !== placeholder?.pointer
     let parseable = false
 
     if (isReal) {
@@ -197,13 +161,11 @@ export function buildLevelCatalog(rom: SmwRom): LevelCatalog {
   const l1AliasGroupCount = [...l1Groups.values()].filter(m => m.length > 1).length
   const aliasedSlotCount = entries.filter(e => e.l1Aliases.length > 0).length
 
-  const shareLow = filler.count / LEVEL_COUNT < MIN_FILLER_SHARE
-  const marginThin = filler.count < MIN_FILLER_MARGIN_RATIO * filler.runnerUpCount
-  if (shareLow || marginThin) {
+  if (placeholder && placeholder.count < MIN_PLACEHOLDER_MARGIN_RATIO * placeholder.runnerUpCount) {
     notes.push(
-      `Filler-pointer confidence low: mode 0x${filler.pointer.toString(16).padStart(6, '0')} ` +
-        `appears ${filler.count}/${LEVEL_COUNT} times, runner-up appears ${filler.runnerUpCount} ` +
-        'times. isReal/parseable below may not reflect true filler vs. real slots -- see ' +
+      `Placeholder-pointer confidence low: 0x${placeholder.pointer.toString(16).padStart(6, '0')} ` +
+        `appears ${placeholder.count}/${LEVEL_COUNT} times, runner-up appears ${placeholder.runnerUpCount} ` +
+        'times. isReal/parseable below may not reflect true placeholder vs. real slots -- see ' +
         'docs/ideas/level-classification.md Tier 1.',
     )
   }
@@ -217,7 +179,7 @@ export function buildLevelCatalog(rom: SmwRom): LevelCatalog {
 
   return {
     entries,
-    fillerPointer: filler.pointer,
+    fillerPointer: placeholder?.pointer ?? 0,
     placeholderCount: placeholder?.count ?? 0,
     realCount,
     parseableCount,
