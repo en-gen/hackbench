@@ -5,7 +5,7 @@
  *
  * - Spawn: CODE_02AA6C (SMWDisX bank_02.asm:5582-5598; DATA_02AA68 at 5579-5580), reached from
  *   CODE_02AAC0 on id $E6 (bank_02.asm:5631-5637): four cluster sprites of type 5.
- * - Draw: CODE_02FA16 (bank_02.asm:16230-16280), the cluster dispatch's type 5
+ * - Draw: CODE_02FA16 (bank_02.asm:16230-16279), the cluster dispatch's type 5
  *   entry (dw table after the JSL at CODE_02F821, bank_02.asm:15962-15972). It
  *   draws each flame at its position minus Layer2XPos/Layer2YPos, so with both at
  *   zero the OAM position IS the flame's Layer 2 position, wrapped to a byte.

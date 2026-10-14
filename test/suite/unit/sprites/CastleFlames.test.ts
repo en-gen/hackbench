@@ -2,16 +2,16 @@
  * #894: the flames of sprite $E6 come from running the ROM's own spawn and draw
  * routines, never from a table in the editor. The synthetic block (no ROM, so CI
  * runs it) hand-assembles both routines from SMWDisX (bank_02.asm:5582-5598 and
- * 16230-16280) into the synthetic cart with NON-vanilla data AND non-vanilla bytes
- * (the spawn's statements are reordered, so its SHA-256 is not the vanilla one: a
- * guard test below proves it), so a hardcoded vanilla X, tile or attribute goes red
- * and no ROM routine is committed. The corpus block runs the real ROM.
+ * 16230-16279) into the synthetic cart with NON-vanilla data AND non-vanilla bytes
+ * (both are written differently from the game's, so their SHA-256 is not the vanilla
+ * one, and a corpus guard below bounds the longest byte run they share with the ROM's), so
+ * a hardcoded vanilla X, tile or attribute goes red and no ROM routine is committed. The corpus block runs the real ROM.
  *
  * Owner ruling D52 (option B): a changed routine or call-path part does not blank the
  * flames; the result is `unverified` and says what differs. Every check below has a
  * planted fixture that goes red when the check is deleted.
  */
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { spanFingerprint } from '../../../../src/rom/SubmapFlagGate'
 import {
@@ -23,7 +23,10 @@ import {
 import { bytesAt } from '../../../../src/rom/sprites/interp/Guards'
 import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
 import type { LevelSprite } from '../../../../src/rom/LevelParser'
-import { castleFlameSprites } from '../../../../theia/extension/src/node/map-sprites'
+import { SmwRom } from '../../../../src/rom/SmwRom'
+import { RAM } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import { L1ModelCache } from '../../../../theia/extension/src/node/map-screen'
+import { castleFlameSprites, mapSprites } from '../../../../theia/extension/src/node/map-sprites'
 import { COLORS } from '../../support/mapInputs'
 import { hasRom, romPath, VANILLA } from '../../support/corpus'
 import { buildSyntheticRom, type SyntheticOptions } from '../../support/syntheticSpriteRom'
@@ -38,34 +41,42 @@ interface Data {
 }
 const DATA: Data = { xs: [0x20, 0x60, 0xa0, 0xe0], tiles: [0xc0, 0xc2, 0xc0, 0xc2], props: [0x0b, 0x0b, 0x4b, 0x4b] } // prettier-ignore
 
+/** Where this cart keeps the routines' data tables: NOT the vanilla addresses, so no operand repeats a vanilla one. */
+const XS_AT = 0x02ac00
+const TABLES_AT = 0x02fb00 // AND table (8), OAM Y index (4), tiles (4), attributes (4)
+
 /**
- * CODE_02AA6C's effect (SMWDisX bank_02.asm:5582-5598), written in a DIFFERENT statement order from the
- * game's (Y, then X, then the number, then Misc), 33 bytes like the original; `xs` is DATA_02AA68.
+ * CODE_02AA6C's effect (SMWDisX bank_02.asm:5582-5598) written differently from the game's: slots counted
+ * down with the cluster number stored first, the table at XS_AT, SpriteStatus+3 stored last. 33 bytes so the
+ * guard's span is the whole routine. `xs` is the cart's own table.
  */
 const spawn = [
-  ...[0xa9, 0x07, 0x8d, 0xcb, 0x14], // LDA #7 / STA SpriteStatus+3
-  ...[0xa2, 0x03], // LDX #3
-  ...[0xa9, 0xf0, 0x9d, 0x02, 0x1e], // LDA #$F0 / STA ClusterSpriteYPosLow,X
-  ...[0xbd, 0x68, 0xaa, 0x9d, 0x16, 0x1e], // LDA DATA_02AA68,X / STA ClusterSpriteXPosLow,X
-  ...[0xa9, 0x05, 0x9d, 0x92, 0x18], // LDA #5 / STA ClusterSpriteNumber,X
+  ...[0xa2, 0x03, 0xa9, 0x05, 0x9d, 0x92, 0x18], // LDX #3 / LDA #5 / STA ClusterSpriteNumber,X
+  ...[0xbd, 0x00, 0xac, 0x9d, 0x16, 0x1e], // LDA xs,X / STA ClusterSpriteXPosLow,X
   ...[0x8a, 0x0a, 0x0a, 0x9d, 0x4a, 0x0f], // TXA / ASL / ASL / STA ClusterSpriteMisc0F4A,X
-  ...[0xca, 0x10, 0xe7, 0x60], // DEX / BPL - / RTS
+  ...[0xa9, 0xf0, 0x9d, 0x02, 0x1e], // LDA #$F0 / STA ClusterSpriteYPosLow,X
+  ...[0xca, 0x10, 0xe7], // DEX / BPL loop
+  ...[0xa9, 0x07, 0x8d, 0xcb, 0x14, 0x60], // LDA #7 / STA SpriteStatus+3 / RTS
 ]
-const SPAWN_TYPE_OPERAND = 19 // the `5` of LDA #5 above
-/** CODE_02FA16's effect (bank_02.asm:16230-16279), Y stored before X and the attribute before the tile (the game's order is the other way), 110 bytes like the original. */
+const SPAWN_TYPE_OPERAND = 3 // the `5` of LDA #5 above
+const SPAWN_HARMLESS = 28 // the `7` of LDA #7: the run does not read what it stores
+/**
+ * CODE_02FA16's effect (bank_02.asm:16230-16279) written differently from the game's: Y before X, the
+ * tables at TABLES_AT, scratch kept on the stack, the overflow copy in reverse, two NOPs, 110 bytes like the original.
+ */
 const draw = [
-  ...[0xa5, 0x9d, 0xd0, 0x11], // LDA SpriteLock / BNE +
-  ...[0x22, 0xf9, 0xac, 0x01, 0x29, 0x07, 0xa8], // JSL GetRand / AND #7 / TAY
-  ...[0xa5, 0x13, 0x39, 0x02, 0xfa, 0xd0, 0x03, 0xfe, 0x4a, 0x0f], // TrueFrame AND table / INC Misc
-  ...[0xbc, 0x0a, 0xfa], // + LDY DATA_02FA0A,X
+  ...[0xa5, 0x9d, 0xd0, 0x12], // LDA SpriteLock / BNE skip
+  ...[0x22, 0xf9, 0xac, 0x01, 0x29, 0x07, 0xa8, 0xea], // JSL GetRand / AND #7 / TAY / NOP
+  ...[0xa5, 0x13, 0x39, 0x00, 0xfb, 0xd0, 0x03, 0xfe, 0x4a, 0x0f], // TrueFrame AND table / INC Misc
+  ...[0xbc, 0x08, 0xfb], // skip: LDY yIndex,X
   ...[0xbd, 0x02, 0x1e, 0x38, 0xe5, 0x20, 0x99, 0x01, 0x03], // Y - Layer2YPos -> OAM Y
   ...[0xbd, 0x16, 0x1e, 0x38, 0xe5, 0x1e, 0x99, 0x00, 0x03], // X - Layer2XPos -> OAM X
-  ...[0x5a, 0xda, 0xbd, 0x4a, 0x0f, 0x29, 0x03, 0xaa], // PHY PHX / Misc & 3 -> X
-  ...[0xbd, 0x12, 0xfa, 0x99, 0x03, 0x03, 0xbd, 0x0e, 0xfa, 0x99, 0x02, 0x03], // attribute, then tile
-  ...[0xfa, 0x98, 0x4a, 0x4a, 0xa8, 0xa9, 0x02, 0x99, 0x60, 0x04, 0x7a], // PLX / size = 2 / PLY
+  ...[0xda, 0xbd, 0x4a, 0x0f, 0x29, 0x03, 0xaa], // PHX / Misc & 3 -> X
+  ...[0xbd, 0x10, 0xfb, 0x99, 0x03, 0x03, 0xbd, 0x0c, 0xfb, 0x99, 0x02, 0x03], // attribute, then tile
+  ...[0xea, 0x98, 0x4a, 0x4a, 0xaa, 0xa9, 0x02, 0x9d, 0x60, 0x04, 0xfa], // NOP / size = 2 at OAM / 4 / PLX
   ...[0xb9, 0x00, 0x03, 0xc9, 0xf0, 0x90, 0x1d], // X >= $F0: overflow copy
-  ...[0xb9, 0x00, 0x03, 0x8d, 0xec, 0x03, 0xb9, 0x01, 0x03, 0x8d, 0xed, 0x03],
-  ...[0xb9, 0x02, 0x03, 0x8d, 0xee, 0x03, 0xb9, 0x03, 0x03, 0x8d, 0xef, 0x03],
+  ...[0xb9, 0x03, 0x03, 0x8d, 0xef, 0x03, 0xb9, 0x02, 0x03, 0x8d, 0xee, 0x03],
+  ...[0xb9, 0x01, 0x03, 0x8d, 0xed, 0x03, 0xb9, 0x00, 0x03, 0x8d, 0xec, 0x03],
   ...[0xa9, 0x03, 0x8d, 0x9b, 0x04, 0x60],
 ]
 
@@ -91,9 +102,9 @@ function flameRom(
     bytes.set(b, off(snes))
   }
   put(0x02aa6c, spawn)
-  put(0x02aa68, d.xs)
+  put(XS_AT, d.xs)
   put(0x02fa16, draw)
-  put(0x02fa02, [0x03, 0x07, 0x07, 0x07, 0x0f, 0x07, 0x07, 0x0f, 0xf0, 0xf4, 0xf8, 0xfc, ...d.tiles, ...d.props]) // prettier-ignore
+  put(TABLES_AT, [0x03, 0x07, 0x07, 0x07, 0x0f, 0x07, 0x07, 0x0f, 0xf0, 0xf4, 0xf8, 0xfc, ...d.tiles, ...d.props]) // prettier-ignore
   for (const [at, b] of PATH_BYTES) put(at, b)
   tweak(bytes)
   return RomFile.fromBytes('flames.sfc', bytes)
@@ -140,6 +151,30 @@ describe('castle flames from the routines (synthetic cart)', () => {
     expect(unverifiedOf(flameRom())).toEqual([])
   })
 
+  it('palette, priority and flips come from the attribute the draw wrote (CGRAM row 8 + the palette bits)', () => {
+    // Every flame reads table entry 0 (Misc = slot * 4), so each attribute is its own cart.
+    const first = (prop: number) => {
+      const r = run(flameRom({ ...DATA, props: [prop, 0, 0, 0] }))
+      if (!r.ok) throw new Error(r.reason)
+      const p = r.parts[0]!
+      return [p.palette, p.priority, p.flipX, p.flipY]
+    }
+    expect(first(0x0b)).toEqual([13, 0, false, false]) // palette 5
+    expect(first(0x4b)).toEqual([13, 0, true, false]) // X flip
+    expect(first(0x9b)).toEqual([13, 1, false, true]) // Y flip, priority 1
+    expect(first(0x2f)).toEqual([15, 2, false, false]) // palette 7, priority 2
+  })
+
+  it('an OAM entry the draw never wrote is not a flame, whatever tile byte the level image left in it', () => {
+    const rom = flameRom()
+    const seed = levelSeed(rom, LEVEL)
+    const loaded = Uint8Array.from(seed.loaded!)
+    loaded[RAM.oam + 10 * 4 + 2] = 0x44
+    const r = castleFlames(rom, { ...seed, loaded }, routinesOf(rom))
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.parts.map(p => p.oam)).toEqual([124, 125, 126, 127])
+  })
+
   it.each([
     ['a wrong spawn X', { ...DATA, xs: [0x20, 0x61, 0xa0, 0xe0] }, 1, 1, 0x61],
     ['a wrong tile', { ...DATA, tiles: [0xc4, 0xc2, 0xc0, 0xc2] }, 0, 3, 0xc4 | (1 << 8)],
@@ -163,7 +198,7 @@ describe('castle flames from the routines (synthetic cart)', () => {
   })
 
   it.each([
-    ['spawn', 0x02aa6c + 3, 'the flame spawn routine'],
+    ['spawn', 0x02aa6c + SPAWN_HARMLESS, 'the flame spawn routine'],
     ['draw', 0x02fa16 + draw.length - 5, 'the flame draw routine'],
   ])(
     'a byte changed inside the %s routine runs it anyway, unverified, naming it (ruling B)',
@@ -257,6 +292,37 @@ describe.skipIf(!hasRom(VANILLA))('castle flames, vanilla ROM', () => {
   )
 })
 
+/** The longest run of bytes `a` and `b` share, at any positions. */
+function longestRun(a: readonly number[], b: readonly number[]): number {
+  let best = 0
+  for (let i = 0; i < a.length; i++)
+    for (let j = 0; j < b.length; j++) {
+      let k = 0
+      while (i + k < a.length && j + k < b.length && a[i + k] === b[j + k]) k++
+      best = Math.max(best, k)
+    }
+  return best
+}
+/** Copyright bound (docs/testing.md): the committed routines may share fewer than this many bytes in a row with the ROM's. */
+const MAX_SHARED_RUN = 12
+
+describe.skipIf(!hasRom(VANILLA))(
+  'the synthetic routines are not the vanilla bytes (corpus guard)',
+  () => {
+    // Loaded inside the cases: a skipped describe still runs its body.
+    const rom = (at: number, n: number) => bytesAt(RomFile.load(romPath(VANILLA)), at, n)!
+    it(`share no run of ${MAX_SHARED_RUN} bytes or more with the routines at the vanilla addresses`, () => {
+      expect(longestRun(spawn, rom(0x02aa6c, 33))).toBeLessThan(MAX_SHARED_RUN)
+      expect(longestRun(draw, rom(0x02fa16, 110))).toBeLessThan(MAX_SHARED_RUN)
+    })
+    it('planted: a vanilla stretch copied into either array trips the bound', () => {
+      const v = (at: number, n: number) => [...rom(at, n)]
+      expect(longestRun([...spawn.slice(0, 5), ...v(0x02aa6c + 5, 20), ...spawn.slice(25)], v(0x02aa6c, 33))).toBeGreaterThanOrEqual(MAX_SHARED_RUN) // prettier-ignore
+      expect(longestRun([...draw.slice(0, 30), ...v(0x02fa16 + 30, 40), ...draw.slice(70)], v(0x02fa16, 110))).toBeGreaterThanOrEqual(MAX_SHARED_RUN) // prettier-ignore
+    })
+  },
+)
+
 describe('castle flames on the map (synthetic cart)', () => {
   const rom = flameRom()
   const stream = (id: number, raw0 = 0): LevelSprite[] =>
@@ -286,12 +352,16 @@ describe('castle flames on the map (synthetic cart)', () => {
 
   it('a flame at X $F8 reaches into the next 256 px: its copy before the map starts at X -8 (the copy range starts at -256)', () => {
     const edge = flameRom({ ...DATA, xs: [0xf8, 0x60, 0xa0, 0xe0] })
-    const got = boxes(draw(stream(0xe6), 16, edge))
-    // The flame is 16 wide at 248..264; the copy one period earlier covers map pixels 0..7.
-    expect(got).toContain('-8,0')
-    expect(got).toContain('248,0')
-    // The OAM 123 overflow copy (9-bit X $1F8) is a part of its own, one period on.
-    expect(got).toContain('504,0')
+    const got = boxes(draw(stream(0xe6), 16, edge)).filter(b => b.endsWith(',0'))
+    // The flame is 16 wide at 248..264; the copy one period earlier covers map pixels 0..7. The draw also writes
+    // it at 9-bit X $1F8 (OAM 123, bank_02.asm:16266-16278): one period on, so that copy at -256 lands on the main flame
+    // at 248 and its copy at 0 on the main flame's copy at 504. Identical bitmaps at one place are kept once, so each of
+    // the three places holds exactly one box (a duplicate would paint the flame twice, visible with any alpha).
+    expect(got.filter(b => ['-8,0', '248,0', '504,0'].includes(b))).toEqual([
+      '-8,0',
+      '248,0',
+      '504,0',
+    ])
   })
 
   it('moving Layer 2 moves the flames with it (dy 16 -> 48)', () => {
@@ -314,6 +384,25 @@ describe('castle flames on the map (synthetic cart)', () => {
     expect(draw(stream(0xe6), 16, rom, empty)).toEqual({ sprites: [], note: 'The castle flames are not drawn: their chars are not loaded.' }) // prettier-ignore
   })
 
+  it('copies whose chars are not loaded are marked where they stand, the rest are drawn (D52)', () => {
+    // Tile $C2 (slots 1 and 3) is chars $C2 $C3 $D2 $D3 of the sprite sheet's second table; take those out.
+    const holes = solid.map((c, i) => ([0x42, 0x43, 0x52, 0x53].includes(i) ? undefined : c))
+    // Misc = slot (the two ASLs of the spawn made NOPs) gives each slot its own table entry: tiles C0 C2 C0 C2.
+    const own = flameRom(DATA, b => void b.fill(0xea, off(0x02aa6c + 14), off(0x02aa6c + 16)))
+    const got = draw(stream(0xe6), 16, own, { vram: { sp4: holes } })
+    expect(got.sprites.filter(s => s.status === 'drawn')).toHaveLength(8)
+    const marked = got.sprites.filter(s => s.status === 'placeholder')
+    expect(marked).toHaveLength(8)
+    // A marker sits at its flame's copy (x 0x60 and 0xe0, y 0 and 256 across the map), 16 px, on Layer 2.
+    expect(marked.map(s => `${s.box.x0},${s.box.y0},${s.box.x1 - s.box.x0}`).sort()).toEqual(
+      [0x60, 0xe0]
+        .flatMap(x => [0, 256].flatMap(k => [0, 256].map(y => `${x + k},${y},16`)))
+        .sort(),
+    )
+    expect(got.sprites.every(s => s.fixedTo === 'layer2')).toBe(true)
+    expect(got.note).toBe('Some castle flames are only marked: their chars are not loaded.')
+  })
+
   it('routines that drew nothing draw none and say so', () => {
     // The spawn writes cluster type 6, which the draw loop does not run.
     const none = flameRom(DATA, b => void (b[off(0x02aa6c + SPAWN_TYPE_OPERAND)] = 6))
@@ -326,10 +415,10 @@ describe('castle flames on the map (synthetic cart)', () => {
   })
 
   it('a changed routine still draws the flames, flagged unverified, and the note names what differs (ruling B)', () => {
-    const changed = flameRom(DATA, b => void (b[off(0x02aa6c + 3)]! ^= 1))
+    const changed = flameRom(DATA, b => void (b[off(0x02aa6c + SPAWN_HARMLESS)]! ^= 1))
     const r = draw(stream(0xe6), 16, changed, {}, routinesOf(rom))
     expect(r.sprites.length).toBe(16)
-    expect(r.note).toBe("The castle flames are unverified: the flame spawn routine is not the vanilla shape; drawn from this ROM's own routines.") // prettier-ignore
+    expect(r.note).toBe("The castle flames are unverified: the flame spawn routine is not the vanilla shape; drawn from the code at the vanilla address.") // prettier-ignore
     expect(r.sprites.every(s => s.unverified?.includes('the flame spawn routine is not the vanilla shape'))).toBe(true) // prettier-ignore
   })
 
@@ -338,5 +427,38 @@ describe('castle flames on the map (synthetic cart)', () => {
     const r = draw(stream(0xe6), 16, hacked)
     expect(r.sprites.length).toBe(16)
     expect(r.note).toContain('the cluster dispatch entry for type 5 is not the vanilla shape')
+  })
+
+  describe('through mapSprites', () => {
+    afterEach(() => vi.restoreAllMocks())
+
+    it('the reply carries the flames after the level sprites, and the stream sprite stays (the $E6 marker)', () => {
+      let raw!: Uint8Array
+      const at = 0x02fc00 // the stream's SNES address
+      flameRom(DATA, b => {
+        raw = b
+        b[0x7fd5] = 0x20 // LoROM map mode, so SmwRom parses the copy as a cart
+        b.set([0x00, 0x00, 0x00, 0xe6, 0xff], off(at))
+      })
+      vi.spyOn(SmwRom.prototype, 'getLevelSpritePointer').mockReturnValue(at)
+      const inputs = {
+        ...model,
+        isVertical: false,
+        screenCount: 2,
+        l2: { ok: true, l2: { dy: 16 } },
+      }
+      const r = mapSprites(
+        new L1ModelCache(() => ({ ok: true, inputs }) as never),
+        raw,
+        'flames.sfc',
+        LEVEL,
+      )
+      if (r.status !== 'ok') throw new Error(JSON.stringify(r))
+      const flames = r.sprites.filter(s => s.fixedTo === 'layer2')
+      expect(flames).toHaveLength(16)
+      expect(r.sprites.filter(s => !s.fixedTo)).toHaveLength(1)
+      // The flames come last, so the stream's own sprite keeps its index and the view's sprite numbering.
+      expect(r.sprites.slice(-16).every(s => s.fixedTo === 'layer2')).toBe(true)
+    })
   })
 })

@@ -143,8 +143,9 @@ export function flamePlanes(
 /**
  * A screen's plane lists with the flame planes placed, on the list that shows sprites (OBJ designated); a list
  * without sprites is unchanged. Lists run back to front. A flame plane goes right above its Layer 2 plane when that
- * plane is in the same list. Otherwise (the 7 castle maps, where OBJ is on the main screen and Layer 2 on the sub
- * screen: main `l3Low sprites0 l3High sprites1 l1Low sprites2 l1High sprites3`, sub `l2Low l2High`) it goes right
+ * plane is in the same list. Otherwise (the common SMW routing, shared by 464 of the 481 maps without flames and by the 7 castle maps: OBJ on
+ * the main screen and Layer 2 on the sub screen, main `l3Low sprites0 l3High sprites1 l1Low sprites2 l1High sprites3`,
+ * sub `l2Low l2High`; vanilla ROM, one count) it goes right
  * under the list's first Layer 1 plane: over the sub screen's Layer 2 the flame belongs to, under Layer 1 (owner ruling).
  */
 export function withFlameKeys<L extends { main: readonly SourceKey[]; sub: readonly SourceKey[] }>(

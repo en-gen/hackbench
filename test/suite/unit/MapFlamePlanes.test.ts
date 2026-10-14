@@ -107,3 +107,28 @@ describe('Layer 2 flame planes', () => {
     expect(at(3)).toEqual(BLUE)
   })
 })
+
+describe('a placed sprite under a tile with a flame between (hover door)', () => {
+  // OBJ.1 sits below the flame planes on the castle shape, Layer 1 low over both: the tile hides the
+  // sprite, and the flame is not the sprite it hides. Pixel 0: sprite blue, flame red, tile gray.
+  const GRAY: [number, number, number, number] = [200, 200, 200, 255]
+  const run = (lift: number, flame = true) => {
+    const lists = withFlameKeys({ main: ['sprites1', 'l1Low'] as SourceKey[], sub: ['l2Low'] as SourceKey[] }) // prettier-ignore
+    const planes = {
+      sprites1: px([BLUE]),
+      spritesL2Low: flame ? px([RED]) : null,
+      l1Low: px([GRAY]),
+    }
+    const doors = new Uint32Array([(1 << 1) | 0])
+    return [...composeScreen({ width: 1, height: 1, planes, lists, math: null, doors, lift })]
+  }
+  it('lists the flame between the sprite and Layer 1', () => {
+    expect(withFlameKeys({ main: ['sprites1', 'l1Low'] as SourceKey[], sub: ['l2Low'] as SourceKey[] }).main).toEqual(['sprites1', 'spritesL2Low', 'spritesL2High', 'l1Low']) // prettier-ignore
+  })
+  it('hovered, the sprite itself shows through the tile, not the flame colour', () => {
+    expect(run(1)).toEqual(BLUE)
+  })
+  it('not hovered, the pixel is what it is without the flame plane at all (the flame is not the covered sprite)', () => {
+    expect(run(0)).toEqual(run(0, false))
+  })
+})

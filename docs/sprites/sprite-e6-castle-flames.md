@@ -17,7 +17,7 @@ How the map view draws them, and what each step rests on.
   each, so the flames are fixed to Layer 2 and wrap every 256 px. Tile
   `CastleFlameTiles[Misc & 3]` ($E2/$E4), attribute `CastleFlameGfxProp[Misc & 3]`
   ($09/$49: CGRAM row 12, OBJ priority 0), size large, OAM 124-127. A random step
-  bumps `Misc` (flicker) unless `SpriteLock` is set (`bank_02.asm:16230-16280`).
+  bumps `Misc` (flicker) unless `SpriteLock` is set (`bank_02.asm:16230-16279`).
 
 ## In the editor
 
@@ -47,8 +47,12 @@ How the map view draws them, and what each step rests on.
   the map, `dy` below Layer 2's own grid (`dy = Layer1YPos - Layer2YPos` at level
   start, the same value the background is drawn with, `L2Model.ts`). Only a stream with
   a plain $E6 (extra bit 3 clear) has them; the $E6 marker stays.
+  A flame whose chars are not loaded is a marker box at its position (D52), the others are
+  drawn; the X >= $F0 overflow writes a flame twice, one period apart, and the copy that lands on
+  the other is kept once.
 - The view (`map-view-model.ts`) keeps them out of the four OAM priority planes and
-  the hover doors. A flame pixel joins `spritesL2High` where Layer 2's priority plane is
+  the hover doors (`coveredSprite` skips the `spritesL2*` keys, so a placed sprite under a tile
+  is never mistaken for the flame beside it). A flame pixel joins `spritesL2High` where Layer 2's priority plane is
   opaque and `spritesL2Low` elsewhere; `withFlameKeys` lists each right above its Layer 2
   plane when both are on one screen's list, or under `l1Low` on the OBJ screen when Layer 2
   is on the other one, so Layer 1 (both priorities) is over them and Layer 2 under them. They are

@@ -462,6 +462,9 @@ export function castleFlameSprites(
   const [mapW, mapH] = model.isVertical ? [w * TILE, model.screenCount * h * TILE] : [model.screenCount * w * TILE, h * TILE] // prettier-ignore
   // One bitmap per flame per copy, not one per copy: a copy spans the whole width of its flames.
   const jobs: { x: number; y: number; parts: DrawPart[] }[] = []
+  // The X >= $F0 overflow (CODE_02FA16) draws a flame twice, at $F8 and at $1F8: one period apart, so the
+  // second one's copy at -256 lands on the first and would paint it twice. Identical bitmaps at one place are kept once.
+  const seen = new Set<string>()
   for (const flame of run.parts) {
     const parts = interpParts([flame])
     const [x0, x1] = [Math.min(...parts.map(p => p.dx)), Math.max(...parts.map(p => p.dx)) + 8]
@@ -469,7 +472,11 @@ export function castleFlameSprites(
     // Copies at every 256 px, from one before the map; only those that reach it are kept.
     for (let x = -256; x < mapW; x += 256)
       for (let y = (((dy % 256) + 256) % 256) - 512; y < mapH; y += 256)
-        if (x + x1 > 0 && x + x0 < mapW && y + y1 > 0 && y + y0 < mapH) jobs.push({ x, y, parts })
+        if (x + x1 > 0 && x + x0 < mapW && y + y1 > 0 && y + y0 < mapH) {
+          const at = JSON.stringify(parts.map(p => ({ ...p, dx: p.dx + x, dy: p.dy + y })))
+          if (!seen.has(at)) jobs.push({ x, y, parts })
+          seen.add(at)
+        }
   }
   // One fake stream entry per bitmap, at the copy's origin; the drawer answers with that flame's parts.
   const entry = (n: number): LevelSprite => ({ screen: 0, x: 0, y: 0, spriteId: CASTLE_FLAMES_ID, extraBit: false, raw: [0, 0, 0], index: -1 - n, streamOffset: 0 }) // prettier-ignore
@@ -488,12 +495,29 @@ export function castleFlameSprites(
     draw,
     dynamic,
   )
-  if (drawn.some(d => d.status !== 'drawn')) return none('their chars are not loaded')
+  // D52: a copy whose chars are not loaded is a marker at its position (as for any sprite), the rest are drawn.
+  const missing = drawn.some(d => d.status !== 'drawn')
+  if (missing && drawn.every(d => d.status !== 'drawn')) return none('their chars are not loaded')
+  const placed = drawn.map((d, n) => {
+    if (d.status === 'drawn') return d
+    const [x, y] = [jobs[n]!.x + Math.min(...jobs[n]!.parts.map(p => p.dx)), jobs[n]!.y + Math.min(...jobs[n]!.parts.map(p => p.dy))] // prettier-ignore
+    return { ...d, x, y, box: { x0: x, y0: y, x1: x + MARK, y1: y + MARK } }
+  })
   const why = run.unverified.map(u => `${u} is not the vanilla shape`).join('; ')
-  const unverified = `were run from this ROM's own routines as they stand, and ${why}`
+  const unverified = `the castle flames are drawn from the code at the vanilla address, and ${why}`
+  const notes = [
+    ...(missing ? ['Some castle flames are only marked: their chars are not loaded.'] : []),
+    ...(why
+      ? [`The castle flames are unverified: ${why}; drawn from the code at the vanilla address.`]
+      : []),
+  ]
   return {
-    sprites: drawn.map(d => ({ ...d, fixedTo: 'layer2' as const, ...(why ? { unverified } : {}) })),
-    ...(why ? { note: `The castle flames are unverified: ${why}; drawn from this ROM's own routines.` } : {}), // prettier-ignore
+    sprites: placed.map(d => ({
+      ...d,
+      fixedTo: 'layer2' as const,
+      ...(why ? { unverified } : {}),
+    })),
+    ...(notes.length ? { note: notes.join(' ') } : {}),
   }
 }
 
