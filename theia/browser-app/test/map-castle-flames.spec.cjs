@@ -6,13 +6,18 @@
  * $09/$49: so on the map the flames stand at X $10 $50 $90 $D0 (+256 per copy) and Y $F0 (+256 per
  * copy), as the node reply must say. Checked here from the RPC reply and the composite:
  * - the reply's flame bitmaps sit at exactly those positions, and the $E6 marker is still a sprite;
- * - toggled on, a flame pixel with no layer 1 over it shows in the composite (it differs from the
- *   sprites-hidden composite), and one with layer 1 over it does not (layer 1 covers the flames, the
- *   flames cover layer 2);
- * - the sprite toggle (S) off puts every open flame pixel back to layer 2.
- * Plants for the verifier: in map-sprites.ts `castleFlameSprites`, a wrong `y` for the copies moves the
- * positions (the first assertion goes red); in map-view-model.ts `withFlameKeys`, putting the flame keys
- * after `l1High` shows the flames over layer 1 (the covered-pixels assertion goes red).
+ * - the flames' own colours show in the composite where no layer 1 is over them, and do NOT show where layer 1
+ *   is (layer 1 covers the flames, the flames cover layer 2); both sets are asserted non-empty first;
+ * - the sprite toggle (S) off takes the flame colours out of the open pixels and leaves the covered ones as they were.
+ * Map $01F is a split-list map (OBJ on the main screen, layer 2 on the sub screen, CGADSUB 32), the shape of all 7
+ * flame maps, so this also guards `withFlameKeys` placing the flame planes on the OBJ screen.
+ * Plants for the verifier (each must turn the spec red; restore after):
+ * - map-sprites.ts `castleFlameSprites`: a wrong `y` for the copies moves the positions (the first assertion);
+ * - map-view-model.ts `withFlameKeys`: `out.splice(l1 < 0 ? out.length : l1, 0, ...missing)` -> `out.splice(out.length, 0, ...missing)`
+ *   puts the flames after `l1High`, over layer 1: the "layer 1 covers the flames" assertion goes red (the covered
+ *   pixels then show the flame colour);
+ * - map-view-model.ts `withFlameKeys` returning `{ ...lists }` unchanged: no flame planes on this split list, the flames
+ *   never show and the "flame colours show" assertion goes red.
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')
@@ -115,7 +120,7 @@ test('the flames stand where the capture puts them, sit over layer 2 and under l
       const l1 = ['l1Low', 'l1High'].map(p =>
         px(document.querySelector(`${rootSel} canvas[data-screen="0"][data-plane="${p}"]`)),
       )
-      const out = { open: [], covered: [] }
+      const out = { open: [], covered: [], openRgb: [], coveredRgb: [] }
       for (const f of flames) {
         const rgba = Uint8Array.from(atob(f.rgba), c => c.charCodeAt(0))
         const w = f.box.x1 - f.box.x0
@@ -125,7 +130,11 @@ test('the flames stand where the capture puts them, sit over layer 2 and under l
           const y = f.box.y0 + Math.floor(i / 4 / w)
           if (x >= width || y * width + x >= l1[0].length / 4) continue
           const p = y * width + x
-          ;(l1.some(l => l[p * 4 + 3] > 0) ? out.covered : out.open).push(p)
+          const cover = l1.some(l => l[p * 4 + 3] > 0)
+          ;(cover ? out.covered : out.open).push(p)
+          ;(cover ? out.coveredRgb : out.openRgb).push(
+            `${rgba[i]},${rgba[i + 1]},${rgba[i + 2]},255`,
+          )
         }
       }
       return out
@@ -133,21 +142,21 @@ test('the flames stand where the capture puts them, sit over layer 2 and under l
     { rootSel: root, flames, width: reply.width },
   )
   expect(split.open.length, 'flame pixels with no layer 1 over them').toBeGreaterThan(0)
-  const all = [...split.open, ...split.covered]
-  const on = await sample(page, all)
+  expect(split.covered.length, 'flame pixels with layer 1 over them (else the covered checks are vacuous)').toBeGreaterThan(0) // prettier-ignore
+  const share = (got, want) => got.filter((v, i) => v === want[i]).length / Math.max(got.length, 1)
+  const onOpen = await sample(page, split.open)
+  const onCovered = await sample(page, split.covered)
+  expect(share(onOpen, split.openRgb), 'open flame pixels show the flame colour').toBeGreaterThan(
+    0.9,
+  )
+  expect(share(onCovered, split.coveredRgb), 'layer 1 covers the flames: its pixels, not the flame colour').toBeLessThan(0.1) // prettier-ignore
 
   const toggle = page.locator(`${root} [data-control="layer-sprites"]`)
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
-  const differ = (a, b) => a.filter((v, i) => v !== b[i]).length
+  // Measured on the flame colour itself: it leaves the open pixels (not "something changed"), the covered ones keep their pixels.
   await expect
-    .poll(async () => differ(await sample(page, split.open), on.slice(0, split.open.length)), {
-      timeout: 15000,
-    })
-    .toBeGreaterThan(split.open.length * 0.9)
-  const off = await sample(page, all)
-  expect(
-    differ(off.slice(split.open.length), on.slice(split.open.length)),
-    'layer 1 covers the flames: the pixels under it do not change',
-  ).toBe(0)
+    .poll(async () => share(await sample(page, split.open), split.openRgb), { timeout: 15000 })
+    .toBeLessThan(0.1)
+  expect(await sample(page, split.covered), 'pixels under layer 1 do not change').toEqual(onCovered)
 })

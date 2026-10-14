@@ -77,4 +77,33 @@ describe('Layer 2 flame planes', () => {
     expect(open.slice(4, 12)).toEqual([0, 255, 0, 255, 0, 255, 0, 255])
     expect(out({ l2Low, l2High }).slice(4, 8)).toEqual(RED)
   })
+
+  // The seven castle maps ($01F $101 $10D $1CD $1D0 $1D4 $1FC), as their screen lists read: OBJ on the main screen, Layer 2 on the
+  // sub screen only, CGADSUB 32 (math on the backdrop). Synthetic lists, no ROM.
+  const CASTLE_MAIN = ['l3Low', 'sprites0', 'l3High', 'sprites1', 'l1Low', 'sprites2', 'l1High', 'sprites3'] as SourceKey[] // prettier-ignore
+  const CASTLE_SUB = ['l2Low', 'l2High'] as SourceKey[]
+
+  it('a split list (OBJ on main, Layer 2 on sub) lists the flame planes on main, under Layer 1', () => {
+    const got = withFlameKeys({ main: CASTLE_MAIN, sub: CASTLE_SUB })
+    expect(got.main).toEqual(['l3Low', 'sprites0', 'l3High', 'sprites1', 'spritesL2Low', 'spritesL2High', 'l1Low', 'sprites2', 'l1High', 'sprites3']) // prettier-ignore
+    expect(got.sub).toEqual(CASTLE_SUB)
+  })
+
+  it('composed on the castle shape: over the sub screen Layer 2, under Layer 1 (both priorities)', () => {
+    const l2Low = px([RED, RED, RED, NONE])
+    const l1Low = px([NONE, BLUE, NONE, NONE])
+    const l1High = px([NONE, NONE, NONE, BLUE])
+    const flames = flamePlanes({ ...G, sprites: [dto('layer2')] }, 0, null)
+    const lists = withFlameKeys({ main: CASTLE_MAIN, sub: CASTLE_SUB })
+    const math = { cgadsub: 32, fixed: [0, 0, 0] as [number, number, number] }
+    const out = (planes: Parameters<typeof composeScreen>[0]['planes']) => [...composeScreen({ width: 4, height: 1, lists, math, planes })] // prettier-ignore
+    const shown = out({ l2Low, l1Low, l1High, ...flames })
+    const at = (x: number) => shown.slice(x * 4, x * 4 + 4)
+    expect(at(0)).toEqual(RED) // Layer 2 through the backdrop's math
+    expect(at(1)).toEqual(BLUE) // flame over Layer 2, Layer 1 low over the flame
+    expect(at(2)).toEqual([0, 255, 0, 255]) // flame pixel with no Layer 1: the flame, not Layer 2
+    expect(out({ l2Low, l1Low, l1High }).slice(8, 12)).toEqual(RED) // without the planes: Layer 2
+    // dto() covers pixels 1-2 only; pixel 3 has no flame and Layer 1 high
+    expect(at(3)).toEqual(BLUE)
+  })
 })

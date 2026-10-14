@@ -439,7 +439,9 @@ const CASTLE_FLAMES_ID = 0xe6
  * position in Layer 2 space; Layer 2 repeats every 256 px (a flame's byte position wraps), so a copy
  * stands at every 256 px in X and Y across the map, `dy` pixels below that (the map's Layer1YPos -
  * Layer2YPos, as the background is drawn). A stream without a plain $E6 has none. A run that is refused
- * or a char that is not loaded draws none, and says so in the note.
+ * or a char that is not loaded draws none, and says so in the note. A routine or call-path part that is
+ * not the vanilla shape does not blank them (owner ruling D52, option B): they are drawn from the ROM's own
+ * code, flagged `unverified`, and the note names what differs.
  */
 export function castleFlameSprites(
   rom: RomFile,
@@ -487,7 +489,12 @@ export function castleFlameSprites(
     dynamic,
   )
   if (drawn.some(d => d.status !== 'drawn')) return none('their chars are not loaded')
-  return { sprites: drawn.map(d => ({ ...d, fixedTo: 'layer2' as const })) }
+  const why = run.unverified.map(u => `${u} is not the vanilla shape`).join('; ')
+  const unverified = `were run from this ROM's own routines as they stand, and ${why}`
+  return {
+    sprites: drawn.map(d => ({ ...d, fixedTo: 'layer2' as const, ...(why ? { unverified } : {}) })),
+    ...(why ? { note: `The castle flames are unverified: ${why}; drawn from this ROM's own routines.` } : {}), // prettier-ignore
+  }
 }
 
 /** A sprite stream's bytes: up to the window, fewer when the ROM ends first (as SmwRom.getLevelRawData reads). */

@@ -141,16 +141,24 @@ export function flamePlanes(
 }
 
 /**
- * A screen's plane lists with the flame planes placed: `spritesL2Low` right above `l2Low`, `spritesL2High`
- * right above `l2High`, on a list that shows sprites (OBJ designated) and the Layer 2 plane. Others unchanged.
+ * A screen's plane lists with the flame planes placed, on the list that shows sprites (OBJ designated); a list
+ * without sprites is unchanged. Lists run back to front. A flame plane goes right above its Layer 2 plane when that
+ * plane is in the same list. Otherwise (the 7 castle maps, where OBJ is on the main screen and Layer 2 on the sub
+ * screen: main `l3Low sprites0 l3High sprites1 l1Low sprites2 l1High sprites3`, sub `l2Low l2High`) it goes right
+ * under the list's first Layer 1 plane: over the sub screen's Layer 2 the flame belongs to, under Layer 1 (owner ruling).
  */
 export function withFlameKeys<L extends { main: readonly SourceKey[]; sub: readonly SourceKey[] }>(
   lists: L,
 ): L {
-  const put = (list: readonly SourceKey[]): SourceKey[] =>
-    list.some(k => k.startsWith('sprites'))
-      ? (list.flatMap(k => (k === 'l2Low' ? [k, 'spritesL2Low'] : k === 'l2High' ? [k, 'spritesL2High'] : [k])) as SourceKey[]) // prettier-ignore
-      : [...list]
+  const put = (list: readonly SourceKey[]): SourceKey[] => {
+    if (!list.some(k => k.startsWith('sprites'))) return [...list]
+    const own = (k: SourceKey): SourceKey[] => k === 'l2Low' ? [k, 'spritesL2Low'] : k === 'l2High' ? [k, 'spritesL2High'] : [k] // prettier-ignore
+    const out = list.flatMap(own)
+    const missing = (['spritesL2Low', 'spritesL2High'] as const).filter(k => !out.includes(k))
+    const l1 = out.findIndex(k => k === 'l1Low' || k === 'l1High')
+    out.splice(l1 < 0 ? out.length : l1, 0, ...missing)
+    return out
+  }
   return { ...lists, main: put(lists.main), sub: put(lists.sub) }
 }
 
