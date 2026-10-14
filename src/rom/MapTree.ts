@@ -229,7 +229,9 @@ export function buildMapTree(
   // claim this module is not the place to make. Tracked separately. When the
   // graph is unavailable every non-root map lands here, which is still
   // complete coverage.
-  const unassigned: MapNode[] = [...[...maps].filter(i => !placed.has(i)), ...placeholders]
+  const realUnassignedIds = [...maps].filter(i => !placed.has(i))
+  const realUnassigned = realUnassignedIds.length
+  const unassigned: MapNode[] = [...realUnassignedIds, ...placeholders]
     .sort((a, b) => a - b)
     .map(i => ({
       index: i,
@@ -241,7 +243,6 @@ export function buildMapTree(
         : {}),
       children: [],
     }))
-  const realUnassigned = unassigned.length - placeholders.length
 
   if (unavailable) {
     notes.push(

@@ -84,8 +84,8 @@ const MIN_PLACEHOLDER_MARGIN_RATIO = 2
 
 /**
  * Builds the level catalog. A slot is real when it has a pointer and that
- * pointer is not the shared placeholder -- decided by pointer identity alone, never via
- * levelHasObjects(), which cannot spot filler (the filler room holds
+ * pointer is not the shared placeholder -- decided by pointer identity alone,
+ * never via levelHasObjects(), which cannot spot filler (the filler room holds
  * well-formed objects), so this catalog does not need it. A
  * real slot is parseable when SmwRom.getLevelRawData can read it back at
  * all, which needs only the five header bytes before the ROM ends: editors
