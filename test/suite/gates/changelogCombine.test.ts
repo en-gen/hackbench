@@ -349,19 +349,89 @@ describe('changelog-combine', () => {
       expect(fs.existsSync(marker)).toBe(false)
     })
 
-    it('drops GIT_OBJECT_DIRECTORY from the process env (#892)', () => {
-      const saved = process.env.GIT_OBJECT_DIRECTORY
-      process.env.GIT_OBJECT_DIRECTORY = path.join(root, 'bogus-objects')
+    // One case per variable in the helper's drop list (a literal list, not
+    // generated from anything). Each value would redirect or break git if it
+    // leaked; `leaked` returns a description of the damage, or null if clean.
+    const bogus = (n: string) => path.join(root, n)
+    const exists = (n: string) => (fs.existsSync(bogus(n)) ? n + ' was created' : null)
+    const configLeak = () => (git('config', 'hackbench.leak').status === 0 ? 'config leaked' : null)
+    const dropCases: Array<{
+      name: string
+      env: (b: (n: string) => string) => Record<string, string>
+      leaked: () => string | null
+    }> = [
+      {
+        name: 'GIT_DIR',
+        env: b => ({ GIT_DIR: b('bogus-gitdir') }),
+        leaked: () => exists('bogus-gitdir'),
+      },
+      {
+        name: 'GIT_WORK_TREE',
+        env: b => ({ GIT_WORK_TREE: b('bogus-wt') }),
+        // With the variable leaked, `add f` looks for f under bogus-wt and fails.
+        leaked: () => (git('ls-files', 'f').stdout.trim() === 'f' ? null : 'f not tracked'),
+      },
+      {
+        name: 'GIT_INDEX_FILE',
+        env: b => ({ GIT_INDEX_FILE: b('bogus-index') }),
+        leaked: () => exists('bogus-index'),
+      },
+      {
+        name: 'GIT_CONFIG_PARAMETERS',
+        env: () => ({ GIT_CONFIG_PARAMETERS: "'hackbench.leak'='1'" }),
+        leaked: configLeak,
+      },
+      {
+        name: 'GIT_CONFIG_COUNT',
+        env: () => ({
+          GIT_CONFIG_COUNT: '1',
+          GIT_CONFIG_KEY_0: 'hackbench.leak',
+          GIT_CONFIG_VALUE_0: '1',
+        }),
+        leaked: configLeak,
+      },
+      {
+        name: 'GIT_COMMON_DIR',
+        env: b => ({ GIT_COMMON_DIR: b('bogus-common') }),
+        leaked: () => exists('bogus-common'),
+      },
+      {
+        name: 'GIT_OBJECT_DIRECTORY',
+        env: b => ({ GIT_OBJECT_DIRECTORY: b('bogus-objects') }),
+        leaked: () => exists('bogus-objects'),
+      },
+      {
+        name: 'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+        env: b => ({ GIT_ALTERNATE_OBJECT_DIRECTORIES: b('bogus-alt') }),
+        leaked: () => {
+          // A missing alternate makes git warn on stderr; absent when dropped.
+          const r = git('status')
+          return /bogus-alt/.test(r.stderr + r.stdout) ? 'alternate seen' : null
+        },
+      },
+    ]
+    it.each(dropCases)('drops $name from the process env (#892)', c => {
+      const saved: Record<string, string | undefined> = {}
+      const vars = c.env(bogus)
+      for (const k of Object.keys(vars)) {
+        saved[k] = process.env[k]
+        process.env[k] = vars[k]
+      }
+      let verdict: string | null
       try {
         ok('init', '-q', '-b', 'main')
         fs.writeFileSync(path.join(root, 'f'), 'x')
         ok('add', 'f')
         ok('commit', '-q', '-m', 'c')
+        verdict = c.leaked()
       } finally {
-        if (saved === undefined) delete process.env.GIT_OBJECT_DIRECTORY
-        else process.env.GIT_OBJECT_DIRECTORY = saved
+        for (const k of Object.keys(vars)) {
+          if (saved[k] === undefined) delete process.env[k]
+          else process.env[k] = saved[k]
+        }
       }
-      expect(fs.existsSync(path.join(root, 'bogus-objects'))).toBe(false)
+      expect(verdict).toBeNull()
+      expect(fs.existsSync(path.join(root, '.git'))).toBe(true)
     })
 
     it('lets two branches each add a fragment and merge without conflict', () => {
