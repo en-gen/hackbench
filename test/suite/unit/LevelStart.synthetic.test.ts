@@ -488,3 +488,45 @@ describe('readLevelStart fails closed when a table byte is past the ROM end', ()
     expect(!s.ok && s.reason).toBe(CUT)
   })
 })
+
+describe('one secondary-exit flag per map (#895)', () => {
+  // UseSecondaryExit is one byte every exit object overwrites (bank_0D.asm:1436-1438) and the exit
+  // path reads once (bank_05.asm:7111-7112), so the LAST exit's flag decides every exit of the map.
+  // Exit i carries raw byte $A0+i either way: primary lands in $0A0+i, secondary in $0B0+i.
+  const orders = [1, 2, 3, 4].flatMap(n =>
+    Array.from({ length: 1 << n }, (_, m) => Array.from({ length: n }, (_, i) => !!((m >> i) & 1))),
+  )
+
+  it('covers all 2+4+8+16 orders of 1 to 4 exits', () => {
+    expect(orders.length).toBe(30)
+  })
+
+  it.each(orders.map(o => [o.map(f => (f ? 'S' : 'P')).join('')]))(
+    'a %s map: kind, destination and exit graph follow the last exit',
+    order => {
+      const flags = [...order!].map(c => c === 'S')
+      const last = flags[flags.length - 1]!
+      const rom = blank()
+      room(
+        rom,
+        0x001,
+        0x068000,
+        flags.map((f, i) => (f ? { to: 0, via: 0xa0 + i } : { to: 0xa0 + i })),
+      )
+      for (let i = 0; i < 4; i++) {
+        room(rom, 0xa0 + i, 0x078000 + i * 0x100)
+        room(rom, 0xb0 + i, 0x079000 + i * 0x100)
+        secondary(rom, 0xa0 + i, 0xb0 + i, 0x00, 5)
+      }
+      const sm = new SmwRom(rom)
+      const roots = deriveOverworldEntrances(sm, undefined, SYNTHETIC_FINGERPRINTS).roots!
+      const graph = sm.buildLevelExitGraph(roots, SYNTHETIC_FINGERPRINTS.entry).graph
+      expect(graph.get(0x001)).toEqual(flags.map((_, i) => (last ? 0xb0 : 0xa0) + i))
+      flags.forEach((_, i) => {
+        const hit = start(rom, (last ? 0xb0 : 0xa0) + i)
+        expect(hit).toMatchObject({ ok: true, kind: last ? 'secondary' : 'main', hops: 1 })
+        expect(start(rom, (last ? 0xa0 : 0xb0) + i).ok).toBe(false)
+      })
+    },
+  )
+})
