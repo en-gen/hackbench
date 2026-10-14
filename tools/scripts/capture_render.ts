@@ -841,7 +841,7 @@ export function exitCode(verdicts: Verdict[]): number {
 // Inlined into the page beside viewer() by page(); free names on purpose,
 // since an import would compile to a module reference the page lacks.
 declare const decodeWord: typeof D.decodeWord, map16Id: typeof D.map16Id
-declare const palette: typeof D.palette, layerOrder: typeof D.layerOrder
+declare const palette: typeof D.palette, drawPasses: typeof D.drawPasses
 declare const stripOf: typeof D.stripOf, cellWord: typeof D.cellWord
 declare const renderLevel: typeof D.renderLevel, unb64: typeof D.unb64
 
@@ -862,11 +862,7 @@ function viewer(V: ViewerData) {
   function composite() {
     const on = [0, 1, 2, 3].map(l => $('l' + l).checked)
     const plane = $('plane').value
-    const passes = layerOrder(
-      V.draw.regs.BGMODE_2105,
-      V.draw.regs.TM_212C,
-      V.draw.regs.TS_212D,
-    ).filter(([l, p]) => on[l] && (l === 3 || plane === 'both' || (plane === 'high') === (p === 1)))
+    const passes = drawPasses(V.draw.regs, on, plane)
     const back = $('back').checked
     const d = img.data
     for (let i = 0; i < W * H; i++) {
