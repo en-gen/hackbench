@@ -176,8 +176,10 @@ export function layerOrder(bgmode: number, tm: number, ts: number): number[][] {
   const low = bgmode & 8 ? [] : [[2, 1]]
   // prettier-ignore
   const order = [...top, [3, 3], [0, 1], [1, 1], [3, 2], [0, 0], [1, 0], [3, 1], ...low, [3, 0], [2, 0]]
-  const tier = (l: number) =>
-    (tm >> (l === 3 ? 4 : l)) & 1 ? 0 : (ts >> (l === 3 ? 4 : l)) & 1 ? 1 : 2
+  const tier = (l: number) => {
+    const bit = 1 << (l === 3 ? 4 : l) // OBJ is bit 4 in TM/TS
+    return tm & bit ? 0 : ts & bit ? 1 : 2
+  }
   return [0, 1, 2].flatMap(t => order.filter(([l]) => tier(l) === t))
 }
 
