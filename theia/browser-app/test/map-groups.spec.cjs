@@ -141,7 +141,9 @@ async function snapshot(page) {
       // sorted by slot, there being no separate Overworld folder any more.
       unassignedSlots: unassignedChildren.map(n => n.index),
       orphans: unassignedChildren
-        .filter(n => n.category === 'orphan')
+        // Real orphans: a placeholder slot (#901) is an orphan row too, but this suite's
+        // fixtures are about maps, so they are left to map-placeholder.spec.cjs.
+        .filter(n => n.category === 'orphan' && n.sharedCount === undefined)
         .map(n => ({ id: n.id, index: n.index })),
       entriesWithChildren: unassignedChildren
         .filter(n => n.children.length > 0)

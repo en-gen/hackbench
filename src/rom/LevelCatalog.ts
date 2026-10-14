@@ -16,7 +16,7 @@
  * layout and ASM citation.
  */
 
-import { SmwRom, LEVEL_COUNT } from './SmwRom'
+import { SmwRom, LEVEL_COUNT, findPlaceholderPointer } from './SmwRom'
 
 /** One of the 512 level pointer-table slots. */
 export interface CatalogEntry {
@@ -24,6 +24,12 @@ export interface CatalogEntry {
   l1Pointer: number
   /** True when l1Pointer is not the per-ROM filler value. */
   isReal: boolean
+  /**
+   * True when l1Pointer is the shared placeholder room (the one findPlaceholderPointer
+   * names). Independent of isReal: the catalog's filler is the mode of all
+   * 512 slots, the placeholder is a pointer repeated enough to be a room.
+   */
+  placeholder: boolean
   /** True when the slot's level data could actually be read back. */
   parseable: boolean
   /**
@@ -52,6 +58,8 @@ export interface LevelCatalog {
   entries: CatalogEntry[]
   /** Most frequent L1 pointer across all 512 slots -- this ROM's filler value. */
   fillerPointer: number
+  /** Slots sharing the placeholder room, read from the pointer table; 0 when the ROM has none. */
+  placeholderCount: number
   realCount: number
   parseableCount: number
   /**
@@ -123,6 +131,7 @@ function findFillerPointer(pointers: readonly number[]): FillerAnalysis {
 export function buildLevelCatalog(rom: SmwRom): LevelCatalog {
   const pointers = Array.from({ length: LEVEL_COUNT }, (_, i) => rom.getLevelL1Pointer(i) ?? 0)
   const filler = findFillerPointer(pointers)
+  const placeholder = findPlaceholderPointer(pointers)
 
   const entries: CatalogEntry[] = []
   const notes: string[] = []
@@ -143,7 +152,15 @@ export function buildLevelCatalog(rom: SmwRom): LevelCatalog {
     }
 
     if (parseable) parseableCount++
-    entries.push({ index: i, l1Pointer, isReal, parseable, l1Aliases: [], spriteAliases: [] })
+    entries.push({
+      index: i,
+      l1Pointer,
+      isReal,
+      placeholder: placeholder !== null && l1Pointer === placeholder.pointer,
+      parseable,
+      l1Aliases: [],
+      spriteAliases: [],
+    })
   }
 
   // Alias groups, over real slots only. Two passes rather than one: the groups
@@ -201,6 +218,7 @@ export function buildLevelCatalog(rom: SmwRom): LevelCatalog {
   return {
     entries,
     fillerPointer: filler.pointer,
+    placeholderCount: placeholder?.count ?? 0,
     realCount,
     parseableCount,
     aliasedSlotCount,

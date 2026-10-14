@@ -110,6 +110,8 @@ export interface MapTreeNode extends CompositeTreeNode, SelectableTreeNode {
   area?: AreaRow
   /** Set on the Overworld row when its area list is unavailable: the reason, for its tooltip. */
   areasNote?: string
+  /** Set on a placeholder slot: how many slots share the placeholder room. */
+  sharedCount?: number
 }
 
 type BonusRole = NonNullable<GroupedMapNodeDto['role']>
@@ -371,9 +373,15 @@ export class MapExplorerWidget extends TreeWidget {
    * separate Overworld folder to infer it from position).
    */
   protected unassignedNode(maps: GroupedMapNodeDto[]): MapTreeNode {
+    // Placeholders are counted apart so the figure beside the label stays the
+    // number of maps, not of slots (docs/glossary.md).
+    const placeholders = maps.filter(m => m.placeholder).length
     const node: MapTreeNode = {
       id: 'group:unassigned',
-      name: `Unassigned (${maps.length})`,
+      name:
+        placeholders > 0
+          ? `Unassigned (${maps.length - placeholders}, ${placeholders} placeholder)`
+          : `Unassigned (${maps.length})`,
       index: -1,
       mapName: null,
       kind: 'group',
@@ -435,6 +443,7 @@ export class MapExplorerWidget extends TreeWidget {
       children: [],
       selected: false,
     }
+    if (dto.placeholder) node.sharedCount = dto.sharedCount
     node.children = dto.children.map(c => this.toNode(c, node, 'subarea'))
     if (node.children.length > 0) node.expanded = false
     return node
@@ -951,7 +960,12 @@ export class MapExplorerWidget extends TreeWidget {
   ): React.Attributes & React.HTMLAttributes<HTMLElement> {
     const attrs = super.createNodeAttributes(node, props)
     const map = node as MapTreeNode
-    if (map.category === 'orphan') attrs.title = 'Not reached from the overworld'
+    if (map.category === 'orphan') {
+      attrs.title = 'Not reached from the overworld'
+      if (map.sharedCount !== undefined) {
+        attrs.title += `. This slot uses the shared placeholder room, which ${map.sharedCount} slots share.`
+      }
+    }
     if (map.role) attrs.title = BONUS_ROLES[map.role].title
     if (map.area?.invalid) attrs.title = map.area.invalid
     if (map.areasNote) attrs.title = map.areasNote

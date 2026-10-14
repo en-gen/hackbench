@@ -67,6 +67,14 @@ export interface MapNode {
    * grouping.
    */
   l1Aliases: number[]
+  /**
+   * Set on a slot that holds the shared placeholder room (the blocks spelling
+   * "TEST"), and `sharedCount` is how many slots share it, read from the ROM.
+   * Always an orphan: the exit graph never reaches one. Editing it would edit
+   * every slot that shares it, so a view says so.
+   */
+  placeholder?: true
+  sharedCount?: number
   children: MapNode[]
 }
 
@@ -90,7 +98,10 @@ export interface SpecialMapNode<R extends string = SpecialRole> extends MapNode 
  */
 export interface MapTreeCounts {
   entrances: number | null
+  /** Real maps nothing reaches. Placeholder slots are counted apart, below. */
   unassigned: number
+  /** Slots listed as orphans only because they use the shared placeholder room. */
+  placeholders: number
 }
 
 export interface MapTree {
@@ -105,9 +116,15 @@ export interface MapTree {
   bonus: SpecialMapNode<BonusRole>[]
   /** Maps the overworld can start, each with its sub-areas beneath it. */
   overworld: MapNode[]
-  /** Real maps no overworld root reaches. Flat: see the note in build. */
+  /**
+   * Real maps no overworld root reaches, and every placeholder slot, in slot
+   * order. Flat: see the note in build.
+   */
   unassigned: MapNode[]
-  /** Real maps in the ROM. The tree is required to cover exactly this many. */
+  /**
+   * Real maps in the ROM, placeholders excluded (docs/glossary.md: 235 on
+   * vanilla). The tree lists mapCount + counts.placeholders slots.
+   */
   mapCount: number
   counts: MapTreeCounts
   notes: string[]
@@ -129,7 +146,10 @@ export function buildMapTree(
   fingerprints: OverworldFingerprints = STOCK_OVERWORLD_FINGERPRINTS,
 ): MapTree {
   const catalog = buildLevelCatalog(rom)
-  const maps = new Set(catalog.entries.filter(e => e.isReal).map(e => e.index))
+  // A placeholder slot is listed but is not a map: it is never a root, a
+  // destination or an entry map, which is how the exit graph already treats it.
+  const maps = new Set(catalog.entries.filter(e => e.isReal && !e.placeholder).map(e => e.index))
+  const placeholders = catalog.entries.filter(e => e.placeholder).map(e => e.index)
   const notes = [...catalog.notes]
 
   // Launch tiles the overworld grants a translevel, which is what a hacker
@@ -209,25 +229,28 @@ export function buildMapTree(
   // claim this module is not the place to make. Tracked separately. When the
   // graph is unavailable every non-root map lands here, which is still
   // complete coverage.
-  const unassigned = [...maps]
-    .filter(i => !placed.has(i))
+  const unassigned: MapNode[] = [...[...maps].filter(i => !placed.has(i)), ...placeholders]
     .sort((a, b) => a - b)
     .map(i => ({
       index: i,
       name: name(i),
       kind: 'map' as const,
       l1Aliases: aliasesOf(i),
+      ...(catalog.entries[i]!.placeholder
+        ? { placeholder: true as const, sharedCount: catalog.placeholderCount }
+        : {}),
       children: [],
     }))
+  const realUnassigned = unassigned.length - placeholders.length
 
   if (unavailable) {
     notes.push(
       `Map hierarchy unavailable: ${unavailable} Sub areas are listed unassigned rather ` +
         'than grouped by a rule this ROM may not follow. Every map is still listed and editable.',
     )
-  } else if (unassigned.length > 0) {
+  } else if (realUnassigned > 0) {
     notes.push(
-      `${unassigned.length} of ${maps.size} maps are unassigned: no overworld root ` +
+      `${realUnassigned} of ${maps.size} maps are unassigned: no overworld root ` +
         'reaches them through the exit graph. They are listed flat because an ' +
         "orphan's own exits are left unresolved by design (SmwRom.buildLevelExitGraph).",
     )
@@ -237,7 +260,8 @@ export function buildMapTree(
 
   const counts: MapTreeCounts = {
     entrances: entranceIndex.overworldReadable ? entranceIndex.entrances.length : null,
-    unassigned: unassigned.length,
+    unassigned: realUnassigned,
+    placeholders: placeholders.length,
   }
 
   return { special, bonus, overworld, unassigned, mapCount: maps.size, counts, notes }

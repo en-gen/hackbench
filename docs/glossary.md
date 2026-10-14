@@ -25,6 +25,8 @@ That is stock code only: hacks can replace the literal with a per-slot bank
 that is `$068000`, shared by 277 slots. The filler is computed per ROM as the
 modal L1 pointer; it is never hardcoded. Empty slots are free space a hack
 author can fill.
+The Maps tree still lists them, as orphans marked placeholder, counted apart
+from the maps: 512 slots listed, 235 maps (#901).
 
 **Map.** A slot holding real data. The editable unit, and what a `.smwmap`
 file opens. Vanilla has 235.
