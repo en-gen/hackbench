@@ -132,6 +132,18 @@ export interface RomSummary {
   isVanilla: boolean
 }
 
+/**
+ * Whether a map's screen exits are secondary. UseSecondaryExit is one byte that every exit object
+ * rewrites as the load parses it (bank_0D.asm:1436-1438) and the exit path reads once
+ * (bank_05.asm:7111-7112), so the last exit's flag holds for every exit of the map.
+ */
+export function mapUsesSecondaryExits(
+  exits: ReadonlyArray<{ screenExitIsSecondary?: boolean }>,
+): boolean {
+  // prettier-ignore
+  return exits[exits.length - 1]?.screenExitIsSecondary === true
+}
+
 export class SmwRom {
   readonly rom: RomFile
 
@@ -479,10 +491,7 @@ export class SmwRom {
         continue
       }
       const exits = parsed.objects.filter(o => o.screenExitDest !== undefined)
-      // UseSecondaryExit is one byte that every screen-exit object rewrites as the load parses
-      // it (bank_0D.asm:1436-1438), read once by the exit path (bank_05.asm:7111-7112): the
-      // last object's flag holds for every exit of the map.
-      const isSecondary = exits[exits.length - 1]?.screenExitIsSecondary === true
+      const isSecondary = mapUsesSecondaryExits(exits)
       const specs = exits.map(o => ({
         isSecondary,
         // LevelParser folds a dead ExitTableHigh-derived bit into bit 8 of

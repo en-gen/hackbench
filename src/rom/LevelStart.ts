@@ -23,7 +23,7 @@
  * `reason` is fixed plain words for the UI; the addresses and bytes go in `detail`, for tests and debugging.
  */
 import type { RomFile } from './RomFile'
-import { isOverworldLevel, type SmwRom } from './SmwRom'
+import { isOverworldLevel, mapUsesSecondaryExits, type SmwRom } from './SmwRom'
 import { parseLevelObjects } from './LevelParser'
 import {
   DATA_05D730_ADDR as Y_LO,
@@ -229,10 +229,11 @@ export function readLevelStart(
     // A stream that ran off the buffer lost sync: its "screen exits" are not trustworthy, so none is used.
     const parsed = parseLevelObjects(raw, [])
     if (!parsed.terminated) continue
-    for (const o of parsed.objects) {
-      if (o.screenExitDest === undefined) continue
-      const low = o.screenExitDest & 0xff
-      if (o.screenExitIsSecondary) {
+    const exits = parsed.objects.filter(o => o.screenExitDest !== undefined)
+    const secondary = mapUsesSecondaryExits(exits)
+    for (const o of exits) {
+      const low = o.screenExitDest! & 0xff
+      if (secondary) {
         const index = (mapIndex & 0x100) | low
         const dest = byte(rom.rom, F800 + index)
         if (dest === null) return fail(TABLES_CUT)
