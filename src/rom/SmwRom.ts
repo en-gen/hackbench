@@ -135,7 +135,10 @@ export interface RomSummary {
 /**
  * Whether a map's screen exits are secondary. UseSecondaryExit is one byte that every exit object
  * rewrites as the load parses it (bank_0D.asm:1436-1438) and the exit path reads once
- * (bank_05.asm:7111-7112), so the last exit's flag holds for every exit of the map.
+ * (bank_05.asm:7111-7112, and :7300 for the start-position read), so the last exit's flag holds
+ * for every exit of the map. Layer 1 only: the game also runs screen exits from the Layer 2 object
+ * stream in some level modes (bank_05.asm:430-472, via bank_0D.asm:1062), which can overwrite the
+ * flag after Layer 1. Those are not parsed here; vanilla has none.
  */
 export function mapUsesSecondaryExits(
   exits: ReadonlyArray<{ screenExitIsSecondary?: boolean }>,

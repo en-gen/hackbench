@@ -495,7 +495,7 @@ describe('one secondary-exit flag per map (#895)', () => {
   // Exit i carries raw byte $A0+i either way: primary lands in $0A0+i, secondary in $0B0+i.
   const orders = [1, 2, 3, 4].flatMap(n =>
     Array.from({ length: 1 << n }, (_, m) => Array.from({ length: n }, (_, i) => !!((m >> i) & 1))),
-  ) // prettier-ignore
+  )
 
   it('covers all 2+4+8+16 orders of 1 to 4 exits', () => {
     expect(orders.length).toBe(30)
