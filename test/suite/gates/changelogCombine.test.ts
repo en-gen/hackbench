@@ -25,8 +25,10 @@ const log = (text: string = BASE) => fs.writeFileSync(path.join(root, 'CHANGELOG
 const readLog = () => fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8')
 const files = () => fs.readdirSync(path.join(root, 'changelog.d')).sort()
 const snapshot = () => files().map(f => fs.readFileSync(path.join(root, 'changelog.d', f), 'utf8'))
-const run = (preload?: string) =>
-  spawnSync(
+// A crash (seen as exit 3221226505 = 0xC0000409 on Windows) or a null status
+// otherwise fails as "expected null to be 0", with no trace of why (#892).
+const run = (preload?: string) => {
+  const r = spawnSync(
     process.execPath,
     [
       ...(preload ? ['--import', preload] : []),
@@ -39,6 +41,12 @@ const run = (preload?: string) =>
     ],
     { encoding: 'utf8' },
   )
+  if (r.error || r.status === null || r.status > 2) {
+    const why = `status=${r.status} signal=${r.signal} error=${r.error} stderr=${r.stderr}`
+    throw new Error('changelog-combine spawn failed: ' + why)
+  }
+  return r
+}
 
 describe('changelog-combine', () => {
   it('folds three fragments in two sections into one grouped release and deletes them', () => {
@@ -243,12 +251,43 @@ describe('changelog-combine', () => {
     expect(readLog()).toBe(BASE)
   })
 
-  describe('merging branches', () => {
+  // 12-13 serial git spawns each. 4.5 s was seen once under many simultaneous
+  // processes (before the config isolation below); after it, the slowest merge
+  // test took 3.26 s in a 32-at-once run, one Windows machine. 30 s is headroom
+  // over the 5 s default, not a measurement (#892).
+  describe('merging branches', { timeout: 30_000 }, () => {
+    // Isolated from the machine's git config: a global post-checkout hook once
+    // pushed these tests past vitest's 5 s timeout under load (#892).
     const git = (...a: string[]) => {
-      const r = spawnSync('git', ['-C', root, '-c', 'user.name=t', '-c', 'user.email=t@t', ...a], {
-        encoding: 'utf8',
-      })
-      return r
+      // /dev/null works as a config path on Windows git too; os.devNull does not.
+      // Nothing is created outside the repo under test.
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        GIT_CONFIG_GLOBAL: '/dev/null',
+        GIT_CONFIG_SYSTEM: '/dev/null',
+        GIT_CONFIG_NOSYSTEM: '1',
+      }
+      const drop = [
+        'GIT_DIR',
+        'GIT_WORK_TREE',
+        'GIT_INDEX_FILE',
+        'GIT_CONFIG_PARAMETERS',
+        'GIT_COMMON_DIR',
+        'GIT_OBJECT_DIRECTORY',
+        'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+      ]
+      for (const k of Object.keys(env)) {
+        if (drop.includes(k) || k === 'GIT_CONFIG_COUNT' || /^GIT_CONFIG_(KEY|VALUE)_/.test(k))
+          delete env[k]
+      }
+      // A path that does not exist: git finds no hooks there.
+      // maintenance.auto=false: git otherwise detaches `git maintenance run --auto`
+      // after each commit, about 5 extra git.exe starts per test (GIT_TRACE2, one machine).
+      const cfg = ['core.hooksPath=' + path.join(root, 'no-hooks'), 'commit.gpgsign=false']
+      cfg.push('maintenance.auto=false')
+      cfg.push('core.autocrlf=false', 'user.name=t', 'user.email=t@t')
+      const args = ['-C', root, ...cfg.flatMap(c => ['-c', c]), ...a]
+      return spawnSync('git', args, { encoding: 'utf8', env })
     }
     const ok = (...a: string[]) => expect(git(...a).status, a.join(' ')).toBe(0)
     const branches = (edit: (b: string) => void) => {
@@ -266,6 +305,134 @@ describe('changelog-combine', () => {
       ok('checkout', '-q', 'main')
       ok('merge', '--no-ff', '-m', 'ma', 'a')
     }
+
+    it('ignores a global core.hooksPath (#892)', () => {
+      const hookDir = path.join(root, 'planted-hooks')
+      const marker = path.join(root, 'hook-ran')
+      fs.mkdirSync(hookDir)
+      const sh = '#!/bin/sh\n' + 'echo x > "$(dirname "$0")/../hook-ran"\n'
+      fs.writeFileSync(path.join(hookDir, 'post-checkout'), sh, { mode: 0o755 })
+      const globalCfg = path.join(root, 'planted.gitconfig')
+      const hp = hookDir.split(path.sep).join('/')
+      fs.writeFileSync(globalCfg, '[core]\n\thooksPath = ' + hp + '\n[hackbench]\n\tprobe = 1\n')
+      const saved = process.env.GIT_CONFIG_GLOBAL
+      process.env.GIT_CONFIG_GLOBAL = globalCfg
+      try {
+        ok('init', '-q', '-b', 'main')
+        fs.writeFileSync(path.join(root, 'f'), 'x')
+        ok('add', 'f')
+        ok('commit', '-q', '-m', 'c')
+        ok('checkout', '-q', '-b', 'other')
+        // A plain global key must not leak in either (the hook alone is also
+        // blocked by the -c hooksPath, so it cannot prove the env isolation).
+        expect(git('config', 'hackbench.probe').status).not.toBe(0)
+      } finally {
+        if (saved === undefined) delete process.env.GIT_CONFIG_GLOBAL
+        else process.env.GIT_CONFIG_GLOBAL = saved
+      }
+      expect(fs.existsSync(marker)).toBe(false)
+    })
+
+    it("does not run a hook planted in the repo's own .git/hooks (#892)", () => {
+      ok('init', '-q', '-b', 'main')
+      const marker = path.join(root, 'repo-hook-ran')
+      const mk = marker.split(path.sep).join('/')
+      // Goes red if the helper stops setting core.hooksPath: git then runs this.
+      for (const h of ['post-checkout', 'post-commit'])
+        fs.writeFileSync(path.join(root, '.git', 'hooks', h), `#!/bin/sh\necho x > "${mk}"\n`, {
+          mode: 0o755,
+        })
+      fs.writeFileSync(path.join(root, 'f'), 'x')
+      ok('add', 'f')
+      ok('commit', '-q', '-m', 'c')
+      ok('checkout', '-q', '-b', 'other')
+      expect(fs.existsSync(marker)).toBe(false)
+    })
+
+    // One case per variable in the helper's drop list (a literal list, not
+    // generated from anything). Each value would redirect or break git if it
+    // leaked; `leaked` returns a description of the damage, or null if clean.
+    const bogus = (n: string) => path.join(root, n)
+    const exists = (n: string) => (fs.existsSync(bogus(n)) ? n + ' was created' : null)
+    const configLeak = () => (git('config', 'hackbench.leak').status === 0 ? 'config leaked' : null)
+    const dropCases: Array<{
+      name: string
+      env: (b: (n: string) => string) => Record<string, string>
+      leaked: () => string | null
+    }> = [
+      {
+        name: 'GIT_DIR',
+        env: b => ({ GIT_DIR: b('bogus-gitdir') }),
+        leaked: () => exists('bogus-gitdir'),
+      },
+      {
+        name: 'GIT_WORK_TREE',
+        env: b => ({ GIT_WORK_TREE: b('bogus-wt') }),
+        // With the variable leaked, `add f` looks for f under bogus-wt and fails.
+        leaked: () => (git('ls-files', 'f').stdout.trim() === 'f' ? null : 'f not tracked'),
+      },
+      {
+        name: 'GIT_INDEX_FILE',
+        env: b => ({ GIT_INDEX_FILE: b('bogus-index') }),
+        leaked: () => exists('bogus-index'),
+      },
+      {
+        name: 'GIT_CONFIG_PARAMETERS',
+        env: () => ({ GIT_CONFIG_PARAMETERS: "'hackbench.leak'='1'" }),
+        leaked: configLeak,
+      },
+      {
+        name: 'GIT_CONFIG_COUNT',
+        env: () => ({
+          GIT_CONFIG_COUNT: '1',
+          GIT_CONFIG_KEY_0: 'hackbench.leak',
+          GIT_CONFIG_VALUE_0: '1',
+        }),
+        leaked: configLeak,
+      },
+      {
+        name: 'GIT_COMMON_DIR',
+        env: b => ({ GIT_COMMON_DIR: b('bogus-common') }),
+        leaked: () => exists('bogus-common'),
+      },
+      {
+        name: 'GIT_OBJECT_DIRECTORY',
+        env: b => ({ GIT_OBJECT_DIRECTORY: b('bogus-objects') }),
+        leaked: () => exists('bogus-objects'),
+      },
+      {
+        name: 'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+        env: b => ({ GIT_ALTERNATE_OBJECT_DIRECTORIES: b('bogus-alt') }),
+        leaked: () => {
+          // A missing alternate makes git warn on stderr; absent when dropped.
+          const r = git('status')
+          return /bogus-alt/.test(r.stderr + r.stdout) ? 'alternate seen' : null
+        },
+      },
+    ]
+    it.each(dropCases)('drops $name from the process env (#892)', c => {
+      const saved: Record<string, string | undefined> = {}
+      const vars = c.env(bogus)
+      for (const k of Object.keys(vars)) {
+        saved[k] = process.env[k]
+        process.env[k] = vars[k]
+      }
+      let verdict: string | null
+      try {
+        ok('init', '-q', '-b', 'main')
+        fs.writeFileSync(path.join(root, 'f'), 'x')
+        ok('add', 'f')
+        ok('commit', '-q', '-m', 'c')
+        verdict = c.leaked()
+      } finally {
+        for (const k of Object.keys(vars)) {
+          if (saved[k] === undefined) delete process.env[k]
+          else process.env[k] = saved[k]
+        }
+      }
+      expect(verdict).toBeNull()
+      expect(fs.existsSync(path.join(root, '.git'))).toBe(true)
+    })
 
     it('lets two branches each add a fragment and merge without conflict', () => {
       branches(b => frag(`${b}.md`, `### Added\n- from ${b}\n`))
