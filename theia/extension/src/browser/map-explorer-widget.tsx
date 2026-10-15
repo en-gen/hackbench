@@ -575,6 +575,8 @@ export class MapExplorerWidget extends TreeWidget {
    */
   protected groupable(node: MapTreeNode): boolean {
     const { kind, category } = node
+    // A placeholder row (sharedCount set) is listed, not a map: no group takes it.
+    if (node.sharedCount !== undefined) return false
     return kind === 'map' && (category === 'entry' || category === 'bonus' || category === 'orphan')
   }
 

@@ -14,8 +14,6 @@ const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
 const ROM = process.env.HB_ROM || romPath(VANILLA)
 /** A slot whose Layer 1 pointer is vanilla's shared placeholder room. */
 const PLACEHOLDER_SLOT = 0x025
-/** A slot holding a real map of its own, to show the sentence is not on every row. */
-const REAL_SLOT = 0x0dc
 /** Generous: the point is "responsive with 512 rows", not a tuned budget. */
 const EXPAND_BUDGET_MS = 5000
 
@@ -62,6 +60,21 @@ async function load(page) {
     await getSvc('ApplicationShell').activateWidget('hackbench.map-explorer')
   }, manifestPath)
   await page.waitForTimeout(800)
+}
+
+/**
+ * A real orphan (a map nothing reaches, not a placeholder) and an entry map, both read from
+ * the model so no ROM-specific slot is hardcoded: on vanilla $0DC is a sub area, not an orphan.
+ */
+async function pickRows(page) {
+  return page.evaluate(async () => {
+    const w = await getWidget('hackbench.map-explorer')
+    const kids = w.model.root.children.find(r => r.id === 'group:unassigned').children
+    return {
+      orphan: kids.find(n => n.category === 'orphan' && n.sharedCount === undefined)?.index,
+      entry: kids.find(n => n.category === 'entry')?.index,
+    }
+  })
 }
 
 /** Scrolls a row into view by focusing it (the tree virtualises), returns its locator. */
@@ -115,13 +128,23 @@ test('a placeholder row is dimmed with the shared-room tooltip; a real orphan is
   page,
 }) => {
   await load(page)
+  const { orphan, entry } = await pickRows(page)
+  expect(orphan).toBeDefined()
+  expect(entry).toBeDefined()
+
   const row = await rowOf(page, PLACEHOLDER_SLOT)
-  await expect(row).toHaveClass(/hb-map-row-orphan/)
   const title = await row.getAttribute('title')
   expect(title).toContain('Not reached from the overworld')
   expect(title).toMatch(/uses the shared placeholder room, which \d+ slots share/)
 
-  const real = await rowOf(page, REAL_SLOT)
+  // Dimming asserted by what the user sees: computed opacity, against a row that is reached.
+  const opacityOf = loc => loc.evaluate(el => parseFloat(getComputedStyle(el).opacity))
+  const placeholderOpacity = await opacityOf(row)
+  const entryOpacity = await opacityOf(await rowOf(page, entry))
+  expect(entryOpacity).toBe(1)
+  expect(placeholderOpacity).toBeLessThan(entryOpacity)
+
+  const real = await rowOf(page, orphan)
   expect(await real.getAttribute('title')).not.toContain('placeholder')
 })
 
@@ -134,10 +157,21 @@ test('expanding the orphan group with every slot in it stays responsive', async 
     const t0 = performance.now()
     await w.model.expandNode(group)
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
-    return performance.now() - t0
+    const elapsed = performance.now() - t0
+    // Slots listed elsewhere: other folders' rows and the sub areas nested under an entry map here.
+    const all = n => [n, ...(n.children || []).flatMap(all)]
+    const placed =
+      w.model.root.children
+        .filter(r => r.id !== 'group:unassigned')
+        .flatMap(all)
+        .filter(n => n.index >= 0).length +
+      group.children.flatMap(c => (c.children || []).flatMap(all)).length
+    return { elapsed, children: group.children.length, placed }
   })
-  console.log(`#901 expand time with every slot listed: ${ms.toFixed(0)} ms`)
-  expect(ms).toBeLessThan(EXPAND_BUDGET_MS)
+  console.log(`#901 expand time with every slot listed: ${ms.elapsed.toFixed(0)} ms`)
+  // Guards against the budget passing because the group was left unexpanded or short.
+  expect(ms.children).toBeGreaterThanOrEqual(512 - ms.placed)
+  expect(ms.elapsed).toBeLessThan(EXPAND_BUDGET_MS)
   await expect(page.locator('[id="hackbench.map-explorer"] .theia-TreeNode').first()).toBeVisible()
 })
 
@@ -145,7 +179,14 @@ test('opening a placeholder row opens the map view for its slot', async ({ page 
   await load(page)
   const row = await rowOf(page, PLACEHOLDER_SLOT)
   await row.dblclick()
-  await expect(page.locator(`[id="hackbench.map-view:${PLACEHOLDER_SLOT}"]`)).toBeVisible({
-    timeout: 30000,
-  })
+  const view = page.locator(`[id="hackbench.map-view:${PLACEHOLDER_SLOT}"]`)
+  await expect(view).toBeVisible({ timeout: 30000 })
+  // Loaded for $025, not just a blank panel: the strip is drawn and the tab names the slot.
+  await expect(view.locator('.hb-map-view-strip')).toBeVisible({ timeout: 30000 })
+  await expect(view.locator('[data-control="map-error"]')).toHaveCount(0)
+  const caption = await page.evaluate(
+    async id => (await getWidget(id)).title.caption,
+    `hackbench.map-view:${PLACEHOLDER_SLOT}`,
+  )
+  expect(caption).toContain('$025')
 })

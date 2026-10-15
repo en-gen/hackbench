@@ -263,6 +263,31 @@ describe('topLevelSlots', () => {
   })
 })
 
+describe('placeholder slots (#901)', () => {
+  const placeholder = (index: number): MapNode => ({
+    ...mapNode(index),
+    placeholder: true,
+    sharedCount: 12,
+  })
+  const tree = (): MapTree => fakeTree([mapNode(0x105)], [mapNode(0x0d3), placeholder(0x025)])
+
+  it('are not top-level slots, so a group may not name them', () => {
+    expect(topLevelSlots(tree())).toEqual(new Set([0x105, 0x0d3]))
+    const result = admitGroups(
+      [{ name: 'A', slots: [0x025] }],
+      { status: 'ok', groups: [] },
+      topLevelSlots(tree()),
+    )
+    expect(result.status).toBe('invalid')
+  })
+
+  it('applyGroups leaves one a group names in Unassigned, never in the group', () => {
+    const grouped = applyGroups(tree(), [{ name: 'A', slots: [0x025, 0x0d3] }])
+    expect(grouped.groups[0]!.maps.map(m => m.index)).toEqual([0x0d3])
+    expect(grouped.unassigned.map(m => m.index)).toContain(0x025)
+  })
+})
+
 describe('staleSlots', () => {
   it('is every grouped slot that applyGroups could not resolve to a top-level map', () => {
     const tree = fakeTree([mapNode(0x105)], [])

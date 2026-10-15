@@ -24,11 +24,7 @@ export interface CatalogEntry {
   l1Pointer: number
   /** True when the slot has a pointer and it is not the shared placeholder room. */
   isReal: boolean
-  /**
-   * True when l1Pointer is the shared placeholder room, the one pointer
-   * findPlaceholderPointer names (SmwRom's exit graph asks the same helper).
-   * Exactly the pointered slots that are not real.
-   */
+  /** True on the pointer findPlaceholderPointer names: the pointered slots that are not real. */
   placeholder: boolean
   /** True when the slot's level data could actually be read back. */
   parseable: boolean
@@ -56,9 +52,9 @@ export interface CatalogEntry {
 
 export interface LevelCatalog {
   entries: CatalogEntry[]
-  /** The placeholder pointer (SmwRom.findPlaceholderPointer), or 0 when no pointer repeats enough. */
+  /** The placeholder pointer, or 0 when none repeats enough. */
   fillerPointer: number
-  /** Slots sharing the placeholder room, read from the pointer table; 0 when the ROM has none. */
+  /** Slots sharing the placeholder pointer; 0 when the ROM has none. */
   placeholderCount: number
   realCount: number
   parseableCount: number
@@ -74,12 +70,11 @@ export interface LevelCatalog {
 }
 
 /**
- * The placeholder pointer is only a statistical call: nothing here can tell it
- * from a real sublevel reused often. When the runner-up is more than half as
- * common, the roles may be swapped, so say so rather than invert silently.
- * Measured corpus margins are comfortable (placeholder 158-277 slots, largest
- * runner-up 8), so this never fires on a real ROM.
+ * The placeholder is a statistical call, so say so when the roles may be
+ * swapped: a runner-up over half as common, or a placeholder under a tenth of
+ * the slots. Neither fires on the corpus (placeholder 158-277, runner-up <= 8).
  */
+const MIN_PLACEHOLDER_SHARE = 0.1
 const MIN_PLACEHOLDER_MARGIN_RATIO = 2
 
 /**
@@ -161,13 +156,17 @@ export function buildLevelCatalog(rom: SmwRom): LevelCatalog {
   const l1AliasGroupCount = [...l1Groups.values()].filter(m => m.length > 1).length
   const aliasedSlotCount = entries.filter(e => e.l1Aliases.length > 0).length
 
-  if (placeholder && placeholder.count < MIN_PLACEHOLDER_MARGIN_RATIO * placeholder.runnerUpCount) {
-    notes.push(
-      `Placeholder-pointer confidence low: 0x${placeholder.pointer.toString(16).padStart(6, '0')} ` +
-        `appears ${placeholder.count}/${LEVEL_COUNT} times, runner-up appears ${placeholder.runnerUpCount} ` +
-        'times. isReal/parseable below may not reflect true placeholder vs. real slots -- see ' +
-        'docs/ideas/level-classification.md Tier 1.',
-    )
+  if (placeholder) {
+    const shareLow = placeholder.count / LEVEL_COUNT < MIN_PLACEHOLDER_SHARE
+    const marginThin = placeholder.count < MIN_PLACEHOLDER_MARGIN_RATIO * placeholder.runnerUpCount
+    if (shareLow || marginThin) {
+      notes.push(
+        `Placeholder-pointer confidence low: 0x${placeholder.pointer.toString(16).padStart(6, '0')} ` +
+          `appears ${placeholder.count}/${LEVEL_COUNT} times, runner-up appears ${placeholder.runnerUpCount} ` +
+          'times. isReal/parseable below may not reflect true placeholder vs. real slots. ' +
+          'See docs/ideas/level-classification.md, Tier 1.',
+      )
+    }
   }
   if (unreadableRealCount > 0) {
     notes.push(

@@ -21,12 +21,13 @@ from the table and supplies bank `$07` as a literal (`bank_05.asm:7247-7258`).
 That is stock code only: hacks can replace the literal with a per-slot bank
 ([map-data-mechanics.md](rom/map-data-mechanics.md)).
 
-**Empty slot.** A slot whose L1 pointer is the ROM's filler value. On vanilla
-that is `$068000`, shared by 277 slots. The filler is computed per ROM as the
-modal L1 pointer; it is never hardcoded. Empty slots are free space a hack
-author can fill.
-The Maps tree still lists them, as orphans marked placeholder, counted apart
-from the maps: 512 slots listed, 235 maps (#901).
+**Empty slot.** A slot whose L1 pointer is the ROM's placeholder value: the
+most common nonzero L1 pointer, and only when 10 or more slots share it. On
+vanilla that is `$068000`, shared by 277 slots. It is computed per ROM, never
+hardcoded. Empty slots are free space a hack author can fill. The Maps tree
+lists them under the UI name **placeholder**, counted apart from the maps: 512
+slots listed, 235 maps (#901). A placeholder is not a map, so it is not an
+orphaned map either.
 
 **Map.** A slot holding real data. The editable unit, and what a `.smwmap`
 file opens. Vanilla has 235.

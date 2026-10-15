@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
-import { SmwRom, ADDR, LEVEL_COUNT } from '../../../src/rom/SmwRom'
+import { SmwRom, ADDR, LEVEL_COUNT, findPlaceholderPointer } from '../../../src/rom/SmwRom'
 import { loromToOffset } from '../../../src/rom/addressing'
 import { buildLevelCatalog } from '../../../src/rom/LevelCatalog'
 import {
@@ -92,6 +92,25 @@ describe('buildLevelCatalog (synthetic)', () => {
       expect(catalog.notes.length).toBeGreaterThan(0)
     })
 
+    it('flags low confidence with the order reversed: the runner-up is counted when it comes second', () => {
+      // 212 slots on FILLER come first, then 300 on REUSED_REAL: the larger group is
+      // seen second, so the runner-up count is carried over from the displaced best.
+      const REUSED_REAL = 0x058000
+      const rom = buildFakeRom(i => (i < 212 ? FILLER : REUSED_REAL))
+      const catalog = buildLevelCatalog(rom)
+      expect(catalog.fillerPointer).toBe(REUSED_REAL)
+      expect(catalog.notes.join(' ')).toMatch(/runner-up appears 212 times/)
+    })
+
+    it('flags low confidence when the placeholder holds under a tenth of the slots', () => {
+      // 20 of 512 (3.9%) share one pointer, the runner-up has 9: the margin is wide, so
+      // only the share floor can fire. Develop warned here; so does this.
+      const rom = buildFakeRom(i => (i < 20 ? FILLER : i < 29 ? RUNNER_UP : 0x038000 + i))
+      const catalog = buildLevelCatalog(rom)
+      expect(catalog.fillerPointer).toBe(FILLER)
+      expect(catalog.notes.join(' ')).toMatch(/confidence low/)
+    })
+
     it('names no placeholder when every pointer is distinct, and treats every slot as real', () => {
       // Was: the no-threshold mode picked pointers[0] and a note flagged it. The >=10
       // rule (findPlaceholderPointer) now declines, so nothing is invented as filler.
@@ -163,5 +182,16 @@ describe('buildLevelCatalog (synthetic)', () => {
         expect(() => assertCatalogAcceptance(broken, expectedReal, expectedParseable)).toThrow()
       })
     }
+  })
+})
+
+describe('findPlaceholderPointer tie-break', () => {
+  it('on equal counts the pointer first in slot order wins', () => {
+    const A = 0x018000
+    const B = 0x028000
+    const pointers = Array.from({ length: LEVEL_COUNT }, (_, i) =>
+      i < 12 ? A : i < 24 ? B : 0x038000 + i,
+    )
+    expect(findPlaceholderPointer(pointers)).toEqual({ pointer: A, count: 12, runnerUpCount: 12 })
   })
 })

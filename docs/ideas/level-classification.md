@@ -80,9 +80,11 @@ implying orphanhood.
 
 This is the first deliverable and it works on every ROM we have.
 
-A slot is **real** when its L1 pointer is not the filler pointer. The filler is
-computed per ROM as the most frequent L1 pointer across all 512 slots, not
-hardcoded: it is `$068000` on vanilla but must not be assumed.
+A slot is **real** when it has an L1 pointer and that pointer is not the
+placeholder pointer. The placeholder is computed per ROM as the most frequent
+nonzero L1 pointer, and only when 10 or more slots share it
+(`findPlaceholderPointer`, `src/rom/SmwRom.ts`). It is not hardcoded: it is
+`$068000` on vanilla but must not be assumed.
 
 Measured across the corpus:
 

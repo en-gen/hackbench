@@ -81,3 +81,105 @@ describe.skipIf(!hasRoms())('placeholders change no map the tree already listed'
     }
   })
 })
+
+// Measured on develop before #901 (tree rows and counts), so a drift in any row shows here.
+// Literal table, one skipIf describe each: a missing ROM skips visibly instead of vanishing.
+const PINNED = [
+  {
+    rom: 'Super Mario World (USA).vanilla.sfc',
+    maps: 235,
+    entry: 79,
+    orphans: 18,
+    placeholders: 277,
+    special: [
+      [0xc7, 'title-screen'],
+      [0xc5, 'new-game'],
+    ],
+    bonus: [
+      [0x000, 'bonus-game'],
+      [0x100, 'bonus-game'],
+      [0x0c8, 'yoshi-heaven'],
+      [0x1c8, 'yoshi-heaven'],
+    ],
+  },
+  {
+    rom: 'Super Mario World (USA).magic.sfc',
+    maps: 235,
+    entry: 79,
+    orphans: 18,
+    placeholders: 277,
+    special: [
+      [0xc7, 'title-screen'],
+      [0xc5, 'new-game'],
+    ],
+    bonus: [
+      [0x000, 'bonus-game'],
+      [0x100, 'bonus-game'],
+      [0x0c8, 'yoshi-heaven'],
+      [0x1c8, 'yoshi-heaven'],
+    ],
+  },
+  {
+    rom: 'GrandPooWorld_V1.2.sfc',
+    maps: 235,
+    entry: 33,
+    orphans: 200,
+    placeholders: 277,
+    special: [
+      [0xc7, 'title-screen'],
+      [0xc5, 'new-game'],
+    ],
+    bonus: [],
+  },
+  {
+    rom: 'Seven_Vanilla_Levels.sfc',
+    maps: 251,
+    entry: 9,
+    orphans: 240,
+    placeholders: 261,
+    special: [
+      [0xc7, 'title-screen'],
+      [0xc5, 'new-game'],
+    ],
+    bonus: [],
+  },
+  {
+    rom: 'Grand Poo World 2 1.1.sfc',
+    maps: 291,
+    entry: 37,
+    orphans: 253,
+    placeholders: 221,
+    special: [[0xc5, 'new-game']],
+    bonus: [],
+  },
+  {
+    rom: 'Invictus 1.0.sfc',
+    maps: 354,
+    entry: 38,
+    orphans: 315,
+    placeholders: 158,
+    special: [[0xc5, 'new-game']],
+    bonus: [],
+  },
+] as const
+
+for (const p of PINNED) {
+  describe.skipIf(!hasRom(p.rom))(`pinned tree shape: ${p.rom}`, () => {
+    it('lists all 512 slots with the counts, entry maps, special and bonus rows measured before #901', () => {
+      const tree = buildMapTree(new SmwRom(freshRom(p.rom)))
+      const listed = new Set(
+        [...tree.special, ...tree.bonus, ...tree.overworld, ...tree.unassigned].flatMap(n => [
+          n.index,
+          ...n.children.map(c => c.index),
+        ]),
+      )
+      expect(listed.size).toBe(LEVEL_COUNT)
+      expect(tree.mapCount).toBe(p.maps)
+      expect(tree.counts.placeholders).toBe(p.placeholders)
+      expect(tree.counts.unassigned).toBe(p.orphans)
+      expect(tree.overworld).toHaveLength(p.entry)
+      expect(tree.special.map(n => [n.index, n.role])).toEqual(p.special)
+      expect(tree.bonus.map(n => [n.index, n.role])).toEqual(p.bonus)
+    })
+  })
+}

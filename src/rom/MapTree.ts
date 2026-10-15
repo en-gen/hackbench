@@ -68,10 +68,8 @@ export interface MapNode {
    */
   l1Aliases: number[]
   /**
-   * Set on a slot that holds the shared placeholder room (the blocks spelling
-   * "TEST"), and `sharedCount` is how many slots share it, read from the ROM.
-   * Always an orphan: the exit graph never reaches one. Editing it would edit
-   * every slot that shares it, so a view says so.
+   * A slot on the shared placeholder room; `sharedCount` is how many slots
+   * share it. Always an orphan. Editing it edits every sharer, so views say so.
    */
   placeholder?: true
   sharedCount?: number
@@ -146,8 +144,7 @@ export function buildMapTree(
   fingerprints: OverworldFingerprints = STOCK_OVERWORLD_FINGERPRINTS,
 ): MapTree {
   const catalog = buildLevelCatalog(rom)
-  // A placeholder slot is listed but is not a map: it is never a root, a
-  // destination or an entry map, which is how the exit graph already treats it.
+  // Listed but not a map: never a root or destination, as in the exit graph.
   const maps = new Set(catalog.entries.filter(e => e.isReal).map(e => e.index))
   const placeholders = catalog.entries.filter(e => e.placeholder).map(e => e.index)
   const notes = [...catalog.notes]
