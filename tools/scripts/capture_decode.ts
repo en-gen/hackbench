@@ -176,7 +176,11 @@ export function pieceOffset(oamX9: number, oamY: number, spriteX: number, sprite
  * min(-32, -(h-1)): -32 for 8, 16 and 32 lines (#811), -63 for 64. Residual
  * ambiguity, inherent to a Y kept modulo 256: a 64-line piece with top
  * 193..223 reads as top -63..-33 (both show); the above-screen reading is
- * taken. Evidence: synthetic sweeps (#888), no capture checked.
+ * taken. The window assumes a 224-line screen (SMWDisX bank_00.asm:1262);
+ * under 239-line overscan (:1264) an 8 or 16 line piece with top 224..238
+ * reads as -32..-18, and a 32-line piece with top 224 is also wrong (#811
+ * behaviour, unchanged by #888). Evidence: synthetic sweeps (#888), no
+ * capture checked.
  */
 export function unwrapDy(dy: number, spriteY: number, camY: number, height: number) {
   const lo = Math.min(-32, -(height - 1))

@@ -114,7 +114,11 @@ modulo 256 (`headless_capture.lua:1389`), so `unwrapDy` restores the multiple
 of 256 that puts the piece top in a 256-wide window starting at
 min(-32, -(h-1)) for piece height h (-32 up to 32 lines, -63 at 64, #888).
 A 64-line piece with top 193..223 reads as top -63..-33: a Y kept modulo 256
-cannot tell the two apart. The viewer keeps relative pieces in the
+cannot tell the two apart. The window assumes a 224-line screen
+(SMWDisX `bank_00.asm:1262`): under 239-line overscan (`:1264`) a piece of 8
+or 16 lines with top 224..238 reads as top -32..-18, and a 32-line piece with
+top 224 is also wrong. That came before #888 (#811) and is unchanged (synthetic
+sweep, no capture checked). The viewer keeps relative pieces in the
 224-255 band (the recorder already omits Y $F0); only the entries path drops
 Y $F0, and a frame left with no pieces draws nothing. Evidence: synthetic
 records and sweeps in `CaptureOracle.synthetic.test.ts` and `CaptureRender.synthetic.test.ts`; no
