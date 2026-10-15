@@ -942,8 +942,9 @@ export function handle_0DB224(cur: Cursor): void {
  *
  * The low nibble of the size byte (modulo 10) selects one of 10 pipe shapes,
  * each with its own handler in the ASM. High nibble is a length/height
- * parameter whose meaning varies by variant. The dispatch table lives right
- * after the JSL at $0DAB52; each entry's handler follows.
+ * parameter whose meaning varies by variant. JSL ExecutePtrLong is at $0DAB4C
+ * (bank_0D.asm:2288); the 10 x 3-byte `dl` table follows at $0DAB50, which is
+ * handlerAddr + 18 (bank_0D.asm:2290-2299), and variant 0 starts at $0DAB6E.
  *
  * We skip the CODE_0DABFD / CODE_0DB84E context-merging helpers (which read
  * the existing tile and blend pipe lips with neighbor terrain); the raw tile
@@ -953,7 +954,7 @@ export function handle_0DB224(cur: Cursor): void {
 export function handle_0DAB3E(cur: Cursor): void {
   // The ASM reduces low nibble modulo 10 (CODE_0DAB42 loop), then does
   // JSL ExecutePtrLong which reads a 3-byte long pointer from the table
-  // immediately after the JSL. That table lives at cur.handlerAddr + 18.
+  // placed right after the 4-byte JSL ($0DAB4C + 4 = $0DAB50, handlerAddr + 18).
   const variant = (cur.size & 0x0f) % 10
   const tableBase = cur.handlerAddr + 18
   const target = mirror(readLongOperand(cur, tableBase + variant * 3))
