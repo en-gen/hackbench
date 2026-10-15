@@ -111,7 +111,7 @@ export const DATA_05F800_ADDR = 0x05f800
 /** SNES address of DATA_05FA00 - secondary-entrance settings (bits 5:4 index DATA_05D708 for camera Y). */
 export const DATA_05FA00_ADDR = 0x05fa00
 
-/** SNES address of DATA_05FC00 - secondary-entrance extra bits (bit 0 is target level HIGH byte). */
+/** SNES address of DATA_05FC00 - secondary-entrance X index (bits 7:5) and entrance screen (bits 4:0); no level byte. */
 export const DATA_05FC00_ADDR = 0x05fc00
 
 /**
@@ -120,7 +120,7 @@ export const DATA_05FC00_ADDR = 0x05fc00
  */
 const DATA_05D708_ADDR = 0x05d708
 
-/** Max secondary-entrance index (9-bit: bit 0 of DATA_05FC00 extends to 0x1FF). */
+/** Secondary-entrance count: the submap flag is bit 8 of the index (bank_05.asm:7103-7117), so 0..0x1FF. */
 const SECONDARY_ENTRANCE_COUNT = 0x200
 
 /**
@@ -133,10 +133,11 @@ const SECONDARY_ENTRANCE_COUNT = 0x200
  */
 export function findSecondaryEntranceForLevel(rom: RomFile, levelId: number): number | null {
   for (let e = 0; e < SECONDARY_ENTRANCE_COUNT; e++) {
+    // WHY: the destination high byte is the submap flag _F, which also is bit 8 of the index
+    // (bank_05.asm:7103-7110 sets _F; :7116-7118 reads DATA_05F800 at (_F<<8)|ExitTableLow and
+    // leaves _F alone). DATA_05FC00 is X index and screen only (:7147-7158, :7376-7388).
     const lo = rom.readByte(DATA_05F800_ADDR + e) ?? 0
-    const hi = (rom.readByte(DATA_05FC00_ADDR + e) ?? 0) & 0x01
-    const target = (hi << 8) | lo
-    if (target === levelId) return e
+    if (((e & 0x100) | lo) === levelId) return e
   }
   return null
 }
