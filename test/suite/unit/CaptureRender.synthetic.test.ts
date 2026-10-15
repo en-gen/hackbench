@@ -203,6 +203,8 @@ describe('capture map gates', () => {
     ['16x16 BG2 chars', () => edit('ppu.json', o => (o.BGMODE_2105 = { byte: 0x29 }))],
     ['16x16 BG3 chars', () => edit('ppu.json', o => (o.BGMODE_2105 = { byte: 0x49 }))],
     ['a missing register', () => edit('ppu.json', o => delete o.OBSEL_2101)],
+    ['a missing TM', () => edit('ppu.json', o => delete o.TM_212C)],
+    ['a missing TS', () => edit('ppu.json', o => delete o.TS_212D)],
     ['no camera', () => edit('ppu.json', o => delete o.camera)],
     ['another tile-id rule', () => edit('map16_grid.json', o => (o.tileId = '(high & 3) * 256 + low'))],
     ['another vertical layout', () => edit('map16_grid.json', o => (o.inScreen = { vertical: 'row*$20 + col' }), true)],
