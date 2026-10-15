@@ -165,13 +165,33 @@ export function tilemapWordAddr(sc: number, tx: number, ty: number): number {
 
 /**
  * Mode 1, front to back, as [layer, priority]: layers 0 BG1, 1 BG2, 2 BG3,
- * 3 OBJ. BGMODE bit 3 lifts BG3's high plane to the very front.
+ * 3 OBJ. BGMODE bit 3 lifts BG3's high plane to the very front. TM/TS ($212C,
+ * $212D) pick the screen: a layer only on the subscreen goes behind every
+ * main-screen layer (SMWDisX bank_05.asm:485-494 sets TM $15, TS $02 so BG2
+ * sits behind BG3), and one in neither is still drawn, at the back, so no
+ * layer is hidden (hardware would show nothing for it). Known limit: no colour-math blending of the subscreen.
  */
-export function layerOrder(bgmode: number): number[][] {
+export function layerOrder(bgmode: number, tm: number, ts: number): number[][] {
   const top = bgmode & 8 ? [[2, 1]] : []
   const low = bgmode & 8 ? [] : [[2, 1]]
   // prettier-ignore
-  return [...top, [3, 3], [0, 1], [1, 1], [3, 2], [0, 0], [1, 0], [3, 1], ...low, [3, 0], [2, 0]]
+  const order = [...top, [3, 3], [0, 1], [1, 1], [3, 2], [0, 0], [1, 0], [3, 1], ...low, [3, 0], [2, 0]]
+  const tier = (l: number) => {
+    const bit = 1 << (l === 3 ? 4 : l) // OBJ is bit 4 in TM/TS
+    return tm & bit ? 0 : ts & bit ? 1 : 2
+  }
+  return [0, 1, 2].flatMap(t => order.filter(([l]) => tier(l) === t))
+}
+
+/** The passes the viewer draws, front to back: `on` per layer, `plane` 'both' | 'high' | 'low' for the BG planes (OBJ always). */
+export function drawPasses(
+  regs: { BGMODE_2105: number; TM_212C: number; TS_212D: number },
+  on: boolean[],
+  plane: string,
+): number[][] {
+  return layerOrder(regs.BGMODE_2105, regs.TM_212C, regs.TS_212D).filter(
+    ([l, p]) => on[l] && (l === 3 || plane === 'both' || (plane === 'high') === (p === 1)),
+  )
 }
 
 /** OBJ width and height for OBSEL's size mode, small (0) or large (1). */

@@ -6,6 +6,9 @@
  * Fixtures are laid out with their own arithmetic, not the module's
  * helpers, so a helper bug cannot also shape the expected bytes.
  */
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { buildSync } from 'esbuild'
 import { describe, expect, it } from 'vitest'
 import * as D from '../../../tools/scripts/capture_decode'
 import { fixture, NAMES, POS, addr64 } from './fixtures/captureFixture'
@@ -411,8 +414,104 @@ describe('SNES decoders', () => {
       [1, 0],
       [3, 1],
     ]
-    expect(D.layerOrder(0x09)).toEqual([[2, 1], ...mid, [3, 0], [2, 0]])
-    expect(D.layerOrder(0x01)).toEqual([...mid, [2, 1], [3, 0], [2, 0]])
+    expect(D.layerOrder(0x09, 0x1f, 0)).toEqual([[2, 1], ...mid, [3, 0], [2, 0]])
+    expect(D.layerOrder(0x01, 0x1f, 0)).toEqual([...mid, [2, 1], [3, 0], [2, 0]])
+  })
+
+  // Layer 0 BG1, 1 BG2, 2 BG3, 3 OBJ; TM/TS bit 4 is OBJ. Index of the first pass of a layer at that priority.
+  const at = (o: number[][], layer: number, prio: number) =>
+    o.findIndex(([l, p]) => l === layer && p === prio)
+
+  it('draws a subscreen-only layer behind the main screen (#903: TM $15, TS $02)', () => {
+    const o = D.layerOrder(0x01, 0x15, 0x02)
+    expect(at(o, 2, 1)).toBeLessThan(at(o, 1, 1)) // Layer 3 over Layer 2
+    expect(at(o, 0, 0)).toBeLessThan(at(o, 2, 1)) // Layer 1 low still over Layer 3
+    expect(at(o, 0, 0)).toBeLessThan(at(o, 1, 0))
+  })
+
+  it('keeps Layer 3 under Layer 2 when both are on the main screen (TM $17, TS $00)', () => {
+    const o = D.layerOrder(0x01, 0x17, 0x00)
+    expect(at(o, 1, 0)).toBeLessThan(at(o, 2, 1))
+  })
+
+  it('puts a lone main-screen Layer 3 over the subscreen layers (TM $04, TS $13)', () => {
+    const o = D.layerOrder(0x01, 0x04, 0x13)
+    const l3 = Math.max(at(o, 2, 0), at(o, 2, 1))
+    for (const [i, [l]] of o.entries()) if (l !== 2) expect(i).toBeGreaterThan(l3)
+  })
+
+  type Order = (bgmode: number, tm: number, ts: number) => number[][]
+  /** Every TM/TS pair and both BG3 priorities: main, then sub-only, then neither; each tier keeps the mode 1 order; nothing hidden. */
+  const orderFaults = (order: Order) => {
+    const faults: string[] = []
+    for (const bgmode of [1, 9])
+      for (let tm = 0; tm < 32; tm++)
+        for (let ts = 0; ts < 32; ts++) {
+          const o = order(bgmode, tm, ts)
+          const base = order(bgmode, 0x1f, 0).map(String)
+          const tierOf = ([l]: number[]) => {
+            const bit = 1 << (l === 3 ? 4 : l)
+            return tm & bit ? 0 : ts & bit ? 1 : 2
+          }
+          const ok =
+            o.length === 10 &&
+            o.every((x, i) => i === 0 || tierOf(o[i - 1]) <= tierOf(x)) &&
+            [0, 1, 2].every(t => {
+              const mine = o.filter(x => tierOf(x) === t).map(String)
+              return JSON.stringify(mine) === JSON.stringify(base.filter(x => mine.includes(x)))
+            })
+          if (!ok) faults.push(`${bgmode}/${tm}/${ts}`)
+        }
+    return faults
+  }
+
+  it('sweeps every TM/TS pair and both BG3 priorities', () => {
+    expect(orderFaults(D.layerOrder)).toEqual([])
+  })
+
+  it('anchors layers on neither screen at the back and OBJ-only first', () => {
+    const sub = D.layerOrder(0x01, 0x00, 0x01)
+    expect(at(sub, 0, 1)).toBeLessThan(at(sub, 3, 3)) // BG1 on the subscreen before OBJ in neither
+    const sub4 = D.layerOrder(0x01, 0x04, 0x01)
+    expect(at(sub4, 2, 0)).toBeLessThan(at(sub4, 0, 1)) // BG3 main, BG1 sub
+    expect(at(sub4, 0, 1)).toBeLessThan(at(sub4, 3, 3)) // BG1 sub, OBJ neither
+    expect(
+      D.layerOrder(0x01, 0x10, 0)
+        .slice(0, 4)
+        .map(x => x[0]),
+    ).toEqual([3, 3, 3, 3])
+  })
+
+  it('a layerOrder that ignores TS fails the sweep (real mutant of capture_draw.ts)', () => {
+    const src = readFileSync(resolve(__dirname, '../../../tools/scripts/capture_draw.ts'), 'utf8')
+    const from = 'ts & bit ? 1 : 2'
+    expect(src.split(from)).toHaveLength(2) // matched exactly once
+    const build = (code: string): Order => {
+      const out = buildSync({
+        stdin: { contents: code, resolveDir: resolve(__dirname, '../../../tools/scripts'), loader: 'ts' },
+        bundle: true, write: false, format: 'iife', globalName: 'M', platform: 'node',
+      }).outputFiles[0].text // prettier-ignore
+      return new Function(`${out}; return M.layerOrder`)()
+    }
+    expect(orderFaults(build(src))).toEqual([])
+    expect(orderFaults(build(src.replace(from, '2'))).length).toBeGreaterThan(0)
+  })
+
+  it('selects the viewer passes from TM_212C then TS_212D, honouring layer and plane filters', () => {
+    const regs = { BGMODE_2105: 1, TM_212C: 0x15, TS_212D: 0x02 }
+    const all = [true, true, true, true]
+    expect(D.drawPasses(regs, all, 'both')).toEqual(D.layerOrder(1, 0x15, 0x02))
+    expect(D.drawPasses({ ...regs, TM_212C: 0x02, TS_212D: 0x15 }, all, 'both')).toEqual(
+      D.layerOrder(1, 0x02, 0x15),
+    )
+    expect(D.drawPasses(regs, [true, false, true, false], 'high').every(([l, p]) => (l === 0 || l === 2) && p === 1)).toBe(true) // prettier-ignore
+    const low = D.drawPasses(regs, all, 'low')
+    expect(low).toEqual(D.layerOrder(1, 0x15, 0x02).filter(([l, p]) => l === 3 || p === 0))
+    expect(low.filter(([l]) => l !== 3).every(([, p]) => p === 0)).toBe(true)
+    expect(low.filter(([l]) => l === 3)).toEqual(
+      D.layerOrder(1, 0x15, 0x02).filter(([l]) => l === 3),
+    )
+    expect(D.drawPasses(regs, [true, false, true, false], 'low').every(([l, p]) => (l === 0 || l === 2) && p === 0)).toBe(true) // prettier-ignore
   })
 
   it('decodes OAM with the high table, OBSEL sizes and both name bases', () => {
