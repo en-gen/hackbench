@@ -22,6 +22,7 @@ import { buildScrollSimulator } from '../scrollSim'
 import { buildBgTiles, buildL2 } from './L2Factory'
 import { buildL3 } from './L3Factory'
 import { readInitialLayer1YPos } from '../L3Loader'
+import { entrancePositionGate } from '../SubmapFlagGate'
 import { readMapEntrances } from '../ReadMapEntrances'
 import { readMarioStartPos } from '../MarioStartPos'
 import type { MapPayload } from './MapPayload'
@@ -271,6 +272,7 @@ export function buildMapWithGraph(
     levelOrientation: orientation,
     screenPipeVariantIdx,
     initialCameraYPx,
+    entranceUnverified: entrancePositionGate(rom.rom) ?? undefined,
     marioSpawnX: marioStartPx.x,
     scrollSimulator,
   })

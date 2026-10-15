@@ -21,6 +21,7 @@ import { readL3SmashLoadPos, type L3SmashResult } from '../L3Smash'
 import { readLayer3Setting } from '../ObjectExpander'
 import type { MapEntrances } from '../SmwRom'
 import type { L1Inputs } from './L1Model'
+import { entrancePositionGate } from '../SubmapFlagGate'
 import { effectiveCgadsub } from './ColorMath'
 import { FALLBACK_SCREENS, screenPlanes, type ScreenPlanes } from './ScreenPlanes'
 
@@ -38,6 +39,8 @@ export interface L3Inputs {
   camYPx: number
   /** A tide ($00-$7F settings byte) tiles every 256 px and draws one copy of its two-copy tilemap. */
   tide: boolean
+  /** Set when the code that reads `camYPx` is not stock (#860): the value is a best reading, not confirmed. */
+  camYUnverified?: string
 }
 
 export interface L3Verdict {
@@ -65,6 +68,7 @@ export function buildL3Verdict(
   gate: L3CodeGate = readL3CodeGate(rom),
   smash: (rom: RomFile, index: number) => L3SmashResult = readL3SmashLoadPos,
   entrances?: MapEntrances,
+  startSpans?: Parameters<typeof entrancePositionGate>[1],
 ): L3Verdict {
   const priority = l1.header.layer3Priority
   const base = { priority, screens: FALLBACK_SCREENS, cgadsub: null, layer2Interactive: false }
@@ -134,6 +138,7 @@ export function buildL3Verdict(
       xPx: pos.x,
       yPx: pos.y,
       camYPx: readInitialLayer1YPos(rom, index, false, entrances),
+      camYUnverified: entrancePositionGate(rom, startSpans) ?? undefined,
       // $00 is Layer3TideSetting 0: no tide (it is camera-locked or Castle1/Underground1's half-speed scroll).
       tide: load.settingsByte !== 0 && load.settingsByte < 0x80,
     },

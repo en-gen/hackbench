@@ -343,6 +343,9 @@ export function screenResult(
     layerNotes: [
       model.l2 && !model.l2.ok ? `The background is not drawn: ${model.l2.reason}` : '',
       model.l2?.ok ? (model.l2.l2.note ?? '') : '',
+      model.l3?.l3?.camYUnverified
+        ? `Layer 3 position unverified: ${model.l3.l3.camYUnverified}`
+        : '',
       model.orderNote ? `Layer order unverified, drawn as BG mode 1: ${model.orderNote}` : '',
     ].filter(Boolean),
     backdrop: [model.backArea[0], model.backArea[1], model.backArea[2]],

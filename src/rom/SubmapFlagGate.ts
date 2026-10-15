@@ -151,6 +151,17 @@ export const LEVEL_START_Y: readonly (StockCode | StockSpan)[] = [
 ]
 
 /**
+ * Why the entrance-position readers (`readInitialLayer1YPos`, `readInitialLayer2YPos`: F400/F600,
+ * FA00/FC00 through DATA_05D708/D70C) may not describe this ROM, or null when the code reading
+ * them is stock. Covers the FA00/FC00 reads (bank_05.asm:7120-7158, first span) and the F400/F600
+ * reads (:7323-7337, :7376-7393, second span). The `$05D8B1` entry byte between them is not covered
+ * (LevelStart's `startGate` owns it; a Lunar Magic save hooks it legitimately). Callers draw the
+ * value anyway and say it is unverified.
+ */
+export const entrancePositionGate = (rom: RomFile, spans = LEVEL_START_Y): string | null =>
+  stockCodeMismatch(rom, spans)
+
+/**
  * The high byte `LDA #imm` at `at` loads for a submap, or a refusal: the
  * pointer table has $200 slots, so only 0 and 1 name one.
  */
