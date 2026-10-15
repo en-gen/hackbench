@@ -21,6 +21,7 @@ import { buildScrollSimulator } from '../scrollSim'
 import { buildBgTiles, buildL2 } from './L2Factory'
 import { buildL3 } from './L3Factory'
 import { readInitialLayer1YPos } from '../L3Loader'
+import { readMapEntrances } from '../ReadMapEntrances'
 import { readMarioStartPos } from '../MarioStartPos'
 import type { MapPayload } from './MapPayload'
 import { buildPalette } from './palette/PaletteFactory'
@@ -142,9 +143,13 @@ export function buildMapWithGraph(
   // L2 layer purely for diagnostic labelling on the scroll-range overlay.
   const layer1ScrollCmd = findLevelScrollSprite(levelSprites)
 
+  // How the game enters this map (the exit graph), which picks the entrance its initial camera
+  // Y is read from; undefined (graph unavailable) reads the main entrance.
+  const via = readMapEntrances(rom)?.get(levelId)
+
   // Initial Layer1YPos (camera Y) used by L2/L3 render-time offset math.
   // Hoisted above buildL2 so it can flow into computeL2ScrollRange.
-  const initialCameraYPx = readInitialLayer1YPos(rom.rom, levelId, isVertical)
+  const initialCameraYPx = readInitialLayer1YPos(rom.rom, levelId, isVertical, via)
 
   // Mario spawn - needed by the scroll simulator's seed and by the
   // `faceRight` resolution in buildSprites. Nothing reads the
@@ -179,7 +184,7 @@ export function buildMapWithGraph(
   const setupState = scrollSpriteFull
     ? simulateScrollSetup(rom.rom, scrollSpriteFull.spriteId, scrollSpriteFull.b0)
     : null
-  const initialLayer2YPx = readInitialLayer2YPos(rom.rom, levelId, isVertical)
+  const initialLayer2YPx = readInitialLayer2YPos(rom.rom, levelId, isVertical, via)
   const scrollSimulator = setupState
     ? buildScrollSimulator(rom.rom, {
         layer1XPos: 0, // horizontal levels start at 0
@@ -211,6 +216,7 @@ export function buildMapWithGraph(
     layer1ScrollCmd,
     initialCameraYPx,
     verticalTable,
+    via,
   )
   const l3 = buildL3(rom.rom, levelId, tileset, l3Chars, screens, isVertical, rawHeader.timeLimit)
 

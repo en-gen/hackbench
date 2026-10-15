@@ -31,7 +31,8 @@ import { decompressRle1 } from './LcRle1'
 import { parseL2Objects, SCREEN_W, SCREEN_H, type LevelSprite } from './LevelParser'
 import { expandObject, createGrid, SWITCH_FLAGS_UNCLEARED } from './ObjectExpander'
 import { OWNER_NONE } from './objectHandlers/cursor'
-import { findSecondaryEntranceForLevel } from './L3Loader'
+import { chooseEntrance } from './L3Loader'
+import type { MapEntrances } from './SmwRom'
 
 /** L2 pointer table base. 3 bytes per level: lo, hi, bank. */
 export const L2_POINTER_TABLE = 0x05e600
@@ -363,14 +364,14 @@ const DATA_05D710_ADDR = 0x05d710
 const DATA_05D70C_ADDR = 0x05d70c
 
 /**
- * Read the initial `Layer2YPos` (BG2VOFS) byte for a level, picking the
- * primary entrance for main levels ($000-$0FF) and the secondary entrance
- * that targets the level for sublevels ($100-$1FF).
+ * Read the initial `Layer2YPos` (BG2VOFS) byte for a map, from the entrance
+ * `chooseEntrance(via)` picks (see L3Loader.ts): the main entrance unless only
+ * secondary entrances enter the map; no `via` is the main entrance.
  *
- * Primary path (bank_05.asm:7323-7328):
+ * Main path (bank_05.asm:7323-7328):
  *   Layer2YPos = DATA_05D70C[DATA_05F400[level] & $03]
  *
- * Secondary path (bank_05.asm:7137-7146; reached via pipe/door entrance):
+ * Secondary path (bank_05.asm:7137-7146; a row the ROM is too short to hold is the main path):
  *   Layer2YPos = DATA_05D70C[(DATA_05FA00[entranceId] >> 6) & $03]
  *
  * Vertical levels (bank_05.asm:7386-7393): same low byte, plus the high byte
@@ -381,26 +382,20 @@ const DATA_05D70C_ADDR = 0x05d70c
  * Bit positions differ from the L1 sibling: L2 uses bits 1:0 of F400 / bits
  * 7:6 of FA00, where L1 uses bits 3:2 / bits 5:4 of the same bytes.
  */
-export function readInitialLayer2YPos(rom: RomFile, levelId: number, isVertical = false): number {
+export function readInitialLayer2YPos(
+  rom: RomFile,
+  levelId: number,
+  isVertical = false,
+  via?: MapEntrances,
+): number {
+  const entrance = chooseEntrance(via)
+  const faByte = entrance === null ? null : rom.readByte(DATA_05FA00_ADDR + entrance)
   let loByte: number
-  if (levelId >= 0x100) {
-    const entrance = findSecondaryEntranceForLevel(rom, levelId)
-    if (entrance !== null) {
-      const faByte = rom.readByte(DATA_05FA00_ADDR + entrance) ?? 0
-      const idx = (faByte >> 6) & 0x03
-      loByte = rom.readByte(DATA_05D70C_ADDR + idx) ?? 0
-    } else {
-      // Primary fallback for sublevels with no targeting entrance - same path
-      // as the standard primary load. Mirrors readInitialLayer1YPos's fallback
-      // at L3Loader.ts:260-266.
-      const settings = rom.readByte(DATA_05F400_ADDR + levelId) ?? 0
-      const idx = settings & 0x03
-      loByte = rom.readByte(DATA_05D70C_ADDR + idx) ?? 0
-    }
+  if (faByte !== null) {
+    loByte = rom.readByte(DATA_05D70C_ADDR + ((faByte >> 6) & 0x03)) ?? 0
   } else {
     const settings = rom.readByte(DATA_05F400_ADDR + levelId) ?? 0
-    const idx = settings & 0x03
-    loByte = rom.readByte(DATA_05D70C_ADDR + idx) ?? 0
+    loByte = rom.readByte(DATA_05D70C_ADDR + (settings & 0x03)) ?? 0
   }
 
   if (!isVertical) return loByte

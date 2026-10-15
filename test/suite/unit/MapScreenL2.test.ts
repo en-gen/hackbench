@@ -517,6 +517,10 @@ describe('buildL2Inputs (synthetic ROM)', () => {
         throw new Error('boom')
       })
       expect(readMapEntrances(smw, SYNTHETIC_FINGERPRINTS)).toBeUndefined()
+      // ...and then it reads the MAIN entrance (F400 here: both indexes 0), never entrance $110's row
+      // ($40 - $60): the stock destination formula is not applied where the graph is unavailable.
+      const noGraph = ok(buildL2Inputs(smw, 0x177, inputs(hGrid(1), false, 1), undefined, stock))
+      expect(noGraph.dy).toBe(0x00 - 0x60)
     })
 
     it('a map nothing is known to reach keeps the primary reading, with no note', () => {

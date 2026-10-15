@@ -17,11 +17,10 @@ import {
   readL3SettingsByte,
   loadL3Tilemap,
   readInitialLayer1YPos,
-  readMarioStartPos,
-  findSecondaryEntranceForLevel,
   classifyL3Routine,
   readL3RoutineSummary,
 } from '../../../src/rom/L3Loader'
+import { readMapEntrances } from '../../../src/rom/ReadMapEntrances'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { buildMapWithGraph } from '../../../src/rom/model/MapBuilder'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
@@ -375,27 +374,6 @@ describe.skipIf(!romPresent)('L3Loader (ROM-only)', () => {
     }
   })
 
-  it('readMarioStartPos decodes level $01B primary entrance (Mario at col 1 row 22)', () => {
-    // DATA_05F000[$1B] = $4B → Y idx $B → DATA_05D730[$B]=$60, DATA_05D740[$B]=$01
-    //   → Y = $0160 = 352 px (row 22).
-    // DATA_05F200[$1B] = $00 → X idx 0 → DATA_05D750[0]=$10, DATA_05D758[0]=$00
-    //   → X = $0010 = 16 px (col 1).
-    const rom = SmwRom.open(ROM_PATH)
-    const pos = readMarioStartPos(rom.rom, 0x01b)
-    expect(pos).toEqual({ x: 0x0010, y: 0x0160 })
-  })
-
-  it('readMarioStartPos follows the secondary entrance for sublevel $102', () => {
-    // $102 is only reachable via secondary entrance $1BE. DATA_05FA00[$1BE]
-    // provides the Y index; DATA_05FC00[$1BE] >> 5 provides the X index.
-    const rom = SmwRom.open(ROM_PATH)
-    const pos = readMarioStartPos(rom.rom, 0x102)
-    // Values come from the ROM; assert basic shape + within legal pixel range.
-    expect(pos.x).toBeGreaterThanOrEqual(0)
-    expect(pos.x).toBeLessThanOrEqual(0x1e0)
-    expect(pos.y).toBeGreaterThanOrEqual(0)
-  })
-
   it('primary-entrance camera Y reads from DATA_05F400 bits 3:2, not DATA_05F200', () => {
     // bank_05.asm:7323-7335: the level-load path reloads `_2` from
     // $05F400[level] before extracting bits 3:2 to index DATA_05D708. Earlier
@@ -419,8 +397,9 @@ describe.skipIf(!romPresent)('L3Loader (ROM-only)', () => {
     // tables put camera Y at 0 (wrong), but $05FA00[$1BE] = $AB → bits 5:4 = 2
     // → DATA_05D708[2] = $C0 = 192. This places the tide water at level Y 384.
     const rom = SmwRom.open(ROM_PATH)
-    expect(findSecondaryEntranceForLevel(rom.rom, 0x102)).toBe(0x1be)
-    const camY = readInitialLayer1YPos(rom.rom, 0x102, false)
+    const via = readMapEntrances(rom)?.get(0x102)
+    expect(via?.secondary[0]).toBe(0x1be)
+    const camY = readInitialLayer1YPos(rom.rom, 0x102, false, via)
     expect(camY).toBe(0xc0) // = 192
     // Derived: wave row 32 with Tide_Stationary ($40): pixelY = 256 - 64 + 192 = 384
     const load = loadL3Tilemap(rom.rom, 0x102, 8)

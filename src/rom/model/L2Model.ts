@@ -115,9 +115,8 @@ function dyFromEntrances(
 /**
  * Read one map's L2, or why it cannot be read. Never a vanilla fallback. `entrances` is how the
  * game enters the map (`SmwRom.buildLevelExitGraph`); `startGate` names why the level-load code
- * is not stock, or null. Without entrances the position is the older
- * reading: F400/F600 for a $0xx map, and for a $1xx map the low bytes of the first FA00 entrance
- * `findSecondaryEntranceForLevel` names, mixed with the map's own F600 high byte.
+ * is not stock, or null. Without entrances (graph unavailable) the position is the main entrance's
+ * F400/F600, never a secondary entrance's row.
  */
 export function buildL2Inputs(
   rom: SmwRom,
@@ -137,7 +136,7 @@ export function buildL2Inputs(
   // older reading described above.
   const entryVertical = ((rom.rom.readByte(0x05f600 + index) ?? 0) & 0x20) !== 0
   const known = dyFromEntrances(rom.rom, index, entrances)
-  const dy = (): number => known?.dy ?? readInitialLayer1YPos(rom.rom, index, entryVertical) - readInitialLayer2YPos(rom.rom, index, entryVertical) // prettier-ignore
+  const dy = (): number => known?.dy ?? readInitialLayer1YPos(rom.rom, index, entryVertical, entrances) - readInitialLayer2YPos(rom.rom, index, entryVertical, entrances) // prettier-ignore
   // The tables are the game's only while the code reading them is stock (LEVEL_START_Y): if not,
   // the best reading still draws, said to be unverified.
   const gate = startGate(rom.rom)

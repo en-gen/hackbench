@@ -8,7 +8,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { readInitialLayer2YPos } from '../../../src/rom/L2Loader'
-import { findSecondaryEntranceForLevel } from '../../../src/rom/L3Loader'
+import { readMapEntrances } from '../../../src/rom/ReadMapEntrances'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
 
@@ -48,8 +48,9 @@ describe.skipIf(!romPresent)('L2Loader.readInitialLayer2YPos (ROM-only)', () => 
     // For $102 (Yoshi's Island 4 sublevel, only reachable via entrance $1BE):
     //   FA00[$1BE] = $AB -> bits 7:6 = 2 -> D70C[2] = $C0.
     const rom = SmwRom.open(ROM_PATH)
-    expect(findSecondaryEntranceForLevel(rom.rom, 0x102)).toBe(0x1be)
-    expect(readInitialLayer2YPos(rom.rom, 0x102, false)).toBe(0xc0)
+    const via = readMapEntrances(rom)?.get(0x102)
+    expect(via?.secondary[0]).toBe(0x1be)
+    expect(readInitialLayer2YPos(rom.rom, 0x102, false, via)).toBe(0xc0)
   })
 
   it('sublevel without targeting entrance falls back to primary-path bits', () => {
@@ -58,8 +59,9 @@ describe.skipIf(!romPresent)('L2Loader.readInitialLayer2YPos (ROM-only)', () => 
     // matching readInitialLayer1YPos's same fallback at L3Loader.ts:260-266.
     //   F400[$111] = $0A -> bits 1:0 = 2 -> D70C[2] = $C0.
     const rom = SmwRom.open(ROM_PATH)
-    expect(findSecondaryEntranceForLevel(rom.rom, 0x111)).toBe(null)
-    expect(readInitialLayer2YPos(rom.rom, 0x111, false)).toBe(0xc0)
+    const via = readMapEntrances(rom)?.get(0x111)
+    expect(via?.secondary ?? []).toEqual([])
+    expect(readInitialLayer2YPos(rom.rom, 0x111, false, via)).toBe(0xc0)
   })
 
   it('loader is agnostic to preset-BG vs object-stream classification', () => {

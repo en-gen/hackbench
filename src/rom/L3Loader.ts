@@ -44,6 +44,7 @@
  */
 
 import type { RomFile } from './RomFile'
+import type { MapEntrances } from './SmwRom'
 import { readLayer3Setting } from './ObjectExpander'
 
 // ── VRAM / table addresses ────────────────────────────────────────────────────
@@ -120,26 +121,26 @@ export const DATA_05FC00_ADDR = 0x05fc00
  */
 const DATA_05D708_ADDR = 0x05d708
 
-/** Secondary-entrance count: the submap flag is bit 8 of the index (bank_05.asm:7103-7117), so 0..0x1FF. */
-const SECONDARY_ENTRANCE_COUNT = 0x200
-
 /**
- * Find the secondary entrance that targets the given level number, if any.
- * Returns the entrance ID (0..$1FF), or null if no entrance points here.
+ * The secondary entrance a map's initial camera is read from, or null for its main entrance.
  *
- * Sublevels (range $100-$1FF) are only reachable via secondary entrances
- * (pipes/doors), so their primary-entrance Layer1YPos data is not what the
- * game actually uses when Mario enters the level.
+ * The game reads the main entrance (DATA_05F000.. by map) when the overworld or a screen exit
+ * without UseSecondaryExit enters the map, and a secondary entrance's row only when the flag is
+ * set (bank_05.asm:7111-7162 vs 7300-7337). So: overworld or main-exit entered, main; else the
+ * lowest secondary index that enters it; else (filler such as $100) main. `via` is the exit
+ * graph's `MapEntrances` for the map. Undefined means the graph is unavailable (a hooked hack):
+ * main, never the stock destination formula applied to tables whose reader may not be stock.
+ * The destination of an entrance is decided by the graph (bit 8 of the index, then DATA_05F800,
+ * :7103-7118), not here.
  */
-export function findSecondaryEntranceForLevel(rom: RomFile, levelId: number): number | null {
-  for (let e = 0; e < SECONDARY_ENTRANCE_COUNT; e++) {
-    // WHY: the destination high byte is the submap flag _F, which also is bit 8 of the index
-    // (bank_05.asm:7103-7110 sets _F; :7116-7118 reads DATA_05F800 at (_F<<8)|ExitTableLow and
-    // leaves _F alone). DATA_05FC00 is X index and screen only (:7147-7158, :7376-7388).
-    const lo = rom.readByte(DATA_05F800_ADDR + e) ?? 0
-    if (((e & 0x100) | lo) === levelId) return e
-  }
-  return null
+export function chooseEntrance(via?: MapEntrances): number | null {
+  if (!via || via.overworld || via.primary) return null
+  return via.secondary.length > 0 ? Math.min(...via.secondary) : null
+}
+
+/** DATA_05FA00 for an entrance, or null when the ROM ends before it (never a phantom 0). */
+function secondaryRow(rom: RomFile, entrance: number | null): number | null {
+  return entrance === null ? null : rom.readByte(DATA_05FA00_ADDR + entrance)
 }
 
 /**
@@ -222,10 +223,11 @@ export function applyInitialTimer(rom: RomFile, tilemap: Uint16Array, timeLimit:
 }
 
 /**
- * Return the initial Layer1YPos (camera Y) in pixels for a level, picking the
- * correct entrance based on level number.
+ * Return the initial Layer1YPos (camera Y) in pixels for a map, from the entrance
+ * `chooseEntrance(via)` picks: the main entrance, or the lowest secondary one when no
+ * overworld tile or main-entrance exit enters the map.
  *
- * Primary entrances (levels $000-$0FF, bank_05.asm:7323-7335):
+ * Main entrance (bank_05.asm:7323-7335):
  *   Layer1YPos = DATA_05D708[bits 3:2 of DATA_05F400[level]]
  *
  *   ↑ NOTE: bits come from DATA_05F400, NOT DATA_05F200. The ASM at lines
@@ -235,8 +237,8 @@ export function applyInitialTimer(rom: RomFile, tilemap: Uint16Array, timeLimit:
  *     producing camera Y = $00 for levels that should start at $C0 - a
  *     192-pixel L3 misposition for ~all L3-using vanilla levels.
  *
- * Secondary entrances (levels $100-$1FF and any level reached via pipe/door,
- *  bank_05.asm:7120-7136):
+ * Secondary entrance (bank_05.asm:7120-7136); a row the ROM is too short to hold falls
+ * back to the main entrance:
  *   Layer1YPos = DATA_05D708[bits 5:4 of DATA_05FA00[entranceId]]
  *
  * Vertical levels (bank_05.asm:7386-7388): same low byte, plus the high byte
@@ -244,78 +246,24 @@ export function applyInitialTimer(rom: RomFile, tilemap: Uint16Array, timeLimit:
  *
  * BG3 tile at VRAM row R ultimately appears at level Y = (R*8 - Layer3YPos) + Layer1YPos.
  */
-export function readInitialLayer1YPos(rom: RomFile, levelId: number, isVertical = false): number {
-  // For sublevels ($100+), prefer the secondary-entrance data since that's how
-  // the game actually reaches them.  For primary levels, use the primary data.
+export function readInitialLayer1YPos(
+  rom: RomFile,
+  levelId: number,
+  isVertical = false,
+  via?: MapEntrances,
+): number {
+  const faByte = secondaryRow(rom, chooseEntrance(via))
   let loByte: number
-  if (levelId >= 0x100) {
-    const entrance = findSecondaryEntranceForLevel(rom, levelId)
-    if (entrance !== null) {
-      const faByte = rom.readByte(DATA_05FA00_ADDR + entrance) ?? 0
-      const idx = (faByte >> 4) & 0x03
-      loByte = rom.readByte(DATA_05D708_ADDR + idx) ?? 0
-    } else {
-      // Primary fallback for sublevels with no targeting entrance - uses
-      // DATA_05F400 bits 3:2, same as the standard primary path.
-      const settings = rom.readByte(DATA_05F400_ADDR + levelId) ?? 0
-      const idx = (settings >> 2) & 0x03
-      loByte = rom.readByte(DATA_05D708_ADDR + idx) ?? 0
-    }
+  if (faByte !== null) {
+    loByte = rom.readByte(DATA_05D708_ADDR + ((faByte >> 4) & 0x03)) ?? 0
   } else {
     const settings = rom.readByte(DATA_05F400_ADDR + levelId) ?? 0
-    const idx = (settings >> 2) & 0x03
-    loByte = rom.readByte(DATA_05D708_ADDR + idx) ?? 0
+    loByte = rom.readByte(DATA_05D708_ADDR + ((settings >> 2) & 0x03)) ?? 0
   }
 
   if (!isVertical) return loByte
   const hiByte = (rom.readByte(DATA_05F600_ADDR + levelId) ?? 0) & 0x1f
   return (hiByte << 8) | loByte
-}
-
-/**
- * Read Mario's starting pixel position for a level, picking the primary
- * entrance for main levels ($000-$0FF) and the secondary entrance that
- * targets the level for sublevels ($100-$1FF).
- *
- * Primary entry (bank_05.asm:7302-7316):
- *   Y = { DATA_05D740[F000[lvl] & $0F] : DATA_05D730[F000[lvl] & $0F] }
- *   X = { DATA_05D758[F200[lvl] & $07] : DATA_05D750[F200[lvl] & $07] }
- *
- * Secondary entry (bank_05.asm:7120-7158):
- *   Y = { DATA_05D740[FA00[ent] & $0F] : DATA_05D730[FA00[ent] & $0F] }
- *   X = { DATA_05D758[FC00[ent] >> 5]  : DATA_05D750[FC00[ent] >> 5] }
- *
- * Sublevels in the primary-only range (e.g. $100 with no entrance target)
- * fall back to their primary-table bytes so callers still get a usable
- * coordinate - that's also how the LM "view as entrance" workflow decodes
- * unreachable sublevels.
- */
-export function readMarioStartPos(rom: RomFile, levelId: number): { x: number; y: number } {
-  let yByte: number
-  let xByte: number
-  let xIdx: number
-  if (levelId >= 0x100) {
-    const entrance = findSecondaryEntranceForLevel(rom, levelId)
-    if (entrance !== null) {
-      yByte = rom.readByte(DATA_05FA00_ADDR + entrance) ?? 0
-      xByte = rom.readByte(DATA_05FC00_ADDR + entrance) ?? 0
-      xIdx = (xByte >> 5) & 0x07
-    } else {
-      yByte = rom.readByte(DATA_05F000_ADDR + levelId) ?? 0
-      xByte = rom.readByte(DATA_05F200_ADDR + levelId) ?? 0
-      xIdx = xByte & 0x07
-    }
-  } else {
-    yByte = rom.readByte(DATA_05F000_ADDR + levelId) ?? 0
-    xByte = rom.readByte(DATA_05F200_ADDR + levelId) ?? 0
-    xIdx = xByte & 0x07
-  }
-  const yIdx = yByte & 0x0f
-  const yLo = rom.readByte(DATA_05D730_ADDR + yIdx) ?? 0
-  const yHi = rom.readByte(DATA_05D740_ADDR + yIdx) ?? 0
-  const xLo = rom.readByte(DATA_05D750_ADDR + xIdx) ?? 0
-  const xHi = rom.readByte(DATA_05D758_ADDR + xIdx) ?? 0
-  return { x: (xHi << 8) | xLo, y: (yHi << 8) | yLo }
 }
 
 // ── Per-tileset settings ──────────────────────────────────────────────────────

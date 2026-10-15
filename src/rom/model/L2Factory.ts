@@ -1,4 +1,5 @@
 import type { RomFile } from '../RomFile'
+import type { MapEntrances } from '../SmwRom'
 import {
   L2_EMPTY_TILE,
   computeL2ScrollRange,
@@ -81,6 +82,8 @@ export function buildL2(
   initialCameraYPx: number,
   /** VerticalTable's 32 bytes, from LevelTableGate.readVerticalTable. */
   verticalTable: readonly number[],
+  /** How the game enters the map; picks the entrance Layer2YPos is read from. */
+  via?: MapEntrances,
 ): L2Layer | null {
   const ptr = readL2Pointer(rom, levelId) ?? 0
   if (ptr === 0) return null
@@ -115,7 +118,7 @@ export function buildL2(
   // Per-level initial Layer2YPos (BG2VOFS). Only applied to object-stream
   // L2; preset BG is positioned by the page-byte / parallax registers and
   // CODE_05801E never writes Layer2YPos for the $FF branch.
-  const initialLayer2YPx = readInitialLayer2YPos(rom, levelId, isVerticalL2)
+  const initialLayer2YPx = readInitialLayer2YPos(rom, levelId, isVerticalL2, via)
 
   // Bounding rect for the editor's L2 scroll-range overlay. Always
   // 'fixed'-kind for object-stream L2 today; per-frame Y animation

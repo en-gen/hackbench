@@ -15,10 +15,7 @@
  * planes by its tile priority bit, drawn on every non-Mode-7 level mode (#561, #562).
  */
 import { SmwRom, type MapEntrances } from '../../../../src/rom/SmwRom'
-import {
-  deriveOverworldEntrances,
-  type OverworldFingerprints,
-} from '../../../../src/rom/OverworldEntrances'
+import { readMapEntrances } from '../../../../src/rom/ReadMapEntrances'
 import { RomFile } from '../../../../src/rom/RomFile'
 import type { DataBanks } from '../../../../src/rom/DataBanks'
 import { SCREEN_H, SCREEN_W, SCREEN_W_VERT, SCREEN_H_VERT } from '../../../../src/rom/LevelParser'
@@ -373,6 +370,8 @@ export function palaceIconsOf(art: Record<Palace, PalaceArt>): PalaceIconDto[] {
 
 const flagsKey = (f: SwitchFlagsDto) => `${+f.green}${+f.yellow}${+f.blue}${+f.red}`
 
+export { readMapEntrances }
+
 /**
  * L1's build plus the background and the layer-order verdict. Neither can
  * refuse the map: a background the core cannot read, or an order that cannot be
@@ -389,31 +388,15 @@ export function buildMapInputs(
   const built = l1(rom, index, flags)
   if (!built.ok) return built
   const bg = bgMode()
+  const via = entrances()?.get(index)
   return {
     ok: true,
     inputs: {
       ...built.inputs,
-      l2: buildL2Inputs(rom, index, built.inputs, entrances()?.get(index)),
-      l3: buildL3Verdict(rom.rom, index, built.inputs, bg),
+      l2: buildL2Inputs(rom, index, built.inputs, via),
+      l3: buildL3Verdict(rom.rom, index, built.inputs, bg, undefined, undefined, undefined, via), // prettier-ignore
       orderNote: bg.ok ? undefined : bg.reason,
     },
-  }
-}
-
-/**
- * How the game enters each map, from the exit graph; undefined when the graph is unavailable or
- * throws, so the background falls back to the older reading instead of refusing the map.
- * `fingerprints` replaces the stock ones; for a synthetic ROM.
- */
-export function readMapEntrances(
-  rom: SmwRom,
-  fingerprints?: OverworldFingerprints,
-): ReadonlyMap<number, MapEntrances> | undefined {
-  try {
-    const roots = deriveOverworldEntrances(rom, undefined, fingerprints).roots
-    return rom.buildLevelExitGraph(roots, fingerprints?.entry).entrances
-  } catch {
-    return undefined
   }
 }
 

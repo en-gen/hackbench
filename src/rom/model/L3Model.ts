@@ -19,6 +19,7 @@ import { HOOKED_L3_CODE, readL3CodeGate, type L3CodeGate } from '../L3CodeGate'
 import { l3LoadTimeY, loadL3Tilemap, readInitialLayer1YPos } from '../L3Loader'
 import { readL3SmashLoadPos, type L3SmashResult } from '../L3Smash'
 import { readLayer3Setting } from '../ObjectExpander'
+import type { MapEntrances } from '../SmwRom'
 import type { L1Inputs } from './L1Model'
 import { effectiveCgadsub } from './ColorMath'
 import { FALLBACK_SCREENS, screenPlanes, type ScreenPlanes } from './ScreenPlanes'
@@ -63,6 +64,7 @@ export function buildL3Verdict(
   chars: (rom: RomFile) => GfxSheet[] | null = readL3Chars,
   gate: L3CodeGate = readL3CodeGate(rom),
   smash: (rom: RomFile, index: number) => L3SmashResult = readL3SmashLoadPos,
+  entrances?: MapEntrances,
 ): L3Verdict {
   const priority = l1.header.layer3Priority
   const base = { priority, screens: FALLBACK_SCREENS, cgadsub: null, layer2Interactive: false }
@@ -131,7 +133,7 @@ export function buildL3Verdict(
       colors: l1.colors,
       xPx: pos.x,
       yPx: pos.y,
-      camYPx: readInitialLayer1YPos(rom, index),
+      camYPx: readInitialLayer1YPos(rom, index, false, entrances),
       // $00 is Layer3TideSetting 0: no tide (it is camera-locked or Castle1/Underground1's half-speed scroll).
       tide: load.settingsByte !== 0 && load.settingsByte < 0x80,
     },
