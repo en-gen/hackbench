@@ -8,6 +8,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { pathToFileURL } from 'url'
+import { isolatedGit } from '../support/isolatedGit'
 
 const script = path.resolve(__dirname, '../../../tools/scripts/changelog-combine.mjs')
 const BASE = '# Changelog\n\n## [Unreleased]\n\n## [0.1.0] - 2026-04-17\n\nInitial.\n'
@@ -258,37 +259,7 @@ describe('changelog-combine', () => {
   describe('merging branches', { timeout: 30_000 }, () => {
     // Isolated from the machine's git config: a global post-checkout hook once
     // pushed these tests past vitest's 5 s timeout under load (#892).
-    const git = (...a: string[]) => {
-      // /dev/null works as a config path on Windows git too; os.devNull does not.
-      // Nothing is created outside the repo under test.
-      const env: NodeJS.ProcessEnv = {
-        ...process.env,
-        GIT_CONFIG_GLOBAL: '/dev/null',
-        GIT_CONFIG_SYSTEM: '/dev/null',
-        GIT_CONFIG_NOSYSTEM: '1',
-      }
-      const drop = [
-        'GIT_DIR',
-        'GIT_WORK_TREE',
-        'GIT_INDEX_FILE',
-        'GIT_CONFIG_PARAMETERS',
-        'GIT_COMMON_DIR',
-        'GIT_OBJECT_DIRECTORY',
-        'GIT_ALTERNATE_OBJECT_DIRECTORIES',
-      ]
-      for (const k of Object.keys(env)) {
-        if (drop.includes(k) || k === 'GIT_CONFIG_COUNT' || /^GIT_CONFIG_(KEY|VALUE)_/.test(k))
-          delete env[k]
-      }
-      // A path that does not exist: git finds no hooks there.
-      // maintenance.auto=false: git otherwise detaches `git maintenance run --auto`
-      // after each commit, about 5 extra git.exe starts per test (GIT_TRACE2, one machine).
-      const cfg = ['core.hooksPath=' + path.join(root, 'no-hooks'), 'commit.gpgsign=false']
-      cfg.push('maintenance.auto=false')
-      cfg.push('core.autocrlf=false', 'user.name=t', 'user.email=t@t')
-      const args = ['-C', root, ...cfg.flatMap(c => ['-c', c]), ...a]
-      return spawnSync('git', args, { encoding: 'utf8', env })
-    }
+    const git = (...a: string[]) => isolatedGit(root, path.join(root, 'no-hooks'), ...a)
     const ok = (...a: string[]) => expect(git(...a).status, a.join(' ')).toBe(0)
     const branches = (edit: (b: string) => void) => {
       ok('init', '-q', '-b', 'main')
