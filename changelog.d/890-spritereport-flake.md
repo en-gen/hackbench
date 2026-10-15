@@ -1,0 +1,3 @@
+### Fixed
+
+- Tests (#890): SpriteReport.test.ts runs all its git through a new shared helper, test/suite/support/isolatedGit.ts (extracted from changelogCombine.test.ts, #892), and isolates the process's git config for the code under test, which spawns git with process.env. The clone-spellings test builds repos with `git init` and `remote add` only (no commit or identity). Spawn counts by GIT_TRACE2_EVENT, one Windows machine: that test 84 to 44, the file 542 to 411. Two planted-host-config tests (hooksPath hook plus a probe key) go red when the helper, mkRepo or the process isolation stops isolating.

@@ -3,7 +3,6 @@
  * Page counts, refusals, the commit and the contact sheet; the grader itself is
  * covered by spriteGrade.captures.test.ts.
  */
-import { execFileSync } from 'child_process'
 import {
   chmodSync,
   cpSync,
@@ -18,13 +17,14 @@ import {
 } from 'fs'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
-import { afterAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { SpriteModel } from '../../../src/rom/sprites/interp/SpriteRunner'
 import { runSprite } from '../../../src/rom/sprites/interp/SpriteRunner'
 import { loadLevelState } from '../../../src/rom/sprites/interp/LevelLoader'
 import { withSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
 import { CAPTURE_DIR, VANILLA, freshRom, hasCaptures, hasRom } from '../support/corpus'
 import { timelineFor } from '../support/gradeTimeline'
+import { isolatedGit, isolateProcessGit } from '../support/isolatedGit'
 import { grade } from '../support/spriteGrade'
 import { unzip } from '../../../tools/scripts/capture_render'
 import {
@@ -58,8 +58,18 @@ vi.mock('fs', async orig => {
 
 const tmp = mkdtempSync(join(tmpdir(), 'sprite-report-'))
 afterAll(() => rmSync(tmp, { recursive: true, force: true }))
-const git = (cwd: string, ...a: string[]): string =>
-  execFileSync('git', ['-C', cwd, ...a], { encoding: 'utf8' })
+// Test git goes through isolatedGit; the code under test spawns git with process.env, so the
+// process is isolated for this file (#890). 542 real git spawns here exceeded 5 s under load.
+let restoreGit = (): void => {}
+beforeAll(() => {
+  restoreGit = isolateProcessGit(join(tmp, 'git-env'))
+})
+afterAll(() => restoreGit())
+const git = (cwd: string, ...a: string[]): string => {
+  const r = isolatedGit(cwd, join(tmp, 'no-hooks'), ...a)
+  if (r.status !== 0) throw new Error(`git ${a.join(' ')} exited ${r.status}: ${r.stderr}`)
+  return r.stdout
+}
 
 const COUNTS: Record<ReportVerdict, number> = {
   exact: 4,
@@ -159,14 +169,14 @@ describe('isInside', () => {
 const img = (n: number): Graded['oursImg'] => ({ w: 2, h: 2, px: new Uint8Array(16).fill(n) })
 const graded = (): Graded[] => rows().map(r => ({ ...r, oursImg: img(100), hardwareImg: img(200) }))
 const VALIDATION_URL = 'git@github.com:en-gen/hackbench-validation.git'
-const mkRepo = (name: string, remote: string | null = VALIDATION_URL): string => {
+// Identity comes from the isolated config; `commit: false` skips the commit and its spawn
+// for tests that only read remotes.
+const mkRepo = (name: string, remote: string | null = VALIDATION_URL, commit = true): string => {
   const d = join(tmp, name)
   mkdirSync(d)
   git(d, 'init', '-q')
   if (remote) git(d, 'remote', 'add', 'origin', remote)
-  git(d, 'config', 'user.email', 't@example.com')
-  git(d, 'config', 'user.name', 't')
-  git(d, 'commit', '-q', '--allow-empty', '-m', 'init')
+  if (commit) git(d, 'commit', '-q', '--allow-empty', '-m', 'init')
   return d
 }
 const io = (over: Partial<Io> = {}): Io & { out: string[] } => {
@@ -184,6 +194,57 @@ const io = (over: Partial<Io> = {}): Io & { out: string[] } => {
     ...over,
   }
 }
+
+// Each plant is a host global gitconfig with a hooksPath hook (writes a marker) and a probe key.
+// Un-isolating the helper, mkRepo or the process-level isolation turns one of these red (#890).
+describe('git isolation', () => {
+  const plant = (name: string) => {
+    const dir = join(tmp, name)
+    mkdirSync(join(dir, 'hooks'), { recursive: true })
+    const marker = join(dir, 'hook-ran').replaceAll('\\', '/')
+    for (const h of ['pre-commit', 'post-commit'])
+      writeFileSync(join(dir, 'hooks', h), ['#!/bin/sh', `echo x > "${marker}"`].join('\n'), {
+        mode: 0o755,
+      })
+    const hooks = join(dir, 'hooks').replaceAll('\\', '/')
+    const cfg = join(dir, 'host.gitconfig')
+    writeFileSync(
+      cfg,
+      ['[core]', `\thooksPath = ${hooks}`, '[hackbench]', '\tprobe = 1', ''].join('\n'),
+    )
+    return { cfg, marker }
+  }
+  const withGlobal = <T>(cfg: string, f: () => T): T => {
+    const saved = process.env.GIT_CONFIG_GLOBAL
+    process.env.GIT_CONFIG_GLOBAL = cfg
+    try {
+      return f()
+    } finally {
+      if (saved === undefined) delete process.env.GIT_CONFIG_GLOBAL
+      else process.env.GIT_CONFIG_GLOBAL = saved
+    }
+  }
+  it('the test helper and mkRepo ignore a host global hooksPath and config', () => {
+    const { cfg, marker } = plant('plant-h')
+    withGlobal(cfg, () => {
+      const r = mkRepo('iso-h')
+      expect(isolatedGit(r, join(tmp, 'no-hooks'), 'config', 'hackbench.probe').status).not.toBe(0)
+    })
+    expect(existsSync(marker)).toBe(false)
+  })
+  it('the code under test, which spawns git with process.env, ignores them too', () => {
+    const { cfg, marker } = plant('plant-p')
+    withGlobal(cfg, () => {
+      const restore = isolateProcessGit(join(tmp, 'git-env-p'))
+      try {
+        expect(run(['--validation', mkRepo('iso-p', VALIDATION_URL, false)], io())).toBe(0)
+      } finally {
+        restore()
+      }
+    })
+    expect(existsSync(marker)).toBe(false)
+  })
+})
 
 describe('run', () => {
   it('names a missing ROM, exits non-zero, writes nothing', () => {
@@ -432,14 +493,14 @@ describe('run', () => {
     const fine = ['https://github.com/someone/not-hackbench.git', 'x/my-hackbench']
     const root = join(tmp, 'hb')
     for (const u of refused) {
-      const r = mkRepo(`u-${refused.indexOf(u)}`, u)
+      const r = mkRepo(`u-${refused.indexOf(u)}`, u, false)
       expect(hackbenchRepo(r, root), u).toContain(u)
     }
     for (const u of fine)
-      expect(hackbenchRepo(mkRepo(`f-${fine.indexOf(u)}`, u), root), u).toBeUndefined()
+      expect(hackbenchRepo(mkRepo(`f-${fine.indexOf(u)}`, u, false), root), u).toBeUndefined()
     for (const u of ['C:\\x\\hackbench-validation\\', 'C:/x/hackbench-validation/.git'])
-      expect(isValidationRepo(mkRepo(`v-${u.length}`, u)), u).toBe(true)
-    expect(isValidationRepo(mkRepo('v-my', 'x/my-hackbench-validation'))).toBe(false)
+      expect(isValidationRepo(mkRepo(`v-${u.length}`, u, false)), u).toBe(true)
+    expect(isValidationRepo(mkRepo('v-my', 'x/my-hackbench-validation', false))).toBe(false)
   })
   it('names the cause once in the refusal: shared store, then the checkout', () => {
     const main = mkRepo('msg-main')
