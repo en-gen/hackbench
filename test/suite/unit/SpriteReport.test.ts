@@ -16,7 +16,7 @@ import {
   writeFileSync,
 } from 'fs'
 import { tmpdir } from 'os'
-import { join, resolve } from 'path'
+import { dirname, join, resolve } from 'path'
 import { spawnSync } from 'child_process'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { SpriteModel } from '../../../src/rom/sprites/interp/SpriteRunner'
@@ -262,6 +262,20 @@ describe('git isolation', () => {
     expect(existsSync(marker)).toBe(false)
   })
 })
+
+/** os.tmpdir() reads these on every call (libuv), so placeReport's scratch and backup land in `root`, not the tmpdir shared with concurrent runs (#914). */
+function withTmpdir(root: string, fn: () => void): void {
+  const keys = ['TMPDIR', 'TMP', 'TEMP']
+  const saved = keys.map(k => process.env[k])
+  keys.forEach(k => (process.env[k] = root))
+  try {
+    fn()
+  } finally {
+    keys.forEach((k, i) =>
+      saved[i] === undefined ? delete process.env[k] : (process.env[k] = saved[i]),
+    )
+  }
+}
 
 describe('run', () => {
   it('names a missing ROM, exits non-zero, writes nothing', () => {
@@ -591,9 +605,19 @@ describe('run', () => {
           throw new Error('EBUSY: planted')
         return real(...a)
       })
+      const root = mkdtempSync(join(tmp, 'own-tmp-'))
+      const backups: string[] = []
+      const failing = vi.mocked(cpSync).getMockImplementation()!
+      vi.mocked(cpSync).mockImplementation((...a: Parameters<typeof cpSync>) => {
+        const dir = dirname(String(a[1])) // the copy into <backup>/<k1|latest>
+        if (dir.includes('sprite-report-backup-') && !backups.includes(dir)) backups.push(dir)
+        return failing(...a)
+      })
       try {
-        expect(() => placeReport(base, 'k1', new Map([['index.md', 'new']]), true)).toThrow(
-          /planted/,
+        withTmpdir(root, () =>
+          expect(() => placeReport(base, 'k1', new Map([['index.md', 'new']]), true)).toThrow(
+            /planted/,
+          ),
         )
       } finally {
         vi.mocked(cpSync).mockImplementation(real)
@@ -605,7 +629,10 @@ describe('run', () => {
         expect(readFileSync(join(base, d, 'index.md'), 'utf8')).toBe(text)
         expect(readFileSync(join(base, d, 'sub', 'keep.md'), 'utf8')).toBe(`${text}-sub`)
       }
-      expect(readdirSync(tmpdir()).filter(f => f.startsWith('sprite-report-backup-'))).toEqual([])
+      // Name this call's own backup: a shared tmpdir() listing sees other runs' backups (#914). Non-empty rules out a vacuous pass.
+      expect(backups, JSON.stringify(backups)).toHaveLength(1)
+      expect(backups[0].startsWith(root)).toBe(true)
+      expect(existsSync(backups[0])).toBe(false)
     },
   )
   it('placeReport restores each folder independently and keeps the backup when a restore fails', () => {
@@ -629,9 +656,10 @@ describe('run', () => {
       return real(...a)
     })
     let msg = ''
+    const root2 = mkdtempSync(join(tmp, 'own-tmp-'))
     try {
       try {
-        placeReport(base, 'k2', new Map([['index.md', 'new']]), true)
+        withTmpdir(root2, () => placeReport(base, 'k2', new Map([['index.md', 'new']]), true))
       } catch (e) {
         msg = (e as Error).message
       }
@@ -644,6 +672,7 @@ describe('run', () => {
       expect(msg).toContain('not fully restored')
       expect(kept, msg).toBeDefined()
       expect(existsSync(kept!)).toBe(true)
+      expect(kept!.startsWith(root2)).toBe(true)
       expect(readFileSync(join(kept!, 'k2', 'index.md'), 'utf8')).toBe('old-key')
       expect(readFileSync(join(base, 'latest', 'index.md'), 'utf8')).toBe('old-latest')
     } finally {
