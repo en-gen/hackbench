@@ -243,6 +243,7 @@ async function injectNoPointer(page) {
           for (const n of result.tree.unassigned) {
             if (picked.length < 2 && !n.placeholder && !picked.includes(n.index)) {
               n.noPointer = true
+              delete n.role
               picked.push(n.index)
             }
           }

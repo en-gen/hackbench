@@ -988,7 +988,7 @@ export class MapExplorerWidget extends TreeWidget {
         }
       }
     }
-    if (map.role) attrs.title = BONUS_ROLES[map.role].title
+    if (map.role && !map.noPointer) attrs.title = BONUS_ROLES[map.role].title
     if (map.area?.invalid) attrs.title = map.area.invalid
     if (map.areasNote) attrs.title = map.areasNote
     // Theia's own default caption only carries the node id on expandable
