@@ -809,6 +809,31 @@ private to the test file.
 - `HB_CORE_JS` is the absolute path to `snes9x_libretro.js` (its `.wasm` must sit beside it). `emulator-view` and `emulator-gamepad` read it; unset, they fall back to the documented path (`vendor/cores/snes9x-wasm/` inside the worktree) and skip only if the core is missing there too, which in a worktree it usually is; a skipped run still exits 0. Set it, e.g. `HB_CORE_JS=C:/Projects/hackbench-cores/snes9x-wasm/snes9x_libretro.js`, and check the run reports passed, not skipped. `[EST]`
 - Nightly cost is why e2e is not per-PR. `[EST]`
 
+## Run lock
+
+Full unit runs, Theia builds and Playwright runs share one lock so they do
+not overlap (timeouts in #485, #771). It is the directory
+`<main checkout>/.hackbench-state/locks/run`; worktrees resolve the main
+checkout through git, and `HACKBENCH_STATE_DIR` overrides it.
+
+```bash
+node tools/scripts/run-lock.mjs acquire --owner "<team> <worktree>" --purpose "<text>"
+node tools/scripts/run-lock.mjs status
+node tools/scripts/run-lock.mjs release --owner "<team> <worktree>"
+```
+
+- Raw equivalent: `mkdir locks` then a non-recursive `mkdir locks/run`
+  (atomic; failure means held), then write `locks/run/owner.txt`.
+- `owner.txt` holds `owner:`, `purpose:` and `started:` (UTC) lines.
+- Only the owner removes it, with `release` and the same id. A wrong or
+  missing owner line refuses and leaves the lock (2026-10-15: a non-owner
+  deleted one by hand).
+- `locks/next.txt` reserves the next turn: if it names another team, do not
+  take a free lock; the named team takes it, and the helper then deletes the
+  file.
+- A lock older than 2 hours (`status` prints STALE) is never removed by a
+  non-owner. Report it to the BA with its `owner.txt`.
+
 ## Related docs
 
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) - general dev setup and PR flow
