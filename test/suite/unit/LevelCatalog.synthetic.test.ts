@@ -102,13 +102,24 @@ describe('buildLevelCatalog (synthetic)', () => {
       expect(catalog.notes.join(' ')).toMatch(/runner-up appears 212 times/)
     })
 
-    it('flags low confidence when the placeholder holds under a tenth of the slots', () => {
-      // 20 of 512 (3.9%) share one pointer, the runner-up has 9: the margin is wide, so
-      // only the share floor can fire. Develop warned here; so does this.
-      const rom = buildFakeRom(i => (i < 20 ? FILLER : i < 29 ? RUNNER_UP : 0x038000 + i))
+    // The share floor is 10% of 512 = 51.2 slots: 51 is under it, 52 is over. The runner-up
+    // (9) keeps the margin check silent either side, so only the share floor can fire.
+    it.each([
+      [51, true],
+      [52, false],
+    ])('%i placeholder slots of 512: low-confidence note is %s', (n, fires) => {
+      const rom = buildFakeRom(i => (i < n ? FILLER : i < n + 9 ? RUNNER_UP : 0x038000 + i))
       const catalog = buildLevelCatalog(rom)
       expect(catalog.fillerPointer).toBe(FILLER)
-      expect(catalog.notes.join(' ')).toMatch(/confidence low/)
+      expect(/confidence low/.test(catalog.notes.join(' '))).toBe(fires)
+    })
+
+    it('stays silent on the confidence check with a wide margin and a share above a tenth', () => {
+      // 100 of 512 (19.5%), runner-up 9: neither the share floor nor the margin ratio applies.
+      const rom = buildFakeRom(i => (i < 100 ? FILLER : i < 109 ? RUNNER_UP : 0x038000 + i))
+      const catalog = buildLevelCatalog(rom)
+      expect(catalog.fillerPointer).toBe(FILLER)
+      expect(catalog.notes.join(' ')).not.toMatch(/confidence low/)
     })
 
     it('names no placeholder when every pointer is distinct, and treats every slot as real', () => {

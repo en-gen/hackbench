@@ -148,6 +148,24 @@ test('a placeholder row is dimmed with the shared-room tooltip; a real orphan is
   expect(await real.getAttribute('title')).not.toContain('placeholder')
 })
 
+test('a placeholder row cannot be added to a group; a real orphan can', async ({ page }) => {
+  await load(page)
+  const { orphan } = await pickRows(page)
+  const can = await page.evaluate(
+    async ({ slot, real }) => {
+      const w = await getWidget('hackbench.map-explorer')
+      const kids = w.model.root.children.find(r => r.id === 'group:unassigned').children
+      const pick = i => {
+        w.model.selectNode(kids.find(n => n.index === i))
+        return w.canAddToGroup()
+      }
+      return { placeholder: pick(slot), real: pick(real) }
+    },
+    { slot: PLACEHOLDER_SLOT, real: orphan },
+  )
+  expect(can).toEqual({ placeholder: false, real: true })
+})
+
 test('expanding the orphan group with every slot in it stays responsive', async ({ page }) => {
   await load(page)
   const ms = await page.evaluate(async () => {
@@ -160,16 +178,21 @@ test('expanding the orphan group with every slot in it stays responsive', async 
     const elapsed = performance.now() - t0
     // Slots listed elsewhere: other folders' rows and the sub areas nested under an entry map here.
     const all = n => [n, ...(n.children || []).flatMap(all)]
-    const placed =
-      w.model.root.children
-        .filter(r => r.id !== 'group:unassigned')
-        .flatMap(all)
-        .filter(n => n.index >= 0).length +
-      group.children.flatMap(c => (c.children || []).flatMap(all)).length
-    return { elapsed, children: group.children.length, placed }
+    // De-duplicated: a sub area can sit under two roots but is one slot.
+    const placed = new Set(
+      [
+        ...w.model.root.children.filter(r => r.id !== 'group:unassigned').flatMap(all),
+        ...group.children.flatMap(c => (c.children || []).flatMap(all)),
+      ]
+        .filter(n => n.index >= 0)
+        .map(n => n.index),
+    ).size
+    return { elapsed, expanded: group.expanded, children: group.children.length, placed }
   })
   console.log(`#901 expand time with every slot listed: ${ms.elapsed.toFixed(0)} ms`)
-  // Guards against the budget passing because the group was left unexpanded or short.
+  // Guards against the budget passing because the group was left unexpanded: it is expanded,
+  // and its top-level rows number at least the slots not listed elsewhere.
+  expect(ms.expanded).toBe(true)
   expect(ms.children).toBeGreaterThanOrEqual(512 - ms.placed)
   expect(ms.elapsed).toBeLessThan(EXPAND_BUDGET_MS)
   await expect(page.locator('[id="hackbench.map-explorer"] .theia-TreeNode').first()).toBeVisible()
@@ -183,10 +206,18 @@ test('opening a placeholder row opens the map view for its slot', async ({ page 
   await expect(view).toBeVisible({ timeout: 30000 })
   // Loaded for $025, not just a blank panel: the strip is drawn and the tab names the slot.
   await expect(view.locator('.hb-map-view-strip')).toBeVisible({ timeout: 30000 })
+  // The strip can paint before the load settles: wait for the loaded state (block indicators
+  // present, as map-block-contents.spec does) before asserting no error.
+  const viewId = `hackbench.map-view:${PLACEHOLDER_SLOT}`
+  await page.waitForFunction(
+    id => getSvc('ApplicationShell').getWidgetById(id)?.blocks?.indicators.length > 0,
+    viewId,
+    { timeout: 60000 },
+  )
   await expect(view.locator('[data-control="map-error"]')).toHaveCount(0)
   const caption = await page.evaluate(
-    async id => (await getWidget(id)).title.caption,
-    `hackbench.map-view:${PLACEHOLDER_SLOT}`,
+    id => getSvc('ApplicationShell').getWidgetById(id).title.caption,
+    viewId,
   )
   expect(caption).toContain('$025')
 })
