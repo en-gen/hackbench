@@ -1322,6 +1322,22 @@ describe('handle_0DAB3E pipe variants (object 18)', () => {
     }
   }
 
+  // JSL ExecutePtrLong is at $0DAB4C (4 bytes), so the 10 x 3-byte table
+  // starts at $0DAB50 = handlerAddr + 18 (bank_0D.asm:2288, :2290-2299, #857).
+  // Every entry points at variant 1; the bytes at +16/+17 hold a lookalike
+  // pointer to variant 0. Read 2 bytes early (+16) or late (+20) the long
+  // address is bank $21 or $AC, matches no handler, and nothing is drawn.
+  it('reads the dispatch table at handlerAddr + 18, not +16 or +20 (#857)', () => {
+    const rom = makeMockRom()
+    for (let i = 0; i < 10; i++) stampLongOperand(rom, DISPATCHER_ADDR, 18 + i * 3, 0x0dac21)
+    rom.writeAt(DISPATCHER_ADDR + 16, [0x6e, 0xab])
+    rom.writeAt(0x0dac21 + 25, [0xaa])
+    const grid = createGrid(2)
+    const cur = makeCursorForHandler(DISPATCHER_ADDR, grid, rom, 0, 10, 10, 18, 0x20)
+    handle_0DAB3E(cur)
+    expect(grid[10][10]).toBe(P1(0xaa))
+  })
+
   it('variant 0: 2-wide diagonal down-left slope', () => {
     // Per CODE_0DAB6E (bank_0D:2301): 2-wide lip/body descending col-2/row+1
     // per iter, with a final straight-down body row. For size $20 (H=2):
