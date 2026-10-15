@@ -93,7 +93,8 @@ function top(i: ScreenInput, list: readonly SourceKey[], at: number, flips?: Map
 }
 
 /**
- * The sprite pixel (its RGB) a fully covering tile hides, or null. `k` is the list slot below the
+ * The placed sprite pixel (its RGB) a fully covering tile hides, or null; the Layer 2 flame planes
+ * (`spritesL2*`, #894) are not placed sprites and are skipped. `k` is the list slot below the
  * covering plane (the scan stopped at k + 1).
  */
 function coveredSprite(i: ScreenInput, list: readonly SourceKey[], at: number, k: number) {
@@ -101,7 +102,8 @@ function coveredSprite(i: ScreenInput, list: readonly SourceKey[], at: number, k
   for (; k >= 0; k--) {
     const key = list[k]!
     const data = i.planes[key]
-    if (!key.startsWith('sprites') || !data || data[at + 3] === 0) continue
+    if (!key.startsWith('sprites') || key.startsWith('spritesL2') || !data || data[at + 3] === 0)
+      continue
     return data.subarray(at, at + 3)
   }
   return null

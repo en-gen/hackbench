@@ -16,8 +16,13 @@ export type PlaneKey = 'l2Low' | 'l1Low' | 'l2High' | 'l1High' | 'l3Low' | 'l3Hi
 /** The sprite layer's pixels of one OAM priority, 0-3. */
 export type SpriteKey = 'sprites0' | 'sprites1' | 'sprites2' | 'sprites3'
 export const SPRITE_KEYS: readonly SpriteKey[] = ['sprites0', 'sprites1', 'sprites2', 'sprites3']
-/** A source a screen's list can name: a BG plane, or one priority of the sprite layer. */
-export type ListKey = PlaneKey | SpriteKey
+/**
+ * Sprites the cluster code draws on Layer 2 (the castle flames, #894), in the plane of the Layer 2 pixel they
+ * cover: stacked just above `l2Low` or `l2High`, so Layer 1 stays over them. Listed by the view, not by `screenPlanes`.
+ */
+export type FlameKey = 'spritesL2Low' | 'spritesL2High'
+/** A source a screen's list can name: a BG plane, one priority of the sprite layer, or a Layer 2 flame plane. */
+export type ListKey = PlaneKey | SpriteKey | FlameKey
 export interface ScreenPlanes {
   main: ListKey[]
   sub: ListKey[]
