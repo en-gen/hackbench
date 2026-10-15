@@ -31,7 +31,7 @@ import { decompressRle1 } from './LcRle1'
 import { parseL2Objects, SCREEN_W, SCREEN_H, type LevelSprite } from './LevelParser'
 import { expandObject, createGrid, SWITCH_FLAGS_UNCLEARED } from './ObjectExpander'
 import { OWNER_NONE } from './objectHandlers/cursor'
-import { chooseEntrance } from './L3Loader'
+import { chooseEntrance, secondaryRow } from './L3Loader'
 import type { MapEntrances } from './SmwRom'
 
 /** L2 pointer table base. 3 bytes per level: lo, hi, bank. */
@@ -341,13 +341,6 @@ export { SCREEN_W as L1_SCREEN_W, SCREEN_H as L1_SCREEN_H }
 const DATA_05F400_ADDR = 0x05f400
 
 /**
- * SNES address of DATA_05FA00 - secondary-entrance settings byte.
- * - Bits 7:6 index DATA_05D70C for secondary-entrance Layer2YPos init
- *   (bank_05.asm:7137-7146 - top 2 bits, distinct from L1's bits 5:4).
- */
-const DATA_05FA00_ADDR = 0x05fa00
-
-/**
  * SNES address of DATA_05F600 - first level-data byte per level. For vertical
  * levels, low 5 bits hold the high byte of the initial Y position used for
  * both Layer1YPos+1 and Layer2YPos+1 (bank_05.asm:7386-7393).
@@ -388,8 +381,7 @@ export function readInitialLayer2YPos(
   isVertical = false,
   via?: MapEntrances,
 ): number {
-  const entrance = chooseEntrance(via)
-  const faByte = entrance === null ? null : rom.readByte(DATA_05FA00_ADDR + entrance)
+  const faByte = secondaryRow(rom, chooseEntrance(via))
   let loByte: number
   if (faByte !== null) {
     loByte = rom.readByte(DATA_05D70C_ADDR + ((faByte >> 6) & 0x03)) ?? 0

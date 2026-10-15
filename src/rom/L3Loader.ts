@@ -139,7 +139,7 @@ export function chooseEntrance(via?: MapEntrances): number | null {
 }
 
 /** DATA_05FA00 for an entrance, or null when the ROM ends before it (never a phantom 0). */
-function secondaryRow(rom: RomFile, entrance: number | null): number | null {
+export function secondaryRow(rom: RomFile, entrance: number | null): number | null {
   return entrance === null ? null : rom.readByte(DATA_05FA00_ADDR + entrance)
 }
 
