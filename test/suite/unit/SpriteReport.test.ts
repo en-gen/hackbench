@@ -263,7 +263,7 @@ describe('git isolation', () => {
   })
 })
 
-/** os.tmpdir() reads these on every call (libuv), so placeReport's scratch and backup land in `root`, not the tmpdir shared with concurrent runs (#914). */
+/** os.tmpdir() reads these on every call (lib/os.js: TEMP or TMP on win32, TMPDIR first on POSIX), so placeReport's scratch and backup land in `root`, not the tmpdir shared with concurrent runs (#914). */
 function withTmpdir(root: string, fn: () => void): void {
   const keys = ['TMPDIR', 'TMP', 'TEMP']
   const saved = keys.map(k => process.env[k])
@@ -656,10 +656,10 @@ describe('run', () => {
       return real(...a)
     })
     let msg = ''
-    const root2 = mkdtempSync(join(tmp, 'own-tmp-'))
+    const root = mkdtempSync(join(tmp, 'own-tmp-'))
     try {
       try {
-        withTmpdir(root2, () => placeReport(base, 'k2', new Map([['index.md', 'new']]), true))
+        withTmpdir(root, () => placeReport(base, 'k2', new Map([['index.md', 'new']]), true))
       } catch (e) {
         msg = (e as Error).message
       }
@@ -672,7 +672,7 @@ describe('run', () => {
       expect(msg).toContain('not fully restored')
       expect(kept, msg).toBeDefined()
       expect(existsSync(kept!)).toBe(true)
-      expect(kept!.startsWith(root2)).toBe(true)
+      expect(kept!.startsWith(root)).toBe(true)
       expect(readFileSync(join(kept!, 'k2', 'index.md'), 'utf8')).toBe('old-key')
       expect(readFileSync(join(base, 'latest', 'index.md'), 'utf8')).toBe('old-latest')
     } finally {
