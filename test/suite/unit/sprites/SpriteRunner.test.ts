@@ -311,8 +311,6 @@ describe('piece X offsets wrap like 9-bit OAM X (#869)', () => {
   // Id 33 draws at OAM X = low byte $0E, size byte $0F (bit 0 = X bit 8), both planted. The expected
   // offset is the 9-bit difference to the anchor's screen X, folded into -256..255.
   // SMWDisX bank_01.asm:7668-7675 (CODE_01B844) sets the size-table bit 0 when the 16-bit screen X is >= $100.
-  const fold = (v: number) =>
-    ((v % 512) + 512) % 512 > 255 ? (((v % 512) + 512) % 512) - 512 : ((v % 512) + 512) % 512
   const offsets = [0, 1, 255, 256, 257, 272, 511, 512, 513, -1, -16, -240, -255, -256, -257, -272]
   const anchors = [
     { x: 0x00, cam: 0 },
@@ -323,7 +321,7 @@ describe('piece X offsets wrap like 9-bit OAM X (#869)', () => {
   ]
   for (const a of anchors) {
     it.each(offsets)(`anchor screen X ${a.x - a.cam}: offset %i`, off => {
-      const x9 = (((a.x - a.cam + off) % 512) + 512) % 512
+      const x9 = (a.x - a.cam + off) & 0x1ff
       const m = runSprite(
         rom,
         33,
@@ -334,7 +332,7 @@ describe('piece X offsets wrap like 9-bit OAM X (#869)', () => {
         }),
       )
       expect(m.refusal).toBeUndefined()
-      expect(m.passes[0].parts.map(p => p.dx)).toEqual([fold(off)])
+      expect(m.passes[0].parts.map(p => p.dx)).toEqual([wrap9(off)])
     })
   }
 })
@@ -355,7 +353,7 @@ describe('passPieces folds the re-based offset into 9-bit range (#869)', () => {
     [160, 352, 240, -240],
     [160, 240, 240, 160],
     [-112, 352, 240, 0],
-    [255, 1, 0, -256 + 0],
+    [255, 1, 0, -256],
     [-256, 0, 1, 255],
     [0, 512, 0, 0],
   ])('dx %i, origin %i, pos %i gives %i', (dx, o, p, want) => {
