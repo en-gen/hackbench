@@ -166,10 +166,10 @@ export function tilemapWordAddr(sc: number, tx: number, ty: number): number {
 /**
  * Mode 1, front to back, as [layer, priority]: layers 0 BG1, 1 BG2, 2 BG3,
  * 3 OBJ. BGMODE bit 3 lifts BG3's high plane to the very front. TM/TS ($212C,
- * $212D) pick the screen: a layer only on the sub screen goes behind every
+ * $212D) pick the screen: a layer only on the subscreen goes behind every
  * main-screen layer (SMWDisX bank_05.asm:485-494 sets TM $15, TS $02 so BG2
- * sits behind BG3; other level modes use $17/$00, $15/$00, $04/$13, $01/$16, $02/$15), and one in neither is still drawn, at the back, so no
- * layer is hidden (hardware would show nothing for it). Known limit: no colour-math blending of the sub screen.
+ * sits behind BG3), and one in neither is still drawn, at the back, so no
+ * layer is hidden (hardware would show nothing for it). Known limit: no colour-math blending of the subscreen.
  */
 export function layerOrder(bgmode: number, tm: number, ts: number): number[][] {
   const top = bgmode & 8 ? [[2, 1]] : []

@@ -422,7 +422,7 @@ describe('SNES decoders', () => {
   const at = (o: number[][], layer: number, prio: number) =>
     o.findIndex(([l, p]) => l === layer && p === prio)
 
-  it('draws a sub-screen-only layer behind the main screen (#903: TM $15, TS $02)', () => {
+  it('draws a subscreen-only layer behind the main screen (#903: TM $15, TS $02)', () => {
     const o = D.layerOrder(0x01, 0x15, 0x02)
     expect(at(o, 2, 1)).toBeLessThan(at(o, 1, 1)) // Layer 3 over Layer 2
     expect(at(o, 0, 0)).toBeLessThan(at(o, 2, 1)) // Layer 1 low still over Layer 3
@@ -434,7 +434,7 @@ describe('SNES decoders', () => {
     expect(at(o, 1, 0)).toBeLessThan(at(o, 2, 1))
   })
 
-  it('puts a lone main-screen Layer 3 over the sub-screen layers (TM $04, TS $13)', () => {
+  it('puts a lone main-screen Layer 3 over the subscreen layers (TM $04, TS $13)', () => {
     const o = D.layerOrder(0x01, 0x04, 0x13)
     const l3 = Math.max(at(o, 2, 0), at(o, 2, 1))
     for (const [i, [l]] of o.entries()) if (l !== 2) expect(i).toBeGreaterThan(l3)
@@ -471,7 +471,7 @@ describe('SNES decoders', () => {
 
   it('anchors layers on neither screen at the back and OBJ-only first', () => {
     const sub = D.layerOrder(0x01, 0x00, 0x01)
-    expect(at(sub, 0, 1)).toBeLessThan(at(sub, 3, 3)) // BG1 on the sub screen before OBJ in neither
+    expect(at(sub, 0, 1)).toBeLessThan(at(sub, 3, 3)) // BG1 on the subscreen before OBJ in neither
     const sub4 = D.layerOrder(0x01, 0x04, 0x01)
     expect(at(sub4, 2, 0)).toBeLessThan(at(sub4, 0, 1)) // BG3 main, BG1 sub
     expect(at(sub4, 0, 1)).toBeLessThan(at(sub4, 3, 3)) // BG1 sub, OBJ neither
@@ -505,6 +505,13 @@ describe('SNES decoders', () => {
       D.layerOrder(1, 0x02, 0x15),
     )
     expect(D.drawPasses(regs, [true, false, true, false], 'high').every(([l, p]) => (l === 0 || l === 2) && p === 1)).toBe(true) // prettier-ignore
+    const low = D.drawPasses(regs, all, 'low')
+    expect(low).toEqual(D.layerOrder(1, 0x15, 0x02).filter(([l, p]) => l === 3 || p === 0))
+    expect(low.filter(([l]) => l !== 3).every(([, p]) => p === 0)).toBe(true)
+    expect(low.filter(([l]) => l === 3)).toEqual(
+      D.layerOrder(1, 0x15, 0x02).filter(([l]) => l === 3),
+    )
+    expect(D.drawPasses(regs, [true, false, true, false], 'low').every(([l, p]) => (l === 0 || l === 2) && p === 0)).toBe(true) // prettier-ignore
   })
 
   it('decodes OAM with the high table, OBSEL sizes and both name bases', () => {
