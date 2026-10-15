@@ -825,14 +825,24 @@ node tools/scripts/run-lock.mjs release --owner "<team> <worktree>"
 - Raw equivalent: `mkdir locks` then a non-recursive `mkdir locks/run`
   (atomic; failure means held), then write `locks/run/owner.txt`.
 - `owner.txt` holds `owner:`, `purpose:` and `started:` (UTC) lines.
-- Only the owner removes it, with `release` and the same id. A wrong or
-  missing owner line refuses and leaves the lock (2026-10-15: a non-owner
-  deleted one by hand).
-- `locks/next.txt` reserves the next turn: if it names another team, do not
-  take a free lock; the named team takes it, and the helper then deletes the
-  file.
-- A lock older than 2 hours (`status` prints STALE) is never removed by a
-  non-owner. Report it to the BA with its `owner.txt`.
+- Only the owner removes it, with `release` and the exact same id (no
+  prefix, no padding; blank ids and CR or LF are refused). A wrong or
+  missing owner line refuses and leaves the lock (see #923 for the incident
+  where a non-owner deleted one by hand). A lock taken by hand, with
+  free-form text and no `owner:` line, cannot be proven, so `release` refuses
+  it: it is removed by hand by its owner.
+- `status` prints `owner.txt` as written, plus `next.txt` when it is not
+  blank. A lock with no parseable `started:` (hand-made, unreadable or
+  missing `owner.txt`) is aged by the lock dir's mtime, and says so.
+- `locks/next.txt` reserves the next turn. The owner's team is the leading
+  letters of its first word, lowercased (`xray-909` is `xray`); the lock is
+  free for that owner only if the team appears as a whole word in `next.txt`.
+  Otherwise do not take a free lock; the named team takes it, and the helper
+  then deletes the file. A blank `next.txt` is ignored.
+- A lock older than 2 hours (`status` prints STALE, strictly over 120 min) is
+  never removed by a non-owner. Report it to the BA with its `owner.txt`.
+- The CLI finds the state dir from the script's own location, not the
+  current directory, so it cannot fail open outside a repo.
 
 ## Related docs
 

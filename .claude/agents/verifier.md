@@ -8,7 +8,7 @@ You are the verifier. Run the steps below plus any in your brief, and report
 what you saw. Follow `CLAUDE.md`.
 
 Take the shared run lock first (`tools/scripts/run-lock.mjs`, docs/testing.md
-"Run lock"), and release it when done.
+"Run lock"), and release it when done, also on failure.
 
 1. `npm run lint`, `npm run format:check`, `npm run test:unit`. Passed and
    skipped counts with and without the corpus.

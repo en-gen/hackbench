@@ -5,7 +5,7 @@
 // lock with a 10 s stale takeover, and this one is held for minutes and must
 // never be taken over. Only the owner removes it; a stale lock is reported.
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { stateDirFor } from './protocol.mjs'
@@ -17,65 +17,109 @@ const USAGE =
 const lockDir = s => path.join(s, 'locks', 'run')
 const ownerFile = s => path.join(lockDir(s), 'owner.txt')
 const nextFile = s => path.join(s, 'locks', 'next.txt')
-const readText = file => (existsSync(file) ? readFileSync(file, 'utf8') : '')
-const readOwner = s => readText(ownerFile(s))
+const readText = file => {
+  try {
+    return readFileSync(file, 'utf8')
+  } catch {
+    return '' // absent or unreadable: callers treat both as no text
+  }
+}
 const field = (text, key) => text.match(new RegExp(`^${key}: ?(.*)$`, 'm'))?.[1].trim()
+const fail = message => ({ ok: false, message })
+// No CR/LF: they would forge an `owner:` line.
+const badText = v => typeof v !== 'string' || /[\r\n]/.test(v)
+const badOwner = v => badText(v) || v.trim() === '' || v !== v.trim()
+// Team = leading letters of the owner's first word ("xray-909" is "xray").
+const teamOf = owner => owner.toLowerCase().match(/^[a-z]+/)?.[0]
 
-export function acquire(stateDir, { owner, purpose = '', now = new Date() }) {
-  const team = owner.split(/\s+/)[0].toLowerCase()
-  const next = readText(nextFile(stateDir))
-  if (next && !next.toLowerCase().includes(team)) {
-    return { ok: false, message: `reserved for another team:\n${next.trim()}` }
+export function acquire(
+  stateDir,
+  { owner, purpose = '', now = new Date(), write = writeFileSync },
+) {
+  if (badOwner(owner) || badText(purpose))
+    return fail('owner or purpose is blank or has a line break')
+  const team = teamOf(owner)
+  if (!team) return fail('owner must start with a team name (letters)')
+  const next = readText(nextFile(stateDir)).trim()
+  if (next && !(next.toLowerCase().match(/[a-z]+/g) ?? []).includes(team)) {
+    return fail(`reserved for another team:\n${next}`)
   }
   mkdirSync(path.dirname(lockDir(stateDir)), { recursive: true })
   try {
     mkdirSync(lockDir(stateDir)) // non-recursive: EEXIST is the atomic "held"
   } catch (e) {
     if (e.code !== 'EEXIST') throw e
-    return { ok: false, message: `held:\n${readOwner(stateDir).trim()}` }
+    return fail(`held:\n${readText(ownerFile(stateDir)).trim()}`)
   }
-  writeFileSync(
-    ownerFile(stateDir),
-    `owner: ${owner}\npurpose: ${purpose}\nstarted: ${now.toISOString()}\n`,
-  )
+  try {
+    write(
+      ownerFile(stateDir),
+      `owner: ${owner}\npurpose: ${purpose}\nstarted: ${now.toISOString()}\n`,
+    )
+  } catch (e) {
+    // A dir with no owner.txt could never be released by anyone.
+    rmSync(lockDir(stateDir), { recursive: true, force: true })
+    return fail(`could not write owner.txt, lock not taken: ${e.message}`)
+  }
   if (next) rmSync(nextFile(stateDir), { force: true })
   return { ok: true, message: `acquired by ${owner}` }
 }
 
-export function release(stateDir, { owner }) {
-  if (!existsSync(lockDir(stateDir))) return { ok: false, message: 'no lock held' }
-  const text = readOwner(stateDir)
+export function release(stateDir, { owner } = {}) {
+  if (badOwner(owner)) return fail('owner is blank or has a line break')
+  if (!existsSync(lockDir(stateDir))) return fail('no lock held')
+  const text = readText(ownerFile(stateDir))
   const holder = field(text, 'owner')
-  if (holder === undefined || holder !== owner.trim()) {
-    return { ok: false, message: `not the owner, lock left intact:\n${text.trim()}` }
+  if (holder === undefined) {
+    return fail(
+      `cannot prove ownership; a lock taken by hand is removed by hand by its owner:\n${text.trim()}`,
+    )
   }
+  if (holder !== owner) return fail(`not the owner, lock left intact:\n${text.trim()}`)
   rmSync(lockDir(stateDir), { recursive: true, force: true })
   return { ok: true, message: 'released' }
 }
 
 export function status(stateDir, { now = new Date() } = {}) {
-  if (!existsSync(lockDir(stateDir))) return { held: false, stale: false, lines: ['free'] }
-  const text = readOwner(stateDir)
-  const started = Date.parse(field(text, 'started') ?? '')
-  const ageMinutes = Number.isNaN(started) ? null : Math.floor((now.getTime() - started) / 60000)
-  const stale = ageMinutes !== null && ageMinutes > STALE_MINUTES
-  const lines = [...text.trim().split('\n'), `age: ${ageMinutes ?? 'unknown'} min`]
+  const next = readText(nextFile(stateDir)).trim()
+  const reserved = next ? [`next.txt: ${next}`] : []
+  if (!existsSync(lockDir(stateDir))) {
+    return { held: false, stale: false, lines: ['free', ...reserved] }
+  }
+  const text = readText(ownerFile(stateDir)).trim()
+  const notes = []
+  if (!text) notes.push('owner.txt missing or unreadable')
+  else if (field(text, 'owner') === undefined) notes.push('legacy owner.txt, no owner line')
+  let startedMs = Date.parse(field(text, 'started') ?? '')
+  if (Number.isNaN(startedMs)) {
+    startedMs = statSync(lockDir(stateDir)).mtimeMs // no parseable start: age the dir
+    notes.push('no parseable started: age is from the lock dir mtime')
+  }
+  const ageMinutes = Math.floor((now.getTime() - startedMs) / 60000)
+  const stale = ageMinutes > STALE_MINUTES
+  const lines = [...(text ? text.split('\n') : []), ...notes, `age: ${ageMinutes} min`, ...reserved]
   if (stale) lines.push(`STALE (over ${STALE_MINUTES} min): report it to the BA, never remove it`)
   return { held: true, stale, ageMinutes, lines }
 }
 
 export function cli(argv, stateDir) {
   const [cmd, ...rest] = argv
+  let usageError = false
   const opt = name => {
     const i = rest.indexOf(`--${name}`)
-    return i >= 0 ? rest[i + 1] : undefined
+    if (i < 0) return undefined
+    const v = rest[i + 1]
+    if (v === undefined || v.startsWith('--')) usageError = true
+    return usageError ? undefined : v
   }
   const owner = opt('owner')
+  const purpose = opt('purpose')
+  if (usageError) return { code: 1, out: USAGE }
   if (cmd === 'status') return { code: 0, out: status(stateDir).lines.join('\n') }
   if ((cmd === 'acquire' || cmd === 'release') && owner) {
     const r =
       cmd === 'acquire'
-        ? acquire(stateDir, { owner, purpose: opt('purpose') ?? '' })
+        ? acquire(stateDir, { owner, purpose: purpose ?? '' })
         : release(stateDir, { owner })
     return { code: r.ok ? 0 : 1, out: r.message }
   }
@@ -83,7 +127,9 @@ export function cli(argv, stateDir) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const { code, out } = cli(process.argv.slice(2), stateDirFor(process.cwd()))
+  // The script's own location, not cwd: from outside a repo cwd would fail open.
+  const here = path.dirname(fileURLToPath(import.meta.url))
+  const { code, out } = cli(process.argv.slice(2), stateDirFor(here))
   console.log(out)
   process.exitCode = code
 }
