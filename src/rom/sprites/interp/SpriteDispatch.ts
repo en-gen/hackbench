@@ -206,7 +206,7 @@ const EXECUTE_PTR_SHAPE: (number | null)[] = [
 ]
 
 /** The three dispatch JSLs (HandleSprite, CallSpriteInit, CallSpriteMain) must reach one ExecutePtr. */
-function checkExecutePtr(rom: RomFile, jsl: number[][]): ShapeResult {
+export function checkExecutePtr(rom: RomFile, jsl: number[][]): ShapeResult {
   // Keys fold the FastROM mirror ($80+ is the same code); the read keeps the raw bank (#513, #704).
   const targets = jsl.map(t => (t[2] << 16) | (t[1] << 8) | t[0])
   // mirror() keys $7E and $FE alike, so a WRAM call must be refused before keying. The
