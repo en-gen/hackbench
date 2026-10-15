@@ -27,7 +27,7 @@ describe.skipIf(!hasRom(VANILLA))('vanilla tree lists every slot', () => {
     expect(listed.size).toBe(LEVEL_COUNT)
     expect(tree.unassigned.filter(n => n.placeholder)).toHaveLength(expected)
     expect(tree.counts.placeholders).toBe(expected)
-    expect(tree.mapCount + tree.counts.placeholders).toBe(LEVEL_COUNT)
+    expect(tree.mapCount + tree.counts.placeholders + tree.counts.noPointer).toBe(LEVEL_COUNT)
     // $025 is a placeholder slot the Playwright spec opens.
     expect(tree.unassigned.find(n => n.index === 0x025)?.placeholder).toBe(true)
   })

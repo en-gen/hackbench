@@ -112,8 +112,8 @@ export interface MapTreeNode extends CompositeTreeNode, SelectableTreeNode {
   areasNote?: string
   /** Set on a placeholder slot: how many slots share the placeholder room. */
   sharedCount?: number
-  /** Set on a slot with no Layer 1 pointer: nothing to open, no group takes it. */
-  empty?: true
+  /** Set on a slot with no map data (Layer 1 pointer zero or unreadable): no tab opens, no group takes it. */
+  noPointer?: true
 }
 
 type BonusRole = NonNullable<GroupedMapNodeDto['role']>
@@ -383,11 +383,11 @@ export class MapExplorerWidget extends TreeWidget {
     // Placeholders are counted apart so the figure beside the label stays the
     // number of maps, not of slots (docs/glossary.md).
     const placeholders = maps.filter(m => m.placeholder).length
-    const empty = maps.filter(m => m.empty).length
-    const mapRows = maps.length - placeholders - empty
+    const noData = maps.filter(m => m.noPointer).length
+    const mapRows = maps.length - placeholders - noData
     const apart = [
       placeholders > 0 ? `${placeholders} placeholder` : '',
-      empty > 0 ? `${empty} empty` : '',
+      noData > 0 ? `${noData} with no data` : '',
     ].filter(Boolean)
     const node: MapTreeNode = {
       id: 'group:unassigned',
@@ -457,7 +457,7 @@ export class MapExplorerWidget extends TreeWidget {
       selected: false,
     }
     if (dto.placeholder) node.sharedCount = dto.sharedCount
-    if (dto.empty) node.empty = true
+    if (dto.noPointer) node.noPointer = true
     node.children = dto.children.map(c => this.toNode(c, node, 'subarea'))
     if (node.children.length > 0) node.expanded = false
     return node
@@ -559,7 +559,8 @@ export class MapExplorerWidget extends TreeWidget {
         )
       return
     }
-    if (!map || map.index < 0 || map.kind !== 'map' || !this.manifestPath) return
+    // A no-pointer slot has no map data to draw: selecting or activating it opens no tab.
+    if (!map || map.index < 0 || map.kind !== 'map' || map.noPointer || !this.manifestPath) return
     this.onMapOpenedEmitter.fire({
       index: map.index,
       pinned,
@@ -590,7 +591,7 @@ export class MapExplorerWidget extends TreeWidget {
   protected groupable(node: MapTreeNode): boolean {
     const { kind, category } = node
     // A placeholder row (sharedCount set) is listed, not a map: no group takes it.
-    if (node.sharedCount !== undefined || node.empty) return false
+    if (node.sharedCount !== undefined || node.noPointer) return false
     return kind === 'map' && (category === 'entry' || category === 'bonus' || category === 'orphan')
   }
 
@@ -978,11 +979,14 @@ export class MapExplorerWidget extends TreeWidget {
     const attrs = super.createNodeAttributes(node, props)
     const map = node as MapTreeNode
     if (map.category === 'orphan') {
-      attrs.title = 'Not reached from the overworld'
-      if (map.sharedCount !== undefined) {
-        attrs.title += `. This slot uses the shared placeholder room, which ${map.sharedCount} slots share.`
+      if (map.noPointer) {
+        attrs.title = 'This slot has no map data'
+      } else {
+        attrs.title = 'Not reached from the overworld'
+        if (map.sharedCount !== undefined) {
+          attrs.title += `. This slot uses the shared placeholder room, which ${map.sharedCount} slots share.`
+        }
       }
-      if (map.empty) attrs.title = 'Empty slot: it has no level data'
     }
     if (map.role) attrs.title = BONUS_ROLES[map.role].title
     if (map.area?.invalid) attrs.title = map.area.invalid

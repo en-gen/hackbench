@@ -173,9 +173,9 @@ export function applyGroups(tree: MapTree, groups: MapGroup[]): GroupedMapTree {
   // Bonus maps are reached (after a level), so never orphaned, like entry maps.
   const reached = [...tree.overworld, ...tree.bonus]
   const reachedByIndex = new Map(reached.map(n => [n.index, n]))
-  // A placeholder slot is not a map, so no group claims it (#901).
+  // A placeholder or no-pointer slot is not a map, so no group claims it (#901).
   const unassignedByIndex = new Map(
-    tree.unassigned.filter(n => !n.placeholder).map(n => [n.index, n]),
+    tree.unassigned.filter(n => !n.placeholder && !n.noPointer).map(n => [n.index, n]),
   )
   const claimed = new Set<number>()
 
@@ -209,9 +209,13 @@ export function applyGroups(tree: MapTree, groups: MapGroup[]): GroupedMapTree {
   return { groups: userGroups, unassigned }
 }
 
-/** Every slot that currently names a top-level map (entry, bonus or orphan), placeholders excluded. */
+/** Every slot that currently names a top-level map (entry, bonus or orphan), placeholders and no-pointer slots excluded. */
 export function topLevelSlots(tree: MapTree): Set<number> {
-  const maps = [...tree.overworld, ...tree.bonus, ...tree.unassigned.filter(n => !n.placeholder)]
+  const maps = [
+    ...tree.overworld,
+    ...tree.bonus,
+    ...tree.unassigned.filter(n => !n.placeholder && !n.noPointer),
+  ]
   return new Set(maps.map(n => n.index))
 }
 

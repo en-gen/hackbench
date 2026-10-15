@@ -223,3 +223,87 @@ test('opening a placeholder row opens the map view for its slot', async ({ page 
   )
   expect(caption).toContain('$025')
 })
+
+/**
+ * No vanilla or corpus ROM has a slot with a zero Layer 1 pointer, so the server's reply is
+ * rewritten in the page: the widget's own `projects` property is wrapped (the RPC proxy itself
+ * cannot be, docs/testing.md "Playwright and RPC") and the first two real orphans come back
+ * marked `noPointer`. Returns their slots.
+ */
+async function injectNoPointer(page) {
+  const slots = await page.evaluate(async () => {
+    const w = await getWidget('hackbench.map-explorer')
+    const real = w.projects
+    const picked = []
+    w.projects = new Proxy(real, {
+      get(target, prop) {
+        if (prop !== 'loadMaps') return target[prop]
+        return async mp => {
+          const result = await target.loadMaps(mp)
+          for (const n of result.tree.unassigned) {
+            if (picked.length < 2 && !n.placeholder && !picked.includes(n.index)) {
+              n.noPointer = true
+              picked.push(n.index)
+            }
+          }
+          return result
+        }
+      },
+    })
+    await w.load(w.manifestPath)
+    return picked
+  })
+  expect(slots).toHaveLength(2)
+  await page.waitForTimeout(500)
+  return slots
+}
+
+test('no-pointer slots: folder label counts them as "with no data", row tooltip says so', async ({
+  page,
+}) => {
+  await load(page)
+  const [first] = await injectNoPointer(page)
+  const info = await page.evaluate(async () => {
+    const w = await getWidget('hackbench.map-explorer')
+    const group = w.model.root.children.find(r => r.id === 'group:unassigned')
+    const rows = group.children
+    return {
+      label: group.name,
+      noData: rows.filter(n => n.noPointer).length,
+      placeholders: rows.filter(n => n.sharedCount !== undefined).length,
+      maps: rows.filter(n => !n.noPointer && n.sharedCount === undefined).length,
+    }
+  })
+  expect(info.noData).toBe(2)
+  expect(info.label).toBe(
+    `Unassigned (${info.maps}, ${info.placeholders} placeholder, ${info.noData} with no data)`,
+  )
+  const row = await rowOf(page, first)
+  expect(await row.getAttribute('title')).toBe('This slot has no map data')
+})
+
+test('a no-pointer row opens no map tab and cannot be added to a group', async ({ page }) => {
+  await load(page)
+  const [slot] = await injectNoPointer(page)
+  const row = await rowOf(page, slot)
+  const viewId = `hackbench.map-view:${slot}`
+
+  await row.click()
+  await row.dblclick()
+  await page.waitForTimeout(1500)
+  expect(await page.evaluate(id => !!getSvc('ApplicationShell').getWidgetById(id), viewId)).toBe(
+    false,
+  )
+  await expect(page.locator(`[id="${viewId}"]`)).toHaveCount(0)
+
+  // Not groupable: the add-to-group action is unavailable and a drag from it is not offered.
+  const can = await page.evaluate(async index => {
+    const w = await getWidget('hackbench.map-explorer')
+    const node = w.model.root.children
+      .find(r => r.id === 'group:unassigned')
+      .children.find(n => n.index === index)
+    w.model.selectNode(node)
+    return { add: w.canAddToGroup(), groupable: w.groupable(node) }
+  }, slot)
+  expect(can).toEqual({ add: false, groupable: false })
+})

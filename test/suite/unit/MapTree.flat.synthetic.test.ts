@@ -44,7 +44,8 @@ describe("buildMapTree lists a root's sub areas flat", () => {
     expect(children.map(c => c.index)).toEqual([0x0c0, 0x0c1, 0x0c2, 0x0c3])
     expect(children.every(c => c.children.length === 0 && c.kind === 'map')).toBe(true)
     // Placed under the root, so not also unassigned; only the orphan is.
-    expect(tree.unassigned.map(n => n.index)).toEqual([0x0d0])
+    expect(tree.unassigned.filter(n => !n.noPointer).map(n => n.index)).toEqual([0x0d0])
+    expect(tree.counts.noPointer).toBe(512 - tree.mapCount)
     expect(tree.mapCount).toBe(6)
   })
 
