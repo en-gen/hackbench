@@ -17,6 +17,7 @@ import {
 } from 'fs'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
+import { spawnSync } from 'child_process'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { SpriteModel } from '../../../src/rom/sprites/interp/SpriteRunner'
 import { runSprite } from '../../../src/rom/sprites/interp/SpriteRunner'
@@ -25,6 +26,7 @@ import { withSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
 import { CAPTURE_DIR, VANILLA, freshRom, hasCaptures, hasRom } from '../support/corpus'
 import { timelineFor } from '../support/gradeTimeline'
 import { isolatedGit, isolateProcessGit } from '../support/isolatedGit'
+import { slow } from '../support/loadTimeout'
 import { grade } from '../support/spriteGrade'
 import { unzip } from '../../../tools/scripts/capture_render'
 import {
@@ -69,6 +71,12 @@ const git = (cwd: string, ...a: string[]): string => {
   if (r.status !== 0) throw new Error(`git ${a.join(' ')} exited ${r.status}: ${r.stderr}`)
   return r.stdout
 }
+
+// Git-heavy tests (30 to 45 git spawns each). Measured worst case: 12 copies of this file at once,
+// n=12, one 32-CPU machine shared with other work: 8479 ms for the clone-spellings test, 5.4 s for
+// the others (some were cut off by the 5 s default, so their true worst is higher). 20 s is local-load
+// headroom, not a CI number; slow() keeps CI's 60 s floor.
+const GIT_HEAVY = slow(20_000)
 
 const COUNTS: Record<ReportVerdict, number> = {
   exact: 4,
@@ -222,6 +230,17 @@ describe('git isolation', () => {
       else process.env.GIT_CONFIG_GLOBAL = saved
     }
   }
+  it('the process install is active: isolated config, identity, credential reset', () => {
+    // Goes red if the beforeAll install is deleted: git spawned with process.env is what the code under test does.
+    const sh = (...a: string[]) =>
+      spawnSync('git', a, { encoding: 'utf8', env: process.env, cwd: tmp })
+    expect(process.env.GIT_CONFIG_GLOBAL).toMatch(/isolated\.gitconfig$/)
+    expect(sh('config', '--get', 'user.email').stdout.trim()).toBe('t@t')
+    const reset = (r: { status: number | null; stdout: string }) => [r.status, r.stdout.trim()] // status 0: the key is set; empty: only the clearing value
+    expect(reset(sh('config', '--get-all', 'credential.helper'))).toEqual([0, ''])
+    const h = isolatedGit(tmp, join(tmp, 'no-hooks'), 'config', '--get-all', 'credential.helper')
+    expect(reset(h)).toEqual([0, ''])
+  })
   it('the test helper and mkRepo ignore a host global hooksPath and config', () => {
     const { cfg, marker } = plant('plant-h')
     withGlobal(cfg, () => {
@@ -327,7 +346,7 @@ describe('run', () => {
     expect(git(v, 'status', '--porcelain')).toContain('A  staged.txt')
     expect(git(v, 'status', '--porcelain')).toContain('?? notes.txt')
   })
-  it('refuses to replace untracked or edited files in <key>/ unless --force', () => {
+  it('refuses to replace untracked or edited files in <key>/ unless --force', GIT_HEAVY, () => {
     const v = mkRepo('v10')
     run(['--validation', v], io())
     const dir = join(v, 'reports', 'sprites', 'deadbeef')
@@ -342,18 +361,22 @@ describe('run', () => {
     expect(readFileSync(join(dir, 'index.md'), 'utf8')).toBe('edited')
     expect(run(['--validation', v, '--force'], io())).toBe(0)
   })
-  it('restores an already-committed <key>/ and latest/ when a rerun fails to commit', () => {
-    const v = mkRepo('v11')
-    run(['--validation', v], io())
-    git(v, 'config', 'core.hooksPath', join(v, '.git', 'hooks'))
-    const hook = join(v, '.git', 'hooks', 'pre-commit')
-    writeFileSync(hook, '#!/bin/sh\nexit 1\n')
-    chmodSync(hook, 0o755)
-    const other = (): Graded[] =>
-      graded().map(g => ({ ...g, oursImg: img(7), hardwareImg: img(8) }))
-    expect(run(['--validation', v], io({ grade: other }))).toBe(1)
-    expect(git(v, 'status', '--porcelain')).toBe('')
-  })
+  it(
+    'restores an already-committed <key>/ and latest/ when a rerun fails to commit',
+    GIT_HEAVY,
+    () => {
+      const v = mkRepo('v11')
+      run(['--validation', v], io())
+      git(v, 'config', 'core.hooksPath', join(v, '.git', 'hooks'))
+      const hook = join(v, '.git', 'hooks', 'pre-commit')
+      writeFileSync(hook, '#!/bin/sh\nexit 1\n')
+      chmodSync(hook, 0o755)
+      const other = (): Graded[] =>
+        graded().map(g => ({ ...g, oursImg: img(7), hardwareImg: img(8) }))
+      expect(run(['--validation', v], io({ grade: other }))).toBe(1)
+      expect(git(v, 'status', '--porcelain')).toBe('')
+    },
+  )
   it('refuses --out and --sheet output inside a repo that shares the hackbench git store', () => {
     const main = mkRepo('hbmain2')
     const wt = join(tmp, 'hbwt2')
@@ -370,7 +393,7 @@ describe('run', () => {
     expect(existsSync(join(v, 'reports', 'sprites', 'abc-dirty', 'index.md'))).toBe(true)
     expect(existsSync(join(v, 'reports', 'sprites', 'abc'))).toBe(false)
   })
-  it('refuses to overwrite a folder with a ticked checkbox unless --force', () => {
+  it('refuses to overwrite a folder with a ticked checkbox unless --force', GIT_HEAVY, () => {
     const v = mkRepo('v8')
     run(['--validation', v], io())
     const page = join(v, 'reports', 'sprites', 'deadbeef', 'exact.md')
@@ -480,7 +503,7 @@ describe('run', () => {
       `refusing ${resolve(nested)}: it is inside the hackbench checkout. Nothing written.`,
     ])
   })
-  it('matches local clone spellings of hackbench, not look-alikes', () => {
+  it('matches local clone spellings of hackbench, not look-alikes', GIT_HEAVY, () => {
     const refused = [
       'C:\\x\\hackbench',
       'C:\\x\\hackbench\\',
@@ -528,7 +551,7 @@ describe('run', () => {
     expect(c.out.join()).toContain('uncommitted')
     expect(readFileSync(mine, 'utf8')).toBe('mine')
   })
-  it('undoes a copy that throws partway through the replacement', () => {
+  it('undoes a copy that throws partway through the replacement', GIT_HEAVY, () => {
     const v = mkRepo('v13')
     run(['--validation', v], io())
     const before = git(v, 'rev-parse', 'HEAD')
@@ -548,37 +571,43 @@ describe('run', () => {
     expect(git(v, 'status', '--porcelain')).toBe('')
     expect(readFileSync(idx, 'utf8')).toBe(was)
   })
-  it('placeReport restores both prior folders when the replacement throws partway', () => {
-    const base = join(tmp, 'place-restore')
-    const seed = (dir: string, text: string): void => {
-      mkdirSync(join(base, dir, 'sub'), { recursive: true })
-      writeFileSync(join(base, dir, 'index.md'), text)
-      writeFileSync(join(base, dir, 'sub', 'keep.md'), `${text}-sub`)
-    }
-    seed('k1', 'old-key')
-    seed('latest', 'old-latest')
-    const real = vi.mocked(cpSync).getMockImplementation()!
-    let n = 0
-    // Fail the copy that fills base/latest, after <key>/ was already replaced; backups use cpSync too.
-    vi.mocked(cpSync).mockImplementation((...a: Parameters<typeof cpSync>) => {
-      if (String(a[1]).startsWith(join(base, 'latest')) && ++n === 1)
-        throw new Error('EBUSY: planted')
-      return real(...a)
-    })
-    try {
-      expect(() => placeReport(base, 'k1', new Map([['index.md', 'new']]), true)).toThrow(/planted/)
-    } finally {
-      vi.mocked(cpSync).mockImplementation(real)
-    }
-    for (const [d, text] of [
-      ['k1', 'old-key'],
-      ['latest', 'old-latest'],
-    ]) {
-      expect(readFileSync(join(base, d, 'index.md'), 'utf8')).toBe(text)
-      expect(readFileSync(join(base, d, 'sub', 'keep.md'), 'utf8')).toBe(`${text}-sub`)
-    }
-    expect(readdirSync(tmpdir()).filter(f => f.startsWith('sprite-report-backup-'))).toEqual([])
-  })
+  it(
+    'placeReport restores both prior folders when the replacement throws partway',
+    GIT_HEAVY,
+    () => {
+      const base = join(tmp, 'place-restore')
+      const seed = (dir: string, text: string): void => {
+        mkdirSync(join(base, dir, 'sub'), { recursive: true })
+        writeFileSync(join(base, dir, 'index.md'), text)
+        writeFileSync(join(base, dir, 'sub', 'keep.md'), `${text}-sub`)
+      }
+      seed('k1', 'old-key')
+      seed('latest', 'old-latest')
+      const real = vi.mocked(cpSync).getMockImplementation()!
+      let n = 0
+      // Fail the copy that fills base/latest, after <key>/ was already replaced; backups use cpSync too.
+      vi.mocked(cpSync).mockImplementation((...a: Parameters<typeof cpSync>) => {
+        if (String(a[1]).startsWith(join(base, 'latest')) && ++n === 1)
+          throw new Error('EBUSY: planted')
+        return real(...a)
+      })
+      try {
+        expect(() => placeReport(base, 'k1', new Map([['index.md', 'new']]), true)).toThrow(
+          /planted/,
+        )
+      } finally {
+        vi.mocked(cpSync).mockImplementation(real)
+      }
+      for (const [d, text] of [
+        ['k1', 'old-key'],
+        ['latest', 'old-latest'],
+      ]) {
+        expect(readFileSync(join(base, d, 'index.md'), 'utf8')).toBe(text)
+        expect(readFileSync(join(base, d, 'sub', 'keep.md'), 'utf8')).toBe(`${text}-sub`)
+      }
+      expect(readdirSync(tmpdir()).filter(f => f.startsWith('sprite-report-backup-'))).toEqual([])
+    },
+  )
   it('placeReport restores each folder independently and keeps the backup when a restore fails', () => {
     const base = join(tmp, 'place-restore-fail')
     for (const [d, text] of [

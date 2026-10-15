@@ -18,7 +18,7 @@ const DROP = [
   'GIT_ALTERNATE_OBJECT_DIRECTORIES',
 ]
 
-export function isolatedEnv(
+function isolatedEnv(
   base: NodeJS.ProcessEnv = process.env,
   globalConfig = '/dev/null', // os.devNull does not work as a config path on Windows git
 ): NodeJS.ProcessEnv {
@@ -31,6 +31,12 @@ export function isolatedEnv(
   for (const k of Object.keys(env)) {
     if (DROP.includes(k) || /^GIT_CONFIG_(COUNT|KEY_|VALUE_)/.test(k)) delete env[k]
   }
+  // Same reset as noRealGh's guard (#486), which the drop above would otherwise erase:
+  // an empty credential.helper clears the list, so no helper (gh.exe, manager) runs.
+  env.GIT_CONFIG_COUNT = '1'
+  env.GIT_CONFIG_KEY_0 = 'credential.helper'
+  env.GIT_CONFIG_VALUE_0 = ''
+  env.GIT_CONFIG_PARAMETERS = "'credential.helper'=''"
   return env
 }
 
