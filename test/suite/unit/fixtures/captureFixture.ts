@@ -84,7 +84,7 @@ export function captureFiles(
   const reg = (byte: number) => ({ byte })
   const ppu = {
     BGMODE_2105: reg(0x09), BG1SC_2107: reg(0x23), BG2SC_2108: reg(0x33), BG3SC_2109: reg(0x53),
-    BG12NBA_210B: reg(0), BG34NBA_210C: reg(4), OBSEL_2101: reg(3),
+    BG12NBA_210B: reg(0), BG34NBA_210C: reg(4), OBSEL_2101: reg(3), TM_212C: reg(0x15), TS_212D: reg(0x02),
     BG2HOFS_210F: 0, BG2VOFS_2110: 0, BG3HOFS_2111: 0, BG3VOFS_2112: 0,
     camera: { layer1X: f.camX, layer1Y: f.camY, layer2X: 0, layer2Y: 0 },
     CGADSUB_2131: reg(0x20), COLDATA_2132: { fixedColorBgr555: 0x5d80 },
