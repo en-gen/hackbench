@@ -242,7 +242,10 @@ async function injectNoPointer(page) {
           const result = await target.loadMaps(mp)
           for (const n of result.tree.unassigned) {
             if (picked.length < 2 && !n.placeholder && !picked.includes(n.index)) {
+              // Shaped as MapTree + MapGroups emit it: an unassigned orphan, no role, no children.
               n.noPointer = true
+              n.orphan = true
+              n.children = []
               delete n.role
               picked.push(n.index)
             }

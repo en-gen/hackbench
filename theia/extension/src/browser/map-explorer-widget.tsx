@@ -978,14 +978,13 @@ export class MapExplorerWidget extends TreeWidget {
   ): React.Attributes & React.HTMLAttributes<HTMLElement> {
     const attrs = super.createNodeAttributes(node, props)
     const map = node as MapTreeNode
-    if (map.category === 'orphan') {
-      if (map.noPointer) {
-        attrs.title = 'This slot has no map data'
-      } else {
-        attrs.title = 'Not reached from the overworld'
-        if (map.sharedCount !== undefined) {
-          attrs.title += `. This slot uses the shared placeholder room, which ${map.sharedCount} slots share.`
-        }
+    // A no-data slot says so whatever folder holds it: the tooltip does not depend on its category.
+    if (map.noPointer) {
+      attrs.title = 'This slot has no map data'
+    } else if (map.category === 'orphan') {
+      attrs.title = 'Not reached from the overworld'
+      if (map.sharedCount !== undefined) {
+        attrs.title += `. This slot uses the shared placeholder room, which ${map.sharedCount} slots share.`
       }
     }
     if (map.role && !map.noPointer) attrs.title = BONUS_ROLES[map.role].title
