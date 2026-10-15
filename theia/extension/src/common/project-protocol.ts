@@ -71,6 +71,8 @@ export interface MapNodeDto {
   /** The slot uses the shared placeholder room, which `sharedCount` slots share. */
   placeholder?: true
   sharedCount?: number
+  /** The slot has no Layer 1 pointer: nothing to open. */
+  empty?: true
   children: MapNodeDto[]
 }
 
@@ -87,6 +89,8 @@ export interface MapTreeCountsDto {
   unassigned: number
   /** Placeholder slots, listed beside the unassigned maps but counted apart. */
   placeholders: number
+  /** Slots with no Layer 1 pointer, listed beside the unassigned maps but counted apart. */
+  empty: number
 }
 
 export interface MapTreeDto {

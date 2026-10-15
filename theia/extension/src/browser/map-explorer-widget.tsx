@@ -112,6 +112,8 @@ export interface MapTreeNode extends CompositeTreeNode, SelectableTreeNode {
   areasNote?: string
   /** Set on a placeholder slot: how many slots share the placeholder room. */
   sharedCount?: number
+  /** Set on a slot with no Layer 1 pointer: nothing to open, no group takes it. */
+  empty?: true
 }
 
 type BonusRole = NonNullable<GroupedMapNodeDto['role']>
@@ -381,11 +383,17 @@ export class MapExplorerWidget extends TreeWidget {
     // Placeholders are counted apart so the figure beside the label stays the
     // number of maps, not of slots (docs/glossary.md).
     const placeholders = maps.filter(m => m.placeholder).length
+    const empty = maps.filter(m => m.empty).length
+    const mapRows = maps.length - placeholders - empty
+    const apart = [
+      placeholders > 0 ? `${placeholders} placeholder` : '',
+      empty > 0 ? `${empty} empty` : '',
+    ].filter(Boolean)
     const node: MapTreeNode = {
       id: 'group:unassigned',
       name:
-        placeholders > 0
-          ? `Unassigned (${maps.length - placeholders}, ${placeholders} placeholder)`
+        apart.length > 0
+          ? `Unassigned (${[mapRows, ...apart].join(', ')})`
           : `Unassigned (${maps.length})`,
       index: -1,
       mapName: null,
@@ -449,6 +457,7 @@ export class MapExplorerWidget extends TreeWidget {
       selected: false,
     }
     if (dto.placeholder) node.sharedCount = dto.sharedCount
+    if (dto.empty) node.empty = true
     node.children = dto.children.map(c => this.toNode(c, node, 'subarea'))
     if (node.children.length > 0) node.expanded = false
     return node
@@ -581,7 +590,7 @@ export class MapExplorerWidget extends TreeWidget {
   protected groupable(node: MapTreeNode): boolean {
     const { kind, category } = node
     // A placeholder row (sharedCount set) is listed, not a map: no group takes it.
-    if (node.sharedCount !== undefined) return false
+    if (node.sharedCount !== undefined || node.empty) return false
     return kind === 'map' && (category === 'entry' || category === 'bonus' || category === 'orphan')
   }
 
@@ -973,6 +982,7 @@ export class MapExplorerWidget extends TreeWidget {
       if (map.sharedCount !== undefined) {
         attrs.title += `. This slot uses the shared placeholder room, which ${map.sharedCount} slots share.`
       }
+      if (map.empty) attrs.title = 'Empty slot: it has no level data'
     }
     if (map.role) attrs.title = BONUS_ROLES[map.role].title
     if (map.area?.invalid) attrs.title = map.area.invalid

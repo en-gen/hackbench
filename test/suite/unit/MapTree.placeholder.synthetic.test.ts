@@ -43,16 +43,41 @@ describe('buildMapTree and the shared placeholder room', () => {
     expect(marked.map(n => n.index)).toEqual(slots(12))
     expect(marked.every(n => n.sharedCount === 12)).toBe(true)
     // Listed with the real orphan, in slot order, but not counted as a map.
-    expect(tree.unassigned.map(n => n.index)).toEqual([...slots(12), 0x0d0])
+    expect(tree.unassigned.filter(n => !n.empty).map(n => n.index)).toEqual([...slots(12), 0x0d0])
     expect(tree.mapCount).toBe(1)
     expect(tree.counts.placeholders).toBe(12)
     expect(tree.counts.unassigned).toBe(1)
   })
 
+  it('lists every slot exactly once: slots with no pointer show as empty, outside both counts', () => {
+    const tree = treeOf(romWithShared(12))
+    const all = [
+      ...tree.special,
+      ...tree.bonus,
+      ...tree.overworld.flatMap(n => [n, ...n.children]),
+      ...tree.unassigned,
+    ].map(n => n.index)
+    const top = [...tree.special, ...tree.bonus, ...tree.overworld, ...tree.unassigned].map(
+      n => n.index,
+    )
+
+    expect([...new Set(top)].sort((a, b) => a - b)).toEqual(
+      Array.from({ length: 512 }, (_, i) => i),
+    )
+    expect(top.length).toBe(512)
+    expect(all.length).toBeGreaterThanOrEqual(512)
+    const empty = tree.unassigned.filter(n => n.empty)
+    expect(empty.length).toBe(512 - 12 - 1)
+    expect(empty.some(n => n.placeholder)).toBe(false)
+    expect(tree.counts.empty).toBe(empty.length)
+    expect(tree.counts.placeholders).toBe(12)
+    expect(tree.mapCount).toBe(1)
+  })
+
   it('lists 9 slots sharing a pointer, and marks none of them', () => {
     const tree = treeOf(romWithShared(9))
 
-    expect(tree.unassigned.map(n => n.index)).toEqual([...slots(9), 0x0d0])
+    expect(tree.unassigned.filter(n => !n.empty).map(n => n.index)).toEqual([...slots(9), 0x0d0])
     expect(tree.unassigned.some(n => n.placeholder || n.sharedCount !== undefined)).toBe(false)
     expect(tree.mapCount).toBe(10)
     expect(tree.counts.placeholders).toBe(0)

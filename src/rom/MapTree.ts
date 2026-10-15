@@ -73,6 +73,11 @@ export interface MapNode {
    */
   placeholder?: true
   sharedCount?: number
+  /**
+   * A slot with no readable Layer 1 pointer (zero): nothing to open. Listed so
+   * every slot appears (#901), never counted as a map or a placeholder.
+   */
+  empty?: true
   children: MapNode[]
 }
 
@@ -100,6 +105,8 @@ export interface MapTreeCounts {
   unassigned: number
   /** Slots listed as orphans only because they use the shared placeholder room. */
   placeholders: number
+  /** Slots listed only because they have no Layer 1 pointer at all. */
+  empty: number
 }
 
 export interface MapTree {
@@ -121,7 +128,7 @@ export interface MapTree {
   unassigned: MapNode[]
   /**
    * Real maps in the ROM, placeholders excluded (docs/glossary.md: 235 on
-   * vanilla). The tree lists mapCount + counts.placeholders slots.
+   * vanilla). The tree lists mapCount + counts.placeholders + counts.empty slots.
    */
   mapCount: number
   counts: MapTreeCounts
@@ -147,6 +154,7 @@ export function buildMapTree(
   // Listed but not a map: never a root or destination, as in the exit graph.
   const maps = new Set(catalog.entries.filter(e => e.isReal).map(e => e.index))
   const placeholders = catalog.entries.filter(e => e.placeholder).map(e => e.index)
+  const empties = catalog.entries.filter(e => !e.isReal && !e.placeholder).map(e => e.index)
   const notes = [...catalog.notes]
 
   // Launch tiles the overworld grants a translevel, which is what a hacker
@@ -228,7 +236,7 @@ export function buildMapTree(
   // complete coverage.
   const realUnassignedIds = [...maps].filter(i => !placed.has(i))
   const realUnassigned = realUnassignedIds.length
-  const unassigned: MapNode[] = [...realUnassignedIds, ...placeholders]
+  const unassigned: MapNode[] = [...realUnassignedIds, ...placeholders, ...empties]
     .sort((a, b) => a - b)
     .map(i => ({
       index: i,
@@ -237,7 +245,9 @@ export function buildMapTree(
       l1Aliases: aliasesOf(i),
       ...(catalog.entries[i]!.placeholder
         ? { placeholder: true as const, sharedCount: catalog.placeholderCount }
-        : {}),
+        : catalog.entries[i]!.isReal
+          ? {}
+          : { empty: true as const }),
       children: [],
     }))
 
@@ -260,6 +270,7 @@ export function buildMapTree(
     entrances: entranceIndex.overworldReadable ? entranceIndex.entrances.length : null,
     unassigned: realUnassigned,
     placeholders: placeholders.length,
+    empty: empties.length,
   }
 
   return { special, bonus, overworld, unassigned, mapCount: maps.size, counts, notes }

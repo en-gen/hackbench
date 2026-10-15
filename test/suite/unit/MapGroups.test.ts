@@ -60,7 +60,12 @@ function fakeTree(overworld: MapNode[], unassigned: MapNode[], bonus: MapNode[] 
     overworld,
     unassigned,
     mapCount: overworld.length + unassigned.length + bonus.length,
-    counts: { entrances: overworld.length, unassigned: unassigned.length, placeholders: 0 },
+    counts: {
+      entrances: overworld.length,
+      unassigned: unassigned.length,
+      placeholders: 0,
+      empty: 0,
+    },
     notes: [],
   }
 }
