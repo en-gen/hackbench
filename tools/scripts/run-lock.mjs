@@ -17,12 +17,13 @@ const USAGE =
 const lockDir = s => path.join(s, 'locks', 'run')
 const ownerFile = s => path.join(lockDir(s), 'owner.txt')
 const nextFile = s => path.join(s, 'locks', 'next.txt')
-const readOwner = s => (existsSync(ownerFile(s)) ? readFileSync(ownerFile(s), 'utf8') : '')
+const readText = file => (existsSync(file) ? readFileSync(file, 'utf8') : '')
+const readOwner = s => readText(ownerFile(s))
 const field = (text, key) => text.match(new RegExp(`^${key}: ?(.*)$`, 'm'))?.[1].trim()
 
 export function acquire(stateDir, { owner, purpose = '', now = new Date() }) {
   const team = owner.split(/\s+/)[0].toLowerCase()
-  const next = existsSync(nextFile(stateDir)) ? readFileSync(nextFile(stateDir), 'utf8') : ''
+  const next = readText(nextFile(stateDir))
   if (next && !next.toLowerCase().includes(team)) {
     return { ok: false, message: `reserved for another team:\n${next.trim()}` }
   }
@@ -82,7 +83,7 @@ export function cli(argv, stateDir) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const { code, out } = cli(process.argv.slice(2), path.join(stateDirFor(process.cwd())))
+  const { code, out } = cli(process.argv.slice(2), stateDirFor(process.cwd()))
   console.log(out)
   process.exitCode = code
 }
