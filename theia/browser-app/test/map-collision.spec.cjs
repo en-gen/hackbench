@@ -17,6 +17,7 @@ const path = require('path')
 const os = require('os')
 const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
 const { startTestServer } = require('./start-test-server.cjs')
+const { screenshotWithoutGrid } = require('./grid-probe.cjs')
 
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
 const ROM = process.env.HB_ROM || romPath(VANILLA)
@@ -531,7 +532,7 @@ async function strokePixels(page, index) {
     return { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2, h: r.height }
   }, root(index))
   const clip = { x: Math.floor(at.x) - 8, y: Math.floor(at.y), width: 16, height: 1 }
-  const png = (await page.screenshot({ clip })).toString('base64')
+  const png = (await screenshotWithoutGrid(page, { clip })).toString('base64')
   return page.evaluate(async b64 => {
     const img = new Image()
     img.src = `data:image/png;base64,${b64}`

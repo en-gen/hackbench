@@ -2394,26 +2394,25 @@ test('the Maps grid shows by default, draws line pixels, and the button and the 
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   await expect(toggle).toHaveAttribute('title', 'Hide grid')
   await expect(toggle).toHaveAttribute('aria-label', 'Hide grid')
+  await page.mouse.move(2, 2) // off the button, so the class is the resting look, not hover
   await expect(toggle).toHaveClass(/hb-icon-btn-on/)
   await expect(toggle.locator('.codicon-table')).toHaveCount(1)
   await gridSettled(page, 0x105)
   const drawn = await readGrid(page, root(0x105))
   expect(drawn).not.toBeNull()
   expect(drawn.rowHits.length + drawn.colHits.length).toBeGreaterThan(0)
-  // The button hides it...
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
   await expect(toggle).toHaveAttribute('title', 'Show grid')
+  await page.mouse.move(2, 2)
   await expect(toggle).toHaveClass(/hb-icon-btn-off/)
   expect(await readGrid(page, root(0x105))).toBeNull()
-  // ...and shows it again.
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   await gridSettled(page, 0x105)
   const back = await readGrid(page, root(0x105))
   expect(back).not.toBeNull()
   expect(back.rowHits.length + back.colHits.length).toBeGreaterThan(0)
-  // The command hides it too.
   await page.evaluate(() => getSvc('CommandRegistry').executeCommand('hackbench.maps.toggleGrid'))
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
   expect(await readGrid(page, root(0x105))).toBeNull()

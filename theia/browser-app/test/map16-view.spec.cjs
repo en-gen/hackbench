@@ -1700,7 +1700,6 @@ test('the grid shows by default, draws 16px tile lines that track zoom, and hide
   const again = await readGrid(page, FG)
   expect(again.rowHits.length + again.colHits.length).toBeGreaterThan(0)
 
-  // The command hides it too.
   await page.evaluate(() => getSvc('CommandRegistry').executeCommand('hackbench.map16.toggleGrid'))
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
   expect(await readGrid(page, FG)).toBeNull()
@@ -1782,14 +1781,23 @@ for (const dpr of [1.5, 2]) {
       await page.waitForTimeout(300)
       expect(await page.evaluate(() => window.devicePixelRatio)).toBe(dpr)
 
-      const g = await readGrid(page, FG)
-      expect(g.dpr).toBe(dpr)
-      expect(g.canvasW).toBe(Math.round(g.cssW * dpr))
-      expect(g.rowHits).toEqual(expectedStarts(g.cell, g.x.length, dpr, g.canvasW))
-      expect(g.rowHits.every((v, i) => i === 0 || v - g.rowHits[i - 1] > 1)).toBe(true)
-      expect(g.colHits.every((v, i) => i === 0 || v - g.colHits[i - 1] > 1)).toBe(true)
-      // Each horizontal line is on its own rounded device row.
-      expect(g.colHits).toEqual([...new Set(g.yLines.map(l => l.start))].sort((a, b) => a - b))
+      const check = async () => {
+        const g = await readGrid(page, FG)
+        expect(g.dpr).toBe(dpr)
+        expect(g.canvasW).toBe(Math.round(g.cssW * dpr))
+        expect(g.rowHits).toEqual(expectedStarts(g.cell, g.x.length, dpr, g.canvasW))
+        expect(g.rowHits.every((v, i) => i === 0 || v - g.rowHits[i - 1] > 1)).toBe(true)
+        expect(g.colHits.every((v, i) => i === 0 || v - g.colHits[i - 1] > 1)).toBe(true)
+        // Each horizontal line is on its own rounded device row.
+        expect(g.colHits).toEqual([...new Set(g.yLines.map(l => l.start))].sort((a, b) => a - b))
+      }
+      await check()
+      // Turning it back on must draw the same one-pixel lines as the first open.
+      await page.locator(ctl('grid-toggle')).click()
+      expect(await readGrid(page, FG)).toBeNull()
+      await page.locator(ctl('grid-toggle')).click()
+      await page.waitForTimeout(300)
+      await check()
     })
   })
 }

@@ -847,7 +847,6 @@ test('the GFX grid shows by default as an 8px-cell overlay that tracks zoom, and
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   expect(await readGrid(page, root)).not.toBeNull()
 
-  // The command hides it too.
   await page.evaluate(() => getSvc('CommandRegistry').executeCommand('hackbench.gfx.toggleGrid'))
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
   expect(await readGrid(page, root)).toBeNull()
@@ -899,15 +898,25 @@ for (const dpr of [1.5, 2]) {
       await page.waitForTimeout(300) // the grid starts on (#920)
       expect(await page.evaluate(() => window.devicePixelRatio)).toBe(dpr)
 
-      const g = await readGrid(page, '.hb-gfx-view')
-      expect(g.dpr).toBe(dpr)
-      expect(g.canvasW).toBe(Math.round(g.cssW * dpr))
-      // Positions come from the cell, not from the hook's own claim.
-      expect(g.rowHits).toEqual(expectedStarts(g.cell, g.x.length, dpr, g.canvasW))
-      // No two hits are adjacent: each line is one device pixel, not two.
-      expect(g.rowHits.every((v, i) => i === 0 || v - g.rowHits[i - 1] > 1)).toBe(true)
-      expect(g.colHits.every((v, i) => i === 0 || v - g.colHits[i - 1] > 1)).toBe(true)
-      expect(g.colHits).toEqual(expectedStarts(g.cell, g.y.length, dpr, g.canvasH))
+      const check = async () => {
+        const g = await readGrid(page, '.hb-gfx-view')
+        expect(g.dpr).toBe(dpr)
+        expect(g.canvasW).toBe(Math.round(g.cssW * dpr))
+        // Positions come from the cell, not from the hook's own claim.
+        expect(g.rowHits).toEqual(expectedStarts(g.cell, g.x.length, dpr, g.canvasW))
+        // No two hits are adjacent: each line is one device pixel, not two.
+        expect(g.rowHits.every((v, i) => i === 0 || v - g.rowHits[i - 1] > 1)).toBe(true)
+        expect(g.colHits.every((v, i) => i === 0 || v - g.colHits[i - 1] > 1)).toBe(true)
+        expect(g.colHits).toEqual(expectedStarts(g.cell, g.y.length, dpr, g.canvasH))
+      }
+      await check()
+      // Turning it back on must draw the same one-pixel lines as the first open.
+      const toggle = page.locator('.hb-gfx-view [data-control="grid-toggle"]')
+      await toggle.click()
+      expect(await readGrid(page, '.hb-gfx-view')).toBeNull()
+      await toggle.click()
+      await page.waitForTimeout(300)
+      await check()
     })
   })
 }
