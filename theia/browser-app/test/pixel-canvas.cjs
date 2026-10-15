@@ -45,7 +45,15 @@ async function transparentShowsThrough(page, selector, covers = []) {
       height: Math.floor(y1 - Math.ceil(y0)),
     }
   }, selector)
+  // The grid is on by default (#920) and draws grey lines over the very pixels
+  // sampled here; hide every overlay for the shot, then put them back.
+  const setGrid = v =>
+    page.evaluate(vis => {
+      for (const el of document.querySelectorAll('.hb-grid-overlay')) el.style.visibility = vis
+    }, v)
+  await setGrid('hidden')
   const png = (await page.screenshot({ clip })).toString('base64')
+  await setGrid('')
   return page.evaluate(
     async ({ sel, png, cell, clip, covers }) => {
       const canvas = document.querySelector(sel)
