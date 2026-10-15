@@ -87,7 +87,7 @@ function entryDy(rom: RomFile, index: number, path: EntryPath): number {
  * The map's `dy` from the entrances that reach it, or null when none is known (an orphan, a bonus
  * map, an unavailable exit graph). Disagreeing entrances draw the one `chooseEntrance` names and say so.
  */
-export function dyFromEntrances(
+function dyFromEntrances(
   rom: RomFile,
   index: number,
   via?: MapEntrances,

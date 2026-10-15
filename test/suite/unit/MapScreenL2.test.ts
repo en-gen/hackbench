@@ -458,11 +458,11 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       expect(build(entry(3), via(true, false)).dy).toBe(0x320 - 0xc0)
     })
 
-    it('entrances that agree draw without a note; ones that disagree draw the first and say the height is unverified', () => {
+    it('entrances that agree draw without a note; ones that disagree draw the entrance chooseEntrance names and say the height is unverified', () => {
       expect(build(entry(1), via(false, false, A, C)).note).toBeUndefined()
       const split = build(entry(1), via(false, false, A, B))
-      expect(split.dy).toBe(0x540 - 0x560) // A, the lowest id
-      expect(split.note).toBe('Background height unverified: drawn as entered through secondary entrance $1BE; entered through secondary entrance $0C4 it starts at a different height.') // prettier-ignore
+      expect(split.dy).toBe(0x540 - 0x590) // B, the lowest id: the one the layer 3 camera reads too (#861)
+      expect(split.note).toBe('Background height unverified: drawn as entered through secondary entrance $0C4; entered through secondary entrance $1BE it starts at a different height.') // prettier-ignore
       // A primary entrance is drawn ahead of any secondary one.
       expect(build(entry(1), via(false, true, A)).dy).toBe(0x320 - 0x3c0)
       expect(build(entry(1), via(false, true, A)).note).toMatch(/drawn as entered by a screen exit/)
@@ -544,7 +544,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       // A failed gate and disagreeing entrances: both reasons, one note.
       objects([[1]])
       const both = ok(buildL2Inputs(smw(entry(1), true), LEVEL, m, via(false, false, A, B), () => 'boom.')) // prettier-ignore
-      expect(both.note).toBe('Background height unverified: boom. Drawn as entered through secondary entrance $1BE; entered through secondary entrance $0C4 it starts at a different height.') // prettier-ignore
+      expect(both.note).toBe('Background height unverified: boom. Drawn as entered through secondary entrance $0C4; entered through secondary entrance $1BE it starts at a different height.') // prettier-ignore
     })
   })
 
