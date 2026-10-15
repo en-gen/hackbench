@@ -370,6 +370,8 @@ export function palaceIconsOf(art: Record<Palace, PalaceArt>): PalaceIconDto[] {
 
 const flagsKey = (f: SwitchFlagsDto) => `${+f.green}${+f.yellow}${+f.blue}${+f.red}`
 
+// Compatibility re-export: importers (tests, other node modules) took readMapEntrances from here
+// before it moved to src/rom/ReadMapEntrances.ts.
 export { readMapEntrances }
 
 /**

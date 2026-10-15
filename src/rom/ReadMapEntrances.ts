@@ -3,7 +3,7 @@ import { deriveOverworldEntrances, type OverworldFingerprints } from './Overworl
 
 /**
  * How the game enters each map, from the exit graph; undefined when the graph is unavailable or
- * throws, so the callers read the main entrance, never a secondary one, instead of refusing the map.
+ * throws, so the callers read the primary entrance, never a secondary one, instead of refusing the map.
  * `fingerprints` replaces the stock ones; for a synthetic ROM.
  */
 export function readMapEntrances(

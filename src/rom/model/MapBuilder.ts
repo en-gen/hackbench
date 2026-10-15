@@ -8,7 +8,7 @@ import {
   parseLevelSprites,
 } from '../LevelParser'
 import { TILE_EMPTY, expandMap, SWITCH_FLAGS_CLEARED } from '../ObjectExpander'
-import type { SmwRom } from '../SmwRom'
+import type { MapEntrances, SmwRom } from '../SmwRom'
 import type { Char } from './chars/Char'
 import { buildChars } from './chars/CharFactory'
 import {
@@ -55,6 +55,20 @@ export interface MapBuildOverrides {
   spriteSet?: number
   objectTileset?: number
   marioVariant?: number
+  /**
+   * The exit graph's entrances, for a caller that already holds them (the Maps view, the
+   * reference webview); read from the ROM, once per ROM, when absent. `undefined` as a value
+   * is "the graph is unavailable", not "absent": use `'entrances' in overrides`.
+   */
+  entrances?: ReadonlyMap<number, MapEntrances> | undefined
+}
+
+/** The graph walk costs about as much as the rest of a map build, so it is made once per SmwRom. */
+const entrancesOf = new WeakMap<SmwRom, ReadonlyMap<number, MapEntrances> | undefined>()
+function entrancesFor(rom: SmwRom, overrides: MapBuildOverrides) {
+  if ('entrances' in overrides) return overrides.entrances
+  if (!entrancesOf.has(rom)) entrancesOf.set(rom, readMapEntrances(rom))
+  return entrancesOf.get(rom)
 }
 
 /**
@@ -144,8 +158,8 @@ export function buildMapWithGraph(
   const layer1ScrollCmd = findLevelScrollSprite(levelSprites)
 
   // How the game enters this map (the exit graph), which picks the entrance its initial camera
-  // Y is read from; undefined (graph unavailable) reads the main entrance.
-  const via = readMapEntrances(rom)?.get(levelId)
+  // Y is read from; undefined (graph unavailable) reads the primary entrance.
+  const via = entrancesFor(rom, overrides)?.get(levelId)
 
   // Initial Layer1YPos (camera Y) used by L2/L3 render-time offset math.
   // Hoisted above buildL2 so it can flow into computeL2ScrollRange.
@@ -218,7 +232,16 @@ export function buildMapWithGraph(
     verticalTable,
     via,
   )
-  const l3 = buildL3(rom.rom, levelId, tileset, l3Chars, screens, isVertical, rawHeader.timeLimit)
+  const l3 = buildL3(
+    rom.rom,
+    levelId,
+    tileset,
+    l3Chars,
+    screens,
+    isVertical,
+    rawHeader.timeLimit,
+    via,
+  )
 
   // Per-level default OBJ priority: LevXYPPCCCTtbl[levelMode] (bank_05.asm:505-509,
   // stored to SpriteProperties at :542-543). Null means the table read failed;

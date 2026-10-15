@@ -8,6 +8,7 @@ import {
   computeL3ScrollRange,
 } from '../L3Loader'
 import type { GfxSheet } from '../GfxLoader'
+import type { MapEntrances } from '../SmwRom'
 import { L3TilemapLayer, type L3Layer } from './L3Layer'
 
 /**
@@ -34,13 +35,14 @@ export function buildL3(
   screens: number,
   isVertical: boolean,
   timeLimit = 0,
+  via?: MapEntrances,
 ): L3Layer | null {
   // Level pixel dims. Horizontal: 27 rows × 16 = 432px tall, screens × 256 wide.
   // Vertical: 32 cols × 16 = 512px wide (L3 rarely used here).
   const levelPixelW = isVertical ? 32 * 16 : screens * 256
   const levelPixelH = isVertical ? screens * 16 * 16 : 27 * 16
 
-  const load = loadL3Tilemap(rom, levelId, tileset, timeLimit)
+  const load = loadL3Tilemap(rom, levelId, tileset, timeLimit, via)
   if (load) {
     const scrollRange = computeL3ScrollRange({
       tilemap: load.tilemap,

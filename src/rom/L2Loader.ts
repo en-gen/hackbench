@@ -31,7 +31,7 @@ import { decompressRle1 } from './LcRle1'
 import { parseL2Objects, SCREEN_W, SCREEN_H, type LevelSprite } from './LevelParser'
 import { expandObject, createGrid, SWITCH_FLAGS_UNCLEARED } from './ObjectExpander'
 import { OWNER_NONE } from './objectHandlers/cursor'
-import { chooseEntrance, secondaryRow } from './L3Loader'
+import { chooseEntrance, secondaryHighByte, secondaryRow } from './L3Loader'
 import type { MapEntrances } from './SmwRom'
 
 /** L2 pointer table base. 3 bytes per level: lo, hi, bank. */
@@ -340,12 +340,6 @@ export { SCREEN_W as L1_SCREEN_W, SCREEN_H as L1_SCREEN_H }
  */
 const DATA_05F400_ADDR = 0x05f400
 
-/**
- * SNES address of DATA_05F600 - first level-data byte per level. For vertical
- * levels, low 5 bits hold the high byte of the initial Y position used for
- * both Layer1YPos+1 and Layer2YPos+1 (bank_05.asm:7386-7393).
- */
-const DATA_05F600_ADDR = 0x05f600
 /** DATA_05F000 (per-level settings, high nibble indexes DATA_05D710) and DATA_05D710 (VertLayer2Setting). */
 const DATA_05F000_ADDR = 0x05f000
 const DATA_05D710_ADDR = 0x05d710
@@ -358,19 +352,19 @@ const DATA_05D70C_ADDR = 0x05d70c
 
 /**
  * Read the initial `Layer2YPos` (BG2VOFS) byte for a map, from the entrance
- * `chooseEntrance(via)` picks (see L3Loader.ts): the main entrance unless only
- * secondary entrances enter the map; no `via` is the main entrance.
+ * `chooseEntrance(via)` picks (see L3Loader.ts): the primary entrance unless only
+ * secondary entrances enter the map; no `via` is the primary entrance.
  *
- * Main path (bank_05.asm:7323-7328):
+ * Primary path (bank_05.asm:7323-7328):
  *   Layer2YPos = DATA_05D70C[DATA_05F400[level] & $03]
  *
- * Secondary path (bank_05.asm:7137-7146; a row the ROM is too short to hold is the main path):
+ * Secondary path (bank_05.asm:7137-7146; a row the ROM is too short to hold is the primary path):
  *   Layer2YPos = DATA_05D70C[(DATA_05FA00[entranceId] >> 6) & $03]
  *
- * Vertical levels (bank_05.asm:7386-7393): same low byte, plus the high byte
- *   from `DATA_05F600[level] & $1F` written to Layer2YPos+1 (only when
- *   VertLayer2Setting != 3 at runtime; the helper combines unconditionally
- *   for symmetry with `readInitialLayer1YPos`).
+ * Vertical levels (bank_05.asm:7376-7393): same low byte, plus the high byte
+ *   `_1 & $1F` written to Layer2YPos+1 only when VertLayer2Setting != 3 (checked below), where
+ *   `_1` is `DATA_05F600[level]` on the primary entrance and `DATA_05FC00[entrance]` on a
+ *   secondary one (:7147-7148, 7336-7337).
  *
  * Bit positions differ from the L1 sibling: L2 uses bits 1:0 of F400 / bits
  * 7:6 of FA00, where L1 uses bits 3:2 / bits 5:4 of the same bytes.
@@ -381,7 +375,8 @@ export function readInitialLayer2YPos(
   isVertical = false,
   via?: MapEntrances,
 ): number {
-  const faByte = secondaryRow(rom, chooseEntrance(via))
+  const entrance = chooseEntrance(via)
+  const faByte = secondaryRow(rom, entrance)
   let loByte: number
   if (faByte !== null) {
     loByte = rom.readByte(DATA_05D70C_ADDR + ((faByte >> 6) & 0x03)) ?? 0
@@ -395,8 +390,7 @@ export function readInitialLayer2YPos(
   // that setting is DATA_05D710[DATA_05F000[level] >> 4] (bank_05.asm:7270-7278).
   const setting = rom.readByte(DATA_05D710_ADDR + ((rom.readByte(DATA_05F000_ADDR + levelId) ?? 0) >> 4)) ?? 0 // prettier-ignore
   if (setting === 3) return loByte
-  const hiByte = (rom.readByte(DATA_05F600_ADDR + levelId) ?? 0) & 0x1f
-  return (hiByte << 8) | loByte
+  return (secondaryHighByte(rom, levelId, faByte === null ? null : entrance) << 8) | loByte
 }
 
 /**

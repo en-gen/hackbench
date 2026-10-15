@@ -112,7 +112,7 @@ export const DATA_05F800_ADDR = 0x05f800
 /** SNES address of DATA_05FA00 - secondary-entrance settings (bits 5:4 index DATA_05D708 for camera Y). */
 export const DATA_05FA00_ADDR = 0x05fa00
 
-/** SNES address of DATA_05FC00 - secondary-entrance X index (bits 7:5) and entrance screen (bits 4:0); no level byte. */
+/** SNES address of DATA_05FC00 - secondary-entrance X index (bits 7:5) and entrance screen (bits 4:0); no level byte. Bits 4:0 are also the vertical high byte (bank_05.asm:7147-7148). */
 export const DATA_05FC00_ADDR = 0x05fc00
 
 /**
@@ -122,14 +122,14 @@ export const DATA_05FC00_ADDR = 0x05fc00
 const DATA_05D708_ADDR = 0x05d708
 
 /**
- * The secondary entrance a map's initial camera is read from, or null for its main entrance.
+ * The secondary entrance a map's initial camera is read from, or null for its primary entrance.
  *
- * The game reads the main entrance (DATA_05F000.. by map) when the overworld or a screen exit
+ * The game reads the primary entrance (DATA_05F000.. by map) when the overworld or a screen exit
  * without UseSecondaryExit enters the map, and a secondary entrance's row only when the flag is
- * set (bank_05.asm:7111-7162 vs 7300-7337). So: overworld or main-exit entered, main; else the
- * lowest secondary index that enters it; else (filler such as $100) main. `via` is the exit
+ * set (bank_05.asm:7111-7162 vs 7300-7337). So: overworld or primary-exit entered, primary; else the
+ * lowest secondary index that enters it; else (filler such as $100) primary. `via` is the exit
  * graph's `MapEntrances` for the map. Undefined means the graph is unavailable (a hooked hack):
- * main, never the stock destination formula applied to tables whose reader may not be stock.
+ * primary, never the stock destination formula applied to tables whose reader may not be stock.
  * The destination of an entrance is decided by the graph (bit 8 of the index, then DATA_05F800,
  * :7103-7118), not here.
  */
@@ -224,10 +224,10 @@ export function applyInitialTimer(rom: RomFile, tilemap: Uint16Array, timeLimit:
 
 /**
  * Return the initial Layer1YPos (camera Y) in pixels for a map, from the entrance
- * `chooseEntrance(via)` picks: the main entrance, or the lowest secondary one when no
- * overworld tile or main-entrance exit enters the map.
+ * `chooseEntrance(via)` picks: the primary entrance, or the lowest secondary one when no
+ * overworld tile or primary-entrance exit enters the map.
  *
- * Main entrance (bank_05.asm:7323-7335):
+ * Primary entrance (bank_05.asm:7323-7335):
  *   Layer1YPos = DATA_05D708[bits 3:2 of DATA_05F400[level]]
  *
  *   ↑ NOTE: bits come from DATA_05F400, NOT DATA_05F200. The ASM at lines
@@ -238,11 +238,13 @@ export function applyInitialTimer(rom: RomFile, tilemap: Uint16Array, timeLimit:
  *     192-pixel L3 misposition for ~all L3-using vanilla levels.
  *
  * Secondary entrance (bank_05.asm:7120-7136); a row the ROM is too short to hold falls
- * back to the main entrance:
+ * back to the primary entrance:
  *   Layer1YPos = DATA_05D708[bits 5:4 of DATA_05FA00[entranceId]]
  *
- * Vertical levels (bank_05.asm:7386-7388): same low byte, plus the high byte
- *   from DATA_05F600[level] & $1F.
+ * Vertical levels (bank_05.asm:7376-7388): same low byte, plus the high byte `_1 & $1F`, where
+ *   `_1` is DATA_05F600[level] on the primary entrance and DATA_05FC00[entrance] on a secondary
+ *   one (:7147-7148, 7336-7337). Written whenever the ScreenMode is vertical; unlike Layer 2's, it
+ *   is not conditioned on VertLayer2Setting (:7390-7393).
  *
  * BG3 tile at VRAM row R ultimately appears at level Y = (R*8 - Layer3YPos) + Layer1YPos.
  */
@@ -252,7 +254,8 @@ export function readInitialLayer1YPos(
   isVertical = false,
   via?: MapEntrances,
 ): number {
-  const faByte = secondaryRow(rom, chooseEntrance(via))
+  const entrance = chooseEntrance(via)
+  const faByte = secondaryRow(rom, entrance)
   let loByte: number
   if (faByte !== null) {
     loByte = rom.readByte(DATA_05D708_ADDR + ((faByte >> 4) & 0x03)) ?? 0
@@ -262,8 +265,13 @@ export function readInitialLayer1YPos(
   }
 
   if (!isVertical) return loByte
-  const hiByte = (rom.readByte(DATA_05F600_ADDR + levelId) ?? 0) & 0x1f
-  return (hiByte << 8) | loByte
+  return (secondaryHighByte(rom, levelId, faByte === null ? null : entrance) << 8) | loByte
+}
+
+/** The vertical high byte `_1 & $1F`: DATA_05FC00[entrance] on a secondary entrance, else DATA_05F600[map]. */
+export function secondaryHighByte(rom: RomFile, levelId: number, entrance: number | null): number {
+  const addr = entrance === null ? DATA_05F600_ADDR + levelId : DATA_05FC00_ADDR + entrance
+  return (rom.readByte(addr) ?? 0) & 0x1f
 }
 
 // ── Per-tileset settings ──────────────────────────────────────────────────────
@@ -761,6 +769,7 @@ export function loadL3Tilemap(
   levelId: number,
   tileset: number,
   timeLimit = 0,
+  via?: MapEntrances,
 ): L3TilemapLoad | null {
   const layer3Setting = readLayer3Setting(rom, levelId)
   if (layer3Setting === 0) return null
@@ -774,7 +783,7 @@ export function loadL3Tilemap(
 
   const settingsByte = readL3SettingsByte(rom, tileset, layer3Setting) ?? 0
   let initialYPx = l3InitialYPx(settingsByte)
-  const initialCameraYPx = readInitialLayer1YPos(rom, levelId)
+  const initialCameraYPx = readInitialLayer1YPos(rom, levelId, false, via)
 
   // $81 with non-castle/non-underground tilesets: CODE_009FB8 takes the
   // CODE_00A01F path (no Layer3YPos write, no Layer3ScrollType increment).

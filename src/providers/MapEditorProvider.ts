@@ -443,7 +443,8 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       // Initial camera Y - see readInitialLayer1YPos in L3Loader.ts. Seeds
       // the camera viewport so sublevels (accessed only via pipes/doors) show
       // the player's actual starting viewport.
-      const via = readMapEntrances(rom)?.get(index)
+      const entrances = readMapEntrances(rom)
+      const via = entrances?.get(index)
       const initialCameraYPx = readInitialLayer1YPos(rom.rom, index, isVertical, via)
       // Initial Layer2YPos (BG2VOFS). Populated for ALL levels - the
       // Layer 2 tab's Y-scrubber slider seeds from this. Only meaningful
@@ -690,6 +691,7 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
           spriteSet: spriteTileset,
           objectTileset,
           marioVariant,
+          entrances, // the graph this handler already walked
         })
         // ROM bytes for the modelPayload's simulator are shipped in
         // the 'load' message above (one transfer per level load).

@@ -17,6 +17,7 @@ import {
   readL3SettingsByte,
   loadL3Tilemap,
   readInitialLayer1YPos,
+  chooseEntrance,
   classifyL3Routine,
   readL3RoutineSummary,
 } from '../../../src/rom/L3Loader'
@@ -391,18 +392,19 @@ describe.skipIf(!romPresent)('L3Loader (ROM-only)', () => {
     expect(readInitialLayer1YPos(rom.rom, 0x127, false)).toBe(0xc0)
   })
 
-  it('sublevels ($100+) use secondary-entrance camera Y, not primary entrance', () => {
-    // Level $102 (Yoshi's Island 4) is a sublevel - only reachable via
-    // secondary entrance $1BE (bank_05.asm:7129-7136).  The primary-entrance
-    // tables put camera Y at 0 (wrong), but $05FA00[$1BE] = $AB → bits 5:4 = 2
-    // → DATA_05D708[2] = $C0 = 192. This places the tide water at level Y 384.
+  it('$102 (the overworld also enters it) reads its primary row: camera Y $C0, tide water at level Y 384', () => {
+    // The primary path (bank_05.asm:7323-7335) is what the game runs for a map the overworld
+    // enters; F400[$102] bits 3:2 = 2 -> DATA_05D708[2] = $C0 = 192. Secondary entrance $1BE also
+    // aims at $102, and FA00[$1BE] = $AB (bits 5:4 = 2) happens to agree, so this does not
+    // exercise the secondary path; EntranceVia.synthetic.test.ts does, with rows that differ.
     const rom = SmwRom.open(ROM_PATH)
     const via = readMapEntrances(rom)?.get(0x102)
     expect(via?.secondary[0]).toBe(0x1be)
+    expect(chooseEntrance(via)).toBeNull()
     const camY = readInitialLayer1YPos(rom.rom, 0x102, false, via)
     expect(camY).toBe(0xc0) // = 192
     // Derived: wave row 32 with Tide_Stationary ($40): pixelY = 256 - 64 + 192 = 384
-    const load = loadL3Tilemap(rom.rom, 0x102, 8)
+    const load = loadL3Tilemap(rom.rom, 0x102, 8, 0, via)
     expect(load!.initialYPx).toBe(0x40)
     expect(32 * 8 - load!.initialYPx + camY).toBe(384)
   })

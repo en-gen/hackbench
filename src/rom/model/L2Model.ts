@@ -115,7 +115,7 @@ function dyFromEntrances(
 /**
  * Read one map's L2, or why it cannot be read. Never a vanilla fallback. `entrances` is how the
  * game enters the map (`SmwRom.buildLevelExitGraph`); `startGate` names why the level-load code
- * is not stock, or null. Without entrances (graph unavailable) the position is the main entrance's
+ * is not stock, or null. Without entrances (graph unavailable) the position is the primary entrance's
  * F400/F600, never a secondary entrance's row.
  */
 export function buildL2Inputs(
@@ -132,11 +132,11 @@ export function buildL2Inputs(
   // The level-start relation `Layer1YPos - Layer2YPos`, the view's representative frame; later
   // vertical scrolling moves L2 against L1 when VertLayer2Setting != 1. The high bytes follow the
   // ScreenMode the entry code builds from F600 bits 5-6 (bank_05.asm:7292-7299, 7379-7381), not the
-  // VerticalTable, which the header parse applies later (:552-553). With no known entrance, the
-  // older reading described above.
+  // VerticalTable, which the header parse applies later (:552-553). With no known entrance
+  // (so none is chosen), the primary entrance's F400/F600.
   const entryVertical = ((rom.rom.readByte(0x05f600 + index) ?? 0) & 0x20) !== 0
   const known = dyFromEntrances(rom.rom, index, entrances)
-  const dy = (): number => known?.dy ?? readInitialLayer1YPos(rom.rom, index, entryVertical, entrances) - readInitialLayer2YPos(rom.rom, index, entryVertical, entrances) // prettier-ignore
+  const dy = (): number => known?.dy ?? readInitialLayer1YPos(rom.rom, index, entryVertical) - readInitialLayer2YPos(rom.rom, index, entryVertical) // prettier-ignore
   // The tables are the game's only while the code reading them is stock (LEVEL_START_Y): if not,
   // the best reading still draws, said to be unverified.
   const gate = startGate(rom.rom)

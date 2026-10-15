@@ -8,6 +8,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { readInitialLayer2YPos } from '../../../src/rom/L2Loader'
+import { chooseEntrance } from '../../../src/rom/L3Loader'
 import { readMapEntrances } from '../../../src/rom/ReadMapEntrances'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
@@ -40,23 +41,22 @@ describe.skipIf(!romPresent)('L2Loader.readInitialLayer2YPos (ROM-only)', () => 
     expect(readInitialLayer2YPos(rom.rom, 0x1ce, false)).toBe(0x00)
   })
 
-  it('sublevel with secondary entrance reads DATA_05FA00 bits 7:6 -> DATA_05D70C', () => {
-    // bank_05.asm:7137-7146 (secondary-entrance path, post-LSR x6):
-    //   AND.B #$03 -> top 2 bits of FA00[entrance]
-    //   TAX
-    //   LDA.L DATA_05D70C,X
-    // For $102 (Yoshi's Island 4 sublevel, only reachable via entrance $1BE):
-    //   FA00[$1BE] = $AB -> bits 7:6 = 2 -> D70C[2] = $C0.
+  it('$102, which the overworld also enters, reads its primary row (F400 bits 1:0)', () => {
+    // The primary path (bank_05.asm:7323-7328) is what the game runs for a map the overworld
+    // enters, though secondary entrance $1BE also aims at $102. This is the primary path: F400[$102]
+    // gives D70C[2] = $C0, which FA00[$1BE] = $AB (bits 7:6 = 2) happens to match. The secondary
+    // path is covered by EntranceVia.synthetic.test.ts, where the two rows differ.
     const rom = SmwRom.open(ROM_PATH)
     const via = readMapEntrances(rom)?.get(0x102)
     expect(via?.secondary[0]).toBe(0x1be)
+    expect(chooseEntrance(via)).toBeNull()
     expect(readInitialLayer2YPos(rom.rom, 0x102, false, via)).toBe(0xc0)
   })
 
   it('sublevel without targeting entrance falls back to primary-path bits', () => {
     // $111 is in the user's object-stream L2 cohort but no secondary entrance
     // targets it. The helper must fall through to the primary path (F400 & 3),
-    // matching readInitialLayer1YPos's same fallback at L3Loader.ts:260-266.
+    // matching readInitialLayer1YPos's same fallback (its primary-row branch).
     //   F400[$111] = $0A -> bits 1:0 = 2 -> D70C[2] = $C0.
     const rom = SmwRom.open(ROM_PATH)
     const via = readMapEntrances(rom)?.get(0x111)
