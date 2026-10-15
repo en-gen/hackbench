@@ -50,6 +50,12 @@ const closeKey = (p: RecordedPiece): string => [p.tile, p.attr & 0x0f, +p.large]
 const keys = (ps: RecordedPiece[], f: (p: RecordedPiece) => string): string =>
   ps.map(f).sort().join(';')
 
+/** An X offset folded into 9-bit signed OAM range (-256..255), as the hardware's X wraps. */
+export const wrap9 = (v: number): number => {
+  const r = ((v % 512) + 512) % 512
+  return r > 255 ? r - 512 : r
+}
+
 /** The model's parts for one pass, as the recorded shape, offsets from the pass's own position. */
 export function passPieces(m: SpriteModel, pass: number): RecordedPiece[] {
   const p = m.passes[pass]
@@ -59,7 +65,10 @@ export function passPieces(m: SpriteModel, pass: number): RecordedPiece[] {
   return p.parts
     .filter(q => q.oy !== 0xf0)
     .map(q => ({
-      dx: q.dx + (p.origin.x - p.pos.x),
+      // q.dx is wrapped against the draw origin; moving it to the pass position can leave -256..255, and
+      // the capture's offset is the 9-bit one from the sprite (#869: 160 + 112 is 272 here, -240 recorded).
+      // OAM X is 9 bits: SMWDisX bank_01.asm:7668-7675 (CODE_01B844) sets the high bit from the 16-bit screen X.
+      dx: wrap9(q.dx + (p.origin.x - p.pos.x)),
       dy: q.dy + (p.origin.y - p.pos.y),
       tile: q.char & 0xff,
       attr: q.attr,
