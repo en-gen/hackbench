@@ -56,6 +56,12 @@ export const wrap9 = (v: number): number => {
   return r > 255 ? r - 512 : r
 }
 
+/** A Y offset folded into 8-bit signed range (-128..127), as the capture records it. */
+export const wrap8 = (v: number): number => {
+  const r = ((v % 256) + 256) % 256
+  return r > 127 ? r - 256 : r
+}
+
 /** The model's parts for one pass, as the recorded shape, offsets from the pass's own position. */
 export function passPieces(m: SpriteModel, pass: number): RecordedPiece[] {
   const p = m.passes[pass]
@@ -67,9 +73,10 @@ export function passPieces(m: SpriteModel, pass: number): RecordedPiece[] {
     .map(q => ({
       // q.dx is wrapped against the draw origin; moving it to the pass position can leave -256..255, and
       // the capture's offset is the 9-bit one from the sprite (#869: 160 + 112 is 272 here, -240 recorded).
-      // OAM X is 9 bits: SMWDisX bank_01.asm:7668-7675 (CODE_01B844) sets the high bit from the 16-bit screen X.
+      // OAM X is 9 bits: SMWDisX bank_01.asm:7634-7642 (high X bit set), compare in CODE_01B844 7668-7675.
+      // Y is 8 bits, folded into -128..127 by the capture (headless_capture.lua:1389).
       dx: wrap9(q.dx + (p.origin.x - p.pos.x)),
-      dy: q.dy + (p.origin.y - p.pos.y),
+      dy: wrap8(q.dy + (p.origin.y - p.pos.y)),
       tile: q.char & 0xff,
       attr: q.attr,
       large: q.size === 16,
