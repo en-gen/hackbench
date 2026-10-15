@@ -1,8 +1,7 @@
 /**
- * Git for tests that build throwaway repos, isolated from the machine's git
- * config (#892, #890): a host global core.hooksPath once made every checkout
- * about 180 ms slower, and git detaches `maintenance run --auto` after commits.
- * Both multiply spawn cost under parallel load. Pure helpers: no tests here.
+ * Git for throwaway test repos, isolated from the host's git config (#892,
+ * #890): a host core.hooksPath slowed every checkout ~180 ms, and git detaches
+ * `maintenance run --auto` after commits. Both multiply under parallel load.
  */
 import { spawnSync, type SpawnSyncReturns } from 'child_process'
 import { mkdirSync, writeFileSync } from 'fs'
@@ -19,10 +18,9 @@ const DROP = [
   'GIT_ALTERNATE_OBJECT_DIRECTORIES',
 ]
 
-/** `base` without the redirecting GIT_* variables, global config replaced by `globalConfig`. */
 export function isolatedEnv(
   base: NodeJS.ProcessEnv = process.env,
-  globalConfig = '/dev/null', // works as a config path on Windows git too; os.devNull does not
+  globalConfig = '/dev/null', // os.devNull does not work as a config path on Windows git
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     ...base,
@@ -31,13 +29,12 @@ export function isolatedEnv(
     GIT_CONFIG_NOSYSTEM: '1',
   }
   for (const k of Object.keys(env)) {
-    if (DROP.includes(k) || k === 'GIT_CONFIG_COUNT' || /^GIT_CONFIG_(KEY|VALUE)_/.test(k))
-      delete env[k]
+    if (DROP.includes(k) || /^GIT_CONFIG_(COUNT|KEY_|VALUE_)/.test(k)) delete env[k]
   }
   return env
 }
 
-/** `noHooks` is a path that does not exist: git finds no hooks there. */
+// `noHooks` must be a path that does not exist.
 export function isolatedGit(
   cwd: string,
   noHooks: string,
@@ -46,7 +43,7 @@ export function isolatedGit(
   const cfg = [
     'core.hooksPath=' + noHooks,
     'commit.gpgsign=false',
-    'maintenance.auto=false', // else ~5 extra git.exe starts after each commit (GIT_TRACE2, one machine)
+    'maintenance.auto=false', // else ~5 extra git starts per commit (GIT_TRACE2, one Windows machine)
     'core.autocrlf=false',
     'user.name=t',
     'user.email=t@t',
@@ -60,10 +57,9 @@ export function isolatedGit(
 }
 
 /**
- * For code under test that spawns git with process.env: point the process at a
- * gitconfig in `dir` (no hooks, no maintenance, an identity) for as long as it
- * stays installed. Repo-level config still wins, so a test may plant its own
- * hook. Returns the restore function.
+ * For code under test that spawns git with process.env: install a gitconfig in
+ * `dir` (no hooks or maintenance, an identity). Repo config still wins.
+ * Returns the restore function.
  */
 export function isolateProcessGit(dir: string): () => void {
   mkdirSync(dir, { recursive: true })

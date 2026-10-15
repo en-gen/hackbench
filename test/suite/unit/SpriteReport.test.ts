@@ -58,8 +58,7 @@ vi.mock('fs', async orig => {
 
 const tmp = mkdtempSync(join(tmpdir(), 'sprite-report-'))
 afterAll(() => rmSync(tmp, { recursive: true, force: true }))
-// Test git goes through isolatedGit; the code under test spawns git with process.env, so the
-// process is isolated for this file (#890). 542 real git spawns here exceeded 5 s under load.
+// The code under test spawns git with process.env, so isolate the process too (#890).
 let restoreGit = (): void => {}
 beforeAll(() => {
   restoreGit = isolateProcessGit(join(tmp, 'git-env'))
@@ -169,8 +168,7 @@ describe('isInside', () => {
 const img = (n: number): Graded['oursImg'] => ({ w: 2, h: 2, px: new Uint8Array(16).fill(n) })
 const graded = (): Graded[] => rows().map(r => ({ ...r, oursImg: img(100), hardwareImg: img(200) }))
 const VALIDATION_URL = 'git@github.com:en-gen/hackbench-validation.git'
-// Identity comes from the isolated config; `commit: false` skips the commit and its spawn
-// for tests that only read remotes.
+// `commit: false` skips a spawn for tests that only read remotes.
 const mkRepo = (name: string, remote: string | null = VALIDATION_URL, commit = true): string => {
   const d = join(tmp, name)
   mkdirSync(d)
@@ -195,8 +193,8 @@ const io = (over: Partial<Io> = {}): Io & { out: string[] } => {
   }
 }
 
-// Each plant is a host global gitconfig with a hooksPath hook (writes a marker) and a probe key.
-// Un-isolating the helper, mkRepo or the process-level isolation turns one of these red (#890).
+// Plants a host gitconfig with a marker-writing hook and a probe key; un-isolating the helper,
+// mkRepo or the process turns a test red (#890).
 describe('git isolation', () => {
   const plant = (name: string) => {
     const dir = join(tmp, name)
