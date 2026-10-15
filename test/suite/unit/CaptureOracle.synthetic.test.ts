@@ -222,19 +222,101 @@ describe('Sprites layer', () => {
       expect(D.pieceOffset(0, y, 1000, 300, 1000, 200)[1]).toBe(y - 100)
   })
 
-  it('unwrapDy window runs -32..223 (#811)', () => {
-    expect(D.unwrapDy(-33, 500, 500)).toBe(223)
-    expect(D.unwrapDy(-32, 500, 500)).toBe(-32)
-    expect(D.unwrapDy(223, 500, 500)).toBe(223)
+  // The window the code used before #888, kept as the oracle for pieces it handled.
+  const oldUnwrap = (dy: number, spriteY: number, camY: number) => {
+    const v = dy + (((spriteY - camY + 0x8000) & 0xffff) - 0x8000)
+    return dy + (((((v + 32) % 256) + 256) % 256) - 32 - v)
+  }
+  const recordedOf = (trueDy: number) => ((((trueDy + 128) % 256) + 256) % 256) - 128
+  // Window of piece tops for height h: lowest top still touching line 0 is -(h-1); never above -32 (the #811 floor).
+  const lowOf = (h: number) => Math.min(-32, -(h - 1))
+  // Sprite screen-y and camera pairs: sprite above, on and below the screen, camera at 0 and large.
+  const spots = [
+    [500, 500],
+    [531, 500],
+    [468, 500],
+    [0, 0],
+    [65532, 0],
+    [300, 200],
+    [3000, 2900],
+  ]
+
+  it('unwrapDy window starts at -32 for pieces up to 32 lines (#811)', () => {
+    for (const h of [8, 16, 32]) {
+      expect(D.unwrapDy(-33, 500, 500, h)).toBe(223)
+      expect(D.unwrapDy(-32, 500, 500, h)).toBe(-32)
+      expect(D.unwrapDy(223, 500, 500, h)).toBe(223)
+    }
+  })
+
+  it('unwrapDy keeps the true negative top of a 64-line piece above -32 (#888)', () => {
+    // Top at -63 still shows its last line at screen line 0; -64 shows nothing.
+    expect(D.unwrapDy(-33, 500, 500, 64)).toBe(-33)
+    expect(D.unwrapDy(-63, 500, 500, 64)).toBe(-63)
+    expect(D.unwrapDy(-64, 500, 500, 64)).toBe(192)
+    expect(D.unwrapDy(-32, 500, 500, 64)).toBe(-32)
+    expect(D.unwrapDy(192, 500, 500, 64)).toBe(192)
+    expect(D.unwrapDy(193, 500, 500, 64)).toBe(-63)
+  })
+
+  it('unwrapDy sweeps every height at both edges of its window (#888)', () => {
+    for (const h of [8, 16, 32, 64])
+      for (const [sy, cy] of spots) {
+        const lo = lowOf(h)
+        const sScreen = ((sy - cy + 0x8000) & 0xffff) - 0x8000
+        for (const top of [lo - 1, lo, lo + 1, lo + 254, lo + 255, lo + 256]) {
+          const trueDy = top - sScreen
+          const want = ((((top - lo) % 256) + 256) % 256) + lo - sScreen
+          expect(
+            D.unwrapDy(recordedOf(trueDy), sy, cy, h),
+            `h=${h} sy=${sy} cy=${cy} top=${top}`,
+          ).toBe(want)
+        }
+      }
+  })
+
+  it('unwrapDy: every recorded dy lands in the 256-wide window, congruent mod 256 (#888)', () => {
+    for (const h of [8, 16, 32, 64])
+      for (const [sy, cy] of spots)
+        for (let dy = -128; dy < 128; dy++) {
+          const sScreen = ((sy - cy + 0x8000) & 0xffff) - 0x8000
+          const top = D.unwrapDy(dy, sy, cy, h) + sScreen
+          expect(top, `h=${h} dy=${dy}`).toBeGreaterThanOrEqual(lowOf(h))
+          expect(top).toBeLessThan(lowOf(h) + 256)
+          expect(Math.abs(D.unwrapDy(dy, sy, cy, h) - dy) % 256).toBe(0)
+        }
+  })
+
+  it('unwrapDy: pieces fully inside the old -32..223 window unwrap exactly as before (#888)', () => {
+    for (const h of [8, 16, 32, 64])
+      for (const [sy, cy] of spots) {
+        const sScreen = ((sy - cy + 0x8000) & 0xffff) - 0x8000
+        for (let top = -32; top + h - 1 <= 223; top++) {
+          const dy = recordedOf(top - sScreen)
+          expect(D.unwrapDy(dy, sy, cy, h), `h=${h} top=${top}`).toBe(oldUnwrap(dy, sy, cy))
+          expect(D.unwrapDy(dy, sy, cy, h)).toBe(top - sScreen)
+        }
+      }
+  })
+
+  it('plant: a height-blind unwrap is rejected by the 64-line sweep (#888)', () => {
+    // The sweep predicate, run against the old function: it must find a failing top.
+    const fails = (fn: (dy: number, sy: number, cy: number, h: number) => number) => {
+      for (let top = -63; top < -32; top++)
+        if (fn(recordedOf(top), 500, 500, 64) !== top) return true
+      return false
+    }
+    expect(fails((dy, sy, cy) => oldUnwrap(dy, sy, cy))).toBe(true)
+    expect(fails(D.unwrapDy)).toBe(false)
   })
 
   it('unwrapDy picks the multiple of 256 that lands on the visible screen (#811)', () => {
-    for (let sy = -32; sy < 224; sy += 5)
-      for (let line = -32; line < 224; line += 11) {
-        const trueDy = line - sy
-        const recorded = ((((trueDy + 128) % 256) + 256) % 256) - 128
-        expect(D.unwrapDy(recorded, 500 + sy, 500)).toBe(trueDy)
-      }
+    for (const h of [8, 16, 32])
+      for (let sy = -32; sy < 224; sy += 5)
+        for (let line = -32; line < 224; line += 11) {
+          const trueDy = line - sy
+          expect(D.unwrapDy(recordedOf(trueDy), 500 + sy, 500, h)).toBe(trueDy)
+        }
   })
 
   it('reads an OAM line of $E0 or more as above the top edge (#811)', () => {

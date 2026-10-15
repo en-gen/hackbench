@@ -170,14 +170,21 @@ export function pieceOffset(oamX9: number, oamY: number, spriteX: number, sprite
  * A recorded dy is the true offset modulo 256 in -128..127 (the recorder,
  * hackbench-validation capture/mesen/headless_capture.lua:1389, where sn.sy
  * is the sprite's level Y minus Layer1YPos, set at :1279-1283). Choose the
- * multiple of 256 that puts the piece on the visible window -32..223, which
- * is 256 wide and so unique. Limit: OBJ pieces run to 64 lines, so a 64-line
- * piece whose top is above line -32 yet still reaches the screen is placed
- * 256 lines too low (drawn off screen, not dropped); 32 lines or less is exact.
+ * multiple of 256 that puts the piece top in a 256-wide window, so the pick
+ * is unique. OAM Y is 8 bits and a piece of height h covers lines top..top+h-1
+ * modulo 256, so its last line reaches screen line 0 while top >= -(h-1); the
+ * window therefore starts at min(-32, -(h-1)): -32 for 8, 16 and 32 lines (as
+ * before, #811), -63 for 64. The picture is 224 lines (SMWDisX bank_00.asm:1262,
+ * SETINI 0; the E1 build sets 239), so the window's top end falls past the
+ * screen either way. Residual ambiguity, inherent to a Y kept modulo 256: a
+ * 64-line piece with top 193..223 reads as top -63..-33 (both show on screen);
+ * the sprite-above-screen reading is taken. Evidence: derivation plus synthetic
+ * sweeps (#888), no capture checked.
  */
-export function unwrapDy(dy: number, spriteY: number, camY: number) {
+export function unwrapDy(dy: number, spriteY: number, camY: number, height: number) {
+  const lo = Math.min(-32, -(height - 1))
   const v = dy + spriteScreenY(spriteY, camY)
-  return dy + (((((v + 32) % 256) + 256) % 256) - 32 - v)
+  return dy + (((((v - lo) % 256) + 256) % 256) + lo - v)
 }
 
 /** One window as the SNES comparison needs it: its own VRAM, palette, OAM and scroll. */
