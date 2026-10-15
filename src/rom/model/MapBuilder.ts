@@ -9,6 +9,7 @@ import {
 } from '../LevelParser'
 import { TILE_EMPTY, expandMap, SWITCH_FLAGS_CLEARED } from '../ObjectExpander'
 import type { MapEntrances, SmwRom } from '../SmwRom'
+import { cachedByVersion, type RomFile } from '../RomFile'
 import type { Char } from './chars/Char'
 import { buildChars } from './chars/CharFactory'
 import {
@@ -63,12 +64,18 @@ export interface MapBuildOverrides {
   entrances?: ReadonlyMap<number, MapEntrances> | undefined
 }
 
-/** The graph walk costs about as much as the rest of a map build, so it is made once per SmwRom. */
-const entrancesOf = new WeakMap<SmwRom, ReadonlyMap<number, MapEntrances> | undefined>()
-function entrancesFor(rom: SmwRom, overrides: MapBuildOverrides) {
+/**
+ * The graph walk costs about as much as the rest of a map build, so it is made once per ROM
+ * version: a `writeAt` bumps the version and the next build re-reads, never serving entrances
+ * derived from bytes that no longer exist.
+ */
+const entrancesOf = new WeakMap<
+  RomFile,
+  { version: number; value: ReadonlyMap<number, MapEntrances> | undefined }
+>()
+export function entrancesFor(rom: SmwRom, overrides: MapBuildOverrides) {
   if ('entrances' in overrides) return overrides.entrances
-  if (!entrancesOf.has(rom)) entrancesOf.set(rom, readMapEntrances(rom))
-  return entrancesOf.get(rom)
+  return cachedByVersion(entrancesOf, rom.rom, () => readMapEntrances(rom))
 }
 
 /**
