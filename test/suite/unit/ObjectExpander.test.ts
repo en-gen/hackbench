@@ -1322,6 +1322,33 @@ describe('handle_0DAB3E pipe variants (object 18)', () => {
     }
   }
 
+  // Pins the dispatch table address (handlerAddr + 18, per-entry stride 3, low
+  // nibble modulo 10) for every variant. Scope: synthetic ROM, no corpus.
+  // The table gets ten DISTINCT targets. The reference for variant v is the
+  // same dispatcher run on a table whose ten entries all hold target v, which
+  // any table offset that stays inside the stamped bytes resolves identically.
+  // JSL ExecutePtrLong is at $0DAB4C (4 bytes), so the table starts at $0DAB50
+  // (SMWDisX bank_0D.asm:2288, :2290-2299, #857).
+  const SIZES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf].map(n => 0x20 | n)
+  it.each(SIZES)('size $%i reads the entry at +18 + 3 * (low nibble %% 10) (#857)', size => {
+    const variant = (size & 0x0f) % 10
+    const draw = (stamp: (rom: RomFile) => void): TileGrid => {
+      const rom = makeMockRom()
+      stamp(rom)
+      const grid = createGrid(2)
+      handle_0DAB3E(makeCursorForHandler(DISPATCHER_ADDR, grid, rom, 0, 10, 10, 18, size))
+      return grid
+    }
+    const actual = draw(stampDispatchTable)
+    const reference = draw(rom => {
+      for (let i = 0; i < 10; i++)
+        stampLongOperand(rom, DISPATCHER_ADDR, 18 + i * 3, VARIANT_ADDRS[variant])
+    })
+    // A reference that drew nothing would let any wrong read pass as equal.
+    expect(reference.some(row => row.some(t => t !== TILE_EMPTY))).toBe(true)
+    expect(actual).toEqual(reference)
+  })
+
   it('variant 0: 2-wide diagonal down-left slope', () => {
     // Per CODE_0DAB6E (bank_0D:2301): 2-wide lip/body descending col-2/row+1
     // per iter, with a final straight-down body row. For size $20 (H=2):
