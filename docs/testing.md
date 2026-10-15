@@ -837,7 +837,7 @@ node tools/scripts/run-lock.mjs release --owner "<team> <worktree>"
   dir's mtime, and says so. If that age is still negative, `status` prints
   "age unknown (clock skew), report to the BA" and never calls it fresh. An
   mtime age can reset if `owner.txt` is replaced, so it is a lower bound.
-  `release` on a lock dir with no `owner.txt` says it is missing (an
+  `release` on a lock dir whose `owner.txt` is missing or empty says so (an
   interrupted acquire) and refuses; report it to the BA.
 - `locks/next.txt` reserves the next turn. The owner's team is the leading
   letters of its first word, lowercased (`xray-909` is `xray`); the lock is

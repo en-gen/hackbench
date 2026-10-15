@@ -290,6 +290,16 @@ describe('run lock hardening', () => {
     expect(st.stale).toBe(false)
   })
 
+  it('a future started: sweeps the stale threshold on the mtime age', () => {
+    const now = new Date('2026-10-14T12:00:00Z')
+    const got = [119, 120, 121, 600].map(age => {
+      const s = mkState()
+      handLock(s, 'owner: alpha x\nstarted: 2027-01-01T00:00:00Z\n', age, now)
+      return status(s, { now }).stale
+    })
+    expect(got).toEqual([false, false, true, true])
+  })
+
   it('a still-negative age says unknown, never fresh', () => {
     const s = mkState()
     const now = new Date('2026-10-14T12:00:00Z')
@@ -307,8 +317,18 @@ describe('run lock hardening', () => {
     fs.mkdirSync(runDir(s), { recursive: true })
     const r = release(s, { owner: A })
     expect(r.ok).toBe(false)
-    expect(r.message).toContain('owner.txt is missing')
+    expect(r.message).toContain('owner.txt is missing or empty')
     expect(r.message).not.toContain('by hand')
+    expect(fs.existsSync(runDir(s))).toBe(true)
+  })
+
+  it('an owner.txt of only whitespace refuses as missing or empty and the lock remains', () => {
+    const s = mkState()
+    fs.mkdirSync(runDir(s), { recursive: true })
+    fs.writeFileSync(ownerFile(s), '  \n')
+    const r = release(s, { owner: A })
+    expect(r.ok).toBe(false)
+    expect(r.message).toContain('owner.txt is missing or empty (interrupted acquire)')
     expect(fs.existsSync(runDir(s))).toBe(true)
   })
 
@@ -381,6 +401,11 @@ describe('defaultStateDir', () => {
 
   it('without the env var it is <main checkout>/.hackbench-state', () => {
     expect(defaultStateDir(scriptsDir, {})).toBe(expectedMain())
+  })
+
+  it('the result sits beside a real .git directory (main checkout, not a worktree)', () => {
+    const result = defaultStateDir(scriptsDir, {})
+    expect(fs.statSync(path.join(path.dirname(result), '.git')).isDirectory()).toBe(true)
   })
 
   it('does not depend on the cwd (fresh process started outside the repo)', () => {

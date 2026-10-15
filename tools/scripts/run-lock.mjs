@@ -80,7 +80,9 @@ export function release(stateDir, { owner } = {}) {
   const text = readText(ownerFile(stateDir))
   const holder = field(text, 'owner')
   if (!text.trim()) {
-    return fail('owner.txt is missing (interrupted acquire), lock left intact; report it to the BA')
+    return fail(
+      'owner.txt is missing or empty (interrupted acquire), lock left intact; report it to the BA',
+    )
   }
   if (holder === undefined) {
     return fail(
