@@ -224,9 +224,11 @@ describe('Sprites layer', () => {
 
   // The window the code used before #888, kept as the oracle for pieces it handled.
   const oldUnwrap = (dy: number, spriteY: number, camY: number) => {
-    const v = dy + (((spriteY - camY + 0x8000) & 0xffff) - 0x8000)
+    const v = dy + screenOf(spriteY, camY)
     return dy + (((((v + 32) % 256) + 256) % 256) - 32 - v)
   }
+  // The sprite's screen y: sprite level Y minus camera, as a signed 16-bit value.
+  const screenOf = (sy: number, cy: number) => ((sy - cy + 0x8000) & 0xffff) - 0x8000
   const recordedOf = (trueDy: number) => ((((trueDy + 128) % 256) + 256) % 256) - 128
   // Window of piece tops for height h: lowest top still touching line 0 is -(h-1); never above -32 (the #811 floor).
   const lowOf = (h: number) => Math.min(-32, -(h - 1))
@@ -263,7 +265,7 @@ describe('Sprites layer', () => {
     for (const h of [8, 16, 32, 64])
       for (const [sy, cy] of spots) {
         const lo = lowOf(h)
-        const sScreen = ((sy - cy + 0x8000) & 0xffff) - 0x8000
+        const sScreen = screenOf(sy, cy)
         for (const top of [lo - 1, lo, lo + 1, lo + 254, lo + 255, lo + 256]) {
           const trueDy = top - sScreen
           const want = ((((top - lo) % 256) + 256) % 256) + lo - sScreen
@@ -279,7 +281,7 @@ describe('Sprites layer', () => {
     for (const h of [8, 16, 32, 64])
       for (const [sy, cy] of spots)
         for (let dy = -128; dy < 128; dy++) {
-          const sScreen = ((sy - cy + 0x8000) & 0xffff) - 0x8000
+          const sScreen = screenOf(sy, cy)
           const top = D.unwrapDy(dy, sy, cy, h) + sScreen
           expect(top, `h=${h} dy=${dy}`).toBeGreaterThanOrEqual(lowOf(h))
           expect(top).toBeLessThan(lowOf(h) + 256)
@@ -290,7 +292,7 @@ describe('Sprites layer', () => {
   it('unwrapDy: pieces fully inside the old -32..223 window unwrap exactly as before (#888)', () => {
     for (const h of [8, 16, 32, 64])
       for (const [sy, cy] of spots) {
-        const sScreen = ((sy - cy + 0x8000) & 0xffff) - 0x8000
+        const sScreen = screenOf(sy, cy)
         for (let top = -32; top + h - 1 <= 223; top++) {
           const dy = recordedOf(top - sScreen)
           expect(D.unwrapDy(dy, sy, cy, h), `h=${h} top=${top}`).toBe(oldUnwrap(dy, sy, cy))

@@ -171,15 +171,12 @@ export function pieceOffset(oamX9: number, oamY: number, spriteX: number, sprite
  * hackbench-validation capture/mesen/headless_capture.lua:1389, where sn.sy
  * is the sprite's level Y minus Layer1YPos, set at :1279-1283). Choose the
  * multiple of 256 that puts the piece top in a 256-wide window, so the pick
- * is unique. OAM Y is 8 bits and a piece of height h covers lines top..top+h-1
- * modulo 256, so its last line reaches screen line 0 while top >= -(h-1); the
- * window therefore starts at min(-32, -(h-1)): -32 for 8, 16 and 32 lines (as
- * before, #811), -63 for 64. The picture is 224 lines (SMWDisX bank_00.asm:1262,
- * SETINI 0; the E1 build sets 239), so the window's top end falls past the
- * screen either way. Residual ambiguity, inherent to a Y kept modulo 256: a
- * 64-line piece with top 193..223 reads as top -63..-33 (both show on screen);
- * the sprite-above-screen reading is taken. Evidence: derivation plus synthetic
- * sweeps (#888), no capture checked.
+ * is unique. A piece of height h covers lines top..top+h-1 modulo 256, so it
+ * reaches screen line 0 while top >= -(h-1); the window starts at
+ * min(-32, -(h-1)): -32 for 8, 16 and 32 lines (#811), -63 for 64. Residual
+ * ambiguity, inherent to a Y kept modulo 256: a 64-line piece with top
+ * 193..223 reads as top -63..-33 (both show); the above-screen reading is
+ * taken. Evidence: synthetic sweeps (#888), no capture checked.
  */
 export function unwrapDy(dy: number, spriteY: number, camY: number, height: number) {
   const lo = Math.min(-32, -(height - 1))
