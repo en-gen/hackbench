@@ -249,6 +249,23 @@ export class MapExplorerWidget extends TreeWidget {
         }
       }),
     )
+
+    // The virtualised tree unmounts a source row scrolled out of view, and
+    // with it its onDragEnd. A document listener ends the drag regardless.
+    const endDrag = (): void => this.endDrag()
+    document.addEventListener('dragend', endDrag)
+    document.addEventListener('drop', endDrag)
+    this.toDispose.push({
+      dispose: () => {
+        document.removeEventListener('dragend', endDrag)
+        document.removeEventListener('drop', endDrag)
+      },
+    })
+  }
+
+  protected endDrag(): void {
+    this.dragNodes = null
+    this.setDropHighlight(undefined)
   }
 
   /**
@@ -835,10 +852,7 @@ export class MapExplorerWidget extends TreeWidget {
             this.dragNodes = dragging.every(n => this.groupable(n)) ? dragging : null
             event.dataTransfer.setData(MAP_ROWS_TYPE, '')
           },
-          onDragEnd: () => {
-            this.dragNodes = null
-            this.setDropHighlight(undefined)
-          },
+          onDragEnd: () => this.endDrag(),
         }
       : { onDragStart: () => (this.dragNodes = null) }
     const folder = this.dropFolder(node)

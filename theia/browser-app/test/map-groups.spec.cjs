@@ -167,10 +167,6 @@ function rowById(page, id) {
   return page.locator(`${EXPLORER} .theia-TreeNode[data-node-id="${id}"]`)
 }
 
-function folderRow(page, name) {
-  return rowById(page, folderId(name))
-}
-
 /**
  * Brings a node into view using the tree's OWN mechanism: a focus change
  * schedules `updateScrollToRow`, which Virtuoso answers by scrolling that
@@ -956,7 +952,7 @@ test('a group is built through the real UI, dragged into, persisted, and deleted
       return t.userGroups.find(g => g.name === 'Test')?.slots.length
     })
     .toBe(0)
-  await expect(await folderRow(page, 'Test')).toBeVisible()
+  await expect(await rowFor(page, 'group:user:Test')).toBeVisible()
 
   // 7. Delete: every map returns to Unassigned. (Nothing was left in "Test"
   //    by step 6, so this also proves an empty group deletes cleanly.)

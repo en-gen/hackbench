@@ -54,6 +54,8 @@ async function load(page) {
   )
   fs.mkdirSync(path.join(dir, 'meta'), { recursive: true })
   fs.writeFileSync(path.join(dir, 'meta', 'groups.json'), '[]\n')
+  // Opening the project wires listenForMapOpens, as File > Open does; load() alone does not.
+  await page.evaluate(mp => getSvc('HackBenchContribution').openPath(mp), manifestPath)
   await page.evaluate(async mp => {
     const w = await getWidget('hackbench.map-explorer')
     await w.load(mp)
@@ -206,11 +208,11 @@ test('opening a placeholder row opens the map view for its slot', async ({ page 
   await expect(view).toBeVisible({ timeout: 30000 })
   // Loaded for $025, not just a blank panel: the strip is drawn and the tab names the slot.
   await expect(view.locator('.hb-map-view-strip')).toBeVisible({ timeout: 30000 })
-  // The strip can paint before the load settles: wait for the loaded state (block indicators
-  // present, as map-block-contents.spec does) before asserting no error.
+  // The strip can paint before the load settles: wait for the loaded state (`details`, set when
+  // the header read returns; $025 has no block indicators) before asserting no error.
   const viewId = `hackbench.map-view:${PLACEHOLDER_SLOT}`
   await page.waitForFunction(
-    id => getSvc('ApplicationShell').getWidgetById(id)?.blocks?.indicators.length > 0,
+    id => getSvc('ApplicationShell').getWidgetById(id)?.details !== undefined,
     viewId,
     { timeout: 60000 },
   )
