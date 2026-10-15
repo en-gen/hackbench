@@ -3,8 +3,8 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { spawnSync } from 'child_process'
-import { fileURLToPath } from 'url'
-import { acquire, release, status } from '../../../tools/scripts/run-lock.mjs'
+import { fileURLToPath, pathToFileURL } from 'url'
+import { acquire, release, status, defaultStateDir } from '../../../tools/scripts/run-lock.mjs'
 
 // Synthetic: every lock lives in a temp state dir, never the real one.
 const made: string[] = []
@@ -260,6 +260,90 @@ describe('run lock hardening', () => {
     expect(fs.existsSync(runDir(s))).toBe(false)
   })
 
+  it('next.txt reserves by its FIRST word only', () => {
+    const s = mkState()
+    writeNext(s, 'bravo C:/wt/923-alpha-fix\n')
+    expect(acquire(s, { owner: A, purpose: 'p' }).ok).toBe(false)
+    writeNext(s, 'is bravo next\n')
+    expect(acquire(s, { owner: B, purpose: 'p' }).ok).toBe(false)
+    expect(fs.existsSync(runDir(s))).toBe(false)
+    writeNext(s, 'bravo C:/wt/923-alpha-fix\n')
+    expect(acquire(s, { owner: B, purpose: 'p' }).ok).toBe(true)
+  })
+
+  it('rejects U+2028 and U+2029 in owner and purpose', () => {
+    const s = mkState()
+    for (const ch of ['\u2028', '\u2029']) {
+      expect(acquire(s, { owner: `alpha${ch}x`, purpose: 'p' }).ok).toBe(false)
+      expect(acquire(s, { owner: A, purpose: `a${ch}owner: bravo` }).ok).toBe(false)
+      expect(release(s, { owner: `alpha${ch}x` }).ok).toBe(false)
+      expect(fs.existsSync(runDir(s))).toBe(false)
+    }
+  })
+
+  it('a future started: falls back to the dir mtime', () => {
+    const s = mkState()
+    const now = new Date('2026-10-14T12:00:00Z')
+    handLock(s, 'owner: alpha x\nstarted: 2027-01-01T00:00:00Z\n', 45, now)
+    const st = status(s, { now })
+    expect(st.ageMinutes).toBe(45)
+    expect(st.stale).toBe(false)
+  })
+
+  it('a still-negative age says unknown, never fresh', () => {
+    const s = mkState()
+    const now = new Date('2026-10-14T12:00:00Z')
+    handLock(s, 'owner: alpha x\nstarted: 2027-01-01T00:00:00Z\n', -10, now)
+    const st = status(s, { now })
+    const text = st.lines.join('\n')
+    expect(text).toContain('age unknown (clock skew), report to the BA')
+    expect(text).not.toMatch(/age: -?\d+ min/)
+    expect(st.held).toBe(true)
+    expect(st.stale).toBe(false)
+  })
+
+  it('release on a dir with no owner.txt says it is missing, not taken by hand', () => {
+    const s = mkState()
+    fs.mkdirSync(runDir(s), { recursive: true })
+    const r = release(s, { owner: A })
+    expect(r.ok).toBe(false)
+    expect(r.message).toContain('owner.txt is missing')
+    expect(r.message).not.toContain('by hand')
+    expect(fs.existsSync(runDir(s))).toBe(true)
+  })
+
+  it('a blank hand-written owner line cannot be released with a blank owner', () => {
+    const s = mkState()
+    fs.mkdirSync(runDir(s), { recursive: true })
+    fs.writeFileSync(ownerFile(s), 'owner: \n')
+    expect(release(s, { owner: '' }).ok).toBe(false)
+    expect(fs.existsSync(runDir(s))).toBe(true)
+  })
+
+  it('CLI: a purpose flag with no value is a usage error and takes no lock', () => {
+    const s = mkState()
+    const r = spawnSync(
+      process.execPath,
+      [SCRIPT, 'acquire', '--owner', 'alpha x', '--purpose', '--force'],
+      { encoding: 'utf8', cwd: os.tmpdir(), env: { ...process.env, HACKBENCH_STATE_DIR: s } },
+    )
+    expect(r.status).toBe(1)
+    expect(fs.existsSync(runDir(s))).toBe(false)
+  })
+
+  it('CLI launched through a junction still runs', () => {
+    const s = mkState()
+    const link = path.join(mkState(), 'scripts-link')
+    fs.symlinkSync(path.dirname(SCRIPT), link, 'junction')
+    const r = spawnSync(process.execPath, [path.join(link, 'run-lock.mjs'), 'status'], {
+      encoding: 'utf8',
+      cwd: os.tmpdir(),
+      env: { ...process.env, HACKBENCH_STATE_DIR: s },
+    })
+    expect(r.stdout).toContain('free')
+    expect(r.status).toBe(0)
+  })
+
   it('blank next.txt is ignored', () => {
     const s = mkState()
     writeNext(s, '  \n\n')
@@ -273,5 +357,58 @@ describe('run lock hardening', () => {
     acquire(s, { owner: B, purpose: 'p' })
     writeNext(s, 'charlie next\n')
     expect(status(s).lines.join('\n')).toContain('charlie next')
+  })
+})
+
+describe('defaultStateDir', () => {
+  const scriptsDir = path.dirname(SCRIPT)
+  const expectedMain = () => {
+    const out = spawnSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd: scriptsDir,
+      encoding: 'utf8',
+    }).stdout.trim()
+    return path.join(path.dirname(path.resolve(scriptsDir, out)), '.hackbench-state')
+  }
+  const noEnv = () => {
+    const env = { ...process.env }
+    delete env.HACKBENCH_STATE_DIR
+    return env
+  }
+
+  it('HACKBENCH_STATE_DIR wins', () => {
+    expect(defaultStateDir(scriptsDir, { HACKBENCH_STATE_DIR: 'C:/x/state' })).toBe('C:/x/state')
+  })
+
+  it('without the env var it is <main checkout>/.hackbench-state', () => {
+    expect(defaultStateDir(scriptsDir, {})).toBe(expectedMain())
+  })
+
+  it('does not depend on the cwd (fresh process started outside the repo)', () => {
+    const code =
+      `import(${JSON.stringify(pathToFileURL(SCRIPT).href)}).then(m => ` +
+      'console.log(m.defaultStateDir(undefined, {})))'
+    const r = spawnSync(process.execPath, ['-e', code], {
+      encoding: 'utf8',
+      cwd: os.tmpdir(),
+      env: noEnv(),
+    })
+    expect(r.stdout.trim()).toBe(expectedMain())
+  })
+
+  it('throws when git cannot resolve the main checkout', () => {
+    expect(() => defaultStateDir(mkState(), {})).toThrow(/HACKBENCH_STATE_DIR/)
+  })
+
+  it('CLI exits 1 with the error instead of failing open', () => {
+    const copy = mkState()
+    for (const f of ['run-lock.mjs', 'protocol.mjs'])
+      fs.copyFileSync(path.join(scriptsDir, f), path.join(copy, f))
+    const r = spawnSync(process.execPath, [path.join(copy, 'run-lock.mjs'), 'status'], {
+      encoding: 'utf8',
+      cwd: copy,
+      env: noEnv(),
+    })
+    expect(r.status).toBe(1)
+    expect(r.stdout).toContain('HACKBENCH_STATE_DIR')
   })
 })
