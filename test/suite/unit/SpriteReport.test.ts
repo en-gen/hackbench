@@ -959,6 +959,14 @@ describe('hardwareSource (#863)', () => {
     expect(first(r)).toEqual([10, 20, 30])
     expect(r.label).toBeUndefined()
   })
+  it('an id outside the set is dynamic when only the palette differs between samples', () => {
+    const pal2 = new Uint8Array(pal)
+    pal2.set([77, 88, 99], (128 + 15) * 3)
+    const a = mk(500, false)
+    const b = { frame: 530, src: { ...mk(530, false).src, pal: pal2 } }
+    expect(first(hardwareSource(0x01, 530, pieces, [a, b])!)).toEqual([77, 88, 99])
+    expect(hardwareSource(0x01, 531, pieces, [a, b])!.label).toBe(LEVEL_START_LABEL)
+  })
   it('no samples gives nothing', () => {
     expect(hardwareSource(0x33, 530, pieces, [])).toBeUndefined()
   })

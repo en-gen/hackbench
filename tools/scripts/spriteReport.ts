@@ -145,12 +145,12 @@ export interface Sample {
 export const DYNAMIC_SPRITES: ReadonlySet<number> = new Set([0x33, 0x35])
 export const LEVEL_START_LABEL = 'graphics at level start, may differ'
 
-/** Every pixel (x, y, colour index) the pieces read from `src`'s VRAM, in draw order. */
+/** Every pixel (x, y, resolved RGB) the pieces draw from `src`'s VRAM and palette, in draw order. */
 function pieceIndices(pieces: DrawPiece[], src: FrameSource): string[] {
   const out: string[] = []
   for (const p of pieces)
     drawObj(src.vram, objAttr(src.obsel, p.tile, p.attr, +p.large), 0, 0, (x, y, ci) =>
-      out.push(`${x},${y},${ci}`),
+      out.push(`${x},${y},${src.pal[ci * 3]},${src.pal[ci * 3 + 1]},${src.pal[ci * 3 + 2]}`),
     )
   return out
 }

@@ -786,7 +786,7 @@ list is not OAM order). The hardware order is exact except on rows labeled
 it is drawn in the capture's order. Both sides are drawn from the capture's own
 VRAM and palette, so a difference is in the pieces. Graphics come from the
 level-start sample, except on a dynamic card (#863): its sprite id uploads
-changing graphics ($33, $35; `DYNAMIC_SPRITES`) or its tiles read different VRAM
+changing graphics ($33 SMWDisX bank_01.asm:13192, $35 bank_01.asm:14879; `DYNAMIC_SPRITES`) or its tiles read different VRAM
 in different samples. That card draws from the sample whose frame
 (`anchorFrame + offset`) equals the record's `drawnFrame`; with none it keeps
 level start and the row says "graphics at level start, may differ". Both panels of that card use the same sample, so the sentence above holds; the pixel positions, not only the colours, decide whether tiles differ. A dirty tree writes
