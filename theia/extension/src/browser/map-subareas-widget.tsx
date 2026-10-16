@@ -16,18 +16,26 @@ import { decodeRgba } from './map16-pixels'
 import { withFlameKeys } from './map-view-model'
 import { MAP_EXPLORER_ID, MapExplorerWidget, slotLabel } from './map-explorer-widget'
 import { composeScreen, type SourceKey } from '../../../../src/rom/model/ColorMath'
-import { CARD_H, CARD_W, fitInCard, placeCards } from '../../../../src/rom/subAreaLayout'
+import {
+  CARD_H,
+  CARD_W,
+  cardEnd,
+  fitInCard,
+  mainEnd,
+  placeCards,
+} from '../../../../src/rom/subAreaLayout'
 import type { MapViewOptions } from './map-view-widget'
 import type { ProjectBound } from './project-bound'
 
 export const SUBAREAS_VIEW_ID = 'hackbench.map-subareas'
 type Layout = Extract<MapScreenResult, { status: 'ok' }>
+type Result = Extract<MapSubAreasResult, { ok: true }>
 /** The view's start state: no palace cleared, no switch pressed. */
 const FLAGS_OFF = { green: false, yellow: false, blue: false, red: false }
 const SWITCHES_OFF = { blue: false, silver: false, onOff: false }
 const CSS = `.hb-map-subareas .sa-link line.vis{stroke:#888;stroke-width:1;stroke-dasharray:4 3}
 .hb-map-subareas .sa-link circle{fill:#888}
-.hb-map-subareas .sa-link.hot line.vis{stroke:#1a73e8;stroke-width:2.5;stroke-dasharray:none}
+.hb-map-subareas .sa-link.hot line.vis{stroke:#1a73e8;stroke-width:2.5;stroke-dasharray:none;marker-end:url(#sa-arrow-hot)}
 .hb-map-subareas .sa-link.hot circle{fill:#1a73e8;r:5px}
 .hb-map-subareas .sa-card.hot{outline:2px solid #1a73e8!important}`
 
@@ -139,6 +147,44 @@ export class SubAreasWidget extends ReactWidget implements ProjectBound {
     await this.explorer?.selectSlot(slot)
   }
 
+  /**
+   * Each link in stage pixels, `from` to `to` as drawn (the arrowhead sits at `to`). An exit
+   * and a return that leave this map from the same point are drawn apart by a few pixels
+   * perpendicular to the line, so both read as two lines and not one double-headed one.
+   */
+  protected linkGeometry(
+    cards: Result['cards'],
+    pos: Array<{ x: number; y: number }>,
+    S: number,
+    minX: number,
+    minY: number,
+  ) {
+    // prettier-ignore
+    type P = { x: number; y: number }
+    const toStage = (c: Result['cards'][number], i: number, p: P, inMain: boolean): P => {
+      if (inMain) return { x: p.x * S - minX, y: p.y * S - minY }
+      const f = fitInCard(c.widthPx, c.heightPx)
+      return { x: pos[i]!.x - minX + f.ox + p.x * f.scale, y: pos[i]!.y - minY + f.oy + p.y * f.scale } // prettier-ignore
+    }
+    const all = cards.flatMap((c, i) =>
+      c.links.map((l, k) => {
+        const m = toStage(c, i, mainEnd(l), true)
+        const o = toStage(c, i, cardEnd(l), false)
+        const [from, to] = l.dir === 'exit' ? [m, o] : [o, m]
+        return { key: `${c.slot}:${k}`, slot: c.slot, dir: l.dir, from, to, at: `${Math.round(m.x)},${Math.round(m.y)}` } // prettier-ignore
+      }),
+    )
+    return all.map(l => {
+      const mates = all.filter(o => o.at === l.at)
+      const off = (mates.indexOf(l) - (mates.length - 1) / 2) * 6
+      const [dx, dy] = [l.to.x - l.from.x, l.to.y - l.from.y]
+      const len = Math.hypot(dx, dy) || 1
+      const [ox, oy] = [(-dy / len) * off, (dx / len) * off]
+      const seg = { x1: l.from.x + ox, y1: l.from.y + oy, x2: l.to.x + ox, y2: l.to.y + oy }
+      return { ...l, seg }
+    })
+  }
+
   protected setHot(slot: number, on: boolean): void {
     const sel = `[data-slot="${slot}"], [data-link^="${slot}:"]`
     this.node.querySelectorAll(sel).forEach(el => el.classList.toggle('hot', on))
@@ -150,7 +196,7 @@ export class SubAreasWidget extends ReactWidget implements ProjectBound {
     if (!r.ok) return <div style={{ padding: 16 }}>{r.reason}</div>
     const S = 0.5
     const [mw, mh] = [r.entry.widthPx * S, r.entry.heightPx * S]
-    const pos = placeCards({ w: r.entry.widthPx, h: r.entry.heightPx }, r.cards.map(c => ({ side: c.side, mains: c.links.map(l => l.main) })), S) // prettier-ignore
+    const pos = placeCards({ w: r.entry.widthPx, h: r.entry.heightPx }, r.cards.map(c => ({ side: c.side, mains: c.links.map(mainEnd) })), S) // prettier-ignore
     const minX = Math.min(0, ...pos.map(p => p.x))
     const minY = Math.min(0, ...pos.map(p => p.y))
     const w = Math.max(mw, ...pos.map(p => p.x + CARD_W)) - minX
@@ -167,6 +213,7 @@ export class SubAreasWidget extends ReactWidget implements ProjectBound {
       onClick: () => void this.go(slot),
     })
     const abs = { position: 'absolute' } as const
+    const links = this.linkGeometry(r.cards, pos, S, minX, minY)
     return (
       <div data-ready={allReady} style={{ padding: 12 }}>
         <style>{CSS}</style>
@@ -200,44 +247,59 @@ export class SubAreasWidget extends ReactWidget implements ProjectBound {
                 <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}> {/* prettier-ignore */}
                   {this.explorer?.findSlotNode(c.slot)?.mapName ?? slotLabel(c.slot)}
                 </div>
-                <div>{`${slotLabel(c.slot)} · ${c.screens} scr`}</div>
+                <div>{`${slotLabel(c.slot)}, ${c.screens} scr`}</div>
               </div>
             </div>
           ))}
           <svg width={w} height={h} style={{ ...abs, left: 0, top: 0, pointerEvents: 'none' }}>
-            {' '}
-            {/* prettier-ignore */}
-            {r.cards.flatMap((c, i) => {
-              const f = fitInCard(c.widthPx, c.heightPx)
-              return c.links.map((l, k) => {
-                const [x1, y1] = [l.main.x * S - minX, l.main.y * S - minY]
-                const x2 = pos[i]!.x - minX + f.ox + l.card.x * f.scale
-                const y2 = pos[i]!.y - minY + f.oy + l.card.y * f.scale
-                const seg = { x1, y1, x2, y2 }
-                return (
-                  <g key={`${c.slot}:${k}`} className="sa-link" data-link={`${c.slot}:${k}`}>
-                    <line {...seg} className="vis" />
-                    <circle cx={x1} cy={y1} r={3} />
-                    <circle cx={x2} cy={y2} r={3} />
-                    <line
-                      {...seg}
-                      {...hov(c.slot)}
-                      stroke="transparent"
-                      strokeWidth={14}
-                      style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
-                    />{' '}
-                    {/* prettier-ignore */}
-                  </g>
-                )
-              })
-            })}
+            <defs>
+              {(['', '-hot'] as const).map(k => (
+                <marker
+                  key={k}
+                  id={`sa-arrow${k}`}
+                  markerWidth={9}
+                  markerHeight={8}
+                  refX={8}
+                  refY={4}
+                  orient="auto"
+                  markerUnits="userSpaceOnUse"
+                >
+                  {' '}
+                  {/* prettier-ignore */}
+                  <path d="M0,0 L9,4 L0,8 z" fill={k ? '#1a73e8' : '#888'} />
+                </marker>
+              ))}
+            </defs>
+            {links.map(l => (
+              <g
+                key={l.key}
+                className="sa-link"
+                data-link={l.key}
+                data-dir={l.dir}
+                data-from={`${l.from.x},${l.from.y}`}
+                data-to={`${l.to.x},${l.to.y}`}
+              >
+                {' '}
+                {/* prettier-ignore */}
+                <line {...l.seg} className="vis" markerEnd="url(#sa-arrow)" />
+                <circle cx={l.seg.x1} cy={l.seg.y1} r={3} />
+                <line
+                  {...l.seg}
+                  {...hov(l.slot)}
+                  stroke="transparent"
+                  strokeWidth={14}
+                  style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
+                />{' '}
+                {/* prettier-ignore */}
+              </g>
+            ))}
           </svg>
         </div>
-        <ul data-notes style={{ marginTop: 12 }}>
+        <div data-notes style={{ marginTop: 12 }}>
           {notes.map((n, i) => (
-            <li key={i}>{n}</li>
+            <div key={i}>{n}</div>
           ))}
-        </ul>
+        </div>
       </div>
     )
   }

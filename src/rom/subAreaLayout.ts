@@ -6,12 +6,17 @@
  *
  * Route entrance (D66 call 1, #945, NOT built): the first screen exit that reaches the slot.
  *
- * Exit point: the pipe or door is found by scanning the exit's screen for the tiles the
- * player code tests ($137/$138 pipe cap, bank_00.asm:13205-13216; $13F side pipe,
- * bank_00.asm:13177; $20 door, bank_00.asm:12100-12118; cap above its $135 body is a
- * down pipe, below it an up pipe, bank_0D.asm:2118-2186). With none on the screen the
- * landing's action type picks the side (bank_05.asm:7155-7161, :7309-7322), marked
- * heuristic. Derivations: docs/spikes/946-subarea-layout.md.
+ * Exit slot: the game files an exit under its OWN 5-bit field (object byte 0 & $1F), not
+ * the screen the object stream is on (CODE_0DA512, bank_0D.asm:1428-1432); a later exit
+ * with the same field overwrites the earlier. Mario's X (Y when vertical) high byte then
+ * picks the entry (bank_05.asm:7095-7101), so every pipe or door on screen N leads to
+ * screen N's exit.
+ *
+ * Exit point: the enterable tiles on that screen (docs/rom/enterable-pipes-and-doors.md):
+ * $137/$138 pipe cap (bank_00.asm:13205-13216), $13F side pipe (13177), doors (12100-12118);
+ * cap above its $135 body is a down pipe, below it an up pipe (bank_0D.asm:2118-2186).
+ * With none the landing's action type picks the side (bank_05.asm:7155-7161, :7309-7322),
+ * marked heuristic. Derivations: docs/spikes/946-subarea-layout.md.
  */
 import { LEVEL_COUNT, isOverworldLevel, mapUsesSecondaryExits, type SmwRom } from './SmwRom'
 import type { RomFile } from './RomFile'
@@ -38,12 +43,19 @@ export interface Point {
   y: number
 }
 
+/**
+ * One directed line. `exit`: from this map's pipe or door (this map's pixels) to the
+ * landing in the card map (the card map's pixels). `return`: from the card map's exit
+ * (its pixels) to this map's landing (this map's pixels).
+ */
 export interface LinkDto {
-  /** In the selected map's pixels: the pipe or door (outbound) or the landing (inbound). */
-  main: Point
-  /** In the card map's own pixels: the other end. */
-  card: Point
+  dir: 'exit' | 'return'
+  from: Point
+  to: Point
 }
+/** The end of a link in the selected map's pixels, and the end in the card map's pixels. */
+export const mainEnd = (l: LinkDto): Point => (l.dir === 'exit' ? l.from : l.to)
+export const cardEnd = (l: LinkDto): Point => (l.dir === 'exit' ? l.to : l.from)
 
 export interface CardDto {
   slot: number
@@ -125,40 +137,50 @@ export function fitInCard(w: number, h: number): { scale: number; ox: number; oy
   return { scale, ox: (CARD_W - w * scale) / 2, oy: (CARD_H - h * scale) / 2 }
 }
 
-interface Found {
+export interface Feature {
   kind: Side
   at: Point
-  tile: string
-  count: number
+  tile: 'pipe' | 'side pipe' | 'door'
+  /** Set when the player code lets only some Marios in (see the doc); such a feature sorts last. */
+  conditional?: string
 }
 
-/** The enterable tile on a screen (first in reading order), its centre and the side it implies; null when none. */
-export function findEnterable(
+/**
+ * Every enterable pipe or door on a screen: unconditional ones first, each group in
+ * reading order. A $137+$138 cap pair is one pipe, a $1F over a $20 one door. Only the
+ * page-1 tiles count for pipes and the page-0 tiles for doors (docs/rom/enterable-pipes-and-doors.md).
+ * `$9C` is a door in tileset 1 only (bank_00.asm:12101-12105), so it needs `tileset`.
+ */
+export function findEnterables(
   grid: ReadonlyArray<ArrayLike<number>>,
   isVertical: boolean,
   screen: number,
-): Found | null {
+  tileset?: number,
+): Feature[] {
   const [x0, x1, y0, y1] = isVertical
     ? [0, SCREEN_W_VERT, screen * SCREEN_H_VERT, (screen + 1) * SCREEN_H_VERT]
     : [screen * SCREEN_W, (screen + 1) * SCREEN_W, 0, SCREEN_H]
   const at = (x: number, y: number) => grid[y]?.[x] ?? 0
-  const hits: Found[] = []
+  const hits: Feature[] = []
+  const door = (x: number, y: number, conditional?: string) => hits.push({ kind: 'beside', at: { x: x * 16 + 8, y: y * 16 + 16 }, tile: 'door', conditional }) // prettier-ignore
   for (let y = y0; y < y1; y++) {
     for (let x = x0; x < x1; x++) {
       const t = at(x, y)
-      if (t === 0x137) {
+      if (t === 0x137 || (t === 0x138 && at(x - 1, y) !== 0x137)) {
+        const pair = t === 0x137 && at(x + 1, y) === 0x138
         // Down pipe: body ($135) under the cap. Up pipe: body above it.
         const body = (yy: number) => at(x, yy) === 0x135
         const kind = body(y + 1) ? 'below' : body(y - 1) ? 'above' : 'below'
-        hits.push({ kind, at: { x: x * 16 + 16, y: y * 16 + (kind === 'above' ? 16 : 0) }, tile: 'pipe', count: 0 }) // prettier-ignore
+        hits.push({ kind, at: { x: x * 16 + (pair ? 16 : 8), y: y * 16 + (kind === 'above' ? 16 : 0) }, tile: 'pipe' }) // prettier-ignore
       } else if (t === 0x13f) {
-        hits.push({ kind: 'beside', at: { x: x * 16 + 8, y: y * 16 + 16 }, tile: 'side pipe', count: 0 }) // prettier-ignore
-      } else if (t === 0x20) {
-        hits.push({ kind: 'beside', at: { x: x * 16 + 8, y: y * 16 + 16 }, tile: 'door', count: 0 }) // prettier-ignore
-      }
+        hits.push({ kind: 'beside', at: { x: x * 16 + 8, y: y * 16 + 16 }, tile: 'side pipe' })
+      } else if (t === 0x20) door(x, y)
+      else if (t === 0x1f && at(x, y + 1) !== 0x20) door(x, y, 'only for small Mario')
+      else if (t === 0x27 || t === 0x28) door(x, y, 'only while the blue P-switch runs')
+      else if (t === 0x9c && tileset === 1) door(x, y, 'only in tileset 1')
     }
   }
-  return hits.length > 0 ? { ...hits[0]!, count: hits.length } : null
+  return [...hits.filter(h => !h.conditional), ...hits.filter(h => h.conditional)]
 }
 
 /** The entrance action type of the landing (see the header), or null if the table is cut. */
@@ -174,71 +196,177 @@ function actionType(rom: RomFile, secondaryIndex: number | null, slot: number): 
 const ACTION_KIND: Record<number, Side> = { 0: 'beside', 1: 'beside', 2: 'beside', 3: 'below', 4: 'above' } // prettier-ignore
 
 interface ExitTo {
+  /** The slot the game files it under: object byte 0 & $1F, not the stream's screen. */
   screen: number
   dest: number
   index: number | null
 }
+/** An exit object as the stream holds it, before the game's slot rule is applied. */
+export type ExitObj = ExitTo
 
-/** A map's screen exits in screen order with destinations resolved; null when the list runs off its data. */
-function exitsFrom(rom: SmwRom, slot: number, screenHigh: number): ExitTo[] | null {
-  const raw = rom.getLevelRawData(slot)
-  if (!raw) return null
-  const parsed = parseLevelObjects(raw, [])
-  if (!parsed.terminated) return null
-  const exits = parsed.objects
-    .filter(o => o.screenExitDest !== undefined)
-    .sort((a, b) => a.screen - b.screen)
-  const secondary = mapUsesSecondaryExits(exits)
-  // The exit graph's own flag: bit 8 of the slot under the stock loader (SmwRom.buildLevelExitGraph).
-  const high = slot >= 0x100 ? screenHigh << 8 : 0
-  const out: ExitTo[] = []
-  for (const o of exits) {
-    const rawByte = o.screenExitDest! & 0xff
-    if (!secondary) {
-      out.push({ screen: o.screen, dest: high | rawByte, index: null })
-      continue
-    }
-    const low = rom.rom.readByte(DATA_05F800_ADDR + (high | rawByte))
-    if (low !== null) out.push({ screen: o.screen, dest: high | low, index: high | rawByte })
+/** One exit per slot, the later object overwriting the earlier as the game's STA does; the dropped ones are named in `notes`. */
+export function resolveExitSlots(objs: ReadonlyArray<ExitObj>): {
+  exits: ExitTo[]
+  notes: string[]
+} {
+  const bySlot = new Map<number, ExitObj>()
+  const notes: string[] = []
+  for (const o of objs) {
+    const old = bySlot.get(o.screen)
+    if (old) notes.push(`Two exits use screen slot ${hex(o.screen)}; the game keeps the later one (to ${hex(o.dest, 3)}) and drops the earlier (to ${hex(old.dest, 3)}).`) // prettier-ignore
+    bySlot.set(o.screen, o)
   }
-  return out
+  return { exits: [...bySlot.values()].sort((a, b) => a.screen - b.screen), notes }
 }
 
-type L1 = Extract<ReturnType<typeof buildL1Inputs>, { ok: true }>['inputs']
+/** The exits in an L1 stream with destinations resolved; `secondaryLow` reads DATA_05F800. Null when the list runs off its data. */
+export function exitsFromStream(
+  raw: Uint8Array,
+  high: number,
+  secondaryLow: (index: number) => number | null,
+): { exits: ExitTo[]; notes: string[] } | null {
+  const parsed = parseLevelObjects(raw, [])
+  if (!parsed.terminated) return null
+  const found = parsed.objects.filter(o => o.screenExitDest !== undefined)
+  const secondary = mapUsesSecondaryExits(found)
+  const objs: ExitObj[] = []
+  for (const o of found) {
+    // SPIKE WORKAROUND: LevelParser does not expose the exit's own screen field (bank_0D.asm:1428-1432); see PR #947 bug draft.
+    const field = raw[o.streamOffset]! & 0x1f
+    const rawByte = o.screenExitDest! & 0xff
+    if (!secondary) objs.push({ screen: field, dest: high | rawByte, index: null })
+    else {
+      const low = secondaryLow(high | rawByte)
+      if (low !== null) objs.push({ screen: field, dest: high | low, index: high | rawByte })
+    }
+  }
+  return resolveExitSlots(objs)
+}
+
+/** A map's screen exits; the exit graph's own flag is bit 8 of the slot under the stock loader (SmwRom.buildLevelExitGraph). */
+function exitsFrom(rom: SmwRom, slot: number, screenHigh: number) {
+  const raw = rom.getLevelRawData(slot)
+  return raw && exitsFromStream(raw, slot >= 0x100 ? screenHigh << 8 : 0, i => rom.rom.readByte(DATA_05F800_ADDR + i)) // prettier-ignore
+}
 
 interface Edge {
   side: Side
   basis: 'tile' | 'heuristic'
+  /** The first enterable on the exit's screen, in the exit map's pixels. */
   exit: Point
   land: Point
   notes: string[]
 }
 
-/** One exit as geometry: where the player goes in, which side that implies, and where they land. */
-function edgeOf(rom: SmwRom, from: L1, ex: ExitTo): Edge | null {
-  const landing = ex.index !== null ? readSecondaryEntrance(rom.rom, ex.index, ex.dest) : readMainEntrance(rom.rom, ex.dest) // prettier-ignore
-  if (!landing) return null
+/** One exit as geometry: the pipe or door to draw from, the side that implies, and the landing. Pure. */
+export function edgeOf(
+  grid: ReadonlyArray<ArrayLike<number>>,
+  isVertical: boolean,
+  tileset: number,
+  ex: ExitTo,
+  landing: Point,
+  want: Side | undefined,
+  act: number | null,
+): Edge {
   const notes: string[] = []
-  const hit = findEnterable(from.grid, from.isVertical, ex.screen)
-  const act = actionType(rom.rom, ex.index, ex.dest)
-  const want = act === null ? undefined : ACTION_KIND[act]
+  const hits = findEnterables(grid, isVertical, ex.screen, tileset)
   let side: Side
   let basis: Edge['basis'] = 'tile'
   let exit: Point
-  if (hit) {
+  if (hits.length > 0) {
+    const hit = hits[0]!
     side = hit.kind
     exit = hit.at
-    if (hit.count > 1) notes.push(`${hit.count} pipes or doors on screen ${hex(ex.screen)}, aligned to the first.`) // prettier-ignore
+    if (hits.length > 1) notes.push(`${hits.length} pipes or doors on screen ${hex(ex.screen)} all lead to this exit; the line starts at the first.`) // prettier-ignore
+    for (const h of hits) if (h.conditional) notes.push(`The ${h.tile} on screen ${hex(ex.screen)} works ${h.conditional}.`) // prettier-ignore
     if (want && want !== side) notes.push(`The ${hit.tile} suggests ${side} but the landing's action suggests ${want}.`) // prettier-ignore
   } else {
     basis = 'heuristic'
     side = want ?? 'below'
-    const [sw, sh] = from.isVertical ? [SCREEN_W_VERT * 16, SCREEN_H_VERT * 16] : [SCREEN_W * 16, SCREEN_H * 16] // prettier-ignore
-    exit = from.isVertical ? { x: sw / 2, y: ex.screen * sh + sh / 2 } : { x: ex.screen * sw + sw / 2, y: sh / 2 } // prettier-ignore
-    notes.push(`No pipe or door tile on screen ${hex(ex.screen)}; placed from the entrance action (${act ?? 'unknown'}) and aligned to the screen centre.`) // prettier-ignore
+    const [sw, sh] = isVertical ? [SCREEN_W_VERT * 16, SCREEN_H_VERT * 16] : [SCREEN_W * 16, SCREEN_H * 16] // prettier-ignore
+    exit = isVertical ? { x: sw / 2, y: ex.screen * sh + sh / 2 } : { x: ex.screen * sw + sw / 2, y: sh / 2 } // prettier-ignore
+    notes.push(`No pipe or door on screen ${hex(ex.screen)}; placed from the entrance action (${act ?? 'unknown'}) and drawn from the screen centre.`) // prettier-ignore
   }
-  // Mario's centre column and feet, from the entrance's top-left
-  return { side, basis, exit, land: { x: landing.x + 8, y: landing.y + 16 }, notes }
+  return { side, basis, exit, land: landing, notes }
+}
+
+/** What outboundCards needs from the ROM, so the rule runs on built bytes in a test. */
+export interface CardDeps {
+  /** Mario's landing (centre column, feet) for the exit, or null if the entrance cannot be read. */
+  landing(ex: ExitTo): Point | null
+  /** The destination map's size, or the reason it cannot be read. */
+  neighbour(dest: number): { w: number; h: number; screens: number } | string
+  action(ex: ExitTo): { side: Side | undefined; act: number | null }
+  /** Why an exit is not a card (the overworld, this map, no map stored), or null. */
+  refuse(dest: number): string | null
+}
+
+/** A tile-based side beats a guessed one; between equals the first link wins. */
+function addLink(
+  cards: Map<number, CardDto>,
+  slot: number,
+  size: { w: number; h: number; screens: number },
+  e: Edge,
+  side: Side,
+  link: LinkDto,
+) {
+  // prettier-ignore
+  const c = cards.get(slot) ?? { slot, side, basis: e.basis, inbound: false, outbound: false, widthPx: size.w, heightPx: size.h, screens: size.screens, links: [], notes: [] } // prettier-ignore
+  if (c.links.length > 0 && c.basis === 'heuristic' && e.basis === 'tile') [c.side, c.basis] = [side, e.basis] // prettier-ignore
+  c.links.push(link)
+  for (const n of e.notes) if (!c.notes.includes(n)) c.notes.push(n)
+  if (link.dir === 'exit') c.outbound = true
+  else c.inbound = true
+  cards.set(slot, c)
+}
+
+/** One card per destination slot; an exit that is not a card is named in `notes` with its reason. */
+export function outboundCards(
+  exits: ReadonlyArray<ExitTo>,
+  grid: ReadonlyArray<ArrayLike<number>>,
+  isVertical: boolean,
+  tileset: number,
+  deps: CardDeps,
+  cards: Map<number, CardDto>,
+  notes: string[],
+): void {
+  for (const ex of exits) {
+    const why = deps.refuse(ex.dest)
+    if (why) {
+      notes.push(`Exit from screen ${hex(ex.screen)} to ${hex(ex.dest, 3)} is not a card: ${why}.`)
+      continue
+    }
+    const size = deps.neighbour(ex.dest)
+    const land = deps.landing(ex)
+    if (typeof size === 'string' || !land) {
+      notes.push(`Exit from screen ${hex(ex.screen)} to ${hex(ex.dest, 3)} is not a card: ${typeof size === 'string' ? size : 'its entrance could not be read'}.`) // prettier-ignore
+      continue
+    }
+    const { side: want, act } = deps.action(ex)
+    const e = edgeOf(grid, isVertical, tileset, ex, land, want, act)
+    addLink(cards, ex.dest, size, e, e.side, { dir: 'exit', from: e.exit, to: e.land })
+  }
+}
+
+/** The return line: from the origin's own exit pipe or door (its pixels) to this map's landing. */
+export function returnCard(
+  cards: Map<number, CardDto>,
+  origin: number,
+  from: {
+    grid: ReadonlyArray<ArrayLike<number>>
+    isVertical: boolean
+    tileset: number
+    screens: number
+  },
+  ex: ExitTo,
+  deps: CardDeps,
+): void {
+  const land = deps.landing(ex)
+  if (!land) return
+  const { side: want, act } = deps.action(ex)
+  const e = edgeOf(from.grid, from.isVertical, from.tileset, ex, land, want, act)
+  const size = mapSizePx(from.isVertical, from.screens)
+  addLink(cards, origin, { ...size, screens: from.screens }, e, reverseSide(e.side), { dir: 'return', from: e.exit, to: e.land }) // prettier-ignore
 }
 
 export function buildSubAreaLayout(rom: SmwRom, entry: number): SubAreaResult {
@@ -253,10 +381,10 @@ export function buildSubAreaLayout(rom: SmwRom, entry: number): SubAreaResult {
   const main = mapSizePx(model.isVertical, model.screenCount)
   const screenHigh = readSubmapHigh(rom.rom, SCREEN_EXIT_HIGH_AT)
   if (typeof screenHigh === 'string') return fail(screenHigh)
-  const exits = exitsFrom(rom, entry, screenHigh)
-  if (!exits) return fail('The exit list of this map runs off its data, so it is not followed.')
+  const own = exitsFrom(rom, entry, screenHigh)
+  if (!own) return fail('The exit list of this map runs off its data, so it is not followed.')
 
-  const notes: string[] = []
+  const notes: string[] = [...own.notes]
   const roots = deriveOverworldEntrances(rom).roots
   const origins: number[] = []
   if (roots) {
@@ -267,37 +395,38 @@ export function buildSubAreaLayout(rom: SmwRom, entry: number): SubAreaResult {
 
   const real = (slot: number) => slot !== entry && !!catalog.entries[slot]?.isReal
   const cards = new Map<number, CardDto>()
-  /** A tile-based side beats a guessed one; between equals the first link wins. */
-  const add = (slot: number, nb: L1, e: Edge, side: Side, link: LinkDto, inbound: boolean) => {
-    const size = mapSizePx(nb.isVertical, nb.screenCount)
-    const c = cards.get(slot) ?? { slot, side, basis: e.basis, inbound: false, outbound: false, widthPx: size.w, heightPx: size.h, screens: nb.screenCount, links: [], notes: [] } // prettier-ignore
-    if (c.links.length > 0 && c.basis === 'heuristic' && e.basis === 'tile') [c.side, c.basis] = [side, e.basis] // prettier-ignore
-    c.links.push(link)
-    c.notes.push(...e.notes)
-    if (inbound) c.inbound = true
-    else c.outbound = true
-    cards.set(slot, c)
+  const deps: CardDeps = {
+    landing: ex => {
+      const l = ex.index !== null ? readSecondaryEntrance(rom.rom, ex.index, ex.dest) : readMainEntrance(rom.rom, ex.dest) // prettier-ignore
+      // Mario's centre column and feet, from the entrance's top-left
+      return l ? { x: l.x + 8, y: l.y + 16 } : null
+    },
+    neighbour: dest => {
+      const nb = buildL1Inputs(rom, dest, SWITCH_FLAGS_UNCLEARED)
+      if (!nb.ok) return nb.reason
+      const s = mapSizePx(nb.inputs.isVertical, nb.inputs.screenCount)
+      return { w: s.w, h: s.h, screens: nb.inputs.screenCount }
+    },
+    action: ex => {
+      const act = actionType(rom.rom, ex.index, ex.dest)
+      return { side: act === null ? undefined : ACTION_KIND[act], act }
+    },
+    refuse: dest => {
+      if (dest === entry) return 'it leads back into this map'
+      if (!real(dest)) return 'no map is stored in that slot'
+      // An exit into a level the overworld enters is a way out of the area, not a sub area.
+      if (isOverworldLevel(dest, roots)) return 'the overworld enters that map, so it is a way out, not a sub area' // prettier-ignore
+      return null
+    },
   }
+  outboundCards(own.exits, model.grid, model.isVertical, model.header.objectTileset, deps, cards, notes) // prettier-ignore
 
-  const seen = new Set<number>()
-  for (const ex of exits) {
-    // An exit into a level the overworld enters is a way out of the area, not a sub area.
-    if (!real(ex.dest) || isOverworldLevel(ex.dest, roots) || seen.has(ex.dest)) continue
-    seen.add(ex.dest)
-    const nb = buildL1Inputs(rom, ex.dest, SWITCH_FLAGS_UNCLEARED)
-    const e = nb.ok ? edgeOf(rom, model, ex) : null
-    if (!nb.ok || !e) {
-      notes.push(`Neighbour ${hex(ex.dest, 3)} could not be read, so it is left out.`)
-      continue
-    }
-    add(ex.dest, nb.inputs, e, e.side, { main: e.exit, card: e.land }, false)
-  }
   for (const origin of origins) {
-    const ex = real(origin) ? exitsFrom(rom, origin, screenHigh)?.find(x => x.dest === entry) : undefined // prettier-ignore
+    const ex = real(origin) ? exitsFrom(rom, origin, screenHigh)?.exits.find(x => x.dest === entry) : undefined // prettier-ignore
     const nb = ex ? buildL1Inputs(rom, origin, SWITCH_FLAGS_UNCLEARED) : undefined
-    const e = nb?.ok ? edgeOf(rom, nb.inputs, ex!) : null
-    if (!nb?.ok || !e) continue
-    add(origin, nb.inputs, e, reverseSide(e.side), { main: e.land, card: e.exit }, true)
+    if (!nb?.ok || !ex) continue
+    const i = nb.inputs
+    returnCard(cards, origin, { grid: i.grid, isVertical: i.isVertical, tileset: i.header.objectTileset, screens: i.screenCount }, ex, deps) // prettier-ignore
   }
   return { ok: true, entry: { slot: entry, widthPx: main.w, heightPx: main.h }, cards: [...cards.values()], notes } // prettier-ignore
 }
