@@ -55,7 +55,7 @@ export class ExplorerTreeSearch extends TreeSearch {
 
   /** The last pattern given, so a rebuilt tree can be filtered again. */
   protected lastPattern: string | undefined
-  /** False for no text and for a bare `$`/`0x`: then every row passes. */
+  /** False for no text, a bare `$`/`0x` and a root with no rows: then every row passes. */
   protected filtering = false
 
   get active(): boolean {
@@ -74,8 +74,9 @@ export class ExplorerTreeSearch extends TreeSearch {
   override async filter(pattern: string | undefined): Promise<TreeNode[]> {
     this.lastPattern = pattern
     const query = parseQuery(pattern ?? '')
-    this.filtering = query.text !== '' && !query.incomplete
-    const { matches, shown } = filterTree(this.tree.root, query, n => this.rowOf(n))
+    const { matches, shown, searchable } = filterTree(this.tree.root, query, n => this.rowOf(n))
+    // A root of messages only ("Open a project") has nothing to filter: keep it.
+    this.filtering = query.text !== '' && !query.incomplete && searchable
     this._filteredNodesAndParents = shown
     // Empty ranges: no text highlight (out of scope), but Theia sizes its match
     // count and the Up/Down cycle from this list.
@@ -157,7 +158,13 @@ export abstract class ExplorerTreeWidget extends TreeWidget {
       this.model.onChanged(() => {
         if (this.model.root === this.lastRoot) return
         this.lastRoot = this.model.root
-        if (this.manifestPath !== this.snapshotProject) this.expandedBeforeSearch = undefined
+        // Another project: its rows are not the ones the snapshot or the typed
+        // text were about, so drop the snapshot and close the box (which clears
+        // the filter).
+        if (this.expandedBeforeSearch && this.manifestPath !== this.snapshotProject) {
+          this.expandedBeforeSearch = undefined
+          this.searchBox.hide()
+        }
         if (search.active) {
           void search.refilter().then(() => {
             this.searchHighlights = search.getHighlights()
@@ -168,7 +175,20 @@ export abstract class ExplorerTreeWidget extends TreeWidget {
     )
   }
 
-  protected async onSearchOutcome(o: SearchOutcome): Promise<void> {
+  /** Outcomes run one at a time, in order, so a restore never overlaps an earlier expand. */
+  protected outcomeQueue: Promise<void> = Promise.resolve()
+  /** Bumped per outcome: an earlier one, still awaiting an expand, stops when a newer arrives. */
+  protected outcomeGen = 0
+
+  protected onSearchOutcome(o: SearchOutcome): Promise<void> {
+    const gen = ++this.outcomeGen
+    this.outcomeQueue = this.outcomeQueue
+      .then(() => this.applyOutcome(o, gen))
+      .catch(err => console.error('explorer search', err))
+    return this.outcomeQueue
+  }
+
+  protected async applyOutcome(o: SearchOutcome, gen: number): Promise<void> {
     this.activeQuery = o.query
     this.matchCount = o.matches.length
     if (o.query === null) {
@@ -181,16 +201,18 @@ export abstract class ExplorerTreeWidget extends TreeWidget {
       // Ancestors only: a matching folder is not opened by its own match.
       for (const m of o.matches) {
         for (let p = m.parent; p; p = p.parent) {
+          if (gen !== this.outcomeGen) return
           if (ExpandableTreeNode.is(p) && !p.expanded) await this.model.expandNode(p)
         }
       }
+      if (gen !== this.outcomeGen) return
       this.selectTarget(o.matches)
     }
     this.update()
   }
 
   protected selectTarget(matches: readonly TreeNode[]): void {
-    const target = pickSelectTarget(matches, n => this.searchRow(n)?.folder === true)
+    const target = pickSelectTarget(matches, n => this.searchRow(n))
     if (!target || !SelectableTreeNode.is(target)) return
     this.selectingFromFilter = true
     try {

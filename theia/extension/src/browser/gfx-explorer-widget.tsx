@@ -68,10 +68,10 @@ const MAP16_ROWS: readonly { layer: Map16Layer; name: string; meta: string }[] =
 export class GfxExplorerWidget extends ExplorerTreeWidget {
   protected readonly searchNoun = 'graphics files'
 
-  /** The shown name carries the number, which is the row's id, so only 'GFX' is text. */
+  /** The shown label is text too, so `gfx $1c` finds GFX $1C. */
   protected searchRow(node: TreeNode): SearchRow | undefined {
     const n = node as GfxTreeNode
-    if (n.kind === 'file') return { id: n.index, texts: ['GFX'] }
+    if (n.kind === 'file') return { id: n.index, texts: [n.name ?? ''] }
     if (n.kind === 'map16') return { texts: [n.name ?? ''] }
     return undefined
   }

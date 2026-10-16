@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   filterTree,
+  paletteSearchRow,
   parseQuery,
   pickSelectTarget,
   restorePlan,
@@ -149,6 +150,13 @@ describe('filterTree', () => {
     expect([...r.shown].sort()).toEqual(['inner', 'leaf', 'other', 'root', 'top'])
   })
 
+  it('a root of rows nothing can match is not searchable, so the filter leaves it alone', () => {
+    const msg = node('root', [node('message')])
+    expect(filterTree(msg, parseQuery('zzz'), rowOf).searchable).toBe(false)
+    const { root } = build()
+    expect(filterTree(root, parseQuery('zzz'), rowOf).searchable).toBe(true)
+  })
+
   it('an incomplete query shows nothing and matches nothing', () => {
     const { root } = build()
     expect(filterTree(root, parseQuery('$'), rowOf).matches).toEqual([])
@@ -156,16 +164,68 @@ describe('filterTree', () => {
 })
 
 describe('pickSelectTarget', () => {
-  const isFolder = (n: { f: boolean }) => n.f
+  type R = { name: string; row: SearchRow }
+  const r = (name: string, row: SearchRow): R => ({ name, row })
+  const rowOf = (n: R) => n.row
   it('prefers a leaf over an earlier folder', () => {
-    const a = { f: true }
-    const b = { f: false }
-    expect(pickSelectTarget([a, b], isFolder)).toBe(b)
+    const a = r('a', { folder: true, texts: [] })
+    const b = r('b', { texts: [] })
+    expect(pickSelectTarget([a, b], rowOf)).toBe(b)
   })
-  it('takes the folder when it is all there is, and nothing when nothing matched', () => {
-    const a = { f: true }
-    expect(pickSelectTarget([a], isFolder)).toBe(a)
-    expect(pickSelectTarget([], isFolder)).toBeUndefined()
+  it('prefers an openable leaf over an earlier marker row (Enter acts on the selection)', () => {
+    const marker = r('marker', { openable: false, texts: [] })
+    const map = r('map', { openable: true, texts: [] })
+    const unflagged = r('unflagged', { texts: [] })
+    expect(pickSelectTarget([marker, map], rowOf)).toBe(map)
+    expect(pickSelectTarget([marker, unflagged], rowOf)).toBe(unflagged)
+  })
+  it('falls back to a marker, then a folder, when nothing better matched', () => {
+    const marker = r('marker', { openable: false, texts: [] })
+    const folder = r('folder', { folder: true, texts: [] })
+    expect(pickSelectTarget([folder, marker], rowOf)).toBe(marker)
+    expect(pickSelectTarget([folder], rowOf)).toBe(folder)
+    expect(pickSelectTarget([], rowOf)).toBeUndefined()
+  })
+})
+
+describe('palette rows', () => {
+  const group = (row: number | undefined, name = 'Level Sprite Colors') =>
+    paletteSearchRow({ kind: 'group', name, row })!
+  const variant = (name: string) => paletteSearchRow({ kind: 'variant', name })!
+
+  it('a group row number is DECIMAL, as the view shows it: 14 finds row 14, $e does not', () => {
+    expect(rowMatches(parseQuery('14'), group(14))).toBe(true)
+    expect(rowMatches(parseQuery('14'), group(20))).toBe(false)
+    expect(rowMatches(parseQuery('8'), group(8))).toBe(true)
+    expect(rowMatches(parseQuery('$e'), group(14))).toBe(false)
+  })
+
+  it('$ and 0x stay hex, so they never read a group row as decimal', () => {
+    expect(rowMatches(parseQuery('$14'), group(14))).toBe(false)
+    expect(rowMatches(parseQuery('0x14'), group(14))).toBe(false)
+    expect(rowMatches(parseQuery('$14'), group(20))).toBe(false)
+  })
+
+  it('a group with no CGRAM row is found by name only', () => {
+    expect(rowMatches(parseQuery('0'), group(undefined))).toBe(false)
+    expect(rowMatches(parseQuery('sprite'), group(undefined))).toBe(true)
+  })
+
+  it('"palette 3" finds the variant labelled Palette 3 and not Palette 2', () => {
+    expect(rowMatches(parseQuery('palette 3'), variant('Palette 3'))).toBe(true)
+    expect(rowMatches(parseQuery('palette 3'), variant('Palette 2'))).toBe(false)
+    expect(rowMatches(parseQuery('$3'), variant('Palette 3'))).toBe(true)
+  })
+
+  it('a named variant has no id: $1 does not find Luigi, its name does', () => {
+    for (const name of ['Mario', 'Luigi', 'Fire Luigi']) {
+      expect(rowMatches(parseQuery('$1'), variant(name)), name).toBe(false)
+    }
+    expect(rowMatches(parseQuery('luigi'), variant('Luigi'))).toBe(true)
+  })
+
+  it('an informational row is not searchable', () => {
+    expect(paletteSearchRow({ kind: 'note', name: 'Open a project' })).toBeUndefined()
   })
 })
 
@@ -209,5 +269,16 @@ describe('restorePlan', () => {
   it('never touches a node that cannot expand', () => {
     const root = tree([])
     expect(restorePlan(root, new Set(['t1'])).map(p => p.node.id)).toEqual([])
+  })
+
+  // The filter opened group:music and bank:level under it; the user then folded
+  // group:music, which leaves bank:level open below a folded folder. A restore
+  // that descends only into currently expanded folders never reaches it.
+  it('closes a folder the filter opened below one the user folded afterwards', () => {
+    const root = tree(['bank:overworld', 'bank:level'])
+    const plan = restorePlan(root, new Set(['bank:overworld']))
+    expect(plan.map(p => [p.node.id, p.expand])).toEqual([['bank:level', false]])
+    apply(root, plan)
+    expect(openIds(root)).toEqual(['bank:overworld'])
   })
 })

@@ -189,10 +189,12 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
     if (n.kind === 'message') return undefined
     // A folder's shown name carries its count ("Unassigned (12)"); match the raw name.
     if (n.kind === 'group') return { folder: true, texts: [groupName(n)] }
+    // Loop, truncated and no-pointer rows are markers: Enter on them opens nothing.
+    const openable = n.kind === 'map' && !n.noPointer
     if (n.category === 'overworld' || n.category === 'overworld-area')
-      return { texts: [n.name ?? ''] }
-    if (isSpecial(n.category)) return { id: n.index, texts: [n.name ?? ''] }
-    return { id: n.index >= 0 ? n.index : undefined, texts: [n.mapName ?? ''] }
+      return { openable, texts: [n.name ?? ''] }
+    if (isSpecial(n.category)) return { id: n.index, openable, texts: [n.name ?? ''] }
+    return { id: n.index >= 0 ? n.index : undefined, openable, texts: [n.mapName ?? ''] }
   }
 
   protected openMatch(node: TreeNode): boolean {

@@ -31,7 +31,7 @@ import {
 } from '@theia/core/lib/browser'
 import { Emitter } from '@theia/core/lib/common'
 import { ExplorerTreeWidget, createExplorerTreeContainer } from './explorer-search'
-import type { SearchRow } from './explorer-match'
+import { paletteSearchRow, type SearchRow } from './explorer-match'
 import {
   LoadPaletteResult,
   PaletteGroupDto,
@@ -78,15 +78,11 @@ export class PaletteExplorerWidget extends ExplorerTreeWidget {
   protected readonly searchNoun = 'palettes'
 
   /**
-   * A variant's id is the number in its label ("Palette 3"). A group has no
-   * number of its own, so its id is the first CGRAM row it targets, the row
-   * number its view shows; a group with no row is found by name only.
+   * A group has no number of its own; its CGRAM row is shown in decimal, so it
+   * matches bare decimal digits. A variant's id is the number ending its label.
    */
   protected searchRow(node: TreeNode): SearchRow | undefined {
-    const n = node as PaletteTreeNode
-    if (n.kind === 'group') return { id: n.row, texts: [n.name ?? ''] }
-    if (n.kind === 'variant') return { id: n.variant, texts: [(n.name ?? '').replace(/\d+/g, '')] }
-    return undefined
+    return paletteSearchRow(node as PaletteTreeNode)
   }
 
   protected openMatch(node: TreeNode): boolean {
