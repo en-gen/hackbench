@@ -223,8 +223,15 @@ only there); that one byte is read as `$05`. Measured on `hackbench-tools`
 37 also have a readable layer 3 GFX range. Of the 6 corpus carts, vanilla,
 Lunar Magic and Seven Vanilla Levels pass; Grand Poo World 2 1.1, GrandPooWorld
 1.2 and Invictus do not. A cart whose GFX loader (`CODE_00A993`) is hooked has no
-readable range and skips layer 3 as well. Vertical maps are skipped: a sublevel's entry never reads
-`$05F600` (`bank_05.asm:7116-7162`), so its Layer1YPos is unverified. Settings
+readable range and skips layer 3 as well. Vertical maps draw layer 3 only on the traced
+screen-locked path (#806): a settings byte `$81`-`$BF` on Castle1 or Underground1 (tileset 1 or 3)
+reaches `CODE_009FFA` (`bank_00.asm:4175-4182`), which sets Layer3XPos = Layer1XPos / 2 and
+Layer3YPos = `$C0` once; per frame `CODE_05C421` (`bank_05.asm:5515-5519`) follows camera X and
+never copies Y (`CODE_05C48D` is skipped, `:5569-5572`). Nothing there depends on the map being vertical, so
+the vertical camera Y (`readInitialLayer1YPos` with the vertical high byte) is the only input that differs,
+and each vertical screen shows its own 256 px slice. Every other vertical case (a tide byte, `$80`, a
+camera-locked byte) stays refused with "untraced layer 3 type". In vanilla only `$0E7` and `$1CE` change.
+Settings
 `$00` is Layer3TideSetting 0 (not a tide: 512 px repeat, whole tilemap), the non-tide path of `CODE_05C40C`: off Castle1
 and Underground1 it sets Layer3YPos = Layer1YPos every frame
 (`CODE_05C428` to `CODE_05C48D`), so it is camera-locked like `$81`. A `$80`

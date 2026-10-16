@@ -37,6 +37,8 @@ export interface L3Inputs {
   /** Layer3YPos at load, and Layer1YPos at load: a tile row R sits at level Y R*8 - yPx + camYPx. */
   yPx: number
   camYPx: number
+  /** A vertical map: screens stack downward, 32 tiles wide and 16 tall, and X is not paged. */
+  isVertical?: boolean
   /** A tide ($00-$7F settings byte) tiles every 256 px and draws one copy of its two-copy tilemap. */
   tide: boolean
   /** Set when the code that reads `camYPx` is not stock (#860): the value is a best reading, not confirmed. */
@@ -103,8 +105,6 @@ export function buildL3Verdict(
   })
   if (readLayer3Setting(rom, index) === 0) return none('This map has no layer 3')
   if (refusal) return none(refusal)
-  // Y at load is not read for vertical maps: a sublevel's entry never reads F600 (bank_05.asm:7116-7162).
-  if (l1.isVertical) return none('Layer 3 not drawn yet: vertical maps')
   if (!gate.ok) return none(HOOKED_L3_CODE)
   const tileset = l1.header.objectTileset
   const load = loadL3Tilemap(rom, index, tileset, l1.header.timeLimit)
@@ -117,6 +117,13 @@ export function buildL3Verdict(
     return none('Layer 3 not drawn yet: camera-locked layer 3', {
       cgadsub: effectiveCgadsub(layout.cgadsub, !kept),
     })
+  }
+  // Vertical maps draw only the traced case: $81-$BF on Castle1/Underground1 sets Layer3YPos = $C0
+  // once (CODE_009FFA, bank_00.asm:4175-4182) and the per-frame CODE_05C421 path (bank_05.asm:5515-5519)
+  // follows only camera X, never Y, so nothing about it depends on the map being vertical. Tides, $80
+  // smashes and camera-locked Y stay refused: their Y/X rules are untraced against vertical scrolling.
+  if (l1.isVertical && !(yPx === 0xc0 && load.settingsByte < 0xc0)) {
+    return none('Layer 3 not drawn yet: vertical map with an untraced layer 3 type')
   }
   // A $80 byte's Y is $D0 until a loaded Layer 3 Smash sprite writes X and Y from its own place (#807).
   let pos = { x: 0, y: yPx }
@@ -137,7 +144,8 @@ export function buildL3Verdict(
       colors: l1.colors,
       xPx: pos.x,
       yPx: pos.y,
-      camYPx: readInitialLayer1YPos(rom, index, false, entrances),
+      camYPx: readInitialLayer1YPos(rom, index, l1.isVertical, entrances),
+      isVertical: l1.isVertical || undefined,
       camYUnverified: entrancePositionGate(rom, startSpans) ?? undefined,
       // $00 is Layer3TideSetting 0: no tide (it is camera-locked or Castle1/Underground1's half-speed scroll).
       tide: load.settingsByte !== 0 && load.settingsByte < 0x80,

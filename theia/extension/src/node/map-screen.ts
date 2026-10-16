@@ -226,9 +226,12 @@ export type L3Planes = Record<'l3Low' | 'l3High', Plane>
  * palette is clear.
  */
 export function drawL3Planes(l3: L3Inputs, screen: number): L3Planes {
-  const { w, h } = screenTiles(false) // vertical maps never reach here (L3Model)
+  const isVertical = l3.isVertical === true
+  const { w, h } = screenTiles(isVertical)
   const [width, height] = [w * 16, h * 16]
-  const x0 = screen * width
+  // Vertical screens stack downward over one 32-tile-wide column; horizontal ones sit side by side.
+  const x0 = isVertical ? 0 : screen * width
+  const top = isVertical ? screen * height : 0
   const cols = l3.tide ? 32 : L3_TILEMAP_COLS
   const cell = (r: number, c: number) => l3.tilemap[r * L3_TILEMAP_COLS + c] ?? 0
   const row = (r: number) => Array.from({ length: L3_TILEMAP_COLS }, (_, c) => cell(r, c))
@@ -247,8 +250,9 @@ export function drawL3Planes(l3: L3Inputs, screen: number): L3Planes {
   const drew = [false, false]
   const xOff = l3.xPx ?? 0
   for (let r = L3_HUD_ROW_CUTOFF; r < end; r++) {
-    const y = r * 8 - l3.yPx + l3.camYPx
-    if (y < 0 || y >= height) continue
+    const levelY = r * 8 - l3.yPx + l3.camYPx
+    const y = levelY - top
+    if (levelY < 0 || y >= height) continue
     // Tiles sit at Layer3XPos-shifted columns (camera X at load is 0); a start left of 0 clips the first tile.
     for (let sx = -(xOff & 7); sx < width; sx += 8) {
       const word = cell(r, ((((x0 + sx + xOff) % (cols * 8)) + cols * 8) % (cols * 8)) >> 3)
