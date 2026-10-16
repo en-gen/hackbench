@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
-import { SmwRom, ADDR, LEVEL_COUNT } from '../../../src/rom/SmwRom'
+import { SmwRom, ADDR, LEVEL_COUNT, findPlaceholderPointer } from '../../../src/rom/SmwRom'
 import { loromToOffset } from '../../../src/rom/addressing'
 import { buildLevelCatalog } from '../../../src/rom/LevelCatalog'
 import {
@@ -92,14 +92,44 @@ describe('buildLevelCatalog (synthetic)', () => {
       expect(catalog.notes.length).toBeGreaterThan(0)
     })
 
-    it('flags low confidence when every pointer is distinct', () => {
-      // No pointer repeats at all, so the "mode" is just pointers[0] by
-      // construction -- its share of 512 is a rounding error and must not
-      // be reported as a real filler without comment.
+    it('flags low confidence with the order reversed: the runner-up is counted when it comes second', () => {
+      // 212 slots on FILLER come first, then 300 on REUSED_REAL: the larger group is
+      // seen second, so the runner-up count is carried over from the displaced best.
+      const REUSED_REAL = 0x058000
+      const rom = buildFakeRom(i => (i < 212 ? FILLER : REUSED_REAL))
+      const catalog = buildLevelCatalog(rom)
+      expect(catalog.fillerPointer).toBe(REUSED_REAL)
+      expect(catalog.notes.join(' ')).toMatch(/runner-up appears 212 times/)
+    })
+
+    // The share floor is 10% of 512 = 51.2 slots: 51 is under it, 52 is over. The runner-up
+    // (9) keeps the margin check silent either side, so only the share floor can fire.
+    it.each([
+      [51, true],
+      [52, false],
+    ])('%i placeholder slots of 512: low-confidence note is %s', (n, fires) => {
+      const rom = buildFakeRom(i => (i < n ? FILLER : i < n + 9 ? RUNNER_UP : 0x038000 + i))
+      const catalog = buildLevelCatalog(rom)
+      expect(catalog.fillerPointer).toBe(FILLER)
+      expect(/confidence low/.test(catalog.notes.join(' '))).toBe(fires)
+    })
+
+    it('stays silent on the confidence check with a wide margin and a share above a tenth', () => {
+      // 100 of 512 (19.5%), runner-up 9: neither the share floor nor the margin ratio applies.
+      const rom = buildFakeRom(i => (i < 100 ? FILLER : i < 109 ? RUNNER_UP : 0x038000 + i))
+      const catalog = buildLevelCatalog(rom)
+      expect(catalog.fillerPointer).toBe(FILLER)
+      expect(catalog.notes.join(' ')).not.toMatch(/confidence low/)
+    })
+
+    it('names no placeholder when every pointer is distinct, and treats every slot as real', () => {
+      // Was: the no-threshold mode picked pointers[0] and a note flagged it. The >=10
+      // rule (findPlaceholderPointer) now declines, so nothing is invented as filler.
       const rom = buildFakeRom(i => 0x038000 + i)
       const catalog = buildLevelCatalog(rom)
-      expect(catalog.fillerPointer).toBe(0x038000)
-      expect(catalog.notes.length).toBeGreaterThan(0)
+      expect(catalog.fillerPointer).toBe(0)
+      expect(catalog.placeholderCount).toBe(0)
+      expect(catalog.realCount).toBe(LEVEL_COUNT)
     })
 
     it('stays silent on a comfortable corpus-shaped margin', () => {
@@ -109,6 +139,31 @@ describe('buildLevelCatalog (synthetic)', () => {
       const rom = buildFakeRom(i => (i < 12 ? READABLE : FILLER), new Set([READABLE]))
       const catalog = buildLevelCatalog(rom)
       expect(catalog.notes).toHaveLength(0)
+    })
+  })
+
+  describe('the catalog and the exit graph agree on the placeholder (#901)', () => {
+    // SmwRom's private detector feeds the exit graph; reached through a cast because
+    // the point is that both consumers use one rule.
+    const graphPlaceholder = (rom: SmwRom): number | null =>
+      (rom as unknown as { _findFillerL1Pointer(): number | null })._findFillerL1Pointer()
+
+    it.each([12, 10, 9])('%i slots sharing one pointer, the rest unique', n => {
+      const SHARED = 0x078000
+      const rom = buildFakeRom(i => (i < n ? SHARED : 0x038000 + i))
+      const catalog = buildLevelCatalog(rom)
+      const expected = n >= 10 ? SHARED : null
+      expect(graphPlaceholder(rom)).toBe(expected)
+      expect(catalog.fillerPointer).toBe(expected ?? 0)
+      expect(catalog.entries.filter(e => e.placeholder).length).toBe(expected ? n : 0)
+      // Below the threshold nothing is a placeholder, so every pointered slot is real.
+      expect(catalog.realCount).toBe(expected ? LEVEL_COUNT - n : LEVEL_COUNT)
+    })
+
+    it('a most common pointer repeating only 9 times is no placeholder', () => {
+      const rom = buildFakeRom(i => (i < 9 ? 0x078000 : i < 17 ? 0x079000 : 0x038000 + i))
+      expect(graphPlaceholder(rom)).toBeNull()
+      expect(buildLevelCatalog(rom).realCount).toBe(LEVEL_COUNT)
     })
   })
 
@@ -138,5 +193,16 @@ describe('buildLevelCatalog (synthetic)', () => {
         expect(() => assertCatalogAcceptance(broken, expectedReal, expectedParseable)).toThrow()
       })
     }
+  })
+})
+
+describe('findPlaceholderPointer tie-break', () => {
+  it('on equal counts the pointer first in slot order wins', () => {
+    const A = 0x018000
+    const B = 0x028000
+    const pointers = Array.from({ length: LEVEL_COUNT }, (_, i) =>
+      i < 12 ? A : i < 24 ? B : 0x038000 + i,
+    )
+    expect(findPlaceholderPointer(pointers)).toEqual({ pointer: A, count: 12, runnerUpCount: 12 })
   })
 })

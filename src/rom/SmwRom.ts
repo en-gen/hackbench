@@ -132,6 +132,31 @@ export interface RomSummary {
   isVanilla: boolean
 }
 
+/** Fewest slots that must repeat one Layer 1 pointer for it to be the shared placeholder room. */
+const PLACEHOLDER_MIN_REPEATS = 10
+
+/**
+ * The shared placeholder pointer, its count and the runner-up's count (for
+ * judging confidence), or null when none repeats enough. The exit graph and
+ * the map tree both ask here, so they cannot disagree.
+ *
+ * Equal counts go to the pointer first in slot order. A falsy pointer is
+ * skipped: $000000 is the ROM header and what an all-zero slot reads as.
+ */
+export function findPlaceholderPointer(
+  pointers: readonly number[],
+): { pointer: number; count: number; runnerUpCount: number } | null {
+  const counts = new Map<number, number>()
+  for (const ptr of pointers) if (ptr) counts.set(ptr, (counts.get(ptr) ?? 0) + 1)
+  let best: { pointer: number; count: number; runnerUpCount: number } | null = null
+  for (const [pointer, count] of counts) {
+    if (best === null) best = { pointer, count, runnerUpCount: 0 }
+    else if (count > best.count) best = { pointer, count, runnerUpCount: best.count }
+    else if (count > best.runnerUpCount) best.runnerUpCount = count
+  }
+  return best !== null && best.count >= PLACEHOLDER_MIN_REPEATS ? best : null
+}
+
 /**
  * Whether a map's screen exits are secondary. UseSecondaryExit is one byte that every exit object
  * rewrites as the load parses it (bank_0D.asm:1436-1438) and the exit path reads once
@@ -371,25 +396,8 @@ export class SmwRom {
    * that observed ceiling, not at some ratio of it.
    */
   private _findFillerL1Pointer(): number | null {
-    const FILLER_MIN_REPEATS = 10
-    const counts = new Map<number, number>()
-    for (let i = 0; i < LEVEL_COUNT; i++) {
-      const ptr = this.getLevelL1Pointer(i)
-      // Falsy check (not just null), matching classifyLevels: a literal $000000
-      // pointer is never a real level (it would land in the ROM header/reset
-      // vectors), and it's what an all-zero pointer-table slot reads as.
-      if (!ptr) continue
-      counts.set(ptr, (counts.get(ptr) ?? 0) + 1)
-    }
-    let fillerPtr: number | null = null
-    let fillerCount = 0
-    for (const [ptr, count] of counts) {
-      if (count > fillerCount) {
-        fillerPtr = ptr
-        fillerCount = count
-      }
-    }
-    return fillerCount >= FILLER_MIN_REPEATS ? fillerPtr : null
+    const pointers = Array.from({ length: LEVEL_COUNT }, (_, i) => this.getLevelL1Pointer(i) ?? 0)
+    return findPlaceholderPointer(pointers)?.pointer ?? null
   }
 
   /**

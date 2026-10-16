@@ -65,7 +65,10 @@ describe('buildMapTree', () => {
       it('covers every real map the catalog found, and invents none', () => {
         const rom = load(file)
         const catalog = buildLevelCatalog(rom)
-        const expected = new Set(catalog.entries.filter(e => e.isReal).map(e => e.index))
+        // Every real slot, plus the placeholder slots the tree lists as orphans (#901).
+        const expected = new Set(
+          catalog.entries.filter(e => e.isReal || e.placeholder).map(e => e.index),
+        )
 
         const tree = buildMapTree(rom)
         const actual = indicesIn(tree)
@@ -75,7 +78,9 @@ describe('buildMapTree', () => {
 
         expect(missing, 'maps the tree failed to place').toEqual([])
         expect(invented, 'indices the tree shows that hold no real data').toEqual([])
-        expect(tree.mapCount).toBe(expected.size)
+        // mapCount stays the real maps (glossary), placeholders counted apart.
+        expect(tree.mapCount + tree.counts.placeholders).toBe(expected.size)
+        expect(tree.mapCount).toBe(catalog.entries.filter(e => e.isReal && !e.placeholder).length)
       })
 
       it('places every map exactly once at the top level of one root', () => {
@@ -148,10 +153,16 @@ describe.skipIf(!hasRom(VANILLA))('buildMapTree, on the vanilla cart', () => {
    * Driving the tree from the catalog instead is what keeps it out, so this
    * pins the reason rather than the symptom.
    */
-  it('excludes the filler slot that classifyLevels reports as a level', () => {
+  it('lists the filler slot that classifyLevels reports as a level only as a placeholder orphan', () => {
     const rom = load(VANILLA)
     expect(rom.classifyLevels(deriveOverworldEntrances(rom).roots).overworld).toContain(0x012)
-    expect(indicesIn(buildMapTree(rom)).has(0x012)).toBe(false)
+    const tree = buildMapTree(rom)
+    const reached = [...tree.special, ...tree.bonus, ...tree.overworld].flatMap(n => [
+      n.index,
+      ...n.children.map(c => c.index),
+    ])
+    expect(reached).not.toContain(0x012)
+    expect(tree.unassigned.find(n => n.index === 0x012)?.placeholder).toBe(true)
   })
 
   /**
@@ -200,7 +211,9 @@ describe.skipIf(!hasRom(VANILLA))('group counts', () => {
 
   it('counts unassigned maps as the rows it actually shows', () => {
     const tree = buildMapTree(load(VANILLA))
-    expect(tree.counts.unassigned).toBe(tree.unassigned.length)
+    // Placeholder rows share the folder but are counted apart (#901).
+    expect(tree.counts.unassigned).toBe(tree.unassigned.filter(n => !n.placeholder).length)
+    expect(tree.counts.placeholders).toBe(tree.unassigned.filter(n => n.placeholder).length)
   })
 })
 
@@ -323,7 +336,7 @@ describe.skipIf(!hasRom(VANILLA))('the oracle can fail', () => {
     const tree = buildMapTree(rom)
     const expected = new Set(
       buildLevelCatalog(rom)
-        .entries.filter(e => e.isReal)
+        .entries.filter(e => e.isReal || e.placeholder)
         .map(e => e.index),
     )
 
