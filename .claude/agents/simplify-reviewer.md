@@ -15,6 +15,10 @@ diff. Follow your brief and `CLAUDE.md`.
 - **Apply safe findings** on the feature branch and commit, then re-run lint,
   `format:check` and `test:unit` to show behavior is unchanged. Do not push
   unless the brief says to.
+- **Run lock.** Any full `npm run test:unit` run takes the shared run lock
+  first:
+  `node tools/scripts/run-lock.mjs acquire --owner "<team> <worktree>" --purpose "..."`,
+  see docs/testing.md "Run lock". Release it when done, also on failure.
 - **A finding that removes a check, gate or test is not yours to apply.**
   Report it for the adversarial reviewer.
 - **Report** each finding with `file:line`, whether you applied it, and the
