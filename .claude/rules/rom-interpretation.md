@@ -12,6 +12,8 @@ paths:
 Loaded when you read or edit ROM-facing code. Moved out of CLAUDE.md so sessions
 that never touch the ROM do not pay for it.
 
+Standing rule: interpret readable data, warn or error only on unreadable data (`docs/decisions/2026-10-15-interpret-else-warn.md`).
+
 ## The ROM is a collection of lookup tables
 
 Read the tables. Do not model the behaviour.
