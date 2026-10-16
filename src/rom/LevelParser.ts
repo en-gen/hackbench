@@ -314,11 +314,9 @@ export function parseLevelObjects(
 
     // Screen exit: extended object with settings ($59 / LvlLoadObjSize) == 0.
     // Handler CODE_0DA512 (bank_0D.asm:1416-1439):
-    //   The exit is filed under its OWN screen field X = byte 0 & $1F, not the
-    //   stream screen it sits on (bank_0D.asm:1428-1432: ExitTableLow,X and
-    //   ExitTableHigh,X). That field is exposed as screenExitScreen.
-    //   The 1 extra byte is the destination low byte (ExitTableLow,X);
-    //   byte 1 & 0x01 is its bit 8 (ExitTableHigh,X);
+    //   Filed under X = byte 0 & $1F (screenExitScreen), not the stream screen
+    //   (bank_0D.asm:1428-1432).
+    //   Extra byte -> ExitTableLow,X; byte 1 & 0x01 -> ExitTableHigh,X (bit 8);
     //   byte 1 >> 1 -> UseSecondaryExit
     //   Primary (UseSecondaryExit=0): value IS the destination level
     //   Secondary (UseSecondaryExit!=0): value is index into DATA_05F800
