@@ -6,7 +6,7 @@ import { buildLevelCatalog } from '../../../src/rom/LevelCatalog'
 import { reachableSlots } from '../../../src/rom/LevelTree'
 import { deriveOverworldEntrances } from '../../../src/rom/OverworldEntrances'
 import { isOverworldLevel } from '../../../src/rom/SmwRom'
-import { CORPUS, VANILLA, freshRom, hasRom, hasRoms } from '../support/corpus'
+import { VANILLA, freshRom, hasRom } from '../support/corpus'
 
 describe.skipIf(!hasRom(VANILLA))('vanilla tree lists every slot', () => {
   it('lists 512 slots, and the placeholder count is the pointer-table repeat count', () => {
@@ -33,54 +33,72 @@ describe.skipIf(!hasRom(VANILLA))('vanilla tree lists every slot', () => {
   })
 })
 
-describe.skipIf(!hasRoms())('placeholders change no map the tree already listed', () => {
-  it('keeps entry maps, sub areas, bonus rooms and real orphans identical on every corpus ROM', () => {
-    for (const name of CORPUS) {
-      const rom = new SmwRom(freshRom(name))
-      const tree = buildMapTree(rom)
+// Literal list, one skipIf describe each: a missing ROM skips only its own case, visibly.
+const CORPUS_ROMS = [
+  'Super Mario World (USA).vanilla.sfc',
+  'Super Mario World (USA).magic.sfc',
+  'GrandPooWorld_V1.2.sfc',
+  'Seven_Vanilla_Levels.sfc',
+  'Grand Poo World 2 1.1.sfc',
+  'Invictus 1.0.sfc',
+] as const
 
-      // The pre-#901 rule, recomputed independently of the catalog: the catalog's filler was
-      // the mode of all 512 pointers (zero included) and a map was any slot not holding it.
-      const catalog = buildLevelCatalog(rom)
-      const pointers = Array.from({ length: LEVEL_COUNT }, (_, i) => rom.getLevelL1Pointer(i) ?? 0)
-      const tally = new Map<number, number>()
-      for (const p of pointers) tally.set(p, (tally.get(p) ?? 0) + 1)
-      const oldFiller = [...tally].reduce((a, b) => (b[1] > a[1] ? b : a))[0]
-      const maps = new Set(pointers.flatMap((p, i) => (p === oldFiller ? [] : [i])))
-      const entrance = deriveOverworldEntrances(rom, catalog)
-      const roots = [...maps].filter(i => isOverworldLevel(i, entrance.roots)).sort((a, b) => a - b)
-      const { graph } = rom.buildLevelExitGraph(entrance.roots)
-      const stops = (i: number) => isOverworldLevel(i, entrance.roots) || !maps.has(i)
+for (const name of CORPUS_ROMS) {
+  describe.skipIf(!hasRom(name))(
+    `placeholders change no map the tree already listed: ${name}`,
+    () => {
+      it('keeps entry maps, sub areas, bonus rooms and real orphans identical', () => {
+        const rom = new SmwRom(freshRom(name))
+        const tree = buildMapTree(rom)
 
-      expect(
-        tree.overworld.map(n => n.index),
-        name,
-      ).toEqual(roots)
-      for (const n of tree.overworld) {
+        // The pre-#901 rule, recomputed independently of the catalog: the catalog's filler was
+        // the mode of all 512 pointers (zero included) and a map was any slot not holding it.
+        const catalog = buildLevelCatalog(rom)
+        const pointers = Array.from(
+          { length: LEVEL_COUNT },
+          (_, i) => rom.getLevelL1Pointer(i) ?? 0,
+        )
+        const tally = new Map<number, number>()
+        for (const p of pointers) tally.set(p, (tally.get(p) ?? 0) + 1)
+        const oldFiller = [...tally].reduce((a, b) => (b[1] > a[1] ? b : a))[0]
+        const maps = new Set(pointers.flatMap((p, i) => (p === oldFiller ? [] : [i])))
+        const entrance = deriveOverworldEntrances(rom, catalog)
+        const roots = [...maps]
+          .filter(i => isOverworldLevel(i, entrance.roots))
+          .sort((a, b) => a - b)
+        const { graph } = rom.buildLevelExitGraph(entrance.roots)
+        const stops = (i: number) => isOverworldLevel(i, entrance.roots) || !maps.has(i)
+
         expect(
-          n.children.map(c => c.index),
-          `${name} $${n.index.toString(16)}`,
-        ).toEqual(reachableSlots(n.index, graph, stops))
-      }
-      const real = tree.unassigned.filter(n => !n.placeholder).map(n => n.index)
-      // Everything the old tree placed outside Unassigned: specials, bonus rooms, roots, sub areas.
-      const placed = new Set(
-        [...tree.special, ...tree.bonus, ...tree.overworld].flatMap(n => [
-          n.index,
-          ...n.children.map(c => c.index),
-        ]),
-      )
-      expect(real, `${name} real orphans`).toEqual(
-        [...maps].filter(i => !placed.has(i)).sort((a, b) => a - b),
-      )
-      expect(tree.mapCount, name).toBe(maps.size)
-      expect(tree.mapCount, name).toBe(catalog.realCount)
-      expect(tree.mapCount + tree.counts.placeholders, name).toBe(
-        maps.size + catalog.placeholderCount,
-      )
-    }
-  })
-})
+          tree.overworld.map(n => n.index),
+          name,
+        ).toEqual(roots)
+        for (const n of tree.overworld) {
+          expect(
+            n.children.map(c => c.index),
+            `${name} $${n.index.toString(16)}`,
+          ).toEqual(reachableSlots(n.index, graph, stops))
+        }
+        const real = tree.unassigned.filter(n => !n.placeholder).map(n => n.index)
+        // Everything the old tree placed outside Unassigned: specials, bonus rooms, roots, sub areas.
+        const placed = new Set(
+          [...tree.special, ...tree.bonus, ...tree.overworld].flatMap(n => [
+            n.index,
+            ...n.children.map(c => c.index),
+          ]),
+        )
+        expect(real, `${name} real orphans`).toEqual(
+          [...maps].filter(i => !placed.has(i)).sort((a, b) => a - b),
+        )
+        expect(tree.mapCount, name).toBe(maps.size)
+        expect(tree.mapCount, name).toBe(catalog.realCount)
+        expect(tree.mapCount + tree.counts.placeholders, name).toBe(
+          maps.size + catalog.placeholderCount,
+        )
+      })
+    },
+  )
+}
 
 // Measured on develop before #901 (tree rows and counts), so a drift in any row shows here.
 // Literal table, one skipIf describe each: a missing ROM skips visibly instead of vanishing.
