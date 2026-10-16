@@ -30,6 +30,8 @@ import { createMapExplorerWidget, MAP_EXPLORER_ID } from './map-explorer-widget'
 import { MapViewWidget, MAP_VIEW_ID } from './map-view-widget'
 import { ProjectFrontendClient } from './project-push-client'
 import { GridToggleContribution } from './grid-toggle-contribution'
+import { SubAreasContribution } from './map-subareas-contribution'
+import { SubAreasWidget, SUBAREAS_VIEW_ID } from './map-subareas-widget'
 import { EditStackContribution } from './edit-stack-contribution'
 import { ReconnectContribution } from './reconnect-contribution'
 import { OutlineViewContribution } from '@theia/outline-view/lib/browser/outline-view-contribution'
@@ -73,6 +75,15 @@ export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
   bind(ReconnectContribution).toSelf().inSingletonScope()
   bind(FrontendApplicationContribution).toService(ReconnectContribution)
   bind(GridToggleContribution).toSelf().inSingletonScope()
+  bind(SubAreasContribution).toSelf().inSingletonScope()
+  bind(CommandContribution).toService(SubAreasContribution)
+  bind(SubAreasWidget).toSelf()
+  bind(WidgetFactory)
+    .toDynamicValue(ctx => ({
+      id: SUBAREAS_VIEW_ID,
+      createWidget: () => ctx.container.get(SubAreasWidget),
+    }))
+    .inSingletonScope()
   bind(CommandContribution).toService(GridToggleContribution)
   bind(EditStackContribution).toSelf().inSingletonScope()
   bind(CommandContribution).toService(EditStackContribution)

@@ -133,6 +133,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   @inject(ProjectContext) protected readonly projectContext!: ProjectContext
 
   protected options: MapViewOptions | undefined
+  /** What this tab shows (the spike's "show with sub areas" command reads it). */
+  get viewOptions(): MapViewOptions | undefined {
+    return this.options
+  }
 
   readonly projectBound = true as const
   /** Closed by the shell when another project opens (#628). */

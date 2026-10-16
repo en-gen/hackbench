@@ -6,6 +6,7 @@
  * contract both ends compile against.
  */
 import type { EditEvent } from '../../../../src/project/EditEvent'
+import type { SubAreaResult } from '../../../../src/rom/subAreaLayout'
 import type { ScreenPlanes } from '../../../../src/rom/model/ScreenPlanes'
 import type { Map16SwitchButtonImages, Map16SwitchKind } from './map16-protocol'
 
@@ -376,6 +377,11 @@ export interface BlockIndicatorDto {
  * why not (a replaced entrance loader, or nothing leads into the map). The
  * view then stays at screen 0 and shows the reason.
  */
+export type MapSubAreasResult =
+  | Extract<SubAreaResult, { ok: true }>
+  | Extract<SubAreaResult, { ok: false }>
+  | { ok: false; reason: string; romNotLocated: true }
+
 export type MapStartResult =
   | { status: 'ok'; screen: number; x: number; y: number; vertical: boolean }
   | { status: 'unavailable'; reason: string }
@@ -561,6 +567,8 @@ export interface ProjectService {
   mapBlockContents(manifestPath: string, index: number): Promise<MapBlockContentsResult>
   /** Where the player first enters a map, read from the working copy (#339). */
   mapStart(manifestPath: string, index: number): Promise<MapStartResult>
+  /** SPIKE (#946): an entry map's sub areas with their offsets for one combined canvas, read from the working copy. */
+  mapSubAreas(manifestPath: string, index: number): Promise<MapSubAreasResult>
 
   /** Whether the map's collision can be probed at all, without probing: the level loader's verdict and the level's shape (#435). */
   mapCollisionCheck(manifestPath: string, index: number): Promise<MapCollisionCheckResult>
