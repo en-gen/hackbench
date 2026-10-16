@@ -114,6 +114,12 @@ export interface LevelObject {
   screenExitDest?: number
   /** True if this is a secondary exit (needs DATA_05F800 lookup), false if primary (dest is direct). */
   screenExitIsSecondary?: boolean
+  /**
+   * For screen exit objects: the exit's OWN screen field, byte 0 & $1F
+   * (bank_0D.asm:1428-1432). Not the stream screen in `screen`; the two differ
+   * wherever an exit is placed on one stream screen but filed under another.
+   */
+  screenExitScreen?: number
 }
 
 export interface LevelSprite {
@@ -307,19 +313,24 @@ export function parseLevelObjects(
     const isExtended = objectNumber === 0
 
     // Screen exit: extended object with settings ($59 / LvlLoadObjSize) == 0.
-    // Handler CODE_0DA512 (bank_0D.asm line 1416):
-    //   Reads 1 extra byte → ExitTableLow[screen]
-    //   _B (byte 1) & 0x01 → ExitTableHigh[screen] (bit 8)
-    //   _B >> 1 → UseSecondaryExit
+    // Handler CODE_0DA512 (bank_0D.asm:1416-1439):
+    //   The exit is filed under its OWN screen field X = byte 0 & $1F, not the
+    //   stream screen it sits on (bank_0D.asm:1428-1432: ExitTableLow,X and
+    //   ExitTableHigh,X). That field is exposed as screenExitScreen.
+    //   The 1 extra byte is the destination low byte (ExitTableLow,X);
+    //   byte 1 & 0x01 is its bit 8 (ExitTableHigh,X);
+    //   byte 1 >> 1 -> UseSecondaryExit
     //   Primary (UseSecondaryExit=0): value IS the destination level
     //   Secondary (UseSecondaryExit!=0): value is index into DATA_05F800
     let screenExitDest: number | undefined
     let screenExitIsSecondary: boolean | undefined
+    let screenExitScreen: number | undefined
     if (isExtended && b2 === 0 && pos < data.length) {
       const extraByte = data[pos]!
       const highBit = b1 & 0x01
       screenExitDest = (highBit << 8) | extraByte
       screenExitIsSecondary = b1 >> 1 !== 0
+      screenExitScreen = b0 & 0x1f
       pos += 1
     }
 
@@ -339,6 +350,7 @@ export function parseLevelObjects(
       param: b2,
       screenExitDest,
       screenExitIsSecondary,
+      screenExitScreen,
     })
 
     // Extended object $01 - CODE_0DA53D (bank_0D.asm line 1441):
