@@ -31,7 +31,7 @@ The owner's words above are the only recorded reason.
 ## Applies to
 
 - In-app credit lives in the About and credits view, filed as #953; none exists yet. `THIRD_PARTY_LICENSES.md` is the other place.
-- HackBench already ships `@smwcentral/spc-player` (LGPL-2.1, Telinc1).
+- HackBench already ships `@smwcentral/spc-player` (LGPL-2.1-only, author Telinc1, per its `package.json`; `THIRD_PARTY_LICENSES.md` agrees).
 - Asar (D61 call 1; #937, #938) is allowed under rule 1 if its licence fits; #938 reads the licence before anything ships.
 - Reading data another tool wrote into a ROM (an AddmusicK driver, a Lunar Magic hook) is interpretation, not reuse: see `2026-10-15-interpret-else-warn.md`.
 - Affected open items (noted on the issues by Planning, 2026-10-16): #54, #59, #60, #61, #62, #201, #881, #940, #937, #938.
