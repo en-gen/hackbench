@@ -188,6 +188,24 @@ describe('the wire: screens, math, layer 2 role (synthetic)', () => {
     expect(w.planes.l3Low ?? w.planes.l3High).toBeTruthy()
     expect(wireOf({ ...l1Of(0, 0, false), l3: drawn() }).layerNotes).toEqual([])
   })
+  describe('one reason shared by the background height and the layer 3 position reads once (#926)', () => {
+    const drawn = (note?: string) => verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYUnverified: note })) // prettier-ignore
+    const withL2 = (reasons: string[]) => ({
+      ok: true as const,
+      l2: { kind: 'objects' as const, grid: [[null]], tiles: [], dy: 0, reasons, note: `Background height unverified: ${reasons.join(' ')}` }, // prettier-ignore
+    })
+    const notes = (reasons: string[], l3Note: string) =>
+      wireOf({ ...l1Of(0, 0, false), l2: withL2(reasons), l3: drawn(l3Note) }).layerNotes
+    it('the same gate reason on both parts is one line naming both', () => {
+      expect(notes(['gate'], 'gate')).toEqual(['Background height and Layer 3 position unverified: gate']) // prettier-ignore
+    })
+    it('different reasons keep a line each, with their part', () => {
+      expect(notes(['one'], 'two')).toEqual(['Background height unverified: one', 'Layer 3 position unverified: two']) // prettier-ignore
+    })
+    it('a gate plus a dy note on L2 with the same gate on L3: the gate once, the dy note kept', () => {
+      expect(notes(['gate', 'dy'], 'gate')).toEqual(['Background height and Layer 3 position unverified: gate', 'Background height unverified: dy']) // prettier-ignore
+    })
+  })
   it('the standard layout keeps the #561 sub list for both priority bits', () => {
     for (const pri of [true, false]) {
       expect(wireOf({ ...l1Of(0, 0, pri), l3: verdict(pri, null) }).screens.sub).toEqual(['l2Low', 'l2High']) // prettier-ignore
