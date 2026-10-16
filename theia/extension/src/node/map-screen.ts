@@ -347,6 +347,7 @@ export function screenResult(
     note:
       [...model.unverified, ...l2Notes(model), model.animNote].filter(Boolean).join(' ') ||
       undefined,
+    refusedCells: model.refusedCells?.length ? model.refusedCells : undefined,
     layerNotes: [
       model.l2 && !model.l2.ok ? `The background is not drawn: ${model.l2.reason}` : '',
       ...positionNotes(model),
