@@ -8,7 +8,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node -e \"const {pathToFileURL}=require('url');const p=require('path').resolve(process.env.CLAUDE_PROJECT_DIR||'.','tools/scripts/protocol-inject.mjs');import(pathToFileURL(p).href).catch(e=>console.log('Protocol hook error: '+(e&&e.message||e)))\""
+            "command": "node -e \"const path=require('path'),{pathToFileURL}=require('url');const d=process.env.CLAUDE_PROJECT_DIR||'.';let root=d;try{const g=require('child_process').execFileSync('git',['rev-parse','--path-format=absolute','--git-common-dir'],{cwd:d,encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim();if(g)root=path.dirname(g)}catch{}const p=path.resolve(root,'tools/scripts/protocol-inject.mjs');import(pathToFileURL(p).href).catch(e=>console.log('Protocol hook error: '+(e&&e.message||e)))\""
           }
         ]
       }
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node -e \"const {pathToFileURL}=require('url');const p=require('path').resolve(process.env.CLAUDE_PROJECT_DIR||'.','tools/scripts/protocol-inject.mjs');import(pathToFileURL(p).href).catch(e=>console.log('Protocol hook error: '+(e&&e.message||e)))\""
+            "command": "node -e \"const path=require('path'),{pathToFileURL}=require('url');const d=process.env.CLAUDE_PROJECT_DIR||'.';let root=d;try{const g=require('child_process').execFileSync('git',['rev-parse','--path-format=absolute','--git-common-dir'],{cwd:d,encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim();if(g)root=path.dirname(g)}catch{}const p=path.resolve(root,'tools/scripts/protocol-inject.mjs');import(pathToFileURL(p).href).catch(e=>console.log('Protocol hook error: '+(e&&e.message||e)))\""
           }
         ]
       }

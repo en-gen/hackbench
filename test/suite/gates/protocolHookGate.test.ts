@@ -200,14 +200,17 @@ describe('the hook is wired', () => {
     )
   }
 
-  function runCommand(projectDir: string): { status: number | null; stdout: string } {
-    const command = commandsFor('UserPromptSubmit').find(c => c.includes('protocol-inject.mjs'))
+  function runCommand(
+    projectDir: string,
+    { event = 'UserPromptSubmit', env = hookEnv() } = {},
+  ): { status: number | null; stdout: string } {
+    const command = commandsFor(event).find(c => c.includes('protocol-inject.mjs'))
     const r = spawnSync(command ?? 'exit 1', {
       shell: true,
       cwd: repoRoot,
       encoding: 'utf8',
-      input: JSON.stringify({ session_id: CLI_ID, hook_event_name: 'UserPromptSubmit' }),
-      env: { ...hookEnv(), CLAUDE_PROJECT_DIR: projectDir },
+      input: JSON.stringify({ session_id: CLI_ID, hook_event_name: event }),
+      env: { ...env, CLAUDE_PROJECT_DIR: projectDir },
     })
     return { status: r.status, stdout: r.stdout + r.stderr }
   }
@@ -225,6 +228,50 @@ describe('the hook is wired', () => {
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('Active protocols: alpha')
   })
+
+  // A worktree session's CLAUDE_PROJECT_DIR is the worktree, whose scripts may
+  // predate a state folder move; running them would split the state in two.
+  it("a worktree with a stale copy still gets the main checkout's state folder", () => {
+    const parent = mk('hook-main-')
+    const main = path.join(parent, 'repo')
+    const scripts = path.join(main, 'tools', 'scripts')
+    fs.mkdirSync(scripts, { recursive: true })
+    for (const f of ['protocol.mjs', 'protocol-inject.mjs']) {
+      fs.copyFileSync(path.join(repoRoot, 'tools', 'scripts', f), path.join(scripts, f))
+    }
+    const git = (...args: string[]) =>
+      spawnSync('git', args, {
+        cwd: main,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: 't',
+          GIT_AUTHOR_EMAIL: 't@t',
+          GIT_COMMITTER_NAME: 't',
+          GIT_COMMITTER_EMAIL: 't@t',
+        },
+      })
+    git('init', '-q')
+    git('add', '-A')
+    git('commit', '-q', '-m', 'root')
+    const wt = path.join(mk('hook-wt-'), 'w')
+    expect(git('worktree', 'add', '-q', wt).status).toBe(0)
+    // The stale copy: the worktree's protocol.mjs still names the old folder.
+    const stale = path.join(wt, 'tools', 'scripts', 'protocol.mjs')
+    const body = fs.readFileSync(stale, 'utf8')
+    const patched = body.replace(
+      /export function stateDirIn\(mainDir\) \{[^}]*\}/,
+      "export function stateDirIn(mainDir) { return path.join(mainDir, '.hackbench-state') }",
+    )
+    expect(patched).not.toBe(body)
+    fs.writeFileSync(stale, patched)
+    const env = hookEnv()
+    delete env.HACKBENCH_STATE_DIR
+    const r = runCommand(wt, { event: 'SessionStart', env })
+    expect(r.status).toBe(0)
+    expect(r.stdout).toMatch(/State folder: \S*\.overwatch[\\/]repo\./)
+    expect(r.stdout).not.toContain('.hackbench-state')
+  }, 30000)
 
   it('a missing script becomes one line and exit 0, not a stack trace', () => {
     const empty = mk('hook-empty-')
