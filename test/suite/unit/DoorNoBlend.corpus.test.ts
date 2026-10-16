@@ -5,13 +5,17 @@
  * CGADSUB, the only case where the rule changes the output. Vanilla ROM, one machine.
  */
 import { describe, it, expect } from 'vitest'
-import { MAP_PLANE_KEYS } from '../../../theia/extension/src/common/project-protocol'
+import {
+  MAP_PLANE_KEYS,
+  type SwitchFlagsDto,
+} from '../../../theia/extension/src/common/project-protocol'
 import { L1ModelCache, screenResult } from '../../../theia/extension/src/node/map-screen'
 import { mapSprites } from '../../../theia/extension/src/node/map-sprites'
 import { spriteDoors, spritePlanes } from '../../../theia/extension/src/browser/map-view-model'
 import { VANILLA, freshRom, hasRom, romPath } from '../support/corpus'
 import { slow } from '../support/loadTimeout'
 
+const NO_FLAGS: SwitchFlagsDto = { green: false, yellow: false, blue: false, red: false }
 const BIT = { l1: 0x01, l2: 0x02, l3: 0x04 } as const
 
 describe.skipIf(!hasRom(VANILLA))(
@@ -29,12 +33,9 @@ describe.skipIf(!hasRom(VANILLA))(
         const hits: string[] = []
         for (let m = 0; m < 0x200; m++) {
           const sp = mapSprites(cache, bytes, romPath(VANILLA), m)
-          const built = cache.get(bytes, romPath(VANILLA), m, {
-            blue: false,
-            silver: false,
-            onOff: false,
-          } as never)
-          if (sp.status !== 'ok' || !built.ok) continue
+          if (sp.status !== 'ok') continue
+          const built = cache.get(bytes, romPath(VANILLA), m, NO_FLAGS)
+          if (!built.ok) continue
           maps++
           for (let s = 0; s < sp.screenCount; s++) {
             const doors = spriteDoors(sp, s)
