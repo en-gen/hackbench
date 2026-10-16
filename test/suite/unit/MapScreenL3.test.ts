@@ -181,6 +181,13 @@ describe('the wire: screens, math, layer 2 role (synthetic)', () => {
     const l3 = { ...verdict(false, null), cgadsub: null }
     expect(wireOf({ ...l1Of(0, 0, false), l3 }).math).toBeNull()
   })
+  it('an unverified layer 3 camera is a layer note on a map that still draws it (#860)', () => {
+    const drawn = (note?: string) => verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYUnverified: note })) // prettier-ignore
+    const w = wireOf({ ...l1Of(0, 0, false), l3: drawn('because') })
+    expect(w.layerNotes).toEqual(['Layer 3 position unverified: because'])
+    expect(w.planes.l3Low ?? w.planes.l3High).toBeTruthy()
+    expect(wireOf({ ...l1Of(0, 0, false), l3: drawn() }).layerNotes).toEqual([])
+  })
   it('the standard layout keeps the #561 sub list for both priority bits', () => {
     for (const pri of [true, false]) {
       expect(wireOf({ ...l1Of(0, 0, pri), l3: verdict(pri, null) }).screens.sub).toEqual(['l2Low', 'l2High']) // prettier-ignore

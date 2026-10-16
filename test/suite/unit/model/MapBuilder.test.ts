@@ -4,7 +4,7 @@ import { SmwRom } from '../../../../src/rom/SmwRom'
 import { buildMap } from '../../../../src/rom/model/MapBuilder'
 import type { PixelPos, PixelSize, RenderTarget } from '../../../../src/rom/model/RenderTarget'
 import { resetEditorStore } from '../fixtures/stores'
-import { VANILLA, hasRom, romPath } from '../../support/corpus'
+import { VANILLA, freshRom, hasRom, romPath } from '../../support/corpus'
 
 const ROM_PATH = romPath(VANILLA)
 
@@ -72,5 +72,19 @@ describe.skipIf(!hasRom(VANILLA))('MapBuilder end-to-end (vanilla ROM)', () => {
     const rom = SmwRom.open(ROM_PATH)
     const map = buildMap(rom, 0x105)
     expect(map.l1[20][156]).toBe(0x100 | 0x6b)
+  })
+
+  // #860: no vanilla map is entered only through secondary entrances, so the entrances are injected
+  // and the row they name is planted. The synthetic witnesses for every other call site are in
+  // EntranceVia.synthetic.test.ts; a whole map build needs the cart's tables.
+  it('a map entered only through a secondary entrance draws the camera of that entrance', () => {
+    const raw = freshRom()
+    raw.writeAt(0x05fa00 + 0x1c3, [0x10]) // L1 index 1: DATA_05D708[1], where $105's primary row gives index 2
+    const rom = new SmwRom(raw)
+    const only = new Map([[0x105, { overworld: false, primary: false, secondary: [0x1c3] }]])
+    const [secondary, primary, noGraph] =
+      [{ entrances: only }, { entrances: new Map() }, { entrances: undefined }] // prettier-ignore
+        .map(o => buildMap(rom, 0x105, o).header.initialCameraYPx)
+    expect([secondary, primary, noGraph]).toEqual([0x60, 0xc0, 0xc0])
   })
 })

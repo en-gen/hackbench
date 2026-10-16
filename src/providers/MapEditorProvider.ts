@@ -18,6 +18,7 @@ import {
   loadPaletteAnimData,
   serializePaletteAnimData,
 } from '../rom/PaletteAnimationLoader'
+import { readMapEntrances } from '../rom/ReadMapEntrances'
 import { readInitialLayer1YPos, readL3RoutineSummary, classifyL3Routine } from '../rom/L3Loader'
 import { getAllLevelBgmTracks, readLevelMusicTableIfReadable } from '../rom/MusicData'
 import { buildSpc } from '../rom/SpcBuilder'
@@ -442,11 +443,13 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       // Initial camera Y - see readInitialLayer1YPos in L3Loader.ts. Seeds
       // the camera viewport so sublevels (accessed only via pipes/doors) show
       // the player's actual starting viewport.
-      const initialCameraYPx = readInitialLayer1YPos(rom.rom, index, isVertical)
+      const entrances = readMapEntrances(rom)
+      const via = entrances?.get(index)
+      const initialCameraYPx = readInitialLayer1YPos(rom.rom, index, isVertical, via)
       // Initial Layer2YPos (BG2VOFS). Populated for ALL levels - the
       // Layer 2 tab's Y-scrubber slider seeds from this. Only meaningful
       // for object-stream L2; preset-BG levels won't show the slider.
-      const initialLayer2YPx = readInitialLayer2YPos(rom.rom, index, false) & 0xff
+      const initialLayer2YPx = readInitialLayer2YPos(rom.rom, index, false, via) & 0xff
       // L1 scroll-sprite cmd byte (spriteId - $E7), or null when no scroll
       // sprite. Drives the Layer 2 Y-scrubber slider's min/max so the user
       // can only drag through the Y range that's actually reachable for this
@@ -688,6 +691,7 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
           spriteSet: spriteTileset,
           objectTileset,
           marioVariant,
+          entrances, // the graph this handler already walked
         })
         // ROM bytes for the modelPayload's simulator are shipped in
         // the 'load' message above (one transfer per level load).

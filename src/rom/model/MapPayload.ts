@@ -254,6 +254,8 @@ export interface LevelHeaderDescriptor {
    * Seeds the camera viewport and positions L3 tide overlays correctly.
    */
   initialCameraYPx: number
+  /** Why that camera may not be the game's (#860); absent when the level-start code is stock. */
+  entranceUnverified?: string
   /**
    * Time-limit index from header byte 3 bits 7:6 (0..3). Indexes TimerTable
    * ($0584D7) to give the starting timer: 0=none, 1=200, 2=300, 3=400.

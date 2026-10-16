@@ -33,6 +33,8 @@ export interface MapStoreState {
   screenPipeVariantIdx: readonly number[]
   /** Initial Layer1YPos in pixels - L3 tide overlays use this. */
   initialCameraYPx: number
+  /** Why the entrance-position code is not known stock, so the camera and L2 heights are best readings (#860). */
+  entranceUnverified?: string
   /** Mario's level-entry pixel X. Sprites whose ASM init uses `FaceMario`
    *  (e.g. Chargin' Chuck, Dry Bones, Super Koopa) read this to choose
    *  the toward-Mario simulation direction. */

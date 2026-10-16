@@ -7,7 +7,7 @@
  */
 import type { MapEntrances, SmwRom } from '../SmwRom'
 import type { RomFile } from '../RomFile'
-import { LEVEL_START_Y, stockCodeMismatch } from '../SubmapFlagGate'
+import { entrancePositionGate } from '../SubmapFlagGate'
 import { hex2, hex3s as hex3 } from '../hex'
 import {
   isPresetPtr,
@@ -115,16 +115,15 @@ function dyFromEntrances(
 /**
  * Read one map's L2, or why it cannot be read. Never a vanilla fallback. `entrances` is how the
  * game enters the map (`SmwRom.buildLevelExitGraph`); `startGate` names why the level-load code
- * is not stock, or null. Without entrances the position is the older
- * reading: F400/F600 for a $0xx map, and for a $1xx map the low bytes of the first FA00 entrance
- * `findSecondaryEntranceForLevel` names, mixed with the map's own F600 high byte.
+ * is not stock, or null. Without entrances (graph unavailable) the position is the primary entrance's
+ * F400/F600, never a secondary entrance's row.
  */
 export function buildL2Inputs(
   rom: SmwRom,
   index: number,
   l1: L1Inputs,
   entrances?: MapEntrances,
-  startGate: (rom: RomFile) => string | null = rom => stockCodeMismatch(rom, LEVEL_START_Y),
+  startGate: (rom: RomFile) => string | null = rom => entrancePositionGate(rom),
 ): L2Result {
   const refuse = (reason: string): L2Result => ({ ok: false, reason })
   const ptr = readL2Pointer(rom.rom, index)
@@ -133,8 +132,8 @@ export function buildL2Inputs(
   // The level-start relation `Layer1YPos - Layer2YPos`, the view's representative frame; later
   // vertical scrolling moves L2 against L1 when VertLayer2Setting != 1. The high bytes follow the
   // ScreenMode the entry code builds from F600 bits 5-6 (bank_05.asm:7292-7299, 7379-7381), not the
-  // VerticalTable, which the header parse applies later (:552-553). With no known entrance, the
-  // older reading described above.
+  // VerticalTable, which the header parse applies later (:552-553). With no known entrance
+  // (so none is chosen), the primary entrance's F400/F600.
   const entryVertical = ((rom.rom.readByte(0x05f600 + index) ?? 0) & 0x20) !== 0
   const known = dyFromEntrances(rom.rom, index, entrances)
   const dy = (): number => known?.dy ?? readInitialLayer1YPos(rom.rom, index, entryVertical) - readInitialLayer2YPos(rom.rom, index, entryVertical) // prettier-ignore

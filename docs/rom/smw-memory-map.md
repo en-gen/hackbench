@@ -83,9 +83,9 @@ to find the current location:
 | `$05F800` | 512 B  | lo byte      | Destination level - low byte of level number |
 | `$05FA00` | 512 B  | `bbffyyyy`   | BG initial pos [7:6], FG initial pos [5:4], Mario Y pos [3:0] (index into table at $05D730/$05D740) |
 | `$05FC00` | 512 B  | `xxxeeeee`   | Mario X pos [7:5] (index into table at $05D750/$05D758), destination screen# [4:0] |
-| `$05FE00` | 512 B  | `s???hAAA`   | Slippery flag [7], dest level high bit [3], Mario start action [2:0] |
+| `$05FE00` | 512 B  | `s???hAAA`   | Slippery flag [7], bit 3 unused, Mario start action [2:0] |
 
-Destination level = `(($05FE00[n] >> 3) & 1) << 8 | $05F800[n]`
+Destination map = `(n & $100) | $05F800[n]`: the high byte is the submap flag `_F`, which is bit 8 of the entrance index `n` itself (bank_05.asm:7103-7118; the flag comes from OWPlayerSubmap, see SmwRom.ts:20-24). `$05FC00` is only X index and screen (:7147-7158, :7376-7388); `$05FE00` bit 3 is never read (:7159-7161 reads bits 2:0).
 
 ### Level Primary Header (5 bytes at L1 pointer)
 

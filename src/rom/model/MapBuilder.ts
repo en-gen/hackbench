@@ -8,7 +8,8 @@ import {
   parseLevelSprites,
 } from '../LevelParser'
 import { TILE_EMPTY, expandMap, SWITCH_FLAGS_CLEARED } from '../ObjectExpander'
-import type { SmwRom } from '../SmwRom'
+import type { MapEntrances, SmwRom } from '../SmwRom'
+import { cachedByVersion, type RomFile } from '../RomFile'
 import type { Char } from './chars/Char'
 import { buildChars } from './chars/CharFactory'
 import {
@@ -21,6 +22,8 @@ import { buildScrollSimulator } from '../scrollSim'
 import { buildBgTiles, buildL2 } from './L2Factory'
 import { buildL3 } from './L3Factory'
 import { readInitialLayer1YPos } from '../L3Loader'
+import { entrancePositionGate } from '../SubmapFlagGate'
+import { readMapEntrances } from '../ReadMapEntrances'
 import { readMarioStartPos } from '../MarioStartPos'
 import type { MapPayload } from './MapPayload'
 import { buildPalette } from './palette/PaletteFactory'
@@ -54,6 +57,28 @@ export interface MapBuildOverrides {
   spriteSet?: number
   objectTileset?: number
   marioVariant?: number
+  /**
+   * The exit graph's entrances, for a caller that already holds them (the Maps view, the
+   * reference webview); read from the ROM, once per ROM, when absent. `undefined` as a value
+   * is "the graph is unavailable", not "absent": use `'entrances' in overrides`.
+   */
+  entrances?: ReadonlyMap<number, MapEntrances> | undefined
+  /** The level-start spans to check the camera against; a synthetic ROM passes its own build (#860). */
+  startSpans?: Parameters<typeof entrancePositionGate>[1]
+}
+
+/**
+ * The graph walk costs about as much as the rest of a map build, so it is made once per ROM
+ * version: a `writeAt` bumps the version and the next build re-reads, never serving entrances
+ * derived from bytes that no longer exist.
+ */
+const entrancesOf = new WeakMap<
+  RomFile,
+  { version: number; value: ReadonlyMap<number, MapEntrances> | undefined }
+>()
+export function entrancesFor(rom: SmwRom, overrides: MapBuildOverrides) {
+  if ('entrances' in overrides) return overrides.entrances
+  return cachedByVersion(entrancesOf, rom.rom, () => readMapEntrances(rom))
 }
 
 /**
@@ -142,9 +167,13 @@ export function buildMapWithGraph(
   // L2 layer purely for diagnostic labelling on the scroll-range overlay.
   const layer1ScrollCmd = findLevelScrollSprite(levelSprites)
 
+  // How the game enters this map (the exit graph), which picks the entrance its initial camera
+  // Y is read from; undefined (graph unavailable) reads the primary entrance.
+  const via = entrancesFor(rom, overrides)?.get(levelId)
+
   // Initial Layer1YPos (camera Y) used by L2/L3 render-time offset math.
   // Hoisted above buildL2 so it can flow into computeL2ScrollRange.
-  const initialCameraYPx = readInitialLayer1YPos(rom.rom, levelId, isVertical)
+  const initialCameraYPx = readInitialLayer1YPos(rom.rom, levelId, isVertical, via)
 
   // Mario spawn - needed by the scroll simulator's seed and by the
   // `faceRight` resolution in buildSprites. Nothing reads the
@@ -179,7 +208,7 @@ export function buildMapWithGraph(
   const setupState = scrollSpriteFull
     ? simulateScrollSetup(rom.rom, scrollSpriteFull.spriteId, scrollSpriteFull.b0)
     : null
-  const initialLayer2YPx = readInitialLayer2YPos(rom.rom, levelId, isVertical)
+  const initialLayer2YPx = readInitialLayer2YPos(rom.rom, levelId, isVertical, via)
   const scrollSimulator = setupState
     ? buildScrollSimulator(rom.rom, {
         layer1XPos: 0, // horizontal levels start at 0
@@ -211,8 +240,18 @@ export function buildMapWithGraph(
     layer1ScrollCmd,
     initialCameraYPx,
     verticalTable,
+    via,
   )
-  const l3 = buildL3(rom.rom, levelId, tileset, l3Chars, screens, isVertical, rawHeader.timeLimit)
+  const l3 = buildL3(
+    rom.rom,
+    levelId,
+    tileset,
+    l3Chars,
+    screens,
+    isVertical,
+    rawHeader.timeLimit,
+    via,
+  )
 
   // Per-level default OBJ priority: LevXYPPCCCTtbl[levelMode] (bank_05.asm:505-509,
   // stored to SpriteProperties at :542-543). Null means the table read failed;
@@ -230,11 +269,13 @@ export function buildMapWithGraph(
 
   const palette = buildPalette(rom.rom, header)
 
+  const entranceUnverified = entrancePositionGate(rom.rom, overrides.startSpans) ?? undefined
   const mapStore = createMapStore({
     palette,
     levelOrientation: orientation,
     screenPipeVariantIdx,
     initialCameraYPx,
+    entranceUnverified,
     marioSpawnX: marioStartPx.x,
     scrollSimulator,
   })
@@ -249,6 +290,7 @@ export function buildMapWithGraph(
       horizLayer2Setting,
       layer3Priority: rawHeader.layer3Priority,
       initialCameraYPx,
+      entranceUnverified,
       timeLimit: rawHeader.timeLimit,
       marioStartPx,
     },
