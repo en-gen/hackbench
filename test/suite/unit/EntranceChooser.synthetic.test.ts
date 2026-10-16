@@ -2,7 +2,7 @@
  * #861: the drawn layer 2 height (L2Model) and the layer 3 camera (L3Model) pick their entrance
  * with the one `chooseEntrance`. They used to split on a secondary-only map whose first listed
  * entrance is not the lowest: L2 drew the first listed, L3 used the lowest. (The exit graph sorts
- * the list, SmwRom.ts:565, so no ROM shows this; the lists below are built to be unsorted.) Synthetic ROM bytes, hand-written
+ * the list, SmwRom.ts:573, so no ROM shows this; the lists below are built to be unsorted.) Synthetic ROM bytes, hand-written
  * expectations; no corpus.
  */
 import { describe, it, expect } from 'vitest'
