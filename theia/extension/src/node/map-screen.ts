@@ -219,7 +219,8 @@ export type L3Planes = Record<'l3Low' | 'l3High', Plane>
 /**
  * L3 of one screen as [low, high] planes by each tile's priority bit: tile row
  * R (gameplay rows only; the first 8 are the status bar) at level Y
- * R*8 - Layer3YPos + Layer1YPos, x repeating every 512 px (a tide, whose BG3
+ * R*8 - Layer3YPos + Layer1YPos (a vertical map omits the Layer1YPos term: screen-locked,
+ * bank_05.asm:5569-5572 is never reached), x repeating every 512 px (a tide, whose BG3
  * scrolls with the camera, every 256 px over the first 32 columns, and its
  * second copy of the tilemap is not drawn). Rows that start above the level
  * are skipped whole, as the reference view does. Char 0 of every 2bpp

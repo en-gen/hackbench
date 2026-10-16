@@ -34,7 +34,8 @@ export interface L3Inputs {
   colors: RgbaColor[]
   /** Layer3XPos at load (0 unless a smash sprite sets it, #807); camera X at load is 0. Absent: 0. */
   xPx?: number
-  /** Layer3YPos at load, and Layer1YPos at load: a tile row R sits at level Y R*8 - yPx + camYPx. */
+  /** Layer3YPos at load, and Layer1YPos at load: a tile row R sits at level Y R*8 - yPx + camYPx;
+   * a vertical map omits camYPx (screen-locked: bank_05.asm:5569-5572 is never reached). */
   yPx: number
   camYPx: number
   /** A vertical map: screens stack downward, 32 tiles wide and 16 tall, and X is not paged. */
@@ -142,9 +143,12 @@ export function buildL3Verdict(
       colors: l1.colors,
       xPx: pos.x,
       yPx: pos.y,
-      camYPx: readInitialLayer1YPos(rom, index, l1.isVertical, entrances),
+      camYPx: readInitialLayer1YPos(rom, index, false, entrances),
       isVertical: l1.isVertical || undefined,
-      camYUnverified: entrancePositionGate(rom, startSpans) ?? undefined,
+      // A vertical map's band is screen-locked and ignores camYPx, so there is nothing to be unverified.
+      camYUnverified: l1.isVertical
+        ? undefined
+        : (entrancePositionGate(rom, startSpans) ?? undefined),
       // $00 is Layer3TideSetting 0: no tide (it is camera-locked or Castle1/Underground1's half-speed scroll).
       tide: load.settingsByte !== 0 && load.settingsByte < 0x80,
     },

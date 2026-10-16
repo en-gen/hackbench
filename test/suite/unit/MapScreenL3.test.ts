@@ -414,7 +414,7 @@ describe('maps layer 3 is not drawn on (synthetic)', () => {
     for (const ts of [0, 2]) expect(buildL3Verdict(vRom(ts, 0x81), 5, vertical(ts), BG_OK, chars, GATE_OK)).toMatchObject({ l3: null, reason: /camera-locked/ }) // prettier-ignore
   })
 
-  it('a vertical map on $81-$BF, tileset 1 or 3, draws: Y $C0, X 0, camera Y from the vertical read', () => {
+  it('a vertical map on $81-$BF, tileset 1 or 3, draws: Y $C0, X 0', () => {
     for (const ts of [1, 3]) {
       for (const byte of [0x81, 0xa5, 0xbf]) {
         const v = buildL3Verdict(vRom(ts, byte), 5, vertical(ts), BG_OK, chars, GATE_OK)
@@ -422,11 +422,6 @@ describe('maps layer 3 is not drawn on (synthetic)', () => {
         expect(v.reason).toBeNull()
       }
     }
-    // The 16-bit camera Y: DATA_05F600[5] high byte 3 over DATA_05D708 low byte (all zero here, so 0x300).
-    const rom = vRom(1, 0x81)
-    rom.writeAt(0x05f600 + 5, [3])
-    const [h, vt] = [false, true].map(isV => buildL3Verdict(rom, 5, { ...l1Of(3, 1, false), isVertical: isV }, BG_OK, chars, GATE_OK).l3?.camYPx) // prettier-ignore
-    expect([h, vt]).toEqual([0, 0x300])
   })
 
   it('settings $00 follows the camera off Castle1 and Underground1, like $81', () => {
@@ -586,6 +581,7 @@ describe('layer 3 on a vertical map (synthetic, #806)', () => {
 describe.skipIf(!hasRom(VANILLA))(
   'vanilla vertical maps with a drawn layer 3 are exactly $0E7 and $1CE (corpus, #806)',
   () => {
+    // Checks vanilla output only; the synthetic refusal test above is the gate's guard.
     it('sweeps all $200 slots: vertical maps whose layer 3 draws', () => {
       const rom = RomFile.load(romPath(VANILLA))
       const smw = new SmwRom(rom)

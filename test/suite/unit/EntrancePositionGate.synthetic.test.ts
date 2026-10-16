@@ -91,6 +91,21 @@ describe('the layer 3 camera is unverified when the entrance-position code is no
     expect(v.l3?.camYUnverified).toBeUndefined()
   })
 
+  // A vertical map's band is screen-locked (#806): its place does not use the entrance camera, so an
+  // unstock level-start code has nothing to be unverified about.
+  it('a vertical $81 map on tileset 1 draws with no unverified note, though the gate is tripped', () => {
+    const h1 = parseLevelHeader(Uint8Array.from([0, 0, 0, 0, 1])) // tileset 1
+    const [hl1, vl1] = [false, true].map(isVertical => ({ header: h1, isVertical, colors: [] }) as never) // prettier-ignore
+    const rom = withStockCode(withLayer3(modeTablesRom([STANDARD, ...Array(31).fill(STANDARD)]), { level: MAP, tileset: 1, setting: 2, settingsByte: 0x81, word: 2, row: 30 })) // prettier-ignore
+    const spans = stockOf(rom)
+    flipAt(rom, SPANS[0]!.addr)
+    const run = (l: never) => buildL3Verdict(rom, MAP, l, { ok: true, mode: 1 }, () => [[]] as never, { ok: true }, undefined, ONLY_SECONDARY, spans) // prettier-ignore
+    expect(run(hl1!).l3?.camYUnverified).toBeTruthy() // control: a horizontal map reports it
+    const v = run(vl1!)
+    expect(v.l3).not.toBeNull()
+    expect(v.l3?.camYUnverified).toBeUndefined()
+  })
+
   // Every byte of every checked range, not a sample: a flip at any offset must name its own range.
   it.each(SPANS.map(s => [s.what, hex6(s.addr), s] as const))(
     'every byte of %s (span %s) changed in turn: still drawn, reason names the span',
