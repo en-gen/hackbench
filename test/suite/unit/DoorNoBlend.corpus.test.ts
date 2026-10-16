@@ -15,6 +15,7 @@ import { L1ModelCache, screenResult } from '../../../theia/extension/src/node/ma
 import { mapSprites } from '../../../theia/extension/src/node/map-sprites'
 import {
   spriteDoors,
+  flamePlanes,
   spritePlanes,
   withFlameKeys,
 } from '../../../theia/extension/src/browser/map-view-model'
@@ -25,20 +26,21 @@ import { doorPixelsUnderMath } from '../support/doorBlend'
 const NO_FLAGS: SwitchFlagsDto = { green: false, yellow: false, blue: false, red: false }
 
 // Measured on the vanilla ROM, one machine: 488 of 512 map slots build, 1315 of their screens have sprites and a color-math table.
-const DOOR_PIXELS = 73388
+// Door pixels per layer show/hide combination (bit 0 = Layer 1 shown, bit 1 = Layer 2, bit 2 = Layer 3), from the second #936 review.
+const DOOR_PIXELS = [0, 65180, 804, 65200, 8319, 73368, 9123, 73388]
 
 describe.skipIf(!hasRom(VANILLA))(
   'door and lift pixels never meet color math on vanilla (#936)',
   () => {
     it(
-      'no door pixel lies under a layer whose bit is in the map CGADSUB, across all 512 maps',
+      'no door pixel lies under a layer whose bit is in the map CGADSUB, in all 8 layer show/hide combinations, across the 488 maps that build',
       slow(120_000),
       () => {
         const bytes = new Uint8Array(freshRom().buffer)
         const cache = new L1ModelCache()
         let maps = 0
         let screens = 0
-        let doorPixels = 0
+        const doorPixels = DOOR_PIXELS.map(() => 0)
         const hits: string[] = []
         for (let m = 0; m < 0x200; m++) {
           const sp = mapSprites(cache, bytes, romPath(VANILLA), m)
@@ -52,15 +54,21 @@ describe.skipIf(!hasRom(VANILLA))(
             const shot = screenResult(built.inputs, s)
             if (shot.status !== 'ok' || !shot.math) continue
             screens++
-            const planes = { ...spritePlanes(sp, s) } as Record<string, Uint8ClampedArray | null>
-            for (const k of MAP_PLANE_KEYS) planes[k] = shot.planes[k] ? new Uint8ClampedArray(Buffer.from(shot.planes[k]!, 'base64')) : null // prettier-ignore
-            // The lists the view composes with, flame planes placed.
-            const found = doorPixelsUnderMath(withFlameKeys(shot.screens).main, planes, doors, shot.math.cgadsub) // prettier-ignore
-            doorPixels += found.doorPixels
-            if (found.blended) hits.push(`${m.toString(16)}/${s}`)
+            const decoded: Record<string, Uint8ClampedArray | null> = {}
+            for (const k of MAP_PLANE_KEYS) decoded[k] = shot.planes[k] ? new Uint8ClampedArray(Buffer.from(shot.planes[k]!, 'base64')) : null // prettier-ignore
+            const lists = withFlameKeys(shot.screens).main
+            for (let c = 0; c < 8; c++) {
+              // The planes the view composes (shownPlanes): a hidden layer is left out, sprites and flames added.
+              const planes: Record<string, Uint8ClampedArray | null> = {}
+              for (const k of MAP_PLANE_KEYS) if (c & (1 << (+k[1]! - 1))) planes[k] = decoded[k]!
+              Object.assign(planes, spritePlanes(sp, s), flamePlanes(sp, s, decoded.l2High))
+              const found = doorPixelsUnderMath(lists, planes, doors, shot.math.cgadsub)
+              doorPixels[c]! += found.doorPixels
+              if (found.blended) hits.push(`${m.toString(16)}/${s}/${c}`)
+            }
           }
         }
-        console.log(`#936 vanilla: ${maps} maps, ${screens} screens with sprites, ${doorPixels} door pixels, ${hits.length} under a blended layer`) // prettier-ignore
+        console.log(`#936 vanilla: ${maps} maps, ${screens} screens with sprites, ${doorPixels.join('/')} door pixels per layer combination, ${hits.length} under a blended layer`) // prettier-ignore
         expect([maps, screens, doorPixels]).toEqual([488, 1315, DOOR_PIXELS])
         expect(hits).toEqual([])
       },

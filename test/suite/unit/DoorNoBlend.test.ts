@@ -30,6 +30,8 @@ function input(
   o: { sub: boolean; door: boolean; lift?: number },
 ): ScreenInput {
   const n = W * H
+  // The sub screen sits on a key other than the cover, or its plane would overwrite the tile.
+  const subKey: SourceKey = key === 'l2Low' ? 'l2High' : 'l2Low'
   const [sprites, tile, subPlane] = [0, 1, 2].map(() => new Uint8ClampedArray(n * 4))
   const doors = new Uint32Array(n)
   for (let p = 0; p < n; p++) {
@@ -44,8 +46,8 @@ function input(
   return {
     width: W,
     height: H,
-    planes: { sprites2: o.door ? sprites : null, [key]: tile, l2Low: subPlane },
-    lists: { main: o.door ? ['sprites2', key] : [key], sub: o.sub ? ['l2Low'] : [] },
+    planes: { sprites2: o.door ? sprites : null, [key]: tile, [subKey]: subPlane },
+    lists: { main: o.door ? ['sprites2', key] : [key], sub: o.sub ? [subKey] : [] },
     math: { cgadsub, fixed: FIXED },
     doors: o.door ? doors : null,
     lift: o.lift,
@@ -68,6 +70,8 @@ describe.each([
       const on = composeScreen(input(key, cgadsub, { sub, door: true }))
       // The tile alone through the same table: what the tile part of a door pixel still takes.
       const tileOnly = composeScreen(input(key, cgadsub, { sub, door: false }))
+      const cover = input(key, cgadsub, { sub, door: true }).planes[key]!
+      expect(px(cover, 0).slice(0, 3), 'the cover plane must hold the tile, not the sub-screen plane').toEqual(TILE) // prettier-ignore
       expect(px(tileOnly, 0).slice(0, 3), 'color math must act on the tile').not.toEqual(TILE)
       expect(new Set(SPRITE_PIXELS.map(parity)).size).toBe(2)
       for (const p of SPRITE_PIXELS) {
@@ -113,6 +117,16 @@ describe('the corpus predicate goes red on a planted defect (#936)', () => {
       expect(plant(0x20, ['sprites2', `${layer}High`])).toEqual({ doorPixels: 1, blended: 0 })
     },
   )
+  it('a sprite under a translucent tile over an opaque tile is a door pixel, bit from the topmost drawing plane', () => {
+    const planes = {
+      sprites0: new Uint8ClampedArray([9, 9, 9, 255]),
+      l3High: new Uint8ClampedArray([1, 2, 3, 255]),
+      l1High: new Uint8ClampedArray([4, 5, 6, 64]),
+    }
+    const main = ['sprites0', 'l3High', 'l1High']
+    expect(doorPixelsUnderMath(main, planes, new Uint32Array([3]), 0x01)).toEqual({ doorPixels: 1, blended: 1 }) // prettier-ignore
+    expect(doorPixelsUnderMath(main, planes, new Uint32Array([3]), 0x04)).toEqual({ doorPixels: 1, blended: 0 }) // prettier-ignore
+  })
   it('a pixel with no placed sprite under the tile, or a flame plane only, is not a door pixel', () => {
     expect(plant(7, ['sprites2', 'l1High'], false)).toEqual({ doorPixels: 0, blended: 0 })
     expect(plant(7, ['spritesL2Low', 'l1High'])).toEqual({ doorPixels: 0, blended: 0 })
