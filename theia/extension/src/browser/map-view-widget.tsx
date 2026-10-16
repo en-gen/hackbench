@@ -67,6 +67,7 @@ import {
 } from '../../../../src/rom/model/ColorMath'
 import { perfEnd, perfStart } from '../common/perf-marks'
 import { ProjectBound } from './project-bound'
+import { romMissingMessage } from './map-view-messages'
 
 export { slotLabel }
 /** One screen's decoded planes; null is an empty plane, which draws nothing. */
@@ -516,7 +517,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     let detail: string | undefined
     try {
       const r = await this.projects.mapDetails(o.manifestPath, o.index)
-      if ('status' in r) error = `The base ROM ${r.baseRom.title} is not on this machine.`
+      if ('status' in r) error = romMissingMessage(r.baseRom.title)
       else details = r
     } catch (err) {
       detail = rawText(err)

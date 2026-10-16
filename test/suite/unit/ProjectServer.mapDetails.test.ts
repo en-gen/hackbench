@@ -272,7 +272,7 @@ describe.skipIf(!theiaInstalled)('ProjectServiceImpl.mapDetails - wiring', () =>
       const switches = { blue: false, silver: false, onOff: false }
       const screen = await service.mapScreen(project.manifestPath, 0x105, 0, flags, switches)
       expect(screen).toMatchObject({ status: 'unavailable' })
-      if (screen.status === 'unavailable') expect(screen.reason).toMatch(/VerticalTable/)
+      if (screen.status === 'unavailable') expect(screen.detail).toMatch(/VerticalTable/)
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true })
     }
@@ -310,7 +310,7 @@ describe.skipIf(!theiaInstalled)('ProjectServiceImpl.mapDetails - wiring', () =>
       s.workingRoms = new WorkingRomRegistry(new RomRegistry(path.join(tmp, 'other-registry.json')))
       const result = await service.mapDetails(project.manifestPath, 0x105)
       expect(result).toMatchObject({ status: 'rom-not-located' })
-      if ('status' in result) expect(result.baseRom.title).toBeTruthy()
+      expect(result).toMatchObject({ baseRom: project.baseRom })
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true })
     }

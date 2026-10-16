@@ -3121,7 +3121,7 @@ test('a mapDetails answer of rom-not-located names the missing ROM in plain word
     baseRom: { title: 'X' },
   })
   await expect(page.locator(`${root(0x105)} .hb-map-view-error`).first()).toHaveText(
-    'The base ROM X is not on this machine.',
+    'The base ROM X is not on this machine. Choose File > Project Properties... and locate it again.',
   )
 })
 

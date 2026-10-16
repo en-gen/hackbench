@@ -36,9 +36,9 @@ describe('mapScreen on a map whose build throws (#786)', () => {
     expect(built).toMatchObject({ ok: false, reason: 'planted' })
   })
 
-  it('passes a returned gate reason through, with no detail', () => {
+  it('keeps a returned gate reason out of the visible reason, in detail only', () => {
     const cache = new L1ModelCache(() => ({ ok: false, reason: 'No VerticalTable here.' }))
     const r = mapScreen(cache, bytes, 'x.sfc', 5, 0, UNCLEARED)
-    expect(r).toEqual({ status: 'unavailable', reason: 'No VerticalTable here.' })
+    expect(r).toEqual({ status: 'unavailable', reason: PLAIN, detail: 'No VerticalTable here.' })
   })
 })
