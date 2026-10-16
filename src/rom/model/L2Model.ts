@@ -42,6 +42,8 @@ export interface L2Inputs {
   unverified?: string[]
   /** Why `dy` is unverified: the entrances that reach the map start L2 at different heights (#505). */
   note?: string
+  /** The reasons `note` joins, so the map note can merge one a sibling part also gives (#926). */
+  reasons?: string[]
 }
 
 export type L2Result = { ok: true; l2: L2Inputs } | { ok: false; reason: string }
@@ -146,7 +148,9 @@ export function buildL2Inputs(
   // The tables are the game's only while the code reading them is stock (LEVEL_START_Y): if not,
   // the best reading still draws, said to be unverified.
   const gate = startGate(rom.rom)
-  const why = [gate, known?.note && gate ? `D${known.note.slice(1)}` : known?.note].filter(Boolean)
+  const why = [gate, known?.note && gate ? `D${known.note.slice(1)}` : known?.note].filter(
+    (r): r is string => !!r,
+  )
   const note = why.length ? `Background height unverified: ${why.join(' ')}` : undefined
   const preset = isPresetPtr(ptr)
   // Order (D51 B, #506): develop's #637 gate owns the object-stream path in the ten skipped modes,
@@ -192,7 +196,7 @@ export function buildL2Inputs(
       const rows = isVertical ? screens * SCREEN_H_VERT : 27
       return {
         ok: true,
-        l2: { kind: 'image', grid: tilePresetGrid(image, cols, rows), tiles: loadMap16Tiles(rom.rom, table.value), dy: dy(), note }, // prettier-ignore
+        l2: { kind: 'image', grid: tilePresetGrid(image, cols, rows), tiles: loadMap16Tiles(rom.rom, table.value), dy: dy(), note, reasons: why }, // prettier-ignore
       }
     }
     // After the gate and the table, before the orientation check: modes $0A and $0D would otherwise be refused for a layout mismatch the game never meets.
@@ -213,6 +217,7 @@ export function buildL2Inputs(
         dy: dy(),
         unverified: objects.unverified,
         note,
+        reasons: why,
       },
     }
   } catch (err) {
