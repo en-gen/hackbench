@@ -25,6 +25,8 @@ export function putGrinderRoutines(
   const move = [0xb5, 0xe4, 0x18, 0x69, 0x04, 0x95, 0xe4, 0x60]
   put(0x019300, [...drawSub.slice(0, -1), ...move])
   put(0x019290, move)
+  // id 34: draw, move X by +4, draw again: its first OAM write is at the old X, its last at the new one.
+  put(0x019600, [...drawSub.slice(0, -1), ...move.slice(0, -1), ...drawSub])
   // id 32: as 31 but draws only from its second MAIN ($1650,X counts MAINs), so its first draw is on pass 1.
   put(
     0x0192a0,

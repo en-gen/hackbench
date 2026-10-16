@@ -23,27 +23,47 @@ Sprite $A4 INIT drew 32 px below its list y on map $102 (9 records, the "S" grou
 
 ## Evidence scope
 
-One machine, vanilla ROM, the `layers_v5` capture set. For maps $002, $102 and $127 the loaded image now
-equals the hardware `frame_0000` WRAM at $5B ($80), $24 and $28-$29 (checked cell by cell). Before:
-$5B 0, $24 0, $28-$29 0. The 9 records of map $102 end at anchor y 400 or 384 (hardware first draw 397-399
-and 383), where they ended at 432.
+One machine, vanilla ROM, the level-load capture set (`layers_v5`), measured 2026-10-16, 1957 records.
+
+- Maps $002, $102 and $127: the loaded image equals the hardware `frame_0000` WRAM at $5B (bit 7 set),
+  $24 and $28 (and $29, $26, $27, $1E, $20), cell by cell. Maps $0BE and $0C1 equal at $5B, $24 and $28
+  but not at $26/$27 (loader $00 and $74/$FD, hardware $0E/$01 and $82/$FE). Before the fix: $5B 0,
+  $24 0, $28 0.
+- Not modelled, so $26-$29 are right only where the camera happens to agree: `CODE_05BC4A`
+  (`bank_05.asm:4491-4512`) computes $26/$28 from `NextLayer1XPos`/`NextLayer1YPos` (and the Layer 2/3
+  positions) at load. The runner seeds a camera of its own and never recomputes them, and it does not run
+  the eight scroll steps `GM12PrepLevel` takes after the handler (`CODE_00A5F9`, `bank_00.asm:4871`,
+  `4891-4900`). Map $0C2 (not a tide level; $5B is 1) shows the gap: hardware $28/$29 are $48/$FC, the
+  loader's $00. Nothing in the grader depends on it yet; a sprite that reads the Layer 2/3 offset on a
+  map with a scrolled camera could.
+- The loader skips the handler when `IRQNMICommand` ($0D9B) bit 7 is set, as `GM12PrepLevel` does
+  (`bank_00.asm:4861-4863`, boss rooms; the header loader sets the cell from `SpecialLevTable`,
+  `bank_05.asm:551`). Maps $096, $097, $196, $197 take that branch.
+- The 9 records of map $102 end at anchor y 400 or 384 (hardware first draw 397-399 and 383), where
+  they ended at 432.
 
 ## Fix
 
-`loadLevelState` runs `CODE_009FB8` as its last step, with a shape check on its first bytes. A ROM
-whose handler differs is refused by name, as the other loader entries are.
+`loadLevelState` runs `CODE_009FB8` as its last step, with a shape check on its first bytes, unless
+`IRQNMICommand` bit 7 is set. A ROM whose handler differs is refused by name, as the other loader
+entries are.
 
-## Side effects measured (grader, 1957 records, 'rom' seed, hardware timeline)
+Grading was fixed alongside. The capture records a sprite at its first OAM write
+(`headless_capture.lua`, snapshot at the slot's first write in $0200-$049F outside $0400-$041F, while
+$15E9 is the slot), so a sprite that draws and then moves (the dolphin, `DolphinMain`) was graded from its
+position after the move. `Machine` now records that position (`PassResult.drawPos`) and
+`passPieces` measures offsets from it.
 
-| | exact | shape | close | wrong | empty | missAtK |
-| --- | --- | --- | --- | --- | --- | --- |
-| before | 998 | 803 | 18 | 125 | 13 | 25 |
-| after | 1022 | 808 | 17 | 110 | 0 | 3 |
+## Measured (grader, 1957 records, 'rom' seed, hardware timeline)
 
-Better: $A4 x9 (wrong to exact), $5D x13 on map $102 (empty to exact), $16 x6 on map $127, $15 x1 on map
-$102. Worse: the vertical dolphin ($43 x4, $C3 x1) on map $002, exact to shape. They were exact only
-because the dolphin never saw liquid and so never moved; in liquid it takes `DolphinMain`'s Y speed
-(`bank_02.asm`, `DolphinMain`) and moves 3 px a frame, and it draws before it moves, so the grader's
-offset from the sprite's post-move position is off by that move. The same draw-before-move gap exists
-for any moving sprite the grader reads this way (`DRAWS_BEFORE_LINE_SNAP` in `SpriteRunner.ts` holds
-only $67); it is not fixed here.
+|                           | exact | shape | close | wrong | empty | missAtK |
+| ------------------------- | ----- | ----- | ----- | ----- | ----- | ------- |
+| develop                   | 998   | 803   | 18    | 125   | 13    | 25      |
+| handler only              | 1022  | 808   | 17    | 110   | 0     | 3       |
+| handler and draw position | 1830  | 0     | 17    | 110   | 0     | 3       |
+
+Record by record against develop: 832 better, 0 worse, 1125 unchanged. The handler alone fixed the 9
+$A4 on map $102, 13 $5D on map $102 (empty to exact), 6 $16 on map $127 and 1 $15; it made 5 dolphins on
+map $002 grade shape instead of exact, because they now move in liquid and draw before they move. Grading
+at the draw position fixes those, and the 808 shape results (all now exact).
+Matching the capture's sample point exactly (slot check and the size-table range) changed no count.

@@ -173,8 +173,9 @@ function gradeAll(
       mainPasses: Math.max(opts.passes ?? 64, timed ? k + 1 : 0),
       // Pass p runs at seed + 1 + p only when INIT takes one frame, so pass k lands on the frame
       // counters the capture recorded at the draw. SpriteRunner adds a frame per INIT retry
-      // (initFrames > 1: 22 timed records, map 102 $5D x13 and $A4 x9), and those see the counters
-      // 1 or 2 high. Without the fields every pass starts the animation at zero.
+      // (initFrames > 1), and those see the counters 1 or 2 high. Re-measured 2026-10-16
+      // after #842 (vanilla, 1957 records, one machine): no timed record retries INIT; before the
+      // loader ran the Layer 3 handler 22 did (map 102 $5D x13, $A4 x9). Without the fields every pass starts the animation at zero.
       ...(timed && rec.trueFrame !== undefined && rec.effFrame !== undefined
         ? {
             trueFrame: (rec.trueFrame - 1 - k) & 0xff,
@@ -192,8 +193,8 @@ function gradeAll(
       : undefined
     const m = runSprite(rom, id, seed, { trackInputs: opts.trackInputs, probe })
     // Nothing drawn at the hardware's pass is a runner miss, counted apart so it cannot hide in the
-    // wrong total. It grades wrong when some pass draws; when none does (map 102 $5D) grade()
-    // returns empty whatever m.chosen is (test/suite/support/spriteGrade.ts:87).
+    // wrong total. It grades wrong when some pass draws; when none does grade()
+    // returns empty whatever m.chosen is (13 records before #842, none after) (test/suite/support/spriteGrade.ts:87).
     if (timed && m.passes[k]) {
       if (m.passes[k].parts.length) m.chosen = k
       else {
@@ -235,12 +236,13 @@ function gradeAll(
 /** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. */
 const FLOOR = {
   graded: 1957,
-  exact: 1820, // 1830 measured (#842: offsets from the draw-time position; shape 0)
-  exactOrShape: 1780,
+  // 1830 measured, shape 0 (#842: offsets from the draw-time position). Shape is not floored: with
+  // shape at 0, exact + shape could never fire below the exact floor.
+  exact: 1820,
   maxRefused: 0,
-  maxEmpty: 20,
-  maxWrong: 115,
-  maxMissAtK: 30,
+  maxEmpty: 5, // 0 measured
+  maxWrong: 115, // 110 measured
+  maxMissAtK: 6, // 3 measured
   // 38 measured (spawned records without initFrame); all-timed would read 0.
   minFallbacks: 30,
   // 3 measured after #842 (25 before: the 22 initFrames > 1 records missed until the loader ran the
@@ -270,16 +272,13 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
       writeFileSync(process.env.SPRITE_GRADE_OUT, JSON.stringify({ summary, rows }, null, 1))
     console.log(summary)
     if (mode !== 'rom') return
-    // Mutants re-measured on the #838 head (one machine, 'rom' seed, 1957 records): an effOnly
-    // mutant (trueFrame left 0) gives exact 984 against the 985 floor, killed by 1; an initOnly
-    // mutant (k = drawn - (initFrame + 1)) gives 988 and survives, so this corpus does not tell
-    // anchor-based k from init-based k. gradeTimeline.test.ts pins that arithmetic itself.
-    // Floors: measured 2026-10-10 (docs section 13.3; re-measured after #838 kept the 224-255 band: exact 995, exact+shape 1800, wrong 125) minus a tolerance. The mutants they
-    // were set against (X not set to the slot, level sprites not zeroed, INIT retry
-    // removed) all fall below them.
+    // Floors: measured 2026-10-16 on the #842 head (vanilla, one machine, 1957 records: exact 1830,
+    // shape 0, close 17, wrong 110, empty 0, missAtK 3) minus a tolerance. The #838-era mutant runs
+    // (effOnly: exact 984 against a 985 floor; initOnly: 988, survived, so this corpus does not tell
+    // anchor-based k from init-based k, which gradeTimeline.test.ts pins itself) were against the old
+    // counts and are not re-measured against these floors.
     expect(rows.length).toBe(FLOOR.graded)
     expect(by.exact ?? 0).toBeGreaterThanOrEqual(FLOOR.exact)
-    expect((by.exact ?? 0) + (by.shape ?? 0)).toBeGreaterThanOrEqual(FLOOR.exactOrShape)
     expect(by.refused ?? 0).toBeLessThanOrEqual(FLOOR.maxRefused)
     expect(by.empty ?? 0).toBeLessThanOrEqual(FLOOR.maxEmpty)
     expect(by.wrong ?? 0).toBeLessThanOrEqual(FLOOR.maxWrong)

@@ -54,7 +54,7 @@ function clusterRom(cell: number): RomFile {
     0x6b,
   ]) // prettier-ignore
   // Level data loader tail: JSL a stub that spawns one cluster sprite, then its own PLP / RTL.
-  put(0x05801e + 18, [0x22, 0x00, 0xf1, 0x05, 0x28, 0x6b], 2)
+  put(0x05801e + 20, [0x22, 0x00, 0xf1, 0x05, 0x28, 0x6b], 2)
   // LDA #1 / STA $18B8 / LDA #5 / STA cell / RTL, as the vanilla loader leaves map $101.
   put(0x05f100, [0xa9, 0x01, ...sta(0x18b8), 0xa9, 0x05, ...sta(cell), 0x6b])
   // Id 40's MAIN pointer (table at $01:8329) to LDA #1 / STA $18B8 / JMP id 0's MAIN ($8640).

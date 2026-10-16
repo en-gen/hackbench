@@ -325,6 +325,12 @@ describe('drawPos is the position at the first OAM write of the pass (#842)', ()
     expect(p0.pos.x).toBe(p0.drawPos!.x + 4)
     expect(p1.drawPos!.x).toBe(p0.pos.x)
   })
+  it('a sprite that draws, moves, then draws again is sampled at the FIRST write', () => {
+    // Id 34: draw, X += 4, draw. The last write is at the end position; the capture takes the first.
+    const m = runSprite(rom, 34, withSeed({ mainPasses: 2 }))
+    const p0 = m.passes[0]!
+    expect(p0.drawPos!.x).toBe(p0.pos.x - 4)
+  })
   it('a sprite that does not move draws where it ends', () => {
     const m = runSprite(rom, 0)
     expect(m.passes[0]!.drawPos).toEqual(m.passes[0]!.pos)

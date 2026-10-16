@@ -156,14 +156,16 @@ export function loadLevelState(rom: RomFile, level: number): LevelLoad {
     // layer 2 positions, camera buffers), then CODE_05801E. That one ends with PLP, RTL; it
     // saves its own DB use via the JSL caller. GM12PrepLevel then runs the Layer 3 handler
     // (CODE_009FB8, bank_00.asm:4870): on a tide level it sets ScreenMode bit 7, Layer3YPos and the
-    // $26/$28 offset, which CODE_019140's second pass reads as liquid (#842).
+    // $26/$28 offset, which CODE_019140's second pass reads as liquid (#842). The game skips it when
+    // IRQNMICommand ($0D9B, set from SpecialLevTable by the header loader, bank_05.asm:551) has bit 7
+    // (the boss rooms; bank_00.asm:4861-4863 branches to CODE_0097BC instead), so the loader tests the same cell.
     const bad =
       run('level pointer loader', 0x05d8b7, 'jsl', 0x05, [0x05]) ??
       span('layer position copy', 0x0096f8, 0x009702) ??
       run('Mario entrance setup', 0x00a635, 'jsr', 0x00) ??
       span('screen position setup', 0x009708, 0x009716) ??
       run('level data loader', 0x05801e, 'jsl', 0x05) ??
-      run('Layer 3 handler', 0x009fb8, 'jsr', 0x00)
+      (w[0x0d9b] & 0x80 ? null : run('Layer 3 handler', 0x009fb8, 'jsr', 0x00))
     if (bad) return { ok: false, reason: bad }
   } catch (e) {
     if (e instanceof Refusal) return { ok: false, reason: e.message }

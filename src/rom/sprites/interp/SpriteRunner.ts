@@ -219,7 +219,16 @@ export class Machine {
     this.cpu = m.cpu
     this.bus.onWramWrite = off => {
       this.touched.add(off)
-      if (!this.drawAt && off >= RAM.oam && off < RAM.oam + RAM.oamEntries * 4)
+      // The capture's own filter (headless_capture.lua:1270-1290): $0200-$049F minus the $0400-$041F gap,
+      // and only while $15E9 (the current sprite) is the slot, so a write by another routine does not count.
+      if (
+        !this.drawAt &&
+        off >= RAM.oam &&
+        off < 0x4a0 &&
+        (off < 0x400 || off >= 0x420) &&
+        this.bus.wram[RAM.curSprite] === this.seed.slot
+      )
+        // prettier-ignore
         this.drawAt = this.pos()
       if (off === RAM.paletteIndexTable) this.modeWritten = true
     }
