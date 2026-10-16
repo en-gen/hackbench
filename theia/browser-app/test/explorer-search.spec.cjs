@@ -311,7 +311,9 @@ for (const which of Object.keys(IDS)) {
     expect((await state(page, which)).rows).toEqual([])
     await clear(page, which)
     await expect.poll(async () => (await state(page, which)).empty).toBeNull()
-    expect((await state(page, which)).rows.length).toBeGreaterThan(0)
+    // widget.rows is rebuilt by Theia's debounced updateRows after the render
+    // flips back, so the rows return a beat after the empty state goes.
+    await expect.poll(async () => (await state(page, which)).rows.length).toBeGreaterThan(0)
   })
 
   // A guard, not a feature proof: develop has no search, so this also passes

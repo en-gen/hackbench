@@ -80,7 +80,10 @@ export function filterTree<T extends { id: string }>(
     n.children?.forEach(showAll)
   }
   const walk = (n: Walkable): void => {
-    const row = rowOf(n as unknown as T)
+    // The root is invisible scaffolding, never a row: a widget's rowOf may
+    // classify it (music: a folder, maps: a map), which made a message-only
+    // tree look searchable.
+    const row = n === root ? undefined : rowOf(n as unknown as T)
     if (row) searchable = true
     if (row && rowMatches(query, row)) {
       matches.push(n as unknown as T)

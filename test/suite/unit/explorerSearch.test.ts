@@ -157,6 +157,18 @@ describe('filterTree', () => {
     expect(filterTree(root, parseQuery('zzz'), rowOf).searchable).toBe(true)
   })
 
+  it('the root is never a row: a rowOf that classifies it does not make a message-only tree searchable', () => {
+    // Music's rowOf calls any non-leaf a folder, Maps' falls through to a map.
+    const root = node('root', [node('message')], { row: { folder: true, texts: ['audio'] } })
+    const r = filterTree(root, parseQuery('zzz'), rowOf)
+    expect(r.searchable).toBe(false)
+    expect(r.matches).toEqual([])
+    // Nor can it match: a query naming the root's own text finds nothing.
+    expect(filterTree(root, parseQuery('audio'), rowOf).matches).toEqual([])
+    const empty = node('root', [], { row: { id: 1, texts: ['x'] } })
+    expect(filterTree(empty, parseQuery('x'), rowOf).searchable).toBe(false)
+  })
+
   it('an incomplete query shows nothing and matches nothing', () => {
     const { root } = build()
     expect(filterTree(root, parseQuery('$'), rowOf).matches).toEqual([])
