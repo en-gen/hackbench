@@ -181,7 +181,7 @@ describe('the wire: screens, math, layer 2 role (synthetic)', () => {
     const l3 = { ...verdict(false, null), cgadsub: null }
     expect(wireOf({ ...l1Of(0, 0, false), l3 }).math).toBeNull()
   })
-  it('a guessed entrance reads once, alongside a layer 3 position note that shares the reason (#945, #926)', () => {
+  it('a guessed entrance is one line of its own, after the layer 3 position note (#945)', () => {
     const routeNote =
       'No route from the overworld to this map was found, so its entrance is a guess.'
     const l3 = verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYUnverified: 'because' }))
@@ -233,10 +233,15 @@ describe('the wire: screens, math, layer 2 role (synthetic)', () => {
       [['b', 'a'], 'b', [`${BOTH}: b`, 'Background height unverified: a']],
       [undefined, 'a', ['Layer 3 position unverified: a']],
     ]
+    const routeNote = 'No route from the overworld to this map was found, so its entrance is a guess.' // prettier-ignore
     for (const [l2, l3, expected] of cases) {
       it(`L2 ${JSON.stringify(l2)} with L3 ${JSON.stringify(l3)}`, () => {
         const m = { ...l1Of(0, 0, false), ...(l2 ? { l2: withL2(l2) } : {}), l3: drawn(l3) }
         expect(wireOf(m).layerNotes).toEqual(expected)
+        // The route note (#945) is its own entry, last, exactly once, never joined onto a position note.
+        const guessed = wireOf({ ...m, routeNote }).layerNotes
+        expect(guessed).toEqual([...expected, routeNote])
+        expect(guessed.filter(n => n.includes(routeNote))).toHaveLength(1)
       })
     }
   })

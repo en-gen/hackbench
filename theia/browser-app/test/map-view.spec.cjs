@@ -1560,6 +1560,27 @@ test('a map the ROM reads fully carries no layer note', async ({ page }) => {
 })
 
 /**
+ * Slot $100 is in the vanilla ROM's unreached list (no overworld route enters it,
+ * test/suite/integration/entranceRoute.vanilla.test.ts), so its entrance is a guess (#945). The
+ * note is its own line: a separate element, text exactly the route note, never prefixed with
+ * "unverified:" or joined onto a position note.
+ */
+test('a map no overworld route reaches shows the route note as its own line (#945)', async ({
+  page,
+}) => {
+  test.skip(
+    !!process.env.HB_ROM || !fs.existsSync(romPath(VANILLA)),
+    'needs the vanilla corpus ROM',
+  )
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x100)
+  const notes = page.locator(`${root(0x100)} [data-note="layers"]`)
+  await expect(notes.filter({ hasText: /No route from the overworld/ })).toHaveCount(1)
+  await expect(notes.filter({ hasText: /^No route from the overworld to this map was found, so its entrance is a guess\.$/ })).toHaveCount(1) // prettier-ignore
+  await expect(notes.filter({ hasText: /unverified: No route/ })).toHaveCount(0)
+})
+
+/**
  * $0E7's L2 (an object stream, tileset 1) draws Map16 tile 349 under L1's tile 352 at column 0,
  * row 13 (measured on vanilla); both are opaque at pixel (3, 211) of screen 0, both low priority.
  * Setting tile 349's top-left priority bit in the working copy moves that quadrant to l2High,
