@@ -110,8 +110,9 @@ export function grade(m: SpriteModel, recorded: RecordedPiece[][]): Grade {
     if (RANK.indexOf(g.verdict) < RANK.indexOf(best.verdict)) best = g
     if (best.verdict === 'exact') return best
   }
+  // Count the list the panel draws (got), not the raw parts: parked tiles are dropped there (#864).
   if (best.verdict === 'wrong')
-    best.detail = `recorded ${recorded.map(r => r.length).join('/')} pieces; model drew ${m.passes[m.chosen].parts.length}`
+    best.detail = `recorded ${recorded.map(r => r.length).join('/')} pieces; model drew ${got.length}`
   return best
 }
 
