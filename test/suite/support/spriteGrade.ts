@@ -69,7 +69,7 @@ export function passPieces(m: SpriteModel, pass: number): RecordedPiece[] {
   const at = p.drawPos ?? p.pos
   // Only Y $F0 (parked) is absent from a recorded frame: the capture keeps a frame only when no
   // written entry has it (hackbench-validation headless_capture.lua:1352, gate at 1371-1372).
-  // readParts already skips $F0 (SpriteRunner.ts:393), so this is a guard that should not fire.
+  // readParts already skips $F0 (SpriteRunner.ts:404), so this is a guard that should not fire.
   return p.parts
     .filter(q => q.oy !== 0xf0)
     .map(q => ({
@@ -112,8 +112,9 @@ export function grade(m: SpriteModel, recorded: RecordedPiece[][]): Grade {
     if (RANK.indexOf(g.verdict) < RANK.indexOf(best.verdict)) best = g
     if (best.verdict === 'exact') return best
   }
+  // Count the list the panel draws (got), not the raw parts: parked tiles are dropped there (#864).
   if (best.verdict === 'wrong')
-    best.detail = `recorded ${recorded.map(r => r.length).join('/')} pieces; model drew ${m.passes[m.chosen].parts.length}`
+    best.detail = `recorded ${recorded.map(r => r.length).join('/')} pieces; model drew ${got.length}`
   return best
 }
 
