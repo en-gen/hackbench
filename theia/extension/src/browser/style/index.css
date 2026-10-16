@@ -38,7 +38,7 @@
 .hb-map-icon {
   margin-right: 0.45em;
   font-size: 1em;
-  color: var(--theia-icon-foreground, var(--theia-descriptionForeground, #8b8b8b));
+  color: var(--theia-icon-foreground, var(--theia-descriptionForeground));
   flex: none;
 }
 
@@ -57,7 +57,7 @@
 /* A special map leads with its purpose, so its slot trails instead. */
 .hb-map-trailing {
   margin-left: 0.6em;
-  color: var(--theia-descriptionForeground, #8b8b8b);
+  color: var(--theia-descriptionForeground);
 }
 
 /*
@@ -66,7 +66,7 @@
  */
 .hb-map-name {
   margin-left: 0.6em;
-  color: var(--theia-descriptionForeground, #8b8b8b);
+  color: var(--theia-descriptionForeground);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -77,7 +77,7 @@
 .hb-map-note {
   margin-left: 0.5em;
   font-style: italic;
-  color: var(--theia-descriptionForeground, #8b8b8b);
+  color: var(--theia-descriptionForeground);
 }
 
 /*
@@ -114,7 +114,7 @@
   font-size: var(--theia-ui-font-size0);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--theia-descriptionForeground, #8b8b8b);
+  color: var(--theia-descriptionForeground);
 }
 
 /* The cartridge the user just picked, echoed back so they can confirm it. */
@@ -123,7 +123,7 @@
   margin: -0.4em 0 0.8em 0;
   /* Reserved so the dialog does not jump when a ROM is chosen. */
   min-height: 1.2em;
-  color: var(--theia-descriptionForeground, #8b8b8b);
+  color: var(--theia-descriptionForeground);
 }
 
 .hb-dialog-inputline {
@@ -148,7 +148,7 @@
   padding-top: 0.8em;
   border-top: 1px solid var(--theia-editorWidget-border);
   font-size: var(--theia-ui-font-size0);
-  color: var(--theia-descriptionForeground, #8b8b8b);
+  color: var(--theia-descriptionForeground);
 }
 
 .hb-dialog-summary {
@@ -337,7 +337,7 @@
   text-align: center;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  color: var(--theia-descriptionForeground, #8b8b8b);
+  color: var(--theia-descriptionForeground);
   user-select: none;
 }
 
@@ -423,7 +423,7 @@
 
 .hb-map-view-header > summary {
   cursor: pointer;
-  color: var(--theia-descriptionForeground, #8b8b8b);
+  color: var(--theia-descriptionForeground);
 }
 
 .hb-map-view-empty,
@@ -443,7 +443,7 @@
 
 .hb-map-view-summary {
   margin-bottom: 1.2em;
-  color: var(--theia-descriptionForeground, #8b8b8b);
+  color: var(--theia-descriptionForeground);
 }
 
 .hb-map-view-table {
@@ -453,7 +453,7 @@
 .hb-map-view-table th {
   text-align: left;
   font-weight: normal;
-  color: var(--theia-descriptionForeground, #8b8b8b);
+  color: var(--theia-descriptionForeground);
   padding: 0.2em 1.6em 0.2em 0;
 }
 
@@ -467,7 +467,7 @@
   margin-top: 1.4em;
   padding-top: 0.8em;
   border-top: 1px solid var(--theia-editorWidget-border);
-  color: var(--theia-descriptionForeground, #8b8b8b);
+  color: var(--theia-descriptionForeground);
 }
 
 .hb-map-view-raw code {
