@@ -88,6 +88,9 @@ function top(i: ScreenInput, list: readonly SourceKey[], at: number, flips?: Map
     const d = i.doors![at / 4]!
     const w = d >> 1 === i.lift ? 1 : hiddenPixelStrength(d & 1, 0, flips.get(d >> 1))
     rgb = rgb.map((v, c) => Math.round(v * (1 - w) + door[c]! * w)) as unknown as Rgb
+    // D60 B, D62 call 2 B (#936): a door or lifted pixel is the sprite's, not the covering layer's, so it
+    // takes no part in color math (bit 0, as an uncovered sprite pixel has).
+    bit = 0
   }
   return { rgb, cover, bit }
 }
