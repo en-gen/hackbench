@@ -74,10 +74,37 @@ export const VANILLA_FLAME_ROUTINES: FlameRoutines = {
   draw: 'ac4cb045da54628d8e0bae9ea55d73d460b18c8514dba7ba6c4028c320bfe6b8',
 }
 
-const CLUSTER_NUMBER = 0x1892
+export const CLUSTER_NUMBER = 0x1892
 const CLUSTER_SLOTS = 4
 const LAYER2_POS = 0x1e
-const SPRITE_LOCK = 0x9d
+export const SPRITE_LOCK = 0x9d
+
+/** The OAM entries the run wrote, as parts with `dx`/`dy` equal to the OAM position; the ring (#983) shifts them to map space. */
+export function touchedOamParts(w: Uint8Array, touched: ReadonlySet<number>): SpritePart[] {
+  const parts: SpritePart[] = []
+  for (let i = 0; i < RAM.oamEntries; i++) {
+    const b = RAM.oam + i * 4
+    if (!touched.has(b + 2)) continue
+    const attr = w[b + 3]!
+    const hi = w[RAM.oamSize + i]!
+    const x9 = w[b]! | ((hi & 1) << 8)
+    parts.push({
+      oam: i,
+      char: w[b + 2]! | ((attr & 1) << 8),
+      size: hi & 2 ? 16 : 8,
+      palette: 8 + ((attr >> 1) & 7),
+      priority: (attr >> 4) & 3,
+      flipX: !!(attr & 0x40),
+      flipY: !!(attr & 0x80),
+      dx: x9,
+      dy: w[b + 1]!,
+      attr,
+      ox: x9,
+      oy: w[b + 1]!,
+    })
+  }
+  return parts
+}
 
 /** `unverified` names each routine or call-path part that is not the vanilla shape (empty when all match). */
 export type FlamesResult =
@@ -126,28 +153,7 @@ export function castleFlames(
       if (w[CLUSTER_NUMBER + x] !== 5) continue
       run(DRAW, x)
     }
-    const parts: SpritePart[] = []
-    for (let i = 0; i < RAM.oamEntries; i++) {
-      const b = RAM.oam + i * 4
-      if (!touched.has(b + 2)) continue
-      const attr = w[b + 3]!
-      const hi = w[RAM.oamSize + i]!
-      const x9 = w[b]! | ((hi & 1) << 8)
-      parts.push({
-        oam: i,
-        char: w[b + 2]! | ((attr & 1) << 8),
-        size: hi & 2 ? 16 : 8,
-        palette: 8 + ((attr >> 1) & 7),
-        priority: (attr >> 4) & 3,
-        flipX: !!(attr & 0x40),
-        flipY: !!(attr & 0x80),
-        dx: x9,
-        dy: w[b + 1]!,
-        attr,
-        ox: x9,
-        oy: w[b + 1]!,
-      })
-    }
+    const parts = touchedOamParts(w, touched)
     return { ok: true, parts, unverified }
   } catch (e) {
     if (e instanceof Refusal) return { ok: false, reason: e.message }

@@ -26,8 +26,8 @@ import type { RomFile } from '../../RomFile'
 import { bytesAt, shapeMatches } from './Guards'
 import { smwMachine } from './Machine'
 import { checkExecutePtr } from './SpriteDispatch'
-import { CLUSTER_PATH } from './CastleFlames'
-import { RAM, type SpritePart } from './SpriteRunner'
+import { CLUSTER_NUMBER, CLUSTER_PATH, SPRITE_LOCK, touchedOamParts } from './CastleFlames'
+import type { SpritePart } from './SpriteRunner'
 import type { SpriteSeed } from './SpriteSeed'
 
 const SPAWN = 0x02ab11
@@ -54,10 +54,8 @@ export const VANILLA_RING_ROUTINES: RingRoutines = {
 /** Spans: the spawn, the draw, and the helpers CODE_02FC8D..(CODE_02FCD9's RTS) and CODE_02FD48..its RTS. */
 export const RING_SPANS = { spawn: [[SPAWN, 103]], draw: [[DRAW, 291]], helpers: [[0x02fc8d, 85], [0x02fd48, 112]] } as const // prettier-ignore
 
-const CLUSTER_NUMBER = 0x1892
 const CLUSTER_SLOTS = 20
 const CUR_SPRITE_PROCESS = 0x15e9
-const SPRITE_LOCK = 0x9d
 const EFF_FRAME = 0x14
 const BOO_RING_INDEX = 0x18ba
 /** BooRingAngle through BooRingLoadIndex, 16 bytes (rammap.asm:1435-1442): zero is the level load's state. */
@@ -141,29 +139,12 @@ export function rotatingRing(
       w[CUR_SPRITE_PROCESS] = x
       run(DRAW, { x })
     }
-    const parts: SpritePart[] = []
-    for (let i = 0; i < RAM.oamEntries; i++) {
-      const b = RAM.oam + i * 4
-      if (!touched.has(b + 2)) continue
-      const attr = w[b + 3]!
-      const hi = w[RAM.oamSize + i]!
-      const x9 = w[b]! | ((hi & 1) << 8)
-      parts.push({
-        oam: i,
-        char: w[b + 2]! | ((attr & 1) << 8),
-        size: hi & 2 ? 16 : 8,
-        palette: 8 + ((attr >> 1) & 7),
-        priority: (attr >> 4) & 3,
-        flipX: !!(attr & 0x40),
-        flipY: !!(attr & 0x80),
-        // Screen to map: add the camera back (16-bit, so a ring near the map's left or top edge is fine).
-        dx: ((cam.x + x9) & 0xffff) - e.x,
-        dy: ((cam.y + w[b + 1]!) & 0xffff) - e.y,
-        attr,
-        ox: x9,
-        oy: w[b + 1]!,
-      })
-    }
+    // Screen to map: add the camera back (16-bit, so a ring near the map's left or top edge is fine).
+    const parts = touchedOamParts(w, touched).map(p => ({
+      ...p,
+      dx: ((cam.x + p.ox) & 0xffff) - e.x,
+      dy: ((cam.y + p.oy) & 0xffff) - e.y,
+    }))
     return { ok: true, parts, unverified }
   } catch (err) {
     if (err instanceof Refusal) return { ok: false, reason: err.message }
