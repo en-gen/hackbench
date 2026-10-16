@@ -1,3 +1,3 @@
 ### Changed
 
-- Maps (#861): the drawn Layer 2 height and the Layer 3 camera now share one entrance chooser (`chooseEntrance`, `L3Loader.ts:136`). On vanilla, 0 of 512 slots change (an uncommitted sweep, base 9cf2d0ac vs this branch, one machine). The old and new paths agree only while the exit graph sorts a map's secondary entrances (`SmwRom.ts:573`); a secondary-only map listed out of order (A < B, listed [B, A]) now draws from the lowest entrance id, A, where it used to draw the first listed one. Evidence for that case: synthetic tests only (`EntranceChooser.synthetic.test.ts`, 64 via shapes; `MapScreenL2.test.ts`).
+- Maps (#861): the drawn Layer 2 height now uses the same entrance as the Layer 3 camera (`chooseEntrance`). On vanilla, 0 of 512 slots change (an uncommitted sweep, one machine); a map entered only through secondary entrances, listed out of order, now uses the lowest entrance id (synthetic tests only).
