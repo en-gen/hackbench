@@ -43,7 +43,8 @@ import {
   VERDICTS,
   isInside,
   renderPieces,
-  type FrameSource,
+  hardwareSource,
+  type Sample,
   type ReportRow,
   type Rgba,
 } from './spriteReport'
@@ -424,17 +425,29 @@ interface Rec {
   frames?: { tiles?: RecordedPiece[] }[]
 }
 
-/** The map's sprite graphics, palette and OBSEL from its capture, or undefined when the capture lacks them. */
-function frameSource(entries: Map<string, () => Buffer>): FrameSource | undefined {
+/**
+ * The map's full-VRAM samples (graphics, palette, OBSEL), empty when the capture lacks them.
+ * A sample's frame is anchorFrame + offset: the capture's own debug.log prints
+ * "[SAMPLE] frame=505 offset=+8" with anchorFrame 497 (map 105, one capture); level start is the first.
+ */
+function frameSamples(
+  entries: Map<string, () => Buffer>,
+  anchorFrame: number | undefined,
+): Sample[] {
   const find = (n: string): (() => Buffer) | undefined =>
     [...entries].find(([k]) => k.split('/').pop() === n)?.[1]
   const json = (n: string): { samples?: { offset?: unknown }[]; OBSEL_2101?: { byte?: unknown } } | undefined => { const f = find(n); return f ? JSON.parse(f().toString('utf8')) : undefined } // prettier-ignore
-  const offset = Number(json('capture_summary.json')?.samples?.[0]?.offset ?? 0)
-  const at = (n: string): string => `frame_${String(offset).padStart(4, '0')}_${n}`
-  const [vram, cgram, ppu] = [find(at('vram.bin')), find(at('cgram.bin')), json(at('ppu.json'))]
-  const obsel = parseNum(ppu?.OBSEL_2101?.byte)
-  if (!vram || !cgram || Number.isNaN(obsel)) return undefined
-  return { vram: new Uint8Array(vram()), pal: palette(new Uint8Array(cgram())), obsel }
+  const out: Sample[] = []
+  for (const sample of json('capture_summary.json')?.samples ?? [{ offset: 0 }]) {
+    const offset = Number(sample.offset ?? 0)
+    const at = (n: string): string => `frame_${String(offset).padStart(4, '0')}_${n}`
+    const [vram, cgram, ppu] = [find(at('vram.bin')), find(at('cgram.bin')), json(at('ppu.json'))]
+    const obsel = parseNum(ppu?.OBSEL_2101?.byte)
+    if (!vram || !cgram || Number.isNaN(obsel)) continue
+    const src = { vram: new Uint8Array(vram()), pal: palette(new Uint8Array(cgram())), obsel }
+    out.push({ frame: (anchorFrame ?? NaN) + offset, src })
+  }
+  return out
 }
 
 /**
@@ -512,7 +525,8 @@ export function gradeCaptures(f: Filter): Graded[] {
     const key = [...entries.keys()].find(k => k.endsWith('sprite_spawns.json'))
     if (!key) continue
     const spawns: Rec[] = JSON.parse(entries.get(key)!().toString('utf8')).spawns ?? []
-    const src = frameSource(entries)
+    const samples = frameSamples(entries, anchorFrame)
+    const src = samples[0]?.src
     const lvl = loadLevelState(rom, parseInt(map, 16))
     for (const rec of spawns) {
       const id = parseInt(rec.id.slice(1), 16)
@@ -534,11 +548,12 @@ export function gradeCaptures(f: Filter): Graded[] {
       const g = grade(m, want)
       const ours = m.chosen !== undefined && !m.refusal ? passPieces(m, m.chosen) : []
       const hw = hardwareFrame(m, want, rec.entries)
+      const hwSrc = hardwareSource(id, rec.drawnFrame, hw.pieces, samples)
       out.push({
         map, id, slot: rec.slot, verdict: g.verdict,
-        detail: [g.detail, hw.note].filter(Boolean).join('. ') || undefined,
+        detail: [g.detail, hw.note, hwSrc?.label].filter(Boolean).join('. ') || undefined,
         oursImg: src ? renderPieces(ours, src) : null,
-        hardwareImg: src ? renderPieces(hw.pieces, src) : null,
+        hardwareImg: hwSrc ? renderPieces(hw.pieces, hwSrc.src) : null,
         oursPieces: ours,
       }) // prettier-ignore
     }

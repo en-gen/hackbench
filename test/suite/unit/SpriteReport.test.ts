@@ -35,6 +35,8 @@ import {
   contactSheet,
   encodePng,
   isInside,
+  hardwareSource,
+  LEVEL_START_LABEL,
   renderPieces,
   type ReportRow,
   type ReportVerdict,
@@ -918,4 +920,44 @@ describe.skipIf(!hasRom(VANILLA) || !hasCaptures())('gradeCaptures on the corpus
     expect(anchors).toHaveLength(total)
     expect(new Set(anchors).size).toBe(total)
   }, 600_000)
+})
+
+describe('hardwareSource (#863)', () => {
+  const pal = new Uint8Array(768)
+  pal.set([10, 20, 30], (128 + 15) * 3)
+  pal.set([1, 2, 3], (128 + 1) * 3)
+  const mk = (frame: number, plane0Only: boolean) => {
+    const vram = new Uint8Array(0x10000)
+    for (let i = 0; i < 32; i++) vram[i] = plane0Only ? (i < 16 && i % 2 === 0 ? 0xff : 0) : 0xff
+    return { frame, src: { vram, pal, obsel: 0 } }
+  }
+  const start = mk(500, false) // colour 15
+  const later = mk(530, true) // colour 1
+  const pieces = [{ dx: 0, dy: 0, tile: 0, attr: 0, large: false }]
+  const first = (s: { src: Parameters<typeof renderPieces>[1] }) => [
+    ...renderPieces(pieces, s.src)!.px.subarray(0, 3),
+  ]
+
+  it('a dynamic card draws from the sample on its drawnFrame', () => {
+    const r = hardwareSource(0x33, 530, pieces, [start, later])!
+    expect(first(r)).toEqual([1, 2, 3])
+    expect(r.label).toBeUndefined()
+  })
+  it('a dynamic card with no matching sample keeps level start and says so', () => {
+    const r = hardwareSource(0x33, 531, pieces, [start, later])!
+    expect(first(r)).toEqual([10, 20, 30])
+    expect(r.label).toBe(LEVEL_START_LABEL)
+  })
+  it('an id outside the set is dynamic when its tile bytes differ between samples', () => {
+    expect(first(hardwareSource(0x01, 530, pieces, [start, later])!)).toEqual([1, 2, 3])
+    expect(hardwareSource(0x01, 531, pieces, [start, later])!.label).toBe(LEVEL_START_LABEL)
+  })
+  it('a static card is unchanged: level start, no label, even on a later drawnFrame', () => {
+    const r = hardwareSource(0x01, 530, pieces, [start, mk(530, false)])!
+    expect(first(r)).toEqual([10, 20, 30])
+    expect(r.label).toBeUndefined()
+  })
+  it('no samples gives nothing', () => {
+    expect(hardwareSource(0x33, 530, pieces, [])).toBeUndefined()
+  })
 })

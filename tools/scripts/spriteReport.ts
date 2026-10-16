@@ -132,6 +132,47 @@ export function renderPieces(pieces: DrawPiece[], src: FrameSource, scale = 2): 
   return { w: w * scale, h: h * scale, px }
 }
 
+/** A full-VRAM sample: the capture frame it was taken on (anchorFrame + offset) and the graphics at it. */
+export interface Sample {
+  frame: number
+  src: FrameSource
+}
+
+/** Sprite ids whose code uploads changing graphics during play: $33 SMWDisX bank_01.asm:13192 (DynGfxTilePtr+6), $35 Yoshi bank_01.asm:14879. */
+export const DYNAMIC_SPRITES: ReadonlySet<number> = new Set([0x33, 0x35])
+export const LEVEL_START_LABEL = 'graphics at level start, may differ'
+
+/** The colour indices every piece reads from `src`'s VRAM, in draw order. */
+function pieceIndices(pieces: DrawPiece[], src: FrameSource): number[] {
+  const out: number[] = []
+  for (const p of pieces)
+    drawObj(src.vram, objAttr(src.obsel, p.tile, p.attr, +p.large), 0, 0, (_x, _y, ci) =>
+      out.push(ci),
+    )
+  return out
+}
+
+/**
+ * Where the hardware panel takes its VRAM (#863). A card is dynamic when its id
+ * uploads changing graphics or its pieces read different VRAM in different
+ * samples; a dynamic card draws from the sample taken on its drawnFrame, else
+ * from the level-start sample (samples[0]) with the label. Static: level start.
+ */
+export function hardwareSource(
+  id: number,
+  drawnFrame: number | undefined,
+  pieces: DrawPiece[],
+  samples: Sample[],
+): { src: FrameSource; label?: string } | undefined {
+  if (!samples.length) return undefined
+  const first = pieceIndices(pieces, samples[0].src).join()
+  const dynamic =
+    DYNAMIC_SPRITES.has(id) || samples.some(s => pieceIndices(pieces, s.src).join() !== first)
+  if (!dynamic) return { src: samples[0].src }
+  const hit = samples.find(s => s.frame === drawnFrame)
+  return hit ? { src: hit.src } : { src: samples[0].src, label: LEVEL_START_LABEL }
+}
+
 /** Verdict border colours for the contact sheet. */
 const BORDER: Record<ReportVerdict, number[]> = {
   exact: [60, 200, 90],
