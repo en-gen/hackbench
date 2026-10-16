@@ -16,6 +16,10 @@ Try to prove it incorrect. Follow your brief and `CLAUDE.md`.
   for any mutant you call equivalent. Run it against the full suite.
 - **Re-run the unit suite with the corpus absent**; report pass and skip
   counts both ways.
+- **Run lock.** Any full `npm run test:unit` run (including the corpus-absent
+  one) takes the shared run lock first:
+  `node tools/scripts/run-lock.mjs acquire --owner "<team> <worktree>" --purpose "..."`,
+  see docs/testing.md "Run lock". Release it when done, also on failure.
 - **Verify claims, not prose.** Open every `SMWDisX file:line` citation, doc
   reference and number in the diff and its PR text; confirm or refute each.
 - **Scrap over patch.** If the approach is fundamentally flawed, say so.
