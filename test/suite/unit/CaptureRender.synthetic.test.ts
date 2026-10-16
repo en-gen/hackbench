@@ -952,6 +952,36 @@ describe('recorded piece dy past 127 (#811)', () => {
   })
 })
 
+describe('recorded piece dy through the render path, by OBSEL size (#888)', () => {
+  // Sprite on screen line 0 (y = cameraY), so the recorded dy is the piece top modulo 256 in -128..127.
+  const recorded = (top: number) => ((((top + 128) % 256) + 256) % 256) - 128
+  const one = (dy: number, hi: object) => ({ x: 128, y: 100, cameraX: 0, cameraY: 100, frames: [{ frameIndex: 0, tiles: [{ dx: 0, dy, tile: 0, attr: 0, ...hi }] }] }) // prettier-ignore
+  const sizes = [0x40, 0x80, 0xa0, 0xc0].flatMap(obsel =>
+    [0, 1].map(large => ({ obsel, large, h: D.objSize(obsel, large)[1] })),
+  )
+  const flavours: [string, (large: number) => object][] = [
+    ['large flag', large => ({ large: large === 1 })],
+    ['sizeXHigh', large => ({ sizeXHigh: large * 2 })],
+    ['sizeXHigh with X bit 8', large => ({ sizeXHigh: large * 2 + 1 })],
+  ]
+
+  it('witness: OBSEL $C0, large piece (32x64), on line 0, recorded dy -40 reads -40', () => {
+    const r = spriteFrame(one(-40, { large: true }), 0xc0)
+    expect(r.pieces?.map(p => p.dy)).toEqual([-40])
+  })
+  for (const [name, hi] of flavours) {
+    it(`gives the true top over the whole window, every size mode (${name})`, () => {
+      for (const { obsel, large, h } of sizes) {
+        const lo = Math.min(-32, -(h - 1))
+        for (let top = lo; top < lo + 256; top++) {
+          const r = spriteFrame(one(recorded(top), hi(large)), obsel)
+          expect(r.pieces?.map(p => p.dy), `obsel ${obsel} large ${large} top ${top}`).toEqual([top]) // prettier-ignore
+        }
+      }
+    })
+  }
+})
+
 describe('map sprites against their recorded frames', () => {
   // List entry 0 recorded with one 16x16 tile; a window shows it later with another flip.
   function capture(recordAttr: number, windowAttr: number) {
