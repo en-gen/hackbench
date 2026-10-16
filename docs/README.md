@@ -91,8 +91,6 @@ cited to the disassembly.
   relocate and share pointers; sprite-stream limits; acts-like
 - [rom/block-contents.md](rom/block-contents.md) - what each item block
   ($111-$12D) holds, by X column and game state
-- [rom/enterable-pipes-and-doors.md](rom/enterable-pipes-and-doors.md) - which
-  tiles are enterable and which screen exit they use
 
 ## Sprites
 
