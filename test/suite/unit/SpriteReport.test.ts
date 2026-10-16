@@ -1042,6 +1042,23 @@ describe('dynamic cards, synthetic captures (#863)', () => {
     ).toHaveLength(1)
   })
 
+  it('a capture with no anchorFrame matches no drawnFrame: level-start sample and label', () => {
+    const samples = frameSamples(
+      capture([
+        [0, vramWith(0x80)],
+        [8, vramWith(0x40)],
+      ]),
+      undefined,
+    )
+    expect(samples).toHaveLength(2)
+    // drawnFrame 8 would hit sample +8 if undefined were read as frame 0; 0 would hit level start unlabelled.
+    for (const drawn of [0, 8, 100, 108]) {
+      const r = hardwareCells(0x33, drawn, pieces, pieces, samples, ['n'])
+      expect(r.hardwareImg).toEqual(renderPieces(pieces, samples[0].src))
+      expect(r.detail).toBe(`n. ${LEVEL_START_LABEL}`)
+    }
+  })
+
   it.each([0x33, 0x35])('sprite $%s is dynamic even with identical samples', id => {
     const s = frameSamples(
       capture([
