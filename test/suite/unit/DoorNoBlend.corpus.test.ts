@@ -2,7 +2,7 @@
  * #936 precondition: on the vanilla ROM no door pixel lies under a layer in its map's CGADSUB, so the
  * no-blend rule cannot change vanilla output. This checks the data, not ColorMath (the code is covered by
  * DoorNoBlend.test.ts); the predicate is test/suite/support/doorBlend.ts, proven able to go red there.
- * Every map 0x000-0x1FF, the 488 that build, 1315 screens with sprites and a color-math table, sprites cut
+ * Every map 0x000-0x1FF, the 488 that build, 1314 screens with sprites and a color-math table, sprites cut
  * the way the map view cuts them, lists as the view composes them (withFlameKeys). Exact counts, so a
  * change in what is scanned fails loudly. Vanilla ROM, one machine.
  */
@@ -25,7 +25,10 @@ import { doorPixelsUnderMath } from '../support/doorBlend'
 
 const NO_FLAGS: SwitchFlagsDto = { green: false, yellow: false, blue: false, red: false }
 
-// Measured on the vanilla ROM, one machine: 488 of 512 map slots build, 1315 of their screens have sprites and a color-math table.
+// Measured on the vanilla ROM, one machine: 488 of 512 map slots build, 1314 of their screens have sprites and a color-math table.
+// It was 1315 before #792: map $12C screen 5 (x 1280-1535) held only the left 8 px of stream entry 9, a fuzzy ball $68 listed at 1520,176,
+// drawn at 1535,176 (box x 1527-1543) at the spawn spot; #792 draws it on its line at pass 2, at 1551,176 (box x 1543-1559), wholly on screen 6, so screen 5 has no sprite.
+// The runner's pass 17 for that entry matches the capture (layers_v5 12c, slot 5) to the pixel, 1529,186. Door pixel totals did not change.
 // Door pixels per layer show/hide combination (bit 0 = Layer 1 shown, bit 1 = Layer 2, bit 2 = Layer 3), from the second #936 review.
 const DOOR_PIXELS = [0, 65180, 804, 65200, 8319, 73368, 9123, 73388]
 
@@ -69,7 +72,7 @@ describe.skipIf(!hasRom(VANILLA))(
           }
         }
         console.log(`#936 vanilla: ${maps} maps, ${screens} screens with sprites, ${doorPixels.join('/')} door pixels per layer combination, ${hits.length} under a blended layer`) // prettier-ignore
-        expect([maps, screens, doorPixels]).toEqual([488, 1315, DOOR_PIXELS])
+        expect([maps, screens, doorPixels]).toEqual([488, 1314, DOOR_PIXELS])
         expect(hits).toEqual([])
       },
     )
