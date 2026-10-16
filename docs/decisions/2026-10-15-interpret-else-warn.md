@@ -8,7 +8,7 @@ When ROM data is non-stock but its shape can be read, does the app follow it or 
 
 ## Options considered
 
-1. Fail closed: refuse any data that is not stock. Not chosen: the owner ruled it out (below).
+1. Fail closed: refuse non-stock data even when its shape is readable. Not chosen: this ruling replaces it. `[INF]`
 2. Interpret readable data, warn or error on the rest. Chosen by the owner's ruling.
 
 ## Ruling

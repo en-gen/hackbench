@@ -8,7 +8,7 @@ May HackBench reuse other people's open-source code, and how is the author dealt
 
 ## Options considered
 
-1. Never reuse other authors' code. The owner's first ruling.
+1. Never reuse other authors' code. The owner's first ruling. `[INF]`
 2. Reuse open-source code whose licence fits, with credit. Chosen: "middle ground".
 
 ## Ruling
