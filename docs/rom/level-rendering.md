@@ -227,10 +227,13 @@ readable range and skips layer 3 as well. Vertical maps draw layer 3 only on the
 screen-locked path (#806): a settings byte `$81`-`$BF` on Castle1 or Underground1 (tileset 1 or 3)
 reaches `CODE_009FFA` (`bank_00.asm:4175-4182`), which sets Layer3XPos = Layer1XPos / 2 and
 Layer3YPos = `$C0` once; per frame `CODE_05C421` (`bank_05.asm:5515-5519`) follows camera X and
-never copies Y (`CODE_05C48D` is skipped, `:5569-5572`). Nothing there depends on the map being vertical, so
-the vertical camera Y (`readInitialLayer1YPos` with the vertical high byte) is the only input that differs,
-and each vertical screen shows its own 256 px slice. Every other vertical case (a tide byte, `$80`, a
-camera-locked byte) stays refused with "untraced layer 3 type". In vanilla only `$0E7` and `$1CE` change.
+never copies Y (`CODE_05C48D` is skipped, `:5569-5572`). Nothing there depends on the map being vertical, so the band is screen-locked: Layer3YPos stays `$C0`
+whatever the camera Y, and every vertical screen shows the same band (rows 28-51 of the BG3 tilemap),
+so the camera Y at load does not place it. Evidence scope: capture `layers_v5` `1ce`, 5 windows (camera
+Layer1Y 0, 256, 512, 768, 1024), Layer3Y = BG3VOFS = 192 in all five and the visible BG3 band identical;
+one machine, vanilla. Every other vertical case (a tide byte, `$80`, a
+camera-locked byte) stays refused with "untraced layer 3 type". Vanilla: the sweep test "vanilla
+vertical maps with a drawn layer 3 are exactly $0E7 and $1CE" finds only those two.
 Settings
 `$00` is Layer3TideSetting 0 (not a tide: 512 px repeat, whole tilemap), the non-tide path of `CODE_05C40C`: off Castle1
 and Underground1 it sets Layer3YPos = Layer1YPos every frame

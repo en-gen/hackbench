@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import type { RgbaColor } from '../../../src/rom/GraphicsDecoder'
-import { parseLevelHeader } from '../../../src/rom/LevelParser'
+import { isLevelModeVertical, parseLevelHeader } from '../../../src/rom/LevelParser'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { withCrusher } from '../../../src/rom/L3CodeGate'
@@ -20,7 +20,7 @@ import {
 import { MAP_PLANE_KEYS } from '../../../theia/extension/src/common/project-protocol'
 import { composeScreen } from '../../../src/rom/model/ColorMath'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
-import { COLORS, hGrid, inputs, px, sub, tile } from '../support/mapInputs'
+import { COLORS, hGrid, inputs, px, sub, tile, vGrid } from '../support/mapInputs'
 import { modeTablesRom, STANDARD_MODES, sweepLayouts, withLayer3 } from '../support/l3Rom'
 import type { ModeLayout } from '../../../src/rom/LevelScreenTables'
 import {
@@ -546,37 +546,68 @@ describe('a $80 level under a smash sprite (synthetic, #807)', () => {
 })
 
 describe('layer 3 on a vertical map (synthetic, #806)', () => {
-  // Tile row 8 at Layer3YPos $C0 and camera Y $1A0: level Y 8*8 - 192 + 416 = 288, which is
-  // screen 1 (256 px tall) at y 32.
-  const l3 = l3Of([word(8, 0, L3_WORD(false))], { yPx: 0xc0, camYPx: 0x1a0, isVertical: true })
+  // Tile row 30 at Layer3YPos $C0 is screen y 240 - 192 = 48 on EVERY vertical screen: BG3 is
+  // screen-locked (layers_v5 1ce: Layer3Y 192 at all five camera positions), so the camera Y at load
+  // must not place the band.
+  const l3 = l3Of([word(30, 0, L3_WORD(false))], { yPx: 0xc0, camYPx: 0x1a0, isVertical: true })
 
-  it('puts the tile on its own screen only, at its offset inside that screen', () => {
-    const lows = [0, 1, 2].map(s => drawL3Planes(l3, s).l3Low)
-    expect(lows[0]).toBeNull()
-    expect(lows[2]).toBeNull()
-    expect(px(lows[1]!, 512, 3, 32 + 3)).toEqual(COLORS[6])
-    expect(px(lows[1]!, 512, 3, 31)).toEqual([0, 0, 0, 0])
-    expect(px(lows[1]!, 512, 8, 35)).toEqual([0, 0, 0, 0]) // the tile is 8 px wide: column 1 is empty
+  it('draws the same band on every screen, wherever the camera started', () => {
+    const lows = [0, 1, 2, 3, 4].map(s => drawL3Planes(l3, s).l3Low!)
+    for (const low of lows) {
+      expect(px(low, 512, 3, 48 + 3)).toEqual(COLORS[6])
+      expect(px(low, 512, 3, 47)).toEqual([0, 0, 0, 0])
+      expect(px(low, 512, 8, 51)).toEqual([0, 0, 0, 0]) // the tile is 8 px wide: column 1 is empty
+    }
+    expect(lows.every(l => Buffer.compare(Buffer.from(l), Buffer.from(lows[0]!)) === 0)).toBe(true)
+    expect(drawL3Planes({ ...l3, camYPx: 0x700 }, 0).l3Low).toEqual(lows[0])
   })
 
-  it('a row straddling a screen top draws its lower pixels on the lower screen', () => {
-    const straddle = { ...l3, camYPx: 0x1a0 - 32 - 4 } // level Y 252: rows 0-3 on screen 0, rows 4-7 on screen 1
-    expect(px(drawL3Planes(straddle, 0).l3Low!, 512, 3, 255)).toEqual(COLORS[6])
-    expect(px(drawL3Planes(straddle, 1).l3Low!, 512, 3, 0)).toEqual(COLORS[6])
+  it('a verdict built on a vertical map draws the band on every screen (end to end)', () => {
+    const rom = withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: 1, setting: 2, settingsByte: 0x81, word: L3_WORD(false), row: 30 }) // prettier-ignore
+    rom.writeAt(0x05f600 + 5, [3]) // camera Y at load $300: must not matter
+    const v = buildL3Verdict(
+      rom,
+      5,
+      { ...l1Of(3, 1, false), isVertical: true },
+      BG_OK,
+      chars,
+      GATE_OK,
+    )
+    expect(v.l3).toMatchObject({ isVertical: true, yPx: 0xc0 })
+    const m: MapInputs = { ...inputs(vGrid(5), true, 5, 1), header: headerOf(3, 1, false), l3: v }
+    const bands = [0, 1, 2, 3, 4].map(s => wireOf(m, s).planes.l3Low)
+    expect(bands[0]).not.toBeNull()
+    expect(new Set(bands).size).toBe(1)
+    const first = decode(bands[0]!)!
+    expect(px(first, 512, 3, 51)).toEqual(COLORS[6])
   })
 })
 
 describe.skipIf(!hasRom(VANILLA))(
-  'vanilla vertical maps $0E7 and $1CE draw layer 3 (corpus, #806)',
+  'vanilla vertical maps with a drawn layer 3 are exactly $0E7 and $1CE (corpus, #806)',
   () => {
-    it('both are on the $81-$BF path: Y $C0, not refused', () => {
+    it('sweeps all $200 slots: vertical maps whose layer 3 draws', () => {
       const rom = RomFile.load(romPath(VANILLA))
       const smw = new SmwRom(rom)
-      for (const id of [0x0e7, 0x1ce]) {
-        const header = parseLevelHeader(smw.getLevelRawData(id)!)
-        const v = buildL3Verdict(rom, id, { header, isVertical: true, colors: [] }, BG_OK)
-        expect([id, v.reason, v.l3?.yPx]).toEqual([id, null, 192])
+      const table = smw.getVerticalTable()
+      if (!table.ok) throw new Error(table.reason)
+      const drawn: number[] = []
+      let vertical = 0
+      for (let id = 0; id < 0x200; id++) {
+        const raw = smw.getLevelRawData(id)
+        if (!raw) continue
+        const header = parseLevelHeader(raw)
+        const isVertical = isLevelModeVertical(header.levelMode, table.table)
+        if (!isVertical) continue
+        vertical++
+        const v = buildL3Verdict(rom, id, { header, isVertical, colors: [] }, BG_OK)
+        if (v.l3) {
+          drawn.push(id)
+          expect([id, v.reason, v.l3.yPx, v.l3.isVertical]).toEqual([id, null, 192, true])
+        }
       }
+      expect(vertical).toBeGreaterThan(2) // the sweep saw vertical maps, not an empty set
+      expect(drawn).toEqual([0x0e7, 0x1ce])
     })
   },
 )
