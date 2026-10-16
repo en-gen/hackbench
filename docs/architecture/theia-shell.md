@@ -339,6 +339,26 @@ tileset is in every cache key). Command `hackbench.maps.toggleCollision` is enab
 tab is focused and its toggle is usable (`canToggleCollision`, the button's own test), in
 `grid-toggle-contribution.ts`.
 
+### The map tab's refused-object overlay (#816)
+
+Layer 1 objects the expander refused draw nothing, so the tab marks where they are. `refusedCells`
+rides on every `mapScreen` reply (whole map, absent when none), built in `buildL1Inputs`
+(`src/rom/model/RefusedCells.ts`): one cell per object, since one object can be refused twice
+(handle_0DB49E), with the gate reason winning over the unported one. The overlay
+(`browser/refused-overlay.tsx`) is one SVG in map coordinates, scaled by `ZoomController` like the
+collision overlay. Cells are red, dashed and marked "!", unlike the collision overlay's orange hatched
+unknown cells. Z-order is 150: above the screens, below the collision lines (200). It is hidden
+while the tab shows a screen error, so no marks sit on a blank strip.
+
+Only the anchor cell (the parser's x,y) is marked: a refused object's footprint is unknown, and a
+guessed rectangle would be [PROP]. An anchor past the strip (a horizontal y beyond row 26, an x beyond
+`screenCount` x 16, a vertical y beyond `screenCount` x 16 rows) is clamped onto the last row or
+column, never dropped: an undrawn object must not be hidden (D52).
+
+Test hooks: `data-control="refused-overlay"` (absent when there are no cells), per cell
+`data-control="refused-cell"` with `data-x`, `data-y` (tiles) and `data-object`, and the reason
+`Object <n> (<type>): <why>` as both the `<title>` tooltip and the `aria-label`.
+
 ## The emulator view
 
 The emulator runs a **libretro core that you supply**. HackBench ships no
