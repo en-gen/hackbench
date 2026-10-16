@@ -796,7 +796,7 @@ function expectGridGeometry(g, cellContent, zoom, widthContent) {
   expect(g.rowHits).toEqual(expectedStarts(cell, g.x.length, g.dpr, g.canvasW))
 }
 
-test('the grid toggle shows an 8px-cell overlay that tracks zoom, and hides again', async ({
+test('the GFX grid shows by default as an 8px-cell overlay that tracks zoom, and the button and command hide and show it', async ({
   page,
 }) => {
   await loadGfx(page, path.join(tmp, 'MyHack'))
@@ -813,17 +813,16 @@ test('the grid toggle shows an 8px-cell overlay that tracks zoom, and hides agai
       )
 
   const toggle = page.locator(`${root} [data-control="grid-toggle"]`)
-  expect(await readGrid(page, root)).toBeNull() // off by default
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
-  await expect(toggle).toHaveAttribute('title', 'Show grid')
-  await expect(toggle).toHaveClass(/hb-icon-btn-off/)
-
-  const contentBefore = await sheetPixels()
-  const sheetWidth = await page.locator('.hb-gfx-view-canvas').evaluate(c => c.width)
-  await toggle.click()
+  // On at first open (#920): the pressed state AND real line pixels on the overlay.
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   await expect(toggle).toHaveAttribute('title', 'Hide grid')
   await expect(toggle).toHaveClass(/hb-icon-btn-on/)
+  const first = await readGrid(page, root)
+  expect(first).not.toBeNull()
+  expect(first.rowHits.length + first.colHits.length).toBeGreaterThan(0)
+
+  const contentBefore = await sheetPixels()
+  const sheetWidth = await page.locator('.hb-gfx-view-canvas').evaluate(c => c.width)
   const zooms = []
   for (let step = 0; step < 2; step++) {
     if (step > 0) await page.locator('[data-control="zoom-in"]').click()
@@ -840,6 +839,16 @@ test('the grid toggle shows an 8px-cell overlay that tracks zoom, and hides agai
 
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  await expect(toggle).toHaveAttribute('title', 'Show grid')
+  await expect(toggle).toHaveClass(/hb-icon-btn-off/)
+  expect(await readGrid(page, root)).toBeNull()
+
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  expect(await readGrid(page, root)).not.toBeNull()
+
+  await page.evaluate(() => getSvc('CommandRegistry').executeCommand('hackbench.gfx.toggleGrid'))
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
   expect(await readGrid(page, root)).toBeNull()
 })
 
@@ -852,20 +861,22 @@ test('the GFX grid is one switch for every open GFX tab, like zoom', async ({ pa
   await gfxFileRow(page, 1).dblclick()
   await page.waitForSelector(`${gfxViewRoot(1)} .hb-gfx-view-canvas`, { timeout: 15000 })
 
-  await page.locator(`${gfxViewRoot(1)} [data-control="grid-toggle"]`).click()
+  // Both tabs open with the grid on (#920); hiding it in tab 1 hides it in tab 0.
   expect(await readGrid(page, gfxViewRoot(1))).not.toBeNull()
-  // The other tab, brought to the front, shows it already on.
+  await page.locator(`${gfxViewRoot(1)} [data-control="grid-toggle"]`).click()
+  expect(await readGrid(page, gfxViewRoot(1))).toBeNull()
+  // The other tab, brought to the front, shows it already off.
   await page.evaluate(async id => {
     await getSvc('ApplicationShell').activateWidget(id)
   }, 'hackbench.gfx-view:0')
   await page.waitForTimeout(400)
-  expect(await readGrid(page, gfxViewRoot(0))).not.toBeNull()
+  expect(await readGrid(page, gfxViewRoot(0))).toBeNull()
   await expect(page.locator(`${gfxViewRoot(0)} [data-control="grid-toggle"]`)).toHaveAttribute(
     'aria-pressed',
-    'true',
+    'false',
   )
   await page.locator(`${gfxViewRoot(0)} [data-control="grid-toggle"]`).click()
-  expect(await readGrid(page, gfxViewRoot(0))).toBeNull()
+  expect(await readGrid(page, gfxViewRoot(0))).not.toBeNull()
 })
 
 /**
@@ -884,19 +895,28 @@ for (const dpr of [1.5, 2]) {
       await revealGfx(page)
       await firstGfxFileRow(page).click()
       await page.waitForSelector('.hb-gfx-view-canvas', { timeout: 15000 })
-      await page.locator('.hb-gfx-view [data-control="grid-toggle"]').click()
-      await page.waitForTimeout(300)
+      await page.waitForTimeout(300) // the grid starts on (#920)
       expect(await page.evaluate(() => window.devicePixelRatio)).toBe(dpr)
 
-      const g = await readGrid(page, '.hb-gfx-view')
-      expect(g.dpr).toBe(dpr)
-      expect(g.canvasW).toBe(Math.round(g.cssW * dpr))
-      // Positions come from the cell, not from the hook's own claim.
-      expect(g.rowHits).toEqual(expectedStarts(g.cell, g.x.length, dpr, g.canvasW))
-      // No two hits are adjacent: each line is one device pixel, not two.
-      expect(g.rowHits.every((v, i) => i === 0 || v - g.rowHits[i - 1] > 1)).toBe(true)
-      expect(g.colHits.every((v, i) => i === 0 || v - g.colHits[i - 1] > 1)).toBe(true)
-      expect(g.colHits).toEqual(expectedStarts(g.cell, g.y.length, dpr, g.canvasH))
+      const check = async () => {
+        const g = await readGrid(page, '.hb-gfx-view')
+        expect(g.dpr).toBe(dpr)
+        expect(g.canvasW).toBe(Math.round(g.cssW * dpr))
+        // Positions come from the cell, not from the hook's own claim.
+        expect(g.rowHits).toEqual(expectedStarts(g.cell, g.x.length, dpr, g.canvasW))
+        // No two hits are adjacent: each line is one device pixel, not two.
+        expect(g.rowHits.every((v, i) => i === 0 || v - g.rowHits[i - 1] > 1)).toBe(true)
+        expect(g.colHits.every((v, i) => i === 0 || v - g.colHits[i - 1] > 1)).toBe(true)
+        expect(g.colHits).toEqual(expectedStarts(g.cell, g.y.length, dpr, g.canvasH))
+      }
+      await check()
+      // Turning it back on must draw the same one-pixel lines as the first open.
+      const toggle = page.locator('.hb-gfx-view [data-control="grid-toggle"]')
+      await toggle.click()
+      expect(await readGrid(page, '.hb-gfx-view')).toBeNull()
+      await toggle.click()
+      await page.waitForTimeout(300)
+      await check()
     })
   })
 }
@@ -917,12 +937,14 @@ test('the grid shows in a real screenshot: line pixels change, no other pixel do
   await page.mouse.move(2, 2)
   const toggle = page.locator('.hb-gfx-view [data-control="grid-toggle"]')
 
-  const off = await shootCanvas(page, '.hb-gfx-view-canvas')
+  // The grid starts on (#920): shoot it on, hide it, shoot it off.
+  const grid = await readGrid(page, '.hb-gfx-view')
+  const on = await shootCanvas(page, '.hb-gfx-view-canvas')
   await toggle.click()
   await page.mouse.move(2, 2)
   await page.waitForTimeout(300)
-  const grid = await readGrid(page, '.hb-gfx-view')
-  const on = await shootCanvas(page, '.hb-gfx-view-canvas')
+  expect(await readGrid(page, '.hb-gfx-view')).toBeNull()
+  const off = await shootCanvas(page, '.hb-gfx-view-canvas')
   const d = await compositedGridDiff(page, off, on, grid)
 
   expect([d.bW, d.bH]).toEqual([d.W, d.H])

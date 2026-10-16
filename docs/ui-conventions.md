@@ -56,19 +56,19 @@ had it.
 
 Codicons, the same set the rest of the shell uses. One meaning per glyph.
 
-| Glyph                  | Means                           |
-| ---------------------- | ------------------------------- |
-| `symbol-color`         | palettes                        |
-| `file-media`           | a GFX file                      |
-| `symbol-structure`     | a Map16 block table             |
-| `table`                | toggle the grid (GFX, Map16)    |
-| `play` / `debug-stop`  | start / stop animation playback |
-| `zoom-in` / `zoom-out` | step zoom                       |
-| `screen-full`          | fit to window (Maps)            |
-| `screen-normal`        | actual size, 100% (Maps)        |
-| `debug-pause`          | pause, leaving state intact     |
-| `refresh`              | discard and reload from source  |
-| `warning`              | toolbar warning (Maps)          |
+| Glyph                  | Means                              |
+| ---------------------- | ---------------------------------- |
+| `symbol-color`         | palettes                           |
+| `file-media`           | a GFX file                         |
+| `symbol-structure`     | a Map16 block table                |
+| `table`                | toggle the grid (Maps, GFX, Map16) |
+| `play` / `debug-stop`  | start / stop animation playback    |
+| `zoom-in` / `zoom-out` | step zoom                          |
+| `screen-full`          | fit to window (Maps)               |
+| `screen-normal`        | actual size, 100% (Maps)           |
+| `debug-pause`          | pause, leaving state intact        |
+| `refresh`              | discard and reload from source     |
+| `warning`              | toolbar warning (Maps)             |
 
 Use the toolbar warning for a short fact about the whole level that qualifies every pixel (an
 unverified level mode); use an `hb-map-view-note` layer note for a sentence about one layer or plane.
@@ -158,8 +158,8 @@ border box and take no layout space.
   top at paint time and never baked into the decoded pixels. Toggling one
   is a repaint, not a reload, and the bytes an export would use stay
   exactly what the ROM says.
-- The grid (GFX 8x8 characters, Map16 16x16 tiles) is the shared
-  `GridOverlay`: its own canvas at DEVICE resolution above the content, so
+- The grid (GFX 8x8 characters, Map16 16x16 tiles, Maps tiles) is the shared
+  `GridOverlay` and is ON when a view opens (#920): its own canvas at DEVICE resolution above the content, so
   a line is one device pixel at any zoom and display scale. Selection and
   hover outlines sit above it. The tooltip reads "Show grid" and, once on,
   "Hide grid"; GFX shares one switch across its tabs, like zoom.

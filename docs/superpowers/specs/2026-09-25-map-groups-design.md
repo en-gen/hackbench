@@ -43,8 +43,9 @@ by slot.
 - An empty group still shows, as an empty folder.
 - Groups are not nested in v1.
 - Every folder's `(N)` counts rows actually listed under it right now:
-  `Unassigned (N)` is every entry map and orphan still there, and a user
-  group's `(N)` is its own map count. A map that moves into a group stops
+  `Unassigned (N)` is every entry map and real orphan still there, with the
+  placeholder slots counted apart (`Unassigned (N, M placeholder)`, #901), and a
+  user group's `(N)` is its own map count. A map that moves into a group stops
   counting toward Unassigned's number. This is simpler than, and replaces,
   an earlier draft that had a separate Overworld folder counting launch-tile
   entrances instead of rows shown.

@@ -23,7 +23,7 @@ const { expectCheckerboard, PAGE_COMPOSE } = require('./pixel-canvas.cjs')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
-const { readGrid } = require('./grid-probe.cjs')
+const { readGrid, screenshotWithoutGrid } = require('./grid-probe.cjs')
 const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
 
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
@@ -649,7 +649,7 @@ async function shownPixels(page, locator) {
     const r = el.getBoundingClientRect()
     return { x: r.left + el.clientLeft + 1, y: r.top + el.clientTop + 1, width: el.clientWidth - 2, height: el.clientHeight - 2 } // prettier-ignore
   })
-  const png = (await page.screenshot({ clip: box })).toString('base64')
+  const png = (await screenshotWithoutGrid(page, { clip: box })).toString('base64')
   return page.evaluate(async b64 => {
     const img = new Image()
     img.src = `data:image/png;base64,${b64}`
@@ -915,7 +915,7 @@ async function colorOnScreen(page, selector, x, y) {
     },
     { sel: selector, x, y },
   )
-  const png = (await page.screenshot({ clip })).toString('base64')
+  const png = (await screenshotWithoutGrid(page, { clip })).toString('base64')
   return page.evaluate(async b64 => {
     const img = new Image()
     img.src = `data:image/png;base64,${b64}`
@@ -2366,9 +2366,9 @@ const runs = hits => {
 }
 
 async function showGrid(page, index) {
-  // Off must read as off without a hover (docs/ui-conventions.md, Toggle buttons).
-  await expect(page.locator(gridToggle(index))).toHaveClass(/hb-icon-btn-off/)
-  await page.locator(gridToggle(index)).click()
+  // The grid is on by default (#920); this only makes sure of it, turning it back on if a test hid it.
+  if ((await page.locator(gridToggle(index)).getAttribute('aria-pressed')) !== 'true')
+    await page.locator(gridToggle(index)).click()
   await expect(page.locator(gridToggle(index))).toHaveAttribute('aria-pressed', 'true')
   await expect(page.locator(gridToggle(index))).toHaveClass(/hb-icon-btn-on/)
   await expect(page.locator(`${root(index)} .hb-grid-overlay`)).toBeVisible()
@@ -2384,21 +2384,35 @@ async function scrollMapTo(page, index, left, top) {
   )
 }
 
-test('the Maps grid toggle is labelled, off by default, and the command drives it', async ({
+test('the Maps grid shows by default, draws line pixels, and the button and the command hide and show it', async ({
   page,
 }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
   const toggle = page.locator(gridToggle(0x105))
-  expect(await readGrid(page, root(0x105))).toBeNull()
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
-  await expect(toggle).toHaveAttribute('title', 'Show grid')
-  await expect(toggle.locator('.codicon-table')).toHaveCount(1)
-  await toggle.click()
+  // On at first open: the pressed state AND real line pixels on the overlay canvas.
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   await expect(toggle).toHaveAttribute('title', 'Hide grid')
   await expect(toggle).toHaveAttribute('aria-label', 'Hide grid')
-  expect(await readGrid(page, root(0x105))).not.toBeNull()
+  await page.mouse.move(2, 2) // off the button, so the class is the resting look, not hover
+  await expect(toggle).toHaveClass(/hb-icon-btn-on/)
+  await expect(toggle.locator('.codicon-table')).toHaveCount(1)
+  await gridSettled(page, 0x105)
+  const drawn = await readGrid(page, root(0x105))
+  expect(drawn).not.toBeNull()
+  expect(drawn.rowHits.length + drawn.colHits.length).toBeGreaterThan(0)
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  await expect(toggle).toHaveAttribute('title', 'Show grid')
+  await page.mouse.move(2, 2)
+  await expect(toggle).toHaveClass(/hb-icon-btn-off/)
+  expect(await readGrid(page, root(0x105))).toBeNull()
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  await gridSettled(page, 0x105)
+  const back = await readGrid(page, root(0x105))
+  expect(back).not.toBeNull()
+  expect(back.rowHits.length + back.colHits.length).toBeGreaterThan(0)
   await page.evaluate(() => getSvc('CommandRegistry').executeCommand('hackbench.maps.toggleGrid'))
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
   expect(await readGrid(page, root(0x105))).toBeNull()

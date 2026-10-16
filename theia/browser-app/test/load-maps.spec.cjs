@@ -99,6 +99,8 @@ async function loadMaps(page, dir, rom = ROM) {
       rootIds: roots.map(r => r.id),
       // Entry maps and orphans in ONE folder: there is no separate Overworld.
       unassignedTop: (group('unassigned')?.children || []).length,
+      placeholderTop: (group('unassigned')?.children || []).filter(n => n.sharedCount !== undefined)
+        .length,
       unassignedRows: (group('unassigned')?.children || []).map(n => ({
         index: n.index,
         category: n.category,
@@ -107,9 +109,11 @@ async function loadMaps(page, dir, rom = ROM) {
       // Walk the roots themselves, not just their children: Title Screen and
       // New Game ARE maps rather than folders, so descending past them would
       // drop two real maps from the count.
+      // Placeholder rows are listed slots, not maps (#901): counted apart.
       distinct: new Set(
         roots
           .flatMap(walk)
+          .filter(n => n.sharedCount === undefined)
           .map(n => n.index)
           .filter(i => i >= 0),
       ).size,
@@ -405,7 +409,11 @@ test('the Unassigned label counts what it claims to count', async ({ page }) => 
   expect(result.groups[2]).toBe('Overworld')
 
   expect(result.unassignedTop).toBeGreaterThan(0)
-  expect(result.groups[3]).toBe(`Unassigned (${result.unassignedTop})`)
+  // Placeholder slots are rows too (#901) but sit beside the figure, not in it.
+  expect(result.placeholderTop).toBeGreaterThan(0)
+  expect(result.groups[3]).toBe(
+    `Unassigned (${result.unassignedTop - result.placeholderTop}, ${result.placeholderTop} placeholder)`,
+  )
 })
 
 test('the map rows are rendered and reachable, not just in the model', async ({ page }) => {

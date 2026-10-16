@@ -169,4 +169,25 @@ async function samplePixels(page, shot, points) {
   )
 }
 
-module.exports = { readGrid, shootCanvas, compositedGridDiff, samplePixels }
+/** Hide or restore ('' restores) every grid overlay on the page. */
+function setGridVisibility(page, visibility) {
+  return page.evaluate(v => {
+    for (const el of document.querySelectorAll('.hb-grid-overlay')) el.style.visibility = v
+  }, visibility)
+}
+
+/**
+ * A page screenshot with every grid overlay hidden for the shot. The grid is on by
+ * default (#920) and draws grey lines over pixels a spec samples for something else;
+ * the overlays are put back afterwards, so only the grid's own specs see it.
+ */
+async function screenshotWithoutGrid(page, options) {
+  await setGridVisibility(page, 'hidden')
+  try {
+    return await page.screenshot(options)
+  } finally {
+    await setGridVisibility(page, '')
+  }
+}
+
+module.exports = { readGrid, shootCanvas, compositedGridDiff, samplePixels, screenshotWithoutGrid }

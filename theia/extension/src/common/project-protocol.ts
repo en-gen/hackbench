@@ -68,6 +68,11 @@ export interface MapNodeDto {
   index: number
   name: string | null
   kind: 'map' | 'loop' | 'truncated'
+  /** The slot uses the shared placeholder room, which `sharedCount` slots share. */
+  placeholder?: true
+  sharedCount?: number
+  /** The slot's Layer 1 pointer is zero or unreadable: no map data, nothing to open. */
+  noPointer?: true
   children: MapNodeDto[]
 }
 
@@ -82,6 +87,10 @@ export interface SpecialMapNodeDto extends MapNodeDto {
 export interface MapTreeCountsDto {
   entrances: number | null
   unassigned: number
+  /** Placeholder slots, listed beside the unassigned maps but counted apart. */
+  placeholders: number
+  /** Slots with no Layer 1 pointer, listed beside the unassigned maps but counted apart. */
+  noPointer: number
 }
 
 export interface MapTreeDto {
