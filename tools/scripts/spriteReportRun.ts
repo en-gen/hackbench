@@ -430,7 +430,7 @@ interface Rec {
  * A sample's frame is anchorFrame + offset: the capture's own debug.log prints
  * "[SAMPLE] frame=505 offset=+8" with anchorFrame 497 (map 105, one capture); level start is the first.
  */
-function frameSamples(
+export function frameSamples(
   entries: Map<string, () => Buffer>,
   anchorFrame: number | undefined,
 ): Sample[] {
@@ -443,11 +443,32 @@ function frameSamples(
     const at = (n: string): string => `frame_${String(offset).padStart(4, '0')}_${n}`
     const [vram, cgram, ppu] = [find(at('vram.bin')), find(at('cgram.bin')), json(at('ppu.json'))]
     const obsel = parseNum(ppu?.OBSEL_2101?.byte)
-    if (!vram || !cgram || Number.isNaN(obsel)) continue
+    // A missing level-start sample must not promote a later one to level start.
+    if (!vram || !cgram || Number.isNaN(obsel)) {
+      if (!out.length) return []
+      continue
+    }
     const src = { vram: new Uint8Array(vram()), pal: palette(new Uint8Array(cgram())), obsel }
     out.push({ frame: (anchorFrame ?? NaN) + offset, src })
   }
   return out
+}
+
+/** The row's two images and detail (#863): both panels from the hardware source's sample, its label last in detail. */
+export function hardwareCells(
+  id: number,
+  drawnFrame: number | undefined,
+  hw: RecordedPiece[],
+  ours: RecordedPiece[],
+  samples: Sample[],
+  notes: (string | undefined)[],
+): Pick<Graded, 'oursImg' | 'hardwareImg' | 'detail'> {
+  const s = hardwareSource(id, drawnFrame, hw, samples)
+  return {
+    oursImg: s ? renderPieces(ours, s.src) : null,
+    hardwareImg: s ? renderPieces(hw, s.src) : null,
+    detail: [...notes, s?.label].filter(Boolean).join('. ') || undefined,
+  }
 }
 
 /**
@@ -526,7 +547,6 @@ export function gradeCaptures(f: Filter): Graded[] {
     if (!key) continue
     const spawns: Rec[] = JSON.parse(entries.get(key)!().toString('utf8')).spawns ?? []
     const samples = frameSamples(entries, anchorFrame)
-    const src = samples[0]?.src
     const lvl = loadLevelState(rom, parseInt(map, 16))
     for (const rec of spawns) {
       const id = parseInt(rec.id.slice(1), 16)
@@ -548,13 +568,9 @@ export function gradeCaptures(f: Filter): Graded[] {
       const g = grade(m, want)
       const ours = m.chosen !== undefined && !m.refusal ? passPieces(m, m.chosen) : []
       const hw = hardwareFrame(m, want, rec.entries)
-      const hwSrc = hardwareSource(id, rec.drawnFrame, hw.pieces, samples)
       out.push({
-        map, id, slot: rec.slot, verdict: g.verdict,
-        detail: [g.detail, hw.note, hwSrc?.label].filter(Boolean).join('. ') || undefined,
-        oursImg: src ? renderPieces(ours, src) : null,
-        hardwareImg: hwSrc ? renderPieces(hw.pieces, hwSrc.src) : null,
-        oursPieces: ours,
+        map, id, slot: rec.slot, verdict: g.verdict, oursPieces: ours,
+        ...hardwareCells(id, rec.drawnFrame, hw.pieces, ours, samples, [g.detail, hw.note]),
       }) // prettier-ignore
     }
   }

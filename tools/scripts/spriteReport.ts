@@ -138,16 +138,19 @@ export interface Sample {
   src: FrameSource
 }
 
-/** Sprite ids whose code uploads changing graphics during play: $33 SMWDisX bank_01.asm:13192 (DynGfxTilePtr+6), $35 Yoshi bank_01.asm:14879. */
+/**
+ * Sprite ids whose code uploads changing graphics during play: $33 SMWDisX bank_01.asm:13192 (DynGfxTilePtr+6), $35 Yoshi bank_01.asm:14879.
+ * $2D Baby Yoshi (CODE_02EA25 bank_02.asm:14096 via CODE_01A34F) is an untraced candidate, left out.
+ */
 export const DYNAMIC_SPRITES: ReadonlySet<number> = new Set([0x33, 0x35])
 export const LEVEL_START_LABEL = 'graphics at level start, may differ'
 
-/** The colour indices every piece reads from `src`'s VRAM, in draw order. */
-function pieceIndices(pieces: DrawPiece[], src: FrameSource): number[] {
-  const out: number[] = []
+/** Every pixel (x, y, colour index) the pieces read from `src`'s VRAM, in draw order. */
+function pieceIndices(pieces: DrawPiece[], src: FrameSource): string[] {
+  const out: string[] = []
   for (const p of pieces)
-    drawObj(src.vram, objAttr(src.obsel, p.tile, p.attr, +p.large), 0, 0, (_x, _y, ci) =>
-      out.push(ci),
+    drawObj(src.vram, objAttr(src.obsel, p.tile, p.attr, +p.large), 0, 0, (x, y, ci) =>
+      out.push(`${x},${y},${ci}`),
     )
   return out
 }
@@ -157,6 +160,7 @@ function pieceIndices(pieces: DrawPiece[], src: FrameSource): number[] {
  * uploads changing graphics or its pieces read different VRAM in different
  * samples; a dynamic card draws from the sample taken on its drawnFrame, else
  * from the level-start sample (samples[0]) with the label. Static: level start.
+ * `src` serves both panels, so each is drawn from one VRAM and a difference is in the pieces.
  */
 export function hardwareSource(
   id: number,

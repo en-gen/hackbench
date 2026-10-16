@@ -789,7 +789,7 @@ level-start sample, except on a dynamic card (#863): its sprite id uploads
 changing graphics ($33, $35; `DYNAMIC_SPRITES`) or its tiles read different VRAM
 in different samples. That card draws from the sample whose frame
 (`anchorFrame + offset`) equals the record's `drawnFrame`; with none it keeps
-level start and the row says "graphics at level start, may differ". A dirty tree writes
+level start and the row says "graphics at level start, may differ". Both panels of that card use the same sample, so the sentence above holds; the pixel positions, not only the colours, decide whether tiles differ. A dirty tree writes
 `<sha>-dirty/`. Tick the checkboxes in the `<sha>/` folder: `latest/` is
 regenerated every run, and a run refuses to replace a `<sha>/` that has a
 ticked box, or with uncommitted edits or extra files, unless `--force`. Only
