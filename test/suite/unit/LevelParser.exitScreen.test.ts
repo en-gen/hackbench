@@ -1,8 +1,9 @@
 /**
  * A screen exit's OWN screen field (#956). CODE_0DA512 files the exit under
  * X = _A & $1F, where _A is object byte 0 (SMWDisX bank_0D.asm:1428-1432).
- * That is not the stream screen the object sits on: Lunar Magic-style levels
- * place an exit on one stream screen with a field naming another.
+ * That is not the stream screen the object sits on: vanilla places exits on
+ * one stream screen with a field naming another (the corpus test below counts
+ * 129 of 227 vanilla screen exits whose own screen differs from placement).
  */
 import { describe, it, expect } from 'vitest'
 import { createHash } from 'node:crypto'
@@ -32,12 +33,46 @@ describe('parseLevelObjects - screen exit own screen field (#956)', () => {
     [3, 0x1f],
     [12, 9],
   ]
-  it.each(pairs)('exit on stream screen %i with own field %i reports own %i', (placement, own) => {
+  it.each(pairs)('exit on stream screen %i reports own field %i', (placement, own) => {
     const { objects } = parseLevelObjects(levelWithExit(placement, own), SYNTHETIC_VERTICAL_TABLE)
     const exit = objects.find(o => o.screenExitDest !== undefined)!
     expect(exit.screen).toBe(placement)
     expect(exit.screenExitScreen).toBe(own)
     expect(exit.screenExitDest).toBe(0x42)
+  })
+
+  // The exit object itself carries the new-screen flag (b0 bit 7), so `screen`
+  // advances at this object and the low 5 bits of b0 are the own field. Only
+  // the mask keeps the flag (0x80) out of the field. (Bits 5-6 of b0 must be
+  // zero for an extended object, so masks 0x3f and 0x7f are equivalent to 0x1f.)
+  it.each([
+    [0, 0x05],
+    [4, 0x0a],
+    [2, 0x1f],
+  ])('exit that opens a screen itself: %i fillers, own %i', (placement, own) => {
+    const body: number[] = []
+    for (let i = 0; i < placement; i++) body.push(0x80, 0x10, 0x00)
+    body.push(0x80 | own, 0x00, 0x00, 0x42)
+    const data = Buffer.from([...ZERO_HEADER, ...body, 0xff])
+    const { objects } = parseLevelObjects(data, SYNTHETIC_VERTICAL_TABLE)
+    const exit = objects.find(o => o.screenExitDest !== undefined)!
+    expect(exit.screenExitScreen).toBe(own)
+    expect(exit.screen).toBe(placement + 1)
+  })
+
+  it.each([
+    // [b1, dest byte, expected dest, expected secondary]
+    [0x00, 0x42, 0x042, false],
+    [0x01, 0x42, 0x142, false], // dest high bit
+    [0x02, 0x42, 0x042, true], // secondary flag
+    [0x03, 0x07, 0x107, true], // both
+    [0x06, 0x07, 0x007, true], // secondary value 3
+  ])('exit b1=%i dest byte %i decodes dest %i secondary %s', (b1, byte, dest, secondary) => {
+    const data = Buffer.from([...ZERO_HEADER, 0x00, b1, 0x00, byte, 0xff])
+    const { objects } = parseLevelObjects(data, SYNTHETIC_VERTICAL_TABLE)
+    const exit = objects.find(o => o.screenExitDest !== undefined)!
+    expect(exit.screenExitDest).toBe(dest)
+    expect(exit.screenExitIsSecondary).toBe(secondary)
   })
 
   it('is absent on ordinary objects', () => {
@@ -48,11 +83,12 @@ describe('parseLevelObjects - screen exit own screen field (#956)', () => {
   })
 })
 
-// Digest of every exit's (slot, dest, secondary) taken BEFORE this change, so a
-// regression in the existing fields shows. Vanilla US 1.0 ROM, one machine.
+// Digest of every exit's (slot, dest, secondary). Those fields are not changed
+// by #956, so before and after are equal by construction; the digest guards
+// future regressions in them. Vanilla US 1.0 ROM, one machine.
 const BASELINE_DIGEST = '91b6c0ede3895725'
 const BASELINE_COUNT = 227
-// Exits whose own field differs from the stream screen they sit on (list is in the PR on #956).
+// Exits whose own field differs from the stream screen they sit on.
 const DIFFERING_COUNT = 129
 
 describe.skipIf(!hasRom(VANILLA))('screen exit own screen, vanilla corpus (#956)', () => {
