@@ -33,7 +33,7 @@ const SITES: { what: string; at: number; want: (number | null)[] }[] = [
   { what: 'the number step', at: 0x02a97e, want: [0x38, 0xe9, null, 0x18, 0x69, null] },
 ]
 
-/** Where a hack-changed loader could still make an id a shell: ids below stay plain when a site is unreadable. */
+/** ASSUMPTION, not fact: ids below $C9 run plain when a loader site fails. A hook at $02A866 ahead of the $C9 split could still make a lower id a shell. */
 const FIRST_SPECIAL = 0xc9
 
 /**

@@ -58,6 +58,16 @@ describe('stationary shell list ids', () => {
     }
   })
 
+  it('with one loader site planted, refuses exactly for ids from $C9 up and runs the rest plain', () => {
+    const r = buildSyntheticRom()
+    r.writeAt(0x02a866, [0xea])
+    for (let id = 0; id <= 0xff; id++) {
+      const got = shellLoad(r, id)
+      if (id >= 0xc9) expect(got.refusal, `$${id.toString(16)}`).toMatch(/not the expected code/)
+      else expect(got, `$${id.toString(16)}`).toEqual({})
+    }
+  })
+
   // [name, site, byte planted, id, expected shell number (undefined: not a shell), expected status]
   const OPERANDS: [string, number, number, number, number | undefined, number?][] = [
     ['ADC #5', 0x02a983, 0x05, 0xda, 5],
@@ -65,6 +75,13 @@ describe('stationary shell list ids', () => {
     ['shell ceiling $E2', 0x02a8c1, 0xe2, 0xe1, 0xe1 - 0xda + 4],
     ['status 8 keeps the id', 0x02a8d1, 0x08, 0xda, 0xda, 8],
     ['floor $C0 alone does not free $C5 (ceiling still $DA)', 0x02a8ad, 0xc0, 0xc5, undefined],
+    [
+      'floor $E0 (ceiling still $DA) leaves $DA plain: the game goes to CODE_02A8D4',
+      0x02a8ad,
+      0xe0,
+      0xda,
+      undefined,
+    ],
     ['eeries compare $E1 frees $DE', 0x02a88d, 0xe1, 0xde, 0xde - 0xda + 4],
     ['platforms compare $E1 frees $E0', 0x02a89d, 0xe1, 0xe0, 0xe0 - 0xda + 4],
     ['entry $DD drops $DD', 0x02a867, 0xdd, 0xdd, undefined],
