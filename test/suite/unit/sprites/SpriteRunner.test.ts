@@ -4,6 +4,7 @@
  * planted here and shown to change the verdict.
  */
 import { levelSeed, loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
+import { readdirSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { runOnce, runSprite, TOTAL_STEP_CAP } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import {
@@ -13,7 +14,15 @@ import {
 } from '../../../../src/rom/sprites/interp/SpriteDispatch'
 import { SPRITE_SEED, withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { SpriteBus } from '../../../../src/rom/sprites/interp/SpriteBus'
-import { CORPUS, freshRom, hasCaptures, hasRom, hasRoms, VANILLA } from '../../support/corpus'
+import {
+  CAPTURE_DIR,
+  CORPUS,
+  freshRom,
+  hasCaptures,
+  hasRom,
+  hasRoms,
+  VANILLA,
+} from '../../support/corpus'
 import { grade, passPieces, wrap8, wrap9 } from '../../support/spriteGrade'
 import { gradeCaptures } from '../../../../tools/scripts/spriteReportRun'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
@@ -387,7 +396,12 @@ describe('passPieces folds the re-based offset into 9-bit range (#869)', () => {
   })
 })
 
-describe.skipIf(!hasRom(VANILLA) || !hasCaptures())('card T104: $1F on map 11C (#869)', () => {
+// Same file match as gradeCaptures: a partial capture dir without map 11C must skip, not fail.
+const has11cCapture = (): boolean =>
+  hasCaptures() &&
+  readdirSync(CAPTURE_DIR).some(f => f.endsWith('.zip') && parseInt(f.slice(0, -4), 16) === 0x11c)
+
+describe.skipIf(!hasRom(VANILLA) || !has11cCapture())('card T104: $1F on map 11C (#869)', () => {
   it('grades exact with one piece at dx -240', () => {
     const got = gradeCaptures({ map: 0x11c, sprite: 0x1f })
     expect(got).toHaveLength(1)
