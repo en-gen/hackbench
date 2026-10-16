@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { SpriteModel } from '../../../../src/rom/sprites/interp/SpriteRunner'
-import { passPieces } from '../../support/spriteGrade'
+import { grade, passPieces } from '../../support/spriteGrade'
 
 const part = (oy: number, size: number) =>
   ({ dx: 0, dy: 0, oy, size, char: oy, attr: 0 }) as unknown as SpriteModel['passes'][0]['parts'][0]
@@ -26,5 +26,17 @@ describe('passPieces and the capture drop rule', () => {
       .map(p => p.tile)
       .sort((a, b) => a - b)
     expect(tiles).toEqual([224, 232, 248])
+  })
+})
+
+describe('the report card count and the panel list are one list (#864)', () => {
+  it('"model drew N" counts the pieces passPieces holds, not the raw parts', () => {
+    // The live pipeline cannot produce parked parts: SpriteRunner.readParts skips Y $F0 (SpriteRunner.ts:404).
+    // This hand-built case guards against future drift.
+    const m = model([part(8, 8), part(16, 8), part(0xf0, 8), part(0xf0, 16)])
+    const g = grade(m, [[]])
+    expect(g.verdict).toBe('wrong')
+    expect(g.detail).toBe(`recorded 0 pieces; model drew ${passPieces(m, 0).length}`)
+    expect(passPieces(m, 0)).toHaveLength(2)
   })
 })

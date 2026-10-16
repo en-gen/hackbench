@@ -42,8 +42,8 @@ export interface L2Inputs {
   unverified?: string[]
   /** Why `dy` is unverified: the entrances that reach the map start L2 at different heights (#505). */
   note?: string
-  /** The entrance was guessed (no route from the overworld); its own map note, never part of `note`. */
-  routeNote?: string
+  /** The reasons `note` joins, so the map note can merge one a sibling part also gives (#926). */
+  reasons?: string[]
 }
 
 export type L2Result = { ok: true; l2: L2Inputs } | { ok: false; reason: string }
@@ -93,7 +93,7 @@ function dyFromEntrances(
   rom: RomFile,
   index: number,
   via?: MapEntrances,
-): { dy: number; note?: string; routeNote?: string } | null {
+): { dy: number; note?: string } | null {
   if (!via) return null
   // A midway restart needs MidwayFlag, which the tape (Map16 $038) sets only while DisableMidway,
   // F400[map] >> 4 at the overworld entry, is nonzero (bank_00.asm:13042-13050; bank_05.asm:7349-7357).
@@ -109,14 +109,14 @@ function dyFromEntrances(
   // The drawn path is the one L3Model's camera uses, from the same chooser (#861): null is the
   // primary entry (the first primary path), else the secondary id it names. Never an ordering of
   // our own, so the two views cannot drift apart on a non-ascending entrance list.
-  const { entrance: chosen, note: routeNote } = chooseEntranceNoted(via)
+  // The no-route note is the map's (MapInputs.routeNote), not the height's: two facts, two notes (#945).
+  const { entrance: chosen } = chooseEntranceNoted(via)
   const at = chosen === null ? 0 : paths.findIndex(p => p.kind === 'secondary' && p.id === chosen)
   const ordered = [paths[at]!, ...paths.filter((_, i) => i !== at)]
   const dys = ordered.map(p => entryDy(rom, index, p))
   const differ = ordered.filter((_, i) => dys[i] !== dys[0]).map(pathWords)
   const differNote = differ.length === 0 ? undefined : `drawn as entered ${pathWords(ordered[0]!)}; entered ${differ.join(', ')} it starts at a different height.` // prettier-ignore
-  // Two facts, two notes: the route guess is not a reason the height is unverified (owner test, #945).
-  return { dy: dys[0]!, ...(differNote ? { note: differNote } : {}), ...(routeNote ? { routeNote } : {}) } // prettier-ignore
+  return differNote ? { dy: dys[0]!, note: differNote } : { dy: dys[0]! }
 }
 
 /**
@@ -150,7 +150,7 @@ export function buildL2Inputs(
   const why = [
     gate,
     known?.note && gate ? `${known.note[0]!.toUpperCase()}${known.note.slice(1)}` : known?.note,
-  ].filter(Boolean)
+  ].filter((r): r is string => !!r)
   const note = why.length ? `Background height unverified: ${why.join(' ')}` : undefined
   const preset = isPresetPtr(ptr)
   // Order (D51 B, #506): develop's #637 gate owns the object-stream path in the ten skipped modes,
@@ -196,7 +196,7 @@ export function buildL2Inputs(
       const rows = isVertical ? screens * SCREEN_H_VERT : 27
       return {
         ok: true,
-        l2: { kind: 'image', grid: tilePresetGrid(image, cols, rows), tiles: loadMap16Tiles(rom.rom, table.value), dy: dy(), note, routeNote: known?.routeNote }, // prettier-ignore
+        l2: { kind: 'image', grid: tilePresetGrid(image, cols, rows), tiles: loadMap16Tiles(rom.rom, table.value), dy: dy(), note, reasons: why }, // prettier-ignore
       }
     }
     // After the gate and the table, before the orientation check: modes $0A and $0D would otherwise be refused for a layout mismatch the game never meets.
@@ -217,7 +217,7 @@ export function buildL2Inputs(
         dy: dy(),
         unverified: objects.unverified,
         note,
-        routeNote: known?.routeNote,
+        reasons: why,
       },
     }
   } catch (err) {

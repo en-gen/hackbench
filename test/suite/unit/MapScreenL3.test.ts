@@ -181,12 +181,64 @@ describe('the wire: screens, math, layer 2 role (synthetic)', () => {
     const l3 = { ...verdict(false, null), cgadsub: null }
     expect(wireOf({ ...l1Of(0, 0, false), l3 }).math).toBeNull()
   })
+  it('a guessed entrance reads once, alongside a layer 3 position note that shares the reason (#945, #926)', () => {
+    const routeNote =
+      'No route from the overworld to this map was found, so its entrance is a guess.'
+    const l3 = verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYUnverified: 'because' }))
+    const w = wireOf({ ...l1Of(0, 0, false), l3, routeNote })
+    expect(w.layerNotes.filter(n => n === routeNote)).toHaveLength(1)
+    expect(w.layerNotes).toEqual(['Layer 3 position unverified: because', routeNote])
+  })
   it('an unverified layer 3 camera is a layer note on a map that still draws it (#860)', () => {
     const drawn = (note?: string) => verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYUnverified: note })) // prettier-ignore
     const w = wireOf({ ...l1Of(0, 0, false), l3: drawn('because') })
     expect(w.layerNotes).toEqual(['Layer 3 position unverified: because'])
     expect(w.planes.l3Low ?? w.planes.l3High).toBeTruthy()
     expect(wireOf({ ...l1Of(0, 0, false), l3: drawn() }).layerNotes).toEqual([])
+  })
+  describe('one reason shared by the background height and the layer 3 position reads once (#926)', () => {
+    const drawn = (note?: string) => verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYUnverified: note })) // prettier-ignore
+    const withL2 = (reasons: string[]) => ({
+      ok: true as const,
+      l2: { kind: 'objects' as const, grid: [[null]], tiles: [], dy: 0, reasons, note: `Background height unverified: ${reasons.join(' ')}` }, // prettier-ignore
+    })
+    const notes = (reasons: string[], l3Note: string) =>
+      wireOf({ ...l1Of(0, 0, false), l2: withL2(reasons), l3: drawn(l3Note) }).layerNotes
+    it('the same gate reason on both parts is one line naming both', () => {
+      expect(notes(['gate'], 'gate')).toEqual(['Background height and Layer 3 position unverified: gate']) // prettier-ignore
+    })
+    it('different reasons keep a line each, with their part', () => {
+      expect(notes(['one'], 'two')).toEqual(['Background height unverified: one', 'Layer 3 position unverified: two']) // prettier-ignore
+    })
+    it('a gate plus a dy note on L2 with the same gate on L3: the gate once, the dy note kept', () => {
+      expect(notes(['gate', 'dy'], 'gate')).toEqual(['Background height and Layer 3 position unverified: gate', 'Background height unverified: dy']) // prettier-ignore
+    })
+  })
+  describe('the note lines for every reason overlap of the two parts (#926)', () => {
+    const drawn = (note?: string) => verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYUnverified: note })) // prettier-ignore
+    const withL2 = (reasons: string[]) => ({
+      ok: true as const,
+      l2: { kind: 'objects' as const, grid: [[null]], tiles: [], dy: 0, reasons, note: `Background height unverified: ${reasons.join(' ')}` }, // prettier-ignore
+    })
+    const BOTH = 'Background height and Layer 3 position unverified'
+    const cases: [string[] | undefined, string | undefined, string[]][] = [
+      [['a'], undefined, ['Background height unverified: a']],
+      [['a'], 'a', [`${BOTH}: a`]],
+      [['a'], 'b', ['Background height unverified: a', 'Layer 3 position unverified: b']],
+      [['a', 'b'], undefined, ['Background height unverified: a b']],
+      [['a', 'b'], 'a', [`${BOTH}: a`, 'Background height unverified: b']],
+      [['a', 'b'], 'b', ['Background height unverified: a', `${BOTH}: b`]],
+      [['b', 'a'], undefined, ['Background height unverified: b a']],
+      [['b', 'a'], 'a', ['Background height unverified: b', `${BOTH}: a`]],
+      [['b', 'a'], 'b', [`${BOTH}: b`, 'Background height unverified: a']],
+      [undefined, 'a', ['Layer 3 position unverified: a']],
+    ]
+    for (const [l2, l3, expected] of cases) {
+      it(`L2 ${JSON.stringify(l2)} with L3 ${JSON.stringify(l3)}`, () => {
+        const m = { ...l1Of(0, 0, false), ...(l2 ? { l2: withL2(l2) } : {}), l3: drawn(l3) }
+        expect(wireOf(m).layerNotes).toEqual(expected)
+      })
+    }
   })
   it('the standard layout keeps the #561 sub list for both priority bits', () => {
     for (const pri of [true, false]) {

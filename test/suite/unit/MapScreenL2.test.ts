@@ -279,9 +279,17 @@ describe('the wire carries four planes in the view stacking order (synthetic)', 
     const m = inputs(hGrid(1), false, 1)
     const routeNote =
       'No route from the overworld to this map was found, so its entrance is a guess.'
-    const l2 = { ...l2Of(nullGrid(27, 16), tiles2(solid)), note: 'Background height unverified: x', routeNote } // prettier-ignore
-    const wire = wireOf(mapOf(m, { ok: true, l2 }))
+    const l2 = { ...l2Of(nullGrid(27, 16), tiles2(solid)), note: 'Background height unverified: x' } // prettier-ignore
+    const wire = wireOf({ ...mapOf(m, { ok: true, l2 }), routeNote })
     expect(wire.layerNotes).toEqual(['Background height unverified: x', routeNote])
+  })
+
+  it('the guessed-entrance note still shows when the background is refused (#945)', () => {
+    const m = inputs(hGrid(1), false, 1)
+    const routeNote =
+      'No route from the overworld to this map was found, so its entrance is a guess.'
+    const wire = wireOf({ ...mapOf(m, { ok: false, reason: 'gone' }), routeNote })
+    expect(wire.layerNotes).toEqual(['The background is not drawn: gone', routeNote])
   })
 })
 
@@ -474,7 +482,9 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       const m = inputs(vGrid(1), true, 1)
       const built = buildMapInputs(smw(entry(1), true), LEVEL, UNCLEARED, () => ({ ok: true, mode: 1 }), () => ({ ok: true, inputs: m }), () => new Map()) // prettier-ignore
       if (!built.ok) throw new Error('refused')
-      expect(built.inputs.l2).toMatchObject({ ok: true, l2: { routeNote: expect.stringMatching(/no route/i) } }) // prettier-ignore
+      expect(built.inputs.routeNote).toMatch(/no route/i)
+      expect(built.inputs.l2).toMatchObject({ ok: true })
+      expect(built.inputs.l2?.ok && (built.inputs.l2.l2.note ?? '')).not.toMatch(/no route/i)
     })
 
     it('entrances that agree draw without a note; ones that disagree draw the entrance chooseEntrance names and say the height is unverified', () => {
@@ -536,6 +546,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       const l2 = ok(buildL2Inputs(smw, 0x177, inputs(hGrid(1), false, 1), reached, stock))
       expect(l2).toMatchObject({ kind: 'image', dy: 0x40 - 0x60 })
       expect(l2.note).toBe('Background height unverified: drawn as entered through secondary entrance $110; entered through secondary entrance $111 it starts at a different height.') // prettier-ignore
+      expect(l2.reasons).toEqual([l2.note!.replace('Background height unverified: ', '')]) // image path: the one dy note
       // A graph that throws leaves the map to the older reading instead of refusing it.
       vi.spyOn(smw, 'buildLevelExitGraph').mockImplementation(() => {
         throw new Error('boom')
@@ -569,6 +580,8 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       objects([[1]])
       const both = ok(buildL2Inputs(smw(entry(1), true), LEVEL, m, via(false, false, A, B), () => 'boom.')) // prettier-ignore
       expect(both.note).toBe('Background height unverified: boom. Drawn as entered through secondary entrance $0C4; entered through secondary entrance $1BE it starts at a different height.') // prettier-ignore
+      expect(both.reasons).toEqual(['boom.', 'Drawn as entered through secondary entrance $0C4; entered through secondary entrance $1BE it starts at a different height.']) // prettier-ignore
+      expect(both.note).toBe(`Background height unverified: ${both.reasons!.join(' ')}`)
     })
   })
 
