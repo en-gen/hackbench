@@ -535,6 +535,25 @@ export class MapExplorerWidget extends TreeWidget {
     this.fireOpen(node as MapTreeNode | undefined, true)
   }
 
+  /** SPIKE (#946): the first openable row for a slot, wherever a group or folder puts it. */
+  findSlotNode(index: number): MapTreeNode | undefined {
+    const walk = (n: TreeNode): MapTreeNode | undefined => {
+      const m = n as MapTreeNode
+      if (m.kind === 'map' && m.index === index && !m.noPointer) return m
+      return CompositeTreeNode.is(n) ? n.children.map(walk).find(Boolean) : undefined
+    }
+    return this.model.root && walk(this.model.root)
+  }
+
+  /** SPIKE (#946): what clicking that row does; selecting it opens the map through onSelectionChanged. */
+  async selectSlot(index: number): Promise<void> {
+    const node = this.findSlotNode(index)
+    for (let p = node?.parent; p; p = p.parent) {
+      if (ExpandableTreeNode.is(p) && !p.expanded) await this.model.expandNode(p)
+    }
+    if (node) this.model.selectNode(node)
+  }
+
   /** Groups and messages name no map; a marker points at a row shown elsewhere. */
   protected fireOpen(map: MapTreeNode | undefined, pinned: boolean): void {
     if (map?.category === 'overworld') {

@@ -1,13 +1,10 @@
 /**
- * SPIKE (#946, not for merge): an entry map drawn with its sub areas on one canvas.
+ * SPIKE (#946, not for merge): the selected map with its neighbours as thumbnail cards.
  *
- * For each level the sub areas come from the `mapSubAreas` RPC, and the page is
- * checked against the DTO, not against itself: each region's data-offset-x/y equals
- * the DTO's, the alignment axis equals exit minus landing (computed here), the side
- * is on the right side of the entry map, the on-screen box sits at the offset (at the
- * widget's 0.5 scale), and the region's canvas holds drawn pixels.
- *
- * Levels (vanilla ROM): $00B down pipe, $0BE up pipe, $107 door.
+ * Checked against the `mapSubAreas` RPC and the shell, not against the page itself:
+ * hovering a link changes its computed stroke; clicking a card selects that slot in
+ * the Maps tree AND opens it in a map view; the re-targeted view then shows a card
+ * back to the map that was left. Vanilla ROM; $00B (down pipe) -> $0E1.
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')
@@ -17,8 +14,8 @@ const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
 
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
 const ROM = process.env.HB_ROM || romPath(VANILLA)
-const GAP = 32
-const SCALE = 0.5
+const FROM = 0x0b
+const TO = 0xe1
 
 const GET_SVC = `function getSvc(name) {
   const d = window.theia.container._bindingDictionary
@@ -43,29 +40,18 @@ test.beforeEach(async ({ page }) => {
 test.afterEach(async ({ page }) => {
   await page.evaluate(async ids => {
     const shell = getSvc('ApplicationShell')
-    for (const id of ids) {
-      try {
-        await shell.closeWidget(id)
-      } catch {
-        /* already closed */
-      }
-    }
+    await Promise.all(ids.map(id => shell.closeWidget(id).catch(() => {})))
   }, opened.splice(0))
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true })
 })
 
-async function createProject(page, dir) {
-  return page.evaluate(
-    ({ romPath, directory }) =>
-      getSvc('Symbol(ProjectService)').createProject({ romPath, name: 'MyHack', directory }),
-    { romPath: ROM, directory: dir },
-  )
-}
-
-/** Opens the map tab, then runs the palette command on it; returns the combined view's root selector. */
-async function showWithSubAreas(page, manifestPath, index) {
+/** Opens the project as File > Open does (loads the Maps tree, wires row clicks), then the neighbours view. */
+async function showNeighbours(page, index) {
   await page.evaluate(
-    async ({ mp, index }) => {
+    async ({ romPath, directory, index }) => {
+      const project = await getSvc('Symbol(ProjectService)').createProject({ romPath, name: 'MyHack', directory }) // prettier-ignore
+      const mp = project.manifestPath
+      await getSvc('HackBenchContribution').openPath(mp)
       const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { index })
       await w.open({ manifestPath: mp, index, label: index.toString(16), iconClass: '' })
       const shell = getSvc('ApplicationShell')
@@ -73,71 +59,53 @@ async function showWithSubAreas(page, manifestPath, index) {
       await shell.activateWidget(w.id)
       await getSvc('CommandRegistry').executeCommand('hackbench.mapView.showWithSubAreas')
     },
-    { mp: manifestPath, index },
+    { romPath: ROM, directory: tmp, index },
   )
-  opened.push(`hackbench.map-view:${index}`, `hackbench.map-subareas:${index}`)
-  return `[id="hackbench.map-subareas:${index}"]`
+  opened.push(`hackbench.map-view:${index}`, `hackbench.map-view:${TO}`, `hackbench.map-subareas:${index}`) // prettier-ignore
+  return page.locator('.hb-map-subareas')
 }
 
-const CASES = [
-  { slot: 0x0b, name: 'down pipe', kinds: ['below'] },
-  { slot: 0xbe, name: 'up pipe', kinds: ['above'] },
-  { slot: 0x107, name: 'door', kinds: ['beside'] },
-]
+test('hovering a link changes its stroke; clicking the card opens that map, and the view shows the way back', async ({
+  page,
+}) => {
+  test.setTimeout(240000)
+  const view = await showNeighbours(page, FROM)
+  await expect(view.locator('[data-ready="true"]').first()).toBeVisible({ timeout: 120000 })
+  await expect(view.locator(`[data-slot="${TO}"][data-ready="true"]`)).toHaveCount(1, { timeout: 120000 }) // prettier-ignore
+  expect(await view.locator(`[data-slot="${TO}"]`).getAttribute('data-side')).toBe('below')
 
-for (const c of CASES) {
-  test(`$${c.slot.toString(16)} (${c.name}): sub areas sit where the RPC says, aligned, with pixels`, async ({
-    page,
-  }) => {
-    test.setTimeout(180000)
-    const project = await createProject(page, tmp)
-    const dto = await page.evaluate(
-      ({ mp, slot }) => getSvc('Symbol(ProjectService)').mapSubAreas(mp, slot),
-      { mp: project.manifestPath, slot: c.slot },
-    )
-    expect(dto.ok).toBe(true)
-    expect(dto.subAreas.length).toBeGreaterThan(0)
-    expect(dto.subAreas.map(s => s.kind)).toEqual(expect.arrayContaining(c.kinds))
+  // (a) Hover: read the computed stroke before and after, pointing at the link's own midpoint.
+  const link = view.locator(`[data-link="${TO}:0"]`)
+  const stroke = () =>
+    link.locator('line').first().evaluate(el => `${getComputedStyle(el).stroke}|${getComputedStyle(el).strokeWidth}`) // prettier-ignore
+  const before = await stroke()
+  const mid = await link
+    .locator('line')
+    .last()
+    .evaluate(el => {
+      const b = el.ownerSVGElement.getBoundingClientRect()
+      const a = n => Number(el.getAttribute(n))
+      return { x: b.left + (a('x1') + a('x2')) / 2, y: b.top + (a('y1') + a('y2')) / 2 }
+    })
+  await page.mouse.move(mid.x, mid.y)
+  await expect.poll(stroke).not.toBe(before)
+  await page.mouse.move(2, 2)
+  await expect.poll(stroke).toBe(before)
 
-    const root = await showWithSubAreas(page, project.manifestPath, c.slot)
-    const regions = page.locator(`${root} [data-subarea-slot]`)
-    await expect(regions).toHaveCount(dto.subAreas.length)
-    await expect(page.locator(`${root} [data-entry-slot][data-ready="true"]`)).toHaveCount(1, { timeout: 120000 }) // prettier-ignore
-    await expect(page.locator(`${root} [data-subarea-slot][data-ready="true"]`)).toHaveCount(dto.subAreas.length, { timeout: 120000 }) // prettier-ignore
-    await expect(page.locator(`${root} [data-notes] li`).first()).toBeVisible()
+  // (b) Click: the Maps tree selects that slot and the map view for it opens.
+  await view.locator(`[data-slot="${TO}"]`).first().click()
+  const tree = () =>
+    page.evaluate(async () => {
+      const ex = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-explorer')
+      return ex.model.selectedNodes.map(n => n.index)
+    })
+  await expect.poll(tree, { timeout: 30000 }).toEqual([TO])
+  const shown = id => page.evaluate(i => !!getSvc('ApplicationShell').getWidgetById(i)?.isVisible, id) // prettier-ignore
+  await expect.poll(() => shown(`hackbench.map-view:${TO}`), { timeout: 30000 }).toBe(true)
 
-    const entryBox = await page.locator(`${root} [data-entry-slot]`).boundingBox()
-    for (const s of dto.subAreas) {
-      const region = page.locator(`${root} [data-subarea-slot="${s.slot}"]`)
-      expect(Number(await region.getAttribute('data-offset-x'))).toBe(s.offsetX)
-      expect(Number(await region.getAttribute('data-offset-y'))).toBe(s.offsetY)
-      expect(await region.getAttribute('data-kind')).toBe(s.kind)
-
-      // Alignment and side, from the DTO's own exit and landing points.
-      if (s.kind === 'beside') {
-        expect(s.offsetY).toBe(s.exitPx.y - s.landingPx.y)
-        expect(s.offsetX).toBeGreaterThanOrEqual(dto.entry.widthPx + GAP)
-      } else {
-        expect(s.offsetX).toBe(s.exitPx.x - s.landingPx.x)
-        if (s.kind === 'below') expect(s.offsetY).toBeGreaterThanOrEqual(dto.entry.heightPx + GAP)
-        else expect(s.offsetY).toBeLessThanOrEqual(-(s.heightPx + GAP))
-      }
-
-      // The box really is drawn at the offset from the entry map's box.
-      const box = await region.boundingBox()
-      expect(box.x - entryBox.x).toBeCloseTo(s.offsetX * SCALE, 0)
-      expect(box.y - entryBox.y).toBeCloseTo(s.offsetY * SCALE, 0)
-
-      // The canvas holds a picture, not the backdrop.
-      const drawn = await region.locator('canvas').evaluate(cv => {
-        const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data
-        let n = 0
-        for (let i = 3; i < d.length; i += 4) if (d[i]) n++
-        return { n, total: cv.width * cv.height }
-      })
-      expect(drawn.n).toBeGreaterThan(drawn.total * 0.01)
-      // A faint connector joins the exit and this sub area's landing point.
-      await expect(page.locator(`${root} line[data-connector-slot="${s.slot}"]`)).toHaveCount(1)
-    }
-  })
-}
+  // (c) The same view re-targets to the new map and has a card back to the origin.
+  await expect(view.locator(`[data-entry-slot="${TO}"]`)).toHaveCount(1, { timeout: 60000 })
+  const back = view.locator(`[data-slot="${FROM}"]`)
+  await expect(back).toHaveCount(1)
+  expect(await back.getAttribute('data-side')).toBe('above')
+})

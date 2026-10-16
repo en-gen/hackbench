@@ -1,63 +1,52 @@
-# Spike 946: an entry map drawn with its sub areas
+# Spike 946: the selected map with its neighbours as cards
 
-Not for merge. Branch `spike/946-subarea-layout`. Command palette: "Map: Show With
-Sub Areas" (`hackbench.mapView.showWithSubAreas`), run while a map tab is focused.
-Code: `src/rom/subAreaLayout.ts` (placement), `mapSubAreas` on `ProjectService`,
-`theia/extension/src/browser/map-subareas-widget.tsx` (the read-only canvas).
+Not for merge. Branch `spike/946-subarea-layout`. Command palette: "Map: Show
+Neighbours" (`hackbench.mapView.showWithSubAreas`), run while a map tab is focused.
+Code: `src/rom/subAreaLayout.ts` (neighbours, links, `placeCards`), `mapSubAreas` on
+`ProjectService`, `theia/extension/src/browser/map-subareas-widget.tsx` (the view).
 
-## How it places a sub area
+## Owner's pick
 
-1. Walk the entry map's screen exits in screen order. The first exit that reaches
-   a slot defines that sub area (the route entrance of #945, computed here, not
-   built there). Destination and landing entrance come from the same tables the
-   exit graph reads (`DATA_05F800` for a secondary exit, else the main entrance).
-2. Find the pipe or door on the exit's screen by scanning Layer 1 for the tiles
-   the player code tests: `$137/$138` pipe cap (`bank_00.asm:13205-13216`),
-   `$13F` side pipe (`bank_00.asm:13177`), `$20` door (`bank_00.asm:12100-12118`).
-   A cap with the body tile `$135` under it is a down pipe; one with the body
-   over it is an up pipe (`bank_0D.asm:2118-2186`: pipe type 1 starts with the
-   cap, type 4 ends with it).
-3. Down pipe: sub area below. Up pipe: above. Door or side pipe: beside, right.
-   The landing column (below, above) or row (beside) is shifted to line up with
-   the exit. A 32 px gap separates the maps. A faint dashed line joins the two.
-4. Cross-check: the landing entrance has an action type (`DATA_05FE00` bits 0-2,
-   or `DATA_05F200` bits 3-5 for a main entrance, `bank_05.asm:7155-7161,
-   7309-7322`). 3 means it emerges upward (came down a pipe), 4 downward, 1 and 2
-   from a side pipe, 0 walks out (`bank_00.asm:4987-5044`). When the tile and the
-   action disagree the sub area carries a note. With no tile on the screen the
-   action alone picks the side, the exit is the screen centre, and the placement
-   is marked `heuristic`.
+The first version drew sub areas at full size; the owner chose thumbnail cards. Fixed-size cards end the overlap problem: the full-size view
+pushed `$0D0` 3256 px away to clear its neighbours, a card is always 160 x 96 and
+neighbours on one side only nudge along that side.
 
-## Levels used (vanilla ROM, one machine)
+## The card spec
 
-| Entry map | Sub area | Kind | Basis | Offset (x, y) |
-| --- | --- | --- | --- | --- |
-| `$00B` screen 7 | `$0E1` | below | pipe tile, action agrees | 1864, 464 |
-| `$00B` screen 7 | `$0E0` | below | same pipe, pushed past `$0E1` | 840, 928 |
-| `$0BE` screen 3 | `$0D0` | above | pipe tile, action agrees | -3256, -464 |
-| `$107` screen `$0A` | `$1EA` | beside | door tile, action agrees | 2848, 16 |
+1. A neighbour is a fixed 160 x 96 card: the whole map scaled down and letterboxed
+   (aspect kept), its name (the Maps tree label) and `$0E1 · 3 scr`.
+2. Placement by link direction, with a gap from the map: below for a down pipe, above
+   for an up pipe, beside (right) for a door or side pipe. A card is centred on its
+   link point along the map edge; cards on one side are sorted and nudged apart.
+3. Each link is a thin grey dashed line with a dot at both ends: one on the pipe or
+   door of the full-size selected map, one on the scaled position inside the card.
+   Hovering a link or its card makes it solid, blue, thicker, with bigger dots.
+4. A room with a return (the map's exit leads to the room's IN, the room's own exit
+   leads back to a different entrance) is one card with two links, centred on the
+   midpoint of the two points on the selected map. `$0BE` / `$0D0` is one.
+5. Inbound neighbours: maps whose exits lead into the selected map, from the exit
+   graph. The side is the reverse of the origin's own pipe: you came down a pipe, so
+   the origin sits above (`$0E1` shows `$00B` above). An origin that is also an
+   outbound neighbour merges into the same card. An origin the overworld enters
+   directly (as `$00B`) counts here, though it is not a sub area going out.
+6. Clicking a card selects that slot's node in the Maps tree (`selectSlot`), and the
+   tree's own selection handler opens the map. The view follows `onMapOpened` and
+   re-targets to the new map.
 
-`$00B` is the confirmed down pipe, `$0BE` the confirmed up pipe, `$107` the
-confirmed door (Vanilla Ghost House; `$1EA` is also entered from `$1FB`).
+## How a link is found
 
-The brief's guesses did not hold: `$106` (Yoshi's Island 2) has its only exit on
-screen `$13`, not `$0F`, to `$1CA`, with no pipe or door tile on that screen; the
-landing action says it emerges downward, so it is drawn above, marked a guess.
-`$022` (Chocolate Island 1) has three exits, all on screen `$13`, none on a tile
-the scan knows; all three are guesses.
+The exit's screen is scanned for the tile the player code tests (pipe cap
+`$137/$138`, `bank_00.asm:13205-13216`; side pipe `$13F`, `bank_00.asm:13177`; door
+`$20`, `bank_00.asm:12100-12118`); a cap with body `$135` under it is a down pipe, over
+it an up pipe (`bank_0D.asm:2118-2186`). The landing's action type (`bank_05.asm:7155-7161,
+7309-7322`) cross-checks, and alone picks the side when no tile is found (`heuristic`).
 
-## What did not work or is not solved
+Levels (vanilla ROM, one machine): `$00B` down pipe to `$0E1`/`$0E0` (below); `$0BE` up
+pipe to `$0D0` (above); `$107` door to `$1EA` (beside). `$022`, `$106`: guesses.
 
-- An exit belongs to a whole screen. With two pipes or doors on it, the first in
-  reading order is used and a note says how many there were. Several exits on one
-  screen (as `$00B`) share one pipe.
-- Overlap: sub areas on the same side are pushed further out until they do not
-  overlap. Nothing else is done; the pushed ones no longer line up with the
-  connector's natural run and can sit far away (`$0BE` puts `$0D0` 3256 px left).
-- Loops back into the entry map are noted and not drawn. Depth is 1.
-- A sub area shared with another level is drawn once and noted ("Also entered
-  from ..."); its placement is only right for the entry map shown.
-- Which way a side pipe opens is not decoded; it is always placed to the right.
-- Some exits are not a pipe or door tile at all (`$106`, `$022`): the scan finds
-  nothing and the placement is a guess from the entrance action.
-- Not checked: hacked ROMs, Layer 2 exits, sprites (not drawn in the combined view).
+## Not solved
+
+- Several pipes or doors on one screen: the first in reading order, with a note.
+- A side pipe always opens to the right (its direction is not decoded).
+- Depth 1; hacked ROMs, Layer 2 exits, sprites unchecked. Inbound needs the
+  overworld-rooted exit graph, so a map nothing reaches lists none.

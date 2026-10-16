@@ -1,6 +1,6 @@
 /**
- * SPIKE (#946, not for merge): `hackbench.mapView.showWithSubAreas`, "Map: Show With
- * Sub Areas", opens the focused map with its sub areas on one read-only canvas.
+ * SPIKE (#946, not for merge): `hackbench.mapView.showWithSubAreas`, "Map: Show Neighbours",
+ * opens the focused map with its neighbours as thumbnail cards.
  */
 import { inject, injectable } from '@theia/core/shared/inversify'
 import { ApplicationShell, WidgetManager } from '@theia/core/lib/browser'
@@ -10,7 +10,7 @@ import { SUBAREAS_VIEW_ID, SubAreasWidget } from './map-subareas-widget'
 
 export const ShowWithSubAreasCommand: Command = {
   id: 'hackbench.mapView.showWithSubAreas',
-  label: 'Show With Sub Areas',
+  label: 'Show Neighbours',
   category: 'Map',
 }
 

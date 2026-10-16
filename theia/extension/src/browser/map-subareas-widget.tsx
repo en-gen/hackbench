@@ -1,12 +1,12 @@
 /**
- * SPIKE (#946, not for merge): an entry map drawn together with its sub areas on one
- * read-only canvas. The backend (`mapSubAreas`) says where each sub area sits; the
- * screens come from the same `mapScreen` reply the map view draws, composited with
- * the same `composeScreen`. No sprites, no editing, no layer toggles.
+ * SPIKE (#946, not for merge): the selected map at half size with its neighbours as
+ * fixed-size cards (`placeCards`) joined by dashed links, all from the `mapSubAreas`
+ * reply and the `mapScreen` pictures the map view draws. A card click selects the
+ * map's Maps tree node, which opens it; the view then follows `onMapOpened`.
  */
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
-import { ReactWidget } from '@theia/core/lib/browser'
+import { ApplicationShell, ReactWidget, WidgetManager } from '@theia/core/lib/browser'
 import {
   MAP_PLANE_KEYS,
   MapScreenResult,
@@ -15,34 +15,24 @@ import {
 } from '../common/project-protocol'
 import { decodeRgba } from './map16-pixels'
 import { withFlameKeys } from './map-view-model'
+import { MAP_EXPLORER_ID, MapExplorerWidget, slotLabel } from './map-explorer-widget'
 import { composeScreen, type SourceKey } from '../../../../src/rom/model/ColorMath'
+import { CARD_H, CARD_W, fitInCard, placeCards } from '../../../../src/rom/subAreaLayout'
 import type { MapViewOptions } from './map-view-widget'
 import type { ProjectBound } from './project-bound'
-import type { SubAreaDto } from '../../../../src/rom/subAreaLayout'
 
 export const SUBAREAS_VIEW_ID = 'hackbench.map-subareas'
 type Layout = Extract<MapScreenResult, { status: 'ok' }>
-const SCALES = [0.25, 0.5, 1]
 /** The view's start state: no palace cleared, no switch pressed. */
 const FLAGS_OFF = { green: false, yellow: false, blue: false, red: false }
 const SWITCHES_OFF = { blue: false, silver: false, onOff: false }
-
-/** One map's region on the stage: its offset from the entry map's top-left, and its canvas. */
-interface Region {
-  slot: number
-  offsetX: number
-  offsetY: number
-  width: number
-  height: number
-  dto?: SubAreaDto
-  backdrop?: string
-  ready: boolean
-  error?: string
-}
+const LINK = { idle: { stroke: '#888', width: 1, dash: '4 3', r: 3 }, hot: { stroke: '#1a73e8', width: 2.5, dash: 'none', r: 5 } } // prettier-ignore
 
 @injectable()
 export class SubAreasWidget extends ReactWidget implements ProjectBound {
   @inject(ProjectService) protected readonly projects!: ProjectService
+  @inject(WidgetManager) protected readonly widgets!: WidgetManager
+  @inject(ApplicationShell) protected readonly shell!: ApplicationShell
 
   readonly projectBound = true as const
   protected options: MapViewOptions | undefined
@@ -50,9 +40,11 @@ export class SubAreasWidget extends ReactWidget implements ProjectBound {
     return this.options?.manifestPath
   }
   protected result: MapSubAreasResult | undefined
-  protected regions: Region[] = []
-  protected scale = 0.5
+  protected hover: number | null = null
+  protected explorer: MapExplorerWidget | undefined
   protected readonly canvases = new Map<number, HTMLCanvasElement>()
+  protected readonly ready = new Set<number>()
+  protected readonly errors = new Map<number, string>()
   protected seq = 0
 
   @postConstruct()
@@ -65,173 +57,189 @@ export class SubAreasWidget extends ReactWidget implements ProjectBound {
   async open(options: MapViewOptions): Promise<void> {
     const seq = ++this.seq
     this.options = options
-    this.id = `${SUBAREAS_VIEW_ID}:${options.index}`
-    this.title.label = `${options.label} with sub areas`
+    if (!this.id) this.id = `${SUBAREAS_VIEW_ID}:${options.index}`
+    this.title.label = `${options.label} neighbours`
     this.title.iconClass = 'codicon codicon-map'
     this.result = undefined
-    this.regions = []
+    this.ready.clear()
+    this.errors.clear()
     this.update()
+    if (!this.explorer) {
+      this.explorer = await this.widgets.getOrCreateWidget<MapExplorerWidget>(MAP_EXPLORER_ID)
+      this.toDispose.push(
+        this.explorer.onMapOpened(({ index, label }) => {
+          if (this.options && index !== this.options.index) void this.open({ ...this.options, index, label }) // prettier-ignore
+        }),
+      )
+    }
     const r = await this.projects.mapSubAreas(options.manifestPath, options.index)
     if (seq !== this.seq) return
     this.result = r
-    if (!r.ok) return this.update()
-    this.regions = [
-      { slot: r.entry.slot, offsetX: 0, offsetY: 0, width: r.entry.widthPx, height: r.entry.heightPx, ready: false }, // prettier-ignore
-      ...r.subAreas.map(s => ({ slot: s.slot, offsetX: s.offsetX, offsetY: s.offsetY, width: s.widthPx, height: s.heightPx, dto: s, ready: false })), // prettier-ignore
-    ]
     this.update()
-    await Promise.all(this.regions.map(g => this.paintRegion(g, seq)))
+    if (!r.ok) return
+    await new Promise(resolve => requestAnimationFrame(resolve)) // the canvases exist after this render
+    await Promise.all([
+      this.paint(r.entry.slot, true, seq),
+      ...r.cards.map(c => this.paint(c.slot, false, seq)),
+    ])
   }
 
-  /** Screen 0 first (it says the orientation and the screen count), then the rest, composited into the region's canvas. */
-  protected async paintRegion(g: Region, seq: number): Promise<void> {
+  /** Renders the map's screens off-screen, then draws them 1:1 (the selected map) or letterboxed (a card). */
+  protected async paint(slot: number, isEntry: boolean, seq: number): Promise<void> {
+    try {
+      const pic = await this.renderMap(slot)
+      if (seq !== this.seq) return
+      const cv = this.canvases.get(slot)
+      const ctx = cv?.getContext('2d')
+      if (!cv || !ctx) throw new Error('No canvas for this map')
+      ctx.fillStyle = pic.backdrop
+      ctx.fillRect(0, 0, cv.width, cv.height)
+      const f = isEntry ? { scale: 1, ox: 0, oy: 0 } : fitInCard(pic.canvas.width, pic.canvas.height) // prettier-ignore
+      ctx.drawImage(pic.canvas, f.ox, f.oy, pic.canvas.width * f.scale, pic.canvas.height * f.scale) // prettier-ignore
+      this.ready.add(slot)
+    } catch (e) {
+      this.errors.set(slot, (e as Error).message)
+    }
+    this.update()
+  }
+
+  /** Screen 0 first (it says the orientation and the screen count), then the rest. */
+  protected async renderMap(
+    slot: number,
+  ): Promise<{ canvas: HTMLCanvasElement; backdrop: string }> {
     const manifest = this.options!.manifestPath
     const get = (screen: number) =>
-      this.projects.mapScreen(manifest, g.slot, screen, FLAGS_OFF, SWITCHES_OFF)
-    try {
-      const first = await get(0)
-      if (first.status !== 'ok') throw new Error(first.status === 'unavailable' ? first.reason : 'The base ROM is not on this machine') // prettier-ignore
-      const rest = await Promise.all(
-        Array.from({ length: first.screenCount - 1 }, (_, i) => get(i + 1)),
-      )
-      if (seq !== this.seq) return
-      g.backdrop = `rgb(${first.backdrop.join(',')})`
-      this.update() // the canvas exists once the region has rendered
-      await new Promise(resolve => requestAnimationFrame(resolve))
-      const canvas = this.canvases.get(g.slot)
-      const ctx = canvas?.getContext('2d')
-      if (!canvas || !ctx) throw new Error('No canvas for this map')
-      const vertical = first.orientation === 'vertical'
-      for (const [i, r] of [first, ...rest].entries()) {
-        if (r.status !== 'ok') throw new Error(r.status === 'unavailable' ? r.reason : 'The base ROM is not on this machine') // prettier-ignore
-        ctx.putImageData(composite(r), vertical ? 0 : i * r.width, vertical ? i * r.height : 0)
-      }
-      g.ready = true
-    } catch (e) {
-      g.error = (e as Error).message
+      this.projects.mapScreen(manifest, slot, screen, FLAGS_OFF, SWITCHES_OFF)
+    const ok = (r: MapScreenResult): Layout => {
+      if (r.status === 'ok') return r
+      throw new Error(r.status === 'unavailable' ? r.reason : 'The base ROM is not on this machine')
     }
+    const first = ok(await get(0))
+    const rest = (await Promise.all(Array.from({ length: first.screenCount - 1 }, (_, i) => get(i + 1)))).map(ok) // prettier-ignore
+    const vertical = first.orientation === 'vertical'
+    const n = first.screenCount
+    const canvas = document.createElement('canvas')
+    canvas.width = vertical ? first.width : first.width * n
+    canvas.height = vertical ? first.height * n : first.height
+    const ctx = canvas.getContext('2d')!
+    for (const [i, r] of [first, ...rest].entries()) {
+      ctx.putImageData(composite(r), vertical ? 0 : i * r.width, vertical ? i * r.height : 0)
+    }
+    return { canvas, backdrop: `rgb(${first.backdrop.join(',')})` }
+  }
+
+  /** Same as clicking the map's row in the Maps tree. */
+  protected async go(slot: number): Promise<void> {
+    await this.shell.revealWidget(MAP_EXPLORER_ID)
+    await this.explorer?.selectSlot(slot)
+  }
+
+  protected setHover(slot: number | null): void {
+    this.hover = slot
     this.update()
   }
 
   protected render(): React.ReactNode {
     const r = this.result
-    if (!r) return <div style={{ padding: 16 }}>Reading the map and its sub areas...</div>
+    if (!r) return <div style={{ padding: 16 }}>Reading the map and its neighbours...</div>
     if (!r.ok) return <div style={{ padding: 16 }}>{r.reason}</div>
-    const minX = Math.min(0, ...this.regions.map(g => g.offsetX))
-    const minY = Math.min(0, ...this.regions.map(g => g.offsetY))
-    const maxX = Math.max(...this.regions.map(g => g.offsetX + g.width))
-    const maxY = Math.max(...this.regions.map(g => g.offsetY + g.height))
-    const [w, h] = [maxX - minX, maxY - minY]
-    const allReady = this.regions.length > 0 && this.regions.every(g => g.ready || g.error)
-    const notes = [
-      ...r.notes.map(n => ({ who: 'This map', n })),
-      ...r.subAreas.flatMap(s => s.notes.map(n => ({ who: `Sub area ${slotHex(s.slot)}`, n }))),
-    ]
+    const S = 0.5
+    const [mw, mh] = [r.entry.widthPx * S, r.entry.heightPx * S]
+    const pos = placeCards({ w: r.entry.widthPx, h: r.entry.heightPx }, r.cards.map(c => ({ side: c.side, mains: c.links.map(l => l.main) })), S) // prettier-ignore
+    const minX = Math.min(0, ...pos.map(p => p.x))
+    const minY = Math.min(0, ...pos.map(p => p.y))
+    const w = Math.max(mw, ...pos.map(p => p.x + CARD_W)) - minX
+    const h = Math.max(mh, ...pos.map(p => p.y + CARD_H)) - minY
+    const allReady = [r.entry.slot, ...r.cards.map(c => c.slot)].every(s => this.ready.has(s) || this.errors.has(s)) // prettier-ignore
+    const notes = [...r.notes, ...r.cards.flatMap(c => c.notes.map(n => `${slotLabel(c.slot)}: ${n}`))] // prettier-ignore
+    const canvasRef = (slot: number) => (el: HTMLCanvasElement | null) => {
+      if (el) this.canvases.set(slot, el)
+      else this.canvases.delete(slot)
+    }
+    const hov = (slot: number) => ({
+      onMouseEnter: () => this.setHover(slot),
+      onMouseLeave: () => this.setHover(null),
+      onClick: () => void this.go(slot),
+    })
+    const abs = { position: 'absolute' } as const
     return (
       <div data-ready={allReady} style={{ padding: 12 }}>
-        <label>
-          Zoom{' '}
-          <select
-            value={this.scale}
-            onChange={e => {
-              this.scale = Number(e.target.value)
-              this.update()
-            }}
-          >
-            {SCALES.map(s => (
-              <option key={s} value={s}>
-                {s * 100}%
-              </option>
-            ))}
-          </select>
-        </label>
-        <div
-          style={{
-            width: w * this.scale,
-            height: h * this.scale,
-            position: 'relative',
-            marginTop: 8,
-          }}
-        >
-          <div
-            style={{
-              position: 'absolute',
-              left: 0,
-              top: 0,
-              width: w,
-              height: h,
-              transform: `scale(${this.scale})`,
-              transformOrigin: '0 0',
-            }}
-          >
-            {this.regions.map(g => (
-              <div
-                key={g.slot}
-                data-subarea-slot={g.dto ? g.slot : undefined}
-                data-entry-slot={g.dto ? undefined : g.slot}
-                data-offset-x={g.offsetX}
-                data-offset-y={g.offsetY}
-                data-kind={g.dto?.kind ?? 'entry'}
-                data-ready={g.ready}
-                title={`${g.dto ? 'Sub area' : 'Map'} ${slotHex(g.slot)}`}
-                style={{ position: 'absolute', left: g.offsetX - minX, top: g.offsetY - minY, width: g.width, height: g.height, background: g.backdrop ?? '#222', outline: '2px solid rgba(128,128,128,0.6)' }} // prettier-ignore
-              >
-                <canvas
-                  width={g.width}
-                  height={g.height}
-                  style={{ display: 'block' }}
-                  ref={el => {
-                    if (el) this.canvases.set(g.slot, el)
-                    else this.canvases.delete(g.slot)
-                  }}
-                />
-                {g.error && (
-                  <div style={{ position: 'absolute', top: 0, color: 'red' }}>{g.error}</div>
-                )}
-              </div>
-            ))}
-            <svg
-              width={w}
-              height={h}
-              style={{ position: 'absolute', left: 0, top: 0, pointerEvents: 'none' }}
+        <div style={{ ...abs, position: 'relative', width: w, height: h }}>
+          <canvas
+            data-entry-slot={r.entry.slot}
+            width={r.entry.widthPx}
+            height={r.entry.heightPx}
+            ref={canvasRef(r.entry.slot)}
+            style={{ ...abs, left: -minX, top: -minY, width: mw, height: mh, outline: '1px solid #888' }} // prettier-ignore
+          />
+          {r.cards.map((c, i) => (
+            <div
+              key={c.slot}
+              data-slot={c.slot}
+              data-side={c.side}
+              data-ready={this.ready.has(c.slot)}
+              title={this.errors.get(c.slot) ?? `Open ${slotLabel(c.slot)}`}
+              {...hov(c.slot)}
+              style={{ ...abs, left: pos[i]!.x - minX, top: pos[i]!.y - minY, width: CARD_W, height: CARD_H, cursor: 'pointer', overflow: 'hidden', outline: this.hover === c.slot ? '2px solid #1a73e8' : '1px solid #888' }} // prettier-ignore
             >
-              {r.subAreas.map(s => (
-                <line
-                  key={s.slot}
-                  data-connector-slot={s.slot}
-                  x1={s.exitPx.x - minX}
-                  y1={s.exitPx.y - minY}
-                  x2={s.offsetX + s.landingPx.x - minX}
-                  y2={s.offsetY + s.landingPx.y - minY}
-                  stroke="white"
-                  strokeOpacity={0.55}
-                  strokeWidth={4}
-                  strokeDasharray="16 10"
-                />
-              ))}
-            </svg>
-          </div>
+              <canvas
+                width={CARD_W}
+                height={CARD_H}
+                ref={canvasRef(c.slot)}
+                style={{ display: 'block' }}
+              />{' '}
+              {/* prettier-ignore */}
+              <div style={{ ...abs, left: 0, right: 0, bottom: 0, padding: '1px 4px', fontSize: 10, lineHeight: '12px', background: 'rgba(0,0,0,0.65)', color: '#fff' }}> {/* prettier-ignore */}
+                <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}> {/* prettier-ignore */}
+                  {this.explorer?.findSlotNode(c.slot)?.mapName ?? slotLabel(c.slot)}
+                </div>
+                <div>{`${slotLabel(c.slot)} · ${c.screens} scr`}</div>
+              </div>
+            </div>
+          ))}
+          <svg width={w} height={h} style={{ ...abs, left: 0, top: 0, pointerEvents: 'none' }}>
+            {' '}
+            {/* prettier-ignore */}
+            {r.cards.flatMap((c, i) => {
+              const f = fitInCard(c.widthPx, c.heightPx)
+              const st = this.hover === c.slot ? LINK.hot : LINK.idle
+              return c.links.map((l, k) => {
+                const [x1, y1] = [l.main.x * S - minX, l.main.y * S - minY]
+                const x2 = pos[i]!.x - minX + f.ox + l.card.x * f.scale
+                const y2 = pos[i]!.y - minY + f.oy + l.card.y * f.scale
+                const seg = { x1, y1, x2, y2 }
+                return (
+                  <g key={`${c.slot}:${k}`} data-link={`${c.slot}:${k}`}>
+                    <line
+                      {...seg}
+                      style={{ stroke: st.stroke, strokeWidth: st.width, strokeDasharray: st.dash }}
+                    />{' '}
+                    {/* prettier-ignore */}
+                    <circle cx={x1} cy={y1} r={st.r} fill={st.stroke} />
+                    <circle cx={x2} cy={y2} r={st.r} fill={st.stroke} />
+                    <line
+                      {...seg}
+                      {...hov(c.slot)}
+                      stroke="transparent"
+                      strokeWidth={14}
+                      style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
+                    />{' '}
+                    {/* prettier-ignore */}
+                  </g>
+                )
+              })
+            })}
+          </svg>
         </div>
         <ul data-notes style={{ marginTop: 12 }}>
-          {r.subAreas.map(s => (
-            <li key={s.slot}>
-              Sub area {slotHex(s.slot)} sits {s.kind}, from screen{' '}
-              {s.fromScreen.toString(16).toUpperCase()}
-              {s.basis === 'heuristic' ? ' (a guess)' : ''}.
-            </li>
-          ))}
-          {notes.map((x, i) => (
-            <li key={`n${i}`}>
-              {x.who}: {x.n}
-            </li>
+          {notes.map((n, i) => (
+            <li key={i}>{n}</li>
           ))}
         </ul>
       </div>
     )
   }
 }
-
-const slotHex = (n: number) => `$${n.toString(16).toUpperCase().padStart(3, '0')}`
 
 /** One screen's picture, the planes the map view shows with its sprites off. */
 function composite(r: Layout): ImageData {
