@@ -25,6 +25,7 @@ import { NewProjectDialog } from './new-project-dialog'
 import { ProjectPropertiesDialog } from './project-properties-dialog'
 import { ProjectContext } from './project-context'
 import { BrandContribution } from './brand-contribution'
+import { ExplorerFindContribution } from './explorer-search'
 import { MapExplorerContribution } from './map-explorer-contribution'
 import { createMapExplorerWidget, MAP_EXPLORER_ID } from './map-explorer-widget'
 import { MapViewWidget, MAP_VIEW_ID } from './map-view-widget'
@@ -112,4 +113,8 @@ export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
   bindViewContribution(bind, MapExplorerContribution)
   bind(FrontendApplicationContribution).toService(MapExplorerContribution)
   bind(TabBarToolbarContribution).toService(MapExplorerContribution)
+
+  bind(ExplorerFindContribution).toSelf().inSingletonScope()
+  bind(CommandContribution).toService(ExplorerFindContribution)
+  bind(TabBarToolbarContribution).toService(ExplorerFindContribution)
 })

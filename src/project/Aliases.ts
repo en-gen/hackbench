@@ -25,6 +25,7 @@
  *
  * No VS Code or Theia imports, same rule as the rest of src/project/.
  */
+import { parseHexId } from './HexId'
 import { readMeta, writeMeta } from './ProjectMeta'
 
 /**
@@ -64,9 +65,8 @@ export function aliasKey(id: number): string {
  * dropping three of those spellings would look like the name was lost.
  */
 function normaliseKey(raw: string): string | null {
-  const stripped = raw.trim().replace(/^\$/, '').replace(/^0x/i, '')
-  if (!/^[0-9a-f]+$/i.test(stripped)) return null
-  return aliasKey(parseInt(stripped, 16))
+  const id = parseHexId(raw)
+  return id === null ? null : aliasKey(id)
 }
 
 /**

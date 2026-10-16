@@ -524,3 +524,9 @@
   color: var(--theia-editorWarning-foreground);
   font-size: var(--theia-ui-font-size0);
 }
+
+/* Empty state under a filtered explorer tree (#336). */
+.hb-explorer-no-match {
+  padding: 8px 12px;
+  color: var(--theia-descriptionForeground);
+}

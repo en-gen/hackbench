@@ -24,15 +24,15 @@ import {
   TreeModel,
   TreeNode,
   TreeProps,
-  TreeWidget,
   CompositeTreeNode,
   SelectableTreeNode,
-  createTreeContainer,
 } from '@theia/core/lib/browser'
 import { Emitter } from '@theia/core/lib/common'
 import { GfxFileDto, GfxFormat, GfxService, gfxFormatLabel } from '../common/gfx-protocol'
 import { Map16Layer } from '../common/map16-protocol'
 import { ProjectContext } from './project-context'
+import { ExplorerTreeWidget, createExplorerTreeContainer } from './explorer-search'
+import type { SearchRow } from './explorer-match'
 
 export const GFX_EXPLORER_ID = 'hackbench.gfx-explorer'
 
@@ -65,7 +65,17 @@ const MAP16_ROWS: readonly { layer: Map16Layer; name: string; meta: string }[] =
 ]
 
 @injectable()
-export class GfxExplorerWidget extends TreeWidget {
+export class GfxExplorerWidget extends ExplorerTreeWidget {
+  protected readonly searchNoun = 'graphics files'
+
+  /** The shown name carries the number, which is the row's id, so only 'GFX' is text. */
+  protected searchRow(node: TreeNode): SearchRow | undefined {
+    const n = node as GfxTreeNode
+    if (n.kind === 'file') return { id: n.index, texts: ['GFX'] }
+    if (n.kind === 'map16') return { texts: [n.name ?? ''] }
+    return undefined
+  }
+
   /**
    * Rows belong to a project, and nothing is open on a fresh load, so none of
    * them are persisted. Theia's TreeWidget serialises its whole model by
@@ -333,13 +343,10 @@ export class GfxExplorerWidget extends TreeWidget {
 }
 
 export function createGfxExplorerWidget(parent: interfaces.Container): GfxExplorerWidget {
-  const child: Container = createTreeContainer(parent, {
-    widget: GfxExplorerWidget,
-    props: {
-      // A row click both selects and opens the file; there is no expansion
-      // toggle in a flat list to conflict with it.
-      globalSelection: true,
-    },
+  const child: Container = createExplorerTreeContainer(parent, GfxExplorerWidget, {
+    // A row click both selects and opens the file; there is no expansion
+    // toggle in a flat list to conflict with it.
+    globalSelection: true,
   })
   return child.get(GfxExplorerWidget)
 }

@@ -41,12 +41,10 @@ import {
   TreeModel,
   TreeNode,
   TreeProps,
-  TreeWidget,
   CompositeTreeNode,
   ExpandableTreeNode,
   SelectableTreeNode,
   TreeSelection,
-  createTreeContainer,
 } from '@theia/core/lib/browser'
 import { CommandService, Emitter, MessageService } from '@theia/core/lib/common'
 import { OVERWORLD_FOCUS_COMMAND_ID, OVERWORLD_OPEN_AREA_COMMAND_ID } from './overworld-view-widget'
@@ -62,6 +60,9 @@ import {
   ProjectService,
   SpecialMapNodeDto,
 } from '../common/project-protocol'
+
+import { ExplorerTreeWidget, createExplorerTreeContainer } from './explorer-search'
+import type { SearchRow } from './explorer-match'
 
 export const MAP_EXPLORER_ID = 'hackbench.map-explorer'
 
@@ -171,7 +172,25 @@ export const slotLabel = (index: number): string =>
   `$${index.toString(16).toUpperCase().padStart(3, '0')}`
 
 @injectable()
-export class MapExplorerWidget extends TreeWidget {
+export class MapExplorerWidget extends ExplorerTreeWidget {
+  protected readonly searchNoun = 'maps'
+
+  /**
+   * A slot row matches by slot number and its ROM name. The slot label is not
+   * text, or `10` would also hit every `$x10` by substring. Maps have no
+   * project alias to include: the 'map' alias namespace exists in
+   * src/project/Aliases.ts but nothing reads or writes it yet.
+   */
+  protected searchRow(node: TreeNode): SearchRow | undefined {
+    const n = node as MapTreeNode
+    if (n.kind === 'message') return undefined
+    if (n.kind === 'group') return { texts: [n.name ?? ''] }
+    if (n.category === 'overworld' || n.category === 'overworld-area')
+      return { texts: [n.name ?? ''] }
+    if (isSpecial(n.category)) return { id: n.index, texts: [n.name ?? ''] }
+    return { id: n.index >= 0 ? n.index : undefined, texts: [n.mapName ?? ''] }
+  }
+
   @inject(CommandService) protected readonly commands!: CommandService
   @inject(ProjectService) protected readonly projects!: ProjectService
   @inject(MessageService) protected readonly messages!: MessageService
@@ -1060,22 +1079,19 @@ function withoutSlots(groups: MapGroupDto[], slots: number[]): MapGroupDto[] {
 }
 
 export function createMapExplorerWidget(parent: interfaces.Container): MapExplorerWidget {
-  const child: Container = createTreeContainer(parent, {
-    widget: MapExplorerWidget,
-    props: {
-      // Without this a row click toggles expansion as well as selecting, so a
-      // folder cannot be opened without collapsing it.
-      expandOnlyOnExpansionToggleClick: true,
-      globalSelection: true,
-      // Theia already indents rows that have no expansion chevron, so their
-      // icons line up with the expandable ones. Its default of 22px is 2px
-      // wider than the toggle actually occupies (measured), which left the
-      // icon column visibly ragged wherever leaves and folders are siblings.
-      expansionTogglePadding: 20,
-      // Ctrl+click toggles a row, Shift+click selects a range, per the spec.
-      multiSelect: true,
-      contextMenuPath: MAP_EXPLORER_CONTEXT_MENU,
-    },
+  const child: Container = createExplorerTreeContainer(parent, MapExplorerWidget, {
+    // Without this a row click toggles expansion as well as selecting, so a
+    // folder cannot be opened without collapsing it.
+    expandOnlyOnExpansionToggleClick: true,
+    globalSelection: true,
+    // Theia already indents rows that have no expansion chevron, so their
+    // icons line up with the expandable ones. Its default of 22px is 2px
+    // wider than the toggle actually occupies (measured), which left the
+    // icon column visibly ragged wherever leaves and folders are siblings.
+    expansionTogglePadding: 20,
+    // Ctrl+click toggles a row, Shift+click selects a range, per the spec.
+    multiSelect: true,
+    contextMenuPath: MAP_EXPLORER_CONTEXT_MENU,
   })
   return child.get(MapExplorerWidget)
 }

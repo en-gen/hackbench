@@ -25,13 +25,13 @@ import {
   TreeModel,
   TreeNode,
   TreeProps,
-  TreeWidget,
   CompositeTreeNode,
   ExpandableTreeNode,
   SelectableTreeNode,
-  createTreeContainer,
 } from '@theia/core/lib/browser'
 import { Emitter } from '@theia/core/lib/common'
+import { ExplorerTreeWidget, createExplorerTreeContainer } from './explorer-search'
+import type { SearchRow } from './explorer-match'
 import {
   LoadPaletteResult,
   PaletteGroupDto,
@@ -72,7 +72,17 @@ const OVERWORLD_NOTE =
   'Overworld palettes are loaded by a different routine and are not shown here yet.'
 
 @injectable()
-export class PaletteExplorerWidget extends TreeWidget {
+export class PaletteExplorerWidget extends ExplorerTreeWidget {
+  protected readonly searchNoun = 'palettes'
+
+  /** A variant's id is the number in its label ("Palette 3"); groups are found by name. */
+  protected searchRow(node: TreeNode): SearchRow | undefined {
+    const n = node as PaletteTreeNode
+    if (n.kind === 'group') return { texts: [n.name ?? ''] }
+    if (n.kind === 'variant') return { id: n.variant, texts: [(n.name ?? '').replace(/\d+/g, '')] }
+    return undefined
+  }
+
   /**
    * Rows belong to a project, and nothing is open on a fresh load, so none of
    * them are persisted. Theia's TreeWidget serialises its whole model by
@@ -364,12 +374,9 @@ export class PaletteExplorerWidget extends TreeWidget {
 }
 
 export function createPaletteExplorerWidget(parent: interfaces.Container): PaletteExplorerWidget {
-  const child: Container = createTreeContainer(parent, {
-    widget: PaletteExplorerWidget,
-    props: {
-      // A row click both selects and opens the group/variant.
-      globalSelection: true,
-    },
+  const child: Container = createExplorerTreeContainer(parent, PaletteExplorerWidget, {
+    // A row click both selects and opens the group/variant.
+    globalSelection: true,
   })
   return child.get(PaletteExplorerWidget)
 }
