@@ -22,6 +22,7 @@ import { buildScrollSimulator } from '../scrollSim'
 import { buildBgTiles, buildL2 } from './L2Factory'
 import { buildL3 } from './L3Factory'
 import { readInitialLayer1YPos } from '../L3Loader'
+import { entrancePositionGate } from '../SubmapFlagGate'
 import { readMapEntrances } from '../ReadMapEntrances'
 import { readMarioStartPos } from '../MarioStartPos'
 import type { MapPayload } from './MapPayload'
@@ -62,6 +63,8 @@ export interface MapBuildOverrides {
    * is "the graph is unavailable", not "absent": use `'entrances' in overrides`.
    */
   entrances?: ReadonlyMap<number, MapEntrances> | undefined
+  /** The level-start spans to check the camera against; a synthetic ROM passes its own build (#860). */
+  startSpans?: Parameters<typeof entrancePositionGate>[1]
 }
 
 /**
@@ -266,11 +269,13 @@ export function buildMapWithGraph(
 
   const palette = buildPalette(rom.rom, header)
 
+  const entranceUnverified = entrancePositionGate(rom.rom, overrides.startSpans) ?? undefined
   const mapStore = createMapStore({
     palette,
     levelOrientation: orientation,
     screenPipeVariantIdx,
     initialCameraYPx,
+    entranceUnverified,
     marioSpawnX: marioStartPx.x,
     scrollSimulator,
   })
@@ -285,6 +290,7 @@ export function buildMapWithGraph(
       horizLayer2Setting,
       layer3Priority: rawHeader.layer3Priority,
       initialCameraYPx,
+      entranceUnverified,
       timeLimit: rawHeader.timeLimit,
       marioStartPx,
     },

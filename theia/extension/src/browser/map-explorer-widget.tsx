@@ -110,6 +110,10 @@ export interface MapTreeNode extends CompositeTreeNode, SelectableTreeNode {
   area?: AreaRow
   /** Set on the Overworld row when its area list is unavailable: the reason, for its tooltip. */
   areasNote?: string
+  /** Set on a placeholder slot: how many slots share the placeholder room. */
+  sharedCount?: number
+  /** Set on a slot with no map data (Layer 1 pointer zero or unreadable): no tab opens, no group takes it. */
+  noPointer?: true
 }
 
 type BonusRole = NonNullable<GroupedMapNodeDto['role']>
@@ -249,6 +253,11 @@ export class MapExplorerWidget extends TreeWidget {
     )
   }
 
+  protected endDrag(): void {
+    this.dragNodes = null
+    this.setDropHighlight(undefined)
+  }
+
   /**
    * Load a project's maps.
    *
@@ -371,9 +380,21 @@ export class MapExplorerWidget extends TreeWidget {
    * separate Overworld folder to infer it from position).
    */
   protected unassignedNode(maps: GroupedMapNodeDto[]): MapTreeNode {
+    // Placeholders are counted apart so the figure beside the label stays the
+    // number of maps, not of slots (docs/glossary.md).
+    const placeholders = maps.filter(m => m.placeholder).length
+    const noData = maps.filter(m => m.noPointer).length
+    const mapRows = maps.length - placeholders - noData
+    const apart = [
+      placeholders > 0 ? `${placeholders} placeholder` : '',
+      noData > 0 ? `${noData} with no data` : '',
+    ].filter(Boolean)
     const node: MapTreeNode = {
       id: 'group:unassigned',
-      name: `Unassigned (${maps.length})`,
+      name:
+        apart.length > 0
+          ? `Unassigned (${[mapRows, ...apart].join(', ')})`
+          : `Unassigned (${maps.length})`,
       index: -1,
       mapName: null,
       kind: 'group',
@@ -435,6 +456,8 @@ export class MapExplorerWidget extends TreeWidget {
       children: [],
       selected: false,
     }
+    if (dto.placeholder) node.sharedCount = dto.sharedCount
+    if (dto.noPointer) node.noPointer = true
     node.children = dto.children.map(c => this.toNode(c, node, 'subarea'))
     if (node.children.length > 0) node.expanded = false
     return node
@@ -536,7 +559,8 @@ export class MapExplorerWidget extends TreeWidget {
         )
       return
     }
-    if (!map || map.index < 0 || map.kind !== 'map' || !this.manifestPath) return
+    // A no-pointer slot has no map data to draw: selecting or activating it opens no tab.
+    if (!map || map.index < 0 || map.kind !== 'map' || map.noPointer || !this.manifestPath) return
     this.onMapOpenedEmitter.fire({
       index: map.index,
       pinned,
@@ -566,6 +590,8 @@ export class MapExplorerWidget extends TreeWidget {
    */
   protected groupable(node: MapTreeNode): boolean {
     const { kind, category } = node
+    // A placeholder row (sharedCount set) is listed, not a map: no group takes it.
+    if (node.sharedCount !== undefined || node.noPointer) return false
     return kind === 'map' && (category === 'entry' || category === 'bonus' || category === 'orphan')
   }
 
@@ -823,11 +849,12 @@ export class MapExplorerWidget extends TreeWidget {
             // not just their own row.
             this.dragNodes = dragging.every(n => this.groupable(n)) ? dragging : null
             event.dataTransfer.setData(MAP_ROWS_TYPE, '')
+            // dragend reaches only the source element, even once the virtualised
+            // list has unmounted it; a detached node's events never reach
+            // document or React.
+            event.currentTarget.addEventListener('dragend', () => this.endDrag(), { once: true })
           },
-          onDragEnd: () => {
-            this.dragNodes = null
-            this.setDropHighlight(undefined)
-          },
+          onDragEnd: () => this.endDrag(),
         }
       : { onDragStart: () => (this.dragNodes = null) }
     const folder = this.dropFolder(node)
@@ -951,8 +978,16 @@ export class MapExplorerWidget extends TreeWidget {
   ): React.Attributes & React.HTMLAttributes<HTMLElement> {
     const attrs = super.createNodeAttributes(node, props)
     const map = node as MapTreeNode
-    if (map.category === 'orphan') attrs.title = 'Not reached from the overworld'
-    if (map.role) attrs.title = BONUS_ROLES[map.role].title
+    // A no-data slot says so whatever folder holds it: the tooltip does not depend on its category.
+    if (map.noPointer) {
+      attrs.title = 'This slot has no map data'
+    } else if (map.category === 'orphan') {
+      attrs.title = 'Not reached from the overworld'
+      if (map.sharedCount !== undefined) {
+        attrs.title += `. This slot uses the shared placeholder room, which ${map.sharedCount} slots share.`
+      }
+    }
+    if (map.role && !map.noPointer) attrs.title = BONUS_ROLES[map.role].title
     if (map.area?.invalid) attrs.title = map.area.invalid
     if (map.areasNote) attrs.title = map.areasNote
     // Theia's own default caption only carries the node id on expandable

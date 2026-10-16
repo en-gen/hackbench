@@ -68,6 +68,11 @@ export interface MapNodeDto {
   index: number
   name: string | null
   kind: 'map' | 'loop' | 'truncated'
+  /** The slot uses the shared placeholder room, which `sharedCount` slots share. */
+  placeholder?: true
+  sharedCount?: number
+  /** The slot's Layer 1 pointer is zero or unreadable: no map data, nothing to open. */
+  noPointer?: true
   children: MapNodeDto[]
 }
 
@@ -82,6 +87,10 @@ export interface SpecialMapNodeDto extends MapNodeDto {
 export interface MapTreeCountsDto {
   entrances: number | null
   unassigned: number
+  /** Placeholder slots, listed beside the unassigned maps but counted apart. */
+  placeholders: number
+  /** Slots with no Layer 1 pointer, listed beside the unassigned maps but counted apart. */
+  noPointer: number
 }
 
 export interface MapTreeDto {
@@ -293,6 +302,12 @@ export interface MapSpriteDto {
   priority?: string
   status: 'drawn' | 'placeholder'
   reason?: string
+  /**
+   * Set on a pixel group the map's cluster code draws on Layer 2 (sprite $E6's castle flames, #894):
+   * it stands in the map's pixels like any sprite but belongs to no stream entry (`index` is negative),
+   * and the view composes it over Layer 2 and under Layer 1, not in the OAM priority planes.
+   */
+  fixedTo?: 'layer2'
   /**
    * Present when the sprite was run from a placement-only seed because the
    * level loader refused this ROM: drawn, but not run from the level's state.

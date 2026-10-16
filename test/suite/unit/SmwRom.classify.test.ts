@@ -415,7 +415,8 @@ describe('exit graph submap-flag gate', () => {
     expect(tree.overworld.map(n => n.index)).toEqual([0x105])
     expect(tree.overworld[0]!.children).toEqual([])
     // Coverage still holds: the sub area is listed, just not grouped.
-    expect(tree.unassigned.map(n => n.index)).toEqual([0x177])
+    expect(tree.unassigned.filter(n => !n.noPointer).map(n => n.index)).toEqual([0x177])
+    expect(tree.counts.noPointer).toBeGreaterThan(0)
     expect(tree.mapCount).toBe(2)
     const notes = tree.notes.join(' ')
     expect(notes).toMatch(/hierarchy unavailable/i)
@@ -433,7 +434,8 @@ describe('exit graph submap-flag gate', () => {
   it('names no root at all when the walk is unreadable, not the stock range', () => {
     const tree = buildMapTree(gatedRom({ at: 0x04d832, byte: 0xea }), SYNTHETIC_FINGERPRINTS)
     expect(tree.overworld).toEqual([])
-    expect(tree.unassigned.map(n => n.index)).toEqual([0x105, 0x177])
+    expect(tree.unassigned.filter(n => !n.noPointer).map(n => n.index)).toEqual([0x105, 0x177])
+    expect(tree.counts.noPointer).toBeGreaterThan(0)
     expect(tree.notes.join(' ')).toMatch(/roots could not be read/)
   })
 

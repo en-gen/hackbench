@@ -155,6 +155,7 @@ export function buildGraph(
     levelOrientation: payload.header.orientation,
     screenPipeVariantIdx,
     initialCameraYPx: payload.header.initialCameraYPx,
+    entranceUnverified: payload.header.entranceUnverified,
     marioSpawnX: payload.header.marioStartPx?.x ?? 0,
     scrollSimulator,
   })

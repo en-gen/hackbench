@@ -135,11 +135,40 @@ export const SCREEN_EXIT: readonly StockCode[] = [
 export const LEVEL_START_Y: readonly (StockCode | StockSpan)[] = [
   REACH,
   {
+    // The branch that decides whether the secondary entrance block runs at all, the `LDY _E` that
+    // indexes its F800/FA00/FC00 reads, and the two stores that hand _E and the level number on.
+    // Literal, not a fingerprint: a BEQ turned BRA or a wrong index register has to be named.
+    addr: 0x05d7d4,
+    // prettier-ignore
+    bytes: [
+      0xad, 0x93, 0x1b, // LDA UseSecondaryExit
+      0xf0, 0x62,       // BEQ to the JMP CODE_05D8B7 at $05D83B
+      0xc2, 0x30,       // REP #$30
+      0xa9, 0x00, 0x00, // LDA #$0000
+      0xe2, 0x20,       // SEP #$20
+      0xa4, 0x0e,       // LDY _E
+      0xb9, 0x00, 0xf8, // LDA DATA_05F800,Y
+      0x85, 0x0e,       // STA _E, which the main block's LDY _E reloads
+      0x8d, 0xbb, 0x17, // STA LoadingLevelNumber
+    ],
+    what: 'the secondary-exit branch and its _E index',
+    cite: 'bank_05.asm:7111-7119',
+  },
+  {
     addr: 0x05d7ea,
     length: 84,
     fingerprints: ['0205f62a9a66930567e58633c6a3c4420bea50ae960a91bceeede88a71cac967'],
     what: 'the secondary entrance position reads',
     cite: 'bank_05.asm:7120-7162',
+  },
+  {
+    // The widths and the `LDY _E` every F000/F200/F400/F600 read below indexes through. The pointer
+    // setup before it (:7227-7264) is not covered: it writes only the layer pointers, the sprite
+    // header settings and Y, which :7267 overwrites.
+    addr: 0x05d907,
+    bytes: [0xc2, 0x10, 0xe2, 0x20, 0xa4, 0x0e],
+    what: 'the index for the main entrance position reads',
+    cite: 'bank_05.asm:7265-7267',
   },
   {
     addr: 0x05d90d,
@@ -149,6 +178,20 @@ export const LEVEL_START_Y: readonly (StockCode | StockSpan)[] = [
     cite: 'bank_05.asm:7268-7395',
   },
 ]
+
+/**
+ * Why the entrance-position readers (`readInitialLayer1YPos`, `readInitialLayer2YPos`: F400/F600,
+ * FA00/FC00 through DATA_05D708/D70C) may not describe this ROM, or null when the code reading
+ * them is stock. Covers, in order, the REACH call, the secondary-exit branch and index
+ * (bank_05.asm:7111-7119), the FA00/FC00 reads (:7120-7162), the index and widths (:7265-7267) and
+ * every F000-F600 read through the end of the start code (:7268-7395, to CODE_05DA17).
+ * Not covered: the screen-exit lookup before :7111 (the exit graph's own gate), CODE_05D83E to
+ * $05D8B6 (the overworld path, `readEntrySite`, where a Lunar Magic save hooks $05D8B1
+ * legitimately), and the pointer setup :7227-7264, which touches no position input. Callers draw
+ * the value anyway and say it is unverified.
+ */
+export const entrancePositionGate = (rom: RomFile, spans = LEVEL_START_Y): string | null =>
+  stockCodeMismatch(rom, spans)
 
 /**
  * The high byte `LDA #imm` at `at` loads for a submap, or a refusal: the

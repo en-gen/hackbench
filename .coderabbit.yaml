@@ -39,12 +39,18 @@ reviews:
     - '**/package-lock.json'
     - '**/yarn.lock'
   auto_review:
-    # Owner ruling 2026-10-12: every review is requested explicitly (the OSS
-    # allowance is about 1 review per hour, so a new PR no longer gets an
-    # automatic first review). The PR summary is off for the same reason. This
-    # file outranks the CodeRabbit UI settings, so it must say what the UI says.
-    enabled: false
-    auto_incremental_review: false
+    # Owner ruling 2026-10-16: paid Essentials plan, five included PR reviews
+    # per developer per hour, subject to CodeRabbit's Fair Usage Policy. Every
+    # new PR and every push is reviewed automatically, but only a non-draft PR
+    # whose base is the default branch, develop or feature/* (drafts and
+    # base_branches below). Usage-based billing stays off, so a push past the
+    # hourly allowance is rate limited. Observed 2026-10-16 with auto review
+    # off: `@coderabbitai review` starts a review once the allowance has a
+    # slot. Not yet confirmed with auto review on; if it fails, push a new
+    # commit (that triggers auto review). This file outranks the CodeRabbit UI
+    # settings, so it must say what the UI says.
+    enabled: true
+    auto_incremental_review: true
     drafts: false
     # The default pauses auto-review after 5 reviewed commits, which would leave
     # a long PR's latest push unapproved and its auto-merge stuck.

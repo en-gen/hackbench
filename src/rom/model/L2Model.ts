@@ -7,7 +7,7 @@
  */
 import type { MapEntrances, SmwRom } from '../SmwRom'
 import type { RomFile } from '../RomFile'
-import { LEVEL_START_Y, stockCodeMismatch } from '../SubmapFlagGate'
+import { entrancePositionGate } from '../SubmapFlagGate'
 import { hex2, hex3s as hex3 } from '../hex'
 import {
   isPresetPtr,
@@ -129,7 +129,7 @@ export function buildL2Inputs(
   index: number,
   l1: L1Inputs,
   entrances?: MapEntrances,
-  startGate: (rom: RomFile) => string | null = rom => stockCodeMismatch(rom, LEVEL_START_Y),
+  startGate: (rom: RomFile) => string | null = rom => entrancePositionGate(rom),
 ): L2Result {
   const refuse = (reason: string): L2Result => ({ ok: false, reason })
   const ptr = readL2Pointer(rom.rom, index)

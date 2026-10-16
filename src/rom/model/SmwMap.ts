@@ -32,6 +32,8 @@ export interface LevelHeader {
    * viewport at load and positions L3 tide overlays within the level.
    */
   initialCameraYPx: number
+  /** Why that camera (and the L2 heights) may not be the game's: the level-start code is not stock (#860). */
+  entranceUnverified?: string
   /**
    * Time-limit index from header byte 3 bits 7:6 (0..3). Indexes TimerTable
    * at $0584D7 (`db $00, $02, $03, $04`) to give the starting timer digit

@@ -540,7 +540,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       rom.writeAt(0x0096f4, [0x22, 0x96, 0xd7, 0x05])
       const gated = ok(buildL2Inputs(smw(rom, true), LEVEL, m))
       expect(gated.dy).toBe(0x320 - 0xc0) // still the best reading
-      expect(gated.note).toMatch(/^Background height unverified: \$05D7EA \(the secondary entrance position reads, bank_05\.asm:7120-7162\) is not a recognized build/) // prettier-ignore
+      expect(gated.note).toMatch(/^Background height unverified: \$05D7D4 \(the secondary-exit branch and its _E index, bank_05\.asm:7111-7119\) holds .* not the stock/) // prettier-ignore
       // A failed gate and disagreeing entrances: both reasons, one note.
       objects([[1]])
       const both = ok(buildL2Inputs(smw(entry(1), true), LEVEL, m, via(false, false, A, B), () => 'boom.')) // prettier-ignore

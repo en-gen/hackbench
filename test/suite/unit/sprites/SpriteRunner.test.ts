@@ -4,6 +4,7 @@
  * planted here and shown to change the verdict.
  */
 import { levelSeed, loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
+import { readdirSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { runOnce, runSprite, TOTAL_STEP_CAP } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import {
@@ -13,8 +14,17 @@ import {
 } from '../../../../src/rom/sprites/interp/SpriteDispatch'
 import { SPRITE_SEED, withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { SpriteBus } from '../../../../src/rom/sprites/interp/SpriteBus'
-import { CORPUS, freshRom, hasRom, hasRoms, VANILLA } from '../../support/corpus'
-import { grade, passPieces } from '../../support/spriteGrade'
+import {
+  CAPTURE_DIR,
+  CORPUS,
+  freshRom,
+  hasCaptures,
+  hasRom,
+  hasRoms,
+  VANILLA,
+} from '../../support/corpus'
+import { grade, passPieces, wrap8, wrap9 } from '../../support/spriteGrade'
+import { gradeCaptures } from '../../../../tools/scripts/spriteReportRun'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 
 const rom = buildSyntheticRom()
@@ -303,6 +313,101 @@ describe('runner on a synthetic cart', () => {
       withSeed({ sprite: { x: 0x140, y: 0x90 }, camera: { x: 0x100, y: 0 } }),
     )
     expect(m.passes[0].parts[0]).toMatchObject({ dx: 0, dy: 0, oy: 0x90 })
+  })
+})
+
+describe('piece X offsets wrap like 9-bit OAM X (#869)', () => {
+  // Id 33 draws at OAM X = low byte $0E, size byte $0F (bit 0 = X bit 8), both planted. The expected
+  // offset is the 9-bit difference to the anchor's screen X, folded into -256..255.
+  // SMWDisX bank_01.asm:7634-7642 (high X bit set), compare in CODE_01B844 7668-7675.
+  const offsets = [0, 1, 255, 256, 257, 272, 511, 512, 513, -1, -16, -240, -255, -256, -257, -272]
+  const anchors = [
+    { x: 0x00, cam: 0 },
+    { x: 0x80, cam: 0 },
+    { x: 0xf0, cam: 0 },
+    { x: 0x1c0, cam: 0x100 },
+    { x: 0x3f0, cam: 0x300 },
+    // Off screen on the left and right: the readParts mod is what folds these (x9 is 10 at sprite 0x12C).
+    { x: 0x1f0, cam: 0x200 },
+    { x: 0x12c, cam: 0 },
+  ]
+  for (const a of anchors) {
+    it.each(offsets)(`anchor screen X ${a.x - a.cam}: offset %i`, off => {
+      const x9 = (a.x - a.cam + off) & 0x1ff
+      const m = runSprite(
+        rom,
+        33,
+        withSeed({
+          sprite: { x: a.x },
+          camera: { x: a.cam },
+          ram: { 0x0e: x9 & 0xff, 0x0f: 2 | (x9 >> 8) },
+        }),
+      )
+      expect(m.refusal).toBeUndefined()
+      expect(m.passes[0].parts.map(p => p.dx)).toEqual([wrap9(off)])
+    })
+  }
+})
+
+describe('passPieces folds the re-based offset into 9-bit range (#869)', () => {
+  // A pass whose draw origin differs from its position (the sprite moved): readParts wraps against the
+  // origin, the grader's re-base to the position must wrap again.
+  const model = (dx: number, originX: number, posX: number): any => ({
+    passes: [
+      {
+        origin: { x: originX, y: 0 },
+        pos: { x: posX, y: 0 },
+        parts: [{ dx, dy: 0, oy: 0, char: 1, attr: 0, size: 8 }],
+      },
+    ],
+  })
+  it.each([
+    [160, 352, 240, -240],
+    [160, 240, 240, 160],
+    [-112, 352, 240, 0],
+    [255, 1, 0, -256],
+    [-256, 0, 1, 255],
+    [0, 512, 0, 0],
+  ])('dx %i, origin %i, pos %i gives %i', (dx, o, p, want) => {
+    expect(passPieces(model(dx, o, p), 0)[0].dx).toBe(want)
+  })
+  // The capture folds Y mod 256 into -128..127 (hackbench-validation headless_capture.lua:1389).
+  it.each([
+    [100, 40, 0, -116],
+    [-128, 1, 2, 127],
+    [100, 0, 0, 100],
+    [-128, 0, 0, -128],
+  ])('dy %i, origin %i, pos %i gives %i', (dy, o, p, want) => {
+    const m = model(0, 0, 0)
+    m.passes[0].parts[0].dy = dy
+    m.passes[0].origin.y = o
+    m.passes[0].pos.y = p
+    expect(passPieces(m, 0)[0].dy).toBe(want)
+  })
+  it('wrap8 folds into -128..127', () => {
+    expect([127, 128, 140, -128, -129, 255, 256].map(wrap8)).toEqual([
+      127, -128, -116, -128, 127, -1, 0,
+    ])
+  })
+  it('wrap9 sweeps the 256/511/512 boundaries', () => {
+    expect([255, 256, 257, 272, 511, 512, 513, -1, -256, -257].map(wrap9)).toEqual([
+      255, -256, -255, -240, -1, 0, 1, -1, -256, 255,
+    ])
+  })
+})
+
+// Same file match as gradeCaptures: a partial capture dir without map 11C must skip, not fail.
+const has11cCapture = (): boolean =>
+  hasCaptures() &&
+  readdirSync(CAPTURE_DIR).some(f => f.endsWith('.zip') && parseInt(f.slice(0, -4), 16) === 0x11c)
+
+describe.skipIf(!hasRom(VANILLA) || !has11cCapture())('card T104: $1F on map 11C (#869)', () => {
+  it('grades exact with one piece at dx -240', () => {
+    const got = gradeCaptures({ map: 0x11c, sprite: 0x1f })
+    expect(got).toHaveLength(1)
+    expect(got[0].verdict).toBe('exact')
+    // Exact alone cannot see the outlier's offset (the grader re-bases to the first piece).
+    expect(got[0].oursPieces?.map(p => p.dx)).toEqual([0, 0, -240])
   })
 })
 

@@ -54,7 +54,7 @@ export const GFX_VIEW_ID = 'hackbench.gfx-view'
  * the view, not one per sheet.
  */
 const gridChanged = new Emitter<void>()
-let gridShown = false
+let gridShown = true
 
 /** One 8x8 character, the unit a GFX sheet is built from. */
 const GFX_CHAR_PX = 8
