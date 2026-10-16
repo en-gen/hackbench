@@ -1,10 +1,9 @@
 /**
  * SPIKE (#946, not for merge): the selected map with its neighbours as thumbnail cards.
  *
- * Checked against the `mapSubAreas` RPC and the shell, not against the page itself:
- * hovering a link changes its computed stroke; clicking a card selects that slot in
- * the Maps tree AND opens it in a map view; the re-targeted view then shows a card
- * back to the map that was left. Vanilla ROM; $00B (down pipe) -> $0E1.
+ * Hovering a link changes its computed stroke; clicking a card selects that slot in the
+ * Maps tree AND leaves the preview map tab as a row click does; the re-targeted view then
+ * shows a card back. Vanilla ROM; $00B (down pipe) -> $0E1.
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')
@@ -61,7 +60,7 @@ async function showNeighbours(page, index) {
     },
     { romPath: ROM, directory: tmp, index },
   )
-  opened.push(`hackbench.map-view:${index}`, `hackbench.map-view:${TO}`, `hackbench.map-subareas:${index}`) // prettier-ignore
+  opened.push(`hackbench.map-view:${index}`, `hackbench.map-view:preview`, `hackbench.map-subareas:${index}`) // prettier-ignore
   return page.locator('.hb-map-subareas')
 }
 
@@ -74,7 +73,7 @@ test('hovering a link changes its stroke; clicking the card opens that map, and 
   await expect(view.locator(`[data-slot="${TO}"][data-ready="true"]`)).toHaveCount(1, { timeout: 120000 }) // prettier-ignore
   expect(await view.locator(`[data-slot="${TO}"]`).getAttribute('data-side')).toBe('below')
 
-  // (a) Hover: read the computed stroke before and after, pointing at the link's own midpoint.
+  // (a) Hover the link's own midpoint; the computed stroke must change.
   const link = view.locator(`[data-link="${TO}:0"]`)
   const stroke = () =>
     link.locator('line').first().evaluate(el => `${getComputedStyle(el).stroke}|${getComputedStyle(el).strokeWidth}`) // prettier-ignore
@@ -100,8 +99,15 @@ test('hovering a link changes its stroke; clicking the card opens that map, and 
       return ex.model.selectedNodes.map(n => n.index)
     })
   await expect.poll(tree, { timeout: 30000 }).toEqual([TO])
-  const shown = id => page.evaluate(i => !!getSvc('ApplicationShell').getWidgetById(i)?.isVisible, id) // prettier-ignore
-  await expect.poll(() => shown(`hackbench.map-view:${TO}`), { timeout: 30000 }).toBe(true)
+  // A Maps row click opens the shared preview tab (PreviewTabs.preview): revealed as its bar's current tab.
+  const previewState = () =>
+    page.evaluate(() => {
+      const shell = getSvc('ApplicationShell')
+      const w = shell.getWidgetById('hackbench.map-view:preview')
+      const bar = w && shell.getTabBarFor(w)
+      return bar ? { index: w.viewOptions?.index, current: bar.currentTitle?.owner === w, area: shell.getAreaFor(w) } : null // prettier-ignore
+    })
+  await expect.poll(previewState, { timeout: 30000 }).toEqual({ index: TO, current: true, area: 'main' }) // prettier-ignore
 
   // (c) The same view re-targets to the new map and has a card back to the origin.
   await expect(view.locator(`[data-entry-slot="${TO}"]`)).toHaveCount(1, { timeout: 60000 })

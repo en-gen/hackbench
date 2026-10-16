@@ -1,7 +1,6 @@
 /**
  * SPIKE (#946, not for merge): the selected map at half size with its neighbours as
- * fixed-size cards (`placeCards`) joined by dashed links, all from the `mapSubAreas`
- * reply and the `mapScreen` pictures the map view draws. A card click selects the
+ * fixed-size cards (`placeCards`) joined by dashed links. A card click selects the
  * map's Maps tree node, which opens it; the view then follows `onMapOpened`.
  */
 import * as React from '@theia/core/shared/react'
@@ -26,7 +25,11 @@ type Layout = Extract<MapScreenResult, { status: 'ok' }>
 /** The view's start state: no palace cleared, no switch pressed. */
 const FLAGS_OFF = { green: false, yellow: false, blue: false, red: false }
 const SWITCHES_OFF = { blue: false, silver: false, onOff: false }
-const LINK = { idle: { stroke: '#888', width: 1, dash: '4 3', r: 3 }, hot: { stroke: '#1a73e8', width: 2.5, dash: 'none', r: 5 } } // prettier-ignore
+const CSS = `.hb-map-subareas .sa-link line.vis{stroke:#888;stroke-width:1;stroke-dasharray:4 3}
+.hb-map-subareas .sa-link circle{fill:#888}
+.hb-map-subareas .sa-link.hot line.vis{stroke:#1a73e8;stroke-width:2.5;stroke-dasharray:none}
+.hb-map-subareas .sa-link.hot circle{fill:#1a73e8;r:5px}
+.hb-map-subareas .sa-card.hot{outline:2px solid #1a73e8!important}`
 
 @injectable()
 export class SubAreasWidget extends ReactWidget implements ProjectBound {
@@ -40,7 +43,6 @@ export class SubAreasWidget extends ReactWidget implements ProjectBound {
     return this.options?.manifestPath
   }
   protected result: MapSubAreasResult | undefined
-  protected hover: number | null = null
   protected explorer: MapExplorerWidget | undefined
   protected readonly canvases = new Map<number, HTMLCanvasElement>()
   protected readonly ready = new Set<number>()
@@ -52,6 +54,9 @@ export class SubAreasWidget extends ReactWidget implements ProjectBound {
     this.addClass('hb-map-subareas')
     this.title.closable = true
     this.node.style.overflow = 'auto'
+    // ReactWidget's suppressScrollX scrollbar zeroes scrollLeft on every update()
+    // (perfect-scrollbar update-geometry.js:86); native scrollbars instead.
+    this.scrollOptions = undefined
   }
 
   async open(options: MapViewOptions): Promise<void> {
@@ -134,9 +139,9 @@ export class SubAreasWidget extends ReactWidget implements ProjectBound {
     await this.explorer?.selectSlot(slot)
   }
 
-  protected setHover(slot: number | null): void {
-    this.hover = slot
-    this.update()
+  protected setHot(slot: number, on: boolean): void {
+    const sel = `[data-slot="${slot}"], [data-link^="${slot}:"]`
+    this.node.querySelectorAll(sel).forEach(el => el.classList.toggle('hot', on))
   }
 
   protected render(): React.ReactNode {
@@ -157,13 +162,14 @@ export class SubAreasWidget extends ReactWidget implements ProjectBound {
       else this.canvases.delete(slot)
     }
     const hov = (slot: number) => ({
-      onMouseEnter: () => this.setHover(slot),
-      onMouseLeave: () => this.setHover(null),
+      onMouseEnter: () => this.setHot(slot, true),
+      onMouseLeave: () => this.setHot(slot, false),
       onClick: () => void this.go(slot),
     })
     const abs = { position: 'absolute' } as const
     return (
       <div data-ready={allReady} style={{ padding: 12 }}>
+        <style>{CSS}</style>
         <div style={{ ...abs, position: 'relative', width: w, height: h }}>
           <canvas
             data-entry-slot={r.entry.slot}
@@ -175,12 +181,13 @@ export class SubAreasWidget extends ReactWidget implements ProjectBound {
           {r.cards.map((c, i) => (
             <div
               key={c.slot}
+              className="sa-card"
               data-slot={c.slot}
               data-side={c.side}
               data-ready={this.ready.has(c.slot)}
               title={this.errors.get(c.slot) ?? `Open ${slotLabel(c.slot)}`}
               {...hov(c.slot)}
-              style={{ ...abs, left: pos[i]!.x - minX, top: pos[i]!.y - minY, width: CARD_W, height: CARD_H, cursor: 'pointer', overflow: 'hidden', outline: this.hover === c.slot ? '2px solid #1a73e8' : '1px solid #888' }} // prettier-ignore
+              style={{ ...abs, left: pos[i]!.x - minX, top: pos[i]!.y - minY, width: CARD_W, height: CARD_H, cursor: 'pointer', overflow: 'hidden', outline: '1px solid #888' }} // prettier-ignore
             >
               <canvas
                 width={CARD_W}
@@ -202,21 +209,16 @@ export class SubAreasWidget extends ReactWidget implements ProjectBound {
             {/* prettier-ignore */}
             {r.cards.flatMap((c, i) => {
               const f = fitInCard(c.widthPx, c.heightPx)
-              const st = this.hover === c.slot ? LINK.hot : LINK.idle
               return c.links.map((l, k) => {
                 const [x1, y1] = [l.main.x * S - minX, l.main.y * S - minY]
                 const x2 = pos[i]!.x - minX + f.ox + l.card.x * f.scale
                 const y2 = pos[i]!.y - minY + f.oy + l.card.y * f.scale
                 const seg = { x1, y1, x2, y2 }
                 return (
-                  <g key={`${c.slot}:${k}`} data-link={`${c.slot}:${k}`}>
-                    <line
-                      {...seg}
-                      style={{ stroke: st.stroke, strokeWidth: st.width, strokeDasharray: st.dash }}
-                    />{' '}
-                    {/* prettier-ignore */}
-                    <circle cx={x1} cy={y1} r={st.r} fill={st.stroke} />
-                    <circle cx={x2} cy={y2} r={st.r} fill={st.stroke} />
+                  <g key={`${c.slot}:${k}`} className="sa-link" data-link={`${c.slot}:${k}`}>
+                    <line {...seg} className="vis" />
+                    <circle cx={x1} cy={y1} r={3} />
+                    <circle cx={x2} cy={y2} r={3} />
                     <line
                       {...seg}
                       {...hov(c.slot)}
