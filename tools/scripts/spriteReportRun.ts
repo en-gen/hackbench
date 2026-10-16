@@ -51,6 +51,8 @@ import {
 export interface Graded extends ReportRow {
   oursImg: Rgba | null
   hardwareImg: Rgba | null
+  /** The model's pieces as graded, so a test can pin offsets the verdict cannot see. */
+  oursPieces?: RecordedPiece[]
 }
 export interface Filter {
   map?: number
@@ -537,6 +539,7 @@ export function gradeCaptures(f: Filter): Graded[] {
         detail: [g.detail, hw.note].filter(Boolean).join('. ') || undefined,
         oursImg: src ? renderPieces(ours, src) : null,
         hardwareImg: src ? renderPieces(hw.pieces, src) : null,
+        oursPieces: ours,
       }) // prettier-ignore
     }
   }
