@@ -283,7 +283,9 @@ export interface MapInputs extends L1Inputs {
   orderNote?: string
 }
 export type MapInputsResult =
-  { ok: true; inputs: MapInputs } | { ok: false; reason: string; detail?: string }
+  | { ok: true; inputs: MapInputs }
+  // `thrown`: reason is exception text (not a plain-worded gate reason), so only `mapScreen` swaps it (#786).
+  | { ok: false; reason: string; thrown?: true }
 
 export const base64 = (b: Uint8ClampedArray) =>
   Buffer.from(b.buffer, b.byteOffset, b.byteLength).toString('base64')
@@ -452,12 +454,7 @@ export class L1ModelCache {
         }
         built = this.build(rom, index, flags, bgMode, undefined, entrances)
       } catch (err) {
-        // Plain words for the view; the exception text rides apart as `detail` (#786, as #339).
-        built = {
-          ok: false,
-          reason: 'This part of the map could not be read from the ROM.',
-          detail: (err as Error).message,
-        }
+        built = { ok: false, reason: (err as Error).message, thrown: true }
       }
       if (models.size >= 8) models.delete(models.keys().next().value!)
       models.set(key, built)
@@ -484,9 +481,11 @@ export function mapScreen(
   switches: SwitchStateDto = SWITCHES_OFF,
 ): ScreenReply {
   const built = cache.get(bytes, romPath, index, flags)
-  return built.ok
-    ? screenResult(built.inputs, screen, switches)
-    : { status: 'unavailable', reason: built.reason, detail: built.detail }
+  if (built.ok) return screenResult(built.inputs, screen, switches)
+  // Only a thrown build swaps its text for plain words; a gate's own reason is already plain (#786).
+  return built.thrown
+    ? { status: 'unavailable', reason: 'This part of the map could not be read from the ROM.', detail: built.reason } // prettier-ignore
+    : { status: 'unavailable', reason: built.reason }
 }
 
 /**

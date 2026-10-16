@@ -3082,10 +3082,59 @@ test('a screen that fails after the map is laid out shows plain words, then clea
   )
   await expect(err).toHaveAttribute('data-control', 'map-error')
   await expect(page.locator(`${root(0x105)} canvas[data-screen="0"]`).first()).toBeAttached()
-  // Stop rejecting and refetch: the next success clears the message and its tooltip.
-  await page.evaluate(() => {
+  // Stop rejecting and refetch the failed screen WITHOUT refresh() (which clears the
+  // error itself): only the success path's own clear can remove it.
+  await page.evaluate(async () => {
     window.__reject786From = Infinity
-    getSvc('ApplicationShell').getWidgetById('hackbench.map-view:261').refresh()
+    await getSvc('ApplicationShell').getWidgetById('hackbench.map-view:261').fetchScreen(1)
   })
   await expect(page.locator(`${root(0x105)} [data-control="map-error"]`)).toHaveCount(0)
+})
+
+/** #786: opens map $105 with one service method forced to resolve to a canned reply. */
+async function openResolving(page, manifestPath, method, reply) {
+  await page.evaluate(
+    async ({ mp, method, reply }) => {
+      const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {
+        index: 0x105,
+      })
+      const real = w.projects
+      w.projects = new Proxy(real, {
+        get: (t, k) => k === method ? async () => reply : typeof t[k] === 'function' ? t[k].bind(t) : t[k], // prettier-ignore
+      })
+      await w.open({ manifestPath: mp, index: 0x105, label: '105', iconClass: '' })
+      const shell = getSvc('ApplicationShell')
+      await shell.addWidget(w, { area: 'main' })
+      await shell.activateWidget(w.id)
+    },
+    { mp: manifestPath, method, reply },
+  )
+  opened.push('hackbench.map-view:261')
+}
+
+test('a mapDetails answer of rom-not-located names the missing ROM in plain words', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openResolving(page, project.manifestPath, 'mapDetails', {
+    status: 'rom-not-located',
+    baseRom: { title: 'X' },
+  })
+  await expect(page.locator(`${root(0x105)} .hb-map-view-error`).first()).toHaveText(
+    'The base ROM X is not on this machine.',
+  )
+})
+
+test('an unavailable screen shows its reason, with the detail only in the tooltip', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openResolving(page, project.manifestPath, 'mapScreen', {
+    status: 'unavailable',
+    reason: 'R',
+    detail: 'D',
+  })
+  const err = page.locator(`${root(0x105)} [data-control="map-error"]`).first()
+  await expect(err).toHaveText('R')
+  await expect(err).toHaveAttribute('title', 'D')
 })

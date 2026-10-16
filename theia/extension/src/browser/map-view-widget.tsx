@@ -300,7 +300,6 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.title.iconClass = options.iconClass ?? 'codicon codicon-map'
     this.details = undefined
     this.error = undefined
-    this.errorDetail = undefined
     this.mapLayout = undefined
     this.sprites = undefined
     this.spritesWhy = undefined
@@ -1140,7 +1139,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
           <div
             className="hb-map-view-note hb-map-view-error"
             data-control="map-error"
-            title={this.screenError ? this.screenErrorDetail : undefined}
+            title={this.screenErrorDetail}
           >
             {this.screenError}
           </div>
@@ -1214,11 +1213,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const l = this.mapLayout
     if (!l) {
       return this.screenError ? (
-        <div
-          className="hb-map-view-error"
-          data-control="map-error"
-          title={this.screenError ? this.screenErrorDetail : undefined}
-        >
+        <div className="hb-map-view-error" data-control="map-error" title={this.screenErrorDetail}>
           {this.screenError}
         </div>
       ) : (
@@ -1343,7 +1338,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       return (
         <div
           className="hb-map-view-body hb-map-view-facts hb-map-view-error"
-          title={this.error ? this.errorDetail : undefined}
+          title={this.errorDetail}
         >
           {this.error}
         </div>
