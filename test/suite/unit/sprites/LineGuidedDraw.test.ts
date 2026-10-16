@@ -17,6 +17,7 @@ import { parseLevelSprites } from '../../../../src/rom/LevelParser'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import {
+  VANILLA_DISPATCH,
   DISPATCH_PINNED,
   ENTRY_PINNED,
   lineDrawsBeforeSnap,
@@ -140,7 +141,7 @@ describe('line-guided draw pass', () => {
     expect(g.anchor!.x).toBe(0x84)
   })
 
-  it('applies the snap rule to id $67 only: another id whose MAIN is the grinder handler is generic', () => {
+  it('gives the snap rule to the admitted ids only: another id whose MAIN is the grinder handler is generic', () => {
     const rom = buildSyntheticRom({ id31IsGrinder: true })
     // The alias passes the shape gate, so the id check alone is what keeps id 31 generic.
     expect(lineDrawsBeforeSnap(rom, 103, 0x019500, GRINDER_DISPATCH)).toBe(true)
@@ -192,6 +193,16 @@ describe('line-guided draw pass', () => {
   })
 
   it.each(ADMITTED)(
+    'keeps pass 0 for id %i when pass 2 draws nothing (grinder id 103 alone may stop at pass 1)',
+    id => {
+      const g = run(id, { grinderDrawsTwice: true })
+      expect(g.passes.slice(0, 3).map(p => p.parts.length > 0)).toEqual([true, true, false])
+      expect(g.chosen).toBe(0)
+      expect(g.anchor!.x).toBe(0x80)
+    },
+  )
+
+  it.each(ADMITTED)(
     'draws id %i at its first pass when the dispatch is not the vanilla shape',
     id => {
       const g = run(id, { alteredGrinder: true })
@@ -210,12 +221,45 @@ describe('line-guided draw pass', () => {
   })
 
   it('refuses a changed byte in the chainsaw prelude, or in the platform arm, apart from its free operands', () => {
-    const flip = flipped
-    const hit = Array.from({ length: PRELUDE_LEN }, (_, i) => i).filter(i => flip(101, CHAINSAW_HANDLER, CHAINSAW_HANDLER + i)) // prettier-ignore
-    expect(hit).toEqual(PRELUDE_OPERANDS)
-    // The platform arm sits at $019700; its draw JSR operand (46, 47) is free, its step operand (66, 67) is compared to the line step.
-    const arm = Array.from({ length: PLAT_ARM.len }, (_, i) => i).filter(i => flip(98, JMP_HANDLER, 0x019700 + i)) // prettier-ignore
-    expect(arm).toEqual([PLAT_ARM.draw, PLAT_ARM.draw + 1])
+    // Literal offsets, so editing the exported constants is itself caught. Only the prelude's table address (22, 23) is
+    // left free; its JSR target (31, 32) and the arm's two JSR targets (46, 47 and 66, 67) are compared to routines.
+    const hit = Array.from({ length: PRELUDE_LEN }, (_, i) => i).filter(i => flipped(101, CHAINSAW_HANDLER, CHAINSAW_HANDLER + i)) // prettier-ignore
+    expect(PRELUDE_LEN).toBe(33)
+    expect(PRELUDE_OPERANDS).toEqual([22, 23, 31, 32])
+    expect(hit).toEqual([22, 23])
+    // The platform arm sits at $019700, 68 bytes.
+    expect(PLAT_ARM).toEqual({ len: 68, draw: 46, step: 66 })
+    const arm = Array.from({ length: 68 }, (_, i) => i).filter(i => flipped(98, JMP_HANDLER, 0x019700 + i)) // prettier-ignore
+    expect(arm).toEqual([])
+  })
+
+  it('refuses a hijacked prelude call, platform-arm draw call or step call', () => {
+    for (const x of [0x01, 0x10, 0x7f, 0xff]) {
+      for (const i of [31, 32]) expect(flipped(101, CHAINSAW_HANDLER, CHAINSAW_HANDLER + i, x), `prelude +${i}^${x}`).toBe(false) // prettier-ignore
+      for (const i of [46, 47, 66, 67]) expect(flipped(98, JMP_HANDLER, 0x019700 + i, x), `arm +${i}^${x}`).toBe(false) // prettier-ignore
+    }
+  })
+
+  it('admits exactly $62, $65, $66, $67, $68 over every id 0..255', () => {
+    const rom = buildSyntheticRom()
+    // Every id is offered each synthetic entry shape; only the five route ids may pass, and only with their own entry kind.
+    const entries = [JMP_HANDLER, CHAINSAW_HANDLER, GRINDER_HANDLER]
+    const admitted = Array.from({ length: 256 }, (_, id) => id).filter(id => entries.some(h => lineDrawsBeforeSnap(rom, id, h, GRINDER_DISPATCH))) // prettier-ignore
+    expect(admitted).toEqual([0x62, 0x65, 0x66, 0x67, 0x68])
+  })
+
+  it('refuses $62 when the platform arm is not reached by a JMP (0x4C), though the digest still matches', () => {
+    const rom = buildSyntheticRom()
+    // The byte after the 41-byte span is the digest's blind spot: the BCC at 8 lands on it.
+    rom.writeAt(GRINDER_DISPATCH_AT + 41, [0x20])
+    expect(lineDrawsBeforeSnap(rom, 98, JMP_HANDLER, GRINDER_DISPATCH)).toBe(false)
+  })
+
+  it('refuses a bare-JMP entry whose opcode is changed to a JML (0x5C)', () => {
+    const rom = buildSyntheticRom()
+    rom.writeAt(JMP_HANDLER, [0x5c])
+    expect(lineDrawsBeforeSnap(rom, 104, JMP_HANDLER, GRINDER_DISPATCH)).toBe(false)
+    expect(lineDrawsBeforeSnap(rom, 98, JMP_HANDLER, GRINDER_DISPATCH)).toBe(false)
   })
 
   it('reports where each pass drew from: the INIT anchor, or for $67 the position the pass before left', () => {
@@ -399,3 +443,70 @@ describe.skipIf(!hasRom(VANILLA))(
     )
   },
 )
+
+const SWEEP_IDS = [0x62, 0x65, 0x66, 0x68]
+/** Every vanilla placement of $62, $65, $66, $68: placements, those the rule moved, and the shifts it made. */
+const SWEEP: Record<number, { total: number; moved: number; dx: number[]; dy: number[] }> = {
+  0x62: { total: 6, moved: 4, dx: [0, 15], dy: [0, 5, 15] },
+  0x65: { total: 32, moved: 24, dx: [-15, 0, 16], dy: [0, 15] },
+  0x66: { total: 1, moved: 1, dx: [16], dy: [0] },
+  0x68: { total: 37, moved: 28, dx: [0, 11, 16], dy: [0, 4, 15] },
+}
+
+describe.skipIf(!hasRom(VANILLA))('every vanilla $62, $65, $66, $68 (#792)', () => {
+  it('moves each placement onto a line tile (Map16 $76-$99, bank_01.asm:12000-12004) and pins how many move', () => {
+    const path = romPath(VANILLA)
+    const bytes = new Uint8Array(readFileSync(path))
+    const rom = new SmwRom(RomFile.fromBytes(path, Buffer.from(bytes)))
+    // Discovery by the sprite streams of all 512 maps, so a map the list below misses fails the totals.
+    const slots: number[] = []
+    const total = new Map<number, number>()
+    for (let slot = 0; slot < 0x200; slot++) {
+      const ptr = rom.getLevelSpritePointer(slot)
+      if (ptr === null) continue
+      const ids = parseLevelSprites(readStream(rom.rom, ptr), false).map(x => x.spriteId).filter(i => SWEEP_IDS.includes(i)) // prettier-ignore
+      if (ids.length) slots.push(slot)
+      for (const i of ids) total.set(i, (total.get(i) ?? 0) + 1)
+    }
+    expect(slots).toEqual([5, 15, 300])
+    expect(Object.fromEntries(total)).toEqual(Object.fromEntries(SWEEP_IDS.map(i => [i, SWEEP[i]!.total]))) // prettier-ignore
+    const got: typeof SWEEP = Object.fromEntries(SWEEP_IDS.map(i => [i, { total: 0, moved: 0, dx: [], dy: [] }])) // prettier-ignore
+    const old = { ...VANILLA_DISPATCH, sha: 'no gate match: the generic rule' }
+    for (const slot of slots) {
+      const built = new L1ModelCache().get(bytes, path, slot, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
+      if (!built.ok) throw new Error(built.reason)
+      const grid = built.inputs.grid as number[][]
+      const mapped = mapSprites(new L1ModelCache(), bytes, path, slot)
+      if (mapped.status !== 'ok') throw new Error(`slot ${slot}: ${mapped.status}`)
+      const drawn = mapped.sprites.filter(d => SWEEP_IDS.includes(d.id))
+      const placements = parseLevelSprites(readStream(rom.rom, rom.getLevelSpritePointer(slot)!), built.inputs.isVertical).filter(x => SWEEP_IDS.includes(x.spriteId)) // prettier-ignore
+      let last: { now: SpriteModel; before: SpriteModel } | undefined
+      const draw = interpDrawer(rom.rom, slot, built.inputs, (r, id, sd) => {
+        const now = runOnce(r, id, sd)
+        last = { now, before: runOnce(r, id, sd, { lineDispatch: old }) }
+        return now
+      })
+      placements.forEach((p, i) => {
+        draw(p)
+        const [a, b] = [last!.now.anchor, last!.before.anchor]
+        const g = got[p.spriteId]!
+        g.total++
+        if (!a || !b || (a.x === b.x && a.y === b.y)) return
+        g.moved++
+        g.dx.push(a.x - b.x)
+        g.dy.push(a.y - b.y)
+        // The placement the map shows is the one this model chose; it must sit inside a tile of the game's line range.
+        const d = drawn[i]!
+        const tile = (grid[d.y >> 4]?.[d.x >> 4] ?? -1) & 0xff
+        const where = `slot ${slot} #${i} id $${p.spriteId.toString(16)} (${d.x},${d.y}) tile $${tile.toString(16)}`
+        expect(d.status, where).toBe('drawn')
+        expect(tile >= 0x76 && tile <= 0x99, where).toBe(true)
+        if (LINE_EDGE[tile]) expect(LINE_EDGE[tile]!(d.x & 15, d.y & 15), where).toBe(true)
+      })
+    }
+    const sorted = (v: number[]) => [...new Set(v)].sort((x, y) => x - y)
+    const summary = Object.fromEntries(SWEEP_IDS.map(i => [i, { total: got[i]!.total, moved: got[i]!.moved, dx: sorted(got[i]!.dx), dy: sorted(got[i]!.dy) }])) // prettier-ignore
+    const want = Object.fromEntries(SWEEP_IDS.map(i => [i, { ...SWEEP[i]!, dx: sorted(SWEEP[i]!.dx), dy: sorted(SWEEP[i]!.dy) }])) // prettier-ignore
+    expect(summary).toEqual(want)
+  }, 300_000)
+})

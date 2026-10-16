@@ -441,7 +441,7 @@ export type Probe = (pass: number, wram: Uint8Array) => void
 
 /**
  * The line-guided sprites ($62, $65-$68) draw, then their line step moves them (SMWDisX bank_01.asm:12182-12204,
- * arms 12206-12212 and 12323-12354; corner stores 12054-12061), so the grinder draws three different spots: the
+ * platform arm 12323-12358; corner stores 12054-12061; $64's rope arm 12209-12215 is not one), so the grinder draws three different spots: the
  * off-track INIT spot, the probe corner the first MAIN snapped to, and the line point the walk then set. The
  * editor draws the third (#126, #792). Which ids qualify is `lineDrawsBeforeSnap`'s per-id shape check.
  *
@@ -558,7 +558,10 @@ export function runOnce(
         a.x !== b.x || a.y !== b.y
       if (!moved(q0, anchor))
         model.lineStepReason = 'the line step did not move the sprite on pass 0: kept the first drawn pass' // prettier-ignore
-      else model.chosen = model.passes[2]?.parts.length && moved(q0, q1) ? 2 : 1
+      else if (model.passes[2]?.parts.length && moved(q0, q1)) model.chosen = 2
+      // Only the grinder (#126) falls back to pass 1, the probe-corner spot. For the ids #792 admits, a pass 2 that
+      // does not draw leaves pass 0, the generic rule: the corner spot is not where the game keeps them.
+      else if (id === 0x67) model.chosen = 1
     }
     if (snaps && model.chosen !== undefined)
       model.anchor = { ...model.anchor!, ...model.passes[model.chosen]!.origin }

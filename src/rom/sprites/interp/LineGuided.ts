@@ -2,7 +2,9 @@
  * Whether a cart's line-guided sprite ($62, $65-$68) still dispatches in the vanilla order: draw, then the
  * line step. A hack that rewrites the handler gets the runner's generic rule. The gate reads the
  * dispatch shape and the addresses of the routines it calls, not those routines' bodies.
- * All six MAINs end in the one dispatch CODE_01D9A7 (bank_01.asm:12182-12204), reached three ways (#792).
+ * Seven ids ($62-$68) share the dispatch CODE_01D9A7 (bank_01.asm:12182-12204), reached by three entry routines (#792).
+ * $63 and $64 are not admitted: both INITs step the sprite twice (InitLinePlat's tail, 11774-11783, which InitLineRope
+ * joins), so their first MAIN already draws on the track and the generic rule is right.
  */
 import type { RomFile } from '../../RomFile'
 import { mirror } from '../../addressing'
@@ -20,6 +22,8 @@ const ROUTES: Readonly<Record<number, 'grinder' | 'chainsaw' | 'jmp'>> = { 0x62:
 /** The prelude's length and its free operands: the DATA_01D717 table address and the JSR target. */
 export const PRELUDE_LEN = 33
 export const PRELUDE_OPERANDS = [22, 23, 31, 32]
+/** Offset of the prelude's JSR CODE_018063 operand (bank_01.asm:11836). */
+const PRELUDE_CALL = 31
 
 /** Offsets of ENTRY's pinned bytes (the rest are operands that name a constant or a register). */
 export const ENTRY_PINNED = ENTRY.flatMap((v, i) => (v === null ? [] : [i]))
@@ -46,12 +50,15 @@ export interface DispatchShape {
   /** Digests (operands masked as below) of the chainsaw prelude and of the platform arm. */
   prelude: string
   plat: string
+  /** The prelude's JSR target (CODE_018063) and the platform arm's draw JSR target (CODE_01B2DF), folded 24-bit. */
+  preludeCall: number
+  platDraw: number
 }
 
 /**
- * The platform arm, CODE_01DAA2 (shift, JSR CODE_01B2DF draw, restore, JSR to the line step: bank_01.asm:12323-12354):
- * its length and the offsets of the draw and step JSR operands. $64 stays out: InitLineRope runs the line step twice
- * in INIT (bank_01.asm:11766-11786), so its first MAIN draw is already on the track and the generic rule is right.
+ * The platform arm, CODE_01DAA2 (shift, JSR CODE_01B2DF draw at 12347, restore, JSR to the line step at 12358: bank_01.asm:12323-12358):
+ * its length and the offsets of the draw and step JSR operands. $64 stays out: InitLineRope joins the INIT tail that
+ * runs the line step twice (bank_01.asm:11766-11783), so its first MAIN draw is already on the track and the generic rule is right.
  */
 export const PLAT_ARM = { len: 68, draw: 46, step: 66 } as const
 export const PLAT_OPERANDS = [PLAT_ARM.draw, PLAT_ARM.draw + 1, PLAT_ARM.step, PLAT_ARM.step + 1]
@@ -66,6 +73,8 @@ export const VANILLA_DISPATCH: DispatchShape = {
   sha: '5ab0b410faae1acff4783cfef08df9beeca77bf750f71d8bdb8dbb1f434f7961',
   targets: [0x01dbd4, 0x01dc0b, 0x01a7e4, 0x01a7e4, 0x03c263, 0x01d74d],
   prelude: '9c92bcff29e279e68e2fd3a3bd96019ab63515c8169a6c590f624d6ca6503af9',
+  preludeCall: 0x018063,
+  platDraw: 0x01b2df,
   plat: 'd8df7298dd161113eb32459a1400fca35a6e6a8385677c22f7f93887f6c57c7c',
 }
 
@@ -81,6 +90,11 @@ export function lineDrawsBeforeSnap(
   if (route === 'chainsaw') {
     const pre = rom.readAt(handler, PRELUDE_LEN)
     if (pre?.length !== PRELUDE_LEN || spanFingerprint(pre, PRELUDE_OPERANDS) !== shape.prelude)
+      return false
+    if (
+      mirror((handler & 0xff0000) | pre[PRELUDE_CALL]! | (pre[PRELUDE_CALL + 1]! << 8)) !==
+      shape.preludeCall
+    )
       return false
   }
   const pattern = route === 'jmp' ? [0x4c] : ENTRY
@@ -100,12 +114,14 @@ export function lineDrawsBeforeSnap(
   // $62 takes the BCC at 8 (disp pinned by the digest) to a JMP to the platform arm.
   const jmp = rom.readAt(at + 10 + span[9]!, 3)
   if (jmp?.[0] !== 0x4c) return false
-  const { len, step } = PLAT_ARM
+  const { len, step, draw } = PLAT_ARM
   const arm = bank | jmp[1]! | (jmp[2]! << 8)
   const body = rom.readAt(arm, len)
   if (body?.length !== len) return false
+  const call = (at: number) => mirror(bank | body[at]! | (body[at + 1]! << 8))
   return (
     spanFingerprint(body, PLAT_OPERANDS) === shape.plat &&
-    mirror(bank | body[step]! | (body[step + 1]! << 8)) === shape.targets[5]
+    call(draw) === shape.platDraw &&
+    call(step) === shape.targets[5]
   )
 }
