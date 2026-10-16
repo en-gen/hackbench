@@ -18,7 +18,7 @@ import {
   loadPaletteAnimData,
   serializePaletteAnimData,
 } from '../rom/PaletteAnimationLoader'
-import { readMapEntrances } from '../rom/ReadMapEntrances'
+import { entrancesOfMap, readMapEntrances } from '../rom/ReadMapEntrances'
 import { readInitialLayer1YPos, readL3RoutineSummary, classifyL3Routine } from '../rom/L3Loader'
 import { getAllLevelBgmTracks, readLevelMusicTableIfReadable } from '../rom/MusicData'
 import { buildSpc } from '../rom/SpcBuilder'
@@ -444,7 +444,7 @@ export class MapEditorProvider implements vscode.CustomReadonlyEditorProvider {
       // the camera viewport so sublevels (accessed only via pipes/doors) show
       // the player's actual starting viewport.
       const entrances = readMapEntrances(rom)
-      const via = entrances?.get(index)
+      const via = entrancesOfMap(entrances, index)
       const initialCameraYPx = readInitialLayer1YPos(rom.rom, index, isVertical, via)
       // Initial Layer2YPos (BG2VOFS). Populated for ALL levels - the
       // Layer 2 tab's Y-scrubber slider seeds from this. Only meaningful

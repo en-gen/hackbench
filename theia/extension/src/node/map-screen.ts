@@ -15,7 +15,7 @@
  * planes by its tile priority bit, drawn on every non-Mode-7 level mode (#561, #562).
  */
 import { SmwRom, type MapEntrances } from '../../../../src/rom/SmwRom'
-import { readMapEntrances } from '../../../../src/rom/ReadMapEntrances'
+import { entrancesOfMap, readMapEntrances } from '../../../../src/rom/ReadMapEntrances'
 import { RomFile } from '../../../../src/rom/RomFile'
 import type { DataBanks } from '../../../../src/rom/DataBanks'
 import { SCREEN_H, SCREEN_W, SCREEN_W_VERT, SCREEN_H_VERT } from '../../../../src/rom/LevelParser'
@@ -393,7 +393,7 @@ export function buildMapInputs(
   const built = l1(rom, index, flags)
   if (!built.ok) return built
   const bg = bgMode()
-  const via = entrances()?.get(index)
+  const via = entrancesOfMap(entrances(), index)
   return {
     ok: true,
     inputs: {

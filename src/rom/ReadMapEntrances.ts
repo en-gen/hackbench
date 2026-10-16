@@ -17,3 +17,15 @@ export function readMapEntrances(
     return undefined
   }
 }
+
+/**
+ * One map's entrances from the graph. A graph that exists but never reached the map gives an
+ * empty record with no route, so the chooser falls back and says so (#945); no graph at all
+ * (undefined, a hooked hack) stays undefined: primary, with its own reason elsewhere.
+ */
+export function entrancesOfMap(
+  graph: ReadonlyMap<number, MapEntrances> | undefined,
+  index: number,
+): MapEntrances | undefined {
+  return graph && (graph.get(index) ?? { overworld: false, primary: false, secondary: [] })
+}
