@@ -165,6 +165,8 @@ describe('L2 planes (synthetic)', () => {
   })
 })
 
+const routeNote = 'No route from the overworld to this map was found, so its entrance is a guess.' // prettier-ignore
+
 describe('the wire carries four planes in the view stacking order (synthetic)', () => {
   /** What the view shows: each plane over the ones below it, a covering pixel replacing what is under it. */
   const stack = (
@@ -277,8 +279,6 @@ describe('the wire carries four planes in the view stacking order (synthetic)', 
 
   it('a guessed entrance and an unverified height are two layer notes, not one sentence (#945)', () => {
     const m = inputs(hGrid(1), false, 1)
-    const routeNote =
-      'No route from the overworld to this map was found, so its entrance is a guess.'
     const l2 = { ...l2Of(nullGrid(27, 16), tiles2(solid)), note: 'Background height unverified: x' } // prettier-ignore
     const wire = wireOf({ ...mapOf(m, { ok: true, l2 }), routeNote })
     expect(wire.layerNotes).toEqual(['Background height unverified: x', routeNote])
@@ -286,8 +286,6 @@ describe('the wire carries four planes in the view stacking order (synthetic)', 
 
   it('the guessed-entrance note still shows when the background is refused (#945)', () => {
     const m = inputs(hGrid(1), false, 1)
-    const routeNote =
-      'No route from the overworld to this map was found, so its entrance is a guess.'
     const wire = wireOf({ ...mapOf(m, { ok: false, reason: 'gone' }), routeNote })
     expect(wire.layerNotes).toEqual(['The background is not drawn: gone', routeNote])
   })
