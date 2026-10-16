@@ -39,11 +39,14 @@ reviews:
     - '**/package-lock.json'
     - '**/yarn.lock'
   auto_review:
-    # Owner ruling 2026-10-16: paid Essentials plan, 5 reviews per hour, so
-    # every new PR and every push is reviewed automatically. Usage-based
-    # billing stays off: a push past the hourly allowance is rate limited and
-    # needs a manual `@coderabbitai review`. This file outranks the CodeRabbit
-    # UI settings, so it must say what the UI says.
+    # Owner ruling 2026-10-16: paid Essentials plan, five included PR reviews
+    # per developer per hour, subject to CodeRabbit's Fair Usage Policy. Every
+    # new PR and every push is reviewed automatically, but only a non-draft PR
+    # whose base is the default branch, develop or feature/* (drafts and
+    # base_branches below). Usage-based billing stays off: a push past the
+    # hourly allowance is rate limited and needs a manual `@coderabbitai
+    # review`. This file outranks the CodeRabbit UI settings, so it must say
+    # what the UI says.
     enabled: true
     auto_incremental_review: true
     drafts: false
