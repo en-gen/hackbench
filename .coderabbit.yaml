@@ -43,10 +43,12 @@ reviews:
     # per developer per hour, subject to CodeRabbit's Fair Usage Policy. Every
     # new PR and every push is reviewed automatically, but only a non-draft PR
     # whose base is the default branch, develop or feature/* (drafts and
-    # base_branches below). Usage-based billing stays off: a push past the
-    # hourly allowance is rate limited and needs a manual `@coderabbitai
-    # review`. This file outranks the CodeRabbit UI settings, so it must say
-    # what the UI says.
+    # base_branches below). Usage-based billing stays off, so a push past the
+    # hourly allowance is rate limited. Observed 2026-10-16 with auto review
+    # off: `@coderabbitai review` starts a review once the allowance has a
+    # slot. Not yet confirmed with auto review on; if it fails, push a new
+    # commit (that triggers auto review). This file outranks the CodeRabbit UI
+    # settings, so it must say what the UI says.
     enabled: true
     auto_incremental_review: true
     drafts: false

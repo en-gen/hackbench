@@ -138,10 +138,13 @@ the approval to be CodeRabbit's, so a human approval merges it too.
   non-draft PR whose base is the default branch, `develop` or `feature/*`
   (`.coderabbit.yaml`: `auto_review.drafts` and `base_branches`). The plan is
   Essentials: five included PR reviews per developer per hour, subject to
-  CodeRabbit's Fair Usage Policy, usage-based billing off. Comment
-  `@coderabbitai review` only to retry a review that came back "rate
-  limited", once the next review frees up, or to request one on a PR the
-  filters skip. Never comment `full review` or `@coderabbitai approve`.
+  CodeRabbit's Fair Usage Policy, usage-based billing off. Observed
+  2026-10-16 with auto review off (#921, #932 at 01:57Z to 01:58Z; #917,
+  #922, #924, #928, #930 at 00:44Z): `@coderabbitai review` starts a review
+  once the hourly allowance has a slot, though its reply says it applies only
+  when auto review is paused. Not yet confirmed with auto review on; if it
+  fails, push a new commit (that triggers auto review). Never comment
+  `full review` or `@coderabbitai approve`.
 - A CI re-run reuses the PR's original merge commit. When the fix is on
   `develop`, merge `develop` into the branch (never rebase or force-push).
 - Repo admins can bypass the approval; agents never do.
