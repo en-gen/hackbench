@@ -1,8 +1,10 @@
 /**
- * #936: the no-blend rule for screen-door and lifted sprite pixels is a no-op on the vanilla ROM.
- * Every map 0x000-0x1FF, every screen, sprites cut the way the map view cuts them. A door pixel is a
- * sprite pixel under an opaque tile of a layer; it is counted when that layer's bit is in the map's
- * CGADSUB, the only case where the rule changes the output. Vanilla ROM, one machine.
+ * #936 precondition: on the vanilla ROM no door pixel lies under a layer in its map's CGADSUB, so the
+ * no-blend rule cannot change vanilla output. This checks the data, not ColorMath (the code is covered by
+ * DoorNoBlend.test.ts); the predicate is test/suite/support/doorBlend.ts, proven able to go red there.
+ * Every map 0x000-0x1FF, the 488 that build, 1315 screens with sprites and a color-math table, sprites cut
+ * the way the map view cuts them, lists as the view composes them (withFlameKeys). Exact counts, so a
+ * change in what is scanned fails loudly. Vanilla ROM, one machine.
  */
 import { describe, it, expect } from 'vitest'
 import {
@@ -11,12 +13,19 @@ import {
 } from '../../../theia/extension/src/common/project-protocol'
 import { L1ModelCache, screenResult } from '../../../theia/extension/src/node/map-screen'
 import { mapSprites } from '../../../theia/extension/src/node/map-sprites'
-import { spriteDoors, spritePlanes } from '../../../theia/extension/src/browser/map-view-model'
+import {
+  spriteDoors,
+  spritePlanes,
+  withFlameKeys,
+} from '../../../theia/extension/src/browser/map-view-model'
 import { VANILLA, freshRom, hasRom, romPath } from '../support/corpus'
 import { slow } from '../support/loadTimeout'
+import { doorPixelsUnderMath } from '../support/doorBlend'
 
 const NO_FLAGS: SwitchFlagsDto = { green: false, yellow: false, blue: false, red: false }
-const BIT = { l1: 0x01, l2: 0x02, l3: 0x04 } as const
+
+// Measured on the vanilla ROM, one machine: 488 of 512 map slots build, 1315 of their screens have sprites and a color-math table.
+const DOOR_PIXELS = 73388
 
 describe.skipIf(!hasRom(VANILLA))(
   'door and lift pixels never meet color math on vanilla (#936)',
@@ -45,22 +54,14 @@ describe.skipIf(!hasRom(VANILLA))(
             screens++
             const planes = { ...spritePlanes(sp, s) } as Record<string, Uint8ClampedArray | null>
             for (const k of MAP_PLANE_KEYS) planes[k] = shot.planes[k] ? new Uint8ClampedArray(Buffer.from(shot.planes[k]!, 'base64')) : null // prettier-ignore
-            for (let p = 0; p < doors.length; p++) {
-              if (!doors[p]) continue
-              // The topmost plane with any alpha at the pixel: a tile layer there covers the sprite below it.
-              const top = [...shot.screens.main]
-                .reverse()
-                .find(k => (planes[k]?.[p * 4 + 3] ?? 0) > 0)
-              if (!top || top.startsWith('sprites')) continue
-              doorPixels++
-              if (shot.math.cgadsub & BIT[top.slice(0, 2) as keyof typeof BIT])
-                hits.push(`${m.toString(16)}/${s}`)
-            }
+            // The lists the view composes with, flame planes placed.
+            const found = doorPixelsUnderMath(withFlameKeys(shot.screens).main, planes, doors, shot.math.cgadsub) // prettier-ignore
+            doorPixels += found.doorPixels
+            if (found.blended) hits.push(`${m.toString(16)}/${s}`)
           }
         }
         console.log(`#936 vanilla: ${maps} maps, ${screens} screens with sprites, ${doorPixels} door pixels, ${hits.length} under a blended layer`) // prettier-ignore
-        expect(maps).toBeGreaterThan(400)
-        expect(doorPixels).toBeGreaterThan(0)
+        expect([maps, screens, doorPixels]).toEqual([488, 1315, DOOR_PIXELS])
         expect(hits).toEqual([])
       },
     )

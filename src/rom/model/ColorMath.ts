@@ -64,6 +64,9 @@ const to8 = (v: number) => (v << 3) | (v >> 2)
  * hardware) is blended over the planes beneath it in the list, as the old plane stack did.
  * The topmost plane's CGADSUB membership then applies to the blend: an editor affordance, not
  * hardware, and it differs only when the two layers differ in membership.
+ * A sprite pixel a tile covers (`door`, D52 #795, or lifted #891) comes back as the tile's pixel plus the
+ * sprite color and its strength `w`; `composeScreen` blends only the sprite part after color math
+ * (D60 B, D62 call 2 B, #936), so the tile part keeps the covering layer's CGADSUB bit.
  */
 function top(i: ScreenInput, list: readonly SourceKey[], at: number, flips?: Map<number, boolean>) {
   let sum = [0, 0, 0]
@@ -82,18 +85,20 @@ function top(i: ScreenInput, list: readonly SourceKey[], at: number, flips?: Map
     cover += w
   }
   if (cover === 0) return null
-  let rgb = sum.map(v => Math.round(v / cover)) as unknown as Rgb
-  const door = flips && coveredSprite(i, list, at, k)
-  if (door) {
+  const rgb = sum.map(v => Math.round(v / cover)) as unknown as Rgb
+  const sprite = flips && coveredSprite(i, list, at, k)
+  let door: { rgb: Rgb; w: number } | undefined
+  if (sprite) {
     const d = i.doors![at / 4]!
     const w = d >> 1 === i.lift ? 1 : hiddenPixelStrength(d & 1, 0, flips.get(d >> 1))
-    rgb = rgb.map((v, c) => Math.round(v * (1 - w) + door[c]! * w)) as unknown as Rgb
-    // D60 B, D62 call 2 B (#936): a door or lifted pixel is the sprite's, not the covering layer's, so it
-    // takes no part in color math (bit 0, as an uncovered sprite pixel has).
-    bit = 0
+    door = { rgb: sprite as unknown as Rgb, w }
   }
-  return { rgb, cover, bit }
+  return { rgb, cover, bit, door }
 }
+
+/** A door pixel's final color: the sprite at strength `w` over `under` (the tile's pixel, or its color-math result). */
+const throughDoor = (under: Rgb, d: { rgb: Rgb; w: number }) =>
+  under.map((v, c) => Math.round(v * (1 - d.w) + d.rgb[c]! * d.w)) as unknown as Rgb
 
 /**
  * The placed sprite pixel (its RGB) a fully covering tile hides, or null; the Layer 2 flame planes
@@ -160,11 +165,14 @@ export function composeScreen(i: ScreenInput): Uint8ClampedArray {
     // Unverified tables (no math): the stack as is, the back area showing where nothing draws.
     // Sub is ignored: every math-null verdict carries FALLBACK_SCREENS, whose sub list is empty.
     if (!math) {
-      if (main) out.set([...main.rgb, Math.round(main.cover * 255)], at)
+      if (main) out.set([...(main.door ? throughDoor(main.rgb, main.door) : main.rgb), Math.round(main.cover * 255)], at) // prettier-ignore
       continue
     }
     const sub = top(i, i.lists.sub, at)
     let res = mathPixel(math, main, sub)
+    // D60 B, D62 call 2 B (#936): only the sprite part of a door pixel skips color math; the tile part
+    // (1 - w) still takes the covering layer's CGADSUB bit. At w = 1 (bright parity, lifted) the pixel is the sprite's.
+    if (main?.door) res = throughDoor(res, main.door)
     // Nothing drew on either screen and the result is the fixed color: that is the back area,
     // which the view shows as a layer of its own, so stay transparent.
     const f = math.fixed
