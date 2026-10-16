@@ -379,6 +379,24 @@
   overflow: visible;
 }
 
+/* Refused objects (#816): above the screens, below the collision lines. Only the cells take the pointer, for their tooltips. */
+.hb-map-refused {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 150;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.hb-map-refused [data-control='refused-cell'] {
+  pointer-events: all;
+}
+
+.hb-map-refused rect {
+  fill-opacity: 0.35;
+}
+
 .hb-map-collision polyline {
   fill: none;
   stroke-width: 2;
