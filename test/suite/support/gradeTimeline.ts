@@ -100,5 +100,5 @@ export function runnerId(
   if (listIndex === undefined) return id
   const placed = entries?.find(e => e.index === listIndex)?.id
   const listId = placed === undefined ? NaN : parseInt(placed.slice(1), 16)
-  return shellLoad(rom, listId).shell?.number === id ? listId : id
+  return Number.isNaN(listId) ? id : shellLoad(rom, listId).shell?.number === id ? listId : id
 }

@@ -1,10 +1,10 @@
 /**
  * Stationary Koopa shells (#837), on the synthetic cart (no ROM). The loader gives list ids
  * $DA-$DD and $DF status 9 and sprite number id-$DA+4 and runs InitSpriteTables but no INIT
- * (SMWDisX bank_02.asm:5339-5340, 5349-5350, 5361, 5456-5462, 5498). The mapping is read from the
- * loader's bytes: the whole $C9-$FF range is swept so a wrong edge (a $DE or $E0 taken as a shell, a
- * shell dropped) goes red, and each loader site is planted to prove a changed opcode refuses and a
- * changed operand changes the mapping.
+ * (SMWDisX bank_02.asm:5290-5291, 5339-5340, 5349-5350, 5361, 5456-5462, 5498). The mapping is read
+ * from the loader's bytes: the whole $C9-$FF range is swept so a wrong edge (a $DE or $E0 taken as a
+ * shell, a shell dropped) goes red; every byte of every site that is not an operand is planted with a
+ * NOP and must refuse, and each operand is planted to change the mapping.
  */
 import { describe, expect, it } from 'vitest'
 import { shellLoad } from '../../../../src/rom/sprites/ShellSprites'
@@ -21,8 +21,15 @@ const SHELLS = new Map([
   [0xdd, 7],
   [0xdf, 9],
 ])
-/** The loader's sites with the byte planted over each opcode, as the synthetic cart lays them out. */
-const OPCODES = [0x02a88c, 0x02a89c, 0x02a8ac, 0x02a8b0, 0x02a8c0, 0x02a8d0, 0x02a978, 0x02a97e]
+/** Every non-operand byte of every loader site (opcodes and branch displacements), as the synthetic cart lays them out. */
+const FIXED = [
+  ...[0x02a866, 0x02a88c, 0x02a89c, 0x02a8ac, 0x02a8b0, 0x02a8c0, 0x02a8d0].flatMap(a => [
+    a,
+    a + 2,
+    a + 3,
+  ]),
+  ...[0x02a978, 0x02a97a, 0x02a97c, 0x02a97d, 0x02a97e, 0x02a97f, 0x02a981, 0x02a982],
+]
 
 describe('stationary shell list ids', () => {
   it('maps exactly $DA-$DD and $DF, across $C9-$FF', () => {
@@ -41,27 +48,53 @@ describe('stationary shell list ids', () => {
     }
   })
 
-  it('refuses, naming the site, when any loader opcode is not the expected one', () => {
-    for (const at of OPCODES) {
+  it.each(FIXED)('refuses, naming the site, when the byte at %i is not the expected one', at => {
+    for (const id of [0xda, 0xff]) {
       const r = buildSyntheticRom()
       r.writeAt(at, [0xea])
-      expect(runSprite(r, 0xda).refusal, `$${at.toString(16)}`).toMatch(
+      expect(shellLoad(r, id).refusal, `$${at.toString(16)} id $${id.toString(16)}`).toMatch(
         /in the level loader is not the expected code/,
       )
     }
   })
 
-  it('reads the operands: ADC #5 maps $DA to 5, SBC #$DB maps $DB to 4, CMP #$E2 makes $E1 a shell', () => {
-    const adc = buildSyntheticRom()
-    adc.writeAt(0x02a983, [0x05])
-    expect(shellLoad(adc, 0xda).shell?.number).toBe(5)
-    const sbc = buildSyntheticRom()
-    sbc.writeAt(0x02a980, [0xdb])
-    expect(shellLoad(sbc, 0xdb).shell?.number).toBe(4)
-    const ceil = buildSyntheticRom()
-    ceil.writeAt(0x02a8c1, [0xe2])
-    expect(shellLoad(ceil, 0xe1).shell?.number).toBe(0xe1 - 0xda + 4)
-    expect(shellLoad(rom, 0xe1).shell).toBeUndefined()
+  // [name, site, byte planted, id, expected shell number (undefined: not a shell), expected status]
+  const OPERANDS: [string, number, number, number, number | undefined, number?][] = [
+    ['ADC #5', 0x02a983, 0x05, 0xda, 5],
+    ['SBC #$DB', 0x02a980, 0xdb, 0xdb, 4],
+    ['shell ceiling $E2', 0x02a8c1, 0xe2, 0xe1, 0xe1 - 0xda + 4],
+    ['status 8 keeps the id', 0x02a8d1, 0x08, 0xda, 0xda, 8],
+    ['floor $C0 alone does not free $C5 (ceiling still $DA)', 0x02a8ad, 0xc0, 0xc5, undefined],
+    ['eeries compare $E1 frees $DE', 0x02a88d, 0xe1, 0xde, 0xde - 0xda + 4],
+    ['platforms compare $E1 frees $E0', 0x02a89d, 0xe1, 0xe0, 0xe0 - 0xda + 4],
+    ['entry $DD drops $DD', 0x02a867, 0xdd, 0xdd, undefined],
+  ]
+  it.each(OPERANDS)('reads the operand: %s', (_n, at, byte, id, num, status) => {
+    const r = buildSyntheticRom()
+    r.writeAt(at, [byte])
+    const got = shellLoad(r, id)
+    expect(got.refusal).toBeUndefined()
+    if (num !== undefined) expect(got.shell).toEqual({ number: num, status: status ?? 9 })
+    else expect(got.shell, 'not a shell').toBeUndefined()
+  })
+
+  it('derives the range from both generator operands: floor and ceiling $C0 make $C5 a shell', () => {
+    const r = buildSyntheticRom()
+    r.writeAt(0x02a8ad, [0xc0])
+    r.writeAt(0x02a8b1, [0xc0])
+    expect(shellLoad(r, 0xc5).shell).toEqual({ number: (0xc5 - 0xda + 4) & 0xff, status: 9 })
+    expect(shellLoad(rom, 0xc5).shell).toBeUndefined()
+  })
+
+  it('the entry compare bounds the mapping: ceiling $F0 does not make $E8 a shell (a scroll sprite)', () => {
+    const r = buildSyntheticRom()
+    r.writeAt(0x02a8c1, [0xf0])
+    expect(shellLoad(r, 0xe8).shell).toBeUndefined()
+    expect(shellLoad(r, 0xe6).shell?.number).toBe(0xe6 - 0xda + 4)
+  })
+
+  it('a non-integer or out-of-range id is no shell', () => {
+    for (const id of [NaN, -1, 0x100, 1.5]) expect(shellLoad(rom, id)).toEqual({})
   })
 
   it('leaves plain ids alone even when the loader bytes are wrong', () => {
@@ -93,6 +126,19 @@ describe('stationary shell list ids', () => {
     expect(runSprite(rom, 0, withSeed({ slot: 3 })).steps[0]).toBeGreaterThan(0)
   })
 
+  it('runs INIT from the loaded status: id 0 made a status-1 "shell" by the operands still runs INIT', () => {
+    const r = buildSyntheticRom()
+    for (const [at, b] of [
+      [0x02a8ad, 0],
+      [0x02a8b1, 0],
+      [0x02a8c1, 1],
+      [0x02a8d1, 1],
+    ] as const)
+      r.writeAt(at, [b])
+    expect(shellLoad(r, 0).shell).toEqual({ number: 0, status: 1 })
+    expect(runSprite(r, 0).initFrames).toBe(1)
+  })
+
   it('still runs a plain id through INIT in status 1', () => {
     expect(runSprite(rom, 0).initFrames).toBe(1)
   })
@@ -109,6 +155,8 @@ describe('runnerId (the grader hands the runner the placed list id)', () => {
     expect(runnerId(rom, 7, 2, entries)).toBe(7)
     expect(runnerId(rom, 4, 9, entries)).toBe(4)
     expect(runnerId(rom, 4, undefined, entries)).toBe(4)
+    expect(runnerId(rom, 4, 5, entries)).toBe(4)
+    expect(runnerId(rom, 4, 2, [{ index: 2, id: 'zz' }])).toBe(4)
     expect(runnerId(rom, 4, 2, undefined)).toBe(4)
   })
 })
