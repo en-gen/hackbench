@@ -199,6 +199,22 @@ describe('line-guided draw pass', () => {
       expect(g.passes.slice(0, 3).map(p => p.parts.length > 0)).toEqual([true, true, false])
       expect(g.chosen).toBe(0)
       expect(g.anchor!.x).toBe(0x80)
+      expect(g.lineStepReason).toMatch(/third pass/)
+    },
+  )
+
+  it.each(ADMITTED)(
+    'keeps pass 0 for id %i when the first MAIN moved it but the second did not, though pass 2 draws',
+    id => {
+      // Twin of the grinder test above: the step moves +4 on its first call only, so moved(q0, q1) is false.
+      const rom = buildSyntheticRom()
+      rom.writeAt(0x019290, [0xfe, 0x50, 0x16, 0xbd, 0x50, 0x16, 0xc9, 0x02, 0x90, 0x01, 0x60, 0xb5, 0xe4, 0x18, 0x69, 0x04, 0x95, 0xe4, 0x60]) // prettier-ignore
+      const g = runOnce(rom, id, seed, { lineDispatch: GRINDER_DISPATCH })
+      expect(g.passes.slice(0, 3).map(p => p.parts.length > 0)).toEqual([true, true, true])
+      expect(g.passes[1]!.pos).toEqual(g.passes[0]!.pos)
+      expect(g.chosen).toBe(0)
+      expect(g.anchor!.x).toBe(0x80)
+      expect(g.lineStepReason).toMatch(/third pass/)
     },
   )
 
@@ -378,7 +394,7 @@ describe.skipIf(!hasRom(VANILLA))('line-guided grinder sweep (all 17 drawn, vani
       r.sprites
         .filter(d => d.id === 0x67 && d.status === 'drawn')
         .forEach(d => {
-          const tile = (grid[d.y >> 4]?.[d.x >> 4] ?? -1) & 0xff
+          const tile = grid[d.y >> 4]?.[d.x >> 4] ?? -1
           const on = LINE_EDGE[tile]
           expect(on, `slot ${slot} (${d.x},${d.y}): tile $${tile.toString(16)} is not a line-guide tile`).toBeDefined() // prettier-ignore
           expect(on!(d.x & 15, d.y & 15), `slot ${slot} (${d.x},${d.y}) tile $${tile.toString(16)}`).toBe(true) // prettier-ignore
@@ -483,21 +499,29 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla $62, $65, $66, $68 (#792)', () 
       let last: { now: SpriteModel; before: SpriteModel } | undefined
       const draw = interpDrawer(rom.rom, slot, built.inputs, (r, id, sd) => {
         const now = runOnce(r, id, sd)
-        last = { now, before: runOnce(r, id, sd, { lineDispatch: old }) }
+        // The probe-camera run (map-sprites.ts) calls back again for the same placement; the first call is the main run.
+        last ??= { now, before: runOnce(r, id, sd, { lineDispatch: old }) }
         return now
       })
       placements.forEach((p, i) => {
+        last = undefined
         draw(p)
         const [a, b] = [last!.now.anchor, last!.before.anchor]
         const g = got[p.spriteId]!
         g.total++
-        if (!a || !b || (a.x === b.x && a.y === b.y)) return
+        if (!a || !b) throw new Error(`slot ${slot} #${i}: no anchor`)
+        if (a.x === b.x && a.y === b.y) {
+          // Unmoved: the pass chosen may differ (animation frame), but it must draw from the generic rule's origin.
+          const [n, o] = [last!.now, last!.before]
+          expect(n.passes[n.chosen ?? 0]?.origin, `slot ${slot} #${i} unmoved`).toEqual(o.passes[o.chosen ?? 0]?.origin) // prettier-ignore
+          return
+        }
         g.moved++
         g.dx.push(a.x - b.x)
         g.dy.push(a.y - b.y)
         // The placement the map shows is the one this model chose; it must sit inside a tile of the game's line range.
         const d = drawn[i]!
-        const tile = (grid[d.y >> 4]?.[d.x >> 4] ?? -1) & 0xff
+        const tile = grid[d.y >> 4]?.[d.x >> 4] ?? -1
         const where = `slot ${slot} #${i} id $${p.spriteId.toString(16)} (${d.x},${d.y}) tile $${tile.toString(16)}`
         expect(d.status, where).toBe('drawn')
         expect(tile >= 0x76 && tile <= 0x99, where).toBe(true)

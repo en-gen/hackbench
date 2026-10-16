@@ -19,7 +19,7 @@ const ENTRY: readonly (number | null)[] = [0xa5, 0x13, 0x29, 0x07, 0x1d, 0x26, 0
  * `jmp` is LineFuzzy_Plats, a bare JMP to the dispatch (bank_01.asm:11845-11846; $62, $68).
  */
 const ROUTES: Readonly<Record<number, 'grinder' | 'chainsaw' | 'jmp'>> = { 0x62: 'jmp', 0x65: 'chainsaw', 0x66: 'chainsaw', 0x67: 'grinder', 0x68: 'jmp' } // prettier-ignore
-/** The prelude's length and its free operands: the DATA_01D717 table address and the JSR target. */
+/** The prelude's length and the operands compared against the vanilla table address and `preludeCall` rather than pinned. */
 export const PRELUDE_LEN = 33
 export const PRELUDE_OPERANDS = [22, 23, 31, 32]
 /** Offset of the prelude's JSR CODE_018063 operand (bank_01.asm:11836). */
@@ -58,7 +58,7 @@ export interface DispatchShape {
 /**
  * The platform arm, CODE_01DAA2 (shift, JSR CODE_01B2DF draw at 12347, restore, JSR to the line step at 12358: bank_01.asm:12323-12358):
  * its length and the offsets of the draw and step JSR operands. $64 stays out: InitLineRope joins the INIT tail that
- * runs the line step twice (bank_01.asm:11766-11783), so its first MAIN draw is already on the track and the generic rule is right.
+ * runs the line step twice (bank_01.asm:11774-11783), so its first MAIN draw is already on the track and the generic rule is right.
  */
 export const PLAT_ARM = { len: 68, draw: 46, step: 66 } as const
 export const PLAT_OPERANDS = [PLAT_ARM.draw, PLAT_ARM.draw + 1, PLAT_ARM.step, PLAT_ARM.step + 1]
