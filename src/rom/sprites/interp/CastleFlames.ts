@@ -61,6 +61,9 @@ const PATH: { what: string; at: number; want: (number | null)[] }[] = [
   { what: 'the cluster dispatch entry for type 5', ...DISPATCH_TYPE5 },
 ]
 
+/** The path entries every cluster type shares (loader route, spawn entry, cluster loop, dispatch call): the ring reuses them (#983). */
+export const CLUSTER_PATH = [PATH[0]!, PATH[1]!, PATH[3]!, PATH[4]!]
+
 /** SHA-256 of the whole routine (33 and 110 bytes, ending in RTS); the data tables they read are NOT part of it. */
 export interface FlameRoutines {
   spawn: string

@@ -238,8 +238,10 @@ const SPRITE_METADATA: Record<number, SpriteMetadata> = {
   0xdf: { displayName: 'Scroll Stop (no Yoshi)' },
   0xe0: { displayName: 'Sprite Buoyancy' },
   0xe1: { displayName: 'Enable Lava Splash' },
-  0xe2: { displayName: 'Enable Smoke Puffs' },
-  0xe3: { displayName: 'Disable Scroll (vertical)' },
+  // $E2/$E3 spawn a ring of 10 cluster sprites, +1 / -1 angle per frame (SMWDisX bank_02.asm:5640-5677, 5669-5719); angle
+  // up is counter-clockwise on screen (CODE_02FA98 sin/cos, 16331-16421). Named for what the code does (#983).
+  0xe2: { displayName: 'Rotating ring of 10, counter-clockwise' },
+  0xe3: { displayName: 'Rotating ring of 10, clockwise' },
   0xe4: { displayName: 'Disable Scroll (horizontal)' },
   0xe5: { displayName: 'Disable All Scroll' },
   0xe6: { displayName: 'Autoscroll (slow)' },
