@@ -41,7 +41,12 @@ import {
   TOOLS_ROOT,
   VANILLA,
 } from '../../support/corpus'
-import { gradedPass, runnerId, writeMarioStart } from '../../support/gradeTimeline'
+import {
+  gradedPass,
+  type PlacedSprite,
+  runnerId,
+  writeMarioStart,
+} from '../../support/gradeTimeline'
 import { oracleCells, oracleImage } from '../../support/oracleImage'
 import {
   grade,
@@ -100,7 +105,7 @@ interface Loaded {
   /** scroll_pass.json marioStart: where Mario is held from the anchor on. */
   marioStart?: { x: number; y: number }
   /** sprites.json entries: the placed list ids by index. */
-  listed?: { index?: number; id?: string }[]
+  listed?: PlacedSprite[]
 }
 
 function loadAll(): Loaded[] {

@@ -474,9 +474,10 @@ export function runOnce(
   if (!tables.ok) return { ...model, refusal: tables.reason }
   // The tables are indexed by the sprite number the loader stores, not the list id.
   const shell = shellSpriteNumber(id)
+  const isShell = shell !== undefined
   const num = shell ?? id
   // A shell never runs INIT, so its INIT pointer is not read.
-  const inits = shell === undefined ? resolvePointer(rom, tables.tables.initTable, num) : undefined
+  const inits = !isShell ? resolvePointer(rom, tables.tables.initTable, num) : undefined
   if (inits && !inits.ok) return { ...model, refusal: `INIT: ${inits.reason}` }
   const mains = resolvePointer(rom, tables.tables.mainTable, num)
   if (!mains.ok) return { ...model, refusal: `MAIN: ${mains.reason}` }
@@ -514,15 +515,15 @@ export function runOnce(
     // platforms sink a few pixels per frame until they reach water).
     // A shell starts in status 9 with no INIT frame, so MAIN's first pass follows the loader directly.
     let frameNo = 0
-    if (shell === undefined) m.frame()
-    while (shell === undefined && w[RAM.status + m.seed.slot] === 1 && frameNo < MAX_INIT_FRAMES) {
+    if (!isShell) m.frame()
+    while (!isShell && w[RAM.status + m.seed.slot] === 1 && frameNo < MAX_INIT_FRAMES) {
       frameNo++
       w[RAM.trueFrame] = (m.seed.trueFrame + frameNo) & 0xff
       w[RAM.effFrame] = (m.seed.effFrame + frameNo) & 0xff
       m.frame()
     }
     model.steps.push(m.steps - n)
-    model.initFrames = shell === undefined ? frameNo + 1 : 0
+    model.initFrames = isShell ? 0 : frameNo + 1
     const st = w[RAM.status + m.seed.slot]
     if (st === 0) return { ...model, emptyReason: 'INIT erased the sprite (status 0)' }
     if (st === 1)

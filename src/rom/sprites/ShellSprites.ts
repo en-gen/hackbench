@@ -14,7 +14,6 @@ export const SHELL_STATUS = 9
 
 /** The sprite number the loader gives list id `id`, or undefined when `id` is not a shell. */
 export function shellSpriteNumber(id: number): number | undefined {
-  // $DE is not a shell (5312); $E0 and up are not (5325, 5349-5358).
   if (id < 0xda || id > 0xdf || id === 0xde) return undefined
   return id - 0xda + 4
 }

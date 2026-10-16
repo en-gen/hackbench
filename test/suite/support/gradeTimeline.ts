@@ -78,6 +78,12 @@ export function timelineFor(
   return { k, timed, mainPasses: Math.max(basePasses, timed ? k + 1 : 0), seedExtra, probe }
 }
 
+/** One placed sprite from a capture's sprites.json. */
+export interface PlacedSprite {
+  index?: number
+  id?: string
+}
+
 /**
  * The id to hand the runner for a capture record. The record's own id is the sprite number
  * Mesen read at the draw, which the loader has already rewritten for a stationary shell (list id
@@ -87,7 +93,7 @@ export function timelineFor(
 export function runnerId(
   id: number,
   listIndex: number | undefined,
-  entries: readonly { index?: number; id?: string }[] | undefined,
+  entries: readonly PlacedSprite[] | undefined,
 ): number {
   const placed = entries?.find(e => e.index === listIndex)?.id
   const listId = placed === undefined ? NaN : parseInt(placed.slice(1), 16)

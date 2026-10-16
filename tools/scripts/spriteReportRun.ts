@@ -31,7 +31,7 @@ import {
   hasRom,
   romPath,
 } from '../../test/suite/support/corpus'
-import { runnerId, timelineFor } from '../../test/suite/support/gradeTimeline'
+import { type PlacedSprite, runnerId, timelineFor } from '../../test/suite/support/gradeTimeline'
 import { grade, passPieces, type RecordedPiece } from '../../test/suite/support/spriteGrade'
 import { palette } from './capture_draw'
 import { parseNum } from './capture_decode'
@@ -514,7 +514,7 @@ export function gradeCaptures(f: Filter): Graded[] {
     if (!key) continue
     const spawns: Rec[] = JSON.parse(entries.get(key)!().toString('utf8')).spawns ?? []
     const src = frameSource(entries)
-    const listed = jsonOf('sprites.json').entries as { index?: number; id?: string }[] | undefined
+    const listed = jsonOf('sprites.json').entries as PlacedSprite[] | undefined
     const lvl = loadLevelState(rom, parseInt(map, 16))
     for (const rec of spawns) {
       const id = parseInt(rec.id.slice(1), 16)
