@@ -37,6 +37,11 @@ describe('level loader runs the Layer 3 handler', () => {
     const l = loadLevelState(buildSyntheticRom({ badLoader: 'layer3' }), 0x105)
     expect(l).toMatchObject({ ok: false, reason: expect.stringMatching(/Layer 3 handler/) })
   })
+  it('refuses a ROM whose GM12PrepLevel call site is not the vanilla shape', () => {
+    // The call site (bank_00.asm:4861-4870) holds the IRQNMICommand bit 7 test the loader mirrors.
+    const l = loadLevelState(buildSyntheticRom({ badLoader: 'gm12' }), 0x105)
+    expect(l).toMatchObject({ ok: false, reason: expect.stringMatching(/GM12PrepLevel/) })
+  })
 })
 
 // Map $102 is a tide level (hardware $5B = $80, Layer3YPos = $40). Its $A4 at 912,400 sat at the list
@@ -70,7 +75,7 @@ describe.skipIf(!hasRom(VANILLA))('vanilla map $102 floating spike ball', () => 
 })
 
 // Every tide map in the level-load capture set: the capture's own $5B bit 7 is set (so the comparison
-// is not 0 = 0) and the loader's $5B, $24 (Layer3XPos low) and $28 (Layer 3 Y offset low) equal the capture's
+// is not 0 = 0) and the loader's $5B, $24 (Layer3YPos low, rammap.asm:184) and $28 (Layer 3 Y offset low) equal the capture's
 // at its first frame. $26/$27 are not asserted: they come from the camera (CODE_05BC4A, bank_05.asm:4491-4512)
 // and the runner seeds another one, so maps 0be and 0c1 differ there (docs/sprites/sprite-a4-floating-spike-ball.md).
 describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
@@ -90,6 +95,46 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
       expect(l.wram[0x5b] & 0x80).toBe(0x80)
       expect(l.wram[0x24]).toBe(hw[0x24])
       expect(l.wram[0x28]).toBe(hw[0x28])
+    })
+  },
+)
+
+// The IRQNMICommand bit 7 gate against hardware, by mode (SpecialLevTable, bank_05.asm:500-503): every
+// captured vanilla level that ends with the bit set (modes 9, $B, $10). $13D5 is the loader's result
+// of skipping or running the handler; it must equal the capture's first frame (one capture each).
+describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
+  'bit-7 levels vs the level-load captures (#842)',
+  () => {
+    it.each([
+      '095',
+      '096',
+      '097',
+      '098',
+      '099',
+      '09a',
+      '09b',
+      '0cc',
+      '0d5',
+      '0d9',
+      '195',
+      '196',
+      '197',
+      '198',
+      '199',
+      '19a',
+      '19b',
+      '1c7',
+    ])('map %s', map => {
+      // prettier-ignore
+      const entries = unzip(readFileSync(join(CAPTURE_DIR, `${map}.zip`)))
+      const key = [...entries.keys()].find(k => k.endsWith('frame_0000_wram.bin'))
+      if (!key) throw new Error(`${map}: no frame_0000_wram.bin in the capture`)
+      const hw = new Uint8Array(entries.get(key)!())
+      const l = loadLevelState(freshRom(), parseInt(map, 16))
+      if (!l.ok) throw new Error(l.reason)
+      expect(hw[0x0d9b] & 0x80).toBe(0x80)
+      expect(l.wram[0x0d9b] & 0x80).toBe(0x80)
+      expect(l.wram[0x13d5]).toBe(hw[0x13d5])
     })
   },
 )

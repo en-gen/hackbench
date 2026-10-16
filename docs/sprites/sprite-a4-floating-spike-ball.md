@@ -37,8 +37,13 @@ One machine, vanilla ROM, the level-load capture set (`layers_v5`), measured 202
   loader's $00. Nothing in the grader depends on it yet; a sprite that reads the Layer 2/3 offset on a
   map with a scrolled camera could.
 - The loader skips the handler when `IRQNMICommand` ($0D9B) bit 7 is set, as `GM12PrepLevel` does
-  (`bank_00.asm:4861-4863`, boss rooms; the header loader sets the cell from `SpecialLevTable`,
-  `bank_05.asm:551`). Maps $096, $097, $196, $197 take that branch.
+  (`bank_00.asm:4861-4863`). The header loader sets the cell from `SpecialLevTable` by level mode
+  (`bank_05.asm:500-503`), so the gate is by mode, not a room list. 24 vanilla levels end with it set:
+  mode 9 ($C0): 095 098 099 09a 0cc 0d5 0d9 0df 0e2 0e5 195 198 199 19a 1de; mode $B ($80): 096 097
+  196 197 1eb 1f6; mode $10 ($C1): 09b 19b 1c7. Pinned against hardware on the 18 of those in the
+  capture set (`layer3Setup.test.ts`): the loader's $13D5 equals `frame_0000` on each (one capture each,
+  one machine). $24 differs there (hardware $D0, loader 0). Hypothesis, not traced: it is stale from the
+  previous room, since the handler that would set it is skipped.
 - The 9 records of map $102 end at anchor y 400 or 384 (hardware first draw 397-399 and 383), where
   they ended at 432.
 

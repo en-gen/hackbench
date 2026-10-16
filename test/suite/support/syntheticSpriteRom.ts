@@ -23,6 +23,7 @@ import { RomFile } from '../../../src/rom/RomFile'
 import type { DispatcherSpan } from '../../../src/rom/sprites/interp/SpriteDispatch'
 
 import { putGm11Spans } from './syntheticGm11Spans'
+import { putDrawPosProbes } from './syntheticDrawProbes'
 import { putGrinderRoutines } from './syntheticGrinder'
 
 export interface SyntheticOptions {
@@ -64,6 +65,7 @@ export interface SyntheticOptions {
     | 'updateRts'
     | 'scrollPop'
     | 'layer3'
+    | 'gm12'
   /**
    * UpdateScreenPosition carries a JML at $00:F6E4 (86 of 107 corpus ROMs do) to $05:F000, which
    * does the rest of its work: 'jml' ends in RTL, 'loop' never returns, 'rts' ends in the wrong return.
@@ -154,7 +156,7 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   put(0x00a635, [bad('entrance', 0xad), 0xad, 0x14, 0x0d, 0xae, 0x14, 0x0d, 0x0c, 0x19, 0xd0, 0x0a, 0xad, 0x00, 0x00, 0xa9, 0x06, 0x85, 0x71, 0x60]) // prettier-ignore
   // CODE_05801E shape, STA $7EC800,X, LDA #$77 / STA $5E (CODE_0584E3 rewrites $5E, bank_05.asm:560,
   // so only a data loader run AFTER the screen setup leaves $77), STZ $5B (ScreenMode, as the header loader
-  // rewrites it, bank_05.asm:557: only a Layer 3 handler run after it leaves bit 7), then PLP RTL (or COP)
+  // rewrites it, bank_05.asm:553: only a Layer 3 handler run after it leaves bit 7), then PLP RTL (or COP)
   put(0x05801e, [bad('data', 0x08), 0xe2, 0x20, 0xc2, 0x10, 0xa2, 0x00, 0x00, 0xa9, 0x25, 0x9f, 0x00, 0xc8, 0x7e, 0xa9, 0x77, 0x85, 0x5e, 0x64, 0x5b, ...(o.loaderCop ? [0x02, 0x00] : [0x28, 0x6b])]) // prettier-ignore
   // CODE_009FB8 shape (LDA ObjectTileset / ASL / CLC / ADC ObjectTileset), then SEP #$20 / LDA #$80 / TSB $5B / RTS:
   // the stand-in for the Layer 3 handler's ScreenMode bit 7.
@@ -225,6 +227,8 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   mainTable[34] = 0x9600
   mainTable[103] = 0x9200
   mainTable[33] = 0x8a80
+  mainTable[35] = 0x9700
+  mainTable[36] = 0x9740
   if (o.id31IsGrinder) mainTable[31] = 0x9500
   for (const id of [20, 21, 22, 23, 24, 25]) mainTable[id] = 0x8640
   const words = (t: number[]) => t.flatMap(w => [w & 0xff, w >> 8])
@@ -283,6 +287,7 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   // id 33: draws one piece whose OAM X low byte is $0E and whose size byte ($0460 + index) is $0F, both
   // planted through the seed, so a test can set any 9-bit X. Y follows the sprite as in the others.
   put(0x018a80, [0xbc, 0xea, 0x15, 0xa5, 0x0e, 0x99, 0x00, 0x03, 0xb5, 0xd8, 0x38, 0xe5, 0x1c, 0x99, 0x01, 0x03, 0xa9, 0x24, 0x99, 0x02, 0x03, 0xa9, 0x0a, 0x99, 0x03, 0x03, 0x98, 0x4a, 0x4a, 0xa8, 0xa5, 0x0f, 0x99, 0x60, 0x04, 0x60]) // prettier-ignore
+  putDrawPosProbes(put, draw([0xa9, 0x24, 0x99, 0x02, 0x03], [0xa9, 0x0a, 0x99, 0x03, 0x03]))
   // id 11: JML $7E0000, execution leaves ROM.
   put(0x018a00, [0x5c, 0x00, 0x00, 0x7e])
   // id 12: draws into the $0200 OAM page, entry 3 ($020C..), tile $33, size byte $0423 = 2.

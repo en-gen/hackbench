@@ -331,6 +331,16 @@ describe('drawPos is the position at the first OAM write of the pass (#842)', ()
     const p0 = m.passes[0]!
     expect(p0.drawPos!.x).toBe(p0.pos.x - 4)
   })
+  // The capture counts a write only while $15E9 is the slot and outside $0400-$041F
+  // (headless_capture.lua:1270-1290). Ids 35 and 36 write such a cell, then move +4, then draw.
+  it('ignores an OAM-range write made while $15E9 is another slot', () => {
+    const p0 = runSprite(rom, 35).passes[0]!
+    expect(p0.drawPos!.x).toBe(p0.pos.x)
+  })
+  it('ignores a write into the $0400-$041F gap before the first tile write', () => {
+    const p0 = runSprite(rom, 36).passes[0]!
+    expect(p0.drawPos!.x).toBe(p0.pos.x)
+  })
   it('a sprite that does not move draws where it ends', () => {
     const m = runSprite(rom, 0)
     expect(m.passes[0]!.drawPos).toEqual(m.passes[0]!.pos)

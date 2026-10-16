@@ -12,6 +12,9 @@ export function putGm11Spans(
   o: SyntheticOptions,
 ): void {
   const bad = (k: string, b: number) => (o.badLoader === k ? 0xea : b)
+  // GM12PrepLevel's IRQNMICommand test and the calls up to the Layer 3 handler (bank_00.asm:4861-4870);
+  // the JSL operand is wildcarded in the loader, so any bytes do here.
+  put(0x00a5af, [bad('gm12', 0xad), 0x9b, 0x0d, 0x10, 0x05, 0x20, 0xbc, 0x97, 0x80, 0x16, 0x20, 0xa9, 0xa2, 0x20, 0xed, 0xab, 0x22, 0x8a, 0xbe, 0x05, 0x20, 0xb8, 0x9f]) // prettier-ignore
   // CODE_00A796 shape, then SEP #$20 / RTS. UpdateScreenPosition shape, then SEP #$20 / LDA $1462
   // (the copied $1A: proves the pointer loader and the copy ran first) / STA $1E / LDA $71 (the
   // entrance setup's) / STA $20 / PLB / RTL.

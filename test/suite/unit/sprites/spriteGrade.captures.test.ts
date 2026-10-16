@@ -194,7 +194,7 @@ function gradeAll(
     const m = runSprite(rom, id, seed, { trackInputs: opts.trackInputs, probe })
     // Nothing drawn at the hardware's pass is a runner miss, counted apart so it cannot hide in the
     // wrong total. It grades wrong when some pass draws; when none does grade()
-    // returns empty whatever m.chosen is (13 records before #842, none after) (test/suite/support/spriteGrade.ts:87).
+    // returns empty whatever m.chosen is (13 records before #842, none after) (test/suite/support/spriteGrade.ts:107).
     if (timed && m.passes[k]) {
       if (m.passes[k].parts.length) m.chosen = k
       else {

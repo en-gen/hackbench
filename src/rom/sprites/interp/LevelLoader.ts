@@ -80,6 +80,9 @@ const SHAPES: { name: string; at: number; want: (number | null)[] }[] = [
     at: 0x009fb8,
     want: [0xad, null, null, 0x0a, 0x18, 0x6d, null, null],
   },
+  // GM12PrepLevel's call site (bank_00.asm:4861-4870): LDA IRQNMICommand / BPL +5 / JSR / BRA, then three
+  // calls ending in JSL and the JSR CODE_009FB8 the loader makes. The JSL operand differs on Lunar Magic ROMs.
+  { name: 'GM12PrepLevel call site of the Layer 3 handler at $00:A5AF', at: 0x00a5af, want: [0xad, 0x9b, 0x0d, 0x10, 0x05, 0x20, 0xbc, 0x97, 0x80, 0x16, 0x20, null, null, 0x20, null, null, 0x22, null, null, null, 0x20, 0xb8, 0x9f] }, // prettier-ignore
   // CODE_05801E: PHP / SEP #$20 / REP #$10 / LDX #0 / LDA #$25 / STA long
   { name: 'level data loader at $05:801E', at: 0x05801e, want: [0x08, 0xe2, 0x20, 0xc2, 0x10, 0xa2, 0x00, 0x00, 0xa9, 0x25, 0x9f, 0x00] }, // prettier-ignore
 ]
@@ -157,8 +160,10 @@ export function loadLevelState(rom: RomFile, level: number): LevelLoad {
     // saves its own DB use via the JSL caller. GM12PrepLevel then runs the Layer 3 handler
     // (CODE_009FB8, bank_00.asm:4870): on a tide level it sets ScreenMode bit 7, Layer3YPos and the
     // $26/$28 offset, which CODE_019140's second pass reads as liquid (#842). The game skips it when
-    // IRQNMICommand ($0D9B, set from SpecialLevTable by the header loader, bank_05.asm:551) has bit 7
-    // (the boss rooms; bank_00.asm:4861-4863 branches to CODE_0097BC instead), so the loader tests the same cell.
+    // IRQNMICommand ($0D9B, set from SpecialLevTable by the header loader, bank_05.asm:500-503, 551)
+    // has bit 7 (bank_00.asm:4861-4863 branches to CODE_0097BC instead). That is by mode, not by level
+    // list: 24 vanilla levels end with it set (modes 9, $B and $10; docs/sprites/sprite-a4-floating-spike-ball.md),
+    // so the loader tests the same cell.
     const bad =
       run('level pointer loader', 0x05d8b7, 'jsl', 0x05, [0x05]) ??
       span('layer position copy', 0x0096f8, 0x009702) ??
