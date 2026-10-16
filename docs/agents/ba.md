@@ -5,7 +5,7 @@
 ## First turn
 
 1. Call get-session on `self` for your title and desktop id (`local_...`). A title `BA` means run `node <script> register <desktop id> ba`; the only session on the machine registers `both <team>` instead. Re-register as `ba` the day a second session appears and takes the team.
-2. Read `.hackbench-state/ba.md` in the main checkout (the path the hook prints) if it exists; create it from the template below with `node <script> handoff ba` ONLY IF IT DOES NOT EXIST, never over an existing one.
+2. Read `ba.md` in the state folder, `C:/Projects/.overwatch/hackbench/` (the path the hook prints) if it exists; create it from the template below with `node <script> handoff ba` ONLY IF IT DOES NOT EXIST, never over an existing one.
 3. Read `docs/README.md` Current state and `docs/decisions/README.md`.
 
 ## Your role
@@ -25,7 +25,7 @@ You plan with the owner and distribute work across teams. You author and file ev
 
 ## Your state file
 
-`.hackbench-state/ba.md` in the main checkout, gitignored. Write it only with `node <script> handoff ba` (full text on stdin; `ba` is a reserved name; the app blocks Write and Edit from a worktree). Update it whenever the map changes. Template:
+`ba.md` in the state folder `<parent of main checkout>/.overwatch/<main checkout name>/`, outside the repo. Write it only with `node <script> handoff ba` (full text on stdin; `ba` is a reserved name; the app blocks Write and Edit from a worktree). Update it whenever the map changes. Template:
 
 ```
 # BA state

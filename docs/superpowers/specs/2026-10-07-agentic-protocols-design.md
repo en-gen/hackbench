@@ -56,7 +56,7 @@ every tech lead switch at once.
   changes, and a record of who switched it. Not a procedure; procedures are
   runbooks.
 - **Knowledge base.** `docs/`, under the conventions in section 5.
-- **State directory.** `.hackbench-state/` in the main checkout, gitignored. Corrected 2026-10-09: was `.claude/state/`, because the app guards `.claude/` from worktree sessions and the auto-mode classifier refuses any workaround.
+- **State directory.** `<parent of main checkout>/.overwatch/<main checkout name>/`, outside the repo (owner ruling 2026-10-16, mirroring `.worktrees/`). Corrected 2026-10-09: was `.claude/state/`, because the app guards `.claude/` from worktree sessions and the auto-mode classifier refuses any workaround; then `.hackbench-state/` in the main checkout until 2026-10-16. Later mentions of `.hackbench-state/` below mean this folder.
   Runtime state only: never knowledge.
 
 ## 3. Protocols

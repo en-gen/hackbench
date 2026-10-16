@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Protocol state for the agentic workflow: parse docs/protocols/*.md, keep
-// .hackbench-state/protocols.json and protocols.log in the main checkout, and
+// <parent>/.overwatch/<main checkout name>/protocols.json and protocols.log, and
 // register sessions. Pure functions are exported for tests; the CLI is at
 // the bottom. Spec: docs/superpowers/specs/2026-10-07-agentic-protocols-design.md
 // section 3. Why a script rather than prose: the group invariant (exactly one
@@ -325,13 +325,17 @@ export function mainCheckoutDir(cwd) {
   return path.dirname(path.resolve(cwd, r.stdout.trim()))
 }
 
-// The desktop app guards .claude/ against session writes from a worktree, so
-// shared state lives in a folder of its own in the main checkout.
-export const STATE_DIR_NAME = '.hackbench-state'
-const LEGACY_STATE_DIR = path.join('.claude', 'state')
+// Shared state lives outside the repo, beside it as worktrees do
+// (<parent>/.worktrees/<repo>): owner ruling 2026-10-16. Inside the main
+// checkout, git clean -x could delete it and the desktop app guards .claude/.
+export const LEGACY_STATE_DIR_NAME = '.hackbench-state'
+
+export function stateDirIn(mainDir) {
+  return path.join(path.dirname(mainDir), '.overwatch', path.basename(mainDir))
+}
 
 export function stateDirFor(cwd) {
-  return process.env.HACKBENCH_STATE_DIR || path.join(mainCheckoutDir(cwd), STATE_DIR_NAME)
+  return process.env.HACKBENCH_STATE_DIR || stateDirIn(mainCheckoutDir(cwd))
 }
 
 export function protocolsDirFor(cwd) {
@@ -428,14 +432,10 @@ export function migrateState(fromDir, toDir, { lock = {} } = {}) {
   const copied = []
   const skipped = []
   if (!existsSync(fromDir)) return { copied, skipped }
-  const listed = []
-  for (const f of ['sessions.json', 'protocols.json', 'protocols.log', 'ba.md']) {
-    if (existsSync(path.join(fromDir, f))) listed.push(f)
-  }
-  const teamsDir = path.join(fromDir, 'teams')
-  if (existsSync(teamsDir)) {
-    for (const f of readdirSync(teamsDir)) if (f.endsWith('.md')) listed.push(`teams/${f}`)
-  }
+  // Every file, nested ones too, except the state lock and half-written temps.
+  const listed = readdirSync(fromDir, { recursive: true, withFileTypes: true })
+    .filter(e => e.isFile() && e.name !== '.lock' && !e.name.endsWith('.tmp'))
+    .map(e => path.relative(fromDir, path.join(e.parentPath, e.name)).split(path.sep).join('/'))
   withStateLock(
     toDir,
     assertHeld => {
@@ -522,7 +522,7 @@ function cli(argv, cwd) {
     return { code: 0, out: unregisterSession(stateDir, b) }
   }
   if (a === 'migrate-state') {
-    const from = path.join(mainCheckoutDir(cwd), LEGACY_STATE_DIR)
+    const from = path.join(mainCheckoutDir(cwd), LEGACY_STATE_DIR_NAME)
     return { code: 0, out: migrateState(from, stateDir) }
   }
   if (a === 'handoff') {

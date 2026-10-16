@@ -126,7 +126,8 @@ build/*
 !build/icons
 !build/icons/**
 
-# Shared session and protocol state (registrations, team handoffs), main checkout only
+# Legacy session state folder; state now lives in <parent>/.overwatch/<repo>/.
+# Keep ignored until the owner deletes the old folder after the cutover.
 /.hackbench-state/
 
 # Claude / local agent state; agent roles, shared settings and house skills are tracked

@@ -387,7 +387,8 @@ describe('defaultStateDir', () => {
       cwd: scriptsDir,
       encoding: 'utf8',
     }).stdout.trim()
-    return path.join(path.dirname(path.resolve(scriptsDir, out)), '.hackbench-state')
+    const main = path.dirname(path.resolve(scriptsDir, out))
+    return path.join(path.dirname(main), '.overwatch', path.basename(main))
   }
   const noEnv = () => {
     const env = { ...process.env }
@@ -399,13 +400,15 @@ describe('defaultStateDir', () => {
     expect(defaultStateDir(scriptsDir, { HACKBENCH_STATE_DIR: 'C:/x/state' })).toBe('C:/x/state')
   })
 
-  it('without the env var it is <main checkout>/.hackbench-state', () => {
+  it('without the env var it is <parent>/.overwatch/<main checkout name>', () => {
     expect(defaultStateDir(scriptsDir, {})).toBe(expectedMain())
   })
 
-  it('the result sits beside a real .git directory (main checkout, not a worktree)', () => {
+  it('the result names a folder holding a real .git directory (main checkout, not a worktree)', () => {
     const result = defaultStateDir(scriptsDir, {})
-    expect(fs.statSync(path.join(path.dirname(result), '.git')).isDirectory()).toBe(true)
+    const main = path.join(path.dirname(path.dirname(result)), path.basename(result))
+    expect(path.basename(path.dirname(result))).toBe('.overwatch')
+    expect(fs.statSync(path.join(main, '.git')).isDirectory()).toBe(true)
   })
 
   it('does not depend on the cwd (fresh process started outside the repo)', () => {

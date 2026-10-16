@@ -813,7 +813,8 @@ private to the test file.
 
 Full unit runs, Theia builds and Playwright runs share one lock so they do
 not overlap (timeouts in #485, #771). It is the directory
-`<main checkout>/.hackbench-state/locks/run`; worktrees resolve the main
+`<parent of main checkout>/.overwatch/<main checkout name>/locks/run`
+(`C:/Projects/.overwatch/hackbench/locks/run`); worktrees resolve the main
 checkout through git, and `HACKBENCH_STATE_DIR` overrides it.
 
 ```bash
