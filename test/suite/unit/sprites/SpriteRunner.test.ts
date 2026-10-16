@@ -316,6 +316,21 @@ describe('runner on a synthetic cart', () => {
   })
 })
 
+describe('drawPos is the position at the first OAM write of the pass (#842)', () => {
+  // Id 31 draws at X, then moves X by +4 (syntheticSpriteRom). The capture reads the sprite at its first
+  // OAM write (headless_capture.lua note, record x,y), so pass p draws where pass p-1 left it, not at `pos`.
+  it('a draw-then-move sprite draws at the position before its own move', () => {
+    const m = runSprite(rom, 31, withSeed({ mainPasses: 3 }))
+    const [p0, p1] = [m.passes[0]!, m.passes[1]!]
+    expect(p0.pos.x).toBe(p0.drawPos!.x + 4)
+    expect(p1.drawPos!.x).toBe(p0.pos.x)
+  })
+  it('a sprite that does not move draws where it ends', () => {
+    const m = runSprite(rom, 0)
+    expect(m.passes[0]!.drawPos).toEqual(m.passes[0]!.pos)
+  })
+})
+
 describe('piece X offsets wrap like 9-bit OAM X (#869)', () => {
   // Id 33 draws at OAM X = low byte $0E, size byte $0F (bit 0 = X bit 8), both planted. The expected
   // offset is the 9-bit difference to the anchor's screen X, folded into -256..255.

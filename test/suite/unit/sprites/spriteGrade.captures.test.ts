@@ -6,10 +6,9 @@
  * Tier 2 (not graded): absolute position. The frame Mesen caught IS graded now: pass
  * k = drawnFrame - max(anchorFrame, initFrame + 1), with Mario at marioAtInit for INIT
  * and marioStart for MAIN and the frame counters seeded from the record (#844). Offsets
- * are still measured from the END-of-pass position, which skews exact vs shape (a sprite
- * that moved within the pass grades shape); the fix needs the draw-time position in
- * SpriteRunner.ts and spriteGrade.ts, a separate item. Set SPRITE_GRADE_OUT to a file path to
- * dump every graded record as JSON for classification.
+ * are measured from the sprite's position at its first OAM write (PassResult.drawPos, the moment the
+ * capture samples it, #842); the end-of-pass position skewed every sprite that moves after drawing.
+ * Set SPRITE_GRADE_OUT to a file path to dump every graded record as JSON for classification.
  *
  * The headline run asserts FLOORS (the measured count minus a tolerance) and a
  * planted-defect run asserts the same grader goes red, so a regression in the
@@ -236,11 +235,11 @@ function gradeAll(
 /** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. */
 const FLOOR = {
   graded: 1957,
-  exact: 985,
+  exact: 1820, // 1830 measured (#842: offsets from the draw-time position; shape 0)
   exactOrShape: 1780,
   maxRefused: 0,
   maxEmpty: 20,
-  maxWrong: 135,
+  maxWrong: 115,
   maxMissAtK: 30,
   // 38 measured (spawned records without initFrame); all-timed would read 0.
   minFallbacks: 30,
