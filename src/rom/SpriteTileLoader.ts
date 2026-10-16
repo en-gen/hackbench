@@ -38,7 +38,6 @@
  */
 
 import { RomFile } from './RomFile'
-import { shellSpriteNumber } from './sprites/ShellSprites'
 import {
   decidedPropGroup,
   decidedRoutine,
@@ -733,10 +732,11 @@ function spriteGfxRoutine(tables: SpriteTileTables, spriteId: number): GfxRoutin
 const STUNNED_ANIM_OFFSET = 0x06
 
 function resolveShellAlias(spriteId: number): { targetId: number; shellOnly: boolean } {
-  const shell = shellSpriteNumber(spriteId)
-  return shell === undefined
-    ? { targetId: spriteId, shellOnly: false }
-    : { targetId: shell, shellOnly: true }
+  // A static layout with no ROM access: the vanilla list ids ($DE and $E0 are Eeries and platforms, not shells).
+  if (spriteId >= 0xda && spriteId <= 0xdf && spriteId !== 0xde) {
+    return { targetId: spriteId - 0xda + 0x04, shellOnly: true }
+  }
+  return { targetId: spriteId, shellOnly: false }
 }
 
 /**

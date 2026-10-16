@@ -25,7 +25,6 @@ import {
 } from '../../support/corpus'
 import { grade, passPieces, wrap8, wrap9 } from '../../support/spriteGrade'
 import { gradeCaptures } from '../../../../tools/scripts/spriteReportRun'
-import { shellSpriteNumber } from '../../../../src/rom/sprites/ShellSprites'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 
 const rom = buildSyntheticRom()
@@ -457,11 +456,24 @@ describe.skipIf(!hasRom(VANILLA))('vanilla', () => {
     const m = runSprite(freshRom(), 0x4f, withSeed({ sprite: { x: 2096, y: 352 } }))
     expect(m.anchor).toMatchObject({ x: 2104, y: 351 })
   })
+  it('the stationary shell $DB (sprite $05) on map $135 at 3184,240 draws 1 part (#837)', () => {
+    const r = freshRom()
+    const lvl = loadLevelState(r, 0x135)
+    if (!lvl.ok) throw new Error(lvl.reason)
+    const m = runSprite(
+      r,
+      0xdb,
+      withSeed({ loaded: lvl.wram, sprite: { x: 3184, y: 240 }, camera: { x: 3072, y: 128 }, mario: { x: 3184, y: 240 } }), // prettier-ignore
+    )
+    expect(m.refusal).toBeUndefined()
+    // The first pass that draws, as the map view picks it (a shell has no INIT pass before MAIN).
+    expect(m.passes.find(p => p.parts.length > 0)?.parts).toHaveLength(1)
+  })
   it('refuses ids past the table, completing none of $C9-$FF but the stationary shells', () => {
     const r = freshRom()
     for (let id = 0xc9; id < 0x100; id++)
       expect(runSprite(r, id).refusal === undefined, `$${id.toString(16)}`).toBe(
-        shellSpriteNumber(id) !== undefined,
+        [0xda, 0xdb, 0xdc, 0xdd, 0xdf].includes(id),
       )
   })
 })

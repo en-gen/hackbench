@@ -531,7 +531,7 @@ export function gradeCaptures(f: Filter): Graded[] {
         camera: { x: rec.cameraX, y: rec.cameraY },
         mario: rec.marioAtInit ?? { x: rec.listX, y: rec.listY },
       })
-      const m = runSprite(rom, runnerId(id, rec.listIndex, listed), seed, { probe: t.probe })
+      const m = runSprite(rom, runnerId(rom, id, rec.listIndex, listed), seed, { probe: t.probe })
       if (t.timed && m.passes[t.k!]) m.chosen = t.k
       const g = grade(m, want)
       const ours = m.chosen !== undefined && !m.refusal ? passPieces(m, m.chosen) : []

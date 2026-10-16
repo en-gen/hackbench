@@ -201,7 +201,7 @@ function gradeAll(
           if (p === -1) writeMarioStart(w, marioStart) // after INIT, before the first MAIN pass
         }
       : undefined
-    const m = runSprite(rom, runnerId(id, rec.listIndex, listed), seed, {
+    const m = runSprite(rom, runnerId(rom, id, rec.listIndex, listed), seed, {
       trackInputs: opts.trackInputs,
       probe,
     })
@@ -246,14 +246,14 @@ function gradeAll(
   return { rows, by, inputs, fallbacks, missAtK }
 }
 
-/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. */
+/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Raised after #837 (stationary shells): measured 2026-10-16, one machine: exact 1033, exact+shape 1836, wrong 90, empty 13. */
 const FLOOR = {
   graded: 1957,
-  exact: 985,
-  exactOrShape: 1780,
+  exact: 1030,
+  exactOrShape: 1830,
   maxRefused: 0,
-  maxEmpty: 20,
-  maxWrong: 135,
+  maxEmpty: 16,
+  maxWrong: 93,
   maxMissAtK: 30,
   // 38 measured (spawned records without initFrame); all-timed would read 0.
   minFallbacks: 30,

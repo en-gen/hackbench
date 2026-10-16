@@ -13,7 +13,7 @@ import type { RomFile } from '../../RomFile'
 import { mapperProblem } from './Guards'
 import { type DispatchShape, grinderDrawsBeforeSnap } from './LineGuided'
 import { smwMachine } from './Machine'
-import { SHELL_STATUS, shellSpriteNumber } from '../ShellSprites'
+import { type ShellLoad, shellLoad } from '../ShellSprites'
 import {
   checkGetRand,
   checkInitTables,
@@ -206,6 +206,7 @@ export class Machine {
     rom: RomFile,
     readonly seed: SpriteSeed,
     id: number,
+    shell?: ShellLoad,
   ) {
     const m = smwMachine(rom)
     this.bus = m.bus
@@ -227,7 +228,7 @@ export class Machine {
         }
       }
     }
-    this.load(id)
+    this.load(id, shell)
     this.dynStart = this.bus.wram[RAM.dynPaletteIndex]
   }
 
@@ -305,7 +306,7 @@ export class Machine {
     this.bus.wram[off + 1] = (v >> 8) & 0xff
   }
 
-  private load(id: number): void {
+  private load(id: number, shell?: ShellLoad): void {
     const w = this.bus.wram
     const s = this.seed
     if (s.loaded) {
@@ -339,14 +340,13 @@ export class Machine {
     for (const [k, v] of Object.entries(s.ram)) w[Number(k)] = v
     const n = s.slot
     w[RAM.curSprite] = n
-    // A shell list id loads as sprite number id-$DA+4 in status 9 (ShellSprites.ts); the rest as itself in status 1.
-    const shell = shellSpriteNumber(id)
-    w[RAM.spriteNumber + n] = shell ?? id
+    // A shell list id loads as the loader's rebased number in its status (ShellSprites.ts); the rest as itself in status 1.
+    w[RAM.spriteNumber + n] = shell?.number ?? id
     w[RAM.spriteXLow + n] = s.sprite.x & 0xff
     w[RAM.xHigh + n] = (s.sprite.x >> 8) & 0xff
     w[RAM.spriteYLow + n] = s.sprite.y & 0xff
     w[RAM.yHigh + n] = (s.sprite.y >> 8) & 0xff
-    w[RAM.status + n] = shell === undefined ? 1 : SHELL_STATUS
+    w[RAM.status + n] = shell?.status ?? 1
   }
 
   /** Runs a routine to its return, from the native reset state with X = the slot; throws Refusal on a bad op, escape, unbalanced return or budget. */
@@ -473,9 +473,11 @@ export function runOnce(
   const tables = resolveTables(rom, loop.handle)
   if (!tables.ok) return { ...model, refusal: tables.reason }
   // The tables are indexed by the sprite number the loader stores, not the list id.
-  const shell = shellSpriteNumber(id)
+  const loaded = shellLoad(rom, id)
+  if (loaded.refusal) return { ...model, refusal: loaded.refusal }
+  const shell = loaded.shell
   const isShell = shell !== undefined
-  const num = shell ?? id
+  const num = shell?.number ?? id
   // A shell never runs INIT, so its INIT pointer is not read.
   const inits = !isShell ? resolvePointer(rom, tables.tables.initTable, num) : undefined
   if (inits && !inits.ok) return { ...model, refusal: `INIT: ${inits.reason}` }
@@ -486,7 +488,7 @@ export function runOnce(
   const rand = checkGetRand(rom)
   if (!rand.ok) return { ...model, refusal: rand.reason }
   // A spawn finds its own slot, so the machine owns a copy of the seed whose slot it may update.
-  const m = new Machine(rom, opts.spawn ? { ...seed } : seed, id)
+  const m = new Machine(rom, opts.spawn ? { ...seed } : seed, id, shell)
   if (opts.trackInputs) m.bus.inputs = new Set()
   try {
     // RNGCalc ($148B/C) is zero until the game first calls GetRand, its only

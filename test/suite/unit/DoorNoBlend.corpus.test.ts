@@ -26,8 +26,9 @@ import { doorPixelsUnderMath } from '../support/doorBlend'
 const NO_FLAGS: SwitchFlagsDto = { green: false, yellow: false, blue: false, red: false }
 
 // Measured on the vanilla ROM, one machine: 488 of 512 map slots build, 1315 of their screens have sprites and a color-math table.
+// Every combination with Layer 1 shown is 26 below its pre-#837 value (65180, 65200, 73368, 73388): the stationary shell $DB at 4272,368 on map $10A screen 16 now draws over door pixels.
 // Door pixels per layer show/hide combination (bit 0 = Layer 1 shown, bit 1 = Layer 2, bit 2 = Layer 3), from the second #936 review.
-const DOOR_PIXELS = [0, 65180, 804, 65200, 8319, 73368, 9123, 73388]
+const DOOR_PIXELS = [0, 65154, 804, 65174, 8319, 73342, 9123, 73362]
 
 describe.skipIf(!hasRom(VANILLA))(
   'door and lift pixels never meet color math on vanilla (#936)',

@@ -24,7 +24,7 @@ import { runSprite } from '../../../src/rom/sprites/interp/SpriteRunner'
 import { loadLevelState } from '../../../src/rom/sprites/interp/LevelLoader'
 import { withSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
 import { CAPTURE_DIR, VANILLA, freshRom, hasCaptures, hasRom } from '../support/corpus'
-import { timelineFor } from '../support/gradeTimeline'
+import { runnerId, timelineFor } from '../support/gradeTimeline'
 import { isolatedGit, isolateProcessGit } from '../support/isolatedGit'
 import { slow } from '../support/loadTimeout'
 import { grade } from '../support/spriteGrade'
@@ -898,7 +898,7 @@ describe.skipIf(!hasRom(VANILLA) || !hasCaptures())('gradeCaptures on the corpus
           camera: { x: rec.cameraX, y: rec.cameraY },
           mario: rec.marioAtInit ?? { x: rec.listX, y: rec.listY },
         })
-        const m = runSprite(rom, id, seed, { probe: t.probe })
+        const m = runSprite(rom, runnerId(rom, id, rec.listIndex, jsonOf('sprites.json').entries), seed, { probe: t.probe }) // prettier-ignore
         if (t.timed && m.passes[t.k!]) m.chosen = t.k
         const v = grade(m, frames).verdict
         want[v] = (want[v] ?? 0) + 1
