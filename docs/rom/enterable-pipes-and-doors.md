@@ -59,8 +59,8 @@ they are reached on different paths by page:
   (bank_00.asm:12073-12074). The pipe code is skipped for page 0: a branch to
   `CODE_00EC35` (12141) and a jump to `CODE_00EDDB` (12305-12306).
 - Z clear (page 1): the side pipe `CODE_00F3C4` is reached only with low byte in
-  $11-$6D (12142-12145, 12161-12164, 12169) and the up/down pipe checks only past a
-  low-byte bound of $6E (12218-12219, 12308-12310), i.e. the solid range `$111-$16D`.
+  $11-$6D (12142-12145, 12161-12164, 12169) and the up/down pipe checks when the
+  low byte is below $6E (12216-12219, 12308-12310; values $11 and up on the first path), i.e. the solid range `$111-$16D`.
 
 So pipes count only on page 1 (`$137`, `$138`, `$13F`; `$037`, `$038`, `$03F` do not) and
 doors only on page 0 (`$1F`, `$20`, `$27`, `$28`, `$9C`; `$120` and friends do not).
