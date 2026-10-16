@@ -11,7 +11,6 @@ import { SCROLL_SPRITE_BASE } from '../../../src/rom/L2Loader'
 import { buildMapWithGraph } from '../../../src/rom/model/MapBuilder'
 import { buildL2 } from '../../../src/rom/model/L2Factory'
 import { buildL3 } from '../../../src/rom/model/L3Factory'
-import { loadL3Chars } from '../../../src/rom/GfxLoader'
 
 // Sentinels the mocked collaborators return, so the builders' inputs can be matched by identity.
 const TILES = new Map()
@@ -33,14 +32,21 @@ beforeEach(() => {
   vi.mocked(buildL3).mockClear()
 })
 
-const LEVEL_ID = 0x07
+const LEVEL_ID = 0x17
 const ENTRANCE = 0x1c3
-const SCREENS = 6
-const RAW_TILESET = 3
+const SCREENS = 14
+const RAW_TILESET = 12
 const OVERRIDE_TILESET = 9
 const TIME_LIMIT = 2 // header byte 3 bits 7-6
-const SCROLL_CMD = 4
+const SCROLL_CMD = 13
 const CAM_Y = 0x58 // DATA_05D708[1], picked by the secondary row below
+// Header fields MapBuilder can reach. Raw bgPalette (3 bits) is shadowed by the override.
+const SPRITE_SET = 0x0a // byte 2 bits 3-0
+const RAW_BG_PALETTE = 7 // byte 0 bits 7-5
+const OVERRIDE_BG_PALETTE = 11
+const BG_COLOR = 6 // byte 1 bits 7-5
+const SPRITE_PALETTE = 4 // byte 3 bits 5-3
+const FG_PALETTE = 3 // byte 3 bits 2-0
 /** Level mode 5 is vertical through the table below; mode 1 is not. */
 const MODE = { horizontal: 1, vertical: 5 }
 const VERTICAL_TABLE = [0, 0, 0, 0, 0, 1]
@@ -53,8 +59,15 @@ function cart(mode: number): { smw: SmwRom; file: RomFile; level: Buffer } {
   file.writeAt(0x05d708, [0x10, CAM_Y, 0xc0, 0x30]) // DATA_05D708 camera Y rows
   file.writeAt(0x05fa00 + ENTRANCE, [1 << 4]) // secondary row: camera index 1
   file.writeAt(SPRITES_AT, [0x00, 0x00, 0x00, SCROLL_SPRITE_BASE + SCROLL_CMD, 0xff])
-  // Header: length SCREENS, mode, music 0 / sprite set 2, time limit + palettes, raw tileset.
-  const level = Buffer.from([SCREENS - 1, mode, 0x02, TIME_LIMIT << 6, RAW_TILESET, 0xff])
+  // Header: bg palette + length, bg color + mode, music 0 / sprite set, time limit + palettes, raw tileset.
+  const level = Buffer.from([
+    (RAW_BG_PALETTE << 5) | (SCREENS - 1),
+    (BG_COLOR << 5) | mode,
+    SPRITE_SET,
+    (TIME_LIMIT << 6) | (SPRITE_PALETTE << 3) | FG_PALETTE,
+    RAW_TILESET,
+    0xff,
+  ])
   const smw = Object.assign(Object.create(new SmwRom(file)), {
     rom: file,
     getLevelRawData: () => level,
@@ -72,7 +85,7 @@ describe.each([
     const { smw, file } = cart(mode)
     const out = buildMapWithGraph(smw, LEVEL_ID, {
       objectTileset: OVERRIDE_TILESET,
-      bgPalette: 6,
+      bgPalette: OVERRIDE_BG_PALETTE,
       entrances: new Map([[LEVEL_ID, VIA]]),
     })
     return { file, out }
@@ -85,7 +98,16 @@ describe.each([
     expect(a).toHaveLength(12)
     expect(a[0]).toBe(file)
     expect(a[1]).toBe(LEVEL_ID)
-    expect(a[2]).toMatchObject({ objectTileset: OVERRIDE_TILESET, bgPalette: 6, levelMode: mode, timeLimit: TIME_LIMIT }) // prettier-ignore
+    expect(a[2]).toMatchObject({
+      objectTileset: OVERRIDE_TILESET,
+      bgPalette: OVERRIDE_BG_PALETTE,
+      levelMode: mode,
+      timeLimit: TIME_LIMIT,
+      spriteSet: SPRITE_SET,
+      bgColor: BG_COLOR,
+      spritePalette: SPRITE_PALETTE,
+      fgPalette: FG_PALETTE,
+    })
     expect(a[3]).toBe(SCREENS)
     expect(a[4]).toBe(isVertical)
     expect(a[5]).toBe(out.chars)
@@ -105,7 +127,6 @@ describe.each([
     expect(a[0]).toBe(file)
     expect(a[1]).toBe(LEVEL_ID)
     expect(a[2]).toBe(OVERRIDE_TILESET) // the effective tileset, not RAW_TILESET
-    expect(a[3]).toBe(vi.mocked(loadL3Chars).mock.results.at(-1)!.value)
     expect(a[3]).toBe(L3_CHARS)
     expect(a[4]).toBe(SCREENS)
     expect(a[5]).toBe(isVertical)
@@ -124,6 +145,14 @@ describe('the scalars are told apart', () => {
       TIME_LIMIT,
       SCROLL_CMD,
       CAM_Y,
+      MODE.horizontal,
+      MODE.vertical,
+      SPRITE_SET,
+      RAW_BG_PALETTE,
+      OVERRIDE_BG_PALETTE,
+      BG_COLOR,
+      SPRITE_PALETTE,
+      FG_PALETTE,
     ]
     expect(new Set(scalars).size).toBe(scalars.length)
   })
