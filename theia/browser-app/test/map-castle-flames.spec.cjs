@@ -10,15 +10,17 @@
  * - the sprite toggle (S) off takes the flame colours out of those pixels.
  * Map $01F is a split-list map (OBJ on the main screen, layer 2 on the sub screen, CGADSUB 32), the shape of all 7
  * flame maps, so this also guards `withFlameKeys` placing the flame planes on the OBJ screen.
- * NOT covered here: "flames under Layer 1". The verifier measured no vanilla flame map with an opaque Layer 1 pixel
- * under a flame ($01F, all 6 screens, one run, real app), so that order is proven by the unit tests
- * (test/suite/unit/MapFlamePlanes.test.ts, castle shape), not by this spec.
+ * "Flames under Layer 1" is covered by the $101 test below, not by $01F: the verifier measured no opaque Layer 1 pixel
+ * under a $01F flame (all 6 screens, one run, real app), but $101 has 80 flame pixels under Layer 1 on screen 0.
+ * The unit tests (test/suite/unit/MapFlamePlanes.test.ts, castle shape) cover the order too.
+ * NOT covered by any Playwright spec: a mutant ignoring `dy` in castleFlameSprites survives (all 7 vanilla flame maps
+ * have dy = 0); it needs a synthetic unit test.
  * Plants for the verifier (each must turn the spec red; restore after):
  * - map-sprites.ts `castleFlameSprites`: a wrong `y` for the copies moves the positions (the first assertion);
  * - map-view-model.ts `withFlameKeys` returning `{ ...lists }` unchanged: no flame planes on this split list, the flames
  *   never show and the "flame colours show" assertion goes red.
- * Plant NOT caught here: `out.splice(out.length, 0, ...missing)` in `withFlameKeys` (flames over Layer 1); the unit
- * tests catch it (4 red in MapFlamePlanes.test.ts).
+ * - `out.splice(out.length, 0, ...missing)` in `withFlameKeys` (flames over Layer 1): not caught by the $01F test, caught
+ *   by the $101 test (flame colour under Layer 1; the unit tests catch it too, 4 red in MapFlamePlanes.test.ts).
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')
@@ -71,23 +73,38 @@ test.afterEach(async ({ page }) => {
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true })
 })
 
-/** The composite of screen 0 at flat pixel indices, as "r,g,b,a" strings. */
-const sample = (page, pixels) =>
+/** The composite of screen `screen` at flat pixel indices, as "r,g,b,a" strings. */
+const sample = (page, pixels, screen = 0) =>
   page.evaluate(
-    ({ rootSel, pixels }) => {
-      const c = planesOf(rootSel, 0)[0]
+    ({ rootSel, pixels, screen }) => {
+      const c = planesOf(rootSel, screen)[0]
       const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
       return pixels.map(p => [0, 1, 2, 3].map(k => d[p * 4 + k]).join(','))
     },
-    { rootSel: rootOf(), pixels },
+    { rootSel: rootOf(), pixels, screen },
+  )
+
+/** Per pixel: is Layer 1 opaque there (l1Low or l1High plane canvas of that screen)? */
+const underLayer1 = (page, pixels, screen) =>
+  page.evaluate(
+    ({ rootSel, pixels, screen }) => {
+      const read = plane => {
+        const c = document.querySelector(
+          `${rootSel} canvas[data-screen="${screen}"][data-plane="${plane}"]`,
+        )
+        return c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+      }
+      const [lo, hi] = [read('l1Low'), read('l1High')]
+      return pixels.map(p => lo[p * 4 + 3] !== 0 || hi[p * 4 + 3] !== 0)
+    },
+    { rootSel: rootOf(), pixels, screen },
   )
 
 /** Share of `got` entries equal to the same index of `want`. */
 const share = (got, want) => got.filter((v, i) => v === want[i]).length / Math.max(got.length, 1)
 
-/** Opens the map, waits for screen 0, and returns the flames' opaque pixels on it with their colours. */
-async function openAndFlamePixels(page, reply) {
-  const flames = reply.sprites.filter(s => s.fixedTo === 'layer2')
+/** Opens the map; returns once each of `screens` is scrolled to, fetched, and painted with its sprites. */
+async function openMap(page, screens = [0]) {
   await page.evaluate(
     async ({ mp, index }) => {
       const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { index })
@@ -98,30 +115,43 @@ async function openAndFlamePixels(page, reply) {
     },
     { mp: manifestPath, index: SLOT },
   )
-  const l1Low = `${rootOf()} canvas[data-screen="0"][data-plane="l1Low"]`
-  await expect(page.locator(l1Low)).toHaveAttribute('data-drawn', /^\d+:0000:000:\d+$/, {
-    timeout: 30000,
-  })
+  for (const s of screens) {
+    const at = kind => `${rootOf()} canvas[data-screen="${s}"][data-plane="${kind}"]`
+    // Screens are fetched when scrolled into view.
+    await page
+      .locator(at('l1Low'))
+      .evaluate(el => el.scrollIntoView({ inline: 'start', block: 'nearest' }))
+    await expect(page.locator(at('l1Low'))).toHaveAttribute('data-drawn', /^\d+:0000:000:\d+$/, {
+      timeout: 30000,
+    })
+    // The sprites reply lands after the planes; version 0 is "not yet", and sampling then reads no flames.
+    await expect(page.locator(at('sprites'))).toHaveAttribute('data-drawn', /^\d+:[1-9]\d*$/, {
+      timeout: 30000,
+    })
+    const comp = `${rootOf()} canvas[data-layer="screen"][data-screen="${s}"]`
+    await expect(page.locator(comp).first()).toHaveAttribute('data-drawn', /:1111:[1-9]\d*:/, {
+      timeout: 30000,
+    })
+  }
+}
 
-  return page.evaluate(
-    ({ flames, width, height }) => {
-      const out = { open: [], openRgb: [] }
-      for (const f of flames) {
-        const rgba = Uint8Array.from(atob(f.rgba), c => c.charCodeAt(0))
-        const w = f.box.x1 - f.box.x0
-        for (let i = 0; i < rgba.length; i += 4) {
-          if (rgba[i + 3] === 0) continue
-          const x = f.box.x0 + ((i / 4) % w)
-          const y = f.box.y0 + Math.floor(i / 4 / w)
-          if (x >= width || y >= height) continue
-          out.open.push(y * width + x)
-          out.openRgb.push(`${rgba[i]},${rgba[i + 1]},${rgba[i + 2]},255`)
-        }
-      }
-      return out
-    },
-    { flames, width: reply.width, height: reply.height },
-  )
+/** The flames' opaque pixels on one screen of the reply: flat indices into that screen's canvas, with colours. */
+function flamePixels(reply, screen = 0) {
+  const out = { open: [], openRgb: [] }
+  const x0 = screen * reply.width
+  for (const f of reply.sprites.filter(s => s.fixedTo === 'layer2')) {
+    const rgba = Buffer.from(f.rgba, 'base64')
+    const w = f.box.x1 - f.box.x0
+    for (let i = 0; i < rgba.length; i += 4) {
+      if (rgba[i + 3] === 0) continue
+      const x = f.box.x0 + ((i / 4) % w) - x0
+      const y = f.box.y0 + Math.floor(i / 4 / w)
+      if (x < 0 || x >= reply.width || y >= reply.height) continue
+      out.open.push(y * reply.width + x)
+      out.openRgb.push(`${rgba[i]},${rgba[i + 1]},${rgba[i + 2]},255`)
+    }
+  }
+  return out
 }
 
 test('the flames stand where the capture puts them, sit over layer 2, and follow the sprite toggle', async ({
@@ -143,7 +173,8 @@ test('the flames stand where the capture puts them, sit over layer 2, and follow
     'the $E6 marker stays',
   ).toBe(true)
 
-  const split = await openAndFlamePixels(page, reply)
+  await openMap(page)
+  const split = flamePixels(reply)
   expect(split.open.length, 'opaque flame pixels on screen 0').toBeGreaterThan(0)
   const onOpen = await sample(page, split.open)
   expect(share(onOpen, split.openRgb), 'open flame pixels show the flame colour').toBeGreaterThan(
@@ -169,20 +200,54 @@ test('on map $101 the flames draw on layer 2 and no other sprite draws a flame t
     { mp: manifestPath, index: SLOT },
   )
   expect(reply.status).toBe('ok')
+  expect(reply.orientation).toBe('horizontal')
   const flames = reply.sprites.filter(s => s.fixedTo === 'layer2')
-  expect(flames.length, 'layer 2 flames on $101').toBeGreaterThan(0)
-  const split = await openAndFlamePixels(page, reply)
-  expect(split.open.length, 'opaque flame pixels on screen 0').toBeGreaterThan(0)
-  // Measured 0.72 of 288 pixels (one machine): the rest sit under Layer 1 or another flame, so a floor, not 0.9.
-  expect(
-    share(await sample(page, split.open), split.openRgb),
-    'flame colours show',
-  ).toBeGreaterThan(0.6)
+
+  // Positions pinned from the capture, not from the code under test: per 256 px, X $10 $50 $90 $D0 at Y $F0
+  // (the layers_v5/01f citation above; $101 has the same $E6 and dy = 0, one run, one machine), 16 x 16 each.
+  const want = []
+  for (let x = 0; x < reply.width * reply.screenCount; x += 256)
+    for (const o of [0x10, 0x50, 0x90, 0xd0]) want.push(`${x + o},240`)
+  expect(want.length, '4 flames per screen over 8 screens').toBe(32)
+  expect(flames.map(f => `${f.box.x0},${f.box.y0}`).sort()).toEqual(want.sort())
+  expect(flames.every(f => f.box.x1 - f.box.x0 === 16 && f.box.y1 - f.box.y0 === 16)).toBe(true)
+
+  const screens = [...Array(reply.screenCount).keys()]
+  await openMap(page, screens)
+  // Every screen: a flame pixel shows the flame colour exactly where Layer 1 is clear, and never under Layer 1
+  // (flames sit under Layer 1 and never overlap each other). Vanilla, one machine, one run: screen 0 is 208 / 80.
+  let total = 0
+  let free0 = { open: [], openRgb: [] }
+  for (const s of screens) {
+    const px = flamePixels(reply, s)
+    const got = await sample(page, px.open, s)
+    const under = await underLayer1(page, px.open, s)
+    const bad = []
+    px.open.forEach((p, i) => {
+      if ((got[i] === px.openRgb[i]) === under[i])
+        bad.push(
+          `screen ${s} px ${p}: under Layer 1 = ${under[i]}, composite ${got[i]}, flame ${px.openRgb[i]}`,
+        )
+    })
+    expect(bad.slice(0, 5), `screen ${s}: flame colour exactly where Layer 1 is clear`).toEqual([])
+    expect(
+      under.filter(u => !u).length,
+      `screen ${s}: flame pixels with no Layer 1`,
+    ).toBeGreaterThan(0)
+    total += px.open.length
+    if (s === 0)
+      free0 = {
+        open: px.open.filter((_, i) => !under[i]),
+        openRgb: px.openRgb.filter((_, i) => !under[i]),
+      }
+  }
+  expect(total, 'opaque flame pixels over the map').toBeGreaterThan(0)
+
   const toggle = page.locator(`${rootOf()} [data-control="layer-sprites"]`)
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
   await expect
-    .poll(async () => share(await sample(page, split.open), split.openRgb), { timeout: 15000 })
+    .poll(async () => share(await sample(page, free0.open, 0), free0.openRgb), { timeout: 15000 })
     .toBeLessThan(0.1)
 
   // Another sprite's bitmap holds no opaque pixel where a flame draws: before #849 the cluster flames' OAM read as
@@ -198,9 +263,19 @@ test('on map $101 the flames draw on layer 2 and no other sprite draws a flame t
           if (rgba[i + 3]) at.add(key(f.box.x0 + ((i / 4) % w), f.box.y0 + Math.floor(i / 4 / w)))
       }
       const out = []
+      const bounds = []
       for (const s of sprites) {
         if (s.fixedTo === 'layer2') continue
-        const w = s.box.x1 - s.box.x0
+        const [w, h] = [s.box.x1 - s.box.x0, s.box.y1 - s.box.y0]
+        // The overlap test alone passes a leak that widens every sprite yet misses the flame pixels (#809 made each
+        // box 208 wide). A drawn sprite is at most 32 x 32 and within 32 px of its anchor (vanilla $101: 16 x 32 at
+        // most, one run, one machine).
+        const far = d =>
+          s.box.x0 < s.x - d || s.box.x1 > s.x + d || s.box.y0 < s.y - d || s.box.y1 > s.y + d
+        if (s.status === 'drawn' && (w > 32 || h > 32 || far(32)))
+          bounds.push(
+            `sprite $${s.id.toString(16)} at ${s.x},${s.y}: box ${w}x${h} from ${s.box.x0},${s.box.y0}`,
+          )
         const rgba = Uint8Array.from(atob(s.rgba), c => c.charCodeAt(0))
         let n = 0
         for (let i = 0; i < rgba.length; i += 4)
@@ -212,10 +287,11 @@ test('on map $101 the flames draw on layer 2 and no other sprite draws a flame t
         if (n)
           out.push(`sprite $${s.id.toString(16)} at ${s.box.x0},${s.box.y0}: ${n} px on a flame`)
       }
-      return { out, others: sprites.filter(s => s.fixedTo !== 'layer2').length }
+      return { out, bounds, others: sprites.filter(s => s.fixedTo !== 'layer2').length }
     },
     { sprites: reply.sprites, flames },
   )
   expect(leaks.others, 'sprites checked').toBeGreaterThan(0)
   expect(leaks.out).toEqual([])
+  expect(leaks.bounds, 'drawn sprites stay within 32 px of their anchor').toEqual([])
 })
