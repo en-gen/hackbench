@@ -60,7 +60,6 @@ import {
   ProjectService,
   SpecialMapNodeDto,
 } from '../common/project-protocol'
-
 import { ExplorerTreeWidget, createExplorerTreeContainer } from './explorer-search'
 import type { SearchRow } from './explorer-match'
 
@@ -184,8 +183,7 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
   protected searchRow(node: TreeNode): SearchRow | undefined {
     const n = node as MapTreeNode
     if (n.kind === 'message') return undefined
-    if (n.kind === 'group') return { texts: [n.name ?? ''] }
-    if (n.category === 'overworld' || n.category === 'overworld-area')
+    if (n.kind === 'group' || n.category === 'overworld' || n.category === 'overworld-area')
       return { texts: [n.name ?? ''] }
     if (isSpecial(n.category)) return { id: n.index, texts: [n.name ?? ''] }
     return { id: n.index >= 0 ? n.index : undefined, texts: [n.mapName ?? ''] }
