@@ -21,7 +21,7 @@ import {
   readL2Pointer,
   tilePresetGrid,
 } from '../L2Loader'
-import { readInitialLayer1YPos } from '../L3Loader'
+import { chooseEntrance, readInitialLayer1YPos } from '../L3Loader'
 import { isLevelModeVerticalL2, SCREEN_H_VERT, SCREEN_W_VERT } from '../LevelParser'
 import { readL2UploaderTable } from '../L2UploaderTable'
 import { loadMap16Tiles, readL2Map16Table, type Map16Tile } from '../Map16'
@@ -85,7 +85,7 @@ function entryDy(rom: RomFile, index: number, path: EntryPath): number {
 
 /**
  * The map's `dy` from the entrances that reach it, or null when none is known (an orphan, a bonus
- * map, an unavailable exit graph). Disagreeing entrances draw the first and say so.
+ * map, an unavailable exit graph). Disagreeing entrances draw the one `chooseEntrance` names and say so.
  */
 function dyFromEntrances(
   rom: RomFile,
@@ -103,12 +103,18 @@ function dyFromEntrances(
     ...via.secondary.map(id => ({ kind: 'secondary' as const, id })),
   ]
   if (paths.length === 0) return null
-  const dys = paths.map(p => entryDy(rom, index, p))
-  const differ = paths.filter((_, i) => dys[i] !== dys[0]).map(pathWords)
+  // The drawn path is the one L3Model's camera uses, from the same chooser (#861): null is the
+  // primary entry (the first primary path), else the secondary id it names. Never an ordering of
+  // our own, so the two views cannot drift apart on a non-ascending entrance list.
+  const chosen = chooseEntrance(via)
+  const at = chosen === null ? 0 : paths.findIndex(p => p.kind === 'secondary' && p.id === chosen)
+  const ordered = [paths[at]!, ...paths.filter((_, i) => i !== at)]
+  const dys = ordered.map(p => entryDy(rom, index, p))
+  const differ = ordered.filter((_, i) => dys[i] !== dys[0]).map(pathWords)
   if (differ.length === 0) return { dy: dys[0]! }
   return {
     dy: dys[0]!,
-    note: `drawn as entered ${pathWords(paths[0]!)}; entered ${differ.join(', ')} it starts at a different height.`, // prettier-ignore
+    note: `drawn as entered ${pathWords(ordered[0]!)}; entered ${differ.join(', ')} it starts at a different height.`, // prettier-ignore
   }
 }
 
