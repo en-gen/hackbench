@@ -31,6 +31,8 @@ describe('passPieces and the capture drop rule', () => {
 
 describe('the report card count and the panel list are one list (#864)', () => {
   it('"model drew N" counts the pieces passPieces holds, not the raw parts', () => {
+    // The live pipeline cannot produce parked parts: SpriteRunner.readParts skips Y $F0 (SpriteRunner.ts:404).
+    // This hand-built case guards against future drift.
     const m = model([part(8, 8), part(16, 8), part(0xf0, 8), part(0xf0, 16)])
     const g = grade(m, [[]])
     expect(g.verdict).toBe('wrong')
