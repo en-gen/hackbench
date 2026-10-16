@@ -106,11 +106,21 @@ async function state(page, which) {
     // Visible: non-empty, inside the widget's own rect, and what the browser
     // would hit at its centre (not covered by a full-height tree).
     const hit = r && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+    const sb = w.searchBox?.node.getBoundingClientRect()
+    const rect = q => q && [q.left, q.top, q.right, q.bottom].map(Math.round)
     return {
       rows: [...w.rows.values()].map(row => row.node.id),
       selected: w.model.selectedNodes.map(n => n.id),
       expanded: expanded.sort(),
       boxVisible: w.searchBox ? w.searchBox.isVisible : false,
+      // Failure diagnostics: what covers the message, and what could eat a key.
+      diag: {
+        msg: rect(r),
+        widget: rect(box),
+        searchBox: w.searchBox?.isVisible ? rect(sb) : null,
+        hit: hit ? `${hit.tagName}.${hit.className}` : null,
+        toasts: document.querySelectorAll('.theia-notification-list-item').length,
+      },
       empty: msg?.textContent ?? null,
       emptyVisible: Boolean(
         r &&
@@ -272,7 +282,13 @@ async function expectFiltered(page, which, all, q) {
 }
 
 async function clear(page, which) {
-  await page.evaluate(id => getWidget(id).then(w => w.node.focus()), IDS[which])
+  // Core binds Escape to "hide notifications" while any is up, at the document,
+  // before the tree sees the key. Maps raises an info toast on load, so the
+  // first Escape would dismiss that and never reach the search box.
+  await page.evaluate(id => {
+    getSvc('CommandRegistry').executeCommand('notifications.commands.hide')
+    return getWidget(id).then(w => w.node.focus())
+  }, IDS[which])
   await page.keyboard.press('Escape')
 }
 
@@ -290,7 +306,8 @@ for (const which of Object.keys(IDS)) {
     await expect.poll(async () => (await state(page, which)).empty).toBe(NO_MATCH[which])
     // Inside the widget's own rect and hit by the browser at its centre:
     // textContent alone passes while the message sits below the fold.
-    expect((await state(page, which)).emptyVisible).toBe(true)
+    const shown = await state(page, which)
+    expect(shown.emptyVisible, JSON.stringify(shown.diag)).toBe(true)
     expect((await state(page, which)).rows).toEqual([])
     await clear(page, which)
     await expect.poll(async () => (await state(page, which)).empty).toBeNull()
@@ -680,7 +697,13 @@ test('music: an alias set the way the app does finds only that track', async ({ 
 // maps match" would hide why the tree is empty.
 for (const which of Object.keys(IDS)) {
   test(`${which}: with no project, typing keeps the explorer's own message`, async ({ page }) => {
-    await page.evaluate(id => getSvc('ApplicationShell').activateWidget(id), IDS[which])
+    await page.evaluate(
+      id =>
+        getSvc('ApplicationShell')
+          .activateWidget(id)
+          .then(() => null),
+      IDS[which],
+    )
     const rootRows = await page.evaluate(
       id => getWidget(id).then(w => (w.model.root?.children ?? []).length),
       IDS[which],

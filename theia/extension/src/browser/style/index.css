@@ -525,8 +525,13 @@
   font-size: var(--theia-ui-font-size0);
 }
 
-/* Empty state that replaces a filtered explorer tree with no matches (#336). */
+/*
+ * Empty state that replaces a filtered explorer tree with no matches (#336).
+ * Core's search box is absolutely placed at the top right of the same panel, so
+ * the margin keeps the words below it (the box is ~30px tall).
+ */
 .hb-explorer-no-match {
+  margin-top: 40px;
   padding: 8px 12px;
   color: var(--theia-descriptionForeground, #8b8b8b);
 }
