@@ -75,6 +75,12 @@ const SHAPES: { name: string; at: number; want: (number | null)[] }[] = [
   // CODE_00A635: LDA BluePSwitchTimer / ORA SilverPSwitchTimer / ORA DirectCoinTimer / BNE / LDA
   { name: 'Mario entrance setup at $00:A635', at: 0x00a635, want: [0xad, 0xad, 0x14, 0x0d, 0xae, 0x14, 0x0d, 0x0c, 0x19, 0xd0, 0x0a, 0xad] }, // prettier-ignore
   // CODE_05801E: PHP / SEP #$20 / REP #$10 / LDX #0 / LDA #$25 / STA long
+  // CODE_009FB8 (Layer 3 handler): LDA ObjectTileset / ASL / CLC / ADC ObjectTileset (bank_00.asm:4139-4143)
+  {
+    name: 'Layer 3 handler at $00:9FB8',
+    at: 0x009fb8,
+    want: [0xad, null, null, 0x0a, 0x18, 0x6d, null, null],
+  },
   { name: 'level data loader at $05:801E', at: 0x05801e, want: [0x08, 0xe2, 0x20, 0xc2, 0x10, 0xa2, 0x00, 0x00, 0xa9, 0x25, 0x9f, 0x00] }, // prettier-ignore
 ]
 
@@ -148,13 +154,16 @@ export function loadLevelState(rom: RomFile, level: number): LevelLoad {
     // the per-level timers, sets Mario's entrance state $71/$76 from the entrance type just
     // read), then 2652-2656 ($5E = $20, CODE_00A796, $1404++, UpdateScreenPosition: $1E/$20
     // layer 2 positions, camera buffers), then CODE_05801E. That one ends with PLP, RTL; it
-    // saves its own DB use via the JSL caller.
+    // saves its own DB use via the JSL caller. GM12PrepLevel then runs the Layer 3 handler
+    // (CODE_009FB8, bank_00.asm:4870): on a tide level it sets ScreenMode bit 7, Layer3YPos and the
+    // $26/$28 offset, which CODE_019140's second pass reads as liquid (#842).
     const bad =
       run('level pointer loader', 0x05d8b7, 'jsl', 0x05, [0x05]) ??
       span('layer position copy', 0x0096f8, 0x009702) ??
       run('Mario entrance setup', 0x00a635, 'jsr', 0x00) ??
       span('screen position setup', 0x009708, 0x009716) ??
-      run('level data loader', 0x05801e, 'jsl', 0x05)
+      run('level data loader', 0x05801e, 'jsl', 0x05) ??
+      run('Layer 3 handler', 0x009fb8, 'jsr', 0x00)
     if (bad) return { ok: false, reason: bad }
   } catch (e) {
     if (e instanceof Refusal) return { ok: false, reason: e.message }

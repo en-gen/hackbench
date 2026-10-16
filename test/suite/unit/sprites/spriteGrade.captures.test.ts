@@ -244,8 +244,9 @@ const FLOOR = {
   maxMissAtK: 30,
   // 38 measured (spawned records without initFrame); all-timed would read 0.
   minFallbacks: 30,
-  // 25 measured; a runner that stops counting misses (or stops grading at k) drops below.
-  minMissAtK: 20,
+  // 3 measured after #842 (25 before: the 22 initFrames > 1 records missed until the loader ran the
+  // Layer 3 handler); a runner that stops counting misses (or stops grading at k) drops below.
+  minMissAtK: 2,
 }
 
 describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-load captures', () => {
@@ -297,6 +298,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     ['1db', '$37', 944, 304],
     ['11d', '$28', 272, 224],
     ['01a', '$30', 272, 368],
+    ['102', '$A4', 912, 400], // #842: sank 32 px until the loader ran the Layer 3 handler
   ])(
     'map %s %s at %i,%i grades exact',
     (map, id, x, y) => {
@@ -313,9 +315,9 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
 
   // A miss at k: the model draws nothing on the hardware's pass, which grades wrong. Without
   // `m.chosen = k` the grader falls back to the first drawing pass and the detail changes.
-  it('map 102 $A4 at 912,400 misses at k and grades wrong, not empty', () => {
+  it('map 0c3 $49 at 208,352 misses at k and grades wrong, not empty', () => {
     const one = all.filter(
-      a => a.map === '102' && a.rec.id === '$A4' && a.rec.listX === 912 && a.rec.listY === 400,
+      a => a.map === '0c3' && a.rec.id === '$49' && a.rec.listX === 208 && a.rec.listY === 352,
     )
     expect(one).toHaveLength(1)
     const { rows, missAtK } = gradeAll(freshRom(), one)

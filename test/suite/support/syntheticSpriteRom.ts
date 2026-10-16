@@ -63,6 +63,7 @@ export interface SyntheticOptions {
     | 'scrollRtl'
     | 'updateRts'
     | 'scrollPop'
+    | 'layer3'
   /**
    * UpdateScreenPosition carries a JML at $00:F6E4 (86 of 107 corpus ROMs do) to $05:F000, which
    * does the rest of its work: 'jml' ends in RTL, 'loop' never returns, 'rts' ends in the wrong return.
@@ -152,6 +153,9 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   // CODE_05801E shape, STA $7EC800,X, LDA #$77 / STA $5E (CODE_0584E3 rewrites $5E, bank_05.asm:560,
   // so only a data loader run AFTER the screen setup leaves $77), then PLP RTL (or COP)
   put(0x05801e, [bad('data', 0x08), 0xe2, 0x20, 0xc2, 0x10, 0xa2, 0x00, 0x00, 0xa9, 0x25, 0x9f, 0x00, 0xc8, 0x7e, 0xa9, 0x77, 0x85, 0x5e, ...(o.loaderCop ? [0x02, 0x00] : [0x28, 0x6b])]) // prettier-ignore
+  // CODE_009FB8 shape (LDA ObjectTileset / ASL / CLC / ADC ObjectTileset), then SEP #$20 / LDA #$80 / TSB $5B / RTS:
+  // the stand-in for the Layer 3 handler's ScreenMode bit 7.
+  put(0x009fb8, [bad('layer3', 0xad), 0x31, 0x19, 0x0a, 0x18, 0x6d, 0x31, 0x19, 0xe2, 0x20, 0xa9, 0x80, 0x04, 0x5b, 0x60]) // prettier-ignore
   // $01:808C sprite loop: PHB PHK PLB, X = $0B..0 { STX $15E9; JSR setup; JSR handle }
   put(0x01808c, [
     0x8b, 0x4b, 0xab, 0xa2, o.badLoop ? 0x0a : 0x0b, 0x8e, 0xe9, 0x15, 0x20, 0xd2, 0x80, 0x20, 0x27, 0x81, 0xca,
