@@ -51,7 +51,7 @@ they are reached on different paths by page:
 - `CODE_00F4CD` stores the low byte, reads the HIGH byte into A and calls
   `CODE_00F545` (bank_00.asm:13346-13351). `CODE_00F545` begins `TAY / BNE CODE_00F577`
   (13410-13412): a nonzero page keeps A nonzero on return (or takes the P-switch
-  rewrite at 13442-13459); page 0 returns A=0, either at `Return00F594` (13461) when no
+  rewrite at 13442-13459); page 0 returns A=0, either at `Return00F594` (13460) when no
   tile matches, or via 13459 (`LDA #$00`, reached from `CODE_00F592` or the P-switch rewrite). The caller's `CMP #$00` (13353) therefore sets Z for page 0 and
   clears it for page 1.
 - Z set (page 0): `CODE_00EB77` branches to `CODE_00EBDD`, the DOOR check
