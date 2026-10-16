@@ -9,11 +9,13 @@ import * as React from '@theia/core/shared/react'
 import { Container, inject, injectable, interfaces } from '@theia/core/shared/inversify'
 import {
   ApplicationShell,
+  CommonCommands,
   CompositeTreeNode,
   ExpandableTreeNode,
   Key,
   KeyCode,
-  KeyModifier,
+  SelectableTreeNode,
+  TREE_CONTAINER_CLASS,
   TreeNode,
   TreeProps,
   TreeSearch,
@@ -27,7 +29,7 @@ import {
   TabBarToolbarRegistry,
 } from '@theia/core/lib/browser/shell/tab-bar-toolbar'
 import { Command, CommandContribution, CommandRegistry, Emitter } from '@theia/core/lib/common'
-import { parseQuery, rowMatches, SearchRow } from './explorer-match'
+import { filterTree, parseQuery, pickSelectTarget, restorePlan, SearchRow } from './explorer-match'
 
 export const FindInExplorerCommand: Command = {
   id: 'hackbench.explorer.find',
@@ -51,26 +53,39 @@ export class ExplorerTreeSearch extends TreeSearch {
   protected readonly outcomeEmitter = new Emitter<SearchOutcome>()
   readonly onOutcome = this.outcomeEmitter.event
 
+  /** The last pattern given, so a rebuilt tree can be filtered again. */
+  protected lastPattern: string | undefined
+  /** False for no text and for a bare `$`/`0x`: then every row passes. */
+  protected filtering = false
+
+  get active(): boolean {
+    return this.filtering
+  }
+
+  /** Run the last pattern again, after the tree behind it was rebuilt. */
+  refilter(): Promise<TreeNode[]> {
+    return this.filter(this.lastPattern)
+  }
+
+  override passesFilters(node: TreeNode): boolean {
+    return !this.filtering || super.passesFilters(node)
+  }
+
   override async filter(pattern: string | undefined): Promise<TreeNode[]> {
-    const { root } = this.tree
-    this._filteredNodesAndParents = new Set()
+    this.lastPattern = pattern
     const query = parseQuery(pattern ?? '')
-    const matches: TreeNode[] = []
-    if (root && query.text !== '') {
-      const walk = (node: TreeNode): void => {
-        const row = this.rowOf(node)
-        if (row && rowMatches(query, row)) matches.push(node)
-        if (CompositeTreeNode.is(node)) node.children.forEach(walk)
-      }
-      walk(root)
-    }
-    // Empty ranges: the explorers draw their own captions, but Theia counts
-    // matches from this list.
+    this.filtering = query.text !== '' && !query.incomplete
+    const { matches, shown } = filterTree(this.tree.root, query, n => this.rowOf(n))
+    this._filteredNodesAndParents = shown
+    // Empty ranges: no text highlight (out of scope), but Theia sizes its match
+    // count and the Up/Down cycle from this list.
     this._filterResult = matches.map(item => ({ item, ranges: [], score: 0 }) as never)
     this._filteredNodes = matches
-    matches.forEach(m => this.addAllParentsToFilteredSet(m))
-    this.outcomeEmitter.fire({ query: query.text === '' ? null : query.text, matches })
-    this.fireFilteredNodesChanged(this._filteredNodes)
+    this.outcomeEmitter.fire({ query: this.filtering ? query.text : null, matches })
+    // Not the matches: TreeWidget selects the first node of this event, and
+    // Maps, Graphics and Palettes open on selection. The widget selects its
+    // own target, quietly, in onSearchOutcome.
+    this.fireFilteredNodesChanged([])
     return matches.slice()
   }
 
@@ -80,33 +95,77 @@ export class ExplorerTreeSearch extends TreeSearch {
   }
 }
 
-/** Starts in filter mode: hiding non-matches is the point, not an opt-in. */
+/**
+ * Starts in filter mode: hiding non-matches is the point, not an opt-in. Takes
+ * Space while open, so a name like "donut plains" can be typed; Theia's box
+ * refuses it, and Space on the tree itself is untouched while the box is shut.
+ */
 export class ExplorerSearchBox extends SearchBox {
+  protected override canHandle(keyCode: KeyCode | undefined): boolean {
+    if (
+      keyCode &&
+      this.isVisible &&
+      Key.equals(Key.SPACE, keyCode) &&
+      !keyCode.ctrl &&
+      !keyCode.alt &&
+      !keyCode.meta
+    ) {
+      return true
+    }
+    return super.canHandle(keyCode)
+  }
+
   protected override handleKey(keyCode: KeyCode): void {
-    if (!this._isFiltering) this.doFireFilterToggle(true)
+    // Only the first key of a search: later keystrokes must not undo a user
+    // who switched filtering off with the box's button.
+    if (this.inputText === '' && !this._isFiltering) this.doFireFilterToggle(true)
     super.handleKey(keyCode)
   }
 }
 
 /**
  * Base of the four explorers. Subclasses say what a row matches and the noun
- * for the empty state; this class owns the filter's side effects on expansion.
+ * for the empty state; this class owns the filter's side effects on expansion,
+ * selection and Enter.
  */
 export abstract class ExplorerTreeWidget extends TreeWidget {
   /** Plural noun for the empty state: "No maps match ...". */
   protected abstract readonly searchNoun: string
+  protected abstract manifestPath: string
   protected abstract searchRow(node: TreeNode): SearchRow | undefined
 
   /** Ids expanded when the filter started; undefined while no filter is active. */
   protected expandedBeforeSearch: Set<string> | undefined
+  protected snapshotProject = ''
   protected activeQuery: string | null = null
   protected matchCount = 0
+  /**
+   * True while the filter itself moves the selection. Subclasses that open a
+   * tab on selection must not: typing would open one per keystroke.
+   */
+  protected selectingFromFilter = false
+  protected lastRoot: TreeNode | undefined
 
   protected override init(): void {
     super.init()
     const search = this.treeSearch as ExplorerTreeSearch
     search.rowOf = n => this.searchRow(n)
     this.toDispose.push(search.onOutcome(o => void this.onSearchOutcome(o)))
+    // A reload, a palette edit or a project switch swaps the root: the nodes
+    // the filter chose are gone, so choose again from the current text.
+    this.toDispose.push(
+      this.model.onChanged(() => {
+        if (this.model.root === this.lastRoot) return
+        this.lastRoot = this.model.root
+        if (this.manifestPath !== this.snapshotProject) this.expandedBeforeSearch = undefined
+        if (search.active) {
+          void search.refilter().then(() => {
+            this.searchHighlights = search.getHighlights()
+            this.update()
+          })
+        }
+      }),
+    )
   }
 
   protected async onSearchOutcome(o: SearchOutcome): Promise<void> {
@@ -115,14 +174,30 @@ export abstract class ExplorerTreeWidget extends TreeWidget {
     if (o.query === null) {
       await this.restoreExpansion()
     } else {
-      this.expandedBeforeSearch ??= this.expandedIds()
+      if (!this.expandedBeforeSearch) {
+        this.expandedBeforeSearch = this.expandedIds()
+        this.snapshotProject = this.manifestPath
+      }
+      // Ancestors only: a matching folder is not opened by its own match.
       for (const m of o.matches) {
         for (let p = m.parent; p; p = p.parent) {
           if (ExpandableTreeNode.is(p) && !p.expanded) await this.model.expandNode(p)
         }
       }
+      this.selectTarget(o.matches)
     }
     this.update()
+  }
+
+  protected selectTarget(matches: readonly TreeNode[]): void {
+    const target = pickSelectTarget(matches, n => this.searchRow(n)?.folder === true)
+    if (!target || !SelectableTreeNode.is(target)) return
+    this.selectingFromFilter = true
+    try {
+      this.model.selectNode(target)
+    } finally {
+      this.selectingFromFilter = false
+    }
   }
 
   protected expandedIds(): Set<string> {
@@ -135,21 +210,15 @@ export abstract class ExplorerTreeWidget extends TreeWidget {
     return ids
   }
 
-  /** Reopen what was open and close what the filter opened, parents first. */
+  /** Reopen what was open and close what the filter opened, at any depth. */
   protected async restoreExpansion(): Promise<void> {
     const before = this.expandedBeforeSearch
     this.expandedBeforeSearch = undefined
-    if (!before || !this.model.root) return
-    const queue: TreeNode[] = [this.model.root]
-    for (let i = 0; i < queue.length; i++) {
-      const n = queue[i]!
-      if (ExpandableTreeNode.is(n)) {
-        if (before.has(n.id) && !n.expanded) await this.model.expandNode(n)
-        else if (!before.has(n.id) && n.expanded) await this.model.collapseNode(n)
-      }
-      if (CompositeTreeNode.is(n) && (!ExpandableTreeNode.is(n) || n.expanded)) {
-        queue.push(...n.children)
-      }
+    if (!before) return
+    for (const { node, expand } of restorePlan(this.model.root, before)) {
+      if (!ExpandableTreeNode.is(node)) continue
+      if (expand) await this.model.expandNode(node)
+      else await this.model.collapseNode(node)
     }
   }
 
@@ -159,23 +228,38 @@ export abstract class ExplorerTreeWidget extends TreeWidget {
     this.node.focus()
   }
 
-  protected override onAfterAttach(msg: Parameters<TreeWidget['onAfterAttach']>[0]): void {
-    super.onAfterAttach(msg)
-    const ctrlF = KeyCode.createKeyCode({ first: Key.KEY_F, modifiers: [KeyModifier.CtrlCmd] })
-    this.addKeyListener(this.node, ctrlF, e => {
-      e.preventDefault()
-      e.stopPropagation()
-      this.openSearch()
-    })
+  /**
+   * Open a matched row the way a click would; false leaves Enter to Theia
+   * (folders toggle). Only runs while a filter is active.
+   */
+  protected openMatch(_node: TreeNode): boolean {
+    return false
   }
 
+  protected override handleEnter(event: KeyboardEvent): void {
+    const node = this.model.selectedNodes[0]
+    if (
+      this.activeQuery !== null &&
+      node &&
+      !this.searchRow(node)?.folder &&
+      this.openMatch(node)
+    ) {
+      return
+    }
+    super.handleEnter(event)
+  }
+
+  /** Space belongs to the search box while it is open. */
+  protected override handleSpace(event: KeyboardEvent): void {
+    if (!this.searchBox.isVisible) super.handleSpace(event)
+  }
+
+  /** The empty state replaces the tree: under it, a full-height tree hides it. */
   protected override render(): React.ReactNode {
-    const tree = super.render()
-    if (this.activeQuery === null || this.matchCount > 0) return tree
+    if (this.activeQuery === null || this.matchCount > 0) return super.render()
     return React.createElement(
-      React.Fragment,
-      null,
-      tree,
+      'div',
+      { className: TREE_CONTAINER_CLASS },
       React.createElement(
         'div',
         { className: 'hb-explorer-no-match', role: 'status' },
@@ -215,6 +299,18 @@ export class ExplorerFindContribution implements CommandContribution, TabBarTool
         w instanceof ExplorerTreeWidget || this.shell.currentWidget instanceof ExplorerTreeWidget,
       isVisible: (w?: unknown) => w instanceof ExplorerTreeWidget,
     })
+    // Core binds Ctrl+F to a no-op Find and its keybinding registry takes the
+    // key first, so a DOM listener on the tree never sees it. Ours is added
+    // later and wins while an explorer is the active widget.
+    commands.registerHandler(CommonCommands.FIND.id, {
+      execute: () => this.activeExplorer()?.openSearch(),
+      isEnabled: () => this.activeExplorer() !== undefined,
+    })
+  }
+
+  protected activeExplorer(): ExplorerTreeWidget | undefined {
+    const w = this.shell.activeWidget
+    return w instanceof ExplorerTreeWidget ? w : undefined
   }
 
   registerToolbarItems(registry: TabBarToolbarRegistry): void {

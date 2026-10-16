@@ -76,6 +76,11 @@ export class GfxExplorerWidget extends ExplorerTreeWidget {
     return undefined
   }
 
+  protected openMatch(node: TreeNode): boolean {
+    this.fireOpen(node as GfxTreeNode, true)
+    return true
+  }
+
   /**
    * Rows belong to a project, and nothing is open on a fresh load, so none of
    * them are persisted. Theia's TreeWidget serialises its whole model by
@@ -166,6 +171,7 @@ export class GfxExplorerWidget extends ExplorerTreeWidget {
     )
     this.toDispose.push(
       this.model.onSelectionChanged(() => {
+        if (this.selectingFromFilter) return
         this.fireOpen(this.model.selectedNodes[0] as GfxTreeNode | undefined, false)
       }),
     )

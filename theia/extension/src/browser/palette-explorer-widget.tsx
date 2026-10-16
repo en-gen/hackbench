@@ -63,6 +63,8 @@ export interface PaletteTreeNode extends CompositeTreeNode, SelectableTreeNode {
   kind: 'group' | 'variant' | 'note'
   groupId?: string
   variant?: number
+  /** A group's first CGRAM row; absent when its table targets none. */
+  row?: number
   sub?: string
   expanded?: boolean
 }
@@ -75,12 +77,21 @@ const OVERWORLD_NOTE =
 export class PaletteExplorerWidget extends ExplorerTreeWidget {
   protected readonly searchNoun = 'palettes'
 
-  /** A variant's id is the number in its label ("Palette 3"); groups are found by name. */
+  /**
+   * A variant's id is the number in its label ("Palette 3"). A group has no
+   * number of its own, so its id is the first CGRAM row it targets, the row
+   * number its view shows; a group with no row is found by name only.
+   */
   protected searchRow(node: TreeNode): SearchRow | undefined {
     const n = node as PaletteTreeNode
-    if (n.kind === 'group') return { texts: [n.name ?? ''] }
+    if (n.kind === 'group') return { id: n.row, texts: [n.name ?? ''] }
     if (n.kind === 'variant') return { id: n.variant, texts: [(n.name ?? '').replace(/\d+/g, '')] }
     return undefined
+  }
+
+  protected openMatch(node: TreeNode): boolean {
+    this.fireOpen(node as PaletteTreeNode, true)
+    return true
   }
 
   /**
@@ -169,6 +180,7 @@ export class PaletteExplorerWidget extends ExplorerTreeWidget {
     )
     this.toDispose.push(
       this.model.onSelectionChanged(() => {
+        if (this.selectingFromFilter) return
         this.fireOpen(this.model.selectedNodes[0] as PaletteTreeNode | undefined, false)
       }),
     )
@@ -282,6 +294,7 @@ export class PaletteExplorerWidget extends ExplorerTreeWidget {
       name: g.label,
       kind: 'group',
       groupId: g.id,
+      ...(g.cgRamRow === null ? {} : { row: g.cgRamRow }),
       sub: `${g.variants.length} variant${g.variants.length === 1 ? '' : 's'}`,
       parent: undefined,
       children: [],

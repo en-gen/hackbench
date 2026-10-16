@@ -13,6 +13,8 @@ export interface SearchRow {
   id?: number
   /** The names the row shows, plus any alias. */
   texts: readonly string[]
+  /** A pure grouping row: not where select-first or Enter lands while a leaf matches. */
+  folder?: boolean
 }
 
 export interface ParsedQuery {
@@ -21,17 +23,93 @@ export interface ParsedQuery {
   id: number | null
   /** A `$` or `0x` prefix: match ids only. */
   idOnly: boolean
+  /** A bare `$` or `0x`: the user is still typing an id, so nothing filters yet. */
+  incomplete: boolean
 }
 
 export function parseQuery(raw: string): ParsedQuery {
   const text = raw.trim()
-  return { text, id: parseHexId(text), idOnly: /^(\$|0x)/i.test(text) }
+  return {
+    text,
+    id: parseHexId(text),
+    idOnly: /^(\$|0x)/i.test(text),
+    incomplete: /^(\$|0x)$/i.test(text),
+  }
 }
 
 export function rowMatches(query: ParsedQuery, row: SearchRow): boolean {
-  if (query.text === '') return false
+  if (query.text === '' || query.incomplete) return false
   if (query.id !== null && row.id === query.id) return true
   if (query.idOnly) return false
   const needle = query.text.toLowerCase()
   return row.texts.some(t => t.toLowerCase().includes(needle))
+}
+
+interface Walkable {
+  id: string
+  children?: readonly Walkable[]
+  parent?: Walkable
+}
+
+/**
+ * The rows a query matches, in tree order, and the ids that stay drawn: each
+ * match, its ancestors, and everything under a matching folder (its own name
+ * matching says "this group", so its contents are the answer).
+ */
+export function filterTree<T extends { id: string }>(
+  root: T | undefined,
+  query: ParsedQuery,
+  rowOf: (node: T) => SearchRow | undefined,
+): { matches: T[]; shown: Set<string> } {
+  const matches: T[] = []
+  const shown = new Set<string>()
+  const showAll = (n: Walkable): void => {
+    shown.add(n.id)
+    n.children?.forEach(showAll)
+  }
+  const walk = (n: Walkable): void => {
+    const row = rowOf(n as unknown as T)
+    if (row && rowMatches(query, row)) {
+      matches.push(n as unknown as T)
+      for (let p: Walkable | undefined = n; p; p = p.parent) shown.add(p.id)
+      if (row.folder) showAll(n)
+    }
+    n.children?.forEach(walk)
+  }
+  if (root) walk(root as unknown as Walkable)
+  return { matches, shown }
+}
+
+/** Select-first target: a leaf if any matched, else the first match (a folder). */
+export function pickSelectTarget<T>(
+  matches: readonly T[],
+  isFolder: (n: T) => boolean,
+): T | undefined {
+  return matches.find(m => !isFolder(m)) ?? matches[0]
+}
+
+interface Expandable {
+  id: string
+  expanded?: boolean
+  children?: readonly Expandable[]
+}
+
+/**
+ * What to flip so every expandable node is back to its snapshot state. Walks
+ * ALL nodes, collapsed ones included: the filter opens folders under a folder
+ * the user had closed, and stopping at the closed one leaves those open.
+ */
+export function restorePlan<T extends { id: string }>(
+  root: T | undefined,
+  before: ReadonlySet<string>,
+): { node: T; expand: boolean }[] {
+  const out: { node: T; expand: boolean }[] = []
+  const walk = (n: Expandable): void => {
+    if ('expanded' in n && Boolean(n.expanded) !== before.has(n.id)) {
+      out.push({ node: n as unknown as T, expand: before.has(n.id) })
+    }
+    n.children?.forEach(walk)
+  }
+  if (root) walk(root as unknown as Expandable)
+  return out
 }

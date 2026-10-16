@@ -4,9 +4,12 @@
  *
  * What is asserted is the set of rows the tree DRAWS (`widget.rows`, which
  * already applies Theia's filter), compared with an expected set computed here
- * from the loaded model: every row that matches, plus its ancestors. That
+ * from the loaded model: every row that matches, its ancestors, and everything
+ * under a matching folder, drawn only where the folders above are open. That
  * catches a stray visible row as well as a missing one, which "the match is on
- * screen" would not.
+ * screen" would not. `rowOf` below restates the texts each explorer matches
+ * (the raw folder name, never its "(N)" count), so the oracle and the app
+ * agree on WHAT is text; it is a mirror and must be kept in step.
  *
  * The tree virtualises, so DOM rows are not the source of truth; `rows` is.
  * Fixture nodes (which map has a name, which node is expandable) are read from
@@ -56,7 +59,7 @@ test.afterEach(() => {
 
 /** Loads the project into one explorer, brings it to the front and focuses its tree. */
 async function openExplorer(page, which) {
-  await page.evaluate(
+  const manifestPath = await page.evaluate(
     async ({ romPath, directory, id }) => {
       const project = await getSvc('Symbol(ProjectService)').createProject({
         romPath,
@@ -67,11 +70,20 @@ async function openExplorer(page, which) {
       await w.load(project.manifestPath)
       await getSvc('ApplicationShell').activateWidget(id)
       w.node.focus()
+      // Every open request the explorer fires, so a test can say what opened.
+      window.__opens = []
+      for (const ev of ['onMapOpened', 'onFileOpened', 'onMap16Opened', 'onOpen']) {
+        if (w[ev]) w[ev](e => window.__opens.push(e))
+      }
+      return project.manifestPath
     },
     { romPath: ROM, directory: tmp, id: IDS[which] },
   )
   await page.waitForTimeout(800)
+  return manifestPath
 }
+
+const opens = page => page.evaluate(() => window.__opens)
 
 /** The drawn row ids, selection, and expanded ids, read off the widget. */
 async function state(page, which) {
@@ -83,13 +95,29 @@ async function state(page, which) {
       ;(n.children || []).forEach(walk)
     }
     walk(w.model.root)
+    const msg = document.querySelector(`#${CSS.escape(id)} .hb-explorer-no-match`)
+    const box = w.node.getBoundingClientRect()
+    const r = msg?.getBoundingClientRect()
+    // Visible: non-empty, inside the widget's own rect, and what the browser
+    // would hit at its centre (not covered by a full-height tree).
+    const hit = r && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
     return {
-      rows: [...w.rows.values()].map(r => r.node.id),
+      rows: [...w.rows.values()].map(row => row.node.id),
       selected: w.model.selectedNodes.map(n => n.id),
       expanded: expanded.sort(),
       boxVisible: w.searchBox ? w.searchBox.isVisible : false,
-      empty:
-        document.querySelector(`#${CSS.escape(id)} .hb-explorer-no-match`)?.textContent ?? null,
+      empty: msg?.textContent ?? null,
+      emptyVisible: Boolean(
+        r &&
+        r.width > 0 &&
+        r.height > 0 &&
+        r.top >= box.top &&
+        r.bottom <= box.bottom &&
+        r.left >= box.left &&
+        r.right <= box.right &&
+        hit &&
+        msg.contains(hit),
+      ),
     }
   }, IDS[which])
 }
@@ -109,6 +137,7 @@ async function nodes(page, which) {
           index: n.index,
           mapName: n.mapName,
           variant: n.variant,
+          row: n.row,
           bgmCommand: n.bgmCommand,
           alias: n.alias,
           expandable: 'expanded' in n,
@@ -122,15 +151,80 @@ async function nodes(page, which) {
   }, IDS[which])
 }
 
-/** Expected drawn rows: the matching nodes plus every ancestor of one. */
-function expectedRows(all, isMatch) {
+/** The texts and id each explorer matches a node on (mirrors the widgets' searchRow). */
+function rowOf(which, n) {
+  const name = n.name ?? ''
+  if (which === 'maps') {
+    if (n.kind === 'message') return null
+    if (n.kind === 'group') {
+      const raw = n.id === 'group:unassigned' ? 'Unassigned' : n.id.replace(/^group:user:/, '')
+      return { folder: true, texts: [raw] }
+    }
+    if (n.category === 'overworld' || n.category === 'overworld-area') return { texts: [name] }
+    if (n.category === 'title-screen' || n.category === 'new-game') {
+      return { id: n.index, texts: [name] }
+    }
+    return { id: n.index >= 0 ? n.index : undefined, texts: [n.mapName ?? ''] }
+  }
+  if (which === 'gfx') {
+    if (n.kind === 'file') return { id: n.index, texts: ['GFX'] }
+    if (n.kind === 'map16') return { texts: [name] }
+    return null
+  }
+  if (which === 'palettes') {
+    if (n.kind === 'group') return { id: n.row, texts: [name] }
+    if (n.kind === 'variant') return { id: n.variant, texts: [name.replace(/\d+/g, '')] }
+    return null
+  }
+  if (n.kind === 'track') return { id: n.bgmCommand, texts: [n.alias] }
+  if (n.kind === 'sfx') return { id: n.bgmCommand, texts: [] }
+  if (n.kind === 'message') return null
+  return { folder: true, texts: [n.kind === 'sfxport' ? name.replace(/ \(.*\)$/, '') : name] }
+}
+
+/** Independent restatement of the query rules, for the oracle. */
+function rowMatches(q, row) {
+  const text = q.trim()
+  const idOnly = /^(\$|0x)/i.test(text)
+  const hex = text.replace(/^\$/, '').replace(/^0x/i, '')
+  const id = /^[0-9a-f]+$/i.test(hex) ? parseInt(hex, 16) : null
+  if (text === '' || /^(\$|0x)$/i.test(text)) return false
+  if (id !== null && row.id === id) return true
+  if (idOnly) return false
+  return row.texts.some(t => t.toLowerCase().includes(text.toLowerCase()))
+}
+
+/** Matching nodes in tree order, and every id kept: matches, ancestors, a folder match's contents. */
+function expectation(all, which, q) {
   const byId = new Map(all.map(n => [n.id, n]))
+  const under = (n, ancestorId) => {
+    for (let c = n; c; c = c.parent ? byId.get(c.parent) : null) {
+      if (c.id === ancestorId) return true
+    }
+    return false
+  }
+  const matches = []
   const keep = new Set()
   for (const n of all) {
-    if (!isMatch(n)) continue
+    const row = rowOf(which, n)
+    if (!row || !rowMatches(q, row)) continue
+    matches.push({ ...n, folder: Boolean(row.folder) })
     for (let c = n; c; c = c.parent ? byId.get(c.parent) : null) keep.add(c.id)
+    if (row.folder) for (const d of all) if (under(d, n.id)) keep.add(d.id)
   }
-  return keep
+  return { matches, keep }
+}
+
+/** Of the kept ids, those the tree draws: every ancestor open. */
+function drawn(all, keep, expanded) {
+  const byId = new Map(all.map(n => [n.id, n]))
+  const open = new Set(expanded)
+  return [...keep]
+    .filter(id => {
+      for (let p = byId.get(id)?.parent; p; p = byId.get(p).parent) if (!open.has(p)) return false
+      return true
+    })
+    .sort()
 }
 
 async function type(page, which, text) {
@@ -138,11 +232,27 @@ async function type(page, which, text) {
   await page.keyboard.type(text)
 }
 
-async function expectRows(page, which, expected) {
-  expect(expected.size, 'fixture: the query must match something').toBeGreaterThan(0)
+/** The drawn rows are exactly what the oracle says, and the filter opened every match's ancestors. */
+async function expectFiltered(page, which, all, q) {
+  const { matches, keep } = expectation(all, which, q)
+  expect(matches.length, `fixture: "${q}" must match something`).toBeGreaterThan(0)
   await expect
-    .poll(async () => (await state(page, which)).rows.sort(), { timeout: 10000 })
-    .toEqual([...expected].sort())
+    .poll(
+      async () => {
+        const s = await state(page, which)
+        return JSON.stringify(s.rows.sort()) === JSON.stringify(drawn(all, keep, s.expanded))
+      },
+      { timeout: 10000, message: `rows for "${q}"` },
+    )
+    .toBe(true)
+  const s = await state(page, which)
+  const byId = new Map(all.map(n => [n.id, n]))
+  for (const m of matches) {
+    for (let p = m.parent; p; p = byId.get(p).parent) {
+      expect(s.expanded, `ancestor ${p} of match ${m.id} open`).toContain(p)
+    }
+  }
+  return { matches, keep, s }
 }
 
 async function clear(page, which) {
@@ -158,54 +268,94 @@ const NO_MATCH = {
 }
 
 for (const which of Object.keys(IDS)) {
-  test(`${which}: a query with no matches says so in words`, async ({ page }) => {
+  test(`${which}: a query with no matches says so, visibly, in words`, async ({ page }) => {
     await openExplorer(page, which)
     await type(page, which, 'zzzq')
     await expect.poll(async () => (await state(page, which)).empty).toBe(NO_MATCH[which])
+    // Inside the widget's own rect and hit by the browser at its centre:
+    // textContent alone passes while the message sits below the fold.
+    expect((await state(page, which)).emptyVisible).toBe(true)
     expect((await state(page, which)).rows).toEqual([])
     await clear(page, which)
     await expect.poll(async () => (await state(page, which)).empty).toBeNull()
     expect((await state(page, which)).rows.length).toBeGreaterThan(0)
   })
 
-  test(`${which}: Ctrl+F opens the box, and Escape restores the exact prior expansion`, async ({
+  test(`${which}: a bare $ or 0x is a half-typed id: nothing filters, no empty state`, async ({
     page,
   }) => {
     await openExplorer(page, which)
-    const all = await nodes(page, which)
-    // Flip the first three expandable rows so the starting state is not a default.
-    await page.evaluate(
-      async ({ id, ids }) => {
-        const w = await getWidget(id)
-        const find = (n, target) =>
-          n.id === target ? n : (n.children || []).map(c => find(c, target)).find(Boolean)
-        for (const target of ids) {
-          const n = find(w.model.root, target)
-          if (n.expanded) await w.model.collapseNode(n)
-          else await w.model.expandNode(n)
-        }
-      },
-      {
-        id: IDS[which],
-        ids: all
-          .filter(n => n.expandable)
-          .slice(0, 3)
-          .map(n => n.id),
-      },
-    )
-    const before = await state(page, which)
+    const before = (await state(page, which)).rows.length
+    expect(before).toBeGreaterThan(0)
+    for (const q of ['$', '0x']) {
+      await type(page, which, q)
+      await page.waitForTimeout(600)
+      const s = await state(page, which)
+      expect(s.rows.length, q).toBe(before)
+      expect(s.empty, q).toBeNull()
+      await clear(page, which)
+    }
+  })
 
+  // Ctrl+F is taken by core's own Find before any DOM listener on the tree,
+  // so this only passes when the explorer registers a handler for that command.
+  test(`${which}: Ctrl+F opens the search box on the focused explorer`, async ({ page }) => {
+    await openExplorer(page, which)
     await page.evaluate(id => getWidget(id).then(w => w.node.focus()), IDS[which])
     await page.keyboard.press('Control+f')
     await expect.poll(async () => (await state(page, which)).boxVisible).toBe(true)
+    await clear(page, which)
+    await expect.poll(async () => (await state(page, which)).boxVisible).toBe(false)
+  })
+}
 
-    const deep = all.find(n => n.index >= 0 || n.variant !== undefined || n.bgmCommand > 0)
-    const q =
-      which === 'maps' && deep.mapName
-        ? deep.mapName
-        : `$${(deep.index ?? deep.variant ?? deep.bgmCommand ?? 0).toString(16)}`
+// GFX is a flat list: nothing to fold, so a restore assertion there would
+// pass on any code. The restore claim is proven on the three trees with folders.
+for (const which of ['maps', 'palettes', 'music']) {
+  test(`${which}: Escape restores the exact prior expansion, at every depth`, async ({ page }) => {
+    await openExplorer(page, which)
+    const all = await nodes(page, which)
+    // Start with everything folded, then open one folder that sits below a
+    // folded one (the case a breadth-first restore that stops at a folded
+    // folder gets wrong).
+    const nested = all.filter(
+      n => n.expandable && n.parent && all.find(p => p.id === n.parent)?.expandable,
+    )
+    const pick = nested[nested.length - 1] ?? all.filter(n => n.expandable).pop()
+    await page.evaluate(
+      async ({ id, open }) => {
+        const w = await getWidget(id)
+        const walk = async n => {
+          if ('expanded' in n && n.expanded) await w.model.collapseNode(n)
+          for (const c of n.children || []) await walk(c)
+        }
+        await walk(w.model.root)
+        const find = (n, t) =>
+          n.id === t ? n : (n.children || []).map(c => find(c, t)).find(Boolean)
+        await w.model.expandNode(find(w.model.root, open))
+      },
+      { id: IDS[which], open: pick.id },
+    )
+    const before = await state(page, which)
+    expect(before.expanded).toEqual([pick.id])
+
+    // A leaf with an id whose chain holds a folded folder, so the filter must open something.
+    const byId = new Map(all.map(n => [n.id, n]))
+    const deep = all.find(n => {
+      const row = rowOf(which, n)
+      if (!row || row.folder || row.id === undefined || row.id < 0 || !n.parent) return false
+      for (let p = n.parent; p; p = byId.get(p).parent) {
+        if (!before.expanded.includes(p)) return true
+      }
+      return false
+    })
+    expect(deep, 'fixture: a leaf with an id under a folded folder').toBeTruthy()
+    const q = `$${rowOf(which, deep).id.toString(16)}`
+
+    await page.evaluate(id => getWidget(id).then(w => w.node.focus()), IDS[which])
+    await page.keyboard.press('Control+f')
     await type(page, which, q)
-    await expect.poll(async () => (await state(page, which)).rows.length).toBeGreaterThan(0)
+    await expect.poll(async () => (await state(page, which)).expanded).not.toEqual(before.expanded)
 
     await clear(page, which)
     await expect.poll(async () => (await state(page, which)).expanded).toEqual(before.expanded)
@@ -213,29 +363,77 @@ for (const which of Object.keys(IDS)) {
   })
 }
 
-test('maps: 105 leaves only $105 and its folders; 1fc shows and selects $1FC', async ({ page }) => {
+test('maps: bare 1fc finds slot $1FC and selects it without opening a tab', async ({ page }) => {
   await openExplorer(page, 'maps')
   const all = await nodes(page, 'maps')
-  const isSlot = (n, v) => n.kind !== 'group' && n.kind !== 'message' && n.index === v
-  const want105 = expectedRows(all, n => isSlot(n, 0x105))
   expect(
-    all.some(n => isSlot(n, 0x105)),
-    'fixture: vanilla has map $105',
+    all.some(n => n.index === 0x1fc),
+    'fixture: vanilla has map $1FC',
   ).toBe(true)
+  await type(page, 'maps', '1fc')
+  const { matches, s } = await expectFiltered(page, 'maps', all, '1fc')
+  expect(matches.some(m => m.index === 0x1fc)).toBe(true)
+  // Select-first lands on a map, not on a folder or other incidental match.
+  const first = matches.find(m => !m.folder)
+  expect(s.selected[0]).toBe(first.id)
+  // Typing selects, but must not open a preview tab per keystroke.
+  expect(await opens(page)).toEqual([])
+})
 
-  await type(page, 'maps', '105')
-  await expectRows(page, 'maps', want105)
-  await clear(page, 'maps')
-
+test('maps: $1fc is id-only, and 105 leaves its slot and anything named 105', async ({ page }) => {
+  await openExplorer(page, 'maps')
+  const all = await nodes(page, 'maps')
   await type(page, 'maps', '$1fc')
-  await expectRows(
-    page,
-    'maps',
-    expectedRows(all, n => isSlot(n, 0x1fc)),
+  const r = await expectFiltered(page, 'maps', all, '$1fc')
+  expect(r.matches.map(m => m.index)).toEqual([0x1fc])
+  await clear(page, 'maps')
+  await type(page, 'maps', '105')
+  await expectFiltered(page, 'maps', all, '105')
+})
+
+test('maps: Enter opens the selected match; Down moves to the next match', async ({ page }) => {
+  await openExplorer(page, 'maps')
+  const all = await nodes(page, 'maps')
+  // A word shared by a few named maps, so there is a "next" match.
+  const words = new Set(
+    all.flatMap(n => (n.mapName ?? '').toLowerCase().split(' ')).filter(w => w.length > 3),
   )
-  const s = await state(page, 'maps')
-  const sel = all.find(n => n.id === s.selected[0])
-  expect(sel.index).toBe(0x1fc)
+  const word = [...words].find(w => {
+    const leaves = expectation(all, 'maps', w).matches.filter(m => !m.folder)
+    return leaves.length >= 2 && leaves.length <= 40
+  })
+  expect(word, 'fixture: a word shared by 2 to 40 named maps').toBeTruthy()
+  const leaves = expectation(all, 'maps', word).matches.filter(m => !m.folder)
+  await type(page, 'maps', word)
+  await expect.poll(async () => (await state(page, 'maps')).selected[0]).toBe(leaves[0].id)
+  expect(await opens(page)).toEqual([])
+
+  await page.keyboard.press('Enter')
+  await expect.poll(async () => (await opens(page)).map(o => o.index)).toContain(leaves[0].index)
+  expect((await opens(page)).find(o => o.index === leaves[0].index).pinned).toBe(true)
+
+  await page.keyboard.press('ArrowDown')
+  await expect.poll(async () => (await state(page, 'maps')).selected[0]).toBe(leaves[1].id)
+})
+
+test('gfx: Enter opens the matched file', async ({ page }) => {
+  await openExplorer(page, 'gfx')
+  await type(page, 'gfx', '$1c')
+  await expect.poll(async () => (await state(page, 'gfx')).selected.length).toBe(1)
+  expect(await opens(page)).toEqual([])
+  await page.keyboard.press('Enter')
+  await expect.poll(async () => (await opens(page)).map(o => o.index)).toEqual([0x1c])
+})
+
+test('maps: a multi-word name can be typed, space included', async ({ page }) => {
+  await openExplorer(page, 'maps')
+  const all = await nodes(page, 'maps')
+  const named = all.find(n => n.kind === 'map' && /^\S+ \S+/.test(n.mapName ?? ''))
+  expect(named, 'fixture: a map whose name has two words').toBeTruthy()
+  const q = named.mapName.split(' ').slice(0, 2).join(' ').toLowerCase()
+  await type(page, 'maps', q)
+  const { matches } = await expectFiltered(page, 'maps', all, q)
+  expect(matches.map(m => m.id)).toContain(named.id)
 })
 
 test('maps: part of a displayed name finds a map inside a collapsed folder', async ({ page }) => {
@@ -255,63 +453,109 @@ test('maps: part of a displayed name finds a map inside a collapsed folder', asy
     { id: IDS.maps, folder: top.id },
   )
   const part = target.mapName.slice(1, 5).toLowerCase()
-  const isMatch = n =>
-    n.kind !== 'group' && n.kind !== 'message' && (n.mapName || '').toLowerCase().includes(part)
   await type(page, 'maps', part)
-  await expectRows(page, 'maps', expectedRows(all, isMatch))
+  await expectFiltered(page, 'maps', all, part)
   expect((await state(page, 'maps')).rows).toContain(target.id)
+})
+
+test('maps: a folder matches on its name alone, not its count, and shows its contents', async ({
+  page,
+}) => {
+  await openExplorer(page, 'maps')
+  const all = await nodes(page, 'maps')
+  const folder = all.find(n => n.id === 'group:unassigned')
+  expect(folder, 'fixture: the Unassigned folder').toBeTruthy()
+  // Shown as "Unassigned (N, ...)": the count is caption, not text.
+  expect(folder.name).toMatch(/^Unassigned \(/)
+  await page.evaluate(async id => {
+    const w = await getWidget(id)
+    const f = w.model.root.children.find(c => c.id === 'group:unassigned')
+    if (f.expanded) await w.model.collapseNode(f)
+  }, IDS.maps)
+
+  await type(page, 'maps', 'unassigned (')
+  await expect
+    .poll(async () => (await state(page, 'maps')).empty)
+    .toBe('No maps match "unassigned (".')
+  await clear(page, 'maps')
+
+  await type(page, 'maps', 'unassigned')
+  const { keep, matches } = expectation(all, 'maps', 'unassigned')
+  expect(matches.map(m => m.id)).toEqual(['group:unassigned'])
+  // Its own match does not open it...
+  await expect.poll(async () => (await state(page, 'maps')).rows).toEqual(['group:unassigned'])
+  expect((await state(page, 'maps')).expanded).not.toContain('group:unassigned')
+  // ...it is the one match, so it is selected; and opening it shows all its contents.
+  expect((await state(page, 'maps')).selected).toEqual(['group:unassigned'])
+  await page.evaluate(async id => {
+    const w = await getWidget(id)
+    await w.model.expandNode(w.model.root.children.find(c => c.id === 'group:unassigned'))
+  }, IDS.maps)
+  const kids = all.filter(n => n.parent === 'group:unassigned').map(n => n.id)
+  await expect
+    .poll(async () => (await state(page, 'maps')).rows.sort())
+    .toEqual(['group:unassigned', ...kids].sort())
+  expect(kids.every(k => keep.has(k))).toBe(true)
+})
+
+test('maps: reloading the project while filtering filters the new rows again', async ({ page }) => {
+  const manifest = await openExplorer(page, 'maps')
+  const all = await nodes(page, 'maps')
+  await type(page, 'maps', '$105')
+  await expectFiltered(page, 'maps', all, '$105')
+  await page.evaluate(async ({ id, manifest }) => (await getWidget(id)).load(manifest), {
+    id: IDS.maps,
+    manifest,
+  })
+  await page.waitForTimeout(800)
+  const after = await nodes(page, 'maps')
+  await expectFiltered(page, 'maps', after, '$105')
 })
 
 test('gfx: a number and a name each leave only matching rows', async ({ page }) => {
   await openExplorer(page, 'gfx')
   const all = await nodes(page, 'gfx')
   await type(page, 'gfx', '$1c')
-  await expectRows(
-    page,
-    'gfx',
-    expectedRows(all, n => n.kind === 'file' && n.index === 0x1c),
-  )
+  await expectFiltered(page, 'gfx', all, '$1c')
   await clear(page, 'gfx')
   await type(page, 'gfx', 'map16')
-  await expectRows(
-    page,
-    'gfx',
-    expectedRows(all, n => n.kind === 'map16'),
-  )
+  await expectFiltered(page, 'gfx', all, 'map16')
 })
 
-test('palettes: a number and a name each leave only matching rows', async ({ page }) => {
+test('palettes: a variant number, a group row number and a name each leave only matching rows', async ({
+  page,
+}) => {
   await openExplorer(page, 'palettes')
   const all = await nodes(page, 'palettes')
   await type(page, 'palettes', '$3')
-  await expectRows(
-    page,
-    'palettes',
-    expectedRows(all, n => n.kind === 'variant' && n.variant === 3),
-  )
+  const r = await expectFiltered(page, 'palettes', all, '$3')
+  expect(r.matches.some(m => m.kind === 'variant' && m.variant === 3)).toBe(true)
   await clear(page, 'palettes')
+
+  const group = all.find(n => n.kind === 'group' && n.row !== undefined && n.row > 3)
+  expect(group, 'fixture: a group that targets a CGRAM row').toBeTruthy()
+  const q = `$${group.row.toString(16)}`
+  await type(page, 'palettes', q)
+  const g = await expectFiltered(page, 'palettes', all, q)
+  expect(g.matches.map(m => m.id)).toContain(group.id)
+  await clear(page, 'palettes')
+
   await type(page, 'palettes', 'player')
-  await expectRows(
-    page,
-    'palettes',
-    expectedRows(all, n => n.kind !== 'note' && n.name.toLowerCase().includes('player')),
-  )
+  await expectFiltered(page, 'palettes', all, 'player')
 })
 
 test('music: a number and a name each leave only matching rows', async ({ page }) => {
   await openExplorer(page, 'music')
   const all = await nodes(page, 'music')
   await type(page, 'music', '$05')
-  await expectRows(
-    page,
-    'music',
-    expectedRows(all, n => (n.kind === 'track' || n.kind === 'sfx') && n.bgmCommand === 5),
-  )
+  await expectFiltered(page, 'music', all, '$05')
   await clear(page, 'music')
   await type(page, 'music', 'port')
-  await expectRows(
-    page,
-    'music',
-    expectedRows(all, n => n.kind === 'sfxport'),
-  )
+  await expectFiltered(page, 'music', all, 'port')
+  await clear(page, 'music')
+  // "port 0 ($1DF9)" is a caption: the address in it is not searchable text.
+  await type(page, 'music', '1df9')
+  await expect
+    .poll(async () => (await state(page, 'music')).empty)
+    .toBe('No tracks or sound effects match "1df9".')
 })

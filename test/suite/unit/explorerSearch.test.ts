@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { parseQuery, rowMatches } from '../../../theia/extension/src/browser/explorer-match'
+import {
+  filterTree,
+  parseQuery,
+  pickSelectTarget,
+  restorePlan,
+  rowMatches,
+  type SearchRow,
+} from '../../../theia/extension/src/browser/explorer-match'
 import { parseHexId } from '../../../src/project/HexId'
 
 const hex = (n: number) => n.toString(16)
@@ -60,5 +67,147 @@ describe('rowMatches', () => {
     expect(rowMatches(parseQuery('0'), { texts: ['Folder'] })).toBe(false)
     expect(rowMatches(parseQuery(''), slot(0))).toBe(false)
     expect(rowMatches(parseQuery('   '), slot(0))).toBe(false)
+  })
+})
+
+describe('id-only queries (a literal prefix in a row text must not leak through)', () => {
+  // Every text holds the query's own characters; only the id-only flag keeps
+  // them from matching. Row id 0x99 differs from 0x1d, so id never matches.
+  const row = { id: 0x99, texts: ['Level $1D castle', 'x 0x1d y', 'tag 0X1D'] }
+
+  it.each(['$1D', '$1d', '0x1d', '0X1D', '0x1D'])('%s matches no text', q => {
+    expect(rowMatches(parseQuery(q), row)).toBe(false)
+  })
+
+  it.each(['$1D', '0x1d', '0X1D'])('%s is flagged id-only, case-insensitively', q => {
+    expect(parseQuery(q).idOnly).toBe(true)
+  })
+
+  it('the same digits without a prefix do match the text', () => {
+    expect(rowMatches(parseQuery('1d'), row)).toBe(true)
+  })
+})
+
+describe('incomplete id prefixes', () => {
+  it.each(['$', '0x', '0X', ' $ '])('%j is incomplete and matches nothing', q => {
+    const parsed = parseQuery(q)
+    expect(parsed.incomplete).toBe(true)
+    expect(rowMatches(parsed, { id: 0, texts: ['$', '0x', 'a'] })).toBe(false)
+  })
+
+  it.each(['$1', '0x0', '1', 'a', '$x'])('%j is not incomplete', q => {
+    expect(parseQuery(q).incomplete).toBe(false)
+  })
+})
+
+interface N {
+  id: string
+  name: string
+  row?: SearchRow
+  expanded?: boolean
+  parent?: N
+  children?: N[]
+}
+
+function node(id: string, kids?: N[], init: Partial<N> = {}): N {
+  const n: N = { id, name: id, ...init }
+  if (kids) {
+    n.children = kids
+    kids.forEach(k => (k.parent = n))
+  }
+  return n
+}
+const rowOf = (n: N) => n.row
+
+describe('filterTree', () => {
+  const build = () => {
+    const leaf = node('leaf', undefined, { row: { id: 1, texts: ['castle'] } })
+    const inner = node(
+      'inner',
+      [leaf, node('other', undefined, { row: { id: 2, texts: ['x'] } })],
+      {
+        row: { folder: true, texts: ['Unassigned'] },
+      },
+    )
+    const top = node('top', [inner, node('lonely', undefined, { row: { id: 3, texts: ['y'] } })], {
+      row: { folder: true, texts: ['Group'] },
+    })
+    return { root: node('root', [top]), leaf }
+  }
+
+  it('shows a matching leaf and its ancestors only', () => {
+    const { root, leaf } = build()
+    const r = filterTree(root, parseQuery('castle'), rowOf)
+    expect(r.matches).toEqual([leaf])
+    expect([...r.shown].sort()).toEqual(['inner', 'leaf', 'root', 'top'])
+  })
+
+  it('a matching folder shows everything under it, and its own match does not need a leaf', () => {
+    const { root } = build()
+    const r = filterTree(root, parseQuery('unassigned'), rowOf)
+    expect(r.matches.map(m => m.id)).toEqual(['inner'])
+    expect([...r.shown].sort()).toEqual(['inner', 'leaf', 'other', 'root', 'top'])
+  })
+
+  it('an incomplete query shows nothing and matches nothing', () => {
+    const { root } = build()
+    expect(filterTree(root, parseQuery('$'), rowOf).matches).toEqual([])
+  })
+})
+
+describe('pickSelectTarget', () => {
+  const isFolder = (n: { f: boolean }) => n.f
+  it('prefers a leaf over an earlier folder', () => {
+    const a = { f: true }
+    const b = { f: false }
+    expect(pickSelectTarget([a, b], isFolder)).toBe(b)
+  })
+  it('takes the folder when it is all there is, and nothing when nothing matched', () => {
+    const a = { f: true }
+    expect(pickSelectTarget([a], isFolder)).toBe(a)
+    expect(pickSelectTarget([], isFolder)).toBeUndefined()
+  })
+})
+
+describe('restorePlan', () => {
+  // The music case: before the filter only bank:overworld was open (under a
+  // folded group:music); the user folded group:music and bank:level, and the
+  // filter `$1` then opened both.
+  const tree = (open: string[]) => {
+    const e = (id: string, kids?: N[]) => node(id, kids, { expanded: open.includes(id) })
+    const overworld = e('bank:overworld', [node('t1')])
+    const level = e('bank:level', [node('t2')])
+    return node('root', [e('group:music', [overworld, level]), e('group:sfx', [node('s1')])])
+  }
+  const apply = (root: N, plan: ReturnType<typeof restorePlan<N>>) =>
+    plan.forEach(p => (p.node.expanded = p.expand))
+  const openIds = (root: N): string[] => {
+    const out: string[] = []
+    const walk = (n: N) => {
+      if (n.expanded) out.push(n.id)
+      n.children?.forEach(walk)
+    }
+    walk(root)
+    return out.sort()
+  }
+
+  it('closes what the filter opened below a folder the user had closed', () => {
+    const root = tree(['group:music', 'bank:level', 'bank:overworld', 'group:sfx'])
+    apply(root, restorePlan(root, new Set(['bank:overworld'])))
+    expect(openIds(root)).toEqual(['bank:overworld'])
+  })
+
+  it('reopens what was open, and leaves a matching state alone', () => {
+    const root = tree([])
+    const plan = restorePlan(root, new Set(['group:music', 'group:sfx']))
+    expect(plan.map(p => p.node.id)).toEqual(['group:music', 'group:sfx'])
+    apply(root, plan)
+    expect(openIds(root)).toEqual(['group:music', 'group:sfx'])
+    expect(restorePlan(root, new Set(['group:music', 'group:sfx']))).toEqual([])
+  })
+
+  it('never touches a node that cannot expand', () => {
+    const root = tree([])
+    expect(restorePlan(root, new Set(['t1'])).map(p => p.node.id)).toEqual([])
   })
 })

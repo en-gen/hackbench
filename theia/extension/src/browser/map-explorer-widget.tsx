@@ -167,6 +167,10 @@ const iconFor = (node: MapTreeNode): string =>
       ? 'codicon-warning'
       : CATEGORY_ICONS[node.category]
 
+/** A group folder's name without the count its caption adds. */
+const groupName = (n: MapTreeNode): string =>
+  n.id === 'group:unassigned' ? 'Unassigned' : n.id.replace(/^group:user:/, '')
+
 export const slotLabel = (index: number): string =>
   `$${index.toString(16).toUpperCase().padStart(3, '0')}`
 
@@ -183,10 +187,17 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
   protected searchRow(node: TreeNode): SearchRow | undefined {
     const n = node as MapTreeNode
     if (n.kind === 'message') return undefined
-    if (n.kind === 'group' || n.category === 'overworld' || n.category === 'overworld-area')
+    // A folder's shown name carries its count ("Unassigned (12)"); match the raw name.
+    if (n.kind === 'group') return { folder: true, texts: [groupName(n)] }
+    if (n.category === 'overworld' || n.category === 'overworld-area')
       return { texts: [n.name ?? ''] }
     if (isSpecial(n.category)) return { id: n.index, texts: [n.name ?? ''] }
     return { id: n.index >= 0 ? n.index : undefined, texts: [n.mapName ?? ''] }
+  }
+
+  protected openMatch(node: TreeNode): boolean {
+    this.fireOpen(node as MapTreeNode, true)
+    return true
   }
 
   @inject(CommandService) protected readonly commands!: CommandService
@@ -263,7 +274,7 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
     // build a group from, not to preview.
     this.toDispose.push(
       this.model.onSelectionChanged(nodes => {
-        if (!this.restoringSelection && nodes.length === 1) {
+        if (!this.restoringSelection && !this.selectingFromFilter && nodes.length === 1) {
           this.fireOpen(nodes[0] as MapTreeNode, false)
         }
       }),

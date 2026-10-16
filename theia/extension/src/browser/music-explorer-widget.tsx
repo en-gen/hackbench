@@ -98,7 +98,18 @@ export class MusicExplorerWidget extends ExplorerTreeWidget {
     if (n.kind === 'track') return { id: n.bgmCommand, texts: [n.alias] }
     if (n.kind === 'sfx') return { id: n.bgmCommand, texts: [] }
     if (n.kind === 'message') return undefined
-    return { texts: [n.name ?? ''] }
+    // A port folder's name carries its mirror address ("port 0 ($1DF9)"); match "port 0".
+    const name = n.kind === 'sfxport' ? (n.name ?? '').replace(/ \(.*\)$/, '') : (n.name ?? '')
+    return { folder: true, texts: [name] }
+  }
+
+  /** Enter plays the row, as the transport's Play does for the selection. */
+  protected openMatch(node: TreeNode): boolean {
+    const n = node as MusicTrackNode
+    if (n.kind === 'sfx') void this.playSfx(n)
+    else if (n.kind === 'track') void this.playTrack(n)
+    else return false
+    return true
   }
 
   /**
