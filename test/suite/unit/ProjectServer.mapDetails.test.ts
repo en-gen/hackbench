@@ -258,7 +258,9 @@ describe.skipIf(!theiaInstalled)('ProjectServiceImpl.mapDetails - wiring', () =>
         name: 'Proj',
         directory: path.join(tmp, 'Proj'),
       })
-      const details = await service.mapDetails(project.manifestPath, 0x105)
+      const result = await service.mapDetails(project.manifestPath, 0x105)
+      if ('status' in result) throw new Error(result.status)
+      const details = result
 
       expect(details.isVertical).toBeUndefined()
       expect(details.orientationUnavailable).toMatch(/VerticalTable/)

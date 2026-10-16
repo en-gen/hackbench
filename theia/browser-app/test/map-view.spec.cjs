@@ -3019,22 +3019,27 @@ test.describe('zoom anchor across the commit gap (#547)', () => {
 
 /** #786: opens map $105 with one service method forced to reject with a raw, technical error. */
 const PLANTED_786 = 'planted-786: read past $05:8000 at RomFile.readByte (RomFile.ts:42)'
-async function openRejecting(page, manifestPath, method) {
+async function openRejecting(page, manifestPath, method, fromScreen = 0) {
   await page.evaluate(
-    async ({ mp, method, msg }) => {
+    async ({ mp, method, msg, fromScreen }) => {
+      // Mutable so a spec can stop the rejections and watch the error clear.
+      window.__reject786From = fromScreen
       const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {
         index: 0x105,
       })
       const real = w.projects
       w.projects = new Proxy(real, {
-        get: (t, k) => k === method ? async () => { throw new Error(msg) } : typeof t[k] === 'function' ? t[k].bind(t) : t[k], // prettier-ignore
+        get: (t, k) => k === method ? async (...a) => {
+          if (method !== 'mapScreen' || a[2] >= window.__reject786From) throw new Error(msg)
+          return t[k](...a)
+        } : typeof t[k] === 'function' ? t[k].bind(t) : t[k], // prettier-ignore
       })
       await w.open({ manifestPath: mp, index: 0x105, label: '105', iconClass: '' })
       const shell = getSvc('ApplicationShell')
       await shell.addWidget(w, { area: 'main' })
       await shell.activateWidget(w.id)
     },
-    { mp: manifestPath, method, msg: PLANTED_786 },
+    { mp: manifestPath, method, msg: PLANTED_786, fromScreen },
   )
   opened.push('hackbench.map-view:261')
 }
@@ -3043,8 +3048,10 @@ async function openRejecting(page, manifestPath, method) {
 async function expectPlain(page, plain) {
   const err = page.locator(`${root(0x105)} .hb-map-view-error`).first()
   await expect(err).toHaveText(plain)
-  expect(await err.innerText()).not.toContain('planted-786')
+  // The whole tab, not just the error element: no other pane may echo the exception.
+  expect(await page.locator(root(0x105)).innerText()).not.toContain('planted-786')
   expect(await err.getAttribute('title')).toContain(PLANTED_786)
+  return err
 }
 
 test('a rejected mapDetails shows plain words and keeps the exception in the tooltip', async ({
@@ -3052,10 +3059,7 @@ test('a rejected mapDetails shows plain words and keeps the exception in the too
 }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openRejecting(page, project.manifestPath, 'mapDetails')
-  await expectPlain(
-    page,
-    "This map's details could not be read. Close and reopen the map to try again.",
-  )
+  await expectPlain(page, "This map's details could not be read. Open the map again to try again.")
 })
 
 test('a rejected mapScreen shows plain words and keeps the exception in the tooltip', async ({
@@ -3063,5 +3067,25 @@ test('a rejected mapScreen shows plain words and keeps the exception in the tool
 }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openRejecting(page, project.manifestPath, 'mapScreen')
-  await expectPlain(page, 'This map could not be drawn. Close and reopen the map to try again.')
+  await expectPlain(page, 'Part of this map could not be drawn. Open the map again to try again.')
+})
+
+test('a screen that fails after the map is laid out shows plain words, then clears with its tooltip', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  // Screen 0 draws, so the map has a layout; every later screen rejects.
+  await openRejecting(page, project.manifestPath, 'mapScreen', 1)
+  const err = await expectPlain(
+    page,
+    'Part of this map could not be drawn. Open the map again to try again.',
+  )
+  await expect(err).toHaveAttribute('data-control', 'map-error')
+  await expect(page.locator(`${root(0x105)} canvas[data-screen="0"]`).first()).toBeAttached()
+  // Stop rejecting and refetch: the next success clears the message and its tooltip.
+  await page.evaluate(() => {
+    window.__reject786From = Infinity
+    getSvc('ApplicationShell').getWidgetById('hackbench.map-view:261').refresh()
+  })
+  await expect(page.locator(`${root(0x105)} [data-control="map-error"]`)).toHaveCount(0)
 })

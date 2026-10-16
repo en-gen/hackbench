@@ -183,6 +183,12 @@ export interface RecentProjectDto {
  * citations live in src/rom/LevelParser.ts. Nothing here is inferred: a field
  * this build cannot read is absent rather than defaulted.
  */
+/** The base ROM is not on this machine, so there is nothing to read details from (#786). */
+export interface MapDetailsNotLocated {
+  status: 'rom-not-located'
+  baseRom: RomIdentityDto
+}
+
 export interface MapDetailsDto {
   index: number
   name: string | null
@@ -275,7 +281,7 @@ export type MapScreenResult =
       /** The back area (CGRAM color 0), RGB: its own layer under L1. */
       backdrop: [number, number, number]
     }
-  | { status: 'unavailable'; reason: string }
+  | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
 /**
@@ -544,7 +550,7 @@ export interface ProjectService {
    * Throws when the slot holds no readable level data, which is a real answer
    * rather than an empty map: an empty map looks like one that lost its work.
    */
-  mapDetails(manifestPath: string, index: number): Promise<MapDetailsDto>
+  mapDetails(manifestPath: string, index: number): Promise<MapDetailsDto | MapDetailsNotLocated>
 
   /** Draw one screen of a map's L1 (foreground) from the working copy. */
   mapScreen(

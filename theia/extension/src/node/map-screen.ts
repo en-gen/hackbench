@@ -282,7 +282,8 @@ export interface MapInputs extends L1Inputs {
   /** Why the planes' order is unverified (not BG mode 1, or the mode could not be read). */
   orderNote?: string
 }
-export type MapInputsResult = { ok: true; inputs: MapInputs } | { ok: false; reason: string }
+export type MapInputsResult =
+  { ok: true; inputs: MapInputs } | { ok: false; reason: string; detail?: string }
 
 export const base64 = (b: Uint8ClampedArray) =>
   Buffer.from(b.buffer, b.byteOffset, b.byteLength).toString('base64')
@@ -451,7 +452,12 @@ export class L1ModelCache {
         }
         built = this.build(rom, index, flags, bgMode, undefined, entrances)
       } catch (err) {
-        built = { ok: false, reason: (err as Error).message }
+        // Plain words for the view; the exception text rides apart as `detail` (#786, as #339).
+        built = {
+          ok: false,
+          reason: 'This part of the map could not be read from the ROM.',
+          detail: (err as Error).message,
+        }
       }
       if (models.size >= 8) models.delete(models.keys().next().value!)
       models.set(key, built)
@@ -480,7 +486,7 @@ export function mapScreen(
   const built = cache.get(bytes, romPath, index, flags)
   return built.ok
     ? screenResult(built.inputs, screen, switches)
-    : { status: 'unavailable', reason: built.reason }
+    : { status: 'unavailable', reason: built.reason, detail: built.detail }
 }
 
 /**

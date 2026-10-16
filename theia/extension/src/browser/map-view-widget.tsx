@@ -126,7 +126,7 @@ function AfterCommit({ run }: { run: () => void }): null {
 }
 
 /** The raw text of a thrown value, for a tooltip beside plain words (#786). */
-const errorDetail = (err: unknown): string => (err instanceof Error ? err.message : String(err))
+const rawText = (err: unknown): string => (err instanceof Error ? err.message : String(err))
 
 const palaceName = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
 
@@ -300,6 +300,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.title.iconClass = options.iconClass ?? 'codicon codicon-map'
     this.details = undefined
     this.error = undefined
+    this.errorDetail = undefined
     this.mapLayout = undefined
     this.sprites = undefined
     this.spritesWhy = undefined
@@ -514,11 +515,13 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     let error: string | undefined
     let detail: string | undefined
     try {
-      details = await this.projects.mapDetails(o.manifestPath, o.index)
+      const r = await this.projects.mapDetails(o.manifestPath, o.index)
+      if ('status' in r) error = `The base ROM ${r.baseRom.title} is not on this machine.`
+      else details = r
     } catch (err) {
-      detail = errorDetail(err)
+      detail = rawText(err)
       console.error(`Map ${o.index.toString(16)} details failed:`, err)
-      error = "This map's details could not be read. Close and reopen the map to try again."
+      error = "This map's details could not be read. Open the map again to try again."
     }
     // An older map's or edit's reply must not land over a newer one.
     if (generation !== this.generation) return
@@ -586,9 +589,9 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     try {
       r = await this.projects.mapScreen(o.manifestPath, o.index, screen, this.view.state.flags, this.view.state.switches) // prettier-ignore
     } catch (err) {
-      detail = errorDetail(err)
+      detail = rawText(err)
       console.error(`Map ${o.index.toString(16)} screen ${screen} failed:`, err)
-      r = { status: 'unavailable', reason: 'This map could not be drawn. Close and reopen the map to try again.' } // prettier-ignore
+      r = { status: 'unavailable', reason: 'Part of this map could not be drawn. Open the map again to try again.' } // prettier-ignore
     }
     if (generation !== this.generation) return
     this.pending.delete(key)
@@ -598,7 +601,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
         r.status === 'rom-not-located'
           ? `The base ROM ${r.baseRom.title} is not on this machine.`
           : r.reason
-      this.screenErrorDetail = detail
+      this.screenErrorDetail = detail ?? (r.status === 'unavailable' ? r.detail : undefined)
       this.sync()
       this.update()
       return
@@ -1137,7 +1140,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
           <div
             className="hb-map-view-note hb-map-view-error"
             data-control="map-error"
-            title={this.screenErrorDetail}
+            title={this.screenError ? this.screenErrorDetail : undefined}
           >
             {this.screenError}
           </div>
@@ -1211,7 +1214,11 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const l = this.mapLayout
     if (!l) {
       return this.screenError ? (
-        <div className="hb-map-view-error" data-control="map-error" title={this.screenErrorDetail}>
+        <div
+          className="hb-map-view-error"
+          data-control="map-error"
+          title={this.screenError ? this.screenErrorDetail : undefined}
+        >
           {this.screenError}
         </div>
       ) : (
@@ -1336,7 +1343,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       return (
         <div
           className="hb-map-view-body hb-map-view-facts hb-map-view-error"
-          title={this.errorDetail}
+          title={this.error ? this.errorDetail : undefined}
         >
           {this.error}
         </div>
@@ -1413,7 +1420,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const d = this.details
     if (!d)
       return (
-        <div className="hb-map-view-empty" title={this.errorDetail}>
+        <div className="hb-map-view-empty" title={this.error ? this.errorDetail : undefined}>
           {this.error ?? 'Reading the ROM...'}
         </div>
       )
