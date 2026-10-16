@@ -206,6 +206,32 @@ describe('the wire: screens, math, layer 2 role (synthetic)', () => {
       expect(notes(['gate', 'dy'], 'gate')).toEqual(['Background height and Layer 3 position unverified: gate', 'Background height unverified: dy']) // prettier-ignore
     })
   })
+  describe('the note lines for every reason overlap of the two parts (#926)', () => {
+    const drawn = (note?: string) => verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYUnverified: note })) // prettier-ignore
+    const withL2 = (reasons: string[]) => ({
+      ok: true as const,
+      l2: { kind: 'objects' as const, grid: [[null]], tiles: [], dy: 0, reasons, note: `Background height unverified: ${reasons.join(' ')}` }, // prettier-ignore
+    })
+    const BOTH = 'Background height and Layer 3 position unverified'
+    const cases: [string[] | undefined, string | undefined, string[]][] = [
+      [['a'], undefined, ['Background height unverified: a']],
+      [['a'], 'a', [`${BOTH}: a`]],
+      [['a'], 'b', ['Background height unverified: a', 'Layer 3 position unverified: b']],
+      [['a', 'b'], undefined, ['Background height unverified: a b']],
+      [['a', 'b'], 'a', [`${BOTH}: a`, 'Background height unverified: b']],
+      [['a', 'b'], 'b', ['Background height unverified: a', `${BOTH}: b`]],
+      [['b', 'a'], undefined, ['Background height unverified: b a']],
+      [['b', 'a'], 'a', ['Background height unverified: b', `${BOTH}: a`]],
+      [['b', 'a'], 'b', [`${BOTH}: b`, 'Background height unverified: a']],
+      [undefined, 'a', ['Layer 3 position unverified: a']],
+    ]
+    for (const [l2, l3, expected] of cases) {
+      it(`L2 ${JSON.stringify(l2)} with L3 ${JSON.stringify(l3)}`, () => {
+        const m = { ...l1Of(0, 0, false), ...(l2 ? { l2: withL2(l2) } : {}), l3: drawn(l3) }
+        expect(wireOf(m).layerNotes).toEqual(expected)
+      })
+    }
+  })
   it('the standard layout keeps the #561 sub list for both priority bits', () => {
     for (const pri of [true, false]) {
       expect(wireOf({ ...l1Of(0, 0, pri), l3: verdict(pri, null) }).screens.sub).toEqual(['l2Low', 'l2High']) // prettier-ignore

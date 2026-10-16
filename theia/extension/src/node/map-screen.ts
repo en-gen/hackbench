@@ -365,7 +365,7 @@ function positionNotes(model: MapInputs): string[] {
   for (const p of parts) {
     for (const r of p.reasons) owners.set(r, [...(owners.get(r) ?? []), p.label])
   }
-  // Consecutive reasons with the same owners share a line, so one part alone reads as before.
+  // Reasons with the same owners share a line, so one part alone reads as before.
   const lines = new Map<string, string[]>()
   for (const [reason, labels] of owners) {
     lines.set(labels.join(' and '), [...(lines.get(labels.join(' and ')) ?? []), reason])
