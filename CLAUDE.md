@@ -246,6 +246,8 @@ Every agent follows these. Role-specific rules are in `.claude/agents/`.
   explicit `model`.
 - `npm run gitnexus` refreshes the index after a commit. `.gitnexusrc` and the
   script both stop analyze rewriting the marked region below (#644).
+- Reusing other authors' code, and never contacting outside maintainers:
+  [docs/decisions/2026-10-16-third-party-code.md](docs/decisions/2026-10-16-third-party-code.md).
 
 <!-- gitnexus:start -->
 

@@ -188,13 +188,17 @@ behind graphics layer tiles". In three parts:
    as under layer 1, so a sprite pixel covered by an opaque tile of ANY graphics layer
    (partly covered sprites included) draws in the door; uncovered pixels draw
    normally. Stacked covering planes show the nearest one's colour.
-3. Keep #564 for ordinary sprite pixels (no colour math); door pixels take the covering
-   plane's colour-math bit. Hover-to-opaque (#879, owner ruling D52 part 1): each
+3. Keep #564 for ordinary sprite pixels (no color math). Door pixels: only the sprite
+   part skips color math (D60 B, #936); the tile part of a dim pixel still takes the
+   covering plane's CGADSUB bit, so a dim pixel is the tile through color math at
+   (1 - w) plus the sprite at w, and a bright pixel (w = 1) is the pure sprite color.
+   Hover-to-opaque (#879, owner ruling D52 part 1): each
    sprite has its own door id (`doors` value `id << 1 | parity`); while the pointer
    is over a sprite (the door id at that pixel, the topmost sprite there), `lift`
    names that id and its covered pixels draw at full strength instead of through
    the door. Only door pixels read the weight, so an uncovered sprite does not
-   change, and leaving restores the door exactly. The colour-math bit is as in 3.
+   change, and leaving restores the door exactly. A lifted pixel has w = 1, so it is the
+   pure sprite color, unblended (D62 call 2 B, #936).
 
 The checkerboard phase of a sprite depends on which graphics layers are shown: the
 swap decision counts only the pixels a shown plane covers, so hiding a graphics layer
