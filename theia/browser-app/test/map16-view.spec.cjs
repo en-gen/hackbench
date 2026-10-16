@@ -1697,8 +1697,13 @@ test('the grid shows by default, draws 16px tile lines that track zoom, and hide
 
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
-  const again = await readGrid(page, FG)
-  expect(again.rowHits.length + again.colHits.length).toBeGreaterThan(0)
+  // GridCanvas paints in useEffect, so the canvas can exist before its pixels do.
+  await expect
+    .poll(async () => {
+      const g = await readGrid(page, FG)
+      return g !== null && g.rowHits.length + g.colHits.length > 0
+    })
+    .toBe(true)
 
   await page.evaluate(() => getSvc('CommandRegistry').executeCommand('hackbench.map16.toggleGrid'))
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
