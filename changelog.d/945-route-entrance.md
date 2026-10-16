@@ -1,0 +1,3 @@
+### Changed
+
+- Map view: a sub area's drawn layer 2 height and layer 3 camera use the entrance first reached on the normal route (a forward walk through screen exits from the level's overworld entrance), not the lowest secondary entrance id (#945, owner ruling D66 call 1; corrects #909 and #916). Entry maps keep the overworld entrance. A map the walk never entered falls back to the lowest id and its details note says no route was found. Evidence: synthetic ROM cases (single route, two routes where the later one has the lower id, a sub area behind another sub area, a primary exit first, an unreached record) and a 512-slot vanilla sweep on one machine: 0 slots change, because every vanilla slot with secondary entrances is an entry map. No emulator capture.

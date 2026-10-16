@@ -126,16 +126,34 @@ const DATA_05D708_ADDR = 0x05d708
  *
  * The game reads the primary entrance (DATA_05F000.. by map) when the overworld or a screen exit
  * without UseSecondaryExit enters the map, and a secondary entrance's row only when the flag is
- * set (bank_05.asm:7111-7162 vs 7300-7337). So: overworld or primary-exit entered, primary; else the
- * lowest secondary index that enters it; else (filler such as $100) primary. `via` is the exit
- * graph's `MapEntrances` for the map. Undefined means the graph is unavailable (a hooked hack):
- * primary, never the stock destination formula applied to tables whose reader may not be stock.
- * The destination of an entrance is decided by the graph (bit 8 of the index, then DATA_05F800,
- * :7103-7118), not here.
+ * set (bank_05.asm:7111-7162 vs 7300-7337). A sub area uses the entrance the normal route reaches
+ * it by (`MapEntrances.route`), not the lowest id (#945). `via` is the exit graph's `MapEntrances`
+ * for the map. Undefined means the graph is unavailable (a hooked hack): primary, never the stock
+ * destination formula applied to tables whose reader may not be stock. The destination of an
+ * entrance is decided by the graph (bit 8 of the index, then DATA_05F800, :7103-7118), not here.
  */
 export function chooseEntrance(via?: MapEntrances): number | null {
-  if (!via || via.overworld || via.primary) return null
-  return via.secondary.length > 0 ? Math.min(...via.secondary) : null
+  return chooseEntranceNoted(via).entrance
+}
+
+/**
+ * `chooseEntrance` plus a note when the route could not be found (D66 call 1, #945). An overworld
+ * entry map is primary. Any other map takes `via.route`, the entrance the exit-graph walk reached
+ * it by first (null: a primary exit got there first). A map with no route (a record the walk never
+ * entered) falls back to the earlier rule, a primary exit, else the lowest secondary id, else
+ * primary, and says so: the owner's "interpret, else warn" principle (D57), never silent.
+ */
+export function chooseEntranceNoted(via?: MapEntrances): {
+  entrance: number | null
+  note?: string
+} {
+  if (!via || via.overworld) return { entrance: null }
+  if (via.route !== undefined) return { entrance: via.route }
+  const entrance = via.primary || via.secondary.length === 0 ? null : Math.min(...via.secondary)
+  return {
+    entrance,
+    note: 'No route from the overworld to this map was found, so its entrance is a guess.',
+  }
 }
 
 /** DATA_05FA00 for an entrance, or null when the ROM ends before it (never a phantom 0). */
@@ -224,8 +242,8 @@ export function applyInitialTimer(rom: RomFile, tilemap: Uint16Array, timeLimit:
 
 /**
  * Return the initial Layer1YPos (camera Y) in pixels for a map, from the entrance
- * `chooseEntrance(via)` picks: the primary entrance, or the lowest secondary one when no
- * overworld tile or primary-entrance exit enters the map.
+ * `chooseEntrance(via)` picks: the primary entrance, or the route's secondary one for a
+ * sub area (#945).
  *
  * Primary entrance (bank_05.asm:7323-7335):
  *   Layer1YPos = DATA_05D708[bits 3:2 of DATA_05F400[level]]

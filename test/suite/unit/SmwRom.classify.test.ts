@@ -291,8 +291,8 @@ describe('SmwRom.buildLevelExitGraph', () => {
     setL1Ptr(rom, 0x050, 0x06a000)
     setLevelData(rom, 0x06a000, [0, 0, 0, 0, 0, ...exitObj(0x50, false), ...exitObj(0x10, false), 0xff]) // prettier-ignore
     const result = graphOf(new SmwRom(rom))
-    expect(result.entrances?.get(0x010)).toEqual({ overworld: true, primary: true, secondary: [0x21] }) // prettier-ignore
-    expect(result.entrances?.get(0x050)).toEqual({ overworld: false, primary: true, secondary: [0x20] }) // prettier-ignore
+    expect(result.entrances?.get(0x010)).toEqual({ overworld: true, primary: true, secondary: [0x21], route: null }) // prettier-ignore
+    expect(result.entrances?.get(0x050)).toEqual({ overworld: false, primary: true, secondary: [0x20], route: 0x20 }) // prettier-ignore
     // The graph itself still drops the self-loops and the edge into a root.
     expect(result.graph.get(0x010)).toEqual([0x050])
     expect(result.graph.has(0x050)).toBe(false)
@@ -324,10 +324,73 @@ describe('SmwRom.buildLevelExitGraph', () => {
     }
     const lastSecondary = graphFor([...exitObj(0x50, false), ...exitObj(0x51, true)])
     expect(lastSecondary.graph.get(0x010)).toEqual([0x060, 0x061])
-    expect(lastSecondary.entrances?.get(0x060)).toEqual({ overworld: false, primary: false, secondary: [0x50] }) // prettier-ignore
+    expect(lastSecondary.entrances?.get(0x060)).toEqual({ overworld: false, primary: false, secondary: [0x50], route: 0x50 }) // prettier-ignore
     const lastPrimary = graphFor([...exitObj(0x51, true), ...exitObj(0x50, false)])
     expect(lastPrimary.graph.get(0x010)).toEqual([0x051, 0x050])
-    expect(lastPrimary.entrances?.get(0x051)).toEqual({ overworld: false, primary: true, secondary: [] }) // prettier-ignore
+    expect(lastPrimary.entrances?.get(0x051)).toEqual({ overworld: false, primary: true, secondary: [], route: null }) // prettier-ignore
+  })
+
+  // #945 (D66 call 1): `route` is the entrance the walk reaches a map by first. Synthetic ROMs
+  // built here; the walk is one global breadth-first pass from the roots, a level's exits in
+  // object-stream order.
+  describe('route: the entrance first reached on the forward walk (#945)', () => {
+    const level = (rom: RomFile, map: number, at: number, exits: number[]) => {
+      setL1Ptr(rom, map, at)
+      setLevelData(rom, at, [0, 0, 0, 0, 0, ...exits, 0xff])
+    }
+    const dest = (rom: RomFile, id: number, to: number) => rom.writeAt(ADDR.SEC_EXIT_DEST + id, [to]) // prettier-ignore
+
+    it('single route: root to a sub area by secondary $20', () => {
+      const rom = make4MbRom()
+      level(rom, 0x010, 0x068000, exitObj(0x20, true))
+      dest(rom, 0x20, 0x50)
+      level(rom, 0x050, 0x06a000, [])
+      const e = graphOf(new SmwRom(rom)).entrances!
+      expect(e.get(0x010)?.route).toBeNull()
+      expect(e.get(0x050)?.route).toBe(0x20)
+    })
+
+    it('two routes: the early one wins even when a later one has the lower id', () => {
+      const rom = make4MbRom()
+      // Root exits: $0A5 -> $050 first, $030 -> $060 second. $060 then enters $050 by $020.
+      level(rom, 0x010, 0x068000, [...exitObj(0xa5, true), ...exitObj(0x30, true)])
+      dest(rom, 0xa5, 0x50)
+      dest(rom, 0x30, 0x60)
+      dest(rom, 0x20, 0x50)
+      level(rom, 0x050, 0x06a000, [])
+      level(rom, 0x060, 0x06b000, exitObj(0x20, true))
+      const into = graphOf(new SmwRom(rom)).entrances!.get(0x050)!
+      expect(into.secondary).toEqual([0x20, 0xa5])
+      expect(into.route).toBe(0xa5)
+    })
+
+    it('a sub area reachable only from another sub area takes the entrance on that exit', () => {
+      const rom = make4MbRom()
+      level(rom, 0x010, 0x068000, exitObj(0x20, true))
+      dest(rom, 0x20, 0x50)
+      level(rom, 0x050, 0x06a000, exitObj(0x21, true))
+      dest(rom, 0x21, 0x60)
+      level(rom, 0x060, 0x06b000, [])
+      expect(graphOf(new SmwRom(rom)).entrances!.get(0x060)?.route).toBe(0x21)
+    })
+
+    it('a primary exit that reaches the map first makes the route the primary entrance (null)', () => {
+      const rom = make4MbRom()
+      level(rom, 0x010, 0x068000, [...exitObj(0x50, false), ...exitObj(0x60, false)])
+      level(rom, 0x050, 0x06a000, [])
+      level(rom, 0x060, 0x06b000, exitObj(0x22, true))
+      dest(rom, 0x22, 0x50)
+      const into = graphOf(new SmwRom(rom)).entrances!.get(0x050)!
+      expect(into.secondary).toEqual([0x22])
+      expect(into.route).toBeNull()
+    })
+
+    it('a map the walk never enters has no record', () => {
+      const rom = make4MbRom()
+      level(rom, 0x010, 0x068000, [])
+      level(rom, 0x050, 0x06a000, [])
+      expect(graphOf(new SmwRom(rom)).entrances!.get(0x050)).toBeUndefined()
+    })
   })
 })
 

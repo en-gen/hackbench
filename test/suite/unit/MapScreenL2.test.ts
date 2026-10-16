@@ -417,7 +417,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
         [0x05fa00 + C, [0x20]], // A's values again
         [0x05fc00 + C, [0x05]],
       ])
-    const via = (overworld: boolean, primary: boolean, ...secondary: number[]) => ({ overworld, primary, secondary }) // prettier-ignore
+    const via = (overworld: boolean, primary: boolean, ...secondary: number[]) => ({ overworld, primary, secondary, route: overworld || primary || !secondary.length ? null : Math.min(...secondary) }) // prettier-ignore
     /** These fixtures hold no level-load code; the gate itself is pinned below. */
     const stock = () => null
     const build = (rom: RomFile, entrances: ReturnType<typeof via>, vertical = true) => {
@@ -508,7 +508,12 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       vi.mocked(Map16Real.loadMap16Tiles).mockReturnValue(tiles2(one))
       const smw = new SmwRom(rom)
       const reached = readMapEntrances(smw, SYNTHETIC_FINGERPRINTS)?.get(0x177)
-      expect(reached).toEqual({ overworld: false, primary: false, secondary: [0x110, 0x111] })
+      expect(reached).toEqual({
+        overworld: false,
+        primary: false,
+        secondary: [0x110, 0x111],
+        route: 0x110,
+      })
       const l2 = ok(buildL2Inputs(smw, 0x177, inputs(hGrid(1), false, 1), reached, stock))
       expect(l2).toMatchObject({ kind: 'image', dy: 0x40 - 0x60 })
       expect(l2.note).toBe('Background height unverified: drawn as entered through secondary entrance $110; entered through secondary entrance $111 it starts at a different height.') // prettier-ignore

@@ -66,6 +66,19 @@ describe('one entrance chooser for the layer 2 height and the layer 3 camera (#8
     )
   })
 
+  // #945: the route, not the lowest id, picks the row for both views.
+  it('a sub area with route $1C5 (not the lowest, $1C3): L2 draws and L3 reads row $1C5', () => {
+    const via: MapEntrances = { overworld: false, primary: false, secondary: [0x1c3, 0x1c5], route: 0x1c5 } // prettier-ignore
+    expect(drawn(via).dy).toBe(dyOf(ROWS[0x1c5]!))
+    expect(camY(via)).toBe(L1_Y[ROWS[0x1c5]![0]!])
+    expect(drawn(via).note).toMatch(/drawn as entered through secondary entrance \$1C5/)
+  })
+
+  it('a map with no route is drawn from the fallback and the note says no route was found', () => {
+    const via: MapEntrances = { overworld: false, primary: false, secondary: [0x1c5, 0x1c3] }
+    expect(drawn(via).note).toMatch(/no route from the overworld/i)
+  })
+
   it('a primary entry is drawn ahead of any secondary one, and the note leads with it', () => {
     const via: MapEntrances = { overworld: true, primary: true, secondary: [0x1c3] }
     expect(drawn(via).dy).toBe(dyOf(PRIMARY_ROW))

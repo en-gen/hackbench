@@ -21,7 +21,7 @@ import {
   readL2Pointer,
   tilePresetGrid,
 } from '../L2Loader'
-import { chooseEntrance, readInitialLayer1YPos } from '../L3Loader'
+import { chooseEntranceNoted, readInitialLayer1YPos } from '../L3Loader'
 import { isLevelModeVerticalL2, SCREEN_H_VERT, SCREEN_W_VERT } from '../LevelParser'
 import { readL2UploaderTable } from '../L2UploaderTable'
 import { loadMap16Tiles, readL2Map16Table, type Map16Tile } from '../Map16'
@@ -106,16 +106,14 @@ function dyFromEntrances(
   // The drawn path is the one L3Model's camera uses, from the same chooser (#861): null is the
   // primary entry (the first primary path), else the secondary id it names. Never an ordering of
   // our own, so the two views cannot drift apart on a non-ascending entrance list.
-  const chosen = chooseEntrance(via)
+  const { entrance: chosen, note: routeNote } = chooseEntranceNoted(via)
   const at = chosen === null ? 0 : paths.findIndex(p => p.kind === 'secondary' && p.id === chosen)
   const ordered = [paths[at]!, ...paths.filter((_, i) => i !== at)]
   const dys = ordered.map(p => entryDy(rom, index, p))
   const differ = ordered.filter((_, i) => dys[i] !== dys[0]).map(pathWords)
-  if (differ.length === 0) return { dy: dys[0]! }
-  return {
-    dy: dys[0]!,
-    note: `drawn as entered ${pathWords(ordered[0]!)}; entered ${differ.join(', ')} it starts at a different height.`, // prettier-ignore
-  }
+  const differNote = differ.length === 0 ? undefined : `drawn as entered ${pathWords(ordered[0]!)}; entered ${differ.join(', ')} it starts at a different height.` // prettier-ignore
+  const note = [differNote, routeNote].filter(Boolean).join(' ') || undefined
+  return note ? { dy: dys[0]!, note } : { dy: dys[0]! }
 }
 
 /**
@@ -146,7 +144,10 @@ export function buildL2Inputs(
   // The tables are the game's only while the code reading them is stock (LEVEL_START_Y): if not,
   // the best reading still draws, said to be unverified.
   const gate = startGate(rom.rom)
-  const why = [gate, known?.note && gate ? `D${known.note.slice(1)}` : known?.note].filter(Boolean)
+  const why = [
+    gate,
+    known?.note && gate ? `${known.note[0]!.toUpperCase()}${known.note.slice(1)}` : known?.note,
+  ].filter(Boolean)
   const note = why.length ? `Background height unverified: ${why.join(' ')}` : undefined
   const preset = isPresetPtr(ptr)
   // Order (D51 B, #506): develop's #637 gate owns the object-stream path in the ten skipped modes,

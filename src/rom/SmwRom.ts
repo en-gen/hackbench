@@ -120,6 +120,17 @@ export interface MapEntrances {
   primary: boolean
   /** Secondary entrance ids (the index into DATA_05F800 and its sibling tables) that enter it, ascending. */
   secondary: number[]
+  /**
+   * The entrance that first reaches the map on the normal route (D66 call 1, #945): null is the
+   * primary entrance (the overworld, or a screen exit without the secondary flag), a number the
+   * secondary entrance id. "First" is the exit-graph walk's own order: one global breadth-first
+   * walk from the overworld roots in ascending slot order, each map's screen exits in the order
+   * the level parser lists them (ascending object order), the first discovery wins, so a sub area
+   * reached from two levels takes the root queued earlier. Absent when no walk step entered the
+   * map (a hand-built record). Rule from the walk's own order, not a ROM read; the entrance
+   * semantics are bank_05.asm:7111-7162, 7300-7337.
+   */
+  route?: number | null
 }
 
 export interface RomSummary {
@@ -539,7 +550,11 @@ export class SmwRom {
     const entrances = new Map<number, MapEntrances>()
     const entrancesOf = (map: number): MapEntrances =>
       entrances.get(map) ?? entrances.set(map, { overworld: false, primary: false, secondary: [] }).get(map)! // prettier-ignore
-    for (const root of overworld) entrancesOf(root).overworld = true
+    for (const root of overworld) {
+      const r = entrancesOf(root)
+      r.overworld = true
+      r.route = null
+    }
     let qi = 0
     while (qi < queue.length) {
       const cur = queue[qi++]!
@@ -559,6 +574,8 @@ export class SmwRom {
           if (!spec.isSecondary) into.primary = true
           else if (!into.secondary.includes(high | spec.rawByte))
             into.secondary.push(high | spec.rawByte)
+          // The walk's first entry is the route (see MapEntrances.route); roots already hold null.
+          if (into.route === undefined) into.route = spec.isSecondary ? high | spec.rawByte : null
         }
         if (dest === cur || !validDestinations.has(dest)) continue
 
