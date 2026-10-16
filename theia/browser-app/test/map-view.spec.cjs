@@ -3041,7 +3041,7 @@ async function openRejecting(page, manifestPath, method) {
 
 /** The visible words of the error element carry no exception text; the tooltip does. */
 async function expectPlain(page, plain) {
-  const err = page.locator(`${root(0x105)} .hb-map-view-error[title*="planted-786"]`).first()
+  const err = page.locator(`${root(0x105)} .hb-map-view-error`).first()
   await expect(err).toHaveText(plain)
   expect(await err.innerText()).not.toContain('planted-786')
   expect(await err.getAttribute('title')).toContain(PLANTED_786)
