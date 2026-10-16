@@ -134,8 +134,10 @@ the approval to be CodeRabbit's, so a human approval merges it too.
   A merge can land before the verifier re-runs on the new head; the owner
   accepts it (2026-10-04), and a verifier finding on a merged head becomes a
   follow-up PR off develop.
-- CodeRabbit re-reviews each push by itself. Never comment
-  `@coderabbitai review`, `full review` (the free plan has an hourly limit)
+- CodeRabbit reviews each new PR and each push by itself (`.coderabbit.yaml`
+  auto review; paid Essentials plan, 5 reviews per hour, usage-based billing
+  off). Comment `@coderabbitai review` only to retry a review that came back
+  "rate limited", once the next review frees up. Never comment `full review`
   or `@coderabbitai approve`.
 - A CI re-run reuses the PR's original merge commit. When the fix is on
   `develop`, merge `develop` into the branch (never rebase or force-push).
