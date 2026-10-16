@@ -3016,3 +3016,52 @@ test.describe('zoom anchor across the commit gap (#547)', () => {
     })
   }
 })
+
+/** #786: opens map $105 with one service method forced to reject with a raw, technical error. */
+const PLANTED_786 = 'planted-786: read past $05:8000 at RomFile.readByte (RomFile.ts:42)'
+async function openRejecting(page, manifestPath, method) {
+  await page.evaluate(
+    async ({ mp, method, msg }) => {
+      const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {
+        index: 0x105,
+      })
+      const real = w.projects
+      w.projects = new Proxy(real, {
+        get: (t, k) => k === method ? async () => { throw new Error(msg) } : typeof t[k] === 'function' ? t[k].bind(t) : t[k], // prettier-ignore
+      })
+      await w.open({ manifestPath: mp, index: 0x105, label: '105', iconClass: '' })
+      const shell = getSvc('ApplicationShell')
+      await shell.addWidget(w, { area: 'main' })
+      await shell.activateWidget(w.id)
+    },
+    { mp: manifestPath, method, msg: PLANTED_786 },
+  )
+  opened.push('hackbench.map-view:261')
+}
+
+/** The visible words of the error element carry no exception text; the tooltip does. */
+async function expectPlain(page, plain) {
+  const err = page.locator(`${root(0x105)} .hb-map-view-error[title*="planted-786"]`).first()
+  await expect(err).toHaveText(plain)
+  expect(await err.innerText()).not.toContain('planted-786')
+  expect(await err.getAttribute('title')).toContain(PLANTED_786)
+}
+
+test('a rejected mapDetails shows plain words and keeps the exception in the tooltip', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openRejecting(page, project.manifestPath, 'mapDetails')
+  await expectPlain(
+    page,
+    "This map's details could not be read. Close and reopen the map to try again.",
+  )
+})
+
+test('a rejected mapScreen shows plain words and keeps the exception in the tooltip', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openRejecting(page, project.manifestPath, 'mapScreen')
+  await expectPlain(page, 'This map could not be drawn. Close and reopen the map to try again.')
+})
