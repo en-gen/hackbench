@@ -77,7 +77,7 @@ For each sprite ID in your batch:
 | 40 | `$C3 $C4 ~~$C5~~ $C6 $C7` | Porcu-Puffer, Grey Falling, ~~Big Boo~~, Spotlight, Invisible Mushroom |
 | 41 | `$C8` | Light Switch Block (tail of list) |
 
-Generators (`$C9`–`$D9`) and scroll controllers (`$DE`–`$E7`) are skipped - no visuals. Shell aliases (`$DA`–`$DD`) are handled via `resolveShellAlias` in `SpriteTileLoader`.
+Generators (`$C9`–`$D9`) and scroll controllers (`$DE`–`$E7`) are skipped - no visuals. Shell aliases (`$DA`–`$DD`, `$DF`) are handled via `shellSpriteNumber` (`src/rom/sprites/ShellSprites.ts`), shared by `resolveShellAlias` in `SpriteTileLoader` and the sprite runner.
 
 ---
 

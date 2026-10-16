@@ -25,6 +25,7 @@ import {
 } from '../../support/corpus'
 import { grade, passPieces, wrap8, wrap9 } from '../../support/spriteGrade'
 import { gradeCaptures } from '../../../../tools/scripts/spriteReportRun'
+import { shellSpriteNumber } from '../../../../src/rom/sprites/ShellSprites'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 
 const rom = buildSyntheticRom()
@@ -456,9 +457,12 @@ describe.skipIf(!hasRom(VANILLA))('vanilla', () => {
     const m = runSprite(freshRom(), 0x4f, withSeed({ sprite: { x: 2096, y: 352 } }))
     expect(m.anchor).toMatchObject({ x: 2104, y: 351 })
   })
-  it('refuses ids past the table, completing none of $C9-$FF', () => {
+  it('refuses ids past the table, completing none of $C9-$FF but the stationary shells', () => {
     const r = freshRom()
-    for (let id = 0xc9; id < 0x100; id++) expect(runSprite(r, id).refusal).toBeDefined()
+    for (let id = 0xc9; id < 0x100; id++)
+      expect(runSprite(r, id).refusal === undefined, `$${id.toString(16)}`).toBe(
+        shellSpriteNumber(id) !== undefined,
+      )
   })
 })
 

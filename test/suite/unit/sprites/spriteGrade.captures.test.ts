@@ -41,7 +41,7 @@ import {
   TOOLS_ROOT,
   VANILLA,
 } from '../../support/corpus'
-import { gradedPass, writeMarioStart } from '../../support/gradeTimeline'
+import { gradedPass, runnerId, writeMarioStart } from '../../support/gradeTimeline'
 import { oracleCells, oracleImage } from '../../support/oracleImage'
 import {
   grade,
@@ -54,6 +54,7 @@ import {
 interface Rec {
   id: string
   slot: number
+  listIndex?: number
   listX: number
   listY: number
   cameraX: number
@@ -98,6 +99,8 @@ interface Loaded {
   anchorFrame?: number
   /** scroll_pass.json marioStart: where Mario is held from the anchor on. */
   marioStart?: { x: number; y: number }
+  /** sprites.json entries: the placed list ids by index. */
+  listed?: { index?: number; id?: string }[]
 }
 
 function loadAll(): Loaded[] {
@@ -118,7 +121,9 @@ function loadAll(): Loaded[] {
     }
     const anchorFrame = jsonOf('capture_summary.json').anchorFrame as number | undefined
     const marioStart = jsonOf('scroll_pass.json').marioStart as Loaded['marioStart']
-    for (const rec of j.spawns ?? []) out.push({ map: name, rec, wram, anchorFrame, marioStart })
+    const listed = jsonOf('sprites.json').entries as Loaded['listed']
+    for (const rec of j.spawns ?? [])
+      out.push({ map: name, rec, wram, anchorFrame, marioStart, listed })
   }
   return out
 }
@@ -146,7 +151,7 @@ function gradeAll(
   const loadedByMap = new Map<string, Uint8Array | undefined>()
   let fallbacks = 0
   let missAtK = 0
-  for (const { map, rec, wram, anchorFrame, marioStart } of all) {
+  for (const { map, rec, wram, anchorFrame, marioStart, listed } of all) {
     if (opts.limit !== undefined && rows.length >= opts.limit) break
     const id = parseInt(rec.id.slice(1), 16)
     const want = recordedFrames(rec)
@@ -191,7 +196,10 @@ function gradeAll(
           if (p === -1) writeMarioStart(w, marioStart) // after INIT, before the first MAIN pass
         }
       : undefined
-    const m = runSprite(rom, id, seed, { trackInputs: opts.trackInputs, probe })
+    const m = runSprite(rom, runnerId(id, rec.listIndex, listed), seed, {
+      trackInputs: opts.trackInputs,
+      probe,
+    })
     // Nothing drawn at the hardware's pass is a runner miss, counted apart so it cannot hide in the
     // wrong total. It grades wrong when some pass draws; when none does (map 102 $5D) grade()
     // returns empty whatever m.chosen is (test/suite/support/spriteGrade.ts:87).

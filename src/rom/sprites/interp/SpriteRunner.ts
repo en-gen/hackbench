@@ -13,6 +13,7 @@ import type { RomFile } from '../../RomFile'
 import { mapperProblem } from './Guards'
 import { type DispatchShape, grinderDrawsBeforeSnap } from './LineGuided'
 import { smwMachine } from './Machine'
+import { SHELL_STATUS, shellSpriteNumber } from '../ShellSprites'
 import {
   checkGetRand,
   checkInitTables,
@@ -338,12 +339,14 @@ export class Machine {
     for (const [k, v] of Object.entries(s.ram)) w[Number(k)] = v
     const n = s.slot
     w[RAM.curSprite] = n
-    w[RAM.spriteNumber + n] = id
+    // A shell list id loads as sprite number id-$DA+4 in status 9 (ShellSprites.ts); the rest as itself in status 1.
+    const shell = shellSpriteNumber(id)
+    w[RAM.spriteNumber + n] = shell ?? id
     w[RAM.spriteXLow + n] = s.sprite.x & 0xff
     w[RAM.xHigh + n] = (s.sprite.x >> 8) & 0xff
     w[RAM.spriteYLow + n] = s.sprite.y & 0xff
     w[RAM.yHigh + n] = (s.sprite.y >> 8) & 0xff
-    w[RAM.status + n] = 1
+    w[RAM.status + n] = shell === undefined ? 1 : SHELL_STATUS
   }
 
   /** Runs a routine to its return, from the native reset state with X = the slot; throws Refusal on a bad op, escape, unbalanced return or budget. */
@@ -469,9 +472,13 @@ export function runOnce(
   if (!loop.ok) return { ...model, refusal: loop.reason }
   const tables = resolveTables(rom, loop.handle)
   if (!tables.ok) return { ...model, refusal: tables.reason }
-  const inits = resolvePointer(rom, tables.tables.initTable, id)
-  if (!inits.ok) return { ...model, refusal: `INIT: ${inits.reason}` }
-  const mains = resolvePointer(rom, tables.tables.mainTable, id)
+  // The tables are indexed by the sprite number the loader stores, not the list id.
+  const shell = shellSpriteNumber(id)
+  const num = shell ?? id
+  // A shell never runs INIT, so its INIT pointer is not read.
+  const inits = shell === undefined ? resolvePointer(rom, tables.tables.initTable, num) : undefined
+  if (inits && !inits.ok) return { ...model, refusal: `INIT: ${inits.reason}` }
+  const mains = resolvePointer(rom, tables.tables.mainTable, num)
   if (!mains.ok) return { ...model, refusal: `MAIN: ${mains.reason}` }
   const init = checkInitTables(rom)
   if (!init.ok) return { ...model, refusal: init.reason }
@@ -505,23 +512,24 @@ export function runOnce(
     // Status 1 -> CallSpriteInit, which sets status 8 and runs INIT. An INIT
     // that leaves status 1 runs again next frame, as the game does (the floating
     // platforms sink a few pixels per frame until they reach water).
+    // A shell starts in status 9 with no INIT frame, so MAIN's first pass follows the loader directly.
     let frameNo = 0
-    m.frame()
-    while (w[RAM.status + m.seed.slot] === 1 && frameNo < MAX_INIT_FRAMES) {
+    if (shell === undefined) m.frame()
+    while (shell === undefined && w[RAM.status + m.seed.slot] === 1 && frameNo < MAX_INIT_FRAMES) {
       frameNo++
       w[RAM.trueFrame] = (m.seed.trueFrame + frameNo) & 0xff
       w[RAM.effFrame] = (m.seed.effFrame + frameNo) & 0xff
       m.frame()
     }
     model.steps.push(m.steps - n)
-    model.initFrames = frameNo + 1
+    model.initFrames = shell === undefined ? frameNo + 1 : 0
     const st = w[RAM.status + m.seed.slot]
     if (st === 0) return { ...model, emptyReason: 'INIT erased the sprite (status 0)' }
     if (st === 1)
       return { ...model, refusal: `INIT did not complete in ${MAX_INIT_FRAMES} frames: status stays 1, waiting on state the seed lacks` } // prettier-ignore
     const anchor = m.pos()
     const snaps =
-      DRAWS_BEFORE_LINE_SNAP.has(id) &&
+      DRAWS_BEFORE_LINE_SNAP.has(num) &&
       grinderDrawsBeforeSnap(rom, mains.handler.address, opts.grinderDispatch)
     model.anchor = { ...anchor, rawX: m.seed.sprite.x, rawY: m.seed.sprite.y }
     model.oamBase = w[RAM.oamIndex + m.seed.slot]

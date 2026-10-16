@@ -31,7 +31,7 @@ import {
   hasRom,
   romPath,
 } from '../../test/suite/support/corpus'
-import { timelineFor } from '../../test/suite/support/gradeTimeline'
+import { runnerId, timelineFor } from '../../test/suite/support/gradeTimeline'
 import { grade, passPieces, type RecordedPiece } from '../../test/suite/support/spriteGrade'
 import { palette } from './capture_draw'
 import { parseNum } from './capture_decode'
@@ -411,6 +411,7 @@ export function hardwareFrame(
 interface Rec {
   id: string
   slot: number
+  listIndex?: number
   listX: number
   listY: number
   cameraX: number
@@ -513,6 +514,7 @@ export function gradeCaptures(f: Filter): Graded[] {
     if (!key) continue
     const spawns: Rec[] = JSON.parse(entries.get(key)!().toString('utf8')).spawns ?? []
     const src = frameSource(entries)
+    const listed = jsonOf('sprites.json').entries as { index?: number; id?: string }[] | undefined
     const lvl = loadLevelState(rom, parseInt(map, 16))
     for (const rec of spawns) {
       const id = parseInt(rec.id.slice(1), 16)
@@ -529,7 +531,7 @@ export function gradeCaptures(f: Filter): Graded[] {
         camera: { x: rec.cameraX, y: rec.cameraY },
         mario: rec.marioAtInit ?? { x: rec.listX, y: rec.listY },
       })
-      const m = runSprite(rom, id, seed, { probe: t.probe })
+      const m = runSprite(rom, runnerId(id, rec.listIndex, listed), seed, { probe: t.probe })
       if (t.timed && m.passes[t.k!]) m.chosen = t.k
       const g = grade(m, want)
       const ours = m.chosen !== undefined && !m.refusal ? passPieces(m, m.chosen) : []
