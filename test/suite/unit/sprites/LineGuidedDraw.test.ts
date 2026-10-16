@@ -1,7 +1,8 @@
 /**
- * The line-guided grinder ($67) is drawn where the line walk puts it, two passes after its first draw (#126).
+ * The line-guided grinder ($67) is drawn where the line walk puts it, two passes after its first draw (#126); so are $62, $65, $66
+ * and $68, by their own shape checks (#792; $64 is not admitted: INIT already steps it onto the track).
  * Synthetic cart: ids 31 and 103 draw one piece at SpriteXPos and then move +4 (hand-written opcodes),
- * so CI (no cart) proves the rule picks the third drawn pass for $67 only.
+ * so CI (no cart) proves the rule picks the third drawn pass for the admitted ids only.
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -18,21 +19,25 @@ import { SmwRom } from '../../../../src/rom/SmwRom'
 import {
   DISPATCH_PINNED,
   ENTRY_PINNED,
-  grinderDrawsBeforeSnap,
+  lineDrawsBeforeSnap,
+  PLAT_ARM,
+  PRELUDE_LEN,
 } from '../../../../src/rom/sprites/interp/LineGuided'
 import { runOnce, type SpriteModel } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { SPRITE_SEED, withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { hasRom, romPath, SPRITE_TRACE_SET, TOOLS_ROOT, VANILLA } from '../../support/corpus'
 import {
+  CHAINSAW_HANDLER,
   GRINDER_DISPATCH_AT,
   GRINDER_DISPATCH,
   GRINDER_HANDLER,
+  JMP_HANDLER,
 } from '../../support/syntheticGrinder'
 import { buildSyntheticRom, type SyntheticOptions } from '../../support/syntheticSpriteRom'
 
 const seed = withSeed({ slot: 3, sprite: { x: 0x80, y: 0x80 } }, SPRITE_SEED)
 const run = (id: number, o: SyntheticOptions = {}) =>
-  runOnce(buildSyntheticRom(o), id, seed, { grinderDispatch: GRINDER_DISPATCH })
+  runOnce(buildSyntheticRom(o), id, seed, { lineDispatch: GRINDER_DISPATCH })
 
 describe('line-guided draw pass', () => {
   it('draws another id at its first pass, at the position the draw ran', () => {
@@ -88,8 +93,8 @@ describe('line-guided draw pass', () => {
     // The call targets and fingerprint still match, but the step routine at $019290 is RTS.
     const rom = buildSyntheticRom()
     rom.writeAt(0x019290, [0x60])
-    expect(grinderDrawsBeforeSnap(rom, GRINDER_HANDLER, GRINDER_DISPATCH)).toBe(true)
-    const g = runOnce(rom, 103, seed, { grinderDispatch: GRINDER_DISPATCH })
+    expect(lineDrawsBeforeSnap(rom, 103, GRINDER_HANDLER, GRINDER_DISPATCH)).toBe(true)
+    const g = runOnce(rom, 103, seed, { lineDispatch: GRINDER_DISPATCH })
     expect(g.passes[1]!.parts).toHaveLength(1)
     expect(g.chosen).toBe(0)
     expect(g.anchor!.x).toBe(0x80)
@@ -119,8 +124,8 @@ describe('line-guided draw pass', () => {
     // Dropping the moved(q0, q1) guard, or testing q0 against the anchor instead, would pick pass 2.
     const rom = buildSyntheticRom()
     rom.writeAt(0x019290, [0xfe, 0x50, 0x16, 0xbd, 0x50, 0x16, 0xc9, 0x02, 0x90, 0x01, 0x60, 0xb5, 0xe4, 0x18, 0x69, 0x04, 0x95, 0xe4, 0x60]) // prettier-ignore
-    expect(grinderDrawsBeforeSnap(rom, GRINDER_HANDLER, GRINDER_DISPATCH)).toBe(true)
-    const g = runOnce(rom, 103, seed, { grinderDispatch: GRINDER_DISPATCH })
+    expect(lineDrawsBeforeSnap(rom, 103, GRINDER_HANDLER, GRINDER_DISPATCH)).toBe(true)
+    const g = runOnce(rom, 103, seed, { lineDispatch: GRINDER_DISPATCH })
     expect(g.passes.slice(0, 3).map(p => p.parts.length > 0)).toEqual([true, true, true])
     expect(g.passes[1]!.pos).toEqual(g.passes[0]!.pos)
     expect(g.chosen).toBe(1)
@@ -130,7 +135,7 @@ describe('line-guided draw pass', () => {
   it('applies the snap rule to id $67 only: another id whose MAIN is the grinder handler is generic', () => {
     const rom = buildSyntheticRom({ id31IsGrinder: true })
     // The alias passes the shape gate, so the id check alone is what keeps id 31 generic.
-    expect(grinderDrawsBeforeSnap(rom, 0x019500, GRINDER_DISPATCH)).toBe(true)
+    expect(lineDrawsBeforeSnap(rom, 103, 0x019500, GRINDER_DISPATCH)).toBe(true)
     const g = run(31, { id31IsGrinder: true })
     expect(g.chosen).toBe(0)
     expect(g.anchor!.x).toBe(0x80)
@@ -138,16 +143,16 @@ describe('line-guided draw pass', () => {
 
   it('accepts the cart it was fingerprinted on, and no other', () => {
     const rom = buildSyntheticRom()
-    expect(grinderDrawsBeforeSnap(rom, GRINDER_HANDLER, GRINDER_DISPATCH)).toBe(true)
+    expect(lineDrawsBeforeSnap(rom, 103, GRINDER_HANDLER, GRINDER_DISPATCH)).toBe(true)
     // The default digest is vanilla's: the synthetic handler is not it.
-    expect(grinderDrawsBeforeSnap(rom, GRINDER_HANDLER)).toBe(false)
+    expect(lineDrawsBeforeSnap(rom, 103, GRINDER_HANDLER)).toBe(false)
   })
 
   it('refuses a changed byte at every pinned offset of the entry and of the dispatch span', () => {
     const flip = (at: number) => {
       const rom = buildSyntheticRom()
       rom.writeAt(at, [rom.readAt(at, 1)![0]! ^ 0x01])
-      return grinderDrawsBeforeSnap(rom, GRINDER_HANDLER, GRINDER_DISPATCH)
+      return lineDrawsBeforeSnap(rom, 103, GRINDER_HANDLER, GRINDER_DISPATCH)
     }
     expect(ENTRY_PINNED).toHaveLength(14)
     expect(DISPATCH_PINNED).toHaveLength(28)
@@ -161,7 +166,7 @@ describe('line-guided draw pass', () => {
     const flip = (at: number, x: number) => {
       const rom = buildSyntheticRom()
       rom.writeAt(at, [rom.readAt(at, 1)![0]! ^ x])
-      return grinderDrawsBeforeSnap(rom, GRINDER_HANDLER, GRINDER_DISPATCH)
+      return lineDrawsBeforeSnap(rom, 103, GRINDER_HANDLER, GRINDER_DISPATCH)
     }
     const accepted = TARGET_OPERANDS.flatMap(i =>
       [0x01, 0x10, 0x7f, 0xff].filter(x => flip(GRINDER_DISPATCH_AT + i, x)).map(x => `+${i}^${x}`),
@@ -171,9 +176,51 @@ describe('line-guided draw pass', () => {
 
   it('reads a call target through the FastROM mirror: a JSL to bank $81, or the handler at $81, is the same routine', () => {
     const rom = buildSyntheticRom()
-    expect(grinderDrawsBeforeSnap(rom, GRINDER_HANDLER | 0x800000, GRINDER_DISPATCH)).toBe(true)
+    expect(lineDrawsBeforeSnap(rom, 103, GRINDER_HANDLER | 0x800000, GRINDER_DISPATCH)).toBe(true)
     rom.writeAt(GRINDER_DISPATCH_AT + 37, [0x81])
-    expect(grinderDrawsBeforeSnap(rom, GRINDER_HANDLER, GRINDER_DISPATCH)).toBe(true)
+    expect(lineDrawsBeforeSnap(rom, 103, GRINDER_HANDLER, GRINDER_DISPATCH)).toBe(true)
+  })
+
+  // Synthetic ids 98/104 enter by a bare JMP, 101/102 through the chainsaw prelude; the handler differs per id, the dispatch is shared.
+  const ADMITTED: [number, number][] = [[98, JMP_HANDLER], [101, CHAINSAW_HANDLER], [102, CHAINSAW_HANDLER], [104, JMP_HANDLER]] // prettier-ignore
+
+  it.each(ADMITTED)('draws id %i at the third pass, where the line walk left it', id => {
+    const g = run(id)
+    expect(g.passes.slice(0, 3).map(p => p.origin.x)).toEqual([0x80, 0x84, 0x88])
+    expect(g.chosen).toBe(2)
+    expect(g.anchor!.x).toBe(0x88)
+  })
+
+  it.each(ADMITTED)(
+    'draws id %i at its first pass when the dispatch is not the vanilla shape',
+    id => {
+      const g = run(id, { alteredGrinder: true })
+      expect(g.chosen).toBe(0)
+      expect(g.anchor!.x).toBe(0x80)
+    },
+  )
+
+  it('admits $62, $65, $66, $68 and $67 only: $64 has the prelude and the dispatch, and is refused', () => {
+    const rom = buildSyntheticRom()
+    for (const [id, at] of ADMITTED) expect(lineDrawsBeforeSnap(rom, id, at, GRINDER_DISPATCH), `id ${id}`).toBe(true) // prettier-ignore
+    expect(lineDrawsBeforeSnap(rom, 100, CHAINSAW_HANDLER, GRINDER_DISPATCH)).toBe(false)
+    // The entry kind is the id's: a JMP entry for a chainsaw id, and a chainsaw entry for a JMP id, are refused.
+    expect(lineDrawsBeforeSnap(rom, 101, JMP_HANDLER, GRINDER_DISPATCH)).toBe(false)
+    expect(lineDrawsBeforeSnap(rom, 98, CHAINSAW_HANDLER, GRINDER_DISPATCH)).toBe(false)
+  })
+
+  it('refuses a changed byte in the chainsaw prelude, or in the platform arm, apart from its free operands', () => {
+    const flip = (id: number, handler: number, at: number) => {
+      const rom = buildSyntheticRom()
+      rom.writeAt(at, [rom.readAt(at, 1)![0]! ^ 0x01])
+      return lineDrawsBeforeSnap(rom, id, handler, GRINDER_DISPATCH)
+    }
+    const free = [22, 23, 31, 32]
+    const hit = Array.from({ length: PRELUDE_LEN }, (_, i) => i).filter(i => flip(101, CHAINSAW_HANDLER, CHAINSAW_HANDLER + i)) // prettier-ignore
+    expect(hit).toEqual(free)
+    // The platform arm sits at $019700; its draw JSR operand (46, 47) is free, its step operand (66, 67) is compared to the line step.
+    const arm = Array.from({ length: PLAT_ARM.len }, (_, i) => i).filter(i => flip(98, JMP_HANDLER, 0x019700 + i)) // prettier-ignore
+    expect(arm).toEqual([PLAT_ARM.draw, PLAT_ARM.draw + 1])
   })
 
   it('reports where each pass drew from: the INIT anchor, or for $67 the position the pass before left', () => {
@@ -334,5 +381,26 @@ describe.skipIf(!hasRom(VANILLA) || !existsSync(TRACE_SLOT_7))(
       const first = r.sprites.filter(d => d.id === 0x67)[0]!
       expect([first.x, first.y]).toEqual(at(lastWram))
     }, 120_000)
+  },
+)
+
+/** The first placement of each admitted id on the vanilla ROM, where the line walk leaves it: [map, id, x, y]. */
+const ON_TRACK: [number, number, number, number][] = [[0x05, 0x62, 639, 304], [0x05, 0x68, 2559, 239], [0x0f, 0x65, 495, 384], [0x0f, 0x66, 4015, 208]] // prettier-ignore
+
+describe.skipIf(!hasRom(VANILLA))(
+  'line-guided $62, $65, $66, $68 on the vanilla ROM (#792)',
+  () => {
+    it.each(ON_TRACK)(
+      'map %i (decimal), sprite id %i (decimal): the first is drawn at (%i, %i)',
+      (slot, id, x, y) => {
+        const path = romPath(VANILLA)
+        const r = mapSprites(new L1ModelCache(), new Uint8Array(readFileSync(path)), path, slot)
+        expect(r.status).toBe('ok')
+        if (r.status !== 'ok') return
+        const first = r.sprites.find(d => d.id === id)!
+        expect([first.status, first.x, first.y]).toEqual(['drawn', x, y])
+      },
+      120_000,
+    )
   },
 )

@@ -11,7 +11,7 @@ import type { Cpu65816 } from '../../cpu/Cpu65816'
 import { callSubroutine, describe, Refusal } from '../../cpu/call'
 import type { RomFile } from '../../RomFile'
 import { mapperProblem } from './Guards'
-import { type DispatchShape, grinderDrawsBeforeSnap } from './LineGuided'
+import { type DispatchShape, lineDrawsBeforeSnap } from './LineGuided'
 import { smwMachine } from './Machine'
 import {
   checkGetRand,
@@ -181,8 +181,8 @@ export interface RunOptions {
   spawn?: SpawnRun
   probe?: Probe
   trackInputs?: boolean
-  /** The dispatch shape the $67 gate accepts; a test hook, so a synthetic cart brings its own (default: vanilla's). */
-  grinderDispatch?: DispatchShape
+  /** The dispatch shape the line-guided gate accepts; a test hook, so a synthetic cart brings its own (default: vanilla's). */
+  lineDispatch?: DispatchShape
 }
 
 export { Refusal }
@@ -440,12 +440,11 @@ function uploadsOf(m: Machine, before: Map<number, number>): string[] {
 export type Probe = (pass: number, wram: Uint8Array) => void
 
 /**
- * The grinder draws, then its line step moves it (SMWDisX bank_01.asm:12194-12204, corner stores 12054-12061),
- * so it draws three different spots: the off-track INIT spot, the probe corner the first MAIN snapped to, and the
- * line point the walk then set. The editor draws the third (#126).
- * $67 only: the other line-guided ids share the order; that family is follow-up #792.
+ * The line-guided sprites ($62, $65-$68) draw, then their line step moves them (SMWDisX bank_01.asm:12182-12204,
+ * arms 12206-12212 and 12323-12354; corner stores 12054-12061), so the grinder draws three different spots: the
+ * off-track INIT spot, the probe corner the first MAIN snapped to, and the line point the walk then set. The
+ * editor draws the third (#126, #792). Which ids qualify is `lineDrawsBeforeSnap`'s per-id shape check.
  */
-const DRAWS_BEFORE_LINE_SNAP: ReadonlySet<number> = new Set([0x67])
 
 /** Run once with a seed; no dependsOn analysis (half the cost of `runSprite`). */
 export function runOnce(
@@ -520,9 +519,7 @@ export function runOnce(
     if (st === 1)
       return { ...model, refusal: `INIT did not complete in ${MAX_INIT_FRAMES} frames: status stays 1, waiting on state the seed lacks` } // prettier-ignore
     const anchor = m.pos()
-    const snaps =
-      DRAWS_BEFORE_LINE_SNAP.has(id) &&
-      grinderDrawsBeforeSnap(rom, mains.handler.address, opts.grinderDispatch)
+    const snaps = lineDrawsBeforeSnap(rom, id, mains.handler.address, opts.lineDispatch)
     model.anchor = { ...anchor, rawX: m.seed.sprite.x, rawY: m.seed.sprite.y }
     model.oamBase = w[RAM.oamIndex + m.seed.slot]
     probe?.(-1, w)
@@ -536,7 +533,7 @@ export function runOnce(
       m.frame()
       model.steps.push(m.steps - n)
       probe?.(p, w)
-      // The draw ran before this pass's own move, so for $67 it ran where the pass before left it.
+      // The draw ran before this pass's own move, so for them it ran where the pass before left it.
       const origin = snaps ? (model.passes[p - 1]?.pos ?? anchor) : anchor
       model.passes.push({
         pass: p,
@@ -550,7 +547,7 @@ export function runOnce(
     if (m.bus.inputs) model.inputs = [...m.bus.inputs].sort((a, b) => a - b)
     const first = model.passes.findIndex(p => p.parts.length > 0)
     if (first >= 0) model.chosen = first
-    // $67 draws before its own move (SMWDisX bank_01.asm:12194-12204). Pass 0 draws at the off-track INIT spot,
+    // The line-guided ids draw before their own move (SMWDisX bank_01.asm:12194-12204). Pass 0 draws at the off-track INIT spot,
     // pass 1 at the probe-corner spot the first MAIN snapped to (CODE_01D8A4, 12045-12061), pass 2 at the spot the
     // line walk then set, which is on the line (CODE_01D768 / CODE_01D7B0, 11863-11930; Mesen capture 6b47bb75 slot
     // $1F: (415,336) -> (419,340) -> (431,336)). Each step is only taken if the pass before it moved the sprite
