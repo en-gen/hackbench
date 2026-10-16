@@ -118,10 +118,8 @@ export function buildL3Verdict(
       cgadsub: effectiveCgadsub(layout.cgadsub, !kept),
     })
   }
-  // Vertical maps draw only the traced case: $81-$BF on Castle1/Underground1 sets Layer3YPos = $C0
-  // once (CODE_009FFA, bank_00.asm:4175-4182) and the per-frame CODE_05C421 path (bank_05.asm:5515-5519)
-  // follows only camera X, never Y, so nothing about it depends on the map being vertical. Tides, $80
-  // smashes and camera-locked Y stay refused: their Y/X rules are untraced against vertical scrolling.
+  // Vertical maps draw only the traced $81-$BF Y $C0 case (CODE_009FFA, bank_00.asm:4175-4182; the
+  // derivation is in docs/rom/level-rendering.md). Tides, $80 and camera-locked Y stay refused.
   if (l1.isVertical && !(yPx === 0xc0 && load.settingsByte < 0xc0)) {
     return none('Layer 3 not drawn yet: vertical map with an untraced layer 3 type')
   }
