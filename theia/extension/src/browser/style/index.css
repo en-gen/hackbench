@@ -394,7 +394,7 @@
 }
 
 .hb-map-refused rect {
-  fill-opacity: 0.35;
+  fill-opacity: 0.4;
 }
 
 .hb-map-collision polyline {

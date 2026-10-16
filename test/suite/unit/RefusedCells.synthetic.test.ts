@@ -7,7 +7,13 @@ import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { expandMapOwned, SWITCH_FLAGS_UNCLEARED } from '../../../src/rom/ObjectExpander'
 import type { LevelObject } from '../../../src/rom/LevelParser'
-import { refusedCellsOf, WHY_UNPORTED, WHY_GATE } from '../../../src/rom/model/RefusedCells'
+import {
+  refusedCellsOf as cellsOf,
+  refusedBounds,
+  WHY_UNPORTED,
+  WHY_GATE,
+} from '../../../src/rom/model/RefusedCells'
+import { formatRefusedLine } from '../../../src/rom/objectHandlers/interpretedGate'
 import { ADDR_EXTENDED_DISPATCH } from '../../../src/rom/objectHandlers/romData'
 
 const DISPATCHER = 0x0da500
@@ -47,6 +53,9 @@ const expand = (
 ) =>
   // prettier-ignore
   expandMapOwned(objects, 2, rom, 0, vertical, undefined, undefined, SWITCH_FLAGS_UNCLEARED, sink)
+
+const BIG = { cols: 999, rows: 999 }
+const refusedCellsOf = (r: Parameters<typeof cellsOf>[0], o: LevelObject[]) => cellsOf(r, o, BIG)
 
 describe('refusedCellsOf (#816)', () => {
   it('marks the anchor cell of an unported object, on screen 1, with the plain reason', () => {
@@ -100,5 +109,56 @@ describe('refusedCellsOf (#816)', () => {
   it('no refusals gives no cells, and a refusal with no such object is dropped, not guessed', () => {
     expect(refusedCellsOf([], [obj(1, 0, 0)])).toEqual([])
     expect(refusedCellsOf([{ objectIndex: 5, handler: 1, reason: 'x' }], [obj(1, 0, 0)])).toEqual([]) // prettier-ignore
+  })
+})
+
+describe('one cell per object, kept on the map (#816)', () => {
+  const sink = () => ({ unverified: [] as string[], primitives: [], draw: () => false })
+
+  it('an object refused twice (vertical pipe, handle_0DB49E) is one cell, with the gate reason', () => {
+    const objects = [obj(1, 3, 4)]
+    const { refusals } = expand(cart(0x0db49e), objects, sink())
+    expect(refusals.length).toBe(2)
+    const cells = cellsOf(refusals, objects, BIG)
+    expect(cells.map(c => c.objectIndex)).toEqual([0])
+    expect(cells[0]!.why).toBe(WHY_GATE)
+  })
+
+  it('a gate refusal replaces an earlier unported one for the same object, and the order is irrelevant', () => {
+    const o = [obj(1, 3, 4)]
+    const unp = { objectIndex: 0, handler: 1, reason: 'no handler' }
+    const gate = {
+      objectIndex: 0,
+      handler: 2,
+      reason: formatRefusedLine(0x0db49e, 0x0db4a0, 0x20, 0x00),
+    }
+    for (const rs of [
+      [unp, gate],
+      [gate, unp],
+    ]) {
+      const c = cellsOf(rs, o, BIG)
+      expect(c).toHaveLength(1)
+      expect(c[0]!.why).toBe(WHY_GATE)
+    }
+  })
+
+  it('bounds follow the orientation and the screen count', () => {
+    expect(refusedBounds(false, 3)).toEqual({ cols: 48, rows: 27 })
+    expect(refusedBounds(true, 3)).toEqual({ cols: 32, rows: 48 })
+  })
+
+  it('an anchor past the strip is pulled to its last row and column, never dropped', () => {
+    const objects = [obj(1, 3, 31), obj(1, 40, 2), obj(1, 20, 9)]
+    const rs = [0, 1, 2].map(i => ({ objectIndex: i, handler: 1, reason: 'x' }))
+    expect(cellsOf(rs, objects, refusedBounds(false, 2)).map(c => [c.x, c.y])).toEqual([
+      [3, 26],
+      [31, 2],
+      [20, 9],
+    ])
+    expect(cellsOf(rs, objects, refusedBounds(true, 2)).map(c => [c.x, c.y])).toEqual([
+      [3, 31],
+      [31, 2],
+      [20, 9],
+    ])
   })
 })

@@ -24,11 +24,16 @@ const GET_SVC = `function getSvc(name) {
   return null
 }`
 
-const INDEX = 0x105
-const root = `[id="hackbench.map-view:${INDEX}"]`
 const WHY = 'HackBench cannot draw this object type yet.'
+const WHY_GATE = "This object's drawing code could not be read safely, so it was not drawn."
+// $105 is horizontal (16 x 27 tile screens), $109 vertical (32 x 16, 7 screens): map-view.spec.cjs.
+const MAPS = [
+  { index: 0x105, screenPx: [256, 432] },
+  { index: 0x109, screenPx: [512, 256] },
+]
+const root = index => `[id="hackbench.map-view:${index}"]`
 let tmp
-let opened = false
+let openIndex
 
 test.beforeEach(async ({ page }) => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-refused-'))
@@ -39,16 +44,19 @@ test.beforeEach(async ({ page }) => {
 })
 
 test.afterEach(async ({ page }) => {
-  if (opened)
+  if (openIndex !== undefined)
     await page
-      .evaluate(() => getSvc('ApplicationShell').closeWidget('hackbench.map-view:' + 0x105))
+      .evaluate(i => getSvc('ApplicationShell').closeWidget('hackbench.map-view:' + i), openIndex)
       .catch(() => undefined)
-  opened = false
+  openIndex = undefined
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true })
 })
 
-/** Opens the map; `cells` (when given) is spliced into every mapScreen reply. */
-async function openMap(page, cells) {
+/**
+ * Opens the map. Every mapScreen reply carries `window.__hbRefused` when it is an array (the global is read
+ * per reply, so a test can change it and call `refresh()`); undefined leaves the real reply alone.
+ */
+async function openMap(page, index, cells) {
   const project = await page.evaluate(
     async ({ romPath, directory }) =>
       getSvc('Symbol(ProjectService)').createProject({ romPath, name: 'MyHack', directory }),
@@ -56,64 +64,101 @@ async function openMap(page, cells) {
   )
   await page.evaluate(
     async ({ mp, index, cells }) => {
+      window.__hbRefused = cells
       const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { index })
-      if (cells) {
-        const real = w.projects
-        w.projects = new Proxy(real, {
-          get: (t, k) => {
-            if (k !== 'mapScreen') return typeof t[k] === 'function' ? t[k].bind(t) : t[k]
-            return async (...a) => {
-              const r = await t.mapScreen(...a)
-              return r.status === 'ok' ? { ...r, refusedCells: cells } : r
-            }
-          },
-        })
-      }
+      const real = w.projects
+      w.projects = new Proxy(real, {
+        get: (t, k) => {
+          if (k !== 'mapScreen') return typeof t[k] === 'function' ? t[k].bind(t) : t[k]
+          return async (...a) => {
+            const r = await t.mapScreen(...a)
+            return r.status === 'ok' && window.__hbRefused
+              ? { ...r, refusedCells: window.__hbRefused }
+              : r
+          }
+        },
+      })
       await w.open({ manifestPath: mp, index, label: index.toString(16), iconClass: '' })
       const shell = getSvc('ApplicationShell')
       await shell.addWidget(w, { area: 'main' })
       await shell.activateWidget(w.id)
     },
-    { mp: project.manifestPath, index: INDEX, cells },
+    { mp: project.manifestPath, index, cells },
   )
-  opened = true
+  openIndex = index
   await expect(
-    page.locator(`${root} canvas[data-plane="l1Low"][data-drawn]`).first(),
+    page.locator(`${root(index)} canvas[data-plane="l1Low"][data-drawn]`).first(),
   ).toHaveAttribute('data-drawn', /^\d+:\d{4}:\d{3}:\d+$/, { timeout: 30000 })
 }
 
-test('an injected refusal draws one cell at its tile, with the reason as tooltip and label', async ({
-  page,
-}) => {
-  const cell = { x: 3, y: 5, objectIndex: 7, objectType: 'type 9', handler: 0x0dfff0, why: WHY }
-  await openMap(page, [cell])
-  const g = page.locator(`${root} [data-control="refused-cell"]`)
-  await expect(g).toHaveCount(1, { timeout: 30000 })
-  const tip = `Object 7 (type 9): ${WHY}`
-  await expect(g.locator('title')).toHaveText(tip)
-  await expect(g).toHaveAttribute('aria-label', tip)
-  // Where it lands: tile (3,5) of the strip, whatever the zoom.
-  const at = await page.evaluate(sel => {
-    const strip = document.querySelector(`${sel} .hb-map-view-strip`).getBoundingClientRect()
-    const screen = document.querySelector(`${sel} .hb-map-view-screen`).getBoundingClientRect()
-    const r = document.querySelector(`${sel} [data-control="refused-cell"] rect`).getBoundingClientRect() // prettier-ignore
-    const zoom = screen.width / 256 // a horizontal screen is 16 tiles of 16 px
-    return {
-      x: (r.left - strip.left) / zoom,
-      y: (r.top - strip.top) / zoom,
-      w: r.width / zoom,
-      h: r.height / zoom,
+/** A cell's box in MAP pixels (strip origin, zoom divided out), and the zoom it was read at. */
+const cellAt = (page, index, screenW, n) =>
+  page.evaluate(
+    ({ sel, screenW, n }) => {
+      const strip = document.querySelector(`${sel} .hb-map-view-strip`).getBoundingClientRect()
+      const screen = document.querySelector(`${sel} .hb-map-view-screen`).getBoundingClientRect()
+      const cells = document.querySelectorAll(`${sel} [data-control="refused-cell"] rect`)
+      const r = cells[n].getBoundingClientRect()
+      const zoom = screen.width / screenW
+      return {
+        zoom,
+        x: (r.left - strip.left) / zoom,
+        y: (r.top - strip.top) / zoom,
+        w: r.width / zoom,
+        h: r.height / zoom,
+      }
+    },
+    { sel: root(index), screenW, n },
+  )
+
+for (const { index, screenPx } of MAPS) {
+  test(`$${index.toString(16)}: cells land on their tiles at two zooms, with the reason as tooltip and label`, async ({
+    page,
+  }) => {
+    const unported = { x: 3, y: 5, objectIndex: 7, objectType: 'type 9', handler: 0x0dfff0, why: WHY } // prettier-ignore
+    const gate = { x: 9, y: 2, objectIndex: 8, objectType: 'extended type 5', handler: 0x0db49e, why: WHY_GATE } // prettier-ignore
+    await openMap(page, index, [unported, gate])
+    const g = page.locator(`${root(index)} [data-control="refused-cell"]`)
+    await expect(g).toHaveCount(2, { timeout: 30000 })
+    for (const [n, c] of [unported, gate].entries()) {
+      const tip = `Object ${c.objectIndex} (${c.objectType}): ${c.why}`
+      await expect(g.nth(n).locator('title')).toHaveText(tip)
+      await expect(g.nth(n)).toHaveAttribute('aria-label', tip)
     }
-  }, root)
-  expect(at.x).toBeCloseTo(3 * 16, 0)
-  expect(at.y).toBeCloseTo(5 * 16, 0)
-  expect(at.w).toBeCloseTo(16, 0)
-  expect(at.h).toBeCloseTo(16, 0)
+    const zooms = []
+    for (const step of ['zoom-actual', 'zoom-in']) {
+      await page.locator(`${root(index)} [data-control="${step}"]`).click()
+      await page.waitForTimeout(400)
+      for (const [n, c] of [unported, gate].entries()) {
+        const at = await cellAt(page, index, screenPx[0], n)
+        if (n === 0) zooms.push(at.zoom)
+        expect(at.x).toBeCloseTo(c.x * 16, 0)
+        expect(at.y).toBeCloseTo(c.y * 16, 0)
+        expect(at.w).toBeCloseTo(16, 0)
+        expect(at.h).toBeCloseTo(16, 0)
+      }
+    }
+    // The two reads were at different zooms, so the agreement above is scaling, not a fixed pixel.
+    expect(zooms[1]).toBeGreaterThan(zooms[0] * 1.2)
+  })
+}
+
+test('cells that were shown clear when the next reply has none', async ({ page }) => {
+  const cell = { x: 3, y: 5, objectIndex: 7, objectType: 'type 9', handler: 0x0dfff0, why: WHY }
+  await openMap(page, 0x105, [cell])
+  await expect(page.locator(`${root(0x105)} [data-control="refused-cell"]`)).toHaveCount(1, { timeout: 30000 }) // prettier-ignore
+  await page.evaluate(async i => {
+    window.__hbRefused = undefined
+    const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { index: i })
+    w.refresh()
+  }, 0x105)
+  await expect(page.locator(`${root(0x105)} [data-control="refused-overlay"]`)).toHaveCount(0, { timeout: 30000 }) // prettier-ignore
+  await expect(page.locator(`${root(0x105)} [data-control="refused-cell"]`)).toHaveCount(0)
 })
 
 test('the map as the ROM draws it shows no refused cell', async ({ page }) => {
-  await openMap(page, undefined)
+  await openMap(page, 0x105, undefined)
   // The overlay is absent, not merely empty; the screen drew, so the zero is not an unloaded page.
-  await expect(page.locator(`${root} [data-control="refused-overlay"]`)).toHaveCount(0)
-  await expect(page.locator(`${root} [data-control="refused-cell"]`)).toHaveCount(0)
+  await expect(page.locator(`${root(0x105)} [data-control="refused-overlay"]`)).toHaveCount(0)
+  await expect(page.locator(`${root(0x105)} [data-control="refused-cell"]`)).toHaveCount(0)
 })

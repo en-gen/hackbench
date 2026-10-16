@@ -1275,13 +1275,12 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
                 />
               </div>
             ))}
-            {l.refusedCells && (
+            {l.refusedCells && !this.screenError && (
               <RefusedOverlay
                 cells={l.refusedCells}
                 width={l.orientation === 'vertical' ? l.width : l.width * l.screenCount}
                 height={l.orientation === 'vertical' ? l.height * l.screenCount : l.height}
                 zoom={this.zoom}
-                owner={String(this.options?.index ?? '')}
               />
             )}
             {this.showCollision && this.collisionCurrent() && (
