@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// The shared test-run lock (#923): one directory in the main checkout's state
-// dir so full unit runs, Theia builds and Playwright never overlap (timeouts
+// The shared test-run lock (#923): one directory in the shared state dir
+// (protocol.mjs stateDirIn) so full unit runs, Theia builds and Playwright never overlap (timeouts
 // in #485, #771). Not protocol.mjs withStateLock: that is a short-lived file
 // lock with a 10 s stale takeover, and this one is held for minutes and must
 // never be taken over. Only the owner removes it; a stale lock is reported.
@@ -16,7 +16,7 @@ import {
 } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { STATE_DIR_NAME, mainCheckoutDir } from './protocol.mjs'
+import { mainCheckoutDir, stateDirIn } from './protocol.mjs'
 
 export const STALE_MINUTES = 120
 const USAGE =
@@ -129,7 +129,7 @@ export function defaultStateDir(scriptDir = here, env = process.env) {
   if (main === scriptDir) {
     throw new Error('git cannot resolve the main checkout; set HACKBENCH_STATE_DIR')
   }
-  return path.join(main, STATE_DIR_NAME)
+  return stateDirIn(main)
 }
 
 export function cli(argv, stateDir) {

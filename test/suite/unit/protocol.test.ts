@@ -270,7 +270,8 @@ import {
   stateDirFor,
   protocolsDirFor,
   readSessions,
-  STATE_DIR_NAME,
+  LEGACY_STATE_DIR_NAME,
+  stateDirIn,
   migrateState,
   convertSessions,
   writeHandoff,
@@ -306,8 +307,9 @@ describe('mainCheckoutDir', () => {
 })
 
 describe('the state directory', () => {
-  it('is .hackbench-state in the main checkout, also from a worktree', () => {
-    const main = tempDir('main-')
+  it('is <parent>/.overwatch/<main checkout name>, also from a worktree', () => {
+    const parent = tempDir('parent-')
+    const main = path.join(parent, 'repo')
     execFileSync('git', ['init', '-q', main])
     execFileSync('git', ['-C', main, 'commit', '-q', '--allow-empty', '-m', 'root'], {
       env: {
@@ -320,17 +322,19 @@ describe('the state directory', () => {
     })
     const wt = path.join(tempDir('wt-'), 'w')
     execFileSync('git', ['-C', main, 'worktree', 'add', '-q', wt])
-    const real = (p: string) => path.join(fs.realpathSync(path.dirname(p)), path.basename(p))
-    expect(STATE_DIR_NAME).toBe('.hackbench-state')
-    expect(real(stateDirFor(wt))).toBe(path.join(fs.realpathSync(main), '.hackbench-state'))
-    expect(stateDirFor(wt)).not.toContain(path.join('.claude', 'state'))
+    const got = stateDirFor(wt)
+    expect(path.basename(got)).toBe('repo')
+    expect(path.basename(path.dirname(got))).toBe('.overwatch')
+    expect(fs.realpathSync(path.dirname(path.dirname(got)))).toBe(fs.realpathSync(parent))
+    expect(stateDirIn(main)).toBe(path.join(parent, '.overwatch', 'repo'))
+    expect(stateDirFor(wt)).not.toContain(LEGACY_STATE_DIR_NAME)
   }, 30000)
 })
 
-describe('the state directory is gitignored', () => {
+describe('the legacy state directory stays gitignored until it is deleted', () => {
   it('git check-ignore accepts a file inside it', () => {
     const root = path.resolve(__dirname, '../../..')
-    const r = spawnSync('git', ['check-ignore', '-q', `${STATE_DIR_NAME}/sessions.json`], {
+    const r = spawnSync('git', ['check-ignore', '-q', `${LEGACY_STATE_DIR_NAME}/sessions.json`], {
       cwd: root,
     })
     expect(r.status).toBe(0)
@@ -364,18 +368,44 @@ describe('migrateState', () => {
     fs.writeFileSync(path.join(from, 'sessions.json'), '{"a":1}')
     fs.writeFileSync(path.join(from, 'ba.md'), 'ba')
     fs.writeFileSync(path.join(from, 'teams', 'alpha.md'), 'alpha')
-    fs.writeFileSync(path.join(from, 'teams', 'notes.txt'), 'ignored')
+    fs.writeFileSync(path.join(from, 'teams', 'notes.txt'), 'notes')
+    fs.writeFileSync(path.join(from, 'team-registry.md'), 'registry')
+    fs.writeFileSync(path.join(from, 'team-protocol.md'), 'protocol')
+    fs.mkdirSync(path.join(from, 'locks', 'run'), { recursive: true })
+    fs.writeFileSync(path.join(from, 'locks', 'run', 'owner.txt'), 'owner: x')
+    fs.writeFileSync(path.join(from, '.lock'), 'held-by-someone')
+    fs.writeFileSync(path.join(from, 'ba.md.123.tmp'), 'half-written')
   }
 
-  it('copies the state files and leaves the source intact', () => {
+  it('copies every file, nested ones too, and leaves the source intact', () => {
     const from = tempDir('old-')
     const to = path.join(tempDir('new-'), 'state')
     seed(from)
+    const before = fs.readdirSync(from, { recursive: true }).sort()
     const r = migrateState(from, to)
-    expect(r.copied.sort()).toEqual(['ba.md', 'sessions.json', 'teams/alpha.md'])
+    expect(r.copied.sort()).toEqual([
+      'ba.md',
+      'locks/run/owner.txt',
+      'sessions.json',
+      'team-protocol.md',
+      'team-registry.md',
+      'teams/alpha.md',
+      'teams/notes.txt',
+    ])
     expect(fs.readFileSync(path.join(to, 'teams', 'alpha.md'), 'utf8')).toBe('alpha')
+    expect(fs.readFileSync(path.join(to, 'team-registry.md'), 'utf8')).toBe('registry')
+    expect(fs.readFileSync(path.join(to, 'locks', 'run', 'owner.txt'), 'utf8')).toBe('owner: x')
     expect(fs.readFileSync(path.join(from, 'sessions.json'), 'utf8')).toBe('{"a":1}')
-    expect(fs.existsSync(path.join(to, 'teams', 'notes.txt'))).toBe(false)
+    expect(fs.readdirSync(from, { recursive: true }).sort()).toEqual(before)
+  })
+
+  it('copies neither the state lock nor a temp file', () => {
+    const from = tempDir('old-')
+    const to = tempDir('new-')
+    seed(from)
+    migrateState(from, to)
+    expect(fs.existsSync(path.join(to, '.lock'))).toBe(false)
+    expect(fs.existsSync(path.join(to, 'ba.md.123.tmp'))).toBe(false)
   })
 
   it('writes sessions.json re-keyed by desktop id', () => {
@@ -450,9 +480,10 @@ describe('migrateState', () => {
     })
   })
 
-  it('takes the lock and the command prints what it did', () => {
-    const main = tempDir('main-')
-    const old = path.join(main, '.claude', 'state')
+  it('takes the lock and the command copies the legacy folder to the new one', () => {
+    const main = path.join(tempDir('parent-'), 'repo')
+    fs.mkdirSync(main)
+    const old = path.join(main, LEGACY_STATE_DIR_NAME)
     seed(old)
     const script = path.resolve(__dirname, '../../../tools/scripts/protocol.mjs')
     const r = spawnSync('node', [script, 'migrate-state'], {
@@ -466,7 +497,8 @@ describe('migrateState', () => {
     })
     expect(r.status).toBe(0)
     expect(JSON.parse(r.stdout).copied).toContain('sessions.json')
-    expect(fs.existsSync(path.join(main, '.hackbench-state', 'sessions.json'))).toBe(true)
+    expect(fs.existsSync(path.join(stateDirIn(main), 'sessions.json'))).toBe(true)
+    expect(fs.existsSync(path.join(old, 'sessions.json'))).toBe(true)
   })
 })
 
