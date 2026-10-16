@@ -19,7 +19,7 @@ const ENTRY: readonly (number | null)[] = [0xa5, 0x13, 0x29, 0x07, 0x1d, 0x26, 0
 const ROUTES: Readonly<Record<number, 'grinder' | 'chainsaw' | 'jmp'>> = { 0x62: 'jmp', 0x65: 'chainsaw', 0x66: 'chainsaw', 0x67: 'grinder', 0x68: 'jmp' } // prettier-ignore
 /** The prelude's length and its free operands: the DATA_01D717 table address and the JSR target. */
 export const PRELUDE_LEN = 33
-const PRELUDE_OPERANDS = [22, 23, 31, 32]
+export const PRELUDE_OPERANDS = [22, 23, 31, 32]
 
 /** Offsets of ENTRY's pinned bytes (the rest are operands that name a constant or a register). */
 export const ENTRY_PINNED = ENTRY.flatMap((v, i) => (v === null ? [] : [i]))
@@ -54,6 +54,7 @@ export interface DispatchShape {
  * in INIT (bank_01.asm:11766-11786), so its first MAIN draw is already on the track and the generic rule is right.
  */
 export const PLAT_ARM = { len: 68, draw: 46, step: 66 } as const
+export const PLAT_OPERANDS = [PLAT_ARM.draw, PLAT_ARM.draw + 1, PLAT_ARM.step, PLAT_ARM.step + 1]
 
 /**
  * Vanilla's. Targets: CODE_01DBD4 (bank_01.asm:12190, the $68 arm), CODE_01DC0B (12196, the $67 draw),
@@ -99,13 +100,12 @@ export function lineDrawsBeforeSnap(
   // $62 takes the BCC at 8 (disp pinned by the digest) to a JMP to the platform arm.
   const jmp = rom.readAt(at + 10 + span[9]!, 3)
   if (jmp?.[0] !== 0x4c) return false
-  const { len, draw, step } = PLAT_ARM
+  const { len, step } = PLAT_ARM
   const arm = bank | jmp[1]! | (jmp[2]! << 8)
   const body = rom.readAt(arm, len)
   if (body?.length !== len) return false
-  const ops = [draw, draw + 1, step, step + 1]
   return (
-    spanFingerprint(body, ops) === shape.plat &&
+    spanFingerprint(body, PLAT_OPERANDS) === shape.plat &&
     mirror(bank | body[step]! | (body[step + 1]! << 8)) === shape.targets[5]
   )
 }

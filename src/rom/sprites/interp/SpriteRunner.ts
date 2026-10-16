@@ -444,9 +444,9 @@ export type Probe = (pass: number, wram: Uint8Array) => void
  * arms 12206-12212 and 12323-12354; corner stores 12054-12061), so the grinder draws three different spots: the
  * off-track INIT spot, the probe corner the first MAIN snapped to, and the line point the walk then set. The
  * editor draws the third (#126, #792). Which ids qualify is `lineDrawsBeforeSnap`'s per-id shape check.
+ *
+ * Run once with a seed; no dependsOn analysis (half the cost of `runSprite`).
  */
-
-/** Run once with a seed; no dependsOn analysis (half the cost of `runSprite`). */
 export function runOnce(
   rom: RomFile,
   id: number,

@@ -22,6 +22,7 @@ import {
   lineDrawsBeforeSnap,
   PLAT_ARM,
   PRELUDE_LEN,
+  PRELUDE_OPERANDS,
 } from '../../../../src/rom/sprites/interp/LineGuided'
 import { runOnce, type SpriteModel } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { SPRITE_SEED, withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
@@ -38,6 +39,13 @@ import { buildSyntheticRom, type SyntheticOptions } from '../../support/syntheti
 const seed = withSeed({ slot: 3, sprite: { x: 0x80, y: 0x80 } }, SPRITE_SEED)
 const run = (id: number, o: SyntheticOptions = {}) =>
   runOnce(buildSyntheticRom(o), id, seed, { lineDispatch: GRINDER_DISPATCH })
+
+/** Whether the gate still accepts `id` at `handler` after XOR-ing the byte at `at` with `x`. */
+const flipped = (id: number, handler: number, at: number, x = 0x01) => {
+  const rom = buildSyntheticRom()
+  rom.writeAt(at, [rom.readAt(at, 1)![0]! ^ x])
+  return lineDrawsBeforeSnap(rom, id, handler, GRINDER_DISPATCH)
+}
 
 describe('line-guided draw pass', () => {
   it('draws another id at its first pass, at the position the draw ran', () => {
@@ -149,11 +157,7 @@ describe('line-guided draw pass', () => {
   })
 
   it('refuses a changed byte at every pinned offset of the entry and of the dispatch span', () => {
-    const flip = (at: number) => {
-      const rom = buildSyntheticRom()
-      rom.writeAt(at, [rom.readAt(at, 1)![0]! ^ 0x01])
-      return lineDrawsBeforeSnap(rom, 103, GRINDER_HANDLER, GRINDER_DISPATCH)
-    }
+    const flip = (at: number) => flipped(103, GRINDER_HANDLER, at)
     expect(ENTRY_PINNED).toHaveLength(14)
     expect(DISPATCH_PINNED).toHaveLength(28)
     for (const i of ENTRY_PINNED) expect(flip(GRINDER_HANDLER + i), `entry +${i}`).toBe(false)
@@ -163,11 +167,7 @@ describe('line-guided draw pass', () => {
 
   it('refuses a changed call or jump target: every target operand byte, low and high, several values', () => {
     const TARGET_OPERANDS = [15, 16, 24, 25, 27, 28, 32, 33, 35, 36, 37, 39, 40]
-    const flip = (at: number, x: number) => {
-      const rom = buildSyntheticRom()
-      rom.writeAt(at, [rom.readAt(at, 1)![0]! ^ x])
-      return lineDrawsBeforeSnap(rom, 103, GRINDER_HANDLER, GRINDER_DISPATCH)
-    }
+    const flip = (at: number, x: number) => flipped(103, GRINDER_HANDLER, at, x)
     const accepted = TARGET_OPERANDS.flatMap(i =>
       [0x01, 0x10, 0x7f, 0xff].filter(x => flip(GRINDER_DISPATCH_AT + i, x)).map(x => `+${i}^${x}`),
     )
@@ -210,14 +210,9 @@ describe('line-guided draw pass', () => {
   })
 
   it('refuses a changed byte in the chainsaw prelude, or in the platform arm, apart from its free operands', () => {
-    const flip = (id: number, handler: number, at: number) => {
-      const rom = buildSyntheticRom()
-      rom.writeAt(at, [rom.readAt(at, 1)![0]! ^ 0x01])
-      return lineDrawsBeforeSnap(rom, id, handler, GRINDER_DISPATCH)
-    }
-    const free = [22, 23, 31, 32]
+    const flip = flipped
     const hit = Array.from({ length: PRELUDE_LEN }, (_, i) => i).filter(i => flip(101, CHAINSAW_HANDLER, CHAINSAW_HANDLER + i)) // prettier-ignore
-    expect(hit).toEqual(free)
+    expect(hit).toEqual(PRELUDE_OPERANDS)
     // The platform arm sits at $019700; its draw JSR operand (46, 47) is free, its step operand (66, 67) is compared to the line step.
     const arm = Array.from({ length: PLAT_ARM.len }, (_, i) => i).filter(i => flip(98, JMP_HANDLER, 0x019700 + i)) // prettier-ignore
     expect(arm).toEqual([PLAT_ARM.draw, PLAT_ARM.draw + 1])

@@ -8,7 +8,9 @@
 import {
   DISPATCH_OPERANDS,
   PLAT_ARM,
+  PLAT_OPERANDS,
   PRELUDE_LEN,
+  PRELUDE_OPERANDS,
   type DispatchShape,
 } from '../../../src/rom/sprites/interp/LineGuided'
 import { spanFingerprint } from '../../../src/rom/SubmapFlagGate'
@@ -29,8 +31,8 @@ const PRELUDE_BYTES: number[] = Array(PRELUDE_LEN).fill(0xea)
 export const GRINDER_DISPATCH: DispatchShape = {
   sha: spanFingerprint(Buffer.from(dispatchBytes(false)), DISPATCH_OPERANDS),
   targets: [0x019400, 0x019400, 0x019280, 0x019280, 0x0194f0, 0x019290],
-  prelude: spanFingerprint(Buffer.from(PRELUDE_BYTES), [22, 23, 31, 32]),
-  plat: spanFingerprint(Buffer.from(PLAT_ARM_BYTES.slice(0, PLAT_ARM.len)), [PLAT_ARM.draw, PLAT_ARM.draw + 1, PLAT_ARM.step, PLAT_ARM.step + 1]), // prettier-ignore
+  prelude: spanFingerprint(Buffer.from(PRELUDE_BYTES), PRELUDE_OPERANDS),
+  plat: spanFingerprint(Buffer.from(PLAT_ARM_BYTES.slice(0, PLAT_ARM.len)), PLAT_OPERANDS),
 }
 
 /** `drawSub`: the shared one-piece draw routine, ending in RTS. */
