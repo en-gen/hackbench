@@ -1,4 +1,5 @@
 const { contrastRatio } = require('./palette-color.cjs')
+const { screenshotWithoutGrid } = require('./grid-probe.cjs')
 
 /**
  * What shows through a graphics canvas's transparent pixels, read from the
@@ -45,7 +46,8 @@ async function transparentShowsThrough(page, selector, covers = []) {
       height: Math.floor(y1 - Math.ceil(y0)),
     }
   }, selector)
-  const png = (await page.screenshot({ clip })).toString('base64')
+  // The grid is on by default (#920) and would draw over the sampled pixels.
+  const png = (await screenshotWithoutGrid(page, { clip })).toString('base64')
   return page.evaluate(
     async ({ sel, png, cell, clip, covers }) => {
       const canvas = document.querySelector(sel)

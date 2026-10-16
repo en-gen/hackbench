@@ -141,7 +141,9 @@ describe('the Maps tree', () => {
     expect(t.overworld.map(n => n.index)).toEqual([0x001])
     expect(names(t.special)).toBe('title-screen c7, new-game c5')
     expect(names(t.bonus)).toBe('bonus-game 0, bonus-game 100, yoshi-heaven c8, yoshi-heaven 1c8')
-    expect(t.unassigned).toEqual([])
+    expect(t.unassigned.filter(n => !n.placeholder)).toEqual([])
+    // The 505 unlisted slots share one pointer, so they are listed as placeholders.
+    expect(t.unassigned.filter(n => n.placeholder)).toHaveLength(505)
   })
 
   it('the vanilla seed files them into Bonus Games and Yoshi Heaven, not orphaned', () => {
@@ -161,7 +163,7 @@ describe('the Maps tree', () => {
   it('lists a slot both roles name once, under the first', () => {
     const t = tree(rom => rom.writeAt(P + 8, [rom.readByte(P + 1)!])) // LDY #yoshi = LDY #bonus
     expect(names(t.bonus)).toBe('bonus-game 0, bonus-game 100')
-    expect(t.unassigned.map(n => n.index)).toEqual([0x0c8, 0x1c8])
+    expect(t.unassigned.filter(n => !n.placeholder).map(n => n.index)).toEqual([0x0c8, 0x1c8])
   })
 
   it('lists $000 once when the walk also roots it', () => {
@@ -177,7 +179,9 @@ describe('the Maps tree', () => {
     expect(t.overworld.map(n => n.index)).toEqual([0x001])
     expect(names(t.special)).toBe('title-screen c7, new-game c5')
     expect(t.bonus).toEqual([])
-    expect(t.unassigned.map(n => n.index)).toEqual([0x000, 0x0c8, 0x100, 0x1c8])
+    expect(t.unassigned.filter(n => !n.placeholder).map(n => n.index)).toEqual([
+      0x000, 0x0c8, 0x100, 0x1c8,
+    ])
     expect(t.notes.join(' ')).toMatch(/Bonus Games and Yoshi Heaven: /)
   })
 })

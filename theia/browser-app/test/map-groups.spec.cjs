@@ -141,7 +141,9 @@ async function snapshot(page) {
       // sorted by slot, there being no separate Overworld folder any more.
       unassignedSlots: unassignedChildren.map(n => n.index),
       orphans: unassignedChildren
-        .filter(n => n.category === 'orphan')
+        // Real orphans: a placeholder slot (#901) is an orphan row too, but this suite's
+        // fixtures are about maps, so they are left to map-placeholder.spec.cjs.
+        .filter(n => n.category === 'orphan' && n.sharedCount === undefined)
         .map(n => ({ id: n.id, index: n.index })),
       entriesWithChildren: unassignedChildren
         .filter(n => n.children.length > 0)
@@ -163,10 +165,6 @@ async function snapshot(page) {
  */
 function rowById(page, id) {
   return page.locator(`${EXPLORER} .theia-TreeNode[data-node-id="${id}"]`)
-}
-
-function folderRow(page, name) {
-  return rowById(page, folderId(name))
 }
 
 /**
@@ -954,7 +952,7 @@ test('a group is built through the real UI, dragged into, persisted, and deleted
       return t.userGroups.find(g => g.name === 'Test')?.slots.length
     })
     .toBe(0)
-  await expect(await folderRow(page, 'Test')).toBeVisible()
+  await expect(await rowFor(page, 'group:user:Test')).toBeVisible()
 
   // 7. Delete: every map returns to Unassigned. (Nothing was left in "Test"
   //    by step 6, so this also proves an empty group deletes cleanly.)

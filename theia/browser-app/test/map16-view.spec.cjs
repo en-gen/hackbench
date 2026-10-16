@@ -55,7 +55,13 @@
 const { test, expect } = require('@playwright/test')
 const { CART, shownWords } = require('./rom-words.cjs')
 const { expectCheckerboard } = require('./pixel-canvas.cjs')
-const { readGrid, shootCanvas, compositedGridDiff, samplePixels } = require('./grid-probe.cjs')
+const {
+  readGrid,
+  shootCanvas,
+  compositedGridDiff,
+  samplePixels,
+  screenshotWithoutGrid,
+} = require('./grid-probe.cjs')
 const { parseRgbTriplet } = require('./palette-color.cjs')
 const fs = require('fs')
 const path = require('path')
@@ -932,7 +938,7 @@ test('the selected quadrant shows its outline on screen', async ({ page }) => {
     )
     const box = await quad.boundingBox()
     const clip = { x: box.x + 1, y: box.y + Math.floor(box.height / 2), width: 1, height: 1 }
-    const png = (await page.screenshot({ clip })).toString('base64')
+    const png = (await screenshotWithoutGrid(page, { clip })).toString('base64')
     return page.evaluate(async b64 => {
       const img = new Image()
       img.src = `data:image/png;base64,${b64}`
@@ -1601,7 +1607,8 @@ test('changing tileset/palettes/zoom/grid/playing preserves the selection and th
   await page.waitForTimeout(150)
   await stillSelected()
   after = await controlValues()
-  expect(after.grid).toBe(true)
+  expect(before.grid).toBe(true) // on by default (#920), so the click turns it off
+  expect(after.grid).toBe(false)
   expect({ ...after, grid: before.grid }).toEqual(before)
 
   before = await controlValues()
@@ -1629,20 +1636,20 @@ const PAGE_HEIGHT_PX = (TILES_PER_PAGE / TILES_PER_ROW) * TILE_PX
  * touches the decoded pixels, and its lines are cell * zoom apart (a tile is
  * TILE_PX) with a 1 device px weight at every zoom, none across a page gap.
  */
-test('the grid toggle draws 16px tile lines that track zoom, then removes them cleanly', async ({
+test('the grid shows by default, draws 16px tile lines that track zoom, and hides and shows again cleanly', async ({
   page,
 }) => {
   await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
   await openMap16(page, 'fg')
   const toggle = page.locator(ctl('grid-toggle'))
 
-  expect(await readGrid(page, FG)).toBeNull() // off by default
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
-  await expect(toggle).toHaveAttribute('title', 'Show grid')
-  const before = await readCanvas(page)
-  await toggle.click()
+  // On at first open (#920): the pressed state AND real line pixels, not just the button.
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   await expect(toggle).toHaveAttribute('title', 'Hide grid')
+  const first = await readGrid(page, FG)
+  expect(first).not.toBeNull()
+  expect(first.rowHits.length + first.colHits.length).toBeGreaterThan(0)
+  const before = await readCanvas(page)
 
   const zooms = []
   for (let step = 0; step < 2; step++) {
@@ -1684,8 +1691,23 @@ test('the grid toggle draws 16px tile lines that track zoom, then removes them c
 
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  await expect(toggle).toHaveAttribute('title', 'Show grid')
   expect(await readGrid(page, FG)).toBeNull()
   expect((await readCanvas(page)).checksum).toBe(before.checksum)
+
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  // GridCanvas paints in useEffect, so the canvas can exist before its pixels do.
+  await expect
+    .poll(async () => {
+      const g = await readGrid(page, FG)
+      return g !== null && g.rowHits.length + g.colHits.length > 0
+    })
+    .toBe(true)
+
+  await page.evaluate(() => getSvc('CommandRegistry').executeCommand('hackbench.map16.toggleGrid'))
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  expect(await readGrid(page, FG)).toBeNull()
 })
 
 /**
@@ -1698,7 +1720,7 @@ test('the outline boxes sit above the grid overlay in the same stacking context'
 }) => {
   await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
   await openMap16(page, 'fg')
-  await page.locator(ctl('grid-toggle')).click()
+  await expect(page.locator(ctl('grid-toggle'))).toHaveAttribute('aria-pressed', 'true') // on by default (#920)
   await clickTile(page, 0)
   await page.waitForTimeout(300)
   const probe = await page.evaluate(sel => {
@@ -1733,20 +1755,22 @@ test('the Map16 and GFX grids are independent, and the commands drive each', asy
   const gfxZoom = async () =>
     parseInt(await page.locator(`${GFX} [data-control="zoom-indicator"]`).textContent(), 10) / 100
 
-  await run('hackbench.map16.toggleGrid')
+  // Both start on (#920); each command turns only its own view's grid off.
   expect(await readGrid(page, FG)).not.toBeNull()
-  await show('hackbench.gfx-view:0')
-  expect(await readGrid(page, GFX)).toBeNull()
-
-  await run('hackbench.gfx.toggleGrid')
-  expect((await readGrid(page, GFX)).cell).toBe(8 * (await gfxZoom()))
-  await show('hackbench.map16-view:fg')
-  expect(await readGrid(page, FG)).not.toBeNull() // not reset by the other view
-
   await run('hackbench.map16.toggleGrid')
   expect(await readGrid(page, FG)).toBeNull()
   await show('hackbench.gfx-view:0')
-  expect(await readGrid(page, GFX)).not.toBeNull() // untouched by the Map16 toggle
+  expect((await readGrid(page, GFX)).cell).toBe(8 * (await gfxZoom())) // untouched by the Map16 toggle
+
+  await run('hackbench.gfx.toggleGrid')
+  expect(await readGrid(page, GFX)).toBeNull()
+  await show('hackbench.map16-view:fg')
+  expect(await readGrid(page, FG)).toBeNull() // not reset by the other view
+
+  await run('hackbench.map16.toggleGrid')
+  expect(await readGrid(page, FG)).not.toBeNull()
+  await show('hackbench.gfx-view:0')
+  expect(await readGrid(page, GFX)).toBeNull() // untouched by the Map16 toggle
 })
 
 /** HiDPI: one device pixel per line at fractional and doubled display scale. */
@@ -1758,19 +1782,27 @@ for (const dpr of [1.5, 2]) {
       page,
     }) => {
       await loadGfxExplorer(page, path.join(tmp, 'MyHack'))
-      await openMap16(page, 'fg')
-      await page.locator(ctl('grid-toggle')).click()
+      await openMap16(page, 'fg') // the grid starts on (#920)
       await page.waitForTimeout(300)
       expect(await page.evaluate(() => window.devicePixelRatio)).toBe(dpr)
 
-      const g = await readGrid(page, FG)
-      expect(g.dpr).toBe(dpr)
-      expect(g.canvasW).toBe(Math.round(g.cssW * dpr))
-      expect(g.rowHits).toEqual(expectedStarts(g.cell, g.x.length, dpr, g.canvasW))
-      expect(g.rowHits.every((v, i) => i === 0 || v - g.rowHits[i - 1] > 1)).toBe(true)
-      expect(g.colHits.every((v, i) => i === 0 || v - g.colHits[i - 1] > 1)).toBe(true)
-      // Each horizontal line is on its own rounded device row.
-      expect(g.colHits).toEqual([...new Set(g.yLines.map(l => l.start))].sort((a, b) => a - b))
+      const check = async () => {
+        const g = await readGrid(page, FG)
+        expect(g.dpr).toBe(dpr)
+        expect(g.canvasW).toBe(Math.round(g.cssW * dpr))
+        expect(g.rowHits).toEqual(expectedStarts(g.cell, g.x.length, dpr, g.canvasW))
+        expect(g.rowHits.every((v, i) => i === 0 || v - g.rowHits[i - 1] > 1)).toBe(true)
+        expect(g.colHits.every((v, i) => i === 0 || v - g.colHits[i - 1] > 1)).toBe(true)
+        // Each horizontal line is on its own rounded device row.
+        expect(g.colHits).toEqual([...new Set(g.yLines.map(l => l.start))].sort((a, b) => a - b))
+      }
+      await check()
+      // Turning it back on must draw the same one-pixel lines as the first open.
+      await page.locator(ctl('grid-toggle')).click()
+      expect(await readGrid(page, FG)).toBeNull()
+      await page.locator(ctl('grid-toggle')).click()
+      await page.waitForTimeout(300)
+      await check()
     })
   })
 }
@@ -2843,7 +2875,7 @@ async function rowColors(page, x, y, n) {
   expect(Number.isInteger(x) && Number.isInteger(y), `sample point ${x},${y} is whole pixels`).toBe(
     true,
   )
-  const png = await page.screenshot({ clip: { x, y, width: n, height: 1 } })
+  const png = await screenshotWithoutGrid(page, { clip: { x, y, width: n, height: 1 } })
   return page.evaluate(async b64 => {
     const img = new Image()
     img.src = `data:image/png;base64,${b64}`
@@ -3119,12 +3151,15 @@ test('the grid shows in a real screenshot: line pixels change, no other pixel do
   await page.mouse.move(2, 2)
   const sel = `${FG} .hb-map16-canvas`
 
-  const off = await shootCanvas(page, sel)
-  await page.locator(ctl('grid-toggle')).click()
-  await page.mouse.move(2, 2)
+  // The grid starts on (#920): shoot it on, hide it, shoot it off.
   await page.waitForTimeout(300)
   const grid = await readGrid(page, FG)
   const on = await shootCanvas(page, sel)
+  await page.locator(ctl('grid-toggle')).click()
+  await page.mouse.move(2, 2)
+  await page.waitForTimeout(300)
+  expect(await readGrid(page, FG)).toBeNull()
+  const off = await shootCanvas(page, sel)
   const d = await compositedGridDiff(page, off, on, grid)
 
   expect([d.bW, d.bH]).toEqual([d.W, d.H])
@@ -3162,10 +3197,10 @@ test('selection and hover outlines cover the grid line they sit on', async ({ pa
   }
   const sel = `${FG} .hb-map16-canvas`
   await hoverIt()
-  const off = await shootCanvas(page, sel)
-  await page.locator(ctl('grid-toggle')).click() // moves the pointer: hover again
+  const on = await shootCanvas(page, sel) // the grid starts on (#920)
+  await page.locator(ctl('grid-toggle')).click() // hides it; moves the pointer: hover again
   await hoverIt()
-  const on = await shootCanvas(page, sel)
+  const off = await shootCanvas(page, sel)
 
   const m = (TILE_PX / 2) * DEFAULT_ZOOM
   const w = TILE_PX * DEFAULT_ZOOM

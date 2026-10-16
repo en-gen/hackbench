@@ -1,0 +1,3 @@
+### Fixed
+
+- Capture viewer: the recorded-dy unwrap window now follows the piece height (#888). A 64-line piece (OBSEL $C0 large 32x64, or the 64x64 sizes) whose top is above line -32 and still reaches the screen no longer lands 256 lines too low; the window starts at min(-32, -(height-1)). Synthetic sweep over OBSEL $40, $80, $A0, $C0, both size bits and every top in the window, with planted mutants (wrong height index, size bit forced small, X bit read as size, constant 32, OBSEL forced 0) each turning it red; no capture page was re-rendered. The window still assumes a 224-line screen (not 239-line overscan), as since #811.

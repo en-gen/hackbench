@@ -154,8 +154,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** L1 (foreground) and L2 (background) shown; off leaves what is beneath them. */
   protected showL1 = true
   protected showL2 = true
-  /** The tile / sub-screen / screen grid; off by default. */
-  protected showGrid = false
+  /** The tile / sub-screen / screen grid; on by default. */
+  protected showGrid = true
   protected showL3 = true
   protected showSprites = true
   /** The map's sprites (#564), once read; `spritesWhy` is why there are none to show. */

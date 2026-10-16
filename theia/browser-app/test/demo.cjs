@@ -142,7 +142,12 @@ async function main() {
     const roots = w.model.root.children
     return {
       mapCount: w.mapCount,
-      distinct: new Set(roots.flatMap(r => r.children.flatMap(walk)).map(n => n.index)).size,
+      distinct: new Set(
+        roots
+          .flatMap(r => r.children.flatMap(walk))
+          .filter(n => n.sharedCount === undefined)
+          .map(n => n.index),
+      ).size,
       groups: roots.map(r => r.name),
       overworld: roots[0].children.length,
       unassigned: roots[1].children.length,
