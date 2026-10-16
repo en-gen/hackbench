@@ -274,6 +274,15 @@ describe('the wire carries four planes in the view stacking order (synthetic)', 
     expect(wire.planes.l2Low).toBeTruthy()
     expect(wire.layerNotes).toEqual(['Background height unverified: x'])
   })
+
+  it('a guessed entrance and an unverified height are two layer notes, not one sentence (#945)', () => {
+    const m = inputs(hGrid(1), false, 1)
+    const routeNote =
+      'No route from the overworld to this map was found, so its entrance is a guess.'
+    const l2 = { ...l2Of(nullGrid(27, 16), tiles2(solid)), note: 'Background height unverified: x', routeNote } // prettier-ignore
+    const wire = wireOf(mapOf(m, { ok: true, l2 }))
+    expect(wire.layerNotes).toEqual(['Background height unverified: x', routeNote])
+  })
 })
 
 // ── The core's L2 reading ────────────────────────────────────────────────────
@@ -465,7 +474,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       const m = inputs(vGrid(1), true, 1)
       const built = buildMapInputs(smw(entry(1), true), LEVEL, UNCLEARED, () => ({ ok: true, mode: 1 }), () => ({ ok: true, inputs: m }), () => new Map()) // prettier-ignore
       if (!built.ok) throw new Error('refused')
-      expect(built.inputs.l2).toMatchObject({ ok: true, l2: { note: expect.stringMatching(/no route/i) } }) // prettier-ignore
+      expect(built.inputs.l2).toMatchObject({ ok: true, l2: { routeNote: expect.stringMatching(/no route/i) } }) // prettier-ignore
     })
 
     it('entrances that agree draw without a note; ones that disagree draw the entrance chooseEntrance names and say the height is unverified', () => {

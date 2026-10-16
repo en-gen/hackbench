@@ -43,7 +43,7 @@ const camRom = () => {
 const l1 = { header: parseLevelHeader(Uint8Array.from([0, 0, 0, 0, 0])), isVertical: false, colors: [] } as never // prettier-ignore
 const camY = (via: MapEntrances) => buildL3Verdict(camRom(), MAP, l1, { ok: true, mode: 1 }, () => [[]] as never, { ok: true }, undefined, via).l3?.camYPx // prettier-ignore
 /** The drawn layer 2 height and its map note, through the public builder. */
-function drawn(via: MapEntrances): { dy: number; note?: string } {
+function drawn(via: MapEntrances): { dy: number; note?: string; routeNote?: string } {
   const smw = {
     rom: camRom(),
     getVerticalTable: () => ({ ok: true, table: new Array(32).fill(0) }),
@@ -51,7 +51,7 @@ function drawn(via: MapEntrances): { dy: number; note?: string } {
   const l1In = { screenCount: 1, isVertical: false, header: { levelMode: 1, objectTileset: 0 }, map16: { tiles: [] } } as unknown as L1Inputs // prettier-ignore
   const r = buildL2Inputs(smw as unknown as SmwRom, MAP, l1In, via, () => null)
   if (!r.ok) throw new Error(r.reason)
-  return { dy: r.l2.dy, note: r.l2.note }
+  return { dy: r.l2.dy, note: r.l2.note, routeNote: r.l2.routeNote }
 }
 const ids = Object.keys(ROWS).map(Number)
 const LOWEST_FIRST = (list: number[]) => Math.min(...list) // hard-coded rule, not chooseEntrance
@@ -77,7 +77,15 @@ describe('one entrance chooser for the layer 2 height and the layer 3 camera (#8
 
   it('a map with no route is drawn from the fallback and the note says no route was found', () => {
     const via: MapEntrances = { overworld: false, primary: false, secondary: [0x1c5, 0x1c3] }
-    expect(drawn(via).note).toMatch(/no route from the overworld/i)
+    expect(drawn(via).routeNote).toMatch(/no route from the overworld/i)
+  })
+
+  // Owner test of #945: the route fact and the height fact read as one mashed-together note.
+  it('the no-route fact is its own note, never joined onto the background height note', () => {
+    const via: MapEntrances = { overworld: false, primary: false, secondary: [0x1c5, 0x1c3] }
+    const r = drawn(via)
+    expect(r.routeNote).toBe('No route from the overworld to this map was found, so its entrance is a guess.') // prettier-ignore
+    expect(r.note ?? '').not.toMatch(/no route/i)
   })
 
   // #945: a map the walk never reached is absent from the graph; that is not "graph unavailable".
@@ -85,7 +93,7 @@ describe('one entrance chooser for the layer 2 height and the layer 3 camera (#8
     const graph = new Map<number, MapEntrances>([[MAP + 1, { overworld: true, primary: false, secondary: [], route: null }]]) // prettier-ignore
     const r = drawn(entrancesOfMap(graph, MAP)!)
     expect(r.dy).toBe(dyOf(PRIMARY_ROW))
-    expect(r.note).toMatch(/no route from the overworld/i)
+    expect(r.routeNote).toMatch(/no route from the overworld/i)
     expect(camY(entrancesOfMap(graph, MAP)!)).toBe(L1_Y[PRIMARY_ROW[0]!])
   })
 

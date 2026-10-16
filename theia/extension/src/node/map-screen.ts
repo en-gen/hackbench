@@ -343,6 +343,7 @@ export function screenResult(
     layerNotes: [
       model.l2 && !model.l2.ok ? `The background is not drawn: ${model.l2.reason}` : '',
       model.l2?.ok ? (model.l2.l2.note ?? '') : '',
+      model.l2?.ok ? (model.l2.l2.routeNote ?? '') : '',
       model.l3?.l3?.camYUnverified
         ? `Layer 3 position unverified: ${model.l3.l3.camYUnverified}`
         : '',

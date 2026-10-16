@@ -42,6 +42,8 @@ export interface L2Inputs {
   unverified?: string[]
   /** Why `dy` is unverified: the entrances that reach the map start L2 at different heights (#505). */
   note?: string
+  /** The entrance was guessed (no route from the overworld); its own map note, never part of `note`. */
+  routeNote?: string
 }
 
 export type L2Result = { ok: true; l2: L2Inputs } | { ok: false; reason: string }
@@ -91,7 +93,7 @@ function dyFromEntrances(
   rom: RomFile,
   index: number,
   via?: MapEntrances,
-): { dy: number; note?: string } | null {
+): { dy: number; note?: string; routeNote?: string } | null {
   if (!via) return null
   // A midway restart needs MidwayFlag, which the tape (Map16 $038) sets only while DisableMidway,
   // F400[map] >> 4 at the overworld entry, is nonzero (bank_00.asm:13042-13050; bank_05.asm:7349-7357).
@@ -113,8 +115,8 @@ function dyFromEntrances(
   const dys = ordered.map(p => entryDy(rom, index, p))
   const differ = ordered.filter((_, i) => dys[i] !== dys[0]).map(pathWords)
   const differNote = differ.length === 0 ? undefined : `drawn as entered ${pathWords(ordered[0]!)}; entered ${differ.join(', ')} it starts at a different height.` // prettier-ignore
-  const note = [differNote, routeNote].filter(Boolean).join(' ') || undefined
-  return note ? { dy: dys[0]!, note } : { dy: dys[0]! }
+  // Two facts, two notes: the route guess is not a reason the height is unverified (owner test, #945).
+  return { dy: dys[0]!, ...(differNote ? { note: differNote } : {}), ...(routeNote ? { routeNote } : {}) } // prettier-ignore
 }
 
 /**
@@ -194,7 +196,7 @@ export function buildL2Inputs(
       const rows = isVertical ? screens * SCREEN_H_VERT : 27
       return {
         ok: true,
-        l2: { kind: 'image', grid: tilePresetGrid(image, cols, rows), tiles: loadMap16Tiles(rom.rom, table.value), dy: dy(), note }, // prettier-ignore
+        l2: { kind: 'image', grid: tilePresetGrid(image, cols, rows), tiles: loadMap16Tiles(rom.rom, table.value), dy: dy(), note, routeNote: known?.routeNote }, // prettier-ignore
       }
     }
     // After the gate and the table, before the orientation check: modes $0A and $0D would otherwise be refused for a layout mismatch the game never meets.
@@ -215,6 +217,7 @@ export function buildL2Inputs(
         dy: dy(),
         unverified: objects.unverified,
         note,
+        routeNote: known?.routeNote,
       },
     }
   } catch (err) {
