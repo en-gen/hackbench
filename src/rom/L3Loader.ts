@@ -138,10 +138,10 @@ export function chooseEntrance(via?: MapEntrances): number | null {
 
 /**
  * `chooseEntrance` plus a note when the route could not be found (D66 call 1, #945). An overworld
- * entry map is primary. Any other map takes `via.route`, the entrance the exit-graph walk reached
- * it by first (null: a primary exit got there first). A map with no route (a record the walk never
- * entered) falls back to the earlier rule, a primary exit, else the lowest secondary id, else
- * primary, and says so: the owner's "interpret, else warn" principle (D57), never silent.
+ * entry map is primary. For any other map the route decides, even when a primary exit also enters
+ * it later: `via.route` is the entrance the exit-graph walk reached it by first (null: a primary
+ * exit got there first). A graph that never reached the map gives an empty record with no route:
+ * primary, with the note (the owner's "interpret, else warn" principle, D57), never silent.
  */
 export function chooseEntranceNoted(via?: MapEntrances): {
   entrance: number | null
@@ -149,6 +149,8 @@ export function chooseEntranceNoted(via?: MapEntrances): {
 } {
   if (!via || via.overworld) return { entrance: null }
   if (via.route !== undefined) return { entrance: via.route }
+  // Reached only by a record the walk did not build (a hand-built one with no `route`): the earlier
+  // lowest-id rule. A walk-built record always has a route or no way in (primary, below).
   const entrance = via.primary || via.secondary.length === 0 ? null : Math.min(...via.secondary)
   return {
     entrance,

@@ -1,8 +1,11 @@
 /**
  * #945 / #935: which of the 512 slots change entrance when a sub area takes the entrance on the
  * normal route (D66 call 1) instead of the lowest secondary id. Vanilla ROM only; skipped without it.
- * The expected list holds slot ids and entrance ids, no ROM bytes. Evidence scope: the exit graph
- * of the vanilla cart on one machine.
+ * Plainly: on vanilla the old and new rules agree on every slot, because no non-entry map has a
+ * secondary entrance. So the evidence here is the 28-slot pin and the unreached list; the
+ * change-comparison plant below only proves the loop can report a difference. The expected list
+ * holds slot ids and entrance ids, no ROM bytes. Evidence scope: the exit graph of the vanilla
+ * cart on one machine.
  */
 import { describe, it, expect, beforeAll } from 'vitest'
 import { SmwRom, type MapEntrances } from '../../../src/rom/SmwRom'

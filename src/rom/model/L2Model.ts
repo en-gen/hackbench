@@ -102,12 +102,8 @@ function dyFromEntrances(
     ...(via.overworld && midway ? [{ kind: 'midway' as const }] : []),
     ...via.secondary.map(id => ({ kind: 'secondary' as const, id })),
   ]
-  // A map the walk never reached has no path of its own: draw the primary and say so (#945). A
-  // record with a route but no path stays an orphan.
-  if (paths.length === 0) {
-    if (via.route !== undefined) return null
-    paths.push({ kind: 'exit' })
-  }
+  // A map the walk never reached has no path of its own: draw the primary and say so (#945).
+  if (paths.length === 0) paths.push({ kind: 'exit' })
   // The drawn path is the one L3Model's camera uses, from the same chooser (#861): null is the
   // primary entry (the first primary path), else the secondary id it names. Never an ordering of
   // our own, so the two views cannot drift apart on a non-ascending entrance list.

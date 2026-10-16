@@ -21,6 +21,11 @@ describe('chooseEntrance follows the route (#945)', () => {
   it('a primary exit that got there first stays primary despite later secondary entrances', () => {
     expect(chooseEntrance(via({ primary: true, secondary: [0x22], route: null }))).toBeNull()
   })
+  it('a non-entry map entered by a primary exit too still takes its earlier secondary route', () => {
+    const v = via({ primary: true, secondary: [0x30], route: 0x30 })
+    expect(chooseEntrance(v)).toBe(0x30)
+    expect(chooseEntranceNoted(v).note).toBeUndefined()
+  })
   it('an entry map is primary whatever else enters it', () => {
     expect(chooseEntrance(via({ overworld: true, secondary: [0x21], route: null }))).toBeNull()
     expect(chooseEntrance(via({ overworld: true, secondary: [0x21], route: 0x21 }))).toBeNull()

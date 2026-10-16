@@ -385,6 +385,33 @@ describe('SmwRom.buildLevelExitGraph', () => {
       expect(into.route).toBeNull()
     })
 
+    it('a non-entry map entered first by a secondary exit and later by a primary one takes the secondary (route decides)', () => {
+      const rom = make4MbRom()
+      level(rom, 0x010, 0x068000, exitObj(0x30, true))
+      dest(rom, 0x30, 0x60)
+      level(rom, 0x011, 0x069000, exitObj(0x60, false))
+      level(rom, 0x060, 0x06a000, [])
+      const into = graphOf(new SmwRom(rom)).entrances!.get(0x060)!
+      expect(into.primary).toBe(true)
+      expect(into.secondary).toEqual([0x30])
+      expect(into.route).toBe(0x30)
+    })
+
+    it('fewest screen exits from any root wins over the earlier root', () => {
+      const rom = make4MbRom()
+      // Root $010 -> A $050 by $30 -> S $060 by $31 (two exits deep); root $020 -> S by $32 (one).
+      level(rom, 0x010, 0x068000, exitObj(0x30, true))
+      dest(rom, 0x30, 0x50)
+      level(rom, 0x050, 0x06a000, exitObj(0x31, true))
+      dest(rom, 0x31, 0x60)
+      level(rom, 0x020, 0x06c000, exitObj(0x32, true))
+      dest(rom, 0x32, 0x60)
+      level(rom, 0x060, 0x06b000, [])
+      const into = graphOf(new SmwRom(rom)).entrances!.get(0x060)!
+      expect(into.secondary).toEqual([0x31, 0x32])
+      expect(into.route).toBe(0x32)
+    })
+
     it('a map the walk never enters has no record', () => {
       const rom = make4MbRom()
       level(rom, 0x010, 0x068000, [])

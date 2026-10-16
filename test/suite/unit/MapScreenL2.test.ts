@@ -458,6 +458,16 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       expect(build(entry(3), via(true, false)).dy).toBe(0x320 - 0xc0)
     })
 
+    // #945: the Theia build asks for the map's entrances; a graph that never reached the map must
+    // give the chooser an empty record (so it says "no route"), not undefined (primary, silent).
+    it('the Theia build: a graph lacking the map draws the primary entrance and says no route was found', () => {
+      objects([[1]])
+      const m = inputs(vGrid(1), true, 1)
+      const built = buildMapInputs(smw(entry(1), true), LEVEL, UNCLEARED, () => ({ ok: true, mode: 1 }), () => ({ ok: true, inputs: m }), () => new Map()) // prettier-ignore
+      if (!built.ok) throw new Error('refused')
+      expect(built.inputs.l2).toMatchObject({ ok: true, l2: { note: expect.stringMatching(/no route/i) } }) // prettier-ignore
+    })
+
     it('entrances that agree draw without a note; ones that disagree draw the entrance chooseEntrance names and say the height is unverified', () => {
       expect(build(entry(1), via(false, false, A, C)).note).toBeUndefined()
       const split = build(entry(1), via(false, false, A, B))
