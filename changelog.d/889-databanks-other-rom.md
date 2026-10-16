@@ -8,6 +8,8 @@
   read-only project folder keeps the old file and detection reruns on each open
   (the failed write is caught). A file with no readable `rom` string is still
   shape-checked and refused. Evidence: `src/project/DataBanksConfig.ts:51`
-  (comparison), `:69-76` (write and catch). Detection runs on every `get` in
-  `src/project/WorkingRomRegistry.ts:281-285` (cached path) and `:318` (first
-  build) (#889).
+  (comparison), `:69-76` (write and catch). Detection reruns whenever the project opens with its base ROM located, and
+  not otherwise: `src/project/WorkingRomRegistry.ts:274-285` (cached path, needs
+  a matching base ROM SHA-256 and a passing `opsMatch`) and `:301-318` (first
+  build, after `resolveVerified` finds the ROM; with no ROM `get` returns
+  `rom-not-located` at `:301-310` before detection) (#889).
