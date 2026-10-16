@@ -741,11 +741,11 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected readonly bare = new Map<number, string>()
 
   /** The state `syncDisplay` leaves a screen with nothing to draw in: the composite itself shows. */
-  protected showBare(canvas: HTMLCanvasElement, comp: HTMLCanvasElement): void {
+  protected showBare(canvas: HTMLCanvasElement, comp?: HTMLCanvasElement): void {
     if (canvas.width !== 0) canvas.width = 0
     delete canvas.dataset.drawn
     canvas.dataset.indicators = '[]'
-    comp.style.visibility = ''
+    if (comp) comp.style.visibility = ''
   }
 
   /** IndicatorDisplay builds so far; the scroll perf spec (#973) reads it to prove a warm scroll builds none. */
@@ -760,10 +760,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const [comp, shot, b] = [this.composites.get(s), this.screens.get(this.key(s)), this.blocks]
     const hide = () => {
       this.displays.delete(s)
-      if (canvas.width !== 0) canvas.width = 0
-      delete canvas.dataset.drawn
-      canvas.dataset.indicators = '[]'
-      if (comp) comp.style.visibility = ''
+      this.showBare(canvas, comp)
     }
     if (!comp?.dataset.drawn || !shot || !b) return hide()
     const want = `${comp.dataset.drawn}:${this.blocksVersion}:${this.zoom}`
@@ -789,9 +786,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
         arts: b.decoded,
       }, this.hoverOn(s) && indicatorId(this.hoverOn(s)!)) // prettier-ignore
       if (!display.touches) {
-        hide()
         this.bare.set(s, want)
-        return
+        return hide()
       }
       canvas.width = display.width
       canvas.height = display.height
