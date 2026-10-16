@@ -1,15 +1,8 @@
 ### Changed
 
-- The data banks record from #755: a `meta/data-banks.json` made for a different
-  base ROM (its `rom` SHA-256 does not match this project's base ROM) is
-  ignored, and detection runs again for this ROM and attempts to rewrite the
-  file. The SHA-256 is compared before the file's shape is checked, so a
-  malformed file made for another ROM is replaced rather than refused. A
-  read-only project folder keeps the old file and detection reruns on each open
-  (the failed write is caught). A file with no readable `rom` string is still
-  shape-checked and refused. Evidence: `src/project/DataBanksConfig.ts:51`
-  (comparison), `:69-76` (write and catch). Detection reruns whenever the project opens with its base ROM located, and
-  not otherwise: `src/project/WorkingRomRegistry.ts:274-285` (cached path, needs
-  a matching base ROM SHA-256 and a passing `opsMatch`) and `:301-318` (first
-  build, after `resolveVerified` finds the ROM; with no ROM `get` returns
-  `rom-not-located` at `:301-310` before detection) (#889).
+- A `meta/data-banks.json` whose readable `rom` SHA-256 differs from the
+  project's base ROM is now ignored, whatever else is in it: detection runs for
+  this ROM and the file is rewritten if the write succeeds
+  (`src/project/DataBanksConfig.ts:51-52`, `:66-74`). A file with no readable
+  `rom` string is not ignored: it fails the shape check and is refused with no
+  detection (`:53-59`, `:79-80`) (#889).
