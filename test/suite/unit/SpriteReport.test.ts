@@ -3,7 +3,6 @@
  * Page counts, refusals, the commit and the contact sheet; the grader itself is
  * covered by spriteGrade.captures.test.ts.
  */
-import { execFileSync } from 'child_process'
 import {
   chmodSync,
   cpSync,
@@ -17,14 +16,17 @@ import {
   writeFileSync,
 } from 'fs'
 import { tmpdir } from 'os'
-import { join, resolve } from 'path'
-import { afterAll, describe, expect, it, vi } from 'vitest'
+import { dirname, join, resolve } from 'path'
+import { spawnSync } from 'child_process'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { SpriteModel } from '../../../src/rom/sprites/interp/SpriteRunner'
 import { runSprite } from '../../../src/rom/sprites/interp/SpriteRunner'
 import { loadLevelState } from '../../../src/rom/sprites/interp/LevelLoader'
 import { withSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
 import { CAPTURE_DIR, VANILLA, freshRom, hasCaptures, hasRom } from '../support/corpus'
 import { timelineFor } from '../support/gradeTimeline'
+import { isolatedGit, isolateProcessGit } from '../support/isolatedGit'
+import { slow } from '../support/loadTimeout'
 import { grade } from '../support/spriteGrade'
 import { unzip } from '../../../tools/scripts/capture_render'
 import {
@@ -58,8 +60,23 @@ vi.mock('fs', async orig => {
 
 const tmp = mkdtempSync(join(tmpdir(), 'sprite-report-'))
 afterAll(() => rmSync(tmp, { recursive: true, force: true }))
-const git = (cwd: string, ...a: string[]): string =>
-  execFileSync('git', ['-C', cwd, ...a], { encoding: 'utf8' })
+// The code under test spawns git with process.env, so isolate the process too (#890).
+let restoreGit = (): void => {}
+beforeAll(() => {
+  restoreGit = isolateProcessGit(join(tmp, 'git-env'))
+})
+afterAll(() => restoreGit())
+const git = (cwd: string, ...a: string[]): string => {
+  const r = isolatedGit(cwd, join(tmp, 'no-hooks'), ...a)
+  if (r.status !== 0) throw new Error(`git ${a.join(' ')} exited ${r.status}: ${r.stderr}`)
+  return r.stdout
+}
+
+// Git-heavy tests (30 to 45 git spawns each). Measured worst case: 12 copies of this file at once,
+// n=12, one 32-CPU machine shared with other work: 8479 ms for the clone-spellings test, 5.4 s for
+// the others (some were cut off by the 5 s default, so their true worst is higher). 20 s is local-load
+// headroom, not a CI number; slow() keeps CI's 60 s floor.
+const GIT_HEAVY = slow(20_000)
 
 const COUNTS: Record<ReportVerdict, number> = {
   exact: 4,
@@ -159,14 +176,13 @@ describe('isInside', () => {
 const img = (n: number): Graded['oursImg'] => ({ w: 2, h: 2, px: new Uint8Array(16).fill(n) })
 const graded = (): Graded[] => rows().map(r => ({ ...r, oursImg: img(100), hardwareImg: img(200) }))
 const VALIDATION_URL = 'git@github.com:en-gen/hackbench-validation.git'
-const mkRepo = (name: string, remote: string | null = VALIDATION_URL): string => {
+// `commit: false` skips a spawn for tests that only read remotes.
+const mkRepo = (name: string, remote: string | null = VALIDATION_URL, commit = true): string => {
   const d = join(tmp, name)
   mkdirSync(d)
   git(d, 'init', '-q')
   if (remote) git(d, 'remote', 'add', 'origin', remote)
-  git(d, 'config', 'user.email', 't@example.com')
-  git(d, 'config', 'user.name', 't')
-  git(d, 'commit', '-q', '--allow-empty', '-m', 'init')
+  if (commit) git(d, 'commit', '-q', '--allow-empty', '-m', 'init')
   return d
 }
 const io = (over: Partial<Io> = {}): Io & { out: string[] } => {
@@ -182,6 +198,82 @@ const io = (over: Partial<Io> = {}): Io & { out: string[] } => {
     log: s => out.push(s),
     out,
     ...over,
+  }
+}
+
+// Plants a host gitconfig with a marker-writing hook and a probe key; un-isolating the helper,
+// mkRepo or the process turns a test red (#890).
+describe('git isolation', () => {
+  const plant = (name: string) => {
+    const dir = join(tmp, name)
+    mkdirSync(join(dir, 'hooks'), { recursive: true })
+    const marker = join(dir, 'hook-ran').replaceAll('\\', '/')
+    for (const h of ['pre-commit', 'post-commit'])
+      writeFileSync(join(dir, 'hooks', h), ['#!/bin/sh', `echo x > "${marker}"`].join('\n'), {
+        mode: 0o755,
+      })
+    const hooks = join(dir, 'hooks').replaceAll('\\', '/')
+    const cfg = join(dir, 'host.gitconfig')
+    writeFileSync(
+      cfg,
+      ['[core]', `\thooksPath = ${hooks}`, '[hackbench]', '\tprobe = 1', ''].join('\n'),
+    )
+    return { cfg, marker }
+  }
+  const withGlobal = <T>(cfg: string, f: () => T): T => {
+    const saved = process.env.GIT_CONFIG_GLOBAL
+    process.env.GIT_CONFIG_GLOBAL = cfg
+    try {
+      return f()
+    } finally {
+      if (saved === undefined) delete process.env.GIT_CONFIG_GLOBAL
+      else process.env.GIT_CONFIG_GLOBAL = saved
+    }
+  }
+  it('the process install is active: isolated config, identity, credential reset', () => {
+    // Goes red if the beforeAll install is deleted: git spawned with process.env is what the code under test does.
+    const sh = (...a: string[]) =>
+      spawnSync('git', a, { encoding: 'utf8', env: process.env, cwd: tmp })
+    expect(process.env.GIT_CONFIG_GLOBAL).toMatch(/isolated\.gitconfig$/)
+    expect(sh('config', '--get', 'user.email').stdout.trim()).toBe('t@t')
+    const reset = (r: { status: number | null; stdout: string }) => [r.status, r.stdout.trim()] // status 0: the key is set; empty: only the clearing value
+    expect(reset(sh('config', '--get-all', 'credential.helper'))).toEqual([0, ''])
+    const h = isolatedGit(tmp, join(tmp, 'no-hooks'), 'config', '--get-all', 'credential.helper')
+    expect(reset(h)).toEqual([0, ''])
+  })
+  it('the test helper and mkRepo ignore a host global hooksPath and config', () => {
+    const { cfg, marker } = plant('plant-h')
+    withGlobal(cfg, () => {
+      const r = mkRepo('iso-h')
+      expect(isolatedGit(r, join(tmp, 'no-hooks'), 'config', 'hackbench.probe').status).not.toBe(0)
+    })
+    expect(existsSync(marker)).toBe(false)
+  })
+  it('the code under test, which spawns git with process.env, ignores them too', () => {
+    const { cfg, marker } = plant('plant-p')
+    withGlobal(cfg, () => {
+      const restore = isolateProcessGit(join(tmp, 'git-env-p'))
+      try {
+        expect(run(['--validation', mkRepo('iso-p', VALIDATION_URL, false)], io())).toBe(0)
+      } finally {
+        restore()
+      }
+    })
+    expect(existsSync(marker)).toBe(false)
+  })
+})
+
+/** os.tmpdir() reads these on every call (lib/os.js: TEMP or TMP on win32, TMPDIR first on POSIX), so placeReport's scratch and backup land in `root`, not the tmpdir shared with concurrent runs (#914). */
+function withTmpdir(root: string, fn: () => void): void {
+  const keys = ['TMPDIR', 'TMP', 'TEMP']
+  const saved = keys.map(k => process.env[k])
+  keys.forEach(k => (process.env[k] = root))
+  try {
+    fn()
+  } finally {
+    keys.forEach((k, i) =>
+      saved[i] === undefined ? delete process.env[k] : (process.env[k] = saved[i]),
+    )
   }
 }
 
@@ -268,7 +360,7 @@ describe('run', () => {
     expect(git(v, 'status', '--porcelain')).toContain('A  staged.txt')
     expect(git(v, 'status', '--porcelain')).toContain('?? notes.txt')
   })
-  it('refuses to replace untracked or edited files in <key>/ unless --force', () => {
+  it('refuses to replace untracked or edited files in <key>/ unless --force', GIT_HEAVY, () => {
     const v = mkRepo('v10')
     run(['--validation', v], io())
     const dir = join(v, 'reports', 'sprites', 'deadbeef')
@@ -283,18 +375,22 @@ describe('run', () => {
     expect(readFileSync(join(dir, 'index.md'), 'utf8')).toBe('edited')
     expect(run(['--validation', v, '--force'], io())).toBe(0)
   })
-  it('restores an already-committed <key>/ and latest/ when a rerun fails to commit', () => {
-    const v = mkRepo('v11')
-    run(['--validation', v], io())
-    git(v, 'config', 'core.hooksPath', join(v, '.git', 'hooks'))
-    const hook = join(v, '.git', 'hooks', 'pre-commit')
-    writeFileSync(hook, '#!/bin/sh\nexit 1\n')
-    chmodSync(hook, 0o755)
-    const other = (): Graded[] =>
-      graded().map(g => ({ ...g, oursImg: img(7), hardwareImg: img(8) }))
-    expect(run(['--validation', v], io({ grade: other }))).toBe(1)
-    expect(git(v, 'status', '--porcelain')).toBe('')
-  })
+  it(
+    'restores an already-committed <key>/ and latest/ when a rerun fails to commit',
+    GIT_HEAVY,
+    () => {
+      const v = mkRepo('v11')
+      run(['--validation', v], io())
+      git(v, 'config', 'core.hooksPath', join(v, '.git', 'hooks'))
+      const hook = join(v, '.git', 'hooks', 'pre-commit')
+      writeFileSync(hook, '#!/bin/sh\nexit 1\n')
+      chmodSync(hook, 0o755)
+      const other = (): Graded[] =>
+        graded().map(g => ({ ...g, oursImg: img(7), hardwareImg: img(8) }))
+      expect(run(['--validation', v], io({ grade: other }))).toBe(1)
+      expect(git(v, 'status', '--porcelain')).toBe('')
+    },
+  )
   it('refuses --out and --sheet output inside a repo that shares the hackbench git store', () => {
     const main = mkRepo('hbmain2')
     const wt = join(tmp, 'hbwt2')
@@ -311,7 +407,7 @@ describe('run', () => {
     expect(existsSync(join(v, 'reports', 'sprites', 'abc-dirty', 'index.md'))).toBe(true)
     expect(existsSync(join(v, 'reports', 'sprites', 'abc'))).toBe(false)
   })
-  it('refuses to overwrite a folder with a ticked checkbox unless --force', () => {
+  it('refuses to overwrite a folder with a ticked checkbox unless --force', GIT_HEAVY, () => {
     const v = mkRepo('v8')
     run(['--validation', v], io())
     const page = join(v, 'reports', 'sprites', 'deadbeef', 'exact.md')
@@ -421,7 +517,7 @@ describe('run', () => {
       `refusing ${resolve(nested)}: it is inside the hackbench checkout. Nothing written.`,
     ])
   })
-  it('matches local clone spellings of hackbench, not look-alikes', () => {
+  it('matches local clone spellings of hackbench, not look-alikes', GIT_HEAVY, () => {
     const refused = [
       'C:\\x\\hackbench',
       'C:\\x\\hackbench\\',
@@ -432,14 +528,14 @@ describe('run', () => {
     const fine = ['https://github.com/someone/not-hackbench.git', 'x/my-hackbench']
     const root = join(tmp, 'hb')
     for (const u of refused) {
-      const r = mkRepo(`u-${refused.indexOf(u)}`, u)
+      const r = mkRepo(`u-${refused.indexOf(u)}`, u, false)
       expect(hackbenchRepo(r, root), u).toContain(u)
     }
     for (const u of fine)
-      expect(hackbenchRepo(mkRepo(`f-${fine.indexOf(u)}`, u), root), u).toBeUndefined()
+      expect(hackbenchRepo(mkRepo(`f-${fine.indexOf(u)}`, u, false), root), u).toBeUndefined()
     for (const u of ['C:\\x\\hackbench-validation\\', 'C:/x/hackbench-validation/.git'])
-      expect(isValidationRepo(mkRepo(`v-${u.length}`, u)), u).toBe(true)
-    expect(isValidationRepo(mkRepo('v-my', 'x/my-hackbench-validation'))).toBe(false)
+      expect(isValidationRepo(mkRepo(`v-${u.length}`, u, false)), u).toBe(true)
+    expect(isValidationRepo(mkRepo('v-my', 'x/my-hackbench-validation', false))).toBe(false)
   })
   it('names the cause once in the refusal: shared store, then the checkout', () => {
     const main = mkRepo('msg-main')
@@ -469,7 +565,7 @@ describe('run', () => {
     expect(c.out.join()).toContain('uncommitted')
     expect(readFileSync(mine, 'utf8')).toBe('mine')
   })
-  it('undoes a copy that throws partway through the replacement', () => {
+  it('undoes a copy that throws partway through the replacement', GIT_HEAVY, () => {
     const v = mkRepo('v13')
     run(['--validation', v], io())
     const before = git(v, 'rev-parse', 'HEAD')
@@ -489,37 +585,56 @@ describe('run', () => {
     expect(git(v, 'status', '--porcelain')).toBe('')
     expect(readFileSync(idx, 'utf8')).toBe(was)
   })
-  it('placeReport restores both prior folders when the replacement throws partway', () => {
-    const base = join(tmp, 'place-restore')
-    const seed = (dir: string, text: string): void => {
-      mkdirSync(join(base, dir, 'sub'), { recursive: true })
-      writeFileSync(join(base, dir, 'index.md'), text)
-      writeFileSync(join(base, dir, 'sub', 'keep.md'), `${text}-sub`)
-    }
-    seed('k1', 'old-key')
-    seed('latest', 'old-latest')
-    const real = vi.mocked(cpSync).getMockImplementation()!
-    let n = 0
-    // Fail the copy that fills base/latest, after <key>/ was already replaced; backups use cpSync too.
-    vi.mocked(cpSync).mockImplementation((...a: Parameters<typeof cpSync>) => {
-      if (String(a[1]).startsWith(join(base, 'latest')) && ++n === 1)
-        throw new Error('EBUSY: planted')
-      return real(...a)
-    })
-    try {
-      expect(() => placeReport(base, 'k1', new Map([['index.md', 'new']]), true)).toThrow(/planted/)
-    } finally {
-      vi.mocked(cpSync).mockImplementation(real)
-    }
-    for (const [d, text] of [
-      ['k1', 'old-key'],
-      ['latest', 'old-latest'],
-    ]) {
-      expect(readFileSync(join(base, d, 'index.md'), 'utf8')).toBe(text)
-      expect(readFileSync(join(base, d, 'sub', 'keep.md'), 'utf8')).toBe(`${text}-sub`)
-    }
-    expect(readdirSync(tmpdir()).filter(f => f.startsWith('sprite-report-backup-'))).toEqual([])
-  })
+  it(
+    'placeReport restores both prior folders when the replacement throws partway',
+    GIT_HEAVY,
+    () => {
+      const base = join(tmp, 'place-restore')
+      const seed = (dir: string, text: string): void => {
+        mkdirSync(join(base, dir, 'sub'), { recursive: true })
+        writeFileSync(join(base, dir, 'index.md'), text)
+        writeFileSync(join(base, dir, 'sub', 'keep.md'), `${text}-sub`)
+      }
+      seed('k1', 'old-key')
+      seed('latest', 'old-latest')
+      const real = vi.mocked(cpSync).getMockImplementation()!
+      let n = 0
+      // Fail the copy that fills base/latest, after <key>/ was already replaced; backups use cpSync too.
+      vi.mocked(cpSync).mockImplementation((...a: Parameters<typeof cpSync>) => {
+        if (String(a[1]).startsWith(join(base, 'latest')) && ++n === 1)
+          throw new Error('EBUSY: planted')
+        return real(...a)
+      })
+      const root = mkdtempSync(join(tmp, 'own-tmp-'))
+      const backups: string[] = []
+      const failing = vi.mocked(cpSync).getMockImplementation()!
+      vi.mocked(cpSync).mockImplementation((...a: Parameters<typeof cpSync>) => {
+        const dir = dirname(String(a[1])) // the copy into <backup>/<k1|latest>
+        if (dir.includes('sprite-report-backup-') && !backups.includes(dir)) backups.push(dir)
+        return failing(...a)
+      })
+      try {
+        withTmpdir(root, () =>
+          expect(() => placeReport(base, 'k1', new Map([['index.md', 'new']]), true)).toThrow(
+            /planted/,
+          ),
+        )
+      } finally {
+        vi.mocked(cpSync).mockImplementation(real)
+      }
+      for (const [d, text] of [
+        ['k1', 'old-key'],
+        ['latest', 'old-latest'],
+      ]) {
+        expect(readFileSync(join(base, d, 'index.md'), 'utf8')).toBe(text)
+        expect(readFileSync(join(base, d, 'sub', 'keep.md'), 'utf8')).toBe(`${text}-sub`)
+      }
+      // Name this call's own backup: a shared tmpdir() listing sees other runs' backups (#914). Non-empty rules out a vacuous pass.
+      expect(backups, JSON.stringify(backups)).toHaveLength(1)
+      expect(backups[0].startsWith(root)).toBe(true)
+      expect(existsSync(backups[0])).toBe(false)
+    },
+  )
   it('placeReport restores each folder independently and keeps the backup when a restore fails', () => {
     const base = join(tmp, 'place-restore-fail')
     for (const [d, text] of [
@@ -541,9 +656,10 @@ describe('run', () => {
       return real(...a)
     })
     let msg = ''
+    const root = mkdtempSync(join(tmp, 'own-tmp-'))
     try {
       try {
-        placeReport(base, 'k2', new Map([['index.md', 'new']]), true)
+        withTmpdir(root, () => placeReport(base, 'k2', new Map([['index.md', 'new']]), true))
       } catch (e) {
         msg = (e as Error).message
       }
@@ -556,6 +672,7 @@ describe('run', () => {
       expect(msg).toContain('not fully restored')
       expect(kept, msg).toBeDefined()
       expect(existsSync(kept!)).toBe(true)
+      expect(kept!.startsWith(root)).toBe(true)
       expect(readFileSync(join(kept!, 'k2', 'index.md'), 'utf8')).toBe('old-key')
       expect(readFileSync(join(base, 'latest', 'index.md'), 'utf8')).toBe('old-latest')
     } finally {

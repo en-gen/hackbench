@@ -192,7 +192,7 @@ export class Map16ViewWidget extends ReactWidget implements ProjectBound {
    * outline only, never the edit selection. */
   protected hoverTileId: number | undefined
 
-  protected showGrid = false
+  protected showGrid = true
   protected playing = false
   /** Which native animation frame is showing. Its own field, not derived
    * from a shared tick - see Map16CharAnimationDto's doc comment on why a

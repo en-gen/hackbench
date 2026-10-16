@@ -809,6 +809,50 @@ private to the test file.
 - `HB_CORE_JS` is the absolute path to `snes9x_libretro.js` (its `.wasm` must sit beside it). `emulator-view` and `emulator-gamepad` read it; unset, they fall back to the documented path (`vendor/cores/snes9x-wasm/` inside the worktree) and skip only if the core is missing there too, which in a worktree it usually is; a skipped run still exits 0. Set it, e.g. `HB_CORE_JS=C:/Projects/hackbench-cores/snes9x-wasm/snes9x_libretro.js`, and check the run reports passed, not skipped. `[EST]`
 - Nightly cost is why e2e is not per-PR. `[EST]`
 
+## Run lock
+
+Full unit runs, Theia builds and Playwright runs share one lock so they do
+not overlap (timeouts in #485, #771). It is the directory
+`<main checkout>/.hackbench-state/locks/run`; worktrees resolve the main
+checkout through git, and `HACKBENCH_STATE_DIR` overrides it.
+
+```bash
+node tools/scripts/run-lock.mjs acquire --owner "<team> <worktree>" --purpose "<text>"
+node tools/scripts/run-lock.mjs status
+node tools/scripts/run-lock.mjs release --owner "<team> <worktree>"
+```
+
+- Raw equivalent: `mkdir locks` then a non-recursive `mkdir locks/run`
+  (atomic; failure means held), then write `locks/run/owner.txt`.
+- `owner.txt` holds `owner:`, `purpose:` and `started:` (UTC) lines.
+- Only the owner removes it, with `release` and the exact same id (no
+  prefix, no padding; blank ids and line breaks (CR, LF, U+2028, U+2029) are refused). A wrong or
+  missing owner line refuses and leaves the lock (see #923 for the incident
+  where a non-owner deleted one by hand). A lock taken by hand, with
+  free-form text and no `owner:` line, cannot be proven, so `release` refuses
+  it: it is removed by hand by its owner.
+- `status` prints `owner.txt` as written, plus `next.txt` when it is not
+  blank. A lock with no parseable `started:` (hand-made, unreadable or
+  missing `owner.txt`), or a `started:` in the future, is aged by the lock
+  dir's mtime, and says so. If that age is still negative, `status` prints
+  "age unknown (clock skew), report to the BA" and never calls it fresh. An
+  mtime age can reset if `owner.txt` is replaced, so it is a lower bound.
+  `release` on a lock dir whose `owner.txt` is missing or empty says so (an
+  interrupted acquire) and refuses; report it to the BA.
+- `locks/next.txt` reserves the next turn. The owner's team is the leading
+  letters of its first word, lowercased (`xray-909` is `xray`); the lock is
+  free for that owner only if it is the FIRST word of `next.txt` (same
+  normalisation); the BA writes the team name first, and a path later in the
+  line (`bravo C:/wt/923-alpha-fix`) reserves for `bravo` only.
+  Otherwise do not take a free lock; the named team takes it, and the helper
+  then deletes the file. A blank `next.txt` is ignored.
+- A lock older than 2 hours (`status` prints STALE, strictly over 120 min) is
+  never removed by a non-owner. Report it to the BA with its `owner.txt`.
+- The CLI finds the state dir from the script's own location, not the
+  current directory. When git cannot resolve the main checkout and
+  `HACKBENCH_STATE_DIR` is unset it refuses (exit 1, message names the env
+  var) instead of using a lock dir somewhere else.
+
 ## Related docs
 
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) - general dev setup and PR flow
