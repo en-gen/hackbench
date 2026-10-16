@@ -74,13 +74,13 @@ const SHAPES: { name: string; at: number; want: (number | null)[] }[] = [
   { name: 'pointer loader at $05:D8B7', at: 0x05d8b7, want: [0xc2, 0x30, 0xa5, 0x0e, 0x0a, 0x18, 0x65, 0x0e, 0xa8] }, // prettier-ignore
   // CODE_00A635: LDA BluePSwitchTimer / ORA SilverPSwitchTimer / ORA DirectCoinTimer / BNE / LDA
   { name: 'Mario entrance setup at $00:A635', at: 0x00a635, want: [0xad, 0xad, 0x14, 0x0d, 0xae, 0x14, 0x0d, 0x0c, 0x19, 0xd0, 0x0a, 0xad] }, // prettier-ignore
-  // CODE_05801E: PHP / SEP #$20 / REP #$10 / LDX #0 / LDA #$25 / STA long
   // CODE_009FB8 (Layer 3 handler): LDA ObjectTileset / ASL / CLC / ADC ObjectTileset (bank_00.asm:4139-4143)
   {
     name: 'Layer 3 handler at $00:9FB8',
     at: 0x009fb8,
     want: [0xad, null, null, 0x0a, 0x18, 0x6d, null, null],
   },
+  // CODE_05801E: PHP / SEP #$20 / REP #$10 / LDX #0 / LDA #$25 / STA long
   { name: 'level data loader at $05:801E', at: 0x05801e, want: [0x08, 0xe2, 0x20, 0xc2, 0x10, 0xa2, 0x00, 0x00, 0xa9, 0x25, 0x9f, 0x00] }, // prettier-ignore
 ]
 

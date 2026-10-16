@@ -554,10 +554,11 @@ export function runOnce(
       probe?.(p, w)
       // The draw ran before this pass's own move, so for $67 it ran where the pass before left it.
       const origin = snaps ? (model.passes[p - 1]?.pos ?? anchor) : anchor
+      const drawPos = m.drawPos()
       model.passes.push({
         pass: p,
         pos: m.pos(),
-        ...(m.drawPos() ? { drawPos: m.drawPos()! } : {}),
+        ...(drawPos ? { drawPos } : {}),
         origin: { x: origin.x, y: origin.y },
         parts: readParts(m, origin),
         uploads: uploadsOf(m, hw),
