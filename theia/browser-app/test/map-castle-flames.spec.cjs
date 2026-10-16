@@ -13,8 +13,10 @@
  * "Flames under Layer 1" is covered by the $101 test below, not by $01F: the verifier measured no opaque Layer 1 pixel
  * under a $01F flame (all 6 screens, one run, real app), but $101 has 80 flame pixels under Layer 1 on screen 0.
  * The unit tests (test/suite/unit/MapFlamePlanes.test.ts, castle shape) cover the order too.
- * NOT covered by any Playwright spec: a mutant ignoring `dy` in castleFlameSprites survives (all 7 vanilla flame maps
- * have dy = 0); it needs a synthetic unit test.
+ * NOT covered by Playwright (all 7 vanilla flame maps have dy = 0): a mutant ignoring `dy` in castleFlameSprites; the
+ * synthetic cases in test/suite/unit/sprites/CastleFlames.test.ts catch it (7 red, one run).
+ * NOT pinned here: flame COLOURS. The expected colour comes from the same mapSprites reply that is drawn, so a wrong
+ * palette row in castleFlameSprites passes. A synthetic unit test is filed as a follow-up.
  * Plants for the verifier (each must turn the spec red; restore after):
  * - map-sprites.ts `castleFlameSprites`: a wrong `y` for the copies moves the positions (the first assertion);
  * - map-view-model.ts `withFlameKeys` returning `{ ...lists }` unchanged: no flame planes on this split list, the flames
@@ -215,7 +217,7 @@ test('on map $101 the flames draw on layer 2 and no other sprite draws a flame t
   const screens = [...Array(reply.screenCount).keys()]
   await openMap(page, screens)
   // Every screen: a flame pixel shows the flame colour exactly where Layer 1 is clear, and never under Layer 1
-  // (flames sit under Layer 1 and never overlap each other). Vanilla, one machine, one run: screen 0 is 208 / 80.
+  // (flames sit under Layer 1 and never overlap each other). Vanilla, one machine, one run: screen 0: 288 flame pixels, 208 clear, 80 under Layer 1 (vanilla, node composer, one run).
   let total = 0
   let free0 = { open: [], openRgb: [] }
   for (const s of screens) {
