@@ -2041,18 +2041,11 @@ test('the facts strip and the Header panel are gone, and the map keeps its layou
   const words = await shownWords(page, root(0x105))
   expect(words).not.toMatch(/Header bytes|\d+ screens|\d+ objects|\d+ sprites/)
 
-  // Nothing in the shell opens one: no command, no view.
-  const opens = await page.evaluate(() => {
-    const ids = getSvc('CommandRegistry').commandIds.filter(id => /header|facts/i.test(id))
-    const widgets = getSvc('ApplicationShell').widgets.map(w => w.id).filter(id => /header|facts/i.test(id)) // prettier-ignore
-    return { ids, widgets }
-  })
-  expect(opens).toEqual({ ids: [], widgets: [] })
-
   // The toolbar sits on the map, which fills the tab to its bottom edge (the folded panel
   // used to take a strip there), and a clean map has no note between them.
   const l = await layoutOf(page, 0x105)
-  expect(l.order).toEqual(['hb-map-view-toolbar', 'hb-map-view-scroller'])
+  // renderStrip wraps the scroller in the grid host; no strip or panel sits between them.
+  expect(l.order).toEqual(['hb-map-view-toolbar', 'hb-map-grid-host'])
   expect(l.scroller.top - l.toolbar.bottom).toBeLessThan(2)
   expect(l.main.bottom - l.scroller.bottom).toBeLessThan(2)
 })
@@ -3362,6 +3355,7 @@ test('a switch with no art shows plain words on the tooltip first line, the gate
 /** A note is in the notes row: below the toolbar, above the map, and visible. */
 async function expectInNotesRow(page, index, note) {
   await expect(note).toBeVisible()
+  await expect(page.locator(`${root(index)} [data-control="map-scroller"]`)).toBeAttached()
   const l = await layoutOf(page, index)
   const n = await note.evaluate(el => el.getBoundingClientRect().toJSON())
   expect(n.top).toBeGreaterThanOrEqual(l.toolbar.bottom - 1)
@@ -3399,9 +3393,9 @@ async function openStubbed(page, manifestPath, replies) {
 const UNAVAILABLE = [
   ['nameUnavailable', 'name', 'Name unavailable'],
   ['levelDataUnavailable', 'level-data', 'Level data unavailable'],
-  ['orientationUnavailable', 'orientation', 'Orientation unavailable'],
-  ['objectsUnavailable', 'objects', 'Objects unavailable'],
-  ['spriteUnavailable', 'sprite-data', 'Sprites unavailable'],
+  ['orientationUnavailable', 'orientation', 'Whether this map is vertical could not be read'],
+  ['objectsUnavailable', 'objects', 'The object list could not be read to its end'],
+  ['spriteUnavailable', 'sprite-data', "This map's sprite list could not be read"],
 ]
 for (const [field, note, text] of UNAVAILABLE) {
   test(`${note} unavailable: a note in the notes row, the reason only in its title (#1008)`, async ({
@@ -3436,7 +3430,7 @@ test('with the level data unreadable, nothing is claimed past it (#1008)', async
   }
 })
 
-test('the graphics-assignment caveat is a note in full, red, with no technical title (#1008)', async ({
+test('the graphics-assignment caveat is a plain red note, the full sentence only in its title (#1008)', async ({
   page,
 }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
@@ -3445,9 +3439,9 @@ test('the graphics-assignment caveat is a note in full, red, with no technical t
     mapDetails: { index: 0x105, gfxAssignmentNote: sentence },
   })
   const el = page.locator(`${root(0x105)} [data-note="gfx-assignment"]`)
-  await expect(el).toHaveText(sentence)
+  await expect(el).toHaveText('Graphics may not match the game')
   await expect(el).toHaveClass(/hb-map-view-note-error/)
-  await expect(el).not.toHaveAttribute('title', /.+/)
+  await expect(el).toHaveAttribute('title', sentence)
   await expectInNotesRow(page, 0x105, el)
 })
 

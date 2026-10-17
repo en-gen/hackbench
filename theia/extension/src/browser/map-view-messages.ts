@@ -55,10 +55,11 @@ export interface FactNoteInput {
 
 /**
  * Every warning the removed facts strip and Header panel carried (#1008, D80 call 2), as notes.
- * Order follows docs/design/map-facts-properties.md, "The design", item 2: notes first, "This
- * map" then "This ROM", so the later move into the Properties panel is a straight lift. The
- * start sits between the groups: the design files it under the ROM, or the map when it failed
- * just now, and either way it follows the map's notes and leads the ROM's.
+ * Order is an interim reading of docs/design/map-facts-properties.md, "The design", item 2:
+ * notes first, "This map" then "This ROM". The start sits between the groups: the design files
+ * it under the ROM, or the map when it failed just now. Two things differ from the design: it
+ * treats a missing base ROM as a project problem outside the notes row, and it gives unreadable
+ * facts "Can't be read" rows rather than notes; both are here as notes until the panel lands.
  * Nothing here is hex the user must read: the reasons from the loaders stay in the tooltip.
  */
 export function factNotes(i: FactNoteInput): FactNote[] {
@@ -79,13 +80,21 @@ export function factNotes(i: FactNoteInput): FactNote[] {
     } else {
       // The rest is read from the level data, so it is only claimed missing when that was read.
       if (d.orientationUnavailable) {
-        out.push({ note: 'orientation', text: 'Orientation unavailable', title: d.orientationUnavailable }) // prettier-ignore
+        out.push({ note: 'orientation', text: 'Whether this map is vertical could not be read', title: d.orientationUnavailable }) // prettier-ignore
       }
       if (d.objectsUnavailable) {
-        out.push({ note: 'objects', text: 'Objects unavailable', title: d.objectsUnavailable })
+        out.push({
+          note: 'objects',
+          text: 'The object list could not be read to its end',
+          title: d.objectsUnavailable,
+        })
       }
       if (d.spriteUnavailable) {
-        out.push({ note: 'sprite-data', text: 'Sprites unavailable', title: d.spriteUnavailable })
+        out.push({
+          note: 'sprite-data',
+          text: "This map's sprite list could not be read",
+          title: d.spriteUnavailable,
+        })
       }
     }
   }
@@ -98,7 +107,13 @@ export function factNotes(i: FactNoteInput): FactNote[] {
     })
   }
   if (d?.gfxAssignmentNote) {
-    out.push({ note: 'gfx-assignment', text: d.gfxAssignmentNote, error: true })
+    // Plain label visible, the loader's full sentence (it names files and RAM) in the tooltip.
+    out.push({
+      note: 'gfx-assignment',
+      text: 'Graphics may not match the game',
+      title: d.gfxAssignmentNote,
+      error: true,
+    })
   }
   if (i.romMissing) out.push({ note: 'rom-missing', text: i.romMissing, error: true })
   return out

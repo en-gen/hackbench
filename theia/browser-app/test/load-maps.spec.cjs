@@ -219,11 +219,11 @@ async function openMapView(page, rom, dir, index = 0x105) {
     { mp: manifestPath, index, label: index.toString(16) },
   )
   await waitForNotes(page)
-  return shownWords(page, NOTES_ROW)
+  return shownWords(page, MAP_VIEW)
 }
 
-/** The map view's notes: the warning lines under the toolbar, which carry each note's title too. */
-const NOTES_ROW = '.hb-map-view-main'
+/** The whole map view: toolbar, notes and map. */
+const MAP_VIEW = '.hb-map-view-main'
 
 /** The details reply has landed (the view says so), so a note's absence can be asserted. */
 async function waitForNotes(page) {
@@ -276,7 +276,8 @@ test('a ROM that picks GFX per level shows the map marked; a stock ROM is not ma
 
   await openMapView(page, romPath(GPW2), path.join(tmp, 'HookGfxMark'))
   await expect(page.locator(NOTE)).toBeVisible()
-  expect(await page.locator(NOTE).textContent()).toContain('FG/BG and sprite GFX files')
+  expect(await page.locator(NOTE).textContent()).toBe('Graphics may not match the game')
+  expect(await page.locator(NOTE).getAttribute('title')).toContain('FG/BG and sprite GFX files')
   expect(await page.locator(NOTE).textContent()).not.toMatch(CART)
   expect(await textContrast(page, NOTE)).toBeGreaterThanOrEqual(4.5)
   // Shown, not blanked: the note qualifies a map that is still drawn.
@@ -320,7 +321,7 @@ test('a ROM whose sprite-pointer read is patched shows sprites unavailable, with
 
   await openMapView(page, patched, path.join(tmp, 'SpritePatched'))
   const note = await noteOf(page, 'sprite-data')
-  expect(note.text).toBe('Sprites unavailable')
+  expect(note.text).toBe("This map's sprite list could not be read")
   expect(note.title).toMatch(/neither vanilla nor a recognized hook/i)
 })
 
@@ -378,7 +379,7 @@ test('a map whose object stream never reaches $FF shows objects unavailable, wit
 
   await openMapView(page, patched, path.join(tmp, 'ObjectsPatched'))
   const note = await noteOf(page, 'objects')
-  expect(note.text).toBe('Objects unavailable')
+  expect(note.text).toBe('The object list could not be read to its end')
   expect(note.title).toMatch(/did not reach its \$FF terminator/)
   expect(await noteOf(page, 'level-data')).toBeNull()
 })
@@ -803,7 +804,7 @@ test('the map explorer and map view speak of ROMs, never cartridges', async ({ p
   }, manifestPath)
   await waitForNotes(page)
   // The tab's title names the map; the view itself carries no slot text any more (#1008).
-  const view = await shownWords(page, NOTES_ROW)
+  const view = await shownWords(page, MAP_VIEW)
   expect(view).not.toMatch(CART)
 
   makeUntitledAndUnlocated(manifestPath)

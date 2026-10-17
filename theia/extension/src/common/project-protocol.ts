@@ -197,7 +197,7 @@ export interface MapDetailsDto {
   /** Why the slot's level data could not be read. When set, the fields below
    *  are absent, and nothing past the name is claimed. */
   levelDataUnavailable?: string
-  /** Why the object count cannot be trusted: the stream never reached its terminator. */
+  /** Why the object list may be cut short: the stream never reached its terminator. */
   objectsUnavailable?: string
   /** Why the orientation (VerticalTable) could not be read. */
   orientationUnavailable?: string

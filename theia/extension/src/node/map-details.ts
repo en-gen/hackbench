@@ -82,7 +82,7 @@ export function buildMapDetails(
     orientationUnavailable: verticalTable.ok ? undefined : verticalTable.reason,
     objectsUnavailable: parsed.terminated
       ? undefined
-      : 'the object stream did not reach its $FF terminator, so the count cannot be trusted',
+      : 'the object stream did not reach its $FF terminator, so the object list may be cut short',
     spriteUnavailable,
     gfxAssignmentNote:
       [levelGfxAssignmentNote(rom.rom), filterSomeRamNote(rom.rom, h.objectTileset, h.spriteSet)]

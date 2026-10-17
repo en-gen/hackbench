@@ -83,12 +83,13 @@ test('reusing one tab for a 1E level, then a normal one, hides the warning', asy
       {
         get: (_, name) =>
           name === 'mapDetails'
-            ? async () => ({ index: 0x1e2, levelMode: 0x01 })
+            ? async () => ({ index: 0x1e2, levelMode: 0x01, nameUnavailable: 'x' })
             : async () => ({ status: 'unavailable', reason: 'synthetic level' }),
       },
     )
     await w.open({ manifestPath: 'synthetic.hbproj', index: 0x1e2, label: 'n', iconClass: '' })
   })
-  await expect(page.locator(`${root(0x1e2)} .hb-map-view-main`)).toHaveAttribute('data-details', 'done') // prettier-ignore
+  // The marker only the second reply carries: proves it landed before the warning's absence counts.
+  await expect(page.locator(`${root(0x1e2)} [data-note="name"]`)).toBeVisible()
   await expect(page.locator(warning(0x1e2))).toHaveCount(0)
 })

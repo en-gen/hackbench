@@ -18,9 +18,9 @@ describe('factNotes', () => {
   it.each([
     ['nameUnavailable', 'name', 'Name unavailable'],
     ['levelDataUnavailable', 'level-data', 'Level data unavailable'],
-    ['orientationUnavailable', 'orientation', 'Orientation unavailable'],
-    ['objectsUnavailable', 'objects', 'Objects unavailable'],
-    ['spriteUnavailable', 'sprite-data', 'Sprites unavailable'],
+    ['orientationUnavailable', 'orientation', 'Whether this map is vertical could not be read'],
+    ['objectsUnavailable', 'objects', 'The object list could not be read to its end'],
+    ['spriteUnavailable', 'sprite-data', "This map's sprite list could not be read"],
   ] as const)('%s becomes the %s note, the reason in the title only', (field, note, text) => {
     const [n, ...rest] = factNotes({ details: { ...ok, [field]: 'planted reason $7E88DD' } })
     expect(rest).toEqual([])
@@ -41,7 +41,7 @@ describe('factNotes', () => {
 
   it('keeps the graphics caveat in full, drawn as an error', () => {
     const [n] = factNotes({ details: { ...ok, gfxAssignmentNote: 'The GFX files may differ.' } })
-    expect(n).toMatchObject({ note: 'gfx-assignment', text: 'The GFX files may differ.', error: true }) // prettier-ignore
+    expect(n).toMatchObject({ note: 'gfx-assignment', text: 'Graphics may not match the game', title: 'The GFX files may differ.', error: true }) // prettier-ignore
   })
 
   it('shows a failed read in plain words with the exception only in the title', () => {

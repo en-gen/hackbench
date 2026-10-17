@@ -146,7 +146,7 @@ describe('buildMapDetails - level data unavailable', () => {
 })
 
 describe('buildMapDetails - objects unavailable', () => {
-  it('withholds the object count when the walk never reaches $FF', () => {
+  it('flags the object list when the walk never reaches $FF', () => {
     // Zero bytes decode as 4-byte screen exits, so the walk runs off the read.
     const details = buildMapDetails(romWithL1(0x078000), 0x105)
     expect(details.objectsUnavailable).toMatch(/did not reach its \$FF terminator/)
