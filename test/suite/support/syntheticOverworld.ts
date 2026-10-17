@@ -26,6 +26,7 @@ import { plantStockPaletteCol1 } from '../../../src/rom/PaletteStockTables'
 import type { StockCode, StockSpan } from '../../../src/rom/SubmapFlagGate'
 import type { WorkingRom } from '../../../src/project/WorkingRom'
 import { FULL_WORD_MASK } from '../../../src/rom/PaletteOp'
+import { le16, le24 } from './le'
 import { TABLE_BANK, TABLE_HI, TABLE_LO, plantGfxReadPath } from './syntheticGfxCart'
 
 export const TILE_DATA = 0x0d9000
@@ -44,8 +45,7 @@ export const SYNTHETIC_FPS = {
   l2: [fingerprint(Buffer.alloc(0x35, 0xea))!],
 }
 
-export const le16 = (v: number): number[] => [v & 0xff, (v >> 8) & 0xff]
-export const le24 = (v: number): number[] => [...le16(v), (v >> 16) & 0xff]
+export { le16, le24 }
 export const hex4 = (w: number): string => `$${w.toString(16).padStart(4, '0')}`
 
 /** Appends a working-copy layer setting the word at `at` to `next(old)`. */
