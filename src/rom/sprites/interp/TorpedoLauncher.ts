@@ -28,6 +28,7 @@ import { bytesAt, shapeMatches } from './Guards'
 import { smwMachine } from './Machine'
 import { checkExecutePtr } from './SpriteDispatch'
 import { RAM, type SpritePart } from './SpriteRunner'
+import { touchedOamParts } from './CastleFlames'
 import type { SpriteSeed } from './SpriteSeed'
 
 /** The shooter number and the ids it leads to: $CA - $C8 (bank_02.asm:5744), Torpedo Ted. */
@@ -142,30 +143,11 @@ export function torpedoLauncher(
     touched.clear()
     w[RAM.curSprite] = ext
     run(ARM, { x: ext })
-    const arm: SpritePart[] = []
-    for (let i = 0; i < RAM.oamEntries; i++) {
-      const b = RAM.oam + i * 4
-      if (!touched.has(b + 2)) continue
-      const attr = w[b + 3]!
-      const hi = w[RAM.oamSize + i]!
-      const x9 = w[b]! | ((hi & 1) << 8)
+    const arm = touchedOamParts(w, touched, (x9, y) => {
       const rel = (((x9 - (anchor.x - seed.camera.x)) % 512) + 512) % 512
-      const dy = (w[b + 1]! - (anchor.y - seed.camera.y)) & 0xff
-      arm.push({
-        oam: i,
-        char: w[b + 2]! | ((attr & 1) << 8),
-        size: hi & 2 ? 16 : 8,
-        palette: 8 + ((attr >> 1) & 7),
-        priority: (attr >> 4) & 3,
-        flipX: !!(attr & 0x40),
-        flipY: !!(attr & 0x80),
-        dx: rel > 255 ? rel - 512 : rel,
-        dy: dy > 127 ? dy - 256 : dy,
-        attr,
-        ox: x9,
-        oy: w[b + 1]!,
-      })
-    }
+      const dy = (y - (anchor.y - seed.camera.y)) & 0xff
+      return { dx: rel > 255 ? rel - 512 : rel, dy: dy > 127 ? dy - 256 : dy }
+    })
     // A launcher without its hand is not the game's frame; it still draws (D52), and says so.
     if (arm.length === 0) unverified.push('the launcher arm drew no tile')
     return { ok: true, torpedo, arm, unverified }
