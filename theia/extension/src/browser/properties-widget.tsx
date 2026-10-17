@@ -10,14 +10,13 @@ import { ReactWidget } from '@theia/core/lib/browser'
 import type { Message } from '@theia/core/shared/@lumino/messaging'
 import { ProjectService, type SpritePartDto } from '../common/project-protocol'
 import { decodeRgba } from './map16-pixels'
+import { formatCharNum } from './map16-view-model'
 import { PropertiesModel, PropertiesSubject } from './properties-model'
-import { animatedText, LOADING_FRAMES, spriteProps } from './sprite-props'
+import { animatedText, LOADING_FRAMES, NOT_ANIMATED, spriteProps } from './sprite-props'
 import { FramePlayer, type FramesState } from './sprite-frames'
 
 export const PROPERTIES_VIEW_ID = 'hackbench.properties'
 export const NO_SPRITE_SELECTED = 'No sprite selected'
-
-const hex3 = (n: number) => '$' + n.toString(16).toUpperCase().padStart(3, '0')
 
 /** The composite, painted at the art's own size and magnified by CSS so it stays nearest-neighbour. */
 function Composite({
@@ -76,7 +75,6 @@ function SpriteSubject({
   subject: Extract<PropertiesSubject, { kind: 'sprite' }>
   frames: FramesState
 }): React.ReactElement {
-  // prettier-ignore
   const s = subject.sprite
   const p = spriteProps(s)
   const [w, h] = [s.box.x1 - s.box.x0, s.box.y1 - s.box.y0]
@@ -111,14 +109,14 @@ function SpriteSubject({
           ? animatedText(frames.frames.length)
           : frames.kind === 'loading'
             ? LOADING_FRAMES
-            : `${p.animation.text}${frames.kind === 'still' && frames.reason ? ` (${frames.reason})` : ''}`}
+            : `${NOT_ANIMATED}${frames.kind === 'still' && frames.reason ? ` (${frames.reason})` : ''}`}
       </div>
       <h4>Parts ({p.parts?.length ?? 0})</h4>
       <ol className="hb-props-parts" data-field="parts">
         {(p.parts ?? []).map((part, i) => (
           <li key={i}>
-            Tile {hex3(part.char)}, palette row {part.palette}, {flips(part)}, offset {part.dx},{' '}
-            {part.dy}
+            Tile {formatCharNum(part.char)}, palette row {part.palette}, {flips(part)}, offset{' '}
+            {part.dx}, {part.dy}
           </li>
         ))}
       </ol>

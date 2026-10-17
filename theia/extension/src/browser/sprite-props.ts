@@ -8,7 +8,7 @@ import { spriteLabel } from './map-view-model'
 
 const TILE = 16
 
-/** What the pane says for a sprite with one pose (or none that can be played); `reason` is appended when known. */
+/** What the pane says for a sprite with one pose (or none that can be played); the reason is appended when known. */
 export const NOT_ANIMATED = 'Not animated: this sprite shows one pose.'
 export const LOADING_FRAMES = 'Checking for animation frames...'
 export const animatedText = (n: number) => `Animated: ${n} frames, looping.`
@@ -33,7 +33,6 @@ export interface SpriteProps {
   parts: SpritePartDto[] | null
   /** Distinct CGRAM rows the parts draw with, ascending. */
   paletteRows: number[]
-  animation: { animated: false; text: string }
   /** Anything the pane knows it is not showing (interpret, else warn). */
   notes: string[]
 }
@@ -54,23 +53,6 @@ export function spriteProps(s: MapSpriteDto): SpriteProps {
     row: Math.floor(s.y / TILE),
     parts,
     paletteRows: parts ? [...new Set(parts.map(p => p.palette))].sort((a, b) => a - b) : [],
-    animation: { animated: false, text: NOT_ANIMATED },
     notes,
-  }
-}
-
-/** The rectangle the parts cover, relative to the anchor; each part is 8 x 8. */
-export function partsBounds(parts: readonly SpritePartDto[]): {
-  x0: number
-  y0: number
-  x1: number
-  y1: number
-} {
-  // prettier-ignore
-  return {
-    x0: Math.min(...parts.map(p => p.dx)),
-    y0: Math.min(...parts.map(p => p.dy)),
-    x1: Math.max(...parts.map(p => p.dx)) + 8,
-    y1: Math.max(...parts.map(p => p.dy)) + 8,
   }
 }

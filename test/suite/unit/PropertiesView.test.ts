@@ -7,11 +7,7 @@ import { describe, it, expect } from 'vitest'
 import type { EngineResult } from '../../../src/rom/model/sprites/generic/SpriteDrawEngine'
 import type { LevelSprite } from '../../../src/rom/LevelParser'
 import { drawSprites } from '../../../theia/extension/src/node/map-sprites'
-import {
-  NOT_ANIMATED,
-  partsBounds,
-  spriteProps,
-} from '../../../theia/extension/src/browser/sprite-props'
+import { spriteProps } from '../../../theia/extension/src/browser/sprite-props'
 import { PropertiesModel } from '../../../theia/extension/src/browser/properties-model'
 import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
 import { COLORS } from '../support/mapInputs'
@@ -54,7 +50,9 @@ describe('spriteProps: the parts are the ones the map view drew (acceptance 5)',
 
   it('the parts span exactly the bitmap box the view draws', () => {
     const dto = draw()
-    const b = partsBounds(dto.parts!)
+    const xs = dto.parts!.map(q => q.dx)
+    const ys = dto.parts!.map(q => q.dy)
+    const b = { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs) + 8, y1: Math.max(...ys) + 8 } // prettier-ignore
     expect({ x0: dto.x + b.x0, y0: dto.y + b.y0, x1: dto.x + b.x1, y1: dto.y + b.y1 }).toEqual(
       dto.box,
     )
@@ -76,14 +74,6 @@ describe('spriteProps: identity and position in words', () => {
   })
   it('an unnamed sprite is still labelled by id', () => {
     expect(spriteProps(draw(0x7e)).label).toBe('Sprite $7E')
-  })
-})
-
-describe('spriteProps: animation', () => {
-  it('the map view holds one frame per sprite, so the pane says so and offers no loop', () => {
-    const p = spriteProps(draw())
-    expect(p.animation).toEqual({ animated: false, text: NOT_ANIMATED })
-    expect(NOT_ANIMATED).toMatch(/not animated/i)
   })
 })
 
