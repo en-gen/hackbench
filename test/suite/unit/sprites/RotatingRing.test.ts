@@ -318,12 +318,20 @@ describe('the rotating ring: edges the gate and the seed can hit (synthetic cart
   it('an empty cart reads no routine bytes: every part is flagged, nothing throws', () => {
     // Out-of-range reads mirror (SpriteBus.romOffset), so only a zero-size ROM gives bytesAt null.
     const flags = ringGate(RomFile.fromBytes('empty.sfc', new Uint8Array(0)), routinesOf(ringRom()))
-    expect(flags).toEqual(
-      expect.arrayContaining([
-        'the cluster dispatch call target',
-        'the ring spawn routine (unreadable)',
-      ]),
-    )
+    // The complete ordered list: every PATH part, the call target, then the four routine spans.
+    expect(flags).toEqual([
+      'the loader route to the sprite spawn',
+      'the cluster spawn entry',
+      'the cluster loop',
+      'the cluster dispatch call',
+      'the $E2/$E3 branch to the ring spawn',
+      'the cluster dispatch entry for type 4',
+      'the cluster dispatch call target',
+      'the ring spawn routine (unreadable)',
+      'the ring draw routine (unreadable)',
+      'the ring draw helpers (unreadable)',
+      'the ring contact test (unreadable)',
+    ])
   })
 
   it('no level image and no stated reason says so plainly', () => {
