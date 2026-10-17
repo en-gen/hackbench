@@ -60,6 +60,16 @@ describe('playwright.config.cjs ports', { timeout: 60000 }, () => {
     }
   })
 
+  it('refuses a reconnect or multi-window port that is not an integer 1-65535', () => {
+    for (const name of ['HB_RECONNECT_PORT', 'HB_MULTIWINDOW_PORT']) {
+      for (const bad of ['abc', '0', '65536', '30.5', '-1', '3000; calc']) {
+        const r = load({ [name]: bad })
+        expect(r.status, `${name}=${bad}`).not.toBe(0)
+        expect(r.stderr).toContain(`${name} must be an integer 1-65535`)
+      }
+    }
+  })
+
   it('an explicit reconnect or multi-window port is kept', () => {
     const { out } = load({ HB_RECONNECT_PORT: '3555', HB_MULTIWINDOW_PORT: '3556' })
     expect([out.re, out.mw]).toEqual(['3555', '3556'])

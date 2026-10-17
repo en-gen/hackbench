@@ -20,11 +20,15 @@ for (const name of ['HB_PORT', 'HB_RECONNECT_PORT', 'HB_MULTIWINDOW_PORT']) {
   if (name === 'HB_PORT' && process.env.HB_APP_URL) continue // external server: no port of ours
   if (!process.env[name]) process.env[name] = String(freePort())
 }
-const PORT = process.env.HB_PORT
-// Interpolated into a shell command below: digits only, in range.
-if (PORT !== undefined && !(/^\d+$/.test(PORT) && +PORT >= 1 && +PORT <= 65535)) {
-  throw new Error(`HB_PORT must be an integer 1-65535, got "${PORT}"`)
+// HB_PORT is interpolated into a shell command below; the other two reach
+// specs as URLs. Digits only, in range, else a bad value polls for minutes.
+for (const name of ['HB_PORT', 'HB_RECONNECT_PORT', 'HB_MULTIWINDOW_PORT']) {
+  const v = process.env[name]
+  if (v !== undefined && !(/^\d+$/.test(v) && +v >= 1 && +v <= 65535)) {
+    throw new Error(`${name} must be an integer 1-65535, got "${v}"`)
+  }
 }
+const PORT = process.env.HB_PORT
 
 module.exports = defineConfig({
   testDir: './test',
