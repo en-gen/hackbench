@@ -1300,26 +1300,34 @@ test('an interpreter-drawn sprite shows its own pixels where the service placed 
   expect(reply.status).toBe('ok')
   expect(reply.sprites).toHaveLength(25)
   expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(24) // 21 plus the 3 stationary shells (#968)
-  const inScreen1 = s => s.box.x0 >= 256 && s.box.x1 <= 512 && s.box.y0 >= 0 && s.box.y1 <= 432
   // Measured on vanilla: the first $05 is at tile (27, 20), a 16 x 32 body whose top is above its anchor.
   const koopa = reply.sprites.find(s => s.id === 5)
   expect(koopa).toMatchObject({ x: 432, y: 320, status: 'drawn' })
   expect(koopa.box).toEqual({ x0: 432, y0: 304, x1: 448, y1: 336 })
-  const marker = reply.sprites.find(s => s.status === 'placeholder' && inScreen1(s))
-  expect(marker, 'a marker inside screen 1').toBeTruthy()
-  // The interpreter's own words: sprite $DB is past the ROM's 201-entry pointer table.
-  expect(marker.reason).toMatch(/^refused: INIT: id \$db is past the 201-entry pointer table/)
+  // After #968 the one $106 miss is $4D at (3760, 368), in screen 14 (3584-3840): measured on vanilla.
+  const marker = reply.sprites.find(s => s.status === 'placeholder')
+  expect(marker, 'a marker on $106').toBeTruthy()
+  expect(marker).toMatchObject({ id: 0x4d, x: 3760, y: 368 })
+  const mScreen = Math.floor(marker.box.x0 / 256)
+  expect(mScreen).toBe(14)
+  await showScreen(page, 0x106, mScreen)
+  await expect(spritePlane(page, 0x106, mScreen)).toHaveAttribute('data-drawn', SPRITES_DRAWN)
+  // The interpreter's own words: the sprite ran 64 passes and drew no OAM tile.
+  expect(marker.reason).toMatch(/^drew no OAM tile in 64 passes/)
 
   const read = await page.evaluate(
-    ({ koopa, marker }) => {
-      const c = document.querySelector(
-        '[id="hackbench.map-view:262"] canvas[data-screen="1"][data-plane="sprites"]',
-      )
-      const ctx = c.getContext('2d')
-      const cut = s => {
+    ({ koopa, marker, mScreen }) => {
+      const ctxOf = n =>
+        document
+          .querySelector(
+            `[id="hackbench.map-view:262"] canvas[data-screen="${n}"][data-plane="sprites"]`,
+          )
+          .getContext('2d')
+      const ctx = ctxOf(1)
+      const cut = (s, n = 1, c = ctx) => {
         const w = s.box.x1 - s.box.x0
         const h = s.box.y1 - s.box.y0
-        const got = ctx.getImageData(s.box.x0 - 256, s.box.y0, w, h).data
+        const got = c.getImageData(s.box.x0 - 256 * n, s.box.y0, w, h).data
         const want = Uint8Array.from(atob(s.rgba), ch => ch.charCodeAt(0))
         // Alpha and opaque colors only: a readback premultiplies translucent pixels.
         let same = true
@@ -1336,9 +1344,9 @@ test('an interpreter-drawn sprite shows its own pixels where the service placed 
       const abs = ctx.getImageData(432 - 256, 304, 16, 32).data
       let inBox = 0
       for (let i = 3; i < abs.length; i += 4) if (abs[i] !== 0) inBox++
-      return { koopa: { ...cut(koopa), inBox }, marker: cut(marker) }
+      return { koopa: { ...cut(koopa), inBox }, marker: cut(marker, mScreen, ctxOf(mScreen)) }
     },
-    { koopa, marker },
+    { koopa, marker, mScreen },
   )
   expect(read.koopa.opaque, 'the interpreter drew pixels').toBeGreaterThan(0)
   expect(read.koopa.inBox, 'canvas pixels inside the absolute box (432,304)-(448,336)').toBeGreaterThan(0) // prettier-ignore
