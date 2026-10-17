@@ -3,16 +3,23 @@
  * it (#529). map-view.spec.cjs pins only plane names and z-indexes, so a composite that
  * painted sprites last would still pass there; this spec reads composite PIXELS.
  *
+ * Since D52 (#866) a covered sprite shows through the tile in the screen door, so part (a) reads a blend.
  * Case (vanilla ROM, one run): slot $20, screen 11. Three id $33 sprites lie under
  * Map16 tile $004, whose four priority bits are set, giving 176 pixels where an opaque
  * sprite pixel is under an opaque l1High pixel. Part (b) clears those bits through the
  * Map16 service write path, moving the tile to l1Low; the same pixels must show the sprite.
  *
- * Plant (recorded once by the verifier on 510e090c, one run, one machine: part (a) red,
- * Expected 176, Received 0): in
- * src/rom/model/ScreenPlanes.ts, `on` returning `[...bg, 'sprites']` instead of the
- * slice-and-insert should turn part (a) red. ScreenPlanes.test and MapScreenL3.test catch
- * that plant too; this spec's value is the pixel-level check on a real map.
+ * Plant: in src/rom/model/ScreenPlanes.ts:53 change
+ * `return [...list.slice(0, at), 'sprites2', ...list.slice(at)]` to `return [...list, 'sprites2']`
+ * (sprites drawn last, the #529 defect); part (a) goes red on `compIsSprite <= n/2`.
+ * Result (verifier, branch a12856d6, one run, one machine, browser build): red at the `compIsSprite <= n/2`
+ * assertion ("but never over the tile: at most half the pixels"), expected <= 88, received 176.
+ *
+ * Plant 2: in src/rom/model/ColorMath.ts:93 make the door weight `w` 1 on bright squares and 0 otherwise, so
+ * dim squares show the tile alone. Result (same run): red at the `compIsHigh < n - compIsSprite` assertion
+ * ("the dim squares tint the tile..."), expected < 92, received 92.
+ *
+ * ScreenPlanes.test and MapScreenL3.test catch the first plant too; this spec's value is the pixel-level check on a real map.
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')
@@ -21,7 +28,7 @@ const os = require('os')
 const { PAGE_COMPOSE } = require('./pixel-canvas.cjs')
 const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
 
-const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
+const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT}`
 const ROM = process.env.HB_ROM || romPath(VANILLA)
 // Named skip when the ROM is absent (docs/testing.md).
 test.skip(!fs.existsSync(ROM), `vanilla ROM not present at ${ROM}`)
@@ -90,6 +97,12 @@ function probe(page, at) {
           throw new Error('plane and composite canvases differ in size')
       const pixels = at ?? [...Array(sprites.length / 4).keys()].filter(p => sprites[p * 4 + 3] === 255 && high[p * 4 + 3] === 255) // prettier-ignore
       const same = (a, b, p) => [0, 1, 2, 3].every(k => a[p * 4 + k] === b[p * 4 + k])
+      // Every colour channel of `v` lies between a's and b's (+-1 for rounding): a blend of the two.
+      const between = (v, a, b, p) =>
+        [0, 1, 2].every(k => {
+          const i = p * 4 + k
+          return v[i] >= Math.min(a[i], b[i]) - 1 && v[i] <= Math.max(a[i], b[i]) + 1
+        })
       return {
         pixels,
         spriteOpaque: pixels.filter(p => sprites[p * 4 + 3] === 255).length,
@@ -97,6 +110,7 @@ function probe(page, at) {
         lowOpaque: pixels.filter(p => low[p * 4 + 3] === 255).length,
         compIsHigh: pixels.filter(p => same(comp, high, p)).length,
         compIsSprite: pixels.filter(p => same(comp, sprites, p)).length,
+        compBetween: pixels.filter(p => between(comp, high, sprites, p)).length,
         highDiffersFromSprite: pixels.filter(p => !same(high, sprites, p)).length,
       }
     },
@@ -136,13 +150,29 @@ test('an L1 priority tile draws over an overlapping sprite; with priority cleare
   await expect(page.locator(plane('l1Low'))).toHaveAttribute('data-drawn', /^\d+:0000:000:11$/, { timeout: 30000 }) // prettier-ignore
   await expect(page.locator(plane('sprites'))).toHaveAttribute('data-drawn', /^\d+:\d+$/, { timeout: 30000 }) // prettier-ignore
 
-  // (a) Priority set: every overlap pixel shows the l1High pixel, which is not the sprite's.
+  // (a) Priority set: the sprite shows through the tile in the screen door (D52, docs/rom/obj-priority.md), at full
+  // strength on at most half of the covered pixels (`doorFlip`), so a sprite drawn last (#529) is all n, not n/2.
   const before = await probe(page)
   const n = before.pixels.length
   expect(n, 'sprites sit under l1High pixels here').toBeGreaterThanOrEqual(MIN_OVERLAP)
   expect(before.highDiffersFromSprite, 'the two sources differ at the overlap, or this proves nothing').toBe(n) // prettier-ignore
-  expect(before.compIsHigh, 'the composite shows l1High over the sprite').toBe(n)
-  expect(before.compIsSprite).toBe(0)
+  expect(before.compBetween, 'every overlap pixel blends the tile and the sprite').toBe(n)
+  expect(
+    before.compIsSprite,
+    'the door shows the sprite at full strength somewhere',
+  ).toBeGreaterThan(0)
+  expect(
+    before.compIsSprite,
+    'but never over the tile: at most half the pixels',
+  ).toBeLessThanOrEqual(n / 2)
+  // compBetween also holds where the composite equals the tile, so a defect that drops the door's dim
+  // squares (tile alone at every pixel but the full ones) would pass it. Rounding of the 0.25 dim blend may
+  // leave a few dim pixels on the tile colour, so `compIsHigh` need not be 0; it must be below the
+  // dim pixels' count (`n - compIsSprite`), i.e. at least one dim pixel differs from the tile.
+  expect(
+    before.compIsHigh,
+    'the dim squares tint the tile: fewer pixels equal the tile than are not full-strength',
+  ).toBeLessThan(n - before.compIsSprite)
 
   // (b) The same pixels with the tile's four priority bits cleared in the working copy.
   for (const which of ['tl', 'tr', 'bl', 'br']) {
