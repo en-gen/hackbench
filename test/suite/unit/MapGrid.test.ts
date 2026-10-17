@@ -174,3 +174,30 @@ describe('device pixels, both axes, scrolled', () => {
     expect(g.y.every(l => l.from === 0 && l.to === 512)).toBe(true)
   })
 })
+
+describe('the grid across the off-map margin (#1004)', () => {
+  const pad = { left: 48, top: 32, right: 32, bottom: 16 }
+
+  it('zero padding is the same lines as no padding', () => {
+    const none = computeMapGridLines({ ...base, vertical: false, screenCount: 3 })
+    const zero = { left: 0, top: 0, right: 0, bottom: 0 }
+    expect(computeMapGridLines({ ...base, vertical: false, screenCount: 3, pad: zero })).toEqual(none) // prettier-ignore
+  })
+
+  it('lines run on through the margin on the map tile lattice, the map edge keeping screen weight', () => {
+    const g = computeMapGridLines({ ...base, vertical: false, screenCount: 1, pad })
+    // Content is 48 + 256 + 32 = 336 wide: tile lines every 16 from 0 to the trailing edge (336 itself is clipped).
+    expect(g.x.map(l => l.pos)).toEqual(Array.from({ length: 21 }, (_, i) => i * 16))
+    // The map's own left and right edges (48 and 304) are the screen-weight lines.
+    expect(weights(g.x, 5)).toEqual([48, 304])
+    expect(g.y.map(l => l.weight === 5 && l.pos)).toContain(32)
+    // Every line spans the whole padded content, not just the map.
+    expect(g.y.every(l => l.from === 0 && l.to === 336)).toBe(true)
+  })
+
+  it('scrolled into the leading margin, lines still start inside the viewport', () => {
+    const g = computeMapGridLines({ ...base, vertical: false, screenCount: 1, pad, viewW: 40, viewH: 40 }) // prettier-ignore
+    expect(g.x.length).toBeGreaterThan(0)
+    expect(g.x.every(l => l.start >= 0 && l.start + l.size <= 40)).toBe(true)
+  })
+})

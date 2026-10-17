@@ -5,7 +5,7 @@
  * `gateMap`) checks it against Mesen, so what the gate proves is what the
  * tab shows, by construction rather than by keeping two copies in step.
  */
-import { refusedBounds, refusedCellsOf, type RefusedCell } from './RefusedCells'
+import { refusedCellsOf, type RefusedCell } from './RefusedCells'
 import type { SmwRom } from '../SmwRom'
 import { hex3s as hex3 } from '../hex'
 import type { RomFile } from '../RomFile'
@@ -271,11 +271,7 @@ export function buildL1Inputs(rom: SmwRom, index: number, flags: SwitchFlags): L
       crusher: readCrusherColors(rom.rom, index, tileset),
       unverified,
       refusals,
-      refusedCells: refusedCellsOf(
-        refusals,
-        objects,
-        refusedBounds(isVertical, header.levelLength),
-      ),
+      refusedCells: refusedCellsOf(refusals, objects),
     })
     return { ok: true, inputs }
   } catch (err) {

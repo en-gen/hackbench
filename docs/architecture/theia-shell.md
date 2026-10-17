@@ -351,13 +351,42 @@ unknown cells. Z-order is 150: above the screens, below the collision lines (200
 while the tab shows a screen error, so no marks sit on a blank strip.
 
 Only the anchor cell (the parser's x,y) is marked: a refused object's footprint is unknown, and a
-guessed rectangle would be [PROP]. An anchor past the strip (a horizontal y beyond row 26, an x beyond
-`screenCount` x 16, a vertical y beyond `screenCount` x 16 rows) is clamped onto the last row or
-column, never dropped: an undrawn object must not be hidden (D52).
+guessed rectangle would be [PROP]. The cell keeps the object's own x,y even when that names a tile off
+the map (negative, or past `screenCount` x 16 columns or rows): it is never clamped onto the edge and
+never dropped (D52, D76 call 2); the canvas extends to hold it, see below.
 
 Test hooks: `data-control="refused-overlay"` (absent when there are no cells), per cell
 `data-control="refused-cell"` with `data-x`, `data-y` (tiles) and `data-object`, and the reason
 `Object <n> (<type>): <why>` as both the `<title>` tooltip and the `aria-label`.
+
+### The map strip past the map (#1004)
+
+Content the data places off the map draws there: refused-object marks and sprites (a sprite's `box`
+is already in unclamped map pixels; the per-screen sprite canvases cut it to the map, so the part
+outside was never drawn before). `browser/off-map-extent.ts` (pure) turns the map size and every
+such rect into a `Pad` `{left, top, right, bottom}` in map pixels: 0 on a side nothing overflows,
+else the overflow rounded up to whole 16 px tiles plus one tile of margin [PROP]. It is the single
+place the canvas grows; a reserved "add screen" area (#950) would add to it.
+
+With all four pads 0 the DOM, styles and sizes are exactly as before. Otherwise the widget:
+
+- pads `.hb-map-view-strip` (CSS padding by pad x zoom) so the screens stay where they were
+  relative to the map origin, and insets the back area to the map;
+- draws the refused SVG in a user space whose origin is the MAP origin (`viewBox` starts at
+  `-left, -top`), so off-map cells land in the margin;
+- draws the sprite pixels that fall outside the map on one canvas
+  (`data-layer="off-map-sprites"`, z 120); the pixels inside stay with the screens, under the tiles;
+- marks the map's edge with a 1 px outline (`data-control="map-edge"`, theme foreground at low
+  opacity), only when padded; the grid (`MapGridOverlay`, `map-grid.ts` `pad`) runs on across the
+  margin on the same tile lattice.
+
+Everything that turns a pointer or scroll offset into a map position subtracts the leading pad:
+`updateHover` (`stripToMap`), `liftAt` (off-map positions never lift: no tile covers a sprite
+there), `visibleScreens`, `placeStart`, and `measureFit`, whose cross-axis size includes both
+cross-axis pads so Fit still shows the whole width (vertical map) or height (horizontal). The pad
+is derived from the layout and the sprites together, so when the sprites reply grows it the tab
+refits and keeps a scrolled view on the same map pixels. `mapOrigin` (strip px) is the one value a
+card positioned relative to the map (#977) needs.
 
 ## The emulator view
 

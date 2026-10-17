@@ -9,7 +9,6 @@ import { expandMapOwned, SWITCH_FLAGS_UNCLEARED } from '../../../src/rom/ObjectE
 import type { LevelObject } from '../../../src/rom/LevelParser'
 import {
   refusedCellsOf as cellsOf,
-  refusedBounds,
   WHY_UNPORTED,
   WHY_GATE,
 } from '../../../src/rom/model/RefusedCells'
@@ -54,8 +53,7 @@ const expand = (
   // prettier-ignore
   expandMapOwned(objects, 2, rom, 0, vertical, undefined, undefined, SWITCH_FLAGS_UNCLEARED, sink)
 
-const BIG = { cols: 999, rows: 999 }
-const refusedCellsOf = (r: Parameters<typeof cellsOf>[0], o: LevelObject[]) => cellsOf(r, o, BIG)
+const refusedCellsOf = cellsOf
 
 describe('refusedCellsOf (#816)', () => {
   it('marks the anchor cell of an unported object, on screen 1, with the plain reason', () => {
@@ -119,7 +117,7 @@ describe('one cell per object, kept on the map (#816)', () => {
     const objects = [obj(1, 3, 4)]
     const { refusals } = expand(cart(0x0db49e), objects, sink())
     expect(refusals.length).toBe(2)
-    const cells = cellsOf(refusals, objects, BIG)
+    const cells = cellsOf(refusals, objects)
     expect(cells.map(c => c.objectIndex)).toEqual([0])
     expect(cells[0]!.why).toBe(WHY_GATE)
   })
@@ -136,29 +134,22 @@ describe('one cell per object, kept on the map (#816)', () => {
       [unp, gate],
       [gate, unp],
     ]) {
-      const c = cellsOf(rs, o, BIG)
+      const c = cellsOf(rs, o)
       expect(c).toHaveLength(1)
       expect(c[0]!.why).toBe(WHY_GATE)
     }
   })
 
-  it('bounds follow the orientation and the screen count', () => {
-    expect(refusedBounds(false, 3)).toEqual({ cols: 48, rows: 27 })
-    expect(refusedBounds(true, 3)).toEqual({ cols: 32, rows: 48 })
-  })
-
-  it('an anchor past the strip is pulled to its last row and column, never dropped', () => {
-    const objects = [obj(1, 3, 31), obj(1, 40, 2), obj(1, 20, 9)]
-    const rs = [0, 1, 2].map(i => ({ objectIndex: i, handler: 1, reason: 'x' }))
-    expect(cellsOf(rs, objects, refusedBounds(false, 2)).map(c => [c.x, c.y])).toEqual([
-      [3, 26],
-      [31, 2],
-      [20, 9],
-    ])
-    expect(cellsOf(rs, objects, refusedBounds(true, 2)).map(c => [c.x, c.y])).toEqual([
-      [3, 31],
-      [31, 2],
-      [20, 9],
+  it('an anchor off the strip keeps its own x,y, never clamped (#1004)', () => {
+    // Negative and past-the-end on both axes: a clamp would turn each into 0 or the last row/column.
+    const objects = [obj(1, -2, 5), obj(1, 90, 5), obj(1, 4, -3), obj(1, 4, 400), obj(1, -1, -1)]
+    const rs = objects.map((_, i) => ({ objectIndex: i, handler: 1, reason: 'x' }))
+    expect(cellsOf(rs, objects).map(c => [c.x, c.y])).toEqual([
+      [-2, 5],
+      [90, 5],
+      [4, -3],
+      [4, 400],
+      [-1, -1],
     ])
   })
 })

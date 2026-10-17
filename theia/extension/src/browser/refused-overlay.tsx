@@ -11,6 +11,7 @@
  */
 import * as React from '@theia/core/shared/react'
 import type { MapRefusedCellDto } from '../common/project-protocol'
+import { NO_PAD, type Pad } from './off-map-extent'
 
 const CELL = 16
 /** Red, dashed and marked with "!": the collision overlay's unknown cells are orange and hatched, so the two never read alike. */
@@ -25,15 +26,22 @@ export function RefusedOverlay(props: {
   width: number
   height: number
   zoom: number
+  /**
+   * Off-map canvas around the map (#1004): the svg covers the padded strip and its user space
+   * keeps the MAP's origin, so a cell the data places off the map lands in the margin, unclamped.
+   */
+  pad?: Pad
 }): React.ReactElement | null {
   if (props.cells.length === 0) return null
+  const pad = props.pad ?? NO_PAD
+  const [w, h] = [props.width + pad.left + pad.right, props.height + pad.top + pad.bottom]
   return (
     <svg
       className="hb-map-refused"
       data-control="refused-overlay"
-      width={props.width * props.zoom}
-      height={props.height * props.zoom}
-      viewBox={`0 0 ${props.width} ${props.height}`}
+      width={w * props.zoom}
+      height={h * props.zoom}
+      viewBox={`${-pad.left} ${-pad.top} ${w} ${h}`}
     >
       {props.cells.map(c => (
         <g
