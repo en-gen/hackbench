@@ -59,7 +59,7 @@ import { RomFile } from './RomFile'
 import { tryDecompress, type BackRefOrder } from './LcLz2'
 import { formatAddr, loromToOffset, mirror } from './addressing'
 import { matchesAt, WILD, type BytePattern } from './BytePattern'
-import { PIXELS_PER_TILE } from './GraphicsDecoder'
+import { PIXELS_PER_TILE, decode4bpp } from './GraphicsDecoder'
 import { hex4s } from './hex'
 import { framesToMs } from './timing'
 import {
@@ -525,22 +525,7 @@ function decodeTilesAt(buffer: Uint8Array, offset: number): Uint8Array[] {
       tiles.push(new Uint8Array(PIXELS_PER_TILE))
       continue
     }
-    const px = new Uint8Array(PIXELS_PER_TILE)
-    for (let row = 0; row < 8; row++) {
-      const p0lo = buffer[tileOffset + row * 2]
-      const p0hi = buffer[tileOffset + row * 2 + 1]
-      const p1lo = buffer[tileOffset + 16 + row * 2]
-      const p1hi = buffer[tileOffset + 16 + row * 2 + 1]
-      for (let col = 0; col < 8; col++) {
-        const bit = 7 - col
-        px[row * 8 + col] =
-          ((p0lo >> bit) & 1) |
-          (((p0hi >> bit) & 1) << 1) |
-          (((p1lo >> bit) & 1) << 2) |
-          (((p1hi >> bit) & 1) << 3)
-      }
-    }
-    tiles.push(px)
+    tiles.push(decode4bpp(buffer, tileOffset))
   }
   return tiles
 }
