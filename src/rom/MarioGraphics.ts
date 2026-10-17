@@ -18,7 +18,7 @@
  */
 import type { RomFile } from './RomFile'
 import { cachedByVersion } from './RomFile'
-import { WILD, findPattern, type BytePattern } from './BytePattern'
+import { findPattern, parsePattern as hex, type BytePattern } from './BytePattern'
 import { parseStream, tryDecompress } from './LcLz2'
 import { gfxSource } from './GfxLoader'
 import { decode4bpp } from './GraphicsDecoder'
@@ -28,9 +28,6 @@ const WRAM_BYTES = 0xb000 // up to the end of the expanded GFX33 ($ACFF)
 const DYN_GFX_TILE_PTR = 0x0d85 // rammap.asm:1321; one word per slot, row 2 at +$0A
 const ROW_SLOTS = 5
 const PIECE = 0x40 // bytes per slot (HW_DMACNT, bank_00.asm:4586)
-
-/** "c2 10 ??" to a BytePattern: `??` is an operand read afterwards. */
-const hex = (s: string): BytePattern => s.split(' ').map(b => (b === '??' ? WILD : parseInt(b, 16)))
 
 // CODE_00B888 through the GFX32 pointer load at CODE_00B8D7 (bank_00.asm:6250-6290). The JSR is pinned to
 // the stock decompressor entry; operand slots: GFX33 low/high/bank, expansion top, source top, GFX32 low/high.
