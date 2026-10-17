@@ -371,6 +371,9 @@ function launcherResult(rom: RomFile, seed: SpriteSeed): SpriteDrawResult {
 /** SpriteLoadStatus, SMWDisX rammap.asm:1968 (SMW_U.sym 00001938): one byte per sprite list entry, 128 of them. */
 const SPRITE_LOAD_STATUS = 0x1938
 
+/** Where INIT left the sprite: pass 0 draws from it for every id, the line-guided $65/$67 included. */
+const initAnchor = (m: RunModel): { x: number; y: number } | undefined => m.passes[0]?.origin ?? m.anchor // prettier-ignore
+
 /**
  * The interpreter over this cart, for the level `index`: `levelSeed` runs the
  * ROM's own loader, Mario at the level's start, one sprite run alone per call.
@@ -407,15 +410,44 @@ export function interpDrawer(
   const shape = { level: { screenMode: model.isVertical ? 1 : 0, screens: model.screenCount } }
   return s => {
     const [x, y] = [pixelX(s), s.y * TILE]
-    const camera = cameraFor(x, y, model.isVertical, model.screenCount)
+    let camera = cameraFor(x, y, model.isVertical, model.screenCount)
     const seed = (camera: { x: number; y: number }, extra = {}) => withSeed({ sprite: { x, y }, camera, mario, ...shape, ...extra }, base) // prettier-ignore
     if (s.spriteId === TORPEDO_LAUNCHER_ID) return launcherResult(rom, seed(camera)) // prettier-ignore
-    const m = run(rom, s.spriteId, seed(camera))
+    let m = run(rom, s.spriteId, seed(camera))
+    // WHY: INIT may move the sprite (Podoboo steps down to the lava, InitFireball, bank_01.asm:13012-13032) while the
+    // game's camera follows Mario, not the list position. Two mechanisms hide it from the seeded screen: GetDrawInfo
+    // flags a sprite off the camera's screen (SpriteOffscreenVert/X, bank_01.asm:4748-4790) and its callers skip or
+    // clip those rows; and line-guided $65-$68 INIT moves an even-column sprite 320 px left (bank_01.asm:11788-11799), after which
+    // MAIN despawns the first run's off-camera seed (SubOffscreen1Bnk1, bank_01.asm:11849) before it draws. That spot is
+    // still the one the game uses: on a right scroll the sprite spawns about 32 px left of the screen edge, inside the keep
+    // window (bank_01.asm:5970-5973, 6006-6028; tweaker bit 2 clear, bank_07.asm:832-833), and rides its line onto the
+    // screen, so it is seen in play and is drawn at the post-INIT spot on its track (#988). So any anchor off
+    // the screen the list position centred (not a $33 test) is re-run once with the camera on the anchor. The first
+    // run stays if that draws nothing, or if the re-run's INIT left the sprite elsewhere (a sprite that places itself
+    // relative to the camera would drift): compared on passes[0].origin, the INIT anchor, which the line snap
+    // (bank_01.asm:12045-12061) never rewrites, unlike `anchor` (the #126 snap moves y 352 to 367 for the $67).
+    let [px, py] = [x, y]
+    if (m.anchor) {
+      const [dx, dy] = [m.anchor.x - camera.x, m.anchor.y - camera.y]
+      const moved = cameraFor(m.anchor.x, m.anchor.y, model.isVertical, model.screenCount)
+      if (
+        (dx < 0 || dx >= 256 || dy < 0 || dy >= 224) &&
+        (moved.x !== camera.x || moved.y !== camera.y)
+      ) {
+        const again = run(rom, s.spriteId, seed(moved))
+        const [i0, i1] = [initAnchor(m), initAnchor(again)]
+        if (modelResult(again).ok && i0 && i1 && i0.x === i1.x && i0.y === i1.y) {
+          ;[m, camera] = [again, moved]
+          // The probe shifts towards the screen centre of where the sprite now is, not of the list position.
+          if (again.anchor) [px, py] = [again.anchor.x, again.anchor.y]
+        }
+      }
+    }
     const at = m.chosen
     if (!w || !loaderCam || at === undefined || !m.anchor || s.index < 0 || s.index >= 128 || !w[SPRITE_LOAD_STATUS + s.index]) return modelResult(m) // prettier-ignore
     // Probe: the camera moved 13 x 11 px (not a multiple of the 8 px tile pitch, so a neighbour
     // tile cannot alias) towards the sprite's screen centre, so it stays drawn; run only to the drawn pass.
-    const shifted = { x: camera.x + (x - camera.x < 128 ? -13 : 13), y: camera.y + (y - camera.y < 112 ? -11 : 11) } // prettier-ignore
+    const shifted = { x: camera.x + (px - camera.x < 128 ? -13 : 13), y: camera.y + (py - camera.y < 112 ? -11 : 11) } // prettier-ignore
     const probe = run(rom, s.spriteId, seed(shifted, { mainPasses: at + 1 }))
     return modelResult(fixOffsets(m, probe, loaderCam, w) ?? m)
   }

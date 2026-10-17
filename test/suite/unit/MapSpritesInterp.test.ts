@@ -317,6 +317,122 @@ describe('screen-fixed parts (#286)', () => {
   })
 })
 
+describe('a sprite whose INIT moves it off the screen seeded from its list position (#980)', () => {
+  const blank = RomFile.fromBytes('blank.sfc', Buffer.alloc(0x80000))
+  const at = (y: number) => ({ index: 0, x: 8, y: y / 16, spriteId: 0x33, screen: 0, extraBit: false, raw: [], streamOffset: 0 }) as LevelSprite // prettier-ignore
+  const seen: SpriteSeed[] = []
+  // INIT drops the sprite 128 px (Podoboo, InitFireball, bank_01.asm:13012-13032); GetDrawInfo draws it only on screen.
+  const run = (_r: RomFile, _i: number, seed: SpriteSeed): SpriteModel => {
+    seen.push(seed)
+    const [x, y] = [seed.sprite.x, seed.sprite.y + 128]
+    const on = y - seed.camera.y >= 0 && y - seed.camera.y < 224
+    const parts = on ? [part({ dy: 0 }), part({ dy: 8, oam: 1 })] : [part({ dy: 0 })]
+    return model({ anchor: { x, y, rawX: seed.sprite.x, rawY: seed.sprite.y }, passes: [{ pass: 0, pos: { x, y }, origin: { x, y }, parts, uploads: [], palette: [] }], chosen: 0 }) // prettier-ignore
+  }
+  const draw = interpDrawer(blank, 0x11c, { isVertical: false, screenCount: 2 }, run, () =>
+    withSeed({}),
+  )
+
+  it('re-runs once with the camera on the post-INIT anchor, and serves that run', () => {
+    seen.length = 0
+    const r = draw(at(224))
+    expect(seen).toHaveLength(2)
+    const a = r.ok ? r.anchor : undefined
+    expect(a).toEqual({ x: 128, y: 352 })
+    expect(seen[1]!.camera).toEqual(cameraFor(a!.x, a!.y, false, 2))
+    expect(r.ok && r.parts).toHaveLength(2)
+  })
+
+  it('does not re-run when the anchor is already on the seeded screen', () => {
+    seen.length = 0
+    draw(at(16))
+    expect(seen).toHaveLength(1)
+  })
+
+  it('keeps the first run when the re-run draws nothing', () => {
+    let n = 0
+    const d = interpDrawer(blank, 0x11c, { isVertical: false, screenCount: 2 }, (r, i, s) => (n++ ? model({ emptyReason: 'drew no tile' }) : run(r, i, s)), () => withSeed({})) // prettier-ignore
+    expect(d(at(224)).ok).toBe(true)
+  })
+})
+
+describe('the re-run bounds and the camera it uses (#980)', () => {
+  const blank = RomFile.fromBytes('blank.sfc', Buffer.alloc(0x80000))
+  // List position (2000, 224) on a 20 screen map: the first camera is (1872, 112), so an INIT move of (kx, ky) puts the anchor at
+  // (kx + 128, ky + 112) on the screen, off it at x < 0 or >= 256, y < 0 or >= 224. Camera moves clamp, so none of these moves is a no-op.
+  const sprite = { index: 0, x: 125, y: 14, spriteId: 0x65, screen: 0, extraBit: false, raw: [], streamOffset: 0 } as LevelSprite // prettier-ignore
+  const drive = (
+    move: (cam: { x: number; y: number }) => [number, number],
+    loaded?: Uint8Array,
+  ) => {
+    const seen: SpriteSeed[] = []
+    const run = (_r: RomFile, _i: number, seed: SpriteSeed): SpriteModel => {
+      seen.push(seed)
+      const [x, y] = move(seed.camera)
+      const o = { x: seed.sprite.x + x, y: seed.sprite.y + y }
+      return model({ anchor: { ...o, rawX: seed.sprite.x, rawY: seed.sprite.y }, passes: [{ pass: 0, pos: o, origin: o, parts: [part({})], uploads: [], palette: [] }], chosen: 0 }) // prettier-ignore
+    }
+    const r = interpDrawer(blank, 0x0f, { isVertical: false, screenCount: 20 }, run, () => withSeed({ loaded }))(sprite) // prettier-ignore
+    return { seen, r }
+  }
+
+  it.each([
+    [127, 0, 1],
+    [128, 0, 2],
+    [-128, 0, 1],
+    [-129, 0, 2],
+    [0, 111, 1],
+    [0, 112, 2],
+    [0, -112, 1],
+    [0, -113, 2],
+  ])(
+    'an INIT move of (%i, %i) runs %i time(s): the screen is dx 0..255, dy 0..223',
+    (kx, ky, runs) => {
+      expect(drive(() => [kx, ky]).seen).toHaveLength(runs)
+    },
+  )
+
+  it('seeds the re-run camera from the ANCHOR, not the list position, and serves the re-run', () => {
+    // $65: INIT moves it 320 px left (bank_01.asm:11793-11799); the list x is 2000, the anchor 1680.
+    const { seen, r } = drive(() => [-320, 0])
+    expect(seen).toHaveLength(2)
+    expect(seen[1]!.camera).toEqual(cameraFor(1680, 224, false, 20))
+    expect(seen[1]!.camera.x).not.toBe(cameraFor(2000, 224, false, 20).x)
+    expect(r.ok && r.anchor).toEqual({ x: 1680, y: 224 })
+  })
+
+  it('draws an even-column line-guided sprite whose INIT moved it 320 px left at that spot (#988)', () => {
+    // Tile 124 is pixel 1984 (bit 4 clear): InitLineGuidedSpr subtracts $140 (bank_01.asm:11793-11799). The first seed
+    // draws nothing there (MAIN despawns it, 11849); only the re-run on the anchor draws, so no hook means no sprite.
+    const even = { ...sprite, x: 124 }
+    const run = (_r: RomFile, _i: number, seed: SpriteSeed): SpriteModel => {
+      const o = { x: seed.sprite.x - 320, y: seed.sprite.y }
+      const on = o.x - seed.camera.x >= 0 && o.x - seed.camera.x < 256
+      return model({ anchor: { ...o, rawX: seed.sprite.x, rawY: seed.sprite.y }, passes: [{ pass: 0, pos: o, origin: o, parts: on ? [part({})] : [], uploads: [], palette: [] }], chosen: on ? 0 : undefined, emptyReason: on ? undefined : 'drew no OAM tile in 64 passes' }) // prettier-ignore
+    }
+    const r = interpDrawer(blank, 0x0f, { isVertical: false, screenCount: 20 }, run, () => withSeed({}))(even) // prettier-ignore
+    expect(r.ok && r.anchor).toEqual({ x: 1664, y: 224 })
+    expect(r.ok && r.parts).toHaveLength(1)
+  })
+
+  it('keeps the first run when the re-run left the sprite elsewhere (it places itself off the camera)', () => {
+    const { seen, r } = drive(cam => [cam.x + 300 - 2000, 0])
+    expect(seen).toHaveLength(2)
+    expect(r.ok && r.anchor).toEqual({ x: 1872 + 300, y: 224 })
+  })
+  it('shifts the offset probe from the re-run camera, towards the screen centre of the ANCHOR', () => {
+    // A loaded image with sprite 0 marked loaded ($1938) is what turns the probe on. Anchor 2300 is right of the list x
+    // 2000: the probe shifts +13 (the anchor sits at the moved camera's centre), where the list position would give -13.
+    const loaded = new Uint8Array(0x10000)
+    loaded[0x1938] = 1
+    const { seen } = drive(() => [300, 0], loaded)
+    expect(seen).toHaveLength(3)
+    const [moved, probe] = [seen[1]!.camera, seen[2]!.camera]
+    expect(moved).toEqual(cameraFor(2300, 224, false, 20))
+    expect([probe.x - moved.x, probe.y - moved.y]).toEqual([13, 11])
+  })
+})
+
 describe('drawSprites with runtime palette writes', () => {
   const s = { index: 0, x: 0, y: 0, spriteId: 1, screen: 0, extraBit: false, raw: [], streamOffset: 0 } as LevelSprite // prettier-ignore
   const chars = { sp1: [Uint8Array.from([1, 2, ...new Array(62).fill(0)])] }
@@ -756,6 +872,48 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     expect(got).toEqual([
       [32, 34],
       [24, 25],
+    ])
+  })
+})
+
+describe.skipIf(!hasRom(VANILLA))('vanilla $11C Podoboos (#980)', () => {
+  const got = () => {
+    const b = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
+    const r = mapSprites(new L1ModelCache(), b, romPath(VANILLA), 0x11c)
+    if (r.status !== 'ok') throw new Error(JSON.stringify(r))
+    return r.sprites
+  }
+
+  it('draws all seven $33 at full height, at the y0 hardware shows to 0..2 px (MapSpritesCapture.test.ts)', () => {
+    const p = got().filter(s => s.id === 0x33)
+    expect(p.map(s => s.index)).toEqual([0, 2, 3, 10, 11, 12, 13])
+    expect(p.map(s => s.box.y0)).toEqual([395, 395, 395, 394, 393, 394, 393])
+    for (const s of p) expect(s.box.y1 - s.box.y0, `index ${s.index}`).toBe(16)
+  })
+
+  it('leaves every other sprite where it was drawn before the fix (develop 19ee4775, one machine)', () => {
+    const rest = got().filter(s => s.id !== 0x33).map(s => `${s.index}:${s.id}@${s.box.x0},${s.box.y0},${s.box.x1},${s.box.y1}`) // prettier-ignore
+    expect(rest).toEqual(['1:31@304,336,328,368', '4:91@1152,400,1200,416', '5:91@1232,400,1280,416', '6:91@1328,400,1376,416', '7:62@1344,224,1360,240', '8:91@1424,400,1472,416', '9:91@1536,400,1584,416']) // prettier-ignore
+  })
+})
+
+describe.skipIf(!hasRom(VANILLA))('vanilla $0F chainsaws (#980)', () => {
+  it('draws all seven $65 at the INIT anchor 320 px left of the list position, box pinned', () => {
+    const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
+    const r = mapSprites(new L1ModelCache(), bytes, romPath(VANILLA), 0x0f)
+    if (r.status !== 'ok') throw new Error(JSON.stringify(r))
+    // The 7 of the map's 30 $65 whose INIT moves them (X bit 4 clear); the other 23 keep their list x and are not re-run.
+    const MOVED = [6, 9, 12, 14, 17, 19, 21]
+    // index:status:anchor:box. List x - 320 = anchor x (idx 6 lists at 1088,352); the box is the 16 x 44 saw.
+    const saws = r.sprites.filter(s => s.id === 0x65 && MOVED.includes(s.index)).map(s => `${s.index}:${s.status}:${s.x},${s.y}:${s.box.x0},${s.box.y0},${s.box.x1},${s.box.y1}`) // prettier-ignore
+    expect(saws).toEqual([
+      '6:drawn:768,352:760,316,776,360',
+      '9:drawn:928,288:920,252,936,296',
+      '12:drawn:1056,400:1048,364,1064,408',
+      '14:drawn:1376,352:1368,316,1384,360',
+      '17:drawn:1664,400:1656,364,1672,408',
+      '19:drawn:1760,304:1752,268,1768,312',
+      '21:drawn:1824,384:1816,348,1832,392',
     ])
   })
 })
