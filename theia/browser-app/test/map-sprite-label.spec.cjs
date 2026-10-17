@@ -335,7 +335,8 @@ test('status entry follows the active map tab: hidden clears it, re-activating r
     async ({ id, cover }) => {
       const shell = getSvc('ApplicationShell')
       let proto = Object.getPrototypeOf(shell.getWidgetById(id))
-      while (proto && proto.constructor.name !== 'Widget') proto = Object.getPrototypeOf(proto)
+      while (proto && !/^_?Widget$/.test(proto.constructor.name))
+        proto = Object.getPrototypeOf(proto)
       const w = new proto.constructor()
       w.id = cover
       w.title.label = 'Cover'
