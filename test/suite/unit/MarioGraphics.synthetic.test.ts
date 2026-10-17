@@ -148,13 +148,37 @@ describe('buildMarioGraphics', () => {
     refused(build({ edit: c => { c[40] = 0x60 } }), /not the stock one/) // prettier-ignore
   })
 
+  it('masks both bytes of every operand word, and only the operand bytes', () => {
+    const fp = (o: Operands) => bootFingerprint(Uint8Array.from(routine(o)))
+    // Every word has a nonzero high byte, so a mask that stops at the low byte of any of them changes the hash.
+    expect(fp({ at33: 0xa123, bank: 0x4a, top: 0xab5e, srcTop: 0x5c3f, at32: 0xc9d7 })).toBe(
+      boot().sha256,
+    )
+    // The bytes just outside each operand slot are part of the routine (opcodes), so they must change the hash.
+    for (const i of [2, 5, 7, 9, 29, 32, 34, 37, 79, 82]) {
+      const b = routine({ at33: 0, bank: 0, top: 0, srcTop: 0, at32: 0 })
+      b[i] ^= 0x01
+      expect(bootFingerprint(Uint8Array.from(b)), `byte ${i}`).not.toBe(boot().sha256)
+    }
+  })
+
   it("passes the decompressor gate's refusal on, after the routine matched", () => {
     expect(buildMarioGraphics(cart({}), { ok: false, reason: 'decompressor replaced' }, boot())).toEqual({ ok: false, reason: 'decompressor replaced' }) // prettier-ignore
   })
 
-  it('refuses a GFX33 pointer that is not into the ROM half of its bank', () => {
-    // Same bytes, but the operand's low word is below $8000: the stream is not where the SNES would read it.
-    refused(build({ edit: c => { c[3] = 0x00; c[4] = 0x20 } }), /GFX33/) // prettier-ignore
+  it('refuses a GFX33 pointer that is not into the ROM half of its bank, though readAt can map it', () => {
+    // $48:0000 reads file offset $48 * $8000 (LoROM mirrors the low half of a high bank), so the stream below is
+    // readable there; only the `lo < $8000` guard refuses it. Deleting that guard makes this ok.
+    const [c33, c32] = [
+      encode(Uint8Array.from(seq(1, 48))),
+      encode(Uint8Array.from(Array(16).fill(0xee))),
+    ]
+    const at = 0x48 * 0x8000
+    const bytes = new Uint8Array(0x400000)
+    bytes.set(c33, at)
+    bytes.set(c32, at + c33.length)
+    bytes.set(routine({ at33: 0, bank: 0x48, top: 0x205e, srcTop: 47, at32: c33.length }), 0x100)
+    refused(buildMarioGraphics(RomFile.fromBytes('s.sfc', bytes), GATE, boot()), /GFX33/)
   })
 
   it('refuses a file that decompresses past the buffer, and an expansion that does not fit it', () => {

@@ -239,15 +239,15 @@ function gradeAll(
 /** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. */
 const FLOOR = {
   graded: 1957,
-  exact: 985,
-  exactOrShape: 1780,
+  exact: 1005,
+  exactOrShape: 1815,
   maxRefused: 0,
   maxEmpty: 20,
-  maxWrong: 135,
+  maxWrong: 105,
   maxMissAtK: 30,
   // 38 measured (spawned records without initFrame); all-timed would read 0.
   minFallbacks: 30,
-  // 25 measured; a runner that stops counting misses (or stops grading at k) drops below.
+  // 29 measured at 17dbd4d0 (25 before the cluster cells were cleared); a runner that stops counting misses (or stops grading at k) drops below.
   minMissAtK: 20,
 }
 
@@ -277,7 +277,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     // mutant (trueFrame left 0) gives exact 984 against the 985 floor, killed by 1; an initOnly
     // mutant (k = drawn - (initFrame + 1)) gives 988 and survives, so this corpus does not tell
     // anchor-based k from init-based k. gradeTimeline.test.ts pins that arithmetic itself.
-    // Floors: measured 2026-10-10 (docs section 13.3; re-measured after #838 kept the 224-255 band: exact 995, exact+shape 1800, wrong 125) minus a tolerance. The mutants they
+    // Floors: measured 2026-10-17 on 17dbd4d0 (one machine, one run, 'rom' seed: exact 1018, exact+shape 1828, wrong 97, empty 14, missAtK 29; docs/sprites/grader-triage.md, #980) minus a tolerance. Reverting the cluster-cell clearing in gradeAll gives exact 998, wrong 125, so exact and wrong go red. The mutants they
     // were set against (X not set to the slot, level sprites not zeroed, INIT retry
     // removed) all fall below them.
     expect(rows.length).toBe(FLOOR.graded)
@@ -313,6 +313,20 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     },
     120_000,
   )
+
+  // Map $101's castle flames (cluster sprites) rewrite OAM 123-127 every frame; the grader clears the loaded
+  // cluster cells as levelSeed does (#809). Without it the 21 records all carry flame pieces and grade wrong;
+  // measured on 17dbd4d0: 14 exact, 6 wrong, and $54 slot 0 empty, whose only recorded tile is OAM entry 124
+  // (a flame piece, tile $E4, palette row 12), not a tile of the sprite.
+  it('map 101 grades its sprites without the castle flames in their OAM', () => {
+    const { rows } = gradeAll(
+      freshRom(),
+      all.filter(a => a.map === '101'),
+    )
+    const by = (v: string) => rows.filter(r => r.verdict === v).length
+    expect([rows.length, by('exact'), by('wrong'), by('empty')]).toEqual([21, 14, 6, 1])
+    expect(rows.filter(r => r.verdict === 'empty').map(r => r.id)).toEqual(['$54'])
+  }, 120_000)
 
   // A miss at k: the model draws nothing on the hardware's pass, which grades wrong. Without
   // `m.chosen = k` the grader falls back to the first drawing pass and the detail changes.

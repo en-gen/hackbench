@@ -59,7 +59,7 @@ import { readMarioStartPos } from '../../../../src/rom/MarioStartPos'
 import {
   runOnce,
   RAM,
-  type SpriteModel as RunModel,
+  type SpriteModel as BaseModel,
   type PaletteWrite,
   type SpritePart,
 } from '../../../../src/rom/sprites/interp/SpriteRunner'
@@ -349,7 +349,7 @@ export function cameraFor(x: number, y: number, vertical: boolean, screens: numb
 }
 
 /** A run that also kept, per pass, the player-buffer slots the sprite pointed at (`runWithUploads`). */
-type WithUploads = RunModel & { uploads?: SlotUpload[][] }
+export type RunModel = BaseModel & { uploads?: SlotUpload[][] }
 
 /** `runOnce`, plus the DynGfxTilePtr slots a sprite that uploads from the player buffer wrote (#980). */
 export function runWithUploads(rom: RomFile, id: number, seed: SpriteSeed): RunModel {
@@ -364,7 +364,7 @@ export function modelResult(m: RunModel): SpriteDrawResult {
   const u = generic ? { unverified: `level loader refused (${m.seedReason}); drawn from a placement-only seed` } : {} // prettier-ignore
   if (m.refusal) return { ok: false, reason: `refused: ${m.refusal}`, ...u }
   const pass = m.chosen === undefined ? undefined : m.passes[m.chosen]
-  const uploads = m.chosen === undefined ? undefined : (m as WithUploads).uploads?.[m.chosen]
+  const uploads = m.chosen === undefined ? undefined : m.uploads?.[m.chosen]
   if (!m.anchor || !pass) return { ok: false, reason: m.emptyReason ?? 'drew no tile', ...u }
   return {
     ok: true,

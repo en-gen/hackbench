@@ -12,7 +12,7 @@ sprite that owns a slot writes the pointer in its graphics routine, so the chars
 
 ## The Podoboo ($33)
 
-`CODE_01E198` (bank_01.asm:13180-13197), reached when `SpriteTableC2` is 0 (bank_01.asm:13112-13113): `DynGfxTilePtr+6`
+`CODE_01E198` (bank_01.asm:13180-13197), reached when `SpriteTableC2` is 0 (bank_01.asm:13119-13120): `DynGfxTilePtr+6`
 (slot 3, row 1) `= $8500 + (8 << 5) = $8600`, `DynGfxTilePtr+$10` (slot 3, row 2) `= $8800`. Chars 6, 7 come from
 `$7E:8600`, chars `$16`, `$17` from `$7E:8800`. The map view used to draw SP1's chars 6/7/`$16`/`$17`, which hardware
 overwrites every frame.
@@ -39,15 +39,23 @@ row spacing would be drawn as vanilla.
 
 ## Hacks (D51, D57)
 
-141 of the 146 hack-corpus ROMs replace the boot routine that builds the buffer, so the buffer is not read and the
-Podoboo keeps today's art (the map's SP1 chars), with a sprite note giving the reason. Vanilla first; the hack path
-is not interpreted yet.
+141 of the 146 hack-corpus ROMs replace the boot routine that builds the buffer (counted 2026-10-16 on the #980 branch
+at 16231f50, one machine), so the buffer is not read and the Podoboo keeps today's art (the map's SP1 chars), with a
+sprite note giving the reason. Vanilla first; the hack path is not interpreted yet. That SP1 + note path is proven only
+by synthetic tests (`MapSprites.test.ts`, `MarioGraphics.synthetic.test.ts`): no hack Podoboo reaches the draw, because
+the 698 Podoboos in the hack corpus are refused earlier, at the HandleSprite dispatch shape check.
 
 ## The grader (#980)
 
 The sprite report's 10 wrong `$33` cards (maps `$101`, `$1CD`, `$1D4`) were the grader seeding the level image without
 clearing the cluster-sprite numbers (`levelSeed` does, `LevelLoader.ts` `NO_CLUSTER_SPRITES`): the castle flames
 (OAM 124-127) were counted as the Podoboo's pieces. The grader's rom-mode seeds now clear `$18B8` and `$1892-$18A5`
-too (`spriteReportRun.ts`, `spriteGrade.captures.test.ts`); on the earlier measurement `$33` went 46 to 53 exact.
-The 3 left (`$1D4` list 7, 9, 11) record castle-flame entries as the Podoboo's, a hardware-side attribution of a frame
-where the Podoboo drew nothing.
+too (`spriteReportRun.ts`, `spriteGrade.captures.test.ts`). The change is not limited to `$33`: it clears the level's
+cluster sprites for every record, so every sprite on a castle map stops carrying flame pieces. Chosen-pass totals over
+the 1,957 records, 'rom' seed, one machine, one run each, before (grader without the clearing) and after (17dbd4d0):
+exact 998 to 1018, shape 803 to 810, wrong 125 to 97, close 18 to 18, empty 13 to 14, missAtK 25 to 29 (ceiling 30).
+The 28 records that changed grade: map `$101` 14 wrong to exact and `$54` slot 0 wrong to empty, `$1D4` 5 and `$1CD` 1
+wrong to exact, map `$01F` `$67` 7 wrong to shape. The one empty: `$54`'s only recorded tile is OAM entry 124 (tile `$E4`,
+palette row 12, the castle flame), not a tile of the sprite, and the model draws nothing for it, so empty is the
+honest grade; before it graded wrong by matching flame pieces the cluster sprite wrote. The 3 left (`$1D4` list 7, 9,
+11) record castle-flame entries as the Podoboo's, a hardware-side attribution of a frame where the Podoboo drew nothing.

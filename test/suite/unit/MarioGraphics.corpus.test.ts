@@ -5,7 +5,7 @@
  * its WRAM, so for its pieces the witness is the chars themselves: a 128-byte match at slot 3 of both rows.
  * Vanilla ROM, 164 capture archives, one machine.
  */
-import { readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { unzip } from '../../../tools/scripts/capture_render'
@@ -17,12 +17,22 @@ import {
   readMarioGraphics,
   type MarioBuffer,
 } from '../../../src/rom/MarioGraphics'
+import { parseLevelSprites } from '../../../src/rom/LevelParser'
+import { SmwRom } from '../../../src/rom/SmwRom'
 import { levelSeed } from '../../../src/rom/sprites/interp/LevelLoader'
 import { L1ModelCache } from '../../../theia/extension/src/node/map-screen'
-import { mapSprites, runWithUploads } from '../../../theia/extension/src/node/map-sprites'
+import { getPaletteColor } from '../../../src/rom/PaletteLoader'
+import {
+  interpDrawer,
+  mapSprites,
+  readStream,
+  runWithUploads,
+  type DrawPart,
+} from '../../../theia/extension/src/node/map-sprites'
 import { CAPTURE_DIR, freshRom, hasCaptures, hasRom, romPath, VANILLA } from '../support/corpus'
 import { slow } from '../support/loadTimeout'
 
+const NO_FLAGS = { yellow: false, green: false, red: false, blue: false }
 const PTR = 0x0d85 // DynGfxTilePtr (rammap.asm:1321), row 2 at +$0A; PlayerGfxTileCount is the byte before it
 /** The chars the Podoboo's own run points slot 3 of both rows at on map $11C, decoded from the buffer (what the map view draws). */
 const podobooChars = (rom: RomFile) => {
@@ -118,37 +128,93 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
   },
 )
 
-describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('Podoboo pixels on map $11C (#980)', () => {
-  it(
-    'draws as many pixels as the hardware chars hold, not what the level-start SP1 chars would',
-    slow(120_000),
-    () => {
-      const r = mapSprites(new L1ModelCache(), new Uint8Array(readFileSync(romPath(VANILLA))), romPath(VANILLA), 0x11c) // prettier-ignore
-      if (r.status !== 'ok') throw new Error(r.status)
-      const pods = r.sprites.filter(s => s.id === 0x33 && s.status === 'drawn')
-      expect(pods.length).toBeGreaterThan(0)
-      // Hardware: the nonzero pixels of the four chars in the first $11C VRAM sample whose slot 3 holds the Podoboo's first char.
-      const chars = podobooChars(freshRom())
-      const files = unzip(readFileSync(join(CAPTURE_DIR, '11c.zip')))
-      let hw = -1
-      for (const name of [...files.keys()]
-        .filter(k => /vram\.bin$/.test(k) && !/l3_vram/.test(k))
-        .sort()) {
-        const v = files.get(name)!()
-        if (Buffer.compare(decode4bpp(slot(v, 3)), chars.get(0x406)!) !== 0) continue
-        // Per pixel, per char: all four decoded chars equal the hardware's before any count is taken.
-        const hwChars = [slot(v, 3), slot(v, 8)].flatMap(c => [c.subarray(0, 32), c.subarray(32)]).map(c => decode4bpp(c)) // prettier-ignore
-        CHARS.forEach((c, i) => expect([...chars.get(c)!]).toEqual([...hwChars[i]!]))
-        hw = [slot(v, 3), slot(v, 8)].reduce((n, c) => n + [0, 32].flatMap(o => [...decode4bpp(c, o)]).filter(p => p !== 0).length, 0) // prettier-ignore
-        break
+/** The sprite's palette indices (`w` x `h`) with `parts` laid out as drawSprites does (last part wins), the chars being hardware's (`chars`, by hackbench char number). */
+const lay = (parts: readonly DrawPart[], chars: Map<number, Uint8Array>) => {
+  const [x0, y0] = [Math.min(...parts.map(p => p.dx)), Math.min(...parts.map(p => p.dy))]
+  const [w, h] = [
+    Math.max(...parts.map(p => p.dx)) + 8 - x0,
+    Math.max(...parts.map(p => p.dy)) + 8 - y0,
+  ]
+  const [out, pal] = [new Array<number>(w * h).fill(0), new Array<number>(w * h).fill(0)]
+  for (const p of parts)
+    for (let ty = 0; ty < 8; ty++)
+      for (let tx = 0; tx < 8; tx++) {
+        const v = chars.get(p.charNum)![(p.flipY ? 7 - ty : ty) * 8 + (p.flipX ? 7 - tx : tx)]!
+        if (!v) continue
+        out[(p.dy - y0 + ty) * w + p.dx - x0 + tx] = v
+        pal[(p.dy - y0 + ty) * w + p.dx - x0 + tx] = p.palette
       }
-      expect(hw).toBeGreaterThan(0)
-      for (const p of pods) {
-        const rgba = Buffer.from(p.rgba, 'base64')
-        let opaque = 0
-        for (let i = 3; i < rgba.length; i += 4) if (rgba[i] !== 0) opaque++
-        expect(opaque).toBe(hw)
-      }
-    },
-  )
-})
+  return { w, h, out, pal }
+}
+
+describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
+  'Podoboo pixels, every vanilla map that has one (#980)',
+  () => {
+    it(
+      'equal the hardware chars laid out by the part offsets, pixel for pixel, in each Podoboo of each map',
+      slow(900_000),
+      () => {
+        const rom = freshRom()
+        const bytes = new Uint8Array(rom.buffer)
+        // The layout is the Podoboo's own drawn parts on $11C (one picture on every map); the chars in it are hardware's, per map.
+        const built11c = new L1ModelCache().get(bytes, romPath(VANILLA), 0x11c, NO_FLAGS)
+        if (!built11c.ok) throw new Error(built11c.reason)
+        const listed = parseLevelSprites(readStream(rom, new SmwRom(rom).getLevelSpritePointer(0x11c)!)!, built11c.inputs.isVertical).find(s => s.spriteId === 0x33)! // prettier-ignore
+        const res = interpDrawer(rom, 0x11c, built11c.inputs, runWithUploads, () =>
+          levelSeed(rom, 0x11c),
+        )(listed)
+        if (!res.ok) throw new Error('the $11C Podoboo drew nothing')
+        const parts = res.parts
+        const first = podobooChars(rom).get(0x406)!
+        const runChars = podobooChars(rom)
+        const tally = { maps: 0, pods: 0, viaRun: 0 }
+        for (let index = 0; index < 0x200; index++) {
+          const f = `${index.toString(16).padStart(3, '0')}.zip`
+          const zip = join(CAPTURE_DIR, f)
+          const files = existsSync(zip) ? unzip(readFileSync(zip)) : new Map<string, () => Buffer>()
+          let hw: Map<number, Uint8Array> | undefined
+          for (const name of [...files.keys()]
+            .filter(k => /vram\.bin$/.test(k) && !/l3_vram/.test(k))
+            .sort()) {
+            const v = files.get(name)!()
+            if (Buffer.compare(decode4bpp(slot(v, 3)), first) !== 0) continue
+            const d = [slot(v, 3), slot(v, 8)].flatMap(c => [c.subarray(0, 32), c.subarray(32)]).map(c => decode4bpp(c)) // prettier-ignore
+            hw = new Map(CHARS.map((c, i) => [c, d[i]!]))
+            break
+          }
+          const ptr = new SmwRom(rom).getLevelSpritePointer(index)
+          const data = ptr === null ? null : readStream(rom, ptr)
+          if (!data || !parseLevelSprites(data, false).some(s => s.spriteId === 0x33) && !parseLevelSprites(data, true).some(s => s.spriteId === 0x33)) continue // prettier-ignore
+          // No sample caught the Podoboo's frame on this map: the chars its own run points at, which the maps above prove equal hardware's.
+          const witnessed = !!hw
+          hw ??= new Map(CHARS.map(c => [c, runChars.get(c)!]))
+          const cache = new L1ModelCache()
+          const built = cache.get(bytes, romPath(VANILLA), index, NO_FLAGS)
+          if (!built.ok) continue
+          const r = mapSprites(cache, bytes, romPath(VANILLA), index)
+          if (r.status !== 'ok') continue // a slot with no level of its own
+          const pods = r.sprites.filter(s => s.id === 0x33 && s.status === 'drawn')
+          if (!pods.length) continue
+          const want = lay(parts, hw)
+          tally.maps++
+          if (!witnessed) tally.viaRun++
+          for (const p of pods) {
+            tally.pods++
+            const rgba = Buffer.from(p.rgba, 'base64')
+            const where = `${index.toString(16)} index ${p.index}`
+            expect([p.box.x1 - p.box.x0, p.box.y1 - p.box.y0], where).toEqual([want.w, want.h])
+            // Opaque exactly where hardware's index is nonzero, in the map's own palette color for that index: a char
+            // swapped for its twin (same shape, other colors) differs here, and a shape check alone would not see it.
+            want.out.forEach((idx, i) => {
+              expect(rgba[i * 4 + 3] !== 0, `${where} pixel ${i} opaque`).toBe(idx !== 0)
+              if (idx) expect([...rgba.subarray(i * 4, i * 4 + 4)], `${where} pixel ${i} index ${idx}`).toEqual(getPaletteColor(built.inputs, want.pal[i]!, idx)) // prettier-ignore
+            })
+          }
+        }
+        expect(tally.maps).toBe(12)
+        expect(tally.maps - tally.viaRun, 'maps checked against hardware VRAM').toBe(8)
+        expect(tally.pods).toBe(72)
+      },
+    )
+  },
+)

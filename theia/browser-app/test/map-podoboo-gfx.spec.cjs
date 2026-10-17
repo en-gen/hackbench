@@ -11,7 +11,12 @@
  * - theia/extension/src/node/map-sprites.ts `drawSprites`: `upload = undefined` after the charsFromUploads call
  *   (SP1 chars drawn): the opaque count leaves 184;
  * - src/rom/MarioGraphics.ts `charsFromUploads`: `slotChars(slot + 1)`: the chars land on the wrong cells, the count
- *   or the identical-bitmaps assertion goes red.
+ *   or the identical-bitmaps assertion goes red;
+ * - theia/extension/src/node/map-sprites.ts `drawSprites`: `upload?.get(p.charNum ^ 1)` (each char swapped for its
+ *   twin, which has the same shape and the colors of index 4 and 6 exchanged): the opaque count stays 184, only the
+ *   color-sharing counts below move (56 and 82 swap), so they are what makes this plant red.
+ * The counts 56 / 82 were measured from the same node reply (vanilla ROM, one machine, one run) and agree with the
+ * per-pixel comparison against the hardware chars and the map palette in MarioGraphics.corpus.test.ts (12 maps, 72 Podoboos).
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')
@@ -74,4 +79,15 @@ test('map $11C draws each Podoboo from the player buffer: 184 opaque pixels, no 
     expect(opaque(p)).toBe(OPAQUE)
   }
   expect(new Set(pods.map(p => p.rgba)).size, 'one frame, one picture').toBe(1)
+  // Pixels sharing the color of the outer top pixel (5, 0) and of the inner pixel (5, 2) of the 16 x 16 bitmap.
+  const rgba = Buffer.from(pods[0].rgba, 'base64')
+  const at = (x, y) => rgba.subarray((y * 16 + x) * 4, (y * 16 + x) * 4 + 4).toString('hex')
+  const sharing = (x, y) => {
+    let n = 0
+    for (let i = 0; i < 256; i++)
+      if (rgba.subarray(i * 4, i * 4 + 4).toString('hex') === at(x, y)) n++
+    return n
+  }
+  expect(at(5, 0)).not.toBe(at(5, 2))
+  expect([sharing(5, 0), sharing(5, 2)], 'the outer and inner colors of the face').toEqual([56, 82])
 })
