@@ -4,8 +4,10 @@
  * only (the bytes are built here); no corpus, so the counts are the same with and without one.
  */
 import { describe, it, expect, vi } from 'vitest'
-import { buildL2Inputs } from '../../../src/rom/model/L2Model'
+import { buildL2Inputs, fallbackReadable } from '../../../src/rom/model/L2Model'
 import type { L1Inputs } from '../../../src/rom/model/L1Model'
+import { readInitialLayer1YPos } from '../../../src/rom/L3Loader'
+import { readInitialLayer2YPos } from '../../../src/rom/L2Loader'
 import type { MapEntrances, SmwRom } from '../../../src/rom/SmwRom'
 import type { RomFile } from '../../../src/rom/RomFile'
 import { modeTablesRom, STANDARD } from '../support/l3Rom'
@@ -102,5 +104,28 @@ describe('DisableMidway is read only when the overworld path is in play (#911)',
     vi.spyOn(rom, 'readByte').mockImplementation(a => (a === 0x05f400 + MAP ? null : real(a)))
     // secondary row only: FA00 and FC00 give the height, F400 is never consulted by entryDy
     expect(l2Of(rom, { overworld: false, primary: false, secondary: [ID] }).ok).toBe(true)
+  })
+})
+
+// fallbackReadable guards readInitialLayer1/2YPos, which it cannot change (they feed the L3 camera).
+// If they ever read another byte, the guard would pass a ROM those readers still take as 0.
+describe('fallbackReadable checks exactly the bytes the no-entrance readers read (#911)', () => {
+  const reads = (run: (rom: RomFile) => unknown, rom: RomFile): number[] => {
+    const seen = new Set<number>()
+    const real = rom.readByte.bind(rom)
+    const spy = vi.spyOn(rom, 'readByte').mockImplementation(a => (seen.add(a), real(a)))
+    run(rom)
+    spy.mockRestore()
+    return [...seen].sort((a, b) => a - b)
+  }
+  const cases = [0, 1, 2, 3, 4, 8, 12, 15].flatMap(lows => [0x00, 0x20].map(screen => ({ lows, screen }))) // prettier-ignore
+  it.each(cases)('F400 low nibble $lows, F600 $screen', ({ lows, screen }) => {
+    const rom = build()
+    rom.writeAt(0x05f400 + MAP, [lows])
+    rom.writeAt(0x05f600 + MAP, [screen])
+    const vertical = (screen & 0x20) !== 0
+    // buildL2Inputs reads F600 itself (entryVertical) and hands the result to the readers
+    const readers = reads(r => [r.readByte(0x05f600 + MAP), readInitialLayer1YPos(r, MAP, vertical), readInitialLayer2YPos(r, MAP, vertical)], rom) // prettier-ignore
+    expect(reads(r => fallbackReadable(r, MAP), rom)).toEqual(readers)
   })
 })

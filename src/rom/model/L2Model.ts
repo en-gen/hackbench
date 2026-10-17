@@ -95,7 +95,7 @@ const TABLES_CUT = 'The ROM ends before the entrance tables that place it' // pr
  * check lives here: on a ROM cut short the exit graph is unavailable (it needs DATA_05F800), which
  * is exactly when this fallback runs (#911).
  */
-function fallbackReadable(rom: RomFile, index: number): boolean {
+export function fallbackReadable(rom: RomFile, index: number): boolean {
   const lows = rom.readByte(0x05f400 + index)
   const screen = rom.readByte(0x05f600 + index)
   if (lows === null || screen === null) return false
