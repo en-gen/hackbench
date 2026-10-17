@@ -1,14 +1,16 @@
 // The ROM-window probe (tools/scripts/rom-window-probe.mjs). Every ROM here is
 // PRNG bytes built in the test, so this runs in CI with no corpus.
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error plain ESM without types
 import {
   bytesHits,
+  commentMode,
   locateVanillaRom,
+  stripComments,
   textHits,
   windowSet,
 } from '../../../tools/scripts/lib/rom-windows.mjs'
@@ -65,6 +67,15 @@ describe('window set and filter', () => {
     const withHeader = new Uint8Array(512 + ROM.length)
     withHeader.set(ROM, 512)
     expect(windowSet(withHeader)).toEqual(SET)
+  })
+  it('never holds a window that straddles the copier header and the body', () => {
+    const header = prng(512, 77)
+    const withHeader = new Uint8Array(512 + ROM.length)
+    withHeader.set(header)
+    withHeader.set(ROM, 512)
+    const straddle = [...header.subarray(508), ...ROM.subarray(0, 4)]
+    expect(new Set(straddle).size).toBeGreaterThanOrEqual(3)
+    expect(bytesHits(Uint8Array.from(straddle), windowSet(withHeader), 8)).toEqual([])
   })
   it('tokenizes 0x literals and decimal lists with line numbers', () => {
     const run = ROM.subarray(300, 308)
@@ -125,6 +136,31 @@ describe('sweep', () => {
         expect(textHits(render(w.slice(0, 7)), set)).toEqual([])
         expect(bytesHits(Uint8Array.from(w), set, 8).length > 0).toBe(d >= 3)
       })
+  it('does not read comment markers inside strings', () => {
+    const w = hex(ROM.subarray(100, 108))
+    for (const text of [
+      `const u = 'http://x'; db ${w}`,
+      `const g = "src/*"
+${w}
+/* end */`,
+      `const t = \`a // b\`, ${w}`,
+    ])
+      expect(textHits(text, SET)).toHaveLength(1)
+    expect(stripComments("x // c\n'a//b'")).toBe("x     \n'a//b'")
+  })
+  it('knows which files have which comments', () => {
+    expect(['a.asm', 'a.INC', 'a.s'].map(commentMode)).toEqual(['asm', 'asm', 'asm'])
+    expect(['a.ts', 'a.mjs', 'a.cjs', 'a.js', 'a.tsx'].map(commentMode)).toEqual(
+      Array(5).fill('js'),
+    )
+    expect(['a.md', 'a.lua', 'a.txt'].map(commentMode)).toEqual(['none', 'none', 'none'])
+  })
+  it('reads a one-digit 0x token', () => {
+    const w = [9, 1, 15, 3, 10, 5, 2, 7]
+    const rom = prng(256, 3)
+    rom.set(w, 60)
+    expect(textHits('0x9, 0x1, 0xf, 0x3, 0xa, 0x5, 0x2, 0x7', windowSet(rom))).toHaveLength(1)
+  })
   it('finds the first and last window of the ROM', () => {
     for (const at of [0, ROM.length - 8]) {
       const w = ROM.subarray(at, at + 8)
@@ -194,8 +230,53 @@ describe('CLI', () => {
     expect(r.stderr).toContain('missing.sfc')
   })
   it('--repo never moves the ROM lookup', () => {
-    const r = probe(['--repo', dir, hit], { HACKBENCH_ROMS: join(dir, 'nowhere') })
-    expect(r.status).toBe(2)
+    // A copy of the probe beside tools A; --repo points at a tree beside tools B, which alone holds
+    // the window. The lookup must find A (this checkout) and so see no hit.
+    const mk = (name: string, romBytes: Uint8Array) => {
+      const base = join(dir, name)
+      mkdirSync(join(base, 'hackbench-tools', 'roms'), { recursive: true })
+      mkdirSync(join(base, 'repo'), { recursive: true })
+      writeFileSync(join(base, 'hackbench-tools', 'roms', VANILLA), romBytes)
+      return base
+    }
+    const a = mk('toolsA', prng(512, 11))
+    const b = mk('toolsB', prng(512, 22))
+    const copy = join(a, 'repo')
+    cpSync(join(REPO, 'tools/scripts'), join(copy, 'tools/scripts'), { recursive: true })
+    cpSync(join(REPO, 'test/suite/support/corpus.cjs'), join(copy, 'test/suite/support/corpus.cjs'))
+    const file = put(
+      'onlyB.txt',
+      `db ${hex(prng(512, 22).subarray(100, 108))}
+`,
+    )
+    const r = spawnSync(
+      process.execPath,
+      [join(copy, 'tools/scripts/rom-window-probe.mjs'), '--repo', join(b, 'repo'), file],
+      { encoding: 'utf8', env: { PATH: process.env.PATH ?? '' } },
+    )
+    expect(r.stdout).toContain('TOTAL files=1 filesWithHits=0')
+    expect(r.status).toBe(0)
+  })
+  it('exits 2 with no input', () => {
+    expect(probe(['--rom', romFile]).status).toBe(2)
+  })
+  it('reads comments by file type', () => {
+    const lines = (f: (b: number) => string) => Array.from(ROM.subarray(100, 108), f).join('\n')
+    const asm = put(
+      'c.asm',
+      lines(b => `.db $${h2(b)} ; be ad de`),
+    )
+    const md = put(
+      'c.md',
+      lines(b => `${h2(b)} // be ad de`),
+    )
+    const ts = put(
+      'c.ts',
+      lines(b => `0x${h2(b)}, // be ad de`),
+    )
+    expect(probe(['--rom', romFile, asm]).status).toBe(1)
+    expect(probe(['--rom', romFile, ts]).status).toBe(1)
+    expect(probe(['--rom', romFile, md]).status).toBe(0)
   })
   it('exits 2 when git fails', () => {
     const r = probe(['--rom', romFile, '--repo', dir, '--git-range', 'nope..nada'])
@@ -220,6 +301,8 @@ x
 `,
     )
     write('two.txt', 'a\nb\nc\nd\ne\nf\ng\n')
+    write('half.txt', `${hex(ROM.subarray(2100, 2104))}\n`)
+    write('gone.txt', 'bye\n')
     git('add', '.')
     git('commit', '-qm', 'base')
     write('del.txt', 'keep\n')
@@ -234,6 +317,8 @@ y
 `,
     )
     write('plain.txt', 'nothing here\n')
+    write('half.txt', `${hex(ROM.subarray(2100, 2104))}\n${hex(ROM.subarray(2104, 2108))}\n`)
+    rmSync(join(repo, 'gone.txt'))
     write('cart.bin', Uint8Array.from([0, 0, 0, ...ROM.subarray(1700, 1708), 0, 0]))
     git('add', '.')
     git('commit', '-qm', 'change')
@@ -241,7 +326,7 @@ y
     const out = r.stdout.split('\n')
     it('exits 1 and counts every touched file', () => {
       expect(r.status).toBe(1)
-      expect(out).toContain('TOTAL files=7 filesWithHits=4 hitWindows=5')
+      expect(out).toContain('TOTAL files=8 filesWithHits=5 hitWindows=6')
     })
     it('finds both hunks of one file', () => {
       expect(out).toContain('HIT two.txt:1 windows=1')
@@ -254,6 +339,44 @@ y
     it('survives header lookalikes, non-ASCII names and noprefix config', () => {
       expect(out).toContain('HIT ++ odd.txt:2 windows=1')
       expect(out).toContain('HIT é.txt:1 windows=1')
+    })
+    it('catches a run that starts on an unchanged line and ends on an added one', () => {
+      expect(out).toContain('HIT half.txt:1 windows=1')
+    })
+    it('reads a..b, a...b and a lone rev alike', () => {
+      for (const spec of ['HEAD~1...HEAD', 'HEAD~1']) {
+        const r2 = probe(['--rom', romFile, '--repo', repo, '--git-range', spec])
+        expect(r2.stdout.split('\n').filter(l => l.startsWith('HIT')).length).toBe(6)
+      }
+    })
+    it('a...b diffs from the merge base, not from a', () => {
+      git('checkout', '-q', '-b', 'side', 'HEAD~1')
+      write(
+        'side.txt',
+        `db ${w(2300)}
+`,
+      )
+      git('add', 'side.txt')
+      git('commit', '-qm', 'side')
+      git('checkout', '-q', '-')
+      const r2 = probe(['--rom', romFile, '--repo', repo, '--git-range', 'HEAD...side'])
+      expect(r2.stdout.split('\n')).toContain('HIT side.txt:1 windows=1')
+      expect(r2.stdout).toContain('TOTAL files=1 ')
+    })
+    it('a lone rev reads the worktree, not the old blob', () => {
+      write(
+        'plain.txt',
+        `nothing
+db ${w(2500)}
+`,
+      )
+      const r2 = probe(['--rom', romFile, '--repo', repo, '--git-range', 'HEAD'])
+      expect(r2.status).toBe(1)
+      expect(r2.stdout.split('\n')).toContain('HIT plain.txt:2 windows=1')
+      git('checkout', '--', 'plain.txt')
+    })
+    it('prints hits before an error, and a bad range is exit 2', () => {
+      expect(probe(['--rom', romFile, '--repo', repo, '--git-range', 'HEAD...nope']).status).toBe(2)
     })
     it('scans binary files as bytes', () => {
       expect(out).toContain('HIT cart.bin offset=0x3 windows=1')

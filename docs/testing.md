@@ -820,35 +820,53 @@ private to the test file.
 `node tools/scripts/rom-window-probe.mjs` reports 8-byte windows of text or
 assembled bytes that also occur in the vanilla ROM, so a synthetic ROM,
 fixture or detection pattern can be checked before pushing. It is
-report-only: no hook, CI job or `check-content.mjs` runs it.
+report-only and local-only: no hook, CI job or `check-content.mjs` runs it,
+and CI has no ROM to run it against.
 
 ```
 node tools/scripts/rom-window-probe.mjs <files...>        text scan (PARTIAL, below)
-node tools/scripts/rom-window-probe.mjs --git-range a..b  files the range touches
+node tools/scripts/rom-window-probe.mjs --git-range <spec> files the range touches
 node tools/scripts/rom-window-probe.mjs --bin <files...>  assembled bytes
 ```
 
 `--rom <file>` skips the lookup. `--repo <dir>` names the repo `--git-range`
 diffs; the ROM lookup always uses the checkout the script lives in, as
-`test/suite/support/corpus.cjs` does. `--git-range` scans each touched text
-file whole and keeps runs that overlap an added line; binary files go through
-the bytes check; deleted lines are never scanned.
+`test/suite/support/corpus.cjs` does. `--git-range` takes `a..b` (post-image
+`b`), `a...b` (from `merge-base(a,b)`) or one rev (that rev against the
+WORKTREE, so uncommitted edits count; untracked files are not listed). It
+scans each touched text file whole and keeps runs that overlap an added line;
+binary files go through the bytes check; deleted lines and deleted files are
+never scanned, but a touched file whose post-image cannot be read is an error.
 
 **The text scan is partial.** It reads `0x..`, `$..`, bare two-digit hex and
-decimal 0-255 tokens, comments blanked. It does not see 16-bit words, hex
-strings, quoted-byte arrays, per-byte writes (`buf[a] = 0xa9`), strings split
-across lines, or values behind `as number`. **`--bin` on the assembled bytes is
-the authoritative check:** have the fixture builder write its bytes to a
-scratch file (`writeFileSync(scratch, builder())`), then run
+decimal 0-255 tokens, with comments blanked: `//` and block comments in
+JS/TS files, `;` in `.asm`/`.inc`/`.s` files, nothing in any other file
+type (no Lua `--`, no markdown). Quoted strings are skipped when blanking, so
+`'http://x'` hides nothing. It does not see 16-bit words, hex strings,
+quoted-byte arrays, per-byte writes (`buf[a] = 0xa9`), split strings, or values
+behind `as number`. A comma-separated list of bare hex pairs, or a
+space-separated decimal list, is not read reliably (a two-digit number beside
+a comma is taken as decimal, otherwise as hex). Wildcard bytes (a fingerprint's
+zeroed operands) split runs on purpose, so a pattern with wildcards is checked
+per fixed stretch. **`--bin` on the assembled bytes is the authoritative
+check:** have the fixture builder write its bytes to a scratch file
+(`writeFileSync(scratch, builder())`), then run
 `rom-window-probe.mjs --bin <scratch>`.
 
 Windows with fewer than 3 distinct values are ignored (they match any ROM):
 43,597 of 524,281 positions and 2,982 of 442,994 distinct windows in the
-vanilla ROM (one machine). Output is `HIT path:line windows=N` (`offset=0x..` for
-bytes) and a `TOTAL` line, never ROM bytes. Exit codes: 0 no hit, 1 a hit,
-2 nothing was checked (no ROM found, a missing `--rom` file, a git or file
-error; the message is on stderr, starting `SKIP:` when no ROM exists). Exit 2
-is not a pass.
+vanilla ROM (one machine). A 512-byte copier header is stripped, so no window
+straddles it. Output is `HIT path:line windows=N` (`offset=0x..` for bytes) and
+a `TOTAL` line, never ROM bytes. Exit codes: 0 no hit, 1 a hit, 2 nothing was
+checked (no input, no ROM found, a missing `--rom` file, a git or file error;
+HIT lines found before an error are still printed, the message goes to stderr
+and starts `SKIP:` when no ROM exists). Exit 2 on a missing ROM is deliberate:
+"probe exit 0" is cited as proof, so a run that checked nothing must not exit 0.
+
+`bytesHits` in `tools/scripts/lib/rom-windows.mjs` is the shared in-memory
+finder. The assembled-ROM tests (`SyntheticEeriesNoVanilla` and the like) and
+`test/suite/support/romWindows.ts` can adopt it; that is a follow-up for their
+owners.
 
 ## Run lock
 

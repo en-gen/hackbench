@@ -59,14 +59,54 @@ const TOKEN =
   /(?<![\w.$])(?:0[xX]([0-9a-fA-F]{1,2})|\$([0-9a-fA-F]{1,2})|([0-9a-fA-F]{2})|(\d{1,3}))(?![\w.])/g
 const SEP = /^[\s,;[\]()|]*$/
 
-/** Comments become spaces (newlines kept) so positions and line numbers hold. */
+// Comments are read only where the language has them: // and block comments in JS/TS, a
+// semicolon in asm, nothing elsewhere (markdown, Lua, ...).
+export const commentMode = path =>
+  /\.(asm|inc|s)$/i.test(path) ? 'asm' : /\.(m?[jt]sx?|cjs|cts)$/i.test(path) ? 'js' : 'none'
+
 const blank = m => m.replace(/[^\n]/g, ' ')
-const stripComments = t => t.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, blank)
+// Comments become spaces (newlines kept) so positions and line numbers hold. Quoted strings are
+// skipped whole, so a quoted a//b or src/* blanks nothing. Single and double quotes end at a
+// newline (prose apostrophes); a template literal may span lines.
+export function stripComments(t, mode = 'js') {
+  if (mode === 'none') return t
+  const special = mode === 'js' ? /[/'"`]/g : /[;'"`]/g
+  let out = ''
+  let i = 0
+  while (i < t.length) {
+    special.lastIndex = i
+    const m = special.exec(t)
+    if (!m) break
+    const c = m[0]
+    out += t.slice(i, m.index)
+    i = m.index
+    let end = i + 1
+    if (c === '"' || c === "'" || c === '`') {
+      while (end < t.length && t[end] !== c && (c === '`' || t[end] !== '\n'))
+        end += t[end] === '\\' ? 2 : 1
+      end = Math.min(t[end] === c ? end + 1 : end, t.length)
+      out += t.slice(i, end)
+    } else if (mode === 'js' && t[i + 1] === '*') {
+      const close = t.indexOf('*/', i + 2)
+      end = close < 0 ? t.length : close + 2
+      out += blank(t.slice(i, end))
+    } else if (mode === 'asm' || t[i + 1] === '/') {
+      const nl = t.indexOf('\n', i)
+      end = nl < 0 ? t.length : nl
+      out += blank(t.slice(i, end))
+    } else out += c
+    i = end
+  }
+  return out + t.slice(i)
+}
 
 /** Byte runs in `text` as `{ bytes, lines }`; a run is byte tokens separated
  *  only by whitespace, , ; [ ] ( ) | and comments. `base` numbers the first line. */
-export function textRuns(text, base = 1) {
-  const src = stripComments(text)
+export function textRuns(text, base = 1, mode = 'js') {
+  let src = stripComments(text, mode)
+  // An asm data directive joins the lines of a table; as a word it would read as the byte 0xDB.
+  if (mode === 'asm')
+    src = src.replace(/(?<![\w$])\.?(?:db|byte)(?![\w$])/gi, d => ' '.repeat(d.length))
   const lineAt = pos => {
     let n = base
     for (let i = src.indexOf('\n'); i >= 0 && i < pos; i = src.indexOf('\n', i + 1)) n++
@@ -79,7 +119,9 @@ export function textRuns(text, base = 1) {
     const gap = src.slice(i ? toks[i - 1].index + toks[i - 1][0].length : 0, m.index)
     const nextGap = toks[i + 1] ? src.slice(m.index + m[0].length, toks[i + 1].index) : ''
     if (!(cur && SEP.test(gap))) cur = null
-    const comma = gap.includes(',') || nextGap.includes(',')
+    // Only a comma between two tokens of the same run says "decimal"; one outside the run does not.
+    const comma =
+      (cur !== null && gap.includes(',')) || (SEP.test(nextGap) && nextGap.includes(','))
     const v =
       m[1] !== undefined
         ? parseInt(m[1], 16)
@@ -99,5 +141,5 @@ export function textRuns(text, base = 1) {
 }
 
 /** Hits in text: `at` is the line of a run's first matching window. */
-export const textHits = (text, set, base = 1, width = WINDOW_BYTES) =>
-  textRuns(text, base).flatMap(r => hitRuns(r.bytes, i => r.lines[i], set, width))
+export const textHits = (text, set, base = 1, width = WINDOW_BYTES, mode = 'js') =>
+  textRuns(text, base, mode).flatMap(r => hitRuns(r.bytes, i => r.lines[i], set, width))
