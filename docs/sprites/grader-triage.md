@@ -123,6 +123,10 @@ write only when `$15E9` equals the sprite's own slot, on every pass.
   sprite slot 6, so cluster index 6's write is still credited to it: its "close" grade is two misattributions
   agreeing, not a separate defect.
 - $2B's former spawn-oracle extra tile was also a cluster write (`$02:F983`, `$15E9` = 9), now filtered.
+- The map view still draws companions (owner principle D52: a sprite the hardware shows never draws as nothing). `PassResult.companions`
+  holds writes made under a sprite slot this run spawned (status non-zero, not the sprite's own); `modelResult` draws
+  `parts` plus `companions` ($61 4 pieces, $1E 7, as before #840), the grader and sprite report read `parts` only. Writes under
+  `$15E9` values that name no spawned slot (the cluster loop's 0-19) are in neither list ($B9 on 101: 1 part, 0 companions).
 - Remaining limit: a cluster sprite whose index equals the sprite's slot, and Mario/Yoshi OAM drawn through
   `CODE_01C9E2` under the caller's `$15E9` (`bank_01.asm:10051`), are still credited to the sprite. Not a regression
   (the old code credited all of it); the cluster OAM leak work (#809, `ClusterOamLeak`) is the follow-up.

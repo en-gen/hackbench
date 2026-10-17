@@ -41,8 +41,19 @@ const DRAW_TWO: number[] = [
   0x60,
 ]
 
+/** MAIN of id 38: one OAM entry (100) written while $15E9 is 15, a value that names no sprite slot (as a cluster sprite's index would), then $15E9 put back. */
+// prettier-ignore
+const WRITE_UNSPAWNED: number[] = [
+  0xa9, 0x0f, 0x8d, 0xe9, 0x15, // LDA #15 / STA $15E9
+  0xa9, 0x50, 0x8d, 0x91, 0x03, // Y
+  0xa9, 0x24, 0x8d, 0x92, 0x03, // tile
+  0x8a, 0x8d, 0xe9, 0x15,       // TXA / STA $15E9
+  0x60,
+]
+
 export function putCompanionRoutines(put: (snes: number, bytes: number[]) => void): void {
   put(0x019600, SPAWN_BELOW)
   put(0x019680, DRAW_TWO)
   put(0x019700, SPAWN_ABOVE)
+  put(0x019780, WRITE_UNSPAWNED)
 }
