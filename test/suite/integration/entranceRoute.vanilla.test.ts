@@ -10,6 +10,7 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { SmwRom, type MapEntrances } from '../../../src/rom/SmwRom'
 import { entrancesOfMap, readMapEntrances } from '../../../src/rom/ReadMapEntrances'
+import { readLevelStart } from '../../../src/rom/LevelStart'
 import { chooseEntrance, chooseEntranceNoted } from '../../../src/rom/L3Loader'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
 
@@ -84,6 +85,22 @@ describe.skipIf(!hasRom(VANILLA))('route entrance over the 512 vanilla slots (#9
     }
     expect(noted).toEqual(UNREACHED_SLOTS)
   })
+
+  // Two-way: the slots carrying the note are exactly the slots readLevelStart refuses a start for.
+  // Evidence scope: all 512 vanilla slots, one machine. The note and the refusal come from
+  // independent code (the exit graph's route record vs the level-start walk), so a slot on one
+  // side only is a real disagreement. The 301 is asserted, so an empty sweep cannot pass.
+  it('the no-route note and a refused level start agree on all 512 slots (301 unreached)', () => {
+    const rom = SmwRom.open(romPath(VANILLA))
+    const noted = new Set<number>()
+    const refused = new Set<number>()
+    for (let slot = 0; slot < 0x200; slot++) {
+      if (chooseEntranceNoted(entrancesOfMap(entrances, slot)).note) noted.add(slot)
+      if (!readLevelStart(rom, slot).ok) refused.add(slot)
+    }
+    expect(noted.size).toBe(301)
+    expect([...noted].sort((a, b) => a - b)).toEqual([...refused].sort((a, b) => a - b))
+  }, 120_000)
 
   // The committed list is empty, so "a list with a slot removed" cannot plant; a chooser that
   // ignores the overworld entry does, and must list every one of the 28 entry maps.

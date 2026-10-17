@@ -277,7 +277,7 @@ describe('the wire carries four planes in the view stacking order (synthetic)', 
     expect(wire.layerNotes).toEqual(['Background height unverified: x'])
   })
 
-  it('a unreached map and an unverified height are two layer notes, not one sentence (#945)', () => {
+  it('an unreached map and an unverified height are two layer notes, not one sentence (#945)', () => {
     const m = inputs(hGrid(1), false, 1)
     const l2 = { ...l2Of(nullGrid(27, 16), tiles2(solid)), note: 'Background height unverified: x' } // prettier-ignore
     const wire = wireOf({ ...mapOf(m, { ok: true, l2 }), routeNote })

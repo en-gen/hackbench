@@ -181,7 +181,7 @@ describe('the wire: screens, math, layer 2 role (synthetic)', () => {
     const l3 = { ...verdict(false, null), cgadsub: null }
     expect(wireOf({ ...l1Of(0, 0, false), l3 }).math).toBeNull()
   })
-  it('a unreached map is one line of its own, after the layer 3 position note (#945)', () => {
+  it('an unreached map is one line of its own, after the layer 3 position note (#945)', () => {
     const routeNote = 'No route from the overworld reaches this map, so it opens at the start.'
     const l3 = verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYUnverified: 'because' }))
     const w = wireOf({ ...l1Of(0, 0, false), l3, routeNote })
