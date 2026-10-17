@@ -20,10 +20,8 @@ export function locateVanillaRom(env, repoRoot, exists = existsSync) {
  *  ROM, so fewer than MIN_DISTINCT distinct values are ignored. The one filter. */
 export const isCandidate = w => new Set(w).size >= MIN_DISTINCT
 
-const key = (bytes, from, width) =>
-  Buffer.from(
-    bytes.subarray ? bytes.subarray(from, from + width) : bytes.slice(from, from + width),
-  ).latin1Slice(0, width)
+// Map key for a window: its bytes as a latin1 string.
+const key = w => Buffer.from(w).latin1Slice()
 
 /** Every candidate window of the ROM, 512-byte copier header stripped. */
 export function windowSet(rom, width = WINDOW_BYTES) {
@@ -31,7 +29,7 @@ export function windowSet(rom, width = WINDOW_BYTES) {
   const set = new Set()
   for (let i = 0; i + width <= body.length; i++) {
     const w = body.subarray(i, i + width)
-    if (isCandidate(w)) set.add(Buffer.from(w).latin1Slice(0, width))
+    if (isCandidate(w)) set.add(key(w))
   }
   return set
 }
@@ -42,7 +40,7 @@ function hitRuns(bytes, lineOf, set, width) {
   let open = null
   for (let i = 0; i + width <= bytes.length; i++) {
     const w = bytes.slice(i, i + width)
-    if (isCandidate(w) && set.has(key(w, 0, width))) {
+    if (isCandidate(w) && set.has(key(w))) {
       if (open) open.windows++
       else out.push((open = { at: lineOf(i), windows: 1 }))
     } else open = null
