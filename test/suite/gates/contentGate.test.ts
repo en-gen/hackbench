@@ -335,9 +335,9 @@ describe('rom-provenance (#812): a "taken from the game" comment over an inline 
     expect(rule(checkTextContent('x.ts', `[${big}]`))).toContain('byte-tokens')
   })
 
-  // Cost, one machine, 1287 files: the old loop ran every rule (3 of 4 s of a
-  // 2.3 s case under load went to byte/base64/disasm scans and sync reads);
-  // this needs only rom-provenance, and reads the files in parallel.
+  // Cost, one machine, 1288 tracked files: the old loop ran every rule with
+  // sync reads; this runs only rom-provenance and reads in parallel. Timings
+  // are one machine, one run each, before/after, see #485.
   it('develop-clean: no tracked text file trips rom-provenance', slow(15000), async () => {
     const files = execFileSync('git', ['ls-files'], { cwd: repoRoot, encoding: 'utf8' })
       .split('\n')
@@ -346,7 +346,10 @@ describe('rom-provenance (#812): a "taken from the game" comment over an inline 
       files.map(f =>
         fs.promises.readFile(path.join(repoRoot, f)).then(
           buf => ({ f, buf }),
-          () => null, // listed but absent from the working tree
+          (err: NodeJS.ErrnoException) => {
+            if (err.code === 'ENOENT') return null // listed but absent from the working tree
+            throw err
+          },
         ),
       ),
     )
@@ -378,6 +381,54 @@ describe('rom-provenance (#812): a "taken from the game" comment over an inline 
     expect(provenanceStats.splits).toBe(before)
     checkRomProvenance('x.ts', claim)
     expect(provenanceStats.splits).toBe(before + 1)
+    // A claim after a long claim-free prefix is still found (no truncated early return).
+    const mid = provenanceStats.splits
+    expect(checkRomProvenance('x.ts', 'const a = [1, 2]\n'.repeat(1000) + claim)).toBe(true)
+    expect(provenanceStats.splits).toBe(mid + 1)
+  })
+
+  it('rom-provenance alone matches the full check over every fixture and claim variant', () => {
+    const alternatives = [
+      'Vanilla $0123',
+      'vanilla ROM at $0123',
+      'vanilla 0x01',
+      'copied from the ROM',
+      'taken from a hack',
+      'lifted from x',
+      'dumped from x',
+      'from the vanilla ROM at $0123',
+      'from the ROM at 0x01',
+      'ROM bytes',
+      'real ROM data',
+      'real ROM values',
+      'not copied from the ROM',
+    ]
+    const lit = 'const a = [1, 2, 3]'
+    const texts = [
+      claim + '\n' + lit,
+      lit,
+      lit + ' ' + claim,
+      '/*\n' + claim + '\n*/\n' + lit,
+      '/* ' + claim + ' */\n' + lit,
+      '// content-gate: allow rom-provenance -- t\n' + claim + '\n' + lit,
+      claim + '\n' + "const label = '[1, 2]'",
+    ]
+    for (const a of alternatives) {
+      for (const v of [a, a.toUpperCase(), a.replace(/^./, c => c.toUpperCase())]) {
+        texts.push(
+          `// ${v}\n${lit}`,
+          `// ${v}\r\n${lit}\r\n`,
+          `/* ${v} */\n${lit}`,
+          `/*\r\n * ${v}\r\n */\r\n${lit}`,
+        )
+      }
+    }
+    for (const t of texts) {
+      const full = checkTextContent('x.ts', t).some(h => h.rule === 'rom-provenance')
+      expect(checkRomProvenance('x.ts', t), JSON.stringify(t)).toBe(full)
+    }
+    // The sweep must hold both verdicts or it proves nothing.
+    expect(new Set(texts.map(t => checkRomProvenance('x.ts', t)))).toEqual(new Set([true, false]))
   })
 })
 
