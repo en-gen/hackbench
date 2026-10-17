@@ -94,6 +94,39 @@ export type FlamesResult =
   { ok: true; parts: SpritePart[]; unverified: string[] } | { ok: false; reason: string }
 
 /**
+ * The OAM entries a run wrote a tile to, as parts; `place` gives dx/dy from the entry's 9-bit X and Y
+ * (shared with TorpedoLauncher.ts, whose arm is measured from the shooter instead).
+ */
+export function touchedOamParts(
+  w: Uint8Array,
+  touched: ReadonlySet<number>,
+  place: (x9: number, y: number) => { dx: number; dy: number },
+): SpritePart[] {
+  const parts: SpritePart[] = []
+  for (let i = 0; i < RAM.oamEntries; i++) {
+    const b = RAM.oam + i * 4
+    if (!touched.has(b + 2)) continue
+    const attr = w[b + 3]!
+    const hi = w[RAM.oamSize + i]!
+    const x9 = w[b]! | ((hi & 1) << 8)
+    parts.push({
+      oam: i,
+      char: w[b + 2]! | ((attr & 1) << 8),
+      size: hi & 2 ? 16 : 8,
+      palette: 8 + ((attr >> 1) & 7),
+      priority: (attr >> 4) & 3,
+      flipX: !!(attr & 0x40),
+      flipY: !!(attr & 0x80),
+      ...place(x9, w[b + 1]!),
+      attr,
+      ox: x9,
+      oy: w[b + 1]!,
+    })
+  }
+  return parts
+}
+
+/**
  * The flames as OAM parts in Layer 2 space (`ox`/`oy`, and `dx`/`dy` equal to them), for the level
  * `seed` belongs to. `seed` is `levelSeed`'s: its loaded image is the level's state, and its
  * cluster numbers stay cleared for every other sprite's run (#809); only these runs set them.
@@ -141,28 +174,7 @@ export function castleFlames(
       if (w[CLUSTER_NUMBER + x] !== 5) continue
       run(DRAW, x)
     }
-    const parts: SpritePart[] = []
-    for (let i = 0; i < RAM.oamEntries; i++) {
-      const b = RAM.oam + i * 4
-      if (!touched.has(b + 2)) continue
-      const attr = w[b + 3]!
-      const hi = w[RAM.oamSize + i]!
-      const x9 = w[b]! | ((hi & 1) << 8)
-      parts.push({
-        oam: i,
-        char: w[b + 2]! | ((attr & 1) << 8),
-        size: hi & 2 ? 16 : 8,
-        palette: 8 + ((attr >> 1) & 7),
-        priority: (attr >> 4) & 3,
-        flipX: !!(attr & 0x40),
-        flipY: !!(attr & 0x80),
-        dx: x9,
-        dy: w[b + 1]!,
-        attr,
-        ox: x9,
-        oy: w[b + 1]!,
-      })
-    }
+    const parts = touchedOamParts(w, touched, (x9, y) => ({ dx: x9, dy: y }))
     return { ok: true, parts, unverified }
   } catch (e) {
     if (e instanceof Refusal) return { ok: false, reason: e.message }

@@ -334,12 +334,9 @@ async function spritePixels(page, index, screen) {
   )
 }
 
-// A sprite that overlaps an item block covers its indicator exactly as it covers the block: the sprite's
-// pixels win. Spots measured on the vanilla ROM: $101 at 43,15 and $107 at 117,21.
-for (const [map, col, row] of [
-  [0x101, 43, 15],
-  [0x107, 117, 21],
-]) {
+// A sprite over an item block covers its indicator as it covers the block. Only $107 at 117,21 remains
+// (197 of 256 cell pixels, vanilla, one run): $101's overlap was the flame leak #849 removed.
+for (const [map, col, row] of [[0x107, 117, 21]]) {
   test(`a sprite over the item block at ${col},${row} on $${map.toString(16)} covers its indicator`, async ({
     page,
   }) => {
