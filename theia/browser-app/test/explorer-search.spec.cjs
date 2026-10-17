@@ -91,6 +91,12 @@ async function openExplorer(page, which, { viaApp = false } = {}) {
 const opens = page => page.evaluate(() => window.__opens)
 
 /** The drawn row ids, selection, and expanded ids, read off the widget. */
+// True when drawn; else the diagnostics, so a red poll names its own cause.
+async function boxOrDiag(page, which) {
+  const s = await state(page, which)
+  return s.boxVisible || JSON.stringify(s.diag)
+}
+
 async function state(page, which) {
   return page.evaluate(async id => {
     const w = await getWidget(id)
@@ -111,11 +117,15 @@ async function state(page, which) {
     // request, so isVisible alone is true for an empty, zero-size node (#336).
     const inner = w.searchBox?.node.querySelector('.theia-search-box')
     const ir = inner?.getBoundingClientRect()
+    // And hit-tested at its centre, so a clipped or covered box fails too.
+    const ihit = ir && document.elementFromPoint(ir.left + ir.width / 2, ir.top + ir.height / 2)
     const boxRendered = Boolean(
       inner &&
       w.searchBox.node.querySelector('.theia-search-input') &&
       ir.width > 0 &&
-      ir.height > 0,
+      ir.height > 0 &&
+      ihit &&
+      w.searchBox.node.contains(ihit),
     )
     const rect = q => q && [q.left, q.top, q.right, q.bottom].map(Math.round)
     return {
@@ -129,6 +139,10 @@ async function state(page, which) {
         msg: rect(r),
         widget: rect(box),
         searchBox: w.searchBox?.isVisible ? rect(sb) : null,
+        // Flagged shown but not drawn (or covered): the #336 T4 failure itself.
+        flaggedNotDrawn: Boolean(w.searchBox?.isVisible && !boxRendered),
+        boxInner: rect(ir),
+        boxHit: ihit ? `${ihit.tagName}.${ihit.className}` : null,
         hit: hit ? `${hit.tagName}.${hit.className}` : null,
         toasts: document.querySelectorAll('.theia-notification-list-item').length,
       },
@@ -351,7 +365,7 @@ for (const which of Object.keys(IDS)) {
     await openExplorer(page, which)
     await page.evaluate(id => getWidget(id).then(w => w.node.focus()), IDS[which])
     await page.keyboard.press('Control+f')
-    await expect.poll(async () => (await state(page, which)).boxVisible).toBe(true)
+    await expect.poll(async () => boxOrDiag(page, which)).toBe(true)
     expect((await state(page, which)).treeFocused).toBe(true)
     await clear(page, which)
     await expect.poll(async () => (await state(page, which)).boxVisible).toBe(false)
@@ -766,7 +780,7 @@ for (const which of Object.keys(IDS)) {
     await page.locator('[id="hackbench.explorer.find"]:visible').first().click()
     // Before any key: the box is drawn (boxVisible checks the DOM rect) and
     // keys still go to the tree.
-    await expect.poll(async () => (await state(page, which)).boxVisible).toBe(true)
+    await expect.poll(async () => boxOrDiag(page, which)).toBe(true)
     expect((await state(page, which)).treeFocused).toBe(true)
     await type(page, which, FIND_QUERY[which])
     await expectFiltered(page, which, all, FIND_QUERY[which])
@@ -796,9 +810,9 @@ test('maps: after a real row click, Ctrl+F draws the search box before any key, 
   expect(rowMatches(q, rowOf('maps', other)), 'fixture: the other row does not match').toBe(false)
 
   await page.locator(`[id="${IDS.maps}"] [data-node-id="${target.id}"]`).first().click()
-  await page.waitForTimeout(1500)
+  await expect.poll(() => mapViewIds(page)).toEqual([`hackbench.map-view:${target.index}`])
   await page.keyboard.press('Control+f')
-  await expect.poll(async () => (await state(page, 'maps')).boxVisible).toBe(true)
+  await expect.poll(async () => boxOrDiag(page, 'maps')).toBe(true)
   expect((await state(page, 'maps')).treeFocused).toBe(true)
   const before = (await state(page, 'maps')).rows.length
   await page.keyboard.type(q)
