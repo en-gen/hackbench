@@ -87,47 +87,13 @@ export function spriteAt(
   return undefined
 }
 
-/** How the hover and status bar name a sprite (#981): "Podoboo (sprite $33)", or "Sprite $33" when the table has no name. */
-export function spriteLabel(s: Pick<MapSpriteDto, 'id' | 'name'>): string {
-  const id = '$' + s.id.toString(16).toUpperCase().padStart(2, '0')
-  return s.name ? `${s.name} (sprite ${id})` : `Sprite ${id}`
-}
+/** Where a hover anchor was placed: zoom and the strip's origin on screen, so a layout shift (not only a zoom) re-places it. */
+export const hoverPlacementKey = (zoom: number, rect: { left: number; top: number }): string =>
+  `${zoom}:${Math.round(rect.left)}:${Math.round(rect.top)}`
 
-/** The slice of Theia's StatusBar the sprite entry uses; a fake stands in for it in unit tests. */
-export interface SpriteStatusBar {
-  setElement(id: string, entry: { text: string; alignment: number; priority: number }): unknown
-  removeElement(id: string): unknown
-}
-
-/**
- * One status bar entry shared by every map widget (#981). Each widget publishes its own selection and
- * becomes the owner; only the owner may remove the entry, so closing or hiding another map tab never
- * wipes the label of the tab in front.
- */
-export class SpriteStatusOwner {
-  private owner: object | undefined
-
-  constructor(
-    private readonly id: string,
-    private readonly alignment: number,
-  ) {}
-
-  publish(bar: SpriteStatusBar, owner: object, sprite: Pick<MapSpriteDto, 'id' | 'name'>): void {
-    this.owner = owner
-    bar.setElement(this.id, { text: spriteLabel(sprite), alignment: this.alignment, priority: 100 })
-  }
-
-  /** Becomes the owner with nothing to show: the entry goes, and the previous owner's later clear is a no-op. */
-  claim(bar: SpriteStatusBar, owner: object): void {
-    this.owner = owner
-    bar.removeElement(this.id)
-  }
-
-  clear(bar: SpriteStatusBar, owner: object): void {
-    if (this.owner !== owner) return
-    this.owner = undefined
-    bar.removeElement(this.id)
-  }
+/** What the hover shows for a sprite (#981): its plain name only, or nothing when the name table has none. */
+export function spriteName(s: Pick<MapSpriteDto, 'name'>): string | undefined {
+  return s.name || undefined
 }
 
 /**

@@ -7,8 +7,8 @@ import {
   spriteAt,
   spriteDoors,
   doorIdAt,
-  spriteLabel,
-  SpriteStatusOwner,
+  spriteName,
+  hoverPlacementKey,
 } from '../../../theia/extension/src/browser/map-view-model'
 import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
 
@@ -109,64 +109,24 @@ describe('spriteAt', () => {
   })
 })
 
-describe('spriteLabel', () => {
-  it.each([
-    [0x00, 'Goomba', 'Goomba (sprite $00)', 'Sprite $00'],
-    [0x0f, 'Goomba', 'Goomba (sprite $0F)', 'Sprite $0F'],
-    [0x33, 'Podoboo', 'Podoboo (sprite $33)', 'Sprite $33'],
-    [0xff, 'Whatever', 'Whatever (sprite $FF)', 'Sprite $FF'],
-  ])('formats case %#', (id, name, named, bare) => {
-    expect(spriteLabel({ id, name })).toBe(named)
-    expect(spriteLabel({ id })).toBe(bare)
-    expect(spriteLabel({ id, name: '' })).toBe(bare)
+describe('spriteName', () => {
+  it('is the plain name only: no id, no wording around it', () => {
+    expect(spriteName({ name: 'Podoboo' })).toBe('Podoboo')
+    expect(spriteName({ name: 'Big Boo' })).toBe('Big Boo')
+  })
+
+  it('is nothing for a sprite the name table lacks, so no hover opens', () => {
+    expect(spriteName({})).toBeUndefined()
+    expect(spriteName({ name: '' })).toBeUndefined()
   })
 })
 
-describe('SpriteStatusOwner', () => {
-  const fake = () => {
-    const entries = new Map<string, string>()
-    return {
-      entries,
-      setElement: (id: string, e: { text: string }) => void entries.set(id, e.text),
-      removeElement: (id: string) => void entries.delete(id),
-    }
-  }
-  const [A1, B1] = [
-    { id: 0x33, name: 'Podoboo' },
-    { id: 0x28, name: 'Big Boo' },
-  ]
-
-  it('lets only the owner remove the entry', () => {
-    const [bar, own] = [fake(), new SpriteStatusOwner('s', 0)]
-    const [a, b] = [{}, {}]
-    own.publish(bar, a, A1)
-    own.publish(bar, b, B1)
-    own.clear(bar, a) // A closes: B's label stays
-    expect(bar.entries.get('s')).toBe('Big Boo (sprite $28)')
-    own.clear(bar, b)
-    expect(bar.entries.has('s')).toBe(false)
-  })
-
-  it('claim takes ownership and removes the entry, so the old owner can no longer remove it', () => {
-    const [bar, own] = [fake(), new SpriteStatusOwner('s', 0)]
-    const [a, b] = [{}, {}]
-    own.publish(bar, a, A1)
-    own.claim(bar, b) // b is active with nothing selected
-    expect(bar.entries.has('s')).toBe(false)
-    bar.setElement('s', { text: 'b-owned' }) // stands in for an entry b's own later publish put up
-    own.clear(bar, a) // a no longer owns it
-    expect(bar.entries.get('s')).toBe('b-owned')
-    own.clear(bar, b)
-    expect(bar.entries.has('s')).toBe(false)
-  })
-
-  it('follows a re-publish by the widget that comes to the front', () => {
-    const [bar, own] = [fake(), new SpriteStatusOwner('s', 0)]
-    const [a, b] = [{}, {}]
-    own.publish(bar, a, A1)
-    own.publish(bar, b, B1)
-    own.clear(bar, b) // B hides
-    own.publish(bar, a, A1) // A shown again
-    expect(bar.entries.get('s')).toBe('Podoboo (sprite $33)')
+describe('hoverPlacementKey', () => {
+  it('changes with the zoom or the strip origin, not with sub-pixel noise', () => {
+    const k = hoverPlacementKey(2, { left: 10, top: 20 })
+    expect(hoverPlacementKey(2, { left: 10.2, top: 19.8 })).toBe(k)
+    expect(hoverPlacementKey(3, { left: 10, top: 20 })).not.toBe(k)
+    expect(hoverPlacementKey(2, { left: 10, top: 36 })).not.toBe(k) // a note line appeared above the strip
+    expect(hoverPlacementKey(2, { left: 90, top: 20 })).not.toBe(k) // a sidebar resized
   })
 })

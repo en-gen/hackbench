@@ -268,14 +268,14 @@ part of the composite's cache key for the screens whose door map holds the id, s
 Sprite label (#981): `MapSpriteDto.name` is filled node-side from
 `getSpriteMetadata(id)?.displayName` (the sprite name table in
 `src/rom/model/sprites/SpriteMetadata.ts`); an id the table lacks has none and
-shows as "Sprite $XX". `spriteAt` (`map-view-model.ts`) returns the sprite that
+gets no hover. `spriteAt` (`map-view-model.ts`) returns the sprite that
 owns an opaque map pixel, using the same `stackOrder` as `spriteLayer`, so the
-named sprite is the one drawn on top. The widget sets the strip's native
-`title` to `spriteLabel` while the pointer is on one. A click on the strip
-selects the sprite under the pointer (view-only) and shows its label in the
-Theia core `StatusBar` (entry `hackbench.map-sprite`, left); a click on empty
-ground, a sprite reload (map change or edit), the sprite toggle going off, or
-closing the tab removes the entry.
+named sprite is the one drawn on top. The widget asks Theia's `HoverService`
+for a hover whose text is `spriteName` (the name only), placed against an
+invisible fixed box over the sprite, so it takes the editor hover theme
+colours; there is no native `title` and nothing in the status bar. Leaving
+the sprite, a sprite reload, the sprite toggle going off or closing the tab
+cancels it.
 
 ### The map tab's collision overlay (#435)
 

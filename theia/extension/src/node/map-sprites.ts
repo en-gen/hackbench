@@ -61,6 +61,15 @@ import {
   type FlameRoutines,
 } from '../../../../src/rom/sprites/interp/CastleFlames'
 import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
+import {
+  rotatingRing,
+  VANILLA_RING_ROUTINES,
+  type RingRoutines,
+} from '../../../../src/rom/sprites/interp/RotatingRing'
+import {
+  TORPEDO_LAUNCHER_ID,
+  torpedoLauncher,
+} from '../../../../src/rom/sprites/interp/TorpedoLauncher'
 import { withSeed, type SpriteSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { getSpriteMetadata } from '../../../../src/rom/model/sprites/SpriteMetadata'
 import { readSpriteTileTables } from '../../../../src/rom/SpriteTileLoader'
@@ -346,8 +355,68 @@ export function modelResult(m: RunModel): SpriteDrawResult {
   }
 }
 
+/** The launcher's `unverified` text: its reasons joined as-is, each already a full statement (a repointed arm, a spawn other than $44, a changed routine). */
+export function launcherUnverified(reasons: readonly string[]): string | undefined {
+  return reasons.length ? `Torpedo launcher unverified: ${reasons.join('; ')}` : undefined // prettier-ignore
+}
+
+/**
+ * Sprite $CA (#985), a shooter: the frame at launch. The ROM's own LaunchTorpedo and LauncherArm run
+ * and the game's sprite loop on the slot it spawned (TorpedoLauncher.ts) give the arm's and the spawned
+ * Torpedo Ted's OAM entries in one machine, so the torpedo keeps the direction and launch timer the shooter
+ * wrote into its slot (a fresh run of sprite $44 would lose them). One bitmap, anchored at the shooter, so the
+ * hover and the selection box are the launcher's. Any refusal is the marker (D52), with its reason.
+ */
+function launcherResult(rom: RomFile, seed: SpriteSeed): SpriteDrawResult {
+  const l = torpedoLauncher(rom, seed)
+  if (!l.ok) return { ok: false, reason: l.reason }
+  const unverified = launcherUnverified(l.unverified)
+  return {
+    ok: true,
+    parts: interpParts([...l.torpedoParts, ...l.arm]),
+    anchor: { x: seed.sprite.x, y: seed.sprite.y },
+    ...(unverified ? { unverified } : {}),
+    identity: { spriteId: l.torpedoId, mainHandler: 0, initHandler: 0, status: 'vanilla' },
+  }
+}
+
 /** SpriteLoadStatus, SMWDisX rammap.asm:1968 (SMW_U.sym 00001938): one byte per sprite list entry, 128 of them. */
 const SPRITE_LOAD_STATUS = 0x1938
+
+/** Sprites $E2 (counter-clockwise) and $E3 (clockwise): a ring of 10 cluster sprites, not slot sprites (CODE_02AAC0, SMWDisX bank_02.asm:5640-5641). */
+const RING_LEFT = 0xe2
+const RING_RIGHT = 0xe3
+
+/**
+ * The ring of a stream entry (#983), run from the ROM's own spawn and draw: ONE sprite at its real stream index
+ * (so hover and selection find it), the 10 pieces as its parts. A vertical level is not drawn (owner call B):
+ * the loader hands the spawn the screen's Y boundary as the ring's X there (bank_02.asm:5232-5238, 5703-5706).
+ * A routine or call-path part that is not the vanilla shape does not blank it (D52): drawn, flagged `unverified`.
+ */
+function ringResult(
+  rom: RomFile,
+  seed: SpriteSeed,
+  s: LevelSprite,
+  vertical: boolean,
+  routines: RingRoutines,
+): SpriteDrawResult {
+  if (vertical) return { ok: false, reason: 'the rotating ring is not drawn in a vertical level: the game takes its centre from the wrong axis there' } // prettier-ignore
+  const [x, y] = [pixelX(s), s.y * TILE]
+  const r = rotatingRing(rom, seed, { id: s.spriteId, x, y, index: s.index, streamOffset: s.streamOffset }, routines) // prettier-ignore
+  if (!r.ok) return { ok: false, reason: `refused: ${r.reason}` }
+  const why = r.unverified.map(u => `${u} is not the vanilla shape`).join('; ')
+  return {
+    ok: true,
+    parts: interpParts(r.parts),
+    anchor: { x, y },
+    identity: { spriteId: s.spriteId, mainHandler: 0, initHandler: 0, status: 'vanilla' },
+    ...(why
+      ? {
+          unverified: `the rotating ring is drawn from the code at the vanilla address, and ${why}`,
+        }
+      : {}),
+  }
+}
 
 /**
  * The interpreter over this cart, for the level `index`: `levelSeed` runs the
@@ -359,17 +428,24 @@ const SPRITE_LOAD_STATUS = 0x1938
  */
 export function interpDrawer(...args: Parameters<typeof interpRunner>): SpriteDrawer {
   const runner = interpRunner(...args)
-  return s => modelResult(runner(s).m)
+  return s => {
+    const r = runner(s)
+    return 'direct' in r ? r.direct : modelResult(r.m)
+  }
 }
 
-/** The run behind `interpDrawer`: the model, and whether `fixOffsets` found screen-fixed parts in it. */
+/** One sprite's run: the interpreter's model plus whether `fixOffsets` found screen-fixed parts, or an answer a special-case routine gave directly (rings, the torpedo launcher). */
+export type SpriteRun = { m: RunModel; fixed: boolean } | { direct: SpriteDrawResult }
+
+/** The run behind `interpDrawer`. */
 export function interpRunner(
   rom: RomFile,
   index: number,
   model: { isVertical: boolean; screenCount: number },
   run: (rom: RomFile, id: number, seed: SpriteSeed) => RunModel = runOnce,
   seedFor: (rom: RomFile, index: number) => SpriteSeed = levelSeed,
-): (sprite: LevelSprite) => { m: RunModel; fixed: boolean } {
+  ringRoutines: RingRoutines = VANILLA_RING_ROUTINES,
+): (sprite: LevelSprite) => SpriteRun {
   // The loader runs once per map, not per sprite.
   const base = seedFor(rom, index)
   // Mario's start is what the ROM-run loader left in $94/$96 (the entrance it ran); the
@@ -390,9 +466,11 @@ export function interpRunner(
   // Only the map's own shape is added to a generic seed; a loaded one ignores it.
   const shape = { level: { screenMode: model.isVertical ? 1 : 0, screens: model.screenCount } }
   return s => {
+    if (s.spriteId === RING_LEFT || s.spriteId === RING_RIGHT) return { direct: ringResult(rom, base, s, model.isVertical, ringRoutines) } // prettier-ignore
     const [x, y] = [pixelX(s), s.y * TILE]
     const camera = cameraFor(x, y, model.isVertical, model.screenCount)
     const seed = (camera: { x: number; y: number }, extra = {}) => withSeed({ sprite: { x, y }, camera, mario, ...shape, ...extra }, base) // prettier-ignore
+    if (s.spriteId === TORPEDO_LAUNCHER_ID) return { direct: launcherResult(rom, seed(camera)) } // prettier-ignore
     const m = run(rom, s.spriteId, seed(camera))
     const at = m.chosen
     if (!w || !loaderCam || at === undefined || !m.anchor || s.index < 0 || s.index >= 128 || !w[SPRITE_LOAD_STATUS + s.index]) return { m, fixed: false } // prettier-ignore
@@ -551,8 +629,15 @@ const unverifiedNote = (sprites: readonly MapSpriteDto[]) => {
   return u ? `Unverified: ${sprites.filter(s => s.unverified).length} sprites ${u}.` : undefined
 }
 
-/** The sprite with its plain name from the app's sprite name table (#981); a sprite the table lacks keeps none. */
+/** Placeholders drawn because the sprite may not be the vanilla one: the id's vanilla name would be a guess. */
+const NOT_VANILLA = new Set(['extraBits', 'customHandler'])
+
+/**
+ * The sprite with its plain name from the app's sprite name table (#981); a sprite the table lacks keeps none.
+ * Fail closed: a sprite with extra bits set or a repointed handler gets no name, as it gets no vanilla art.
+ */
 const named = (s: MapSpriteDto): MapSpriteDto => {
+  if (s.reason && NOT_VANILLA.has(s.reason)) return s
   const name = getSpriteMetadata(s.id)?.displayName
   return name ? { ...s, name } : s
 }
@@ -679,11 +764,12 @@ export const MAX_FRAMES = 16
  * position comes from the loader's camera for the chosen pass only, so another pass has no honest place.
  */
 export function framesOf(
-  run: { m: RunModel; fixed: boolean },
+  run: SpriteRun,
   s: LevelSprite,
   model: SpriteModel,
   dynamic?: (note: PaletteNote) => RgbaColor[],
 ): { frames: MapSpriteDto[]; reason?: string } {
+  if ('direct' in run) return { frames: [], reason: 'it is drawn by a special routine' }
   const { m, fixed } = run
   const ref = m.chosen === undefined ? undefined : m.passes[m.chosen]
   if (!ref || !ref.parts.length) {

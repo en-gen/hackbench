@@ -1,12 +1,14 @@
 /**
- * #981: a placed sprite on the map view shows its id and plain name, so a bug report can name it.
+ * #981: hovering a placed sprite on the map view shows its plain name, and only the name, in Theia's own
+ * themed hover (the `.theia-hover` box, colours from the editor hover theme variables), never a native `title`.
+ * The status bar carries no sprite id or name, on hover or on click. "On top" is the draw order of the sprite
+ * layer (column order on a horizontal map, the stream index breaking ties, later on top): the expected owner is
+ * computed here from the node reply's own bitmaps with that rule, independently of the view's code. Names come
+ * from the app's sprite name table (src/rom/model/sprites/SpriteMetadata.ts), the table the reply's `name` is read from.
  *
- * Hover: the strip's native tooltip (its `title`) reads "Podoboo (sprite $33)" while the pointer is on an
- * opaque sprite pixel and is absent otherwise. Click: the same label in the status bar, cleared by a click on
- * empty ground. "On top" is the draw order of the sprite layer (column order on a horizontal map, the stream
- * index breaking ties, later on top): the expected owner is computed here from the node reply's own bitmaps
- * with that rule, independently of the view's code. Names come from the app's sprite name table
- * (src/rom/model/sprites/SpriteMetadata.ts), the table the reply's `name` is read from.
+ * Why each check exists: the native `title` is what the owner rejected, so its absence is asserted; exact text and
+ * theme colours separate Theia's hover from a lookalike; the status bar checks guard the removed label; the
+ * reload, hide and scroll/zoom checks guard a hover that outlives the sprite it names or points at the wrong place.
  * Vanilla ROM; the pinned slot, indexes and ids below were found by a mapSprites sweep (one run, one machine).
  */
 const { test, expect } = require('@playwright/test')
@@ -67,7 +69,6 @@ test.afterEach(async ({ page }) => {
 
 const rootOf = slot => `[id="hackbench.map-view:${slot}"]`
 const stripOf = slot => `${rootOf(slot)} .hb-map-view-strip`
-const hex = id => '$' + id.toString(16).toUpperCase().padStart(2, '0')
 
 /** Opens map `slot` and returns the node reply's sprites with a hit test on their own bitmaps. */
 async function openMap(page, slot) {
@@ -175,20 +176,49 @@ async function setZoom(page, slot, steps) {
   return page.locator(`${rootOf(slot)} [data-control="zoom-indicator"]`).innerText()
 }
 
-const titleOf = (page, slot) => page.locator(stripOf(slot)).getAttribute('title')
+/** The text of Theia's open hover box, or null when none is open. */
+const hoverOf = page =>
+  page.evaluate(() => {
+    const h = document.querySelector('.theia-hover')
+    return h && h.isConnected && h.matches(':popover-open') ? h.textContent : null
+  })
+const nativeTitleOf = (page, slot) => page.locator(stripOf(slot)).getAttribute('title')
 const statusBar = page => page.locator('#theia-statusBar')
 
-/** Re-points at map pixel `at` and reads the strip's title; for polling until the sprites have loaded. */
-async function titleAt(page, slot, map, at) {
+/** The open hover's colours against what the editor hover theme variables resolve to (a probe element resolves them). */
+const hoverIsThemed = page =>
+  page.evaluate(() => {
+    const h = document.querySelector('.theia-hover')
+    const probe = document.createElement('div')
+    probe.style.cssText = 'color: var(--theia-editorHoverWidget-foreground); background-color: var(--theia-editorHoverWidget-background); border: 1px solid var(--theia-editorHoverWidget-border);' // prettier-ignore
+    document.body.append(probe)
+    const [want, got] = [getComputedStyle(probe), getComputedStyle(h)]
+    const same = ['color', 'backgroundColor', 'borderTopColor'].every(k => want[k] === got[k])
+    probe.remove()
+    return same
+  })
+
+/** 'aligned' when the hover anchor sits over `sprite`'s box in the current view, else how far off it is. */
+async function anchorState(page, slot, map, sprite) {
+  const a = await page.locator('.hb-map-sprite-anchor').boundingBox()
+  const r = await page.locator(stripOf(slot)).boundingBox()
+  if (!a || !r) return 'none'
+  const z = r.width / map.mapW
+  const [dx, dy] = [a.x - (r.x + sprite.box.x0 * z), a.y - (r.y + sprite.box.y0 * z)]
+  return Math.abs(dx) <= 1 && Math.abs(dy) <= 1 ? 'aligned' : `off by ${dx},${dy}`
+}
+
+/** Re-points at map pixel `at` and reads the open hover's text; for polling until the sprites have loaded. */
+async function hoverAt(page, slot, map, at) {
   await pointAt(page, slot, map, at.x, at.y)
-  return titleOf(page, slot)
+  return hoverOf(page)
 }
 
 /** The first named, drawn sprite that owns at least one pixel of the map. */
 const namedSprite = map =>
   map.stack.find(s => s.status === 'drawn' && s.name && map.ownerAt(s.x, s.y))
 
-test('AC1, AC3: hovering a sprite titles it with its name and $id; clicking puts the same in the status bar; empty ground clears it (#981)', async ({
+test('AC1, AC3: hovering a sprite opens a themed hover whose text is exactly its name; no native title, nothing in the status bar (#981)', async ({
   page,
 }) => {
   const slot = HIDDEN.slot
@@ -196,39 +226,39 @@ test('AC1, AC3: hovering a sprite titles it with its name and $id; clicking puts
   const sprite = namedSprite(map)
   expect(sprite, 'a named, drawn sprite on the map').toBeTruthy()
   const at = ownPixel(map, sprite)
-  const label = `${sprite.name} (sprite ${hex(sprite.id)})`
   const empty = findPixel(map, (x, y) => clearAround(map, x, y), at)
   const levels = []
   for (const [zoom, steps] of Object.entries(ZOOMS)) {
     levels.push(await setZoom(page, slot, steps))
     await expect
-      .poll(() => titleAt(page, slot, map, at), { message: zoom, timeout: 30000 })
-      .toBe(label)
-    expect(label).toMatch(/\(sprite \$[0-9A-F]{2}\)$/)
+      .poll(() => hoverAt(page, slot, map, at), { message: zoom, timeout: 30000 })
+      .toBe(sprite.name)
+    expect(await hoverIsThemed(page), `${zoom}: theme colours`).toBe(true)
+    await expect
+      .poll(() => anchorState(page, slot, map, sprite), { message: `${zoom}: anchor` })
+      .toBe('aligned')
+    expect(await nativeTitleOf(page, slot), `${zoom}: no native title`).toBeNull()
+    expect(await statusBar(page).innerText(), `${zoom}: hover`).not.toContain(sprite.name)
 
+    // A click does not select anything or reach the status bar either.
     const p = await clientOf(page, slot, map, at.x, at.y)
     await page.mouse.click(p.x, p.y)
-    await expect(statusBar(page), zoom).toContainText(label)
+    expect(await statusBar(page).innerText(), `${zoom}: click`).not.toContain(sprite.name)
+    expect(await statusBar(page).innerText(), `${zoom}: click`).not.toMatch(/\$[0-9A-F]{2}\b/)
 
-    const e = await clientOf(page, slot, map, empty.x, empty.y)
-    await page.mouse.click(e.x, e.y)
-    await expect(statusBar(page), zoom).not.toContainText(label)
-    expect(await statusBar(page).innerText()).not.toContain('(sprite $')
+    await pointAt(page, slot, map, empty.x, empty.y)
+    await expect.poll(() => hoverOf(page), { message: `${zoom}: empty ground` }).toBeNull()
   }
   // The sweep really covered three zoom levels (fit equal to 100% on this map would collapse two of them).
   expect(new Set(levels).size, `zoom indicators ${levels}`).toBe(Object.keys(ZOOMS).length)
 
-  // Selected again, the sprite toggle going off clears it, and a sprite that is not drawn has no tooltip.
-  const again = await clientOf(page, slot, map, at.x, at.y)
-  await page.mouse.click(again.x, again.y)
-  await expect(statusBar(page)).toContainText(label)
+  // The sprite toggle going off removes the hover, and a sprite that is not drawn has none.
   await page.locator(`${rootOf(slot)} [data-control="layer-sprites"]`).click()
-  await expect(statusBar(page)).not.toContainText(label)
   await pointAt(page, slot, map, at.x, at.y)
-  await expect.poll(() => titleOf(page, slot)).toBeNull()
+  await expect.poll(() => hoverOf(page)).toBeNull()
 })
 
-test('AC2: hovering empty ground leaves the strip without a sprite tooltip', async ({ page }) => {
+test('AC2: hovering empty ground opens no sprite hover', async ({ page }) => {
   const slot = HIDDEN.slot
   const map = await openMap(page, slot)
   const sprite = namedSprite(map)
@@ -236,18 +266,18 @@ test('AC2: hovering empty ground leaves the strip without a sprite tooltip', asy
   const levels = []
   for (const [zoom, steps] of Object.entries(ZOOMS)) {
     levels.push(await setZoom(page, slot, steps))
-    // On the sprite first, so a missing tooltip is not just "sprites not loaded yet".
+    // On the sprite first, so a missing hover is not just "sprites not loaded yet".
     await expect
-      .poll(() => titleAt(page, slot, map, on), { message: zoom, timeout: 30000 })
-      .toContain('(sprite $')
+      .poll(() => hoverAt(page, slot, map, on), { message: zoom, timeout: 30000 })
+      .toBe(sprite.name)
     const empty = findPixel(map, (x, y) => clearAround(map, x, y), on)
     await pointAt(page, slot, map, empty.x, empty.y)
-    await expect.poll(() => titleOf(page, slot), { message: zoom }).toBeNull()
+    await expect.poll(() => hoverOf(page), { message: zoom }).toBeNull()
   }
   expect(new Set(levels).size, `zoom indicators ${levels}`).toBe(Object.keys(ZOOMS).length)
 })
 
-test('AC4: where two sprites overlap, the tooltip names the one drawn on top (column order, stream index breaking ties)', async ({
+test('AC4: where two sprites overlap, the hover names the one drawn on top (column order, stream index breaking ties)', async ({
   page,
 }) => {
   const map = await openMap(page, PAIR.slot)
@@ -264,13 +294,11 @@ test('AC4: where two sprites overlap, the tooltip names the one drawn on top (co
   expect(both, 'the pair shares an opaque pixel').toBeTruthy()
   const [top, under] = map.ownerAt(both.x, both.y) === a ? [a, b] : [b, a]
   expect(map.stack.indexOf(top)).toBeGreaterThan(map.stack.indexOf(under))
-  await expect
-    .poll(() => titleAt(page, PAIR.slot, map, both), { timeout: 30000 })
-    .toContain(hex(top.id))
-  expect(await titleOf(page, PAIR.slot)).not.toContain(`(sprite ${hex(under.id)})`)
+  expect(top.name, 'the pair is named, by different names').not.toBe(under.name)
+  await expect.poll(() => hoverAt(page, PAIR.slot, map, both), { timeout: 30000 }).toBe(top.name)
 })
 
-test('AC5: a hidden (screen door) sprite shows its id too', async ({ page }) => {
+test('AC5: a hidden (screen door) sprite shows its name too', async ({ page }) => {
   const map = await openMap(page, HIDDEN.slot)
   const plant = map.stack.find(s => s.index === HIDDEN.index && s.id === HIDDEN.id)
   expect(plant, 'sprite 11 of map $105 is the jumping Piranha Plant').toBeTruthy()
@@ -290,68 +318,121 @@ test('AC5: a hidden (screen door) sprite shows its id too', async ({ page }) => 
       { timeout: 30000 },
     )
     .toBe(true)
-  await expect
-    .poll(() => titleAt(page, HIDDEN.slot, map, at), { timeout: 30000 })
-    .toBe(`${HIDDEN.name} (sprite ${hex(HIDDEN.id)})`)
+  await expect.poll(() => hoverAt(page, HIDDEN.slot, map, at), { timeout: 30000 }).toBe(HIDDEN.name)
+  // While the name shows, the widget is lifting this very plant: the tile-covered path (liftAt returns an id only for a
+  // sprite some painted screen's tiles cover), so the name is shown on the covered-sprite path, not an uncovered one.
+  // This is per sprite, not per pixel: the app exposes no per-pixel coverage to read.
+  expect(
+    await page.evaluate(
+      id => getSvc('ApplicationShell').getWidgetById(id).lift,
+      `hackbench.map-view:${HIDDEN.slot}`,
+    ),
+    'the plant is lifted while hovered',
+  ).toBe(door)
 })
 
-test('status entry follows the active map tab: hidden clears it, re-activating restores it, closing another keeps it (#981)', async ({
+test('a reload drops the hover and its anchor at once, before the new sprites arrive (#981)', async ({
   page,
 }) => {
-  const [A, B] = [HIDDEN.slot, 0x104]
-  const map = await openMap(page, A)
+  const slot = HIDDEN.slot
+  const map = await openMap(page, slot)
   const sprite = namedSprite(map)
   const at = ownPixel(map, sprite)
-  const label = `${sprite.name} (sprite ${hex(sprite.id)})`
-  await expect.poll(() => titleAt(page, A, map, at), { timeout: 30000 }).toBe(label)
-  const p = await clientOf(page, A, map, at.x, at.y)
-  await page.mouse.click(p.x, p.y)
-  await expect(statusBar(page)).toContainText(label)
+  await expect.poll(() => hoverAt(page, slot, map, at), { timeout: 30000 }).toBe(sprite.name)
+  // Synchronous, in one task: nothing the reply does can have run yet, so only refresh() itself can have cleared it.
+  const after = await page.evaluate(id => {
+    getSvc('ApplicationShell').getWidgetById(id).refresh()
+    const h = document.querySelector('.theia-hover')
+    return {
+      open: !!(h && h.isConnected && h.matches(':popover-open')),
+      anchors: document.querySelectorAll('.hb-map-sprite-anchor').length,
+    }
+  }, `hackbench.map-view:${slot}`)
+  expect(after).toEqual({ open: false, anchors: 0 })
+})
 
-  // B opens as a second tab in front of A: A is hidden, so its label goes.
-  await openMap(page, B)
-  await expect(statusBar(page)).not.toContainText(label)
-  expect(await statusBar(page).innerText()).not.toContain('(sprite $')
-
-  // A comes back to the front: its selection is still there and so is the label.
-  const activate = id =>
-    page.evaluate(async id => {
-      await getSvc('ApplicationShell').activateWidget(id)
-    }, id)
-  await activate(`hackbench.map-view:${A}`)
-  await expect(statusBar(page)).toContainText(label)
-
-  // Closing B (not the owner) leaves A's label alone.
-  await page.evaluate(async id => {
-    await getSvc('ApplicationShell').closeWidget(id)
-  }, `hackbench.map-view:${B}`)
-  await expect(page.locator(rootOf(B))).toHaveCount(0)
-  await expect(statusBar(page)).toContainText(label)
-
-  // Hiding A without activating another map: a plain widget in the main area covers it. No map widget claims the entry here, so only
-  // A's own hide handler can take the label away (a Widget instance is built from the map widget's own prototype chain).
-  const other = 'hb-test-cover'
-  await page.evaluate(
-    async ({ id, cover }) => {
-      const shell = getSvc('ApplicationShell')
-      let proto = Object.getPrototypeOf(shell.getWidgetById(id))
-      while (proto && !/^_?Widget$/.test(proto.constructor.name))
-        proto = Object.getPrototypeOf(proto)
-      const w = new proto.constructor()
-      w.id = cover
-      w.title.label = 'Cover'
-      w.title.closable = true
-      await shell.addWidget(w, { area: 'main' })
-      await shell.activateWidget(cover)
-    },
-    { id: `hackbench.map-view:${A}`, cover: other },
+test('scrolling under a still pointer re-places the hover on the sprite (#981)', async ({
+  page,
+}) => {
+  const slot = HIDDEN.slot
+  const map = await openMap(page, slot)
+  // Zoomed in, so a sprite is wide enough to scroll 8 screen px and stay under the pointer, and a stale anchor is 8 px off.
+  await setZoom(page, slot, ['zoom-actual', 'zoom-in', 'zoom-in', 'zoom-in'])
+  const z = await page
+    .locator(stripOf(slot))
+    .evaluate((el, w) => el.getBoundingClientRect().width / w, map.mapW)
+  expect(z, 'zoomed well in').toBeGreaterThan(2.5)
+  // The content moves left 8 screen px = d map px under the pointer.
+  const d = Math.ceil(8 / z)
+  // A drawn, named sprite with no other sprite box within 24 map px, so the same sprite is under the pointer before and after.
+  const near = (a, b) =>
+    a.box.x0 < b.box.x1 + 24 && b.box.x0 < a.box.x1 + 24 && a.box.y0 < b.box.y1 + 24 && b.box.y0 < a.box.y1 + 24 // prettier-ignore
+  const sprite = map.stack.find(
+    s => s.status === 'drawn' && s.name && !map.stack.some(o => o !== s && near(s, o)) && ownPixel(map, s), // prettier-ignore
   )
-  await expect(page.locator(rootOf(A))).toBeHidden()
-  await expect(statusBar(page)).not.toContainText(label)
-  expect(await statusBar(page).innerText()).not.toContain('(sprite $')
-  await activate(`hackbench.map-view:${A}`)
-  await expect(statusBar(page)).toContainText(label)
-  await page.evaluate(async id => {
-    await getSvc('ApplicationShell').closeWidget(id)
-  }, other)
+  expect(sprite, 'an isolated named sprite').toBeTruthy()
+  // The pointer pixel (x) and the one the scroll moves under it (x + d) must both be the sprite's, with room to its right edge.
+  const { x0, y0, x1, y1 } = sprite.box
+  let at
+  for (let y = y0; y < y1 && !at; y++)
+    for (let x = x0; x + d + 2 < x1 && !at; x++)
+      if (allWithin(2, x, y, (px, py) => map.ownerAt(px, py) === sprite && map.ownerAt(px + d, py) === sprite)) at = { x, y } // prettier-ignore
+  expect(at, 'a sprite pixel that stays on the sprite after the scroll').toBeTruthy()
+  await expect.poll(() => hoverAt(page, slot, map, at), { timeout: 30000 }).toBe(sprite.name)
+  const offset = () =>
+    page.evaluate(strip => {
+      const sc = document.querySelector(strip).closest('[data-control="map-scroller"]')
+      return [sc.scrollLeft, sc.scrollTop]
+    }, stripOf(slot))
+  const before = await offset()
+  // 8 screen px: a stale anchor would be off by more than the 1 px tolerance. The pointer stays put.
+  await page.evaluate(
+    strip => document.querySelector(strip).closest('[data-control="map-scroller"]').scrollBy(8, 0),
+    stripOf(slot),
+  )
+  expect(await offset(), 'the view really scrolled').not.toEqual(before)
+  // Still the same sprite under the pointer, then the anchor must be over its box in the new view.
+  await expect.poll(() => hoverOf(page)).toBe(sprite.name)
+  await expect.poll(() => anchorState(page, slot, map, sprite)).toBe('aligned')
+})
+
+test('a hidden map tab keeps no hover or anchor, and a reload while hidden opens none (#981)', async ({
+  page,
+}) => {
+  const slot = HIDDEN.slot
+  const map = await openMap(page, slot)
+  const sprite = namedSprite(map)
+  const at = ownPixel(map, sprite)
+  await expect.poll(() => hoverAt(page, slot, map, at), { timeout: 30000 }).toBe(sprite.name)
+  // Hide the tab with no pointer event: mouseout/mouseover are stopped below the app's handlers (a layout change can
+  // make the browser fire them), and the second map is opened through the shell, not by a click. The hover is cleared
+  // by several paths on purpose, so this is a behaviour check, not a single-plant oracle. It turns red only when ALL
+  // of these are removed together: onAfterHide, the `!this.isVisible` guard in
+  // updateHover (reached from the post-render frame request), and the React onMouseLeave (blocked here anyway).
+  // With those gone nothing else clears it before the first assertion: the hover service only reacts to mouseout on
+  // the hover box or the anchor (pointer-events none, so never hovered) and to mousedown (none sent); open()
+  // belongs to the other map; onBeforeDetach does not run on a hide. The refresh part below then needs
+  // refresh() and the reply handler in map-view-widget.tsx.
+  await page.evaluate(id => {
+    const root = document.getElementById(id)
+    for (const ev of ['mouseout', 'mouseover', 'mouseleave'])
+      root.addEventListener(ev, e => e.stopPropagation())
+  }, `hackbench.map-view:${slot}`)
+  await openMap(page, 0x104)
+  await expect(page.locator(rootOf(slot))).toBeHidden()
+  const state = () =>
+    page.evaluate(() => {
+      const h = document.querySelector('.theia-hover')
+      return {
+        open: !!(h && h.isConnected && h.matches(':popover-open')),
+        anchors: document.querySelectorAll('.hb-map-sprite-anchor').length,
+      }
+    })
+  expect(await state()).toEqual({ open: false, anchors: 0 })
+  await page.evaluate(
+    id => getSvc('ApplicationShell').getWidgetById(id).refresh(),
+    `hackbench.map-view:${slot}`,
+  )
+  await page.waitForTimeout(1500)
+  expect(await state()).toEqual({ open: false, anchors: 0 })
 })
