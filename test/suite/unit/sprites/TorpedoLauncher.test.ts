@@ -22,6 +22,9 @@ import {
   NO_SPAWN,
   notTheArm,
   VANILLA_LAUNCHER_ROUTINES,
+  EXT_DISPATCH,
+  EXT_DISPATCH_LENGTH,
+  EXT_DISPATCH_WILD,
   type LauncherRoutines,
 } from '../../../../src/rom/sprites/interp/TorpedoLauncher'
 import { drawSprites, interpDrawer } from '../../../../theia/extension/src/node/map-sprites'
@@ -77,18 +80,20 @@ const arm = [
 const TORPEDO_MAIN = 0x019600
 // prettier-ignore
 const torpedoMain = [
-  0xbc, 0xea, 0x15, 0xb5, 0xe4, 0x38, 0xe5, 0x1a, 0x99, 0x00, 0x03, 0xb5, 0xd8, 0x38, 0xe5, 0x1c, 0x99, 0x01, 0x03,
-  0xa5, 0x0e, 0x85, 0x00,
-  0xbd, 0x7c, 0x15, 0xf0, 0x06, 0xa5, 0x00, 0x09, 0x40, 0x85, 0x00,
-  0xbd, 0x40, 0x15, 0xf0, 0x0a, 0xa5, 0x00, 0x09, 0x10, 0x85, 0x00, 0xa9, 0xc1, 0x80, 0x02, 0xa9, 0xc2,
-  0x99, 0x02, 0x03, 0xa5, 0x00, 0x99, 0x03, 0x03, 0x98, 0x4a, 0x4a, 0xa8, 0xa9, 0x02, 0x99, 0x60, 0x04, 0x60,
+  0xbc, 0xea, 0x15, 0x38, 0xb5, 0xd8, 0xe5, 0x1c, 0x99, 0x01, 0x03, 0x38, 0xb5, 0xe4, 0xe5, 0x1a, 0x99, 0x00, 0x03,
+  0xa5, 0x0e, 0x85, 0x04,
+  0xbd, 0x7c, 0x15, 0xf0, 0x04, 0xa9, 0x40, 0x04, 0x04, // X flip: TSB $04 sets the bit
+  0xbd, 0x40, 0x15, 0xf0, 0x08, 0xa9, 0x10, 0x04, 0x04, 0xa9, 0xc1, 0x80, 0x02, 0xa9, 0xc2,
+  0x99, 0x02, 0x03, 0xa5, 0x04, 0x29, 0xff, 0x99, 0x03, 0x03, 0xa9, 0x02, 0x85, 0x05, 0x98, 0x4a, 0x4a, 0xaa, 0xa5, 0x05, 0x9d, 0x60, 0x04, 0x60,
 ]
 const LOADER_AT = 0x02a8d4
 const DISPATCH_AT = 0x02b3ab
 /** The extended-sprite loop body and its word table (bank_02.asm:3540-3558); entry $08 is the arm. */
 const EXT_AT = 0x029b16
+// The cart's own 21 bytes, NOT the ROM's: torpedoLauncher recognizes the span by its fingerprint (JSL operand
+// zeroed), which the cart supplies through `routinesOf`; only the JSL to the cart's ExecutePtr is read as bytes.
 // prettier-ignore
-const EXT_CODE = [0xbd, 0x0b, 0x17, 0xf0, 0xfa, 0xa4, 0x9d, 0xd0, 0x08, 0xbc, 0x6f, 0x17, 0xf0, 0x03, 0xde, 0x6f, 0x17, 0x22, 0xfa, 0x86, 0x00] // prettier-ignore
+const EXT_CODE = [0xb5, 0x2b, 0xea, 0xd0, 0x07, 0xa6, 0x41, 0xf0, 0x11, 0xb4, 0x3c, 0xea, 0xd0, 0x05, 0xce, 0x3c, 0x18, 0x22, 0xfa, 0x86, 0x00]
 const EXT_ENTRY8 = EXT_AT + EXT_CODE.length + 16
 
 function launcherRom(tweak: (bytes: Uint8Array) => void = () => {}, launch = launchBytes()) {
@@ -97,7 +102,7 @@ function launcherRom(tweak: (bytes: Uint8Array) => void = () => {}, launch = lau
     expect(bytes.subarray(off(snes), off(snes) + b.length).every(v => v === 0)).toBe(true)
     bytes.set(b, off(snes))
   }
-  put(LOADER_AT, [0xc9, 0xc9, 0x90, 0x05, 0x20, 0x78, 0xab, 0x80, 0x7f]) // the loader route
+  put(LOADER_AT, [0xc9, 0xc9, 0x90, 0x09, 0x20, 0x34, 0xa1, 0x80, 0x03]) // the loader route (operands are not the ROM's)
   put(DISPATCH_AT, [0x3a, 0x22, 0xfa, 0x86, 0x00, 0x00, 0x00, 0xb6, 0xb3, 0x00, 0x00]) // dispatch to the cart's ExecutePtr
   put(EXT_AT, EXT_CODE)
   put(EXT_ENTRY8, [ARM & 0xff, (ARM >> 8) & 0xff]) // the cart's table: only entry $08 is filled
@@ -113,7 +118,8 @@ function launcherRom(tweak: (bytes: Uint8Array) => void = () => {}, launch = lau
 /** This cart's own routine fingerprints (the vanilla ones are for the vanilla bytes). */
 const sha = (rom: RomFile, at: number, n: number) =>
   spanFingerprint(Uint8Array.from(bytesAt(rom, at, n)!))!
-const routinesOf = (rom: RomFile): LauncherRoutines => ({ launch: sha(rom, LAUNCH, LAUNCH_SPAN), arm: sha(rom, ARM, ARM_SPAN) }) // prettier-ignore
+const extSha = (rom: RomFile) => spanFingerprint(Uint8Array.from(bytesAt(rom, EXT_DISPATCH, EXT_DISPATCH_LENGTH)!), EXT_DISPATCH_WILD)! // prettier-ignore
+const routinesOf = (rom: RomFile): LauncherRoutines => ({ launch: sha(rom, LAUNCH, LAUNCH_SPAN), arm: sha(rom, ARM, ARM_SPAN), extDispatch: extSha(rom) }) // prettier-ignore
 
 const SHOOTER = { x: 0x120, y: 0x90 }
 const CAMERA = { x: 0x40, y: 0x20 }
@@ -137,6 +143,7 @@ describe('Torpedo Ted launcher from the routines (synthetic cart)', () => {
     const mine = routinesOf(launcherRom())
     expect(mine.launch).not.toBe(VANILLA_LAUNCHER_ROUTINES.launch)
     expect(mine.arm).not.toBe(VANILLA_LAUNCHER_ROUTINES.arm)
+    expect(mine.extDispatch).not.toBe(VANILLA_LAUNCHER_ROUTINES.extDispatch)
   })
 
   it("the torpedo and the arm are the cart's own OAM entries, from the slot it filled, verified", () => {
@@ -356,7 +363,7 @@ describe('Torpedo Ted launcher from the routines (synthetic cart)', () => {
   })
 
   it('an 8 x 8 OAM entry is size 8 (the size bit, not a constant)', () => {
-    const at = Array.from(torpedoMain).findIndex((v, i, a) => v === 0xa9 && a[i + 1] === 0x02 && a[i + 2] === 0x99 && a[i + 3] === 0x60) // prettier-ignore
+    const at = Array.from(torpedoMain).findIndex((v, i, a) => v === 0xa9 && a[i + 1] === 0x02 && a[i + 2] === 0x85 && a[i + 3] === 0x05) // prettier-ignore
     expect(at).toBeGreaterThan(0)
     const rom = launcherRom(b => void (b[off(TORPEDO_MAIN) + at + 1] = 0x00))
     expect(ok(rom, routinesOf(launcherRom())).torpedoParts.map(p => p.size)).toEqual([8])
@@ -529,6 +536,26 @@ describe.skipIf(!hasRom(VANILLA))('Torpedo Ted launcher, vanilla ROM map $011', 
 
   it("the vanilla routine fingerprints are the ROM's (the guard is not vacuous)", () => {
     const rom = RomFile.load(romPath(VANILLA))
-    expect({ launch: sha(rom, LAUNCH, LAUNCH_SPAN), arm: sha(rom, ARM, ARM_SPAN) }).toEqual(VANILLA_LAUNCHER_ROUTINES) // prettier-ignore
+    expect(routinesOf(rom)).toEqual(VANILLA_LAUNCHER_ROUTINES)
+  })
+
+  it('planted: one changed byte in the extended-sprite dispatch span is unverified (opcode, branch and operand bytes)', () => {
+    const vanilla = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
+    const unverified = (mutate: (b: Uint8Array) => void) => {
+      const b = Uint8Array.from(vanilla)
+      mutate(b)
+      const rom = RomFile.fromBytes('planted.sfc', b)
+      const stream = parseLevelSprites(rom.readUpTo(new SmwRom(rom).getLevelSpritePointer(0x11)!, 0x200)!, false) // prettier-ignore
+      const first = stream.find(s => s.spriteId === 0xca)!
+      const [x, y] = [first.x * 16, first.y * 16]
+      const camera = { x: Math.max(0, x - 128), y: Math.max(0, Math.min(208, y - 112)) }
+      const r = torpedoLauncher(rom, withSeed({ sprite: { x, y }, camera, mario: { x: 0x20, y: 0x180 } }, levelSeed(rom, 0x11))) // prettier-ignore
+      return r.ok ? r.unverified : [r.reason]
+    }
+    const at = (n: number) => off(EXT_DISPATCH) + n
+    const MSG = 'the extended sprite dispatch is not the vanilla shape'
+    expect(unverified(() => {})).toEqual([])
+    for (const n of [0, 1, 4, 10, 17])
+      expect(unverified(b => void (b[at(n)]! ^= 1)).join()).toContain(MSG)
   })
 })

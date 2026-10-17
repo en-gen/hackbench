@@ -56,11 +56,14 @@ const ARM = 0x029e3d // LauncherArm
 /**
  * The extended-sprite loop body, CODE_029B16 (bank_02.asm:3540-3548): LDA ExtSpriteNumber,X / BEQ / LDY SpriteLock / BNE /
  * LDY ExtSpriteMisc176F,X / BEQ / DEC ExtSpriteMisc176F,X / JSL ExecutePtr, then the word table (:3550-3558), whose
- * entry $08 is LauncherArm. The JSL is the last 4 bytes of the shape; the table starts right after it.
+ * entry $08 is LauncherArm. The JSL is the last 4 bytes of the span; the table starts right after it. The span is
+ * recognized by SHA-256 (`LauncherRoutines.extDispatch`, JSL operand zeroed), not committed as bytes.
  */
-const EXT_DISPATCH = 0x029b16
-const EXT_DISPATCH_SHAPE = [0xbd, 0x0b, 0x17, 0xf0, 0xfa, 0xa4, 0x9d, 0xd0, 0x08, 0xbc, 0x6f, 0x17, 0xf0, 0x03, 0xde, 0x6f, 0x17, 0x22, null, null, null] // prettier-ignore
-const EXT_TABLE = EXT_DISPATCH + EXT_DISPATCH_SHAPE.length
+export const EXT_DISPATCH = 0x029b16
+/** The span's length and the JSL operand's offsets, zeroed in its fingerprint (the callee is checked on its own below). */
+export const EXT_DISPATCH_LENGTH = 21
+export const EXT_DISPATCH_WILD = [18, 19, 20] as const
+const EXT_TABLE = EXT_DISPATCH + EXT_DISPATCH_LENGTH
 
 /** SMW_U.sym WRAM cells (rammap.asm:1777-1794). */
 const W = {
@@ -87,10 +90,13 @@ const PATH: { what: string; at: number; want: (number | null)[] }[] = [
 export interface LauncherRoutines {
   launch: string
   arm: string
+  /** The extended-sprite loop body at EXT_DISPATCH, 21 bytes with the JSL operand (EXT_DISPATCH_WILD) zeroed. */
+  extDispatch: string
 }
 export const VANILLA_LAUNCHER_ROUTINES: LauncherRoutines = {
   launch: 'e0962dc7d4565ad6480cdf5d97422c7917875f697a80e41e54631097c87dd2f3',
   arm: 'b4e8ba768bd56d5de75a028061a684286b5871605714d7f6674d0aa1a9869350',
+  extDispatch: '4b9a7f7083921bc90193d8721b9e38bbfaf64ae4482b64d787b8807a8a62ab44',
 }
 const LAUNCH_LENGTH = 174
 const ARM_LENGTH = 69
@@ -131,8 +137,9 @@ export function torpedoLauncher(
   const callee = bytesAt(rom, DISPATCH + 2, 3)
   if (!callee || !checkExecutePtr(rom, [callee]).ok) unverified.push('the shooter dispatch call target could not be verified as the 16-bit ExecutePtr') // prettier-ignore
   // The extended sprite $08 is run where the game's own dispatch sends it (bank_02.asm:3548, 3558), not at a fixed address.
-  const extShape = shapeMatches(bytesAt(rom, EXT_DISPATCH, EXT_DISPATCH_SHAPE.length), EXT_DISPATCH_SHAPE) // prettier-ignore
-  const extCallee = bytesAt(rom, EXT_DISPATCH + EXT_DISPATCH_SHAPE.length - 3, 3)
+  const extBytes = bytesAt(rom, EXT_DISPATCH, EXT_DISPATCH_LENGTH)
+  const extShape = spanFingerprint(extBytes && Uint8Array.from(extBytes), EXT_DISPATCH_WILD) === routines.extDispatch // prettier-ignore
+  const extCallee = bytesAt(rom, EXT_DISPATCH + EXT_DISPATCH_LENGTH - 3, 3)
   const extWord = bytesAt(rom, EXT_TABLE + 2 * ARM_EXT_SPRITE, 2)
   let armAt = ARM
   if (!extShape || !extCallee || !checkExecutePtr(rom, [extCallee]).ok || !extWord) {

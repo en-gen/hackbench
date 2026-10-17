@@ -37,7 +37,7 @@ How the map view draws it, and what each step rests on.
   with the number; a spawned sprite with no MAIN handler, or one that draws nothing,
   shows the marker with the reason.
 - The arm is run where the extended-sprite dispatch sends $08, not at a fixed address: the loop body
-  CODE_029B16 (`bank_02.asm:3540-3548`) is shape-checked, its JSL must reach the 16-bit ExecutePtr, and the
+  CODE_029B16 (`bank_02.asm:3540-3548`) is fingerprint-checked (SHA-256 of the 21 bytes, JSL operand zeroed), its JSL must reach the 16-bit ExecutePtr, and the
   table's entry $08 (`:3558`, LauncherArm in vanilla) is read. A repointed entry runs the new target, flagged
   `unverified`; an unrecognised dispatch shape is flagged and the vanilla address is used.
 - `map-sprites.ts` (`launcherResult`) turns the torpedo's and the arm's OAM entries into one
