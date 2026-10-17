@@ -363,7 +363,12 @@ describe('SmwRom.buildLevelExitGraph', () => {
       expect(g.graph.get(0x010)).toEqual([0x051])
     })
 
-    it('does not merge exits on different screens, even to one destination order', () => {
+    it('keeps both when the screens differ only in bit 4 (3 and 19)', () => {
+      const g = build([...exitAt(3, 0x50), ...exitAt(0x13, 0x51)])
+      expect(g.graph.get(0x010)).toEqual([0x050, 0x051])
+    })
+
+    it('keeps both exits when the screens differ', () => {
       const g = build([...exitAt(1, 0x50), ...exitAt(2, 0x51)])
       expect(g.graph.get(0x010)).toEqual([0x050, 0x051])
     })
