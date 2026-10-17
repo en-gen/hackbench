@@ -14,6 +14,14 @@ import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { CAPTURE_DIR, freshRom, hasCaptures, hasRom, VANILLA } from '../../support/corpus'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 
+// A capture's first-frame WRAM (frame_0000_wram.bin), the hardware side of the comparisons below.
+const frame0Wram = (map: string): Uint8Array => {
+  const entries = unzip(readFileSync(join(CAPTURE_DIR, `${map}.zip`)))
+  const key = [...entries.keys()].find(k => k.endsWith('frame_0000_wram.bin'))
+  if (!key) throw new Error(`${map}: no frame_0000_wram.bin in the capture`)
+  return new Uint8Array(entries.get(key)!())
+}
+
 describe('level loader runs the Layer 3 handler', () => {
   it('the synthetic cart stand-in ran: it sets ScreenMode bit 7 ($5B)', () => {
     const l = loadLevelState(buildSyntheticRom(), 0x105)
@@ -81,12 +89,6 @@ describe.skipIf(!hasRom(VANILLA))('vanilla map $102 floating spike ball', () => 
 describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
   'tide maps vs the level-load captures (#842)',
   () => {
-    const frame0Wram = (map: string): Uint8Array => {
-      const entries = unzip(readFileSync(join(CAPTURE_DIR, `${map}.zip`)))
-      const key = [...entries.keys()].find(k => k.endsWith('frame_0000_wram.bin'))
-      if (!key) throw new Error(`${map}: no frame_0000_wram.bin in the capture`)
-      return new Uint8Array(entries.get(key)!())
-    }
     it.each(['002', '0be', '0c1', '102', '127'])('map %s', map => {
       const hw = frame0Wram(map)
       const l = loadLevelState(freshRom(), parseInt(map, 16))
@@ -125,11 +127,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
       '19b',
       '1c7',
     ])('map %s', map => {
-      // prettier-ignore
-      const entries = unzip(readFileSync(join(CAPTURE_DIR, `${map}.zip`)))
-      const key = [...entries.keys()].find(k => k.endsWith('frame_0000_wram.bin'))
-      if (!key) throw new Error(`${map}: no frame_0000_wram.bin in the capture`)
-      const hw = new Uint8Array(entries.get(key)!())
+      const hw = frame0Wram(map)
       const l = loadLevelState(freshRom(), parseInt(map, 16))
       if (!l.ok) throw new Error(l.reason)
       expect(hw[0x0d9b] & 0x80).toBe(0x80)

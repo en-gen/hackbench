@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest'
 import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
-import { BUFFER_FIRST, BUFFER_LAST, putLayer3 } from '../../support/syntheticLayer3'
+import { BUFFER_FIRST, BUFFER_LAST, long, putLayer3 } from '../../support/syntheticLayer3'
 import { freshRom, hasRom, VANILLA } from '../../support/corpus'
 
 const PTR = 0x05d8c9 // the synthetic pointer loader's LDA #irqCommand (before its STA $0D9B, PLB, RTL)
@@ -25,8 +25,12 @@ const wramOf = (a: number) => a & 0x1ffff
  */
 function cart(ts: number, l3: number, irq = 0) {
   const rom = buildSyntheticRom()
-  const lo = (a: number) => a & 0xff
-  rom.writeAt(PTR, [0xa9, ts, 0x8d, 0x31, 0x19, 0xa9, l3, 0x8d, 0xe3, 0x1b, 0xa9, 0xff, 0x8f, lo(BUFFER_FIRST), BUFFER_FIRST >> 8 & 0xff, 0x7e, 0x8f, lo(BUFFER_LAST), BUFFER_LAST >> 8 & 0xff, 0x7e, 0xa9, irq, 0x8d, 0x9b, 0x0d, 0xab, 0x6b]) // prettier-ignore
+  rom.writeAt(PTR, [
+    ...[0xa9, ts, 0x8d, 0x31, 0x19], // LDA #ts, STA $1931
+    ...[0xa9, l3, 0x8d, 0xe3, 0x1b], // LDA #l3, STA $1BE3
+    ...[0xa9, 0xff, 0x8f, ...long(BUFFER_FIRST), 0x8f, ...long(BUFFER_LAST)], // marker in both buffer ends
+    ...[0xa9, irq, 0x8d, 0x9b, 0x0d, 0xab, 0x6b], // LDA #irq, STA $0D9B, PLB, RTL
+  ])
   putLayer3((at, bytes) => rom.writeAt(at, bytes))
   return rom
 }

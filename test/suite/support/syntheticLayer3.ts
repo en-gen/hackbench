@@ -12,6 +12,9 @@ export const TIDE_HELPER_AT = 0x00a045
 export const BUFFER_FIRST = 0x7ee400
 export const BUFFER_LAST = 0x7efdfe
 
+/** A 24-bit address as the three little-endian operand bytes of a long instruction. */
+export const long = (a: number): number[] => [a & 0xff, (a >> 8) & 0xff, a >> 16]
+
 // prettier-ignore
 export const LAYER3_PREFIX: readonly number[] = [
   0xad, 0x31, 0x19, 0x0a, 0x18, 0x6d, 0x31, 0x19, 0x85, 0x00, // tileset * 3 into $00
