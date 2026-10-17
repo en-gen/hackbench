@@ -14,10 +14,11 @@ import * as fs from 'fs'
  */
 export function writeFileAtomic(file: string, data: Uint8Array | string): void {
   const tmp = `${file}.${process.pid}.tmp`
+  const bytes = typeof data === 'string' ? Buffer.from(data, 'utf8') : data
   try {
     const fd = fs.openSync(tmp, 'wx')
     try {
-      fs.writeSync(fd, data)
+      fs.writeSync(fd, bytes)
       fs.fsyncSync(fd)
     } finally {
       fs.closeSync(fd)
