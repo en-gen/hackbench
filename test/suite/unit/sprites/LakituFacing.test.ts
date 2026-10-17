@@ -225,14 +225,40 @@ describe.skipIf(!hasRom(VANILLA))(
     // The triage probe's window: 8 consecutive bytes. A fixture that follows the cart's instruction order for 8 bytes
     // is copied game code (docs/testing.md), so each routine above must share no 8-byte window with the vanilla ROM.
     const WINDOW = 8
-    it(`shares no ${WINDOW}-byte run with the vanilla ROM in any fixture routine`, () => {
-      const cart = readFileSync(romPath(VANILLA))
+    // Scans the ASSEMBLED synthetic cart (the authoritative form: a window can straddle a fixture write and the
+    // base bytes around it), each written region widened by WINDOW - 1 on both sides.
+    const sharedWithCart = (cart: Buffer, rom: RomFile): string[] => {
+      const regions: Record<string, [number, number]> = {
+        SUB_HORIZ_POS: [0x01ad30, SUB_HORIZ_POS.length],
+        RIDER_INIT: [0x019a00, RIDER_INIT.length],
+        cloudMain: [0x019a40, cloudMain(STORE).length],
+      }
       const shared: string[] = []
-      const routines = { SUB_HORIZ_POS, RIDER_INIT, cloudFull: cloudMain(STORE), cloudNops: cloudMain(NOPS) } // prettier-ignore
-      for (const [name, bytes] of Object.entries(routines))
+      for (const [name, [at, len]] of Object.entries(regions)) {
+        const lo = at - (WINDOW - 1)
+        const bytes = rom.readAt(lo, len + 2 * (WINDOW - 1))!
         for (let i = 0; i + WINDOW <= bytes.length; i++)
-          if (cart.includes(Buffer.from(bytes.slice(i, i + WINDOW)))) shared.push(`${name}+${i}`)
-      expect(shared).toEqual([])
+          // Fewer than 3 distinct values match any ROM (docs/testing.md), so they are not copied code.
+          if (
+            new Set(bytes.subarray(i, i + WINDOW)).size >= 3 &&
+            cart.includes(Buffer.from(bytes.subarray(i, i + WINDOW)))
+          )
+            shared.push(`${name}@${lo + i}`)
+      }
+      return shared
+    }
+    it(`shares no ${WINDOW}-byte run with the vanilla ROM in the assembled cart`, () => {
+      const cart = readFileSync(romPath(VANILLA))
+      expect(sharedWithCart(cart, lakituRom())).toEqual([])
+      expect(sharedWithCart(cart, lakituRom({ cloud: 'nowrite' }))).toEqual([])
+    })
+
+    it('the assembled-cart window check goes red on a planted vanilla window (planted defect)', () => {
+      const cart = readFileSync(romPath(VANILLA))
+      const rom = lakituRom()
+      // Copy WINDOW real bytes from the corpus into the middle of RIDER_INIT's region, at runtime.
+      rom.writeAt(0x019a00 + 4, [...cart.subarray(0x8000, 0x8000 + WINDOW)])
+      expect(sharedWithCart(cart, rom).length).toBeGreaterThan(0)
     })
 
     it('goes red when the cloud MAIN store ($01:E998, STA $157C,Y) is disabled (planted defect)', () => {
