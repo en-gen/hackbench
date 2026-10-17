@@ -66,7 +66,8 @@ test('reopen with the base ROM renamed shows not located in properties, maps and
       const svc = getSvc('Symbol(ProjectService)')
       const paths = await svc.workstationPaths(mp)
       const maps = await svc.mapDetails(mp, 0x105)
-      return { rom: paths.romPath, maps: maps.status }
+      // A located map's DTO has no `status`; only the not-located reply does (project-protocol.ts MapDetailsNotLocated).
+      return { rom: paths.romPath, maps: maps.status ?? 'ok' }
     }, manifestPath)
   const explorerRows = () =>
     page.evaluate(async () => {
@@ -86,9 +87,12 @@ test('reopen with the base ROM renamed shows not located in properties, maps and
       getSvc('CommandRegistry').executeCommand('hackbench.project.openRecent.0'),
     )
   }
-  const viewBody = '.hb-map-view-body'
-  const drawn = `${viewBody} canvas[data-drawn]`
-  const err = '[data-control="map-error"]'
+  // The view's id is `hackbench.map-view:<index>` (map-view-widget.tsx open()); a screen canvas
+  // carries data-drawn once painted (map-view.spec.cjs waits the same way).
+  const view = '[id="hackbench.map-view:261"]'
+  const drawn = `${view} canvas[data-plane="l1Low"][data-drawn]`
+  // Both the details error (romMissingMessage) and the screen error carry this class.
+  const err = `${view} .hb-map-view-error`
 
   const before = await probe()
   expect(before.rom).toBe(copy)
@@ -101,9 +105,11 @@ test('reopen with the base ROM renamed shows not located in properties, maps and
   expect(gone.rom).toBeNull()
   expect(gone.maps).toBe('rom-not-located')
   // The visible UI: the open map view, the Maps explorer, then Project Properties.
-  await expect(page.locator(err)).toHaveText(/The base ROM .* is not on this machine\./, {
+  await expect(page.locator(err).first()).toHaveText(/The base ROM .* is not on this machine/, {
     timeout: 20000,
   })
+  // onRomChanged cleared the stale picture: nothing is drawn while the ROM is gone.
+  await expect(page.locator(drawn)).toHaveCount(0, { timeout: 20000 })
   await expect.poll(explorerRows).toMatch(/^Locate .+ to load its maps$/)
   await page.evaluate(() =>
     getSvc('CommandRegistry').executeCommand('hackbench.project.properties'),
