@@ -54,6 +54,7 @@ import { WheelBinding, ZoomController } from './zoom-controller'
 import { ZoomStepper } from './zoom-stepper'
 import { MapGridOverlay } from './grid-overlay'
 import { CollisionOverlay } from './collision-overlay'
+import { RefusedOverlay } from './refused-overlay'
 import { collisionKey, collisionPlan } from './map-view-state'
 import { MapViewStateStore } from './map-view-state-store'
 import { layer2Label } from './map-layer-labels'
@@ -605,6 +606,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       l.screenCount !== r.screenCount ||
       l.orientation !== r.orientation ||
       l.note !== r.note ||
+      JSON.stringify(l.refusedCells) !== JSON.stringify(r.refusedCells) ||
       l.layerNotes.join() !== r.layerNotes.join() ||
       JSON.stringify([l.layer3, l.screens, l.math, l.layer2Interactive]) !==
         JSON.stringify([r.layer3, r.screens, r.math, r.layer2Interactive]) ||
@@ -1291,6 +1293,14 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
                 />
               </div>
             ))}
+            {l.refusedCells && !this.screenError && (
+              <RefusedOverlay
+                cells={l.refusedCells}
+                width={l.orientation === 'vertical' ? l.width : l.width * l.screenCount}
+                height={l.orientation === 'vertical' ? l.height * l.screenCount : l.height}
+                zoom={this.zoom}
+              />
+            )}
             {this.showCollision && this.collisionCurrent() && (
               <CollisionOverlay
                 layer={this.collisionCurrent()!}
