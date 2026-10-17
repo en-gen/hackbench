@@ -731,6 +731,32 @@ describe('a relocated overworld upload', () => {
     expect(d.overworld.targets.map(t => t.cgramIdx)).toEqual([0x6d])
   })
 
+  // 65816 opcode map (hardware): $61 is ADC (dp,X) and $81 is STA (dp,X),
+  // two bytes each; $62 (PER) is three. The walk's own table once had each
+  // pair swapped, so a routine that crossed one stepped a byte off and missed
+  // the write. BRL ($82) needs no case: the walk follows it as a jump, so its
+  // length never advances the cursor.
+  it.each([
+    ['ADC (dp,X)', [0x61, 0x10]],
+    ['STA (dp,X)', [0x81, 0x10]],
+    ['PER', [0x62, 0x00, 0x00]],
+    // The polarity at the call site: HandlerWalk takes (m8, x8), this walk
+    // tracks (m16, x16). Both widths, and a REP/SEP round trip each.
+    ['LDX # with 8-bit X', [0xa2, 0x10]],
+    ['ORA # with 8-bit M', [0x09, 0x10]],
+    ['LDX # with 16-bit X', [0xc2, 0x30, 0xa2, 0x10, 0x00, 0xe2, 0x30]],
+    ['ORA # with 16-bit M', [0xc2, 0x30, 0x09, 0x10, 0x00, 0xe2, 0x30]],
+  ])('steps over %s at its true length on the way to the write', (_name, lead) => {
+    const d = detectPaletteAnimation(
+      relocated({
+        relocate: { at: AT, lead, chain: [{ cgramIdx: 0x6d, table: TABLE }] },
+        tables: [{ at: TABLE, words: ramp }],
+      }),
+    )
+    expect(d.overworld.available).toBe(true)
+    expect(d.overworld.targets.map(t => t.cgramIdx)).toEqual([0x6d])
+  })
+
   // R2: the callee may install its own data bank, and it is three readable
   // bytes at the landing address.
   it('reads a data bank the relocated routine sets for itself', () => {
