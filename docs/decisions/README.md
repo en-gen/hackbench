@@ -24,3 +24,4 @@ The morning brief after a night shift is `grep -l '^Proposed' docs/decisions/*.m
 | [2026-10-10-map-editor-scope.md](2026-10-10-map-editor-scope.md) | Ruled | the map editor chooses backgrounds; no live background editing |
 | [2026-10-15-interpret-else-warn.md](2026-10-15-interpret-else-warn.md) | Ruled | ROM data whose shape can be read is followed; only unreadable data gets a warning or error |
 | [2026-10-16-third-party-code.md](2026-10-16-third-party-code.md) | Ruled | reuse open-source code with a fitting licence and visible credit; no strong GPL; agents never contact outside maintainers |
+| [2026-10-16-side-quest.md](2026-10-16-side-quest.md) | Ruled | side quest is a per-session mode, not a protocol: one session works one problem with no orchestration |
