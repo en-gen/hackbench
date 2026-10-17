@@ -573,10 +573,10 @@
   min-width: 160px;
   border: none;
   outline: none;
-  color: var(--theia-input-foreground);
+  color: var(--theia-input-foreground, inherit);
 }
 
 .theia-search-box-widget .theia-search-input.hb-explorer-search-input:focus {
-  outline: 1px solid var(--theia-focusBorder);
+  outline: 1px solid var(--theia-focusBorder, #007fd4);
   outline-offset: -1px;
 }
