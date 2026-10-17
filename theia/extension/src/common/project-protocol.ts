@@ -336,6 +336,8 @@ export interface MapSpriteDto {
    * level loader refused this ROM: drawn, but not run from the level's state.
    */
   unverified?: string
+  /** A plain-words line about what the map shows of this sprite, not a flaw (for example fewer Eeries than the placement asks for); the map's note line carries it too. */
+  note?: string
 }
 
 /** A map's sprites, with the screen geometry the view needs to cut them per screen. */
