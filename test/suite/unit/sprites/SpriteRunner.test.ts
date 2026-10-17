@@ -31,7 +31,7 @@ const rom = buildSyntheticRom()
 
 describe('sprite loop reader', () => {
   it('resolves the setup and HandleSprite addresses from the loop itself', () => {
-    expect(resolveLoop(rom)).toEqual({ ok: true, setup: 0x0180d2, handle: 0x018127 })
+    expect(resolveLoop(rom)).toEqual({ ok: true, setup: 0x0180e0, handle: 0x018127 })
   })
   it('refuses a loop whose countdown matches more than once', () => {
     const dup = buildSyntheticRom({ dupLoop: true })

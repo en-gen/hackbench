@@ -20,7 +20,7 @@ const MOVE4: number[] = [OP.INC_DPX, 0xe4, OP.INC_DPX, 0xe4, OP.INC_DPX, 0xe4, O
 
 export function putDrawPosProbes(put: (snes: number, bytes: number[]) => void): void {
   // 34: the first OAM write is at the old X, the last at the new one.
-  put(0x019600, [...DRAW.slice(0, -1), ...MOVE4, ...DRAW])
+  put(0x019780, [...DRAW.slice(0, -1), ...MOVE4, ...DRAW])
   // 35 writes $0380 while $15E9 names another slot (restored after).
   put(0x019700, [OP.LDA_IMM, 0x0f, OP.STA_ABS, ...word(0x15e9), OP.STA_ABS, ...word(0x0380), OP.STX_ABS, ...word(0x15e9), ...MOVE4, ...DRAW]) // prettier-ignore
   // 36 writes $0400, in the gap the capture's filter excludes ($0400-$041F), with $15E9 = the slot.
