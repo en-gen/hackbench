@@ -297,10 +297,10 @@ describe('restorePlan', () => {
 })
 
 describe('the displayed id text matches in any base (D79 call 5)', () => {
-  it('a decimal-drawn 105 and a hex-drawn $105 both answer to "105"', () => {
-    const palette = paletteSearchRow({ kind: 'group', name: 'Row', row: 105 })!
+  it('a palette group matches its CGRAM row in decimal (the tree does not draw it) and a hex-drawn map $105 answers to "105"', () => {
+    const palette = paletteSearchRow({ kind: 'group', name: 'Row', row: 12 })!
     const map = mapSlotRow(0x105, 'Somewhere', {})
-    expect(rowMatches(parseQuery('105'), palette)).toBe(true)
+    expect(rowMatches(parseQuery('12'), palette)).toBe(true)
     expect(rowMatches(parseQuery('105'), map)).toBe(true)
   })
 

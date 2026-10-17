@@ -226,6 +226,8 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
 
   /** Set when meta/groups.json failed to read; group editing is refused while set. */
   protected groupsError: string | undefined
+  /** The previous load's aliases.json reason, so the toast fires once per reason. */
+  protected lastAliasesError: string | undefined
 
   /** Chains group writes so a second edit always starts from the first one's result. */
   protected writeQueue: Promise<void> = Promise.resolve()
@@ -324,6 +326,7 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
       this.mapCount = 0
       this.groups = []
       this.groupsError = undefined
+      this.lastAliasesError = undefined
       const reason = err instanceof Error ? err.message : String(err)
       this.setRoot([this.message(`Could not load maps: ${reason}`)])
       this.messages.error(reason)
@@ -337,6 +340,7 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
       this.mapCount = 0
       this.groups = []
       this.groupsError = undefined
+      this.lastAliasesError = undefined
       this.setRoot([
         this.message(`Locate ${result.baseRom.title || 'the base ROM'} to load its maps`),
       ])
@@ -357,13 +361,17 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
       this.overworldNode(areas),
     ]
     if (this.groupsError) {
-      rows.push(this.message(`Groups unavailable: ${this.groupsError}`))
+      rows.push(this.message(`Groups unavailable: ${this.groupsError}`, 'message:groups'))
       this.messages.error(`meta/groups.json: ${this.groupsError}`)
     }
     if (aliasesError) {
-      rows.push(this.message(`Map names unavailable: ${aliasesError}`))
-      this.messages.error(`meta/aliases.json: ${aliasesError}`)
+      const note = `Map names unavailable: meta/aliases.json ${aliasesError}`
+      rows.push(this.message(note, 'message:aliases'))
+      // The row stays on every load; the toast only when the reason changes,
+      // so a group edit's reload does not repeat it.
+      if (aliasesError !== this.lastAliasesError) this.messages.error(note)
     }
+    this.lastAliasesError = aliasesError
     rows.push(...result.tree.groups.map(g => this.userGroupNode(g)))
     // The count is rows actually listed under the folder, not a derived ROM
     // figure: a map that moved into a group no longer counts here.
@@ -859,9 +867,10 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
     }
   }
 
-  protected message(text: string): MapTreeNode {
+  /** Rows are keyed by id, so two notes in one tree need two ids. */
+  protected message(text: string, id = 'message'): MapTreeNode {
     return {
-      id: 'message',
+      id,
       name: text,
       index: -1,
       mapName: null,

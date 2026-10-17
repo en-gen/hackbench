@@ -775,6 +775,32 @@ test('maps: a bad aliases.json keeps the maps and shows a note saying why', asyn
   expect((await nodes(page, 'maps')).some(n => n.kind === 'map' && n.index >= 0)).toBe(true)
 })
 
+test('maps: a bad groups.json and a bad aliases.json both show their note', async ({ page }) => {
+  const manifest = await openExplorer(page, 'maps')
+  const metaDir = path.join(path.dirname(manifest), 'meta')
+  fs.mkdirSync(metaDir, { recursive: true })
+  fs.writeFileSync(path.join(metaDir, 'groups.json'), '{ not json')
+  fs.writeFileSync(path.join(metaDir, 'aliases.json'), '[1, 2]')
+  await page.evaluate(async ({ id, manifest }) => (await getWidget(id)).load(manifest), {
+    id: IDS.maps,
+    manifest,
+  })
+  // The DRAWN rows (what the tree renders), not just the model: two notes
+  // sharing an id would leave one of them out.
+  await expect
+    .poll(async () => {
+      const s = await state(page, 'maps')
+      const notes = (await nodes(page, 'maps')).filter(
+        n => n.kind === 'message' && s.rows.includes(n.id),
+      )
+      return notes.map(n => n.name.replace(/:.*$/, '')).sort()
+    })
+    .toEqual(['Groups unavailable', 'Map names unavailable'])
+  const ids = (await state(page, 'maps')).rows.filter(id => id.startsWith('message'))
+  expect(new Set(ids).size).toBe(ids.length)
+  expect(ids.length).toBe(2)
+})
+
 /**
  * The text each explorer DRAWS for one row's id, in the base it is drawn. These
  * guard D79 call 5 and cannot go red on code that already matches the drawn
@@ -788,21 +814,37 @@ const DISPLAYED_ID = {
   music: n => (n.kind === 'track' && n.bgmHex ? n.bgmHex : null),
 }
 
+// Bound: every row of a kind would be up to 512 typed queries for maps, so the
+// sweep takes at most SWEEP_MAX rows, evenly spaced, always including the first
+// and the last. Each sampled row is typed as displayed and without the $.
+const SWEEP_MAX = 24
+function sweepSample(rows) {
+  if (rows.length <= SWEEP_MAX) return rows
+  const picked = new Set([0, rows.length - 1])
+  for (let i = 0; i < SWEEP_MAX; i++)
+    picked.add(Math.round((i * (rows.length - 1)) / (SWEEP_MAX - 1)))
+  return [...picked].sort((x, y) => x - y).map(i => rows[i])
+}
+
 for (const which of Object.keys(IDS)) {
-  test(`${which}: typing a row's id exactly as displayed, with and without $, keeps that row`, async ({
+  test(`${which}: typing a sample of rows' ids exactly as displayed, with and without $, keeps each row`, async ({
     page,
   }) => {
     await openExplorer(page, which)
     const all = await nodes(page, which)
-    const target = all.find(n => DISPLAYED_ID[which](n))
-    expect(target, 'fixture: a row with a displayed id').toBeTruthy()
-    const shown = DISPLAYED_ID[which](target)
-    for (const q of new Set([shown, shown.replace(/^\$/, '')])) {
-      await type(page, which, q)
-      await expect
-        .poll(async () => (await state(page, which)).rows, { message: `"${q}" keeps the row` })
-        .toContain(target.id)
-      await clear(page, which)
+    const candidates = all.filter(n => DISPLAYED_ID[which](n))
+    expect(candidates.length, 'fixture: rows with a displayed id').toBeGreaterThan(0)
+    for (const target of sweepSample(candidates)) {
+      const shown = DISPLAYED_ID[which](target)
+      for (const q of new Set([shown, shown.replace(/^\$/, '')])) {
+        await type(page, which, q)
+        await expect
+          .poll(async () => (await state(page, which)).rows, {
+            message: `"${q}" keeps ${target.id}`,
+          })
+          .toContain(target.id)
+        await clear(page, which)
+      }
     }
   })
 }

@@ -117,6 +117,31 @@ export function readAliases(manifestPath: string, ns: AliasNamespace): AliasTabl
 }
 
 /**
+ * readAliases for a caller that must not fail on a hand-edited bad file: the
+ * reason travels with the empty table instead of an exception (a missing file
+ * is no error). The reason reads after the file name ("meta/aliases.json
+ * <reason>") and carries no path, so a row or toast can show it as is.
+ * Only an unreadable file (bad JSON, or a top level that is not an object) is
+ * reported; readAliases' tolerance of odd keys and values is unchanged.
+ */
+export function readMapAliasesOrError(manifestPath: string): {
+  aliases: AliasTable
+  error?: string
+} {
+  try {
+    return { aliases: readAliases(manifestPath, 'map') }
+  } catch (err) {
+    const cause = err instanceof Error ? err.cause : undefined
+    let error: string
+    if (cause instanceof Error) error = `is not valid JSON (${cause.message})`
+    else if (err instanceof Error && err.message.startsWith('meta/aliases.json is not an object'))
+      error = 'is not an object of namespaces'
+    else error = err instanceof Error ? err.message : String(err)
+    return { aliases: {}, error }
+  }
+}
+
+/**
  * Name one thing, or clear its name by passing an empty one.
  *
  * Returns the namespace as it now stands, so a caller can re-render without
