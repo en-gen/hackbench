@@ -1,14 +1,13 @@
 /**
  * #975: the synthetic ROMs this branch adds share no 8-byte run with the
  * vanilla ROM (BA safety rule, 2026-10-17). Evidence scope: the fixtures below
- * are rebuilt here with the same recipe as WorkingRomRegistry.test.ts fakeRom()
- * and ProjectServer.dataBanks.test.ts; the scan covers every 8-byte window of
+ * come from support/syntheticRegistryRom.ts, shared with the tests that use them; the scan covers every 8-byte window of
  * each. The scanner is proven able to fail by a planted copy.
  */
 import * as fs from 'fs'
 import { describe, it, expect } from 'vitest'
 import { hasRom, romPath, VANILLA } from '../support/corpus'
-import { loromToOffset } from '../../../src/rom/addressing'
+import { fakeRom, rampRom } from '../support/syntheticRegistryRom'
 
 const RUN = 8
 
@@ -25,18 +24,6 @@ function sharedWindows(b: Uint8Array, haystack: Set<string>): number {
   let n = 0
   for (const w of windows(b)) if (haystack.has(w)) n++
   return n
-}
-
-const ramp = (): Uint8Array => Uint8Array.from({ length: 0x80000 }, (_, i) => (i * 31) & 0xff)
-
-/** Same recipe as fakeRom() in WorkingRomRegistry.test.ts. */
-function fakeRom(): Uint8Array {
-  const rom = ramp()
-  rom.set(Buffer.from('SUPER-MARIO-WORLD ', 'ascii'), 0x7fc0)
-  const offset = loromToOffset(0x00b2ce, rom.length, false) as number
-  rom[offset] = 0x1f
-  rom[offset + 1] = 0x39
-  return rom
 }
 
 describe('scanner (synthetic, runs in CI)', () => {
@@ -65,7 +52,7 @@ describe.skipIf(!hasRom(VANILLA))('branch fixtures vs the vanilla ROM', () => {
     flipped[0x100] ^= 0xff
     expect(sharedWindows(fakeRom(), v)).toBe(0)
     expect(sharedWindows(flipped, v)).toBe(0)
-    expect(sharedWindows(ramp(), v)).toBe(0)
+    expect(sharedWindows(rampRom(), v)).toBe(0)
   })
 
   it('goes red on a planted vanilla slice', () => {

@@ -3,6 +3,7 @@
  * config file -> WorkingRomRegistry -> ProjectServiceImpl.located -> L1ModelCache.
  * Needs the theia/ workspace installed (project-server.ts imports inversify).
  */
+import { rampRom } from '../support/syntheticRegistryRom'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
@@ -60,10 +61,7 @@ describe.skipIf(!theiaInstalled)('ProjectServiceImpl.openProject (#975)', () => 
   it('asks the registry to revalidate the cached copy', async () => {
     const romPath = path.join(tmp, 'game.sfc')
     // Period-256 ramp: shares no 8-byte run with the vanilla ROM (an all-zero fill does).
-    fs.writeFileSync(
-      romPath,
-      Buffer.from(Array.from({ length: 0x80000 }, (_, i) => (i * 31) & 0xff)),
-    )
+    fs.writeFileSync(romPath, rampRom())
     const romRegistry = new RomRegistry(path.join(tmp, 'rom-registry.json'))
     romRegistry.register(romPath)
     const { manifestPath } = createProject({ romPath, name: 'P', directory: path.join(tmp, 'P') })

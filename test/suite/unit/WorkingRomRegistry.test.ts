@@ -24,6 +24,7 @@ import { GfxTable } from '../../../src/rom/GfxTable'
 import type { GfxCharEdit } from '../../../src/rom/GfxLayer'
 import { RomFile } from '../../../src/rom/RomFile'
 import { buildCart } from '../support/syntheticGfxCart'
+import { fakeRom, MARIO_RED_ADDR } from '../support/syntheticRegistryRom'
 import { slow } from '../support/loadTimeout'
 
 /**
@@ -51,8 +52,6 @@ let tmp: string
 let romRegistry: RomRegistry
 let working: WorkingRomRegistry
 
-const MARIO_RED_ADDR = 0x00b2ce
-
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-wrreg-'))
   romRegistry = new RomRegistry(path.join(tmp, 'rom-registry.json'))
@@ -63,16 +62,6 @@ afterEach(() => {
   vi.useRealTimers()
   fs.rmSync(tmp, { recursive: true, force: true })
 })
-
-function fakeRom(): Uint8Array {
-  const rom = new Uint8Array(0x80000)
-  for (let i = 0; i < rom.length; i++) rom[i] = (i * 31) & 0xff
-  rom.set(Buffer.from('SUPER-MARIO-WORLD ', 'ascii'), 0x7fc0)
-  const offset = loromToOffset(MARIO_RED_ADDR, rom.length, false) as number
-  rom[offset] = 0x1f
-  rom[offset + 1] = 0x39 // $391F
-  return rom
-}
 
 function makeProject(): { manifestPath: string } {
   const romPath = path.join(tmp, 'game.sfc')
