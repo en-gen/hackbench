@@ -105,6 +105,14 @@ describe('line-guided draw pass', () => {
     expect(g.passes[1]!.origin.x).toBe(0x80)
   })
 
+  it('refuses a dispatch span with one opcode changed: the fingerprint no longer matches', () => {
+    const rom = buildSyntheticRom({ alteredGrinder: true })
+    expect(lineDrawsBeforeSnap(rom, 103, GRINDER_HANDLER, GRINDER_DISPATCH)).toBe(false)
+    expect(lineDrawsBeforeSnap(buildSyntheticRom(), 103, GRINDER_HANDLER, GRINDER_DISPATCH)).toBe(
+      true,
+    )
+  })
+
   it('draws $67 at the first drawn pass when its handler is not the vanilla shape (a hack)', () => {
     const g = run(103, { alteredGrinder: true })
     expect(g.chosen).toBe(0)
