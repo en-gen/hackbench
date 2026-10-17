@@ -548,10 +548,8 @@ describe('a $80 level under a smash sprite (synthetic, #807)', () => {
   const verdictWith = (smash: Parameters<typeof buildL3Verdict>[6]) => buildL3Verdict(rom(), 5, l1Of(0, 1, false), BG_OK, chars, GATE_OK, smash) // prettier-ignore
 
   it('takes the smasher position, and keeps $D0 with X 0 when no smasher is loaded', () => {
-    expect(verdictWith(() => ({ ok: true, pos: { x: 256, y: 160 } })).l3).toMatchObject({
-      xPx: -128,
-      yPx: 160,
-    }) // prettier-ignore // X is the smash cycle's start, not the level X (#997)
+    // X is the smash cycle's start, not the level X (#997)
+    expect(verdictWith(() => ({ ok: true, pos: { x: 256, y: 160 } })).l3).toMatchObject({ xPx: -128, yPx: 160 }) // prettier-ignore
     expect(verdictWith(noSmash).l3).toMatchObject({ xPx: 0, yPx: 0xd0 })
   })
 

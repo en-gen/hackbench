@@ -222,10 +222,9 @@ export type L3Planes = Record<'l3Low' | 'l3High', Plane>
  * R*8 - Layer3YPos + Layer1YPos, x repeating every 512 px (a tide, whose BG3
  * scrolls with the camera, every 256 px over the first 32 columns, and its
  * second copy of the tilemap is not drawn). A layer that follows the camera (a loaded smash
- * sprite, #997) is drawn as ONE copy of the 512 px tilemap, at world x = column*8 - Layer3XPos
- * (the game scrolls it with the camera, so no repeat is shown), and no other copy. Rows that start above the level
- * are skipped whole, as the reference view does. Char 0 of every 2bpp
- * palette is clear.
+ * sprite, #997) is drawn as ONE copy of the 512 px tilemap, at world x = column*8 - Layer3XPos,
+ * with no repeat. Rows that start above the level are skipped whole, as the reference view does.
+ * Char 0 of every 2bpp palette is clear.
  */
 export function drawL3Planes(l3: L3Inputs, screen: number): L3Planes {
   const { w, h } = screenTiles(false) // vertical maps never reach here (L3Model)
