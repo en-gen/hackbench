@@ -61,6 +61,12 @@ import {
   type FlameRoutines,
 } from '../../../../src/rom/sprites/interp/CastleFlames'
 import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
+import {
+  EERIES_COUNT,
+  fiveEeries,
+  VANILLA_EERIES_ROUTINES,
+  type EeriesRoutines,
+} from '../../../../src/rom/sprites/interp/FiveEeries'
 import { withSeed, type SpriteSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { readSpriteTileTables } from '../../../../src/rom/SpriteTileLoader'
 import {
@@ -113,6 +119,8 @@ export type SpriteDrawResult =
       runtimePalette?: PaletteWrite[]
       /** Set when the run's seed is not the ROM-run level state: why the art is unverified. */
       unverified?: string
+      /** A plain-words line about what the map shows of this sprite (not a flaw): it goes on the map's note line. */
+      note?: string
     })
   | Extract<EngineResult, { ok: false }>
   | { ok: false; reason: string; unverified?: string }
@@ -243,6 +251,7 @@ export function drawSprites(
       priority: base64(new Uint8ClampedArray(prio.buffer)),
       status: 'drawn',
       ...('unverified' in res && res.unverified ? { unverified: res.unverified } : {}),
+      ...('note' in res && res.note ? { note: res.note } : {}),
     }
   })
 }
@@ -342,6 +351,45 @@ export function modelResult(m: RunModel): SpriteDrawResult {
 /** SpriteLoadStatus, SMWDisX rammap.asm:1968 (SMW_U.sym 00001938): one byte per sprite list entry, 128 of them. */
 const SPRITE_LOAD_STATUS = 0x1938
 
+/** Sprite $DE: a loader command that spawns five Wave Eeries (CODE_02A88C, SMWDisX bank_02.asm:5312-5318). */
+const FIVE_EERIES = 0xde
+
+/**
+ * The five Eeries of a stream entry (#1015), run from the ROM's own spawner: ONE sprite at its real stream index
+ * (so hover and selection find it), the five Eeries as its parts. A vertical map is not drawn: the loader hands
+ * the spawner the screen's Y boundary as the X there (bank_02.asm:5232-5238). A routine or call-path part that is
+ * not the vanilla shape does not blank it (D52): drawn, flagged `unverified`. Nothing drawn is a marker with the reason.
+ */
+function eeriesResult(
+  rom: RomFile,
+  seed: SpriteSeed,
+  s: LevelSprite,
+  vertical: boolean,
+  routines: EeriesRoutines,
+): SpriteDrawResult {
+  if (vertical) return { ok: false, reason: 'the five Eeries are not drawn in a vertical map: the game takes their X from the wrong axis there' } // prettier-ignore
+  const [x, y] = [pixelX(s), s.y * TILE]
+  const r = fiveEeries(rom, seed, { x, y, index: s.index, streamOffset: s.streamOffset }, routines)
+  // The slot-range reason is true only while the spawner is the game's own; a changed one may spawn fewer for its own reasons.
+  const gameOwn = r.unverified.length === 0
+  if (!r.ok) {
+    const none = `None of the ${EERIES_COUNT} Eeries appear`
+    return { ok: false, reason: r.none ? (gameOwn ? `${none}: this map's sprite memory setting leaves no room.` : `${none}.`) : `refused: ${r.reason}` } // prettier-ignore
+  }
+  const why = [...r.unverified.map(u => `${u} is not the vanilla shape`), ...r.notes].join('; ')
+  return {
+    ok: true,
+    parts: interpParts(r.parts),
+    anchor: { x, y },
+    identity: { spriteId: s.spriteId, mainHandler: 0, initHandler: 0, status: 'vanilla' },
+    // Fewer than five is the game's answer for this map's slot range, not a flaw: said in plain words, not `unverified`.
+    ...(r.spawned < EERIES_COUNT ? { note: `Only ${r.spawned} of the ${EERIES_COUNT} Eeries appear${gameOwn ? `: this map's sprite memory setting leaves room for ${r.spawned}.` : '.'}` } : {}), // prettier-ignore
+    ...(why
+      ? { unverified: `the five Eeries are drawn from the spawner the loader calls, and ${why}` }
+      : {}),
+  }
+}
+
 /**
  * The interpreter over this cart, for the level `index`: `levelSeed` runs the
  * ROM's own loader, Mario at the level's start, one sprite run alone per call.
@@ -356,6 +404,7 @@ export function interpDrawer(
   model: { isVertical: boolean; screenCount: number },
   run: (rom: RomFile, id: number, seed: SpriteSeed) => RunModel = runOnce,
   seedFor: (rom: RomFile, index: number) => SpriteSeed = levelSeed,
+  eeriesRoutines: EeriesRoutines = VANILLA_EERIES_ROUTINES,
 ): SpriteDrawer {
   // The loader runs once per map, not per sprite.
   const base = seedFor(rom, index)
@@ -380,6 +429,8 @@ export function interpDrawer(
     const [x, y] = [pixelX(s), s.y * TILE]
     const camera = cameraFor(x, y, model.isVertical, model.screenCount)
     const seed = (camera: { x: number; y: number }, extra = {}) => withSeed({ sprite: { x, y }, camera, mario, ...shape, ...extra }, base) // prettier-ignore
+    if (s.spriteId === FIVE_EERIES)
+      return eeriesResult(rom, seed(camera), s, model.isVertical, eeriesRoutines)
     const m = run(rom, s.spriteId, seed(camera))
     const at = m.chosen
     if (!w || !loaderCam || at === undefined || !m.anchor || s.index < 0 || s.index >= 128 || !w[SPRITE_LOAD_STATUS + s.index]) return modelResult(m) // prettier-ignore
@@ -559,6 +610,7 @@ export function spriteLayer(
           ? undefined
           : 'The sprite stream has no end marker in the bytes read: sprites past them are not drawn.',
         unverifiedNote(sprites),
+        ...new Set(sprites.flatMap(s => (s.note ? [s.note] : []))),
       ]
         .filter(Boolean)
         .join(' ') || undefined,
