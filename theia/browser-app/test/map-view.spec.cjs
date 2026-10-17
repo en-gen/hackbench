@@ -1119,18 +1119,21 @@ for (const [index, role, bit, known] of [
 
 /**
  * Layer 3 on $011 and $1C1 (#563): settings byte $81 on tileset 9, world-locked, so it is drawn from the
- * camera at load ($011: map X 0, $1C1: map X 652) and repeats every 512 px: screen s + 2 shows the same
- * layer 3 pixels as screen s, and screen 1 differs from screen 0 (a 256 px repeat would fail). The anchor
- * itself is pinned against the captures in L3WorldLocked.corpus.test.ts; these cases were derived, not run.
- * The tooltip says it drifts; flipping the toggle changes pixels on every compared screen and restores them.
+ * camera at load ($011: map X 0, $1C1: map X 652). The art on these maps repeats every 256 px itself, so
+ * every screen shows the same pixels and the 512 px tilemap repeat is covered by the unit tests, not here.
+ * What the browser pins is the anchor: the first opaque pixel on each screen, measured from the backend's
+ * planes (row 89; x 60 from camera 0, x 200 from camera 652, which is 60 + 652 mod 256) and 504 opaque
+ * pixels in the priority plane. A camera taken as 0 on $1C1, or a sign error, moves x. The tooltip says
+ * it drifts; flipping the toggle changes pixels on every screen and restores them.
  */
-for (const [index, screens] of [
-  [0x011, [0, 1, 2, 3]],
-  [0x1c1, [0, 1, 2, 3]],
+for (const [index, first] of [
+  [0x011, { x: 60, y: 89 }],
+  [0x1c1, { x: 200, y: 89 }],
 ]) {
-  test(`$${index.toString(16)}: the world-locked Layer 3 is drawn, repeats 512 px on, and says it drifts`, async ({
+  test(`$${index.toString(16)}: the world-locked Layer 3 is drawn at its anchor and says it drifts`, async ({
     page,
   }) => {
+    const screens = [0, 1, 2, 3]
     const project = await createProject(page, path.join(tmp, 'MyHack'))
     await openMap(page, project.manifestPath, index)
     const button = l3Toggle(page, index)
@@ -1138,20 +1141,25 @@ for (const [index, screens] of [
     await expect(button).toHaveAttribute('aria-pressed', 'true')
     await expect(button).toHaveAttribute('title', /^Layer 3 · (Overlay|Background)\. In the game this layer drifts slowly to the left\.$/) // prettier-ignore
     for (const screen of screens) await showScreen(page, index, screen)
-    const l3Pixels = screen =>
+    // Per screen: the opaque count and first opaque pixel of the priority plane (read in the page, not shipped).
+    const probe = screen =>
       page.evaluate(
-        ({ rootSel, screen }) =>
-          ['l3Low', 'l3High'].map(plane => {
-            const c = document.querySelector(`${rootSel} canvas[data-screen="${screen}"][data-plane="${plane}"]`) // prettier-ignore
-            return Array.from(c.getContext('2d').getImageData(0, 0, c.width, c.height).data)
-          }),
+        ({ rootSel, screen }) => {
+          const c = document.querySelector(`${rootSel} canvas[data-screen="${screen}"][data-plane="l3High"]`) // prettier-ignore
+          const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+          let n = 0
+          let at = null
+          for (let i = 3; i < d.length; i += 4)
+            if (d[i]) {
+              n++
+              at ??= { x: ((i - 3) / 4) % c.width, y: Math.floor((i - 3) / 4 / c.width) }
+            }
+          return { n, at }
+        },
         { rootSel: root(index), screen },
       )
-    const px = await Promise.all(screens.map(l3Pixels))
-    expect(px[0].flat().some((v, i) => i % 4 === 3 && v > 0), 'layer 3 draws on screen 0').toBe(true) // prettier-ignore
-    expect(px[2], 'screen 2 is the 512 px repeat of screen 0').toEqual(px[0])
-    expect(px[3], 'screen 3 is the 512 px repeat of screen 1').toEqual(px[1])
-    expect(px[1], 'not a 256 px repeat').not.toEqual(px[0])
+    for (const screen of screens)
+      expect(await probe(screen), `screen ${screen}`).toEqual({ n: 504, at: first })
     const sum = async () => Promise.all(screens.map(s => readScreen(page, index, s).then(r => r.checksum))) // prettier-ignore
     const on = await sum()
     await button.click()

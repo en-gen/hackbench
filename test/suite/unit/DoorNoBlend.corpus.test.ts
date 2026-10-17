@@ -31,6 +31,19 @@ const NO_FLAGS: SwitchFlagsDto = { green: false, yellow: false, blue: false, red
 const MIN_MAPS = 400 // a broken map builder or sprite parser drops whole maps, not a few
 const MIN_SCREENS = 1000 // a sweep that skips the sprite or color-math screens would otherwise pass with hits empty
 
+// The one place on vanilla where the precondition is false by design (#563): CODE_009FB8 clears BG3 from
+// CGADSUB on every Layer 3 path except $81-$BF off Castle1/Underground1 (bank_00.asm:4170-4199), i.e. maps
+// $011, $130 and $1C1 (CGADSUB $24 in their captures, bit 2 = BG3). A sprite behind one of their Layer 3
+// tiles is a door under a blended layer, and the view's rule is then the intended one (obj-priority.md,
+// D60 B / D62 call 2 B, proven in DoorNoBlend.test.ts): the tile part takes the covering plane's CGADSUB
+// bit, the sprite part skips color math. A door is an editor see-through; the game draws the tile there.
+// Only combinations with Layer 3 shown (bit 2) can hit, so any other hit, on any map, still fails.
+const WORLD_LOCKED_L3_MAPS = ['11', '130', '1c1']
+const isWorldLockedL3Hit = (hit: string) => {
+  const [map, , combo] = hit.split('/')
+  return WORLD_LOCKED_L3_MAPS.includes(map!) && (Number(combo) & 4) !== 0
+}
+
 describe.skipIf(!hasRom(VANILLA))(
   'door and lift pixels never meet color math on vanilla (#936)',
   () => {
@@ -76,7 +89,9 @@ describe.skipIf(!hasRom(VANILLA))(
           }
         }
         console.log(`#936 vanilla: ${maps} maps, ${screens} screens with sprites, ${doorPixels.join('/')} door pixels per layer combination, ${hits.length} under a blended layer`) // prettier-ignore
-        expect(hits).toEqual([])
+        const unexplained = hits.filter(h => !isWorldLockedL3Hit(h))
+        expect(unexplained).toEqual([])
+        expect(hits.length - unexplained.length, 'the Layer 3 exception is still in use').toBeGreaterThan(0) // prettier-ignore
         // A map that builds but has no sprite data is never scanned, so floors alone could pass over it.
         expect(noSprites).toEqual([])
         expect(maps).toBeGreaterThanOrEqual(MIN_MAPS)
