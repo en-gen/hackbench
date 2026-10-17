@@ -48,6 +48,8 @@ export interface RingRoutines {
   draw: string
   helpers: string
   contact: string
+  /** The call-path shapes to check; the vanilla ones when absent. A test cart supplies its own, so no vanilla code bytes are committed to it. */
+  path?: typeof PATH
 }
 export const VANILLA_RING_ROUTINES: RingRoutines = {
   spawn: '6c4c591c502ae9ebb9e48d14a6d6583f75069c2001a8aa6c1a3683e5504c9540',
@@ -91,7 +93,7 @@ export function ringGate(
   routines: RingRoutines = VANILLA_RING_ROUTINES,
   spans: typeof RING_SPANS = RING_SPANS,
 ): string[] {
-  const out = PATH.filter(c => !shapeMatches(bytesAt(rom, c.at, c.want.length), c.want)).map(c => c.what) // prettier-ignore
+  const out = (routines.path ?? PATH).filter(c => !shapeMatches(bytesAt(rom, c.at, c.want.length), c.want)).map(c => c.what) // prettier-ignore
   const callee = bytesAt(rom, 0x02f822, 3)
   if (!callee || !checkExecutePtr(rom, [callee]).ok) out.push('the cluster dispatch call target')
   // A span that will not read is "unreadable", not a changed routine: hashing the spans that did read would blur the two.

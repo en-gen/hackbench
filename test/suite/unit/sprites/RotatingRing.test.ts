@@ -36,7 +36,7 @@ import {
 } from '../../../../theia/extension/src/node/map-sprites'
 import { unzip } from '../../../../tools/scripts/capture_render'
 import { COLORS } from '../../support/mapInputs'
-import { CAPTURE_DIR, hasRom, romPath, VANILLA } from '../../support/corpus'
+import { CAPTURE_DIR, freshRom, hasRom, romPath, VANILLA } from '../../support/corpus'
 import { buildSyntheticRom, type SyntheticOptions } from '../../support/syntheticSpriteRom'
 
 const LEVEL = 0x105
@@ -88,17 +88,63 @@ const pad = (b: number[], n: number) => [
   b[b.length - 1]!,
 ]
 
-/** The call path to the ring, hand-written with the vanilla shape (see PATH in RotatingRing.ts); operands that do not matter are made up. */
-// prettier-ignore
-const PATH_BYTES: [number, number[]][] = [
-  // loader route: its first four bytes (CMP #$E1 / BCC +12) are the synthetic cart's shell site at $02A8C0, so only the tail is ours
-  [0x02a8c4, [0xda, 0x5a, 0x88, 0x84, 0x03, 0x20, 0xc0, 0xaa]],
-  [0x02aac0, [0xa0, 0x01, 0x8c, 0x34, 0x12, 0xc9, 0xe4, 0xf0, 0x7f]], // spawn entry
-  [0x02aad1, [0xc9, 0xe2, 0xb0, 0x3c]], // $E2/$E3 branch
-  [0x02f808, [0x8b, 0x4b, 0xab, 0x20, 0x10, 0xf8, 0xab, 0x6b, 0xa2, 0x13, 0x8e, 0x77, 0x15, 0xbd, 0x92, 0x18, 0xf0, 0x03, 0x20, 0x21, 0xf8, 0xca, 0x10, 0xf2]], // cluster loop
-  [0x02f821, [0x22, 0xfa, 0x86, 0x00]], // JSL ExecutePtr (the synthetic cart's, $00:86FA)
-  [0x02f82d, [0x98, 0xfa]], // type 4 entry
+/**
+ * The call path to the ring, written for this cart: the same addresses and the same checks as PATH in RotatingRing.ts, but
+ * arbitrary bytes that the run never executes (it calls the spawn and the draw directly), so no vanilla code is committed.
+ * `routinesOf` hands the gate these shapes; the vanilla shapes are proven on the corpus.
+ */
+const CART_PATH: { what: string; at: number; want: (number | null)[] }[] = [
+  {
+    what: 'the loader route to the sprite spawn',
+    at: 0x02a8c0,
+    want: [0xc9, 0xe1, 0x90, 0x0c, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38],
+  },
+  {
+    what: 'the cluster spawn entry',
+    at: 0x02aac0,
+    want: [0x41, 0x42, 0x43, null, null, 0x46, 0x47, 0x48, null],
+  },
+  {
+    what: 'the cluster loop',
+    at: 0x02f808,
+    want: [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      null,
+      null,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+    ],
+  },
+  { what: 'the cluster dispatch call', at: 0x02f821, want: [0x22, null, null, null] },
+  { what: 'the $E2/$E3 branch to the ring spawn', at: 0x02aad1, want: [0x51, 0x52, 0x53, 0x54] },
+  { what: 'the cluster dispatch entry for type 4', at: 0x02f82d, want: [0x61, 0x62] },
 ]
+/** What is written for CART_PATH: a null operand becomes $77, the loader's shell-site head is the cart's own, and the dispatch call keeps the cart's ExecutePtr ($00:86FA), which checkExecutePtr reads. */
+// prettier-ignore
+const PATH_BYTES: [number, number[]][] = CART_PATH.map(c => {
+  if (c.at === 0x02a8c0) return [c.at + 4, c.want.slice(4) as number[]]
+  if (c.at === 0x02f821) return [c.at, [0x22, 0xfa, 0x86, 0x00]]
+  return [c.at, c.want.map(v => v ?? 0x77)]
+})
 
 function ringRom(tweak: (bytes: Uint8Array) => void = () => {}, cart: SyntheticOptions = {}) {
   const bytes = new Uint8Array(buildSyntheticRom(cart).buffer)
@@ -118,6 +164,7 @@ const routinesOf = (rom: RomFile): RingRoutines => {
   const sha = (spans: readonly (readonly [number, number])[]) =>
     spanFingerprint(Uint8Array.from(spans.flatMap(([at, n]) => bytesAt(rom, at, n)!)))!
   return {
+    path: CART_PATH,
     spawn: sha(RING_SPANS.spawn),
     draw: sha(RING_SPANS.draw),
     helpers: sha(RING_SPANS.helpers),
@@ -148,6 +195,33 @@ const parts = (rom: RomFile, e = ENTRY) => {
   if (!r.ok) throw new Error(r.reason)
   return r
 }
+
+/** Every byte run this file writes into the cart, as [address, bytes]. */
+const writes = (): [number, number[]][] => [[0x02ab11, pad(spawn, 103)], [0x02fa98, pad(draw, 291)], ...PATH_BYTES] // prettier-ignore
+
+// No ROM-derived bytes in the repo: no 8-byte window of what this file writes may equal the vanilla ROM at the same address.
+// Compared in memory, nothing stored. Skipped without the corpus; the check itself is proven by the planted case below.
+const sameWindow = (a: Uint8Array, b: number[], n = 8) => {
+  for (let i = 0; i + n <= b.length; i++)
+    if (b.slice(i, i + n).every((v, k) => a[i + k] === v)) return true
+  return false
+}
+describe('no vanilla code bytes in the synthetic cart', () => {
+  it('the window check goes red on a planted copy of the vanilla bytes', () => {
+    const vanilla = Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8, 9])
+    expect(sameWindow(vanilla, [9, 2, 3, 4, 5, 6, 7, 8, 9])).toBe(true)
+    expect(sameWindow(vanilla, [9, 2, 3, 4, 5, 6, 7, 0, 0])).toBe(false)
+  })
+  describe.skipIf(!hasRom(VANILLA))('against the vanilla ROM', () => {
+    it('no write shares an 8-byte window with the ROM at its address', () => {
+      const rom = freshRom(VANILLA)
+      const hits = writes()
+        .filter(([at, b]) => sameWindow(Uint8Array.from(bytesAt(rom, at, b.length) ?? []), b))
+        .map(([at]) => at.toString(16))
+      expect(hits).toEqual([])
+    })
+  })
+})
 
 describe('the rotating ring from the routines (synthetic cart)', () => {
   it('the hand-assembled routines are the lengths the gate hashes', () => {
