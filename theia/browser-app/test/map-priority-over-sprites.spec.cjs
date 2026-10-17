@@ -9,12 +9,11 @@
  * sprite pixel is under an opaque l1High pixel. Part (b) clears those bits through the
  * Map16 service write path, moving the tile to l1Low; the same pixels must show the sprite.
  *
- * Plant (recorded once by the verifier on 510e090c, before the screen door: part (a) was
- * "Expected 176, Received 0"; with the door, part (a) instead fails on the check that the sprite
- * is at full strength on at most n/2 pixels, 176 > 88): in
- * src/rom/model/ScreenPlanes.ts, `on` returning `[...bg, 'sprites']` instead of the
- * slice-and-insert should turn part (a) red. ScreenPlanes.test and MapScreenL3.test catch
- * that plant too; this spec's value is the pixel-level check on a real map.
+ * Plant: in src/rom/model/ScreenPlanes.ts:53 change
+ * `return [...list.slice(0, at), 'sprites2', ...list.slice(at)]` to `return [...list, 'sprites2']`
+ * (sprites drawn last, the #529 defect); part (a) goes red on `compIsSprite <= n/2`.
+ * Result: recorded by the verifier in the PR. ScreenPlanes.test and MapScreenL3.test catch that
+ * plant too; this spec's value is the pixel-level check on a real map.
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')
@@ -145,10 +144,8 @@ test('an L1 priority tile draws over an overlapping sprite; with priority cleare
   await expect(page.locator(plane('l1Low'))).toHaveAttribute('data-drawn', /^\d+:0000:000:11$/, { timeout: 30000 }) // prettier-ignore
   await expect(page.locator(plane('sprites'))).toHaveAttribute('data-drawn', /^\d+:\d+$/, { timeout: 30000 }) // prettier-ignore
 
-  // (a) Priority set: the sprite draws under the tile, in the hidden-tile screen door (D52, #866, docs/rom/obj-priority.md
-  // "A covered sprite pixel is not hidden"). Before the door (#931) the composite was the tile's pixel alone; now it is a blend, with
-  // the sprite at full strength only on the door's full squares, at most half of a sprite's covered pixels (`doorFlip`). A sprite
-  // drawn last (the #529 defect) is the sprite at all n.
+  // (a) Priority set: the sprite shows through the tile in the screen door (D52, docs/rom/obj-priority.md), at full
+  // strength on at most half of the covered pixels (`doorFlip`), so a sprite drawn last (#529) is all n, not n/2.
   const before = await probe(page)
   const n = before.pixels.length
   expect(n, 'sprites sit under l1High pixels here').toBeGreaterThanOrEqual(MIN_OVERLAP)

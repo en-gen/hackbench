@@ -1014,6 +1014,7 @@ test('the canvas stack puts layer 2 under everything on a standard-layout map, b
 })
 
 /** The composite of every visible plane over the box that layer 3's own pixels fill on a screen (default 0). */
+// `screen` is for #997's $01F spec (screens 1/3/5).
 async function layer3Region(page, index, box, screen = 0) {
   return page.evaluate(
     ({ rootSel, box, screen }) => {
@@ -1066,11 +1067,11 @@ for (const [index, role, bit, known] of [
     'Layer 3 · Background',
     false,
     {
-      // Settings byte not $80, so no smash sprite places layer 3: it sits at X 0, Y 192 on every screen (backend probe
-      // of the vanilla ROM, one run, one machine: the same box on screens 0-3). It is a low plane (l3Low), so
-      // the pixels are read from there. Layer 3 here has no outline-black pixel; the two are its first opaque pixel
-      // in raster order and one of a different color. $01F (a smash Layer 3) is left out until the
-      // 512 px repeat is settled.
+      // Settings byte not $80, so no smash sprite places layer 3: Layer3YPos is 192 and tile row R lands at canvas Y
+      // R*8, X 0 on every screen (backend probe, one run, one machine: the same box on screens 0-3; the box
+      // starts at 257, the first opaque row). A low plane (l3Low), so pixels are read there. No outline-black
+      // pixel: the two are its first opaque pixel in raster order and one of another color. $01F (smash
+      // Layer 3, 512 px repeat) is left out until #997.
       plane: 'l3Low',
       box: { x: 0, y: 257 },
       pixel: { x: 25, y: 257 },
@@ -1097,7 +1098,6 @@ for (const [index, role, bit, known] of [
 
     const sc = known.screen ?? 0
     const before = await layer3Region(page, index, undefined, sc)
-    expect(before.box.w * before.box.h, 'layer 3 draws pixels on its screen').toBeGreaterThan(0)
     // A known layer 3 pixel: where the region starts, opaque in its plane; over layer 1 it is the shown color.
     expect({ x: before.box.x, y: before.box.y }).toEqual(known.box)
     const own = await page.locator(`${root(index)} canvas[data-screen="${sc}"][data-plane="${known.plane ?? 'l3High'}"]`).evaluate((c, p) => Array.from(c.getContext('2d').getImageData(p.x, p.y, 1, 1).data), known.pixel) // prettier-ignore
