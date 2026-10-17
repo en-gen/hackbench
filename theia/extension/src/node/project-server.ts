@@ -54,6 +54,7 @@ import {
   MapCollisionCheckResult,
   MapCollisionResult,
   MapDetailsDto,
+  MapDetailsNotLocated,
   MapScreenResult,
   MapBlockContentsResult,
   MapSpritesResult,
@@ -106,9 +107,12 @@ export class ProjectServiceImpl implements ProjectService {
     this.recent.clear()
   }
 
-  async mapDetails(manifestPath: string, index: number): Promise<MapDetailsDto> {
+  async mapDetails(
+    manifestPath: string,
+    index: number,
+  ): Promise<MapDetailsDto | MapDetailsNotLocated> {
     const r = this.located(manifestPath)
-    if (r.status !== 'ok') throw new Error(`The base ROM ${r.baseRom.title} is not on this machine`)
+    if (r.status !== 'ok') return r
     return buildMapDetails(romOf(r), index)
   }
 

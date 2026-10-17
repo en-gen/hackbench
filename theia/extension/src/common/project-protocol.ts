@@ -180,6 +180,12 @@ export interface RecentProjectDto {
   lastOpened: string
 }
 
+/** The base ROM is not on this machine, so there is nothing to read details from (#786). */
+export interface MapDetailsNotLocated {
+  status: 'rom-not-located'
+  baseRom: RomIdentityDto
+}
+
 /**
  * What one map holds, read from the cartridge.
  *
@@ -249,6 +255,20 @@ export interface MapLayer3Dto {
 }
 
 /**
+ * An object the map could not draw (#816), at its anchor cell in map tiles
+ * (16 px, whole-map coordinates). `why` is plain words; the tooltip reads
+ * `Object <objectIndex> (<objectType>): <why>`, the same numbering as the map note.
+ */
+export interface MapRefusedCellDto {
+  x: number
+  y: number
+  objectIndex: number
+  objectType: string
+  handler: number
+  why: string
+}
+
+/**
  * One screen of a map's L1 (foreground), drawn by the backend from the
  * working copy. Horizontal maps have 16 x 27 tile screens; vertical maps
  * 32 x 16 (two 16-wide halves). The back-area color shows where L1 draws nothing.
@@ -274,12 +294,15 @@ export type MapScreenResult =
       layer2Interactive: boolean
       /** Why the animated tiles are drawn from unverified or no frames, when they are. */
       note?: string
+      /** Objects drawn as nothing, whole map and the same on every screen's reply; absent when none (#816). */
+      refusedCells?: MapRefusedCellDto[]
       /** Caveats on the layers: a background that is not drawn, a layer order that is unverified. */
       layerNotes: string[]
       /** The back area (CGRAM color 0), RGB: its own layer under L1. */
       backdrop: [number, number, number]
     }
-  | { status: 'unavailable'; reason: string }
+  /** `detail`: exception text for the tooltip and log, never the visible message. */
+  | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
 /**
@@ -545,10 +568,11 @@ export interface ProjectService {
   /**
    * Read one map out of the project's working copy.
    *
-   * Throws when the slot holds no readable level data, which is a real answer
-   * rather than an empty map: an empty map looks like one that lost its work.
+   * Answers `rom-not-located` when the base ROM is not on this machine. A slot
+   * with no readable level data is a field on the result, not a failure; a
+   * throw means an unexpected failure.
    */
-  mapDetails(manifestPath: string, index: number): Promise<MapDetailsDto>
+  mapDetails(manifestPath: string, index: number): Promise<MapDetailsDto | MapDetailsNotLocated>
 
   /** Draw one screen of a map's L1 (foreground) from the working copy. */
   mapScreen(

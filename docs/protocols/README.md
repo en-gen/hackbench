@@ -11,3 +11,14 @@ Activate with `/protocol <name> on` or `off` (the command lands with the protoco
 | [throttle](throttle.md)       | none            | a usage limit was hit                 |
 
 A protocol whose Activation starts with `Blocked: <reason>` cannot be turned on until that line is removed. Protocols in the same group are mutually exclusive. Adding one: copy the six headings from an existing file, keep Changes under fifteen lines, and add a row here.
+
+## Side quest
+
+Not a protocol: it applies to one session, not every session, so it has no file here and never goes through `/protocol`. The owner switches it on in a session's own chat ("side quest", "side-quest protocol") to chase one specific problem, such as a chore or a tooling fault, alongside whichever shift is active. Ruling: [2026-10-16-side-quest.md](../decisions/2026-10-16-side-quest.md).
+
+1. The session does the work itself: no registration, no team, no role agents.
+2. No BA, Planning, Decisions or Test Planner hand-offs; no issue, board card, D-item or state file unless the owner asks.
+3. Questions go straight to the owner in that session.
+4. The active shift's orchestration rules (plan gate, queue, `[PROP]`, self-clear) do not apply to it.
+5. Every "never" in `CLAUDE.md`, the quality gates, Branches and commits, and the data and image rules still apply.
+6. It ends when the owner says so or the problem is solved.

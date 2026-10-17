@@ -132,6 +132,51 @@ export function renderPieces(pieces: DrawPiece[], src: FrameSource, scale = 2): 
   return { w: w * scale, h: h * scale, px }
 }
 
+/** A full-VRAM sample: the capture frame it was taken on (anchorFrame + offset) and the graphics at it. */
+export interface Sample {
+  frame: number
+  src: FrameSource
+}
+
+/**
+ * Sprite ids whose code uploads changing graphics during play: $33 SMWDisX bank_01.asm:13192 (DynGfxTilePtr+6), $35 Yoshi bank_01.asm:14879.
+ * $2D Baby Yoshi (CODE_02EA25 bank_02.asm:14096 via CODE_01A34F) is an untraced candidate, left out.
+ */
+export const DYNAMIC_SPRITES: ReadonlySet<number> = new Set([0x33, 0x35])
+export const LEVEL_START_LABEL = 'graphics at level start, may differ'
+
+/** Every pixel (x, y, resolved RGB) the pieces draw from `src`'s VRAM and palette, in draw order. */
+function pieceIndices(pieces: DrawPiece[], src: FrameSource): string[] {
+  const out: string[] = []
+  for (const p of pieces)
+    drawObj(src.vram, objAttr(src.obsel, p.tile, p.attr, +p.large), 0, 0, (x, y, ci) =>
+      out.push(`${x},${y},${src.pal[ci * 3]},${src.pal[ci * 3 + 1]},${src.pal[ci * 3 + 2]}`),
+    )
+  return out
+}
+
+/**
+ * Where the hardware panel takes its VRAM (#863). A card is dynamic when its id
+ * uploads changing graphics or its pieces read different VRAM in different
+ * samples; a dynamic card draws from the sample taken on its drawnFrame, else
+ * from the level-start sample (samples[0]) with the label. Static: level start.
+ * `src` serves both panels, so each is drawn from one VRAM and a difference is in the pieces.
+ */
+export function hardwareSource(
+  id: number,
+  drawnFrame: number | undefined,
+  pieces: DrawPiece[],
+  samples: Sample[],
+): { src: FrameSource; label?: string } | undefined {
+  if (!samples.length) return undefined
+  const first = pieceIndices(pieces, samples[0].src).join()
+  const dynamic =
+    DYNAMIC_SPRITES.has(id) || samples.some(s => pieceIndices(pieces, s.src).join() !== first)
+  if (!dynamic) return { src: samples[0].src }
+  const hit = samples.find(s => s.frame === drawnFrame)
+  return hit ? { src: hit.src } : { src: samples[0].src, label: LEVEL_START_LABEL }
+}
+
 /** Verdict border colours for the contact sheet. */
 const BORDER: Record<ReportVerdict, number[]> = {
   exact: [60, 200, 90],

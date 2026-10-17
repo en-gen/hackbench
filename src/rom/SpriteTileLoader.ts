@@ -221,8 +221,8 @@ export interface SpriteLayout {
  * (multi-segment), Pokey (vertical stack) appear as one 16x16 tile matching
  * part of their body.
  *
- * IDs 0xDA-0xDD are shell aliases (resolveShellAlias). IDs in 0x54..0xC8
- * not listed here, and 0xC9..0xE7 (generators, scroll sprites), fall
+ * IDs 0xDA-0xDD and 0xDF are shell aliases (resolveShellAlias). IDs in 0x54..0xC8
+ * not listed here, and 0xC9..0xFF (shooters, generators, scroll sprites), fall
  * through to the anchor marker.
  *
  * Method and the full per-id measurement: `docs/sprites/sprite-gfx-routine-reading.md`.
@@ -717,7 +717,7 @@ function spriteGfxRoutine(tables: SpriteTileTables, spriteId: number): GfxRoutin
  * Returns null for sprite IDs outside the generic-layout range (0x54+).
  */
 /**
- * Shell-sprite IDs $DA-$DD spawn as empty shells lying on the ground. At level
+ * Shell-sprite IDs $DA-$DD and $DF spawn as empty shells lying on the ground. At level
  * load (bank_02.asm:5339-5362, 5454-5462) their SpriteStatus is forced to $09
  * (stunned/carryable) and their SpriteNumber is re-aliased to the Koopa ID
  * $04-$07 via `SEC; SBC #$DA; CLC; ADC #$04`. Status $09 routes through
@@ -732,7 +732,8 @@ function spriteGfxRoutine(tables: SpriteTileTables, spriteId: number): GfxRoutin
 const STUNNED_ANIM_OFFSET = 0x06
 
 function resolveShellAlias(spriteId: number): { targetId: number; shellOnly: boolean } {
-  if (spriteId >= 0xda && spriteId <= 0xdd) {
+  // A static layout with no ROM access: the vanilla list ids ($DE and $E0 are Eeries and platforms, not shells).
+  if (spriteId >= 0xda && spriteId <= 0xdf && spriteId !== 0xde) {
     return { targetId: spriteId - 0xda + 0x04, shellOnly: true }
   }
   return { targetId: spriteId, shellOnly: false }

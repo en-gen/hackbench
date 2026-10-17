@@ -340,16 +340,39 @@ export function screenResult(
     note:
       [...model.unverified, ...l2Notes(model), model.animNote].filter(Boolean).join(' ') ||
       undefined,
+    refusedCells: model.refusedCells?.length ? model.refusedCells : undefined,
     layerNotes: [
       model.l2 && !model.l2.ok ? `The background is not drawn: ${model.l2.reason}` : '',
-      model.l2?.ok ? (model.l2.l2.note ?? '') : '',
-      model.l3?.l3?.camYUnverified
-        ? `Layer 3 position unverified: ${model.l3.l3.camYUnverified}`
-        : '',
+      ...positionNotes(model),
       model.orderNote ? `Layer order unverified, drawn as BG mode 1: ${model.orderNote}` : '',
     ].filter(Boolean),
     backdrop: [model.backArea[0], model.backArea[1], model.backArea[2]],
   }
+}
+
+/**
+ * The "unverified" lines of the background height and the layer 3 position. A reason both give
+ * (the entrance-position gate, #909) reads once, naming both parts (#926); parts with no reason
+ * list (a hand-built note) keep their note as is.
+ */
+function positionNotes(model: MapInputs): string[] {
+  const l2 = model.l2?.ok ? model.l2.l2 : undefined
+  const camY = model.l3?.l3?.camYUnverified
+  const parts = [
+    { label: 'Background height', reasons: l2?.reasons ?? [] },
+    { label: 'Layer 3 position', reasons: camY ? [camY] : [] },
+  ]
+  const owners = new Map<string, string[]>()
+  for (const p of parts) {
+    for (const r of p.reasons) owners.set(r, [...(owners.get(r) ?? []), p.label])
+  }
+  // Reasons with the same owners share a line, so one part alone reads as before.
+  const lines = new Map<string, string[]>()
+  for (const [reason, labels] of owners) {
+    lines.set(labels.join(' and '), [...(lines.get(labels.join(' and ')) ?? []), reason])
+  }
+  const out = [...lines].map(([who, rs]) => `${who} unverified: ${rs.join(' ')}`)
+  return l2 && !l2.reasons && l2.note ? [l2.note, ...out] : out
 }
 
 /**
@@ -478,9 +501,9 @@ export function mapScreen(
   switches: SwitchStateDto = SWITCHES_OFF,
 ): ScreenReply {
   const built = cache.get(bytes, romPath, index, flags)
-  return built.ok
-    ? screenResult(built.inputs, screen, switches)
-    : { status: 'unavailable', reason: built.reason }
+  if (built.ok) return screenResult(built.inputs, screen, switches)
+  // A thrown build's exception text and a gate's ROM-internal reason both stay in `detail` (#786).
+  return { status: 'unavailable', reason: 'This part of the map could not be read from the ROM.', detail: built.reason } // prettier-ignore
 }
 
 /**

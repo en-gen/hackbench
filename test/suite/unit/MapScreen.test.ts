@@ -726,6 +726,28 @@ describe('buildL1Inputs (synthetic)', () => {
     expect((screenResult(r.inputs, 0) as { note?: string }).note).toContain(r.inputs.unverified[0]!)
   })
 
+  it('a refused object reaches inputs.refusedCells and the screen reply, without a ROM (#816)', () => {
+    vi.mocked(GfxReal.gfxSource).mockReturnValueOnce({ ok: true } as never)
+    vi.mocked(Map16Real.map16TileCapacity).mockReturnValueOnce({} as never)
+    vi.mocked(StockReal.readLevelCol1).mockReturnValueOnce({ bg: 0, obj: 0 } as never)
+    vi.mocked(AnimReal.loadAnimationDataOrReason).mockReturnValueOnce({ ok: false, reason: 'stub' })
+    vi.mocked(ExReal.loadExAnimData).mockReturnValueOnce(null)
+    vi.mocked(Map16Real.loadMap16WithPipeVariants).mockReturnValueOnce({ tiles: [], pipeVariants: [] } as never) // prettier-ignore
+    vi.mocked(GfxReal.loadVram).mockReturnValueOnce({} as never)
+    const objs = [{ type: 'standard', objectNumber: 0x12, settings: 0xe5, x: 9, y: 2 }]
+    const spy = vi.mocked(Expander.expandMapOwned)
+    const real = spy.getMockImplementation()!
+    const refusal = { objectIndex: 0, handler: 0x0dfff0, reason: 'REFUSED FOR TEST' }
+    spy.mockImplementationOnce((...a) => ({ ...real(...a), refusals: [refusal] }))
+    vi.mocked(ParserReal.parseLevelObjects).mockReturnValueOnce({ objects: objs } as never)
+    const r = buildL1Inputs(fakeRom(0), 0x105, UNCLEARED)
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.inputs.refusedCells).toMatchObject([{ x: 9, y: 2, objectIndex: 0, objectType: 'type 18' }]) // prettier-ignore
+    const wire = screenResult(r.inputs, 0) as { refusedCells?: unknown }
+    expect(wire.refusedCells).toEqual(r.inputs.refusedCells)
+    expect(screenResult({ ...r.inputs, refusedCells: [] }, 0)).not.toHaveProperty('refusedCells', expect.anything()) // prettier-ignore
+  })
+
   it('hands expandMapOwned a note sink, not an opt-out, so refusals can reach the inputs (#342)', () => {
     const spy = vi.mocked(Expander.expandMapOwned)
     spy.mockClear()

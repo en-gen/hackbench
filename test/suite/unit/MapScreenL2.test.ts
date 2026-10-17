@@ -512,6 +512,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       const l2 = ok(buildL2Inputs(smw, 0x177, inputs(hGrid(1), false, 1), reached, stock))
       expect(l2).toMatchObject({ kind: 'image', dy: 0x40 - 0x60 })
       expect(l2.note).toBe('Background height unverified: drawn as entered through secondary entrance $110; entered through secondary entrance $111 it starts at a different height.') // prettier-ignore
+      expect(l2.reasons).toEqual([l2.note!.replace('Background height unverified: ', '')]) // image path: the one dy note
       // A graph that throws leaves the map to the older reading instead of refusing it.
       vi.spyOn(smw, 'buildLevelExitGraph').mockImplementation(() => {
         throw new Error('boom')
@@ -545,6 +546,8 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       objects([[1]])
       const both = ok(buildL2Inputs(smw(entry(1), true), LEVEL, m, via(false, false, A, B), () => 'boom.')) // prettier-ignore
       expect(both.note).toBe('Background height unverified: boom. Drawn as entered through secondary entrance $0C4; entered through secondary entrance $1BE it starts at a different height.') // prettier-ignore
+      expect(both.reasons).toEqual(['boom.', 'Drawn as entered through secondary entrance $0C4; entered through secondary entrance $1BE it starts at a different height.']) // prettier-ignore
+      expect(both.note).toBe(`Background height unverified: ${both.reasons!.join(' ')}`)
     })
   })
 
