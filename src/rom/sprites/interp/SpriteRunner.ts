@@ -115,6 +115,8 @@ export interface PassResult {
   /** Where this pass's parts are measured from: `SpriteModel.anchor`, except for $67 on a vanilla-shaped handler (where the pass before left it). */
   origin: { x: number; y: number }
   parts: SpritePart[]
+  /** Pieces drawn by sprites this run's INIT spawned (their own slots), same origin. Not the grader's: the map view adds them to `parts` (D52, #840). */
+  companions?: SpritePart[]
   /** Palette or graphics uploads the pass wrote registers for. */
   uploads: string[]
   /**
@@ -191,7 +193,21 @@ export { Refusal }
 export class Machine {
   readonly bus: SpriteBus
   readonly cpu: Cpu65816
-  private touched = new Set<number>()
+  /**
+   * OAM tile bytes written while `$15E9` named this sprite's slot. The game's loop stores the slot it is on
+   * before running it (SMWDisX bank_01.asm:110-125) and each slot takes its OAM index from itself
+   * (bank_01.asm:143-152), so a write made under another slot is that slot's: a companion the sprite's
+   * INIT spawned ($61, $1E; #840) draws in its own slot and is not a part of the spawner. Limit: cluster
+   * sprites (loop at bank_02.asm:15950-15958) and Mario/Yoshi OAM (bank_01.asm:10051) run under the caller's
+   * `$15E9`, so one whose index equals this slot is still credited (#809).
+   */
+  private own = new Set<number>()
+  /**
+   * The same writes made under another sprite slot that this run spawned (status non-zero; every other slot
+   * starts empty). The map view draws them with the spawner (D52); the grader does not (`own` only). Residual:
+   * a cluster index equal to a spawned slot is still credited here.
+   */
+  private companion = new Set<number>()
   /** Colors set so far, in the order they took effect (cumulative; see `nmi`). */
   private applied: PaletteWrite[] = []
   /** The run itself wrote $0680 PaletteIndexTable since the last NMI (a loaded image's value is not the sprite's). */
@@ -212,7 +228,9 @@ export class Machine {
     this.bus = m.bus
     this.cpu = m.cpu
     this.bus.onWramWrite = off => {
-      this.touched.add(off)
+      const cur = this.bus.wram[RAM.curSprite]
+      if (cur === this.seed.slot) this.own.add(off)
+      else if (cur < 12 && this.bus.wram[RAM.status + cur] !== 0) this.companion.add(off)
       if (off === RAM.paletteIndexTable) this.modeWritten = true
     }
     this.bus.onHwWrite = (reg, v) => {
@@ -383,13 +401,22 @@ export class Machine {
   }
 
   clearOamWrites(): void {
-    this.touched.clear()
+    this.own.clear()
+    this.companion.clear()
   }
 
   /** OAM mirror indices whose tile byte this pass wrote. */
   writtenOam(): number[] {
     const out: number[] = []
-    for (let i = 0; i < RAM.oamEntries; i++) if (this.touched.has(RAM.oam + 2 + i * 4)) out.push(i)
+    for (let i = 0; i < RAM.oamEntries; i++) if (this.own.has(RAM.oam + 2 + i * 4)) out.push(i)
+    return out
+  }
+
+  /** OAM mirror indices whose tile byte a sprite this run spawned wrote this pass. */
+  companionOam(): number[] {
+    const out: number[] = []
+    for (let i = 0; i < RAM.oamEntries; i++)
+      if (this.companion.has(RAM.oam + 2 + i * 4)) out.push(i)
     return out
   }
 }
@@ -397,11 +424,15 @@ export class Machine {
 const s8 = (v: number) => (v > 127 ? v - 256 : v)
 
 /** Parts the pass wrote, relative to `anchor`, in screen terms (camera removed). */
-function readParts(m: Machine, anchor: { x: number; y: number }): SpritePart[] {
+function readParts(
+  m: Machine,
+  anchor: { x: number; y: number },
+  oam = m.writtenOam(),
+): SpritePart[] {
   const w = m.bus.wram
   const cam = m.seed.camera
   const out: SpritePart[] = []
-  for (const i of m.writtenOam()) {
+  for (const i of oam) {
     const b = RAM.oam + i * 4
     const y = w[b + 1]
     if (y === 0xf0) continue
@@ -555,6 +586,7 @@ export function runOnce(
         pos: m.pos(),
         origin: { x: origin.x, y: origin.y },
         parts: readParts(m, origin),
+        companions: readParts(m, origin, m.companionOam()),
         uploads: uploadsOf(m, hw),
         palette: m.paletteWrites(),
       })

@@ -100,7 +100,7 @@ function gradeSpawn(rom: RomFile, opts: { oracle?: boolean; limit?: number } = {
     const sp = join(root, dir, 'seed.json')
     if (!existsSync(sp)) continue
     const seed: Seed = JSON.parse(readFileSync(sp, 'utf8'))
-    const calls: { writes: number[]; kind?: string; frame: number }[] = JSON.parse(readFileSync(join(root, dir, 'calls.json'), 'utf8')) // prettier-ignore
+    const calls: { writes: number[]; kind?: string; frame: number; slot: number }[] = JSON.parse(readFileSync(join(root, dir, 'calls.json'), 'utf8')) // prettier-ignore
     const wram = readFileSync(join(root, dir, 'wram.bin'))
     const hi = readFileSync(join(root, dir, 'wram_hi.bin'))
     // First call that is not INIT: status-8 sprites log 'main', status-9 ones 'other'.
@@ -146,9 +146,9 @@ function gradeSpawn(rom: RomFile, opts: { oracle?: boolean; limit?: number } = {
       verdicts.push(...Array(16).fill(mesenStuck ? 'refused-agrees' : 'refused-differs'))
     else
       for (let p = 0; p < 16; p++) {
-        // Every call of that frame, any slot: sprites that spawn others (Lakitu, the
-        // bonus game) draw from more than slot 0, and so does our sprite loop.
-        const inFrame = calls.filter(c => c.frame === calls[k0].frame + p)
+        // The calls of that frame made in the sprite's own slot (0). A sprite that spawns others (Lakitu,
+        // $61) has them draw in their own slots; the runner credits it only with what it draws itself (#840).
+        const inFrame = calls.filter(c => c.frame === calls[k0].frame + p && c.slot === 0)
         if (!inFrame.length) {
           verdicts.push('unrecorded')
           continue
@@ -186,7 +186,8 @@ describe.skipIf(!existsSync(SPAWN_DIR) || !hasRom(VANILLA))(
       if (process.env.SPRITE_SPAWN_OUT)
         writeFileSync(process.env.SPRITE_SPAWN_OUT, JSON.stringify(rows, null, 1))
       if (process.env.SPRITE_SPAWN_SEED === 'oracle') return
-      // Floors: measured 2026-10-05 (docs section 12) minus a tolerance. The mutants
+      // Floors: measured 2026-10-17 on the #840 head (one machine, 'rom' seed): exact 2792 + exact-empty 275 =
+      // 3067, wrong 0 (2026-10-05, docs section 12: 3030 before the own-slot filter) minus a tolerance. The mutants
       // they were set against (frame counter not ticked, RNG zero, X not set to the
       // slot, INIT retry removed) all fall below them or break a zero-count.
       expect(rows.length).toBe(FLOOR.ids)
@@ -209,4 +210,4 @@ describe.skipIf(!existsSync(SPAWN_DIR) || !hasRom(VANILLA))(
 )
 
 /** Floors, spawn tier, ROM seed: measured counts are in docs section 12. */
-const FLOOR = { ids: 201, exact: 3030, maxWrong: 20, anchors: 196 }
+const FLOOR = { ids: 201, exact: 3060, maxWrong: 2, anchors: 196 }

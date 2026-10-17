@@ -331,7 +331,7 @@ export function modelResult(m: RunModel): SpriteDrawResult {
   if (!m.anchor || !pass) return { ok: false, reason: m.emptyReason ?? 'drew no tile', ...u }
   return {
     ok: true,
-    parts: interpParts(pass.parts),
+    parts: interpParts([...pass.parts, ...(pass.companions ?? [])]),
     anchor: { x: m.anchor.x, y: m.anchor.y },
     runtimePalette: pass.palette,
     ...u,

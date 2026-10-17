@@ -246,14 +246,14 @@ function gradeAll(
   return { rows, by, inputs, fallbacks, missAtK }
 }
 
-/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Raised after #837 (stationary shells): measured 2026-10-16, one machine: exact 1033, exact+shape 1836, wrong 90, empty 13. */
+/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Raised after #840 (init companions): measured 2026-10-17, one machine: exact 1063, exact+shape 1877, wrong 41, empty 13. */
 const FLOOR = {
   graded: 1957,
-  exact: 1030,
-  exactOrShape: 1830,
+  exact: 1060,
+  exactOrShape: 1870,
   maxRefused: 0,
   maxEmpty: 16,
-  maxWrong: 93,
+  maxWrong: 45,
   maxMissAtK: 30,
   // 38 measured (spawned records without initFrame); all-timed would read 0.
   minFallbacks: 30,
@@ -287,7 +287,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     // mutant (trueFrame left 0) gives exact 984 against the 985 floor, killed by 1; an initOnly
     // mutant (k = drawn - (initFrame + 1)) gives 988 and survives, so this corpus does not tell
     // anchor-based k from init-based k. gradeTimeline.test.ts pins that arithmetic itself.
-    // Floors: measured 2026-10-10 (docs section 13.3; re-measured after #838 kept the 224-255 band: exact 995, exact+shape 1800, wrong 125) minus a tolerance. The mutants they
+    // Floors: measured 2026-10-10 (docs section 13.3; re-measured after #838 kept the 224-255 band: exact 995, exact+shape 1800, wrong 125) minus a tolerance; re-measured 2026-10-17 on the #840 head (one machine, 1957 records): exact 1028, exact+shape 1842, wrong 76. The mutants they
     // were set against (X not set to the slot, level sprites not zeroed, INIT retry
     // removed) all fall below them.
     expect(rows.length).toBe(FLOOR.graded)
@@ -310,6 +310,9 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     ['1db', '$37', 944, 304],
     ['11d', '$28', 272, 224],
     ['01a', '$30', 272, 368],
+    // INIT spawns companions that draw in their own slots (#840): the recorded pieces are the sprite's alone, 1 and 2.
+    ['10a', '$61', 160, 384],
+    ['1c4', '$1E', 1120, 224],
   ])(
     'map %s %s at %i,%i grades exact',
     (map, id, x, y) => {
