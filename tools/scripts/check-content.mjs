@@ -358,7 +358,15 @@ function splitComments(path, text) {
   })
 }
 
+// Counts the comment-splitting passes hasRomProvenance really runs; the
+// develop-clean test (#812) pins that claim-free text never pays for one.
+export const provenanceStats = { splits: 0 }
+
 function hasRomProvenance(path, text) {
+  // Every claim lives inside one line of a comment, so a text without the
+  // phrase anywhere cannot claim; skip the per-character comment scan.
+  if (!CLAIM_PHRASE.test(text)) return false
+  provenanceStats.splits++
   const parts = splitComments(path, text)
   for (let i = 0; i < parts.length; i++) {
     if (!claimsProvenance(parts[i].comment)) continue
@@ -372,6 +380,11 @@ function hasRomProvenance(path, text) {
     if (LITERAL_OPEN.test(below)) return true
   }
   return false
+}
+
+/** The rom-provenance rule alone, pragma exemption included (#812). */
+export function checkRomProvenance(path, text) {
+  return !scanPragmas(text).allowed.has('rom-provenance') && hasRomProvenance(path, text)
 }
 
 /** Text-content rules shared by blob content, commit messages and tag

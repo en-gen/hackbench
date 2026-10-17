@@ -21,7 +21,9 @@ import { slow } from '../support/loadTimeout'
 import {
   checkBlob,
   checkPath,
+  checkRomProvenance,
   checkTextContent,
+  provenanceStats,
   DEFAULT_MAX_BLOB_BYTES,
   DEFAULT_MAX_TOTAL_BYTES,
   effectiveLimits,
@@ -333,23 +335,49 @@ describe('rom-provenance (#812): a "taken from the game" comment over an inline 
     expect(rule(checkTextContent('x.ts', `[${big}]`))).toContain('byte-tokens')
   })
 
-  it('develop-clean: no tracked text file trips rom-provenance', () => {
+  // Cost, one machine, 1287 files: the old loop ran every rule (3 of 4 s of a
+  // 2.3 s case under load went to byte/base64/disasm scans and sync reads);
+  // this needs only rom-provenance, and reads the files in parallel.
+  it('develop-clean: no tracked text file trips rom-provenance', slow(15000), async () => {
     const files = execFileSync('git', ['ls-files'], { cwd: repoRoot, encoding: 'utf8' })
       .split('\n')
       .filter(f => /\.(ts|tsx|js|mjs|cjs|md|json|css|lua|sh|yml|yaml)$/.test(f))
+    const read = await Promise.all(
+      files.map(f =>
+        fs.promises.readFile(path.join(repoRoot, f)).then(
+          buf => ({ f, buf }),
+          () => null, // listed but absent from the working tree
+        ),
+      ),
+    )
     const hits: string[] = []
     let scanned = 0
-    for (const f of files) {
-      const full = path.join(repoRoot, f)
-      if (!fs.existsSync(full)) continue
-      const buf = fs.readFileSync(full)
-      if (buf.includes(0)) continue
+    for (const r of read) {
+      if (!r || r.buf.includes(0)) continue
       scanned++
-      if (checkTextContent(f, buf.toString('utf8')).some(h => h.rule === 'rom-provenance'))
-        hits.push(f)
+      if (checkRomProvenance(r.f, r.buf.toString('utf8'))) hits.push(r.f)
     }
     expect(scanned).toBeGreaterThan(500)
     expect(hits).toEqual([])
+  })
+
+  it('rom-provenance alone agrees with the full check and skips claim-free text', () => {
+    const claim = '// Vanilla $0123\nconst a = [1, 2]\n'
+    const cases = [
+      claim,
+      '// no claim here\nconst a = [1, 2]\n',
+      '// content-gate: allow rom-provenance -- t\n' + claim,
+    ]
+    for (const t of cases) {
+      const full = checkTextContent('x.ts', t).some(h => h.rule === 'rom-provenance')
+      expect(checkRomProvenance('x.ts', t)).toBe(full)
+    }
+    // The comment-splitting pass is the costly part; it runs only when a claim phrase is present.
+    const before = provenanceStats.splits
+    checkRomProvenance('x.ts', 'const a = [1, 2]\n'.repeat(1000))
+    expect(provenanceStats.splits).toBe(before)
+    checkRomProvenance('x.ts', claim)
+    expect(provenanceStats.splits).toBe(before + 1)
   })
 })
 
