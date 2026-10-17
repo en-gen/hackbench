@@ -17,12 +17,13 @@
  * loader entries ($05:D8AE, $05:D8B7, $00:A635, $05:801E) carry the vanilla shape bytes
  * and small routines of our own. Ids 20, 21 and 22 draw like id 0 and set one CGRAM color
  * in INIT: 20 through the NMI upload list ($0681/$0682), 21 through a MainPalette list
- * ($0703, with $0680 = 6), 22 through $2121/$2122; 23 sets one color directly then by the list, 24 appends a list color and requests the MainPalette upload in one frame, 25 sets two colors with one CGADD, 26 writes id 21's MainPalette list without requesting the upload, 28 writes mirror colors with no list header, 29 uploads a two-color list entry, 27 appends a list color in every MAIN pass, 30 burns ~196k steps per INIT and never leaves status 1; 31 draws at X then moves X by +4 each MAIN; 32 is 31 but draws only from its second MAIN; 103 is the line-guided grinder's id: its MAIN has the vanilla SHAPE the runner's gate reads (bank_01.asm:11837-11846, 12182-12204) around a draw then a +4 move. Options plant a defect for the oracle tests.
+ * ($0703, with $0680 = 6), 22 through $2121/$2122; 23 sets one color directly then by the list, 24 appends a list color and requests the MainPalette upload in one frame, 25 sets two colors with one CGADD, 26 writes id 21's MainPalette list without requesting the upload, 28 writes mirror colors with no list header, 29 uploads a two-color list entry, 27 appends a list color in every MAIN pass, 30 burns ~196k steps per INIT and never leaves status 1; 31 draws at X then moves X by +4 each MAIN; 32 is 31 but draws only from its second MAIN; 34's INIT spawns id 35 into the slot below (both draw one piece like id 0), 36 draws two pieces itself; 103 is the line-guided grinder's id: its MAIN has the vanilla SHAPE the runner's gate reads (bank_01.asm:11837-11846, 12182-12204) around a draw then a +4 move. Options plant a defect for the oracle tests.
  */
 import { RomFile } from '../../../src/rom/RomFile'
 import type { DispatcherSpan } from '../../../src/rom/sprites/interp/SpriteDispatch'
 
 import { putGm11Spans } from './syntheticGm11Spans'
+import { putCompanionRoutines } from './syntheticCompanion'
 import { putGrinderRoutines } from './syntheticGrinder'
 
 export interface SyntheticOptions {
@@ -217,6 +218,10 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   mainTable[32] = 0x92a0
   mainTable[103] = 0x9200
   mainTable[33] = 0x8a80
+  initTable[34] = 0x9600
+  mainTable[34] = 0x8640
+  mainTable[35] = 0x8640
+  mainTable[36] = 0x9680
   if (o.id31IsGrinder) mainTable[31] = 0x9500
   for (const id of [20, 21, 22, 23, 24, 25]) mainTable[id] = 0x8640
   const words = (t: number[]) => t.flatMap(w => [w & 0xff, w >> 8])
@@ -301,6 +306,7 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   put(0x018e40, [0xac, 0x81, 0x06, 0xa9, 0x02, 0x99, 0x82, 0x06, 0xa9, 0xd1, 0x99, 0x83, 0x06, 0xa9, 0xff, 0x99, 0x84, 0x06, 0xa9, 0x03, 0x99, 0x85, 0x06, 0xa9, 0x00, 0x99, 0x86, 0x06, 0x98, 0x18, 0x69, 0x04, 0x8d, 0x81, 0x06, 0x60]) // prettier-ignore
   // id 30 INIT: burns 196,608 steps (65,536 x DEY, NOP, BNE: under the 200,000 per-call budget) and leaves status 1, so the game retries it every frame.
   put(0x019100, [0xc2, 0x10, 0xa0, 0x00, 0x00, 0x88, 0xea, 0xd0, 0xfc, 0xe2, 0x10, 0xa9, 0x01, 0x9d, 0xc8, 0x14, 0x60]) // prettier-ignore
+  putCompanionRoutines(put)
   putGrinderRoutines(put, o, draw([0xa9, 0x24, 0x99, 0x02, 0x03], [0xa9, 0x0a, 0x99, 0x03, 0x03]))
   // INIT routines that leave status 9, 0 and 1.
   for (const [addr, status] of [
