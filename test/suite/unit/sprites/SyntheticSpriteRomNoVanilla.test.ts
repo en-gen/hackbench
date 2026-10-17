@@ -71,7 +71,7 @@ describe('the window checker', () => {
 /**
  * Windows this gate still allows, each a small region of the cart where a runner or reader shape in src/ fixes the
  * game's own bytes, or this fixture keeps the game's semantics (its operand choice is the cost of the test, not
- * of the reader). `hits` is the exact number of windows that start in the region, at most over the variants:
+ * of the reader). `hits` is the exact number of windows whose first byte is in the region (SNES addresses, bank << 16 | addr), at most over the variants:
  * a count that rises or drops fails until it is updated here, and a region that no longer hits must be deleted.
  * A region spans at most MAX_SPAN bytes. Removing one needs the reader to recognize the code by fingerprint
  * instead (the way CastleFlames.ts and SubmapFlagGate.ts do).
@@ -95,7 +95,7 @@ const ALLOWED: Region[] = [
   { from: 0x05d8b1, to: 0x05d8c0, hits: 4, why: 'pointer loader (LevelLoader.ts): Golf Team' },
 ] // prettier-ignore
 
-/** What is wrong with `regions` given the hits (file offsets) each variant produced; empty when it holds. */
+/** What is wrong with `regions` given the hits (SNES addresses as numbers, the form `ALLOWED` uses) each variant produced; empty when it holds. */
 export function allowListProblems(
   regions: readonly Region[],
   hitsByVariant: readonly number[][],
@@ -112,15 +112,15 @@ export function allowListProblems(
   return out
 }
 
-/** The LoROM file offset of a "$BB:AAAA" address. */
-const offsetOf = (h: string): number => {
+/** The SNES address of a "$BB:AAAA" string as a number (bank << 16 | addr), the form `ALLOWED` uses. NOT a file offset. */
+const snesNumber = (h: string): number => {
   const [bank, addr] = h
     .slice(1)
     .split(':')
     .map(x => parseInt(x, 16)) as [number, number]
   return (bank << 16) | addr
 }
-const allowed = (h: string) => ALLOWED.find(r => offsetOf(h) >= r.from && offsetOf(h) <= r.to)
+const allowed = (h: string) => ALLOWED.find(r => snesNumber(h) >= r.from && snesNumber(h) <= r.to)
 
 describe('the allow list checker', () => {
   const region = { from: 0x1000, to: 0x1010, hits: 2, why: 'r' }
@@ -172,7 +172,7 @@ describe.skipIf(!hasRom(VANILLA))(
       expect(
         allowListProblems(
           ALLOWED,
-          VARIANTS.map(([, o]) => hitsOf(o).map(offsetOf)),
+          VARIANTS.map(([, o]) => hitsOf(o).map(snesNumber)),
         ),
       ).toEqual([])
     }, 60_000)

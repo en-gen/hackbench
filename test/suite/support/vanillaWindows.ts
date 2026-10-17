@@ -59,3 +59,24 @@ export function summarize(hits: readonly string[]): string[] {
   }
   return out
 }
+
+/**
+ * Like `vanillaHits`, but only for windows of the whole `cart` that contain at least one byte differing from
+ * `base`. The window is read from the assembled cart (neighbouring base bytes included), so a replacement at an
+ * address where `base` already matched the ROM is still judged on its own bytes, and unchanged base hits are not
+ * reported again.
+ */
+export function vanillaHitsOver(
+  cart: Uint8Array,
+  base: Uint8Array,
+  vanilla: ReadonlySet<string>,
+): string[] {
+  const hits: string[] = []
+  for (let i = 0; i + WINDOW <= cart.length; i++) {
+    let changed = false
+    for (let j = 0; j < WINDOW && !changed; j++) changed = cart[i + j] !== base[i + j]
+    if (changed && distinct(cart, i) >= MIN_DISTINCT && vanilla.has(key(cart, i)))
+      hits.push(snesOf(i))
+  }
+  return hits
+}

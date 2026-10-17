@@ -33,7 +33,7 @@ import {
   loadVanillaBytes,
   snesOf,
   summarize,
-  vanillaHits,
+  vanillaHitsOver,
   windowSet,
 } from '../../support/vanillaWindows'
 import { buildSyntheticRom, type SyntheticOptions } from '../../support/syntheticSpriteRom'
@@ -326,11 +326,9 @@ describe.skipIf(!hasRom(VANILLA))('castle flames, vanilla ROM', () => {
   )
 })
 
-/** What `cart` writes over the plain synthetic cart: every unchanged byte is zeroed, so only the fixtures count. */
-const writtenOver = (cart: RomFile): Uint8Array => {
-  const base = new Uint8Array(buildSyntheticRom().buffer)
-  return new Uint8Array(cart.buffer).map((v, i) => (v === base[i] ? 0 : v))
-}
+/** The plain synthetic cart and a fixture cart as flat bytes: windows are judged on the assembled bytes. */
+const baseBytes = (): Uint8Array => new Uint8Array(buildSyntheticRom().buffer)
+const cartBytes = (cart: RomFile): Uint8Array => new Uint8Array(cart.buffer)
 
 describe.skipIf(!hasRom(VANILLA))(
   'the flame fixtures are not vanilla bytes (corpus gate, 8-byte windows, ROM-byte clean-up)',
@@ -339,18 +337,22 @@ describe.skipIf(!hasRom(VANILLA))(
     const vanilla = () => loadVanillaBytes(romPath(VANILLA))
     it('no 8-byte window (3+ distinct values) of the bytes the fixtures write is in the vanilla ROM', () => {
       const set = windowSet(vanilla())
-      expect(summarize(vanillaHits(writtenOver(flameRom()), set))).toEqual([])
-      expect(summarize(vanillaHits(writtenOver(flameRom({ ...DATA, xs: [0x13, 0x57, 0x9b, 0xdf] })), set))).toEqual([]) // prettier-ignore
+      expect(summarize(vanillaHitsOver(cartBytes(flameRom()), baseBytes(), set))).toEqual([])
+      expect(summarize(vanillaHitsOver(cartBytes(flameRom({ ...DATA, xs: [0x13, 0x57, 0x9b, 0xdf] })), baseBytes(), set))).toEqual([]) // prettier-ignore
     })
     it('planted: the ROM spawn routine copied over the cart is flagged at its address', () => {
       const v = vanilla()
       const planted = flameRom(DATA, b => void b.set(v.subarray(off(0x02aa6c), off(0x02aa6c) + 33), off(0x02aa6c))) // prettier-ignore
-      expect(vanillaHits(writtenOver(planted), windowSet(v))).toContain(snesOf(off(0x02aa6c)))
+      expect(vanillaHitsOver(cartBytes(planted), baseBytes(), windowSet(v))).toContain(
+        snesOf(off(0x02aa6c)),
+      )
     })
     it('planted: the ROM cluster loop copied over the cart is flagged', () => {
       const v = vanilla()
       const planted = flameRom(DATA, b => void b.set(v.subarray(off(0x02f808), off(0x02f808) + 24), off(0x02f808))) // prettier-ignore
-      expect(vanillaHits(writtenOver(planted), windowSet(v))).toContain(snesOf(off(0x02f808)))
+      expect(vanillaHitsOver(cartBytes(planted), baseBytes(), windowSet(v))).toContain(
+        snesOf(off(0x02f808)),
+      )
     })
   },
 )
