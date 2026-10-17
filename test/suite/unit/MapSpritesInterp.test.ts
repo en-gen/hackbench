@@ -170,7 +170,7 @@ describe('screen-fixed parts (#286)', () => {
     expect(dxy(draw(at(128, 112), runOf(parts)))).toEqual([[-88, -72], [-38, 100 + 192 - 112], [200 - 128, -12], [56, 256]]) // prettier-ignore
   })
 
-  // Sprite $8D (CODE_02F5D0, bank_02.asm:15639-15676): X = table - Layer1XPos, Y = a bare table byte, drawn only while Layer1XPos < $46.
+  // Sprite $8D (CODE_02F5D0, bank_02.asm:15670-15708; the gate is the LOW byte of Layer1XPos < $46, 15670-15673; X 15678-15687, Y 15688-15689): X = table - Layer1XPos, Y = a bare table byte.
   const exit = (c: Cam) => (c.x >= 0 && c.x < 0x46 ? [[0, 0x18 - c.x, 0x8f], [1, 0x18 - c.x, 0x5f]] : []) // prettier-ignore
 
   it('a Y-fixed part at OAM Y >= $80 lands at OAM Y + the loader camera Y, unwrapped; its camera-following X stays (#1016)', () => {
@@ -181,9 +181,55 @@ describe('screen-fixed parts (#286)', () => {
     ])
   })
 
-  it('probes the other way when the first shift breaks the own gate of the sprite, and invents nothing when both do (#1016)', () => {
-    // Sprite x = 0: the shift towards the centre is -13, so Layer1XPos goes negative and the gate draws nothing; +13 passes.
-    // A gate that holds only at the seed camera exactly: no probe draws, so the model stands as the runner gave it.
+  // The retry (#1016) must flip BOTH axes and work at both ends of the level; each gate below is the game's own kind (Layer1XPos < $46, bank_02.asm:15670-15673).
+  const fixedY = (ox: (c: Cam) => number) => (c: Cam) => [[0, ox(c), 0x8f]]
+  const gated = (ok: (c: Cam) => boolean, ox: (c: Cam) => number): Run =>
+    runOf(c => (ok(c) ? fixedY(ox)(c) : []))
+  it('retries the other way when the first shift breaks a gate at the left end of the level', () => {
+    expect(
+      dxy(
+        draw(
+          at(0, 0),
+          gated(
+            c => c.x >= 0 && c.x < 0x46,
+            c => 0x18 - c.x,
+          ),
+        ),
+      ),
+    ).toEqual([[0x18, 0x8f + 192]])
+  })
+
+  it('retries the other way at the right end, where the shift towards the centre would run past the last screen', () => {
+    // Sprite at x 496 of 2 screens: camera 256 (the clamp), shift +13 leaves the level and the gate (camera <= 256) draws nothing.
+    expect(
+      dxy(
+        draw(
+          at(496, 0),
+          gated(
+            c => c.x <= 256,
+            c => 356 - c.x,
+          ),
+        ),
+      ),
+    ).toEqual([[100 - (496 - 256), 0x8f + 192]])
+  })
+
+  it('retries the other way on a gate on Layer1YPos: the Y shift flips too, not only the X shift', () => {
+    expect(
+      dxy(
+        draw(
+          at(0, 0),
+          gated(
+            c => c.y >= 0,
+            c => 0x18 - c.x,
+          ),
+        ),
+      ),
+    ).toEqual([[0x18, 0x8f + 192]])
+  })
+
+  it('regression pin: a gate that holds only at the seed camera leaves the runner model as it was (nothing invented)', () => {
+    // Equivalent to the code before #1016 (no probe draws, so no part is moved); it pins that the retry never invents a position.
     const only = (c: Cam) => (c.x === 0 ? [[0, 0x18, 0x8f]] : [])
     expect(dxy(draw(at(0, 0), runOf(only)))).toEqual([[0x18, s8(0x8f)]])
   })
@@ -778,7 +824,7 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
   })
 })
 
-// #1016: the ghost house EXIT sign ($8D) draws screen-fixed (CODE_02F5D0, SMWDisX bank_02.asm:15639-15676): X = table -
+// #1016: the ghost house EXIT sign ($8D) draws screen-fixed (CODE_02F5D0, SMWDisX bank_02.asm:15670-15708, low byte of Layer1XPos < $46 gate at 15670-15673): X = table -
 // Layer1XPos, Y = table byte. Vanilla US ROM, one machine; the eight maps that place it, each its own case.
 describe.skipIf(!hasRom(VANILLA))('ghost house exit sign ($8D) sits at its door (#1016)', () => {
   const bytes = () => new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
