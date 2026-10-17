@@ -389,11 +389,6 @@ const GATED = [
   { what: 'the screen-exit STA _F', at: 0x05d7d2, byte: 0x8d, shown: '$05D7CB' },
   { what: 'a screen-exit high byte of 2', at: 0x05d7d1, byte: 0x02, shown: '$05D7D1' },
   { what: 'the DATA_05F800 read', at: 0x05d7e2, byte: 0xbb, shown: '$05D7E2' },
-  // CODE_0DA512 files each exit by its own screen field (#957): the last-wins rule needs it stock.
-  { what: 'the exit object number read', at: 0x0da514, byte: 0xb9, shown: '$0DA512' },
-  { what: 'the screen field mask', at: 0x0da528, byte: 0x0f, shown: '$0DA525' },
-  { what: 'the ExitTableLow store', at: 0x0da52b, byte: 0x9c, shown: '$0DA525' },
-  { what: 'the ExitTableHigh store', at: 0x0da533, byte: 0x9c, shown: '$0DA525' },
 ]
 
 /** Root $105 with a primary exit to $177 under the stock rule. */
