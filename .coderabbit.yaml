@@ -38,6 +38,37 @@ reviews:
     - '**/*.flac'
     - '**/package-lock.json'
     - '**/yarn.lock'
+    # Owner ruling 2026-10-17: skip changelog fragments and docs, except
+    # docs/rom, docs/testing.md, docs/glossary.md and .claude/rules, to save
+    # review slots. CodeRabbit's rules (docs.coderabbit.ai/configuration/
+    # path-instructions, "How path filters combine"): any matching '!' pattern
+    # excludes a file regardless of order, and a plain pattern that is not an
+    # exact built-in default turns the list into an allowlist. So the kept
+    # paths cannot be re-included; each skipped docs path is listed instead.
+    # A new docs/ directory or top-level docs file is reviewed until added here.
+    - '!changelog.d/**'
+    - '!CHANGELOG.md'
+    - '!docs/agents/**'
+    - '!docs/architecture/**'
+    - '!docs/decisions/**'
+    - '!docs/guide/**'
+    - '!docs/ideas/**'
+    - '!docs/mockups/**'
+    - '!docs/protocols/**'
+    - '!docs/runbooks/**'
+    - '!docs/spikes/**'
+    - '!docs/sprites/**'
+    - '!docs/superpowers/**'
+    - '!docs/CONVENTIONS.md'
+    - '!docs/README.md'
+    - '!docs/capture-viewer.md'
+    - '!docs/gfx-arena-budget.md'
+    - '!docs/hypotheses.md'
+    - '!docs/layer-previews.md'
+    - '!docs/music-playback.md'
+    - '!docs/references.md'
+    - '!docs/sfx-tables.md'
+    - '!docs/ui-conventions.md'
   auto_review:
     # Owner ruling 2026-10-16: paid Essentials plan, five included PR reviews
     # per developer per hour, subject to CodeRabbit's Fair Usage Policy. Every
@@ -52,6 +83,9 @@ reviews:
     enabled: true
     auto_incremental_review: true
     drafts: false
+    # Dependabot PRs are version bumps; skip them (exact username match).
+    ignore_usernames:
+      - 'dependabot[bot]'
     # The default pauses auto-review after 5 reviewed commits, which would leave
     # a long PR's latest push unapproved and its auto-merge stuck.
     auto_pause_after_reviewed_commits: 0
