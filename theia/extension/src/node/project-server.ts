@@ -18,6 +18,7 @@ import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { buildMapTree, MapTree } from '../../../../src/rom/MapTree'
 import { readLevelStart } from '../../../../src/rom/LevelStart'
+import { buildSubAreaLayout } from '../../../../src/rom/subAreaLayout'
 import {
   WorkingRomEntry,
   WorkingRomRegistry,
@@ -58,6 +59,7 @@ import {
   MapBlockContentsResult,
   MapSpritesResult,
   MapStartResult,
+  MapSubAreasResult,
   PalaceIconsResult,
   PatchFormatDto,
   ProjectDto,
@@ -140,6 +142,14 @@ export class ProjectServiceImpl implements ProjectService {
     return s.ok
       ? { status: 'ok', screen: s.screen, x: s.x, y: s.y, vertical: s.vertical }
       : { status: 'unavailable', reason: s.reason }
+  }
+
+  async mapSubAreas(manifestPath: string, index: number): Promise<MapSubAreasResult> {
+    const r = this.located(manifestPath)
+    if (r.status !== 'ok') {
+      return { ok: false, reason: `The base ROM ${r.baseRom.title} is not on this machine`, romNotLocated: true } // prettier-ignore
+    }
+    return buildSubAreaLayout(romOf(r), index)
   }
 
   async mapCollisionCheck(manifestPath: string, index: number): Promise<MapCollisionCheckResult> {
