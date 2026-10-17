@@ -245,11 +245,13 @@ export function drawL3Planes(l3: L3Inputs, screen: number): L3Planes {
   }
   const planes = [0, 1].map(() => new Uint8ClampedArray(width * height * 4))
   const drew = [false, false]
-  const xOff = l3.xPx ?? 0
+  // World-locked: column 0 sits at map X camXPx, so a tile at map X m shows column (m - camXPx) (#563); the modulo below repeats it every 512 px, as the game's BG3 does.
+  const wl = l3.worldLocked
+  const xOff = wl ? -wl.camXPx : (l3.xPx ?? 0)
   for (let r = L3_HUD_ROW_CUTOFF; r < end; r++) {
     const y = r * 8 - l3.yPx + l3.camYPx
     if (y < 0 || y >= height) continue
-    // Tiles sit at Layer3XPos-shifted columns (camera X at load is 0); a start left of 0 clips the first tile.
+    // Tiles sit at Layer3XPos-shifted columns (a smash sprite's X; a world-locked layer's is the entrance camera, negated); a start left of 0 clips the first tile.
     for (let sx = -(xOff & 7); sx < width; sx += 8) {
       const word = cell(r, ((((x0 + sx + xOff) % (cols * 8)) + cols * 8) % (cols * 8)) >> 3)
       const pixels = l3.chars[(word & 0x3ff) >> 7]?.[word & 0x7f]
@@ -325,6 +327,7 @@ export function screenResult(
     layer3: {
       priority: model.l3?.priority ?? model.header.layer3Priority,
       reason: model.l3 ? model.l3.reason : 'Layer 3 not drawn yet',
+      ...(model.l3?.l3?.worldLocked && { drifts: true }),
     },
     screens: model.l3?.screens ?? FALLBACK_SCREENS,
     math:

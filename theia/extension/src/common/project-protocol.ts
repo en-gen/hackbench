@@ -248,6 +248,8 @@ export type MapPlaneKey = (typeof MAP_PLANE_KEYS)[number]
 export interface MapLayer3Dto {
   priority: boolean
   reason: string | null
+  /** Layer 3 drifts slowly to the left in the game, which the drawing does not show (#563). */
+  drifts?: boolean
 }
 
 /**
