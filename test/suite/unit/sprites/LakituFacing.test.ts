@@ -86,6 +86,14 @@ function sample(
 const side = (sprite: number, mario: number) => (mario < sprite ? 1 : 0)
 
 // The fixture routines, written here (no ROM bytes): see lakituRom for what each does.
+/** Where each fixture routine is written. The writes, the cloud MAIN's JSR and the vanilla-window scan all read these. */
+const AT = {
+  subHorizPos: 0x01ad80,
+  riderInit: 0x019a00,
+  cloudMain: 0x019a40,
+  riderMain: 0x019a80,
+} as const
+
 // prettier-ignore
 const SUB_HORIZ_POS = [0xa0, 0x00, 0xa5, 0xd2, 0xdd, 0xe0, 0x14, 0xd0, 0x04, 0xa5, 0xd1, 0xd5, 0xe4, 0xb0, 0x01, 0xc8, 0x60]
 // prettier-ignore
@@ -98,7 +106,7 @@ const RIDER_INIT = [
 const cloudMain = (write: readonly number[]) => [
   0xa0, 0xff, 0xc8, 0xc0, 0x0a, 0xb0, 0x1e, 0xb9, 0x9e, 0x00, 0xc9, RIDER, 0xd0, 0xf4, // scan 0..9
   0xb9, 0xc8, 0x14, 0xc9, 0x08, 0xd0, 0xed, 0x98, 0x9d, 0x0e, 0x16, // status, keep the slot
-  0x20, 0x80, 0xad, 0x98, 0x48, 0xbc, 0x0e, 0x16, 0x68, // SubHorizPos, side to A, reload Y
+  0x20, AT.subHorizPos & 0xff, AT.subHorizPos >> 8 & 0xff, 0x98, 0x48, 0xbc, 0x0e, 0x16, 0x68, // SubHorizPos, side to A, reload Y
   ...write, 0x60,
 ]
 const STORE = [0x99, 0x7c, 0x15] // STA $157C,Y
@@ -109,20 +117,20 @@ function lakituRom(o: { cloud?: 'full' | 'nowrite' | 'rts' } = {}): RomFile {
   const rom = buildSyntheticRom()
   // An equivalent of SubHorizPos (bank_01.asm:6124-6134) written for this fixture, as a compare and not the
   // vanilla subtract: Y = 1 when Mario ($D1/$D2) is left of the sprite ($E4,X / $14E0,X), else 0.
-  rom.writeAt(0x01ad80, SUB_HORIZ_POS)
+  rom.writeAt(AT.subHorizPos, SUB_HORIZ_POS)
   // Rider INIT: count down from slot 8 to the first slot with status 0 (the free-slot search starts at
   // SpriteSlotMax, bank_02.asm:5182-5184, 5524-5530; vanilla's is 7-9), then spawn the cloud there at the rider's X.
-  rom.writeAt(0x019a00, RIDER_INIT)
+  rom.writeAt(AT.riderInit, RIDER_INIT)
   // Cloud MAIN, written ascending: find the rider (number, then status 8) in slots 0..9, keep it in $160E,X, call
   // SubHorizPos, store its answer into the rider's $157C (the effect of bank_01.asm:14216-14222).
-  rom.writeAt(0x019a40, cloudMain((o.cloud ?? 'full') === 'full' ? STORE : NOPS))
-  if (o.cloud === 'rts') rom.writeAt(0x019a40, [0x60]) // the cloud's MAIN never writes: a bare RTS
-  rom.writeAt(0x019a80, [0x60]) // the rider's MAIN does nothing
+  rom.writeAt(AT.cloudMain, cloudMain((o.cloud ?? 'full') === 'full' ? STORE : NOPS))
+  if (o.cloud === 'rts') rom.writeAt(AT.cloudMain, [0x60]) // the cloud's MAIN never writes: a bare RTS
+  rom.writeAt(AT.riderMain, [0x60]) // the rider's MAIN does nothing
   const words = (a: number) => [a & 0xff, (a >> 8) & 0xff]
-  rom.writeAt(0x018170 + 11 + RIDER * 2, words(0x9a00))
-  rom.writeAt(0x018320 + 9 + RIDER * 2, words(0x9a80))
-  rom.writeAt(0x018320 + 9 + CLOUD * 2, words(0x9a40))
-  rom.writeAt(0x018170 + 11 + CLOUD * 2, words(0x9a80))
+  rom.writeAt(0x018170 + 11 + RIDER * 2, words(AT.riderInit & 0xffff))
+  rom.writeAt(0x018320 + 9 + RIDER * 2, words(AT.riderMain & 0xffff))
+  rom.writeAt(0x018320 + 9 + CLOUD * 2, words(AT.cloudMain & 0xffff))
+  rom.writeAt(0x018170 + 11 + CLOUD * 2, words(AT.riderMain & 0xffff))
   return rom
 }
 
@@ -229,9 +237,9 @@ describe.skipIf(!hasRom(VANILLA))(
     // base bytes around it), each written region widened by WINDOW - 1 on both sides.
     const sharedWithCart = (cart: Buffer, rom: RomFile): string[] => {
       const regions: Record<string, [number, number]> = {
-        SUB_HORIZ_POS: [0x01ad30, SUB_HORIZ_POS.length],
-        RIDER_INIT: [0x019a00, RIDER_INIT.length],
-        cloudMain: [0x019a40, cloudMain(STORE).length],
+        SUB_HORIZ_POS: [AT.subHorizPos, SUB_HORIZ_POS.length],
+        RIDER_INIT: [AT.riderInit, RIDER_INIT.length],
+        cloudMain: [AT.cloudMain, cloudMain(STORE).length],
       }
       const shared: string[] = []
       for (const [name, [at, len]] of Object.entries(regions)) {
@@ -257,7 +265,7 @@ describe.skipIf(!hasRom(VANILLA))(
       const cart = readFileSync(romPath(VANILLA))
       const rom = lakituRom()
       // Copy WINDOW real bytes from the corpus into the middle of RIDER_INIT's region, at runtime.
-      rom.writeAt(0x019a00 + 4, [...cart.subarray(0x8000, 0x8000 + WINDOW)])
+      rom.writeAt(AT.riderInit + 4, [...cart.subarray(0x8000, 0x8000 + WINDOW)])
       expect(sharedWithCart(cart, rom).length).toBeGreaterThan(0)
     })
 
