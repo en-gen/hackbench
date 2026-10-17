@@ -747,13 +747,16 @@ test('maps: an alias from meta/aliases.json finds only its map', async ({ page }
     .toBe('Castle Rush Zq')
   const all = await nodes(page, 'maps')
   await type(page, 'maps', 'rush zq')
+  // The filter runs after Theia's 200 ms debounce, so the unfiltered tree is
+  // on screen first: wait for the narrowed result itself, not for "some rows".
+  const slotIndexes = async () => {
+    const rows = (await state(page, 'maps')).rows
+    const slots = rows.map(id => all.find(n => n.id === id)).filter(n => n && n.index >= 0)
+    return [...new Set(slots.map(n => n.index))]
+  }
   await expect
-    .poll(async () => (await state(page, 'maps')).rows.length, { message: 'filtered to alias' })
-    .toBeGreaterThan(0)
-  const rows = (await state(page, 'maps')).rows
-  const slots = rows.map(id => all.find(n => n.id === id)).filter(n => n && n.index >= 0)
-  expect(slots.length).toBeGreaterThan(0)
-  expect([...new Set(slots.map(n => n.index))]).toEqual([target.index])
+    .poll(slotIndexes, { timeout: 10000, message: 'filtered to the aliased map' })
+    .toEqual([target.index])
 })
 
 test('maps: a bad aliases.json keeps the maps and shows a note saying why', async ({ page }) => {
