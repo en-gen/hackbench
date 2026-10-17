@@ -11,7 +11,7 @@
  * drawn and `unverified` names what differs. Every check has a planted fixture that goes red when
  * the check is deleted.
  */
-import { readFileSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 import { RomFile } from '../../../../src/rom/RomFile'
@@ -36,7 +36,7 @@ import {
 } from '../../../../theia/extension/src/node/map-sprites'
 import { unzip } from '../../../../tools/scripts/capture_render'
 import { COLORS } from '../../support/mapInputs'
-import { CAPTURE_DIR, hasCaptures, hasRom, romPath, VANILLA } from '../../support/corpus'
+import { CAPTURE_DIR, hasRom, romPath, VANILLA } from '../../support/corpus'
 import { buildSyntheticRom, type SyntheticOptions } from '../../support/syntheticSpriteRom'
 
 const LEVEL = 0x105
@@ -284,6 +284,13 @@ describe('the rotating ring from the routines (synthetic cart)', () => {
       const rom = ringRom(b => (b[off(at)] = (b[off(at)]! + 1) & 0xff))
       expect(ringGate(rom, clean)).toEqual([what])
     })
+    it('a span that cannot be read is named as unreadable, not hashed from what did read', () => {
+      // $02:0000 is below the LoROM window (lo < $8000): no cart byte, so bytesAt gives null for that span.
+      const spans = { ...RING_SPANS, helpers: [RING_SPANS.helpers[0], [0x020000, 4]] } as never
+      expect(ringGate(ringRom(), clean, spans)).toEqual(['the ring draw helpers (unreadable)'])
+      // A partial read that a hash would have mistaken for a changed routine is not reported as changed.
+      expect(ringGate(ringRom(), clean, spans)).not.toContain('the ring draw helpers')
+    })
     it('a changed dispatch call target is named', () => {
       const rom = changed(0x02f822, 0x00)
       expect(ringGate(rom, clean)).toContain('the cluster dispatch call target')
@@ -311,7 +318,10 @@ describe('the rotating ring: edges the gate and the seed can hit (synthetic cart
     // Out-of-range reads mirror (SpriteBus.romOffset), so only a zero-size ROM gives bytesAt null.
     const flags = ringGate(RomFile.fromBytes('empty.sfc', new Uint8Array(0)), routinesOf(ringRom()))
     expect(flags).toEqual(
-      expect.arrayContaining(['the cluster dispatch call target', 'the ring spawn routine']),
+      expect.arrayContaining([
+        'the cluster dispatch call target',
+        'the ring spawn routine (unreadable)',
+      ]),
     )
   })
 
@@ -462,7 +472,7 @@ const windowOf = (n: string) => {
 
 // The ring turned during the capture (frames 1077 and 1119, 42 apart): the angles are those the frames held,
 // found as the angle at which the ROM-run ring equals the hardware ring (-1 per frame for $E3: 501 - 42 = 459).
-describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
+describe.skipIf(!existsSync(ZIP) || !hasRom(VANILLA))(
   'the rotating ring vs hardware (map $107, layers_v5 windows)',
   () => {
     it.each([

@@ -86,16 +86,24 @@ export type RingResult =
   { ok: true; parts: SpritePart[]; unverified: string[] } | { ok: false; reason: string }
 
 /** `unverified` names each routine or call-path part that is not the vanilla shape (empty when all match). */
-export function ringGate(rom: RomFile, routines: RingRoutines = VANILLA_RING_ROUTINES): string[] {
+export function ringGate(
+  rom: RomFile,
+  routines: RingRoutines = VANILLA_RING_ROUTINES,
+  spans: typeof RING_SPANS = RING_SPANS,
+): string[] {
   const out = PATH.filter(c => !shapeMatches(bytesAt(rom, c.at, c.want.length), c.want)).map(c => c.what) // prettier-ignore
   const callee = bytesAt(rom, 0x02f822, 3)
   if (!callee || !checkExecutePtr(rom, [callee]).ok) out.push('the cluster dispatch call target')
-  const sha = (spans: readonly (readonly [number, number])[]) =>
-    spanFingerprint(Uint8Array.from(spans.flatMap(([at, n]) => bytesAt(rom, at, n) ?? [])))
-  if (sha(RING_SPANS.spawn) !== routines.spawn) out.push('the ring spawn routine')
-  if (sha(RING_SPANS.draw) !== routines.draw) out.push('the ring draw routine')
-  if (sha(RING_SPANS.helpers) !== routines.helpers) out.push('the ring draw helpers')
-  if (sha(RING_SPANS.contact) !== routines.contact) out.push('the ring contact test')
+  // A span that will not read is "unreadable", not a changed routine: hashing the spans that did read would blur the two.
+  const check = (name: string, parts: readonly (readonly [number, number])[], want: string) => {
+    const got = parts.map(([at, n]) => bytesAt(rom, at, n))
+    if (got.some(g => !g)) out.push(`${name} (unreadable)`)
+    else if (spanFingerprint(Uint8Array.from(got.flat() as number[])) !== want) out.push(name)
+  }
+  check('the ring spawn routine', spans.spawn, routines.spawn)
+  check('the ring draw routine', spans.draw, routines.draw)
+  check('the ring draw helpers', spans.helpers, routines.helpers)
+  check('the ring contact test', spans.contact, routines.contact)
   return out
 }
 

@@ -65,7 +65,7 @@ All line numbers are SMWDisX `bank_02.asm` unless a bank is named. No assembly i
   the type-4 dispatch entry; the spawn, draw, helpers and the 84-byte contact test CODE_02FE71,
   which the draw runs, are the fingerprinted spans). Fingerprints cover the routines only, not the data tables. What
   still keeps the marker, with its reason: no level image, a run that does not return or leaves
-  ROM, a vertical level (owner call B: the loader hands the spawn the screen's Y boundary as the
+  ROM, a vertical map (owner call B: the loader hands the spawn the screen's Y boundary as the
   ring's X there, 5232-5238, so the ROM's own ring would be at the wrong place), the extra-bits
   flag, and chars that are not loaded.
 - The names in `SpriteMetadata.ts` now say what the code does: "Rotating ring of 10,
@@ -85,4 +85,4 @@ All line numbers are SMWDisX `bank_02.asm` unless a bank is named. No assembly i
   (to 2 degrees). Only $107 has hardware frames; the others are not captured.
 - Not modelled: the turning (the map holds angle 0), the animation (EffFrame selects the
   tile; the map shows the image's frame), the contact test, a second simultaneous ring, a
-  ring's angle after earlier rings, and any ring in a vertical level.
+  ring's angle after earlier rings, and any ring in a vertical map.
