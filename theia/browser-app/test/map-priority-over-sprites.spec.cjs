@@ -12,8 +12,14 @@
  * Plant: in src/rom/model/ScreenPlanes.ts:53 change
  * `return [...list.slice(0, at), 'sprites2', ...list.slice(at)]` to `return [...list, 'sprites2']`
  * (sprites drawn last, the #529 defect); part (a) goes red on `compIsSprite <= n/2`.
- * Result: recorded by the verifier in the PR. ScreenPlanes.test and MapScreenL3.test catch that
- * plant too; this spec's value is the pixel-level check on a real map.
+ * Result (verifier, branch a12856d6, one run, one machine, browser build): red at the `compIsSprite <= n/2`
+ * assertion ("but never over the tile: at most half the pixels"), expected <= 88, received 176.
+ *
+ * Plant 2: in src/rom/model/ColorMath.ts:93 make the door weight `w` 1 on bright squares and 0 otherwise, so
+ * dim squares show the tile alone. Result (same run): red at the `compIsHigh < n - compIsSprite` assertion
+ * ("the dim squares tint the tile..."), expected < 92, received 92.
+ *
+ * ScreenPlanes.test and MapScreenL3.test catch the first plant too; this spec's value is the pixel-level check on a real map.
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')
