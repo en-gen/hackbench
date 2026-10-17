@@ -241,6 +241,7 @@ export function drawSprites(
       y: ay,
       box,
       rgba: base64(out),
+      parts: res.parts.map(p => ({ char: p.charNum, palette: p.palette, flipX: p.flipX, flipY: p.flipY, dx: p.dx, dy: p.dy })), // prettier-ignore
       priority: base64(new Uint8ClampedArray(prio.buffer)),
       status: 'drawn',
       ...('unverified' in res && res.unverified ? { unverified: res.unverified } : {}),

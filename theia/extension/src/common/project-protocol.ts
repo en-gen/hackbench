@@ -301,6 +301,19 @@ export type MapScreenResult =
   | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
+/** One part of a drawn sprite, as the interpreter placed it (#984). */
+export interface SpritePartDto {
+  /** OBJ char number, hackbench's $400-based numbering. */
+  char: number
+  /** CGRAM row the part's colors come from. */
+  palette: number
+  flipX: boolean
+  flipY: boolean
+  /** Offset of the part's top-left pixel from the sprite's anchor. */
+  dx: number
+  dy: number
+}
+
 /**
  * One sprite of a map's sprite layer (#564), in map pixels. `box` is where its
  * bitmap lands (x1 and y1 exclusive); the bitmap is `box`-sized RGBA, base64.
@@ -319,6 +332,11 @@ export interface MapSpriteDto {
   y: number
   box: { x0: number; y0: number; x1: number; y1: number }
   rgba: string
+  /**
+   * The parts the bitmap was blitted from, in the order drawn (#984): the Properties view lists them from
+   * the same list, so what it says cannot differ from the picture. Absent on a placeholder, which draws none.
+   */
+  parts?: SpritePartDto[]
   /**
    * Each pixel's OAM priority 0-3 (#795), one byte per `box` pixel, base64: the
    * attribute bits 5:4 of the part that wins the pixel. Absent on a placeholder,
