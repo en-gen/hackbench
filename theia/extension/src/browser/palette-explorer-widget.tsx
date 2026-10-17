@@ -31,7 +31,7 @@ import {
 } from '@theia/core/lib/browser'
 import { Emitter } from '@theia/core/lib/common'
 import { ExplorerTreeWidget, createExplorerTreeContainer } from './explorer-search'
-import { paletteSearchRow, type SearchRow } from './explorer-match'
+import { paletteGroupSub, paletteSearchRow, type SearchRow } from './explorer-match'
 import {
   LoadPaletteResult,
   PaletteGroupDto,
@@ -291,7 +291,7 @@ export class PaletteExplorerWidget extends ExplorerTreeWidget {
       kind: 'group',
       groupId: g.id,
       ...(g.cgRamRow === null ? {} : { row: g.cgRamRow }),
-      sub: `${g.variants.length} variant${g.variants.length === 1 ? '' : 's'}`,
+      sub: paletteGroupSub(g.cgRamRow ?? undefined, g.variants.length),
       parent: undefined,
       children: [],
       selected: false,

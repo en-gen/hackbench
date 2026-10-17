@@ -73,6 +73,15 @@
   min-width: 0;
 }
 
+/* The project's own name for a map: the user wrote it, so it reads brighter than the ROM's. */
+.hb-map-alias {
+  margin-left: 0.6em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
 /* A back edge, or a subtree left unexpanded: shown rather than dropped. */
 .hb-map-note {
   margin-left: 0.5em;
@@ -552,4 +561,22 @@
   margin-top: 40px;
   padding: 8px 12px;
   color: var(--theia-descriptionForeground, #8b8b8b);
+}
+
+/*
+ * The explorer search box's text field (#336 T4). Core styles the old span as
+ * non-selectable text; a field needs a caret, a minimum width and the editor's
+ * input colours, or it is a zero-width strip beside the buttons.
+ */
+.theia-search-box-widget .theia-search-input.hb-explorer-search-input {
+  user-select: text;
+  min-width: 160px;
+  border: none;
+  outline: none;
+  color: var(--theia-input-foreground);
+}
+
+.theia-search-box-widget .theia-search-input.hb-explorer-search-input:focus {
+  outline: 1px solid var(--theia-focusBorder);
+  outline-offset: -1px;
 }

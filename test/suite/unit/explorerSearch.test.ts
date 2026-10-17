@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   filterTree,
+  mapAlias,
   mapSlotRow,
+  paletteGroupSub,
   paletteSearchRow,
   parseQuery,
   pickSelectTarget,
@@ -334,5 +336,34 @@ describe('map aliases (D79 call 1)', () => {
 
   it('a row that is not a slot (index -1) takes no alias', () => {
     expect(mapSlotRow(-1, 'x', { '-1': 'nope', FF: 'nope' }).texts).toEqual(['x'])
+  })
+})
+
+describe('search matches what the tree displays (D113)', () => {
+  it('a palette group draws the decimal CGRAM row its search matches', () => {
+    for (const row of [0, 3, 12, 14, 15]) {
+      const group = paletteSearchRow({ kind: 'group', name: 'G', row })!
+      const query = String(row)
+      expect(rowMatches(parseQuery(query), group)).toBe(true)
+      expect(paletteGroupSub(row, 2)).toContain(query)
+    }
+  })
+
+  it('a group with no CGRAM row draws only its variant count', () => {
+    expect(paletteGroupSub(undefined, 1)).toBe('1 variant')
+    expect(paletteGroupSub(undefined, 3)).toBe('3 variants')
+  })
+
+  it('a map alias that matches is the alias the row draws', () => {
+    const aliases = { '105': 'Castle Rush' }
+    expect(mapAlias(0x105, aliases)).toBe('Castle Rush')
+    expect(mapAlias(0x106, aliases)).toBeUndefined()
+    expect(mapAlias(-1, { '-1': 'x', FF: 'y' })).toBeUndefined()
+    const drawn = mapAlias(0x105, aliases)!
+    expect(mapSlotRow(0x105, null, aliases).texts).toContain(drawn)
+  })
+
+  it('an empty alias is not an alias, so nothing invisible matches', () => {
+    expect(mapAlias(0x105, { '105': '' })).toBeUndefined()
   })
 })

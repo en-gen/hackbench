@@ -61,7 +61,7 @@ import {
   SpecialMapNodeDto,
 } from '../common/project-protocol'
 import { ExplorerTreeWidget, createExplorerTreeContainer } from './explorer-search'
-import { mapSlotRow, type SearchRow } from './explorer-match'
+import { mapAlias, mapSlotRow, type SearchRow } from './explorer-match'
 
 export const MAP_EXPLORER_ID = 'hackbench.map-explorer'
 
@@ -101,6 +101,8 @@ export interface MapTreeNode extends CompositeTreeNode, SelectableTreeNode {
   /** Pointer-table slot, or -1 for a grouping folder or the Overworld row. */
   index: number
   mapName: string | null
+  /** The project's name for this slot (meta/aliases.json), drawn so a search for it can be seen to match. */
+  alias?: string
   kind: 'map' | 'loop' | 'truncated' | 'group' | 'message'
   category: MapCategory
   /** Set on a 'bonus' row: which flag sends the player there. */
@@ -196,6 +198,12 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
       return { ...mapSlotRow(n.index, n.name, this.mapAliases), openable }
     }
     return { ...mapSlotRow(n.index, n.mapName, this.mapAliases), openable }
+  }
+
+  /** The alias field for a node, or nothing: spread into the node literal. */
+  protected aliasOf(index: number): { alias?: string } {
+    const alias = mapAlias(index, this.mapAliases)
+    return alias ? { alias } : {}
   }
 
   /** meta/aliases.json 'map' namespace as of the last load, keyed by hex slot. */
@@ -498,6 +506,7 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
       name: slotLabel(dto.index),
       index: dto.index,
       mapName: dto.name,
+      ...this.aliasOf(dto.index),
       kind: dto.kind,
       category,
       parent,
@@ -521,6 +530,7 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
       name: SPECIAL_LABELS[dto.role],
       index: dto.index,
       mapName: dto.name,
+      ...this.aliasOf(dto.index),
       kind: 'map',
       category: dto.role,
       parent: undefined,
@@ -1065,6 +1075,11 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
         <span key="slot" className="hb-map-slot hb-map-trailing">
           {slotLabel(map.index)}
         </span>,
+        map.alias ? (
+          <span key="alias" className="hb-map-alias">
+            {map.alias}
+          </span>
+        ) : null,
       ]
     }
 
@@ -1077,6 +1092,11 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
       map.mapName ? (
         <span key="name" className="hb-map-name">
           {map.mapName}
+        </span>
+      ) : null,
+      map.alias ? (
+        <span key="alias" className="hb-map-alias">
+          {map.alias}
         </span>
       ) : null,
       suffix ? (

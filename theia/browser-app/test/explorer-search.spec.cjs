@@ -162,6 +162,26 @@ async function state(page, which) {
   }, IDS[which])
 }
 
+/**
+ * The search box's text field: there must be a real <input>, drawn, hit-testable
+ * at its centre, and the element that holds keyboard focus (owner T4: buttons
+ * showed, no input, focus snapped back to the tree).
+ */
+async function inputState(page, which) {
+  return page.evaluate(async id => {
+    const w = await getWidget(id)
+    const el = w.searchBox?.node.querySelector('input')
+    const r = el?.getBoundingClientRect()
+    const hit = r && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+    return {
+      exists: Boolean(el),
+      drawn: Boolean(r && r.width > 20 && r.height > 8 && hit === el),
+      focused: Boolean(el) && document.activeElement === el,
+      value: el ? el.value : null,
+    }
+  }, IDS[which])
+}
+
 /** Every model node (serialisable subset) so the test can compute expectations. */
 async function nodes(page, which) {
   return page.evaluate(async id => {
@@ -367,7 +387,7 @@ for (const which of Object.keys(IDS)) {
     await page.evaluate(id => getWidget(id).then(w => w.node.focus()), IDS[which])
     await page.keyboard.press('Control+f')
     await expect.poll(async () => boxOrDiag(page, which)).toBe(true)
-    expect((await state(page, which)).treeFocused).toBe(true)
+    expect((await inputState(page, which)).focused).toBe(true)
     await clear(page, which)
     await expect.poll(async () => (await state(page, which)).boxVisible).toBe(false)
   })
@@ -757,6 +777,14 @@ test('maps: an alias from meta/aliases.json finds only its map', async ({ page }
   await expect
     .poll(slotIndexes, { timeout: 10000, message: 'filtered to the aliased map' })
     .toEqual([target.index])
+  // Search matches what the tree displays: the alias is drawn on that row.
+  const shown = await page.evaluate(
+    ({ id, nodeId }) =>
+      document.querySelector(`#${CSS.escape(id)} [data-node-id="${CSS.escape(nodeId)}"]`)
+        ?.textContent ?? null,
+    { id: IDS.maps, nodeId: all.find(n => n.index === target.index && n.alias).id },
+  )
+  expect(shown, 'the aliased row draws its alias').toContain('Castle Rush Zq')
 })
 
 test('maps: a bad aliases.json keeps the maps and shows a note saying why', async ({ page }) => {
@@ -912,7 +940,7 @@ for (const which of Object.keys(IDS)) {
     // Before any key: the box is drawn (boxVisible checks the DOM rect) and
     // keys still go to the tree.
     await expect.poll(async () => boxOrDiag(page, which)).toBe(true)
-    expect((await state(page, which)).treeFocused).toBe(true)
+    expect((await inputState(page, which)).focused).toBe(true)
     await type(page, which, FIND_QUERY[which])
     await expectFiltered(page, which, all, FIND_QUERY[which])
   })
@@ -944,7 +972,7 @@ test('maps: after a real row click, Ctrl+F draws the search box before any key, 
   await expect.poll(() => mapViewIds(page)).toEqual(['hackbench.map-view:preview'])
   await page.keyboard.press('Control+f')
   await expect.poll(async () => boxOrDiag(page, 'maps')).toBe(true)
-  expect((await state(page, 'maps')).treeFocused).toBe(true)
+  expect((await inputState(page, 'maps')).focused).toBe(true)
   const before = (await state(page, 'maps')).rows.length
   await page.keyboard.type(q)
   await expectFiltered(page, 'maps', all, q)
@@ -952,4 +980,54 @@ test('maps: after a real row click, Ctrl+F draws the search box before any key, 
   expect(s.rows.length).toBeLessThan(before)
   expect(s.rows).toContain(target.id)
   expect(s.rows).not.toContain(other.id)
+})
+
+// Owner T4 (#336), second report: the box showed its buttons but no input, and
+// focus went back to the tree. Typing must land IN the input, with no refocus
+// of the tree by the test, and the tree must filter from it.
+for (const which of Object.keys(IDS)) {
+  test(`${which}: Find opens a real input that takes focus, and typing there filters the tree`, async ({
+    page,
+  }) => {
+    await openExplorer(page, which)
+    const all = await nodes(page, which)
+    await page.locator('[id="hackbench.explorer.find"]:visible').first().click()
+    await expect
+      .poll(async () => JSON.stringify(await inputState(page, which)), {
+        message: 'an input is drawn and focused',
+      })
+      .toContain('"drawn":true,"focused":true')
+    const q = FIND_QUERY[which]
+    await page.keyboard.type(q)
+    await expect
+      .poll(async () => (await inputState(page, which)).value, {
+        message: 'the typed text is in the input',
+      })
+      .toBe(q)
+    await expectFiltered(page, which, all, q)
+    // Still the input after the filter ran: the tree must not take focus back.
+    expect((await inputState(page, which)).focused).toBe(true)
+    // Backspace edits the text and Escape closes the box and returns to the tree.
+    await page.keyboard.press('Backspace')
+    await expect.poll(async () => (await inputState(page, which)).value).toBe(q.slice(0, -1))
+    await page.keyboard.press('Escape')
+    await expect.poll(async () => (await state(page, which)).boxVisible).toBe(false)
+    expect((await state(page, which)).treeFocused).toBe(true)
+  })
+}
+
+// Search matches what the tree displays (D113): a group's CGRAM row is found
+// by its decimal number, so the row must say it.
+test('palettes: a group row draws the CGRAM row number its search matches', async ({ page }) => {
+  await openExplorer(page, 'palettes')
+  const all = await nodes(page, 'palettes')
+  const group = all.find(n => n.kind === 'group' && n.row !== undefined)
+  expect(group, 'fixture: a group with a CGRAM row').toBeTruthy()
+  const shown = await page.evaluate(
+    ({ id, nodeId }) =>
+      document.querySelector(`#${CSS.escape(id)} [data-node-id="${CSS.escape(nodeId)}"]`)
+        ?.textContent ?? null,
+    { id: IDS.palettes, nodeId: group.id },
+  )
+  expect(shown).toContain(`Row ${group.row}`)
 })

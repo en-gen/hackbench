@@ -128,6 +128,24 @@ export function paletteSearchRow(n: {
   }
 }
 
+/** The project's name for a map slot, or undefined (and for a row that is not a slot). */
+export function mapAlias(
+  index: number,
+  aliases: Readonly<Record<string, string>>,
+): string | undefined {
+  return index >= 0 ? aliases[aliasKey(index)] || undefined : undefined
+}
+
+/**
+ * The words a palette group row draws under its name. The CGRAM row is drawn
+ * (in decimal) because a search matches it: what a search matches must be on
+ * screen (#336, D79).
+ */
+export function paletteGroupSub(row: number | undefined, variants: number): string {
+  const count = `${variants} variant${variants === 1 ? '' : 's'}`
+  return row === undefined ? count : `Row ${row}, ${count}`
+}
+
 /**
  * A map row: its slot, its ROM name, and the project's alias for it
  * (meta/aliases.json, namespace 'map'). `index` is -1 on rows that are not
@@ -138,7 +156,7 @@ export function mapSlotRow(
   mapName: string | null | undefined,
   aliases: Readonly<Record<string, string>>,
 ): Pick<SearchRow, 'id' | 'texts'> {
-  const alias = index >= 0 ? aliases[aliasKey(index)] : undefined
+  const alias = mapAlias(index, aliases)
   return {
     id: index >= 0 ? index : undefined,
     texts: alias ? [mapName ?? '', alias] : [mapName ?? ''],
