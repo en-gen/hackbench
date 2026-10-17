@@ -28,17 +28,17 @@ describe('l3SmashPos (synthetic sprite lists)', () => {
     expect(SMASH_SPRITE_ID).toBe(0x89)
   })
 
-  it('X is the sprite X inside $00-$FF and $100 beyond it; Y is $A0 minus the sprite Y', () => {
+  it('frame 0 X is the sprite X inside $00-$FF and $100 beyond it', () => {
     const at = (x: number, y: number) => l3SmashPos([spr(0x89, x, y)], 16)
-    expect(at(112, 0)).toEqual({ ok: true, pos: { x: 112, y: 160 } })
-    expect(at(288, 0)).toEqual({ ok: true, pos: { x: 256, y: 160 } })
-    expect(at(240, 0x30)).toEqual({ ok: true, pos: { x: 240, y: 0x70 } })
+    expect(at(112, 0)).toEqual({ ok: true, pos: { x: 112 } })
+    expect(at(288, 0)).toEqual({ ok: true, pos: { x: 256 } })
+    expect(at(240, 0x30)).toEqual({ ok: true, pos: { x: 240 } })
     expect(at(256, 0)).toMatchObject({ pos: { x: 256 } })
-    expect(at(16, 0xa0)).toEqual({ ok: true, pos: { x: 16, y: 0 } })
+    expect(at(16, 0xa0)).toEqual({ ok: true, pos: { x: 16 } })
   })
 
-  it('a sprite below $A0 gives frame 0 a negative Y but is not refused: the view draws the smash cycle start, not frame 0 (#997)', () => {
-    expect(l3SmashPos([spr(0x89, 16, 0xb0)], 16)).toEqual({ ok: true, pos: { x: 16, y: -16 } })
+  it('a sprite below $A0 is not refused: Y is not read, the view draws the cycle start (#997)', () => {
+    expect(l3SmashPos([spr(0x89, 16, 0xb0)], 16)).toEqual({ ok: true, pos: { x: 16 } })
   })
 
   it('no smasher, or one past the start-up load window ($190), leaves layer 3 where CODE_00A007 put it', () => {
@@ -122,6 +122,15 @@ describe('readSmashCodeGate (synthetic code)', () => {
   })
 })
 
+describe('readSmashCodeGate: the main pointer must land on the fingerprinted routine (#997)', () => {
+  it('a stub redirected to a copy of the opening JSL elsewhere is refused', () => {
+    const rom = smashRom()
+    rom.writeAt(0x02f600, [0x22, SITE & 0xff, SITE >> 8, 0x00, 0x6b]) // JSL CODE_00FF61 / RTL
+    rom.writeAt(STUB + 6, [0x00, 0xf6])
+    expect(readSmashCodeGate(rom, sites)).toBe(false)
+  })
+})
+
 describe('readL3SmashLoadPos (synthetic cart)', () => {
   const LEVEL = 0x1f
   /** Mario's start X on `screen`: X index 0 = xLo in the tables, F600 low five bits = the screen. */
@@ -133,7 +142,7 @@ describe('readL3SmashLoadPos (synthetic cart)', () => {
   const one = { sprites: () => [spr(0x89, 288, 0)], sites }
 
   it('gives the smasher position on a stock-shaped cart', () => {
-    expect(readL3SmashLoadPos(withStart(smashRom(), 0), LEVEL, one)).toEqual({ ok: true, pos: { x: 256, y: 160 } }) // prettier-ignore
+    expect(readL3SmashLoadPos(withStart(smashRom(), 0), LEVEL, one)).toEqual({ ok: true, pos: { x: 256 } }) // prettier-ignore
   })
 
   it('refuses when the position routine, the stub or the sweep is hooked (the gate is on the path)', () => {
@@ -202,9 +211,9 @@ describe.skipIf(!hasRom(VANILLA))(
         const header = parseLevelHeader(smw.getLevelRawData(id)!)
         return buildL3Verdict(r, id, { header, isVertical: false, colors: [] } as never, { ok: true, mode: 1 }) // prettier-ignore
       }
-      expect(readL3SmashLoadPos(r, 0x1f)).toEqual({ ok: true, pos: { x: 256, y: 160 } })
-      expect(readL3SmashLoadPos(r, 0x1d4)).toEqual({ ok: true, pos: { x: 112, y: 160 } })
-      expect(readL3SmashLoadPos(r, 0x1fc)).toEqual({ ok: true, pos: { x: 256, y: 160 } })
+      expect(readL3SmashLoadPos(r, 0x1f)).toEqual({ ok: true, pos: { x: 256 } })
+      expect(readL3SmashLoadPos(r, 0x1d4)).toEqual({ ok: true, pos: { x: 112 } })
+      expect(readL3SmashLoadPos(r, 0x1fc)).toEqual({ ok: true, pos: { x: 256 } })
       // The map view draws the smash cycle's start X, not frame 0's (#997, SMASH_CYCLE_X); Y is the level's.
       expect(verdictOf(0x1f).l3).toMatchObject({ xPx: -128, yPx: 160 })
       expect(verdictOf(0x1d4).l3).toMatchObject({ xPx: -128, yPx: 160 })

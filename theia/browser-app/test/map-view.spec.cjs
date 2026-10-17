@@ -1142,6 +1142,9 @@ test('$01F: layer 3 is drawn once, across screens 0 and 1, not repeated 512 px o
   const on = [await screenPixels(0), await screenPixels(1), await screenPixels(2)]
   await button.click()
   await expect(button).toHaveAttribute('aria-pressed', 'false')
+  // Wait for the toggle's redraw to reach screen 2 as well (the composite of screen 0 changes first).
+  await expect.poll(async () => (await screenPixels(0)).some((v, k) => v !== on[0][k])).toBe(true)
+  await showScreen(page, 0x01f, 2)
   const off = [await screenPixels(0), await screenPixels(1), await screenPixels(2)]
   const changed = i => off[i].filter((v, k) => v !== on[i][k]).length
   expect(changed(0), 'layer 3 is on screen 0').toBeGreaterThan(0)

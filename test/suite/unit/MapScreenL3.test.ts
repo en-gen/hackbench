@@ -549,12 +549,12 @@ describe('a $80 level under a smash sprite (synthetic, #807)', () => {
 
   it('takes the smasher position, and keeps $D0 with X 0 when no smasher is loaded', () => {
     // X is the smash cycle's start, not the level X (#997)
-    expect(verdictWith(() => ({ ok: true, pos: { x: 256, y: 160 } })).l3).toMatchObject({ xPx: -128, yPx: 160 }) // prettier-ignore
+    expect(verdictWith(() => ({ ok: true, pos: { x: 256 } })).l3).toMatchObject({ xPx: -128, yPx: 160 }) // prettier-ignore
     expect(verdictWith(noSmash).l3).toMatchObject({ xPx: 0, yPx: 0xd0 })
   })
 
   it('draws the cycle start Y ($A0) whatever the map sprite Y: state 0 zeroes the sprite Y (#997)', () => {
-    expect(verdictWith(() => ({ ok: true, pos: { x: 112, y: 96 } })).l3).toMatchObject({ xPx: -128, yPx: 160 }) // prettier-ignore
+    expect(verdictWith(() => ({ ok: true, pos: { x: 112 } })).l3).toMatchObject({ xPx: -128, yPx: 160 }) // prettier-ignore
   })
 
   it('refuses with the reason when the smash read refuses', () => {
@@ -602,7 +602,7 @@ describe('layer 3 under a smash sprite follows the camera: one copy (synthetic, 
   const verdictFor = (byte: number, tileset: number, smash: Parameters<typeof buildL3Verdict>[6]) => buildL3Verdict(rom(byte, tileset), 5, l1Of(0, tileset, false), BG_OK, chars, GATE_OK, smash) // prettier-ignore
 
   it('the verdict flags only a $80 map with a loaded smasher, and the wire carries it', () => {
-    const loaded = verdictFor(0x80, 1, () => ({ ok: true, pos: { x: 256, y: 160 } }))
+    const loaded = verdictFor(0x80, 1, () => ({ ok: true, pos: { x: 256 } }))
     expect(loaded.l3).toMatchObject({ followsCamera: true, xPx: -128, yPx: 160 })
     expect(wireOf({ ...l1Of(0, 1, false), l3: loaded }).layer3.followsCamera).toBe(true)
     // $80 with no loaded smasher stays at the fixed load position, and a tide is not smash-driven: both draw, unflagged.
@@ -616,9 +616,9 @@ describe('layer 3 under a smash sprite follows the camera: one copy (synthetic, 
     }
     // Camera-locked bytes are refused whatever a smasher says.
     for (const byte of [0x00, 0x82]) {
-      expect(verdictFor(byte, 0, () => ({ ok: true, pos: { x: 1, y: 1 } })).l3, `byte ${byte}`).toBeNull() // prettier-ignore
+      expect(verdictFor(byte, 0, () => ({ ok: true, pos: { x: 1 } })).l3, `byte ${byte}`).toBeNull() // prettier-ignore
     }
-    const plain = verdictFor(0x02, 0, () => ({ ok: true, pos: { x: 1, y: 1 } }))
+    const plain = verdictFor(0x02, 0, () => ({ ok: true, pos: { x: 1 } }))
     expect(plain.l3?.followsCamera).toBeUndefined()
     expect(wireOf({ ...l1Of(0, 0, false), l3: plain }).layer3.followsCamera).toBeUndefined()
   })

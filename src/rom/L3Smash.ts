@@ -20,6 +20,8 @@ import { parseLevelSprites, type LevelSprite } from './LevelParser'
 import type { RomFile } from './RomFile'
 
 export const SMASH_SPRITE_ID = 0x89
+/** Layer3SmashMain (bank_02.asm:11123), the first byte of the last fingerprinted site. */
+const SMASH_MAIN = 0x02d3ea
 /** Sprite MAIN pointer table (bank $01); the entry is a stub that JSLs the main routine. */
 const MAIN_PTR_TABLE = 0x0185cc
 /** Init pointer table (bank $01); sprite $89's entry must reach a bare RTS (bank_01.asm:368, 652-653). */
@@ -55,7 +57,6 @@ export const L3_SMASH_SITES: readonly CodeSite[] = [
 
 export interface L3Position {
   x: number
-  y: number
 }
 export type L3SmashResult = { ok: true; pos: L3Position | null } | { ok: false; reason: string }
 
@@ -79,13 +80,16 @@ export function readSmashCodeGate(
   // PHB / LDA #$02 / PHA / PLB / JSL Layer3SmashMain (bank_01.asm:1265-1270)
   const stub = rom.readAt(at, 9)
   if (!startsWith(stub, [0x8b, 0xa9, 0x02, 0x48, 0xab, 0x22]) || stub![8] !== 0x02) return false
-  const main = rom.readAt((0x02 << 16) | (stub![7]! << 8) | stub![6]!, 4)
+  // The main must be the fingerprinted routine itself, not a copy of its opening JSL elsewhere.
+  const mainAt = (0x02 << 16) | (stub![7]! << 8) | stub![6]!
+  if (mainAt !== SMASH_MAIN) return false
+  const main = rom.readAt(mainAt, 4)
   const first = sites[0]!.addr
   if (!startsWith(main, [0x22, first & 0xff, (first >> 8) & 0xff, first >> 16])) return false
   return readL3CodeGate(rom, sites).ok
 }
 
-/** Pure part: the smashers among a level's sprites, Mario's start X, and the position they give layer 3. */
+/** Pure part: the smashers among a level's sprites, Mario's start X, and frame 0's Layer3XPos (null: none loaded). */
 export function l3SmashPos(sprites: readonly LevelSprite[], startX: number): L3SmashResult {
   const smashers = sprites.filter(s => s.spriteId === SMASH_SPRITE_ID)
   if (smashers.length === 0) return { ok: true, pos: null }
@@ -98,9 +102,8 @@ export function l3SmashPos(sprites: readonly LevelSprite[], startX: number): L3S
   if (loaded.length === 0) return { ok: true, pos: null }
   // The parser's x and y are in 16 px units (LevelParser.ts:491-512).
   const x = loaded[0]!.x * 16
-  const y = loaded[0]!.y * 16
-  // Frame 0 only: a sprite below $A0 gives a negative Y here, which the view no longer draws (SMASH_CYCLE_Y).
-  return { ok: true, pos: { x: x >= 0x100 ? 0x100 : x, y: 0xa0 - y } }
+  // Y is not read: the view draws the cycle start's SMASH_CYCLE_Y, whatever the map's sprite Y.
+  return { ok: true, pos: { x: x >= 0x100 ? 0x100 : x } }
 }
 
 /** A level's sprite stream, or null when its pointer is unreadable or no $FF terminator lies inside the read (128 sprites fit, SpriteLoadStatus). */
