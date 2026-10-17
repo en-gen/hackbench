@@ -306,6 +306,32 @@ describe('the rotating ring from the routines (synthetic cart)', () => {
   })
 })
 
+describe('the rotating ring: edges the gate and the seed can hit (synthetic cart)', () => {
+  it('an empty cart reads no routine bytes: every part is flagged, nothing throws', () => {
+    // Out-of-range reads mirror (SpriteBus.romOffset), so only a zero-size ROM gives bytesAt null.
+    const flags = ringGate(RomFile.fromBytes('empty.sfc', new Uint8Array(0)), routinesOf(ringRom()))
+    expect(flags).toEqual(
+      expect.arrayContaining(['the cluster dispatch call target', 'the ring spawn routine']),
+    )
+  })
+
+  it('no level image and no stated reason says so plainly', () => {
+    const rom = ringRom()
+    const seed = { ...seedOf(rom), loaded: undefined, loadRefusal: undefined }
+    expect(rotatingRing(rom, seed as never, ENTRY, routinesOf(rom))).toEqual({
+      ok: false,
+      reason: 'no level image',
+    })
+  })
+
+  it('a failure that is not a refusal propagates, never a blank ring', () => {
+    const rom = ringRom()
+    const boom = new Proxy({}, { ownKeys: () => { throw new Error('seed broke') } }) // prettier-ignore
+    const seed = { ...seedOf(rom), ram: boom }
+    expect(() => rotatingRing(rom, seed as never, ENTRY, routinesOf(rom))).toThrow('seed broke')
+  })
+})
+
 describe('the rotating ring on the map (synthetic cart)', () => {
   const rom = ringRom()
   // Every OBJ char of SP4 solid, so any ring char is "loaded".
