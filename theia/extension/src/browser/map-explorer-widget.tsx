@@ -61,7 +61,7 @@ import {
   SpecialMapNodeDto,
 } from '../common/project-protocol'
 import { ExplorerTreeWidget, createExplorerTreeContainer } from './explorer-search'
-import type { SearchRow } from './explorer-match'
+import { mapSlotRow, type SearchRow } from './explorer-match'
 
 export const MAP_EXPLORER_ID = 'hackbench.map-explorer'
 
@@ -180,9 +180,8 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
 
   /**
    * A slot row matches by slot number and its ROM name. The slot label is not
-   * text, or `10` would also hit every `$x10` by substring. Maps have no
-   * project alias to include: the 'map' alias namespace exists in
-   * src/project/Aliases.ts but nothing reads or writes it yet.
+   * text, or `10` would also hit every `$x10` by substring. The project's 'map'
+   * aliases (loadMaps) match too; they refresh on the next load.
    */
   protected searchRow(node: TreeNode): SearchRow | undefined {
     const n = node as MapTreeNode
@@ -193,9 +192,14 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
     const openable = n.kind === 'map' && !n.noPointer
     if (n.category === 'overworld' || n.category === 'overworld-area')
       return { openable, texts: [n.name ?? ''] }
-    if (isSpecial(n.category)) return { id: n.index, openable, texts: [n.name ?? ''] }
-    return { id: n.index >= 0 ? n.index : undefined, openable, texts: [n.mapName ?? ''] }
+    if (isSpecial(n.category)) {
+      return { ...mapSlotRow(n.index, slotLabel(n.index), n.name, this.mapAliases), openable }
+    }
+    return { ...mapSlotRow(n.index, slotLabel(n.index), n.mapName, this.mapAliases), openable }
   }
+
+  /** meta/aliases.json 'map' namespace as of the last load, keyed by hex slot. */
+  protected mapAliases: Record<string, string> = {}
 
   protected openMatch(node: TreeNode): boolean {
     this.fireOpen(node as MapTreeNode, true)
@@ -342,6 +346,7 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
     this.mapCount = result.tree.mapCount
     this.groups = result.rawGroups
     this.groupsError = result.groupsError
+    this.mapAliases = result.mapAliases ?? {}
 
     const areas = await this.loadAreaRows(manifestPath)
     if (generation !== this.loadGeneration) return

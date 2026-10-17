@@ -159,6 +159,8 @@ export type LoadMapsResult =
       rawGroups: MapGroupDto[]
       romPath: string
       groupsError?: string
+      /** meta/aliases.json 'map' namespace: hex slot to the user's name. For search. */
+      mapAliases?: Record<string, string>
     }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 

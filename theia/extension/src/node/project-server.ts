@@ -13,6 +13,7 @@ import {
   updateProject,
 } from '../../../../src/project/Project'
 import { CoreRegistry } from '../../../../src/project/CoreRegistry'
+import { readAliases } from '../../../../src/project/Aliases'
 import { RecentProjects } from '../../../../src/project/RecentProjects'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
@@ -251,6 +252,16 @@ export class ProjectServiceImpl implements ProjectService {
       rawGroups: groups,
       romPath,
       groupsError,
+      mapAliases: this.readMapAliases(manifestPath),
+    }
+  }
+
+  /** A hand-edited bad aliases.json must not hide the maps. */
+  private readMapAliases(manifestPath: string): Record<string, string> {
+    try {
+      return readAliases(manifestPath, 'map')
+    } catch {
+      return {}
     }
   }
 

@@ -721,6 +721,63 @@ test('music: an alias set the way the app does finds only that track', async ({ 
   expect(trackRows).toEqual([track.id])
 })
 
+test('maps: an alias from meta/aliases.json finds only its map', async ({ page }) => {
+  const manifest = await openExplorer(page, 'maps')
+  const before = await nodes(page, 'maps')
+  const target = before.find(n => n.kind === 'map' && n.index >= 0 && n.category === 'entry')
+  expect(target, 'fixture: an entry map with a slot').toBeTruthy()
+  // The file the project keeps map names in: namespace 'map', hex slot key.
+  const key = target.index.toString(16).toUpperCase().padStart(2, '0')
+  const metaDir = path.join(path.dirname(manifest), 'meta')
+  fs.mkdirSync(metaDir, { recursive: true })
+  fs.writeFileSync(
+    path.join(metaDir, 'aliases.json'),
+    JSON.stringify({ map: { [key]: 'Castle Rush Zq' } }),
+  )
+  await page.evaluate(async ({ id, manifest }) => (await getWidget(id)).load(manifest), {
+    id: IDS.maps,
+    manifest,
+  })
+  await page.waitForTimeout(800)
+  const all = await nodes(page, 'maps')
+  await type(page, 'maps', 'rush zq')
+  await expect
+    .poll(async () => (await state(page, 'maps')).rows.length, { message: 'filtered to alias' })
+    .toBeGreaterThan(0)
+  const rows = (await state(page, 'maps')).rows
+  const slots = rows.map(id => all.find(n => n.id === id)).filter(n => n && n.index >= 0)
+  expect(slots.length).toBeGreaterThan(0)
+  expect([...new Set(slots.map(n => n.index))]).toEqual([target.index])
+})
+
+/** The id of one row of each explorer, as the tree draws it. */
+const DISPLAYED_ID = {
+  maps: n => (n.kind === 'map' && n.index >= 0 && n.category === 'entry' ? n.name : null),
+  gfx: n => (n.kind === 'file' ? n.name.replace(/^GFX\s+/, '') : null),
+  palettes: n => (n.kind === 'group' && n.row !== undefined && n.row > 9 ? String(n.row) : null),
+  music: n =>
+    n.kind === 'track' ? `$${n.bgmCommand.toString(16).toUpperCase().padStart(2, '0')}` : null,
+}
+
+for (const which of Object.keys(IDS)) {
+  test(`${which}: typing a row's id exactly as displayed, with and without $, keeps that row`, async ({
+    page,
+  }) => {
+    await openExplorer(page, which)
+    const all = await nodes(page, which)
+    const target = all.find(n => DISPLAYED_ID[which](n))
+    expect(target, 'fixture: a row with a displayed id').toBeTruthy()
+    const shown = DISPLAYED_ID[which](target)
+    for (const q of new Set([shown, shown.replace(/^\$/, '')])) {
+      await type(page, which, q)
+      await expect
+        .poll(async () => (await state(page, which)).rows, { message: `"${q}" keeps the row` })
+        .toContain(target.id)
+      await clear(page, which)
+    }
+  })
+}
+
 // A root with only a message (no project yet) has nothing to filter; saying "No
 // maps match" would hide why the tree is empty.
 for (const which of Object.keys(IDS)) {

@@ -95,8 +95,8 @@ export class MusicExplorerWidget extends ExplorerTreeWidget {
   /** The shown hex is the id, so only the alias and folder names are text. */
   protected searchRow(node: TreeNode): SearchRow | undefined {
     const n = node as MusicTrackNode
-    if (n.kind === 'track') return { id: n.bgmCommand, texts: [n.alias] }
-    if (n.kind === 'sfx') return { id: n.bgmCommand, texts: [] }
+    if (n.kind === 'track') return { id: n.bgmCommand, shown: [n.bgmHex], texts: [n.alias] }
+    if (n.kind === 'sfx') return { id: n.bgmCommand, shown: [n.bgmHex], texts: [] }
     if (n.kind === 'message') return undefined
     // A port folder's name carries its mirror address ("port 0 ($1DF9)"); match "port 0".
     const name = n.kind === 'sfxport' ? (n.name ?? '').replace(/ \(.*\)$/, '') : (n.name ?? '')
