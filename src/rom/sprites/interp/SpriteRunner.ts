@@ -11,7 +11,7 @@ import type { Cpu65816 } from '../../cpu/Cpu65816'
 import { callSubroutine, describe, Refusal } from '../../cpu/call'
 import type { RomFile } from '../../RomFile'
 import { mapperProblem } from './Guards'
-import { type DispatchShape, grinderDrawsBeforeSnap } from './LineGuided'
+import { type DispatchShape, lineDrawsBeforeSnap } from './LineGuided'
 import { smwMachine } from './Machine'
 import { type ShellLoad, shellLoad } from '../ShellSprites'
 import {
@@ -182,8 +182,8 @@ export interface RunOptions {
   spawn?: SpawnRun
   probe?: Probe
   trackInputs?: boolean
-  /** The dispatch shape the $67 gate accepts; a test hook, so a synthetic cart brings its own (default: vanilla's). */
-  grinderDispatch?: DispatchShape
+  /** The dispatch shape the line-guided gate accepts; a test hook, so a synthetic cart brings its own (default: vanilla's). */
+  lineDispatch?: DispatchShape
 }
 
 export { Refusal }
@@ -443,14 +443,14 @@ function uploadsOf(m: Machine, before: Map<number, number>): string[] {
 export type Probe = (pass: number, wram: Uint8Array) => void
 
 /**
- * The grinder draws, then its line step moves it (SMWDisX bank_01.asm:12194-12204, corner stores 12054-12061),
- * so it draws three different spots: the off-track INIT spot, the probe corner the first MAIN snapped to, and the
- * line point the walk then set. The editor draws the third (#126).
- * $67 only: the other line-guided ids share the order; that family is follow-up #792.
+ * The line-guided sprites ($62, $64-$68; $63 is left out, owner ruling D85) draw and then take their line step
+ * (SMWDisX bank_01.asm:12182-12204, platform arm 12323-12358, corner stores 12054-12061; $64's INIT steps it
+ * too, 11766-11783). So one run shows three spots: the off-track INIT spot, the probe corner the first MAIN
+ * snapped to, and the line point the walk then set. The editor draws the third (#126, #792). Which ids qualify
+ * is `lineDrawsBeforeSnap`'s per-id shape check.
+ *
+ * Run once with a seed; no dependsOn analysis (half the cost of `runSprite`).
  */
-const DRAWS_BEFORE_LINE_SNAP: ReadonlySet<number> = new Set([0x67])
-
-/** Run once with a seed; no dependsOn analysis (half the cost of `runSprite`). */
 export function runOnce(
   rom: RomFile,
   id: number,
@@ -532,9 +532,7 @@ export function runOnce(
     if (st === 1)
       return { ...model, refusal: `INIT did not complete in ${MAX_INIT_FRAMES} frames: status stays 1, waiting on state the seed lacks` } // prettier-ignore
     const anchor = m.pos()
-    const snaps =
-      DRAWS_BEFORE_LINE_SNAP.has(num) &&
-      grinderDrawsBeforeSnap(rom, mains.handler.address, opts.grinderDispatch)
+    const snaps = lineDrawsBeforeSnap(rom, num, mains.handler.address, opts.lineDispatch)
     model.anchor = { ...anchor, rawX: m.seed.sprite.x, rawY: m.seed.sprite.y }
     model.oamBase = w[RAM.oamIndex + m.seed.slot]
     probe?.(-1, w)
@@ -548,7 +546,7 @@ export function runOnce(
       m.frame()
       model.steps.push(m.steps - n)
       probe?.(p, w)
-      // The draw ran before this pass's own move, so for $67 it ran where the pass before left it.
+      // The draw ran before this pass's own move, so for them it ran where the pass before left it.
       const origin = snaps ? (model.passes[p - 1]?.pos ?? anchor) : anchor
       model.passes.push({
         pass: p,
@@ -562,7 +560,7 @@ export function runOnce(
     if (m.bus.inputs) model.inputs = [...m.bus.inputs].sort((a, b) => a - b)
     const first = model.passes.findIndex(p => p.parts.length > 0)
     if (first >= 0) model.chosen = first
-    // $67 draws before its own move (SMWDisX bank_01.asm:12194-12204). Pass 0 draws at the off-track INIT spot,
+    // The line-guided ids draw before their own move (SMWDisX bank_01.asm:12194-12204). Pass 0 draws at the off-track INIT spot,
     // pass 1 at the probe-corner spot the first MAIN snapped to (CODE_01D8A4, 12045-12061), pass 2 at the spot the
     // line walk then set, which is on the line (CODE_01D768 / CODE_01D7B0, 11863-11930; Mesen capture 6b47bb75 slot
     // $1F: (415,336) -> (419,340) -> (431,336)). Each step is only taken if the pass before it moved the sprite
@@ -573,7 +571,11 @@ export function runOnce(
         a.x !== b.x || a.y !== b.y
       if (!moved(q0, anchor))
         model.lineStepReason = 'the line step did not move the sprite on pass 0: kept the first drawn pass' // prettier-ignore
-      else model.chosen = model.passes[2]?.parts.length && moved(q0, q1) ? 2 : 1
+      else if (model.passes[2]?.parts.length && moved(q0, q1)) model.chosen = 2
+      // Only the grinder (#126) falls back to pass 1, the probe-corner spot. For the ids #792 admits, a pass 2 that
+      // does not draw leaves pass 0, the generic rule: the corner spot is not where the game keeps them.
+      else if (num === 0x67) model.chosen = 1
+      else model.lineStepReason = 'the third pass drew nothing or the second did not move the sprite: kept the first drawn pass' // prettier-ignore
     }
     if (snaps && model.chosen !== undefined)
       model.anchor = { ...model.anchor!, ...model.passes[model.chosen]!.origin }
