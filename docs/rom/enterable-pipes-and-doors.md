@@ -18,9 +18,12 @@ citations below are SMWDisX `bank_XX.asm:line`.
    indexes `ExitTableLow` (bank_05.asm:7095-7100). So every enterable pipe or door on
    screen N leads to screen N's screen exit, whichever stream screen that exit sat on.
 
-Vanilla `$00B`: both screen exits sit in the stream on screen 7, with own fields 3
-(to `$0E1`) and 7 (to `$0E0`). Screen 3 holds a side pipe, screen 7 a down pipe. `$022`
-and `$0D0` have own fields 6, 15 and 16, the screens of their pipes.
+Worked example (level data, not code, so no SMWDisX line exists): the #946 spike reported
+that vanilla `$00B` has both screen exits on stream screen 7 with own fields 3 (to `$0E1`)
+and 7 (to `$0E0`), a side pipe on screen 3 and a down pipe on screen 7; `$022` and `$0D0`
+have own fields 6, 15 and 16. These values were carried over from that spike's output and
+were NOT re-derived for this doc; treat them as unverified until a test reads them with
+`screenExitScreen`.
 
 `LevelParser` exposes the field as `LevelObject.screenExitScreen` (#956, in
 `src/rom/LevelParser.ts`); `LevelObject.screen` is the stream counter. The #946 spike
@@ -66,11 +69,11 @@ is skipped for page 0 (bank_00.asm:12141, 12195-12196, 12305-12306).
 
 For page 1 the pipe paths have different low-byte bounds:
 
-| Path                             | Low byte reached | Page 1 tiles | Citation                                                            |
-| -------------------------------- | ---------------- | ------------ | ------------------------------------------------------------------- |
-| Side pipe (`CODE_00F3C4`)        | $11-$6D          | `$111-$16D`  | bank_00.asm:12142-12145, bank_00.asm:12161-12164, bank_00.asm:12169 |
-| Up entry (`CODE_00ECFA`)         | $11-$6D          | `$111-$16D`  | bank_00.asm:12216-12219, bank_00.asm:12259-12260                    |
-| Down entry, second path (`ED4A`) | $00-$6D          | `$100-$16D`  | bank_00.asm:12308-12311 (upper bound only, no lower bound)          |
+| Path                                                       | Low byte reached | Page 1 tiles | Citation                                                            |
+| ---------------------------------------------------------- | ---------------- | ------------ | ------------------------------------------------------------------- |
+| Side pipe (`CODE_00F3C4`)                                  | $11-$6D          | `$111-$16D`  | bank_00.asm:12142-12145, bank_00.asm:12161-12164, bank_00.asm:12169 |
+| Up entry (`CODE_00ECFA`)                                   | $11-$6D          | `$111-$16D`  | bank_00.asm:12216-12219, bank_00.asm:12259-12260                    |
+| Down entry, second path (`CODE_00ED4A`, bank_00.asm:12303) | $00-$6D          | `$100-$16D`  | bank_00.asm:12308-12311 (upper bound only, no lower bound)          |
 
 So the `$11` lower bound holds for the side pipe and the up entry only; tiles
 `$100-$110` reach the down-entry check (bank_00.asm:12308-12311), though none of them is
