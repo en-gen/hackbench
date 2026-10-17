@@ -111,14 +111,16 @@ test('reopen with the base ROM renamed shows not located in properties, maps and
   // onRomChanged cleared the stale picture: nothing is drawn while the ROM is gone.
   await expect(page.locator(drawn)).toHaveCount(0, { timeout: 20000 })
   await expect.poll(explorerRows).toMatch(/^Locate .+ to load its maps$/)
-  await page.evaluate(() =>
-    getSvc('CommandRegistry').executeCommand('hackbench.project.properties'),
-  )
+  // Not awaited: the command resolves only when the modal closes (explorer-reload.spec.cjs:149).
+  await page.evaluate(() => {
+    void getSvc('CommandRegistry').executeCommand('hackbench.project.properties')
+  })
   const romField = page.locator(
     '.dialogBlock .hb-dialog-row:has(label:text-is("ROM location")) input',
   )
   await expect(romField).toHaveValue('not located', { timeout: 15000 })
-  await page.keyboard.press('Escape')
+  await page.locator('.dialogBlock button:has-text("Cancel")').click()
+  await expect(page.locator('.dialogBlock')).toHaveCount(0, { timeout: 10000 })
 
   fs.renameSync(copy + '.moved', copy)
   await reopenViaRecent()
