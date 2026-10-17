@@ -107,12 +107,8 @@ const LEVELS: readonly { id: string; expectedL1Type: number; expectedL1Timer: nu
 describe.skipIf(!vanillaRomPresent)('scrollSim - cmd $02 setup body validation', () => {
   for (const lvl of LEVELS) {
     const csv = `${FIXTURES}/${lvl.id}/l2_scroll.csv`
-    describe(`$${lvl.id.toUpperCase()}`, () => {
+    describe.skipIf(!fs.existsSync(csv))(`$${lvl.id.toUpperCase()}`, () => {
       it('post-setup state matches capture row 1', () => {
-        if (!fs.existsSync(csv)) {
-          console.warn(`[skip] ${csv} not found`)
-          return
-        }
         const cap = loadCapture(csv)
         const sim = simFromCapture(cap[0])
         const m = firstMismatch(sim.stateAtFrame(0), cap[0])
@@ -131,14 +127,12 @@ describe.skipIf(!vanillaRomPresent)('scrollSim - cmd $02 setup body validation',
       })
 
       it(`l1type=$${lvl.expectedL1Type.toString(16).padStart(2, '0').toUpperCase()} matches the analytic trace`, () => {
-        if (!fs.existsSync(csv)) return
         const cap = loadCapture(csv)
         const sim = simFromCapture(cap[0])
         expect(sim.stateAtFrame(0).layer1ScrollType).toBe(lvl.expectedL1Type)
       })
 
       it(`l1timer=$${lvl.expectedL1Timer.toString(16).padStart(2, '0').toUpperCase()} matches the analytic trace`, () => {
-        if (!fs.existsSync(csv)) return
         const cap = loadCapture(csv)
         const sim = simFromCapture(cap[0])
         expect(sim.stateAtFrame(0).layer1ScrollTimer).toBe(lvl.expectedL1Timer)
@@ -158,7 +152,6 @@ describe.skipIf(!vanillaRomPresent)('scrollSim - cmd $02 setup body validation',
         // We override nextLayer2XPos = cap[r].l1x each frame so the zone
         // detection uses the actual SNES camera position, not the sim's
         // +1 px/frame approximation.
-        if (!fs.existsSync(csv)) return
         const cap = loadCapture(csv)
         const rom = loadVanillaRom()
 
