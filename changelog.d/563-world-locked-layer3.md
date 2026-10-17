@@ -1,0 +1,3 @@
+### Changed
+
+- Maps view: Layer 3 is now drawn on maps $011, $130 and $1C1, which had a "camera-locked layer 3" toggle that was disabled (#563). In the game this layer follows the map, so it is drawn tiled every 512 px across the map from the camera at level load, with the translucency the game uses, and its tooltip says the real layer also drifts slowly to the left. Map $018 stays undrawn. Evidence: a trace of the game's Layer 3 handler and per-frame scroll, and a check of the layers_v5 captures at frame 0 for these three maps (Y and tilemap match; the camera X is within 1 px); one machine, vanilla ROM.

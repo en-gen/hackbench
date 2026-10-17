@@ -1118,6 +1118,48 @@ for (const [index, role, bit, known] of [
 }
 
 /**
+ * Layer 3 on $011 (#563): settings byte $81 on tileset 9, world-locked, so it is drawn from the camera at
+ * load (map X 0 here) and repeats every 512 px: screen 2 shows the same layer 3 pixels as screen 0. The
+ * tooltip says it drifts; flipping the toggle changes pixels on both screens and restores them.
+ */
+test('$011: the world-locked Layer 3 is drawn, repeats 512 px on, and says it drifts', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x011)
+  const button = l3Toggle(page, 0x011)
+  await expect(button).toBeEnabled()
+  await expect(button).toHaveAttribute('aria-pressed', 'true')
+  await expect(button).toHaveAttribute('title', /^Layer 3 · (Overlay|Background)\. In the game this layer drifts slowly to the left\.$/) // prettier-ignore
+  await showScreen(page, 0x011, 0)
+  await showScreen(page, 0x011, 2)
+  const l3Pixels = screen =>
+    page.evaluate(
+      ({ rootSel, screen }) =>
+        ['l3Low', 'l3High'].map(plane => {
+          const c = document.querySelector(`${rootSel} canvas[data-screen="${screen}"][data-plane="${plane}"]`) // prettier-ignore
+          return Array.from(c.getContext('2d').getImageData(0, 0, c.width, c.height).data)
+        }),
+      { rootSel: root(0x011), screen },
+    )
+  const [s0, s2] = [await l3Pixels(0), await l3Pixels(2)]
+  expect(
+    s0.flat().some((v, i) => i % 4 === 3 && v > 0),
+    'layer 3 draws on screen 0',
+  ).toBe(true)
+  expect(s2, 'screen 2 is the 512 px repeat of screen 0').toEqual(s0)
+  const on = [await readScreen(page, 0x011, 0), await readScreen(page, 0x011, 2)]
+  await button.click()
+  await expect(button).toHaveAttribute('aria-pressed', 'false')
+  const off = [await readScreen(page, 0x011, 0), await readScreen(page, 0x011, 2)]
+  for (const i of [0, 1])
+    expect(off[i].checksum, `screen ${i * 2} changes`).not.toBe(on[i].checksum)
+  await button.click()
+  const back = [await readScreen(page, 0x011, 0), await readScreen(page, 0x011, 2)]
+  for (const i of [0, 1]) expect(back[i].checksum).toBe(on[i].checksum)
+})
+
+/**
  * The toggle look (option D): pressed is a filled chip with a 1px border, off has neither (a transparent
  * 1px border, so the box does not move), and a mouse click leaves no focus ring while Tab shows one.
  */

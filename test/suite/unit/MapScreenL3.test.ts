@@ -11,6 +11,7 @@ import { parseLevelHeader } from '../../../src/rom/LevelParser'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { withCrusher } from '../../../src/rom/L3CodeGate'
+import { entranceCameraX } from '../../../src/rom/L3Loader'
 import { buildL3Verdict, type L3Inputs, type L3Verdict } from '../../../src/rom/model/L3Model'
 import {
   drawL3Planes,
@@ -64,6 +65,9 @@ const L3_COLOR = 6
 /** Layer 2's color after the 5-bit round trip the math stage applies to a sub-screen pixel. */
 const L2_COLOR = ((35 >> 3) << 3) | ((35 >> 3) >> 2)
 const solid2 = (priority: boolean) => tile(2, [sub(3, 2, priority), sub(3, 2, priority), sub(3, 2, priority), sub(3, 2, priority)]) // prettier-ignore
+/** A level mode whose main screen is BG3 alone and whose sub screen is BG1 and BG2, as $018's mode 0E. */
+const BG3_ALONE_MODE = 14
+const aloneLayouts = (): ModeLayout[] => sweepLayouts().map((l, m) => (m === BG3_ALONE_MODE ? { main: 0x04, sub: 0x03, cgadsub: 0x24, special: 0, vertical: 0 } : l)) // prettier-ignore
 const rom5 = () => withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: 0, setting: 2, settingsByte: 2, word: L3_WORD(true) }) // prettier-ignore
 
 describe('layer 3 gate, every level mode (synthetic header and mode tables)', () => {
@@ -290,11 +294,14 @@ describe('buildL3Verdict: screens, math and the layer 2 role', () => {
     const r = buildL3Verdict(blank, 5, l1Of(0, 0, false), BG_OK, chars, GATE_OK)
     expect(r).toMatchObject({ cgadsub: null, screens: FALLBACK_SCREENS, layer2Interactive: false })
   })
-  it('camera-locked layer 3 keeps BG3 in CGADSUB (not drawn; #563 inherits this)', () => {
-    const locked = withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: 0, setting: 2, settingsByte: 0x81, word: L3_WORD(false) }) // prettier-ignore
+  it('camera-locked layer 3 keeps BG3 in CGADSUB, drawn or refused (#563)', () => {
+    const locked = withLayer3(modeTablesRom(aloneLayouts()), { level: 5, tileset: 0, setting: 2, settingsByte: 0x81, word: L3_WORD(false) }) // prettier-ignore
     const r = buildL3Verdict(locked, 5, l1Of(0, 0, false), BG_OK, chars, GATE_OK)
-    expect(r.reason).toMatch(/camera-locked/)
+    expect(r.l3).not.toBeNull()
     expect(r.cgadsub! & 0x04).toBe(0x04)
+    const alone = buildL3Verdict(locked, 5, l1Of(BG3_ALONE_MODE, 0, false), BG_OK, chars, GATE_OK)
+    expect(alone.reason).toMatch(/camera-locked/)
+    expect(alone.cgadsub! & 0x04).toBe(0x04)
   })
   it('settings byte $00 off tilesets 1 and 3 is camera-locked but BG3 is still cleared (CODE_00A01B)', () => {
     const rom0 = withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: 0, setting: 2, settingsByte: 0x00, word: L3_WORD(false) }) // prettier-ignore
@@ -310,15 +317,21 @@ describe('buildL3Verdict: screens, math and the layer 2 role', () => {
 
 describe('camera-locked layer 3 (synthetic settings bytes)', () => {
   const romFor = (tileset: number, byte: number) =>
-    withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset, setting: 2, settingsByte: byte, word: L3_WORD(false), row: 24 }) // prettier-ignore
+    withLayer3(modeTablesRom(aloneLayouts()), { level: 5, tileset, setting: 2, settingsByte: byte, word: L3_WORD(false), row: 24 }) // prettier-ignore
 
-  it('$81 and $BF are skipped on a tileset other than Castle1 and Underground1', () => {
+  it('$81 and $BF are drawn world-locked on a tileset other than Castle1 and Underground1 (#563)', () => {
     for (const byte of [0x81, 0xbf]) {
       for (const ts of [0, 2, 4, 15]) {
         const v = buildL3Verdict(romFor(ts, byte), 5, l1Of(0, ts, false), BG_OK, chars, GATE_OK)
-        expect(v, `byte ${byte} tileset ${ts}`).toMatchObject({ l3: null, reason: /camera-locked/ })
+        expect(v.l3?.worldLocked, `byte ${byte} tileset ${ts}`).toBeDefined()
+        expect(v.l3?.yPx).toBe(v.l3?.camYPx) // Layer3YPos = Layer1YPos: row R sits at level Y R*8
       }
     }
+  })
+
+  it('stays refused where BG3 is alone on the main screen (mode 0E, $018) and on the Mode 7 rooms', () => {
+    const v = buildL3Verdict(romFor(13, 0x81), 5, l1Of(BG3_ALONE_MODE, 13, false), BG_OK, chars, GATE_OK) // prettier-ignore
+    expect(v).toMatchObject({ l3: null, reason: 'Layer 3 not drawn yet: camera-locked layer 3' })
   })
 
   it('on Castle1 and Underground1 they are drawn at the fixed Y, $C0', () => {
@@ -433,6 +446,82 @@ describe('drawL3Planes (synthetic)', () => {
   })
 })
 
+describe('world-locked layer 3: byte $81 off Castle1 and Underground1 (synthetic, #563)', () => {
+  // Start X 544: entrance screen 2 in DATA_05F600, low byte $20 from DATA_05D750 (MarioStartPos.ts). A 6 screen map.
+  const header6 = (ts: number) => parseLevelHeader([5, 0, 0, 0, ts])
+  const romW = (ts = 9) => {
+    const r = withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: ts, setting: 2, settingsByte: 0x81, word: L3_WORD(false), row: 8 }) // prettier-ignore
+    r.writeAt(0x05f600 + 5, [2])
+    r.writeAt(0x05d750, [0x20])
+    return r
+  }
+  const verdictW = (ts = 9) => buildL3Verdict(romW(ts), 5, { ...l1Of(0, ts, false), header: header6(ts) }, BG_OK, chars, GATE_OK) // prettier-ignore
+  // 544 - $8C (the camera's right buffer, bank_00.asm:13636-13642) + 1 (CODE_00F8AB, 13873-13895).
+  const CAM_X = 405
+  const alphaAt = (b: Uint8ClampedArray, x: number, y: number) => px(b, 256, x, y)[3]
+
+  it('is drawn: column 0 at the entrance camera X, a copy 512 px on, row R at map Y R * 8', () => {
+    const v = verdictW()
+    expect(v.reason).toBeNull()
+    expect(v.l3?.worldLocked).toEqual({ camXPx: CAM_X })
+    expect(v.l3?.yPx).toBe(v.l3?.camYPx)
+    // Map X 405 is screen 1 (x 256..511) at x 149; the copy at 917 is screen 3 at x 149. Row 8 is map Y 64.
+    for (const [screen, x] of [
+      [1, 149],
+      [3, 149],
+    ] as const) {
+      const p = drawL3Planes(v.l3!, screen).l3Low!
+      expect([alphaAt(p, x, 64), alphaAt(p, x + 7, 71), alphaAt(p, x - 1, 64), alphaAt(p, x + 8, 64), alphaAt(p, x, 72)], `screen ${screen}`).toEqual([255, 255, 0, 0, 0]) // prettier-ignore
+    }
+    expect(drawL3Planes(v.l3!, 0).l3Low).toBeNull() // nothing before the entrance camera
+    expect(drawL3Planes(v.l3!, 2).l3Low).toBeNull()
+  })
+
+  it('keeps BG3 in color math: the drawn pixel is blended with the sub screen like a tide', () => {
+    const v = verdictW()
+    expect(v.cgadsub! & 0x04).toBe(0x04)
+    expect(v.l3?.tide).toBe(false)
+  })
+
+  it('tells the wire it drifts, and only then', () => {
+    const m = (l3: L3Verdict): MapInputs => ({ ...l1Of(0, 9, false), l3 })
+    expect(wireOf(m(verdictW())).layer3.drifts).toBe(true)
+    expect(
+      wireOf(m(verdict(false, l3Of([word(8, 0, L3_WORD(false))])))).layer3.drifts,
+    ).toBeUndefined()
+  })
+
+  it('leaves Castle1, Underground1, $80 and the tides as they were', () => {
+    for (const ts of [1, 3]) {
+      expect(verdictW(ts).l3?.yPx).toBe(0xc0)
+      expect(verdictW(ts).l3?.worldLocked).toBeUndefined()
+    }
+    for (const [byte, ts] of [
+      [0x80, 1],
+      [0x02, 0],
+      [0xc0, 0],
+    ] as const) {
+      const r = withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: ts, setting: 2, settingsByte: byte, word: L3_WORD(false) }) // prettier-ignore
+      const v = buildL3Verdict(r, 5, l1Of(0, ts, false), BG_OK, chars, GATE_OK, () => ({ ok: true, pos: null })) // prettier-ignore
+      expect(v.l3?.worldLocked, `byte ${byte}`).toBeUndefined()
+      expect(v.l3).not.toBeNull()
+    }
+  })
+
+  it('does not draw on a vertical map', () => {
+    const l1 = { ...l1Of(0, 9, false), header: header6(9), isVertical: true }
+    expect(buildL3Verdict(romW(), 5, l1, BG_OK, chars, GATE_OK).reason).toBe('Layer 3 not drawn yet: vertical maps') // prettier-ignore
+  })
+})
+
+describe('entranceCameraX (CODE_00F75C tracking at load, synthetic)', () => {
+  it('follows Mario past the right buffer, clamps to the last screen, and stays at 0 inside it', () => {
+    expect([0, 24, 0x80, 0x8b].map(x => entranceCameraX(x, 12))).toEqual([0, 0, 0, 0])
+    expect(entranceCameraX(544, 6)).toBe(405)
+    expect(entranceCameraX(5000, 2)).toBe(256) // (2 - 1) << 8
+  })
+})
+
 describe('maps layer 3 is not drawn on (synthetic)', () => {
   it('a vertical map says so, whatever else would draw', () => {
     const l1 = { ...l1Of(3, 0, false), isVertical: true } // mode 3: standard layout, vertical
@@ -503,6 +592,7 @@ describe.skipIf(!hasRom(VANILLA))(
       const tbl = (a: number) => Array.from(rom.readAt(a, 32)!)
       const [main, sub2, cgadsub, special, vertical] = [0x058437, 0x058457, 0x058477, 0x058497, 0x058417].map(tbl) // prettier-ignore
       const seen = { checked: 0, drawn: 0, noLayer3: 0, locked: 0, special: 0 }
+      const worldLocked: Record<number, { y: number; cam: number }> = {}
       const drew: Record<number, boolean> = {}
       for (let id = 0; id < 512; id++) {
         const raw = smw.getLevelRawData(id)
@@ -523,7 +613,9 @@ describe.skipIf(!hasRom(VANILLA))(
           expect([id, v.layer2Interactive]).toEqual([id, (vertical![mode]! & 0x80) !== 0])
           expect([id, v.cgadsub! & 0x04]).toEqual([id, locked ? cgadsub![mode]! & 0x04 : 0])
           expect([id, v.cgadsub! & ~0x04]).toEqual([id, cgadsub![mode]! & ~0x04])
-          expect([id, v.l3 !== null]).toEqual([id, setting > 0 && !locked])
+          const world = locked && (main![mode]! & 0x03) !== 0 // BG3 not alone on the main screen
+          expect([id, v.l3 !== null]).toEqual([id, setting > 0 && (!locked || world)])
+          if (v.l3?.worldLocked) worldLocked[id] = { y: v.l3.yPx, cam: v.l3.worldLocked.camXPx }
           if (setting === 0) seen.noLayer3++
           else if (locked) seen.locked++
           else seen.drawn++
@@ -538,6 +630,13 @@ describe.skipIf(!hasRom(VANILLA))(
       // $10E and $1BD have no layer 3.
       for (const id of [0x009, 0x0e7, 0x1ce]) expect([id, drew[id]]).toEqual([id, true])
       for (const id of [0x018, 0x10e, 0x1bd]) expect([id, drew[id]]).toEqual([id, false])
+      // #563: exactly these three newly draw, at Layer3YPos $C0 (= Layer1YPos, the CODE_05BE8A copy); $018 stays out.
+      expect(
+        Object.keys(worldLocked)
+          .map(Number)
+          .sort((a, b) => a - b),
+      ).toEqual([0x011, 0x130, 0x1c1])
+      expect(Object.values(worldLocked).map(w => w.y)).toEqual([0xc0, 0xc0, 0xc0])
       console.log('layer 3 corpus sweep', JSON.stringify(seen))
     }, 60_000)
   },
