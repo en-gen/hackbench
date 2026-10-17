@@ -5,7 +5,7 @@
 
 /** INIT of id 34: copy this sprite into the slot below it as id 35, status 8 (as $61's INIT does, bank_02.asm:14503-14533). */
 // prettier-ignore
-const SPAWN_BELOW: readonly number[] = [
+const SPAWN_BELOW: number[] = [
   0xca,                   // DEX: the slot below
   0xa9, 0x23, 0x95, 0x9e, // LDA #35 / STA $9E,X
   0xa9, 0x08, 0x9d, 0xc8, 0x14, // LDA #8 / STA $14C8,X
@@ -17,7 +17,7 @@ const SPAWN_BELOW: readonly number[] = [
 
 /** MAIN of id 36: two 8x8 pieces, at OAM index and index + 4, from the sprite's own slot. */
 // prettier-ignore
-const DRAW_TWO: readonly number[] = [
+const DRAW_TWO: number[] = [
   0xbc, 0xea, 0x15,                                           // LDY $15EA,X
   0xb5, 0xe4, 0x38, 0xe5, 0x1a, 0x99, 0x00, 0x03,             // X - camera -> OAM X
   0xb5, 0xd8, 0x38, 0xe5, 0x1c, 0x99, 0x01, 0x03,             // Y - camera -> OAM Y
@@ -30,6 +30,6 @@ const DRAW_TWO: readonly number[] = [
 ]
 
 export function putCompanionRoutines(put: (snes: number, bytes: number[]) => void): void {
-  put(0x019600, [...SPAWN_BELOW])
-  put(0x019680, [...DRAW_TWO])
+  put(0x019600, SPAWN_BELOW)
+  put(0x019680, DRAW_TWO)
 }
