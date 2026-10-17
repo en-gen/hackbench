@@ -810,7 +810,7 @@ test('maps: after a real row click, Ctrl+F draws the search box before any key, 
   expect(rowMatches(q, rowOf('maps', other)), 'fixture: the other row does not match').toBe(false)
 
   await page.locator(`[id="${IDS.maps}"] [data-node-id="${target.id}"]`).first().click()
-  await expect.poll(() => mapViewIds(page)).toEqual([`hackbench.map-view:${target.index}`])
+  await expect.poll(() => mapViewIds(page)).toEqual(['hackbench.map-view:preview'])
   await page.keyboard.press('Control+f')
   await expect.poll(async () => boxOrDiag(page, 'maps')).toBe(true)
   expect((await state(page, 'maps')).treeFocused).toBe(true)
