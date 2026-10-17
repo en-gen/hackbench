@@ -335,17 +335,21 @@ export class WorkingRomRegistry {
 
   /**
    * Project open (#975): a cached copy outlives its base ROM file, so an open
-   * checks the file is still at its registered path. Only the open asks; a
-   * `get` mid-session keeps serving the copy. A missing file runs the same
-   * not-located answer `get` gives, which also drops the cache so every
-   * server's next `get` agrees. A present file leaves the copy untouched
-   * (a different ROM at the path is the cache-miss identity check's job).
+   * checks the registered path still holds the project's ROM, with the same
+   * hash check Project Properties makes (one hash per open), so the two never
+   * disagree: a directory, an unreadable file or another ROM at the path all
+   * count as gone. Only an open asks (the Open Recent path and Project
+   * Properties both reach it); a `get` mid-session keeps serving the copy.
+   * Gone: drop the cache like `get`'s not-located answer, release the copy,
+   * and announce `onRomChanged` so an already-open view (opening the open
+   * project keeps views) redraws as not located. With no cached copy there is
+   * nothing stale to drop: it does nothing and the next `get` resolves as before.
    */
-  revalidateOnOpen(manifestPath: string): WorkingRomResult {
+  revalidateOnOpen(manifestPath: string): void {
     const cached = this.cache.get(manifestPath)
-    if (!cached || this.registry.isPresent(cached.project.baseRom.sha256))
-      return this.get(manifestPath)
-    return this.markNotLocated(manifestPath, cached.project, cached)
+    if (!cached || this.registry.resolveVerified(cached.project.baseRom.sha256)) return
+    this.markNotLocated(manifestPath, cached.project, cached)
+    this.fireRomChanged(manifestPath)
   }
 
   private markNotLocated(

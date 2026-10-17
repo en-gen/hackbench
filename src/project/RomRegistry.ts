@@ -108,12 +108,6 @@ export class RomRegistry {
     }
   }
 
-  /** Whether a file still sits at the registered path. No read, no hash: the cheap half of `resolve`. */
-  isPresent(sha256: string): boolean {
-    const entry = this.read().roms[sha256]
-    return !!entry && fs.existsSync(entry.path)
-  }
-
   /** Every remembered cartridge, most recently seen first. */
   list(): RegistryEntry[] {
     return Object.values(this.read().roms).sort((a, b) => b.lastSeen.localeCompare(a.lastSeen))

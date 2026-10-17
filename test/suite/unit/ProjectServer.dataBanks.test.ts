@@ -55,3 +55,22 @@ describe.skipIf(!theiaInstalled)('ProjectServiceImpl map models', () => {
     expect(seen[1]?.objectCode).toEqual({ bank: 0x2d })
   })
 })
+
+describe.skipIf(!theiaInstalled)('ProjectServiceImpl.openProject (#975)', () => {
+  it('asks the registry to revalidate the cached copy', async () => {
+    const romPath = path.join(tmp, 'game.sfc')
+    fs.writeFileSync(romPath, Buffer.alloc(0x80000, 0x00))
+    const romRegistry = new RomRegistry(path.join(tmp, 'rom-registry.json'))
+    romRegistry.register(romPath)
+    const { manifestPath } = createProject({ romPath, name: 'P', directory: path.join(tmp, 'P') })
+    const { ProjectServiceImpl } = await import('../../../theia/extension/src/node/project-server')
+    const server = new ProjectServiceImpl() as unknown as Record<string, unknown>
+    const registry = new WorkingRomRegistry(romRegistry)
+    server.workingRoms = registry
+    server.recent = { remember: () => {} }
+    const seen: string[] = []
+    registry.revalidateOnOpen = (m: string) => void seen.push(m)
+    await (server as unknown as InstanceType<typeof ProjectServiceImpl>).openProject(manifestPath)
+    expect(seen).toEqual([manifestPath])
+  })
+})
