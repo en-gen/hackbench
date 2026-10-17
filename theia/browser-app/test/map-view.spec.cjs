@@ -1014,31 +1014,27 @@ test('the canvas stack puts layer 2 under everything on a standard-layout map, b
 })
 
 /** The composite of every visible plane over the box that layer 3's own pixels fill on screen 0. */
-async function layer3Region(page, index, box) {
+async function layer3Region(page, index, box, screen = 0) {
   return page.evaluate(
-    ({ rootSel, box }) => {
-      const planes = planesOf(rootSel, 0)
+    ({ rootSel, box, screen }) => {
+      const planes = planesOf(rootSel, screen)
       if (!box) {
-        const l3 = [...document.querySelectorAll(`${rootSel} canvas[data-screen="0"][data-plane^="l3"]`)] // prettier-ignore
+        const l3 = [...document.querySelectorAll(`${rootSel} canvas[data-screen="${screen}"][data-plane^="l3"]`)] // prettier-ignore
         let [x0, y0, x1, y1] = [1e9, 1e9, -1, -1]
         for (const c of l3) {
-          // In 16-row bands, never the whole plane at once: one getImageData of a full map plane ran the
-          // page out of memory (#931). Same box: every opaque pixel is still visited.
-          for (let by = 0; by < c.height; by += 16) {
-            const bh = Math.min(16, c.height - by)
-            const d = c.getContext('2d').getImageData(0, by, c.width, bh).data
-            for (let i = 0; i < d.length; i += 4) {
-              if (d[i + 3] === 0) continue
-              const [x, y] = [(i / 4) % c.width, by + Math.floor(i / 4 / c.width)]
-              ;[x0, y0, x1, y1] = [Math.min(x0, x), Math.min(y0, y), Math.max(x1, x), Math.max(y1, y)] // prettier-ignore
-            }
+          const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+          for (let i = 0; i < d.length; i += 4) {
+            if (d[i + 3] === 0) continue
+            const [x, y] = [(i / 4) % c.width, Math.floor(i / 4 / c.width)]
+            ;[x0, y0, x1, y1] = [Math.min(x0, x), Math.min(y0, y), Math.max(x1, x), Math.max(y1, y)]
           }
         }
+        if (x1 < 0) throw new Error(`no Layer 3 pixel on screen ${screen}`)
         box = { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 }
       }
       return { box, pixels: Array.from(composeCanvases(planes, box.x, box.y, box.w, box.h)) }
     },
-    { rootSel: root(index), box },
+    { rootSel: root(index), box, screen },
   )
 }
 
@@ -1072,10 +1068,13 @@ for (const [index, role, bit, known] of [
     'Layer 3 · Background',
     false,
     {
-      box: { x: 56, y: 48 },
-      pixel: { x: 64, y: 48 },
+      // Layer 3 loads at X 256, Y 160 (the smash sprite's position, CODE_00FF61, SMWDisX bank_00.asm:14778-14803;
+      // #817). 256 + screen 0's columns 32-63 are empty, so it first shows on screen 1 (then 3: period 512).
+      screen: 1,
+      box: { x: 56, y: 96 },
+      pixel: { x: 64, y: 96 },
       rgba: [0, 0, 0, 255],
-      color: { pixel: { x: 80, y: 48 }, rgba: [222, 165, 57, 255] },
+      color: { pixel: { x: 80, y: 96 }, rgba: [222, 165, 57, 255] },
     },
   ],
 ]) {
@@ -1095,13 +1094,14 @@ for (const [index, role, bit, known] of [
     expect(at('l3High') > at('l1High')).toBe(bit)
     expect(at('l3High') < at('l1Low')).toBe(!bit)
 
-    const before = await layer3Region(page, index)
-    expect(before.box.w * before.box.h, 'layer 3 draws pixels on screen 0').toBeGreaterThan(0)
+    const sc = known.screen ?? 0
+    const before = await layer3Region(page, index, undefined, sc)
+    expect(before.box.w * before.box.h, 'layer 3 draws pixels on its screen').toBeGreaterThan(0)
     // A known layer 3 pixel: where the region starts, opaque in l3High; over layer 1 it is the shown color.
     expect({ x: before.box.x, y: before.box.y }).toEqual(known.box)
-    const own = await page.locator(`${root(index)} canvas[data-screen="0"][data-plane="l3High"]`).evaluate((c, p) => Array.from(c.getContext('2d').getImageData(p.x, p.y, 1, 1).data), known.pixel) // prettier-ignore
+    const own = await page.locator(`${root(index)} canvas[data-screen="${sc}"][data-plane="l3High"]`).evaluate((c, p) => Array.from(c.getContext('2d').getImageData(p.x, p.y, 1, 1).data), known.pixel) // prettier-ignore
     expect(own, 'layer 3 pixel and color at the known position').toEqual(known.rgba)
-    const tinted = await page.locator(`${root(index)} canvas[data-screen="0"][data-plane="l3High"]`).evaluate((c, p) => Array.from(c.getContext('2d').getImageData(p.x, p.y, 1, 1).data), known.color.pixel) // prettier-ignore
+    const tinted = await page.locator(`${root(index)} canvas[data-screen="${sc}"][data-plane="l3High"]`).evaluate((c, p) => Array.from(c.getContext('2d').getImageData(p.x, p.y, 1, 1).data), known.color.pixel) // prettier-ignore
     expect(tinted, 'a non-black layer 3 pixel, from the right palette').toEqual(known.color.rgba)
     if (bit) {
       const at =
@@ -1110,14 +1110,14 @@ for (const [index, role, bit, known] of [
     }
     await button.click()
     await expect(button).toHaveAttribute('aria-pressed', 'false')
-    for (const plane of planeLocators(page, index, 0, ['l3Low', 'l3High']))
+    for (const plane of planeLocators(page, index, sc, ['l3Low', 'l3High']))
       await expect(plane).toHaveCSS('visibility', 'hidden')
-    const hidden = await layer3Region(page, index, before.box)
+    const hidden = await layer3Region(page, index, before.box, sc)
     const changed = hidden.pixels.filter((v, i) => v !== before.pixels[i]).length
     expect(changed, 'hiding layer 3 changes the pixels it covered').toBeGreaterThan(0)
     await button.click()
     await expect(button).toHaveAttribute('aria-pressed', 'true')
-    const back = await layer3Region(page, index, before.box)
+    const back = await layer3Region(page, index, before.box, sc)
     expect(back.pixels).toEqual(before.pixels)
   })
 }
