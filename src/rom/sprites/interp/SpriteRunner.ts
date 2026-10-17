@@ -77,6 +77,11 @@ const STEP_BUDGET = 200_000
  * machine, 2026-10-05), so this is ~4x headroom.
  */
 export const TOTAL_STEP_CAP = 1_000_000
+/** Slots in the sprite tables. */
+const SLOTS = 12
+/** Slots the $9C scan covers, 0-9 (bank_02.asm:12118); neighbours go no further. */
+const SCANNED_SLOTS = 10
+
 /** INIT retries allowed while the routine leaves status 1. */
 const MAX_INIT_FRAMES = 64
 
@@ -246,10 +251,12 @@ export class Machine {
     // of its slot). The loop's reads of the other slots happen under their own $15E9.
     if (seed.neighbours?.length)
       this.bus.onRead = off => {
-        const [inStatus, inNumber] = [off >= RAM.status && off < RAM.status + 12, off >= RAM.spriteNumber && off < RAM.spriteNumber + 12] // prettier-ignore
+        const inStatus = off >= RAM.status && off < RAM.status + SLOTS
+        const inNumber = off >= RAM.spriteNumber && off < RAM.spriteNumber + SLOTS
         if (!inStatus && !inNumber) return
         const j = off - (inStatus ? RAM.status : RAM.spriteNumber)
-        if (j !== this.seed.slot && this.bus.wram[RAM.curSprite] === this.seed.slot) this.scanned = true // prettier-ignore
+        if (j !== this.seed.slot && this.bus.wram[RAM.curSprite] === this.seed.slot)
+          this.scanned = true
       }
     this.load(id)
     this.dynStart = this.bus.wram[RAM.dynPaletteIndex]
@@ -369,7 +376,7 @@ export class Machine {
     w[RAM.spriteYLow + n] = s.sprite.y & 0xff
     w[RAM.yHigh + n] = (s.sprite.y >> 8) & 0xff
     w[RAM.status + n] = 1
-    if (this.neighbourRun) this.placeNeighbours(id)
+    if (this.neighbourRun) this.placeNeighbours()
   }
 
   /**
@@ -377,10 +384,10 @@ export class Machine {
    * game's own loop runs their INIT. This is a derivation from the list, not a trace of the loader: the
    * loader's slot order and which sprites it had loaded by then are not modelled.
    */
-  private placeNeighbours(_id: number): void {
+  private placeNeighbours(): void {
     const w = this.bus.wram
     const list = [...(this.seed.neighbours ?? [])]
-    for (let k = 0; k < 10 && list.length; k++) {
+    for (let k = 0; k < SCANNED_SLOTS && list.length; k++) {
       if (k === this.seed.slot) continue
       const nb = list.shift()!
       w[RAM.spriteNumber + k] = nb.id
@@ -498,7 +505,7 @@ const DRAWS_BEFORE_LINE_SNAP: ReadonlySet<number> = new Set([0x67])
 
 /**
  * Run with a seed; no marioX analysis (half the cost of `runSprite`). The run is alone. When the sprite's own
- * code scanned the slot tables for a companion (`ScansSlots`) and the seed lists `neighbours`, a second run puts
+ * code scanned the slot tables for a companion (`scansSlots`) and the seed lists `neighbours`, a second run puts
  * them in the other slots and counts only the OAM written under this sprite's slot (as the capture does: a
  * neighbour's own draw is not this sprite's). It replaces the first only when its parts differ (#841).
  */
