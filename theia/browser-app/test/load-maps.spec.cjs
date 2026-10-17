@@ -14,7 +14,7 @@ const os = require('os')
 const { romPath, VANILLA, GPW2 } = require('../../../test/suite/support/corpus.cjs')
 const { maxDepth } = require('./tree-depth.cjs')
 
-const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT || 3000}`
+const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT}`
 const ROM = process.env.HB_ROM || romPath(VANILLA)
 
 /** Vanilla's documented map count, from docs/glossary.md. */

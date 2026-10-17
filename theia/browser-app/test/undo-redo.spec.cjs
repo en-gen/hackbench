@@ -15,7 +15,7 @@ const fs = require('fs')
 const path = require('path')
 const os = require('os')
 
-const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT || 3000}`
+const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT}`
 const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
 const ROM = process.env.HB_ROM || romPath(VANILLA)
 

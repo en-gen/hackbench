@@ -5,8 +5,26 @@ const { isolateAppData } = require('./test/app-data.cjs')
 // it starts use a per-run app-data folder, never the user's (#637).
 isolateAppData()
 
-// Concurrent runs each hold a run-lock slot and its own port (docs/testing.md, Run lock).
-const PORT = process.env.HB_PORT || '3000'
+// Concurrent runs (run-lock slots) must not share a port. An unset port is
+// replaced by a free one found now, in this process, and written to process.env:
+// workers are forked after config load and inherit it, so config, specs and
+// servers agree. The slot port the lock prints is advisory (docs/testing.md).
+const freePort = () =>
+  Number(
+    require('child_process').execFileSync(process.execPath, [
+      '-e',
+      "const s=require('net').createServer();s.listen(0,'127.0.0.1',()=>{console.log(s.address().port);s.close()})",
+    ]),
+  )
+for (const name of ['HB_PORT', 'HB_RECONNECT_PORT', 'HB_MULTIWINDOW_PORT']) {
+  if (name === 'HB_PORT' && process.env.HB_APP_URL) continue // external server: no port of ours
+  if (!process.env[name]) process.env[name] = String(freePort())
+}
+const PORT = process.env.HB_PORT
+// Interpolated into a shell command below: digits only, in range.
+if (PORT !== undefined && !(/^\d+$/.test(PORT) && +PORT >= 1 && +PORT <= 65535)) {
+  throw new Error(`HB_PORT must be an integer 1-65535, got "${PORT}"`)
+}
 
 module.exports = defineConfig({
   testDir: './test',

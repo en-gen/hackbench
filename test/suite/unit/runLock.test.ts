@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
@@ -10,7 +10,6 @@ import {
   status,
   defaultStateDir,
   slotCount,
-  slotPort,
   vitestWorkers,
 } from '../../../tools/scripts/run-lock.mjs'
 
@@ -21,7 +20,16 @@ function mkState(): string {
   made.push(dir)
   return dir
 }
+// The slot count comes from the environment by default; a developer's own
+// HACKBENCH_RUN_SLOTS must not change what these tests mean.
+let savedSlots: string | undefined
+beforeEach(() => {
+  savedSlots = process.env.HACKBENCH_RUN_SLOTS
+  delete process.env.HACKBENCH_RUN_SLOTS
+})
 afterEach(() => {
+  if (savedSlots === undefined) delete process.env.HACKBENCH_RUN_SLOTS
+  else process.env.HACKBENCH_RUN_SLOTS = savedSlots
   for (const dir of made.splice(0)) fs.rmSync(dir, { recursive: true, force: true })
 })
 
@@ -459,21 +467,11 @@ describe('run lock slots', () => {
     const got = [A, B, C].map(owner => acquire(s, { owner, purpose: 'p' }))
     expect(got.map(r => r.ok)).toEqual([true, true, true])
     expect(got.map(r => r.slot)).toEqual([1, 2, 3])
-    expect(got.map(r => r.port)).toEqual([3000, 3001, 3002])
     expect(holder(s, 2)).toContain(`owner: ${B}`)
     const r = acquire(s, { owner: D, purpose: 'p' })
     expect(r.ok).toBe(false)
-    expect(r.message).toContain('all 3 slots held')
+    expect(r.message).toContain('all 3 lock slots held')
     expect(r.message).toContain(A)
-  })
-
-  it('acquire message names the slot and the HB_PORT line for both shells', () => {
-    const s = mkState()
-    acquire(s, { owner: A })
-    const r = acquire(s, { owner: B })
-    expect(r.message).toContain(`acquired slot 2 by ${B}`)
-    expect(r.message).toContain("$env:HB_PORT='3001'")
-    expect(r.message).toContain('export HB_PORT=3001')
   })
 
   it('one slot per team: same team or exact same owner is refused, other teams are not', () => {
@@ -577,13 +575,89 @@ started: 2026-10-14T00:00:00.000Z
     expect(vitestWorkers(2, {})).toBe(1)
     expect(vitestWorkers(32, { HACKBENCH_VITEST_WORKERS: '7' })).toBe(7)
     expect(vitestWorkers(32, { HACKBENCH_VITEST_WORKERS: '0' })).toBe(5)
+    // CI keeps the old formula and its floor of 2, whatever the slot count.
+    expect(vitestWorkers(32, { CI: 'true' })).toBe(16)
+    expect(vitestWorkers(2, { CI: 'true' })).toBe(2)
   })
 
-  it('slot to port is 2999 + slot', () => {
-    expect([1, 2, 3, 4].map(slotPort)).toEqual([3000, 3001, 3002, 3003])
+  it('next.txt naming a team that already holds a slot is ignored and says so', () => {
+    const s = mkState()
+    acquire(s, { owner: A })
+    const next = path.join(s, 'locks', 'next.txt')
+    fs.writeFileSync(next, 'alpha is next\n')
+    const r = acquire(s, { owner: B })
+    expect(r.ok).toBe(true)
+    expect(r.message).toMatch(/next\.txt names alpha.*ignored/)
+    expect(fs.existsSync(next)).toBe(true) // only the named team deletes it
   })
 
-  it('CLI honours HACKBENCH_RUN_SLOTS and prints the port line', () => {
+  it('slots on disk beyond the caller count are still seen by status, release and the team scan', () => {
+    const s = mkState()
+    for (const owner of [A, B, C]) acquire(s, { owner })
+    expect(acquire(s, { owner: 'charlie C:/wt/other', slots: 1 }).ok).toBe(false)
+    expect(status(s, { slots: 1 }).lines.join('\n')).toContain(C)
+    expect(release(s, { owner: C }).ok).toBe(true)
+    expect(fs.existsSync(slotDir(s, 3))).toBe(false)
+    const run = (...args: string[]) =>
+      spawnSync(process.execPath, [SCRIPT, ...args], {
+        encoding: 'utf8',
+        cwd: os.tmpdir(),
+        env: { ...process.env, HACKBENCH_STATE_DIR: s, HACKBENCH_RUN_SLOTS: '1' },
+      })
+    expect(run('status').stdout).toContain(B)
+    expect(run('release', '--owner', B).status).toBe(0)
+    expect(fs.existsSync(slotDir(s, 2))).toBe(false)
+  })
+
+  it('a same-team tie after the write backs out only our own slot', () => {
+    const s = mkState()
+    // Simulates the rival acquire landing in slot 2 between our scan and our write.
+    const write = (file: string, text: string) => {
+      fs.writeFileSync(file, text)
+      fs.mkdirSync(slotDir(s, 2))
+      fs.writeFileSync(
+        path.join(slotDir(s, 2), 'owner.txt'),
+        'owner: alpha C:/wt/rival\npurpose: p\nstarted: 2026-10-14T00:00:00.000Z\n',
+      )
+    }
+    const r = acquire(s, { owner: A, write })
+    expect(r.ok).toBe(false)
+    expect(r.message).toContain('retry')
+    expect(fs.existsSync(slotDir(s, 1))).toBe(false)
+    expect(holder(s, 2)).toContain('rival')
+  })
+
+  it('release by a team with no slot says so and lists the holders', () => {
+    const s = mkState()
+    acquire(s, { owner: A })
+    const r = release(s, { owner: D })
+    expect(r.ok).toBe(false)
+    expect(r.message).toContain(`${D} holds no lock slot`)
+    expect(r.message).toContain(A)
+    // A same-team wrong id keeps the plain not-the-owner answer.
+    expect(release(s, { owner: 'alpha C:/wt/other' }).message).toContain('not the owner')
+  })
+
+  it('status.stale is true when any slot is stale, even if another is fresh', () => {
+    const s = mkState()
+    const t0 = new Date('2026-10-14T00:00:00Z')
+    acquire(s, { owner: A, now: t0 })
+    acquire(s, { owner: B, now: new Date(t0.getTime() + 100 * 60000) })
+    const st = status(s, { now: new Date(t0.getTime() + 125 * 60000) })
+    expect(st.stale).toBe(true)
+    expect(st.slots.map(p => p.stale)).toEqual([true, false, undefined])
+  })
+
+  it('a hand-made lock with no owner line blocks its slot but not any team', () => {
+    const s = mkState()
+    fs.mkdirSync(slotDir(s, 1), { recursive: true })
+    fs.writeFileSync(path.join(slotDir(s, 1), 'owner.txt'), 'taken by hand\n')
+    const r = acquire(s, { owner: A })
+    expect(r.ok && r.slot).toBe(2)
+    expect(acquire(s, { owner: B }).slot).toBe(3)
+  })
+
+  it('CLI honours HACKBENCH_RUN_SLOTS and per process', () => {
     const s = mkState()
     const run = (slots: string, ...args: string[]) =>
       spawnSync(process.execPath, [SCRIPT, ...args], {
@@ -594,7 +668,7 @@ started: 2026-10-14T00:00:00.000Z
     expect(run('2', 'acquire', '--owner', A).status).toBe(0)
     const b = run('2', 'acquire', '--owner', B)
     expect(b.status).toBe(0)
-    expect(b.stdout).toContain('HB_PORT=3001')
+    expect(b.stdout).toContain('acquired slot 2')
     expect(run('2', 'acquire', '--owner', C).status).toBe(1)
     expect(run('2', 'release', '--owner', B).status).toBe(0)
   })

@@ -1,14 +1,17 @@
 #!/usr/bin/env node
-// The shared test-run lock (#923): a counting semaphore of directories (locks/run, run-2,
-// run-3) in the main checkout's state dir so full unit runs, Theia builds and Playwright never overlap (timeouts
-// in #485, #771). Not protocol.mjs withStateLock: that is a short-lived file
-// lock with a 10 s stale takeover, and this one is held for minutes and must
-// never be taken over. Only the owner removes it; a stale lock is reported.
+// The shared test-run lock (#923): a counting semaphore of lock slots, one
+// directory each (locks/run, run-2, run-3) in the main checkout's state dir, so
+// at most that many full unit runs, Theia builds or Playwright runs overlap
+// (timeouts in #485, #771). Not protocol.mjs withStateLock: that is a
+// short-lived file lock with a 10 s stale takeover, and this one is held for
+// minutes and must never be taken over. Only the owner removes a slot; a stale
+// slot is reported.
 
 import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   statSync,
@@ -17,9 +20,9 @@ import {
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { STATE_DIR_NAME, mainCheckoutDir } from './protocol.mjs'
-import { slotCount, slotPort, vitestWorkers } from './run-slots.mjs'
+import { slotCount, vitestWorkers } from './run-slots.mjs'
 
-export { slotCount, slotPort, vitestWorkers }
+export { slotCount, vitestWorkers }
 
 export const STALE_MINUTES = 120
 const USAGE =
@@ -44,12 +47,29 @@ const teamOf = owner => owner.toLowerCase().match(/^[a-z]+/)?.[0]
 // Slot 1 is the original locks/run, so a lock taken by an older script is slot 1.
 const slotDir = (s, n) => path.join(s, 'locks', n === 1 ? 'run' : `run-${n}`)
 const ownerFile = (s, n) => path.join(slotDir(s, n), 'owner.txt')
-const portLines = slot => [
-  `use port ${slotPort(slot)} for Playwright and the app server:`,
-  `  PowerShell: $env:HB_PORT='${slotPort(slot)}'`,
-  `  bash:       export HB_PORT=${slotPort(slot)}`,
-]
 const range = slots => Array.from({ length: slots }, (_, i) => i + 1)
+// Every slot dir on disk, whatever the caller's count: a script run with a
+// smaller HACKBENCH_RUN_SLOTS (or an older checkout) must still see them all.
+// The count only bounds which slots acquire may create.
+function existingSlots(stateDir) {
+  let names = []
+  try {
+    names = readdirSync(path.join(stateDir, 'locks'))
+  } catch {
+    // no locks dir yet: nothing is held
+  }
+  const found = names.flatMap(name => {
+    const m = name.match(/^run(?:-([2-9]|[1-9]\d+))?$/)
+    return m ? [m[1] ? Number(m[1]) : 1] : []
+  })
+  return found.sort((a, b) => a - b)
+}
+// Slots whose owner line names this team (a slot with no parseable owner names none).
+const teamHolders = (stateDir, team, except) =>
+  existingSlots(stateDir).filter(n => {
+    const holder = field(readText(ownerFile(stateDir, n)), 'owner')
+    return n !== except && holder !== undefined && teamOf(holder) === team
+  })
 
 export function acquire(
   stateDir,
@@ -62,16 +82,21 @@ export function acquire(
   const next = readText(nextFile(stateDir)).trim()
   // The reservation is the FIRST word only: a path later in the line must not match.
   // It gates every slot: a free slot is not free to a team that is not next.
-  if (next && next.toLowerCase().match(/^[a-z]+/)?.[0] !== team) {
+  const nextTeam = next ? next.toLowerCase().match(/^[a-z]+/)?.[0] : undefined
+  // A team that already holds a slot cannot take the reservation (one slot per
+  // team), so honouring it would block everyone behind a turn that never comes.
+  const nextIsHolding = nextTeam !== undefined && teamHolders(stateDir, nextTeam).length > 0
+  const ignoredNext = nextIsHolding && nextTeam !== team
+  if (next && nextTeam !== team && !ignoredNext) {
     return fail(`reserved for another team:\n${next}`)
   }
-  // One slot per team stops one team taking the machine. A slot with no
-  // parseable owner line names no team, so it never blocks anyone.
-  for (const n of range(slots)) {
-    const holder = field(readText(ownerFile(stateDir, n)), 'owner')
-    if (holder !== undefined && teamOf(holder) === team) {
-      return fail(`team ${team} already holds slot ${n}, one slot per team:\n${holder}`)
-    }
+  // One slot per team stops one team taking the machine. Every slot on disk
+  // counts, not just the caller's count. A slot with no parseable owner line
+  // names no team, so it never blocks anyone.
+  const mine = teamHolders(stateDir, team)
+  if (mine.length) {
+    const holder = field(readText(ownerFile(stateDir, mine[0])), 'owner')
+    return fail(`team ${team} already holds lock slot ${mine[0]}, one slot per team:\n${holder}`)
   }
   mkdirSync(path.dirname(slotDir(stateDir, 1)), { recursive: true })
   for (const n of range(slots)) {
@@ -91,21 +116,27 @@ export function acquire(
       rmSync(slotDir(stateDir, n), { recursive: true, force: true })
       return fail(`could not write owner.txt, lock not taken: ${e.message}`)
     }
-    if (next) rmSync(nextFile(stateDir), { force: true })
-    return {
-      ok: true,
-      slot: n,
-      port: slotPort(n),
-      message: [`acquired slot ${n} by ${owner}`, ...portLines(n)].join('\n'),
+    // The team scan above and mkdir are not one atomic step: two acquires from
+    // one team can both pass the scan. Re-check now that our owner.txt is visible
+    // and back out our own slot only; the other acquire may back out too, so
+    // the message says retry.
+    if (teamHolders(stateDir, team, n).length) {
+      rmSync(slotDir(stateDir, n), { recursive: true, force: true })
+      return fail(`team ${team} took another lock slot at the same moment, none kept; retry`)
     }
+    if (nextTeam === team) rmSync(nextFile(stateDir), { force: true })
+    const note = ignoredNext
+      ? [`note: next.txt names ${nextTeam}, who already holds a slot; ignored (BA: replace it)`]
+      : []
+    return { ok: true, slot: n, message: [`acquired slot ${n} by ${owner}`, ...note].join('\n') }
   }
   const holders = range(slots).map(n => `slot ${n}:\n${readText(ownerFile(stateDir, n)).trim()}`)
-  return fail(`all ${slots} slots held:\n${holders.join('\n')}`)
+  return fail(`all ${slots} lock slots held:\n${holders.join('\n')}`)
 }
 
-export function release(stateDir, { owner, slots = slotCount() } = {}) {
+export function release(stateDir, { owner } = {}) {
   if (badOwner(owner)) return fail('owner is blank or has a line break')
-  const held = range(slots).filter(n => existsSync(slotDir(stateDir, n)))
+  const held = existingSlots(stateDir)
   if (!held.length) return fail('no lock held')
   const failures = []
   for (const n of held) {
@@ -125,6 +156,11 @@ export function release(stateDir, { owner, slots = slotCount() } = {}) {
       rmSync(slotDir(stateDir, n), { recursive: true, force: true }) // this slot only
       return { ok: true, slot: n, message: `released slot ${n}` }
     }
+  }
+  // A team with no slot at all gets the plain answer, with who does hold them.
+  const team = teamOf(owner)
+  if (team && !teamHolders(stateDir, team).length && failures.every(f => f.startsWith('not the'))) {
+    return fail(`${owner} holds no lock slot; held by:\n${failures.join('\n')}`)
   }
   return fail(failures.join('\n'))
 }
@@ -154,7 +190,9 @@ function slotStatus(stateDir, n, now) {
 export function status(stateDir, { now = new Date(), slots = slotCount() } = {}) {
   const next = readText(nextFile(stateDir)).trim()
   const reserved = next ? [`next.txt: ${next}`] : []
-  const per = range(slots).map(n =>
+  // Show every slot up to the larger of the count and the highest one on disk.
+  const top = Math.max(slots, ...existingSlots(stateDir))
+  const per = range(top).map(n =>
     existsSync(slotDir(stateDir, n)) ? slotStatus(stateDir, n, now) : { held: false, lines: [] },
   )
   const lines = per.flatMap((p, i) =>
@@ -200,7 +238,7 @@ export function cli(argv, stateDir, env = process.env) {
     const r =
       cmd === 'acquire'
         ? acquire(stateDir, { owner, purpose: purpose ?? '', slots: slotCount(env) })
-        : release(stateDir, { owner, slots: slotCount(env) })
+        : release(stateDir, { owner })
     return { code: r.ok ? 0 : 1, out: r.message }
   }
   return { code: 1, out: USAGE }

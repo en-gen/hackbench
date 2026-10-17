@@ -38,7 +38,7 @@ const path = require('path')
 const os = require('os')
 const { romPath, VANILLA, MAGIC, INVICTUS } = require('../../../test/suite/support/corpus.cjs')
 
-const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT || 3000}`
+const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT}`
 const ROM = process.env.HB_ROM || romPath(VANILLA)
 /**
  * A real hack, so its header-stripped hash is provably NOT the vanilla one.
