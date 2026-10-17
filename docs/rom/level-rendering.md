@@ -223,8 +223,23 @@ only there); that one byte is read as `$05`. Measured on `hackbench-tools`
 37 also have a readable layer 3 GFX range. Of the 6 corpus carts, vanilla,
 Lunar Magic and Seven Vanilla Levels pass; Grand Poo World 2 1.1, GrandPooWorld
 1.2 and Invictus do not. A cart whose GFX loader (`CODE_00A993`) is hooked has no
-readable range and skips layer 3 as well. Vertical maps are skipped: a sublevel's entry never reads
-`$05F600` (`bank_05.asm:7116-7162`), so its Layer1YPos is unverified. Settings
+readable range and skips layer 3 as well. Vertical maps draw layer 3 only on the traced
+screen-locked path (#806): a settings byte `$81`-`$BF` on Castle1 or Underground1 (tileset 1 or 3)
+reaches `CODE_009FFA` (`bank_00.asm:4175-4182`), which sets Layer3XPos = Layer1XPos / 2 and
+Layer3YPos = `$C0` once; per frame `CODE_05C421` (`bank_05.asm:5515-5519`) follows camera X and
+never copies Y (`CODE_05C48D` is skipped, `:5569-5572`). Nothing there depends on the map being vertical, so the band is screen-locked: Layer3YPos stays `$C0`
+whatever the camera Y, and every vertical screen shows the same band (tilemap rows 32-55 at
+y 64..255 on vanilla $1CE), so the camera Y at load does not place it. The editor draws the full
+256 px screen while the game's display ends at line 224, the same as the horizontal path; nothing is
+clipped. X parallax (Layer3XPos = Layer1XPos / 2, `bank_05.asm:5516-5518`) is not modelled, same as
+horizontal; the capture's windows are all at camera X 0. Evidence scope: capture `layers_v5` `1ce`, 5 windows (camera
+Layer1Y 0, 256, 512, 768, 1024), Layer3Y = BG3VOFS = 192 in all five and the visible BG3 band identical;
+one machine, vanilla. Every other vertical case stays refused: a
+camera-locked byte (`$00` or `$81`-`$BF` off tilesets 1 and 3) gets the same
+"camera-locked layer 3" reason as a horizontal map, and a tide byte, `$80`,
+`$C0`+ or `$00` on tileset 1 or 3 gets "vertical map with an untraced layer 3 type". Vanilla: the sweep test "vanilla
+vertical maps with a drawn layer 3 are exactly $0E7 and $1CE" finds only those two.
+Settings
 `$00` is Layer3TideSetting 0 (not a tide: 512 px repeat, whole tilemap), the non-tide path of `CODE_05C40C`: off Castle1
 and Underground1 it sets Layer3YPos = Layer1YPos every frame
 (`CODE_05C428` to `CODE_05C48D`), so it is camera-locked like `$81`. A `$80`

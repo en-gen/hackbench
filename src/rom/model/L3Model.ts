@@ -34,9 +34,12 @@ export interface L3Inputs {
   colors: RgbaColor[]
   /** Layer3XPos at load (0 unless a smash sprite sets it, #807); camera X at load is 0. Absent: 0. */
   xPx?: number
-  /** Layer3YPos at load, and Layer1YPos at load: a tile row R sits at level Y R*8 - yPx + camYPx. */
+  /** Layer3YPos at load, and Layer1YPos at load: a tile row R sits at level Y R*8 - yPx + camYPx;
+   * a vertical map omits camYPx (screen-locked: bank_05.asm:5569-5572 is never reached). */
   yPx: number
   camYPx: number
+  /** A vertical map: screens stack downward, 32 tiles wide and 16 tall, and X is not paged. */
+  isVertical?: boolean
   /** A tide ($00-$7F settings byte) tiles every 256 px and draws one copy of its two-copy tilemap. */
   tide: boolean
   /** Set when the code that reads `camYPx` is not stock (#860): the value is a best reading, not confirmed. */
@@ -103,8 +106,6 @@ export function buildL3Verdict(
   })
   if (readLayer3Setting(rom, index) === 0) return none('This map has no layer 3')
   if (refusal) return none(refusal)
-  // Y at load is not read for vertical maps: a sublevel's entry never reads F600 (bank_05.asm:7116-7162).
-  if (l1.isVertical) return none('Layer 3 not drawn yet: vertical maps')
   if (!gate.ok) return none(HOOKED_L3_CODE)
   const tileset = l1.header.objectTileset
   const load = loadL3Tilemap(rom, index, tileset, l1.header.timeLimit)
@@ -117,6 +118,11 @@ export function buildL3Verdict(
     return none('Layer 3 not drawn yet: camera-locked layer 3', {
       cgadsub: effectiveCgadsub(layout.cgadsub, !kept),
     })
+  }
+  // Vertical maps draw only the traced $81-$BF Y $C0 case (CODE_009FFA, bank_00.asm:4175-4182; the
+  // derivation is in docs/rom/level-rendering.md). Tides, $80 and camera-locked Y stay refused.
+  if (l1.isVertical && !(yPx === 0xc0 && load.settingsByte < 0xc0)) {
+    return none('Layer 3 not drawn yet: vertical map with an untraced layer 3 type')
   }
   // A $80 byte's Y is $D0 until a loaded Layer 3 Smash sprite writes X and Y from its own place (#807).
   let pos = { x: 0, y: yPx }
@@ -138,7 +144,11 @@ export function buildL3Verdict(
       xPx: pos.x,
       yPx: pos.y,
       camYPx: readInitialLayer1YPos(rom, index, false, entrances),
-      camYUnverified: entrancePositionGate(rom, startSpans) ?? undefined,
+      isVertical: l1.isVertical || undefined,
+      // A vertical map's band is screen-locked and ignores camYPx, so there is nothing to be unverified.
+      camYUnverified: l1.isVertical
+        ? undefined
+        : (entrancePositionGate(rom, startSpans) ?? undefined),
       // $00 is Layer3TideSetting 0: no tide (it is camera-locked or Castle1/Underground1's half-speed scroll).
       tide: load.settingsByte !== 0 && load.settingsByte < 0x80,
     },

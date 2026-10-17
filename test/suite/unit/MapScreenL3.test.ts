@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import type { RgbaColor } from '../../../src/rom/GraphicsDecoder'
-import { parseLevelHeader } from '../../../src/rom/LevelParser'
+import { isLevelModeVertical, parseLevelHeader } from '../../../src/rom/LevelParser'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { withCrusher } from '../../../src/rom/L3CodeGate'
@@ -20,7 +20,7 @@ import {
 import { MAP_PLANE_KEYS } from '../../../theia/extension/src/common/project-protocol'
 import { composeScreen } from '../../../src/rom/model/ColorMath'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
-import { COLORS, hGrid, inputs, px, sub, tile } from '../support/mapInputs'
+import { COLORS, hGrid, inputs, px, sub, tile, vGrid } from '../support/mapInputs'
 import { modeTablesRom, STANDARD_MODES, sweepLayouts, withLayer3 } from '../support/l3Rom'
 import type { ModeLayout } from '../../../src/rom/LevelScreenTables'
 import {
@@ -433,10 +433,39 @@ describe('drawL3Planes (synthetic)', () => {
   })
 })
 
+const noSmash = () => ({ ok: true as const, pos: null })
+
 describe('maps layer 3 is not drawn on (synthetic)', () => {
-  it('a vertical map says so, whatever else would draw', () => {
-    const l1 = { ...l1Of(3, 0, false), isVertical: true } // mode 3: standard layout, vertical
-    expect(buildL3Verdict(rom5(), 5, l1, BG_OK, chars, GATE_OK)).toMatchObject({ l3: null, reason: 'Layer 3 not drawn yet: vertical maps' }) // prettier-ignore
+  const vertical = (ts: number) => ({ ...l1Of(3, ts, false), isVertical: true }) // mode 3: standard layout, vertical
+  const vRom = (ts: number, byte: number) => withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: ts, setting: 2, settingsByte: byte, word: L3_WORD(false) }) // prettier-ignore
+
+  it('a vertical map is refused unless its layer 3 is the traced screen-locked $81-$BF on tileset 1 or 3', () => {
+    const refused = {
+      l3: null,
+      reason: 'Layer 3 not drawn yet: vertical map with an untraced layer 3 type',
+    }
+    // tide byte, $80 smash, $C0 no-layer-3 range, $00 tide-less
+    for (const [ts, byte] of [
+      [1, 0x01],
+      [1, 0x50],
+      [1, 0x80],
+      [1, 0xc0],
+      [3, 0x00],
+    ] as const) {
+      expect(buildL3Verdict(vRom(ts, byte), 5, vertical(ts), BG_OK, chars, GATE_OK, noSmash), `ts ${ts} byte ${byte}`).toMatchObject(refused) // prettier-ignore
+    }
+    // $81 off tileset 1 and 3 is camera-locked: refused on its own, earlier reason, vertical or not.
+    for (const ts of [0, 2]) expect(buildL3Verdict(vRom(ts, 0x81), 5, vertical(ts), BG_OK, chars, GATE_OK)).toMatchObject({ l3: null, reason: /camera-locked/ }) // prettier-ignore
+  })
+
+  it('a vertical map on $81-$BF, tileset 1 or 3, draws: Y $C0, X 0', () => {
+    for (const ts of [1, 3]) {
+      for (const byte of [0x81, 0xa5, 0xbf]) {
+        const v = buildL3Verdict(vRom(ts, byte), 5, vertical(ts), BG_OK, chars, GATE_OK)
+        expect(v.l3, `ts ${ts} byte ${byte}`).toMatchObject({ yPx: 0xc0, xPx: 0, tide: false })
+        expect(v.reason).toBeNull()
+      }
+    }
   })
 
   it('settings $00 follows the camera off Castle1 and Underground1, like $81', () => {
@@ -445,8 +474,6 @@ describe('maps layer 3 is not drawn on (synthetic)', () => {
     for (const ts of [1, 3]) expect(buildL3Verdict(rom(ts), 5, l1Of(0, ts, false), BG_OK, chars, GATE_OK).l3?.yPx, `tileset ${ts}`).toBe(0x70) // prettier-ignore
   })
 })
-
-const noSmash = () => ({ ok: true as const, pos: null })
 
 describe('tide or not, by the settings byte (synthetic)', () => {
   const verdictFor = (byte: number, ts = 0) => buildL3Verdict(withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: ts, setting: 2, settingsByte: byte, word: L3_WORD(false), row: 30 }), 5, l1Of(0, ts, false), BG_OK, chars, GATE_OK, noSmash) // prettier-ignore
@@ -556,3 +583,71 @@ describe('a $80 level under a smash sprite (synthetic, #807)', () => {
     expect(verdictWith(() => ({ ok: false, reason: 'because' }))).toMatchObject({ l3: null, reason: 'because' }) // prettier-ignore
   })
 })
+
+describe('layer 3 on a vertical map (synthetic, #806)', () => {
+  // Tile row 30 at Layer3YPos $C0 is screen y 240 - 192 = 48 on EVERY vertical screen: BG3 is
+  // screen-locked (layers_v5 1ce: Layer3Y 192 at all five camera positions), so the camera Y at load
+  // must not place the band.
+  const l3 = l3Of([word(30, 0, L3_WORD(false))], { yPx: 0xc0, camYPx: 0x1a0, isVertical: true })
+
+  it('draws the same band on every screen, wherever the camera started', () => {
+    const lows = [0, 1, 2, 3, 4].map(s => drawL3Planes(l3, s).l3Low!)
+    for (const low of lows) {
+      expect(px(low, 512, 3, 48 + 3)).toEqual(COLORS[6])
+      expect(px(low, 512, 3, 47)).toEqual([0, 0, 0, 0])
+      expect(px(low, 512, 8, 51)).toEqual([0, 0, 0, 0]) // the tile is 8 px wide: column 1 is empty
+    }
+    expect(lows.every(l => Buffer.compare(Buffer.from(l), Buffer.from(lows[0]!)) === 0)).toBe(true)
+    expect(drawL3Planes({ ...l3, camYPx: 0x700 }, 0).l3Low).toEqual(lows[0])
+  })
+
+  it('a verdict built on a vertical map draws the band on every screen (end to end)', () => {
+    const rom = withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: 1, setting: 2, settingsByte: 0x81, word: L3_WORD(false), row: 30 }) // prettier-ignore
+    rom.writeAt(0x05f600 + 5, [3]) // camera Y at load $300: must not matter
+    const v = buildL3Verdict(
+      rom,
+      5,
+      { ...l1Of(3, 1, false), isVertical: true },
+      BG_OK,
+      chars,
+      GATE_OK,
+    )
+    expect(v.l3).toMatchObject({ isVertical: true, yPx: 0xc0 })
+    const m: MapInputs = { ...inputs(vGrid(5), true, 5, 1), header: headerOf(3, 1, false), l3: v }
+    const bands = [0, 1, 2, 3, 4].map(s => wireOf(m, s).planes.l3Low)
+    expect(bands[0]).not.toBeNull()
+    expect(new Set(bands).size).toBe(1)
+    const first = decode(bands[0]!)!
+    expect(px(first, 512, 3, 51)).toEqual(COLORS[6])
+  })
+})
+
+describe.skipIf(!hasRom(VANILLA))(
+  'vanilla vertical maps with a drawn layer 3 are exactly $0E7 and $1CE (corpus, #806)',
+  () => {
+    // Checks vanilla output only; the synthetic refusal test above is the gate's guard.
+    it('sweeps all $200 slots: vertical maps whose layer 3 draws', () => {
+      const rom = RomFile.load(romPath(VANILLA))
+      const smw = new SmwRom(rom)
+      const table = smw.getVerticalTable()
+      if (!table.ok) throw new Error(table.reason)
+      const drawn: number[] = []
+      let vertical = 0
+      for (let id = 0; id < 0x200; id++) {
+        const raw = smw.getLevelRawData(id)
+        if (!raw) continue
+        const header = parseLevelHeader(raw)
+        const isVertical = isLevelModeVertical(header.levelMode, table.table)
+        if (!isVertical) continue
+        vertical++
+        const v = buildL3Verdict(rom, id, { header, isVertical, colors: [] }, BG_OK)
+        if (v.l3) {
+          drawn.push(id)
+          expect([id, v.reason, v.l3.yPx, v.l3.isVertical]).toEqual([id, null, 192, true])
+        }
+      }
+      expect(vertical).toBeGreaterThan(2) // the sweep saw vertical maps, not an empty set
+      expect(drawn).toEqual([0x0e7, 0x1ce])
+    })
+  },
+)

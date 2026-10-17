@@ -219,16 +219,19 @@ export type L3Planes = Record<'l3Low' | 'l3High', Plane>
 /**
  * L3 of one screen as [low, high] planes by each tile's priority bit: tile row
  * R (gameplay rows only; the first 8 are the status bar) at level Y
- * R*8 - Layer3YPos + Layer1YPos, x repeating every 512 px (a tide, whose BG3
+ * R*8 - Layer3YPos + Layer1YPos (a vertical map omits the Layer1YPos term: screen-locked,
+ * bank_05.asm:5569-5572 is never reached), x repeating every 512 px (a tide, whose BG3
  * scrolls with the camera, every 256 px over the first 32 columns, and its
  * second copy of the tilemap is not drawn). Rows that start above the level
  * are skipped whole, as the reference view does. Char 0 of every 2bpp
  * palette is clear.
  */
 export function drawL3Planes(l3: L3Inputs, screen: number): L3Planes {
-  const { w, h } = screenTiles(false) // vertical maps never reach here (L3Model)
+  const isVertical = l3.isVertical === true
+  const { w, h } = screenTiles(isVertical)
   const [width, height] = [w * 16, h * 16]
-  const x0 = screen * width
+  // Vertical screens stack over one 32-tile-wide column and X is not paged; horizontal ones sit side by side.
+  const x0 = isVertical ? 0 : screen * width
   const cols = l3.tide ? 32 : L3_TILEMAP_COLS
   const cell = (r: number, c: number) => l3.tilemap[r * L3_TILEMAP_COLS + c] ?? 0
   const row = (r: number) => Array.from({ length: L3_TILEMAP_COLS }, (_, c) => cell(r, c))
@@ -247,7 +250,9 @@ export function drawL3Planes(l3: L3Inputs, screen: number): L3Planes {
   const drew = [false, false]
   const xOff = l3.xPx ?? 0
   for (let r = L3_HUD_ROW_CUTOFF; r < end; r++) {
-    const y = r * 8 - l3.yPx + l3.camYPx
+    // Vertical: BG3 is screen-locked (Layer3Y never follows the camera, layers_v5 1ce), so every
+    // screen draws the same band; the camera Y at load only places a horizontal map's band.
+    const y = r * 8 - l3.yPx + (isVertical ? 0 : l3.camYPx)
     if (y < 0 || y >= height) continue
     // Tiles sit at Layer3XPos-shifted columns (camera X at load is 0); a start left of 0 clips the first tile.
     for (let sx = -(xOff & 7); sx < width; sx += 8) {
