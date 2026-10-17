@@ -19,11 +19,11 @@
  * in INIT: 20 through the NMI upload list ($0681/$0682), 21 through a MainPalette list
  * ($0703, with $0680 = 6), 22 through $2121/$2122; 23 sets one color directly then by the list, 24 appends a list color and requests the MainPalette upload in one frame, 25 sets two colors with one CGADD, 26 writes id 21's MainPalette list without requesting the upload, 28 writes mirror colors with no list header, 29 uploads a two-color list entry, 27 appends a list color in every MAIN pass, 30 burns ~196k steps per INIT and never leaves status 1; 31 draws at X then moves X by +4 each MAIN; 34 draws, moves X by +4, then draws again; 32 is 31 but draws only from its second MAIN; 103 is the line-guided grinder's id: its MAIN has the vanilla SHAPE the runner's gate reads (bank_01.asm:11837-11846, 12182-12204) around a draw then a +4 move. Options plant a defect for the oracle tests.
  */
-// content-gate: allow byte-tokens -- hand-written synthetic stand-ins for CPU tests, no ROM-derived data
 import { RomFile } from '../../../src/rom/RomFile'
 import type { DispatcherSpan } from '../../../src/rom/sprites/interp/SpriteDispatch'
 
 import { putGm11Spans } from './syntheticGm11Spans'
+import { putLoaderStandIns } from './syntheticLoaderStandIns'
 import { putDrawPosProbes } from './syntheticDrawProbes'
 import { putGrinderRoutines } from './syntheticGrinder'
 
@@ -150,18 +150,10 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   put(0x009716, [0x22, 0x1e, 0x80, 0x05])
   put(0x05d796, [bad('lead', 0x8b), 0x4b, 0xab, 0xe2, 0x30, 0x9c, 0xcf, 0x13, 0xad, 0x95, 0x1b, 0xd0, 0x05, 0xac, 0x25, 0x14, 0xf0, 0x03, 0x20, 0xac, 0xdb, 0xad, 0x1a, 0x14, 0xd0, 0x03, 0x4c, 0x3e, 0xd8]) // prettier-ignore
   put(0x05d83b, [bad('jump', 0x4c), 0xb7, 0xd8])
-  // CODE_05D8B7 shape, then SEP #$30 / LDA #7 / STA $1692 / STA $1A / LDA #irqCommand / STA $0D9B / PLB / RTL
-  put(0x05d8b7, [bad('pointers', 0xc2), 0x30, 0xa5, 0x0e, 0x0a, 0x18, 0x65, 0x0e, 0xa8, 0xe2, 0x30, 0xa9, 0x07, 0x8d, 0x92, 0x16, 0x85, 0x1a, 0xa9, o.irqCommand ?? 0, 0x8d, 0x9b, 0x0d, 0xab, 0x6b]) // prettier-ignore
   putGm11Spans(put, o)
+  putLoaderStandIns(put, o)
   // CODE_00A635 shape, then LDA $0000 / LDA #6 / STA $71 / RTS
   put(0x00a635, [bad('entrance', 0xad), 0xad, 0x14, 0x0d, 0xae, 0x14, 0x0d, 0x0c, 0x19, 0xd0, 0x0a, 0xad, 0x00, 0x00, 0xa9, 0x06, 0x85, 0x71, 0x60]) // prettier-ignore
-  // CODE_05801E shape, STA $7EC800,X, LDA #$77 / STA $5E (CODE_0584E3 rewrites $5E, bank_05.asm:560,
-  // so only a data loader run AFTER the screen setup leaves $77), STZ $5B (ScreenMode, as the header loader
-  // rewrites it, bank_05.asm:553: only a Layer 3 handler run after it leaves bit 7), then PLP RTL (or COP)
-  put(0x05801e, [bad('data', 0x08), 0xe2, 0x20, 0xc2, 0x10, 0xa2, 0x00, 0x00, 0xa9, 0x25, 0x9f, 0x00, 0xc8, 0x7e, 0xa9, 0x77, 0x85, 0x5e, 0x64, 0x5b, ...(o.loaderCop ? [0x02, 0x00] : [0x28, 0x6b])]) // prettier-ignore
-  // CODE_009FB8 shape (LDA ObjectTileset / ASL / CLC / ADC ObjectTileset), then SEP #$20 / LDA #$80 / TSB $5B / RTS:
-  // the stand-in for the Layer 3 handler's ScreenMode bit 7.
-  put(0x009fb8, [bad('layer3', 0xad), 0x31, 0x19, 0x0a, 0x18, 0x6d, 0x31, 0x19, 0xe2, 0x20, 0xa9, 0x80, 0x04, 0x5b, 0x60]) // prettier-ignore
   // $01:808C sprite loop: PHB PHK PLB, X = $0B..0 { STX $15E9; JSR setup; JSR handle }
   put(0x01808c, [
     0x8b, 0x4b, 0xab, 0xa2, o.badLoop ? 0x0a : 0x0b, 0x8e, 0xe9, 0x15, 0x20, 0xd2, 0x80, 0x20, 0x27, 0x81, 0xca,
