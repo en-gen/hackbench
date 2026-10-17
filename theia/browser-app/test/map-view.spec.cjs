@@ -1252,8 +1252,8 @@ test('$018: layer 3 is camera-locked, so its toggle is disabled and says so', as
 
 /**
  * The sprite layer (#564), drawn by the sprite interpreter (#585). $106 holds both kinds on vanilla:
- * sprites the ROM's own INIT and MAIN draw (21 of 25) and ids the interpreter refuses (marked, with its
- * reason). Its sprites sit past screen 0, so screen 1 is scrolled into view. $105 draws 31 of 34.
+ * sprites the ROM's own INIT and MAIN draw (24 of 25, #968 made the 3 stationary shells draw) and ids the interpreter refuses (marked, with its
+ * reason). Its sprites sit past screen 0, so screen 1 is scrolled into view. $105 draws 32 of 34.
  */
 const spriteToggle = (page, index) => page.locator(`${root(index)} [data-control="layer-sprites"]`)
 const spritePlane = (page, index, screen) =>
@@ -1299,7 +1299,7 @@ test('an interpreter-drawn sprite shows its own pixels where the service placed 
   )
   expect(reply.status).toBe('ok')
   expect(reply.sprites).toHaveLength(25)
-  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(21)
+  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(24) // 21 plus the 3 stationary shells (#968)
   const inScreen1 = s => s.box.x0 >= 256 && s.box.x1 <= 512 && s.box.y0 >= 0 && s.box.y1 <= 432
   // Measured on vanilla: the first $05 is at tile (27, 20), a 16 x 32 body whose top is above its anchor.
   const koopa = reply.sprites.find(s => s.id === 5)
@@ -1359,7 +1359,7 @@ test('$4F on $105 is served at its stream position plus the (8, -1) its INIT add
     project.manifestPath,
   )
   expect(reply.status).toBe('ok')
-  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(31)
+  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(32) // 31 plus the shell $DB at 3344,368 (#968)
   // Stream positions (1808, 336), (2224, 320), (4544, 320): measured on vanilla, absolute.
   const fours = reply.sprites.filter(s => s.id === 0x4f)
   expect(fours.map(s => [s.x, s.y, s.status])).toEqual([
