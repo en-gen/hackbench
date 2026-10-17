@@ -28,7 +28,7 @@ import type {
   SwitchFlagsDto,
   SwitchStateDto,
 } from '../common/project-protocol'
-import { unreadable, L1ModelCache } from './map-screen'
+import { L1ModelCache, unreadable } from './map-screen'
 
 type Reply = Exclude<MapCollisionResult, { status: 'rom-not-located' }>
 const TILE = 16

@@ -99,7 +99,7 @@ function collisionWhyNot(
   r: Exclude<MapCollisionResult, { status: 'stale' }> | MapCollisionCheckResult,
 ): string | undefined {
   if (r.status === 'ok' || r.status === 'available') return undefined
-  if (r.status === 'unavailable') return withDetail(r.reason, 'detail' in r ? r.detail : undefined)
+  if (r.status === 'unavailable') return withDetail(r.reason, r.detail)
   return romMissingMessage(r.baseRom.title)
 }
 
