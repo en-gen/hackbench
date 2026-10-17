@@ -91,6 +91,12 @@ function probe(page, at) {
           throw new Error('plane and composite canvases differ in size')
       const pixels = at ?? [...Array(sprites.length / 4).keys()].filter(p => sprites[p * 4 + 3] === 255 && high[p * 4 + 3] === 255) // prettier-ignore
       const same = (a, b, p) => [0, 1, 2, 3].every(k => a[p * 4 + k] === b[p * 4 + k])
+      // Every colour channel of `v` lies between a's and b's (+-1 for rounding): a blend of the two.
+      const between = (v, a, b, p) =>
+        [0, 1, 2].every(k => {
+          const i = p * 4 + k
+          return v[i] >= Math.min(a[i], b[i]) - 1 && v[i] <= Math.max(a[i], b[i]) + 1
+        })
       return {
         pixels,
         spriteOpaque: pixels.filter(p => sprites[p * 4 + 3] === 255).length,
@@ -98,8 +104,7 @@ function probe(page, at) {
         lowOpaque: pixels.filter(p => low[p * 4 + 3] === 255).length,
         compIsHigh: pixels.filter(p => same(comp, high, p)).length,
         compIsSprite: pixels.filter(p => same(comp, sprites, p)).length,
-        // Every channel of the composite lies between the tile's and the sprite's (+-1 for rounding): a blend.
-        compBetween: pixels.filter(p => [0, 1, 2].every(k => comp[p * 4 + k] >= Math.min(high[p * 4 + k], sprites[p * 4 + k]) - 1 && comp[p * 4 + k] <= Math.max(high[p * 4 + k], sprites[p * 4 + k]) + 1)).length, // prettier-ignore
+        compBetween: pixels.filter(p => between(comp, high, sprites, p)).length,
         highDiffersFromSprite: pixels.filter(p => !same(high, sprites, p)).length,
       }
     },
@@ -140,9 +145,9 @@ test('an L1 priority tile draws over an overlapping sprite; with priority cleare
   await expect(page.locator(plane('sprites'))).toHaveAttribute('data-drawn', /^\d+:\d+$/, { timeout: 30000 }) // prettier-ignore
 
   // (a) Priority set: the sprite draws under the tile, in the hidden-tile screen door (D52, #866, docs/rom/obj-priority.md
-  // "A covered sprite pixel is not hidden"). So the composite was once asserted to be the tile's pixel alone (#931), before the door; now it is a
-  // blend of the two (0.25 sprite on the dim squares), and the sprite is full strength only on the door's full squares, which `doorFlip` keeps
-  // to at most half of a sprite's covered pixels. A sprite drawn last (the #529 defect) is the sprite at all n.
+  // "A covered sprite pixel is not hidden"). Before the door (#931) the composite was the tile's pixel alone; now it is a blend, with
+  // the sprite at full strength only on the door's full squares, at most half of a sprite's covered pixels (`doorFlip`). A sprite
+  // drawn last (the #529 defect) is the sprite at all n.
   const before = await probe(page)
   const n = before.pixels.length
   expect(n, 'sprites sit under l1High pixels here').toBeGreaterThanOrEqual(MIN_OVERLAP)
