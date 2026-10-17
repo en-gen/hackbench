@@ -33,7 +33,8 @@ import { runSprite } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { neighboursOf } from '../../../../src/rom/sprites/interp/Neighbours'
-import { parseLevelSprites, type LevelSprite } from '../../../../src/rom/LevelParser'
+import type { LevelSprite } from '../../../../src/rom/LevelParser'
+import { levelSpriteList } from '../../support/levelSpriteList'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import {
   CAPTURE_DIR,
@@ -182,9 +183,12 @@ function gradeAll(
     // Hardware timeline: INIT sees marioAtInit, MAIN sees marioStart, and the graded pass is the
     // one the capture's drawn frame falls on. Without the fields, the old first-drawing-pass rule.
     if (!listByMap.has(map)) {
-      const ptr = smw.getLevelSpritePointer(parseInt(map, 16))
+      const lv = parseInt(map, 16)
+      const ptr = smw.getLevelSpritePointer(lv)
       const data = ptr === null ? null : rom.readUpTo(ptr, 4096)
-      listByMap.set(map, data ? parseLevelSprites(data, false) : [])
+      const raw = smw.getLevelRawData(lv)
+      // A vertical map's stream swaps X and Y (#1018); the helper decides it as MapBuilder does.
+      listByMap.set(map, data && raw ? levelSpriteList(data, raw, smw.requireVerticalTable()) : [])
     }
     const list = listByMap.get(map)!
     const me = list.find(e => e.index === rec.listIndex)
