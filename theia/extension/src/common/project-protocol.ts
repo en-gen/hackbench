@@ -159,6 +159,10 @@ export type LoadMapsResult =
       rawGroups: MapGroupDto[]
       romPath: string
       groupsError?: string
+      /** meta/aliases.json 'map' namespace: hex slot to the user's name. For search. */
+      mapAliases?: Record<string, string>
+      /** Why meta/aliases.json could not be read; mapAliases is empty then. */
+      aliasesError?: string
     }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
@@ -312,6 +316,8 @@ export type MapScreenResult =
 export interface MapSpriteDto {
   index: number
   id: number
+  /** The sprite's plain name for the hover (#981), from the app's sprite name table; absent when it has none. */
+  name?: string
   /** Anchor, the sprite's tile corner. */
   x: number
   y: number

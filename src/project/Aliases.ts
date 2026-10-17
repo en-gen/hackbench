@@ -25,7 +25,11 @@
  *
  * No VS Code or Theia imports, same rule as the rest of src/project/.
  */
+import { aliasKey, parseHexId } from './HexId'
 import { readMeta, writeMeta } from './ProjectMeta'
+
+// Lives in HexId.ts (fs-free, so the browser may import it); kept here for callers.
+export { aliasKey }
 
 /**
  * Which kind of thing is being named.
@@ -45,18 +49,6 @@ export type AliasTable = Record<string, string>
 export const ALIAS_MAX_LENGTH = 64
 
 /**
- * The canonical key for an id: uppercase hex, at least two digits.
- *
- * Two digits is the natural width of a BGM command; a wider id (a map's
- * three-digit translevel) keeps its own width rather than being truncated.
- * Fixed here rather than at each call site so a key written by the music
- * panel is the same string the map tree would write.
- */
-export function aliasKey(id: number): string {
-  return id.toString(16).toUpperCase().padStart(2, '0')
-}
-
-/**
  * Normalise a key as it was found on disk.
  *
  * Tolerant on read because the alias file is a plain JSON file people edit
@@ -64,9 +56,8 @@ export function aliasKey(id: number): string {
  * dropping three of those spellings would look like the name was lost.
  */
 function normaliseKey(raw: string): string | null {
-  const stripped = raw.trim().replace(/^\$/, '').replace(/^0x/i, '')
-  if (!/^[0-9a-f]+$/i.test(stripped)) return null
-  return aliasKey(parseInt(stripped, 16))
+  const id = parseHexId(raw)
+  return id === null ? null : aliasKey(id)
 }
 
 /**
@@ -123,6 +114,31 @@ export function readAliases(manifestPath: string, ns: AliasNamespace): AliasTabl
     if (normalised !== null) table[normalised] = value
   }
   return table
+}
+
+/**
+ * readAliases for a caller that must not fail on a hand-edited bad file: the
+ * reason travels with the empty table instead of an exception (a missing file
+ * is no error). The reason reads after the file name ("meta/aliases.json
+ * <reason>") and carries no path, so a row or toast can show it as is.
+ * Only an unreadable file (bad JSON, or a top level that is not an object) is
+ * reported; readAliases' tolerance of odd keys and values is unchanged.
+ */
+export function readMapAliasesOrError(manifestPath: string): {
+  aliases: AliasTable
+  error?: string
+} {
+  try {
+    return { aliases: readAliases(manifestPath, 'map') }
+  } catch (err) {
+    const cause = err instanceof Error ? err.cause : undefined
+    let error: string
+    if (cause instanceof Error) error = `is not valid JSON (${cause.message})`
+    else if (err instanceof Error && err.message.startsWith('meta/aliases.json is not an object'))
+      error = 'is not an object of namespaces'
+    else error = err instanceof Error ? err.message : String(err)
+    return { aliases: {}, error }
+  }
 }
 
 /**
