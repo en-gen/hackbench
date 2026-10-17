@@ -166,36 +166,46 @@ function ownPixel(map, s) {
 }
 
 const titleOf = (page, slot) => page.locator(stripOf(slot)).getAttribute('title')
-const statusText = page => page.locator('#theia-statusBar').innerText()
+const statusBar = page => page.locator('#theia-statusBar')
+
+/** Re-points at map pixel `at` and reads the strip's title; for polling until the sprites have loaded. */
+async function titleAt(page, slot, map, at) {
+  await pointAt(page, slot, map, at.x, at.y)
+  return titleOf(page, slot)
+}
+
+/** The first named, drawn sprite that owns at least one pixel of the map. */
+const namedSprite = map =>
+  map.stack.find(s => s.status === 'drawn' && s.name && map.ownerAt(s.x, s.y))
 
 test('AC1, AC3: hovering a sprite titles it with its name and $id; clicking puts the same in the status bar; empty ground clears it (#981)', async ({
   page,
 }) => {
   const slot = HIDDEN.slot
   const map = await openMap(page, slot)
-  const sprite = map.stack.find(s => s.status === 'drawn' && s.name && map.ownerAt(s.x, s.y))
+  const sprite = namedSprite(map)
   expect(sprite, 'a named, drawn sprite on the map').toBeTruthy()
   const at = ownPixel(map, sprite)
   const label = `${sprite.name} (sprite ${hex(sprite.id)})`
-  await expect.poll(async () => { await pointAt(page, slot, map, at.x, at.y); return titleOf(page, slot) }, { timeout: 30000 }).toBe(label) // prettier-ignore
+  await expect.poll(() => titleAt(page, slot, map, at), { timeout: 30000 }).toBe(label)
   expect(label).toMatch(/\(sprite \$[0-9A-F]{2}\)$/)
 
   const p = await clientOf(page, slot, map, at.x, at.y)
   await page.mouse.click(p.x, p.y)
-  await expect(page.locator('#theia-statusBar')).toContainText(label)
+  await expect(statusBar(page)).toContainText(label)
 
   const empty = findPixel(map, (x, y) => clearAround(map, x, y), at)
   const e = await clientOf(page, slot, map, empty.x, empty.y)
   await page.mouse.click(e.x, e.y)
-  await expect(page.locator('#theia-statusBar')).not.toContainText(label)
-  expect(await statusText(page)).not.toContain('(sprite $')
+  await expect(statusBar(page)).not.toContainText(label)
+  expect(await statusBar(page).innerText()).not.toContain('(sprite $')
 
   // Selected again, the sprite toggle going off clears it, and a sprite that is not drawn has no tooltip.
   const again = await clientOf(page, slot, map, at.x, at.y)
   await page.mouse.click(again.x, again.y)
-  await expect(page.locator('#theia-statusBar')).toContainText(label)
+  await expect(statusBar(page)).toContainText(label)
   await page.locator(`${rootOf(slot)} [data-control="layer-sprites"]`).click()
-  await expect(page.locator('#theia-statusBar')).not.toContainText(label)
+  await expect(statusBar(page)).not.toContainText(label)
   await pointAt(page, slot, map, at.x, at.y)
   await expect.poll(() => titleOf(page, slot)).toBeNull()
 })
@@ -203,10 +213,10 @@ test('AC1, AC3: hovering a sprite titles it with its name and $id; clicking puts
 test('AC2: hovering empty ground leaves the strip without a sprite tooltip', async ({ page }) => {
   const slot = HIDDEN.slot
   const map = await openMap(page, slot)
-  const sprite = map.stack.find(s => s.status === 'drawn' && s.name && map.ownerAt(s.x, s.y))
+  const sprite = namedSprite(map)
   const on = ownPixel(map, sprite)
   // On the sprite first, so a missing tooltip is not just "sprites not loaded yet".
-  await expect.poll(async () => { await pointAt(page, slot, map, on.x, on.y); return titleOf(page, slot) }, { timeout: 30000 }).toContain('(sprite $') // prettier-ignore
+  await expect.poll(() => titleAt(page, slot, map, on), { timeout: 30000 }).toContain('(sprite $')
   const empty = findPixel(map, (x, y) => clearAround(map, x, y), on)
   await pointAt(page, slot, map, empty.x, empty.y)
   await expect.poll(() => titleOf(page, slot)).toBeNull()
@@ -224,7 +234,9 @@ test('AC4: where two sprites overlap, the tooltip names the one drawn on top (co
   expect(both, 'the pair shares an opaque pixel').toBeTruthy()
   const [top, under] = map.ownerAt(both.x, both.y) === a ? [a, b] : [b, a]
   expect(map.stack.indexOf(top)).toBeGreaterThan(map.stack.indexOf(under))
-  await expect.poll(async () => { await pointAt(page, PAIR.slot, map, both.x, both.y); return titleOf(page, PAIR.slot) }, { timeout: 30000 }).toContain(hex(top.id)) // prettier-ignore
+  await expect
+    .poll(() => titleAt(page, PAIR.slot, map, both), { timeout: 30000 })
+    .toContain(hex(top.id))
   expect(await titleOf(page, PAIR.slot)).not.toContain(`(sprite ${hex(under.id)})`)
 })
 
@@ -233,5 +245,7 @@ test('AC5: a hidden (screen door) sprite shows its id too', async ({ page }) => 
   const plant = map.stack.find(s => s.index === HIDDEN.index && s.id === HIDDEN.id)
   expect(plant, 'sprite 11 of map $105 is the jumping Piranha Plant').toBeTruthy()
   const at = ownPixel(map, plant)
-  await expect.poll(async () => { await pointAt(page, HIDDEN.slot, map, at.x, at.y); return titleOf(page, HIDDEN.slot) }, { timeout: 30000 }).toBe(`${HIDDEN.name} (sprite ${hex(HIDDEN.id)})`) // prettier-ignore
+  await expect
+    .poll(() => titleAt(page, HIDDEN.slot, map, at), { timeout: 30000 })
+    .toBe(`${HIDDEN.name} (sprite ${hex(HIDDEN.id)})`)
 })
