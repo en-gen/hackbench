@@ -506,8 +506,8 @@ sides drew only parked pieces, at matching positions: agreement), late (the
 model had not drawn yet at the target pass, the capture had), lagged (target
 pass past the pass count, drew or not) and refused, per sprite and per id
 (`SPRITE_POSITION_OUT=<file>` dumps the records), and holds a bound per verdict
-with 1% headroom (vanilla, one machine, 2026-10-10 measured: 1366 exact, 469
-off, 23 missing, 18 parked, 1 late, 80 lagged, 0 refused of 1957). All 80
+with 1% headroom (vanilla, one machine, 2026-10-17 measured on the #842 head: 1396 exact, 461
+off, 1 missing, 18 parked, 1 late, 80 lagged, 0 refused of 1957; 1366, 469 and 23 before #842). All 80
 lagged records are captures whose first draw came 31 to 89 frames after the
 first MAIN (likely the level fade-in, not traced); it is not re-aligned to the
 first draw.

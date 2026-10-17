@@ -36,9 +36,14 @@ One machine, vanilla ROM, the level-load capture set (`layers_v5`), measured 202
   `4891-4900`). Map $0C2 (not a tide level; $5B is 1) shows the gap: hardware $28/$29 are $48/$FC, the
   loader's $00. Nothing in the grader depends on it yet; a sprite that reads the Layer 2/3 offset on a
   map with a scrolled camera could.
+- Also not run: the GM12PrepLevel step `JSL CODE_05BE8A` (`bank_00.asm:4869`), which sets Layer3YPos from
+  Layer1YPos (`bank_05.asm:4784-4798`). The loader skips it, so Layer3YPos ($24) differs from hardware on
+  some maps: 011, 130 and 1c1 load $24 = $00 against hardware $C0; 01f and 1d4 load $D0 against hardware
+  $A0 (frame_0000 of each capture, one machine, vanilla). The five tide maps agree. Running that span is a
+  follow-up, not part of this change.
 - The loader skips the handler when `IRQNMICommand` ($0D9B) bit 7 is set, as `GM12PrepLevel` does
   (`bank_00.asm:4861-4863`). The header loader sets the cell from `SpecialLevTable` by level mode
-  (`bank_05.asm:500-503`), so the gate is by mode, not a room list. 24 vanilla levels end with it set:
+  (`bank_05.asm:500-503`), so the gate is by mode, not a room list. 24 vanilla maps end with it set:
   mode 9 ($C0): 095 098 099 09a 0cc 0d5 0d9 0df 0e2 0e5 195 198 199 19a 1de; mode $B ($80): 096 097
   196 197 1eb 1f6; mode $10 ($C1): 09b 19b 1c7. Pinned against hardware on the 18 of those in the
   capture set (`layer3Setup.test.ts`): the loader's $13D5 equals `frame_0000` on each (one capture each,
@@ -54,8 +59,8 @@ One machine, vanilla ROM, the level-load capture set (`layers_v5`), measured 202
 entries are.
 
 Grading was fixed alongside. The capture records a sprite at its first OAM write
-(`headless_capture.lua`, snapshot at the slot's first write in $0200-$049F outside $0400-$041F, while
-$15E9 is the slot), so a sprite that draws and then moves (the dolphin, `DolphinMain`) was graded from its
+(`headless_capture.lua`, snapshot at the sprite slot's first write in $0200-$049F outside $0400-$041F, while
+$15E9 is the sprite slot), so a sprite that draws and then moves (the dolphin, `DolphinMain`) was graded from its
 position after the move. `Machine` now records that position (`PassResult.drawPos`) and
 `passPieces` measures offsets from it.
 
@@ -71,4 +76,4 @@ Record by record against develop: 832 better, 0 worse, 1125 unchanged. The handl
 $A4 on map $102, 13 $5D on map $102 (empty to exact), 6 $16 on map $127 and 1 $15; it made 5 dolphins on
 map $002 grade shape instead of exact, because they now move in liquid and draw before they move. Grading
 at the draw position fixes those, and the 808 shape results (all now exact).
-Matching the capture's sample point exactly (slot check and the size-table range) changed no count.
+Matching the capture's sample point exactly (sprite slot check and the size-table range) changed no count.

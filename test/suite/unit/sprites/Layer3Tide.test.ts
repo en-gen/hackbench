@@ -6,7 +6,7 @@
  * corpus half pins the vanilla map list. The skip itself is in layer3Setup.test.ts; the last
  * synthetic block here pins it against a handler that does real tide work.
  *
- * Evidence scope: vanilla (SHA-1 6b47bb75), all 512 level numbers, one machine, 2026-10-16.
+ * Evidence scope: vanilla (SHA-1 6b47bb75), all 512 slots, one machine, 2026-10-16.
  */
 import { describe, expect, it } from 'vitest'
 import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
@@ -76,7 +76,7 @@ describe('the tide in the level loader (synthetic cart)', () => {
 })
 
 describe.skipIf(!hasRom(VANILLA))('the tide on vanilla (corpus)', () => {
-  it('exactly maps 002, 0BE, 0C1, 102 and 127 set the bit from the tide, over all 512 levels', () => {
+  it('exactly maps 002, 0BE, 0C1, 102 and 127 set the bit from the tide, over all 512 slots', () => {
     const rom = freshRom(VANILLA)
     const tides: number[] = []
     for (let lv = 0; lv < 512; lv++) {

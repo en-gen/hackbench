@@ -240,6 +240,8 @@ const FLOOR = {
   // shape at 0, exact + shape could never fire below the exact floor.
   exact: 1820,
   maxRefused: 0,
+  maxShape: 5, // 0 measured
+  maxClose: 20, // 17 measured
   maxEmpty: 5, // 0 measured
   maxWrong: 115, // 110 measured
   maxMissAtK: 6, // 3 measured
@@ -280,6 +282,8 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     expect(rows.length).toBe(FLOOR.graded)
     expect(by.exact ?? 0).toBeGreaterThanOrEqual(FLOOR.exact)
     expect(by.refused ?? 0).toBeLessThanOrEqual(FLOOR.maxRefused)
+    expect(by.shape ?? 0).toBeLessThanOrEqual(FLOOR.maxShape)
+    expect(by.close ?? 0).toBeLessThanOrEqual(FLOOR.maxClose)
     expect(by.empty ?? 0).toBeLessThanOrEqual(FLOOR.maxEmpty)
     expect(by.wrong ?? 0).toBeLessThanOrEqual(FLOOR.maxWrong)
     // 38 records carry no initFrame (the spawned ones) and grade the old way.
@@ -299,6 +303,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     // The tide maps (#845): fish enter the liquid path once $5B bit 7 is set (hardware WRAM has it).
     ['127', '$16', 400, 368],
     ['127', '$16', 1296, 368],
+    ['1cc', '$93', 224, 368], // #846: moves after drawing; graded from where it drew
     ['102', '$A4', 912, 400], // #842: sank 32 px until the loader ran the Layer 3 handler
   ])(
     'map %s %s at %i,%i grades exact',

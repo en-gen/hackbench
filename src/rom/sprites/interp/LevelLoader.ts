@@ -10,7 +10,9 @@
  * (bank_00.asm:2645-2649 layer position copy, 2652-2656 screen setup), then the level-data loader
  * (CODE_05801E, bank_05.asm:19-70: header parse CODE_0584E3, called at line
  * 428, for $5B/$5D/$64; tileset slope pointer CODE_0581FB, line 253; then every
- * object of Layer 1 expanded into the Map16 tables at $7E:C800/$7F:C800).
+ * object of Layer 1 expanded into the Map16 tables at $7E:C800/$7F:C800), then GM12PrepLevel's
+ * Layer 3 handler (CODE_009FB8, bank_00.asm:4870; skipped when IRQNMICommand bit 7 is set,
+ * bank_00.asm:4861-4864): the tide's $5B bit 7 and buffer clear (#842, #845).
  * Hardware registers are the bus stubs; nothing is read from an emulator capture.
  *
  * The fixed entries and the GM11 spans between them are byte-checked, including the bytes that lead into
@@ -37,10 +39,10 @@ import { smwMachine } from './Machine'
 import { withSeed, type SeedOverride, type SpriteSeed } from './SpriteSeed'
 
 /**
- * Instruction cap for the whole load (all five steps). The loader runs on the
+ * Instruction cap for the whole load (all six steps). The loader runs on the
  * Theia RPC thread (map-sprites.ts), so a ROM that passes the shapes and loops
- * must be refused quickly. Vanilla's worst level over all 512 level numbers is
- * 276,864 steps (max over levels 0-511, one run, 2026-10-07), so this is ~7x headroom.
+ * must be refused quickly. Vanilla's worst level over all 512 slots is
+ * 276,880 steps with the Layer 3 handler (276,864 before it; max over slots 0-511, one run, 2026-10-07 and the review of #842), so this is ~7x headroom.
  */
 export const LOADER_TOTAL_CAP = 2_000_000
 
@@ -162,7 +164,7 @@ export function loadLevelState(rom: RomFile, level: number): LevelLoad {
     // $26/$28 offset, which CODE_019140's second pass reads as liquid (#842). The game skips it when
     // IRQNMICommand ($0D9B, set from SpecialLevTable by the header loader, bank_05.asm:500-503, 551)
     // has bit 7 (bank_00.asm:4861-4863 branches to CODE_0097BC instead). That is by mode, not by level
-    // list: 24 vanilla levels end with it set (modes 9, $B and $10; docs/sprites/sprite-a4-floating-spike-ball.md),
+    // list: 24 vanilla maps end with it set (modes 9, $B and $10; docs/sprites/sprite-a4-floating-spike-ball.md),
     // so the loader tests the same cell.
     const bad =
       run('level pointer loader', 0x05d8b7, 'jsl', 0x05, [0x05]) ??

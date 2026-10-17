@@ -50,6 +50,18 @@ describe('level loader runs the Layer 3 handler', () => {
     const l = loadLevelState(buildSyntheticRom({ badLoader: 'gm12' }), 0x105)
     expect(l).toMatchObject({ ok: false, reason: expect.stringMatching(/GM12PrepLevel/) })
   })
+  // Each byte below is checked by SHAPES, not just the first one: wildcarding it in the shape lets the plant through.
+  it.each([
+    ['the BPL that tests IRQNMICommand bit 7, $00:A5B2 (BMI)', 0x00a5b2, 0x30],
+    ['the JSR target of the Layer 3 handler, $00:A5C4', 0x00a5c4, 0xb9],
+  ])('refuses a GM12PrepLevel call site with %s changed', (_n, at, v) => {
+    const rom = buildSyntheticRom()
+    rom.writeAt(at, [v])
+    expect(loadLevelState(rom, 0x105)).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/GM12PrepLevel call site/),
+    })
+  })
 })
 
 // Map $102 is a tide level (hardware $5B = $80, Layer3YPos = $40). Its $A4 at 912,400 sat at the list
@@ -105,7 +117,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
 // captured vanilla level that ends with the bit set (modes 9, $B, $10). $13D5 is the loader's result
 // of skipping or running the handler; it must equal the capture's first frame (one capture each).
 describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
-  'bit-7 levels vs the level-load captures (#842)',
+  'bit-7 maps vs the level-load captures (#842)',
   () => {
     it.each([
       '095',

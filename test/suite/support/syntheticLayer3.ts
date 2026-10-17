@@ -1,7 +1,8 @@
 /**
  * The synthetic cart's stand-in for CODE_009FB8 (Layer 3 handling, bank_00.asm:4870) and its
- * tide helper CODE_00A045 (bank_00.asm:4219-4238). The lookup prefix and the helper carry the
- * shapes the level loader byte-checks; the rest is hand-written (non-tide exits are a bare RTS).
+ * tide helper CODE_00A045 (bank_00.asm:4219-4238). The loader byte-checks only the handler's first
+ * eight bytes (the prefix here carries them); the lookup, the helper and the non-tide exits (a bare RTS)
+ * are hand-written, so a test sees the handler's effect, not a copy of the ROM's bytes.
  * Table: tileset 0 = [1, 2, $C0], tileset 1 = [1, $80, $81], the Layer3TilemapSettings layout
  * (bank_00.asm:4121): below $80 is a tide, $80 and up is not.
  */
@@ -23,12 +24,11 @@ export const LAYER3_PREFIX: readonly number[] = [
   0x30, 0x19, 0x8d, 0x03, 0x14, 0x4a, 0x08, 0x20, 0x45, 0xa0,   // negative: skip; else the tide helper
 ]
 
-// prettier-ignore
+// SEP #$30 / LDA #0 / STA first / STA last / LDA #$80 / TSB $5B / RTS: clears the two ends of the buffer
+// (a marker at either end shows the clear; the interior is not modelled) and sets ScreenMode bit 7.
 export const TIDE_HELPER: readonly number[] = [
-  0xc2, 0x30, 0xa2, 0x00, 0x01, 0xa0, 0x58, 0x00, 0xa9, 0x00, 0x00, 0x9f, 0x00, 0xe3, 0x7e, 0xe8,
-  0xe8, 0x88, 0xd0, 0xf7, 0x8a, 0x18, 0x69, 0x00, 0x01, 0xaa, 0xe0, 0x00, 0x1b, 0x90, 0xe6, 0xe2,
-  0x30, 0xa9, 0x80, 0x04, 0x5b, 0x60,
-]
+  0xe2, 0x30, 0xa9, 0x00, 0x8f, ...long(BUFFER_FIRST), 0x8f, ...long(BUFFER_LAST), 0xa9, 0x80, 0x04, 0x5b, 0x60,
+] // prettier-ignore
 
 export function putLayer3(put: (snes: number, bytes: number[]) => void): void {
   put(LAYER3_TABLE_AT, [1, 2, 0xc0, 1, 0x80, 0x81])
