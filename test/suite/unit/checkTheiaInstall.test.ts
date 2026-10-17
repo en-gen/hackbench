@@ -20,6 +20,14 @@ const CONFIG = path.resolve('theia/browser-app/playwright.config.cjs')
 const LINKS = ['hackbench-theia-extension', 'hackbench-browser-app', 'hackbench-electron-app']
 const PKGS = ['extension', 'browser-app', 'electron-app']
 const junction = (target: string, at: string) => symlinkSync(target, at, 'junction')
+// A real shell sets PWD to the logical path on cd, and yarn/npm set INIT_CWD.
+// spawnSync sets neither, so on POSIX the child sees only the symlink target
+// and a linked theia folder looks like the target's own checkout (CI, Linux).
+const logicalEnv = (cwd: string, base: NodeJS.ProcessEnv = process.env) => ({
+  ...base,
+  PWD: cwd,
+  INIT_CWD: cwd,
+})
 const nmOf = (dir: string) => path.join(dir, 'theia', 'node_modules')
 
 /** A checkout with packages and the guard script; `install` adds a real node_modules. */
@@ -151,7 +159,12 @@ describe('guard wiring', () => {
   const read = (p: string) => readFileSync(path.resolve(p), 'utf8')
   const scripts = JSON.parse(read('theia/package.json')).scripts
   const hook = (name: string, wt: string) =>
-    spawnSync(scripts[name], { shell: true, cwd: path.join(wt, 'theia'), encoding: 'utf8' })
+    spawnSync(scripts[name], {
+      shell: true,
+      cwd: path.join(wt, 'theia'),
+      env: logicalEnv(path.join(wt, 'theia')),
+      encoding: 'utf8',
+    })
 
   it.each(['prebuild', 'prebuild:browser', 'prebuild:electron'])(
     '%s runs the guard and fails in a junctioned worktree',
@@ -168,7 +181,7 @@ describe('guard wiring', () => {
 
   describe('playwright config', () => {
     const load = (cwd: string, extra: Record<string, string> = {}) => {
-      const env = { ...process.env, ...extra }
+      const env = logicalEnv(cwd, { ...process.env, ...extra })
       for (const k of ['HB_APP_URL', 'HB_SKIP_INSTALL_GUARD']) if (!(k in extra)) delete env[k]
       return spawnSync(process.execPath, ['-e', `require(${JSON.stringify(CONFIG)})`], {
         cwd,
