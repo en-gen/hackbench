@@ -232,7 +232,7 @@ export function readSfxTable(rom: RomFile, port: SfxPort): SfxTableResult {
     if (slot + 1 >= hardStop) break
     if (slot >= lowestPointer) break
     const ptr = le16(aram, slot)
-    // No `ptr >= aram.length` check: `word` returns at most $FFFF and ARAM
+    // No `ptr >= aram.length` check: `le16` returns at most $FFFF and ARAM
     // is exactly 64 KB, so it could never fire. `ptr === 0` is likewise
     // covered, since the table base is always at least 2.
     if (ptr <= reader.table) break

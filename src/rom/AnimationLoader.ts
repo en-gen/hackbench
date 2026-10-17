@@ -517,7 +517,7 @@ function readVramDest(rom: RomFile, tableAddr: number, byteOffset: number): numb
  * animation frames that source from the GFX32 3bpp region get treated as raw
  * bytes and interpreted as 4bpp by the SNES PPU.
  */
-function decodeTilesAt(buffer: Uint8Array, offset: number): Uint8Array[] {
+export function decodeTilesAt(buffer: Uint8Array, offset: number): Uint8Array[] {
   const tiles: Uint8Array[] = []
   for (let t = 0; t < TILES_PER_TRANSFER; t++) {
     const tileOffset = offset + t * 32

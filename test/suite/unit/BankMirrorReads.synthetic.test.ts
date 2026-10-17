@@ -27,7 +27,7 @@ describe('read addresses keep bank $FE/$FF', () => {
   it.each([
     ['FE', 0xfe],
     ['FF', 0xff],
-  ])('GfxArena le24() returns bank $%s unfolded', (_label, bank) => {
+  ])('bytes le24() returns bank $%s unfolded', (_label, bank) => {
     expect(le24(Uint8Array.of(0x34, 0x92, bank), 0)).toBe((bank << 16) | 0x9234)
   })
 
