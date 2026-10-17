@@ -21,6 +21,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { cartBytes } from '../support/cartBytes'
 import { layer3Cart } from '../support/layer3Cart'
 import { buildSyntheticRom } from '../support/syntheticSpriteRom'
 
@@ -128,9 +129,7 @@ export function deniedIn(bytes: ArrayLike<number>, denied: ReadonlySet<string>):
 const deniedInText = (text: string, denied: ReadonlySet<string>): number =>
   byteRuns(text).reduce((n, r) => n + deniedIn(r, denied), 0)
 
-/** All eight banks of a synthetic cart as one byte array. */
-const bytesOf = (rom: ReturnType<typeof buildSyntheticRom>): number[] =>
-  [0, 1, 2, 3, 4, 5, 6, 7].flatMap(b => Array.from(rom.readAt((b << 16) | 0x8000, 0x8000)))
+const bytesOf = (rom: ReturnType<typeof buildSyntheticRom>): number[] => cartBytes(rom)
 
 const read = (f: string): string => readFileSync(join(ROOT, f), 'utf8')
 const ASM = new Set(DENIED_ASSEMBLED)

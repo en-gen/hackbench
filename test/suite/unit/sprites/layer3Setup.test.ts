@@ -16,6 +16,7 @@ import { RomFile } from '../../../../src/rom/RomFile'
 import { OP, word } from '../../support/asm65'
 import { POINTER_TAIL } from '../../support/layer3Cart'
 import { putLayer3 } from '../../support/syntheticLayer3'
+import { cartBytes } from '../../support/cartBytes'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 
 // A capture's first-frame WRAM (frame_0000_wram.bin), the hardware side of the comparisons below.
@@ -226,9 +227,7 @@ describe('fingerprinted spans: unmasked offsets are refused, masked ones are not
   it('the unchanged synthetic cart is accepted, and only the instance that was vouched for', () => {
     expect(loaderShapeProblem(buildSyntheticRom())).toBeNull()
     const src = buildSyntheticRom()
-    const bytes = Uint8Array.from(
-      [0, 1, 2, 3, 4, 5, 6, 7].flatMap(b => Array.from(src.readAt((b << 16) | 0x8000, 0x8000))),
-    )
+    const bytes = Uint8Array.from(cartBytes(src))
     const copy = RomFile.fromBytes('copy.sfc', bytes)
     expect(loaderShapeProblem(copy)).toMatch(/is not the vanilla shape/)
   })
