@@ -18,16 +18,16 @@
  * here: the owner checks it in the launched desktop app.
  *
  * Measured scope: slot $105 (20 screens) of the vanilla ROM, `build:browser`, Playwright 1.63
- * headless Chromium (classic scrollbars: the headless `--hide-scrollbars` default is dropped), one
- * Windows machine, every zoom (fit, 1x, 2x, 3x, 4x). The spec ran 3 times on the fix and once with
- * the `bare` cache removed (displayBuilds kept). Per test, fix runs: frame p50 16.7 ms, p95 <= 16.8,
- * max <= 16.8 (one 60 Hz frame); longest frozen span <= 50.1 ms on the wheel (events land on frame
- * boundaries), <= 33.4 ms on the drag; 0 IndicatorDisplay builds. Without the fix: frame p95 50.1 to
- * 100.0 ms, max 50.1 to 116.6, longest frozen 66.6 to 116.7 ms, 396 to 1152 builds, and the 4x drag
- * moved the view too few times to measure. Bounds: p95 25 (1.5 frames), longest frame 40, frozen 66
- * (four frames): each sits above every fix run value and below the no-fix minimum (50.1, 50.1,
- * 66.6). The frozen margin is thin at the no-fix end, so the build and frame bounds carry it too. Screens are WARMED first (a pass over the strip, polling until every screen in the
- * viewport is drawn), so a cold fetch is not counted.
+ * headless Chromium with classic scrollbars (the `--hide-scrollbars` default is dropped), one
+ * Windows machine, every zoom (fit, 1x to 4x), 3 runs on the fix and one without the `bare` cache.
+ * Fix runs: frame p95 <= 16.8 ms, longest frame <= 16.8, longest frozen span <= 50.1 (wheel events
+ * land on frame boundaries) and <= 33.4 (drag), 0 IndicatorDisplay builds. Without the fix: p95
+ * 50.1 to 100.0 ms, longest frame 50.1 to 116.6, longest frozen 66.6 to 116.7, 396 to 1152 builds
+ * (full figures in changelog.d/973-smooth-horizontal-scroll.md).
+ * Each bound sits above every fix value and below the no-fix minimum: p95 25 (1.5 frames), longest
+ * frame 40, frozen 66 (four frames). The frozen margin is thin at the no-fix end, so the build and
+ * frame bounds carry it too. Screens are WARMED first (a pass over the strip, polling until every
+ * screen in the viewport is drawn), so a cold fetch is not counted.
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')
