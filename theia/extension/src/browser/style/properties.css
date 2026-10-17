@@ -1,0 +1,34 @@
+/* Colors and sizes come from the active theme; nothing here fixes either. */
+.hb-props {
+  padding: 8px 12px;
+  overflow: auto;
+  font-size: var(--theia-ui-font-size1);
+}
+.hb-props-empty,
+.hb-props-crumb,
+.hb-props-note,
+.hb-props-anim {
+  color: var(--theia-descriptionForeground);
+}
+.hb-props dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 12px;
+  margin: 8px 0;
+}
+.hb-props dd {
+  margin: 0;
+}
+.hb-props-composite {
+  image-rendering: pixelated;
+  display: block;
+  margin: 8px 0;
+  border: 1px solid var(--theia-panel-border);
+}
+.hb-props-parts {
+  padding-left: 20px;
+  margin: 4px 0 8px;
+}
+.hb-props-note {
+  margin-top: 4px;
+}

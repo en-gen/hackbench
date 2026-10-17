@@ -1,0 +1,206 @@
+/**
+ * #984: clicking a placed sprite on the map view shows it in the Properties side panel (read only).
+ *
+ * The expected values come from the node reply's own DTO (`mapSprites`), the data the map view draws from, so
+ * a part count or palette row the panel gets wrong cannot agree with the map by construction. Sprites are
+ * picked by sweeping that reply, not hardcoded. The map view holds one pose per sprite (the interpreter's
+ * chosen pass), so the panel must say "not animated" for every sprite; an animation-preview assertion would
+ * need a multi-frame source the map does not have (see docs/architecture/theia-shell.md, Properties view).
+ * Vanilla ROM; skipped without it.
+ */
+const { test, expect } = require('@playwright/test')
+const { createHash } = require('crypto')
+const fs = require('fs')
+const path = require('path')
+const os = require('os')
+const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
+
+const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
+const ROM = process.env.HB_ROM || romPath(VANILLA)
+test.skip(!fs.existsSync(ROM), `vanilla ROM not present at ${ROM}`)
+
+const SLOT = 0x105
+const GET_SVC = `function getSvc(name) {
+  const d = window.theia.container._bindingDictionary
+  for (const k of d._map.keys()) {
+    const n = typeof k === 'function' ? k.name : String(k)
+    if (n === name) return window.theia.container.get(k)
+  }
+  return null
+}`
+
+let tmp
+let manifestPath
+let projectDir
+const rootOf = slot => `[id="hackbench.map-view:${slot}"]`
+const stripOf = slot => `${rootOf(slot)} .hb-map-view-strip`
+const panel = page => page.locator('[id="hackbench.properties"]')
+const hex = id => '$' + id.toString(16).toUpperCase().padStart(2, '0')
+
+/** A hash of every file under the project folder: the working copy lives there, so a write anywhere changes it. */
+function treeHash(dir) {
+  const h = createHash('sha256')
+  const walk = d => {
+    for (const e of fs
+      .readdirSync(d, { withFileTypes: true })
+      .sort((a, b) => a.name.localeCompare(b.name))) {
+      const p = path.join(d, e.name)
+      if (e.isDirectory()) walk(p)
+      else h.update(p).update(fs.readFileSync(p))
+    }
+  }
+  walk(dir)
+  return h.digest('hex')
+}
+
+test.beforeEach(async ({ page }) => {
+  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-sprite-props-'))
+  await page.goto(APP, { waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('#theia-app-shell', { timeout: 90000 })
+  await page.waitForTimeout(4000)
+  await page.addScriptTag({ content: GET_SVC })
+  projectDir = path.join(tmp, 'MyHack')
+  const project = await page.evaluate(
+    ({ romPath, directory }) =>
+      getSvc('Symbol(ProjectService)').createProject({ romPath, name: 'MyHack', directory }),
+    { romPath: ROM, directory: projectDir },
+  )
+  manifestPath = project.manifestPath
+})
+
+test.afterEach(() => {
+  if (tmp) fs.rmSync(tmp, { recursive: true, force: true })
+})
+
+const fetchSprites = page =>
+  page.evaluate(({ mp, slot }) => getSvc('Symbol(ProjectService)').mapSprites(mp, slot), {
+    mp: manifestPath,
+    slot: SLOT,
+  })
+
+/** Opens the map; returns the node reply with a click helper on a sprite's own opaque pixel. */
+async function openMap(page) {
+  await page.evaluate(
+    async ({ mp, index }) => {
+      const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { index })
+      await w.open({ manifestPath: mp, index, label: index.toString(16), iconClass: '' })
+      const shell = getSvc('ApplicationShell')
+      await shell.addWidget(w, { area: 'main' })
+      await shell.activateWidget(w.id)
+    },
+    { mp: manifestPath, index: SLOT },
+  )
+  await page.locator(stripOf(SLOT)).waitFor({ timeout: 30000 })
+  const reply = await fetchSprites(page)
+  expect(reply.status).toBe('ok')
+  const vertical = reply.orientation === 'vertical'
+  const bitmaps = new Map(reply.sprites.map(s => [s, Buffer.from(s.rgba, 'base64')]))
+  const opaque = (s, x, y) => {
+    const { x0, y0, x1, y1 } = s.box
+    return x >= x0 && x < x1 && y >= y0 && y < y1 && bitmaps.get(s)[((y - y0) * (x1 - x0) + (x - x0)) * 4 + 3] !== 0 // prettier-ignore
+  }
+  const stack = reply.sprites.filter(s => !s.fixedTo).sort((p, q) => (vertical ? p.y - q.y : p.x - q.x) || p.index - q.index) // prettier-ignore
+  const ownerAt = (x, y) => [...stack].reverse().find(s => opaque(s, x, y))
+  const mapW = vertical ? reply.width : reply.width * reply.screenCount
+  const mapH = vertical ? reply.height * reply.screenCount : reply.height
+  /** A pixel the sprite itself owns with its 2 px neighbourhood, so zoom rounding cannot land on another. */
+  const own = s => {
+    for (let y = s.box.y0 + 2; y < s.box.y1 - 2; y++)
+      for (let x = s.box.x0 + 2; x < s.box.x1 - 2; x++) {
+        let all = true
+        for (let dy = -2; dy <= 2 && all; dy++) for (let dx = -2; dx <= 2; dx++) if (ownerAt(x + dx, y + dy) !== s) all = false // prettier-ignore
+        if (all) return { x, y }
+      }
+    return undefined
+  }
+  const click = async (x, y) => {
+    const p = await page.evaluate(
+      ({ strip, mapW, mapH, x, y }) => {
+        const el = document.querySelector(strip)
+        const sc = el.closest('[data-control="map-scroller"]')
+        const at = () => {
+          const r = el.getBoundingClientRect()
+          return {
+            x: r.left + ((x + 0.5) * r.width) / mapW,
+            y: r.top + ((y + 0.5) * r.height) / mapH,
+          }
+        }
+        const [first, view] = [at(), sc.getBoundingClientRect()]
+        sc.scrollBy(first.x - (view.left + view.width / 2), first.y - (view.top + view.height / 2))
+        return at()
+      },
+      { strip: stripOf(SLOT), mapW, mapH, x, y },
+    )
+    await page.mouse.click(p.x, p.y)
+  }
+  /** A pixel with no sprite pixel within 3 px. */
+  const emptyPixel = () => {
+    for (let y = 4; y < mapH; y += 4)
+      for (let x = 4; x < mapW; x += 4)
+        if (!stack.some(s => opaque(s, x, y) || opaque(s, x - 3, y - 3) || opaque(s, x + 3, y + 3))) return { x, y } // prettier-ignore
+    return undefined
+  }
+  return { reply, stack, own, click, emptyPixel }
+}
+
+test('clicking a sprite opens the Properties panel with its id, name, position, parts and palette rows; another click updates it; empty ground clears it', async ({
+  page,
+}) => {
+  const map = await openMap(page)
+  const drawn = map.stack.filter(s => s.status === 'drawn' && s.parts && s.name && map.own(s))
+  // Two sprites with different ids, so "updates" cannot pass on a stale panel.
+  const a = drawn[0]
+  const b = drawn.find(s => s.id !== a.id)
+  expect(a && b, 'two distinct named, drawn sprites on the map').toBeTruthy()
+  const before = await fetchSprites(page)
+  const hashBefore = treeHash(projectDir)
+
+  for (const s of [a, b]) {
+    const at = map.own(s)
+    await map.click(at.x, at.y)
+    const p = panel(page)
+    await expect(p).toBeVisible()
+    await expect(p.locator('[data-field="label"]')).toHaveText(`${s.name} (sprite ${hex(s.id)})`)
+    await expect(p.locator('[data-field="id"]')).toHaveText(hex(s.id))
+    await expect(p.locator('[data-field="name"]')).toHaveText(s.name)
+    await expect(p.locator('[data-field="position"]')).toHaveText(
+      `Column ${Math.floor(s.x / 16)}, row ${Math.floor(s.y / 16)}`,
+    )
+    // The map view's own list: same part count, same palette rows.
+    await expect(p.locator('[data-field="parts"] li')).toHaveCount(s.parts.length)
+    const rows = [...new Set(s.parts.map(x => x.palette))].sort((m, n) => m - n).join(', ')
+    await expect(p.locator('[data-field="palette-rows"]')).toHaveText(rows)
+    // One pose per sprite in this view: the panel says so rather than looping a made-up frame.
+    await expect(p.locator('[data-field="animation"]')).toContainText('Not animated')
+    expect(await p.locator('[data-control="sprite-composite"]').count()).toBe(1)
+  }
+
+  const e = map.emptyPixel()
+  expect(e, 'a clear pixel on the map').toBeTruthy()
+  await map.click(e.x, e.y)
+  await expect(panel(page).locator('[data-subject="none"]')).toHaveText('No sprite selected')
+
+  // Read only: nothing was written, and the map's sprites are the same afterwards.
+  expect(treeHash(projectDir)).toBe(hashBefore)
+  expect(await fetchSprites(page)).toEqual(before)
+})
+
+test('closing the map clears the panel; the toggle command reopens a closed panel', async ({
+  page,
+}) => {
+  const map = await openMap(page)
+  const s = map.stack.find(x => x.status === 'drawn' && x.parts && map.own(x))
+  const at = map.own(s)
+  await map.click(at.x, at.y)
+  await expect(panel(page).locator('[data-subject="sprite"]')).toBeVisible()
+  await page.evaluate(
+    id => getSvc('ApplicationShell').closeWidget(id),
+    `hackbench.map-view:${SLOT}`,
+  )
+  await expect(panel(page).locator('[data-subject="none"]')).toHaveText('No sprite selected')
+
+  await page.evaluate(id => getSvc('ApplicationShell').closeWidget(id), 'hackbench.properties')
+  await expect(panel(page)).toHaveCount(0)
+  await page.evaluate(() => getSvc('CommandRegistry').executeCommand('hackbench.properties.toggle'))
+  await expect(panel(page)).toBeVisible()
+})

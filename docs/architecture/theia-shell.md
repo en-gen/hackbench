@@ -371,6 +371,27 @@ Test hooks: `data-control="refused-overlay"` (absent when there are no cells), p
 `data-control="refused-cell"` with `data-x`, `data-y` (tiles) and `data-object`, and the reason
 `Object <n> (<type>): <why>` as both the `<title>` tooltip and the `aria-label`.
 
+## Properties view (#984)
+
+One right-hand side panel, `hackbench.properties`, reopened from View > Properties. It shows a SUBJECT held by
+`PropertiesModel` (`properties-model.ts`): `none` or `sprite` today. A map tab publishes as its own owner and
+only the owner's clear takes effect, so closing a background map never wipes the front map's sprite (the rule
+`SpriteStatusOwner` uses for the status bar). Clicking a sprite publishes it and reveals the panel without
+activating it; empty ground, hiding or closing the map clears it to "No sprite selected".
+
+It is a small `ReactWidget`, not `@theia/property-view`: that package is not a dependency and adding it churns
+the lockfile for a selection-service round trip that would lose the owner rule. Everything it shows comes from
+the `MapSpriteDto` the map view draws from (`parts` is filled by `drawSprites` from the same list that blits the
+bitmap), via the pure `sprite-props.ts`; nothing re-reads the ROM and nothing writes.
+
+Animation: the map view runs each sprite once and keeps the interpreter's chosen pass, so the panel says "Not
+animated in this view" for every sprite. A looping preview needs a multi-frame source for map sprites
+(`Machine.passes` holds the passes but only `chosen` reaches the DTO); that is a separate decision.
+
+Adding the map description (#1023): add a `map` variant to `PropertiesSubject`, publish it from the map widget
+where it now publishes `none`, and render it in `PropertiesWidget.render` (the `none` slot); the sprite
+breadcrumb in `SpriteSubject` is where "Back" goes.
+
 ## The emulator view
 
 The emulator runs a **libretro core that you supply**. HackBench ships no
