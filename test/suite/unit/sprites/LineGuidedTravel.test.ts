@@ -82,7 +82,7 @@ describe('line-guided travel rides on the TrueFrame the runner seeds', () => {
   })
 
   it('moves 1 per frame whatever the parity when $187B is zero', () => {
-    const want = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+    const want = Array.from({ length: 9 }, (_, i) => i) // one step per pass: index i after i passes
     expect([track(35, 0), track(35, 1)]).toEqual([want, want])
   })
 })
