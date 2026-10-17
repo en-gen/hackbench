@@ -240,7 +240,7 @@ describe('blockIndicators: what is drawn', () => {
 
   it('surfaces a table refusal, a per-block refusal and a drawing refusal, never as raw keys', () => {
     const reason = 'DATA_00F080 (36 bytes at $00F080) runs past the end of this ROM'
-    expect(blockIndicators(model([]), { kind: 'unavailable', unavailable: reason }, stubArt().art)).toEqual({ status: 'unavailable', reason }) // prettier-ignore
+    expect(blockIndicators(model([]), { kind: 'unavailable', unavailable: reason }, stubArt().art)).toEqual({ status: 'unavailable', reason: "this ROM's block contents could not be read.", detail: reason }) // prettier-ignore
     const short = { ...TABLES, statusOfSprInBlk: new Uint8Array(0) }
     const refused = ok(blockIndicators(model([[0, 0, 0x115]]), short, stubArt().art))
     expect(refused.indicators).toEqual([])

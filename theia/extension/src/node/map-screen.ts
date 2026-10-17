@@ -389,7 +389,7 @@ export function palaceIconsOf(art: Record<Palace, PalaceArt>): PalaceIconDto[] {
   return PALACES.map(palace => {
     const a = art[palace]
     return 'reason' in a
-      ? { palace, unavailable: a.reason }
+      ? { palace, unavailable: PALACE_UNDRAWN, detail: a.reason }
       : { palace, uncleared: base64(a.uncleared), cleared: base64(a.cleared) }
   })
 }
@@ -491,12 +491,16 @@ export class L1ModelCache {
   }
 }
 
+const MAP_UNREADABLE = 'this map could not be read from the ROM.'
+const SWITCH_UNDRAWN = "this switch's picture could not be drawn on this ROM."
+const PALACE_UNDRAWN = 'this block could not be drawn on this ROM.'
+
 /**
  * Sprites, collision and block contents share one wording when their read fails (#967): plain
  * words in `reason`, the exception or gate text apart in `detail` for the tooltip.
  */
-export const unreadable = (detail: string) =>
-  ({ status: 'unavailable', reason: 'this map could not be read from the ROM.', detail }) as const
+export const unreadable = (detail: string, reason = MAP_UNREADABLE) =>
+  ({ status: 'unavailable', reason, detail }) as const
 
 export function mapScreen(
   cache: L1ModelCache,
@@ -524,14 +528,14 @@ export function toolbarArtOf(
   art: Record<Palace, PalaceArt>,
 ): Exclude<PalaceIconsResult, { status: 'rom-not-located' }> {
   if (!built.ok) {
-    const unavailable = Object.fromEntries(
-      (['blue', 'silver', 'onOff'] as const).map(k => [k, built.reason]),
-    )
+    const every = (text: string) =>
+      Object.fromEntries((['blue', 'silver', 'onOff'] as const).map(k => [k, text]))
     return {
       status: 'ok',
       icons: palaceIconsOf(art),
       switchArt: {},
-      switchUnavailable: unavailable,
+      switchUnavailable: every(MAP_UNREADABLE),
+      switchDetail: every(built.reason),
     }
   }
   const m = built.inputs
@@ -542,6 +546,8 @@ export function toolbarArtOf(
     status: 'ok',
     icons: palaceIconsOf(art),
     switchArt: buttons.art,
-    switchUnavailable: buttons.unavailable,
+    // The reasons name ROM routines and tile ids: they ride in `switchDetail`, for the tooltip's second line (#967).
+    switchUnavailable: Object.fromEntries(Object.keys(buttons.unavailable).map(k => [k, SWITCH_UNDRAWN])), // prettier-ignore
+    switchDetail: buttons.unavailable,
   }
 }

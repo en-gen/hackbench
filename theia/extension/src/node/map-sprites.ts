@@ -616,7 +616,7 @@ function compute(
     const ptr = rom.getLevelSpritePointer(index)
     // A stream in the ROM's last bytes is still a stream (as SmwRom.getLevelRawData reads).
     const data = ptr === null ? null : readStream(rom.rom, ptr)
-    if (!data) return { status: 'unavailable', reason: `No sprite data at the pointer for slot ${index.toString(16)}` } // prettier-ignore
+    if (!data) return unreadable(`No sprite data at the pointer for slot ${index.toString(16)}`, "this map's sprites could not be found in the ROM.") // prettier-ignore
     // The level loader runs once; the sprites and the castle flames both start from its image.
     const base = levelSeed(rom.rom, index)
     const draw = interpDrawer(rom.rom, index, model, runOnce, () => base)

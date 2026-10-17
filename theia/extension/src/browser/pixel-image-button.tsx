@@ -6,6 +6,7 @@
 import * as React from '@theia/core/shared/react'
 import { placeInFrame, type FrameAlign, type FrameSize } from './pixel-image-button-model'
 import { paintScaled } from './map16-pixels'
+import { withDetail } from './map-view-messages'
 
 export interface FrameImage {
   /** Native pixel size of THIS picture - may be smaller than the frame; see `align`. */
@@ -27,6 +28,8 @@ export interface PixelImageButtonProps {
   pressed?: boolean
   /** Why there is no picture, shown in the tooltip alongside `label`. */
   reason?: string
+  /** Technical text behind `reason`, on the tooltip's second line only (#967). */
+  detail?: string
   onClick(): void
   /** `data-*` attributes on the button: `{ control: 'x' }` becomes `data-control="x"`. */
   data?: Record<string, string>
@@ -40,6 +43,7 @@ export function PixelImageButton({
   label,
   pressed,
   reason,
+  detail,
   onClick,
   data,
 }: PixelImageButtonProps): React.ReactElement {
@@ -81,7 +85,7 @@ export function PixelImageButton({
       {...dataAttrs}
       className={'hb-pixel-button' + (pressed ? ' hb-pixel-button-on' : '')}
       aria-label={label}
-      title={reason ? `${label}: ${reason}` : label}
+      title={reason ? withDetail(`${label}: ${reason}`, detail) : label}
       {...(pressed !== undefined ? { 'aria-pressed': pressed } : {})}
       onClick={onClick}
     >

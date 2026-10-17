@@ -116,7 +116,8 @@ export function blockIndicators(
   t: BlockContentTables | TablesUnavailable,
   art: ItemArt,
 ): Extract<MapBlockContentsResult, { status: 'ok' | 'unavailable' }> {
-  if (isUnavailable(t)) return { status: 'unavailable', reason: t.unavailable }
+  if (isUnavailable(t))
+    return unreadable(t.unavailable, "this ROM's block contents could not be read.")
   const cache = new Map<string, Drawn>()
   const missed = new Map<string, number>()
   const miss = (why: string) => missed.set(why, (missed.get(why) ?? 0) + 1)

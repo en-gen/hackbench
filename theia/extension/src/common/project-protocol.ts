@@ -434,7 +434,7 @@ export type SwitchStateDto = Record<Map16SwitchKind, boolean>
 
 /** One palace's switch block as 16x16 RGBA, both states, or why it cannot be drawn. */
 export type PalaceIconDto = { palace: keyof SwitchFlagsDto } & (
-  { uncleared: string; cleared: string } | { unavailable: string }
+  { uncleared: string; cleared: string } | { unavailable: string; detail?: string }
 )
 
 /** The map toolbar's art: each palace's block (per ROM) and each char switch's own (#574's). */
@@ -445,6 +445,8 @@ export type PalaceIconsResult =
       switchArt: Partial<Record<Map16SwitchKind, Map16SwitchButtonImages>>
       /** Why a switch has no art. */
       switchUnavailable: Partial<Record<Map16SwitchKind, string>>
+      /** The technical text behind each `switchUnavailable`, for a tooltip's second line (#967). */
+      switchDetail?: Partial<Record<Map16SwitchKind, string>>
     }
   | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }

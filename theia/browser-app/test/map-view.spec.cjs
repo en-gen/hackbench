@@ -3162,6 +3162,9 @@ for (const [method, control, lead] of overlayCases) {
     expect(first).toContain(lead + JUST_NOW)
     expect(first).not.toContain('planted-786')
     expect(second).toBe(PLANTED_786)
+    // The accessible name is the plain words alone, never the exception.
+    const name = await page.locator(`${root(0x105)} [data-control="${control}"]`).first().getAttribute('aria-label') // prettier-ignore
+    expect(name).not.toContain('planted-786')
   })
 }
 
@@ -3195,6 +3198,24 @@ test('a missing base ROM for the sprites names the next step (#967)', async ({ p
   await expect
     .poll(() => tooltip(page, 'layer-sprites'))
     .toContain(
-      'The base ROM X is not on this machine. Choose File > Project Properties... and locate it again.',
+      'the base ROM X is not on this machine. Choose File > Project Properties... and locate it again.',
     )
+})
+
+test('a switch with no art shows plain words on the tooltip first line, the gate text on the second (#967)', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  const plain = "this switch's picture could not be drawn on this ROM."
+  await openResolving(page, project.manifestPath, 'mapPalaceIcons', {
+    status: 'ok',
+    icons: [],
+    switchArt: {},
+    switchUnavailable: { blue: plain },
+    switchDetail: { blue: 'planted' },
+  })
+  await expect.poll(() => tooltip(page, 'switch-blue')).toContain(plain)
+  const [first, second] = (await tooltip(page, 'switch-blue')).split('\n')
+  expect(first).toBe(`Blue P-switch: ${plain}`)
+  expect(second).toBe('planted')
 })

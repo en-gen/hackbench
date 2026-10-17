@@ -57,6 +57,8 @@ const lastByPath = new Map<string, Uint8Array>()
 /** Forgets the carry between working-copy bytes (a test starts each case from nothing). */
 export const forgetCollisionCarry = (): void => lastByPath.clear()
 
+/** The map drew fine; only the collision probe is out of reach (#967). */
+const NO_COLLISION = 'collision cannot be worked out for this map on this ROM.'
 const VERTICAL = 'Collision is not shown for vertical maps yet'
 
 /**
@@ -74,9 +76,9 @@ export function mapCollisionCheck(
   if (built.inputs.isVertical) return { status: 'unavailable', reason: VERTICAL }
   try {
     const why = collisionRefusal(RomFile.fromBytes(romPath, Buffer.from(bytes)), index)
-    return why === null ? { status: 'available' } : unreadable(why)
+    return why === null ? { status: 'available' } : unreadable(why, NO_COLLISION)
   } catch (err) {
-    return unreadable((err as Error).message)
+    return unreadable((err as Error).message, NO_COLLISION)
   }
 }
 
@@ -161,7 +163,7 @@ async function compute(
       state,
     })
     if (!r.ok) {
-      return r.reason === SUPERSEDED ? { status: 'stale' } : unreadable(r.reason)
+      return r.reason === SUPERSEDED ? { status: 'stale' } : unreadable(r.reason, NO_COLLISION)
     }
     return {
       status: 'ok',
@@ -170,6 +172,6 @@ async function compute(
       lines: r.lines,
     }
   } catch (err) {
-    return unreadable((err as Error).message)
+    return unreadable((err as Error).message, NO_COLLISION)
   }
 }

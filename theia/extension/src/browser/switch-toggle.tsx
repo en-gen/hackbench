@@ -31,6 +31,7 @@ export function SwitchToggle(props: {
   images: SwitchButtonImages | undefined
   pressed: boolean
   reason?: string
+  detail?: string
   scale: number
   data: Record<string, string>
   onClick(): void
@@ -44,6 +45,7 @@ export function SwitchToggle(props: {
       label={SWITCH_LABELS[props.kind]}
       pressed={pressed}
       reason={images ? undefined : props.reason}
+      detail={images ? undefined : props.detail}
       onClick={props.onClick}
       data={props.data}
     />
