@@ -1022,11 +1022,16 @@ async function layer3Region(page, index, box) {
         const l3 = [...document.querySelectorAll(`${rootSel} canvas[data-screen="0"][data-plane^="l3"]`)] // prettier-ignore
         let [x0, y0, x1, y1] = [1e9, 1e9, -1, -1]
         for (const c of l3) {
-          const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
-          for (let i = 0; i < d.length; i += 4) {
-            if (d[i + 3] === 0) continue
-            const [x, y] = [(i / 4) % c.width, Math.floor(i / 4 / c.width)]
-            ;[x0, y0, x1, y1] = [Math.min(x0, x), Math.min(y0, y), Math.max(x1, x), Math.max(y1, y)]
+          // In 16-row bands, never the whole plane at once: one getImageData of a full map plane ran the
+          // page out of memory (#931). Same box: every opaque pixel is still visited.
+          for (let by = 0; by < c.height; by += 16) {
+            const bh = Math.min(16, c.height - by)
+            const d = c.getContext('2d').getImageData(0, by, c.width, bh).data
+            for (let i = 0; i < d.length; i += 4) {
+              if (d[i + 3] === 0) continue
+              const [x, y] = [(i / 4) % c.width, by + Math.floor(i / 4 / c.width)]
+              ;[x0, y0, x1, y1] = [Math.min(x0, x), Math.min(y0, y), Math.max(x1, x), Math.max(y1, y)] // prettier-ignore
+            }
           }
         }
         box = { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 }
