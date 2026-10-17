@@ -1,0 +1,46 @@
+# Graphics a sprite uploads through Mario's tile DMA
+
+Evidence scope: vanilla USA ROM, SMWDisX, the `layers_v5` Mesen captures (164 archives), one machine, 2026-10-16.
+Code: `src/rom/MarioGraphics.ts`; tests `test/suite/unit/MarioGraphics.*.test.ts`.
+
+## The upload
+
+`MarioGFXDMA` (bank_00.asm:4583-4605) copies `$40` bytes per slot from `$7E:<DynGfxTilePtr + 2n>` to OBJ VRAM: row 1
+(`DynGfxTilePtr`, rammap.asm:1321) to word `$6000`, row 2 (`+$0A`) to word `$6100`, `PlayerGfxTileCount` bytes of
+pointers per row (5 slots, 2 chars each). Slot `s` of row 1 lands on OBJ chars `2s, 2s+1`; row 2 on `$10+2s, $11+2s`. A
+sprite that owns a slot writes the pointer in its graphics routine, so the chars it draws are not its SP1 file.
+
+## The Podoboo ($33)
+
+`CODE_01E198` (bank_01.asm:13180-13197), reached when `SpriteTableC2` is 0 (bank_01.asm:13112-13113): `DynGfxTilePtr+6`
+(slot 3, row 1) `= $8500 + (8 << 5) = $8600`, `DynGfxTilePtr+$10` (slot 3, row 2) `= $8800`. Chars 6, 7 come from
+`$7E:8600`, chars `$16`, `$17` from `$7E:8800`. The map view used to draw SP1's chars 6/7/`$16`/`$17`, which hardware
+overwrites every frame.
+
+## The buffer
+
+`CODE_00B888` (bank_00.asm:6250-6290), once at boot: GFX33 (`08:BFC0`, `$2400` bytes, 3bpp) is decompressed to
+`$7E:2000` and expanded in place, backwards, into 384 4bpp tiles ending at `$7E:ACFF` (so tile `t` is at `$7D00 + 32t`:
+the Podoboo pieces are tiles 72, 73 and 88, 89); GFX32 (Mario, `$5D00` bytes) is then decompressed over `$7E:2000`.
+GFX32 follows GFX33's last byte's bank at `$8000` (`ReadByte` carries the bank at `$FFFF`, bank_00.asm:6405-6413).
+The expansion per 24-byte tile: the 8 plane-2 bytes as words with a zero high byte, then the 8 plane-0/1 words
+(bank_00.asm:6267-6288).
+
+## What proves the decode
+
+- Mario's own poses: of 3864 capture slots whose WRAM pointer lies in GFX32, 3732 equal the buffer at that pointer.
+- The Podoboo: no sample has the Podoboo's pointers in its WRAM (D90: none at a draw frame), but 240 VRAM samples in 8
+  maps (`$01A $020 $0D6 $101 $111 $11C $1CD $1D4`) hold all four decoded chars at slots 3 of both rows (128 bytes).
+- GFX33's expansion: 263 distinct nonzero expanded tiles occur verbatim in 6829 VRAM samples, 253 of them with
+  plane 2 set.
+
+Not proven: the upload loop itself is cited, not pattern-checked, so a hack that moves the VRAM destination or the
+row spacing would be drawn as vanilla.
+
+## Not this change
+
+The sprite report's 10 wrong `$33` cards (maps `$101`, `$1CD`, `$1D4`) are the grader seeding the level image without
+clearing the cluster-sprite numbers (`levelSeed` does, `LevelLoader.ts` `NO_CLUSTER_SPRITES`): the castle flames
+(OAM 124-127) are counted as the Podoboo's pieces. Clearing `$1892-$18A5` in the grader's image: `$33` 46 to 53 exact.
+The 3 left (`$1D4` list 7, 9, 11) record castle-flame entries as the Podoboo's, a hardware-side attribution of a frame
+where the Podoboo drew nothing.
