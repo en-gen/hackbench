@@ -1067,8 +1067,8 @@ for (const [index, role, bit, known] of [
     'Layer 3 · Background',
     false,
     {
-      // Settings byte not $80, so no smash sprite places layer 3: Layer3YPos is 192 and tile row R lands at canvas Y
-      // R*8, X 0 on every screen (backend probe, one run, one machine: the same box on screens 0-3; the box
+      // Settings byte not $80, so no smash sprite places layer 3: Layer3YPos 192 and camYPx 192 cancel
+      // (y = r*8 - yPx + camYPx, map-screen.ts:253), so tile row R lands at canvas Y R*8, X 0 on every screen (backend probe, one run, one machine: the same box on screens 0-3; the box
       // starts at 257, the first opaque row). A low plane (l3Low), so pixels are read there. No outline-black
       // pixel: the two are its first opaque pixel in raster order and one of another color. $01F (smash
       // Layer 3, 512 px repeat) is left out until #997.
@@ -1092,7 +1092,9 @@ for (const [index, role, bit, known] of [
     // The bit places BG3's high plane: over layer 1 when set, under layer 1's low plane when clear.
     const order = await zOrder(page, index)
     const at = k => order.indexOf(k)
-    expect(at('l2High')).toBeLessThan(at('l3Low'))
+    // Bit set: l3Low sits over Layer 2. Bit clear: all of Layer 3 sits under Layer 2's low plane (z-order probe: l3Low, l3High, l2Low, l1Low, l2High).
+    if (bit) expect(at('l2High')).toBeLessThan(at('l3Low'))
+    else expect(at('l3High')).toBeLessThan(at('l2Low'))
     expect(at('l3High') > at('l1High')).toBe(bit)
     expect(at('l3High') < at('l1Low')).toBe(!bit)
 
