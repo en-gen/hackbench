@@ -2,7 +2,9 @@
 import type { RomFile } from '../../../src/rom/RomFile'
 import { runSprite } from '../../../src/rom/sprites/interp/SpriteRunner'
 import { withSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
+import { loadLevelState } from '../../../src/rom/sprites/interp/LevelLoader'
 import type { Loaded } from './captures'
+import { freshRom } from './corpus'
 
 const FACING = 0x157c
 
@@ -30,17 +32,42 @@ export interface FacingMismatch {
   ours: number | undefined
 }
 
-/** Records with an `initFacing` whose INIT, run with Mario at the capture's marioStart, disagrees; key is `map:slot:id`. */
+/** The vanilla ROM, loaded once for the facing tests, and the level loader's image per map, cached across describes. */
+let shared: RomFile | undefined
+const images = new Map<number, Uint8Array | undefined>()
+export function loaderImage(map: number): Uint8Array | undefined {
+  shared ??= freshRom()
+  if (!images.has(map)) {
+    const l = loadLevelState(shared, map)
+    images.set(map, l.ok ? l.wram : undefined)
+  }
+  return images.get(map)
+}
+export const sharedRom = (): RomFile => (shared ??= freshRom())
+
+/** Mario's start as the map view seeds it: the loader image's $94/$96. */
+export function loaderMario(map: number): XY | undefined {
+  const w = loaderImage(map)
+  return w && { x: w[0x94]! | (w[0x95]! << 8), y: w[0x96]! | (w[0x97]! << 8) }
+}
+
+/**
+ * Records with an `initFacing` whose INIT, run with `marioFor(record)`, disagrees; key is `map:slot:id`.
+ * The slot is the hardware's (a few sprites, Lakitu's rider $1E, read $157C of another slot).
+ */
 export function facingMismatches(
   rom: RomFile,
   recs: readonly Loaded[],
+  marioFor: (r: Loaded) => XY | undefined,
   loadedFor: (map: string) => Uint8Array | undefined,
 ): FacingMismatch[] {
   const out: FacingMismatch[] = []
-  for (const { map, rec, marioStart } of recs) {
-    if (rec.initFacing === undefined || !marioStart) continue
+  for (const r of recs) {
+    const { map, rec } = r
+    const mario = marioFor(r)
+    if (typeof rec.initFacing !== 'number' || !mario) continue
     const ours = facingAfterInit(rom, parseInt(rec.id.slice(1), 16), {
-      mario: marioStart,
+      mario,
       sprite: { x: rec.listX, y: rec.listY },
       camera: { x: rec.cameraX, y: rec.cameraY },
       slot: rec.slot,

@@ -12,9 +12,10 @@ export interface Rec {
   listY: number
   cameraX: number
   cameraY: number
-  marioAtInit?: { x: number; y: number }
+  /** Null or absent when the capture caught no INIT for the sprite (initFacing is then null too). */
+  marioAtInit?: { x: number; y: number } | null
   /** $157C right after INIT on hardware (SpriteMisc157C; 1 = facing left, SubHorizPos's Y). */
-  initFacing?: number
+  initFacing?: number | null
   initFrame?: number
   drawnFrame?: number
   trueFrame?: number
