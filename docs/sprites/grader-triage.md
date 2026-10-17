@@ -95,6 +95,14 @@ capture shows one. This is a real product defect: the map draws a walking Koopa 
 Not run: that status 9 reproduces the captured pose. Fix: map list ids to number and status as the loader
 does. Assert: map 135 $05 at 3184,240 draws one part, and the 35 graded cases leave "wrong".
 
+Fixed in #837: `src/rom/sprites/ShellSprites.ts` reads the loader's mapping from its bytes ($DA-$DD and $DF to status 9 and
+number `id - $DA + 4` on the vanilla ROM; a changed opcode refuses; $DE and $E0 are not shells, `bank_02.asm:5312`, `:5325`); the runner loads those ids that
+way and runs InitSpriteTables but no INIT. The special-world remap of numbers 4 and 5 (`bank_02.asm:5464-5471`)
+is not applied: the flag is read as clear, as on a fresh save. The grader hands the runner the placed list id
+(sprites.json, by `listIndex`) because a record's own id is the already-converted number. Evidence scope: one
+machine, 2026-10-16, vanilla ROM, layers_v5: all 35 K cases grade exact (exact 998 to 1033, wrong 125 to 90,
+nothing else moved).
+
 **C, spawned companions counted (12).** $61 (6), $1E (5), $B9 (1): our pass has 3 or more extra parts than the
 capture (which keys parts by the slot that wrote them). $61's INIT spawns three more skull sprites
 (`bank_02.asm:14495-14540`, FindFreeSprSlot); the extra parts have the companions' signature. For $1E
