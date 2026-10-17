@@ -12,17 +12,27 @@ import { unzip } from '../../../tools/scripts/capture_render'
 import { decode4bpp } from '../../../src/rom/GraphicsDecoder'
 import type { RomFile } from '../../../src/rom/RomFile'
 import {
-  dynamicChars,
+  charsFromUploads,
   MARIO_GFX_BASE,
   readMarioGraphics,
   type MarioBuffer,
 } from '../../../src/rom/MarioGraphics'
+import { levelSeed } from '../../../src/rom/sprites/interp/LevelLoader'
 import { L1ModelCache } from '../../../theia/extension/src/node/map-screen'
-import { mapSprites } from '../../../theia/extension/src/node/map-sprites'
+import { mapSprites, runWithUploads } from '../../../theia/extension/src/node/map-sprites'
 import { CAPTURE_DIR, freshRom, hasCaptures, hasRom, romPath, VANILLA } from '../support/corpus'
 import { slow } from '../support/loadTimeout'
 
 const PTR = 0x0d85 // DynGfxTilePtr (rammap.asm:1321), row 2 at +$0A; PlayerGfxTileCount is the byte before it
+/** The chars the Podoboo's own run points slot 3 of both rows at on map $11C, decoded from the buffer (what the map view draws). */
+const podobooChars = (rom: RomFile) => {
+  const m = runWithUploads(rom, 0x33, levelSeed(rom, 0x11c)) as ReturnType<typeof runWithUploads> & { uploads?: { slot: number; ptr: number }[][] } // prettier-ignore
+  const up = m.chosen === undefined ? undefined : m.uploads?.[m.chosen]
+  if (!up?.length) throw new Error('the Podoboo run pointed no slot at the buffer')
+  const d = charsFromUploads(readMarioGraphics(rom), up)
+  if (!d.ok) throw new Error(d.reason)
+  return d.chars
+}
 const ZERO_TILE = '0'.repeat(64)
 const CHARS = [0x406, 0x407, 0x416, 0x417]
 /** Slot `i` (0-4 row 1, 5-9 row 2) of a VRAM sample: 64 bytes at word $6000 / $6100 + 32 per slot. */
@@ -58,8 +68,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
     })
 
     it('sweeps every capture sample', slow(600_000), () => {
-      const d = dynamicChars(rom, 0x33)
-      if (!d?.ok) throw new Error('no Podoboo chars')
+      const chars = podobooChars(rom)
       for (const f of readdirSync(CAPTURE_DIR).sort()) {
         if (!f.endsWith('.zip')) continue
         const files = unzip(readFileSync(join(CAPTURE_DIR, f)))
@@ -72,7 +81,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
             if (t !== undefined && tiles[t] !== ZERO_TILE) tally.seen.add(t)
           }
           const hw = [slot(vram, 3), slot(vram, 8)].flatMap(c => [c.subarray(0, 32), c.subarray(32)]).map(c => decode4bpp(c)) // prettier-ignore
-          const same = CHARS.map((c, i) => Buffer.compare(hw[i]!, d.chars.get(c)!) === 0)
+          const same = CHARS.map((c, i) => Buffer.compare(hw[i]!, chars.get(c)!) === 0)
           if (same[0]) tally.podoboo[1]!++ // the first char: the other three must then agree
           if (same.every(Boolean)) tally.podoboo[0]!++
           if (same[0]) tally.maps.add(name.split('/')[0]!)
@@ -119,15 +128,17 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('Podoboo pixels on map $11C 
       const pods = r.sprites.filter(s => s.id === 0x33 && s.status === 'drawn')
       expect(pods.length).toBeGreaterThan(0)
       // Hardware: the nonzero pixels of the four chars in the first $11C VRAM sample whose slot 3 holds the Podoboo's first char.
-      const d = dynamicChars(freshRom(), 0x33)
-      if (!d?.ok) throw new Error('no Podoboo chars')
+      const chars = podobooChars(freshRom())
       const files = unzip(readFileSync(join(CAPTURE_DIR, '11c.zip')))
       let hw = -1
       for (const name of [...files.keys()]
         .filter(k => /vram\.bin$/.test(k) && !/l3_vram/.test(k))
         .sort()) {
         const v = files.get(name)!()
-        if (Buffer.compare(decode4bpp(slot(v, 3)), d.chars.get(0x406)!) !== 0) continue
+        if (Buffer.compare(decode4bpp(slot(v, 3)), chars.get(0x406)!) !== 0) continue
+        // Per pixel, per char: all four decoded chars equal the hardware's before any count is taken.
+        const hwChars = [slot(v, 3), slot(v, 8)].flatMap(c => [c.subarray(0, 32), c.subarray(32)]).map(c => decode4bpp(c)) // prettier-ignore
+        CHARS.forEach((c, i) => expect([...chars.get(c)!]).toEqual([...hwChars[i]!]))
         hw = [slot(v, 3), slot(v, 8)].reduce((n, c) => n + [0, 32].flatMap(o => [...decode4bpp(c, o)]).filter(p => p !== 0).length, 0) // prettier-ignore
         break
       }

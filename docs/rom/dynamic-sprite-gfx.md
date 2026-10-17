@@ -37,10 +37,17 @@ The expansion per 24-byte tile: the 8 plane-2 bytes as words with a zero high by
 Not proven: the upload loop itself is cited, not pattern-checked, so a hack that moves the VRAM destination or the
 row spacing would be drawn as vanilla.
 
-## Not this change
+## Hacks (D51, D57)
 
-The sprite report's 10 wrong `$33` cards (maps `$101`, `$1CD`, `$1D4`) are the grader seeding the level image without
+141 of the 146 hack-corpus ROMs replace the boot routine that builds the buffer, so the buffer is not read and the
+Podoboo keeps today's art (the map's SP1 chars), with a sprite note giving the reason. Vanilla first; the hack path
+is not interpreted yet.
+
+## The grader (#980)
+
+The sprite report's 10 wrong `$33` cards (maps `$101`, `$1CD`, `$1D4`) were the grader seeding the level image without
 clearing the cluster-sprite numbers (`levelSeed` does, `LevelLoader.ts` `NO_CLUSTER_SPRITES`): the castle flames
-(OAM 124-127) are counted as the Podoboo's pieces. Clearing `$1892-$18A5` in the grader's image: `$33` 46 to 53 exact.
+(OAM 124-127) were counted as the Podoboo's pieces. The grader's rom-mode seeds now clear `$18B8` and `$1892-$18A5`
+too (`spriteReportRun.ts`, `spriteGrade.captures.test.ts`); on the earlier measurement `$33` went 46 to 53 exact.
 The 3 left (`$1D4` list 7, 9, 11) record castle-flame entries as the Podoboo's, a hardware-side attribution of a frame
 where the Podoboo drew nothing.

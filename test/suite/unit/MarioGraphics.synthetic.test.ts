@@ -1,13 +1,26 @@
 /**
- * MarioGraphics (#980): the 3bpp to 4bpp expansion of CODE_00B8AD and the slot a sprite's graphics routine
- * points Mario's tile DMA at. Synthetic bytes only, so CI needs no cart.
+ * MarioGraphics (#980): the boot build of the player buffer, the 3bpp to 4bpp expansion of CODE_00B8AD, and the
+ * slots a sprite's run pointed Mario's tile DMA at. Synthetic bytes only, so CI needs no cart: the boot routine
+ * under test is a made-up one with the stock operand layout (`BootRoutine` is injectable), never the cart's code.
  */
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { decode4bpp } from '../../../src/rom/GraphicsDecoder'
-import { dynamicChars, expandTo4bpp, MARIO_GFX_BASE } from '../../../src/rom/MarioGraphics'
+import { encode } from '../../../src/rom/LcLz2'
+import type { CompressionCheck } from '../../../src/rom/GfxArena'
+import {
+  bootFingerprint,
+  buildMarioGraphics,
+  charsFromUploads,
+  DYN_GFX_TILE_PTR,
+  expandTo4bpp,
+  MARIO_GFX_BASE,
+  uploadProbe,
+  type BootRoutine,
+} from '../../../src/rom/MarioGraphics'
 
 const seq = (from: number, n: number) => Array.from({ length: n }, (_, i) => from + i)
+const tile = (n: number) => [...seq(n, 16), ...seq(n + 16, 8).flatMap(b => [b, 0])]
 
 describe('expandTo4bpp', () => {
   // Two 3bpp tiles, bytes 1-24 and 25-48 (16 plane-0/1 bytes, then 8 plane-2 bytes); expanded in place,
@@ -17,7 +30,6 @@ describe('expandTo4bpp', () => {
     buf.set(seq(1, 48))
     return { buf, why: expandTo4bpp(buf, 47, 0x5e) }
   }
-  const tile = (n: number) => [...seq(n, 16), ...seq(n + 16, 8).flatMap(b => [b, 0])]
 
   it('puts each plane-2 byte in the low byte of its row word, with a zero plane 3', () => {
     const { buf, why } = run()
@@ -26,55 +38,193 @@ describe('expandTo4bpp', () => {
     expect([...buf.subarray(0x40, 0x60)]).toEqual(tile(25))
   })
 
+  it('stops after the first tile of the file, leaving the bytes between source and destination alone', () => {
+    // Source apart from the destination, a sentinel around both: a loop that ends one tile early or late
+    // misses a tile or writes 32 bytes below the destination.
+    const [n, src, end] = [3, 0, 0x3fe]
+    const buf = new Uint8Array(0x400).fill(0xab)
+    const bytes = seq(1, 24 * n)
+    buf.set(bytes, src)
+    expect(expandTo4bpp(buf, src + 24 * n - 1, end)).toBeNull()
+    const dest = end + 2 - 32 * n
+    expect([...buf.subarray(dest)]).toEqual([0, 1, 2].flatMap(i => tile(1 + 24 * i)))
+    expect([...buf.subarray(src, src + 24 * n)]).toEqual(bytes)
+    expect(buf.subarray(src + 24 * n, dest).every(v => v === 0xab)).toBe(true)
+  })
+
   it('refuses operands that put the expansion outside the buffer', () => {
     expect(expandTo4bpp(new Uint8Array(0x60), 47, 0x5f)).toMatch(/outside/)
     expect(expandTo4bpp(new Uint8Array(0x60), 0x60, 0x5e)).toMatch(/outside/)
+    expect(expandTo4bpp(new Uint8Array(0x60), 47, 0)).toMatch(/outside/)
+  })
+
+  it('refuses a destination that runs out of buffer before the source does', () => {
+    const buf = new Uint8Array(0x60)
+    buf.set(seq(1, 48))
+    expect(expandTo4bpp(buf, 47, 0x1e)).toMatch(/below/)
   })
 })
 
-describe('dynamicChars', () => {
-  // CODE_01E198: LDA #$01 / JSR / REP #$20 / LDA #$0008 / ASL x5 / CLC / ADC #base / STA slotA / CLC / ADC #step / STA slotB / SEP #$20 / RTS
-  const routine = (base: number, step: number, slotA: number, slotB: number) => [
-    0xa9, 0x01, 0x20, 0x00, 0x90, 0xc2, 0x20, 0xa9, 0x08, 0x00, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x18, 0x69,
-    base & 0xff, base >> 8, 0x8d, slotA & 0xff, slotA >> 8, 0x18, 0x69, step & 0xff, step >> 8, 0x8d,
-    slotB & 0xff, slotB >> 8, 0xe2, 0x20, 0x60,
-  ] // prettier-ignore
-  const romWith = (code: number[], copies = 1) => {
-    const b = new Uint8Array(0x20000)
-    for (let i = 0; i < copies; i++) b.set(code, 0x100 + i * 0x100)
-    return RomFile.fromBytes('synthetic.sfc', b)
+describe('buildMarioGraphics', () => {
+  // A made-up boot routine with the stock operand layout (84 bytes; operands at 3-4, 8, 30-31, 35-36, 80-81).
+  const HEAD = [0xa5, 0x5a, 0xa5]
+  const BOOT_LEN = 84
+  type Operands = { at33: number; bank: number; top: number; srcTop: number; at32: number }
+  const routine = (o: Operands) => {
+    const b = new Array<number>(BOOT_LEN).fill(0xea)
+    b.splice(0, 3, ...HEAD)
+    const word = (at: number, v: number) => { b[at] = v & 0xff; b[at + 1] = (v >> 8) & 0xff } // prettier-ignore
+    word(3, o.at33)
+    b[8] = o.bank
+    word(30, o.top)
+    word(35, o.srcTop)
+    word(80, o.at32)
+    return b
   }
-  // Every byte of $7E:8600-$89FF is its own address's low byte plus 1, so a piece is recognisable by where it came from.
+  const boot = (): BootRoutine => ({
+    anchor: HEAD,
+    length: BOOT_LEN,
+    sha256: bootFingerprint(
+      Uint8Array.from(routine({ at33: 0, bank: 0, top: 0, srcTop: 0, at32: 0 })),
+    )!,
+  })
+  const GATE: CompressionCheck = {
+    ok: true,
+    sites: {} as never,
+    kind: 'stock' as never,
+    order: 'be',
+  }
+  const base = (bank: number) => bank * 0x8000 // file offset of $bank:8000 in a LoROM
+
+  type Cart = { d33?: number[]; d32?: number[]; bank?: number; low?: number; top?: number; srcTop?: number; copies?: number; edit?: (b: number[]) => void } // prettier-ignore
+  /** A cart with GFX33 at $<bank>:<low>, GFX32 right after it, and `copies` of the boot routine. */
+  const cart = (o: Cart) => {
+    const [bank, low] = [o.bank ?? 8, o.low ?? 0x8000]
+    const c33 = encode(Uint8Array.from(o.d33 ?? seq(1, 48)))
+    const c32 = encode(Uint8Array.from(o.d32 ?? Array(16).fill(0xee)))
+    const bytes = new Uint8Array(0x80000)
+    bytes.set(c33, base(bank) + low - 0x8000)
+    bytes.set(c32, base(bank) + low - 0x8000 + c33.length)
+    const code = routine({ at33: low, bank, top: o.top ?? 0x205e, srcTop: o.srcTop ?? 47, at32: low + c33.length }) // prettier-ignore
+    o.edit?.(code)
+    for (let i = 0; i < (o.copies ?? 1); i++) bytes.set(code, 0x100 + i * 0x100)
+    return RomFile.fromBytes('synthetic.sfc', bytes)
+  }
+  const build = (o: Cart) => buildMarioGraphics(cart(o), GATE, boot())
+  const bytesOf = (r: ReturnType<typeof buildMarioGraphics>) => (r.ok ? r.bytes : expect.fail(r.reason)) // prettier-ignore
+  const at = (b: Uint8Array, a: number, n: number) => [...b.subarray(a - MARIO_GFX_BASE, a - MARIO_GFX_BASE + n)] // prettier-ignore
+  const refused = (r: ReturnType<typeof buildMarioGraphics>, why: RegExp) => expect(r).toMatchObject({ ok: false, reason: expect.stringMatching(why) }) // prettier-ignore
+
+  it('expands GFX33 to the operand top, then writes GFX32 over the start of the buffer', () => {
+    const b = bytesOf(build({}))
+    expect(at(b, 0x2000, 16)).toEqual(Array(16).fill(0xee)) // GFX32, written last
+    expect(at(b, 0x2010, 16)).toEqual(seq(17, 16)) // the 3bpp source, which GFX32 does not cover
+    expect(at(b, 0x2020, 64)).toEqual([...tile(1), ...tile(25)])
+    expect(at(b, 0x2060, 4)).toEqual([0, 0, 0, 0])
+  })
+
+  it('reads the file address, the expansion top and the source top from the routine, not from constants', () => {
+    // GFX33 in another bank at another offset, 3 tiles, expanded higher up.
+    const b = bytesOf(build({ d33: seq(1, 72), bank: 9, low: 0x9000, top: 0x207e, srcTop: 71 }))
+    expect(at(b, 0x2000, 16)).toEqual(Array(16).fill(0xee))
+    expect(at(b, 0x2080 - 96, 96)).toEqual([0, 1, 2].flatMap(i => tile(1 + 24 * i)))
+    expect(at(b, 0x2080, 4)).toEqual([0, 0, 0, 0])
+  })
+
+  it('carries GFX32 into the next bank when GFX33 ends at the top of its own', () => {
+    const c33 = encode(Uint8Array.from(seq(1, 48)))
+    const low = 0x10000 - c33.length
+    const bytes = new Uint8Array(0x80000)
+    bytes.set(c33, base(8) + low - 0x8000)
+    bytes.set(encode(Uint8Array.from(Array(16).fill(0xee))), base(9))
+    bytes.set(routine({ at33: low, bank: 8, top: 0x205e, srcTop: 47, at32: 0x8000 }), 0x100)
+    const b = bytesOf(buildMarioGraphics(RomFile.fromBytes('s.sfc', bytes), GATE, boot()))
+    expect(at(b, 0x2000, 16)).toEqual(Array(16).fill(0xee))
+  })
+
+  it('refuses a boot routine found twice, absent, or changed in a byte the operands do not cover', () => {
+    refused(build({ copies: 2 }), /not the stock one/)
+    refused(build({ copies: 0 }), /not the stock one/)
+    refused(build({ edit: c => { c[40] = 0x60 } }), /not the stock one/) // prettier-ignore
+  })
+
+  it("passes the decompressor gate's refusal on, after the routine matched", () => {
+    expect(buildMarioGraphics(cart({}), { ok: false, reason: 'decompressor replaced' }, boot())).toEqual({ ok: false, reason: 'decompressor replaced' }) // prettier-ignore
+  })
+
+  it('refuses a GFX33 pointer that is not into the ROM half of its bank', () => {
+    // Same bytes, but the operand's low word is below $8000: the stream is not where the SNES would read it.
+    refused(build({ edit: c => { c[3] = 0x00; c[4] = 0x20 } }), /GFX33/) // prettier-ignore
+  })
+
+  it('refuses a file that decompresses past the buffer, and an expansion that does not fit it', () => {
+    const big = Array(0x9100).fill(7)
+    refused(build({ d33: big }), /overruns/)
+    refused(build({ d32: big }), /overruns/)
+    refused(build({ top: 0xb000 }), /outside/)
+  })
+})
+
+describe('uploadProbe', () => {
+  const wram = (ptrs: Record<number, number>) => {
+    const w = new Uint8Array(0x2000)
+    for (const [slot, p] of Object.entries(ptrs)) {
+      w[DYN_GFX_TILE_PTR + 2 * Number(slot)] = p & 0xff
+      w[DYN_GFX_TILE_PTR + 2 * Number(slot) + 1] = p >> 8
+    }
+    return w
+  }
+
+  it('reports the slots a pass changed, with the pointer it left there, and no slot it left alone', () => {
+    const { probe, byPass } = uploadProbe()
+    probe(-1, wram({ 0: 0x2000, 3: 0x9999 }))
+    probe(0, wram({ 0: 0x2000, 3: 0x8600, 8: 0x8800 }))
+    probe(1, wram({ 0: 0x2000, 3: 0x8600, 8: 0x8a00, 9: 0x1234 }))
+    expect(byPass[0]).toEqual([{ slot: 3, ptr: 0x8600 }, { slot: 8, ptr: 0x8800 }]) // prettier-ignore
+    expect(byPass[1]).toEqual([{ slot: 3, ptr: 0x8600 }, { slot: 8, ptr: 0x8a00 }, { slot: 9, ptr: 0x1234 }]) // prettier-ignore
+  })
+
+  it('reports nothing for a sprite whose run never wrote the pointers', () => {
+    const { probe, byPass } = uploadProbe()
+    probe(-1, wram({ 2: 0x3000 }))
+    probe(0, wram({ 2: 0x3000 }))
+    expect(byPass[0]).toEqual([])
+  })
+})
+
+describe('charsFromUploads', () => {
+  // Every 32-byte tile is filled with its own index, so each char is recognisable and no two are alike.
   const buffer = () => {
     const bytes = new Uint8Array(0xb000 - MARIO_GFX_BASE)
-    for (let a = 0x8600; a < 0x8a00; a++) bytes[a - MARIO_GFX_BASE] = ((a >> 5) & 0xff) | 1
+    for (let t = 0; t < bytes.length / 32; t++) bytes.fill((t % 255) + 1, t * 32, t * 32 + 32)
     return { ok: true as const, bytes }
   }
   const pixels = (a: number, i: number) => decode4bpp(buffer().bytes, a - MARIO_GFX_BASE + i * 32)
+  const keys = (d: ReturnType<typeof charsFromUploads>) => (d.ok ? [...d.chars.keys()].sort((a, b) => a - b) : d) // prettier-ignore
 
-  it('lands slot 3 of both rows on chars 6, 7 and $16, $17, from the base and the base plus the step', () => {
-    const d = dynamicChars(romWith(routine(0x8500, 0x200, 0x0d8b, 0x0d95)), 0x33, buffer())
-    expect(d?.ok && [...d.chars.keys()].sort((a, b) => a - b)).toEqual([0x406, 0x407, 0x416, 0x417])
-    if (!d?.ok) return
+  it('lands slot 3 of both rows on chars 6, 7 and $16, $17, each from its own pointer, in order', () => {
+    const d = charsFromUploads(buffer(), [{ slot: 3, ptr: 0x8600 }, { slot: 8, ptr: 0x8800 }]) // prettier-ignore
+    expect(keys(d)).toEqual([0x406, 0x407, 0x416, 0x417])
+    if (!d.ok) return
     expect(d.chars.get(0x406)).toEqual(pixels(0x8600, 0))
     expect(d.chars.get(0x407)).toEqual(pixels(0x8600, 1))
     expect(d.chars.get(0x416)).toEqual(pixels(0x8800, 0))
     expect(d.chars.get(0x417)).toEqual(pixels(0x8800, 1))
+    // The fill is the tile index, so swapping two chars or two pointers is a different picture.
+    expect(d.chars.get(0x406)).not.toEqual(d.chars.get(0x407))
+    expect(d.chars.get(0x406)).not.toEqual(d.chars.get(0x416))
   })
 
-  it('follows the slot the routine names, not slot 3', () => {
-    const d = dynamicChars(romWith(routine(0x8500, 0x200, 0x0d89, 0x0d93)), 0x33, buffer())
-    expect(d?.ok && [...d.chars.keys()].sort((a, b) => a - b)).toEqual([0x404, 0x405, 0x414, 0x415])
+  it('follows the slot the run wrote, not slot 3', () => {
+    expect(keys(charsFromUploads(buffer(), [{ slot: 1, ptr: 0x8600 }, { slot: 6, ptr: 0x8800 }]))).toEqual([0x402, 0x403, 0x412, 0x413]) // prettier-ignore
   })
 
-  it('gives no chars to a sprite without an upload, and a reason when the routine is not the stock one', () => {
-    expect(dynamicChars(romWith(routine(0x8500, 0x200, 0x0d8b, 0x0d95)), 0x10, buffer())).toBeNull()
-    expect(dynamicChars(romWith([0xea, 0xea]), 0x33, buffer())).toMatchObject({ ok: false })
-    expect(dynamicChars(romWith(routine(0x8500, 0x200, 0x0d8b, 0x0d95), 2), 0x33, buffer())).toMatchObject({ ok: false }) // prettier-ignore
+  it('refuses a slot outside the two rows and a pointer outside the buffer', () => {
+    for (const bad of [{ slot: 10, ptr: 0x8600 }, { slot: -1, ptr: 0x8600 }, { slot: 3, ptr: 0x1000 }, { slot: 3, ptr: 0xafe0 }]) // prettier-ignore
+      expect(charsFromUploads(buffer(), [bad])).toMatchObject({ ok: false, reason: expect.stringMatching(/outside/) }) // prettier-ignore
   })
 
-  it('refuses a slot outside the two rows and a source outside the buffer', () => {
-    expect(dynamicChars(romWith(routine(0x8500, 0x200, 0x0e00, 0x0d95)), 0x33, buffer())).toMatchObject({ ok: false, reason: expect.stringMatching(/outside/) }) // prettier-ignore
-    expect(dynamicChars(romWith(routine(0xf000, 0x200, 0x0d8b, 0x0d95)), 0x33, buffer())).toMatchObject({ ok: false, reason: expect.stringMatching(/outside/) }) // prettier-ignore
+  it('passes an unreadable buffer on as the reason', () => {
+    expect(charsFromUploads({ ok: false, reason: 'not stock' }, [{ slot: 3, ptr: 0x8600 }])).toEqual({ ok: false, reason: 'not stock' }) // prettier-ignore
   })
 })

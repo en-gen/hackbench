@@ -13,6 +13,7 @@ import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import {
   drawSprites,
+  type SpriteDrawResult,
   mapSprites,
   readStream,
   spriteLayer,
@@ -94,27 +95,40 @@ describe('drawSprites', () => {
 })
 
 describe('drawSprites: chars a sprite uploads to the player slots (#980)', () => {
-  const upload = (px: number) => ({
-    ok: true as const,
-    chars: new Map([[0x400, new Uint8Array(64).fill(px)]]),
-  })
-  const draw = () => ok(part(0x400, 0, 0))
+  // A buffer whose piece at $2000 is solid color 3, so a slot pointed there is recognisable.
+  const buffer = () => {
+    const bytes = new Uint8Array(0xb000 - 0x2000)
+    bytes.fill(0xff, 0, 0x40)
+    return { ok: true as const, bytes }
+  }
+  // SP1 reaching char $406, which holds the left-1/right-2 pattern of char $400.
+  const WIDE = { ...MODEL, vram: { sp1: [...SP1, ...Array(6).fill(SP1[0])] } }
+  const draw = (...uploads: { slot: number; ptr: number }[]) => (): SpriteDrawResult => ({ ...ok(part(0x406, 0, 0)), uploads }) // prettier-ignore
 
-  it("draws the sprite's own chars where the level's SP1 has others, and only that sprite's", () => {
-    const model = { ...MODEL, dynamicChars: (id: number) => (id === 0x33 ? upload(3) : null) }
-    const [a, b] = drawSprites([spr(0, 0, 0, 0x33), spr(1, 4, 0, 0x10)], model, draw)
-    expect(px(decode(a!), 8, 0, 0)[0]).toBe(9 * 16 + 3)
+  it("draws the sprite's own chars where the map's SP1 has others, and only that sprite's", () => {
+    const model = { ...WIDE, playerGraphics: buffer }
+    const [a, b] = drawSprites([spr(0, 0, 0, 0x33), spr(1, 4, 0, 0x10)], model, s => s.index === 0 ? draw({ slot: 3, ptr: 0x2000 })() : ok(part(0x406, 0, 0))) // prettier-ignore
+    expect(px(decode(a!), 8, 0, 0)[0]).toBe(9 * 16 + 15)
     expect(px(decode(b!), 8, 0, 0)[0]).toBe(9 * 16 + 1)
+    expect(a).not.toHaveProperty('unverified')
   })
 
-  it('marks the sprite, with the reason, when its upload cannot be read, rather than drawing SP1 chars', () => {
-    const model = { ...MODEL, dynamicChars: () => ({ ok: false as const, reason: 'not stock' }) }
-    const [s] = drawSprites([spr(0, 0, 0, 0x33)], model, draw)
-    expect(s).toMatchObject({
-      status: 'placeholder',
-      reason: 'dynamicGfxUnreadable',
-      unverified: 'not stock',
-    })
+  it('draws the map chars, with the reason as the sprite note, when the buffer cannot be read', () => {
+    const model = { ...WIDE, playerGraphics: () => ({ ok: false as const, reason: 'not stock' }) } // prettier-ignore
+    const [s] = drawSprites([spr(0, 0, 0, 0x33)], model, draw({ slot: 3, ptr: 0x2000 }))
+    expect(s).toMatchObject({ status: 'drawn', unverified: expect.stringContaining('not stock') })
+    expect(px(decode(s!), 8, 0, 0)[0]).toBe(9 * 16 + 1)
+  })
+
+  it('keeps an earlier note and adds the reason, and does the same when no buffer reader is given', () => {
+    const [s] = drawSprites([spr(0, 0, 0, 0x33)], WIDE, () => ({ ...draw({ slot: 3, ptr: 0x2000 })(), unverified: 'seed' }) as SpriteDrawResult) // prettier-ignore
+    expect(s).toMatchObject({ status: 'drawn', unverified: expect.stringMatching(/^seed; its chars come from/) }) // prettier-ignore
+  })
+
+  it('does not read the buffer for a sprite that uploaded nothing', () => {
+    const read = vi.fn(buffer)
+    drawSprites([spr(0, 0, 0)], { ...MODEL, playerGraphics: read }, () => ok(part(0x401, 0, 0)))
+    expect(read).not.toHaveBeenCalled()
   })
 })
 
