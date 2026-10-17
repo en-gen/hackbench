@@ -174,7 +174,8 @@ test('the $E3 ring of map $107 is one drawn sprite of 10 pieces 80 px round its 
 
   // No other sprite carries the ring (#809/#839): no other drawn sprite has an opaque pixel inside a piece square.
   // Behavioural, not a size test: the two Big Boos of $107 ($28, 67 x 64 boxes at 1840,288 and 2272,320) are correct and big.
-  // Checked against mapSprites() for $107 at unit level: 0 strays, and 1 when a copy of the ring's bitmap is planted as $28.
+  // Evidence scope: vanilla USA ROM, mapSprites() for $107 at unit level, one run on 2026-10-16: 0 strays among 15 other drawn
+  // sprites, and 1 when a copy of the ring's bitmap is planted as $28.
   const strayOf = s => {
     const sb = Buffer.from(s.rgba, 'base64')
     const sw = s.box.x1 - s.box.x0
@@ -197,6 +198,18 @@ test('the $E3 ring of map $107 is one drawn sprite of 10 pieces 80 px round its 
     s => s.id !== 0xe3 && s.id !== 0xe2 && s.status === 'drawn' && strayOf(s),
   )
   expect(stray.map(s => `$${s.id.toString(16)} at ${s.x},${s.y}`)).toEqual([])
+  // A second net: on $107 (same scope) no other drawn sprite's box even intersects the ring's box (420,242-591,416).
+  const near = reply.sprites.filter(
+    s =>
+      s.id !== 0xe3 &&
+      s.id !== 0xe2 &&
+      s.status === 'drawn' &&
+      s.box.x0 < ring.box.x1 &&
+      s.box.x1 > ring.box.x0 &&
+      s.box.y0 < ring.box.y1 &&
+      s.box.y1 > ring.box.y0,
+  )
+  expect(near.map(s => `$${s.id.toString(16)} at ${s.x},${s.y}`)).toEqual([])
 
   // The ring spans x 416..592: screens 1 and 2 (256 px each).
   await openMap(page, [1, 2])
@@ -205,9 +218,9 @@ test('the $E3 ring of map $107 is one drawn sprite of 10 pieces 80 px round its 
     const px = ringPixels(reply, ring, s)
     expect(px.open.length, `opaque ring pixels on screen ${s}`).toBeGreaterThan(0)
     const got = await sample(page, px.open, s)
-    // Priority-3 pieces sit above every background layer, and at unit level none of the ring's 2066 opaque pixels on
-    // $107 lies under another drawn sprite's opaque pixel, so the composite should show nearly all of them. 0.95
-    // leaves room for colour math; the verifier reports the measured share per screen (not run by the implementer).
+    // Priority-3 pieces sit above every background layer, palette 9 takes no colour math (only OBJ palettes 12-15 do), and at
+    // unit level none of the ring's 2066 opaque pixels on $107 lies under another drawn sprite's opaque pixel, so the composite
+    // should show nearly all of them. 0.95 is sampling slack; the verifier records the measured share per screen.
     expect(share(got, px.openRgb), `screen ${s}: ring colours show`).toBeGreaterThan(0.95)
     if (s === 2) Object.assign(kept, px)
   }

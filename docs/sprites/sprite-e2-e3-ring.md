@@ -47,7 +47,7 @@ All line numbers are SMWDisX `bank_02.asm` unless a bank is named. No assembly i
 - Per ring entry, on a fresh machine (each ring is drawn alone, owner call C): the entry's
   X, list index and stream offset are put where the loader leaves them, the camera is put on
   the centre so all 10 pieces are on screen, SpriteLock is set, Mario is put far away (the
-  contact test then misses; owner call E), the ring state is cleared (the level image's own is
+  contact test then misses, bank_02.asm:16781-16823), the ring state is cleared (the level image's own is
   not zero: $0EC's loader image has BooRingIndex 1 and angle $1FF) and the angle set to 0, the state
   before the ring's first frame (owner call A), the spawn runs with the id in A, then the draw once
   per type-4 slot.

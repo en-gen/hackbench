@@ -10,11 +10,12 @@
  *   -1 for $E3) and the ring's centre.
  * - Draw: CODE_02FA98 (16290-16429), the cluster dispatch's type 4 entry (15965-15972), then
  *   CODE_02FC8D / CODE_02FD48 (16531-16686): 16 x 16 pieces, 80 px from the centre, 40/512 of a turn
- *   (28.1 degrees) apart, so the 10 make an open arc of about 253 degrees, not a closed circle (DATA_02FA84, 16282-16288).
+ *   (28.1 degrees) apart, so the 10 make an open arc of about 253 degrees, not a closed circle
+ *   (DATA_02FA84, 16282-16288).
  * - Frame policy: SpriteLock is set, so the angle is the spawn state (angle 0, the state before the
  *   ring's first frame; #983 owner call A) and does not turn. The level image's own ring state is
- *   not zero ($0EC's loader image has BooRingIndex 1 and angle $1FF), so it is cleared first. Mario is put far away: the draw's contact test
- *   (CODE_02FE71, 16781-16823) then never fires. docs/sprites/sprite-e2-e3-ring.md has the derivation.
+ *   not zero ($0EC's loader image has BooRingIndex 1 and angle $1FF), so it is cleared first.
+ *   Mario is put far away: the draw's contact test (CODE_02FE71, 16781-16823) then never fires. docs/sprites/sprite-e2-e3-ring.md has the derivation.
  *
  * Evidence scope: vanilla USA ROM; 10 of 10 OAM entries equal the hardware ones in the layers_v5
  * captures of map $107 at the angle those frames held (test/suite/unit/sprites/RotatingRing.test.ts).
@@ -57,6 +58,8 @@ export const VANILLA_RING_ROUTINES: RingRoutines = {
 /** Spans: the spawn, the draw, the helpers CODE_02FC8D..(CODE_02FCD9's RTS) and CODE_02FD48..its RTS, and CODE_02FE71..Return02FEC4 (the contact test, bank_02.asm:16781-16823; it runs during the draw even though Mario is out of reach). */
 export const RING_SPANS = { spawn: [[SPAWN, 103]], draw: [[DRAW, 291]], helpers: [[0x02fc8d, 85], [0x02fd48, 112]], contact: [[0x02fe71, 84]] } as const // prettier-ignore
 
+/** Where the ring's centre sits on screen: the camera is put at the centre less this, and a piece's OAM position less this is its offset from the centre. */
+const SCREEN_CENTRE = { x: 128, y: 112 }
 const CLUSTER_SLOTS = 20
 const CUR_SPRITE_PROCESS = 0x15e9
 const EFF_FRAME = 0x14
@@ -114,7 +117,7 @@ export function rotatingRing(
     const w = bus.wram
     for (const [k, v] of Object.entries(seed.ram)) w[Number(k)] = v
     // Camera on the centre so all 10 pieces (80 px out, 16 wide) are on screen; the 16-bit wrap is the game's own.
-    const cam = { x: (e.x - 128) & 0xffff, y: (e.y - 112) & 0xffff }
+    const cam = { x: (e.x - SCREEN_CENTRE.x) & 0xffff, y: (e.y - SCREEN_CENTRE.y) & 0xffff }
     w.set([cam.x & 255, cam.x >> 8, cam.y & 255, cam.y >> 8], 0x1a)
     w[BOO_RING_INDEX] = 0
     w.fill(0, RING_STATE, RING_STATE + 16)
@@ -143,13 +146,14 @@ export function rotatingRing(
       w[CUR_SPRITE_PROCESS] = x
       run(DRAW, { x })
     }
-    // Screen to map: the camera is the centre less (128, 112), so a piece at OAM (ox, oy) is (ox - 128, oy - 112) from the
-    // centre. Subtracting the 16-bit camera instead breaks when a piece's map coordinate is negative (a centre under 80 px).
-    const signed = (x9: number) => (x9 > 255 ? x9 - 512 : x9) // OAM x is 9 bits
+    // Screen to map: a piece at OAM (ox, oy) is (ox, oy) less the centre's screen position from the centre. Subtracting the
+    // 16-bit camera instead breaks when a piece's map coordinate is negative (a centre under 80 px).
+    // OAM X bit 9 is never set here: the draw sets it only when a piece's X high byte differs from the camera's (bank_02.asm:16557-16567),
+    // and with the camera 48 to 208 px left of every piece that byte matches.
     const parts = touchedOamParts(w, touched).map(p => ({
       ...p,
-      dx: signed(p.ox) - 128,
-      dy: p.oy - 112,
+      dx: p.ox - SCREEN_CENTRE.x,
+      dy: p.oy - SCREEN_CENTRE.y,
     }))
     return { ok: true, parts, unverified }
   } catch (err) {

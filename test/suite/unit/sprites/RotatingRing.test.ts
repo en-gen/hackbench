@@ -62,7 +62,7 @@ const spawn = [
 ]
 /**
  * The draw's effect: one 8 x 8 OAM entry per slot X (19..10) at index 76 + X - 10: x = X * 8 minus the camera low byte
- * plus the list index, y = Mario's X high byte plus the stream byte plus the ring angle high byte, tile = the stored X low
+ * plus the list index, y = Mario's X high byte plus the stream byte plus the ring angle high byte minus the camera low Y, tile = the stored X low
  * byte plus the angle low byte, attribute = the stored id. 291 bytes, padded with NOPs.
  */
 const draw = [
@@ -70,7 +70,7 @@ const draw = [
   ...[
     0xad, 0xe9, 0x15, 0x0a, 0x0a, 0x0a, 0x38, 0xe5, 0x1a, 0x18, 0x6d, 0xb6, 0x0f, 0x99, 0x30, 0x03,
   ], // X * 8 - Layer1XPos + index -> OAM X
-  ...[0xa5, 0x95, 0x18, 0x6d, 0xb4, 0x0f, 0x6d, 0xb0, 0x0f, 0x99, 0x31, 0x03], // OAM Y = Mario's X high byte ($95, $7F: the run puts Mario far away) + stream byte + angle high
+  ...[0xa5, 0x95, 0x18, 0x6d, 0xb4, 0x0f, 0x6d, 0xb0, 0x0f, 0x38, 0xe5, 0x1c, 0x99, 0x31, 0x03], // OAM Y = Mario's X high byte ($95, $7F: the run puts Mario far away) + stream byte + angle high - Layer1YPos
   ...[0xad, 0xb2, 0x0f, 0x18, 0x6d, 0xae, 0x0f, 0x99, 0x32, 0x03], // tile = X low + angle low
   ...[0xad, 0xbc, 0x0f, 0x99, 0x33, 0x03, 0x60], // attribute, RTS
 ]
@@ -127,6 +127,8 @@ const routinesOf = (rom: RomFile): RingRoutines => {
 /** WRAM offset of the synthetic stream: byte i holds $40 + i, except offset 7 (the ENTRY's), which holds 5. */
 const STREAM_AT = 0xf000
 const STREAM_BYTE = 5
+/** The OAM Y the synthetic draw writes for a centre at map y: its own constant less the camera's low Y ($1C), so a wrong camera Y moves it. */
+const oyOf = (y: number, add = 0) => (0x7f + STREAM_BYTE + add - (y - 112)) & 255
 /** The level's loaded image with SpriteDataPtr pointing at a known stream in WRAM, so the hand-off is checkable without the corpus. */
 function seedOf(rom: RomFile, patch: (w: Uint8Array) => void = () => {}) {
   const s = levelSeed(rom, LEVEL)
@@ -153,14 +155,14 @@ describe('the rotating ring from the routines (synthetic cart)', () => {
 
   it("10 pieces at the OAM the cart's own spawn and draw wrote, mapped back by the camera, verified", () => {
     // Camera = centre - (128, 112) = (288, 208). OAM x = X * 8 - $20 (camera low) + 2 (the list index), so dx = that - 128;
-    // OAM y = $7F (the Mario position the run sets) + 5 (the stream byte at the entry's offset), so dy = that - 112;
+    // OAM y = $7F (the Mario position the run sets) + 5 (the stream byte at the entry's offset) - the camera's low Y (centre y - 112), so dy = that - 112;
     // tile = the entry's X low byte ($A0, name table from the attribute), attribute = the id ($E3).
     const r = parts(ringRom())
     expect(r.unverified).toEqual([])
     expect(r.parts.length).toBe(10)
     r.parts.forEach((p, k) => {
       const X = 10 + k
-      expect([p.oam, p.dx, p.dy, p.char, p.attr, p.size]).toEqual([76 + k, 8 * X - 30 - 128, 0x7f + STREAM_BYTE - 112, 0xa0 | (1 << 8), 0xe3, 8]) // prettier-ignore
+      expect([p.oam, p.dx, p.dy, p.char, p.attr, p.size]).toEqual([76 + k, 8 * X - 30 - 128, oyOf(ENTRY.y) - 112, 0xa0 | (1 << 8), 0xe3, 8]) // prettier-ignore
     })
   })
 
@@ -187,7 +189,7 @@ describe('the rotating ring from the routines (synthetic cart)', () => {
     // Camera (-64, -64): the cart's OAM x = X * 8 - $C0 + 2 wraps to a byte; its offset from the centre (screen 128) is the same as ever.
     const r = parts(ringRom(), { ...ENTRY, x: 64, y: 48 })
     expect(r.parts.map(p => [p.dx, p.dy])).toEqual(
-      Array.from({ length: 10 }, (_, k) => [8 * (10 + k) - 64 + 2, 0x7f + STREAM_BYTE - 112]),
+      Array.from({ length: 10 }, (_, k) => [8 * (10 + k) - 64 + 2, oyOf(48) - 112]),
     )
   })
 
@@ -200,7 +202,7 @@ describe('the rotating ring from the routines (synthetic cart)', () => {
     expect(at({ streamOffset: 9 }).dy).toBe(base.dy + (0x49 - STREAM_BYTE))
   })
 
-  it('the spawn is a fresh one: ring state left in the image (BooRingIndex 2, a turned angle) is cleared, and the requested angle is the ring state', () => {
+  it('stale ring state in the level image (BooRingIndex 2, a turned angle) does not stop the spawn, and the requested angle reaches the draw', () => {
     const rom = ringRom()
     const dirty = seedOf(rom, w => {
       w[0x18ba] = 2 // a game that already holds two rings: the spawn would refuse
@@ -210,7 +212,7 @@ describe('the rotating ring from the routines (synthetic cart)', () => {
     if (!r.ok) throw new Error(r.reason)
     expect(r.parts.length).toBe(10)
     // Angle $103: low byte 3 added to the tile, high byte 1 added to OAM y.
-    expect(r.parts.every(p => (p.char & 0xff) === 0xa3 && p.dy === 0x7f + STREAM_BYTE + 1 - 112)).toBe(true) // prettier-ignore
+    expect(r.parts.every(p => (p.char & 0xff) === 0xa3 && p.dy === oyOf(ENTRY.y, 1) - 112)).toBe(true) // prettier-ignore
   })
 
   describe('pieces at negative map coordinates (a centre near the map origin, M1)', () => {
@@ -321,8 +323,13 @@ describe('the rotating ring on the map (synthetic cart)', () => {
     const d = draw(sprite())
     expect(d).toMatchObject({ index: 2, id: 0xe3, x: 416, y: 320, status: 'drawn' })
     expect(d.unverified).toBeUndefined()
-    // Pieces 8 wide at dx 8 * X - 158 (X 10..19: -78..-6) and dy 20 (see the first test): the box spans them.
-    expect(d.box).toEqual({ x0: 338, y0: 340, x1: 418, y1: 348 })
+    // Pieces 8 wide at dx 8 * X - 158 (X 10..19: -78..-6) and dy from oyOf (see the first test): the box spans them.
+    expect(d.box).toEqual({
+      x0: 338,
+      y0: 320 + oyOf(320) - 112,
+      x1: 418,
+      y1: 328 + oyOf(320) - 112,
+    })
   })
 
   it('$E2 is drawn the same way', () => {
