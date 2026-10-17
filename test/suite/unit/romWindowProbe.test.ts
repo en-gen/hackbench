@@ -12,6 +12,7 @@ import {
   locateVanillaRom,
   stripComments,
   textHits,
+  textRuns,
   windowSet,
 } from '../../../tools/scripts/lib/rom-windows.mjs'
 import { resolveRomDir, VANILLA } from '../support/corpus'
@@ -289,12 +290,48 @@ describe('CLI', () => {
     expect(r.status).toBe(2)
   })
 
+  describe('argument errors', () => {
+    const clean = put('clean.ts', 'const a = 1\n')
+    it.each([
+      ['a trailing --rom', [clean, '--rom']],
+      ['a trailing --git-range', ['--rom', romFile, '--git-range']],
+      ['a trailing --repo', ['--rom', romFile, '--repo']],
+      ['a flag as the --rom value', ['--rom', '--bin', clean]],
+      ['files together with --git-range', ['--rom', romFile, '--git-range', 'HEAD', clean]],
+    ])('exits 2 on %s', (_n, a) => {
+      expect(probe(a as string[]).status).toBe(2)
+    })
+  })
+
+  describe('textRuns line numbers', () => {
+    it('numbers lines correctly and in linear time on a large file', () => {
+      const n = 40000
+      const text = Array.from({ length: n }, (_, i) => `db $${(i % 200).toString(16)}`).join('\n')
+      const t0 = Date.now()
+      const runs = textRuns(text, 5, 'asm')
+      expect(Date.now() - t0).toBeLessThan(3000)
+      const lines = runs.flatMap((r: { lines: number[] }) => r.lines)
+      expect(lines.length).toBe(n)
+      expect(lines[0]).toBe(5)
+      expect(lines[n - 1]).toBe(5 + n - 1)
+    })
+  })
+
   describe('--git-range', () => {
     const repo = mkdtempSync(join(tmpdir(), 'rom-window-repo-'))
     const git = (...a: string[]) =>
-      spawnSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t', ...a], {
-        encoding: 'utf8',
-      })
+      spawnSync(
+        'git',
+        [
+          ...['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t'],
+          ...['-c', 'commit.gpgsign=false', '-c', 'core.hooksPath='],
+          ...a,
+        ],
+        {
+          encoding: 'utf8',
+          env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '' },
+        },
+      )
     const write = (name: string, data: Uint8Array | string) => writeFileSync(join(repo, name), data)
     const w = (a: number) => hex(ROM.subarray(a, a + 8))
     git('init', '-q')
@@ -399,6 +436,23 @@ db ${w(2500)}
     })
     it('prints hits before an error, and a bad range is exit 2', () => {
       expect(probe(['--rom', romFile, '--repo', repo, '--git-range', 'HEAD...nope']).status).toBe(2)
+    })
+    it('scans untracked files from the repo root when run from a subdirectory', () => {
+      mkdirSync(join(repo, 'sub'), { recursive: true })
+      write('top-fresh.txt', `db ${w(3000)}\n`)
+      const r2 = probe(['--rom', romFile, '--repo', join(repo, 'sub'), '--git-range', 'HEAD'])
+      expect(r2.status).toBe(1)
+      expect(r2.stdout.split('\n')).toContain('HIT top-fresh.txt:1 windows=1')
+      rmSync(join(repo, 'top-fresh.txt'))
+    })
+    it('does not let a textconv driver turn a binary file into a text one', () => {
+      write('conv.dat', Uint8Array.from([0, 0, ...ROM.subarray(3200, 3208), 0]))
+      write('.gitattributes', 'conv.dat diff=hexy\n')
+      git('config', 'diff.hexy.textconv', 'cat')
+      git('add', '.')
+      git('commit', '-qm', 'conv')
+      const r2 = probe(['--rom', romFile, '--repo', repo, '--git-range', 'HEAD~1..HEAD'])
+      expect(r2.stdout.split('\n')).toContain('HIT conv.dat offset=0x2 windows=1')
     })
     it('scans binary files as bytes', () => {
       expect(out).toContain('HIT cart.bin offset=0x3 windows=1')

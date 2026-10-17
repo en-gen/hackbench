@@ -26,13 +26,25 @@ let range
 let repo = process.cwd()
 let bin = false
 const files = []
+// A missing or flag-shaped operand is an argument error, never a silent default or reinterpretation.
+const operand = (flag, value) => {
+  if (value === undefined || value.startsWith('-')) {
+    console.error(`ERROR: ${flag} needs a value`)
+    process.exit(2)
+  }
+  return value
+}
 for (let i = 0; i < args.length; i++) {
   const a = args[i]
-  if (a === '--rom') rom = args[++i]
-  else if (a === '--git-range') range = args[++i]
-  else if (a === '--repo') repo = args[++i]
+  if (a === '--rom') rom = operand(a, args[++i])
+  else if (a === '--git-range') range = operand(a, args[++i])
+  else if (a === '--repo') repo = operand(a, args[++i])
   else if (a === '--bin') bin = true
   else files.push(a)
+}
+if (range && files.length) {
+  console.error('ERROR: --git-range takes no file arguments')
+  process.exit(2)
 }
 
 /** `{ path, hits, binary }` per checked file, filled as we go so an error can still show earlier hits. */
@@ -121,6 +133,7 @@ function scanRange(spec) {
     '-z',
     '--no-renames',
     '--no-ext-diff',
+    '--no-textconv',
     '--diff-filter=d',
     ...revs,
   ])
@@ -143,7 +156,15 @@ function scanRange(spec) {
  *  line as added. Binary means a NUL in the first 8000 bytes, as git decides. */
 function scanUntracked() {
   const top = git(['rev-parse', '--show-toplevel']).toString().trim()
-  const list = git(['ls-files', '--others', '--exclude-standard', '--full-name', '-z'])
+  const list = git([
+    'ls-files',
+    '--others',
+    '--exclude-standard',
+    '--full-name',
+    '-z',
+    '--',
+    ':(top)',
+  ])
   for (const path of list.toString('utf8').split('\0').filter(Boolean)) {
     const blob = readFileSync(join(top, path))
     const binary = blob.subarray(0, 8000).includes(0)

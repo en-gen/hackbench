@@ -107,10 +107,15 @@ export function textRuns(text, base = 1, mode = 'js') {
   // An asm data directive joins the lines of a table; as a word it would read as the byte 0xDB.
   if (mode === 'asm')
     src = src.replace(/(?<![\w$])\.?(?:db|byte)(?![\w$])/gi, d => ' '.repeat(d.length))
+  // Tokens arrive in ascending index order, so the line counter only moves forward.
+  let line = base
+  let nl = src.indexOf('\n')
   const lineAt = pos => {
-    let n = base
-    for (let i = src.indexOf('\n'); i >= 0 && i < pos; i = src.indexOf('\n', i + 1)) n++
-    return n
+    while (nl >= 0 && nl < pos) {
+      line++
+      nl = src.indexOf('\n', nl + 1)
+    }
+    return line
   }
   const toks = [...src.matchAll(TOKEN)]
   const runs = []
