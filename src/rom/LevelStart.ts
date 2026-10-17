@@ -24,7 +24,7 @@
  */
 import type { RomFile } from './RomFile'
 import { isOverworldLevel, mapUsesSecondaryExits, type SmwRom } from './SmwRom'
-import { parseLevelObjects } from './LevelParser'
+import { parseLevelObjects, readableScreenExits } from './LevelParser'
 import {
   DATA_05D730_ADDR as Y_LO,
   DATA_05D740_ADDR as Y_HI,
@@ -226,10 +226,7 @@ export function readLevelStart(
     const h = hops.get(from)
     const raw = h === undefined || !dests.includes(mapIndex) ? null : rom.getLevelRawData(from)
     if (h === undefined || !raw) continue
-    // A stream that ran off the buffer lost sync: its "screen exits" are not trustworthy, so none is used.
-    const parsed = parseLevelObjects(raw, [])
-    if (!parsed.terminated) continue
-    const exits = parsed.objects.filter(o => o.screenExitDest !== undefined)
+    const exits = readableScreenExits(parseLevelObjects(raw, []))
     const secondary = mapUsesSecondaryExits(exits)
     for (const o of exits) {
       const low = o.screenExitDest! & 0xff

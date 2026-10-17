@@ -26,7 +26,7 @@
  */
 
 import { RomFile } from './RomFile'
-import { parseLevelObjects } from './LevelParser'
+import { parseLevelObjects, readableScreenExits } from './LevelParser'
 import { levelNameForSlot } from './SmwLevelNames'
 import { deriveOverworldEntrances, type OverworldEntranceIndex } from './OverworldEntrances'
 import {
@@ -500,7 +500,7 @@ export class SmwRom {
       } catch {
         continue
       }
-      const exits = parsed.objects.filter(o => o.screenExitDest !== undefined)
+      const exits = readableScreenExits(parsed)
       const isSecondary = mapUsesSecondaryExits(exits)
       const specs = exits.map(o => ({
         isSecondary,

@@ -369,6 +369,17 @@ export function parseLevelObjects(
 }
 
 /**
+ * The screen exit objects the game reads from a parsed layer 1 stream. The loader walks
+ * objects until one starts with $FF (bank_05.asm:792-796); a stream that ran off the
+ * buffer without one lost sync, so its "exits" are not trustworthy and none is used (#787, #788).
+ */
+export function readableScreenExits(
+  parsed: Pick<ReturnType<typeof parseLevelObjects>, 'objects' | 'terminated'>,
+): LevelObject[] {
+  return parsed.terminated ? parsed.objects.filter(o => o.screenExitDest !== undefined) : []
+}
+
+/**
  * Parse Layer 2 objects from the L2 data stream.
  *
  * L2 data has NO header -- objects start at byte 0. The object format is
