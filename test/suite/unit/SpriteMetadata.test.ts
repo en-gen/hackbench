@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest'
+import fs from 'node:fs'
+import path from 'node:path'
 import {
   SPRITE_METADATA,
+  SCROLL_COMMANDS,
   getSpriteMetadata,
   type SpriteMetadata,
 } from '../../../src/rom/model/sprites/SpriteMetadata'
@@ -23,12 +26,10 @@ describe('getSpriteMetadata', () => {
   it('0xC9 is the Bullet Bill shooter, 0xCA the Torpedo Ted launcher (shooters, ShooterNumber = id - $C8)', () => {
     expect(getSpriteMetadata(0xc9)).toMatchObject({
       displayName: 'Bullet Bill Shooter',
-      isGenerator: true,
       spawns: 0x1c,
     })
     expect(getSpriteMetadata(0xca)).toMatchObject({
       displayName: 'Torpedo Ted Launcher',
-      isGenerator: true,
       spawns: 0x44,
     })
   })
@@ -70,11 +71,18 @@ describe('getSpriteMetadata', () => {
 
 // A table entry in 0xC9..0xFF is only as good as its citation (#985): the
 // names there were wrong once because nothing tied them to the disassembly.
-const SOURCE_RE = /^bank_0[0-9A-F]\.asm:\d+ \S+$/
+// Form: 'bank_02.asm:6861 (in LaunchTorpedo, 6835)' = cited line, the label
+// enclosing it, that label's own line.
+const SOURCE_RE = /^(bank_0[0-9A-F]\.asm):(\d+) \(in (\w+), (\d+)\)$/
+const CITED_IDS = Array.from({ length: 0xff - 0xc9 + 1 }, (_, i) => 0xc9 + i)
 
-function uncitedGeneratorIds(table: Record<number, SpriteMetadata>): number[] {
+type Table = Readonly<Record<number, Readonly<SpriteMetadata>>>
+
+/** Ids in C9..FF whose citation is missing or malformed; `visited` counts the ids examined. */
+function uncitedIds(table: Table, visited: number[] = []): number[] {
   const bad: number[] = []
-  for (let id = 0xc9; id <= 0xff; id++) {
+  for (const id of CITED_IDS) {
+    visited.push(id)
     const src = table[id]?.source
     if (src === undefined || !SOURCE_RE.test(src)) bad.push(id)
   }
@@ -82,19 +90,154 @@ function uncitedGeneratorIds(table: Record<number, SpriteMetadata>): number[] {
 }
 
 describe('0xC9..0xFF carry a SMWDisX citation', () => {
-  it('checks 55 ids and finds none uncited', () => {
-    expect(0xff - 0xc9 + 1).toBe(55)
-    expect(uncitedGeneratorIds(SPRITE_METADATA)).toEqual([])
+  it('visits all 55 ids and finds none uncited', () => {
+    const visited: number[] = []
+    expect(uncitedIds(SPRITE_METADATA, visited)).toEqual([])
+    expect(visited).toHaveLength(55)
+    expect(new Set(visited).size).toBe(55)
   })
 
   it('fails on a table with one source removed', () => {
     const planted = { ...SPRITE_METADATA, 0xd8: { ...SPRITE_METADATA[0xd8], source: undefined } }
-    expect(uncitedGeneratorIds(planted)).toEqual([0xd8])
+    expect(uncitedIds(planted)).toEqual([0xd8])
   })
 
-  it('fails on a malformed source', () => {
+  it('fails on a malformed source, including the old label-only form', () => {
     const planted = { ...SPRITE_METADATA, 0xe9: { ...SPRITE_METADATA[0xe9], source: 'bank_05' } }
-    expect(uncitedGeneratorIds(planted)).toEqual([0xe9])
+    expect(uncitedIds(planted)).toEqual([0xe9])
+    const old = {
+      ...SPRITE_METADATA,
+      0xca: { ...SPRITE_METADATA[0xca], source: 'bank_02.asm:6861 LaunchTorpedo' },
+    }
+    expect(uncitedIds(old)).toEqual([0xca])
+  })
+})
+
+describe('generator flags (C9/CA are shooters, a separate system: bank_02.asm:5744, 6809)', () => {
+  it('CB..D8 with a spawn are generators; C9 and CA are not', () => {
+    for (let id = 0xcb; id <= 0xd8; id++) {
+      if (SPRITE_METADATA[id].spawns !== undefined)
+        expect(SPRITE_METADATA[id].isGenerator, `id ${id}`).toBe(true)
+    }
+    expect(SPRITE_METADATA[0xc9].isGenerator).toBeUndefined()
+    expect(SPRITE_METADATA[0xca].isGenerator).toBeUndefined()
+  })
+
+  it('pins names that carry a direction or kind', () => {
+    expect(SPRITE_METADATA[0xd5].displayName).toBe('Bullet Bill Generator')
+    expect(SPRITE_METADATA[0xe2].displayName).toBe('Boo Ring (angle step +1)')
+    expect(SPRITE_METADATA[0xe3].displayName).toBe('Boo Ring (angle step -1)')
+    expect(SPRITE_METADATA[0xd2].displayName).toContain('stops respawns')
+  })
+})
+
+describe('scroll commands E7..FF', () => {
+  it('the table has the 15 entries of bank_05.asm:4583-4597', () => {
+    expect(SCROLL_COMMANDS).toHaveLength(15)
+  })
+
+  it('names every command by its table position', () => {
+    for (let cmd = 0; cmd < 15; cmd++) {
+      expect(SPRITE_METADATA[0xe7 + cmd].displayName).toBe(
+        `Scroll command ${cmd}: ${SCROLL_COMMANDS[cmd]}`,
+      )
+      expect(SPRITE_METADATA[0xe7 + cmd].source).toContain(`bank_05.asm:${4583 + cmd} `)
+    }
+  })
+
+  it('F6..FF say the result is undefined', () => {
+    for (let id = 0xf6; id <= 0xff; id++) {
+      expect(SPRITE_METADATA[id].displayName).toBe(
+        `Scroll command ${id - 0xe7}: undefined, past the end of the table (the game jumps into code bytes)`,
+      )
+    }
+  })
+})
+
+describe('Koopa shell ids name the Special World swap (bank_02.asm:5464-5471)', () => {
+  it.each([
+    [0xda, 'Green Koopa Shell (yellow after Special World)'],
+    [0xdb, 'Red Koopa Shell (blue after Special World)'],
+    [0xdc, 'Blue Koopa Shell'],
+    [0xdd, 'Yellow Koopa Shell'],
+  ])('0x%s', (id, name) => expect(SPRITE_METADATA[id].displayName).toBe(name))
+})
+
+// The citations are checked against the disassembly itself. SMWDisX is a
+// separate checkout (not in CI), so this skips without it: HACKBENCH_SMWDISX,
+// else a sibling `SMWDisX` folder found by walking up from here.
+function findSmwdisx(): string | undefined {
+  const env = process.env.HACKBENCH_SMWDISX
+  // A set variable is authoritative, so pointing it nowhere forces the skip.
+  if (env !== undefined) return fs.existsSync(path.join(env, 'bank_02.asm')) ? env : undefined
+  let dir = __dirname
+  for (;;) {
+    const cand = path.join(dir, 'SMWDisX')
+    if (fs.existsSync(path.join(cand, 'bank_02.asm'))) return cand
+    const up = path.dirname(dir)
+    if (up === dir) return undefined
+    dir = up
+  }
+}
+const smwdisx = findSmwdisx()
+
+describe.skipIf(!smwdisx)('0xC9..0xFF citations match the disassembly', () => {
+  const files = new Map<string, string[]>()
+  const bank = (name: string): string[] => {
+    let l = files.get(name)
+    if (!l) files.set(name, (l = fs.readFileSync(path.join(smwdisx!, name), 'utf8').split(/\r?\n/)))
+    return l
+  }
+  // Mirrors the label rule the citations were built with: a column-0 name and colon.
+  const labelAt = (lines: string[], line: number) =>
+    /^([A-Za-z_]\w*):/.exec(lines[line - 1] ?? '')?.[1]
+
+  /** Problems with one citation; empty when the label, enclosure and spawn byte all check out. */
+  function problems(id: number, entry: Readonly<SpriteMetadata>): string[] {
+    const m = SOURCE_RE.exec(entry.source ?? '')
+    if (!m) return [`${id}: malformed`]
+    const [, file, lineS, label, labelLineS] = m
+    const lines = bank(file)
+    const line = Number(lineS)
+    const labelLine = Number(labelLineS)
+    const out: string[] = []
+    if (labelAt(lines, labelLine) !== label)
+      out.push(`${id}: ${label} is not defined at ${labelLine}`)
+    if (!(labelLine <= line)) out.push(`${id}: line ${line} is before its label`)
+    for (let i = labelLine + 1; i <= line; i++) {
+      if (labelAt(lines, i) !== undefined) {
+        out.push(`${id}: line ${line} is past the next label ${labelAt(lines, i)} at ${i}`)
+        break
+      }
+    }
+    if (entry.spawns !== undefined) {
+      const hex = entry.spawns.toString(16).toUpperCase().padStart(2, '0')
+      if (!new RegExp(String.raw`\$${hex}\b`).test(lines[line - 1] ?? ''))
+        out.push(`${id}: line ${line} lacks $${hex}`)
+    }
+    return out
+  }
+
+  it('every cited label, enclosure and spawn byte checks out (55 ids visited)', () => {
+    const all: string[] = []
+    for (const id of CITED_IDS) all.push(...problems(id, SPRITE_METADATA[id]))
+    expect(all).toEqual([])
+  })
+
+  it('goes red on planted line, label and spawn defects', () => {
+    const e = SPRITE_METADATA[0xd5]
+    expect(
+      problems(0xd5, { ...e, source: 'bank_02.asm:99999 (in GenerateBullet, 6385)' }),
+    ).not.toEqual([])
+    expect(problems(0xd5, { ...e, source: 'bank_02.asm:6396 (in Nonsense, 6385)' })).not.toEqual([])
+    expect(problems(0xd5, { ...e, spawns: 0x1d })).not.toEqual([])
+    // 6468 sits in CODE_02B115, not in the generator it was once filed under
+    expect(
+      problems(0xd6, {
+        ...SPRITE_METADATA[0xd6],
+        source: 'bank_02.asm:6468 (in GenerateBullet, 6385)',
+      }),
+    ).not.toEqual([])
   })
 })
 

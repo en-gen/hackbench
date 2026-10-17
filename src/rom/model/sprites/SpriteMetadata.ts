@@ -2,12 +2,12 @@ export interface SpriteMetadata {
   displayName?: string
   spawns?: number
   isGenerator?: boolean
-  /** SMWDisX citation, 'bank_02.asm:6835 LaunchTorpedo'; required for 0xC9..0xFF (#985). */
+  /** SMWDisX citation, 'bank_02.asm:6861 (in LaunchTorpedo, 6835)': the cited line, the label that encloses it, that label's line; required for 0xC9..0xFF (#985). */
   source?: string
 }
 
 // Comments are the disassembly's own, bank_05.asm:4583-4597.
-const SCROLL_COMMANDS = [
+export const SCROLL_COMMANDS = [
   'Auto-Scroll, Unused?',
   'Auto-Scroll',
   'Layer 2 Smash',
@@ -33,18 +33,18 @@ function scrollCommands(): Record<number, SpriteMetadata> {
     out[id] =
       meaning === undefined
         ? {
-            displayName: `Scroll command ${cmd}: past the end of the table`,
-            source: 'bank_05.asm:4580 CODE_05BCE9',
+            displayName: `Scroll command ${cmd}: undefined, past the end of the table (the game jumps into code bytes)`,
+            source: 'bank_05.asm:4580 (in CODE_05BCE9, 4579)',
           }
         : {
             displayName: `Scroll command ${cmd}: ${meaning}`,
-            source: `bank_05.asm:${4583 + cmd} CODE_05BCE9`,
+            source: `bank_05.asm:${4583 + cmd} (in CODE_05BCE9, 4579)`,
           }
   }
   return out
 }
 
-export const SPRITE_METADATA: Record<number, SpriteMetadata> = {
+export const SPRITE_METADATA: Readonly<Record<number, Readonly<SpriteMetadata>>> = {
   // Koopas (0x00-0x0D)
   0x00: { displayName: 'Green Koopa (no shell)' },
   0x01: { displayName: 'Red Koopa (no shell)' },
@@ -254,128 +254,158 @@ export const SPRITE_METADATA: Record<number, SpriteMetadata> = {
   // generators 0xCB-0xD9 (CurrentGenerator = id - $CA, dispatch bank_02.asm:6325-6339).
   0xc9: {
     displayName: 'Bullet Bill Shooter',
-    isGenerator: true,
     spawns: 0x1c,
-    source: 'bank_02.asm:6954 ShootBullet',
+    source: 'bank_02.asm:6954 (in ShootBullet, 6920)',
   },
   0xca: {
     displayName: 'Torpedo Ted Launcher',
-    isGenerator: true,
     spawns: 0x44,
-    source: 'bank_02.asm:6861 LaunchTorpedo',
+    source: 'bank_02.asm:6861 (in LaunchTorpedo, 6835)',
   },
   0xcb: {
     displayName: 'Eerie Generator',
     isGenerator: true,
     spawns: 0x38,
-    source: 'bank_02.asm:6721 GenerateEerie',
+    source: 'bank_02.asm:6721 (in GenerateEerie, 6712)',
   },
   0xcc: {
     displayName: 'Para-Goomba Generator',
     isGenerator: true,
     spawns: 0x3f,
-    source: 'bank_02.asm:6769 GenParaEnemy',
+    source: 'bank_02.asm:6748 (in DATA_02B31F, 6747)',
   },
   0xcd: {
     displayName: 'Para-Bomb Generator',
     isGenerator: true,
     spawns: 0x40,
-    source: 'bank_02.asm:6769 GenParaEnemy',
+    source: 'bank_02.asm:6748 (in DATA_02B31F, 6747)',
   },
   0xce: {
     displayName: 'Para-Goomba and Para-Bomb Generator',
     isGenerator: true,
-    source: 'bank_02.asm:6769 GenParaEnemy',
+    source: 'bank_02.asm:6769 (in GenParaEnemy, 6753)',
   },
   0xcf: {
     displayName: 'Dolphin Generator (left)',
     isGenerator: true,
     spawns: 0x41,
-    source: 'bank_02.asm:6672 GenerateDolphin',
+    source: 'bank_02.asm:6672 (in CODE_02B288, 6669)',
   },
   0xd0: {
     displayName: 'Dolphin Generator (right)',
     isGenerator: true,
     spawns: 0x41,
-    source: 'bank_02.asm:6672 GenerateDolphin',
+    source: 'bank_02.asm:6672 (in CODE_02B288, 6669)',
   },
   0xd1: {
     displayName: 'Jumping Fish Generator',
     isGenerator: true,
     spawns: 0x17,
-    source: 'bank_02.asm:6509 GenerateFish',
+    source: 'bank_02.asm:6509 (in GenerateFish, 6500)',
   },
-  0xd2: { displayName: 'Turn Off Generator 2', source: 'bank_02.asm:6343 TurnOffGen2' },
+  0xd2: {
+    displayName:
+      'Turn Off Generator 2 (stops respawns and Boo cloud cluster sprites, despawns Magikoopa)',
+    source: 'bank_02.asm:6343 (in TurnOffGen2, 6343)',
+  },
   0xd3: {
     displayName: 'Super Koopa Generator',
     isGenerator: true,
     spawns: 0x71,
-    source: 'bank_02.asm:6565 GenSuperKoopa',
+    source: 'bank_02.asm:6565 (in GenSuperKoopa, 6556)',
   },
   0xd4: {
     displayName: 'Bubble Generator',
     isGenerator: true,
     spawns: 0x9d,
-    source: 'bank_02.asm:6602 GenerateBubble',
+    source: 'bank_02.asm:6602 (in GenerateBubble, 6593)',
   },
   0xd5: {
     displayName: 'Bullet Bill Generator',
     isGenerator: true,
     spawns: 0x1c,
-    source: 'bank_02.asm:6396 GenerateBullet',
+    source: 'bank_02.asm:6396 (in GenerateBullet, 6385)',
   },
   0xd6: {
     displayName: 'Bullet Bill Generator (surrounding)',
     isGenerator: true,
     spawns: 0x1c,
-    source: 'bank_02.asm:6468 GenMultiBullets',
+    source: 'bank_02.asm:6468 (in CODE_02B115, 6465)',
   },
   0xd7: {
     displayName: 'Bullet Bill Generator (diagonal)',
     isGenerator: true,
     spawns: 0x1c,
-    source: 'bank_02.asm:6468 GenMultiBullets',
+    source: 'bank_02.asm:6468 (in CODE_02B115, 6465)',
   },
   0xd8: {
     displayName: 'Bowser Statue Fire Generator',
     isGenerator: true,
     spawns: 0xb3,
-    source: 'bank_02.asm:6363 GenerateFire',
+    source: 'bank_02.asm:6363 (in GenerateFire, 6352)',
   },
   0xd9: {
     displayName: 'Turn Off Standard Generators',
-    source: 'bank_02.asm:6348 TurnOffGenerators',
+    source: 'bank_02.asm:6348 (in TurnOffGenerators, 6348)',
   },
-  // Status 9 (CODE_02A8D0): sprite number = (id - $DA) + 4, so DA-DD are Koopa
-  // shells 04-07 and DF is sprite 09 (bank_02.asm:5460-5462).
-  0xda: { displayName: 'Green Koopa Shell', source: 'bank_02.asm:5460 CODE_02A8D0' },
-  0xdb: { displayName: 'Red Koopa Shell', source: 'bank_02.asm:5460 CODE_02A8D0' },
-  0xdc: { displayName: 'Blue Koopa Shell', source: 'bank_02.asm:5460 CODE_02A8D0' },
-  0xdd: { displayName: 'Yellow Koopa Shell', source: 'bank_02.asm:5460 CODE_02A8D0' },
+  // Status 9 (CODE_02A95B): sprite number = (id - $DA) + 4, so DA-DD are Koopa
+  // shells 04-07 and DF is sprite 09 (bank_02.asm:5460-5462). When
+  // OWLevelTileSettings+$49 is negative (Special World cleared) 4 becomes 7 and
+  // 5 becomes 6 (bank_02.asm:5464-5471), hence the two named swaps.
+  0xda: {
+    displayName: 'Green Koopa Shell (yellow after Special World)',
+    source: 'bank_02.asm:5460 (in CODE_02A95B, 5440)',
+  },
+  0xdb: {
+    displayName: 'Red Koopa Shell (blue after Special World)',
+    source: 'bank_02.asm:5460 (in CODE_02A95B, 5440)',
+  },
+  0xdc: { displayName: 'Blue Koopa Shell', source: 'bank_02.asm:5460 (in CODE_02A95B, 5440)' },
+  0xdd: { displayName: 'Yellow Koopa Shell', source: 'bank_02.asm:5460 (in CODE_02A95B, 5440)' },
   0xde: {
     displayName: 'Five Eeries (wave motion)',
     spawns: 0x39,
-    source: 'bank_02.asm:6286 Load5Eeries',
+    source: 'bank_02.asm:6286 (in CODE_02AFAF, 6280)',
   },
   0xdf: {
-    displayName: 'Green Para-Koopa (bouncing), status 9',
-    source: 'bank_02.asm:5460 CODE_02A8D0',
+    displayName: 'Green Para-Koopa (stunned and carryable)',
+    source: 'bank_02.asm:5460 (in CODE_02A95B, 5440)',
   },
   0xe0: {
     displayName: 'Three Grey Platforms on Chain',
     spawns: 0xa3,
-    source: 'bank_02.asm:6228 Load3Platforms',
+    source: 'bank_02.asm:6228 (in CODE_02AF45, 6222)',
   },
   // Cluster sprite starters (CODE_02AAC0 and the blocks it branches to). Types
   // 3 and 8 share one handler (CODE_02FBC7) with no code-derivable plain name.
-  0xe1: { displayName: 'Cluster sprites (type 3)', source: 'bank_02.asm:5645 CODE_02AAC0' },
-  0xe2: { displayName: 'Boo Ring (angle step +1)', source: 'bank_02.asm:5684 CODE_02AB11' },
-  0xe3: { displayName: 'Boo Ring (angle step -1)', source: 'bank_02.asm:5684 CODE_02AB11' },
-  0xe4: { displayName: 'Cluster sprites (type 8)', source: 'bank_02.asm:5556 CODE_02AA33' },
-  0xe5: { displayName: 'Boo Cloud (cluster type 7)', source: 'bank_02.asm:5603 CODE_02AA8D' },
-  0xe6: { displayName: 'Castle Flames (cluster type 5)', source: 'bank_02.asm:5586 CODE_02AA6C' },
+  0xe1: {
+    displayName: 'Cluster sprites (type 3)',
+    source: 'bank_02.asm:5645 (in CODE_02AAC0, 5631)',
+  },
+  0xe2: {
+    displayName: 'Boo Ring (angle step +1)',
+    source: 'bank_02.asm:5684 (in CODE_02AB28, 5681)',
+  },
+  0xe3: {
+    displayName: 'Boo Ring (angle step -1)',
+    source: 'bank_02.asm:5684 (in CODE_02AB28, 5681)',
+  },
+  0xe4: {
+    displayName: 'Cluster sprites (type 8)',
+    source: 'bank_02.asm:5556 (in CODE_02AA33, 5552)',
+  },
+  0xe5: {
+    displayName: 'Boo Cloud (cluster type 7)',
+    source: 'bank_02.asm:5603 (in CODE_02AA8D, 5600)',
+  },
+  0xe6: {
+    displayName: 'Castle Flames (cluster type 5)',
+    source: 'bank_02.asm:5586 (in CODE_02AA6C, 5582)',
+  },
   // 0xE7-0xFF: Layer1ScrollCmd = id - $E7 (bank_02.asm:5299), dispatched by the
-  // 15-entry table at bank_05.asm:4583-4597. Commands 15 and up run past it.
+  // 15-entry table at bank_05.asm:4583-4597 (load time) and 4526-4540 (per frame,
+  // CODE_05BC76 at 4518). Commands 15 and up index past both tables and jump
+  // into code bytes (CODE_05BD0E / CODE_05BCA5 follow them), so the result is undefined.
   ...scrollCommands(),
 }
 
