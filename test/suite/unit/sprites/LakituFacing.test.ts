@@ -8,6 +8,7 @@
  * the issue's "slots 0-11" is read as 0-9 for that reason).
  * The synthetic blocks need no ROM; the corpus blocks are gated on the vanilla ROM.
  */
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { parseLevelSprites } from '../../../../src/rom/LevelParser'
 import { SmwRom } from '../../../../src/rom/SmwRom'
@@ -16,7 +17,7 @@ import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { runOnce } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { readStream } from '../../../../theia/extension/src/node/map-sprites'
-import { freshRom, hasRom, VANILLA } from '../../support/corpus'
+import { freshRom, hasRom, romPath, VANILLA } from '../../support/corpus'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 
 const FACING = 0x157c
@@ -84,26 +85,37 @@ function sample(
 /** SubHorizPos's answer: 1 when Mario is left of the cloud (which starts where the rider is), bank_01.asm:6124-6134. */
 const side = (sprite: number, mario: number) => (mario < sprite ? 1 : 0)
 
-/** A synthetic rider (id 70) whose INIT spawns a cloud (id 71) in the highest free slot, as InitLakitu does, and a cloud MAIN with the real routine's shape. */
+// The fixture routines, written here (no ROM bytes): see lakituRom for what each does.
+// prettier-ignore
+const SUB_HORIZ_POS = [0xa0, 0x00, 0xa5, 0xd2, 0xdd, 0xe0, 0x14, 0xd0, 0x04, 0xa5, 0xd1, 0xd5, 0xe4, 0xb0, 0x01, 0xc8, 0x60]
+// prettier-ignore
+const RIDER_INIT = [
+  0xa0, 0x08, 0x88, 0x30, 0x1a, 0xb9, 0xc8, 0x14, 0xd0, 0xf8, // scan, RTS if none
+  0xb5, 0xe4, 0x99, 0xe4, 0x00, 0xa9, 0x04, 0x0a, 0x99, 0xc8, 0x14, // X low, status 8 (4 << 1)
+  0xbd, 0xe0, 0x14, 0x99, 0xe0, 0x14, 0xa9, CLOUD, 0x99, 0x9e, 0x00, 0x60, // X high, number
+]
+// prettier-ignore
+const cloudMain = (write: readonly number[]) => [
+  0xa0, 0xff, 0xc8, 0xc0, 0x0a, 0xb0, 0x1e, 0xb9, 0x9e, 0x00, 0xc9, RIDER, 0xd0, 0xf4, // scan 0..9
+  0xb9, 0xc8, 0x14, 0xc9, 0x08, 0xd0, 0xed, 0x98, 0x9d, 0x0e, 0x16, // status, keep the slot
+  0x20, 0x30, 0xad, 0x98, 0x48, 0xbc, 0x0e, 0x16, 0x68, // SubHorizPos, side to A, reload Y
+  ...write, 0x60,
+]
+const STORE = [0x99, 0x7c, 0x15] // STA $157C,Y
+const NOPS = [0xea, 0xea, 0xea] // the planted defect
+
+/** A synthetic rider (id 70) whose INIT spawns a cloud (id 71) in the highest free slot from 7 down, as InitLakitu does, and a cloud MAIN with the effect of the real routine's. */
 function lakituRom(o: { cloud?: 'full' | 'nowrite' | 'rts' } = {}): RomFile {
   const rom = buildSyntheticRom()
-  const w = (o.cloud ?? 'full') === 'full'
   // An equivalent of SubHorizPos (bank_01.asm:6124-6134) written for this fixture, as a compare and not the
   // vanilla subtract: Y = 1 when Mario ($D1/$D2) is left of the sprite ($E4,X / $14E0,X), else 0.
-  rom.writeAt(0x01ad30, [0xa0, 0x00, 0xa5, 0xd2, 0xdd, 0xe0, 0x14, 0xd0, 0x04, 0xa5, 0xd1, 0xd5, 0xe4, 0xb0, 0x01, 0xc8, 0x60]) // prettier-ignore
-  // Rider INIT: start at slot 7 (FindFreeSprSlot starts at SpriteSlotMax, bank_02.asm:5182-5184, 5524-5530; vanilla's is 7-9) / find the highest slot with status 0 / spawn the cloud there at the rider's position.
-  rom.writeAt(0x019a00, [
-    0xa0, 0x07, 0xb9, 0xc8, 0x14, 0xf0, 0x04, 0x88, 0x10, 0xf8, 0x60, // scan, RTS if none
-    0xa9, CLOUD, 0x99, 0x9e, 0x00, 0xa9, 0x08, 0x99, 0xc8, 0x14, // number, status 8
-    0xb5, 0xe4, 0x99, 0xe4, 0x00, 0xbd, 0xe0, 0x14, 0x99, 0xe0, 0x14, 0x60, // X low/high
-  ]) // prettier-ignore
-  // Cloud MAIN: find status 8 + rider number in slots 9..0, keep it in $160E,X, SubHorizPos, STA $157C,Y (14216-14222).
-  rom.writeAt(0x019a40, [
-    0xa0, 0x09, 0xb9, 0xc8, 0x14, 0xc9, 0x08, 0xd0, 0x0a, 0xb9, 0x9e, 0x00, 0xc9, RIDER, 0xd0, 0x03, 0x98, 0x80, 0x04, 0x88, 0x10, 0xec, 0x60, // scan 9..0
-    0x9d, 0x0e, 0x16, 0x20, 0x30, 0xad, 0x98, 0xbc, 0x0e, 0x16, // keep slot, SubHorizPos
-    ...(w ? [0x99, 0x7c, 0x15] : [0xea, 0xea, 0xea]), // STA $157C,Y, or NOPs for the planted defect
-    0x60,
-  ]) // prettier-ignore
+  rom.writeAt(0x01ad30, SUB_HORIZ_POS)
+  // Rider INIT: count down from slot 8 to the first slot with status 0 (the free-slot search starts at
+  // SpriteSlotMax, bank_02.asm:5182-5184, 5524-5530; vanilla's is 7-9), then spawn the cloud there at the rider's X.
+  rom.writeAt(0x019a00, RIDER_INIT)
+  // Cloud MAIN, written ascending: find the rider (number, then status 8) in slots 0..9, keep it in $160E,X, call
+  // SubHorizPos, store its answer into the rider's $157C (the effect of bank_01.asm:14216-14222).
+  rom.writeAt(0x019a40, cloudMain((o.cloud ?? 'full') === 'full' ? STORE : NOPS))
   if (o.cloud === 'rts') rom.writeAt(0x019a40, [0x60]) // the cloud's MAIN never writes: a bare RTS
   rom.writeAt(0x019a80, [0x60]) // the rider's MAIN does nothing
   const words = (a: number) => [a & 0xff, (a >> 8) & 0xff]
@@ -209,6 +221,19 @@ describe.skipIf(!hasRom(VANILLA))(
       },
       SLOW,
     )
+
+    // The triage probe's window: 8 consecutive bytes. A fixture that follows the cart's instruction order for 8 bytes
+    // is copied game code (docs/testing.md), so each routine above must share no 8-byte window with the vanilla ROM.
+    const WINDOW = 8
+    it(`shares no ${WINDOW}-byte run with the vanilla ROM in any fixture routine`, () => {
+      const cart = readFileSync(romPath(VANILLA))
+      const shared: string[] = []
+      const routines = { SUB_HORIZ_POS, RIDER_INIT, cloudFull: cloudMain(STORE), cloudNops: cloudMain(NOPS) } // prettier-ignore
+      for (const [name, bytes] of Object.entries(routines))
+        for (let i = 0; i + WINDOW <= bytes.length; i++)
+          if (cart.includes(Buffer.from(bytes.slice(i, i + WINDOW)))) shared.push(`${name}+${i}`)
+      expect(shared).toEqual([])
+    })
 
     it('goes red when the cloud MAIN store ($01:E998, STA $157C,Y) is disabled (planted defect)', () => {
       const rom = freshRom()
