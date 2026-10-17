@@ -11,6 +11,7 @@ import {
 import { mapCollision, mapCollisionCheck } from '../../../theia/extension/src/node/map-collision'
 import {
   L1ModelCache,
+  mapScreen,
   palaceIconsOf,
   startUnavailable,
   toolbarArtOf,
@@ -26,7 +27,7 @@ import {
 import { NEUTRAL } from '../../../src/rom/collision/TileProbe'
 import { hGrid, inputs } from '../support/mapInputs'
 
-const PLAIN = 'this map could not be read from the ROM.'
+const PLAIN = 'this part of the map could not be read from the ROM.'
 const COLLISION = 'collision cannot be worked out for this map on this ROM.'
 const broken = () => new L1ModelCache(() => ({ ok: false, reason: 'planted: read past $05:8000' }))
 // A model that builds (the real cache returns ok:false for bytes that are no ROM), so each
@@ -46,6 +47,25 @@ describe('a map whose model cannot be built (#967)', () => {
   it('block contents', () => expect(mapBlockContents(broken(), bytes, 'x.sfc', 5)).toEqual(expected('planted: read past $05:8000'))) // prettier-ignore
   it('collision check', () => expect(mapCollisionCheck(broken(), bytes, 'x.sfc', 5)).toEqual(expected('planted: read past $05:8000'))) // prettier-ignore
   it('collision', async () => expect(await mapCollision(broken(), bytes, 'x.sfc', 5, NEUTRAL)).toEqual(expected('planted: read past $05:8000'))) // prettier-ignore
+})
+
+describe('one place words the refusal (#967)', () => {
+  // A cache that refuses with a sentence no caller knows: every caller must pass it through.
+  const SENTINEL = 'SENTINEL: worded by the cache only.'
+  const stub = { get: () => ({ ok: false, reason: SENTINEL, detail: 'raw' }) } as unknown as L1ModelCache // prettier-ignore
+  const art = { yellow: { reason: 'y' }, green: { reason: 'g' }, red: { reason: 'r' }, blue: { reason: 'b' } } // prettier-ignore
+  const reasonOf = (r: unknown) => (r as { reason: string }).reason
+  it('sprites', () => expect(reasonOf(mapSprites(stub, bytes, 'x.sfc', 5))).toBe(SENTINEL))
+  it('block contents', () => expect(reasonOf(mapBlockContents(stub, bytes, 'x.sfc', 5))).toBe(SENTINEL)) // prettier-ignore
+  it('collision check', () => expect(reasonOf(mapCollisionCheck(stub, bytes, 'x.sfc', 5))).toBe(SENTINEL)) // prettier-ignore
+  it('collision probe', async () => expect(reasonOf(await mapCollision(stub, bytes, 'x.sfc', 5, NEUTRAL))).toBe(SENTINEL)) // prettier-ignore
+  it('the screen', () => expect(reasonOf(mapScreen(stub, bytes, 'x.sfc', 5, 0, { blue: false, silver: false, onOff: false } as never))).toBe(SENTINEL)) // prettier-ignore
+  it('the palace and switch icons', () => {
+    const refused = stub.get(bytes, 'x.sfc', 5, {} as never)
+    const r = toolbarArtOf(new RomFile('e.sfc', Buffer.alloc(0x80000, 0)), refused, art)
+    if (r.status !== 'ok') throw new Error(r.status)
+    expect(r.switchUnavailable?.blue).toBe(SENTINEL)
+  })
 })
 
 describe('a read that throws after the model is built (#967)', () => {

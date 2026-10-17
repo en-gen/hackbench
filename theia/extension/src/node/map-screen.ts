@@ -495,7 +495,7 @@ export class L1ModelCache {
   }
 }
 
-const MAP_UNREADABLE = 'this map could not be read from the ROM.'
+const MAP_UNREADABLE = 'this part of the map could not be read from the ROM.'
 const SWITCH_UNDRAWN = "this switch's picture could not be drawn on this ROM."
 const PALACE_UNDRAWN = 'this block could not be drawn on this ROM.'
 
@@ -525,8 +525,8 @@ export function mapScreen(
 ): ScreenReply {
   const built = cache.get(bytes, romPath, index, flags)
   if (built.ok) return screenResult(built.inputs, screen, switches)
-  // The cache already swapped the exception or gate text for plain words (#967); this is a sentence, so it starts capitalised.
-  return { status: 'unavailable', reason: built.reason.charAt(0).toUpperCase() + built.reason.slice(1), detail: built.detail } // prettier-ignore
+  // The cache already swapped the exception or gate text for plain words (#967); a screen note is a sentence, so only the casing is the caller's.
+  return { status: 'unavailable', reason: built.reason.replace(/^./, c => c.toUpperCase()), detail: built.detail } // prettier-ignore
 }
 
 /**
@@ -546,7 +546,8 @@ export function toolbarArtOf(
       status: 'ok',
       icons: palaceIconsOf(art),
       switchArt: {},
-      switchUnavailable: every(MAP_UNREADABLE),
+      // A refusal from the shared cache already carries the plain words; a bare one is worded here.
+      switchUnavailable: every('detail' in built && built.detail ? built.reason : MAP_UNREADABLE),
       switchDetail: every('detail' in built && built.detail ? built.detail : built.reason),
     }
   }

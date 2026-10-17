@@ -10,7 +10,7 @@ import { describe, it, expect } from 'vitest'
 import { SWITCH_FLAGS_UNCLEARED as UNCLEARED } from '../../../src/rom/ObjectExpander'
 import { L1ModelCache, mapScreen } from '../../../theia/extension/src/node/map-screen'
 
-const PLAIN = 'This map could not be read from the ROM.'
+const PLAIN = 'This part of the map could not be read from the ROM.'
 // A LoROM header, so the cache's own ROM wrapper builds and the stubbed build is what runs.
 const bytes = new Uint8Array(0x40000)
 bytes[0x7fd5] = 0x20
@@ -34,12 +34,12 @@ describe('mapScreen on a map whose build throws (#786)', () => {
       throw new Error('planted')
     })
     const built = cache.get(bytes, 'x.sfc', 5, UNCLEARED)
-    expect(built).toEqual({ ok: false, reason: 'this map could not be read from the ROM.', detail: 'planted' }) // prettier-ignore
+    expect(built).toEqual({ ok: false, reason: 'this part of the map could not be read from the ROM.', detail: 'planted' }) // prettier-ignore
   })
 
   it('does the same for a gate reason the build returns (#967)', () => {
     const cache = new L1ModelCache(() => ({ ok: false, reason: 'No VerticalTable here.' }))
-    expect(cache.get(bytes, 'x.sfc', 5, UNCLEARED)).toEqual({ ok: false, reason: 'this map could not be read from the ROM.', detail: 'No VerticalTable here.' }) // prettier-ignore
+    expect(cache.get(bytes, 'x.sfc', 5, UNCLEARED)).toEqual({ ok: false, reason: 'this part of the map could not be read from the ROM.', detail: 'No VerticalTable here.' }) // prettier-ignore
   })
 
   it('keeps a returned gate reason out of the visible reason, in detail only', () => {
