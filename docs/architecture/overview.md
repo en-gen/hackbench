@@ -86,7 +86,8 @@ handed out by `WorkingRomRegistry`.
 Palette, GFX, Map16 and Maps all read the working copy through
 `WorkingRomRegistry`. There is no exception: since #421 step 3
 `test/suite/gates/workingCopyGate.test.ts` bans `RomFile.load(` and
-`RomRegistry` in every `*-server.ts`, `project-server.ts` included. See [../glossary.md](../glossary.md), "Working copy".
+`RomRegistry` in every `*-server.ts`, `project-server.ts` included. See
+[../glossary.md](../glossary.md), "Working copy".
 
 ## The edit model is a flux loop
 
