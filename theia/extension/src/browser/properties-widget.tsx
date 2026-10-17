@@ -54,7 +54,7 @@ function Composite({
 
 const flips = (p: SpritePartDto) => [p.flipX && 'flip X', p.flipY && 'flip Y'].filter(Boolean).join(', ') || 'no flip' // prettier-ignore
 
-/** Every frame of a loop on one canvas: the union of their boxes, which share the first pass's origin. */
+/** Every frame of a loop on one canvas: the union of their boxes; the frames share the chosen pass's anchor. */
 function framesView(f: Extract<FramesState, { kind: 'playing' }>) {
   const [x0, y0] = [Math.min(...f.frames.map(q => q.box.x0)), Math.min(...f.frames.map(q => q.box.y0))] // prettier-ignore
   const [w, h] = [Math.max(...f.frames.map(q => q.box.x1)) - x0, Math.max(...f.frames.map(q => q.box.y1)) - y0] // prettier-ignore

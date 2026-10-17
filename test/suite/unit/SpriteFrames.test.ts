@@ -130,6 +130,33 @@ describe('framesOf', () => {
   it('screen-fixed parts are not animated', () => {
     expect(frames([[1, 0], [2, 0]], true)).toEqual({ frames: [], reason: 'its parts are fixed to the screen' }) // prettier-ignore
   })
+
+  it('an INIT-erased sprite and a refused run give their exact reason sentences', () => {
+    const m = { ...run([]), chosen: undefined, emptyReason: 'INIT erased the sprite (status 0)' }
+    expect(framesOf({ m, fixed: false }, spr, LEVEL)).toEqual({ frames: [], reason: 'INIT erased the sprite (status 0)' }) // prettier-ignore
+    const refused = { ...m, emptyReason: undefined, refusal: 'INIT did not complete in 8 frames' }
+    expect(framesOf({ m: refused, fixed: false }, spr, LEVEL)).toEqual({ frames: [], reason: 'refused: INIT did not complete in 8 frames' }) // prettier-ignore
+  })
+
+  it('parts that differ only in dy are a new pose (dy is in the pose key)', () => {
+    const m = run([[1, 0], [1, 0]]) // prettier-ignore
+    m.passes[0]!.parts = [part(1, 0, false, 0), part(2, 8, false, 0)]
+    m.passes[1]!.parts = [part(1, 0, false, 0), part(2, 8, false, 8)] // one part moved down
+    expect(framesOf({ m, fixed: false }, spr, LEVEL).frames).toHaveLength(2)
+  })
+
+  it('a pass whose parts wrapped 256 px away ends the loop; the passes before it stay', () => {
+    const m = run([[1, 0], [2, 0], [3, 0], [4, 0]]) // prettier-ignore
+    m.passes[2]!.parts[0]!.dx = -256 // the wrap: same sprite position, art a screen away
+    const f = framesOf({ m, fixed: false }, spr, LEVEL).frames
+    expect(f.map(x => x.parts![0]!.char)).toEqual([0x401, 0x402])
+  })
+
+  it('a pass whose parts split across the wrap ends the loop', () => {
+    const m = run([[1, 0], [2, 0], [3, 0]]) // prettier-ignore
+    m.passes[1]!.parts = [part(2, 0), part(5, -256)]
+    expect(framesOf({ m, fixed: false }, spr, LEVEL).frames).toHaveLength(1)
+  })
 })
 
 describe('framesOf on a $67-style run (parts measured from the pass before)', () => {
@@ -138,6 +165,7 @@ describe('framesOf on a $67-style run (parts measured from the pass before)', ()
   const POS = [84, 90, 99, 103]
   const grinder = (chosen: number, chars = [1, 1, 1, 2]): SpriteModel => ({
     id: 0x67,
+    snaps: true,
     anchor: { x: [80, ...POS][chosen]!, y: 48, rawX: 80, rawY: 48 },
     chosen,
     dependsOn: [],
@@ -158,6 +186,28 @@ describe('framesOf on a $67-style run (parts measured from the pass before)', ()
     const f = framesOf({ m, fixed: false }, spr, LEVEL).frames
     expect(f[0]).toEqual(mapDto)
     expect(f).toHaveLength(2) // the chosen art, then the pass-3 art
+  })
+
+  it('a grinder whose origins and pos agree on x but differ on the snap flag still draws on the origin', () => {
+    // pos 80,80,80,90 with every origin 80: only `snaps` says the draw ran before the move.
+    const m = grinder(0, [1, 1, 1, 2])
+    m.passes.forEach((q, i) => {
+      q.pos = { x: [80, 80, 80, 90][i]!, y: 48 }
+      q.origin = { x: 80, y: 48 }
+    })
+    const f = framesOf({ m, fixed: false }, spr, LEVEL).frames
+    expect(f.map(x => x.box.x0)).toEqual([80, 80])
+  })
+
+  it('a grinder that moves only vertically still draws on the origin (Y is measured too)', () => {
+    const m = grinder(0, [1, 1, 1, 2])
+    const Y = [48, 48, 56, 60]
+    m.passes.forEach((q, i) => {
+      q.pos = { x: 80, y: Y[i]! }
+      q.origin = { x: 80, y: i === 0 ? 48 : Y[i - 1]! }
+    })
+    const f = framesOf({ m, fixed: false }, spr, LEVEL).frames
+    expect(f.map(x => x.box.y0)).toEqual([48, 48])
   })
 
   it('uneven steps between passes do not shift the art: every frame sits on the chosen anchor', () => {
@@ -362,6 +412,7 @@ describe.skipIf(!hasRom(VANILLA))('mapSpriteFrames on a vanilla map', () => {
       for (const s of parseLevelSprites(data, built.inputs.isVertical)) {
         if (s.spriteId !== 0x04 && s.spriteId !== 0x9f) continue
         const r = mapSpriteFrames(cache, bytes, romPath(VANILLA), map, s.index)
+        if (r.status === 'ok') for (const f of r.frames) for (const k of ['x0', 'y0', 'x1', 'y1'] as const) expect(Math.abs(f.box[k] - r.frames[0]!.box[k]), `map ${map} idx ${s.index} wrapped`).toBeLessThan(256) // prettier-ignore
         if (r.status === 'ok') best.set(s.spriteId, Math.max(best.get(s.spriteId) ?? 0, r.frames.length))
       }
     }
@@ -369,7 +420,7 @@ describe.skipIf(!hasRom(VANILLA))('mapSpriteFrames on a vanilla map', () => {
     expect(best.get(0x9f) ?? 0).toBeLessThanOrEqual(1)
   })
   // prettier-ignore
-  it('every $67 grinder: frame 0 is the bitmap the map draws', slow(120_000), () => {
+  it('every $67 grinder on maps $1A and $1F: frame 0 is the bitmap the map draws, boxes steady', slow(120_000), () => {
     const bytes = new Uint8Array(readFileSync(romPath(VANILLA)))
     const cache = new L1ModelCache()
     const flags = { yellow: false, green: false, red: false, blue: false }
@@ -384,9 +435,13 @@ describe.skipIf(!hasRom(VANILLA))('mapSpriteFrames on a vanilla map', () => {
         const r = mapSpriteFrames(cache, bytes, romPath(VANILLA), map, d.index)
         if (r.status !== 'ok' || !r.frames.length) continue
         expect(r.frames[0]).toMatchObject({ box: d.box, rgba: d.rgba, parts: d.parts })
+        for (const f of r.frames) {
+          expect(f.box.x0, `map ${map} idx ${d.index} x0 jitter`).toBe(d.box.x0)
+          expect(f.box.y0, `map ${map} idx ${d.index} y0 jitter`).toBe(d.box.y0)
+        }
         compared++
       }
     }
-    expect(compared, 'at least one $67 compared').toBeGreaterThan(0)
+    expect(compared, 'the 17 vanilla $67 grinders compared').toBe(17)
   })
 })

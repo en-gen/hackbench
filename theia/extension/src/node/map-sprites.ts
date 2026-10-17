@@ -674,7 +674,7 @@ export const MAX_FRAMES = 16
  * not a pose), after the sprite's own movement is subtracted, so only the art changes between frames.
  * Where a part is measured from differs by sprite: usually the one INIT anchor, with the sprite drawing
  * where it stood at the end of the pass (`pos`); for $67 on a vanilla-shaped handler the pass before's
- * `pos` (`origin`, SpriteRunner.ts `snaps`), the draw running before the move. `drawAt` is where the sprite
+ * `pos` (`origin`, when `m.snaps`), the draw running before the move. `drawAt` is where the sprite
  * stood when it drew. A sprite with screen-fixed parts (`fixOffsets`) is not animated here: their map
  * position comes from the loader's camera for the chosen pass only, so another pass has no honest place.
  */
@@ -691,9 +691,7 @@ export function framesOf(
     return { frames: [], reason: 'reason' in r ? r.reason : 'drew no tile' }
   }
   if (fixed) return { frames: [], reason: 'its parts are fixed to the screen' }
-  const o0 = m.passes[0]!.origin
-  const snapped = m.passes.some(q => q.origin.x !== o0.x || q.origin.y !== o0.y)
-  const drawAt = (q: typeof ref) => (snapped ? q.origin : q.pos)
+  const drawAt = (q: typeof ref) => (m.snaps ? q.origin : q.pos)
   const seen = new Set<string>()
   const frames: MapSpriteDto[] = []
   for (const pass of m.passes.filter(q => q.pass >= ref.pass && q.parts.length > 0)) {
@@ -714,7 +712,13 @@ export function framesOf(
       passes: m.passes.map(q => (q === pass ? { ...q, parts } : q)),
     }
     const [f] = drawSprites([s], model, () => modelResult(shifted), dynamic)
-    if (f!.status === 'drawn') frames.push(f!)
+    if (f!.status !== 'drawn') continue
+    // A pass whose parts wrapped past 256 px or left the screen is not the same sprite's next pose: stop,
+    // so the loop stays a contiguous run of real frames (vanilla: 54 sprites on 13 maps had one).
+    const b0 = frames[0]?.box
+    if (b0 && (['x0', 'y0', 'x1', 'y1'] as const).some(k => Math.abs(f!.box[k] - b0[k]) >= 256))
+      break
+    frames.push(f!)
     if (frames.length >= MAX_FRAMES) break
   }
   return { frames }
