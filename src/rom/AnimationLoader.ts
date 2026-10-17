@@ -60,6 +60,7 @@ import { tryDecompress, type BackRefOrder } from './LcLz2'
 import { formatAddr, loromToOffset, mirror } from './addressing'
 import { matchesAt, WILD, type BytePattern } from './BytePattern'
 import { PIXELS_PER_TILE } from './GraphicsDecoder'
+import { hex4s } from './hex'
 import { framesToMs } from './timing'
 import {
   FAST_LCLZ2,
@@ -395,7 +396,7 @@ function tableFault(name: string, addr: number, span: number): string | null {
   return null
 }
 
-const ramAddr = (a: number): string => '$' + a.toString(16).toUpperCase().padStart(4, '0')
+const ramAddr = hex4s
 
 /**
  * Build the full MarioGraphics RAM region as the game does in CODE_00B888.

@@ -16,9 +16,9 @@ import type { RomFile } from './RomFile'
 import { WILD, matchesBytes, type BytePattern } from './BytePattern'
 import { fingerprint } from './Fingerprint'
 import { long } from './GfxArena'
-import { mirror } from './addressing'
+import { formatAddr, mirror } from './addressing'
 import { jslTarget, type FastRoutine } from './GfxDecompressor'
-import { hex6 } from './hex'
+import { hex6, hexs } from './hex'
 
 export interface StockCode {
   addr: number
@@ -201,8 +201,8 @@ export function readSubmapHigh(rom: RomFile, at: number): number | string {
   const high = rom.readByte(at)!
   if (high <= 1) return high
   return (
-    `$${at.toString(16).toUpperCase().padStart(6, '0')} loads submap high byte ` +
-    `$${high.toString(16).toUpperCase()}, which names no slot: the pointer table ends at $1FF.`
+    `${formatAddr(at)} loads submap high byte ` +
+    `${hexs(high)}, which names no slot: the pointer table ends at $1FF.`
   )
 }
 
@@ -444,7 +444,7 @@ export function stockCodeMismatch(
       const fp = spanFingerprint(rom.readAt(c.addr, c.length), c.mask)
       if (fp !== null && (spanFingerprints ?? c.fingerprints).includes(fp)) continue
       return (
-        `$${c.addr.toString(16).toUpperCase().padStart(6, '0')} (${c.what}, ${c.cite}) is ` +
+        `${formatAddr(c.addr)} (${c.what}, ${c.cite}) is ` +
         `${fp ? 'not a recognized build of that code' : 'not readable'}.`
       )
     }
@@ -453,7 +453,7 @@ export function stockCodeMismatch(
       b === WILD ? true : i === c.bankAt ? ((found![i]! ^ b) & 0x7f) === 0 : found![i] === b
     if (found && c.bytes.every(same)) continue
     return (
-      `$${c.addr.toString(16).toUpperCase().padStart(6, '0')} (${c.what}, ${c.cite}) holds ` +
+      `${formatAddr(c.addr)} (${c.what}, ${c.cite}) holds ` +
       `${found ? hex(found) : 'nothing readable'}, not the stock ${hex(c.bytes)}.`
     )
   }

@@ -1,4 +1,5 @@
-import { mirror } from '../addressing'
+import { formatAddr, mirror } from '../addressing'
+import { hex2s } from '../hex'
 
 /**
  * Which handlers the map expander draws from the interpreter (#342). Kept apart
@@ -11,15 +12,11 @@ const INTERPRETED_HANDLERS: ReadonlySet<number> = new Set([0x0dadeb])
 
 export const isInterpretedHandler = (a: number): boolean => INTERPRETED_HANDLERS.has(mirror(a))
 
-export const hex6 = (n: number): string => '$' + n.toString(16).toUpperCase().padStart(6, '0')
-
 /** Record, once, that a port drew `handler` with the interpreter unable to vouch for it. */
 export function noteUnverified(unverified: string[], handler: number, why: string): void {
-  const line = `Handler ${hex6(handler)} is drawn by the built-in model, not verified against this ROM: ${why}.`
+  const line = `Handler ${formatAddr(handler)} is drawn by the built-in model, not verified against this ROM: ${why}.`
   if (!unverified.includes(line)) unverified.push(line)
 }
-
-const h2 = (n: number): string => '$' + n.toString(16).toUpperCase().padStart(2, '0')
 
 /** The note for a handler that refused on an opcode gate; `parseRefusedLine` reads it back (#301). */
 export function formatRefusedLine(
@@ -28,8 +25,8 @@ export function formatRefusedLine(
   expected: number,
   found: number | null,
 ): string {
-  const was = found === null ? 'nothing' : h2(found)
-  return `Handler ${hex6(handler)} refused: the byte at ${hex6(opcodeAt)} is ${was}, not the ${h2(expected)} opcode it reads through, so the object is not drawn.`
+  const was = found === null ? 'nothing' : hex2s(found)
+  return `Handler ${formatAddr(handler)} refused: the byte at ${formatAddr(opcodeAt)} is ${was}, not the ${hex2s(expected)} opcode it reads through, so the object is not drawn.`
 }
 
 /**
@@ -57,7 +54,7 @@ export function noteRefused(
   reason?: string,
 ): void {
   const line = reason
-    ? `Handler ${hex6(handler)} refused: ${reason}, so the object is not drawn.`
+    ? `Handler ${formatAddr(handler)} refused: ${reason}, so the object is not drawn.`
     : formatRefusedLine(handler, opcodeAt, expected, found)
   if (unverified && !unverified.includes(line)) unverified.push(line)
 }

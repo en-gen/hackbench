@@ -16,6 +16,7 @@
  * planar 2bpp/4bpp, BGR555, OAM and the mode 1 layer order per the Super
  * Famicom Development Wiki (docs/references.md:29).
  */
+import { hex as hexDigits } from '../../src/rom/hex'
 import {
   bgr555,
   charPixel,
@@ -67,7 +68,7 @@ export const REF_DY = 1
 
 /** `$1B0`, zero-padded to `w` digits; `prefix` '' for a bare label. */
 export function hex(n: number, w = 0, prefix = '$') {
-  return prefix + n.toString(16).toUpperCase().padStart(w, '0')
+  return prefix + hexDigits(n, w)
 }
 
 /** A tile word, or `no def` for a Map16 id past the defs. */

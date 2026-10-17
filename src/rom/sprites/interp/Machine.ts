@@ -3,22 +3,21 @@
  * over a SpriteBus with the guard installed, a guard bound to one ROM, and a
  * write recorder. The call loop itself is src/rom/cpu/call.ts.
  */
+import { formatAddr } from '../../addressing'
 import { Cpu65816 } from '../../cpu/Cpu65816'
 import { Refusal } from '../../cpu/call'
 import type { RomFile } from '../../RomFile'
 import { mapperProblem, refusedOp } from './Guards'
 import { romOffset, SpriteBus } from './SpriteBus'
 
-const hex = (n: number): string => n.toString(16).toUpperCase().padStart(6, '0')
-
 /** Bus `onInstruction` hook for one ROM: refuses BRK/COP/WDM/WAI/STP and any fetch the bus does not read from cart ROM (WRAM, registers, low halves, SRAM). */
 export function romGuard(rom: RomFile): (addr: number, op: number) => void {
   const size = rom.romSize
   return (addr, op) => {
     if (romOffset(addr, size) === null)
-      throw new Refusal(`execution left ROM code at $${hex(addr)}`)
+      throw new Refusal(`execution left ROM code at ${formatAddr(addr)}`)
     const bad = refusedOp(op)
-    if (bad) throw new Refusal(`${bad} executed at $${hex(addr)}`)
+    if (bad) throw new Refusal(`${bad} executed at ${formatAddr(addr)}`)
   }
 }
 

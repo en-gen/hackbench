@@ -11,7 +11,8 @@
 
 import { findExactlyOneSite, WILD, type BytePattern } from './BytePattern'
 import type { RomFile } from './RomFile'
-import { hiromToOffset, loromToOffset } from './addressing'
+import { formatAddr, hiromToOffset, loromToOffset } from './addressing'
+import { hex as hexDigits } from './hex'
 
 export const FIRST_ITEM_BLOCK = 0x111
 export const LAST_ITEM_BLOCK = 0x12d
@@ -147,14 +148,13 @@ function readGate(rom: RomFile): { bytes: Uint8Array } | { reason: string } {
   // bank end does not continue in the next ROM bank.
   const bytes = slice(rom, operand, GATE_LENGTH)
   if (bytes) return { bytes }
-  const hex = (n: number): string => `$${n.toString(16).toUpperCase().padStart(6, '0')}`
   const first = Array.from({ length: GATE_LENGTH }, (_, i) => (operand + i) & 0xffffff).find(
     a => rom.readByte(a) === null,
   )!
   const mapped =
     rom.mapMode === 'hirom' ? hiromToOffset(first) : loromToOffset(first, Number.MAX_SAFE_INTEGER)
-  const why = mapped === null ? `${hex(first)} is not ROM` : `runs past the end of this ROM`
-  return { reason: `${GATE_LABEL} (${GATE_LENGTH} bytes at ${hex(operand)}): ${why}` }
+  const why = mapped === null ? `${formatAddr(first)} is not ROM` : `runs past the end of this ROM`
+  return { reason: `${GATE_LABEL} (${GATE_LENGTH} bytes at ${formatAddr(operand)}): ${why}` }
 }
 
 const TABLE_SPECS = [
@@ -174,7 +174,7 @@ export function readBlockContentTables(rom: RomFile): BlockContentTables | Table
   for (const [key, label, addr, len] of TABLE_SPECS) {
     const bytes = slice(rom, addr, len)
     if (!bytes) {
-      const at = `$${addr.toString(16).toUpperCase().padStart(6, '0')}`
+      const at = formatAddr(addr)
       return {
         kind: 'unavailable',
         unavailable: `${label} (${len} bytes at ${at}) runs past the end of this ROM`,
@@ -281,7 +281,7 @@ function contentFor(id: number, c: Ctx): BlockContent | null {
     status = at(t.columnOverrideStatus, i, 'DATA_0288D9')
     rewritten = true
     position = `X column ${i + 1} of 4`
-    const hex = status.toString(16).toUpperCase()
+    const hex = hexDigits(status)
     caveat =
       i === 3 ? `reads past DATA_0288D6; spawn status $${hex} has no handler; ${layer2}` : layer2
   }

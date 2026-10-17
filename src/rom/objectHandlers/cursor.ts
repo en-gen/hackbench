@@ -30,7 +30,7 @@
 
 import type { InterpretedDraw } from './interpretedDraw'
 import { RomFile } from '../RomFile'
-import { hex6 } from './interpretedGate'
+import { formatAddr } from '../addressing'
 
 /** Map16 RAM bytes per horizontal-level screen: 27 rows x 16 cols. */
 export const MAP16_BYTES_PER_SCREEN_H = 0x1b0
@@ -553,6 +553,6 @@ export function refuseUnported(cur: Cursor, handler: number): void {
     reason:
       handler === 0
         ? 'The dispatch entry is empty, so the object is not drawn.'
-        : `No port for the handler at ${hex6(handler)}, so the object is not drawn.`,
+        : `No port for the handler at ${formatAddr(handler)}, so the object is not drawn.`,
   })
 }

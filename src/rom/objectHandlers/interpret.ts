@@ -26,6 +26,8 @@
  * there refuses. docs/rom/level-rendering.md, "The L1 handler interpreter".
  */
 
+import { formatAddr } from '../addressing'
+import { hex2s } from '../hex'
 import { cachedByVersion, type RomFile } from '../RomFile'
 import { fingerprint } from '../Fingerprint'
 import { TILE_EMPTY } from '../ObjectExpander'
@@ -148,7 +150,6 @@ class Refusal extends Error {}
 function refuse(reason: string): never {
   throw new Refusal(reason)
 }
-const hex = (v: number, n = 6): string => '$' + v.toString(16).toUpperCase().padStart(n, '0')
 const known = (v: V, what: string): number => (v === null ? refuse(`unknown ${what}`) : v)
 
 export function interpret(
@@ -222,7 +223,7 @@ export function interpret(
 
   const read8 = (a: number): V => {
     const w = wram(a)
-    if (w === null) return cart(a) ?? refuse(`read of unmodelled address ${hex(a)}`)
+    if (w === null) return cart(a) ?? refuse(`read of unmodelled address ${formatAddr(a)}`)
     if (w < 0x100) return dp[w]
     const buf = bufferAddr(w)
     if (buf !== null) return buffer.get(buf) ?? opts.seed?.(buf) ?? (buf < BUF_HI ? TILE_EMPTY : 0)
@@ -232,15 +233,15 @@ export function interpret(
     if (w >= SWITCH_BLOCK_FLAGS && w < SWITCH_BLOCK_FLAGS + 4)
       return switches[w - SWITCH_BLOCK_FLAGS] ? 1 : 0
     if (gameState(w)) return env.ram?.get(w) ?? 0
-    return refuse(`read of unmodelled RAM ${hex(0x7e0000 + w)}`)
+    return refuse(`read of unmodelled RAM ${formatAddr(0x7e0000 + w)}`)
   }
   const write8 = (a: number, v: V, dpMode = false): void => {
     if (a < 0) refuse('write through an unknown data bank')
     const w = wram(a)
     if (w !== null && w < 0x100) {
-      if (!dpMode) refuse(`write into the direct page at ${hex(a)} through a pointer`)
+      if (!dpMode) refuse(`write into the direct page at ${formatAddr(a)} through a pointer`)
       if (w >= LAYER1_DATA_PTR && w < LAYER1_DATA_PTR + 3)
-        refuse(`write to the loader's Layer1DataPtr at ${hex(w, 2)}`)
+        refuse(`write to the loader's Layer1DataPtr at ${hex2s(w)}`)
       dp[w] = v
       return
     }
@@ -249,7 +250,7 @@ export function interpret(
       return
     }
     const buf = w === null ? null : bufferAddr(w)
-    if (buf === null) refuse(`write outside the tile buffer at ${hex(a)}`)
+    if (buf === null) refuse(`write outside the tile buffer at ${formatAddr(a)}`)
     if (v === null) refuse('unknown value written to the tile buffer')
     if (out.writes.length >= writeBudget) refuse('write budget')
     buffer.set(buf, v)
@@ -274,7 +275,7 @@ export function interpret(
     let p = 0
     for (let i = 0; i < len; i++) {
       const v = read8(d + i)
-      if (v === null) refuse(`unknown pointer byte at ${hex(d, 2)}`)
+      if (v === null) refuse(`unknown pointer byte at ${hex2s(d)}`)
       p |= v << (8 * i)
     }
     return p
@@ -306,7 +307,7 @@ export function interpret(
     const idx = known(aLo, 'dispatch index')
     const ret = jslAt + 3
     const t = readLongPointer(rom, (ret + 1 + idx * 3) & 0xffffff)
-    if (t === null || !isCode(t)) refuse(`dispatch target ${hex(t ?? 0)} is not ROM`)
+    if (t === null || !isCode(t)) refuse(`dispatch target ${formatAddr(t ?? 0)} is not ROM`)
     set(0, [t, t >> 8, t >> 16, ret >> 8, ret >> 16])
     dp[5] = y === null ? null : y & 0xff
     aLo = (t >> 8) & 0xff
@@ -354,7 +355,7 @@ export function interpret(
       case 0x17: return (pointer(b[1], 3) + iy()) & 0xffffff // [dp],Y
       case 0x11: return dbAddr(pointer(b[1], 2) + iy()) // (dp),Y
     }
-    return refuse(`addressing mode of ${hex(op, 2)}`)
+    return refuse(`addressing mode of ${hex2s(op)}`)
   }
   const operand = (wide: boolean): V => (hasFlagSizedImmediate(op) ? imm : read(ea(), wide))
   const branch = (cond: boolean | null): number => {
@@ -378,12 +379,12 @@ export function interpret(
     for (;;) {
       if (++out.steps > stepBudget) refuse('step budget')
       const fetched = cart(pc)
-      if (fetched === null) refuse(`execution left ROM at ${hex(pc)}`)
+      if (fetched === null) refuse(`execution left ROM at ${formatAddr(pc)}`)
       op = fetched
       const len = instructionLength(op, m8, x8)
       b[0] = op
       for (let i = 1; i < 4; i++)
-        b[i] = i < len ? (cart(pc + i) ?? refuse(`execution left ROM at ${hex(pc)}`)) : 0
+        b[i] = i < len ? (cart(pc + i) ?? refuse(`execution left ROM at ${formatAddr(pc)}`)) : 0
       next = (pc & 0xff0000) | ((pc + len) & 0xffff)
       imm = len === 3 ? b[1] | (b[2] << 8) : b[1]
       abs = b[1] | (b[2] << 8)
@@ -408,7 +409,7 @@ export function interpret(
           pc = (pc & 0xff0000) | abs
           continue
         case 0x22: // JSL: only the inline-table dispatch
-          if (!isDispatch(long)) refuse(`JSL to ${hex(long)} is not the inline-table dispatch`)
+          if (!isDispatch(long)) refuse(`JSL to ${formatAddr(long)} is not the inline-table dispatch`)
           pc = dispatch(pc)
           continue
         case 0x60: case 0x6b: { // RTS, RTL
@@ -428,7 +429,7 @@ export function interpret(
         case 0x8b: stack.push({ call: null, v: db }); break // PHB
         case 0xab: db = popByte(); nz(db, false); break // PLB
         case 0xc2: case 0xe2: // REP, SEP
-          if (b[1] & ~0x30) refuse(`REP/SEP ${hex(b[1], 2)} touches flags other than M/X`)
+          if (b[1] & ~0x30) refuse(`REP/SEP ${hex2s(b[1])} touches flags other than M/X`)
           if (b[1] & 0x20) m8 = op === 0xe2
           if (b[1] & 0x10) x8 = op === 0xe2
           if (x8) [x, y] = [x === null ? null : x & 0xff, y === null ? null : y & 0xff]
@@ -500,7 +501,7 @@ export function interpret(
         }
         case 0xc9: case 0xdf: cmp(getA(), wA); break // CMP
         case 0xe0: cmp(x, wX); break // CPX
-        default: refuse(`opcode ${hex(op, 2)} is not in the allowed set`)
+        default: refuse(`opcode ${hex2s(op)} is not in the allowed set`)
       }
       pc = next
     }
