@@ -171,29 +171,87 @@ describe('expandMapOwned refusals (#301)', () => {
       0x0dafea,
     ]
     const long = (a: number): number[] => [a & 0xff, (a >> 8) & 0xff, a >> 16]
-    const pipeRun = (target: number) => {
+    // Ten distinct unknown targets, one per table entry, so a read of the wrong entry shows.
+    const unknownFor = (v: number): number => 0x1f8000 + v * 0x100
+    type Sink = Parameters<typeof expandMapOwned>[8]
+    const mkSink = (): NonNullable<Sink> & { unverified: string[] } => ({
+      unverified: [] as string[],
+      primitives: [],
+      draw: () => false,
+    })
+    /** Size nibble `nibble`, table entry `variant` = `target`, the other entries unknown and distinct. */
+    const pipeRun = (target: number, nibble = 0, withSink = true) => {
       const rom = cart(PIPE)
-      rom.writeAt(PIPE + 18, long(target)) // variant 0 (size nibble 0)
-      const sink = { unverified: [] as string[], primitives: [], draw: () => false }
-      return run(rom, [obj(1, 3, 0x10)], sink)
+      for (let v = 0; v < 10; v++) rom.writeAt(PIPE + 18 + v * 3, long(unknownFor(v)))
+      rom.writeAt(PIPE + 18 + (nibble % 10) * 3, long(target))
+      const sink = withSink ? mkSink() : null
+      return { r: run(rom, [obj(1, 3, 0x10 | nibble)], sink), sink }
     }
+
+    it('every size nibble reads its own table entry (nibble modulo 10) and names it', () => {
+      for (const withSink of [true, false]) {
+        for (let nibble = 0; nibble < 0x10; nibble++) {
+          const variant = nibble % 10
+          const target = unknownFor(variant)
+          const { r } = pipeRun(target, nibble, withSink)
+          const at = `nibble ${nibble} sink ${withSink}`
+          expect(r.refusals, at).toHaveLength(1)
+          expect(r.refusals[0].handler, at).toBe(target)
+          expect(r.refusals[0].objectIndex, at).toBe(0)
+          expect(r.refusals[0].reason, at).toContain(`uses shape ${variant},`)
+          expect(r.refusals[0].reason, at).toContain(`$${target.toString(16).toUpperCase()}`)
+          expect(r.refusals[0].reason, at).not.toMatch(/^Handler /)
+        }
+      }
+    })
+
+    it('a null sink still reports the refusal (the doc comment on expandMapOwned)', () => {
+      const { r } = pipeRun(0x1f8000, 0, false)
+      expect(r.refusals).toHaveLength(1)
+      expect(r.refusals[0].handler).toBe(0x1f8000)
+    })
+
+    it('with a sink the refusal is reported once, and does not also land as a note', () => {
+      const { r, sink } = pipeRun(0x1f8000)
+      expect(r.refusals).toHaveLength(1)
+      expect(sink!.unverified.filter(l => l.includes('1F8000'))).toEqual([])
+    })
 
     it('every target in the pipe block without a port is refused, naming object and variant', () => {
       for (let t = 0x0dab40; t < 0x0db000; t += 0x11) {
         if (KNOWN.includes(t)) continue
-        const r = pipeRun(t)
+        const { r } = pipeRun(t)
         expect(r.refusals, t.toString(16)).toHaveLength(1)
-        expect(r.refusals[0].reason).toMatch(/pipe object \$\w+ variant 0 points at \$/)
+        expect(r.refusals[0].handler, t.toString(16)).toBe(t)
+        expect(r.refusals[0].reason).toMatch(/^Pipe object \$01 uses shape 0, /)
       }
     })
 
-    it('a known target is not refused for want of a port', () => {
-      for (const t of KNOWN) {
-        const r = pipeRun(t)
-        expect(
-          r.refusals.filter(x => x.reason.includes('does not know')),
-          t.toString(16),
-        ).toEqual([])
+    it('unknown targets in other banks, and an empty entry, are refused too', () => {
+      for (const t of [0x1f8000, 0x000000, 0x0e8000, 0x7e0000]) {
+        for (const withSink of [true, false]) {
+          const { r } = pipeRun(t, 0, withSink)
+          expect(r.refusals, `${t.toString(16)} ${withSink}`).toHaveLength(1)
+          expect(r.refusals[0].handler).toBe(t)
+        }
+      }
+    })
+
+    it('a known target, and its high-bank mirror, dispatches: no refusal, something drawn', () => {
+      for (const t of [...KNOWN, ...KNOWN.map(k => k | 0x800000)]) {
+        for (const withSink of [true, false]) {
+          const { r } = pipeRun(t, 0, withSink)
+          const at = `${t.toString(16)} sink ${withSink}`
+          expect(r.refusals, at).toEqual([])
+          expect(
+            r.owners.flat().some(o => o === 0),
+            at,
+          ).toBe(true)
+          expect(
+            r.grid.flat().some(c => c !== TILE_EMPTY),
+            at,
+          ).toBe(true)
+        }
       }
     })
   })

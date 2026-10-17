@@ -41,6 +41,7 @@ import {
   readLongOperand,
   readGatedLongOperand,
   readImmByte,
+  refuseUnported,
   MAP16_BYTES_PER_SCREEN_H,
 } from './cursor'
 import { mirror } from '../addressing'
@@ -974,8 +975,13 @@ export function handle_0DAB3E(cur: Cursor): void {
     if (port) port(cur)
     else {
       // D52/D57: a table entry with no port must say so, not draw nothing.
-      const why = `pipe object $${hex2(cur.objNo)} variant ${variant} points at $${hex6(target)}, which the port does not know`
-      noteRefused(cur.draw?.unverified, target, tableBase + variant * 3, 0, null, why)
+      // Via cur.refusals (not the sink's note list) so it also reports with a
+      // null sink, and once with a sink: foldRefusals writes the numbered line.
+      refuseUnported(
+        cur,
+        target,
+        `Pipe object $${hex2(cur.objNo)} uses shape ${variant}, whose drawing code at $${hex6(target)} HackBench does not recognize, so the object is not drawn.`,
+      )
     }
   } finally {
     cur.handlerAddr = prevHandler
