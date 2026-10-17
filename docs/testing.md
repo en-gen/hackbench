@@ -100,7 +100,7 @@ skips without it. `CastleFlames.test.ts` applies it to the bytes its fixtures wr
 Where a reader in `src/` fixes the game's opcodes (or a fixture keeps the game's operand values on purpose), the
 window stays and the gate's allow list names the region and why. Each region spans at most 64 bytes and lists its
 exact hit count: a count that rises, drops or reaches zero fails until the list is updated, and planted cases prove
-those checks go red. The fix for an allowed region is to make the reader recognize the code by SHA-256 (as
+those checks go red. ExecutePtr, CallSpriteInit, the block spawn status write and the grinder entry were removed this way: their readers hash the fixed bytes with the free operands masked, and the cart's own code is registered through `recognizeShapes` (`SpriteDispatch.ts`) or passed as `DispatchShape.entry`. A test file that imports `syntheticSpriteRom` also accepts the cart's shapes everywhere in that file, even for a ROM that is not the cart; a test that needs the production verdict runs inside `withProductionShapes(() => ...)`, and `test/suite/gates/recognizeShapesGate.test.ts` bans `recognizeShapes(` outside `test/suite/support`. The fix for an allowed region is to make the reader recognize the code by SHA-256 (as
 `CastleFlames.ts` and `SubmapFlagGate.ts` do), then delete the region.
 
 Source-text probes read the file text only, so they miss runs built from helpers, named opcodes or spread

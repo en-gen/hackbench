@@ -32,7 +32,7 @@ import {
 import * as TorpedoModule from '../../../../src/rom/sprites/interp/TorpedoLauncher'
 import { drawSprites, interpDrawer } from '../../../../theia/extension/src/node/map-sprites'
 import { freshRom, hasRom, romPath, VANILLA } from '../../support/corpus'
-import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
+import { buildSyntheticRom, SYNTHETIC_EXECUTE_PTR_CODE } from '../../support/syntheticSpriteRom'
 
 const LEVEL = 0x105
 const off = (snes: number) => (snes >>> 16) * 0x8000 + ((snes & 0xffff) - 0x8000)
@@ -312,7 +312,10 @@ describe('Torpedo Ted launcher from the routines (synthetic cart)', () => {
   it('a dispatch call to a differently shaped ExecutePtr runs, unverified, naming the call target', () => {
     const copy = 0x008800
     const dirty = launcherRom(b => {
-      b.set([0xea, ...b.subarray(off(0x0086fa), off(0x0086fa) + 27)], off(copy)) // NOP + ExecutePtr
+      b.set(
+        [0xea, ...b.subarray(off(0x0086fa), off(0x0086fa) + SYNTHETIC_EXECUTE_PTR_CODE.length)],
+        off(copy),
+      ) // NOP + ExecutePtr
       b.set([copy & 0xff, (copy >> 8) & 0xff, 0x00], off(DISPATCH_AT + 2))
     })
     const r = ok(dirty, routinesOf(launcherRom()))

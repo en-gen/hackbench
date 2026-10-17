@@ -7,11 +7,17 @@ import type { RomFile } from '../../RomFile'
 import { mirror } from '../../addressing'
 import { spanFingerprint } from '../../SubmapFlagGate'
 
-/** LineGrinder to its JMP (SMWDisX bank_01.asm:11837-11846), under the ~32-byte literal limit; null = free operand. */
-const ENTRY: readonly (number | null)[] = [0xa5, 0x13, 0x29, 0x07, 0x1d, 0x26, 0x16, 0x05, 0x9d, 0xd0, 0x05, 0xa9, null, 0x8d, null, null, 0x4c] // prettier-ignore
+/**
+ * LineGrinder to its JMP (SMWDisX bank_01.asm:11837-11846): 17 bytes, recognized by `DispatchShape.entry`
+ * (SHA-256 with the three free operands zeroed). The JMP target follows at +17.
+ */
+export const ENTRY_LEN = 17
+const ENTRY_OPERANDS = [12, 14, 15]
 
-/** Offsets of ENTRY's pinned bytes (the rest are operands that name a constant or a register). */
-export const ENTRY_PINNED = ENTRY.flatMap((v, i) => (v === null ? [] : [i]))
+/** Offsets of the entry's pinned bytes (the rest are operands that name a constant or a register). */
+export const ENTRY_PINNED = Array.from({ length: ENTRY_LEN }, (_, i) => i).filter(
+  i => !ENTRY_OPERANDS.includes(i),
+)
 
 /**
  * CODE_01D9A7's dispatch, 41 bytes (bank_01.asm:12182-12204), is over the literal limit
@@ -28,8 +34,9 @@ export const DISPATCH_PINNED = Array.from({ length: DISPATCH_LEN }, (_, i) => i)
   i => !DISPATCH_OPERANDS.includes(i),
 )
 
-/** `sha`: the masked-span digest; `targets`: each call's folded 24-bit target, in span order. */
+/** `entry`: the digest of the handler's first 17 bytes; `sha`: the masked-span digest; `targets`: each call's folded 24-bit target, in span order. */
 export interface DispatchShape {
+  entry: string
   sha: string
   targets: readonly number[]
 }
@@ -41,6 +48,7 @@ export interface DispatchShape {
  * and 22 SMW Central hacks; the runner refuses the other 127 before this gate), one machine, 2026-10-10.
  */
 export const VANILLA_DISPATCH: DispatchShape = {
+  entry: '12e5d92f198bc3c96032950e43e56d72bee31a09cde8dca4d23fe1e8defeaf96',
   sha: '5ab0b410faae1acff4783cfef08df9beeca77bf750f71d8bdb8dbb1f434f7961',
   targets: [0x01dbd4, 0x01dc0b, 0x01a7e4, 0x01a7e4, 0x03c263, 0x01d74d],
 }
@@ -51,9 +59,10 @@ export function grinderDrawsBeforeSnap(
   handler: number,
   shape = VANILLA_DISPATCH,
 ): boolean {
-  const entry = rom.readAt(handler, ENTRY.length + 2)
-  if (!entry || ENTRY_PINNED.some(i => entry[i] !== ENTRY[i])) return false
-  const at = (handler & 0xff0000) | entry[ENTRY.length]! | (entry[ENTRY.length + 1]! << 8)
+  const entry = rom.readAt(handler, ENTRY_LEN + 2)
+  if (!entry || spanFingerprint(entry.subarray(0, ENTRY_LEN), ENTRY_OPERANDS) !== shape.entry)
+    return false
+  const at = (handler & 0xff0000) | entry[ENTRY_LEN]! | (entry[ENTRY_LEN + 1]! << 8)
   const span = rom.readAt(at, DISPATCH_LEN)
   if (span?.length !== DISPATCH_LEN || spanFingerprint(span, DISPATCH_OPERANDS) !== shape.sha)
     return false

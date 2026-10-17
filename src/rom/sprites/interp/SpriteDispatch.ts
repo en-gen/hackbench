@@ -14,7 +14,7 @@
 import { mirror } from '../../addressing'
 import type { RomFile } from '../../RomFile'
 import { spanFingerprint } from '../../SubmapFlagGate'
-import { bytesAt, shapeMatches } from './Guards'
+import { bytesAt, printMatches, shapeMatches, type SpanPrint } from './Guards'
 
 export const ENTRY = {
   /** JSL: ZeroSpriteTables + LoadSpriteTables (bank_07.asm:1006). */
@@ -53,6 +53,42 @@ export type TablesResult = { ok: true; tables: SpriteTables } | { ok: false; rea
 
 const bytes = (rom: RomFile, a: number, n: number): number[] | null => bytesAt(rom, a, n)
 const matches = shapeMatches
+
+/**
+ * The fixed bytes of three dispatch shapes, recognized by SHA-256 with the free operands zeroed (they
+ * are too long or too revealing to commit as bytes; docs/testing.md, the 8-byte window rule). Evidence
+ * scope: the vanilla USA ROM, one read each. Operands the readers use (the JSL target, the table words)
+ * are read from their offsets, not hashed.
+ *  - executePtr: ExecutePtr, bank_00.asm:847, 27 bytes, the direct-page cells masked.
+ *  - callSpriteInit: its bytes up to and including the JSL opcode (8 in the game); the JSL operand follows.
+ *  - blockStatus: GenSpriteFromBlk's status write at CODE_028922, 11 bytes, the addresses masked.
+ */
+export interface ShapePrints {
+  executePtr: SpanPrint
+  callSpriteInit: SpanPrint
+  blockStatus: SpanPrint
+}
+export const VANILLA_SHAPES: ShapePrints = Object.freeze({
+  executePtr: { length: 27, mask: [1, 4, 14, 17, 19, 23, 25], sha: '14ea9f2dcbac7a0b1dbacb458a98d715d2c34ef12dc68824107422b16e193bc3' },
+  callSpriteInit: { length: 8, mask: [], sha: '09166a6aae503ba83646f68ef37a47d3e85ca74859f100de38b6a47289d5d9aa' },
+  blockStatus: { length: 11, mask: [1, 2, 6, 7], sha: '3beb57986c277a04b136f79f533cafe04eef04456a4c6e4461d3a8b44dbe44e8' },
+}) // prettier-ignore
+
+const recognized: ShapePrints[] = [VANILLA_SHAPES]
+/**
+ * For a synthetic cart: also recognize its own shapes; returns the function that stops. Production code
+ * never calls this (test/suite/gates/recognizeShapesGate.test.ts bans it outside test/suite/support).
+ */
+export function recognizeShapes(shapes: ShapePrints): () => void {
+  if (!recognized.includes(shapes)) recognized.push(shapes)
+  return () => {
+    const i = recognized.indexOf(shapes)
+    if (i > 0) recognized.splice(i, 1)
+  }
+}
+/** True when the code at `at` is a recognized build of the shape `pick` names. */
+const shapeIs = (rom: RomFile, at: number, pick: (s: ShapePrints) => SpanPrint): boolean =>
+  recognized.some(s => printMatches(bytes(rom, at, pick(s).length), pick(s)))
 
 export type ShapeResult = { ok: true } | { ok: false; reason: string }
 
@@ -110,8 +146,7 @@ export function resolveBlockSpawn(
   const head = bytes(rom, ENTRY.blockSpawn + 0x29, 12)
   if (!matches(head, [0xa2, 0x0b, 0xbd, 0xc8, 0x14, 0xf0, n, 0xca, 0xe0, 0xff, 0xd0, n]))
     return { ok: false, reason: 'the item block spawn does not start with the free-slot countdown this reader knows' } // prettier-ignore
-  const status = bytes(rom, ENTRY.blockSpawn + 0x46, 11)
-  if (!matches(status, [0x8e, n, n, 0xa4, 0x05, 0xb9, n, n, 0x9d, 0xc8, 0x14]))
+  if (!shapeIs(rom, ENTRY.blockSpawn + 0x46, s => s.blockStatus))
     return { ok: false, reason: 'the item block spawn does not write the sprite status the way this reader knows' } // prettier-ignore
   return { ok: true, entry: ENTRY.blockSpawn }
 }
@@ -169,42 +204,10 @@ export function resolveLoop(rom: RomFile): LoopResult {
 }
 
 /**
- * ExecutePtr, the 16-bit pointer-table jump (bank_00.asm:847): STY / PLY / STY /
- * REP #$30 / AND #$00FF / ASL / TAY / PLA / STA / INY / LDA [dp],Y / STA /
- * SEP #$30 / LDY / JML [dp]. The inline tables after each JSL are read as 16-bit
- * words only if the call really reaches this; ExecutePtrLong (24-bit entries) has a
- * different body and is refused.
+ * ExecutePtr is the 16-bit pointer-table jump (bank_00.asm:847). The inline tables after each JSL are
+ * read as 16-bit words only if the call really reaches it (`VANILLA_SHAPES.executePtr`); ExecutePtrLong
+ * (24-bit entries) has a different body and is refused.
  */
-const EXECUTE_PTR_SHAPE: (number | null)[] = [
-  0x84,
-  null,
-  0x7a,
-  0x84,
-  null,
-  0xc2,
-  0x30,
-  0x29,
-  0xff,
-  0x00,
-  0x0a,
-  0xa8,
-  0x68,
-  0x85,
-  null,
-  0xc8,
-  0xb7,
-  null,
-  0x85,
-  null,
-  0xe2,
-  0x30,
-  0xa4,
-  null,
-  0xdc,
-  null,
-  0x00,
-]
-
 /** The three dispatch JSLs (HandleSprite, CallSpriteInit, CallSpriteMain) must reach one ExecutePtr. */
 export function checkExecutePtr(rom: RomFile, jsl: number[][]): ShapeResult {
   // Keys fold the FastROM mirror ($80+ is the same code); the read keeps the raw bank (#513, #704).
@@ -216,7 +219,7 @@ export function checkExecutePtr(rom: RomFile, jsl: number[][]): ShapeResult {
     return { ok: false, reason: 'a dispatch call does not reach ROM' }
   if (new Set(targets.map(mirror)).size !== 1)
     return { ok: false, reason: 'the dispatch calls do not all reach the same routine' }
-  if (!matches(bytes(rom, targets[0], EXECUTE_PTR_SHAPE.length), EXECUTE_PTR_SHAPE))
+  if (!shapeIs(rom, targets[0], s => s.executePtr))
     return { ok: false, reason: 'the dispatch calls do not reach the 16-bit ExecutePtr' }
   return { ok: true }
 }
@@ -231,16 +234,24 @@ export function resolveTables(rom: RomFile, handle: number = ENTRY.handleSprite)
   // Status 1 (INIT) is the second word of the status table that follows the JSL.
   const initEntry = 0x010000 | (h![18] | (h![19] << 8))
   // CallSpriteInit: LDA #$08 / STA $14C8,X / LDA $9E,X / JSL ExecutePtr / table
-  const i = bytes(rom, initEntry, 11)
-  if (!matches(i, [0xa9, 0x08, 0x9d, 0xc8, 0x14, 0xb5, 0x9e, 0x22]))
+  // The print ends with the JSL opcode; its 3 operand bytes follow, then the table.
+  const init = recognized
+    .map(s => s.callSpriteInit)
+    .find(p => printMatches(bytes(rom, initEntry, p.length + 3), p))
+  if (!init)
     return { ok: false, reason: 'CallSpriteInit is not the dispatch shape this reader knows' }
   // CallSpriteMain: STZ abs / LDA $9E,X / JSL ExecutePtr / table
   const m = bytes(rom, mainEntry, 9)
   if (!matches(m, [0x9c, null, null, 0xb5, 0x9e, 0x22]))
     return { ok: false, reason: 'CallSpriteMain is not the dispatch shape this reader knows' }
-  const ep = checkExecutePtr(rom, [h!.slice(13, 16), i!.slice(8, 11), m!.slice(6, 9)])
+  const i = bytes(rom, initEntry, init.length + 3)!
+  const ep = checkExecutePtr(rom, [
+    h!.slice(13, 16),
+    i.slice(init.length, init.length + 3),
+    m!.slice(6, 9),
+  ])
   if (!ep.ok) return ep
-  return { ok: true, tables: { initTable: initEntry + 11, mainTable: mainEntry + 9 } }
+  return { ok: true, tables: { initTable: initEntry + init.length + 3, mainTable: mainEntry + 9 } }
 }
 
 export interface ResolvedHandler {
