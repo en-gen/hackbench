@@ -3,11 +3,13 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { unzip } from '../../../tools/scripts/capture_render'
 import { CAPTURE_DIR } from './corpus'
+import type { PlacedSprite } from './gradeTimeline'
 import type { RecordedPiece } from './spriteGrade'
 
 export interface Rec {
   id: string
   slot: number
+  listIndex?: number
   listX: number
   listY: number
   cameraX: number
@@ -33,6 +35,8 @@ export interface Loaded {
   anchorFrame?: number
   /** scroll_pass.json marioStart: where Mario is held from the anchor on. */
   marioStart?: { x: number; y: number }
+  /** sprites.json entries: the placed list ids by index. */
+  listed?: PlacedSprite[]
 }
 
 export function loadCaptures(dir: string = CAPTURE_DIR): Loaded[] {
@@ -53,7 +57,9 @@ export function loadCaptures(dir: string = CAPTURE_DIR): Loaded[] {
     }
     const anchorFrame = jsonOf('capture_summary.json').anchorFrame as number | undefined
     const marioStart = jsonOf('scroll_pass.json').marioStart as Loaded['marioStart']
-    for (const rec of j.spawns ?? []) out.push({ map: name, rec, wram, anchorFrame, marioStart })
+    const listed = jsonOf('sprites.json').entries as Loaded['listed']
+    for (const rec of j.spawns ?? [])
+      out.push({ map: name, rec, wram, anchorFrame, marioStart, listed })
   }
   return out
 }

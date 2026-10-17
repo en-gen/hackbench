@@ -32,7 +32,7 @@ import {
   VANILLA,
 } from '../../support/corpus'
 import { loadCaptures, type Loaded, type Rec } from '../../support/captures'
-import { gradedPass, writeMarioStart } from '../../support/gradeTimeline'
+import { gradedPass, runnerId, writeMarioStart } from '../../support/gradeTimeline'
 import { oracleCells, oracleImage } from '../../support/oracleImage'
 import {
   grade,
@@ -87,7 +87,7 @@ function gradeAll(
   const loadedByMap = new Map<string, Uint8Array | undefined>()
   let fallbacks = 0
   let missAtK = 0
-  for (const { map, rec, wram, anchorFrame, marioStart } of all) {
+  for (const { map, rec, wram, anchorFrame, marioStart, listed } of all) {
     if (opts.limit !== undefined && rows.length >= opts.limit) break
     const id = parseInt(rec.id.slice(1), 16)
     const want = recordedFrames(rec)
@@ -132,7 +132,10 @@ function gradeAll(
           if (p === -1) writeMarioStart(w, marioStart) // after INIT, before the first MAIN pass
         }
       : undefined
-    const m = runSprite(rom, id, seed, { trackInputs: opts.trackInputs, probe })
+    const m = runSprite(rom, runnerId(rom, id, rec.listIndex, listed), seed, {
+      trackInputs: opts.trackInputs,
+      probe,
+    })
     // Nothing drawn at the hardware's pass is a runner miss, counted apart so it cannot hide in the
     // wrong total. It grades wrong when some pass draws; when none does (map 102 $5D) grade()
     // returns empty whatever m.chosen is (test/suite/support/spriteGrade.ts:87).
@@ -174,14 +177,14 @@ function gradeAll(
   return { rows, by, inputs, fallbacks, missAtK }
 }
 
-/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. */
+/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Raised after #837 (stationary shells): measured 2026-10-16, one machine: exact 1033, exact+shape 1836, wrong 90, empty 13. */
 const FLOOR = {
   graded: 1957,
-  exact: 985,
-  exactOrShape: 1780,
+  exact: 1030,
+  exactOrShape: 1830,
   maxRefused: 0,
-  maxEmpty: 20,
-  maxWrong: 135,
+  maxEmpty: 16,
+  maxWrong: 93,
   maxMissAtK: 30,
   // 38 measured (spawned records without initFrame); all-timed would read 0.
   minFallbacks: 30,
