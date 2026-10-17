@@ -161,9 +161,11 @@ const stats = frames => {
  * was arriving. Input arrives every WHEEL.period ms, so a gap far beyond that is the page failing to
  * show it. Reported apart from the average (a smooth mean hides a long freeze).
  */
-function frozen(live) {
+function frozen(live, inputEnd) {
   const at = live.filter((f, i) => i > 0 && f[1] !== live[i - 1][1]).map(f => f[0])
   const gaps = at.slice(1).map((t, i) => t - at[i])
+  // A view that stops responding while input still arrives leaves a tail gap after its last change.
+  if (inputEnd !== undefined && at.length) gaps.push(inputEnd - at[at.length - 1])
   return { changes: at.length, longest: Math.max(0, ...gaps), over: gaps.filter(g => g > FROZEN_MAX_MS).length } // prettier-ignore
 }
 
@@ -184,16 +186,17 @@ async function drive(period, steps, send) {
 }
 
 /** Records frames while `input` runs; returns the stats over the window where the view was moving. */
-async function measure(page, input) {
+async function measure(page, input, { tail = false } = {}) {
   await record(page, true)
   await input()
+  const inputEnd = await page.evaluate(() => performance.now())
   await page.waitForTimeout(400)
   await record(page, false)
   const frames = await page.evaluate(() => window.__rec.frames)
   const moved = frames.map((f, i) => i > 0 && f[1] !== frames[i - 1][1] ? i : -1).filter(i => i > 0) // prettier-ignore
   expect(moved.length, 'the input moved the view').toBeGreaterThan(20)
   const live = frames.slice(moved[0] - 1, moved[moved.length - 1] + 1)
-  return { frames, live, s: stats(live), f: frozen(live) }
+  return { frames, live, s: stats(live), f: frozen(live, tail ? inputEnd : undefined) }
 }
 
 /** Where the mouse must sit to wheel the map: inside the scroller, clear of its scrollbar. */
@@ -247,8 +250,13 @@ for (const zoom of ZOOMS) {
     // scrolls under it, a legitimate rebuild that is not #973; tell the widget it left the map.
     await page.evaluate(sel => document.querySelector(sel).dispatchEvent(new MouseEvent('mouseout', { bubbles: true })), SCROLLER) // prettier-ignore
     const steps = Math.min(150, Math.floor((g.w - thumbW) / DRAG.thumbPx) - 2)
-    const m = await measure(page, () => drive(DRAG.period, steps, n => page.mouse.move(g.l + thumbW / 2 + 1 + n * DRAG.thumbPx, y))) // prettier-ignore
+    const m = await measure(page, () => drive(DRAG.period, steps, n => page.mouse.move(g.l + thumbW / 2 + 1 + n * DRAG.thumbPx, y)), { tail: true }) // prettier-ignore
     await page.mouse.up()
+    // The thumb travelled steps * thumbPx of a (w - thumbW) track, so the view must be that far along;
+    // a drag that stalls part-way (21 changes then nothing) fails here and in the tail gap.
+    const dragged = await page.evaluate(sel => document.querySelector(sel).scrollLeft, SCROLLER)
+    const expected = ((steps * DRAG.thumbPx) / (g.w - thumbW)) * (g.sw - g.w)
+    expect(dragged, 'the drag moved the view the full distance').toBeGreaterThan(expected * 0.9)
     const delta = (await builds(page)) - before
     check(`drag ${name}`, m, `; builds ${delta}`)
     expect(delta, 'IndicatorDisplay builds while dragging warm screens').toBe(0)
