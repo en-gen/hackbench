@@ -2,22 +2,38 @@
  * The synthetic cart's stand-ins for the pointer loader tail (CODE_05D8B7), the level data loader
  * (CODE_05801E) and the Layer 3 handler (CODE_009FB8, bank_00.asm:4870), with the option mutants the level
  * loader tests plant. Split from syntheticSpriteRom.ts to keep that file under the content gate's
- * byte-token limit. No ROM-derived bytes: the shapes are the loader's own checks, the rest hand-written.
+ * byte-token limit. Hand-written (test/suite/support/asm65.ts): each routine is the shortest sequence that
+ * meets the loader's shape check and leaves the state the tests read, not a copy of the ROM's bytes.
  */
+import { long, OP, word } from './asm65'
+import { ROW_OF_TILESET } from './syntheticLayer3'
 import type { SyntheticOptions } from './syntheticSpriteRom'
 
 export function putLoaderStandIns(
   put: (snes: number, bytes: number[]) => void,
   o: SyntheticOptions,
 ): void {
-  const bad = (k: string, b: number) => (o.badLoader === k ? 0xea : b)
-  // CODE_05D8B7 shape, then SEP #$30 / LDA #7 / STA $1692 / STA $1A / LDA #irqCommand / STA $0D9B / PLB / RTL
-  put(0x05d8b7, [bad('pointers', 0xc2), 0x30, 0xa5, 0x0e, 0x0a, 0x18, 0x65, 0x0e, 0xa8, 0xe2, 0x30, 0xa9, 0x07, 0x8d, 0x92, 0x16, 0x85, 0x1a, 0xa9, o.irqCommand ?? 0, 0x8d, 0x9b, 0x0d, 0xab, 0x6b]) // prettier-ignore
-  // CODE_05801E shape, STA $7EC800,X, LDA #$77 / STA $5E (CODE_0584E3 rewrites $5E, bank_05.asm:560,
-  // so only a data loader run AFTER the screen setup leaves $77), STZ $5B (ScreenMode, as the header loader
-  // rewrites it, bank_05.asm:553: only a Layer 3 handler run after it leaves bit 7), then PLP RTL (or COP)
-  put(0x05801e, [bad('data', 0x08), 0xe2, 0x20, 0xc2, 0x10, 0xa2, 0x00, 0x00, 0xa9, 0x25, 0x9f, 0x00, 0xc8, 0x7e, 0xa9, 0x77, 0x85, 0x5e, 0x64, 0x5b, ...(o.loaderCop ? [0x02, 0x00] : [0x28, 0x6b])]) // prettier-ignore
-  // CODE_009FB8 shape (LDA ObjectTileset / ASL / CLC / ADC ObjectTileset), then SEP #$20 / LDA #$80 / TSB $5B / RTS:
-  // the stand-in for the Layer 3 handler's ScreenMode bit 7.
-  put(0x009fb8, [bad('layer3', 0xad), 0x31, 0x19, 0x0a, 0x18, 0x6d, 0x31, 0x19, 0xe2, 0x20, 0xa9, 0x80, 0x04, 0x5b, 0x60]) // prettier-ignore
+  const bad = (k: string, b: number) => (o.badLoader === k ? OP.NOP : b)
+  // Pointer loader: the shape the loader checks (REP #$30 / LDA $0E / ASL / CLC / ADC $0E / TAY), then
+  // SEP #$30 / LDA #7 -> $1692 and $1A / LDA #irqCommand -> $0D9B / PLB / RTL. The tests patch from $D8C9.
+  put(0x05d8b7, [
+    bad('pointers', OP.REP), 0x30, OP.LDA_DP, 0x0e, OP.ASL_A, OP.CLC, OP.ADC_DP, 0x0e, OP.TAY,
+    OP.SEP, 0x30, OP.LDA_IMM, 7, OP.STA_ABS, ...word(0x1692), OP.STA_DP, 0x1a,
+    OP.LDA_IMM, o.irqCommand ?? 0, OP.STA_ABS, ...word(0x0d9b), OP.PLB, OP.RTL,
+  ]) // prettier-ignore
+  // Data loader: the shape the loader checks (PHP / SEP #$20 / REP #$10 / LDX #0 / LDA #$25 / STA long,X), then
+  // LDA #$77 -> $5E (CODE_0584E3 rewrites $5E, bank_05.asm:560, so only a data loader run AFTER the screen
+  // setup leaves $77), STZ $5B (ScreenMode, as the header loader rewrites it, bank_05.asm:553: only a Layer 3
+  // handler run after it leaves bit 7), then PLP RTL (or COP).
+  put(0x05801e, [
+    bad('data', OP.PHP), OP.SEP, 0x20, OP.REP, 0x10, OP.LDX_IMM, ...word(0), OP.LDA_IMM, 0x25,
+    OP.STA_LONGX, ...long(0x7ec800), OP.LDA_IMM, 0x77, OP.STA_DP, 0x5e, OP.STZ_DP, 0x5b,
+    ...(o.loaderCop ? [OP.COP, 0] : [OP.PLP, OP.RTL]),
+  ]) // prettier-ignore
+  // Layer 3 handler: the row-of-tileset shape the loader checks, then SEP #$20 / LDA #$80 / TSB $5B / RTS:
+  // the stand-in for the handler's ScreenMode bit 7.
+  put(0x009fb8, [
+    bad('layer3', ROW_OF_TILESET[0]), ...ROW_OF_TILESET.slice(1),
+    OP.SEP, 0x20, OP.LDA_IMM, 0x80, OP.TSB_DP, 0x5b, OP.RTS,
+  ]) // prettier-ignore
 }

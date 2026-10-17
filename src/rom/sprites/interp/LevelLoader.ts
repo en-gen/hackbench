@@ -34,6 +34,7 @@ import {
 } from '../../cpu/call'
 import type { Cpu65816 } from '../../cpu/Cpu65816'
 import type { RomFile } from '../../RomFile'
+import { spanFingerprint } from '../../SubmapFlagGate'
 import { bytesAt, mapperProblem, shapeMatches } from './Guards'
 import { smwMachine } from './Machine'
 import { withSeed, type SeedOverride, type SpriteSeed } from './SpriteSeed'
@@ -82,12 +83,35 @@ const SHAPES: { name: string; at: number; want: (number | null)[] }[] = [
     at: 0x009fb8,
     want: [0xad, null, null, 0x0a, 0x18, 0x6d, null, null],
   },
-  // GM12PrepLevel's call site (bank_00.asm:4861-4870): LDA IRQNMICommand / BPL +5 / JSR / BRA, then three
-  // calls ending in JSL and the JSR CODE_009FB8 the loader makes. The JSL operand differs on Lunar Magic ROMs.
-  { name: 'GM12PrepLevel call site of the Layer 3 handler at $00:A5AF', at: 0x00a5af, want: [0xad, 0x9b, 0x0d, 0x10, 0x05, 0x20, 0xbc, 0x97, 0x80, 0x16, 0x20, null, null, 0x20, null, null, 0x22, null, null, null, 0x20, 0xb8, 0x9f] }, // prettier-ignore
   // CODE_05801E: PHP / SEP #$20 / REP #$10 / LDX #0 / LDA #$25 / STA long
   { name: 'level data loader at $05:801E', at: 0x05801e, want: [0x08, 0xe2, 0x20, 0xc2, 0x10, 0xa2, 0x00, 0x00, 0xa9, 0x25, 0x9f, 0x00] }, // prettier-ignore
 ]
+
+/**
+ * GM12PrepLevel's call site of the Layer 3 handler (bank_00.asm:4861-4870): LDA IRQNMICommand / BPL / JSR /
+ * BRA, then three calls ending in a JSL and the JSR CODE_009FB8 the loader makes. Held as a fingerprint of
+ * the 23 bytes with the call operands zeroed (the same scheme as SubmapFlagGate.ts: the JSL operand differs
+ * on Lunar Magic ROMs), so the source carries no game code. The BPL and the handler's JSR target are in the
+ * hash, which is what makes the loader's mirror of the bit 7 test safe.
+ */
+const CALL_SITE = {
+  name: 'GM12PrepLevel call site of the Layer 3 handler at $00:A5AF',
+  at: 0x00a5af,
+  length: 23,
+  mask: [11, 12, 14, 15, 17, 18, 19],
+  fingerprints: ['f0b04d810d12baa061c4a56562b866f7accc91e3788f1ff1f0f77d74f724f877'],
+}
+
+/** Fingerprints a synthetic ROM builder adds for its own call site (the vanilla one stays accepted). */
+const synthetic = new Set<string>()
+export function acceptSyntheticCallSite(fp: string): void {
+  synthetic.add(fp)
+}
+/** The call site's masked fingerprint in `rom`, for a synthetic builder to register. */
+export function callSiteFingerprint(rom: RomFile): string | null {
+  const b = bytesAt(rom, CALL_SITE.at, CALL_SITE.length)
+  return spanFingerprint(b && Uint8Array.from(b), CALL_SITE.mask)
+}
 
 /** The first loader entry whose bytes differ from the shape this loader knows, or null. */
 export function loaderShapeProblem(rom: RomFile): string | null {
@@ -96,6 +120,9 @@ export function loaderShapeProblem(rom: RomFile): string | null {
   for (const s of SHAPES)
     if (!shapeMatches(bytesAt(rom, s.at, s.want.length), s.want))
       return `${s.name} is not the vanilla shape; the loader will not run it`
+  const fp = callSiteFingerprint(rom)
+  if (fp === null || !(CALL_SITE.fingerprints.includes(fp) || synthetic.has(fp)))
+    return `${CALL_SITE.name} is not the vanilla shape; the loader will not run it`
   return null
 }
 

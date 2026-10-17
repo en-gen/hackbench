@@ -50,10 +50,10 @@ describe('level loader runs the Layer 3 handler', () => {
     const l = loadLevelState(buildSyntheticRom({ badLoader: 'gm12' }), 0x105)
     expect(l).toMatchObject({ ok: false, reason: expect.stringMatching(/GM12PrepLevel/) })
   })
-  // Each byte below is checked by SHAPES, not just the first one: wildcarding it in the shape lets the plant through.
+  // Each byte below is in the call site's fingerprint, not just the first one: masking it lets the plant through.
   it.each([
-    ['the BPL that tests IRQNMICommand bit 7, $00:A5B2 (BMI)', 0x00a5b2, 0x30],
-    ['the JSR target of the Layer 3 handler, $00:A5C4', 0x00a5c4, 0xb9],
+    ['the byte at $00:A5B2 (the BPL on IRQNMICommand bit 7 in the game)', 0x00a5b2, 0x30],
+    ['the byte at $00:A5C4 (the handler JSR target in the game)', 0x00a5c4, 0xb9],
   ])('refuses a GM12PrepLevel call site with %s changed', (_n, at, v) => {
     const rom = buildSyntheticRom()
     rom.writeAt(at, [v])

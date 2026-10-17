@@ -20,6 +20,10 @@
  * ($0703, with $0680 = 6), 22 through $2121/$2122; 23 sets one color directly then by the list, 24 appends a list color and requests the MainPalette upload in one frame, 25 sets two colors with one CGADD, 26 writes id 21's MainPalette list without requesting the upload, 28 writes mirror colors with no list header, 29 uploads a two-color list entry, 27 appends a list color in every MAIN pass, 30 burns ~196k steps per INIT and never leaves status 1; 31 draws at X then moves X by +4 each MAIN; 34 draws, moves X by +4, then draws again; 32 is 31 but draws only from its second MAIN; 103 is the line-guided grinder's id: its MAIN has the vanilla SHAPE the runner's gate reads (bank_01.asm:11837-11846, 12182-12204) around a draw then a +4 move. Options plant a defect for the oracle tests.
  */
 import { RomFile } from '../../../src/rom/RomFile'
+import {
+  acceptSyntheticCallSite,
+  callSiteFingerprint,
+} from '../../../src/rom/sprites/interp/LevelLoader'
 import type { DispatcherSpan } from '../../../src/rom/sprites/interp/SpriteDispatch'
 
 import { putGm11Spans } from './syntheticGm11Spans'
@@ -329,5 +333,10 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   ]) {
     put(addr, [0xa9, status, 0x9d, 0xc8, 0x14, 0x60])
   }
-  return RomFile.fromBytes('synthetic.sfc', rom)
+  const cart = RomFile.fromBytes('synthetic.sfc', rom)
+  // The loader pins GM12PrepLevel's call site by fingerprint; this cart's hand-written one is accepted
+  // unless the option planted a defect in it.
+  const fp = o.badLoader === 'gm12' ? null : callSiteFingerprint(cart)
+  if (fp) acceptSyntheticCallSite(fp)
+  return cart
 }
