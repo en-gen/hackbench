@@ -26,6 +26,9 @@ const COMP = 55
 const NUMONLY = 56
 /** Draws the companion with its x HIGH byte ($14E0,X) as the tile. */
 const HIGHBYTE = 57
+/** Scans for a status-9 sprite numbered 5, which is what list id $DB becomes (#837 shells). */
+const SHELLSCAN = 58
+const SHELL_LIST_ID = 0xdb
 
 function cart(): RomFile {
   const bytes = new Uint8Array(buildSyntheticRom().buffer)
@@ -56,8 +59,8 @@ function cart(): RomFile {
   }
   // Scanner shape: JSR own / LDY #9 / loop: [LDA $14C8,Y / CMP #8 / BNE next] LDA $9E,Y / CMP #num / BEQ found
   // / next: DEY / BPL loop / RTS / found: PHX / TYX / JSR draw / PLX / RTS.
-  const scan = (num: number, own: number, draw: number, withStatus: boolean) => {
-    const body = [...(withStatus ? [0xb9, 0xc8, 0x14, 0xc9, 0x08, 0xd0, 0x07] : []), 0xb9, 0x9e, 0x00, 0xc9, num, 0xf0, 0x04, 0x88] // prettier-ignore
+  const scan = (num: number, own: number, draw: number, withStatus: boolean, status = 8) => {
+    const body = [...(withStatus ? [0xb9, 0xc8, 0x14, 0xc9, status, 0xd0, 0x07] : []), 0xb9, 0x9e, 0x00, 0xc9, num, 0xf0, 0x04, 0x88] // prettier-ignore
     return [0x20, own & 0xff, own >> 8, 0xa0, 0x09, ...body, 0x10, 256 - (body.length + 2), 0x60, 0xda, 0xbb, 0x20, draw & 0xff, draw >> 8, 0xfa, 0x60] // prettier-ignore
   }
   // The game's draw shape (id 0's), with the tile bytes given: x, y from $E4/$D8,X; OAM index from $15EA,X.
@@ -69,16 +72,18 @@ function cart(): RomFile {
   put(0x019a00, scan(COMP, 0x8640, 0x9b00, true))
   put(0x019c00, scan(QUIET, 0x8640, 0x8640, false))
   put(0x019d00, scan(QUIET, 0x8640, 0x9e00, true))
+  put(0x019f00, scan(5, 0x8640, 0x8640, true, 9))
   const word = (table: number, id: number, v: number) => {
     const o = off(table + id * 2)
     bytes[o] = v & 0xff
     bytes[o + 1] = v >> 8
   }
   word(0x018170 + 11, COMP, 0x9b80)
-  for (const id of [INITS, NUMONLY, HIGHBYTE]) word(0x018320 + 9, id, 0)
+  for (const id of [INITS, NUMONLY, HIGHBYTE, SHELLSCAN]) word(0x018320 + 9, id, 0)
   word(0x018320 + 9, INITS, 0x9a00)
   word(0x018320 + 9, NUMONLY, 0x9c00)
   word(0x018320 + 9, HIGHBYTE, 0x9d00)
+  word(0x018320 + 9, SHELLSCAN, 0x9f00)
   main(SCANNER, 0x9800)
   main(DRAWS, 0x8640)
   main(SHIFTS, 0x9900)
@@ -182,6 +187,22 @@ describe('neighbour placement (#841)', () => {
   })
 })
 
+describe('a shell neighbour is placed as the loader loads it (#837, #841)', () => {
+  const rom = cart()
+  const near = { x: 0x90, y: 0x70 }
+
+  it('list id $DB takes number 5 and status 9, so a scan for a status-9 number 5 finds it', () => {
+    const m = runOnce(rom, SHELLSCAN, seedWith([{ id: SHELL_LIST_ID, ...near }]))
+    expect(m.neighbourRun).toBe('adopted')
+    expect(partsOf(m)).toHaveLength(2)
+  })
+
+  it('a plain id equal to the shell number is not a status-9 sprite, so the same scan finds nothing', () => {
+    const m = runOnce(rom, SHELLSCAN, seedWith([{ id: 5, ...near }]))
+    expect(m.neighbourRun).toBe('same')
+  })
+})
+
 describe('neighboursOf', () => {
   const sp = (index: number, screen: number, x: number, spriteId = 1, y = 5): LevelSprite =>
     ({ screen, x, y, spriteId, extraBit: false, raw: [0, 0, 0], index, streamOffset: index }) // prettier-ignore
@@ -191,6 +212,13 @@ describe('neighboursOf', () => {
     const me = sp(0, 4, 70)
     const list = [me, sp(1, 6, 100), sp(2, 5, 90), sp(3, 3, 60), sp(4, 4, 71, 0xcb), sp(5, 4, 72)]
     expect(neighboursOf(list, me, px).map(n => n.x / 16)).toEqual([72, 60, 90])
+  })
+
+  it('keeps the status-9 shell ids ($DA-$DD, $DF) and drops the ids with no slot ($C9-$D9, $DE, $E0 up)', () => {
+    const me = sp(0, 4, 70)
+    const ids = [0xc8, 0xc9, 0xca, 0xcb, 0xd9, 0xda, 0xdd, 0xde, 0xdf, 0xe0, 0xe1, 0xe7]
+    const list = [me, ...ids.map((id, i) => sp(i + 1, 4, 71 + i, id))]
+    expect(neighboursOf(list, me, px).map(n => n.id)).toEqual([0xc8, 0xda, 0xdd, 0xdf])
   })
 
   it('orders by distance in x and y together, not x alone', () => {

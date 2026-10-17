@@ -95,6 +95,14 @@ capture shows one. This is a real product defect: the map draws a walking Koopa 
 Not run: that status 9 reproduces the captured pose. Fix: map list ids to number and status as the loader
 does. Assert: map 135 $05 at 3184,240 draws one part, and the 35 graded cases leave "wrong".
 
+Fixed in #837: `src/rom/sprites/ShellSprites.ts` reads the loader's mapping from its bytes ($DA-$DD and $DF to status 9 and
+number `id - $DA + 4` on the vanilla ROM; a changed opcode refuses; $DE and $E0 are not shells, `bank_02.asm:5312`, `:5325`); the runner loads those ids that
+way and runs InitSpriteTables but no INIT. The special-world remap of numbers 4 and 5 (`bank_02.asm:5464-5471`)
+is not applied: the flag is read as clear, as on a fresh save. The grader hands the runner the placed list id
+(sprites.json, by `listIndex`) because a record's own id is the already-converted number. Evidence scope: one
+machine, 2026-10-16, vanilla ROM, layers_v5: all 35 K cases grade exact (exact 998 to 1033, wrong 125 to 90,
+nothing else moved).
+
 **C, spawned companions counted (12).** $61 (6), $1E (5), $B9 (1): our pass has 3 or more extra parts than the
 capture (which keys parts by the slot that wrote them). $61's INIT spawns three more skull sprites
 (`bank_02.asm:14495-14540`, FindFreeSprSlot); the extra parts have the companions' signature. For $1E
@@ -110,7 +118,7 @@ the platform and 4 of the bro. The runner ran the sprite alone: 4 parts, in all 
 slot was running (`scansSlots`) is run again with the list's neighbours (`neighboursOf`: its screen and the one
 each side, nearest first, at most 9) in the other slots, counting only OAM written under its own `$15E9`; that run
 is used when it adds parts and keeps the ones the run alone had (`dependsOn: neighbours`). Measured (one machine, vanilla
-cart, `spriteGrade.captures.test.ts`): wrong 125 to 111, exact 998 to 1003, shape 803 to 812, close 18, empty 13; all 14 $9C records
+cart, `spriteGrade.captures.test.ts`): on top of #837 (develop aec6f216): wrong 90 to 76, exact 1033 to 1038, shape 803 to 812, close 18, empty 13; all 14 $9C records
 leave "wrong" (5 exact, 9 shape); no record graded worse. Without the "keeps
 the parts it had" rule, 26 other records graded worse (sprites that scan the slots for collisions), so that rule is
 load-bearing.

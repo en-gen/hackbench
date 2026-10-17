@@ -11,10 +11,18 @@ import type { SpriteSeed } from './SpriteSeed'
 const MAX_NEIGHBOURS = 10
 
 /**
+ * Whether the level loader leaves list id `id` in a slot. Ids to $C8 load as slot sprites. $C9-$CA shooters
+ * and $CB-$D9 generators set a shooter or generator, not a slot (bank_02.asm:5336-5346, 5364-5367). $DA-$DD
+ * and $DF load as status-9 slot sprites (5348-5362; ShellSprites.ts reads the mapping). $DE, $E0 and $E1+
+ * run their own loaders (5312-5334, 5349-5358), no slot.
+ */
+function isSlotSprite(id: number): boolean {
+  return id <= 0xc8 || (id >= 0xda && id <= 0xdd) || id === 0xdf
+}
+
+/**
  * Entries of `list` on the sprite's screen or the screen either side of it, nearest first, up to
- * the free slots. Ids above $C8 are left out, as is the sprite itself: $C9+ shooters and $CB-$D9 generators
- * set a shooter or generator, not a slot (bank_02.asm:5336-5346, 5364-5367). $DA-$DD and $DF do load as
- * status-9 slot sprites (5348-5362); leaving them out is a scope choice, not a claim that they are not slots.
+ * the free slots. The sprite itself and ids the loader does not put in a slot are left out.
  */
 export function neighboursOf(
   list: readonly LevelSprite[],
@@ -23,7 +31,9 @@ export function neighboursOf(
 ): NonNullable<SpriteSeed['neighbours']> {
   const at = px(s)
   return list
-    .filter(e => e.index !== s.index && e.spriteId <= 0xc8 && Math.abs(e.screen - s.screen) <= 1)
+    .filter(
+      e => e.index !== s.index && isSlotSprite(e.spriteId) && Math.abs(e.screen - s.screen) <= 1,
+    )
     .map(e => ({ id: e.spriteId, ...px(e) }))
     .sort(
       (a, b) =>
