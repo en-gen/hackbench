@@ -346,21 +346,28 @@ test('scrolling under a still pointer re-places the hover on the sprite (#981)',
 }) => {
   const slot = HIDDEN.slot
   const map = await openMap(page, slot)
-  // A drawn, named sprite with no other sprite box within 24 px, so the same sprite is under the pointer before and after.
+  // Zoomed in, so a sprite is wide enough to scroll 8 screen px and stay under the pointer, and a stale anchor is 8 px off.
+  await setZoom(page, slot, ['zoom-actual', 'zoom-in', 'zoom-in', 'zoom-in', 'zoom-in'])
+  const z = await page
+    .locator(stripOf(slot))
+    .evaluate((el, w) => el.getBoundingClientRect().width / w, map.mapW)
+  expect(z, 'zoomed well in').toBeGreaterThan(2.5)
+  // The content moves left 8 screen px = d map px under the pointer.
+  const d = Math.ceil(8 / z)
+  // A drawn, named sprite with no other sprite box within 24 map px, so the same sprite is under the pointer before and after.
   const near = (a, b) =>
     a.box.x0 < b.box.x1 + 24 && b.box.x0 < a.box.x1 + 24 && a.box.y0 < b.box.y1 + 24 && b.box.y0 < a.box.y1 + 24 // prettier-ignore
   const sprite = map.stack.find(
     s => s.status === 'drawn' && s.name && !map.stack.some(o => o !== s && near(s, o)) && ownPixel(map, s), // prettier-ignore
   )
   expect(sprite, 'an isolated named sprite').toBeTruthy()
-  // The content moves 8 px left under the pointer, so the pointer pixel (x) and the one it lands on (x + 8) must both be the sprite's, with 12 px to its right edge.
+  // The pointer pixel (x) and the one the scroll moves under it (x + d) must both be the sprite's, with room to its right edge.
   const { x0, y0, x1, y1 } = sprite.box
   let at
   for (let y = y0; y < y1 && !at; y++)
-    for (let x = x0; x + 8 < x1 - 12 && !at; x++)
-      if (allWithin(2, x, y, (px, py) => map.ownerAt(px, py) === sprite && map.ownerAt(px + 8, py) === sprite)) at = { x, y } // prettier-ignore
+    for (let x = x0; x + d + 2 < x1 && !at; x++)
+      if (allWithin(2, x, y, (px, py) => map.ownerAt(px, py) === sprite && map.ownerAt(px + d, py) === sprite)) at = { x, y } // prettier-ignore
   expect(at, 'a sprite pixel that stays on the sprite after the scroll').toBeTruthy()
-  await setZoom(page, slot, ZOOMS.actual)
   await expect.poll(() => hoverAt(page, slot, map, at), { timeout: 30000 }).toBe(sprite.name)
   const offset = () =>
     page.evaluate(strip => {
@@ -368,7 +375,7 @@ test('scrolling under a still pointer re-places the hover on the sprite (#981)',
       return [sc.scrollLeft, sc.scrollTop]
     }, stripOf(slot))
   const before = await offset()
-  // 8 px: a stale anchor would be off by more than the 1 px tolerance. The pointer stays put.
+  // 8 screen px: a stale anchor would be off by more than the 1 px tolerance. The pointer stays put.
   await page.evaluate(
     strip => document.querySelector(strip).closest('[data-control="map-scroller"]').scrollBy(8, 0),
     stripOf(slot),
@@ -387,9 +394,15 @@ test('a hidden map tab keeps no hover or anchor, and a reload while hidden opens
   const sprite = namedSprite(map)
   const at = ownPixel(map, sprite)
   await expect.poll(() => hoverAt(page, slot, map, at), { timeout: 30000 }).toBe(sprite.name)
-  // Hide the tab with no pointer event at all: mouseout/mouseover are stopped below the app's handlers (a layout change
-  // can make the browser fire them), and the second map is opened by the shell, not by a click. Only the widget's
-  // own onAfterHide clear can then remove the hover; deleting that clear (and the isVisible guard) turns this red.
+  // Hide the tab with no pointer event: mouseout/mouseover are stopped below the app's handlers (a layout change can
+  // make the browser fire them), and the second map is opened through the shell, not by a click. The hover is cleared
+  // by several paths on purpose, so this is a behaviour check, not a single-plant oracle. It turns red only when ALL
+  // of these are removed together: onAfterHide (map-view-widget.tsx:1085), the `!this.isVisible` guard in
+  // updateHover (:885, reached from the post-render frame request), and the React onMouseLeave (:1319, blocked here anyway).
+  // With those gone nothing else clears it before the first assertion: the hover service only reacts to mouseout on
+  // the hover box or the anchor (pointer-events none, so never hovered) and to mousedown (none sent); open() (:319)
+  // belongs to the other map; onBeforeDetach (:1090) does not run on a hide. The refresh part below then needs
+  // refresh() (:416) and the reply handler (:496).
   await page.evaluate(id => {
     const root = document.getElementById(id)
     for (const ev of ['mouseout', 'mouseover', 'mouseleave'])
