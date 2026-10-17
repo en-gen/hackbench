@@ -387,8 +387,11 @@ export function interpDrawer(
     // WHY: INIT may move the sprite (Podoboo steps down to the lava, InitFireball, bank_01.asm:13012-13032) while the
     // game's camera follows Mario, not the list position. Two mechanisms hide it from the seeded screen: GetDrawInfo
     // flags a sprite off the camera's screen (SpriteOffscreenVert/X, bank_01.asm:4748-4790) and its callers skip or
-    // clip those rows; and line-guided $65/$67 INIT moves the sprite 320 px (bank_01.asm:11793-11799), after which
-    // MAIN despawns it off the seeded camera (SubOffscreen1Bnk1, bank_01.asm:11849) before it draws. So any anchor off
+    // clip those rows; and line-guided $65-$68 INIT moves an even-column sprite 320 px left (bank_01.asm:11788-11799), after which
+    // MAIN despawns the first run's off-camera seed (SubOffscreen1Bnk1, bank_01.asm:11849) before it draws. That spot is
+    // still the one the game uses: on a right scroll the sprite spawns about 32 px left of the screen edge, inside the keep
+    // window (bank_01.asm:5970-5973, 6006-6028; tweaker bit 2 clear, bank_07.asm:832-833), and rides its line onto the
+    // screen, so it is seen in play and is drawn at the post-INIT spot on its track (#988). So any anchor off
     // the screen the list position centred (not a $33 test) is re-run once with the camera on the anchor. The first
     // run stays if that draws nothing, or if the re-run's INIT left the sprite elsewhere (a sprite that places itself
     // relative to the camera would drift): compared on passes[0].origin, the INIT anchor, which the line snap

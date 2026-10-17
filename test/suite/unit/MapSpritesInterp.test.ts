@@ -401,6 +401,20 @@ describe('the re-run bounds and the camera it uses (#980)', () => {
     expect(r.ok && r.anchor).toEqual({ x: 1680, y: 224 })
   })
 
+  it('draws an even-column line-guided sprite whose INIT moved it 320 px left at that spot (#988)', () => {
+    // Tile 124 is pixel 1984 (bit 4 clear): InitLineGuidedSpr subtracts $140 (bank_01.asm:11793-11799). The first seed
+    // draws nothing there (MAIN despawns it, 11849); only the re-run on the anchor draws, so no hook means no sprite.
+    const even = { ...sprite, x: 124 }
+    const run = (_r: RomFile, _i: number, seed: SpriteSeed): SpriteModel => {
+      const o = { x: seed.sprite.x - 320, y: seed.sprite.y }
+      const on = o.x - seed.camera.x >= 0 && o.x - seed.camera.x < 256
+      return model({ anchor: { ...o, rawX: seed.sprite.x, rawY: seed.sprite.y }, passes: [{ pass: 0, pos: o, origin: o, parts: on ? [part({})] : [], uploads: [], palette: [] }], chosen: on ? 0 : undefined, emptyReason: on ? undefined : 'drew no OAM tile in 64 passes' }) // prettier-ignore
+    }
+    const r = interpDrawer(blank, 0x0f, { isVertical: false, screenCount: 20 }, run, () => withSeed({}))(even) // prettier-ignore
+    expect(r.ok && r.anchor).toEqual({ x: 1664, y: 224 })
+    expect(r.ok && r.parts).toHaveLength(1)
+  })
+
   it('keeps the first run when the re-run left the sprite elsewhere (it places itself off the camera)', () => {
     const { seen, r } = drive(cam => [cam.x + 300 - 2000, 0])
     expect(seen).toHaveLength(2)
