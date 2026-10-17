@@ -4,7 +4,7 @@
  * runs it) hand-assembles both routines from SMWDisX (bank_02.asm:5582-5598 and
  * 16230-16279) into the synthetic cart with NON-vanilla data AND non-vanilla bytes
  * (both are written differently from the game's, so their SHA-256 is not the vanilla
- * one, and a corpus guard below bounds the longest byte run they share with the ROM's), so
+ * one, and a corpus gate below finds no 8-byte window they share with the ROM), so
  * a hardcoded vanilla X, tile or attribute goes red and no ROM routine is committed. The corpus block runs the real ROM.
  *
  * Owner ruling D52 (option B): a changed routine or call-path part does not blank the
@@ -54,46 +54,49 @@ const TABLES_AT = 0x02fb00 // AND table (8), OAM Y index (4), tiles (4), attribu
 
 /**
  * CODE_02AA6C's effect (SMWDisX bank_02.asm:5582-5598) written differently from the game's: slots counted
- * down with the cluster number stored first, the table at XS_AT, SpriteStatus+3 stored last. 33 bytes so the
- * guard's span is the whole routine. `xs` is the cart's own table.
+ * down, SpriteStatus+3 stored first, the position before the cluster number, the table at XS_AT. 33 bytes so the guard's span is the whole routine. `xs` is the cart's own table.
  */
 const spawn = [
-  ...[0xa2, 0x03, 0xa9, 0x05, 0x9d, 0x92, 0x18], // LDX #3 / LDA #5 / STA ClusterSpriteNumber,X
-  ...[0xbd, 0x00, 0xac, 0x9d, 0x16, 0x1e], // LDA xs,X / STA ClusterSpriteXPosLow,X
+  ...[0xa9, 0x07, 0x8d, 0xcb, 0x14], // LDA #7 / STA SpriteStatus+3
+  ...[0xa2, 0x03], // LDX #3
+  ...[0xbd, 0x00, 0xac, 0x9d, 0x16, 0x1e], // loop: LDA xs,X / STA ClusterSpriteXPosLow,X
   ...[0x8a, 0x0a, 0x0a, 0x9d, 0x4a, 0x0f], // TXA / ASL / ASL / STA ClusterSpriteMisc0F4A,X
   ...[0xa9, 0xf0, 0x9d, 0x02, 0x1e], // LDA #$F0 / STA ClusterSpriteYPosLow,X
-  ...[0xca, 0x10, 0xe7], // DEX / BPL loop
-  ...[0xa9, 0x07, 0x8d, 0xcb, 0x14, 0x60], // LDA #7 / STA SpriteStatus+3 / RTS
+  ...[0xa9, 0x05, 0x9d, 0x92, 0x18], // LDA #5 / STA ClusterSpriteNumber,X
+  ...[0xca, 0x10, 0xe7, 0x60], // DEX / BPL loop / RTS
 ]
-const SPAWN_TYPE_OPERAND = 3 // the `5` of LDA #5 above
-const SPAWN_HARMLESS = 28 // the `7` of LDA #7: the run does not read what it stores
+const SPAWN_TYPE_OPERAND = 25 // the `5` of LDA #5 above
+const SPAWN_ASLS = 14 // the two ASLs: Misc = slot * 4
+const SPAWN_HARMLESS = 1 // the `7` of LDA #7: the run does not read what it stores
 /**
- * CODE_02FA16's effect (bank_02.asm:16230-16279) written differently from the game's: Y before X, the
- * tables at TABLES_AT, scratch kept on the stack, the overflow copy in reverse, two NOPs, 110 bytes like the original.
+ * CODE_02FA16's effect (bank_02.asm:16230-16279) written differently from the game's: the tables at
+ * TABLES_AT, SEC before each load, the tile before the attribute, the overflow copy in pairs, the
+ * flicker mask applied to the table byte, 110 bytes like the original.
  */
 const draw = [
   ...[0xa5, 0x9d, 0xd0, 0x12], // LDA SpriteLock / BNE skip
   ...[0x22, 0xf9, 0xac, 0x01, 0x29, 0x07, 0xa8, 0xea], // JSL GetRand / AND #7 / TAY / NOP
-  ...[0xa5, 0x13, 0x39, 0x00, 0xfb, 0xd0, 0x03, 0xfe, 0x4a, 0x0f], // TrueFrame AND table / INC Misc
+  ...[0xb9, 0x00, 0xfb, 0x25, 0x13, 0xd0, 0x03, 0xfe, 0x4a, 0x0f], // table AND TrueFrame / BNE / INC Misc
   ...[0xbc, 0x08, 0xfb], // skip: LDY yIndex,X
-  ...[0xbd, 0x02, 0x1e, 0x38, 0xe5, 0x20, 0x99, 0x01, 0x03], // Y - Layer2YPos -> OAM Y
-  ...[0xbd, 0x16, 0x1e, 0x38, 0xe5, 0x1e, 0x99, 0x00, 0x03], // X - Layer2XPos -> OAM X
-  ...[0xda, 0xbd, 0x4a, 0x0f, 0x29, 0x03, 0xaa], // PHX / Misc & 3 -> X
-  ...[0xbd, 0x10, 0xfb, 0x99, 0x03, 0x03, 0xbd, 0x0c, 0xfb, 0x99, 0x02, 0x03], // attribute, then tile
-  ...[0xea, 0x98, 0x4a, 0x4a, 0xaa, 0xa9, 0x02, 0x9d, 0x60, 0x04, 0xfa], // NOP / size = 2 at OAM / 4 / PLX
-  ...[0xb9, 0x00, 0x03, 0xc9, 0xf0, 0x90, 0x1d], // X >= $F0: overflow copy
-  ...[0xb9, 0x03, 0x03, 0x8d, 0xef, 0x03, 0xb9, 0x02, 0x03, 0x8d, 0xee, 0x03],
+  ...[0x38, 0xbd, 0x02, 0x1e, 0xe5, 0x20, 0x99, 0x01, 0x03], // Y - Layer2YPos -> OAM Y
+  ...[0x38, 0xbd, 0x16, 0x1e, 0xe5, 0x1e, 0x99, 0x00, 0x03], // X - Layer2XPos -> OAM X
+  ...[0xbd, 0x4a, 0x0f, 0xda, 0x29, 0x03, 0xaa], // LDA Misc / PHX / AND #3 / TAX
+  ...[0xbd, 0x0c, 0xfb, 0x99, 0x02, 0x03, 0xbd, 0x10, 0xfb, 0x99, 0x03, 0x03], // tile, then attribute
+  ...[0x98, 0x4a, 0x4a, 0xaa, 0xa9, 0x01, 0x0a, 0x9d, 0x60, 0x04, 0xfa], // size = 2 at OAM / 4, PLX
+  ...[0xa9, 0xef, 0xd9, 0x00, 0x03, 0xb0, 0x1d], // LDA #$EF / CMP X,Y / BCS: X >= $F0 takes the overflow copy
   ...[0xb9, 0x01, 0x03, 0x8d, 0xed, 0x03, 0xb9, 0x00, 0x03, 0x8d, 0xec, 0x03],
-  ...[0xa9, 0x03, 0x8d, 0x9b, 0x04, 0x60],
+  ...[0xb9, 0x03, 0x03, 0x8d, 0xef, 0x03, 0xb9, 0x02, 0x03, 0x8d, 0xee, 0x03],
+  ...[0xa0, 0x03, 0x8c, 0x9b, 0x04, 0x60], // LDY #3 / STY $049B / RTS
 ]
 
 /** The call path to the draw, hand-written with the vanilla shape (see PATH in CastleFlames.ts); operands that do not matter are made up. */
 // prettier-ignore
 const PATH_BYTES: [number, number[]][] = [
-  [0x02a8c0, [0xc9, 0xe1, 0x90, 0x0c, 0xda, 0x5a, 0x88, 0x84, 0x03, 0x20, 0xc0, 0xaa]], // loader route
+  [0x02a8c0, [0xc9, 0xe1, 0x90, 0x0c, 0x5a, 0xda, 0x85, 0x04, 0x20, 0xc0, 0xaa, 0xea]], // loader route: CMP #$E1 / BCC / PHY / PHX / STA $04 / JSR $AAC0 / NOP
   [0x02aac0, [0xa0, 0x01, 0x8c, 0x34, 0x12, 0xc9, 0xe4, 0xf0, 0x7f]], // spawn entry
   [0x02aac9, [0xc9, 0xe6, 0xf0, 0x9f]], // $E6 branch
-  [0x02f808, [0x8b, 0x4b, 0xab, 0x20, 0x10, 0xf8, 0xab, 0x6b, 0xa2, 0x13, 0x8e, 0x77, 0x15, 0xbd, 0x92, 0x18, 0xf0, 0x03, 0x20, 0x21, 0xf8, 0xca, 0x10, 0xf2]], // cluster loop
+  // cluster loop, our own: PHB / LDA #2 / PHA / PLB (DB = 2) / LDX #$13 / loop: LDA $1892,X / TAY / BEQ next / JSR $F821 / next: DEX / BPL loop / PLB / RTL, padded to the 24 bytes the check hashes
+  [0x02f808, [0x8b, 0xa9, 0x02, 0x48, 0xab, 0xa2, 0x13, 0xbd, 0x92, 0x18, 0xa8, 0xf0, 0x03, 0x20, 0x21, 0xf8, 0xca, 0x10, 0xf4, 0xab, 0x6b, 0xea, 0xea, 0xea]],
   [0x02f821, [0x22, 0xfa, 0x86, 0x00]], // JSL ExecutePtr (the synthetic cart's, $00:86FA)
   [0x02f82f, [0x16, 0xfa]], // type 5 entry
 ]
@@ -112,7 +115,7 @@ function flameRom(
   put(0x02aa6c, spawn)
   put(XS_AT, d.xs)
   put(0x02fa16, draw)
-  put(TABLES_AT, [0x03, 0x07, 0x07, 0x07, 0x0f, 0x07, 0x07, 0x0f, 0xf0, 0xf4, 0xf8, 0xfc, ...d.tiles, ...d.props]) // prettier-ignore
+  put(TABLES_AT, [0x1f, 0x0f, 0x0f, 0x1f, 0x03, 0x03, 0x1f, 0x07, 0xf0, 0xf4, 0xf8, 0xfc, ...d.tiles, ...d.props]) // prettier-ignore
   for (const [at, b] of PATH_BYTES) put(at, b)
   tweak(bytes)
   return RomFile.fromBytes('flames.sfc', bytes)
@@ -121,7 +124,14 @@ function flameRom(
 /** The fingerprints of this cart's own routines (the vanilla ones are for the vanilla bytes). */
 const routinesOf = (rom: RomFile): FlameRoutines => {
   const sha = (at: number, n: number) => spanFingerprint(Uint8Array.from(bytesAt(rom, at, n)!))!
-  return { spawn: sha(0x02aa6c, 33), draw: sha(0x02fa16, 110) }
+  const masked = (at: number, n: number, mask: number[]) =>
+    spanFingerprint(Uint8Array.from(bytesAt(rom, at, n)!), mask)!
+  return {
+    spawn: sha(0x02aa6c, 33),
+    draw: sha(0x02fa16, 110),
+    route: sha(0x02a8c0, 12),
+    loop: masked(0x02f808, 24, [11, 12]),
+  }
 }
 
 const run = (rom: RomFile) => castleFlames(rom, levelSeed(rom, LEVEL), routinesOf(rom))
@@ -233,9 +243,15 @@ describe('castle flames from the routines (synthetic cart)', () => {
     ['the cluster dispatch entry for type 5', 0x02f82f],
   ])('a hacked call path (%s) still draws, unverified, naming it', (what, at) => {
     const dirty = flameRom(DATA, b => void (b[off(at)]! ^= 1))
-    expect(unverifiedOf(dirty)).toEqual([what])
+    // Against the clean cart's fingerprints: the two long runs are recognized by hash, not by bytes.
+    expect(unverifiedOf(dirty, routinesOf(flameRom()))).toEqual([what])
     // Run as it stands: the flames are the base cart's, not blanked, not a vanilla table.
     expect(key(dirty)).toEqual(key(flameRom()))
+  })
+
+  it("the cluster loop's masked operand (offsets 11-12) may differ without being flagged", () => {
+    const dirty = flameRom(DATA, b => void (b[off(0x02f808 + 11)]! ^= 1))
+    expect(unverifiedOf(dirty, routinesOf(flameRom()))).toEqual([])
   })
 
   describe('GetRand', () => {
@@ -314,7 +330,7 @@ describe.skipIf(!hasRom(VANILLA))(
     it('no 8-byte window (3+ distinct values) of the bytes the fixtures write is in the vanilla ROM', () => {
       const set = windowSet(vanilla())
       expect(summarize(vanillaHits(writtenOver(flameRom()), set))).toEqual([])
-      expect(summarize(vanillaHits(writtenOver(flameRom({ ...DATA, xs: [1, 2, 3, 4] })), set))).toEqual([]) // prettier-ignore
+      expect(summarize(vanillaHits(writtenOver(flameRom({ ...DATA, xs: [0x13, 0x57, 0x9b, 0xdf] })), set))).toEqual([]) // prettier-ignore
     })
     it('planted: the ROM spawn routine copied over the cart is flagged at its address', () => {
       const v = vanilla()
@@ -394,7 +410,10 @@ describe('castle flames on the map (synthetic cart)', () => {
     // Tile $C2 (slots 1 and 3) is chars $C2 $C3 $D2 $D3 of the sprite sheet's second table; take those out.
     const holes = solid.map((c, i) => ([0x42, 0x43, 0x52, 0x53].includes(i) ? undefined : c))
     // Misc = slot (the two ASLs of the spawn made NOPs) gives each slot its own table entry: tiles C0 C2 C0 C2.
-    const own = flameRom(DATA, b => void b.fill(0xea, off(0x02aa6c + 14), off(0x02aa6c + 16)))
+    const own = flameRom(
+      DATA,
+      b => void b.fill(0xea, off(0x02aa6c + SPAWN_ASLS), off(0x02aa6c + SPAWN_ASLS + 2)),
+    )
     const got = draw(stream(0xe6), 16, own, { vram: { sp4: holes } })
     expect(got.sprites.filter(s => s.status === 'drawn')).toHaveLength(8)
     const marked = got.sprites.filter(s => s.status === 'placeholder')
