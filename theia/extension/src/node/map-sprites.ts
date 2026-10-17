@@ -378,9 +378,24 @@ export function interpDrawer(
   const shape = { level: { screenMode: model.isVertical ? 1 : 0, screens: model.screenCount } }
   return s => {
     const [x, y] = [pixelX(s), s.y * TILE]
-    const camera = cameraFor(x, y, model.isVertical, model.screenCount)
+    let camera = cameraFor(x, y, model.isVertical, model.screenCount)
     const seed = (camera: { x: number; y: number }, extra = {}) => withSeed({ sprite: { x, y }, camera, mario, ...shape, ...extra }, base) // prettier-ignore
-    const m = run(rom, s.spriteId, seed(camera))
+    let m = run(rom, s.spriteId, seed(camera))
+    // WHY: INIT may move the sprite (Podoboo steps down to the lava, InitFireball, bank_01.asm:13012-13032) while the
+    // game's camera follows Mario, not the list position. GetDrawInfo flags a sprite off the camera's screen
+    // (SpriteOffscreenVert/X, bank_01.asm:4748-4790) and its callers skip or clip those rows. So any anchor off the screen
+    // the list position centred (not a $33 test) is re-run once with the camera on the anchor; the first run stays if that draws nothing.
+    if (m.anchor) {
+      const [dx, dy] = [m.anchor.x - camera.x, m.anchor.y - camera.y]
+      const moved = cameraFor(m.anchor.x, m.anchor.y, model.isVertical, model.screenCount)
+      if (
+        (dx < 0 || dx >= 256 || dy < 0 || dy >= 224) &&
+        (moved.x !== camera.x || moved.y !== camera.y)
+      ) {
+        const again = run(rom, s.spriteId, seed(moved))
+        if (modelResult(again).ok) [m, camera] = [again, moved]
+      }
+    }
     const at = m.chosen
     if (!w || !loaderCam || at === undefined || !m.anchor || s.index < 0 || s.index >= 128 || !w[SPRITE_LOAD_STATUS + s.index]) return modelResult(m) // prettier-ignore
     // Probe: the camera moved 13 x 11 px (not a multiple of the 8 px tile pitch, so a neighbour

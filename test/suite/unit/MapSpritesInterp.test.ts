@@ -317,6 +317,45 @@ describe('screen-fixed parts (#286)', () => {
   })
 })
 
+describe('a sprite whose INIT moves it off the screen seeded from its list position (#980)', () => {
+  const blank = RomFile.fromBytes('blank.sfc', Buffer.alloc(0x80000))
+  const at = (y: number) => ({ index: 0, x: 8, y: y / 16, spriteId: 0x33, screen: 0, extraBit: false, raw: [], streamOffset: 0 }) as LevelSprite // prettier-ignore
+  const seen: SpriteSeed[] = []
+  // INIT drops the sprite 128 px (Podoboo, InitFireball, bank_01.asm:13012-13032); GetDrawInfo draws it only on screen.
+  const run = (_r: RomFile, _i: number, seed: SpriteSeed): SpriteModel => {
+    seen.push(seed)
+    const [x, y] = [seed.sprite.x, seed.sprite.y + 128]
+    const on = y - seed.camera.y >= 0 && y - seed.camera.y < 224
+    const parts = on ? [part({ dy: 0 }), part({ dy: 8, oam: 1 })] : [part({ dy: 0 })]
+    return model({ anchor: { x, y, rawX: seed.sprite.x, rawY: seed.sprite.y }, passes: [{ pass: 0, pos: { x, y }, origin: { x, y }, parts, uploads: [], palette: [] }], chosen: 0 }) // prettier-ignore
+  }
+  const draw = interpDrawer(blank, 0x11c, { isVertical: false, screenCount: 2 }, run, () =>
+    withSeed({}),
+  )
+
+  it('re-runs once with the camera on the post-INIT anchor, and serves that run', () => {
+    seen.length = 0
+    const r = draw(at(224))
+    expect(seen).toHaveLength(2)
+    const a = r.ok ? r.anchor : undefined
+    expect(a).toEqual({ x: 128, y: 352 })
+    expect(seen[1]!.camera).toEqual(cameraFor(a!.x, a!.y, false, 2))
+    expect(r.ok && r.parts).toHaveLength(2)
+  })
+
+  it('does not re-run when the anchor is already on the seeded screen', () => {
+    seen.length = 0
+    draw(at(16))
+    expect(seen).toHaveLength(1)
+  })
+
+  it('keeps the first run when the re-run draws nothing', () => {
+    let n = 0
+    const d = interpDrawer(blank, 0x11c, { isVertical: false, screenCount: 2 }, (r, i, s) => (n++ ? model({ emptyReason: 'drew no tile' }) : run(r, i, s)), () => withSeed({})) // prettier-ignore
+    expect(d(at(224)).ok).toBe(true)
+  })
+})
+
 describe('drawSprites with runtime palette writes', () => {
   const s = { index: 0, x: 0, y: 0, spriteId: 1, screen: 0, extraBit: false, raw: [], streamOffset: 0 } as LevelSprite // prettier-ignore
   const chars = { sp1: [Uint8Array.from([1, 2, ...new Array(62).fill(0)])] }
@@ -756,5 +795,29 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
       [31, 34],
       [21, 25],
     ])
+  })
+})
+
+describe.skipIf(!hasRom(VANILLA))('vanilla $11C Podoboos (#980)', () => {
+  const got = () => {
+    const b = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
+    const r = mapSprites(new L1ModelCache(), b, romPath(VANILLA), 0x11c)
+    if (r.status !== 'ok') throw new Error(JSON.stringify(r))
+    return r.sprites
+  }
+
+  it('draws all seven $33 at full height, on the lava surface (y0 393..395)', () => {
+    const p = got().filter(s => s.id === 0x33)
+    expect(p.map(s => s.index)).toEqual([0, 2, 3, 10, 11, 12, 13])
+    for (const s of p) {
+      expect(s.box.y1 - s.box.y0, `index ${s.index}`).toBe(16)
+      expect(s.box.y0, `index ${s.index}`).toBeGreaterThanOrEqual(393)
+      expect(s.box.y0, `index ${s.index}`).toBeLessThanOrEqual(395)
+    }
+  })
+
+  it('leaves every other sprite where it was drawn before the fix (develop 19ee4775, one machine)', () => {
+    const rest = got().filter(s => s.id !== 0x33).map(s => `${s.index}:${s.id}@${s.box.x0},${s.box.y0},${s.box.x1},${s.box.y1}`) // prettier-ignore
+    expect(rest).toEqual(['1:31@304,336,328,368', '4:91@1152,400,1200,416', '5:91@1232,400,1280,416', '6:91@1328,400,1376,416', '7:62@1344,224,1360,240', '8:91@1424,400,1472,416', '9:91@1536,400,1584,416']) // prettier-ignore
   })
 })
