@@ -55,6 +55,26 @@ verified before it opens.
    webview; `RomFile.buffer` is typed `Buffer` while documented as possibly
    a `Uint8Array`. Recommended: one pass to make the core speak for itself.
 
+## Found while verifying the fixes
+
+- Twelve `scrollSim_*.test.ts` files warned and returned when their Mesen
+  `l2_scroll.csv` capture was missing, so they passed while checking
+  nothing. The captures are under neither `hackbench-tools/fixtures` nor
+  `OneDrive/hackbench-fixtures` on the review machine (that folder also has no
+  `maps/` directory, which `loadMesenFixture.ts` expects), so every run since
+  the fixture move has reported 44 green tests that ran no comparison. Batch
+  5 gates them with `describe.skipIf`; where the captures went is an open
+  question for the owner.
+- Two 65816 width-flag polarities (`m16` versus `m8`) were swapped at the
+  call site by design in batch 3, and no synthetic test could tell the
+  difference until the adversarial review added immediate-mode witnesses in
+  both widths. The old code had the same blind spot.
+- Three of five Sonnet implementers ran the full unit suite without the
+  shared run lock after `acquire` was refused (one because the check sat
+  behind a pipe). The lock has a BA-managed reservation queue that an
+  ad hoc session is not in, so a session outside the team roster cannot
+  verify under the lock without asking Overwatch for a slot.
+
 ## Other smells, recorded only
 
 - Largest files: `objectHandlers/standardHandlers.ts` 5,105;
