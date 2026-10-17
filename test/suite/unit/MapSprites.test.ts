@@ -145,6 +145,12 @@ describe('spriteLayer', () => {
     expect(r.note).toBeUndefined()
   })
 
+  it('names each sprite from the sprite name table (#981)', () => {
+    const h = { ...MODEL, isVertical: false, screenCount: 1 }
+    const r = spriteLayer(Uint8Array.from([0, 0x10, 0x01, 0x33, 0x20, 0x02, 0xf0, 0x30, 0x03, 0x28, END]), h, stub) // prettier-ignore
+    expect(r.sprites.map(s => [s.id, s.name])).toEqual([[0x33, 'Podoboo'], [0xf0, 'Scroll command 9: Unused (vanilla)'], [0x28, 'Big Boo']]) // prettier-ignore
+  })
+
   it('notes a stream cut before its end marker, and still draws what is there', () => {
     const h = { ...MODEL, isVertical: false, screenCount: 1 }
     const cut = spriteLayer(Uint8Array.from([0, 0x10, 0x01, 0x10, 0x20, 0x02, 0x10]), h, stub)
