@@ -1064,15 +1064,19 @@ test('maps: from the input, Down and Up move the selection and Enter opens the m
   await openFind(page, 'maps')
   await page.keyboard.type(word)
   await expect.poll(async () => (await state(page, 'maps')).selected[0]).toBe(first.id)
+  await page.waitForTimeout(600)
+  expect(await mapViewIds(page), 'typing alone opens no map view').toEqual([])
   const next = matches[(matches.findIndex(m => m.id === first.id) + 1) % matches.length]
   await page.keyboard.press('ArrowDown')
   await expect.poll(async () => (await state(page, 'maps')).selected[0]).toBe(next.id)
   await page.keyboard.press('ArrowUp')
   await expect.poll(async () => (await state(page, 'maps')).selected[0]).toBe(first.id)
   expect(await inputFocused(page, 'maps'), 'arrows leave focus in the input').toBe(true)
-  expect(await mapViewIds(page), 'nothing opened yet').toEqual([])
+  // Moving the selection previews it, on the tree path too (the Maps explorer
+  // opens the preview map view on any one-row selection change): same here.
+  await expect.poll(() => mapViewIds(page)).toEqual(['hackbench.map-view:preview'])
   await page.keyboard.press('Enter')
-  await expect.poll(() => mapViewIds(page)).toEqual([`hackbench.map-view:${first.index}`])
+  await expect.poll(() => mapViewIds(page)).toContain(`hackbench.map-view:${first.index}`)
 })
 
 // Enter right after the last key, inside the 200 ms debounce: it must act on
@@ -1128,7 +1132,10 @@ for (const which of Object.keys(IDS)) {
     page,
   }) => {
     await openExplorer(page, which)
-    await page.evaluate(() => getSvc('MessageService').info('A toast that stays up for this test'))
+    await page.evaluate(() => {
+      // Braces: info() resolves only when the toast closes, so returning it hangs.
+      getSvc('MessageService').info('A toast that stays up for this test')
+    })
     await expect
       .poll(() => page.locator('.theia-notification-list-item').count(), {
         message: 'a notification is visible',
