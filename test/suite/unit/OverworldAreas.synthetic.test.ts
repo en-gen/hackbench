@@ -413,4 +413,15 @@ describe('deriveOverworldAreas, synthetic ROMs (no corpus needed)', () => {
     setByte(rom, 'path', 0, 0x00)
     expect(refusal(deriveOverworldAreas(rom))).toMatch(/049A24/)
   })
+
+  it('an anchor so near the end that its span is cut short is not a hit', () => {
+    const rom = stub()
+    // The camera anchor in the last two bytes: the span reads past the ROM, so the span read is
+    // null. It must be skipped, leaving the one real camera read, not counted as a second hit.
+    const [a, b] = AREA_SPANS.camera.anchor
+    rom.buffer[rom.buffer.length - 2] = a
+    rom.buffer[rom.buffer.length - 1] = b
+    const r = deriveOverworldAreas(rom)
+    expect(areasOf(r)).toEqual(ALL)
+  })
 })
