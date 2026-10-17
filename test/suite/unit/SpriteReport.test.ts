@@ -35,13 +35,17 @@ import {
   contactSheet,
   encodePng,
   isInside,
+  hardwareSource,
+  LEVEL_START_LABEL,
   renderPieces,
   type ReportRow,
   type ReportVerdict,
 } from '../../../tools/scripts/spriteReport'
 import {
+  frameSamples,
   gradeCaptures,
   gradedFrame,
+  hardwareCells,
   hardwareFrame,
   hackbenchRepo,
   isValidationRepo,
@@ -918,4 +922,163 @@ describe.skipIf(!hasRom(VANILLA) || !hasCaptures())('gradeCaptures on the corpus
     expect(anchors).toHaveLength(total)
     expect(new Set(anchors).size).toBe(total)
   }, 600_000)
+})
+
+describe('hardwareSource (#863)', () => {
+  const pal = new Uint8Array(768)
+  pal.set([10, 20, 30], (128 + 15) * 3)
+  pal.set([1, 2, 3], (128 + 1) * 3)
+  const mk = (frame: number, plane0Only: boolean) => {
+    const vram = new Uint8Array(0x10000)
+    for (let i = 0; i < 32; i++) vram[i] = plane0Only ? (i < 16 && i % 2 === 0 ? 0xff : 0) : 0xff
+    return { frame, src: { vram, pal, obsel: 0 } }
+  }
+  const start = mk(500, false) // colour 15
+  const later = mk(530, true) // colour 1
+  const pieces = [{ dx: 0, dy: 0, tile: 0, attr: 0, large: false }]
+  const first = (s: { src: Parameters<typeof renderPieces>[1] }) => [
+    ...renderPieces(pieces, s.src)!.px.subarray(0, 3),
+  ]
+
+  it('a dynamic card draws from the sample on its drawnFrame', () => {
+    const r = hardwareSource(0x33, 530, pieces, [start, later])!
+    expect(first(r)).toEqual([1, 2, 3])
+    expect(r.label).toBeUndefined()
+  })
+  it('a dynamic card with no matching sample keeps level start and says so', () => {
+    const r = hardwareSource(0x33, 531, pieces, [start, later])!
+    expect(first(r)).toEqual([10, 20, 30])
+    expect(r.label).toBe(LEVEL_START_LABEL)
+  })
+  it('an id outside the set is dynamic when its tile bytes differ between samples', () => {
+    expect(first(hardwareSource(0x01, 530, pieces, [start, later])!)).toEqual([1, 2, 3])
+    expect(hardwareSource(0x01, 531, pieces, [start, later])!.label).toBe(LEVEL_START_LABEL)
+  })
+  it('a static card is unchanged: level start, no label, even on a later drawnFrame', () => {
+    const r = hardwareSource(0x01, 530, pieces, [start, mk(530, false)])!
+    expect(first(r)).toEqual([10, 20, 30])
+    expect(r.label).toBeUndefined()
+  })
+  it('an id outside the set is dynamic when only the palette differs between samples', () => {
+    const pal2 = new Uint8Array(pal)
+    pal2.set([77, 88, 99], (128 + 15) * 3)
+    const a = mk(500, false)
+    const b = { frame: 530, src: { ...mk(530, false).src, pal: pal2 } }
+    expect(first(hardwareSource(0x01, 530, pieces, [a, b])!)).toEqual([77, 88, 99])
+    expect(hardwareSource(0x01, 531, pieces, [a, b])!.label).toBe(LEVEL_START_LABEL)
+  })
+  it('no samples gives nothing', () => {
+    expect(hardwareSource(0x33, 530, pieces, [])).toBeUndefined()
+  })
+})
+
+describe('dynamic cards, synthetic captures (#863)', () => {
+  const pieces = [{ dx: 0, dy: 0, tile: 0, attr: 0, large: false }]
+  const cgram = new Uint8Array(512)
+  cgram.set([0x1f, 0x00], (128 + 1) * 2) // colour 1 red
+  cgram.set([0xe0, 0x03], (128 + 15) * 2) // colour 15 green
+  const vramWith = (tileByte: number, at = 0) => {
+    const v = new Uint8Array(0x10000)
+    v[at] = tileByte
+    return v
+  }
+  /** In-memory capture entries: one sample per [offset, vram]. */
+  const capture = (samples: [number, Uint8Array | null][]) => {
+    const e = new Map<string, () => Buffer>()
+    const put = (n: string, b: Uint8Array | object) =>
+      e.set(`cap/${n}`, () =>
+        b instanceof Uint8Array ? Buffer.from(b) : Buffer.from(JSON.stringify(b)),
+      )
+    put('capture_summary.json', { samples: samples.map(([offset]) => ({ offset })) })
+    for (const [o, v] of samples) {
+      const f = `frame_${String(o).padStart(4, '0')}_`
+      if (!v) continue
+      put(f + 'vram.bin', v)
+      put(f + 'cgram.bin', cgram)
+      put(f + 'ppu.json', { OBSEL_2101: { byte: 0 } })
+    }
+    return e
+  }
+
+  it('the row draws both panels from the sample on drawnFrame and labels an off-sample record', () => {
+    // Sample 0: tile 0 pixel (0,0) colour 1 (plane 0 bit 7). Sample +8: colour 0 there, set elsewhere.
+    const samples = frameSamples(
+      capture([
+        [0, vramWith(0x80)],
+        [8, vramWith(0x40)],
+      ]),
+      100,
+    )
+    expect(samples.map(s => s.frame)).toEqual([100, 108])
+    const hit = hardwareCells(0x33, 108, pieces, pieces, samples, ['n'])
+    const miss = hardwareCells(0x33, 104, pieces, pieces, samples, ['n'])
+    // drawnFrame 108 is sample +8; the miss falls back to level start (sample 0).
+    expect(hit.hardwareImg).toEqual(renderPieces(pieces, samples[1].src))
+    expect(miss.hardwareImg).toEqual(renderPieces(pieces, samples[0].src))
+    expect(hit.hardwareImg!.px).not.toEqual(miss.hardwareImg!.px)
+    expect(hit.oursImg!.px).toEqual(hit.hardwareImg!.px)
+    expect(hit.detail).toBe('n')
+    expect(miss.detail).toBe(`n. ${LEVEL_START_LABEL}`)
+  })
+
+  it('a missing level-start sample leaves no source rather than promoting a later sample', () => {
+    expect(
+      frameSamples(
+        capture([
+          [0, null],
+          [8, vramWith(0x80)],
+        ]),
+        100,
+      ),
+    ).toEqual([])
+    expect(
+      frameSamples(
+        capture([
+          [0, vramWith(0x80)],
+          [8, null],
+        ]),
+        100,
+      ),
+    ).toHaveLength(1)
+  })
+
+  it('a capture with no anchorFrame matches no drawnFrame: level-start sample and label', () => {
+    const samples = frameSamples(
+      capture([
+        [0, vramWith(0x80)],
+        [8, vramWith(0x40)],
+      ]),
+      undefined,
+    )
+    expect(samples).toHaveLength(2)
+    // drawnFrame 8 would hit sample +8 if undefined were read as frame 0; 0 would hit level start unlabelled.
+    for (const drawn of [0, 8, 100, 108]) {
+      const r = hardwareCells(0x33, drawn, pieces, pieces, samples, ['n'])
+      expect(r.hardwareImg).toEqual(renderPieces(pieces, samples[0].src))
+      expect(r.detail).toBe(`n. ${LEVEL_START_LABEL}`)
+    }
+  })
+
+  it.each([0x33, 0x35])('sprite $%s is dynamic even with identical samples', id => {
+    const s = frameSamples(
+      capture([
+        [0, vramWith(0x80)],
+        [8, vramWith(0x80)],
+      ]),
+      100,
+    )
+    expect(hardwareCells(id, 999, pieces, pieces, s, []).detail).toBe(LEVEL_START_LABEL)
+    expect(hardwareCells(0x01, 999, pieces, pieces, s, []).detail).toBeUndefined()
+  })
+
+  it('the same colours at different positions make a card dynamic', () => {
+    const s = frameSamples(
+      capture([
+        [0, vramWith(0x80)],
+        [8, vramWith(0x40)],
+      ]),
+      100,
+    )
+    expect(hardwareCells(0x01, 999, pieces, pieces, s, []).detail).toBe(LEVEL_START_LABEL)
+  })
 })
