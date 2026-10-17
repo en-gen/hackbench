@@ -347,7 +347,7 @@ test('scrolling under a still pointer re-places the hover on the sprite (#981)',
   const slot = HIDDEN.slot
   const map = await openMap(page, slot)
   // Zoomed in, so a sprite is wide enough to scroll 8 screen px and stay under the pointer, and a stale anchor is 8 px off.
-  await setZoom(page, slot, ['zoom-actual', 'zoom-in', 'zoom-in', 'zoom-in', 'zoom-in'])
+  await setZoom(page, slot, ['zoom-actual', 'zoom-in', 'zoom-in', 'zoom-in'])
   const z = await page
     .locator(stripOf(slot))
     .evaluate((el, w) => el.getBoundingClientRect().width / w, map.mapW)
