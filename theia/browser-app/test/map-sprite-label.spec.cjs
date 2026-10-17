@@ -278,6 +278,8 @@ test('AC5: a hidden (screen door) sprite shows its id too', async ({ page }) => 
   // The plant really is behind a tile: some screen's covered-door set holds its door id (the 1-based place in
   // the draw order), read off the widget (this reads the protected `coveredIds` field by name, so a rename breaks it loudly), so the test cannot pass on a plant that merely is not covered.
   const door = map.stack.indexOf(plant) + 1
+  // Only the screens in view (plus a margin) are painted, and only a painted screen fills `coveredIds`: scroll the plant into view first.
+  await clientOf(page, HIDDEN.slot, map, at.x, at.y)
   await expect
     .poll(
       () =>
@@ -312,14 +314,43 @@ test('status entry follows the active map tab: hidden clears it, re-activating r
   expect(await statusBar(page).innerText()).not.toContain('(sprite $')
 
   // A comes back to the front: its selection is still there and so is the label.
-  await page.evaluate(
-    id => getSvc('ApplicationShell').activateWidget(id),
-    `hackbench.map-view:${A}`,
-  )
+  const activate = id =>
+    page.evaluate(async id => {
+      await getSvc('ApplicationShell').activateWidget(id)
+    }, id)
+  await activate(`hackbench.map-view:${A}`)
   await expect(statusBar(page)).toContainText(label)
 
   // Closing B (not the owner) leaves A's label alone.
-  await page.evaluate(id => getSvc('ApplicationShell').closeWidget(id), `hackbench.map-view:${B}`)
+  await page.evaluate(async id => {
+    await getSvc('ApplicationShell').closeWidget(id)
+  }, `hackbench.map-view:${B}`)
   await expect(page.locator(rootOf(B))).toHaveCount(0)
   await expect(statusBar(page)).toContainText(label)
+
+  // Hiding A without activating another map: a plain widget in the main area covers it. No map widget claims the entry here, so only
+  // A's own hide handler can take the label away (a Widget instance is built from the map widget's own prototype chain).
+  const other = 'hb-test-cover'
+  await page.evaluate(
+    async ({ id, cover }) => {
+      const shell = getSvc('ApplicationShell')
+      let proto = Object.getPrototypeOf(shell.getWidgetById(id))
+      while (proto && proto.constructor.name !== 'Widget') proto = Object.getPrototypeOf(proto)
+      const w = new proto.constructor()
+      w.id = cover
+      w.title.label = 'Cover'
+      w.title.closable = true
+      await shell.addWidget(w, { area: 'main' })
+      await shell.activateWidget(cover)
+    },
+    { id: `hackbench.map-view:${A}`, cover: other },
+  )
+  await expect(page.locator(rootOf(A))).toBeHidden()
+  await expect(statusBar(page)).not.toContainText(label)
+  expect(await statusBar(page).innerText()).not.toContain('(sprite $')
+  await activate(`hackbench.map-view:${A}`)
+  await expect(statusBar(page)).toContainText(label)
+  await page.evaluate(async id => {
+    await getSvc('ApplicationShell').closeWidget(id)
+  }, other)
 })
