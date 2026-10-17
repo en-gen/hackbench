@@ -127,8 +127,8 @@ ms against 30-68 ms for A. It does not make a screen appear sooner: B's end-to-e
 127-243 ms) because of worker start and the serial composite. B's palette edit (117-267 ms for 4
 screens) is bound by re-compositing, not by raster (the CPU raster is a few ms a screen). C paints
 planes in 5-8 ms p50 and repaints after a palette edit in 22-35 ms, but p95 is 25-35 ms, its
-output still needs a composite C cannot do, and it ran on a software renderer. One 29-31 ms scroll
-max appears in 2 B runs and 1 C run; not explained.
+output still needs a composite C cannot do, and it ran on a software renderer. A 29-31 ms scroll max appears
+in the ranges of B on $101 and C on $105 (one run each at most); not explained.
 
 ## 5. Answers to the open questions
 
