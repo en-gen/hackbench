@@ -8,7 +8,9 @@
  */
 import { inject, injectable } from '@theia/core/shared/inversify'
 import { RomFile } from '../../../../src/rom/RomFile'
-import { WorkingRomRegistry } from '../../../../src/project/WorkingRomRegistry'
+import { hex2, hex4, hex6 } from '../../../../src/rom/hex'
+import type { RomIdentity } from '../../../../src/project/Project'
+import { romFileOf, WorkingRomRegistry } from '../../../../src/project/WorkingRomRegistry'
 import { readLevelMusicTableIfReadable, slotsFor } from '../../../../src/rom/MusicData'
 import {
   getLevelMusicBankAddrIfReadable,
@@ -61,18 +63,14 @@ const SFX_HURRYUP = 0xff
 const SFX_YOSHI_DRUM_ON = 0x02
 const SFX_YOSHI_DRUM_OFF = 0x03
 
-const hex = (n: number, w = 2): string => `$${n.toString(16).toUpperCase().padStart(w, '0')}`
-
 @injectable()
 export class MusicServiceImpl implements MusicService {
   @inject(WorkingRomRegistry) protected readonly workingRoms!: WorkingRomRegistry
 
   async loadMusic(manifestPath: string): Promise<LoadMusicResult> {
-    const r = this.workingRoms.get(manifestPath)
-    if (r.status === 'rom-not-located') return r
-    if (r.status === 'unreadable') throw new Error(r.reason)
-
-    const rom = RomFile.fromBytes(r.romPath, Buffer.from(r.working.bytes()))
+    const opened = this.openRom(manifestPath)
+    if (opened.status !== 'ok') return refuse(opened)
+    const rom = opened.rom
     const bankRomAddr = getLevelMusicBankAddrIfReadable(rom)
     if (bankRomAddr === null) {
       return { status: 'bank-unreadable' }
@@ -81,7 +79,7 @@ export class MusicServiceImpl implements MusicService {
     const levelTable = readLevelMusicTableIfReadable(rom)
     const tracks: MusicTrackDto[] = readBankSongPointers(rom, bankRomAddr).map(p => ({
       bgmCommand: p.bgmCommand,
-      bgmHex: hex(p.bgmCommand),
+      bgmHex: `$${hex2(p.bgmCommand)}`,
       // Which level-header music indices (0-7) select this track.
       levelIndices: slotsFor(levelTable, p.bgmCommand),
     }))
@@ -100,27 +98,25 @@ export class MusicServiceImpl implements MusicService {
     const pointers = readBankSongPointers(rom, bankRomAddr)
     const entry = pointers.find(p => p.bgmCommand === bgmCommand)
     if (!entry) {
-      throw new Error(`No track ${hex(bgmCommand)} in the level music bank`)
+      throw new Error(`No track $${hex2(bgmCommand)} in the level music bank`)
     }
 
     const levelTable = readLevelMusicTableIfReadable(rom)
 
     return {
       bgmCommand: entry.bgmCommand,
-      bgmHex: hex(entry.bgmCommand),
+      bgmHex: `$${hex2(entry.bgmCommand)}`,
       levelIndices: slotsFor(levelTable, entry.bgmCommand),
-      bankRomAddr: hex(bankRomAddr, 6),
+      bankRomAddr: `$${hex6(bankRomAddr)}`,
       bankSize: getBankBlockSize(rom, bankRomAddr),
-      aramPointer: hex(entry.aramPointer, 4),
+      aramPointer: `$${hex4(entry.aramPointer)}`,
     }
   }
 
   async loadBank(manifestPath: string, bank: MusicBankName): Promise<LoadBankResult> {
-    const r = this.workingRoms.get(manifestPath)
-    if (r.status === 'rom-not-located') return r
-    if (r.status === 'unreadable') throw new Error(r.reason)
-
-    const smw = new SmwRom(RomFile.fromBytes(r.romPath, Buffer.from(r.working.bytes())))
+    const opened = this.openRom(manifestPath)
+    if (opened.status !== 'ok') return refuse(opened)
+    const smw = new SmwRom(opened.rom)
     const aliases = readAliases(manifestPath, ALIAS_NS[bank])
     const catalog = readMusicCatalog(smw, bank)
 
@@ -142,14 +138,14 @@ export class MusicServiceImpl implements MusicService {
 
     const dto: MusicBankDto = {
       bank,
-      romAddrHex: hex(catalog.bank.romAddr, 6),
+      romAddrHex: `$${hex6(catalog.bank.romAddr)}`,
       blockSize: catalog.bank.blockSize,
       tracks: catalog.bank.tracks.map(t => ({
         bgmCommand: t.bgmCommand,
-        bgmHex: hex(t.bgmCommand),
+        bgmHex: `$${hex2(t.bgmCommand)}`,
         alias: aliases[aliasKey(t.bgmCommand)] ?? '',
         levelIndices: t.levelSlots,
-        aramPointerHex: hex(t.aramPointer, 4),
+        aramPointerHex: `$${hex4(t.aramPointer)}`,
         sharedWith: t.sharedWith,
         maps: t.maps,
       })),
@@ -166,10 +162,9 @@ export class MusicServiceImpl implements MusicService {
     bgmCommand: number,
     ports: SpcPortRequest = {},
   ): Promise<number[] | null> {
-    const r = this.workingRoms.get(manifestPath)
-    if (r.status !== 'ok') return null
-
-    const rom = RomFile.fromBytes(r.romPath, Buffer.from(r.working.bytes()))
+    const opened = this.openRom(manifestPath)
+    if (opened.status !== 'ok') return null
+    const rom = opened.rom
     const smw = new SmwRom(rom)
 
     // Gated first, so a ROM whose bank cannot be verified never reaches
@@ -189,11 +184,9 @@ export class MusicServiceImpl implements MusicService {
   }
 
   async loadSfx(manifestPath: string): Promise<LoadSfxResult> {
-    const r = this.workingRoms.get(manifestPath)
-    if (r.status === 'rom-not-located') return r
-    if (r.status === 'unreadable') throw new Error(r.reason)
-
-    const rom = RomFile.fromBytes(r.romPath, Buffer.from(r.working.bytes()))
+    const opened = this.openRom(manifestPath)
+    if (opened.status !== 'ok') return refuse(opened)
+    const rom = opened.rom
     const ports: SfxPortDto[] = []
     const reasons: Array<{ port: number; mirror: string; reason: string }> = []
 
@@ -206,11 +199,11 @@ export class MusicServiceImpl implements MusicService {
       ports.push({
         port,
         mirror: SFX_PORT_MIRROR[port],
-        tableAramHex: hex(result.table.tableAram, 4),
+        tableAramHex: `$${hex4(result.table.tableAram)}`,
         entries: result.table.entries.map(e => ({
           id: e.id,
           idHex: e.idHex,
-          aramPointerHex: hex(e.aramPointer, 4),
+          aramPointerHex: `$${hex4(e.aramPointer)}`,
           empty: e.empty,
         })),
       })
@@ -226,10 +219,9 @@ export class MusicServiceImpl implements MusicService {
 
   async sfxSpc(manifestPath: string, port: number, id: number): Promise<number[] | null> {
     if (!SFX_PORTS.includes(port as SfxPort)) return null
-    const r = this.workingRoms.get(manifestPath)
-    if (r.status !== 'ok') return null
-
-    const rom = RomFile.fromBytes(r.romPath, Buffer.from(r.working.bytes()))
+    const opened = this.openRom(manifestPath)
+    if (opened.status !== 'ok') return null
+    const rom = opened.rom
     const spc = buildSfxSpc(rom, port as SfxPort, id)
     return spc ? Array.from(spc) : null
   }
@@ -258,7 +250,7 @@ export class MusicServiceImpl implements MusicService {
       .sort((a, b) => a[0] - b[0])
       .map(([bgmCommand, maps]) => ({
         bgmCommand,
-        bgmHex: hex(bgmCommand),
+        bgmHex: `$${hex2(bgmCommand)}`,
         alias: levelAliases[aliasKey(bgmCommand)] ?? '',
         mapCount: maps.length,
       }))
@@ -271,19 +263,39 @@ export class MusicServiceImpl implements MusicService {
   }
 
   /**
-   * The ROM behind a project, working copy included, or a throw.
+   * The ROM behind a project, working copy included, or why there is none.
    *
    * Read fresh from the registry each call: it is itself the shared cache,
-   * so this never needs its own.
+   * so this never needs its own. Does not throw: the spc methods answer null
+   * for any refusal, the listing methods go through `refuse`.
    */
-  private romFor(manifestPath: string): RomFile {
+  private openRom(manifestPath: string): OpenRom {
     const r = this.workingRoms.get(manifestPath)
-    if (r.status === 'rom-not-located') {
+    return r.status === 'ok' ? { status: 'ok', rom: romFileOf(r) } : r
+  }
+
+  /** The ROM, or a throw (trackDetails answers with an Error, not a result). */
+  private romFor(manifestPath: string): RomFile {
+    const opened = this.openRom(manifestPath)
+    if (opened.status === 'rom-not-located') {
       throw new Error(
-        `The base ROM for ${r.baseRom.title || 'this project'} is not on this machine`,
+        `The base ROM for ${opened.baseRom.title || 'this project'} is not on this machine`,
       )
     }
-    if (r.status === 'unreadable') throw new Error(r.reason)
-    return RomFile.fromBytes(r.romPath, Buffer.from(r.working.bytes()))
+    if (opened.status === 'unreadable') throw new Error(opened.reason)
+    return opened.rom
   }
+}
+
+type OpenRom =
+  | { status: 'ok'; rom: RomFile }
+  | { status: 'rom-not-located'; baseRom: RomIdentity }
+  | { status: 'unreadable'; reason: string }
+
+/** A listing method's refusal: a missing ROM is a result, an unreadable one a throw. */
+function refuse(
+  refusal: Exclude<OpenRom, { status: 'ok' }>,
+): Extract<OpenRom, { status: 'rom-not-located' }> {
+  if (refusal.status === 'unreadable') throw new Error(refusal.reason)
+  return refusal
 }

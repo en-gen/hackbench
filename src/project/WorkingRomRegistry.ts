@@ -15,6 +15,7 @@ import { openProject, Project, RomIdentity, romIdentity } from './Project'
 import { readRomBounded } from './BoundedRead'
 import { RomRegistry } from './RomRegistry'
 import { RomFile } from '../rom/RomFile'
+import { SmwRom } from '../rom/SmwRom'
 import type { DataBanks } from '../rom/DataBanks'
 import { resolveDataBanks } from './DataBanksConfig'
 import { GfxCharEdit, GfxRefusal } from '../rom/GfxLayer'
@@ -49,6 +50,20 @@ export interface WorkingRomEntry {
   project: Project
   /** Detected on the base ROM, hand edits applied (meta/data-banks.json); a reader attaches it to the RomFile it builds. */
   dataBanks: DataBanks
+}
+
+/**
+ * The working copy as a RomFile, over a copy of its bytes (WorkingRom.bytes()
+ * is shared; callers must copy before use) with the project's data banks
+ * attached.
+ */
+export function romFileOf(entry: WorkingRomEntry): RomFile {
+  return RomFile.fromBytes(entry.romPath, Buffer.from(entry.working.bytes()), entry.dataBanks)
+}
+
+/** The working copy as an SmwRom; see romFileOf. */
+export function smwRomOf(entry: WorkingRomEntry): SmwRom {
+  return new SmwRom(romFileOf(entry))
 }
 
 export type WorkingRomResult =

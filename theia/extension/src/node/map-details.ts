@@ -9,6 +9,7 @@
  * test file loads, not when the gated case runs.
  */
 import { SmwRom } from '../../../../src/rom/SmwRom'
+import { hex3s, hex6 } from '../../../../src/rom/hex'
 import { parseLevelObjects, parseLevelSprites } from '../../../../src/rom/LevelParser'
 import { levelNameForSlot } from '../../../../src/rom/SmwLevelNames'
 import { filterSomeRamNote, levelGfxAssignmentNote } from '../../../../src/rom/GfxLoader'
@@ -17,8 +18,6 @@ import {
   type OverworldEntranceIndex,
 } from '../../../../src/rom/OverworldEntrances'
 import type { MapDetailsDto } from '../common/project-protocol'
-
-const hex = (n: number, w = 2): string => `$${n.toString(16).toUpperCase().padStart(w, '0')}`
 
 /**
  * Read one map's details from `rom`. A slot whose level data cannot be read
@@ -40,8 +39,8 @@ export function buildMapDetails(
     return {
       ...named,
       levelDataUnavailable: ptr
-        ? `the Layer 1 pointer ${hex(ptr, 6)} does not address this ROM's data`
-        : `slot ${hex(index, 3)} has no Layer 1 pointer`,
+        ? `the Layer 1 pointer $${hex6(ptr)} does not address this ROM's data`
+        : `slot ${hex3s(index)} has no Layer 1 pointer`,
     }
   }
 
@@ -62,12 +61,12 @@ export function buildMapDetails(
   if (spritePtr === null) {
     const site = rom.getSpritePointerSite()
     spriteUnavailable = site.ok
-      ? `no sprite data at the pointer for slot ${hex(index, 3)}`
+      ? `no sprite data at the pointer for slot ${hex3s(index)}`
       : site.reason
   } else {
     const spriteData = rom.rom.readAt(spritePtr, 0x200)
     if (!spriteData) {
-      spriteUnavailable = `no sprite data at the pointer for slot ${hex(index, 3)}`
+      spriteUnavailable = `no sprite data at the pointer for slot ${hex3s(index)}`
     } else {
       try {
         spriteCount = parseLevelSprites(spriteData, verticalTable.ok && parsed.isVertical).length

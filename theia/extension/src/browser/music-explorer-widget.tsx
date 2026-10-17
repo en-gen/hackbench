@@ -49,6 +49,7 @@ import {
   createTreeContainer,
 } from '@theia/core/lib/browser'
 import { MusicBankName, MusicService, MusicTrackDto } from '../common/music-protocol'
+import { hex2 } from '../../../../src/rom/hex'
 import { ProjectContext } from './project-context'
 import { spcPlayback } from './spc-playback'
 
@@ -80,7 +81,7 @@ export interface MusicTrackNode extends CompositeTreeNode, SelectableTreeNode {
 }
 
 const hexIndex = (i: number): string => `$${i.toString(16).toUpperCase()}`
-const hexByte = (i: number): string => `$${i.toString(16).toUpperCase().padStart(2, '0')}`
+const hexByte = (i: number): string => `$${hex2(i)}`
 
 const BANKS: Array<{ bank: MusicBankName; label: string }> = [
   { bank: 'level', label: 'level' },

@@ -18,9 +18,8 @@
  * modules (src/rom/, gfx-decode.ts) that are unit tested without Theia.
  */
 import { inject, injectable } from '@theia/core/shared/inversify'
-import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
-import { WorkingRomEntry, WorkingRomRegistry } from '../../../../src/project/WorkingRomRegistry'
+import { smwRomOf, WorkingRomRegistry } from '../../../../src/project/WorkingRomRegistry'
 import {
   GfxFormat,
   GfxCharEditDto,
@@ -41,7 +40,7 @@ export class GfxServiceImpl implements GfxService {
     const r = this.workingRoms.get(manifestPath)
     if (r.status === 'rom-not-located') return r
     if (r.status === 'unreadable') throw new Error(r.reason)
-    return { status: 'ok', files: listGfxFileInfos(this.smwRomFrom(r)) }
+    return { status: 'ok', files: listGfxFileInfos(smwRomOf(r)) }
   }
 
   async gfxSheet(
@@ -98,10 +97,6 @@ export class GfxServiceImpl implements GfxService {
       throw new Error(`${r.baseRom.title || 'The base ROM'} is not on this machine`)
     }
     if (r.status === 'unreadable') throw new Error(r.reason)
-    return this.smwRomFrom(r)
-  }
-
-  private smwRomFrom(entry: WorkingRomEntry): SmwRom {
-    return new SmwRom(RomFile.fromBytes(entry.romPath, Buffer.from(entry.working.bytes())))
+    return smwRomOf(r)
   }
 }

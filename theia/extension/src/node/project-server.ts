@@ -15,11 +15,10 @@ import {
 import { CoreRegistry } from '../../../../src/project/CoreRegistry'
 import { RecentProjects } from '../../../../src/project/RecentProjects'
 import { RomFile } from '../../../../src/rom/RomFile'
-import { SmwRom } from '../../../../src/rom/SmwRom'
 import { buildMapTree, MapTree } from '../../../../src/rom/MapTree'
 import { readLevelStart } from '../../../../src/rom/LevelStart'
 import {
-  WorkingRomEntry,
+  smwRomOf,
   WorkingRomRegistry,
   WorkingRomResult,
 } from '../../../../src/project/WorkingRomRegistry'
@@ -112,7 +111,7 @@ export class ProjectServiceImpl implements ProjectService {
   ): Promise<MapDetailsDto | MapDetailsNotLocated> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
-    return buildMapDetails(romOf(r), index)
+    return buildMapDetails(smwRomOf(r), index)
   }
 
   async mapScreen(
@@ -136,7 +135,7 @@ export class ProjectServiceImpl implements ProjectService {
   async mapStart(manifestPath: string, index: number): Promise<MapStartResult> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
-    const s = readLevelStart(romOf(r), index)
+    const s = readLevelStart(smwRomOf(r), index)
     return s.ok
       ? { status: 'ok', screen: s.screen, x: s.x, y: s.y, vertical: s.vertical }
       : { status: 'unavailable', reason: s.reason }
@@ -211,7 +210,7 @@ export class ProjectServiceImpl implements ProjectService {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
     const { project, romPath } = r
-    const rom = romOf(r)
+    const rom = smwRomOf(r)
     const tree = buildMapTree(rom)
 
     // A bad groups.json must not hide the maps: fall back to the ungrouped
@@ -261,7 +260,7 @@ export class ProjectServiceImpl implements ProjectService {
   async setMapGroups(manifestPath: string, groups: MapGroup[]): Promise<SetMapGroupsResult> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
-    const topLevel = topLevelSlots(buildMapTree(romOf(r)))
+    const topLevel = topLevelSlots(buildMapTree(smwRomOf(r)))
     const admitted = admitGroups(groups, this.readGroupsSafely(manifestPath), topLevel)
     if (admitted.status === 'invalid') return admitted
 
@@ -318,11 +317,6 @@ export class ProjectServiceImpl implements ProjectService {
   async redo(manifestPath: string): Promise<EditStackResult> {
     return this.workingRoms.redo(manifestPath)
   }
-}
-
-/** The working copy as a ROM, over a copy of its shared bytes. */
-function romOf(entry: WorkingRomEntry): SmwRom {
-  return new SmwRom(RomFile.fromBytes(entry.romPath, Buffer.from(entry.working.bytes())))
 }
 
 /** Applies groups.json to the raw tree and puts the result on the wire. */

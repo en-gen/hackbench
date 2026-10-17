@@ -51,6 +51,7 @@ import { LayerToggle } from './layer-icon'
 import { PixelImageButton, type FrameImage } from './pixel-image-button'
 import { slotLabel } from './map-explorer-widget'
 import { WheelBinding, ZoomController } from './zoom-controller'
+import { GridToggleButton } from './grid-toggle-button'
 import { ZoomStepper } from './zoom-stepper'
 import { MapGridOverlay } from './grid-overlay'
 import { CollisionOverlay } from './collision-overlay'
@@ -1119,17 +1120,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
               {`Level mode ${this.details!.levelMode!.toString(16).toUpperCase().padStart(2, '0')}: sprite layering not verified`}
             </span>
           )}
-          <button
-            data-control="grid-toggle"
-            type="button"
-            className={'hb-icon-btn' + (this.showGrid ? ' hb-icon-btn-on' : ' hb-icon-btn-off')}
-            aria-pressed={this.showGrid}
-            title={this.showGrid ? 'Hide grid' : 'Show grid'}
-            aria-label={this.showGrid ? 'Hide grid' : 'Show grid'}
-            onClick={() => this.toggleGrid()}
-          >
-            <span className="codicon codicon-table" />
-          </button>
+          <GridToggleButton on={this.showGrid} onToggle={() => this.toggleGrid()} />
           <ZoomStepper controller={this.zoomController} fitControls />
         </div>
         {this.renderFacts()}
