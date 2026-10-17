@@ -6,6 +6,7 @@
  * reason, never a guess.
  */
 import type { RomFile } from '../../RomFile'
+import { spanFingerprint } from '../../SubmapFlagGate'
 import { romByte } from './SpriteBus'
 
 const REFUSED_OPS: Record<number, string> = { 0x00: 'BRK', 0x02: 'COP', 0x42: 'WDM', 0xcb: 'WAI', 0xdb: 'STP' } // prettier-ignore
@@ -40,6 +41,22 @@ export function bytesAt(rom: RomFile, a: number, n: number): number[] | null {
     out.push(b)
   }
   return out
+}
+
+/** A span recognized by the SHA-256 of its first `length` bytes with the `mask` offsets (free operands) zeroed. */
+export interface SpanPrint {
+  length: number
+  mask: readonly number[]
+  sha: string
+}
+
+/** True when `got` starts with a span whose masked SHA-256 is `print.sha`. */
+export function printMatches(got: number[] | null, print: SpanPrint): boolean {
+  return (
+    !!got &&
+    got.length >= print.length &&
+    spanFingerprint(Uint8Array.from(got.slice(0, print.length)), print.mask) === print.sha
+  )
 }
 
 /** True when `got` has every `want` byte; null in `want` matches anything. */
