@@ -20,7 +20,7 @@ import { SmwRom } from '../../../../src/rom/SmwRom'
 import { spanFingerprint } from '../../../../src/rom/SubmapFlagGate'
 import { bytesAt } from '../../../../src/rom/sprites/interp/Guards'
 import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
-import { runOnce } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import { runOnce, type SpritePart } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import {
   ringGate,
   rotatingRing,
@@ -447,7 +447,9 @@ describe.skipIf(!hasRom(VANILLA))('the rotating ring, vanilla ROM', () => {
       const rom = RomFile.load(romPath(VANILLA))
       const smw = new SmwRom(rom)
       const stream = parseLevelSprites(rom.readUpTo(smw.getLevelSpritePointer(map)!, 0x200)!, false)
-      for (const e of stream.filter(s => s.spriteId === id)) {
+      const placed = stream.filter(s => s.spriteId === id)
+      expect(placed.length).toBe(rings.length) // tripwire: a stream that finds none would skip the loop
+      for (const e of placed) {
         const ring = rotatingRing(rom, levelSeed(rom, map), { id, x: e.x * 16, y: e.y * 16, index: e.index, streamOffset: e.streamOffset }) // prettier-ignore
         if (!ring.ok) throw new Error(ring.reason)
         expect(ring.unverified).toEqual([])
@@ -458,7 +460,7 @@ describe.skipIf(!hasRom(VANILLA))('the rotating ring, vanilla ROM', () => {
         )
         for (const p of ring.parts)
           expect(Math.abs(Math.hypot(p.dx, p.dy) - 80)).toBeLessThanOrEqual(1.5)
-        // In OAM order (slot 19 first) the pieces step 40/512 of a turn = 28.125 degrees, all the same way round.
+        // In OAM order (slot 19 first) the pieces step 40/512 of a turn = 28.125 degrees (SMWDisX bank_02.asm:16282-16288, 16907-16910), all the same way round.
         const deg = ring.parts.map(p => (Math.atan2(p.dx, p.dy) * 180) / Math.PI)
         const step = (k: number) => ((((deg[k + 1]! - deg[k]!) % 360) + 540) % 360) - 180
         const steps = Array.from({ length: 9 }, (_, k) => step(k))
@@ -480,7 +482,38 @@ const windowOf = (n: string) => {
 }
 
 // The ring turned during the capture (frames 1077 and 1119, 42 apart): the angles are those the frames held,
-// found as the angle at which the ROM-run ring equals the hardware ring (-1 per frame for $E3: 501 - 42 = 459).
+// found as the angle at which the ROM-run ring equals the hardware ring (-1 per frame for $E3, SMWDisX bank_02.asm:5673-5677, 16299-16310: 501 - 42 = 459).
+/** The first $E3 of map $107 (the one the captures hold), where the ring's centre sits on the map. */
+const RING_AT = { id: 0xe3, x: 496, y: 320, index: 2, streamOffset: 7 }
+type HwWindow = ReturnType<typeof windowOf>
+/**
+ * ONE comparison of a ROM-run piece with the hardware OAM entry of the same slot, shared by the oracle and its planted
+ * defect so the plant cannot be weaker than the oracle. The OAM holds the 9-bit screen X (low byte plus bit 8 of the
+ * high table) and the byte Y of the map position; the piece's map position gives the same through the camera.
+ * Returns the pairs that differ, so [] means every piece equals its hardware entry.
+ */
+const mismatches = (win: HwWindow, pieces: SpritePart[]) =>
+  pieces
+    .map(p => {
+      const hi = (win.oam[512 + (p.oam >> 2)]! >> ((p.oam & 3) * 2)) & 3
+      const hw = {
+        x9: win.oam[p.oam * 4]! | ((hi & 1) << 8),
+        y: win.oam[p.oam * 4 + 1]!,
+        char: win.oam[p.oam * 4 + 2]! | ((win.oam[p.oam * 4 + 3]! & 1) << 8),
+        attr: win.oam[p.oam * 4 + 3]!,
+        size: hi & 2 ? 16 : 8,
+      }
+      const ours = { x9: (RING_AT.x + p.dx - win.cam.x) & 511, y: (RING_AT.y + p.dy - win.cam.y) & 255, char: p.char, attr: p.attr, size: p.size } // prettier-ignore
+      return { oam: p.oam, ours, hw }
+    })
+    .filter(m => JSON.stringify(m.ours) !== JSON.stringify(m.hw))
+/** The ROM-run ring at `angle`, with the frame counter the hardware window held. */
+const ringFor = (rom: RomFile, win: HwWindow, angle: number) => {
+  const ring = rotatingRing(rom, levelSeed(rom, 0x107), { ...RING_AT, angle, effFrame: win.eff })
+  if (!ring.ok) throw new Error(ring.reason)
+  return ring
+}
+
 describe.skipIf(!existsSync(ZIP) || !hasRom(VANILLA))(
   'the rotating ring vs hardware (map $107, layers_v5 windows)',
   () => {
@@ -492,34 +525,18 @@ describe.skipIf(!existsSync(ZIP) || !hasRom(VANILLA))(
       (screen, angle) => {
         const rom = RomFile.load(romPath(VANILLA))
         const win = windowOf(screen)
-        const ring = rotatingRing(rom, levelSeed(rom, 0x107), { id: 0xe3, x: 496, y: 320, index: 2, streamOffset: 7, angle, effFrame: win.eff }) // prettier-ignore
-        if (!ring.ok) throw new Error(ring.reason)
+        const ring = ringFor(rom, win, angle)
         expect(ring.parts.length).toBe(10)
-        for (const p of ring.parts) {
-          const x9 =
-            win.oam[p.oam * 4]! | (((win.oam[512 + (p.oam >> 2)]! >> ((p.oam & 3) * 2)) & 1) << 8)
-          const hi = (win.oam[512 + (p.oam >> 2)]! >> ((p.oam & 3) * 2)) & 3
-          // The OAM holds the 9-bit screen X and the byte Y of the map position; the piece's map position gives the same.
-          const hw = {
-            x9,
-            y: win.oam[p.oam * 4 + 1]!,
-            char: win.oam[p.oam * 4 + 2]! | ((win.oam[p.oam * 4 + 3]! & 1) << 8),
-            attr: win.oam[p.oam * 4 + 3]!,
-            size: hi & 2 ? 16 : 8,
-          }
-          const ours = { x9: (496 + p.dx - win.cam.x) & 511, y: (320 + p.dy - win.cam.y) & 255, char: p.char, attr: p.attr, size: p.size } // prettier-ignore
-          expect(ours).toEqual(hw)
-        }
+        expect(mismatches(win, ring.parts)).toEqual([])
       },
     )
 
-    it('planted: the wrong angle is not equal (the comparison can fail)', () => {
+    it('planted: the wrong angle (480, same frame counter) differs from the hardware under the same comparison', () => {
       const rom = RomFile.load(romPath(VANILLA))
       const win = windowOf('screen_01')
-      const ring = rotatingRing(rom, levelSeed(rom, 0x107), { id: 0xe3, x: 496, y: 320, index: 2, streamOffset: 7, angle: 480 }) // prettier-ignore
-      if (!ring.ok) throw new Error(ring.reason)
-      const p = ring.parts[0]!
-      expect((496 + p.dx - win.cam.x) & 511).not.toBe(win.oam[p.oam * 4]!)
+      const ring = ringFor(rom, win, 480)
+      expect(ring.parts.length).toBe(10)
+      expect(mismatches(win, ring.parts).length).toBeGreaterThan(0)
     })
   },
 )

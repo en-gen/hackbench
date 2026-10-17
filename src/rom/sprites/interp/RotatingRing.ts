@@ -8,10 +8,10 @@
  * - Spawn: CODE_02AB11 (SMWDisX bank_02.asm:5669-5719), reached from CODE_02AAC0 on ids $E2/$E3
  *   (5640-5641): 10 cluster sprites of type 4; the first carries the rotation (+1 for $E2,
  *   -1 for $E3) and the ring's centre.
- * - Draw: CODE_02FA98 (16290-16429), the cluster dispatch's type 4 entry (15965-15972), then
- *   CODE_02FC8D / CODE_02FD48 (16531-16686): 16 x 16 pieces, 80 px from the centre, 40/512 of a turn
+ * - Draw: CODE_02FA98 (16290-16429), the cluster dispatch's type 4 entry (15969), then
+ *   CODE_02FC8D / CODE_02FD48 (16531-16569, 16627-16686): 16 x 16 pieces, 80 px from the centre, 40/512 of a turn
  *   (28.1 degrees) apart, so the 10 make an open arc of about 253 degrees, not a closed circle
- *   (DATA_02FA84, 16282-16288).
+ *   (DATA_02FA84, 16282-16288, 16333-16343; radius $50 at 16366, 16384).
  * - Frame policy: SpriteLock is set, so the angle is the spawn state (angle 0, the state before the
  *   ring's first frame; #983 owner call A) and does not turn. The level image's own ring state is
  *   not zero ($0EC's loader image has BooRingIndex 1 and angle $1FF), so it is cleared first.
@@ -156,8 +156,8 @@ export function rotatingRing(
     }
     // Screen to map: a piece at OAM (ox, oy) is (ox, oy) less the centre's screen position from the centre. Subtracting the
     // 16-bit camera instead breaks when a piece's map coordinate is negative (a centre under 80 px).
-    // OAM X bit 9 is never set here: the draw sets it only when a piece's X high byte differs from the camera's (bank_02.asm:16557-16567),
-    // and with the camera 48 to 208 px left of every piece that byte matches.
+    // The OAM X high bit (bit 8) is never set here: the draw sets it only when a piece's X less the camera's has a non-zero high byte (bank_02.asm:16557-16567),
+    // and with the camera 48 to 208 px left of every piece that byte is zero.
     const parts = touchedOamParts(w, touched).map(p => ({
       ...p,
       dx: p.ox - SCREEN_CENTRE.x,

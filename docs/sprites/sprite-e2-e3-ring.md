@@ -13,11 +13,11 @@ All line numbers are SMWDisX `bank_02.asm` unless a bank is named. No assembly i
   two rings exist. It sets a step of +1 for $E2 and -1 ($FF) for $E3 (5673-5677) and walks
   cluster slots 19 down to 0 (5680-5715). Each free slot becomes type 4, with the ring's
   number, an angle-step index counting 9 down to 0, and the rotation step; only the FIRST slot
-  keeps a non-zero step (5692). That same first slot also stores the ring's centre, from the
+  keeps a non-zero step (5690-5693: the step cell is cleared after the first slot, and the branch on it skips the centre store for the rest). That same first slot also stores the ring's centre, from the
   entry's X (`$00/$01`, the loader's screen-boundary match, 5241-5249, 5278-5281) and its Y
   byte (low nibble cleared, bit 0 the high byte), its load index, and a clear Offscreen flag
   (5693-5710). `BooRingIndex` goes up once (5717).
-- The cluster loop (15950-15958) calls the type-4 entry of the dispatch table (15962-15972),
+- The cluster loop (15950-15958) calls the type-4 entry of the dispatch table (15962-15973, the type 4 word at 15969),
   `CODE_02FA98` (16290-16429), per slot:
   - Rotation and the offscreen test run only for the slot with the non-zero step, and not
     under SpriteLock (16297-16330): the 9-bit ring angle moves by the step per frame (512
@@ -27,16 +27,18 @@ All line numbers are SMWDisX `bank_02.asm` unless a bank is named. No assembly i
   - Position, for every slot, every frame (16331-16421): the angle is the slot's step index
     times 40 (`DATA_02FA84/85`, 16282-16288) plus the ring angle, in 512ths of a turn. The
     offset is the sine table `CircleCoords` (bank_07.asm:1012) scaled to a radius of 80 px,
-    X from the sine and Y from the cosine (the angle plus 128). So the 10 pieces are 28.125
+    X from the sine and Y from the cosine (the angle plus 128), the table peak $0100 (bank_07.asm:1045) giving the full 80 (the multiply is skipped when the high byte is set, 16367-16368, 16385-16386), negated for angles 256 and up (16377-16381, 16395-16399). So the 10 pieces are 28.125
     degrees apart and cover an open arc of about 253 degrees, not a closed circle.
   - Drawing: `CODE_02FC8D` (16531-16569) and `CODE_02FD48` (16627-16686). One 16 x 16
     OAM entry per slot at the OBJ index from `DATA_02FF50` (16907-16910): slots 19..10 are
     OAM 76..85. Position is the piece's map position minus Layer 1, one byte each; the tile
-    is `BooRingTiles[(slot & 3) * 2 + ((EffFrame >> 3) & 1)]` (16438-16439), the attribute
-    is OBJ priority 3, palette bits 001 (CGRAM row 9), name table 1, x-flipped (`$73`).
-  - Contact with Mario runs every 4th frame (`CODE_02FBB0`, `CODE_02FE71`, 16781-16821).
+    is `BooRingTiles[(slot & 3) * 2 + ((EffFrame >> 3) & 1)]` (table 16438-16439, index 16638-16651), the attribute
+    is `$31 | 2 | flip` (16545, 16653-16660): OBJ priority 3, palette bits 001 (CGRAM row 9),
+    name table 1; the x-flip bit follows bit 7 of `ClusterSpriteMisc1E66` and is set in the
+    hardware frames (`$73`), size 16 x 16 (16665-16666).
+  - Contact with Mario runs every 4th frame (`CODE_02FBB0`, 16423-16429; `CODE_02FE71`, 16781-16823).
 - Direction, on screen with Y down: the angle zero point is below the centre and 128 is to
-  the right, so an increasing angle ($E2) turns counter-clockwise and a decreasing one ($E3)
+  the right (derived from 16336-16362 and the sine table's sign, with Y down), so an increasing angle ($E2) turns counter-clockwise and a decreasing one ($E3)
   clockwise.
 
 ## In the editor
