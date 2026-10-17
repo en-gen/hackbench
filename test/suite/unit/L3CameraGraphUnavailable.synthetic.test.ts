@@ -7,7 +7,11 @@
 import { describe, it, expect, vi } from 'vitest'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import type * as L3ModelMod from '../../../src/rom/model/L3Model'
-import { buildL3Verdict, EXIT_GRAPH_UNAVAILABLE } from '../../../src/rom/model/L3Model'
+import {
+  buildL3Verdict,
+  EXIT_GRAPH_UNAVAILABLE,
+  GRAPH_UNAVAILABLE,
+} from '../../../src/rom/model/L3Model'
 import { buildMapInputs, readMapEntrances } from '../../../theia/extension/src/node/map-screen'
 import { parseLevelHeader } from '../../../src/rom/LevelParser'
 import { VANILLA, freshRom, hasRom } from '../support/corpus'
@@ -30,26 +34,27 @@ const inputs = { header, isVertical: false, colors: [], screenCount: 1 }
 const flags = { green: false, yellow: false, blue: false, red: false }
 
 describe('the layer 3 camera when the exit graph is unavailable (synthetic)', () => {
-  // `[]` spans: the entrance-position gate has nothing to compare, so this note is the only one.
-  const verdict = (unavailable: boolean) =>
-    buildL3Verdict(cart(), MAP, l1, bg, sheets, { ok: true }, undefined, undefined, [], unavailable)
+  // `[]` spans: the entrance-position gate has nothing to compare, so the graph reason is the only one.
+  const verdict = (entrances?: typeof GRAPH_UNAVAILABLE, noSpans = true) =>
+    buildL3Verdict(cart(), MAP, l1, bg, sheets, { ok: true }, undefined, entrances, noSpans ? [] : undefined) // prettier-ignore
 
   it('says the camera is unverified, in plain words, and still draws it', () => {
-    const v = verdict(true)
+    const v = verdict(GRAPH_UNAVAILABLE)
     expect(v.l3).not.toBeNull()
-    expect(v.l3?.camYUnverified).toBe(EXIT_GRAPH_UNAVAILABLE)
-    expect(EXIT_GRAPH_UNAVAILABLE).toMatch(/exit graph.*could not be built/i)
+    expect(v.l3?.camYReasons).toEqual([EXIT_GRAPH_UNAVAILABLE])
+    expect(EXIT_GRAPH_UNAVAILABLE).toMatch(/^HackBench could not work out which entrance/)
   })
 
-  it('stays silent when the graph is available', () => {
-    expect(verdict(false).l3?.camYUnverified).toBeUndefined()
+  it('stays silent when the graph is available, or the call does not say', () => {
+    expect(verdict(undefined).l3?.camYReasons).toBeUndefined()
   })
 
-  it('keeps the entrance-position reason too when both apply', () => {
+  it('lists the entrance-position reason and the graph reason separately when both apply', () => {
     // The default spans fingerprint vanilla code, which this synthetic cart does not hold.
-    const v = buildL3Verdict(cart(), MAP, l1, bg, sheets, { ok: true }, undefined, undefined, undefined, true) // prettier-ignore
-    expect(v.l3?.camYUnverified).toContain(EXIT_GRAPH_UNAVAILABLE)
-    expect(v.l3?.camYUnverified?.startsWith(EXIT_GRAPH_UNAVAILABLE)).toBe(false)
+    const reasons = verdict(GRAPH_UNAVAILABLE, false).l3?.camYReasons
+    expect(reasons).toHaveLength(2)
+    expect(reasons?.[0]).toMatch(/^\$[0-9A-F]{6} /)
+    expect(reasons?.[1]).toBe(EXIT_GRAPH_UNAVAILABLE)
   })
 
   it('the Theia build: a graph that fails to build reaches the verdict as a note', () => {
@@ -60,17 +65,17 @@ describe('the layer 3 camera when the exit graph is unavailable (synthetic)', ()
     expect(readMapEntrances(rom)).toBeUndefined()
     const spy = vi.mocked(buildL3Verdict)
     // Inject only what a cart without GFX cannot give (chars, code gate); the graph arguments stay real.
-    spy.mockImplementationOnce((r, i, w, b, _c, _g, s, e, sp, u) => realBuild(r, i, w, b, sheets, { ok: true }, s, e, sp, u)) // prettier-ignore
+    spy.mockImplementationOnce((r, i, w, b, _c, _g, s, e) => realBuild(r, i, w, b, sheets, { ok: true }, s, e, [])) // prettier-ignore
     const built = buildMapInputs(rom, MAP, flags, () => bg, () => ({ ok: true, inputs }) as never) // prettier-ignore
-    expect(built.ok && built.inputs.l3?.l3?.camYUnverified).toContain(EXIT_GRAPH_UNAVAILABLE)
+    expect(built.ok && built.inputs.l3?.l3?.camYReasons).toEqual([EXIT_GRAPH_UNAVAILABLE])
   })
 
   it('the Theia build: a map the available graph never reaches gets no note', () => {
     const rom = new SmwRom(cart())
     const spy = vi.mocked(buildL3Verdict)
-    spy.mockImplementationOnce((r, i, w, b, _c, _g, s, e, sp, u) => realBuild(r, i, w, b, sheets, { ok: true }, s, e, [], u)) // prettier-ignore
+    spy.mockImplementationOnce((r, i, w, b, _c, _g, s, e) => realBuild(r, i, w, b, sheets, { ok: true }, s, e, [])) // prettier-ignore
     const built = buildMapInputs(rom, MAP, flags, () => bg, () => ({ ok: true, inputs }) as never, () => new Map()) // prettier-ignore
-    expect(built.ok && built.inputs.l3?.l3?.camYUnverified).toBeUndefined()
+    expect(built.ok && built.inputs.l3?.l3?.camYReasons).toBeUndefined()
   })
 })
 
@@ -85,7 +90,7 @@ describe.skipIf(!hasRom(VANILLA))(
       for (let i = 0; i < 0x200; i++) {
         const built = buildMapInputs(rom, i, flags, undefined, undefined, () => graph)
         if (!built.ok) continue
-        const note = built.inputs.l3?.l3?.camYUnverified
+        const note = (built.inputs.l3?.l3?.camYReasons ?? []).join(' ')
         if (built.inputs.l3?.l3) drawn++
         expect(note ?? '', `map ${i}`).not.toContain(EXIT_GRAPH_UNAVAILABLE)
       }

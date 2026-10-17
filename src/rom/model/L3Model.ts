@@ -25,13 +25,16 @@ import { entrancePositionGate } from '../SubmapFlagGate'
 import { effectiveCgadsub } from './ColorMath'
 import { FALLBACK_SCREENS, screenPlanes, type ScreenPlanes } from './ScreenPlanes'
 
+/** Passed as `entrances` when the exit graph itself failed; distinct from a map the graph never reaches. */
+export const GRAPH_UNAVAILABLE = 'graph-unavailable'
+
 /**
  * Said when the exit graph could not be built (a hooked hack, #910): which entrance starts the map
  * is then unknown, so `chooseEntrance` falls back to the primary row, a guess a secondary-only map
- * would contradict.
+ * would contradict. Reads after "Layer 3 position unverified: ".
  */
 export const EXIT_GRAPH_UNAVAILABLE =
-  'The map exit graph could not be built, so which entrance starts this map is unknown; the camera is read from its primary entrance.' // prettier-ignore
+  'HackBench could not work out which entrance starts this map, so this layer is placed as if the map were entered from its main entrance.' // prettier-ignore
 
 export interface L3Inputs {
   /** The 64 x 64 BG3 tilemap, index = row * 64 + col, HUD rows included (the drawing skips them). */
@@ -47,8 +50,11 @@ export interface L3Inputs {
   camYPx: number
   /** A tide ($00-$7F settings byte) tiles every 256 px and draws one copy of its two-copy tilemap. */
   tide: boolean
-  /** Set when the code that reads `camYPx` is not stock (#860): the value is a best reading, not confirmed. */
-  camYUnverified?: string
+  /**
+   * Why `camYPx` is a best reading, not confirmed (#860, #910), one sentence each. A list like L2's
+   * `reasons`, so a reason both layers give is merged by whole sentence (#926). Absent: confirmed.
+   */
+  camYReasons?: string[]
 }
 
 export interface L3Verdict {
@@ -65,9 +71,6 @@ export interface L3Verdict {
   reason: string | null
 }
 
-const camYReason = (gate: string | null, graphUnavailable: boolean): string | undefined =>
-  [gate, graphUnavailable ? EXIT_GRAPH_UNAVAILABLE : null].filter(Boolean).join(' ') || undefined
-
 type Wanted = Pick<L1Inputs, 'header' | 'isVertical' | 'colors'>
 
 export function buildL3Verdict(
@@ -78,11 +81,11 @@ export function buildL3Verdict(
   chars: (rom: RomFile) => GfxSheet[] | null = readL3Chars,
   gate: L3CodeGate = readL3CodeGate(rom),
   smash: (rom: RomFile, index: number) => L3SmashResult = readL3SmashLoadPos,
-  entrances?: MapEntrances,
+  entrances?: MapEntrances | typeof GRAPH_UNAVAILABLE,
   startSpans?: Parameters<typeof entrancePositionGate>[1],
-  exitGraphUnavailable = false,
 ): L3Verdict {
   const priority = l1.header.layer3Priority
+  const via = entrances === GRAPH_UNAVAILABLE ? undefined : entrances
   const base = { priority, screens: FALLBACK_SCREENS, cgadsub: null, layer2Interactive: false }
   const other = (reason: string): L3Verdict => ({ ...base, l3: null, reason })
   if (!bg.ok) return other(`Layer 3 not drawn: ${bg.reason}`)
@@ -140,6 +143,11 @@ export function buildL3Verdict(
   // The GFX loader (CODE_00A993) is a third piece of layer 3 code: hooked, or any file failing to load, leaves no chars.
   const sheets = chars(rom)
   if (!sheets || sheets.length === 0) return none(HOOKED_L3_CODE)
+  const startGate = entrancePositionGate(rom, startSpans)
+  const reasons = [
+    startGate,
+    entrances === GRAPH_UNAVAILABLE ? EXIT_GRAPH_UNAVAILABLE : null,
+  ].filter((r): r is string => !!r)
   return {
     ...known,
     reason: null,
@@ -149,8 +157,8 @@ export function buildL3Verdict(
       colors: l1.colors,
       xPx: pos.x,
       yPx: pos.y,
-      camYPx: readInitialLayer1YPos(rom, index, false, entrances),
-      camYUnverified: camYReason(entrancePositionGate(rom, startSpans), exitGraphUnavailable),
+      camYPx: readInitialLayer1YPos(rom, index, false, via),
+      camYReasons: reasons.length ? reasons : undefined,
       // $00 is Layer3TideSetting 0: no tide (it is camera-locked or Castle1/Underground1's half-speed scroll).
       tide: load.settingsByte !== 0 && load.settingsByte < 0x80,
     },

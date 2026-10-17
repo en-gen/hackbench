@@ -31,7 +31,12 @@ import {
   type L1InputsResult,
 } from '../../../../src/rom/model/L1Model'
 import { buildL2Inputs, type L2Inputs, type L2Result } from '../../../../src/rom/model/L2Model'
-import { buildL3Verdict, type L3Inputs, type L3Verdict } from '../../../../src/rom/model/L3Model'
+import {
+  buildL3Verdict,
+  GRAPH_UNAVAILABLE,
+  type L3Inputs,
+  type L3Verdict,
+} from '../../../../src/rom/model/L3Model'
 import { L3_HUD_ROW_CUTOFF, L3_TILEMAP_COLS, L3_TILEMAP_ROWS } from '../../../../src/rom/L3Loader'
 import { readLevelBgMode, type BgModeResult } from '../../../../src/rom/BgMode'
 import { PALACES, type Palace } from '../../../../src/rom/SwitchBlockTiles'
@@ -357,10 +362,10 @@ export function screenResult(
  */
 function positionNotes(model: MapInputs): string[] {
   const l2 = model.l2?.ok ? model.l2.l2 : undefined
-  const camY = model.l3?.l3?.camYUnverified
+  const camY = model.l3?.l3?.camYReasons ?? []
   const parts = [
     { label: 'Background height', reasons: l2?.reasons ?? [] },
-    { label: 'Layer 3 position', reasons: camY ? [camY] : [] },
+    { label: 'Layer 3 position', reasons: camY },
   ]
   const owners = new Map<string, string[]>()
   for (const p of parts) {
@@ -423,7 +428,7 @@ export function buildMapInputs(
     inputs: {
       ...built.inputs,
       l2: buildL2Inputs(rom, index, built.inputs, via),
-      l3: buildL3Verdict(rom.rom, index, built.inputs, bg, undefined, undefined, undefined, via, undefined, !graph), // prettier-ignore
+      l3: buildL3Verdict(rom.rom, index, built.inputs, bg, undefined, undefined, undefined, graph ? via : GRAPH_UNAVAILABLE), // prettier-ignore
       orderNote: bg.ok ? undefined : bg.reason,
     },
   }
