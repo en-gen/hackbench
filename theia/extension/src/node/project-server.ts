@@ -13,6 +13,7 @@ import {
   updateProject,
 } from '../../../../src/project/Project'
 import { CoreRegistry } from '../../../../src/project/CoreRegistry'
+import { readMapAliasesOrError } from '../../../../src/project/Aliases'
 import { RecentProjects } from '../../../../src/project/RecentProjects'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
@@ -255,7 +256,19 @@ export class ProjectServiceImpl implements ProjectService {
       rawGroups: groups,
       romPath,
       groupsError,
+      ...this.readMapAliases(manifestPath),
     }
+  }
+
+  /** A bad aliases.json must not hide the maps; the reason travels with the empty table. */
+  private readMapAliases(manifestPath: string): {
+    mapAliases: Record<string, string>
+    aliasesError?: string
+  } {
+    const { aliases, error } = readMapAliasesOrError(manifestPath)
+    return error === undefined
+      ? { mapAliases: aliases }
+      : { mapAliases: aliases, aliasesError: error }
   }
 
   async setMapGroups(manifestPath: string, groups: MapGroup[]): Promise<SetMapGroupsResult> {
