@@ -72,7 +72,12 @@ import {
   type EngineResult,
   type PaletteNote,
 } from '../../../../src/rom/model/sprites/generic/SpriteDrawEngine'
-import type { MapSpriteDto, MapSpritesResult, SwitchFlagsDto } from '../common/project-protocol'
+import type {
+  MapSpriteDto,
+  MapSpritesResult,
+  SpriteFramesResult,
+  SwitchFlagsDto,
+} from '../common/project-protocol'
 import { screenTiles, type L1ModelCache } from './map-screen'
 
 const TILE = 16
@@ -352,13 +357,19 @@ const SPRITE_LOAD_STATUS = 0x1938
  * so run is answered with `unverified`: still drawn, never presented as run
  * from the level's own state. The runner decides; nothing here re-derives it.
  */
-export function interpDrawer(
+export function interpDrawer(...args: Parameters<typeof interpRunner>): SpriteDrawer {
+  const runner = interpRunner(...args)
+  return s => modelResult(runner(s).m)
+}
+
+/** The run behind `interpDrawer`: the model, and whether `fixOffsets` found screen-fixed parts in it. */
+export function interpRunner(
   rom: RomFile,
   index: number,
   model: { isVertical: boolean; screenCount: number },
   run: (rom: RomFile, id: number, seed: SpriteSeed) => RunModel = runOnce,
   seedFor: (rom: RomFile, index: number) => SpriteSeed = levelSeed,
-): SpriteDrawer {
+): (sprite: LevelSprite) => { m: RunModel; fixed: boolean } {
   // The loader runs once per map, not per sprite.
   const base = seedFor(rom, index)
   // Mario's start is what the ROM-run loader left in $94/$96 (the entrance it ran); the
@@ -384,12 +395,13 @@ export function interpDrawer(
     const seed = (camera: { x: number; y: number }, extra = {}) => withSeed({ sprite: { x, y }, camera, mario, ...shape, ...extra }, base) // prettier-ignore
     const m = run(rom, s.spriteId, seed(camera))
     const at = m.chosen
-    if (!w || !loaderCam || at === undefined || !m.anchor || s.index < 0 || s.index >= 128 || !w[SPRITE_LOAD_STATUS + s.index]) return modelResult(m) // prettier-ignore
+    if (!w || !loaderCam || at === undefined || !m.anchor || s.index < 0 || s.index >= 128 || !w[SPRITE_LOAD_STATUS + s.index]) return { m, fixed: false } // prettier-ignore
     // Probe: the camera moved 13 x 11 px (not a multiple of the 8 px tile pitch, so a neighbour
     // tile cannot alias) towards the sprite's screen centre, so it stays drawn; run only to the drawn pass.
     const shifted = { x: camera.x + (x - camera.x < 128 ? -13 : 13), y: camera.y + (y - camera.y < 112 ? -11 : 11) } // prettier-ignore
     const probe = run(rom, s.spriteId, seed(shifted, { mainPasses: at + 1 }))
-    return modelResult(fixOffsets(m, probe, loaderCam, w) ?? m)
+    const fixed = fixOffsets(m, probe, loaderCam, w)
+    return { m: fixed ?? m, fixed: !!fixed }
   }
 }
 
@@ -610,6 +622,12 @@ export function mapSprites(
   return r
 }
 
+/** The colors a handler uploads to CGRAM at runtime, read from the cart (the engine's `dynamicCgram` note). */
+const dynamicOf = (rom: RomFile) => (n: PaletteNote) => {
+  const b = rom.readAt(n.entryAddr, n.colors * 2)
+  return b ? Array.from({ length: n.colors }, (_, i) => bgr555ToRgba(b[i * 2]! | (b[i * 2 + 1]! << 8))) : [] // prettier-ignore
+}
+
 function compute(
   cache: L1ModelCache,
   bytes: Uint8Array,
@@ -630,10 +648,7 @@ function compute(
     // The level loader runs once; the sprites and the castle flames both start from its image.
     const base = levelSeed(rom.rom, index)
     const draw = interpDrawer(rom.rom, index, model, runOnce, () => base)
-    const dynamic = (n: PaletteNote) => {
-      const b = rom.rom.readAt(n.entryAddr, n.colors * 2)
-      return b ? Array.from({ length: n.colors }, (_, i) => bgr555ToRgba(b[i * 2]! | (b[i * 2 + 1]! << 8))) : [] // prettier-ignore
-    }
+    const dynamic = dynamicOf(rom.rom)
     const layer = spriteLayer(data, model, draw, dynamic)
     const stream = parseLevelSprites(data, model.isVertical)
     const flames = castleFlameSprites(rom.rom, base, stream, model, model.l2?.ok ? model.l2.l2.dy : undefined, dynamic) // prettier-ignore
@@ -643,6 +658,83 @@ function compute(
       sprites: [...layer.sprites, ...flames.sprites],
       note: [layer.note, flames.note].filter(Boolean).join(' ') || undefined,
     }
+  } catch (err) {
+    return { status: 'unavailable', reason: (err as Error).message }
+  }
+}
+
+/** Frames kept for one sprite's preview: a walk cycle is 2-9 poses; the rest would only be repeats. */
+export const MAX_FRAMES = 16
+
+/**
+ * One sprite's distinct poses (#984), for the Properties preview. `m.passes` are consecutive real game
+ * frames, so each pass that draws is blitted through `drawSprites` as if it were `chosen`: no second draw
+ * path. A pose is its tile chars and flips (sorted: OAM order is not a pose); the sprite's own movement
+ * between passes is subtracted, so every frame is measured from the first drawn pass and only the art changes.
+ * A sprite with screen-fixed parts (`fixOffsets`) is not animated here: their map position comes from the
+ * loader's camera for the chosen pass only, so another pass has no honest place to stand.
+ */
+export function framesOf(
+  run: { m: RunModel; fixed: boolean },
+  s: LevelSprite,
+  model: SpriteModel,
+  dynamic?: (note: PaletteNote) => RgbaColor[],
+): { frames: MapSpriteDto[]; reason?: string } {
+  const { m, fixed } = run
+  const drawn = m.passes.filter(p => p.parts.length > 0)
+  const first = drawn[0]
+  if (!first || m.chosen === undefined) {
+    const r = modelResult(m)
+    return { frames: [], reason: 'reason' in r ? r.reason : 'drew no tile' }
+  }
+  if (fixed) return { frames: [], reason: 'its parts are fixed to the screen' }
+  const seen = new Set<string>()
+  const frames: MapSpriteDto[] = []
+  for (const pass of drawn) {
+    const key = interpParts(pass.parts).map(p => [p.charNum, +p.flipX, +p.flipY].join()).sort().join(';') // prettier-ignore
+    if (seen.has(key)) continue
+    seen.add(key)
+    const [mx, my] = [pass.pos.x - first.pos.x, pass.pos.y - first.pos.y]
+    const parts = pass.parts.map(p => ({ ...p, dx: p.dx - mx, dy: p.dy - my }))
+    const k = pass.pass
+    const shifted = {
+      ...m,
+      chosen: k,
+      passes: m.passes.map(q => (q === pass ? { ...q, parts } : q)),
+    }
+    const [f] = drawSprites([s], model, () => modelResult(shifted), dynamic)
+    if (f!.status === 'drawn') frames.push(f!)
+    if (frames.length >= MAX_FRAMES) break
+  }
+  return { frames }
+}
+
+/** One sprite of a map as frames: the same seed, camera and drawer the map view used, run again for this sprite alone. */
+export function mapSpriteFrames(
+  cache: L1ModelCache,
+  bytes: Uint8Array,
+  romPath: string,
+  index: number,
+  spriteIndex: number,
+): SpriteFramesResult {
+  const built = cache.get(bytes, romPath, index, NO_FLAGS)
+  if (!built.ok) return { status: 'unavailable', reason: built.reason }
+  const model = built.inputs
+  try {
+    const rom = new SmwRom(RomFile.fromBytes(romPath, Buffer.from(bytes)))
+    const ptr = rom.getLevelSpritePointer(index)
+    const data = ptr === null ? null : readStream(rom.rom, ptr)
+    const s = data && parseLevelSprites(data, model.isVertical).find(q => q.index === spriteIndex)
+    if (!s)
+      return {
+        status: 'unavailable',
+        reason: `No sprite ${spriteIndex} on map ${index.toString(16)}`,
+      }
+    // Extra bits fail closed in the map view; there is nothing to animate either.
+    if ((s.raw[0] ?? 0) & EXTRA_BITS) return { status: 'ok', frames: [], reason: 'extraBits' }
+    const base = levelSeed(rom.rom, index)
+    const run = interpRunner(rom.rom, index, model, runOnce, () => base)(s)
+    return { status: 'ok', ...framesOf(run, s, model, dynamicOf(rom.rom)) }
   } catch (err) {
     return { status: 'unavailable', reason: (err as Error).message }
   }

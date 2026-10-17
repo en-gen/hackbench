@@ -26,7 +26,7 @@ import {
 import { buildMapDetails } from './map-details'
 import { L1ModelCache, mapScreen, toolbarArtOf } from './map-screen'
 import { mapCollision, mapCollisionCheck, probeStateOf } from './map-collision'
-import { mapSprites } from './map-sprites'
+import { mapSpriteFrames, mapSprites } from './map-sprites'
 import { mapBlockContents } from './map-block-contents'
 import { SWITCH_FLAGS_UNCLEARED } from '../../../../src/rom/ObjectExpander'
 import { exportPatch } from '../../../../src/project/ExportPatch'
@@ -57,6 +57,7 @@ import {
   MapScreenResult,
   MapBlockContentsResult,
   MapSpritesResult,
+  SpriteFramesResult,
   MapStartResult,
   PalaceIconsResult,
   PatchFormatDto,
@@ -131,6 +132,16 @@ export class ProjectServiceImpl implements ProjectService {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
     return mapSprites(this.screens, r.working.bytes(), r.romPath, index)
+  }
+
+  async mapSpriteFrames(
+    manifestPath: string,
+    index: number,
+    spriteIndex: number,
+  ): Promise<SpriteFramesResult> {
+    const r = this.located(manifestPath)
+    if (r.status !== 'ok') return r
+    return mapSpriteFrames(this.screens, r.working.bytes(), r.romPath, index, spriteIndex)
   }
 
   async mapStart(manifestPath: string, index: number): Promise<MapStartResult> {

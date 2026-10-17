@@ -8,12 +8,10 @@ import { spriteLabel } from './map-view-model'
 
 const TILE = 16
 
-/**
- * The map view runs each sprite once and keeps the one pose the interpreter chose (`chosen`); no later frame
- * reaches the browser. Saying so beats a looping preview built from a table the map view does not use.
- */
-export const NOT_ANIMATED =
-  'Not animated in this view: the map shows one pose per sprite, so there are no frames to play.'
+/** What the pane says for a sprite with one pose (or none that can be played); `reason` is appended when known. */
+export const NOT_ANIMATED = 'Not animated: this sprite shows one pose.'
+export const LOADING_FRAMES = 'Checking for animation frames...'
+export const animatedText = (n: number) => `Animated: ${n} frames, looping.`
 
 /** Why a sprite is drawn as a numbered marker, in words; the engine's own reason is kept when it is not one of these. */
 const WHY_NOT_DRAWN: Record<string, string> = {

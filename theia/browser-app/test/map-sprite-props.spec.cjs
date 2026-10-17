@@ -3,9 +3,9 @@
  *
  * The expected values come from the node reply's own DTO (`mapSprites`), the data the map view draws from, so
  * a part count or palette row the panel gets wrong cannot agree with the map by construction. Sprites are
- * picked by sweeping that reply, not hardcoded. The map view holds one pose per sprite (the interpreter's
- * chosen pass), so the panel must say "not animated" for every sprite; an animation-preview assertion would
- * need a multi-frame source the map does not have (see docs/architecture/theia-shell.md, Properties view).
+ * picked by sweeping that reply, not hardcoded. Animation (acceptance 2): `mapSpriteFrames` (an on-demand
+ * RPC, see docs/architecture/theia-shell.md, Properties view) says which sprites have 2 or more distinct
+ * poses; the panel must loop those (canvas pixels change) and say "not animated" for the rest.
  * Vanilla ROM; skipped without it.
  */
 const { test, expect } = require('@playwright/test')
@@ -170,8 +170,6 @@ test('clicking a sprite opens the Properties panel with its id, name, position, 
     await expect(p.locator('[data-field="parts"] li')).toHaveCount(s.parts.length)
     const rows = [...new Set(s.parts.map(x => x.palette))].sort((m, n) => m - n).join(', ')
     await expect(p.locator('[data-field="palette-rows"]')).toHaveText(rows)
-    // One pose per sprite in this view: the panel says so rather than looping a made-up frame.
-    await expect(p.locator('[data-field="animation"]')).toContainText('Not animated')
     expect(await p.locator('[data-control="sprite-composite"]').count()).toBe(1)
   }
 
@@ -183,6 +181,53 @@ test('clicking a sprite opens the Properties panel with its id, name, position, 
   // Read only: nothing was written, and the map's sprites are the same afterwards.
   expect(treeHash(projectDir)).toBe(hashBefore)
   expect(await fetchSprites(page)).toEqual(before)
+})
+
+const framesOf = (page, s) =>
+  page.evaluate(
+    ({ mp, slot, i }) => getSvc('Symbol(ProjectService)').mapSpriteFrames(mp, slot, i),
+    {
+      mp: manifestPath,
+      slot: SLOT,
+      i: s.index,
+    },
+  )
+
+test('an animated sprite loops on the panel canvas; a one-pose sprite says it is not animated', async ({
+  page,
+}) => {
+  const map = await openMap(page)
+  const clickable = map.stack.filter(s => s.status === 'drawn' && s.parts && map.own(s))
+  // Found by asking the RPC for every clickable sprite, never by id: the map decides which have frames.
+  let animated
+  let still
+  for (const s of clickable) {
+    const r = await framesOf(page, s)
+    if (r.status !== 'ok') continue
+    if (r.frames.length >= 2) animated ??= s
+    else still ??= s
+    if (animated && still) break
+  }
+  expect(animated && still, 'one animated and one single-pose sprite on the map').toBeTruthy()
+
+  const at = map.own(animated)
+  await map.click(at.x, at.y)
+  const canvas = panel(page).locator('[data-control="sprite-composite"]')
+  await expect(panel(page).locator('[data-field="animation"]')).toContainText('Animated')
+  // The loop steps every ~133 ms; sample over 2 s, since two samples a few hundred ms apart can land on one pose.
+  const seen = new Set()
+  for (let i = 0; i < 12; i++) {
+    seen.add(await canvas.evaluate(c => c.toDataURL()))
+    await page.waitForTimeout(170)
+  }
+  expect(seen.size, 'the canvas shows at least two different poses').toBeGreaterThanOrEqual(2)
+
+  const at2 = map.own(still)
+  await map.click(at2.x, at2.y)
+  await expect(panel(page).locator('[data-field="animation"]')).toContainText('Not animated')
+  const a = await canvas.evaluate(c => c.toDataURL())
+  await page.waitForTimeout(400)
+  expect(await canvas.evaluate(c => c.toDataURL())).toBe(a)
 })
 
 test('closing the map clears the panel; the toggle command reopens a closed panel', async ({

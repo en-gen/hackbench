@@ -927,7 +927,12 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected syncSpriteStatus(): void {
     if (this.selectedSprite && this.isVisible) {
       spriteStatus.publish(this.statusBar, this, this.selectedSprite)
-      this.properties.publish(this, { kind: 'sprite', sprite: this.selectedSprite })
+      const o = this.options
+      this.properties.publish(this, {
+        kind: 'sprite',
+        sprite: this.selectedSprite,
+        source: o && { manifestPath: o.manifestPath, index: o.index },
+      })
     } else {
       spriteStatus.clear(this.statusBar, this)
       this.properties.clear(this)

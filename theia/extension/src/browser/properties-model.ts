@@ -9,8 +9,12 @@
  * status bar entry, SpriteStatusOwner).
  */
 import type { MapSpriteDto } from '../common/project-protocol'
+import type { FrameSource } from './sprite-frames'
 
-export type PropertiesSubject = { kind: 'none' } | { kind: 'sprite'; sprite: MapSpriteDto }
+/** `source` is where the sprite's frames can be asked for; absent, the panel shows the one pose. */
+export type PropertiesSubject =
+  | { kind: 'none' }
+  | { kind: 'sprite'; sprite: MapSpriteDto; source?: Omit<FrameSource, 'spriteIndex'> }
 
 const NONE: PropertiesSubject = { kind: 'none' }
 

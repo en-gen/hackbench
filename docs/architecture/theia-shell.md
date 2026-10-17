@@ -384,9 +384,16 @@ the lockfile for a selection-service round trip that would lose the owner rule. 
 the `MapSpriteDto` the map view draws from (`parts` is filled by `drawSprites` from the same list that blits the
 bitmap), via the pure `sprite-props.ts`; nothing re-reads the ROM and nothing writes.
 
-Animation: the map view runs each sprite once and keeps the interpreter's chosen pass, so the panel says "Not
-animated in this view" for every sprite. A looping preview needs a multi-frame source for map sprites
-(`Machine.passes` holds the passes but only `chosen` reaches the DTO); that is a separate decision.
+Animation: `mapSprites` still ships one pose per sprite (the interpreter's `chosen` pass). The panel asks for the
+rest on demand through `mapSpriteFrames(manifestPath, mapIndex, spriteIndex)`: the node side runs that one sprite
+again with the map view's seed and camera, and blits every pass that draws through `drawSprites` (no second draw
+path). `Machine.passes` are consecutive game frames, so poses are deduped by tile chars and flips only, anchored
+to the first drawn pass (the sprite's own movement is subtracted), kept in pass order and capped at 16. Fewer
+than 2 is "Not animated", with the run's reason when it drew nothing or was refused; sprites with screen-fixed
+parts (`fixOffsets`) are not animated, because that fix is only derived for the chosen pass. `FramePlayer`
+(`sprite-frames.ts`) requests on selection, drops replies for an older selection, steps every 133 ms (8 game
+frames) and stops its timer on clear, hide and dispose. Evidence scope: vanilla ROM, one machine; a Koopa on
+map $0C7 yields 2 frames, a $9F on map $105 yields 1.
 
 Adding the map description (#1023): add a `map` variant to `PropertiesSubject`, publish it from the map widget
 where it now publishes `none`, and render it in `PropertiesWidget.render` (the `none` slot); the sprite
