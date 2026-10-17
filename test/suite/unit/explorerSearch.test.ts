@@ -296,27 +296,12 @@ describe('restorePlan', () => {
   })
 })
 
-describe('the displayed id text always matches (D79 call 5)', () => {
+describe('the displayed id text matches in any base (D79 call 5)', () => {
   it('a decimal-drawn 105 and a hex-drawn $105 both answer to "105"', () => {
     const palette = paletteSearchRow({ kind: 'group', name: 'Row', row: 105 })!
-    const map = mapSlotRow(0x105, '$105', 'Somewhere', {})
+    const map = mapSlotRow(0x105, 'Somewhere', {})
     expect(rowMatches(parseQuery('105'), palette)).toBe(true)
     expect(rowMatches(parseQuery('105'), map)).toBe(true)
-  })
-
-  it('matches the text as drawn even when its number would read differently', () => {
-    // A row drawing "1c0" with no numeric id of its own: only `shown` can find it.
-    const row: SearchRow = { shown: ['1c0'], texts: [] }
-    for (const q of ['1c0', '1C0', ' 1c0 ']) expect(rowMatches(parseQuery(q), row), q).toBe(true)
-    expect(rowMatches(parseQuery('1c1'), row)).toBe(false)
-  })
-
-  it('a $-drawn id matches with or without the $, in any case; a decimal one never takes a $', () => {
-    const gfx: SearchRow = { shown: ['$0A'], texts: [] }
-    for (const q of ['0A', '0a', '$0A', '$0a']) expect(rowMatches(parseQuery(q), gfx), q).toBe(true)
-    const dec: SearchRow = { shown: ['14'], texts: [] }
-    expect(rowMatches(parseQuery('14'), dec)).toBe(true)
-    expect(rowMatches(parseQuery('$14'), dec)).toBe(false)
   })
 
   it('palette variants and groups carry their decimal text', () => {
@@ -333,21 +318,21 @@ describe('map aliases (D79 call 1)', () => {
   const aliases = { '105': 'Castle Rush', '0A': 'Tiny Hall' }
 
   it('"rush" finds the aliased map and no other', () => {
-    expect(rowMatches(parseQuery('rush'), mapSlotRow(0x105, '$105', 'Valley', aliases))).toBe(true)
-    expect(rowMatches(parseQuery('rush'), mapSlotRow(0x106, '$106', 'Valley', aliases))).toBe(false)
+    expect(rowMatches(parseQuery('rush'), mapSlotRow(0x105, 'Valley', aliases))).toBe(true)
+    expect(rowMatches(parseQuery('rush'), mapSlotRow(0x106, 'Valley', aliases))).toBe(false)
   })
 
   it('finds a two-digit key on its slot, case-insensitively', () => {
-    expect(rowMatches(parseQuery('TINY'), mapSlotRow(0x0a, '$00A', null, aliases))).toBe(true)
+    expect(rowMatches(parseQuery('TINY'), mapSlotRow(0x0a, null, aliases))).toBe(true)
   })
 
   it('the ROM name still matches, and an alias leaves the id match alone', () => {
-    const row = mapSlotRow(0x105, '$105', 'Valley', aliases)
+    const row = mapSlotRow(0x105, 'Valley', aliases)
     expect(rowMatches(parseQuery('valley'), row)).toBe(true)
     expect(rowMatches(parseQuery('$105'), row)).toBe(true)
   })
 
   it('a row that is not a slot (index -1) takes no alias', () => {
-    expect(mapSlotRow(-1, '', 'x', { '-1': 'nope', FF: 'nope' }).texts).toEqual(['x'])
+    expect(mapSlotRow(-1, 'x', { '-1': 'nope', FF: 'nope' }).texts).toEqual(['x'])
   })
 })

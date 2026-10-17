@@ -6,7 +6,7 @@
  * substring of any of its texts. A `$` or `0x` prefix says "this is an id", so
  * `$1` never matches a name that merely contains "1".
  */
-import { parseHexId } from '../../../../src/project/HexId'
+import { aliasKey, parseHexId } from '../../../../src/project/HexId'
 
 export interface SearchRow {
   /** The number the row shows (map slot, GFX file, track); absent on folders. */
@@ -16,13 +16,6 @@ export interface SearchRow {
    * bare digits only, read as decimal; `$`/`0x` stay hex ids.
    */
   decId?: number
-  /**
-   * The id text exactly as the row draws it (`$105`, `GFX $0A`'s `$0A`, a
-   * palette row's `105`), in whatever base it is drawn. Typed text equal to it
-   * (case-insensitive, `$` optional) always matches, so `105` finds a decimal
-   * 105 and a hex $105 alike (D79 call 5).
-   */
-  shown?: readonly string[]
   /** The names the row shows, plus any alias. */
   texts: readonly string[]
   /** False for a row that opens nothing (loop, truncated, no-pointer markers). */
@@ -54,12 +47,6 @@ export function parseQuery(raw: string): ParsedQuery {
 export function rowMatches(query: ParsedQuery, row: SearchRow): boolean {
   if (query.text === '' || query.incomplete) return false
   if (query.id !== null && row.id === query.id) return true
-  const typed = query.text.toLowerCase()
-  if (
-    row.shown?.some(s => typed === s.toLowerCase() || typed === s.toLowerCase().replace(/^\$/, ''))
-  ) {
-    return true
-  }
   if (row.decId !== undefined && /^\d+$/.test(query.text) && Number(query.text) === row.decId) {
     return true
   }
@@ -131,36 +118,29 @@ export function paletteSearchRow(n: {
 }): SearchRow | undefined {
   const name = n.name ?? ''
   if (n.kind === 'group') {
-    return { decId: n.row, shown: n.row === undefined ? [] : [String(n.row)], texts: [name] }
+    return { decId: n.row, texts: [name] }
   }
   if (n.kind !== 'variant') return undefined
   const trailing = /(\d+)$/.exec(name)
   return {
     id: trailing ? Number(trailing[1]) : undefined,
-    shown: trailing ? [trailing[1]] : [],
     texts: [name],
   }
 }
 
-/** The key Aliases.ts files a map under: uppercase hex, two digits at least. */
-export const mapAliasKey = (index: number): string =>
-  index.toString(16).toUpperCase().padStart(2, '0')
-
 /**
- * A map row: its slot (`$105`, as drawn), its ROM name, and the project's alias
- * for it (meta/aliases.json, namespace 'map'). `id` is -1 or absent on rows
- * that are not slots.
+ * A map row: its slot, its ROM name, and the project's alias for it
+ * (meta/aliases.json, namespace 'map'). `index` is -1 on rows that are not
+ * slots.
  */
 export function mapSlotRow(
   index: number,
-  slotText: string,
   mapName: string | null | undefined,
   aliases: Readonly<Record<string, string>>,
-): Pick<SearchRow, 'id' | 'shown' | 'texts'> {
-  const alias = index >= 0 ? aliases[mapAliasKey(index)] : undefined
+): Pick<SearchRow, 'id' | 'texts'> {
+  const alias = index >= 0 ? aliases[aliasKey(index)] : undefined
   return {
     id: index >= 0 ? index : undefined,
-    shown: index >= 0 ? [slotText] : [],
     texts: alias ? [mapName ?? '', alias] : [mapName ?? ''],
   }
 }

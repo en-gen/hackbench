@@ -193,9 +193,9 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
     if (n.category === 'overworld' || n.category === 'overworld-area')
       return { openable, texts: [n.name ?? ''] }
     if (isSpecial(n.category)) {
-      return { ...mapSlotRow(n.index, slotLabel(n.index), n.name, this.mapAliases), openable }
+      return { ...mapSlotRow(n.index, n.name, this.mapAliases), openable }
     }
-    return { ...mapSlotRow(n.index, slotLabel(n.index), n.mapName, this.mapAliases), openable }
+    return { ...mapSlotRow(n.index, n.mapName, this.mapAliases), openable }
   }
 
   /** meta/aliases.json 'map' namespace as of the last load, keyed by hex slot. */

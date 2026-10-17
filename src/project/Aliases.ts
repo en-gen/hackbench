@@ -25,8 +25,11 @@
  *
  * No VS Code or Theia imports, same rule as the rest of src/project/.
  */
-import { parseHexId } from './HexId'
+import { aliasKey, parseHexId } from './HexId'
 import { readMeta, writeMeta } from './ProjectMeta'
+
+// Lives in HexId.ts (fs-free, so the browser may import it); kept here for callers.
+export { aliasKey }
 
 /**
  * Which kind of thing is being named.
@@ -44,18 +47,6 @@ export type AliasTable = Record<string, string>
  * file stays readable and a paste accident is refused rather than stored.
  */
 export const ALIAS_MAX_LENGTH = 64
-
-/**
- * The canonical key for an id: uppercase hex, at least two digits.
- *
- * Two digits is the natural width of a BGM command; a wider id (a map's
- * three-digit translevel) keeps its own width rather than being truncated.
- * Fixed here rather than at each call site so a key written by the music
- * panel is the same string the map tree would write.
- */
-export function aliasKey(id: number): string {
-  return id.toString(16).toUpperCase().padStart(2, '0')
-}
 
 /**
  * Normalise a key as it was found on disk.

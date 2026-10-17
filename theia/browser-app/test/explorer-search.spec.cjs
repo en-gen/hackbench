@@ -179,6 +179,7 @@ async function nodes(page, which) {
           variant: n.variant,
           row: n.row,
           bgmCommand: n.bgmCommand,
+          bgmHex: n.bgmHex,
           bank: n.bank,
           alias: n.alias,
           noPointer: n.noPointer,
@@ -738,7 +739,12 @@ test('maps: an alias from meta/aliases.json finds only its map', async ({ page }
     id: IDS.maps,
     manifest,
   })
-  await page.waitForTimeout(800)
+  await expect
+    .poll(
+      () => page.evaluate(async id => (await getWidget(id)).mapAliases, IDS.maps).then(a => a[key]),
+      { message: 'the reload picked up the alias' },
+    )
+    .toBe('Castle Rush Zq')
   const all = await nodes(page, 'maps')
   await type(page, 'maps', 'rush zq')
   await expect
@@ -750,13 +756,36 @@ test('maps: an alias from meta/aliases.json finds only its map', async ({ page }
   expect([...new Set(slots.map(n => n.index))]).toEqual([target.index])
 })
 
-/** The id of one row of each explorer, as the tree draws it. */
+test('maps: a bad aliases.json keeps the maps and shows a note saying why', async ({ page }) => {
+  const manifest = await openExplorer(page, 'maps')
+  const metaDir = path.join(path.dirname(manifest), 'meta')
+  fs.mkdirSync(metaDir, { recursive: true })
+  fs.writeFileSync(path.join(metaDir, 'aliases.json'), '[1, 2]')
+  await page.evaluate(async ({ id, manifest }) => (await getWidget(id)).load(manifest), {
+    id: IDS.maps,
+    manifest,
+  })
+  await expect
+    .poll(async () =>
+      (await nodes(page, 'maps')).find(
+        n => n.kind === 'message' && /^Map names unavailable.*aliases\.json/.test(n.name ?? ''),
+      ),
+    )
+    .toBeTruthy()
+  expect((await nodes(page, 'maps')).some(n => n.kind === 'map' && n.index >= 0)).toBe(true)
+})
+
+/**
+ * The text each explorer DRAWS for one row's id, in the base it is drawn. These
+ * guard D79 call 5 and cannot go red on code that already matches the drawn
+ * text; they exist so a later change to a row's label or its matcher does.
+ */
 const DISPLAYED_ID = {
   maps: n => (n.kind === 'map' && n.index >= 0 && n.category === 'entry' ? n.name : null),
   gfx: n => (n.kind === 'file' ? n.name.replace(/^GFX\s+/, '') : null),
-  palettes: n => (n.kind === 'group' && n.row !== undefined && n.row > 9 ? String(n.row) : null),
-  music: n =>
-    n.kind === 'track' ? `$${n.bgmCommand.toString(16).toUpperCase().padStart(2, '0')}` : null,
+  // A group row draws no CGRAM row; a variant draws "Palette 12", so type its number.
+  palettes: n => (n.kind === 'variant' ? ((/(\d+)$/.exec(n.name ?? '') ?? [])[1] ?? null) : null),
+  music: n => (n.kind === 'track' && n.bgmHex ? n.bgmHex : null),
 }
 
 for (const which of Object.keys(IDS)) {
