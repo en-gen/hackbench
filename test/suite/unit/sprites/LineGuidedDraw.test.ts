@@ -271,6 +271,15 @@ describe('line-guided draw pass', () => {
     expect(lineDrawsBeforeSnap(rom, 98, JMP_HANDLER, GRINDER_DISPATCH)).toBe(false)
   })
 
+  it('refuses $62 when the JMP reaches an address that is not ROM, so the platform arm cannot be read', () => {
+    const rom = buildSyntheticRom()
+    // The JMP operand ($0000 of the dispatch bank) maps to no ROM byte: the arm read returns null, not a short span.
+    rom.writeAt(GRINDER_DISPATCH_AT + 42, [0x00, 0x00])
+    expect(lineDrawsBeforeSnap(rom, 98, JMP_HANDLER, GRINDER_DISPATCH)).toBe(false)
+    // Control: the other ids never read the arm, so the same cart still admits $67.
+    expect(lineDrawsBeforeSnap(rom, 103, GRINDER_HANDLER, GRINDER_DISPATCH)).toBe(true)
+  })
+
   it('refuses a bare-JMP entry whose opcode is changed to a JML (0x5C)', () => {
     const rom = buildSyntheticRom()
     rom.writeAt(JMP_HANDLER, [0x5c])
