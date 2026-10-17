@@ -247,6 +247,10 @@ export abstract class ExplorerTreeWidget extends TreeWidget {
   /** The toolbar's Find button and Ctrl+F: show the box and keep keys on the tree. */
   openSearch(): void {
     this.searchBox.show()
+    // SearchBox is a ReactWidget: show() only unhides its node, and it draws on
+    // an update request. Theia's own path updates in handleKey on the first
+    // typed key, so opening without one left an empty zero-size node (#336 T4).
+    this.searchBox.update()
     this.node.focus()
   }
 
