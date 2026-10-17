@@ -194,7 +194,9 @@ export class Machine {
    * OAM tile bytes written while `$15E9` named this sprite's slot. The game's loop stores the slot it is on
    * before running it (SMWDisX bank_01.asm:110-125) and each slot takes its OAM index from itself
    * (bank_01.asm:143-152), so a write made under another slot is that slot's: a companion the sprite's
-   * INIT spawned ($61, $1E; #840) draws in its own slot and is not a part of the spawner.
+   * INIT spawned ($61, $1E; #840) draws in its own slot and is not a part of the spawner. Limit: cluster
+   * sprites (loop at bank_02.asm:15950-15958) and Mario/Yoshi OAM (bank_01.asm:10051) run under the caller's
+   * `$15E9`, so one whose index equals this slot is still credited (#809).
    */
   private own = new Set<number>()
   /** Colors set so far, in the order they took effect (cumulative; see `nmi`). */

@@ -664,11 +664,11 @@ seven: none is a core or bus bug. After two grader fixes the status is:
 
 | Id                | Class                                                                                                                                                                                                                                                | Evidence                                                                     |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `$1E` `$61` `$82` | grader bug: sprites that spawn others log extra calls in the same frame; I had read only one call per frame                                                                                                                                          | after grouping every call of a frame, all three are exact in 16 of 16 passes |
+| `$1E` `$61` `$82` | INIT spawns companions that draw in their own sprite slots; the runner credited their tiles to the spawner (#840)                                                                                                                                          | exact once only writes made while `$15E9` is the sprite's own slot are kept (slot-0 contract) |
 | `$3E` `$80` `$2D` | grader bug: status-9 sprites log their calls as `other`, not `main`, so I was a frame early                                                                                                                                                          | exact after finding the first non-INIT call                                  |
-| `$2B`             | seed gap: Mesen enters its first MAIN with about 1,000 cells of state in `$1BB4-$1DD3` and `$1693/$1928` that our run does not have (written by code outside the sprite loop in frame 0); 15 of 16 passes draw nothing in Mesen and one tile in ours | cause of those cells not identified                                          |
+| `$2B`             | the extra tile was a cluster-sprite write (`$02:F983`, `$15E9` = 9), not a seed gap; the earlier gap theory is superseded | no longer wrong in the spawn tier                                          |
 
-Spawn tier now: 2,776 exact, 276 exact-empty, 15 wrong (all `$2B`), 48 refused
+Spawn tier at the #840 head (one machine, 2026-10-17): 2,792 exact, 275 exact-empty, 0 wrong, 48 refused
 and agreeing with Mesen, 101 unrecorded; anchors 198 of 201, the other 3
 agreeing refusals. A Boo (`$37`) mismatch with the ROM seed was the Mario
 direction `$76`, found by `trackInputs` and now seeded.
@@ -769,8 +769,8 @@ measured from the capture record.
 
 Delta from the `$0200` page fix on the headline row: exact 932 to 936, empty 17
 to 13 (the four are sprites that draw only there). Spawn tier (201 ids, 16
-passes): 2,792 exact (was 2,776), 260 exact-empty (was 276), 15 wrong (all
-`$2B`), 48 refused and agreeing with Mesen, 101 unrecorded; anchors 198 of 201.
+passes), as measured at that change: 2,792 exact (was 2,776), 260 exact-empty (was 276), 15 wrong (all
+`$2B`; 0 wrong and 275 exact-empty after #840), 48 refused and agreeing with Mesen, 101 unrecorded; anchors 198 of 201.
 The ROM seed beats the generic seed on `shape` (572 against 469) and has no
 refusals; it trails the generic seed by 15 exact, a seed difference I did not
 investigate.

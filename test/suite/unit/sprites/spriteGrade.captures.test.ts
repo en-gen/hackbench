@@ -236,11 +236,11 @@ function gradeAll(
 /** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. */
 const FLOOR = {
   graded: 1957,
-  exact: 985,
-  exactOrShape: 1780,
+  exact: 1020,
+  exactOrShape: 1835,
   maxRefused: 0,
   maxEmpty: 20,
-  maxWrong: 135,
+  maxWrong: 80,
   maxMissAtK: 30,
   // 38 measured (spawned records without initFrame); all-timed would read 0.
   minFallbacks: 30,
@@ -274,7 +274,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     // mutant (trueFrame left 0) gives exact 984 against the 985 floor, killed by 1; an initOnly
     // mutant (k = drawn - (initFrame + 1)) gives 988 and survives, so this corpus does not tell
     // anchor-based k from init-based k. gradeTimeline.test.ts pins that arithmetic itself.
-    // Floors: measured 2026-10-10 (docs section 13.3; re-measured after #838 kept the 224-255 band: exact 995, exact+shape 1800, wrong 125) minus a tolerance. The mutants they
+    // Floors: measured 2026-10-10 (docs section 13.3; re-measured after #838 kept the 224-255 band: exact 995, exact+shape 1800, wrong 125) minus a tolerance; re-measured 2026-10-17 on the #840 head (one machine, 1957 records): exact 1028, exact+shape 1842, wrong 76. The mutants they
     // were set against (X not set to the slot, level sprites not zeroed, INIT retry
     // removed) all fall below them.
     expect(rows.length).toBe(FLOOR.graded)

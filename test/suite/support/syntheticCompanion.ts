@@ -1,5 +1,5 @@
 /**
- * The synthetic cart's ids 34, 35 and 36 (#840): see the Ids list in syntheticSpriteRom.ts. Hand-written
+ * The synthetic cart's ids 34 to 37 (#840): see the Ids list in syntheticSpriteRom.ts. Hand-written
  * test opcodes, no ROM bytes. Split out to keep that file under the content gate's byte-token limit.
  */
 
@@ -12,6 +12,18 @@ const SPAWN_BELOW: number[] = [
   0xe8, 0xb5, 0xe4, 0xca, 0x95, 0xe4, // X low: INX / LDA $E4,X / DEX / STA $E4,X
   0xe8, 0xb5, 0xd8, 0xca, 0x95, 0xd8, // Y low, the same way
   0xe8,                   // INX: back to this slot
+  0x60,
+]
+
+/** INIT of id 37: id 34's INIT, but into the slot above (the real $1E puts its cloud above Lakitu). */
+// prettier-ignore
+const SPAWN_ABOVE: number[] = [
+  0xe8,                   // INX: the slot above
+  0xa9, 0x23, 0x95, 0x9e, // LDA #35 / STA $9E,X
+  0xa9, 0x08, 0x9d, 0xc8, 0x14, // LDA #8 / STA $14C8,X
+  0xca, 0xb5, 0xe4, 0xe8, 0x95, 0xe4, // X low: DEX / LDA $E4,X / INX / STA $E4,X
+  0xca, 0xb5, 0xd8, 0xe8, 0x95, 0xd8, // Y low, the same way
+  0xca,                   // DEX: back to this slot
   0x60,
 ]
 
@@ -32,4 +44,5 @@ const DRAW_TWO: number[] = [
 export function putCompanionRoutines(put: (snes: number, bytes: number[]) => void): void {
   put(0x019600, SPAWN_BELOW)
   put(0x019680, DRAW_TWO)
+  put(0x019700, SPAWN_ABOVE)
 }

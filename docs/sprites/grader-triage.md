@@ -108,16 +108,24 @@ pass, by any code. The game's sprite loop stores the slot it is on in `$15E9` be
 (`bank_01.asm:143-152`), so a write made while `$15E9` names another slot is that slot's. The runner now keeps a
 write only when `$15E9` equals the sprite's own slot, on every pass.
 
-- $61: INIT (`CODE_02ED8A`, `bank_02.asm:14503-14533`) spawns up to 3 more $61 (status 8, `SpriteNumber,Y`), which
+- $61: INIT (`CODE_02ED8A`, `bank_02.asm:14503-14534`) spawns up to 3 more $61 (status 8, `SpriteNumber,Y`), which
   draw themselves in their own slots (`bank_02.asm:14544-14573`). Map 10a at 160,384 now gives 1 part.
 - $1E: INIT (`bank_01.asm:687-729`) spawns one $87 Lakitu cloud, which draws in its own slot (`LakituCloudGfx`,
   `bank_01.asm:14115`). Map 1c4 at 1120,224 now gives 2 parts. Same cause as $61. (Probe, one machine, 2026-10-17:
   the extra writes on $1E were under slots holding $87 and $14.)
 - $B9 is not the same cause: its INIT is a bare RTS (`bank_01.asm:890`) and it spawns nothing. Its two wrong records
   (map 004 at 144,336 "model drew 21", map 101 at 96,336 and 1840,336 "model drew 5") were OAM written under `$15E9`
-  values of other slots: on 101, empty slots 0-3 (status 0); on 004 slots 0-19 (12-19 are not sprite slots). The
-  code that writes them was not traced. They are not the sprite's parts, so the same filter removes them: 101
-  grades exact, 004 grades close ("same tiles, offsets or flips differ", a separate defect).
+  values 0-19 by the cluster sprite loop: `CODE_02F810` does `LDX #$13` / `STX $15E9` (`bank_02.asm:15950-15958`), and
+  it is reached from the runner's own frame through `ActivateClusterSprite` -> `JSL CODE_02F808` (`bank_01.asm:128-130`).
+  The writing PCs (one machine, 2026-10-17) are `$02:FD76` (in `CODE_02FBC7`) on map 004 and `$02:FA4E` (in
+  `CODE_02FA16`) on map 101. $B9's own tiles are written under its own sprite slot (PCs `$01:9F2A`, `$03:8DB4`). The
+  filter drops the cluster writes whose index differs from the sprite slot, so 101 grades exact. On 004 $B9 sits in
+  sprite slot 6, so cluster index 6's write is still credited to it: its "close" grade is two misattributions
+  agreeing, not a separate defect.
+- $2B's former spawn-oracle extra tile was also a cluster write (`$02:F983`, `$15E9` = 9), now filtered.
+- Remaining limit: a cluster sprite whose index equals the sprite's slot, and Mario/Yoshi OAM drawn through
+  `CODE_01C9E2` under the caller's `$15E9` (`bank_01.asm:10051`), are still credited to the sprite. Not a regression
+  (the old code credited all of it); the cluster OAM leak work (#809, `ClusterOamLeak`) is the follow-up.
 
 Grader, `spriteGrade.captures.test.ts` (1957 records, 'rom' seed, one machine): before
 exact 998, shape 803, close 18, wrong 125, empty 13; after exact 1028, shape 814, close 26, wrong 76, empty 13.
