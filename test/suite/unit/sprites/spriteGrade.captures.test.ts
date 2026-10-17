@@ -297,6 +297,9 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     ['1db', '$37', 944, 304],
     ['11d', '$28', 272, 224],
     ['01a', '$30', 272, 368],
+    // INIT spawns companions that draw in their own slots (#840): the recorded pieces are the sprite's alone, 1 and 2.
+    ['10a', '$61', 160, 384],
+    ['1c4', '$1E', 1120, 224],
   ])(
     'map %s %s at %i,%i grades exact',
     (map, id, x, y) => {

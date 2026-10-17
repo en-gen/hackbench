@@ -100,7 +100,7 @@ function gradeSpawn(rom: RomFile, opts: { oracle?: boolean; limit?: number } = {
     const sp = join(root, dir, 'seed.json')
     if (!existsSync(sp)) continue
     const seed: Seed = JSON.parse(readFileSync(sp, 'utf8'))
-    const calls: { writes: number[]; kind?: string; frame: number }[] = JSON.parse(readFileSync(join(root, dir, 'calls.json'), 'utf8')) // prettier-ignore
+    const calls: { writes: number[]; kind?: string; frame: number; slot: number }[] = JSON.parse(readFileSync(join(root, dir, 'calls.json'), 'utf8')) // prettier-ignore
     const wram = readFileSync(join(root, dir, 'wram.bin'))
     const hi = readFileSync(join(root, dir, 'wram_hi.bin'))
     // First call that is not INIT: status-8 sprites log 'main', status-9 ones 'other'.
@@ -146,9 +146,9 @@ function gradeSpawn(rom: RomFile, opts: { oracle?: boolean; limit?: number } = {
       verdicts.push(...Array(16).fill(mesenStuck ? 'refused-agrees' : 'refused-differs'))
     else
       for (let p = 0; p < 16; p++) {
-        // Every call of that frame, any slot: sprites that spawn others (Lakitu, the
-        // bonus game) draw from more than slot 0, and so does our sprite loop.
-        const inFrame = calls.filter(c => c.frame === calls[k0].frame + p)
+        // The calls of that frame made in the sprite's own slot (0). A sprite that spawns others (Lakitu,
+        // $61) has them draw in their own slots; the runner credits it only with what it draws itself (#840).
+        const inFrame = calls.filter(c => c.frame === calls[k0].frame + p && c.slot === 0)
         if (!inFrame.length) {
           verdicts.push('unrecorded')
           continue

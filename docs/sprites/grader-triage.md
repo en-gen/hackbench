@@ -102,6 +102,28 @@ and $B9 the same signature holds (extra parts from other slots), the spawn code 
 attribute parts to the slot (OAM index range from `$15EA`, as the capture does). Assert: $61 map 10a at 160,384
 returns 1 part; $1E on map 1c4 returns 2; the 12 cases grade close or better.
 
+Traced and fixed (#840). The leak was `Machine.writtenOam()` counting every OAM tile byte written during the
+pass, by any code. The game's sprite loop stores the slot it is on in `$15E9` before running it
+(`SMWDisX bank_01.asm:110-125`, `STX CurSpriteProcess` at 123) and each slot's OAM index comes from its own slot
+(`bank_01.asm:143-152`), so a write made while `$15E9` names another slot is that slot's. The runner now keeps a
+write only when `$15E9` equals the sprite's own slot, on every pass.
+
+- $61: INIT (`CODE_02ED8A`, `bank_02.asm:14503-14533`) spawns up to 3 more $61 (status 8, `SpriteNumber,Y`), which
+  draw themselves in their own slots (`bank_02.asm:14544-14573`). Map 10a at 160,384 now gives 1 part.
+- $1E: INIT (`bank_01.asm:687-729`) spawns one $87 Lakitu cloud, which draws in its own slot (`LakituCloudGfx`,
+  `bank_01.asm:14115`). Map 1c4 at 1120,224 now gives 2 parts. Same cause as $61. (Probe, one machine, 2026-10-17:
+  the extra writes on $1E were under slots holding $87 and $14.)
+- $B9 is not the same cause: its INIT is a bare RTS (`bank_01.asm:890`) and it spawns nothing. Its two wrong records
+  (map 004 at 144,336 "model drew 21", map 101 at 96,336 and 1840,336 "model drew 5") were OAM written under `$15E9`
+  values of other slots: on 101, empty slots 0-3 (status 0); on 004 slots 0-19 (12-19 are not sprite slots). The
+  code that writes them was not traced. They are not the sprite's parts, so the same filter removes them: 101
+  grades exact, 004 grades close ("same tiles, offsets or flips differ", a separate defect).
+
+Grader, `spriteGrade.captures.test.ts` (1957 records, 'rom' seed, one machine): before
+exact 998, shape 803, close 18, wrong 125, empty 13; after exact 1028, shape 814, close 26, wrong 76, empty 13.
+49 records improved from "wrong" and none graded worse (compared record by record, same order). The fix also
+cleared $33, $22, $24, $25, $3E, $54 and $67 records whose extra parts were written under other slots.
+
 **H, companion absent (14).** $9C scans slots 0-9 for a $9B (Hammer Brother) and draws it on the platform
 (`bank_02.asm:12114-12142`, `PutHammerBroOnPlat`). The runner runs the sprite alone, so ours has 4 parts
 and the capture 8 in all 14 (maps 006, 126, 127, 1c0, 1c4, 1c5, 11e). Fix: spawn the level's neighbouring

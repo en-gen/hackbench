@@ -190,7 +190,13 @@ export { Refusal }
 export class Machine {
   readonly bus: SpriteBus
   readonly cpu: Cpu65816
-  private touched = new Set<number>()
+  /**
+   * OAM tile bytes written while `$15E9` named this sprite's slot. The game's loop stores the slot it is on
+   * before running it (SMWDisX bank_01.asm:110-125) and each slot takes its OAM index from itself
+   * (bank_01.asm:143-152), so a write made under another slot is that slot's: a companion the sprite's
+   * INIT spawned ($61, $1E; #840) draws in its own slot and is not a part of the spawner.
+   */
+  private own = new Set<number>()
   /** Colors set so far, in the order they took effect (cumulative; see `nmi`). */
   private applied: PaletteWrite[] = []
   /** The run itself wrote $0680 PaletteIndexTable since the last NMI (a loaded image's value is not the sprite's). */
@@ -210,7 +216,7 @@ export class Machine {
     this.bus = m.bus
     this.cpu = m.cpu
     this.bus.onWramWrite = off => {
-      this.touched.add(off)
+      if (this.bus.wram[RAM.curSprite] === this.seed.slot) this.own.add(off)
       if (off === RAM.paletteIndexTable) this.modeWritten = true
     }
     this.bus.onHwWrite = (reg, v) => {
@@ -380,13 +386,13 @@ export class Machine {
   }
 
   clearOamWrites(): void {
-    this.touched.clear()
+    this.own.clear()
   }
 
   /** OAM mirror indices whose tile byte this pass wrote. */
   writtenOam(): number[] {
     const out: number[] = []
-    for (let i = 0; i < RAM.oamEntries; i++) if (this.touched.has(RAM.oam + 2 + i * 4)) out.push(i)
+    for (let i = 0; i < RAM.oamEntries; i++) if (this.own.has(RAM.oam + 2 + i * 4)) out.push(i)
     return out
   }
 }
