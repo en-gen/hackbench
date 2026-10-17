@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
@@ -19,13 +19,42 @@ import {
 
 const TITLE = 'SUPER MARIOWORLD'
 
+// ESM namespaces cannot be spied on, so fs is wrapped once; a test sets
+// failFirstRenames to make the next N renames fail with EPERM.
+const hooks = vi.hoisted(() => ({ failFirstRenames: 0 }))
+vi.mock('fs', async importOriginal => {
+  const real = await importOriginal<typeof import('fs')>()
+  const wrapped = {
+    ...real,
+    renameSync: (a: string, b: string) => {
+      if (hooks.failFirstRenames-- > 0) {
+        throw Object.assign(new Error('busy'), { code: 'EPERM' })
+      }
+      return real.renameSync(a, b)
+    },
+  }
+  return { ...wrapped, default: wrapped }
+})
+
 describe('SaveStore', () => {
   let dir: string
   const saves = (): string[] => fs.readdirSync(path.join(dir, 'saves')).sort()
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-save-'))
   })
-  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }))
+  afterEach(() => {
+    hooks.failFirstRenames = 0
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('moves an imported save into its slot despite one transient EPERM', () => {
+    fs.mkdirSync(path.join(dir, 'saves'))
+    fs.writeFileSync(path.join(dir, 'saves', 'foreign.srm'), Uint8Array.from([7, 7]))
+    hooks.failFirstRenames = 1
+    const slot = importSave(dir, TITLE, 'foreign.srm')
+    expect([...loadSave(dir, TITLE, slot)!]).toEqual([7, 7])
+    expect(saves()).not.toContain('foreign.srm')
+  })
 
   it('names slots <ROM title>.<#>.srm', () => {
     expect(slotFile(TITLE, 3)).toBe('SUPER MARIOWORLD.3.srm')
@@ -198,7 +227,7 @@ describe('SaveStore', () => {
     storeSave(dir, TITLE, 1, new Uint8Array([1, 1]))
     // A directory where the temporary file goes: the write fails on every
     // platform before the real save is touched.
-    fs.mkdirSync(path.join(dir, 'saves', `${slotFile(TITLE, 1)}.tmp`))
+    fs.mkdirSync(path.join(dir, 'saves', `${slotFile(TITLE, 1)}.${process.pid}.tmp`))
     expect(() => storeSave(dir, TITLE, 1, new Uint8Array([2]))).toThrow()
     expect(loadSave(dir, TITLE, 1)).toEqual(new Uint8Array([1, 1]))
   })

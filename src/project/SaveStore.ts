@@ -16,6 +16,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { SAVES_DIR } from './Project'
+import { renameWithRetry, writeFileAtomic } from './atomicWrite'
 
 /**
  * Generous for any SNES game (the largest SRAM is 128 KiB) while refusing a
@@ -84,7 +85,7 @@ function readLabels(dir: string, strict = false): Record<string, string> {
 
 function writeLabels(dir: string, labels: Record<string, string>): void {
   fs.mkdirSync(dir, { recursive: true })
-  atomicWrite(path.join(dir, LABELS_FILE), Buffer.from(JSON.stringify(labels, null, 2)))
+  writeFileAtomic(path.join(dir, LABELS_FILE), Buffer.from(JSON.stringify(labels, null, 2)))
 }
 
 /** Every slot on disk for this ROM title, lowest number first. */
@@ -146,7 +147,7 @@ export function storeSave(
   fs.mkdirSync(dir, { recursive: true })
   const file = slotFile(romTitle, slot)
   const isNew = !fs.existsSync(path.join(dir, file))
-  atomicWrite(path.join(dir, file), bytes)
+  writeFileAtomic(path.join(dir, file), bytes)
   // A label left by a file removed outside HackBench is not this save's.
   // Best effort: a broken labels.json must never stop a save being written.
   if (isNew) {
@@ -263,44 +264,4 @@ function migrateLegacy(dir: string, romTitle: string): void {
   let n = 1
   while (fs.existsSync(path.join(dir, slotFile(romTitle, n)))) n++
   fs.renameSync(legacy, path.join(dir, slotFile(romTitle, n)))
-}
-
-/**
- * Written to a temporary file, flushed to disk, and renamed over the old
- * one, so a killed backend mid-write leaves the previous file intact rather
- * than half of one. On a failure the temporary file is removed.
- */
-function atomicWrite(file: string, bytes: Uint8Array): void {
-  const tmp = `${file}.tmp`
-  try {
-    const fd = fs.openSync(tmp, 'w')
-    try {
-      fs.writeSync(fd, bytes)
-      fs.fsyncSync(fd)
-    } finally {
-      fs.closeSync(fd)
-    }
-    renameWithRetry(tmp, file)
-  } catch (err) {
-    fs.rmSync(tmp, { force: true })
-    throw err
-  }
-}
-
-/**
- * Windows refuses a rename over a file another process has open (OneDrive,
- * an antivirus scan, an editor) with EPERM or EBUSY, usually for moments.
- */
-function renameWithRetry(from: string, to: string, attempts = 5): void {
-  for (let i = 1; ; i++) {
-    try {
-      fs.renameSync(from, to)
-      return
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code
-      if (i >= attempts || (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES')) throw err
-      // Synchronous back-off: callers expect a finished write when this returns.
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * i)
-    }
-  }
 }
