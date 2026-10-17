@@ -507,8 +507,9 @@ describe('buildL2Inputs (synthetic ROM)', () => {
     it('a screen-exit-only entry never adds a midway path: SublevelCount != 0 skips the midway test (bank_05.asm:7349-7350)', () => {
       const rom = entry(3)
       rom.writeAt(0x05f400 + LEVEL, [0x16])
-      expect(build(rom, via(false, true)).note).toBeUndefined() // only the exit path exists
-      expect(build(rom, via(false, true)).dy).toBe(0x320 - 0xc0) // the exit path's own height
+      const out = build(rom, via(false, true))
+      expect(out.note).toBeUndefined() // only the exit path exists
+      expect(out.dy).toBe(0x320 - 0xc0) // the exit path's own height
     })
 
     // Through the node side's own reader: the exit graph's ids (the $1xx half included) reach a
