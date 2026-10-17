@@ -24,7 +24,7 @@ import {
   WorkingRomResult,
 } from '../../../../src/project/WorkingRomRegistry'
 import { buildMapDetails } from './map-details'
-import { L1ModelCache, mapScreen, toolbarArtOf } from './map-screen'
+import { L1ModelCache, mapScreen, startUnavailable, toolbarArtOf } from './map-screen'
 import { mapCollision, mapCollisionCheck, probeStateOf } from './map-collision'
 import { mapSprites } from './map-sprites'
 import { mapBlockContents } from './map-block-contents'
@@ -139,7 +139,7 @@ export class ProjectServiceImpl implements ProjectService {
     const s = readLevelStart(romOf(r), index)
     return s.ok
       ? { status: 'ok', screen: s.screen, x: s.x, y: s.y, vertical: s.vertical }
-      : { status: 'unavailable', reason: s.reason }
+      : startUnavailable(s.reason)
   }
 
   async mapCollisionCheck(manifestPath: string, index: number): Promise<MapCollisionCheckResult> {

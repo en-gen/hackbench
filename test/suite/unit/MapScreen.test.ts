@@ -529,7 +529,11 @@ describe('palace art (synthetic)', () => {
   it('an unreadable palace falls back to its reason', () => {
     const icons = palaceIconsOf(art)
     expect(icons[0]).toMatchObject({ palace: 'yellow', uncleared: expect.any(String) })
-    expect(icons[1]).toEqual({ palace: 'green', unavailable: 'nope' })
+    expect(icons[1]).toEqual({
+      palace: 'green',
+      unavailable: 'this block could not be drawn on this ROM.',
+      detail: 'nope',
+    })
   })
 
   it('switch buttons with no readable art say why, and a map that cannot be built names its reason', () => {
@@ -539,11 +543,15 @@ describe('palace art (synthetic)', () => {
     if (r.status !== 'ok') throw new Error(r.status)
     expect(r.switchArt).toEqual({})
     expect(Object.keys(r.switchUnavailable).sort()).toEqual(['blue', 'onOff', 'silver'])
-    expect(r.switchUnavailable.onOff).toMatch(/ON\/OFF/)
+    expect(r.switchDetail?.onOff).toMatch(/ON\/OFF/)
     const failed = toolbarArtOf(empty, { ok: false, reason: 'no level data' }, art)
     if (failed.status !== 'ok') throw new Error(failed.status)
-    expect(failed.switchUnavailable).toEqual({ blue: 'no level data', silver: 'no level data', onOff: 'no level data' }) // prettier-ignore
-    expect(failed.icons[1]).toEqual({ palace: 'green', unavailable: 'nope' })
+    expect(failed.switchDetail).toEqual({ blue: 'no level data', silver: 'no level data', onOff: 'no level data' }) // prettier-ignore
+    expect(failed.icons[1]).toEqual({
+      palace: 'green',
+      unavailable: 'this block could not be drawn on this ROM.',
+      detail: 'nope',
+    })
   })
 })
 

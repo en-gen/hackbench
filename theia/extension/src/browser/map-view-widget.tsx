@@ -67,7 +67,14 @@ import {
 } from '../../../../src/rom/model/ColorMath'
 import { perfEnd, perfStart } from '../common/perf-marks'
 import { ProjectBound } from './project-bound'
-import { romMissingMessage } from './map-view-messages'
+import {
+  lowerFirst,
+  rawText,
+  readFailed,
+  romMissingMessage,
+  unverifiedLabel,
+  withDetail,
+} from './map-view-messages'
 
 export { slotLabel }
 /** One screen's decoded planes; null is an empty plane, which draws nothing. */
@@ -94,13 +101,16 @@ export interface MapViewOptions {
 type Layout = Extract<MapScreenResult, { status: 'ok' }>
 type Sprites = Extract<MapSpritesResult, { status: 'ok' }>
 type Collision = Extract<MapCollisionResult, { status: 'ok' }>
+/** A refusal's plain words, and the technical text that belongs on a tooltip's second line (#967). */
+type Why = { text: string; detail?: string }
+
 /** Why a collision reply (or check) leaves the overlay unavailable, or undefined when it does not. */
 function collisionWhyNot(
   r: Exclude<MapCollisionResult, { status: 'stale' }> | MapCollisionCheckResult,
-): string | undefined {
+): Why | undefined {
   if (r.status === 'ok' || r.status === 'available') return undefined
-  if (r.status === 'unavailable') return r.reason
-  return `The base ROM ${r.baseRom.title} is not on this machine`
+  if (r.status === 'unavailable') return { text: r.reason, detail: r.detail }
+  return { text: lowerFirst(romMissingMessage(r.baseRom.title)) }
 }
 
 type BlockContents = Extract<MapBlockContentsResult, { status: 'ok' }> & {
@@ -119,16 +129,13 @@ const ZOOMS = [1, 2, 3, 4]
 const MARGIN = 1
 const ICON_FRAME = { width: TILE_PX, height: TILE_PX }
 
-type PalaceIcon = { uncleared: FrameImage; cleared: FrameImage } | { reason: string }
+type PalaceIcon = { uncleared: FrameImage; cleared: FrameImage } | { reason: string; detail?: string } // prettier-ignore
 
 /** Runs `run` after every commit, placed after the strip: a backstop for `sync`. */
 function AfterCommit({ run }: { run: () => void }): null {
   React.useLayoutEffect(run)
   return null
 }
-
-/** The raw text of a thrown value, for a tooltip beside plain words (#786). */
-const rawText = (err: unknown): string => (err instanceof Error ? err.message : String(err))
 
 const palaceName = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
 
@@ -159,6 +166,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** The switch toggles' art (#574's), and why a kind has none. */
   protected switchArt: Partial<Record<Switch, SwitchButtonImages>> = {}
   protected switchWhy: Partial<Record<Switch, string>> = {}
+  /** The technical text behind each `switchWhy`, for the tooltip's second line (#967). */
+  protected switchDetail: Partial<Record<Switch, string>> = {}
   /** L1 (foreground) and L2 (background) shown; off leaves what is beneath them. */
   protected showL1 = true
   protected showL2 = true
@@ -169,6 +178,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** The map's sprites (#564), once read; `spritesWhy` is why there are none to show. */
   protected sprites: Sprites | undefined
   protected spritesWhy: string | undefined
+  protected spritesDetail: string | undefined
   /** Bumped when `sprites` is replaced, so a canvas painted from the old ones is repainted. */
   protected spritesVersion = 0
   /** The collision overlay (#435); off by default. */
@@ -176,6 +186,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** The map's collision lines once read; `collisionWhy` is why there are none to show. */
   protected collision: Collision | undefined
   protected collisionWhy: string | undefined
+  protected collisionDetail: string | undefined
   /** The state key a probe's refusal was for; undefined when the cheap check refused (true of the map, whatever the state). */
   protected collisionWhyKey: string | undefined
   /** The state key `collision` was probed for. */
@@ -190,6 +201,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** Block content indicators (#566), once read; `blocksWhy` is why there are none to show. */
   protected blocks: BlockContents | undefined
   protected blocksWhy: string | undefined
+  /** The exception text behind `blocksWhy`, for its tooltip only (#967). */
+  protected blocksDetail: string | undefined
   protected blocksVersion = 0
   /** The indicator under the pointer: it fills its block, the rest sit in their quadrants. */
   protected hover: Indicator | undefined
@@ -224,6 +237,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected pendingStart: { x: number; y: number } | undefined
   /** Why the start is not known: the view stays at screen 0 and says so. */
   protected startWhy: string | undefined
+  protected startDetail: string | undefined
   /** Where this open's start stands, for the strip's `data-start` (a test waits on it, not on a timer). */
   protected startState: 'pending' | 'placed' | 'skipped' | 'unavailable' = 'pending'
   /** The view left offset 0 while the start was pending, even if it came back: the user has taken over. */
@@ -257,6 +271,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
         if (plan.recheck) {
           // The refusal was for the old state: the toggle is enabled again until the cheap check says otherwise.
           this.collisionWhy = undefined
+          this.collisionDetail = undefined
           this.collisionWhyKey = undefined
           this.collisionProbed = false // so the check's answer is taken, not dropped for the probe's
           void this.checkCollision()
@@ -305,14 +320,17 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.mapLayout = undefined
     this.sprites = undefined
     this.spritesWhy = undefined
+    this.spritesDetail = undefined
     this.collision = undefined
     this.collisionWhy = undefined
+    this.collisionDetail = undefined
     this.collisionWhyKey = undefined
     this.collisionKey = undefined
     this.collisionChecked = false
     this.collisionProbed = false
     this.blocks = undefined
     this.blocksWhy = undefined
+    this.blocksDetail = undefined
     this.hover = undefined
     // A new map opens fitted, whatever zoom the last one was left at.
     this.zoomController.enterFit()
@@ -326,6 +344,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.scroller?.scrollTo(0, 0)
     this.pendingStart = undefined
     this.startWhy = undefined
+    this.startDetail = undefined
     this.startState = 'pending'
     this.movedBeforeStart = false
     void this.loadStart(++this.startSeq)
@@ -351,10 +370,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       return
     }
     this.startState = 'unavailable'
-    this.startWhy =
-      r.status === 'unavailable'
-        ? r.reason
-        : `The base ROM ${r.baseRom.title} is not on this machine.`
+    this.startWhy = r.status === 'unavailable' ? r.reason : romMissingMessage(r.baseRom.title)
+    this.startDetail = r.status === 'unavailable' && 'detail' in r ? r.detail : undefined
     this.update()
   }
 
@@ -432,7 +449,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const generation = this.generation
     const r = await this.projects
       .mapCollisionCheck(o.manifestPath, o.index)
-      .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
+      .catch(readFailed(this.what('collision check')))
     // A probe that already answered knows more than the check: a late `available` must not undo its refusal.
     if (generation !== this.generation || this.collisionProbed) return
     this.setCollisionWhy(collisionWhyNot(r))
@@ -448,7 +465,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const key = collisionKey(this.view.state)
     const r = await this.projects
       .mapCollision(o.manifestPath, o.index, flags, switches)
-      .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
+      .catch(readFailed(this.what('collision')))
     // An older map's or edit's lines must not land over a newer one.
     if (generation !== this.generation || seq !== this.collisionSeq) return
     // The working copy moved on under the probe; its push is on the way and will ask again.
@@ -462,11 +479,17 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   }
 
   /** A refusal turns the overlay off, so a disabled toggle never looks pressed and nothing is left to switch off. */
-  protected setCollisionWhy(why: string | undefined, probedFor?: string): void {
-    this.collisionWhy = why
+  protected setCollisionWhy(why: Why | undefined, probedFor?: string): void {
+    this.collisionWhy = why?.text
+    this.collisionDetail = why?.detail
     this.collisionWhyKey = why ? probedFor : undefined
     this.collisionChecked = true
     if (why) this.showCollision = false
+  }
+
+  /** What a failed overlay read is called in the log: the map and the overlay. */
+  protected what(overlay: string): string {
+    return `Map ${this.options?.index.toString(16)} ${overlay}`
   }
 
   protected async loadSprites(): Promise<void> {
@@ -475,13 +498,14 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const generation = this.generation
     const r = await this.projects
       .mapSprites(o.manifestPath, o.index)
-      .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
+      .catch(readFailed(this.what('sprites')))
     // An older map's or edit's sprites must not land over a newer one.
     if (generation !== this.generation) return
     this.sprites = r.status === 'ok' ? r : undefined
     this.lift = undefined
     this.coveredIds.clear()
-    this.spritesWhy = r.status === 'ok' ? undefined : r.status === 'unavailable' ? r.reason : `The base ROM ${r.baseRom.title} is not on this machine` // prettier-ignore
+    this.spritesWhy = r.status === 'ok' ? undefined : r.status === 'unavailable' ? r.reason : lowerFirst(romMissingMessage(r.baseRom.title)) // prettier-ignore
+    this.spritesDetail = r.status === 'unavailable' ? r.detail : undefined
     this.spritesVersion++
     this.update()
     this.sync()
@@ -493,15 +517,17 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const generation = this.generation
     const r = await this.projects
       .mapBlockContents(o.manifestPath, o.index)
-      .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
+      .catch(readFailed(this.what('block contents')))
     if (generation !== this.generation) return
     this.blocks = r.status === 'ok' ? { ...r, decoded: decodeArts(r.arts) } : undefined
+    this.blocksDetail =
+      r.status === 'unavailable' ? r.detail : r.status === 'ok' ? r.noteDetail : undefined
     this.blocksWhy =
       r.status === 'ok'
         ? r.note
         : r.status === 'unavailable'
           ? `Block contents are not drawn: ${r.reason}`
-          : `Block contents are not drawn: the base ROM ${r.baseRom.title} is not on this machine`
+          : `Block contents are not drawn. ${romMissingMessage(r.baseRom.title)}`
     this.blocksVersion++
     this.update()
     this.updateHover()
@@ -538,21 +564,24 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const generation = this.generation
     const r = await this.projects
       .mapPalaceIcons(o.manifestPath, o.index)
-      .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
+      .catch(readFailed(this.what('switch art')))
     // An older map's or edit's art must not land over a newer one.
     if (generation !== this.generation) return
     const image = (b64: string): FrameImage => ({ width: 16, height: 16, rgba: decodeRgba(b64) })
-    const why = r.status === 'ok' ? undefined : r.status === 'unavailable' ? r.reason : `The base ROM ${r.baseRom.title} is not on this machine` // prettier-ignore
+    const why = r.status === 'ok' ? undefined : r.status === 'unavailable' ? r.reason : lowerFirst(romMissingMessage(r.baseRom.title)) // prettier-ignore
+    const whyDetail = r.status === 'unavailable' ? r.detail : undefined
     this.icons = new Map(
       PALACES.map((p): [Palace, PalaceIcon] => {
         const i = r.status === 'ok' ? r.icons.find(x => x.palace === p) : undefined
         if (i && 'cleared' in i) return [p, { uncleared: image(i.uncleared), cleared: image(i.cleared) }] // prettier-ignore
-        return [p, { reason: i && 'unavailable' in i ? i.unavailable : (why ?? 'no art') }]
+        if (i && 'unavailable' in i) return [p, { reason: i.unavailable, detail: i.detail }]
+        return [p, { reason: why ?? 'no art', detail: whyDetail }]
       }),
     )
     const art = r.status === 'ok' ? r.switchArt : {}
     this.switchArt = Object.fromEntries(SWITCH_ORDER.filter(k => art[k]).map(k => [k, decodeSwitchButton(art[k]!, decodeRgba)])) // prettier-ignore
     this.switchWhy = r.status === 'ok' ? r.switchUnavailable : Object.fromEntries(SWITCH_ORDER.map(k => [k, why])) // prettier-ignore
+    this.switchDetail = r.status === 'ok' ? (r.switchDetail ?? {}) : Object.fromEntries(SWITCH_ORDER.map(k => [k, whyDetail])) // prettier-ignore
     this.update()
   }
 
@@ -599,9 +628,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
     if (r.status !== 'ok') {
       this.screenError =
-        r.status === 'rom-not-located'
-          ? `The base ROM ${r.baseRom.title} is not on this machine.`
-          : r.reason
+        r.status === 'rom-not-located' ? romMissingMessage(r.baseRom.title) : r.reason
       this.screenErrorDetail = detail ?? (r.status === 'unavailable' ? r.detail : undefined)
       this.sync()
       this.update()
@@ -998,6 +1025,11 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     return 'Show collision'
   }
 
+  /** The collision button's tooltip: its label, and a refusal's technical text on a second line. */
+  protected collisionTitle(): string {
+    return this.collisionWhy ? withDetail(this.collisionLabel(), this.collisionDetail) : this.collisionLabel() // prettier-ignore
+  }
+
   protected toggleL2(): void {
     this.showL2 = !this.showL2
     this.update()
@@ -1008,6 +1040,14 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.showL3 = !this.showL3
     this.update()
     this.sync()
+  }
+
+  protected spritesTitle(): string {
+    if (this.spritesWhy) return withDetail(this.spritesLabel(), this.spritesDetail)
+    return withDetail(
+      this.spritesLabel(),
+      this.sprites?.sprites.find(x => x.unverified)?.unverified,
+    )
   }
 
   protected toggleSprites(): void {
@@ -1021,8 +1061,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     if (this.spritesWhy) return `Sprites unavailable: ${this.spritesWhy}`
     if (!this.sprites) return 'Sprites · reading the map'
     if (this.sprites.sprites.length === 0) return 'Sprites · this map has none'
-    const u = this.sprites.sprites.find(x => x.unverified)?.unverified
-    return u ? `Sprites · unverified: ${u}` : 'Sprites'
+    return this.sprites.sprites.some(x => x.unverified) ? unverifiedLabel() : 'Sprites'
   }
 
   protected override onResize(msg: Widget.ResizeMessage): void {
@@ -1072,6 +1111,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
           <LayerToggle
             glyph="S"
             label={this.spritesLabel()}
+            title={this.spritesTitle()}
             pressed={this.showSprites && !!this.sprites?.sprites.length}
             disabled={!this.sprites?.sprites.length}
             control="layer-sprites"
@@ -1088,7 +1128,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
             }
             aria-pressed={this.showCollision}
             disabled={!this.canToggleCollision}
-            title={this.collisionLabel()}
+            title={this.collisionTitle()}
             aria-label={this.collisionLabel()}
             onClick={() => this.toggleCollision()}
           >
@@ -1103,6 +1143,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
               images={this.switchArt[k]}
               pressed={this.view.state.switches[k]}
               reason={this.switchWhy[k]}
+              detail={this.switchDetail[k]}
               scale={1}
               data={{ control: `switch-${k}` }}
               onClick={() => this.toggleSwitch(k)}
@@ -1148,12 +1189,12 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
           </div>
         )}
         {this.sprites?.note && (
-          <div className="hb-map-view-note" data-note="sprites">
+          <div className="hb-map-view-note" data-note="sprites" title={this.sprites.noteDetail}>
             {this.sprites.note}
           </div>
         )}
         {this.blocksWhy && (
-          <div className="hb-map-view-note" data-note="block-contents">
+          <div className="hb-map-view-note" data-note="block-contents" title={this.blocksDetail}>
             {this.blocksWhy}
           </div>
         )}
@@ -1183,6 +1224,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
         image={icon && 'cleared' in icon ? (pressed ? icon.cleared : icon.uncleared) : undefined}
         label={`${palaceName(p)} switch palace`}
         reason={icon && 'reason' in icon ? icon.reason : undefined}
+        detail={icon && 'reason' in icon ? icon.detail : undefined}
         pressed={pressed}
         onClick={() => this.togglePalace(p)}
         data={{ control: `palace-${p}` }}
@@ -1406,7 +1448,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
           {this.startWhy && (
             <>
               {' · '}
-              <span data-control="map-start-note" title={this.startWhy}>
+              <span
+                data-control="map-start-note"
+                title={withDetail(this.startWhy, this.startDetail)}
+              >
                 start unavailable
               </span>
             </>
