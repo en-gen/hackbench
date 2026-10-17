@@ -252,7 +252,7 @@ Columns: stub = behind `Bank3SprHandler`; depth = distinct named routines on the
 | $8A | YoshisHouseBirds |  | YoshisHouseBirds | BESPOKE | CODE_02F3EA |  |  |  |
 | $8B | YoshisHouseSmoke |  | YoshisHouseSmoke | BESPOKE | CODE_02F47C |  |  |  |
 | $8C | SideExit |  | SideExit | BESPOKE | CODE_02F4EB |  |  |  |
-| $8D | GhostHouseExit |  | GhostHouseExit | BESPOKE | CODE_02F5DA |  |  |  |
+| $8D | GhostHouseExit |  | GhostHouseExit | BESPOKE | CODE_02F5DA |  |  | screen-fixed: X = table - Layer1XPos, Y = table byte, gated Layer1XPos < $46 (bank_02.asm:15639-15676); map Y = Y + loader Layer1YPos (#1016) |
 | $8E | WarpBlocks |  | WarpBlocks | NEITHER | - |  |  |  |
 | $8F | ScalePlatforms |  | ScalePlatforms | BESPOKE | MushroomScaleGfx |  |  |  |
 | $90 | GasBubble |  | GasBubble | BESPOKE | CODE_02E3F5 |  |  |  |

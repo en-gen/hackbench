@@ -385,9 +385,17 @@ export function interpDrawer(
     if (!w || !loaderCam || at === undefined || !m.anchor || s.index < 0 || s.index >= 128 || !w[SPRITE_LOAD_STATUS + s.index]) return modelResult(m) // prettier-ignore
     // Probe: the camera moved 13 x 11 px (not a multiple of the 8 px tile pitch, so a neighbour
     // tile cannot alias) towards the sprite's screen centre, so it stays drawn; run only to the drawn pass.
-    const shifted = { x: camera.x + (x - camera.x < 128 ? -13 : 13), y: camera.y + (y - camera.y < 112 ? -11 : 11) } // prettier-ignore
-    const probe = run(rom, s.spriteId, seed(shifted, { mainPasses: at + 1 }))
-    return modelResult(fixOffsets(m, probe, loaderCam, w) ?? m)
+    // A sprite with its own gate on the camera ($8D draws only while Layer1XPos < $46, bank_02.asm:15639-15676)
+    // may draw nothing there: the shift is tried the other way, and if that draws nothing too the probe
+    // proves nothing and the run stands (no position is invented).
+    const dir = [x - camera.x < 128 ? -13 : 13, y - camera.y < 112 ? -11 : 11]
+    for (const k of [1, -1]) {
+      const shifted = { x: camera.x + dir[0]! * k, y: camera.y + dir[1]! * k }
+      const probe = run(rom, s.spriteId, seed(shifted, { mainPasses: at + 1 }))
+      if (probe.passes[at]?.parts.length)
+        return modelResult(fixOffsets(m, probe, loaderCam, w) ?? m)
+    }
+    return modelResult(m)
   }
 }
 
@@ -420,14 +428,21 @@ function fixOffsets(
     const x9 = e[0]! | ((loaded[RAM.oamSize + p.oam]! & 1) << 8)
     return (e.some(v => v) || x9 > 255) && x9 === p.ox && e[1] === p.oy
   }
-  const same = (p: SpritePart) => !residue(p) && other.parts.some(q => q.oam === p.oam && q.ox === p.ox && q.oy === p.oy) // prettier-ignore
-  if (!pass.parts.some(same)) return null
-  // X is 9 bits (bit 8 is the sign); OAM Y $E0-$FF is above the screen's top edge.
-  const parts = pass.parts.map(p =>
-    same(p)
-      ? { ...p, dx: (p.ox > 255 ? p.ox - 512 : p.ox) + cam.x - anchor.x, dy: (p.oy >= 0xe0 ? p.oy - 256 : p.oy) + cam.y - anchor.y } // prettier-ignore
-      : p,
-  )
+  // Each axis on its own: $8D's X is table - Layer1XPos (follows the camera) but its Y is a bare table byte.
+  const fixedAxes = (p: SpritePart) => {
+    const q = !residue(p) ? other.parts.find(q => q.oam === p.oam) : undefined
+    return { x: !!q && q.ox === p.ox, y: !!q && q.oy === p.oy }
+  }
+  if (!pass.parts.some(p => fixedAxes(p).x || fixedAxes(p).y)) return null
+  // X is 9 bits (bit 8 is the sign); OAM Y $E0-$FF is above the screen's top edge. A fixed axis is not wrapped to a byte.
+  const parts = pass.parts.map(p => {
+    const f = fixedAxes(p)
+    return {
+      ...p,
+      dx: f.x ? (p.ox > 255 ? p.ox - 512 : p.ox) + cam.x - anchor.x : p.dx,
+      dy: f.y ? (p.oy >= 0xe0 ? p.oy - 256 : p.oy) + cam.y - anchor.y : p.dy,
+    }
+  })
   return { ...m, passes: m.passes.map((q, i) => (i === at ? { ...q, parts } : q)) }
 }
 
