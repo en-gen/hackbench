@@ -123,8 +123,6 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   // indexes it by A, jumps through DP in bank 1. The shape the runner reads (checkExecutePtr) fixes the
   // opcodes and leaves the direct-page cells free, so this uses $0A-$0D, not the game's scratch cells.
   const [save, ptr] = [0x0d, 0x0a] // Y saved here; the 3-byte pointer at $0A-$0C
-  // Written as opcodes by name, 65816 order: STY save / PLY / STY ptr / REP #$30 / AND #$00FF / ASL / TAY / PLA /
-  // STA ptr+1 / INY / LDA [ptr],Y / STA ptr / SEP #$30 / LDY save / JML [ptr].
   const [STY, PLY, REP, AND, ASL, TAY, PLA, STA, INY, LDAL, SEP, LDY, JML] = [0x84, 0x7a, 0xc2, 0x29, 0x0a, 0xa8, 0x68, 0x85, 0xc8, 0xb7, 0xe2, 0xa4, 0xdc] // prettier-ignore
   put(0x0086fa, [STY, save, PLY, STY, ptr, REP, 0x30, AND, 0xff, 0x00, ASL, TAY, PLA, STA, ptr + 1, INY, LDAL, ptr, STA, ptr, SEP, 0x30, LDY, save, JML, ptr, 0x00]) // prettier-ignore
   // $07:F7D2 InitSpriteTables: JSL / JSL / RTL. The first stub stores into a table
@@ -160,12 +158,12 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   // $01:808C sprite loop: PHB PHK PLB, X = $0B..0 { STX $15E9; JSR setup; JSR handle }
   put(0x01808b, [0xea]) // a NOP before the loop: the zero fill then PHB PHK is itself a window of the game's
   put(0x01808c, [
-    0x8b, 0x4b, 0xab, 0xa2, o.badLoop ? 0x0a : 0x0b, 0x8e, 0xe9, 0x15, 0x20, 0xd2, 0x80, 0x20, 0x27, 0x81, 0xca,
+    0x8b, 0x4b, 0xab, 0xa2, o.badLoop ? 0x0a : 0x0b, 0x8e, 0xe9, 0x15, 0x20, 0xe0, 0x80, 0x20, 0x27, 0x81, 0xca,
     0x10, 0xf4, 0xab, 0x6b,
   ]) // prettier-ignore
-  if (o.dupLoop) put(0x01808c + 22, [0xa2, 0x0b, 0x8e, 0xe9, 0x15, 0x20, 0xd2, 0x80, 0x20, 0x27, 0x81, 0xca, 0x10, 0xf4]) // prettier-ignore
-  // $01:80D2 per-sprite setup: OAM index 4 * slot, so two running slots write different entries.
-  put(0x0180d2, [0x8a, 0x0a, 0x0a, 0x9d, 0xea, 0x15, 0x60])
+  if (o.dupLoop) put(0x01808c + 22, [0xa2, 0x0b, 0x8e, 0xe9, 0x15, 0x20, 0xe0, 0x80, 0x20, 0x27, 0x81, 0xca, 0x10, 0xf4]) // prettier-ignore
+  // $01:80E0 per-sprite setup (the loop's first JSR, read from its operand): OAM index 4 * slot, so two running slots write different entries.
+  put(0x0180e0, [0x8a, 0x0a, 0x0a, 0x9d, 0xea, 0x15, 0x60])
   // $01:8127 HandleSprite (16 bytes of code, then the status table).
   const handle = o.badDispatch ? 0xea : 0xbd
   put(0x018127, [handle, 0xc8, 0x14, 0xf0, 0x34, 0xc9, 0x08, 0xd0, 0x03, 0x4c, 0x20, 0x83, 0x22, 0xfa, 0x86, 0x00]) // prettier-ignore
@@ -263,9 +261,8 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   put(0x02a8d0, [0xa9, 0x09, 0x80, 0x02a8df - 0x02a8d0 - 4])
   put(0x02a978, [0xc9, 0x09, 0xb7, 0x00, 0x90, 0x06])
   put(0x02a97e, [0x38, 0xe9, 0xda, 0x18, 0x69, 0x04])
-  // Helpers for the handlers below. status1: LDY #1 / TYA / STA $14C8,X. Handlers that end `xx 60` before the zero fill end `60, 0xea` (an RTS then a NOP): two bytes and the fill are a window of the game's. stY: LDY #v / STY addr (A and X untouched).
-  // listAdd: append `vals` to the NMI upload list at $0682+, last byte first (PHX / LDX $0681 / LDA #v / STA $0682+i,X ...
-  // / TXA / SEC / ADC #advance-1 / STA $0681 / PLX / RTS); the terminator is the last of `vals`.
+  // status1 sets status 1. A handler ending `xx 60` before the zero fill ends `60, 0xea`: those two bytes plus the fill are a window of the game's.
+  // listAdd appends `vals` to the NMI upload list at $0682+ (the last of `vals` is the terminator); stY stores a constant through Y.
   const status1 = [0xa0, 0x01, 0x98, 0x9d, 0xc8, 0x14]
   const stY = (addr: number, v: number): number[] => [0xa0, v, 0x8c, addr & 0xff, addr >> 8]
   const listAdd = (vals: number[], advance: number): number[] => [
@@ -274,11 +271,10 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   ] // prettier-ignore
   // Handlers.
   put(0x018600, [0x60])
-  put(0x018610, [0xa9, o.initShift ?? 8, 0x18, 0x75, 0xe4, 0x95, 0xe4, 0x60]) // LDA #n / CLC / ADC $E4,X / STA $E4,X
-  // id 1 INIT: X + 8, Y - 1 with the borrow into the high byte: LDA #8 / CLC / ADC $E4,X / STA $E4,X, then LDA $D8,X / BNE / DEC $14D4,X / DEC $D8,X.
+  put(0x018610, [0xa9, o.initShift ?? 8, 0x18, 0x75, 0xe4, 0x95, 0xe4, 0x60])
+  // id 1 INIT: X + 8, Y - 1 with the borrow into the high byte.
   put(0x018620, [0xa9, 0x08, 0x18, 0x75, 0xe4, 0x95, 0xe4, 0xb5, 0xd8, 0xd0, 0x03, 0xde, 0xd4, 0x14, 0xd6, 0xd8, 0x60]) // prettier-ignore
-  // One 16x16 piece at the sprite's position minus the scroll, written to OAM entry 4 * slot; SEC first,
-  // the size byte through X (saved), so nothing here is the game's own draw order.
+  // One 16x16 piece at the sprite position minus the scroll, in OAM entry 4 * slot.
   const draw = (tile: number[], attr: number[]): number[] => [
     0xbc, 0xea, 0x15, 0x38, 0xb5, 0xe4, 0xe5, 0x1a, 0x99, 0x00, 0x03, 0x38, 0xb5, 0xd8, 0xe5, 0x1c,
     0x99, 0x01, 0x03, ...tile, ...attr, 0xda, 0x98, 0x4a, 0x4a, 0xaa, 0xa9, 0x01, 0x0a, 0x9d, 0x60, 0x04, 0xfa, 0x60,
