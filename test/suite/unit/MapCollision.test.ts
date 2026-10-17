@@ -42,7 +42,8 @@ describe('mapCollision (synthetic)', () => {
     const r = await mapCollision(stub(false), synthetic(), 'x.sfc', 0x105, OFF)
     expect(r).toEqual({
       status: 'unavailable',
-      reason: expect.stringMatching(/not the vanilla shape/),
+      reason: expect.stringMatching(/could not be read/),
+      detail: expect.stringMatching(/not the vanilla shape/),
     })
   })
 
@@ -72,7 +73,11 @@ describe('mapCollision reply cache (synthetic layer)', () => {
 
   it('keeps an ok reply and does not keep an unavailable one', async () => {
     const [c, b, l] = [stub(false), synthetic(), layer(['bad'])]
-    expect(await ask(c, b, 0x105, l.fn)).toEqual({ status: 'unavailable', reason: 'hiccup' })
+    expect(await ask(c, b, 0x105, l.fn)).toEqual({
+      status: 'unavailable',
+      reason: expect.stringMatching(/could not be read/),
+      detail: 'hiccup',
+    })
     const ok = await ask(c, b, 0x105, l.fn) // asked again: not served the failure
     expect(ok.status).toBe('ok')
     expect(await ask(c, b, 0x105, l.fn)).toBe(ok) // now served from the cache
@@ -231,7 +236,8 @@ describe('mapCollisionCheck (synthetic): the toggle state without a probe', () =
     })
     expect(mapCollisionCheck(stub(false), synthetic(), 'x.sfc', 0x105)).toEqual({
       status: 'unavailable',
-      reason: expect.stringMatching(/not the vanilla shape/),
+      reason: expect.stringMatching(/could not be read/),
+      detail: expect.stringMatching(/not the vanilla shape/),
     })
     const broken = new L1ModelCache(() => ({ ok: false, reason: 'no level data' }))
     expect(mapCollisionCheck(broken, synthetic(), 'x.sfc', 0x105)).toEqual({ status: 'unavailable', reason: expect.stringMatching(/could not be read/), detail: 'no level data' }) // prettier-ignore
@@ -302,7 +308,7 @@ describe.skipIf(!hasRom(VANILLA))('mapCollision on the vanilla ROM', () => {
     const patched = RomFile.fromBytes(romPath(VANILLA), rom())
     patched.writeAt(0x00eadb, [0x00]) // a BRK at the collision routine
     const r = await mapCollision(new L1ModelCache(), patched.buffer, romPath(VANILLA), 0x111, OFF)
-    expect(r).toEqual({ status: 'unavailable', reason: expect.stringMatching(/BRK|calibration/) })
+    expect(r).toEqual({ status: 'unavailable', reason: expect.stringMatching(/could not be read/), detail: expect.stringMatching(/BRK|calibration/) }) // prettier-ignore
   }, 120_000)
 
   it('a stale request is abandoned and not kept: the next one is computed afresh', async () => {

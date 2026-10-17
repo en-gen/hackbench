@@ -74,7 +74,7 @@ export function mapCollisionCheck(
   if (built.inputs.isVertical) return { status: 'unavailable', reason: VERTICAL }
   try {
     const why = collisionRefusal(RomFile.fromBytes(romPath, Buffer.from(bytes)), index)
-    return why === null ? { status: 'available' } : { status: 'unavailable', reason: why }
+    return why === null ? { status: 'available' } : unreadable(why)
   } catch (err) {
     return unreadable((err as Error).message)
   }
@@ -161,9 +161,7 @@ async function compute(
       state,
     })
     if (!r.ok) {
-      return r.reason === SUPERSEDED
-        ? { status: 'stale' }
-        : { status: 'unavailable', reason: r.reason }
+      return r.reason === SUPERSEDED ? { status: 'stale' } : unreadable(r.reason)
     }
     return {
       status: 'ok',
