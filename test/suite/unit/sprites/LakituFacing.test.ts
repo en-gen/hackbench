@@ -98,7 +98,7 @@ const RIDER_INIT = [
 const cloudMain = (write: readonly number[]) => [
   0xa0, 0xff, 0xc8, 0xc0, 0x0a, 0xb0, 0x1e, 0xb9, 0x9e, 0x00, 0xc9, RIDER, 0xd0, 0xf4, // scan 0..9
   0xb9, 0xc8, 0x14, 0xc9, 0x08, 0xd0, 0xed, 0x98, 0x9d, 0x0e, 0x16, // status, keep the slot
-  0x20, 0x30, 0xad, 0x98, 0x48, 0xbc, 0x0e, 0x16, 0x68, // SubHorizPos, side to A, reload Y
+  0x20, 0x80, 0xad, 0x98, 0x48, 0xbc, 0x0e, 0x16, 0x68, // SubHorizPos, side to A, reload Y
   ...write, 0x60,
 ]
 const STORE = [0x99, 0x7c, 0x15] // STA $157C,Y
@@ -109,7 +109,7 @@ function lakituRom(o: { cloud?: 'full' | 'nowrite' | 'rts' } = {}): RomFile {
   const rom = buildSyntheticRom()
   // An equivalent of SubHorizPos (bank_01.asm:6124-6134) written for this fixture, as a compare and not the
   // vanilla subtract: Y = 1 when Mario ($D1/$D2) is left of the sprite ($E4,X / $14E0,X), else 0.
-  rom.writeAt(0x01ad30, SUB_HORIZ_POS)
+  rom.writeAt(0x01ad80, SUB_HORIZ_POS)
   // Rider INIT: count down from slot 8 to the first slot with status 0 (the free-slot search starts at
   // SpriteSlotMax, bank_02.asm:5182-5184, 5524-5530; vanilla's is 7-9), then spawn the cloud there at the rider's X.
   rom.writeAt(0x019a00, RIDER_INIT)
