@@ -10,11 +10,17 @@
  *   the launcher arm, extended sprite $08, at X + 8, Y - 9 (:6891-6902).
  * - LauncherArm (bank_02.asm:3969-4003) draws the arm: tile $84 (the first frame, timer >= $60), 16 x 16.
  *
- * So the preview is the frame at launch: the timer is left at the zero the shooter table holds before
- * its first fire (the shooter's own spawn does not set it, bank_02.asm:5744-5760), the lock is set
- * (SpriteLock = 1), so the arm's step is skipped and its spawn frame shows (the map view's frame
- * policy, as CastleFlames.ts). The Torpedo Ted itself is the spawned sprite: the caller draws
- * it with the ordinary sprite run at the position this returns.
+ * So the preview is the frame at launch. LoadShooter stores ShooterTimer = $10 (bank_02.asm:5776-5777) and
+ * the game counts it down before LaunchTorpedo fires, so the timer is seeded with the 0 it holds on the
+ * fire frame. The lock is set (SpriteLock = 1), so the arm's and the torpedo's steps are skipped and their
+ * spawn frames show (the map view's frame policy, as CastleFlames.ts).
+ *
+ * The Torpedo Ted is drawn here, in the same machine, from the slot LaunchTorpedo filled: its direction
+ * toward Mario ($157C, SubHorzPosBnk2, bank_02.asm:6874-6876) and its launch timer ($1540 = $30, :6878-6879,
+ * which TorpedoGfxRt turns into $64 = $10 and the back tile $82, :7480-7483, 7570-7573) are what the
+ * game's own draw reads, so the sprite loop (the game's frame, SpriteLock 1) runs on that slot and its OAM
+ * is read like the arm's. A rerun of the sprite from a fresh INIT would lose both. Mario is where
+ * `seed.mario` puts him ($94/$96 and $D1/$D3), which the map view takes from the level loader's entrance.
  *
  * Owner ruling D52 (option B), as CastleFlames.ts: a routine or call-path part that is not the vanilla
  * one does not stop the run; the result carries `unverified`. What refuses is what cannot draw.
@@ -26,7 +32,13 @@ import { spanFingerprint } from '../../SubmapFlagGate'
 import type { RomFile } from '../../RomFile'
 import { bytesAt, shapeMatches } from './Guards'
 import { smwMachine } from './Machine'
-import { checkExecutePtr } from './SpriteDispatch'
+import {
+  checkExecutePtr,
+  ENTRY,
+  resolveLoop,
+  resolvePointer,
+  resolveTables,
+} from './SpriteDispatch'
 import { RAM, type SpritePart } from './SpriteRunner'
 import { touchedOamParts } from './CastleFlames'
 import type { SpriteSeed } from './SpriteSeed'
@@ -34,7 +46,8 @@ import type { SpriteSeed } from './SpriteSeed'
 /** The shooter number and the ids it leads to: $CA - $C8 (bank_02.asm:5744), Torpedo Ted. */
 export const TORPEDO_LAUNCHER_ID = 0xca
 const SHOOTER_NUMBER = 2
-const TORPEDO_TED = 0x44
+/** Torpedo Ted (bank_02.asm:6861-6863): what LaunchTorpedo spawns in a vanilla ROM; any other id is reported. */
+const VANILLA_SPAWN = 0x44
 const ARM_EXT_SPRITE = 0x08
 
 const DISPATCH = 0x02b3ab // CODE_02B3AB: DEC A / JSL ExecutePtr / dw table (bank_02.asm:6830-6836)
@@ -74,11 +87,18 @@ export const VANILLA_LAUNCHER_ROUTINES: LauncherRoutines = {
 const LAUNCH_LENGTH = 174
 const ARM_LENGTH = 69
 
+/** LaunchTorpedo returns without spawning when the shooter is off screen or within $10 px of either edge (the +$10 / CMP #$20 check on an 8-bit sum, SMWDisX bank_02.asm:6850-6856). */
+export const NO_SPAWN = 'the launcher spawned no torpedo and arm (off screen, or within 16 px of the left or right edge of the screen: the +$10 / CMP #$20 check, bank_02.asm:6850-6856)' // prettier-ignore
+
 export type LauncherResult =
   | {
       ok: true
-      /** Where the game put the spawned Torpedo Ted (level pixels). */
+      /** Where the game put the spawned sprite (level pixels). */
       torpedo: { x: number; y: number }
+      /** The spawned sprite's number, as the slot holds it. */
+      torpedoId: number
+      /** The spawned sprite's OAM entries from the game's own frame; dx/dy are relative to `anchor`. */
+      torpedoParts: SpritePart[]
       /** The arm's OAM entries; dx/dy are relative to `anchor`. */
       arm: SpritePart[]
       unverified: string[]
@@ -125,32 +145,47 @@ export function torpedoLauncher(
     const touched = new Set<number>()
     bus.onWramWrite = off => touched.add(off)
     // The game enters both from bank 2, so the tables they read go through DB = 2.
-    const run = (entry: number, regs: { a?: number; x: number }) => {
-      const r = callSubroutine(cpu, entry, { kind: 'jsr', maxSteps: 50_000, regs: { db: 2, ...regs } }) // prettier-ignore
+    const run = (entry: number, regs: { a?: number; x: number }, kind: 'jsr' | 'jsl' = 'jsr') => {
+      const r = callSubroutine(cpu, entry, { kind, maxSteps: 50_000, regs: { db: 2, ...regs } }) // prettier-ignore
       if (r.kind !== 'returned') throw new Refusal(describe(r, 50_000)!)
     }
-    // Both loops store the slot they are on in CurSpriteProcess ($15E9, bank_02.asm:4370, 6808); the routines reload X from it.
+    // Both loops store the slot they are on in CurSpriteProcess ($15E9, bank_02.asm:2870, 6808); the routines reload X from it.
     w[RAM.curSprite] = 0
     run(DISPATCH, { a: SHOOTER_NUMBER, x: 0 })
-    const spawned = Array.from({ length: 12 }, (_, i) => i).find(i => w[RAM.status + i] === 8 && w[RAM.spriteNumber + i] === TORPEDO_TED) // prettier-ignore
+    // Every slot was free, so a slot in status 8 (Normal, bank_02.asm:6861-6862) is what LaunchTorpedo spawned, whatever number a hack gave it.
+    const spawned = Array.from({ length: 12 }, (_, i) => i).find(i => w[RAM.status + i] === 8)
     const ext = Array.from({ length: W.extSlots }, (_, i) => i).find(i => w[W.extNumber + i] === ARM_EXT_SPRITE) // prettier-ignore
     if (spawned === undefined || ext === undefined)
-      return { ok: false, reason: 'the launcher spawned no torpedo and arm (off screen or too near the left edge)' } // prettier-ignore
+      return { ok: false, reason: NO_SPAWN } // prettier-ignore
     const torpedo = {
       x: w[RAM.spriteXLow + spawned]! | (w[RAM.xHigh + spawned]! << 8),
       y: w[RAM.spriteYLow + spawned]! | (w[RAM.yHigh + spawned]! << 8),
     }
+    // The torpedo: the game's own sprite loop over the slot it filled, locked (draw only), then its OAM.
+    const id = w[RAM.spriteNumber + spawned]!
+    if (id !== VANILLA_SPAWN) unverified.push(`the sprite the launcher spawns ($${id.toString(16).toUpperCase().padStart(2, '0')}, not Torpedo Ted $44)`) // prettier-ignore
+    const loop = resolveLoop(rom)
+    if (!loop.ok) return { ok: false, reason: loop.reason }
+    const tables = resolveTables(rom, loop.handle)
+    if (!tables.ok) return { ok: false, reason: tables.reason }
+    const main = resolvePointer(rom, tables.tables.mainTable, id)
+    if (!main.ok) return { ok: false, reason: `MAIN: ${main.reason}` }
     touched.clear()
-    w[RAM.curSprite] = ext
-    run(ARM, { x: ext })
-    const arm = touchedOamParts(w, touched, (x9, y) => {
+    run(ENTRY.spriteLoop, { x: 0 }, 'jsl')
+    const at = (x9: number, y: number) => {
       const rel = (((x9 - (anchor.x - seed.camera.x)) % 512) + 512) % 512
       const dy = (y - (anchor.y - seed.camera.y)) & 0xff
       return { dx: rel > 255 ? rel - 512 : rel, dy: dy > 127 ? dy - 256 : dy }
-    })
+    }
+    const torpedoParts = touchedOamParts(w, touched, at)
+    if (torpedoParts.length === 0) return { ok: false, reason: 'the torpedo drew no tile' }
+    touched.clear()
+    w[RAM.curSprite] = ext
+    run(ARM, { x: ext })
+    const arm = touchedOamParts(w, touched, at)
     // A launcher without its hand is not the game's frame; it still draws (D52), and says so.
     if (arm.length === 0) unverified.push('the launcher arm drew no tile')
-    return { ok: true, torpedo, arm, unverified }
+    return { ok: true, torpedo, torpedoId: id, torpedoParts, arm, unverified }
   } catch (e) {
     if (e instanceof Refusal) return { ok: false, reason: e.message }
     throw e

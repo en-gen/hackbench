@@ -7,12 +7,20 @@
  * - it is `drawn`, not a placeholder, and its bitmap is larger than the 16 x 16 marker (hand plus torpedo);
  * - no pixel is the marker's frame colour (the placeholder's blue frame, 90,200,255);
  * - the hand's 16 x 16 area at shooter X + 8, Y - 9 holds opaque pixels, and the strip of it above the torpedo
- *   (Y - 9 .. Y - 1, where only the hand draws) is not empty.
+ *   (Y - 9 .. Y - 1, where only the hand draws) is not empty;
+ * - the torpedo is the one the shooter launched, not a fresh sprite $44: every opaque pixel is OAM priority 1
+ *   (the launch timer $1540 sets $64 = $10, SMWDisX bank_02.asm:7480-7483; a rerun gave the torpedo priority 2), read
+ *   from the reply's `priority` plane; and its facing, which comes from the shooter's $157C (:6874-6876), is the same
+ *   for every launcher right of Mario's start (x 24 on map $011), read as the torpedo-only strip Y + 8 .. Y + 16
+ *   being pixel-identical across them. The absolute direction (not flipped, back tile $82) is pinned by the unit
+ *   corpus test, since the spec holds no ROM art to compare with.
  * Plants for the verifier (each must turn the spec red; restore after):
  * - map-sprites.ts `interpDrawer`: delete the `TORPEDO_LAUNCHER_ID` branch (the marker returns, first assertion);
  * - map-sprites.ts `launcherResult`: drop `l.arm` from `interpParts([...shifted, ...l.arm])` (no hand pixels above
  *   the torpedo, the hand-area assertion);
- * - TorpedoLauncher.ts: `+ 8` of the hand is the game's, so the unit test (TorpedoLauncher.test.ts) pins the offset.
+ * - TorpedoLauncher.ts: `+ 8` of the hand is the game's, so the unit test (TorpedoLauncher.test.ts) pins the offset;
+ * - TorpedoLauncher.ts: skip the shooter's writes to the spawned slot (draw the torpedo from a fresh run): the priority
+ *   plane, or the strips, turn red.
  * NOT covered here: the colours (the reply's own palette is what is read); the unit tests pin tile and attribute.
  */
 const { test, expect } = require('@playwright/test')
@@ -68,6 +76,8 @@ test('on map $011 every $CA draws the launcher hand and the torpedo, not the pla
   expect(launchers, 'the $CA launchers of map $011').toHaveLength(LAUNCHERS)
 
   const bad = []
+  /** Torpedo-only strip (Y + 8 .. Y + 16, X .. X + 32) of each launcher right of Mario's start, as base64. */
+  const strips = new Map()
   for (const s of launchers) {
     const w = s.box.x1 - s.box.x0
     const h = s.box.y1 - s.box.y0
@@ -95,6 +105,15 @@ test('on map $011 every $CA draws the launcher hand and the torpedo, not the pla
       for (let x = s.x + 8; x < s.x + 24; x++) handTop.push(px(x, y))
     const opaque = handTop.filter(p => p[3] !== 0).length
     if (opaque === 0) bad.push(`#${s.index} at ${s.x},${s.y}: no hand pixels above the torpedo`)
+    // Behind objects: priority 1 on every opaque pixel, hand and torpedo alike.
+    const prio = Buffer.from(s.priority ?? '', 'base64')
+    let notBehind = 0
+    for (let i = 0; i < w * h; i++) if (rgba[i * 4 + 3] !== 0 && prio[i] !== 1) notBehind++
+    if (notBehind) bad.push(`#${s.index}: ${notBehind} opaque pixels are not at OAM priority 1`)
+    const strip = []
+    for (let y = s.y + 8; y < s.y + 16; y++)
+      for (let x = s.x; x < s.x + 32; x++) strip.push(px(x, y))
+    if (s.x > 24) strips.set(s.index, JSON.stringify(strip))
     const handAll = []
     for (let y = s.y - 9; y < s.y + 7; y++)
       for (let x = s.x + 8; x < s.x + 24; x++) handAll.push(px(x, y))
@@ -102,4 +121,6 @@ test('on map $011 every $CA draws the launcher hand and the torpedo, not the pla
       bad.push(`#${s.index}: nothing in the hand area below its top strip`)
   }
   expect(bad).toEqual([])
+  // One facing for all launchers on Mario's right: a strip that differs is a torpedo turned the other way.
+  expect(new Set(strips.values()).size, 'torpedo strips of the launchers right of Mario').toBe(1)
 })

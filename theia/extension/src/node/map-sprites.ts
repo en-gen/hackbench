@@ -345,36 +345,23 @@ export function modelResult(m: RunModel): SpriteDrawResult {
 
 /**
  * Sprite $CA (#985), a shooter: the frame at launch. The ROM's own LaunchTorpedo and LauncherArm run
- * (TorpedoLauncher.ts) and give the arm's OAM entry and where the game put the spawned Torpedo Ted; the
- * Torpedo Ted is then the ordinary sprite run at that spot. One bitmap, anchored at the shooter, so the
+ * and the game's sprite loop on the slot it spawned (TorpedoLauncher.ts) give the arm's and the spawned
+ * Torpedo Ted's OAM entries in one machine, so the torpedo keeps the direction and launch timer the shooter
+ * wrote into its slot (a fresh run of sprite $44 would lose them). One bitmap, anchored at the shooter, so the
  * hover and the selection box are the launcher's. Any refusal is the marker (D52), with its reason.
  */
-function launcherResult(
-  rom: RomFile,
-  seed: SpriteSeed,
-  run: (rom: RomFile, id: number, seed: SpriteSeed) => RunModel,
-): SpriteDrawResult {
+function launcherResult(rom: RomFile, seed: SpriteSeed): SpriteDrawResult {
   const l = torpedoLauncher(rom, seed)
   if (!l.ok) return { ok: false, reason: l.reason }
-  const m = run(rom, TORPEDO_TED_ID, withSeed({ sprite: l.torpedo }, seed))
-  const torpedo = modelResult(m)
-  const pass = m.chosen === undefined ? undefined : m.passes[m.chosen]
-  if (!torpedo.ok || !m.anchor || !pass) return torpedo.ok ? { ok: false, reason: 'the torpedo drew no tile' } : torpedo // prettier-ignore
-  // The torpedo's parts are measured from where its INIT left it; the arm's from the shooter.
-  const [sx, sy] = [m.anchor.x - seed.sprite.x, m.anchor.y - seed.sprite.y]
-  const shifted = pass.parts.map(p => ({ ...p, dx: p.dx + sx, dy: p.dy + sy }))
-  const why = l.unverified.map(u => `${u} is not the vanilla shape`).join('; ')
-  const unverified = [why && `the torpedo launcher is drawn from the code at the vanilla address, and ${why}`, 'unverified' in torpedo ? torpedo.unverified : undefined].filter(Boolean).join('; ') // prettier-ignore
+  const unverified = l.unverified.length ? `the torpedo launcher is drawn from the code at the vanilla address, and ${l.unverified.map(u => `${u} is not the vanilla shape`).join('; ')}` : undefined // prettier-ignore
   return {
-    ...torpedo,
-    parts: interpParts([...shifted, ...l.arm]),
+    ok: true,
+    parts: interpParts([...l.torpedoParts, ...l.arm]),
     anchor: { x: seed.sprite.x, y: seed.sprite.y },
     ...(unverified ? { unverified } : {}),
+    identity: { spriteId: l.torpedoId, mainHandler: 0, initHandler: 0, status: 'vanilla' },
   }
 }
-
-/** Torpedo Ted, the sprite the launcher spawns (SMWDisX bank_02.asm:6861-6863). */
-const TORPEDO_TED_ID = 0x44
 
 /** SpriteLoadStatus, SMWDisX rammap.asm:1968 (SMW_U.sym 00001938): one byte per sprite list entry, 128 of them. */
 const SPRITE_LOAD_STATUS = 0x1938
@@ -417,7 +404,7 @@ export function interpDrawer(
     const [x, y] = [pixelX(s), s.y * TILE]
     const camera = cameraFor(x, y, model.isVertical, model.screenCount)
     const seed = (camera: { x: number; y: number }, extra = {}) => withSeed({ sprite: { x, y }, camera, mario, ...shape, ...extra }, base) // prettier-ignore
-    if (s.spriteId === TORPEDO_LAUNCHER_ID) return launcherResult(rom, seed(camera), run) // prettier-ignore
+    if (s.spriteId === TORPEDO_LAUNCHER_ID) return launcherResult(rom, seed(camera)) // prettier-ignore
     const m = run(rom, s.spriteId, seed(camera))
     const at = m.chosen
     if (!w || !loaderCam || at === undefined || !m.anchor || s.index < 0 || s.index >= 128 || !w[SPRITE_LOAD_STATUS + s.index]) return modelResult(m) // prettier-ignore

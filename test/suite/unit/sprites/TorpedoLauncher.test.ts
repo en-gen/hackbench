@@ -2,8 +2,11 @@
  * #985: sprite $CA, the Torpedo Ted launcher, is drawn by running the ROM's own shooter code
  * (LaunchTorpedo, LauncherArm), never from a table in the editor. The synthetic block (no ROM, so CI runs it)
  * hand-assembles both routines and the dispatch into the synthetic cart with NON-vanilla bytes, offsets and tile
- * (the effect is SMWDisX bank_02.asm:6835-6902 and 3969-4003), so a hardcoded vanilla offset, tile or attribute
- * goes red and no ROM routine is committed. The corpus block runs the real ROM.
+ * (the effect is SMWDisX bank_02.asm:6835-6902, 3969-4003 and 7469-7500, 7544-7590), so a hardcoded vanilla offset,
+ * tile or attribute goes red and no ROM routine is committed. The cart's launch writes the direction ($157C) and
+ * the launch timer ($1540) into the spawned slot and its torpedo draw reads them; the arm reads the lock ($9D),
+ * its own slot ($15E9) and its X register, so a machine that reruns the sprite, or loses one of those, goes red.
+ * The corpus block runs the real ROM.
  */
 import { describe, expect, it } from 'vitest'
 import { RomFile } from '../../../../src/rom/RomFile'
@@ -16,6 +19,7 @@ import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import type { SpriteModel } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import {
   torpedoLauncher,
+  NO_SPAWN,
   VANILLA_LAUNCHER_ROUTINES,
   type LauncherRoutines,
 } from '../../../../src/rom/sprites/interp/TorpedoLauncher'
@@ -31,30 +35,55 @@ const ARM = 0x029e3d
 const LAUNCH_SPAN = 174
 const ARM_SPAN = 69
 
-/** LaunchTorpedo's effect: sprite slot 0 = $44 status 8 at the shooter, extended slot 0 = $08 at X + ARM_DX, Y - 7. */
+/**
+ * LaunchTorpedo's effect: sprite slot 0 = number `spawn` status 8 at the shooter + (TORPEDO_DX, TORPEDO_DY) (an
+ * offset, so a run that reuses the shooter's position is wrong), $157C = 1 when Mario is left of the shooter, $1540 =
+ * `timer`; extended slot EXT = $08 at X + ARM_DX, Y - 7.
+ */
 const ARM_DX = 9
 const ARM_DY = -7
+const TORPEDO_DX = 6
+const TORPEDO_DY = 4
+const EXT = 3
 // prettier-ignore
-const launch = [
-  ...[0xa9, 0x44, 0x85, 0x9e, 0xa9, 0x08, 0x8d, 0xc8, 0x14], // number $44, status 8
-  ...[0xad, 0x9b, 0x17, 0x85, 0xe4, 0xad, 0xa3, 0x17, 0x8d, 0xe0, 0x14], // sprite X from the shooter
-  ...[0xad, 0x8b, 0x17, 0x85, 0xd8, 0xad, 0x93, 0x17, 0x8d, 0xd4, 0x14], // sprite Y from the shooter
-  ...[0xa9, 0x08, 0x8d, 0x0b, 0x17], // extended sprite 0 = $08
-  ...[0xad, 0x9b, 0x17, 0x18, 0x69, ARM_DX, 0x8d, 0x1f, 0x17], // arm X low
-  ...[0xad, 0x8b, 0x17, 0x38, 0xe9, -ARM_DY, 0x8d, 0x15, 0x17, 0x60], // arm Y low, RTS
+const launchBytes = (spawn = 0x44, timer = 0x30, status = 0x08) => [
+  ...[0xa9, spawn, 0x85, 0x9e, 0xa9, status, 0x8d, 0xc8, 0x14], // number, status (8: Normal)
+  ...[0xad, 0x9b, 0x17, 0x18, 0x69, TORPEDO_DX, 0x85, 0xe4, 0xad, 0xa3, 0x17, 0x8d, 0xe0, 0x14], // sprite X from the shooter
+  ...[0xad, 0x8b, 0x17, 0x18, 0x69, TORPEDO_DY, 0x85, 0xd8, 0xad, 0x93, 0x17, 0x8d, 0xd4, 0x14], // sprite Y from the shooter
+  ...[0xa5, 0x94, 0xcd, 0x9b, 0x17, 0xa9, 0x00, 0xb0, 0x02, 0xa9, 0x01, 0x8d, 0x7c, 0x15], // $157C = Mario left of the shooter
+  ...[0xa9, timer, 0x8d, 0x40, 0x15], // $1540
+  ...[0xa9, 0x08, 0x8d, 0x0b + EXT, 0x17], // extended sprite EXT = $08
+  ...[0xad, 0x9b, 0x17, 0x18, 0x69, ARM_DX, 0x8d, 0x1f + EXT, 0x17], // arm X low
+  ...[0xad, 0x8b, 0x17, 0x38, 0xe9, -ARM_DY, 0x8d, 0x15 + EXT, 0x17, 0x60], // arm Y low, RTS
 ]
-/** LauncherArm's effect: OAM 40 at (arm - Layer 1), tile $A5, attribute $21, 16 x 16. */
+/** LauncherArm's effect: OAM 40 at (arm - Layer 1), tile $A4 + lock + slot, attribute $21, 16 x 16. */
 const OAM_ENTRY = 40
+const ARM_TILE = 0xa4 + 1 + EXT
 // prettier-ignore
 const arm = [
-  ...[0xad, 0x1f, 0x17, 0x38, 0xe5, 0x1a, 0x8d, 0xa0, 0x02],
-  ...[0xad, 0x15, 0x17, 0x38, 0xe5, 0x1c, 0x8d, 0xa1, 0x02],
-  ...[0xa9, 0xa5, 0x8d, 0xa2, 0x02, 0xa9, 0x21, 0x8d, 0xa3, 0x02, 0xa9, 0x02, 0x8d, 0x48, 0x04, 0x60],
+  ...[0xbd, 0x1f, 0x17, 0x38, 0xe5, 0x1a, 0x8d, 0xa0, 0x02],
+  ...[0xbd, 0x15, 0x17, 0x38, 0xe5, 0x1c, 0x8d, 0xa1, 0x02],
+  ...[0xa5, 0x9d, 0x18, 0x6d, 0xe9, 0x15, 0x69, 0xa4, 0x8d, 0xa2, 0x02],
+  ...[0xa9, 0x21, 0x8d, 0xa3, 0x02, 0xa9, 0x02, 0x8d, 0x48, 0x04, 0x60],
+]
+/**
+ * The cart's Torpedo Ted MAIN (installed as sprite $44's, at TORPEDO_MAIN): one 16 x 16 piece at the sprite, X flip
+ * ($40) when $157C is set, attribute base from $0E (the seed's own RAM cell), priority 1 ($10) and tile $C1 while $1540 is set (else tile $C2, priority 0): the
+ * facing and the launch timer are the slot's, as TorpedoGfxRt reads them (bank_02.asm:7480-7483, 7544-7590).
+ */
+const TORPEDO_MAIN = 0x019600
+// prettier-ignore
+const torpedoMain = [
+  0xbc, 0xea, 0x15, 0xb5, 0xe4, 0x38, 0xe5, 0x1a, 0x99, 0x00, 0x03, 0xb5, 0xd8, 0x38, 0xe5, 0x1c, 0x99, 0x01, 0x03,
+  0xa5, 0x0e, 0x85, 0x00,
+  0xbd, 0x7c, 0x15, 0xf0, 0x06, 0xa5, 0x00, 0x09, 0x40, 0x85, 0x00,
+  0xbd, 0x40, 0x15, 0xf0, 0x0a, 0xa5, 0x00, 0x09, 0x10, 0x85, 0x00, 0xa9, 0xc1, 0x80, 0x02, 0xa9, 0xc2,
+  0x99, 0x02, 0x03, 0xa5, 0x00, 0x99, 0x03, 0x03, 0x98, 0x4a, 0x4a, 0xa8, 0xa9, 0x02, 0x99, 0x60, 0x04, 0x60,
 ]
 const LOADER_AT = 0x02a8d4
 const DISPATCH_AT = 0x02b3ab
 
-function launcherRom(tweak: (bytes: Uint8Array) => void = () => {}) {
+function launcherRom(tweak: (bytes: Uint8Array) => void = () => {}, launch = launchBytes()) {
   const bytes = new Uint8Array(buildSyntheticRom().buffer)
   const put = (snes: number, b: number[]) => {
     expect(bytes.subarray(off(snes), off(snes) + b.length).every(v => v === 0)).toBe(true)
@@ -64,6 +93,9 @@ function launcherRom(tweak: (bytes: Uint8Array) => void = () => {}) {
   put(DISPATCH_AT, [0x3a, 0x22, 0xfa, 0x86, 0x00, 0x00, 0x00, 0xb6, 0xb3, 0x00, 0x00]) // dispatch to the cart's ExecutePtr
   put(LAUNCH, launch)
   put(ARM, arm)
+  put(TORPEDO_MAIN, torpedoMain)
+  // Sprite $44's MAIN pointer (the synthetic cart's table, 2 bytes per id from $01:8329) is the cart's torpedo draw.
+  bytes.set([TORPEDO_MAIN & 0xff, (TORPEDO_MAIN >> 8) & 0xff], off(0x018329 + 2 * 0x44))
   tweak(bytes)
   return RomFile.fromBytes('launcher.sfc', bytes)
 }
@@ -77,7 +109,7 @@ const SHOOTER = { x: 0x120, y: 0x90 }
 const CAMERA = { x: 0x40, y: 0x20 }
 const seedOf = (rom: RomFile, over = {}) =>
   withSeed(
-    { sprite: SHOOTER, camera: CAMERA, mario: { x: 0x10, y: 0x90 }, ...over },
+    { sprite: SHOOTER, camera: CAMERA, mario: { x: 0x10, y: 0x90 }, ...over, ram: { 0x0e: 0x0a, ...(over as { ram?: object }).ram } }, // prettier-ignore
     levelSeed(rom, LEVEL),
   )
 const run = (rom: RomFile, routines = routinesOf(rom), over = {}) =>
@@ -89,7 +121,6 @@ const ok = (rom: RomFile, routines?: LauncherRoutines, over = {}) => {
 }
 /** Sets a byte inside a routine's zero padding, past its RTS: never executed, but inside the hashed span. */
 const touchTail = (at: number) => (b: Uint8Array) => void (b[off(at)] = 0xea)
-const NO_SPAWN = 'the launcher spawned no torpedo and arm (off screen or too near the left edge)'
 
 describe('Torpedo Ted launcher from the routines (synthetic cart)', () => {
   it('the cart carries no ROM routine: its fingerprints differ from the vanilla ones', () => {
@@ -98,21 +129,75 @@ describe('Torpedo Ted launcher from the routines (synthetic cart)', () => {
     expect(mine.arm).not.toBe(VANILLA_LAUNCHER_ROUTINES.arm)
   })
 
-  it("the torpedo is where the cart spawned it, and the arm is the cart's own OAM entry, verified", () => {
+  it("the torpedo and the arm are the cart's own OAM entries, from the slot it filled, verified", () => {
     const r = ok(launcherRom())
-    expect(r.torpedo).toEqual(SHOOTER)
-    // OAM X/Y are the arm minus Layer 1; dx/dy are relative to the shooter: the cart's offsets, not the game's.
+    expect(r.torpedo).toEqual({ x: SHOOTER.x + TORPEDO_DX, y: SHOOTER.y + TORPEDO_DY })
+    expect(r.torpedoId).toBe(0x44)
+    // OAM X/Y are the part minus Layer 1; dx/dy are relative to the shooter: the cart's offsets, not the game's.
     expect(r.arm.map(p => [p.oam, p.ox, p.oy, p.char, p.attr, p.size, p.dx, p.dy])).toEqual([
-      [OAM_ENTRY, SHOOTER.x + ARM_DX - CAMERA.x, SHOOTER.y + ARM_DY - CAMERA.y, 0xa5 | (1 << 8), 0x21, 16, ARM_DX, ARM_DY], // prettier-ignore
+      [OAM_ENTRY, SHOOTER.x + ARM_DX - CAMERA.x, SHOOTER.y + ARM_DY - CAMERA.y, ARM_TILE | (1 << 8), 0x21, 16, ARM_DX, ARM_DY], // prettier-ignore
     ])
     expect(r.arm[0]).toMatchObject({ palette: 8, priority: 2, flipX: false, flipY: false })
+    // Mario ($10) is left of the shooter ($120): $157C = 1 (X flip), and $1540 is set: priority 1, tile $C1.
+    expect(r.torpedoParts.map(p => [p.char, p.attr, p.size, p.dx, p.dy])).toEqual([[0xc1, 0x5a, 16, TORPEDO_DX, TORPEDO_DY]]) // prettier-ignore
+    expect(r.torpedoParts[0]).toMatchObject({ flipX: true, priority: 1 })
     expect(r.unverified).toEqual([])
+  })
+
+  it("the torpedo's facing and launch-timer look are the slot's, not a fresh run's", () => {
+    const right = ok(launcherRom(), undefined, { mario: { x: 0x130, y: 0x90 } }).torpedoParts[0]!
+    expect([right.flipX, right.priority, right.char]).toEqual([false, 1, 0xc1])
+    const idle = ok(launcherRom(undefined, launchBytes(0x44, 0))).torpedoParts[0]!
+    expect([idle.flipX, idle.priority, idle.char]).toEqual([true, 0, 0xc2])
   })
 
   it('moving the shooter or the camera moves the result with it (nothing is fixed)', () => {
     const moved = { sprite: { x: 0x150, y: 0xb0 }, camera: { x: 0x90, y: 0x40 } }
     const r = ok(launcherRom(), undefined, moved)
-    expect([r.torpedo, r.arm[0]!.ox, r.arm[0]!.oy]).toEqual([{ x: 0x150, y: 0xb0 }, 0x150 + ARM_DX - 0x90, 0xb0 + ARM_DY - 0x40]) // prettier-ignore
+    expect([r.torpedo, r.arm[0]!.ox, r.arm[0]!.oy]).toEqual([{ x: 0x150 + TORPEDO_DX, y: 0xb0 + TORPEDO_DY }, 0x150 + ARM_DX - 0x90, 0xb0 + ARM_DY - 0x40]) // prettier-ignore
+    expect([r.torpedoParts[0]!.ox, r.torpedoParts[0]!.oy]).toEqual([0x150 + TORPEDO_DX - 0x90, 0xb0 + TORPEDO_DY - 0x40]) // prettier-ignore
+  })
+
+  it('a launcher that spawns another sprite draws it, unverified, naming the number (not a refusal)', () => {
+    const r = ok(launcherRom(undefined, launchBytes(0)), routinesOf(launcherRom(undefined, launchBytes(0)))) // prettier-ignore
+    expect(r.torpedoId).toBe(0)
+    expect(r.torpedoParts.map(p => [p.char, p.attr])).toEqual([[0x24, 0x0a]]) // the cart's id 0 draw
+    expect(r.unverified).toEqual(['the sprite the launcher spawns ($00, not Torpedo Ted $44)'])
+  })
+
+  it("the seed's own RAM cells reach the machine (the torpedo draw reads $0E)", () => {
+    const r = ok(launcherRom(), undefined, { ram: { 0x0e: 0x2c } })
+    expect(r.torpedoParts[0]!.attr).toBe(0x2c | 0x40 | 0x10)
+  })
+
+  it('a slot not in the Normal status is not the spawn (the search is for status 8)', () => {
+    const rom = launcherRom(undefined, launchBytes(0x44, 0x30, 0x09))
+    expect(run(rom, routinesOf(rom))).toEqual({ ok: false, reason: NO_SPAWN })
+  })
+
+  it('a spawned sprite that draws nothing refuses with its reason', () => {
+    const rom = launcherRom(undefined, launchBytes(5))
+    expect(run(rom, routinesOf(rom))).toEqual({ ok: false, reason: 'the torpedo drew no tile' })
+  })
+
+  it('a spawned sprite with no MAIN handler refuses with the runner reason', () => {
+    const rom = launcherRom(b => void (b[off(0x018329 + 2 * 0x44) + 1] = 0x00)) // pointer $0000: below the ROM half
+    const r = run(rom, routinesOf(rom))
+    expect(r.ok).toBe(false)
+    expect(!r.ok && r.reason).toMatch(/^MAIN: /)
+  })
+
+  // The dispatch bytes the run follows are not the whole check: an ExecutePtr copy that behaves the same but is not the
+  // vanilla shape runs, and is reported (the call-target line in torpedoLauncher).
+  it('a dispatch call to a differently shaped ExecutePtr runs, unverified, naming the call target', () => {
+    const copy = 0x008800
+    const dirty = launcherRom(b => {
+      b.set([0xea, ...b.subarray(off(0x0086fa), off(0x0086fa) + 27)], off(copy)) // NOP + ExecutePtr
+      b.set([copy & 0xff, (copy >> 8) & 0xff, 0x00], off(DISPATCH_AT + 2))
+    })
+    const r = ok(dirty, routinesOf(launcherRom()))
+    expect(r.unverified).toEqual(['the shooter dispatch call target'])
+    expect(r.arm).toEqual(ok(launcherRom()).arm)
   })
 
   it('planted: a launcher whose arm routine draws nothing is reported unverified, not passed as whole', () => {
@@ -144,14 +229,16 @@ describe('Torpedo Ted launcher from the routines (synthetic cart)', () => {
     expect(ok(dirty, routinesOf(launcherRom())).unverified).toEqual(['the loader route to the shooter']) // prettier-ignore
   })
 
-  // The dispatch bytes the check reads are the ones the run follows, so a change there cannot run on: it refuses.
-  it.each([DISPATCH_AT + 2, DISPATCH_AT + 7])(
-    'a changed dispatch byte ($%s) refuses, it is not drawn from the wrong code',
-    at => {
-      // prettier-ignore
-      expect(run(launcherRom(b => void (b[off(at)]! ^= 1)), routinesOf(launcherRom())).ok).toBe(false)
-    },
-  )
+  // The JSL operand is the call the run follows: a change there lands in code that is not ExecutePtr and refuses.
+  it('a changed dispatch call operand refuses, it is not drawn from the wrong code', () => {
+    expect(run(launcherRom(b => void (b[off(DISPATCH_AT + 2)]! ^= 1)), routinesOf(launcherRom())).ok).toBe(false) // prettier-ignore
+  })
+
+  // A changed table word is what the game would jump to, so it runs, and the dispatch shape check names it (ruling B).
+  it('a changed dispatch table word runs where it points, unverified, naming the dispatch', () => {
+    const r = ok(launcherRom(b => void (b[off(DISPATCH_AT + 7)]! ^= 1)), routinesOf(launcherRom())) // prettier-ignore
+    expect(r.unverified).toContain('the shooter dispatch')
+  })
 
   it('a level the loader refused has no launcher, and says why', () => {
     const rom = launcherRom()
@@ -167,43 +254,50 @@ describe('Torpedo Ted launcher on the map (synthetic cart)', () => {
   const rom = launcherRom()
   const sprite: LevelSprite = { index: 3, x: SHOOTER.x / 16, y: SHOOTER.y / 16, spriteId: 0xca, screen: 1, extraBit: false, raw: [0, 0, 0xca], streamOffset: 1 } // prettier-ignore
   const shape = { isVertical: false, screenCount: 4 }
-  const TORPEDO_CHAR = 0xc0
-  /** The injected sprite run: sprite $44 as one 16 x 16 piece at its anchor, which its INIT left 2 px right of where it spawned. */
-  const torpedoRun = (id: number, spawn: { x: number; y: number }): SpriteModel => ({
-    id,
-    seedSource: 'rom-level-load',
-    anchor: { x: spawn.x + 2, y: spawn.y, rawX: spawn.x, rawY: spawn.y },
-    chosen: 0,
-    dependsOn: [],
-    steps: [],
-    passes: [{ pass: 0, pos: spawn, origin: spawn, uploads: [], palette: [], parts: [{ oam: 7, char: TORPEDO_CHAR, size: 16, palette: 14, priority: 2, flipX: false, flipY: false, dx: 0, dy: 0, attr: 0, ox: 0, oy: 0 }] }], // prettier-ignore
-  })
+  /** The map view seeds Mario from the loader's image ($94/$96), which the synthetic loader leaves left of the shooter. */
+  const seedAt = (cart: RomFile) => withSeed({ ram: { 0x0e: 0x0a } }, levelSeed(cart, LEVEL)) // the cart's torpedo draw reads $0E
+  /** The launcher never reruns a sprite: a run that is called fails the test. */
+  const noRun = () => {
+    throw new Error('the launcher must not run sprite $44 on its own')
+  }
   const draw = (cart = rom) => {
-    const base = levelSeed(cart, LEVEL)
-    const seen: { id: number; sprite: { x: number; y: number } }[] = []
-    const d = interpDrawer(cart, LEVEL, shape, (_r, id, seed) => (seen.push({ id, sprite: seed.sprite }), torpedoRun(id, seed.sprite)), () => base) // prettier-ignore
-    return { res: d(sprite), seen }
+    const base = seedAt(cart)
+    return interpDrawer(cart, LEVEL, shape, noRun, () => base)(sprite)
   }
 
-  it('is one sprite at the shooter: the arm and the torpedo, the torpedo run as $44 at the spot the launcher spawned it', () => {
-    const { res, seen } = draw()
+  it('is one sprite at the shooter: the arm and the torpedo drawn from the slot the launch filled', () => {
+    const res = draw()
     if (!res.ok) throw new Error(res.reason)
-    expect(seen).toEqual([{ id: 0x44, sprite: SHOOTER }])
     expect(res.anchor).toEqual(SHOOTER)
-    // A 16 x 16 piece is four chars. Torpedo: INIT left it 2 px right, so dx + 2. Arm: the cart's offsets.
-    const quad = (char: number, dx: number, dy: number) =>
-      [[0, 0, 0], [8, 0, 1], [0, 8, 16], [8, 8, 17]].map(([x, y, n]) => [0x400 + char + n!, dx + x!, dy + y!]) // prettier-ignore
-    const want = [...quad(TORPEDO_CHAR, 2, 0), ...quad(0x1a5, ARM_DX, ARM_DY)]
+    // A 16 x 16 piece is four chars; the torpedo is X flipped ($40), so its columns swap. Both at the cart's offsets.
+    const quad = (char: number, dx: number, dy: number, flip: boolean) =>
+      [[0, 0, 0], [8, 0, 1], [0, 8, 16], [8, 8, 17]].map(([x, y, n]) => [0x400 + char + n!, dx + (flip ? 8 - x! : x!), dy + y!]) // prettier-ignore
+    const want = [
+      ...quad(0xc1, TORPEDO_DX, TORPEDO_DY, true),
+      ...quad(0x100 + ARM_TILE, ARM_DX, ARM_DY, false),
+    ]
     expect(res.parts.map(p => [p.charNum, p.dx, p.dy]).sort()).toEqual(want.sort())
+    expect(res.parts.filter(p => p.charNum < 0x500).every(p => p.flipX && p.priority === 1)).toBe(
+      true,
+    )
+    expect(res.identity?.spriteId).toBe(0x44)
     // The cart's routines are not the vanilla ones the drawer's guard fingerprints: the draw says so, and still draws (D52).
     expect('unverified' in res && res.unverified).toContain(
       'the launcher routine is not the vanilla shape',
     )
   })
 
+  it('a hack whose launch spawns another sprite draws it, unverified, as that sprite', () => {
+    const cart = launcherRom(undefined, launchBytes(0))
+    const res = draw(cart)
+    if (!res.ok) throw new Error(res.reason)
+    expect(res.identity?.spriteId).toBe(0)
+    expect('unverified' in res && res.unverified).toContain('the sprite the launcher spawns ($00, not Torpedo Ted $44) is not the vanilla shape') // prettier-ignore
+  })
+
   it('drawSprites draws it, not the marker: the bitmap spans the arm and the torpedo', () => {
-    const base = levelSeed(rom, LEVEL)
-    const d = interpDrawer(rom, LEVEL, shape, (_r, id, seed) => torpedoRun(id, seed.sprite), () => base) // prettier-ignore
+    const base = seedAt(rom)
+    const d = interpDrawer(rom, LEVEL, shape, noRun, () => base)
     const sheet = () => Array.from({ length: 128 }, () => new Uint8Array(64).fill(3))
     const vram = { sp1: sheet(), sp2: sheet(), sp3: sheet(), sp4: sheet() }
     const [dto] = drawSprites(
@@ -212,12 +306,21 @@ describe('Torpedo Ted launcher on the map (synthetic cart)', () => {
       d,
     )
     expect(dto!.status).toBe('drawn')
-    // Arm X + 9 .. X + 25, Y - 7 .. Y + 9; torpedo X + 2 .. X + 18, Y .. Y + 16.
-    expect(dto!.box).toEqual({ x0: SHOOTER.x + 2, y0: SHOOTER.y + ARM_DY, x1: SHOOTER.x + ARM_DX + 16, y1: SHOOTER.y + 16 }) // prettier-ignore
+    // Arm X + 9 .. X + 25, Y - 7 .. Y + 9; torpedo X + 6 .. X + 22, Y + 4 .. Y + 20.
+    expect(dto!.box).toEqual({ x0: SHOOTER.x + TORPEDO_DX, y0: SHOOTER.y + ARM_DY, x1: SHOOTER.x + ARM_DX + 16, y1: SHOOTER.y + TORPEDO_DY + 16 }) // prettier-ignore
   })
 
   it('a launcher the routines cannot run is the marker with the reason (D52)', () => {
-    expect(draw(launcherRom(b => void (b[off(LAUNCH)] = 0x60))).res).toEqual({ ok: false, reason: NO_SPAWN }) // prettier-ignore
+    expect(draw(launcherRom(b => void (b[off(LAUNCH)] = 0x60))).ok).toBe(false)
+    expect(draw(launcherRom(b => void (b[off(LAUNCH)] = 0x60)))).toEqual({
+      ok: false,
+      reason: NO_SPAWN,
+    })
+  })
+
+  it('the refusal names the edge check that stops a launch', () => {
+    expect(NO_SPAWN).toContain('$10 / CMP #$20')
+    expect(NO_SPAWN).toContain('right')
   })
 
   it('the other ids above the ordinary range keep the marker: $C9 is not run as a launcher', () => {
@@ -248,9 +351,56 @@ describe.skipIf(!hasRom(VANILLA))('Torpedo Ted launcher, vanilla ROM map $011', 
       if (!r.ok) throw new Error(`#${s.index}: ${r.reason}`)
       expect(r.unverified).toEqual([])
       expect(r.torpedo).toEqual({ x, y })
+      expect(r.torpedoId).toBe(0x44)
       expect(r.arm.map(p => [p.char, p.attr, p.size, p.palette, p.priority, p.dx, p.dy])).toEqual([[0x184, 0x13, 16, 9, 1, 8, -9]]) // prettier-ignore
       expect([r.arm[0]!.ox, r.arm[0]!.oy]).toEqual([x + 8 - camera.x, y - 9 - camera.y])
+      // The torpedo as the game draws the launch frame (bank_02.asm:7480-7483, 7544-7590): behind objects
+      // ($64 = $10 while $1540 = $30 is set: priority 1), front tile $80 and back tile $82, 16 x 16 each, facing Mario.
+      for (const [side, marioX] of [
+        ['left', 0],
+        ['right', x + 0x40],
+      ] as const) {
+        const t = torpedoLauncher(rom, withSeed({ sprite: { x, y }, camera, mario: { x: marioX, y: 0x180 } }, base)) // prettier-ignore
+        if (!t.ok) throw new Error(`#${s.index}: ${t.reason}`)
+        // DATA_02B8F5 (:7541) is $40, $00 by direction; SubHorzPosBnk2 answers 1 for Mario on the left. Not flipped: front piece at dx 0.
+        const flip = side === 'right'
+        expect(
+          t.torpedoParts
+            .map(p => [p.char, p.attr, p.size, p.palette, p.priority, p.flipX, p.dx, p.dy])
+            .sort(),
+        ).toEqual(
+          // prettier-ignore
+          [[0x180, flip ? 0x53 : 0x13, 16, 9, 1, flip, flip ? 16 : 0, 0], [0x182, flip ? 0x53 : 0x13, 16, 9, 1, flip, flip ? 0 : 16, 0]].sort(), // prettier-ignore
+        )
+      }
     }
+  })
+
+  it('map $011 launcher #0 as the map view seeds it (Mario at the loader start): not flipped, priority 1, back tile $82', () => {
+    const rom = RomFile.load(romPath(VANILLA))
+    const stream = parseLevelSprites(rom.readUpTo(new SmwRom(rom).getLevelSpritePointer(0x11)!, 0x200)!, false) // prettier-ignore
+    const first = stream.find(s => s.spriteId === 0xca)!
+    expect(first.index).toBe(0)
+    const base = levelSeed(rom, 0x11)
+    // The drawer's own Mario: what the loader left in $94/$96 (the seed's loaded image), the same one every sprite is run with.
+    expect(base.loaded![0x94]! | (base.loaded![0x95]! << 8)).toBe(24)
+    const noRun = () => {
+      throw new Error('the launcher is not a rerun of sprite $44')
+    }
+    const res = interpDrawer(
+      rom,
+      0x11,
+      { isVertical: false, screenCount: 0x20 },
+      noRun,
+      () => base,
+    )(first)
+    if (!res.ok) throw new Error(res.reason)
+    // The pieces of the torpedo's two 16 x 16 tiles ($80 and $82; the arm's is $84): four chars each.
+    const torpedo = res.parts.filter(p => [0x180, 0x182].includes((p.charNum - 0x400) & ~0x11))
+    expect(torpedo).toHaveLength(8)
+    expect(torpedo.every(p => !p.flipX && p.priority === 1)).toBe(true)
+    expect(res.parts.some(p => p.charNum === 0x400 + 0x182)).toBe(true)
+    expect(res.parts.every(p => p.priority === 1)).toBe(true)
   })
 
   it("the vanilla routine fingerprints are the ROM's (the guard is not vacuous)", () => {
