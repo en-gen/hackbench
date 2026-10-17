@@ -296,6 +296,9 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     ['1db', '$37', 944, 304],
     ['11d', '$28', 272, 224],
     ['01a', '$30', 272, 368],
+    // The tide maps (#845): fish enter the liquid path once $5B bit 7 is set (hardware WRAM has it).
+    ['127', '$16', 400, 368],
+    ['127', '$16', 1296, 368],
     ['102', '$A4', 912, 400], // #842: sank 32 px until the loader ran the Layer 3 handler
   ])(
     'map %s %s at %i,%i grades exact',
