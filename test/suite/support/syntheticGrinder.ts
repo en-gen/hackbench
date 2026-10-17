@@ -3,7 +3,7 @@
  * Split out to keep that file under the content gate's byte-token limit. Hand-written test opcodes; the
  * id 103 handler has the opcode SKELETON of the vanilla grinder's (operands that name a label are free), which
  * is what `lineDrawsBeforeSnap` reads. Ids 98, 104 (a bare JMP to the dispatch), 101, 102 (a 33-byte prelude, then the grinder entry)
- * and 100 (the prelude, but not admitted) reach the same dispatch, whose arms mirror vanilla's layout (#792).
+ * and 100 (the prelude, with the rope arm) reach the same dispatch, whose arms mirror vanilla's layout (#792).
  */
 import {
   DISPATCH_OPERANDS,
@@ -93,7 +93,8 @@ export function putGrinderRoutines(
     dispatchAt & 0xff,
     (dispatchAt >> 8) & 0xff,
   ]
-  const dispatch = (platAt: number) => [...dispatchBytes(o.alteredGrinder === true), 0x4c, platAt & 0xff, platAt >> 8, 0x60] // prettier-ignore
+  // After the span: the rope arm the $64 BEQ reaches (CODE_01D9D3, bank_01.asm:12209-12215): draw, then the line step.
+  const dispatch = (platAt: number) => [...dispatchBytes(o.alteredGrinder === true), 0x4c, platAt & 0xff, platAt >> 8, 0x20, 0x00, 0x94, 0x4c, 0x90, 0x92] // prettier-ignore
   put(GRINDER_HANDLER, handler(GRINDER_DISPATCH_AT))
   put(GRINDER_DISPATCH_AT, dispatch(PLAT_ARM_AT))
   // The shared platform arm, the JSL target the $65/$66 arm reaches, and the three kinds of MAIN entry.

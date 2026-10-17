@@ -32,10 +32,12 @@ it calls the line step `CODE_01D74D`: `$62` through `CODE_01DAA2` (shift, draw J
 step JMP. So the map view draws these ids where the line walk left them on their third MAIN (`SpriteRunner.ts`),
 as #126 did for the grinder. The three ways in: `LineGrinder` (`11837`, `$67`), `LineRope_Chainsaw` (`11817`, a
 33-byte prelude that falls into `LineGrinder`: `$64`-`$66`), and `LineFuzzy_Plats` (`11845`, a bare JMP: `$62`, `$68`).
-`$63` and `$64` stay out: `InitLinePlat` and `InitLineRope` share the INIT tail that runs the line step twice
-(`11774-11783`), so their first MAIN already draws on the track and the generic rule is right (`$64`: all 12 vanilla
-placements keep the first drawn pass, evidence: runner over the vanilla ROM, one machine). `$62`'s own INIT
-(`InitLineBrwnPlat`, `11808`) does not step, so it is admitted.
+`$64` is admitted (owner ruling D85 call 1): `InitLineRope` joins `InitLinePlat`'s tail, two `JSR LineFuzzy_Plats`
+(`11766-11783`), so its INIT already steps it; the pass-2 rule applies to it all the same. On the vanilla ROM this changes
+nothing you can see: for all 12 placements the line step does not move the sprite on pass 0, the rule keeps pass 0, and
+each rope is drawn at the same spot as before (and, for the first rope on map 300, the same pixels), on the top edge of a `$92` line tile (runner over maps 15,
+221, 298 and 300 in decimal, one machine, 2026-10-17). `$63` stays out: it shares `$62`'s MAIN but no vanilla
+placement exercises it. `$62`'s own INIT (`InitLineBrwnPlat`, `11808`) does not step.
 
 For these ids the runner moves to pass 2 only when pass 0 moved the sprite, pass 1 moved it again, and pass 2 draws;
 otherwise it keeps pass 0, the generic rule. Only the grinder (`$67`, #126) may stop at pass 1.

@@ -1,10 +1,11 @@
 /**
- * Whether a cart's line-guided sprite ($62, $65-$68) still dispatches in the vanilla order: draw, then the
+ * Whether a cart's line-guided sprite ($62, $64-$68) still dispatches in the vanilla order: draw, then the
  * line step. A hack that rewrites the handler gets the runner's generic rule. The gate reads the
  * dispatch shape and the addresses of the routines it calls, not those routines' bodies.
  * Seven ids ($62-$68) share the dispatch CODE_01D9A7 (bank_01.asm:12182-12204), reached by three entry routines (#792).
- * $63 and $64 are not admitted: both INITs step the sprite twice (InitLinePlat's tail, 11774-11783, which InitLineRope
- * joins), so their first MAIN already draws on the track and the generic rule is right.
+ * $64 is admitted (D85 call 1): its MAIN is LineRope_Chainsaw (bank_01.asm:998), and InitLineRope runs InitLinePlat's
+ * tail, two JSR LineFuzzy_Plats (11766-11783). $63 (same MAIN as $62, bank_01.asm:996) is left out: no vanilla
+ * placement exercises it, so nothing shows its second pass lands on the track.
  */
 import type { RomFile } from '../../RomFile'
 import { mirror } from '../../addressing'
@@ -15,10 +16,10 @@ const ENTRY: readonly (number | null)[] = [0xa5, 0x13, 0x29, 0x07, 0x1d, 0x26, 0
 
 /**
  * How each id's MAIN reaches the dispatch: `grinder` is LineGrinder itself ($67); `chainsaw` is
- * LineRope_Chainsaw (bank_01.asm:11817-11830), a 33-byte prelude that falls into LineGrinder ($65, $66);
+ * LineRope_Chainsaw (bank_01.asm:11817-11830), a 33-byte prelude that falls into LineGrinder ($64, $65, $66);
  * `jmp` is LineFuzzy_Plats, a bare JMP to the dispatch (bank_01.asm:11845-11846; $62, $68).
  */
-const ROUTES: Readonly<Record<number, 'grinder' | 'chainsaw' | 'jmp'>> = { 0x62: 'jmp', 0x65: 'chainsaw', 0x66: 'chainsaw', 0x67: 'grinder', 0x68: 'jmp' } // prettier-ignore
+const ROUTES: Readonly<Record<number, 'grinder' | 'chainsaw' | 'jmp'>> = { 0x62: 'jmp', 0x64: 'chainsaw', 0x65: 'chainsaw', 0x66: 'chainsaw', 0x67: 'grinder', 0x68: 'jmp' } // prettier-ignore
 /** The prelude's length and the operands compared against the vanilla table address and `preludeCall` rather than pinned. */
 export const PRELUDE_LEN = 33
 export const PRELUDE_OPERANDS = [22, 23, 31, 32]
@@ -57,8 +58,7 @@ export interface DispatchShape {
 
 /**
  * The platform arm, CODE_01DAA2 (shift, JSR CODE_01B2DF draw at 12347, restore, JSR to the line step at 12358: bank_01.asm:12323-12358):
- * its length and the offsets of the draw and step JSR operands. $64 stays out: InitLineRope joins the INIT tail that
- * runs the line step twice (bank_01.asm:11774-11783), so its first MAIN draw is already on the track and the generic rule is right.
+ * its length and the offsets of the draw and step JSR operands.
  */
 export const PLAT_ARM = { len: 68, draw: 46, step: 66 } as const
 export const PLAT_OPERANDS = [PLAT_ARM.draw, PLAT_ARM.draw + 1, PLAT_ARM.step, PLAT_ARM.step + 1]

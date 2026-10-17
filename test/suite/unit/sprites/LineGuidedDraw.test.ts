@@ -1,6 +1,6 @@
 /**
  * The line-guided grinder ($67) is drawn where the line walk puts it, two passes after its first draw (#126); so are $62, $65, $66
- * and $68, by their own shape checks (#792; $64 is not admitted: INIT already steps it onto the track).
+ * and $68, by their own shape checks (#792, $64 included by D85 call 1).
  * Synthetic cart: ids 31 and 103 draw one piece at SpriteXPos and then move +4 (hand-written opcodes),
  * so CI (no cart) proves the rule picks the third drawn pass for the admitted ids only.
  */
@@ -183,7 +183,7 @@ describe('line-guided draw pass', () => {
   })
 
   // Synthetic ids 98/104 enter by a bare JMP, 101/102 through the chainsaw prelude; the handler differs per id, the dispatch is shared.
-  const ADMITTED: [number, number][] = [[98, JMP_HANDLER], [101, CHAINSAW_HANDLER], [102, CHAINSAW_HANDLER], [104, JMP_HANDLER]] // prettier-ignore
+  const ADMITTED: [number, number][] = [[98, JMP_HANDLER], [100, CHAINSAW_HANDLER], [101, CHAINSAW_HANDLER], [102, CHAINSAW_HANDLER], [104, JMP_HANDLER]] // prettier-ignore
 
   it.each(ADMITTED)('draws id %i at the third pass, where the line walk left it', id => {
     const g = run(id)
@@ -227,10 +227,9 @@ describe('line-guided draw pass', () => {
     },
   )
 
-  it('admits $62, $65, $66, $68 and $67 only: $64 has the prelude and the dispatch, and is refused', () => {
+  it('admits $62, $64, $65, $66, $68 and $67, each with its own entry kind', () => {
     const rom = buildSyntheticRom()
     for (const [id, at] of ADMITTED) expect(lineDrawsBeforeSnap(rom, id, at, GRINDER_DISPATCH), `id ${id}`).toBe(true) // prettier-ignore
-    expect(lineDrawsBeforeSnap(rom, 100, CHAINSAW_HANDLER, GRINDER_DISPATCH)).toBe(false)
     // The entry kind is the id's: a JMP entry for a chainsaw id, and a chainsaw entry for a JMP id, are refused.
     expect(lineDrawsBeforeSnap(rom, 101, JMP_HANDLER, GRINDER_DISPATCH)).toBe(false)
     expect(lineDrawsBeforeSnap(rom, 98, CHAINSAW_HANDLER, GRINDER_DISPATCH)).toBe(false)
@@ -256,12 +255,12 @@ describe('line-guided draw pass', () => {
     }
   })
 
-  it('admits exactly $62, $65, $66, $67, $68 over every id 0..255', () => {
+  it('admits exactly $62, $64, $65, $66, $67, $68 over every id 0..255 ($63 is a plant that must go red)', () => {
     const rom = buildSyntheticRom()
-    // Every id is offered each synthetic entry shape; only the five route ids may pass, and only with their own entry kind.
+    // Every id is offered each synthetic entry shape; only the six route ids may pass, and only with their own entry kind.
     const entries = [JMP_HANDLER, CHAINSAW_HANDLER, GRINDER_HANDLER]
     const admitted = Array.from({ length: 256 }, (_, id) => id).filter(id => entries.some(h => lineDrawsBeforeSnap(rom, id, h, GRINDER_DISPATCH))) // prettier-ignore
-    expect(admitted).toEqual([0x62, 0x65, 0x66, 0x67, 0x68])
+    expect(admitted).toEqual([0x62, 0x64, 0x65, 0x66, 0x67, 0x68])
   })
 
   it('refuses $62 when the platform arm is not reached by a JMP (0x4C), though the digest still matches', () => {
@@ -542,4 +541,29 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla $62, $65, $66, $68 (#792)', () 
     const want = Object.fromEntries(SWEEP_IDS.map(i => [i, { ...SWEEP[i]!, dx: sorted(SWEEP[i]!.dx), dy: sorted(SWEEP[i]!.dy) }])) // prettier-ignore
     expect(summary).toEqual(want)
   }, 300_000)
+})
+
+// D85 call 1: $64 joins the pass-2 route. On vanilla its line step does not move it on pass 0, so the rule keeps pass 0:
+// the spot INIT's two steps left (SMWDisX bank_01.asm:11766-11783). Maps (decimal) 15, 221, 298, 300 hold all 12.
+describe.skipIf(!hasRom(VANILLA))('every vanilla $64 rope (D85 call 1)', () => {
+  it('draws all 12 on the top edge of a $92 line tile, as before the admission (measured 2026-10-17, one machine)', () => {
+    const path = romPath(VANILLA)
+    const bytes = new Uint8Array(readFileSync(path))
+    let drawn = 0
+    for (const slot of [15, 221, 298, 300]) {
+      const built = new L1ModelCache().get(bytes, path, slot, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
+      if (!built.ok) throw new Error(built.reason)
+      const grid = built.inputs.grid as number[][]
+      const r = mapSprites(new L1ModelCache(), bytes, path, slot)
+      if (r.status !== 'ok') throw new Error(`slot ${slot}: ${r.status}`)
+      r.sprites
+        .filter(d => d.id === 0x64)
+        .forEach((d, i) => {
+          expect(d.status, `slot ${slot} #${i}`).toBe('drawn')
+          expect([grid[d.y >> 4]?.[d.x >> 4], d.y & 15], `slot ${slot} #${i}`).toEqual([0x92, 0])
+          drawn++
+        })
+    }
+    expect(drawn).toBe(12)
+  }, 120_000)
 })

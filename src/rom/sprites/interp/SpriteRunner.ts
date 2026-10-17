@@ -441,7 +441,7 @@ export type Probe = (pass: number, wram: Uint8Array) => void
 
 /**
  * The line-guided sprites ($62, $65-$68) draw, then their line step moves them (SMWDisX bank_01.asm:12182-12204,
- * platform arm 12323-12358; corner stores 12054-12061; $64 is not one, its INIT already steps it: shared INIT tail 11774-11783), so the grinder draws three different spots: the
+ * platform arm 12323-12358; corner stores 12054-12061; $64 is, by D85 call 1; its INIT also steps it, 11766-11783), so the grinder draws three different spots: the
  * off-track INIT spot, the probe corner the first MAIN snapped to, and the line point the walk then set. The
  * editor draws the third (#126, #792). Which ids qualify is `lineDrawsBeforeSnap`'s per-id shape check.
  *
