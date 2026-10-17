@@ -45,12 +45,16 @@ describe.skipIf(!hasRom(VANILLA))(
         // Door pixels per layer show/hide combination (bit 0 = Layer 1 shown, bit 1 = Layer 2, bit 2 = Layer 3).
         const doorPixels = [0, 0, 0, 0, 0, 0, 0, 0]
         const hits: string[] = []
+        const noSprites: string[] = []
         for (let m = 0; m < 0x200; m++) {
-          const sp = mapSprites(cache, bytes, romPath(VANILLA), m)
-          if (sp.status !== 'ok') continue
           const built = cache.get(bytes, romPath(VANILLA), m, NO_FLAGS)
           if (!built.ok) continue
           maps++
+          const sp = mapSprites(cache, bytes, romPath(VANILLA), m)
+          if (sp.status !== 'ok') {
+            noSprites.push(m.toString(16)) // built but unswept: must not hide behind the floors
+            continue
+          }
           for (let s = 0; s < sp.screenCount; s++) {
             const doors = spriteDoors(sp, s)
             if (!doors) continue
@@ -73,6 +77,8 @@ describe.skipIf(!hasRom(VANILLA))(
         }
         console.log(`#936 vanilla: ${maps} maps, ${screens} screens with sprites, ${doorPixels.join('/')} door pixels per layer combination, ${hits.length} under a blended layer`) // prettier-ignore
         expect(hits).toEqual([])
+        // A map that builds but has no sprite data is never scanned, so floors alone could pass over it.
+        expect(noSprites).toEqual([])
         expect(maps).toBeGreaterThanOrEqual(MIN_MAPS)
         expect(screens).toBeGreaterThanOrEqual(MIN_SCREENS)
         // Combination 0 shows no layer, so it has no door pixels to meet; every other combination must see some,
