@@ -1,8 +1,8 @@
-// A worktree whose theia/node_modules is a junction to another checkout
-// bundles THAT checkout's extension and shares its build cache (#1038).
+// A worktree whose Theia install is a junction to another checkout bundles
+// THAT checkout's extension and shares its build cache (#1038).
 // Layouts are synthetic: no install, no ROM.
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -11,92 +11,185 @@ import { checkTheiaInstall } from '../../../tools/scripts/check-theia-install.mj
 
 const root = mkdtempSync(path.join(tmpdir(), 'hb-theia-install-'))
 afterAll(() => {
-  // rmSync does not follow junctions, so the shared target survives.
+  // rmSync does not follow junctions, so shared targets survive until their own turn.
   rmSync(root, { recursive: true, force: true })
 })
 
+const SCRIPT = path.resolve('tools/scripts/check-theia-install.mjs')
+const CONFIG = path.resolve('theia/browser-app/playwright.config.cjs')
 const LINKS = ['hackbench-theia-extension', 'hackbench-browser-app', 'hackbench-electron-app']
 const PKGS = ['extension', 'browser-app', 'electron-app']
+const junction = (target: string, at: string) => symlinkSync(target, at, 'junction')
+const nmOf = (dir: string) => path.join(dir, 'theia', 'node_modules')
 
-/** A checkout with packages, and a real install whose links point `linkTo`. */
-function checkout(name: string, linkTo: string | null = null): string {
+/** A checkout with packages and the guard script; `install` adds a real node_modules. */
+function checkout(name: string, install: { linkTo?: string; only?: number[] } | null = {}): string {
   const dir = path.join(root, name)
   PKGS.forEach(p => mkdirSync(path.join(dir, 'theia', p), { recursive: true }))
-  if (linkTo !== undefined) {
-    const nm = path.join(dir, 'theia', 'node_modules')
-    mkdirSync(nm, { recursive: true })
-    LINKS.forEach((l, i) =>
-      symlinkSync(path.join(linkTo ?? dir, 'theia', PKGS[i]), path.join(nm, l), 'junction'),
-    )
+  mkdirSync(path.join(dir, 'tools', 'scripts'), { recursive: true })
+  copyFileSync(SCRIPT, path.join(dir, 'tools', 'scripts', 'check-theia-install.mjs'))
+  if (install) {
+    mkdirSync(nmOf(dir), { recursive: true })
+    LINKS.forEach((l, i) => {
+      if (!install.only || install.only.includes(i))
+        junction(path.join(install.linkTo ?? dir, 'theia', PKGS[i]), path.join(nmOf(dir), l))
+    })
   }
   return dir
 }
+/** A worktree whose theia/node_modules is a junction to `main`'s. */
+function junctioned(name: string, main: string): string {
+  const wt = checkout(name, null)
+  junction(nmOf(main), nmOf(wt))
+  return wt
+}
+/** A worktree whose whole theia folder is a junction to a bare checkout's. */
+function theiaJunctioned(name: string): string {
+  const bare = checkout(`${name}-target`, { only: [] })
+  const wt = checkout(name, null)
+  rmSync(path.join(wt, 'theia'), { recursive: true })
+  junction(path.join(bare, 'theia'), path.join(wt, 'theia'))
+  return wt
+}
+
+const main = checkout('main')
+const INSTALL = '`yarn --cwd theia install`'
 
 describe('checkTheiaInstall', () => {
-  const main = checkout('main')
-
   it('passes a real install whose links stay inside', () => {
     expect(checkTheiaInstall(main)).toBeNull()
   })
 
-  it('refuses a node_modules junction to another checkout, naming the fix', () => {
-    const wt = path.join(root, 'wt-junction')
-    mkdirSync(path.join(wt, 'theia'), { recursive: true })
-    symlinkSync(
-      path.join(main, 'theia', 'node_modules'),
-      path.join(wt, 'theia', 'node_modules'),
-      'junction',
-    )
-    const problem = checkTheiaInstall(wt)
-    expect(problem).toContain('yarn --cwd theia install')
-    expect(problem).toContain('rmdir theia\node_modules')
+  it('refuses a node_modules junction with the exact fix text (no newline in the path)', () => {
+    const problem = checkTheiaInstall(junctioned('wt-junction', main)) as string
+    expect(problem).toContain('theia/node_modules is a link to another folder')
+    expect(problem).toContain('`cmd /c rmdir theia\\node_modules`')
+    expect(problem).toContain(`then run ${INSTALL} from this worktree`)
+    expect(problem).not.toContain('\n')
   })
 
-  it('refuses a real node_modules whose workspace links point at another checkout', () => {
-    const wt = checkout('wt-links', main)
-    const problem = checkTheiaInstall(wt)
+  it('refuses a real node_modules with outside links, advising just the install', () => {
+    const problem = checkTheiaInstall(checkout('wt-links', { linkTo: main })) as string
     expect(problem).toContain('hackbench-theia-extension')
-    expect(problem).toContain('yarn --cwd theia install')
+    expect(problem).toContain(`Fix: run ${INSTALL} from this worktree.`)
+    expect(problem).not.toContain('rmdir')
   })
 
-  it('refuses even an in-checkout link, and a theia folder that is itself a link', () => {
-    const own = checkout('wt-own')
-    // Isolate the link check: the target is inside `own` itself.
-    rmSync(path.join(own, 'theia', 'node_modules'), { recursive: true })
-    const inner = path.join(own, 'real_modules')
-    mkdirSync(inner)
-    symlinkSync(inner, path.join(own, 'theia', 'node_modules'), 'junction')
-    expect(checkTheiaInstall(own)).toContain('is a link')
-    const viaTheia = path.join(root, 'wt-theia-link')
-    mkdirSync(viaTheia)
-    symlinkSync(path.join(main, 'theia'), path.join(viaTheia, 'theia'), 'junction')
-    expect(checkTheiaInstall(viaTheia)).toContain('yarn --cwd theia install')
+  it.each([0, 1, 2])('refuses when only link %i points at another checkout', bad => {
+    const wt = checkout(`wt-one-${bad}`)
+    rmSync(path.join(nmOf(wt), LINKS[bad]))
+    junction(path.join(main, 'theia', PKGS[bad]), path.join(nmOf(wt), LINKS[bad]))
+    expect(checkTheiaInstall(wt)).toContain(LINKS[bad])
+  })
+
+  it('refuses a theia folder that is itself a junction, even with no hackbench links yet', () => {
+    const problem = checkTheiaInstall(theiaJunctioned('wt-theia-link')) as string
+    expect(problem).toContain('theia folder is itself a link')
+    expect(problem).toContain('`cmd /c rmdir theia`')
+    expect(problem).toContain('git checkout -- theia')
+    expect(problem).toContain(INSTALL)
+  })
+
+  it('does not mistake a sibling sharing a name prefix for the same checkout', () => {
+    const sibling = checkout('main-2', { linkTo: main })
+    expect(checkTheiaInstall(sibling)).toContain('point at another checkout')
+    expect(checkTheiaInstall(checkout('main-2b'))).toBeNull()
+  })
+
+  it('passes a partial install missing a link', () => {
+    expect(checkTheiaInstall(checkout('wt-partial', { only: [0] }))).toBeNull()
   })
 
   it('leaves a missing node_modules to the build', () => {
-    expect(checkTheiaInstall(checkout('wt-none', undefined as unknown as null))).toBeNull()
+    expect(checkTheiaInstall(checkout('wt-none', null))).toBeNull()
   })
 
-  it('CLI exits non-zero with the message on a bad layout, zero on a good one', () => {
-    const cli = path.resolve('tools/scripts/check-theia-install.mjs')
-    const run = (dir: string) => spawnSync(process.execPath, [cli, dir], { encoding: 'utf8' })
-    expect(run(main).status).toBe(0)
-    const bad = run(path.join(root, 'wt-links'))
-    expect(bad.status).not.toBe(0)
+  it.each(['extension', 'browser-app', 'electron-app'])(
+    'refuses theia/%s/node_modules linked to another checkout',
+    pkg => {
+      const rel = `theia/${pkg}/node_modules`
+      const wt = checkout(`wt-${pkg}`)
+      const shared = path.join(main, rel)
+      mkdirSync(shared, { recursive: true })
+      junction(shared, path.join(wt, rel))
+      const problem = checkTheiaInstall(wt) as string
+      expect(problem).toContain(`${rel} is a link to another checkout`)
+      expect(problem).toContain('`cmd /c rmdir ' + rel.replaceAll('/', '\\') + '`')
+    },
+  )
+
+  it('refuses theia/node_modules/.cache linked to another checkout', () => {
+    const wt = checkout('wt-cache')
+    const shared = path.join(nmOf(main), '.cache')
+    mkdirSync(shared, { recursive: true })
+    junction(shared, path.join(nmOf(wt), '.cache'))
+    expect(checkTheiaInstall(wt)).toContain('theia/node_modules/.cache is a link')
+  })
+
+  it('passes an in-checkout link for those folders', () => {
+    const wt = checkout('wt-cache-own')
+    mkdirSync(path.join(wt, 'elsewhere'))
+    junction(path.join(wt, 'elsewhere'), path.join(nmOf(wt), '.cache'))
+    expect(checkTheiaInstall(wt)).toBeNull()
+  })
+
+  it('CLI exits 1 with the message on a bad layout, 0 on a good one, also via a link', () => {
+    const run = (cli: string, dir: string) =>
+      spawnSync(process.execPath, [cli, dir], { encoding: 'utf8' })
+    expect(run(SCRIPT, main).status).toBe(0)
+    const bad = run(SCRIPT, junctioned('wt-cli', main))
+    expect(bad.status).toBe(1)
     expect(bad.stderr).toContain('yarn --cwd theia install')
+    const viaLink = path.join(root, 'tools-link')
+    junction(path.dirname(SCRIPT), viaLink)
+    const linked = run(path.join(viaLink, 'check-theia-install.mjs'), junctioned('wt-cli2', main))
+    expect(linked.status).toBe(1)
   })
 })
 
 describe('guard wiring', () => {
   const read = (p: string) => readFileSync(path.resolve(p), 'utf8')
-  it('theia build scripts run the guard before bundling', () => {
-    const scripts = JSON.parse(read('theia/package.json')).scripts
-    for (const s of ['prebuild', 'prebuild:browser', 'prebuild:electron']) {
-      expect(scripts[s], s).toContain('check-theia-install.mjs')
-    }
+  const scripts = JSON.parse(read('theia/package.json')).scripts
+  const hook = (name: string, wt: string) =>
+    spawnSync(scripts[name], { shell: true, cwd: path.join(wt, 'theia'), encoding: 'utf8' })
+
+  it.each(['prebuild', 'prebuild:browser', 'prebuild:electron'])(
+    '%s runs the guard and fails in a junctioned worktree',
+    name => {
+      const r = hook(name, junctioned(`wt-hook-${name.replace(':', '-')}`, main))
+      expect(r.status).toBe(1)
+      expect(r.stderr).toContain('yarn --cwd theia install')
+    },
+  )
+
+  it('the prebuild hook also refuses when the theia folder is the junction', () => {
+    expect(hook('prebuild', theiaJunctioned('wt-hook-theia')).status).toBe(1)
   })
-  it('playwright config runs it only when it starts its own server', () => {
-    const cfg = read('theia/browser-app/playwright.config.cjs')
-    expect(cfg).toMatch(/!process\.env\.HB_APP_URL[\s\S]{0,200}check-theia-install/)
+
+  describe('playwright config', () => {
+    const load = (cwd: string, extra: Record<string, string> = {}) => {
+      const env = { ...process.env, ...extra }
+      for (const k of ['HB_APP_URL', 'HB_SKIP_INSTALL_GUARD']) if (!(k in extra)) delete env[k]
+      return spawnSync(process.execPath, ['-e', `require(${JSON.stringify(CONFIG)})`], {
+        cwd,
+        env,
+        encoding: 'utf8',
+        timeout: 60000,
+      })
+    }
+
+    it('throws in a junctioned worktree, loads in a good one and when skipped', () => {
+      const bad = junctioned('wt-config', main)
+      const r = load(path.join(bad, 'theia', 'browser-app'))
+      expect(r.status).not.toBe(0)
+      expect(r.stderr).toContain('yarn --cwd theia install')
+      expect(load(path.join(main, 'theia', 'browser-app')).status).toBe(0)
+      expect(load(bad, { HB_SKIP_INSTALL_GUARD: '1' }).status).toBe(0)
+    })
+
+    it('throws when the theia folder is the junction', () => {
+      const r = load(path.join(theiaJunctioned('wt-config-theia'), 'theia', 'browser-app'))
+      expect(r.status).not.toBe(0)
+    })
   })
 })
