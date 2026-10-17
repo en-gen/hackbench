@@ -40,6 +40,12 @@ const strays = (parts: readonly Part[]): string[] =>
     .filter(p => FLAME_CHARS.has(p.char) || p.oam >= FIRST_FLAME_OAM)
     .map(p => `${p.oam}:${p.char.toString(16)}`)
 
+/** The vanilla ROM's path and bytes, as the map-view entry points take them. */
+function vanilla() {
+  const path = romPath(VANILLA)
+  return { path, bytes: new Uint8Array(readFileSync(path)) }
+}
+
 describe('the stray-part detector', () => {
   it('passes a plain body, and goes red on a flame char or an OAM entry in the flame block', () => {
     const body = [76, 77, 78, 79].map(oam => ({ oam, char: 0x16e }))
@@ -53,8 +59,7 @@ describe('the stray-part detector', () => {
 describe.skipIf(!hasRom(VANILLA))('vanilla grinders carry no castle flames (#793 B)', () => {
   for (const slot of [0x1f, 0x1a]) {
     it(`map $${slot.toString(16)}: every pass of every $67 is its four body pieces only`, () => {
-      const path = romPath(VANILLA)
-      const bytes = new Uint8Array(readFileSync(path))
+      const { path, bytes } = vanilla()
       const rom = new SmwRom(RomFile.fromBytes(path, Buffer.from(bytes)))
       const built = new L1ModelCache().get(bytes, path, slot, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
       if (!built.ok) throw new Error(built.reason)
@@ -78,8 +83,7 @@ describe.skipIf(!hasRom(VANILLA))('vanilla grinders carry no castle flames (#793
   }
 
   it('map $1f: the reply puts the flames in their own layer-2 sprites and every drawn grinder box is 32 x 32', () => {
-    const path = romPath(VANILLA)
-    const bytes = new Uint8Array(readFileSync(path))
+    const { path, bytes } = vanilla()
     const r = mapSprites(new L1ModelCache(), bytes, path, 0x1f)
     if (r.status !== 'ok') throw new Error(r.status)
     const drawn = r.sprites.filter(d => d.id === 0x67 && d.status === 'drawn')
