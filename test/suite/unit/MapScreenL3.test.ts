@@ -563,24 +563,32 @@ describe('a $80 level under a smash sprite (synthetic, #807)', () => {
 /**
  * #997: a loaded smash sprite writes Layer3XPos/Layer3YPos every frame, so in the game the panel
  * follows the camera (bank_00.asm:14778-14803; X re-set each cycle, bank_02.asm:11147-11166). A
- * whole-map view has no camera, so it draws layer 3 once, on the entrance screen (camera X 0).
+ * whole-map view has no camera, so it draws layer 3 as one copy (world x = column*8 + 128).
  */
-describe('layer 3 under a smash sprite follows the camera: drawn once (synthetic, #997)', () => {
+describe('layer 3 under a smash sprite follows the camera: one copy (synthetic, #997)', () => {
   const alpha = (b: Uint8ClampedArray | null, x: number, y: number) => (b ? px(b, 256, x, y)[3] : null) // prettier-ignore
-  // One tile at BG3 column 0, so a copy would sit at map x 0, 512, 1024 (screens 0, 2, 4).
-  const words = [word(8, 0, L3_WORD(false))]
-  const follows = l3Of(words, { followsCamera: true })
+  // At Layer3XPos -128 BG3 column c sits at world x c*8 + 128, so the one copy spans world 128..639.
+  const X = -128
+  const at = (col: number, o: Partial<L3Inputs> = {}) => l3Of([word(8, col, L3_WORD(false))], { followsCamera: true, xPx: X, ...o }) // prettier-ignore
 
-  it('draws the entrance screen and nothing on the 512 px repeat screens', () => {
-    expect([0, 1, 2, 3, 4, 5].map(s => drawL3Planes(follows, s).l3Low !== null)).toEqual([true, false, false, false, false, false]) // prettier-ignore
-    expect(alpha(drawL3Planes(follows, 0).l3Low, 3, 3)).toBe(255)
+  it('draws the whole panel, including the half past the entrance screen (world 256..)', () => {
+    // column 16 -> world 256: the first pixel of screen 1; column 24 -> world 320
+    expect(alpha(drawL3Planes(at(16), 1).l3Low, 3, 3)).toBe(255)
+    expect(alpha(drawL3Planes(at(24), 1).l3Low, 3 + 64, 3)).toBe(255)
+    expect(alpha(drawL3Planes(at(7), 0).l3Low, 184 + 3, 3)).toBe(255)
   })
 
-  it('the entrance screen is the same picture the tiled path draws there', () => {
-    expect(drawL3Planes(follows, 0)).toEqual(drawL3Planes(l3Of(words), 0))
+  it('draws one copy and nothing at the 512 px repeat (world 640..)', () => {
+    // column 0 would repeat at world 128 + 512 = 640 (screen 2, x 128); the copy ends at column 63 (world 632..639)
+    expect([0, 1, 2, 3].map(s => drawL3Planes(at(0), s).l3Low !== null)).toEqual([true, false, false, false]) // prettier-ignore
+    expect([0, 1, 2, 3].map(s => drawL3Planes(at(63), s).l3Low !== null)).toEqual([false, false, true, false]) // prettier-ignore
+    expect(alpha(drawL3Planes(at(0), 2).l3Low, 128 + 3, 3)).toBeNull()
+    expect(alpha(drawL3Planes(at(63), 2).l3Low, 120 + 3, 3)).toBe(255)
+    expect(alpha(drawL3Planes(at(63), 2).l3Low, 128 + 3, 3)).toBe(0)
   })
 
   it('a layer 3 that does not follow the camera still tiles: plain and tide', () => {
+    const words = [word(8, 0, L3_WORD(false))]
     expect([0, 1, 2, 4].map(s => drawL3Planes(l3Of(words), s).l3Low !== null)).toEqual([true, false, true, true]) // prettier-ignore
     expect([0, 1, 2].map(s => drawL3Planes(l3Of(words, { tide: true }), s).l3Low !== null)).toEqual([true, true, true]) // prettier-ignore
   })
@@ -609,7 +617,7 @@ describe('layer 3 under a smash sprite follows the camera: drawn once (synthetic
 })
 
 describe.skipIf(!hasRom(VANILLA))('which vanilla maps take the smash path (corpus, #997)', () => {
-  it('exactly $01F, $1D4 and $1FC; each draws its entrance screen only', () => {
+  it('exactly $01F, $1D4 and $1FC; each draws one copy: screens 0 and 1 only', () => {
     const rom = RomFile.load(romPath(VANILLA))
     const smw = new SmwRom(rom)
     const hits: number[] = []
@@ -623,8 +631,8 @@ describe.skipIf(!hasRom(VANILLA))('which vanilla maps take the smash path (corpu
       const screens = Math.max(header.levelLength, 1)
       const l3 = { ...v.l3, colors: COLORS } // the sweep passes no palette; any opaque one shows the tiles
       const drawn = Array.from({ length: screens }, (_, s) => drawL3Planes(l3, s)).map((p, s) => (p.l3Low || p.l3High ? s : -1)).filter(s => s >= 0) // prettier-ignore
-      expect(drawn, `map ${id.toString(16)}`).toEqual([0])
-      console.log(`smash map $${id.toString(16)}: layer 3 on screen 0 of ${screens}, x ${v.l3.xPx} y ${v.l3.yPx}`) // prettier-ignore
+      expect(drawn, `map ${id.toString(16)}`).toEqual([0, 1]) // the panel spans world 184..~330, none past the one copy
+      console.log(`smash map $${id.toString(16)}: layer 3 on screens 0-1 of ${screens}, x ${v.l3.xPx} y ${v.l3.yPx}`) // prettier-ignore
     }
     expect(hits).toEqual([0x01f, 0x1d4, 0x1fc])
   }, 60_000)

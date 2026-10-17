@@ -45,7 +45,7 @@ export interface L3Inputs {
    * A loaded Layer 3 Smash sprite drives this layer (#997): it rewrites Layer3XPos/YPos every frame
    * (bank_00.asm:14778-14803), X scrolling with the camera and re-set each smash cycle
    * (bank_02.asm:11147-11166). A whole-map view has no camera, so it draws the layer once, on the
-   * entrance screen, and never repeats it every 512 px.
+   * as one copy, and never repeats it every 512 px.
    */
   followsCamera?: boolean
 }

@@ -560,6 +560,7 @@ and $1FC, all horizontal and all starting Mario at X 16, so the load camera X is
 - **Not #563.** The $81 camera-locked case runs CODE_05C40C: Y = Layer1YPos, X adds the camera
   movement plus a drift (bank_05.asm:5504-5571). Different code, different rule.
 
-The map view has no camera, so a smash-driven Layer 3 is drawn once, on screen 0, at the smash cycle's
-start X ($FF80, `SMASH_CYCLE_X`) and the level's Y, and never repeated every 512 px. The start of the
-range is a choice: the game's X in that range is random.
+The map view has no camera, so a smash-driven Layer 3 is drawn once: a single copy of the 512 px
+tilemap at world x = column * 8 + 128 (world 128..639), at the level's Y, and never repeated every
+512 px. The panel (columns 7-24 on $01F) spans screens 0 and 1. The X is a pick, not a fact: in the
+game it is -128..-65 per cycle (random), and the view uses the low end, `SMASH_CYCLE_X` (-128).

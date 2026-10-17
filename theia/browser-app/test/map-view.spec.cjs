@@ -1122,10 +1122,12 @@ for (const [index, role, bit, known] of [
 
 /**
  * #997: $01F's layer 3 is driven by the smash sprite, which keeps it on the camera in the game. The
- * map view draws it once, on the entrance screen, and nowhere else: on screen 2 (the 512 px repeat)
- * flipping the toggle changes no pixel, on screen 0 it changes some.
+ * map view draws ONE copy, at world x = column*8 + 128 (the smash cycle's start X, -128): the panel
+ * spans screen 0 (from x 184) into screen 1 (to about x 330 in world terms), and the 512 px repeat
+ * (the panel again from world 696, screen 2 from x 184) is not drawn. Coordinates were derived, not
+ * yet measured: the verifier's first run confirms them.
  */
-test('$01F: layer 3 is drawn once, not repeated 512 px on, and the toggle says it follows the camera', async ({
+test('$01F: layer 3 is drawn once, across screens 0 and 1, not repeated 512 px on, and the toggle says it follows the camera', async ({
   page,
 }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
@@ -1137,12 +1139,14 @@ test('$01F: layer 3 is drawn once, not repeated 512 px on, and the toggle says i
       { rootSel: root(0x01f), s },
     )
   await showScreen(page, 0x01f, 2)
-  const [on0, on2] = [await screenPixels(0), await screenPixels(2)]
+  const on = [await screenPixels(0), await screenPixels(1), await screenPixels(2)]
   await button.click()
   await expect(button).toHaveAttribute('aria-pressed', 'false')
-  const [off0, off2] = [await screenPixels(0), await screenPixels(2)]
-  expect(off2, 'no copy of layer 3 at the 512 px repeat').toEqual(on2)
-  expect(off0.filter((v, i) => v !== on0[i]).length, 'layer 3 is on the entrance screen').toBeGreaterThan(0) // prettier-ignore
+  const off = [await screenPixels(0), await screenPixels(1), await screenPixels(2)]
+  const changed = i => off[i].filter((v, k) => v !== on[i][k]).length
+  expect(changed(0), 'layer 3 is on screen 0').toBeGreaterThan(0)
+  expect(changed(1), 'the rest of the panel is on screen 1').toBeGreaterThan(0)
+  expect(off[2], 'no copy of layer 3 at the 512 px repeat').toEqual(on[2])
   await expect(button).toHaveAttribute('title', /follows the camera/)
 })
 
