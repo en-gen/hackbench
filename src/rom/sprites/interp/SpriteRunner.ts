@@ -392,7 +392,9 @@ export class Machine {
    */
   private placeNeighbours(): void {
     const w = this.bus.wram
-    const list = [...this.seed.neighbours!] // only a neighbour run calls this, and runOnce makes one only with neighbours
+    if (!this.seed.neighbours)
+      throw new Refusal('neighbour run: the seed lists no neighbours to place')
+    const list = [...this.seed.neighbours]
     for (let k = 0; k < SCANNED_SLOTS && list.length; k++) {
       if (k === this.seed.slot) continue
       const nb = list.shift()!
@@ -586,7 +588,13 @@ function runCore(
   const rand = checkGetRand(rom)
   if (!rand.ok) return { ...model, refusal: rand.reason }
   // A spawn finds its own slot, so the machine owns a copy of the seed whose slot it may update.
-  const m = new Machine(rom, opts.spawn ? { ...seed } : seed, id, shell, neighbourRun)
+  let m: Machine
+  try {
+    m = new Machine(rom, opts.spawn ? { ...seed } : seed, id, shell, neighbourRun)
+  } catch (e) {
+    if (e instanceof Refusal) return { ...model, refusal: e.message }
+    throw e
+  }
   if (opts.trackInputs) m.bus.inputs = new Set()
   try {
     // RNGCalc ($148B/C) is zero until the game first calls GetRand, its only

@@ -11,6 +11,7 @@ import { freshRom, hasRom, VANILLA } from '../../support/corpus'
 import { romWindowHits } from '../../support/romWindows'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { neighboursOf } from '../../../../src/rom/sprites/interp/Neighbours'
+import { Refusal } from '../../../../src/rom/cpu/call'
 import { Machine, RAM, runOnce } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { shellLoad } from '../../../../src/rom/sprites/ShellSprites'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
@@ -158,6 +159,12 @@ describe('neighbour run for a sprite that scans the slot tables (#841)', () => {
     expect(m.neighbourRun).toBe('same')
     expect(m.dependsOn).not.toContain('neighbours')
     expect(partsOf(m)).toEqual(partsOf(alone))
+  })
+
+  it('a neighbour run with no seed.neighbours is refused with a reason, not a crash', () => {
+    const make = () => new Machine(rom, seedWith(), SCANNER, undefined, true)
+    expect(make).toThrow(Refusal)
+    expect(make).toThrow(/neighbour run.*seed lists no neighbours/)
   })
 
   it('a sprite that does not scan is not run again', () => {
