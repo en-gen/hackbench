@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import type { RgbaColor } from '../../../src/rom/GraphicsDecoder'
-import { parseLevelHeader } from '../../../src/rom/LevelParser'
+import { isLevelModeVertical, parseLevelHeader } from '../../../src/rom/LevelParser'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { withCrusher } from '../../../src/rom/L3CodeGate'
@@ -548,11 +548,102 @@ describe('a $80 level under a smash sprite (synthetic, #807)', () => {
   const verdictWith = (smash: Parameters<typeof buildL3Verdict>[6]) => buildL3Verdict(rom(), 5, l1Of(0, 1, false), BG_OK, chars, GATE_OK, smash) // prettier-ignore
 
   it('takes the smasher position, and keeps $D0 with X 0 when no smasher is loaded', () => {
-    expect(verdictWith(() => ({ ok: true, pos: { x: 256, y: 160 } })).l3).toMatchObject({ xPx: 256, yPx: 160 }) // prettier-ignore
+    // X is the smash cycle's start, not the level X (#997)
+    expect(verdictWith(() => ({ ok: true, pos: { x: 256 } })).l3).toMatchObject({ xPx: -128, yPx: 160 }) // prettier-ignore
     expect(verdictWith(noSmash).l3).toMatchObject({ xPx: 0, yPx: 0xd0 })
+  })
+
+  it('draws the cycle start Y ($A0) whatever the map sprite Y: state 0 zeroes the sprite Y (#997)', () => {
+    expect(verdictWith(() => ({ ok: true, pos: { x: 112 } })).l3).toMatchObject({ xPx: -128, yPx: 160 }) // prettier-ignore
   })
 
   it('refuses with the reason when the smash read refuses', () => {
     expect(verdictWith(() => ({ ok: false, reason: 'because' }))).toMatchObject({ l3: null, reason: 'because' }) // prettier-ignore
   })
+})
+
+/**
+ * #997: a loaded smash sprite writes Layer3XPos/Layer3YPos every frame, so in the game the panel
+ * follows the camera (bank_00.asm:14778-14803; X re-set each cycle, bank_02.asm:11147-11166). A
+ * whole-map view has no camera, so it draws layer 3 as one copy (world x = column*8 + 128).
+ */
+describe('layer 3 under a smash sprite follows the camera: one copy (synthetic, #997)', () => {
+  const alpha = (b: Uint8ClampedArray | null, x: number, y: number) => (b ? px(b, 256, x, y)[3] : null) // prettier-ignore
+  // At Layer3XPos -128 BG3 column c sits at world x c*8 + 128, so the one copy spans world 128..639.
+  const X = -128
+  const at = (col: number, o: Partial<L3Inputs> = {}) => l3Of([word(8, col, L3_WORD(false))], { followsCamera: true, xPx: X, ...o }) // prettier-ignore
+
+  it('draws the whole panel, including the half past the entrance screen (world 256..)', () => {
+    // column 16 -> world 256: the first pixel of screen 1; column 24 -> world 320
+    expect(alpha(drawL3Planes(at(16), 1).l3Low, 3, 3)).toBe(255)
+    expect(alpha(drawL3Planes(at(24), 1).l3Low, 3 + 64, 3)).toBe(255)
+    expect(alpha(drawL3Planes(at(7), 0).l3Low, 184 + 3, 3)).toBe(255)
+  })
+
+  it('every column is drawn once, at world x = column*8 + 128, and nowhere at the 512 px repeat', () => {
+    for (let col = 0; col < 64; col++) {
+      const world = col * 8 + X * -1
+      const hits = [0, 1, 2, 3].filter(s => drawL3Planes(at(col), s).l3Low !== null)
+      expect(hits, `column ${col}`).toEqual([world >> 8])
+      expect(alpha(drawL3Planes(at(col), world >> 8).l3Low, (world & 255) + 3, 3), `column ${col}`).toBe(255) // prettier-ignore
+    }
+    // column 0 would repeat at world 128 + 512 = 640 (screen 2, x 128): nothing there.
+    expect(alpha(drawL3Planes(at(0), 2).l3Low, 128 + 3, 3)).toBeNull()
+    expect(alpha(drawL3Planes(at(63), 2).l3Low, 128 + 3, 3)).toBe(0)
+  })
+
+  it('a layer 3 that does not follow the camera still tiles: plain and tide', () => {
+    const words = [word(8, 0, L3_WORD(false))]
+    expect([0, 1, 2, 4].map(s => drawL3Planes(l3Of(words), s).l3Low !== null)).toEqual([true, false, true, true]) // prettier-ignore
+    expect([0, 1, 2].map(s => drawL3Planes(l3Of(words, { tide: true }), s).l3Low !== null)).toEqual([true, true, true]) // prettier-ignore
+  })
+
+  const rom = (byte: number, tileset: number) => withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset, setting: 2, settingsByte: byte, word: L3_WORD(false) }) // prettier-ignore
+  const verdictFor = (byte: number, tileset: number, smash: Parameters<typeof buildL3Verdict>[6]) => buildL3Verdict(rom(byte, tileset), 5, l1Of(0, tileset, false), BG_OK, chars, GATE_OK, smash) // prettier-ignore
+
+  it('the verdict flags only a $80 map with a loaded smasher, and the wire carries it', () => {
+    const loaded = verdictFor(0x80, 1, () => ({ ok: true, pos: { x: 256 } }))
+    expect(loaded.l3).toMatchObject({ followsCamera: true, xPx: -128, yPx: 160 })
+    expect(wireOf({ ...l1Of(0, 1, false), l3: loaded }).layer3.followsCamera).toBe(true)
+    // $80 with no loaded smasher stays at the fixed load position, and a tide is not smash-driven: both draw, unflagged.
+    for (const [byte, tileset, pos] of [
+      [0x80, 1, null],
+      [0x02, 0, { x: 1, y: 1 }],
+    ] as const) {
+      const v = verdictFor(byte, tileset, () => ({ ok: true, pos }))
+      expect(v.l3, `byte ${byte}`).not.toBeNull()
+      expect([byte, v.l3!.followsCamera]).toEqual([byte, undefined])
+    }
+    // Camera-locked bytes are refused whatever a smasher says.
+    for (const byte of [0x00, 0x82]) {
+      expect(verdictFor(byte, 0, () => ({ ok: true, pos: { x: 1 } })).l3, `byte ${byte}`).toBeNull() // prettier-ignore
+    }
+    const plain = verdictFor(0x02, 0, () => ({ ok: true, pos: { x: 1 } }))
+    expect(plain.l3?.followsCamera).toBeUndefined()
+    expect(wireOf({ ...l1Of(0, 0, false), l3: plain }).layer3.followsCamera).toBeUndefined()
+  })
+})
+
+describe.skipIf(!hasRom(VANILLA))('which vanilla maps take the smash path (corpus, #997)', () => {
+  it('exactly $01F, $1D4 and $1FC; each draws one copy: screens 0 and 1 only', () => {
+    const rom = RomFile.load(romPath(VANILLA))
+    const smw = new SmwRom(rom)
+    const hits: number[] = []
+    const verticalTable = Array.from(rom.readAt(0x058417, 32)!)
+    for (let id = 0; id < 512; id++) {
+      const raw = smw.getLevelRawData(id)
+      if (!raw) continue
+      const header = parseLevelHeader(raw)
+      const isVertical = isLevelModeVertical(header.levelMode, verticalTable)
+      const v = buildL3Verdict(rom, id, { header, isVertical, colors: [] }, BG_OK)
+      if (!v.l3?.followsCamera) continue
+      hits.push(id)
+      const screens = Math.max(header.levelLength, 1)
+      const l3 = { ...v.l3, colors: COLORS } // the sweep passes no palette; any opaque one shows the tiles
+      const drawn = Array.from({ length: screens }, (_, s) => drawL3Planes(l3, s)).map((p, s) => (p.l3Low || p.l3High ? s : -1)).filter(s => s >= 0) // prettier-ignore
+      expect(drawn, `map ${id.toString(16)}`).toEqual([0, 1]) // the panel spans world 184..~330, none past the one copy
+      console.log(`smash map $${id.toString(16)}: layer 3 on screens 0-1 of ${screens}, x ${v.l3.xPx} y ${v.l3.yPx}`) // prettier-ignore
+    }
+    expect(hits).toEqual([0x01f, 0x1d4, 0x1fc])
+  }, 60_000)
 })

@@ -28,18 +28,17 @@ describe('l3SmashPos (synthetic sprite lists)', () => {
     expect(SMASH_SPRITE_ID).toBe(0x89)
   })
 
-  it('X is the sprite X inside $00-$FF and $100 beyond it; Y is $A0 minus the sprite Y', () => {
+  it('frame 0 X is the sprite X inside $00-$FF and $100 beyond it', () => {
     const at = (x: number, y: number) => l3SmashPos([spr(0x89, x, y)], 16)
-    expect(at(112, 0)).toEqual({ ok: true, pos: { x: 112, y: 160 } })
-    expect(at(288, 0)).toEqual({ ok: true, pos: { x: 256, y: 160 } })
-    expect(at(240, 0x30)).toEqual({ ok: true, pos: { x: 240, y: 0x70 } })
+    expect(at(112, 0)).toEqual({ ok: true, pos: { x: 112 } })
+    expect(at(288, 0)).toEqual({ ok: true, pos: { x: 256 } })
+    expect(at(240, 0x30)).toEqual({ ok: true, pos: { x: 240 } })
     expect(at(256, 0)).toMatchObject({ pos: { x: 256 } })
-    expect(at(16, 0xa0)).toEqual({ ok: true, pos: { x: 16, y: 0 } })
+    expect(at(16, 0xa0)).toEqual({ ok: true, pos: { x: 16 } })
   })
 
-  it('a sprite with y past $A0 (lower on screen) refuses (negative Y is not modelled), never an empty success', () => {
-    expect(l3SmashPos([spr(0x89, 16, 0x110)], 16)).toMatchObject({ ok: false })
-    expect(l3SmashPos([spr(0x89, 16, 0xb0)], 16)).toMatchObject({ ok: false })
+  it('a sprite below $A0 is not refused: Y is not read, the view draws the cycle start (#997)', () => {
+    expect(l3SmashPos([spr(0x89, 16, 0xb0)], 16)).toEqual({ ok: true, pos: { x: 16 } })
   })
 
   it('no smasher, or one past the start-up load window ($190), leaves layer 3 where CODE_00A007 put it', () => {
@@ -61,9 +60,10 @@ const INIT = 0x01843d
 const SITE = 0x00ff61
 const MAIN_TABLE = 0x0185cc + 0x89 * 2
 const INIT_TABLE = 0x01817d + 0x89 * 2
-/** Three code regions of distinct bytes (stand-ins for the position routine, the sprite loader and the sweep). */
-const REGIONS = [SITE, 0x02a7f6, 0x02aca1].map((addr, i) => ({ addr, bytes: Array.from({ length: 40 }, (_, k) => (k * 7 + i * 31 + 3) & 0xff) })) // prettier-ignore
-const sites = REGIONS.map(r => ({ addr: r.addr, length: 40, sha256: createHash('sha256').update(Buffer.from(r.bytes)).digest('hex') })) // prettier-ignore
+/** Four code regions of distinct bytes (stand-ins for the position routine, the sprite loader, the sweep and the smasher's main with its state 0). */
+const REGIONS = [SITE, 0x02a7f6, 0x02aca1, MAIN].map((addr, i) => ({ addr, bytes: Array.from({ length: i === 3 ? 91 : 40 }, (_, k) => (k * 7 + i * 31 + 3) & 0xff) })) // prettier-ignore
+REGIONS[3]!.bytes.splice(0, 4, 0x22, SITE & 0xff, SITE >> 8, 0x00) // the main opens with JSL CODE_00FF61
+const sites = REGIONS.map(r => ({ addr: r.addr, length: r.bytes.length, sha256: createHash('sha256').update(Buffer.from(r.bytes)).digest('hex') })) // prettier-ignore
 
 /** A cart with the sprite $89 chain and the three regions, built from literals. */
 function smashRom(): RomFile {
@@ -74,7 +74,6 @@ function smashRom(): RomFile {
   rom.writeAt(INIT, [0x60])
   rom.writeAt(STUB, [0x8b, 0xa9, 0x02, 0x48, 0xab, 0x22, MAIN & 0xff, (MAIN >> 8) & 0xff, 0x02])
   for (const r of REGIONS) rom.writeAt(r.addr, r.bytes)
-  rom.writeAt(MAIN, [0x22, SITE & 0xff, SITE >> 8, 0x00]) // JSL CODE_00FF61, over the region's first bytes' neighbours
   return rom
 }
 describe('L3_SMASH_SITES (no ROM)', () => {
@@ -83,6 +82,7 @@ describe('L3_SMASH_SITES (no ROM)', () => {
       [0x00ff61, 50],
       [0x02a7f6, 0x1e8],
       [0x02aca1, 64],
+      [0x02d3ea, 91],
     ])
   })
 
@@ -109,12 +109,25 @@ describe('readSmashCodeGate (synthetic code)', () => {
       ['the position routine', SITE + 20],
       ['the sprite loader (a JML in it)', 0x02a7f6 + 30],
       ['the start-up sweep', 0x02aca1 + 10],
+      ['the camera-delta add (CLC)', MAIN + 19],
+      ['the camera-delta add (ADC)', MAIN + 20],
+      ['state 0 X operand (ORA #$80)', MAIN + 75],
+      ['state 0 X high operand (LDA #$FF)', MAIN + 79],
     ]
     for (const [what, at] of plants) {
       const rom = smashRom()
       rom.writeAt(at, [rom.readByte(at)! ^ 0x55])
       expect(readSmashCodeGate(rom, sites), what).toBe(false)
     }
+  })
+})
+
+describe('readSmashCodeGate: the main pointer must land on the fingerprinted routine (#997)', () => {
+  it('a stub redirected to a copy of the opening JSL elsewhere is refused', () => {
+    const rom = smashRom()
+    rom.writeAt(0x02f600, [0x22, SITE & 0xff, SITE >> 8, 0x00, 0x6b]) // JSL CODE_00FF61 / RTL
+    rom.writeAt(STUB + 6, [0x00, 0xf6])
+    expect(readSmashCodeGate(rom, sites)).toBe(false)
   })
 })
 
@@ -129,7 +142,7 @@ describe('readL3SmashLoadPos (synthetic cart)', () => {
   const one = { sprites: () => [spr(0x89, 288, 0)], sites }
 
   it('gives the smasher position on a stock-shaped cart', () => {
-    expect(readL3SmashLoadPos(withStart(smashRom(), 0), LEVEL, one)).toEqual({ ok: true, pos: { x: 256, y: 160 } }) // prettier-ignore
+    expect(readL3SmashLoadPos(withStart(smashRom(), 0), LEVEL, one)).toEqual({ ok: true, pos: { x: 256 } }) // prettier-ignore
   })
 
   it('refuses when the position routine, the stub or the sweep is hooked (the gate is on the path)', () => {
@@ -198,11 +211,22 @@ describe.skipIf(!hasRom(VANILLA))(
         const header = parseLevelHeader(smw.getLevelRawData(id)!)
         return buildL3Verdict(r, id, { header, isVertical: false, colors: [] } as never, { ok: true, mode: 1 }) // prettier-ignore
       }
-      expect(readL3SmashLoadPos(r, 0x1f)).toEqual({ ok: true, pos: { x: 256, y: 160 } })
-      expect(readL3SmashLoadPos(r, 0x1d4)).toEqual({ ok: true, pos: { x: 112, y: 160 } })
-      expect(readL3SmashLoadPos(r, 0x1fc)).toEqual({ ok: true, pos: { x: 256, y: 160 } })
-      expect(verdictOf(0x1f).l3).toMatchObject({ xPx: 256, yPx: 160 })
-      expect(verdictOf(0x1d4).l3).toMatchObject({ xPx: 112, yPx: 160 })
+      expect(readL3SmashLoadPos(r, 0x1f)).toEqual({ ok: true, pos: { x: 256 } })
+      expect(readL3SmashLoadPos(r, 0x1d4)).toEqual({ ok: true, pos: { x: 112 } })
+      expect(readL3SmashLoadPos(r, 0x1fc)).toEqual({ ok: true, pos: { x: 256 } })
+      // The map view draws the smash cycle's start X, not frame 0's (#997, SMASH_CYCLE_X); Y is the level's.
+      expect(verdictOf(0x1f).l3).toMatchObject({ xPx: -128, yPx: 160 })
+      expect(verdictOf(0x1d4).l3).toMatchObject({ xPx: -128, yPx: 160 })
+    })
+
+    it('the smasher main and its state 0 are fingerprinted: a changed X operand or a removed camera-delta add refuses (#997)', () => {
+      expect(readSmashCodeGate(rom())).toBe(true)
+      // Offsets into Layer3SmashMain (bank_02.asm:11123): CLC, ADC of the delta add; state 0's ORA #$80 and LDA #$FF.
+      for (const at of [19, 20, 75, 79]) {
+        const r = rom()
+        r.writeAt(0x02d3ea + at, [r.readByte(0x02d3ea + at)! ^ 0x01])
+        expect(readSmashCodeGate(r), `offset ${at}`).toBe(false)
+      }
     })
 
     it('a one-byte patch in the position routine refuses instead of drawing at the stock place', () => {

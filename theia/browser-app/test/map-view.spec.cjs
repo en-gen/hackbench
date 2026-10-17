@@ -1072,7 +1072,7 @@ for (const [index, role, bit, known] of [
       // (backend probe, one run, one machine: the same box on screens 0-3; the box starts at 257, the first opaque
       // row). A low plane (l3Low), so pixels are read there. No outline-black pixel: the two are its first opaque
       // pixel in raster order and one of another color. $01F (smash
-      // Layer 3, 512 px repeat) is left out until #997.
+      // Layer 3, drawn once) has its own test below (#997).
       plane: 'l3Low',
       box: { x: 0, y: 257 },
       pixel: { x: 25, y: 257 },
@@ -1130,6 +1130,40 @@ for (const [index, role, bit, known] of [
     expect(back.pixels).toEqual(before.pixels)
   })
 }
+
+/**
+ * #997: $01F's layer 3 is driven by the smash sprite, which keeps it on the camera in the game. The
+ * map view draws ONE copy, at world x = column*8 + 128 (the smash cycle's start X, -128): the panel
+ * spans screen 0 (from x 184) into screen 1 (to about x 330 in world terms), and the 512 px repeat
+ * (the panel again from world 696, screen 2 from x 184) is not drawn. Coordinates were derived, not
+ * yet measured: the verifier's first run confirms them.
+ */
+test('$01F: layer 3 is drawn once, across screens 0 and 1, not repeated 512 px on, and the toggle says it follows the camera', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x01f)
+  const button = l3Toggle(page, 0x01f)
+  const screenPixels = s =>
+    page.evaluate(
+      ({ rootSel, s }) => Array.from(composeCanvases(planesOf(rootSel, s), 0, 0, 256, 432)),
+      { rootSel: root(0x01f), s },
+    )
+  await showScreen(page, 0x01f, 2)
+  const on = [await screenPixels(0), await screenPixels(1), await screenPixels(2)]
+  await button.click()
+  await expect(button).toHaveAttribute('aria-pressed', 'false')
+  // Wait for the toggle's redraw to reach screen 2 as well (the composite of screen 0 changes first).
+  await expect.poll(async () => (await screenPixels(0)).some((v, k) => v !== on[0][k])).toBe(true)
+  await showScreen(page, 0x01f, 2)
+  const off = [await screenPixels(0), await screenPixels(1), await screenPixels(2)]
+  const changed = i => off[i].filter((v, k) => v !== on[i][k]).length
+  expect(changed(0), 'layer 3 is on screen 0').toBeGreaterThan(0)
+  expect(changed(1), 'the rest of the panel is on screen 1').toBeGreaterThan(0)
+  expect(on[2].some(v => v !== 0), 'screen 2 is rendered, so the comparison below is not of two blanks').toBe(true) // prettier-ignore
+  expect(off[2], 'no copy of layer 3 at the 512 px repeat').toEqual(on[2])
+  await expect(button).toHaveAttribute('title', /follows the camera/)
+})
 
 /**
  * The toggle look (option D): pressed is a filled chip with a 1px border, off has neither (a transparent

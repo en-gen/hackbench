@@ -531,3 +531,36 @@ Added for #505. The map view draws L2 at `Layer1YPos - Layer2YPos` as the level 
 - One secondary flag per map. `UseSecondaryExit` is a single byte that every screen-exit object rewrites as the load parses it, and the exit path reads it once, so the last exit object's flag holds for all of a map's exits. `LevelStart` and the exit graph share that rule (`mapUsesSecondaryExits`). Vanilla has no map whose exit objects mix the two flags; the hacks do, but they refuse the exit graph. Not modelled: the game also runs screen exits from the Layer 2 object stream in some level modes (`bank_05.asm:430-472`, extended object 0 reaching `CODE_0DA512` at `bank_0D.asm:1062`), which can overwrite the flag after Layer 1; both readers parse Layer 1 only. Evidence scope: Layer 2 screen exits in 0 vanilla maps, from a parse-level probe, not an emulator run. SMWDisX `bank_0D.asm:1436-1438`, `bank_05.asm:7111-7112, 7300`. `[EST]`
 - Vanilla, one machine, 2026-10-10: no map is reached only by secondary entrances; the 28 maps with secondary entrances are all entry maps. Across the 143-map roster no L2 position changes, and one map ($118) gains the note: it is not vertical, so its midway restart matches its overworld entry, and its secondary entrance $1C3 starts L2 at a different height. The four corpus hacks refuse the exit graph, so the Layer 2 position is unchanged on them. `[EST]`
 - Not modelled: the castle and ghost house intro scene (`bank_05.asm:7436-7447`), a separate scene that sets both positions to $C0.
+
+## Layer 3 under a smash sprite (#997)
+
+Settings byte $80 with a loaded Layer 3 Smash sprite ($89) is the one case where the game moves
+Layer 3 by a sprite, and it does so every frame. Evidence scope: SMWDisX read plus a scan of the
+vanilla map data (two tracing passes, no emulator run); vanilla maps with the sprite: $01F, $1D4
+and $1FC, all horizontal and all starting Mario at X 16, so the load camera X is 0
+(bank_05.asm:7170, UpdateScreenPosition bank_00.asm:13631-13690).
+
+- **Who writes it.** The sprite's main routine calls CODE_00FF61 first, before its lock check
+  (bank_02.asm:11123-11124), which writes Layer3XPos and Layer3YPos (bank_00.asm:14778-14803). The
+  load-time setup leaves the layer's own scroll code switched off (bank_00.asm:4190-4191,
+  bank_05.asm:4481-4484), so nothing else moves it.
+- **X.** Layer3XPos is the sprite's X (kept in -256..255, else pinned at $100). The sprite adds the
+  camera's per-frame movement to its X (bank_02.asm:11127-11137; the movement is new minus old,
+  positive to the right, bank_00.asm:13643, 13752-13755), so Layer 3 scrolls with the camera, at
+  Layer 1's speed. State 0 sets the sprite X to $FF80 plus a random 0-63 at the start of every smash
+  cycle (bank_02.asm:11147-11166; state 4 returns to it), so each cycle the panel restarts 65-128 px
+  right of the screen's left edge, and it pins at $100 only if the camera moves about 321-384 px
+  within one cycle. Over time it follows the camera. The very first frame uses the map's sprite X
+  instead (the sprite's X and Y in the map's data), which is $100 on $01F and $1FC (a blank screen: BG3 columns 32-63 are empty).
+- **Y.** $A0 minus the sprite's Y, plus the shake offset. The camera is not in it, so on screen the
+  layer keeps its place vertically (the sprite's Y animates between 0 and $A0 as the smasher falls
+  and rises). Before the sprite is loaded, Y is $D0 (bank_00.asm:4192-4195).
+- **No despawn.** The routine has no off-screen check; only SpriteWillAppear erases it
+  (bank_02.asm:11148-11150).
+- **Not #563.** The $81 camera-locked case runs CODE_05C40C: Y = Layer1YPos, X adds the camera
+  movement plus a drift (bank_05.asm:5504-5571). Different code, different rule.
+
+The map view has no camera, so a smash-driven Layer 3 is drawn once: a single copy of the 512 px
+tilemap at world x = column * 8 + 128 (world 128..639), at the cycle's start Y ($A0), and never repeated every
+512 px. The panel (columns 7-24 on $01F) spans screens 0 and 1. The X is a pick, not a fact: in the
+game it is -128..-65 per cycle (random), and the view uses the low end, `SMASH_CYCLE_X` (-128).
