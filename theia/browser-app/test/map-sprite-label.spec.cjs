@@ -9,7 +9,9 @@
  * Plants (what turns each assertion red): giving the strip a `title` again fails "no native title" in AC1; showing
  * the id beside the name (e.g. "Podoboo (sprite $33)") fails every exact-text check; dropping the `hoverService`
  * request, or showing a plain div instead of it, fails the hover and theme checks; publishing the name to the
- * status bar again fails the status bar checks (hover and click).
+ * status bar again fails the status bar checks (hover and click); moving the `setHoverSprite(undefined)` calls out of
+ * `open()`/`refresh()` (back to after the reply) fails the refresh test; removing the scroll reset in `onScroll` (or the
+ * zoom check in `setHoverSprite`) leaves the anchor at its old place and fails the scroll test.
  * Vanilla ROM; the pinned slot, indexes and ids below were found by a mapSprites sweep (one run, one machine).
  */
 const { test, expect } = require('@playwright/test')
@@ -307,4 +309,52 @@ test('AC5: a hidden (screen door) sprite shows its name too', async ({ page }) =
     )
     .toBe(true)
   await expect.poll(() => hoverAt(page, HIDDEN.slot, map, at), { timeout: 30000 }).toBe(HIDDEN.name)
+})
+
+test('a reload drops the hover and its anchor at once, before the new sprites arrive (#981)', async ({
+  page,
+}) => {
+  const slot = HIDDEN.slot
+  const map = await openMap(page, slot)
+  const sprite = namedSprite(map)
+  const at = ownPixel(map, sprite)
+  await expect.poll(() => hoverAt(page, slot, map, at), { timeout: 30000 }).toBe(sprite.name)
+  // Synchronous, in one task: nothing the reply does can have run yet, so only refresh() itself can have cleared it.
+  const after = await page.evaluate(id => {
+    getSvc('ApplicationShell').getWidgetById(id).refresh()
+    const h = document.querySelector('.theia-hover')
+    return {
+      open: !!(h && h.isConnected && h.matches(':popover-open')),
+      anchors: document.querySelectorAll('.hb-map-sprite-anchor').length,
+    }
+  }, `hackbench.map-view:${slot}`)
+  expect(after).toEqual({ open: false, anchors: 0 })
+})
+
+test('scrolling under a still pointer re-places the hover on the sprite (#981)', async ({
+  page,
+}) => {
+  const slot = HIDDEN.slot
+  const map = await openMap(page, slot)
+  const sprite = namedSprite(map)
+  const at = ownPixel(map, sprite)
+  await setZoom(page, slot, ZOOMS.actual)
+  await expect.poll(() => hoverAt(page, slot, map, at), { timeout: 30000 }).toBe(sprite.name)
+  const before = await page.locator('.hb-map-sprite-anchor').boundingBox()
+  await page.evaluate(
+    strip => document.querySelector(strip).closest('[data-control="map-scroller"]').scrollBy(1, 1),
+    stripOf(slot),
+  )
+  // The anchor must sit over the sprite's box in the new view, wherever the strip now is.
+  await expect
+    .poll(async () => {
+      const a = await page.locator('.hb-map-sprite-anchor').boundingBox()
+      const r = await page.locator(stripOf(slot)).boundingBox()
+      if (!a || !r) return 'none'
+      const z = r.width / map.mapW
+      const [dx, dy] = [a.x - (r.x + sprite.box.x0 * z), a.y - (r.y + sprite.box.y0 * z)]
+      return Math.abs(dx) <= 1 && Math.abs(dy) <= 1 ? 'aligned' : `off by ${dx},${dy}`
+    })
+    .toBe('aligned')
+  expect(before, 'an anchor was shown before the scroll').toBeTruthy()
 })

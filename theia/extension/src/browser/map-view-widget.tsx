@@ -178,6 +178,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected hoverSprite: MapSpriteDto | undefined
   /** The invisible box over the hovered sprite that the hover is placed against. */
   protected spriteAnchor: HTMLElement | undefined
+  /** The zoom the anchor was placed at: a different one moves the sprite, so the hover is asked for again. */
+  protected hoverZoom = 0
   /** Bumped when `sprites` is replaced, so a canvas painted from the old ones is repainted. */
   protected spritesVersion = 0
   /** The collision overlay (#435); off by default. */
@@ -314,6 +316,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.error = undefined
     this.mapLayout = undefined
     this.sprites = undefined
+    this.setHoverSprite(undefined)
     this.spritesWhy = undefined
     this.collision = undefined
     this.collisionWhy = undefined
@@ -410,6 +413,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** Drops every cached screen and reads the map again from the working copy. */
   protected refresh(): void {
     this.generation++
+    this.setHoverSprite(undefined)
     this.screens.clear()
     this.coveredIds.clear()
     this.lift = undefined
@@ -900,8 +904,9 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   }
 
   protected setHoverSprite(next: MapSpriteDto | undefined): void {
-    if (next === this.hoverSprite) return
+    if (next === this.hoverSprite && this.hoverZoom === this.zoom) return
     this.hoverSprite = next
+    this.hoverZoom = this.zoom
     this.hoverService.cancelHover()
     this.spriteAnchor?.remove()
     this.spriteAnchor = undefined
@@ -1282,6 +1287,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
             const at = l.orientation === 'vertical' ? t.scrollTop : t.scrollLeft
             if (this.startState === 'pending' && at !== 0) this.movedBeforeStart = true
             this.requestVisible()
+            // The sprite moved under a still pointer: drop the hover so it is asked for again at the new place.
+            this.setHoverSprite(undefined)
             this.updateHover()
           }}
           onMouseMove={this.onPointerMove}
