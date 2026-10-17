@@ -7,6 +7,8 @@
  * Evidence scope: the fixture's own routines; the vanilla maps are graded by spriteGrade.captures.test.ts.
  */
 import { describe, expect, it } from 'vitest'
+import { freshRom, hasRom, VANILLA } from '../../support/corpus'
+import { romWindowHits } from '../../support/romWindows'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { neighboursOf } from '../../../../src/rom/sprites/interp/Neighbours'
 import { Machine, RAM, runOnce } from '../../../../src/rom/sprites/interp/SpriteRunner'
@@ -33,12 +35,16 @@ const SHELL_LIST_ID = 0xdb
 /** Draws nothing of its own; scans for id QUIET and draws only that companion. */
 const BARE = 59
 
+/** Every byte run this file's cart plants, for the copyright check at the foot of the file. */
+const planted: number[][] = []
+
 function cart(opts: { breakShellLoader?: boolean } = {}): RomFile {
   const bytes = new Uint8Array(buildSyntheticRom().buffer)
   const off = (snes: number) => (snes >>> 16) * 0x8000 + ((snes & 0xffff) - 0x8000)
   const put = (snes: number, b: number[]) => {
     expect(bytes.subarray(off(snes), off(snes) + b.length).every(v => v === 0)).toBe(true)
     bytes.set(b, off(snes))
+    planted.push([...b])
   }
   // JSR $8640 (id 0's draw) / LDY #9 / loop: LDA $14C8,Y / EOR #8 / BNE next / LDA $009E,Y / EOR #51 / BEQ found
   // / next: DEY / BPL loop / RTS / found: PHX / TYX / JSR $8640 / PLX / RTS
@@ -265,3 +271,15 @@ describe('neighboursOf', () => {
     expect(neighboursOf(list, me, px)).toHaveLength(9)
   })
 })
+
+describe.skipIf(!hasRom(VANILLA))(
+  'the fixture routines are not copied from the game (#841)',
+  () => {
+    it('no 8 consecutive planted bytes occur anywhere in the vanilla cart', () => {
+      planted.length = 0
+      cart()
+      expect(planted.length).toBeGreaterThan(10)
+      expect(romWindowHits(planted, freshRom().buffer, 8)).toEqual([])
+    })
+  },
+)
