@@ -13,12 +13,16 @@
  * - src/rom/MarioGraphics.ts `charsFromUploads`: `slotChars(slot + 1)`: the chars land on the wrong cells, the count
  *   or the identical-bitmaps assertion goes red;
  * - theia/extension/src/node/map-sprites.ts `drawSprites`: `upload?.get(p.charNum ^ 1)` (each char swapped for its
- *   twin, which has the same shape and the colors of index 4 and 6 exchanged): the opaque count stays 184, only the
- *   color-sharing counts below move (56 and 82 swap), so they are what makes this plant red.
- * The counts 56 / 82 were measured from the same node reply (vanilla ROM, one machine, one run) and agree with the
- * per-pixel comparison against the hardware chars and the map palette in MarioGraphics.corpus.test.ts (12 maps, 72 Podoboos).
+ *   twin, same shape and opaque count 184, colors exchanged): the SHA-1 of each of the four 8 x 8 quadrants of the
+ *   bitmap (RGBA bytes, row-major) changes in all four, so the quadrant hashes below are what makes this plant red.
+ * The quadrant hashes were measured from the node reply (vanilla ROM, 2026-10-17, f6c852ed, one machine) by calling
+ * mapSprites directly with and without the plant: clean 7b08f6f5ec6e / 84d42aab9e26 / 722c797d8081 / b7f53d1e887a,
+ * plant 5ea6ee497b66 / 0984de91a3f1 / 7e0024abdb71 / 7f678b1599fa (first 12 hex digits; top-left, top-right,
+ * bottom-left, bottom-right). The same layout is proved pixel for pixel against the hardware chars and the map palette
+ * in MarioGraphics.corpus.test.ts (12 maps, 72 Podoboos), so the hashes pin a picture that test shows is right.
  */
 const { test, expect } = require('@playwright/test')
+const nodeCrypto = require('crypto')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
@@ -52,7 +56,7 @@ test.afterEach(() => {
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true })
 })
 
-test('map $11C draws each Podoboo from the player buffer: 184 opaque pixels, no note, identical bitmaps', async ({
+test('map $11C draws each Podoboo from the player buffer: 184 opaque pixels, no note, identical bitmaps, pinned quadrants', async ({
   page,
 }) => {
   const project = await page.evaluate(
@@ -79,15 +83,16 @@ test('map $11C draws each Podoboo from the player buffer: 184 opaque pixels, no 
     expect(opaque(p)).toBe(OPAQUE)
   }
   expect(new Set(pods.map(p => p.rgba)).size, 'one frame, one picture').toBe(1)
-  // Pixels sharing the color of the outer top pixel (5, 0) and of the inner pixel (5, 2) of the 16 x 16 bitmap.
+  // A hash per 8 x 8 quadrant of the 16 x 16 bitmap: a char swapped for its twin keeps the shape but moves the colors.
   const rgba = Buffer.from(pods[0].rgba, 'base64')
-  const at = (x, y) => rgba.subarray((y * 16 + x) * 4, (y * 16 + x) * 4 + 4).toString('hex')
-  const sharing = (x, y) => {
-    let n = 0
-    for (let i = 0; i < 256; i++)
-      if (rgba.subarray(i * 4, i * 4 + 4).toString('hex') === at(x, y)) n++
-    return n
+  const quadrant = (qx, qy) => {
+    const rows = []
+    for (let y = 0; y < 8; y++)
+      rows.push(rgba.subarray(((qy + y) * 16 + qx) * 4, ((qy + y) * 16 + qx + 8) * 4))
+    return nodeCrypto.createHash('sha1').update(Buffer.concat(rows)).digest('hex').slice(0, 12)
   }
-  expect(at(5, 0)).not.toBe(at(5, 2))
-  expect([sharing(5, 0), sharing(5, 2)], 'the outer and inner colors of the face').toEqual([56, 82])
+  expect(
+    [quadrant(0, 0), quadrant(8, 0), quadrant(0, 8), quadrant(8, 8)],
+    'top-left, top-right, bottom-left, bottom-right',
+  ).toEqual(['7b08f6f5ec6e', '84d42aab9e26', '722c797d8081', 'b7f53d1e887a'])
 })

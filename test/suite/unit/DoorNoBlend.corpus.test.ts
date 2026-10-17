@@ -28,7 +28,12 @@ const NO_FLAGS: SwitchFlagsDto = { green: false, yellow: false, blue: false, red
 // Measured on the vanilla ROM, one machine: 488 of 512 map slots build, 1315 of their screens have sprites and a color-math table.
 // Door pixels per layer show/hide combination (bit 0 = Layer 1 shown, bit 1 = Layer 2, bit 2 = Layer 3), from the second #936 review.
 // The Layer 1 combos moved 65180 -> 67238 (+2058) with #980: Podoboos and re-run chainsaws/grinders now draw at their INIT anchor, full height.
-const DOOR_PIXELS = [0, 67238, 804, 67258, 8319, 75426, 9123, 75446]
+// And 67238 -> 70462 (+3224 in every Layer 1 combination) with the #980 Podoboo graphics: the Podoboo now draws the 4 chars its
+// graphics routine points Mario's tile DMA at (184 opaque pixels each) instead of the map's SP1 chars (92). Evidence (2026-10-17,
+// f6c852ed vs e12537e5, one machine, vanilla ROM): over all 512 slots the drawn bitmaps of every sprite id are identical in count
+// and opaque pixels except $33 (72 Podoboos, 6624 -> 13248 opaque); the door count is lower than +6624 because it counts pixels
+// within the screens the Podoboos reach. Combinations without Layer 1 (0, 804, 8319, 9123) do not move.
+const DOOR_PIXELS = [0, 70462, 804, 70482, 8319, 78650, 9123, 78670]
 
 describe.skipIf(!hasRom(VANILLA))(
   'door and lift pixels never meet color math on vanilla (#936)',
