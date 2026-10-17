@@ -288,6 +288,52 @@ describe('Torpedo Ted launcher from the routines (synthetic cart)', () => {
     expect(torpedoLauncher(rom, { ...seedOf(rom), loaded: undefined, loadRefusal: 'because' })).toEqual({ ok: false, reason: 'because' }) // prettier-ignore
   })
 
+  it('a level the loader refused without a reason says there is no level image', () => {
+    const rom = launcherRom()
+    expect(torpedoLauncher(rom, { ...seedOf(rom), loaded: undefined })).toEqual({ ok: false, reason: 'no level image' }) // prettier-ignore
+  })
+
+  it('a sprite loop that is not the shape the runner knows refuses with its reason', () => {
+    const rom = launcherRom(b => void (b[off(0x01808c)] = 0x00)) // PHB becomes BRK
+    expect(run(rom)).toEqual({ ok: false, reason: 'sprite loop does not start PHB PHK PLB' })
+  })
+
+  it('a HandleSprite that is not the dispatch shape refuses with its reason', () => {
+    const rom = launcherRom(b => void (b[off(0x018127)] = 0xea))
+    expect(run(rom)).toEqual({ ok: false, reason: 'HandleSprite is not the dispatch shape this reader knows' }) // prettier-ignore
+  })
+
+  it('a cart with no ROM bytes reads none of the routines and does not draw', () => {
+    const full = launcherRom()
+    const seed = seedOf(full)
+    const empty = RomFile.fromBytes('empty.sfc', new Uint8Array(0))
+    const r = torpedoLauncher(empty, seed, undefined, routinesOf(full))
+    expect(r.ok).toBe(false)
+    expect(!r.ok && r.reason).not.toBe('no level image')
+  })
+
+  it('a part left of the anchor has a negative dx (the 9-bit wrap), one above it a negative dy', () => {
+    const r = ok(launcherRom(), undefined, {}) // default anchor: the shooter
+    const left = torpedoLauncher(launcherRom(), seedOf(launcherRom()), { x: SHOOTER.x + 0x20, y: SHOOTER.y + 0x20 }, routinesOf(launcherRom())) // prettier-ignore
+    if (!left.ok) throw new Error(left.reason)
+    expect(left.arm.map(p => [p.dx, p.dy])).toEqual([[ARM_DX - 0x20, ARM_DY - 0x20]])
+    expect(left.torpedoParts.map(p => [p.dx, p.dy])).toEqual([[TORPEDO_DX - 0x20, TORPEDO_DY - 0x20]]) // prettier-ignore
+    expect(r.arm[0]!.dx).toBe(ARM_DX) // the same run measured from the shooter is positive
+  })
+
+  it('an 8 x 8 OAM entry is size 8 (the size bit, not a constant)', () => {
+    const at = Array.from(torpedoMain).findIndex((v, i, a) => v === 0xa9 && a[i + 1] === 0x02 && a[i + 2] === 0x99 && a[i + 3] === 0x60) // prettier-ignore
+    expect(at).toBeGreaterThan(0)
+    const rom = launcherRom(b => void (b[off(TORPEDO_MAIN) + at + 1] = 0x00))
+    expect(ok(rom, routinesOf(launcherRom())).torpedoParts.map(p => p.size)).toEqual([8])
+  })
+
+  it('an error that is not a refusal is not swallowed', () => {
+    const rom = launcherRom()
+    const seed = { ...seedOf(rom), mario: undefined } as unknown as ReturnType<typeof seedOf>
+    expect(() => torpedoLauncher(rom, seed, undefined, routinesOf(rom))).toThrow(TypeError)
+  })
+
   it('a hard failure is a refusal with its reason', () => {
     expect(run(launcherRom(b => void (b[off(ARM)] = 0x00)))).toEqual({ ok: false, reason: 'BRK executed at $029E3D' }) // prettier-ignore
   })
