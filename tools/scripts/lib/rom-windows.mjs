@@ -21,7 +21,7 @@ export function locateVanillaRom(env, repoRoot, exists = existsSync) {
 export const isCandidate = w => new Set(w).size >= MIN_DISTINCT
 
 // Map key for a window: its bytes as a latin1 string.
-const key = w => Buffer.from(w).latin1Slice()
+const key = w => Buffer.from(w).toString('latin1')
 
 /** Every candidate window of the ROM, 512-byte copier header stripped. */
 export function windowSet(rom, width = WINDOW_BYTES) {
@@ -34,15 +34,17 @@ export function windowSet(rom, width = WINDOW_BYTES) {
   return set
 }
 
-/** Runs of `{ at, windows }` where consecutive windows of `bytes` are in `set`. */
+/** Runs of `{ at, windows, end }` where consecutive windows of `bytes` are in
+ *  `set`; `at` and `end` are lineOf() of the run's first and last byte. */
 function hitRuns(bytes, lineOf, set, width) {
   const out = []
   let open = null
   for (let i = 0; i + width <= bytes.length; i++) {
     const w = bytes.slice(i, i + width)
     if (isCandidate(w) && set.has(key(w))) {
-      if (open) open.windows++
-      else out.push((open = { at: lineOf(i), windows: 1 }))
+      if (!open) out.push((open = { at: lineOf(i), windows: 0 }))
+      open.windows++
+      open.end = lineOf(i + width - 1)
     } else open = null
   }
   return out
@@ -51,42 +53,48 @@ function hitRuns(bytes, lineOf, set, width) {
 /** Hits in assembled bytes: `at` is the offset of a run's first window. */
 export const bytesHits = (bytes, set, width = WINDOW_BYTES) => hitRuns(bytes, i => i, set, width)
 
-// 0x.. literals, bare hex bytes ("c9 de", "$c9"), decimal 0-255 comma lists.
-const HEXTOK =
-  /0x([0-9a-fA-F]{2})(?![0-9a-zA-Z_])|(?<![0-9A-Za-z_])\$?([0-9a-fA-F]{2})(?![0-9A-Za-z_.])/g
-const DECLIST = /(?<![\w.])\d{1,3}(?:[ \t]*,[ \t\r\n]*\d{1,3})+(?![\w.])/g
+// One token class: 0x.. or $.. with 1-2 hex digits, bare 2-digit hex, decimal 0-999
+// (over 255 ends the run). A digits-only 2-char token next to a comma is decimal.
+const TOKEN =
+  /(?<![\w.$])(?:0[xX]([0-9a-fA-F]{1,2})|\$([0-9a-fA-F]{1,2})|([0-9a-fA-F]{2})|(\d{1,3}))(?![\w.])/g
 const SEP = /^[\s,;[\]()|]*$/
+
+/** Comments become spaces (newlines kept) so positions and line numbers hold. */
+const blank = m => m.replace(/[^\n]/g, ' ')
+const stripComments = t => t.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, blank)
 
 /** Byte runs in `text` as `{ bytes, lines }`; a run is byte tokens separated
  *  only by whitespace, , ; [ ] ( ) | and comments. `base` numbers the first line. */
 export function textRuns(text, base = 1) {
+  const src = stripComments(text)
   const lineAt = pos => {
     let n = base
-    for (let i = text.indexOf('\n'); i >= 0 && i < pos; i = text.indexOf('\n', i + 1)) n++
+    for (let i = src.indexOf('\n'); i >= 0 && i < pos; i = src.indexOf('\n', i + 1)) n++
     return n
   }
+  const toks = [...src.matchAll(TOKEN)]
   const runs = []
   let cur = null
-  let lastEnd = 0
-  for (const m of text.matchAll(HEXTOK)) {
-    const gap = text.slice(lastEnd, m.index).replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\/|#[^\n]*/g, ' ')
-    if (!(cur && SEP.test(gap))) runs.push((cur = { bytes: [], lines: [] }))
-    cur.bytes.push(parseInt(m[1] || m[2], 16))
-    cur.lines.push(lineAt(m.index))
-    lastEnd = m.index + m[0].length
-  }
-  for (const m of text.matchAll(DECLIST)) {
-    cur = null
-    for (const s of m[0].split(/\s*,\s*/)) {
-      const v = parseInt(s, 10)
-      if (v > 255) cur = null
-      else {
-        if (!cur) runs.push((cur = { bytes: [], lines: [] }))
-        cur.bytes.push(v)
-        cur.lines.push(lineAt(m.index))
-      }
+  toks.forEach((m, i) => {
+    const gap = src.slice(i ? toks[i - 1].index + toks[i - 1][0].length : 0, m.index)
+    const nextGap = toks[i + 1] ? src.slice(m.index + m[0].length, toks[i + 1].index) : ''
+    if (!(cur && SEP.test(gap))) cur = null
+    const comma = gap.includes(',') || nextGap.includes(',')
+    const v =
+      m[1] !== undefined
+        ? parseInt(m[1], 16)
+        : m[2] !== undefined
+          ? parseInt(m[2], 16)
+          : m[3] !== undefined && !(/^\d\d$/.test(m[3]) && comma)
+            ? parseInt(m[3], 16)
+            : parseInt(m[3] ?? m[4], 10)
+    if (v > 255) cur = null
+    else {
+      if (!cur) runs.push((cur = { bytes: [], lines: [] }))
+      cur.bytes.push(v)
+      cur.lines.push(lineAt(m.index))
     }
-  }
+  })
   return runs
 }
 

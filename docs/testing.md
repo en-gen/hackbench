@@ -817,16 +817,38 @@ private to the test file.
 
 ## ROM-window probe
 
-`node tools/scripts/rom-window-probe.mjs <files...>` reports every run of 8
-bytes in the given text (hex literals, bare hex bytes, decimal 0-255 lists)
-that also occurs in the vanilla ROM. Also `--git-range a..b` (added lines
-only), `--bin <files...>` (raw assembled bytes, e.g. a cart a test wrote) and
-`--rom <file>` to skip the lookup. Windows with fewer than 3 distinct values
-are ignored. It prints `HIT path:line windows=N` and a `TOTAL` line, never ROM
-bytes, and exits 1 on a hit. It is report-only: no hook, CI job or
-`check-content.mjs` runs it; teams run it before pushing. The ROM is found by
-`test/suite/support/corpus.cjs`; with none on the machine it prints `SKIP:
-vanilla ROM not found (looked: ...)` and exits 0, so a SKIP is not a pass.
+`node tools/scripts/rom-window-probe.mjs` reports 8-byte windows of text or
+assembled bytes that also occur in the vanilla ROM, so a synthetic ROM,
+fixture or detection pattern can be checked before pushing. It is
+report-only: no hook, CI job or `check-content.mjs` runs it.
+
+```
+node tools/scripts/rom-window-probe.mjs <files...>        text scan (PARTIAL, below)
+node tools/scripts/rom-window-probe.mjs --git-range a..b  files the range touches
+node tools/scripts/rom-window-probe.mjs --bin <files...>  assembled bytes
+```
+
+`--rom <file>` skips the lookup. `--repo <dir>` names the repo `--git-range`
+diffs; the ROM lookup always uses the checkout the script lives in, as
+`test/suite/support/corpus.cjs` does. `--git-range` scans each touched text
+file whole and keeps runs that overlap an added line; binary files go through
+the bytes check; deleted lines are never scanned.
+
+**The text scan is partial.** It reads `0x..`, `$..`, bare two-digit hex and
+decimal 0-255 tokens, comments blanked. It does not see 16-bit words, hex
+strings, quoted-byte arrays, per-byte writes (`buf[a] = 0xa9`), strings split
+across lines, or values behind `as number`. **`--bin` on the assembled bytes is
+the authoritative check:** have the fixture builder write its bytes to a
+scratch file (`writeFileSync(scratch, builder())`), then run
+`rom-window-probe.mjs --bin <scratch>`.
+
+Windows with fewer than 3 distinct values are ignored (they match any ROM):
+43,597 of 524,281 positions and 2,982 of 442,994 distinct windows in the
+vanilla ROM (one machine). Output is `HIT path:line windows=N` (`offset=0x..` for
+bytes) and a `TOTAL` line, never ROM bytes. Exit codes: 0 no hit, 1 a hit,
+2 nothing was checked (no ROM found, a missing `--rom` file, a git or file
+error; the message is on stderr, starting `SKIP:` when no ROM exists). Exit 2
+is not a pass.
 
 ## Run lock
 
