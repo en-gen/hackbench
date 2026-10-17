@@ -93,6 +93,37 @@ export function spriteLabel(s: Pick<MapSpriteDto, 'id' | 'name'>): string {
   return s.name ? `${s.name} (sprite ${id})` : `Sprite ${id}`
 }
 
+/** The slice of Theia's StatusBar the sprite entry uses; a fake stands in for it in unit tests. */
+export interface SpriteStatusBar {
+  setElement(id: string, entry: { text: string; alignment: number; priority: number }): unknown
+  removeElement(id: string): unknown
+}
+
+/**
+ * One status bar entry shared by every map widget (#981). Each widget publishes its own selection and
+ * becomes the owner; only the owner may remove the entry, so closing or hiding another map tab never
+ * wipes the label of the tab in front.
+ */
+export class SpriteStatusOwner {
+  private owner: object | undefined
+
+  constructor(
+    private readonly id: string,
+    private readonly alignment: number,
+  ) {}
+
+  publish(bar: SpriteStatusBar, owner: object, sprite: Pick<MapSpriteDto, 'id' | 'name'>): void {
+    this.owner = owner
+    bar.setElement(this.id, { text: spriteLabel(sprite), alignment: this.alignment, priority: 100 })
+  }
+
+  clear(bar: SpriteStatusBar, owner: object): void {
+    if (this.owner !== owner) return
+    this.owner = undefined
+    bar.removeElement(this.id)
+  }
+}
+
 /**
  * One screen's sprites, or null when no sprite reaches it. A sprite is one
  * bitmap in map pixels, so one that crosses a screen edge is cut into every screen

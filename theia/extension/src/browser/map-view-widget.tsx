@@ -35,6 +35,7 @@ import {
   spriteDoors,
   spriteAt,
   spriteLabel,
+  SpriteStatusOwner,
   doorIdAt,
   liftIfCovered,
   spritePlanes,
@@ -114,6 +115,8 @@ type BlockContents = Extract<MapBlockContentsResult, { status: 'ok' }> & {
 const SPRITES = 'sprites'
 /** The status bar entry that names the clicked sprite (#981). */
 const SPRITE_STATUS_ID = 'hackbench.map-sprite'
+/** Shared by every map widget: the entry has one owner at a time, the widget that last published. */
+const spriteStatus = new SpriteStatusOwner(SPRITE_STATUS_ID, StatusBarAlignment.LEFT)
 /** Each screen's display canvas: the screen at screen resolution when it holds indicators (#566). */
 const DISPLAY = 'display'
 type LayerKey = MapPlaneKey | typeof SPRITES | typeof DISPLAY
@@ -909,15 +912,15 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   /** View-only selection (#981): the sprite's label sits in the status bar until another click, a map change or close. */
   protected selectSprite(next: MapSpriteDto | undefined): void {
-    if (next === this.selectedSprite) return
     this.selectedSprite = next
-    if (next) {
-      this.statusBar.setElement(SPRITE_STATUS_ID, {
-        text: spriteLabel(next),
-        alignment: StatusBarAlignment.LEFT,
-        priority: 100,
-      })
-    } else this.statusBar.removeElement(SPRITE_STATUS_ID)
+    this.syncSpriteStatus()
+  }
+
+  /** Publishes this widget's selection, or releases the entry; always runs, so a selected sprite never lacks its label. */
+  protected syncSpriteStatus(): void {
+    if (this.selectedSprite && this.isVisible)
+      spriteStatus.publish(this.statusBar, this, this.selectedSprite)
+    else spriteStatus.clear(this.statusBar, this)
   }
 
   protected setHover(next: Indicator | undefined): void {
@@ -1077,6 +1080,17 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected override onActivateRequest(msg: Message): void {
     super.onActivateRequest(msg)
     this.node.focus()
+    this.syncSpriteStatus()
+  }
+
+  protected override onAfterShow(msg: Message): void {
+    super.onAfterShow(msg)
+    this.syncSpriteStatus()
+  }
+
+  protected override onAfterHide(msg: Message): void {
+    super.onAfterHide(msg)
+    this.syncSpriteStatus()
   }
 
   /** Layer 3's tooltip: its role when drawn (the header's priority bit), else why it is not. */
@@ -1291,6 +1305,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
             this.pointer = undefined
             this.setHover(undefined)
             this.setLift(undefined)
+            this.setHoverSprite(undefined)
           }}
         >
           {/* Bottom to top (planes by `screens`, composited per screen): the checkerboard, the back area, then the screens,

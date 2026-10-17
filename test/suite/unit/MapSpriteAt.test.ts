@@ -7,6 +7,8 @@ import {
   spriteAt,
   spriteDoors,
   doorIdAt,
+  spriteLabel,
+  SpriteStatusOwner,
 } from '../../../theia/extension/src/browser/map-view-model'
 import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
 
@@ -80,5 +82,78 @@ describe('spriteAt', () => {
     const flame = dto(0xe6, -1, [3, 0], [2, 1], [], { fixedTo: 'layer2' })
     expect(spriteAt([flame, hidden], H, 3, 0)?.id).toBe(0x4f)
     expect(spriteAt([flame], H, 3, 0)).toBeUndefined()
+  })
+
+  it('floors a fractional pointer position rather than rounding it', () => {
+    const s = dto(0x33, 0, [1, 0], [2, 1])
+    expect(spriteAt([s], H, 1.5, 0)).toBe(s)
+    expect(spriteAt([s], H, 0.9, 0)).toBeUndefined() // rounds to 1, floors to 0
+    expect(spriteAt([s], H, 2.99, 0.9)).toBe(s)
+    expect(spriteAt([s], H, 3.0, 0)).toBeUndefined()
+  })
+
+  it('reads a non-square bitmap with the right row stride', () => {
+    // 3 wide x 2 tall at (2,0); hole 1 is (col 1,row 0), hole 3 is (col 0,row 1), hole 5 is (col 2,row 1).
+    const s = dto(0x33, 0, [2, 0], [3, 2], [1, 3, 5])
+    const hit = (x: number, y: number) => spriteAt([s], H, x, y) === s
+    expect([hit(2, 0), hit(3, 0), hit(4, 0)]).toEqual([true, false, true])
+    expect([hit(2, 1), hit(3, 1), hit(4, 1)]).toEqual([false, true, false])
+  })
+
+  it('does not hit a pixel with colour but zero alpha', () => {
+    const s = dto(0x33, 0, [0, 0], [2, 1], [], {
+      rgba: Buffer.from([200, 100, 50, 0, 9, 9, 9, 255]).toString('base64'),
+    })
+    expect(spriteAt([s], H, 0, 0)).toBeUndefined()
+    expect(spriteAt([s], H, 1, 0)).toBe(s)
+  })
+})
+
+describe('spriteLabel', () => {
+  it.each([
+    [0x00, 'Goomba', 'Goomba (sprite $00)', 'Sprite $00'],
+    [0x0f, 'Goomba', 'Goomba (sprite $0F)', 'Sprite $0F'],
+    [0x33, 'Podoboo', 'Podoboo (sprite $33)', 'Sprite $33'],
+    [0xff, 'Whatever', 'Whatever (sprite $FF)', 'Sprite $FF'],
+  ])('formats case %#', (id, name, named, bare) => {
+    expect(spriteLabel({ id, name })).toBe(named)
+    expect(spriteLabel({ id })).toBe(bare)
+    expect(spriteLabel({ id, name: '' })).toBe(bare)
+  })
+})
+
+describe('SpriteStatusOwner', () => {
+  const fake = () => {
+    const entries = new Map<string, string>()
+    return {
+      entries,
+      setElement: (id: string, e: { text: string }) => void entries.set(id, e.text),
+      removeElement: (id: string) => void entries.delete(id),
+    }
+  }
+  const [A1, B1] = [
+    { id: 0x33, name: 'Podoboo' },
+    { id: 0x28, name: 'Big Boo' },
+  ]
+
+  it('lets only the owner remove the entry', () => {
+    const [bar, own] = [fake(), new SpriteStatusOwner('s', 0)]
+    const [a, b] = [{}, {}]
+    own.publish(bar, a, A1)
+    own.publish(bar, b, B1)
+    own.clear(bar, a) // A closes: B's label stays
+    expect(bar.entries.get('s')).toBe('Big Boo (sprite $28)')
+    own.clear(bar, b)
+    expect(bar.entries.has('s')).toBe(false)
+  })
+
+  it('follows a re-publish by the widget that comes to the front', () => {
+    const [bar, own] = [fake(), new SpriteStatusOwner('s', 0)]
+    const [a, b] = [{}, {}]
+    own.publish(bar, a, A1)
+    own.publish(bar, b, B1)
+    own.clear(bar, b) // B hides
+    own.publish(bar, a, A1) // A shown again
+    expect(bar.entries.get('s')).toBe('Podoboo (sprite $33)')
   })
 })

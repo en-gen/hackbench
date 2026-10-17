@@ -165,6 +165,16 @@ function ownPixel(map, s) {
   return undefined
 }
 
+/** Zoom levels the hover and select assertions sweep: fit, actual size, and one zoomed-in step (hit tests divide by the zoom). */
+const ZOOMS = {
+  fit: ['zoom-fit'],
+  actual: ['zoom-actual'],
+  'zoomed in': ['zoom-actual', 'zoom-in', 'zoom-in'],
+}
+async function setZoom(page, slot, steps) {
+  for (const c of steps) await page.locator(`${rootOf(slot)} [data-control="${c}"]`).click()
+}
+
 const titleOf = (page, slot) => page.locator(stripOf(slot)).getAttribute('title')
 const statusBar = page => page.locator('#theia-statusBar')
 
@@ -187,18 +197,23 @@ test('AC1, AC3: hovering a sprite titles it with its name and $id; clicking puts
   expect(sprite, 'a named, drawn sprite on the map').toBeTruthy()
   const at = ownPixel(map, sprite)
   const label = `${sprite.name} (sprite ${hex(sprite.id)})`
-  await expect.poll(() => titleAt(page, slot, map, at), { timeout: 30000 }).toBe(label)
-  expect(label).toMatch(/\(sprite \$[0-9A-F]{2}\)$/)
-
-  const p = await clientOf(page, slot, map, at.x, at.y)
-  await page.mouse.click(p.x, p.y)
-  await expect(statusBar(page)).toContainText(label)
-
   const empty = findPixel(map, (x, y) => clearAround(map, x, y), at)
-  const e = await clientOf(page, slot, map, empty.x, empty.y)
-  await page.mouse.click(e.x, e.y)
-  await expect(statusBar(page)).not.toContainText(label)
-  expect(await statusBar(page).innerText()).not.toContain('(sprite $')
+  for (const [zoom, steps] of Object.entries(ZOOMS)) {
+    await setZoom(page, slot, steps)
+    await expect
+      .poll(() => titleAt(page, slot, map, at), { message: zoom, timeout: 30000 })
+      .toBe(label)
+    expect(label).toMatch(/\(sprite \$[0-9A-F]{2}\)$/)
+
+    const p = await clientOf(page, slot, map, at.x, at.y)
+    await page.mouse.click(p.x, p.y)
+    await expect(statusBar(page), zoom).toContainText(label)
+
+    const e = await clientOf(page, slot, map, empty.x, empty.y)
+    await page.mouse.click(e.x, e.y)
+    await expect(statusBar(page), zoom).not.toContainText(label)
+    expect(await statusBar(page).innerText()).not.toContain('(sprite $')
+  }
 
   // Selected again, the sprite toggle going off clears it, and a sprite that is not drawn has no tooltip.
   const again = await clientOf(page, slot, map, at.x, at.y)
@@ -215,11 +230,16 @@ test('AC2: hovering empty ground leaves the strip without a sprite tooltip', asy
   const map = await openMap(page, slot)
   const sprite = namedSprite(map)
   const on = ownPixel(map, sprite)
-  // On the sprite first, so a missing tooltip is not just "sprites not loaded yet".
-  await expect.poll(() => titleAt(page, slot, map, on), { timeout: 30000 }).toContain('(sprite $')
-  const empty = findPixel(map, (x, y) => clearAround(map, x, y), on)
-  await pointAt(page, slot, map, empty.x, empty.y)
-  await expect.poll(() => titleOf(page, slot)).toBeNull()
+  for (const [zoom, steps] of Object.entries(ZOOMS)) {
+    await setZoom(page, slot, steps)
+    // On the sprite first, so a missing tooltip is not just "sprites not loaded yet".
+    await expect
+      .poll(() => titleAt(page, slot, map, on), { message: zoom, timeout: 30000 })
+      .toContain('(sprite $')
+    const empty = findPixel(map, (x, y) => clearAround(map, x, y), on)
+    await pointAt(page, slot, map, empty.x, empty.y)
+    await expect.poll(() => titleOf(page, slot), { message: zoom }).toBeNull()
+  }
 })
 
 test('AC4: where two sprites overlap, the tooltip names the one drawn on top (column order, stream index breaking ties)', async ({
@@ -230,7 +250,16 @@ test('AC4: where two sprites overlap, the tooltip names the one drawn on top (co
     map.stack.find(s => s.index === k.index && s.id === k.id),
   )
   expect(a && b, 'the pinned pair is on the map').toBeTruthy()
-  const both = findPixel(map, (x, y) => map.opaque(a, x, y) && map.opaque(b, x, y), a) // prettier-ignore
+  // Both opaque with a 2 px own-neighbourhood, as ownPixel guarantees, so zoom rounding cannot land on a single-sprite pixel.
+  const bothAt = (x, y) => map.opaque(a, x, y) && map.opaque(b, x, y)
+  const both = findPixel(
+    map,
+    (x, y) => {
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if (!bothAt(x + dx, y + dy)) return false // prettier-ignore
+      return true
+    },
+    a,
+  )
   expect(both, 'the pair shares an opaque pixel').toBeTruthy()
   const [top, under] = map.ownerAt(both.x, both.y) === a ? [a, b] : [b, a]
   expect(map.stack.indexOf(top)).toBeGreaterThan(map.stack.indexOf(under))
@@ -245,6 +274,19 @@ test('AC5: a hidden (screen door) sprite shows its id too', async ({ page }) => 
   const plant = map.stack.find(s => s.index === HIDDEN.index && s.id === HIDDEN.id)
   expect(plant, 'sprite 11 of map $105 is the jumping Piranha Plant').toBeTruthy()
   const at = ownPixel(map, plant)
+  // The plant really is behind a tile: some screen's covered-door set holds its door id (the 1-based place in
+  // the draw order), read off the widget, so the test cannot pass on a plant that merely is not covered.
+  const door = map.stack.indexOf(plant) + 1
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          ({ id, door }) => [...getSvc('ApplicationShell').getWidgetById(id).coveredIds.values()].some(set => set.has(door)), // prettier-ignore
+          { id: `hackbench.map-view:${HIDDEN.slot}`, door },
+        ),
+      { timeout: 30000 },
+    )
+    .toBe(true)
   await expect
     .poll(() => titleAt(page, HIDDEN.slot, map, at), { timeout: 30000 })
     .toBe(`${HIDDEN.name} (sprite ${hex(HIDDEN.id)})`)
