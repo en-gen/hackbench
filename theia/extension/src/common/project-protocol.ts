@@ -176,6 +176,12 @@ export interface RecentProjectDto {
   lastOpened: string
 }
 
+/** The base ROM is not on this machine, so there is nothing to read details from (#786). */
+export interface MapDetailsNotLocated {
+  status: 'rom-not-located'
+  baseRom: RomIdentityDto
+}
+
 /**
  * What one map holds, read from the cartridge.
  *
@@ -291,7 +297,8 @@ export type MapScreenResult =
       /** The back area (CGRAM color 0), RGB: its own layer under L1. */
       backdrop: [number, number, number]
     }
-  | { status: 'unavailable'; reason: string }
+  /** `detail`: exception text for the tooltip and log, never the visible message. */
+  | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
 /**
@@ -557,10 +564,11 @@ export interface ProjectService {
   /**
    * Read one map out of the project's working copy.
    *
-   * Throws when the slot holds no readable level data, which is a real answer
-   * rather than an empty map: an empty map looks like one that lost its work.
+   * Answers `rom-not-located` when the base ROM is not on this machine. A slot
+   * with no readable level data is a field on the result, not a failure; a
+   * throw means an unexpected failure.
    */
-  mapDetails(manifestPath: string, index: number): Promise<MapDetailsDto>
+  mapDetails(manifestPath: string, index: number): Promise<MapDetailsDto | MapDetailsNotLocated>
 
   /** Draw one screen of a map's L1 (foreground) from the working copy. */
   mapScreen(
