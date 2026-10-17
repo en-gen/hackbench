@@ -364,7 +364,6 @@ function ringResult(
   vertical: boolean,
   routines: RingRoutines,
 ): SpriteDrawResult {
-  // prettier-ignore
   if (vertical) return { ok: false, reason: 'the rotating ring is not drawn in a vertical level: the game takes its centre from the wrong axis there' } // prettier-ignore
   const [x, y] = [pixelX(s), s.y * TILE]
   const r = rotatingRing(rom, seed, { id: s.spriteId, x, y, index: s.index, streamOffset: s.streamOffset }, routines) // prettier-ignore

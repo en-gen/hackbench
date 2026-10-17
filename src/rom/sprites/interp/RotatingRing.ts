@@ -11,9 +11,10 @@
  * - Draw: CODE_02FA98 (16290-16429), the cluster dispatch's type 4 entry (15965-15972), then
  *   CODE_02FC8D / CODE_02FD48 (16531-16686): 16 x 16 pieces, 80 px from the centre, 40/512 of a turn
  *   (28.1 degrees) apart, so the 10 make an open arc of about 253 degrees, not a closed circle (DATA_02FA84, 16282-16288).
- * - Frame policy: SpriteLock is set, so the angle is the spawn state (0, the value the level load
- *   leaves; #983 owner call A) and does not turn. Mario is put far away: the draw's contact test
- *   (CODE_02FE71, 16781-16821) then never fires. docs/sprites/sprite-e2-e3-ring.md has the derivation.
+ * - Frame policy: SpriteLock is set, so the angle is the spawn state (angle 0, the state before the
+ *   ring's first frame; #983 owner call A) and does not turn. The level image's own ring state is
+ *   not zero ($0EC's loader image has BooRingIndex 1 and angle $1FF), so it is cleared first. Mario is put far away: the draw's contact test
+ *   (CODE_02FE71, 16781-16823) then never fires. docs/sprites/sprite-e2-e3-ring.md has the derivation.
  *
  * Evidence scope: vanilla USA ROM; 10 of 10 OAM entries equal the hardware ones in the layers_v5
  * captures of map $107 at the angle those frames held (test/suite/unit/sprites/RotatingRing.test.ts).
@@ -40,25 +41,27 @@ const PATH = [
   { what: 'the cluster dispatch entry for type 4', at: 0x02f82d, want: [0x98, 0xfa] },
 ]
 
-/** SHA-256 of the spawn (103 bytes), the draw (291) and the two draw helpers (85 + 112), each span ending in RTS; data tables are not part. */
+/** SHA-256 of the spawn (103 bytes), the draw (291), the two draw helpers (85 + 112) and the contact test the draw calls (84), each span ending in RTS; data tables are not part. */
 export interface RingRoutines {
   spawn: string
   draw: string
   helpers: string
+  contact: string
 }
 export const VANILLA_RING_ROUTINES: RingRoutines = {
   spawn: '6c4c591c502ae9ebb9e48d14a6d6583f75069c2001a8aa6c1a3683e5504c9540',
   draw: '99d5589cf4ad06fcc69a17ff7257eb51131d23eea6e5f76142ac58c6fbfe3da2',
   helpers: 'ace622f06ed6f86fc473ce4ce0750eb5cfdd82dae5d8a858ab60910347f1de1c',
+  contact: '5a99e22284fa1bfa79da87ab13fd21672273d44995a4e4aa91cf03b29b28e985',
 }
-/** Spans: the spawn, the draw, and the helpers CODE_02FC8D..(CODE_02FCD9's RTS) and CODE_02FD48..its RTS. */
-export const RING_SPANS = { spawn: [[SPAWN, 103]], draw: [[DRAW, 291]], helpers: [[0x02fc8d, 85], [0x02fd48, 112]] } as const // prettier-ignore
+/** Spans: the spawn, the draw, the helpers CODE_02FC8D..(CODE_02FCD9's RTS) and CODE_02FD48..its RTS, and CODE_02FE71..Return02FEC4 (the contact test, bank_02.asm:16781-16823; it runs during the draw even though Mario is out of reach). */
+export const RING_SPANS = { spawn: [[SPAWN, 103]], draw: [[DRAW, 291]], helpers: [[0x02fc8d, 85], [0x02fd48, 112]], contact: [[0x02fe71, 84]] } as const // prettier-ignore
 
 const CLUSTER_SLOTS = 20
 const CUR_SPRITE_PROCESS = 0x15e9
 const EFF_FRAME = 0x14
 const BOO_RING_INDEX = 0x18ba
-/** BooRingAngle through BooRingLoadIndex, 16 bytes (rammap.asm:1435-1442): zero is the level load's state. */
+/** BooRingAngle through BooRingLoadIndex, 16 bytes (rammap.asm:1435-1442): cleared here, so the ring starts from angle 0 or the requested one, whatever the level image held. */
 const RING_STATE = 0x0fae
 /** PlayerXPosNext / PlayerYPosNext ($94 / $96, rammap.asm:860, 866): far from any ring, so the contact test misses. */
 const MARIO_POS = 0x94
@@ -89,6 +92,7 @@ export function ringGate(rom: RomFile, routines: RingRoutines = VANILLA_RING_ROU
   if (sha(RING_SPANS.spawn) !== routines.spawn) out.push('the ring spawn routine')
   if (sha(RING_SPANS.draw) !== routines.draw) out.push('the ring draw routine')
   if (sha(RING_SPANS.helpers) !== routines.helpers) out.push('the ring draw helpers')
+  if (sha(RING_SPANS.contact) !== routines.contact) out.push('the ring contact test')
   return out
 }
 
@@ -139,11 +143,13 @@ export function rotatingRing(
       w[CUR_SPRITE_PROCESS] = x
       run(DRAW, { x })
     }
-    // Screen to map: add the camera back (16-bit, so a ring near the map's left or top edge is fine).
+    // Screen to map: the camera is the centre less (128, 112), so a piece at OAM (ox, oy) is (ox - 128, oy - 112) from the
+    // centre. Subtracting the 16-bit camera instead breaks when a piece's map coordinate is negative (a centre under 80 px).
+    const signed = (x9: number) => (x9 > 255 ? x9 - 512 : x9) // OAM x is 9 bits
     const parts = touchedOamParts(w, touched).map(p => ({
       ...p,
-      dx: ((cam.x + p.ox) & 0xffff) - e.x,
-      dy: ((cam.y + p.oy) & 0xffff) - e.y,
+      dx: signed(p.ox) - 128,
+      dy: p.oy - 112,
     }))
     return { ok: true, parts, unverified }
   } catch (err) {

@@ -11,7 +11,8 @@
  *   opaque pixel in each of the 10 squares where the pieces stand (80 px round the entry, computed here from the
  *   geometry above, not from the code under test, to within 2 px);
  * - the ring's colours show in the composite on both screens it spans, and the sprite toggle (S) takes them out;
- * - no OTHER sprite's bitmap holds the ring (each is small and stays within 32 px of its anchor, #809/#839).
+ * - no OTHER drawn sprite's bitmap holds an opaque pixel inside any of the ring's 10 piece squares (#809/#839); a
+ *   size test is wrong here: $107 has two Big Boos ($28) whose correct boxes are 67 x 64.
  * NOT covered: hovering or selecting the sprite (index 2). The map view has no sprite selection yet (#981, open);
  * the reply's single stream-indexed entry is what it will key on, which is asserted. The $E2 ring (also on $107,
  * entry 14) is covered by the unit sweep over all 10 vanilla placements.
@@ -171,13 +172,30 @@ test('the $E3 ring of map $107 is one drawn sprite of 10 pieces 80 px round its 
   expect(Math.abs(ring.box.y0 - Math.min(...ys))).toBeLessThanOrEqual(2)
   expect(Math.abs(ring.box.y1 - (Math.max(...ys) + 16))).toBeLessThanOrEqual(2)
 
-  // No other sprite carries the ring (#809/#839): each stays small and near its anchor.
-  const stray = reply.sprites
-    .filter(s => s.id !== 0xe3 && s.id !== 0xe2 && s.status === 'drawn')
-    .filter(s => {
-      const [bw, bh] = [s.box.x1 - s.box.x0, s.box.y1 - s.box.y0]
-      return bw > 32 || bh > 32 || s.box.x0 < s.x - 32 || s.box.x1 > s.x + 32 || s.box.y0 < s.y - 32 || s.box.y1 > s.y + 32 // prettier-ignore
+  // No other sprite carries the ring (#809/#839): no other drawn sprite has an opaque pixel inside a piece square.
+  // Behavioural, not a size test: the two Big Boos of $107 ($28, 67 x 64 boxes at 1840,288 and 2272,320) are correct and big.
+  // Checked against mapSprites() for $107 at unit level: 0 strays, and 1 when a copy of the ring's bitmap is planted as $28.
+  const strayOf = s => {
+    const sb = Buffer.from(s.rgba, 'base64')
+    const sw = s.box.x1 - s.box.x0
+    return squares.some(([sx, sy]) => {
+      for (
+        let y = Math.max(Math.round(sy), s.box.y0);
+        y < Math.min(Math.round(sy) + 16, s.box.y1);
+        y++
+      )
+        for (
+          let x = Math.max(Math.round(sx), s.box.x0);
+          x < Math.min(Math.round(sx) + 16, s.box.x1);
+          x++
+        )
+          if (sb[((y - s.box.y0) * sw + (x - s.box.x0)) * 4 + 3]) return true
+      return false
     })
+  }
+  const stray = reply.sprites.filter(
+    s => s.id !== 0xe3 && s.id !== 0xe2 && s.status === 'drawn' && strayOf(s),
+  )
   expect(stray.map(s => `$${s.id.toString(16)} at ${s.x},${s.y}`)).toEqual([])
 
   // The ring spans x 416..592: screens 1 and 2 (256 px each).
@@ -187,13 +205,18 @@ test('the $E3 ring of map $107 is one drawn sprite of 10 pieces 80 px round its 
     const px = ringPixels(reply, ring, s)
     expect(px.open.length, `opaque ring pixels on screen ${s}`).toBeGreaterThan(0)
     const got = await sample(page, px.open, s)
-    expect(share(got, px.openRgb), `screen ${s}: ring colours show`).toBeGreaterThan(0.9)
+    // Priority-3 pieces sit above every background layer, and at unit level none of the ring's 2066 opaque pixels on
+    // $107 lies under another drawn sprite's opaque pixel, so the composite should show nearly all of them. 0.95
+    // leaves room for colour math; the verifier reports the measured share per screen (not run by the implementer).
+    expect(share(got, px.openRgb), `screen ${s}: ring colours show`).toBeGreaterThan(0.95)
     if (s === 2) Object.assign(kept, px)
   }
 
   const toggle = page.locator(`${rootOf()} [data-control="layer-sprites"]`)
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  // With sprites off those pixels show the background; it matches a ring colour only by chance, so 0.5 is a loose ceiling
+  // against the ~0.95+ above, not a measured value (the verifier reports it).
   await expect
     .poll(async () => share(await sample(page, kept.open, 2), kept.openRgb), { timeout: 15000 })
     .toBeLessThan(0.5)

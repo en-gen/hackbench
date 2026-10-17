@@ -43,26 +43,44 @@ const LEVEL = 0x105
 const off = (snes: number) => (snes >>> 16) * 0x8000 + ((snes & 0xffff) - 0x8000)
 
 /**
- * The spawn's effect, written for this cart: stores A (the id) and the entry's X low byte ($00) in the
- * ring cells the draw reads, then makes cluster slots 19..10 type 4. 103 bytes like the game's, padded with NOPs.
+ * The spawn's effect, written for this cart: refuses at BooRingIndex 2 or more like the game's, stores A (the id), the
+ * entry's X low byte ($00), the stream byte at [SpriteDataPtr] + $03 and the list index $02 in the cells the draw reads,
+ * then makes cluster slots 19..10 type 4. 103 bytes like the game's, padded with NOPs.
  */
-const spawn = [
+const spawnBody = [
   ...[0x8d, 0xbc, 0x0f], // STA $0FBC (BooRingLoadIndex cell)
   ...[0xa5, 0x00, 0x8d, 0xb2, 0x0f], // LDA $00 / STA $0FB2 (BooRingXPosLow cell)
+  ...[0xa4, 0x03, 0xb7, 0xce, 0x8d, 0xb4, 0x0f], // LDY $03 / LDA [SpriteDataPtr],Y / STA $0FB4: the stream byte at the entry's offset
+  ...[0xa5, 0x02, 0x8d, 0xb6, 0x0f], // LDA $02 / STA $0FB6: the entry's list index
   ...[0xa2, 0x13], // LDX #$13
   ...[0xa9, 0x04, 0x9d, 0x92, 0x18, 0xca, 0xe0, 0x09, 0xd0, 0xf6], // loop: type 4 into slot X, DEX, CPX #9, BNE
+]
+const spawn = [
+  ...[0xac, 0xba, 0x18, 0xc0, 0x02, 0xb0, spawnBody.length], // LDY BooRingIndex / CPY #2 / BCS RTS: two rings at most
+  ...spawnBody,
   0x60,
 ]
 /**
- * The draw's effect: one 8 x 8 OAM entry per slot X (19..10) at index 76 + X - 10: x = X * 8 minus the camera
- * low byte, y = Mario's X high byte, tile = the stored X low byte, attribute = the stored id. 291 bytes, padded with NOPs.
+ * The draw's effect: one 8 x 8 OAM entry per slot X (19..10) at index 76 + X - 10: x = X * 8 minus the camera low byte
+ * plus the list index, y = Mario's X high byte plus the stream byte plus the ring angle high byte, tile = the stored X low
+ * byte plus the angle low byte, attribute = the stored id. 291 bytes, padded with NOPs.
  */
 const draw = [
   ...[0xad, 0xe9, 0x15, 0x38, 0xe9, 0x0a, 0x0a, 0x0a, 0xa8], // LDA CurSpriteProcess / SEC / SBC #10 / ASL ASL / TAY
-  ...[0xad, 0xe9, 0x15, 0x0a, 0x0a, 0x0a, 0x38, 0xe5, 0x1a, 0x99, 0x30, 0x03], // X * 8 - Layer1XPos -> OAM X
-  ...[0xa5, 0x95, 0x99, 0x31, 0x03], // OAM Y = Mario's X high byte ($95): the run puts Mario far away, at $7F
-  ...[0xad, 0xb2, 0x0f, 0x99, 0x32, 0x03], // tile
+  ...[
+    0xad, 0xe9, 0x15, 0x0a, 0x0a, 0x0a, 0x38, 0xe5, 0x1a, 0x18, 0x6d, 0xb6, 0x0f, 0x99, 0x30, 0x03,
+  ], // X * 8 - Layer1XPos + index -> OAM X
+  ...[0xa5, 0x95, 0x18, 0x6d, 0xb4, 0x0f, 0x6d, 0xb0, 0x0f, 0x99, 0x31, 0x03], // OAM Y = Mario's X high byte ($95, $7F: the run puts Mario far away) + stream byte + angle high
+  ...[0xad, 0xb2, 0x0f, 0x18, 0x6d, 0xae, 0x0f, 0x99, 0x32, 0x03], // tile = X low + angle low
   ...[0xad, 0xbc, 0x0f, 0x99, 0x33, 0x03, 0x60], // attribute, RTS
+]
+/** A draw that puts the pieces round the screen centre (128, 112), 8 px apart and centred on slot 15, whatever the camera: the geometry of a real ring. */
+const screenDraw = [
+  ...[0xad, 0xe9, 0x15, 0x38, 0xe9, 0x0a, 0x0a, 0x0a, 0xa8],
+  ...[0xad, 0xe9, 0x15, 0x0a, 0x0a, 0x0a, 0x18, 0x69, 0x08, 0x99, 0x30, 0x03], // OAM X = 8 * X + 8 (88..160: dx -40..32)
+  ...[0xad, 0xe9, 0x15, 0x0a, 0x0a, 0x0a, 0x38, 0xe9, 0x08, 0x99, 0x31, 0x03], // OAM Y = 8 * X - 8 (72..144: dy -40..32)
+  ...[0xad, 0xb2, 0x0f, 0x99, 0x32, 0x03],
+  ...[0xad, 0xbc, 0x0f, 0x99, 0x33, 0x03, 0x60],
 ]
 const pad = (b: number[], n: number) => [
   ...b.slice(0, -1),
@@ -102,11 +120,26 @@ const routinesOf = (rom: RomFile): RingRoutines => {
     spawn: sha(RING_SPANS.spawn),
     draw: sha(RING_SPANS.draw),
     helpers: sha(RING_SPANS.helpers),
+    contact: sha(RING_SPANS.contact),
   }
 }
 
+/** WRAM offset of the synthetic stream: byte i holds $40 + i, except offset 7 (the ENTRY's), which holds 5. */
+const STREAM_AT = 0xf000
+const STREAM_BYTE = 5
+/** The level's loaded image with SpriteDataPtr pointing at a known stream in WRAM, so the hand-off is checkable without the corpus. */
+function seedOf(rom: RomFile, patch: (w: Uint8Array) => void = () => {}) {
+  const s = levelSeed(rom, LEVEL)
+  const w = Uint8Array.from(s.loaded!)
+  w.set([STREAM_AT & 255, STREAM_AT >> 8, 0x7e], 0xce)
+  for (let i = 0; i < 32; i++) w[STREAM_AT + i] = 0x40 + i
+  w[STREAM_AT + ENTRY.streamOffset] = STREAM_BYTE
+  patch(w)
+  return { ...s, loaded: w }
+}
+
 const ENTRY = { id: 0xe3, x: 416, y: 320, index: 2, streamOffset: 7 }
-const run = (rom: RomFile, e = ENTRY, routines = routinesOf(rom)) => rotatingRing(rom, levelSeed(rom, LEVEL), e, routines) // prettier-ignore
+const run = (rom: RomFile, e = ENTRY, routines = routinesOf(rom)) => rotatingRing(rom, seedOf(rom), e, routines) // prettier-ignore
 const parts = (rom: RomFile, e = ENTRY) => {
   const r = run(rom, e)
   if (!r.ok) throw new Error(r.reason)
@@ -119,14 +152,15 @@ describe('the rotating ring from the routines (synthetic cart)', () => {
   })
 
   it("10 pieces at the OAM the cart's own spawn and draw wrote, mapped back by the camera, verified", () => {
-    // Camera = centre - (128, 112) = (288, 208). OAM x = X * 8 - $20 (camera low), y = $7F (the Mario position the run sets), so map x = 256 + 8 * X
-    // and y = 208 + $7F = 335; tile = the entry's X low byte ($A0, name table from the attribute), attribute = the id ($E3).
+    // Camera = centre - (128, 112) = (288, 208). OAM x = X * 8 - $20 (camera low) + 2 (the list index), so dx = that - 128;
+    // OAM y = $7F (the Mario position the run sets) + 5 (the stream byte at the entry's offset), so dy = that - 112;
+    // tile = the entry's X low byte ($A0, name table from the attribute), attribute = the id ($E3).
     const r = parts(ringRom())
     expect(r.unverified).toEqual([])
     expect(r.parts.length).toBe(10)
     r.parts.forEach((p, k) => {
       const X = 10 + k
-      expect([p.oam, p.dx, p.dy, p.char, p.attr, p.size]).toEqual([76 + k, 256 + 8 * X - 416, 335 - 320, 0xa0 | (1 << 8), 0xe3, 8]) // prettier-ignore
+      expect([p.oam, p.dx, p.dy, p.char, p.attr, p.size]).toEqual([76 + k, 8 * X - 30 - 128, 0x7f + STREAM_BYTE - 112, 0xa0 | (1 << 8), 0xe3, 8]) // prettier-ignore
     })
   })
 
@@ -150,10 +184,61 @@ describe('the rotating ring from the routines (synthetic cart)', () => {
   })
 
   it('an entry near the map origin (negative camera) maps back to its own position', () => {
-    // Camera (-64, -64): the cart's OAM x = X * 8 - $C0 wraps to a byte, and camera + OAM comes back to map x = X * 8.
+    // Camera (-64, -64): the cart's OAM x = X * 8 - $C0 + 2 wraps to a byte; its offset from the centre (screen 128) is the same as ever.
     const r = parts(ringRom(), { ...ENTRY, x: 64, y: 48 })
     expect(r.parts.map(p => [p.dx, p.dy])).toEqual(
-      Array.from({ length: 10 }, (_, k) => [8 * (10 + k) - 64, 63 - 48]),
+      Array.from({ length: 10 }, (_, k) => [8 * (10 + k) - 64 + 2, 0x7f + STREAM_BYTE - 112]),
+    )
+  })
+
+  it('the loader hand-off reaches the spawn: list index in $02, stream offset in $03, read through SpriteDataPtr', () => {
+    const rom = ringRom()
+    const at = (e: Partial<typeof ENTRY>) => parts(rom, { ...ENTRY, ...e }).parts[0]!
+    const base = at({})
+    expect(at({ index: 3 }).dx).toBe(base.dx + 1) // the index is added to the OAM x
+    // The stream byte at offset 9 is $40 + 9 = $49 instead of 5: a swapped or ignored offset reads the wrong byte.
+    expect(at({ streamOffset: 9 }).dy).toBe(base.dy + (0x49 - STREAM_BYTE))
+  })
+
+  it('the spawn is a fresh one: ring state left in the image (BooRingIndex 2, a turned angle) is cleared, and the requested angle is the ring state', () => {
+    const rom = ringRom()
+    const dirty = seedOf(rom, w => {
+      w[0x18ba] = 2 // a game that already holds two rings: the spawn would refuse
+      w.fill(0x55, 0x0fae, 0x0fae + 16)
+    })
+    const r = rotatingRing(rom, dirty, { ...ENTRY, angle: 0x103 }, routinesOf(rom))
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.parts.length).toBe(10)
+    // Angle $103: low byte 3 added to the tile, high byte 1 added to OAM y.
+    expect(r.parts.every(p => (p.char & 0xff) === 0xa3 && p.dy === 0x7f + STREAM_BYTE + 1 - 112)).toBe(true) // prettier-ignore
+  })
+
+  describe('pieces at negative map coordinates (a centre near the map origin, M1)', () => {
+    const screenRom = () => ringRom(b => b.set(pad(screenDraw, 291), off(0x02fa98)))
+    const centres = [0, 32, 64]
+    it.each(centres.flatMap(x => centres.map(y => ({ x, y }))))(
+      'a centre at $x,$y: every piece within 80 px of it',
+      ({ x, y }) => {
+        const r = parts(screenRom(), { ...ENTRY, x, y })
+        expect(r.parts.length).toBe(10)
+        r.parts.forEach((p, k) => {
+          expect([p.dx, p.dy]).toEqual([8 * (k - 5), 8 * (k - 5)]) // 8 * (X - 15), X = 10 + k
+          expect(Math.abs(p.dx)).toBeLessThanOrEqual(80)
+          expect(Math.abs(p.dy)).toBeLessThanOrEqual(80)
+        })
+      },
+    )
+    it.each(centres.map(c => ({ c })))(
+      'drawn on the map at centre $c,$c the box is the pieces, a few hundred px at most',
+      ({ c }) => {
+        const rom = screenRom()
+        const solid = Array.from({ length: 128 }, () => new Uint8Array(64).fill(3))
+        const m = { vram: { sp1: solid, sp2: solid, sp3: solid, sp4: solid }, colors: COLORS, isVertical: false, screenCount: 3 } // prettier-ignore
+        const s: LevelSprite = { index: 2, x: c / 16, y: c / 16, spriteId: 0xe3, screen: 0, extraBit: false, raw: [0x41, 0xa1, 0xe3], streamOffset: 7 } // prettier-ignore
+        const d = drawSprites([s], m, interpDrawer(rom, LEVEL, m, runOnce, () => seedOf(rom), routinesOf(rom)))[0]! // prettier-ignore
+        expect([d.status, d.reason]).toEqual(['drawn', undefined])
+        expect(d.box).toEqual({ x0: c - 40, y0: c - 40, x1: c + 40, y1: c + 40 })
+      },
     )
   })
 
@@ -174,7 +259,7 @@ describe('the rotating ring from the routines (synthetic cart)', () => {
       [0x02fa98 + 200, 'the ring draw routine'],
     ])('a harmless change inside the routine at $%s is still drawn, flagged', (at, what) => {
       const rom = changed(at, 0x1a) // INC A in the NOP run: nothing reads it
-      const r = rotatingRing(rom, levelSeed(rom, LEVEL), ENTRY, clean)
+      const r = rotatingRing(rom, seedOf(rom), ENTRY, clean)
       expect(r.ok && r.unverified).toEqual([what])
       expect(r.ok && r.parts.length).toBe(10)
     })
@@ -183,6 +268,9 @@ describe('the rotating ring from the routines (synthetic cart)', () => {
       [0x02fc8d + 84, 'the ring draw helpers'],
       [0x02fd48, 'the ring draw helpers'],
       [0x02fd48 + 111, 'the ring draw helpers'],
+      [0x02fe71, 'the ring contact test'],
+      [0x02fe71 + 83, 'the ring contact test'],
+      [0x02f821, 'the cluster dispatch call'],
       [0x02a8c0, 'the loader route to the sprite spawn'],
       [0x02aac0, 'the cluster spawn entry'],
       [0x02aad1, 'the $E2/$E3 branch to the ring spawn'],
@@ -208,7 +296,7 @@ describe('the rotating ring from the routines (synthetic cart)', () => {
 
   it('a level the loader refused has no ring, and says why', () => {
     const rom = ringRom()
-    const seed = { ...levelSeed(rom, LEVEL), loaded: undefined, loadRefusal: 'loader said no' }
+    const seed = { ...seedOf(rom), loaded: undefined, loadRefusal: 'loader said no' }
     expect(rotatingRing(rom, seed as never, ENTRY, routinesOf(rom))).toEqual({
       ok: false,
       reason: 'loader said no',
@@ -226,15 +314,15 @@ describe('the rotating ring on the map (synthetic cart)', () => {
     drawSprites(
       [s],
       m,
-      interpDrawer(rom, LEVEL, m, runOnce, () => levelSeed(rom, LEVEL), routines),
+      interpDrawer(rom, LEVEL, m, runOnce, () => seedOf(rom), routines),
     )[0]!
 
   it('one sprite at its real stream index, drawn from the ring pieces, never a marker', () => {
     const d = draw(sprite())
     expect(d).toMatchObject({ index: 2, id: 0xe3, x: 416, y: 320, status: 'drawn' })
     expect(d.unverified).toBeUndefined()
-    // Pieces at map x 336..488 (8 wide each from X 10..19: 256 + 80 .. 256 + 152), y 335: the box spans them.
-    expect(d.box).toEqual({ x0: 336, y0: 335, x1: 416, y1: 343 })
+    // Pieces 8 wide at dx 8 * X - 158 (X 10..19: -78..-6) and dy 20 (see the first test): the box spans them.
+    expect(d.box).toEqual({ x0: 338, y0: 340, x1: 418, y1: 348 })
   })
 
   it('$E2 is drawn the same way', () => {
@@ -261,7 +349,7 @@ describe('the rotating ring on the map (synthetic cart)', () => {
 
   it('a run that does not return keeps the marker with the reason', () => {
     const broken = ringRom(b => (b[off(0x02fa98)] = 0x00))
-    const d = drawSprites([sprite()], model, interpDrawer(broken, LEVEL, model, runOnce, () => levelSeed(broken, LEVEL), routinesOf(broken)))[0]! // prettier-ignore
+    const d = drawSprites([sprite()], model, interpDrawer(broken, LEVEL, model, runOnce, () => seedOf(broken), routinesOf(broken)))[0]! // prettier-ignore
     expect(d.status).toBe('placeholder')
     expect(d.reason).toMatch(/^refused: /)
   })

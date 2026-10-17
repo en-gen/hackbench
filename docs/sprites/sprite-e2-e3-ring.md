@@ -47,8 +47,10 @@ All line numbers are SMWDisX `bank_02.asm` unless a bank is named. No assembly i
 - Per ring entry, on a fresh machine (each ring is drawn alone, owner call C): the entry's
   X, list index and stream offset are put where the loader leaves them, the camera is put on
   the centre so all 10 pieces are on screen, SpriteLock is set, Mario is put far away (the
-  contact test then misses; owner call F), the ring angle is 0 (the value the level load
-  leaves; owner call A), the spawn runs with the id in A, then the draw once per type-4 slot.
+  contact test then misses; owner call E), the ring state is cleared (the level image's own is
+  not zero: $0EC's loader image has BooRingIndex 1 and angle $1FF) and the angle set to 0, the state
+  before the ring's first frame (owner call A), the spawn runs with the id in A, then the draw once
+  per type-4 slot.
   Pieces come back from OAM into map pixels through the camera.
 - Frame policy: SpriteLock is set, so the ring does not turn; the map shows the spawn
   state, angle 0. The first ring met on a level starts there; a later one starts wherever the
@@ -60,7 +62,8 @@ All line numbers are SMWDisX `bank_02.asm` unless a bank is named. No assembly i
   ruling D52, option B): the ring is drawn from the code as it stands and the sprite is flagged
   `unverified`, naming the part (the spawn, the draw, the two draw helpers, the loader route, the
   cluster spawn entry, the $E2/$E3 branch, the cluster loop, the dispatch call and its target,
-  the type-4 dispatch entry). Fingerprints cover the routines only, not the data tables. What
+  the type-4 dispatch entry; the spawn, draw, helpers and the 84-byte contact test CODE_02FE71,
+  which the draw runs, are the fingerprinted spans). Fingerprints cover the routines only, not the data tables. What
   still keeps the marker, with its reason: no level image, a run that does not return or leaves
   ROM, a vertical level (owner call B: the loader hands the spawn the screen's Y boundary as the
   ring's X there, 5232-5238, so the ROM's own ring would be at the wrong place), the extra-bits
