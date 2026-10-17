@@ -14,6 +14,7 @@
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message, Widget } from '@theia/core/lib/browser'
+import { HoverService } from '@theia/core/lib/browser/hover-service'
 import {
   MAP_PLANE_KEYS,
   MapCollisionCheckResult,
@@ -22,6 +23,7 @@ import {
   MapPlaneKey,
   MapScreenResult,
   MapBlockContentsResult,
+  MapSpriteDto,
   MapSpritesResult,
   ProjectService,
   SwitchFlagsDto,
@@ -31,6 +33,9 @@ import { ProjectContext } from './project-context'
 import { decodeRgba, TILE_PX } from './map16-pixels'
 import {
   spriteDoors,
+  spriteAt,
+  spriteName,
+  hoverPlacementKey,
   doorIdAt,
   liftIfCovered,
   spritePlanes,
@@ -136,6 +141,7 @@ const palaceName = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
 export class MapViewWidget extends ReactWidget implements ProjectBound {
   @inject(ProjectService) protected readonly projects!: ProjectService
   @inject(ProjectContext) protected readonly projectContext!: ProjectContext
+  @inject(HoverService) protected readonly hoverService!: HoverService
 
   protected options: MapViewOptions | undefined
 
@@ -169,6 +175,12 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** The map's sprites (#564), once read; `spritesWhy` is why there are none to show. */
   protected sprites: Sprites | undefined
   protected spritesWhy: string | undefined
+  /** The sprite under the pointer (#981); its name shows in Theia's themed hover, anchored on the sprite. */
+  protected hoverSprite: MapSpriteDto | undefined
+  /** The invisible box over the hovered sprite that the hover is placed against. */
+  protected spriteAnchor: HTMLElement | undefined
+  /** Where the anchor was placed (`hoverPlacementKey`): a different zoom or strip origin moves the sprite, so the hover is asked for again. */
+  protected hoverPlaced = ''
   /** Bumped when `sprites` is replaced, so a canvas painted from the old ones is repainted. */
   protected spritesVersion = 0
   /** The collision overlay (#435); off by default. */
@@ -235,6 +247,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.title.closable = true
     this.node.tabIndex = 0
     this.toDispose.push({ dispose: () => this.resizes.disconnect() })
+    this.toDispose.push({ dispose: () => this.setHoverSprite(undefined) })
     this.toDispose.push(this.view)
     // Three consumers of one store, each deciding for itself.
     this.toDispose.push(
@@ -304,6 +317,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.error = undefined
     this.mapLayout = undefined
     this.sprites = undefined
+    this.setHoverSprite(undefined)
     this.spritesWhy = undefined
     this.collision = undefined
     this.collisionWhy = undefined
@@ -400,6 +414,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** Drops every cached screen and reads the map again from the working copy. */
   protected refresh(): void {
     this.generation++
+    this.setHoverSprite(undefined)
     this.screens.clear()
     this.coveredIds.clear()
     this.lift = undefined
@@ -479,6 +494,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     // An older map's or edit's sprites must not land over a newer one.
     if (generation !== this.generation) return
     this.sprites = r.status === 'ok' ? r : undefined
+    this.setHoverSprite(undefined)
     this.lift = undefined
     this.coveredIds.clear()
     this.spritesWhy = r.status === 'ok' ? undefined : r.status === 'unavailable' ? r.reason : `The base ROM ${r.baseRom.title} is not on this machine` // prettier-ignore
@@ -885,17 +901,53 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const strip = this.scroller?.querySelector<HTMLElement>('.hb-map-view-strip')
     const l = this.mapLayout
     const p = this.pointer
-    if (!strip || !l || !p) {
+    if (!strip || !l || !p || !this.isVisible) {
       this.setLift(undefined)
+      this.setHoverSprite(undefined)
       return this.setHover(undefined)
     }
     const r = strip.getBoundingClientRect()
     const [x, y] = [(p.x - r.left) / this.zoom, (p.y - r.top) / this.zoom]
     this.setLift(this.liftAt(x, y))
+    this.setHoverSprite(this.spriteUnder(x, y))
     if (!this.blocks) return this.setHover(undefined)
     const order = this.layerOrder(l)
     const shown = (q: Indicator['plane']) => order.includes(q) && this.layerShown(q)
     this.setHover(hoverTarget(this.blocks.indicators, x, y, shown, q => order.indexOf(q)) ?? undefined) // prettier-ignore
+  }
+
+  /** The topmost drawn sprite at the strip pixel (x, y), native units; none while sprites are toggled off. */
+  protected spriteUnder(x: number, y: number): MapSpriteDto | undefined {
+    const g = this.sprites
+    return g && this.showSprites ? spriteAt(g.sprites, g, x, y) : undefined
+  }
+
+  protected setHoverSprite(next: MapSpriteDto | undefined): void {
+    const strip = this.node.querySelector('.hb-map-view-strip')
+    const placed = hoverPlacementKey(
+      this.zoom,
+      strip?.getBoundingClientRect() ?? { left: 0, top: 0 },
+    )
+    if (next === this.hoverSprite && this.hoverPlaced === placed) return
+    this.hoverSprite = next
+    this.hoverPlaced = placed
+    // The hover service is shared: only cancel a hover this widget asked for.
+    if (this.spriteAnchor) this.hoverService.cancelHover()
+    this.spriteAnchor?.remove()
+    this.spriteAnchor = undefined
+    const name = next && spriteName(next)
+    if (next && name && strip) {
+      // Theia's hover is placed against an element, so a fixed box over the sprite stands in for it.
+      const r = strip.getBoundingClientRect()
+      const { x0, y0, x1, y1 } = next.box
+      const a = document.createElement('div')
+      a.className = 'hb-map-sprite-anchor'
+      Object.assign(a.style, { position: 'fixed', pointerEvents: 'none', left: `${r.left + x0 * this.zoom}px`, top: `${r.top + y0 * this.zoom}px`, width: `${(x1 - x0) * this.zoom}px`, height: `${(y1 - y0) * this.zoom}px` }) // prettier-ignore
+      document.body.append(a)
+      this.spriteAnchor = a
+      // A click hides the hover until the pointer re-enters (Theia cancels on mousedown), as a native title does.
+      this.hoverService.requestHover({ content: name, target: a, position: 'top', cssClasses: ['hb-map-sprite-hover'] }) // prettier-ignore
+    }
   }
 
   protected setHover(next: Indicator | undefined): void {
@@ -1030,6 +1082,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   protected toggleSprites(): void {
     this.showSprites = !this.showSprites
+    if (!this.showSprites) this.setHoverSprite(undefined)
     this.update()
     this.sync()
   }
@@ -1046,6 +1099,25 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected override onResize(msg: Widget.ResizeMessage): void {
     super.onResize(msg)
     this.fitStrip()
+  }
+
+  /** A hidden or detached tab gets no mouseleave, so its hover must be dropped here. */
+  protected override onAfterHide(msg: Message): void {
+    super.onAfterHide(msg)
+    this.pointer = undefined
+    this.setHoverSprite(undefined)
+  }
+
+  protected override onBeforeDetach(msg: Message): void {
+    this.pointer = undefined
+    this.setHoverSprite(undefined)
+    super.onBeforeDetach(msg)
+  }
+
+  /** A zoom or layout change moves the sprite: once the render has committed, place the hover again. */
+  protected override onUpdateRequest(msg: Message): void {
+    super.onUpdateRequest(msg)
+    if (this.spriteAnchor) requestAnimationFrame(() => this.updateHover())
   }
 
   protected override onActivateRequest(msg: Message): void {
@@ -1258,6 +1330,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
             const at = l.orientation === 'vertical' ? t.scrollTop : t.scrollLeft
             if (this.startState === 'pending' && at !== 0) this.movedBeforeStart = true
             this.requestVisible()
+            // The sprite moved under a still pointer: drop the hover so it is asked for again at the new place.
+            this.setHoverSprite(undefined)
             this.updateHover()
           }}
           onMouseMove={this.onPointerMove}
@@ -1265,6 +1339,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
             this.pointer = undefined
             this.setHover(undefined)
             this.setLift(undefined)
+            this.setHoverSprite(undefined)
           }}
         >
           {/* Bottom to top (planes by `screens`, composited per screen): the checkerboard, the back area, then the screens,

@@ -265,6 +265,18 @@ Hover (#879): the widget finds the sprite under the pointer with `doorIdAt`
 and `IndicatorDisplay`; that sprite's covered pixels draw opaque. The lift is
 part of the composite's cache key for the screens whose door map holds the id, so a lifted frame is never kept as the normal one and other screens do not repaint. The id is global to the map, so a sprite crossing a screen edge lifts on each screen it reaches; a sprite with no covered pixel on any composed screen never lifts.
 
+Sprite label (#981): `MapSpriteDto.name` is filled node-side from
+`getSpriteMetadata(id)?.displayName` (the sprite name table in
+`src/rom/model/sprites/SpriteMetadata.ts`); an id the table lacks has none and
+gets no hover. `spriteAt` (`map-view-model.ts`) returns the sprite that
+owns an opaque map pixel, using the same `stackOrder` as `spriteLayer`, so the
+named sprite is the one drawn on top. The widget asks Theia's `HoverService`
+for a hover whose text is `spriteName` (the name only), placed against an
+invisible fixed box over the sprite, so it takes the editor hover theme
+colours; there is no native `title` and nothing in the status bar. Leaving
+the sprite, a sprite reload, the sprite toggle going off or closing the tab
+cancels it.
+
 ### The map tab's collision overlay (#435)
 
 `ProjectService.mapCollision(manifestPath, index)` returns a map's collision as
