@@ -4,10 +4,15 @@
  * no shell imports, so it is unit tested without Theia.
  */
 import type { MapSpriteDto, SpritePartDto } from '../common/project-protocol'
-import { spriteLabel } from './map-view-model'
 import type { FramesState } from './sprite-frames'
 
 const TILE = 16
+
+/** The panel's heading for a sprite: "Podoboo (sprite $33)", or "Sprite $33" when the table has no name. Formats only; the name comes from the DTO. */
+export function spriteLabel(s: Pick<MapSpriteDto, 'id' | 'name'>): string {
+  const id = '$' + s.id.toString(16).toUpperCase().padStart(2, '0')
+  return s.name ? `${s.name} (sprite ${id})` : `Sprite ${id}`
+}
 
 /** What the pane says for a sprite with one pose; when frames could not be had it says `Animation not shown` instead. */
 export const NOT_ANIMATED = 'Not animated: this sprite shows one pose.'
