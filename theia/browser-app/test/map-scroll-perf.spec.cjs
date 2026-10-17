@@ -14,11 +14,20 @@
  * Wheel rate is an ASSUMPTION, not a measurement: 30 events per second of deltaX 100 (one Windows
  * wheel notch as Chromium reports it), standing for a held tilt. No tilt wheel was available to
  * measure the real auto-repeat rate; the owner check in the launched build covers the real device.
+ * The drag moves the grabbed thumb 3 px every 10 ms (a steady 100 Hz pointer). Electron is not run
+ * here: the owner checks it in the launched desktop app.
  *
- * Scope of the thresholds (see changelog.d/973-smooth-horizontal-scroll.md for the numbers): slot
- * $105 (20 screens) of the vanilla ROM, `build:browser`, Playwright's headless Chromium, one
- * machine, every zoom (fit, 1x, 2x, 3x, 4x), 3 runs each. Screens are WARMED first (a pass over
- * the strip, polling until every screen near the view is drawn), so a cold fetch is not counted.
+ * Measured scope: slot $105 (20 screens) of the vanilla ROM, `build:browser`, Playwright 1.63
+ * headless Chromium (classic scrollbars: the headless `--hide-scrollbars` default is dropped), one
+ * Windows machine, every zoom (fit, 1x, 2x, 3x, 4x). The spec ran 3 times on the fix and once with
+ * the `bare` cache removed (displayBuilds kept). Per test, fix runs: frame p50 16.7 ms, p95 <= 16.8,
+ * max <= 16.8 (one 60 Hz frame); longest frozen span <= 50.1 ms on the wheel (events land on frame
+ * boundaries), <= 33.4 ms on the drag; 0 IndicatorDisplay builds. Without the fix: frame p95 50.1 to
+ * 100.0 ms, max 50.1 to 116.6, longest frozen 66.6 to 116.7 ms, 396 to 1152 builds, and the 4x drag
+ * moved the view too few times to measure. Bounds: p95 25 (1.5 frames), longest frame 40, frozen 66
+ * (four frames): each sits above every fix run value and below the no-fix minimum (50.1, 50.1,
+ * 66.6). The frozen margin is thin at the no-fix end, so the build and frame bounds carry it too. Screens are WARMED first (a pass over the strip, polling until every screen in the
+ * viewport is drawn), so a cold fetch is not counted.
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')
@@ -30,7 +39,7 @@ const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
 const ROM = process.env.HB_ROM || romPath(VANILLA)
 test.skip(!fs.existsSync(ROM), `vanilla ROM not present at ${ROM}`)
 // Classic (non-overlay) scrollbars, so the thumb is a real mouse target.
-test.use({ launchOptions: { args: ['--disable-features=OverlayScrollbar,FluentOverlayScrollbar'] } }) // prettier-ignore
+test.use({ launchOptions: { ignoreDefaultArgs: ['--hide-scrollbars'], args: ['--disable-features=OverlayScrollbar,FluentOverlayScrollbar'] } }) // prettier-ignore
 
 const INDEX = 0x105
 const ID = `hackbench.map-view:${INDEX}`
@@ -40,7 +49,7 @@ const WHEEL = { period: 33, deltaX: 100 } // assumed held-tilt rate, see header
 const DRAG = { period: 10, thumbPx: 3 } // a steady 100 Hz pointer moving the thumb 3 px a step
 const P95_MAX_MS = 25
 const FRAME_MAX_MS = 40
-const FROZEN_MAX_MS = 90 // input period 33 ms + two missed frames
+const FROZEN_MAX_MS = 66 // four 60 Hz frames; the fix runs show at most 50.1 (wheel events land on frame boundaries)
 
 const GET_SVC = `function getSvc(name) {
   const d = window.theia.container._bindingDictionary
@@ -94,7 +103,7 @@ async function setZoom(page, zoom) {
   await page.waitForTimeout(500)
 }
 
-/** Resolves when every screen within one view-width of the viewport has its composite drawn. */
+/** Resolves when every screen intersecting the viewport has its composite drawn. */
 const settled = page =>
   page.waitForFunction(sel => {
     const el = document.querySelector(sel)
@@ -102,7 +111,7 @@ const settled = page =>
     const comps = [...el.querySelectorAll('canvas[data-layer="screen"]')]
     const near = comps.filter(c => {
       const r = c.getBoundingClientRect()
-      return r.right > v.left - v.width && r.left < v.right + v.width
+      return r.right > v.left && r.left < v.right
     })
     return near.length > 0 && near.every(c => c.dataset.drawn)
   }, SCROLLER, { timeout: 30000 }) // prettier-ignore
@@ -234,6 +243,9 @@ for (const zoom of ZOOMS) {
     const y = g.bottom + g.bar / 2
     await page.mouse.move(g.l + thumbW / 2 + 1, y)
     await page.mouse.down()
+    // The pointer resting on the scrollbar is hit-tested against the map and lifts the sprite that
+    // scrolls under it, a legitimate rebuild that is not #973; tell the widget it left the map.
+    await page.evaluate(sel => document.querySelector(sel).dispatchEvent(new MouseEvent('mouseout', { bubbles: true })), SCROLLER) // prettier-ignore
     const steps = Math.min(150, Math.floor((g.w - thumbW) / DRAG.thumbPx) - 2)
     const m = await measure(page, () => drive(DRAG.period, steps, n => page.mouse.move(g.l + thumbW / 2 + 1 + n * DRAG.thumbPx, y))) // prettier-ignore
     await page.mouse.up()
@@ -250,7 +262,8 @@ test('a warm scroll rebuilds no screen display, at every zoom', async ({ page })
     expect(typeof cold, `displayBuilds counter exists at ${zoom}`).toBe('number')
     await warm(page)
     const before = await builds(page)
-    expect(before, `warming built displays at ${zoom}`).toBeGreaterThan(cold)
+    // Only the first zoom must build here: a later zoom may find every screen already fetched and built.
+    if (zoom === ZOOMS[0]) expect(before, `warming built displays at ${zoom}`).toBeGreaterThan(cold)
     await page.evaluate(async sel => {
       const el = document.querySelector(sel)
       const max = el.scrollWidth - el.clientWidth
