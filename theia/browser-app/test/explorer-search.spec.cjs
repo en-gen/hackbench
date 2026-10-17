@@ -90,13 +90,13 @@ async function openExplorer(page, which, { viaApp = false } = {}) {
 
 const opens = page => page.evaluate(() => window.__opens)
 
-/** The drawn row ids, selection, and expanded ids, read off the widget. */
 // True when drawn; else the diagnostics, so a red poll names its own cause.
 async function boxOrDiag(page, which) {
   const s = await state(page, which)
   return s.boxVisible || JSON.stringify(s.diag)
 }
 
+/** The drawn row ids, selection, and expanded ids, read off the widget. */
 async function state(page, which) {
   return page.evaluate(async id => {
     const w = await getWidget(id)
