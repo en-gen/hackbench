@@ -3,7 +3,16 @@
 const http = require('http')
 const fs = require('fs')
 const path = require('path')
-const [fixDir, pwDir] = process.argv.slice(2)
+const [fixArg, pwArg] = process.argv.slice(2)
+const fixDir = path.resolve(fixArg)
+const pwDir = path.resolve(pwArg)
+if (!fs.statSync(fixDir, { throwIfNoEntry: false })?.isDirectory())
+  throw new Error(`not a directory: ${fixDir}`)
+// True when `f`, resolved against `root`, stays inside it (no '..' escape, not absolute elsewhere).
+const inside = (root, f) => {
+  const rel = path.relative(root, f)
+  return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel)
+}
 // The widget's own composeScreen, bundled once into the (out-of-repo) fixtures dir.
 require(path.join(pwDir, '..', 'esbuild')).buildSync({
   entryPoints: [path.join(__dirname, '..', 'compose-entry.ts')],
@@ -15,11 +24,17 @@ require(path.join(pwDir, '..', 'esbuild')).buildSync({
 const { chromium } = require(pwDir)
 const server = http.createServer((req, res) => {
   const u = req.url.split('?')[0]
-  const f = u.startsWith('/fix/')
-    ? path.join(fixDir, u.slice(5))
+  // Allowlist: the page, its script, the bundle and the per-map fixtures; nothing else is served.
+  const fix = /^\/fix\/(map-[0-9a-f]{1,3}\.json)$/.exec(u)
+  const [root, name] = fix
+    ? [fixDir, fix[1]]
     : u === '/compose.js'
-      ? path.join(fixDir, 'compose.js')
-      : path.join(__dirname, u.slice(1))
+      ? [fixDir, 'compose.js']
+      : ['/bench.html', '/bench.js'].includes(u)
+        ? [__dirname, u.slice(1)]
+        : [null, null]
+  const f = root && path.resolve(root, name)
+  if (!f || !inside(root, f)) return void res.writeHead(403).end()
   fs.readFile(f, (e, b) => {
     if (e) return void res.writeHead(404).end()
     res.writeHead(200, { 'content-type': f.endsWith('.json') ? 'application/json' : f.endsWith('.js') ? 'text/javascript' : 'text/html' }).end(b) // prettier-ignore
