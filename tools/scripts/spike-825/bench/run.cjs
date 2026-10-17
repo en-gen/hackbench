@@ -17,7 +17,7 @@ const range = a => `${Math.min(...a).toFixed(1)}-${Math.max(...a).toFixed(1)}`
 ;(async () => {
   await new Promise(r => server.listen(0, '127.0.0.1', r))
   const port = server.address().port
-  const browser = await chromium.launch({ headless: true, args: ['--js-flags=--expose-gc', '--enable-precise-memory-info'] }) // prettier-ignore
+  const browser = await chromium.launch({ headless: true, args: ['--js-flags=--expose-gc', '--enable-precise-memory-info', '--enable-unsafe-swiftshader'] }) // prettier-ignore
   const out = {}
   for (const map of ['10a', '105', '101'])
     for (let run = 0; run < 3; run++)

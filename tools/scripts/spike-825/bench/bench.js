@@ -60,7 +60,7 @@ onmessage = ({ data: m }) => {
 
 // ---- arm C: WebGL2, one shared canvas, results copied to each plane's 2D canvas ----
 const VS = `#version 300 es
-in vec2 p; void main(){ gl_Position = vec4(p, 0, 1); }`
+layout(location = 0) in vec2 p; void main(){ gl_Position = vec4(p, 0, 1); }`
 const FS = `#version 300 es
 precision highp int; precision highp float; precision highp usampler2D;
 uniform usampler2D map; uniform usampler2D atlas; uniform sampler2D pal;
@@ -232,11 +232,11 @@ async function main() {
   const frames = []
   let last = performance.now()
   const inflight = new Set()
-  while (sc.scrollLeft + sc.clientWidth < N * w) {
+  while (sc.scrollLeft + sc.clientWidth < N * w && frames.length < 3000) {
     sc.scrollLeft += 16
     for (let s = 0; s < N; s++)
       if (!slots[s] && (s + 1) * w - sc.scrollLeft < sc.clientWidth + w) {
-        inflight.add(showScreen(s).then(() => inflight.delete(s)))
+        inflight.add(showScreen(s))
       }
     await raf()
     const now = performance.now()
