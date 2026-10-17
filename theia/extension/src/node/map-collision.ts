@@ -59,7 +59,7 @@ export const forgetCollisionCarry = (): void => lastByPath.clear()
 
 /** The map drew fine; only the collision probe is out of reach (#967). */
 const NO_COLLISION = 'collision cannot be worked out for this map on this ROM.'
-const VERTICAL = 'Collision is not shown for vertical maps yet'
+const VERTICAL = 'collision is not shown for vertical maps yet.'
 
 /**
  * Whether `mapCollision` can run for this map, without running it: the level's shape and the ROM's own

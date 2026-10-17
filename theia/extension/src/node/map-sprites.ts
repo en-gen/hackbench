@@ -451,12 +451,12 @@ export function castleFlameSprites(
   dy: number | undefined,
   dynamic?: (note: PaletteNote) => RgbaColor[],
   routines: FlameRoutines = VANILLA_FLAME_ROUTINES,
-): { sprites: MapSpriteDto[]; note?: string } {
+): { sprites: MapSpriteDto[]; note?: string; noteDetail?: string } {
   if (!sprites.some(s => s.spriteId === CASTLE_FLAMES_ID && !(s.raw[0]! & EXTRA_BITS))) return { sprites: [] } // prettier-ignore
-  const none = (why: string) => ({ sprites: [], note: `The castle flames are not drawn: ${why}.` })
+  const none = (why: string, noteDetail?: string) => ({ sprites: [], note: `The castle flames are not drawn: ${why}.`, ...(noteDetail ? { noteDetail } : {}) }) // prettier-ignore
   if (dy === undefined) return none('the background position is unknown')
   const run = castleFlames(rom, seed, routines)
-  if (!run.ok) return none(run.reason)
+  if (!run.ok) return none('the routines that draw them could not be run on this ROM', run.reason)
   if (run.parts.length === 0) return none('the routines drew nothing')
   const { w, h } = screenTiles(model.isVertical)
   const [mapW, mapH] = model.isVertical ? [w * TILE, model.screenCount * h * TILE] : [model.screenCount * w * TILE, h * TILE] // prettier-ignore
@@ -508,7 +508,9 @@ export function castleFlameSprites(
   const notes = [
     ...(missing ? ['Some castle flames are only marked: their chars are not loaded.'] : []),
     ...(why
-      ? [`The castle flames are unverified: ${why}; drawn from the code at the vanilla address.`]
+      ? [
+          "The castle flames are drawn from this ROM's own code, which differs from the original game.",
+        ]
       : []),
   ]
   return {
@@ -518,6 +520,7 @@ export function castleFlameSprites(
       ...(why ? { unverified } : {}),
     })),
     ...(notes.length ? { note: notes.join(' ') } : {}),
+    ...(why ? { noteDetail: why } : {}),
   }
 }
 
@@ -632,6 +635,7 @@ function compute(
       ...layer,
       sprites: [...layer.sprites, ...flames.sprites],
       note: [layer.note, flames.note].filter(Boolean).join(' ') || undefined,
+      ...(flames.noteDetail ? { noteDetail: flames.noteDetail } : {}),
     }
   } catch (err) {
     return unreadable((err as Error).message)

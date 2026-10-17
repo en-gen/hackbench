@@ -502,6 +502,14 @@ const PALACE_UNDRAWN = 'this block could not be drawn on this ROM.'
 export const unreadable = (detail: string, reason = MAP_UNREADABLE) =>
   ({ status: 'unavailable', reason, detail }) as const
 
+/** A start position the entrance loader could not work out (#967): plain words, the loader's text apart. */
+export const startUnavailable = (detail: string) =>
+  ({
+    status: 'unavailable',
+    reason: 'the start position could not be worked out for this map.',
+    detail,
+  }) as const
+
 export function mapScreen(
   cache: L1ModelCache,
   bytes: Uint8Array,

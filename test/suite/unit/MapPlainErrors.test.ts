@@ -12,11 +12,13 @@ import { mapCollision, mapCollisionCheck } from '../../../theia/extension/src/no
 import {
   L1ModelCache,
   palaceIconsOf,
+  startUnavailable,
   toolbarArtOf,
 } from '../../../theia/extension/src/node/map-screen'
 import { mapSprites } from '../../../theia/extension/src/node/map-sprites'
 import {
   lowerFirst,
+  unverifiedLabel,
   readFailed,
   romMissingMessage,
   withDetail,
@@ -117,7 +119,16 @@ describe('toolbar art that cannot be drawn (#967)', () => {
   })
 })
 
+describe('the start position (#967)', () => {
+  it('a refusal reads plainly, the loader text in detail', () => {
+    expect(startUnavailable('planted: no entrance at $05:8000')).toEqual({ status: 'unavailable', reason: 'the start position could not be worked out for this map.', detail: 'planted: no entrance at $05:8000' }) // prettier-ignore
+  })
+})
+
 describe('the view-side wording (#967)', () => {
+  it('an unverified sprite toggle names no code, the raw text is for the tooltip', () => {
+    expect(unverifiedLabel()).toBe('Sprites · unverified: this ROM changes code the sprites depend on.') // prettier-ignore
+  })
   it('a rejected call keeps its text in detail only', () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {})
     const r = readFailed('Map 105 sprites')(new Error('planted rpc'))

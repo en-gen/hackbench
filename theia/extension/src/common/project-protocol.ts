@@ -350,6 +350,8 @@ export type MapSpritesResult =
       sprites: MapSpriteDto[]
       /** Why some sprites may be missing (an unterminated stream), when they may be. */
       note?: string
+      /** The technical text behind `note`, for its tooltip only. */
+      noteDetail?: string
     }
   | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
@@ -401,7 +403,7 @@ export interface BlockIndicatorDto {
  */
 export type MapStartResult =
   | { status: 'ok'; screen: number; x: number; y: number; vertical: boolean }
-  | { status: 'unavailable'; reason: string }
+  | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
 /**
@@ -422,6 +424,8 @@ export type MapBlockContentsResult =
       indicators: BlockIndicatorDto[]
       /** Contents that could not be drawn, and why. */
       note?: string
+      /** The technical text behind `note`, for its tooltip only. */
+      noteDetail?: string
     }
   | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }

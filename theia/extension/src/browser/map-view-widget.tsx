@@ -67,7 +67,14 @@ import {
 } from '../../../../src/rom/model/ColorMath'
 import { perfEnd, perfStart } from '../common/perf-marks'
 import { ProjectBound } from './project-bound'
-import { lowerFirst, rawText, readFailed, romMissingMessage, withDetail } from './map-view-messages'
+import {
+  lowerFirst,
+  rawText,
+  readFailed,
+  romMissingMessage,
+  unverifiedLabel,
+  withDetail,
+} from './map-view-messages'
 
 export { slotLabel }
 /** One screen's decoded planes; null is an empty plane, which draws nothing. */
@@ -230,6 +237,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected pendingStart: { x: number; y: number } | undefined
   /** Why the start is not known: the view stays at screen 0 and says so. */
   protected startWhy: string | undefined
+  protected startDetail: string | undefined
   /** Where this open's start stands, for the strip's `data-start` (a test waits on it, not on a timer). */
   protected startState: 'pending' | 'placed' | 'skipped' | 'unavailable' = 'pending'
   /** The view left offset 0 while the start was pending, even if it came back: the user has taken over. */
@@ -336,6 +344,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.scroller?.scrollTo(0, 0)
     this.pendingStart = undefined
     this.startWhy = undefined
+    this.startDetail = undefined
     this.startState = 'pending'
     this.movedBeforeStart = false
     void this.loadStart(++this.startSeq)
@@ -362,6 +371,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     }
     this.startState = 'unavailable'
     this.startWhy = r.status === 'unavailable' ? r.reason : romMissingMessage(r.baseRom.title)
+    this.startDetail = r.status === 'unavailable' && 'detail' in r ? r.detail : undefined
     this.update()
   }
 
@@ -510,7 +520,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       .catch(readFailed(this.what('block contents')))
     if (generation !== this.generation) return
     this.blocks = r.status === 'ok' ? { ...r, decoded: decodeArts(r.arts) } : undefined
-    this.blocksDetail = r.status === 'unavailable' ? r.detail : undefined
+    this.blocksDetail =
+      r.status === 'unavailable' ? r.detail : r.status === 'ok' ? r.noteDetail : undefined
     this.blocksWhy =
       r.status === 'ok'
         ? r.note
@@ -1032,7 +1043,11 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   }
 
   protected spritesTitle(): string {
-    return this.spritesWhy ? withDetail(this.spritesLabel(), this.spritesDetail) : this.spritesLabel() // prettier-ignore
+    if (this.spritesWhy) return withDetail(this.spritesLabel(), this.spritesDetail)
+    return withDetail(
+      this.spritesLabel(),
+      this.sprites?.sprites.find(x => x.unverified)?.unverified,
+    )
   }
 
   protected toggleSprites(): void {
@@ -1046,8 +1061,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     if (this.spritesWhy) return `Sprites unavailable: ${this.spritesWhy}`
     if (!this.sprites) return 'Sprites · reading the map'
     if (this.sprites.sprites.length === 0) return 'Sprites · this map has none'
-    const u = this.sprites.sprites.find(x => x.unverified)?.unverified
-    return u ? `Sprites · unverified: ${u}` : 'Sprites'
+    return this.sprites.sprites.some(x => x.unverified) ? unverifiedLabel() : 'Sprites'
   }
 
   protected override onResize(msg: Widget.ResizeMessage): void {
@@ -1175,7 +1189,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
           </div>
         )}
         {this.sprites?.note && (
-          <div className="hb-map-view-note" data-note="sprites">
+          <div className="hb-map-view-note" data-note="sprites" title={this.sprites.noteDetail}>
             {this.sprites.note}
           </div>
         )}
@@ -1434,7 +1448,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
           {this.startWhy && (
             <>
               {' · '}
-              <span data-control="map-start-note" title={this.startWhy}>
+              <span
+                data-control="map-start-note"
+                title={withDetail(this.startWhy, this.startDetail)}
+              >
                 start unavailable
               </span>
             </>

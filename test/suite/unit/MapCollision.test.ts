@@ -35,7 +35,10 @@ const synthetic = () => {
 describe('mapCollision (synthetic)', () => {
   it('a vertical level is unavailable with its reason, not an empty overlay', async () => {
     const r = await mapCollision(stub(true), synthetic(), 'x.sfc', 0x105, OFF)
-    expect(r).toEqual({ status: 'unavailable', reason: expect.stringMatching(/vertical/i) })
+    expect(r).toEqual({
+      status: 'unavailable',
+      reason: 'collision is not shown for vertical maps yet.',
+    })
   })
 
   it("a ROM the level loader refuses is unavailable with the loader's reason", async () => {
@@ -232,7 +235,7 @@ describe('mapCollisionCheck (synthetic): the toggle state without a probe', () =
   it('says why for a vertical level, a refusing loader and an unbuildable map', () => {
     expect(mapCollisionCheck(stub(true), synthetic(), 'x.sfc', 0x105)).toEqual({
       status: 'unavailable',
-      reason: expect.stringMatching(/vertical/i),
+      reason: 'collision is not shown for vertical maps yet.',
     })
     expect(mapCollisionCheck(stub(false), synthetic(), 'x.sfc', 0x105)).toEqual({
       status: 'unavailable',

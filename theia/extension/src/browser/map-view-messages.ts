@@ -21,3 +21,7 @@ export const withDetail = (text: string, detail?: string): string =>
 
 /** The missing-ROM sentence after a "Sprites unavailable: " style lead reads on in lower case. */
 export const lowerFirst = (text: string): string => text.charAt(0).toLowerCase() + text.slice(1)
+
+/** The sprite toggle's accessible name when some sprites are unverified: no code names; the raw text is the title's second line. */
+export const unverifiedLabel = (): string =>
+  'Sprites · unverified: this ROM changes code the sprites depend on.'

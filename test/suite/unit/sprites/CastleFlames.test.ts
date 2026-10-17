@@ -411,14 +411,15 @@ describe('castle flames on the map (synthetic cart)', () => {
 
   it('a refused run draws none and carries the reason in the note, never silently', () => {
     const brk = flameRom(DATA, b => void (b[off(0x02fa16)] = 0x00))
-    expect(draw(stream(0xe6), 16, brk)).toEqual({ sprites: [], note: 'The castle flames are not drawn: BRK executed at $02FA16.' }) // prettier-ignore
+    expect(draw(stream(0xe6), 16, brk)).toEqual({ sprites: [], note: 'The castle flames are not drawn: the routines that draw them could not be run on this ROM.', noteDetail: 'BRK executed at $02FA16' }) // prettier-ignore
   })
 
   it('a changed routine still draws the flames, flagged unverified, and the note names what differs (ruling B)', () => {
     const changed = flameRom(DATA, b => void (b[off(0x02aa6c + SPAWN_HARMLESS)]! ^= 1))
     const r = draw(stream(0xe6), 16, changed, {}, routinesOf(rom))
     expect(r.sprites.length).toBe(16)
-    expect(r.note).toBe("The castle flames are unverified: the flame spawn routine is not the vanilla shape; drawn from the code at the vanilla address.") // prettier-ignore
+    expect(r.note).toBe("The castle flames are drawn from this ROM's own code, which differs from the original game.") // prettier-ignore
+    expect(r.noteDetail).toBe('the flame spawn routine is not the vanilla shape')
     expect(r.sprites.every(s => s.unverified?.includes('the flame spawn routine is not the vanilla shape'))).toBe(true) // prettier-ignore
   })
 
@@ -426,7 +427,8 @@ describe('castle flames on the map (synthetic cart)', () => {
     const hacked = flameRom(DATA, b => void (b[off(0x02f82f)]! ^= 1))
     const r = draw(stream(0xe6), 16, hacked)
     expect(r.sprites.length).toBe(16)
-    expect(r.note).toContain('the cluster dispatch entry for type 5 is not the vanilla shape')
+    expect(r.note).not.toContain('vanilla shape')
+    expect(r.noteDetail).toContain('the cluster dispatch entry for type 5 is not the vanilla shape')
   })
 
   describe('through mapSprites', () => {

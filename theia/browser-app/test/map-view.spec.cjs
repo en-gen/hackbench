@@ -3189,6 +3189,101 @@ test('a server read failure keeps its detail out of the visible note and the too
   await expect(note).toHaveAttribute('title', 'D')
 })
 
+test('a rejected mapCollision probe says it in plain words once the toggle is pressed (#967)', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  // The check says collision is available, so the toggle is usable; only the probe it starts rejects.
+  await page.evaluate(
+    async ({ mp, msg }) => {
+      const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {
+        index: 0x105,
+      })
+      const real = w.projects
+      w.projects = new Proxy(real, {
+        get: (t, k) => k === 'mapCollisionCheck' ? async () => ({ status: 'available' }) : k === 'mapCollision' ? async () => { throw new Error(msg) } : typeof t[k] === 'function' ? t[k].bind(t) : t[k], // prettier-ignore
+      })
+      await w.open({ manifestPath: mp, index: 0x105, label: '105', iconClass: '' })
+      const shell = getSvc('ApplicationShell')
+      await shell.addWidget(w, { area: 'main' })
+      await shell.activateWidget(w.id)
+    },
+    { mp: project.manifestPath, msg: PLANTED_786 },
+  )
+  opened.push('hackbench.map-view:261')
+  const toggle = page.locator(`${root(0x105)} [data-control="collision-toggle"]`).first()
+  await expect(toggle).toHaveAttribute('data-collision-state', 'ready')
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('data-collision-state', 'refused')
+  const [first, second] = (await tooltip(page, 'collision-toggle')).split('\n')
+  expect(first).toBe(`Collision unavailable: ${JUST_NOW}`)
+  expect(second).toBe(PLANTED_786)
+  expect(await toggle.getAttribute('aria-label')).toBe(`Collision unavailable: ${JUST_NOW}`)
+})
+
+test('a rejected mapPalaceIcons names the palace in plain words, the exception on the second line (#967)', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openRejecting(page, project.manifestPath, 'mapPalaceIcons')
+  await expect.poll(() => tooltip(page, 'palace-green')).toContain(JUST_NOW)
+  const [first, second] = (await tooltip(page, 'palace-green')).split('\n')
+  expect(first).toBe(`Green switch palace: ${JUST_NOW}`)
+  expect(second).toBe(PLANTED_786)
+})
+
+test('a palace block that cannot be drawn shows plain words, the reason on the second line (#967)', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  const plain = 'this block could not be drawn on this ROM.'
+  await openResolving(page, project.manifestPath, 'mapPalaceIcons', {
+    status: 'ok',
+    icons: [{ palace: 'green', unavailable: plain, detail: 'planted palace' }],
+    switchArt: {},
+    switchUnavailable: {},
+  })
+  await expect.poll(() => tooltip(page, 'palace-green')).toContain(plain)
+  const [first, second] = (await tooltip(page, 'palace-green')).split('\n')
+  expect(first).toBe(`Green switch palace: ${plain}`)
+  expect(second).toBe('planted palace')
+})
+
+test('a note on the sprites carries its technical text on the title only (#967)', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  const note = "The castle flames are drawn from this ROM's own code, which differs from the original game." // prettier-ignore
+  await openResolving(page, project.manifestPath, 'mapSprites', {
+    status: 'ok',
+    orientation: 'horizontal',
+    screenCount: 1,
+    width: 256,
+    height: 432,
+    sprites: [],
+    note,
+    noteDetail: 'the flame spawn routine is not the vanilla shape',
+  })
+  const el = page.locator(`${root(0x105)} [data-note="sprites"]`)
+  await expect(el).toHaveText(note)
+  await expect(el).toHaveAttribute('title', 'the flame spawn routine is not the vanilla shape')
+})
+
+test('a start position that cannot be worked out reads plainly, the loader text in the title (#967)', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  const plain = 'the start position could not be worked out for this map.'
+  await openResolving(page, project.manifestPath, 'mapStart', {
+    status: 'unavailable',
+    reason: plain,
+    detail: 'planted loader text',
+  })
+  const el = page.locator(`${root(0x105)} [data-control="map-start-note"]`)
+  await expect(el).toHaveText('start unavailable')
+  await expect(el).toHaveAttribute('title', `${plain}\nplanted loader text`)
+})
+
 test('a missing base ROM for the sprites names the next step (#967)', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openResolving(page, project.manifestPath, 'mapSprites', {
