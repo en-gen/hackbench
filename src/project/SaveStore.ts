@@ -16,7 +16,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { SAVES_DIR } from './Project'
-import { writeFileAtomic } from './atomicWrite'
+import { renameWithRetry, writeFileAtomic } from './atomicWrite'
 
 /**
  * Generous for any SNES game (the largest SRAM is 128 KiB) while refusing a
@@ -245,7 +245,7 @@ export function importSave(
   const slot = nextFreeSlot(projectDirectory, romTitle, reserved)
   checkSlot(slot)
   const target = slotFile(romTitle, slot)
-  fs.renameSync(path.join(dir, file), path.join(dir, target))
+  renameWithRetry(path.join(dir, file), path.join(dir, target))
   try {
     setLabel(dir, target, file.slice(0, -'.srm'.length))
   } catch {

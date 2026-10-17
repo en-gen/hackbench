@@ -33,7 +33,7 @@ export function writeFileAtomic(file: string, data: Uint8Array | string): void {
  * Windows refuses a rename over a file another process has open (OneDrive,
  * an antivirus scan, an editor) with EPERM or EBUSY, usually for moments.
  */
-function renameWithRetry(from: string, to: string, attempts = 5): void {
+export function renameWithRetry(from: string, to: string, attempts = 5): void {
   for (let i = 1; ; i++) {
     try {
       fs.renameSync(from, to)
