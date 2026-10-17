@@ -156,6 +156,9 @@ describe('spriteLayer', () => {
     // Extra bits set on id $28: the placeholder must not wear the vanilla name; the plain $28 beside it keeps it.
     const r = spriteLayer(Uint8Array.from([0, 0x18, 0x01, 0x28, 0x20, 0x02, 0x28, END]), h, stub)
     expect(r.sprites.map(s => [s.reason, s.name])).toEqual([['extraBits', undefined], [undefined, 'Big Boo']]) // prettier-ignore
+    // Header bit 2 alone (0x04) is drawn as the vanilla sprite (see the test above), so it is named as one: name and art agree.
+    const bit2 = spriteLayer(Uint8Array.from([0, 0x14, 0x01, 0x28, END]), h, stub)
+    expect(bit2.sprites.map(s => [s.status, s.name])).toEqual([['drawn', 'Big Boo']])
     // A repointed handler: the engine refuses with customHandler, and that sprite is not named either.
     const custom = () => ({ ok: false as const, failure: { kind: 'customHandler' as const, spriteId: 0x28, table: 'main' as const, expected: 0, found: 1 } }) // prettier-ignore
     const c = spriteLayer(Uint8Array.from([0, 0x10, 0x01, 0x28, END]), h, custom as never)

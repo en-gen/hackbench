@@ -43,9 +43,9 @@ For each sprite ID in your batch:
 | 6 | `$19 $1A $1B $1C $1D` | Message Box, Piranha Plant, Football, Bullet Bill, Hopping Flame | ✅ analysed - see notes below |
 | 7 | `$1E $1F $20 $21 $22` | Lakitu, Magikoopa, Magic, Moving Coin, Green Net Koopa |
 | 8 | `$23 $24 $25 ~~$26~~ $27` | Net Koopas, ~~Thwomp~~, Thwimp |
-| 9 | `$28 $29 $2A $2B $2C` | Big Boo, Koopa Kid, Piranha (upside-down), Lightning, Yoshi Egg |
+| 9 | `$28 $29 $2A $2B $2C` | Big Boo, Koopa Kid, Piranha (upside-down), Lightning, Yoshi Egg |  Renames (stock sprite IDs, vanilla ROM): `$28` Big Boo (`SMWDisX bank_01.asm:16250`, handler `BigBoo`), `$29` Koopa Kid (`bank_01.asm:16519`, handler `KoopaKid`) |
 | 10 | `$2D $2E $2F $30 $31` | Baby Yoshi, Spike Top, Springboard, Dry Bones, Bony Beetle |
-| 11 | `$32 $33 $34 $35 $36` | Dry Bones, Podoboo, Boss Fireball, Yoshi, Unused |
+| 11 | `$32 $33 $34 $35 $36` | Dry Bones, Podoboo, Boss Fireball, Yoshi, Unused | Rename (stock sprite ID, vanilla ROM): `$33` Podoboo, from the handler's `!SFX_PODOBOO` (`SMWDisX bank_01.asm:13048`, `constants.asm:407`); the pointer-table comment and handler label say "Fireball" (`bank_01.asm:13041`), so the name follows the sound, not the comment |
 | 12 | `$37 $38 $39 $3A $3B` | Boo, Eerie (2), Urchins (2) |
 | 13 | `$3C $3D ~~$3E~~ $3F $40` | Urchin, Rip Van Fish, ~~P-Switch~~, Para-Goomba, Para-Bomb |
 | 14 | `$41 $42 $43 $44 $45` | Dolphins (3), Torpedo Ted, Directional Coins |

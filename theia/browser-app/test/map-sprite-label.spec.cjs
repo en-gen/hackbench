@@ -319,6 +319,16 @@ test('AC5: a hidden (screen door) sprite shows its name too', async ({ page }) =
     )
     .toBe(true)
   await expect.poll(() => hoverAt(page, HIDDEN.slot, map, at), { timeout: 30000 }).toBe(HIDDEN.name)
+  // While the name shows, the widget is lifting this very plant: the tile-covered path (liftAt returns an id only for a
+  // sprite some painted screen's tiles cover), so the name is shown on the covered-sprite path, not an uncovered one.
+  // This is per sprite, not per pixel: the app exposes no per-pixel coverage to read.
+  expect(
+    await page.evaluate(
+      id => getSvc('ApplicationShell').getWidgetById(id).lift,
+      `hackbench.map-view:${HIDDEN.slot}`,
+    ),
+    'the plant is lifted while hovered',
+  ).toBe(door)
 })
 
 test('a reload drops the hover and its anchor at once, before the new sprites arrive (#981)', async ({
