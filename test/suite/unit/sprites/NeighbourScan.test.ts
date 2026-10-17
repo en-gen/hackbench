@@ -17,6 +17,8 @@ import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 const SCANNER = 50
 const QUIET = 51
 const DRAWS = 52
+/** Draws its own piece only when it finds no companion; on finding one it draws the companion and moves its own piece 8 px. */
+const SHIFTS = 53
 
 function cart(): RomFile {
   const bytes = new Uint8Array(buildSyntheticRom().buffer)
@@ -31,15 +33,23 @@ function cart(): RomFile {
     0x20, 0x40, 0x86, 0xa0, 0x09, 0xb9, 0xc8, 0x14, 0xc9, 0x08, 0xd0, 0x07, 0xb9, 0x9e, 0x00,
     0xc9, QUIET, 0xf0, 0x04, 0x88, 0x10, 0xef, 0x60, 0xda, 0xbb, 0x20, 0x40, 0x86, 0xfa, 0x60,
   ]) // prettier-ignore
+  // LDY #9 / loop: LDA $14C8,Y / CMP #8 / BNE next / LDA $009E,Y / CMP #51 / BEQ found / next: DEY / BPL loop
+  // / JSR $8640 / RTS / found: PHX / TYX / JSR $8640 / PLX / LDA $E4,X / CLC / ADC #8 / STA $E4,X / JSR $8640 / RTS
+  put(0x019900, [
+    0xa0, 0x09, 0xb9, 0xc8, 0x14, 0xc9, 0x08, 0xd0, 0x07, 0xb9, 0x9e, 0x00, 0xc9, QUIET, 0xf0, 0x07,
+    0x88, 0x10, 0xef, 0x20, 0x40, 0x86, 0x60, 0xda, 0xbb, 0x20, 0x40, 0x86, 0xfa, 0xb5, 0xe4, 0x18,
+    0x69, 0x08, 0x95, 0xe4, 0x20, 0x40, 0x86, 0x60,
+  ]) // prettier-ignore
   const main = (id: number, at: number) => put(0x018320 + 9 + id * 2, [at & 0xff, at >> 8])
   // mainTable entries default to $8600 (an RTS), which are not zero: clear the three words first.
-  for (const id of [SCANNER, DRAWS]) {
+  for (const id of [SCANNER, DRAWS, SHIFTS]) {
     const o = off(0x018320 + 9 + id * 2)
     bytes[o] = 0
     bytes[o + 1] = 0
   }
   main(SCANNER, 0x9800)
   main(DRAWS, 0x8640)
+  main(SHIFTS, 0x9900)
   return RomFile.fromBytes('scan.sfc', bytes)
 }
 
@@ -76,6 +86,16 @@ describe('neighbour run for a sprite that scans the slot tables (#841)', () => {
   it('a scan that finds nothing changes nothing', () => {
     const alone = runOnce(rom, SCANNER, seedWith())
     const m = runOnce(rom, SCANNER, seedWith([{ id: DRAWS, x: 0x90, y: 0x70 }]))
+    expect(m.neighbourRun).toBe('same')
+    expect(m.dependsOn).not.toContain('neighbours')
+    expect(partsOf(m)).toEqual(partsOf(alone))
+  })
+
+  it('a companion found only by changing its own part is not adopted', () => {
+    const neighbours = [{ id: QUIET, x: 0x90, y: 0x70 }]
+    const alone = runOnce(rom, SHIFTS, seedWith())
+    const m = runOnce(rom, SHIFTS, seedWith(neighbours))
+    expect(m.scansSlots).toBe(true)
     expect(m.neighbourRun).toBe('same')
     expect(m.dependsOn).not.toContain('neighbours')
     expect(partsOf(m)).toEqual(partsOf(alone))
