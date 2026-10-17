@@ -784,7 +784,12 @@ record's `entries` (the capture sorts each frame's tiles as JSON text, so its
 list is not OAM order). The hardware order is exact except on rows labeled
 "hardware overlap order unknown": there the entries did not fit the frame and
 it is drawn in the capture's order. Both sides are drawn from the capture's own
-VRAM and palette, so a difference is in the pieces. A dirty tree writes
+VRAM and palette, so a difference is in the pieces. Graphics come from the
+level-start sample, except on a dynamic card (#863): its sprite id uploads
+changing graphics ($33 SMWDisX bank_01.asm:13192, $35 bank_01.asm:14879; `DYNAMIC_SPRITES`) or its tiles read different VRAM
+in different samples. That card draws from the sample whose frame
+(`anchorFrame + offset`) equals the record's `drawnFrame`; with none it keeps
+level start and the row says "graphics at level start, may differ". Both panels of that card use the same sample, so the sentence above holds; the pixel positions, not only the colours, decide whether tiles differ. A dirty tree writes
 `<sha>-dirty/`. Tick the checkboxes in the `<sha>/` folder: `latest/` is
 regenerated every run, and a run refuses to replace a `<sha>/` that has a
 ticked box, or with uncommitted edits or extra files, unless `--force`. Only
