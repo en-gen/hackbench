@@ -4,10 +4,11 @@
  *
  * Everything here runs on a synthetic ROM, because CI has no cartridge
  * (CLAUDE.md "CI has no cartridge"). The routine bytes are built from
- * CODE_00AB42 / CODE_00ABC4 / SetallFGBG80 (bank_00.asm:5391-5583) with every
+ * CODE_00AB42 / CODE_00ABC4 / SetallFGBG80 (bank_00.asm:5391-5583) as
+ * hand-written code of the same shape (../support/syntheticMode7.ts) with every
  * operand a parameter, so the tests prove the resolver reads them.
  */
-import { describe, it, expect } from 'vitest'
+import { afterAll, beforeAll, describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { flip } from '../support/syntheticRom'
 import { SmwRom } from '../../../src/rom/SmwRom'
@@ -20,7 +21,18 @@ import {
   plantPaletteCol1ReachPath,
 } from '../support/syntheticGfxCart'
 import { decodeTilesBatch } from '../../../src/rom/GraphicsDecoder'
-import { decodeMode7Tiles, findMode7GfxFiles } from '../../../src/rom/Mode7Gfx'
+import {
+  STOCK_MODE7_FINGERPRINTS,
+  decodeMode7Tiles,
+  findMode7GfxFiles,
+  overrideDefaultMode7Fingerprints,
+} from '../../../src/rom/Mode7Gfx'
+import {
+  HELPER,
+  SYNTH_MODE7_FINGERPRINTS,
+  callSiteBytes,
+  unpackBytes,
+} from '../support/syntheticMode7'
 import {
   decodeGfxSheet,
   decodeTiles,
@@ -28,27 +40,11 @@ import {
   listGfxFileInfos,
 } from '../../../theia/extension/src/node/gfx-decode'
 
-const hex = (s: string): number[] => s.split(/\s+/).map(b => parseInt(b, 16))
-const le16 = (n: number): string => `${(n & 0xff).toString(16)} ${((n >> 8) & 0xff).toString(16)}`
-
-/** CODE_00AB42 up to its loop branch, file index, loop count and helper as parameters. */
-function unpackBytes(fileIndex: number, loopCount: number, helper: number): number[] {
-  const j = le16(helper)
-  return hex(
-    `a0 ${fileIndex.toString(16)} 22 28 ba 00 c2 10 a0 00 00 a2 ${le16(loopCount)} b7 00 85 0f ` +
-      `20 ${j} a5 04 8d 19 21 20 ${j} a5 04 8d 19 21 64 04 26 0f 26 04 26 0f 26 04 c8 ` +
-      `b7 00 85 0f 26 0f 26 04 a5 04 8d 19 21 20 ${j} a5 04 8d 19 21 20 ${j} a5 04 8d 19 21 ` +
-      `64 04 26 0f 26 04 c8 b7 00 85 0f 26 0f 26 04 26 0f 26 04 a5 04 8d 19 21 ` +
-      `20 ${j} a5 04 8d 19 21 20 ${j} a5 04 8d 19 21 c8 ca 10 98`,
-  )
-}
-
-/** CODE_00ABC4: shift three bits out of _F into _4. */
-const HELPER = hex('64 04 26 0f 26 04 26 0f 26 04 26 0f 26 04 60')
-
-/** SetallFGBG80: BEQ + / JSR routine / + LDX #$03 / LDA #$80 / STA abs,X. */
-const callSiteBytes = (target: number): number[] =>
-  hex(`f0 03 20 ${le16(target)} a2 03 a9 80 9d 05 01`)
+// The carts here hold hand-written code, accepted through injected fingerprints.
+// gfx-decode takes none, so its describe installs them as the default through
+// the seam, which keeps findMode7GfxFiles' cache in the path.
+const find = (rom: RomFile): ReturnType<typeof findMode7GfxFiles> =>
+  findMode7GfxFiles(rom, SYNTH_MODE7_FINGERPRINTS)
 
 const ROUTINE = 0x00ab42
 const HELPER_AT = 0x00abc4
@@ -96,7 +92,7 @@ function vanillaShaped(): RomFile {
   return rom
 }
 
-const UNREADABLE = [{ fileIndex: 0x27, byteLength: null }]
+const UNREADABLE = [{ fileIndex: 0x27, byteLength: null, reason: expect.any(String) }]
 
 /**
  * Every byte position except the operands the resolver is meant to read,
@@ -116,47 +112,47 @@ const CALL_PINNED = allBut(callSiteBytes(0).length, [3, 4, 10, 11])
 describe('findMode7GfxFiles', () => {
   it('reads the file index and byte length from the operands', () => {
     // ($03FF + 1) iterations of three bytes each.
-    expect(findMode7GfxFiles(vanillaShaped())).toEqual([{ fileIndex: 0x27, byteLength: 0xc00 }])
+    expect(find(vanillaShaped())).toEqual([{ fileIndex: 0x27, byteLength: 0xc00 }])
   })
 
   it('reads a file index and loop count other than the vanilla ones', () => {
     const rom = makeRom()
     writeMode7Load(rom, { fileIndex: 0x1c, loopCount: 0x00ff })
-    expect(findMode7GfxFiles(rom)).toEqual([{ fileIndex: 0x1c, byteLength: 0x300 }])
+    expect(find(rom)).toEqual([{ fileIndex: 0x1c, byteLength: 0x300 }])
   })
 
   it('runs the loop body once for an LDX operand with bit 15 set', () => {
     // 16-bit DEX / BPL: $8001 goes to $8000, still negative, and falls out.
     const rom = makeRom()
     writeMode7Load(rom, { loopCount: 0x8001 })
-    expect(findMode7GfxFiles(rom)).toEqual([{ fileIndex: 0x27, byteLength: 3 }])
+    expect(find(rom)).toEqual([{ fileIndex: 0x27, byteLength: 3 }])
   })
 
   it('finds the trio after it has been relocated to another bank', () => {
     const rom = makeRom()
     writeMode7Load(rom, { bank: 0x10, routine: 0x9000, helper: 0x9100, caller: 0x8800 })
-    expect(findMode7GfxFiles(rom)).toEqual([{ fileIndex: 0x27, byteLength: 0xc00 }])
+    expect(find(rom)).toEqual([{ fileIndex: 0x27, byteLength: 0xc00 }])
   })
 
   it('names nothing when the routine is absent', () => {
     const rom = makeRom()
     rom.writeAt(HELPER_AT, HELPER)
     rom.writeAt(CALLER, callSiteBytes(ROUTINE & 0xffff))
-    expect(findMode7GfxFiles(rom)).toEqual([])
+    expect(find(rom)).toEqual([])
   })
 
   it('names nothing when the file index is past the pointer table', () => {
     const rom = makeRom()
     writeMode7Load(rom, { fileIndex: GFX_FILE_COUNT })
-    expect(findMode7GfxFiles(rom)).toEqual([])
+    expect(find(rom)).toEqual([])
   })
 
   it('names both files but reads neither when two routines make it unclear which runs', () => {
     const rom = vanillaShaped()
     rom.writeAt(0x10a000, unpackBytes(0x1c, 0x03ff, HELPER_AT & 0xffff))
-    expect(findMode7GfxFiles(rom)).toEqual([
-      { fileIndex: 0x27, byteLength: null },
-      { fileIndex: 0x1c, byteLength: null },
+    expect(find(rom)).toEqual([
+      { fileIndex: 0x27, byteLength: null, reason: expect.any(String) },
+      { fileIndex: 0x1c, byteLength: null, reason: expect.any(String) },
     ])
   })
 
@@ -167,7 +163,7 @@ describe('findMode7GfxFiles', () => {
     for (const i of UNPACK_PINNED.filter(i => i >= 18)) {
       const rom = vanillaShaped()
       flip(rom, ROUTINE + i)
-      expect(findMode7GfxFiles(rom), `offset ${i}`).toEqual(UNREADABLE)
+      expect(find(rom), `offset ${i}`).toEqual(UNREADABLE)
     }
   })
 
@@ -176,7 +172,7 @@ describe('findMode7GfxFiles', () => {
       const rom = vanillaShaped()
       flip(rom, ROUTINE + i)
       expect(
-        findMode7GfxFiles(rom).every(f => f.byteLength === null),
+        find(rom).every(f => f.byteLength === null),
         `offset ${i}`,
       ).toBe(true)
     }
@@ -186,7 +182,7 @@ describe('findMode7GfxFiles', () => {
     for (const i of HELPER_PINNED) {
       const rom = vanillaShaped()
       flip(rom, HELPER_AT + i)
-      expect(findMode7GfxFiles(rom), `offset ${i}`).toEqual(UNREADABLE)
+      expect(find(rom), `offset ${i}`).toEqual(UNREADABLE)
     }
   })
 
@@ -194,7 +190,7 @@ describe('findMode7GfxFiles', () => {
     for (const i of CALL_PINNED) {
       const rom = vanillaShaped()
       flip(rom, CALLER + i)
-      expect(findMode7GfxFiles(rom), `offset ${i}`).toEqual(UNREADABLE)
+      expect(find(rom), `offset ${i}`).toEqual(UNREADABLE)
     }
   })
 
@@ -202,7 +198,7 @@ describe('findMode7GfxFiles', () => {
     for (const off of JSR_OPERANDS.filter((_, k) => k % 2 === 0)) {
       const rom = vanillaShaped()
       rom.writeAt(ROUTINE + off, [0x00, 0xac])
-      expect(findMode7GfxFiles(rom), `offset ${off}`).toEqual(UNREADABLE)
+      expect(find(rom), `offset ${off}`).toEqual(UNREADABLE)
     }
   })
 
@@ -211,20 +207,20 @@ describe('findMode7GfxFiles', () => {
     // diverted at the call. Existing is not the same as reached.
     const rom = makeRom()
     writeMode7Load(rom, { callTarget: 0xf000 })
-    expect(findMode7GfxFiles(rom)).toEqual(UNREADABLE)
+    expect(find(rom)).toEqual(UNREADABLE)
   })
 
   it('claims the file as unreadable when two call sites exist', () => {
     const rom = vanillaShaped()
     rom.writeAt(0x00c000, callSiteBytes(ROUTINE & 0xffff))
-    expect(findMode7GfxFiles(rom)).toEqual(UNREADABLE)
+    expect(find(rom)).toEqual(UNREADABLE)
   })
 
   it('claims the file as unreadable when the call site is in another bank', () => {
     const rom = vanillaShaped()
     rom.writeAt(CALLER, new Array(12).fill(0xea))
     rom.writeAt(0x018000, callSiteBytes(ROUTINE & 0xffff))
-    expect(findMode7GfxFiles(rom)).toEqual(UNREADABLE)
+    expect(find(rom)).toEqual(UNREADABLE)
   })
 
   it('claims the file as unreadable on a HiROM cart, whose bank math it does not do', () => {
@@ -233,14 +229,48 @@ describe('findMode7GfxFiles', () => {
     buf.set(unpackBytes(0x27, 0x03ff, 0xabc4), 0x2b42)
     buf.set(HELPER, 0x2bc4)
     buf.set(callSiteBytes(0xab42), 0x2a5b)
-    expect(findMode7GfxFiles(new RomFile('hirom.smc', buf))).toEqual(UNREADABLE)
+    expect(find(new RomFile('hirom.smc', buf))).toEqual(UNREADABLE)
+  })
+
+  it('names nothing in code the stock opening fingerprint does not recognize', () => {
+    expect(findMode7GfxFiles(vanillaShaped())).toEqual([])
+  })
+
+  it('refuses code the stock fingerprints do not recognize, and says so in plain words', () => {
+    // The synthetic routine is not the game's: with only its opening accepted,
+    // the stock unpack fingerprint refuses it.
+    const fps = { ...STOCK_MODE7_FINGERPRINTS, opening: SYNTH_MODE7_FINGERPRINTS.opening }
+    const [file] = findMode7GfxFiles(vanillaShaped(), fps)
+    expect(file).toMatchObject({ fileIndex: 0x27, byteLength: null })
+    expect(file!.reason).toMatch(/not a recognized build/)
+  })
+
+  it('holds well-formed stock fingerprints that are not the synthetic ones', () => {
+    for (const key of ['opening', 'unpack', 'helper', 'call'] as const) {
+      const stock = STOCK_MODE7_FINGERPRINTS[key]
+      expect(stock, key).toHaveLength(1)
+      expect(stock[0], key).toMatch(/^[0-9a-f]{64}$/)
+      expect(stock[0], key).not.toBe(SYNTH_MODE7_FINGERPRINTS[key][0])
+    }
+  })
+
+  it('uses the stock fingerprints by default, and the seam replaces then restores them', () => {
+    const rom = vanillaShaped()
+    expect(findMode7GfxFiles(rom)).toEqual([])
+    overrideDefaultMode7Fingerprints(SYNTH_MODE7_FINGERPRINTS)
+    try {
+      expect(findMode7GfxFiles(rom)[0]!.byteLength).toBe(0xc00)
+    } finally {
+      overrideDefaultMode7Fingerprints(null)
+    }
+    expect(findMode7GfxFiles(rom)).toEqual([])
   })
 
   it('re-reads after the ROM is written, not a stale cached answer', () => {
     const rom = vanillaShaped()
-    expect(findMode7GfxFiles(rom)[0]!.byteLength).toBe(0xc00)
+    expect(find(rom)[0]!.byteLength).toBe(0xc00)
     flip(rom, HELPER_AT + 2)
-    expect(findMode7GfxFiles(rom)).toEqual(UNREADABLE)
+    expect(find(rom)).toEqual(UNREADABLE)
   })
 })
 
@@ -250,7 +280,7 @@ describe('decodeMode7Tiles', () => {
     const tile = new Array(24).fill(0)
     tile.splice(0, 3, 0x05, 0x39, 0x77)
     const [px] = decodeMode7Tiles(tile)
-    expect(Array.from(px!.slice(0, 8))).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+    expect(Array.from(px!.slice(0, 8))).toEqual(Array.from({ length: 8 }, (_, i) => i))
     expect(px!.slice(8).every(p => p === 0)).toBe(true)
   })
 
@@ -294,6 +324,9 @@ function romWithFile27(length: number): SmwRom {
 }
 
 describe('GFX view (gfx-decode) on the Mode 7 file', () => {
+  beforeAll(() => overrideDefaultMode7Fingerprints(SYNTH_MODE7_FINGERPRINTS))
+  afterAll(() => overrideDefaultMode7Fingerprints(null))
+
   it('reads the resolved file as mode7 when its length is what the loop consumes', () => {
     expect(inferDefaultBpp(vanillaShaped(), 0x27, 0xc00)).toBe('mode7')
   })
