@@ -33,6 +33,8 @@ const word = (t: number, pal: number, fx: number, fy: number) =>
 function tileOf(ts: TileSet, key: number, px: Uint8Array): number {
   let t = ts.keys.get(key)
   if (t === undefined) {
+    // The cell word holds tile+1 in 11 bits: a map with more distinct chars than this needs a wider word.
+    if (ts.pixels.length >= 0x7ff) throw new Error('tile set exceeds the 11-bit tile index')
     ts.keys.set(key, (t = ts.pixels.length))
     ts.pixels.push(px)
   }
@@ -195,7 +197,7 @@ export function decodePlane(
   pals: [Uint8Array, Uint8Array],
   w: number,
   h: number,
-  plant = false,
+  plant: '' | 'row' | 'flipX' = '',
 ): Uint8ClampedArray {
   const out = new Uint8ClampedArray(w * h * 4)
   const [stride, pal] = pl.pal ? [4, pals[1]] : [16, pals[0]]
@@ -204,12 +206,13 @@ export function decodePlane(
       const wd = pl.cells[r * pl.cols + c]!
       if (!wd) continue
       const px = tiles[(wd & 0x7ff) - 1]!
-      const row = ((wd >> 11) & 7) + (plant ? 1 : 0) // planted defect: wrong palette row
+      const row = ((wd >> 11) & 7) + (plant === 'row' ? 1 : 0) // planted defect: wrong palette row
       for (let y = 0; y < 8; y++)
         for (let x = 0; x < 8; x++) {
           const [dx, dy] = [pl.ox + c * 8 + x, pl.oy + r * 8 + y]
           if (dx < 0 || dx >= w || dy < 0 || dy >= h) continue
-          const v = px[((wd & 0x8000 ? 7 - y : y) << 3) | (wd & 0x4000 ? 7 - x : x)]!
+          const flipX = (wd & 0x4000 ? 7 - x : x) ^ (plant === 'flipX' ? 7 : 0) // planted defect: dropped/flipped X
+          const v = px[((wd & 0x8000 ? 7 - y : y) << 3) | flipX]!
           const at = (row * stride + v) * 4
           if (v) out.set(pal.subarray(at, at + 4), (dy * w + dx) * 4)
         }

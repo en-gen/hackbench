@@ -6,14 +6,21 @@
  * Run: esbuild --bundle --platform=node gen.ts | node - <romPath> <outDir>
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
+import { execSync } from 'node:child_process'
+import { relative, resolve } from 'node:path'
 import { gzipSync, brotliCompressSync } from 'node:zlib'
 import { RomFile } from '../../../src/rom/RomFile'
 import { L1ModelCache, screenResult } from '../../../theia/extension/src/node/map-screen'
 import { MAP_PLANE_KEYS } from '../../../theia/extension/src/common/project-protocol'
 import { decodePlane, encodeScreen, newTileSet, type IPlane } from './encode'
 
-const [romFile, outDir] = [process.argv[2]!, process.argv[3]!]
-const MAPS = [0x10a, 0x105, 0x101]
+const [romFile, outDir] = [process.argv[2]!, resolve(process.argv[3]!)]
+// Output is ROM-derived: refuse any directory inside the repository checkout.
+const top = execSync('git rev-parse --show-toplevel', { encoding: 'utf8' }).trim()
+if (!relative(top, outDir).startsWith('..'))
+  throw new Error(`outDir ${outDir} is inside the repo ${top}`)
+const arg = process.argv[4] ?? '10a,105,101'
+const MAPS = arg === 'scan' ? [] : arg.split(',').map(h => parseInt(h, 16))
 const MAX_SCREENS = 8 // fixtures and wire table cover the first 8 screens of each map
 const bytes = new Uint8Array(RomFile.load(romFile).buffer)
 const cache = new L1ModelCache()
@@ -39,9 +46,25 @@ function palettes(colors: number[][], n: number) {
   return { rgba, c555 }
 }
 
+if (arg === 'scan') {
+  // Which plane kinds each map draws over its first MAX_SCREENS screens: picks maps for the oracle's coverage.
+  const flags = { green: false, yellow: false, blue: false, red: false }
+  for (let m = 0; m < 0x200; m++) {
+    const b = cache.get(bytes, romFile, m, flags)
+    if (!b.ok) continue
+    const kinds = new Set<string>()
+    for (let s = 0; s < Math.min(b.inputs.screenCount, MAX_SCREENS); s++) {
+      const r = screenResult(b.inputs, s)
+      if (r.status === 'ok') MAP_PLANE_KEYS.forEach(k => r.planes[k] && kinds.add(k))
+    }
+    console.log(`${m.toString(16)} ${b.inputs.screenCount} ${[...kinds].join(',')}`)
+  }
+  process.exit(0)
+}
 const rows: string[] = []
+const kindsByMap: string[] = []
+const plantRed: Record<string, Record<string, [number, number]>> = { row: {}, flipX: {} }
 let screensChecked = 0
-let plantedRed = 0
 let escapes = 0
 mkdirSync(outDir, { recursive: true })
 for (const m of MAPS) {
@@ -71,6 +94,7 @@ for (const m of MAPS) {
   tiles.forEach((t, i) => tileBlob.set(t, i * 64))
   const palRgba: [Uint8Array, Uint8Array] = [pal0.rgba, pal1.rgba]
 
+  const drawn = new Set<string>()
   // The oracle: indexed decode vs today's decoded planes, every plane of every screen.
   for (let s = 0; s < n; s++) {
     const r = replies[s]!
@@ -78,16 +102,27 @@ for (const m of MAPS) {
     for (const k of MAP_PLANE_KEYS) {
       const want = r.planes[k] ? new Uint8Array(Buffer.from(r.planes[k]!, 'base64')) : null
       const pl = enc[s]!.planes[k] ?? null
-      const dec = (plant: boolean) => pl && new Uint8Array(decodePlane(pl, tiles, palRgba, r.width, r.height, plant).buffer) // prettier-ignore
+      const dec = (plant: '' | 'row' | 'flipX') => pl && new Uint8Array(decodePlane(pl, tiles, palRgba, r.width, r.height, plant).buffer) // prettier-ignore
       const same = (a: Uint8Array | null) => (want === null ? !a || a.every(v => v === 0) : !!a && Buffer.compare(a, want) === 0) // prettier-ignore
-      if (!same(dec(false))) throw new Error(`ORACLE RED map ${m.toString(16)} screen ${s} plane ${k} (escapes ${enc[s]!.escapes})`) // prettier-ignore
-      if (want && !same(dec(true))) plantedRed++
-      else if (want && pl)
-        console.log(`planted defect NOT seen: map ${m.toString(16)} screen ${s} ${k}`)
+      if (!same(dec(''))) throw new Error(`ORACLE RED map ${m.toString(16)} screen ${s} plane ${k} (escapes ${enc[s]!.escapes})`) // prettier-ignore
+      if (want) {
+        drawn.add(k)
+        for (const p of ['row', 'flipX'] as const) {
+          const t = (plantRed[p]![k] ??= [0, 0])
+          t[1]++
+          if (!same(dec(p))) t[0]++
+        }
+      }
     }
     screensChecked++
   }
 
+  kindsByMap.push(`map ${m.toString(16)} drew: ${[...drawn].sort().join(',')}`)
+  // Whole-map ghost census (encode only, no oracle): cells that need the RGBA escape path.
+  let fullEscapes = 0
+  for (let s = 0; s < model.screenCount; s++)
+    fullEscapes += encodeScreen(model, newTileSet(), s).escapes
+  kindsByMap.push(`  ghost escape cells: first ${n} screens ${enc.reduce((t, e) => t + e.escapes, 0)}, all ${model.screenCount} screens ${fullEscapes}`) // prettier-ignore
   // Wire bytes, today's reply JSON vs the indexed per-screen JSON; the tile set + CGRAM are per map.
   const jsonA = replies.map(r => JSON.stringify(r))
   const planeJson = (p: IPlane | null) => p && { ox: p.ox, oy: p.oy, cols: p.cols, rows: p.rows, pal: p.pal, cells: b64(p.cells) } // prettier-ignore
@@ -118,10 +153,13 @@ for (const m of MAPS) {
       w: replies[0]!.width,
       h: replies[0]!.height,
       A: replies.map(r => r.planes),
+      L: replies.map(r => ({ lists: r.screens, math: r.math })),
       I: { tiles: b64(tileBlob), pal0: b64(pal0.c555), pal1: b64(pal1.c555), screens: jsonI.map(j => JSON.parse(j)) }, // prettier-ignore
     }),
   )
 }
 console.log(rows.join('\n'))
-console.log(`oracle: ${screensChecked} screens, all planes byte-identical (maps ${MAPS.map(m => m.toString(16))}); ghost escape cells: ${escapes}`) // prettier-ignore
-console.log(`planted wrong palette row: ${plantedRed} drawn planes went red`)
+console.log(kindsByMap.join('\n'))
+console.log(`oracle: ${screensChecked} screens, all drawn planes byte-identical (maps ${MAPS.map(m => m.toString(16))}); ghost escape cells in the checked screens: ${escapes}`) // prettier-ignore
+for (const [p, t] of Object.entries(plantRed))
+  console.log(`planted ${p}: ` + Object.entries(t).map(([k, [red, all]]) => `${k} ${red}/${all} red`).join(', ')) // prettier-ignore

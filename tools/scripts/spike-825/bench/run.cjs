@@ -4,10 +4,22 @@ const http = require('http')
 const fs = require('fs')
 const path = require('path')
 const [fixDir, pwDir] = process.argv.slice(2)
+// The widget's own composeScreen, bundled once into the (out-of-repo) fixtures dir.
+require(path.join(pwDir, '..', 'esbuild')).buildSync({
+  entryPoints: [path.join(__dirname, '..', 'compose-entry.ts')],
+  bundle: true,
+  format: 'iife',
+  globalName: 'CM',
+  outfile: path.join(fixDir, 'compose.js'),
+})
 const { chromium } = require(pwDir)
 const server = http.createServer((req, res) => {
   const u = req.url.split('?')[0]
-  const f = u.startsWith('/fix/') ? path.join(fixDir, u.slice(5)) : path.join(__dirname, u.slice(1))
+  const f = u.startsWith('/fix/')
+    ? path.join(fixDir, u.slice(5))
+    : u === '/compose.js'
+      ? path.join(fixDir, 'compose.js')
+      : path.join(__dirname, u.slice(1))
   fs.readFile(f, (e, b) => {
     if (e) return void res.writeHead(404).end()
     res.writeHead(200, { 'content-type': f.endsWith('.json') ? 'application/json' : f.endsWith('.js') ? 'text/javascript' : 'text/html' }).end(b) // prettier-ignore
@@ -34,7 +46,7 @@ const range = a => `${Math.min(...a).toFixed(1)}-${Math.max(...a).toFixed(1)}`
   server.close()
   const col = (rs, f) => range(rs.map(f))
   console.log(
-    'map/arm  firstPaint4  perScreenMainMs(p50|p95)  workerMs  paletteEdit4  scrollMs(p50|p95|max)  heapMB  canvasMB  gl',
+    'map/arm  firstPaint4  perScreenMainMs(p50|p95)  workerMs  paletteEdit4  scrollMs(p50|p95|max)  e2eMs(p50|p95)  composeMsMainA  canvasMB  gl',
   )
   for (const [k, rs] of Object.entries(out))
     console.log(
@@ -55,7 +67,12 @@ const range = a => `${Math.min(...a).toFixed(1)}-${Math.max(...a).toFixed(1)}`
       col(rs, r => r.scroll.p95),
       col(rs, r => r.scroll.max),
       '|',
-      col(rs, r => r.heapMB),
+      col(rs, r => r.e2e.p50),
+      col(rs, r => r.e2e.p95),
+      '|',
+      rs[0].composeMs.length
+        ? col(rs, r => r.composeMs.reduce((t, v) => t + v, 0) / r.composeMs.length)
+        : '-',
       '|',
       (rs[0].canvasBytes / 1048576).toFixed(1),
       '|',

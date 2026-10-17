@@ -1,12 +1,18 @@
-/* global document, performance, Worker, URL, Blob, ImageData, window, gc, location, requestAnimationFrame, atob, fetch, URLSearchParams */
+/* global CM, document, performance, Worker, URL, Blob, ImageData, window, location, requestAnimationFrame, atob, fetch, URLSearchParams */
 // #825 SPIKE bench page, standalone (NOT the shipped widget). ?map=10a&arm=A|B|C. Result in window.__result.
-// A = today's base64 RGBA decode + putImageData (same calls as map-view-model decodeRgba/paintSpriteCanvas),
+// A = today's path: shipped base64 decode + plane putImageData + composeScreen (the widget's composite),
 // B = indexed CPU compositor in a Worker -> ImageBitmap, C = indexed WebGL2 (atlas + palette texture).
 const KEYS = ['l2Low', 'l1Low', 'l2High', 'l1High', 'l3Low', 'l3High']
 const q = new URLSearchParams(location.search)
 const arm = q.get('arm')
 const raf = () => new Promise(r => requestAnimationFrame(r))
-const bytes64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0)) // decodeBase64Bytes, map16-pixels.ts
+// decodeBase64Bytes exactly as shipped: theia/extension/src/browser/map16-pixels.ts:22-27 (a plain loop, ~1 ms a plane).
+function bytes64(base64) {
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return bytes
+}
 const decodeRgba = s => new Uint8ClampedArray(bytes64(s).buffer)
 /** BGR555 colors to a little-endian RGBA Uint32 table; entry 0 of a row is never drawn. */
 function pal32(b64) {
@@ -40,21 +46,28 @@ function raster(pl, cells, tiles, pal, w, h) {
     }
   return new Uint8ClampedArray(out.buffer)
 }
-const WORKER_SRC = `${raster}
-const bytes64 = ${bytes64}
+const WORKER_SRC = `importScripts(location.origin + '/compose.js')
+${raster}
+${bytes64}
 let tiles, pal, w, h
 onmessage = ({ data: m }) => {
   const t0 = performance.now()
   if (m.init) { tiles = bytes64(m.tiles); pal = [m.pal0, m.pal1]; w = m.w; h = m.h; return postMessage({ ready: true }) }
   if (m.setPal0) { pal[0] = m.setPal0; return }
   const bitmaps = {}
-  for (const [k, p] of Object.entries(m.planes)) {
-    if (!p) continue
-    const rgba = raster(p, new Uint16Array(bytes64(p.cells).buffer), tiles, pal[p.pal], w, h)
+  const rgbas = {}
+  const bmp = (rgba) => {
     const oc = new OffscreenCanvas(w, h)
     oc.getContext('2d').putImageData(new ImageData(rgba, w, h), 0, 0)
-    bitmaps[k] = oc.transferToImageBitmap()
+    return oc.transferToImageBitmap()
   }
+  for (const [k, p] of Object.entries(m.planes)) {
+    if (!p) continue
+    rgbas[k] = raster(p, new Uint16Array(bytes64(p.cells).buffer), tiles, pal[p.pal], w, h)
+    bitmaps[k] = bmp(rgbas[k])
+  }
+  // The widget's composite (ColorMath.composeScreen, bundled as compose.js) runs here on the planes' RGBA.
+  bitmaps.comp = bmp(CM.composeScreen({ width: w, height: h, planes: rgbas, lists: m.lists, math: m.math, doors: null }))
   postMessage({ id: m.id, bitmaps, ms: performance.now() - t0 }, Object.values(bitmaps))
 }`
 
@@ -149,7 +162,16 @@ async function main() {
   if (arm === 'A') delete fix.I
   else delete fix.A
   const view = document.getElementById('view')
-  const res = { arm, map: q.get('map'), gl: null, decodeMs: [], workerMs: [], texBytes: 0 }
+  const res = {
+    arm,
+    map: q.get('map'),
+    gl: null,
+    decodeMs: [],
+    workerMs: [],
+    composeMs: [],
+    e2eMs: [],
+    texBytes: 0,
+  }
   const N = fix.A ? fix.A.length : fix.I.screens.length
   const slots = []
   const mk = s => {
@@ -157,7 +179,7 @@ async function main() {
     const d = document.createElement('div')
     d.style.cssText = `position:absolute;left:${s * w}px;top:0;width:${w}px;height:${h}px` // prettier-ignore
     const cs = {}
-    for (const k of KEYS) { const c = document.createElement('canvas'); [c.width, c.height] = [w, h]; c.style.cssText = 'position:absolute;left:0;top:0'; d.append(c); cs[k] = c } // prettier-ignore
+    for (const k of [...KEYS, 'comp']) { const c = document.createElement('canvas'); [c.width, c.height] = [w, h]; c.style.cssText = 'position:absolute;left:0;top:0'; d.append(c); cs[k] = c } // prettier-ignore
     view.append(d)
     return (slots[s] = cs)
   }
@@ -186,25 +208,43 @@ async function main() {
   const showScreen = async s => {
     const cs = slots[s] ?? mk(s)
     const t0 = performance.now()
+    const done0 = () => res.e2eMs.push(performance.now() - t0)
     if (arm === 'A') {
+      // The widget's path: plane ImageData (decodeRgba) -> plane canvases, then composeScreen -> composite canvas.
+      const planes = {}
       for (const k of KEYS) {
         const b = fix.A[s][k]
-        if (b) cs[k].getContext('2d').putImageData(new ImageData(decodeRgba(b), w, h), 0, 0)
+        if (!b) continue
+        const img = new ImageData(decodeRgba(b), w, h)
+        planes[k] = img.data
+        cs[k].getContext('2d').putImageData(img, 0, 0)
       }
+      const t1 = performance.now()
+      const out = CM.composeScreen({ width: w, height: h, planes, lists: fix.L[s].lists, math: fix.L[s].math, doors: null }) // prettier-ignore
+      cs.comp.getContext('2d').putImageData(new ImageData(out, w, h), 0, 0)
+      res.composeMs.push(performance.now() - t1)
       res.decodeMs.push(performance.now() - t0)
+      done0()
     } else if (arm === 'C') {
       for (const k of KEYS) if (fix.I.screens[s][k]) glx.draw(fix.I.screens[s][k], cs[k])
       res.decodeMs.push(performance.now() - t0)
+      done0()
     } else {
       const id = nid++
       const done = new Promise(r => pending.set(id, r))
-      worker.postMessage({ id, planes: fix.I.screens[s] })
+      worker.postMessage({
+        id,
+        planes: fix.I.screens[s],
+        lists: fix.L[s].lists,
+        math: fix.L[s].math,
+      })
       const mPost = performance.now() - t0
       const m = await done
       const t1 = performance.now()
       for (const k in m.bitmaps) { cs[k].getContext('2d').drawImage(m.bitmaps[k], 0, 0); m.bitmaps[k].close() } // prettier-ignore
       res.workerMs.push(m.ms)
       res.decodeMs.push(mPost + performance.now() - t1) // main thread only: post + drawImage, not the wait
+      done0() // end to end: post, worker (raster + compose + bitmaps), return, drawImage
     }
   }
   for (let s = 0; s < 4; s++) await showScreen(s)
@@ -225,6 +265,7 @@ async function main() {
     await raf()
     res.paletteEditMs = performance.now() - t0 // repaint of the 4 visible screens after a palette row change
     res.decodeMs.length -= 4
+    res.e2eMs.length -= 4
     res.workerMs.length = Math.max(0, res.workerMs.length - 4) // prettier-ignore
   }
   // Scripted scroll: 16 px a frame; a screen is built when it comes within one screen of the viewport.
@@ -248,12 +289,8 @@ async function main() {
   Object.assign(res, { scroll: stats(frames), frames: frames.length })
   res.dec = stats(res.decodeMs)
   res.decodeSum = res.decodeMs.reduce((t, v) => t + v, 0)
-  res.canvasBytes = slots.reduce((t, cs) => t + KEYS.filter(k => cs && cs[k]).length * w * h * 4, 0) // upper bound: all six canvases of each screen // prettier-ignore
-  if (window.gc) {
-    gc()
-    gc()
-  }
-  res.heapMB = performance.memory ? performance.memory.usedJSHeapSize / 1048576 : null
+  res.canvasBytes = slots.reduce(t => t + (KEYS.length + 1) * w * h * 4, 0) // upper bound: six plane canvases plus the composite per screen // prettier-ignore
+  res.e2e = stats(res.e2eMs)
   window.__result = res
 }
 main().catch(e => (window.__result = { error: String(e.stack || e) }))
