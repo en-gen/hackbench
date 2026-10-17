@@ -404,24 +404,30 @@ describe('castle flames on the map (synthetic cart)', () => {
   })
 
   it('every opaque flame pixel is a colour of the CGRAM row its OAM attribute selects (#965)', () => {
-    // Each slot gets its own table entry (Misc = slot), and each entry its own palette bits: rows 8+1, 8+3, 8+5, 8+7.
-    // COLORS gives every row colours no other row has, so a wrong row can never match by chance.
-    const props = [0x03, 0x07, 0x0b, 0x0f]
-    const own = flameRom({ ...DATA, props }, b => void b.fill(0xea, off(0x02aa6c + 14), off(0x02aa6c + 16))) // prettier-ignore
-    const got = draw(stream(0xe6), 16, own)
-    let opaque = 0
-    for (const s of got.sprites) {
-      const row = 8 + ((props[DATA.xs.indexOf(s.box.x0 % 256)]! >> 1) & 7)
-      const rgba = Buffer.from(s.rgba, 'base64')
-      for (let i = 0; i < rgba.length; i += 4) {
-        if (rgba[i + 3] === 0) continue
-        opaque++
-        const rowColors = COLORS.slice(row * 16, row * 16 + 16)
-        expect(rowColors.some(c => c[0] === rgba[i] && c[1] === rgba[i + 1] && c[2] === rgba[i + 2])).toBe(true) // prettier-ignore
+    // Attribute bits 1-3 sweep 0..7 over two carts, one palette value per flame slot (Misc = slot). The rows are
+    // literals (CGRAM 8 + palette). COLORS gives each row colours no other row has, so a wrong row cannot match.
+    const rows = [[8, 9, 10, 11], [12, 13, 14, 15]] // prettier-ignore
+    rows.forEach((want, half) => {
+      const props = want.map(r => ((r - 8) << 1) | 1)
+      const own = flameRom({ ...DATA, props }, b => void b.fill(0xea, off(0x02aa6c + 14), off(0x02aa6c + 16))) // prettier-ignore
+      const got = draw(stream(0xe6), 16, own)
+      expect(got.sprites).toHaveLength(16)
+      for (const s of got.sprites) {
+        const slot = DATA.xs.indexOf(s.box.x0 % 256)
+        expect(slot).toBeGreaterThanOrEqual(0)
+        const row = want[slot]!
+        const rgba = Buffer.from(s.rgba, 'base64')
+        let opaque = 0
+        for (let i = 0; i < rgba.length; i += 4) {
+          if (rgba[i + 3] === 0) continue
+          opaque++
+          // Colour 0 is transparent, so it is excluded; alpha is compared too.
+          const ok = COLORS.slice(row * 16 + 1, row * 16 + 16).some(c => c.every((v, k) => v === rgba[i + k])) // prettier-ignore
+          expect(ok, `half ${half} slot ${slot} row ${row}`).toBe(true)
+        }
+        expect(opaque, `half ${half} slot ${slot}`).toBe(16 * 16) // every char is solid: all four parts blit
       }
-    }
-    expect(got.sprites).toHaveLength(16)
-    expect(opaque).toBeGreaterThan(0)
+    })
   })
 
   it('routines that drew nothing draw none and say so', () => {
