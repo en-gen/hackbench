@@ -343,6 +343,11 @@ export function modelResult(m: RunModel): SpriteDrawResult {
   }
 }
 
+/** The launcher's `unverified` text: its reasons joined as-is, each already a full statement (a repointed arm, a spawn other than $44, a changed routine). */
+export function launcherUnverified(reasons: readonly string[]): string | undefined {
+  return reasons.length ? `Torpedo launcher unverified: ${reasons.join('; ')}` : undefined // prettier-ignore
+}
+
 /**
  * Sprite $CA (#985), a shooter: the frame at launch. The ROM's own LaunchTorpedo and LauncherArm run
  * and the game's sprite loop on the slot it spawned (TorpedoLauncher.ts) give the arm's and the spawned
@@ -353,7 +358,7 @@ export function modelResult(m: RunModel): SpriteDrawResult {
 function launcherResult(rom: RomFile, seed: SpriteSeed): SpriteDrawResult {
   const l = torpedoLauncher(rom, seed)
   if (!l.ok) return { ok: false, reason: l.reason }
-  const unverified = l.unverified.length ? `the torpedo launcher is drawn from the code at the vanilla address, and ${l.unverified.join('; ')}` : undefined // prettier-ignore
+  const unverified = launcherUnverified(l.unverified)
   return {
     ok: true,
     parts: interpParts([...l.torpedoParts, ...l.arm]),

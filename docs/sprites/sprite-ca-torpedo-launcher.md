@@ -44,8 +44,9 @@ How the map view draws it, and what each step rests on.
   bitmap anchored at the shooter.
 - Routine bytes (both routines, hashed) and the call path (the loader route, the
   dispatch) are checked as for the castle flames: a difference does not blank the
-  launcher (D52 option B), it is drawn from the code at the vanilla address and flagged
-  `unverified`. What refuses (a spawn that finds no slot, a BRK) shows the marker with
+  launcher (D52 option B), it is still drawn and flagged `unverified`: the label opens
+  "Torpedo launcher unverified:" and then gives each reason as its own statement (a repointed
+  arm, a spawn other than $44 and a changed routine each say what differs). What refuses (a spawn that finds no slot, a BRK) shows the marker with
   the reason.
 - Not generalised to $C9 (the Bullet Bill shooter): its fire spawns a sprite $1C
   through `ShootBullet` (`bank_02.asm:6920`) and has a different preview question; it
