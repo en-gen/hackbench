@@ -140,7 +140,7 @@ write only when `$15E9` equals the sprite's own slot, on every pass.
   (the old code credited all of it); the cluster OAM leak work (#809, `ClusterOamLeak`) is the follow-up.
 
 Grader, `spriteGrade.captures.test.ts` (1957 records, 'rom' seed, one machine): before
-exact 998, shape 803, close 18, wrong 125, empty 13; after exact 1028, shape 814, close 26, wrong 76, empty 13.
+exact 1033, shape 803, close 18, wrong 90, empty 13 (develop at the #837 merge); after exact 1063, shape 814, close 26, wrong 41, empty 13.
 49 records improved from "wrong" and none graded worse (compared record by record, same order). The fix also
 cleared $33, $22, $24, $25, $3E, $54 and $67 records whose extra parts were written under other slots.
 
