@@ -85,6 +85,11 @@ const torpedoMain = [
 ]
 const LOADER_AT = 0x02a8d4
 const DISPATCH_AT = 0x02b3ab
+/** The extended-sprite loop body and its word table (bank_02.asm:3540-3558); entry $08 is the arm. */
+const EXT_AT = 0x029b16
+// prettier-ignore
+const EXT_CODE = [0xbd, 0x0b, 0x17, 0xf0, 0xfa, 0xa4, 0x9d, 0xd0, 0x08, 0xbc, 0x6f, 0x17, 0xf0, 0x03, 0xde, 0x6f, 0x17, 0x22, 0xfa, 0x86, 0x00] // prettier-ignore
+const EXT_ENTRY8 = EXT_AT + EXT_CODE.length + 16
 
 function launcherRom(tweak: (bytes: Uint8Array) => void = () => {}, launch = launchBytes()) {
   const bytes = new Uint8Array(buildSyntheticRom().buffer)
@@ -94,6 +99,8 @@ function launcherRom(tweak: (bytes: Uint8Array) => void = () => {}, launch = lau
   }
   put(LOADER_AT, [0xc9, 0xc9, 0x90, 0x05, 0x20, 0x78, 0xab, 0x80, 0x7f]) // the loader route
   put(DISPATCH_AT, [0x3a, 0x22, 0xfa, 0x86, 0x00, 0x00, 0x00, 0xb6, 0xb3, 0x00, 0x00]) // dispatch to the cart's ExecutePtr
+  put(EXT_AT, EXT_CODE)
+  put(EXT_ENTRY8, [ARM & 0xff, (ARM >> 8) & 0xff]) // the cart's table: only entry $08 is filled
   put(LAUNCH, launch)
   put(ARM, arm)
   put(TORPEDO_MAIN, torpedoMain)
@@ -165,7 +172,7 @@ describe('Torpedo Ted launcher from the routines (synthetic cart)', () => {
     const r = ok(launcherRom(undefined, launchBytes(0)), routinesOf(launcherRom(undefined, launchBytes(0)))) // prettier-ignore
     expect(r.torpedoId).toBe(0)
     expect(r.torpedoParts.map(p => [p.char, p.attr])).toEqual([[0x24, 0x0a]]) // the cart's id 0 draw
-    expect(r.unverified).toEqual(['the sprite the launcher spawns ($00, not Torpedo Ted $44)'])
+    expect(r.unverified).toEqual(['the sprite the launcher spawns is $00, not Torpedo Ted $44'])
   })
 
   it("the seed's own RAM cells reach the machine (the torpedo draw reads $0E)", () => {
@@ -239,7 +246,9 @@ describe('Torpedo Ted launcher from the routines (synthetic cart)', () => {
       b.set([copy & 0xff, (copy >> 8) & 0xff, 0x00], off(DISPATCH_AT + 2))
     })
     const r = ok(dirty, routinesOf(launcherRom()))
-    expect(r.unverified).toEqual(['the shooter dispatch call target'])
+    expect(r.unverified).toEqual([
+      'the shooter dispatch call target could not be verified as the 16-bit ExecutePtr',
+    ])
     expect(r.arm).toEqual(ok(launcherRom()).arm)
   })
 
@@ -255,8 +264,8 @@ describe('Torpedo Ted launcher from the routines (synthetic cart)', () => {
   })
 
   it.each([
-    ['launch', LAUNCH + LAUNCH_SPAN - 4, 'the launcher routine'],
-    ['arm', ARM + ARM_SPAN - 4, 'the launcher arm routine'],
+    ['launch', LAUNCH + LAUNCH_SPAN - 4, 'the launcher routine is not the vanilla shape'],
+    ['arm', ARM + ARM_SPAN - 4, 'the launcher arm routine is not the vanilla shape'],
   ])(
     'a byte changed in the %s routine runs it anyway, unverified, naming it (ruling B)',
     (_, at, what) => {
@@ -269,7 +278,7 @@ describe('Torpedo Ted launcher from the routines (synthetic cart)', () => {
 
   it('a hacked loader route still draws, unverified, naming it (ruling B)', () => {
     const dirty = launcherRom(b => void (b[off(LOADER_AT + 2)]! ^= 1))
-    expect(ok(dirty, routinesOf(launcherRom())).unverified).toEqual(['the loader route to the shooter']) // prettier-ignore
+    expect(ok(dirty, routinesOf(launcherRom())).unverified).toEqual(['the loader route to the shooter is not the vanilla shape']) // prettier-ignore
   })
 
   // The JSL operand is the call the run follows: a change there lands in code that is not ExecutePtr and refuses.
@@ -280,7 +289,32 @@ describe('Torpedo Ted launcher from the routines (synthetic cart)', () => {
   // A changed table word is what the game would jump to, so it runs, and the dispatch shape check names it (ruling B).
   it('a changed dispatch table word runs where it points, unverified, naming the dispatch', () => {
     const r = ok(launcherRom(b => void (b[off(DISPATCH_AT + 7)]! ^= 1)), routinesOf(launcherRom())) // prettier-ignore
-    expect(r.unverified).toContain('the shooter dispatch')
+    expect(r.unverified).toContain('the shooter dispatch is not the vanilla shape')
+  })
+
+  // The arm is run where the extended-sprite dispatch sends $08 (bank_02.asm:3548, 3558), so a hack that repoints the
+  // entry to another routine is run there, and said so; one that moves the dispatch code is not trusted.
+  it('a repointed extended-sprite $08 entry runs the new target, unverified, naming it', () => {
+    const other = 0x029f00
+    const dirty = launcherRom(b => {
+      b.set(arm, off(other))
+      b.set([other & 0xff, (other >> 8) & 0xff], off(EXT_ENTRY8))
+      b[off(other) + 30] = 0x23 // the new arm's attribute byte (palette bits) differs from the vanilla-pointed one's $21
+    })
+    const r = ok(dirty, routinesOf(launcherRom()))
+    expect(r.unverified).toEqual([
+      'the extended sprite dispatch sends the arm $08 to $029F00, not the vanilla LauncherArm',
+    ])
+    expect(r.arm[0]!.palette).not.toBe(ok(launcherRom()).arm[0]!.palette)
+  })
+
+  it('an extended-sprite dispatch of another shape is unverified, naming it, and the arm runs at the vanilla address', () => {
+    const r = ok(
+      launcherRom(b => void (b[off(EXT_AT)]! ^= 1)),
+      routinesOf(launcherRom()),
+    )
+    expect(r.unverified).toEqual(['the extended sprite dispatch is not the vanilla shape, so its entry for the arm $08 could not be read and the arm is run at the vanilla address']) // prettier-ignore
+    expect(r.arm).toEqual(ok(launcherRom()).arm)
   })
 
   it('a level the loader refused has no launcher, and says why', () => {
@@ -381,7 +415,7 @@ describe('Torpedo Ted launcher on the map (synthetic cart)', () => {
     const res = draw(cart)
     if (!res.ok) throw new Error(res.reason)
     expect(res.identity?.spriteId).toBe(0)
-    expect('unverified' in res && res.unverified).toContain('the sprite the launcher spawns ($00, not Torpedo Ted $44) is not the vanilla shape') // prettier-ignore
+    expect('unverified' in res && res.unverified).toContain('the sprite the launcher spawns is $00, not Torpedo Ted $44') // prettier-ignore
   })
 
   it('drawSprites draws it, not the marker: the bitmap spans the arm and the torpedo', () => {

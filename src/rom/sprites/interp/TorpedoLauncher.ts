@@ -53,6 +53,14 @@ const ARM_EXT_SPRITE = 0x08
 const DISPATCH = 0x02b3ab // CODE_02B3AB: DEC A / JSL ExecutePtr / dw table (bank_02.asm:6827-6832)
 const LAUNCH = 0x02b3b6 // LaunchTorpedo
 const ARM = 0x029e3d // LauncherArm
+/**
+ * The extended-sprite loop body, CODE_029B16 (bank_02.asm:3540-3548): LDA ExtSpriteNumber,X / BEQ / LDY SpriteLock / BNE /
+ * LDY ExtSpriteMisc176F,X / BEQ / DEC ExtSpriteMisc176F,X / JSL ExecutePtr, then the word table (:3550-3558), whose
+ * entry $08 is LauncherArm. The JSL is the last 4 bytes of the shape; the table starts right after it.
+ */
+const EXT_DISPATCH = 0x029b16
+const EXT_DISPATCH_SHAPE = [0xbd, 0x0b, 0x17, 0xf0, 0xfa, 0xa4, 0x9d, 0xd0, 0x08, 0xbc, 0x6f, 0x17, 0xf0, 0x03, 0xde, 0x6f, 0x17, 0x22, null, null, null] // prettier-ignore
+const EXT_TABLE = EXT_DISPATCH + EXT_DISPATCH_SHAPE.length
 
 /** SMW_U.sym WRAM cells (rammap.asm:1777-1794). */
 const W = {
@@ -70,9 +78,9 @@ const W = {
 /** The path from the loader to the dispatch, as bytes (null: an operand that does not matter). */
 const PATH: { what: string; at: number; want: (number | null)[] }[] = [
   // CODE_02A8D4 (bank_02.asm:5365-5368): CMP #$C9 / BCC / JSR LoadShooter / BRA
-  { what: 'the loader route to the shooter', at: 0x02a8d4, want: [0xc9, 0xc9, 0x90, null, 0x20, null, null, 0x80, null] }, // prettier-ignore
+  { what: 'the loader route to the shooter is not the vanilla shape', at: 0x02a8d4, want: [0xc9, 0xc9, 0x90, null, 0x20, null, null, 0x80, null] }, // prettier-ignore
   // CODE_02B3AB and its pointer table's second word (bank_02.asm:6827-6832)
-  { what: 'the shooter dispatch', at: DISPATCH, want: [0x3a, 0x22, null, null, null, null, null, 0xb6, 0xb3] }, // prettier-ignore
+  { what: 'the shooter dispatch is not the vanilla shape', at: DISPATCH, want: [0x3a, 0x22, null, null, null, null, null, 0xb6, 0xb3] }, // prettier-ignore
 ]
 
 /** SHA-256 of each whole routine (174 and 69 bytes, ending in RTS). */
@@ -121,10 +129,23 @@ export function torpedoLauncher(
   if (!seed.loaded) return { ok: false, reason: seed.loadRefusal ?? 'no level image' }
   const unverified = PATH.filter(c => !shapeMatches(bytesAt(rom, c.at, c.want.length), c.want)).map(c => c.what) // prettier-ignore
   const callee = bytesAt(rom, DISPATCH + 2, 3)
-  if (!callee || !checkExecutePtr(rom, [callee]).ok) unverified.push('the shooter dispatch call target') // prettier-ignore
+  if (!callee || !checkExecutePtr(rom, [callee]).ok) unverified.push('the shooter dispatch call target could not be verified as the 16-bit ExecutePtr') // prettier-ignore
+  // The extended sprite $08 is run where the game's own dispatch sends it (bank_02.asm:3548, 3558), not at a fixed address.
+  const extShape = shapeMatches(bytesAt(rom, EXT_DISPATCH, EXT_DISPATCH_SHAPE.length), EXT_DISPATCH_SHAPE) // prettier-ignore
+  const extCallee = bytesAt(rom, EXT_DISPATCH + EXT_DISPATCH_SHAPE.length - 3, 3)
+  const extWord = bytesAt(rom, EXT_TABLE + 2 * ARM_EXT_SPRITE, 2)
+  let armAt = ARM
+  if (!extShape || !extCallee || !checkExecutePtr(rom, [extCallee]).ok || !extWord) {
+    unverified.push('the extended sprite dispatch is not the vanilla shape, so its entry for the arm $08 could not be read and the arm is run at the vanilla address') // prettier-ignore
+  } else {
+    armAt = 0x020000 | extWord[0]! | (extWord[1]! << 8)
+    if (armAt !== ARM) unverified.push(`the extended sprite dispatch sends the arm $08 to $${armAt.toString(16).toUpperCase().padStart(6, '0')}, not the vanilla LauncherArm`) // prettier-ignore
+  }
   const sha = (at: number, n: number) => spanFingerprint(Uint8Array.from(bytesAt(rom, at, n) ?? []))
-  if (sha(LAUNCH, LAUNCH_LENGTH) !== routines.launch) unverified.push('the launcher routine')
-  if (sha(ARM, ARM_LENGTH) !== routines.arm) unverified.push('the launcher arm routine')
+  if (sha(LAUNCH, LAUNCH_LENGTH) !== routines.launch)
+    unverified.push('the launcher routine is not the vanilla shape')
+  if (sha(ARM, ARM_LENGTH) !== routines.arm)
+    unverified.push('the launcher arm routine is not the vanilla shape')
   try {
     const { bus, cpu } = smwMachine(rom, seed.loaded)
     const w = bus.wram
@@ -167,7 +188,7 @@ export function torpedoLauncher(
     }
     // The torpedo: the game's own sprite loop over the slot it filled, locked (draw only), then its OAM.
     const id = w[RAM.spriteNumber + spawned]!
-    if (id !== VANILLA_SPAWN) unverified.push(`the sprite the launcher spawns ($${id.toString(16).toUpperCase().padStart(2, '0')}, not Torpedo Ted $44)`) // prettier-ignore
+    if (id !== VANILLA_SPAWN) unverified.push(`the sprite the launcher spawns is $${id.toString(16).toUpperCase().padStart(2, '0')}, not Torpedo Ted $44`) // prettier-ignore
     const loop = resolveLoop(rom)
     if (!loop.ok) return { ok: false, reason: loop.reason }
     const tables = resolveTables(rom, loop.handle)
@@ -185,7 +206,7 @@ export function torpedoLauncher(
     if (torpedoParts.length === 0) return { ok: false, reason: 'the torpedo drew no tile' }
     touched.clear()
     w[RAM.curSprite] = ext
-    run(ARM, { x: ext })
+    run(armAt, { x: ext })
     const arm = touchedOamParts(w, touched, at)
     // A launcher without its hand is not the game's frame; it still draws (D52), and says so.
     if (arm.length === 0) unverified.push('the launcher arm drew no tile')

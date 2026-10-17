@@ -353,7 +353,7 @@ export function modelResult(m: RunModel): SpriteDrawResult {
 function launcherResult(rom: RomFile, seed: SpriteSeed): SpriteDrawResult {
   const l = torpedoLauncher(rom, seed)
   if (!l.ok) return { ok: false, reason: l.reason }
-  const unverified = l.unverified.length ? `the torpedo launcher is drawn from the code at the vanilla address, and ${l.unverified.map(u => `${u} is not the vanilla shape`).join('; ')}` : undefined // prettier-ignore
+  const unverified = l.unverified.length ? `the torpedo launcher is drawn from the code at the vanilla address, and ${l.unverified.join('; ')}` : undefined // prettier-ignore
   return {
     ok: true,
     parts: interpParts([...l.torpedoParts, ...l.arm]),
