@@ -205,3 +205,23 @@ describe('the gate', () => {
     expect(platformsGate(table, SYN)).toEqual([])
   })
 })
+
+describe('the gaps a real runner does not reach', () => {
+  /** The real runner, except the second and third spawn come back with no anchor and no reason (a model that drew nothing and said nothing). */
+  const mute: typeof runOnce = (rom, id, s, o) => {
+    const m = runOnce(rom, id, s, o)
+    return o?.spawn && o.spawn.nth > 0 ? { ...m, anchor: undefined } : m
+  }
+
+  it('says "drew no tile" and uses the plural when two spawns drew nothing and gave no reason', () => {
+    const r = threePlatforms(platformCart(), seed, entry, SYN, 1, mute)
+    expect(r.ok && r.notes).toEqual(['2 platforms did not draw: drew no tile'])
+    expect(r.ok && r.parts).toHaveLength(1)
+  })
+
+  it('names the spawner when the JSR points past the end of the ROM (no bytes to read)', () => {
+    const rom = platformCart()
+    rom.writeAt(0x02a8a6, [0xf0, 0xff]) // JSR $FFF0: 84 bytes from there run off the cart
+    expect(platformsGate(rom, SYN)).toContain('the platform spawner')
+  })
+})
