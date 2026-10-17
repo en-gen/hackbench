@@ -188,7 +188,9 @@ function gradeAll(
       const data = ptr === null ? null : rom.readUpTo(ptr, 4096)
       const raw = smw.getLevelRawData(lv)
       // A vertical map's stream swaps X and Y (#1018); the helper decides it as MapBuilder does.
-      listByMap.set(map, data && raw ? levelSpriteList(data, raw, smw.requireVerticalTable()) : [])
+      // A capture map without level data is a broken corpus, not an empty list: fail by name.
+      if (!data || !raw) throw new Error(`map ${map}: no sprite or level data for the sprite list`)
+      listByMap.set(map, levelSpriteList(data, raw, smw.requireVerticalTable()))
     }
     const list = listByMap.get(map)!
     const me = list.find(e => e.index === rec.listIndex)
