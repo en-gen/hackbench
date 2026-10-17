@@ -5,6 +5,9 @@ const { isolateAppData } = require('./test/app-data.cjs')
 // it starts use a per-run app-data folder, never the user's (#637).
 isolateAppData()
 
+// Concurrent runs each hold a run-lock slot and its own port (docs/testing.md, Run lock).
+const PORT = process.env.HB_PORT || '3000'
+
 module.exports = defineConfig({
   testDir: './test',
   workers: 1,
@@ -27,8 +30,8 @@ module.exports = defineConfig({
   webServer: process.env.HB_APP_URL
     ? undefined
     : {
-        command: 'yarn start',
-        url: 'http://127.0.0.1:3000',
+        command: `yarn theia start --port ${PORT} --hostname 127.0.0.1`,
+        url: `http://127.0.0.1:${PORT}`,
         // Serves a bundle built earlier in the job, but Theia backend startup
         // and plugin deployment still overrun the 60s default on a runner.
         timeout: 300000,

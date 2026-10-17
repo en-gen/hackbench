@@ -15,7 +15,7 @@ const path = require('path')
 const os = require('os')
 const { romPath, VANILLA, INVICTUS } = require('../../../test/suite/support/corpus.cjs')
 
-const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
+const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT || 3000}`
 const ROM = process.env.HB_ROM || romPath(VANILLA)
 /** A hack that replaced the LC_LZ2 decompressor, so the read gate refuses
  * every GFX file (#487), unlike every other ROM in the corpus. */

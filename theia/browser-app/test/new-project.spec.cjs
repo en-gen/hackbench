@@ -12,7 +12,7 @@ const path = require('path')
 const os = require('os')
 const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
 
-const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
+const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT || 3000}`
 const ROM = process.env.HB_ROM || romPath(VANILLA)
 
 /** Reach Theia's DI container the way its own tooling does. */

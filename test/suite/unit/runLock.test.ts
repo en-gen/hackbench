@@ -4,7 +4,15 @@ import * as os from 'os'
 import * as path from 'path'
 import { spawnSync } from 'child_process'
 import { fileURLToPath, pathToFileURL } from 'url'
-import { acquire, release, status, defaultStateDir } from '../../../tools/scripts/run-lock.mjs'
+import {
+  acquire,
+  release,
+  status,
+  defaultStateDir,
+  slotCount,
+  slotPort,
+  vitestWorkers,
+} from '../../../tools/scripts/run-lock.mjs'
 
 // Synthetic: every lock lives in a temp state dir, never the real one.
 const made: string[] = []
@@ -48,7 +56,7 @@ describe('run lock', () => {
     expect(text).toContain(`owner: ${A}`)
     expect(text).toContain('purpose: unit run')
     expect(text).toMatch(/started: \d{4}-\d\d-\d\dT[\d:.]+Z/)
-    const r2 = acquire(s, { owner: B, purpose: 'build' })
+    const r2 = acquire(s, { owner: B, purpose: 'build', slots: 1 })
     expect(r2.ok).toBe(false)
     expect(fs.readFileSync(ownerFile(s), 'utf8')).toBe(text)
   })
@@ -113,7 +121,7 @@ describe('run lock', () => {
       spawnSync(process.execPath, [SCRIPT, ...args], {
         encoding: 'utf8',
         cwd: os.tmpdir(),
-        env: { ...process.env, HACKBENCH_STATE_DIR: s },
+        env: { ...process.env, HACKBENCH_STATE_DIR: s, HACKBENCH_RUN_SLOTS: '1' },
       })
     expect(run('acquire', '--owner', A, '--purpose', 'cli').status).toBe(0)
     expect(run('acquire', '--owner', B, '--purpose', 'cli').status).toBe(1)
@@ -426,7 +434,7 @@ describe('defaultStateDir', () => {
 
   it('CLI exits 1 with the error instead of failing open', () => {
     const copy = mkState()
-    for (const f of ['run-lock.mjs', 'protocol.mjs'])
+    for (const f of ['run-lock.mjs', 'protocol.mjs', 'run-slots.mjs'])
       fs.copyFileSync(path.join(scriptsDir, f), path.join(copy, f))
     const r = spawnSync(process.execPath, [path.join(copy, 'run-lock.mjs'), 'status'], {
       encoding: 'utf8',
@@ -435,5 +443,159 @@ describe('defaultStateDir', () => {
     })
     expect(r.status).toBe(1)
     expect(r.stdout).toContain('HACKBENCH_STATE_DIR')
+  })
+})
+
+// Counting semaphore (3 slots): slot 1 is the legacy locks/run, then run-2, run-3.
+describe('run lock slots', () => {
+  const C = 'charlie C:/wt/c'
+  const D = 'delta C:/wt/d'
+  const slotDir = (s: string, n: number) => path.join(s, 'locks', n === 1 ? 'run' : `run-${n}`)
+  const holder = (s: string, n: number) =>
+    fs.readFileSync(path.join(slotDir(s, n), 'owner.txt'), 'utf8')
+
+  it('three teams hold distinct slots, a fourth is refused', () => {
+    const s = mkState()
+    const got = [A, B, C].map(owner => acquire(s, { owner, purpose: 'p' }))
+    expect(got.map(r => r.ok)).toEqual([true, true, true])
+    expect(got.map(r => r.slot)).toEqual([1, 2, 3])
+    expect(got.map(r => r.port)).toEqual([3000, 3001, 3002])
+    expect(holder(s, 2)).toContain(`owner: ${B}`)
+    const r = acquire(s, { owner: D, purpose: 'p' })
+    expect(r.ok).toBe(false)
+    expect(r.message).toContain('all 3 slots held')
+    expect(r.message).toContain(A)
+  })
+
+  it('acquire message names the slot and the HB_PORT line for both shells', () => {
+    const s = mkState()
+    acquire(s, { owner: A })
+    const r = acquire(s, { owner: B })
+    expect(r.message).toContain(`acquired slot 2 by ${B}`)
+    expect(r.message).toContain("$env:HB_PORT='3001'")
+    expect(r.message).toContain('export HB_PORT=3001')
+  })
+
+  it('one slot per team: same team or exact same owner is refused, other teams are not', () => {
+    const s = mkState()
+    acquire(s, { owner: A })
+    expect(acquire(s, { owner: A }).ok).toBe(false)
+    expect(acquire(s, { owner: 'alpha C:/wt/other' }).ok).toBe(false)
+    expect(acquire(s, { owner: 'alpha-7 C:/wt/x' }).ok).toBe(false)
+    expect(fs.existsSync(slotDir(s, 2))).toBe(false)
+    expect(acquire(s, { owner: 'alphabet C:/wt/x' }).ok).toBe(true)
+  })
+
+  it('release frees exactly the matching slot and the freed slot is reused', () => {
+    const s = mkState()
+    for (const owner of [A, B, C]) acquire(s, { owner })
+    expect(release(s, { owner: B }).ok).toBe(true)
+    expect(fs.existsSync(slotDir(s, 1))).toBe(true)
+    expect(fs.existsSync(slotDir(s, 2))).toBe(false)
+    expect(fs.existsSync(slotDir(s, 3))).toBe(true)
+    expect(release(s, { owner: 'bravo C:/wt/b' }).ok).toBe(false)
+    const r = acquire(s, { owner: D })
+    expect(r.slot).toBe(2)
+  })
+
+  it('wrong-owner release leaves every slot', () => {
+    const s = mkState()
+    for (const owner of [A, B]) acquire(s, { owner })
+    for (const wrong of [C, 'alpha', `${A} extra`]) {
+      expect(release(s, { owner: wrong }).ok).toBe(false)
+    }
+    expect(fs.existsSync(slotDir(s, 1)) && fs.existsSync(slotDir(s, 2))).toBe(true)
+  })
+
+  it('next.txt blocks other teams on free slots and admits its team into any free slot', () => {
+    const s = mkState()
+    acquire(s, { owner: A })
+    const next = path.join(s, 'locks', 'next.txt')
+    fs.writeFileSync(next, 'delta is next\n')
+    expect(acquire(s, { owner: B }).ok).toBe(false)
+    expect(acquire(s, { owner: C }).ok).toBe(false)
+    expect(fs.existsSync(slotDir(s, 2))).toBe(false)
+    expect(fs.existsSync(next)).toBe(true)
+    const r = acquire(s, { owner: D })
+    expect(r.ok && r.slot).toBe(2)
+    expect(fs.existsSync(next)).toBe(false)
+  })
+
+  it('a legacy single-dir lock is slot 1', () => {
+    const s = mkState()
+    fs.mkdirSync(slotDir(s, 1), { recursive: true })
+    fs.writeFileSync(
+      path.join(slotDir(s, 1), 'owner.txt'),
+      `owner: ${A}
+purpose: old
+started: 2026-10-14T00:00:00.000Z
+`,
+    )
+    expect(acquire(s, { owner: A }).ok).toBe(false) // one per team
+    expect(acquire(s, { owner: B }).slot).toBe(2)
+    expect(status(s, { now: new Date('2026-10-14T00:10:00Z') }).lines.join('\n')).toContain(
+      `owner: ${A}`,
+    )
+    expect(release(s, { owner: A }).ok).toBe(true)
+    expect(fs.existsSync(slotDir(s, 1))).toBe(false)
+  })
+
+  it('status lists every slot, free or held, with age and next.txt', () => {
+    const s = mkState()
+    const t0 = new Date('2026-10-14T00:00:00Z')
+    acquire(s, { owner: B, purpose: 'build', now: t0 })
+    acquire(s, { owner: A, purpose: 'unit', now: t0 })
+    fs.writeFileSync(path.join(s, 'locks', 'next.txt'), 'charlie\n')
+    const st = status(s, { now: new Date(t0.getTime() + 125 * 60000) })
+    const text = st.lines.join('\n')
+    expect(text).toMatch(/slot 1:\s+owner: bravo/)
+    expect(text).toMatch(/slot 2:\s+owner: alpha/)
+    expect(text).toContain('slot 3: free')
+    expect(text).toContain('next.txt: charlie')
+    expect(text).toContain('age: 125 min')
+    expect(st.held).toBe(true)
+    expect(st.stale).toBe(true)
+  })
+
+  it('HACKBENCH_RUN_SLOTS sets the count; invalid values fall back to 3', () => {
+    expect(slotCount({ HACKBENCH_RUN_SLOTS: '1' })).toBe(1)
+    expect(slotCount({ HACKBENCH_RUN_SLOTS: '2' })).toBe(2)
+    expect(slotCount({})).toBe(3)
+    for (const bad of ['0', '-1', '2.5', 'abc', '', '3x', ' 2']) {
+      expect(slotCount({ HACKBENCH_RUN_SLOTS: bad })).toBe(3)
+    }
+    const s = mkState()
+    expect(acquire(s, { owner: A, slots: 2 }).ok).toBe(true)
+    expect(acquire(s, { owner: B, slots: 2 }).ok).toBe(true)
+    expect(acquire(s, { owner: C, slots: 2 }).ok).toBe(false)
+    expect(fs.existsSync(slotDir(s, 3))).toBe(false)
+  })
+
+  it('vitest workers: cores / 2 / slots with floor 1, override wins, invalid override ignored', () => {
+    expect(vitestWorkers(32, {})).toBe(5)
+    expect(vitestWorkers(32, { HACKBENCH_RUN_SLOTS: '1' })).toBe(16)
+    expect(vitestWorkers(2, {})).toBe(1)
+    expect(vitestWorkers(32, { HACKBENCH_VITEST_WORKERS: '7' })).toBe(7)
+    expect(vitestWorkers(32, { HACKBENCH_VITEST_WORKERS: '0' })).toBe(5)
+  })
+
+  it('slot to port is 2999 + slot', () => {
+    expect([1, 2, 3, 4].map(slotPort)).toEqual([3000, 3001, 3002, 3003])
+  })
+
+  it('CLI honours HACKBENCH_RUN_SLOTS and prints the port line', () => {
+    const s = mkState()
+    const run = (slots: string, ...args: string[]) =>
+      spawnSync(process.execPath, [SCRIPT, ...args], {
+        encoding: 'utf8',
+        cwd: os.tmpdir(),
+        env: { ...process.env, HACKBENCH_STATE_DIR: s, HACKBENCH_RUN_SLOTS: slots },
+      })
+    expect(run('2', 'acquire', '--owner', A).status).toBe(0)
+    const b = run('2', 'acquire', '--owner', B)
+    expect(b.status).toBe(0)
+    expect(b.stdout).toContain('HB_PORT=3001')
+    expect(run('2', 'acquire', '--owner', C).status).toBe(1)
+    expect(run('2', 'release', '--owner', B).status).toBe(0)
   })
 })
