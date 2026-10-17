@@ -732,16 +732,18 @@ describe('a relocated overworld upload', () => {
   })
 
   // 65816 opcode map (hardware): $61 is ADC (dp,X) and $81 is STA (dp,X),
-  // two bytes each; $62 (PER) and $82 (BRL) are the three-byte ones. The
-  // walk's own table once had each pair swapped, so a routine that crossed
-  // either instruction stepped one byte too far and missed the write.
+  // two bytes each; $62 (PER) is three. The walk's own table once had each
+  // pair swapped, so a routine that crossed one stepped a byte off and missed
+  // the write. BRL ($82) needs no case: the walk follows it as a jump, so its
+  // length never advances the cursor.
   it.each([
-    ['ADC (dp,X)', 0x61],
-    ['STA (dp,X)', 0x81],
-  ])('steps over %s as two bytes on the way to the write', (_name, op) => {
+    ['ADC (dp,X)', [0x61, 0x10]],
+    ['STA (dp,X)', [0x81, 0x10]],
+    ['PER', [0x62, 0x00, 0x00]],
+  ])('steps over %s at its true length on the way to the write', (_name, lead) => {
     const d = detectPaletteAnimation(
       relocated({
-        relocate: { at: AT, lead: [op, 0x10], chain: [{ cgramIdx: 0x6d, table: TABLE }] },
+        relocate: { at: AT, lead, chain: [{ cgramIdx: 0x6d, table: TABLE }] },
         tables: [{ at: TABLE, words: ramp }],
       }),
     )
