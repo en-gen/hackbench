@@ -346,14 +346,20 @@ test('scrolling under a still pointer re-places the hover on the sprite (#981)',
 }) => {
   const slot = HIDDEN.slot
   const map = await openMap(page, slot)
-  const sprite = namedSprite(map)
-  // Content moves left by 8 px, so take a pixel at least 10 px in from the sprite's left edge: the pointer stays on it.
+  // A drawn, named sprite with no other sprite box within 24 px, so the same sprite is under the pointer before and after.
+  const near = (a, b) =>
+    a.box.x0 < b.box.x1 + 24 && b.box.x0 < a.box.x1 + 24 && a.box.y0 < b.box.y1 + 24 && b.box.y0 < a.box.y1 + 24 // prettier-ignore
+  const sprite = map.stack.find(
+    s => s.status === 'drawn' && s.name && !map.stack.some(o => o !== s && near(s, o)) && ownPixel(map, s), // prettier-ignore
+  )
+  expect(sprite, 'an isolated named sprite').toBeTruthy()
+  // The content moves 8 px left under the pointer, so the pointer pixel (x) and the one it lands on (x + 8) must both be the sprite's, with 12 px to its right edge.
   const { x0, y0, x1, y1 } = sprite.box
   let at
   for (let y = y0; y < y1 && !at; y++)
-    for (let x = x0 + 10; x < x1 && !at; x++)
-      if (allWithin(2, x, y, (px, py) => map.ownerAt(px, py) === sprite)) at = { x, y }
-  expect(at, 'a sprite pixel well inside its box').toBeTruthy()
+    for (let x = x0; x + 8 < x1 - 12 && !at; x++)
+      if (allWithin(2, x, y, (px, py) => map.ownerAt(px, py) === sprite && map.ownerAt(px + 8, py) === sprite)) at = { x, y } // prettier-ignore
+  expect(at, 'a sprite pixel that stays on the sprite after the scroll').toBeTruthy()
   await setZoom(page, slot, ZOOMS.actual)
   await expect.poll(() => hoverAt(page, slot, map, at), { timeout: 30000 }).toBe(sprite.name)
   const offset = () =>
@@ -368,6 +374,8 @@ test('scrolling under a still pointer re-places the hover on the sprite (#981)',
     stripOf(slot),
   )
   expect(await offset(), 'the view really scrolled').not.toEqual(before)
+  // Still the same sprite under the pointer, then the anchor must be over its box in the new view.
+  await expect.poll(() => hoverOf(page)).toBe(sprite.name)
   await expect.poll(() => anchorState(page, slot, map, sprite)).toBe('aligned')
 })
 
@@ -379,7 +387,14 @@ test('a hidden map tab keeps no hover or anchor, and a reload while hidden opens
   const sprite = namedSprite(map)
   const at = ownPixel(map, sprite)
   await expect.poll(() => hoverAt(page, slot, map, at), { timeout: 30000 }).toBe(sprite.name)
-  // A second map takes the front through the shell: the pointer never leaves the first one's strip by mouse.
+  // Hide the tab with no pointer event at all: mouseout/mouseover are stopped below the app's handlers (a layout change
+  // can make the browser fire them), and the second map is opened by the shell, not by a click. Only the widget's
+  // own onAfterHide clear can then remove the hover; deleting that clear (and the isVisible guard) turns this red.
+  await page.evaluate(id => {
+    const root = document.getElementById(id)
+    for (const ev of ['mouseout', 'mouseover', 'mouseleave'])
+      root.addEventListener(ev, e => e.stopPropagation())
+  }, `hackbench.map-view:${slot}`)
   await openMap(page, 0x104)
   await expect(page.locator(rootOf(slot))).toBeHidden()
   const state = () =>
