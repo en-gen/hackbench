@@ -16,7 +16,7 @@
  *   corpus test, since the spec holds no ROM art to compare with.
  * Plants for the verifier (each must turn the spec red; restore after):
  * - map-sprites.ts `interpDrawer`: delete the `TORPEDO_LAUNCHER_ID` branch (the marker returns, first assertion);
- * - map-sprites.ts `launcherResult`: drop `l.arm` from `interpParts([...shifted, ...l.arm])` (no hand pixels above
+ * - map-sprites.ts `launcherResult`: drop `l.arm` from `interpParts([...l.torpedoParts, ...l.arm])` (no hand pixels above
  *   the torpedo, the hand-area assertion);
  * - TorpedoLauncher.ts: `+ 8` of the hand is the game's, so the unit test (TorpedoLauncher.test.ts) pins the offset;
  * - TorpedoLauncher.ts: skip the shooter's writes to the spawned slot (draw the torpedo from a fresh run): the priority

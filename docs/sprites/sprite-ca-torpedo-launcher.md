@@ -8,12 +8,12 @@ How the map view draws it, and what each step rests on.
   `bank_02.asm:5365-5368`) sends them to `LoadShooter`, which stores
   `ShooterNumber = id - $C8` (`bank_02.asm:5744`); $CA is number 2. Nothing is drawn
   for a shooter until it fires.
-- `CODE_02B3AB` (`bank_02.asm:6830-6832`) dispatches the number; number 2 is
+- `CODE_02B3AB` (`bank_02.asm:6827-6833`) dispatches the number; number 2 is
   `LaunchTorpedo` (`bank_02.asm:6835`). With its timer at zero (the first fire) it
-  sets the timer to $50, then, if the shooter is on screen in X and not within 16 px of
+  sets the timer to $50, then, if the shooter is on screen (Y high byte of Y minus the camera, `:6840-6844`; the same for X, `:6845-6849`) and not within 16 px of
   the camera's left or right edge (an 8-bit `+$10` / `CMP #$20` on X minus the camera,
   `:6850-6856`), spawns a normal sprite $44 (Torpedo Ted, status 8) at the
-  shooter's position (`:6861-6863`) and extended sprite $08, the launcher arm, at
+  shooter's position (`:6861-6862`) and extended sprite $08, the launcher arm, at
   X + 8, Y - 9 with `ExtSpriteMisc176F = $90` (`:6891-6902`).
 - `LauncherArm` (`bank_02.asm:3969-4003`) draws the arm: tile $84 while the counter
   is $60 or more (it spawns at $90), else $A4; attribute $13 (palette 1, priority 1);

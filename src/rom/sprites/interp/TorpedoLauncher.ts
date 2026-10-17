@@ -5,7 +5,7 @@
  * $CA is a shooter, not a sprite: the loader keeps it in the shooter table
  * (id - $C8 = 2, CODE_02A8D4 -> LoadShooter, SMWDisX bank_02.asm:5365-5368, 5744) and draws nothing
  * for it. The game's own frame shows it when the shooter fires:
- * - CODE_02B3AB (bank_02.asm:6830-6832) dispatches the number to LaunchTorpedo (:6835). With
+ * - CODE_02B3AB (bank_02.asm:6827-6833) dispatches the number to LaunchTorpedo (:6835). With
  *   its timer at zero it spawns a normal Torpedo Ted ($44, status 8) at the shooter's position and
  *   the launcher arm, extended sprite $08, at X + 8, Y - 9 (:6891-6902).
  * - LauncherArm (bank_02.asm:3969-4003) draws the arm: tile $84 (the first frame, timer >= $60), 16 x 16.
@@ -46,11 +46,11 @@ import type { SpriteSeed } from './SpriteSeed'
 /** The shooter number and the ids it leads to: $CA - $C8 (bank_02.asm:5744), Torpedo Ted. */
 export const TORPEDO_LAUNCHER_ID = 0xca
 const SHOOTER_NUMBER = 2
-/** Torpedo Ted (bank_02.asm:6861-6863): what LaunchTorpedo spawns in a vanilla ROM; any other id is reported. */
+/** Torpedo Ted (bank_02.asm:6861-6862): what LaunchTorpedo spawns in a vanilla ROM; any other id is reported. */
 const VANILLA_SPAWN = 0x44
 const ARM_EXT_SPRITE = 0x08
 
-const DISPATCH = 0x02b3ab // CODE_02B3AB: DEC A / JSL ExecutePtr / dw table (bank_02.asm:6830-6836)
+const DISPATCH = 0x02b3ab // CODE_02B3AB: DEC A / JSL ExecutePtr / dw table (bank_02.asm:6827-6832)
 const LAUNCH = 0x02b3b6 // LaunchTorpedo
 const ARM = 0x029e3d // LauncherArm
 
@@ -71,7 +71,7 @@ const W = {
 const PATH: { what: string; at: number; want: (number | null)[] }[] = [
   // CODE_02A8D4 (bank_02.asm:5365-5368): CMP #$C9 / BCC / JSR LoadShooter / BRA
   { what: 'the loader route to the shooter', at: 0x02a8d4, want: [0xc9, 0xc9, 0x90, null, 0x20, null, null, 0x80, null] }, // prettier-ignore
-  // CODE_02B3AB and its pointer table's second word (bank_02.asm:6830-6836)
+  // CODE_02B3AB and its pointer table's second word (bank_02.asm:6827-6832)
   { what: 'the shooter dispatch', at: DISPATCH, want: [0x3a, 0x22, null, null, null, null, null, 0xb6, 0xb3] }, // prettier-ignore
 ]
 
@@ -87,8 +87,11 @@ export const VANILLA_LAUNCHER_ROUTINES: LauncherRoutines = {
 const LAUNCH_LENGTH = 174
 const ARM_LENGTH = 69
 
-/** LaunchTorpedo returns without spawning when the shooter is off screen or within $10 px of either edge (the +$10 / CMP #$20 check on an 8-bit sum, SMWDisX bank_02.asm:6850-6856). */
-export const NO_SPAWN = 'the launcher spawned no torpedo and arm (off screen, or within 16 px of the left or right edge of the screen: the +$10 / CMP #$20 check, bank_02.asm:6850-6856)' // prettier-ignore
+/** LaunchTorpedo returns without spawning when the shooter is off screen vertically (Y minus the camera's high byte nonzero, SMWDisX bank_02.asm:6840-6844) or horizontally (:6845-6849), or within $10 px of either side edge (the +$10 / CMP #$20 check on an 8-bit sum, :6850-6856). */
+export const NO_SPAWN = 'the launcher spawned no torpedo and arm (the shooter is off screen vertically, bank_02.asm:6840-6844, or horizontally, :6845-6849, or within 16 px of the left or right edge of the screen: the +$10 / CMP #$20 check, :6850-6856)' // prettier-ignore
+
+/** A hack whose launch fills the extended slot with something other than the arm: not drawn, since no routine here runs it. */
+export const notTheArm = (n: number) => `the launcher spawned extended sprite $${n.toString(16).toUpperCase().padStart(2, '0')}, not its arm $08, which this preview does not draw` // prettier-ignore
 
 export type LauncherResult =
   | {
@@ -149,14 +152,15 @@ export function torpedoLauncher(
       const r = callSubroutine(cpu, entry, { kind, maxSteps: 50_000, regs: { db: 2, ...regs } }) // prettier-ignore
       if (r.kind !== 'returned') throw new Refusal(describe(r, 50_000)!)
     }
-    // Both loops store the slot they are on in CurSpriteProcess ($15E9, bank_02.asm:2870, 6808); the routines reload X from it.
+    // Both loops store the slot they are on in CurSpriteProcess ($15E9, bank_02.asm:2870, 6808); LauncherArm reads it; LaunchTorpedo takes its shooter index from the X it is called with.
     w[RAM.curSprite] = 0
     run(DISPATCH, { a: SHOOTER_NUMBER, x: 0 })
-    // Every slot was free, so a slot in status 8 (Normal, bank_02.asm:6861-6862) is what LaunchTorpedo spawned, whatever number a hack gave it.
+    // Every slot was free, so a slot in status 8 (Normal, bank_02.asm:6859-6860) is what LaunchTorpedo spawned, whatever number a hack gave it.
     const spawned = Array.from({ length: 12 }, (_, i) => i).find(i => w[RAM.status + i] === 8)
-    const ext = Array.from({ length: W.extSlots }, (_, i) => i).find(i => w[W.extNumber + i] === ARM_EXT_SPRITE) // prettier-ignore
-    if (spawned === undefined || ext === undefined)
-      return { ok: false, reason: NO_SPAWN } // prettier-ignore
+    // The first extended slot LaunchTorpedo filled (every one was free, so any nonzero number is its).
+    const ext = Array.from({ length: W.extSlots }, (_, i) => i).find(i => w[W.extNumber + i] !== 0)
+    if (spawned === undefined || ext === undefined) return { ok: false, reason: NO_SPAWN }
+    if (w[W.extNumber + ext] !== ARM_EXT_SPRITE) return { ok: false, reason: notTheArm(w[W.extNumber + ext]!) } // prettier-ignore
     const torpedo = {
       x: w[RAM.spriteXLow + spawned]! | (w[RAM.xHigh + spawned]! << 8),
       y: w[RAM.spriteYLow + spawned]! | (w[RAM.yHigh + spawned]! << 8),

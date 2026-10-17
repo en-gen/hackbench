@@ -20,6 +20,7 @@ import type { SpriteModel } from '../../../../src/rom/sprites/interp/SpriteRunne
 import {
   torpedoLauncher,
   NO_SPAWN,
+  notTheArm,
   VANILLA_LAUNCHER_ROUTINES,
   type LauncherRoutines,
 } from '../../../../src/rom/sprites/interp/TorpedoLauncher'
@@ -46,13 +47,15 @@ const TORPEDO_DX = 6
 const TORPEDO_DY = 4
 const EXT = 3
 // prettier-ignore
-const launchBytes = (spawn = 0x44, timer = 0x30, status = 0x08) => [
-  ...[0xa9, spawn, 0x85, 0x9e, 0xa9, status, 0x8d, 0xc8, 0x14], // number, status (8: Normal)
+const launchBytes = (spawn = 0x44, timer = 0x30, status = 0x08, extNum = 0x08, o: { gated?: boolean; bankRead?: boolean } = {}) => [
+  ...(o.gated ? [0xad, 0xab, 0x17, 0xf0, 0x01, 0x60] : []), // LDA ShooterTimer / BEQ +1 / RTS: LaunchTorpedo's own gate (bank_02.asm:6836-6837)
+  ...(o.bankRead ? [0xad, 0x00, 0xff] : [0xa9, spawn]), 0x85, 0x9e, // the number: an immediate, or a read of $FF00 through DB
+  ...[ 0xa9, status, 0x8d, 0xc8, 0x14], // number, status (8: Normal)
   ...[0xad, 0x9b, 0x17, 0x18, 0x69, TORPEDO_DX, 0x85, 0xe4, 0xad, 0xa3, 0x17, 0x8d, 0xe0, 0x14], // sprite X from the shooter
   ...[0xad, 0x8b, 0x17, 0x18, 0x69, TORPEDO_DY, 0x85, 0xd8, 0xad, 0x93, 0x17, 0x8d, 0xd4, 0x14], // sprite Y from the shooter
   ...[0xa5, 0x94, 0xcd, 0x9b, 0x17, 0xa9, 0x00, 0xb0, 0x02, 0xa9, 0x01, 0x8d, 0x7c, 0x15], // $157C = Mario left of the shooter
   ...[0xa9, timer, 0x8d, 0x40, 0x15], // $1540
-  ...[0xa9, 0x08, 0x8d, 0x0b + EXT, 0x17], // extended sprite EXT = $08
+  ...[0xa9, extNum, 0x8d, 0x0b + EXT, 0x17], // extended sprite EXT
   ...[0xad, 0x9b, 0x17, 0x18, 0x69, ARM_DX, 0x8d, 0x1f + EXT, 0x17], // arm X low
   ...[0xad, 0x8b, 0x17, 0x38, 0xe9, -ARM_DY, 0x8d, 0x15 + EXT, 0x17, 0x60], // arm Y low, RTS
 ]
@@ -173,6 +176,46 @@ describe('Torpedo Ted launcher from the routines (synthetic cart)', () => {
   it('a slot not in the Normal status is not the spawn (the search is for status 8)', () => {
     const rom = launcherRom(undefined, launchBytes(0x44, 0x30, 0x09))
     expect(run(rom, routinesOf(rom))).toEqual({ ok: false, reason: NO_SPAWN })
+  })
+
+  /** The level image as the loader left it, with `plant` applied: what the launcher's clears must wipe. */
+  const planted = (rom: RomFile, plant: (w: Uint8Array) => void, over = {}) => {
+    const seed = seedOf(rom, over)
+    const loaded = Uint8Array.from(seed.loaded!)
+    plant(loaded)
+    return torpedoLauncher(rom, { ...seed, loaded }, undefined, routinesOf(rom))
+  }
+
+  it('a status-8 slot the level image already holds is not the spawn (the status clear is needed)', () => {
+    const rom = launcherRom(undefined, launchBytes(0x44, 0x30, 0x09)) // the launch fills slot 0 with status 9
+    expect(planted(rom, w => void (w[0x14c8 + 5] = 8))).toEqual({ ok: false, reason: NO_SPAWN })
+  })
+
+  it('an extended slot the level image already holds is not the arm (the extended clear is needed)', () => {
+    const rom = launcherRom(undefined, launchBytes(0x44, 0x30, 0x08, 0)) // the launch leaves every extended slot empty
+    expect(planted(rom, w => void (w[0x170b + 5] = 8))).toEqual({ ok: false, reason: NO_SPAWN })
+  })
+
+  it('a leftover shooter timer in the level image is cleared: the launch fires (the timer seed is needed)', () => {
+    const rom = launcherRom(undefined, launchBytes(0x44, 0x30, 0x08, 0x08, { gated: true }))
+    expect(planted(rom, w => void (w[0x17ab] = 0x10)).ok).toBe(true)
+  })
+
+  it('the launch reads its tables through bank 2 (DB = 2)', () => {
+    const rom = launcherRom(b => void (b[off(0x02ff00)] = 0x44), launchBytes(0x44, 0x30, 0x08, 0x08, { bankRead: true })) // prettier-ignore
+    expect(ok(rom).torpedoId).toBe(0x44)
+  })
+
+  it('a shooter at Y >= 256 keeps its high byte: the torpedo is spawned there', () => {
+    const r = ok(launcherRom(), undefined, { sprite: { x: SHOOTER.x, y: 0x190 }, camera: { x: CAMERA.x, y: 0x120 } }) // prettier-ignore
+    expect(r.torpedo).toEqual({ x: SHOOTER.x + TORPEDO_DX, y: 0x190 + TORPEDO_DY })
+  })
+
+  it('a hack whose launch fills the extended slot with another sprite refuses honestly, not as off screen', () => {
+    const rom = launcherRom(undefined, launchBytes(0x44, 0x30, 0x08, 0x12))
+    const r = run(rom, routinesOf(rom))
+    expect(r).toEqual({ ok: false, reason: notTheArm(0x12) })
+    expect(!r.ok && r.reason).not.toBe(NO_SPAWN)
   })
 
   it('a spawned sprite that draws nothing refuses with its reason', () => {
@@ -321,6 +364,7 @@ describe('Torpedo Ted launcher on the map (synthetic cart)', () => {
   it('the refusal names the edge check that stops a launch', () => {
     expect(NO_SPAWN).toContain('$10 / CMP #$20')
     expect(NO_SPAWN).toContain('right')
+    expect(NO_SPAWN).toContain('6840-6844') // the Y check
   })
 
   it('the other ids above the ordinary range keep the marker: $C9 is not run as a launcher', () => {
