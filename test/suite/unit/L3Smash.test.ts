@@ -201,8 +201,9 @@ describe.skipIf(!hasRom(VANILLA))(
       expect(readL3SmashLoadPos(r, 0x1f)).toEqual({ ok: true, pos: { x: 256, y: 160 } })
       expect(readL3SmashLoadPos(r, 0x1d4)).toEqual({ ok: true, pos: { x: 112, y: 160 } })
       expect(readL3SmashLoadPos(r, 0x1fc)).toEqual({ ok: true, pos: { x: 256, y: 160 } })
-      expect(verdictOf(0x1f).l3).toMatchObject({ xPx: 256, yPx: 160 })
-      expect(verdictOf(0x1d4).l3).toMatchObject({ xPx: 112, yPx: 160 })
+      // The map view draws the smash cycle's start X, not frame 0's (#997, SMASH_CYCLE_X); Y is the level's.
+      expect(verdictOf(0x1f).l3).toMatchObject({ xPx: -128, yPx: 160 })
+      expect(verdictOf(0x1d4).l3).toMatchObject({ xPx: -128, yPx: 160 })
     })
 
     it('a one-byte patch in the position routine refuses instead of drawing at the stock place', () => {

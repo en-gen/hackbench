@@ -221,12 +221,14 @@ export type L3Planes = Record<'l3Low' | 'l3High', Plane>
  * R (gameplay rows only; the first 8 are the status bar) at level Y
  * R*8 - Layer3YPos + Layer1YPos, x repeating every 512 px (a tide, whose BG3
  * scrolls with the camera, every 256 px over the first 32 columns, and its
- * second copy of the tilemap is not drawn). Rows that start above the level
+ * second copy of the tilemap is not drawn). A layer that follows the camera (a loaded smash
+ * sprite, #997) is drawn on screen 0 only, the entrance camera, and no other screen. Rows that start above the level
  * are skipped whole, as the reference view does. Char 0 of every 2bpp
  * palette is clear.
  */
 export function drawL3Planes(l3: L3Inputs, screen: number): L3Planes {
   const { w, h } = screenTiles(false) // vertical maps never reach here (L3Model)
+  if (l3.followsCamera && screen !== 0) return { l3Low: null, l3High: null }
   const [width, height] = [w * 16, h * 16]
   const x0 = screen * width
   const cols = l3.tide ? 32 : L3_TILEMAP_COLS
@@ -324,6 +326,7 @@ export function screenResult(
     ) as Record<MapPlaneKey, string | null>,
     layer3: {
       priority: model.l3?.priority ?? model.header.layer3Priority,
+      ...(model.l3?.l3?.followsCamera ? { followsCamera: true } : {}),
       reason: model.l3 ? model.l3.reason : 'Layer 3 not drawn yet',
     },
     screens: model.l3?.screens ?? FALLBACK_SCREENS,

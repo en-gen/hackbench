@@ -17,7 +17,7 @@ import type { BgModeResult } from '../BgMode'
 import { layoutRefusal, readModeLayouts } from '../LevelScreenTables'
 import { HOOKED_L3_CODE, readL3CodeGate, type L3CodeGate } from '../L3CodeGate'
 import { l3LoadTimeY, loadL3Tilemap, readInitialLayer1YPos } from '../L3Loader'
-import { readL3SmashLoadPos, type L3SmashResult } from '../L3Smash'
+import { readL3SmashLoadPos, SMASH_CYCLE_X, type L3SmashResult } from '../L3Smash'
 import { readLayer3Setting } from '../ObjectExpander'
 import type { MapEntrances } from '../SmwRom'
 import type { L1Inputs } from './L1Model'
@@ -32,7 +32,7 @@ export interface L3Inputs {
   chars: GfxSheet[]
   /** CGRAM; BG3's 2bpp palette P is colors P*4..P*4+3. */
   colors: RgbaColor[]
-  /** Layer3XPos at load (0 unless a smash sprite sets it, #807); camera X at load is 0. Absent: 0. */
+  /** Layer3XPos drawn at camera X 0: 0 unless a smash sprite drives it (the smash cycle start, #997). Absent: 0. */
   xPx?: number
   /** Layer3YPos at load, and Layer1YPos at load: a tile row R sits at level Y R*8 - yPx + camYPx. */
   yPx: number
@@ -41,6 +41,13 @@ export interface L3Inputs {
   tide: boolean
   /** Set when the code that reads `camYPx` is not stock (#860): the value is a best reading, not confirmed. */
   camYUnverified?: string
+  /**
+   * A loaded Layer 3 Smash sprite drives this layer (#997): it rewrites Layer3XPos/YPos every frame
+   * (bank_00.asm:14778-14803), X scrolling with the camera and re-set each smash cycle
+   * (bank_02.asm:11147-11166). A whole-map view has no camera, so it draws the layer once, on the
+   * entrance screen, and never repeats it every 512 px.
+   */
+  followsCamera?: boolean
 }
 
 export interface L3Verdict {
@@ -120,10 +127,14 @@ export function buildL3Verdict(
   }
   // A $80 byte's Y is $D0 until a loaded Layer 3 Smash sprite writes X and Y from its own place (#807).
   let pos = { x: 0, y: yPx }
+  let followsCamera = false
   if (load.settingsByte === 0x80) {
     const found = smash(rom, index)
     if (!found.ok) return none(found.reason)
-    if (found.pos) pos = found.pos
+    if (found.pos) {
+      pos = { x: SMASH_CYCLE_X, y: found.pos.y }
+      followsCamera = true
+    }
   }
   // The GFX loader (CODE_00A993) is a third piece of layer 3 code: hooked, or any file failing to load, leaves no chars.
   const sheets = chars(rom)
@@ -141,6 +152,7 @@ export function buildL3Verdict(
       camYUnverified: entrancePositionGate(rom, startSpans) ?? undefined,
       // $00 is Layer3TideSetting 0: no tide (it is camera-locked or Castle1/Underground1's half-speed scroll).
       tide: load.settingsByte !== 0 && load.settingsByte < 0x80,
+      ...(followsCamera ? { followsCamera } : {}),
     },
   }
 }

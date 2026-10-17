@@ -26,6 +26,14 @@ const MAIN_PTR_TABLE = 0x0185cc
 const INIT_PTR_TABLE = 0x01817d
 const SMASH_WINDOW_END = 0x190
 const CAMERA_LEFT_OF_CENTRE = 0x80
+/**
+ * Layer3XPos the map view draws a smash-driven layer 3 at (#997). Frame 0 uses the sprite's level
+ * X (above), but that frame is a blank screen on $01F and $1FC (X $100 shows BG3 columns 32-63,
+ * empty); the sprite's state 0 then re-sets its X to $FF80 + a random 0-63 on every smash cycle
+ * (bank_02.asm:11147-11166), and the layer scrolls with the camera from there. The start of that
+ * range is the one deterministic member: the panel as the game first shows it.
+ */
+export const SMASH_CYCLE_X = -0x80
 export const SMASH_REFUSED = 'Layer 3 not drawn yet: hooked layer 3 smash sprite'
 export const SPRITES_UNREADABLE = 'Layer 3 not drawn yet: sprite data unreadable'
 

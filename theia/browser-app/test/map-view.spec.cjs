@@ -1050,7 +1050,9 @@ for (const [index, role, bit, known] of [
   // that pixel's color (outline black), then a non-black pixel. $01F's is BG3 palette 3, its crusher
   // color 15 (gold, the castle_crusher palette's last entry; without the crusher colors the same pixel is
   // [255,90,90]), so a wrong palette fails.
-  // All measured from the backend's planes.
+  // All measured from the backend's planes. $01F is smash-driven (#997): drawn once at the entrance
+  // camera with Layer3XPos at the smash cycle's start (-128), so its tiles sit 128 px right and
+  // 48 px lower than a fixed $D0 layer 3 would (box and pixels translated by that, measured on the ROM).
   [
     0x002,
     'Layer 3 · Overlay',
@@ -1067,10 +1069,11 @@ for (const [index, role, bit, known] of [
     'Layer 3 · Background',
     false,
     {
-      box: { x: 56, y: 48 },
-      pixel: { x: 64, y: 48 },
+      box: { x: 184, y: 96 },
+      pixel: { x: 192, y: 96 },
       rgba: [0, 0, 0, 255],
-      color: { pixel: { x: 80, y: 48 }, rgba: [222, 165, 57, 255] },
+      color: { pixel: { x: 208, y: 96 }, rgba: [222, 165, 57, 255] },
+      tip: 'Layer 3 · Background. In the game this layer follows the camera; shown here once, where it appears at the start.',
     },
   ],
 ]) {
@@ -1082,7 +1085,7 @@ for (const [index, role, bit, known] of [
     const button = l3Toggle(page, index)
     await expect(button).toBeEnabled()
     await expect(button).toHaveAttribute('aria-pressed', 'true')
-    await expect(button).toHaveAttribute('title', role)
+    await expect(button).toHaveAttribute('title', known.tip ?? role)
     // The bit places BG3's high plane: over layer 1 when set, under layer 1's low plane when clear.
     const order = await zOrder(page, index)
     const at = k => order.indexOf(k)
@@ -1116,6 +1119,32 @@ for (const [index, role, bit, known] of [
     expect(back.pixels).toEqual(before.pixels)
   })
 }
+
+/**
+ * #997: $01F's layer 3 is driven by the smash sprite, which keeps it on the camera in the game. The
+ * map view draws it once, on the entrance screen, and nowhere else: on screen 2 (the 512 px repeat)
+ * flipping the toggle changes no pixel, on screen 0 it changes some.
+ */
+test('$01F: layer 3 is drawn once, not repeated 512 px on, and the toggle says it follows the camera', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x01f)
+  const button = l3Toggle(page, 0x01f)
+  const screenPixels = s =>
+    page.evaluate(
+      ({ rootSel, s }) => Array.from(composeCanvases(planesOf(rootSel, s), 0, 0, 256, 432)),
+      { rootSel: root(0x01f), s },
+    )
+  await showScreen(page, 0x01f, 2)
+  const [on0, on2] = [await screenPixels(0), await screenPixels(2)]
+  await button.click()
+  await expect(button).toHaveAttribute('aria-pressed', 'false')
+  const [off0, off2] = [await screenPixels(0), await screenPixels(2)]
+  expect(off2, 'no copy of layer 3 at the 512 px repeat').toEqual(on2)
+  expect(off0.filter((v, i) => v !== on0[i]).length, 'layer 3 is on the entrance screen').toBeGreaterThan(0) // prettier-ignore
+  await expect(button).toHaveAttribute('title', /follows the camera/)
+})
 
 /**
  * The toggle look (option D): pressed is a filled chip with a 1px border, off has neither (a transparent

@@ -548,11 +548,84 @@ describe('a $80 level under a smash sprite (synthetic, #807)', () => {
   const verdictWith = (smash: Parameters<typeof buildL3Verdict>[6]) => buildL3Verdict(rom(), 5, l1Of(0, 1, false), BG_OK, chars, GATE_OK, smash) // prettier-ignore
 
   it('takes the smasher position, and keeps $D0 with X 0 when no smasher is loaded', () => {
-    expect(verdictWith(() => ({ ok: true, pos: { x: 256, y: 160 } })).l3).toMatchObject({ xPx: 256, yPx: 160 }) // prettier-ignore
+    expect(verdictWith(() => ({ ok: true, pos: { x: 256, y: 160 } })).l3).toMatchObject({
+      xPx: -128,
+      yPx: 160,
+    }) // prettier-ignore // X is the smash cycle's start, not the level X (#997)
     expect(verdictWith(noSmash).l3).toMatchObject({ xPx: 0, yPx: 0xd0 })
   })
 
   it('refuses with the reason when the smash read refuses', () => {
     expect(verdictWith(() => ({ ok: false, reason: 'because' }))).toMatchObject({ l3: null, reason: 'because' }) // prettier-ignore
   })
+})
+
+/**
+ * #997: a loaded smash sprite writes Layer3XPos/Layer3YPos every frame, so in the game the panel
+ * follows the camera (bank_00.asm:14778-14803; X re-set each cycle, bank_02.asm:11147-11166). A
+ * whole-map view has no camera, so it draws layer 3 once, on the entrance screen (camera X 0).
+ */
+describe('layer 3 under a smash sprite follows the camera: drawn once (synthetic, #997)', () => {
+  const alpha = (b: Uint8ClampedArray | null, x: number, y: number) => (b ? px(b, 256, x, y)[3] : null) // prettier-ignore
+  // One tile at BG3 column 0, so a copy would sit at map x 0, 512, 1024 (screens 0, 2, 4).
+  const words = [word(8, 0, L3_WORD(false))]
+  const follows = l3Of(words, { followsCamera: true })
+
+  it('draws the entrance screen and nothing on the 512 px repeat screens', () => {
+    expect([0, 1, 2, 3, 4, 5].map(s => drawL3Planes(follows, s).l3Low !== null)).toEqual([true, false, false, false, false, false]) // prettier-ignore
+    expect(alpha(drawL3Planes(follows, 0).l3Low, 3, 3)).toBe(255)
+  })
+
+  it('the entrance screen is the same picture the tiled path draws there', () => {
+    expect(drawL3Planes(follows, 0)).toEqual(drawL3Planes(l3Of(words), 0))
+  })
+
+  it('a layer 3 that does not follow the camera still tiles: plain and tide', () => {
+    expect([0, 1, 2, 4].map(s => drawL3Planes(l3Of(words), s).l3Low !== null)).toEqual([true, false, true, true]) // prettier-ignore
+    expect([0, 1, 2].map(s => drawL3Planes(l3Of(words, { tide: true }), s).l3Low !== null)).toEqual([true, true, true]) // prettier-ignore
+  })
+
+  const rom = (byte: number, tileset: number) => withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset, setting: 2, settingsByte: byte, word: L3_WORD(false) }) // prettier-ignore
+  const verdictFor = (byte: number, tileset: number, smash: Parameters<typeof buildL3Verdict>[6]) => buildL3Verdict(rom(byte, tileset), 5, l1Of(0, tileset, false), BG_OK, chars, GATE_OK, smash) // prettier-ignore
+
+  it('the verdict flags only a $80 map with a loaded smasher, and the wire carries it', () => {
+    const loaded = verdictFor(0x80, 1, () => ({ ok: true, pos: { x: 256, y: 160 } }))
+    expect(loaded.l3).toMatchObject({ followsCamera: true, xPx: -128, yPx: 160 })
+    expect(wireOf({ ...l1Of(0, 1, false), l3: loaded }).layer3.followsCamera).toBe(true)
+    for (const [byte, tileset] of [
+      [0x80, 1],
+      [0x02, 0],
+      [0x00, 0],
+      [0x82, 0],
+    ] as const) {
+      // $80 with no loaded smasher stays at the fixed load position; tides and $82 are not smash-driven.
+      const v = verdictFor(byte, tileset, () => ({ ok: true, pos: null }))
+      if (v.l3) expect([byte, v.l3.followsCamera]).toEqual([byte, undefined])
+    }
+    const plain = verdictFor(0x02, 0, () => ({ ok: true, pos: { x: 1, y: 1 } }))
+    expect(plain.l3?.followsCamera).toBeUndefined()
+    expect(wireOf({ ...l1Of(0, 0, false), l3: plain }).layer3.followsCamera).toBeUndefined()
+  })
+})
+
+describe.skipIf(!hasRom(VANILLA))('which vanilla maps take the smash path (corpus, #997)', () => {
+  it('exactly $01F, $1D4 and $1FC; each draws its entrance screen only', () => {
+    const rom = RomFile.load(romPath(VANILLA))
+    const smw = new SmwRom(rom)
+    const hits: number[] = []
+    for (let id = 0; id < 512; id++) {
+      const raw = smw.getLevelRawData(id)
+      if (!raw) continue
+      const header = parseLevelHeader(raw)
+      const v = buildL3Verdict(rom, id, { header, isVertical: false, colors: [] }, BG_OK)
+      if (!v.l3?.followsCamera) continue
+      hits.push(id)
+      const screens = Math.max(header.levelLength, 1)
+      const l3 = { ...v.l3, colors: COLORS } // the sweep passes no palette; any opaque one shows the tiles
+      const drawn = Array.from({ length: screens }, (_, s) => drawL3Planes(l3, s)).map((p, s) => (p.l3Low || p.l3High ? s : -1)).filter(s => s >= 0) // prettier-ignore
+      expect(drawn, `map ${id.toString(16)}`).toEqual([0])
+      console.log(`smash map $${id.toString(16)}: layer 3 on screen 0 of ${screens}, x ${v.l3.xPx} y ${v.l3.yPx}`) // prettier-ignore
+    }
+    expect(hits).toEqual([0x01f, 0x1d4, 0x1fc])
+  }, 60_000)
 })
