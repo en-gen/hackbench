@@ -152,9 +152,8 @@ export function buildL2Inputs(
   // VerticalTable, which the header parse applies later (:552-553). With no known entrance
   // (so none is chosen), the primary entrance's F400/F600.
   const entryVertical = ((rom.rom.readByte(0x05f600 + index) ?? 0) & 0x20) !== 0
-  const via = dyFromEntrances(rom.rom, index, entrances)
-  if (via && 'cut' in via) return refuse(TABLES_CUT)
-  const known = via
+  const known = dyFromEntrances(rom.rom, index, entrances)
+  if (known && 'cut' in known) return refuse(TABLES_CUT)
   const dy = (): number => known?.dy ?? readInitialLayer1YPos(rom.rom, index, entryVertical) - readInitialLayer2YPos(rom.rom, index, entryVertical) // prettier-ignore
   // The tables are the game's only while the code reading them is stock (LEVEL_START_Y): if not,
   // the best reading still draws, said to be unverified.
