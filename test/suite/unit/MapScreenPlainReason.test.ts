@@ -1,8 +1,9 @@
 /**
  * #786: a map whose build THROWS answers `mapScreen` with a fixed plain `reason` and
  * the exception text apart in `detail`, so the view never shows raw text. A build that
- * RETURNS a gate reason is already plain and passes through untouched, and the shared
- * cache keeps the exception text as its reason (sprites, collision and the toolbar read it).
+ * RETURNS a gate reason gets the same treatment: gate reasons can contain ROM-internal
+ * terms, so they stay in `detail` too. The shared cache keeps the exception text as its
+ * reason (sprites, collision and the toolbar read it).
  * Synthetic stubs: no ROM needed.
  */
 import { describe, it, expect } from 'vitest'
