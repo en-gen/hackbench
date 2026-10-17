@@ -262,6 +262,26 @@ describe('castle flames from the routines (synthetic cart)', () => {
     expect(r).toEqual({ ok: false, reason: 'BRK executed at $02FA16' })
   })
 
+  it('a level the loader refused without a reason says there is no level image', () => {
+    const rom = flameRom()
+    const r = castleFlames(rom, { ...levelSeed(rom, LEVEL), loaded: undefined }, routinesOf(rom))
+    expect(r).toEqual({ ok: false, reason: 'no level image' })
+  })
+
+  it('a cart with no ROM bytes reads none of the routines and does not draw', () => {
+    const full = flameRom()
+    const empty = RomFile.fromBytes('empty.sfc', new Uint8Array(0))
+    const r = castleFlames(empty, levelSeed(full, LEVEL), routinesOf(full))
+    expect(r.ok).toBe(false)
+    expect(!r.ok && r.reason).not.toBe('no level image')
+  })
+
+  it('an error that is not a refusal is not swallowed', () => {
+    const rom = flameRom()
+    const seed = { ...levelSeed(rom, LEVEL), ram: null } as unknown as ReturnType<typeof levelSeed>
+    expect(() => castleFlames(rom, seed, routinesOf(rom))).toThrow(TypeError)
+  })
+
   it('a level the loader refused has no flames, and says why', () => {
     const rom = flameRom()
     const seed = levelSeed(rom, LEVEL)

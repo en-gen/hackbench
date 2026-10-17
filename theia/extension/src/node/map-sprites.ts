@@ -61,6 +61,10 @@ import {
   type FlameRoutines,
 } from '../../../../src/rom/sprites/interp/CastleFlames'
 import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
+import {
+  TORPEDO_LAUNCHER_ID,
+  torpedoLauncher,
+} from '../../../../src/rom/sprites/interp/TorpedoLauncher'
 import { withSeed, type SpriteSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { readSpriteTileTables } from '../../../../src/rom/SpriteTileLoader'
 import {
@@ -339,6 +343,31 @@ export function modelResult(m: RunModel): SpriteDrawResult {
   }
 }
 
+/** The launcher's `unverified` text: its reasons joined as-is, each already a full statement (a repointed arm, a spawn other than $44, a changed routine). */
+export function launcherUnverified(reasons: readonly string[]): string | undefined {
+  return reasons.length ? `Torpedo launcher unverified: ${reasons.join('; ')}` : undefined // prettier-ignore
+}
+
+/**
+ * Sprite $CA (#985), a shooter: the frame at launch. The ROM's own LaunchTorpedo and LauncherArm run
+ * and the game's sprite loop on the slot it spawned (TorpedoLauncher.ts) give the arm's and the spawned
+ * Torpedo Ted's OAM entries in one machine, so the torpedo keeps the direction and launch timer the shooter
+ * wrote into its slot (a fresh run of sprite $44 would lose them). One bitmap, anchored at the shooter, so the
+ * hover and the selection box are the launcher's. Any refusal is the marker (D52), with its reason.
+ */
+function launcherResult(rom: RomFile, seed: SpriteSeed): SpriteDrawResult {
+  const l = torpedoLauncher(rom, seed)
+  if (!l.ok) return { ok: false, reason: l.reason }
+  const unverified = launcherUnverified(l.unverified)
+  return {
+    ok: true,
+    parts: interpParts([...l.torpedoParts, ...l.arm]),
+    anchor: { x: seed.sprite.x, y: seed.sprite.y },
+    ...(unverified ? { unverified } : {}),
+    identity: { spriteId: l.torpedoId, mainHandler: 0, initHandler: 0, status: 'vanilla' },
+  }
+}
+
 /** SpriteLoadStatus, SMWDisX rammap.asm:1968 (SMW_U.sym 00001938): one byte per sprite list entry, 128 of them. */
 const SPRITE_LOAD_STATUS = 0x1938
 
@@ -380,6 +409,7 @@ export function interpDrawer(
     const [x, y] = [pixelX(s), s.y * TILE]
     const camera = cameraFor(x, y, model.isVertical, model.screenCount)
     const seed = (camera: { x: number; y: number }, extra = {}) => withSeed({ sprite: { x, y }, camera, mario, ...shape, ...extra }, base) // prettier-ignore
+    if (s.spriteId === TORPEDO_LAUNCHER_ID) return launcherResult(rom, seed(camera)) // prettier-ignore
     const m = run(rom, s.spriteId, seed(camera))
     const at = m.chosen
     if (!w || !loaderCam || at === undefined || !m.anchor || s.index < 0 || s.index >= 128 || !w[SPRITE_LOAD_STATUS + s.index]) return modelResult(m) // prettier-ignore
