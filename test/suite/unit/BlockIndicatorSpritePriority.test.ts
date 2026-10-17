@@ -1,7 +1,9 @@
 /**
  * An item-block indicator never draws over a sprite pixel that covers its block (#1003). Synthetic, no ROM:
- * the vanilla Playwright case ("a sprite over the item block ... covers its indicator") is down to one
- * cell after #849 and CI has no ROM. Seam: the real `blockIndicators` (which plane a block goes to), the
+ * the vanilla Playwright case ("a sprite over the item block ... covers its indicator",
+
+ * map-block-contents.spec.cjs) needs the ROM, which CI lacks.
+ * Seam: the real `blockIndicators` (which plane a block goes to), the
  * real `screenPlanes` (the plane order) and `IndicatorDisplay` (the compose the view shows), with a
  * stub coin art. The reference webview (src/webview/mapEditor) holds no block indicator at all.
  */
@@ -30,7 +32,7 @@ const TABLES: BlockContentTables = {
 const solid = (c: number[]) => Uint8ClampedArray.from({ length: 16 * 16 * 4 }, (_, i) => c[i % 4]!)
 
 /** The shown pixel (x, y) of a 32 x 32 screen with one item block at cell (1, 1) and one sprite pixel at (28, 28), inside the indicator's quadrant. */
-function shown(highPriorityBlock: boolean, spriteKey: ListKey) {
+function shown(highPriorityBlock: boolean, spriteKey: ListKey, doors = false) {
   const tiles: ReturnType<typeof tile>[] = []
   tiles[0x111] = tile(0x111, [sub(0), sub(0), sub(0), sub(0, 0, highPriorityBlock)])
   const grid = hGrid(2)
@@ -48,10 +50,13 @@ function shown(highPriorityBlock: boolean, spriteKey: ListKey) {
   const px = new Uint8ClampedArray(32 * 32 * 4)
   px.set(SPRITE, (28 * 32 + 28) * 4)
   planes[spriteKey] = px
+  // The view passes the sprites' door map when they show (map-view-widget.tsx), so a covered pixel is not hidden (D52).
+  const door = doors ? new Uint32Array(32 * 32) : null
+  if (door) door[28 * 32 + 28] = (1 << 1) | 1 // sprite id 1, parity 1: the dim square
   const base = new Uint8ClampedArray(32 * 32 * 4)
   const d = new IndicatorDisplay({
     width: 32, height: 32, zoom: 1, screen: 0, geometry: { orientation: 'horizontal', width: 32, height: 32 }, // prettier-ignore
-    planes: planes as never, lists, math: null, base, indicators, arts: decodeArts(arts),
+    planes: planes as never, lists, math: null, doors: door, base, indicators, arts: decodeArts(arts),
   }) // prettier-ignore
   return { at: (x: number, y: number) => Array.from(d.image.subarray((y * 32 + x) * 4, (y * 32 + x) * 4 + 4)), planes: indicators.map(i => i.plane) } // prettier-ignore
 }
@@ -67,5 +72,18 @@ describe('an item-block indicator under a sprite pixel', () => {
     expect(s.at(28, 28), 'the sprite pixel, not the indicator').toEqual(SPRITE)
     expect(s.at(30, 30), 'the indicator still shows beside the sprite pixel').toEqual(COIN)
     expect(s.planes).toEqual([high ? 'l1High' : 'l1Low'])
+  })
+})
+
+describe('an item-block indicator over a sprite pixel', () => {
+  // OBJ.2 sits before l1High, so a high-priority block's indicator covers it; D52 (docs/rom/obj-priority.md)
+  // draws the covered pixel through the screen door instead of hiding it: a blend, neither pure color.
+  it('covers a sprites2 pixel behind a high-priority block, which shows through the door', () => {
+    const s = shown(true, 'sprites2', true)
+    const [r, g, b] = s.at(28, 28)
+    expect(s.at(28, 28), 'not the plain sprite colour').not.toEqual(SPRITE)
+    expect(s.at(28, 28), 'not the plain indicator either').not.toEqual(COIN)
+    expect([r! > 0, g! > 0, b], 'the indicator colour is in the blend').toEqual([true, true, 0])
+    expect(s.at(30, 30), 'the indicator beside it is plain').toEqual(COIN)
   })
 })
