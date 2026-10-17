@@ -15,25 +15,15 @@
  * planted-defect run asserts the same grader goes red, so a regression in the
  * runner moves a failing number, not just a log line.
  */
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { unzip } from '../../../../tools/scripts/capture_render'
 import type { RomFile } from '../../../../src/rom/RomFile'
 import { runSprite } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import {
-  CAPTURE_DIR,
   freshRom,
   hasCaptures,
   hasRom,
@@ -41,6 +31,7 @@ import {
   TOOLS_ROOT,
   VANILLA,
 } from '../../support/corpus'
+import { loadCaptures as loadAll, type Loaded, type Rec } from '../../support/captures'
 import { gradedPass, writeMarioStart } from '../../support/gradeTimeline'
 import { oracleCells, oracleImage } from '../../support/oracleImage'
 import {
@@ -50,23 +41,6 @@ import {
   type Grade,
   type RecordedPiece,
 } from '../../support/spriteGrade'
-
-interface Rec {
-  id: string
-  slot: number
-  listX: number
-  listY: number
-  cameraX: number
-  cameraY: number
-  marioAtInit?: { x: number; y: number }
-  initFrame?: number
-  drawnFrame?: number
-  trueFrame?: number
-  effFrame?: number
-  frames?: { frameIndex?: number; tiles?: RecordedPiece[] }[]
-  firstFrameIndex?: number
-  complete?: boolean
-}
 
 /** Every frame Mesen recorded for the sprite that has tiles. */
 function recordedFrames(r: Rec): RecordedPiece[][] {
@@ -88,39 +62,6 @@ function traceMap16(
   if (existsSync(lo) && existsSync(hi)) return { low: readFileSync(lo), high: readFileSync(hi) }
   if (strict) throw new Error(`map ${map}: Map16 table missing under ${root}`)
   return undefined
-}
-
-interface Loaded {
-  map: string
-  rec: Rec
-  wram: Uint8Array | null
-  /** capture_summary.json anchorFrame: when the sprites' MAIN starts running on hardware. */
-  anchorFrame?: number
-  /** scroll_pass.json marioStart: where Mario is held from the anchor on. */
-  marioStart?: { x: number; y: number }
-}
-
-function loadAll(): Loaded[] {
-  const out: Loaded[] = []
-  for (const f of readdirSync(CAPTURE_DIR).sort()) {
-    const p = join(CAPTURE_DIR, f)
-    if (!f.endsWith('.zip')) continue
-    const name = f.slice(0, -4)
-    const entries = unzip(readFileSync(p))
-    const key = [...entries.keys()].find(k => k.endsWith('sprite_spawns.json'))
-    if (!key) continue
-    const j = JSON.parse(entries.get(key)!().toString('utf8'))
-    const wk = [...entries.keys()].find(k => k.endsWith('frame_0000_wram.bin'))
-    const wram = wk ? new Uint8Array(entries.get(wk)!()) : null
-    const jsonOf = (suffix: string): Record<string, unknown> => {
-      const k = [...entries.keys()].find(e => e.endsWith(suffix))
-      return k ? JSON.parse(entries.get(k)!().toString('utf8')) : {}
-    }
-    const anchorFrame = jsonOf('capture_summary.json').anchorFrame as number | undefined
-    const marioStart = jsonOf('scroll_pass.json').marioStart as Loaded['marioStart']
-    for (const rec of j.spawns ?? []) out.push({ map: name, rec, wram, anchorFrame, marioStart })
-  }
-  return out
 }
 
 type Row = Grade & { map: string; id: string; slot: number; [k: string]: unknown }
