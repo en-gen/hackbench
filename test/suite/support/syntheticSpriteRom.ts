@@ -68,6 +68,7 @@ export interface SyntheticOptions {
     | 'scrollPop'
     | 'layer3'
     | 'gm12'
+    | 'reset'
   /**
    * UpdateScreenPosition carries a JML at $00:F6E4 (86 of 107 corpus ROMs do) to $05:F000, which
    * does the rest of its work: 'jml' ends in RTL, 'loop' never returns, 'rts' ends in the wrong return.

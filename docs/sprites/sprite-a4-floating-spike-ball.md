@@ -36,15 +36,15 @@ One machine, vanilla ROM, the level-load capture set (`layers_v5`), measured 202
   `4891-4900`). Map $0C2 (not a tide level; $5B is 1) shows the gap: hardware $28/$29 are $48/$FC, the
   loader's $00. Nothing in the grader depends on it yet; a sprite that reads the Layer 2/3 offset on a
   map with a scrolled camera could.
-- Layer3YPos ($24) still differs from hardware on five maps after this change (`frame_0000` of each
-  capture against `loadLevelState`, one machine, vanilla, 2026-10-17; $25 is $00 on both sides everywhere):
-  maps 011, 130 and 1c1 load $24 = $00 against hardware $C0; maps 01f and 1d4 load $D0 against hardware $A0.
-  The five tide maps agree. The cause is not the skipped `JSL CODE_05BE8A` of `GM12PrepLevel`
-  (`bank_00.asm:4869`), per November Team's trace, which I did not redo here:
-  - 011, 130, 1c1: Layer 3 is camera-locked, which `L3Model` refuses as "camera-locked layer 3" (#563).
-  - 01f, 1d4: the level's smash code overwrites Layer 3 Y at load (hardware Y $A0, i.e. 160); the loader
-    does not run it. #1060 models it and then matches the capture.
-  Neither gap is closed by this change; nothing in the grader depends on $24 yet.
+- Layer3YPos ($24): the loader now runs `CODE_05BE8A` (`bank_00.asm:4869`; Layer3YPos = Layer1YPos,
+  `bank_05.asm:4794-4795`) before the handler, in the same `IRQNMICommand` bit 7 gate. On maps 011, 130 and
+  1c1 (tileset 9, Layer 3 setting 3, table byte $81) `CODE_009FB8` writes nothing to $24 (`bank_00.asm:4166-4174`
+  fall through to 4199), so that copy is all that sets it (November Team's trace; path re-derived in #842 from
+  `bank_00.asm:4131`, 4152, 4167-4174, 4199). Before: loader $0000 against hardware $00C0; after:
+  $00C0 on all three (`frame_0000`, one capture each, one machine, vanilla, 2026-10-17).
+- Maps 01f and 1d4 still differ: loader $00D0 against hardware $00A0. The handler writes $D0 there
+  (tileset 1, setting 2, table byte $80: `bank_00.asm:4168-4169`, 4184-4194), and the level's smash code overwrites
+  it to $A0 afterwards; the loader does not run that code. #1060 models it. Nothing in the grader depends on $24 yet.
 - The loader skips the handler when `IRQNMICommand` ($0D9B) bit 7 is set, as `GM12PrepLevel` does
   (`bank_00.asm:4861-4863`). The header loader sets the cell from `SpecialLevTable` by level mode
   (`bank_05.asm:500-503`), so the gate is by mode, not a room list. 24 vanilla maps end with it set:

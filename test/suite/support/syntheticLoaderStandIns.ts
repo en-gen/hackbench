@@ -32,6 +32,18 @@ export function putLoaderStandIns(
     OP.LDA_IMM, 0x77, OP.STA_DP, 0x5e, ...new Array(5).fill(OP.NOP), OP.STZ_DP, 0x5b,
     ...(o.loaderCop ? [OP.COP, 0] : [OP.PLP, OP.RTL]),
   ]) // prettier-ignore
+  // Layer 3 reset (CODE_05BE8A's stand-in): REP #$20 / LDA $1C / STA $24 / SEP #$20 / RTL, so $24/$25 read Layer1YPos.
+  put(0x05be8a, [
+    bad('reset', OP.REP),
+    0x20,
+    OP.LDA_DP,
+    0x1c,
+    OP.STA_DP,
+    0x24,
+    OP.SEP,
+    0x20,
+    OP.RTL,
+  ])
   // Layer 3 handler: the row-of-tileset shape the loader checks, then SEP #$20 / LDA #$80 / TSB $5B / RTS:
   // the stand-in for the handler's ScreenMode bit 7.
   put(0x009fb8, [

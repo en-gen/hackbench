@@ -13,6 +13,8 @@ import { runSprite } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { CAPTURE_DIR, freshRom, hasCaptures, hasRom, VANILLA } from '../../support/corpus'
 import { RomFile } from '../../../../src/rom/RomFile'
+import { OP, word } from '../../support/asm65'
+import { POINTER_TAIL } from '../../support/layer3Cart'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 
 // A capture's first-frame WRAM (frame_0000_wram.bin), the hardware side of the comparisons below.
@@ -41,6 +43,23 @@ describe('level loader runs the Layer 3 handler', () => {
     expect(l.ok && l.wram[0x5b]).toBe(0)
     const kept = loadLevelState(buildSyntheticRom({ irqCommand: 0x7f }), 0x105)
     expect(kept.ok && kept.wram[0x5b]).toBe(0x80)
+  })
+  it('runs the Layer 3 reset before the handler, and skips it with the handler when bit 7 is set', () => {
+    // The stand-in at $05:BE8A copies $1C to $24 (CODE_05BE8A, bank_05.asm:4794-4795). The loader stands $5A in
+    // $1C (the pointer loader's tail) and the IRQNMICommand it wants.
+    const cart = (irq: number) => {
+      const rom = buildSyntheticRom()
+      rom.writeAt(POINTER_TAIL, [OP.LDA_IMM, 0x5a, OP.STA_DP, 0x1c, OP.LDA_IMM, irq, OP.STA_ABS, ...word(0x0d9b), OP.PLB, OP.RTL]) // prettier-ignore
+      return rom
+    }
+    const ran = loadLevelState(cart(0), 0x105)
+    expect(ran.ok && [ran.wram[0x24], ran.wram[0x25]]).toEqual([0x5a, 0])
+    const skipped = loadLevelState(cart(0x80), 0x105)
+    expect(skipped.ok && [skipped.wram[0x24], skipped.wram[0x25]]).toEqual([0, 0])
+  })
+  it('refuses a ROM whose Layer 3 reset is not the vanilla shape', () => {
+    const l = loadLevelState(buildSyntheticRom({ badLoader: 'reset' }), 0x105)
+    expect(l).toMatchObject({ ok: false, reason: expect.stringMatching(/Layer 3 reset/) })
   })
   it('refuses a ROM whose Layer 3 handler is not the vanilla shape', () => {
     const l = loadLevelState(buildSyntheticRom({ badLoader: 'layer3' }), 0x105)
@@ -114,6 +133,23 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
   },
 )
 
+// Layer3YPos ($24/$25) where CODE_009FB8 writes nothing: modes $81-$BF on a tileset other than Castle1 and
+// Underground1 (bank_00.asm:4166-4174, 4199), which is maps 011, 130 and 1c1. Only the CODE_05BE8A step before
+// it (bank_00.asm:4869; Layer3YPos = Layer1YPos, bank_05.asm:4794-4795) sets it, so these maps read the
+// loader's step. Hardware holds $00C0 (frame_0000, one capture each).
+describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
+  'Layer3YPos on maps the handler leaves alone vs the level-load captures (#842)',
+  () => {
+    it.each(['011', '130', '1c1'])('map %s', map => {
+      const hw = frame0Wram(map)
+      const l = loadLevelState(freshRom(), parseInt(map, 16))
+      if (!l.ok) throw new Error(l.reason)
+      expect(hw[0x24] | (hw[0x25] << 8)).toBe(0xc0)
+      expect(l.wram[0x24] | (l.wram[0x25] << 8)).toBe(0xc0)
+    })
+  },
+)
+
 // The IRQNMICommand bit 7 gate against hardware, by mode (SpecialLevTable, bank_05.asm:500-503): every
 // captured vanilla level that ends with the bit set (modes 9, $B, $10). $13D5 is the loader's result
 // of skipping or running the handler; it must equal the capture's first frame (one capture each).
@@ -156,6 +192,12 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
 const SPAN_SWEEP = [
   { name: /^pointer loader at \$05:D8B7/, at: 0x05d8b7, length: 9, masked: [] as number[] },
   { name: /^level data loader at \$05:801E/, at: 0x05801e, length: 12, masked: [] as number[] },
+  {
+    name: /^Layer 3 reset at \$05:BE8A/,
+    at: 0x05be8a,
+    length: 28,
+    masked: [6, 7, 9, 10, 12, 13, 15, 16, 18, 19],
+  },
   {
     name: /^GM12PrepLevel call site/,
     at: 0x00a5af,
