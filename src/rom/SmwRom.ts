@@ -501,8 +501,17 @@ export class SmwRom {
         continue
       }
       const exits = parsed.objects.filter(o => o.screenExitDest !== undefined)
+      // The secondary flag is one global byte, so it reads the whole stream.
       const isSecondary = mapUsesSecondaryExits(exits)
-      const specs = exits.map(o => ({
+      // ExitTableLow/High are filed per screen by a plain STA (bank_0D.asm:1428-1435),
+      // so a later exit for the same screen overwrites the earlier one (#957). A Map
+      // keeps first-insertion order, so delete before set to order by the surviving write.
+      const lastPerScreen = new Map<number, (typeof exits)[number]>()
+      for (const o of exits) {
+        lastPerScreen.delete(o.screenExitScreen!)
+        lastPerScreen.set(o.screenExitScreen!, o)
+      }
+      const specs = [...lastPerScreen.values()].map(o => ({
         isSecondary,
         // LevelParser folds a dead ExitTableHigh-derived bit into bit 8 of
         // screenExitDest (see LevelParser.ts); mask it back off to recover

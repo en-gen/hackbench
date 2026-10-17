@@ -207,7 +207,9 @@ export function writeSyntheticRom(dir: string, rooms: Map<number, number[]>): st
     // `levelHasObjects` rejects a room whose first byte is $FF: leaves need one.
     if (destinations.length === 0) body.push(0x00, 0x10, 0x01)
 
-    for (const dest of destinations) {
+    if (destinations.length > 32) throw new Error(`$${index.toString(16)} has over 32 exits`)
+    // Exit i on screen i: the game keeps one exit per screen (bank_0D.asm:1428-1435).
+    for (const [n, dest] of destinations.entries()) {
       // An exit carries only the low byte; buildLevelExitGraph re-adds bit 8
       // from the reaching root's submap flag, so this edge is unreachable.
       if ((dest & 0x100) !== (index & 0x100)) {
@@ -216,7 +218,7 @@ export function writeSyntheticRom(dir: string, rooms: Map<number, number[]>): st
       // Extended object $00, settings 0, byte 1 of 0: a primary screen exit,
       // so the trailing byte is the destination low byte (see the screen-exit
       // branch of LevelParser.parseLevelObjects).
-      body.push(0x00, 0x00, 0x00, dest & 0xff)
+      body.push(n, 0x00, 0x00, dest & 0xff)
     }
     body.push(0xff)
 
