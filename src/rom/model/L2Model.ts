@@ -87,7 +87,26 @@ function entryDy(rom: RomFile, index: number, path: EntryPath): number | null {
   return cut ? null : ((high << 8) | l1) - ((l2High << 8) | l2)
 }
 
-const TABLES_CUT = 'The ROM ends before the entrance tables that place the background, so layer 2 is not drawn' // prettier-ignore
+const TABLES_CUT = 'The ROM ends before the entrance tables that place it' // prettier-ignore
+
+/**
+ * Whether every table byte the no-entrance fallback (`readInitialLayer1/2YPos`) reads is in the
+ * ROM. Those shared readers take an unreadable byte as 0 (they feed the L3 camera too), so the
+ * check lives here: on a ROM cut short the exit graph is unavailable (it needs DATA_05F800), which
+ * is exactly when this fallback runs (#911).
+ */
+function fallbackReadable(rom: RomFile, index: number): boolean {
+  const lows = rom.readByte(0x05f400 + index)
+  const screen = rom.readByte(0x05f600 + index)
+  if (lows === null || screen === null) return false
+  const rows = [0x05d708 + ((lows >> 2) & 3), 0x05d70c + (lows & 3)]
+  if ((screen & 0x20) !== 0) {
+    const setting = rom.readByte(0x05f000 + index)
+    if (setting === null) return false
+    rows.push(0x05d710 + (setting >> 4))
+  }
+  return rows.every(a => rom.readByte(a) !== null)
+}
 
 /**
  * The map's `dy` from the entrances that reach it, or null when none is known (an orphan, a bonus
@@ -101,7 +120,7 @@ function dyFromEntrances(
   if (!via) return null
   // A midway restart needs MidwayFlag, which the tape (Map16 $038) sets only while DisableMidway,
   // F400[map] >> 4 at the overworld entry, is nonzero (bank_00.asm:13042-13050; bank_05.asm:7349-7357).
-  const disableMidway = rom.readByte(0x05f400 + index)
+  const disableMidway = via.overworld ? rom.readByte(0x05f400 + index) : 0
   if (disableMidway === null) return { cut: true }
   const midway = disableMidway >> 4 !== 0
   const paths: EntryPath[] = [
@@ -154,6 +173,7 @@ export function buildL2Inputs(
   const entryVertical = ((rom.rom.readByte(0x05f600 + index) ?? 0) & 0x20) !== 0
   const known = dyFromEntrances(rom.rom, index, entrances)
   if (known && 'cut' in known) return refuse(TABLES_CUT)
+  if (!known && !fallbackReadable(rom.rom, index)) return refuse(TABLES_CUT)
   const dy = (): number => known?.dy ?? readInitialLayer1YPos(rom.rom, index, entryVertical) - readInitialLayer2YPos(rom.rom, index, entryVertical) // prettier-ignore
   // The tables are the game's only while the code reading them is stock (LEVEL_START_Y): if not,
   // the best reading still draws, said to be unverified.
