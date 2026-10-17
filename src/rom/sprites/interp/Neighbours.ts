@@ -12,8 +12,9 @@ const MAX_NEIGHBOURS = 10
 
 /**
  * Entries of `list` on the sprite's screen or the screen either side of it, nearest first, up to
- * the free slots. Ids above $C8 are not slot sprites (shooters and generators set a generator, not a slot,
- * bank_02.asm:5336-5346) and are left out, as is the sprite itself.
+ * the free slots. Ids above $C8 are left out, as is the sprite itself: $C9+ shooters and $CB-$D9 generators
+ * set a shooter or generator, not a slot (bank_02.asm:5336-5346, 5364-5367). $DA-$DD and $DF do load as
+ * status-9 slot sprites (5348-5362); leaving them out is a scope choice, not a claim that they are not slots.
  */
 export function neighboursOf(
   list: readonly LevelSprite[],

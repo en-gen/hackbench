@@ -375,6 +375,22 @@ describe('a refused level loader marks every sprite unverified', () => {
   })
 })
 
+describe('interpDrawer hands the map list on as neighbours (#841)', () => {
+  const blank = RomFile.fromBytes('blank.sfc', Buffer.alloc(0x80000))
+  const sp = (index: number, spriteId: number, x: number) => ({ index, x, y: 5, spriteId, screen: 0, extraBit: false, raw: [], streamOffset: 0 }) as LevelSprite // prettier-ignore
+
+  it('seeds the run with the list entries beside the sprite, at their pixel positions, not the sprite itself', () => {
+    const seeds: SpriteSeed[] = []
+    const run = (_r: RomFile, _i: number, s: SpriteSeed) => (
+      seeds.push(s),
+      model({ refusal: 'stub' })
+    )
+    const list = [sp(0, 0x9c, 4), sp(1, 0x9b, 6)]
+    interpDrawer(blank, 0x104, { isVertical: false, screenCount: 2 }, run, () => withSeed({ loaded: new Uint8Array(0x2000) }), list)(list[0]!) // prettier-ignore
+    expect(seeds[0]!.neighbours).toEqual([{ id: 0x9b, x: 96, y: 80 }])
+  })
+})
+
 describe('interpDrawer refuses when Mario has no start (#781)', () => {
   // The loader refuses a blank cart, so the table re-derivation is the only source of Mario's start;
   // one unreadable table byte must give a refusal (compute turns the throw into `unavailable`), not {0,0}.
@@ -672,6 +688,17 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
       const at = ball.map(d => [d.status, d.box.x0, d.box.y0]) // a second $C6 sits at X=1544, outside the span
       expect(at).toContainEqual(['drawn', 120, 232])
       expect(at).not.toContainEqual(['drawn', 376, 40])
+    }
+  })
+
+  it('$9C (Hammer Bro platform) is served with its Hammer Bro on top: the map list reaches the neighbour run (#841)', () => {
+    // Alone the platform box is 26 px tall; the neighbour run adds the Hammer Bro, 14 more.
+    for (const idx of [0x006, 0x11e, 0x127]) {
+      const r = mapSprites(new L1ModelCache(), bytes(), romPath(VANILLA), idx)
+      if (r.status !== 'ok') throw new Error(JSON.stringify(r))
+      const plats = r.sprites.filter(d => d.id === 0x9c && d.status === 'drawn')
+      expect(plats.length).toBeGreaterThan(0)
+      expect(plats.map(d => d.box.y1 - d.box.y0)).toEqual(plats.map(() => 40))
     }
   })
 

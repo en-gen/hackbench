@@ -19,6 +19,13 @@ const QUIET = 51
 const DRAWS = 52
 /** Draws its own piece only when it finds no companion; on finding one it draws the companion and moves its own piece 8 px. */
 const SHIFTS = 53
+/** Scans for id COMP and draws it with a tile from two cells: InitSpriteTables' $1600,X and its own INIT's $1640,X. */
+const INITS = 54
+const COMP = 55
+/** Scans the number table only (never the status table). */
+const NUMONLY = 56
+/** Draws the companion with its x HIGH byte ($14E0,X) as the tile. */
+const HIGHBYTE = 57
 
 function cart(): RomFile {
   const bytes = new Uint8Array(buildSyntheticRom().buffer)
@@ -47,6 +54,31 @@ function cart(): RomFile {
     bytes[o] = 0
     bytes[o + 1] = 0
   }
+  // Scanner shape: JSR own / LDY #9 / loop: [LDA $14C8,Y / CMP #8 / BNE next] LDA $9E,Y / CMP #num / BEQ found
+  // / next: DEY / BPL loop / RTS / found: PHX / TYX / JSR draw / PLX / RTS.
+  const scan = (num: number, own: number, draw: number, withStatus: boolean) => {
+    const body = [...(withStatus ? [0xb9, 0xc8, 0x14, 0xc9, 0x08, 0xd0, 0x07] : []), 0xb9, 0x9e, 0x00, 0xc9, num, 0xf0, 0x04, 0x88] // prettier-ignore
+    return [0x20, own & 0xff, own >> 8, 0xa0, 0x09, ...body, 0x10, 256 - (body.length + 2), 0x60, 0xda, 0xbb, 0x20, draw & 0xff, draw >> 8, 0xfa, 0x60] // prettier-ignore
+  }
+  // The game's draw shape (id 0's), with the tile bytes given: x, y from $E4/$D8,X; OAM index from $15EA,X.
+  const drawing = (tile: number[]) => [0xbc, 0xea, 0x15, 0xb5, 0xe4, 0x38, 0xe5, 0x1a, 0x99, 0x00, 0x03, 0xb5, 0xd8, 0x38, 0xe5, 0x1c, 0x99, 0x01, 0x03, ...tile, 0xa9, 0x0a, 0x99, 0x03, 0x03, 0x98, 0x4a, 0x4a, 0xa8, 0xa9, 0x02, 0x99, 0x60, 0x04, 0x60] // prettier-ignore
+  // tile = $1600,X + $1640,X
+  put(0x019b00, drawing([0xbd, 0x00, 0x16, 0x18, 0x7d, 0x40, 0x16, 0x99, 0x02, 0x03]))
+  put(0x019b80, [0xa9, 0x2c, 0x9d, 0x40, 0x16, 0x60]) // COMP's INIT: LDA #$2C / STA $1640,X / RTS
+  put(0x019e00, drawing([0xbd, 0xe0, 0x14, 0x99, 0x02, 0x03])) // tile = $14E0,X
+  put(0x019a00, scan(COMP, 0x8640, 0x9b00, true))
+  put(0x019c00, scan(QUIET, 0x8640, 0x8640, false))
+  put(0x019d00, scan(QUIET, 0x8640, 0x9e00, true))
+  const word = (table: number, id: number, v: number) => {
+    const o = off(table + id * 2)
+    bytes[o] = v & 0xff
+    bytes[o + 1] = v >> 8
+  }
+  word(0x018170 + 11, COMP, 0x9b80)
+  for (const id of [INITS, NUMONLY, HIGHBYTE]) word(0x018320 + 9, id, 0)
+  word(0x018320 + 9, INITS, 0x9a00)
+  word(0x018320 + 9, NUMONLY, 0x9c00)
+  word(0x018320 + 9, HIGHBYTE, 0x9d00)
   main(SCANNER, 0x9800)
   main(DRAWS, 0x8640)
   main(SHIFTS, 0x9900)
@@ -114,15 +146,58 @@ describe('neighbour run for a sprite that scans the slot tables (#841)', () => {
   })
 })
 
+describe('neighbour placement (#841)', () => {
+  const rom = cart()
+  const chars = (m: ReturnType<typeof runOnce>) =>
+    partsOf(m)
+      .map(p => p.char)
+      .sort((a, b) => a - b)
+
+  it("a companion's INIT runs and the loop's InitSpriteTables stores reach its slot before the scanner draws it", () => {
+    const m = runOnce(rom, INITS, seedWith([{ id: COMP, x: 0x90, y: 0x70 }]))
+    expect(m.neighbourRun).toBe('adopted')
+    // $55 from InitSpriteTables(X = its slot) + $2C from its own INIT; either missing changes the tile.
+    expect(chars(m)).toEqual([0x24, 0x81])
+  })
+
+  it('a scanner that reads only the number table is still run again', () => {
+    const m = runOnce(rom, NUMONLY, seedWith([{ id: QUIET, x: 0x90, y: 0x70 }]))
+    expect(m.scansSlots).toBe(true)
+    expect(m.neighbourRun).toBe('adopted')
+    expect(partsOf(m)).toHaveLength(2)
+  })
+
+  it('a companion on the next screen is placed with its x high byte (drawn from $14E0,X)', () => {
+    const m = runOnce(rom, HIGHBYTE, seedWith([{ id: QUIET, x: 0x110, y: 0x70 }]))
+    expect(m.neighbourRun).toBe('adopted')
+    expect(chars(m)).toEqual([0x01, 0x24])
+  })
+
+  it("a neighbour that refuses in the second run is reported as refused, and the scanner's own picture stands", () => {
+    // Id 4's MAIN executes COP: the run alone has no neighbour to refuse on.
+    const alone = runOnce(rom, SCANNER, seedWith())
+    const m = runOnce(rom, SCANNER, seedWith([{ id: 4, x: 0x90, y: 0x70 }, { id: QUIET, x: 0xa0, y: 0x70 }])) // prettier-ignore
+    expect(m.neighbourRun).toBe('refused')
+    expect(partsOf(m)).toEqual(partsOf(alone))
+  })
+})
+
 describe('neighboursOf', () => {
-  const sp = (index: number, screen: number, x: number, spriteId = 1): LevelSprite =>
-    ({ screen, x, y: 5, spriteId, extraBit: false, raw: [0, 0, 0], index, streamOffset: index }) // prettier-ignore
+  const sp = (index: number, screen: number, x: number, spriteId = 1, y = 5): LevelSprite =>
+    ({ screen, x, y, spriteId, extraBit: false, raw: [0, 0, 0], index, streamOffset: index }) // prettier-ignore
   const px = (e: LevelSprite) => ({ x: e.x * 16, y: e.y * 16 })
 
   it('keeps the screen and the one each side, drops itself and generators, nearest first', () => {
     const me = sp(0, 4, 70)
     const list = [me, sp(1, 6, 100), sp(2, 5, 90), sp(3, 3, 60), sp(4, 4, 71, 0xcb), sp(5, 4, 72)]
     expect(neighboursOf(list, me, px).map(n => n.x / 16)).toEqual([72, 60, 90])
+  })
+
+  it('orders by distance in x and y together, not x alone', () => {
+    const me = sp(0, 4, 70)
+    // Same x distance, different y: ties on x alone keep list order. Then a nearer x that is far in y.
+    const list = [me, sp(1, 4, 71, 1, 15), sp(2, 4, 71, 1, 6), sp(3, 4, 69, 1, 25)]
+    expect(neighboursOf(list, me, px).map(n => n.y / 16)).toEqual([6, 15, 25])
   })
 
   it('caps at the free slots (9 of 0-9)', () => {

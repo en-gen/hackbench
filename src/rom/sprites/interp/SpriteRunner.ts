@@ -168,9 +168,10 @@ export interface SpriteModel {
   scansSlots?: boolean
   /**
    * Set only when a second run put `seed.neighbours` in the other slots: 'adopted' when its parts (those
-   * written while this sprite's slot ran) differed from the run alone and replaced it, 'same' when not.
+   * written while this sprite's slot ran) differed from the run alone and replaced it, 'same' when not, 'refused' when
+   * the second run refused (the run alone stands in both).
    */
-  neighbourRun?: 'adopted' | 'same'
+  neighbourRun?: 'adopted' | 'same' | 'refused'
 }
 
 /**
@@ -341,7 +342,8 @@ export class Machine {
     const s = this.seed
     if (s.loaded) {
       w.set(s.loaded.subarray(0, w.length))
-      // The loader also spawns the level's own sprite list (CODE_02A751); only the one sprite under test runs.
+      // The loader also spawns the level's own sprite list (CODE_02A751); only the sprite under test is active,
+      // unless a neighbour run places the list's other sprites afterwards (placeNeighbours).
       for (let i = 0; i < 12; i++) w[RAM.status + i] = 0
     }
     for (let i = 0; i < RAM.oamEntries; i++) w[RAM.oam + 1 + i * 4] = 0xf0 // cleared OAM is offscreen
@@ -518,7 +520,8 @@ export function runOnce(
   const a = runCore(rom, id, seed, opts, false)
   if (!seed.neighbours?.length || opts.spawn || a.refusal || !a.scansSlots) return a
   const b = runCore(rom, id, seed, opts, true)
-  if (b.refusal || b.chosen === undefined || !addsOnly(a, b)) return { ...a, neighbourRun: 'same' }
+  if (b.refusal) return { ...a, neighbourRun: 'refused' }
+  if (b.chosen === undefined || !addsOnly(a, b)) return { ...a, neighbourRun: 'same' }
   return { ...b, dependsOn: [...a.dependsOn, 'neighbours'], scansSlots: true, neighbourRun: 'adopted' } // prettier-ignore
 }
 
