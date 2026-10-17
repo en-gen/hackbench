@@ -205,14 +205,7 @@ test('a count badge shows only for 2+ issues, lists every reason, and stays insi
 })
 
 test('cells that were shown clear when the next reply has none', async ({ page }) => {
-  const cell = {
-    x: 3,
-    y: 5,
-    objectIndex: 7,
-    objectType: 'type 9',
-    handler: 0x0dfff0,
-    reasons: [WHY],
-  }
+  const cell = { x: 3, y: 5, objectIndex: 7, objectType: 'type 9', handler: 0x0dfff0, reasons: [WHY] } // prettier-ignore
   await openMap(page, 0x105, [cell])
   await expect(page.locator(`${root(0x105)} [data-control="refused-cell"]`)).toHaveCount(1, { timeout: 30000 }) // prettier-ignore
   await page.evaluate(async i => {

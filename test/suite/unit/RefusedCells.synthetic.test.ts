@@ -140,6 +140,7 @@ describe('one cell per object, kept on the map (#816)', () => {
     expect(refusedBounds(false, 3)).toEqual({ cols: 48, rows: 27 })
     expect(refusedBounds(true, 3)).toEqual({ cols: 32, rows: 48 })
   })
+
   it('an anchor past the strip is pulled to its last row and column, never dropped', () => {
     const objects = [obj(1, 3, 31), obj(1, 40, 2), obj(1, 20, 9)]
     const rs = [0, 1, 2].map(i => ({ objectIndex: i, handler: 1, reason: 'x' }))
