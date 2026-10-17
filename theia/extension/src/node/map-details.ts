@@ -9,7 +9,7 @@
  * test file loads, not when the gated case runs.
  */
 import { SmwRom } from '../../../../src/rom/SmwRom'
-import { hex3s, hex6 } from '../../../../src/rom/hex'
+import { hex2, hex3s, hex6 } from '../../../../src/rom/hex'
 import { parseLevelObjects, parseLevelSprites } from '../../../../src/rom/LevelParser'
 import { levelNameForSlot } from '../../../../src/rom/SmwLevelNames'
 import { filterSomeRamNote, levelGfxAssignmentNote } from '../../../../src/rom/GfxLoader'
@@ -93,17 +93,17 @@ export function buildMapDetails(
     // each one back to its ASM citation.
     header: [
       { label: 'Screens', value: String(h.levelLength) },
-      { label: 'Level mode', value: hex(h.levelMode) },
-      { label: 'Object tileset', value: hex(h.objectTileset) },
-      { label: 'Sprite tileset', value: hex(h.spriteSet) },
-      { label: 'FG palette', value: hex(h.fgPalette) },
-      { label: 'BG palette', value: hex(h.bgPalette) },
-      { label: 'Sprite palette', value: hex(h.spritePalette) },
-      { label: 'Back area color', value: hex(h.bgColor) },
-      { label: 'Music', value: hex(h.music) },
-      { label: 'Time limit', value: hex(h.timeLimit) },
-      { label: 'Item memory', value: hex(h.itemMemory) },
-      { label: 'Vertical scroll', value: hex(h.verticalScroll) },
+      { label: 'Level mode', value: `$${hex2(h.levelMode)}` },
+      { label: 'Object tileset', value: `$${hex2(h.objectTileset)}` },
+      { label: 'Sprite tileset', value: `$${hex2(h.spriteSet)}` },
+      { label: 'FG palette', value: `$${hex2(h.fgPalette)}` },
+      { label: 'BG palette', value: `$${hex2(h.bgPalette)}` },
+      { label: 'Sprite palette', value: `$${hex2(h.spritePalette)}` },
+      { label: 'Back area color', value: `$${hex2(h.bgColor)}` },
+      { label: 'Music', value: `$${hex2(h.music)}` },
+      { label: 'Time limit', value: `$${hex2(h.timeLimit)}` },
+      { label: 'Item memory', value: `$${hex2(h.itemMemory)}` },
+      { label: 'Vertical scroll', value: `$${hex2(h.verticalScroll)}` },
       { label: 'Layer 3 priority', value: h.layer3Priority ? 'yes' : 'no' },
     ],
     gfxAssignmentNote:
