@@ -882,7 +882,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const strip = this.scroller?.querySelector<HTMLElement>('.hb-map-view-strip')
     const l = this.mapLayout
     const p = this.pointer
-    if (!strip || !l || !p) {
+    if (!strip || !l || !p || !this.isVisible) {
       this.setLift(undefined)
       this.setHoverSprite(undefined)
       return this.setHover(undefined)
@@ -907,7 +907,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     if (next === this.hoverSprite && this.hoverZoom === this.zoom) return
     this.hoverSprite = next
     this.hoverZoom = this.zoom
-    this.hoverService.cancelHover()
+    // The hover service is shared: only cancel a hover this widget asked for.
+    if (this.spriteAnchor) this.hoverService.cancelHover()
     this.spriteAnchor?.remove()
     this.spriteAnchor = undefined
     const name = next && spriteName(next)
@@ -921,9 +922,9 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       Object.assign(a.style, { position: 'fixed', pointerEvents: 'none', left: `${r.left + x0 * this.zoom}px`, top: `${r.top + y0 * this.zoom}px`, width: `${(x1 - x0) * this.zoom}px`, height: `${(y1 - y0) * this.zoom}px` }) // prettier-ignore
       document.body.append(a)
       this.spriteAnchor = a
+      // A click hides the hover until the pointer re-enters (Theia cancels on mousedown), as a native title does.
       this.hoverService.requestHover({ content: name, target: a, position: 'top', cssClasses: ['hb-map-sprite-hover'] }) // prettier-ignore
     }
-    this.update()
   }
 
   protected setHover(next: Indicator | undefined): void {
@@ -1075,6 +1076,25 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected override onResize(msg: Widget.ResizeMessage): void {
     super.onResize(msg)
     this.fitStrip()
+  }
+
+  /** A hidden or detached tab gets no mouseleave, so its hover must be dropped here. */
+  protected override onAfterHide(msg: Message): void {
+    super.onAfterHide(msg)
+    this.pointer = undefined
+    this.setHoverSprite(undefined)
+  }
+
+  protected override onBeforeDetach(msg: Message): void {
+    this.pointer = undefined
+    this.setHoverSprite(undefined)
+    super.onBeforeDetach(msg)
+  }
+
+  /** A zoom or layout change moves the sprite: once the render has committed, place the hover again. */
+  protected override onUpdateRequest(msg: Message): void {
+    super.onUpdateRequest(msg)
+    if (this.spriteAnchor) requestAnimationFrame(() => this.updateHover())
   }
 
   protected override onActivateRequest(msg: Message): void {

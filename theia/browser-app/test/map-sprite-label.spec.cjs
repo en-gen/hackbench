@@ -6,12 +6,9 @@
  * computed here from the node reply's own bitmaps with that rule, independently of the view's code. Names come
  * from the app's sprite name table (src/rom/model/sprites/SpriteMetadata.ts), the table the reply's `name` is read from.
  *
- * Plants (what turns each assertion red): giving the strip a `title` again fails "no native title" in AC1; showing
- * the id beside the name (e.g. "Podoboo (sprite $33)") fails every exact-text check; dropping the `hoverService`
- * request, or showing a plain div instead of it, fails the hover and theme checks; publishing the name to the
- * status bar again fails the status bar checks (hover and click); moving the `setHoverSprite(undefined)` calls out of
- * `open()`/`refresh()` (back to after the reply) fails the refresh test; removing the scroll reset in `onScroll` (or the
- * zoom check in `setHoverSprite`) leaves the anchor at its old place and fails the scroll test.
+ * Why each check exists: the native `title` is what the owner rejected, so its absence is asserted; exact text and
+ * theme colours separate Theia's hover from a lookalike; the status bar checks guard the removed label; the
+ * reload, hide and scroll/zoom checks guard a hover that outlives the sprite it names or points at the wrong place.
  * Vanilla ROM; the pinned slot, indexes and ids below were found by a mapSprites sweep (one run, one machine).
  */
 const { test, expect } = require('@playwright/test')
@@ -201,6 +198,16 @@ const hoverIsThemed = page =>
     return same
   })
 
+/** 'aligned' when the hover anchor sits over `sprite`'s box in the current view, else how far off it is. */
+async function anchorState(page, slot, map, sprite) {
+  const a = await page.locator('.hb-map-sprite-anchor').boundingBox()
+  const r = await page.locator(stripOf(slot)).boundingBox()
+  if (!a || !r) return 'none'
+  const z = r.width / map.mapW
+  const [dx, dy] = [a.x - (r.x + sprite.box.x0 * z), a.y - (r.y + sprite.box.y0 * z)]
+  return Math.abs(dx) <= 1 && Math.abs(dy) <= 1 ? 'aligned' : `off by ${dx},${dy}`
+}
+
 /** Re-points at map pixel `at` and reads the open hover's text; for polling until the sprites have loaded. */
 async function hoverAt(page, slot, map, at) {
   await pointAt(page, slot, map, at.x, at.y)
@@ -227,6 +234,9 @@ test('AC1, AC3: hovering a sprite opens a themed hover whose text is exactly its
       .poll(() => hoverAt(page, slot, map, at), { message: zoom, timeout: 30000 })
       .toBe(sprite.name)
     expect(await hoverIsThemed(page), `${zoom}: theme colours`).toBe(true)
+    await expect
+      .poll(() => anchorState(page, slot, map, sprite), { message: `${zoom}: anchor` })
+      .toBe('aligned')
     expect(await nativeTitleOf(page, slot), `${zoom}: no native title`).toBeNull()
     expect(await statusBar(page).innerText(), `${zoom}: hover`).not.toContain(sprite.name)
 
@@ -337,24 +347,54 @@ test('scrolling under a still pointer re-places the hover on the sprite (#981)',
   const slot = HIDDEN.slot
   const map = await openMap(page, slot)
   const sprite = namedSprite(map)
-  const at = ownPixel(map, sprite)
+  // Content moves left by 8 px, so take a pixel at least 10 px in from the sprite's left edge: the pointer stays on it.
+  const { x0, y0, x1, y1 } = sprite.box
+  let at
+  for (let y = y0; y < y1 && !at; y++)
+    for (let x = x0 + 10; x < x1 && !at; x++)
+      if (allWithin(2, x, y, (px, py) => map.ownerAt(px, py) === sprite)) at = { x, y }
+  expect(at, 'a sprite pixel well inside its box').toBeTruthy()
   await setZoom(page, slot, ZOOMS.actual)
   await expect.poll(() => hoverAt(page, slot, map, at), { timeout: 30000 }).toBe(sprite.name)
-  const before = await page.locator('.hb-map-sprite-anchor').boundingBox()
+  const offset = () =>
+    page.evaluate(strip => {
+      const sc = document.querySelector(strip).closest('[data-control="map-scroller"]')
+      return [sc.scrollLeft, sc.scrollTop]
+    }, stripOf(slot))
+  const before = await offset()
+  // 8 px: a stale anchor would be off by more than the 1 px tolerance. The pointer stays put.
   await page.evaluate(
-    strip => document.querySelector(strip).closest('[data-control="map-scroller"]').scrollBy(1, 1),
+    strip => document.querySelector(strip).closest('[data-control="map-scroller"]').scrollBy(8, 0),
     stripOf(slot),
   )
-  // The anchor must sit over the sprite's box in the new view, wherever the strip now is.
-  await expect
-    .poll(async () => {
-      const a = await page.locator('.hb-map-sprite-anchor').boundingBox()
-      const r = await page.locator(stripOf(slot)).boundingBox()
-      if (!a || !r) return 'none'
-      const z = r.width / map.mapW
-      const [dx, dy] = [a.x - (r.x + sprite.box.x0 * z), a.y - (r.y + sprite.box.y0 * z)]
-      return Math.abs(dx) <= 1 && Math.abs(dy) <= 1 ? 'aligned' : `off by ${dx},${dy}`
+  expect(await offset(), 'the view really scrolled').not.toEqual(before)
+  await expect.poll(() => anchorState(page, slot, map, sprite)).toBe('aligned')
+})
+
+test('a hidden map tab keeps no hover or anchor, and a reload while hidden opens none (#981)', async ({
+  page,
+}) => {
+  const slot = HIDDEN.slot
+  const map = await openMap(page, slot)
+  const sprite = namedSprite(map)
+  const at = ownPixel(map, sprite)
+  await expect.poll(() => hoverAt(page, slot, map, at), { timeout: 30000 }).toBe(sprite.name)
+  // A second map takes the front through the shell: the pointer never leaves the first one's strip by mouse.
+  await openMap(page, 0x104)
+  await expect(page.locator(rootOf(slot))).toBeHidden()
+  const state = () =>
+    page.evaluate(() => {
+      const h = document.querySelector('.theia-hover')
+      return {
+        open: !!(h && h.isConnected && h.matches(':popover-open')),
+        anchors: document.querySelectorAll('.hb-map-sprite-anchor').length,
+      }
     })
-    .toBe('aligned')
-  expect(before, 'an anchor was shown before the scroll').toBeTruthy()
+  expect(await state()).toEqual({ open: false, anchors: 0 })
+  await page.evaluate(
+    id => getSvc('ApplicationShell').getWidgetById(id).refresh(),
+    `hackbench.map-view:${slot}`,
+  )
+  await page.waitForTimeout(1500)
+  expect(await state()).toEqual({ open: false, anchors: 0 })
 })
