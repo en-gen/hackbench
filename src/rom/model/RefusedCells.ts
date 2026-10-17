@@ -19,7 +19,7 @@ export interface RefusedCell {
   objectIndex: number
   /** "type 25" or "extended type 5": the object number as the level stream holds it. */
   objectType: string
-  /** First refusal's handler. */
+  /** The first gate refusal's handler, else the first refusal's. */
   handler: number
   /** One plain-words line per distinct issue, gate reasons first (#1005); the count badge is its length. */
   reasons: string[]

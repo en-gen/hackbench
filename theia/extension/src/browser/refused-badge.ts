@@ -41,6 +41,6 @@ export function badgeGeometry(cellX: number, cellY: number, count: number) {
  */
 export function bangGeometry(cellX: number, cellY: number, badged: boolean) {
   return badged
-    ? { x: cellX * CELL + 3.2, y: cellY * CELL + 13, fontSize: 7 }
+    ? { x: cellX * CELL + 3.2, y: cellY * CELL + 12.5, fontSize: 7 }
     : { x: cellX * CELL + CELL / 2, y: cellY * CELL + CELL / 2, fontSize: 12 }
 }

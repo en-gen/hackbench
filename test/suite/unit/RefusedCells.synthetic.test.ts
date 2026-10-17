@@ -196,6 +196,15 @@ describe('every distinct issue is kept (#1005)', () => {
     expect(new Set(r).size).toBe(3)
   })
 
+  it('the handler comes from the first gate refusal, whichever refusal came first', () => {
+    for (const rs of [
+      [unp(), gate()],
+      [gate(), unp()],
+    ])
+      expect(cellsOf(rs, o, BIG)[0]!.handler).toBe(2)
+    expect(cellsOf([unp()], o, BIG)[0]!.handler).toBe(1)
+  })
+
   it('identical refusals do not inflate the count', () => {
     expect(reasonsOf([unp(), unp(), gate(), gate(), unp()])).toHaveLength(2)
   })

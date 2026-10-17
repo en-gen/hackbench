@@ -65,6 +65,7 @@ describe('badgeGeometry (#1005)', () => {
       const ny = Math.max(b.y - hh, Math.min(g.cy, b.y + hh))
       expect(Math.hypot(nx - g.cx, ny - g.cy)).toBeGreaterThan(g.r + BADGE_STROKE / 2)
       expect(b.x - hw).toBeGreaterThanOrEqual(x * CELL)
+      expect(b.y + hh).toBeLessThanOrEqual(y * CELL + CELL)
     }
   })
 
@@ -74,6 +75,7 @@ describe('badgeGeometry (#1005)', () => {
 })
 
 describe('gateReason wording (#1005)', () => {
+  const formatJsr = 'Handler $0DB49E refused: the JSR at $0DB4B1 calls $0D8000, not $0DA000 as the port assumes, so the object is not drawn.' // prettier-ignore
   it('leads with words and ends in hex, per kind of refusal', () => {
     const call = formatRefusedLine(0x0db49e, 0x0db4b1, 0x20, 0x00)
     expect(gateReason(call)).toBe(
@@ -87,6 +89,7 @@ describe('gateReason wording (#1005)', () => {
     )
     expect(gateReason('Handler $0DB49E refused: the required operand span at $0DB4B2 is outside the ROM, so the object is not drawn.')).toBe('Its drawing code runs past the end of the ROM (at $0DB4B2).') // prettier-ignore
     expect(gateReason('Handler $0DB49E refused: the operand at $0DB4B2 is $05, not the $04 the port assumes, so the object is not drawn.')).toContain('a value HackBench relies on (byte $0DB4B2 is $05)') // prettier-ignore
+    expect(gateReason(formatJsr)).toBe('Its drawing code calls somewhere HackBench does not expect (call at $0DB4B1).') // prettier-ignore
     expect(gateReason('Handler $0DB49E refused: odd, so the object is not drawn.')).toContain(
       '(odd)',
     )

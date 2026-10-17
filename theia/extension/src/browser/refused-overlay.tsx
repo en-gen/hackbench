@@ -22,9 +22,9 @@ import {
 } from './refused-badge'
 
 /** Red, dashed and marked with "!": the collision overlay's unknown cells are orange and hatched, so the two never read alike. */
-/** Text and outline on the red: Theia's own on-colour, so a theme that changes the red can change this too. */
-const ON_WARN = 'var(--theia-button-foreground, #fff)'
 const WARN = 'var(--theia-editorError-foreground, #f44336)'
+/** Theia's on-colour for filled controls, white by default; used for the "!" and the badge on the red. */
+const ON_WARN = 'var(--theia-button-foreground, #fff)'
 
 export function RefusedOverlay(props: {
   cells: readonly MapRefusedCellDto[]
