@@ -443,10 +443,11 @@ function uploadsOf(m: Machine, before: Map<number, number>): string[] {
 export type Probe = (pass: number, wram: Uint8Array) => void
 
 /**
- * The line-guided sprites ($62, $65-$68) draw, then their line step moves them (SMWDisX bank_01.asm:12182-12204,
- * platform arm 12323-12358; corner stores 12054-12061; $64 is, by D85 call 1; its INIT also steps it, 11766-11783), so the grinder draws three different spots: the
- * off-track INIT spot, the probe corner the first MAIN snapped to, and the line point the walk then set. The
- * editor draws the third (#126, #792). Which ids qualify is `lineDrawsBeforeSnap`'s per-id shape check.
+ * The line-guided sprites ($62, $64-$68; $63 is left out, owner ruling D85) draw and then take their line step
+ * (SMWDisX bank_01.asm:12182-12204, platform arm 12323-12358, corner stores 12054-12061; $64's INIT steps it
+ * too, 11766-11783). So one run shows three spots: the off-track INIT spot, the probe corner the first MAIN
+ * snapped to, and the line point the walk then set. The editor draws the third (#126, #792). Which ids qualify
+ * is `lineDrawsBeforeSnap`'s per-id shape check.
  *
  * Run once with a seed; no dependsOn analysis (half the cost of `runSprite`).
  */
@@ -573,7 +574,7 @@ export function runOnce(
       else if (model.passes[2]?.parts.length && moved(q0, q1)) model.chosen = 2
       // Only the grinder (#126) falls back to pass 1, the probe-corner spot. For the ids #792 admits, a pass 2 that
       // does not draw leaves pass 0, the generic rule: the corner spot is not where the game keeps them.
-      else if (id === 0x67) model.chosen = 1
+      else if (num === 0x67) model.chosen = 1
       else model.lineStepReason = 'the third pass drew nothing or the second did not move the sprite: kept the first drawn pass' // prettier-ignore
     }
     if (snaps && model.chosen !== undefined)

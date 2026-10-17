@@ -74,6 +74,20 @@ describe('line-guided draw pass', () => {
     expect(g.anchor!.x).toBe(0x84)
   })
 
+  it('keys the grinder fallback by the loaded number: a shell list id loaded as $67 stops at pass 1 too', () => {
+    // Plant the loader so list id $DA loads as sprite 103 in status 1 (INIT runs): the status compare operand 1 rebases it,
+    // the ADC operand 103 is the new base. A real $67 here chooses pass 1; a list-id test would choose pass 0.
+    const rom = buildSyntheticRom({ grinderDrawsTwice: true })
+    rom.writeAt(0x02a8d1, [0x01])
+    rom.writeAt(0x02a979, [0x01])
+    rom.writeAt(0x02a983, [103])
+    const [shell, real] = [0xda, 103].map(id => runOnce(rom, id, seed, { lineDispatch: GRINDER_DISPATCH })) // prettier-ignore
+    expect(real.chosen).toBe(1)
+    expect(shell.refusal).toBeUndefined()
+    expect(shell.chosen).toBe(real.chosen)
+    expect(shell.anchor!.x).toBe(real.anchor!.x)
+  })
+
   it('falls back to the first drawn pass when the pass after it draws nothing', () => {
     const g = run(103, { grinderDrawsOnce: true })
     expect(g.chosen).toBe(0)
