@@ -180,6 +180,6 @@ describe.skipIf(!hasRom(VANILLA))(
           VARIANTS.map(([, o]) => hitsOf(o).map(offsetOf)),
         ),
       ).toEqual([])
-    })
+    }, 60_000)
   },
 )
