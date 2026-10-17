@@ -1,9 +1,7 @@
 # #825 spike: an indexed map representation against RGBA over RPC
 
-Status: PARTIAL. Wire bytes, the byte-identity oracle and the planted defect are measured.
-The browser bench (arms A/B/C) is built and committed but NOT RUN: the shared run lock was
-reserved by a queue of nine other teams for over 90 minutes (2026-10-17), and the brief forbids
-Playwright without it. Section 4 therefore has no numbers; run `bench/run.cjs` under one lock hold.
+Status: COMPLETE. Wire bytes, the byte-identity oracle, the planted defect and the browser bench
+(3 fresh-page runs per arm per map) are measured.
 
 Prototype: `tools/scripts/spike-825/` (`encode.ts`, `gen.ts`, `bench/`). Not imported by shipped
 code, not for merge. No shipped file was changed. (`tools/spikes/` is gitignored, hence the path.)
@@ -49,23 +47,49 @@ $105 RGBA 9.44 MB / 79.9 KB, indexed 89.6 KB / 10.7 KB; $101 RGBA 12.98 MB / 148
 111 KB / 10.7 KB. Indexed is about 125x smaller uncompressed; gzipped RGBA is only about 7x to
 14x larger than gzipped indexed, because flat-colour pixel art compresses extremely well.
 
-## 4. Browser bench (NOT RUN, see status)
+## 4. Browser bench
 
-`bench/bench.html` + `bench.js` (standalone page, not the Theia widget) measure, per arm, in a
-fresh page: setup + first paint of 4 screens, per-screen main-thread decode ms (p50/p95), worker
-ms (B), palette-row-edit repaint of 4 screens (B, C), scripted scroll frame p50/p95/max with
-screens built on demand one screen ahead, JS heap after gc, canvas bytes (upper-bound estimate)
-and the GL renderer string. `bench/run.cjs <fixturesDir> <playwrightDir>` runs 3 fresh pages per
-arm per map and prints ranges. Fixtures come from `gen.ts` into a directory outside the repo
-(ROM-derived, never committed). Table to be filled by that run:
+Evidence scope: headless Chromium 153.0.8010.12 (Playwright 1.63, headless shell), one Windows
+machine, WebGL on ANGLE over SwiftShader (software Vulkan, NO GPU: arm C numbers are a software
+floor and a real GPU would likely be faster), 3 fresh pages per arm per map, maps $10A, $105,
+$101 (vanilla), first 8 screens each, 768x432 viewport, screens 256x432. Standalone page
+(`bench/bench.html`), NOT the Theia widget: no RPC, no sprites or overlays, one plane canvas per
+layer plane as the widget stacks them. Cells are ranges over the 3 runs. Raw per-run JSON:
+`fixtures/results.json` in the session scratchpad (ROM-derived, not committed).
 
-| Arm | first paint 4 screens | decode p50/p95 | scroll p50/p95/max | heap | palette edit |
-|---|---|---|---|---|---|
-| A RGBA + putImageData | pending | pending | pending | pending | n/a |
-| B indexed CPU Worker | pending | pending | pending | pending | pending |
-| C indexed WebGL2 | pending | pending | pending | pending | pending |
+Definitions: first paint = arm setup (worker start / GL init + shader compile) through 4 screens
+painted and 2 rAFs. Decode = main-thread ms per screen (A: base64 decode + putImageData for all
+planes; B: postMessage + drawImage only; C: tilemap upload + draw + copy to the plane canvas).
+Scroll = rAF frame interval over 80 frames of 16 px/frame, screens 4-7 built on demand one
+screen ahead. Heap = `usedJSHeapSize` after gc once all 8 screens are shown, with the arm's
+parsed payload still held (A holds the base64 strings, B and C the small indexed payload).
+Palette edit = one palette row changed, 4 visible screens repainted (A has no equivalent: it
+needs a new server reply).
 
-The bench code has not executed once, so expect small fixes on its first run.
+| Map | Arm | first paint 4 screens (ms) | decode p50 / p95 per screen (ms) | scroll p50 / p95 / max (ms) | heap (MB) | palette edit, 4 screens (ms) |
+|---|---|---|---|---|---|---|
+| $10A | A RGBA | 292-300 | 69.3-72.3 / 74.3-77.8 | 16.5-16.6 / 68.6-73.0 / 69.5-80.3 | 14.8 | n/a |
+| $10A | B CPU worker | 44-59 | 0.4-0.5 / 0.6-0.7 | 16.7 / 17.6-17.8 / 18.1-18.3 | 1.4 | 15.6-17.2 |
+| $10A | C WebGL2 | 58-137 | 7.1-7.9 / 24.2-48.7 | 16.6 / 17.7-17.8 / 18.1-18.4 | 1.5 | 31.3-33.4 |
+| $105 | A RGBA | 199-370 | 47.8-88.8 / 56.1-97.6 | 16.6-16.7 / 48.2-90.1 / 58.8-101.5 | 10.3 | n/a |
+| $105 | B CPU worker | 46-76 | 0.4-0.8 / 0.5-1.0 | 16.7 / 17.7-17.9 / 17.9-18.7 | 1.4 | 16.1-16.7 |
+| $105 | C WebGL2 | 58-73 | 6.7-7.1 / 23.5-34.7 | 16.5-16.7 / 17.6-17.8 / 17.9-18.1 | 1.5 | 25.9-30.6 |
+| $101 | A RGBA | 448-462 | 125.1-130.8 / 141.0-144.5 | 16.6-16.7 / 121.4-132.3 / 135.0-137.6 | 13.6 | n/a |
+| $101 | B CPU worker | 53-58 | 0.8-0.9 / 1.1 | 16.6-16.7 / 17.6-17.9 / 17.9-18.3 | 1.4 | 15.9-32.4 |
+| $101 | C WebGL2 | 69-74 | 9.2-10.3 / 31.3-33.8 | 16.6-16.7 / 17.6-17.7 / 17.8-18.1 | 1.5 | 32.4-36.7 |
+
+Worker time (B, off the main thread): 2.3-5.5 ms mean per screen across the three maps.
+Canvas backing store is the same in all arms (upper bound 20.3 MB for 8 screens x 6 planes
+x 256x432x4); C adds an atlas + palette texture of 10-18 KB. Those are estimates, not GPU
+measurements.
+
+Reading: A blocks the main thread 48-131 ms per screen (a dropped-frame spike in every scroll
+that builds a screen: p95 49-132 ms against a 16.7 ms frame). This is higher than the #989
+baseline of 3.5-9 ms because this bench counts every plane's decode plus putImageData of six
+full-screen canvases in software-rendered headless Chromium; do not compare absolutely, compare
+across arms in this run. B and C keep p95 at 17.6-17.9 ms (the 60 Hz frame). C's per-screen main
+cost (7-10 ms p50, up to 49 ms p95) is higher than B's under SwiftShader, and its palette edit
+is slower, not faster. B's palette edit has one 32 ms outlier run on $101.
 
 ## 5. Answers to the open questions
 
@@ -102,12 +126,16 @@ screen in the #989 baseline, not re-measured here).
    without a round trip. Cost: an indexed draw path in the core (the spike duplicates the
    placement loops; the real work is making them the single source), an escape for ghost cells,
    and a RenderTarget interface change. Lowest-risk indexed option.
-4. Indexed + WebGL2 (arm C). Same payload, potentially the fastest palette edits; adds shader
-   code, context-loss handling and GPU-blocklist risk (software fallback). Justified only if
-   section 4 shows B missing the frame budget.
+4. Indexed + WebGL2 (arm C). Same payload; adds shader code, context-loss handling and
+   GPU-blocklist risk. Measured slower than B on software GL; untested on a real GPU.
 
-Recommendation: do not choose until section 4 is filled. Absent that, option 3 is the
-better-bounded bet, and option 4 only as a measured follow-up.
+Recommendation: option 3, indexed + CPU Worker. On this bench it cut main-thread cost per
+screen from 48-131 ms to 0.4-0.9 ms, held scroll p95 at 17.6-17.9 ms where RGBA reached 49-132 ms,
+cut first paint from 199-462 ms to 44-76 ms, retained heap from 10-15 MB to 1.4 MB, and
+repainted 4 screens after a palette edit in 16-32 ms with no server round trip. Why not the
+others: option 1 and 2 leave the 48-131 ms main-thread stalls and cannot express a palette edit;
+option 4 (WebGL2) measured slower than the CPU worker here (decode p95 24-49 ms, palette edit
+26-37 ms) on a software renderer, so it is not justified until a real-GPU run shows otherwise.
 
 ## 7. What this does not cover
 
