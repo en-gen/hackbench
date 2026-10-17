@@ -6,7 +6,10 @@ export interface SpriteMetadata {
   source?: string
 }
 
-// Comments are the disassembly's own, bank_05.asm:4583-4597.
+// Comments are the disassembly's own, bank_05.asm:4583-4597. They describe
+// vanilla SMW's dispatch table as cited, not bytes read from this ROM: a hack
+// that repoints the table or changes a routine is not reflected, so every
+// display name below carries a "(vanilla)" suffix.
 export const SCROLL_COMMANDS = [
   'Auto-Scroll, Unused?',
   'Auto-Scroll',
@@ -33,11 +36,11 @@ function scrollCommands(): Record<number, SpriteMetadata> {
     out[id] =
       meaning === undefined
         ? {
-            displayName: `Scroll command ${cmd}: undefined, past the end of the table (the game jumps into code bytes)`,
+            displayName: `Scroll command ${cmd}: undefined, past the end of the table (the game jumps into code bytes) (vanilla)`,
             source: 'bank_05.asm:4580 (in CODE_05BCE9, 4579)',
           }
         : {
-            displayName: `Scroll command ${cmd}: ${meaning}`,
+            displayName: `Scroll command ${cmd}: ${meaning} (vanilla)`,
             source: `bank_05.asm:${4583 + cmd} (in CODE_05BCE9, 4579)`,
           }
   }

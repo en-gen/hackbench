@@ -139,7 +139,7 @@ describe('scroll commands E7..FF', () => {
   it('names every command by its table position', () => {
     for (let cmd = 0; cmd < 15; cmd++) {
       expect(SPRITE_METADATA[0xe7 + cmd].displayName).toBe(
-        `Scroll command ${cmd}: ${SCROLL_COMMANDS[cmd]}`,
+        `Scroll command ${cmd}: ${SCROLL_COMMANDS[cmd]} (vanilla)`,
       )
       expect(SPRITE_METADATA[0xe7 + cmd].source).toContain(`bank_05.asm:${4583 + cmd} `)
     }
@@ -148,7 +148,7 @@ describe('scroll commands E7..FF', () => {
   it('F6..FF say the result is undefined', () => {
     for (let id = 0xf6; id <= 0xff; id++) {
       expect(SPRITE_METADATA[id].displayName).toBe(
-        `Scroll command ${id - 0xe7}: undefined, past the end of the table (the game jumps into code bytes)`,
+        `Scroll command ${id - 0xe7}: undefined, past the end of the table (the game jumps into code bytes) (vanilla)`,
       )
     }
   })
