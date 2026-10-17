@@ -9,7 +9,8 @@
 import { describe, expect, it } from 'vitest'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { neighboursOf } from '../../../../src/rom/sprites/interp/Neighbours'
-import { runOnce } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import { Machine, RAM, runOnce } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import { shellLoad } from '../../../../src/rom/sprites/ShellSprites'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import type { LevelSprite } from '../../../../src/rom/LevelParser'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
@@ -30,7 +31,7 @@ const HIGHBYTE = 57
 const SHELLSCAN = 58
 const SHELL_LIST_ID = 0xdb
 
-function cart(): RomFile {
+function cart(opts: { breakShellLoader?: boolean } = {}): RomFile {
   const bytes = new Uint8Array(buildSyntheticRom().buffer)
   const off = (snes: number) => (snes >>> 16) * 0x8000 + ((snes & 0xffff) - 0x8000)
   const put = (snes: number, b: number[]) => {
@@ -87,6 +88,8 @@ function cart(): RomFile {
   main(SCANNER, 0x9800)
   main(DRAWS, 0x8640)
   main(SHIFTS, 0x9900)
+  // The shell ceiling compare's opcode ($02A8C0) is what shellLoad reads for a id from $C9 up: a wrong byte refuses.
+  if (opts.breakShellLoader) bytes[off(0x02a8c0)] = 0xea
   return RomFile.fromBytes('scan.sfc', bytes)
 }
 
@@ -187,6 +190,19 @@ describe('neighbour placement (#841)', () => {
   })
 })
 
+describe('a neighbour id the loader reader refuses is not placed (#841)', () => {
+  it('$DB is skipped and the next neighbour takes the first free slot, not the one after', () => {
+    const rom = cart({ breakShellLoader: true })
+    expect(shellLoad(rom, SHELL_LIST_ID).refusal).toBeDefined()
+    const m = new Machine(rom, seedWith([{ id: SHELL_LIST_ID, x: 0x90, y: 0x70 }, { id: QUIET, x: 0xa0, y: 0x70 }]), 0, undefined, true) // prettier-ignore
+    const w = m.bus.wram
+    // Slot 0 is the sprite under test, so the first free slot is 1.
+    expect(m.neighbourSlots).toEqual([1])
+    expect(w[RAM.spriteNumber + 1]).toBe(QUIET)
+    for (let k = 2; k < 10; k++) expect(w[RAM.status + k]).toBe(0)
+  })
+})
+
 describe('a shell neighbour is placed as the loader loads it (#837, #841)', () => {
   const rom = cart()
   const near = { x: 0x90, y: 0x70 }
@@ -214,11 +230,13 @@ describe('neighboursOf', () => {
     expect(neighboursOf(list, me, px).map(n => n.x / 16)).toEqual([72, 60, 90])
   })
 
-  it('keeps the status-9 shell ids ($DA-$DD, $DF) and drops the ids with no slot ($C9-$D9, $DE, $E0 up)', () => {
+  it('keeps $C8, the status-9 shell ids ($DA-$DD, $DF) and nothing else from $C8 to $FF', () => {
     const me = sp(0, 4, 70)
-    const ids = [0xc8, 0xc9, 0xca, 0xcb, 0xd9, 0xda, 0xdd, 0xde, 0xdf, 0xe0, 0xe1, 0xe7]
-    const list = [me, ...ids.map((id, i) => sp(i + 1, 4, 71 + i, id))]
-    expect(neighboursOf(list, me, px).map(n => n.id)).toEqual([0xc8, 0xda, 0xdd, 0xdf])
+    const keep = [0xc8, 0xda, 0xdb, 0xdc, 0xdd, 0xdf]
+    for (let id = 0xc8; id <= 0xff; id++) {
+      const kept = neighboursOf([me, sp(1, 4, 71, id)], me, px).length === 1
+      expect(kept, `id $${id.toString(16)}`).toBe(keep.includes(id))
+    }
   })
 
   it('orders by distance in x and y together, not x alone', () => {

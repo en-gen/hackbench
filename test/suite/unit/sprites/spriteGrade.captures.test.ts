@@ -63,7 +63,6 @@ interface Rec {
   listIndex?: number
   id: string
   slot: number
-  listIndex?: number
   listX: number
   listY: number
   cameraX: number

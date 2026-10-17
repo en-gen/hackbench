@@ -11,10 +11,12 @@ import type { SpriteSeed } from './SpriteSeed'
 const MAX_NEIGHBOURS = 10
 
 /**
- * Whether the level loader leaves list id `id` in a slot. Ids to $C8 load as slot sprites. $C9-$CA shooters
- * and $CB-$D9 generators set a shooter or generator, not a slot (bank_02.asm:5336-5346, 5364-5367). $DA-$DD
- * and $DF load as status-9 slot sprites (5348-5362; ShellSprites.ts reads the mapping). $DE, $E0 and $E1+
- * run their own loaders (5312-5334, 5349-5358), no slot.
+ * Whether list id `id` is one this derivation puts in a slot. Ids to $C8 load as slot sprites. $C9-$CA
+ * shooters and $CB-$D9 generators set a shooter or generator, not a slot (bank_02.asm:5336-5346,
+ * 5364-5367). $DA-$DD and $DF load as status-9 slot sprites (5348-5362; ShellSprites.ts reads the
+ * mapping). $DE and $E0 do fill slots, but with several sprites of another id: five $39 at status 8
+ * (6281-6288) and three $A3 at status 1 (6223-6230). They are left out as a scope choice, not because
+ * they make no slot. $E1 and up go to cluster sprites (5631-5667).
  */
 function isSlotSprite(id: number): boolean {
   return id <= 0xc8 || (id >= 0xda && id <= 0xdd) || id === 0xdf
