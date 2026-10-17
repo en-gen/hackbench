@@ -67,7 +67,7 @@ afterEach(() => {
 function fakeRom(): Uint8Array {
   const rom = new Uint8Array(0x80000)
   for (let i = 0; i < rom.length; i++) rom[i] = (i * 31) & 0xff
-  rom.set(Buffer.from('SUPER MARIO WORLD  ', 'ascii'), 0x7fc0)
+  rom.set(Buffer.from('SUPER-MARIO-WORLD ', 'ascii'), 0x7fc0)
   const offset = loromToOffset(MARIO_RED_ADDR, rom.length, false) as number
   rom[offset] = 0x1f
   rom[offset + 1] = 0x39 // $391F
