@@ -1,6 +1,6 @@
 ### Added
 
-- Map view (#981): hovering a placed sprite shows its name and id as a tooltip ("Podoboo (sprite $33)"), and clicking it puts the same in the status bar (a click on empty ground clears it). The topmost sprite at the pointer wins, by the order the sprites are drawn in; a sprite hidden by a tile shows too. Names come from the app's sprite name table.
+- Map view (#981): hovering a placed sprite shows its name, and only the name, in the same themed hover as the rest of the app. The topmost sprite at the pointer wins, by the order the sprites are drawn in; a sprite hidden by a tile shows too. Names come from the app's sprite name table.
 
 ### Fixed
 

@@ -14,7 +14,7 @@
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message, Widget } from '@theia/core/lib/browser'
-import { StatusBar, StatusBarAlignment } from '@theia/core/lib/browser/status-bar/status-bar'
+import { HoverService } from '@theia/core/lib/browser/hover-service'
 import {
   MAP_PLANE_KEYS,
   MapCollisionCheckResult,
@@ -34,8 +34,7 @@ import { decodeRgba, TILE_PX } from './map16-pixels'
 import {
   spriteDoors,
   spriteAt,
-  spriteLabel,
-  SpriteStatusOwner,
+  spriteName,
   doorIdAt,
   liftIfCovered,
   spritePlanes,
@@ -113,10 +112,6 @@ type BlockContents = Extract<MapBlockContentsResult, { status: 'ok' }> & {
 }
 /** The sprite canvases' key in place of a plane's: one per screen, between L2 and L1's priority plane. */
 const SPRITES = 'sprites'
-/** The status bar entry that names the clicked sprite (#981). */
-const SPRITE_STATUS_ID = 'hackbench.map-sprite'
-/** Shared by every map widget: the entry has one owner at a time, the widget that last published. */
-const spriteStatus = new SpriteStatusOwner(SPRITE_STATUS_ID, StatusBarAlignment.LEFT)
 /** Each screen's display canvas: the screen at screen resolution when it holds indicators (#566). */
 const DISPLAY = 'display'
 type LayerKey = MapPlaneKey | typeof SPRITES | typeof DISPLAY
@@ -145,7 +140,7 @@ const palaceName = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
 export class MapViewWidget extends ReactWidget implements ProjectBound {
   @inject(ProjectService) protected readonly projects!: ProjectService
   @inject(ProjectContext) protected readonly projectContext!: ProjectContext
-  @inject(StatusBar) protected readonly statusBar!: StatusBar
+  @inject(HoverService) protected readonly hoverService!: HoverService
 
   protected options: MapViewOptions | undefined
 
@@ -179,9 +174,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** The map's sprites (#564), once read; `spritesWhy` is why there are none to show. */
   protected sprites: Sprites | undefined
   protected spritesWhy: string | undefined
-  /** The sprite under the pointer (its label is the strip's tooltip) and the clicked one (its label is in the status bar), #981. */
+  /** The sprite under the pointer (#981); its name shows in Theia's themed hover, anchored on the sprite. */
   protected hoverSprite: MapSpriteDto | undefined
-  protected selectedSprite: MapSpriteDto | undefined
+  /** The invisible box over the hovered sprite that the hover is placed against. */
+  protected spriteAnchor: HTMLElement | undefined
   /** Bumped when `sprites` is replaced, so a canvas painted from the old ones is repainted. */
   protected spritesVersion = 0
   /** The collision overlay (#435); off by default. */
@@ -248,7 +244,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.title.closable = true
     this.node.tabIndex = 0
     this.toDispose.push({ dispose: () => this.resizes.disconnect() })
-    this.toDispose.push({ dispose: () => this.selectSprite(undefined) })
+    this.toDispose.push({ dispose: () => this.setHoverSprite(undefined) })
     this.toDispose.push(this.view)
     // Three consumers of one store, each deciding for itself.
     this.toDispose.push(
@@ -493,8 +489,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     // An older map's or edit's sprites must not land over a newer one.
     if (generation !== this.generation) return
     this.sprites = r.status === 'ok' ? r : undefined
-    this.hoverSprite = undefined
-    this.selectSprite(undefined)
+    this.setHoverSprite(undefined)
     this.lift = undefined
     this.coveredIds.clear()
     this.spritesWhy = r.status === 'ok' ? undefined : r.status === 'unavailable' ? r.reason : `The base ROM ${r.baseRom.title} is not on this machine` // prettier-ignore
@@ -907,20 +902,23 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected setHoverSprite(next: MapSpriteDto | undefined): void {
     if (next === this.hoverSprite) return
     this.hoverSprite = next
+    this.hoverService.cancelHover()
+    this.spriteAnchor?.remove()
+    this.spriteAnchor = undefined
+    const name = next && spriteName(next)
+    const strip = this.node.querySelector('.hb-map-view-strip')
+    if (next && name && strip) {
+      // Theia's hover is placed against an element, so a fixed box over the sprite stands in for it.
+      const r = strip.getBoundingClientRect()
+      const { x0, y0, x1, y1 } = next.box
+      const a = document.createElement('div')
+      a.className = 'hb-map-sprite-anchor'
+      Object.assign(a.style, { position: 'fixed', pointerEvents: 'none', left: `${r.left + x0 * this.zoom}px`, top: `${r.top + y0 * this.zoom}px`, width: `${(x1 - x0) * this.zoom}px`, height: `${(y1 - y0) * this.zoom}px` }) // prettier-ignore
+      document.body.append(a)
+      this.spriteAnchor = a
+      this.hoverService.requestHover({ content: name, target: a, position: 'top', cssClasses: ['hb-map-sprite-hover'] }) // prettier-ignore
+    }
     this.update()
-  }
-
-  /** View-only selection (#981): the sprite's label sits in the status bar until another click, a map change or close. */
-  protected selectSprite(next: MapSpriteDto | undefined): void {
-    this.selectedSprite = next
-    this.syncSpriteStatus()
-  }
-
-  /** Publishes this widget's selection, or releases the entry; always runs, so a selected sprite never lacks its label. */
-  protected syncSpriteStatus(): void {
-    if (this.selectedSprite && this.isVisible)
-      spriteStatus.publish(this.statusBar, this, this.selectedSprite)
-    else spriteStatus.clear(this.statusBar, this)
   }
 
   protected setHover(next: Indicator | undefined): void {
@@ -1055,10 +1053,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   protected toggleSprites(): void {
     this.showSprites = !this.showSprites
-    if (!this.showSprites) {
-      this.hoverSprite = undefined
-      this.selectSprite(undefined)
-    }
+    if (!this.showSprites) this.setHoverSprite(undefined)
     this.update()
     this.sync()
   }
@@ -1080,19 +1075,6 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected override onActivateRequest(msg: Message): void {
     super.onActivateRequest(msg)
     this.node.focus()
-    // Active with no selection (a split layout keeps both maps visible): the label follows the active map.
-    if (this.selectedSprite) this.syncSpriteStatus()
-    else spriteStatus.claim(this.statusBar, this)
-  }
-
-  protected override onAfterShow(msg: Message): void {
-    super.onAfterShow(msg)
-    this.syncSpriteStatus()
-  }
-
-  protected override onAfterHide(msg: Message): void {
-    super.onAfterHide(msg)
-    this.syncSpriteStatus()
   }
 
   /** Layer 3's tooltip: its role when drawn (the header's priority bit), else why it is not. */
@@ -1312,14 +1294,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
         >
           {/* Bottom to top (planes by `screens`, composited per screen): the checkerboard, the back area, then the screens,
               so hiding a layer shows what is under it, down to nothing. */}
-          <div
-            className="hb-map-view-strip hb-checkerboard"
-            title={this.hoverSprite ? spriteLabel(this.hoverSprite) : undefined}
-            onClick={e => {
-              const strip = e.currentTarget.getBoundingClientRect()
-              this.selectSprite(this.spriteUnder((e.clientX - strip.left) / this.zoom, (e.clientY - strip.top) / this.zoom)) // prettier-ignore
-            }}
-          >
+          <div className="hb-map-view-strip hb-checkerboard">
             <div
               className="hb-map-view-back-area"
               data-layer="back-area"
