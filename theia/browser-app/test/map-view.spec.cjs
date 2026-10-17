@@ -2285,6 +2285,13 @@ for (const index of [0x105, 0x109]) {
     { control: 'zoom-out', scroll: 0.6 },
     { control: 'zoom-out', scroll: 0.97, clamped: true },
   ]
+  // The clamped case needs the anchored scroll to land short of the new range's end, or it
+  // clamps to the same value as the unanchored one and the case cannot fail. The margin is
+  // cw * (r / 2 + 1 / 2 - f * r) - (1 - f) * strip * z1 (r = z1 / z2, f = the scroll fraction):
+  // at 0.97 on the 7-screen vertical $109 it is a few pixels either side of zero and flipped
+  // when the scroller grew 28 px (#1008, clip height 603 to 631). 0.8 leaves hundreds of
+  // pixels at every zoom pair this strip can reach, at any plausible scroller height.
+  const clampedScroll = index === 0x109 ? 0.8 : 0.97
   for (const a of ANCHORS) {
     test(`$${index.toString(16)}: ${a.control} keeps the view centre${a.clamped ? ' (strip end, clamped)' : ''}`, async ({
       page,
@@ -2300,7 +2307,7 @@ for (const index of [0x105, 0x109]) {
           el.scrollLeft = (el.scrollWidth - el.clientWidth) * f
           el.scrollTop = (el.scrollHeight - el.clientHeight) * f
         },
-        { sel: root(index), f: a.scroll },
+        { sel: root(index), f: a.clamped ? clampedScroll : a.scroll },
       )
       await settled(page, index)
       const before = await probeView(page, index)

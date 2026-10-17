@@ -280,9 +280,12 @@ test('a ROM that picks GFX per level shows the map marked; a stock ROM is not ma
   expect(await page.locator(NOTE).getAttribute('title')).toContain('FG/BG and sprite GFX files')
   expect(await page.locator(NOTE).textContent()).not.toMatch(CART)
   expect(await textContrast(page, NOTE)).toBeGreaterThanOrEqual(4.5)
-  // Shown, not blanked: the note qualifies a map that is still drawn.
-  const tab = '.hb-map-view-main:has([data-note="gfx-assignment"])'
-  await expect(page.locator(`${tab} canvas[data-plane="l1Low"]`).first()).toBeAttached()
+  // The note belongs to the opened map's own view (the tab for $105), not to some other panel.
+  // Not a canvas check: GPW2 $105's Layer 1 is not drawn (its block contents cannot be read),
+  // so a drawn plane is no premise here.
+  await expect(
+    page.locator('[id="hackbench.map-view:261"] .hb-map-view-main [data-note="gfx-assignment"]'),
+  ).toBeVisible()
 })
 
 test('the map view warns of nothing it can read on an unpatched ROM', async ({ page }) => {
