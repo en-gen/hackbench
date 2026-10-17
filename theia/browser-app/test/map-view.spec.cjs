@@ -1068,9 +1068,10 @@ for (const [index, role, bit, known] of [
     false,
     {
       // Settings byte not $80, so no smash sprite places layer 3: Layer3YPos 192 and camYPx 192 cancel
-      // (y = r*8 - yPx + camYPx, map-screen.ts:253), so tile row R lands at canvas Y R*8, X 0 on every screen (backend probe, one run, one machine: the same box on screens 0-3; the box
-      // starts at 257, the first opaque row). A low plane (l3Low), so pixels are read there. No outline-black
-      // pixel: the two are its first opaque pixel in raster order and one of another color. $01F (smash
+      // (y = r*8 - yPx + camYPx, map-screen.ts:250), so tile row R lands at canvas Y R*8, X 0 on every screen
+      // (backend probe, one run, one machine: the same box on screens 0-3; the box starts at 257, the first opaque
+      // row). A low plane (l3Low), so pixels are read there. No outline-black pixel: the two are its first opaque
+      // pixel in raster order and one of another color. $01F (smash
       // Layer 3, 512 px repeat) is left out until #997.
       plane: 'l3Low',
       box: { x: 0, y: 257 },
@@ -1092,7 +1093,12 @@ for (const [index, role, bit, known] of [
     // The bit places BG3's high plane: over layer 1 when set, under layer 1's low plane when clear.
     const order = await zOrder(page, index)
     const at = k => order.indexOf(k)
-    // Bit set: l3Low sits over Layer 2. Bit clear: all of Layer 3 sits under Layer 2's low plane (z-order probe: l3Low, l3High, l2Low, l1Low, l2High).
+    // A missing plane gives -1 and would pass an order check, so each must be present first.
+    for (const k of ['l3Low', 'l3High', 'l2Low', 'l2High', 'l1Low', 'l1High'])
+      expect(at(k), k).toBeGreaterThanOrEqual(0)
+    // Bit set: l2High < l3Low because Layer 2 is on the sub screen, under the whole main screen
+    // (map-view-model.ts:146-148). Bit clear: RenderPass.ts:22-47 gives l3Low, OBJ0, l3High, OBJ1, l2Low
+    // (z-order probe: l3Low, l3High, l2Low, l1Low, l2High, one run, one machine).
     if (bit) expect(at('l2High')).toBeLessThan(at('l3Low'))
     else expect(at('l3High')).toBeLessThan(at('l2Low'))
     expect(at('l3High') > at('l1High')).toBe(bit)
