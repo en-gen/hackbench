@@ -8,6 +8,8 @@
  * its own slot ($15E9) and its X register, so a machine that reruns the sprite, or loses one of those, goes red.
  * The corpus block runs the real ROM.
  */
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { spanFingerprint } from '../../../../src/rom/SubmapFlagGate'
@@ -27,8 +29,9 @@ import {
   EXT_DISPATCH_WILD,
   type LauncherRoutines,
 } from '../../../../src/rom/sprites/interp/TorpedoLauncher'
+import * as TorpedoModule from '../../../../src/rom/sprites/interp/TorpedoLauncher'
 import { drawSprites, interpDrawer } from '../../../../theia/extension/src/node/map-sprites'
-import { hasRom, romPath, VANILLA } from '../../support/corpus'
+import { freshRom, hasRom, romPath, VANILLA } from '../../support/corpus'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 
 const LEVEL = 0x105
@@ -96,21 +99,27 @@ const EXT_AT = 0x029b16
 const EXT_CODE = [0xb5, 0x2b, 0xea, 0xd0, 0x07, 0xa6, 0x41, 0xf0, 0x11, 0xb4, 0x3c, 0xea, 0xd0, 0x05, 0xce, 0x3c, 0x18, 0x22, 0xfa, 0x86, 0x00]
 const EXT_ENTRY8 = EXT_AT + EXT_CODE.length + 16
 
+/** Every byte run this file writes into the cart over buildSyntheticRom's base, as [SNES address, bytes]. */
+const writes = (launch = launchBytes()): [number, number[]][] => [
+  [LOADER_AT, [0xc9, 0xc9, 0x90, 0x09, 0x20, 0x34, 0xa1, 0x80, 0x03]], // the loader route (operands are not the ROM's)
+  [DISPATCH_AT, [0x3a, 0x22, 0xfa, 0x86, 0x00, 0x00, 0x00, 0xb6, 0xb3, 0x00, 0x00]], // dispatch to the cart's ExecutePtr
+  [EXT_AT, EXT_CODE],
+  [EXT_ENTRY8, [ARM & 0xff, (ARM >> 8) & 0xff]], // the cart's table: only entry $08 is filled
+  [LAUNCH, launch],
+  [ARM, arm],
+  [TORPEDO_MAIN, torpedoMain],
+  // Sprite $44's MAIN pointer (the synthetic cart's table, 2 bytes per id from $01:8329) is the cart's torpedo draw.
+  [0x018329 + 2 * 0x44, [TORPEDO_MAIN & 0xff, (TORPEDO_MAIN >> 8) & 0xff]],
+]
+
 function launcherRom(tweak: (bytes: Uint8Array) => void = () => {}, launch = launchBytes()) {
   const bytes = new Uint8Array(buildSyntheticRom().buffer)
-  const put = (snes: number, b: number[]) => {
-    expect(bytes.subarray(off(snes), off(snes) + b.length).every(v => v === 0)).toBe(true)
+  for (const [snes, b] of writes(launch)) {
+    // The pointer overwrites the synthetic table's own entry; every other target is zero padding.
+    if (snes !== 0x018329 + 2 * 0x44)
+      expect(bytes.subarray(off(snes), off(snes) + b.length).every(v => v === 0)).toBe(true)
     bytes.set(b, off(snes))
   }
-  put(LOADER_AT, [0xc9, 0xc9, 0x90, 0x09, 0x20, 0x34, 0xa1, 0x80, 0x03]) // the loader route (operands are not the ROM's)
-  put(DISPATCH_AT, [0x3a, 0x22, 0xfa, 0x86, 0x00, 0x00, 0x00, 0xb6, 0xb3, 0x00, 0x00]) // dispatch to the cart's ExecutePtr
-  put(EXT_AT, EXT_CODE)
-  put(EXT_ENTRY8, [ARM & 0xff, (ARM >> 8) & 0xff]) // the cart's table: only entry $08 is filled
-  put(LAUNCH, launch)
-  put(ARM, arm)
-  put(TORPEDO_MAIN, torpedoMain)
-  // Sprite $44's MAIN pointer (the synthetic cart's table, 2 bytes per id from $01:8329) is the cart's torpedo draw.
-  bytes.set([TORPEDO_MAIN & 0xff, (TORPEDO_MAIN >> 8) & 0xff], off(0x018329 + 2 * 0x44))
   tweak(bytes)
   return RomFile.fromBytes('launcher.sfc', bytes)
 }
@@ -120,6 +129,60 @@ const sha = (rom: RomFile, at: number, n: number) =>
   spanFingerprint(Uint8Array.from(bytesAt(rom, at, n)!))!
 const extSha = (rom: RomFile) => spanFingerprint(Uint8Array.from(bytesAt(rom, EXT_DISPATCH, EXT_DISPATCH_LENGTH)!), EXT_DISPATCH_WILD)! // prettier-ignore
 const routinesOf = (rom: RomFile): LauncherRoutines => ({ launch: sha(rom, LAUNCH, LAUNCH_SPAN), arm: sha(rom, ARM, ARM_SPAN), extDispatch: extSha(rom) }) // prettier-ignore
+
+// No ROM-derived bytes in the repo: no 8-byte window of what this file writes may equal the vanilla ROM at the same
+// address. Compared in memory, nothing stored. Same check as RotatingRing.test.ts (#991); duplicated, not shared, until
+// a third user. The window check is proven by the planted case; the ROM cases are skipped without the corpus.
+const sameWindow = (a: ArrayLike<number>, b: ArrayLike<number | null>, n = 8) => {
+  for (let i = 0; i + n <= b.length; i++) {
+    let hit = true
+    for (let k = 0; k < n && hit; k++) hit = b[i + k] !== null && a[i + k] === b[i + k]
+    if (hit) return true
+  }
+  return false
+}
+/** Every array literal of 8 or more hex bytes (or null wildcards) in a source text. */
+const byteArrays = (src: string) =>
+  [...src.matchAll(/\[((?:\s*(?:0x[0-9a-fA-F]+|null)\s*,?){8,})\]/g)].map(m =>
+    [...m[1]!.matchAll(/0x[0-9a-fA-F]+|null/g)].map(t => (t[0] === 'null' ? null : Number(t[0]))),
+  )
+describe('no vanilla code bytes in the synthetic cart', () => {
+  it('the window check goes red on a planted copy of the vanilla bytes', () => {
+    const vanilla = Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8, 9])
+    expect(sameWindow(vanilla, [9, 2, 3, 4, 5, 6, 7, 8, 9])).toBe(true)
+    expect(sameWindow(vanilla, [9, 2, 3, 4, 5, 6, 7, 0, 0])).toBe(false)
+    expect(sameWindow(vanilla, [1, 2, 3, null, 5, 6, 7, 8])).toBe(false) // a wildcard is never a match
+    // The source scan sees a planted fully literal array, and the PATH-style shape with wildcards.
+    expect(byteArrays('const A = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]')).toEqual([[1, 2, 3, 4, 5, 6, 7, 8]]) // prettier-ignore
+    expect(byteArrays('x = [0xc9, null, 0x90, 0x20, null, 0x80, 0x01, 0x02, 0x03]').length).toBe(1)
+    expect(byteArrays('x = [0x01, 0x02]').length).toBe(0)
+  })
+  describe.skipIf(!hasRom(VANILLA))('against the vanilla ROM', () => {
+    it('no write shares an 8-byte window with the ROM at its address', () => {
+      const rom = freshRom(VANILLA)
+      const hits = writes()
+        .filter(([at, b]) => sameWindow(bytesAt(rom, at, b.length) ?? [], b))
+        .map(([at]) => at.toString(16))
+      expect(hits).toEqual([])
+    })
+    it('the shipped TorpedoLauncher.ts holds no 8-byte literal run of the ROM, and exports no such array', () => {
+      const rom = freshRom(VANILLA)
+      const all = new Uint8Array(rom.buffer)
+      const src = readFileSync(join(__dirname, '../../../../src/rom/sprites/interp/TorpedoLauncher.ts'), 'utf8') // prettier-ignore
+      const literals = byteArrays(src)
+      expect(literals.length).toBeGreaterThan(0) // the scan finds the PATH shapes, so it is not vacuous
+      const inRom = (shape: (number | null)[]) => {
+        for (let at = 0; at + 8 <= all.length; at++) if (sameWindow(all.subarray(at, at + shape.length), shape)) return true // prettier-ignore
+        return false
+      }
+      expect(literals.filter(inRom).length).toBe(0)
+      const exported = Object.values(TorpedoModule).filter(
+        (v): v is number[] => Array.isArray(v) && v.every(x => typeof x === 'number'),
+      )
+      expect(exported.filter(inRom).length).toBe(0)
+    })
+  })
+})
 
 const SHOOTER = { x: 0x120, y: 0x90 }
 const CAMERA = { x: 0x40, y: 0x20 }
