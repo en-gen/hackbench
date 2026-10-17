@@ -5,26 +5,26 @@
  * checked by identity, and the call count and arity are exact.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { RomFile } from '../../../src/rom/RomFile'
-import { SmwRom, type MapEntrances } from '../../../src/rom/SmwRom'
-import { SCROLL_SPRITE_BASE } from '../../../src/rom/L2Loader'
-import { buildMapWithGraph } from '../../../src/rom/model/MapBuilder'
-import { buildL2 } from '../../../src/rom/model/L2Factory'
-import { buildL3 } from '../../../src/rom/model/L3Factory'
+import { RomFile } from '../../../../src/rom/RomFile'
+import { SmwRom, type MapEntrances } from '../../../../src/rom/SmwRom'
+import { SCROLL_SPRITE_BASE } from '../../../../src/rom/L2Loader'
+import { buildMapWithGraph } from '../../../../src/rom/model/MapBuilder'
+import { buildL2 } from '../../../../src/rom/model/L2Factory'
+import { buildL3 } from '../../../../src/rom/model/L3Factory'
 
 // Sentinels the mocked collaborators return, so the builders' inputs can be matched by identity.
 const TILES = new Map()
 const BG_TILES = new Map()
 const L3_CHARS: never[] = []
-vi.mock('../../../src/rom/ObjectExpander', async orig => ({ ...(await orig<object>()), expandMap: () => [] })) // prettier-ignore
-vi.mock('../../../src/rom/model/tiles/TileFactory', async orig => ({ ...(await orig<object>()), buildTiles: () => TILES })) // prettier-ignore
-vi.mock('../../../src/rom/GfxLoader', async orig => ({ ...(await orig<object>()), loadL3Chars: vi.fn(() => L3_CHARS) })) // prettier-ignore
-vi.mock('../../../src/rom/model/L2Factory', async orig => {
-  const real = await orig<typeof import('../../../src/rom/model/L2Factory')>()
+vi.mock('../../../../src/rom/ObjectExpander', async orig => ({ ...(await orig<object>()), expandMap: () => [] })) // prettier-ignore
+vi.mock('../../../../src/rom/model/tiles/TileFactory', async orig => ({ ...(await orig<object>()), buildTiles: () => TILES })) // prettier-ignore
+vi.mock('../../../../src/rom/GfxLoader', async orig => ({ ...(await orig<object>()), loadL3Chars: vi.fn(() => L3_CHARS) })) // prettier-ignore
+vi.mock('../../../../src/rom/model/L2Factory', async orig => {
+  const real = await orig<typeof import('../../../../src/rom/model/L2Factory')>()
   return { ...real, buildBgTiles: () => BG_TILES, buildL2: vi.fn(real.buildL2) }
 })
-vi.mock('../../../src/rom/model/L3Factory', async orig => {
-  const real = await orig<typeof import('../../../src/rom/model/L3Factory')>()
+vi.mock('../../../../src/rom/model/L3Factory', async orig => {
+  const real = await orig<typeof import('../../../../src/rom/model/L3Factory')>()
   return { ...real, buildL3: vi.fn(real.buildL3) }
 })
 beforeEach(() => {
@@ -53,7 +53,7 @@ const VERTICAL_TABLE = [0, 0, 0, 0, 0, 1]
 const VIA: MapEntrances = { overworld: false, primary: false, secondary: [ENTRANCE] }
 const SPRITES_AT = 0x188000 // LoROM, file offset $C0000
 
-function cart(mode: number): { smw: SmwRom; file: RomFile; level: Buffer } {
+function cart(mode: number): { smw: SmwRom; file: RomFile } {
   const file = RomFile.fromBytes('blank.sfc', Buffer.alloc(0x100000))
   file.writeAt(0x00ffd5, [0x20]) // map mode byte SmwRom checks
   file.writeAt(0x05d708, [0x10, CAM_Y, 0xc0, 0x30]) // DATA_05D708 camera Y rows
@@ -74,7 +74,7 @@ function cart(mode: number): { smw: SmwRom; file: RomFile; level: Buffer } {
     getLevelSpritePointer: () => SPRITES_AT,
     requireVerticalTable: () => VERTICAL_TABLE,
   }) as SmwRom
-  return { smw, file, level }
+  return { smw, file }
 }
 
 describe.each([
@@ -90,6 +90,21 @@ describe.each([
     })
     return { file, out }
   }
+
+  it('uses scalars no two of which coincide, so a swap cannot pass by equality', () => {
+    const scalars = [
+      LEVEL_ID,
+      SCREENS,
+      OVERRIDE_TILESET,
+      RAW_TILESET,
+      TIME_LIMIT,
+      SCROLL_CMD,
+      CAM_Y,
+    ]
+    scalars.push(MODE.horizontal, MODE.vertical, SPRITE_SET, RAW_BG_PALETTE, OVERRIDE_BG_PALETTE)
+    scalars.push(BG_COLOR, SPRITE_PALETTE, FG_PALETTE)
+    expect(new Set(scalars).size).toBe(scalars.length)
+  })
 
   it('calls buildL2 once with all twelve arguments in order', () => {
     const { file, out } = built()
@@ -132,28 +147,5 @@ describe.each([
     expect(a[5]).toBe(isVertical)
     expect(a[6]).toBe(TIME_LIMIT) // the raw header's, which no override reaches
     expect(a[7]).toBe(VIA)
-  })
-})
-
-describe('the scalars are told apart', () => {
-  it('no two of the pinned numbers coincide, so a swap cannot pass by equality', () => {
-    const scalars = [
-      LEVEL_ID,
-      SCREENS,
-      OVERRIDE_TILESET,
-      RAW_TILESET,
-      TIME_LIMIT,
-      SCROLL_CMD,
-      CAM_Y,
-      MODE.horizontal,
-      MODE.vertical,
-      SPRITE_SET,
-      RAW_BG_PALETTE,
-      OVERRIDE_BG_PALETTE,
-      BG_COLOR,
-      SPRITE_PALETTE,
-      FG_PALETTE,
-    ]
-    expect(new Set(scalars).size).toBe(scalars.length)
   })
 })
