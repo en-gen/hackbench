@@ -7,8 +7,9 @@
  * carries what the compositor needs whether or not layer 3 draws: the per-screen
  * plane lists (`ScreenPlanes`), the effective CGADSUB and the layer 2 role. The
  * rest are refusals carrying their reason, never a guess. Camera-locked layer 3
- * ($81-$BF) is world-locked and draws from the entrance camera (#563, docs/rom/layer3-camera-locked.md);
- * $00 off Castle1 and Underground1, mode 0E and vertical maps still refuse. The main/sub designations only mean BG1/BG2/BG3 in
+ * ($81-$BF) is world-locked and draws from the entrance camera (#563,
+ * docs/rom/layer3-camera-locked.md); $00 off Castle1 and Underground1, mode 0E and
+ * vertical maps still refuse. The main/sub designations only mean BG1/BG2/BG3 in
  * BG mode 1, so an unverified mode keeps the old stacking and no math.
  */
 import type { RomFile } from '../RomFile'
@@ -50,12 +51,6 @@ export interface L3Inputs {
   /** Set when the code that reads `camYPx` is not stock (#860): the value is a best reading, not confirmed. */
   camYUnverified?: string
 }
-
-/**
- * Whether a world-locked Layer 3 repeats every 512 px across the map (the game's wrapping BG3 tilemap)
- * or is drawn once, from the entrance camera, over 512 px. The one place the choice is made (#563).
- */
-export const L3_WORLD_LOCKED_REPEATS = true
 
 export interface L3Verdict {
   /** Planes per SNES screen, bottom to top. The old BG1/BG2 stacking when the tables are unverified. */
