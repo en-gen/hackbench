@@ -78,6 +78,11 @@ const STEP_BUDGET = 200_000
  * machine, 2026-10-05), so this is ~4x headroom.
  */
 export const TOTAL_STEP_CAP = 1_000_000
+/** Slots in the sprite tables. */
+const SLOTS = 12
+/** Slots the $9C scan covers, 0-9 (bank_02.asm:12118); neighbours go no further. */
+const SCANNED_SLOTS = 10
+
 /** INIT retries allowed while the routine leaves status 1. */
 const MAX_INIT_FRAMES = 64
 
@@ -124,7 +129,7 @@ export interface PassResult {
   palette: PaletteWrite[]
 }
 
-export type DependsOn = 'marioX'
+export type DependsOn = 'marioX' | 'neighbours'
 
 export interface SpriteModel {
   id: number
@@ -160,6 +165,14 @@ export interface SpriteModel {
   steps: number[]
   /** WRAM offsets read before anything wrote them, when `RunOptions.trackInputs` is set. */
   inputs?: number[]
+  /** The sprite's own code read the number or status table at another slot (a scan for a companion). */
+  scansSlots?: boolean
+  /**
+   * Set only when a second run put `seed.neighbours` in the other slots: 'adopted' when its parts (those
+   * written while this sprite's slot ran) differed from the run alone and replaced it, 'same' when not, 'refused' when
+   * the second run refused (the run alone stands in both).
+   */
+  neighbourRun?: 'adopted' | 'same' | 'refused'
 }
 
 /**
@@ -201,18 +214,26 @@ export class Machine {
   /** $0681 when the run began: entries the loader left in the upload list are not this sprite's. */
   private dynStart = 0
   steps = 0
+  /** The sprite's own code read another slot's number or status cell. */
+  scanned = false
+  /** Slots `load` put neighbours in (their InitSpriteTables still has to run). */
+  readonly neighbourSlots: number[] = []
+  /** OAM tile bytes written while `$15E9` named this sprite's slot; read instead of `touched` in a neighbour run. */
+  private own = new Set<number>()
 
   constructor(
-    rom: RomFile,
+    private readonly rom: RomFile,
     readonly seed: SpriteSeed,
     id: number,
     shell?: ShellLoad,
+    private readonly neighbourRun = false,
   ) {
     const m = smwMachine(rom)
     this.bus = m.bus
     this.cpu = m.cpu
     this.bus.onWramWrite = off => {
       this.touched.add(off)
+      if (this.bus.wram[RAM.curSprite] === this.seed.slot) this.own.add(off)
       if (off === RAM.paletteIndexTable) this.modeWritten = true
     }
     this.bus.onHwWrite = (reg, v) => {
@@ -228,6 +249,18 @@ export class Machine {
         }
       }
     }
+    // The gate for the neighbour run: a read of the number ($9E) or status ($14C8) table at a slot other than
+    // this sprite's, made while the loop is on this sprite's slot ($15E9 is stored before the loop's own reads
+    // of its slot). The loop's reads of the other slots happen under their own $15E9.
+    if (seed.neighbours?.length)
+      this.bus.onRead = off => {
+        const inStatus = off >= RAM.status && off < RAM.status + SLOTS
+        const inNumber = off >= RAM.spriteNumber && off < RAM.spriteNumber + SLOTS
+        if (!inStatus && !inNumber) return
+        const j = off - (inStatus ? RAM.status : RAM.spriteNumber)
+        if (j !== this.seed.slot && this.bus.wram[RAM.curSprite] === this.seed.slot)
+          this.scanned = true
+      }
     this.load(id, shell)
     this.dynStart = this.bus.wram[RAM.dynPaletteIndex]
   }
@@ -311,7 +344,8 @@ export class Machine {
     const s = this.seed
     if (s.loaded) {
       w.set(s.loaded.subarray(0, w.length))
-      // The loader also spawns the level's own sprite list (CODE_02A751); only the one sprite under test runs.
+      // The loader also spawns the level's own sprite list (CODE_02A751); only the sprite under test is active,
+      // unless a neighbour run places the list's other sprites afterwards (placeNeighbours).
       for (let i = 0; i < 12; i++) w[RAM.status + i] = 0
     }
     for (let i = 0; i < RAM.oamEntries; i++) w[RAM.oam + 1 + i * 4] = 0xf0 // cleared OAM is offscreen
@@ -347,10 +381,39 @@ export class Machine {
     w[RAM.spriteYLow + n] = s.sprite.y & 0xff
     w[RAM.yHigh + n] = (s.sprite.y >> 8) & 0xff
     w[RAM.status + n] = shell?.status ?? 1
+    if (this.neighbourRun) this.placeNeighbours()
+  }
+
+  /**
+   * The list's other sprites in free slots 0-9 (the scan covers those, bank_02.asm:12118), each loaded the
+   * way the level loader would load that id: a shell id (ShellSprites.ts) takes its rebased number and status,
+   * the rest status 1 so the game's own loop runs their INIT. This is a derivation from the list, not a trace
+   * of the loader: the loader's slot order and which sprites it had loaded by then are not modelled.
+   */
+  private placeNeighbours(): void {
+    const w = this.bus.wram
+    const list = [...(this.seed.neighbours ?? [])]
+    for (let k = 0; k < SCANNED_SLOTS && list.length; k++) {
+      if (k === this.seed.slot) continue
+      const nb = list.shift()!
+      const loaded = shellLoad(this.rom, nb.id)
+      // A loader the shell reader cannot parse: the id's load is unknowable, so it is not placed.
+      if (loaded.refusal) {
+        k--
+        continue
+      }
+      w[RAM.spriteNumber + k] = loaded.shell?.number ?? nb.id
+      w[RAM.spriteXLow + k] = nb.x & 0xff
+      w[RAM.xHigh + k] = (nb.x >> 8) & 0xff
+      w[RAM.spriteYLow + k] = nb.y & 0xff
+      w[RAM.yHigh + k] = (nb.y >> 8) & 0xff
+      w[RAM.status + k] = loaded.shell?.status ?? 1
+      this.neighbourSlots.push(k)
+    }
   }
 
   /** Runs a routine to its return, from the native reset state with X = the slot; throws Refusal on a bad op, escape, unbalanced return or budget. */
-  call(entry: number, kind: 'jsr' | 'jsl', db?: number): void {
+  call(entry: number, kind: 'jsr' | 'jsl', db?: number, x: number = this.seed.slot): void {
     const left = TOTAL_STEP_CAP - this.steps
     const capMsg = `total step cap of ${TOTAL_STEP_CAP} spent across INIT and MAIN; the sprite does not settle`
     if (left <= 0) throw new Refusal(capMsg)
@@ -358,7 +421,7 @@ export class Machine {
     const r = callSubroutine(this.cpu, entry, {
       kind,
       maxSteps: room,
-      regs: { x: this.seed.slot, ...(db === undefined ? {} : { db }) },
+      regs: { x, ...(db === undefined ? {} : { db }) },
     })
     this.steps += r.steps
     if (r.kind === 'returned') return
@@ -384,12 +447,14 @@ export class Machine {
 
   clearOamWrites(): void {
     this.touched.clear()
+    this.own.clear()
   }
 
   /** OAM mirror indices whose tile byte this pass wrote. */
   writtenOam(): number[] {
     const out: number[] = []
-    for (let i = 0; i < RAM.oamEntries; i++) if (this.touched.has(RAM.oam + 2 + i * 4)) out.push(i)
+    const seen = this.neighbourRun ? this.own : this.touched
+    for (let i = 0; i < RAM.oamEntries; i++) if (seen.has(RAM.oam + 2 + i * 4)) out.push(i)
     return out
   }
 }
@@ -450,12 +515,44 @@ export type Probe = (pass: number, wram: Uint8Array) => void
  */
 const DRAWS_BEFORE_LINE_SNAP: ReadonlySet<number> = new Set([0x67])
 
-/** Run once with a seed; no dependsOn analysis (half the cost of `runSprite`). */
+/**
+ * Run with a seed; no marioX analysis (half the cost of `runSprite`). The run is alone. When the sprite's own
+ * code scanned the slot tables for a companion (`scansSlots`) and the seed lists `neighbours`, a second run puts
+ * them in the other slots and counts only the OAM written under this sprite's slot (as the capture does: a
+ * neighbour's own draw is not this sprite's). It replaces the first only when its parts differ (#841).
+ */
 export function runOnce(
   rom: RomFile,
   id: number,
   seed: SpriteSeed,
   opts: RunOptions = {},
+): SpriteModel {
+  const a = runCore(rom, id, seed, opts, false)
+  if (!seed.neighbours?.length || opts.spawn || a.refusal || !a.scansSlots) return a
+  const b = runCore(rom, id, seed, opts, true)
+  if (b.refusal) return { ...a, neighbourRun: 'refused' }
+  if (b.chosen === undefined || !addsOnly(a, b)) return { ...a, neighbourRun: 'same' }
+  return { ...b, dependsOn: [...a.dependsOn, 'neighbours'], scansSlots: true, neighbourRun: 'adopted' } // prettier-ignore
+}
+
+/**
+ * The neighbour run is taken only when it ADDS parts to the pass the run alone chose and leaves the ones it
+ * had: a companion the sprite draws on itself. A neighbour that merely changes how the sprite behaves (a collision
+ * scan, a kick) is not a part of its picture (#841).
+ */
+function addsOnly(a: SpriteModel, b: SpriteModel): boolean {
+  const key = (q: SpritePart) => [q.oam, q.char, q.palette, +q.flipX, +q.flipY, q.dx, q.dy, q.size].join(',') // prettier-ignore
+  const mine = a.chosen === undefined ? [] : a.passes[a.chosen]!.parts.map(key)
+  const theirs = new Set(b.passes[b.chosen!]!.parts.map(key))
+  return theirs.size > mine.length && mine.every(k => theirs.has(k))
+}
+
+function runCore(
+  rom: RomFile,
+  id: number,
+  seed: SpriteSeed,
+  opts: RunOptions,
+  neighbourRun: boolean,
 ): SpriteModel {
   const probe = opts.probe
   const model: SpriteModel = {
@@ -489,7 +586,7 @@ export function runOnce(
   const rand = checkGetRand(rom)
   if (!rand.ok) return { ...model, refusal: rand.reason }
   // A spawn finds its own slot, so the machine owns a copy of the seed whose slot it may update.
-  const m = new Machine(rom, opts.spawn ? { ...seed } : seed, id, shell)
+  const m = new Machine(rom, opts.spawn ? { ...seed } : seed, id, shell, neighbourRun)
   if (opts.trackInputs) m.bus.inputs = new Set()
   try {
     // RNGCalc ($148B/C) is zero until the game first calls GetRand, its only
@@ -511,7 +608,10 @@ export function runOnce(
       // From here the sprite is wherever the game put it.
       m.seed.slot = picked
       w[RAM.curSprite] = picked
-    } else m.call(ENTRY.initSpriteTables, 'jsl')
+    } else {
+      m.call(ENTRY.initSpriteTables, 'jsl')
+      for (const k of m.neighbourSlots) m.call(ENTRY.initSpriteTables, 'jsl', undefined, k)
+    }
     let n = m.steps
     // Status 1 -> CallSpriteInit, which sets status 8 and runs INIT. An INIT
     // that leaves status 1 runs again next frame, as the game does (the floating
@@ -559,6 +659,7 @@ export function runOnce(
         palette: m.paletteWrites(),
       })
     }
+    if (m.scanned) model.scansSlots = true
     if (m.bus.inputs) model.inputs = [...m.bus.inputs].sort((a, b) => a - b)
     const first = model.passes.findIndex(p => p.parts.length > 0)
     if (first >= 0) model.chosen = first

@@ -106,6 +106,8 @@ export class SpriteBus implements Bus {
    * the inputs a seed has to supply. Off by default (one extra branch per read).
    */
   inputs: Set<number> | null = null
+  /** Called for every WRAM read with the offset; null (the default) costs one branch per read. */
+  onRead: ((off: number) => void) | null = null
   /** Cart SRAM window ($70-$7D/$F0-$FD:0000-7FFF), one 32 KB buffer; reads before any write are 0. */
   readonly sram = new Uint8Array(SRAM_SIZE)
   private written = new Uint8Array(WRAM_SIZE)
@@ -167,6 +169,7 @@ export class SpriteBus implements Bus {
     const w = this.wramOffset(addr)
     if (w >= 0) {
       if (this.inputs && !this.written[w]) this.inputs.add(w)
+      this.onRead?.(w)
       return this.wram[w]
     }
     const bank = addr >>> 16

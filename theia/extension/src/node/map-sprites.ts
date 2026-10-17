@@ -61,6 +61,7 @@ import {
   type FlameRoutines,
 } from '../../../../src/rom/sprites/interp/CastleFlames'
 import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
+import { neighboursOf } from '../../../../src/rom/sprites/interp/Neighbours'
 import { withSeed, type SpriteSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { readSpriteTileTables } from '../../../../src/rom/SpriteTileLoader'
 import {
@@ -356,6 +357,8 @@ export function interpDrawer(
   model: { isVertical: boolean; screenCount: number },
   run: (rom: RomFile, id: number, seed: SpriteSeed) => RunModel = runOnce,
   seedFor: (rom: RomFile, index: number) => SpriteSeed = levelSeed,
+  /** The map's whole sprite list: a sprite that scans the slots for a companion is run with its neighbours (#841). */
+  list: readonly LevelSprite[] = [],
 ): SpriteDrawer {
   // The loader runs once per map, not per sprite.
   const base = seedFor(rom, index)
@@ -379,7 +382,8 @@ export function interpDrawer(
   return s => {
     const [x, y] = [pixelX(s), s.y * TILE]
     const camera = cameraFor(x, y, model.isVertical, model.screenCount)
-    const seed = (camera: { x: number; y: number }, extra = {}) => withSeed({ sprite: { x, y }, camera, mario, ...shape, ...extra }, base) // prettier-ignore
+    const neighbours = neighboursOf(list, s, e => ({ x: pixelX(e), y: e.y * TILE }))
+    const seed = (camera: { x: number; y: number }, extra = {}) => withSeed({ sprite: { x, y }, camera, mario, ...shape, ...(neighbours.length ? { neighbours } : {}), ...extra }, base) // prettier-ignore
     const m = run(rom, s.spriteId, seed(camera))
     const at = m.chosen
     if (!w || !loaderCam || at === undefined || !m.anchor || s.index < 0 || s.index >= 128 || !w[SPRITE_LOAD_STATUS + s.index]) return modelResult(m) // prettier-ignore
@@ -619,13 +623,13 @@ function compute(
     if (!data) return { status: 'unavailable', reason: `No sprite data at the pointer for slot ${index.toString(16)}` } // prettier-ignore
     // The level loader runs once; the sprites and the castle flames both start from its image.
     const base = levelSeed(rom.rom, index)
-    const draw = interpDrawer(rom.rom, index, model, runOnce, () => base)
+    const stream = parseLevelSprites(data, model.isVertical)
+    const draw = interpDrawer(rom.rom, index, model, runOnce, () => base, stream)
     const dynamic = (n: PaletteNote) => {
       const b = rom.rom.readAt(n.entryAddr, n.colors * 2)
       return b ? Array.from({ length: n.colors }, (_, i) => bgr555ToRgba(b[i * 2]! | (b[i * 2 + 1]! << 8))) : [] // prettier-ignore
     }
     const layer = spriteLayer(data, model, draw, dynamic)
-    const stream = parseLevelSprites(data, model.isVertical)
     const flames = castleFlameSprites(rom.rom, base, stream, model, model.l2?.ok ? model.l2.l2.dy : undefined, dynamic) // prettier-ignore
     if (flames.sprites.length === 0 && !flames.note) return layer
     return {
