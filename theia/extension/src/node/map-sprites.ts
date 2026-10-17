@@ -611,7 +611,7 @@ function compute(
 ): Exclude<MapSpritesResult, { status: 'rom-not-located' }> {
   // Sprites do not depend on the palaces; any flags give the same model.
   const built = cache.get(bytes, romPath, index, NO_FLAGS)
-  if (!built.ok) return unreadable(built.reason)
+  if (!built.ok) return unreadable(built.detail ?? built.reason, built.reason)
   const model = built.inputs
   try {
     // A copy, as the model cache makes: the working copy's array is shared.

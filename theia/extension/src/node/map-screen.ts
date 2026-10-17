@@ -282,7 +282,9 @@ export interface MapInputs extends L1Inputs {
   /** Why the planes' order is unverified (not BG mode 1, or the mode could not be read). */
   orderNote?: string
 }
-export type MapInputsResult = { ok: true; inputs: MapInputs } | { ok: false; reason: string }
+/** A refusal from the shared cache words itself once: plain `reason`, the gate or exception text in `detail` (#967). */
+export type MapInputsResult =
+  { ok: true; inputs: MapInputs } | { ok: false; reason: string; detail?: string }
 
 export const base64 = (b: Uint8ClampedArray) =>
   Buffer.from(b.buffer, b.byteOffset, b.byteLength).toString('base64')
@@ -476,6 +478,8 @@ export class L1ModelCache {
       } catch (err) {
         built = { ok: false, reason: (err as Error).message }
       }
+      // The one place the gate's ROM-internal text is swapped for plain words (#967); every caller shows `reason` and keeps `detail` for the tooltip or log. // prettier-ignore
+      if (!built.ok) built = { ok: false, reason: MAP_UNREADABLE, detail: built.reason }
       if (models.size >= 8) models.delete(models.keys().next().value!)
       models.set(key, built)
     }
@@ -521,8 +525,8 @@ export function mapScreen(
 ): ScreenReply {
   const built = cache.get(bytes, romPath, index, flags)
   if (built.ok) return screenResult(built.inputs, screen, switches)
-  // A thrown build's exception text and a gate's ROM-internal reason both stay in `detail` (#786).
-  return { status: 'unavailable', reason: 'This part of the map could not be read from the ROM.', detail: built.reason } // prettier-ignore
+  // The cache already swapped the exception or gate text for plain words (#967); this is a sentence, so it starts capitalised.
+  return { status: 'unavailable', reason: built.reason.charAt(0).toUpperCase() + built.reason.slice(1), detail: built.detail } // prettier-ignore
 }
 
 /**
@@ -532,7 +536,7 @@ export function mapScreen(
  */
 export function toolbarArtOf(
   rom: RomFile,
-  built: L1InputsResult,
+  built: L1InputsResult | MapInputsResult,
   art: Record<Palace, PalaceArt>,
 ): Exclude<PalaceIconsResult, { status: 'rom-not-located' }> {
   if (!built.ok) {
@@ -543,7 +547,7 @@ export function toolbarArtOf(
       icons: palaceIconsOf(art),
       switchArt: {},
       switchUnavailable: every(MAP_UNREADABLE),
-      switchDetail: every(built.reason),
+      switchDetail: every('detail' in built && built.detail ? built.detail : built.reason),
     }
   }
   const m = built.inputs

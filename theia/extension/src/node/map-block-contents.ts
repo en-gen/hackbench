@@ -297,7 +297,7 @@ export function mapBlockContents(
   const hit = byMap.get(index)
   if (hit) return hit
   const built = cache.get(bytes, romPath, index, NO_FLAGS)
-  if (!built.ok) return unreadable(built.reason)
+  if (!built.ok) return unreadable(built.detail ?? built.reason, built.reason)
   let r: MapBlockContentsResult
   try {
     const rom = RomFile.fromBytes(romPath, Buffer.from(bytes))

@@ -106,6 +106,17 @@ describe('toolbar art that cannot be drawn (#967)', () => {
     expect(r.switchUnavailable).toEqual(all(PLAIN))
     expect(r.switchDetail).toEqual(all('planted'))
   })
+  it('a map the shared cache refused: plain text from its reason, the raw text from its detail (#967)', () => {
+    const refused = broken().get(bytes, 'x.sfc', 5, {
+      blue: false,
+      silver: false,
+      onOff: false,
+    } as never)
+    const r = toolbarArtOf(rom(), refused, art)
+    if (r.status !== 'ok') throw new Error(r.status)
+    expect(r.switchUnavailable?.blue).toBe(PLAIN)
+    expect(r.switchDetail?.blue).toBe('planted: read past $05:8000')
+  })
   it('a ROM with no switch art: plain text, the per-ROM reasons in switchDetail', () => {
     const r = toolbarArtOf(rom(), { ok: true, inputs: { ...inputs(hGrid(1), false, 1), anim: null } }, art) // prettier-ignore
     if (r.status !== 'ok') throw new Error(r.status)

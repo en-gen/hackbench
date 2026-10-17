@@ -72,7 +72,7 @@ export function mapCollisionCheck(
   index: number,
 ): MapCollisionCheckResult {
   const built = cache.get(bytes, romPath, index, NO_FLAGS)
-  if (!built.ok) return unreadable(built.reason)
+  if (!built.ok) return unreadable(built.detail ?? built.reason, built.reason)
   if (built.inputs.isVertical) return { status: 'unavailable', reason: VERTICAL }
   try {
     const why = collisionRefusal(RomFile.fromBytes(romPath, Buffer.from(bytes)), index)
@@ -149,7 +149,7 @@ async function compute(
 ): Promise<Reply> {
   // The grid is drawn with the view's palaces, and the probe runs in the same state (silver P-switch is not modelled).
   const built = cache.get(bytes, romPath, index, state.flags)
-  if (!built.ok) return unreadable(built.reason)
+  if (!built.ok) return unreadable(built.detail ?? built.reason, built.reason)
   const m = built.inputs
   if (m.isVertical) {
     return { status: 'unavailable', reason: VERTICAL }
