@@ -301,15 +301,7 @@ export class WorkingRomRegistry {
       stamp = { key: opsStamp(project.directory).key, takenAt: Date.now() }
       const resolved = this.registry.resolveVerified(project.baseRom.sha256)
       if (!resolved) {
-        this.waiting.set(manifestPath, project.baseRom.sha256)
-        // A stale entry must not outlive the answer: when the ROM is found, the
-        // later build would look like a second swap after register announced it.
-        if (cached) {
-          this.cache.delete(manifestPath)
-          this.stamps.delete(manifestPath)
-          this.releaseCopy(cached.working)
-        }
-        return { status: 'rom-not-located', baseRom: project.baseRom }
+        return this.markNotLocated(manifestPath, project, cached)
       }
       wasWaiting = this.waiting.has(manifestPath)
       romPath = resolved.path
@@ -339,6 +331,37 @@ export class WorkingRomRegistry {
     // relocate) is announced too: a view stuck on "Locate" has no other cue.
     if (cached || wasWaiting) this.fireRomChanged(manifestPath)
     return { status: 'ok', ...entry }
+  }
+
+  /**
+   * Project open (#975): a cached copy outlives its base ROM file, so an open
+   * checks the file is still at its registered path. Only the open asks; a
+   * `get` mid-session keeps serving the copy. A missing file runs the same
+   * not-located answer `get` gives, which also drops the cache so every
+   * server's next `get` agrees. A present file leaves the copy untouched
+   * (a different ROM at the path is the cache-miss identity check's job).
+   */
+  revalidateOnOpen(manifestPath: string): WorkingRomResult {
+    const cached = this.cache.get(manifestPath)
+    if (!cached || this.registry.isPresent(cached.project.baseRom.sha256))
+      return this.get(manifestPath)
+    return this.markNotLocated(manifestPath, cached.project, cached)
+  }
+
+  private markNotLocated(
+    manifestPath: string,
+    project: Project,
+    cached: WorkingRomEntry | undefined,
+  ): WorkingRomResult {
+    this.waiting.set(manifestPath, project.baseRom.sha256)
+    // A stale entry must not outlive the answer: when the ROM is found, the
+    // later build would look like a second swap after register announced it.
+    if (cached) {
+      this.cache.delete(manifestPath)
+      this.stamps.delete(manifestPath)
+      this.releaseCopy(cached.working)
+    }
+    return { status: 'rom-not-located', baseRom: project.baseRom }
   }
 
   /** Whether `ops/` on disk still holds exactly the layers `working` does. */

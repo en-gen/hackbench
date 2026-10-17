@@ -92,6 +92,8 @@ export class ProjectServiceImpl implements ProjectService {
 
   async openProject(manifestPath: string): Promise<ProjectDto> {
     const p = openProject(manifestPath)
+    // A cached copy must not outlive a base ROM that has gone (#975).
+    this.workingRoms.revalidateOnOpen(manifestPath)
     // Recorded only on a SUCCESSFUL open, so a manifest that cannot be read
     // never enters the list that exists to offer working projects.
     this.recent.remember(p)

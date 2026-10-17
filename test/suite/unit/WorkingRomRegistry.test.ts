@@ -1171,4 +1171,49 @@ describe('WorkingRomRegistry undo/redo', () => {
     expect(isolated.redo(p.manifestPath).status).toBe('rom-not-located')
     expect(isolated.editStack(p.manifestPath).status).toBe('rom-not-located')
   })
+  describe('base ROM gone while a copy is cached (#975)', () => {
+    function cachedWithEdit() {
+      const { manifestPath } = makeProject()
+      working.setWord(manifestPath, { romAddr: MARIO_RED_ADDR, oldHex: '$391F', newHex: '$1000' })
+      const first = working.get(manifestPath)
+      if (first.status !== 'ok') throw new Error('not ok')
+      return { manifestPath, bytes: Buffer.from(first.working.bytes()) }
+    }
+    const romFile = () => path.join(tmp, 'game.sfc')
+
+    it('open with the ROM renamed answers rom-not-located, releases the copy, and every later get agrees', () => {
+      const { manifestPath } = cachedWithEdit()
+      const released = vi.fn()
+      working.onWorkingCopy(() => {}, released)
+      fs.renameSync(romFile(), romFile() + '.moved')
+      expect(working.revalidateOnOpen(manifestPath).status).toBe('rom-not-located')
+      expect(released).toHaveBeenCalledTimes(1)
+      expect(working.get(manifestPath).status).toBe('rom-not-located')
+      expect(working.editStack(manifestPath).status).toBe('rom-not-located')
+    })
+
+    it('open with the ROM put back rebuilds a byte-identical copy with every layer applied', () => {
+      const { manifestPath, bytes } = cachedWithEdit()
+      fs.renameSync(romFile(), romFile() + '.moved')
+      working.revalidateOnOpen(manifestPath)
+      fs.renameSync(romFile() + '.moved', romFile())
+      const r = working.revalidateOnOpen(manifestPath)
+      if (r.status !== 'ok') throw new Error('not ok')
+      expect(Buffer.from(r.working.bytes()).equals(bytes)).toBe(true)
+    })
+
+    it('without an open, a copy keeps being served after the ROM goes (pinned: the check is open-only)', () => {
+      const { manifestPath } = cachedWithEdit()
+      fs.renameSync(romFile(), romFile() + '.moved')
+      expect(working.get(manifestPath).status).toBe('ok')
+    })
+
+    it('open with the ROM present keeps the very same instance', () => {
+      const { manifestPath } = cachedWithEdit()
+      const a = working.get(manifestPath)
+      const b = working.revalidateOnOpen(manifestPath)
+      if (a.status !== 'ok' || b.status !== 'ok') throw new Error('not ok')
+      expect(b.working).toBe(a.working)
+    })
+  })
 })
