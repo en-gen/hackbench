@@ -731,6 +731,24 @@ describe('a relocated overworld upload', () => {
     expect(d.overworld.targets.map(t => t.cgramIdx)).toEqual([0x6d])
   })
 
+  // 65816 opcode map (hardware): $61 is ADC (dp,X) and $81 is STA (dp,X),
+  // two bytes each; $62 (PER) and $82 (BRL) are the three-byte ones. The
+  // walk's own table once had each pair swapped, so a routine that crossed
+  // either instruction stepped one byte too far and missed the write.
+  it.each([
+    ['ADC (dp,X)', 0x61],
+    ['STA (dp,X)', 0x81],
+  ])('steps over %s as two bytes on the way to the write', (_name, op) => {
+    const d = detectPaletteAnimation(
+      relocated({
+        relocate: { at: AT, lead: [op, 0x10], chain: [{ cgramIdx: 0x6d, table: TABLE }] },
+        tables: [{ at: TABLE, words: ramp }],
+      }),
+    )
+    expect(d.overworld.available).toBe(true)
+    expect(d.overworld.targets.map(t => t.cgramIdx)).toEqual([0x6d])
+  })
+
   // R2: the callee may install its own data bank, and it is three readable
   // bytes at the landing address.
   it('reads a data bank the relocated routine sets for itself', () => {
