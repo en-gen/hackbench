@@ -10,37 +10,12 @@
  */
 import { describe, expect, it } from 'vitest'
 import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
-import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
-import { long, OP, word } from '../../support/asm65'
-import {
-  BUFFER_FIRST,
-  BUFFER_LAST,
-  LAYER3_CELL,
-  putLayer3,
-  TILESET_CELL,
-} from '../../support/syntheticLayer3'
+import { BUFFER_FIRST, BUFFER_LAST } from '../../support/syntheticLayer3'
+import { layer3Cart } from '../../support/layer3Cart'
 import { freshRom, hasRom, VANILLA } from '../../support/corpus'
 
-const PTR = 0x05d8c9 // the synthetic pointer loader's LDA #irqCommand (before its STA $0D9B, PLB, RTL)
 const wramOf = (a: number) => a & 0x1ffff
-
-/**
- * A synthetic cart whose pointer loader leaves tileset `ts`, Layer3Setting `l3` and a marker in both ends of
- * the buffer, with the table-driven handler and tide helper over the cart's bare stand-in. `irq` is the
- * IRQNMICommand the loader leaves in $0D9B (the 22-byte patch replaces the stand-in's own store, so it
- * stores it again).
- */
-function cart(ts: number, l3: number, irq = 0) {
-  const rom = buildSyntheticRom()
-  rom.writeAt(PTR, [
-    ...[OP.LDA_IMM, ts, OP.STA_ABS, ...word(TILESET_CELL)],
-    ...[OP.LDA_IMM, l3, OP.STA_ABS, ...word(LAYER3_CELL)],
-    ...[OP.LDA_IMM, 0xff, OP.STA_LONG, ...long(BUFFER_FIRST), OP.STA_LONG, ...long(BUFFER_LAST)], // marker in both ends
-    ...[OP.LDA_IMM, irq, OP.STA_ABS, ...word(0x0d9b), OP.PLB, OP.RTL],
-  ])
-  putLayer3((at, bytes) => rom.writeAt(at, bytes))
-  return rom
-}
+const cart = layer3Cart
 
 describe('the tide in the level loader (synthetic cart)', () => {
   it.each([

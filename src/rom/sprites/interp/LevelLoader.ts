@@ -73,8 +73,6 @@ const SHAPES: { name: string; at: number; want: (number | null)[] }[] = [
   { name: 'CODE_05D796 prologue and sublevel branch at $05:D796', at: 0x05d796, want: [0x8b, 0x4b, 0xab, 0xe2, 0x30, 0x9c, null, null, 0xad, null, null, 0xd0, 0x05, 0xac, null, null, 0xf0, 0x03, 0x20, null, null, 0xad, 0x1a, 0x14, 0xd0, 0x03, 0x4c, 0x3e, 0xd8] }, // prettier-ignore
   // The sublevel branch ends in JMP CODE_05D8B7 (bank_05.asm:7162).
   { name: 'jump into the pointer loader at $05:D83B', at: 0x05d83b, want: [0x4c, 0xb7, 0xd8] },
-  // CODE_05D8B7: REP #$30 / LDA $0E / ASL / CLC / ADC $0E / TAY
-  { name: 'pointer loader at $05:D8B7', at: 0x05d8b7, want: [0xc2, 0x30, 0xa5, 0x0e, 0x0a, 0x18, 0x65, 0x0e, 0xa8] }, // prettier-ignore
   // CODE_00A635: LDA BluePSwitchTimer / ORA SilverPSwitchTimer / ORA DirectCoinTimer / BNE / LDA
   { name: 'Mario entrance setup at $00:A635', at: 0x00a635, want: [0xad, 0xad, 0x14, 0x0d, 0xae, 0x14, 0x0d, 0x0c, 0x19, 0xd0, 0x0a, 0xad] }, // prettier-ignore
   // CODE_009FB8 (Layer 3 handler): LDA ObjectTileset / ASL / CLC / ADC ObjectTileset (bank_00.asm:4139-4143)
@@ -83,34 +81,52 @@ const SHAPES: { name: string; at: number; want: (number | null)[] }[] = [
     at: 0x009fb8,
     want: [0xad, null, null, 0x0a, 0x18, 0x6d, null, null],
   },
-  // CODE_05801E: PHP / SEP #$20 / REP #$10 / LDX #0 / LDA #$25 / STA long
-  { name: 'level data loader at $05:801E', at: 0x05801e, want: [0x08, 0xe2, 0x20, 0xc2, 0x10, 0xa2, 0x00, 0x00, 0xa9, 0x25, 0x9f, 0x00] }, // prettier-ignore
 ]
 
 /**
- * GM12PrepLevel's call site of the Layer 3 handler (bank_00.asm:4861-4870): LDA IRQNMICommand / BPL / JSR /
- * BRA, then three calls ending in a JSL and the JSR CODE_009FB8 the loader makes. Held as a fingerprint of
- * the 23 bytes with the call operands zeroed (the same scheme as SubmapFlagGate.ts: the JSL operand differs
- * on Lunar Magic ROMs), so the source carries no game code. The BPL and the handler's JSR target are in the
- * hash, which is what makes the loader's mirror of the bit 7 test safe.
+ * Spans the loader pins by fingerprint, not by literal bytes, so the source carries no game code (the scheme of
+ * SubmapFlagGate.ts: SHA-256 of the span with the offsets in `mask` zeroed). `key` is the badLoader option of
+ * the synthetic cart that plants a defect in the span. The SHAPES above hold the bytes that predate this.
+ * - pointers: CODE_05D8B7's first nine bytes (bank_05.asm:7227).
+ * - data: CODE_05801E's first twelve (bank_05.asm:19-70).
+ * - gm12: GM12PrepLevel's call site of the Layer 3 handler (bank_00.asm:4861-4870): LDA IRQNMICommand / BPL /
+ *   JSR / BRA, then three calls ending in a JSL and the JSR CODE_009FB8 the loader makes. The call operands
+ *   are masked (the JSL operand differs on Lunar Magic ROMs); the BPL and the handler's JSR target are in the
+ *   hash, which is what makes the loader's mirror of the bit 7 test safe.
  */
-const CALL_SITE = {
-  name: 'GM12PrepLevel call site of the Layer 3 handler at $00:A5AF',
-  at: 0x00a5af,
-  length: 23,
-  mask: [11, 12, 14, 15, 17, 18, 19],
-  fingerprints: ['f0b04d810d12baa061c4a56562b866f7accc91e3788f1ff1f0f77d74f724f877'],
+interface Span {
+  key: string
+  name: string
+  at: number
+  length: number
+  mask: readonly number[]
+  fingerprints: readonly string[]
+}
+const SPANS: readonly Span[] = [
+  { key: 'pointers', name: 'pointer loader at $05:D8B7', at: 0x05d8b7, length: 9, mask: [], fingerprints: ['6dccdd0c17609d04d1b9792f97a91199c2c69803d896b91501ea7189458a4b68'] },
+  { key: 'data', name: 'level data loader at $05:801E', at: 0x05801e, length: 12, mask: [], fingerprints: ['4bc3f7d7f403b10d0ae7fa24c85a8b34e0ff53e001573a5d0926bc499a7c0510'] },
+  { key: 'gm12', name: 'GM12PrepLevel call site of the Layer 3 handler at $00:A5AF', at: 0x00a5af, length: 23, mask: [11, 12, 14, 15, 17, 18, 19], fingerprints: ['f0b04d810d12baa061c4a56562b866f7accc91e3788f1ff1f0f77d74f724f877'] },
+] // prettier-ignore
+
+const spanPrint = (rom: RomFile, s: Span): string | null => {
+  const b = bytesAt(rom, s.at, s.length)
+  return spanFingerprint(b && Uint8Array.from(b), s.mask)
 }
 
-/** Fingerprints a synthetic ROM builder adds for its own call site (the vanilla one stays accepted). */
-const synthetic = new Set<string>()
-export function acceptSyntheticCallSite(fp: string): void {
-  synthetic.add(fp)
-}
-/** The call site's masked fingerprint in `rom`, for a synthetic builder to register. */
-export function callSiteFingerprint(rom: RomFile): string | null {
-  const b = bytesAt(rom, CALL_SITE.at, CALL_SITE.length)
-  return spanFingerprint(b && Uint8Array.from(b), CALL_SITE.mask)
+/**
+ * TEST SEAM, for synthetic ROM builders only. Vouches for the fingerprinted spans of THIS `rom` instance as
+ * built (a hand-written cart cannot match the game's fingerprints), except the spans named in `except` (the
+ * ones a mutant planted a defect in). A span is accepted only while its bytes still hash to the vouched value,
+ * so a byte written into a checked offset afterwards is refused. A ROM read from disk is never in the map.
+ */
+const vouched = new WeakMap<RomFile, Map<string, string>>()
+export function markSyntheticRom(rom: RomFile, except: readonly string[] = []): void {
+  const m = new Map<string, string>()
+  for (const s of SPANS) {
+    const fp = except.includes(s.key) ? null : spanPrint(rom, s)
+    if (fp) m.set(s.key, fp)
+  }
+  vouched.set(rom, m)
 }
 
 /** The first loader entry whose bytes differ from the shape this loader knows, or null. */
@@ -120,9 +136,11 @@ export function loaderShapeProblem(rom: RomFile): string | null {
   for (const s of SHAPES)
     if (!shapeMatches(bytesAt(rom, s.at, s.want.length), s.want))
       return `${s.name} is not the vanilla shape; the loader will not run it`
-  const fp = callSiteFingerprint(rom)
-  if (fp === null || !(CALL_SITE.fingerprints.includes(fp) || synthetic.has(fp)))
-    return `${CALL_SITE.name} is not the vanilla shape; the loader will not run it`
+  for (const sp of SPANS) {
+    const fp = spanPrint(rom, sp)
+    if (fp === null || !(sp.fingerprints.includes(fp) || vouched.get(rom)?.get(sp.key) === fp))
+      return `${sp.name} is not the vanilla shape; the loader will not run it`
+  }
   return null
 }
 

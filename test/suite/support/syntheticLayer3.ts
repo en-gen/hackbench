@@ -4,8 +4,8 @@
  * ROM: the same effect (a tide sets ScreenMode bit 7 and clears the interaction buffer, anything
  * else is left alone) by the shortest instruction sequence that does it. The loader byte-checks only
  * the handler's first eight bytes, with the two operands wildcarded, so the cells are this cart's own.
- * Table: tileset 0 = [1, 2, $C0], tileset 1 = [1, $80, $81], the Layer3TilemapSettings layout
- * (bank_00.asm:4121): below $80 is a tide, $80 and up is not.
+ * The table has the Layer3TilemapSettings layout (bank_00.asm:4121: three entries per tileset, indexed by the
+ * Layer 3 setting): tileset 0 = tide, tide, non-tide; tileset 1 = tide, non-tide, non-tide.
  */
 import { long, OP, word } from './asm65'
 
@@ -47,8 +47,11 @@ const TIDE_HELPER: readonly number[] = [
   OP.RTS,
 ] // prettier-ignore
 
+/** This cart's own table values: below $80 is a tide, $80 and up is not (the game's values differ). */
+const TABLE = [4, 6, 0xd5, 4, 0x95, 0x96]
+
 export function putLayer3(put: (snes: number, bytes: number[]) => void): void {
-  put(LAYER3_TABLE_AT, [1, 2, 0xc0, 1, 0x80, 0x81])
+  put(LAYER3_TABLE_AT, TABLE)
   put(LAYER3_AT, [...ROW_OF_TILESET, ...TABLE_WALK])
   put(TIDE_HELPER_AT, [...TIDE_HELPER])
 }

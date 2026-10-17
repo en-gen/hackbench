@@ -8,10 +8,11 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { unzip } from '../../../../tools/scripts/capture_render'
-import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
+import { loaderShapeProblem, loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { runSprite } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { CAPTURE_DIR, freshRom, hasCaptures, hasRom, VANILLA } from '../../support/corpus'
+import { RomFile } from '../../../../src/rom/RomFile'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 
 // A capture's first-frame WRAM (frame_0000_wram.bin), the hardware side of the comparisons below.
@@ -148,3 +149,43 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
     })
   },
 )
+
+// The fingerprinted spans of the loader: every unmasked byte is in the hash (a change is refused by name) and
+// every masked byte is not (a change is accepted). The masks are spelled here on purpose: an empty mask, or one
+// that covers too much, fails one half. Synthetic, then the same sweep on the vanilla ROM.
+const SPAN_SWEEP = [
+  { name: /^pointer loader at \$05:D8B7/, at: 0x05d8b7, length: 9, masked: [] as number[] },
+  { name: /^level data loader at \$05:801E/, at: 0x05801e, length: 12, masked: [] as number[] },
+  {
+    name: /^GM12PrepLevel call site/,
+    at: 0x00a5af,
+    length: 23,
+    masked: [11, 12, 14, 15, 17, 18, 19],
+  },
+]
+const sweep = (make: () => ReturnType<typeof buildSyntheticRom>) => {
+  for (const span of SPAN_SWEEP)
+    for (let i = 0; i < span.length; i++) {
+      const rom = make()
+      rom.writeAt(span.at + i, [rom.readAt(span.at + i, 1)[0] ^ 0x55])
+      const problem = loaderShapeProblem(rom)
+      if (span.masked.includes(i)) expect(problem, `${span.at.toString(16)}+${i}`).toBeNull()
+      else expect(problem, `${span.at.toString(16)}+${i}`).toMatch(span.name)
+    }
+}
+describe('fingerprinted spans: unmasked offsets are refused, masked ones are not', () => {
+  it('on the synthetic cart', () => sweep(() => buildSyntheticRom()))
+  it('the unchanged synthetic cart is accepted, and only the instance that was vouched for', () => {
+    expect(loaderShapeProblem(buildSyntheticRom())).toBeNull()
+    const src = buildSyntheticRom()
+    const bytes = Uint8Array.from(
+      [0, 1, 2, 3, 4, 5, 6, 7].flatMap(b => Array.from(src.readAt((b << 16) | 0x8000, 0x8000))),
+    )
+    const copy = RomFile.fromBytes('copy.sfc', bytes)
+    expect(loaderShapeProblem(copy)).toMatch(/is not the vanilla shape/)
+  })
+})
+describe.skipIf(!hasRom(VANILLA))('fingerprinted spans on the vanilla ROM', () => {
+  it('the unchanged ROM is accepted', () => expect(loaderShapeProblem(freshRom())).toBeNull())
+  it('every unmasked offset is refused, every masked one accepted', () => sweep(() => freshRom()))
+})
