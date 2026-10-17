@@ -209,6 +209,63 @@ export function parseLevelHeader(data: Buffer | Uint8Array): LevelHeader {
 }
 
 /**
+ * Decode one 3-byte object entry, shared by the L1 and L2 walkers (the stream
+ * format is identical). `screen` is the counter before this entry; the record
+ * carries the counter after its own new-screen flag, and `nextScreen` is what
+ * the following entry starts from.
+ */
+function decodeObjectTriple(
+  streamOffset: number,
+  b0: number,
+  b1: number,
+  b2: number,
+  screen: number,
+  isVertical: boolean,
+): { obj: LevelObject; nextScreen: number } {
+  // New screen flag: bit 7 of byte 0 (bank_05.asm line 754-758)
+  const newScreen = (b0 & 0x80) !== 0
+  if (newScreen) screen++
+
+  // High coordinate flag: bit 4 of byte 0 (line 778-782).
+  // Horizontal: INC Map16LowPtr+1 -> +16 rows (reach rows 16-26 below row 15).
+  // Vertical:   same flag -> "right half of vertical level" (cols 16-31).
+  const highCoord = (b0 & 0x10) !== 0
+
+  // Object number: $5A = ($0B >> 4) | (($0A & $60) >> 1)
+  // bank_05.asm lines 696-706 (computed BEFORE the XY swap, so using raw b0/b1)
+  const objectNumber = ((b1 >> 4) & 0x0f) | ((b0 & 0x60) >> 1)
+
+  // Position decoding - bank_05.asm lines 714-724.
+  // Horizontal: Y = b0 low (+16 on highCoord), X = screen*16 + b1 low.
+  // Vertical:   X = b0 low (+16 on highCoord), Y = screen*16 + b1 low.
+  const x = isVertical ? (b0 & 0x0f) + (highCoord ? 16 : 0) : screen * SCREEN_W + (b1 & 0x0f)
+  const y = isVertical ? screen * 16 + (b1 & 0x0f) : (b0 & 0x0f) + (highCoord ? 16 : 0)
+
+  const isExtended = objectNumber === 0
+  const obj: LevelObject = {
+    streamOffset,
+    type: isExtended ? 'extended' : 'standard',
+    screen,
+    x,
+    y,
+    objectNumber: isExtended ? b2 : objectNumber,
+    settings: b2,
+    newScreen,
+    highCoord,
+    raw: [b0, b1, b2],
+    objectType: isExtended ? 0x100 + b2 : objectNumber,
+    param: b2,
+  }
+
+  // Extended object $01 - CODE_0DA53D (bank_0D.asm line 1441):
+  //   LDA _A; AND #$1F; STA LevelLoadObject
+  // Overwrites the screen counter with the low 5 bits of byte 0, so level data
+  // can jump forward to an arbitrary screen without emitting tiles. It runs
+  // after this entry's own new-screen increment.
+  return { obj, nextScreen: isExtended && b2 === 1 ? b0 & 0x1f : screen }
+}
+
+/**
  * Parse the object stream from Layer 1 level data.
  *
  * Algorithm from LoadLevelData (bank_05.asm lines 677-808):
@@ -270,47 +327,8 @@ export function parseLevelObjects(
     const streamOffset = pos
     pos += 3 // Advance by 3 bytes (line 689-695)
 
-    // New screen flag: bit 7 of byte 0 (line 754-758)
-    // ASL then ADC with carry = increment screen by 1 when bit 7 set
-    const newScreen = (b0 & 0x80) !== 0
-    if (newScreen) {
-      screen++
-    }
-
-    // High coordinate flag: bit 4 of byte 0 (line 778-782).
-    // Horizontal: INC Map16LowPtr+1 → +16 rows (reach rows 16-26 below row 15).
-    // Vertical:   same flag → "right half of vertical level" (cols 16-31).
-    const highCoord = (b0 & 0x10) !== 0
-
-    // Object number: $5A = ($0B >> 4) | (($0A & $60) >> 1)
-    // bank_05.asm lines 696-706 (computed BEFORE the XY swap, so using raw b0/b1)
-    const objNumHigh = (b0 & 0x60) >> 1 // bits 6-5 shifted to bits 5-4
-    const objNumLow = (b1 >> 4) & 0x0f // high nibble of byte 1
-    const objectNumber = objNumLow | objNumHigh
-
-    // Position decoding - bank_05.asm lines 714-724.
-    // Horizontal: Y = b0 low, X = b1 low (within 16-col screen at column screen*16).
-    // Vertical:   after CODE_0585D8 low-nibble swap, the game interprets positions
-    //             against vertical Map16 tables. Net effect in grid space:
-    //               X = b0 low + (highCoord ? 16 : 0)   (0..31, whole level width)
-    //               Y = b1 low + screen * 16            (screens stack down)
-    let xLocal: number
-    let yLocal: number
-    let xAbs: number
-    let yAbs: number
-    if (isVertical) {
-      xLocal = b0 & 0x0f
-      yLocal = b1 & 0x0f
-      xAbs = xLocal + (highCoord ? 16 : 0)
-      yAbs = screen * 16 + yLocal
-    } else {
-      yLocal = (b0 & 0x0f) + (highCoord ? 16 : 0)
-      xLocal = b1 & 0x0f
-      xAbs = screen * SCREEN_W + xLocal
-      yAbs = yLocal
-    }
-
-    const isExtended = objectNumber === 0
+    const { obj, nextScreen } = decodeObjectTriple(streamOffset, b0, b1, b2, screen, isVertical)
+    const isExtended = obj.type === 'extended'
 
     // Screen exit: extended object with settings ($59 / LvlLoadObjSize) == 0.
     // Handler CODE_0DA512 (bank_0D.asm:1416-1439):
@@ -332,34 +350,8 @@ export function parseLevelObjects(
       pos += 1
     }
 
-    const objNum = isExtended ? b2 : objectNumber
-    objects.push({
-      streamOffset,
-      type: isExtended ? 'extended' : 'standard',
-      screen,
-      x: xAbs,
-      y: yAbs,
-      objectNumber: objNum,
-      settings: b2,
-      newScreen,
-      highCoord,
-      raw: [b0, b1, b2],
-      objectType: isExtended ? 0x100 + b2 : objectNumber,
-      param: b2,
-      screenExitDest,
-      screenExitIsSecondary,
-      screenExitScreen,
-    })
-
-    // Extended object $01 - CODE_0DA53D (bank_0D.asm line 1441):
-    //   LDA _A; AND #$1F; STA LevelLoadObject
-    // Overwrites the screen counter with the low 5 bits of byte 0. This lets
-    // level data jump forward to an arbitrary screen without emitting tiles.
-    // Must run after the NS-increment for this object so subsequent objects
-    // are positioned relative to the new screen value.
-    if (isExtended && b2 === 0x01) {
-      screen = b0 & 0x1f
-    }
+    objects.push({ ...obj, screenExitDest, screenExitIsSecondary, screenExitScreen })
+    screen = nextScreen
   }
 
   // False when the walk ran off the buffer instead of stopping on $FF, which
@@ -407,51 +399,9 @@ export function parseL2Objects(
     const streamOffset = pos
     pos += 3
 
-    const newScreen = (b0 & 0x80) !== 0
-    if (newScreen) screen++
-
-    const highCoord = (b0 & 0x10) !== 0
-    const objNumHigh = (b0 & 0x60) >> 1
-    const objNumLow = (b1 >> 4) & 0x0f
-    const objectNumber = objNumLow | objNumHigh
-
-    let xAbs: number
-    let yAbs: number
-    if (isVertical) {
-      xAbs = (b0 & 0x0f) + (highCoord ? 16 : 0)
-      yAbs = screen * 16 + (b1 & 0x0f)
-    } else {
-      // Horizontal: highCoord (b0 bit 4) extends Y past row 15 into rows
-      // 16-26 of the 27-row screen - matches parseLevelObjects line 285,
-      // which mirrors bank_05.asm:778-782 ("INC Map16LowPtr+1 → +16 rows").
-      // Missing this shifted half of $009's L2 structures (and others) up
-      // by 256 px in the editor.
-      xAbs = screen * SCREEN_W + (b1 & 0x0f)
-      yAbs = (b0 & 0x0f) + (highCoord ? 16 : 0)
-    }
-
-    const isExtended = objectNumber === 0
-
-    const objNum = isExtended ? b2 : objectNumber
-    objects.push({
-      streamOffset,
-      type: isExtended ? 'extended' : 'standard',
-      screen,
-      x: xAbs,
-      y: yAbs,
-      objectNumber: objNum,
-      settings: b2,
-      newScreen,
-      highCoord,
-      raw: [b0, b1, b2],
-      objectType: isExtended ? 0x100 + b2 : objectNumber,
-      param: b2,
-    })
-
-    // Ext $01 screen-jump: see parseLevelObjects for the ASM reference.
-    if (isExtended && b2 === 0x01) {
-      screen = b0 & 0x1f
-    }
+    const { obj, nextScreen } = decodeObjectTriple(streamOffset, b0, b1, b2, screen, isVertical)
+    objects.push(obj)
+    screen = nextScreen
   }
 
   return objects
