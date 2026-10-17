@@ -14,6 +14,7 @@
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message, Widget } from '@theia/core/lib/browser'
+import { CommandService } from '@theia/core/lib/common'
 import { StatusBar, StatusBarAlignment } from '@theia/core/lib/browser/status-bar/status-bar'
 import {
   MAP_PLANE_KEYS,
@@ -50,6 +51,8 @@ import {
   screenKey,
   type Indicator,
 } from './map-view-model'
+import { PropertiesModel } from './properties-model'
+import { RevealPropertiesCommand } from './properties-contribution'
 import { SWITCH_ORDER } from './map16-view-model'
 import { decodeSwitchButton, SwitchToggle, type SwitchButtonImages } from './switch-toggle'
 import { LayerToggle } from './layer-icon'
@@ -146,6 +149,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   @inject(ProjectService) protected readonly projects!: ProjectService
   @inject(ProjectContext) protected readonly projectContext!: ProjectContext
   @inject(StatusBar) protected readonly statusBar!: StatusBar
+  @inject(PropertiesModel) protected readonly properties!: PropertiesModel
+  @inject(CommandService) protected readonly commands!: CommandService
 
   protected options: MapViewOptions | undefined
 
@@ -914,13 +919,24 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected selectSprite(next: MapSpriteDto | undefined): void {
     this.selectedSprite = next
     this.syncSpriteStatus()
+    // Revealed on a pick, not on every sync: closing the panel must stay closed until the next click (#984).
+    if (next && this.isVisible) void this.commands.executeCommand(RevealPropertiesCommand.id)
   }
 
   /** Publishes this widget's selection, or releases the entry; always runs, so a selected sprite never lacks its label. */
   protected syncSpriteStatus(): void {
-    if (this.selectedSprite && this.isVisible)
+    if (this.selectedSprite && this.isVisible) {
       spriteStatus.publish(this.statusBar, this, this.selectedSprite)
-    else spriteStatus.clear(this.statusBar, this)
+      const o = this.options
+      this.properties.publish(this, {
+        kind: 'sprite',
+        sprite: this.selectedSprite,
+        source: o && { manifestPath: o.manifestPath, index: o.index },
+      })
+    } else {
+      spriteStatus.clear(this.statusBar, this)
+      this.properties.clear(this)
+    }
   }
 
   protected setHover(next: Indicator | undefined): void {
@@ -1082,7 +1098,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.node.focus()
     // Active with no selection (a split layout keeps both maps visible): the label follows the active map.
     if (this.selectedSprite) this.syncSpriteStatus()
-    else spriteStatus.claim(this.statusBar, this)
+    else {
+      spriteStatus.claim(this.statusBar, this)
+      this.properties.publish(this, { kind: 'none' })
+    }
   }
 
   protected override onAfterShow(msg: Message): void {
