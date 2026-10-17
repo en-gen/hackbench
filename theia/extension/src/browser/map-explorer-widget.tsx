@@ -347,6 +347,7 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
     this.groups = result.rawGroups
     this.groupsError = result.groupsError
     this.mapAliases = result.mapAliases ?? {}
+    const aliasesError = result.aliasesError
 
     const areas = await this.loadAreaRows(manifestPath)
     if (generation !== this.loadGeneration) return
@@ -358,6 +359,10 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
     if (this.groupsError) {
       rows.push(this.message(`Groups unavailable: ${this.groupsError}`))
       this.messages.error(`meta/groups.json: ${this.groupsError}`)
+    }
+    if (aliasesError) {
+      rows.push(this.message(`Map names unavailable: ${aliasesError}`))
+      this.messages.error(`meta/aliases.json: ${aliasesError}`)
     }
     rows.push(...result.tree.groups.map(g => this.userGroupNode(g)))
     // The count is rows actually listed under the folder, not a derived ROM

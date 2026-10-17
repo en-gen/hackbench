@@ -252,16 +252,26 @@ export class ProjectServiceImpl implements ProjectService {
       rawGroups: groups,
       romPath,
       groupsError,
-      mapAliases: this.readMapAliases(manifestPath),
+      ...this.readMapAliases(manifestPath),
     }
   }
 
-  /** A hand-edited bad aliases.json must not hide the maps. */
-  private readMapAliases(manifestPath: string): Record<string, string> {
+  /**
+   * A hand-edited bad aliases.json must not hide the maps, and must not vanish
+   * silently either: the reason travels with the empty table (a missing file is
+   * no error; readAliases returns {} for it).
+   */
+  private readMapAliases(manifestPath: string): {
+    mapAliases: Record<string, string>
+    aliasesError?: string
+  } {
     try {
-      return readAliases(manifestPath, 'map')
-    } catch {
-      return {}
+      return { mapAliases: readAliases(manifestPath, 'map') }
+    } catch (err) {
+      return {
+        mapAliases: {},
+        aliasesError: err instanceof Error ? err.message : String(err),
+      }
     }
   }
 

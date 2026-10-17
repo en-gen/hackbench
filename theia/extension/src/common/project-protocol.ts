@@ -161,6 +161,8 @@ export type LoadMapsResult =
       groupsError?: string
       /** meta/aliases.json 'map' namespace: hex slot to the user's name. For search. */
       mapAliases?: Record<string, string>
+      /** Why meta/aliases.json could not be read; mapAliases is empty then. */
+      aliasesError?: string
     }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
