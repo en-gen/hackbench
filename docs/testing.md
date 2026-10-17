@@ -833,7 +833,7 @@ node tools/scripts/rom-window-probe.mjs --bin <files...>  assembled bytes
 diffs; the ROM lookup always uses the checkout the script lives in, as
 `test/suite/support/corpus.cjs` does. `--git-range` takes `a..b` (post-image
 `b`), `a...b` (from `merge-base(a,b)`) or one rev (that rev against the
-WORKTREE, so uncommitted edits count; untracked files are not listed). It
+WORKTREE, so uncommitted edits count, and untracked files are scanned whole). It
 scans each touched text file whole and keeps runs that overlap an added line;
 binary files go through the bytes check; deleted lines and deleted files are
 never scanned, but a touched file whose post-image cannot be read is an error.
@@ -844,7 +844,8 @@ JS/TS files, `;` in `.asm`/`.inc`/`.s` files, nothing in any other file
 type (no Lua `--`, no markdown). Quoted strings are skipped when blanking, so
 `'http://x'` hides nothing. It does not see 16-bit words, hex strings,
 quoted-byte arrays, per-byte writes (`buf[a] = 0xa9`), split strings, or values
-behind `as number`. A comma-separated list of bare hex pairs, or a
+behind `as number`. Comment blanking can desync on a regex literal with an escaped slash or an
+unterminated backtick, and `.c`/`.h` files get none. A comma-separated list of bare hex pairs (also in asm, e.g. `.db a9, 10, 85`), or a
 space-separated decimal list, is not read reliably (a two-digit number beside
 a comma is taken as decimal, otherwise as hex). Wildcard bytes (a fingerprint's
 zeroed operands) split runs on purpose, so a pattern with wildcards is checked

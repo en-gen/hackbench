@@ -4,7 +4,7 @@
 //   node tools/scripts/rom-window-probe.mjs [--rom f] [--repo dir] <files...>
 //   ... --git-range <spec>    files the range touches; runs overlapping an added line
 //                             a..b (post-image b), a...b (merge-base(a,b)..b), or one rev
-//                             (rev against the WORKTREE; untracked files are not listed)
+//                             (rev against the WORKTREE; untracked files are scanned whole)
 //   ... --bin <files...>      raw assembled bytes (the authoritative check)
 // Prints offsets and counts, never ROM bytes.
 // Exit 0 clean, 1 a hit, 2 nothing could be checked (no input, no ROM, bad --rom, git error).
@@ -139,8 +139,25 @@ function scanRange(spec) {
   }
 }
 
-if (range) scanRange(range)
-else
+/** Lone-rev mode reads the worktree, so a file you just created (untracked) counts too, every
+ *  line as added. Binary means a NUL in the first 8000 bytes, as git decides. */
+function scanUntracked() {
+  const top = git(['rev-parse', '--show-toplevel']).toString().trim()
+  const list = git(['ls-files', '--others', '--exclude-standard', '--full-name', '-z'])
+  for (const path of list.toString('utf8').split('\0').filter(Boolean)) {
+    const blob = readFileSync(join(top, path))
+    const binary = blob.subarray(0, 8000).includes(0)
+    const hits = binary
+      ? bytesHits(blob, set)
+      : textHits(blob.toString('latin1'), set, 1, undefined, commentMode(path))
+    results.push({ path, hits, binary })
+  }
+}
+
+if (range) {
+  scanRange(range)
+  if (!range.includes('..')) scanUntracked()
+} else
   for (const path of files)
     results.push({
       path,

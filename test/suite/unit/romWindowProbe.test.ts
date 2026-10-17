@@ -239,14 +239,14 @@ describe('CLI', () => {
       writeFileSync(join(base, 'hackbench-tools', 'roms', VANILLA), romBytes)
       return base
     }
-    const a = mk('toolsA', prng(512, 11))
-    const b = mk('toolsB', prng(512, 22))
+    const a = mk('toolsA', prng(4096, 11))
+    const b = mk('toolsB', prng(4096, 22))
     const copy = join(a, 'repo')
     cpSync(join(REPO, 'tools/scripts'), join(copy, 'tools/scripts'), { recursive: true })
     cpSync(join(REPO, 'test/suite/support/corpus.cjs'), join(copy, 'test/suite/support/corpus.cjs'))
     const file = put(
       'onlyB.txt',
-      `db ${hex(prng(512, 22).subarray(100, 108))}
+      `db ${hex(prng(4096, 22).subarray(100, 108))}
 `,
     )
     const r = spawnSync(
@@ -256,6 +256,12 @@ describe('CLI', () => {
     )
     expect(r.stdout).toContain('TOTAL files=1 filesWithHits=0')
     expect(r.status).toBe(0)
+  })
+  it('prints earlier HIT lines before exiting 2 on an unreadable file', () => {
+    const r = probe(['--rom', romFile, hit, join(dir, 'absent.txt')])
+    expect(r.status).toBe(2)
+    expect(r.stdout).toContain('HIT ')
+    expect(r.stderr).toContain('ERROR')
   })
   it('exits 2 with no input', () => {
     expect(probe(['--rom', romFile]).status).toBe(2)
@@ -374,6 +380,22 @@ db ${w(2500)}
       expect(r2.status).toBe(1)
       expect(r2.stdout.split('\n')).toContain('HIT plain.txt:2 windows=1')
       git('checkout', '--', 'plain.txt')
+    })
+    it('a lone rev also scans untracked files, text and binary', () => {
+      write(
+        'fresh.ts',
+        `const x = [0x00, ${w(2700)
+          .split(' ')
+          .map(b => '0x' + b)
+          .join(', ')}]\n`,
+      )
+      write('fresh.bin', Uint8Array.from([0, 0, ...ROM.subarray(2900, 2908), 0]))
+      const r2 = probe(['--rom', romFile, '--repo', repo, '--git-range', 'HEAD'])
+      expect(r2.status).toBe(1)
+      expect(r2.stdout.split('\n')).toContain('HIT fresh.ts:1 windows=1')
+      expect(r2.stdout.split('\n')).toContain('HIT fresh.bin offset=0x2 windows=1')
+      rmSync(join(repo, 'fresh.ts'))
+      rmSync(join(repo, 'fresh.bin'))
     })
     it('prints hits before an error, and a bad range is exit 2', () => {
       expect(probe(['--rom', romFile, '--repo', repo, '--git-range', 'HEAD...nope']).status).toBe(2)
