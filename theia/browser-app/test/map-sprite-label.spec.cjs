@@ -145,23 +145,21 @@ function findPixel(map, pick, near = { x: 0, y: 0 }) {
   return undefined
 }
 
-/** No sprite has an opaque pixel within 3 px, so a half-pixel of zoom rounding cannot land on one. */
-function clearAround(map, x, y) {
-  for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) if (map.stack.some(s => map.opaque(s, x + dx, y + dy))) return false // prettier-ignore
+/** True when `ok(x + dx, y + dy)` holds for every offset within `r` px, so a half-pixel of zoom rounding cannot land elsewhere. */
+function allWithin(r, x, y, ok) {
+  for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (!ok(x + dx, y + dy)) return false // prettier-ignore
   return true
 }
 
-/** An opaque pixel of `s` that `s` itself owns, with its 2 px neighbourhood owned too, so a half-pixel of zoom rounding cannot land on a neighbour. */
+/** No sprite has an opaque pixel within 3 px. */
+const clearAround = (map, x, y) =>
+  allWithin(3, x, y, (px, py) => !map.stack.some(s => map.opaque(s, px, py)))
+
+/** An opaque pixel of `s` that `s` itself owns, with its 2 px neighbourhood owned too. */
 function ownPixel(map, s) {
   const { x0, y0, x1, y1 } = s.box
   const own = (x, y) => map.ownerAt(x, y) === s
-  for (let y = y0; y < y1; y++) {
-    for (let x = x0; x < x1; x++) {
-      let all = true
-      for (let dy = -2; dy <= 2 && all; dy++) for (let dx = -2; dx <= 2 && all; dx++) all = own(x + dx, y + dy) // prettier-ignore
-      if (all) return { x, y }
-    }
-  }
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (allWithin(2, x, y, own)) return { x, y } // prettier-ignore
   return undefined
 }
 
@@ -250,14 +248,10 @@ test('AC4: where two sprites overlap, the tooltip names the one drawn on top (co
     map.stack.find(s => s.index === k.index && s.id === k.id),
   )
   expect(a && b, 'the pinned pair is on the map').toBeTruthy()
-  // Both opaque with a 2 px own-neighbourhood, as ownPixel guarantees, so zoom rounding cannot land on a single-sprite pixel.
-  const bothAt = (x, y) => map.opaque(a, x, y) && map.opaque(b, x, y)
+  // Both opaque across a 2 px neighbourhood, as ownPixel guarantees, so zoom rounding cannot land on a single-sprite pixel.
   const both = findPixel(
     map,
-    (x, y) => {
-      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if (!bothAt(x + dx, y + dy)) return false // prettier-ignore
-      return true
-    },
+    (x, y) => allWithin(2, x, y, (px, py) => map.opaque(a, px, py) && map.opaque(b, px, py)),
     a,
   )
   expect(both, 'the pair shares an opaque pixel').toBeTruthy()
