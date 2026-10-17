@@ -54,7 +54,7 @@ describe.skipIf(!theiaInstalled)('ProjectServiceImpl.loadMaps map aliases', () =
     expect(r.status).toBe('ok')
     if (r.status !== 'ok') return
     expect(r.mapAliases).toEqual({})
-    expect(r.aliasesError).toMatch(/aliases\.json/)
+    expect(r.aliasesError).toBe('is not an object of namespaces')
   })
 
   it('an unparseable aliases.json reports the same way', async () => {
