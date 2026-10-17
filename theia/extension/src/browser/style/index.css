@@ -350,6 +350,8 @@
      axis cannot make it appear and change the fit again. */
   overflow-x: scroll;
   overflow-y: auto;
+  /* A sprites reply can grow the strip before the view; keepViewOnPadChange restores the view itself. */
+  overflow-anchor: none;
 }
 
 .hb-map-view-scroller.hb-vertical {
@@ -391,6 +393,23 @@
 
 .hb-map-refused [data-control='refused-cell'] {
   pointer-events: all;
+}
+
+.hb-map-view-offmap {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 120;
+  pointer-events: none;
+  image-rendering: pixelated;
+}
+
+/* The map's edge, drawn only when the strip carries off-map margin (#1004). */
+.hb-map-view-edge {
+  position: absolute;
+  z-index: 160;
+  pointer-events: none;
+  outline: 1px solid color-mix(in srgb, var(--theia-foreground, #cccccc) 35%, transparent);
 }
 
 .hb-map-refused rect {

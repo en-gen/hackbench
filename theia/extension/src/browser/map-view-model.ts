@@ -50,7 +50,8 @@ interface SpriteLayer {
 /**
  * One screen's sprites, or null when no sprite reaches it. A sprite is one
  * bitmap in map pixels, so one that crosses a screen edge is cut into every screen
- * it overlaps, and what spills past the map's top or bottom is clipped. Sprites
+ * it overlaps. What spills past the map is clipped here; off-map-extent.ts draws it in the
+ * canvas margin (#1004). Sprites
  * stack in column order on a horizontal map and row order on a vertical one (the
  * stream's order breaks ties), later ones on top; a pixel keeps the priority of
  * the sprite that wins it.

@@ -21,13 +21,12 @@
  * Free of `@theia/core` so vitest loads it in CI (see grid-lines.ts).
  */
 import { GridLine, GridLines, place } from './grid-lines'
+import { NO_PAD, TILE, type Pad } from './off-map-extent'
 import { SCREEN_H, SCREEN_H_VERT, SCREEN_W, SCREEN_W_VERT } from '../../../../src/rom/LevelParser'
 
 export const TILE_GRID_WEIGHT = 1
 export const SUBSCREEN_GRID_WEIGHT = 3
 export const SCREEN_GRID_WEIGHT = 5
-/** Content pixels per tile. */
-export const MAP_TILE_PX = 16
 /** Tile row (horizontal level) or column (vertical level) where a screen's halves meet. */
 export const SUBSCREEN_SPLIT = 16
 
@@ -66,6 +65,8 @@ export interface MapGridSpec {
   scrollY: number
   viewW: number
   viewH: number
+  /** Off-map canvas before and after the map, map px (whole tiles, #1004): the grid runs on across it. */
+  pad?: Pad
 }
 
 /**
@@ -81,21 +82,27 @@ export function computeMapGridLines(spec: MapGridSpec): GridLines {
   const s = mapScreenTiles(vertical)
   const cols = vertical ? s.cols : s.cols * screenCount
   const rows = vertical ? s.rows * screenCount : s.rows
-  const step = MAP_TILE_PX * zoom
+  const step = TILE * zoom
   const dev = (css: number): number => Math.round(css * dpr)
-  const endX = dev(cols * step - scrollX)
-  const endY = dev(rows * step - scrollY)
+  const pad = spec.pad ?? NO_PAD
+  const [offX, offY] = [pad.left * zoom, pad.top * zoom]
+  // Tile indices run from the map's origin, so the margin has negative ones (mapGridWeight takes them).
+  const [loX, hiTX] = [-pad.left / TILE, cols + pad.right / TILE]
+  const [loY, hiTY] = [-pad.top / TILE, rows + pad.bottom / TILE]
+  const endX = dev((hiTX - loX) * step - scrollX)
+  const endY = dev((hiTY - loY) * step - scrollY)
   const hiX = Math.min(dev(viewW), endX)
   const hiY = Math.min(dev(viewH), endY)
   if (hiX <= 0 || hiY <= 0) return out
   const one = (
     i: number,
     scroll: number,
+    off: number,
     hi: number,
     axis: 'x' | 'y',
     across: [number, number],
   ): GridLine | undefined => {
-    const pos = i * step
+    const pos = off + i * step
     const at = dev(pos - scroll)
     const weight = mapGridWeight(vertical, axis, i)
     // `place` pulls a lone pixel inside the range, which would turn an
@@ -105,16 +112,16 @@ export function computeMapGridLines(spec: MapGridSpec): GridLines {
     const p = place(at, weight, 0, hi)
     return p && { pos, weight, start: p[0], size: p[1], from: across[0], to: across[1] }
   }
-  const ix0 = Math.max(0, Math.floor(scrollX / step) - 1)
-  const ix1 = Math.min(cols, Math.ceil((scrollX + viewW) / step) + 1)
+  const ix0 = Math.max(loX, Math.floor((scrollX - offX) / step) - 1)
+  const ix1 = Math.min(hiTX, Math.ceil((scrollX - offX + viewW) / step) + 1)
   for (let i = ix0; i <= ix1; i++) {
-    const l = one(i, scrollX, hiX, 'x', [0, hiY])
+    const l = one(i, scrollX, offX, hiX, 'x', [0, hiY])
     if (l) out.x.push(l)
   }
-  const iy0 = Math.max(0, Math.floor(scrollY / step) - 1)
-  const iy1 = Math.min(rows, Math.ceil((scrollY + viewH) / step) + 1)
+  const iy0 = Math.max(loY, Math.floor((scrollY - offY) / step) - 1)
+  const iy1 = Math.min(hiTY, Math.ceil((scrollY - offY + viewH) / step) + 1)
   for (let i = iy0; i <= iy1; i++) {
-    const l = one(i, scrollY, hiY, 'y', [0, hiX])
+    const l = one(i, scrollY, offY, hiY, 'y', [0, hiX])
     if (l) out.y.push(l)
   }
   return out
