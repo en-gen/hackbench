@@ -868,9 +868,14 @@ node "$MAIN_CHECKOUT/tools/scripts/run-lock.mjs" release --owner "<team> <worktr
   `test:unit` only: the corpus and timing vitest configs and Theia builds are
   uncapped. The value is a starting point, not measured under 3 concurrent
   runs.
-- Known limit: worktrees whose `theia/node_modules` is a junction to the main
-  checkout share build state, so they must not build Theia concurrently even
-  with separate lock slots.
+- Shared installs are refused (#1038). `tools/scripts/check-theia-install.mjs`
+  runs as the Theia `prebuild*` hooks and at the top of the Playwright config
+  (unless `HB_APP_URL` is set) and fails when `theia/node_modules` is a junction
+  or link, resolves outside the checkout, or its `hackbench-*` workspace links
+  do. Such a worktree would bundle another checkout's extension and share its
+  nx cache. Fix: `cmd /c rmdir theia
+ode_modules` (never a recursive delete
+  through the junction), then `yarn --cwd theia install` in that worktree.
 - `owner.txt` holds `owner:`, `purpose:` and `started:` (UTC) lines.
 - Only the owner removes a lock slot, with `release` and the exact same id (no
   prefix, no padding; only the slot whose `owner:` matches is freed; blank ids and line breaks (CR, LF, U+2028, U+2029) are refused). A wrong or

@@ -5,6 +5,17 @@ const { isolateAppData } = require('./test/app-data.cjs')
 // it starts use a per-run app-data folder, never the user's (#637).
 isolateAppData()
 
+// The webServer runs the build output; a node_modules shared with another
+// checkout would serve that checkout's extension (#1038).
+if (!process.env.HB_APP_URL) {
+  const problem = require('child_process').spawnSync(
+    process.execPath,
+    [require('path').join(__dirname, '..', '..', 'tools', 'scripts', 'check-theia-install.mjs')],
+    { encoding: 'utf8' },
+  )
+  if (problem.status !== 0) throw new Error(problem.stderr || 'check-theia-install failed')
+}
+
 // Concurrent runs (run-lock slots) must not share a port. An unset port is
 // replaced by a free one found now, in this process, and written to process.env:
 // workers are forked after config load and inherit it, so config, specs and
