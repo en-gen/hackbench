@@ -167,6 +167,12 @@ describe('neighbour run for a sprite that scans the slot tables (#841)', () => {
     expect(make).toThrow(/neighbour run.*seed lists no neighbours/)
   })
 
+  it('a neighbour run with an empty seed.neighbours is refused the same way', () => {
+    const make = () => new Machine(rom, seedWith([]), SCANNER, undefined, true)
+    expect(make).toThrow(Refusal)
+    expect(make).toThrow(/neighbour run.*seed lists no neighbours/)
+  })
+
   it('a sprite that does not scan is not run again', () => {
     const m = runOnce(rom, 0, seedWith([{ id: QUIET, x: 0x90, y: 0x70 }]))
     expect(m.neighbourRun).toBeUndefined()
