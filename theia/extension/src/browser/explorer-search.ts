@@ -23,13 +23,18 @@ import {
   createTreeContainer,
 } from '@theia/core/lib/browser'
 import { SearchBox, SearchBoxProps } from '@theia/core/lib/browser/tree/search-box'
-import { SearchBoxDebounce } from '@theia/core/lib/browser/tree/search-box-debounce'
+import {
+  SearchBoxDebounce,
+  SearchBoxDebounceOptions,
+} from '@theia/core/lib/browser/tree/search-box-debounce'
 import { codicon } from '@theia/core/lib/browser/widgets'
 import { nls } from '@theia/core/lib/common/nls'
 import {
   TabBarToolbarContribution,
   TabBarToolbarRegistry,
 } from '@theia/core/lib/browser/shell/tab-bar-toolbar'
+import { ContextKeyService } from '@theia/core/lib/browser/context-key-service'
+import { KeybindingContribution, KeybindingRegistry } from '@theia/core/lib/browser/keybinding'
 import { Command, CommandContribution, CommandRegistry, Emitter } from '@theia/core/lib/common'
 import { filterTree, parseQuery, pickSelectTarget, restorePlan, SearchRow } from './explorer-match'
 
@@ -39,6 +44,11 @@ export const FindInExplorerCommand: Command = {
   category: 'HackBench',
   iconClass: 'codicon codicon-search',
 }
+
+const FIND_FOCUSED_KEY = 'hackbench.explorerFindFocused'
+
+/** Escape in a focused find input: close the box, focus the tree. */
+export const CloseFindCommand: Command = { id: 'hackbench.explorer.closeFind' }
 
 export interface SearchOutcome {
   /** Null when the filter was cleared. */
@@ -100,10 +110,48 @@ export class ExplorerTreeSearch extends TreeSearch {
 
 /** A debounce that can take the whole text at once, as a text field gives it. */
 export class ExplorerSearchDebounce extends SearchBoxDebounce {
+  protected timer: ReturnType<typeof setTimeout> | undefined
+
+  constructor(options: SearchBoxDebounceOptions) {
+    super(options)
+    // Core's handler is a lodash debounce that `.bind` stripped of flush(), so
+    // Enter inside the delay could not apply the text just typed. Own timer
+    // instead, used by both key-fed append() and set().
+    ;(this as unknown as { handler: () => void }).handler = () => {
+      if (this.timer) clearTimeout(this.timer)
+      this.timer = setTimeout(() => this.flush(), options.delay)
+    }
+  }
+
   set(text: string): void {
     this.state = text
     this.handler()
   }
+
+  /** Deliver a pending change now; nothing happens when none is waiting. */
+  flush(): void {
+    if (!this.timer) return
+    clearTimeout(this.timer)
+    this.timer = undefined
+    this.fireChanged(this.state)
+  }
+
+  override dispose(): void {
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = undefined
+    super.dispose()
+  }
+}
+
+// The one find input holding focus, so the Escape keybinding can close it
+// before core's "hide notifications" binding eats the key (#336).
+let focusedBox: ExplorerSearchBox | undefined
+const findFocusEmitter = new Emitter<boolean>()
+/** True while a find input has focus; feeds the keybinding's when-context. */
+export const onFindFocusChange = findFocusEmitter.event
+/** Close the focused find box and give focus back to its tree. */
+export function dismissFocusedFind(): void {
+  focusedBox?.dismiss()
 }
 
 /**
@@ -131,6 +179,25 @@ export class ExplorerSearchBox extends SearchBox {
     this.toDispose.pushAll([this.dismissEmitter, this.enterEmitter])
   }
 
+  protected setFocused(on: boolean): void {
+    if (on)
+      focusedBox = this // eslint-disable-line @typescript-eslint/no-this-alias
+    else if (focusedBox === this) focusedBox = undefined
+    else return
+    findFocusEmitter.fire(on)
+  }
+
+  /** Hide the box and hand focus back to the tree. */
+  dismiss(): void {
+    this.hide()
+    this.dismissEmitter.fire()
+  }
+
+  /** Apply any text still inside the debounce delay (Enter acts on what is typed). */
+  flushPending(): void {
+    ;(this.debounce as ExplorerSearchDebounce).flush()
+  }
+
   /** Focus the text field now, or as soon as the first render mounts it. */
   focusInput(): void {
     if (this.inputEl) this.inputEl.focus()
@@ -141,15 +208,19 @@ export class ExplorerSearchBox extends SearchBox {
   protected setText(value: string): void {
     if (this.inputText === '' && !this._isFiltering) this.doFireFilterToggle(true)
     this.inputText = value
+    // Core only clears the red no-match state when a non-empty filter reports
+    // matches; emptied text sends no such report.
+    if (value === '') this.hasMatch = true
     ;(this.debounce as ExplorerSearchDebounce).set(value)
     this.update()
   }
 
   protected onInputKey(e: React.KeyboardEvent<HTMLInputElement>): void {
+    // An IME confirming a candidate sends Enter/Escape: those belong to it.
+    if (e.nativeEvent.isComposing && (e.key === 'Escape' || e.key === 'Enter')) return
     if (e.key === 'Escape') {
       e.preventDefault()
-      this.hide()
-      this.dismissEmitter.fire()
+      this.dismiss()
     } else if (e.key === 'Enter') {
       e.preventDefault()
       this.enterEmitter.fire(e.nativeEvent)
@@ -168,6 +239,9 @@ export class ExplorerSearchBox extends SearchBox {
         className: `theia-search-button ${off ? 'no-match' : 'action-label'} ${cls}`,
         title,
         onClick,
+        // A click must not move focus off the input (or the typed text loses
+        // its home and the next key goes to the tree).
+        onMouseDown: (e: React.MouseEvent) => e.preventDefault(),
       })
     return React.createElement(
       'div',
@@ -182,6 +256,8 @@ export class ExplorerSearchBox extends SearchBox {
         placeholder: 'Find',
         onChange: (e: React.ChangeEvent<HTMLInputElement>) => this.setText(e.target.value),
         onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => this.onInputKey(e),
+        onFocus: () => this.setFocused(true),
+        onBlur: () => this.setFocused(false),
         ref: (el: HTMLInputElement | null) => {
           this.inputEl = el
           if (el && this.wantFocus) {
@@ -215,10 +291,7 @@ export class ExplorerSearchBox extends SearchBox {
         button(
           codicon('widget-close'),
           nls.localize('theia/core/searchbox/close', 'Close (Escape)'),
-          () => {
-            this.hide()
-            this.dismissEmitter.fire()
-          },
+          () => this.dismiss(),
         ),
       ),
     )
@@ -276,7 +349,7 @@ export abstract class ExplorerTreeWidget extends TreeWidget {
     const box = this.searchBox as ExplorerSearchBox
     this.toDispose.pushAll([
       box.onDismiss(() => this.node.focus()),
-      box.onEnter(e => this.handleEnter(e)),
+      box.onEnter(e => void this.enterFromBox(box, e)),
     ])
     // A reload, a palette edit or a project switch swaps the root: the nodes
     // the filter chose are gone, so choose again from the current text.
@@ -299,6 +372,16 @@ export abstract class ExplorerTreeWidget extends TreeWidget {
         }
       }),
     )
+  }
+
+  /**
+   * Enter in the input: first apply text still inside the debounce delay and
+   * let its outcome land, or Enter would open the match of the OLD query.
+   */
+  protected async enterFromBox(box: ExplorerSearchBox, e: KeyboardEvent): Promise<void> {
+    box.flushPending()
+    await this.outcomeQueue
+    this.handleEnter(e)
   }
 
   /** Outcomes run one at a time, in order, so a restore never overlaps an earlier expand. */
@@ -440,10 +523,30 @@ export function createExplorerTreeContainer(
 
 /** One Find command and toolbar button for every explorer. */
 @injectable()
-export class ExplorerFindContribution implements CommandContribution, TabBarToolbarContribution {
+export class ExplorerFindContribution
+  implements CommandContribution, TabBarToolbarContribution, KeybindingContribution
+{
   @inject(ApplicationShell) protected readonly shell!: ApplicationShell
+  @inject(ContextKeyService) protected readonly contextKeys!: ContextKeyService
+
+  /**
+   * Core binds Escape to hide notifications while any is showing, in the
+   * capture phase, so the first Escape in the find input would only dismiss a
+   * toast. This binding is true only while a find input has focus and closes
+   * the box instead; it is registered after core's, and later bindings win.
+   */
+  registerKeybindings(keybindings: KeybindingRegistry): void {
+    const focused = this.contextKeys.createKey<boolean>(FIND_FOCUSED_KEY, false)
+    onFindFocusChange(v => focused.set(v))
+    keybindings.registerKeybinding({
+      command: CloseFindCommand.id,
+      keybinding: 'esc',
+      when: FIND_FOCUSED_KEY,
+    })
+  }
 
   registerCommands(commands: CommandRegistry): void {
+    commands.registerCommand(CloseFindCommand, { execute: () => dismissFocusedFind() })
     commands.registerCommand(FindInExplorerCommand, {
       execute: (w?: unknown) => {
         const target = w instanceof ExplorerTreeWidget ? w : this.shell.currentWidget

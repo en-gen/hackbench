@@ -1072,14 +1072,14 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
     if (isSpecial(map.category)) {
       return [
         <span key="label">{map.name}</span>,
-        <span key="slot" className="hb-map-slot hb-map-trailing">
-          {slotLabel(map.index)}
-        </span>,
         map.alias ? (
           <span key="alias" className="hb-map-alias">
             {map.alias}
           </span>
         ) : null,
+        <span key="slot" className="hb-map-slot hb-map-trailing">
+          {slotLabel(map.index)}
+        </span>,
       ]
     }
 

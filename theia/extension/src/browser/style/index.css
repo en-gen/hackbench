@@ -573,7 +573,8 @@
   min-width: 160px;
   border: none;
   outline: none;
-  color: var(--theia-input-foreground, inherit);
+  color: var(--theia-input-foreground, #cccccc);
+  font: inherit;
 }
 
 .theia-search-box-widget .theia-search-input.hb-explorer-search-input:focus {

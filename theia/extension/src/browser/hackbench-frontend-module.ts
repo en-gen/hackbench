@@ -11,6 +11,7 @@ import { CommandContribution, MenuContribution } from '@theia/core/lib/common'
 import {
   bindViewContribution,
   FrontendApplicationContribution,
+  KeybindingContribution,
   WidgetFactory,
 } from '@theia/core/lib/browser'
 import { TabBarToolbarContribution } from '@theia/core/lib/browser/shell/tab-bar-toolbar'
@@ -116,5 +117,6 @@ export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
 
   bind(ExplorerFindContribution).toSelf().inSingletonScope()
   bind(CommandContribution).toService(ExplorerFindContribution)
+  bind(KeybindingContribution).toService(ExplorerFindContribution)
   bind(TabBarToolbarContribution).toService(ExplorerFindContribution)
 })

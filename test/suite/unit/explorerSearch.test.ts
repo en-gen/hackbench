@@ -341,7 +341,7 @@ describe('map aliases (D79 call 1)', () => {
 
 describe('search matches what the tree displays (D113)', () => {
   it('a palette group draws the decimal CGRAM row its search matches', () => {
-    for (const row of [0, 3, 12, 14, 15]) {
+    for (let row = 0; row <= 15; row++) {
       const group = paletteSearchRow({ kind: 'group', name: 'G', row })!
       const query = String(row)
       expect(rowMatches(parseQuery(query), group)).toBe(true)

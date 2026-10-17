@@ -938,16 +938,17 @@ for (const which of Object.keys(IDS)) {
     expect((await state(page, which)).boxVisible).toBe(false)
     await page.locator('[id="hackbench.explorer.find"]:visible').first().click()
     // Before any key: the box is drawn (boxVisible checks the DOM rect) and
-    // keys still go to the tree.
+    // its input holds focus. The keys go straight into it: type() would
+    // refocus the tree and hide a focus bug.
     await expect.poll(async () => boxOrDiag(page, which)).toBe(true)
     expect((await inputState(page, which)).focused).toBe(true)
-    await type(page, which, FIND_QUERY[which])
+    await page.keyboard.type(FIND_QUERY[which])
     await expectFiltered(page, which, all, FIND_QUERY[which])
   })
 }
 
 // Owner T4 (#336): Ctrl+F after a real row click showed nothing. The box must
-// be drawn on open (boxVisible checks the DOM rect), keys stay on the tree,
+// be drawn on open (boxVisible checks the DOM rect), its input takes focus,
 // and typing then filters.
 test('maps: after a real row click, Ctrl+F draws the search box before any key, and typing filters', async ({
   page,
@@ -1017,17 +1018,126 @@ for (const which of Object.keys(IDS)) {
 }
 
 // Search matches what the tree displays (D113): a group's CGRAM row is found
-// by its decimal number, so the row must say it.
-test('palettes: a group row draws the CGRAM row number its search matches', async ({ page }) => {
+// by its decimal number, so the row must say it. A one-variant group is a
+// leaf (no expansion toggle) and a multi-variant group is expandable: both.
+test('palettes: every kind of group row draws the CGRAM row number its search matches', async ({
+  page,
+}) => {
   await openExplorer(page, 'palettes')
   const all = await nodes(page, 'palettes')
-  const group = all.find(n => n.kind === 'group' && n.row !== undefined)
-  expect(group, 'fixture: a group with a CGRAM row').toBeTruthy()
-  const shown = await page.evaluate(
-    ({ id, nodeId }) =>
-      document.querySelector(`#${CSS.escape(id)} [data-node-id="${CSS.escape(nodeId)}"]`)
-        ?.textContent ?? null,
-    { id: IDS.palettes, nodeId: group.id },
-  )
-  expect(shown).toContain(`Row ${group.row}`)
+  const groups = all.filter(n => n.kind === 'group' && n.row !== undefined)
+  const leaf = groups.find(n => !n.expandable)
+  const folder = groups.find(n => n.expandable)
+  expect(leaf && folder, 'fixture: a one-variant and a multi-variant group').toBeTruthy()
+  for (const group of [leaf, folder]) {
+    const shown = await page.evaluate(
+      ({ id, nodeId }) =>
+        document.querySelector(`#${CSS.escape(id)} [data-node-id="${CSS.escape(nodeId)}"]`)
+          ?.textContent ?? null,
+      { id: IDS.palettes, nodeId: group.id },
+    )
+    expect(shown, `${group.id} is drawn`).not.toBeNull()
+    expect(shown).toContain(`Row ${group.row}`)
+  }
 })
+
+/** Click Find, wait for the focused input. */
+async function openFind(page, which) {
+  await page.locator('[id="hackbench.explorer.find"]:visible').first().click()
+  await expect
+    .poll(async () => JSON.stringify(await inputState(page, which)))
+    .toContain('"drawn":true,"focused":true')
+}
+
+const inputFocused = async (page, which) => (await inputState(page, which)).focused
+
+// Input path, no tree refocus anywhere (owner T4): Enter, Down and Up act from the input.
+test('maps: from the input, Down and Up move the selection and Enter opens the match', async ({
+  page,
+}) => {
+  await openExplorer(page, 'maps', { viaApp: true })
+  const all = await nodes(page, 'maps')
+  const word = sharedWord(all)
+  expect(word, 'fixture: a word shared by 2 to 40 matches').toBeTruthy()
+  const { matches } = expectation(all, 'maps', word)
+  const first = matches.find(m => !m.folder && m.openable)
+  await openFind(page, 'maps')
+  await page.keyboard.type(word)
+  await expect.poll(async () => (await state(page, 'maps')).selected[0]).toBe(first.id)
+  const next = matches[(matches.findIndex(m => m.id === first.id) + 1) % matches.length]
+  await page.keyboard.press('ArrowDown')
+  await expect.poll(async () => (await state(page, 'maps')).selected[0]).toBe(next.id)
+  await page.keyboard.press('ArrowUp')
+  await expect.poll(async () => (await state(page, 'maps')).selected[0]).toBe(first.id)
+  expect(await inputFocused(page, 'maps'), 'arrows leave focus in the input').toBe(true)
+  expect(await mapViewIds(page), 'nothing opened yet').toEqual([])
+  await page.keyboard.press('Enter')
+  await expect.poll(() => mapViewIds(page)).toEqual([`hackbench.map-view:${first.index}`])
+})
+
+// Enter right after the last key, inside the 200 ms debounce: it must act on
+// the text just typed, not on the previous query's selection.
+test('maps: Enter typed straight after the text opens the NEW match', async ({ page }) => {
+  await openExplorer(page, 'maps', { viaApp: true })
+  const all = await nodes(page, 'maps')
+  const target = all.find(n => n.kind === 'map' && n.category === 'entry' && n.index >= 0)
+  const q = `$${target.index.toString(16)}`
+  const want = expectation(all, 'maps', q).matches.find(m => !m.folder && m.openable)
+  await openFind(page, 'maps')
+  await page.keyboard.type(q)
+  await page.keyboard.press('Enter')
+  await expect.poll(() => mapViewIds(page)).toEqual([`hackbench.map-view:${want.index}`])
+})
+
+// A no-match query turns the box red; emptying the text must turn it back.
+test('maps: emptying the text after a no-match clears the red state', async ({ page }) => {
+  await openExplorer(page, 'maps')
+  await openFind(page, 'maps')
+  await page.keyboard.type('zzzq')
+  const red = () =>
+    page.evaluate(
+      id =>
+        getWidget(id).then(
+          w => w.searchBox.node.querySelector('.theia-search-box.no-match') !== null,
+        ),
+      IDS.maps,
+    )
+  await expect.poll(red, { message: 'no match turns the box red' }).toBe(true)
+  for (let i = 0; i < 4; i++) await page.keyboard.press('Backspace')
+  await expect.poll(async () => (await inputState(page, 'maps')).value).toBe('')
+  await expect.poll(red, { message: 'empty text is not red' }).toBe(false)
+})
+
+// A real mouse press on a box button must not take focus from the input.
+test('maps: pressing the Next button leaves focus in the input', async ({ page }) => {
+  await openExplorer(page, 'maps')
+  const all = await nodes(page, 'maps')
+  const word = sharedWord(all)
+  expect(word, 'fixture: a shared word').toBeTruthy()
+  await openFind(page, 'maps')
+  await page.keyboard.type(word)
+  await expectFiltered(page, 'maps', all, word)
+  await page.locator('.theia-search-box-widget:visible .codicon-find-next-match').first().click()
+  expect(await inputFocused(page, 'maps')).toBe(true)
+})
+
+// Core hides notifications on Escape in the capture phase, before the input
+// sees it: with a toast showing, the FIRST Escape must still close the box.
+for (const which of Object.keys(IDS)) {
+  test(`${which}: Escape in the input closes the box on the first press with a toast showing`, async ({
+    page,
+  }) => {
+    await openExplorer(page, which)
+    await page.evaluate(() => getSvc('MessageService').info('A toast that stays up for this test'))
+    await expect
+      .poll(() => page.locator('.theia-notification-list-item').count(), {
+        message: 'a notification is visible',
+      })
+      .toBeGreaterThan(0)
+    await openFind(page, which)
+    await page.keyboard.type(FIND_QUERY[which])
+    await page.keyboard.press('Escape')
+    await expect.poll(async () => (await state(page, which)).boxVisible).toBe(false)
+    expect((await state(page, which)).treeFocused).toBe(true)
+  })
+}

@@ -85,6 +85,20 @@ export class PaletteExplorerWidget extends ExplorerTreeWidget {
     return paletteSearchRow(node as PaletteTreeNode)
   }
 
+  /**
+   * Theia's default row carries no node id; only its expansion toggle does,
+   * which a one-variant group does not have. Every row gets it (as Maps does).
+   */
+  protected override createNodeAttributes(
+    node: TreeNode,
+    props: NodeProps,
+  ): React.Attributes & React.HTMLAttributes<HTMLElement> {
+    return {
+      ...super.createNodeAttributes(node, props),
+      ...({ 'data-node-id': node.id } as Record<string, string>),
+    }
+  }
+
   protected openMatch(node: TreeNode): boolean {
     this.fireOpen(node as PaletteTreeNode, true)
     return true
