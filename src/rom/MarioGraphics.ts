@@ -35,8 +35,7 @@ const ROW_SLOTS = 5
 const PIECE = 0x40 // bytes per slot (HW_DMACNT, bank_00.asm:4586)
 
 /**
- * A boot routine found by its head and recognised by a hash of all of it: the head is under the 32-byte literal
- * limit, `sha256` covers all `length` bytes with the operand slots (`bootFingerprint`) zeroed.
+ * A boot routine found by its head and recognised by a hash of all of it: the head is under 8 bytes, `sha256` covers all `length` bytes with the operand slots (`bootFingerprint`) zeroed.
  */
 export interface BootRoutine {
   anchor: BytePattern
@@ -44,11 +43,13 @@ export interface BootRoutine {
   sha256: string
 }
 
-// CODE_00B888 through the GFX32 pointer load at CODE_00B8D7 (bank_00.asm:6250-6290), 84 bytes. The JSR is pinned to
-// the stock decompressor entry. Lunar Magic replaces its body (a direct GFX33 decompress to $7E:7D00, then a JMP to
-// CODE_00B8D7): 141 of the 146 hack-corpus ROMs do, and those are not stock here.
+// CODE_00B888 through the GFX32 pointer load at CODE_00B8D7 (bank_00.asm:6250-6290), 84 bytes. The anchor is the first
+// seven bytes with the GFX33 operand word wild: under 8 bytes, so no literal run of the cart's code is committed, and
+// several sites may match it; the SHA-256 alone says which is the routine. The JSR is pinned to the stock decompressor
+// entry by that hash. Lunar Magic replaces its body (a direct GFX33 decompress to $7E:7D00, then a JMP to CODE_00B8D7):
+// 141 of the 146 hack-corpus ROMs do, and those are not stock here.
 export const STOCK_BOOT: BootRoutine = {
-  anchor: hex('c2 10 a0 ?? ?? 84 8a a9 ?? 85 8c a0 00 20 84 00 a9 7e 85 02 20 de b8 a9 7e 85 8f'),
+  anchor: hex('c2 10 a0 ?? ?? 84 8a'),
   length: 84,
   sha256: '41bd1df9519507a44f4eb96ded5761a2aafa0bfc36151c60290fbb3d8a54b05b',
 }
