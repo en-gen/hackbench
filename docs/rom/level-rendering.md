@@ -234,8 +234,10 @@ y 64..255 on vanilla $1CE), so the camera Y at load does not place it. The edito
 clipped. X parallax (Layer3XPos = Layer1XPos / 2, `bank_05.asm:5516-5518`) is not modelled, same as
 horizontal; the capture's windows are all at camera X 0. Evidence scope: capture `layers_v5` `1ce`, 5 windows (camera
 Layer1Y 0, 256, 512, 768, 1024), Layer3Y = BG3VOFS = 192 in all five and the visible BG3 band identical;
-one machine, vanilla. Every other vertical case (a tide byte, `$80`, a
-camera-locked byte) stays refused with "untraced layer 3 type". Vanilla: the sweep test "vanilla
+one machine, vanilla. Every other vertical case stays refused: a
+camera-locked byte (`$00` or `$81`-`$BF` off tilesets 1 and 3) gets the same
+"camera-locked layer 3" reason as a horizontal map, and a tide byte, `$80`,
+`$C0`+ or `$00` on tileset 1 or 3 gets "vertical map with an untraced layer 3 type". Vanilla: the sweep test "vanilla
 vertical maps with a drawn layer 3 are exactly $0E7 and $1CE" finds only those two.
 Settings
 `$00` is Layer3TideSetting 0 (not a tide: 512 px repeat, whole tilemap), the non-tide path of `CODE_05C40C`: off Castle1
