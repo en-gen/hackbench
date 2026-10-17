@@ -252,8 +252,8 @@ export interface MapLayer3Dto {
 
 /**
  * An object the map could not draw (#816), at its anchor cell in map tiles
- * (16 px, whole-map coordinates). `why` is plain words; the tooltip reads
- * `Object <objectIndex> (<objectType>): <why>`, the same numbering as the map note.
+ * (16 px, whole-map coordinates). `reasons` is one plain-words line per distinct issue (#1005); the tooltip
+ * is `Object <objectIndex> (<objectType>)` then one line each, the same numbering as the map note.
  */
 export interface MapRefusedCellDto {
   x: number
@@ -261,7 +261,7 @@ export interface MapRefusedCellDto {
   objectIndex: number
   objectType: string
   handler: number
-  why: string
+  reasons: string[]
 }
 
 /**

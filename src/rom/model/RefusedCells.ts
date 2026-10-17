@@ -20,8 +20,10 @@ export interface RefusedCell {
   objectIndex: number
   /** "type 25" or "extended type 5": the object number as the level stream holds it. */
   objectType: string
+  /** First refusal's handler. */
   handler: number
-  why: string
+  /** One plain-words line per distinct issue, gate reasons first (#1005); the count badge is its length. */
+  reasons: string[]
 }
 
 /** The strip's size in map tiles, so an anchor can be kept on it. */
@@ -37,31 +39,49 @@ export function refusedBounds(
 const clamp = (v: number, n: number): number => Math.max(0, Math.min(v, n - 1))
 
 /**
- * One cell per refused OBJECT (an object can be refused twice, handle_0DB49E,
- * and the gate reason wins over the unported one); a refusal whose object index
- * is not in `objects` is dropped, never guessed. An anchor the parser put past
- * the strip is pulled onto its last row or column: an undrawn object is never hidden (D52).
+ * The gate line with its handler and byte detail, so two gate refusals on one object read as two issues.
+ * The raw line is kept in plain words minus its "refused:" and "so the object is not drawn" framing.
+ */
+function gateReason(line: string): string {
+  const detail = line.replace(' refused:', ':').replace(/, so the object is not drawn\.$/, '')
+  return `${WHY_GATE} (${detail})`
+}
+
+/**
+ * One cell per refused OBJECT (an object can be refused twice, handle_0DB49E), listing every distinct
+ * reason: gate reasons first, then unported, each in refusal order, identical text counted once (#1005).
+ * A refusal whose object index is not in `objects` is dropped, never guessed. An anchor the parser put
+ * past the strip is pulled onto its last row or column: an undrawn object is never hidden (D52).
  */
 export function refusedCellsOf(
   refusals: readonly Refusal[],
   objects: readonly LevelObject[],
   bounds: { cols: number; rows: number },
 ): RefusedCell[] {
-  const byObject = new Map<number, RefusedCell>()
+  const byObject = new Map<number, { cell: RefusedCell; gate: string[]; other: string[] }>()
   for (const r of refusals) {
     const o = objects[r.objectIndex]
     if (!o) continue
-    const why = parseRefusedLine(r.reason) ? WHY_GATE : WHY_UNPORTED
-    const had = byObject.get(r.objectIndex)
-    if (had && !(had.why === WHY_UNPORTED && why === WHY_GATE)) continue
-    byObject.set(r.objectIndex, {
-      x: clamp(o.x, bounds.cols),
-      y: clamp(o.y, bounds.rows),
-      objectIndex: r.objectIndex,
-      objectType: `${o.type === 'extended' ? 'extended type' : 'type'} ${o.objectNumber}`,
-      handler: r.handler,
-      why,
-    })
+    let e = byObject.get(r.objectIndex)
+    if (!e) {
+      e = {
+        cell: {
+          x: clamp(o.x, bounds.cols),
+          y: clamp(o.y, bounds.rows),
+          objectIndex: r.objectIndex,
+          objectType: `${o.type === 'extended' ? 'extended type' : 'type'} ${o.objectNumber}`,
+          handler: r.handler,
+          reasons: [],
+        },
+        gate: [],
+        other: [],
+      }
+      byObject.set(r.objectIndex, e)
+    }
+    const gate = parseRefusedLine(r.reason) !== null
+    const text = gate ? gateReason(r.reason) : WHY_UNPORTED
+    const list = gate ? e.gate : e.other
+    if (!list.includes(text)) list.push(text)
   }
-  return [...byObject.values()]
+  return [...byObject.values()].map(e => ({ ...e.cell, reasons: [...e.gate, ...e.other] }))
 }

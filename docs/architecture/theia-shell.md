@@ -355,9 +355,18 @@ guessed rectangle would be [PROP]. An anchor past the strip (a horizontal y beyo
 `screenCount` x 16, a vertical y beyond `screenCount` x 16 rows) is clamped onto the last row or
 column, never dropped: an undrawn object must not be hidden (D52).
 
+Each cell lists EVERY distinct issue on its object (#1005): `RefusedCell.reasons`, gate reasons first
+(each carrying its handler and byte detail, so two gate refusals read as two lines), then unported,
+identical text counted once. With 2+ issues the cell gets a count badge, a solid red circle with a white
+number ("9+" past 9) drawn in map pixels inside its top-right corner, so it scales with zoom and never
+overhangs the 16 px cell; the "!" moves to the lower left to stay clear of it. Geometry and tooltip text
+are pure functions in `browser/refused-badge.ts`.
+
 Test hooks: `data-control="refused-overlay"` (absent when there are no cells), per cell
-`data-control="refused-cell"` with `data-x`, `data-y` (tiles) and `data-object`, and the reason
-`Object <n> (<type>): <why>` as both the `<title>` tooltip and the `aria-label`.
+`data-control="refused-cell"` with `data-x`, `data-y` (tiles), `data-object` and `data-count` (issues,
+always present), and `Object <n> (<type>)` plus one line per reason (bulleted with 2+) as the `<title>`
+tooltip; the `aria-label` is the same text, prefixed `<n> issues.` with 2+. The badge is
+`data-control="refused-badge"`, present only when the count is 2 or more.
 
 ## The emulator view
 

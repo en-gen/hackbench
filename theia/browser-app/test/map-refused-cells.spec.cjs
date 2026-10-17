@@ -91,6 +91,10 @@ async function openMap(page, index, cells) {
   ).toHaveAttribute('data-drawn', /^\d+:\d{4}:\d{3}:\d+$/, { timeout: 30000 })
 }
 
+const bullet = c => (c.reasons.length > 1 ? '- ' : '')
+const tooltipOf = c =>
+  [`Object ${c.objectIndex} (${c.objectType})`, ...c.reasons.map(r => bullet(c) + r)].join('\n')
+
 /** A cell's box in MAP pixels (strip origin, zoom divided out), and the zoom it was read at. */
 const cellAt = (page, index, screenW, n) =>
   page.evaluate(
@@ -115,15 +119,15 @@ for (const { index, screenPx } of MAPS) {
   test(`$${index.toString(16)}: cells land on their tiles at two zooms, with the reason as tooltip and label`, async ({
     page,
   }) => {
-    const unported = { x: 3, y: 5, objectIndex: 7, objectType: 'type 9', handler: 0x0dfff0, why: WHY } // prettier-ignore
-    const gate = { x: 9, y: 2, objectIndex: 8, objectType: 'extended type 5', handler: 0x0db49e, why: WHY_GATE } // prettier-ignore
+    const unported = { x: 3, y: 5, objectIndex: 7, objectType: 'type 9', handler: 0x0dfff0, reasons: [WHY] } // prettier-ignore
+    const gate = { x: 9, y: 2, objectIndex: 8, objectType: 'extended type 5', handler: 0x0db49e, reasons: [WHY_GATE, WHY] } // prettier-ignore
     await openMap(page, index, [unported, gate])
     const g = page.locator(`${root(index)} [data-control="refused-cell"]`)
     await expect(g).toHaveCount(2, { timeout: 30000 })
     for (const [n, c] of [unported, gate].entries()) {
-      const tip = `Object ${c.objectIndex} (${c.objectType}): ${c.why}`
+      const tip = tooltipOf(c)
       await expect(g.nth(n).locator('title')).toHaveText(tip)
-      await expect(g.nth(n)).toHaveAttribute('aria-label', tip)
+      expect(await g.nth(n).getAttribute('aria-label')).toContain(tip)
     }
     const zooms = []
     for (const step of ['zoom-actual', 'zoom-in']) {
@@ -143,8 +147,72 @@ for (const { index, screenPx } of MAPS) {
   })
 }
 
+/** Box of a node in MAP pixels, zoom divided out, relative to the strip. */
+const boxesAt = (page, index, screenW) =>
+  page.evaluate(
+    ({ sel, screenW }) => {
+      const strip = document.querySelector(`${sel} .hb-map-view-strip`).getBoundingClientRect()
+      const zoom = document.querySelector(`${sel} .hb-map-view-screen`).getBoundingClientRect().width / screenW // prettier-ignore
+      const box = el => {
+        const r = el.getBoundingClientRect()
+        return { l: (r.left - strip.left) / zoom, t: (r.top - strip.top) / zoom, r: (r.right - strip.left) / zoom, b: (r.bottom - strip.top) / zoom } // prettier-ignore
+      }
+      return [...document.querySelectorAll(`${sel} [data-control="refused-cell"]`)].map(g => ({
+        count: g.getAttribute('data-count'),
+        rect: box(g.querySelector('rect')),
+        badge: g.querySelector('[data-control="refused-badge"]')
+          ? box(g.querySelector('[data-control="refused-badge"]'))
+          : null,
+        badgeText: g.querySelector('[data-control="refused-badge"] text')?.textContent ?? null,
+        bang: box(g.querySelector(':scope > text')),
+      }))
+    },
+    { sel: root(index), screenW },
+  )
+
+test('a count badge shows only for 2+ issues, lists every reason, and stays inside its cell at every zoom', async ({
+  page,
+}) => {
+  const one = { x: 3, y: 5, objectIndex: 7, objectType: 'type 9', handler: 1, reasons: [WHY] }
+  const three = { x: 9, y: 2, objectIndex: 8, objectType: 'type 5', handler: 2, reasons: [WHY_GATE + ' (a)', WHY_GATE + ' (b)', WHY] } // prettier-ignore
+  const many = { x: 12, y: 8, objectIndex: 9, objectType: 'type 6', handler: 3, reasons: Array.from({ length: 11 }, (_, i) => `issue ${i}`) } // prettier-ignore
+  await openMap(page, 0x105, [one, three, many])
+  const g = page.locator(`${root(0x105)} [data-control="refused-cell"]`)
+  await expect(g).toHaveCount(3, { timeout: 30000 })
+  await expect(g.nth(0)).toHaveAttribute('data-count', '1')
+  await expect(g.nth(0).locator('[data-control="refused-badge"]')).toHaveCount(0)
+  await expect(g.nth(1)).toHaveAttribute('data-count', '3')
+  await expect(g.nth(1).locator('[data-control="refused-badge"] text')).toHaveText('3')
+  await expect(g.nth(2).locator('[data-control="refused-badge"] text')).toHaveText('9+')
+  await expect(g.nth(1).locator('title')).toHaveText(tooltipOf(three))
+  expect(await g.nth(1).locator('title').textContent()).toContain('(a)')
+  const all = ['zoom-fit', 'zoom-actual', 'zoom-in', 'zoom-in']
+  for (const step of all) {
+    await page.locator(`${root(0x105)} [data-control="${step}"]`).click()
+    await page.waitForTimeout(400)
+    const boxes = await boxesAt(page, 0x105, 256)
+    expect(boxes[0].badge).toBeNull()
+    for (const b of boxes.slice(1)) {
+      const e = 0.6 // stroke antialiasing, in map px
+      expect(b.badge.l).toBeGreaterThanOrEqual(b.rect.l - e)
+      expect(b.badge.r).toBeLessThanOrEqual(b.rect.r + e)
+      expect(b.badge.t).toBeGreaterThanOrEqual(b.rect.t - e)
+      expect(b.badge.b).toBeLessThanOrEqual(b.rect.b + e)
+      // The badge must not sit on the "!" (boxes may touch, not overlap).
+      expect(b.badge.l >= b.bang.r - 0.5 || b.badge.t >= b.bang.b - 0.5).toBe(true)
+    }
+  }
+})
+
 test('cells that were shown clear when the next reply has none', async ({ page }) => {
-  const cell = { x: 3, y: 5, objectIndex: 7, objectType: 'type 9', handler: 0x0dfff0, why: WHY }
+  const cell = {
+    x: 3,
+    y: 5,
+    objectIndex: 7,
+    objectType: 'type 9',
+    handler: 0x0dfff0,
+    reasons: [WHY],
+  }
   await openMap(page, 0x105, [cell])
   await expect(page.locator(`${root(0x105)} [data-control="refused-cell"]`)).toHaveCount(1, { timeout: 30000 }) // prettier-ignore
   await page.evaluate(async i => {
