@@ -95,18 +95,21 @@ Arm B = raster + `composeScreen` in a worker. Arm C = plane drawing only (no com
 | $101 | B worker + composite | 211-319 | 0.7-1.3 / 1.3-1.4 | 41.6-64.7 / 51.0-81.8 | 16.6-16.7 / 17.7-18.0 / 18.1-30.5 | 150-266 |
 | $101 | C WebGL2 (no composite) | 61-73 | 7.7-8.5 / 26.8-35.2 | same | 16.6-16.7 / 17.6-17.7 / 17.9-18.1 | 30-32 |
 
-Arm A's composite alone (`composeScreen` on the main thread) is 28-54 ms of its per-screen
-cost, so decode + plane painting is about 8-9 ms. Arm B's worker time (35.7-52.2, 32.0-73.3,
-41.2-63.3 ms mean per screen on the three maps) is mostly the same composite. Canvas backing
+Statistics, labelled. Arm A's composite (`composeScreen` on the main thread) is 28-54 ms as a range
+of the run means, and 22-70 ms per screen. Arm A's decode + plane painting is not timed directly:
+it is derived as decodeMs minus composeMs (`bench.js:222-226`), 3.1-11.1 ms per screen and
+4.2-7.0 ms as a range of run means (an earlier "about 8-9 ms" was wrong). Arm B's worker time per
+screen is 35.7-52.2, 32.0-73.3 and 41.2-63.3 ms (run means, $10A, $105, $101), no faster than A's
+composite alone; worker ready, raster and compose are not timestamped separately. Canvas backing
 store is 23.6 MB in every arm (6 planes + composite x 8 screens x 256x432x4), an estimate.
 
-Arm A against the #989 shipped baseline (3.5-9 ms decode, 16.8 ms scroll p95). Arm A's decode
-plus plane painting, 8-9 ms, falls inside the baseline's decode range. The gap to the bench's
-total (29-63 ms main, scroll p95 30-68 ms against 16.8) is the composite: 28-54 ms of per-pixel
-`composeScreen` on a software-rendered headless run, which the #989 figures do not appear to
-include or to hit inside scroll frames (their harness is not this one; why its scroll p95 stays
-at 16.8 ms is not established here, only that this bench builds each screen synchronously inside
-the scroll loop). Treat A's absolute numbers as a headless worst case and compare arms only.
+Arm A against the #989 shipped baseline (3.5-9 ms decode, 16.8 ms scroll p95). A's derived decode
++ plane painting (4.2-7.0 ms run means) sits inside the baseline's decode range. The scroll gap
+(A p95 30-68 ms against 16.8) is a harness difference: the shipped widget composites on the main
+thread when a screen arrives (`map-view-widget.tsx:736`, `paintComposite`), not inside scroll
+frames, whereas this bench builds each screen inside its scroll loop. So A's scroll p95 is jank
+at screen arrival (one 28-54 ms composite landing in a frame), not a per-frame cost. Treat A's
+absolute numbers as a headless worst case and compare arms only.
 
 The composite and the indexed arms. `composeScreen` reads plane RGBA, it cannot consume an
 ImageBitmap or a GL texture. Arm B therefore runs the composite in the worker (`importScripts`
@@ -120,15 +123,19 @@ in arm A, so the GPU buys nothing for painting), or porting ColorMath (CGADSUB, 
 backdrop, partial-alpha blend, door screen door and lift, about 260 lines of branchy code) to a
 shader: a multi-day job with its own oracle. Arm C numbers cover plane drawing only.
 
-Reading. The composite, not the decode, is the dominant per-screen cost, and it is the same
-code in every arm. Moving it to a worker (B) removes it from the main thread: scroll p95 17.6-18.1
-ms against 30-68 ms for A. It does not make a screen appear sooner: B's end-to-end latency
-(31-82 ms p50) is about A's (29-63 ms), and B's first paint is slower (176-438 ms against
-127-243 ms) because of worker start and the serial composite. B's palette edit (117-267 ms for 4
-screens) is bound by re-compositing, not by raster (the CPU raster is a few ms a screen). C paints
-planes in 5-8 ms p50 and repaints after a palette edit in 22-35 ms, but p95 is 25-35 ms, its
-output still needs a composite C cannot do, and it ran on a software renderer. A 29-31 ms scroll max appears
-in the ranges of B on $101 and C on $105 (one run each at most); not explained.
+Reading. The composite, not the decode, is the largest measured main-thread cost, and it is the
+same code in every arm. Moving it to a worker (B) removes it from the main thread: scroll p95
+17.6-18.1 ms against 30-68 ms for A. It does not make a screen appear sooner: B's end-to-end
+latency (31-82 ms p50) is about A's (29-63 ms), and B's first paint is slower (176-438 ms against
+127-243 ms); the cause is not isolated here. B's palette edit (117-267 ms for 4 screens)
+re-rasters every plane and re-composites; the split is not timed. C paints planes in 5-8 ms p50
+and repaints after a palette edit in 22-35 ms, but p95 is 25-35 ms, its output still needs a
+composite C cannot do, and it ran on a software renderer. A 29-31 ms scroll max appears in the
+ranges of B on $101 and C on $105 (one run each at most); not explained.
+
+Second run. The verifier re-ran the bench independently: same conclusions, with $105 and $101
+slightly lower than the first run. Its figures are not reproduced here; the table above is the
+first run.
 
 ## 5. Answers to the open questions
 
@@ -160,30 +167,48 @@ section 3) at server CPU cost, but the base64 string is still decoded on the UI 
 
 ## 6. Options for the owner
 
-1. Keep RGBA, no compression. Zero cost. The local wire (1.2-1.8 MB per screen) is irrelevant on
-   loopback; UI-thread decode and 65-70 ms of backend draw per screen stay.
-2. Keep RGBA, enable permessage-deflate. Small backend bootstrap change; helps only a remote
-   browser, not decode and not palette edits.
-3. Indexed + CPU Worker (arm B). About 125x smaller payload, off-thread decode, palette edits
-   without a round trip. Cost: an indexed draw path in the core (the spike duplicates the
-   placement loops; the real work is making them the single source), an escape for ghost cells,
-   and a RenderTarget interface change. Lowest-risk indexed option.
-4. Indexed + WebGL2 (arm C). Same payload; adds shader code, context-loss handling and
-   GPU-blocklist risk. Measured slower than B on software GL; untested on a real GPU.
+Two independent decisions, not one.
 
-Recommendation: option 3, indexed + CPU Worker with the composite in the worker. It is the only
-option here that takes both the rasterisation and the composite off the main thread (scroll p95
-17.6-18.1 ms against 30-68 ms), shrinks the payload about 125x, and makes a palette edit local
-(117-267 ms for 4 screens, composite-bound, with no server round trip). Be clear about what the
-numbers do not show: the scroll benefit comes from moving the composite off the main thread, which
-a worker could also do with today's RGBA planes (not measured, the cheapest follow-up check), and
-B does not lower per-screen latency or first paint. Options 1 and 2 leave the composite on the
-main thread and cannot express a palette edit. Option 4 is dropped for now: it fits no composite
-without a ColorMath shader port, and its plane-only timings came from a software renderer.
+(i) Where `composeScreen` runs. Recommendation: move it off the main thread FIRST, on today's
+RGBA planes (a worker plus the door/flip/lift state posted to it). It is the only measured
+main-thread cost (22-70 ms a screen), it does not depend on the representation, and it needs no
+new draw path. Not measured on RGBA planes in a worker; that is follow-up (a).
+
+(ii) Representation, indexed or RGBA. Do not decide yet. Decide after measuring (1) the backend
+indexed draw time (today 65-70 ms a screen per #989; unmeasured under an indexed path) and (2) a
+palette edit on A against B. Wire size is about 125x smaller uncompressed (7x to 14x after gzip),
+but on loopback the wire is not the bottleneck, and measured decode is only 3-11 ms a screen.
+What indexed buys that RGBA cannot is a palette edit without a server round trip. B's measured
+palette edit is 117-267 ms for 4 screens. A's was never measured; an inferred estimate, NOT
+measured, is 4 backend draws at 65-70 ms plus A's per-screen cost, roughly 380-530 ms. No
+measured comparison exists. Costs of going indexed: an indexed draw path in the core (the spike
+duplicates the placement loops), the ghost-cell escape for vanilla $10A, and a RenderTarget
+interface change.
+
+(iii) WebGL2: dropped until a ColorMath shader port is costed. Arm C numbers are plane-only, on
+software GL, and it cannot produce the composite without the port or a readback.
+
+Options as they now stand:
+
+1. Keep RGBA and the main-thread composite. Zero cost; leaves the 22-70 ms composite on the main
+   thread in every screen arrival.
+2. Keep RGBA, enable permessage-deflate. Helps only a remote browser.
+3. Keep RGBA, composite in a worker. The recommended first step; unmeasured.
+4. Indexed + CPU worker with the composite in the worker (arm B). Adds local palette edits and a
+   much smaller payload; decide after the two measurements in (ii).
+5. Indexed + WebGL2 (arm C). Not pursued.
 
 ## 7. What this does not cover
 
-The standalone page is not the shipped widget: no sprites, collision or block overlays, no
-priority or colour-math compositing, no Theia messaging, no real RPC latency, no cache
-invalidation on ROM edit. Backend draw time (65-70 ms/screen) is not changed by this spike; an
-indexed path may cut it, unmeasured. Fixtures hold the first 8 screens of three vanilla maps only.
+The standalone page is not the shipped widget. The composite now runs in arms A and B; what is
+missing is sprites and the door/flip/lift state, collision and block overlays, layer toggles, Theia
+messaging, real RPC latency, and cache invalidation on ROM edit. Backend draw time (65-70
+ms/screen) is not changed by this spike; an indexed path may cut it, unmeasured. Fixtures hold the first 8 screens of three vanilla maps only.
+
+## 8. Follow-ups
+
+(a) A worker composite on RGBA planes: the cheapest next step, and the one that tests whether the
+scroll gain needs the indexed representation at all. (b) Measure the backend indexed draw time
+against #989's 65-70 ms. (c) An arm A palette edit with a simulated server round trip. (d) The
+ghost-cell RGBA escape that vanilla $10A (6 cells) needs. (e) l2High has no vanilla coverage: no
+vanilla map draws it, so that plane kind needs a hack ROM to exercise.
