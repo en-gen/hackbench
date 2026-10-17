@@ -31,7 +31,7 @@ import {
   TOOLS_ROOT,
   VANILLA,
 } from '../../support/corpus'
-import { loadCaptures as loadAll, type Loaded, type Rec } from '../../support/captures'
+import { loadCaptures, type Loaded, type Rec } from '../../support/captures'
 import { gradedPass, writeMarioStart } from '../../support/gradeTimeline'
 import { oracleCells, oracleImage } from '../../support/oracleImage'
 import {
@@ -190,7 +190,7 @@ const FLOOR = {
 }
 
 describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-load captures', () => {
-  const all = hasCaptures() && hasRom(VANILLA) ? loadAll() : []
+  const all = hasCaptures() && hasRom(VANILLA) ? loadCaptures() : []
 
   it('grades every recorded sprite, and holds the floors', () => {
     const rom = freshRom()
