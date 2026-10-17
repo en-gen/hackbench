@@ -27,7 +27,8 @@ const NO_FLAGS: SwitchFlagsDto = { green: false, yellow: false, blue: false, red
 
 // Measured on the vanilla ROM, one machine: 488 of 512 map slots build, 1315 of their screens have sprites and a color-math table.
 // Door pixels per layer show/hide combination (bit 0 = Layer 1 shown, bit 1 = Layer 2, bit 2 = Layer 3), from the second #936 review.
-const DOOR_PIXELS = [0, 65180, 804, 65200, 8319, 73368, 9123, 73388]
+// The Layer 1 combos moved 65180 -> 67238 (+2058) with #980: Podoboos and re-run chainsaws/grinders now draw at their INIT anchor, full height.
+const DOOR_PIXELS = [0, 67238, 804, 67258, 8319, 75426, 9123, 75446]
 
 describe.skipIf(!hasRom(VANILLA))(
   'door and lift pixels never meet color math on vanilla (#936)',

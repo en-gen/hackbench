@@ -192,12 +192,15 @@ describe('line-guided draw pass', () => {
 
 /**
  * Every vanilla $67, in stream order, as [x, y] where the line walk left it after the second MAIN: the spot the
- * third pass draws at, on the line (SMWDisX bank_01.asm:11863-11930), or null where the run erases it: not yet
- * investigated, #793 (hypothesis: INIT moves X by -$140, bank_01.asm:11793-11799, away from the spawn-centred
- * camera); pinned here so it cannot change unnoticed. Measured on the vanilla ROM with this runner.
+ * third pass draws at, on the line (SMWDisX bank_01.asm:11863-11930). #1, #3 and #4 of slot $1A (list idx 5, 7, 10)
+ * used to be null (a placeholder, "drew no OAM tile in 64 passes", #793): INIT moves a $67 whose X bit 4 is clear
+ * 320 px left (InitLineGuidedSpr, bank_01.asm:11788-11811), and MAIN despawns it off the camera seeded on the list
+ * position (SubOffscreen1Bnk1, bank_01.asm:11849) before it draws. The map view now re-runs it with the camera on
+ * the INIT position (#980), so it draws. Refs #793 (the issue stays open: hardware shows a few px of line travel
+ * beyond this model, e.g. list 7 at hardware 715,367 vs 704,367). Vanilla ROM, this runner, one machine.
  */
-const GRINDERS: Record<number, ([number, number] | null)[]> = {
-  0x1a: [[751, 367], null, [943, 367], null, null, [1360, 319], [1503, 335], [1727, 351], [1871, 335], [1935, 368], [2079, 271], [2176, 287], [2255, 303]], // prettier-ignore
+const GRINDERS: Record<number, [number, number][]> = {
+  0x1a: [[751, 367], [512, 367], [943, 367], [704, 367], [896, 367], [1360, 319], [1503, 335], [1727, 351], [1871, 335], [1935, 368], [2079, 271], [2176, 287], [2255, 303]], // prettier-ignore
   0x1f: [
     [431, 336],
     [559, 320],
@@ -236,8 +239,7 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla grinder, on the vanilla ROM', (
       expect(got).toHaveLength(want.length)
       got.forEach((d, i) => {
         const w = want[i]!
-        if (w === null) expect(d.status, `#${i}`).toBe('placeholder')
-        else {
+        {
           expect(d.status, `#${i}`).toBe('drawn')
           expect([d.x, d.y], `#${i}`).toEqual(w)
         }
@@ -263,7 +265,6 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla grinder, on the vanilla ROM', (
       grinders.forEach((g, i) => {
         draw(g)
         const m = ran.at(-1)!
-        if (want[i] === null) return expect(m.chosen, `#${i}`).toBeUndefined()
         expect(m.chosen, `#${i}`).toBe(2)
         const pass = m.passes[2]!
         expect(pass.origin, `#${i}`).toEqual({ x: want[i]![0], y: want[i]![1] })
@@ -275,14 +276,13 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla grinder, on the vanilla ROM', (
   }
 })
 
-describe.skipIf(!hasRom(VANILLA))('line-guided grinder sweep (all 17 drawn, vanilla)', () => {
+describe.skipIf(!hasRom(VANILLA))('line-guided grinder sweep (all 20 drawn, vanilla)', () => {
   it('draws each one on the edge of its line tile', () => {
     // Proves "on the line" only: every point of a line tile's edge is a cell corner, so this cannot tell pass 2
     // from pass 3. The GRINDERS table above and the Mesen capture test below pin which pass.
     const path = romPath(VANILLA)
     const bytes = new Uint8Array(readFileSync(path))
     let drawn = 0
-    // The 3 undrawn $1A grinders (indices 1, 3, 4) are #793, not this rule: GRINDERS marks them null.
     for (const slot of [0x1a, 0x1f]) {
       const built = new L1ModelCache().get(bytes, path, slot, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
       if (!built.ok) throw new Error(built.reason)
@@ -299,7 +299,7 @@ describe.skipIf(!hasRom(VANILLA))('line-guided grinder sweep (all 17 drawn, vani
           drawn++
         })
     }
-    expect(drawn).toBe(17)
+    expect(drawn).toBe(20)
   }, 120_000)
 })
 
