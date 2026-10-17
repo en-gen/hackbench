@@ -123,6 +123,7 @@ const OTHER_SIDE = `
   .split(/\s+/)
 
 /** Compared records where our INIT facing differs from the capture's, as map:slot:id:capture>ours. Not fixed here (#272 is tests only); a fix or a new mismatch must change this list. */
+// The 4 $1e entries: INIT-only sample (inferred, untested: the capture lacks the cloud's slot); the cloud's MAIN sets the rider; map view correct per #1007.
 const KNOWN_MISMATCHES = `
     11e:0:$04:0>1 11e:3:$04:0>1 11e:3:$0f:0>1 11e:4:$04:0>1 11e:6:$00:0>1 11e:6:$04:0>1
     11e:7:$0f:0>1 11e:8:$0f:0>1 11f:6:$1e:1>0 126:7:$0f:0>1 132:5:$1e:1>0 1c4:4:$1e:1>0

@@ -38,5 +38,10 @@ does not, on purpose, pending owner ruling D96. The loader's value is used becau
   confirmed: the capture reads `$157C` after same-frame sprite code has run. Evidence scope:
   `headless_capture.lua` (en-gen/hackbench-validation, `capture/mesen`, lines ~1324 and ~1771) reads
   `$157C` at the end of the INIT frame; no write breakpoint has confirmed a later write.
-- The 4 Lakitu rider (`$1E`) mismatches (`11f`, `132`, `1c4`, `1c5`) depend on the cloud's slot:
-  the cloud's MAIN (`bank_01.asm:14216-14222`) writes the rider's `$157C`.
+- The 4 Lakitu rider (`$1E`) mismatches (`11f`, `132`, `1c4`, `1c5`) are not a map view defect. The map
+  view draws Lakitu's facing correctly in slots 0-9 (#1007, tested: `test/suite/unit/sprites/LakituFacing.test.ts`
+  on `feature/1007-lakitu-facing`, `it.each` "map $%s: pass-0 $157C follows SubHorizPos in slots 0-9, stay 0 in
+  10-11"). The inferred cause is the INIT-only sampling point: the cloud's MAIN (`bank_01.asm:14216-14222`)
+  writes the rider's `$157C`, and a sample right after INIT sees that only when the cloud's slot is below the
+  rider's. UNTESTED inference: the capture does not record the cloud's slot. The entries stay in the test, which
+  pins the INIT-time comparison.
