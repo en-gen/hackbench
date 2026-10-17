@@ -37,7 +37,7 @@ import type { EnginePart } from '../../../../src/rom/model/sprites/generic/Sprit
 import { BLOCK as TILE, bakePlus, fitArt, splitDiagonal } from '../common/block-indicator'
 import type { BlockIndicatorDto, MapBlockContentsResult } from '../common/project-protocol'
 import { drawSprites, interpDrawer, type SpriteDrawer } from './map-sprites'
-import { base64, screenTiles, type L1ModelCache, type MapInputs } from './map-screen'
+import { base64, screenTiles, unreadable, type L1ModelCache, type MapInputs } from './map-screen'
 
 const NO_FLAGS = { yellow: false, green: false, red: false, blue: false }
 /** Replies kept per working-copy bytes: each holds every item's art, so a whole ROM's maps are not. */
@@ -290,7 +290,7 @@ export function mapBlockContents(
   const hit = byMap.get(index)
   if (hit) return hit
   const built = cache.get(bytes, romPath, index, NO_FLAGS)
-  if (!built.ok) return { status: 'unavailable', reason: built.reason }
+  if (!built.ok) return unreadable(built.reason)
   let r: MapBlockContentsResult
   try {
     const rom = RomFile.fromBytes(romPath, Buffer.from(bytes))
@@ -302,7 +302,7 @@ export function mapBlockContents(
       isUnavailable(tables) ? stub : romArt(rom, index, built.inputs),
     )
   } catch (err) {
-    return { status: 'unavailable', reason: (err as Error).message }
+    return unreadable((err as Error).message)
   }
   if (byMap.size >= REPLIES_PER_BYTES) byMap.delete(byMap.keys().next().value!)
   byMap.set(index, r)

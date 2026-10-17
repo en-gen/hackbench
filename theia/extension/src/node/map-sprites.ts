@@ -72,7 +72,7 @@ import {
   type PaletteNote,
 } from '../../../../src/rom/model/sprites/generic/SpriteDrawEngine'
 import type { MapSpriteDto, MapSpritesResult, SwitchFlagsDto } from '../common/project-protocol'
-import { screenTiles, type L1ModelCache } from './map-screen'
+import { screenTiles, unreadable, type L1ModelCache } from './map-screen'
 
 const TILE = 16
 const EXTRA_BITS = 0x08
@@ -608,7 +608,7 @@ function compute(
 ): Exclude<MapSpritesResult, { status: 'rom-not-located' }> {
   // Sprites do not depend on the palaces; any flags give the same model.
   const built = cache.get(bytes, romPath, index, NO_FLAGS)
-  if (!built.ok) return { status: 'unavailable', reason: built.reason }
+  if (!built.ok) return unreadable(built.reason)
   const model = built.inputs
   try {
     // A copy, as the model cache makes: the working copy's array is shared.
@@ -634,6 +634,6 @@ function compute(
       note: [layer.note, flames.note].filter(Boolean).join(' ') || undefined,
     }
   } catch (err) {
-    return { status: 'unavailable', reason: (err as Error).message }
+    return unreadable((err as Error).message)
   }
 }

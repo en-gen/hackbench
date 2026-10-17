@@ -28,7 +28,7 @@ import type {
   SwitchFlagsDto,
   SwitchStateDto,
 } from '../common/project-protocol'
-import { L1ModelCache } from './map-screen'
+import { unreadable, L1ModelCache } from './map-screen'
 
 type Reply = Exclude<MapCollisionResult, { status: 'rom-not-located' }>
 const TILE = 16
@@ -70,13 +70,13 @@ export function mapCollisionCheck(
   index: number,
 ): MapCollisionCheckResult {
   const built = cache.get(bytes, romPath, index, NO_FLAGS)
-  if (!built.ok) return { status: 'unavailable', reason: built.reason }
+  if (!built.ok) return unreadable(built.reason)
   if (built.inputs.isVertical) return { status: 'unavailable', reason: VERTICAL }
   try {
     const why = collisionRefusal(RomFile.fromBytes(romPath, Buffer.from(bytes)), index)
     return why === null ? { status: 'available' } : { status: 'unavailable', reason: why }
   } catch (err) {
-    return { status: 'unavailable', reason: (err as Error).message }
+    return unreadable((err as Error).message)
   }
 }
 
@@ -147,7 +147,7 @@ async function compute(
 ): Promise<Reply> {
   // The grid is drawn with the view's palaces, and the probe runs in the same state (silver P-switch is not modelled).
   const built = cache.get(bytes, romPath, index, state.flags)
-  if (!built.ok) return { status: 'unavailable', reason: built.reason }
+  if (!built.ok) return unreadable(built.reason)
   const m = built.inputs
   if (m.isVertical) {
     return { status: 'unavailable', reason: VERTICAL }
@@ -172,6 +172,6 @@ async function compute(
       lines: r.lines,
     }
   } catch (err) {
-    return { status: 'unavailable', reason: (err as Error).message }
+    return unreadable((err as Error).message)
   }
 }

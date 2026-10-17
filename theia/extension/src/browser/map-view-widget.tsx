@@ -67,7 +67,7 @@ import {
 } from '../../../../src/rom/model/ColorMath'
 import { perfEnd, perfStart } from '../common/perf-marks'
 import { ProjectBound } from './project-bound'
-import { romMissingMessage } from './map-view-messages'
+import { rawText, readFailed, romMissingMessage, withDetail } from './map-view-messages'
 
 export { slotLabel }
 /** One screen's decoded planes; null is an empty plane, which draws nothing. */
@@ -99,8 +99,8 @@ function collisionWhyNot(
   r: Exclude<MapCollisionResult, { status: 'stale' }> | MapCollisionCheckResult,
 ): string | undefined {
   if (r.status === 'ok' || r.status === 'available') return undefined
-  if (r.status === 'unavailable') return r.reason
-  return `The base ROM ${r.baseRom.title} is not on this machine`
+  if (r.status === 'unavailable') return withDetail(r.reason, 'detail' in r ? r.detail : undefined)
+  return romMissingMessage(r.baseRom.title)
 }
 
 type BlockContents = Extract<MapBlockContentsResult, { status: 'ok' }> & {
@@ -126,9 +126,6 @@ function AfterCommit({ run }: { run: () => void }): null {
   React.useLayoutEffect(run)
   return null
 }
-
-/** The raw text of a thrown value, for a tooltip beside plain words (#786). */
-const rawText = (err: unknown): string => (err instanceof Error ? err.message : String(err))
 
 const palaceName = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
 
@@ -190,6 +187,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** Block content indicators (#566), once read; `blocksWhy` is why there are none to show. */
   protected blocks: BlockContents | undefined
   protected blocksWhy: string | undefined
+  /** The exception text behind `blocksWhy`, for its tooltip only (#967). */
+  protected blocksDetail: string | undefined
   protected blocksVersion = 0
   /** The indicator under the pointer: it fills its block, the rest sit in their quadrants. */
   protected hover: Indicator | undefined
@@ -313,6 +312,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.collisionProbed = false
     this.blocks = undefined
     this.blocksWhy = undefined
+    this.blocksDetail = undefined
     this.hover = undefined
     // A new map opens fitted, whatever zoom the last one was left at.
     this.zoomController.enterFit()
@@ -351,10 +351,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       return
     }
     this.startState = 'unavailable'
-    this.startWhy =
-      r.status === 'unavailable'
-        ? r.reason
-        : `The base ROM ${r.baseRom.title} is not on this machine.`
+    this.startWhy = r.status === 'unavailable' ? r.reason : romMissingMessage(r.baseRom.title)
     this.update()
   }
 
@@ -430,9 +427,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const o = this.options
     if (!o) return
     const generation = this.generation
-    const r = await this.projects
-      .mapCollisionCheck(o.manifestPath, o.index)
-      .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
+    const r = await this.projects.mapCollisionCheck(o.manifestPath, o.index).catch(readFailed)
     // A probe that already answered knows more than the check: a late `available` must not undo its refusal.
     if (generation !== this.generation || this.collisionProbed) return
     this.setCollisionWhy(collisionWhyNot(r))
@@ -448,7 +443,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const key = collisionKey(this.view.state)
     const r = await this.projects
       .mapCollision(o.manifestPath, o.index, flags, switches)
-      .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
+      .catch(readFailed)
     // An older map's or edit's lines must not land over a newer one.
     if (generation !== this.generation || seq !== this.collisionSeq) return
     // The working copy moved on under the probe; its push is on the way and will ask again.
@@ -473,15 +468,13 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const o = this.options
     if (!o) return
     const generation = this.generation
-    const r = await this.projects
-      .mapSprites(o.manifestPath, o.index)
-      .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
+    const r = await this.projects.mapSprites(o.manifestPath, o.index).catch(readFailed)
     // An older map's or edit's sprites must not land over a newer one.
     if (generation !== this.generation) return
     this.sprites = r.status === 'ok' ? r : undefined
     this.lift = undefined
     this.coveredIds.clear()
-    this.spritesWhy = r.status === 'ok' ? undefined : r.status === 'unavailable' ? r.reason : `The base ROM ${r.baseRom.title} is not on this machine` // prettier-ignore
+    this.spritesWhy = r.status === 'ok' ? undefined : r.status === 'unavailable' ? withDetail(r.reason, r.detail) : romMissingMessage(r.baseRom.title) // prettier-ignore
     this.spritesVersion++
     this.update()
     this.sync()
@@ -491,17 +484,16 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const o = this.options
     if (!o) return
     const generation = this.generation
-    const r = await this.projects
-      .mapBlockContents(o.manifestPath, o.index)
-      .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
+    const r = await this.projects.mapBlockContents(o.manifestPath, o.index).catch(readFailed)
     if (generation !== this.generation) return
     this.blocks = r.status === 'ok' ? { ...r, decoded: decodeArts(r.arts) } : undefined
+    this.blocksDetail = r.status === 'unavailable' ? r.detail : undefined
     this.blocksWhy =
       r.status === 'ok'
         ? r.note
         : r.status === 'unavailable'
           ? `Block contents are not drawn: ${r.reason}`
-          : `Block contents are not drawn: the base ROM ${r.baseRom.title} is not on this machine`
+          : `Block contents are not drawn. ${romMissingMessage(r.baseRom.title)}`
     this.blocksVersion++
     this.update()
     this.updateHover()
@@ -536,13 +528,11 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const o = this.options
     if (!o) return
     const generation = this.generation
-    const r = await this.projects
-      .mapPalaceIcons(o.manifestPath, o.index)
-      .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
+    const r = await this.projects.mapPalaceIcons(o.manifestPath, o.index).catch(readFailed)
     // An older map's or edit's art must not land over a newer one.
     if (generation !== this.generation) return
     const image = (b64: string): FrameImage => ({ width: 16, height: 16, rgba: decodeRgba(b64) })
-    const why = r.status === 'ok' ? undefined : r.status === 'unavailable' ? r.reason : `The base ROM ${r.baseRom.title} is not on this machine` // prettier-ignore
+    const why = r.status === 'ok' ? undefined : r.status === 'unavailable' ? withDetail(r.reason, r.detail) : romMissingMessage(r.baseRom.title) // prettier-ignore
     this.icons = new Map(
       PALACES.map((p): [Palace, PalaceIcon] => {
         const i = r.status === 'ok' ? r.icons.find(x => x.palace === p) : undefined
@@ -599,9 +589,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
     if (r.status !== 'ok') {
       this.screenError =
-        r.status === 'rom-not-located'
-          ? `The base ROM ${r.baseRom.title} is not on this machine.`
-          : r.reason
+        r.status === 'rom-not-located' ? romMissingMessage(r.baseRom.title) : r.reason
       this.screenErrorDetail = detail ?? (r.status === 'unavailable' ? r.detail : undefined)
       this.sync()
       this.update()
@@ -1153,7 +1141,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
           </div>
         )}
         {this.blocksWhy && (
-          <div className="hb-map-view-note" data-note="block-contents">
+          <div className="hb-map-view-note" data-note="block-contents" title={this.blocksDetail}>
             {this.blocksWhy}
           </div>
         )}

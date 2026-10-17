@@ -3138,3 +3138,63 @@ test('an unavailable screen shows its reason, with the detail only in the toolti
   await expect(err).toHaveText('R')
   await expect(err).toHaveAttribute('title', 'D')
 })
+
+/** #967: the overlays' read failures say it in plain words; the exception is a second tooltip line. */
+const JUST_NOW = 'this map could not be read just now. Open the map again to try again.'
+const tooltip = (page, control) =>
+  page
+    .locator(`${root(0x105)} [data-control="${control}"]`)
+    .first()
+    .getAttribute('title')
+const overlayCases = [
+  ['mapSprites', 'layer-sprites', 'Sprites unavailable: '],
+  ['mapCollisionCheck', 'collision-toggle', 'Collision unavailable: '],
+  ['mapPalaceIcons', 'switch-blue', 'Blue P-switch: '],
+]
+for (const [method, control, lead] of overlayCases) {
+  test(`a rejected ${method} says it in plain words, the exception on the second tooltip line (#967)`, async ({
+    page,
+  }) => {
+    const project = await createProject(page, path.join(tmp, 'MyHack'))
+    await openRejecting(page, project.manifestPath, method)
+    await expect.poll(() => tooltip(page, control)).toContain(JUST_NOW)
+    const [first, second] = (await tooltip(page, control)).split('\n')
+    expect(first).toContain(lead + JUST_NOW)
+    expect(first).not.toContain('planted-786')
+    expect(second).toBe(PLANTED_786)
+  })
+}
+
+test('a rejected mapBlockContents shows a plain note with the exception only in its tooltip (#967)', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openRejecting(page, project.manifestPath, 'mapBlockContents')
+  const note = page.locator(`${root(0x105)} [data-note="block-contents"]`)
+  await expect(note).toHaveText(`Block contents are not drawn: ${JUST_NOW}`)
+  expect(await note.getAttribute('title')).toBe(PLANTED_786)
+})
+
+test('a server read failure keeps its detail out of the visible note and the tooltip lead (#967)', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  const reply = { status: 'unavailable', reason: 'R', detail: 'D' }
+  await openResolving(page, project.manifestPath, 'mapBlockContents', reply)
+  const note = page.locator(`${root(0x105)} [data-note="block-contents"]`)
+  await expect(note).toHaveText('Block contents are not drawn: R')
+  await expect(note).toHaveAttribute('title', 'D')
+})
+
+test('a missing base ROM for the sprites names the next step (#967)', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openResolving(page, project.manifestPath, 'mapSprites', {
+    status: 'rom-not-located',
+    baseRom: { title: 'X' },
+  })
+  await expect
+    .poll(() => tooltip(page, 'layer-sprites'))
+    .toContain(
+      'The base ROM X is not on this machine. Choose File > Project Properties... and locate it again.',
+    )
+})

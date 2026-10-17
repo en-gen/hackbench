@@ -46,9 +46,9 @@ describe('mapCollision (synthetic)', () => {
     })
   })
 
-  it('a map the model cannot build is unavailable with that reason', async () => {
+  it('a map the model cannot build is unavailable in plain words, its reason in detail', async () => {
     const cache = new L1ModelCache(() => ({ ok: false, reason: 'no level data' }))
-    expect(await mapCollision(cache, synthetic(), 'x.sfc', 0x105, OFF)).toEqual({ status: 'unavailable', reason: 'no level data' }) // prettier-ignore
+    expect(await mapCollision(cache, synthetic(), 'x.sfc', 0x105, OFF)).toEqual({ status: 'unavailable', reason: expect.stringMatching(/could not be read/), detail: 'no level data' }) // prettier-ignore
   })
 })
 
@@ -234,7 +234,7 @@ describe('mapCollisionCheck (synthetic): the toggle state without a probe', () =
       reason: expect.stringMatching(/not the vanilla shape/),
     })
     const broken = new L1ModelCache(() => ({ ok: false, reason: 'no level data' }))
-    expect(mapCollisionCheck(broken, synthetic(), 'x.sfc', 0x105)).toEqual({ status: 'unavailable', reason: 'no level data' }) // prettier-ignore
+    expect(mapCollisionCheck(broken, synthetic(), 'x.sfc', 0x105)).toEqual({ status: 'unavailable', reason: expect.stringMatching(/could not be read/), detail: 'no level data' }) // prettier-ignore
   })
 })
 

@@ -351,7 +351,7 @@ export type MapSpritesResult =
       /** Why some sprites may be missing (an unterminated stream), when they may be. */
       note?: string
     }
-  | { status: 'unavailable'; reason: string }
+  | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
 /** One line of the collision overlay (#435), in map pixels: `points` is x0,y0,x1,y1,..., an unknown cell its closed outline. */
@@ -363,7 +363,7 @@ export interface MapCollisionLineDto {
 /** Whether a map's collision can be probed, found without probing (#435): the toggle's enabled state and tooltip. */
 export type MapCollisionCheckResult =
   | { status: 'available' }
-  | { status: 'unavailable'; reason: string }
+  | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
 /**
@@ -379,7 +379,7 @@ export type MapCollisionResult =
       height: number
       lines: MapCollisionLineDto[]
     }
-  | { status: 'unavailable'; reason: string }
+  | { status: 'unavailable'; reason: string; detail?: string }
   /** The working copy moved on while the probe ran: ask again, and do not treat it as a refusal. */
   | { status: 'stale' }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
@@ -423,7 +423,7 @@ export type MapBlockContentsResult =
       /** Contents that could not be drawn, and why. */
       note?: string
     }
-  | { status: 'unavailable'; reason: string }
+  | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
 /**
@@ -446,7 +446,7 @@ export type PalaceIconsResult =
       /** Why a switch has no art. */
       switchUnavailable: Partial<Record<Map16SwitchKind, string>>
     }
-  | { status: 'unavailable'; reason: string }
+  | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
 /** 'bps' is the default: SMW Central's Hacks section no longer accepts IPS. */

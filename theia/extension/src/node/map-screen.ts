@@ -491,6 +491,13 @@ export class L1ModelCache {
   }
 }
 
+/**
+ * Sprites, collision and block contents share one wording when their read fails (#967): plain
+ * words in `reason`, the exception or gate text apart in `detail` for the tooltip.
+ */
+export const unreadable = (detail: string) =>
+  ({ status: 'unavailable', reason: 'this map could not be read from the ROM.', detail }) as const
+
 export function mapScreen(
   cache: L1ModelCache,
   bytes: Uint8Array,
