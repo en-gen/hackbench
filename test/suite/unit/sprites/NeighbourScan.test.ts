@@ -30,6 +30,8 @@ const HIGHBYTE = 57
 /** Scans for a status-9 sprite numbered 5, which is what list id $DB becomes (#837 shells). */
 const SHELLSCAN = 58
 const SHELL_LIST_ID = 0xdb
+/** Draws nothing of its own; scans for id QUIET and draws only that companion. */
+const BARE = 59
 
 function cart(opts: { breakShellLoader?: boolean } = {}): RomFile {
   const bytes = new Uint8Array(buildSyntheticRom().buffer)
@@ -38,16 +40,16 @@ function cart(opts: { breakShellLoader?: boolean } = {}): RomFile {
     expect(bytes.subarray(off(snes), off(snes) + b.length).every(v => v === 0)).toBe(true)
     bytes.set(b, off(snes))
   }
-  // JSR $8640 (id 0's draw) / LDY #9 / loop: LDA $14C8,Y / CMP #8 / BNE next / LDA $009E,Y / CMP #51 / BEQ found
+  // JSR $8640 (id 0's draw) / LDY #9 / loop: LDA $14C8,Y / EOR #8 / BNE next / LDA $009E,Y / EOR #51 / BEQ found
   // / next: DEY / BPL loop / RTS / found: PHX / TYX / JSR $8640 / PLX / RTS
   put(0x019800, [
-    0x20, 0x40, 0x86, 0xa0, 0x09, 0xb9, 0xc8, 0x14, 0xc9, 0x08, 0xd0, 0x07, 0xb9, 0x9e, 0x00,
-    0xc9, QUIET, 0xf0, 0x04, 0x88, 0x10, 0xef, 0x60, 0xda, 0xbb, 0x20, 0x40, 0x86, 0xfa, 0x60,
+    0x20, 0x40, 0x86, 0xa0, 0x09, 0xb9, 0xc8, 0x14, 0x49, 0x08, 0xd0, 0x07, 0xb9, 0x9e, 0x00,
+    0x49, QUIET, 0xf0, 0x04, 0x88, 0x10, 0xef, 0x60, 0xda, 0xbb, 0x20, 0x40, 0x86, 0xfa, 0x60,
   ]) // prettier-ignore
-  // LDY #9 / loop: LDA $14C8,Y / CMP #8 / BNE next / LDA $009E,Y / CMP #51 / BEQ found / next: DEY / BPL loop
+  // LDY #9 / loop: LDA $14C8,Y / EOR #8 / BNE next / LDA $009E,Y / EOR #51 / BEQ found / next: DEY / BPL loop
   // / JSR $8640 / RTS / found: PHX / TYX / JSR $8640 / PLX / LDA $E4,X / CLC / ADC #8 / STA $E4,X / JSR $8640 / RTS
   put(0x019900, [
-    0xa0, 0x09, 0xb9, 0xc8, 0x14, 0xc9, 0x08, 0xd0, 0x07, 0xb9, 0x9e, 0x00, 0xc9, QUIET, 0xf0, 0x07,
+    0xa0, 0x09, 0xb9, 0xc8, 0x14, 0x49, 0x08, 0xd0, 0x07, 0xb9, 0x9e, 0x00, 0x49, QUIET, 0xf0, 0x07,
     0x88, 0x10, 0xef, 0x20, 0x40, 0x86, 0x60, 0xda, 0xbb, 0x20, 0x40, 0x86, 0xfa, 0xb5, 0xe4, 0x18,
     0x69, 0x08, 0x95, 0xe4, 0x20, 0x40, 0x86, 0x60,
   ]) // prettier-ignore
@@ -58,14 +60,15 @@ function cart(opts: { breakShellLoader?: boolean } = {}): RomFile {
     bytes[o] = 0
     bytes[o + 1] = 0
   }
-  // Scanner shape: JSR own / LDY #9 / loop: [LDA $14C8,Y / CMP #8 / BNE next] LDA $9E,Y / CMP #num / BEQ found
+  // Scanner shape: JSR own / LDY #9 / loop: [LDA $14C8,Y / EOR #8 / BNE next] LDA $9E,Y / EOR #num / BEQ found
   // / next: DEY / BPL loop / RTS / found: PHX / TYX / JSR draw / PLX / RTS.
   const scan = (num: number, own: number, draw: number, withStatus: boolean, status = 8) => {
-    const body = [...(withStatus ? [0xb9, 0xc8, 0x14, 0xc9, status, 0xd0, 0x07] : []), 0xb9, 0x9e, 0x00, 0xc9, num, 0xf0, 0x04, 0x88] // prettier-ignore
+    const body = [...(withStatus ? [0xb9, 0xc8, 0x14, 0x49, status, 0xd0, 0x07] : []), 0xb9, 0x9e, 0x00, 0x49, num, 0xf0, 0x04, 0x88] // prettier-ignore
     return [0x20, own & 0xff, own >> 8, 0xa0, 0x09, ...body, 0x10, 256 - (body.length + 2), 0x60, 0xda, 0xbb, 0x20, draw & 0xff, draw >> 8, 0xfa, 0x60] // prettier-ignore
   }
-  // The game's draw shape (id 0's), with the tile bytes given: x, y from $E4/$D8,X; OAM index from $15EA,X.
-  const drawing = (tile: number[]) => [0xbc, 0xea, 0x15, 0xb5, 0xe4, 0x38, 0xe5, 0x1a, 0x99, 0x00, 0x03, 0xb5, 0xd8, 0x38, 0xe5, 0x1c, 0x99, 0x01, 0x03, ...tile, 0xa9, 0x0a, 0x99, 0x03, 0x03, 0x98, 0x4a, 0x4a, 0xa8, 0xa9, 0x02, 0x99, 0x60, 0x04, 0x60] // prettier-ignore
+  // A draw written for this test: y before x, then the tile bytes given, then the attribute and the size bit (Y is a multiple of 4, so AND #$FC is a no-op; the NOPs are padding).
+  // OAM index from $15EA,X; x, y from $E4/$D8,X less the camera ($1A/$1C).
+  const drawing = (tile: number[]) => [0xb5, 0xd8, 0x38, 0xea, 0xe5, 0x1c, 0xbc, 0xea, 0x15, 0xea, 0x99, 0x01, 0x03, 0xb5, 0xe4, 0x38, 0xea, 0xe5, 0x1a, 0x99, 0x00, 0x03, ...tile, 0xa9, 0x0a, 0x99, 0x03, 0x03, 0x98, 0x29, 0xfc, 0x4a, 0xea, 0x4a, 0xa8, 0xa9, 0x02, 0xea, 0x99, 0x60, 0x04, 0x60] // prettier-ignore
   // tile = $1600,X + $1640,X
   put(0x019b00, drawing([0xbd, 0x00, 0x16, 0x18, 0x7d, 0x40, 0x16, 0x99, 0x02, 0x03]))
   put(0x019b80, [0xa9, 0x2c, 0x9d, 0x40, 0x16, 0x60]) // COMP's INIT: LDA #$2C / STA $1640,X / RTS
@@ -74,17 +77,19 @@ function cart(opts: { breakShellLoader?: boolean } = {}): RomFile {
   put(0x019c00, scan(QUIET, 0x8640, 0x8640, false))
   put(0x019d00, scan(QUIET, 0x8640, 0x9e00, true))
   put(0x019f00, scan(5, 0x8640, 0x8640, true, 9))
+  put(0x019f80, scan(QUIET, 0x8600, 0x8640, true)) // own = an RTS: nothing drawn alone
   const word = (table: number, id: number, v: number) => {
     const o = off(table + id * 2)
     bytes[o] = v & 0xff
     bytes[o + 1] = v >> 8
   }
   word(0x018170 + 11, COMP, 0x9b80)
-  for (const id of [INITS, NUMONLY, HIGHBYTE, SHELLSCAN]) word(0x018320 + 9, id, 0)
+  for (const id of [INITS, NUMONLY, HIGHBYTE, SHELLSCAN, BARE]) word(0x018320 + 9, id, 0)
   word(0x018320 + 9, INITS, 0x9a00)
   word(0x018320 + 9, NUMONLY, 0x9c00)
   word(0x018320 + 9, HIGHBYTE, 0x9d00)
   word(0x018320 + 9, SHELLSCAN, 0x9f00)
+  word(0x018320 + 9, BARE, 0x9f80)
   main(SCANNER, 0x9800)
   main(DRAWS, 0x8640)
   main(SHIFTS, 0x9900)
@@ -129,6 +134,14 @@ describe('neighbour run for a sprite that scans the slot tables (#841)', () => {
     expect(m.neighbourRun).toBe('same')
     expect(m.dependsOn).not.toContain('neighbours')
     expect(partsOf(m)).toEqual(partsOf(alone))
+  })
+
+  it('a sprite that draws nothing alone but draws its companion is adopted from an empty run', () => {
+    const alone = runOnce(rom, BARE, seedWith())
+    expect(alone.chosen).toBeUndefined()
+    const m = runOnce(rom, BARE, seedWith([{ id: QUIET, x: 0x90, y: 0x70 }]))
+    expect(m.neighbourRun).toBe('adopted')
+    expect(partsOf(m).map(p => [p.dx, p.dy])).toEqual([[16, -16]])
   })
 
   it('a companion found only by changing its own part is not adopted', () => {

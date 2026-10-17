@@ -392,7 +392,7 @@ export class Machine {
    */
   private placeNeighbours(): void {
     const w = this.bus.wram
-    const list = [...(this.seed.neighbours ?? [])]
+    const list = [...this.seed.neighbours!] // only a neighbour run calls this, and runOnce makes one only with neighbours
     for (let k = 0; k < SCANNED_SLOTS && list.length; k++) {
       if (k === this.seed.slot) continue
       const nb = list.shift()!
