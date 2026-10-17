@@ -107,12 +107,23 @@ async function state(page, which) {
     // would hit at its centre (not covered by a full-height tree).
     const hit = r && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
     const sb = w.searchBox?.node.getBoundingClientRect()
+    // Rendered, not just flagged: a ReactWidget draws only on an update
+    // request, so isVisible alone is true for an empty, zero-size node (#336).
+    const inner = w.searchBox?.node.querySelector('.theia-search-box')
+    const ir = inner?.getBoundingClientRect()
+    const boxRendered = Boolean(
+      inner &&
+      w.searchBox.node.querySelector('.theia-search-input') &&
+      ir.width > 0 &&
+      ir.height > 0,
+    )
     const rect = q => q && [q.left, q.top, q.right, q.bottom].map(Math.round)
     return {
       rows: [...w.rows.values()].map(row => row.node.id),
       selected: w.model.selectedNodes.map(n => n.id),
       expanded: expanded.sort(),
-      boxVisible: w.searchBox ? w.searchBox.isVisible : false,
+      boxVisible: w.searchBox ? w.searchBox.isVisible && boxRendered : false,
+      treeFocused: w.node.contains(document.activeElement),
       // Failure diagnostics: what covers the message, and what could eat a key.
       diag: {
         msg: rect(r),
@@ -341,6 +352,7 @@ for (const which of Object.keys(IDS)) {
     await page.evaluate(id => getWidget(id).then(w => w.node.focus()), IDS[which])
     await page.keyboard.press('Control+f')
     await expect.poll(async () => (await state(page, which)).boxVisible).toBe(true)
+    expect((await state(page, which)).treeFocused).toBe(true)
     await clear(page, which)
     await expect.poll(async () => (await state(page, which)).boxVisible).toBe(false)
   })
@@ -752,8 +764,47 @@ for (const which of Object.keys(IDS)) {
     const all = await nodes(page, which)
     expect((await state(page, which)).boxVisible).toBe(false)
     await page.locator('[id="hackbench.explorer.find"]:visible').first().click()
+    // Before any key: the box is drawn (boxVisible checks the DOM rect) and
+    // keys still go to the tree.
     await expect.poll(async () => (await state(page, which)).boxVisible).toBe(true)
+    expect((await state(page, which)).treeFocused).toBe(true)
     await type(page, which, FIND_QUERY[which])
     await expectFiltered(page, which, all, FIND_QUERY[which])
   })
 }
+
+// Owner T4 (#336): Ctrl+F after a real row click showed nothing. The box must
+// be drawn on open (boxVisible checks the DOM rect), keys stay on the tree,
+// and typing then filters.
+test('maps: after a real row click, Ctrl+F draws the search box before any key, and typing filters', async ({
+  page,
+}) => {
+  await openExplorer(page, 'maps', { viaApp: true })
+  const all = await nodes(page, 'maps')
+  const drawn = await page.evaluate(
+    id =>
+      [...document.querySelectorAll(`#${CSS.escape(id)} [data-node-id]`)].map(el =>
+        el.getAttribute('data-node-id'),
+      ),
+    IDS.maps,
+  )
+  const leaves = all.filter(n => drawn.includes(n.id) && n.kind === 'map' && !n.noPointer)
+  const target = leaves.find(n => n.index >= 0)
+  const other = leaves.find(n => n.id !== target?.id && n.index !== target?.index && n.index >= 0)
+  expect(target && other, 'fixture: two drawn openable map rows').toBeTruthy()
+  const q = `$${target.index.toString(16)}`
+  expect(rowMatches(q, rowOf('maps', other)), 'fixture: the other row does not match').toBe(false)
+
+  await page.locator(`[id="${IDS.maps}"] [data-node-id="${target.id}"]`).first().click()
+  await page.waitForTimeout(1500)
+  await page.keyboard.press('Control+f')
+  await expect.poll(async () => (await state(page, 'maps')).boxVisible).toBe(true)
+  expect((await state(page, 'maps')).treeFocused).toBe(true)
+  const before = (await state(page, 'maps')).rows.length
+  await page.keyboard.type(q)
+  await expectFiltered(page, 'maps', all, q)
+  const s = await state(page, 'maps')
+  expect(s.rows.length).toBeLessThan(before)
+  expect(s.rows).toContain(target.id)
+  expect(s.rows).not.toContain(other.id)
+})
