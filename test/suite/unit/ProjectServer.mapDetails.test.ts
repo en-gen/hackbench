@@ -1,9 +1,10 @@
 /**
  * `buildMapDetails` (theia/extension/src/node/map-details.ts) degrades
  * orientation the same way it degrades sprites: a ROM whose VerticalTable
- * read is unavailable still returns header, screens and object count (none
- * of them read isVertical), with only isVertical itself absent and carrying
- * the gate's reason.
+ * read is unavailable still reads the objects and the level mode (neither
+ * reads isVertical), with only the orientation reported unavailable, carrying
+ * the gate's reason. The DTO holds the reasons the map view warns with and the
+ * level mode; the counts and the decoded header went with the facts strip (#1008).
  *
  * `buildMapDetails` is a PURE function taking an `SmwRom`, not a method on
  * `ProjectServiceImpl`, and that is what makes this case run in CI: the unit
@@ -42,14 +43,13 @@ function syntheticRom(): SmwRom {
 }
 
 describe('buildMapDetails - orientation unavailable', () => {
-  it('still returns header, screens and object count; only isVertical goes absent', () => {
+  it('still reads the objects and the level mode; only the orientation is unavailable', () => {
     const details = buildMapDetails(syntheticRom(), 0x105)
 
-    expect(details.isVertical).toBeUndefined()
     expect(details.orientationUnavailable).toMatch(/VerticalTable/)
-    expect(details.headerBytes).toEqual([0, 0, 0, 0, 0])
-    expect(details.screens).toBe(1)
-    expect(details.objectCount).toBe(1)
+    expect(details.objectsUnavailable).toBeUndefined()
+    expect(details.levelDataUnavailable).toBeUndefined()
+    expect(details.levelMode).toBe(0)
   })
 })
 
@@ -62,7 +62,6 @@ describe('buildMapDetails - GFX assignment mark', () => {
     smw.rom.writeAt(0x00aa6b, jsl(0x019000))
     const details = buildMapDetails(smw, 0x105)
     expect(details.gfxAssignmentNote).toMatch(/FG\/BG and sprite GFX files/)
-    expect(details.headerBytes).toEqual([0, 0, 0, 0, 0])
   })
 
   it("carries why the GFX upload filter can't be verified", () => {
@@ -90,7 +89,7 @@ describe('buildMapDetails - level data in the last bytes of the ROM', () => {
 
     const details = buildMapDetails(smw, 0x105)
     expect(details.levelDataUnavailable).toBeUndefined()
-    expect(details.objectCount).toBe(1)
+    expect(details.objectsUnavailable).toBeUndefined()
     expect(buildLevelCatalog(smw).entries[0x105]!.parseable).toBe(true)
   })
 
@@ -98,14 +97,13 @@ describe('buildMapDetails - level data in the last bytes of the ROM', () => {
     const objects = Array.from({ length: 90 }, () => [0x00, 0x35, 0x01]).flat()
     const stream = [0x00, 0x00, 0x00, 0x00, 0x00, ...objects, 0xff] // 276 bytes
     const details = buildMapDetails(romWithL1(0x080000 - stream.length, stream), 0x105)
-    expect(details.objectCount).toBe(90)
+    expect(details.objectsUnavailable).toBeUndefined()
   })
 
-  it('reads a tail of exactly the five header bytes, with no object count', () => {
+  it('reads a tail of exactly the five header bytes, with the objects unavailable', () => {
     const details = buildMapDetails(romWithL1(0x07fffb, [0x00, 0x00, 0x00, 0x00, 0x00]), 0x105)
     expect(details.levelDataUnavailable).toBeUndefined()
-    expect(details.headerBytes).toEqual([0, 0, 0, 0, 0])
-    expect(details.objectCount).toBeUndefined()
+    expect(details.levelMode).toBe(0)
     expect(details.objectsUnavailable).toMatch(/\$FF terminator/)
   })
 
@@ -132,13 +130,13 @@ describe('buildMapDetails - level data unavailable', () => {
     const details = buildMapDetails(romWithL1(0x7eb215), 0x105)
     expect(details.levelDataUnavailable).toMatch(/\$7EB215 does not address this ROM's data/)
     expect(details.index).toBe(0x105)
-    expect(details.headerBytes).toBeUndefined()
-    expect(details.header).toBeUndefined()
+    expect(details.levelMode).toBeUndefined()
+    expect(details.objectsUnavailable).toBeUndefined()
+    expect(details.spriteUnavailable).toBeUndefined()
   })
 
   it('keeps the name reason when the level data is unavailable', () => {
     const details = buildMapDetails(romWithL1(0x7eb215), 0x105)
-    expect(details.name).toBeNull()
     expect(details.nameUnavailable).toMatch(/rebuilt by another editor/)
   })
 
@@ -151,9 +149,8 @@ describe('buildMapDetails - objects unavailable', () => {
   it('withholds the object count when the walk never reaches $FF', () => {
     // Zero bytes decode as 4-byte screen exits, so the walk runs off the read.
     const details = buildMapDetails(romWithL1(0x078000), 0x105)
-    expect(details.objectCount).toBeUndefined()
     expect(details.objectsUnavailable).toMatch(/did not reach its \$FF terminator/)
-    expect(details.screens).toBe(1)
+    expect(details.levelDataUnavailable).toBeUndefined()
   })
 })
 
@@ -163,7 +160,6 @@ describe('buildMapDetails - name unavailable', () => {
     // depends on is unreadable, the same way it is for a real edited ROM.
     const details = buildMapDetails(syntheticRom(), 0x105)
 
-    expect(details.name).toBeNull()
     expect(details.nameUnavailable).toMatch(/rebuilt by another editor/)
   })
 })
@@ -192,23 +188,22 @@ function namedStockRom(): SmwRom {
 }
 
 describe('buildMapDetails - stock name present (negative control)', () => {
-  it('returns the real name and no nameUnavailable when the overworld gate is stock', () => {
+  it('reports no nameUnavailable when the overworld gate is stock', () => {
     const rom = namedStockRom()
     const entrances = deriveOverworldEntrances(rom, undefined, SYNTHETIC_FINGERPRINTS)
     const details = buildMapDetails(rom, 0x001, entrances)
 
-    expect(details.name).toBe('AB')
     expect(details.nameUnavailable).toBeUndefined()
   })
 
-  it('keeps the name when the level data is unavailable', () => {
+  it('reports no name reason when the level data is unavailable', () => {
     const rom = namedStockRom()
     rom.rom.writeAt(ADDR.LEVEL_L1_PTR + 0x001 * 3, [0x00, 0x00, 0x7e]) // -> WRAM
     const entrances = deriveOverworldEntrances(rom, undefined, SYNTHETIC_FINGERPRINTS)
     const details = buildMapDetails(rom, 0x001, entrances)
 
     expect(details.levelDataUnavailable).toMatch(/\$7E0000/)
-    expect(details.name).toBe('AB')
+    expect(details.nameUnavailable).toBeUndefined()
   })
 })
 
@@ -262,9 +257,8 @@ describe.skipIf(!theiaInstalled)('ProjectServiceImpl.mapDetails - wiring', () =>
       if ('status' in result) throw new Error(result.status)
       const details = result
 
-      expect(details.isVertical).toBeUndefined()
       expect(details.orientationUnavailable).toMatch(/VerticalTable/)
-      expect(details.objectCount).toBe(1)
+      expect(details.objectsUnavailable).toBeUndefined()
 
       // The map tab's screen goes through the same working copy, and an
       // unbuildable map answers with a reason rather than an empty image.

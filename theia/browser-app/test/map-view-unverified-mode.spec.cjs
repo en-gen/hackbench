@@ -41,9 +41,7 @@ async function openSynthetic(page, index, levelMode) {
         {},
         {
           get: (_, name) =>
-            name === 'mapDetails'
-              ? async () => ({ index, name: 'Synthetic', screens: 1, levelMode })
-              : async () => unavailable,
+            name === 'mapDetails' ? async () => ({ index, levelMode }) : async () => unavailable,
         },
       )
       await w.open({ manifestPath: 'synthetic.hbproj', index, label: `s${index}`, iconClass: '' })
@@ -69,8 +67,8 @@ test('mode 1E shows the warning, with an explanatory tooltip', async ({ page }) 
 
 test('another mode shows no warning', async ({ page }) => {
   await openSynthetic(page, 0x1e1, 0x0e)
-  // The details reply has landed once the name shows, so absence is checked after it.
-  await expect(page.locator(`${root(0x1e1)} .hb-map-name`)).toHaveText('Synthetic')
+  // The details reply has landed once the view says so, so absence is checked after it.
+  await expect(page.locator(`${root(0x1e1)} .hb-map-view-main`)).toHaveAttribute('data-details', 'done') // prettier-ignore
   await expect(page.locator(warning(0x1e1))).toHaveCount(0)
 })
 
@@ -85,12 +83,12 @@ test('reusing one tab for a 1E level, then a normal one, hides the warning', asy
       {
         get: (_, name) =>
           name === 'mapDetails'
-            ? async () => ({ index: 0x1e2, name: 'Normal', screens: 1, levelMode: 0x01 })
+            ? async () => ({ index: 0x1e2, levelMode: 0x01 })
             : async () => ({ status: 'unavailable', reason: 'synthetic level' }),
       },
     )
     await w.open({ manifestPath: 'synthetic.hbproj', index: 0x1e2, label: 'n', iconClass: '' })
   })
-  await expect(page.locator(`${root(0x1e2)} .hb-map-name`)).toHaveText('Normal')
+  await expect(page.locator(`${root(0x1e2)} .hb-map-view-main`)).toHaveAttribute('data-details', 'done') // prettier-ignore
   await expect(page.locator(warning(0x1e2))).toHaveCount(0)
 })

@@ -22,7 +22,7 @@ const hex = (n: number, w = 2): string => `$${n.toString(16).toUpperCase().padSt
 
 /**
  * Read one map's details from `rom`. A slot whose level data cannot be read
- * returns its name and the reason, never an empty map (see MapDetailsDto).
+ * returns the reason, never an empty map (see MapDetailsDto).
  */
 export function buildMapDetails(
   rom: SmwRom,
@@ -32,7 +32,7 @@ export function buildMapDetails(
   // Read once so "no name" and "mapping unreadable" stay distinguishable,
   // the same shape as verticalTable and the sprite site below.
   const nameResult = levelNameForSlot(rom.rom, entrances ?? deriveOverworldEntrances(rom), index)
-  const named = { index, name: nameResult.name, nameUnavailable: nameResult.reason }
+  const named = { index, nameUnavailable: nameResult.reason }
 
   const raw = rom.getLevelRawData(index)
   if (!raw) {
@@ -45,19 +45,18 @@ export function buildMapDetails(
     }
   }
 
-  // Header, screen count and object count never read isVertical (see
+  // The header and the object walk never read isVertical (see
   // SmwRom.buildLevelExitGraph for the same reasoning), so a ROM whose
   // VerticalTable read is unavailable still reports the rest of the map;
-  // only orientation itself goes absent, with why.
+  // only orientation itself is reported unavailable, with why.
   const verticalTable = rom.getVerticalTable()
   const parsed = parseLevelObjects(raw, verticalTable.ok ? verticalTable.table : [])
   const h = parsed.header
 
   // Sprites live behind their own pointer. A stream that will not parse, or
   // a ROM whose sprite pointer read is unavailable, is not a reason to
-  // refuse the rest of the map: the count is reported absent, with why.
+  // refuse the rest of the map: the sprites are reported unavailable, with why.
   const spritePtr = rom.getLevelSpritePointer(index)
-  let spriteCount: number | undefined
   let spriteUnavailable: string | undefined
   if (spritePtr === null) {
     const site = rom.getSpritePointerSite()
@@ -70,7 +69,7 @@ export function buildMapDetails(
       spriteUnavailable = `no sprite data at the pointer for slot ${hex(index, 3)}`
     } else {
       try {
-        spriteCount = parseLevelSprites(spriteData, verticalTable.ok && parsed.isVertical).length
+        parseLevelSprites(spriteData, verticalTable.ok && parsed.isVertical)
       } catch (e) {
         spriteUnavailable = `the sprite stream did not parse: ${(e as Error).message}`
       }
@@ -79,34 +78,12 @@ export function buildMapDetails(
 
   return {
     ...named,
-    headerBytes: h.raw,
-    screens: parsed.screens,
     levelMode: h.levelMode,
-    isVertical: verticalTable.ok ? parsed.isVertical : undefined,
     orientationUnavailable: verticalTable.ok ? undefined : verticalTable.reason,
-    objectCount: parsed.terminated ? parsed.objects.length : undefined,
     objectsUnavailable: parsed.terminated
       ? undefined
       : 'the object stream did not reach its $FF terminator, so the count cannot be trusted',
-    spriteCount,
     spriteUnavailable,
-    // Labels match LevelParser's own field names so a reader can follow
-    // each one back to its ASM citation.
-    header: [
-      { label: 'Screens', value: String(h.levelLength) },
-      { label: 'Level mode', value: hex(h.levelMode) },
-      { label: 'Object tileset', value: hex(h.objectTileset) },
-      { label: 'Sprite tileset', value: hex(h.spriteSet) },
-      { label: 'FG palette', value: hex(h.fgPalette) },
-      { label: 'BG palette', value: hex(h.bgPalette) },
-      { label: 'Sprite palette', value: hex(h.spritePalette) },
-      { label: 'Back area color', value: hex(h.bgColor) },
-      { label: 'Music', value: hex(h.music) },
-      { label: 'Time limit', value: hex(h.timeLimit) },
-      { label: 'Item memory', value: hex(h.itemMemory) },
-      { label: 'Vertical scroll', value: hex(h.verticalScroll) },
-      { label: 'Layer 3 priority', value: h.layer3Priority ? 'yes' : 'no' },
-    ],
     gfxAssignmentNote:
       [levelGfxAssignmentNote(rom.rom), filterSomeRamNote(rom.rom, h.objectTileset, h.spriteSet)]
         .filter(Boolean)

@@ -1,6 +1,6 @@
 /**
  * One map, opened from the explorer: its L1 (foreground) and L2 (background), drawn by the
- * backend a screen at a time (#421 step 3), with the header decode below.
+ * backend a screen at a time (#421 step 3).
  *
  * The strip requests only the screens in view plus one either side, and
  * caches them in THIS tab, keyed by screen and switch-palace state. Every
@@ -8,8 +8,8 @@
  * open maps never share toggles. A working-copy push drops the cache and
  * re-fetches, so an edit in any view repaints the map.
  *
- * The header's key facts stay in view; the full decode is a secondary
- * panel, every field traced to src/rom/LevelParser.ts, beside its bytes.
+ * The facts strip and the Header panel are gone (#1008); what they warned about is in the notes
+ * row. How a map's facts are shown is designed in #1009.
  */
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
@@ -68,6 +68,7 @@ import {
 import { perfEnd, perfStart } from '../common/perf-marks'
 import { ProjectBound } from './project-bound'
 import {
+  factNotes,
   lowerFirst,
   rawText,
   readFailed,
@@ -153,6 +154,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   }
   protected details: MapDetailsDto | undefined
   protected error: string | undefined
+  /** `mapDetails` said the base ROM is not on this machine: the sentence, for the notes row. */
+  protected romMissing: string | undefined
   /** The exception text behind `error`: a tooltip and the console, never the visible words (#786). */
   protected errorDetail: string | undefined
   protected mapLayout: Layout | undefined
@@ -227,7 +230,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected readonly composites = new Map<number, HTMLCanvasElement>()
   protected readonly compositeRefs = new Map<number, (el: HTMLCanvasElement | null) => void>()
   protected scroller: HTMLDivElement | null = null
-  /** Refits when the strip's box changes, e.g. when the facts line arrives above it. */
+  /** Refits when the strip's box changes, e.g. when a note arrives above it. */
   protected readonly resizes = new ResizeObserver(() => this.fitStrip())
   /** Bumped on every invalidation, so a reply to an older request is dropped. */
   protected generation = 0
@@ -238,7 +241,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** Why the start is not known: the view stays at screen 0 and says so. */
   protected startWhy: string | undefined
   protected startDetail: string | undefined
-  /** Where this open's start stands, for the strip's `data-start` (a test waits on it, not on a timer). */
+  /** Where this open's start stands, for the scroller's `data-start` (a test waits on it, not on a timer). */
   protected startState: 'pending' | 'placed' | 'skipped' | 'unavailable' = 'pending'
   /** The view left offset 0 while the start was pending, even if it came back: the user has taken over. */
   protected movedBeforeStart = false
@@ -317,6 +320,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.title.iconClass = options.iconClass ?? 'codicon codicon-map'
     this.details = undefined
     this.error = undefined
+    this.romMissing = undefined
     this.mapLayout = undefined
     this.sprites = undefined
     this.spritesWhy = undefined
@@ -359,10 +363,14 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected async loadStart(seq: number): Promise<void> {
     const o = this.options
     if (!o) return
-    const r = await this.projects.mapStart(o.manifestPath, o.index).catch(() => ({
-      status: 'unavailable' as const,
-      reason: 'The start position could not be read just now.',
-    }))
+    const r = await this.projects.mapStart(o.manifestPath, o.index).catch(err => {
+      console.error(`Map ${o.index.toString(16)} start failed:`, err)
+      return {
+        status: 'unavailable' as const,
+        reason: 'The start position could not be read just now.',
+        detail: rawText(err),
+      }
+    })
     if (seq !== this.startSeq) return
     if (r.status === 'ok') {
       this.pendingStart = { x: r.x, y: r.y }
@@ -540,10 +548,11 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const generation = this.generation
     let details: MapDetailsDto | undefined
     let error: string | undefined
+    let romMissing: string | undefined
     let detail: string | undefined
     try {
       const r = await this.projects.mapDetails(o.manifestPath, o.index)
-      if ('status' in r) error = romMissingMessage(r.baseRom.title)
+      if ('status' in r) romMissing = romMissingMessage(r.baseRom.title)
       else details = r
     } catch (err) {
       detail = rawText(err)
@@ -554,6 +563,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     if (generation !== this.generation) return
     this.details = details
     this.error = error
+    this.romMissing = romMissing
     this.errorDetail = detail
     this.update()
   }
@@ -1084,7 +1094,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected render(): React.ReactNode {
     this.renderedZoom = this.zoomController.value
     return (
-      <div className="hb-map-view-main">
+      <div
+        className="hb-map-view-main"
+        data-details={this.details || this.error || this.romMissing ? 'done' : 'pending'}
+      >
         <div className="hb-map-view-toolbar">
           <LayerToggle
             glyph="1"
@@ -1173,7 +1186,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
           </button>
           <ZoomStepper controller={this.zoomController} fitControls />
         </div>
-        {this.renderFacts()}
+        {this.renderFactNotes()}
         {this.mapLayout?.note && (
           <div className="hb-map-view-note" data-control="map-note">
             {this.mapLayout.note}
@@ -1205,10 +1218,6 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
         ))}
         {this.renderStrip()}
         <AfterCommit run={this.afterCommit} />
-        <details className="hb-map-view-header" data-control="header-panel">
-          <summary>Header</summary>
-          {this.renderDecode()}
-        </details>
       </div>
     )
   }
@@ -1385,123 +1394,25 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     return plane.startsWith('l2') ? this.showL2 : plane.startsWith('l3') ? this.showL3 : this.showL1
   }
 
-  /** What a reader wants at a glance: which map, how big, and what is unavailable and why. */
-  protected renderFacts(): React.ReactNode {
-    if (this.error) {
-      return (
-        <div
-          className="hb-map-view-body hb-map-view-facts hb-map-view-error"
-          title={this.errorDetail}
-        >
-          {this.error}
-        </div>
-      )
-    }
-    const d = this.details
-    if (!d) return null
-    const title = (
-      <h2 className="hb-map-view-title">
-        <span className="hb-map-slot">{slotLabel(d.index)}</span>
-        {d.name ? (
-          <span className="hb-map-name">{d.name}</span>
-        ) : d.nameUnavailable ? (
-          <span title={d.nameUnavailable}>name unavailable</span>
-        ) : null}
-      </h2>
-    )
-    if (d.levelDataUnavailable) {
-      return (
-        <div className="hb-map-view-body hb-map-view-facts">
-          {title}
-          <div className="hb-map-view-summary">
-            <span title={d.levelDataUnavailable}>level data unavailable</span>
-          </div>
-        </div>
-      )
-    }
-    return (
-      <div className="hb-map-view-body hb-map-view-facts">
-        {title}
-        <div className="hb-map-view-summary">
-          {d.screens} screens,{' '}
-          {d.isVertical !== undefined ? (
-            d.isVertical ? (
-              'vertical'
-            ) : (
-              'horizontal'
-            )
-          ) : (
-            <span title={d.orientationUnavailable}>orientation unavailable</span>
-          )}
-          {' · '}
-          {d.objectCount !== undefined ? (
-            `${d.objectCount} objects`
-          ) : (
-            <span title={d.objectsUnavailable}>objects unavailable</span>
-          )}
-          {' · '}
-          {d.spriteCount !== undefined ? (
-            `${d.spriteCount} sprites`
-          ) : (
-            <span title={d.spriteUnavailable}>sprites unavailable</span>
-          )}
-          {this.startWhy && (
-            <>
-              {' · '}
-              <span
-                data-control="map-start-note"
-                title={withDetail(this.startWhy, this.startDetail)}
-              >
-                start unavailable
-              </span>
-            </>
-          )}
-        </div>
-        {/* With the facts, not in the folded header: it qualifies the picture. */}
-        {d.gfxAssignmentNote && (
-          <div className="hb-map-view-error hb-map-view-note" data-note="gfx-assignment">
-            {d.gfxAssignmentNote}
-          </div>
-        )}
+  /** The warnings the facts strip used to carry, first in the notes row (#1008). */
+  protected renderFactNotes(): React.ReactNode {
+    return factNotes({
+      details: this.details,
+      failed: this.error,
+      failedDetail: this.errorDetail,
+      romMissing: this.romMissing,
+      startWhy: this.startWhy,
+      startDetail: this.startDetail,
+    }).map(n => (
+      <div
+        key={n.note}
+        className={'hb-map-view-note' + (n.error ? ' hb-map-view-note-error' : '')}
+        data-note={n.note}
+        data-control={n.note === 'start' ? 'map-start-note' : undefined}
+        title={n.title}
+      >
+        {n.text}
       </div>
-    )
-  }
-
-  protected renderDecode(): React.ReactNode {
-    const d = this.details
-    if (!d)
-      return (
-        <div className="hb-map-view-empty" title={this.error ? this.errorDetail : undefined}>
-          {this.error ?? 'Reading the ROM...'}
-        </div>
-      )
-    if (!d.headerBytes || !d.header) {
-      return (
-        <div className="hb-map-view-empty">
-          <span title={d.levelDataUnavailable}>level data unavailable</span>
-        </div>
-      )
-    }
-    const bytes = d.headerBytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ')
-    return (
-      <>
-        <table className="hb-map-view-table">
-          <tbody>
-            {d.header.map(f => (
-              <tr key={f.label}>
-                <th>{f.label}</th>
-                <td>{f.value}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {/* The decode above is a claim; these are the bytes it was made from. */}
-        <div className="hb-map-view-raw">
-          <span>Header bytes</span>
-          <code>{bytes}</code>
-        </div>
-      </>
-    )
+    ))
   }
 }

@@ -183,40 +183,28 @@ export interface MapDetailsNotLocated {
 }
 
 /**
- * What one map holds, read from the cartridge.
- *
- * Every field is decoded from the level header, whose bit layout and ASM
- * citations live in src/rom/LevelParser.ts. Nothing here is inferred: a field
- * this build cannot read is absent rather than defaulted.
+ * What the map view warns about for one map, read from the ROM (#1008): why a
+ * name, the level data, the orientation, the objects or the sprites could not
+ * be read, the GFX-assignment caveat, and the level mode. Nothing is inferred:
+ * a reason is present only when the read failed. The counts and the decoded
+ * header went with the facts strip and the Header panel.
  */
 export interface MapDetailsDto {
   index: number
-  name: string | null
-  /** Why `name` is null when the translevel mapping itself is unreadable,
+  /** Why the slot has no name when the translevel mapping itself is unreadable,
    *  rather than the slot simply having no name. */
   nameUnavailable?: string
-  /** Why the slot's level data could not be read. When set, every field
-   *  below it is absent, and nothing past the name is claimed. */
+  /** Why the slot's level data could not be read. When set, the fields below
+   *  are absent, and nothing past the name is claimed. */
   levelDataUnavailable?: string
-  /** The five header bytes, so the user can check the decode themselves. */
-  headerBytes?: number[]
-  screens?: number
-  /** Absent when the object walk did not end on $FF; see `objectsUnavailable`. */
-  objectCount?: number
-  /** Why `objectCount` is absent when level data was read. */
+  /** Why the object count cannot be trusted: the stream never reached its terminator. */
   objectsUnavailable?: string
-  /** Absent when VerticalTable could not be read; see `orientationUnavailable`. */
-  isVertical?: boolean
-  /** Why `isVertical` is absent. Set only when it is. */
+  /** Why the orientation (VerticalTable) could not be read. */
   orientationUnavailable?: string
-  /** Absent when the sprite stream could not be read; see `spriteUnavailable`. */
-  spriteCount?: number
-  /** Why `spriteCount` is absent. Set only when it is. */
+  /** Why the sprite stream could not be read. */
   spriteUnavailable?: string
   /** The header's level mode, for the unverified-mode warning (#618). */
   levelMode?: number
-  /** Decoded header fields, label and value, in header-byte order. */
-  header?: Array<{ label: string; value: string }>
   /** Why the GFX files the tileset and sprite set name may not be what loads. */
   gfxAssignmentNote?: string
 }
