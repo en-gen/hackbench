@@ -163,4 +163,38 @@ describe('expandMapOwned refusals (#301)', () => {
       ]),
     ).toContain('refused 1 object(s)')
   })
+
+  describe('pipe variant with no port (#1033)', () => {
+    const PIPE = 0x0dab3e
+    const KNOWN = [
+      0x0dab6e, 0x0dac21, 0x0dac92, 0x0dad44, 0x0dada3, 0x0dadeb, 0x0dae6d, 0x0daefc, 0x0daf61,
+      0x0dafea,
+    ]
+    const long = (a: number): number[] => [a & 0xff, (a >> 8) & 0xff, a >> 16]
+    const pipeRun = (target: number) => {
+      const rom = cart(PIPE)
+      rom.writeAt(PIPE + 18, long(target)) // variant 0 (size nibble 0)
+      const sink = { unverified: [] as string[], primitives: [], draw: () => false }
+      return run(rom, [obj(1, 3, 0x10)], sink)
+    }
+
+    it('every target in the pipe block without a port is refused, naming object and variant', () => {
+      for (let t = 0x0dab40; t < 0x0db000; t += 0x11) {
+        if (KNOWN.includes(t)) continue
+        const r = pipeRun(t)
+        expect(r.refusals, t.toString(16)).toHaveLength(1)
+        expect(r.refusals[0].reason).toMatch(/pipe object \$\w+ variant 0 points at \$/)
+      }
+    })
+
+    it('a known target is not refused for want of a port', () => {
+      for (const t of KNOWN) {
+        const r = pipeRun(t)
+        expect(
+          r.refusals.filter(x => x.reason.includes('does not know')),
+          t.toString(16),
+        ).toEqual([])
+      }
+    })
+  })
 })

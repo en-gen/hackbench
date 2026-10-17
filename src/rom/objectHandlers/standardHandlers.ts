@@ -970,7 +970,13 @@ export function handle_0DAB3E(cur: Cursor): void {
   const prevHandler = cur.handlerAddr
   cur.handlerAddr = target
   try {
-    PIPE_VARIANT_HANDLERS[target]?.(cur)
+    const port = PIPE_VARIANT_HANDLERS[target]
+    if (port) port(cur)
+    else {
+      // D52/D57: a table entry with no port must say so, not draw nothing.
+      const why = `pipe object $${hex2(cur.objNo)} variant ${variant} points at $${hex6(target)}, which the port does not know`
+      noteRefused(cur.draw?.unverified, target, tableBase + variant * 3, 0, null, why)
+    }
   } finally {
     cur.handlerAddr = prevHandler
   }
