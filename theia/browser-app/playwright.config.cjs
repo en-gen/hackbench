@@ -9,23 +9,19 @@ isolateAppData()
 // checkout would serve that checkout's extension (#1038). The unit gates that
 // only load this file set HB_SKIP_INSTALL_GUARD: they must pass in a
 // junctioned worktree, which is exactly what the guard refuses to build in.
-// The root comes from the cwd, not __dirname: node resolves __dirname through
-// a junctioned theia folder to the main checkout, which would always pass.
+// The guard finds the checkout from the cwd and PWD, not __dirname: node
+// resolves __dirname through a junctioned theia folder to the main checkout,
+// which would always pass.
 if (!process.env.HB_APP_URL && !process.env.HB_SKIP_INSTALL_GUARD) {
-  const fs = require('fs')
-  const path = require('path')
-  const guard = path.join('tools', 'scripts', 'check-theia-install.mjs')
-  let root = path.resolve(__dirname, '..', '..')
-  for (let d = process.cwd(); ; d = path.dirname(d)) {
-    if (fs.existsSync(path.join(d, guard))) {
-      root = d
-      break
-    }
-    if (path.dirname(d) === d) break
-  }
-  const r = require('child_process').spawnSync(process.execPath, [path.join(root, guard), root], {
-    encoding: 'utf8',
-  })
+  const guard = require('path').join(
+    __dirname,
+    '..',
+    '..',
+    'tools',
+    'scripts',
+    'check-theia-install.mjs',
+  )
+  const r = require('child_process').spawnSync(process.execPath, [guard], { encoding: 'utf8' })
   if (r.status !== 0) throw new Error(r.stderr || 'check-theia-install failed')
 }
 

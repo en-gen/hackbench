@@ -49,9 +49,6 @@ export function checkTheiaInstall(repoRoot) {
   if (isLink(nm)) {
     return tail('theia/node_modules is a link to another folder', ADVICE_LINK(REMOVE_NM))
   }
-  if (!inside(root, real(nm))) {
-    return tail('theia/node_modules resolves outside this checkout', ADVICE_INSTALL)
-  }
   const bad = LINKS.filter(
     l => existsSync(path.join(nm, l)) && !inside(root, real(path.join(nm, l))),
   )
@@ -70,12 +67,40 @@ export function checkTheiaInstall(repoRoot) {
   return null
 }
 
+const MARKER = path.join('tools', 'scripts', 'check-theia-install.mjs')
+
+/**
+ * Checkout roots to check when no root is given. On POSIX process.cwd() is the
+ * symlink TARGET, so a junctioned theia folder would look like the main
+ * checkout; the shell's PWD (accepted only when it is the cwd) and yarn's
+ * INIT_CWD keep the worktree path (#1038 review). Each is walked up to the
+ * nearest folder holding this script.
+ */
+export function candidateRoots(env = process.env, cwd = process.cwd()) {
+  const dirs = [
+    env.INIT_CWD,
+    env.PWD && existsSync(env.PWD) && real(env.PWD) === real(cwd) ? env.PWD : '',
+    cwd,
+  ]
+  const roots = []
+  for (const start of dirs.filter(Boolean)) {
+    for (let d = path.resolve(start); ; d = path.dirname(d)) {
+      if (existsSync(path.join(d, MARKER))) {
+        if (!roots.includes(d)) roots.push(d)
+        break
+      }
+      if (path.dirname(d) === d) break
+    }
+  }
+  return roots
+}
+
 // Compare realpaths: invoking through a link must still run the check.
 const invoked = process.argv[1] && existsSync(process.argv[1]) ? real(process.argv[1]) : ''
 if (invoked === real(fileURLToPath(import.meta.url))) {
-  const problem = checkTheiaInstall(
-    path.resolve(process.argv[2] ?? path.join(import.meta.dirname, '..', '..')),
-  )
+  const own = path.join(import.meta.dirname, '..', '..')
+  const roots = process.argv[2] ? [path.resolve(process.argv[2])] : candidateRoots()
+  const problem = (roots.length ? roots : [own]).map(checkTheiaInstall).find(Boolean)
   if (problem) {
     console.error(problem)
     process.exit(1)

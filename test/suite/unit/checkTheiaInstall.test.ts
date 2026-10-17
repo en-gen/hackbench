@@ -193,3 +193,62 @@ describe('guard wiring', () => {
     })
   })
 })
+
+describe('logical path when cwd is already resolved (POSIX, #1038 review)', () => {
+  // On POSIX process.cwd() is the symlink TARGET; the shell's PWD and yarn's
+  // INIT_CWD keep the worktree path. Simulated on any platform by running in
+  // the target with the logical path in the env.
+  const wt = theiaJunctioned('wt-logical')
+  const target = path.join(root, 'wt-logical-target', 'theia')
+  const logical = path.join(wt, 'theia')
+  const clean = () => {
+    const env = { ...process.env }
+    for (const k of ['PWD', 'INIT_CWD', 'HB_APP_URL', 'HB_SKIP_INSTALL_GUARD']) delete env[k]
+    return env
+  }
+  const cli = (cwd: string, extra: Record<string, string>) =>
+    spawnSync(
+      process.execPath,
+      [path.join(cwd, '..', 'tools', 'scripts', 'check-theia-install.mjs')],
+      {
+        cwd,
+        env: { ...clean(), ...extra },
+        encoding: 'utf8',
+      },
+    )
+
+  it('the CLI follows INIT_CWD or a matching PWD to the junctioned worktree', () => {
+    expect(cli(target, {}).status).toBe(0) // no logical path known: nothing to see
+    expect(cli(target, { INIT_CWD: logical }).status).toBe(1)
+    expect(cli(target, { PWD: logical }).status).toBe(1)
+  })
+
+  it('ignores a PWD that is not the cwd, so a stale value cannot refuse a good checkout', () => {
+    const r = cli(path.join(main, 'theia'), { PWD: logical })
+    expect(r.status).toBe(0)
+  })
+
+  it('the prebuild hook refuses via INIT_CWD', () => {
+    const r = spawnSync(scripts().prebuild, {
+      shell: true,
+      cwd: target,
+      env: { ...clean(), INIT_CWD: logical },
+      encoding: 'utf8',
+    })
+    expect(r.status).toBe(1)
+  })
+
+  it('the Playwright config refuses via PWD', () => {
+    const r = spawnSync(process.execPath, ['-e', `require(${JSON.stringify(CONFIG)})`], {
+      cwd: path.join(target, 'browser-app'),
+      env: { ...clean(), PWD: path.join(logical, 'browser-app') },
+      encoding: 'utf8',
+      timeout: 60000,
+    })
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toContain('yarn --cwd theia install')
+  })
+})
+function scripts(): Record<string, string> {
+  return JSON.parse(readFileSync(path.resolve('theia/package.json'), 'utf8')).scripts
+}
