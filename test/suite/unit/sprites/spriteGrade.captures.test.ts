@@ -32,6 +32,9 @@ import type { RomFile } from '../../../../src/rom/RomFile'
 import { runSprite } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
+import { neighboursOf } from '../../../../src/rom/sprites/interp/Neighbours'
+import { parseLevelSprites, type LevelSprite } from '../../../../src/rom/LevelParser'
+import { SmwRom } from '../../../../src/rom/SmwRom'
 import {
   CAPTURE_DIR,
   freshRom,
@@ -52,6 +55,7 @@ import {
 } from '../../support/spriteGrade'
 
 interface Rec {
+  listIndex?: number
   id: string
   slot: number
   listX: number
@@ -144,6 +148,9 @@ function gradeAll(
   const rows: Row[] = []
   const inputs = new Map<number, { reads: number; nonzero: number }>()
   const loadedByMap = new Map<string, Uint8Array | undefined>()
+  // Each map's own sprite list, for the neighbour run of a sprite that scans the slot tables (#841).
+  const listByMap = new Map<string, LevelSprite[]>()
+  const smw = new SmwRom(rom)
   let fallbacks = 0
   let missAtK = 0
   for (const { map, rec, wram, anchorFrame, marioStart } of all) {
@@ -165,6 +172,14 @@ function gradeAll(
     }
     // Hardware timeline: INIT sees marioAtInit, MAIN sees marioStart, and the graded pass is the
     // one the capture's drawn frame falls on. Without the fields, the old first-drawing-pass rule.
+    if (!listByMap.has(map)) {
+      const ptr = smw.getLevelSpritePointer(parseInt(map, 16))
+      const data = ptr === null ? null : rom.readUpTo(ptr, 4096)
+      listByMap.set(map, data ? parseLevelSprites(data, false) : [])
+    }
+    const list = listByMap.get(map)!
+    const me = list.find(e => e.index === rec.listIndex)
+    const neighbours = me ? neighboursOf(list, me, e => ({ x: e.x * 16, y: e.y * 16 })) : []
     const k = gradedPass(rec.initFrame, anchorFrame, rec.drawnFrame)
     const timed = k !== undefined && marioStart !== undefined
     if (!timed) fallbacks++
@@ -185,6 +200,7 @@ function gradeAll(
       sprite: { x: rec.listX, y: rec.listY },
       camera: { x: rec.cameraX, y: rec.cameraY },
       mario: rec.marioAtInit ?? { x: rec.listX, y: rec.listY },
+      ...(neighbours.length ? { neighbours } : {}),
     })
     const probe = timed
       ? (p: number, w: Uint8Array): void => {
@@ -240,7 +256,7 @@ const FLOOR = {
   exactOrShape: 1780,
   maxRefused: 0,
   maxEmpty: 20,
-  maxWrong: 135,
+  maxWrong: 120, // 111 measured after #841 (125 before)
   maxMissAtK: 30,
   // 38 measured (spawned records without initFrame); all-timed would read 0.
   minFallbacks: 30,

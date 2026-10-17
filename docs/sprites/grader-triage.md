@@ -103,10 +103,17 @@ attribute parts to the slot (OAM index range from `$15EA`, as the capture does).
 returns 1 part; $1E on map 1c4 returns 2; the 12 cases grade close or better.
 
 **H, companion absent (14).** $9C scans slots 0-9 for a $9B (Hammer Brother) and draws it on the platform
-(`bank_02.asm:12114-12142`, `PutHammerBroOnPlat`). The runner runs the sprite alone, so ours has 4 parts
-and the capture 8 in all 14 (maps 006, 126, 127, 1c0, 1c4, 1c5, 11e). Fix: spawn the level's neighbouring
-$9B for sprites that scan for one, or record the dependency in `dependsOn`. Assert: $9C on map 006 at 1168,272
-draws 8 parts equal to one captured frame.
+(`bank_02.asm:12118-12148`, `PutHammerBroOnPlat`; `HammerBroGfx` 12044-12091). The $9B draws nothing in its own
+turn (`bank_02.asm:11964-11969` draws only at status 2), so the capture's 8 parts under the platform's slot are 4 of
+the platform and 4 of the bro. The runner ran the sprite alone: 4 parts, in all 14 (maps 006, 126, 127, 1c0, 1c4,
+1c5, 11e). **Fixed (#841):** a run whose own code read the number or status table at another slot while its
+slot was running (`scansSlots`) is run again with the list's neighbours (`neighboursOf`: its screen and the one
+each side, nearest first, at most 9) in the other slots, counting only OAM written under its own `$15E9`; that run
+is used when it adds parts and keeps the ones the run alone had (`dependsOn: neighbours`). Measured (one machine, vanilla
+cart, `spriteGrade.captures.test.ts`): wrong 125 to 111, exact 998 to 1003, shape 803 to 812, close 18, empty 13; all 14 $9C records
+leave "wrong" (5 exact, 9 shape); no record graded worse. Without the "keeps
+the parts it had" rule, 26 other records graded worse (sprites that scan the slots for collisions), so that rule is
+load-bearing.
 
 **S, floating-platform sink (9).** $A4 on map 102 only. INIT runs the sink loop (`bank_01.asm:6815-6837`):
 ours ends 32 px below the list y (anchor y 432 for a list y of 400) while the capture's first draw is at
