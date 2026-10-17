@@ -536,7 +536,7 @@ Added for #505. The map view draws L2 at `Layer1YPos - Layer2YPos` as the level 
 
 Settings byte $80 with a loaded Layer 3 Smash sprite ($89) is the one case where the game moves
 Layer 3 by a sprite, and it does so every frame. Evidence scope: SMWDisX read plus a scan of the
-vanilla level data (two tracing passes, no emulator run); vanilla maps with the sprite: $01F, $1D4
+vanilla map data (two tracing passes, no emulator run); vanilla maps with the sprite: $01F, $1D4
 and $1FC, all horizontal and all starting Mario at X 16, so the load camera X is 0
 (bank_05.asm:7170, UpdateScreenPosition bank_00.asm:13631-13690).
 
@@ -550,8 +550,8 @@ and $1FC, all horizontal and all starting Mario at X 16, so the load camera X is
   Layer 1's speed. State 0 sets the sprite X to $FF80 plus a random 0-63 at the start of every smash
   cycle (bank_02.asm:11147-11166; state 4 returns to it), so each cycle the panel restarts 65-128 px
   right of the screen's left edge, and it pins at $100 only if the camera moves about 321-384 px
-  within one cycle. Over time it follows the camera. The very first frame uses the level data's X
-  instead, which is $100 on $01F and $1FC (a blank screen: BG3 columns 32-63 are empty).
+  within one cycle. Over time it follows the camera. The very first frame uses the map's sprite X
+  instead (the sprite's X and Y in the map's data), which is $100 on $01F and $1FC (a blank screen: BG3 columns 32-63 are empty).
 - **Y.** $A0 minus the sprite's Y, plus the shake offset. The camera is not in it, so on screen the
   layer keeps its place vertically (the sprite's Y animates between 0 and $A0 as the smasher falls
   and rises). Before the sprite is loaded, Y is $D0 (bank_00.asm:4192-4195).
@@ -561,6 +561,6 @@ and $1FC, all horizontal and all starting Mario at X 16, so the load camera X is
   movement plus a drift (bank_05.asm:5504-5571). Different code, different rule.
 
 The map view has no camera, so a smash-driven Layer 3 is drawn once: a single copy of the 512 px
-tilemap at world x = column * 8 + 128 (world 128..639), at the level's Y, and never repeated every
+tilemap at world x = column * 8 + 128 (world 128..639), at the cycle's start Y ($A0), and never repeated every
 512 px. The panel (columns 7-24 on $01F) spans screens 0 and 1. The X is a pick, not a fact: in the
 game it is -128..-65 per cycle (random), and the view uses the low end, `SMASH_CYCLE_X` (-128).

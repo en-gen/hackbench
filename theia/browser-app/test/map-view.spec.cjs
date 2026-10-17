@@ -1052,7 +1052,7 @@ for (const [index, role, bit, known] of [
   // [255,90,90]), so a wrong palette fails.
   // All measured from the backend's planes. $01F is smash-driven (#997): drawn once at the entrance
   // camera with Layer3XPos at the smash cycle's start (-128), so its tiles sit 128 px right and
-  // 48 px lower than a fixed $D0 layer 3 would (box and pixels translated by that, measured on the ROM).
+  // 48 px lower than a fixed $D0 layer 3 would (box and pixels derived by that translation, not measured; the verifier's first run measures them).
   [
     0x002,
     'Layer 3 · Overlay',
@@ -1146,6 +1146,7 @@ test('$01F: layer 3 is drawn once, across screens 0 and 1, not repeated 512 px o
   const changed = i => off[i].filter((v, k) => v !== on[i][k]).length
   expect(changed(0), 'layer 3 is on screen 0').toBeGreaterThan(0)
   expect(changed(1), 'the rest of the panel is on screen 1').toBeGreaterThan(0)
+  expect(on[2].some(v => v !== 0), 'screen 2 is rendered, so the comparison below is not of two blanks').toBe(true) // prettier-ignore
   expect(off[2], 'no copy of layer 3 at the 512 px repeat').toEqual(on[2])
   await expect(button).toHaveAttribute('title', /follows the camera/)
 })

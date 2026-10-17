@@ -27,25 +27,30 @@ const INIT_PTR_TABLE = 0x01817d
 const SMASH_WINDOW_END = 0x190
 const CAMERA_LEFT_OF_CENTRE = 0x80
 /**
- * Layer3XPos the map view draws a smash-driven layer 3 at (#997). Frame 0 uses the sprite's level
- * X (above), but that frame is a blank screen on $01F and $1FC (X $100 shows BG3 columns 32-63,
- * empty); the sprite's state 0 then re-sets its X to $FF80 + a random 0-63 on every smash cycle
- * (bank_02.asm:11147-11166), and the layer scrolls with the camera from there. The start of that
- * range is the one deterministic member: the panel as the game first shows it.
+ * Where the map view draws a smash-driven layer 3 (#997): the smash cycle's start. Frame 0 uses
+ * the sprite's map X and Y (above), but that frame is a blank screen on $01F and $1FC (X $100
+ * shows BG3 columns 32-63, empty). The sprite's state 0 then sets its X to $FF80 + a random 0-63
+ * and its Y to 0 on every smash cycle (bank_02.asm:11159-11165), and the layer scrolls with the
+ * camera from there. X: the start of that range, the one deterministic member. Y: $A0 minus 0
+ * (CODE_00FF61, bank_00.asm:14796). Both come from stock code, so L3_SMASH_SITES
+ * fingerprints state 0, the camera-delta add and CODE_00FF61: a hack that changes them is refused.
  */
 export const SMASH_CYCLE_X = -0x80
+export const SMASH_CYCLE_Y = 0xa0
 export const SMASH_REFUSED = 'Layer 3 not drawn yet: hooked layer 3 smash sprite'
 export const SPRITES_UNREADABLE = 'Layer 3 not drawn yet: sprite data unreadable'
 
 /**
  * SHA-256 of the stock bytes (over the 32-byte pattern threshold): CODE_00FF61..RTL, the sprite
  * loader and its spawn (DATA_02A7F6 .. LoadSprFromLevel .. JMP LoadSpriteLoopStrt, bank_02.asm:5217-5506),
- * and the start-up sweep CODE_02ACA1 (5876-5910).
+ * the start-up sweep CODE_02ACA1 (5876-5910), and Layer3SmashMain through state 0 (bank_02.asm:11123-11166:
+ * the camera-delta add and the cycle's X and Y).
  */
 export const L3_SMASH_SITES: readonly CodeSite[] = [
   { addr: 0x00ff61, length: 50, sha256: '61156c5a1d73e95c1c9f966daa9464d898518da783fd9f3b48c5e208b57ffe06' },
   { addr: 0x02a7f6, length: 0x1e8, sha256: 'f83b7dcc5d6510bfeebfff51912c69b83243f5338d4425dfb05be7f4f8600eb3' },
   { addr: 0x02aca1, length: 64, sha256: '316c5d582d0f08a944753fd1b45244d6f93f94d41edb7bf997e05c31980d82f1' },
+  { addr: 0x02d3ea, length: 91, sha256: '196993f72065fc026a61fe5eee3e3c231fdea330aeb1ce6ddd8743374c1fda43' },
 ] // prettier-ignore
 
 export interface L3Position {
@@ -94,8 +99,7 @@ export function l3SmashPos(sprites: readonly LevelSprite[], startX: number): L3S
   // The parser's x and y are in 16 px units (LevelParser.ts:491-512).
   const x = loaded[0]!.x * 16
   const y = loaded[0]!.y * 16
-  // Below $A0 on screen (y > $A0) Layer3YPos goes negative; the hardware's 10-bit wrap is not modelled, so say so.
-  if (y > 0xa0) return { ok: false, reason: 'Layer 3 not drawn yet: smash sprite below $A0' }
+  // Frame 0 only: a sprite below $A0 gives a negative Y here, which the view no longer draws (SMASH_CYCLE_Y).
   return { ok: true, pos: { x: x >= 0x100 ? 0x100 : x, y: 0xa0 - y } }
 }
 

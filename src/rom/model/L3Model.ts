@@ -17,7 +17,7 @@ import type { BgModeResult } from '../BgMode'
 import { layoutRefusal, readModeLayouts } from '../LevelScreenTables'
 import { HOOKED_L3_CODE, readL3CodeGate, type L3CodeGate } from '../L3CodeGate'
 import { l3LoadTimeY, loadL3Tilemap, readInitialLayer1YPos } from '../L3Loader'
-import { readL3SmashLoadPos, SMASH_CYCLE_X, type L3SmashResult } from '../L3Smash'
+import { readL3SmashLoadPos, SMASH_CYCLE_X, SMASH_CYCLE_Y, type L3SmashResult } from '../L3Smash'
 import { readLayer3Setting } from '../ObjectExpander'
 import type { MapEntrances } from '../SmwRom'
 import type { L1Inputs } from './L1Model'
@@ -132,7 +132,7 @@ export function buildL3Verdict(
     const found = smash(rom, index)
     if (!found.ok) return none(found.reason)
     if (found.pos) {
-      pos = { x: SMASH_CYCLE_X, y: found.pos.y }
+      pos = { x: SMASH_CYCLE_X, y: SMASH_CYCLE_Y }
       followsCamera = true
     }
   }
