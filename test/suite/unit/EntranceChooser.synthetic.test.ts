@@ -9,9 +9,11 @@ import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { buildL2Inputs } from '../../../src/rom/model/L2Model'
 import type { L1Inputs } from '../../../src/rom/model/L1Model'
+import { chooseEntranceNoted } from '../../../src/rom/L3Loader'
 import { buildL3Verdict } from '../../../src/rom/model/L3Model'
 import { parseLevelHeader } from '../../../src/rom/LevelParser'
 import type { MapEntrances, SmwRom } from '../../../src/rom/SmwRom'
+import { entrancesOfMap } from '../../../src/rom/ReadMapEntrances'
 import { modeTablesRom, STANDARD, withLayer3 } from '../support/l3Rom'
 import { plantUploaderTable } from '../support/l2UploaderRom'
 import { writeStockSkipChain } from '../support/skipChain'
@@ -64,6 +66,43 @@ describe('one entrance chooser for the layer 2 height and the layer 3 camera (#8
     expect(drawn(via).note).toMatch(
       /drawn as entered through secondary entrance \$1C3; entered .*\$1C5/,
     )
+  })
+
+  // #945: the route, not the lowest id, picks the row for both views.
+  it('a sub area with route $1C5 (not the lowest, $1C3): L2 draws and L3 reads row $1C5', () => {
+    const via: MapEntrances = { overworld: false, primary: false, secondary: [0x1c3, 0x1c5], route: 0x1c5 } // prettier-ignore
+    expect(drawn(via).dy).toBe(dyOf(ROWS[0x1c5]!))
+    expect(camY(via)).toBe(L1_Y[ROWS[0x1c5]![0]!])
+    expect(drawn(via).note).toMatch(/drawn as entered through secondary entrance \$1C5/)
+  })
+
+  it('a map with no route is drawn from the fallback and the note says no route was found', () => {
+    const via: MapEntrances = { overworld: false, primary: false, secondary: [0x1c5, 0x1c3] }
+    expect(chooseEntranceNoted(via).note).toMatch(/no route from the overworld/i)
+  })
+
+  // Owner test of #945: the route fact and the height fact read as one mashed-together note.
+  it('the no-route fact is its own note, never joined onto the background height note', () => {
+    const via: MapEntrances = { overworld: false, primary: false, secondary: [0x1c5, 0x1c3] }
+    const r = drawn(via)
+    expect(chooseEntranceNoted(via).note).toBe('No route from the overworld reaches this map, so it opens at the start.') // prettier-ignore
+    expect(r.note ?? '').not.toMatch(/no route/i)
+  })
+
+  // #945: a map the walk never reached is absent from the graph; that is not "graph unavailable".
+  it('graph available, map never reached: drawn from the primary and the note says no route', () => {
+    const graph = new Map<number, MapEntrances>([[MAP + 1, { overworld: true, primary: false, secondary: [], route: null }]]) // prettier-ignore
+    const r = drawn(entrancesOfMap(graph, MAP)!)
+    expect(r.dy).toBe(dyOf(PRIMARY_ROW))
+    expect(chooseEntranceNoted(entrancesOfMap(graph, MAP)!).note).toMatch(
+      /no route from the overworld/i,
+    )
+    expect(camY(entrancesOfMap(graph, MAP)!)).toBe(L1_Y[PRIMARY_ROW[0]!])
+  })
+
+  it('graph unavailable: no entrances at all, so no unreached note', () => {
+    expect(entrancesOfMap(undefined, MAP)).toBeUndefined()
+    expect(entrancesOfMap(new Map(), MAP)?.route).toBeUndefined()
   })
 
   it('a primary entry is drawn ahead of any secondary one, and the note leads with it', () => {

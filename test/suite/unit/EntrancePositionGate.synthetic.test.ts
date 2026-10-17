@@ -211,7 +211,7 @@ describe('the exit graph stays intact while the position routine changes', () =>
     const fp = fingerprintsOf(rom)
     const stock = readMapEntrances(smw, fp)
     expect(stock).toBeDefined()
-    expect(stock!.get(0x177)).toEqual({ overworld: false, primary: false, secondary: [0x110, 0x111] }) // prettier-ignore
+    expect(stock!.get(0x177)).toEqual({ overworld: false, primary: false, secondary: [0x110, 0x111], route: 0x110 }) // prettier-ignore
     expect(entrancePositionGate(rom, spans)).toBeNull()
 
     rom.writeAt(0x05d90c, [0x0f]) // outside every span the graph checks

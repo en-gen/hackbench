@@ -15,7 +15,7 @@
  * planes by its tile priority bit, drawn on every non-Mode-7 level mode (#561, #562).
  */
 import { SmwRom, type MapEntrances } from '../../../../src/rom/SmwRom'
-import { readMapEntrances } from '../../../../src/rom/ReadMapEntrances'
+import { entrancesOfMap, readMapEntrances } from '../../../../src/rom/ReadMapEntrances'
 import { RomFile } from '../../../../src/rom/RomFile'
 import type { DataBanks } from '../../../../src/rom/DataBanks'
 import { SCREEN_H, SCREEN_W, SCREEN_W_VERT, SCREEN_H_VERT } from '../../../../src/rom/LevelParser'
@@ -32,7 +32,12 @@ import {
 } from '../../../../src/rom/model/L1Model'
 import { buildL2Inputs, type L2Inputs, type L2Result } from '../../../../src/rom/model/L2Model'
 import { buildL3Verdict, type L3Inputs, type L3Verdict } from '../../../../src/rom/model/L3Model'
-import { L3_HUD_ROW_CUTOFF, L3_TILEMAP_COLS, L3_TILEMAP_ROWS } from '../../../../src/rom/L3Loader'
+import {
+  L3_HUD_ROW_CUTOFF,
+  L3_TILEMAP_COLS,
+  L3_TILEMAP_ROWS,
+  chooseEntranceNoted,
+} from '../../../../src/rom/L3Loader'
 import { readLevelBgMode, type BgModeResult } from '../../../../src/rom/BgMode'
 import { PALACES, type Palace } from '../../../../src/rom/SwitchBlockTiles'
 import { palaceArt, type PalaceArt } from '../../../../src/rom/SwitchArt'
@@ -281,6 +286,8 @@ export interface MapInputs extends L1Inputs {
   l3?: L3Verdict
   /** Why the planes' order is unverified (not BG mode 1, or the mode could not be read). */
   orderNote?: string
+  /** No route from the overworld reaches the map, so it opens at screen 0: its own note, shown even when Layer 2 is refused (#945). */
+  routeNote?: string
 }
 export type MapInputsResult = { ok: true; inputs: MapInputs } | { ok: false; reason: string }
 
@@ -344,6 +351,7 @@ export function screenResult(
     layerNotes: [
       model.l2 && !model.l2.ok ? `The background is not drawn: ${model.l2.reason}` : '',
       ...positionNotes(model),
+      model.routeNote ?? '',
       model.orderNote ? `Layer order unverified, drawn as BG mode 1: ${model.orderNote}` : '',
     ].filter(Boolean),
     backdrop: [model.backArea[0], model.backArea[1], model.backArea[2]],
@@ -416,7 +424,7 @@ export function buildMapInputs(
   const built = l1(rom, index, flags)
   if (!built.ok) return built
   const bg = bgMode()
-  const via = entrances()?.get(index)
+  const via = entrancesOfMap(entrances(), index)
   return {
     ok: true,
     inputs: {
@@ -424,6 +432,7 @@ export function buildMapInputs(
       l2: buildL2Inputs(rom, index, built.inputs, via),
       l3: buildL3Verdict(rom.rom, index, built.inputs, bg, undefined, undefined, undefined, via), // prettier-ignore
       orderNote: bg.ok ? undefined : bg.reason,
+      routeNote: chooseEntranceNoted(via).note,
     },
   }
 }
