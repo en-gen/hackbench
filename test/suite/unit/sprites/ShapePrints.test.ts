@@ -13,6 +13,7 @@ import {
 } from '../../../../src/rom/sprites/interp/LineGuided'
 import { printMatches } from '../../../../src/rom/sprites/interp/Guards'
 import {
+  checkExecutePtr,
   resolveBlockSpawn,
   resolveLoop,
   resolvePointer,
@@ -24,7 +25,9 @@ import { GRINDER_DISPATCH, GRINDER_HANDLER } from '../../support/syntheticGrinde
 import {
   buildSyntheticRom,
   SYNTHETIC_DISPATCHER as SYN,
+  SYNTHETIC_EXECUTE_PTR_CODE,
   SYNTHETIC_SHAPES,
+  withProductionShapes,
 } from '../../support/syntheticSpriteRom'
 
 const flip = (rom: RomFile, at: number) => void rom.writeAt(at, [rom.readAt(at, 1)![0]! ^ 1])
@@ -117,8 +120,37 @@ describe('shapes recognized by fingerprint (synthetic cart)', () => {
   })
 })
 
+describe('registry guard', () => {
+  it("the cart's ExecutePtr planted at the vanilla address is accepted with its shapes registered and refused as production sees it", () => {
+    const rom = buildSyntheticRom()
+    rom.writeAt(0x0086df, [...SYNTHETIC_EXECUTE_PTR_CODE])
+    // The three dispatch JSLs (HandleSprite +13, CallSpriteInit +9, CallSpriteMain +6) now name $00:86DF.
+    for (const at of [0x018127 + 13, 0x018170 + 9, 0x018320 + 6])
+      rom.writeAt(at, [0xdf, 0x86, 0x00])
+    const jsl = [[0xdf, 0x86, 0x00]]
+    expect(dispatchVerdict(rom)).toBeNull()
+    expect(checkExecutePtr(rom, jsl)).toEqual({ ok: true })
+    const production = withProductionShapes(() => checkExecutePtr(rom, jsl))
+    expect(production).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/16-bit ExecutePtr/),
+    })
+    expect(withProductionShapes(() => dispatchVerdict(rom))).not.toBeNull()
+    expect(dispatchVerdict(rom)).toBeNull() // restored for the rest of the file
+  })
+
+  it('a print for CallSpriteInit ends on the JSL opcode: the table offset is its length + 3', () => {
+    const rom = buildSyntheticRom()
+    expect(rom.readAt(0x018170 + SYNTHETIC_SHAPES.callSpriteInit.length - 1, 1)![0]).toBe(0x22)
+  })
+})
+
 describe.skipIf(!hasRom(VANILLA))('shapes recognized by fingerprint (vanilla ROM)', () => {
   const loopOf = (rom: RomFile) => resolveLoop(rom) as { handle: number }
+
+  it('the vanilla CallSpriteInit print ends on the JSL opcode', () => {
+    expect(freshRom().readAt(0x018172 + VANILLA_SHAPES.callSpriteInit.length - 1, 1)![0]).toBe(0x22)
+  })
 
   it('the vanilla digests accept the vanilla ROM', () => {
     const rom = freshRom()

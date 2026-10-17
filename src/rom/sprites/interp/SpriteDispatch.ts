@@ -75,9 +75,16 @@ export const VANILLA_SHAPES: ShapePrints = Object.freeze({
 }) // prettier-ignore
 
 const recognized: ShapePrints[] = [VANILLA_SHAPES]
-/** For a synthetic cart: also recognize its own shapes. Production code never calls this. */
-export function recognizeShapes(shapes: ShapePrints): void {
+/**
+ * For a synthetic cart: also recognize its own shapes; returns the function that stops. Production code
+ * never calls this (test/suite/gates/recognizeShapesGate.test.ts bans it outside test/suite/support).
+ */
+export function recognizeShapes(shapes: ShapePrints): () => void {
   if (!recognized.includes(shapes)) recognized.push(shapes)
+  return () => {
+    const i = recognized.indexOf(shapes)
+    if (i > 0) recognized.splice(i, 1)
+  }
 }
 /** True when the code at `at` is a recognized build of the shape `pick` names. */
 const shapeIs = (rom: RomFile, at: number, pick: (s: ShapePrints) => SpanPrint): boolean =>

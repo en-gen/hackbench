@@ -118,7 +118,7 @@ export const SYNTHETIC_DISPATCHER: DispatcherSpan = Object.freeze({
 })
 
 /**
- * Our own 16-bit pointer-table jump for the ExecutePtr slot at $00:86FA (JSL with A = index, the table inline after
+ * Our own 16-bit pointer-table jump (the same steps as the game's ExecutePtr, with its own cells) for the cart's ExecutePtr slot at $00:86FA, not the game's address (JSL with A = index, the table inline after
  * the call): the index doubled into $08, the return address popped into the pointer at $0A-$0C, the table word read
  * through it, JML [$000A]. Y is kept in $0D. The cells are ours, not the game's.
  */
@@ -145,7 +145,20 @@ export const SYNTHETIC_SHAPES: ShapePrints = Object.freeze({
     sha: '31acb58a116da0ba70c7afcb96012ae24c8758e4e09d85c57d1fabeaba39ecc2',
   },
 })
-recognizeShapes(SYNTHETIC_SHAPES)
+let unregisterShapes = recognizeShapes(SYNTHETIC_SHAPES)
+
+/**
+ * Runs `fn` with only the game's shapes recognized, as production sees them. Importing this module makes the
+ * whole test file accept the cart's shapes (docs/testing.md); a test that needs a production verdict uses this.
+ */
+export function withProductionShapes<T>(fn: () => T): T {
+  unregisterShapes()
+  try {
+    return fn()
+  } finally {
+    unregisterShapes = recognizeShapes(SYNTHETIC_SHAPES)
+  }
+}
 
 export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   const rom = new Uint8Array(8 * BANK) // banks 0-7
