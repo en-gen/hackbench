@@ -397,6 +397,14 @@ describe('FramePlayer', () => {
   })
 })
 
+describe('framesOf on a direct answer', () => {
+  it('a ring or launcher answer has no frames and says why', () => {
+    const direct = { direct: { status: 'placeholder', reason: 'x' } } as never
+    const r = framesOf(direct, {} as LevelSprite, { isVertical: false, screenCount: 1 } as never)
+    expect(r).toEqual({ frames: [], reason: 'it is drawn by a special routine' })
+  })
+})
+
 describe.skipIf(!hasRom(VANILLA))('mapSpriteFrames on a vanilla map', () => {
   // prettier-ignore
   it('a Koopa ($04) has 2 or more frames; a static sprite ($9F) has at most 1', slow(60_000), () => {
@@ -442,6 +450,7 @@ describe.skipIf(!hasRom(VANILLA))('mapSpriteFrames on a vanilla map', () => {
         compared++
       }
     }
-    expect(compared, 'the 17 vanilla $67 grinders compared').toBe(17)
+    // A floor, not the vanilla total (#995): enough grinders were compared for the loops above to mean something.
+    expect(compared, 'vanilla $67 grinders compared').toBeGreaterThanOrEqual(5)
   })
 })

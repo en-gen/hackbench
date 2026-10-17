@@ -375,8 +375,7 @@ Test hooks: `data-control="refused-overlay"` (absent when there are no cells), p
 
 One right-hand side panel, `hackbench.properties`, reopened from View > Properties. It shows a SUBJECT held by
 `PropertiesModel` (`properties-model.ts`): `none` or `sprite` today. A map tab publishes as its own owner and
-only the owner's clear takes effect, so closing a background map never wipes the front map's sprite (the rule
-`SpriteStatusOwner` uses for the status bar). Clicking a sprite publishes it and reveals the panel without
+only the owner's clear takes effect, so closing a background map never wipes the front map's sprite. Clicking a sprite publishes it and reveals the panel without
 activating it; empty ground, hiding or closing the map clears it to "No sprite selected".
 
 It is a small `ReactWidget`, not `@theia/property-view`: that package is not a dependency and adding it churns
@@ -397,8 +396,9 @@ puts them in words). Sprites with screen-fixed parts (`fixOffsets`) are not anim
 derived for the chosen pass. `FramePlayer` (`sprite-frames.ts`) requests on selection, drops replies and errors
 for an older selection, steps every 133 ms (8 game frames) and stops its timer on clear, hide and dispose. The
 widget follows the model through `followSubject` (`properties-follow.ts`), which applies the current subject
-first: a click publishes BEFORE the reveal command creates the widget. Evidence scope: vanilla ROM, one machine; a Koopa on
-map $0C7 yields 2 frames, a $9F on map $105 yields 1.
+first: a click publishes BEFORE the reveal command creates the widget. Evidence scope: vanilla ROM, one machine; a Koopa ($04)
+yields at least 2 frames across maps $0C7 and $105, a $9F at most 1 (`SpriteFrames.test.ts`). Known follow-ups: no keyboard
+selection of a sprite yet, and `parts` now rides on every drawn sprite in the `mapSprites` reply.
 
 Adding the map description (#1023): add a `map` variant to `PropertiesSubject`, publish it from the map widget
 where it now publishes `none`, and call `registerSubjectRenderer('map', ...)` in `properties-widget.tsx` (the

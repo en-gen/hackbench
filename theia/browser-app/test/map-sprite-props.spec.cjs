@@ -277,3 +277,50 @@ test('closing the map clears the panel; the toggle command reopens a closed pane
   })
   await expect(panel(page)).toBeVisible()
 })
+
+/** Clicks the first named, drawn sprite the map owns; returns it. */
+async function selectOne(page, map) {
+  const s = map.stack.find(x => x.status === 'drawn' && x.parts && map.own(x))
+  expect(s, 'a drawn sprite to click').toBeTruthy()
+  const at = map.own(s)
+  await map.click(at.x, at.y)
+  await expect(panel(page).locator('[data-subject="sprite"]')).toBeVisible()
+  return s
+}
+const activate = (page, slot) =>
+  page.evaluate(id => getSvc('ApplicationShell').activateWidget(id), `hackbench.map-view:${slot}`)
+
+// Plant: delete `this.selectSprite(undefined)` from toggleSprites and the panel keeps the hidden sprite.
+test('hiding the sprites with the S toggle clears the panel', async ({ page }) => {
+  const map = await openMap(page)
+  await selectOne(page, map)
+  await page.locator(`${rootOf(SLOT)} [data-control="layer-sprites"]`).click()
+  await expect(panel(page).locator('[data-subject="none"]')).toHaveText('No sprite selected')
+})
+
+// Plant: delete `this.syncSelection()` from onAfterHide and the hidden map's sprite stays on the panel; delete
+// it from onAfterShow and the sprite is not restored when the tab comes back. The second map (not the first)
+// activating publishes "none", which is what the panel shows while the first is hidden.
+test('switching to another map tab clears the panel; switching back restores that sprite', async ({
+  page,
+}) => {
+  const first = await openMap(page)
+  const s = await selectOne(page, first)
+  await openMap(page, 0x104)
+  await expect(panel(page).locator('[data-subject="none"]')).toHaveText('No sprite selected')
+  await activate(page, SLOT)
+  await expect(panel(page).locator('[data-field="label"]')).toHaveText(
+    `${s.name} (sprite ${hex(s.id)})`,
+  )
+})
+
+// Plant: delete `this.selectSprite(undefined)` from loadSprites and the old selection survives a reload.
+test('a sprite reload (an edit or refresh) clears the panel', async ({ page }) => {
+  const map = await openMap(page)
+  await selectOne(page, map)
+  await page.evaluate(index => {
+    // refresh() is what a project edit calls; it is protected in TypeScript only.
+    getSvc('WidgetManager').tryGetWidget('hackbench.map-view', { index }).refresh()
+  }, SLOT)
+  await expect(panel(page).locator('[data-subject="none"]')).toHaveText('No sprite selected')
+})

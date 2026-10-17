@@ -121,6 +121,11 @@ describe('animationText: reasons reach the screen in words', () => {
     expect(framesReasonText('extraBits')).toMatch(/extra-bits marker/)
     expect(framesReasonText('drew no tile')).toBe('Its code drew no tiles.')
   })
+  it('puts the special-routine reason in words, not the generic fallback', () => {
+    const t = framesReasonText('it is drawn by a special routine')
+    expect(t).toMatch(/its own routine/)
+    expect(t).not.toBe(framesReasonText('unknown code'))
+  })
 })
 
 describe('followSubject: the panel is created after the click that published', () => {

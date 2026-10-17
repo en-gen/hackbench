@@ -38,6 +38,7 @@ export function framesReasonText(reason: string): string {
   if (reason.startsWith('refused:')) return "The app could not run this sprite's code."
   if (reason.startsWith('INIT erased')) return 'The sprite removes itself as it starts.'
   if (reason.startsWith('its parts are fixed')) return 'Its parts are fixed to the screen, so they have no place on the map to animate at.' // prettier-ignore
+  if (reason.startsWith('it is drawn by a special routine')) return 'This sprite is drawn by its own routine, not frame by frame, so no animation is shown.' // prettier-ignore
   if (reason.startsWith('drew no')) return WHY_NOT_DRAWN.noParts!
   return 'The frames could not be worked out.'
 }

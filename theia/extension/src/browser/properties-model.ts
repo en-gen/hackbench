@@ -5,8 +5,7 @@
  * selection-service round trip would lose the owner rule below.
  *
  * Several map tabs share one view. Each publishes as its own `owner`; only the owner's clear takes effect,
- * so closing or hiding a background map never wipes the sprite of the map in front (same rule as the
- * status bar entry, SpriteStatusOwner).
+ * so closing or hiding a background map never wipes the sprite of the map in front.
  */
 import type { MapSpriteDto } from '../common/project-protocol'
 import type { FrameSource } from './sprite-frames'
