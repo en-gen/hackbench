@@ -416,13 +416,14 @@ export function buildMapInputs(
   const built = l1(rom, index, flags)
   if (!built.ok) return built
   const bg = bgMode()
-  const via = entrances()?.get(index)
+  const graph = entrances()
+  const via = graph?.get(index)
   return {
     ok: true,
     inputs: {
       ...built.inputs,
       l2: buildL2Inputs(rom, index, built.inputs, via),
-      l3: buildL3Verdict(rom.rom, index, built.inputs, bg, undefined, undefined, undefined, via), // prettier-ignore
+      l3: buildL3Verdict(rom.rom, index, built.inputs, bg, undefined, undefined, undefined, via, undefined, !graph), // prettier-ignore
       orderNote: bg.ok ? undefined : bg.reason,
     },
   }

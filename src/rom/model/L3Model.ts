@@ -25,6 +25,14 @@ import { entrancePositionGate } from '../SubmapFlagGate'
 import { effectiveCgadsub } from './ColorMath'
 import { FALLBACK_SCREENS, screenPlanes, type ScreenPlanes } from './ScreenPlanes'
 
+/**
+ * Said when the exit graph could not be built (a hooked hack, #910): which entrance starts the map
+ * is then unknown, so `chooseEntrance` falls back to the primary row, a guess a secondary-only map
+ * would contradict.
+ */
+export const EXIT_GRAPH_UNAVAILABLE =
+  'The map exit graph could not be built, so which entrance starts this map is unknown; the camera is read from its primary entrance.' // prettier-ignore
+
 export interface L3Inputs {
   /** The 64 x 64 BG3 tilemap, index = row * 64 + col, HUD rows included (the drawing skips them). */
   tilemap: Uint16Array
@@ -57,6 +65,9 @@ export interface L3Verdict {
   reason: string | null
 }
 
+const camYReason = (gate: string | null, graphUnavailable: boolean): string | undefined =>
+  [gate, graphUnavailable ? EXIT_GRAPH_UNAVAILABLE : null].filter(Boolean).join(' ') || undefined
+
 type Wanted = Pick<L1Inputs, 'header' | 'isVertical' | 'colors'>
 
 export function buildL3Verdict(
@@ -69,6 +80,7 @@ export function buildL3Verdict(
   smash: (rom: RomFile, index: number) => L3SmashResult = readL3SmashLoadPos,
   entrances?: MapEntrances,
   startSpans?: Parameters<typeof entrancePositionGate>[1],
+  exitGraphUnavailable = false,
 ): L3Verdict {
   const priority = l1.header.layer3Priority
   const base = { priority, screens: FALLBACK_SCREENS, cgadsub: null, layer2Interactive: false }
@@ -138,7 +150,7 @@ export function buildL3Verdict(
       xPx: pos.x,
       yPx: pos.y,
       camYPx: readInitialLayer1YPos(rom, index, false, entrances),
-      camYUnverified: entrancePositionGate(rom, startSpans) ?? undefined,
+      camYUnverified: camYReason(entrancePositionGate(rom, startSpans), exitGraphUnavailable),
       // $00 is Layer3TideSetting 0: no tide (it is camera-locked or Castle1/Underground1's half-speed scroll).
       tide: load.settingsByte !== 0 && load.settingsByte < 0x80,
     },
