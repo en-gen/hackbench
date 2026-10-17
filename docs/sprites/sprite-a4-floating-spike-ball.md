@@ -42,9 +42,15 @@ One machine, vanilla ROM, the level-load capture set (`layers_v5`), measured 202
   fall through to 4199), so that copy is all that sets it (November Team's trace; path re-derived in #842 from
   `bank_00.asm:4131`, 4152, 4167-4174, 4199). Before: loader $0000 against hardware $00C0; after:
   $00C0 on all three (`frame_0000`, one capture each, one machine, vanilla, 2026-10-17).
-- Maps 01f and 1d4 still differ: loader $00D0 against hardware $00A0. The handler writes $D0 there
-  (tileset 1, setting 2, table byte $80: `bank_00.asm:4168-4169`, 4184-4194), and the level's smash code overwrites
-  it to $A0 afterwards; the loader does not run that code. #1060 models it. Nothing in the grader depends on $24 yet.
+- The same step also stores `DATA_05CA26` in Layer3ScroolDir ($1460, `bank_05.asm:4789-4790`): after this change it equals
+  hardware on 143 of 161 captured maps (0 before); the remaining 18 are the bit-7 maps, where the game skips the
+  step too (`frame_0000`, one machine, 2026-10-17).
+- Maps 01f and 1d4: loader $00D0 against hardware $00A0 at `frame_0000`. $D0 is the right value at the end of level
+  prep (the handler writes it: tileset 1, setting 2, table byte $80, `bank_00.asm:4168-4169`, 4184-4194). Hardware
+  shows $A0 because the smash sprite's per-frame code, `CODE_00FF61` (`bank_00.asm:14778-14803`: $00A0 minus the
+  sprite's Y, plus ScreenShakeYOffset, stored in Layer3YPos), has already run by that frame. The loader stops at
+  level prep and runs no sprite frames, so it does not reach it; that is not a loader bug, and nothing in the
+  grader depends on $24 yet. (November Team's trace; the `bank_00` lines checked against the disassembly.)
 - The loader skips the handler when `IRQNMICommand` ($0D9B) bit 7 is set, as `GM12PrepLevel` does
   (`bank_00.asm:4861-4863`). The header loader sets the cell from `SpecialLevTable` by level mode
   (`bank_05.asm:500-503`), so the gate is by mode, not a room list. 24 vanilla maps end with it set:

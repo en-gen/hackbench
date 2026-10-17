@@ -44,10 +44,11 @@ export function putLoaderStandIns(
     0x20,
     OP.RTL,
   ])
-  // Layer 3 handler: the row-of-tileset shape the loader checks, then SEP #$20 / LDA #$80 / TSB $5B / RTS:
-  // the stand-in for the handler's ScreenMode bit 7.
+  // Layer 3 handler: the row-of-tileset shape the loader checks, then SEP #$20 / LDA #$80 / TSB $5B / LDA #$40 /
+  // STA $24 / RTS: the stand-in for the handler's ScreenMode bit 7 and for its write of Layer3YPos (the reset
+  // runs before it, so $40 is the last write).
   put(0x009fb8, [
     bad('layer3', ROW_OF_TILESET[0]), ...ROW_OF_TILESET.slice(1),
-    OP.SEP, 0x20, OP.LDA_IMM, 0x80, OP.TSB_DP, 0x5b, OP.RTS,
+    OP.SEP, 0x20, OP.LDA_IMM, 0x80, OP.TSB_DP, 0x5b, OP.LDA_IMM, 0x40, OP.STA_DP, 0x24, OP.RTS,
   ]) // prettier-ignore
 }

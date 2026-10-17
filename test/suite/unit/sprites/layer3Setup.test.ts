@@ -15,6 +15,7 @@ import { CAPTURE_DIR, freshRom, hasCaptures, hasRom, VANILLA } from '../../suppo
 import { RomFile } from '../../../../src/rom/RomFile'
 import { OP, word } from '../../support/asm65'
 import { POINTER_TAIL } from '../../support/layer3Cart'
+import { putLayer3 } from '../../support/syntheticLayer3'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 
 // A capture's first-frame WRAM (frame_0000_wram.bin), the hardware side of the comparisons below.
@@ -44,18 +45,23 @@ describe('level loader runs the Layer 3 handler', () => {
     const kept = loadLevelState(buildSyntheticRom({ irqCommand: 0x7f }), 0x105)
     expect(kept.ok && kept.wram[0x5b]).toBe(0x80)
   })
-  it('runs the Layer 3 reset before the handler, and skips it with the handler when bit 7 is set', () => {
-    // The stand-in at $05:BE8A copies $1C to $24 (CODE_05BE8A, bank_05.asm:4794-4795). The loader stands $5A in
-    // $1C (the pointer loader's tail) and the IRQNMICommand it wants.
-    const cart = (irq: number) => {
+  it('runs the Layer 3 reset before the handler, and skips both when bit 7 is set', () => {
+    // The stand-in at $05:BE8A copies $1C to $24 (CODE_05BE8A, bank_05.asm:4794-4795); the bare handler
+    // stand-in stores $40 in $24. The pointer loader's tail stands $5A in $1C and the IRQNMICommand it wants.
+    const cart = (irq: number, tableHandler = false) => {
       const rom = buildSyntheticRom()
       rom.writeAt(POINTER_TAIL, [OP.LDA_IMM, 0x5a, OP.STA_DP, 0x1c, OP.LDA_IMM, irq, OP.STA_ABS, ...word(0x0d9b), OP.PLB, OP.RTL]) // prettier-ignore
+      if (tableHandler) putLayer3((at, bytes) => rom.writeAt(at, bytes)) // leaves $24 alone: Layer 3 setting 0
       return rom
     }
-    const ran = loadLevelState(cart(0), 0x105)
-    expect(ran.ok && [ran.wram[0x24], ran.wram[0x25]]).toEqual([0x5a, 0])
-    const skipped = loadLevelState(cart(0x80), 0x105)
-    expect(skipped.ok && [skipped.wram[0x24], skipped.wram[0x25]]).toEqual([0, 0])
+    const at24 = (r: ReturnType<typeof loadLevelState>) => r.ok && [r.wram[0x24], r.wram[0x25]]
+    // Order: the handler's $40 is the last write. Reset after the handler would leave the $5A it copies.
+    expect(at24(loadLevelState(cart(0), 0x105))).toEqual([0x40, 0])
+    // The reset on its own: a handler that writes nothing to $24 leaves what the reset copied.
+    expect(at24(loadLevelState(cart(0, true), 0x105))).toEqual([0x5a, 0])
+    // Bit 7 set skips both calls.
+    expect(at24(loadLevelState(cart(0x80), 0x105))).toEqual([0, 0])
+    expect(at24(loadLevelState(cart(0x80, true), 0x105))).toEqual([0, 0])
   })
   it('refuses a ROM whose Layer 3 reset is not the vanilla shape', () => {
     const l = loadLevelState(buildSyntheticRom({ badLoader: 'reset' }), 0x105)
