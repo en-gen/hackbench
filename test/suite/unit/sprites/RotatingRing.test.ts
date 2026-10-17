@@ -19,6 +19,7 @@ import { parseLevelSprites, type LevelSprite } from '../../../../src/rom/LevelPa
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { spanFingerprint } from '../../../../src/rom/SubmapFlagGate'
 import { bytesAt } from '../../../../src/rom/sprites/interp/Guards'
+import type { PathCheck } from '../../../../src/rom/sprites/interp/CastleFlames'
 import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { runOnce, type SpritePart } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import {
@@ -36,6 +37,13 @@ import {
 } from '../../../../theia/extension/src/node/map-sprites'
 import { unzip } from '../../../../tools/scripts/capture_render'
 import { COLORS } from '../../support/mapInputs'
+import {
+  loadVanillaBytes,
+  snesOf,
+  summarize,
+  vanillaHitsOver,
+  windowSet,
+} from '../../support/vanillaWindows'
 import { CAPTURE_DIR, freshRom, hasRom, romPath, VANILLA } from '../../support/corpus'
 import { buildSyntheticRom, type SyntheticOptions } from '../../support/syntheticSpriteRom'
 
@@ -93,58 +101,29 @@ const pad = (b: number[], n: number) => [
  * arbitrary bytes that the run never executes (it calls the spawn and the draw directly), so no vanilla code is committed.
  * `routinesOf` hands the gate these shapes; the vanilla shapes are proven on the corpus.
  */
-const CART_PATH: { what: string; at: number; want: (number | null)[] }[] = [
-  {
-    what: 'the loader route to the sprite spawn',
-    at: 0x02a8c0,
-    want: [0xc9, 0xe1, 0x90, 0x0c, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38],
-  },
+const CART_PATH: PathCheck[] = [
+  { what: 'the loader route to the sprite spawn', at: 0x02a8c0, length: 12, print: 'route' },
   {
     what: 'the cluster spawn entry',
     at: 0x02aac0,
     want: [0x41, 0x42, 0x43, null, null, 0x46, 0x47, 0x48, null],
   },
-  {
-    what: 'the cluster loop',
-    at: 0x02f808,
-    want: [
-      1,
-      2,
-      3,
-      4,
-      5,
-      6,
-      7,
-      8,
-      9,
-      10,
-      11,
-      null,
-      null,
-      14,
-      15,
-      16,
-      17,
-      18,
-      19,
-      20,
-      21,
-      22,
-      23,
-      24,
-    ],
-  },
+  { what: 'the cluster loop', at: 0x02f808, length: 24, mask: [11, 12], print: 'loop' },
   { what: 'the cluster dispatch call', at: 0x02f821, want: [0x22, null, null, null] },
   { what: 'the $E2/$E3 branch to the ring spawn', at: 0x02aad1, want: [0x51, 0x52, 0x53, 0x54] },
   { what: 'the cluster dispatch entry for type 4', at: 0x02f82d, want: [0x61, 0x62] },
 ]
 /** What is written for CART_PATH: a null operand becomes $77, the loader's shell-site head is the cart's own, and the dispatch call keeps the cart's ExecutePtr ($00:86FA), which checkExecutePtr reads. */
 // prettier-ignore
-const PATH_BYTES: [number, number[]][] = CART_PATH.map(c => {
-  if (c.at === 0x02a8c0) return [c.at + 4, c.want.slice(4) as number[]]
-  if (c.at === 0x02f821) return [c.at, [0x22, 0xfa, 0x86, 0x00]]
-  return [c.at, c.want.map(v => v ?? 0x77)]
-})
+const PATH_BYTES: [number, number[]][] = [
+  [0x02a8c4, [0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]], // the route's own bytes after the shell site's CMP / BCC head
+  [0x02f808, Array.from({ length: 24 }, (_, i) => (i * 37 + 11) & 0xff)], // the loop's own 24 bytes
+  ...CART_PATH.flatMap((c): [number, number[]][] => {
+    if (!('want' in c)) return []
+    if (c.at === 0x02f821) return [[c.at, [0x22, 0xfa, 0x86, 0x00]]]
+    return [[c.at, c.want.map(v => v ?? 0x77)]]
+  }),
+]
 
 function ringRom(tweak: (bytes: Uint8Array) => void = () => {}, cart: SyntheticOptions = {}) {
   const bytes = new Uint8Array(buildSyntheticRom(cart).buffer)
@@ -165,6 +144,8 @@ const routinesOf = (rom: RomFile): RingRoutines => {
     spanFingerprint(Uint8Array.from(spans.flatMap(([at, n]) => bytesAt(rom, at, n)!)))!
   return {
     path: CART_PATH,
+    route: spanFingerprint(Uint8Array.from(bytesAt(rom, 0x02a8c0, 12)!))!,
+    loop: spanFingerprint(Uint8Array.from(bytesAt(rom, 0x02f808, 24)!), [11, 12])!,
     spawn: sha(RING_SPANS.spawn),
     draw: sha(RING_SPANS.draw),
     helpers: sha(RING_SPANS.helpers),
@@ -219,6 +200,20 @@ describe('no vanilla code bytes in the synthetic cart', () => {
         .filter(([at, b]) => sameWindow(Uint8Array.from(bytesAt(rom, at, b.length) ?? []), b))
         .map(([at]) => at.toString(16))
       expect(hits).toEqual([])
+    })
+
+    it('no 8-byte window (3+ distinct values) of the assembled ring cart that differs from the plain cart is anywhere in the ROM', () => {
+      const v = loadVanillaBytes(romPath(VANILLA))
+      const base = new Uint8Array(buildSyntheticRom().buffer)
+      const set = windowSet(v)
+      expect(summarize(vanillaHitsOver(new Uint8Array(ringRom().buffer), base, set))).toEqual([])
+      // Planted: the ROM's own spawn routine copied over the cart's is flagged.
+      const planted = ringRom(
+        b => void b.set(v.subarray(off(0x02ab11), off(0x02ab11) + 103), off(0x02ab11)),
+      )
+      expect(vanillaHitsOver(new Uint8Array(planted.buffer), base, set)).toContain(
+        snesOf(off(0x02ab11)),
+      )
     })
   })
 })

@@ -25,17 +25,25 @@
 import { callSubroutine, describe, Refusal } from '../../cpu/call'
 import { spanFingerprint } from '../../SubmapFlagGate'
 import type { RomFile } from '../../RomFile'
-import { bytesAt, shapeMatches } from './Guards'
+import { bytesAt } from './Guards'
 import { smwMachine } from './Machine'
 import { checkExecutePtr } from './SpriteDispatch'
-import { CLUSTER_NUMBER, CLUSTER_PATH, SPRITE_LOCK, touchedOamParts } from './CastleFlames'
+import {
+  CLUSTER_NUMBER,
+  CLUSTER_PATH,
+  pathMismatches,
+  SPRITE_LOCK,
+  touchedOamParts,
+  VANILLA_FLAME_ROUTINES,
+  type PathCheck,
+} from './CastleFlames'
 import type { SpritePart } from './SpriteRunner'
 import type { SpriteSeed } from './SpriteSeed'
 
 const SPAWN = 0x02ab11
 const DRAW = 0x02fa98
 /** CMP #$E2 / BCS CODE_02AB11 (bank_02.asm:5640-5641) and the cluster dispatch's type 4 entry (5th dw of the table at $02:F825). */
-const PATH = [
+const PATH: PathCheck[] = [
   // CastleFlames names the AAC0 entry for $E6; here it is shared by every cluster id.
   ...CLUSTER_PATH.map(c => (c.at === 0x02aac0 ? { ...c, what: 'the cluster spawn entry' } : c)),
   { what: 'the $E2/$E3 branch to the ring spawn', at: 0x02aad1, want: [0xc9, 0xe2, 0xb0, 0x3c] },
@@ -48,14 +56,19 @@ export interface RingRoutines {
   draw: string
   helpers: string
   contact: string
-  /** The call-path shapes to check; the vanilla ones when absent. A test cart supplies its own, so no vanilla code bytes are committed to it. */
-  path?: typeof PATH
+  /** The loader route and cluster loop prints (CastleFlames.ts, FlameRoutines): a test cart supplies its own. */
+  route: string
+  loop: string
+  /** The call-path checks; the vanilla ones when absent. A test cart supplies its own, so no vanilla code bytes are committed to it. */
+  path?: PathCheck[]
 }
 export const VANILLA_RING_ROUTINES: RingRoutines = {
   spawn: '6c4c591c502ae9ebb9e48d14a6d6583f75069c2001a8aa6c1a3683e5504c9540',
   draw: '99d5589cf4ad06fcc69a17ff7257eb51131d23eea6e5f76142ac58c6fbfe3da2',
   helpers: 'ace622f06ed6f86fc473ce4ce0750eb5cfdd82dae5d8a858ab60910347f1de1c',
   contact: '5a99e22284fa1bfa79da87ab13fd21672273d44995a4e4aa91cf03b29b28e985',
+  route: VANILLA_FLAME_ROUTINES.route,
+  loop: VANILLA_FLAME_ROUTINES.loop,
 }
 /** Spans: the spawn, the draw, the helpers CODE_02FC8D..(CODE_02FCD9's RTS) and CODE_02FD48..its RTS, and CODE_02FE71..Return02FEC4 (the contact test, bank_02.asm:16781-16823; it runs during the draw even though Mario is out of reach). */
 export const RING_SPANS = { spawn: [[SPAWN, 103]], draw: [[DRAW, 291]], helpers: [[0x02fc8d, 85], [0x02fd48, 112]], contact: [[0x02fe71, 84]] } as const // prettier-ignore
@@ -93,7 +106,7 @@ export function ringGate(
   routines: RingRoutines = VANILLA_RING_ROUTINES,
   spans: typeof RING_SPANS = RING_SPANS,
 ): string[] {
-  const out = (routines.path ?? PATH).filter(c => !shapeMatches(bytesAt(rom, c.at, c.want.length), c.want)).map(c => c.what) // prettier-ignore
+  const out = pathMismatches(rom, routines.path ?? PATH, routines)
   const callee = bytesAt(rom, 0x02f822, 3)
   if (!callee || !checkExecutePtr(rom, [callee]).ok) out.push('the cluster dispatch call target')
   // A span that will not read is "unreadable", not a changed routine: hashing the spans that did read would blur the two.
@@ -160,7 +173,7 @@ export function rotatingRing(
     // 16-bit camera instead breaks when a piece's map coordinate is negative (a centre under 80 px).
     // The OAM X high bit (bit 8) is never set here: the draw sets it only when a piece's X less the camera's has a non-zero high byte (bank_02.asm:16557-16567),
     // and with the camera 48 to 208 px left of every piece that byte is zero.
-    const parts = touchedOamParts(w, touched).map(p => ({
+    const parts = touchedOamParts(w, touched, (x9, y) => ({ dx: x9, dy: y })).map(p => ({
       ...p,
       dx: p.ox - SCREEN_CENTRE.x,
       dy: p.oy - SCREEN_CENTRE.y,
