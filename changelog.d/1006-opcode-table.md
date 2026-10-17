@@ -1,0 +1,2 @@
+### Fixed
+- The palette-animation walk of a relocated routine had four opcode lengths wrong in its private table: $61 ADC (dp,X) and $81 STA (dp,X) were 3 bytes instead of 2, $62 PER and $82 BRL were 2 instead of 3. A routine crossing one of them lost its place and the CGRAM write was missed. It now shares the dispatch walker's table. Evidence: a synthetic routine for each of the two (dp,X) opcodes, red on the old table; the PER and BRL fixes are covered by the table swap only (65816 opcode map).

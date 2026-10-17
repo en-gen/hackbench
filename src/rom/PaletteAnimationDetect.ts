@@ -18,6 +18,7 @@
 import type { RomFile } from './RomFile'
 import { LOROM_BANK_SIZE, COPIER_HEADER_SIZE } from './addressing'
 import { hex2, hex6 } from './hex'
+import { instructionLength } from './dispatch/HandlerWalk'
 
 // ── Opcodes ──────────────────────────────────────────────────────────────
 
@@ -646,30 +647,6 @@ function chainEndsCleanly(rom: RomFile, sites: CallSite[]): boolean {
 
 // ── Walking to a relocated routine's writes ──────────────────────────────
 
-/**
- * 65816 instruction lengths by opcode, `m` and `x` where the length depends
- * on the accumulator or index width. Hardware, not SMW: a relocated routine
- * cannot be read without instruction boundaries, and a byte scan for the
- * write finds matching bytes no path reaches.
- */
-const OPCODE_LENGTHS =
-  '222222221m113334' +
-  '2222222213113334' +
-  '324222221m113334' +
-  '2222222213113334' +
-  '122232221m113334' +
-  '2222322213114334' +
-  '132222221m113334' +
-  '2222222213113334' +
-  '232222221m113334' +
-  '2222222213113334' +
-  'x2x222221m113334' +
-  '2222222213113334' +
-  'x22222221m113334' +
-  '2222222213113334' +
-  'x22222221m113334' +
-  '2222322213113334'
-
 const OP_REP = 0xc2
 const OP_SEP = 0xe2
 const OP_PHK = 0x4b
@@ -684,13 +661,6 @@ const INDIRECT_JUMPS = new Set([0x6c, 0x7c, 0xdc])
 const MAX_WALK_STEPS = 4096
 /** One full write plus one riding its index is what a flash routine is. */
 const MAX_CHAIN_WRITES = 2
-
-function instructionLength(opcode: number, m16: boolean, x16: boolean): number {
-  const code = OPCODE_LENGTHS[opcode]!
-  if (code === 'm') return m16 ? 3 : 2
-  if (code === 'x') return x16 ? 3 : 2
-  return Number(code)
-}
 
 /**
  * Walk from a relocated routine's entry to the first CGRAM write its own
@@ -775,7 +745,10 @@ function walkToCgramWrite(
     }
     if (opcode === OP_JML_LONG) return no(at, 'a routine that stays in the bank it was called into')
 
-    at += instructionLength(opcode, m16, x16)
+    // Lengths depend on M and X (`LDA #` is 2 or 3 bytes): a relocated routine
+    // cannot be read without instruction boundaries, and a byte scan for the
+    // write finds matching bytes no path reaches. 65816 hardware, not SMW.
+    at += instructionLength(opcode, !m16, !x16)
   }
   return no(at, 'a CGRAM write within a routine this module can walk')
 }
