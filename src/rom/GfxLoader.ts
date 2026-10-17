@@ -21,6 +21,7 @@
  *     - 2bpp = 16 bytes/tile (Layer 3 GFX, and the credits letters)
  */
 
+import { le16 } from './bytes'
 import * as fs from 'fs'
 import * as path from 'path'
 import { RomFile, cachedByVersion } from './RomFile'
@@ -218,10 +219,9 @@ function _findCreditsGfxFile(rom: RomFile): CreditsGfxFile | null {
   // come out of one read of the matched site.
   const site = rom.readAtFileOffset(hits[0]!, LOAD_CREDITS_PATTERN.length)
   if (!site) return null
-  const read16 = (off: number): number => site[off]! | (site[off + 1]! << 8)
   const fileIndex = site[CREDITS_FILE_INDEX_OFF]!
-  const vramDest = read16(CREDITS_VRAM_DEST_OFF)
-  const byteLength = read16(CREDITS_WORD_COUNT_OFF) * 2
+  const vramDest = le16(site, CREDITS_VRAM_DEST_OFF)
+  const byteLength = le16(site, CREDITS_WORD_COUNT_OFF) * 2
 
   const bg3Base = readBg3CharBase(rom)
   if (bg3Base === null) return null

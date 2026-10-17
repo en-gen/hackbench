@@ -15,6 +15,7 @@
  * whole driver is different and the reader pattern is simply absent, which
  * is the case this refusal exists for.
  */
+import { le16 } from './bytes'
 import { RomFile } from './RomFile'
 import { BytePattern, WILD, findInBytes } from './BytePattern'
 import {
@@ -124,8 +125,6 @@ const HIGH_OPERAND = 10
  */
 const MAX_ENTRIES = 0x7f
 
-const word = (aram: Uint8Array, at: number): number => aram[at] | (aram[at + 1] << 8)
-
 interface Reader {
   at: number
   table: number
@@ -144,8 +143,8 @@ function findReader(aram: Uint8Array, port: SfxPort, lo: number, hi: number): Re
   const readers: Reader[] = []
   for (const at of findInBytes(aram, READER, lo, hi)) {
     if (aram[at + PORT_OPERAND] !== PORT_MIRROR_BASE + port) continue
-    const low = word(aram, at + LOW_OPERAND)
-    const high = word(aram, at + HIGH_OPERAND)
+    const low = le16(aram, at + LOW_OPERAND)
+    const high = le16(aram, at + HIGH_OPERAND)
     if (high !== low + 1) continue
     // The operand is `table-2` because Y is the id doubled, so id 1 lands
     // on the table's first slot.
@@ -232,7 +231,7 @@ export function readSfxTable(rom: RomFile, port: SfxPort): SfxTableResult {
     const slot = reader.table + i * 2
     if (slot + 1 >= hardStop) break
     if (slot >= lowestPointer) break
-    const ptr = word(aram, slot)
+    const ptr = le16(aram, slot)
     // No `ptr >= aram.length` check: `word` returns at most $FFFF and ARAM
     // is exactly 64 KB, so it could never fire. `ptr === 0` is likewise
     // covered, since the table base is always at least 2.
@@ -309,8 +308,8 @@ export function buildSfxSpc(rom: RomFile, port: SfxPort, id: number): Uint8Array
 
   const dspRegs = new Uint8Array(DSP_REG_SIZE)
   const count = aram[dsp[0] + 1] + 1
-  const regsAt = word(aram, dsp[0] + 3)
-  const valsAt = word(aram, dsp[0] + 7)
+  const regsAt = le16(aram, dsp[0] + 3)
+  const valsAt = le16(aram, dsp[0] + 7)
   for (let i = 0; i < count; i++) {
     const reg = aram[regsAt + i]
     if (reg < DSP_REG_SIZE) dspRegs[reg] = aram[valsAt + i]

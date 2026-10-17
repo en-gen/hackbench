@@ -12,6 +12,7 @@
  * changes the body further on (say, an early PLP/RTL) still classifies as stock; walking the
  * body is its own issue, like the other hack hooks (#764).
  */
+import { le24 } from './bytes'
 import { RomFile, cachedByVersion } from './RomFile'
 import { loromToOffset } from './addressing'
 import { BytePattern, WILD, findExactlyOneSite, matchesAt } from './BytePattern'
@@ -59,8 +60,6 @@ const RTL: BytePattern = [0x6b] // Return058C70
 const cartOffset = (rom: RomFile, snes: number): number | null =>
   loromToOffset(snes, rom.romSize, false)
 
-const long = (b: Uint8Array, i: number): number => b[i]! | (b[i + 1]! << 8) | (b[i + 2]! << 16)
-
 const cache = new WeakMap<RomFile, { version: number; value: L2UploaderTable }>()
 
 /** The 32 per-mode uploader kinds, or why the dispatch cannot be read. */
@@ -81,12 +80,12 @@ function compute(rom: RomFile): L2UploaderTable {
   const caller = findExactlyOneSite(rom, CALLER, 'the strip loop that calls the L2 uploader (bank_05.asm:111-114)') // prettier-ignore
   if (!caller.ok) return caller
   const call = rom.readAtFileOffset(caller.offset + CALL_OFF, 4)!
-  const siteAt = cartOffset(rom, long(call, 1))
+  const siteAt = cartOffset(rom, le24(call, 1))
   if (siteAt === null || !matchesAt(rom, siteAt, SITE)) {
     return { ok: false, reason: `${WHAT} is not present on this ROM` }
   }
   const jsl = rom.readAtFileOffset(siteAt + JSL_OFF, 4)!
-  const exec = cartOffset(rom, long(jsl, 1))
+  const exec = cartOffset(rom, le24(jsl, 1))
   if (exec === null || !matchesAt(rom, exec, EXEC_PTR_LONG)) {
     return { ok: false, reason: `${WHAT} no longer calls ExecutePtrLong` }
   }
@@ -94,7 +93,7 @@ function compute(rom: RomFile): L2UploaderTable {
   if (raw === null) return { ok: false, reason: `${WHAT} has no pointer table after it` }
   const entries: L2UploaderEntry[] = []
   for (let m = 0; m < MODES; m++) {
-    const target = long(raw, m * 3)
+    const target = le24(raw, m * 3)
     entries.push({ kind: classify(rom, target), target })
   }
   return { ok: true, entries }

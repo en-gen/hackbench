@@ -15,7 +15,7 @@
 import type { RomFile } from './RomFile'
 import { WILD, matchesBytes, type BytePattern } from './BytePattern'
 import { fingerprint } from './Fingerprint'
-import { long } from './GfxArena'
+import { le24 } from './bytes'
 import { formatAddr, mirror } from './addressing'
 import { jslTarget, type FastRoutine } from './GfxDecompressor'
 import { hex6, hexs } from './hex'
@@ -327,7 +327,7 @@ function midwayHookMismatch(
 ): string | null {
   const site = rom.readAt(OVERWORLD_INDEX_GUARD.addr, MIDWAY_HOOK_SITE.length)
   if (!matchesBytes(site, MIDWAY_HOOK_SITE)) return '$05D83E holds no STZ _F / LDY #0 / JML.'
-  const at = long(site!, 5)
+  const at = le24(site!, 5)
   for (const b of builds) {
     const code = rom.readAt(at, b.length)
     const mask = [
@@ -337,8 +337,8 @@ function midwayHookMismatch(
     ]
     if (spanFingerprint(code, mask) !== b.fingerprint) continue
     if (
-      mirror(long(code!, b.indexAt + 1)) !== 0x05d847 ||
-      mirror(long(code!, b.overrideAt + 1)) !== 0x05d8a2
+      mirror(le24(code!, b.indexAt + 1)) !== 0x05d847 ||
+      mirror(le24(code!, b.overrideAt + 1)) !== 0x05d8a2
     ) {
       return `the hook at $${hex6(at)} does not return to $05D847 and $05D8A2.`
     }
