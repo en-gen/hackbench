@@ -538,8 +538,15 @@ const unverifiedNote = (sprites: readonly MapSpriteDto[]) => {
   return u ? `Unverified: ${sprites.filter(s => s.unverified).length} sprites ${u}.` : undefined
 }
 
-/** The sprite with its plain name from the app's sprite name table (#981); a sprite the table lacks keeps none. */
+/** Placeholders drawn because the sprite may not be the vanilla one: the id's vanilla name would be a guess. */
+const NOT_VANILLA = new Set(['extraBits', 'customHandler'])
+
+/**
+ * The sprite with its plain name from the app's sprite name table (#981); a sprite the table lacks keeps none.
+ * Fail closed: a sprite with extra bits set or a repointed handler gets no name, as it gets no vanilla art.
+ */
 const named = (s: MapSpriteDto): MapSpriteDto => {
+  if (s.reason && NOT_VANILLA.has(s.reason)) return s
   const name = getSpriteMetadata(s.id)?.displayName
   return name ? { ...s, name } : s
 }

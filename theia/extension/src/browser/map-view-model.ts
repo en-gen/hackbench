@@ -87,6 +87,10 @@ export function spriteAt(
   return undefined
 }
 
+/** Where a hover anchor was placed: zoom and the strip's origin on screen, so a layout shift (not only a zoom) re-places it. */
+export const hoverPlacementKey = (zoom: number, rect: { left: number; top: number }): string =>
+  `${zoom}:${Math.round(rect.left)}:${Math.round(rect.top)}`
+
 /** What the hover shows for a sprite (#981): its plain name only, or nothing when the name table has none. */
 export function spriteName(s: Pick<MapSpriteDto, 'name'>): string | undefined {
   return s.name || undefined

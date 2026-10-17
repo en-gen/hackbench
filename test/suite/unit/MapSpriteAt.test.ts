@@ -8,6 +8,7 @@ import {
   spriteDoors,
   doorIdAt,
   spriteName,
+  hoverPlacementKey,
 } from '../../../theia/extension/src/browser/map-view-model'
 import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
 
@@ -117,5 +118,15 @@ describe('spriteName', () => {
   it('is nothing for a sprite the name table lacks, so no hover opens', () => {
     expect(spriteName({})).toBeUndefined()
     expect(spriteName({ name: '' })).toBeUndefined()
+  })
+})
+
+describe('hoverPlacementKey', () => {
+  it('changes with the zoom or the strip origin, not with sub-pixel noise', () => {
+    const k = hoverPlacementKey(2, { left: 10, top: 20 })
+    expect(hoverPlacementKey(2, { left: 10.2, top: 19.8 })).toBe(k)
+    expect(hoverPlacementKey(3, { left: 10, top: 20 })).not.toBe(k)
+    expect(hoverPlacementKey(2, { left: 10, top: 36 })).not.toBe(k) // a note line appeared above the strip
+    expect(hoverPlacementKey(2, { left: 90, top: 20 })).not.toBe(k) // a sidebar resized
   })
 })

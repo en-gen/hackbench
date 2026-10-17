@@ -397,12 +397,12 @@ test('a hidden map tab keeps no hover or anchor, and a reload while hidden opens
   // Hide the tab with no pointer event: mouseout/mouseover are stopped below the app's handlers (a layout change can
   // make the browser fire them), and the second map is opened through the shell, not by a click. The hover is cleared
   // by several paths on purpose, so this is a behaviour check, not a single-plant oracle. It turns red only when ALL
-  // of these are removed together: onAfterHide (map-view-widget.tsx:1085), the `!this.isVisible` guard in
-  // updateHover (:885, reached from the post-render frame request), and the React onMouseLeave (:1319, blocked here anyway).
+  // of these are removed together: onAfterHide, the `!this.isVisible` guard in
+  // updateHover (reached from the post-render frame request), and the React onMouseLeave (blocked here anyway).
   // With those gone nothing else clears it before the first assertion: the hover service only reacts to mouseout on
-  // the hover box or the anchor (pointer-events none, so never hovered) and to mousedown (none sent); open() (:319)
-  // belongs to the other map; onBeforeDetach (:1090) does not run on a hide. The refresh part below then needs
-  // refresh() (:416) and the reply handler (:496).
+  // the hover box or the anchor (pointer-events none, so never hovered) and to mousedown (none sent); open()
+  // belongs to the other map; onBeforeDetach does not run on a hide. The refresh part below then needs
+  // refresh() and the reply handler in map-view-widget.tsx.
   await page.evaluate(id => {
     const root = document.getElementById(id)
     for (const ev of ['mouseout', 'mouseover', 'mouseleave'])

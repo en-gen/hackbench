@@ -35,6 +35,7 @@ import {
   spriteDoors,
   spriteAt,
   spriteName,
+  hoverPlacementKey,
   doorIdAt,
   liftIfCovered,
   spritePlanes,
@@ -178,8 +179,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected hoverSprite: MapSpriteDto | undefined
   /** The invisible box over the hovered sprite that the hover is placed against. */
   protected spriteAnchor: HTMLElement | undefined
-  /** The zoom the anchor was placed at: a different one moves the sprite, so the hover is asked for again. */
-  protected hoverZoom = 0
+  /** Where the anchor was placed (`hoverPlacementKey`): a different zoom or strip origin moves the sprite, so the hover is asked for again. */
+  protected hoverPlaced = ''
   /** Bumped when `sprites` is replaced, so a canvas painted from the old ones is repainted. */
   protected spritesVersion = 0
   /** The collision overlay (#435); off by default. */
@@ -904,15 +905,19 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   }
 
   protected setHoverSprite(next: MapSpriteDto | undefined): void {
-    if (next === this.hoverSprite && this.hoverZoom === this.zoom) return
+    const strip = this.node.querySelector('.hb-map-view-strip')
+    const placed = hoverPlacementKey(
+      this.zoom,
+      strip?.getBoundingClientRect() ?? { left: 0, top: 0 },
+    )
+    if (next === this.hoverSprite && this.hoverPlaced === placed) return
     this.hoverSprite = next
-    this.hoverZoom = this.zoom
+    this.hoverPlaced = placed
     // The hover service is shared: only cancel a hover this widget asked for.
     if (this.spriteAnchor) this.hoverService.cancelHover()
     this.spriteAnchor?.remove()
     this.spriteAnchor = undefined
     const name = next && spriteName(next)
-    const strip = this.node.querySelector('.hb-map-view-strip')
     if (next && name && strip) {
       // Theia's hover is placed against an element, so a fixed box over the sprite stands in for it.
       const r = strip.getBoundingClientRect()
