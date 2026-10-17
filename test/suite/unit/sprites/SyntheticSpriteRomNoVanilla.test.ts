@@ -69,28 +69,53 @@ describe('the window checker', () => {
 })
 
 /**
- * Windows this gate still allows, each a region of the cart where a runner or reader shape in src/ fixes the
- * game's own opcodes (or operands this fixture cannot move), so a window there is the SHAPE, not copied code.
- * Removing one needs the reader to recognize the code by fingerprint instead (the way CastleFlames.ts and
- * SubmapFlagGate.ts do). A region that no longer hits in any variant fails the ratchet below: delete it.
+ * Windows this gate still allows, each a small region of the cart where a runner or reader shape in src/ fixes the
+ * game's own bytes, or this fixture keeps the game's semantics (its operand choice is the cost of the test, not
+ * of the reader). `hits` is the exact number of windows that start in the region, at most over the variants:
+ * a count that rises or drops fails until it is updated here, and a region that no longer hits must be deleted.
+ * A region spans at most MAX_SPAN bytes. Removing one needs the reader to recognize the code by fingerprint
+ * instead (the way CastleFlames.ts and SubmapFlagGate.ts do).
  */
-const ALLOWED: { from: number; to: number; why: string }[] = [
-  { from: 0x0086fa, to: 0x008715, why: 'EXECUTE_PTR_SHAPE (SpriteDispatch.ts): 9 fixed opcodes in a row' },
-  { from: 0x01808c, to: 0x0180b0, why: 'resolveLoop core (SpriteDispatch.ts): the countdown, its JSR to HandleSprite, ca 10 f4' },
-  { from: 0x018170, to: 0x018170, why: 'resolveTables CallSpriteInit shape: 8 fixed opcodes' },
-  { from: 0x019200, to: 0x019210, why: 'LineGuided.ts ENTRY: 11 fixed opcodes of the grinder handler' },
-  { from: 0x019500, to: 0x019510, why: 'the same shape (id 31 pointing at the grinder handler)' },
-  { from: 0x028924, to: 0x028926, why: 'block spawn status write (SpriteDispatch.ts) at the fixed StatusOfSprInBlk operand BlockContents reads' }, // prettier-ignore
-  { from: 0x02a8ac, to: 0x02a8ac, why: 'ShellSprites.ts PATH: the generator floor compare, its fixed branch, and its neighbour' },
-  { from: 0x02a97c, to: 0x02a97c, why: 'ShellSprites.ts PATH: the status compare and the number step' },
+interface Region {
+  from: number
+  to: number
+  hits: number
+  why: string
+}
+const MAX_SPAN = 0x40
+const ALLOWED: Region[] = [
+  { from: 0x0086fa, to: 0x008715, hits: 2, why: 'EXECUTE_PTR_SHAPE (SpriteDispatch.ts): 9 fixed bytes, immediates included, in a row' },
+  { from: 0x018170, to: 0x018170, hits: 1, why: 'resolveTables CallSpriteInit shape: 8 fixed bytes' },
+  { from: 0x019200, to: 0x019210, hits: 5, why: 'LineGuided.ts ENTRY: 11 fixed bytes of the grinder handler' },
+  { from: 0x019500, to: 0x019510, hits: 5, why: 'the same shape (id 31 pointing at the grinder handler)' },
+  { from: 0x028924, to: 0x028926, hits: 2, why: 'block spawn status write (SpriteDispatch.ts): the first window starts on a free operand byte whose value matches, the second is fixed shape plus the StatusOfSprInBlk address BlockContents reads' }, // prettier-ignore
+  { from: 0x02a8ac, to: 0x02a8ac, hits: 1, why: 'ShellSprites.ts PATH: the generator floor compare and its fixed branch; the compare operands have the vanilla values, chosen so the shell logic keeps its vanilla meaning' }, // prettier-ignore
+  { from: 0x02a97c, to: 0x02a97c, hits: 1, why: 'ShellSprites.ts PATH: the status compare and the number step; operand values chosen as the vanilla ones' }, // prettier-ignore
   // Owned by the Golf Team (LevelLoader, GM11 spans, OverworldAreas): their cleanup removes these.
-  { from: 0x0096f4, to: 0x009720, why: 'GM11 call sites (LevelLoader.ts): Golf Team' },
-  { from: 0x00a633, to: 0x00a648, why: 'Mario entrance setup (LevelLoader.ts): Golf Team' },
-  { from: 0x00f6d5, to: 0x00f6e8, why: 'UpdateScreenPosition (LevelLoader.ts): Golf Team' },
-  { from: 0x05801e, to: 0x058030, why: 'level data loader (LevelLoader.ts): Golf Team' },
-  { from: 0x05d790, to: 0x05d7c0, why: 'CODE_05D796 prologue (LevelLoader.ts): Golf Team' },
-  { from: 0x05d8b1, to: 0x05d8c0, why: 'pointer loader (LevelLoader.ts): Golf Team' },
+  { from: 0x0096f4, to: 0x009720, hits: 21, why: 'GM11 call sites (LevelLoader.ts): Golf Team' },
+  { from: 0x00a633, to: 0x00a648, hits: 7, why: 'Mario entrance setup (LevelLoader.ts): Golf Team' },
+  { from: 0x00f6d5, to: 0x00f6e8, hits: 10, why: 'UpdateScreenPosition (LevelLoader.ts): Golf Team' },
+  { from: 0x05801e, to: 0x058030, hits: 5, why: 'level data loader (LevelLoader.ts): Golf Team' },
+  { from: 0x05d790, to: 0x05d7c0, hits: 24, why: 'CODE_05D796 prologue (LevelLoader.ts): Golf Team' },
+  { from: 0x05d8b1, to: 0x05d8c0, hits: 4, why: 'pointer loader (LevelLoader.ts): Golf Team' },
 ] // prettier-ignore
+
+/** What is wrong with `regions` given the hits (file offsets) each variant produced; empty when it holds. */
+export function allowListProblems(
+  regions: readonly Region[],
+  hitsByVariant: readonly number[][],
+): string[] {
+  const out: string[] = []
+  for (const r of regions) {
+    if (r.to - r.from + 1 > MAX_SPAN) out.push(`${r.why}: spans more than ${MAX_SPAN} bytes`)
+    const most = Math.max(
+      0,
+      ...hitsByVariant.map(h => h.filter(o => o >= r.from && o <= r.to).length),
+    )
+    if (most !== r.hits) out.push(`${r.why}: ${most} hits, listed as ${r.hits}`)
+  }
+  return out
+}
 
 /** The LoROM file offset of a "$BB:AAAA" address. */
 const offsetOf = (h: string): number => {
@@ -101,6 +126,29 @@ const offsetOf = (h: string): number => {
   return (bank << 16) | addr
 }
 const allowed = (h: string) => ALLOWED.find(r => offsetOf(h) >= r.from && offsetOf(h) <= r.to)
+
+describe('the allow list checker', () => {
+  const region = { from: 0x1000, to: 0x1010, hits: 2, why: 'r' }
+  it('passes when the count matches', () => {
+    expect(allowListProblems([region], [[0x1000, 0x1005], [0x1000]])).toEqual([])
+  })
+  it('planted: a region with no hits is red', () => {
+    expect(allowListProblems([{ ...region, hits: 2 }], [[0x2000]])).toEqual([
+      'r: 0 hits, listed as 2',
+    ])
+  })
+  it('planted: a count that rises or drops is red', () => {
+    expect(allowListProblems([region], [[0x1000, 0x1001, 0x1002]])).toEqual([
+      'r: 3 hits, listed as 2',
+    ])
+    expect(allowListProblems([region], [[0x1000]])).toEqual(['r: 1 hits, listed as 2'])
+  })
+  it('planted: a region widened past MAX_SPAN is red', () => {
+    expect(allowListProblems([{ ...region, to: 0x0fffff }], [[0x1000, 0x1005]])).toEqual([
+      'r: spans more than 64 bytes',
+    ])
+  })
+})
 
 describe.skipIf(!hasRom(VANILLA))(
   'the synthetic sprite cart holds no vanilla byte window (corpus gate)',
@@ -125,10 +173,13 @@ describe.skipIf(!hasRom(VANILLA))(
       expect(summarize(hitsOf(opts).filter(h => !allowed(h)))).toEqual([])
     })
 
-    it('every allowed region still hits in some variant (ratchet: delete a region once it is clean)', () => {
-      const seen = new Set<string>()
-      for (const [, opts] of VARIANTS) for (const h of hitsOf(opts)) seen.add(allowed(h)?.why ?? '')
-      expect(ALLOWED.filter(r => !seen.has(r.why)).map(r => r.why)).toEqual([])
+    it('the allow list is bounded and every region hits exactly as often as listed (ratchet)', () => {
+      expect(
+        allowListProblems(
+          ALLOWED,
+          VARIANTS.map(([, o]) => hitsOf(o).map(offsetOf)),
+        ),
+      ).toEqual([])
     })
   },
 )
