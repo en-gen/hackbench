@@ -127,6 +127,39 @@ export const SCREEN_EXIT: readonly StockCode[] = [
 ]
 
 /**
+ * CODE_0DA512, the screen-exit object handler: it reads the object number, then files it under
+ * `X = _A & $1F` with a plain STA into ExitTableLow and ExitTableHigh (bank_0D.asm:1416-1438).
+ * The exit graph's "last exit per screen wins" rule (#957) is that filing, so it holds only while
+ * this code is stock. The high-table mask operand is wild: 3 of 4 corpus hacks, which the other
+ * gates already decline, widen it; the filing itself is unchanged on all 5 corpus ROMs (measured,
+ * one machine). The tail (UseSecondaryExit) is not gated here: it feeds the submap flag, not the filing.
+ */
+export const SCREEN_EXIT_FILING: readonly StockCode[] = [
+  {
+    addr: 0x0da512,
+    bytes: [0xa0, 0x00, 0xb7, 0x65, 0x85, 0x5a],
+    what: 'CODE_0DA512 reading the exit object number',
+    cite: 'bank_0D.asm:1416-1419',
+  },
+  {
+    addr: 0x0da525,
+    // prettier-ignore
+    bytes: [
+      0xa5, 0x0a,       // LDA _A
+      0x29, 0x1f,       // AND #$1F
+      0xaa,             // TAX
+      0xa5, 0x5a,       // LDA LvlLoadObjNo
+      0x9d, 0xb8, 0x19, // STA ExitTableLow,X
+      0xa5, 0x0b,       // LDA _B
+      0x29, WILD,       // AND #mask
+      0x9d, 0xd8, 0x19, // STA ExitTableHigh,X
+    ],
+    what: 'CODE_0DA512 filing the exit under its screen',
+    cite: 'bank_0D.asm:1428-1435',
+  },
+]
+
+/**
  * The level load's start-position code the map view's L2 height reads tables through (#505):
  * the secondary entrance block, and CODE_05D8B7 from the DATA_05F000 read to CODE_05DA17 (the
  * settings, ScreenMode, primary rows, midway branch and high bytes). Vanilla only, measured; on

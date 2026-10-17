@@ -6,6 +6,7 @@ import {
   OVERWORLD_ENTRY,
   OVERWORLD_INDEX_BODY,
   SCREEN_EXIT,
+  SCREEN_EXIT_FILING,
   spanFingerprint,
   type StockSpan,
 } from '../../../src/rom/SubmapFlagGate'
@@ -93,6 +94,11 @@ export function plantStockSubmapCode(rom: RomFile): void {
   for (const c of [...OVERWORLD_ENTRY, ...SCREEN_EXIT]) {
     if ('fingerprints' in c) rom.writeAt(c.addr, nops(c.length))
     else rom.writeAt(c.addr, [...c.bytes])
+  }
+  // Past the end of a deliberately truncated image: those tests refuse earlier, on a lower address.
+  if (rom.readAt(SCREEN_EXIT_FILING[0]!.addr, 1)) {
+    for (const c of SCREEN_EXIT_FILING) rom.writeAt(c.addr, [...c.bytes])
+    rom.writeAt(0x0da532, [0x01])
   }
   plantSpan(rom, START_EXIT_SPAN, START_EXIT_PLANT)
   plantSpan(rom, START_MAIN_SPAN, START_MAIN_PLANT)

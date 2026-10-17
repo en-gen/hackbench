@@ -31,6 +31,7 @@ import { levelNameForSlot } from './SmwLevelNames'
 import { deriveOverworldEntrances, type OverworldEntranceIndex } from './OverworldEntrances'
 import {
   SCREEN_EXIT,
+  SCREEN_EXIT_FILING,
   SCREEN_EXIT_HIGH_AT,
   readSubmapHigh,
   readTranslevelBias,
@@ -446,6 +447,9 @@ export class SmwRom {
     if (!roots) {
       return { graph: new Map(), unavailable: 'The overworld roots could not be read.' }
     }
+    // The last-exit-per-screen rule below is CODE_0DA512's filing; refuse it on other code (#957).
+    const filing = stockCodeMismatch(this.rom, SCREEN_EXIT_FILING)
+    if (filing) return { graph: new Map(), unavailable: filing }
     // The screen-exit path's own LDA #imm (bank_05.asm:7109), past SCREEN_EXIT's gate.
     const screenHigh = readSubmapHigh(this.rom, SCREEN_EXIT_HIGH_AT)
     if (typeof screenHigh === 'string') return { graph: new Map(), unavailable: screenHigh }
