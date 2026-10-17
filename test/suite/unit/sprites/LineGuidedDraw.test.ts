@@ -196,8 +196,8 @@ describe('line-guided draw pass', () => {
  * used to be null (a placeholder, "drew no OAM tile in 64 passes", #793): INIT moves a $67 whose X bit 4 is clear
  * 320 px left (InitLineGuidedSpr, bank_01.asm:11788-11811), and MAIN despawns it off the camera seeded on the list
  * position (SubOffscreen1Bnk1, bank_01.asm:11849) before it draws. The map view now re-runs it with the camera on
- * the INIT position (#980), so it draws. Refs #793 (the issue stays open: hardware shows a few px of line travel
- * beyond this model, e.g. list 7 at hardware 715,367 vs 704,367). Vanilla ROM, this runner, one machine.
+ * the INIT position (#980), so it draws. Refs #793 (the issue stays open). No hardware capture exists for $01A
+ * entries 5, 7 or 10; these positions are the model's. Vanilla ROM, this runner, one machine.
  */
 const GRINDERS: Record<number, [number, number][]> = {
   0x1a: [[751, 367], [512, 367], [943, 367], [704, 367], [896, 367], [1360, 319], [1503, 335], [1727, 351], [1871, 335], [1935, 368], [2079, 271], [2176, 287], [2255, 303]], // prettier-ignore
