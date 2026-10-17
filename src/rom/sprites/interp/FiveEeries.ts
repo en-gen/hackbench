@@ -24,13 +24,8 @@
 import { spanFingerprint } from '../../SubmapFlagGate'
 import type { RomFile } from '../../RomFile'
 import { bytesAt } from './Guards'
-import {
-  runOnce,
-  SPAWN_SHORT,
-  type RunOptions,
-  type SpriteModel,
-  type SpritePart,
-} from './SpriteRunner'
+import { jsrTarget, runSpawnedChildren } from './SpawnedChildren'
+import { runOnce, type RunOptions, type SpriteModel, type SpritePart } from './SpriteRunner'
 import type { SpriteSeed } from './SpriteSeed'
 
 /** Load5Eeries, and the Wave Eerie it spawns. */
@@ -40,9 +35,7 @@ const SPAWNER_LENGTH = 97
 const HORZ_POS = { at: 0x02848d, length: 18 }
 /** The loader's compare, branch and call to the spawner (bank_02.asm:5312-5318): 12 bytes, hashed as one span. */
 const LOADER_ROUTE = { what: 'the loader route to the Eerie spawner', at: 0x02a88c, length: 12 }
-/** The opcode of a JSR; the only literal byte read here, to find the call's operand. */
-const JSR = 0x20
-/** The loader's `JSR Load5Eeries` (bank_02.asm:5318): its opcode, and the operand that names the spawner. */
+/** The loader's `JSR Load5Eeries` (bank_02.asm:5318): the operand names the spawner. */
 const LOADER_CALL = 0x02a895
 
 /**
@@ -50,8 +43,7 @@ const LOADER_CALL = 0x02a895
  * routine it names. With no JSR there (the call was replaced) the vanilla entry runs; the route check names it (D52).
  */
 export function spawnerEntry(rom: RomFile): number {
-  const call = bytesAt(rom, LOADER_CALL, 3)
-  return call?.[0] === JSR ? 0x020000 | call[1]! | (call[2]! << 8) : LOAD_5_EERIES
+  return jsrTarget(rom, LOADER_CALL, LOAD_5_EERIES)
 }
 
 /** How many Eeries Load5Eeries tries to spawn (the loop from 4 down to 0, bank_02.asm:6278-6313). */
@@ -137,29 +129,8 @@ export function fiveEeries(
   run: (rom: RomFile, id: number, seed: SpriteSeed, opts?: RunOptions) => SpriteModel = runOnce,
 ): EeriesResult {
   const unverified = eeriesGate(rom, routines)
-  const inputs = { 0x00: e.x & 0xff, 0x01: (e.x >> 8) & 0xff, 0x02: e.index, 0x03: e.streamOffset }
-  const placed: PlacedEerie[] = []
-  let why = ''
-  let missing = 0
-  for (let n = 0; n < EERIES; n++) {
-    const m = run(rom, SPAWNED_SPRITE, { ...seed, mainPasses: passes }, { spawn: { inputs, routine: spawnerEntry(rom), nth: n } }) // prettier-ignore
-    if (m.refusal?.startsWith(SPAWN_SHORT)) {
-      missing++
-      continue
-    }
-    const pass = m.chosen === undefined ? undefined : m.passes[m.chosen]
-    if (!m.anchor || !pass) {
-      why ||= m.refusal ?? m.emptyReason ?? 'drew no tile'
-      continue
-    }
-    // The run's parts are relative to the Eerie's own position when the passes began; re-anchor them to the entry.
-    const [ox, oy] = [m.anchor.x - e.x, m.anchor.y - e.y]
-    placed.push({
-      x: pass.pos.x,
-      y: pass.pos.y,
-      parts: pass.parts.map(p => ({ ...p, dx: p.dx + ox, dy: p.dy + oy })),
-    })
-  }
+  const spec = { sprite: SPAWNED_SPRITE, count: EERIES, routine: spawnerEntry(rom) }
+  const { children: placed, missing, why } = runSpawnedChildren(rom, seed, e, spec, passes, run)
   if (placed.length === 0)
     return {
       ok: false,
