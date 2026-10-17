@@ -138,8 +138,10 @@ export class WorkingRomRegistry {
   /**
    * Fires, once per project, when the ROM behind a project's working copy
    * changes: `relocate`, a `register` that serves a project that was waiting
-   * for its ROM, a `get` that finds a waiting project's ROM again, or a rebuild
-   * that replaces a cached entry. NOT on the first build (a view asking for the
+   * for its ROM, a `get` that finds a waiting project's ROM again, a rebuild
+   * that replaces a cached entry, or a drop of a cached copy whose base ROM is
+   * gone (`revalidateOnOpen`, or a `get` rebuild that cannot find the ROM).
+   * NOT on a never-cached project's not-located answer, NOT on the first build (a view asking for the
    * project is already loading it) and NOT on edits (the edit event covers
    * those).
    */
@@ -342,7 +344,8 @@ export class WorkingRomRegistry {
    * hash check Project Properties makes (one hash per open), so the two never
    * disagree: a directory, an unreadable file or another ROM at the path all
    * count as gone. Only an open asks (the Open Recent path and Project
-   * Properties both reach it); a `get` mid-session keeps serving the copy.
+   * Properties both reach it); a `get` that hits the cache mid-session keeps
+   * serving the copy (a rebuild `get` drops it and announces too).
    * Gone: drop the cache like `get`'s not-located answer, release the copy,
    * and announce `onRomChanged` so an already-open view (opening the open
    * project keeps views) redraws as not located. With no cached copy there is

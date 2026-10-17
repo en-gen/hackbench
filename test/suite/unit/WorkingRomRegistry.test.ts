@@ -1229,6 +1229,26 @@ describe('WorkingRomRegistry undo/redo', () => {
       expect(changed).toHaveBeenCalledTimes(1)
     })
 
+    it('a get for a never-cached project with the ROM gone fires no onRomChanged', () => {
+      const { manifestPath } = makeProject()
+      const changed = vi.fn()
+      working.onRomChanged(changed)
+      fs.renameSync(romFile(), romFile() + '.moved')
+      expect(working.get(manifestPath).status).toBe('rom-not-located')
+      expect(changed).not.toHaveBeenCalled()
+    })
+
+    it('open drops and announces once, and the get that follows announces nothing more', () => {
+      const { manifestPath } = cachedWithEdit()
+      const changed = vi.fn()
+      working.onRomChanged(changed)
+      fs.renameSync(romFile(), romFile() + '.moved')
+      working.revalidateOnOpen(manifestPath)
+      expect(changed).toHaveBeenCalledTimes(1)
+      expect(working.get(manifestPath).status).toBe('rom-not-located')
+      expect(changed).toHaveBeenCalledTimes(1)
+    })
+
     it('with the ROM put back the next get announces once and rebuilds a byte-identical copy', () => {
       const { manifestPath, bytes } = cachedWithEdit()
       fs.renameSync(romFile(), romFile() + '.moved')
