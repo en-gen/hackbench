@@ -5,6 +5,7 @@
  * `gateMap`) checks it against Mesen, so what the gate proves is what the
  * tab shows, by construction rather than by keeping two copies in step.
  */
+import { refusedBounds, refusedCellsOf, type RefusedCell } from './RefusedCells'
 import type { SmwRom } from '../SmwRom'
 import { hex3s as hex3 } from '../hex'
 import type { RomFile } from '../RomFile'
@@ -86,6 +87,8 @@ export interface L1Inputs {
   unverified: string[]
   /** Objects the expander drew as nothing (#301); the same reasons are in `unverified` for the screen note. */
   refusals: Refusal[]
+  /** Where those objects sit on the map, with a plain reason each (#816). */
+  refusedCells?: RefusedCell[]
   /** CGRAM, 256 colors: any per-level override block, then the palette animation's representative frame (phase 0). */
   colors: RgbaColor[]
   /** CGRAM color 0, the backdrop the PPU shows where every layer is transparent. */
@@ -119,6 +122,8 @@ export interface L1Readings {
   unverified: string[]
   /** Objects the expander refused (#301). Optional: callers that never expand have none. */
   refusals?: Refusal[]
+  /** `refusals` placed on the map; optional for the same reason. */
+  refusedCells?: RefusedCell[]
 }
 
 /** A level's CGRAM and backdrop: its override block, else the header's palettes and back-area color. */
@@ -194,6 +199,7 @@ export function assembleL1Inputs(r: L1Readings): L1Inputs {
     animNote: notes.length > 0 ? notes.join(' ') : undefined,
     unverified: r.unverified,
     refusals: r.refusals ?? [],
+    refusedCells: r.refusedCells ?? [],
     colors: palette.colors,
     backArea: stored.backArea,
     switchArt: anim ? switchArtOf(anim, r.map16.tiles, vram, palette) : new Map(),
@@ -265,6 +271,11 @@ export function buildL1Inputs(rom: SmwRom, index: number, flags: SwitchFlags): L
       crusher: readCrusherColors(rom.rom, index, tileset),
       unverified,
       refusals,
+      refusedCells: refusedCellsOf(
+        refusals,
+        objects,
+        refusedBounds(isVertical, header.levelLength),
+      ),
     })
     return { ok: true, inputs }
   } catch (err) {

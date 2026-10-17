@@ -258,7 +258,9 @@ describe.skipIf(!theiaInstalled)('ProjectServiceImpl.mapDetails - wiring', () =>
         name: 'Proj',
         directory: path.join(tmp, 'Proj'),
       })
-      const details = await service.mapDetails(project.manifestPath, 0x105)
+      const result = await service.mapDetails(project.manifestPath, 0x105)
+      if ('status' in result) throw new Error(result.status)
+      const details = result
 
       expect(details.isVertical).toBeUndefined()
       expect(details.orientationUnavailable).toMatch(/VerticalTable/)
@@ -270,7 +272,45 @@ describe.skipIf(!theiaInstalled)('ProjectServiceImpl.mapDetails - wiring', () =>
       const switches = { blue: false, silver: false, onOff: false }
       const screen = await service.mapScreen(project.manifestPath, 0x105, 0, flags, switches)
       expect(screen).toMatchObject({ status: 'unavailable' })
-      if (screen.status === 'unavailable') expect(screen.reason).toMatch(/VerticalTable/)
+      if (screen.status === 'unavailable') expect(screen.detail).toMatch(/VerticalTable/)
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('answers rom-not-located, not a throw, when the manifest names a ROM this machine lacks (#786)', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const { ProjectServiceImpl } = await import('../../../theia/extension/src/node/project-server')
+    const { RomRegistry } = await import('../../../src/project/RomRegistry')
+    const { RecentProjects } = await import('../../../src/project/RecentProjects')
+    const { WorkingRomRegistry } = await import('../../../src/project/WorkingRomRegistry')
+
+    const tmp = fs.mkdtempSync(join(os.tmpdir(), 'hb-mapdetails-nl-'))
+    try {
+      const buf = Buffer.alloc(0x40000, 0x00)
+      buf[0x7fd5] = 0x20
+      const romPath = path.join(tmp, 'synthetic.sfc')
+      const rom = new RomFile(romPath, buf)
+      rom.writeAt(ADDR.ROM_NAME, Buffer.from('HACKBENCH SYNTHETIC  ', 'ascii'))
+      rom.saveAs(romPath)
+
+      const service = new ProjectServiceImpl()
+      const s = service as unknown as { workingRoms: unknown; recent: unknown }
+      s.workingRoms = new WorkingRomRegistry(new RomRegistry(path.join(tmp, 'registry.json')))
+      s.recent = new RecentProjects(path.join(tmp, 'recent.json'))
+      const project = await service.createProject({
+        romPath,
+        name: 'Proj',
+        directory: path.join(tmp, 'Proj'),
+      })
+
+      // Another machine: the ROM file is gone and this registry has never seen it.
+      fs.rmSync(romPath)
+      s.workingRoms = new WorkingRomRegistry(new RomRegistry(path.join(tmp, 'other-registry.json')))
+      const result = await service.mapDetails(project.manifestPath, 0x105)
+      expect(result).toMatchObject({ status: 'rom-not-located' })
+      expect(result).toMatchObject({ baseRom: project.baseRom })
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true })
     }
