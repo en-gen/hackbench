@@ -386,12 +386,12 @@ export const SPRITE_METADATA: Readonly<Record<number, Readonly<SpriteMetadata>>>
     source: 'bank_02.asm:5645 (in CODE_02AAC0, 5631)',
   },
   0xe2: {
-    displayName: 'Boo Ring (angle step +1)',
-    source: 'bank_02.asm:5684 (in CODE_02AB28, 5681)',
+    displayName: 'Rotating ring of 10, counter-clockwise',
+    source: 'bank_02.asm:5670 (in CODE_02AB11, 5669)',
   },
   0xe3: {
-    displayName: 'Boo Ring (angle step -1)',
-    source: 'bank_02.asm:5684 (in CODE_02AB28, 5681)',
+    displayName: 'Rotating ring of 10, clockwise',
+    source: 'bank_02.asm:5670 (in CODE_02AB11, 5669)',
   },
   0xe4: {
     displayName: 'Cluster sprites (type 8)',

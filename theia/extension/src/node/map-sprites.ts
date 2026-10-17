@@ -62,6 +62,11 @@ import {
 } from '../../../../src/rom/sprites/interp/CastleFlames'
 import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
 import {
+  rotatingRing,
+  VANILLA_RING_ROUTINES,
+  type RingRoutines,
+} from '../../../../src/rom/sprites/interp/RotatingRing'
+import {
   TORPEDO_LAUNCHER_ID,
   torpedoLauncher,
 } from '../../../../src/rom/sprites/interp/TorpedoLauncher'
@@ -371,6 +376,41 @@ function launcherResult(rom: RomFile, seed: SpriteSeed): SpriteDrawResult {
 /** SpriteLoadStatus, SMWDisX rammap.asm:1968 (SMW_U.sym 00001938): one byte per sprite list entry, 128 of them. */
 const SPRITE_LOAD_STATUS = 0x1938
 
+/** Sprites $E2 (counter-clockwise) and $E3 (clockwise): a ring of 10 cluster sprites, not slot sprites (CODE_02AAC0, SMWDisX bank_02.asm:5640-5641). */
+const RING_LEFT = 0xe2
+const RING_RIGHT = 0xe3
+
+/**
+ * The ring of a stream entry (#983), run from the ROM's own spawn and draw: ONE sprite at its real stream index
+ * (so hover and selection find it), the 10 pieces as its parts. A vertical level is not drawn (owner call B):
+ * the loader hands the spawn the screen's Y boundary as the ring's X there (bank_02.asm:5232-5238, 5703-5706).
+ * A routine or call-path part that is not the vanilla shape does not blank it (D52): drawn, flagged `unverified`.
+ */
+function ringResult(
+  rom: RomFile,
+  seed: SpriteSeed,
+  s: LevelSprite,
+  vertical: boolean,
+  routines: RingRoutines,
+): SpriteDrawResult {
+  if (vertical) return { ok: false, reason: 'the rotating ring is not drawn in a vertical level: the game takes its centre from the wrong axis there' } // prettier-ignore
+  const [x, y] = [pixelX(s), s.y * TILE]
+  const r = rotatingRing(rom, seed, { id: s.spriteId, x, y, index: s.index, streamOffset: s.streamOffset }, routines) // prettier-ignore
+  if (!r.ok) return { ok: false, reason: `refused: ${r.reason}` }
+  const why = r.unverified.map(u => `${u} is not the vanilla shape`).join('; ')
+  return {
+    ok: true,
+    parts: interpParts(r.parts),
+    anchor: { x, y },
+    identity: { spriteId: s.spriteId, mainHandler: 0, initHandler: 0, status: 'vanilla' },
+    ...(why
+      ? {
+          unverified: `the rotating ring is drawn from the code at the vanilla address, and ${why}`,
+        }
+      : {}),
+  }
+}
+
 /**
  * The interpreter over this cart, for the level `index`: `levelSeed` runs the
  * ROM's own loader, Mario at the level's start, one sprite run alone per call.
@@ -385,6 +425,7 @@ export function interpDrawer(
   model: { isVertical: boolean; screenCount: number },
   run: (rom: RomFile, id: number, seed: SpriteSeed) => RunModel = runOnce,
   seedFor: (rom: RomFile, index: number) => SpriteSeed = levelSeed,
+  ringRoutines: RingRoutines = VANILLA_RING_ROUTINES,
 ): SpriteDrawer {
   // The loader runs once per map, not per sprite.
   const base = seedFor(rom, index)
@@ -406,6 +447,7 @@ export function interpDrawer(
   // Only the map's own shape is added to a generic seed; a loaded one ignores it.
   const shape = { level: { screenMode: model.isVertical ? 1 : 0, screens: model.screenCount } }
   return s => {
+    if (s.spriteId === RING_LEFT || s.spriteId === RING_RIGHT) return ringResult(rom, base, s, model.isVertical, ringRoutines) // prettier-ignore
     const [x, y] = [pixelX(s), s.y * TILE]
     const camera = cameraFor(x, y, model.isVertical, model.screenCount)
     const seed = (camera: { x: number; y: number }, extra = {}) => withSeed({ sprite: { x, y }, camera, mario, ...shape, ...extra }, base) // prettier-ignore

@@ -47,7 +47,7 @@ const E6_BRANCH = { at: 0x02aac9, want: [0xc9, 0xe6, 0xf0, 0x9f] } // CMP #$E6 /
  * that names a RAM cell or a table the run does not depend on). Each is a call site or entry a hack can
  * divert while the routines stay byte-identical (rom-interpretation.md, "Existing is not the same as reached").
  */
-type PathCheck =
+export type PathCheck =
   | { what: string; at: number; want: (number | null)[] }
   /** A run too long to commit as bytes (rom-interpretation.md): recognized by `routines[print]`, `mask` offsets zeroed first. */
   | { what: string; at: number; length: number; mask?: number[]; print: 'route' | 'loop' }
@@ -65,6 +65,25 @@ const PATH: PathCheck[] = [
   { what: 'the cluster dispatch call', at: 0x02f821, want: [0x22, null, null, null] },
   { what: 'the cluster dispatch entry for type 5', ...DISPATCH_TYPE5 },
 ]
+
+/** The path entries every cluster type shares (loader route, spawn entry, cluster loop, dispatch call): the ring reuses them (#983). */
+/** What of `checks` is not the expected code: literal shapes by bytes, the long runs by `routines.route` / `routines.loop`. */
+export function pathMismatches(
+  rom: RomFile,
+  checks: readonly PathCheck[],
+  routines: Pick<FlameRoutines, 'route' | 'loop'>,
+): string[] {
+  return checks
+    .filter(c =>
+      'want' in c
+        ? !shapeMatches(bytesAt(rom, c.at, c.want.length), c.want)
+        : spanFingerprint(Uint8Array.from(bytesAt(rom, c.at, c.length) ?? []), c.mask) !==
+          routines[c.print],
+    )
+    .map(c => c.what)
+}
+
+export const CLUSTER_PATH = [PATH[0]!, PATH[1]!, PATH[3]!, PATH[4]!]
 
 /**
  * SHA-256 of the whole routine (33 and 110 bytes, ending in RTS); the data tables they read are NOT part of it.
@@ -84,10 +103,10 @@ export const VANILLA_FLAME_ROUTINES: FlameRoutines = {
   loop: '9b39e68dd7d99e77464b21dca0b068bc0142fb4fc8a5f566f04931c8aa4aed50',
 }
 
-const CLUSTER_NUMBER = 0x1892
+export const CLUSTER_NUMBER = 0x1892
 const CLUSTER_SLOTS = 4
 const LAYER2_POS = 0x1e
-const SPRITE_LOCK = 0x9d
+export const SPRITE_LOCK = 0x9d
 
 /** `unverified` names each routine or call-path part that is not the vanilla shape (empty when all match). */
 export type FlamesResult =
@@ -137,12 +156,7 @@ export function castleFlames(
   routines: FlameRoutines = VANILLA_FLAME_ROUTINES,
 ): FlamesResult {
   if (!seed.loaded) return { ok: false, reason: seed.loadRefusal ?? 'no level image' }
-  const unverified = PATH.filter(c =>
-    'want' in c
-      ? !shapeMatches(bytesAt(rom, c.at, c.want.length), c.want)
-      : spanFingerprint(Uint8Array.from(bytesAt(rom, c.at, c.length) ?? []), c.mask) !==
-        routines[c.print],
-  ).map(c => c.what)
+  const unverified = pathMismatches(rom, PATH, routines)
   const callee = bytesAt(rom, 0x02f822, 3)
   if (!callee || !checkExecutePtr(rom, [callee]).ok) unverified.push('the cluster dispatch call target') // prettier-ignore
   const sha = (at: number, n: number) => spanFingerprint(Uint8Array.from(bytesAt(rom, at, n) ?? []))
