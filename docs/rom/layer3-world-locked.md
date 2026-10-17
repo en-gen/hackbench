@@ -51,10 +51,11 @@ $011 and $130 start at 24, camera 0, as captured. `entranceCameraX` is that rule
 Scope of the anchor: it holds for a DIRECT load (the overworld path, which zeroes Layer1XPos,
 bank_05.asm:7170). $1C1 is a sub area entered by a screen exit from $11F; on that path GM11 first copies
 the old camera into NextLayer1XPos (bank_00.asm:2645-2649), so the load camera depends on the previous
-map's camera (about 675 on a static trace, not captured). The map view keeps its entrance-position
-"unverified" note for that reason. A secondary entrance start is not modelled either.
+map's camera (about 675 on a static trace, 23 px from the anchor, not captured). The map view draws
+$1C1 at the direct-load anchor and shows no note about this: a screen-exit entry can differ. A
+secondary entrance start is not modelled either.
 
-The camera routines, their tables and the GM11 site are fingerprinted (`ENTRANCE_CAMERA_SITES`, SHA-256
+The camera routines, their tables, the GM11 site and the CameraMoveTrigger store ($80, which sets the $8C buffer) are fingerprinted (`ENTRANCE_CAMERA_SITES`, SHA-256
 of the stock bytes, as the smash sites are): a ROM that patches them gets no anchor and the layer stays
 refused. CODE_00A635's zeroing loop is not fingerprinted.
 

@@ -25,26 +25,36 @@ const LOAD_CAMERA_MAX = 0x1f00
 
 /**
  * SHA-256 of the stock bytes: DATA_00F6A3..DATA_00F6CF + 12 (bank_00.asm:13605-13628), UpdateScreenPosition
- * through CODE_00F75A's branch (13631-13691), CODE_00F8AB..RTS (13873-13895). The 7-byte GM11 site
- * (JSR CODE_00A635 / LDA #$20 / STA LastScreenHoriz, 2651-2653) is under the 32-byte hash threshold, so it
- * is compared byte for byte in `readEntranceCameraGate`.
+ * through CODE_00F75A's branch (13631-13691), CODE_00F8AB..RTS (13873-13895). The two short sites
+ * below are under the 32-byte hash threshold, so `readEntranceCameraGate` compares them byte for byte.
  */
 export const ENTRANCE_CAMERA_SITES: readonly CodeSite[] = [
   { addr: 0x00f6a3, length: 0x38, sha256: '307521e5438bf16ab3f015bcfe74b1528a3b721138f35e1ab06d3c5ddbba4482' },
   { addr: 0x00f6db, length: 0x81, sha256: '6186247a0069f82bf2e23520b2edf3ca2e1a4b687dd6617afbf31b7ffb0a3660' },
   { addr: 0x00f8ab, length: 0x34, sha256: 'f6eab3c6fdd58605a6ffcb9f9103b20a17560ac0ae97a78850fc8150eac2690c' },
 ] // prettier-ignore
-const GM11_SITE = { addr: 0x009705, bytes: [0x20, 0x35, 0xa6, 0xa9, 0x20, 0x85, 0x5e] } as const
+// Under the hash threshold, compared byte for byte: GM11's JSR CODE_00A635 / LDA #$20 / STA LastScreenHoriz
+// (bank_00.asm:2651-2653), and CODE_00A7B9's LDA #$0080 / STA CameraMoveTrigger (5114-5115), which sets the
+// $8C buffer.
+const BYTE_SITES = [
+  { addr: 0x009705, bytes: [0x20, 0x35, 0xa6, 0xa9, 0x20, 0x85, 0x5e] },
+  { addr: 0x00a7b9, bytes: [0xa9, 0x80, 0x00, 0x8d, 0x2a, 0x14] },
+] as const
+
+/** The tooltip when the camera code is not stock: plain words, no addresses. */
+export const CAMERA_HOOKED =
+  "Layer 3 not drawn yet: this ROM changes how the camera starts, so the layer's position cannot be worked out"
 
 export function readEntranceCameraGate(
   rom: RomFile,
   sites: readonly CodeSite[] = ENTRANCE_CAMERA_SITES,
 ): L3CodeGate {
-  const gm11 = rom.readAt(GM11_SITE.addr, GM11_SITE.bytes.length)
-  if (!gm11 || GM11_SITE.bytes.some((v, i) => gm11[i] !== v)) {
-    return { ok: false, reason: 'camera code at level load is not stock' }
+  for (const site of BYTE_SITES) {
+    const got = rom.readAt(site.addr, site.bytes.length)
+    if (!got || site.bytes.some((v, i) => got[i] !== v)) return { ok: false, reason: CAMERA_HOOKED }
   }
-  return readL3CodeGate(rom, sites)
+  const hashed = readL3CodeGate(rom, sites)
+  return hashed.ok ? hashed : { ok: false, reason: CAMERA_HOOKED }
 }
 
 /** The load-time camera X for Mario's start X (stock code; check `readEntranceCameraGate` first). */

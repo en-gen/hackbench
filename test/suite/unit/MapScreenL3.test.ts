@@ -11,7 +11,11 @@ import { parseLevelHeader } from '../../../src/rom/LevelParser'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { withCrusher } from '../../../src/rom/L3CodeGate'
-import { entranceCameraX, readEntranceCameraGate } from '../../../src/rom/L3EntranceCamera'
+import {
+  CAMERA_HOOKED,
+  entranceCameraX,
+  readEntranceCameraGate,
+} from '../../../src/rom/L3EntranceCamera'
 import { createHash } from 'node:crypto'
 import { buildL3Verdict, type L3Inputs, type L3Verdict } from '../../../src/rom/model/L3Model'
 import {
@@ -486,10 +490,17 @@ describe('world-locked layer 3: byte $81 off Castle1 and Underground1 (synthetic
     expect(verdictW(9, 0x5a0).l3?.worldLocked?.camXPx).toBe(0x5a0 - 0x8c) // a clamp to the map's own 5 << 8 would give $500
   })
 
-  it('refuses, as before, when the camera code is not stock (a hack that patches it)', () => {
+  it('refuses, saying why in plain words, when the camera code is not stock (a hack that patches it)', () => {
     const v = verdictW(9, 544, 0, undefined, () => ({ ok: false, reason: 'x' }))
-    expect(v).toMatchObject({ l3: null, reason: 'Layer 3 not drawn yet: camera-locked layer 3' })
+    expect(v).toMatchObject({ l3: null, reason: CAMERA_HOOKED })
+    expect(v.reason).not.toMatch(/\$|0x|[0-9a-f]{4}/i) // no hex in a tooltip
     expect(v.cgadsub! & 0x04).toBe(0x04)
+  })
+
+  it('checks the camera code by default: a ROM whose camera bytes are not stock is refused', () => {
+    // No gate argument, so readEntranceCameraGate runs on the synthetic cart, whose bytes there are zero.
+    const l1 = { ...l1Of(0, 9, false), header: header6(9) }
+    expect(buildL3Verdict(romW(), 5, l1, BG_OK, chars, GATE_OK)).toMatchObject({ l3: null, reason: CAMERA_HOOKED }) // prettier-ignore
   })
 
   it('draws where BG3 shares the main screen (BG1, BG2 or both) and refuses only where it is alone', () => {
@@ -552,10 +563,12 @@ describe('entranceCameraX and its code gate (synthetic, #563)', () => {
 
   it('passes a stock-shaped site and fails on any changed byte, in the hashed range or the GM11 site', () => {
     const gm11 = [0x20, 0x35, 0xa6, 0xa9, 0x20, 0x85, 0x5e]
+    const cmt = [0xa9, 0x80, 0x00, 0x8d, 0x2a, 0x14] // LDA #$0080 / STA CameraMoveTrigger (bank_00.asm:5114-5115)
     const body = Array.from({ length: 40 }, (_, i) => (i * 7 + 3) & 0xff)
     const rom = () => {
       const r = new RomFile('c.sfc', Buffer.alloc(0x80000, 0))
       r.writeAt(0x009705, gm11)
+      r.writeAt(0x00a7b9, cmt)
       r.writeAt(0x00f6a3, body)
       return r
     }
@@ -567,6 +580,9 @@ describe('entranceCameraX and its code gate (synthetic, #563)', () => {
     const moved = rom()
     moved.writeAt(0x009705 + 4, [0x30]) // LDA #$30: another max screen
     expect(readEntranceCameraGate(moved, sites).ok).toBe(false)
+    const trigger = rom()
+    trigger.writeAt(0x00a7b9 + 1, [0xa0]) // CameraMoveTrigger $00A0: the right buffer is no longer $8C
+    expect(readEntranceCameraGate(trigger, sites).ok).toBe(false)
   })
 })
 

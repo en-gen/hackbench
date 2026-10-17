@@ -19,7 +19,7 @@ import type { BgModeResult } from '../BgMode'
 import { layoutRefusal, readModeLayouts } from '../LevelScreenTables'
 import { HOOKED_L3_CODE, readL3CodeGate, type L3CodeGate } from '../L3CodeGate'
 import { l3LoadTimeY, loadL3Tilemap, readInitialLayer1YPos } from '../L3Loader'
-import { entranceCameraX, readEntranceCameraGate } from '../L3EntranceCamera'
+import { CAMERA_HOOKED, entranceCameraX, readEntranceCameraGate } from '../L3EntranceCamera'
 import { readMarioStartPos } from '../MarioStartPos'
 import { readL3SmashLoadPos, type L3SmashResult } from '../L3Smash'
 import { readLayer3Setting } from '../ObjectExpander'
@@ -126,15 +126,16 @@ export function buildL3Verdict(
     // Only a $81-$BF byte skips the TRB that clears BG3 (CODE_00A01F, bank_00.asm:4174); byte $00
     // takes the tide path to CODE_00A01B (:4164) and is cleared.
     const kept = (load.settingsByte & 0x80) !== 0
-    const refuse = () =>
-      none('Layer 3 not drawn yet: camera-locked layer 3', {
+    const refuse = (reason = 'Layer 3 not drawn yet: camera-locked layer 3') =>
+      none(reason, {
         cgadsub: effectiveCgadsub(layout.cgadsub, !kept),
       })
     // The world-locked draw is verified for $81-$BF where BG3 is not alone on the main screen; mode 0E
     // ($018) adds it onto layers 1 and 2 and stays refused.
     if (!kept || (layout.main & 0x03) === 0) return refuse()
     const start = readMarioStartPos(rom, index)
-    if (!start || !cameraGate(rom).ok) return refuse()
+    if (!start) return refuse()
+    if (!cameraGate(rom).ok) return refuse(CAMERA_HOOKED)
     // CODE_05BE8A copied Layer1YPos into Layer3YPos before CODE_009FB8 (bank_00.asm:4869-4870), which
     // leaves it alone on this path; CODE_05C48D keeps the copy each frame (bank_05.asm:5569-5570).
     yPx = readInitialLayer1YPos(rom, index, false, entrances)
