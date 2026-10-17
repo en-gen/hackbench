@@ -433,10 +433,11 @@ function fixOffsets(
     const q = !residue(p) ? other.parts.find(q => q.oam === p.oam) : undefined
     return { x: !!q && q.ox === p.ox, y: !!q && q.oy === p.oy }
   }
-  if (!pass.parts.some(p => fixedAxes(p).x || fixedAxes(p).y)) return null
+  const axes = pass.parts.map(fixedAxes)
+  if (!axes.some(f => f.x || f.y)) return null
   // X is 9 bits (bit 8 is the sign); OAM Y $E0-$FF is above the screen's top edge. A fixed axis is not wrapped to a byte.
-  const parts = pass.parts.map(p => {
-    const f = fixedAxes(p)
+  const parts = pass.parts.map((p, i) => {
+    const f = axes[i]!
     return {
       ...p,
       dx: f.x ? (p.ox > 255 ? p.ox - 512 : p.ox) + cam.x - anchor.x : p.dx,
