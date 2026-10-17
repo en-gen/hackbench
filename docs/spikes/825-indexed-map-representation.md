@@ -1,8 +1,7 @@
 # #825 spike: an indexed map representation against RGBA over RPC
 
-Status: wire bytes and the oracle are measured. The browser bench (section 4) is RE-RUN PENDING:
-the first run was invalidated by review (it used a slow base64 decoder in arm A and left out the
-widget's composite), its numbers are withdrawn, and the corrected bench awaits a run-lock slot.
+Status: complete. Wire bytes, the oracle and the corrected browser bench (section 4, re-run
+after review) are measured.
 
 Prototype: `tools/scripts/spike-825/` (`encode.ts`, `gen.ts`, `bench/`). Not imported by shipped
 code, not for merge. No shipped file was changed. (`tools/spikes/` is gitignored, hence the path.)
@@ -61,9 +60,9 @@ $105 RGBA 9.44 MB / 79.9 KB, indexed 89.6 KB / 10.7 KB; $101 RGBA 12.98 MB / 148
 111 KB / 10.7 KB. Indexed is about 125x smaller uncompressed; gzipped RGBA is only about 7x to
 14x larger than gzipped indexed, because flat-colour pixel art compresses extremely well.
 
-## 4. Browser bench (RE-RUN PENDING)
+## 4. Browser bench
 
-The first run's numbers are withdrawn. Review found (1) arm A decoded base64 with
+The first run's numbers were withdrawn after review found (1) arm A decoded base64 with
 `Uint8Array.from(atob(s), fn)` (about 30 ms a plane) instead of the shipped loop; it now ports
 `decodeBase64Bytes` (`map16-pixels.ts:22-27`) exactly; (2) the widget does not paint planes alone:
 `paintComposite` runs `composeScreen` (color math over the plane RGBA) and puts the result on a
@@ -71,12 +70,43 @@ composite canvas, beside the plane canvases kept by `sync`. Arm A now does both,
 `ColorMath.composeScreen` bundled into the page; (3) the heap figure was an artifact (arm A held
 the fixture strings, ImageData bytes sit outside `usedJSHeapSize`) and is dropped.
 
-Bench definitions (fixed in the code, numbers to come): first paint = arm setup through 4 screens
-painted; decode = main-thread ms per screen; e2e = start to drawn, including the worker for B;
-scroll = rAF intervals over 80 frames, screens 4-7 built on demand; palette edit = one row
-changed, 4 visible screens repainted. B's main-thread figure (post + drawImage) excludes the
-deferred bitmap upload, so e2e is reported beside it. The page is standalone, not the widget:
-no sprites (doors null), no layer toggles.
+Evidence scope: headless Chromium 153.0.8010.12 (Playwright 1.63, headless shell), one Windows
+machine, WebGL on ANGLE over SwiftShader (software Vulkan, no GPU), 3 fresh pages per arm per
+map, maps $10A, $105, $101 (vanilla), first 8 screens each, 768x432 viewport, 256x432 screens.
+Standalone page, NOT the Theia widget: no RPC, no sprites (doors null), no layer toggles.
+Raw per-run JSON (27 runs): `fixtures/results.json` in the session scratchpad (ROM-derived, not
+committed). Cells are min-max over the 3 runs, ms. Definitions: first paint = arm setup through 4
+screens painted and 2 rAFs; main = main-thread ms per screen (B: post + drawImage only, which
+excludes the deferred bitmap upload); e2e = start to drawn per screen (for A and C equal to
+main); scroll = rAF intervals over 80 frames of 16 px, screens 4-7 built on demand one screen
+ahead; palette edit = one row changed, 4 visible screens repainted (A: needs a new server reply).
+Arm A = shipped decoder, plane putImageData and the real `composeScreen` + composite putImageData.
+Arm B = raster + `composeScreen` in a worker. Arm C = plane drawing only (no composite).
+
+| Map | Arm | first paint | main p50 / p95 | e2e p50 / p95 | scroll p50 / p95 / max | palette edit (4 screens) |
+|---|---|---|---|---|---|---|
+| $10A | A RGBA + composite | 157-189 | 36.8-41.8 / 45.6-61.0 | same | 16.6-16.7 / 37.8-40.0 / 44.2-56.3 | n/a |
+| $10A | B worker + composite | 176-281 | 0.5-0.8 / 0.8-1.1 | 35.4-58.0 / 44.9-72.1 | 16.6-16.7 / 17.6-17.8 / 17.8-18.5 | 133-216 |
+| $10A | C WebGL2 (no composite) | 62-81 | 7.0-7.5 / 25.1-32.8 | same | 16.6-16.7 / 17.7-17.9 / 18.1-18.8 | 31-35 |
+| $105 | A RGBA + composite | 127-219 | 29.4-49.2 / 44.7-67.8 | same | 16.7-16.8 / 29.8-56.2 / 48.8-60.2 | n/a |
+| $105 | B worker + composite | 189-438 | 0.5-0.9 / 0.7-1.1 | 31.1-81.8 / 47.2-115.7 | 16.6-16.7 / 17.7-18.1 / 17.9-18.9 | 117-267 |
+| $105 | C WebGL2 (no composite) | 56-76 | 4.9-8.0 / 26.1-31.9 | same | 16.5-16.7 / 17.6-18.0 / 17.9-29.3 | 22-32 |
+| $101 | A RGBA + composite | 175-243 | 40.9-62.9 / 48.4-78.7 | same | 16.6-16.8 / 40.7-67.6 / 44.5-73.3 | n/a |
+| $101 | B worker + composite | 211-319 | 0.7-1.3 / 1.3-1.4 | 41.6-64.7 / 51.0-81.8 | 16.6-16.7 / 17.7-18.0 / 18.1-30.5 | 150-266 |
+| $101 | C WebGL2 (no composite) | 61-73 | 7.7-8.5 / 26.8-35.2 | same | 16.6-16.7 / 17.6-17.7 / 17.9-18.1 | 30-32 |
+
+Arm A's composite alone (`composeScreen` on the main thread) is 28-54 ms of its per-screen
+cost, so decode + plane painting is about 8-9 ms. Arm B's worker time (35.7-52.2, 32.0-73.3,
+41.2-63.3 ms mean per screen on the three maps) is mostly the same composite. Canvas backing
+store is 23.6 MB in every arm (6 planes + composite x 8 screens x 256x432x4), an estimate.
+
+Arm A against the #989 shipped baseline (3.5-9 ms decode, 16.8 ms scroll p95). Arm A's decode
+plus plane painting, 8-9 ms, falls inside the baseline's decode range. The gap to the bench's
+total (29-63 ms main, scroll p95 30-68 ms against 16.8) is the composite: 28-54 ms of per-pixel
+`composeScreen` on a software-rendered headless run, which the #989 figures do not appear to
+include or to hit inside scroll frames (their harness is not this one; why its scroll p95 stays
+at 16.8 ms is not established here, only that this bench builds each screen synchronously inside
+the scroll loop). Treat A's absolute numbers as a headless worst case and compare arms only.
 
 The composite and the indexed arms. `composeScreen` reads plane RGBA, it cannot consume an
 ImageBitmap or a GL texture. Arm B therefore runs the composite in the worker (`importScripts`
@@ -88,10 +118,17 @@ or hover re-composites there. Arm C has no composite: it would need either a rea
 plane (`readPixels`) feeding the CPU `composeScreen` (cost: readback plus the composite measured
 in arm A, so the GPU buys nothing for painting), or porting ColorMath (CGADSUB, half, fixed color,
 backdrop, partial-alpha blend, door screen door and lift, about 260 lines of branchy code) to a
-shader: a multi-day job with its own oracle. Arm C numbers will cover plane drawing only.
+shader: a multi-day job with its own oracle. Arm C numbers cover plane drawing only.
 
-Table: pending (run `bench/run.cjs`; evidence scope will be machine, Chromium build, SwiftShader
-or GPU, 3 fresh pages per arm per map, maps $10A $105 $101).
+Reading. The composite, not the decode, is the dominant per-screen cost, and it is the same
+code in every arm. Moving it to a worker (B) removes it from the main thread: scroll p95 17.6-18.1
+ms against 30-68 ms for A. It does not make a screen appear sooner: B's end-to-end latency
+(31-82 ms p50) is about A's (29-63 ms), and B's first paint is slower (176-438 ms against
+127-243 ms) because of worker start and the serial composite. B's palette edit (117-267 ms for 4
+screens) is bound by re-compositing, not by raster (the CPU raster is a few ms a screen). C paints
+planes in 5-8 ms p50 and repaints after a palette edit in 22-35 ms, but p95 is 25-35 ms, its
+output still needs a composite C cannot do, and it ran on a software renderer. One 29-31 ms scroll
+max appears in 2 B runs and 1 C run; not explained.
 
 ## 5. Answers to the open questions
 
@@ -134,13 +171,15 @@ section 3) at server CPU cost, but the base64 string is still decoded on the UI 
 4. Indexed + WebGL2 (arm C). Same payload; adds shader code, context-loss handling and
    GPU-blocklist risk. Measured slower than B on software GL; untested on a real GPU.
 
-Recommendation: provisional, option 3 (indexed + CPU Worker), to be confirmed or reversed by the
-re-run. The payload result (about 125x smaller uncompressed, 7x to 14x after gzip) and the palette
-edit without a round trip are structural; the CPU arm needs no GPU and keeps the composite
-possible in the worker. Whether it also removes the main-thread stalls must come from the
-corrected section 4, which includes the composite for A and B. Options 1 and 2 cannot express a
-palette edit. Option 4 is only worth a real-GPU run after the composite question is answered
-(a shader port of ColorMath, or readback that defeats the point).
+Recommendation: option 3, indexed + CPU Worker with the composite in the worker. It is the only
+option here that takes both the rasterisation and the composite off the main thread (scroll p95
+17.6-18.1 ms against 30-68 ms), shrinks the payload about 125x, and makes a palette edit local
+(117-267 ms for 4 screens, composite-bound, with no server round trip). Be clear about what the
+numbers do not show: the scroll benefit comes from moving the composite off the main thread, which
+a worker could also do with today's RGBA planes (not measured, the cheapest follow-up check), and
+B does not lower per-screen latency or first paint. Options 1 and 2 leave the composite on the
+main thread and cannot express a palette edit. Option 4 is dropped for now: it fits no composite
+without a ColorMath shader port, and its plane-only timings came from a software renderer.
 
 ## 7. What this does not cover
 
