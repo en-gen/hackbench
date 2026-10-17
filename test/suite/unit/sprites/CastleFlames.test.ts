@@ -98,7 +98,8 @@ function flameRom(
 ) {
   const bytes = new Uint8Array(buildSyntheticRom(cart).buffer)
   const put = (snes: number, b: number[]) => {
-    expect(bytes.subarray(off(snes), off(snes) + b.length).every(v => v === 0)).toBe(true)
+    // Empty, or already these bytes: the synthetic cart's shell-loader site at $02A8C0 (#837) shares the route's first four.
+    expect(bytes.subarray(off(snes), off(snes) + b.length).every((v, i) => v === 0 || v === b[i])).toBe(true) // prettier-ignore
     bytes.set(b, off(snes))
   }
   put(0x02aa6c, spawn)

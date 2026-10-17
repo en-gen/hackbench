@@ -752,9 +752,10 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
       expect(r.sprites.some(s => s.unverified)).toBe(false)
       return [r.sprites.filter(s => s.status === 'drawn').length, r.sprites.length]
     })
+    // +1 on $105 and +3 on $106: the stationary shells ($DA-$DD, $DF) draw since #837.
     expect(got).toEqual([
-      [31, 34],
-      [21, 25],
+      [32, 34],
+      [24, 25],
     ])
   })
 })
