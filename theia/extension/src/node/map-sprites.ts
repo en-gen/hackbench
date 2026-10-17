@@ -62,6 +62,7 @@ import {
 } from '../../../../src/rom/sprites/interp/CastleFlames'
 import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { withSeed, type SpriteSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
+import { getSpriteMetadata } from '../../../../src/rom/model/sprites/SpriteMetadata'
 import { readSpriteTileTables } from '../../../../src/rom/SpriteTileLoader'
 import {
   drawSpriteParts,
@@ -537,6 +538,12 @@ const unverifiedNote = (sprites: readonly MapSpriteDto[]) => {
   return u ? `Unverified: ${sprites.filter(s => s.unverified).length} sprites ${u}.` : undefined
 }
 
+/** The sprite with its plain name from the app's sprite name table (#981); a sprite the table lacks keeps none. */
+const named = (s: MapSpriteDto): MapSpriteDto => {
+  const name = getSpriteMetadata(s.id)?.displayName
+  return name ? { ...s, name } : s
+}
+
 /** The reply for a stream: its sprites drawn, in the geometry of the map's screens. */
 export function spriteLayer(
   data: Uint8Array,
@@ -545,7 +552,9 @@ export function spriteLayer(
   dynamic?: (note: PaletteNote) => RgbaColor[],
 ): Extract<MapSpritesResult, { status: 'ok' }> {
   const { w, h } = screenTiles(model.isVertical)
-  const sprites = drawSprites(parseLevelSprites(data, model.isVertical), model, draw, dynamic)
+  const sprites = drawSprites(parseLevelSprites(data, model.isVertical), model, draw, dynamic).map(
+    named,
+  )
   return {
     status: 'ok',
     orientation: model.isVertical ? 'vertical' : 'horizontal',

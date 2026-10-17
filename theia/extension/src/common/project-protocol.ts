@@ -305,6 +305,8 @@ export type MapScreenResult =
 export interface MapSpriteDto {
   index: number
   id: number
+  /** The sprite's plain name for the hover and status bar (#981), from the app's sprite name table; absent when it has none. */
+  name?: string
   /** Anchor, the sprite's tile corner. */
   x: number
   y: number

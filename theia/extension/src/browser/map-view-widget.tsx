@@ -14,6 +14,7 @@
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message, Widget } from '@theia/core/lib/browser'
+import { StatusBar, StatusBarAlignment } from '@theia/core/lib/browser/status-bar/status-bar'
 import {
   MAP_PLANE_KEYS,
   MapCollisionCheckResult,
@@ -22,6 +23,7 @@ import {
   MapPlaneKey,
   MapScreenResult,
   MapBlockContentsResult,
+  MapSpriteDto,
   MapSpritesResult,
   ProjectService,
   SwitchFlagsDto,
@@ -31,6 +33,8 @@ import { ProjectContext } from './project-context'
 import { decodeRgba, TILE_PX } from './map16-pixels'
 import {
   spriteDoors,
+  spriteAt,
+  spriteLabel,
   doorIdAt,
   liftIfCovered,
   spritePlanes,
@@ -107,6 +111,8 @@ type BlockContents = Extract<MapBlockContentsResult, { status: 'ok' }> & {
 }
 /** The sprite canvases' key in place of a plane's: one per screen, between L2 and L1's priority plane. */
 const SPRITES = 'sprites'
+/** The status bar entry that names the clicked sprite (#981). */
+const SPRITE_STATUS_ID = 'hackbench.map-sprite'
 /** Each screen's display canvas: the screen at screen resolution when it holds indicators (#566). */
 const DISPLAY = 'display'
 type LayerKey = MapPlaneKey | typeof SPRITES | typeof DISPLAY
@@ -132,6 +138,7 @@ const palaceName = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
 export class MapViewWidget extends ReactWidget implements ProjectBound {
   @inject(ProjectService) protected readonly projects!: ProjectService
   @inject(ProjectContext) protected readonly projectContext!: ProjectContext
+  @inject(StatusBar) protected readonly statusBar!: StatusBar
 
   protected options: MapViewOptions | undefined
 
@@ -162,6 +169,9 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** The map's sprites (#564), once read; `spritesWhy` is why there are none to show. */
   protected sprites: Sprites | undefined
   protected spritesWhy: string | undefined
+  /** The sprite under the pointer (its label is the strip's tooltip) and the clicked one (its label is in the status bar), #981. */
+  protected hoverSprite: MapSpriteDto | undefined
+  protected selectedSprite: MapSpriteDto | undefined
   /** Bumped when `sprites` is replaced, so a canvas painted from the old ones is repainted. */
   protected spritesVersion = 0
   /** The collision overlay (#435); off by default. */
@@ -228,6 +238,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.title.closable = true
     this.node.tabIndex = 0
     this.toDispose.push({ dispose: () => this.resizes.disconnect() })
+    this.toDispose.push({ dispose: () => this.selectSprite(undefined) })
     this.toDispose.push(this.view)
     // Three consumers of one store, each deciding for itself.
     this.toDispose.push(
@@ -471,6 +482,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     // An older map's or edit's sprites must not land over a newer one.
     if (generation !== this.generation) return
     this.sprites = r.status === 'ok' ? r : undefined
+    this.hoverSprite = undefined
+    this.selectSprite(undefined)
     this.lift = undefined
     this.coveredIds.clear()
     this.spritesWhy = r.status === 'ok' ? undefined : r.status === 'unavailable' ? r.reason : `The base ROM ${r.baseRom.title} is not on this machine` // prettier-ignore
@@ -850,15 +863,42 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const p = this.pointer
     if (!strip || !l || !p) {
       this.setLift(undefined)
+      this.setHoverSprite(undefined)
       return this.setHover(undefined)
     }
     const r = strip.getBoundingClientRect()
     const [x, y] = [(p.x - r.left) / this.zoom, (p.y - r.top) / this.zoom]
     this.setLift(this.liftAt(x, y))
+    this.setHoverSprite(this.spriteUnder(x, y))
     if (!this.blocks) return this.setHover(undefined)
     const order = this.layerOrder(l)
     const shown = (q: Indicator['plane']) => order.includes(q) && this.layerShown(q)
     this.setHover(hoverTarget(this.blocks.indicators, x, y, shown, q => order.indexOf(q)) ?? undefined) // prettier-ignore
+  }
+
+  /** The topmost drawn sprite at the strip pixel (x, y), native units; none while sprites are toggled off. */
+  protected spriteUnder(x: number, y: number): MapSpriteDto | undefined {
+    const g = this.sprites
+    return g && this.showSprites ? spriteAt(g.sprites, g, x, y) : undefined
+  }
+
+  protected setHoverSprite(next: MapSpriteDto | undefined): void {
+    if (next === this.hoverSprite) return
+    this.hoverSprite = next
+    this.update()
+  }
+
+  /** View-only selection (#981): the sprite's label sits in the status bar until another click, a map change or close. */
+  protected selectSprite(next: MapSpriteDto | undefined): void {
+    if (next === this.selectedSprite) return
+    this.selectedSprite = next
+    if (next) {
+      this.statusBar.setElement(SPRITE_STATUS_ID, {
+        text: spriteLabel(next),
+        alignment: StatusBarAlignment.LEFT,
+        priority: 100,
+      })
+    } else this.statusBar.removeElement(SPRITE_STATUS_ID)
   }
 
   protected setHover(next: Indicator | undefined): void {
@@ -993,6 +1033,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   protected toggleSprites(): void {
     this.showSprites = !this.showSprites
+    if (!this.showSprites) {
+      this.hoverSprite = undefined
+      this.selectSprite(undefined)
+    }
     this.update()
     this.sync()
   }
@@ -1228,7 +1272,14 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
         >
           {/* Bottom to top (planes by `screens`, composited per screen): the checkerboard, the back area, then the screens,
               so hiding a layer shows what is under it, down to nothing. */}
-          <div className="hb-map-view-strip hb-checkerboard">
+          <div
+            className="hb-map-view-strip hb-checkerboard"
+            title={this.hoverSprite ? spriteLabel(this.hoverSprite) : undefined}
+            onClick={e => {
+              const strip = e.currentTarget.getBoundingClientRect()
+              this.selectSprite(this.spriteUnder((e.clientX - strip.left) / this.zoom, (e.clientY - strip.top) / this.zoom)) // prettier-ignore
+            }}
+          >
             <div
               className="hb-map-view-back-area"
               data-layer="back-area"
