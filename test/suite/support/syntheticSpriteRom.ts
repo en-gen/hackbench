@@ -14,15 +14,17 @@
  * 17 retries INIT and records $13/$14 per call; 18 draws its tile from $14; 19 writes a tile but
  * a Y only on odd frames; 14, 15 and 16 draw their tile from $13 (frame counter), $148B (RNG) and $76 (Mario direction). InitSpriteTables stores into a table indexed by X (the
  * slot) and GetRand steps an RNG at $148B, both with the vanilla call shape. The level
- * loader entries ($05:D8AE, $05:D8B7, $00:A635, $05:801E) carry the vanilla shape bytes
- * and small routines of our own. Ids 20, 21 and 22 draw like id 0 and set one CGRAM color
+ * loader entries ($05:D8B7, $00:A635, $05:801E and the rest) are small routines of our own,
+ * fingerprinted by syntheticLoaderSpans. Ids 20, 21 and 22 draw like id 0 and set one CGRAM color
  * in INIT: 20 through the NMI upload list ($0681/$0682), 21 through a MainPalette list
  * ($0703, with $0680 = 6), 22 through $2121/$2122; 23 sets one color directly then by the list, 24 appends a list color and requests the MainPalette upload in one frame, 25 sets two colors with one CGADD, 26 writes id 21's MainPalette list without requesting the upload, 28 writes mirror colors with no list header, 29 uploads a two-color list entry, 27 appends a list color in every MAIN pass, 30 burns ~196k steps per INIT and never leaves status 1; 31 draws at X then moves X by +4 each MAIN; 32 is 31 but draws only from its second MAIN; 103 is the line-guided grinder's id: its MAIN has the vanilla SHAPE the runner's gate reads (bank_01.asm:11837-11846, 12182-12204) around a draw then a +4 move. Options plant a defect for the oracle tests.
  */
 import { RomFile } from '../../../src/rom/RomFile'
 import type { DispatcherSpan } from '../../../src/rom/sprites/interp/SpriteDispatch'
 
+import { acceptLoaderSpans } from '../../../src/rom/sprites/interp/LevelLoader'
 import { putGm11Spans } from './syntheticGm11Spans'
+import { syntheticLoaderSpans } from './syntheticLoaderSpans'
 import { putGrinderRoutines } from './syntheticGrinder'
 
 export interface SyntheticOptions {
@@ -113,7 +115,15 @@ export const SYNTHETIC_DISPATCHER: DispatcherSpan = Object.freeze({
   fingerprints: Object.freeze(['5e321bdaabc6e582f75144b988d69dda7e2942736697a29d06e5f5f2ec6b9f3b']),
 })
 
+/** The synthetic cart; building it registers its span fingerprints with the level loader. */
 export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
+  const rom = buildBareSyntheticRom(o)
+  acceptLoaderSpans(syntheticLoaderSpans())
+  return rom
+}
+
+/** The cart as built, before the loader is told whose fingerprints to use (they are hashed from it). */
+export function buildBareSyntheticRom(o: SyntheticOptions = {}): RomFile {
   const rom = new Uint8Array(8 * BANK) // banks 0-7
   const put = (snes: number, bytes: number[]): void => {
     const bank = snes >>> 16
@@ -131,27 +141,28 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   const gb = o.fastRomGetRand ? 0x81 : 0x01
   put(0x01acf9, [0x5a, 0xa0, 0x01, 0x22, 0x07, 0xad, gb, o.badGetRand ? 0xea : 0x88, 0x22, 0x07, 0xad, gb, 0x7a, 0x6b]) // prettier-ignore
   put(0x01ad07, [0xee, 0x8b, 0x14, 0x6b]) // INC $148B / RTL
-  // Level loader: the vanilla shape bytes, then a small routine of our own after each.
+  // Level loader: hand-written stand-ins for the routines the loader fingerprints (syntheticLoaderSpans hashes them).
   const bad = (k: string, b: number) => (o.badLoader === k ? 0xea : b)
   // GM11's three calls, CODE_05D796's prologue and sublevel branch, and the JMP into the pointer loader.
   put(0x0096f4, [bad('callsite', 0x22), 0x96, 0xd7, 0x05])
-  put(0x0096f8, [0xa2, 0x07, 0xb5, 0x1a, 0x9d, 0x62, 0x14, 0xca, 0x10, 0xf8])
+  // Layer position copy, unrolled: $1A to $1462 and $1B to $1463 (only $1A is read downstream), ends at $9702.
+  put(0x0096f8, [0xa5, 0x1a, 0x8d, 0x62, 0x14, 0xa5, 0x1b, 0x8d, 0x63, 0x14])
   put(0x009705, [0x20, 0x35, 0xa6])
-  put(
-    0x009708,
-    [0xa9, 0x20, 0x85, 0x5e, 0x20, 0x96, 0xa7, 0xee, 0x04, 0x14, 0x22, 0xdb, 0xf6, 0x00],
-  )
-  put(0x009716, [0x22, 0x1e, 0x80, 0x05])
-  put(0x05d796, [bad('lead', 0x8b), 0x4b, 0xab, 0xe2, 0x30, 0x9c, 0xcf, 0x13, 0xad, 0x95, 0x1b, 0xd0, 0x05, 0xac, 0x25, 0x14, 0xf0, 0x03, 0x20, 0xac, 0xdb, 0xad, 0x1a, 0x14, 0xd0, 0x03, 0x4c, 0x3e, 0xd8]) // prettier-ignore
+  // Screen setup: LDX #$20 / STX $5E, $1404++, JSR $A796, JSL $F6DB; ends at $9716 (the JSL must be last: a hook's stray RTS lands there).
+  put(0x009708, [0xa2, 0x20, 0x86, 0x5e, 0xee, 0x04, 0x14, 0x20, 0x96, 0xa7, 0x22, 0xdb, 0xf6, 0x00]) // prettier-ignore
+  put(0x009716, [0x22, 0x1e, 0x80, 0x85]) // bank byte as the FastROM mirror of bank 5; never run (the loader enters $05:801E itself)
+  // CODE_05D796's place: LDA #1 / PHB PHK PLB / STA $141A (the sublevel flag) / JMP $D83B. The loader only fingerprints it.
+  put(0x05d796, [bad('lead', 0xa9), 0x01, 0x8b, 0x4b, 0xab, 0x8d, 0x1a, 0x14, 0x4c, 0x3b, 0xd8])
   put(0x05d83b, [bad('jump', 0x4c), 0xb7, 0xd8])
-  // CODE_05D8B7 shape, then SEP #$30 / LDA #7 / STA $1692 / STA $1A / PLB / RTL
-  put(0x05d8b7, [bad('pointers', 0xc2), 0x30, 0xa5, 0x0e, 0x0a, 0x18, 0x65, 0x0e, 0xa8, 0xe2, 0x30, 0xa9, 0x07, 0x8d, 0x92, 0x16, 0x85, 0x1a, 0xab, 0x6b]) // prettier-ignore
+  // Pointer loader: REP #$20 / LDA $0E / ASL / ASL / TAY, then SEP #$30 / LDA #7 / STA $1692 / STA $1A / PLB / RTL
+  put(0x05d8b7, [bad('pointers', 0xc2), 0x20, 0xa5, 0x0e, 0x0a, 0x0a, 0xa8, 0xe2, 0x30, 0xa9, 0x07, 0x8d, 0x92, 0x16, 0x85, 0x1a, 0xab, 0x6b]) // prettier-ignore
   putGm11Spans(put, o)
-  // CODE_00A635 shape, then LDA $0000 / LDA #6 / STA $71 / RTS
-  put(0x00a635, [bad('entrance', 0xad), 0xad, 0x14, 0x0d, 0xae, 0x14, 0x0d, 0x0c, 0x19, 0xd0, 0x0a, 0xad, 0x00, 0x00, 0xa9, 0x06, 0x85, 0x71, 0x60]) // prettier-ignore
-  // CODE_05801E shape, STA $7EC800,X, LDA #$77 / STA $5E (CODE_0584E3 rewrites $5E, bank_05.asm:560,
-  // so only a data loader run AFTER the screen setup leaves $77), then PLP RTL (or COP)
-  put(0x05801e, [bad('data', 0x08), 0xe2, 0x20, 0xc2, 0x10, 0xa2, 0x00, 0x00, 0xa9, 0x25, 0x9f, 0x00, 0xc8, 0x7e, 0xa9, 0x77, 0x85, 0x5e, ...(o.loaderCop ? [0x02, 0x00] : [0x28, 0x6b])]) // prettier-ignore
+  // Entrance setup: SEP #$20 / STZ $14AD / STZ $14AE / LDA #6 / STA $71 / RTS
+  put(0x00a635, [bad('entrance', 0xe2), 0x20, 0x9c, 0xad, 0x14, 0x9c, 0xae, 0x14, 0xa9, 0x06, 0x85, 0x71, 0x60]) // prettier-ignore
+  // Data loader: PHP / REP #$10 / SEP #$20 / LDA #$25 / LDX #0 / STA $7EC800,X / LDA #$77 / STA $5E
+  // (CODE_0584E3 rewrites $5E, bank_05.asm:560, so only a data loader run AFTER the screen setup
+  // leaves $77), then PLP RTL (or COP)
+  put(0x05801e, [bad('data', 0x08), 0xc2, 0x10, 0xe2, 0x20, 0xa9, 0x25, 0xa2, 0x00, 0x00, 0x9f, 0x00, 0xc8, 0x7e, 0xa9, 0x77, 0x85, 0x5e, ...(o.loaderCop ? [0x02, 0x00] : [0x28, 0x6b])]) // prettier-ignore
   // $01:808C sprite loop: PHB PHK PLB, X = $0B..0 { STX $15E9; JSR setup; JSR handle }
   put(0x01808c, [
     0x8b, 0x4b, 0xab, 0xa2, o.badLoop ? 0x0a : 0x0b, 0x8e, 0xe9, 0x15, 0x20, 0xd2, 0x80, 0x20, 0x27, 0x81, 0xca,
