@@ -20,7 +20,11 @@
  * ($0703, with $0680 = 6), 22 through $2121/$2122; 23 sets one color directly then by the list, 24 appends a list color and requests the MainPalette upload in one frame, 25 sets two colors with one CGADD, 26 writes id 21's MainPalette list without requesting the upload, 28 writes mirror colors with no list header, 29 uploads a two-color list entry, 27 appends a list color in every MAIN pass, 30 burns ~196k steps per INIT and never leaves status 1; 31 draws at X then moves X by +4 each MAIN; 32 is 31 but draws only from its second MAIN; 103 is the line-guided grinder's id: its MAIN has the vanilla SHAPE the runner's gate reads (bank_01.asm:11837-11846, 12182-12204) around a draw then a +4 move. Options plant a defect for the oracle tests.
  */
 import { RomFile } from '../../../src/rom/RomFile'
-import type { DispatcherSpan } from '../../../src/rom/sprites/interp/SpriteDispatch'
+import {
+  recognizeShapes,
+  type DispatcherSpan,
+  type ShapePrints,
+} from '../../../src/rom/sprites/interp/SpriteDispatch'
 
 import { putGm11Spans } from './syntheticGm11Spans'
 import { putGrinderRoutines } from './syntheticGrinder'
@@ -113,18 +117,43 @@ export const SYNTHETIC_DISPATCHER: DispatcherSpan = Object.freeze({
   fingerprints: Object.freeze(['5e321bdaabc6e582f75144b988d69dda7e2942736697a29d06e5f5f2ec6b9f3b']),
 })
 
+/**
+ * Our own 16-bit pointer-table jump for the ExecutePtr slot at $00:86FA (JSL with A = index, the table inline after
+ * the call): the index doubled into $08, the return address popped into the pointer at $0A-$0C, the table word read
+ * through it, JML [$000A]. Y is kept in $0D. The cells are ours, not the game's.
+ */
+export const SYNTHETIC_EXECUTE_PTR_CODE: readonly number[] = Object.freeze([
+  0x84, 0x0d, 0x7a, 0x84, 0x0a, 0xc2, 0x30, 0x29, 0xff, 0x00, 0x0a, 0x85, 0x08, 0x68, 0x85, 0x0b,
+  0xa4, 0x08, 0xc8, 0xb7, 0x0a, 0x85, 0x0a, 0xe2, 0x30, 0xa4, 0x0d, 0xdc, 0x0a, 0x00,
+]) // prettier-ignore
+
+/** The reader's view of this cart's own shapes: committed digests of the bytes above and below, operands masked. */
+export const SYNTHETIC_SHAPES: ShapePrints = Object.freeze({
+  executePtr: {
+    length: 30,
+    mask: [1, 4, 12, 15, 17, 20, 22, 26, 28],
+    sha: '840add179e965c9665553a3dae0bba2e206cbbf92f061e463419c6d76ac9cfad',
+  },
+  callSpriteInit: {
+    length: 9,
+    mask: [],
+    sha: '440c69bc2914d82a8bac77ec395e2f835635ff4d8f4ca49507bc1ca2c6213729',
+  },
+  blockStatus: {
+    length: 11,
+    mask: [3, 4, 6, 7],
+    sha: '31acb58a116da0ba70c7afcb96012ae24c8758e4e09d85c57d1fabeaba39ecc2',
+  },
+})
+recognizeShapes(SYNTHETIC_SHAPES)
+
 export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   const rom = new Uint8Array(8 * BANK) // banks 0-7
   const put = (snes: number, bytes: number[]): void => {
     const bank = snes >>> 16
     rom.set(bytes, bank * BANK + ((snes & 0xffff) - 0x8000))
   }
-  // ExecutePtr at $00:86FA, the 16-bit pointer-table jump: reads the return address as the table base,
-  // indexes it by A, jumps through DP in bank 1. The shape the runner reads (checkExecutePtr) fixes the
-  // opcodes and leaves the direct-page cells free, so this uses $0A-$0D, not the game's scratch cells.
-  const [save, ptr] = [0x0d, 0x0a] // Y saved here; the 3-byte pointer at $0A-$0C
-  const [STY, PLY, REP, AND, ASL, TAY, PLA, STA, INY, LDAL, SEP, LDY, JML] = [0x84, 0x7a, 0xc2, 0x29, 0x0a, 0xa8, 0x68, 0x85, 0xc8, 0xb7, 0xe2, 0xa4, 0xdc] // prettier-ignore
-  put(0x0086fa, [STY, save, PLY, STY, ptr, REP, 0x30, AND, 0xff, 0x00, ASL, TAY, PLA, STA, ptr + 1, INY, LDAL, ptr, STA, ptr, SEP, 0x30, LDY, save, JML, ptr, 0x00]) // prettier-ignore
+  put(0x0086fa, [...SYNTHETIC_EXECUTE_PTR_CODE])
   // $07:F7D2 InitSpriteTables: JSL / JSL / RTL. The first stub stores into a table
   // indexed by X, so a run that does not set X to the slot leaves the wrong cell.
   put(0x07f7d2, [o.badInitTables ? 0xea : 0x22, 0xa0, 0xf7, 0x07, 0x22, 0xb0, 0xf7, 0x07, 0x6b])
@@ -175,7 +204,7 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   )
   put(0x018160, [0x60])
   // $01:8170 CallSpriteInit, table of 201 words after the JSL.
-  put(0x018170, [0xa9, 0x08, 0x9d, 0xc8, 0x14, 0xb5, 0x9e, 0x22, o.badExecutePtr ? 0x00 : 0xfa, 0x86, 0x00]) // prettier-ignore
+  put(0x018170, [0xa0, 0x08, 0x98, 0x9d, 0xc8, 0x14, 0xb5, 0x9e, 0x22, o.badExecutePtr ? 0x00 : 0xfa, 0x86, 0x00]) // prettier-ignore
   // $01:8320 CallSpriteMain.
   put(0x018320, [0x9c, 0x00, 0x14, 0xb5, 0x9e, 0x22, 0xfa, 0x86, 0x00])
   const initTable = Array.from({ length: 201 }, () => 0x8600)
@@ -224,7 +253,7 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   if (o.id31IsGrinder) mainTable[31] = 0x9500
   for (const id of [20, 21, 22, 23, 24, 25]) mainTable[id] = 0x8640
   const words = (t: number[]) => t.flatMap(w => [w & 0xff, w >> 8])
-  put(0x018170 + 11, words(initTable))
+  put(0x018170 + 12, words(initTable))
   put(0x018320 + 9, words(mainTable))
   // $02:8905 GenSpriteFromBlk (item block spawn): the vanilla shapes at its entry and at $028922, then a
   // body of our own: status from a table indexed by the content index $05, sprite number from another,
@@ -241,7 +270,7 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   put(0x02a9e4, [0x64, 0x0e, 0x8b, 0x4b, 0xab, 0xa0, 0x07, 0xab, 0x6b]) // FindFreeSprSlot stand-in (its STZ $0E / PHB PHK PLB opening): Y = 7
   // The free-slot hit branches to a JMP $8922 at $028912 (a displacement of 6, not the game's), so the head shares no 8 bytes with it.
   put(0x028905, [o.badSpawn === 'head' ? 0xea : 0xa2, 0x0b, 0xbd, 0xc8, 0x14, 0xf0, 0x06, 0xca, 0xe0, 0xff, 0xd0, 0xf6, 0x6b, 0x4c, 0x22, 0x89]) // prettier-ignore
-  put(0x028922, [o.badSpawn === 'status' ? 0xea : 0x8e, 0x61, 0x18, 0xa4, 0x05, 0xb9, 0xc5, 0x88, 0x9d, 0xc8, 0x14, 0xb9, 0xa3, 0x88, 0x95, 0x9e, 0x22, 0xd2, 0xf7, 0x07]) // prettier-ignore
+  put(0x028922, [o.badSpawn === 'status' ? 0xea : 0xa4, 0x05, 0x8e, 0x61, 0x18, 0xb9, 0xc5, 0x88, 0x9d, 0xc8, 0x14, 0xb9, 0xa3, 0x88, 0x95, 0x9e, 0x22, 0xd2, 0xf7, 0x07]) // prettier-ignore
   put(
     0x028936,
     o.spawnLoop

@@ -84,11 +84,6 @@ interface Region {
 }
 const MAX_SPAN = 0x40
 const ALLOWED: Region[] = [
-  { from: 0x0086fa, to: 0x008715, hits: 2, why: 'EXECUTE_PTR_SHAPE (SpriteDispatch.ts): 9 fixed bytes, immediates included, in a row' },
-  { from: 0x018170, to: 0x018170, hits: 1, why: 'resolveTables CallSpriteInit shape: 8 fixed bytes' },
-  { from: 0x019200, to: 0x019210, hits: 5, why: 'LineGuided.ts ENTRY: 11 fixed bytes of the grinder handler' },
-  { from: 0x019500, to: 0x019510, hits: 5, why: 'the same shape (id 31 pointing at the grinder handler)' },
-  { from: 0x028924, to: 0x028926, hits: 2, why: 'block spawn status write (SpriteDispatch.ts): the first window starts on a free operand byte whose value matches, the second is fixed shape plus the StatusOfSprInBlk address BlockContents reads' }, // prettier-ignore
   { from: 0x02a8ac, to: 0x02a8ac, hits: 1, why: 'ShellSprites.ts PATH: the generator floor compare and its fixed branch; the compare operands have the vanilla values, chosen so the shell logic keeps its vanilla meaning' }, // prettier-ignore
   { from: 0x02a97c, to: 0x02a97c, hits: 1, why: 'ShellSprites.ts PATH: the status compare and the number step; operand values chosen as the vanilla ones' }, // prettier-ignore
   // Owned by the Golf Team (LevelLoader, GM11 spans, OverworldAreas): their cleanup removes these.

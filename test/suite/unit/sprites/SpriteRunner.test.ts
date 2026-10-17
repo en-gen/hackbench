@@ -51,7 +51,7 @@ describe('sprite loop reader', () => {
 describe('dispatch reader', () => {
   it('reads both table bases from the dispatch code', () => {
     const t = resolveTables(rom)
-    expect(t).toEqual({ ok: true, tables: { initTable: 0x01817b, mainTable: 0x018329 } })
+    expect(t).toEqual({ ok: true, tables: { initTable: 0x01817c, mainTable: 0x018329 } })
   })
   it('refuses a HandleSprite that is not the known shape', () => {
     const t = resolveTables(buildSyntheticRom({ badDispatch: true }))
