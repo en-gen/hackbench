@@ -10,7 +10,13 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { unzip } from '../../../tools/scripts/capture_render'
 import { decode4bpp } from '../../../src/rom/GraphicsDecoder'
-import { dynamicChars, MARIO_GFX_BASE, readMarioGraphics } from '../../../src/rom/MarioGraphics'
+import type { RomFile } from '../../../src/rom/RomFile'
+import {
+  dynamicChars,
+  MARIO_GFX_BASE,
+  readMarioGraphics,
+  type MarioBuffer,
+} from '../../../src/rom/MarioGraphics'
 import { L1ModelCache } from '../../../theia/extension/src/node/map-screen'
 import { mapSprites } from '../../../theia/extension/src/node/map-sprites'
 import { CAPTURE_DIR, freshRom, hasCaptures, hasRom, romPath, VANILLA } from '../support/corpus'
@@ -28,11 +34,12 @@ const slot = (vram: Uint8Array, i: number) => {
 describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
   'Mario graphics buffer vs hardware VRAM (#980)',
   () => {
-    const rom = freshRom()
-    const built = readMarioGraphics(rom)
-    const buffer = built.ok ? built.bytes : new Uint8Array()
-    const tiles = Array.from({ length: 384 }, (_, t) => Buffer.from(buffer.subarray(0x5d00 + t * 32, 0x5d00 + t * 32 + 32)).toString('hex')) // prettier-ignore
-    const index = new Map(tiles.map((h, t) => [h, t] as const))
+    // Loaded when the suite runs, not when it is collected: a skipped suite's body still executes.
+    let rom: RomFile
+    let built: MarioBuffer
+    let buffer = new Uint8Array()
+    let tiles: string[] = []
+    let index = new Map<string, number>()
     const tally = {
       pose: [0, 0],
       podoboo: [0, 0],
@@ -42,6 +49,11 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
     }
 
     it('reads the buffer from the cart', () => {
+      rom = freshRom()
+      built = readMarioGraphics(rom)
+      buffer = built.ok ? built.bytes : buffer
+      tiles = Array.from({ length: 384 }, (_, t) => Buffer.from(buffer.subarray(0x5d00 + t * 32, 0x5d00 + t * 32 + 32)).toString('hex')) // prettier-ignore
+      index = new Map(tiles.map((h, t) => [h, t] as const))
       expect(built).toMatchObject({ ok: true })
     })
 
