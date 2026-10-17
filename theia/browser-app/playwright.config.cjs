@@ -5,6 +5,26 @@ const { isolateAppData } = require('./test/app-data.cjs')
 // it starts use a per-run app-data folder, never the user's (#637).
 isolateAppData()
 
+// The webServer runs the build output; a node_modules shared with another
+// checkout would serve that checkout's extension (#1038). The unit gates that
+// only load this file set HB_SKIP_INSTALL_GUARD: they must pass in a
+// junctioned worktree, which is exactly what the guard refuses to build in.
+// The guard finds the checkout from the cwd and PWD, not __dirname: node
+// resolves __dirname through a junctioned theia folder to the main checkout,
+// which would always pass.
+if (!process.env.HB_APP_URL && !process.env.HB_SKIP_INSTALL_GUARD) {
+  const guard = require('path').join(
+    __dirname,
+    '..',
+    '..',
+    'tools',
+    'scripts',
+    'check-theia-install.mjs',
+  )
+  const r = require('child_process').spawnSync(process.execPath, [guard], { encoding: 'utf8' })
+  if (r.status !== 0) throw new Error(r.stderr || 'check-theia-install failed')
+}
+
 // Concurrent runs (run-lock slots) must not share a port. An unset port is
 // replaced by a free one found now, in this process, and written to process.env:
 // workers are forked after config load and inherit it, so config, specs and

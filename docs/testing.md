@@ -939,9 +939,19 @@ node "$MAIN_CHECKOUT/tools/scripts/run-lock.mjs" release --owner "<team> <worktr
   `test:unit` only: the corpus and timing vitest configs and Theia builds are
   uncapped. The value is a starting point, not measured under 3 concurrent
   runs.
-- Known limit: worktrees whose `theia/node_modules` is a junction to the main
-  checkout share build state, so they must not build Theia concurrently even
-  with separate lock slots.
+- Shared installs are refused (#1038). `tools/scripts/check-theia-install.mjs`
+  runs as the Theia `prebuild*` hooks and at the top of the Playwright config
+  (unless `HB_APP_URL` or `HB_SKIP_INSTALL_GUARD` is set; the unit gates that
+  only load the config set the latter). It fails when the `theia` folder or
+  `theia/node_modules` is a junction or link, a
+  `hackbench-*` workspace link resolves outside the checkout, or a package
+  `node_modules` or `theia/node_modules/.cache` is a link out. Such a worktree
+  would bundle another checkout's extension and share its nx cache. Fix for a
+  junction: remove it WITHOUT a recursive delete (`cmd /c rmdir`, with
+  backslashes: `theia\node_modules`), then `yarn --cwd theia install` in that
+  worktree. For a linked `theia` folder, remove the link, `git checkout -- theia`,
+  then install. Evidence: synthetic layouts, one Windows machine; 8.3 short
+  paths compare through native realpath but are untested. The checkout is found from INIT_CWD, a PWD equal to the cwd, or the cwd, because POSIX cwd is the symlink target; that path is simulated on Windows (cwd in the target, logical path in the env) and never run on POSIX.
 - `owner.txt` holds `owner:`, `purpose:` and `started:` (UTC) lines.
 - Only the owner removes a lock slot, with `release` and the exact same id (no
   prefix, no padding; only the slot whose `owner:` matches is freed; blank ids and line breaks (CR, LF, U+2028, U+2029) are refused). A wrong or
