@@ -134,7 +134,7 @@ describe('writeAtomic', () => {
     const dir = fresh()
     const path = join(dir, 'f.json')
     writeFileSync(path, 'old')
-    mkdirSync(`${path}.tmp`)
+    mkdirSync(`${path}.${process.pid}.tmp`)
     expect(() => writeAtomic(path, 'new')).toThrow()
     expect(readFileSync(path, 'utf8')).toBe('old')
   })

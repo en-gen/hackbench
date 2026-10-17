@@ -7,6 +7,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { openProject } from './Project'
+import { writeFileAtomic } from './atomicWrite'
 
 export type MetaConcern = 'aliases' | 'groups' | 'data-banks'
 
@@ -40,14 +41,9 @@ export function writeMeta(manifestPath: string, concern: MetaConcern, value: unk
   const file = metaPath(manifestPath, concern)
   fs.mkdirSync(path.dirname(file), { recursive: true })
 
-  // Pid in the name so two processes writing the same concern do not race
-  // on one temp file.
-  const tmp = `${file}.${process.pid}.tmp`
-  fs.writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
-  try {
-    fs.renameSync(tmp, file)
-  } catch (err) {
-    fs.rmSync(tmp, { force: true })
-    throw err
-  }
+  writeFileAtomic(
+    file,
+    `${JSON.stringify(value, null, 2)}
+`,
+  )
 }

@@ -2,8 +2,9 @@
  * One sweep run's state handling for tools/scripts/hack-sweep.ts, kept apart so a
  * fake sweeper can drive it in a test without a ROM.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync } from 'fs'
 import { join } from 'path'
+import { writeFileAtomic } from '../../src/project/atomicWrite'
 import {
   HackRecord,
   diffRuns,
@@ -29,11 +30,7 @@ export function batchSize(raw: string | undefined): number {
 }
 
 /** A killed run must never leave a half-written file where the next run reads its state. */
-export function writeAtomic(path: string, text: string): void {
-  const tmp = `${path}.tmp`
-  writeFileSync(tmp, text)
-  renameSync(tmp, path)
-}
+export const writeAtomic = writeFileAtomic
 
 /** Null when the file is absent; a file that is there but unreadable stops the run, before any sweeping. */
 export function loadState(path: string): { state: SweepState; text: string } | null {
