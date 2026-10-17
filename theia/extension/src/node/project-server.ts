@@ -14,10 +14,10 @@ import {
 } from '../../../../src/project/Project'
 import { CoreRegistry } from '../../../../src/project/CoreRegistry'
 import { RecentProjects } from '../../../../src/project/RecentProjects'
-import { RomFile } from '../../../../src/rom/RomFile'
 import { buildMapTree, MapTree } from '../../../../src/rom/MapTree'
 import { readLevelStart } from '../../../../src/rom/LevelStart'
 import {
+  romFileOf,
   smwRomOf,
   WorkingRomRegistry,
   WorkingRomResult,
@@ -172,7 +172,7 @@ export class ProjectServiceImpl implements ProjectService {
     if (r.status !== 'ok') return r
     const bytes = r.working.bytes()
     const built = this.screens.get(bytes, r.romPath, index, SWITCH_FLAGS_UNCLEARED)
-    const rom = RomFile.fromBytes(r.romPath, Buffer.from(bytes))
+    const rom = romFileOf(r)
     return toolbarArtOf(rom, built, this.screens.art(bytes, r.romPath))
   }
 
