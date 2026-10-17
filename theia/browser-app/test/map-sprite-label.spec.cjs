@@ -20,9 +20,10 @@ const ROM = process.env.HB_ROM || romPath(VANILLA)
 test.skip(!fs.existsSync(ROM), `vanilla ROM not present at ${ROM}`)
 
 // Map $105: a hidden (screen door) Jumping Piranha Plant, stream index 11, id $4F (#879, D52).
-const HIDDEN = { slot: 0x105, index: 11, id: 0x4f, name: 'Jumping Piranha Plant' }
-// An overlapping pair, pinned by a sweep: see PAIR_NOTE.
-const PAIR = { slot: 0, a: { index: 0, id: 0 }, b: { index: 0, id: 0 } }
+const HIDDEN = { slot: 0x105, index: 11, id: 0x4f, name: 'Piranha Plant (jumping)' }
+// An overlapping pair, pinned by a mapSprites sweep over slots $100-$1FF (first hit, one run, one machine).
+// Map $105: Banzai Bill (index 1, id $9F, x 496) and Rex (index 2, id $AB, x 528) share 207 opaque pixels.
+const PAIR = { slot: 0x105, a: { index: 1, id: 0x9f }, b: { index: 2, id: 0xab } }
 
 const GET_SVC = `function getSvc(name) {
   const d = window.theia.container._bindingDictionary
@@ -130,16 +131,37 @@ async function pointAt(page, slot, map, x, y) {
   return p
 }
 
-/** A map pixel where `pick(x, y)` holds: scans in 4 px steps, so the choice does not depend on the view. */
-function findPixel(map, pick) {
-  for (let y = 0; y < map.mapH; y += 4) for (let x = 0; x < map.mapW; x += 4) if (pick(x, y)) return { x, y } // prettier-ignore
+/** The map pixel nearest `near` (4 px steps, growing squares) where `pick(x, y)` holds, so scrolling to it moves the view little. */
+function findPixel(map, pick, near = { x: 0, y: 0 }) {
+  for (let r = 0; r < Math.max(map.mapW, map.mapH); r += 4) {
+    for (let dy = -r; dy <= r; dy += 4) {
+      for (let dx = -r; dx <= r; dx += 4) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue
+        const [x, y] = [near.x + dx, near.y + dy]
+        if (x >= 0 && y >= 0 && x < map.mapW && y < map.mapH && pick(x, y)) return { x, y }
+      }
+    }
+  }
   return undefined
 }
 
-/** An opaque pixel of `s` that `s` itself owns (nothing above it). */
+/** No sprite has an opaque pixel within 3 px, so a half-pixel of zoom rounding cannot land on one. */
+function clearAround(map, x, y) {
+  for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) if (map.stack.some(s => map.opaque(s, x + dx, y + dy))) return false // prettier-ignore
+  return true
+}
+
+/** An opaque pixel of `s` that `s` itself owns, with its 2 px neighbourhood owned too, so a half-pixel of zoom rounding cannot land on a neighbour. */
 function ownPixel(map, s) {
   const { x0, y0, x1, y1 } = s.box
-  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (map.ownerAt(x, y) === s) return { x, y } // prettier-ignore
+  const own = (x, y) => map.ownerAt(x, y) === s
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      let all = true
+      for (let dy = -2; dy <= 2 && all; dy++) for (let dx = -2; dx <= 2 && all; dx++) all = own(x + dx, y + dy) // prettier-ignore
+      if (all) return { x, y }
+    }
+  }
   return undefined
 }
 
@@ -162,14 +184,20 @@ test('AC1, AC3: hovering a sprite titles it with its name and $id; clicking puts
   await page.mouse.click(p.x, p.y)
   await expect(page.locator('#theia-statusBar')).toContainText(label)
 
-  const empty = findPixel(
-    map,
-    (x, y) => !map.ownerAt(x, y) && !map.stack.some(s => map.opaque(s, x, y)),
-  )
+  const empty = findPixel(map, (x, y) => clearAround(map, x, y), at)
   const e = await clientOf(page, slot, map, empty.x, empty.y)
   await page.mouse.click(e.x, e.y)
   await expect(page.locator('#theia-statusBar')).not.toContainText(label)
   expect(await statusText(page)).not.toContain('(sprite $')
+
+  // Selected again, the sprite toggle going off clears it, and a sprite that is not drawn has no tooltip.
+  const again = await clientOf(page, slot, map, at.x, at.y)
+  await page.mouse.click(again.x, again.y)
+  await expect(page.locator('#theia-statusBar')).toContainText(label)
+  await page.locator(`${rootOf(slot)} [data-control="layer-sprites"]`).click()
+  await expect(page.locator('#theia-statusBar')).not.toContainText(label)
+  await pointAt(page, slot, map, at.x, at.y)
+  await expect.poll(() => titleOf(page, slot)).toBeNull()
 })
 
 test('AC2: hovering empty ground leaves the strip without a sprite tooltip', async ({ page }) => {
@@ -179,7 +207,7 @@ test('AC2: hovering empty ground leaves the strip without a sprite tooltip', asy
   const on = ownPixel(map, sprite)
   // On the sprite first, so a missing tooltip is not just "sprites not loaded yet".
   await expect.poll(async () => { await pointAt(page, slot, map, on.x, on.y); return titleOf(page, slot) }, { timeout: 30000 }).toContain('(sprite $') // prettier-ignore
-  const empty = findPixel(map, (x, y) => !map.stack.some(s => map.opaque(s, x, y)))
+  const empty = findPixel(map, (x, y) => clearAround(map, x, y), on)
   await pointAt(page, slot, map, empty.x, empty.y)
   await expect.poll(() => titleOf(page, slot)).toBeNull()
 })
@@ -192,7 +220,7 @@ test('AC4: where two sprites overlap, the tooltip names the one drawn on top (co
     map.stack.find(s => s.index === k.index && s.id === k.id),
   )
   expect(a && b, 'the pinned pair is on the map').toBeTruthy()
-  const both = findPixel({ ...map, mapW: map.mapW, mapH: map.mapH }, (x, y) => map.opaque(a, x, y) && map.opaque(b, x, y)) // prettier-ignore
+  const both = findPixel(map, (x, y) => map.opaque(a, x, y) && map.opaque(b, x, y), a) // prettier-ignore
   expect(both, 'the pair shares an opaque pixel').toBeTruthy()
   const [top, under] = map.ownerAt(both.x, both.y) === a ? [a, b] : [b, a]
   expect(map.stack.indexOf(top)).toBeGreaterThan(map.stack.indexOf(under))
@@ -203,7 +231,7 @@ test('AC4: where two sprites overlap, the tooltip names the one drawn on top (co
 test('AC5: a hidden (screen door) sprite shows its id too', async ({ page }) => {
   const map = await openMap(page, HIDDEN.slot)
   const plant = map.stack.find(s => s.index === HIDDEN.index && s.id === HIDDEN.id)
-  expect(plant, 'sprite 11 of map $105 is the Jumping Piranha Plant').toBeTruthy()
+  expect(plant, 'sprite 11 of map $105 is the jumping Piranha Plant').toBeTruthy()
   const at = ownPixel(map, plant)
   await expect.poll(async () => { await pointAt(page, HIDDEN.slot, map, at.x, at.y); return titleOf(page, HIDDEN.slot) }, { timeout: 30000 }).toBe(`${HIDDEN.name} (sprite ${hex(HIDDEN.id)})`) // prettier-ignore
 })
