@@ -1,10 +1,13 @@
 /**
- * Line-guided travel and TrueFrame parity (#1029). The vanilla line step advances its track index by 1 each
- * frame and by 1 more on an odd TrueFrame when $187B is nonzero (SMWDisX bank_01.asm:11863-11882), so the
- * sprite covers 10 or 11 px between two samples depending on the parity the run starts at. The map view keeps
- * its third-pass policy frame (no render change); this pins the runner's frame counters that the travel rides on.
- * Synthetic cart: ids 34 (INIT sets $187B) and 35 (INIT is RTS) share a hand-written MAIN that puts X at
- * $80 plus the index and then advances the index as the game's step does. No ROM, no vanilla bytes.
+ * Line-guided travel and TrueFrame parity (#1029). CODE_01D768 (SMWDisX bank_01.asm:11863-11882) dispatches on
+ * $157C (11866-11867) to the forward walk (index +1) or the reverse walk CODE_01D792 (11884-11899, $1570 -1);
+ * with $187B nonzero both take one more step on an odd TrueFrame, so the sprite covers 10 or 11 px between two
+ * samples depending on the parity the run starts at. This file pins the runner's TrueFrame feed to a walk of
+ * that shape (generic, not one ROM branch): the synthetic MAIN below copies the forward walk's INC pair. The
+ * witnessed $65-$68 records all run $157C=1 (the reverse walk) and only $62 reaches the forward walk, so the
+ * replay file is what ties the feed to the reverse walk. The map view keeps its third-pass policy frame (no
+ * render change). Synthetic cart: ids 34 (INIT sets $187B) and 35 (INIT is RTS) share a hand-written MAIN. No
+ * ROM, no vanilla bytes.
  */
 import { describe, expect, it } from 'vitest'
 import { freshRom, hasRom, VANILLA } from '../../support/corpus'
@@ -119,6 +122,8 @@ describe('the added routines carry no vanilla bytes', () => {
     })
   })
 
+  // Only the 24-byte MAIN holds 8-byte windows; INIT (4 bytes) and the pointer cells (2) are too short to,
+  // so this control is what proves the scan above is not vacuous.
   it('has windows to scan: the routines are long enough to hold at least one', () => {
     expect(windows(Uint8Array.from(ROUTINES[1]![1])).length).toBeGreaterThan(0)
   })
