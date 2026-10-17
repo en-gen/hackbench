@@ -11,7 +11,7 @@ on Eclipse Theia and Electron.
 | understand how it is put together      | [architecture/overview.md](architecture/overview.md)                                     |
 | know what a word means here            | [glossary.md](glossary.md)                                                               |
 | contribute                             | [codebase map](architecture/codebase-map.md), then [CONTRIBUTING.md](../CONTRIBUTING.md) |
-| know the house rules for docs         | [CONVENTIONS.md](CONVENTIONS.md)                                                         |
+| know the house rules for docs          | [CONVENTIONS.md](CONVENTIONS.md)                                                         |
 
 ## Current state
 
@@ -84,6 +84,8 @@ cited to the disassembly.
 - [rom/smw-overworld-levels.md](rom/smw-overworld-levels.md) - overworld
   level mapping
 - [rom/smw-overworld-wram.md](rom/smw-overworld-wram.md) - overworld WRAM tables
+- [rom/layer3-world-locked.md](rom/layer3-world-locked.md) - Layer 3 on settings
+  byte $81-$BF: load Y, per-frame scroll, entrance camera, drawing rule
 - [rom/level-rendering.md](rom/level-rendering.md) - the level rendering pipeline
 - [rom/obj-priority.md](rom/obj-priority.md) - OBJ priority and the
   compositor pass list

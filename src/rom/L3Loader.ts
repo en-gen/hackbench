@@ -46,8 +46,6 @@
 import type { RomFile } from './RomFile'
 import type { MapEntrances } from './SmwRom'
 import { readLayer3Setting } from './ObjectExpander'
-import { applyCameraHorizX } from './scroll/cameraMarioX'
-import type { ScrollState } from './scrollSim'
 
 // ── VRAM / table addresses ────────────────────────────────────────────────────
 
@@ -330,19 +328,6 @@ export function l3LoadTimeY(settingsByte: number, tileset: number): number | nul
   if (settingsByte < 0x80) return settingsByte === 0x01 ? 0x70 : 0x40
   if (settingsByte >= 0xc0 || settingsByte === 0x80) return 0xd0
   return tileset === 1 || tileset === 3 ? 0xc0 : null
-}
-
-/**
- * Layer1XPos when the level has loaded and Layer 3 starts to follow it: GM11's UpdateScreenPosition
- * (bank_00.asm:13631-13691) runs the horizontal camera once from X 0 toward Mario's start, so the
- * camera is `applyCameraHorizX` of a state that holds only that start (HorizLayer1Setting 1,
- * CameraMoveTrigger $80, the stock values). Captured $1C1 reads 652 where this gives 653: the
- * +1 of CODE_00F8AB (bank_00.asm:13873-13895) is not in the game's load call, or Mario starts
- * one pixel left; one pixel, not resolved (docs/rom/layer3-camera-locked.md).
- */
-export function entranceCameraX(startX: number, screens: number): number {
-  const s = { screenMode: 0, horizLayer1Setting: 1, cameraMoveTrigger: 0x80, playerXPosNext: startX, layer1XPos: 0, lastScreenHoriz: screens } // prettier-ignore
-  return applyCameraHorizX(s as unknown as ScrollState).layer1XPos
 }
 
 // ── Routine classification (editor metadata) ────────────────────────────────

@@ -28,8 +28,8 @@ Off Castle1 and Underground1:
 - X: a target speed of $40 (DATA_05CBEB first byte $04, shifted left 4; direction 1 keeps it
   positive) is approached by +4 per frame (DATA_05CBBB, bank_05.asm:6318, 6338), reaching it after
   16 frames; the speed is 1/256 px per frame, so the cruise is 1/4 px per frame to the right of the
-  scroll, the picture moving left. Layer3XPos also adds the signed low byte of Layer1DXPos, the
-  camera's movement that frame (5524-5568).
+  scroll, the picture moving left (drift, bank_05.asm:5546-5558). Layer3XPos then adds the signed low
+  byte of Layer1DXPos, the camera's movement that frame (5559-5568).
 
 So Layer 3 is world-locked: BG3's scroll is the camera's movement since load plus the drift. Captured
 BG3HOFS is 6 at frame 17 on $1C1 (camera 652), BG3VOFS equals the camera Y.
@@ -38,10 +38,25 @@ BG3HOFS is 6 at frame 17 on $1C1 (camera 652), BG3VOFS equals the camera Y.
 
 Layer3XPos is 0 when the layer starts following; the camera is already at its entrance X (captured $1C1:
 Layer1XPos 652 with Layer3XPos 1). Tilemap column 0 therefore sits at map X = the entrance camera X.
-`entranceCameraX` runs the ported horizontal camera tracking once from X 0 toward Mario's start
-(bank_00.asm:13631-13691); on $1C1 it gives 653 where the capture shows 652 (CODE_00F8AB's +1, bank_00.asm:13873-13895;
-unresolved, one pixel). $011 and $130 give 0, as captured. A start through a secondary entrance is not
-modelled (the existing entrance-position note applies).
+
+The camera at load comes from GM11LoadLevel: CODE_00A635, LastScreenHoriz = $20, then UpdateScreenPosition
+once (bank_00.asm:2650-2656, 13631-13691). Before that call CODE_00A635 zeroes $13DA-$1410
+(bank_00.asm:4943-4946), so CameraScrollPlayerDir is 0 and CODE_00F8AB (bank_00.asm:13873-13895) takes
+Y = $0A, DATA_00F6BF[$0A] = $0002: the +/-1 adjustment never applies on a move to the right. So the camera is
+start - $8C (the right buffer: CameraMoveTrigger $80 + $0C) when Mario starts past $8C, else 0, and at most
+(LastScreenHoriz - 1) << 8 = $1F00 whatever the map's length. $1C1: 792 - 140 = 652, as captured;
+$011 and $130 start at 24, camera 0, as captured. `entranceCameraX` is that rule; the port
+`applyCameraHorizX` indexes the same tables by scroll direction, which is right per frame but not at load.
+
+Scope of the anchor: it holds for a DIRECT load (the overworld path, which zeroes Layer1XPos,
+bank_05.asm:7170). $1C1 is a sub area entered by a screen exit from $11F; on that path GM11 first copies
+the old camera into NextLayer1XPos (bank_00.asm:2645-2649), so the load camera depends on the previous
+map's camera (about 675 on a static trace, not captured). The map view keeps its entrance-position
+"unverified" note for that reason. A secondary entrance start is not modelled either.
+
+The camera routines, their tables and the GM11 site are fingerprinted (`ENTRANCE_CAMERA_SITES`, SHA-256
+of the stock bytes, as the smash sites are): a ROM that patches them gets no anchor and the layer stays
+refused. CODE_00A635's zeroing loop is not fingerprinted.
 
 ## Drawing rule
 

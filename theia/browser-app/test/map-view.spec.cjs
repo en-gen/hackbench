@@ -1118,46 +1118,50 @@ for (const [index, role, bit, known] of [
 }
 
 /**
- * Layer 3 on $011 (#563): settings byte $81 on tileset 9, world-locked, so it is drawn from the camera at
- * load (map X 0 here) and repeats every 512 px: screen 2 shows the same layer 3 pixels as screen 0. The
- * tooltip says it drifts; flipping the toggle changes pixels on both screens and restores them.
+ * Layer 3 on $011 and $1C1 (#563): settings byte $81 on tileset 9, world-locked, so it is drawn from the
+ * camera at load ($011: map X 0, $1C1: map X 652) and repeats every 512 px: screen s + 2 shows the same
+ * layer 3 pixels as screen s, and screen 1 differs from screen 0 (a 256 px repeat would fail). The anchor
+ * itself is pinned against the captures in L3WorldLocked.corpus.test.ts; these cases were derived, not run.
+ * The tooltip says it drifts; flipping the toggle changes pixels on every compared screen and restores them.
  */
-test('$011: the world-locked Layer 3 is drawn, repeats 512 px on, and says it drifts', async ({
-  page,
-}) => {
-  const project = await createProject(page, path.join(tmp, 'MyHack'))
-  await openMap(page, project.manifestPath, 0x011)
-  const button = l3Toggle(page, 0x011)
-  await expect(button).toBeEnabled()
-  await expect(button).toHaveAttribute('aria-pressed', 'true')
-  await expect(button).toHaveAttribute('title', /^Layer 3 · (Overlay|Background)\. In the game this layer drifts slowly to the left\.$/) // prettier-ignore
-  await showScreen(page, 0x011, 0)
-  await showScreen(page, 0x011, 2)
-  const l3Pixels = screen =>
-    page.evaluate(
-      ({ rootSel, screen }) =>
-        ['l3Low', 'l3High'].map(plane => {
-          const c = document.querySelector(`${rootSel} canvas[data-screen="${screen}"][data-plane="${plane}"]`) // prettier-ignore
-          return Array.from(c.getContext('2d').getImageData(0, 0, c.width, c.height).data)
-        }),
-      { rootSel: root(0x011), screen },
-    )
-  const [s0, s2] = [await l3Pixels(0), await l3Pixels(2)]
-  expect(
-    s0.flat().some((v, i) => i % 4 === 3 && v > 0),
-    'layer 3 draws on screen 0',
-  ).toBe(true)
-  expect(s2, 'screen 2 is the 512 px repeat of screen 0').toEqual(s0)
-  const on = [await readScreen(page, 0x011, 0), await readScreen(page, 0x011, 2)]
-  await button.click()
-  await expect(button).toHaveAttribute('aria-pressed', 'false')
-  const off = [await readScreen(page, 0x011, 0), await readScreen(page, 0x011, 2)]
-  for (const i of [0, 1])
-    expect(off[i].checksum, `screen ${i * 2} changes`).not.toBe(on[i].checksum)
-  await button.click()
-  const back = [await readScreen(page, 0x011, 0), await readScreen(page, 0x011, 2)]
-  for (const i of [0, 1]) expect(back[i].checksum).toBe(on[i].checksum)
-})
+for (const [index, screens] of [
+  [0x011, [0, 1, 2, 3]],
+  [0x1c1, [0, 1, 2, 3]],
+]) {
+  test(`$${index.toString(16)}: the world-locked Layer 3 is drawn, repeats 512 px on, and says it drifts`, async ({
+    page,
+  }) => {
+    const project = await createProject(page, path.join(tmp, 'MyHack'))
+    await openMap(page, project.manifestPath, index)
+    const button = l3Toggle(page, index)
+    await expect(button).toBeEnabled()
+    await expect(button).toHaveAttribute('aria-pressed', 'true')
+    await expect(button).toHaveAttribute('title', /^Layer 3 · (Overlay|Background)\. In the game this layer drifts slowly to the left\.$/) // prettier-ignore
+    for (const screen of screens) await showScreen(page, index, screen)
+    const l3Pixels = screen =>
+      page.evaluate(
+        ({ rootSel, screen }) =>
+          ['l3Low', 'l3High'].map(plane => {
+            const c = document.querySelector(`${rootSel} canvas[data-screen="${screen}"][data-plane="${plane}"]`) // prettier-ignore
+            return Array.from(c.getContext('2d').getImageData(0, 0, c.width, c.height).data)
+          }),
+        { rootSel: root(index), screen },
+      )
+    const px = await Promise.all(screens.map(l3Pixels))
+    expect(px[0].flat().some((v, i) => i % 4 === 3 && v > 0), 'layer 3 draws on screen 0').toBe(true) // prettier-ignore
+    expect(px[2], 'screen 2 is the 512 px repeat of screen 0').toEqual(px[0])
+    expect(px[3], 'screen 3 is the 512 px repeat of screen 1').toEqual(px[1])
+    expect(px[1], 'not a 256 px repeat').not.toEqual(px[0])
+    const sum = async () => Promise.all(screens.map(s => readScreen(page, index, s).then(r => r.checksum))) // prettier-ignore
+    const on = await sum()
+    await button.click()
+    await expect(button).toHaveAttribute('aria-pressed', 'false')
+    const off = await sum()
+    off.forEach((c, i) => expect(c, `screen ${screens[i]} changes`).not.toBe(on[i]))
+    await button.click()
+    expect(await sum()).toEqual(on)
+  })
+}
 
 /**
  * The toggle look (option D): pressed is a filled chip with a 1px border, off has neither (a transparent

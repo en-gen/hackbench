@@ -251,7 +251,7 @@ export function drawL3Planes(l3: L3Inputs, screen: number): L3Planes {
   for (let r = L3_HUD_ROW_CUTOFF; r < end; r++) {
     const y = r * 8 - l3.yPx + l3.camYPx
     if (y < 0 || y >= height) continue
-    // Tiles sit at Layer3XPos-shifted columns (camera X at load is 0); a start left of 0 clips the first tile.
+    // Tiles sit at Layer3XPos-shifted columns (a smash sprite's X; a world-locked layer's is the entrance camera, negated); a start left of 0 clips the first tile.
     for (let sx = -(xOff & 7); sx < width; sx += 8) {
       const word = cell(r, ((((x0 + sx + xOff) % (cols * 8)) + cols * 8) % (cols * 8)) >> 3)
       const pixels = l3.chars[(word & 0x3ff) >> 7]?.[word & 0x7f]

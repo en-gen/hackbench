@@ -8,7 +8,7 @@
  * plane lists (`ScreenPlanes`), the effective CGADSUB and the layer 2 role. The
  * rest are refusals carrying their reason, never a guess. Camera-locked layer 3
  * ($81-$BF) is world-locked and draws from the entrance camera (#563,
- * docs/rom/layer3-camera-locked.md); $00 off Castle1 and Underground1, mode 0E and
+ * docs/rom/layer3-world-locked.md); $00 off Castle1 and Underground1, mode 0E and
  * vertical maps still refuse. The main/sub designations only mean BG1/BG2/BG3 in
  * BG mode 1, so an unverified mode keeps the old stacking and no math.
  */
@@ -18,7 +18,8 @@ import { readL3Chars, type GfxSheet } from '../GfxLoader'
 import type { BgModeResult } from '../BgMode'
 import { layoutRefusal, readModeLayouts } from '../LevelScreenTables'
 import { HOOKED_L3_CODE, readL3CodeGate, type L3CodeGate } from '../L3CodeGate'
-import { entranceCameraX, l3LoadTimeY, loadL3Tilemap, readInitialLayer1YPos } from '../L3Loader'
+import { l3LoadTimeY, loadL3Tilemap, readInitialLayer1YPos } from '../L3Loader'
+import { entranceCameraX, readEntranceCameraGate } from '../L3EntranceCamera'
 import { readMarioStartPos } from '../MarioStartPos'
 import { readL3SmashLoadPos, type L3SmashResult } from '../L3Smash'
 import { readLayer3Setting } from '../ObjectExpander'
@@ -78,6 +79,7 @@ export function buildL3Verdict(
   smash: (rom: RomFile, index: number) => L3SmashResult = readL3SmashLoadPos,
   entrances?: MapEntrances,
   startSpans?: Parameters<typeof entrancePositionGate>[1],
+  cameraGate: (rom: RomFile) => L3CodeGate = readEntranceCameraGate,
 ): L3Verdict {
   const priority = l1.header.layer3Priority
   const base = { priority, screens: FALLBACK_SCREENS, cgadsub: null, layer2Interactive: false }
@@ -132,11 +134,11 @@ export function buildL3Verdict(
     // ($018) adds it onto layers 1 and 2 and stays refused.
     if (!kept || (layout.main & 0x03) === 0) return refuse()
     const start = readMarioStartPos(rom, index)
-    if (!start) return refuse()
+    if (!start || !cameraGate(rom).ok) return refuse()
     // CODE_05BE8A copied Layer1YPos into Layer3YPos before CODE_009FB8 (bank_00.asm:4869-4870), which
     // leaves it alone on this path; CODE_05C48D keeps the copy each frame (bank_05.asm:5569-5570).
     yPx = readInitialLayer1YPos(rom, index, false, entrances)
-    worldLocked = { camXPx: entranceCameraX(start.x, l1.header.levelLength) }
+    worldLocked = { camXPx: entranceCameraX(start.x) }
   }
   // A $80 byte's Y is $D0 until a loaded Layer 3 Smash sprite writes X and Y from its own place (#807).
   let pos = { x: 0, y: yPx }

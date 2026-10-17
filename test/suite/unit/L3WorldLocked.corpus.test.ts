@@ -4,8 +4,8 @@
  * all of it. At frame 0 (about 30 frames after the level loaded, EffFrame 31..) the captured WRAM and
  * VRAM must agree with what the model draws from:
  *   - Layer3YPos ($24) is the model's yPx ($C0) and equals Layer1YPos,
- *   - Layer1XPos ($1A) is the entrance camera X within 1 px (the model gives 653 on $1C1 where the game
- *     shows 652, see entranceCameraX), and Layer3XPos ($22) is only the drift so far (0..2 px),
+ *   - Layer1XPos ($1A) is exactly the entrance camera X (start - $8C: 0, 0 and 652),
+ *     and Layer3XPos ($22) is only the drift so far (0..2 px),
  *   - the captured BG3 tilemap equals the model's below the status bar rows, so the tile at map X
  *     camXPx + 8c in row R is the one the model draws.
  * The comparison is by registers and tilemap, not pixels: the drift moves the picture 1 px by frame 0.
@@ -45,7 +45,7 @@ describe.skipIf(!hasRom(VANILLA) || !hasCaptures())(
       const u16 = (a: number) => w[a]! | (w[a + 1]! << 8)
       expect(u16(0x24)).toBe(v.l3!.yPx)
       expect(u16(0x24)).toBe(u16(0x1c))
-      expect(Math.abs(u16(0x1a) - v.l3!.worldLocked!.camXPx)).toBeLessThanOrEqual(1)
+      expect(u16(0x1a)).toBe(v.l3!.worldLocked!.camXPx)
       expect(u16(0x22)).toBeLessThanOrEqual(2)
       // BG3's 64 x 64 tilemap at VRAM word $5000, four 32 x 32 screens (BG3SC byte $53, ppu.json); the dump starts at word $4000.
       const vram = file('frame_0000_l3_vram.bin')
