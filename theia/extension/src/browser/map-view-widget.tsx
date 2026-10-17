@@ -1080,7 +1080,9 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected override onActivateRequest(msg: Message): void {
     super.onActivateRequest(msg)
     this.node.focus()
-    this.syncSpriteStatus()
+    // Active with no selection (a split layout keeps both maps visible): the label follows the active map.
+    if (this.selectedSprite) this.syncSpriteStatus()
+    else spriteStatus.claim(this.statusBar, this)
   }
 
   protected override onAfterShow(msg: Message): void {

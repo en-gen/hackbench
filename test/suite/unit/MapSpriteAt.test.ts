@@ -147,6 +147,19 @@ describe('SpriteStatusOwner', () => {
     expect(bar.entries.has('s')).toBe(false)
   })
 
+  it('claim takes ownership and removes the entry, so the old owner can no longer remove it', () => {
+    const [bar, own] = [fake(), new SpriteStatusOwner('s', 0)]
+    const [a, b] = [{}, {}]
+    own.publish(bar, a, A1)
+    own.claim(bar, b) // b is active with nothing selected
+    expect(bar.entries.has('s')).toBe(false)
+    bar.setElement('s', { text: 'b-owned' }) // stands in for an entry b's own later publish put up
+    own.clear(bar, a) // a no longer owns it
+    expect(bar.entries.get('s')).toBe('b-owned')
+    own.clear(bar, b)
+    expect(bar.entries.has('s')).toBe(false)
+  })
+
   it('follows a re-publish by the widget that comes to the front', () => {
     const [bar, own] = [fake(), new SpriteStatusOwner('s', 0)]
     const [a, b] = [{}, {}]

@@ -169,8 +169,10 @@ const ZOOMS = {
   actual: ['zoom-actual'],
   'zoomed in': ['zoom-actual', 'zoom-in', 'zoom-in'],
 }
+/** Clicks the zoom controls and returns the zoom indicator's text, so a sweep can prove its levels differ. */
 async function setZoom(page, slot, steps) {
   for (const c of steps) await page.locator(`${rootOf(slot)} [data-control="${c}"]`).click()
+  return page.locator(`${rootOf(slot)} [data-control="zoom-indicator"]`).innerText()
 }
 
 const titleOf = (page, slot) => page.locator(stripOf(slot)).getAttribute('title')
@@ -196,8 +198,9 @@ test('AC1, AC3: hovering a sprite titles it with its name and $id; clicking puts
   const at = ownPixel(map, sprite)
   const label = `${sprite.name} (sprite ${hex(sprite.id)})`
   const empty = findPixel(map, (x, y) => clearAround(map, x, y), at)
+  const levels = []
   for (const [zoom, steps] of Object.entries(ZOOMS)) {
-    await setZoom(page, slot, steps)
+    levels.push(await setZoom(page, slot, steps))
     await expect
       .poll(() => titleAt(page, slot, map, at), { message: zoom, timeout: 30000 })
       .toBe(label)
@@ -212,6 +215,8 @@ test('AC1, AC3: hovering a sprite titles it with its name and $id; clicking puts
     await expect(statusBar(page), zoom).not.toContainText(label)
     expect(await statusBar(page).innerText()).not.toContain('(sprite $')
   }
+  // The sweep really covered three zoom levels (fit equal to 100% on this map would collapse two of them).
+  expect(new Set(levels).size, `zoom indicators ${levels}`).toBe(Object.keys(ZOOMS).length)
 
   // Selected again, the sprite toggle going off clears it, and a sprite that is not drawn has no tooltip.
   const again = await clientOf(page, slot, map, at.x, at.y)
@@ -228,8 +233,9 @@ test('AC2: hovering empty ground leaves the strip without a sprite tooltip', asy
   const map = await openMap(page, slot)
   const sprite = namedSprite(map)
   const on = ownPixel(map, sprite)
+  const levels = []
   for (const [zoom, steps] of Object.entries(ZOOMS)) {
-    await setZoom(page, slot, steps)
+    levels.push(await setZoom(page, slot, steps))
     // On the sprite first, so a missing tooltip is not just "sprites not loaded yet".
     await expect
       .poll(() => titleAt(page, slot, map, on), { message: zoom, timeout: 30000 })
@@ -238,6 +244,7 @@ test('AC2: hovering empty ground leaves the strip without a sprite tooltip', asy
     await pointAt(page, slot, map, empty.x, empty.y)
     await expect.poll(() => titleOf(page, slot), { message: zoom }).toBeNull()
   }
+  expect(new Set(levels).size, `zoom indicators ${levels}`).toBe(Object.keys(ZOOMS).length)
 })
 
 test('AC4: where two sprites overlap, the tooltip names the one drawn on top (column order, stream index breaking ties)', async ({
@@ -269,7 +276,7 @@ test('AC5: a hidden (screen door) sprite shows its id too', async ({ page }) => 
   expect(plant, 'sprite 11 of map $105 is the jumping Piranha Plant').toBeTruthy()
   const at = ownPixel(map, plant)
   // The plant really is behind a tile: some screen's covered-door set holds its door id (the 1-based place in
-  // the draw order), read off the widget, so the test cannot pass on a plant that merely is not covered.
+  // the draw order), read off the widget (this reads the protected `coveredIds` field by name, so a rename breaks it loudly), so the test cannot pass on a plant that merely is not covered.
   const door = map.stack.indexOf(plant) + 1
   await expect
     .poll(
@@ -284,4 +291,35 @@ test('AC5: a hidden (screen door) sprite shows its id too', async ({ page }) => 
   await expect
     .poll(() => titleAt(page, HIDDEN.slot, map, at), { timeout: 30000 })
     .toBe(`${HIDDEN.name} (sprite ${hex(HIDDEN.id)})`)
+})
+
+test('status entry follows the active map tab: hidden clears it, re-activating restores it, closing another keeps it (#981)', async ({
+  page,
+}) => {
+  const [A, B] = [HIDDEN.slot, 0x104]
+  const map = await openMap(page, A)
+  const sprite = namedSprite(map)
+  const at = ownPixel(map, sprite)
+  const label = `${sprite.name} (sprite ${hex(sprite.id)})`
+  await expect.poll(() => titleAt(page, A, map, at), { timeout: 30000 }).toBe(label)
+  const p = await clientOf(page, A, map, at.x, at.y)
+  await page.mouse.click(p.x, p.y)
+  await expect(statusBar(page)).toContainText(label)
+
+  // B opens as a second tab in front of A: A is hidden, so its label goes.
+  await openMap(page, B)
+  await expect(statusBar(page)).not.toContainText(label)
+  expect(await statusBar(page).innerText()).not.toContain('(sprite $')
+
+  // A comes back to the front: its selection is still there and so is the label.
+  await page.evaluate(
+    id => getSvc('ApplicationShell').activateWidget(id),
+    `hackbench.map-view:${A}`,
+  )
+  await expect(statusBar(page)).toContainText(label)
+
+  // Closing B (not the owner) leaves A's label alone.
+  await page.evaluate(id => getSvc('ApplicationShell').closeWidget(id), `hackbench.map-view:${B}`)
+  await expect(page.locator(rootOf(B))).toHaveCount(0)
+  await expect(statusBar(page)).toContainText(label)
 })

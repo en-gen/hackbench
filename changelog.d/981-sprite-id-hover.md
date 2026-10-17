@@ -4,4 +4,4 @@
 
 ### Fixed
 
-- Sprite names (#981): `$33` is Podoboo (was "Fireball"), `$28` Big Boo (was "Blue Shell"), `$29` Koopa Kid (was "Spike Top (counter-clockwise)"). `$28` and `$29` follow the `SMWDisX` pointer-table comments (`bank_01.asm:271-272`). `$33` does not: that table's comment reads "33 - Fireball" (`bank_01.asm:13041`, handler label `Fireballs`), but the handler plays `!SFX_PODOBOO` (`bank_01.asm:13048`), so the name follows that sound evidence and the comment disagrees. The other renamed entries were not re-checked beyond these.
+- Sprite names (#981): `$33` is Podoboo (was "Fireball"), `$28` Big Boo (was "Blue Shell"), `$29` Koopa Kid (was "Spike Top (counter-clockwise)"). `$28` and `$29` follow the `SMWDisX` pointer-table comments (`bank_01.asm:271-272`). `$33` does not: that table's comment reads "33 - Fireball" (`bank_01.asm:282`, handler label `Fireballs` at `bank_01.asm:13041`), but the handler plays `!SFX_PODOBOO` (`bank_01.asm:13048`), so the name follows that sound evidence and the comment disagrees. The other renamed entries were not re-checked beyond these.

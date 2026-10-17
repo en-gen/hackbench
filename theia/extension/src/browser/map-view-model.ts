@@ -117,6 +117,12 @@ export class SpriteStatusOwner {
     bar.setElement(this.id, { text: spriteLabel(sprite), alignment: this.alignment, priority: 100 })
   }
 
+  /** Becomes the owner with nothing to show: the entry goes, and the previous owner's later clear is a no-op. */
+  claim(bar: SpriteStatusBar, owner: object): void {
+    this.owner = owner
+    bar.removeElement(this.id)
+  }
+
   clear(bar: SpriteStatusBar, owner: object): void {
     if (this.owner !== owner) return
     this.owner = undefined
