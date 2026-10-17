@@ -89,6 +89,23 @@ content is never exempt, and a malformed line or unknown rule exits 2.
 (`tools/scripts/set-hooks-path.cjs`). The only bypass is
 `git commit --no-verify` / `git push --no-verify`.
 
+### The 8-byte window rule (synthetic carts)
+
+A synthetic cart must not carry the game's code. The rule is mechanical: no 8 consecutive bytes with at least 3
+distinct values may also occur anywhere in the vanilla ROM. `test/suite/support/vanillaWindows.ts` holds the
+checker (it reports each hit as an SNES address) and `test/suite/unit/sprites/SyntheticSpriteRomNoVanilla.test.ts`
+applies it to the sprite cart, the default and each `SyntheticOptions` value on its own; it needs the vanilla ROM and
+skips without it. `CastleFlames.test.ts` applies it to the bytes its fixtures write over the plain cart.
+
+Where a reader in `src/` fixes the game's opcodes (or a fixture keeps the game's operand values on purpose), the
+window stays and the gate's allow list names the region and why. Each region spans at most 64 bytes and lists its
+exact hit count: a count that rises, drops or reaches zero fails until the list is updated, and planted cases prove
+those checks go red. The fix for an allowed region is to make the reader recognize the code by SHA-256 (as
+`CastleFlames.ts` and `SubmapFlagGate.ts` do), then delete the region.
+
+Source-text probes read the file text only, so they miss runs built from helpers, named opcodes or spread
+arrays. The assembled gate, run against the built cart, is the oracle; a clean probe alone proves nothing.
+
 ## Where the corpus lives
 
 The ROM corpus is **outside the repo**, beside the clone:

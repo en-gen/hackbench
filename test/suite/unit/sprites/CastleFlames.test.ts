@@ -95,7 +95,7 @@ const PATH_BYTES: [number, number[]][] = [
   [0x02a8c0, [0xc9, 0xe1, 0x90, 0x0c, 0x5a, 0xda, 0x85, 0x04, 0x20, 0xc0, 0xaa, 0xea]], // loader route: CMP #$E1 / BCC / PHY / PHX / STA $04 / JSR $AAC0 / NOP
   [0x02aac0, [0xa0, 0x01, 0x8c, 0x34, 0x12, 0xc9, 0xe4, 0xf0, 0x7f]], // spawn entry
   [0x02aac9, [0xc9, 0xe6, 0xf0, 0x9f]], // $E6 branch
-  // cluster loop, our own: PHB / LDA #2 / PHA / PLB (DB = 2) / LDX #$13 / loop: LDA $1892,X / TAY / BEQ next / JSR $F821 / next: DEX / BPL loop / PLB / RTL, padded to the 24 bytes the check hashes
+  // cluster loop, our own: PHB / LDA #2 / PHA / PLB (DB = 2) / LDX #$13 / loop: LDA $1892,X / TAY / BEQ next / JSR $F821 / next: DEX / BPL loop / PLB / RTL, padded to the 24 bytes the check hashes; offsets 11-12 are the BEQ and are not checked
   [0x02f808, [0x8b, 0xa9, 0x02, 0x48, 0xab, 0xa2, 0x13, 0xbd, 0x92, 0x18, 0xa8, 0xf0, 0x03, 0x20, 0x21, 0xf8, 0xca, 0x10, 0xf4, 0xab, 0x6b, 0xea, 0xea, 0xea]],
   [0x02f821, [0x22, 0xfa, 0x86, 0x00]], // JSL ExecutePtr (the synthetic cart's, $00:86FA)
   [0x02f82f, [0x16, 0xfa]], // type 5 entry
@@ -249,9 +249,19 @@ describe('castle flames from the routines (synthetic cart)', () => {
     expect(key(dirty)).toEqual(key(flameRom()))
   })
 
-  it("the cluster loop's masked operand (offsets 11-12) may differ without being flagged", () => {
-    const dirty = flameRom(DATA, b => void (b[off(0x02f808 + 11)]! ^= 1))
-    expect(unverifiedOf(dirty, routinesOf(flameRom()))).toEqual([])
+  // Every byte of the two fingerprinted runs is checked except the loop's offsets 11-12 (zeroed before hashing; in
+  // this cart they are the BEQ's opcode and operand, in the ROM a RAM operand the run does not depend on).
+  const flagged = (at: number, i: number) =>
+    unverifiedOf(
+      flameRom(DATA, b => void (b[off(at + i)]! ^= 1)),
+      routinesOf(flameRom()),
+    )
+  it('each byte of the loader route flags it, one byte at a time', () => {
+    for (let i = 0; i < 12; i++) expect(flagged(0x02a8c0, i), `offset ${i}`).toEqual(['the loader route to the sprite spawn']) // prettier-ignore
+  })
+  it('each unmasked byte of the cluster loop flags it; the masked offsets 11 and 12 do not', () => {
+    for (let i = 0; i < 24; i++)
+      expect(flagged(0x02f808, i), `offset ${i}`).toEqual(i === 11 || i === 12 ? [] : ['the cluster loop']) // prettier-ignore
   })
 
   describe('GetRand', () => {
