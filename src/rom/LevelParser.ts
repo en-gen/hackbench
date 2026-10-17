@@ -369,9 +369,11 @@ export function parseLevelObjects(
 }
 
 /**
- * The screen exit objects the game reads from a parsed layer 1 stream. The loader walks
- * objects until one starts with $FF (bank_05.asm:792-796); a stream that ran off the
- * buffer without one lost sync, so its "exits" are not trustworthy and none is used (#787, #788).
+ * The screen exits HackBench could walk to $FF within the bytes getLevelRawData reads (at
+ * most 0x2000 from the pointer, SmwRom.ts getLevelRawData). The loader walks objects until
+ * one starts with $FF (bank_05.asm:792-796); a stream that ran off those bytes without one
+ * may have lost sync, so none of its screen exits is used (#787, #788). The one rule for
+ * every screen exit reader.
  */
 export function readableScreenExits(
   parsed: Pick<ReturnType<typeof parseLevelObjects>, 'objects' | 'terminated'>,

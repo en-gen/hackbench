@@ -195,21 +195,10 @@ export function readLevelStart(
 
   // Screen-exit hops from an overworld tile, breadth first over the screen exit graph.
   const hops = new Map<number, number>()
-  // A stream that ran off the buffer lost sync, so its edges are not followed either.
-  const complete = new Map<number, boolean>()
-  const isComplete = (s: number): boolean => {
-    let ok = complete.get(s)
-    if (ok === undefined) {
-      const raw = rom.getLevelRawData(s)
-      ok = !!raw && parseLevelObjects(raw, []).terminated
-      complete.set(s, ok)
-    }
-    return ok
-  }
+  // The graph already drops every screen exit of a stream that never reaches $FF (readableScreenExits).
   const queue = [...graph.keys()].filter(s => isOverworldLevel(s, roots))
   for (const s of queue) hops.set(s, 0)
   for (let i = 0; i < queue.length; i++) {
-    if (!isComplete(queue[i]!)) continue
     for (const d of graph.get(queue[i]!) ?? []) {
       if (hops.has(d)) continue
       hops.set(d, hops.get(queue[i]!)! + 1)

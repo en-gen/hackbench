@@ -164,10 +164,11 @@ export function buildMapTree(
   const entranceIndex = deriveOverworldEntrances(rom, catalog, fingerprints)
   const isRoot = (index: number): boolean => isOverworldLevel(index, entranceIndex.roots)
 
-  const { graph: exitGraph, unavailable } = rom.buildLevelExitGraph(
-    entranceIndex.roots,
-    fingerprints.entry,
-  )
+  const {
+    graph: exitGraph,
+    unavailable,
+    unreadableExits,
+  } = rom.buildLevelExitGraph(entranceIndex.roots, fingerprints.entry)
 
   const name = (index: number): string | null => rom.getLevelName(index, entranceIndex)
   const aliasesOf = (index: number): number[] => catalog.entries[index]?.l1Aliases ?? []
@@ -261,6 +262,14 @@ export function buildMapTree(
       `${realUnassigned} of ${maps.size} maps are unassigned: no overworld root ` +
         'reaches them through the exit graph. They are listed flat because an ' +
         "orphan's own exits are left unresolved by design (SmwRom.buildLevelExitGraph).",
+    )
+  }
+
+  if (unreadableExits?.length) {
+    notes.push(
+      `${unreadableExits.length} map(s) have object data that could not be read to its end, so their screen exits are not shown: ` +
+        unreadableExits.map(i => `$${i.toString(16).toUpperCase().padStart(3, '0')}`).join(', ') +
+        '.',
     )
   }
 
