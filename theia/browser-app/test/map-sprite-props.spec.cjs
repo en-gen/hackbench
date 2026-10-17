@@ -263,14 +263,17 @@ test('closing the map clears the panel; the toggle command reopens a closed pane
   const at = map.own(s)
   await map.click(at.x, at.y)
   await expect(panel(page).locator('[data-subject="sprite"]')).toBeVisible()
-  await page.evaluate(
-    id => getSvc('ApplicationShell').closeWidget(id),
-    `hackbench.map-view:${SLOT}`,
-  )
+  await page.evaluate(async id => {
+    await getSvc('ApplicationShell').closeWidget(id)
+  }, `hackbench.map-view:${SLOT}`)
   await expect(panel(page).locator('[data-subject="none"]')).toHaveText('No sprite selected')
 
-  await page.evaluate(id => getSvc('ApplicationShell').closeWidget(id), 'hackbench.properties')
+  await page.evaluate(async id => {
+    await getSvc('ApplicationShell').closeWidget(id)
+  }, 'hackbench.properties')
   await expect(panel(page)).toHaveCount(0)
-  await page.evaluate(() => getSvc('CommandRegistry').executeCommand('hackbench.properties.toggle'))
+  await page.evaluate(async () => {
+    await getSvc('CommandRegistry').executeCommand('hackbench.properties.toggle')
+  })
   await expect(panel(page)).toBeVisible()
 })
