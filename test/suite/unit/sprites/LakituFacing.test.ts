@@ -40,7 +40,6 @@ function sample(
   slot: number,
   o: { sprite: number; mario: number; y?: number; loaded?: Uint8Array },
 ): Sample {
-  // prettier-ignore
   const y = o.y ?? 0x80
   const s: Sample = { afterInit: -1, pass0: -1, cloud: -1 }
   const m = runOnce(
@@ -54,14 +53,14 @@ function sample(
       mainPasses: 3,
     }),
     {
-      // prettier-ignore
       probe: (p, w) => {
-      if (p === -1) {
-        s.afterInit = w[FACING + slot]!
-        for (let i = 0; i < 12; i++) if (w[0x14c8 + i] === 8 && w[0x9e + i] === cloudNumber) s.cloud = i
-      }
-      if (p === 0) s.pass0 = w[FACING + slot]!
-    },
+        if (p === -1) {
+          s.afterInit = w[FACING + slot]!
+          for (let i = 0; i < 12; i++)
+            if (w[0x14c8 + i] === 8 && w[0x9e + i] === cloudNumber) s.cloud = i
+        }
+        if (p === 0) s.pass0 = w[FACING + slot]!
+      },
     },
   )
   expect(m.refusal).toBeUndefined()
@@ -85,42 +84,11 @@ function lakituRom(o: { cloudWrites?: boolean } = {}): RomFile {
   ]) // prettier-ignore
   // Cloud MAIN: find status 8 + rider number in slots 9..0, keep it in $160E,X, SubHorizPos, STA $157C,Y (14216-14222).
   rom.writeAt(0x019a40, [
-    0xa0,
-    0x09,
-    0xb9,
-    0xc8,
-    0x14,
-    0xc9,
-    0x08,
-    0xd0,
-    0x0a,
-    0xb9,
-    0x9e,
-    0x00,
-    0xc9,
-    RIDER,
-    0xd0,
-    0x03,
-    0x98,
-    0x80,
-    0x04,
-    0x88,
-    0x10,
-    0xec,
-    0x60, // prettier-ignore
-    0x9d,
-    0x0e,
-    0x16,
-    0x20,
-    0x30,
-    0xad,
-    0x98,
-    0xbc,
-    0x0e,
-    0x16,
-    ...(w ? [0x99, 0x7c, 0x15] : [0xea, 0xea, 0xea]),
+    0xa0, 0x09, 0xb9, 0xc8, 0x14, 0xc9, 0x08, 0xd0, 0x0a, 0xb9, 0x9e, 0x00, 0xc9, RIDER, 0xd0, 0x03, 0x98, 0x80, 0x04, 0x88, 0x10, 0xec, 0x60, // scan 9..0
+    0x9d, 0x0e, 0x16, 0x20, 0x30, 0xad, 0x98, 0xbc, 0x0e, 0x16, // keep slot, SubHorizPos
+    ...(w ? [0x99, 0x7c, 0x15] : [0xea, 0xea, 0xea]), // STA $157C,Y, or NOPs for the planted defect
     0x60,
-  ])
+  ]) // prettier-ignore
   rom.writeAt(0x019a80, [0x60]) // the rider's MAIN does nothing
   const words = (a: number) => [a & 0xff, (a >> 8) & 0xff]
   rom.writeAt(0x018170 + 11 + RIDER * 2, words(0x9a00))
@@ -171,12 +139,12 @@ describe.skipIf(!hasRom(VANILLA))(
     /** Each map's real $1E entries, with the loader image and Mario's start, as the map view seeds them. */
     function lakitus(rom: RomFile, map: number) {
       const l = loadLevelState(rom, map)
-      if (!l.ok) throw new Error(`loader refused map ${map.toString(16)}: ${l.reason}`)
+      if (!l.ok) throw new Error(`loader refused map $${map.toString(16)}: ${l.reason}`)
       const w = l.wram
       const smw = new SmwRom(rom)
       const ptr = smw.getLevelSpritePointer(map)
       const data = ptr === null ? null : readStream(rom, ptr)
-      if (!data) throw new Error(`no sprite stream for ${map.toString(16)}`)
+      if (!data) throw new Error(`no sprite stream for $${map.toString(16)}`)
       const list = parseLevelSprites(data, (w[0x5b]! & 1) === 1).filter(s => s.spriteId === 0x1e)
       const mario = { x: w[0x94]! | (w[0x95]! << 8), y: w[0x96]! | (w[0x97]! << 8) }
       return { w, mario, list }
@@ -186,9 +154,9 @@ describe.skipIf(!hasRom(VANILLA))(
       return list.map(s => ({ s, w, mario, x: s.x * 16, y: s.y * 16 }))
     }
 
-    it.each(MAPS)(
-      'map %i: pass-0 $157C follows SubHorizPos in slots 0-9, stay 0 in 10-11',
-      map => {
+    it.each(MAPS.map(m => [m.toString(16), m] as const))(
+      'map $%s: pass-0 $157C follows SubHorizPos in slots 0-9, stay 0 in 10-11',
+      (_hex, map) => {
         const rom = freshRom()
         const entries = at(rom, map)
         expect(entries.length).toBeGreaterThan(0)
@@ -203,9 +171,9 @@ describe.skipIf(!hasRom(VANILLA))(
               loaded: e.w,
             })
             const want = slot <= 9 ? side(e.x, e.mario.x) : 0
-            expect(s.pass0, `${map.toString(16)} slot ${slot}`).toBe(want)
+            expect(s.pass0, `$${map.toString(16)} slot ${slot}`).toBe(want)
             // The post-INIT sample (what #272's captures hold) is the facing only if the cloud sits below the rider.
-            expect(s.afterInit, `${map.toString(16)} slot ${slot} after INIT`).toBe(slot <= 9 && s.cloud >= 0 && s.cloud < slot ? want : 0) // prettier-ignore
+            expect(s.afterInit, `$${map.toString(16)} slot ${slot} after INIT`).toBe(slot <= 9 && s.cloud >= 0 && s.cloud < slot ? want : 0) // prettier-ignore
           }
         }
       },
