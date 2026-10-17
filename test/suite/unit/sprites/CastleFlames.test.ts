@@ -403,6 +403,27 @@ describe('castle flames on the map (synthetic cart)', () => {
     expect(got.note).toBe('Some castle flames are only marked: their chars are not loaded.')
   })
 
+  it('every opaque flame pixel is a colour of the CGRAM row its OAM attribute selects (#965)', () => {
+    // Each slot gets its own table entry (Misc = slot), and each entry its own palette bits: rows 8+1, 8+3, 8+5, 8+7.
+    // COLORS gives every row colours no other row has, so a wrong row can never match by chance.
+    const props = [0x03, 0x07, 0x0b, 0x0f]
+    const own = flameRom({ ...DATA, props }, b => void b.fill(0xea, off(0x02aa6c + 14), off(0x02aa6c + 16))) // prettier-ignore
+    const got = draw(stream(0xe6), 16, own)
+    let opaque = 0
+    for (const s of got.sprites) {
+      const row = 8 + ((props[DATA.xs.indexOf(s.box.x0 % 256)]! >> 1) & 7)
+      const rgba = Buffer.from(s.rgba, 'base64')
+      for (let i = 0; i < rgba.length; i += 4) {
+        if (rgba[i + 3] === 0) continue
+        opaque++
+        const rowColors = COLORS.slice(row * 16, row * 16 + 16)
+        expect(rowColors.some(c => c[0] === rgba[i] && c[1] === rgba[i + 1] && c[2] === rgba[i + 2])).toBe(true) // prettier-ignore
+      }
+    }
+    expect(got.sprites).toHaveLength(16)
+    expect(opaque).toBeGreaterThan(0)
+  })
+
   it('routines that drew nothing draw none and say so', () => {
     // The spawn writes cluster type 6, which the draw loop does not run.
     const none = flameRom(DATA, b => void (b[off(0x02aa6c + SPAWN_TYPE_OPERAND)] = 6))
