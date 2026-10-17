@@ -93,6 +93,31 @@ describe('drawSprites', () => {
   })
 })
 
+describe('drawSprites: chars a sprite uploads to the player slots (#980)', () => {
+  const upload = (px: number) => ({
+    ok: true as const,
+    chars: new Map([[0x400, new Uint8Array(64).fill(px)]]),
+  })
+  const draw = () => ok(part(0x400, 0, 0))
+
+  it("draws the sprite's own chars where the level's SP1 has others, and only that sprite's", () => {
+    const model = { ...MODEL, dynamicChars: (id: number) => (id === 0x33 ? upload(3) : null) }
+    const [a, b] = drawSprites([spr(0, 0, 0, 0x33), spr(1, 4, 0, 0x10)], model, draw)
+    expect(px(decode(a!), 8, 0, 0)[0]).toBe(9 * 16 + 3)
+    expect(px(decode(b!), 8, 0, 0)[0]).toBe(9 * 16 + 1)
+  })
+
+  it('marks the sprite, with the reason, when its upload cannot be read, rather than drawing SP1 chars', () => {
+    const model = { ...MODEL, dynamicChars: () => ({ ok: false as const, reason: 'not stock' }) }
+    const [s] = drawSprites([spr(0, 0, 0, 0x33)], model, draw)
+    expect(s).toMatchObject({
+      status: 'placeholder',
+      reason: 'dynamicGfxUnreadable',
+      unverified: 'not stock',
+    })
+  })
+})
+
 describe('drawSprites: extra bits, palette splice', () => {
   it('marks a custom sprite (bit 3) but draws one that only has bit 2, which vanilla uses', () => {
     const withBits = (raw0: number) => ({ ...spr(0, 1, 1), raw: [raw0, 0, 0x10] }) as LevelSprite

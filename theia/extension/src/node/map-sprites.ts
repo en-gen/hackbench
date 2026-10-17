@@ -45,6 +45,7 @@ import { SmwRom } from '../../../../src/rom/SmwRom'
 import { parseLevelSprites } from '../../../../src/rom/LevelParser'
 import type { LevelSprite } from '../../../../src/rom/LevelParser'
 import { getCharPixels, type VramState } from '../../../../src/rom/GfxLoader'
+import { dynamicChars, type DynamicChars } from '../../../../src/rom/MarioGraphics'
 import { bgr555ToRgba, type RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import { getPaletteColor } from '../../../../src/rom/PaletteLoader'
 import { readMarioStartPos } from '../../../../src/rom/MarioStartPos'
@@ -97,6 +98,11 @@ const FONT = [
 export interface SpriteModel {
   vram: VramState
   colors: RgbaColor[]
+  /**
+   * The chars a sprite's own graphics routine uploads over the level's SP1 through Mario's tile DMA (#980;
+   * the Podoboo's), or null for a sprite with none. Absent: no sprite has any.
+   */
+  dynamicChars?: (spriteId: number) => DynamicChars | null
 }
 
 /**
@@ -201,7 +207,12 @@ export function drawSprites(
     const res = draw(s)
     if (!res.ok) return placeholder(s, 'reason' in res ? res.reason : res.failure.kind, 'unverified' in res ? res.unverified : undefined) // prettier-ignore
     if (res.parts.length === 0) return placeholder(s, 'noParts')
-    const pixels = res.parts.map(p => getCharPixels(model.vram, p.charNum))
+    const upload = model.dynamicChars?.(s.spriteId)
+    // Fail closed: SP1's chars at those slots are not what the hardware shows, so they are never drawn instead.
+    if (upload && !upload.ok) return placeholder(s, 'dynamicGfxUnreadable', upload.reason)
+    const pixels = res.parts.map(
+      p => upload?.chars.get(p.charNum) ?? getCharPixels(model.vram, p.charNum),
+    )
     // One missing char would draw as a hole, so the whole sprite is marked.
     if (pixels.some(p => !p)) return placeholder(s, 'charsNotLoaded')
     const [ax, ay] = 'anchor' in res && res.anchor ? [res.anchor.x, res.anchor.y] : [pixelX(s), s.y * TILE] // prettier-ignore
@@ -652,11 +663,15 @@ function compute(
     // The level loader runs once; the sprites and the castle flames both start from its image.
     const base = levelSeed(rom.rom, index)
     const draw = interpDrawer(rom.rom, index, model, runOnce, () => base)
+    // Once per id: finding the routine scans the cart.
+    const uploads = new Map<number, DynamicChars | null>()
+    const dynamicOnce = (id: number) => (uploads.has(id) ? uploads.get(id)! : (uploads.set(id, dynamicChars(rom.rom, id)), uploads.get(id)!)) // prettier-ignore
+    const withUploads = { ...model, dynamicChars: dynamicOnce }
     const dynamic = (n: PaletteNote) => {
       const b = rom.rom.readAt(n.entryAddr, n.colors * 2)
       return b ? Array.from({ length: n.colors }, (_, i) => bgr555ToRgba(b[i * 2]! | (b[i * 2 + 1]! << 8))) : [] // prettier-ignore
     }
-    const layer = spriteLayer(data, model, draw, dynamic)
+    const layer = spriteLayer(data, withUploads, draw, dynamic)
     const stream = parseLevelSprites(data, model.isVertical)
     const flames = castleFlameSprites(rom.rom, base, stream, model, model.l2?.ok ? model.l2.l2.dy : undefined, dynamic) // prettier-ignore
     if (flames.sprites.length === 0 && !flames.note) return layer
