@@ -67,6 +67,12 @@ import {
   VANILLA_EERIES_ROUTINES,
   type EeriesRoutines,
 } from '../../../../src/rom/sprites/interp/FiveEeries'
+import {
+  PLATFORM_COUNT,
+  threePlatforms,
+  VANILLA_PLATFORM_ROUTINES,
+  type PlatformRoutines,
+} from '../../../../src/rom/sprites/interp/ThreePlatforms'
 import { withSeed, type SpriteSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { readSpriteTileTables } from '../../../../src/rom/SpriteTileLoader'
 import {
@@ -390,6 +396,55 @@ function eeriesResult(
   }
 }
 
+/** Sprite $E0: a loader command that spawns three Grey Platforms on Chain ($A3) (CODE_02A89C, SMWDisX bank_02.asm:5325-5331). */
+const THREE_PLATFORMS = 0xe0
+
+/**
+ * The three platforms of a stream entry (the $E0 issue), run from the ROM's own spawner and their INIT: ONE sprite at its
+ * real stream index, the platforms and their chains as its parts. Vertical maps are refused as for $DE (the loader hands
+ * the spawner the Y boundary as X there). A changed routine does not blank it (D52): drawn, flagged `unverified`.
+ */
+function platformsResult(
+  rom: RomFile,
+  seed: SpriteSeed,
+  s: LevelSprite,
+  vertical: boolean,
+  routines: PlatformRoutines,
+): SpriteDrawResult {
+  if (vertical) return { ok: false, reason: 'the three platforms are not drawn in a vertical map: the game takes their X from the wrong axis there' } // prettier-ignore
+  const [x, y] = [pixelX(s), s.y * TILE]
+  const r = threePlatforms(
+    rom,
+    seed,
+    { x, y, index: s.index, streamOffset: s.streamOffset },
+    routines,
+  )
+  const gameOwn = r.unverified.length === 0
+  if (!r.ok) {
+    const none = `None of the ${PLATFORM_COUNT} platforms appear`
+    return { ok: false, reason: r.none ? (gameOwn ? `${none}: this map's sprite memory setting leaves no room.` : `${none}.`) : `refused: ${r.reason}` } // prettier-ignore
+  }
+  const why = [
+    ...r.unverified.map(
+      u =>
+        `${u} is not the vanilla shape${u === 'the platform spawner' ? ', so what it spawns is assumed to be chain platforms' : ''}`,
+    ),
+    ...r.notes,
+  ].join('; ')
+  return {
+    ok: true,
+    parts: interpParts(r.parts),
+    anchor: { x, y },
+    identity: { spriteId: s.spriteId, mainHandler: 0, initHandler: 0, status: 'vanilla' },
+    ...(r.spawned < PLATFORM_COUNT ? { note: `Only ${r.spawned} of the ${PLATFORM_COUNT} platforms appear${gameOwn ? `: this map's sprite memory setting leaves room for ${r.spawned}.` : '.'}` } : {}), // prettier-ignore
+    ...(why
+      ? {
+          unverified: `the three platforms are drawn from the spawner the loader calls, and ${why}`,
+        }
+      : {}),
+  }
+}
+
 /**
  * The interpreter over this cart, for the level `index`: `levelSeed` runs the
  * ROM's own loader, Mario at the level's start, one sprite run alone per call.
@@ -405,6 +460,7 @@ export function interpDrawer(
   run: (rom: RomFile, id: number, seed: SpriteSeed) => RunModel = runOnce,
   seedFor: (rom: RomFile, index: number) => SpriteSeed = levelSeed,
   eeriesRoutines: EeriesRoutines = VANILLA_EERIES_ROUTINES,
+  platformRoutines: PlatformRoutines = VANILLA_PLATFORM_ROUTINES,
 ): SpriteDrawer {
   // The loader runs once per map, not per sprite.
   const base = seedFor(rom, index)
@@ -431,6 +487,8 @@ export function interpDrawer(
     const seed = (camera: { x: number; y: number }, extra = {}) => withSeed({ sprite: { x, y }, camera, mario, ...shape, ...extra }, base) // prettier-ignore
     if (s.spriteId === FIVE_EERIES)
       return eeriesResult(rom, seed(camera), s, model.isVertical, eeriesRoutines)
+    if (s.spriteId === THREE_PLATFORMS)
+      return platformsResult(rom, seed(camera), s, model.isVertical, platformRoutines)
     const m = run(rom, s.spriteId, seed(camera))
     const at = m.chosen
     if (!w || !loaderCam || at === undefined || !m.anchor || s.index < 0 || s.index >= 128 || !w[SPRITE_LOAD_STATUS + s.index]) return modelResult(m) // prettier-ignore
