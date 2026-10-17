@@ -7,11 +7,7 @@ import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { expandMapOwned, SWITCH_FLAGS_UNCLEARED } from '../../../src/rom/ObjectExpander'
 import type { LevelObject } from '../../../src/rom/LevelParser'
-import {
-  refusedCellsOf as cellsOf,
-  WHY_UNPORTED,
-  WHY_GATE,
-} from '../../../src/rom/model/RefusedCells'
+import { refusedCellsOf, WHY_UNPORTED, WHY_GATE } from '../../../src/rom/model/RefusedCells'
 import { formatRefusedLine } from '../../../src/rom/objectHandlers/interpretedGate'
 import { ADDR_EXTENDED_DISPATCH } from '../../../src/rom/objectHandlers/romData'
 
@@ -52,8 +48,6 @@ const expand = (
 ) =>
   // prettier-ignore
   expandMapOwned(objects, 2, rom, 0, vertical, undefined, undefined, SWITCH_FLAGS_UNCLEARED, sink)
-
-const refusedCellsOf = cellsOf
 
 describe('refusedCellsOf (#816)', () => {
   it('marks the anchor cell of an unported object, on screen 1, with the plain reason', () => {
@@ -110,14 +104,14 @@ describe('refusedCellsOf (#816)', () => {
   })
 })
 
-describe('one cell per object, kept on the map (#816)', () => {
+describe('one cell per object (#816)', () => {
   const sink = () => ({ unverified: [] as string[], primitives: [], draw: () => false })
 
   it('an object refused twice (vertical pipe, handle_0DB49E) is one cell, with the gate reason', () => {
     const objects = [obj(1, 3, 4)]
     const { refusals } = expand(cart(0x0db49e), objects, sink())
     expect(refusals.length).toBe(2)
-    const cells = cellsOf(refusals, objects)
+    const cells = refusedCellsOf(refusals, objects)
     expect(cells.map(c => c.objectIndex)).toEqual([0])
     expect(cells[0]!.why).toBe(WHY_GATE)
   })
@@ -134,7 +128,7 @@ describe('one cell per object, kept on the map (#816)', () => {
       [unp, gate],
       [gate, unp],
     ]) {
-      const c = cellsOf(rs, o)
+      const c = refusedCellsOf(rs, o)
       expect(c).toHaveLength(1)
       expect(c[0]!.why).toBe(WHY_GATE)
     }
@@ -144,7 +138,7 @@ describe('one cell per object, kept on the map (#816)', () => {
     // Negative and past-the-end on both axes: a clamp would turn each into 0 or the last row/column.
     const objects = [obj(1, -2, 5), obj(1, 90, 5), obj(1, 4, -3), obj(1, 4, 400), obj(1, -1, -1)]
     const rs = objects.map((_, i) => ({ objectIndex: i, handler: 1, reason: 'x' }))
-    expect(cellsOf(rs, objects).map(c => [c.x, c.y])).toEqual([
+    expect(refusedCellsOf(rs, objects).map(c => [c.x, c.y])).toEqual([
       [-2, 5],
       [90, 5],
       [4, -3],

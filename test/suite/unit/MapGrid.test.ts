@@ -200,4 +200,31 @@ describe('the grid across the off-map margin (#1004)', () => {
     expect(g.x.length).toBeGreaterThan(0)
     expect(g.x.every(l => l.start >= 0 && l.start + l.size <= 40)).toBe(true)
   })
+
+  it('the vertical lattice runs through the top and bottom margins: every y line, by weight', () => {
+    // 1 vertical screen: 32 x 16 tiles. Content is 32 + 256 + 16 = 304 tall.
+    const g = computeMapGridLines({ ...base, vertical: true, screenCount: 1, pad })
+    expect(g.y.map(l => l.pos)).toEqual(Array.from({ length: 19 }, (_, i) => i * 16))
+    // The map's own top (32) and bottom (288) are screen lines; no other row is.
+    expect(weights(g.y, 5)).toEqual([32, 288])
+  })
+
+  it('a horizontal map lists every y line across top and bottom pads (kills a clamp of the row range to the map)', () => {
+    // 1 screen: 27 rows = 432 px; top 32, bottom 16 -> 480 px, rows -2..28.
+    const g = computeMapGridLines({ ...base, vertical: false, screenCount: 1, pad })
+    expect(g.y.map(l => l.pos)).toEqual(Array.from({ length: 30 }, (_, i) => i * 16))
+    expect(weights(g.y, 5)).toEqual([32, 464])
+    expect(weights(g.y, 3)).toEqual([288])
+  })
+
+  it('a bottom pad of three tiles adds the rows below the map (kills a clamp of the last row to the map)', () => {
+    const g = computeMapGridLines({
+      ...base,
+      vertical: false,
+      screenCount: 1,
+      pad: { left: 0, top: 0, right: 0, bottom: 48 },
+    })
+    // 27 map rows then rows 27..29 of margin; the trailing edge (30) is a thin line and is clipped.
+    expect(g.y.map(l => l.pos)).toEqual(Array.from({ length: 30 }, (_, i) => i * 16))
+  })
 })

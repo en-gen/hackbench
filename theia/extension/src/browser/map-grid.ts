@@ -21,14 +21,12 @@
  * Free of `@theia/core` so vitest loads it in CI (see grid-lines.ts).
  */
 import { GridLine, GridLines, place } from './grid-lines'
-import { NO_PAD, type Pad } from './off-map-extent'
+import { NO_PAD, TILE, type Pad } from './off-map-extent'
 import { SCREEN_H, SCREEN_H_VERT, SCREEN_W, SCREEN_W_VERT } from '../../../../src/rom/LevelParser'
 
 export const TILE_GRID_WEIGHT = 1
 export const SUBSCREEN_GRID_WEIGHT = 3
 export const SCREEN_GRID_WEIGHT = 5
-/** Content pixels per tile. */
-export const MAP_TILE_PX = 16
 /** Tile row (horizontal level) or column (vertical level) where a screen's halves meet. */
 export const SUBSCREEN_SPLIT = 16
 
@@ -84,13 +82,13 @@ export function computeMapGridLines(spec: MapGridSpec): GridLines {
   const s = mapScreenTiles(vertical)
   const cols = vertical ? s.cols : s.cols * screenCount
   const rows = vertical ? s.rows * screenCount : s.rows
-  const step = MAP_TILE_PX * zoom
+  const step = TILE * zoom
   const dev = (css: number): number => Math.round(css * dpr)
   const pad = spec.pad ?? NO_PAD
   const [offX, offY] = [pad.left * zoom, pad.top * zoom]
   // Tile indices run from the map's origin, so the margin has negative ones (mapGridWeight takes them).
-  const [loX, hiTX] = [-pad.left / MAP_TILE_PX, cols + pad.right / MAP_TILE_PX]
-  const [loY, hiTY] = [-pad.top / MAP_TILE_PX, rows + pad.bottom / MAP_TILE_PX]
+  const [loX, hiTX] = [-pad.left / TILE, cols + pad.right / TILE]
+  const [loY, hiTY] = [-pad.top / TILE, rows + pad.bottom / TILE]
   const endX = dev((hiTX - loX) * step - scrollX)
   const endY = dev((hiTY - loY) * step - scrollY)
   const hiX = Math.min(dev(viewW), endX)

@@ -341,3 +341,147 @@ for (const index of [0x105, 0x109, 0x106]) {
     }
   })
 }
+
+/**
+ * Real padded vanilla maps (reviewer sweep, one machine, vanilla ROM): $C4 pads 144 px above and 32 px
+ * left from sprite $8D at the map's corner; $102 pads 48 px below from sprites $5D/$A4 at row 432.
+ * No injection: the sprites come from the real mapSprites reply.
+ *
+ * Planted-offset sanity for the verifier: on the branch, change `(y + pad.top)` in offMapSpritePixels to
+ * `y`, or `pad.top` in `inset` of the back area to 0, or drop `- pad.left` in updateHover; the canvas-box,
+ * pixel-position and hover assertions here and above must go red.
+ */
+const REAL = [
+  { index: 0xc4, pad: { left: 32, top: 144, right: 0, bottom: 0 } },
+  { index: 0x102, pad: { left: 0, top: 0, right: 0, bottom: 48 } },
+]
+for (const { index, pad } of REAL) {
+  test(`$${index.toString(16)}: real off-map sprite pixels draw in the margin, and the grid runs through it`, async ({
+    page,
+  }) => {
+    await openMap(page, index)
+    const canvas = page.locator(`${root(index)} canvas[data-layer="off-map-sprites"]`)
+    await expect(canvas).toHaveCount(1, { timeout: 30000 })
+    await click(page, index, 'zoom-actual')
+    await page.waitForTimeout(500)
+    const r = await page.evaluate(sel => {
+      const rect = e => {
+        const b = e.getBoundingClientRect()
+        return { left: b.left, top: b.top, w: b.width, h: b.height }
+      }
+      const c = document.querySelector(`${sel} canvas[data-layer="off-map-sprites"]`)
+      const edge = document.querySelector(`${sel} [data-control="map-edge"]`)
+      const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+      // Opaque pixels by canvas coordinate: the first and last row and column, and the count.
+      let n = 0
+      const box = { x0: 1e9, y0: 1e9, x1: -1, y1: -1 }
+      for (let y = 0; y < c.height; y++)
+        for (let x = 0; x < c.width; x++)
+          if (data[(y * c.width + x) * 4 + 3] > 0) {
+            n++
+            box.x0 = Math.min(box.x0, x)
+            box.y0 = Math.min(box.y0, y)
+            box.x1 = Math.max(box.x1, x)
+            box.y1 = Math.max(box.y1, y)
+          }
+      return { canvas: rect(c), edge: rect(edge), cw: c.width, ch: c.height, n, box }
+    }, root(index))
+    const zoom = r.canvas.w / r.cw
+    // The canvas box is the map plus the pads, and starts the pad before the map edge.
+    expect(r.canvas.w).toBeCloseTo(r.edge.w + (pad.left + pad.right) * zoom, 0)
+    expect(r.canvas.h).toBeCloseTo(r.edge.h + (pad.top + pad.bottom) * zoom, 0)
+    expect(r.edge.left - r.canvas.left).toBeCloseTo(pad.left * zoom, 0)
+    expect(r.edge.top - r.canvas.top).toBeCloseTo(pad.top * zoom, 0)
+    // Opaque pixels exist, every one outside the map region of the bitmap, and they reach into the margin.
+    expect(r.n).toBeGreaterThan(0)
+    const inMap = (x, y) =>
+      x >= pad.left && x < r.cw - pad.right && y >= pad.top && y < r.ch - pad.bottom
+    expect(inMap(r.box.x0, r.box.y0) && inMap(r.box.x1, r.box.y1)).toBe(false)
+    if (pad.top) expect(r.box.y0).toBeLessThan(pad.top)
+    if (pad.bottom) expect(r.box.y1).toBeGreaterThanOrEqual(r.ch - pad.bottom)
+    // The grid, on: lines exist at negative tile rows (above the map) or past its last row (below).
+    await page.locator(gridToggle(index)).click()
+    await page.waitForTimeout(500)
+    // Lines are drawn for the view only: bring the bottom margin into it.
+    if (pad.bottom) {
+      await page.evaluate(sel => {
+        const sc = document.querySelector(`${sel} [data-control="map-scroller"]`)
+        sc.scrollTop = sc.scrollHeight
+      }, root(index))
+      await page.waitForTimeout(400)
+    }
+    const lines = JSON.parse(
+      await page.locator('canvas.hb-grid-overlay').first().getAttribute('data-grid-lines'),
+    )
+    const ys = lines.y.map(l => l.pos)
+    if (pad.top) expect(ys.filter(p => p < pad.top * zoom - 1).length).toBeGreaterThanOrEqual(pad.top / 16 - 1) // prettier-ignore
+    if (pad.bottom) expect(Math.max(...ys)).toBeGreaterThan(r.edge.h)
+  })
+}
+
+const gridToggle = index => `${root(index)} [data-control="grid-toggle"]`
+
+test('a sprites reply that adds a leading pad keeps the same map pixel under the same client point', async ({
+  page,
+}) => {
+  await openMap(page, 0x105)
+  // Intercept mapSprites on the live widget: an extra opaque sprite 40 px left of the map when asked.
+  await page.evaluate(async () => {
+    const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {
+      index: 0x105,
+    })
+    const real = w.projects
+    w.projects = new Proxy(real, {
+      get: (t, k) => {
+        if (k !== 'mapSprites') return typeof t[k] === 'function' ? t[k].bind(t) : t[k]
+        return async (...a) => {
+          const r = await t.mapSprites(...a)
+          if (r.status !== 'ok' || !window.__hbExtra) return r
+          const box = { x0: -40, y0: 100, x1: -24, y1: 116 }
+          const rgba = btoa(String.fromCharCode(...new Uint8Array(1024).fill(255)))
+          const extra = { index: 999, id: 1, x: -40, y: 100, box, rgba, status: 'drawn' }
+          return { ...r, sprites: [...r.sprites, extra] }
+        }
+      },
+    })
+  })
+  for (let i = 0; i < 4; i++) {
+    const wide = await page.evaluate(sel => {
+      const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
+      return s.scrollWidth > s.clientWidth + 400
+    }, root(0x105))
+    if (wide) break
+    await click(page, 0x105, 'zoom-in')
+    await page.waitForTimeout(300)
+  }
+  const point = () =>
+    page.evaluate(sel => {
+      const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
+      const sr = s.getBoundingClientRect()
+      const cx = sr.left + s.clientWidth / 2
+      const edge = document.querySelector(`${sel} [data-control="map-edge"]`)
+      const origin = (edge ?? document.querySelector(`${sel} .hb-map-view-strip`)).getBoundingClientRect() // prettier-ignore
+      const zoom = document.querySelector(`${sel} .hb-map-view-screen`).getBoundingClientRect().width / 256 // prettier-ignore
+      return { mapX: (cx - origin.left) / zoom, zoom, hasEdge: !!edge, left: s.scrollLeft }
+    }, root(0x105))
+  await page.evaluate(sel => {
+    const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
+    s.scrollLeft = Math.floor((s.scrollWidth - s.clientWidth) / 2)
+  }, root(0x105))
+  await page.waitForTimeout(400)
+  const before = await point()
+  expect(before.left).toBeGreaterThan(0)
+  expect(before.hasEdge).toBe(false)
+  await page.evaluate(async () => {
+    window.__hbExtra = true
+    const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {
+      index: 0x105,
+    })
+    await w.loadSprites()
+  })
+  await expect(page.locator(`${root(0x105)} [data-control="map-edge"]`)).toHaveCount(1, { timeout: 15000 }) // prettier-ignore
+  await page.waitForTimeout(800)
+  const after = await point()
+  // 40 px of overflow pads 64 px; the pixel under the view centre moved by less than one screen pixel.
+  expect(Math.abs(after.mapX - before.mapX) * after.zoom).toBeLessThanOrEqual(1)
+})

@@ -506,20 +506,31 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   /**
    * Sprites arrive after the map: off-map ones can grow the strip. Fit refits to the new cross
-   * axis, and a leading pad that appears under a scrolled view shifts the content, so the scroll
-   * moves with it and the view stays on the same map pixels. At scroll 0 the margin is simply shown.
+   * axis, and a leading pad that appears under a scrolled view shifts the content. The map pixel
+   * under the view centre is recorded before the change and the scroll set absolutely after the
+   * refit has committed (the way ZoomController.restoreAnchor does), so the view stays on it; a
+   * relative nudge would drift with the refit's zoom. An axis at scroll 0 is left alone: the margin shows.
    */
   protected keepViewOnPadChange(before: Pad): void {
     const l = this.mapLayout
     const after = this.pad
     if (!l || samePad(before, after)) return
-    const vertical = l.orientation === 'vertical'
-    const grew = ((vertical ? after.top : after.left) - (vertical ? before.top : before.left)) * this.zoom // prettier-ignore
     const el = this.scroller
+    const z = this.zoom
+    const held = el && {
+      x: el.scrollLeft > 0 ? (el.scrollLeft + el.clientWidth / 2 - before.left * z) / z : undefined,
+      y: el.scrollTop > 0 ? (el.scrollTop + el.clientHeight / 2 - before.top * z) / z : undefined,
+    }
     requestAnimationFrame(() => {
-      if (el && grew && (vertical ? el.scrollTop : el.scrollLeft) > 0)
-        el.scrollBy(vertical ? { top: grew } : { left: grew })
       this.fitStrip()
+      requestAnimationFrame(() => {
+        if (!el || !held) return
+        const z2 = this.zoom
+        el.scrollTo({
+          left: held.x === undefined ? undefined : (held.x + after.left) * z2 - el.clientWidth / 2,
+          top: held.y === undefined ? undefined : (held.y + after.top) * z2 - el.clientHeight / 2,
+        })
+      })
     })
   }
 
@@ -619,13 +630,16 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       ...(this.sprites?.sprites ?? []).map(sp => sp.box),
     ]
     const pad = offMapPad(w, h, rects)
-    this.padMemo = { l, s: this.sprites, pad: m && samePad(m.pad, pad) ? m.pad : pad }
-    return this.padMemo.pad
+    this.padMemo = { l, s: this.sprites, pad }
+    return pad
   }
 
-  /** The map's top-left corner in strip pixels: where Quebec's neighbour cards (#977) position from. */
-  get mapOrigin(): { x: number; y: number } {
-    return { x: this.pad.left * this.zoom, y: this.pad.top * this.zoom }
+  /**
+   * The map's top-left corner in MAP pixels from the strip's: the leading pad. Same name, signature
+   * and units as #977's `mapOrigin()` (neighbour cards add it times the zoom), which returns (0, 0) today.
+   */
+  protected mapOrigin(): { x: number; y: number } {
+    return { x: this.pad.left, y: this.pad.top }
   }
 
   /** The padding on the scroll axis before and after the map, map pixels. */
@@ -1333,6 +1347,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const padded = isPadded(pad)
     const z = this.zoom
     const [mapW, mapH] = this.mapPx(l)
+    const origin = this.mapOrigin()
     // Padding of the strip and inset of the back area share one box: the map's.
     const box = `${pad.top * z}px ${pad.right * z}px ${pad.bottom * z}px ${pad.left * z}px`
     return (
@@ -1419,8 +1434,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
             {l.refusedCells && !this.screenError && (
               <RefusedOverlay
                 cells={l.refusedCells}
-                width={l.orientation === 'vertical' ? l.width : l.width * l.screenCount}
-                height={l.orientation === 'vertical' ? l.height * l.screenCount : l.height}
+                width={mapW}
+                height={mapH}
                 zoom={this.zoom}
                 pad={pad}
               />
@@ -1446,7 +1461,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
                 zoom={this.zoom}
                 owner={String(this.options?.index ?? '')}
                 revision={this.collisionRevision}
-                origin={padded ? this.mapOrigin : undefined}
+                origin={padded ? { x: origin.x * z, y: origin.y * z } : undefined}
               />
             )}
           </div>
