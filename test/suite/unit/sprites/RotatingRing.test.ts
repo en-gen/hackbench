@@ -189,9 +189,9 @@ const sameWindow = (a: Uint8Array, b: number[], n = 8) => {
 }
 describe('no vanilla code bytes in the synthetic cart', () => {
   it('the window check goes red on a planted copy of the vanilla bytes', () => {
-    const vanilla = Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8, 9])
-    expect(sameWindow(vanilla, [9, 2, 3, 4, 5, 6, 7, 8, 9])).toBe(true)
-    expect(sameWindow(vanilla, [9, 2, 3, 4, 5, 6, 7, 0, 0])).toBe(false)
+    const vanilla = Uint8Array.from(Array.from({ length: 9 }, (_, i) => (i * 41 + 5) & 0xff))
+    expect(sameWindow(vanilla, [...vanilla.subarray(0, 8), 9])).toBe(true)
+    expect(sameWindow(vanilla, [...vanilla.subarray(0, 7), 0, 0])).toBe(false)
   })
   describe.skipIf(!hasRom(VANILLA))('against the vanilla ROM', () => {
     it('no write shares an 8-byte window with the ROM at its address', () => {
