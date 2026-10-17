@@ -5,6 +5,9 @@
  * capture is `drawnFrame - max(anchorFrame, initFrame + 1)` passes in. Test oracle only.
  */
 
+import type { RomFile } from '../../../src/rom/RomFile'
+import { shellLoad } from '../../../src/rom/sprites/ShellSprites'
+
 /** Largest pass index the grader will run for one record; a larger k falls back. */
 export const MAX_GRADED_PASS = 255
 
@@ -74,4 +77,28 @@ export function timelineFor(
       }
     : undefined
   return { k, timed, mainPasses: Math.max(basePasses, timed ? k + 1 : 0), seedExtra, probe }
+}
+
+/** One placed sprite from a capture's sprites.json. */
+export interface PlacedSprite {
+  index?: number
+  id?: string
+}
+
+/**
+ * The id to hand the runner for a capture record. The record's own id is the sprite number
+ * Mesen read at the draw, which the loader has already rewritten for a stationary shell (list id
+ * $DA-$DD or $DF becomes $04-$07 or $09, #837); the runner must be given the placed list id, which
+ * sprites.json keeps under the record's listIndex. Any other record runs under its own id.
+ */
+export function runnerId(
+  rom: RomFile,
+  id: number,
+  listIndex: number | undefined,
+  entries: readonly PlacedSprite[] | undefined,
+): number {
+  if (listIndex === undefined) return id
+  const placed = entries?.find(e => e.index === listIndex)?.id
+  const listId = placed === undefined ? NaN : parseInt(placed.slice(1), 16)
+  return Number.isNaN(listId) ? id : shellLoad(rom, listId).shell?.number === id ? listId : id
 }
