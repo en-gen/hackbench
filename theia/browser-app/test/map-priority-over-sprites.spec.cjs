@@ -9,8 +9,9 @@
  * sprite pixel is under an opaque l1High pixel. Part (b) clears those bits through the
  * Map16 service write path, moving the tile to l1Low; the same pixels must show the sprite.
  *
- * Plant (recorded once by the verifier on 510e090c, one run, one machine: part (a) red,
- * Expected 176, Received 0): in
+ * Plant (recorded once by the verifier on 510e090c, before the screen door: part (a) was
+ * "Expected 176, Received 0"; with the door, part (a) instead fails on the check that the sprite
+ * is at full strength on at most n/2 pixels, 176 > 88): in
  * src/rom/model/ScreenPlanes.ts, `on` returning `[...bg, 'sprites']` instead of the
  * slice-and-insert should turn part (a) red. ScreenPlanes.test and MapScreenL3.test catch
  * that plant too; this spec's value is the pixel-level check on a real map.
@@ -161,6 +162,14 @@ test('an L1 priority tile draws over an overlapping sprite; with priority cleare
     before.compIsSprite,
     'but never over the tile: at most half the pixels',
   ).toBeLessThanOrEqual(n / 2)
+  // compBetween also holds where the composite equals the tile, so a defect that drops the door's dim
+  // squares (tile alone at every pixel but the full ones) would pass it. Rounding of the 0.25 dim blend may
+  // leave a few dim pixels on the tile colour, so `compIsHigh` need not be 0; it must be below the
+  // dim pixels' count (`n - compIsSprite`), i.e. at least one dim pixel differs from the tile.
+  expect(
+    before.compIsHigh,
+    'the dim squares tint the tile: fewer pixels equal the tile than are not full-strength',
+  ).toBeLessThan(n - before.compIsSprite)
 
   // (b) The same pixels with the tile's four priority bits cleared in the working copy.
   for (const which of ['tl', 'tr', 'bl', 'br']) {

@@ -335,14 +335,13 @@ async function spritePixels(page, index, screen) {
 }
 
 // A sprite that overlaps an item block covers its indicator exactly as it covers the block: the sprite's
-// pixels win. Spots measured on the vanilla ROM (#931): $107 and $1FB at 117,21, found by scanning every map's
-// item blocks against the drawn non-Layer-2 sprite pixels (one run, one machine; 197 of 256 cell pixels).
-// $101 at 43,15 was dropped: the 208-wide box of sprite $25 that reached it was the flame leak #849 removed,
-// and no vanilla $101 item block overlaps a drawn sprite any more.
-for (const [map, col, row] of [
-  [0x1fb, 117, 21],
-  [0x107, 117, 21],
-]) {
+// pixels win. One spot, measured on the vanilla ROM (#931): $107 at 117,21 (197 of 256 cell pixels), found by
+// scanning every map's item blocks against the drawn non-Layer-2 sprite pixels (one run, one machine). $1FB
+// overlaps at the same cell but shares $107's Layer 1, Layer 2 and sprite data, so it is not a second case.
+// No other vanilla map has an independent overlap. $101 at 43,15 was dropped: the 208-wide box of sprite $25
+// that reached it was the flame leak #849 removed. A second, independent case needs a synthetic sprite
+// injected through the RPC (docs/testing.md "Playwright and RPC") or a hack ROM; neither is done here.
+for (const [map, col, row] of [[0x107, 117, 21]]) {
   test(`a sprite over the item block at ${col},${row} on $${map.toString(16)} covers its indicator`, async ({
     page,
   }) => {

@@ -1013,7 +1013,7 @@ test('the canvas stack puts layer 2 under everything on a standard-layout map, b
   ])
 })
 
-/** The composite of every visible plane over the box that layer 3's own pixels fill on screen 0. */
+/** The composite of every visible plane over the box that layer 3's own pixels fill on a screen (default 0). */
 async function layer3Region(page, index, box, screen = 0) {
   return page.evaluate(
     ({ rootSel, box, screen }) => {
@@ -1043,15 +1043,13 @@ const l3Toggle = (page, index) => page.locator(`${root(index)} [data-control="la
 /**
  * Layer 3 (#561), on vanilla maps measured from the ROM: $002 is a tide with the header's BG3
  * priority bit set (an overlay: its band is in l3High, drawn over layer 1, at the foot of every
- * screen), $01F is a cage with the bit clear (a background: l3High under l1Low), $105 has no
- * layer 3 ($009, an interactive layer 2 map, has its own tests below).
+ * screen), $01A has the bit clear (a background, in l3Low), $105 has no layer 3 ($009, an
+ * interactive layer 2 map, has its own tests below).
  */
 for (const [index, role, bit, known] of [
   // known: the top-left of layer 3's box on screen 0, and its first opaque pixel in raster order with
-  // that pixel's color (outline black), then a non-black pixel. $01F's is BG3 palette 3, its crusher
-  // color 15 (gold, the castle_crusher palette's last entry; without the crusher colors the same pixel is
-  // [255,90,90]), so a wrong palette fails.
-  // All measured from the backend's planes.
+  // that pixel's color (outline black for $002), then a second pixel of another color, so a wrong palette
+  // fails. All measured from the backend's planes.
   [
     0x002,
     'Layer 3 · Overlay',
@@ -1064,17 +1062,20 @@ for (const [index, role, bit, known] of [
     },
   ],
   [
-    0x01f,
+    0x01a,
     'Layer 3 · Background',
     false,
     {
-      // Layer 3 loads at X 256, Y 160 (the smash sprite's position, CODE_00FF61, SMWDisX bank_00.asm:14778-14803;
-      // #817). 256 + screen 0's columns 32-63 are empty, so it first shows on screen 1 (then 3: period 512).
-      screen: 1,
-      box: { x: 56, y: 96 },
-      pixel: { x: 64, y: 96 },
-      rgba: [0, 0, 0, 255],
-      color: { pixel: { x: 80, y: 96 }, rgba: [222, 165, 57, 255] },
+      // Settings byte not $80, so no smash sprite places layer 3: it sits at X 0, Y 192 on every screen (backend probe
+      // of the vanilla ROM, one run, one machine: the same box on screens 0-3). It is a low plane (l3Low), so
+      // the pixels are read from there. Layer 3 here has no outline-black pixel; the two are its first opaque pixel
+      // in raster order and one of a different color. $01F (a smash Layer 3) is left out until the
+      // 512 px repeat is settled.
+      plane: 'l3Low',
+      box: { x: 0, y: 257 },
+      pixel: { x: 25, y: 257 },
+      rgba: [66, 82, 99, 255],
+      color: { pixel: { x: 33, y: 265 }, rgba: [148, 148, 148, 255] },
     },
   ],
 ]) {
@@ -1097,11 +1098,11 @@ for (const [index, role, bit, known] of [
     const sc = known.screen ?? 0
     const before = await layer3Region(page, index, undefined, sc)
     expect(before.box.w * before.box.h, 'layer 3 draws pixels on its screen').toBeGreaterThan(0)
-    // A known layer 3 pixel: where the region starts, opaque in l3High; over layer 1 it is the shown color.
+    // A known layer 3 pixel: where the region starts, opaque in its plane; over layer 1 it is the shown color.
     expect({ x: before.box.x, y: before.box.y }).toEqual(known.box)
-    const own = await page.locator(`${root(index)} canvas[data-screen="${sc}"][data-plane="l3High"]`).evaluate((c, p) => Array.from(c.getContext('2d').getImageData(p.x, p.y, 1, 1).data), known.pixel) // prettier-ignore
+    const own = await page.locator(`${root(index)} canvas[data-screen="${sc}"][data-plane="${known.plane ?? 'l3High'}"]`).evaluate((c, p) => Array.from(c.getContext('2d').getImageData(p.x, p.y, 1, 1).data), known.pixel) // prettier-ignore
     expect(own, 'layer 3 pixel and color at the known position').toEqual(known.rgba)
-    const tinted = await page.locator(`${root(index)} canvas[data-screen="${sc}"][data-plane="l3High"]`).evaluate((c, p) => Array.from(c.getContext('2d').getImageData(p.x, p.y, 1, 1).data), known.color.pixel) // prettier-ignore
+    const tinted = await page.locator(`${root(index)} canvas[data-screen="${sc}"][data-plane="${known.plane ?? 'l3High'}"]`).evaluate((c, p) => Array.from(c.getContext('2d').getImageData(p.x, p.y, 1, 1).data), known.color.pixel) // prettier-ignore
     expect(tinted, 'a non-black layer 3 pixel, from the right palette').toEqual(known.color.rgba)
     if (bit) {
       const at =
