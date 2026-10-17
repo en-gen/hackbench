@@ -31,7 +31,9 @@ interface Sample {
   pass0: number
   /** The slot the spawned cloud took, -1 if none. */
   cloud: number
-  /** flipX of Lakitu's own parts (chars $1EC and $1EE) in the chosen pass; the cloud's ($60) and others' are left out. */
+  /** flipX of Lakitu's own parts (chars $1EC and $1EE) in the chosen pass; the cloud's ($60) and others' are left out.
+   * The filter assumes Lakitu's frame 0: while $1558 is set it draws frame 2, tiles $A8/$EE (bank_01.asm:2254-2256,
+   * 3809-3810); pass 0 is frame 0 on all 5 entries. */
   flips: boolean[]
 }
 
@@ -195,7 +197,8 @@ describe.skipIf(!hasRom(VANILLA))(
               expect(s.pass0, tag).toBe(want)
               // The post-INIT sample (what #272's captures hold) is the facing only if the cloud's slot is below the rider's.
               expect(s.afterInit, `${tag} after INIT`).toBe(slot <= 9 && s.cloud >= 0 && s.cloud < slot ? want : 0) // prettier-ignore
-              // The drawn picture: facing 0 is drawn flipped (the cart's own SubSprGfx1 reads $157C).
+              // The drawn picture: facing 0 is drawn flipped (the cart's own SubSprGfx1 reads $157C, bank_01.asm:3957-3962;
+              // the $1EC/$1EE filter holds for frame 0 only, see Sample.flips).
               expect(s.flips.length, `${tag} drawn`).toBeGreaterThan(0)
               expect(new Set(s.flips), `${tag} flipX`).toEqual(new Set([want === 0]))
               if (slot <= 9) wants.add(want)

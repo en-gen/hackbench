@@ -15,11 +15,11 @@ The sprite loop counts sprite table slots 11 down to 0. So:
 - A sample taken right after INIT is that side only when the cloud's slot is below the rider's; otherwise it is
   0 (tested here on the runner). That Echo's capture-based `initFacing` for the four `$1E` records of #272 (maps
   `11f`, `132`, `1c4`, `1c5`) differs for this reason is an UNTESTED INFERENCE: the capture does not record the
-  cloud's slot and I did not check it against the capture records.
+  cloud's slot and it was not checked against the capture records.
 - A rider in slot 10 or 11 is outside the cloud's scan and stays at 0. That is unreachable for a vanilla-loaded
   Lakitu (the free-slot search starts at `SpriteSlotMax`, `bank_02.asm:5182-5184, 5524-5530`, at most 9, often 7),
   so it is covered by the synthetic cart only. The issue's "slots 0-11 equal SubHorizPos" is read as slots 0-9
-  for that reason [PROP].
+  for that reason. Proposed reading, pending owner review.
 
 ## Evidence
 
