@@ -12,6 +12,14 @@ export function putGm11Spans(
   o: SyntheticOptions,
 ): void {
   const bad = (k: string, b: number) => (o.badLoader === k ? 0xea : b)
+  // GM12PrepLevel's call site of the Layer 3 handler (bank_00.asm:4861-4870). The loader never runs these 23
+  // bytes (it calls the handler itself) and pins them by fingerprint with the call operands zeroed, so any
+  // bytes do; these count up from an arbitrary start, which also changes at every checked offset when a test
+  // plants a byte (layer3Setup.test.ts).
+  put(
+    0x00a5af,
+    Array.from({ length: 23 }, (_, i) => (i === 0 ? bad('gm12', 0x41) : 0x41 + 3 * i)),
+  )
   // CODE_00A796 shape, then SEP #$20 / RTS. UpdateScreenPosition shape, then SEP #$20 / LDA $1462
   // (the copied $1A: proves the pointer loader and the copy ran first) / STA $1E / LDA $71 (the
   // entrance setup's) / STA $20 / PLB / RTL.

@@ -95,9 +95,7 @@ const ALLOWED: Region[] = [
   { from: 0x0096f4, to: 0x009720, hits: 21, why: 'GM11 call sites (LevelLoader.ts): Golf Team' },
   { from: 0x00a633, to: 0x00a648, hits: 7, why: 'Mario entrance setup (LevelLoader.ts): Golf Team' },
   { from: 0x00f6d5, to: 0x00f6e8, hits: 10, why: 'UpdateScreenPosition (LevelLoader.ts): Golf Team' },
-  { from: 0x05801e, to: 0x058030, hits: 5, why: 'level data loader (LevelLoader.ts): Golf Team' },
   { from: 0x05d790, to: 0x05d7c0, hits: 24, why: 'CODE_05D796 prologue (LevelLoader.ts): Golf Team' },
-  { from: 0x05d8b1, to: 0x05d8c0, hits: 4, why: 'pointer loader (LevelLoader.ts): Golf Team' },
 ] // prettier-ignore
 
 /** What is wrong with `regions` given the hits (SNES addresses as numbers, the form `ALLOWED` uses) each variant produced; empty when it holds. */

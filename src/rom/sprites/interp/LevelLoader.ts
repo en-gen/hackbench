@@ -10,7 +10,9 @@
  * (bank_00.asm:2645-2649 layer position copy, 2652-2656 screen setup), then the level-data loader
  * (CODE_05801E, bank_05.asm:19-70: header parse CODE_0584E3, called at line
  * 428, for $5B/$5D/$64; tileset slope pointer CODE_0581FB, line 253; then every
- * object of Layer 1 expanded into the Map16 tables at $7E:C800/$7F:C800).
+ * object of Layer 1 expanded into the Map16 tables at $7E:C800/$7F:C800), then GM12PrepLevel's
+ * Layer 3 handler (CODE_009FB8, bank_00.asm:4870; skipped when IRQNMICommand bit 7 is set,
+ * bank_00.asm:4861-4864): the tide's $5B bit 7 and buffer clear (#842, #845).
  * Hardware registers are the bus stubs; nothing is read from an emulator capture.
  *
  * The fixed entries and the GM11 spans between them are byte-checked, including the bytes that lead into
@@ -32,15 +34,16 @@ import {
 } from '../../cpu/call'
 import type { Cpu65816 } from '../../cpu/Cpu65816'
 import type { RomFile } from '../../RomFile'
+import { spanFingerprint } from '../../SubmapFlagGate'
 import { bytesAt, mapperProblem, shapeMatches } from './Guards'
 import { smwMachine } from './Machine'
 import { withSeed, type SeedOverride, type SpriteSeed } from './SpriteSeed'
 
 /**
- * Instruction cap for the whole load (all five steps). The loader runs on the
+ * Instruction cap for the whole load (all seven steps). The loader runs on the
  * Theia RPC thread (map-sprites.ts), so a ROM that passes the shapes and loops
- * must be refused quickly. Vanilla's worst level over all 512 level numbers is
- * 276,864 steps (max over levels 0-511, one run, 2026-10-07), so this is ~7x headroom.
+ * must be refused quickly. Vanilla's worst level over all 512 slots is
+ * 276,894 steps (slot $11A) with the Layer 3 reset and handler (276,864 before them; max over slots 0-511, one run, 2026-10-07 and the review of #842), so this is ~7x headroom.
  */
 export const LOADER_TOTAL_CAP = 2_000_000
 
@@ -70,13 +73,64 @@ const SHAPES: { name: string; at: number; want: (number | null)[] }[] = [
   { name: 'CODE_05D796 prologue and sublevel branch at $05:D796', at: 0x05d796, want: [0x8b, 0x4b, 0xab, 0xe2, 0x30, 0x9c, null, null, 0xad, null, null, 0xd0, 0x05, 0xac, null, null, 0xf0, 0x03, 0x20, null, null, 0xad, 0x1a, 0x14, 0xd0, 0x03, 0x4c, 0x3e, 0xd8] }, // prettier-ignore
   // The sublevel branch ends in JMP CODE_05D8B7 (bank_05.asm:7162).
   { name: 'jump into the pointer loader at $05:D83B', at: 0x05d83b, want: [0x4c, 0xb7, 0xd8] },
-  // CODE_05D8B7: REP #$30 / LDA $0E / ASL / CLC / ADC $0E / TAY
-  { name: 'pointer loader at $05:D8B7', at: 0x05d8b7, want: [0xc2, 0x30, 0xa5, 0x0e, 0x0a, 0x18, 0x65, 0x0e, 0xa8] }, // prettier-ignore
   // CODE_00A635: LDA BluePSwitchTimer / ORA SilverPSwitchTimer / ORA DirectCoinTimer / BNE / LDA
   { name: 'Mario entrance setup at $00:A635', at: 0x00a635, want: [0xad, 0xad, 0x14, 0x0d, 0xae, 0x14, 0x0d, 0x0c, 0x19, 0xd0, 0x0a, 0xad] }, // prettier-ignore
-  // CODE_05801E: PHP / SEP #$20 / REP #$10 / LDX #0 / LDA #$25 / STA long
-  { name: 'level data loader at $05:801E', at: 0x05801e, want: [0x08, 0xe2, 0x20, 0xc2, 0x10, 0xa2, 0x00, 0x00, 0xa9, 0x25, 0x9f, 0x00] }, // prettier-ignore
+  // CODE_009FB8 (Layer 3 handler): LDA ObjectTileset / ASL / CLC / ADC ObjectTileset (bank_00.asm:4139-4143)
+  {
+    name: 'Layer 3 handler at $00:9FB8',
+    at: 0x009fb8,
+    want: [0xad, null, null, 0x0a, 0x18, 0x6d, null, null],
+  },
 ]
+
+/**
+ * Spans the loader pins by fingerprint, not by literal bytes, so the source carries no game code (the scheme of
+ * SubmapFlagGate.ts: SHA-256 of the span with the offsets in `mask` zeroed). `key` is the badLoader option of
+ * the synthetic cart that plants a defect in the span. The SHAPES above hold the bytes that predate this.
+ * - pointers: CODE_05D8B7's first nine bytes (bank_05.asm:7227).
+ * - data: CODE_05801E's first twelve (bank_05.asm:19-70).
+ * - reset: CODE_05BE8A whole (bank_05.asm:4784-4798): the Layer 3 scroll reset and Layer3YPos = Layer1YPos; the
+ *   scroll-variable operands are masked, the two direct-page ones ($1C, $24) are in the hash.
+ * - gm12: GM12PrepLevel's call site of the Layer 3 handler (bank_00.asm:4861-4870): LDA IRQNMICommand / BPL /
+ *   JSR / BRA, then three calls ending in a JSL and the JSR CODE_009FB8 the loader makes. The call operands
+ *   are masked (the JSL operand differs on Lunar Magic ROMs); the BPL and the handler's JSR target are in the
+ *   hash, which is what makes the loader's mirror of the bit 7 test safe.
+ */
+interface Span {
+  key: string
+  name: string
+  at: number
+  length: number
+  mask: readonly number[]
+  fingerprints: readonly string[]
+}
+const SPANS: readonly Span[] = [
+  { key: 'pointers', name: 'pointer loader at $05:D8B7', at: 0x05d8b7, length: 9, mask: [], fingerprints: ['6dccdd0c17609d04d1b9792f97a91199c2c69803d896b91501ea7189458a4b68'] },
+  { key: 'data', name: 'level data loader at $05:801E', at: 0x05801e, length: 12, mask: [], fingerprints: ['4bc3f7d7f403b10d0ae7fa24c85a8b34e0ff53e001573a5d0926bc499a7c0510'] },
+  { key: 'reset', name: 'Layer 3 reset at $05:BE8A', at: 0x05be8a, length: 28, mask: [6, 7, 9, 10, 12, 13, 15, 16, 18, 19], fingerprints: ['41453d6b75b4fe5ab096dcf23b132787b0103b35c0d5a758afcc1d67bc254f1d'] },
+  { key: 'gm12', name: 'GM12PrepLevel call site of the Layer 3 handler at $00:A5AF', at: 0x00a5af, length: 23, mask: [11, 12, 14, 15, 17, 18, 19], fingerprints: ['f0b04d810d12baa061c4a56562b866f7accc91e3788f1ff1f0f77d74f724f877'] },
+] // prettier-ignore
+
+const spanPrint = (rom: RomFile, s: Span): string | null => {
+  const b = bytesAt(rom, s.at, s.length)
+  return spanFingerprint(b && Uint8Array.from(b), s.mask)
+}
+
+/**
+ * TEST SEAM, for synthetic ROM builders only. Vouches for the fingerprinted spans of THIS `rom` instance as
+ * built (a hand-written cart cannot match the game's fingerprints), except the spans named in `except` (the
+ * ones a mutant planted a defect in). A span is accepted only while its bytes still hash to the vouched value,
+ * so a byte written into a checked offset afterwards is refused. A ROM read from disk is never in the map.
+ */
+const vouched = new WeakMap<RomFile, Map<string, string>>()
+export function markSyntheticRom(rom: RomFile, except: readonly string[] = []): void {
+  const m = new Map<string, string>()
+  for (const s of SPANS) {
+    const fp = except.includes(s.key) ? null : spanPrint(rom, s)
+    if (fp) m.set(s.key, fp)
+  }
+  vouched.set(rom, m)
+}
 
 /** The first loader entry whose bytes differ from the shape this loader knows, or null. */
 export function loaderShapeProblem(rom: RomFile): string | null {
@@ -85,6 +139,11 @@ export function loaderShapeProblem(rom: RomFile): string | null {
   for (const s of SHAPES)
     if (!shapeMatches(bytesAt(rom, s.at, s.want.length), s.want))
       return `${s.name} is not the vanilla shape; the loader will not run it`
+  for (const sp of SPANS) {
+    const fp = spanPrint(rom, sp)
+    if (fp === null || !(sp.fingerprints.includes(fp) || vouched.get(rom)?.get(sp.key) === fp))
+      return `${sp.name} is not the vanilla shape; the loader will not run it`
+  }
   return null
 }
 
@@ -148,13 +207,25 @@ export function loadLevelState(rom: RomFile, level: number): LevelLoad {
     // the per-level timers, sets Mario's entrance state $71/$76 from the entrance type just
     // read), then 2652-2656 ($5E = $20, CODE_00A796, $1404++, UpdateScreenPosition: $1E/$20
     // layer 2 positions, camera buffers), then CODE_05801E. That one ends with PLP, RTL; it
-    // saves its own DB use via the JSL caller.
+    // saves its own DB use via the JSL caller. GM12PrepLevel then runs the Layer 3 handler
+    // (CODE_009FB8, bank_00.asm:4870): on a tide level it sets ScreenMode bit 7, Layer3YPos and the
+    // $26/$28 offset, which CODE_019140's second pass reads as liquid (#842). The game skips it when
+    // IRQNMICommand ($0D9B, set from SpecialLevTable by the header loader, bank_05.asm:500-503, 551)
+    // has bit 7 (bank_00.asm:4861-4863 branches to CODE_0097BC instead). That is by mode, not by level
+    // list: 24 vanilla maps end with it set (modes 9, $B and $10; docs/sprites/sprite-a4-floating-spike-ball.md),
+    // so the loader tests the same cell. The same branch skips CODE_05BE8A (bank_00.asm:4869), which copies
+    // Layer1YPos into Layer3YPos (bank_05.asm:4794-4795) just before the handler; on the maps where the handler
+    // writes nothing (011, 130, 1c1) that copy is all that sets $24.
     const bad =
       run('level pointer loader', 0x05d8b7, 'jsl', 0x05, [0x05]) ??
       span('layer position copy', 0x0096f8, 0x009702) ??
       run('Mario entrance setup', 0x00a635, 'jsr', 0x00) ??
       span('screen position setup', 0x009708, 0x009716) ??
-      run('level data loader', 0x05801e, 'jsl', 0x05)
+      run('level data loader', 0x05801e, 'jsl', 0x05) ??
+      (w[0x0d9b] & 0x80
+        ? null
+        : (run('Layer 3 reset', 0x05be8a, 'jsl', 0x05) ??
+          run('Layer 3 handler', 0x009fb8, 'jsr', 0x00)))
     if (bad) return { ok: false, reason: bad }
   } catch (e) {
     if (e instanceof Refusal) return { ok: false, reason: e.message }

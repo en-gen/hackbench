@@ -16,7 +16,7 @@ import { spanFingerprint } from '../../../../src/rom/SubmapFlagGate'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { parseLevelSprites, type LevelSprite } from '../../../../src/rom/LevelParser'
 import { bytesAt } from '../../../../src/rom/sprites/interp/Guards'
-import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
+import { levelSeed, markSyntheticRom } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import type { SpriteModel } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import {
@@ -121,7 +121,9 @@ function launcherRom(tweak: (bytes: Uint8Array) => void = () => {}, launch = lau
     bytes.set(b, off(snes))
   }
   tweak(bytes)
-  return RomFile.fromBytes('launcher.sfc', bytes)
+  const rom = RomFile.fromBytes('launcher.sfc', bytes)
+  markSyntheticRom(rom) // a copy of the synthetic cart: vouch for its hand-written loader spans again
+  return rom
 }
 
 /** This cart's own routine fingerprints (the vanilla ones are for the vanilla bytes). */

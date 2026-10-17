@@ -6,10 +6,9 @@
  * Tier 2 (not graded): absolute position. The frame Mesen caught IS graded now: pass
  * k = drawnFrame - max(anchorFrame, initFrame + 1), with Mario at marioAtInit for INIT
  * and marioStart for MAIN and the frame counters seeded from the record (#844). Offsets
- * are still measured from the END-of-pass position, which skews exact vs shape (a sprite
- * that moved within the pass grades shape); the fix needs the draw-time position in
- * SpriteRunner.ts and spriteGrade.ts, a separate item. Set SPRITE_GRADE_OUT to a file path to
- * dump every graded record as JSON for classification.
+ * are measured from the sprite's position at its first OAM write (PassResult.drawPos, the moment the
+ * capture samples it, #842); the end-of-pass position skewed every sprite that moves after drawing.
+ * Set SPRITE_GRADE_OUT to a file path to dump every graded record as JSON for classification.
  *
  * The headline run asserts FLOORS (the measured count minus a tolerance) and a
  * planted-defect run asserts the same grader goes red, so a regression in the
@@ -184,8 +183,9 @@ function gradeAll(
       mainPasses: Math.max(opts.passes ?? 64, timed ? k + 1 : 0),
       // Pass p runs at seed + 1 + p only when INIT takes one frame, so pass k lands on the frame
       // counters the capture recorded at the draw. SpriteRunner adds a frame per INIT retry
-      // (initFrames > 1: 22 timed records, map 102 $5D x13 and $A4 x9), and those see the counters
-      // 1 or 2 high. Without the fields every pass starts the animation at zero.
+      // (initFrames > 1), and those see the counters 1 or 2 high. Re-measured 2026-10-16
+      // after #842 (vanilla, 1957 records, one machine): no timed record retries INIT; before the
+      // loader ran the Layer 3 handler 22 did (map 102 $5D x13, $A4 x9). Without the fields every pass starts the animation at zero.
       ...(timed && rec.trueFrame !== undefined && rec.effFrame !== undefined
         ? {
             trueFrame: (rec.trueFrame - 1 - k) & 0xff,
@@ -206,8 +206,8 @@ function gradeAll(
       probe,
     })
     // Nothing drawn at the hardware's pass is a runner miss, counted apart so it cannot hide in the
-    // wrong total. It grades wrong when some pass draws; when none does (map 102 $5D) grade()
-    // returns empty whatever m.chosen is (test/suite/support/spriteGrade.ts:87).
+    // wrong total. It grades wrong when some pass draws; when none does grade()
+    // returns empty whatever m.chosen is (13 records before #842, none after) (test/suite/support/spriteGrade.ts:107).
     if (timed && m.passes[k]) {
       if (m.passes[k].parts.length) m.chosen = k
       else {
@@ -249,16 +249,20 @@ function gradeAll(
 /** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Raised after #837 (stationary shells): measured 2026-10-16, one machine: exact 1033, exact+shape 1836, wrong 90, empty 13. */
 const FLOOR = {
   graded: 1957,
-  exact: 1030,
-  exactOrShape: 1830,
+  // 1865 measured after merging #837 (1830 on the #842 head alone), shape 0 (#842: offsets from the draw-time position). Shape is not floored: with
+  // shape at 0, exact + shape could never fire below the exact floor.
+  exact: 1850,
   maxRefused: 0,
-  maxEmpty: 16,
-  maxWrong: 93,
-  maxMissAtK: 30,
+  maxShape: 5, // 0 measured
+  maxClose: 20, // 17 measured
+  maxEmpty: 5, // 0 measured
+  maxWrong: 90, // 75 measured (110 before #837)
+  maxMissAtK: 6, // 3 measured
   // 38 measured (spawned records without initFrame); all-timed would read 0.
   minFallbacks: 30,
-  // 25 measured; a runner that stops counting misses (or stops grading at k) drops below.
-  minMissAtK: 20,
+  // 3 measured after #842 (25 before: the 22 initFrames > 1 records missed until the loader ran the
+  // Layer 3 handler); a runner that stops counting misses (or stops grading at k) drops below.
+  minMissAtK: 2,
 }
 
 describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-load captures', () => {
@@ -283,17 +287,16 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
       writeFileSync(process.env.SPRITE_GRADE_OUT, JSON.stringify({ summary, rows }, null, 1))
     console.log(summary)
     if (mode !== 'rom') return
-    // Mutants re-measured on the #838 head (one machine, 'rom' seed, 1957 records): an effOnly
-    // mutant (trueFrame left 0) gives exact 984 against the 985 floor, killed by 1; an initOnly
-    // mutant (k = drawn - (initFrame + 1)) gives 988 and survives, so this corpus does not tell
-    // anchor-based k from init-based k. gradeTimeline.test.ts pins that arithmetic itself.
-    // Floors: measured 2026-10-10 (docs section 13.3; re-measured after #838 kept the 224-255 band: exact 995, exact+shape 1800, wrong 125) minus a tolerance. The mutants they
-    // were set against (X not set to the slot, level sprites not zeroed, INIT retry
-    // removed) all fall below them.
+    // Floors: measured 2026-10-17 on the #842 head merged with #837 (vanilla, one machine, 1957 records: exact 1865,
+    // shape 0, close 17, wrong 75, empty 0, missAtK 3; 1830/0/17/110/0/3 before the merge) minus a tolerance. The #838-era mutant runs
+    // (effOnly: exact 984 against a 985 floor; initOnly: 988, survived, so this corpus does not tell
+    // anchor-based k from init-based k, which gradeTimeline.test.ts pins itself) were against the old
+    // counts and are not re-measured against these floors.
     expect(rows.length).toBe(FLOOR.graded)
     expect(by.exact ?? 0).toBeGreaterThanOrEqual(FLOOR.exact)
-    expect((by.exact ?? 0) + (by.shape ?? 0)).toBeGreaterThanOrEqual(FLOOR.exactOrShape)
     expect(by.refused ?? 0).toBeLessThanOrEqual(FLOOR.maxRefused)
+    expect(by.shape ?? 0).toBeLessThanOrEqual(FLOOR.maxShape)
+    expect(by.close ?? 0).toBeLessThanOrEqual(FLOOR.maxClose)
     expect(by.empty ?? 0).toBeLessThanOrEqual(FLOOR.maxEmpty)
     expect(by.wrong ?? 0).toBeLessThanOrEqual(FLOOR.maxWrong)
     // 38 records carry no initFrame (the spawned ones) and grade the old way.
@@ -310,6 +313,11 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     ['1db', '$37', 944, 304],
     ['11d', '$28', 272, 224],
     ['01a', '$30', 272, 368],
+    // The tide maps (#845): fish enter the liquid path once $5B bit 7 is set (hardware WRAM has it).
+    ['127', '$16', 400, 368],
+    ['127', '$16', 1296, 368],
+    ['1cc', '$93', 224, 368], // #846: moves after drawing; graded from where it drew
+    ['102', '$A4', 912, 400], // #842: sank 32 px until the loader ran the Layer 3 handler
   ])(
     'map %s %s at %i,%i grades exact',
     (map, id, x, y) => {
@@ -326,9 +334,9 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
 
   // A miss at k: the model draws nothing on the hardware's pass, which grades wrong. Without
   // `m.chosen = k` the grader falls back to the first drawing pass and the detail changes.
-  it('map 102 $A4 at 912,400 misses at k and grades wrong, not empty', () => {
+  it('map 0c3 $49 at 208,352 misses at k and grades wrong, not empty', () => {
     const one = all.filter(
-      a => a.map === '102' && a.rec.id === '$A4' && a.rec.listX === 912 && a.rec.listY === 400,
+      a => a.map === '0c3' && a.rec.id === '$49' && a.rec.listX === 208 && a.rec.listY === 352,
     )
     expect(one).toHaveLength(1)
     const { rows, missAtK } = gradeAll(freshRom(), one)
