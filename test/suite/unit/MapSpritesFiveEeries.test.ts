@@ -80,6 +80,18 @@ describe('sprite $DE on the map', () => {
     expect(!r.ok && 'reason' in r && r.reason).toMatch(/not drawn in a vertical map/)
   })
 
+  it('is refused, with the reason, when the level loader gave no image: SpriteDataPtr was never set', () => {
+    const noImage = () => {
+      const seed = eeriesSeed(100)
+      delete seed.loaded
+      return { ...seed, loadRefusal: 'loader entry moved' }
+    }
+    const rom = buildSyntheticRom({ eeries: {} })
+    const r = interpDrawer(rom, 0x21, model, runOnce, noImage, SYNTHETIC_EERIES_ROUTINES as never)(entry) // prettier-ignore
+    expect(r.ok).toBe(false)
+    expect(!r.ok && 'reason' in r && r.reason).toMatch(/level loader's image: loader entry moved/)
+  })
+
   // The slot range of the map's sprite memory setting (SpriteSlotMax / SpriteSlotStart): from 0 to 6 free slots.
   it.each([0, 1, 2, 3, 4, 5, 6])(
     'with room for %i slots: min(room, 5) Eeries, the leftmost ones missing, and told in plain words',
