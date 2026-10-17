@@ -1,5 +1,5 @@
 /**
- * The off-map canvas padding and its pointer conversion (#1004). Pure arithmetic and
+ * The off-map canvas padding (#1004). Pure arithmetic and
  * synthetic bitmaps: no ROM, no DOM.
  */
 import { describe, it, expect } from 'vitest'
@@ -10,7 +10,6 @@ import {
   NO_PAD,
   offMapPad,
   offMapSpritePixels,
-  stripToMap,
   type Rect,
 } from '../../../theia/extension/src/browser/off-map-extent'
 import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
@@ -65,15 +64,12 @@ describe('offMapPad', () => {
   })
 })
 
-describe('pointer conversion', () => {
-  it('subtracts the leading pad, so the margin gives negative map pixels', () => {
-    const pad = { left: 48, top: 0, right: 16, bottom: 0 }
-    expect(stripToMap(48, 10, pad)).toEqual([0, 10])
-    expect(stripToMap(10, 10, pad)).toEqual([-38, 10])
-    expect(insideMap(...stripToMap(10, 10, pad), 256, 432)).toBe(false)
-    expect(insideMap(...stripToMap(48, 10, pad), 256, 432)).toBe(true)
-    expect(insideMap(...stripToMap(48 + 256, 10, pad), 256, 432)).toBe(false)
+describe('insideMap', () => {
+  it('is true for map pixels and false past any edge, margin pixels being negative or beyond the end', () => {
+    expect(insideMap(0, 0, 256, 432)).toBe(true)
     expect(insideMap(255, 431, 256, 432)).toBe(true)
+    expect(insideMap(-38, 10, 256, 432)).toBe(false)
+    expect(insideMap(256, 10, 256, 432)).toBe(false)
     expect(insideMap(0, -1, 256, 432)).toBe(false)
   })
 })

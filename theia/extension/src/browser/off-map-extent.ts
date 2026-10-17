@@ -61,12 +61,6 @@ export const cellRect = (x: number, y: number): Rect => ({
   y1: (y + 1) * TILE,
 })
 
-/** A strip pixel (the strip includes the padding) as a map pixel; negative or past the end in the margin. */
-export const stripToMap = (x: number, y: number, pad: Pad): [number, number] => [
-  x - pad.left,
-  y - pad.top,
-]
-
 export const insideMap = (x: number, y: number, mapW: number, mapH: number): boolean =>
   x >= 0 && y >= 0 && x < mapW && y < mapH
 

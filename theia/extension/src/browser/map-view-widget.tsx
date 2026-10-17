@@ -63,7 +63,6 @@ import {
   offMapPad,
   offMapSpritePixels,
   samePad,
-  stripToMap,
   type Pad,
 } from './off-map-extent'
 import { collisionKey, collisionPlan } from './map-view-state'
@@ -598,7 +597,9 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   }
 
   /** The whole map's size in map pixels: every screen, no padding. */
-  protected mapPx(l: Layout): [number, number] {
+  protected mapPx(
+    l: Pick<Layout, 'orientation' | 'width' | 'height' | 'screenCount'>,
+  ): [number, number] {
     return l.orientation === 'vertical' ? [l.width, l.height * l.screenCount] : [l.width * l.screenCount, l.height] // prettier-ignore
   }
 
@@ -934,7 +935,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     if (!g || !this.showSprites) return undefined
     const vertical = g.orientation === 'vertical'
     // Off the map (the margin, #1004): no tile covers a sprite there, and no screen is there to look up.
-    const [mw, mh] = vertical ? [g.width, g.height * g.screenCount] : [g.width * g.screenCount, g.height] // prettier-ignore
+    const [mw, mh] = this.mapPx(g)
     if (!insideMap(x, y, mw, mh)) return undefined
     const s = Math.floor(vertical ? y / g.height : x / g.width)
     const id = doorIdAt(this.screenDoors(s).doors, g.width, x - (vertical ? 0 : s * g.width), y - (vertical ? s * g.height : 0)) // prettier-ignore
@@ -974,7 +975,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       return this.setHover(undefined)
     }
     const r = strip.getBoundingClientRect()
-    const [x, y] = stripToMap((p.x - r.left) / this.zoom, (p.y - r.top) / this.zoom, this.pad)
+    const pad = this.pad
+    const [x, y] = [(p.x - r.left) / this.zoom - pad.left, (p.y - r.top) / this.zoom - pad.top]
     this.setLift(this.liftAt(x, y))
     if (!this.blocks) return this.setHover(undefined)
     const order = this.layerOrder(l)
@@ -1331,6 +1333,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const padded = isPadded(pad)
     const z = this.zoom
     const [mapW, mapH] = this.mapPx(l)
+    // Padding of the strip and inset of the back area share one box: the map's.
+    const box = `${pad.top * z}px ${pad.right * z}px ${pad.bottom * z}px ${pad.left * z}px`
     return (
       <div className="hb-map-grid-host">
         <div
@@ -1361,14 +1365,14 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
               so hiding a layer shows what is under it, down to nothing. */}
           <div
             className="hb-map-view-strip hb-checkerboard"
-            style={padded ? { padding: `${pad.top * z}px ${pad.right * z}px ${pad.bottom * z}px ${pad.left * z}px` } : undefined} // prettier-ignore
+            style={padded ? { padding: box } : undefined}
           >
             <div
               className="hb-map-view-back-area"
               data-layer="back-area"
               style={{
                 background: `rgb(${l.backdrop.join(',')})`,
-                ...(padded && { inset: `${pad.top * z}px ${pad.right * z}px ${pad.bottom * z}px ${pad.left * z}px` }), // prettier-ignore
+                ...(padded && { inset: box }),
               }}
             />
             {Array.from({ length: l.screenCount }, (_, s) => (
