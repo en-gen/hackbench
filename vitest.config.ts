@@ -1,6 +1,7 @@
 import * as os from 'os'
 import * as path from 'path'
 import { configDefaults, defineConfig } from 'vitest/config'
+import { vitestWorkers } from './tools/scripts/run-slots.mjs'
 
 export default defineConfig({
   resolve: {
@@ -20,8 +21,8 @@ export default defineConfig({
     // minutes-long corpus sweeps run through vitest.corpus.config.ts (#653).
     exclude: [...configDefaults.exclude, '**/*.timing.test.ts', '**/*.nightly.test.ts'],
     environment: 'node',
-    // Two concurrent full runs at the default (about one worker per core) oversubscribe the CPU; 9 of 10 runs green at the default in 5 paired samples, 32-core machine, 2026-10-10. Floor 2 keeps a 2-core CI runner at 2.
-    maxWorkers: Math.max(2, Math.floor(os.availableParallelism() / 2)),
+    // Up to HACKBENCH_RUN_SLOTS (3) full runs overlap, so each gets a third of the old half-the-cores share; HACKBENCH_VITEST_WORKERS overrides. Not yet measured (run-lock slots, docs/testing.md).
+    maxWorkers: vitestWorkers(os.availableParallelism()),
     globalSetup: ['test/suite/support/noRealGh.ts'],
     coverage: {
       provider: 'v8',
