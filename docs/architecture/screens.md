@@ -85,7 +85,7 @@ TRACED:
   high-byte stores, up to `CODE_05DA17` (`bank_05.asm:7289-7395`); they hold the masks,
   shifts and stores, which are not read from bytes. The midway and Yoshi-intro code
   inside the main span is fingerprinted with it; nothing outside the two spans is. A slot holding the filler room is unavailable
-  too. Screen exits from a layer 1 stream that never reaches `$FF` within the bytes `getLevelRawData` reads (0x2000 cap) are dropped by one rule, `readableScreenExits` (`LevelParser.ts`), used by the shared screen exit graph (`SmwRom.buildLevelExitGraph`, which lists the slots in `unreadableExits` and the map tree notes them) and by `readLevelStart`; synthetic ROM tests. Every refusal gives a fixed plain-words `reason` for the tooltip (no address, no
+  too. Screen exits from a layer 1 stream that never reaches `$FF` within the bytes `getLevelRawData` reads (0x2000 cap) are dropped by one rule, `readableScreenExits` (`LevelParser.ts`), used by the shared screen exit graph (`SmwRom.buildLevelExitGraph`, which lists every such map in `unreadableMaps` and the map tree notes them) and by `readLevelStart`; synthetic ROM tests. Every refusal gives a fixed plain-words `reason` for the tooltip (no address, no
   asm reference, no raw error text); the evidence is in `detail`, for tests and debugging.
   A ROM cut short before any entrance table byte (`$05F000`-`$05FC00`, or the position tables) is unavailable, never read as zeros. The vanilla tables are never read as if they applied. A map no tile or screen exit leads to is unavailable too;
   the view then stays at screen 0 and says why. Not covered: the midway entrance,

@@ -53,6 +53,15 @@ const edge = (file: RomFile) => graphOf(file).graph.get(0x001) ?? []
 // A harmless 3-byte standard object (0x42), n times: plain zeros would parse as more screen exits.
 const filler = (n: number) => new Array<number[]>(n).fill([0x42, 0, 0]).flat()
 
+// Enough filler to run past the read cap with no $FF and no phantom screen exit.
+const RUN_OFF = filler(2800)
+
+/** Another real map `slot`, its stream at `ptr`, unterminated: it has no screen exit at all. */
+function strayMap(file: RomFile, slot: number, ptr: number): void {
+  file.writeAt(ADDR.LEVEL_L1_PTR + slot * 3, [ptr & 0xff, (ptr >> 8) & 0xff, ptr >> 16])
+  file.writeAt(ptr, [...HEADER, ...RUN_OFF])
+}
+
 describe.each([
   ['primary', PRIMARY],
   ['secondary', SECONDARY],
@@ -61,29 +70,37 @@ describe.each([
     const g = graphOf(rom([...exit, 0xff]))
     expect(g.unavailable).toBeFalsy()
     expect(g.graph.get(0x001)).toEqual([0xc5])
-    expect(g.unreadableExits).toEqual([])
+    expect(g.unreadableMaps).toEqual([])
   })
 
-  it('an exit before the run-off point is dropped, and the slot is listed', () => {
-    const g = graphOf(rom([...exit, ...filler(10)]))
-    expect(edge(rom([...exit, ...filler(10)]))).toEqual([])
-    expect(g.unreadableExits).toEqual([0x001])
+  it('an exit before the run-off point is dropped, and the map is listed', () => {
+    const file = rom([...exit, ...RUN_OFF])
+    expect(edge(file)).toEqual([])
+    expect(graphOf(file).unreadableMaps).toEqual([0x001])
   })
 
-  it('an exit cut off at the end of the ROM (its extra byte missing) is dropped', () => {
+  it('a complete exit as the last bytes of the ROM, with no $FF, is dropped', () => {
+    const file = rom(exit, 0, true)
+    expect(edge(file)).toEqual([])
+    expect(graphOf(file).unreadableMaps).toEqual([0x001])
+  })
+
+  it('an exit cut off at the end of the ROM (its extra byte missing) is dropped (parser bound)', () => {
     // 5 header + 3 of the exit's 4 bytes = the last 8 bytes of the file.
     const file = rom(exit.slice(0, 3), 0, true)
     expect(edge(file)).toEqual([])
+    expect(graphOf(file).unreadableMaps).toEqual([0x001])
   })
 
   it('control: a terminated stream ending on the last ROM byte keeps its exit', () => {
     const file = rom([...exit, 0xff], 0, true)
     expect(edge(file)).toEqual([0xc5])
+    expect(graphOf(file).unreadableMaps).toEqual([])
   })
 
   it('a stream whose $FF lies past the read cap is dropped (pins getLevelRawData 0x2000)', () => {
     // Filler objects are 3 bytes each; the $FF sits on an object start well past the cap.
-    const past = [...exit, ...filler(2800), 0xff]
+    const past = [...exit, ...RUN_OFF, 0xff]
     expect(5 + past.length).toBeGreaterThan(READ_CAP)
     expect(edge(rom(past))).toEqual([])
     const within = [...exit, ...filler(1000), 0xff]
@@ -92,9 +109,36 @@ describe.each([
   })
 })
 
-it('the map tree says in plain words that a map was not read to its end', () => {
-  const tree = buildMapTree(new SmwRom(rom([...PRIMARY, ...filler(10)])), SYNTHETIC_FINGERPRINTS)
-  expect(tree.notes.join('\n')).toMatch(/screen exits are not shown.*\$001/)
-  const clean = buildMapTree(new SmwRom(rom([...PRIMARY, 0xff])), SYNTHETIC_FINGERPRINTS)
-  expect(clean.notes.join('\n')).not.toMatch(/screen exits are not shown/)
+describe('unreadableMaps (synthetic)', () => {
+  it('lists an unterminated real map that has no screen exit at all', () => {
+    const file = rom([...PRIMARY, 0xff])
+    strayMap(file, 0x0d0, 0x088000)
+    expect(graphOf(file).unreadableMaps).toEqual([0x0d0])
+  })
+
+  it('does not list an unterminated filler slot', () => {
+    const file = rom([...PRIMARY, 0xff])
+    file.writeAt(0x07f000, [...HEADER, ...RUN_OFF]) // the filler room every unused slot points at
+    expect(graphOf(file).unreadableMaps).toEqual([])
+  })
+})
+
+describe('the map tree note (synthetic)', () => {
+  const notes = (file: RomFile) =>
+    buildMapTree(new SmwRom(file), SYNTHETIC_FINGERPRINTS).notes.join(' | ')
+
+  it('says in plain words that a map was not read to its end', () => {
+    expect(notes(rom([...PRIMARY, ...RUN_OFF]))).toMatch(
+      /1 map has object data that could not be read to its end, so screen exits from it may be missing: \$001\./,
+    )
+    expect(notes(rom([...PRIMARY, 0xff]))).not.toMatch(/read to its end/)
+  })
+
+  it('pluralises, and names at most 10 maps then "and N more"', () => {
+    const file = rom([...PRIMARY, ...RUN_OFF])
+    for (let k = 0; k < 12; k++) strayMap(file, 0x0d0 + k, ((0x08 + k) << 16) | 0x8000)
+    expect(notes(file)).toMatch(
+      /13 maps have .* from them may be missing: (\$[0-9A-F]{3}, ){9}\$[0-9A-F]{3} and 3 more\./,
+    )
+  })
 })

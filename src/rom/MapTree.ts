@@ -135,6 +135,9 @@ export interface MapTree {
   notes: string[]
 }
 
+/** Ids named in the unreadable-maps note before it says "and N more". */
+const UNREADABLE_LISTED = 10
+
 /**
  * Group every map in the ROM.
  *
@@ -167,7 +170,7 @@ export function buildMapTree(
   const {
     graph: exitGraph,
     unavailable,
-    unreadableExits,
+    unreadableMaps,
   } = rom.buildLevelExitGraph(entranceIndex.roots, fingerprints.entry)
 
   const name = (index: number): string | null => rom.getLevelName(index, entranceIndex)
@@ -265,11 +268,14 @@ export function buildMapTree(
     )
   }
 
-  if (unreadableExits?.length) {
+  if (unreadableMaps?.length) {
+    const n = unreadableMaps.length
+    const ids = unreadableMaps
+      .slice(0, UNREADABLE_LISTED)
+      .map(i => `$${i.toString(16).toUpperCase().padStart(3, '0')}`)
+    const more = n > UNREADABLE_LISTED ? ` and ${n - UNREADABLE_LISTED} more` : ''
     notes.push(
-      `${unreadableExits.length} map(s) have object data that could not be read to its end, so their screen exits are not shown: ` +
-        unreadableExits.map(i => `$${i.toString(16).toUpperCase().padStart(3, '0')}`).join(', ') +
-        '.',
+      `${n} ${n === 1 ? 'map has' : 'maps have'} object data that could not be read to its end, so screen exits from ${n === 1 ? 'it' : 'them'} may be missing: ${ids.join(', ')}${more}.`,
     )
   }
 
