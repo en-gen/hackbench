@@ -27,6 +27,8 @@ import {
   spriteLayer,
   modelResult,
   partKey,
+  runWithUploads,
+  type RunModel,
   type SpriteDrawer,
 } from '../../../theia/extension/src/node/map-sprites'
 import { L1ModelCache } from '../../../theia/extension/src/node/map-screen'
@@ -353,6 +355,35 @@ describe('a sprite whose INIT moves it off the screen seeded from its list posit
     let n = 0
     const d = interpDrawer(blank, 0x11c, { isVertical: false, screenCount: 2 }, (r, i, s) => (n++ ? model({ emptyReason: 'drew no tile' }) : run(r, i, s)), () => withSeed({})) // prettier-ignore
     expect(d(at(224)).ok).toBe(true)
+  })
+})
+
+describe('the slots a Podoboo run wrote reach the drawn result (#980)', () => {
+  const blank = RomFile.fromBytes('blank.sfc', Buffer.alloc(0x80000))
+  const sprite = { index: 0, x: 8, y: 4, spriteId: 0x33, screen: 0, extraBit: false, raw: [], streamOffset: 0 } as LevelSprite // prettier-ignore
+  const up = [
+    [],
+    [
+      { slot: 3, ptr: 0x8600 },
+      { slot: 8, ptr: 0x8800 },
+    ],
+  ]
+  const passes = [0, 1].map(pass => ({ pass, pos: { x: 8, y: 64 }, origin: { x: 8, y: 64 }, parts: [part({ char: pass })], uploads: [], palette: [] })) // prettier-ignore
+  const stub = (chosen: number): RunModel => ({ ...model({ anchor: { x: 8, y: 64, rawX: 8, rawY: 64 }, passes, chosen }), uploads: up }) // prettier-ignore
+
+  it("serves the chosen pass's slots through interpDrawer, not another pass's", () => {
+    for (const chosen of [0, 1]) {
+      const d = interpDrawer(blank, 0x11c, { isVertical: false, screenCount: 2 }, () => stub(chosen), () => withSeed({})) // prettier-ignore
+      const r = d(sprite)
+      expect(r.ok && 'uploads' in r ? r.uploads : 'none').toEqual(chosen === 1 ? up[1] : 'none')
+    }
+  })
+
+  it('runs an upload sprite with the slot probe ($33 and $B5) and any other as a plain run', () => {
+    // A refused run (blank cart) still shows which path ran: only the probing path adds `uploads`.
+    const seed = withSeed({})
+    for (const id of [0x33, 0xb5]) expect(runWithUploads(blank, id, seed), `id ${id}`).toHaveProperty('uploads') // prettier-ignore
+    for (const id of [0x10, 0x34]) expect(runWithUploads(blank, id, seed), `id ${id}`).not.toHaveProperty('uploads') // prettier-ignore
   })
 })
 
