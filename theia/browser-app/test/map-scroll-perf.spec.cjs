@@ -27,7 +27,12 @@
  * Each bound sits above every fix value and below the no-fix minimum: p95 25 (1.5 frames), longest
  * frame 40, frozen 66 (four frames). The frozen margin is thin at the no-fix end, so the build and
  * frame bounds carry it too. Screens are WARMED first (a pass over the strip, polling until every
- * screen in the viewport is drawn), so a cold fetch is not counted.
+ * screen in the viewport has block contents loaded, its composite drawn and its display or
+ * blank-cache result), so a cold fetch is not counted.
+ *
+ * Plant (must go red): make the widget skip its `bare` write in `syncDisplay` (the #973 cache) and
+ * every perf test fails on the builds count, or the warm-up times out at `settled`. Delay
+ * `mapBlockContents` and `settled` waits for the blocks instead of sampling with zero builds.
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')
@@ -103,9 +108,16 @@ async function setZoom(page, zoom) {
   await page.waitForTimeout(500)
 }
 
-/** Resolves when every screen intersecting the viewport has its composite drawn. */
+/**
+ * Resolves when block contents have loaded and every screen intersecting the viewport has its
+ * composite drawn AND its display outcome: a display canvas that is drawn, or a blank-cache entry
+ * (`bare`) for exactly the key the widget would build now. Without the block contents (or while a
+ * screen has neither result) a sample would count zero builds without exercising the cache.
+ */
 const settled = page =>
-  page.waitForFunction(sel => {
+  page.waitForFunction(([sel, id]) => {
+    const w = getSvc('ApplicationShell').widgets.find(x => x.id === id)
+    if (!w || !w.blocks) return false
     const el = document.querySelector(sel)
     const v = el.getBoundingClientRect()
     const comps = [...el.querySelectorAll('canvas[data-layer="screen"]')]
@@ -113,8 +125,14 @@ const settled = page =>
       const r = c.getBoundingClientRect()
       return r.right > v.left && r.left < v.right
     })
-    return near.length > 0 && near.every(c => c.dataset.drawn)
-  }, SCROLLER, { timeout: 30000 }) // prettier-ignore
+    return near.length > 0 && near.every(c => {
+      if (!c.dataset.drawn) return false
+      const s = Number(c.dataset.screen)
+      const d = el.querySelector(`canvas[data-layer="display"][data-screen="${s}"]`)
+      if (d && d.dataset.drawn) return true
+      return w.bare.get(s) === `${c.dataset.drawn}:${w.blocksVersion}:${w.zoom}`
+    })
+  }, [SCROLLER, ID], { timeout: 30000 }) // prettier-ignore
 
 /** One pass over the whole strip and back, half a view at a time, polling until the screens near the view are drawn. */
 async function warm(page) {
