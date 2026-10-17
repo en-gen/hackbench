@@ -181,9 +181,8 @@ describe('the wire: screens, math, layer 2 role (synthetic)', () => {
     const l3 = { ...verdict(false, null), cgadsub: null }
     expect(wireOf({ ...l1Of(0, 0, false), l3 }).math).toBeNull()
   })
-  it('a guessed entrance is one line of its own, after the layer 3 position note (#945)', () => {
-    const routeNote =
-      'No route from the overworld to this map was found, so its entrance is a guess.'
+  it('a unreached map is one line of its own, after the layer 3 position note (#945)', () => {
+    const routeNote = 'No route from the overworld reaches this map, so it opens at the start.'
     const l3 = verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYUnverified: 'because' }))
     const w = wireOf({ ...l1Of(0, 0, false), l3, routeNote })
     expect(w.layerNotes.filter(n => n === routeNote)).toHaveLength(1)
@@ -233,7 +232,7 @@ describe('the wire: screens, math, layer 2 role (synthetic)', () => {
       [['b', 'a'], 'b', [`${BOTH}: b`, 'Background height unverified: a']],
       [undefined, 'a', ['Layer 3 position unverified: a']],
     ]
-    const routeNote = 'No route from the overworld to this map was found, so its entrance is a guess.' // prettier-ignore
+    const routeNote = 'No route from the overworld reaches this map, so it opens at the start.' // prettier-ignore
     for (const [l2, l3, expected] of cases) {
       it(`L2 ${JSON.stringify(l2)} with L3 ${JSON.stringify(l3)}`, () => {
         const m = { ...l1Of(0, 0, false), ...(l2 ? { l2: withL2(l2) } : {}), l3: drawn(l3) }

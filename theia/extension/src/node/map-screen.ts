@@ -286,7 +286,7 @@ export interface MapInputs extends L1Inputs {
   l3?: L3Verdict
   /** Why the planes' order is unverified (not BG mode 1, or the mode could not be read). */
   orderNote?: string
-  /** The entrance was guessed (no route from the overworld): its own note, shown even when Layer 2 is refused (#945). */
+  /** No route from the overworld reaches the map, so it opens at screen 0: its own note, shown even when Layer 2 is refused (#945). */
   routeNote?: string
 }
 export type MapInputsResult = { ok: true; inputs: MapInputs } | { ok: false; reason: string }

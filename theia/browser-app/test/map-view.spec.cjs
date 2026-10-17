@@ -1561,11 +1561,11 @@ test('a map the ROM reads fully carries no layer note', async ({ page }) => {
 
 /**
  * Slot $100 is in the vanilla ROM's unreached list (no overworld route enters it,
- * test/suite/integration/entranceRoute.vanilla.test.ts), so its entrance is a guess (#945). The
+ * test/suite/integration/entranceRoute.vanilla.test.ts), so it opens at screen 0 (D78 call 2, #945). The
  * note is its own line: a separate element, text exactly the route note, never prefixed with
  * "unverified:" or joined onto a position note.
  */
-test('a map no overworld route reaches shows the route note as its own line (#945)', async ({
+test('a map no overworld route reaches opens at screen 0 and shows the route note as its own line (#945)', async ({
   page,
 }) => {
   test.skip(
@@ -1576,8 +1576,14 @@ test('a map no overworld route reaches shows the route note as its own line (#94
   await openMap(page, project.manifestPath, 0x100)
   const notes = page.locator(`${root(0x100)} [data-note="layers"]`)
   await expect(notes.filter({ hasText: /No route from the overworld/ })).toHaveCount(1)
-  await expect(notes.filter({ hasText: /^No route from the overworld to this map was found, so its entrance is a guess\.$/ })).toHaveCount(1) // prettier-ignore
+  await expect(notes.filter({ hasText: /^No route from the overworld reaches this map, so it opens at the start..$/ })).toHaveCount(1) // prettier-ignore
   await expect(notes.filter({ hasText: /unverified: No route/ })).toHaveCount(0)
+  // The behaviour behind the note: the view stays at screen 0 (no start to scroll to) and the
+  // start refusal is shown, not a guessed entrance.
+  await expect(scrollerOf(page, 0x100)).toHaveAttribute('data-start', 'unavailable', { timeout: 30000 }) // prettier-ignore
+  expect(await scrollState(page, 0x100)).toMatchObject({ top: 0, left: 0 })
+  await expect(page.locator(`${root(0x100)} [data-control="map-start-note"]`)).toHaveAttribute('title', /No overworld tile or screen exit/) // prettier-ignore
+  await expect(page.locator(`${root(0x100)} [data-note="layers"]`).filter({ hasText: /guess/i })).toHaveCount(0) // prettier-ignore
 })
 
 /**

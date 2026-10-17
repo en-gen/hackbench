@@ -41,4 +41,11 @@ describe('chooseEntrance follows the route (#945)', () => {
     expect(chooseEntranceNoted(via({})).entrance).toBeNull()
     expect(chooseEntranceNoted(via({})).note).toMatch(/no route/i)
   })
+  // D78 call 2: a map no route reaches opens at screen 0 (readLevelStart refuses it, so the view
+  // keeps its scroll; LevelStart.synthetic.test.ts), and no entrance is called a guess.
+  it('an unreached map reports no guessed entrance, only that it opens at the start', () => {
+    const note = chooseEntranceNoted(via({})).note
+    expect(note).not.toMatch(/guess/i)
+    expect(note).toBe('No route from the overworld reaches this map, so it opens at the start.')
+  })
 })
