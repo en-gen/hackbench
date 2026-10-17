@@ -740,6 +740,12 @@ describe('a relocated overworld upload', () => {
     ['ADC (dp,X)', [0x61, 0x10]],
     ['STA (dp,X)', [0x81, 0x10]],
     ['PER', [0x62, 0x00, 0x00]],
+    // The polarity at the call site: HandlerWalk takes (m8, x8), this walk
+    // tracks (m16, x16). Both widths, and a REP/SEP round trip each.
+    ['LDX # with 8-bit X', [0xa2, 0x10]],
+    ['ORA # with 8-bit M', [0x09, 0x10]],
+    ['LDX # with 16-bit X', [0xc2, 0x30, 0xa2, 0x10, 0x00, 0xe2, 0x30]],
+    ['ORA # with 16-bit M', [0xc2, 0x30, 0x09, 0x10, 0x00, 0xe2, 0x30]],
   ])('steps over %s at its true length on the way to the write', (_name, lead) => {
     const d = detectPaletteAnimation(
       relocated({

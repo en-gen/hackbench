@@ -51,12 +51,14 @@ const X = -2
  * width is flag-dependent. The 65816 defines all 256 opcodes, so a decode
  * never meets an unknown byte; the only way to lose sync is a wrong flag.
  *
- * This walk never reads twenty-three entries: the returns, halts, jumps,
- * branches and `REP`/`SEP` all set the next address or add a literal
- * instead (`docs/sprites/sprite-gfx-routine-reading.md` section 8). The L1
- * handler interpreter (`objectHandlers/interpret.ts`) reads every entry for
- * the opcodes it evaluates, through `instructionLength`, so its synthetic
- * tests see a mutation to those.
+ * The sprite walk here never reads twenty-three entries: the returns,
+ * halts, jumps, branches and `REP`/`SEP` all set the next address or add a
+ * literal instead (`docs/sprites/sprite-gfx-routine-reading.md` section 8).
+ * Two other readers do read them: the L1 handler interpreter
+ * (`objectHandlers/interpret.ts`) for the opcodes it evaluates, and the
+ * palette-animation walk (`PaletteAnimationDetect.ts`), which steps over the
+ * eight conditional branches, `$FC`, `$CB` and `$DB` by length. Their
+ * synthetic tests see a mutation to those entries.
  */
 // prettier-ignore
 const INSN_LEN: readonly number[] = [
