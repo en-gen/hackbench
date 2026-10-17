@@ -8,7 +8,7 @@
  * Layer 1/2 data pointers, sprite memory $1692, buoyancy $190E), then Mario's
  * entrance setup (CODE_00A635, bank_00.asm:4913), with the GM11 work around it
  * (bank_00.asm:2645-2649 layer position copy, 2652-2656 screen setup), then the level-data loader
- * (CODE_05801E, bank_05.asm:19-70: header parse CODE_0584E3, called at line
+ * (CODE_05801E, bank_05.asm:20-70: header parse CODE_0584E3, called at line
  * 428, for $5B/$5D/$64; tileset slope pointer CODE_0581FB, line 253; then every
  * object of Layer 1 expanded into the Map16 tables at $7E:C800/$7F:C800).
  * Hardware registers are the bus stubs; nothing is read from an emulator capture.
@@ -32,6 +32,7 @@ import {
 } from '../../cpu/call'
 import type { Cpu65816 } from '../../cpu/Cpu65816'
 import type { RomFile } from '../../RomFile'
+import { spanFingerprint } from '../../SubmapFlagGate'
 import { bytesAt, mapperProblem, shapeMatches } from './Guards'
 import { smwMachine } from './Machine'
 import { withSeed, type SeedOverride, type SpriteSeed } from './SpriteSeed'
@@ -47,44 +48,88 @@ export const LOADER_TOTAL_CAP = 2_000_000
 export type LevelLoad =
   { ok: true; wram: Uint8Array; steps: number } | { ok: false; reason: string }
 
-/** The vanilla shapes the loader relies on; `null` matches any byte. */
+/** The vanilla call sites the loader relies on, short enough to state; `null` matches any byte. */
 const SHAPES: { name: string; at: number; want: (number | null)[] }[] = [
   // GM11LoadLevel's three calls, in the order the loader makes them (bank_00.asm:2644, 2651, 2657).
   { name: 'GM11 call JSL CODE_05D796 at $00:96F4', at: 0x0096f4, want: [0x22, 0x96, 0xd7, null] },
-  // What GM11 runs between those calls (bank_00.asm:2645-2656): the layer-position copy loop, then
-  // (after the music upload, which is not modelled) the screen setup. The loader runs both spans
-  // from the ROM's bytes. A hook inserted there (Seven Vanilla Levels has a JSL at $00:9708) is
-  // code a sequence that skipped it would miss.
-  { name: 'GM11 layer position copy at $00:96F8', at: 0x0096f8, want: [0xa2, 0x07, 0xb5, 0x1a, 0x9d, 0x62, 0x14, 0xca, 0x10, 0xf8] }, // prettier-ignore
-  { name: 'GM11 code between the entrance setup and the level data call at $00:9708', at: 0x009708, want: [0xa9, 0x20, 0x85, 0x5e, 0x20, 0x96, 0xa7, 0xee, 0x04, 0x14, 0x22, 0xdb, 0xf6, 0x00] }, // prettier-ignore
-  // CODE_00A796 and UpdateScreenPosition are called from that span (bank_00.asm:5089, 13631).
-  { name: 'Layer 2 scroll setup at $00:A796', at: 0x00a796, want: [0xc2, 0x20, 0xac, null, null, 0xf0, null, 0x88, 0xd0] }, // prettier-ignore
-  // LDA CameraMoveTrigger ($142A): exact, as the corpus holds only `2a 14` (and `2a 74`, all on SA-1
-  // ROMs, which the mapper check refuses first).
-  { name: 'UpdateScreenPosition at $00:F6DB (to the hook site at $F6E4)', at: 0x00f6db, want: [0x8b, 0x4b, 0xab, 0xc2, 0x20, 0xad, 0x2a, 0x14, 0x38] }, // prettier-ignore
   { name: 'GM11 call JSR CODE_00A635 at $00:9705', at: 0x009705, want: [0x20, 0x35, 0xa6] },
   { name: 'GM11 call JSL CODE_05801E at $00:9716', at: 0x009716, want: [0x22, 0x1e, 0x80, null] },
-  // CODE_05D796: PHB PHK PLB SEP #$30 STZ / LDA / BNE / LDY / BEQ / JSR / LDA SublevelCount / BNE +3 / JMP CODE_05D83E
-  // (bank_05.asm:7079-7093). The loader models the SUBLEVEL branch (it sets $141A), which falls through to
-  // the JMP at $05:D83B, so the bytes of that branch are checked, not the overworld lead-in.
-  { name: 'CODE_05D796 prologue and sublevel branch at $05:D796', at: 0x05d796, want: [0x8b, 0x4b, 0xab, 0xe2, 0x30, 0x9c, null, null, 0xad, null, null, 0xd0, 0x05, 0xac, null, null, 0xf0, 0x03, 0x20, null, null, 0xad, 0x1a, 0x14, 0xd0, 0x03, 0x4c, 0x3e, 0xd8] }, // prettier-ignore
   // The sublevel branch ends in JMP CODE_05D8B7 (bank_05.asm:7162).
   { name: 'jump into the pointer loader at $05:D83B', at: 0x05d83b, want: [0x4c, 0xb7, 0xd8] },
-  // CODE_05D8B7: REP #$30 / LDA $0E / ASL / CLC / ADC $0E / TAY
-  { name: 'pointer loader at $05:D8B7', at: 0x05d8b7, want: [0xc2, 0x30, 0xa5, 0x0e, 0x0a, 0x18, 0x65, 0x0e, 0xa8] }, // prettier-ignore
-  // CODE_00A635: LDA BluePSwitchTimer / ORA SilverPSwitchTimer / ORA DirectCoinTimer / BNE / LDA
-  { name: 'Mario entrance setup at $00:A635', at: 0x00a635, want: [0xad, 0xad, 0x14, 0x0d, 0xae, 0x14, 0x0d, 0x0c, 0x19, 0xd0, 0x0a, 0xad] }, // prettier-ignore
-  // CODE_05801E: PHP / SEP #$20 / REP #$10 / LDX #0 / LDA #$25 / STA long
-  { name: 'level data loader at $05:801E', at: 0x05801e, want: [0x08, 0xe2, 0x20, 0xc2, 0x10, 0xa2, 0x00, 0x00, 0xa9, 0x25, 0x9f, 0x00] }, // prettier-ignore
 ]
 
-/** The first loader entry whose bytes differ from the shape this loader knows, or null. */
-export function loaderShapeProblem(rom: RomFile): string | null {
+/**
+ * A loader span recognised by SHA-256 (`spanFingerprint`, the way SubmapFlagGate and L3CodeGate do it),
+ * so the commit holds no ROM bytes: `length` bytes at `at` with the `mask` offsets zeroed (operands
+ * a hack legitimately relocates). A span whose bytes hash differently is refused by `name`.
+ * Measured on the vanilla US ROM (SHA-1 6b47bb75); the 512-level digest test pins that the loader's
+ * output is unchanged from the byte-literal shapes these replace. A new span is added the same way:
+ * hash the vanilla bytes, copy the digest here, add a synthetic stand-in beside the others.
+ */
+export interface LoaderSpan {
+  name: string
+  at: number
+  length: number
+  mask: readonly number[]
+  sha: string
+}
+
+// Merging with #1050: whichever lands second converts its 9FB8 (8 B) and A5AF (23 B) shapes to spans here,
+// hand-writes their stand-ins (syntheticLoaderSpans.ts STAND_IN_LENGTH), ports its loader tails, and re-pins
+// VANILLA_ALL_LEVELS and PTR/ENT.
+// prettier-ignore
+export const LOADER_SPANS: readonly LoaderSpan[] = [
+  // bank_00.asm:2645-2649: the layer-position copy loop; a hook inserted after it (Seven Vanilla Levels has
+  // a JSL at $00:9708) is code a sequence that skipped it would miss.
+  { name: 'GM11 layer position copy at $00:96F8', at: 0x0096f8, length: 10, mask: [], sha: 'cdd61fac211b404c6ef6854f60c3ed0a1eb071bd0a759896406b0fd0f4c15478' },
+  // bank_00.asm:2652-2656, after the unmodelled music upload: the screen setup.
+  { name: 'GM11 code between the entrance setup and the level data call at $00:9708', at: 0x009708, length: 14, mask: [], sha: 'b2ef31ed0dfcc10661bcf424e34a706089c715bfddbe66f4c052bc11938b5450' },
+  // CODE_00A796 (bank_00.asm:5089), with its three operand bytes zeroed.
+  { name: 'Layer 2 scroll setup at $00:A796', at: 0x00a796, length: 9, mask: [3, 4, 6], sha: 'b09b77d01726e12ac2f990c1f1455eef8d6ab0eaa1d28ce8132c6432e940b1f1' },
+  // UpdateScreenPosition up to its hook site at $F6E4 (bank_00.asm:13631); the CameraMoveTrigger operand ($142A) is hashed.
+  { name: 'UpdateScreenPosition at $00:F6DB (to the hook site at $F6E4)', at: 0x00f6db, length: 9, mask: [], sha: '92c7efb5c8facedfcded763753c47c31782afeb1dcc0560b54d7414142030e15' },
+  // CODE_05D796's prologue and the SUBLEVEL branch the loader models (bank_05.asm:7079-7093).
+  { name: 'CODE_05D796 prologue and sublevel branch at $05:D796', at: 0x05d796, length: 29, mask: [6, 7, 9, 10, 14, 15, 19, 20], sha: '179af606edd3e896c3ff2ccfd63861b9548b3f62e2de481ff051d65ef867dca4' },
+  // CODE_05D8B7, the pointer loader's opening (bank_05.asm:7227).
+  { name: 'pointer loader at $05:D8B7', at: 0x05d8b7, length: 9, mask: [], sha: '6dccdd0c17609d04d1b9792f97a91199c2c69803d896b91501ea7189458a4b68' },
+  // CODE_00A635, Mario's entrance setup (bank_00.asm:4913).
+  { name: 'Mario entrance setup at $00:A635', at: 0x00a635, length: 12, mask: [], sha: '8f312beb45fb80e0889d9fa4914316905853c26341ea3fba1a6d44b34d13924e' },
+  // CODE_05801E, the level data loader's opening (bank_05.asm:20).
+  { name: 'level data loader at $05:801E', at: 0x05801e, length: 12, mask: [], sha: '4bc3f7d7f403b10d0ae7fa24c85a8b34e0ff53e001573a5d0926bc499a7c0510' },
+]
+
+const synthetic: LoaderSpan[] = []
+
+/**
+ * Tests only: a synthetic cart's loader routines are hand-written, so their fingerprints are accepted
+ * IN ADDITION to the vanilla ones, by span name. By content, so a patched copy of the cart is still
+ * accepted where its span is unchanged. Nothing under src/ calls this
+ * (test/suite/unit/sprites/levelLoaderFingerprint.test.ts), so a shipped build accepts vanilla only.
+ */
+export function acceptLoaderSpans(spans: readonly LoaderSpan[]): void {
+  for (const s of spans)
+    if (!synthetic.some(t => t.name === s.name && t.sha === s.sha)) synthetic.push(s)
+}
+
+/**
+ * The first loader entry whose bytes differ from what this loader knows, or null. `spans` replaces
+ * the fingerprints checked (a test of the check itself); by default LOADER_SPANS and, in a test
+ * that registered one, a synthetic cart's.
+ */
+export function loaderShapeProblem(rom: RomFile, spans?: readonly LoaderSpan[]): string | null {
   const mapper = mapperProblem(rom)
   if (mapper) return mapper
+  const refuse = (name: string) => `${name} is not the vanilla shape; the loader will not run it`
   for (const s of SHAPES)
-    if (!shapeMatches(bytesAt(rom, s.at, s.want.length), s.want))
-      return `${s.name} is not the vanilla shape; the loader will not run it`
+    if (!shapeMatches(bytesAt(rom, s.at, s.want.length), s.want)) return refuse(s.name)
+  for (const s of spans ?? LOADER_SPANS) {
+    const known = spans ? [s] : [s, ...synthetic.filter(t => t.name === s.name)]
+    const hit = known.some(k => {
+      const b = bytesAt(rom, k.at, k.length)
+      return !!b && spanFingerprint(Uint8Array.from(b), k.mask) === k.sha
+    })
+    if (!hit) return refuse(s.name)
+  }
   return null
 }
 
@@ -93,8 +138,12 @@ export function loaderShapeProblem(rom: RomFile): string | null {
  * 0x105). RNGCalc ($148B/C) is left zero here; the runner derives it by running
  * the ROM's GetRand (see SpriteRunner.ts).
  */
-export function loadLevelState(rom: RomFile, level: number): LevelLoad {
-  const problem = loaderShapeProblem(rom)
+export function loadLevelState(
+  rom: RomFile,
+  level: number,
+  spans?: readonly LoaderSpan[],
+): LevelLoad {
+  const problem = loaderShapeProblem(rom, spans)
   if (problem) return { ok: false, reason: problem }
   const { bus, cpu } = smwMachine(rom)
   const w = bus.wram

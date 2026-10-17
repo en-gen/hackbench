@@ -12,11 +12,13 @@ export function putGm11Spans(
   o: SyntheticOptions,
 ): void {
   const bad = (k: string, b: number) => (o.badLoader === k ? 0xea : b)
-  // CODE_00A796 shape, then SEP #$20 / RTS. UpdateScreenPosition shape, then SEP #$20 / LDA $1462
-  // (the copied $1A: proves the pointer loader and the copy ran first) / STA $1E / LDA $71 (the
-  // entrance setup's) / STA $20 / PLB / RTL.
-  put(0x00a796, [bad('scroll', 0xc2), 0x20, 0xac, 0x13, 0x14, 0xf0, 0x03, 0x88, o.badLoader === 'scrollTail' ? 0xea : 0xd0, 0x00, ...(o.badLoader === 'scrollPop' ? [0x68, 0x68, 0x68, 0x48, 0x48, 0x4c, 0x0f, 0x97] : [0xe2, 0x20, o.badLoader === 'scrollRtl' ? 0x6b : 0x60])]) // prettier-ignore
-  const upd = [bad('update', 0x8b), 0x4b, 0xab, 0xc2, 0x20, 0xad, o.badLoader === 'updateOperand' ? 0x74 : 0x2a, 0x14, o.badLoader === 'updateTail' ? 0xea : 0x38, 0xe9, 0x0c, 0x00, 0x8d, 0x2c, 0x14, 0xe2, 0x20, 0xad, 0x62, 0x14, 0x85, 0x1e, 0xad, 0x71, 0x00, 0x85, 0x20, 0xab, o.badLoader === 'updateRts' ? 0x60 : 0x6b] // prettier-ignore
+  // Hand-written stand-ins for CODE_00A796 and UpdateScreenPosition (their fingerprints are
+  // syntheticLoaderSpans). A796: REP #$20, LDA #$0003 (its operand is masked in the fingerprint), a countdown, SEP #$20, RTS. UpdateScreenPosition: REP #$20, SEC, PHB PHK PLB,
+  // LDA $142A, then the hook site (SBC #$000C / STA $142C) and SEP #$20 / LDA $1462 (the
+  // copied $1A: proves the pointer loader and the copy ran first) / STA $1E / LDA $71 (the entrance
+  // setup's) / STA $20 / PLB / RTL.
+  put(0x00a796, [bad('scroll', 0xc2), 0x20, 0xa9, 0x03, 0x00, 0x3a, 0xd0, o.badLoader === 'scrollTail' ? 0xea : 0xfd, ...(o.badLoader === 'scrollPop' ? [0x68, 0x68, 0x68, 0x48, 0x48, 0x4c, 0x0f, 0x97] : [0xe2, 0x20, o.badLoader === 'scrollRtl' ? 0x6b : 0x60])]) // prettier-ignore
+  const upd = [bad('update', 0xc2), 0x20, 0x38, 0x8b, 0x4b, 0xab, 0xad, o.badLoader === 'updateOperand' ? 0x74 : 0x2a, o.badLoader === 'updateTail' ? 0xea : 0x14, 0xe9, 0x0c, 0x00, 0x8d, 0x2c, 0x14, 0xe2, 0x20, 0xad, 0x62, 0x14, 0x85, 0x1e, 0xad, 0x71, 0x00, 0x85, 0x20, 0xab, o.badLoader === 'updateRts' ? 0x60 : 0x6b] // prettier-ignore
   put(0x00f6db, upd)
   // A hand-written hook that mirrors the shape of the common $00:F6E4 hook seen in the corpus: a JML at
   // $F6E4 over SBC #$000C and STA $142C; the target redoes both, copies $1A-$21 to $7F:831F (word

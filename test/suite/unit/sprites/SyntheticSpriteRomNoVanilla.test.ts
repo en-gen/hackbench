@@ -91,13 +91,6 @@ const ALLOWED: Region[] = [
   { from: 0x028924, to: 0x028926, hits: 2, why: 'block spawn status write (SpriteDispatch.ts): the first window starts on a free operand byte whose value matches, the second is fixed shape plus the StatusOfSprInBlk address BlockContents reads' }, // prettier-ignore
   { from: 0x02a8ac, to: 0x02a8ac, hits: 1, why: 'ShellSprites.ts PATH: the generator floor compare and its fixed branch; the compare operands have the vanilla values, chosen so the shell logic keeps its vanilla meaning' }, // prettier-ignore
   { from: 0x02a97c, to: 0x02a97c, hits: 1, why: 'ShellSprites.ts PATH: the status compare and the number step; operand values chosen as the vanilla ones' }, // prettier-ignore
-  // Owned by the Golf Team (LevelLoader, GM11 spans, OverworldAreas): their cleanup removes these.
-  { from: 0x0096f4, to: 0x009720, hits: 21, why: 'GM11 call sites (LevelLoader.ts): Golf Team' },
-  { from: 0x00a633, to: 0x00a648, hits: 7, why: 'Mario entrance setup (LevelLoader.ts): Golf Team' },
-  { from: 0x00f6d5, to: 0x00f6e8, hits: 10, why: 'UpdateScreenPosition (LevelLoader.ts): Golf Team' },
-  { from: 0x05801e, to: 0x058030, hits: 5, why: 'level data loader (LevelLoader.ts): Golf Team' },
-  { from: 0x05d790, to: 0x05d7c0, hits: 24, why: 'CODE_05D796 prologue (LevelLoader.ts): Golf Team' },
-  { from: 0x05d8b1, to: 0x05d8c0, hits: 4, why: 'pointer loader (LevelLoader.ts): Golf Team' },
 ] // prettier-ignore
 
 /** What is wrong with `regions` given the hits (SNES addresses as numbers, the form `ALLOWED` uses) each variant produced; empty when it holds. */
