@@ -1,7 +1,7 @@
 /**
  * What the Properties view is showing (#984). A SUBJECT, so the view takes more kinds without rework: the
- * map description (#1023) is another `kind` plus a provider in the widget's registry, and `none` is the slot
- * it fills. Not Theia's @theia/property-view: it is not a dependency (adding it churns the lockfile), and a
+ * map description (#1023) is another `kind` here plus a renderer registered in properties-widget.tsx
+ * (`registerSubjectRenderer`). Not Theia's @theia/property-view: it is not a dependency (adding it churns the lockfile), and a
  * selection-service round trip would lose the owner rule below.
  *
  * Several map tabs share one view. Each publishes as its own `owner`; only the owner's clear takes effect,

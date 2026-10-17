@@ -59,7 +59,7 @@ export class FramePlayer {
         if (frames.length < 2) {
           return this.set({
             kind: 'still',
-            reason: r.status === 'rom-not-located' ? undefined : r.reason,
+            reason: r.status === 'rom-not-located' ? r.status : r.reason,
           })
         }
         this.set({ kind: 'playing', frames, current: 0 })

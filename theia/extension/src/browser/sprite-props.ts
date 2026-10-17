@@ -5,10 +5,11 @@
  */
 import type { MapSpriteDto, SpritePartDto } from '../common/project-protocol'
 import { spriteLabel } from './map-view-model'
+import type { FramesState } from './sprite-frames'
 
 const TILE = 16
 
-/** What the pane says for a sprite with one pose (or none that can be played); the reason is appended when known. */
+/** What the pane says for a sprite with one pose; when frames could not be had it says `Animation not shown` instead. */
 export const NOT_ANIMATED = 'Not animated: this sprite shows one pose.'
 export const LOADING_FRAMES = 'Checking for animation frames...'
 export const animatedText = (n: number) => `Animated: ${n} frames, looping.`
@@ -20,6 +21,34 @@ const WHY_NOT_DRAWN: Record<string, string> = {
   noParts: 'Its code drew no tiles.',
   charsNotLoaded: 'Some of its graphics are not loaded on this map.',
   noDescriptor: 'The app has no drawing rules for this sprite yet.',
+}
+
+/**
+ * Why no animation is shown, in words. The node side and the player keep their reason codes (they are not
+ * UI strings); this is the only place they become sentences, and an unknown one never reaches the screen.
+ */
+export function framesReasonText(reason: string): string {
+  if (reason === 'extraBits') return WHY_NOT_DRAWN.extraBits!
+  if (reason === 'rom-not-located') return 'The ROM for this project could not be found.'
+  if (reason.startsWith('refused:')) return "The app could not run this sprite's code."
+  if (reason.startsWith('INIT erased')) return 'The sprite removes itself as it starts.'
+  if (reason.startsWith('its parts are fixed')) return 'Its parts are fixed to the screen, so they have no place on the map to animate at.' // prettier-ignore
+  if (reason.startsWith('drew no')) return WHY_NOT_DRAWN.noParts!
+  return 'The frames could not be worked out.'
+}
+
+/** The animation line under the picture; nothing while the player has not been asked yet. */
+export function animationText(f: FramesState): string | undefined {
+  switch (f.kind) {
+    case 'idle':
+      return undefined
+    case 'loading':
+      return LOADING_FRAMES
+    case 'playing':
+      return animatedText(f.frames.length)
+    case 'still':
+      return f.reason ? `Animation not shown: ${framesReasonText(f.reason)}` : NOT_ANIMATED
+  }
 }
 
 export interface SpriteProps {

@@ -20,6 +20,8 @@ const ROM = process.env.HB_ROM || romPath(VANILLA)
 test.skip(!fs.existsSync(ROM), `vanilla ROM not present at ${ROM}`)
 
 const SLOT = 0x105
+// Maps swept when SLOT has no animated sprite to click: the RPC picks, never an id.
+const SWEEP = [SLOT, 0x0c7, 0x0c8, 0x0c9, 0x0ca, 0x0cb, 0x101, 0x102, 0x103, 0x104]
 const GET_SVC = `function getSvc(name) {
   const d = window.theia.container._bindingDictionary
   for (const k of d._map.keys()) {
@@ -72,14 +74,14 @@ test.afterEach(() => {
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true })
 })
 
-const fetchSprites = page =>
+const fetchSprites = (page, slot = SLOT) =>
   page.evaluate(({ mp, slot }) => getSvc('Symbol(ProjectService)').mapSprites(mp, slot), {
     mp: manifestPath,
-    slot: SLOT,
+    slot,
   })
 
 /** Opens the map; returns the node reply with a click helper on a sprite's own opaque pixel. */
-async function openMap(page) {
+async function openMap(page, slot = SLOT) {
   await page.evaluate(
     async ({ mp, index }) => {
       const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { index })
@@ -88,10 +90,10 @@ async function openMap(page) {
       await shell.addWidget(w, { area: 'main' })
       await shell.activateWidget(w.id)
     },
-    { mp: manifestPath, index: SLOT },
+    { mp: manifestPath, index: slot },
   )
-  await page.locator(stripOf(SLOT)).waitFor({ timeout: 30000 })
-  const reply = await fetchSprites(page)
+  await page.locator(stripOf(slot)).waitFor({ timeout: 30000 })
+  const reply = await fetchSprites(page, slot)
   expect(reply.status).toBe('ok')
   const vertical = reply.orientation === 'vertical'
   const bitmaps = new Map(reply.sprites.map(s => [s, Buffer.from(s.rgba, 'base64')]))
@@ -129,7 +131,7 @@ async function openMap(page) {
         sc.scrollBy(first.x - (view.left + view.width / 2), first.y - (view.top + view.height / 2))
         return at()
       },
-      { strip: stripOf(SLOT), mapW, mapH, x, y },
+      { strip: stripOf(slot), mapW, mapH, x, y },
     )
     await page.mouse.click(p.x, p.y)
   }
@@ -155,6 +157,9 @@ test('clicking a sprite opens the Properties panel with its id, name, position, 
   const before = await fetchSprites(page)
   const hashBefore = treeHash(projectDir)
 
+  // The frames RPC runs the interpreter on demand: it must not write either, whether the panel or a test asks.
+  for (const s of [a, b]) await framesOf(page, s)
+
   for (const s of [a, b]) {
     const at = map.own(s)
     await map.click(at.x, at.y)
@@ -171,6 +176,8 @@ test('clicking a sprite opens the Properties panel with its id, name, position, 
     const rows = [...new Set(s.parts.map(x => x.palette))].sort((m, n) => m - n).join(', ')
     await expect(p.locator('[data-field="palette-rows"]')).toHaveText(rows)
     expect(await p.locator('[data-control="sprite-composite"]').count()).toBe(1)
+    // The click's own frames request has finished before the hash is taken.
+    await expect(p.locator('[data-field="animation"]')).not.toContainText('Checking')
   }
 
   const e = map.emptyPixel()
@@ -183,29 +190,45 @@ test('clicking a sprite opens the Properties panel with its id, name, position, 
   expect(await fetchSprites(page)).toEqual(before)
 })
 
-const framesOf = (page, s) =>
+const framesOf = (page, s, slot = SLOT) =>
   page.evaluate(
     ({ mp, slot, i }) => getSvc('Symbol(ProjectService)').mapSpriteFrames(mp, slot, i),
-    {
-      mp: manifestPath,
-      slot: SLOT,
-      i: s.index,
-    },
+    { mp: manifestPath, slot, i: s.index },
   )
+
+/** The first map in SWEEP with both an animated and a one-pose sprite, found by the frames RPC alone. */
+async function mapWithAnimation(page) {
+  for (const slot of SWEEP) {
+    const r = await fetchSprites(page, slot)
+    if (r.status !== 'ok') continue
+    let [animated, still] = [false, false]
+    for (const s of r.sprites.filter(x => x.status === 'drawn' && x.parts && !x.fixedTo)) {
+      const f = await framesOf(page, s, slot)
+      if (f.status !== 'ok') continue
+      if (f.frames.length >= 2) animated = true
+      else if (!f.reason) still = true // a reason says "Animation not shown", not "Not animated"
+      if (animated && still) return slot
+    }
+  }
+  return undefined
+}
 
 test('an animated sprite loops on the panel canvas; a one-pose sprite says it is not animated', async ({
   page,
 }) => {
-  const map = await openMap(page)
+  const slot = await mapWithAnimation(page)
+  expect(slot, 'a vanilla map with an animated and a one-pose sprite').toBeDefined()
+  const map = await openMap(page, slot)
+  const hashBefore = treeHash(projectDir)
   const clickable = map.stack.filter(s => s.status === 'drawn' && s.parts && map.own(s))
   // Found by asking the RPC for every clickable sprite, never by id: the map decides which have frames.
   let animated
   let still
   for (const s of clickable) {
-    const r = await framesOf(page, s)
+    const r = await framesOf(page, s, slot)
     if (r.status !== 'ok') continue
     if (r.frames.length >= 2) animated ??= s
-    else still ??= s
+    else if (!r.reason) still ??= s
     if (animated && still) break
   }
   expect(animated && still, 'one animated and one single-pose sprite on the map').toBeTruthy()
@@ -228,6 +251,8 @@ test('an animated sprite loops on the panel canvas; a one-pose sprite says it is
   const a = await canvas.evaluate(c => c.toDataURL())
   await page.waitForTimeout(400)
   expect(await canvas.evaluate(c => c.toDataURL())).toBe(a)
+  // Looping ran the frames RPC for every click above: still read only.
+  expect(treeHash(projectDir)).toBe(hashBefore)
 })
 
 test('closing the map clears the panel; the toggle command reopens a closed panel', async ({

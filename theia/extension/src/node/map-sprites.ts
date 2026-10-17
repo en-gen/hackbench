@@ -669,10 +669,14 @@ export const MAX_FRAMES = 16
 /**
  * One sprite's distinct poses (#984), for the Properties preview. `m.passes` are consecutive real game
  * frames, so each pass that draws is blitted through `drawSprites` as if it were `chosen`: no second draw
- * path. A pose is its tile chars and flips (sorted: OAM order is not a pose); the sprite's own movement
- * between passes is subtracted, so every frame is measured from the first drawn pass and only the art changes.
- * A sprite with screen-fixed parts (`fixOffsets`) is not animated here: their map position comes from the
- * loader's camera for the chosen pass only, so another pass has no honest place to stand.
+ * path. The loop starts at `m.chosen` (the pose the map shows, so frame 0 IS the map's bitmap) and goes on
+ * to the later passes. A pose is its parts' chars, flips and offsets from one another (sorted: OAM order is
+ * not a pose), after the sprite's own movement is subtracted, so only the art changes between frames.
+ * Where a part is measured from differs by sprite: usually the one INIT anchor, with the sprite drawing
+ * where it stood at the end of the pass (`pos`); for $67 on a vanilla-shaped handler the pass before's
+ * `pos` (`origin`, SpriteRunner.ts `snaps`), the draw running before the move. `drawAt` is where the sprite
+ * stood when it drew. A sprite with screen-fixed parts (`fixOffsets`) is not animated here: their map
+ * position comes from the loader's camera for the chosen pass only, so another pass has no honest place.
  */
 export function framesOf(
   run: { m: RunModel; fixed: boolean },
@@ -681,25 +685,32 @@ export function framesOf(
   dynamic?: (note: PaletteNote) => RgbaColor[],
 ): { frames: MapSpriteDto[]; reason?: string } {
   const { m, fixed } = run
-  const drawn = m.passes.filter(p => p.parts.length > 0)
-  const first = drawn[0]
-  if (!first || m.chosen === undefined) {
+  const ref = m.chosen === undefined ? undefined : m.passes[m.chosen]
+  if (!ref || !ref.parts.length) {
     const r = modelResult(m)
     return { frames: [], reason: 'reason' in r ? r.reason : 'drew no tile' }
   }
   if (fixed) return { frames: [], reason: 'its parts are fixed to the screen' }
+  const o0 = m.passes[0]!.origin
+  const snapped = m.passes.some(q => q.origin.x !== o0.x || q.origin.y !== o0.y)
+  const drawAt = (q: typeof ref) => (snapped ? q.origin : q.pos)
   const seen = new Set<string>()
   const frames: MapSpriteDto[] = []
-  for (const pass of drawn) {
-    const key = interpParts(pass.parts).map(p => [p.charNum, +p.flipX, +p.flipY].join()).sort().join(';') // prettier-ignore
+  for (const pass of m.passes.filter(q => q.pass >= ref.pass && q.parts.length > 0)) {
+    // dx' places the art where it stands relative to the sprite, on the chosen pass's anchor.
+    const [ax, ay] = [pass.origin.x - drawAt(pass).x + drawAt(ref).x - ref.origin.x, pass.origin.y - drawAt(pass).y + drawAt(ref).y - ref.origin.y] // prettier-ignore
+    const parts = pass.parts.map(p => ({ ...p, dx: p.dx + ax, dy: p.dy + ay }))
+    const drawnParts = interpParts(parts)
+    const [mx, my] = [
+      Math.min(...drawnParts.map(p => p.dx)),
+      Math.min(...drawnParts.map(p => p.dy)),
+    ]
+    const key = drawnParts.map(p => [p.charNum, +p.flipX, +p.flipY, p.dx - mx, p.dy - my].join()).sort().join(';') // prettier-ignore
     if (seen.has(key)) continue
     seen.add(key)
-    const [mx, my] = [pass.pos.x - first.pos.x, pass.pos.y - first.pos.y]
-    const parts = pass.parts.map(p => ({ ...p, dx: p.dx - mx, dy: p.dy - my }))
-    const k = pass.pass
     const shifted = {
       ...m,
-      chosen: k,
+      chosen: pass.pass,
       passes: m.passes.map(q => (q === pass ? { ...q, parts } : q)),
     }
     const [f] = drawSprites([s], model, () => modelResult(shifted), dynamic)

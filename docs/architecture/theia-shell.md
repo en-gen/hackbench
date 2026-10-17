@@ -387,17 +387,22 @@ bitmap), via the pure `sprite-props.ts`; nothing re-reads the ROM and nothing wr
 Animation: `mapSprites` still ships one pose per sprite (the interpreter's `chosen` pass). The panel asks for the
 rest on demand through `mapSpriteFrames(manifestPath, mapIndex, spriteIndex)`: the node side runs that one sprite
 again with the map view's seed and camera, and blits every pass that draws through `drawSprites` (no second draw
-path). `Machine.passes` are consecutive game frames, so poses are deduped by tile chars and flips only, anchored
-to the first drawn pass (the sprite's own movement is subtracted), kept in pass order and capped at 16. Fewer
-than 2 is "Not animated", with the run's reason when it drew nothing or was refused; sprites with screen-fixed
-parts (`fixOffsets`) are not animated, because that fix is only derived for the chosen pass. `FramePlayer`
-(`sprite-frames.ts`) requests on selection, drops replies for an older selection, steps every 133 ms (8 game
-frames) and stops its timer on clear, hide and dispose. Evidence scope: vanilla ROM, one machine; a Koopa on
+path). `Machine.passes` are consecutive game frames. The loop starts at the pass the map shows (`chosen`, so frame
+0 is the map's bitmap) and goes on to later passes, kept in pass order and capped at 16. The sprite's own movement
+is subtracted (from `pos`, or from `origin` for a $67 on a vanilla-shaped handler, whose parts are measured from the
+pass before), then poses are deduped by each part's char, flips and offset from the other parts, so parts that
+move against each other are a new pose and whole-sprite drift is not. One pose says "Not animated"; no frames at
+all says "Animation not shown" plus a plain reason (the node and player keep reason codes, `framesReasonText`
+puts them in words). Sprites with screen-fixed parts (`fixOffsets`) are not animated, because that fix is only
+derived for the chosen pass. `FramePlayer` (`sprite-frames.ts`) requests on selection, drops replies and errors
+for an older selection, steps every 133 ms (8 game frames) and stops its timer on clear, hide and dispose. The
+widget follows the model through `followSubject` (`properties-follow.ts`), which applies the current subject
+first: a click publishes BEFORE the reveal command creates the widget. Evidence scope: vanilla ROM, one machine; a Koopa on
 map $0C7 yields 2 frames, a $9F on map $105 yields 1.
 
 Adding the map description (#1023): add a `map` variant to `PropertiesSubject`, publish it from the map widget
-where it now publishes `none`, and render it in `PropertiesWidget.render` (the `none` slot); the sprite
-breadcrumb in `SpriteSubject` is where "Back" goes.
+where it now publishes `none`, and call `registerSubjectRenderer('map', ...)` in `properties-widget.tsx` (the
+renderer registry; `render()` does not change); the sprite breadcrumb in `SpriteSubject` is where "Back" goes.
 
 ## The emulator view
 

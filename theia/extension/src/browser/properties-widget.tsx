@@ -1,8 +1,10 @@
 /**
  * The Properties view (#984): one right-hand side panel that describes whatever the app is pointing at.
- * Today that is the sprite clicked in a map; #1023 adds the map description by registering a provider for a
- * new subject kind and filling the `none` slot, with no change to the panel, its title bar or its reopen
- * command. Read only: nothing here writes, and nothing re-reads the ROM (the subject is the map view's own DTO).
+ * Today that is the sprite clicked in a map. A subject kind is drawn by a renderer in `SUBJECT_RENDERERS`
+ * (sprite and none are registered below), so #1023 adds the map description by extending `PropertiesSubject`
+ * with a `map` kind and calling `registerSubjectRenderer('map', ...)`, with no edit to `render()`, the title
+ * bar or the reopen command. Not built here: the notes summary, and the Back link of the breadcrumb.
+ * Read only: nothing here writes, and nothing re-reads the ROM (the subject is the map view's own DTO).
  */
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
@@ -12,8 +14,9 @@ import { ProjectService, type SpritePartDto } from '../common/project-protocol'
 import { decodeRgba } from './map16-pixels'
 import { formatCharNum } from './map16-view-model'
 import { PropertiesModel, PropertiesSubject } from './properties-model'
-import { animatedText, LOADING_FRAMES, NOT_ANIMATED, spriteProps } from './sprite-props'
+import { animationText, spriteProps } from './sprite-props'
 import { FramePlayer, type FramesState } from './sprite-frames'
+import { followSubject } from './properties-follow'
 
 export const PROPERTIES_VIEW_ID = 'hackbench.properties'
 export const NO_SPRITE_SELECTED = 'No sprite selected'
@@ -80,7 +83,12 @@ function SpriteSubject({
   const [w, h] = [s.box.x1 - s.box.x0, s.box.y1 - s.box.y0]
   return (
     <div className="hb-props-sprite" data-subject="sprite">
-      {/* A map description (#1023) puts its "Back" link in this breadcrumb. */}
+      {p.notes.map(n => (
+        <div key={n} className="hb-props-note" data-field="note">
+          {n}
+        </div>
+      ))}
+      {/* #1023: the map's notes summary sits above the breadcrumb (docs design map-facts-properties.md); its "Back" link goes in the breadcrumb. */}
       <div className="hb-props-crumb" data-control="crumb">
         Sprite
       </div>
@@ -105,11 +113,7 @@ function SpriteSubject({
         <Composite pixels={decodeRgba(s.rgba)} w={w} h={h} />
       )}
       <div className="hb-props-anim" data-field="animation">
-        {frames.kind === 'playing'
-          ? animatedText(frames.frames.length)
-          : frames.kind === 'loading'
-            ? LOADING_FRAMES
-            : `${NOT_ANIMATED}${frames.kind === 'still' && frames.reason ? ` (${frames.reason})` : ''}`}
+        {animationText(frames)}
       </div>
       <h4>Parts ({p.parts?.length ?? 0})</h4>
       <ol className="hb-props-parts" data-field="parts">
@@ -120,14 +124,34 @@ function SpriteSubject({
           </li>
         ))}
       </ol>
-      {p.notes.map(n => (
-        <div key={n} className="hb-props-note" data-field="note">
-          {n}
-        </div>
-      ))}
     </div>
   )
 }
+
+/** What a renderer is given besides its subject. */
+export interface RenderContext {
+  frames: FramesState
+}
+type SubjectOf<K extends PropertiesSubject['kind']> = Extract<PropertiesSubject, { kind: K }>
+type Renderer = (subject: PropertiesSubject, ctx: RenderContext) => React.ReactNode
+
+/** One renderer per subject kind: a new kind registers here and `render()` never changes (#1023). */
+export const SUBJECT_RENDERERS = new Map<string, Renderer>()
+export function registerSubjectRenderer<K extends PropertiesSubject['kind']>(
+  kind: K,
+  render: (subject: SubjectOf<K>, ctx: RenderContext) => React.ReactNode,
+): void {
+  SUBJECT_RENDERERS.set(kind, render as unknown as Renderer)
+}
+
+registerSubjectRenderer('sprite', (subject, ctx) => (
+  <SpriteSubject subject={subject} frames={ctx.frames} />
+))
+registerSubjectRenderer('none', () => (
+  <div className="hb-props-empty" data-subject="none">
+    {NO_SPRITE_SELECTED}
+  </div>
+))
 
 @injectable()
 export class PropertiesWidget extends ReactWidget {
@@ -146,18 +170,8 @@ export class PropertiesWidget extends ReactWidget {
     this.player = new FramePlayer(src => this.projects.mapSpriteFrames(src.manifestPath, src.index, src.spriteIndex)) // prettier-ignore
     this.toDispose.push(this.player)
     this.toDispose.push(this.player.onChange(() => this.update()))
-    // Only a new sprite (not a re-publish of the same one) restarts the loop.
-    let shown: unknown
-    this.toDispose.push(
-      this.model.onChange(s => {
-        const sprite = s.kind === 'sprite' ? s.sprite : undefined
-        if (sprite !== shown) {
-          shown = sprite
-          this.player.select(s.kind === 'sprite' && s.source ? { ...s.source, spriteIndex: s.sprite.index } : undefined) // prettier-ignore
-        }
-        this.update()
-      }),
-    )
+    // Starts with the subject already published: the click that opened this panel published first.
+    this.toDispose.push(followSubject(this.model, this.player, () => this.update()))
     this.update()
   }
 
@@ -173,13 +187,6 @@ export class PropertiesWidget extends ReactWidget {
 
   protected render(): React.ReactNode {
     const subject = this.model.subject
-    // #1023: a `map` subject renders here; `none` then becomes the map description.
-    if (subject.kind === 'sprite')
-      return <SpriteSubject subject={subject} frames={this.player.state} />
-    return (
-      <div className="hb-props-empty" data-subject="none">
-        {NO_SPRITE_SELECTED}
-      </div>
-    )
+    return SUBJECT_RENDERERS.get(subject.kind)?.(subject, { frames: this.player.state }) ?? null
   }
 }

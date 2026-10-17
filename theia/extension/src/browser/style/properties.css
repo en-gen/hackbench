@@ -1,14 +1,14 @@
-/* Colors and sizes come from the active theme; nothing here fixes either. */
+/* Tokens come from the active theme; each carries a literal fallback for when the token is undefined (ui-conventions.md, Color tokens). */
 .hb-props {
   padding: 8px 12px;
   overflow: auto;
-  font-size: var(--theia-ui-font-size1);
+  font-size: var(--theia-ui-font-size1, 13px);
 }
 .hb-props-empty,
 .hb-props-crumb,
 .hb-props-note,
 .hb-props-anim {
-  color: var(--theia-descriptionForeground);
+  color: var(--theia-descriptionForeground, #8b949e);
 }
 .hb-props dl {
   display: grid;
@@ -23,7 +23,7 @@
   image-rendering: pixelated;
   display: block;
   margin: 8px 0;
-  border: 1px solid var(--theia-panel-border);
+  border: 1px solid var(--theia-panel-border, #80808059);
 }
 .hb-props-parts {
   padding-left: 20px;

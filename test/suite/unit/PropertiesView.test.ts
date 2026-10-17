@@ -7,7 +7,13 @@ import { describe, it, expect } from 'vitest'
 import type { EngineResult } from '../../../src/rom/model/sprites/generic/SpriteDrawEngine'
 import type { LevelSprite } from '../../../src/rom/LevelParser'
 import { drawSprites } from '../../../theia/extension/src/node/map-sprites'
-import { spriteProps } from '../../../theia/extension/src/browser/sprite-props'
+import {
+  animationText,
+  framesReasonText,
+  spriteProps,
+} from '../../../theia/extension/src/browser/sprite-props'
+import { followSubject } from '../../../theia/extension/src/browser/properties-follow'
+import { FramePlayer, type FramesState } from '../../../theia/extension/src/browser/sprite-frames'
 import { PropertiesModel } from '../../../theia/extension/src/browser/properties-model'
 import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
 import { COLORS } from '../support/mapInputs'
@@ -74,6 +80,89 @@ describe('spriteProps: identity and position in words', () => {
   })
   it('an unnamed sprite is still labelled by id', () => {
     expect(spriteProps(draw(0x7e)).label).toBe('Sprite $7E')
+  })
+})
+
+describe('spriteProps: row and notes', () => {
+  it('the row is the 16 px tile the anchor is in: y 56 is row 3, x 88 is column 5', () => {
+    expect(spriteProps({ ...draw(), x: 88, y: 56 })).toMatchObject({ col: 5, row: 3 })
+  })
+  it('an unverified draw says so, and a verified one does not', () => {
+    expect(spriteProps({ ...draw(), unverified: 'seed was generic' }).notes).toContain('Unverified: seed was generic.') // prettier-ignore
+    expect(spriteProps(draw()).notes.join(' ')).not.toMatch(/unverified/i)
+  })
+})
+
+describe('animationText: reasons reach the screen in words', () => {
+  const still = (reason?: string): FramesState => ({ kind: 'still', reason })
+  it('nothing for idle, a loading line, a count for playing', () => {
+    expect(animationText({ kind: 'idle' })).toBeUndefined()
+    expect(animationText({ kind: 'loading' })).toMatch(/checking/i)
+    expect(animationText({ kind: 'playing', frames: [{}, {}, {}] as MapSpriteDto[], current: 0 })).toBe('Animated: 3 frames, looping.') // prettier-ignore
+  })
+  it('a plain one-pose sprite is "Not animated"; a refused or fixed one is "Animation not shown" with the reason', () => {
+    expect(animationText(still())).toMatch(/^Not animated/)
+    for (const r of [
+      'refused: MAIN: bad opcode',
+      'INIT erased the sprite (status 0)',
+      'its parts are fixed to the screen',
+      'extraBits',
+      'drew no OAM tile in 8 passes (x)',
+      'rom-not-located',
+      'boom',
+    ]) {
+      // prettier-ignore
+      const t = animationText(still(r))!
+      expect(t, r).toMatch(/^Animation not shown: /)
+      expect(t, r).not.toMatch(/extraBits|refused:|INIT|status 0|MAIN|boom|\(|not-located/)
+    }
+  })
+  it('reuses the not-drawn wording for extra bits and for no tiles', () => {
+    expect(framesReasonText('extraBits')).toMatch(/extra-bits marker/)
+    expect(framesReasonText('drew no tile')).toBe('Its code drew no tiles.')
+  })
+})
+
+describe('followSubject: the panel is created after the click that published', () => {
+  const sprite = { kind: 'sprite', sprite: { index: 4 } as MapSpriteDto, source: { manifestPath: 'm', index: 1 } } as const // prettier-ignore
+  const flush = () => new Promise(r => setTimeout(r, 0))
+  it('a sprite published BEFORE following starts its frames at once, not "Not animated"', async () => {
+    const model = new PropertiesModel()
+    model.publish({}, sprite)
+    const player = new FramePlayer(async () => ({ status: 'ok', frames: [{}, {}] as MapSpriteDto[] }), { every: () => 1, stop: () => {} }) // prettier-ignore
+    followSubject(model, player, () => {})
+    expect(player.state.kind).toBe('loading')
+    expect(animationText(player.state)).not.toMatch(/not animated/i)
+    await flush()
+    expect(player.state.kind).toBe('playing')
+  })
+  it('nothing published stays idle; later changes restart for a new sprite only', () => {
+    const model = new PropertiesModel()
+    const picks: unknown[] = []
+    let paints = 0
+    const sub = followSubject(model, { select: s => picks.push(s) }, () => paints++)
+    expect(picks).toEqual([])
+    const o = {}
+    model.publish(o, sprite)
+    model.publish(o, sprite) // the same sprite again: no restart
+    model.publish(o, { ...sprite, sprite: { index: 5 } as MapSpriteDto })
+    model.clear(o)
+    expect(picks).toEqual([
+      { manifestPath: 'm', index: 1, spriteIndex: 4 },
+      { manifestPath: 'm', index: 1, spriteIndex: 5 },
+      undefined,
+    ])
+    expect(paints).toBe(5)
+    sub.dispose()
+    model.publish(o, sprite)
+    expect(picks).toHaveLength(3)
+  })
+  it('a sprite with no source has one pose to show and no frames are asked for', () => {
+    const picks: unknown[] = []
+    const model = new PropertiesModel()
+    model.publish({}, { kind: 'sprite', sprite: { index: 1 } as MapSpriteDto })
+    followSubject(model, { select: s => picks.push(s) }, () => {})
+    expect(picks).toEqual([undefined])
   })
 })
 
