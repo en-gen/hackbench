@@ -71,19 +71,23 @@ const pathWords = (p: EntryPath): string => (p.kind === 'secondary' ? `through s
  * ScreenMode vertical (:7292-7299, 7379-7381), from `_1 & $1F`, `_1` being F600 or the entrance's
  * FC00 (:7147-7148, 7336-7337, 7376-7388); L2's only when VertLayer2Setting != 3 (:7390-7393).
  * The midway restart jumps past both high-byte writes, which stay 0 (:7287-7288, 7362-7373).
+ * Null when a table byte lies past the end of the ROM: an unreadable byte is not a 0 (#911).
  */
-function entryDy(rom: RomFile, index: number, path: EntryPath): number {
-  const byte = (addr: number) => rom.readByte(addr) ?? 0
+function entryDy(rom: RomFile, index: number, path: EntryPath): number | null {
+  let cut = false
+  const byte = (addr: number) => rom.readByte(addr) ?? ((cut = true), 0)
   const sec = path.kind === 'secondary'
   const lows = byte(sec ? 0x05fa00 + path.id : 0x05f400 + index)
   const l1 = byte(0x05d708 + ((lows >> (sec ? 4 : 2)) & 3))
   const l2 = byte(0x05d70c + ((lows >> (sec ? 6 : 0)) & 3))
   const vertical = (byte(0x05f600 + index) & 0x20) !== 0
-  if (!vertical || path.kind === 'midway') return l1 - l2
+  if (!vertical || path.kind === 'midway') return cut ? null : l1 - l2
   const high = (sec ? byte(0x05fc00 + path.id) : byte(0x05f600 + index)) & 0x1f
   const l2High = byte(0x05d710 + (byte(0x05f000 + index) >> 4)) === 3 ? 0 : high // :7268-7277
-  return ((high << 8) | l1) - ((l2High << 8) | l2)
+  return cut ? null : ((high << 8) | l1) - ((l2High << 8) | l2)
 }
+
+const TABLES_CUT = 'The ROM ends before the entrance tables that place the background, so layer 2 is not drawn' // prettier-ignore
 
 /**
  * The map's `dy` from the entrances that reach it, or null when none is known (an orphan, a bonus
@@ -93,11 +97,13 @@ function dyFromEntrances(
   rom: RomFile,
   index: number,
   via?: MapEntrances,
-): { dy: number; note?: string } | null {
+): { dy: number; note?: string } | { cut: true } | null {
   if (!via) return null
   // A midway restart needs MidwayFlag, which the tape (Map16 $038) sets only while DisableMidway,
   // F400[map] >> 4 at the overworld entry, is nonzero (bank_00.asm:13042-13050; bank_05.asm:7349-7357).
-  const midway = (rom.readByte(0x05f400 + index) ?? 0) >> 4 !== 0
+  const disableMidway = rom.readByte(0x05f400 + index)
+  if (disableMidway === null) return { cut: true }
+  const midway = disableMidway >> 4 !== 0
   const paths: EntryPath[] = [
     ...(via.overworld ? [{ kind: 'overworld' as const }] : []),
     ...(via.primary ? [{ kind: 'exit' as const }] : []),
@@ -112,6 +118,9 @@ function dyFromEntrances(
   const at = chosen === null ? 0 : paths.findIndex(p => p.kind === 'secondary' && p.id === chosen)
   const ordered = [paths[at]!, ...paths.filter((_, i) => i !== at)]
   const dys = ordered.map(p => entryDy(rom, index, p))
+  // Any path cut short refuses the lot: the note compares the paths, and a made-up height on one
+  // would be a false difference (or a false agreement).
+  if (dys.some(d => d === null)) return { cut: true }
   const differ = ordered.filter((_, i) => dys[i] !== dys[0]).map(pathWords)
   if (differ.length === 0) return { dy: dys[0]! }
   return {
@@ -143,7 +152,9 @@ export function buildL2Inputs(
   // VerticalTable, which the header parse applies later (:552-553). With no known entrance
   // (so none is chosen), the primary entrance's F400/F600.
   const entryVertical = ((rom.rom.readByte(0x05f600 + index) ?? 0) & 0x20) !== 0
-  const known = dyFromEntrances(rom.rom, index, entrances)
+  const via = dyFromEntrances(rom.rom, index, entrances)
+  if (via && 'cut' in via) return refuse(TABLES_CUT)
+  const known = via
   const dy = (): number => known?.dy ?? readInitialLayer1YPos(rom.rom, index, entryVertical) - readInitialLayer2YPos(rom.rom, index, entryVertical) // prettier-ignore
   // The tables are the game's only while the code reading them is stock (LEVEL_START_Y): if not,
   // the best reading still draws, said to be unverified.
