@@ -41,15 +41,15 @@ describe('INIT facing through SubHorizPos (synthetic)', () => {
   const at = (id: number, sprite: number, mario: number) => facingAfterInit(rom, id, { mario: { x: mario, y: 0x80 }, sprite: { x: sprite, y: 0x80 }, slot: 3 }) // prettier-ignore
   it.each([
     // sprite X, Mario X, facing: Mario left is 1; a tie and Mario right are 0; the high byte carries
-    [0x200, 0x1ff, 1],
-    [0x200, 0x200, 0],
-    [0x200, 0x201, 0],
-    [0x1ff, 0x200, 0],
-    [0x1ff, 0x1fe, 1],
-    [0x200, 0x0ff, 1],
-    [0x0ff, 0x300, 0],
-  ])('sprite %i, Mario %i gives $157C %i', (sprite, mario, want) => {
-    expect(at(40, sprite, mario)).toBe(want)
+    ['200', '1ff', 1],
+    ['200', '200', 0],
+    ['200', '201', 0],
+    ['1ff', '200', 0],
+    ['1ff', '1fe', 1],
+    ['200', '0ff', 1],
+    ['0ff', '300', 0],
+  ])('sprite X 0x%s, Mario X 0x%s gives $157C %i', (sprite, mario, want) => {
+    expect(at(40, parseInt(sprite, 16), parseInt(mario, 16))).toBe(want)
   })
   it('leaves a constant-facing INIT unchanged on both sides', () => {
     expect([at(41, 0x200, 0x1f0), at(41, 0x200, 0x210)]).toEqual([1, 1])

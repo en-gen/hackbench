@@ -34,7 +34,9 @@ does not, on purpose, pending owner ruling D96. The loader's value is used becau
 
 ## Open items (follow-ups, not fixed here)
 
-- The 9 Koopa/Goomba-type mismatches on `11e` and `126` look like a capture artefact: the capture
-  reads `$157C` after same-frame sprite code has run.
+- The 9 Koopa/Goomba-type mismatches on `11e` and `126` look like a capture artefact. Hypothesis, not
+  confirmed: the capture reads `$157C` after same-frame sprite code has run. Evidence scope:
+  `headless_capture.lua` (en-gen/hackbench-validation, `capture/mesen`, lines ~1324 and ~1771) reads
+  `$157C` at the end of the INIT frame; no write breakpoint has confirmed a later write.
 - The 4 Lakitu rider (`$1E`) mismatches (`11f`, `132`, `1c4`, `1c5`) depend on the cloud's slot:
   the cloud's MAIN (`bank_01.asm:14216-14222`) writes the rider's `$157C`.
