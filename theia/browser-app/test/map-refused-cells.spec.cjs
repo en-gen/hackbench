@@ -25,7 +25,8 @@ const GET_SVC = `function getSvc(name) {
 }`
 
 const WHY = 'HackBench cannot draw this object type yet.'
-const WHY_GATE = "This object's drawing code could not be read safely, so it was not drawn."
+const GATE_A = 'Its drawing code was changed where HackBench expects a call (byte $0DB4B1 is $00).'
+const GATE_B = 'Its drawing code was changed where HackBench expects a call (byte $0DB4D2 is $1F).'
 // $105 is horizontal (16 x 27 tile screens), $109 vertical (32 x 16, 7 screens): map-view.spec.cjs.
 const MAPS = [
   { index: 0x105, screenPx: [256, 432] },
@@ -92,6 +93,7 @@ async function openMap(page, index, cells) {
 }
 
 const bullet = c => (c.reasons.length > 1 ? '- ' : '')
+const ariaOf = c => (c.reasons.length > 1 ? `${c.reasons.length} issues. ` : '') + tooltipOf(c)
 const tooltipOf = c =>
   [`Object ${c.objectIndex} (${c.objectType})`, ...c.reasons.map(r => bullet(c) + r)].join('\n')
 
@@ -120,14 +122,14 @@ for (const { index, screenPx } of MAPS) {
     page,
   }) => {
     const unported = { x: 3, y: 5, objectIndex: 7, objectType: 'type 9', handler: 0x0dfff0, reasons: [WHY] } // prettier-ignore
-    const gate = { x: 9, y: 2, objectIndex: 8, objectType: 'extended type 5', handler: 0x0db49e, reasons: [WHY_GATE, WHY] } // prettier-ignore
+    const gate = { x: 9, y: 2, objectIndex: 8, objectType: 'extended type 5', handler: 0x0db49e, reasons: [GATE_A, WHY] } // prettier-ignore
     await openMap(page, index, [unported, gate])
     const g = page.locator(`${root(index)} [data-control="refused-cell"]`)
     await expect(g).toHaveCount(2, { timeout: 30000 })
     for (const [n, c] of [unported, gate].entries()) {
       const tip = tooltipOf(c)
       await expect(g.nth(n).locator('title')).toHaveText(tip)
-      expect(await g.nth(n).getAttribute('aria-label')).toContain(tip)
+      await expect(g.nth(n)).toHaveAttribute('aria-label', ariaOf(c))
     }
     const zooms = []
     for (const step of ['zoom-actual', 'zoom-in']) {
@@ -147,61 +149,94 @@ for (const { index, screenPx } of MAPS) {
   })
 }
 
-/** Box of a node in MAP pixels, zoom divided out, relative to the strip. */
-const boxesAt = (page, index, screenW) =>
-  page.evaluate(
-    ({ sel, screenW }) => {
-      const strip = document.querySelector(`${sel} .hb-map-view-strip`).getBoundingClientRect()
-      const zoom = document.querySelector(`${sel} .hb-map-view-screen`).getBoundingClientRect().width / screenW // prettier-ignore
-      const box = el => {
-        const r = el.getBoundingClientRect()
-        return { l: (r.left - strip.left) / zoom, t: (r.top - strip.top) / zoom, r: (r.right - strip.left) / zoom, b: (r.bottom - strip.top) / zoom } // prettier-ignore
-      }
-      return [...document.querySelectorAll(`${sel} [data-control="refused-cell"]`)].map(g => ({
-        count: g.getAttribute('data-count'),
-        rect: box(g.querySelector('rect')),
-        badge: g.querySelector('[data-control="refused-badge"]')
-          ? box(g.querySelector('[data-control="refused-badge"]'))
-          : null,
+/**
+ * Every cell's geometry read from the SVG's own attributes through getScreenCTM, so the numbers are
+ * SCREEN pixels at the current zoom and font-independent: cell box (no dash stroke), badge outer circle
+ * (r + stroke / 2), and the "!" attributes in map units.
+ */
+const geometryAt = (page, index) =>
+  page.evaluate(sel => {
+    const screenBox = (el, x, y, w, h) => {
+      const m = el.getScreenCTM()
+      return { l: m.e + x * m.a, t: m.f + y * m.d, r: m.e + (x + w) * m.a, b: m.f + (y + h) * m.d, k: m.a } // prettier-ignore
+    }
+    return [...document.querySelectorAll(`${sel} [data-control="refused-cell"]`)].map(g => {
+      const rect = g.querySelector('rect')
+      const n = k => Number(rect.getAttribute(k))
+      const c = g.querySelector('[data-control="refused-badge"] circle')
+      const t = g.querySelector(':scope > text')
+      const a = k => Number(c.getAttribute(k))
+      const out = c ? a('r') + Number(c.getAttribute('stroke-width')) / 2 : 0
+      return {
+        x: Number(g.dataset.x),
+        y: Number(g.dataset.y),
+        count: g.dataset.count,
+        cell: screenBox(rect, n('x'), n('y'), n('width'), n('height')),
+        badge: c ? screenBox(c, a('cx') - out, a('cy') - out, 2 * out, 2 * out) : null,
         badgeText: g.querySelector('[data-control="refused-badge"] text')?.textContent ?? null,
-        bang: box(g.querySelector(':scope > text')),
-      }))
-    },
-    { sel: root(index), screenW },
-  )
+        circle: c ? { cx: a('cx'), cy: a('cy'), out } : null,
+        bang: { x: Number(t.getAttribute('x')), y: Number(t.getAttribute('y')), fs: Number(t.getAttribute('font-size')) }, // prettier-ignore
+      }
+    })
+  }, root(index))
 
-test('a count badge shows only for 2+ issues, lists every reason, and stays inside its cell at every zoom', async ({
+const overlap = (a, b) => Math.min(a.r, b.r) - Math.max(a.l, b.l) > 0.5 && Math.min(a.b, b.b) - Math.max(a.t, b.t) > 0.5 // prettier-ignore
+
+test('a count badge shows only for 2+ issues, lists every reason, and stays inside its own cell at zoom 1 to 4', async ({
   page,
 }) => {
-  const one = { x: 3, y: 5, objectIndex: 7, objectType: 'type 9', handler: 1, reasons: [WHY] }
-  const three = { x: 9, y: 2, objectIndex: 8, objectType: 'type 5', handler: 2, reasons: [WHY_GATE + ' (a)', WHY_GATE + ' (b)', WHY] } // prettier-ignore
-  const many = { x: 12, y: 8, objectIndex: 9, objectType: 'type 6', handler: 3, reasons: Array.from({ length: 11 }, (_, i) => `issue ${i}`) } // prettier-ignore
-  await openMap(page, 0x105, [one, three, many])
+  const mk = (x, y, i, reasons) => ({ x, y, objectIndex: i, objectType: 'type 5', handler: 2, reasons }) // prettier-ignore
+  const one = mk(3, 5, 7, [WHY])
+  const three = mk(9, 4, 8, [GATE_A, GATE_B, WHY])
+  // Neighbours of `three` on the right and above: a badge must not spill onto either.
+  const right = mk(10, 4, 9, [GATE_A, WHY])
+  const above = mk(9, 3, 10, [GATE_B, WHY])
+  const many = mk(
+    14,
+    8,
+    11,
+    Array.from({ length: 11 }, (_, i) => `issue ${i}`),
+  )
+  const cells = [one, three, right, above, many]
+  await openMap(page, 0x105, cells)
   const g = page.locator(`${root(0x105)} [data-control="refused-cell"]`)
-  await expect(g).toHaveCount(3, { timeout: 30000 })
-  await expect(g.nth(0)).toHaveAttribute('data-count', '1')
+  await expect(g).toHaveCount(cells.length, { timeout: 30000 })
+  for (const [n, c] of cells.entries()) {
+    await expect(g.nth(n)).toHaveAttribute('data-count', String(c.reasons.length))
+    await expect(g.nth(n)).toHaveAttribute('aria-label', ariaOf(c))
+    await expect(g.nth(n).locator('title')).toHaveText(tooltipOf(c))
+  }
   await expect(g.nth(0).locator('[data-control="refused-badge"]')).toHaveCount(0)
-  await expect(g.nth(1)).toHaveAttribute('data-count', '3')
   await expect(g.nth(1).locator('[data-control="refused-badge"] text')).toHaveText('3')
-  await expect(g.nth(2).locator('[data-control="refused-badge"] text')).toHaveText('9+')
-  await expect(g.nth(1).locator('title')).toHaveText(tooltipOf(three))
-  expect(await g.nth(1).locator('title').textContent()).toContain('(a)')
-  const all = ['zoom-fit', 'zoom-actual', 'zoom-in', 'zoom-in']
-  for (const step of all) {
+  await expect(g.nth(4).locator('[data-control="refused-badge"] text')).toHaveText('9+')
+
+  const zooms = []
+  for (const step of ['zoom-actual', 'zoom-in', 'zoom-in', 'zoom-in']) {
     await page.locator(`${root(0x105)} [data-control="${step}"]`).click()
     await page.waitForTimeout(400)
-    const boxes = await boxesAt(page, 0x105, 256)
+    const boxes = await geometryAt(page, 0x105)
+    const zoom = boxes[0].cell.k
+    zooms.push(zoom)
     expect(boxes[0].badge).toBeNull()
     for (const b of boxes.slice(1)) {
-      const e = 0.6 // stroke antialiasing, in map px
-      expect(b.badge.l).toBeGreaterThanOrEqual(b.rect.l - e)
-      expect(b.badge.r).toBeLessThanOrEqual(b.rect.r + e)
-      expect(b.badge.t).toBeGreaterThanOrEqual(b.rect.t - e)
-      expect(b.badge.b).toBeLessThanOrEqual(b.rect.b + e)
-      // The badge must not sit on the "!" (boxes may touch, not overlap).
-      expect(b.badge.l >= b.bang.r - 0.5 || b.badge.t >= b.bang.b - 0.5).toBe(true)
+      const tol = 0.5 // screen px, antialiasing
+      // The cell is 16 map px, so 16 * zoom on screen; the badge's whole outer circle lies inside it.
+      expect(b.cell.r - b.cell.l).toBeCloseTo(16 * zoom, 0)
+      expect(b.badge.l).toBeGreaterThanOrEqual(b.cell.l - tol)
+      expect(b.badge.r).toBeLessThanOrEqual(b.cell.r + tol)
+      expect(b.badge.t).toBeGreaterThanOrEqual(b.cell.t - tol)
+      expect(b.badge.b).toBeLessThanOrEqual(b.cell.b + tol)
+      for (const o of boxes) if (o !== b) expect(overlap(b.badge, o.cell)).toBe(false) // prettier-ignore
+      // The "!" box (generous 0.6 x 0.9 of its font size, map units) must clear the circle.
+      const hw = 0.3 * b.bang.fs
+      const hh = 0.45 * b.bang.fs
+      const nx = Math.max(b.bang.x - hw, Math.min(b.circle.cx, b.bang.x + hw))
+      const ny = Math.max(b.bang.y - hh, Math.min(b.circle.cy, b.bang.y + hh))
+      expect(Math.hypot(nx - b.circle.cx, ny - b.circle.cy)).toBeGreaterThan(b.circle.out)
     }
   }
+  // 1, 2, 3, 4: each step really changed the zoom, so the containment above held at four scales.
+  expect(zooms.map(z => Math.round(z * 100) / 100)).toEqual([1, 2, 3, 4])
 })
 
 test('cells that were shown clear when the next reply has none', async ({ page }) => {

@@ -5,8 +5,10 @@
 import type { MapRefusedCellDto } from '../common/project-protocol'
 
 export const CELL = 16
-export const BADGE_R = 4
+export const BADGE_R = 5
 export const BADGE_STROKE = 1
+/** Gap kept between the badge's outer edge and the cell's, so antialiasing never leaks into the neighbour. */
+export const BADGE_INSET = 0.5
 
 /** First line names the object; with 2+ reasons each is bulleted so the lines read as separate issues. */
 export function refusedTooltip(
@@ -20,15 +22,25 @@ export function refusedTooltip(
 export const badgeLabel = (n: number): string => (n > 9 ? '9+' : String(n))
 
 /**
- * Circle centre, radius and font size in MAP pixels. The circle plus half its stroke sits 0.5 px inside the
- * cell's top-right corner on every side, so it never overhangs the dashed rect it marks.
+ * Circle centre, radius and font size in MAP pixels. Circle plus half its stroke sits BADGE_INSET inside
+ * the cell's top-right corner on the right and top, so it never overhangs the dashed rect it marks.
  */
 export function badgeGeometry(cellX: number, cellY: number, count: number) {
-  const reach = BADGE_R + BADGE_STROKE / 2
+  const reach = BADGE_R + BADGE_STROKE / 2 + BADGE_INSET
   return {
-    cx: cellX * CELL + CELL - reach - 0.5,
-    cy: cellY * CELL + reach + 0.5,
+    cx: cellX * CELL + CELL - reach,
+    cy: cellY * CELL + reach,
     r: BADGE_R,
-    fontSize: count > 9 ? 4.5 : 6.5,
+    fontSize: count > 9 ? 6 : 8,
   }
+}
+
+/**
+ * The "!" in map pixels (text-anchor middle, central baseline). Badged cells shrink it into the lower left,
+ * clear of the circle: a badge that big would otherwise sit on the glyph.
+ */
+export function bangGeometry(cellX: number, cellY: number, badged: boolean) {
+  return badged
+    ? { x: cellX * CELL + 3.2, y: cellY * CELL + 13, fontSize: 7 }
+    : { x: cellX * CELL + CELL / 2, y: cellY * CELL + CELL / 2, fontSize: 12 }
 }

@@ -11,7 +11,6 @@ import {
   refusedCellsOf as cellsOf,
   refusedBounds,
   WHY_UNPORTED,
-  WHY_GATE,
 } from '../../../src/rom/model/RefusedCells'
 import { formatRefusedLine } from '../../../src/rom/objectHandlers/interpretedGate'
 import { ADDR_EXTENDED_DISPATCH } from '../../../src/rom/objectHandlers/romData'
@@ -54,6 +53,7 @@ const expand = (
   // prettier-ignore
   expandMapOwned(objects, 2, rom, 0, vertical, undefined, undefined, SWITCH_FLAGS_UNCLEARED, sink)
 
+const GATE = /^Its drawing code /
 const BIG = { cols: 999, rows: 999 }
 const refusedCellsOf = (r: Parameters<typeof cellsOf>[0], o: LevelObject[]) => cellsOf(r, o, BIG)
 
@@ -108,10 +108,7 @@ describe('refusedCellsOf (#816)', () => {
       [3, 3, 1],
       [8, 2, 1],
     ])
-    for (const c of cells) expect(c.reasons[0]).toContain(WHY_GATE)
-    expect(WHY_GATE).toBe(
-      "This object's drawing code could not be read safely, so it was not drawn.",
-    )
+    for (const c of cells) expect(c.reasons[0]).toMatch(GATE)
   })
 
   it('no refusals gives no cells, and a refusal with no such object is dropped, not guessed', () => {
@@ -129,11 +126,15 @@ describe('one cell per object, kept on the map (#816)', () => {
     expect(refusals.length).toBe(2)
     const cells = cellsOf(refusals, objects, BIG)
     expect(cells.map(c => c.objectIndex)).toEqual([0])
-    expect(cells[0]!.reasons[0]).toContain(WHY_GATE)
+    expect(cells[0]!.reasons).toHaveLength(2)
+    expect(cells[0]!.reasons.every(r => GATE.test(r))).toBe(true)
+    expect(new Set(cells[0]!.reasons).size).toBe(2)
+    expect(cells[0]!.reasons[0]).toContain('$0DB4B1')
+    expect(cells[0]!.reasons[1]).toContain('$0DB4D2')
   })
 
   it('a bare gate line without a ROM still reads as the gate reason', () => {
-    expect(cellsOf([gate()], [obj(1, 3, 4)], BIG)[0]!.reasons[0]).toContain(WHY_GATE)
+    expect(cellsOf([gate()], [obj(1, 3, 4)], BIG)[0]!.reasons[0]).toMatch(GATE)
   })
 
   it('bounds follow the orientation and the screen count', () => {
@@ -181,7 +182,7 @@ describe('every distinct issue is kept (#1005)', () => {
     ]) {
       const r = reasonsOf(rs)
       expect(r).toHaveLength(2)
-      expect(r[0]).toContain(WHY_GATE)
+      expect(r[0]).toMatch(GATE)
       expect(r[1]).toBe(WHY_UNPORTED)
     }
   })

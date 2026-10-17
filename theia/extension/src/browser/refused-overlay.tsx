@@ -12,9 +12,18 @@
  */
 import * as React from '@theia/core/shared/react'
 import type { MapRefusedCellDto } from '../common/project-protocol'
-import { BADGE_STROKE, CELL, badgeGeometry, badgeLabel, refusedTooltip } from './refused-badge'
+import {
+  BADGE_STROKE,
+  CELL,
+  badgeGeometry,
+  badgeLabel,
+  bangGeometry,
+  refusedTooltip,
+} from './refused-badge'
 
 /** Red, dashed and marked with "!": the collision overlay's unknown cells are orange and hatched, so the two never read alike. */
+/** Text and outline on the red: Theia's own on-colour, so a theme that changes the red can change this too. */
+const ON_WARN = 'var(--theia-button-foreground, #fff)'
 const WARN = 'var(--theia-editorError-foreground, #f44336)'
 
 export function RefusedOverlay(props: {
@@ -36,6 +45,7 @@ export function RefusedOverlay(props: {
       {props.cells.map(c => {
         const n = c.reasons.length
         const b = badgeGeometry(c.x, c.y, n)
+        const bang = bangGeometry(c.x, c.y, n > 1)
         return (
           <g
             key={c.objectIndex}
@@ -58,13 +68,13 @@ export function RefusedOverlay(props: {
               vectorEffect="non-scaling-stroke"
             />
             <text
-              x={c.x * CELL + (n > 1 ? 4.5 : CELL / 2)}
-              y={c.y * CELL + (n > 1 ? 10 : CELL / 2)}
+              x={bang.x}
+              y={bang.y}
               textAnchor="middle"
               dominantBaseline="central"
-              fontSize="12"
+              fontSize={bang.fontSize}
               fontWeight="bold"
-              style={{ fill: '#fff', pointerEvents: 'none' }}
+              style={{ fill: ON_WARN, pointerEvents: 'none' }}
             >
               !
             </text>
@@ -74,7 +84,7 @@ export function RefusedOverlay(props: {
                   cx={b.cx}
                   cy={b.cy}
                   r={b.r}
-                  style={{ fill: WARN, stroke: '#fff' }}
+                  style={{ fill: WARN, stroke: ON_WARN }}
                   strokeWidth={BADGE_STROKE}
                 />
                 <text
@@ -84,7 +94,7 @@ export function RefusedOverlay(props: {
                   dominantBaseline="central"
                   fontSize={b.fontSize}
                   fontWeight="bold"
-                  style={{ fill: '#fff', pointerEvents: 'none' }}
+                  style={{ fill: ON_WARN, pointerEvents: 'none' }}
                 >
                   {badgeLabel(n)}
                 </text>
