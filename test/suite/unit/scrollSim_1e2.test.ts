@@ -47,14 +47,10 @@ const CHECK_FIELDS: readonly FieldKey[] = [
   'nl2y',
 ]
 
-describe.skipIf(!vanillaRomPresent)(
+describe.skipIf(!vanillaRomPresent || !fs.existsSync(CSV))(
   'scrollSim - $1E2 capture validation (L2 cmd $0E, sink/rise)',
   () => {
     it('post-setup state matches capture row 1', () => {
-      if (!fs.existsSync(CSV)) {
-        console.warn(`[skip] ${CSV} not found`)
-        return
-      }
       const cap = loadCapture(CSV)
       const sim = simFromCapture(cap[0])
       const m = firstMismatch(sim.stateAtFrame(0), cap[0], CHECK_FIELDS)
@@ -62,7 +58,6 @@ describe.skipIf(!vanillaRomPresent)(
     })
 
     it('static zone-miss path matches all frames before Mario touches L2', () => {
-      if (!fs.existsSync(CSV)) return
       const cap = loadCapture(CSV)
       const sim = simFromCapture(cap[0])
 
@@ -94,7 +89,6 @@ describe.skipIf(!vanillaRomPresent)(
       // state one frame before the first non-zero l2yspd, then drive
       // sim.tick() forward directly. The tick carries layer2Touched through
       // state unchanged, so Part B fires for the rest of the run.
-      if (!fs.existsSync(CSV)) return
       const cap = loadCapture(CSV)
       const sim = simFromCapture(cap[0])
 

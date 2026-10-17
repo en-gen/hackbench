@@ -87,12 +87,8 @@ describe.skipIf(!vanillaRomPresent)('scrollSim - b0-variant captures (cmd $03 / 
   for (const v of VARIANTS) {
     const csv = `${FIXTURES}/${v.level}/l2_scroll.csv`
 
-    describe(`$${v.level.toUpperCase()} (cmd $${v.cmd})`, () => {
+    describe.skipIf(!fs.existsSync(csv))(`$${v.level.toUpperCase()} (cmd $${v.cmd})`, () => {
       it('frame 1 matches post-setup state', () => {
-        if (!fs.existsSync(csv)) {
-          console.warn(`[skip] ${csv} not found`)
-          return
-        }
         const cap = loadCapture(csv)
         const sim = simFromCapture(cap[0])
         const m = firstMismatch(sim.stateAtFrame(0), cap[0])
@@ -101,7 +97,6 @@ describe.skipIf(!vanillaRomPresent)('scrollSim - b0-variant captures (cmd $03 / 
       })
 
       it('cmd oscillation matches every active captured frame', () => {
-        if (!fs.existsSync(csv)) return
         const cap = loadCapture(csv)
         const sim = simFromCapture(cap[0])
         const fields = activeFields(v.excludeFields)

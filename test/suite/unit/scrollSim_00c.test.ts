@@ -62,14 +62,10 @@ const FIELDS: readonly FieldKey[] = [
 ]
 const firstMismatch = (s: ScrollState, r: CaptureRow) => sharedFirstMismatch(s, r, FIELDS)
 
-describe.skipIf(!vanillaRomPresent)(
+describe.skipIf(!vanillaRomPresent || !fs.existsSync(CSV))(
   'scrollSim - $00C capture validation (cmd $01 / L2 cmd $00)',
   () => {
     it('frame 1 matches the capture after setup', () => {
-      if (!fs.existsSync(CSV)) {
-        console.warn(`[skip] ${CSV} not found`)
-        return
-      }
       const cap = loadCapture(CSV)
       const r0 = cap[0]
       const sim = buildScrollSimulator(loadVanillaRom(), {
@@ -102,7 +98,6 @@ describe.skipIf(!vanillaRomPresent)(
     })
 
     it('parallax + cmd $01 + bank_00 derivation match every captured frame', () => {
-      if (!fs.existsSync(CSV)) return
       const cap = loadCapture(CSV)
       const r0 = cap[0]
       const sim = buildScrollSimulator(loadVanillaRom(), {

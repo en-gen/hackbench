@@ -59,14 +59,10 @@ const FIELDS: readonly FieldKey[] = [
 ]
 const firstMismatch = (s: ScrollState, r: CaptureRow) => sharedFirstMismatch(s, r, FIELDS)
 
-describe.skipIf(!vanillaRomPresent)(
+describe.skipIf(!vanillaRomPresent || !fs.existsSync(CSV))(
   'scrollSim - $009 capture validation (cmd $01 sprite $E8)',
   () => {
     it('frame 1 matches the capture after one tick', () => {
-      if (!fs.existsSync(CSV)) {
-        console.warn(`[skip] ${CSV} not found - run l2_dump.lua against $009 first`)
-        return
-      }
       const cap = loadCapture(CSV)
       const row1 = cap[0]
       // Seed from observed pre-tick state. The capture's row 0 is *after*
@@ -117,7 +113,6 @@ describe.skipIf(!vanillaRomPresent)(
       // This guards the parallax core (`CODE_05C04D` + `CODE_05C4F9` +
       // `CODE_05C198` + `CODE_05BD36` setup) end-to-end. Any future
       // refactor that breaks frame-perfect parity will fail this test.
-      if (!fs.existsSync(CSV)) return
       const cap = loadCapture(CSV)
       const sim = buildScrollSimulator(loadVanillaRom(), {
         layer1XPos: 0,
