@@ -176,7 +176,7 @@ describe('the explorer rows', () => {
   })
 
   it('the backend refuses with a reason on a ROM without the area routines', () => {
-    const dto = decodeOverworldAreas(new SmwRom(syntheticOverworldRom()))
+    const dto = decodeOverworldAreas(new SmwRom(syntheticOverworldRom()), SYNTHETIC_FPS)
     expect(dto).toEqual({ status: 'unavailable', reason: expect.stringMatching(/not stock/) })
   })
 })
@@ -203,7 +203,7 @@ describe('decodeAreaView and decodeOverworldAreas (planted area routines)', () =
       status: 'unavailable',
       reason: expect.stringMatching(/camera read .*not stock/),
     })
-    expect(decodeOverworldAreas(new SmwRom(rom))).toEqual({
+    expect(decodeOverworldAreas(new SmwRom(rom), SYNTHETIC_FPS)).toEqual({
       status: 'unavailable',
       reason: expect.stringMatching(/camera read .*not stock/),
     })
@@ -245,12 +245,12 @@ describe('decodeAreaView and decodeOverworldAreas (planted area routines)', () =
 
   it('the area list drops area 0 and keeps an invalid area with its reason', () => {
     const rom = viewRomWithAreas()
-    expect(decodeOverworldAreas(new SmwRom(rom))).toEqual({
+    expect(decodeOverworldAreas(new SmwRom(rom), SYNTHETIC_FPS)).toEqual({
       status: 'ok',
       areas: [1, 2, 3, 4, 5, 6].map(area => ({ area })),
     })
     warpDst(rom, 26, 9)
-    const r = decodeOverworldAreas(new SmwRom(rom))
+    const r = decodeOverworldAreas(new SmwRom(rom), SYNTHETIC_FPS)
     expect(r.status === 'ok' && r.areas.map(a => a.area)).toEqual([1, 2, 3, 4, 5, 6, 9])
     expect(r.status === 'ok' && r.areas.find(a => a.area === 9)!.invalid).toMatch(/area 9/)
   })
