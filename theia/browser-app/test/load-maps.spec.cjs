@@ -14,7 +14,7 @@ const os = require('os')
 const { romPath, VANILLA, GPW2 } = require('../../../test/suite/support/corpus.cjs')
 const { maxDepth } = require('./tree-depth.cjs')
 
-const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
+const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT}`
 const ROM = process.env.HB_ROM || romPath(VANILLA)
 
 /** Vanilla's documented map count, from docs/glossary.md. */
@@ -218,8 +218,24 @@ async function openMapView(page, rom, dir, index = 0x105) {
     },
     { mp: manifestPath, index, label: index.toString(16) },
   )
-  await page.waitForSelector('.hb-map-view-body', { timeout: 15000 })
-  return shownWords(page, '.hb-map-view-body')
+  await waitForNotes(page)
+  return shownWords(page, MAP_VIEW)
+}
+
+/** The whole map view: toolbar, notes and map. */
+const MAP_VIEW = '.hb-map-view-main'
+
+/** The details reply has landed (the view says so), so a note's absence can be asserted. */
+async function waitForNotes(page) {
+  await page.waitForSelector('.hb-map-view-main[data-details="done"]', { timeout: 15000 })
+}
+
+/** One note line's visible text and tooltip, or null when the view has no such note. */
+async function noteOf(page, note) {
+  return page.evaluate(n => {
+    const el = document.querySelector(`.hb-map-view-main [data-note="${n}"]`)
+    return el ? { text: el.textContent, title: el.getAttribute('title') } : null
+  }, note)
 }
 
 /** WCAG contrast of `sel`'s text against its nearest opaque background. */
@@ -254,36 +270,45 @@ test('a ROM that picks GFX per level shows the map marked; a stock ROM is not ma
   page,
 }) => {
   test.skip(!fs.existsSync(romPath(GPW2)), 'needs the GPW2 corpus ROM')
-  const NOTE = '.hb-map-view-body [data-note="gfx-assignment"]'
+  const NOTE = '.hb-map-view-main [data-note="gfx-assignment"]'
   await openMapView(page, ROM, path.join(tmp, 'StockGfxMark'))
   await expect(page.locator(NOTE)).toHaveCount(0)
 
   await openMapView(page, romPath(GPW2), path.join(tmp, 'HookGfxMark'))
   await expect(page.locator(NOTE)).toBeVisible()
-  const body = '.hb-map-view-body:has([data-note="gfx-assignment"])'
-  expect(await page.locator(NOTE).textContent()).toContain('FG/BG and sprite GFX files')
+  expect(await page.locator(NOTE).textContent()).toBe('Graphics may not match the game')
+  expect(await page.locator(NOTE).getAttribute('title')).toContain('FG/BG and sprite GFX files')
   expect(await page.locator(NOTE).textContent()).not.toMatch(CART)
   expect(await textContrast(page, NOTE)).toBeGreaterThanOrEqual(4.5)
-  // Shown, not blanked: the decoded header is still there.
-  expect(await shownWords(page, body)).toMatch(/\d+ screens/)
-  // The decoded header sits in the tab's folded Header panel, beside the facts.
-  const tab = '.hb-map-view-main:has([data-note="gfx-assignment"])'
-  await expect(page.locator(`${tab} .hb-map-view-table tr`)).not.toHaveCount(0)
+  // The note belongs to the opened map's own view (the tab for $105), not to some other panel.
+  // Not a canvas check: GPW2 $105's Layer 1 is not drawn (its block contents cannot be read),
+  // so a drawn plane is no premise here.
+  await expect(
+    page.locator('[id="hackbench.map-view:261"] .hb-map-view-main [data-note="gfx-assignment"]'),
+  ).toBeVisible()
 })
 
-test('the map view shows a sprite count on an unpatched ROM', async ({ page }) => {
-  const view = await openMapView(page, ROM, path.join(tmp, 'Unpatched'))
-  expect(view).toMatch(/\d+ sprites/)
-})
-
-test('the map view shows the real name on an unpatched ROM, not "name unavailable"', async ({
-  page,
-}) => {
-  // $105 is Yoshi's Island 1; the negative control for the two patched-ROM
-  // name-unavailable cases below.
-  const view = await openMapView(page, ROM, path.join(tmp, 'Unpatched'))
-  expect(view).toMatch(/YOSHI'S ISLAND 1/i)
-  expect(view).not.toMatch(/name unavailable/i)
+test('the map view warns of nothing it can read on an unpatched ROM', async ({ page }) => {
+  // The negative control for the patched-ROM cases below: each of their notes is absent here,
+  // so a view that always warned (or never did) fails one side.
+  await openMapView(page, ROM, path.join(tmp, 'Unpatched'))
+  // The start is read apart from the details: wait for it, or its note's absence proves nothing.
+  await page.waitForSelector('[data-control="map-scroller"]:is([data-start="placed"], [data-start="skipped"])') // prettier-ignore
+  for (const n of [
+    'name',
+    'level-data',
+    'orientation',
+    'objects',
+    'sprite-data',
+    'start',
+    'map-details',
+    'rom-missing',
+  ]) {
+    // prettier-ignore
+    expect(await noteOf(page, n), n).toBeNull()
+  }
+  // It read the map: the screens are drawn.
+  await expect(page.locator('.hb-map-view-main canvas[data-plane="l1Low"]').first()).toBeAttached()
 })
 
 test('a ROM whose sprite-pointer read is patched shows sprites unavailable, with why', async ({
@@ -297,9 +322,10 @@ test('a ROM whose sprite-pointer read is patched shows sprites unavailable, with
   bytes[0x2d8f5] = 0x00
   fs.writeFileSync(patched, bytes)
 
-  const view = await openMapView(page, patched, path.join(tmp, 'SpritePatched'))
-  expect(view).toMatch(/sprites unavailable/i)
-  expect(view).toMatch(/neither vanilla nor a recognized hook/i)
+  await openMapView(page, patched, path.join(tmp, 'SpritePatched'))
+  const note = await noteOf(page, 'sprite-data')
+  expect(note.text).toBe("This map's sprite list could not be read")
+  expect(note.title).toMatch(/neither vanilla nor a recognized hook/i)
 })
 
 test('a ROM whose overworld entry code is patched shows the name unavailable, with why', async ({
@@ -314,9 +340,10 @@ test('a ROM whose overworld entry code is patched shows the name unavailable, wi
   bytes[0x2d8b1] = 0x22
   fs.writeFileSync(patched, bytes)
 
-  const view = await openMapView(page, patched, path.join(tmp, 'NamePatched'))
-  expect(view).toMatch(/name unavailable/i)
-  expect(view).toMatch(/rebuilt by another editor/i)
+  await openMapView(page, patched, path.join(tmp, 'NamePatched'))
+  const note = await noteOf(page, 'name')
+  expect(note.text).toBe('Name unavailable')
+  expect(note.title).toMatch(/rebuilt by another editor/i)
 })
 
 test('a map whose level data is out of the ROM shows level data unavailable, with why', async ({
@@ -330,11 +357,14 @@ test('a map whose level data is out of the ROM shows level data unavailable, wit
   bytes[0x2e311] = 0x7e
   fs.writeFileSync(patched, bytes)
 
-  const view = await openMapView(page, patched, path.join(tmp, 'LevelDataPatched'))
-  expect(view).toMatch(/level data unavailable/i)
-  expect(view).toMatch(/\$7E88DD does not address this ROM's data/)
-  // The name does not come from the level data, so it still shows.
-  expect(view).toMatch(/YOSHI'S ISLAND 1/i)
+  await openMapView(page, patched, path.join(tmp, 'LevelDataPatched'))
+  const note = await noteOf(page, 'level-data')
+  expect(note.text).toBe('Level data unavailable')
+  expect(note.title).toMatch(/\$7E88DD does not address this ROM's data/)
+  // The name does not come from the level data, so it is not warned about.
+  expect(await noteOf(page, 'name')).toBeNull()
+  // Nothing is claimed past the level data that was not read.
+  expect(await noteOf(page, 'objects')).toBeNull()
 })
 
 test('a map whose object stream never reaches $FF shows objects unavailable, with why', async ({
@@ -350,10 +380,11 @@ test('a map whose object stream never reaches $FF shows objects unavailable, wit
   bytes.set([0xf0, 0xff, 0x0f], 0x2e30f)
   fs.writeFileSync(patched, bytes)
 
-  const view = await openMapView(page, patched, path.join(tmp, 'ObjectsPatched'))
-  expect(view).toMatch(/objects unavailable/i)
-  expect(view).toMatch(/did not reach its \$FF terminator/)
-  expect(view).not.toMatch(/\d+ objects/)
+  await openMapView(page, patched, path.join(tmp, 'ObjectsPatched'))
+  const note = await noteOf(page, 'objects')
+  expect(note.text).toBe('The object list could not be read to its end')
+  expect(note.title).toMatch(/did not reach its \$FF terminator/)
+  expect(await noteOf(page, 'level-data')).toBeNull()
 })
 
 test('the maps are grouped, not dumped in a flat list', async ({ page }) => {
@@ -774,9 +805,9 @@ test('the map explorer and map view speak of ROMs, never cartridges', async ({ p
     await shell.addWidget(w, { area: 'main' })
     await shell.activateWidget(w.id)
   }, manifestPath)
-  await page.waitForSelector('.hb-map-view-body', { timeout: 15000 })
-  const view = await shownWords(page, '.hb-map-view-body')
-  expect(view).toMatch(/105/)
+  await waitForNotes(page)
+  // The tab's title names the map; the view itself carries no slot text any more (#1008).
+  const view = await shownWords(page, MAP_VIEW)
   expect(view).not.toMatch(CART)
 
   makeUntitledAndUnlocated(manifestPath)
