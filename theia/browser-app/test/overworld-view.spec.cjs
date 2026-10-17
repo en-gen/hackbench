@@ -20,7 +20,7 @@ const {
 } = require('../../../test/suite/support/overworld-pin.cjs')
 const { loromToOffset } = require('../../extension/lib/src/rom/addressing')
 
-const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
+const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT}`
 const ROM = process.env.HB_ROM || romPath(VANILLA)
 const EXPLORER = '#hackbench\\.map-explorer'
 // Theia also puts data-node-id on a row's expansion chevron, so name the row itself.
