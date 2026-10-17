@@ -301,7 +301,10 @@ export class WorkingRomRegistry {
       stamp = { key: opsStamp(project.directory).key, takenAt: Date.now() }
       const resolved = this.registry.resolveVerified(project.baseRom.sha256)
       if (!resolved) {
-        return this.markNotLocated(manifestPath, project, cached)
+        const notLocated = this.markNotLocated(manifestPath, project, cached)
+        // Same as an open that finds the ROM gone (#975): views on the dropped copy must redraw.
+        if (cached) this.fireRomChanged(manifestPath)
+        return notLocated
       }
       wasWaiting = this.waiting.has(manifestPath)
       romPath = resolved.path

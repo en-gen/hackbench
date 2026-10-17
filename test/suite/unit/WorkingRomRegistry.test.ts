@@ -1204,6 +1204,31 @@ describe('WorkingRomRegistry undo/redo', () => {
       expect(changed).toHaveBeenCalledWith(manifestPath)
     })
 
+    it('a get that finds the ROM gone while the layers moved drops the copy and announces once', () => {
+      const { manifestPath } = cachedWithEdit()
+      const first = working.get(manifestPath)
+      if (first.status !== 'ok') throw new Error('not ok')
+      // Layers moved on disk (a pull) force the rebuild path, which needs the ROM.
+      appendLayer(first.project.directory, {
+        id: 'pulled',
+        label: 'pulled',
+        ops: [{ address: '$00B2CE', old: '$1000', new: '$2000' }],
+      })
+      const changed = vi.fn()
+      const released = vi.fn()
+      working.onRomChanged(changed)
+      working.onWorkingCopy(() => {}, released)
+      fs.renameSync(romFile(), romFile() + '.moved')
+      expect(working.get(manifestPath).status).toBe('rom-not-located')
+      expect(changed).toHaveBeenCalledTimes(1)
+      expect(changed).toHaveBeenCalledWith(manifestPath)
+      expect(released).toHaveBeenCalledTimes(1)
+      // Open and get see the same missing ROM: nothing cached any more, no second event.
+      working.revalidateOnOpen(manifestPath)
+      expect(working.get(manifestPath).status).toBe('rom-not-located')
+      expect(changed).toHaveBeenCalledTimes(1)
+    })
+
     it('with the ROM put back the next get announces once and rebuilds a byte-identical copy', () => {
       const { manifestPath, bytes } = cachedWithEdit()
       fs.renameSync(romFile(), romFile() + '.moved')
