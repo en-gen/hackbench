@@ -54,6 +54,7 @@ import { WheelBinding, ZoomController } from './zoom-controller'
 import { ZoomStepper } from './zoom-stepper'
 import { MapGridOverlay } from './grid-overlay'
 import { CollisionOverlay } from './collision-overlay'
+import { RefusedOverlay } from './refused-overlay'
 import { collisionKey, collisionPlan } from './map-view-state'
 import { MapViewStateStore } from './map-view-state-store'
 import { layer2Label } from './map-layer-labels'
@@ -66,6 +67,7 @@ import {
 } from '../../../../src/rom/model/ColorMath'
 import { perfEnd, perfStart } from '../common/perf-marks'
 import { ProjectBound } from './project-bound'
+import { romMissingMessage } from './map-view-messages'
 
 export { slotLabel }
 /** One screen's decoded planes; null is an empty plane, which draws nothing. */
@@ -125,6 +127,9 @@ function AfterCommit({ run }: { run: () => void }): null {
   return null
 }
 
+/** The raw text of a thrown value, for a tooltip beside plain words (#786). */
+const rawText = (err: unknown): string => (err instanceof Error ? err.message : String(err))
+
 const palaceName = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
 
 @injectable()
@@ -141,8 +146,11 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   }
   protected details: MapDetailsDto | undefined
   protected error: string | undefined
+  /** The exception text behind `error`: a tooltip and the console, never the visible words (#786). */
+  protected errorDetail: string | undefined
   protected mapLayout: Layout | undefined
   protected screenError: string | undefined
+  protected screenErrorDetail: string | undefined
   /** Each palace's block, decoded once per load, or why it cannot be drawn. */
   protected icons = new Map<Palace, PalaceIcon>()
 
@@ -397,6 +405,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.lift = undefined
     this.pending.clear()
     this.screenError = undefined
+    this.screenErrorDetail = undefined
     void this.loadDetails()
     void this.loadIcons()
     // Old indicators must not stay up as a picture of the edited map.
@@ -505,15 +514,21 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const generation = this.generation
     let details: MapDetailsDto | undefined
     let error: string | undefined
+    let detail: string | undefined
     try {
-      details = await this.projects.mapDetails(o.manifestPath, o.index)
+      const r = await this.projects.mapDetails(o.manifestPath, o.index)
+      if ('status' in r) error = romMissingMessage(r.baseRom.title)
+      else details = r
     } catch (err) {
-      error = (err as Error).message
+      detail = rawText(err)
+      console.error(`Map ${o.index.toString(16)} details failed:`, err)
+      error = "This map's details could not be read. Open the map again to try again."
     }
     // An older map's or edit's reply must not land over a newer one.
     if (generation !== this.generation) return
     this.details = details
     this.error = error
+    this.errorDetail = detail
     this.update()
   }
 
@@ -571,10 +586,13 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.pending.add(key)
     const generation = this.generation
     let r: MapScreenResult
+    let detail: string | undefined
     try {
       r = await this.projects.mapScreen(o.manifestPath, o.index, screen, this.view.state.flags, this.view.state.switches) // prettier-ignore
     } catch (err) {
-      r = { status: 'unavailable', reason: (err as Error).message }
+      detail = rawText(err)
+      console.error(`Map ${o.index.toString(16)} screen ${screen} failed:`, err)
+      r = { status: 'unavailable', reason: 'Part of this map could not be drawn. Open the map again to try again.' } // prettier-ignore
     }
     if (generation !== this.generation) return
     this.pending.delete(key)
@@ -584,6 +602,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
         r.status === 'rom-not-located'
           ? `The base ROM ${r.baseRom.title} is not on this machine.`
           : r.reason
+      this.screenErrorDetail = detail ?? (r.status === 'unavailable' ? r.detail : undefined)
       this.sync()
       this.update()
       return
@@ -605,6 +624,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       l.screenCount !== r.screenCount ||
       l.orientation !== r.orientation ||
       l.note !== r.note ||
+      JSON.stringify(l.refusedCells) !== JSON.stringify(r.refusedCells) ||
       l.layerNotes.join() !== r.layerNotes.join() ||
       JSON.stringify([l.layer3, l.screens, l.math, l.layer2Interactive]) !==
         JSON.stringify([r.layer3, r.screens, r.math, r.layer2Interactive]) ||
@@ -617,6 +637,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     }
     if (this.screenError) {
       this.screenError = undefined
+      this.screenErrorDetail = undefined
       this.update()
     }
     this.sync()
@@ -1118,7 +1139,11 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
           </div>
         )}
         {this.screenError && this.mapLayout && (
-          <div className="hb-map-view-note hb-map-view-error" data-control="map-error">
+          <div
+            className="hb-map-view-note hb-map-view-error"
+            data-control="map-error"
+            title={this.screenErrorDetail}
+          >
             {this.screenError}
           </div>
         )}
@@ -1191,7 +1216,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const l = this.mapLayout
     if (!l) {
       return this.screenError ? (
-        <div className="hb-map-view-error" data-control="map-error">
+        <div className="hb-map-view-error" data-control="map-error" title={this.screenErrorDetail}>
           {this.screenError}
         </div>
       ) : (
@@ -1273,6 +1298,14 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
                 />
               </div>
             ))}
+            {l.refusedCells && !this.screenError && (
+              <RefusedOverlay
+                cells={l.refusedCells}
+                width={l.orientation === 'vertical' ? l.width : l.width * l.screenCount}
+                height={l.orientation === 'vertical' ? l.height * l.screenCount : l.height}
+                zoom={this.zoom}
+              />
+            )}
             {this.showCollision && this.collisionCurrent() && (
               <CollisionOverlay
                 layer={this.collisionCurrent()!}
@@ -1314,7 +1347,12 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected renderFacts(): React.ReactNode {
     if (this.error) {
       return (
-        <div className="hb-map-view-body hb-map-view-facts hb-map-view-error">{this.error}</div>
+        <div
+          className="hb-map-view-body hb-map-view-facts hb-map-view-error"
+          title={this.errorDetail}
+        >
+          {this.error}
+        </div>
       )
     }
     const d = this.details
@@ -1386,7 +1424,12 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   protected renderDecode(): React.ReactNode {
     const d = this.details
-    if (!d) return <div className="hb-map-view-empty">{this.error ?? 'Reading the ROM...'}</div>
+    if (!d)
+      return (
+        <div className="hb-map-view-empty" title={this.error ? this.errorDetail : undefined}>
+          {this.error ?? 'Reading the ROM...'}
+        </div>
+      )
     if (!d.headerBytes || !d.header) {
       return (
         <div className="hb-map-view-empty">

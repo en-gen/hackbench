@@ -222,7 +222,7 @@ export interface SpriteLayout {
  * part of their body.
  *
  * IDs 0xDA-0xDD and 0xDF are shell aliases (resolveShellAlias). IDs in 0x54..0xC8
- * not listed here, and 0xC9..0xE7 (generators, scroll sprites), fall
+ * not listed here, and 0xC9..0xFF (shooters, generators, scroll sprites), fall
  * through to the anchor marker.
  *
  * Method and the full per-id measurement: `docs/sprites/sprite-gfx-routine-reading.md`.
