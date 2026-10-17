@@ -521,11 +521,13 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       x: el.scrollLeft > 0 ? (el.scrollLeft + el.clientWidth / 2 - before.left * z) / z : undefined,
       y: el.scrollTop > 0 ? (el.scrollTop + el.clientHeight / 2 - before.top * z) / z : undefined,
     }
+    const generation = this.generation
     requestAnimationFrame(() => {
       this.fitStrip()
+      // The refit's zoom is the one to restore at; a different one by the next frame is the user's.
+      const z2 = this.zoom
       requestAnimationFrame(() => {
-        if (!el || !held) return
-        const z2 = this.zoom
+        if (!el || !held || generation !== this.generation || z2 !== this.zoom) return
         el.scrollTo({
           left: held.x === undefined ? undefined : (held.x + after.left) * z2 - el.clientWidth / 2,
           top: held.y === undefined ? undefined : (held.y + after.top) * z2 - el.clientHeight / 2,

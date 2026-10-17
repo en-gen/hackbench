@@ -130,6 +130,7 @@ const rects = (page, index) =>
       clientH: scroller.clientHeight,
       edge: r(document.querySelector(`${sel} [data-control="map-edge"]`)),
       screen: r(document.querySelector(`${sel} .hb-map-view-screen`)),
+      backArea: r(document.querySelector(`${sel} [data-layer="back-area"]`)),
       screens: document.querySelectorAll(`${sel} .hb-map-view-screen`).length,
       marks: [...document.querySelectorAll(`${sel} [data-control="refused-cell"] rect`)].map(r),
     }
@@ -192,6 +193,13 @@ for (const { index, screenW, past } of CASES) {
       // The strip is the map plus whole-tile margin on the overflowing sides only: 48 px left, 32 px above.
       expect(r.edge.left - r.strip.left).toBeCloseTo(48 * zoom, 0)
       expect(r.edge.top - r.strip.top).toBeCloseTo(32 * zoom, 0)
+      // The screens and the back area stay on the map, not the strip: a margin that moved them fails here.
+      for (const k of ['left', 'top']) {
+        expect(r.screen[k] - r.edge[k]).toBeCloseTo(0, 0)
+        expect(r.backArea[k] - r.edge[k]).toBeCloseTo(0, 0)
+      }
+      expect(r.backArea.w).toBeCloseTo(r.edge.w, 0)
+      expect(r.backArea.h).toBeCloseTo(r.edge.h, 0)
     }
     expect(zooms[1]).toBeGreaterThan(zooms[0] * 1.2)
   })
@@ -290,6 +298,17 @@ test('a map with nothing off the map keeps the strip exactly the map: no margin,
   page,
 }) => {
   await openMap(page, 0x105, { cells: [cell(3, 5, 1)] })
+  // The sprites reply lands after the map and could still add a margin: assert only once it has.
+  await expect
+    .poll(
+      () =>
+        page.evaluate(async () => {
+          const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { index: 0x105 }) // prettier-ignore
+          return w.spritesVersion > 0 && !!w.sprites
+        }),
+      { timeout: 30000 },
+    )
+    .toBe(true)
   await click(page, 0x105, 'zoom-actual')
   await page.waitForTimeout(400)
   const r = await rects(page, 0x105)
@@ -419,32 +438,37 @@ for (const { index, pad } of REAL) {
   })
 }
 
-const gridToggle = index => `${root(index)} [data-control="grid-toggle"]`
-
-test('a sprites reply that adds a leading pad keeps the same map pixel under the same client point', async ({
-  page,
-}) => {
-  await openMap(page, 0x105)
-  // Intercept mapSprites on the live widget: an extra opaque sprite 40 px left of the map when asked.
-  await page.evaluate(async () => {
-    const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {
-      index: 0x105,
-    })
+/**
+ * Swaps the live widget's `mapSprites` for one that appends an opaque sprite at `window.__hbExtra`
+ * (a box in map px) once that is set; call `w.loadSprites()` to deliver it.
+ */
+const injectSprite = (page, index) =>
+  page.evaluate(async i => {
+    const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { index: i })
     const real = w.projects
     w.projects = new Proxy(real, {
       get: (t, k) => {
         if (k !== 'mapSprites') return typeof t[k] === 'function' ? t[k].bind(t) : t[k]
         return async (...a) => {
           const r = await t.mapSprites(...a)
-          if (r.status !== 'ok' || !window.__hbExtra) return r
-          const box = { x0: -40, y0: 100, x1: -24, y1: 116 }
-          const rgba = btoa(String.fromCharCode(...new Uint8Array(1024).fill(255)))
-          const extra = { index: 999, id: 1, x: -40, y: 100, box, rgba, status: 'drawn' }
+          const box = window.__hbExtra
+          if (r.status !== 'ok' || !box) return r
+          const n = (box.x1 - box.x0) * (box.y1 - box.y0) * 4
+          const rgba = btoa(String.fromCharCode(...new Uint8Array(n).fill(255)))
+          const extra = { index: 999, id: 1, x: box.x0, y: box.y0, box, rgba, status: 'drawn' }
           return { ...r, sprites: [...r.sprites, extra] }
         }
       },
     })
-  })
+  }, index)
+
+const gridToggle = index => `${root(index)} [data-control="grid-toggle"]`
+
+test('a sprites reply that adds a leading pad keeps the same map pixel under the same client point', async ({
+  page,
+}) => {
+  await openMap(page, 0x105)
+  await injectSprite(page, 0x105)
   for (let i = 0; i < 4; i++) {
     const wide = await page.evaluate(sel => {
       const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
@@ -473,7 +497,7 @@ test('a sprites reply that adds a leading pad keeps the same map pixel under the
   expect(before.left).toBeGreaterThan(0)
   expect(before.hasEdge).toBe(false)
   await page.evaluate(async () => {
-    window.__hbExtra = true
+    window.__hbExtra = { x0: -40, y0: 100, x1: -24, y1: 116 }
     const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {
       index: 0x105,
     })
@@ -483,5 +507,48 @@ test('a sprites reply that adds a leading pad keeps the same map pixel under the
   await page.waitForTimeout(800)
   const after = await point()
   // 40 px of overflow pads 64 px; the pixel under the view centre moved by less than one screen pixel.
+  expect(Math.abs(after.mapX - before.mapX) * after.zoom).toBeLessThanOrEqual(1)
+})
+
+test('in Fit, a sprites reply that adds a top and left pad refits and still holds the map pixel under the view centre', async ({
+  page,
+}) => {
+  // Stays in Fit, so the refit changes the zoom: only an absolute restore (not a relative nudge) holds the pixel.
+  await openMap(page, 0x105)
+  await injectSprite(page, 0x105)
+  await click(page, 0x105, 'zoom-fit')
+  await page.waitForTimeout(500)
+  const point = () =>
+    page.evaluate(sel => {
+      const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
+      const cx = s.getBoundingClientRect().left + s.clientWidth / 2
+      const origin = (
+        document.querySelector(`${sel} [data-control="map-edge"]`) ??
+        document.querySelector(`${sel} .hb-map-view-strip`)
+      ).getBoundingClientRect()
+      const zoom = document.querySelector(`${sel} .hb-map-view-screen`).getBoundingClientRect().width / 256 // prettier-ignore
+      return { mapX: (cx - origin.left) / zoom, zoom, left: s.scrollLeft, wide: s.scrollWidth - s.clientWidth } // prettier-ignore
+    }, root(0x105))
+  await page.evaluate(sel => {
+    const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
+    s.scrollLeft = Math.floor((s.scrollWidth - s.clientWidth) / 2)
+  }, root(0x105))
+  await page.waitForTimeout(400)
+  const before = await point()
+  expect(before.wide).toBeGreaterThan(100)
+  expect(before.left).toBeGreaterThan(0)
+  await page.evaluate(async () => {
+    window.__hbExtra = { x0: -40, y0: -40, x1: -24, y1: -24 }
+    const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {
+      index: 0x105,
+    })
+    await w.loadSprites()
+  })
+  await expect(page.locator(`${root(0x105)} [data-control="map-edge"]`)).toHaveCount(1, { timeout: 15000 }) // prettier-ignore
+  await page.waitForTimeout(1000)
+  const after = await point()
+  await expect(page.locator(`${root(0x105)} [data-control="zoom-fit"]`)).toHaveAttribute('aria-pressed', 'true') // prettier-ignore
+  // 64 px of pad above and below the 432 px map shrinks the fit zoom; the pixel still sits under the centre.
+  expect(after.zoom).toBeLessThan(before.zoom * 0.95)
   expect(Math.abs(after.mapX - before.mapX) * after.zoom).toBeLessThanOrEqual(1)
 })
