@@ -2,9 +2,49 @@ export interface SpriteMetadata {
   displayName?: string
   spawns?: number
   isGenerator?: boolean
+  /** SMWDisX citation, 'bank_02.asm:6835 LaunchTorpedo'; required for 0xC9..0xFF (#985). */
+  source?: string
 }
 
-const SPRITE_METADATA: Record<number, SpriteMetadata> = {
+// Comments are the disassembly's own, bank_05.asm:4583-4597.
+const SCROLL_COMMANDS = [
+  'Auto-Scroll, Unused?',
+  'Auto-Scroll',
+  'Layer 2 Smash',
+  'Layer 2 Scroll',
+  'Unused',
+  'Unused',
+  'Layer 2 Falls',
+  'Unused',
+  'Layer 2 Scroll',
+  'Unused',
+  'Unused',
+  'Layer 2 On/Off Switch controlled',
+  'Auto-Scroll level',
+  'Fast BG scroll',
+  'Layer 2 sink/rise',
+]
+
+function scrollCommands(): Record<number, SpriteMetadata> {
+  const out: Record<number, SpriteMetadata> = {}
+  for (let id = 0xe7; id <= 0xff; id++) {
+    const cmd = id - 0xe7
+    const meaning = SCROLL_COMMANDS[cmd]
+    out[id] =
+      meaning === undefined
+        ? {
+            displayName: `Scroll command ${cmd}: past the end of the table`,
+            source: 'bank_05.asm:4580 CODE_05BCE9',
+          }
+        : {
+            displayName: `Scroll command ${cmd}: ${meaning}`,
+            source: `bank_05.asm:${4583 + cmd} CODE_05BCE9`,
+          }
+  }
+  return out
+}
+
+export const SPRITE_METADATA: Record<number, SpriteMetadata> = {
   // Koopas (0x00-0x0D)
   0x00: { displayName: 'Green Koopa (no shell)' },
   0x01: { displayName: 'Red Koopa (no shell)' },
@@ -210,40 +250,133 @@ const SPRITE_METADATA: Record<number, SpriteMetadata> = {
   0xc6: { displayName: 'Spotlight (dark room)' },
   0xc7: { displayName: 'Invisible Mushroom' },
   0xc8: { displayName: 'Light Switch Block' },
-  // Generators and scrollers (0xC9+)
-  0xc9: { displayName: 'Eerie Generator', isGenerator: true, spawns: 0x38 },
-  0xca: { displayName: 'Para-Enemy Generator', isGenerator: true },
-  0xcb: { displayName: 'Pipe Chomp Generator', isGenerator: true },
-  0xcc: { displayName: 'Pipe Piranha Generator', isGenerator: true },
-  0xcd: { displayName: 'Short Pipe Piranha Generator', isGenerator: true },
-  0xce: { displayName: 'Jumping Piranha Generator', isGenerator: true },
-  0xcf: { displayName: 'Jumping Fire Piranha Generator', isGenerator: true },
-  0xd0: { displayName: 'Swimming Fish Generator', isGenerator: true },
-  0xd1: { displayName: 'Surface Fish Generator', isGenerator: true },
-  0xd2: { displayName: 'Vertical Fish Generator', isGenerator: true },
-  0xd3: { displayName: 'Bullet Bill Shooter', isGenerator: true, spawns: 0x1c },
-  0xd4: { displayName: 'Dolphin Generator', isGenerator: true, spawns: 0x41 },
-  0xd5: { displayName: 'Lakitu Generator', isGenerator: true, spawns: 0x1e },
-  0xd6: { displayName: 'Red Koopa Generator', isGenerator: true },
-  0xd7: { displayName: 'Shell Generator', isGenerator: true },
-  0xd8: { displayName: 'Bob-omb Generator', isGenerator: true },
-  0xd9: { displayName: 'Boo Generator', isGenerator: true, spawns: 0x37 },
-  // Shells (0xDA-0xDD, aliases to Koopa IDs 0x04-0x07)
-  0xda: { displayName: 'Green Koopa Shell' },
-  0xdb: { displayName: 'Red Koopa Shell' },
-  0xdc: { displayName: 'Blue Koopa Shell' },
-  0xdd: { displayName: 'Yellow Koopa Shell' },
-  // Scroll controllers (0xDE-0xE7, no visible sprite)
-  0xde: { displayName: 'Scroll Stop' },
-  0xdf: { displayName: 'Scroll Stop (no Yoshi)' },
-  0xe0: { displayName: 'Sprite Buoyancy' },
-  0xe1: { displayName: 'Enable Lava Splash' },
-  0xe2: { displayName: 'Enable Smoke Puffs' },
-  0xe3: { displayName: 'Disable Scroll (vertical)' },
-  0xe4: { displayName: 'Disable Scroll (horizontal)' },
-  0xe5: { displayName: 'Disable All Scroll' },
-  0xe6: { displayName: 'Autoscroll (slow)' },
-  0xe7: { displayName: 'Autoscroll (fast)' },
+  // Shooters 0xC9-0xCA (ShooterNumber = id - $C8, bank_02.asm:6831-6832) and
+  // generators 0xCB-0xD9 (CurrentGenerator = id - $CA, dispatch bank_02.asm:6325-6339).
+  0xc9: {
+    displayName: 'Bullet Bill Shooter',
+    isGenerator: true,
+    spawns: 0x1c,
+    source: 'bank_02.asm:6954 ShootBullet',
+  },
+  0xca: {
+    displayName: 'Torpedo Ted Launcher',
+    isGenerator: true,
+    spawns: 0x44,
+    source: 'bank_02.asm:6861 LaunchTorpedo',
+  },
+  0xcb: {
+    displayName: 'Eerie Generator',
+    isGenerator: true,
+    spawns: 0x38,
+    source: 'bank_02.asm:6721 GenerateEerie',
+  },
+  0xcc: {
+    displayName: 'Para-Goomba Generator',
+    isGenerator: true,
+    spawns: 0x3f,
+    source: 'bank_02.asm:6769 GenParaEnemy',
+  },
+  0xcd: {
+    displayName: 'Para-Bomb Generator',
+    isGenerator: true,
+    spawns: 0x40,
+    source: 'bank_02.asm:6769 GenParaEnemy',
+  },
+  0xce: {
+    displayName: 'Para-Goomba and Para-Bomb Generator',
+    isGenerator: true,
+    source: 'bank_02.asm:6769 GenParaEnemy',
+  },
+  0xcf: {
+    displayName: 'Dolphin Generator (left)',
+    isGenerator: true,
+    spawns: 0x41,
+    source: 'bank_02.asm:6672 GenerateDolphin',
+  },
+  0xd0: {
+    displayName: 'Dolphin Generator (right)',
+    isGenerator: true,
+    spawns: 0x41,
+    source: 'bank_02.asm:6672 GenerateDolphin',
+  },
+  0xd1: {
+    displayName: 'Jumping Fish Generator',
+    isGenerator: true,
+    spawns: 0x17,
+    source: 'bank_02.asm:6509 GenerateFish',
+  },
+  0xd2: { displayName: 'Turn Off Generator 2', source: 'bank_02.asm:6343 TurnOffGen2' },
+  0xd3: {
+    displayName: 'Super Koopa Generator',
+    isGenerator: true,
+    spawns: 0x71,
+    source: 'bank_02.asm:6565 GenSuperKoopa',
+  },
+  0xd4: {
+    displayName: 'Bubble Generator',
+    isGenerator: true,
+    spawns: 0x9d,
+    source: 'bank_02.asm:6602 GenerateBubble',
+  },
+  0xd5: {
+    displayName: 'Bullet Bill Generator',
+    isGenerator: true,
+    spawns: 0x1c,
+    source: 'bank_02.asm:6396 GenerateBullet',
+  },
+  0xd6: {
+    displayName: 'Bullet Bill Generator (surrounding)',
+    isGenerator: true,
+    spawns: 0x1c,
+    source: 'bank_02.asm:6468 GenMultiBullets',
+  },
+  0xd7: {
+    displayName: 'Bullet Bill Generator (diagonal)',
+    isGenerator: true,
+    spawns: 0x1c,
+    source: 'bank_02.asm:6468 GenMultiBullets',
+  },
+  0xd8: {
+    displayName: 'Bowser Statue Fire Generator',
+    isGenerator: true,
+    spawns: 0xb3,
+    source: 'bank_02.asm:6363 GenerateFire',
+  },
+  0xd9: {
+    displayName: 'Turn Off Standard Generators',
+    source: 'bank_02.asm:6348 TurnOffGenerators',
+  },
+  // Status 9 (CODE_02A8D0): sprite number = (id - $DA) + 4, so DA-DD are Koopa
+  // shells 04-07 and DF is sprite 09 (bank_02.asm:5460-5462).
+  0xda: { displayName: 'Green Koopa Shell', source: 'bank_02.asm:5460 CODE_02A8D0' },
+  0xdb: { displayName: 'Red Koopa Shell', source: 'bank_02.asm:5460 CODE_02A8D0' },
+  0xdc: { displayName: 'Blue Koopa Shell', source: 'bank_02.asm:5460 CODE_02A8D0' },
+  0xdd: { displayName: 'Yellow Koopa Shell', source: 'bank_02.asm:5460 CODE_02A8D0' },
+  0xde: {
+    displayName: 'Five Eeries (wave motion)',
+    spawns: 0x39,
+    source: 'bank_02.asm:6286 Load5Eeries',
+  },
+  0xdf: {
+    displayName: 'Green Para-Koopa (bouncing), status 9',
+    source: 'bank_02.asm:5460 CODE_02A8D0',
+  },
+  0xe0: {
+    displayName: 'Three Grey Platforms on Chain',
+    spawns: 0xa3,
+    source: 'bank_02.asm:6228 Load3Platforms',
+  },
+  // Cluster sprite starters (CODE_02AAC0 and the blocks it branches to). Types
+  // 3 and 8 share one handler (CODE_02FBC7) with no code-derivable plain name.
+  0xe1: { displayName: 'Cluster sprites (type 3)', source: 'bank_02.asm:5645 CODE_02AAC0' },
+  0xe2: { displayName: 'Boo Ring (angle step +1)', source: 'bank_02.asm:5684 CODE_02AB11' },
+  0xe3: { displayName: 'Boo Ring (angle step -1)', source: 'bank_02.asm:5684 CODE_02AB11' },
+  0xe4: { displayName: 'Cluster sprites (type 8)', source: 'bank_02.asm:5556 CODE_02AA33' },
+  0xe5: { displayName: 'Boo Cloud (cluster type 7)', source: 'bank_02.asm:5603 CODE_02AA8D' },
+  0xe6: { displayName: 'Castle Flames (cluster type 5)', source: 'bank_02.asm:5586 CODE_02AA6C' },
+  // 0xE7-0xFF: Layer1ScrollCmd = id - $E7 (bank_02.asm:5299), dispatched by the
+  // 15-entry table at bank_05.asm:4583-4597. Commands 15 and up run past it.
+  ...scrollCommands(),
 }
 
 export function getSpriteMetadata(id: number): SpriteMetadata | undefined {

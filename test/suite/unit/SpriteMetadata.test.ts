@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { getSpriteMetadata } from '../../../src/rom/model/sprites/SpriteMetadata'
+import {
+  SPRITE_METADATA,
+  getSpriteMetadata,
+  type SpriteMetadata,
+} from '../../../src/rom/model/sprites/SpriteMetadata'
 import { Sprite } from '../../../src/rom/model/sprites/Sprite'
 import type { SpriteBehavior } from '../../../src/rom/model/sprites/SpriteBehavior'
 import { StaticSpriteAppearance } from '../../../src/rom/model/sprites/appearances/StaticSpriteAppearance'
@@ -16,21 +20,25 @@ describe('getSpriteMetadata', () => {
     expect(m?.isGenerator).toBeUndefined()
   })
 
-  it('flags 0xC9 Eerie Generator as generator with spawns 0x38', () => {
-    const m = getSpriteMetadata(0xc9)
-    expect(m).toEqual({ displayName: 'Eerie Generator', isGenerator: true, spawns: 0x38 })
+  it('0xC9 is the Bullet Bill shooter, 0xCA the Torpedo Ted launcher (shooters, ShooterNumber = id - $C8)', () => {
+    expect(getSpriteMetadata(0xc9)).toMatchObject({
+      displayName: 'Bullet Bill Shooter',
+      isGenerator: true,
+      spawns: 0x1c,
+    })
+    expect(getSpriteMetadata(0xca)).toMatchObject({
+      displayName: 'Torpedo Ted Launcher',
+      isGenerator: true,
+      spawns: 0x44,
+    })
   })
 
-  it('flags 0xCA Para-Enemy Generator as generator with no concrete spawn', () => {
-    const m = getSpriteMetadata(0xca)
-    expect(m?.isGenerator).toBe(true)
-    expect(m?.spawns).toBeUndefined()
+  it('0xCE picks Para-Goomba or Para-Bomb at random, so it has no single spawn', () => {
+    expect(getSpriteMetadata(0xce)?.spawns).toBeUndefined()
   })
 
-  it('returns undefined for IDs beyond the defined range', () => {
-    expect(getSpriteMetadata(0xe8)).toBeUndefined()
-    expect(getSpriteMetadata(0xff)).toBeUndefined()
-    expect(getSpriteMetadata(0xf0)).toBeUndefined()
+  it('defines every id up to 0xFF', () => {
+    for (let id = 0; id <= 0xff; id++) expect(getSpriteMetadata(id), `id ${id}`).toBeDefined()
   })
 
   it('returns display name for common sprite IDs', () => {
@@ -40,11 +48,53 @@ describe('getSpriteMetadata', () => {
   })
 
   it.each([
-    [0xc9, 0x38],
-    [0xd3, 0x1c],
-    [0xd4, 0x41],
+    [0xc9, 0x1c],
+    [0xcb, 0x38],
+    [0xcc, 0x3f],
+    [0xcd, 0x40],
+    [0xcf, 0x41],
+    [0xd0, 0x41],
+    [0xd1, 0x17],
+    [0xd3, 0x71],
+    [0xd4, 0x9d],
+    [0xd5, 0x1c],
+    [0xd6, 0x1c],
+    [0xd7, 0x1c],
+    [0xd8, 0xb3],
+    [0xde, 0x39],
+    [0xe0, 0xa3],
   ])('sprite 0x%s spawns 0x%s', (id, spawns) => {
     expect(getSpriteMetadata(id)?.spawns).toBe(spawns)
+  })
+})
+
+// A table entry in 0xC9..0xFF is only as good as its citation (#985): the
+// names there were wrong once because nothing tied them to the disassembly.
+const SOURCE_RE = /^bank_0[0-9A-F]\.asm:\d+ \S+$/
+
+function uncitedGeneratorIds(table: Record<number, SpriteMetadata>): number[] {
+  const bad: number[] = []
+  for (let id = 0xc9; id <= 0xff; id++) {
+    const src = table[id]?.source
+    if (src === undefined || !SOURCE_RE.test(src)) bad.push(id)
+  }
+  return bad
+}
+
+describe('0xC9..0xFF carry a SMWDisX citation', () => {
+  it('checks 55 ids and finds none uncited', () => {
+    expect(0xff - 0xc9 + 1).toBe(55)
+    expect(uncitedGeneratorIds(SPRITE_METADATA)).toEqual([])
+  })
+
+  it('fails on a table with one source removed', () => {
+    const planted = { ...SPRITE_METADATA, 0xd8: { ...SPRITE_METADATA[0xd8], source: undefined } }
+    expect(uncitedGeneratorIds(planted)).toEqual([0xd8])
+  })
+
+  it('fails on a malformed source', () => {
+    const planted = { ...SPRITE_METADATA, 0xe9: { ...SPRITE_METADATA[0xe9], source: 'bank_05' } }
+    expect(uncitedGeneratorIds(planted)).toEqual([0xe9])
   })
 })
 
@@ -92,8 +142,8 @@ describe('SpriteBehavior serialize/rehydrate round-trip', () => {
   it('survives a JSON.parse(JSON.stringify) trip (postMessage safe)', () => {
     const sprite = new Sprite(0xc9, 0, 0, new StaticSpriteAppearance([]), {
       kind: 'sprite_c9',
-      displayName: 'Eerie Generator',
-      spawns: 0x38,
+      displayName: 'Bullet Bill Shooter',
+      spawns: 0x1c,
       isGenerator: true,
     })
     const desc = serializeSprite(sprite)
@@ -101,8 +151,8 @@ describe('SpriteBehavior serialize/rehydrate round-trip', () => {
     const rehydrated = buildSprite(wireFormat, chars, placeholder)
     expect(rehydrated.behavior).toEqual({
       kind: 'sprite_c9',
-      displayName: 'Eerie Generator',
-      spawns: 0x38,
+      displayName: 'Bullet Bill Shooter',
+      spawns: 0x1c,
       isGenerator: true,
     })
   })
