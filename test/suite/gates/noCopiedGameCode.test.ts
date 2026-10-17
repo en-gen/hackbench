@@ -10,8 +10,9 @@
  * bytes). (2) The source text of the files: no denied window among its 0x.. literals, and no run of more than
  * seven literals in the files this branch wrote whole.
  *
- * Evidence scope: only the windows listed here are known copies, so this gate catches their return and a
- * planted window, not an arbitrary new copy; the probe (rom-window sweep) is the broader check. Windows with
+ * Evidence scope: this gate covers only the windows listed here and the assembled carts, so it catches their
+ * return and a planted window, not an arbitrary new copy. A broader whole-ROM window sweep is planned as
+ * tools/scripts/rom-window-probe.mjs (in review). Windows with
  * fewer than three distinct byte values are ignored, as padding. The older fixtures in syntheticSpriteRom.ts,
  * syntheticGm11Spans.ts and LevelLoader.ts's SHAPES predate #842 and still hold game bytes; they are out of
  * this gate's deny list on purpose and reported in the PR.
