@@ -8,7 +8,7 @@ isolateAppData()
 // Concurrent runs (run-lock slots) must not share a port. An unset port is
 // replaced by a free one found now, in this process, and written to process.env:
 // workers are forked after config load and inherit it, so config, specs and
-// servers agree. The slot port the lock prints is advisory (docs/testing.md).
+// servers agree. Lock slots map to no port (docs/testing.md, Run lock).
 const freePort = () =>
   Number(
     require('child_process').execFileSync(process.execPath, [

@@ -819,7 +819,7 @@ private to the test file.
 
 Full unit runs, Theia builds and Playwright runs share a counting semaphore
 of 3 lock slots, so at most 3 overlap (timeouts in #485, #771). ("Slot" in
-the glossary is a ROM level slot; this is a different thing.) A lock slot is
+the glossary is a ROM pointer-table index; a lock slot is a different thing.) A lock slot is
 a directory under `<main checkout>/.hackbench-state/locks/`: `run` (lock
 slot 1, the original single lock, so an older script's lock is slot 1),
 `run-2` and `run-3`. Worktrees resolve the main checkout through git, and
@@ -829,9 +829,10 @@ slots `acquire` may create (a positive integer; anything else falls back to
 `run` and `run-N` directory on disk, whatever the count.
 
 ```bash
-node C:/Projects/hackbench/tools/scripts/run-lock.mjs acquire --owner "<team> <worktree>" --purpose "<text>"
-node C:/Projects/hackbench/tools/scripts/run-lock.mjs status
-node C:/Projects/hackbench/tools/scripts/run-lock.mjs release --owner "<team> <worktree>"
+MAIN_CHECKOUT="/absolute/path/to/main/checkout"
+node "$MAIN_CHECKOUT/tools/scripts/run-lock.mjs" acquire --owner "<team> <worktree>" --purpose "<text>"
+node "$MAIN_CHECKOUT/tools/scripts/run-lock.mjs" status
+node "$MAIN_CHECKOUT/tools/scripts/run-lock.mjs" release --owner "<team> <worktree>"
 ```
 
 - Always run the script from the main checkout, as above. A worktree's copy
@@ -849,8 +850,9 @@ node C:/Projects/hackbench/tools/scripts/run-lock.mjs release --owner "<team> <w
   does not block. Two simultaneous acquires from one team are caught by a
   re-check after `owner.txt` is written: the one that sees the other removes
   only its own lock slot and says to retry (both may back out).
-- Ports. Playwright picks a free port itself, so concurrent runs never
-  collide: `playwright.config.cjs` finds free ports for the app server,
+- Ports. Playwright picks a free port itself, so concurrent runs do not
+  share a fixed port (best effort: the port is free when picked, not reserved
+  until Theia binds it). `playwright.config.cjs` finds free ports for the app server,
   `HB_RECONNECT_PORT` and `HB_MULTIWINDOW_PORT` at startup and writes them to
   `process.env`, which its workers inherit (checked: a worker reloads the
   config and sees the same values). Set `HB_PORT` (an integer 1-65535; the
