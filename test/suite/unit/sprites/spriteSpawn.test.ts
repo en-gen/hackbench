@@ -164,8 +164,13 @@ function gradeSpawn(rom: RomFile, opts: { oracle?: boolean; limit?: number } = {
         verdicts.push(v)
       }
     for (const v of verdicts) tally[v] = (tally[v] ?? 0) + 1
-    const wantAnchor = pre1[0xe4] | (pre1[0x14e0] << 8)
-    const wantAnchorY = pre1[0xd8] | (pre1[0x14d4] << 8)
+    // A line-guided sprite's model snaps the anchor to the drawn on-track pass's origin (#126, #792), so grade
+    // that against the capture entering the same MAIN call, not the INIT spot. Snapped = the chosen pass's origin
+    // left pass 0's, which only the snap does.
+    const snapped = !!m.passes && m.chosen !== undefined && m.chosen > 0 && (m.passes[m.chosen].origin.x !== m.passes[0].origin.x || m.passes[m.chosen].origin.y !== m.passes[0].origin.y) // prettier-ignore
+    const pre = snapped && calls[k0 + m.chosen!]?.frame === calls[k0].frame + m.chosen! ? wram.subarray((k0 + m.chosen!) * 0x2000, (k0 + m.chosen! + 1) * 0x2000) : pre1 // prettier-ignore
+    const wantAnchor = pre[0xe4] | (pre[0x14e0] << 8)
+    const wantAnchorY = pre[0xd8] | (pre[0x14d4] << 8)
     const a = m.refusal ? (mesenStuck ? 'anchor-refusal-agrees' : 'anchor-refused') : m.anchor && m.anchor.x === wantAnchor && m.anchor.y === wantAnchorY ? 'anchor-exact' : 'anchor-differs' // prettier-ignore
     anchors[a] = (anchors[a] ?? 0) + 1
     rows.push({ id: seed.id, verdicts, anchor: a, detail: a === 'anchor-differs' ? { got: m.anchor, want: [wantAnchor, wantAnchorY] } : m.refusal, sample }) // prettier-ignore
