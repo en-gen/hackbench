@@ -501,9 +501,9 @@ export function mapScreen(
   switches: SwitchStateDto = SWITCHES_OFF,
 ): ScreenReply {
   const built = cache.get(bytes, romPath, index, flags)
-  return built.ok
-    ? screenResult(built.inputs, screen, switches)
-    : { status: 'unavailable', reason: built.reason }
+  if (built.ok) return screenResult(built.inputs, screen, switches)
+  // A thrown build's exception text and a gate's ROM-internal reason both stay in `detail` (#786).
+  return { status: 'unavailable', reason: 'This part of the map could not be read from the ROM.', detail: built.reason } // prettier-ignore
 }
 
 /**
