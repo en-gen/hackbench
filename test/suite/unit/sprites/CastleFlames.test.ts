@@ -29,6 +29,13 @@ import { L1ModelCache } from '../../../../theia/extension/src/node/map-screen'
 import { castleFlameSprites, mapSprites } from '../../../../theia/extension/src/node/map-sprites'
 import { COLORS } from '../../support/mapInputs'
 import { hasRom, romPath, VANILLA } from '../../support/corpus'
+import {
+  loadVanillaBytes,
+  snesOf,
+  summarize,
+  vanillaHits,
+  windowSet,
+} from '../../support/vanillaWindows'
 import { buildSyntheticRom, type SyntheticOptions } from '../../support/syntheticSpriteRom'
 
 const LEVEL = 0x105
@@ -293,33 +300,31 @@ describe.skipIf(!hasRom(VANILLA))('castle flames, vanilla ROM', () => {
   )
 })
 
-/** The longest run of bytes `a` and `b` share, at any positions. */
-function longestRun(a: readonly number[], b: readonly number[]): number {
-  let best = 0
-  for (let i = 0; i < a.length; i++)
-    for (let j = 0; j < b.length; j++) {
-      let k = 0
-      while (i + k < a.length && j + k < b.length && a[i + k] === b[j + k]) k++
-      best = Math.max(best, k)
-    }
-  return best
+/** What `cart` writes over the plain synthetic cart: every unchanged byte is zeroed, so only the fixtures count. */
+const writtenOver = (cart: RomFile): Uint8Array => {
+  const base = new Uint8Array(buildSyntheticRom().buffer)
+  return new Uint8Array(cart.buffer).map((v, i) => (v === base[i] ? 0 : v))
 }
-/** Copyright bound (docs/testing.md): the committed routines may share fewer than this many bytes in a row with the ROM's. */
-const MAX_SHARED_RUN = 12
 
 describe.skipIf(!hasRom(VANILLA))(
-  'the synthetic routines are not the vanilla bytes (corpus guard)',
+  'the flame fixtures are not vanilla bytes (corpus gate, 8-byte windows, ROM-byte clean-up)',
   () => {
     // Loaded inside the cases: a skipped describe still runs its body.
-    const rom = (at: number, n: number) => bytesAt(RomFile.load(romPath(VANILLA)), at, n)!
-    it(`share no run of ${MAX_SHARED_RUN} bytes or more with the routines at the vanilla addresses`, () => {
-      expect(longestRun(spawn, rom(0x02aa6c, 33))).toBeLessThan(MAX_SHARED_RUN)
-      expect(longestRun(draw, rom(0x02fa16, 110))).toBeLessThan(MAX_SHARED_RUN)
+    const vanilla = () => loadVanillaBytes(romPath(VANILLA))
+    it('no 8-byte window (3+ distinct values) of the bytes the fixtures write is in the vanilla ROM', () => {
+      const set = windowSet(vanilla())
+      expect(summarize(vanillaHits(writtenOver(flameRom()), set))).toEqual([])
+      expect(summarize(vanillaHits(writtenOver(flameRom({ ...DATA, xs: [1, 2, 3, 4] })), set))).toEqual([]) // prettier-ignore
     })
-    it('planted: a vanilla stretch copied into either array trips the bound', () => {
-      const v = (at: number, n: number) => [...rom(at, n)]
-      expect(longestRun([...spawn.slice(0, 5), ...v(0x02aa6c + 5, 20), ...spawn.slice(25)], v(0x02aa6c, 33))).toBeGreaterThanOrEqual(MAX_SHARED_RUN) // prettier-ignore
-      expect(longestRun([...draw.slice(0, 30), ...v(0x02fa16 + 30, 40), ...draw.slice(70)], v(0x02fa16, 110))).toBeGreaterThanOrEqual(MAX_SHARED_RUN) // prettier-ignore
+    it('planted: the ROM spawn routine copied over the cart is flagged at its address', () => {
+      const v = vanilla()
+      const planted = flameRom(DATA, b => void b.set(v.subarray(off(0x02aa6c), off(0x02aa6c) + 33), off(0x02aa6c))) // prettier-ignore
+      expect(vanillaHits(writtenOver(planted), windowSet(v))).toContain(snesOf(off(0x02aa6c)))
+    })
+    it('planted: the ROM cluster loop copied over the cart is flagged', () => {
+      const v = vanilla()
+      const planted = flameRom(DATA, b => void b.set(v.subarray(off(0x02f808), off(0x02f808) + 24), off(0x02f808))) // prettier-ignore
+      expect(vanillaHits(writtenOver(planted), windowSet(v))).toContain(snesOf(off(0x02f808)))
     })
   },
 )
