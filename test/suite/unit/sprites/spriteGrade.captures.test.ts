@@ -40,7 +40,12 @@ import {
   TOOLS_ROOT,
   VANILLA,
 } from '../../support/corpus'
-import { gradedPass, writeMarioStart } from '../../support/gradeTimeline'
+import {
+  gradedPass,
+  type PlacedSprite,
+  runnerId,
+  writeMarioStart,
+} from '../../support/gradeTimeline'
 import { oracleCells, oracleImage } from '../../support/oracleImage'
 import {
   grade,
@@ -53,6 +58,7 @@ import {
 interface Rec {
   id: string
   slot: number
+  listIndex?: number
   listX: number
   listY: number
   cameraX: number
@@ -97,6 +103,8 @@ interface Loaded {
   anchorFrame?: number
   /** scroll_pass.json marioStart: where Mario is held from the anchor on. */
   marioStart?: { x: number; y: number }
+  /** sprites.json entries: the placed list ids by index. */
+  listed?: PlacedSprite[]
 }
 
 function loadAll(): Loaded[] {
@@ -117,7 +125,9 @@ function loadAll(): Loaded[] {
     }
     const anchorFrame = jsonOf('capture_summary.json').anchorFrame as number | undefined
     const marioStart = jsonOf('scroll_pass.json').marioStart as Loaded['marioStart']
-    for (const rec of j.spawns ?? []) out.push({ map: name, rec, wram, anchorFrame, marioStart })
+    const listed = jsonOf('sprites.json').entries as Loaded['listed']
+    for (const rec of j.spawns ?? [])
+      out.push({ map: name, rec, wram, anchorFrame, marioStart, listed })
   }
   return out
 }
@@ -145,7 +155,7 @@ function gradeAll(
   const loadedByMap = new Map<string, Uint8Array | undefined>()
   let fallbacks = 0
   let missAtK = 0
-  for (const { map, rec, wram, anchorFrame, marioStart } of all) {
+  for (const { map, rec, wram, anchorFrame, marioStart, listed } of all) {
     if (opts.limit !== undefined && rows.length >= opts.limit) break
     const id = parseInt(rec.id.slice(1), 16)
     const want = recordedFrames(rec)
@@ -191,7 +201,10 @@ function gradeAll(
           if (p === -1) writeMarioStart(w, marioStart) // after INIT, before the first MAIN pass
         }
       : undefined
-    const m = runSprite(rom, id, seed, { trackInputs: opts.trackInputs, probe })
+    const m = runSprite(rom, runnerId(rom, id, rec.listIndex, listed), seed, {
+      trackInputs: opts.trackInputs,
+      probe,
+    })
     // Nothing drawn at the hardware's pass is a runner miss, counted apart so it cannot hide in the
     // wrong total. It grades wrong when some pass draws; when none does grade()
     // returns empty whatever m.chosen is (13 records before #842, none after) (test/suite/support/spriteGrade.ts:107).
@@ -233,17 +246,17 @@ function gradeAll(
   return { rows, by, inputs, fallbacks, missAtK }
 }
 
-/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. */
+/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Raised after #837 (stationary shells): measured 2026-10-16, one machine: exact 1033, exact+shape 1836, wrong 90, empty 13. */
 const FLOOR = {
   graded: 1957,
-  // 1830 measured, shape 0 (#842: offsets from the draw-time position). Shape is not floored: with
+  // 1865 measured after merging #837 (1830 on the #842 head alone), shape 0 (#842: offsets from the draw-time position). Shape is not floored: with
   // shape at 0, exact + shape could never fire below the exact floor.
-  exact: 1820,
+  exact: 1850,
   maxRefused: 0,
   maxShape: 5, // 0 measured
   maxClose: 20, // 17 measured
   maxEmpty: 5, // 0 measured
-  maxWrong: 115, // 110 measured
+  maxWrong: 90, // 75 measured (110 before #837)
   maxMissAtK: 6, // 3 measured
   // 38 measured (spawned records without initFrame); all-timed would read 0.
   minFallbacks: 30,
@@ -274,8 +287,8 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
       writeFileSync(process.env.SPRITE_GRADE_OUT, JSON.stringify({ summary, rows }, null, 1))
     console.log(summary)
     if (mode !== 'rom') return
-    // Floors: measured 2026-10-16 on the #842 head (vanilla, one machine, 1957 records: exact 1830,
-    // shape 0, close 17, wrong 110, empty 0, missAtK 3) minus a tolerance. The #838-era mutant runs
+    // Floors: measured 2026-10-17 on the #842 head merged with #837 (vanilla, one machine, 1957 records: exact 1865,
+    // shape 0, close 17, wrong 75, empty 0, missAtK 3; 1830/0/17/110/0/3 before the merge) minus a tolerance. The #838-era mutant runs
     // (effOnly: exact 984 against a 985 floor; initOnly: 988, survived, so this corpus does not tell
     // anchor-based k from init-based k, which gradeTimeline.test.ts pins itself) were against the old
     // counts and are not re-measured against these floors.

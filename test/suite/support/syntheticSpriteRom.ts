@@ -19,6 +19,7 @@
  * in INIT: 20 through the NMI upload list ($0681/$0682), 21 through a MainPalette list
  * ($0703, with $0680 = 6), 22 through $2121/$2122; 23 sets one color directly then by the list, 24 appends a list color and requests the MainPalette upload in one frame, 25 sets two colors with one CGADD, 26 writes id 21's MainPalette list without requesting the upload, 28 writes mirror colors with no list header, 29 uploads a two-color list entry, 27 appends a list color in every MAIN pass, 30 burns ~196k steps per INIT and never leaves status 1; 31 draws at X then moves X by +4 each MAIN; 34 draws, moves X by +4, then draws again; 32 is 31 but draws only from its second MAIN; 103 is the line-guided grinder's id: its MAIN has the vanilla SHAPE the runner's gate reads (bank_01.asm:11837-11846, 12182-12204) around a draw then a +4 move. Options plant a defect for the oracle tests.
  */
+// content-gate: allow byte-tokens -- hand-written synthetic stand-ins for CPU tests, no ROM-derived data
 import { RomFile } from '../../../src/rom/RomFile'
 import type { DispatcherSpan } from '../../../src/rom/sprites/interp/SpriteDispatch'
 
@@ -254,6 +255,19 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
       ? [0x4c, 0x36, 0x89]
       : [0xa9, o.spawnTimer ?? 0x37, 0x9d, 0x40, 0x15, 0xf6, 0xc2, 0x6b],
   )
+  // The level loader's shell sites (bank_02.asm:5290-5291, 5312-5361, 5456-5462), written as the instructions they are.
+  // CMP #op / branch to `to`: the displacement is computed from the target label's address.
+  const cmpBr = (at: number, op: number, br: number, to: number) =>
+    put(at, [0xc9, op, br, to - at - 4])
+  cmpBr(0x02a866, 0xe7, 0x90, 0x02a88c)
+  cmpBr(0x02a88c, 0xde, 0xd0, 0x02a89c)
+  cmpBr(0x02a89c, 0xe0, 0xd0, 0x02a8ac)
+  cmpBr(0x02a8ac, 0xcb, 0x90, 0x02a8d4)
+  cmpBr(0x02a8b0, 0xda, 0xb0, 0x02a8c0)
+  cmpBr(0x02a8c0, 0xe1, 0x90, 0x02a8d0)
+  put(0x02a8d0, [0xa9, 0x09, 0x80, 0x02a8df - 0x02a8d0 - 4])
+  put(0x02a978, [0xc9, 0x09, 0xb7, 0x00, 0x90, 0x06])
+  put(0x02a97e, [0x38, 0xe9, 0xda, 0x18, 0x69, 0x04])
   // Handlers.
   put(0x018600, [0x60])
   put(0x018610, [0xb5, 0xe4, 0x18, 0x69, o.initShift ?? 8, 0x95, 0xe4, 0x60])

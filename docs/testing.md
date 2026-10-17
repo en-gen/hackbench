@@ -667,7 +667,8 @@ and `core-registry.json` in per-machine app data (`src/project/appData.ts`:
 `APPDATA` on Windows, `XDG_DATA_HOME` on Linux). `playwright.config.cjs` points
 both at a per-run folder under the OS temp dir before any spec loads, which
 every process it starts inherits, and deletes it when the run exits. It never
-reuses a server already on port 3000, since that server's app data is unknown.
+reuses a server already on its port, since that
+server's app data is unknown.
 
 The same folder holds the run's Theia config dir. The backend keeps user
 `settings.json`, `recentworkspace.json`, `backend-settings.json`,
@@ -816,28 +817,70 @@ private to the test file.
 
 ## Run lock
 
-Full unit runs, Theia builds and Playwright runs share one lock so they do
-not overlap (timeouts in #485, #771). It is the directory
-`<main checkout>/.hackbench-state/locks/run`; worktrees resolve the main
-checkout through git, and `HACKBENCH_STATE_DIR` overrides it.
+Full unit runs, Theia builds and Playwright runs share a counting semaphore
+of 3 lock slots, so at most 3 overlap (timeouts in #485, #771). ("Slot" in
+the glossary is a ROM pointer-table index; a lock slot is a different thing.) A lock slot is
+a directory under `<main checkout>/.hackbench-state/locks/`: `run` (lock
+slot 1, the original single lock, so an older script's lock is slot 1),
+`run-2` and `run-3`. Worktrees resolve the main checkout through git, and
+`HACKBENCH_STATE_DIR` overrides it. `HACKBENCH_RUN_SLOTS` sets how many lock
+slots `acquire` may create (a positive integer; anything else falls back to
+3). `status`, `release` and the one-per-team check always look at every
+`run` and `run-N` directory on disk, whatever the count.
 
 ```bash
-node tools/scripts/run-lock.mjs acquire --owner "<team> <worktree>" --purpose "<text>"
-node tools/scripts/run-lock.mjs status
-node tools/scripts/run-lock.mjs release --owner "<team> <worktree>"
+MAIN_CHECKOUT="/absolute/path/to/main/checkout"
+node "$MAIN_CHECKOUT/tools/scripts/run-lock.mjs" acquire --owner "<team> <worktree>" --purpose "<text>"
+node "$MAIN_CHECKOUT/tools/scripts/run-lock.mjs" status
+node "$MAIN_CHECKOUT/tools/scripts/run-lock.mjs" release --owner "<team> <worktree>"
 ```
 
-- Raw equivalent: `mkdir locks` then a non-recursive `mkdir locks/run`
-  (atomic; failure means held), then write `locks/run/owner.txt`.
+- Always run the script from the main checkout, as above. A worktree's copy
+  from before this change cannot see `run-2` and `run-3`, and would treat
+  `run` as the only lock.
+- Raw equivalent: `mkdir locks` then a non-recursive `mkdir` of the first
+  free lock slot dir (atomic; failure means held), then write its
+  `owner.txt`.
+- `acquire` takes the first free lock slot and prints
+  `acquired slot N by <owner>`. All held is a refusal that lists the holders.
+- One lock slot per team. `acquire` is refused while any lock slot's `owner:`
+  names the same team (the leading letters of the first word, lowercased, so
+  `xray-909` and `xray C:/wt/b` are one team), which includes the exact same
+  owner string. A lock slot with no parseable `owner:` line names no team and
+  does not block. Two simultaneous acquires from one team are caught by a
+  re-check after `owner.txt` is written: the one that sees the other removes
+  only its own lock slot and says to retry (both may back out).
+- Ports. Playwright picks a free port itself, so concurrent runs do not
+  share a fixed port (best effort: the port is free when picked, not reserved
+  until Theia binds it). `playwright.config.cjs` finds free ports for the app server,
+  `HB_RECONNECT_PORT` and `HB_MULTIWINDOW_PORT` at startup and writes them to
+  `process.env`, which its workers inherit (checked: a worker reloads the
+  config and sees the same values). Set `HB_PORT` (an integer 1-65535; the
+  config refuses anything else) only to force a fixed port. The `start`
+  script of `theia/browser-app` stays on 3000 for servers started by hand.
+  Env you set does not persist across agent tool calls, so prefix the command
+  you run it with, not a separate step.
+- Vitest workers. `vitest.config.ts` uses
+  `max(1, floor(cores / 2 / slots))` (5 on a 32-thread machine with 3),
+  so 3 full runs together use about the half of the cores one run used before.
+  `HACKBENCH_VITEST_WORKERS` (positive integer) overrides it, and when `CI`
+  is set the old `max(2, floor(cores / 2))` applies. The cap covers
+  `test:unit` only: the corpus and timing vitest configs and Theia builds are
+  uncapped. The value is a starting point, not measured under 3 concurrent
+  runs.
+- Known limit: worktrees whose `theia/node_modules` is a junction to the main
+  checkout share build state, so they must not build Theia concurrently even
+  with separate lock slots.
 - `owner.txt` holds `owner:`, `purpose:` and `started:` (UTC) lines.
-- Only the owner removes it, with `release` and the exact same id (no
-  prefix, no padding; blank ids and line breaks (CR, LF, U+2028, U+2029) are refused). A wrong or
-  missing owner line refuses and leaves the lock (see #923 for the incident
+- Only the owner removes a lock slot, with `release` and the exact same id (no
+  prefix, no padding; only the slot whose `owner:` matches is freed; blank ids and line breaks (CR, LF, U+2028, U+2029) are refused). A wrong or
+  missing owner line refuses and leaves the lock; a team that holds no lock
+  slot is told "<owner> holds no lock slot" with the holders (see #923 for the incident
   where a non-owner deleted one by hand). A lock taken by hand, with
   free-form text and no `owner:` line, cannot be proven, so `release` refuses
   it: it is removed by hand by its owner.
-- `status` prints `owner.txt` as written, plus `next.txt` when it is not
-  blank. A lock with no parseable `started:` (hand-made, unreadable or
+- `status` prints every lock slot (`slot N: free`, or its `owner.txt` as written
+  with the age), plus `next.txt` when it is not blank. A lock with no parseable `started:` (hand-made, unreadable or
   missing `owner.txt`), or a `started:` in the future, is aged by the lock
   dir's mtime, and says so. If that age is still negative, `status` prints
   "age unknown (clock skew), report to the BA" and never calls it fresh. An
@@ -849,9 +892,13 @@ node tools/scripts/run-lock.mjs release --owner "<team> <worktree>"
   free for that owner only if it is the FIRST word of `next.txt` (same
   normalisation); the BA writes the team name first, and a path later in the
   line (`bravo C:/wt/923-alpha-fix`) reserves for `bravo` only.
-  Otherwise do not take a free lock; the named team takes it, and the helper
-  then deletes the file. A blank `next.txt` is ignored.
-- A lock older than 2 hours (`status` prints STALE, strictly over 120 min) is
+  The reservation gates every lock slot: other teams are refused even while
+  slots are free. The named team takes any free one, and the helper then
+  deletes the file. If the named team already holds a lock slot it cannot
+  take another, so `acquire` ignores the reservation (and says so in its
+  output) rather than blocking everyone; the BA should then replace or
+  delete `next.txt`. A blank `next.txt` is ignored.
+- A lock slot older than 2 hours (`status` prints STALE, strictly over 120 min) is
   never removed by a non-owner. Report it to the BA with its `owner.txt`.
 - The CLI finds the state dir from the script's own location, not the
   current directory. When git cannot resolve the main checkout and
