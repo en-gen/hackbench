@@ -6,7 +6,6 @@
  */
 import { describe, it, expect, vi } from 'vitest'
 import { SmwRom } from '../../../src/rom/SmwRom'
-import * as L3ModelReal from '../../../src/rom/model/L3Model'
 import type * as L3ModelMod from '../../../src/rom/model/L3Model'
 import { buildL3Verdict, EXIT_GRAPH_UNAVAILABLE } from '../../../src/rom/model/L3Model'
 import { buildMapInputs, readMapEntrances } from '../../../theia/extension/src/node/map-screen'
@@ -27,6 +26,7 @@ const sheets = () => [[]] as never
 const cart = () =>
   withLayer3(modeTablesRom([STANDARD, ...Array(31).fill(STANDARD)]), { level: MAP, tileset: 0, setting: 2, settingsByte: 0x02, word: 2 }) // prettier-ignore
 const bg = { ok: true, mode: 1 } as const
+const inputs = { header, isVertical: false, colors: [], screenCount: 1 }
 const flags = { green: false, yellow: false, blue: false, red: false }
 
 describe('the layer 3 camera when the exit graph is unavailable (synthetic)', () => {
@@ -58,19 +58,17 @@ describe('the layer 3 camera when the exit graph is unavailable (synthetic)', ()
     const rom = new SmwRom(raw)
     // Real failure path: a zero-filled cart holds no stock exit code, so the real reader gives up.
     expect(readMapEntrances(rom)).toBeUndefined()
-    const spy = vi.mocked(L3ModelReal.buildL3Verdict)
+    const spy = vi.mocked(buildL3Verdict)
     // Inject only what a cart without GFX cannot give (chars, code gate); the graph arguments stay real.
     spy.mockImplementationOnce((r, i, w, b, _c, _g, s, e, sp, u) => realBuild(r, i, w, b, sheets, { ok: true }, s, e, sp, u)) // prettier-ignore
-    const inputs = { header, isVertical: false, colors: [], screenCount: 1 }
     const built = buildMapInputs(rom, MAP, flags, () => bg, () => ({ ok: true, inputs }) as never) // prettier-ignore
     expect(built.ok && built.inputs.l3?.l3?.camYUnverified).toContain(EXIT_GRAPH_UNAVAILABLE)
   })
 
   it('the Theia build: a map the available graph never reaches gets no note', () => {
     const rom = new SmwRom(cart())
-    const spy = vi.mocked(L3ModelReal.buildL3Verdict)
+    const spy = vi.mocked(buildL3Verdict)
     spy.mockImplementationOnce((r, i, w, b, _c, _g, s, e, sp, u) => realBuild(r, i, w, b, sheets, { ok: true }, s, e, [], u)) // prettier-ignore
-    const inputs = { header, isVertical: false, colors: [], screenCount: 1 }
     const built = buildMapInputs(rom, MAP, flags, () => bg, () => ({ ok: true, inputs }) as never, () => new Map()) // prettier-ignore
     expect(built.ok && built.inputs.l3?.l3?.camYUnverified).toBeUndefined()
   })
