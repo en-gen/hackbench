@@ -1171,6 +1171,7 @@ describe('WorkingRomRegistry undo/redo', () => {
     expect(isolated.redo(p.manifestPath).status).toBe('rom-not-located')
     expect(isolated.editStack(p.manifestPath).status).toBe('rom-not-located')
   })
+
   describe('base ROM gone while a copy is cached (#975)', () => {
     function cachedWithEdit() {
       const { manifestPath } = makeProject()
