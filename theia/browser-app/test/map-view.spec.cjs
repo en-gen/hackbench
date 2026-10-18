@@ -1137,8 +1137,7 @@ for (const [index, role, bit, known] of [
  * every screen shows the same pixels and the 512 px tilemap repeat is covered by the unit tests, not here.
  * What the browser pins is the anchor: the first opaque pixel on each screen, measured from the backend's
  * planes (row 89; x 60 from camera 0, x 200 from camera 652, which is 60 + 652 mod 256) and 504 opaque
- * pixels in the priority plane. A camera taken as 0 on $1C1, or a sign error, moves x. The tooltip says
- * it drifts; flipping the toggle changes pixels on every screen and restores them.
+ * pixels in the priority plane. A camera taken as 0 on $1C1, or a sign error, moves x. Flipping the toggle changes pixels on every screen and restores them.
  */
 for (const [index, first] of [
   [0x011, { x: 60, y: 89 }],
@@ -1153,7 +1152,7 @@ for (const [index, first] of [
     const button = l3Toggle(page, index)
     await expect(button).toBeEnabled()
     await expect(button).toHaveAttribute('aria-pressed', 'true')
-    await expect(button).toHaveAttribute('title', /^Layer 3 · (Overlay|Background)\. In the game this layer drifts slowly to the left\.$/) // prettier-ignore
+    await expect(button).toHaveAttribute('title', 'Layer 3 · Overlay') // develop's text: the priority plane is l3High, and no drift note
     for (const screen of screens) await showScreen(page, index, screen)
     // Per screen: the opaque count and first opaque pixel of the priority plane (read in the page, not shipped).
     const probe = screen =>

@@ -1,12 +1,11 @@
 /**
  * The item block spawn on the core (#566): the game's own GenSpriteFromBlk runs in place of the
  * loader's INIT, so the sprite's status, timers and cells come from the ROM's routine. Synthetic cart, except
- * the last block: its dispatcher is our own routine (gated by its own fingerprint, injected), its body ours with
- * the real routine's short shapes, so CI proves the runner's seeding, its refusals and that nothing is a constant.
+ * the last block: its dispatcher is our own routine (gated by its own fingerprint, injected), its body ours, so CI proves the runner's seeding, its refusals and that nothing is a constant.
  */
 import { describe, expect, it } from 'vitest'
 import { runOnce, RAM, type SpawnRun } from '../../../../src/rom/sprites/interp/SpriteRunner'
-import { resolveBlockSpawn } from '../../../../src/rom/sprites/interp/SpriteDispatch'
+import { resolveBlockSpawn, spanMask } from '../../../../src/rom/sprites/interp/SpriteDispatch'
 import { spanFingerprint } from '../../../../src/rom/SubmapFlagGate'
 import { SPRITE_SEED, withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { flip } from '../../support/syntheticRom'
@@ -14,7 +13,7 @@ import { freshRom, hasRom, VANILLA } from '../../support/corpus'
 import {
   buildSyntheticRom,
   SYNTHETIC_DISPATCHER as SYN,
-  SYNTHETIC_DISPATCHER_CODE,
+  syntheticSpawnCode,
   type SyntheticOptions,
 } from '../../support/syntheticSpriteRom'
 
@@ -65,7 +64,7 @@ describe('the item block spawn', () => {
   it('refuses a spawn routine that is not the shape it knows, with the reason', () => {
     for (const bad of ['head', 'status'] as const) {
       const m = cells(1, { badSpawn: bad }).m
-      expect(m.refusal, bad).toMatch(/item block spawn does not/)
+      expect(m.refusal, bad).toMatch(/item block spawn dispatcher is not a build/)
       expect(resolveBlockSpawn(buildSyntheticRom({ badSpawn: bad }), SYN).ok).toBe(false)
     }
     expect(resolveBlockSpawn(buildSyntheticRom(), SYN)).toEqual({ ok: true, entry: 0x0288dc })
@@ -94,12 +93,13 @@ describe('the item block spawn', () => {
 
 describe('the dispatcher gate: a masked SHA-256 of the span', () => {
   const ENTRY = 0x0288dc
-  const masked = [SYN.callAt, SYN.callAt + 1, SYN.callAt + 2]
+  const masked = spanMask(SYN)
+  const jslOperand = [SYN.callAt, SYN.callAt + 1, SYN.callAt + 2]
 
   it('hashes the fixture routine to its committed fingerprint, operand masked', () => {
     const rom = buildSyntheticRom()
     expect(spanFingerprint(rom.readAt(ENTRY, SYN.length), masked)).toBe(SYN.fingerprints[0])
-    expect(SYN.length).toBe(SYNTHETIC_DISPATCHER_CODE.length)
+    expect(SYN.length).toBe(syntheticSpawnCode().length)
   })
 
   it('accepts the synthetic routine only when its fingerprint is injected: the default is the real one', () => {
@@ -119,7 +119,7 @@ describe('the dispatcher gate: a masked SHA-256 of the span', () => {
       expect(!r.ok && r.reason, `byte ${i}`).toMatch(/dispatcher is not a build/)
       swept++
     }
-    expect(swept).toBe(SYN.length - 3)
+    expect(swept).toBe(SYN.length - masked.length)
     // The span ends where the routine does: a byte past it is not the dispatcher's.
     const past = buildSyntheticRom()
     flip(past, ENTRY + SYN.length)
@@ -127,7 +127,7 @@ describe('the dispatcher gate: a masked SHA-256 of the span', () => {
   })
 
   it('leaves the JSL operand out of the hash and checks it as the call: any change reaches the FindFreeSprSlot refusal', () => {
-    for (const at of masked) {
+    for (const at of jslOperand) {
       const rom = buildSyntheticRom()
       flip(rom, ENTRY + at)
       const r = resolveBlockSpawn(rom, SYN)

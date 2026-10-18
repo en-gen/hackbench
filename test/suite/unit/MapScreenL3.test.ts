@@ -14,10 +14,18 @@ import { withCrusher } from '../../../src/rom/L3CodeGate'
 import {
   CAMERA_HOOKED,
   entranceCameraX,
+  isStockCameraSetup,
+  readCameraSetup,
   readEntranceCameraGate,
+  STOCK_CAMERA_SETUP,
 } from '../../../src/rom/L3EntranceCamera'
 import { createHash } from 'node:crypto'
-import { buildL3Verdict, type L3Inputs, type L3Verdict } from '../../../src/rom/model/L3Model'
+import {
+  buildL3Verdict,
+  EXIT_GRAPH_UNAVAILABLE,
+  type L3Inputs,
+  type L3Verdict,
+} from '../../../src/rom/model/L3Model'
 import {
   drawL3Planes,
   screenResult,
@@ -191,20 +199,20 @@ describe('the wire: screens, math, layer 2 role (synthetic)', () => {
     expect(wireOf({ ...l1Of(0, 0, false), l3 }).math).toBeNull()
   })
   it('an unverified layer 3 camera is a layer note on a map that still draws it (#860)', () => {
-    const drawn = (note?: string) => verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYUnverified: note })) // prettier-ignore
+    const drawn = (...notes: string[]) => verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYReasons: notes.length ? notes : undefined })) // prettier-ignore
     const w = wireOf({ ...l1Of(0, 0, false), l3: drawn('because') })
     expect(w.layerNotes).toEqual(['Layer 3 position unverified: because'])
     expect(w.planes.l3Low ?? w.planes.l3High).toBeTruthy()
     expect(wireOf({ ...l1Of(0, 0, false), l3: drawn() }).layerNotes).toEqual([])
   })
   describe('one reason shared by the background height and the layer 3 position reads once (#926)', () => {
-    const drawn = (note?: string) => verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYUnverified: note })) // prettier-ignore
+    const drawn = (...notes: string[]) => verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYReasons: notes.length ? notes : undefined })) // prettier-ignore
     const withL2 = (reasons: string[]) => ({
       ok: true as const,
       l2: { kind: 'objects' as const, grid: [[null]], tiles: [], dy: 0, reasons, note: `Background height unverified: ${reasons.join(' ')}` }, // prettier-ignore
     })
-    const notes = (reasons: string[], l3Note: string) =>
-      wireOf({ ...l1Of(0, 0, false), l2: withL2(reasons), l3: drawn(l3Note) }).layerNotes
+    const notes = (reasons: string[], ...l3Notes: string[]) =>
+      wireOf({ ...l1Of(0, 0, false), l2: withL2(reasons), l3: drawn(...l3Notes) }).layerNotes
     it('the same gate reason on both parts is one line naming both', () => {
       expect(notes(['gate'], 'gate')).toEqual(['Background height and Layer 3 position unverified: gate']) // prettier-ignore
     })
@@ -214,9 +222,15 @@ describe('the wire: screens, math, layer 2 role (synthetic)', () => {
     it('a gate plus a dy note on L2 with the same gate on L3: the gate once, the dy note kept', () => {
       expect(notes(['gate', 'dy'], 'gate')).toEqual(['Background height and Layer 3 position unverified: gate', 'Background height unverified: dy']) // prettier-ignore
     })
+    it('the graph reason stays a Layer 3 line while the gate reason both layers give is merged (#910)', () => {
+      const gate = 'the level-start code is not stock'
+      const graph = EXIT_GRAPH_UNAVAILABLE
+      const m = { ...l1Of(0, 0, false), l2: withL2([gate]), l3: drawn(gate, graph) }
+      expect(wireOf(m).layerNotes).toEqual([`Background height and Layer 3 position unverified: ${gate}`, `Layer 3 position unverified: ${graph}`]) // prettier-ignore
+    })
   })
   describe('the note lines for every reason overlap of the two parts (#926)', () => {
-    const drawn = (note?: string) => verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYUnverified: note })) // prettier-ignore
+    const drawn = (...notes: string[]) => verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYReasons: notes.length ? notes : undefined })) // prettier-ignore
     const withL2 = (reasons: string[]) => ({
       ok: true as const,
       l2: { kind: 'objects' as const, grid: [[null]], tiles: [], dy: 0, reasons, note: `Background height unverified: ${reasons.join(' ')}` }, // prettier-ignore
@@ -236,7 +250,11 @@ describe('the wire: screens, math, layer 2 role (synthetic)', () => {
     ]
     for (const [l2, l3, expected] of cases) {
       it(`L2 ${JSON.stringify(l2)} with L3 ${JSON.stringify(l3)}`, () => {
-        const m = { ...l1Of(0, 0, false), ...(l2 ? { l2: withL2(l2) } : {}), l3: drawn(l3) }
+        const m = {
+          ...l1Of(0, 0, false),
+          ...(l2 ? { l2: withL2(l2) } : {}),
+          l3: drawn(...(l3 ? [l3] : [])),
+        }
         expect(wireOf(m).layerNotes).toEqual(expected)
       })
     }
@@ -561,28 +579,70 @@ describe('entranceCameraX and its code gate (synthetic, #563)', () => {
     expect([0x8d, 0x318, 0x2000, 0x7000].map(x => entranceCameraX(x))).toEqual([1, 0x318 - 0x8c, 0x1f00, 0x1f00]) // prettier-ignore
   })
 
-  it('passes a stock-shaped site and fails on any changed byte, in the hashed range or the GM11 site', () => {
-    const gm11 = [0x20, 0x35, 0xa6, 0xa9, 0x20, 0x85, 0x5e]
-    const cmt = [0xa9, 0x80, 0x00, 0x8d, 0x2a, 0x14] // LDA #$0080 / STA CameraMoveTrigger (bank_00.asm:5114-5115)
-    const body = Array.from({ length: 40 }, (_, i) => (i * 7 + 3) & 0xff)
+  // Synthetic filler for the one digest: not code of any ROM.
+  const body = Array.from({ length: 40 }, (_, i) => (i * 7 + 3) & 0xff)
+  const romWith = (at: number, bytes: number[]) => {
+    const r = new RomFile('c.sfc', Buffer.alloc(0x80000, 0))
+    r.writeAt(at, bytes)
+    return r
+  }
+  const spans = [{ addr: 0x00f6a3, length: 25 }, { addr: 0x00f6db, length: 15 }] // prettier-ignore
+  const digest = createHash('sha256').update(Buffer.from(body)).digest('hex') // the two spans joined: 25 + 15 bytes
+
+  it('one digest over the joined spans: a changed byte in either span fails it', () => {
     const rom = () => {
-      const r = new RomFile('c.sfc', Buffer.alloc(0x80000, 0))
-      r.writeAt(0x009705, gm11)
-      r.writeAt(0x00a7b9, cmt)
-      r.writeAt(0x00f6a3, body)
+      const r = romWith(0x00f6a3, body.slice(0, 25))
+      r.writeAt(0x00f6db, body.slice(25))
       return r
     }
-    const sites = [{ addr: 0x00f6a3, length: body.length, sha256: createHash('sha256').update(Buffer.from(body)).digest('hex') }] // prettier-ignore
-    expect(readEntranceCameraGate(rom(), sites)).toEqual({ ok: true })
-    const hacked = rom()
-    hacked.writeAt(0x00f6a3 + 9, [0xea])
-    expect(readEntranceCameraGate(hacked, sites).ok).toBe(false)
-    const moved = rom()
-    moved.writeAt(0x009705 + 4, [0x30]) // LDA #$30: another max screen
-    expect(readEntranceCameraGate(moved, sites).ok).toBe(false)
-    const trigger = rom()
-    trigger.writeAt(0x00a7b9 + 1, [0xa0]) // CameraMoveTrigger $00A0: the right buffer is no longer $8C
-    expect(readEntranceCameraGate(trigger, sites).ok).toBe(false)
+    expect(readEntranceCameraGate(rom(), spans, digest, STOCK_CAMERA_SETUP)).toEqual({ ok: true })
+    for (const [at, i] of [
+      [0x00f6a3, 9],
+      [0x00f6db, 3],
+    ] as const) {
+      const hacked = rom()
+      hacked.writeAt(at + i, [0xea])
+      expect(readEntranceCameraGate(hacked, spans, digest, STOCK_CAMERA_SETUP).ok, `byte ${i} at ${at}`).toBe(false) // prettier-ignore
+    }
+  })
+
+  it('reads the load setup one field at a time, from the offsets the instructions use', () => {
+    // Distinct non-ROM values: each field must come from its own offset.
+    expect(
+      readCameraSetup(romWith(0x009705, [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77])),
+    ).toMatchObject({
+      // prettier-ignore
+      loadCallOp: 0x11,
+      loadCallTarget: 0x3322,
+      maxScreensOp: 0x44,
+      maxScreens: 0x55,
+      maxScreensStoreOp: 0x66,
+      maxScreensStore: 0x77, // prettier-ignore
+    })
+    expect(readCameraSetup(romWith(0x00a7b9, [0x91, 0x82, 0x73, 0x64, 0x55, 0x46]))).toMatchObject({
+      // prettier-ignore
+      triggerOp: 0x91,
+      trigger: 0x7382,
+      triggerStoreOp: 0x64,
+      triggerStore: 0x4655,
+    })
+  })
+
+  it('accepts only the named setup: any one field different is refused', () => {
+    expect(isStockCameraSetup(STOCK_CAMERA_SETUP)).toBe(true)
+    expect(isStockCameraSetup(null)).toBe(false)
+    for (const key of Object.keys(STOCK_CAMERA_SETUP) as (keyof typeof STOCK_CAMERA_SETUP)[]) {
+      const other = { ...STOCK_CAMERA_SETUP, [key]: STOCK_CAMERA_SETUP[key] ^ 1 }
+      expect(isStockCameraSetup(other), key).toBe(false)
+    }
+    // CameraMoveTrigger $00A0 or LastScreenHoriz $30 are the cases that move the camera.
+    expect(isStockCameraSetup({ ...STOCK_CAMERA_SETUP, trigger: 0x00a0 })).toBe(false)
+    expect(isStockCameraSetup({ ...STOCK_CAMERA_SETUP, maxScreens: 0x30 })).toBe(false)
+  })
+
+  it('a ROM that does not carry the setup is refused when the digest is right', () => {
+    const rom = romWith(0x00f6a3, body)
+    expect(readEntranceCameraGate(rom, [{ addr: 0x00f6a3, length: 40 }], digest).ok).toBe(false)
   })
 })
 

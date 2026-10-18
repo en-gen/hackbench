@@ -24,7 +24,7 @@
  */
 import type { RomFile } from './RomFile'
 import { isOverworldLevel, mapUsesSecondaryExits, type SmwRom } from './SmwRom'
-import { parseLevelObjects } from './LevelParser'
+import { parseLevelObjects, readableScreenExits } from './LevelParser'
 import {
   DATA_05D730_ADDR as Y_LO,
   DATA_05D740_ADDR as Y_HI,
@@ -195,21 +195,10 @@ export function readLevelStart(
 
   // Screen-exit hops from an overworld tile, breadth first over the screen exit graph.
   const hops = new Map<number, number>()
-  // A stream that ran off the buffer lost sync, so its edges are not followed either.
-  const complete = new Map<number, boolean>()
-  const isComplete = (s: number): boolean => {
-    let ok = complete.get(s)
-    if (ok === undefined) {
-      const raw = rom.getLevelRawData(s)
-      ok = !!raw && parseLevelObjects(raw, []).terminated
-      complete.set(s, ok)
-    }
-    return ok
-  }
+  // The graph already drops every screen exit of a stream that never reaches $FF (readableScreenExits).
   const queue = [...graph.keys()].filter(s => isOverworldLevel(s, roots))
   for (const s of queue) hops.set(s, 0)
   for (let i = 0; i < queue.length; i++) {
-    if (!isComplete(queue[i]!)) continue
     for (const d of graph.get(queue[i]!) ?? []) {
       if (hops.has(d)) continue
       hops.set(d, hops.get(queue[i]!)! + 1)
@@ -226,10 +215,7 @@ export function readLevelStart(
     const h = hops.get(from)
     const raw = h === undefined || !dests.includes(mapIndex) ? null : rom.getLevelRawData(from)
     if (h === undefined || !raw) continue
-    // A stream that ran off the buffer lost sync: its "screen exits" are not trustworthy, so none is used.
-    const parsed = parseLevelObjects(raw, [])
-    if (!parsed.terminated) continue
-    const exits = parsed.objects.filter(o => o.screenExitDest !== undefined)
+    const exits = readableScreenExits(parseLevelObjects(raw, []))
     const secondary = mapUsesSecondaryExits(exits)
     for (const o of exits) {
       const low = o.screenExitDest! & 0xff

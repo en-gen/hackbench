@@ -29,6 +29,17 @@ import { entrancePositionGate } from '../SubmapFlagGate'
 import { effectiveCgadsub } from './ColorMath'
 import { FALLBACK_SCREENS, screenPlanes, type ScreenPlanes } from './ScreenPlanes'
 
+/** Passed as `entrances` when the exit graph itself failed; distinct from a map the graph never reaches. */
+export const GRAPH_UNAVAILABLE = 'graph-unavailable'
+
+/**
+ * Said when the exit graph could not be built (a hooked hack, #910): which entrance starts the map
+ * is then unknown, so `chooseEntrance` falls back to the primary row, a guess a secondary-only map
+ * would contradict. Reads after "Layer 3 position unverified: ".
+ */
+export const EXIT_GRAPH_UNAVAILABLE =
+  'HackBench could not work out which entrance starts this map, so this layer is placed as if the map were entered from its main entrance.' // prettier-ignore
+
 export interface L3Inputs {
   /** The 64 x 64 BG3 tilemap, index = row * 64 + col, HUD rows included (the drawing skips them). */
   tilemap: Uint16Array
@@ -49,8 +60,11 @@ export interface L3Inputs {
   worldLocked?: { camXPx: number }
   /** A tide ($00-$7F settings byte) tiles every 256 px and draws one copy of its two-copy tilemap. */
   tide: boolean
-  /** Set when the code that reads `camYPx` is not stock (#860): the value is a best reading, not confirmed. */
-  camYUnverified?: string
+  /**
+   * Why `camYPx` is a best reading, not confirmed (#860, #910), one sentence each. A list like L2's
+   * `reasons`, so a reason both layers give is merged by whole sentence (#926). Absent: confirmed.
+   */
+  camYReasons?: string[]
 }
 
 export interface L3Verdict {
@@ -77,11 +91,12 @@ export function buildL3Verdict(
   chars: (rom: RomFile) => GfxSheet[] | null = readL3Chars,
   gate: L3CodeGate = readL3CodeGate(rom),
   smash: (rom: RomFile, index: number) => L3SmashResult = readL3SmashLoadPos,
-  entrances?: MapEntrances,
+  entrances?: MapEntrances | typeof GRAPH_UNAVAILABLE,
   startSpans?: Parameters<typeof entrancePositionGate>[1],
   cameraGate: (rom: RomFile) => L3CodeGate = readEntranceCameraGate,
 ): L3Verdict {
   const priority = l1.header.layer3Priority
+  const via = entrances === GRAPH_UNAVAILABLE ? undefined : entrances
   const base = { priority, screens: FALLBACK_SCREENS, cgadsub: null, layer2Interactive: false }
   const other = (reason: string): L3Verdict => ({ ...base, l3: null, reason })
   if (!bg.ok) return other(`Layer 3 not drawn: ${bg.reason}`)
@@ -138,7 +153,7 @@ export function buildL3Verdict(
     if (!cameraGate(rom).ok) return refuse(CAMERA_HOOKED)
     // CODE_05BE8A copied Layer1YPos into Layer3YPos before CODE_009FB8 (bank_00.asm:4869-4870), which
     // leaves it alone on this path; CODE_05C48D keeps the copy each frame (bank_05.asm:5569-5570).
-    yPx = readInitialLayer1YPos(rom, index, false, entrances)
+    yPx = readInitialLayer1YPos(rom, index, false, via)
     worldLocked = { camXPx: entranceCameraX(start.x) }
   }
   // A $80 byte's Y is $D0 until a loaded Layer 3 Smash sprite writes X and Y from its own place (#807).
@@ -151,6 +166,11 @@ export function buildL3Verdict(
   // The GFX loader (CODE_00A993) is a third piece of layer 3 code: hooked, or any file failing to load, leaves no chars.
   const sheets = chars(rom)
   if (!sheets || sheets.length === 0) return none(HOOKED_L3_CODE)
+  const startGate = entrancePositionGate(rom, startSpans)
+  const reasons = [
+    startGate,
+    entrances === GRAPH_UNAVAILABLE ? EXIT_GRAPH_UNAVAILABLE : null,
+  ].filter((r): r is string => !!r)
   return {
     ...known,
     // The world-locked path skips the TRB that clears BG3 (CODE_00A01F), so BG3 stays in the math.
@@ -163,8 +183,8 @@ export function buildL3Verdict(
       xPx: pos.x,
       yPx: pos.y,
       ...(worldLocked && { worldLocked }),
-      camYPx: readInitialLayer1YPos(rom, index, false, entrances),
-      camYUnverified: entrancePositionGate(rom, startSpans) ?? undefined,
+      camYPx: readInitialLayer1YPos(rom, index, false, via),
+      camYReasons: reasons.length ? reasons : undefined,
       // $00 is Layer3TideSetting 0: no tide (it is camera-locked or Castle1/Underground1's half-speed scroll).
       tide: load.settingsByte !== 0 && load.settingsByte < 0x80,
     },
