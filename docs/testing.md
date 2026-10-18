@@ -100,14 +100,26 @@ skips without it. `CastleFlames.test.ts` applies it to the bytes its fixtures wr
 Where a reader in `src/` fixes the game's opcodes (or a fixture keeps the game's operand values on purpose), the
 window stays and the gate's allow list names the region and why. Each region spans at most 64 bytes and lists its
 exact hit count: a count that rises, drops or reaches zero fails until the list is updated, and planted cases prove
-those checks go red. ExecutePtr, CallSpriteInit and the grinder entry (#1082) were removed by running them instead:
-a stock-code SHA-256 needs at least 24 unknown bytes (not masked, not already stated in the repo), and each of those
-had fewer. `checkExecutePtr` calls the routine as a JSL with a table of its own in WRAM and requires the landing, the
-popped frame and the kept registers for six indices; `resolveTables` runs CallSpriteInit for one slot and requires the
-JSL frame at ExecutePtr, the sprite number as the index and the run status as the only write, and reads the INIT table
-from that frame; `grinderDrawsBeforeSnap` runs the handler on two WRAM seeds and requires one landing, then hashes the
-dispatch block there. The block spawn dispatcher, slot search and status write are one 81-byte span (`BLOCK_SPAWN_DISPATCHER`). Planted
-defects for each are in `test/suite/unit/sprites/ShapeRuns.test.ts`. The fix for an allowed region is to make the reader recognize the code by SHA-256 (as
+those checks go red.
+
+ExecutePtr, CallSpriteInit and the grinder handler (#1082) were removed by running them instead: a stock-code
+SHA-256 needs at least 24 unknown bytes (not masked, not stated elsewhere in the working tree), and each of those had
+fewer. The runs follow the stock-code exception in `.claude/rules/rom-interpretation.md` (added in #1030): a fixed
+entry, a step budget, a refusal that names why.
+
+- `checkExecutePtr` calls the routine as a JSL with a table of its own in WRAM, for all 256 indices, and requires
+  the landing, the popped frame, the kept registers and no register or SRAM write.
+- `resolveTables` runs CallSpriteInit for every sprite number in three slots and requires the JSL frame at
+  ExecutePtr, the number as the index and the run status as the only write besides the frame; the INIT table is read
+  from that frame.
+- `grinderDrawsBeforeSnap` runs the handler in every slot and with every value of each cell it reads, and requires
+  the draw, the interact and the line step in that order; it returns a reason, which the runner puts in
+  `lineGateReason`.
+- The block spawn dispatcher, slot search and status write are one 81-byte span (`BLOCK_SPAWN_DISPATCHER`).
+
+Planted defects for each are in `test/suite/unit/sprites/ShapeRuns.test.ts`.
+
+The fix for an allowed region is to make the reader recognize the code by SHA-256 (as
 `CastleFlames.ts` and `SubmapFlagGate.ts` do), then delete the region.
 
 Source-text probes read the file text only, so they miss runs built from helpers, named opcodes or spread

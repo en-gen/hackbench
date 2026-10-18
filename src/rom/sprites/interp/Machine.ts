@@ -33,6 +33,53 @@ export function smwMachine(rom: RomFile, wram?: Uint8Array): { bus: SpriteBus; c
 }
 
 /**
+ * Remembers the verdict of a sweep for one key, together with every ROM byte the sweep read, and answers again for
+ * ANY ROM whose size and those bytes are the same (a run depends on nothing else, and the working copy hands out a
+ * new `RomFile` per call, so identity is no key). A sweep takes hundreds of runs and a map asks for it once per
+ * sprite, so without this the same answer is recomputed per sprite. At most `KEEP` distinct ROMs per key.
+ */
+export class RunCache<T> {
+  private static readonly KEEP = 8
+  private entries = new Map<string, { size: number; idx: number[]; vals: number[]; result: T }[]>()
+
+  /** Starts recording the ROM bytes `bus` reads; call before the first run of the sweep. */
+  track(bus: SpriteBus, rom: RomFile): void {
+    bus.romSeen = new Uint8Array(rom.buffer.length)
+    bus.romList = []
+  }
+
+  lookup(rom: RomFile, key: string): T | undefined {
+    const hit = this.entries
+      .get(key)
+      ?.find(
+        e => e.size === rom.buffer.length && e.idx.every((i, k) => rom.buffer[i] === e.vals[k]),
+      )
+    return hit?.result
+  }
+
+  store(rom: RomFile, key: string, bus: SpriteBus, result: T): T {
+    const idx = [...bus.romList]
+    const list = this.entries.get(key) ?? []
+    list.push({ size: rom.buffer.length, idx, vals: idx.map(i => rom.buffer[i]!), result })
+    if (list.length > RunCache.KEEP) list.shift()
+    this.entries.set(key, list)
+    return result
+  }
+}
+
+const SRAM_MARK = 0xa5
+
+/** Fills SRAM with a marker so `sramWritten` can see a store (the bus does not report SRAM writes to `recordWrites`). */
+export function markSram(bus: SpriteBus): void {
+  bus.sram.fill(SRAM_MARK)
+}
+
+/** True when a store put a byte other than the marker into SRAM since `markSram` (storing the marker itself is invisible). */
+export function sramWritten(bus: SpriteBus): boolean {
+  return bus.sram.some(v => v !== SRAM_MARK)
+}
+
+/**
  * Records the ordered writes a run makes as `address * 256 + value`: WRAM at
  * its 24-bit address ($7E0000 + offset), registers at their 16-bit address.
  * `keep` filters by that address. `stop()` puts the bus's hooks back.

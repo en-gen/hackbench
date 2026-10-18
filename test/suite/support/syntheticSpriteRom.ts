@@ -94,41 +94,50 @@ const BANK = 0x8000
 
 /**
  * Our own item block spawn routine, written for this fixture, as ONE contiguous 81-byte span from $02:88DC like
- * the game's: the dispatcher (index compare, JSL FindFreeSprSlot, fall-through), the slot countdown at +$29 and the
- * status write at +$46 (11 bytes of it; its tail follows). Gaps are zero. `bad` breaks one piece's first byte.
+ * the game's. Its instructions and its layout are ours (a dispatcher on X, a slot countdown that decrements first,
+ * a status write through A and TAY), so it rebuilds none of the game's code: dispatcher at +0, slot search at +44,
+ * status write at +58 and the start of the rest of the routine after it. Gaps are zero. `bad` breaks one piece's
+ * first byte.
  */
 export function syntheticSpawnCode(bad?: 'head' | 'status' | 'dispatch'): number[] {
   const code = new Array<number>(81).fill(0)
+  const HEAD = 0x288dc + 44
+  const STATUS = 0x288dc + 58
+  const lo = (a: number) => a & 0xff
+  const hi = (a: number) => a >> 8
   // prettier-ignore
   const dispatcher = [
-    0xa5, 0x05,             // LDA $05: the content index
-    0xc9, 0x0c,             // CMP #$0C
-    0xf0, 0x03,             // BEQ slot
-    0x4c, 0x05, 0x89,       // JMP $8905: GenSpriteFromBlk's own countdown
-    0x22, 0xe4, 0xa9, 0x02, // slot: JSL FindFreeSprSlot, Y = slot or $FF
-    0x5a, 0xfa,             // PHY / PLX: X = Y, N set when none was free
-    0x30, 0x03,             // BMI done
-    0x4c, 0x22, 0x89,       // JMP $8922: the status write
-    0x6b,                   // done: RTL
+    0xa6, 0x05,                           // LDX $05: the content index
+    0xe0, 0x0c,                           // CPX #$0C
+    0xd0, 0x0c,                           // BNE generic
+    0x22, 0xe4, 0xa9, 0x02,               // JSL FindFreeSprSlot: Y = slot or $FF
+    0x98, 0xaa,                           // TYA / TAX: N set when none was free
+    0x30, 0x03,                           // BMI done
+    0x4c, lo(STATUS), hi(STATUS),         // JMP status write
+    0x6b,                                 // done: RTL
+    0x4c, lo(HEAD), hi(HEAD),             // generic: JMP slot search
   ]
-  // The free-slot hit branches to a JMP $8922 at $028912 (a displacement of 6, not the game's), so the head shares no 8 bytes with it.
-  const head = [0xa2, 0x0b, 0xbd, 0xc8, 0x14, 0xf0, 0x06, 0xca, 0xe0, 0xff, 0xd0, 0xf6, 0x6b, 0x4c, 0x22, 0x89] // prettier-ignore
-  const status = [0xa4, 0x05, 0x8e, 0x61, 0x18, 0xb9, 0xc5, 0x88, 0x9d, 0xc8, 0x14]
+  // The slot search counts down from 12, decrementing first, and gives up (RTL) below zero.
+  const head = [0xa2, 0x0c, 0xca, 0x30, 0x08, 0xbd, 0xc8, 0x14, 0xd0, 0xf8, 0x4c, lo(STATUS), hi(STATUS), 0x6b] // prettier-ignore
+  // Status through A and Y from the table at $02:88C5, then the number from $02:88A3 and InitSpriteTables.
+  const status = [0xa5, 0x05, 0xa8, 0xb9, 0xc5, 0x88, 0x9d, 0xc8, 0x14]
+  const rest = [0xb9, 0xa3, 0x88, 0x95, 0x9e, 0x22, 0xd2, 0xf7, 0x07, 0x4c, 0x36, 0x89] // prettier-ignore
   code.splice(0, dispatcher.length, ...dispatcher)
-  code.splice(0x29, head.length, ...head)
-  code.splice(0x46, status.length, ...status)
+  code.splice(44, head.length, ...head)
+  code.splice(58, status.length, ...status)
+  code.splice(67, rest.length, ...rest)
   if (bad === 'dispatch') code[0] = 0xea
-  if (bad === 'head') code[0x29] = 0xea
-  if (bad === 'status') code[0x46] = 0xea
+  if (bad === 'head') code[44] = 0xea
+  if (bad === 'status') code[58] = 0xea
   return code
 }
 
-/** The gate's view of `syntheticSpawnCode()`: the JSL operand and the status write's two addresses masked, the rest hashed. */
+/** The gate's view of `syntheticSpawnCode()`: the JSL operand and the status table address masked, the rest hashed. */
 export const SYNTHETIC_DISPATCHER: DispatcherSpan = Object.freeze({
   length: 81,
-  callAt: 10,
-  operands: Object.freeze([73, 74, 76, 77]),
-  fingerprints: Object.freeze(['399b784c2dd1f67c4c7ef5da247f11ff2a87885570b6ca5d17df36da0ae3f4c2']),
+  callAt: 7,
+  operands: Object.freeze([62, 63]),
+  fingerprints: Object.freeze(['12a81b2eff7ff222bc6fde0468a2c70178d44b20da3aa75b5b01544cb39ff81d']),
 })
 
 /**
@@ -262,8 +271,6 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   put(0x0288dc, syntheticSpawnCode(o.badSpawn))
   put(0x02a9e3, [0xea]) // a NOP before the opening: six zero bytes then STZ $0E is itself a window of the game's
   put(0x02a9e4, [0x64, 0x0e, 0x8b, 0x4b, 0xab, 0xa0, 0x07, 0xab, 0x6b]) // FindFreeSprSlot stand-in (its STZ $0E / PHB PHK PLB opening): Y = 7
-  // The rest of the status write (its first 11 bytes are in the spawn span above): sprite number from a table, InitSpriteTables.
-  put(0x02892d, [0xb9, 0xa3, 0x88, 0x95, 0x9e, 0x22, 0xd2, 0xf7, 0x07])
   put(
     0x028936,
     o.spawnLoop

@@ -119,7 +119,7 @@ describe('the dispatcher gate: a masked SHA-256 of the span', () => {
       expect(!r.ok && r.reason, `byte ${i}`).toMatch(/dispatcher is not a build/)
       swept++
     }
-    expect(swept).toBe(SYN.length - 7)
+    expect(swept).toBe(SYN.length - masked.length)
     // The span ends where the routine does: a byte past it is not the dispatcher's.
     const past = buildSyntheticRom()
     flip(past, ENTRY + SYN.length)

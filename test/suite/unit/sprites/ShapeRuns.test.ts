@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { RomFile } from '../../../../src/rom/RomFile'
+import { RAM } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import {
   grinderDrawsBeforeSnap,
   VANILLA_DISPATCH,
@@ -80,10 +81,37 @@ describe('ExecutePtr is run, not hashed (synthetic cart)', () => {
     expect(execReason(off)).toMatch(/16-bit ExecutePtr/)
   })
 
+  it('refuses a routine that is wrong for one index only (index $C9 jumps away)', () => {
+    const rom = buildSyntheticRom()
+    // CMP #$C9 / BNE +4 / JML $7F0000, then the working routine: six sampled indices would all pass.
+    rom.writeAt(EXEC_AT, [0xc9, 0xc9, 0xd0, 0x04, 0x5c, 0x00, 0x00, 0x7f, ...EXEC])
+    expect(execReason(rom)).toMatch(/index 201/)
+  })
+
+  it('refuses a routine that reads the return address without popping it (LDA 1,S)', () => {
+    const rom = buildSyntheticRom()
+    // REP #$30 / AND #$00FF / ASL / STA $08 / LDA 1,S / INC / CLC / ADC $08 / STA $0A / LDA #$007E / STA $0C /
+    // LDA [$0A] / STA $0A / SEP #$30 / JML [$000A]: it lands right but leaves the call frame on the stack.
+    rom.writeAt(EXEC_AT, [0xc2, 0x30, 0x29, 0xff, 0x00, 0x0a, 0x85, 0x08, 0xa3, 0x01, 0x1a, 0x18, 0x65, 0x08, 0x85, 0x0a, 0xa9, 0x7e, 0x00, 0x85, 0x0c, 0xa7, 0x0a, 0x85, 0x0a, 0xe2, 0x30, 0xdc, 0x0a, 0x00]) // prettier-ignore
+    expect(execReason(rom)).toMatch(/frame was not popped/)
+  })
+
+  it('keeps the interpreter reason: a loop names the step budget', () => {
+    const loop = buildSyntheticRom()
+    loop.writeAt(EXEC_AT, [0x80, 0xfe])
+    expect(execReason(loop)).toMatch(/step budget/)
+  })
+
+  it('refuses a routine that writes SRAM', () => {
+    const rom = buildSyntheticRom()
+    rom.writeAt(EXEC_AT, [0x8f, 0x00, 0x00, 0x70, ...EXEC]) // STA $700000
+    expect(execReason(rom)).toMatch(/SRAM/)
+  })
+
   it('refuses a routine that writes a hardware register on the way', () => {
     const rom = buildSyntheticRom()
     rom.writeAt(EXEC_AT, [0x8d, 0x00, 0x21, ...EXEC]) // STA $2100, then the working routine
-    expect(execReason(rom)).toMatch(/16-bit ExecutePtr/)
+    expect(execReason(rom)).toMatch(/hardware register/)
   })
 
   it('still refuses calls that do not reach the same routine, or do not reach ROM', () => {
@@ -121,6 +149,60 @@ describe('CallSpriteInit is run, not hashed (synthetic cart)', () => {
     expect(tablesReason(rom)).toMatch(/CallSpriteInit is not/)
   })
 
+  // Replaces the cart CallSpriteInit with `code` (JSL last) and moves its table after it.
+  const withInit = (code: number[]) => {
+    const rom = buildSyntheticRom()
+    const tbl = [...rom.readAt(INIT_AT + 12, 402)!]
+    rom.writeAt(INIT_AT, code)
+    rom.writeAt(INIT_AT + code.length, tbl)
+    return rom
+  }
+  const INIT = [0xa0, 0x08, 0x98, 0x9d, 0xc8, 0x14, 0xb5, 0x9e, 0x22, 0xfa, 0x86, 0x00]
+
+  it('refuses a hook for one range of sprite numbers (CMP #$C9 / BCC / JML)', () => {
+    const rom = withInit([0xb5, 0x9e, 0xc9, 0xc9, 0x90, 0x04, 0x5c, 0x00, 0x00, 0x7f, ...INIT])
+    expect(tablesReason(rom)).toMatch(/CallSpriteInit is not.*sprite \$c9/)
+    // The same hook with its range moved past every number is accepted: only the range is what is refused.
+    expect(
+      tablesReason(withInit([0xb5, 0x9e, 0xc9, 0x00, 0xb0, 0x04, 0x5c, 0x00, 0x00, 0x7f, ...INIT])),
+    ).toBeNull()
+  })
+
+  it.each([
+    ['clears page 1 (STZ $0100)', [0x9c, 0x00, 0x01]],
+    ['writes SRAM (STA $700000)', [0x8f, 0x00, 0x00, 0x70]],
+    ['writes a register (STA $2100)', [0x8d, 0x00, 0x21]],
+  ])('refuses an INIT that %s', (_name, extra) => {
+    const rom = withInit([
+      0xa0,
+      0x08,
+      0x98,
+      0x9d,
+      0xc8,
+      0x14,
+      ...extra,
+      0xb5,
+      0x9e,
+      0x22,
+      0xfa,
+      0x86,
+      0x00,
+    ])
+    expect(tablesReason(rom)).toMatch(/CallSpriteInit is not/)
+  })
+
+  it('refuses a JML in place of the JSL: no call frame', () => {
+    const rom = buildSyntheticRom()
+    rom.writeAt(INIT_AT + 8, [0x5c])
+    expect(tablesReason(rom)).toMatch(/JSL frame/)
+  })
+
+  it('keeps the interpreter reason: a call that never arrives names the step budget', () => {
+    const rom = buildSyntheticRom()
+    rom.writeAt(INIT_AT, [0x80, 0xfe])
+    expect(tablesReason(rom)).toMatch(/step budget/)
+  })
+
   it('refuses an INIT that writes anything besides the status', () => {
     const rom = buildSyntheticRom()
     // LDY #8, TYA, STA $14C8,X, STA $14C9,X, LDA $9E,X, JSL: one write too many, the table moves by three.
@@ -137,8 +219,16 @@ describe('CallSpriteInit is run, not hashed (synthetic cart)', () => {
   })
 })
 
-describe('the grinder entry is run, not hashed (synthetic cart)', () => {
-  const verdict = (rom: RomFile) => grinderDrawsBeforeSnap(rom, GRINDER_HANDLER, GRINDER_DISPATCH)
+describe('the grinder handler is run, not hashed (synthetic cart)', () => {
+  const gate = (rom: RomFile) =>
+    grinderDrawsBeforeSnap(rom, GRINDER_HANDLER, 0x67, RAM.spriteNumber, GRINDER_DISPATCH)
+  const verdict = (rom: RomFile) => gate(rom).ok
+  const reason = (rom: RomFile) => {
+    const g = gate(rom)
+    return g.ok ? null : g.reason
+  }
+  /** The cart handler: the entry, then the JMP to the dispatch block. */
+  const handlerCode = (rom: RomFile) => [...rom.readAt(GRINDER_HANDLER, 19)!]
 
   it('accepts the cart', () => {
     expect(verdict(buildSyntheticRom())).toBe(true)
@@ -147,31 +237,53 @@ describe('the grinder entry is run, not hashed (synthetic cart)', () => {
   it.each([
     ['returns at once (RTS)', [0x60]],
     ['loops (BRA -2)', [0x80, 0xfe]],
-    ['jumps elsewhere than the dispatch block', [0x4c, 0x01, 0x92]],
+    ['jumps elsewhere than the dispatch block', [0x4c, 0x80, 0x92]],
     // LDA $9D / BNE +3 / JMP dispatch / JMP elsewhere: zero WRAM lands on the dispatch, all-set WRAM does not.
     [
-      'reaches the dispatch block on one of the two seeds only',
-      [0xa5, 0x9d, 0xd0, 0x03, 0x4c, 0x20, 0x92, 0x4c, 0x01, 0x92],
+      'reaches the dispatch block on some inputs only',
+      [0xa5, 0x9d, 0xd0, 0x03, 0x4c, 0x20, 0x92, 0x4c, 0x80, 0x92],
     ],
-  ] as const)('refuses an entry that %s', (_name, bytes) => {
+  ])('refuses an entry that %s', (_name, bytes) => {
     const rom = buildSyntheticRom()
-    rom.writeAt(GRINDER_HANDLER, [...bytes])
+    rom.writeAt(GRINDER_HANDLER, bytes)
     expect(verdict(rom)).toBe(false)
   })
 
-  it('still gates on the dispatch block at the landing address', () => {
+  it('refuses a hook that fires on ONE value of a cell the entry reads (SpriteLock = 1)', () => {
     const rom = buildSyntheticRom()
-    flip(rom, GRINDER_DISPATCH_AT)
+    // LDA $9D / CMP #$01 / BNE +3 / JMP $9280, then the cart entry: two fills (zero, all set) never see it.
+    rom.writeAt(GRINDER_HANDLER, [0xa5, 0x9d, 0xc9, 0x01, 0xd0, 0x03, 0x4c, 0x80, 0x92, ...handlerCode(buildSyntheticRom())]) // prettier-ignore
+    expect(reason(rom)).toMatch(/WRAM \$9d = \$1/)
+  })
+
+  it('refuses an entry that writes a register (STA $2100) or SRAM (STA $700000)', () => {
+    const regs = buildSyntheticRom()
+    regs.writeAt(GRINDER_HANDLER, [0x8d, 0x00, 0x21, ...handlerCode(buildSyntheticRom())])
+    expect(reason(regs)).toMatch(/hardware register/)
+    const sram = buildSyntheticRom()
+    sram.writeAt(GRINDER_HANDLER, [0x8f, 0x00, 0x00, 0x70, ...handlerCode(buildSyntheticRom())])
+    expect(reason(sram)).toMatch(/SRAM/)
+  })
+
+  it('names why: out of order, and the step budget', () => {
+    expect(reason(buildSyntheticRom({ alteredGrinder: true }))).toMatch(/out of order/)
+    const loop = buildSyntheticRom()
+    loop.writeAt(GRINDER_HANDLER, [0x80, 0xfe])
+    expect(reason(loop)).toMatch(/step budget/)
+  })
+
+  it('still gates on the calls the dispatch block makes', () => {
+    const rom = buildSyntheticRom()
+    rom.writeAt(GRINDER_DISPATCH_AT + 1, [0x10])
     expect(verdict(rom)).toBe(false)
   })
 })
 
 describe('the block spawn span (synthetic cart)', () => {
-  it('is one 81-byte span with seven masked operands, 74 hashed, like the real one', () => {
-    for (const span of [SYN, BLOCK_SPAWN_DISPATCHER]) {
-      expect(span.length).toBe(81)
-      expect(spanMask(span)).toHaveLength(7)
-    }
+  it('is one 81-byte span like the real one: the real one masks seven operands, the cart five', () => {
+    expect([SYN.length, BLOCK_SPAWN_DISPATCHER.length]).toEqual([81, 81])
+    expect(spanMask(BLOCK_SPAWN_DISPATCHER)).toHaveLength(7)
+    expect(spanMask(SYN)).toHaveLength(5)
   })
 
   it('a flip at every hashed offset is refused, at every operand offset is not', () => {
@@ -198,7 +310,7 @@ describe.skipIf(!hasRom(VANILLA))('the vanilla ROM', () => {
     expect(resolveBlockSpawn(rom).ok).toBe(true)
     const p = resolvePointer(rom, t.tables.mainTable, 0x67)
     if (!p.ok) throw new Error('pointer')
-    expect(grinderDrawsBeforeSnap(rom, p.handler.address, VANILLA_DISPATCH)).toBe(true)
+    expect(grinderDrawsBeforeSnap(rom, p.handler.address, 0x67, RAM.spriteNumber, VANILLA_DISPATCH)).toEqual({ ok: true }) // prettier-ignore
   })
 
   it('block spawn span: a flip at every hashed offset is refused, at every operand offset is not', () => {
