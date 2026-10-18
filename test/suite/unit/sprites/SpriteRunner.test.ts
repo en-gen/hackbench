@@ -663,7 +663,7 @@ describe('level loader on a synthetic cart', () => {
     })
     expect(run({ badLoader: 'callsite' })).toMatchObject({
       ok: false,
-      reason: expect.stringMatching(/GM11 call JSL CODE_05D796/),
+      reason: expect.stringMatching(/GM11 level load sequence/),
     })
     expect(run({ badLoader: 'pointers' })).toMatchObject({
       ok: false,

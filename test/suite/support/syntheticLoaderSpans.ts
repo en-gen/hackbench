@@ -11,8 +11,7 @@ import { buildBareSyntheticRom } from './syntheticSpriteRom'
 
 /** Hashed length of each stand-in, by address: the whole hand-written head the loader checks. */
 const STAND_IN_LENGTH: Record<number, number> = {
-  0x0096f8: 10,
-  0x009708: 14,
+  0x0096f4: 38, // GM11 from the header call through the data call: the whole synthetic sequence
   0x00a796: 8,
   0x00f6db: 9,
   0x05d796: 11,
@@ -22,7 +21,10 @@ const STAND_IN_LENGTH: Record<number, number> = {
 }
 
 /** Operand offsets zeroed in a stand-in's hash (as LOADER_SPANS masks relocatable operands): A796's LDA # count. */
-const STAND_IN_MASK: Record<number, readonly number[]> = { 0x00a796: [3, 4] }
+const STAND_IN_MASK: Record<number, readonly number[]> = {
+  0x0096f4: [3, 15, 16, 37], // the two JSL bank bytes and the music call's operand, as in LOADER_SPANS
+  0x00a796: [3, 4],
+}
 
 let cached: readonly LoaderSpan[] | undefined
 

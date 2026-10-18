@@ -13,8 +13,8 @@
  * object of Layer 1 expanded into the Map16 tables at $7E:C800/$7F:C800).
  * Hardware registers are the bus stubs; nothing is read from an emulator capture.
  *
- * The fixed entries and the GM11 spans between them are byte-checked, including the bytes that lead into
- * the mid-routine entry (an entry that exists is not an entry that is reached),
+ * The fixed entries and the GM11 spans between them are fingerprinted (LOADER_SPANS), and the jump that leads into
+ * the mid-routine entry is checked by its target (an entry that exists is not an entry that is reached),
  * and the run is guarded like the sprite runner's (no BRK/COP, no leaving ROM).
  * A ROM that differs, as the corpus hacks do, is refused with a reason rather
  * than run on a guess; the caller then has no loaded image.
@@ -33,7 +33,7 @@ import {
 import type { Cpu65816 } from '../../cpu/Cpu65816'
 import type { RomFile } from '../../RomFile'
 import { spanFingerprint } from '../../SubmapFlagGate'
-import { bytesAt, mapperProblem, shapeMatches } from './Guards'
+import { bytesAt, mapperProblem } from './Guards'
 import { smwMachine } from './Machine'
 import { withSeed, type SeedOverride, type SpriteSeed } from './SpriteSeed'
 
@@ -48,15 +48,19 @@ export const LOADER_TOTAL_CAP = 2_000_000
 export type LevelLoad =
   { ok: true; wram: Uint8Array; steps: number } | { ok: false; reason: string }
 
-/** The vanilla call sites the loader relies on, short enough to state; `null` matches any byte. */
-const SHAPES: { name: string; at: number; want: (number | null)[] }[] = [
-  // GM11LoadLevel's three calls, in the order the loader makes them (bank_00.asm:2644, 2651, 2657).
-  { name: 'GM11 call JSL CODE_05D796 at $00:96F4', at: 0x0096f4, want: [0x22, 0x96, 0xd7, null] },
-  { name: 'GM11 call JSR CODE_00A635 at $00:9705', at: 0x009705, want: [0x20, 0x35, 0xa6] },
-  { name: 'GM11 call JSL CODE_05801E at $00:9716', at: 0x009716, want: [0x22, 0x1e, 0x80, null] },
-  // The sublevel branch ends in JMP CODE_05D8B7 (bank_05.asm:7162).
-  { name: 'jump into the pointer loader at $05:D83B', at: 0x05d83b, want: [0x4c, 0xb7, 0xd8] },
-]
+/** Where the loader enters the pointer loader (CODE_05D8B7, mid-routine; see loadLevelState). */
+const POINTER_LOADER = 0x05d8b7
+
+/**
+ * The sublevel branch of CODE_05D796 ends in a JMP into the pointer loader (bank_05.asm:7162). Checked
+ * structurally: the opcode must be an absolute JMP and the target, read from its operand, the entry the
+ * loader enters, so no bytes of the ROM are held here. Null when it is.
+ */
+function jumpProblem(rom: RomFile): string | null {
+  const j = bytesAt(rom, 0x05d83b, 3)
+  const ok = !!j && j[0] === 0x4c && (0x050000 | (j[2]! << 8) | j[1]!) === POINTER_LOADER
+  return ok ? null : 'jump into the pointer loader at $05:D83B'
+}
 
 /**
  * A loader span recognised by SHA-256 (`spanFingerprint`, the way SubmapFlagGate and L3CodeGate do it),
@@ -77,25 +81,32 @@ export interface LoaderSpan {
 // Merging with #1050: whichever lands second converts its 9FB8 (8 B) and A5AF (23 B) shapes to spans here,
 // hand-writes their stand-ins (syntheticLoaderSpans.ts STAND_IN_LENGTH), ports its loader tails, and re-pins
 // VANILLA_ALL_LEVELS and PTR/ENT.
+//
+// Every span hides at least 24 UNKNOWN bytes (the fingerprint minimum): not masked, and not stated elsewhere in
+// the repo; the count per span is pinned in test/suite/unit/sprites/levelLoaderFingerprint.test.ts. A short
+// span is widened over the rest of the routine the loader runs, never hashed short. Each is measured on the
+// vanilla US ROM; only the Lunar Magic-saved vanilla build matches all of them (4 corpus hacks are refused).
 // prettier-ignore
 export const LOADER_SPANS: readonly LoaderSpan[] = [
-  // bank_00.asm:2645-2649: the layer-position copy loop; a hook inserted after it (Seven Vanilla Levels has
-  // a JSL at $00:9708) is code a sequence that skipped it would miss.
-  { name: 'GM11 layer position copy at $00:96F8', at: 0x0096f8, length: 10, mask: [], sha: 'cdd61fac211b404c6ef6854f60c3ed0a1eb071bd0a759896406b0fd0f4c15478' },
-  // bank_00.asm:2652-2656, after the unmodelled music upload: the screen setup.
-  { name: 'GM11 code between the entrance setup and the level data call at $00:9708', at: 0x009708, length: 14, mask: [], sha: 'b2ef31ed0dfcc10661bcf424e34a706089c715bfddbe66f4c052bc11938b5450' },
-  // CODE_00A796 (bank_00.asm:5089), with its three operand bytes zeroed.
-  { name: 'Layer 2 scroll setup at $00:A796', at: 0x00a796, length: 9, mask: [3, 4, 6], sha: 'b09b77d01726e12ac2f990c1f1455eef8d6ab0eaa1d28ce8132c6432e940b1f1' },
-  // UpdateScreenPosition up to its hook site at $F6E4 (bank_00.asm:13631); the CameraMoveTrigger operand ($142A) is hashed.
-  { name: 'UpdateScreenPosition at $00:F6DB (to the hook site at $F6E4)', at: 0x00f6db, length: 9, mask: [], sha: '92c7efb5c8facedfcded763753c47c31782afeb1dcc0560b54d7414142030e15' },
-  // CODE_05D796's prologue and the SUBLEVEL branch the loader models (bank_05.asm:7079-7093).
-  { name: 'CODE_05D796 prologue and sublevel branch at $05:D796', at: 0x05d796, length: 29, mask: [6, 7, 9, 10, 14, 15, 19, 20], sha: '179af606edd3e896c3ff2ccfd63861b9548b3f62e2de481ff051d65ef867dca4' },
-  // CODE_05D8B7, the pointer loader's opening (bank_05.asm:7227).
-  { name: 'pointer loader at $05:D8B7', at: 0x05d8b7, length: 9, mask: [], sha: '6dccdd0c17609d04d1b9792f97a91199c2c69803d896b91501ea7189458a4b68' },
-  // CODE_00A635, Mario's entrance setup (bank_00.asm:4913).
-  { name: 'Mario entrance setup at $00:A635', at: 0x00a635, length: 12, mask: [], sha: '8f312beb45fb80e0889d9fa4914316905853c26341ea3fba1a6d44b34d13924e' },
-  // CODE_05801E, the level data loader's opening (bank_05.asm:20).
-  { name: 'level data loader at $05:801E', at: 0x05801e, length: 12, mask: [], sha: '4bc3f7d7f403b10d0ae7fa24c85a8b34e0ff53e001573a5d0926bc499a7c0510' },
+  // GM11LoadLevel from the header call to the data call (bank_00.asm:2644-2657) as ONE span: the two calls, the
+  // layer-position copy, the unmodelled music upload call, the entrance call, the screen setup. Masked: the bank
+  // bytes of the two JSLs and the music call's operand (a hack may relocate it); a hook inserted anywhere else in
+  // the sequence changes the hash.
+  { name: 'GM11 level load sequence at $00:96F4 (calls, position copy, screen setup)', at: 0x0096f4, length: 38, mask: [3, 15, 16, 37], sha: '2a32066393213a63dd729e8710e09d77d2d8ebd3765bfc7483fab670b0f30d29' },
+  // CODE_00A796, the whole routine to its RTS (bank_00.asm:5089-5117); the setting operand and one branch displacement are masked.
+  { name: 'Layer 2 scroll setup at $00:A796', at: 0x00a796, length: 44, mask: [3, 4, 6], sha: 'cbeceb26aef39983d5f33ab8274094bd2e77f58dd5dda1bd5d03d81cf4296bee' },
+  // UpdateScreenPosition from its entry through the four position copies (bank_00.asm:13631-13650). Common hacks
+  // hook the left buffer store at $F6E4, so that one instruction pair (6 bytes) is masked and the code after it hashed.
+  { name: 'UpdateScreenPosition at $00:F6DB (hook site $F6E4 masked)', at: 0x00f6db, length: 42, mask: [9, 10, 11, 12, 13, 14], sha: '24c859bab4961b7a7eb08fbb1543a2f88c9793fcd049c85e91ab6443cf53da98' },
+  // CODE_05D796's prologue, the SUBLEVEL branch the loader models, and the screen-exit test after it (bank_05.asm:7079-7099).
+  { name: 'CODE_05D796 prologue and sublevel branch at $05:D796', at: 0x05d796, length: 39, mask: [6, 7, 9, 10, 14, 15, 19, 20], sha: 'afc3a8bb6645673149f638e630f6ecf60a91c1c8b36cb8f0d58b58574dfbe4c9' },
+  // CODE_05D8B7 through the Layer 1/2 pointer reads (bank_05.asm:7227-7246); the six table operands are masked
+  // (a hack may move a table, and the loader runs whatever the operands name).
+  { name: 'pointer loader at $05:D8B7', at: 0x05d8b7, length: 41, mask: [12, 13, 17, 18, 22, 23, 27, 28, 32, 33, 37, 38], sha: '1c5572430fc2f552fb393bb3ea7f5e720943d4b12c70f33094a7aeeee6d74b91' },
+  // CODE_00A635, Mario's entrance setup, up to its CODE_00A660 label (bank_00.asm:4913-4930).
+  { name: 'Mario entrance setup at $00:A635', at: 0x00a635, length: 43, mask: [], sha: '78bcaf8ea95eeeb3cc8c27594985fa2efc41c65ddbd4ffc9586f81f50c8fbc96' },
+  // CODE_05801E, the level data loader, through the layer 2 pointer bank test (bank_05.asm:20-34).
+  { name: 'level data loader at $05:801E', at: 0x05801e, length: 33, mask: [], sha: 'ed2298bf7c6f4b70cdd4b0ac43041e1086e53aa5ce42cf3b5a6bf53e302ec759' },
 ]
 
 const synthetic: LoaderSpan[] = []
@@ -120,8 +131,8 @@ export function loaderShapeProblem(rom: RomFile, spans?: readonly LoaderSpan[]):
   const mapper = mapperProblem(rom)
   if (mapper) return mapper
   const refuse = (name: string) => `${name} is not the vanilla shape; the loader will not run it`
-  for (const s of SHAPES)
-    if (!shapeMatches(bytesAt(rom, s.at, s.want.length), s.want)) return refuse(s.name)
+  const jump = jumpProblem(rom)
+  if (jump) return refuse(jump)
   for (const s of spans ?? LOADER_SPANS) {
     const known = spans ? [s] : [s, ...synthetic.filter(t => t.name === s.name)]
     const hit = known.some(k => {
@@ -193,13 +204,11 @@ export function loadLevelState(
   try {
     // CODE_05D8B7 is entered mid-routine, after CODE_05D796's PHB; its PLB needs that byte.
     // GM11LoadLevel's order (bank_00.asm:2644-2657): the header loader, the layer position copy
-    // (2645-2649, $1A-$21 to $1462-$1469), [UploadLevelMusic, not modelled], CODE_00A635 (clears
-    // the per-level timers, sets Mario's entrance state $71/$76 from the entrance type just
-    // read), then 2652-2656 ($5E = $20, CODE_00A796, $1404++, UpdateScreenPosition: $1E/$20
-    // layer 2 positions, camera buffers), then CODE_05801E. That one ends with PLP, RTL; it
-    // saves its own DB use via the JSL caller.
+    // (2645-2649), [UploadLevelMusic, not modelled], CODE_00A635 (the per-level timers and Mario's
+    // entrance state), the screen setup (2652-2656, ending in UpdateScreenPosition), then CODE_05801E.
+    // That one ends with PLP, RTL; it saves its own DB use via the JSL caller.
     const bad =
-      run('level pointer loader', 0x05d8b7, 'jsl', 0x05, [0x05]) ??
+      run('level pointer loader', POINTER_LOADER, 'jsl', 0x05, [0x05]) ??
       span('layer position copy', 0x0096f8, 0x009702) ??
       run('Mario entrance setup', 0x00a635, 'jsr', 0x00) ??
       span('screen position setup', 0x009708, 0x009716) ??
