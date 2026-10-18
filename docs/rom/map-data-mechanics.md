@@ -561,6 +561,31 @@ and $1FC, all horizontal and all starting Mario at X 16, so the load camera X is
   movement plus a drift (bank_05.asm:5504-5571). Different code, different rule.
 
 The map view has no camera, so a smash-driven Layer 3 is drawn once: a single copy of the 512 px
-tilemap at world x = column * 8 + 128 (world 128..639), at the cycle's start Y ($A0), and never repeated every
-512 px. The panel (columns 7-24 on $01F) spans screens 0 and 1. The X is a pick, not a fact: in the
-game it is -128..-65 per cycle (random), and the view uses the low end, `SMASH_CYCLE_X` (-128).
+tilemap at world x = column * 8 - Layer3XPos, at the Layer3YPos the code writes, and never repeated
+every 512 px. The position is the smasher's FIRST landing, worked out by running the ROM's own code
+(`src/rom/sprites/interp/SmashLanding.ts`), with no stored position: the sprite's X comes from GetRand,
+and GetRand's state at that point is a function of how many calls ran since power-on.
+
+Call chain, in the order `FIRST_LANDING_SCHEDULE` runs it (a hack-fragility point: one model of the
+game's order):
+
+1. Title map load. GM03 loads the map named by the immediate of the LDA at bank_00.asm:2626 (decoded
+   as CODE_05D8A2 does, bank_05.asm:7216-7222) and falls into GM11LoadLevel (bank_00.asm:2631); the
+   loader calls GetRand once (InitStandardSprite, bank_01.asm:844-845, for the title map's sprite).
+2. Target map load, GM11LoadLevel (bank_00.asm:2644-2657), with the RNG the title load left; its
+   level-data loader calls GetRand four times (the castle flames' cluster code, CODE_02FA16,
+   bank_02.asm:16230-16233).
+3. Start-up sprite sweep CODE_02ACA1 (bank_02.asm:5876-5910) fills the sprite slots.
+4. Sprite pass 1: the sprite loop (CODE_01808C) runs the smasher's state 0, which takes GetRand's
+   low six bits plus $80 as its X (bank_02.asm:11158-11163).
+5. Sprite pass 2: the smasher's main calls CODE_00FF61 first, which writes $22/$24.
+
+RNGCalc is zero at power-on (ClearMemory, bank_00.asm:38-42) and only CODE_01AD07 writes it
+(bank_01.asm:6101-6119), so five calls arrive at state 0. On $01F, $1D4 and $1FC that gives sprite X
+$FF98, so Layer3XPos -104 and Layer3YPos $A0 (corpus tests). Scope: the schedule was checked against
+Mesen GetRand hooks on $01F and $1D4 only (force-loaded from the title screen, vanilla USA ROM, one
+machine); an overworld entry is expected to match because the title frames and the idle overworld do not
+advance the RNG, but that was not run. Later smash cycles re-roll X (-128..-65) from the RNG as it
+then stands, so they follow a longer, input-dependent history and are not modelled. When any step
+cannot run (a loader shape that is not stock, the sweep or a pass does not return, several smashers),
+the whole result refuses with that step named, and the map view draws no Layer 3 on that map.

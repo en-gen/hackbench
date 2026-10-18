@@ -1133,9 +1133,9 @@ for (const [index, role, bit, known] of [
 
 /**
  * #997: $01F's layer 3 is driven by the smash sprite, which keeps it on the camera in the game. The
- * map view draws ONE copy, at world x = column*8 + 128 (the smash cycle's start X, -128): the panel
- * spans screen 0 (from x 184) into screen 1 (to about x 330 in world terms), and the 512 px repeat
- * (the panel again from world 696, screen 2 from x 184) is not drawn. Coordinates were derived, not
+ * map view draws ONE copy, at world x = column*8 + 104 (the first landing, Layer3XPos -104, run from the ROM): the panel
+ * spans screen 0 (from x 160) into screen 1 (to about x 303 in world terms), and the 512 px repeat
+ * (the panel again from world 672, screen 2 from x 160) is not drawn. Coordinates were derived, not
  * yet measured: the verifier's first run confirms them.
  */
 test('$01F: layer 3 is drawn once, across screens 0 and 1, not repeated 512 px on, and the toggle says it follows the camera', async ({

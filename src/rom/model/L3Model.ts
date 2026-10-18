@@ -17,7 +17,7 @@ import type { BgModeResult } from '../BgMode'
 import { layoutRefusal, readModeLayouts } from '../LevelScreenTables'
 import { HOOKED_L3_CODE, readL3CodeGate, type L3CodeGate } from '../L3CodeGate'
 import { l3LoadTimeY, loadL3Tilemap, readInitialLayer1YPos } from '../L3Loader'
-import { readL3SmashLoadPos, SMASH_CYCLE_X, SMASH_CYCLE_Y, type L3SmashResult } from '../L3Smash'
+import { readL3SmashLoadPos, type L3SmashResult } from '../L3Smash'
 import { readLayer3Setting } from '../ObjectExpander'
 import type { MapEntrances } from '../SmwRom'
 import type { L1Inputs } from './L1Model'
@@ -43,7 +43,7 @@ export interface L3Inputs {
   chars: GfxSheet[]
   /** CGRAM; BG3's 2bpp palette P is colors P*4..P*4+3. */
   colors: RgbaColor[]
-  /** Layer3XPos drawn at camera X 0: 0 unless a smash sprite drives it (the smash cycle start, #997). Absent: 0. */
+  /** Layer3XPos drawn at camera X 0: 0 unless a smash sprite drives it (the smasher's first landing, #997). Absent: 0. */
   xPx?: number
   /** Layer3YPos at load, and Layer1YPos at load: a tile row R sits at level Y R*8 - yPx + camYPx. */
   yPx: number
@@ -57,7 +57,7 @@ export interface L3Inputs {
   camYReasons?: string[]
   /**
    * A loaded Layer 3 Smash sprite drives this layer (#997): it rewrites Layer3XPos/YPos every frame
-   * (bank_00.asm:14778-14803), X scrolling with the camera and re-set each smash cycle
+   * (bank_00.asm:14778-14803), X scrolling with the camera and re-rolled each smash cycle
    * (bank_02.asm:11147-11166). A whole-map view has no camera, so it draws the layer as one
    * copy and never repeats it every 512 px.
    */
@@ -147,7 +147,7 @@ export function buildL3Verdict(
     const found = smash(rom, index)
     if (!found.ok) return none(found.reason)
     if (found.pos) {
-      pos = { x: SMASH_CYCLE_X, y: SMASH_CYCLE_Y }
+      pos = found.pos
       followsCamera = true
     }
   }

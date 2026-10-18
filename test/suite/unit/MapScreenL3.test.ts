@@ -562,14 +562,10 @@ describe('a $80 level under a smash sprite (synthetic, #807)', () => {
   const rom = () => withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: 1, setting: 2, settingsByte: 0x80, word: L3_WORD(false) }) // prettier-ignore
   const verdictWith = (smash: Parameters<typeof buildL3Verdict>[6]) => buildL3Verdict(rom(), 5, l1Of(0, 1, false), BG_OK, chars, GATE_OK, smash) // prettier-ignore
 
-  it('takes the smasher position, and keeps $D0 with X 0 when no smasher is loaded', () => {
-    // X is the smash cycle's start, not the level X (#997)
-    expect(verdictWith(() => ({ ok: true, pos: { x: 256 } })).l3).toMatchObject({ xPx: -128, yPx: 160 }) // prettier-ignore
+  it('takes the landing the code gives, X and Y, and keeps $D0 with X 0 when no smasher is loaded', () => {
+    expect(verdictWith(() => ({ ok: true, pos: { x: -104, y: 160 } })).l3).toMatchObject({ xPx: -104, yPx: 160 }) // prettier-ignore
+    expect(verdictWith(() => ({ ok: true, pos: { x: -99, y: 96 } })).l3).toMatchObject({ xPx: -99, yPx: 96 }) // prettier-ignore
     expect(verdictWith(noSmash).l3).toMatchObject({ xPx: 0, yPx: 0xd0 })
-  })
-
-  it('draws the cycle start Y ($A0) whatever the map sprite Y: state 0 zeroes the sprite Y (#997)', () => {
-    expect(verdictWith(() => ({ ok: true, pos: { x: 112 } })).l3).toMatchObject({ xPx: -128, yPx: 160 }) // prettier-ignore
   })
 
   it('refuses with the reason when the smash read refuses', () => {
@@ -617,8 +613,8 @@ describe('layer 3 under a smash sprite follows the camera: one copy (synthetic, 
   const verdictFor = (byte: number, tileset: number, smash: Parameters<typeof buildL3Verdict>[6]) => buildL3Verdict(rom(byte, tileset), 5, l1Of(0, tileset, false), BG_OK, chars, GATE_OK, smash) // prettier-ignore
 
   it('the verdict flags only a $80 map with a loaded smasher, and the wire carries it', () => {
-    const loaded = verdictFor(0x80, 1, () => ({ ok: true, pos: { x: 256 } }))
-    expect(loaded.l3).toMatchObject({ followsCamera: true, xPx: -128, yPx: 160 })
+    const loaded = verdictFor(0x80, 1, () => ({ ok: true, pos: { x: -104, y: 160 } }))
+    expect(loaded.l3).toMatchObject({ followsCamera: true, xPx: -104, yPx: 160 })
     expect(wireOf({ ...l1Of(0, 1, false), l3: loaded }).layer3.followsCamera).toBe(true)
     // $80 with no loaded smasher stays at the fixed load position, and a tide is not smash-driven: both draw, unflagged.
     for (const [byte, tileset, pos] of [
@@ -631,9 +627,9 @@ describe('layer 3 under a smash sprite follows the camera: one copy (synthetic, 
     }
     // Camera-locked bytes are refused whatever a smasher says.
     for (const byte of [0x00, 0x82]) {
-      expect(verdictFor(byte, 0, () => ({ ok: true, pos: { x: 1 } })).l3, `byte ${byte}`).toBeNull() // prettier-ignore
+      expect(verdictFor(byte, 0, () => ({ ok: true, pos: { x: 1, y: 1 } })).l3, `byte ${byte}`).toBeNull() // prettier-ignore
     }
-    const plain = verdictFor(0x02, 0, () => ({ ok: true, pos: { x: 1 } }))
+    const plain = verdictFor(0x02, 0, () => ({ ok: true, pos: { x: 1, y: 1 } }))
     expect(plain.l3?.followsCamera).toBeUndefined()
     expect(wireOf({ ...l1Of(0, 0, false), l3: plain }).layer3.followsCamera).toBeUndefined()
   })
@@ -653,6 +649,8 @@ describe.skipIf(!hasRom(VANILLA))('which vanilla maps take the smash path (corpu
       const v = buildL3Verdict(rom, id, { header, isVertical, colors: [] }, BG_OK)
       if (!v.l3?.followsCamera) continue
       hits.push(id)
+      // The code's first landing (sprite X $FF98), not the old smash-cycle start of -128.
+      expect([id, v.l3.xPx, v.l3.yPx]).toEqual([id, -104, 160])
       const screens = Math.max(header.levelLength, 1)
       const l3 = { ...v.l3, colors: COLORS } // the sweep passes no palette; any opaque one shows the tiles
       const drawn = Array.from({ length: screens }, (_, s) => drawL3Planes(l3, s)).map((p, s) => (p.l3Low || p.l3High ? s : -1)).filter(s => s >= 0) // prettier-ignore

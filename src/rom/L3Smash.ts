@@ -1,142 +1,27 @@
 /**
- * Where a Layer 3 Smash sprite ($89) puts layer 3 at level load (#807). Settings byte $80
- * (CODE_00A007, bank_00.asm:4184-4190) leaves Layer3YPos at $D0 (STA at :4194) and never writes
- * Layer3XPos; the smasher's main routine then writes both every frame from its own position, before
- * anything else (Layer3SmashMain, bank_02.asm:11123-11124 -> CODE_00FF61, bank_00.asm:14778-14803):
- *   X = sprite X when it is in $FF00-$00FF (signed, CMP #$FF00 BMI / CMP #$0100 BMI), else $100;
- *   Y = $A0 - sprite Y (+ ScreenShakeYOffset, 0 at load).
- * The sprite is loaded at level start only inside the window CODE_02ACA1 sweeps (bank_02.asm:5876-5910):
- * camera X - $60 up to +$190 in 16 px steps, hi byte negative skipped. Camera X is taken as 0
- * (CODE_05D83E zeroes Layer1XPos, bank_05.asm:7170); that it stays 0 for a start left of $80 is NOT
- * traced: all three vanilla maps start at $10, so the $80 boundary is unverified and a start at or
- * past it is refused. The sweep, the spawn and the init entry are fingerprinted, so the window
- * constants below are the ROM's own or layer 3 is refused. Captured frame 0 on maps $01F and $1D4
- * (layers_v5): (256,160) and (112,160).
+ * Where a Layer 3 Smash sprite ($89) first puts layer 3 on a map (#807, #997): worked out by running
+ * the ROM's own level loader, start-up sweep and sprite loop (sprites/interp/SmashLanding.ts), so the
+ * position is whatever the code gives from the power-on RNG, not a stored number. Settings byte $80
+ * (CODE_00A007, bank_00.asm:4184-4195) leaves Layer3YPos at $D0 until the smasher's main writes both
+ * cells every frame (Layer3SmashMain, bank_02.asm:11123-11124 -> CODE_00FF61, bank_00.asm:14778-14803).
+ * A map with no smasher in the loaded sprites keeps $D0 and X 0 (`pos` null). A step that cannot run
+ * refuses with its reason, and the map view then draws no layer 3 there, with that reason.
  */
-import { readL3CodeGate, type CodeSite } from './L3CodeGate'
-import { readMarioStartPos } from './MarioStartPos'
-import { SmwRom } from './SmwRom'
-import { parseLevelSprites, type LevelSprite } from './LevelParser'
+import { firstLanding, type LandingResult } from './sprites/interp/SmashLanding'
 import type { RomFile } from './RomFile'
-
-export const SMASH_SPRITE_ID = 0x89
-/** Layer3SmashMain (bank_02.asm:11123), the first byte of the last fingerprinted site. */
-const SMASH_MAIN = 0x02d3ea
-/** Sprite MAIN pointer table (bank $01); the entry is a stub that JSLs the main routine. */
-const MAIN_PTR_TABLE = 0x0185cc
-/** Init pointer table (bank $01); sprite $89's entry must reach a bare RTS (bank_01.asm:368, 652-653). */
-const INIT_PTR_TABLE = 0x01817d
-const SMASH_WINDOW_END = 0x190
-const CAMERA_LEFT_OF_CENTRE = 0x80
-/**
- * Where the map view draws a smash-driven layer 3 (#997): the smash cycle's start. Frame 0 uses
- * the sprite's map X and Y (above), but that frame is a blank screen on $01F and $1FC (X $100
- * shows BG3 columns 32-63, empty). The sprite's state 0 then sets its X to $FF80 + a random 0-63
- * and its Y to 0 on every smash cycle (bank_02.asm:11159-11165), and the layer scrolls with the
- * camera from there. X: the start of that range, the one deterministic member. Y: $A0 minus 0
- * (CODE_00FF61, bank_00.asm:14796). Both come from stock code, so L3_SMASH_SITES
- * fingerprints state 0, the camera-delta add and CODE_00FF61: a hack that changes them is refused.
- */
-export const SMASH_CYCLE_X = -0x80
-export const SMASH_CYCLE_Y = 0xa0
-export const SMASH_REFUSED = 'Layer 3 not drawn yet: hooked layer 3 smash sprite'
-export const SPRITES_UNREADABLE = 'Layer 3 not drawn yet: sprite data unreadable'
-
-/**
- * SHA-256 of the stock bytes (over the 32-byte pattern threshold): CODE_00FF61..RTL, the sprite
- * loader and its spawn (DATA_02A7F6 .. LoadSprFromLevel .. JMP LoadSpriteLoopStrt, bank_02.asm:5217-5506),
- * the start-up sweep CODE_02ACA1 (5876-5910), and Layer3SmashMain through state 0 (bank_02.asm:11123-11166:
- * the camera-delta add and the cycle's X and Y).
- */
-export const L3_SMASH_SITES: readonly CodeSite[] = [
-  { addr: 0x00ff61, length: 50, sha256: '61156c5a1d73e95c1c9f966daa9464d898518da783fd9f3b48c5e208b57ffe06' },
-  { addr: 0x02a7f6, length: 0x1e8, sha256: 'f83b7dcc5d6510bfeebfff51912c69b83243f5338d4425dfb05be7f4f8600eb3' },
-  { addr: 0x02aca1, length: 64, sha256: '316c5d582d0f08a944753fd1b45244d6f93f94d41edb7bf997e05c31980d82f1' },
-  { addr: 0x02d3ea, length: 91, sha256: '196993f72065fc026a61fe5eee3e3c231fdea330aeb1ce6ddd8743374c1fda43' },
-] // prettier-ignore
 
 export interface L3Position {
   x: number
+  y: number
 }
 export type L3SmashResult = { ok: true; pos: L3Position | null } | { ok: false; reason: string }
 
-const startsWith = (b: Uint8Array | null, want: readonly number[]) =>
-  !!b && want.every((v, i) => b[i] === v)
-
-/** The sprite $89 pointers reach the stock stub and a bare init, the main opens with JSL CODE_00FF61, and every site is stock. */
-export function readSmashCodeGate(
-  rom: RomFile,
-  sites: readonly CodeSite[] = L3_SMASH_SITES,
-): boolean {
-  const ptr = (table: number) => {
-    const lo = rom.readByte(table + SMASH_SPRITE_ID * 2)
-    const hi = rom.readByte(table + SMASH_SPRITE_ID * 2 + 1)
-    return lo === null || hi === null ? null : 0x010000 | (hi << 8) | lo
-  }
-  const init = ptr(INIT_PTR_TABLE)
-  if (init === null || rom.readByte(init) !== 0x60) return false
-  const at = ptr(MAIN_PTR_TABLE)
-  if (at === null) return false
-  // PHB / LDA #$02 / PHA / PLB / JSL Layer3SmashMain (bank_01.asm:1265-1270)
-  const stub = rom.readAt(at, 9)
-  if (!startsWith(stub, [0x8b, 0xa9, 0x02, 0x48, 0xab, 0x22]) || stub![8] !== 0x02) return false
-  // The main must be the fingerprinted routine itself, not a copy of its opening JSL elsewhere.
-  const mainAt = (0x02 << 16) | (stub![7]! << 8) | stub![6]!
-  if (mainAt !== SMASH_MAIN) return false
-  const main = rom.readAt(mainAt, 4)
-  const first = sites[0]!.addr
-  if (!startsWith(main, [0x22, first & 0xff, (first >> 8) & 0xff, first >> 16])) return false
-  return readL3CodeGate(rom, sites).ok
-}
-
-/** Pure part: the smashers among a level's sprites, Mario's start X, and frame 0's Layer3XPos (null: none loaded). */
-export function l3SmashPos(sprites: readonly LevelSprite[], startX: number): L3SmashResult {
-  const smashers = sprites.filter(s => s.spriteId === SMASH_SPRITE_ID)
-  if (smashers.length === 0) return { ok: true, pos: null }
-  if (startX >= CAMERA_LEFT_OF_CENTRE) {
-    return { ok: false, reason: 'Layer 3 not drawn yet: camera X at load not derived' }
-  }
-  const loaded = smashers.filter(s => s.x * 16 <= SMASH_WINDOW_END)
-  if (loaded.length > 1)
-    return { ok: false, reason: 'Layer 3 not drawn yet: several smash sprites' }
-  if (loaded.length === 0) return { ok: true, pos: null }
-  // The parser's x and y are in 16 px units (LevelParser.ts:491-512).
-  const x = loaded[0]!.x * 16
-  // Y is not read: the view draws the cycle start's SMASH_CYCLE_Y, whatever the map's sprite Y.
-  return { ok: true, pos: { x: x >= 0x100 ? 0x100 : x } }
-}
-
-/** A level's sprite stream, or null when its pointer is unreadable or no $FF terminator lies inside the read (128 sprites fit, SpriteLoadStatus). */
-export function readLevelSprites(rom: RomFile, levelId: number): LevelSprite[] | null {
-  let ptr: number | null
-  try {
-    ptr = new SmwRom(rom).getLevelSpritePointer(levelId)
-  } catch {
-    return null // SmwRom refuses a cart whose map mode it cannot read
-  }
-  const data = ptr === null ? null : rom.readAt(ptr, 0x200)
-  if (!data) return null
-  let end = 1
-  while (end < data.length && data[end] !== 0xff) end += 3
-  return end < data.length ? parseLevelSprites(data) : null
-}
-
-export interface SmashReads {
-  sprites?: (rom: RomFile, levelId: number) => LevelSprite[] | null
-  sites?: readonly CodeSite[]
-}
-
-/** Layer 3's load position from the level's smash sprite, or null when it has none loaded (`$D0`, X 0 stand). */
+/** Layer 3's first-landing position on `levelId`, or null when it has no loaded smasher. */
 export function readL3SmashLoadPos(
   rom: RomFile,
   levelId: number,
-  reads: SmashReads = {},
+  landing: (rom: RomFile, map: number) => LandingResult = firstLanding,
 ): L3SmashResult {
-  const sprites = (reads.sprites ?? readLevelSprites)(rom, levelId)
-  if (!sprites) return { ok: false, reason: SPRITES_UNREADABLE }
-  const start = readMarioStartPos(rom, levelId)
-  if (!start) return { ok: false, reason: 'Layer 3 not drawn yet: Mario start unreadable' }
-  const found = l3SmashPos(sprites, start.x)
-  if (!found.ok || found.pos === null) return found
-  return readSmashCodeGate(rom, reads.sites) ? found : { ok: false, reason: SMASH_REFUSED }
+  const r = landing(rom, levelId)
+  return r.ok ? { ok: true, pos: r.landing } : r
 }
