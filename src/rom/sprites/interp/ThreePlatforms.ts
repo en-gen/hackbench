@@ -7,7 +7,7 @@
  *   its list index in $02 and the offset of its first byte in $03.
  * - Spawner: Load3Platforms (bank_02.asm:6211-6251) reads that byte through SpriteDataPtr (high nibble Y low, bit 0
  *   Y high), then spawns three: status $01 (INIT), number $A3, InitSpriteTables, X and Y shared, and per platform
- *   an angle from DATA_02AF2D ($00,$AA,$54 into $1602) and DATA_02AF30 ($00,$00,$01 into $151C). Only the first
+ *   an angle from DATA_02AF2D (into $1602) and a second value from DATA_02AF30 (into $151C), both read from the ROM. Only the first
  *   spawn gets the list index (6244-6247). Unlike $DE the platforms are status 1, so their INIT runs.
  * - The platforms stay where the spawner put them; INIT and MAIN place the chain and each platform's pieces.
  *
@@ -32,15 +32,25 @@ const LOADER_ROUTE = { what: 'the loader route to the platform spawner', at: 0x0
 /** Opcodes and operands the loader route is checked on, each compared on its own (never as a stored run of bytes). */
 const OP_CMP_IMM = 0xc9
 const OP_BNE = 0xd0
+const OP_PHY = 0x5a
+const OP_PHX = 0xda
 const OP_DEY = 0x88
 const OP_STY_DP = 0x84
 const OP_JSR = 0x20
+const OP_PLY = 0x7a
+const OP_PLX = 0xfa
+const OP_BRA = 0x80
 /** The sprite number the route compares against: this sprite's own id. */
 const SPRITE_ID = 0xe0
 /** Direct page $03: where the spawner reads the entry's data offset (bank_02.asm:6212). */
 const DP_DATA_OFFSET = 0x03
-/** Offsets in the route from its start (bank_02.asm:5325-5331): CMP #$E0, BNE, PHY, PHX, DEY, STY $03, JSR. */
-const AT = { cmp: 0, id: 1, bne: 2, dey: 6, sty: 7, dp: 8, jsr: 9 }
+/**
+ * Offsets in the route from its start (bank_02.asm:5325-5335): CMP #$E0, BNE, PHY, PHX, DEY, STY $03, JSR, PLX, PLY,
+ * BRA back to the loop head (CODE_02A89A, 2 bytes before the route), then CODE_02A8AC, the next case, which starts with a compare.
+ */
+const AT = { cmp: 0, id: 1, bne: 2, bneTo: 3, push1: 4, push2: 5, dey: 6, sty: 7, dp: 8, jsr: 9, pop1: 12, pop2: 13, bra: 14, braTo: 15, next: 16 } // prettier-ignore
+/** Where the BRA must land, relative to the route's start. */
+const LOOP_HEAD = -2
 /** The loader's `JSR Load3Platforms` (bank_02.asm:5331): its opcode, and the operand that names the spawner. */
 const LOADER_CALL = LOADER_ROUTE.at + AT.jsr
 
@@ -78,20 +88,35 @@ export type PlatformsResult =
   | { ok: false; reason: string; none?: true; unverified: string[] }
 
 /**
- * True when the loader still has the shape the spawner call rests on: CMP #$E0, BNE, DEY, STY $03 and a JSR, each
- * checked alone. Not checked, because nothing the spawner reads depends on them: the BNE's offset (where a non-$E0 id
- * goes) and the PHY / PHX pair (saves the loop restores after the call). Hashing 12 bytes is not done: under 24 unknown.
+ * True when every instruction of the loader's route from the compare to the loop's next case is the one the spawner
+ * call rests on, each checked alone: CMP #$E0, BNE (its offset read from the ROM must land on the next case), the two
+ * pushes (either order) with the pops in the reverse order, DEY, STY $03, JSR, the BRA (its offset must land on the loop
+ * head) and the next case's compare. A BRA planted anywhere in it would skip the JSR, so none of it is left unchecked.
+ * Not hashed: 12 to 17 bytes hold under 24 unknown.
  */
 export function loaderRouteIntact(rom: RomFile): boolean {
   const at = (k: keyof typeof AT) => bytesAt(rom, LOADER_ROUTE.at + AT[k], 1)?.[0]
+  const rel = (k: 'bneTo' | 'braTo', from: number) => {
+    const v = at(k)
+    return v === undefined ? NaN : AT[k] + 1 + (v < 0x80 ? v : v - 0x100) - from
+  }
+  const [push1, push2, pop1, pop2] = [at('push1'), at('push2'), at('pop1'), at('pop2')]
+  const pushes = (push1 === OP_PHY && push2 === OP_PHX) || (push1 === OP_PHX && push2 === OP_PHY)
+  const pops = (pop1 === OP_PLX && pop2 === OP_PLY && push1 === OP_PHY) || (pop1 === OP_PLY && pop2 === OP_PLX && push1 === OP_PHX) // prettier-ignore
   return (
     at('cmp') === OP_CMP_IMM &&
     at('id') === SPRITE_ID &&
     at('bne') === OP_BNE &&
+    rel('bneTo', 0) === AT.next &&
+    pushes &&
+    pops &&
     at('dey') === OP_DEY &&
     at('sty') === OP_STY_DP &&
     at('dp') === DP_DATA_OFFSET &&
-    at('jsr') === OP_JSR
+    at('jsr') === OP_JSR &&
+    at('bra') === OP_BRA &&
+    rel('braTo', 0) === LOOP_HEAD &&
+    at('next') === OP_CMP_IMM
   )
 }
 

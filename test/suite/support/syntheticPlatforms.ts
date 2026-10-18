@@ -27,6 +27,10 @@ function writeRoute(rom: RomFile): void {
   at(6, 0x88) // Y - 1
   at(7, 0x84, 0x03) // store it in $03
   at(9, 0x20, SPAWNER_AT & 0xff, (SPAWNER_AT >> 8) & 0xff) // call the spawner
+  at(12, 0x7a) // pop Y (the pops run in the reverse of the pushes)
+  at(13, 0xfa) // pop X
+  at(14, 0x80, 0xee) // back to the head of the loader, 18 bytes up
+  at(16, 0xc9, 0x11) // the next case of the loader starts with a compare
 }
 
 /**

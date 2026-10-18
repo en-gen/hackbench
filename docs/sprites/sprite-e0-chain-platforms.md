@@ -30,9 +30,7 @@ How the map view draws it, and what each step rests on. Evidence scope throughou
   draws the angle the spawner stored. Nothing is moved or zeroed by the editor. Without it the angle steps by 2 in a direction
   set by bit 4 of the X, so placements 16 px apart differed by about 1 px per platform.
 - Gate (D52, never blank): ONE SHA-256 of the 84-byte spawner (`$02:AF33`, vanilla `1d4bd457...513d`, nothing masked, well
-  over the 24 unknown byte minimum). The loader route at `$02:A89C` is only 12 bytes, so it is checked by structure, not
-  hashed: the compare opcode and its immediate (the sprite's own id), the `STY $03` that hands over the data offset, and the
-  `JSR` opcode at `$02:A8A5` (its operand is read as the spawner's address). A difference is named in `unverified` and the
+  over the 24 unknown byte minimum). The loader route at `$02:A89C` is too short to hash, so it is checked by structure, every instruction from the compare to the next case: the compare and its immediate (the sprite's own id), the `BNE` (its offset must land on the next case), the pushes with the pops in reverse order, `DEY`, the `STY $03` that hands over the data offset, the `JSR` (its operand is read as the spawner's address), the `BRA` (its offset must land on the loop head) and the next case's compare. A route that is not that shape refuses before any spawner runs. A difference is named in `unverified` and the
   spawner the loader calls still runs. What
   refuses: no map image, a spawner that does not return, no platform drew, no room for any (told in plain words). Platforms
   that spawned and did not draw are in the sprite's note. The two angle tables are data and are not hashed.

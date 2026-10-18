@@ -181,15 +181,23 @@ describe('the gate', () => {
   })
 
   // The route is checked by structure (12 bytes are under the 24-unknown-byte fingerprint minimum): each value it
-  // rests on is planted in turn. Not checked, by design: the BNE offset (+3) and the PHY / PHX pair (+4, +5).
+  // rests on is planted in turn: every instruction from the compare to the loop's next case.
   it.each([
     ['the compare opcode', 0],
     ['the compare immediate ($E0)', 1],
     ['the BNE opcode', 2],
+    ['the BNE offset (it must land on the next case)', 3],
+    ['the first push', 4],
+    ['the second push', 5],
     ['the DEY opcode', 6],
     ['the store of the data offset (STY)', 7],
     ['its direct page operand ($03)', 8],
     ['the JSR', 9],
+    ['the first pop', 12],
+    ['the second pop', 13],
+    ['the BRA opcode', 14],
+    ['the BRA offset (it must land on the loader head)', 15],
+    ['the next case it branches to', 16],
   ])('names the loader route and refuses to run a spawner when %s changes', (_what, at) => {
     const route = platformCart()
     flip(route, 0x02a89c + at)
@@ -199,6 +207,23 @@ describe('the gate', () => {
     expect(r.ok).toBe(false)
     expect(!r.ok && r.reason).toMatch(/loader route to the platform spawner/)
     expect(r.unverified).toEqual(['the loader route to the platform spawner'])
+  })
+
+  it('refuses a planted BRA at +4 that skips the JSR, before any spawner runs', () => {
+    const rom = platformCart()
+    rom.writeAt(0x02a89c + 4, [0x80, 0x07]) // BRA over DEY / STY / JSR
+    let ran = false
+    const run: typeof runOnce = (...a) => ((ran = true), runOnce(...a))
+    const r = threePlatforms(rom, seed, entry, SYN, 1, run)
+    expect(r.ok).toBe(false)
+    expect(!r.ok && r.reason).toMatch(/loader route to the platform spawner/)
+    expect(ran).toBe(false)
+  })
+
+  it('refuses pops that do not undo the pushes in reverse order (the registers would swap)', () => {
+    const rom = platformCart()
+    rom.writeAt(0x02a89c + 12, [0xfa, 0x7a]) // the pushes are X then Y here, so this pops X first
+    expect(platformsGate(rom, SYN)).toEqual(['the loader route to the platform spawner'])
   })
 
   it('still runs the spawner a repointed JSR names: the route shape holds', () => {

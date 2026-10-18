@@ -7,7 +7,7 @@ import type { RomFile } from '../../RomFile'
 import { SPAWN_SHORT, type RunOptions, type SpriteModel, type SpritePart } from './SpriteRunner'
 import type { SpriteSeed } from './SpriteSeed'
 
-/** SpriteLock ($9D, SMWDisX rammap.asm): while it is set the game's own sprite code skips its per-frame move. */
+/** SpriteLock ($9D, SMWDisX rammap.asm:914): while it is set the game's own sprite code skips its per-frame move. */
 const SPRITE_LOCK = 0x9d
 
 /** The entry as the loader hands it over: X in $00/$01, list index in $02, offset of its first byte in $03. */
