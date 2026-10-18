@@ -67,6 +67,12 @@ describe('framesOf', () => {
     expect(frames([[1, 0], [1, 5], [1, 9]]).frames).toHaveLength(1) // prettier-ignore
   })
 
+  it('a palette-only change is a different pose', () => {
+    const m = run([[1, 0], [1, 0]]) // prettier-ignore
+    m.passes[1]!.parts[0]!.palette = 10
+    expect(framesOf({ m, fixed: false }, spr, LEVEL).frames).toHaveLength(2)
+  })
+
   it('a flip is a different pose', () => {
     const m = run([[1, 0], [1, 0]]) // prettier-ignore
     m.passes[1]!.parts[0]!.flipX = true

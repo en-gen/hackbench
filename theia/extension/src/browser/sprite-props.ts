@@ -28,6 +28,17 @@ const WHY_NOT_DRAWN: Record<string, string> = {
   noDescriptor: 'The app has no drawing rules for this sprite yet.',
 }
 
+/** Why a sprite is a marker, in words. The engine's reason codes never reach the screen: an unknown one gets the generic line. */
+export function notDrawnText(reason: string | undefined): string {
+  if (!reason) return 'The app has no reason recorded for this.'
+  const known = WHY_NOT_DRAWN[reason]
+  if (known) return known
+  if (reason === 'customHandler') return 'This map runs different code for this sprite than the game does, so vanilla art would be wrong.' // prettier-ignore
+  if (reason.startsWith('refused:')) return "The app could not run this sprite's code."
+  if (reason.startsWith('drew no')) return WHY_NOT_DRAWN.noParts!
+  return 'The app could not draw this sprite.'
+}
+
 /**
  * Why no animation is shown, in words. The node side and the player keep their reason codes (they are not
  * UI strings); this is the only place they become sentences, and an unknown one never reaches the screen.
@@ -68,6 +79,8 @@ export interface SpriteProps {
   parts: SpritePartDto[] | null
   /** Distinct CGRAM rows the parts draw with, ascending. */
   paletteRows: number[]
+  /** The engine's own reason for a placeholder, for a tooltip only; the words are in `notes`. */
+  rawReason?: string
   /** Anything the pane knows it is not showing (interpret, else warn). */
   notes: string[]
 }
@@ -76,10 +89,10 @@ export function spriteProps(s: MapSpriteDto): SpriteProps {
   const parts = s.status === 'drawn' && s.parts ? s.parts : null
   const notes: string[] = []
   if (s.status === 'placeholder') {
-    notes.push(`Not drawn: ${WHY_NOT_DRAWN[s.reason ?? ''] ?? s.reason ?? 'no reason recorded.'}`)
+    notes.push(`Not drawn: ${notDrawnText(s.reason)}`)
   }
   if (s.unverified) notes.push(`Unverified: ${s.unverified}.`)
-  notes.push('Behaviour and extra settings are not interpreted in this view yet.')
+  notes.push('Behavior and extra settings are not interpreted in this view yet.')
   return {
     label: spriteLabel(s),
     id: s.id,
@@ -89,5 +102,6 @@ export function spriteProps(s: MapSpriteDto): SpriteProps {
     parts,
     paletteRows: parts ? [...new Set(parts.map(p => p.palette))].sort((a, b) => a - b) : [],
     notes,
+    ...(s.status === 'placeholder' && s.reason ? { rawReason: s.reason } : {}),
   }
 }

@@ -789,7 +789,7 @@ export function framesOf(
       Math.min(...drawnParts.map(p => p.dx)),
       Math.min(...drawnParts.map(p => p.dy)),
     ]
-    const key = drawnParts.map(p => [p.charNum, +p.flipX, +p.flipY, p.dx - mx, p.dy - my].join()).sort().join(';') // prettier-ignore
+    const key = drawnParts.map(p => [p.charNum, p.palette, +p.flipX, +p.flipY, p.dx - mx, p.dy - my].join()).sort().join(';') // prettier-ignore
     if (seen.has(key)) continue
     seen.add(key)
     const shifted = {

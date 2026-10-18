@@ -287,12 +287,6 @@ async function selectOne(page, map) {
   await expect(panel(page).locator('[data-subject="sprite"]')).toBeVisible()
   return s
 }
-const activate = (page, slot) =>
-  page.evaluate(async id => {
-    // Returns nothing: activateWidget resolves to a Widget, which cannot be serialized back.
-    await getSvc('ApplicationShell').activateWidget(id)
-  }, `hackbench.map-view:${slot}`)
-
 // Plant: delete `this.selectSprite(undefined)` from toggleSprites and the panel keeps the hidden sprite.
 test('hiding the sprites with the S toggle clears the panel', async ({ page }) => {
   const map = await openMap(page)
@@ -301,20 +295,40 @@ test('hiding the sprites with the S toggle clears the panel', async ({ page }) =
   await expect(panel(page).locator('[data-subject="none"]')).toHaveText('No sprite selected')
 })
 
-// Plant: delete `this.syncSelection()` from onAfterHide and the hidden map's sprite stays on the panel; delete
-// it from onAfterShow and the sprite is not restored when the tab comes back. The second map (not the first)
-// activating publishes "none", which is what the panel shows while the first is hidden.
-test('switching to another map tab clears the panel; switching back restores that sprite', async ({
+// Opening a second MAP would run that map's onActivateRequest, which publishes "none" on its own and hides the
+// first map's onAfterHide sync from this test. So the tab goes to a plain non-map widget in the same area:
+// only the first map's hide and show hooks can change the panel.
+// Plants (each must turn this test red): delete `this.syncSelection()` from onAfterHide (the sprite stays on
+// the panel while the map is hidden); delete it from onAfterShow (the sprite is not restored on return). Both
+// plants proved red, the unplanted run green, 2026-10-17, one machine.
+test('hiding the map tab (to a non-map widget) clears the panel; showing it again restores the sprite', async ({
   page,
 }) => {
   const first = await openMap(page)
   const s = await selectOne(page, first)
-  await openMap(page, 0x104)
-  await expect(panel(page).locator('[data-subject="none"]')).toHaveText('No sprite selected')
-  await activate(page, SLOT)
-  await expect(panel(page).locator('[data-field="label"]')).toHaveText(
-    `${s.name} (sprite ${hex(s.id)})`,
+  const label = `${s.name} (sprite ${hex(s.id)})`
+  await page.evaluate(
+    async ({ mapIndex }) => {
+      const shell = getSvc('ApplicationShell')
+      const map = getSvc('WidgetManager').tryGetWidget('hackbench.map-view', { index: mapIndex })
+      let c = map
+      while (c && c.constructor.name !== '_Widget' && c.constructor.name !== 'Widget') c = Object.getPrototypeOf(c) // prettier-ignore
+      const other = new c.constructor()
+      other.id = 'hb-test-plain-widget'
+      other.title.label = 'Plain'
+      other.title.closable = true
+      await shell.addWidget(other, { area: 'main', ref: map, mode: 'tab-after' })
+      await shell.activateWidget(other.id)
+    },
+    { mapIndex: SLOT },
   )
+  await expect(page.locator(rootOf(SLOT))).toBeHidden()
+  await expect(panel(page).locator('[data-subject="none"]')).toHaveText('No sprite selected')
+  // revealWidget shows the tab without activating it, so only onAfterShow (not onActivateRequest) can restore.
+  await page.evaluate(async id => {
+    await getSvc('ApplicationShell').revealWidget(id)
+  }, `hackbench.map-view:${SLOT}`)
+  await expect(panel(page).locator('[data-field="label"]')).toHaveText(label)
 })
 
 // Plant: delete `this.selectSprite(undefined)` from loadSprites and the old selection survives a reload.

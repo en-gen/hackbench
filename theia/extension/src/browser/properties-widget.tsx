@@ -84,7 +84,12 @@ function SpriteSubject({
   return (
     <div className="hb-props-sprite" data-subject="sprite">
       {p.notes.map(n => (
-        <div key={n} className="hb-props-note" data-field="note">
+        <div
+          key={n}
+          className="hb-props-note"
+          data-field="note"
+          title={n.startsWith('Not drawn') ? p.rawReason : undefined}
+        >
           {n}
         </div>
       ))}

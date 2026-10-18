@@ -71,6 +71,20 @@ describe('spriteProps: the parts are the ones the map view drew (acceptance 5)',
     expect(p.paletteRows).toEqual([])
     expect(p.notes.join(' ')).toMatch(/not drawn/i)
   })
+  it.each(['customHandler', 'refused: halted at 0x8000', 'drew no OAM tile', 'something new'])(
+    'a "%s" placeholder shows plain words, with the raw reason only as rawReason',
+    reason => {
+      const [m] = drawSprites([spr(1, 1, 0x1a)], MODEL, () => ({ ok: false, failure: { kind: 'noDescriptor', spriteId: 0x1a } }) as EngineResult) // prettier-ignore
+      const p = spriteProps({ ...m!, reason })
+      const shown = p.notes.join(' ')
+      expect(shown).toMatch(/^Not drawn: [A-Z].*\.$/m)
+      expect(shown).not.toContain(reason)
+      expect(p.rawReason).toBe(reason)
+    },
+  )
+  it('the note says Behavior (US spelling, as the rest of the UI)', () => {
+    expect(spriteProps(draw()).notes.join(' ')).toMatch(/Behavior and extra settings/)
+  })
 })
 
 describe('spriteProps: identity and position in words', () => {
@@ -140,6 +154,17 @@ describe('followSubject: the panel is created after the click that published', (
     expect(animationText(player.state)).not.toMatch(/not animated/i)
     await flush()
     expect(player.state.kind).toBe('playing')
+  })
+  it('the same sprite index on another map restarts the frames; the same map does not', () => {
+    const model = new PropertiesModel()
+    const picks: { index: number }[] = []
+    followSubject(model, { select: s => picks.push(s as { index: number }) }, () => {})
+    const o = {}
+    const sp = { index: 4 } as MapSpriteDto
+    model.publish(o, { kind: 'sprite', sprite: sp, source: { manifestPath: 'm', index: 1 } })
+    model.publish(o, { kind: 'sprite', sprite: sp, source: { manifestPath: 'm', index: 1 } })
+    model.publish(o, { kind: 'sprite', sprite: sp, source: { manifestPath: 'm', index: 2 } })
+    expect(picks.map(p => p.index)).toEqual([1, 2])
   })
   it('nothing published stays idle; later changes restart for a new sprite only', () => {
     const model = new PropertiesModel()

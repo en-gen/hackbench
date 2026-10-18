@@ -12,12 +12,17 @@ export function followSubject(
   player: Pick<FramePlayer, 'select'>,
   repaint: () => void,
 ): { dispose(): void } {
-  // Only a new sprite (not a re-publish of the same one) restarts the loop.
+  // Only a new sprite or map (not a re-publish of the same one) restarts the loop.
   let shown: unknown
+  let shownSource: string | undefined
   const apply = (s: PropertiesModel['subject']): void => {
     const sprite = s.kind === 'sprite' ? s.sprite : undefined
-    if (sprite !== shown) {
+    // The same sprite index on another map is a different sprite: the map is part of what is shown.
+    const source =
+      s.kind === 'sprite' && s.source ? `${s.source.manifestPath}:${s.source.index}` : undefined
+    if (sprite !== shown || source !== shownSource) {
       shown = sprite
+      shownSource = source
       player.select(s.kind === 'sprite' && s.source ? { ...s.source, spriteIndex: s.sprite.index } : undefined) // prettier-ignore
     }
     repaint()
