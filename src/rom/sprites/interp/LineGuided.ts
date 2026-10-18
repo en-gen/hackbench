@@ -3,13 +3,14 @@
  * line step. A hack that rewrites the handler gets the runner's generic rule. The gate RUNS the handler
  * from its MAIN pointer and watches which routines it calls; it does not read those routines' bodies.
  *
- * Per .claude/rules/rom-interpretation.md stock-code exception (added in #1030): the entry is fixed (the
- * handler address from the ROM's own MAIN pointer table), the run has a step budget, and a refusal names why.
+ * Per .claude/rules/rom-interpretation.md stock-code exception (added in #1030): the entry is fixed, the run has a
+ * step budget, and a refusal names why. The entry chain: HandleSprite (fixed) -> its JMP operand -> CallSpriteMain
+ * -> the MAIN pointer table -> the handler for sprite $67.
  */
 import type { RomFile } from '../../RomFile'
 import { mirror } from '../../addressing'
 import { nativeReset, Refusal } from '../../cpu/call'
-import { markSram, RunCache, smwMachine, sramWritten } from './Machine'
+import { RunCache, smwMachine, watchSram } from './Machine'
 
 /**
  * The routines the $67 arm calls or jumps to, in order, as FastROM-folded 24-bit addresses: the draw (CODE_01DC0B,
@@ -118,17 +119,18 @@ function sweep(
     guard?.(addr, op)
     last = op
   }
-  markSram(bus)
+  const sram = watchSram(bus)
   const clean = bus.snapshot()
   /** One run; returns why not, and the cells it read. */
   const exec = (slot: number, poke?: [number, number]): { why: string | null; reads: number[] } => {
     bus.restore(clean)
+    sram.writes = 0
     bus.inputs = new Set()
     bus.wram[numberCell + slot] = number
     if (poke) bus.wram[poke[0]] = poke[1]
     let why = drive(rom, m, handler, slot, shape.arm, () => last)
     if (!why && bus.hwWrites.size) why = 'it writes a hardware register'
-    if (!why && sramWritten(bus)) why = 'it writes SRAM'
+    if (!why && sram.writes > 0) why = 'it writes SRAM'
     const reads = [...bus.inputs].filter(c => c !== numberCell + slot)
     bus.inputs = null
     return { why, reads }

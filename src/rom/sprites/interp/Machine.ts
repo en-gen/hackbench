@@ -67,16 +67,13 @@ export class RunCache<T> {
   }
 }
 
-const SRAM_MARK = 0xa5
-
-/** Fills SRAM with a marker so `sramWritten` can see a store (the bus does not report SRAM writes to `recordWrites`). */
-export function markSram(bus: SpriteBus): void {
-  bus.sram.fill(SRAM_MARK)
-}
-
-/** True when a store put a byte other than the marker into SRAM since `markSram` (storing the marker itself is invisible). */
-export function sramWritten(bus: SpriteBus): boolean {
-  return bus.sram.some(v => v !== SRAM_MARK)
+/** Counts SRAM stores on `bus` (any value, including one equal to what was there); reset `writes` between runs. */
+export function watchSram(bus: SpriteBus): { writes: number } {
+  const w = { writes: 0 }
+  bus.onSramWrite = () => {
+    w.writes++
+  }
+  return w
 }
 
 /**

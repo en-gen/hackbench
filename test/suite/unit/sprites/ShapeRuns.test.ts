@@ -344,3 +344,70 @@ describe.skipIf(!hasRom(VANILLA))('the vanilla ROM', () => {
     }
   })
 })
+
+// Plants from the second review: each one is built so that a sweep cut short, or a check removed, accepts it.
+describe('review plants (synthetic cart)', () => {
+  const INIT = [0xa0, 0x08, 0x98, 0x9d, 0xc8, 0x14, 0xb5, 0x9e, 0x22, 0xfa, 0x86, 0x00]
+  const withInit = (code: number[]) => {
+    const rom = buildSyntheticRom()
+    const tbl = [...rom.readAt(INIT_AT + 12, 402)!]
+    rom.writeAt(INIT_AT, code)
+    rom.writeAt(INIT_AT + code.length, tbl)
+    return rom
+  }
+  const gateAt = (rom: RomFile, handler: number) =>
+    grinderDrawsBeforeSnap(rom, handler, 0x67, RAM.spriteNumber, GRINDER_DISPATCH)
+  const gateReason = (rom: RomFile, handler = GRINDER_HANDLER) => {
+    const g = gateAt(rom, handler)
+    return g.ok ? null : g.reason
+  }
+  const cartHandler = () => [...buildSyntheticRom().readAt(GRINDER_HANDLER, 19)!]
+
+  it('P3m: CallSpriteInit stores the SRAM marker value ($A5) to SRAM', () => {
+    // LDY #8 / TYA / STA status / LDA #$A5 / STA $700000 / LDA $9E,X / JSL
+    const rom = withInit([0xa0, 0x08, 0x98, 0x9d, 0xc8, 0x14, 0xa9, 0xa5, 0x8f, 0x00, 0x00, 0x70, 0xb5, 0x9e, 0x22, 0xfa, 0x86, 0x00]) // prettier-ignore
+    expect(tablesReason(rom)).toMatch(/wrote SRAM/)
+  })
+
+  it('P7: the grinder entry stores $A5 to SRAM', () => {
+    const rom = buildSyntheticRom()
+    rom.writeAt(GRINDER_HANDLER, [0xa9, 0xa5, 0x8f, 0x00, 0x00, 0x70, ...cartHandler()])
+    expect(gateReason(rom)).toMatch(/SRAM/)
+  })
+
+  it('N3: a grinder handler that jumps away in slot 5 only', () => {
+    const rom = buildSyntheticRom()
+    // CPX #$05 / BEQ +3 / JMP dispatch / JMP step: every other slot is the cart handler.
+    rom.writeAt(GRINDER_HANDLER, [0xe0, 0x05, 0xf0, 0x03, 0x4c, 0x20, 0x92, 0x4c, 0x90, 0x92])
+    expect(gateReason(rom)).toMatch(/slot 5/)
+  })
+
+  it('N4: a CallSpriteInit that jumps away in slot 11 only', () => {
+    // CPX #$0B / BNE +4 / JML $01:8600, then the cart INIT
+    const rom = withInit([0xe0, 0x0b, 0xd0, 0x04, 0x5c, 0x00, 0x86, 0x01, ...INIT])
+    expect(tablesReason(rom)).toMatch(/slot 11/)
+  })
+
+  it('N5: a CallSpriteInit whose call lands in two places depending on the slot', () => {
+    // ... CPX #$0B / BEQ +4 / JSL exec / JSL exec / table: slot 11 skips the first call, so the table moves by four.
+    const rom = withInit([0xa0, 0x08, 0x98, 0x9d, 0xc8, 0x14, 0xb5, 0x9e, 0xe0, 0x0b, 0xf0, 0x04, 0x22, 0xfa, 0x86, 0x00, 0x22, 0xfa, 0x86, 0x00]) // prettier-ignore
+    expect(tablesReason(rom)).toMatch(/table moved/)
+  })
+
+  it('N6: a dispatch that reaches the draw by a pushed return and a JMP, not a call', () => {
+    const rom = buildSyntheticRom()
+    // PEA (next - 1) / JMP draw / JSL interact / JMP step
+    rom.writeAt(GRINDER_DISPATCH_AT, [0xf4, 0x25, 0x92, 0x4c, 0x00, 0x94, 0x22, 0x82, 0x92, 0x01, 0x4c, 0x90, 0x92]) // prettier-ignore
+    expect(gateReason(rom)).toMatch(/instead of calling/)
+  })
+
+  it('N11: a handler that reads more than 16 WRAM cells', () => {
+    const rom = buildSyntheticRom()
+    const reads = Array.from({ length: 17 }, (_, i) => [0xa5, 0x20 + i]).flat()
+    rom.writeAt(0x019600, [...reads, 0x4c, 0x20, 0x92])
+    expect(gateReason(rom, 0x019600)).toMatch(/more than 16 cells/)
+    // The same handler with 16 reads is accepted: the cap is what refuses it.
+    rom.writeAt(0x019600, [...reads.slice(0, 32), 0x4c, 0x20, 0x92])
+    expect(gateReason(rom, 0x019600)).toBeNull()
+  })
+})

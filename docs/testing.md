@@ -105,16 +105,22 @@ those checks go red.
 ExecutePtr, CallSpriteInit and the grinder handler (#1082) were removed by running them instead: a stock-code
 SHA-256 needs at least 24 unknown bytes (not masked, not stated elsewhere in the working tree), and each of those had
 fewer. The runs follow the stock-code exception in `.claude/rules/rom-interpretation.md` (added in #1030): a fixed
-entry, a step budget, a refusal that names why.
+entry, a step budget, a refusal that names why. Entries are reached from HandleSprite through the ROM's own operands
+and tables: ExecutePtr from its JSL operand, CallSpriteInit from its status table, the grinder handler from the MAIN
+pointer table.
 
 - `checkExecutePtr` calls the routine as a JSL with a table of its own in WRAM, for all 256 indices, and requires
   the landing, the popped frame, the kept registers and no register or SRAM write.
 - `resolveTables` runs CallSpriteInit for every sprite number in three slots and requires the JSL frame at
   ExecutePtr, the number as the index and the run status as the only write besides the frame; the INIT table is read
   from that frame.
-- `grinderDrawsBeforeSnap` runs the handler in every slot and with every value of each cell it reads, and requires
-  the draw, the interact and the line step in that order; it returns a reason, which the runner puts in
-  `lineGateReason`.
+- `grinderDrawsBeforeSnap` runs the handler in every slot, then in slot 3 with each WRAM cell it reads set to every
+  value, one cell at a time, and requires the draw, the interact and the line step in that order; it returns a
+  reason, which the runner puts in `lineGateReason`. Known limit: a hook that needs two cells set together (for
+  example `LDA $9D / AND $13 / BNE`) is not caught. The three expected routine addresses are the old `targets`,
+  fixed for vanilla; a relocated routine fails closed.
+- Register and SRAM writes are refused in all three runs (the bus reports SRAM stores through `onSramWrite`).
+  Evidence scope: the vanilla USA ROM and the synthetic cart, one machine, 2026-10-18.
 - The block spawn dispatcher, slot search and status write are one 81-byte span (`BLOCK_SPAWN_DISPATCHER`).
 
 Planted defects for each are in `test/suite/unit/sprites/ShapeRuns.test.ts`.
@@ -958,9 +964,19 @@ node "$MAIN_CHECKOUT/tools/scripts/run-lock.mjs" release --owner "<team> <worktr
   `test:unit` only: the corpus and timing vitest configs and Theia builds are
   uncapped. The value is a starting point, not measured under 3 concurrent
   runs.
-- Known limit: worktrees whose `theia/node_modules` is a junction to the main
-  checkout share build state, so they must not build Theia concurrently even
-  with separate lock slots.
+- Shared installs are refused (#1038). `tools/scripts/check-theia-install.mjs`
+  runs as the Theia `prebuild*` hooks and at the top of the Playwright config
+  (unless `HB_APP_URL` or `HB_SKIP_INSTALL_GUARD` is set; the unit gates that
+  only load the config set the latter). It fails when the `theia` folder or
+  `theia/node_modules` is a junction or link, a
+  `hackbench-*` workspace link resolves outside the checkout, or a package
+  `node_modules` or `theia/node_modules/.cache` is a link out. Such a worktree
+  would bundle another checkout's extension and share its nx cache. Fix for a
+  junction: remove it WITHOUT a recursive delete (`cmd /c rmdir`, with
+  backslashes: `theia\node_modules`), then `yarn --cwd theia install` in that
+  worktree. For a linked `theia` folder, remove the link, `git checkout -- theia`,
+  then install. Evidence: synthetic layouts, one Windows machine; 8.3 short
+  paths compare through native realpath but are untested. The checkout is found from INIT_CWD, a PWD equal to the cwd, or the cwd, because POSIX cwd is the symlink target; that path is simulated on Windows (cwd in the target, logical path in the env) and never run on POSIX.
 - `owner.txt` holds `owner:`, `purpose:` and `started:` (UTC) lines.
 - Only the owner removes a lock slot, with `release` and the exact same id (no
   prefix, no padding; only the slot whose `owner:` matches is freed; blank ids and line breaks (CR, LF, U+2028, U+2029) are refused). A wrong or

@@ -150,6 +150,9 @@ export const SYNTHETIC_EXECUTE_PTR_CODE: readonly number[] = Object.freeze([
   0xa4, 0x08, 0xc8, 0xb7, 0x0a, 0x85, 0x0a, 0xe2, 0x30, 0xa4, 0x0d, 0xdc, 0x0a, 0x00,
 ]) // prettier-ignore
 
+/** Where the cart's INIT pointer table starts, from the start of its CallSpriteInit at $01:8170 (the routine is 12 bytes). */
+export const SYNTHETIC_INIT_TABLE_OFFSET = 12
+
 export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   const rom = new Uint8Array(8 * BANK) // banks 0-7
   const put = (snes: number, bytes: number[]): void => {
@@ -256,7 +259,7 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   if (o.id31IsGrinder) mainTable[31] = 0x9500
   for (const id of [20, 21, 22, 23, 24, 25]) mainTable[id] = 0x8640
   const words = (t: number[]) => t.flatMap(w => [w & 0xff, w >> 8])
-  put(0x018170 + 12, words(initTable))
+  put(0x018170 + SYNTHETIC_INIT_TABLE_OFFSET, words(initTable))
   put(0x018320 + 9, words(mainTable))
   // $02:8905 GenSpriteFromBlk (item block spawn): the vanilla shapes at its entry and at $028922, then a
   // body of our own: status from a table indexed by the content index $05, sprite number from another,

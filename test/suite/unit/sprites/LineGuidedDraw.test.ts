@@ -77,6 +77,8 @@ describe('line-guided draw pass', () => {
 
   it('draws $67 at the first drawn pass when its handler is not the vanilla shape (a hack)', () => {
     const g = run(103, { alteredGrinder: true })
+    expect(g.lineGateReason).toMatch(/out of order/)
+    expect(run(103).lineGateReason).toBeUndefined()
     expect(g.chosen).toBe(0)
     expect(g.anchor!.x).toBe(0x80)
     expect(g.passes[0]!.parts[0]!.dx).toBe(0)
@@ -123,6 +125,14 @@ describe('line-guided draw pass', () => {
     expect(g.passes[1]!.pos).toEqual(g.passes[0]!.pos)
     expect(g.chosen).toBe(1)
     expect(g.anchor!.x).toBe(0x84)
+  })
+
+  it('flags the run model as snapping for a vanilla-shaped $67 only (SpriteModel.snaps)', () => {
+    expect(run(103).snaps).toBe(true)
+    // Not vanilla-shaped, another id, and a run whose draw dispatch is not the pinned shape: all unflagged.
+    expect(run(103, { alteredGrinder: true }).snaps).toBeUndefined()
+    expect(run(31).snaps).toBeUndefined()
+    expect(runOnce(buildSyntheticRom(), 103, seed).snaps).toBeUndefined()
   })
 
   it('applies the snap rule to id $67 only: another id whose MAIN is the grinder handler is generic', () => {

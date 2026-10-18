@@ -16,7 +16,7 @@ import type { RomFile } from '../../RomFile'
 import { spanFingerprint } from '../../SubmapFlagGate'
 import { Refusal, describe, nativeReset, runUntil } from '../../cpu/call'
 import { bytesAt, shapeMatches } from './Guards'
-import { markSram, recordWrites, RunCache, smwMachine, sramWritten } from './Machine'
+import { recordWrites, RunCache, smwMachine, watchSram } from './Machine'
 
 export const ENTRY = {
   /** JSL: ZeroSpriteTables + LoadSpriteTables (bank_07.asm:1006). */
@@ -181,8 +181,9 @@ const PROBE_Y = 0x55
 const PROBE_STEPS = 48
 
 /**
- * Per .claude/rules/rom-interpretation.md stock-code exception (added in #1030): a fixed entry (the JSL target
- * HandleSprite names), a step budget and a refusal with a reason. Runs the routine at `entry` the way a JSL to
+ * Per .claude/rules/rom-interpretation.md stock-code exception (added in #1030): a fixed entry, a step budget and a
+ * refusal with a reason. The entry chain: HandleSprite (fixed, `ENTRY.handleSprite` or the loop's own JSR operand)
+ * -> its JSL operand -> ExecutePtr. Runs the routine at `entry` the way a JSL to
  * ExecutePtr is called (bank_00.asm:847: A = index, the table inline after the call) for ALL 256 indices, and
  * returns null when it is the 16-bit pointer-table jump, else why not. Each index must land on that table word,
  * in the table's bank, with the call frame popped, X and Y kept, and no register or SRAM write. ExecutePtrLong
@@ -201,7 +202,7 @@ function notWordTableJump(rom: RomFile, entry: number): string | null {
     bus.wram[PROBE_TABLE + 2 * k] = probeWord(k) & 0xff
     bus.wram[PROBE_TABLE + 2 * k + 1] = probeWord(k) >> 8
   }
-  markSram(bus)
+  const sram = watchSram(bus)
   for (let k = 0; k < 256; k++) {
     nativeReset(cpu)
     const s0 = cpu.s
@@ -223,7 +224,7 @@ function notWordTableJump(rom: RomFile, entry: number): string | null {
     if (cpu.x !== PROBE_X || cpu.y !== PROBE_Y) return `index ${k}: X or Y was not kept`
   }
   if (bus.hwWrites.size !== 0) return 'it wrote a hardware register'
-  return sramWritten(bus) ? 'it wrote SRAM' : null
+  return sram.writes > 0 ? 'it wrote SRAM' : null
 }
 
 /** The dispatch JSLs (HandleSprite, CallSpriteMain) must reach one routine, and it must be the 16-bit ExecutePtr. */
@@ -250,8 +251,8 @@ const INIT_STEPS = 48
 const FRAME = [0x7e01fd, 0x7e01fe, 0x7e01ff]
 
 /**
- * Per the stock-code exception (#1030): fixed entry (CallSpriteInit, from HandleSprite's status table), step budget,
- * refusal with a reason. Runs CallSpriteInit at `entry` for every sprite number 0..255 in several slots until it
+ * Per the stock-code exception (#1030): fixed entry, step budget, refusal with a reason. The entry chain:
+ * HandleSprite (fixed) -> the second word of its status table -> CallSpriteInit. Runs CallSpriteInit at `entry` for every sprite number 0..255 in several slots until it
  * reaches `execPtr` (the routine HandleSprite calls). Each run must arrive through a JSL frame with the number from
  * `number`,X as the index, and its only writes the run status (`runStatus`, the value HandleSprite compares with)
  * into `status`,X and the frame itself. Returns where the inline table starts, the same in every run, or why not.
@@ -275,7 +276,7 @@ function initTableOf(
   }
   const { bus, cpu } = m
   initCache.track(bus, rom)
-  markSram(bus)
+  const sram = watchSram(bus)
   const clean = bus.snapshot()
   let table = -1
   for (const slot of INIT_SLOTS) {
@@ -288,6 +289,7 @@ function initTableOf(
       cpu.x = slot
       cpu.pb = entry >>> 16
       cpu.pc = entry & 0xffff
+      sram.writes = 0
       const writes = recordWrites(bus)
       const r = runUntil(cpu, INIT_STEPS, c => mirror((c.pb << 16) | c.pc) === mirror(execPtr))
       writes.stop()
@@ -302,7 +304,7 @@ function initTableOf(
       const only = (0x7e0000 + cells.status + slot) * 256 + cells.runStatus
       const extra = writes.log.filter(w => !FRAME.includes(Math.floor(w / 256)))
       if (extra.length !== 1 || extra[0] !== only) return fail('it wrote more than the run status')
-      if (sramWritten(bus)) return fail('it wrote SRAM')
+      if (sram.writes > 0) return fail('it wrote SRAM')
       const ret = bus.read(cpu.s + 1) | (bus.read(cpu.s + 2) << 8)
       const t = (bus.read(cpu.s + 3) << 16) | ((ret + 1) & 0xffff)
       if (table >= 0 && t !== table) return fail('the table moved between runs')
