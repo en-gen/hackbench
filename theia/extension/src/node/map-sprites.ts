@@ -772,10 +772,7 @@ function compute(
     const draw = interpDrawer(rom.rom, index, model, runWithUploads, () => base)
     // Read (and cached on the cart) only when a drawn sprite points Mario's tile DMA at the buffer.
     const withUploads = { ...model, playerGraphics: () => readMarioGraphics(rom.rom) }
-    const dynamic = (n: PaletteNote) => {
-      const b = rom.rom.readAt(n.entryAddr, n.colors * 2)
-      return b ? Array.from({ length: n.colors }, (_, i) => bgr555ToRgba(b[i * 2]! | (b[i * 2 + 1]! << 8))) : [] // prettier-ignore
-    }
+    const dynamic = dynamicOf(rom.rom)
     const layer = spriteLayer(data, withUploads, draw, dynamic)
     const stream = parseLevelSprites(data, model.isVertical)
     const flames = castleFlameSprites(rom.rom, base, stream, model, model.l2?.ok ? model.l2.l2.dy : undefined, dynamic) // prettier-ignore

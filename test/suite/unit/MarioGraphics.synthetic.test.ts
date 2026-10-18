@@ -75,6 +75,13 @@ describe('expandTo4bpp', () => {
     expect(expandTo4bpp(buf, 47, 0x1e)).toMatch(/below/)
   })
 
+  it('refuses a source that is not a whole number of 3bpp tiles, whose last tile would read below the buffer', () => {
+    const buf = new Uint8Array(0x60)
+    buf.set(seq(1, 48))
+    expect(expandTo4bpp(buf, 40, 0x5e)).toMatch(/whole number/)
+    expect(expandTo4bpp(buf, 47, 0x5e)).toBeNull()
+  })
+
   it('refuses a write below the buffer inside a pass, though the source ends in that pass', () => {
     // 24 source bytes, destination 0x1c: the plane-0/1 loop reaches p = -2 on its last words and x runs out in
     // the same pass, so a bound checked once per pass reports success with writes dropped.

@@ -176,6 +176,8 @@ export function buildMarioGraphics(
 export function expandTo4bpp(buf: Uint8Array, x: number, p: number): string | null {
   if (x >= buf.length || p < 1 || p + 1 >= buf.length)
     return 'the expansion points outside the buffer'
+  // The source starts at buf[0], so a whole number of 24-byte tiles ends at x = 24n - 1; srcTop is a masked operand.
+  if ((x + 1) % 24 !== 0) return 'the expansion source is not a whole number of 3bpp tiles'
   for (;;) {
     for (let i = 0; i < 8; i++, x--, p -= 2) {
       if (p < 0) return 'the expansion runs below the buffer'

@@ -41,7 +41,8 @@ opcode `$20` whose operand must equal the address of the routine found by hash: 
 (bank_00.asm:274, 289, 365), MarioGFXDMA being `$4D` before the loops (SMW_U.sym `A300`). Evidence scope: the vanilla ROM
 passes, one machine, and synthetic redirected callers are refused (`MarioGraphics.synthetic.test.ts`). Not proven: the
 bytes of MarioGFXDMA before the loops (its palette DMA and the `$67F0` row) are not hashed, nor is that the NMI reaches
-those three call sites in a hack that rearranges the handler.
+those three call sites in a hack that rearranges the handler. The boot routine is pinned for its 84 bytes only (`STOCK_BOOT`); the GFX32 load and decompress beyond them are not checked, so a hack that
+changes what follows would be drawn as vanilla.
 
 ## Hacks (D51, D57)
 
