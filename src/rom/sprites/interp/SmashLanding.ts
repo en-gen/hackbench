@@ -7,7 +7,10 @@
  * (CODE_01AD07, bank_01.asm:6101-6119), so the chain below reproduces the game's first landing.
  *
  * FIRST_LANDING_SCHEDULE is ONE documented model of the game's order, and a hack-fragility point:
- * a hack that changes the order, adds a GetRand caller before it, or boots another way lands elsewhere.
+ * a hack that changes the order, adds a GetRand caller before it, or boots another way lands elsewhere,
+ * and the loader's shape gate cannot see it: UberASM level init code, overworld sprites, extra
+ * title-demo frames, a patched title sprite or a custom sprite that calls GetRand before the smasher
+ * all give a confident but wrong X. The map view draws what the stock-shaped chain gives.
  *   1. Title map load. GM03 loads the title map by the immediate of LDA #!MainMapLvls+!TitleScreenLevel
  *      (bank_00.asm:2626) and falls into GM11LoadLevel (:2631), whose loader calls GetRand.
  *   2. Target map load: GM11LoadLevel (bank_00.asm:2644-2657) with the RNG the title load left.
@@ -66,10 +69,13 @@ function titleMap(rom: RomFile): number | string {
   return v >= 0x25 ? v - 0x24 : v
 }
 
-function load(rom: RomFile, map: number, rng: number): { wram: Uint8Array; rng: number } | string {
-  const l = loadLevelState(rom, map, rng)
-  return l.ok ? { wram: l.wram, rng: rngOf(l.wram) } : l.reason
-}
+/** The load step over a loader (the level loader; a test passes its own). */
+export const loadWith =
+  (loader: typeof loadLevelState): LandingSteps['load'] =>
+  (rom, map, rng) => {
+    const l = loader(rom, map, rng)
+    return l.ok ? { wram: l.wram, rng: rngOf(l.wram) } : l.reason
+  }
 
 /** Steps 3-5 on a loaded map: the landing, or null when the sweep loads no smasher. */
 function smash(rom: RomFile, wram: Uint8Array): Landing | null | string {
@@ -94,10 +100,12 @@ function smash(rom: RomFile, wram: Uint8Array): Landing | null | string {
     if (e instanceof Refusal) return e.message
     throw e
   }
+  // Y is read as the code left it, not cross-checked: CODE_00FF61 adds ScreenShakeYOffset (bank_00.asm:14798-14800),
+  // zero here because the shake timer starts at a slam (bank_02.asm:11197), long after pass 2.
   return { x: w[L3_POS]! | (w[L3_POS + 1]! << 8), y: w[L3_POS + 2]! | (w[L3_POS + 3]! << 8) }
 }
 
-export const STOCK_STEPS: LandingSteps = { titleMap, load, smash }
+export const STOCK_STEPS: LandingSteps = { titleMap, load: loadWith(loadLevelState), smash }
 
 /** Layer3XPos (signed 16-bit) and Layer3YPos the smasher first writes on `map`, or a plain-words reason. */
 export function firstLanding(
@@ -113,7 +121,8 @@ export function firstLanding(
   const second = steps.load(rom, map, first.rng)
   if (typeof second === 'string') return refuse(FIRST_LANDING_SCHEDULE[1], second)
   const landed = steps.smash(rom, second.wram)
-  if (typeof landed === 'string') return refuse(FIRST_LANDING_SCHEDULE[2], landed)
+  // The smash step names its own failure (sweep, pass 1, pass 2, several smashers).
+  if (typeof landed === 'string') return { ok: false, reason: `Layer 3 not drawn yet: ${landed}` }
   if (landed === null) return { ok: true, landing: null }
   const signed = (v: number) => (v & 0x8000 ? v - 0x10000 : v)
   return { ok: true, landing: { x: signed(landed.x), y: signed(landed.y) } }

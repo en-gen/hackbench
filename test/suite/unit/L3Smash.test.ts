@@ -8,6 +8,7 @@ import { RomFile } from '../../../src/rom/RomFile'
 import {
   FIRST_LANDING_SCHEDULE,
   firstLanding,
+  loadWith,
   STOCK_STEPS,
   type LandingSteps,
 } from '../../../src/rom/sprites/interp/SmashLanding'
@@ -63,7 +64,7 @@ describe('FIRST_LANDING_SCHEDULE (synthetic steps)', () => {
       ['title map', { ...base, titleMap: () => 'not the shape' }, 'title map load (not the shape)'],
       ['title load', { ...base, load: (_r, m, g) => (m === TITLE ? 'loader refused' : base.load(rom, m, g)) }, 'title map load (loader refused)'], // prettier-ignore
       ['map load', { ...base, load: (_r, m, g) => (m === MAP ? 'loader refused' : base.load(rom, m, g)) }, 'target map load (loader refused)'], // prettier-ignore
-      ['smash', { ...base, smash: () => 'sweep did not return' }, 'start-up sprite sweep (sweep did not return)'], // prettier-ignore
+      ['smash', { ...base, smash: () => 'sweep did not return' }, 'sweep did not return'], // prettier-ignore
     ]
     for (const [what, steps, want] of cases) {
       expect(firstLanding(rom, MAP, steps), what).toEqual({ ok: false, reason: `Layer 3 not drawn yet: ${want}` }) // prettier-ignore
@@ -77,30 +78,110 @@ describe('FIRST_LANDING_SCHEDULE (synthetic steps)', () => {
   })
 })
 
+/**
+ * A cart of NON-vanilla stand-in code that drives the REAL title-map reader and the REAL smash step
+ * (rule 9: these routines are not the game's). The sweep fills slot 0 (and 1) with sprite $89; the
+ * sprite loop does nothing on its first call and, on its second, copies RNGCalc into $22/$23 and
+ * $A0 into $24, as a main routine writes the layer 3 cells after state 0 (#997).
+ */
+const SWEEP = 0x02aca1
+const LOOP = 0x01808c
+type CartOpts = {
+  title?: number
+  lda?: number
+  smashers?: 0 | 1 | 2
+  brk?: 'sweep' | 'first' | 'second'
+}
+const smashCart = (o: CartOpts = {}) => {
+  const cart = new RomFile('synthetic.sfc', Buffer.alloc(0x80000, 0))
+  cart.writeAt(0x00ffd5, [0x20])
+  cart.writeAt(0x0096cb, [o.lda ?? 0xa9, o.title ?? 0x27])
+  const slot = (i: number) => [0xa9, 0x08, 0x8d, 0xc8 + i, 0x14, 0xa9, 0x89, 0x85, 0x9e + i]
+  const n = o.smashers ?? 1
+  const brk = (at: CartOpts['brk']) => (o.brk === at ? [0x00] : [])
+  cart.writeAt(SWEEP, [...brk('sweep'), ...(n > 0 ? slot(0) : []), ...(n > 1 ? slot(1) : []), 0x60])
+  const second = [0xad, 0x8b, 0x14, 0x85, 0x22, 0xad, 0x8c, 0x14, 0x85, 0x23, 0xa9, 0xa0, 0x85, 0x24, 0x64, 0x25, 0x6b] // prettier-ignore
+  cart.writeAt(LOOP, [0xad, 0x00, 0x1f, 0xd0, 0x04 + brk('first').length, ...brk('first'), 0xee, 0x00, 0x1f, 0x6b, ...brk('second'), ...second]) // prettier-ignore
+  return cart
+}
+/** A loader that models n GetRand calls per map as +n on RNGCalc, written where the real one leaves it. */
+const fakeLoader = (calls: (map: number) => number) => (_r: RomFile, map: number, rng: number) => {
+  const wram = new Uint8Array(0x20000)
+  const n = (rng + calls(map)) & 0xffff
+  wram[0x148b] = n & 0xff
+  wram[0x148c] = n >> 8
+  return { ok: true as const, wram, steps: 0 }
+}
+const realSteps = (calls: (map: number) => number = m => m): LandingSteps => ({ ...STOCK_STEPS, load: loadWith(fakeLoader(calls) as never) }) // prettier-ignore
+const landing = (cart: RomFile, steps = realSteps()) => {
+  const r = firstLanding(cart, 9, steps)
+  return r.ok ? r.landing : r.reason
+}
+
+describe('the real title reader and smash step on a stand-in cart (synthetic)', () => {
+  it('reads the title map from the LDA operand, decoded as the game does, and the landing follows the RNG count', () => {
+    // title operand $27 -> map 3 (an operand from $25 up drops $24), $05 -> map 5; the map is 9: X = title + 9
+    expect(landing(smashCart({ title: 0x27 }))).toEqual({ x: 3 + 9, y: 0xa0 })
+    expect(landing(smashCart({ title: 0x05 }))).toEqual({ x: 5 + 9, y: 0xa0 })
+    expect(landing(smashCart({ title: 0x29 }), realSteps(m => (m === 5 ? 7 : m)))).toEqual({ x: 7 + 9, y: 0xa0 }) // prettier-ignore
+  })
+
+  it('reads RNGCalc as 16 bits, and X as signed', () => {
+    // The title load leaves $0100 + 3: a carry that kept only the low byte would lose the $0100.
+    expect(landing(smashCart({ title: 0x27 }), realSteps(m => (m === 3 ? 0x100 : m)))).toEqual({ x: 0x100 + 9, y: 0xa0 }) // prettier-ignore
+    expect(landing(smashCart(), realSteps(m => (m === 9 ? 0x1ff : 0)))).toEqual({ x: 0x1ff, y: 0xa0 }) // prettier-ignore
+    expect(landing(smashCart(), realSteps(m => (m === 9 ? 0xff98 : 0)))).toEqual({ x: -104, y: 0xa0 }) // prettier-ignore
+  })
+
+  it('refuses when the byte before the title operand is not the LDA immediate', () => {
+    expect(landing(smashCart({ lda: 0xea }))).toMatch(/^Layer 3 not drawn yet: title map load/)
+  })
+
+  it('no smasher in the sweep is no landing; two are refused by name', () => {
+    expect(firstLanding(smashCart({ smashers: 0 }), 9, realSteps())).toEqual({ ok: true, landing: null }) // prettier-ignore
+    expect(landing(smashCart({ smashers: 2 }))).toBe('Layer 3 not drawn yet: several smash sprites are loaded') // prettier-ignore
+  })
+
+  it('a sweep or pass that does not return refuses, each under its own name', () => {
+    expect(landing(smashCart({ brk: 'sweep' }))).toMatch(/^Layer 3 not drawn yet: the start-up sprite sweep/) // prettier-ignore
+    expect(landing(smashCart({ brk: 'first' }))).toMatch(/^Layer 3 not drawn yet: the first sprite pass/) // prettier-ignore
+    expect(landing(smashCart({ brk: 'second' }))).toMatch(/^Layer 3 not drawn yet: the second sprite pass/) // prettier-ignore
+  })
+
+  it('both passes run: the second pass is what writes the layer 3 cells', () => {
+    expect(
+      landing(
+        smashCart(),
+        realSteps(() => 1),
+      ),
+    ).toEqual({ x: 2, y: 0xa0 })
+  })
+})
+
 describe.skipIf(!hasRom(VANILLA))('the first landing on the vanilla ROM (corpus, #997)', () => {
   const vanilla = () => RomFile.load(romPath(VANILLA))
-  const landing = (r: RomFile, map: number, steps?: LandingSteps) => {
+  const landingOf = (r: RomFile, map: number, steps?: LandingSteps) => {
     const out = firstLanding(r, map, steps)
     if (!out.ok) throw new Error(out.reason)
     return out.landing
   }
 
-  it('$01F and $1D4 land at X -104 (sprite X $FF98), Y $A0; $1FC is reported', () => {
+  it('$01F, $1D4 and $1FC land at X -104 (sprite X $FF98), Y $A0', () => {
     const r = vanilla()
-    expect(landing(r, 0x01f)).toEqual({ x: -104, y: 0xa0 })
-    expect(landing(r, 0x1d4)).toEqual({ x: -104, y: 0xa0 })
-    console.log('smash first landing $1FC', JSON.stringify(landing(r, 0x1fc)))
+    expect(landingOf(r, 0x01f)).toEqual({ x: -104, y: 0xa0 })
+    expect(landingOf(r, 0x1d4)).toEqual({ x: -104, y: 0xa0 })
+    expect(landingOf(r, 0x1fc)).toEqual({ x: -104, y: 0xa0 })
   })
 
   it('the title load matters: another title map, or the map twice, lands elsewhere', () => {
     const r = vanilla()
-    const stock = landing(r, 0x01f)!
+    const stock = landingOf(r, 0x01f)!
     const title = (n: number): LandingSteps => ({ ...STOCK_STEPS, titleMap: () => n })
     // Map $01F as the "title" adds its own GetRand calls first.
-    expect(landing(r, 0x01f, title(0x01f))!.x).not.toBe(stock.x)
+    expect(landingOf(r, 0x01f, title(0x01f))!.x).not.toBe(stock.x)
   })
 
   it('a map with no smasher has no landing', () => {
-    expect(landing(vanilla(), 0x105)).toBeNull()
+    expect(landingOf(vanilla(), 0x105)).toBeNull()
   })
 })

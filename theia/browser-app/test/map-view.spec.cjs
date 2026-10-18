@@ -1135,8 +1135,8 @@ for (const [index, role, bit, known] of [
  * #997: $01F's layer 3 is driven by the smash sprite, which keeps it on the camera in the game. The
  * map view draws ONE copy, at world x = column*8 + 104 (the first landing, Layer3XPos -104, run from the ROM): the panel
  * spans screen 0 (from x 160) into screen 1 (to about x 303 in world terms), and the 512 px repeat
- * (the panel again from world 672, screen 2 from x 160) is not drawn. Coordinates were derived, not
- * yet measured: the verifier's first run confirms them.
+ * (the panel again from world 672, screen 2 from x 160) is not drawn. The first opaque column (x 160)
+ * is derived, not yet measured; the verifier's first run confirms it.
  */
 test('$01F: layer 3 is drawn once, across screens 0 and 1, not repeated 512 px on, and the toggle says it follows the camera', async ({
   page,
@@ -1162,6 +1162,19 @@ test('$01F: layer 3 is drawn once, across screens 0 and 1, not repeated 512 px o
   expect(changed(1), 'the rest of the panel is on screen 1').toBeGreaterThan(0)
   expect(on[2].some(v => v !== 0), 'screen 2 is rendered, so the comparison below is not of two blanks').toBe(true) // prettier-ignore
   expect(off[2], 'no copy of layer 3 at the 512 px repeat').toEqual(on[2])
+  // The panel's first opaque column on screen 0 tells the first landing (-104, derived x 160) from the old
+  // smash-cycle start (-128, x 184). Derived from the tile columns, not yet measured: the verifier measures it.
+  const firstColumn = await page.evaluate(rootSel => {
+    let x0 = 1e9
+    for (const c of document.querySelectorAll(
+      `${rootSel} canvas[data-screen="0"][data-plane^="l3"]`,
+    )) {
+      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+      for (let i = 3; i < d.length; i += 4) if (d[i] !== 0) x0 = Math.min(x0, (i >> 2) % c.width)
+    }
+    return x0
+  }, root(0x01f))
+  expect(firstColumn, 'layer 3 starts at the first landing, not the old -128 start').toBe(160)
   await expect(button).toHaveAttribute('title', /follows the camera/)
 })
 

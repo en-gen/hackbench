@@ -589,3 +589,7 @@ advance the RNG, but that was not run. Later smash cycles re-roll X (-128..-65) 
 then stands, so they follow a longer, input-dependent history and are not modelled. When any step
 cannot run (a loader shape that is not stock, the sweep or a pass does not return, several smashers),
 the whole result refuses with that step named, and the map view draws no Layer 3 on that map.
+
+Known blind spot: a hack can keep the loader's stock shapes and still call GetRand outside this schedule (UberASM
+level init code, overworld sprites, extra title-demo frames, a patched title sprite or a custom sprite that
+runs before the smasher). The chain then gives a confident but wrong X; nothing here can see it.
