@@ -33,6 +33,12 @@ export const DISPATCH_SEP_AT = 0x0da106
 export const DISPATCH_JSL_AT = 0x0da10b
 const SEP = 0xe2
 const JSL = 0x22
+/** SEP #$30 (bank_0D.asm:1057): A, X and Y 8-bit. The handler is entered with the P that this sets. */
+const SEP_IMM_AXY8 = 0x30
+/** P after the reset the game's code runs under ($34: IRQ off), with the dispatcher's SEP applied. */
+const P_BASE = 0x34
+/** ExecutePtrLong (bank_00.asm:864, SMW_U.sym $0086FA); the FastROM mirror bank $80 is the same code. */
+const EXECUTE_PTR_LONG = 0x0086fa
 const SENTINEL = 0xee
 
 // Screen field with its high bits set (masked by $1F), flags in every combination, extra byte values.
@@ -57,6 +63,13 @@ export function screenExitFilingMismatch(rom: RomFile): string | null {
     rom.readByte(DISPATCH_JSL_AT) === JSL &&
     DISPATCH_JSL_AT + 4 === ADDR_EXTENDED_DISPATCH
   if (!shape) return 'the extended-object dispatch is not the long-pointer call this check reads'
+  const imm = rom.readByte(DISPATCH_SEP_AT + 1)
+  if (imm !== SEP_IMM_AXY8)
+    return 'the extended-object dispatch no longer starts with SEP #$30, so the handler would run in a different register mode'
+  const target = rom.readAt(DISPATCH_JSL_AT + 1, 3)
+  const callee = target ? target[0]! | (target[1]! << 8) | ((target[2]! & 0x7f) << 16) : -1
+  if (callee !== EXECUTE_PTR_LONG)
+    return 'the extended-object dispatch calls a different routine than the long-pointer jump this check reads'
   if (romByte(rom, entry) === null)
     return `the extended-object $00 entry $${hex6(entry)} is not in the ROM image`
   try {
@@ -70,7 +83,11 @@ export function screenExitFilingMismatch(rom: RomFile): string | null {
       w[B] = b
       w[0x4000] = d
       const before = w.slice()
-      const r = callSubroutine(cpu, entry, { kind: 'jsr', maxSteps: BUDGET })
+      const r = callSubroutine(cpu, entry, {
+        kind: 'jsr',
+        maxSteps: BUDGET,
+        regs: { p: P_BASE | imm },
+      })
       if (r.kind !== 'returned') return describeResult(r, BUDGET) ?? r.kind
       const x = a & 0x1f
       const want = new Map<number, number>([

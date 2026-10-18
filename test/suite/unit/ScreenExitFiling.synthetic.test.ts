@@ -31,7 +31,9 @@ function rom(code: number[], dispatchTo = 0x0db000): RomFile {
   const bytes = new Uint8Array(0x100000)
   bytes[0x7fd5] = 0x20
   bytes[off0d(DISPATCH_SEP_AT)] = 0xe2 // SEP, the dispatcher's first opcode
+  bytes[off0d(DISPATCH_SEP_AT) + 1] = 0x30 // SEP #$30: A, X, Y 8-bit
   bytes[off0d(DISPATCH_JSL_AT)] = 0x22 // JSL ExecutePtrLong, whose table follows
+  bytes.set([0xfa, 0x86, 0x00], off0d(DISPATCH_JSL_AT) + 1) // its target
   bytes.set([dispatchTo & 0xff, (dispatchTo >> 8) & 0xff, dispatchTo >> 16], DISPATCH)
   bytes.set(code, HANDLER)
   return RomFile.fromBytes('filing.sfc', bytes)
@@ -89,6 +91,30 @@ describe('screenExitFilingMismatch (#957)', () => {
     const r = rom(FILING)
     r.writeAt(DISPATCH_SEP_AT, [0xea])
     expect(screenExitFilingMismatch(r)).toMatch(/dispatch/)
+  })
+  it('refuses when the SEP immediate no longer sets 8-bit A and X', () => {
+    for (const imm of [0x20, 0x10, 0x00, 0x31]) {
+      const r = rom(FILING)
+      r.writeAt(DISPATCH_SEP_AT + 1, [imm])
+      expect(screenExitFilingMismatch(r)).toMatch(/dispatch.*SEP/)
+    }
+  })
+  it('refuses when the dispatcher calls another routine, in either bank', () => {
+    for (const target of [
+      [0xfb, 0x86, 0x00],
+      [0xfa, 0x87, 0x00],
+      [0xfa, 0x86, 0x01],
+      [0xfa, 0x86, 0x7e],
+    ]) {
+      const r = rom(FILING)
+      r.writeAt(DISPATCH_JSL_AT + 1, target)
+      expect(screenExitFilingMismatch(r)).toMatch(/dispatch.*routine/)
+    }
+  })
+  it('accepts the FastROM mirror of the same routine', () => {
+    const r = rom(FILING)
+    r.writeAt(DISPATCH_JSL_AT + 1, [0xfa, 0x86, 0x80])
+    expect(screenExitFilingMismatch(r)).toBeNull()
   })
   it('reports the step budget when the handler spins', () => {
     expect(screenExitFilingMismatch(rom([0x80, 0xfe]))).toMatch(/budget|steps/i)

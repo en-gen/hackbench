@@ -113,8 +113,8 @@ export const SCREEN_EXIT_FILING_CODE: readonly number[] = [
 ]
 export function plantScreenExitFiling(rom: RomFile): void {
   try {
-    rom.writeAt(DISPATCH_SEP_AT, [0xe2])
-    rom.writeAt(DISPATCH_JSL_AT, [0x22])
+    rom.writeAt(DISPATCH_SEP_AT, [0xe2, 0x30])
+    rom.writeAt(DISPATCH_JSL_AT, [0x22, 0xfa, 0x86, 0x00])
     rom.writeAt(ADDR_EXTENDED_DISPATCH, [0x00, 0xb0, 0x0d])
     rom.writeAt(0x0db000, [...SCREEN_EXIT_FILING_CODE])
   } catch {
