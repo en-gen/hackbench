@@ -103,6 +103,7 @@ type CartOpts = {
   lda?: number
   smashers?: 0 | 1 | 2
   brk?: 'sweep' | 'first' | 'second'
+  kill?: 'first' | 'second'
 }
 const smashCart = (o: CartOpts = {}) => {
   const cart = new RomFile('synthetic.sfc', Buffer.alloc(0x80000, 0))

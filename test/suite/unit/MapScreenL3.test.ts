@@ -676,7 +676,7 @@ describe.skipIf(!hasRom(VANILLA))('which vanilla maps take the smash path (corpu
       const screens = Math.max(header.levelLength, 1)
       const l3 = { ...v.l3, colors: COLORS } // the sweep passes no palette; any opaque one shows the tiles
       const drawn = Array.from({ length: screens }, (_, s) => drawL3Planes(l3, s)).map((p, s) => (p.l3Low || p.l3High ? s : -1)).filter(s => s >= 0) // prettier-ignore
-      expect(drawn, `map ${id.toString(16)}`).toEqual([0, 1]) // the panel spans world 184..~330, none past the one copy
+      expect(drawn, `map ${id.toString(16)}`).toEqual([0, 1]) // the panel spans world 160..~306, none past the one copy
       console.log(`smash map $${id.toString(16)}: layer 3 on screens 0-1 of ${screens}, x ${v.l3.xPx} y ${v.l3.yPx}`) // prettier-ignore
     }
     expect(hits).toEqual([0x01f, 0x1d4, 0x1fc])
