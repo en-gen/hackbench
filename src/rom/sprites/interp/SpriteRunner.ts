@@ -191,6 +191,8 @@ export interface RunOptions {
    * no $67 line-walk pick. Default true: INIT first, as the game and the graders do.
    */
   init?: boolean
+  /** With `init: false`: 'init-picture' runs INIT for the look only and re-bases the art on the placed spot (D139). */
+  restPicture?: 'no-init' | 'init-picture'
 }
 
 export { Refusal }
@@ -487,7 +489,8 @@ export function runOnce(
   const shell = loaded.shell
   // INIT runs only for a sprite the loader leaves in status 1.
   const atRest = opts.init === false
-  const runsInit = !atRest && (shell?.status ?? 1) === 1
+  const pic = atRest && opts.restPicture === 'init-picture'
+  const runsInit = (!atRest || pic) && (shell?.status ?? 1) === 1
   const num = shell?.number ?? id
   // A sprite the loader does not leave in status 1 never runs INIT, so its INIT pointer is not read.
   const inits = runsInit ? resolvePointer(rom, tables.tables.initTable, num) : undefined
@@ -523,7 +526,8 @@ export function runOnce(
       w[RAM.curSprite] = picked
     } else m.call(ENTRY.initSpriteTables, 'jsl')
     // D134: stop where the game hands control to INIT: CallSpriteInit stores status 8 first (bank_01.asm:226-227).
-    if (atRest && !opts.spawn) w[RAM.status + m.seed.slot] = shell?.status ?? CALL_INIT_STATUS
+    if (atRest && !pic && !opts.spawn)
+      w[RAM.status + m.seed.slot] = shell?.status ?? CALL_INIT_STATUS
     let n = m.steps
     // Status 1 -> CallSpriteInit, which sets status 8 and runs INIT. An INIT
     // that leaves status 1 runs again next frame, as the game does (the floating
@@ -547,7 +551,8 @@ export function runOnce(
     const snaps =
       DRAWS_BEFORE_LINE_SNAP.has(num) &&
       grinderDrawsBeforeSnap(rom, mains.handler.address, opts.grinderDispatch)
-    model.anchor = { ...anchor, rawX: m.seed.sprite.x, rawY: m.seed.sprite.y }
+    const placed = { x: m.seed.sprite.x, y: m.seed.sprite.y }
+    model.anchor = { ...(atRest ? placed : anchor), rawX: placed.x, rawY: placed.y }
     if (snaps) model.snaps = true
     model.oamBase = w[RAM.oamIndex + m.seed.slot]
     probe?.(-1, w)

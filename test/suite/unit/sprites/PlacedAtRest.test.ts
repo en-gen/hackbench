@@ -117,3 +117,20 @@ describe('the served paths run at rest', () => {
     expect(m.anchor).toMatchObject({ x: 128, y: 128 })
   })
 })
+
+describe('the D139 picture switch', () => {
+  it("'init-picture' runs INIT for the look and draws it at the placed spot; 'no-init' is the default", () => {
+    const run = (restPicture?: 'no-init' | 'init-picture') => runOnce(rom, 20, SPRITE_SEED, { init: false, restPicture }) // prettier-ignore
+    const pic = run('init-picture')
+    expect(pic.passes[0]!.palette.length).toBeGreaterThan(0)
+    expect(pic.anchor).toMatchObject({ x: 0x80, y: 0x80 })
+    expect(pic.passes[0]!.parts[0]).toMatchObject({ dx: 0, dy: 0 })
+    expect(run().passes[0]!.palette).toEqual([])
+    expect(run('no-init').passes[0]!.palette).toEqual([])
+  })
+  it("'init-picture' re-bases a sprite INIT moved (id 0: +8) onto the placed spot", () => {
+    const m = runOnce(rom, 0, SPRITE_SEED, { init: false, restPicture: 'init-picture' })
+    expect(m.initFrames).toBe(1)
+    expect(m.anchor).toMatchObject({ x: 0x80, rawX: 0x80 })
+  })
+})
