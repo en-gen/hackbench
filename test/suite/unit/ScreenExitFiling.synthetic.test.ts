@@ -94,7 +94,7 @@ describe('screenExitFilingMismatch (#957)', () => {
     expect(screenExitFilingMismatch(rom([0x80, 0xfe]))).toMatch(/budget|steps/i)
   })
   it('names a mismatch when the dispatch points outside the cart', () => {
-    expect(screenExitFilingMismatch(rom(FILING, 0x7e2000))).toMatch(/not cart ROM/)
+    expect(screenExitFilingMismatch(rom(FILING, 0x7e2000))).toMatch(/not in the ROM image/)
   })
   it('names a mismatch when the dispatch is unreadable', () => {
     const r = RomFile.fromBytes('tiny.sfc', new Uint8Array(0x10))

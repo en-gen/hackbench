@@ -58,7 +58,7 @@ export function screenExitFilingMismatch(rom: RomFile): string | null {
     DISPATCH_JSL_AT + 4 === ADDR_EXTENDED_DISPATCH
   if (!shape) return 'the extended-object dispatch is not the long-pointer call this check reads'
   if (romByte(rom, entry) === null)
-    return `the extended-object $00 entry $${hex6(entry)} is not cart ROM`
+    return `the extended-object $00 entry $${hex6(entry)} is not in the ROM image`
   try {
     const { bus, cpu } = smwMachine(rom)
     const w = bus.wram
