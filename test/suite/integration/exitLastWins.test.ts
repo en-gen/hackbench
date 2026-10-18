@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { SmwRom } from '../../../src/rom/SmwRom'
-import { parseLevelObjects } from '../../../src/rom/LevelParser'
+import { parseLevelObjects, readableScreenExits } from '../../../src/rom/LevelParser'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
 
 /** Slots where the old rule (every exit object) and the new (last per screen) disagree. */
@@ -18,7 +18,7 @@ function sweep(rawOf: (slot: number) => Uint8Array | null | undefined) {
     const raw = rawOf(i)
     if (!raw || raw.length < 6) continue
     slotsRead++
-    const exits = parseLevelObjects(raw, []).objects.filter(o => o.screenExitDest !== undefined)
+    const exits = readableScreenExits(parseLevelObjects(raw, []))
     exitObjects += exits.length
     if (new Set(exits.map(o => o.screenExitScreen)).size !== exits.length) affected.push(i)
   }

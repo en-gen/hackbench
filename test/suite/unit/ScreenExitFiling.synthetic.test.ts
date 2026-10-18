@@ -116,6 +116,15 @@ describe('screenExitFilingMismatch (#957)', () => {
     r.writeAt(DISPATCH_JSL_AT + 1, [0xfa, 0x86, 0x80])
     expect(screenExitFilingMismatch(r)).toBeNull()
   })
+  it('caches per ROM version: a write recomputes, an unchanged ROM does not run again', () => {
+    const r = rom(FILING)
+    expect(screenExitFilingMismatch(r)).toBeNull()
+    // Bypasses writeAt, so the version is unchanged: a second call must reuse the first result.
+    r.buffer[HANDLER] = 0x60
+    expect(screenExitFilingMismatch(r)).toBeNull()
+    r.writeAt(HANDLER, [0x60]) // a real edit bumps the version and the handler now files nothing
+    expect(screenExitFilingMismatch(r)).toMatch(/Screen exits/)
+  })
   it('reports the step budget when the handler spins', () => {
     expect(screenExitFilingMismatch(rom([0x80, 0xfe]))).toMatch(/budget|steps/i)
   })

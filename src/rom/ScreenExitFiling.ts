@@ -15,7 +15,7 @@ import { smwMachine } from './sprites/interp/Machine'
 import { ADDR_EXTENDED_DISPATCH, readLongPointer } from './objectHandlers/romData'
 import { hex6 } from './hex'
 import { romByte } from './sprites/interp/SpriteBus'
-import type { RomFile } from './RomFile'
+import { cachedByVersion, type RomFile } from './RomFile'
 
 // WRAM addresses from SMW_U.sym: Layer1DataPtr, LvlLoadObjNo, _A, _B, ExitTableLow/High, UseSecondaryExit.
 const PTR = 0x65
@@ -53,8 +53,14 @@ const CASES: readonly (readonly [a: number, b: number, d: number])[] = [
   [0x08, 0xff, 0x7f],
 ]
 
-/** Why the handler is not the stock filing, or null when it files exits as modelled. */
+const FILING_CACHE = new WeakMap<RomFile, { version: number; value: string | null }>()
+
+/** Why the handler is not the stock filing, or null when it files exits as modelled. Once per ROM version. */
 export function screenExitFilingMismatch(rom: RomFile): string | null {
+  return cachedByVersion(FILING_CACHE, rom, () => runFilingCheck(rom))
+}
+
+function runFilingCheck(rom: RomFile): string | null {
   const entry = readLongPointer(rom, ADDR_EXTENDED_DISPATCH)
   if (entry === null) return 'the extended-object dispatch is unreadable'
   // The table is three-byte entries only if the dispatcher still JSLs ExecutePtrLong with the table right after it.
@@ -111,13 +117,11 @@ export function screenExitFilingMismatch(rom: RomFile): string | null {
       if (bad)
         return `Screen exits (extended object $00 at $${hex6(entry)}) are not filed per screen: ${bad}.`
     }
-    // Last write wins: a second exit for the same screen replaces the first.
+    // Last write wins: each run asserts the exact table bytes, so a refiled screen proves the overwrite.
     const again = run(0x07, 0x00, 0x44) ?? run(0x07, 0x01, 0x55)
-    if (again)
-      return `Screen exits (extended object $00 at $${hex6(entry)}) are not filed per screen: ${again}.`
-    return w[LOW + 7] === 0x55 && w[HIGH + 7] === 1
-      ? null
-      : `Screen exits (extended object $00 at $${hex6(entry)}) do not keep the last exit written for a screen.`
+    return again
+      ? `Screen exits (extended object $00 at $${hex6(entry)}) do not keep the last exit written for a screen: ${again}.`
+      : null
   } catch (e) {
     return `Screen exits could not be run: ${e instanceof Error ? e.message : String(e)}.`
   }
