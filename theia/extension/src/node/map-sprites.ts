@@ -116,8 +116,8 @@ export interface SpriteModel {
 
 /**
  * What a drawer answers for one sprite: the table engine's result, or the
- * interpreter's. `anchor` is where the sprite stands after its INIT ran (the
- * parts' dx/dy are relative to it); absent, the stream position is the anchor.
+ * interpreter's. `anchor` is where the sprite stands (the placed spot at rest, after INIT
+ * when it ran; the parts' dx/dy are relative to it); absent, the stream position is the anchor.
  * `reason` is a refusal in the interpreter's own words.
  */
 export type SpriteDrawResult =
@@ -442,7 +442,6 @@ export function interpRunner(
   rom: RomFile,
   index: number,
   model: { isVertical: boolean; screenCount: number },
-  // The map view's picture is a sprite at rest (D134): placed spot, MAIN only, INIT left for play/simulate.
   run: (rom: RomFile, id: number, seed: SpriteSeed) => RunModel = (r, i, sd) => runOnce(r, i, sd, { init: false }), // prettier-ignore
   seedFor: (rom: RomFile, index: number) => SpriteSeed = levelSeed,
   ringRoutines: RingRoutines = VANILLA_RING_ROUTINES,
@@ -674,7 +673,7 @@ export function spriteLayer(
 }
 
 /**
- * Replies per working-copy bytes and map: running every sprite's INIT and 64
+ * Replies per working-copy bytes and map: running every sprite's 64
  * passes takes a moment, and the working copy hands out new bytes after each
  * edit, so nothing here needs invalidating.
  */
@@ -758,7 +757,7 @@ export const MAX_FRAMES = 16
  * path. The loop starts at `m.chosen` (the pose the map shows, so frame 0 IS the map's bitmap) and goes on
  * to the later passes. A pose is its parts' chars, flips and offsets from one another (sorted: OAM order is
  * not a pose), after the sprite's own movement is subtracted, so only the art changes between frames.
- * Where a part is measured from differs by sprite: usually the one INIT anchor, with the sprite drawing
+ * Where a part is measured from differs by sprite: usually the one anchor (the placed spot at rest), with the sprite drawing
  * where it stood at the end of the pass (`pos`); for $67 on a vanilla-shaped handler the pass before's
  * `pos` (`origin`, when `m.snaps`), the draw running before the move. `drawAt` is where the sprite
  * stood when it drew. A sprite with screen-fixed parts (`fixOffsets`) is not animated here: their map
@@ -811,6 +810,18 @@ export function framesOf(
   return { frames }
 }
 
+/** The run behind a sprite's frames: at rest, like the map's picture (D134), so frame 0 is that bitmap. */
+export function frameRun(
+  rom: RomFile,
+  index: number,
+  model: { isVertical: boolean; screenCount: number },
+  base: SpriteSeed,
+  s: LevelSprite,
+): SpriteRun {
+  // prettier-ignore
+  return interpRunner(rom, index, model, undefined, () => base)(s)
+}
+
 /** One sprite of a map as frames: the same seed, camera and drawer the map view used, run again for this sprite alone. */
 export function mapSpriteFrames(
   cache: L1ModelCache,
@@ -835,8 +846,10 @@ export function mapSpriteFrames(
     // Extra bits fail closed in the map view; there is nothing to animate either.
     if ((s.raw[0] ?? 0) & EXTRA_BITS) return { status: 'ok', frames: [], reason: 'extraBits' }
     const base = levelSeed(rom.rom, index)
-    const run = interpRunner(rom.rom, index, model, undefined, () => base)(s)
-    return { status: 'ok', ...framesOf(run, s, model, dynamicOf(rom.rom)) }
+    return {
+      status: 'ok',
+      ...framesOf(frameRun(rom.rom, index, model, base, s), s, model, dynamicOf(rom.rom)),
+    }
   } catch (err) {
     return { status: 'unavailable', reason: (err as Error).message }
   }

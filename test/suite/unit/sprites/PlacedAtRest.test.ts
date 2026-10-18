@@ -3,14 +3,15 @@
  * never runs. The synthetic block needs no ROM; the corpus block runs the real chainsaws and grinders.
  */
 import { describe, it, expect } from 'vitest'
-import { runOnce } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import { runOnce, RAM } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { SPRITE_SEED, withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
-import { parseLevelSprites } from '../../../../src/rom/LevelParser'
+import { parseLevelSprites, type LevelSprite } from '../../../../src/rom/LevelParser'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
-import { interpRunner } from '../../../../theia/extension/src/node/map-sprites'
+import { frameRun, interpRunner } from '../../../../theia/extension/src/node/map-sprites'
 import { L1ModelCache } from '../../../../theia/extension/src/node/map-screen'
 import { VANILLA, hasRom, romPath } from '../../support/corpus'
+import { GRINDER_DISPATCH } from '../../support/syntheticGrinder'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 
 const rom = buildSyntheticRom()
@@ -67,4 +68,52 @@ describe.skipIf(!hasRom(VANILLA))('at rest on vanilla', () => {
         expect(r.m.chosen).toBe(0)
       }
     })
+})
+
+describe('what at rest starts from', () => {
+  const status = (id: number, init?: boolean) => {
+    let st = -1
+    runOnce(rom, id, SPRITE_SEED, { init, probe: (p, w) => { if (p === -1) st = w[RAM.status + SPRITE_SEED.slot]! } }) // prettier-ignore
+    return st
+  }
+  it('stops where the game hands control to INIT (status 8), and a shell keeps the loader status 9', () => {
+    expect(status(0, false)).toBe(8)
+    expect(status(0xda, false)).toBe(9)
+    expect(runOnce(rom, 0xda, SPRITE_SEED, { init: false }).refusal).toBeUndefined()
+  })
+  it('a $67-style sprite whose first drawing pass is above 0 keeps the raw anchor at rest', () => {
+    const opts = { grinderDispatch: GRINDER_DISPATCH }
+    const r = buildSyntheticRom({ grinderDrawsFromPass1: true })
+    const played = runOnce(r, 103, SPRITE_SEED, opts)
+    const rest = runOnce(r, 103, SPRITE_SEED, { ...opts, init: false })
+    expect(rest.chosen).toBe(1)
+    expect(rest.anchor).toMatchObject({ x: 0x80, y: 0x80 })
+    expect(played.anchor!.x).not.toBe(0x80)
+  })
+  it('a sprite that draws nothing at rest says its look is set up when the map runs', () => {
+    const m = runOnce(buildSyntheticRom({ noTileWrite: true }), 0, SPRITE_SEED, { init: false })
+    expect(m.emptyReason).toMatch(/set up when the map runs and shown on play/)
+  })
+})
+
+describe('the served paths run at rest', () => {
+  const shape = { isVertical: false, screenCount: 1 }
+  const base = withSeed({ loaded: new Uint8Array(0x20000) }, SPRITE_SEED)
+  const s = { index: 0, x: 8, y: 8, spriteId: 0, screen: 0, extraBit: false, raw: [], streamOffset: 0 } as LevelSprite // prettier-ignore
+  const ran = (
+    r: ReturnType<typeof interpRunner> extends (s: LevelSprite) => infer R ? R : never,
+  ) => {
+    if (!('m' in r)) throw new Error('direct answer')
+    return r.m
+  }
+  it('interpRunner defaults to no INIT', () => {
+    const m = ran(interpRunner(rom, 0, shape, undefined, () => base)(s))
+    expect(m.initFrames).toBe(0)
+    expect(m.anchor).toMatchObject({ x: 128, y: 128 })
+  })
+  it('the frames of a sprite are run with no INIT', () => {
+    const m = ran(frameRun(rom, 0, shape, base, s))
+    expect(m.initFrames).toBe(0)
+    expect(m.anchor).toMatchObject({ x: 128, y: 128 })
+  })
 })

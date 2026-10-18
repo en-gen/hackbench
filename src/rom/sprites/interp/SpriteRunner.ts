@@ -92,7 +92,7 @@ export interface SpritePart {
   priority: number
   flipX: boolean
   flipY: boolean
-  /** Pixels from the pass's draw origin (`PassResult.origin`): the post-INIT position, except for $67 on a vanilla-shaped handler. */
+  /** Pixels from the pass's draw origin (`PassResult.origin`): the post-INIT position (the placed spot at rest), except for $67 on a vanilla-shaped handler. */
   dx: number
   dy: number
   /** Raw attribute byte, for graders that compare it whole. */
@@ -132,7 +132,7 @@ export interface SpriteModel {
   refusal?: string
   /** Why no part was drawn across all passes, when the run completed. */
   emptyReason?: string
-  /** Position after INIT, and the raw placement it started from. For $67 on a vanilla-shaped handler: the position its drawn (chosen) pass drew at, after the line snap. */
+  /** Position after INIT (the placed spot at rest), and the raw placement it started from. For $67 on a vanilla-shaped handler: the position its drawn (chosen) pass drew at, after the line snap. */
   anchor?: { x: number; y: number; rawX: number; rawY: number }
   /**
    * Where the level state came from: the ROM's own level loader, or a generic
@@ -141,7 +141,7 @@ export interface SpriteModel {
    */
   seedSource?: 'rom-level-load' | 'generic'
   seedReason?: string
-  /** Frames INIT took: 1 unless it left status 1 and was re-run. */
+  /** Frames INIT took: 1 unless it left status 1 and was re-run; 0 when INIT did not run (a shell, or at rest). */
   initFrames?: number
   /** $15EA after INIT: the OAM base the cart assigned. */
   oamBase?: number
@@ -187,9 +187,8 @@ export interface RunOptions {
   /** The dispatch shape the $67 gate accepts; a test hook, so a synthetic cart brings its own (default: vanilla's). */
   grinderDispatch?: DispatchShape
   /**
-   * `false` is the map view's at-rest picture (D134, D91): INIT never runs, so the sprite is drawn by its
-   * own MAIN from the placed (list) spot, and the $67 line-walk pass pick (a move) is not applied. Default true: INIT first, as the game
-   * and the graders do.
+   * `false` is the map view's at-rest picture (D134, D91): no INIT, drawn by its own MAIN from the placed spot,
+   * no $67 line-walk pick. Default true: INIT first, as the game and the graders do.
    */
   init?: boolean
 }
@@ -402,6 +401,8 @@ export class Machine {
   }
 }
 
+const CALL_INIT_STATUS = 8
+
 const s8 = (v: number) => (v > 127 ? v - 256 : v)
 
 /** Parts the pass wrote, relative to `anchor`, in screen terms (camera removed). */
@@ -521,8 +522,8 @@ export function runOnce(
       m.seed.slot = picked
       w[RAM.curSprite] = picked
     } else m.call(ENTRY.initSpriteTables, 'jsl')
-    // At rest the sprite starts past INIT (status 8, the normal state), the way a shell starts in status 9 (D134).
-    if (atRest && !opts.spawn) w[RAM.status + m.seed.slot] = shell?.status ?? 8
+    // D134: stop where the game hands control to INIT: CallSpriteInit stores status 8 first (bank_01.asm:226-227).
+    if (atRest && !opts.spawn) w[RAM.status + m.seed.slot] = shell?.status ?? CALL_INIT_STATUS
     let n = m.steps
     // Status 1 -> CallSpriteInit, which sets status 8 and runs INIT. An INIT
     // that leaves status 1 runs again next frame, as the game does (the floating
@@ -542,8 +543,7 @@ export function runOnce(
     if (st === 0) return { ...model, emptyReason: 'INIT erased the sprite (status 0)' }
     if (st === 1)
       return { ...model, refusal: `INIT did not complete in ${MAX_INIT_FRAMES} frames: status stays 1, waiting on state the seed lacks` } // prettier-ignore
-    // At rest the anchor is the placed spot, whatever MAIN moves later (D134).
-    const anchor = atRest ? { ...m.seed.sprite } : m.pos()
+    const anchor = m.pos()
     const snaps =
       DRAWS_BEFORE_LINE_SNAP.has(num) &&
       grinderDrawsBeforeSnap(rom, mains.handler.address, opts.grinderDispatch)
@@ -580,7 +580,7 @@ export function runOnce(
     // line walk then set, which is on the line (CODE_01D768 / CODE_01D7B0, 11863-11930; Mesen capture 6b47bb75 slot
     // $1F: (415,336) -> (419,340) -> (431,336)). Each step is only taken if the pass before it moved the sprite
     // and the next pass draws; a fingerprint match cannot prove that. A first draw after pass 0 is already on track.
-    // The pick of the line-walk pass is a move, which belongs to play/simulate (D91); at rest the first drawn pass stays.
+    // The line-walk pick is a move: play/simulate only (D91).
     if (snaps && !atRest && first === 0 && model.passes[1]?.parts.length) {
       const [q0, q1] = [model.passes[0]!.pos, model.passes[1]!.pos]
       const moved = (a: { x: number; y: number }, b: { x: number; y: number }) =>
@@ -592,7 +592,7 @@ export function runOnce(
     if (snaps && !atRest && model.chosen !== undefined)
       model.anchor = { ...model.anchor!, ...model.passes[model.chosen]!.origin }
     if (model.passes.every(p => p.parts.length === 0))
-      model.emptyReason = `drew no OAM tile in ${m.seed.mainPasses} passes (invisible by design, or the seed lacks state)` // prettier-ignore
+      model.emptyReason = `drew no OAM tile in ${m.seed.mainPasses} passes (${atRest ? "its look is set up when the map runs and shown on play" : 'invisible by design, or the seed lacks state'})` // prettier-ignore
   } catch (e) {
     if (e instanceof Refusal) return { ...model, refusal: e.message }
     throw e

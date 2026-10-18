@@ -1,5 +1,5 @@
 /**
- * Spike Top ($2E) facing (#134), on the path the map view serves: the 65816
+ * Spike Top ($2E) facing (#134), on the INIT-on run (play/simulate; the map's picture at rest runs no INIT, D134): the 65816
  * interpreter running InitSpikeTop (bank_01.asm:602) with Mario's X set either
  * side of the sprite. Corpus blocks only; the model path's synthetic cover is in
  * model/SpriteFactory.synthetic.test.ts and model/SpikeTopAppearance.test.ts.

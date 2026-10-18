@@ -1,3 +1,3 @@
 ### Changed
 
-- Map view: sprites are drawn as placed, at the position in the level's list, with no setup code run, so chainsaws and grinders stay put and Podoboos, Koopas and the like show their at-rest picture; the setup moves wait for play/simulate (#980).
+- Map view: each sprite is drawn at the position in the map's sprite list by its own draw code, without running its start-up code first; start-up moves and looks are left for play/simulate. Sprites that draw nothing without start-up code show the not-drawn marker (#980).
