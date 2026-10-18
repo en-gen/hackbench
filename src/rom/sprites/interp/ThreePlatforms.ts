@@ -18,7 +18,7 @@
 import { spanFingerprint } from '../../SubmapFlagGate'
 import type { RomFile } from '../../RomFile'
 import { bytesAt } from './Guards'
-import { jsrTarget, runSpawnedChildren } from './SpawnedChildren'
+import { runSpawnedChildren } from './SpawnedChildren'
 import { runOnce, type RunOptions, type SpriteModel, type SpritePart } from './SpriteRunner'
 import type { SpriteSeed } from './SpriteSeed'
 
@@ -29,18 +29,28 @@ const SPAWNER_LENGTH = 84
 export const PLATFORM_COUNT = 3
 /** The loader's route at $02:A89C starts CMP #$E0 (bank_02.asm:5325). Checked by structure, not by hash: 12 bytes hold under 24 unknown ones (the fingerprint minimum), so a digest would be brute-forceable. */
 const LOADER_ROUTE = { what: 'the loader route to the platform spawner', at: 0x02a89c }
+/** Opcodes and operands the loader route is checked on, each compared on its own (never as a stored run of bytes). */
+const OP_CMP_IMM = 0xc9
+const OP_BNE = 0xd0
+const OP_DEY = 0x88
+const OP_STY_DP = 0x84
+const OP_JSR = 0x20
 /** The sprite number the route compares against: this sprite's own id. */
-const COMPARE_IMMEDIATE_OP = 0xc9
 const SPRITE_ID = 0xe0
-const JSR_OP = 0x20
-/** The spawner's input contract: the loader stores the entry's data offset into direct page $03 (STY, bank_02.asm:5329) before the JSR. */
-const STORE_OFFSET = { at: 0x02a89c + 7, op: 0x84, dp: 0x03 }
-/** The loader's `JSR Load3Platforms` (bank_02.asm:5331). */
-const LOADER_CALL = 0x02a8a5
+/** Direct page $03: where the spawner reads the entry's data offset (bank_02.asm:6212). */
+const DP_DATA_OFFSET = 0x03
+/** Offsets in the route from its start (bank_02.asm:5325-5331): CMP #$E0, BNE, PHY, PHX, DEY, STY $03, JSR. */
+const AT = { cmp: 0, id: 1, bne: 2, dey: 6, sty: 7, dp: 8, jsr: 9 }
+/** The loader's `JSR Load3Platforms` (bank_02.asm:5331): its opcode, and the operand that names the spawner. */
+const LOADER_CALL = LOADER_ROUTE.at + AT.jsr
 
-/** The spawner the loader calls (the JSR operand, bank 2), so a repointed call runs the routine it names; the vanilla entry when there is no JSR. */
-export function spawnerEntry(rom: RomFile): number {
-  return jsrTarget(rom, LOADER_CALL, LOAD_3_PLATFORMS)
+/**
+ * The spawner the loader calls: the JSR operand (bank 2), what the ROM holds, so a repointed call runs the routine it
+ * names. With no JSR there the call was replaced and there is no spawner to name: null, never a vanilla address.
+ */
+export function spawnerEntry(rom: RomFile): number | null {
+  const call = bytesAt(rom, LOADER_CALL, 3)
+  return call?.[0] === OP_JSR ? 0x020000 | call[1]! | (call[2]! << 8) : null
 }
 
 /**
@@ -67,17 +77,21 @@ export type PlatformsResult =
   | { ok: true; parts: SpritePart[]; unverified: string[]; spawned: number; notes: string[] }
   | { ok: false; reason: string; none?: true; unverified: string[] }
 
-/** True when the loader still compares the list id against $E0, stores the data offset in $03 and `JSR`s a routine: the shape the spawner call rests on. */
+/**
+ * True when the loader still has the shape the spawner call rests on: CMP #$E0, BNE, DEY, STY $03 and a JSR, each
+ * checked alone. Not checked, because nothing the spawner reads depends on them: the BNE's offset (where a non-$E0 id
+ * goes) and the PHY / PHX pair (saves the loop restores after the call). Hashing 12 bytes is not done: under 24 unknown.
+ */
 export function loaderRouteIntact(rom: RomFile): boolean {
-  const head = bytesAt(rom, LOADER_ROUTE.at, 2)
-  const store = bytesAt(rom, STORE_OFFSET.at, 2)
-  const call = bytesAt(rom, LOADER_CALL, 1)
+  const at = (k: keyof typeof AT) => bytesAt(rom, LOADER_ROUTE.at + AT[k], 1)?.[0]
   return (
-    head?.[0] === COMPARE_IMMEDIATE_OP &&
-    head[1] === SPRITE_ID &&
-    store?.[0] === STORE_OFFSET.op &&
-    store[1] === STORE_OFFSET.dp &&
-    call?.[0] === JSR_OP
+    at('cmp') === OP_CMP_IMM &&
+    at('id') === SPRITE_ID &&
+    at('bne') === OP_BNE &&
+    at('dey') === OP_DEY &&
+    at('sty') === OP_STY_DP &&
+    at('dp') === DP_DATA_OFFSET &&
+    at('jsr') === OP_JSR
   )
 }
 
@@ -89,7 +103,9 @@ export function platformsGate(
   const out: string[] = []
   const sha = (at: number, n: number) => spanFingerprint(Uint8Array.from(bytesAt(rom, at, n) ?? []))
   if (!loaderRouteIntact(rom)) out.push(LOADER_ROUTE.what)
-  if (sha(spawnerEntry(rom), SPAWNER_LENGTH) !== routines.spawner) out.push('the platform spawner')
+  // With no JSR there is no spawner to hash; the route check above already names the changed call.
+  const entry = spawnerEntry(rom)
+  if (entry !== null && sha(entry, SPAWNER_LENGTH) !== routines.spawner) out.push('the platform spawner') // prettier-ignore
   return out
 }
 

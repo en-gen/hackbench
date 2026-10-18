@@ -1,21 +1,14 @@
 /**
- * SpawnedChildren.ts -- what FiveEeries.ts ($DE) and ThreePlatforms.ts ($E0) share: a run-once loader command whose
+ * SpawnedChildren.ts -- what ThreePlatforms.ts ($E0) runs on: a run-once loader command whose
  * ROM spawner makes N children, each drawn by the ordinary sprite runner (the $E0 issue, #1015). Only the constants
  * (spawner, child sprite, count) and the per-sprite gate differ, so they stay in the two files with their citations.
  */
 import type { RomFile } from '../../RomFile'
-import { bytesAt } from './Guards'
 import { SPAWN_SHORT, type RunOptions, type SpriteModel, type SpritePart } from './SpriteRunner'
 import type { SpriteSeed } from './SpriteSeed'
 
 /** SpriteLock ($9D, SMWDisX rammap.asm): while it is set the game's own sprite code skips its per-frame move. */
 const SPRITE_LOCK = 0x9d
-
-/** The spawner a loader's `JSR` names (bank 2), so a repointed call runs the routine it names; `vanilla` when there is no JSR. */
-export function jsrTarget(rom: RomFile, callAt: number, vanilla: number): number {
-  const call = bytesAt(rom, callAt, 3)
-  return call?.[0] === 0x20 ? 0x020000 | call[1]! | (call[2]! << 8) : vanilla
-}
 
 /** The entry as the loader hands it over: X in $00/$01, list index in $02, offset of its first byte in $03. */
 export interface SpawnerEntry {

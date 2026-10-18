@@ -16,8 +16,18 @@ export const ANGLE_TABLE_AT = 0x02b180
 const FLAG_TABLE_AT = 0x02b184
 const MAIN = 0x019700
 const INIT = 0x019780
-/** The loader's route, our own order of the two pushes; the JSR stays at +9 where the gate reads the call. */
-const ROUTE = [0xc9, 0xe0, 0xd0, 0x0c, 0xda, 0x5a, 0x88, 0x84, 0x03, 0x20, 0x33, 0xaf]
+/** The loader's route, written an instruction at a time at the game's offsets (our own order of the two pushes); the JSR stays at +9 where the gate reads the call. */
+const ROUTE_AT = 0x02a89c
+function writeRoute(rom: RomFile): void {
+  const at = (offset: number, ...bytes: number[]) => rom.writeAt(ROUTE_AT + offset, bytes)
+  at(0, 0xc9, 0xe0) // compare with the sprite id
+  at(2, 0xd0, 0x0c) // branch away for any other id
+  at(4, 0xda) // push X
+  at(5, 0x5a) // push Y
+  at(6, 0x88) // Y - 1
+  at(7, 0x84, 0x03) // store it in $03
+  at(9, 0x20, SPAWNER_AT & 0xff, (SPAWNER_AT >> 8) & 0xff) // call the spawner
+}
 
 /**
  * The cart's spawner, 84 bytes like the game's span the gate reads. Our own routine with the game's I/O contract: it
@@ -44,7 +54,6 @@ function spawner(): number[] {
 /** The fingerprints the gate is given for this cart (the vanilla ones name the game's own routines). */
 export const SYNTHETIC_PLATFORM_ROUTINES = Object.freeze({
   spawner: spanFingerprint(Uint8Array.from(spawner())),
-  loaderRoute: spanFingerprint(Uint8Array.from(ROUTE)),
 })
 
 export interface PlatformCartOptions {
@@ -61,7 +70,7 @@ export interface PlatformCartOptions {
 export function platformCart(o: PlatformCartOptions = {}): RomFile {
   const rom = buildSyntheticRom({ eeries: { stream: o.stream ?? [0x51, 0xb3, 0xe0, 0xff], room: o.room } }) // prettier-ignore
   // The loader's route and spawner at the game's addresses, the tables at the cart's own.
-  rom.writeAt(0x02a89c, ROUTE)
+  writeRoute(rom)
   rom.writeAt(ANGLE_TABLE_AT, [...ANGLES].reverse())
   rom.writeAt(FLAG_TABLE_AT, [1, 0, 0])
   rom.writeAt(SPAWNER_AT, spawner())

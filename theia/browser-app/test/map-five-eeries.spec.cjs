@@ -6,14 +6,14 @@
  * other four have none, because Load5Eeries sets SpriteLoadIndex on its first spawn only, SMWDisX bank_02.asm:6305-6308).
  * The unit test test/suite/unit/sprites/FiveEeries.corpus.test.ts pins that Eerie to the capture to the pixel and tile
  * (x 968, y 346 eight frames after the spawn). The map view shows the spawn state with Mario at the level start, so Mario
- * is left of the entry and every Eerie moves left: each piece stands 2 px left of entry X + (-32, -16, 0, 16, 32).
+ * is left of the entry; D137: the Eeries are drawn at rest where the spawner places them, no travel, so each piece stands at entry X + (-32, -16, 0, 16, 32).
  * Checked here from the RPC reply and the composite:
  * - two $DE sprites at their real stream indices 4 and 15, drawn (not a marker), unflagged, with their boxes pinned
- *   (910,333 to 990,354 and 2430,269 to 2510,290), so a uniform shift of the five goes red;
- * - each of the FIVE pieces holds an opaque pixel inside its own 16 px column (entry X + offset - 2), in the band of the
- *   data byte's Y (336 and 272, plus the wave: within 5 px), so a draw of one Eerie or a shifted spread goes red;
+ *   (912,336 to 992,352 and 2432,272 to 2512,288), so a uniform shift of the five goes red;
+ * - each of the FIVE pieces holds an opaque pixel inside its own 16 px column (entry X + offset), in the band of the
+ *   data byte's Y (336 and 272), so a draw of one Eerie or a shifted spread goes red;
  * - the Eeries' colours show in the composite of screen 3, and the sprite toggle (S) takes them out.
- * - map $11D (four-slot range): four pieces, box 1550..1614, and the map's note line says "Only 4 of the 5 Eeries appear".
+ * - map $11D (four-slot range): four pieces, box 1552..1616, and the map's note line says "Only 4 of the 5 Eeries appear".
  * NOT covered: hovering or selecting the sprite (#981); $1E8 and $1E9, which share $11D's list and spawn four too, are covered
  * by the unit sweep in FiveEeries.corpus.test.ts.
  * Plants for the verifier (each must turn the spec red; restore after):
@@ -139,20 +139,20 @@ test('the $DE placements of map $021 are two drawn sprites of five Eeries each, 
   ])
   // The box is pinned, not only its width (the sweep table in docs/sprites/sprite-de-five-eeries.md): a uniform shift goes red.
   expect(de.map(s => [s.box.x0, s.box.y0, s.box.x1, s.box.y1])).toEqual([
-    [910, 333, 990, 354],
-    [2430, 269, 2510, 290],
+    [912, 336, 992, 352],
+    [2432, 272, 2512, 288],
   ])
 
-  // Each piece: 16 px wide at entry X + offset - 2 (the Eeries move left from the spawn), inside the data byte's Y band.
+  // Each piece: 16 px wide at entry X + offset (no travel, D137), inside the data byte's Y band.
   for (const s of de) {
     for (const off of [-32, -16, 0, 16, 32]) {
-      const x = s.x + off - 2
+      const x = s.x + off
       const n = opaqueIn(s, x, s.y - 5, x + 16, s.y + 5 + 16)
       expect(n, `entry ${s.index}: a piece at x ${x}`).toBeGreaterThan(0)
     }
   }
 
-  // Entry 4 spans x 910..990: screen 3 (768..1023).
+  // Entry 4 spans x 912..992: screen 3 (768..1023).
   await openMap(page, 3)
   const s = de[0]
   const rgba = Buffer.from(s.rgba, 'base64')
@@ -193,9 +193,9 @@ test('map $11D spawns four Eeries (its sprite memory setting has room for four):
     [16, 1568, 208, 'drawn', undefined],
   ])
   // Four pieces, 64 px wide, as the sweep table says; the -32 Eerie never exists, so nothing stands in its column.
-  expect([de[0].box.x0, de[0].box.y0, de[0].box.x1, de[0].box.y1]).toEqual([1550, 205, 1614, 226])
+  expect([de[0].box.x0, de[0].box.y0, de[0].box.x1, de[0].box.y1]).toEqual([1552, 208, 1616, 224])
   for (const off of [-16, 0, 16, 32]) {
-    const x = de[0].x + off - 2
+    const x = de[0].x + off
     expect(opaqueIn(de[0], x, de[0].y - 5, x + 16, de[0].y + 5 + 16), `a piece at x ${x}`).toBeGreaterThan(0) // prettier-ignore
   }
   expect(reply.note).toContain('Only 4 of the 5 Eeries appear')

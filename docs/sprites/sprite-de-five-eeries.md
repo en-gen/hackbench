@@ -52,11 +52,15 @@ the placement, on all five placements. The reference VS Code extension has no ha
   there, `bank_02.asm:5232-5238`); none of the vanilla placements is in one.
 - The spawner that runs is the one the loader's `JSR` names (the operand at $02:A895, what the ROM holds), so a hack that
   repoints the call runs its own routine; with no `JSR` there the vanilla entry runs. Either way the route is flagged.
-- Gate (D52, owner ruling option B, never blank): the SHA-256 of the spawner that runs (97 bytes), of `SubHorzPosBnk2`
-  (18) and of the loader's route at $02:A88C (12). Only the JSR opcode at $02:A895 is read literally, to find its operand. A difference is named in `unverified` ("... is not the vanilla shape"); the
-  spawner the loader calls still runs. The tables are data and are not hashed. What refuses: no map image, a spawner
-  that does not return (the reason is the core's), no Eerie drew. A refusal is a marker with the reason, never nothing.
-  Eeries that spawned but did not draw are counted in `notes`.
+- Gate (D52, owner ruling option B, never blank; BA fingerprint ruling 2026-10-18): two SHA-256 digests. (1) The spawner
+  that runs (97 bytes, about 96 unknown). (2) ONE digest over the loader's route at $02:A88C (16 bytes: compare, branch,
+  call, return) joined with `SubHorzPosBnk2` (18 bytes): 34 bytes, 29 unknown (the repo already states the $DE compare, the
+  JSR opcode and its operand, and $03). Neither route nor distance routine reaches 24 unknown alone, and separate digests do
+  not add, so they share one; it names "the loader route or the horizontal distance routine" without saying which. Only the
+  JSR opcode at $02:A895 is read literally, to find its operand. A difference is named in `unverified` ("... is not the
+  vanilla shape"); the spawner the loader calls still runs. The tables are data and are not hashed. What refuses: no map
+  image, a spawner that does not return (the reason is the core's), no Eerie drew. A refusal is a marker with the reason,
+  never nothing. Eeries that spawned but did not draw are counted in `notes`.
 - Fewer than five spawned is the game's own answer, so it is not `unverified`. The sprite carries a plain-words `note`
   ("Only 4 of the 5 Eeries appear: this map's sprite memory setting leaves room for 4.") that the map's note line shows once
   per distinct line. When the spawner itself differs from vanilla the reason is dropped ("Only 4 of the 5 Eeries appear."),
@@ -76,21 +80,28 @@ The runner steps one frame before its pass 0, so pass k is k + 2 frames after th
 them. On the linked Eerie of list 4 the run gives, at pass 6 (8 frames) x 968, y 346, tile $ED, and at pass 14
 (16 frames) x 960, y 352, tile $6A: both the capture's, to the pixel and the tile
 (`test/suite/unit/sprites/FiveEeries.corpus.test.ts`, both placements of $021).
-The first drawing pass (pass 0) is at -34, -18, -2, 14, 30 px from the entry (the Eeries have moved 2 px left),
-Y 2 or 3 px either side of the data byte's.
+
+D137 (owner ruled A, 2026-10-18): the map view draws each Eerie where the spawner put it, with no travel. The runner
+records the picked sprite's position right after the spawn code (`SpriteModel.spawnPos`); `fiveEeries` keeps each drawn
+part's offset from the Eerie as drawn and puts the Eerie back on that spot. The Eerie moves before it draws
+(`bank_01.asm:16211-16241`, SubSprXPosNoGrvty / SubSprYPosNoGrvty, then SubSprGfx2Entry1), so the drawn pass would sit 2 px
+left and 2 or 3 px off the data byte's Y. The first drawing pass is now at -32, -16, 0, 16, 32 px from the entry and the
+data byte's Y. The synthetic fixture (`eeries.travel`) has an Eerie that moves 3 px right and 5 px down a frame;
+`FiveEeries.test.ts` asserts it is drawn exactly as the fixture that does not move, and that a planted travel frame turns
+that red.
 
 ## Vanilla sweep (every map that places $DE; the map view's reply, one machine)
 
 | Map  | List entry (index, x, y)           | Eeries spawned | Drawn | Box (x0,y0 to x1,y1) | Unverified |
 | ---- | ---------------------------------- | -------------- | ----- | -------------------- | ---------- |
-| $021 | 4, 944, 336                        | 5              | yes   | 910,333 to 990,354   | none       |
-| $021 | 15, 2464, 272                      | 5              | yes   | 2430,269 to 2510,290 | none       |
-| $11D | 16, 1568, 208                      | 4              | yes   | 1550,205 to 1614,226 | none       |
-| $1E8 | 16, 1568, 208 (shares $11D's list) | 4              | yes   | 1554,205 to 1618,226 | none       |
-| $1E9 | 16, 1568, 208 (shares $11D's list) | 4              | yes   | 1554,205 to 1618,226 | none       |
+| $021 | 4, 944, 336                        | 5              | yes   | 912,336 to 992,352   | none       |
+| $021 | 15, 2464, 272                      | 5              | yes   | 2432,272 to 2512,288 | none       |
+| $11D | 16, 1568, 208                      | 4              | yes   | 1552,208 to 1616,224 | none       |
+| $1E8 | 16, 1568, 208 (shares $11D's list) | 4              | yes   | 1552,208 to 1616,224 | none       |
+| $1E9 | 16, 1568, 208 (shares $11D's list) | 4              | yes   | 1552,208 to 1616,224 | none       |
 
-$1E8 and $1E9 start Mario to the right of the entry, so their Eeries face and move right and the box sits 4 px
-further right than $11D's.
+$1E8 and $1E9 start Mario to the right of the entry, so their Eeries face right; with no travel (D137) the box
+is the same as $11D's.
 
 ## Not covered
 

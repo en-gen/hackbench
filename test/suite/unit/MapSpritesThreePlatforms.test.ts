@@ -21,7 +21,7 @@ const entry: LevelSprite = { screen: 3, x: 59, y: 21, spriteId: 0xe0, extraBit: 
 const model = { isVertical: false, screenCount: 16 }
 
 const draw = (rom: RomFile = platformCart(), vertical = false) =>
-  interpDrawer(rom, 0x21, { ...model, isVertical: vertical }, runOnce, () => eeriesSeed(100), undefined, SYNTHETIC_PLATFORM_ROUTINES as never)(entry) // prettier-ignore
+  interpDrawer(rom, 0x21, { ...model, isVertical: vertical }, runOnce, () => eeriesSeed(100), undefined, undefined, SYNTHETIC_PLATFORM_ROUTINES as never)(entry) // prettier-ignore
 
 function ok(r: ReturnType<typeof draw>) {
   if (!r.ok) throw new Error(`not drawn: ${JSON.stringify(r)}`)

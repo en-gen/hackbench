@@ -17,6 +17,11 @@ describe('handlesEditStack', () => {
     expect(handlesEditStack('hackbench.map-view', true)).toBe(true)
   })
 
+  it('declines while a text field has focus, even in a HackBench view', () => {
+    expect(handlesEditStack('hackbench.palette-view', true, true)).toBe(false)
+    expect(handlesEditStack('hackbench.palette-view', true, false)).toBe(true)
+  })
+
   it('declines with no project open: there is no layer stack to act on', () => {
     expect(handlesEditStack('hackbench.palette-view', false)).toBe(false)
   })

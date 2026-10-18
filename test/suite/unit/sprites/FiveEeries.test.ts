@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   eeriesGate,
+  EERIES_PATH as PATH,
   fiveEeries,
   spawnerEntry,
   type EeriesEntry,
@@ -18,6 +19,7 @@ import {
   type SpriteModel,
 } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import type { SpriteSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
+import { spanFingerprint } from '../../../../src/rom/SubmapFlagGate'
 import { flip } from '../../support/syntheticRom'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 import {
@@ -132,6 +134,37 @@ describe('the five Eeries', () => {
   })
 })
 
+describe('the spawn frame (D137): no travel', () => {
+  /** The Eeries' positions and parts, rounded to what the editor draws. */
+  const shape = (r: ReturnType<typeof fiveEeries>) => {
+    if (!r.ok) throw new Error(r.reason)
+    return { at: r.eeries.map(e => [e.x, e.y]), parts: r.parts.map(p => [p.dx, p.dy, p.char]) }
+  }
+  const atRest = () => shape(fiveEeries(cart({ eeries: {} }), seed(), entry, SYN))
+  const travelling = (run?: Run) => shape(fiveEeries(cart({ eeries: { travel: true } }), seed(), entry, SYN, 1, run)) // prettier-ignore
+
+  it('the fixture Eerie really moves: its drawn pass is not at its spawn spot (so the checks below can fail)', () => {
+    const m = runOnce(cart({ eeries: { travel: true } }), 0x39, seed(), { spawn: { inputs: { 0: 832 & 0xff, 1: 832 >> 8, 2: 9, 3: 0 }, routine: spawnerEntry(cart())!, nth: 2 } }) // prettier-ignore
+    expect(m.spawnPos).toEqual({ x: 832, y: 368 })
+    expect(m.passes[0]!.pos).not.toEqual(m.spawnPos)
+  })
+
+  it('draws each Eerie at the spawn offsets from the entry, as the same fixture that does not move', () => {
+    const s = travelling()
+    expect(s.at).toEqual(OFFSETS.map(o => [832 + o, 368]))
+    expect(s).toEqual(atRest())
+  })
+
+  it('goes red on a planted travel frame: positions taken from the drawn pass differ', () => {
+    const planted: Run = (rom, id, s, o) => {
+      const m = runOnce(rom, id, s, o)
+      return { ...m, spawnPos: m.passes[m.chosen ?? 0]?.pos }
+    }
+    expect(travelling(planted)).not.toEqual(atRest())
+    expect(travelling(planted).at).not.toEqual(OFFSETS.map(o => [832 + o, 368]))
+  })
+})
+
 describe('the spawner the loader calls', () => {
   /** A copy of the cart's spawner at $02:B100 (counting 3 instead of 4: four Eeries), and the loader's JSR pointed at it. */
   function repointed() {
@@ -147,17 +180,21 @@ describe('the spawner the loader calls', () => {
     const r = fiveEeries(repointed(), seed(), entry, SYN)
     if (!r.ok) throw new Error(r.reason)
     expect(r.eeries).toHaveLength(4) // the copy counts 3
-    expect(r.unverified).toEqual(['the loader route to the Eerie spawner', 'the Eerie spawner'])
+    expect(r.unverified).toEqual([PATH, 'the Eerie spawner'])
     expect(spawnerEntry(repointed())).toBe(0x02b100)
   })
 
-  it('is the vanilla entry, flagged, when the loader no longer has a JSR there (D52: drawn, not blanked)', () => {
+  it('refuses, in plain words, when the loader no longer has a JSR there: no vanilla address is run in its place', () => {
     const rom = cart()
     rom.writeAt(JSR_AT, [0x4c]) // a jump in place of the call
-    const r = fiveEeries(rom, seed(), entry, SYN)
-    if (!r.ok) throw new Error(r.reason)
-    expect(r.eeries).toHaveLength(5)
-    expect(r.unverified).toEqual(['the loader route to the Eerie spawner'])
+    expect(spawnerEntry(rom)).toBeNull()
+    const ran: unknown[] = []
+    const run: Run = (r, id, s, o) => (ran.push(o), runOnce(r, id, s, o))
+    const r = fiveEeries(rom, seed(), entry, SYN, 1, run)
+    expect(r.ok).toBe(false)
+    expect(!r.ok && r.reason).toBe('the loader no longer calls a spawner for the five Eeries (no JSR where it called one), so there is nothing to run') // prettier-ignore
+    expect(!r.ok && r.unverified).toEqual([PATH])
+    expect(ran, 'no spawner was run, vanilla or otherwise').toEqual([])
   })
 })
 
@@ -174,21 +211,29 @@ describe('the gate', () => {
     }
   })
 
-  it('names the loader route for a change to any of its 12 bytes, and the distance routine, and not the tables', () => {
-    for (let i = 0; i < 12; i++) {
+  it('names the loader route / distance routine for a change to any of its 34 bytes (one digest), and not the tables', () => {
+    for (let i = 0; i < 16; i++) {
       const route = cart()
       flip(route, ROUTE_AT + i)
-      // The call's operand also repoints the spawner, so only the route is asserted here.
-      expect(eeriesGate(route, SYN), `route byte ${i}`).toContain(
-        'the loader route to the Eerie spawner',
-      )
+      // The call's operand also repoints the spawner, so only the path is asserted here.
+      expect(eeriesGate(route, SYN), `route byte ${i}`).toContain(PATH)
     }
-    const horz = cart()
-    flip(horz, DISTANCE_AT + 4)
-    expect(eeriesGate(horz, SYN)).toEqual(['the horizontal distance routine'])
+    for (let i = 0; i < 18; i++) {
+      const horz = cart()
+      flip(horz, DISTANCE_AT + i)
+      expect(eeriesGate(horz, SYN), `distance byte ${i}`).toEqual([PATH])
+    }
     const table = cart()
     flip(table, TABLES_AT)
     expect(eeriesGate(table, SYN)).toEqual([])
+  })
+
+  it('is one digest over 34 bytes: the digest of the two spans joined, not of either alone', () => {
+    const rom = cart()
+    const [route, dist] = [bytesAt(rom, ROUTE_AT, 16)!, bytesAt(rom, DISTANCE_AT, 18)!]
+    const sha = (b: number[]) => spanFingerprint(Uint8Array.from(b))
+    expect(sha([...route, ...dist])).toBe(SYN.path)
+    expect([sha(route), sha(dist)]).not.toContain(SYN.path)
   })
 
   it('does not blank the Eeries for a changed routine: they are drawn from it and flagged (D52)', () => {
@@ -197,7 +242,7 @@ describe('the gate', () => {
     rom.writeAt(DISTANCE_INY_AT, [0xea])
     const r = fiveEeries(rom, seed(), entry, SYN)
     if (!r.ok) throw new Error(r.reason)
-    expect(r.unverified).toEqual(['the horizontal distance routine'])
+    expect(r.unverified).toEqual([PATH])
     expect(r.eeries).toHaveLength(5)
     expect(new Set(r.parts.map(p => p.char))).toEqual(new Set([SYNTHETIC_SPEEDS.marioRight]))
   })

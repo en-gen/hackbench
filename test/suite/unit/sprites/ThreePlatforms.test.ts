@@ -10,6 +10,7 @@ import { bytesAt } from '../../../../src/rom/sprites/interp/Guards'
 import { runOnce } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import {
   LOAD_3_PLATFORMS,
+  spawnerEntry,
   VANILLA_PLATFORM_ROUTINES,
   platformsGate,
   threePlatforms,
@@ -140,12 +141,14 @@ describe('the spawner the loader calls', () => {
     expect(r.unverified).toEqual(['the platform spawner'])
   })
 
-  it('is the vanilla entry, flagged, when the loader no longer has a JSR there (D52)', () => {
+  it('refuses in plain words, naming the route, when the loader no longer has a JSR there (no vanilla fallback)', () => {
     const rom = platformCart()
     rom.writeAt(0x02a8a5, [0x4c])
-    const r = drawn(rom)
-    expect(r.parts).toHaveLength(3)
+    const r = threePlatforms(rom, seed, entry, SYN)
+    expect(r.ok).toBe(false)
+    expect(!r.ok && r.reason).toMatch(/no longer calls a spawner for the three platforms/)
     expect(r.unverified).toEqual(['the loader route to the platform spawner'])
+    expect(spawnerEntry(rom)).toBeNull()
   })
 })
 
@@ -178,10 +181,12 @@ describe('the gate', () => {
   })
 
   // The route is checked by structure (12 bytes are under the 24-unknown-byte fingerprint minimum): each value it
-  // rests on is planted in turn, and the cart's own order of the two pushes (not a structural value) stays quiet.
+  // rests on is planted in turn. Not checked, by design: the BNE offset (+3) and the PHY / PHX pair (+4, +5).
   it.each([
     ['the compare opcode', 0],
     ['the compare immediate ($E0)', 1],
+    ['the BNE opcode', 2],
+    ['the DEY opcode', 6],
     ['the store of the data offset (STY)', 7],
     ['its direct page operand ($03)', 8],
     ['the JSR', 9],
@@ -189,12 +194,6 @@ describe('the gate', () => {
     const route = platformCart()
     flip(route, 0x02a89c + at)
     expect(platformsGate(route, SYN)).toEqual(['the loader route to the platform spawner'])
-  })
-
-  it('does not name the loader route for bytes that are not part of its shape', () => {
-    const route = platformCart()
-    for (const at of [2, 3, 4, 5, 6]) flip(route, 0x02a89c + at) // the branch and the pushes
-    expect(platformsGate(route, SYN)).toEqual([])
   })
 
   it('names the loader route, and not the tables', () => {
