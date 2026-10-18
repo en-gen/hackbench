@@ -171,7 +171,7 @@ describe('deriveOverworldAreas, synthetic ROMs (no corpus needed)', () => {
     const rom = stub()
     rom.writeAt(siteAt('dest'), Buffer.alloc(LEN('dest'))) // gone from bank 4
     plant(rom, 'dest', 5, word(OP.warpDst, T.warpDst))
-    call(rom, 'jsl', 0x853b, 5)
+    call(rom, 'jsl', low4('dest'), 5)
     warpDst(rom, 26, 7, 5) // only the bank 5 table has it
     expect(areasOf(deriveOverworldAreas(rom))).toContain(7)
   })
@@ -298,6 +298,8 @@ describe('deriveOverworldAreas, synthetic ROMs (no corpus needed)', () => {
       ],
       ['jsl without the branch over it', r => r.writeAt(callAt('jsl') + 3, [0xea, 0xea]), RE.dest],
       ['jsl whose branch skips another length', r => r.writeAt(callAt('jsl') + 4, [2]), RE.dest],
+      ['jsl without its load', r => r.writeAt(callAt('jsl'), [0xea]), RE.dest],
+      ['jsrPath without its push', r => r.writeAt(callAt('jsrPath') + 2, [0xea]), RE.path],
       ['jsrPath without its branch', r => r.writeAt(callAt('jsrPath'), [0xea]), RE.path],
       [
         'a scan caller without the compare',
@@ -445,7 +447,7 @@ describe('deriveOverworldAreas, synthetic ROMs (no corpus needed)', () => {
     }
   })
 
-  it('every pinned byte of every routine and caller, flipped, refuses', () => {
+  it('every unmasked byte of every fingerprinted routine, flipped, refuses', () => {
     const rom = stub()
     let flipped = 0
     for (const n of NAMES) {
@@ -477,11 +479,9 @@ describe('deriveOverworldAreas, synthetic ROMs (no corpus needed)', () => {
 
   it('an anchor so near the end that its span is cut short is not a hit', () => {
     const rom = stub()
-    // The camera anchor in the last two bytes: the span reads past the ROM, so the span read is
+    // The camera anchor in the last byte: the span reads past the ROM, so the span read is
     // null. It must be skipped, leaving the one real camera read, not counted as a second hit.
-    const [a, b] = AREA_SPANS.camera.anchor
-    rom.buffer[rom.buffer.length - 2] = a
-    rom.buffer[rom.buffer.length - 1] = b
+    rom.buffer[rom.buffer.length - 1] = AREA_SPANS.camera.anchor
     const r = deriveOverworldAreas(rom)
     expect(areasOf(r)).toEqual(ALL)
   })

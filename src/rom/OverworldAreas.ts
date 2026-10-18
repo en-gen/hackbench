@@ -40,20 +40,25 @@ export type OverworldAreaSet = { areas: OverworldArea[] } | { unavailable: strin
 /** Operand offsets of the two camera tables inside the camera span. */
 const CAMERA_X_AT = 26
 const CAMERA_Y_AT = 33
+/** Each span's first opcode, the only speed filter for the scan (the SHA-256 decides). */
+const OP_LDY_IMM = 0xa0
+const OP_REP = 0xc2
+const OP_LDY_ABS = 0xac
+const OP_PHB = 0x8b
 const PATH_STRIDE = 5
 const WARP_STRIDE = 2
 
 /**
  * A recognized span, by fingerprint rather than by its bytes (docs/testing.md "Legal position":
  * no ROM slices in commits). `mask` lists the operand offsets zeroed before hashing; the code
- * reads the ones that matter itself. `anchor` is the span's first two bytes, only a speed
+ * reads the ones that matter itself. `anchor` is the span's first opcode, only a speed
  * filter for the scan: the SHA-256 decides. A moved routine still matches wherever it sits.
  */
 interface Span {
   name: string
   length: number
   mask: readonly number[]
-  anchor: readonly [number, number]
+  anchor: number
   fingerprints: readonly string[]
 }
 // prettier-ignore
@@ -62,16 +67,16 @@ const SPANS = {
    *  camera X table then Y table, indexed by area*2, and on through the calls that follow it
    *  (to bank_00.asm:4341). Operands: call targets and RAM reads (see the mask), X table at 26,
    *  Y table at 33. Found by scan: nothing calls it. */
-  camera: { name: 'the camera read (bank_00.asm:4316-4341)', length: 63, mask: [3, 4, 12, 13, 14, 16, 17, 19, 20, 26, 27, 33, 34, 42, 43, 47, 48, 49, 51, 52, 54, 55, 61, 62], anchor: [0xa0, 0x02], fingerprints: ['b98cc4f11fb1ddfaa01daa23ffdb858b772c899ed50c01e7f1a6d77b0e7923d8'] },
+  camera: { name: 'the camera read (bank_00.asm:4316-4341)', length: 63, mask: [3, 4, 12, 13, 14, 16, 17, 19, 20, 26, 27, 33, 34, 42, 43, 47, 48, 49, 51, 52, 54, 55, 61, 62], anchor: OP_LDY_IMM, fingerprints: ['b98cc4f11fb1ddfaa01daa23ffdb858b772c899ed50c01e7f1a6d77b0e7923d8'] },
   /** CODE_049A24 to the end of its loop (bank_04.asm:2835-2885). Operands: counter 18, LDY 23,
    *  source area table 44, destination area table 67; the rest are ignored table addresses. */
-  path: { name: 'CODE_049A24, the path transitions (bank_04.asm:2835, $04:9A24)', length: 110, mask: [18, 23, 31, 32, 39, 40, 44, 45, 55, 56, 61, 62, 67, 68, 78, 79, 87, 88], anchor: [0xc2, 0x20], fingerprints: ['d26f51c1fa40605fe0621e4109e2f92b55c42d2719a29e014a9888dfafa6bbeb'] },
+  path: { name: 'CODE_049A24, the path transitions (bank_04.asm:2835, $04:9A24)', length: 110, mask: [18, 23, 31, 32, 39, 40, 44, 45, 55, 56, 61, 62, 67, 68, 78, 79, 87, 88], anchor: OP_REP, fingerprints: ['d26f51c1fa40605fe0621e4109e2f92b55c42d2719a29e014a9888dfafa6bbeb'] },
   /** CODE_048509's scan of DATA_048431, ending at STY StarWarpIndex (bank_04.asm:527-550).
    *  Operands: LDY 16, source word table 18. */
-  scan: { name: 'CODE_048509, the warp scan (bank_04.asm:527, $04:8509)', length: 47, mask: [16, 18, 19, 36, 37], anchor: [0xac, 0xb3], fingerprints: ['37a1f3b40432191c88d42b886f0e63c37a37bd7b8f71a32ebce33f6a2a67396f'] },
+  scan: { name: 'CODE_048509, the warp scan (bank_04.asm:527, $04:8509)', length: 47, mask: [16, 18, 19, 36, 37], anchor: OP_LDY_ABS, fingerprints: ['37a1f3b40432191c88d42b886f0e63c37a37bd7b8f71a32ebce33f6a2a67396f'] },
   /** CODE_04853B's decode of DATA_04849D into CurrentSubmap (bank_04.asm:554-581).
    *  Operand: destination word table 12. */
-  dest: { name: 'CODE_04853B, the warp destination (bank_04.asm:554, $04:853B)', length: 50, mask: [12, 13, 29, 30], anchor: [0x8b, 0x4b], fingerprints: ['bfab0d7cefabefcf270b71855026a0db935c8445c9d2cfa0f4d26ba9428eb08f'] },
+  dest: { name: 'CODE_04853B, the warp destination (bank_04.asm:554, $04:853B)', length: 50, mask: [12, 13, 29, 30], anchor: OP_PHB, fingerprints: ['bfab0d7cefabefcf270b71855026a0db935c8445c9d2cfa0f4d26ba9428eb08f'] },
 } satisfies Record<string, Span>
 type Name = keyof typeof SPANS
 /** Recognized fingerprints per span; a synthetic ROM passes its own (code that is not the cart's). */
@@ -89,7 +94,7 @@ const CALLED: readonly Name[] = ['dest', 'path', 'scan']
 function findSpan(rom: RomFile, n: Name, fps: AreaFingerprints, max = 8): number[] {
   const s: Span = SPANS[n]
   const hits: number[] = []
-  for (const at of findPattern(rom, s.anchor)) {
+  for (const at of findPattern(rom, [s.anchor])) {
     if (!fps[n].includes(spanFingerprint(rom.readAtFileOffset(at, s.length), s.mask) ?? ''))
       continue
     hits.push(at)

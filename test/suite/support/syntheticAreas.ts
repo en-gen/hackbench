@@ -6,7 +6,7 @@ import { spanFingerprint } from '../../../src/rom/SubmapFlagGate'
 export type Name = keyof typeof AREA_SPANS
 
 // The area routines as hand-written stand-ins, not the cart's code: each span is the module's
-// length and operand offsets, its two anchor opcodes, NOPs between and zeroed operand slots.
+// length and operand offsets, its anchor opcode, NOPs between and zeroed operand slots.
 // The module recognizes them through SYNTHETIC_AREA_FPS, the way OverworldDecode's
 // SYNTHETIC_FPS recognizes its NOP spans. Citations for the real routines are in the module.
 export const NAMES = Object.keys(AREA_SPANS) as Name[]
@@ -15,8 +15,7 @@ export const CODE = Object.fromEntries(
   NAMES.map(n => {
     const s = AREA_SPANS[n]
     const bytes = new Array<number>(s.length).fill(0xea)
-    bytes[0] = s.anchor[0]
-    bytes[1] = s.anchor[1]
+    bytes[0] = s.anchor
     for (const i of s.mask) bytes[i] = 0
     return [n, bytes]
   }),
@@ -27,9 +26,9 @@ export const SYNTHETIC_AREA_FPS = Object.fromEntries(
 // SNES addresses; `moves` sites follow the routine bank.
 export const WHERE: Record<Name, { at: number; moves?: true }> = {
   camera: { at: 0x00a300 },
-  scan: { at: 0x048509, moves: true },
-  dest: { at: 0x04853b, moves: true },
-  path: { at: 0x049a24, moves: true },
+  scan: { at: 0x04c500, moves: true },
+  dest: { at: 0x04c600, moves: true },
+  path: { at: 0x04c700, moves: true },
 }
 // Call instructions planted by `call`, not fingerprinted: the module reads their operands.
 export const CALLS = { jsl: 0x00a08a, jsrPath: 0x049616, jsrStar: 0x049161, jsrPipe: 0x049184 }
