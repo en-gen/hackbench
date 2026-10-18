@@ -6,6 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![codecov](https://codecov.io/gh/en-gen/hackbench/graph/badge.svg?token=3dD409XNya)](https://codecov.io/gh/en-gen/hackbench)
 ![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/en-gen/hackbench?utm_source=oss&utm_medium=github&utm_campaign=en-gen%2Fhackbench&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/en-gen/hackbench/badge)](https://scorecard.dev/viewer/?uri=github.com/en-gen/hackbench)
 [![Dependabot](https://img.shields.io/badge/dependabot-enabled-025E8C?logo=dependabot)](./.github/dependabot.yml)
 [![Code style: Prettier](https://img.shields.io/badge/code_style-prettier-ff69b4.svg?logo=prettier)](https://prettier.io)
 
