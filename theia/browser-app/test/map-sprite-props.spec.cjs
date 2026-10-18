@@ -288,7 +288,10 @@ async function selectOne(page, map) {
   return s
 }
 const activate = (page, slot) =>
-  page.evaluate(id => getSvc('ApplicationShell').activateWidget(id), `hackbench.map-view:${slot}`)
+  page.evaluate(async id => {
+    // Returns nothing: activateWidget resolves to a Widget, which cannot be serialized back.
+    await getSvc('ApplicationShell').activateWidget(id)
+  }, `hackbench.map-view:${slot}`)
 
 // Plant: delete `this.selectSprite(undefined)` from toggleSprites and the panel keeps the hidden sprite.
 test('hiding the sprites with the S toggle clears the panel', async ({ page }) => {
