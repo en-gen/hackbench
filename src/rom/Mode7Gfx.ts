@@ -131,6 +131,7 @@ function jsrTarget(from: number, operand: number): number | null {
 }
 
 // callSubroutine's return frame and any push sit in the stack page.
+// True for the stack page, where the call's return frame and any push land.
 const isStack = (off: number): boolean => off >= 0x100 && off < 0x200
 // P as the game has it at the helper: 16-bit X and Y (REP #$10, bank_00.asm:5518), 8-bit A.
 const HELPER_P = 0x24
@@ -140,6 +141,7 @@ const SRAM_FILL = 0x5a
 const loromAddress = (off: number): number =>
   ((off >> 15) << 16) | LOROM_BANK_SIZE | (off % LOROM_BANK_SIZE)
 
+/** Does the code at `at` open with LDY #imm / JSL? The JSL opcode is the check; the hash decides the rest. */
 const opensWithLdyJsl = (rom: RomFile, at: number): boolean =>
   rom.readAtFileOffset(at, JSL_OFF + 1)?.[JSL_OFF] === JSL
 
@@ -169,6 +171,7 @@ function calledOpenings(rom: RomFile): number[] {
   return [...new Set(branchOverJsrs(rom).map(c => c.to).filter(to => opensWithLdyJsl(rom, to) && rom.readAtFileOffset(to, 1)![0] === LDY_IMM))] // prettier-ignore
 }
 
+/** Uncached body of findMode7GfxFiles: stock routines by hash, edited ones by structure, so an edit is refused, not guessed planar. */
 function _findMode7GfxFiles(rom: RomFile, fps: Mode7Fingerprints): Mode7GfxFile[] {
   const hits = openings(rom).filter(at => isStockUnpack(rom, at, fps))
   const changed = calledOpenings(rom).filter(at => !hits.includes(at))
@@ -195,11 +198,13 @@ function _findMode7GfxFiles(rom: RomFile, fps: Mode7Fingerprints): Mode7GfxFile[
 }
 
 type Length = { byteLength: number } | { byteLength: null; reason: string }
+/** A claimed file with no readable length; `why` is shown to the user in plain words. */
 const unreadable = (why: string): Length => ({
   byteLength: null,
   reason: `${why}, so its Mode 7 graphics cannot be unpacked`,
 })
 
+/** Does the routine at `at` hash, operands masked, to a known stock fingerprint? */
 function isStockUnpack(rom: RomFile, at: number, fps: Mode7Fingerprints): boolean {
   const fp = spanFingerprint(rom.readAtFileOffset(at, UNPACK_LENGTH), UNPACK_MASK)
   return fp !== null && fps.unpack.includes(fp)
@@ -256,6 +261,7 @@ function helperShiftsPixelOut(
   }
 }
 
+/** Reads the loop's byte count from a recognized routine once its helper and call site check out; otherwise says why not. */
 function readByteLength(rom: RomFile, at: number): Length {
   // Bank arithmetic below is LoROM's.
   if (rom.mapMode === 'hirom') return unreadable('The ROM is HiROM')

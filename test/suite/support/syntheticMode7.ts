@@ -10,6 +10,7 @@
 import { spanFingerprint } from '../../../src/rom/SubmapFlagGate'
 import type { Mode7Fingerprints } from '../../../src/rom/Mode7Gfx'
 
+/** Two-byte little-endian operand. */
 const le = (n: number): number[] => [n & 0xff, (n >> 8) & 0xff]
 
 /** Direct-page bytes the synthetic routine reads (IN) and writes the pixel to (OUT). */
@@ -89,6 +90,7 @@ export const callSiteBytes = (target: number): number[] => [
   0xf0, 0x03, 0x20, ...le(target), 0xea, 0xea, 0xea,
 ] // prettier-ignore
 
+/** The one fingerprint that accepts the synthetic routine, so tests need no ROM. */
 export const SYNTH_MODE7_FINGERPRINTS: Mode7Fingerprints = {
   unpack: [spanFingerprint(Uint8Array.from(unpackBytes(0, 0, 0)), UNPACK_MASK)!],
 }

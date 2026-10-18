@@ -24,6 +24,7 @@ const HELPER = 0x00abc4 // CODE_00ABC4, :5575
 // bytes, and this SHA-256 of the decoded pixels.
 const DEVELOP_PIXELS = '5f19015e48aed0674ad573bfd606a4c525315a8417cdad42ee1a55dc303e72ec'
 
+/** The file is claimed but unavailable, with a reason: refused, never read as planar. */
 function expectRefused(rom: RomFile, label: string): void {
   const [file] = findMode7GfxFiles(rom)
   expect(file, label).toMatchObject({ fileIndex: 0x27, byteLength: null })

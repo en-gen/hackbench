@@ -47,6 +47,7 @@ import {
 // The carts here hold hand-written code, accepted through injected fingerprints.
 // gfx-decode takes none, so its describe installs them as the default through
 // the seam, which keeps findMode7GfxFiles' cache in the path.
+/** findMode7GfxFiles with the synthetic fingerprints, since the carts hold hand-written code. */
 const find = (rom: RomFile): ReturnType<typeof findMode7GfxFiles> =>
   findMode7GfxFiles(rom, SYNTH_MODE7_FINGERPRINTS)
 
@@ -82,6 +83,7 @@ function writeMode7Load(rom: RomFile, layout: Layout = {}): void {
   rom.writeAt(at(caller), callSiteBytes(callTarget))
 }
 
+/** An empty LoROM cart with the GFX read path planted, ready for the trio. */
 function makeRom(): RomFile {
   const buf = Buffer.alloc(0x100000, 0x00)
   buf[0x7fd5] = 0x20 // LoROM
@@ -91,12 +93,14 @@ function makeRom(): RomFile {
   return rom
 }
 
+/** A cart holding the trio at the vanilla addresses, in the vanilla arrangement. */
 function vanillaShaped(): RomFile {
   const rom = makeRom()
   writeMode7Load(rom)
   return rom
 }
 
+/** The answer for a file the routine names but whose packing cannot be read. */
 const UNREADABLE = [{ fileIndex: 0x27, byteLength: null, reason: expect.any(String) }]
 
 /**
