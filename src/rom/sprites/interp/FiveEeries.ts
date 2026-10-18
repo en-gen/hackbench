@@ -25,34 +25,42 @@ import { spanFingerprint } from '../../SubmapFlagGate'
 import type { RomFile } from '../../RomFile'
 import { bytesAt } from './Guards'
 import {
+  Machine,
   runOnce,
   SPAWN_SHORT,
   type RunOptions,
   type SpriteModel,
   type SpritePart,
 } from './SpriteRunner'
-import type { SpriteSeed } from './SpriteSeed'
+import { SPRITE_SEED, withSeed, type SpriteSeed } from './SpriteSeed'
 
 /** The Wave Eerie the spawner makes. */
 const SPAWNED_SPRITE = 0x39
 const SPAWNER_LENGTH = 97
 /**
- * The loader's compare, branch, call and return to the loader loop (bank_02.asm:5312-5322, 16 bytes) and SubHorzPosBnk2
- * (bank_02.asm:524-534, 18 bytes): ONE SHA-256 over the 34 bytes joined. Neither span reaches 24 unknown bytes alone (the
- * BA fingerprint ruling, 2026-10-18), and separate digests do not add up. Unknown bytes: 34 less 5 the repo states elsewhere
- * (the $DE compare, the JSR opcode and its operand, $03), so 29.
+ * The loader route at $02:A88C (bank_02.asm:5312-5318) is checked by STRUCTURE, never by hash: its 12 bytes hold under 24
+ * unknown ones (the BA fingerprint minimum, 2026-10-18), and a digest joined to another span would blame the wrong
+ * routine. Each part is compared on its own against a named constant, offsets from the start of the route.
  */
-const PATH_SPANS = [
-  // Loader route: why needed: it is what makes a $DE entry reach the spawner (compare, branch, call, return to the loop).
-  { at: 0x02a88c, length: 16 },
-  // SubHorzPosBnk2: why needed: it picks each Eerie's X speed by Mario's side, so it decides which way they face.
-  { at: 0x02848d, length: 18 },
-]
-export const EERIES_PATH = 'the loader route or the horizontal distance routine'
+const ROUTE_AT = 0x02a88c
+export const EERIES_ROUTE = 'the loader route to the Eerie spawner'
+const OP_CMP_IMM = 0xc9
+const OP_BNE = 0xd0
+const OP_DEY = 0x88
+const OP_STY_DP = 0x84
+/** The sprite number the route compares against: this command's own id. */
+const SPRITE_ID = 0xde
+/** Direct page $03: where the spawner reads the entry's data offset (bank_02.asm:6270). */
+const DP_DATA_OFFSET = 0x03
+/** CMP #$DE, BNE, PHY, PHX, DEY, STY $03, JSR (bank_02.asm:5312-5318). */
+const AT = { cmp: 0, id: 1, bne: 2, dey: 6, sty: 7, dp: 8, jsr: 9 }
+/** SubHorzPosBnk2 (bank_02.asm:524-534): 18 bytes, under 24 unknown, so it is checked by what it does (`horzPosBehaves`). */
+const HORZ_POS = 0x02848d
+export const EERIES_HORZ = 'the horizontal distance routine'
 /** The opcode of a JSR, compared on its own (never inside a stored byte array) to find the call's operand. */
 const OP_JSR = 0x20
 /** The loader's `JSR Load5Eeries` (bank_02.asm:5318): its opcode, and the operand that names the spawner. */
-const LOADER_CALL = 0x02a895
+const LOADER_CALL = ROUTE_AT + AT.jsr
 
 /**
  * The spawner the loader calls: the JSR operand at $02:A895 (bank 2), what the ROM holds, so a repointed call runs the
@@ -68,14 +76,12 @@ export function spawnerEntry(rom: RomFile): number | null {
 export const EERIES_COUNT = 5
 const EERIES = EERIES_COUNT
 
-/** SHA-256 of the spawner (97 bytes, ending in RTS: ~96 unknown), and of the loader route with the distance routine (one digest, 34 bytes); the tables they read are NOT part. */
+/** SHA-256 of the spawner (97 bytes, ending in RTS: ~96 unknown); the tables it reads are NOT part. */
 export interface EeriesRoutines {
   spawner: string
-  path: string
 }
 export const VANILLA_EERIES_ROUTINES: EeriesRoutines = {
   spawner: 'b277ad92a80e34c68aba19f8d69b55e478d6ca17b6d1c731f98356c53de9c7b3',
-  path: '90bcd28af60676458d3a8c40cb56b0fbb5d36059918c90df39ea355acd239009',
 }
 
 /** The sprite's list entry as the loader hands it to the spawner. */
@@ -116,19 +122,55 @@ export type EeriesResult =
       unverified: string[]
     }
 
+/**
+ * True when the loader still has the shape the spawner call rests on: CMP #$DE, BNE, DEY, STY $03 and a JSR, each checked
+ * alone. Not checked, because nothing the spawner reads depends on them: the BNE's offset and the PHY / PHX / PLX / PLY /
+ * BRA around the call. A loader without this shape may hold $20 as an operand where the JSR opcode was, so the address
+ * read from it would not be a spawner (a repointed JSR operand on an intact route is).
+ */
+export function eeriesRouteIntact(rom: RomFile): boolean {
+  const at = (k: keyof typeof AT) => bytesAt(rom, ROUTE_AT + AT[k], 1)?.[0]
+  return (
+    at('cmp') === OP_CMP_IMM &&
+    at('id') === SPRITE_ID &&
+    at('bne') === OP_BNE &&
+    at('dey') === OP_DEY &&
+    at('sty') === OP_STY_DP &&
+    at('dp') === DP_DATA_OFFSET &&
+    at('jsr') === OP_JSR
+  )
+}
+
+/**
+ * True when SubHorzPosBnk2 on the core answers Y = 1 for Mario left of the sprite and 0 otherwise (what the spawner reads
+ * to pick each Eerie's X speed), over pairs on both sides, equal, and across a 256 and a 512 px boundary. A routine that
+ * cannot run counts as not behaving. Run, not hashed: 18 bytes are under 24 unknown.
+ */
+export function horzPosBehaves(rom: RomFile): boolean {
+  const pairs: [mario: number, sprite: number][] = [[100, 832], [832, 100], [500, 500], [255, 256], [256, 255], [1000, 300]] // prettier-ignore
+  try {
+    return pairs.every(([mx, sx]) => {
+      const m = new Machine(rom, withSeed({ sprite: { x: sx, y: 0x80 }, mario: { x: mx } }, SPRITE_SEED), SPAWNED_SPRITE) // prettier-ignore
+      m.cpu.y = 0xff // so a routine that never sets Y is not read as 0 by chance
+      m.call(HORZ_POS, 'jsr', HORZ_POS >>> 16)
+      return (m.cpu.y & 0xff) === (mx < sx ? 1 : 0)
+    })
+  } catch {
+    return false
+  }
+}
+
 /** `unverified` names each routine or call-path part that is not the vanilla shape (empty when all match). */
 export function eeriesGate(
   rom: RomFile,
   routines: EeriesRoutines = VANILLA_EERIES_ROUTINES,
 ): string[] {
   const out: string[] = []
-  const bytes = (at: number, n: number) => bytesAt(rom, at, n) ?? []
-  const path = PATH_SPANS.flatMap(sp => bytes(sp.at, sp.length))
-  // A failed read shortens the span, so it can never hash to the vanilla digest.
-  if (spanFingerprint(Uint8Array.from(path)) !== routines.path) out.push(EERIES_PATH)
-  // With no JSR at the call there is no spawner to hash; the path digest above already names the changed call.
+  if (!eeriesRouteIntact(rom)) out.push(EERIES_ROUTE)
+  if (!horzPosBehaves(rom)) out.push(EERIES_HORZ)
+  // With no JSR there is no spawner to hash; the route check above already names the changed call.
   const entry = spawnerEntry(rom)
-  if (entry !== null && spanFingerprint(Uint8Array.from(bytes(entry, SPAWNER_LENGTH))) !== routines.spawner) out.push('the Eerie spawner') // prettier-ignore
+  if (entry !== null && spanFingerprint(Uint8Array.from(bytesAt(rom, entry, SPAWNER_LENGTH) ?? [])) !== routines.spawner) out.push('the Eerie spawner') // prettier-ignore
   return out
 }
 
@@ -147,6 +189,8 @@ export function fiveEeries(
   run: (rom: RomFile, id: number, seed: SpriteSeed, opts?: RunOptions) => SpriteModel = runOnce,
 ): EeriesResult {
   const unverified = eeriesGate(rom, routines)
+  if (!eeriesRouteIntact(rom))
+    return { ok: false, reason: `${EERIES_ROUTE} is not the shape this reader knows, so the Eerie spawner cannot be found`, unverified } // prettier-ignore
   const routine = spawnerEntry(rom)
   if (routine === null)
     return { ok: false, reason: 'the loader no longer calls a spawner for the five Eeries (no JSR where it called one), so there is nothing to run', unverified } // prettier-ignore

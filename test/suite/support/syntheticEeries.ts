@@ -25,10 +25,9 @@ export const SYNTHETIC_OFFSETS = Object.freeze([-0x28, -0x14, 0, 0x14, 0x28])
 export const SYNTHETIC_SPEEDS = Object.freeze({ marioRight: 0x18, marioLeft: 0xe8 })
 /** The fixture's default list: one entry, data byte $71 (Y $170), column 4 of screen 3. */
 export const EERIES_DEFAULT_STREAM = Object.freeze([0x71, 0x43, 0xde, 0xff])
-/** The gate's fingerprints of the fixture's own spawner (97 bytes) and of its route (16) with the distance routine (18), one digest. */
+/** The gate's fingerprint of the fixture's own spawner (97 bytes). The loader route and the distance routine are checked by structure and behaviour. */
 export const SYNTHETIC_EERIES_ROUTINES = Object.freeze({
   spawner: '4d2a8762f4befd476d4aebc53608dc16810e50e05ca9d236901d5379f1c91c52',
-  path: '06d7f7b5c61e580f6983546001299a4d3124cc6ef654c1ef9807c206111e20c6',
 })
 
 /** A loaded level image with Mario at `marioX` and SpriteDataPtr ($CE-$D0) at the fixture's list; `extra` adds camera, mario or sprite. */
@@ -90,13 +89,19 @@ export function putEeries(
 ): void {
   // The loader's call site: the base cart already has the compare and branch in front (4 bytes); then filler, then the
   // JSR the production code reads its target from.
-  // Then filler to the end of the 16 bytes the gate hashes.
+  // Then the route's own shape, written for this fixture: two filler bytes, DEY, STY $03 (the data offset the spawner reads),
+  // the JSR the production code reads its target from, and filler after it.
   put(ROUTE_AT + 4, [
-    ...new Array<number>(5).fill(0xea),
+    0xea,
+    0xea,
+    0x88,
+    0x84,
+    0x03,
     0x20,
     lo(SPAWNER_AT),
     hi(SPAWNER_AT),
-    ...new Array<number>(4).fill(0xea),
+    0xea,
+    0xea,
   ])
   // The distance routine: Y = 1 when Mario is left of the sprite (a borrow comparing X positions), else 0.
   put(

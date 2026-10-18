@@ -7,7 +7,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   eeriesGate,
-  EERIES_PATH as PATH,
+  EERIES_HORZ as HORZ,
+  EERIES_ROUTE as ROUTE,
   fiveEeries,
   spawnerEntry,
   type EeriesEntry,
@@ -19,7 +20,6 @@ import {
   type SpriteModel,
 } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import type { SpriteSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
-import { spanFingerprint } from '../../../../src/rom/SubmapFlagGate'
 import { flip } from '../../support/syntheticRom'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 import {
@@ -180,21 +180,54 @@ describe('the spawner the loader calls', () => {
     const r = fiveEeries(repointed(), seed(), entry, SYN)
     if (!r.ok) throw new Error(r.reason)
     expect(r.eeries).toHaveLength(4) // the copy counts 3
-    expect(r.unverified).toEqual([PATH, 'the Eerie spawner'])
+    expect(r.unverified).toEqual(['the Eerie spawner']) // the route is intact: only the spawner differs
     expect(spawnerEntry(repointed())).toBe(0x02b100)
   })
 
-  it('refuses, in plain words, when the loader no longer has a JSR there: no vanilla address is run in its place', () => {
+  it('has no spawner to name when the byte at the call is not a JSR', () => {
     const rom = cart()
-    rom.writeAt(JSR_AT, [0x4c]) // a jump in place of the call
+    rom.writeAt(JSR_AT, [0x4c])
     expect(spawnerEntry(rom)).toBeNull()
+  })
+})
+
+describe('the loader route (checked by structure, before the JSR is read)', () => {
+  /** The route instructions the check reads, by offset from $02:A88C: CMP, the id, BNE, DEY, STY, its operand, JSR. */
+  const SHAPE = { cmp: 0, id: 1, bne: 2, dey: 6, sty: 7, dp: 8, jsr: 9 }
+  const refusal = (rom: ReturnType<typeof cart>) => {
     const ran: unknown[] = []
     const run: Run = (r, id, s, o) => (ran.push(o), runOnce(r, id, s, o))
     const r = fiveEeries(rom, seed(), entry, SYN, 1, run)
+    return { r, ran }
+  }
+
+  it.each(Object.entries(SHAPE))('a changed %s byte refuses and runs nothing', (_name, off) => {
+    const rom = cart()
+    flip(rom, ROUTE_AT + off)
+    const { r, ran } = refusal(rom)
     expect(r.ok).toBe(false)
-    expect(!r.ok && r.reason).toBe('the loader no longer calls a spawner for the five Eeries (no JSR where it called one), so there is nothing to run') // prettier-ignore
-    expect(!r.ok && r.unverified).toEqual([PATH])
-    expect(ran, 'no spawner was run, vanilla or otherwise').toEqual([])
+    expect(!r.ok && r.reason).toBe(`${ROUTE} is not the shape this reader knows, so the Eerie spawner cannot be found`) // prettier-ignore
+    expect(!r.ok && r.unverified).toContain(ROUTE)
+    expect(ran, 'no spawner was run').toEqual([])
+  })
+
+  it('a $20 that is an operand, not a JSR, at the call refuses: LDA #$20 and SEP #$20 in place of the DEY and STY', () => {
+    for (const op of [0xa9, 0xe2]) {
+      const rom = cart()
+      rom.writeAt(ROUTE_AT + 6, [op, 0x20, 0x20]) // an immediate-$20 instruction, then the byte the call read
+      expect(bytesAt(rom, JSR_AT, 1)![0]).toBe(0x20) // the old reader would take this for a JSR
+      const { r, ran } = refusal(rom)
+      expect(r.ok, `opcode ${op}`).toBe(false)
+      expect(ran).toEqual([])
+    }
+  })
+
+  it('a route that differs only where the check does not look (the branch offset, the saves) still runs, unflagged', () => {
+    const rom = cart()
+    flip(rom, ROUTE_AT + 3)
+    flip(rom, ROUTE_AT + 4)
+    const r = fiveEeries(rom, seed(), entry, SYN)
+    expect(r.ok && r.unverified).toEqual([])
   })
 })
 
@@ -211,29 +244,21 @@ describe('the gate', () => {
     }
   })
 
-  it('names the loader route / distance routine for a change to any of its 34 bytes (one digest), and not the tables', () => {
-    for (let i = 0; i < 16; i++) {
-      const route = cart()
-      flip(route, ROUTE_AT + i)
-      // The call's operand also repoints the spawner, so only the path is asserted here.
-      expect(eeriesGate(route, SYN), `route byte ${i}`).toContain(PATH)
-    }
-    for (let i = 0; i < 18; i++) {
-      const horz = cart()
-      flip(horz, DISTANCE_AT + i)
-      expect(eeriesGate(horz, SYN), `distance byte ${i}`).toEqual([PATH])
-    }
+  it('names the loader route for a change to a byte it reads, and not the tables', () => {
+    const route = cart()
+    flip(route, ROUTE_AT + 6)
+    expect(eeriesGate(route, SYN)).toEqual([ROUTE])
     const table = cart()
     flip(table, TABLES_AT)
     expect(eeriesGate(table, SYN)).toEqual([])
   })
 
-  it('is one digest over 34 bytes: the digest of the two spans joined, not of either alone', () => {
-    const rom = cart()
-    const [route, dist] = [bytesAt(rom, ROUTE_AT, 16)!, bytesAt(rom, DISTANCE_AT, 18)!]
-    const sha = (b: number[]) => spanFingerprint(Uint8Array.from(b))
-    expect(sha([...route, ...dist])).toBe(SYN.path)
-    expect([sha(route), sha(dist)]).not.toContain(SYN.path)
+  it('names the distance routine alone (never as a route refusal) when its behaviour changes', () => {
+    const sidesSwapped = cart()
+    sidesSwapped.writeAt(DISTANCE_AT + 11, [0x90]) // BCS -> BCC: Y = 1 on the wrong side
+    const empty = cart()
+    empty.writeAt(DISTANCE_AT, [0x60]) // an RTS: Y stays whatever it was
+    for (const rom of [sidesSwapped, empty]) expect(eeriesGate(rom, SYN)).toEqual([HORZ])
   })
 
   it('does not blank the Eeries for a changed routine: they are drawn from it and flagged (D52)', () => {
@@ -242,7 +267,7 @@ describe('the gate', () => {
     rom.writeAt(DISTANCE_INY_AT, [0xea])
     const r = fiveEeries(rom, seed(), entry, SYN)
     if (!r.ok) throw new Error(r.reason)
-    expect(r.unverified).toEqual([PATH])
+    expect(r.unverified).toEqual([HORZ])
     expect(r.eeries).toHaveLength(5)
     expect(new Set(r.parts.map(p => p.char))).toEqual(new Set([SYNTHETIC_SPEEDS.marioRight]))
   })

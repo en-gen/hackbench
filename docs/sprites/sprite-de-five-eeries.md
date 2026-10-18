@@ -52,15 +52,18 @@ the placement, on all five placements. The reference VS Code extension has no ha
   there, `bank_02.asm:5232-5238`); none of the vanilla placements is in one.
 - The spawner that runs is the one the loader's `JSR` names (the operand at $02:A895, what the ROM holds), so a hack that
   repoints the call runs its own routine; with no `JSR` there the vanilla entry runs. Either way the route is flagged.
-- Gate (D52, owner ruling option B, never blank; BA fingerprint ruling 2026-10-18): two SHA-256 digests. (1) The spawner
-  that runs (97 bytes, about 96 unknown). (2) ONE digest over the loader's route at $02:A88C (16 bytes: compare, branch,
-  call, return) joined with `SubHorzPosBnk2` (18 bytes): 34 bytes, 29 unknown (the repo already states the $DE compare, the
-  JSR opcode and its operand, and $03). Neither route nor distance routine reaches 24 unknown alone, and separate digests do
-  not add, so they share one; it names "the loader route or the horizontal distance routine" without saying which. Only the
-  JSR opcode at $02:A895 is read literally, to find its operand. A difference is named in `unverified` ("... is not the
-  vanilla shape"); the spawner the loader calls still runs. The tables are data and are not hashed. What refuses: no map
-  image, a spawner that does not return (the reason is the core's), no Eerie drew. A refusal is a marker with the reason,
-  never nothing. Eeries that spawned but did not draw are counted in `notes`.
+- Gate (BA fingerprint ruling, 2026-10-18: one SHA-256 only over 24 or more unknown bytes). (1) The spawner that runs is
+  hashed: one SHA-256 over 97 bytes, about 96 unknown. (2) The loader route at $02:A88C is 12 bytes, too few to hash, so it
+  is checked by structure: CMP #$DE, BNE, DEY, STY $03 and JSR, each compared alone against a named constant
+  (`eeriesRouteIntact`). The branch offset and the PHY / PHX / PLX / PLY / BRA around the call are not read, because the
+  spawner does not depend on them. A route that is not this shape REFUSES with a plain-words reason before the JSR is
+  read, because a rewritten loader may hold $20 as an operand where the JSR was (a repointed JSR operand on an intact
+  route still runs the spawner it names, and is flagged when that spawner differs). (3) SubHorzPosBnk2 is 18 bytes, so it
+  is run on the core, not hashed: Y must be 1 for Mario left of the sprite and 0 otherwise over six pairs (both sides,
+  equal, across a 256 boundary). A difference there is named in `unverified` as the horizontal distance routine and the
+  Eeries are still drawn; it is never reported as a route refusal. The tables are data and are not hashed. What refuses:
+  no map image, a changed loader route, no JSR, a spawner that does not return (the reason is the core's), no Eerie drew.
+  A refusal is a marker with the reason, never nothing. Eeries that spawned but did not draw are counted in `notes`.
 - Fewer than five spawned is the game's own answer, so it is not `unverified`. The sprite carries a plain-words `note`
   ("Only 4 of the 5 Eeries appear: this map's sprite memory setting leaves room for 4.") that the map's note line shows once
   per distinct line. When the spawner itself differs from vanilla the reason is dropped ("Only 4 of the 5 Eeries appear."),

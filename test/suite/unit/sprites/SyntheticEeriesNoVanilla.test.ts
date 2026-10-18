@@ -13,7 +13,10 @@ const WINDOW = 8
 
 /** File offsets of the bytes that differ between the cart with the fixture and the cart without it, as regions (gaps under 16 merged). */
 function addedRegions(): [number, number][] {
-  const [on, off] = [buildSyntheticRom({ eeries: {} }).buffer, buildSyntheticRom().buffer]
+  const [on, off] = [
+    buildSyntheticRom({ eeries: { travel: true } }).buffer,
+    buildSyntheticRom().buffer,
+  ]
   const out: [number, number][] = []
   for (let i = 0; i < on.length; i++) {
     if (on[i] === off[i]) continue
@@ -21,7 +24,11 @@ function addedRegions(): [number, number][] {
     if (last && i - last[1] < 16) last[1] = i + 1
     else out.push([i, i + 1])
   }
-  return out
+  // Widened by WINDOW - 1 each side: a window that overlaps an added byte by one byte is still a window of the cart.
+  return out.map(([from, to]) => [
+    Math.max(0, from - (WINDOW - 1)),
+    Math.min(off.length, to + (WINDOW - 1)),
+  ])
 }
 
 /** SNES address of a file offset in the fixture's LoROM. */
@@ -44,7 +51,7 @@ const vanillaBytes = (rom: RomFile): Buffer =>
 
 describe.skipIf(!hasRom(VANILLA))('the synthetic Eerie cart against the vanilla ROM', () => {
   it('adds no 8-byte window that occurs in the vanilla ROM, in any routine or table it writes', () => {
-    const cart = buildSyntheticRom({ eeries: {} }).buffer
+    const cart = buildSyntheticRom({ eeries: { travel: true } }).buffer
     const regions = addedRegions()
     expect(regions.length, 'the fixture adds something').toBeGreaterThan(3)
     const hits = copied(cart, regions, vanillaBytes(freshRom()))
@@ -53,7 +60,7 @@ describe.skipIf(!hasRom(VANILLA))('the synthetic Eerie cart against the vanilla 
 
   it('goes red on a planted copy: a window lifted from the vanilla ROM is reported at its offset', () => {
     const vanilla = vanillaBytes(freshRom())
-    const cart = Uint8Array.from(buildSyntheticRom({ eeries: {} }).buffer)
+    const cart = Uint8Array.from(buildSyntheticRom({ eeries: { travel: true } }).buffer)
     const regions = addedRegions()
     // Plant 8 vanilla bytes (the first window with 3 distinct values from a code-dense stretch) into the first region.
     let at = 0x10000

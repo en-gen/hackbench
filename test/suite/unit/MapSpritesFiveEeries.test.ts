@@ -130,7 +130,9 @@ describe('sprite $DE on the map', () => {
   it('names the spawner the loader calls in the unverified text, not a vanilla address', () => {
     const repointed = ok(
       draw(100, {}, rom => {
-        rom.writeAt(0x02b100, bytesAt(rom, SPAWNER_AT, 97)!)
+        const copy = bytesAt(rom, SPAWNER_AT, 97)!
+        copy[COUNT_IMMEDIATE_AT - SPAWNER_AT] = 0x03 // a different spawner, so it is named
+        rom.writeAt(0x02b100, copy)
         rom.writeAt(ROUTE_AT + 10, [0x00, 0xb1])
       }),
     )
@@ -140,5 +142,10 @@ describe('sprite $DE on the map', () => {
     expect(repointed.unverified).not.toMatch(/vanilla address/)
     // Unchanged route and routine: nothing to say.
     expect(ok(draw(100)).unverified).toBeUndefined()
+  })
+
+  it('is a marker with the reason when the loader route is not the shape the reader knows', () => {
+    const r = draw(100, {}, rom => rom.writeAt(ROUTE_AT + 6, [0xe2, 0x20])) // SEP #$20 where DEY, STY were
+    expect(!r.ok && 'reason' in r && r.reason).toMatch(/^refused: the loader route to the Eerie spawner is not the shape/) // prettier-ignore
   })
 })
