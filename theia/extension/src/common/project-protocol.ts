@@ -305,6 +305,19 @@ export type MapScreenResult =
   | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
+/** One part of a drawn sprite, as the interpreter placed it (#984). */
+export interface SpritePartDto {
+  /** OBJ char number, hackbench's $400-based numbering. */
+  char: number
+  /** CGRAM row the part's colors come from. */
+  palette: number
+  flipX: boolean
+  flipY: boolean
+  /** Offset of the part's top-left pixel from the sprite's anchor. */
+  dx: number
+  dy: number
+}
+
 /**
  * One sprite of a map's sprite layer (#564), in map pixels. `box` is where its
  * bitmap lands (x1 and y1 exclusive); the bitmap is `box`-sized RGBA, base64.
@@ -323,6 +336,11 @@ export interface MapSpriteDto {
   y: number
   box: { x0: number; y0: number; x1: number; y1: number }
   rgba: string
+  /**
+   * The parts the bitmap was blitted from, in the order drawn (#984): the Properties view lists them from
+   * the same list, so what it says cannot differ from the picture. Absent on a placeholder, which draws none.
+   */
+  parts?: SpritePartDto[]
   /**
    * Each pixel's OAM priority 0-3 (#795), one byte per `box` pixel, base64: the
    * attribute bits 5:4 of the part that wins the pixel. Absent on a placeholder,
@@ -343,6 +361,16 @@ export interface MapSpriteDto {
    */
   unverified?: string
 }
+
+/**
+ * One sprite's distinct poses for the Properties preview (#984), each a `MapSpriteDto` bitmap measured from
+ * the first drawn pass (the sprite's own movement removed), in pass order, at most 16. Fewer than 2 means not
+ * animated; `reason` says why when the run drew nothing or was refused.
+ */
+export type SpriteFramesResult =
+  | { status: 'ok'; frames: MapSpriteDto[]; reason?: string }
+  | { status: 'unavailable'; reason: string }
+  | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
 /** A map's sprites, with the screen geometry the view needs to cut them per screen. */
 export type MapSpritesResult =
@@ -587,6 +615,12 @@ export interface ProjectService {
 
   /** Every sprite of a map, drawn by the sprite interpreter or marked, from the working copy (#564, #585). */
   mapSprites(manifestPath: string, index: number): Promise<MapSpritesResult>
+  /** The distinct poses of one sprite of a map (its stream `index`), run on demand from the working copy (#984). */
+  mapSpriteFrames(
+    manifestPath: string,
+    index: number,
+    spriteIndex: number,
+  ): Promise<SpriteFramesResult>
   /** Where each item block of a map shows its contents, from the working copy (#566). */
   mapBlockContents(manifestPath: string, index: number): Promise<MapBlockContentsResult>
   /** Where the player first enters a map, read from the working copy (#339). */

@@ -15,6 +15,7 @@ import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message, Widget } from '@theia/core/lib/browser'
 import { HoverService } from '@theia/core/lib/browser/hover-service'
+import { CommandService } from '@theia/core/lib/common'
 import {
   MAP_PLANE_KEYS,
   MapCollisionCheckResult,
@@ -50,6 +51,8 @@ import {
   screenKey,
   type Indicator,
 } from './map-view-model'
+import { PropertiesModel } from './properties-model'
+import { RevealPropertiesCommand } from './properties-contribution'
 import { SWITCH_ORDER } from './map16-view-model'
 import { decodeSwitchButton, SwitchToggle, type SwitchButtonImages } from './switch-toggle'
 import { LayerToggle } from './layer-icon'
@@ -142,6 +145,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   @inject(ProjectService) protected readonly projects!: ProjectService
   @inject(ProjectContext) protected readonly projectContext!: ProjectContext
   @inject(HoverService) protected readonly hoverService!: HoverService
+  @inject(PropertiesModel) protected readonly properties!: PropertiesModel
+  @inject(CommandService) protected readonly commands!: CommandService
 
   protected options: MapViewOptions | undefined
 
@@ -177,6 +182,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected spritesWhy: string | undefined
   /** The sprite under the pointer (#981); its name shows in Theia's themed hover, anchored on the sprite. */
   protected hoverSprite: MapSpriteDto | undefined
+  /** The clicked sprite (#984): published to the Properties panel, never drawn on the map. */
+  protected selectedSprite: MapSpriteDto | undefined
   /** The invisible box over the hovered sprite that the hover is placed against. */
   protected spriteAnchor: HTMLElement | undefined
   /** Where the anchor was placed (`hoverPlacementKey`): a different zoom or strip origin moves the sprite, so the hover is asked for again. */
@@ -248,6 +255,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.node.tabIndex = 0
     this.toDispose.push({ dispose: () => this.resizes.disconnect() })
     this.toDispose.push({ dispose: () => this.setHoverSprite(undefined) })
+    this.toDispose.push({ dispose: () => this.selectSprite(undefined) })
     this.toDispose.push(this.view)
     // Three consumers of one store, each deciding for itself.
     this.toDispose.push(
@@ -495,6 +503,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     if (generation !== this.generation) return
     this.sprites = r.status === 'ok' ? r : undefined
     this.setHoverSprite(undefined)
+    this.selectSprite(undefined)
     this.lift = undefined
     this.coveredIds.clear()
     this.spritesWhy = r.status === 'ok' ? undefined : r.status === 'unavailable' ? r.reason : `The base ROM ${r.baseRom.title} is not on this machine` // prettier-ignore
@@ -950,6 +959,26 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     }
   }
 
+  /** Click selection (#984): the sprite goes to the Properties panel until another click, a map change, hide or close. */
+  protected selectSprite(next: MapSpriteDto | undefined): void {
+    this.selectedSprite = next
+    this.syncSelection()
+    // Revealed on a pick, not on every sync: closing the panel must stay closed until the next click.
+    if (next && this.isVisible) void this.commands.executeCommand(RevealPropertiesCommand.id)
+  }
+
+  /** Publishes this widget's selection, or releases it; only the owner's clear takes effect (see PropertiesModel). */
+  protected syncSelection(): void {
+    if (this.selectedSprite && this.isVisible) {
+      const o = this.options
+      this.properties.publish(this, {
+        kind: 'sprite',
+        sprite: this.selectedSprite,
+        source: o && { manifestPath: o.manifestPath, index: o.index },
+      })
+    } else this.properties.clear(this)
+  }
+
   protected setHover(next: Indicator | undefined): void {
     if ((next && indicatorId(next)) === (this.hover && indicatorId(this.hover))) return
     this.hover = next
@@ -1082,7 +1111,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   protected toggleSprites(): void {
     this.showSprites = !this.showSprites
-    if (!this.showSprites) this.setHoverSprite(undefined)
+    if (!this.showSprites) {
+      this.setHoverSprite(undefined)
+      this.selectSprite(undefined)
+    }
     this.update()
     this.sync()
   }
@@ -1106,6 +1138,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     super.onAfterHide(msg)
     this.pointer = undefined
     this.setHoverSprite(undefined)
+    this.syncSelection()
   }
 
   protected override onBeforeDetach(msg: Message): void {
@@ -1123,6 +1156,14 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected override onActivateRequest(msg: Message): void {
     super.onActivateRequest(msg)
     this.node.focus()
+    // The active map owns the panel: its selection, else "No sprite selected" (a split layout keeps both maps visible).
+    if (this.selectedSprite) this.syncSelection()
+    else this.properties.publish(this, { kind: 'none' })
+  }
+
+  protected override onAfterShow(msg: Message): void {
+    super.onAfterShow(msg)
+    this.syncSelection()
   }
 
   /** Layer 3's tooltip: its role when drawn (the header's priority bit), else why it is not. */
@@ -1344,7 +1385,13 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
         >
           {/* Bottom to top (planes by `screens`, composited per screen): the checkerboard, the back area, then the screens,
               so hiding a layer shows what is under it, down to nothing. */}
-          <div className="hb-map-view-strip hb-checkerboard">
+          <div
+            className="hb-map-view-strip hb-checkerboard"
+            onClick={e => {
+              const strip = e.currentTarget.getBoundingClientRect()
+              this.selectSprite(this.spriteUnder((e.clientX - strip.left) / this.zoom, (e.clientY - strip.top) / this.zoom)) // prettier-ignore
+            }}
+          >
             <div
               className="hb-map-view-back-area"
               data-layer="back-area"
