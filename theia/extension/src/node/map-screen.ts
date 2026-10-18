@@ -226,9 +226,10 @@ export type L3Planes = Record<'l3Low' | 'l3High', Plane>
  * R (gameplay rows only; the first 8 are the status bar) at level Y
  * R*8 - Layer3YPos + Layer1YPos, x repeating every 512 px (a tide, whose BG3
  * scrolls with the camera, every 256 px over the first 32 columns, and its
- * second copy of the tilemap is not drawn). Rows that start above the level
- * are skipped whole, as the reference view does. Char 0 of every 2bpp
- * palette is clear.
+ * second copy of the tilemap is not drawn). A layer that follows the camera (a loaded smash
+ * sprite, #997) is drawn as ONE copy of the 512 px tilemap, at world x = column*8 - Layer3XPos,
+ * with no repeat. Rows that start above the level are skipped whole, as the reference view does.
+ * Char 0 of every 2bpp palette is clear.
  */
 export function drawL3Planes(l3: L3Inputs, screen: number): L3Planes {
   const { w, h } = screenTiles(false) // vertical maps never reach here (L3Model)
@@ -256,7 +257,9 @@ export function drawL3Planes(l3: L3Inputs, screen: number): L3Planes {
     if (y < 0 || y >= height) continue
     // Tiles sit at Layer3XPos-shifted columns (camera X at load is 0); a start left of 0 clips the first tile.
     for (let sx = -(xOff & 7); sx < width; sx += 8) {
-      const word = cell(r, ((((x0 + sx + xOff) % (cols * 8)) + cols * 8) % (cols * 8)) >> 3)
+      const bgX = x0 + sx + xOff
+      if (l3.followsCamera && (bgX < 0 || bgX >= cols * 8)) continue
+      const word = cell(r, (((bgX % (cols * 8)) + cols * 8) % (cols * 8)) >> 3)
       const pixels = l3.chars[(word & 0x3ff) >> 7]?.[word & 0x7f]
       if (!word || !pixels) continue
       const p = word & 0x2000 ? 1 : 0
@@ -329,6 +332,7 @@ export function screenResult(
     ) as Record<MapPlaneKey, string | null>,
     layer3: {
       priority: model.l3?.priority ?? model.header.layer3Priority,
+      ...(model.l3?.l3?.followsCamera ? { followsCamera: true } : {}),
       reason: model.l3 ? model.l3.reason : 'Layer 3 not drawn yet',
     },
     screens: model.l3?.screens ?? FALLBACK_SCREENS,
