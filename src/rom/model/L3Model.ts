@@ -140,7 +140,9 @@ export function buildL3Verdict(
       cgadsub: effectiveCgadsub(layout.cgadsub, !kept),
     })
   }
-  // A $80 byte's Y is $D0 until a loaded Layer 3 Smash sprite writes X and Y from its own place (#807).
+  // A $80 byte's Y is $D0 (CODE_00A007, bank_00.asm:4184-4195) until a loaded Layer 3 Smash sprite writes X and Y
+  // from its own place (#807). `smash` is the sprite's first landing, worked out by SmashLanding.ts (#997); it is
+  // only run for a map that lists a smasher, so every other $80 map keeps these load-time values.
   let pos = { x: 0, y: yPx }
   let followsCamera = false
   let landingNote: string | null = null
