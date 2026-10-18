@@ -28,10 +28,10 @@ describe.each(CORPUS.filter(n => n !== VANILLA && n !== MAGIC))(
 // module before it moved to fingerprints (one machine, this corpus): the full result, every
 // area's camera X and Y included, is unchanged. The refused hash was re-taken (one machine,
 // this corpus) when the camera span grew to start at CODE_00A11B (24 unknown bytes minimum):
-// its refusal text cites bank_00.asm:4316-4333 now, and nothing else in it moved.
+// its refusal text cites bank_00.asm:4316-4341 now, and nothing else in it moved.
 const BEFORE_FINGERPRINTS = {
   stock: '8ac0dd09f06a8adb9262e58ad7df4d566996f24339c961f95b6582d6f35e3124',
-  refused: '29baa16abd32d3d78883913bd360331fec7c208b5b7728df8f4584726f700915',
+  refused: 'c6879826cdd909eb4c7f957d831ade49e2aae8f2127c2260d77be30300b60492',
 }
 describe.each(CORPUS)('deriveOverworldAreas result unchanged by fingerprinting: %s', name => {
   it.skipIf(!hasRom(name))('is identical to the byte-pattern result', () => {

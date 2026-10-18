@@ -11,6 +11,9 @@ import {
   WARP_SRC,
   call,
   callAt,
+  CALL_LEN,
+  TILE,
+  type CallName,
   inBank,
   pathDst,
   pathSrc,
@@ -263,51 +266,69 @@ describe('deriveOverworldAreas, synthetic ROMs (no corpus needed)', () => {
     expect(areasOf(deriveOverworldAreas(rom))).toEqual([...ALL, 7])
   })
 
-  it('refuses a routine that no JSL or JSR reaches, naming it', () => {
-    // Retarget the only caller of each: the routine is stock code nothing calls.
+  const blank = (rom: RomFile, n: CallName): void =>
+    rom.writeAt(callAt(n), Buffer.alloc(CALL_LEN[n]))
+  const RE = {
+    dest: /CODE_04853B, .* not reached through stock code/,
+    path: /CODE_049A24, .* not reached through stock code/,
+    scan: /CODE_048509, .* not reached through stock code/,
+  }
+
+  it('refuses a routine that no call of the right shape reaches, naming it', () => {
     const cases: [string, (rom: RomFile) => void, RegExp][] = [
-      ['jsl low byte', r => call(r, 'jsl', low4('dest') + 1), /CODE_04853B, .* never called/],
+      ['jsl low byte', r => call(r, 'jsl', low4('dest') + 1), RE.dest],
+      ['jsrPath low byte', r => call(r, 'jsrPath', low4('path') + 1), RE.path],
+      ['jsrPath operand below $8000', r => call(r, 'jsrPath', 0x1a24), RE.path],
+      ['jsl right low word, bank 5', r => call(r, 'jsl', low4('dest'), 5), RE.dest],
       [
-        'jsrPath low byte',
-        r => call(r, 'jsrPath', low4('path') + 1),
-        /CODE_049A24, .* never called/,
-      ],
-      [
-        'jsrPath operand below $8000',
-        r => call(r, 'jsrPath', 0x1a24),
-        /CODE_049A24, .* never called/,
-      ],
-      [
-        'jsl right low word, bank 5',
-        r => call(r, 'jsl', low4('dest'), 5),
-        /CODE_04853B, .* never called/,
+        'jsl in another bank than the camera routine',
+        r => {
+          blank(r, 'jsl')
+          call(r, 'jsl', low4('dest'), 4, 0x018100)
+        },
+        RE.dest,
       ],
       [
         'jsrPath from another bank',
-        r => call(r, 'jsrPath', low4('path'), 4, inBank(0xb000, 5)),
-        /CODE_049A24, .* never called/,
+        r => {
+          blank(r, 'jsrPath')
+          call(r, 'jsrPath', low4('path'), 4, inBank(0xb000, 5))
+        },
+        RE.path,
+      ],
+      ['jsl without the branch over it', r => r.writeAt(callAt('jsl') + 3, [0xea, 0xea]), RE.dest],
+      ['jsrPath without its branch', r => r.writeAt(callAt('jsrPath'), [0xea]), RE.path],
+      [
+        'a scan caller without the compare',
+        r => {
+          r.writeAt(callAt('jsrStar'), [0xea])
+          r.writeAt(callAt('jsrPipe'), [0xea])
+        },
+        RE.scan,
       ],
     ]
     for (const [label, mutate, re] of cases) {
       const rom = stub()
       mutate(rom)
-      if (label === 'jsrPath from another bank') {
-        rom.writeAt(callAt('jsrPath'), Buffer.alloc(3)) // and the bank 4 caller is gone
-      }
       expect(refusal(deriveOverworldAreas(rom)), label).toMatch(re)
     }
   })
 
-  it('the warp scan needs one caller, not both: either JSR alone reaches it', () => {
-    for (const keep of ['jsrStar', 'jsrPipe'] as const) {
+  it('the warp scan needs a caller for each of two tiles: one alone refuses', () => {
+    for (const drop of ['jsrStar', 'jsrPipe'] as const) {
       const rom = stub()
-      rom.writeAt(callAt(keep === 'jsrStar' ? 'jsrPipe' : 'jsrStar'), Buffer.alloc(3))
-      expect(areasOf(deriveOverworldAreas(rom)), keep).toEqual(ALL)
+      blank(rom, drop)
+      expect(refusal(deriveOverworldAreas(rom)), drop).toMatch(RE.scan)
     }
-    const rom = stub()
-    rom.writeAt(callAt('jsrStar'), Buffer.alloc(3))
-    rom.writeAt(callAt('jsrPipe'), Buffer.alloc(3))
-    expect(refusal(deriveOverworldAreas(rom))).toMatch(/CODE_048509, .* never called/)
+    // Both present but comparing the same immediate: one tile, not two.
+    const same = stub()
+    same.writeAt(callAt('jsrPipe') + 1, [TILE.jsrStar])
+    expect(refusal(deriveOverworldAreas(same))).toMatch(RE.scan)
+    // A caller whose compare is not followed by a branch.
+    const noBranch = stub()
+    noBranch.writeAt(callAt('jsrStar') + 2, [0xea])
+    expect(refusal(deriveOverworldAreas(noBranch))).toMatch(RE.scan)
+    expect(areasOf(deriveOverworldAreas(stub()))).toEqual(ALL)
   })
 
   it('refuses table operands outside the bank, and one that runs a byte past it', () => {
@@ -337,7 +358,10 @@ describe('deriveOverworldAreas, synthetic ROMs (no corpus needed)', () => {
     // addresses are two bytes, the counters and LDY immediates one. Over-masking an opcode
     // would let altered code hash as stock.
     const operands: Record<Name, number[]> = {
-      camera: [3, 4, 12, 13, 14, 16, 17, 19, 20, 26, 27, 33, 34],
+      camera: [
+        3, 4, 12, 13, 14, 16, 17, 19, 20, 26, 27, 33, 34, 42, 43, 47, 48, 49, 51, 52, 54, 55, 61,
+        62,
+      ],
       path: [18, 23, 31, 32, 39, 40, 44, 45, 55, 56, 61, 62, 67, 68, 78, 79, 87, 88],
       scan: [16, 18, 19, 36, 37],
       dest: [12, 13, 29, 30],
@@ -361,9 +385,10 @@ describe('deriveOverworldAreas, synthetic ROMs (no corpus needed)', () => {
     const rom = stub()
     const copy = inBank(0xb000, 4)
     rom.writeAt(copy, rom.readAt(siteAt('scan'), LEN('scan'))!)
-    call(rom, 'jsrPipe', 0xb000)
-    call(rom, 'jsrStar', low4('scan')) // one caller each: two called copies
-    expect(refusal(deriveOverworldAreas(rom))).toMatch(/CODE_048509, .* not stock/)
+    // The stock pair of callers stays on the original; a second pair calls the copy.
+    call(rom, 'jsrStar', 0xb000, 4, inBank(0xb200, 4))
+    call(rom, 'jsrPipe', 0xb000, 4, inBank(0xb210, 4))
+    expect(refusal(deriveOverworldAreas(rom))).toMatch(/CODE_048509, .* which copy runs is unknown/)
   })
 
   it('a routine is where its callers call: a moved one resolves, a left-behind copy is ignored', () => {

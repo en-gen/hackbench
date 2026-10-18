@@ -4,23 +4,25 @@
  * source area is inside the camera table (a $FF-filled slot is not); its destination
  * is then listed, marked invalid when the camera table cannot place it. Each routine
  * read is fingerprint-gated (SHA-256, operands masked, at least 24 unknown bytes each). A routine
- * is not trusted for being stock alone: some JSL or JSR in the cart must reach it, a structural
- * check read from the call's own operand (no fingerprint over the short call spans). A failed
- * gate refuses with its address and nothing falls back to vanilla.
+ * is also not trusted for being stock alone: it must be reached by a call of the shape its
+ * callers have (a compare and branch before each warp-scan JSR, a branch before the path JSR,
+ * a branch over the destination JSL in the camera routine's bank), the target read from the
+ * call's own operand. Those call sites are short, so they carry no fingerprint, only that
+ * structure. A failed gate refuses with its address and nothing falls back to vanilla.
  *
- * The camera gate currently refuses most Lunar Magic edited ROMs: LM's hook at the end of the
- * camera span replaces its last instructions (#522). The table reads themselves are unchanged.
+ * The camera gate currently refuses most Lunar Magic edited ROMs: LM's hook inside the
+ * camera span replaces some of its instructions (#522). The table reads themselves are unchanged.
  *
  * Hack-fragility points, not checked:
  * - DATA_00A06B is taken to be followed immediately by DATA_00A079 (bank_00.asm:4242-4246),
  *   so their operand distance is the camera table length.
- * - Only the four listed callers (CALLERS) are followed to a routine; any other caller of a
- *   moved copy is not checked.
+ * - A call is recognized by shape, not by what precedes the shape: a hack that keeps the shape
+ *   but never runs it is not noticed.
  * - CODE_048509 and CODE_049A24 read their tables with DB = their own bank; only
  *   CODE_04853B sets DB itself (PHK/PLB). The callers' own callers are not checked.
  */
 import type { RomFile } from './RomFile'
-import { findPattern } from './BytePattern'
+import { findPattern, WILD } from './BytePattern'
 import { spanFingerprint } from './SubmapFlagGate'
 import { hex4 } from './hex'
 
@@ -56,11 +58,11 @@ interface Span {
 }
 // prettier-ignore
 const SPANS = {
-  /** CODE_00A11B from its screen setup to the camera read's last store (bank_00.asm:4316-4333): the
-   *  camera X table then Y table, indexed by area*2. Operands: the JSR and JSL targets (3, 12),
-   *  the turn and submap reads (16, 19), X table at 26, Y table at 33. Found by scan: nothing
-   *  calls it. */
-  camera: { name: 'the camera read (bank_00.asm:4316-4333)', length: 41, mask: [3, 4, 12, 13, 14, 16, 17, 19, 20, 26, 27, 33, 34], anchor: [0xa0, 0x02], fingerprints: ['25e4f87ca2d278a1c92154f42f9069de0efe4a1e7e575eadc9830f667639b4e8'] },
+  /** CODE_00A11B from its screen setup to the camera read's last store (bank_00.asm:4316-4341): the
+   *  camera X table then Y table, indexed by area*2, and on through the calls that follow it
+   *  (to bank_00.asm:4341). Operands: call targets and RAM reads (see the mask), X table at 26,
+   *  Y table at 33. Found by scan: nothing calls it. */
+  camera: { name: 'the camera read (bank_00.asm:4316-4341)', length: 63, mask: [3, 4, 12, 13, 14, 16, 17, 19, 20, 26, 27, 33, 34, 42, 43, 47, 48, 49, 51, 52, 54, 55, 61, 62], anchor: [0xa0, 0x02], fingerprints: ['b98cc4f11fb1ddfaa01daa23ffdb858b772c899ed50c01e7f1a6d77b0e7923d8'] },
   /** CODE_049A24 to the end of its loop (bank_04.asm:2835-2885). Operands: counter 18, LDY 23,
    *  source area table 44, destination area table 67; the rest are ignored table addresses. */
   path: { name: 'CODE_049A24, the path transitions (bank_04.asm:2835, $04:9A24)', length: 110, mask: [18, 23, 31, 32, 39, 40, 44, 45, 55, 56, 61, 62, 67, 68, 78, 79, 87, 88], anchor: [0xc2, 0x20], fingerprints: ['d26f51c1fa40605fe0621e4109e2f92b55c42d2719a29e014a9888dfafa6bbeb'] },
@@ -80,12 +82,8 @@ export const AREA_FINGERPRINTS = Object.fromEntries(
 /** Span geometry, for a test that plants its own code at the same operand offsets. */
 export const AREA_SPANS: Readonly<Record<Name, Pick<Span, 'length' | 'mask' | 'anchor'>>> = SPANS
 
-/** Routines reached by a call, and whether it is a JSL (the rest are JSR in the routine's bank). */
-const CALLED: { name: Name; long?: true }[] = [
-  { name: 'dest', long: true },
-  { name: 'path' },
-  { name: 'scan' },
-]
+/** The routines a call must reach. */
+const CALLED: readonly Name[] = ['dest', 'path', 'scan']
 
 /** Cart offsets whose span hashes (operands masked) to a recognized fingerprint, at most `max`. */
 function findSpan(rom: RomFile, n: Name, fps: AreaFingerprints, max = 8): number[] {
@@ -101,21 +99,39 @@ function findSpan(rom: RomFile, n: Name, fps: AreaFingerprints, max = 8): number
 }
 
 /**
- * How many instructions call the routine at cart offset `target`: a JSL whose operand names it
- * (the FastROM mirror bank too), or a JSR to its low word from its own bank. Structure read from
- * the operands; a data run that spells the same bytes also counts, so this says "something may
- * call it", not "the game does".
+ * Why no call of the right shape reaches the routine at cart offset `target`, or null when one
+ * does. Shapes (opcodes and operands read from the cart, no bytes kept):
+ * - dest: a JSL naming it (the FastROM mirror too), over a short branch that follows a load,
+ *   in the camera routine's bank. GM0CLoadOverworld precedes the camera read in that bank
+ *   (bank_00.asm:4250-4254); its bank is taken from where the camera read was found.
+ * - path: a JSR to it from its own bank, after a branch and a one-byte push.
+ * - scan: JSRs to it from its own bank, each after a compare-immediate and a branch; there
+ *   must be two with different immediates (the star tile and the pipe tile).
+ * A data run that spells the shape passes too; the check is structure, not proof it runs.
  */
-function callersOf(rom: RomFile, target: number, long: boolean): number {
+function unreached(rom: RomFile, n: Name, target: number, cameraAt: number): string | null {
   const lo = 0x8000 | (target & 0x7fff)
+  const [l, h] = [lo & 0xff, lo >> 8]
   const bank = target >> 15
-  if (long) {
-    return [bank, bank | 0x80].reduce(
-      (n, b) => n + findPattern(rom, [0x22, lo & 0xff, lo >> 8, b]).length,
-      0,
+  const here = (hits: number[]): number[] => hits.filter(at => at >> 15 === bank)
+  if (n === 'dest') {
+    const camBank = cameraAt >> 15
+    const jsl = [bank, bank | 0x80].flatMap(b =>
+      findPattern(rom, [0xad, WILD, WILD, 0xf0, 0x04, 0x22, l, h, b]),
     )
+    return jsl.some(at => at >> 15 === camBank) ? null : "a JSL in the camera routine's bank"
   }
-  return findPattern(rom, [0x20, lo & 0xff, lo >> 8]).filter(at => at >> 15 === bank).length
+  if (n === 'path') {
+    return here(findPattern(rom, [0xd0, WILD, 0x5a, 0x20, l, h])).length > 0
+      ? null
+      : 'a JSR after a branch'
+  }
+  const tiles = new Set(
+    here(findPattern(rom, [0xc9, WILD, 0xd0, WILD, 0x20, l, h])).map(
+      at => rom.readAtFileOffset(at + 1, 1)![0],
+    ),
+  )
+  return tiles.size >= 2 ? null : 'a JSR after a compare for each of two tiles'
 }
 
 /** Cart offset an operand names in the bank of `bankOf` (a cart offset in that bank), or null
@@ -144,15 +160,21 @@ export function deriveOverworldAreas(
   const at = { camera: found[0]! } as Record<Name, number>
   // A routine is where a call reaches it: a hack that moves one and retargets the call still
   // resolves, and a left-behind stock copy that nothing calls is ignored.
-  for (const c of CALLED) {
-    const hits = findSpan(rom, c.name, fps)
-    if (hits.length === 0) return notStock(c.name)
-    const called = hits.filter(h => callersOf(rom, h, c.long === true) > 0)
+  for (const name of CALLED) {
+    const hits = findSpan(rom, name, fps)
+    if (hits.length === 0) return notStock(name)
+    const called = hits.filter(h => unreached(rom, name, h, at.camera) === null)
     if (called.length === 0) {
-      return no(`${SPANS[c.name].name} is never called, so it is not reached through stock code.`)
+      return no(
+        `${SPANS[name].name} is not reached through stock code: no ${unreached(rom, name, hits[0]!, at.camera)} names it.`,
+      )
     }
-    if (called.length > 1) return notStock(c.name)
-    at[c.name] = called[0]!
+    if (called.length > 1) {
+      return no(
+        `${SPANS[name].name} appears twice and is called twice, so which copy runs is unknown.`,
+      )
+    }
+    at[name] = called[0]!
   }
 
   // The camera tables are adjacent (bank_00.asm:4242-4246), so their distance is the length.

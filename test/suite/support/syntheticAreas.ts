@@ -89,9 +89,12 @@ export function plant(rom: RomFile, n: Name, bank: number, ops: Record<number, n
 /** Where a planted call sits: JSL in bank 0, JSRs in the routine bank. */
 export const callAt = (n: CallName, bank = 4): number =>
   n === 'jsl' ? CALLS[n] : inBank(CALLS[n], bank)
+/** Compare immediates planted before the two scan callers: any two different values. */
+export const TILE = { jsrStar: 0x11, jsrPipe: 0x22 }
 /**
- * Plants a call to `target` (low word) at `n`: a JSL to `bank` (or `bank` | $80 for the FastROM
- * mirror), or a JSR within the caller's own bank. `at` overrides the site.
+ * Plants a call to `target` (low word) at `n`, in the shape the module reads: the JSL after a
+ * load and a branch over it, the path JSR after a branch and a push, a scan JSR after a
+ * compare-immediate and a branch. `bank` is the JSL's bank byte; `at` overrides the site.
  */
 export function call(
   rom: RomFile,
@@ -100,11 +103,18 @@ export function call(
   bank = 4,
   at: number = callAt(n, bank),
 ): void {
-  rom.writeAt(
-    at,
-    n === 'jsl' ? [0x22, target & 0xff, target >> 8, bank] : [0x20, target & 0xff, target >> 8],
-  )
+  const lo = target & 0xff
+  const hi = target >> 8
+  const shape: Record<CallName, number[]> = {
+    jsl: [0xad, 0, 0, 0xf0, 4, 0x22, lo, hi, bank],
+    jsrPath: [0xd0, 0, 0x5a, 0x20, lo, hi],
+    jsrStar: [0xc9, TILE.jsrStar, 0xd0, 0, 0x20, lo, hi],
+    jsrPipe: [0xc9, TILE.jsrPipe, 0xd0, 0, 0x20, lo, hi],
+  }
+  rom.writeAt(at, shape[n])
 }
+/** Bytes a planted call occupies, to blank it. */
+export const CALL_LEN: Record<CallName, number> = { jsl: 9, jsrPath: 6, jsrStar: 7, jsrPipe: 7 }
 
 /** Plants vanilla-shaped routines, callers and tables (from CODE) into `rom`. */
 export function plantAreas(rom: RomFile, bank = 4): void {
