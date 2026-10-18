@@ -40,6 +40,8 @@ export const FIRST_LANDING_SCHEDULE = [
 export const SMASH_SPRITE_ID = 0x89
 /** The start-up sweep CODE_02ACA1 (bank_02.asm:5876): a JSR entry, DB 2 as its bank. */
 const SWEEP = 0x02aca1
+// Per run of the sweep or of one sprite pass. Vanilla $01F took about 5,300 steps for the sweep and about 1,200
+// for a pass (one run, one machine), so this is far above need; it only stops a hacked loop that never returns.
 const STEP_CAP = 400_000
 const LDA_IMM = 0xa9
 /** WRAM cells (rammap.asm): the 12 slots' status and number, XLow, XHigh, Layer3XPos/YPos ($22/$24). */
