@@ -16,7 +16,6 @@ import {
   WALK_PROLOGUE_LENGTH,
   type OverworldFingerprints,
 } from '../../../src/rom/OverworldEntrances'
-import { ADDR_EXTENDED_DISPATCH } from '../../../src/rom/objectHandlers/romData'
 import { fingerprint } from '../../../src/rom/Fingerprint'
 import { WILD } from '../../../src/rom/BytePattern'
 
@@ -87,8 +86,7 @@ export const SYNTHETIC_FINGERPRINTS: OverworldFingerprints = Object.freeze({
 
 /**
  * A handler for extended object $00 that files a screen exit as the game's does, in different
- * instructions (so no ROM byte run is committed), at $0DB000 and reached through the dispatch
- * pointer: ScreenExitFiling runs it rather than matching bytes.
+ * instructions, ending in RTL because the synthetic dispatcher below reaches it by a long jump.
  */
 // prettier-ignore
 export const SCREEN_EXIT_FILING_CODE: readonly number[] = [
@@ -108,34 +106,38 @@ export const SCREEN_EXIT_FILING_CODE: readonly number[] = [
   0xa9, 0x00,       // LDA #0
   0x2a,             // ROL A, the carry is bit 8
   0x9d, 0xd8, 0x19, // STA ExitTableHigh,X
-  0x60,             // RTS
+  0x6b,             // RTL
 ]
+export const SCREEN_EXIT_HANDLER_AT = 0x0db000
 /**
- * The path from the level loader to the extended-object dispatch, one instruction per entry
- * (SMWDisX bank_05.asm:794-802, bank_0D.asm:1051-1060): planted so the gate finds every step it reads.
+ * The synthetic cart's own extended-object load path, written with different instructions from
+ * the game's so the assembled cart holds no run of the game's code: a loader stub at the
+ * LevLoadExtObj address, a dispatcher, a long-pointer jump at the ExecutePtrLong address
+ * (a 3-byte table read into scratch, then JML [abs]) and the table. Each entry is
+ * [address, bytes].
  */
-export const DISPATCH_PATH_PLANT: readonly [addr: number, bytes: readonly number[]][] = [
-  [0x0586c5, [0xa5, 0x5a]], // LDA LvlLoadObjNo
-  [0x0586c7, [0xd0, 0x06]], // BNE over the extended branch
-  [0x0586c9, [0x20, 0xe3, 0x86]], // JSR LevLoadExtObj
-  [0x0586e3, [0xe2, 0x30]], // SEP #$30
-  [0x0586e5, [0x22, 0x00, 0xa1, 0x0d]], // JSL CODE_0DA100
-  [0x0da100, [0xe2, 0x30]], // SEP #$30
-  [0x0da102, [0x20, 0x06, 0xa1]], // JSR CODE_0DA106
-  [0x0da105, [0x6b]], // RTL
-  [0x0da106, [0xe2, 0x30]], // SEP #$30
-  [0x0da108, [0xa5, 0x59]], // LDA LvlLoadObjSize
-  [0x0da10a, [0xaa]], // TAX
-  [0x0da10b, [0x22, 0xfa, 0x86, 0x00]], // JSL ExecutePtrLong
+export const SCREEN_EXIT_LOADER_PLANT: readonly [addr: number, bytes: readonly number[]][] = [
+  [0x0586e3, [0xe2, 0x10, 0xe2, 0x20, 0x22, 0x00, 0xa1, 0x0d, 0x60]], // SEP, SEP, JSL dispatcher, RTS
+  [0x0da100, [0xe2, 0x30, 0x22, 0xfa, 0x86, 0x00, 0x6b]], // SEP, JSL pointer jump, RTL
+  [
+    0x0086fa,
+    // prettier-ignore
+    [
+      0xa5, 0x59, 0x85, 0x03, 0x0a, 0x65, 0x03, 0xaa,  // index * 3 into X
+      0xbf, 0x10, 0xa1, 0x0d, 0x85, 0x00,              // table byte 0 -> $00
+      0xbf, 0x11, 0xa1, 0x0d, 0x85, 0x01,              // byte 1 -> $01
+      0xbf, 0x12, 0xa1, 0x0d, 0x85, 0x02,              // byte 2 -> $02
+      0xdc, 0x00, 0x00,                                // JML [$0000]
+    ],
+  ],
+  [0x0da110, [0x00, 0xb0, 0x0d]], // entry 0 -> SCREEN_EXIT_HANDLER_AT
 ]
-
 export function plantScreenExitFiling(rom: RomFile): void {
   try {
-    for (const [addr, bytes] of DISPATCH_PATH_PLANT) rom.writeAt(addr, [...bytes])
-    rom.writeAt(ADDR_EXTENDED_DISPATCH, [0x00, 0xb0, 0x0d])
-    rom.writeAt(0x0db000, [...SCREEN_EXIT_FILING_CODE])
+    for (const [addr, bytes] of SCREEN_EXIT_LOADER_PLANT) rom.writeAt(addr, [...bytes])
+    rom.writeAt(SCREEN_EXIT_HANDLER_AT, [...SCREEN_EXIT_FILING_CODE])
   } catch {
-    // An image too short to hold bank $0D has no exit graph to build.
+    // An image too short to hold these banks has no exit graph to build.
   }
 }
 

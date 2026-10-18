@@ -3,16 +3,21 @@
  * The reference handler is written for this test with different instructions from the game's, so
  * the test holds no ROM bytes; each planted defect is one edit to it and must name a mismatch.
  */
+/**
+ * The screen-exit filing check (#957) on synthetic carts: no corpus. The cart holds its own load
+ * path (loader stub, dispatcher, long-pointer jump, table) and a reference handler, all written
+ * with different instructions from the game's, so the test holds no ROM bytes. Each planted
+ * defect is one edit to the cart and must be refused with a reason.
+ */
 import { describe, expect, it } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { screenExitFilingMismatch } from '../../../src/rom/ScreenExitFiling'
-import { DISPATCH_PATH_PLANT, SCREEN_EXIT_FILING_CODE } from '../support/syntheticRom'
+import {
+  SCREEN_EXIT_FILING_CODE,
+  SCREEN_EXIT_HANDLER_AT,
+  SCREEN_EXIT_LOADER_PLANT,
+} from '../support/syntheticRom'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
-
-const DISPATCH_SEP_AT = 0x0da106
-const DISPATCH_JSL_AT = 0x0da10b
-const DISPATCH = 0x0d * 0x8000 + 0x210f
-const HANDLER = 0x0d * 0x8000 + 0x3000 // $0DB000, off the stock address on purpose
 
 const FILING: number[] = [...SCREEN_EXIT_FILING_CODE]
 /** Index of the first occurrence of `seq` in the reference handler, so edits follow its layout. */
@@ -25,26 +30,27 @@ const at = (...seq: number[]): number => {
 /** File offset of a LoROM address in this image. */
 const off = (snes: number): number => ((snes >> 16) & 0x7f) * 0x8000 + (snes & 0x7fff)
 
-function rom(code: number[], dispatchTo = 0x0db000): RomFile {
+/** The cart's own load path plus `code` as the handler; `edit` patches [address, bytes] pairs over it. */
+function cart(code: number[] = FILING, ...patches: [number, number[]][]): RomFile {
   const bytes = new Uint8Array(0x100000)
   bytes[0x7fd5] = 0x20
-  for (const [addr, b] of DISPATCH_PATH_PLANT) bytes.set(b, off(addr))
-  bytes.set([dispatchTo & 0xff, (dispatchTo >> 8) & 0xff, dispatchTo >> 16], DISPATCH)
-  bytes.set(code, HANDLER)
+  for (const [addr, b] of SCREEN_EXIT_LOADER_PLANT) bytes.set(b, off(addr))
+  bytes.set(code, off(SCREEN_EXIT_HANDLER_AT))
+  for (const [addr, b] of patches) bytes.set(b, off(addr))
   return RomFile.fromBytes('filing.sfc', bytes)
 }
-const edit = (at: number, ...to: number[]): number[] => {
+const edit = (index: number, ...to: number[]): number[] => {
   const c = [...FILING]
-  c.splice(at, to.length, ...to)
+  c.splice(index, to.length, ...to)
   return c
 }
 
 describe('screenExitFilingMismatch (#957)', () => {
-  it('accepts a handler that files per screen, found through the dispatch pointer', () => {
-    expect(screenExitFilingMismatch(rom(FILING))).toBeNull()
+  it('accepts a handler that files per screen, run through the loader, dispatcher and pointer jump', () => {
+    expect(screenExitFilingMismatch(cart())).toBeNull()
   })
 
-  const planted: [string, number[]][] = [
+  const handlers: [string, number[]][] = [
     ['screen mask widened ($3F)', edit(at(0x29, 0x1f), 0x29, 0x3f)],
     ['high byte takes the wrong bit', edit(at(0xa9, 0x00), 0xa9, 0x02)],
     ['secondary flag not shifted', edit(at(0x4a), 0xea)],
@@ -63,92 +69,63 @@ describe('screenExitFilingMismatch (#957)', () => {
           0xee,
           0xf0,
           0x01,
-          0x60,
+          0x6b,
           ...FILING.slice(i),
         ]
       })(),
     ],
-    ['returns at once, files nothing', [0x60]],
+    ['returns at once, files nothing', [0x6b]],
     ['never returns', [0x80, 0xfe]],
   ]
-  for (const [name, code] of planted) {
-    it(`names a mismatch: ${name}`, () => {
-      expect(screenExitFilingMismatch(rom(code))).toMatch(/Screen exits/)
+  for (const [name, code] of handlers) {
+    it(`refuses a handler with a defect: ${name}`, () => {
+      expect(screenExitFilingMismatch(cart(code))).toMatch(/Screen exits/)
     })
   }
 
-  it('refuses before running when the dispatcher no longer reads a long-pointer table', () => {
-    const r = rom(FILING)
-    r.writeAt(DISPATCH_JSL_AT, [0x20]) // JSR: not a long call, so the table is not three-byte entries
-    expect(screenExitFilingMismatch(r)).toMatch(/dispatch/)
+  // Defects on the load path itself, which the handler-level plants never touch.
+  const path: [string, [number, number[]]][] = [
+    ['an RTL at the pointer jump', [0x0086fa, [0x6b]]],
+    ['a JMP diverting the dispatcher', [0x0da100, [0x4c, 0x06, 0xa1]]],
+    ['the table pointing at empty space', [0x0da110, [0x00, 0xb8, 0x0d]]],
+    ['the table pointing outside the ROM image', [0x0da110, [0x00, 0x20, 0x7e]]],
+    ['the loader stub returning at once', [0x0586e3, [0x60]]],
+    ['the pointer jump reading the wrong object number', [0x0086fa, [0xa5, 0x5a]]],
+  ]
+  for (const [name, patch] of path) {
+    it(`refuses a diverted load path: ${name}`, () => {
+      expect(screenExitFilingMismatch(cart(FILING, patch))).toMatch(/Screen exits|could not be run/)
+    })
+  }
+
+  it('says in plain words when the handler files nothing', () => {
+    expect(screenExitFilingMismatch(cart(FILING, [0x0086fa, [0x6b]]))).toMatch(/holds .* not the/)
   })
-  it('refuses before running when the dispatcher does not start with SEP', () => {
-    const r = rom(FILING)
-    r.writeAt(DISPATCH_SEP_AT, [0xea])
-    expect(screenExitFilingMismatch(r)).toMatch(/dispatch/)
-  })
-  it('refuses when the SEP immediate no longer sets 8-bit A and X', () => {
-    for (const imm of [0x20, 0x10, 0x00, 0x31]) {
-      const r = rom(FILING)
-      r.writeAt(DISPATCH_SEP_AT + 1, [imm])
-      expect(screenExitFilingMismatch(r)).toMatch(/dispatch.*SEP/)
-    }
-  })
-  it('refuses when the dispatcher calls another routine, in either bank', () => {
-    for (const target of [
-      [0xfb, 0x86, 0x00],
-      [0xfa, 0x87, 0x00],
-      [0xfa, 0x86, 0x01],
-      [0xfa, 0x86, 0x7e],
-    ]) {
-      const r = rom(FILING)
-      r.writeAt(DISPATCH_JSL_AT + 1, target)
-      expect(screenExitFilingMismatch(r)).toMatch(/dispatch.*routine/)
-    }
-  })
-  it('accepts the FastROM mirror of the same routine', () => {
-    const r = rom(FILING)
-    r.writeAt(DISPATCH_JSL_AT + 1, [0xfa, 0x86, 0x80])
-    expect(screenExitFilingMismatch(r)).toBeNull()
+  it('names the refused instruction when the path reaches empty space', () => {
+    expect(screenExitFilingMismatch(cart(FILING, [0x0da110, [0x00, 0xb8, 0x0d]]))).toMatch(
+      /BRK|refus|executed/i,
+    )
   })
   it('caches per ROM version: a write recomputes, an unchanged ROM does not run again', () => {
-    const r = rom(FILING)
+    const r = cart()
     expect(screenExitFilingMismatch(r)).toBeNull()
     // Bypasses writeAt, so the version is unchanged: a second call must reuse the first result.
-    r.buffer[HANDLER] = 0x60
+    r.buffer[off(SCREEN_EXIT_HANDLER_AT)] = 0x6b
     expect(screenExitFilingMismatch(r)).toBeNull()
-    r.writeAt(HANDLER, [0x60]) // a real edit bumps the version and the handler now files nothing
+    r.writeAt(SCREEN_EXIT_HANDLER_AT, [0x6b]) // a real edit bumps the version and the handler now files nothing
     expect(screenExitFilingMismatch(r)).toMatch(/Screen exits/)
   })
-  it('refuses a changed byte at every instruction on the path into the dispatch', () => {
-    for (const [addr, plant] of DISPATCH_PATH_PLANT) {
-      for (let i = 0; i < plant.length; i++) {
-        const r = rom(FILING)
-        r.writeAt(addr + i, [plant[i]! ^ 0x01])
-        const at = `$${(addr + i).toString(16).toUpperCase().padStart(6, '0')}`
-        expect(screenExitFilingMismatch(r), at).toContain(`differs at ${at}`)
-      }
-    }
-  })
-  it('refuses a JMP planted over the dispatcher TAX, before the checked JSL', () => {
-    const r = rom(FILING)
-    r.writeAt(0x0da10a, [0x4c])
-    expect(screenExitFilingMismatch(r)).toMatch(/dispatch.*differs at \$0DA10A/)
-  })
   it('reports the step budget when the handler spins', () => {
-    expect(screenExitFilingMismatch(rom([0x80, 0xfe]))).toMatch(/budget|steps/i)
+    expect(screenExitFilingMismatch(cart([0x80, 0xfe]))).toMatch(/budget|steps/i)
   })
-  it('names a mismatch when the dispatch points outside the cart', () => {
-    expect(screenExitFilingMismatch(rom(FILING, 0x7e2000))).toMatch(/not in the ROM image/)
-  })
-  it('names a mismatch when the dispatch is unreadable', () => {
+  it('names a mismatch on an image too short to hold the load path', () => {
     const r = RomFile.fromBytes('tiny.sfc', new Uint8Array(0x10))
-    expect(screenExitFilingMismatch(r)).toMatch(/unreadable|could not/)
+    expect(screenExitFilingMismatch(r)).toMatch(/Screen exits|could not/)
   })
 })
 
 describe.skipIf(!hasRom(VANILLA))('screenExitFilingMismatch -- vanilla ROM (#957)', () => {
-  it('finds the stock handler filing as modelled', () => {
+  it('finds the stock load path filing as modelled', () => {
     expect(screenExitFilingMismatch(RomFile.load(romPath(VANILLA)))).toBeNull()
   })
 })
