@@ -1,0 +1,3 @@
+### Changed
+
+- Tests: a synthetic, ROM-free case proves a sprite pixel over an item block is never covered by the block's indicator (#1003). It builds the block and the sprite pixel in the test and runs the real indicator placement, plane order and compose; covers plane choice and sprite stacking order; evidence: 4 cases (low-priority block under sprite priority 2 and 3, high-priority block under 3, and a high-priority block whose indicator covers a priority-2 sprite pixel through the screen door), one machine. Planted defects (all indicators to the high plane, all to the low plane, sprites drawn last) each turn at least one case red.

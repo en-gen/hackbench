@@ -153,6 +153,8 @@ export interface SpriteModel {
    * frame a map should show.
    */
   chosen?: number
+  /** Why a $67 handler got the generic rule: the grinder gate ran it and it did not make the vanilla calls in order. */
+  lineGateReason?: string
   /** Why a $67 on a vanilla-shaped handler stayed on its first drawn pass although the next one draws. */
   lineStepReason?: string
   /** True for $67 on a vanilla-shaped handler: each pass draws where the pass before left the sprite (`PassResult.origin`). */
@@ -551,9 +553,17 @@ export function runOnce(
     if (st === 1)
       return { ...model, refusal: `INIT did not complete in ${MAX_INIT_FRAMES} frames: status stays 1, waiting on state the seed lacks` } // prettier-ignore
     const anchor = m.pos()
-    const snaps =
-      DRAWS_BEFORE_LINE_SNAP.has(num) &&
-      grinderDrawsBeforeSnap(rom, mains.handler.address, opts.grinderDispatch)
+    const gate = DRAWS_BEFORE_LINE_SNAP.has(num)
+      ? grinderDrawsBeforeSnap(
+          rom,
+          mains.handler.address,
+          num,
+          RAM.spriteNumber,
+          opts.grinderDispatch,
+        )
+      : null
+    const snaps = gate?.ok === true
+    if (gate && !gate.ok) model.lineGateReason = gate.reason
     const placed = { x: m.seed.sprite.x, y: m.seed.sprite.y }
     // INIT can move a sprite off the screen the run was centred on (the grinders' -$140, the Podoboo's drop),
     // and GetDrawInfo then culls it. The camera only picks which screen the picture is taken on: centre it on the
