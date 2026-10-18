@@ -28,7 +28,7 @@ export const routine = (o: Operands) => {
   return b
 }
 export const boot = (): BootRoutine => ({
-  anchor: HEAD,
+  at: 0x100,
   length: BOOT_LEN,
   sha256: bootFingerprint(
     Uint8Array.from(routine({ at33: 0, bank: 0, top: 0, srcTop: 0, at32: 0 })),
@@ -37,7 +37,7 @@ export const boot = (): BootRoutine => ({
 /** A made-up upload routine (64 bytes, invented head and filler) and its record, as `boot` is for the boot routine. */
 export const DMA_HEAD = [0xa5, 0x5c, 0xa6]
 export const dmaCode = (): number[] => [...DMA_HEAD, ...new Array<number>(61).fill(0xea)]
-export const dma = (): BootRoutine => ({ anchor: DMA_HEAD, length: 64, sha256: fingerprint(Uint8Array.from(dmaCode()))! }) // prettier-ignore
+export const dma = (): BootRoutine => ({ at: 0x2000, length: 64, sha256: fingerprint(Uint8Array.from(dmaCode()))! }) // prettier-ignore
 export const GATE: CompressionCheck = {
   ok: true,
   sites: {} as never,

@@ -1,12 +1,11 @@
 /**
  * The #980 fixtures and detection pattern carry no vanilla bytes (BA safety rule 2026-10-17). Every synthetic cart the
- * branch's tests assemble, and the boot routine's anchor, is checked against the vanilla ROM: no 8-byte window with at
+ * branch's tests assemble, is checked against the vanilla ROM: no 8-byte window with at
  * least 3 distinct values (an all-equal fill is padding, not code) may occur in it. Checked on the ASSEMBLED bytes, so a
  * run split across array literals is found. Gated on the vanilla ROM; the scanner is proven able to fail on a planted copy.
  */
 import { describe, expect, it } from 'vitest'
-import { WILD } from '../../../src/rom/BytePattern'
-import { STOCK_BOOT } from '../../../src/rom/MarioGraphics'
+import { STOCK_BOOT, STOCK_DMA } from '../../../src/rom/MarioGraphics'
 import { freshRom, hasRom, VANILLA } from '../support/corpus'
 import {
   bankCarryCart,
@@ -72,15 +71,9 @@ describe.skipIf(!hasRom(VANILLA))('MarioGraphics fixtures against the vanilla RO
     expect(loose().map(b => shared(b, set).length)).toEqual(loose().map(() => 0))
   })
 
-  it('keeps no 8 consecutive literal bytes in the boot routine anchor', () => {
-    const { set } = vanillaWindows()
-    const runs: number[][] = [[]]
-    for (const b of STOCK_BOOT.anchor) {
-      if (b === WILD) runs.push([])
-      else runs.at(-1)!.push(b)
-    }
-    expect(Math.max(...runs.map(r => r.length)), 'longest literal run').toBeLessThan(W)
-    expect(runs.flatMap(r => shared(Uint8Array.from(r), set))).toEqual([])
+  it('stores no routine bytes: the stock records are a length and a hash', () => {
+    expect(Object.keys(STOCK_BOOT).sort()).toEqual(['at', 'length', 'sha256'])
+    expect(Object.keys(STOCK_DMA).sort()).toEqual(['at', 'length', 'sha256'])
   })
 
   it('goes red on a planted copy: 8 bytes read from the vanilla ROM at run time are reported at their offset', () => {

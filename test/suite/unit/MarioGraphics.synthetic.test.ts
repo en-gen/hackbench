@@ -114,7 +114,7 @@ describe('buildMarioGraphics', () => {
   })
 
   it('refuses a boot routine found twice, absent, or changed in a byte the operands do not cover', () => {
-    refused(build({ copies: 2 }), /not the stock one/)
+    refused(build({ copies: 2 }), /more than once/)
     refused(build({ copies: 0 }), /not the stock one/)
     refused(build({ edit: c => { c[40] = 0x60 } }), /not the stock one/) // prettier-ignore
   })

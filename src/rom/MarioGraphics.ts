@@ -21,7 +21,6 @@
  */
 import type { RomFile } from './RomFile'
 import { cachedByVersion } from './RomFile'
-import { findPattern, parsePattern as hex, type BytePattern } from './BytePattern'
 import { fingerprint } from './Fingerprint'
 import { parseStream, tryDecompress } from './LcLz2'
 import { gfxSource } from './GfxLoader'
@@ -35,21 +34,23 @@ const ROW_SLOTS = 5
 const PIECE = 0x40 // bytes per slot (HW_DMACNT, bank_00.asm:4586)
 
 /**
- * A boot routine found by its head and recognised by a hash of all of it: the head is under 8 bytes, `sha256` covers all `length` bytes with the operand slots (`bootFingerprint`) zeroed.
+ * A routine recognised by a hash of all of it, with no stored bytes: `stockSites` slides a `length`-byte window over
+ * the file offsets within SLACK of `at`, where the stock cart has it, and compares each window's SHA-256 (for the
+ * boot routine, with the operand slots zeroed) to `sha256`.
  */
 export interface BootRoutine {
-  anchor: BytePattern
+  at: number
   length: number
   sha256: string
 }
 
-// CODE_00B888 through the GFX32 pointer load at CODE_00B8D7 (bank_00.asm:6250-6290), 84 bytes. The anchor is the first
-// seven bytes with the GFX33 operand word wild: under 8 bytes, so no literal run of the cart's code is committed, and
-// several sites may match it; the SHA-256 alone says which is the routine. The JSR is pinned to the stock decompressor
-// entry by that hash. Lunar Magic replaces its body (a direct GFX33 decompress to $7E:7D00, then a JMP to CODE_00B8D7):
+// CODE_00B888 through the GFX32 pointer load at CODE_00B8D7 (bank_00.asm:6250-6290), 84 bytes, at file offset $3888
+// ($00:B888). Whole bank $00 took 68 ms per lookup (one machine), so only SLACK either side of the stock address is
+// scanned: the routines are reached by fixed JSR targets, and a cart that moved one is not stock here. The JSR is pinned to the stock decompressor
+// entry by the hash. Lunar Magic replaces its body (a direct GFX33 decompress to $7E:7D00, then a JMP to CODE_00B8D7):
 // 141 of the 146 hack-corpus ROMs do, and those are not stock here.
 export const STOCK_BOOT: BootRoutine = {
-  anchor: hex('c2 10 a0 ?? ?? 84 8a'),
+  at: 0x3888,
   length: 84,
   sha256: '41bd1df9519507a44f4eb96ded5761a2aafa0bfc36151c60290fbb3d8a54b05b',
 }
@@ -57,9 +58,25 @@ export const STOCK_BOOT: BootRoutine = {
 // MarioGFXDMA's two upload loops (bank_00.asm:4580-4605), 64 bytes, hashed whole. A hack that patches them can send the
 // slots anywhere, so the buffer is not read for it. One site in the vanilla ROM (one machine, one cart).
 export const STOCK_DMA: BootRoutine = {
-  anchor: hex('a9 00 60 8d 16 21 a2'),
+  at: 0x234d, // $00:A34D, the LDA #$6000 of bank_00.asm:4580
   length: 64,
   sha256: 'ea61acf43341bd988f651b7339bc1c11300be7ef98639680c74d3883e7519355',
+}
+
+const SLACK = 0x100
+
+/** File offsets within SLACK of `r.at` whose `r.length` bytes hash to `r.sha256` (through `hashOf`). */
+function stockSites(
+  rom: RomFile,
+  r: BootRoutine,
+  hashOf: (b: Uint8Array) => string | null,
+): number[] {
+  const from = Math.max(0, r.at - SLACK)
+  const area = rom.readAtFileOffset(from, r.at + SLACK + r.length - from)
+  const sites: number[] = []
+  for (let i = 0; area && i + r.length <= area.length; i++)
+    if (hashOf(area.subarray(i, i + r.length)) === r.sha256) sites.push(from + i)
+  return sites
 }
 
 /** Operand offsets in the routine: GFX33 low, high, bank; expansion top (word); source top (word); GFX32 low/high (word). */
@@ -89,19 +106,12 @@ export function buildMarioGraphics(
   dma: BootRoutine | undefined = boot === STOCK_BOOT ? STOCK_DMA : undefined, // tests that inject a boot bring their own
 ): MarioBuffer {
   const fail = (reason: string): MarioBuffer => ({ ok: false, reason })
-  const sites = findPattern(rom, boot.anchor).filter(at => {
-    const b = rom.readAtFileOffset(at, boot.length)
-    return b !== null && bootFingerprint(b) === boot.sha256
-  })
-  if (sites.length !== 1) return fail('the boot routine that builds the Mario graphics buffer is not the stock one') // prettier-ignore
-  if (
-    dma &&
-    findPattern(rom, dma.anchor).filter(
-      at => fingerprint(rom.readAtFileOffset(at, dma.length)) === dma.sha256,
-    ).length !== 1
-  )
-    // prettier-ignore
-    return fail('the routine that uploads the Mario graphics buffer to VRAM is not the stock one')
+  const sites = stockSites(rom, boot, bootFingerprint)
+  if (sites.length === 0) return fail('the boot routine that builds the Mario graphics buffer is not the stock one') // prettier-ignore
+  if (sites.length > 1) return fail('the boot routine that builds the Mario graphics buffer occurs more than once, so which copy runs is not known') // prettier-ignore
+  const uploads = dma && stockSites(rom, dma, fingerprint).length
+  if (uploads === 0) return fail('the routine that uploads the Mario graphics buffer to VRAM is not the stock one') // prettier-ignore
+  if (uploads !== undefined && uploads > 1) return fail('the routine that uploads the Mario graphics buffer to VRAM occurs more than once, so which copy runs is not known') // prettier-ignore
   if (!src.ok) return fail(src.reason)
   const site = rom.readAtFileOffset(sites[0]!, boot.length)!
   const w = (i: number) => site[i]!
