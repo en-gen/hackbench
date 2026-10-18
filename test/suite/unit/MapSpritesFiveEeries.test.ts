@@ -74,10 +74,16 @@ describe('sprite $DE on the map', () => {
     expect(Math.min(...right) & 0xff).toBe(SYNTHETIC_SPEEDS.marioRight)
   })
 
-  it('is refused with the reason in a vertical map: the loader hands the spawner the wrong axis', () => {
-    const r = interpDrawer(buildSyntheticRom({ eeries: {} }), 0x21, { isVertical: true, screenCount: 16 }, runOnce, () => eeriesSeed(100), undefined, SYNTHETIC_EERIES_ROUTINES as never)(entry) // prettier-ignore
-    expect(r.ok).toBe(false)
-    expect(!r.ok && 'reason' in r && r.reason).toMatch(/not drawn in a vertical map/)
+  it('draws in a vertical map from the loader-provided inputs: the spawner gets the entry Y as its X, and says it is unchecked', () => {
+    // The loader hands the spawner the scroll-axis boundary as $00/$01 (bank_02.asm:5232-5238), which in a vertical
+    // map is the entry's Y: 26 tiles = 416 px. The spawner still reads its own data byte (Y $170 = 368) for Y.
+    const e = { ...entry, y: 26 }
+    const r = ok(interpDrawer(buildSyntheticRom({ eeries: {} }), 0x21, { isVertical: true, screenCount: 16 }, runOnce, () => eeriesSeed(100), undefined, SYNTHETIC_EERIES_ROUTINES as never)(e)) // prettier-ignore
+    expect(r.anchor).toEqual({ x: 832, y: 416 })
+    expect(extent(r).x).toEqual([416 + near - 832, 416 + far + 8 - 832])
+    expect(extent(r).y).toEqual([368 - 416, 368 - 416 + 8])
+    expect(r.unverified).toMatch(/vertical map/)
+    expect(r.parts).toHaveLength(5 * 4)
   })
 
   it('is refused, with the reason, when the level loader gave no image: SpriteDataPtr was never set', () => {

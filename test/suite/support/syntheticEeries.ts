@@ -14,7 +14,7 @@ import type { SyntheticOptions } from './syntheticSpriteRom'
 export const EERIES_STREAM_AT = 0x038000
 /** Where the loader calls the spawner from, the spawner's entry, the distance routine and the fixture's tables. */
 export const ROUTE_AT = 0x02a88c
-export const SPAWNER_AT = 0x02af9d
+export const SPAWNER_AT = 0x02afa8
 export const DISTANCE_AT = 0x02848d
 export const TABLES_AT = 0x02b200
 /** Offsets inside the spawner and the distance routine that tests plant defects at. */
@@ -88,12 +88,14 @@ export function putEeries(
   e: NonNullable<SyntheticOptions['eeries']>,
 ): void {
   // The loader's call site: the base cart already has the compare and branch in front (4 bytes); then filler, then the
-  // JSR the production code reads its target from.
-  // Then the route's own shape, written for this fixture: two filler bytes, DEY, STY $03 (the data offset the spawner reads),
+  // The branch offset (the one route byte the reader does not look at) is the fixture's own, so no window of the route
+  // equals the game's.
+  put(ROUTE_AT + 3, [0x30])
+  // Then the route's own shape, written for this fixture: PHY, PHX, DEY, STY $03 (the data offset the spawner reads),
   // the JSR the production code reads its target from, and filler after it.
   put(ROUTE_AT + 4, [
-    0xea,
-    0xea,
+    0x5a,
+    0xda,
     0x88,
     0x84,
     0x03,

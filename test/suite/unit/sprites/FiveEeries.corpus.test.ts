@@ -66,9 +66,9 @@ describe.skipIf(!hasRom(VANILLA))('sprite $DE, vanilla ROM', () => {
         expect(res.notes).toEqual([])
         expect(res.spawned).toBe(count)
         expect(res.eeries).toHaveLength(count)
-        // D137: each sits where the spawner put it, -32 -16 0 16 32 from the entry (the missing one of a four-slot
+        // D137: each sits where the spawner put it, -32 -16 0 16 32 from the entry (in spawn order, +32 first; the missing one of a four-slot
         // range is the last spawn, -32), at the data byte's Y: no travel.
-        const want = [-32, -16, 0, 16, 32].slice(5 - count)
+        const want = [32, 16, 0, -16, -32].slice(0, count)
         expect(res.eeries.map(q => q.x - x)).toEqual(want)
         const dataY = (entry.raw[0]! & 0xf0) | ((entry.raw[0]! & 1) << 8)
         expect(dataY).toBe(y)
@@ -119,17 +119,17 @@ describe.skipIf(!hasRom(VANILLA) || !hasCaptures())(
         const rec = spawnsOf().find(s => s.listIndex === entry.index)!
         expect(rec.id).toBe('$39')
         expect(rec.initFrame).toBeNull()
-        // nth 4 is the highest slot: the first spawn, +$20 from the entry, the one that carries the list index.
-        const m = models[4]!
+        // nth 0 is the first spawn, +$20 from the entry, the one that carries the list index.
+        const m = models[0]!
         const frames = rec.frames.slice(0, 2)
         expect(frames).toHaveLength(2)
-        // The first capture frame is 8 frames after the spawn; the second 8 after that. Our run's pass k is k + 2 frames
-        // after the spawn frame (one frame at the spawn, one more before pass 0), so the capture frames sit at pass 6 and 14.
+        // The first capture frame is 8 frames after the spawn; the second 8 after that. Our run's pass k is k + 1 frames
+        // after the spawn frame (no frame runs before pass 0: a status-8 spawn has no INIT), so the capture frames sit at pass 7 and 15.
         for (const [k, f] of [
-          [6, frames[0]!],
-          [14, frames[1]!],
+          [7, frames[0]!],
+          [15, frames[1]!],
         ] as const) {
-          expect(f.frame - rec.spawnFrame).toBe(k + 2)
+          expect(f.frame - rec.spawnFrame).toBe(k + 1)
           expect(m.passes[k]!.pos, `pass ${k}`).toEqual({ x: f.x, y: f.y })
           expect(m.passes[k]!.parts[0]!.char & 0xff, `tile at pass ${k}`).toBe(f.tiles[0]!.tile)
         }

@@ -7,7 +7,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   eeriesGate,
-  EERIES_HORZ as HORZ,
   EERIES_ROUTE as ROUTE,
   fiveEeries,
   spawnerEntry,
@@ -24,7 +23,6 @@ import { flip } from '../../support/syntheticRom'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 import {
   COUNT_IMMEDIATE_AT,
-  DISTANCE_AT,
   DISTANCE_INY_AT,
   eeriesSeed,
   ROUTE_AT,
@@ -42,12 +40,14 @@ const seed = (marioX = 100) => eeriesSeed(marioX, { camera: { x: 700, y: 224 }, 
 const entry: EeriesEntry = { x: 832, y: 368, index: 9, streamOffset: 0 }
 const cart = (e: Parameters<typeof buildSyntheticRom>[0] = { eeries: {} }) => buildSyntheticRom(e)
 const JSR_AT = ROUTE_AT + 9
+/** The offsets in spawn order: the spawner's loop runs from the table's last entry to its first. */
+const SPAWN_ORDER = [...OFFSETS].reverse()
 
 describe('the five Eeries', () => {
   it('spawns five, at the entry X plus the cart table, Y from the data byte', () => {
     const r = fiveEeries(cart(), seed(), entry, SYN)
     if (!r.ok) throw new Error(r.reason)
-    expect(r.eeries.map(e => e.x)).toEqual(OFFSETS.map(o => 832 + o))
+    expect(r.eeries.map(e => e.x)).toEqual(SPAWN_ORDER.map(o => 832 + o))
     expect(r.eeries.map(e => e.y)).toEqual([368, 368, 368, 368, 368])
     expect(r.unverified).toEqual([])
     expect(r.notes).toEqual([])
@@ -67,11 +67,11 @@ describe('the five Eeries', () => {
     })
     const r = fiveEeries(rom, seed(), { ...entry, x: 560 }, SYN)
     if (!r.ok) throw new Error(r.reason)
-    expect(r.eeries.map(e => e.x)).toEqual([560 - 0x40, 560 - 0x20, 560, 560 + 0x20, 560 + 0x40])
+    expect(r.eeries.map(e => e.x)).toEqual([560 + 0x40, 560 + 0x20, 560, 560 - 0x20, 560 - 0x40])
     expect(new Set(r.eeries.map(e => e.y))).toEqual(new Set([0x1a0]))
   })
 
-  it('links only the first spawn to the list index, and that one is the rightmost', () => {
+  it('links only the first spawn to the list index, and that one is the rightmost, nth 0', () => {
     const linked: number[] = []
     const run: Run = (rom, id, s, o) =>
       runOnce(rom, id, s, {
@@ -83,9 +83,9 @@ describe('the five Eeries', () => {
         },
       })
     const r = fiveEeries(cart(), seed(), entry, SYN, 1, run)
-    // nth 0 is the lowest slot (the last spawn); nth 4 the highest (the first spawn), the far end of the table.
-    expect(linked).toEqual([0, 0, 0, 0, 9])
-    expect(r.ok && r.eeries.at(-1)!.x).toBe(832 + OFFSETS[4]!)
+    // nth 0 is the first spawn (the spawner fills the highest slot first), the far end of the table.
+    expect(linked).toEqual([9, 0, 0, 0, 0])
+    expect(r.ok && r.eeries[0]!.x).toBe(832 + OFFSETS[4]!)
   })
 
   it('faces Mario: each piece shows the cart speed picked by his side', () => {
@@ -149,9 +149,15 @@ describe('the spawn frame (D137): no travel', () => {
     expect(m.passes[0]!.pos).not.toEqual(m.spawnPos)
   })
 
+  it('runs no MAIN before pass 0: a status-8 spawn has no INIT frame, so the anchor is the spawn spot', () => {
+    const m = runOnce(cart({ eeries: { travel: true } }), 0x39, seed(), { spawn: { inputs: { 0: 832 & 0xff, 1: 832 >> 8, 2: 9, 3: 0 }, routine: spawnerEntry(cart())!, nth: 0 } }) // prettier-ignore
+    expect(m.initFrames).toBe(0)
+    expect(m.anchor).toMatchObject(m.spawnPos!)
+  })
+
   it('draws each Eerie at the spawn offsets from the entry, as the same fixture that does not move', () => {
     const s = travelling()
-    expect(s.at).toEqual(OFFSETS.map(o => [832 + o, 368]))
+    expect(s.at).toEqual(SPAWN_ORDER.map(o => [832 + o, 368]))
     expect(s).toEqual(atRest())
   })
 
@@ -161,7 +167,7 @@ describe('the spawn frame (D137): no travel', () => {
       return { ...m, spawnPos: m.passes[m.chosen ?? 0]?.pos }
     }
     expect(travelling(planted)).not.toEqual(atRest())
-    expect(travelling(planted).at).not.toEqual(OFFSETS.map(o => [832 + o, 368]))
+    expect(travelling(planted).at).not.toEqual(SPAWN_ORDER.map(o => [832 + o, 368]))
   })
 })
 
@@ -192,8 +198,8 @@ describe('the spawner the loader calls', () => {
 })
 
 describe('the loader route (checked by structure, before the JSR is read)', () => {
-  /** The route instructions the check reads, by offset from $02:A88C: CMP, the id, BNE, DEY, STY, its operand, JSR. */
-  const SHAPE = { cmp: 0, id: 1, bne: 2, dey: 6, sty: 7, dp: 8, jsr: 9 }
+  /** The route instructions the check reads, by offset from $02:A88C: CMP, the id, BNE, PHY, PHX, DEY, STY, its operand, JSR. */
+  const SHAPE = { cmp: 0, id: 1, bne: 2, phy: 4, phx: 5, dey: 6, sty: 7, dp: 8, jsr: 9 }
   const refusal = (rom: ReturnType<typeof cart>) => {
     const ran: unknown[] = []
     const run: Run = (r, id, s, o) => (ran.push(o), runOnce(r, id, s, o))
@@ -211,6 +217,14 @@ describe('the loader route (checked by structure, before the JSR is read)', () =
     expect(ran, 'no spawner was run').toEqual([])
   })
 
+  it('a BRA planted at the PHY / PHX that jumps over the call refuses: the JSR bytes are still there', () => {
+    const rom = cart()
+    rom.writeAt(ROUTE_AT + 4, [0x80, 0x06]) // BRA +6: past the JSR the old reader still found at +9
+    const { r, ran } = refusal(rom)
+    expect(r.ok).toBe(false)
+    expect(ran).toEqual([])
+  })
+
   it('a $20 that is an operand, not a JSR, at the call refuses: LDA #$20 and SEP #$20 in place of the DEY and STY', () => {
     for (const op of [0xa9, 0xe2]) {
       const rom = cart()
@@ -222,10 +236,10 @@ describe('the loader route (checked by structure, before the JSR is read)', () =
     }
   })
 
-  it('a route that differs only where the check does not look (the branch offset, the saves) still runs, unflagged', () => {
+  it('a route that differs only where the check does not look (the branch offset, the bytes after the call) still runs, unflagged', () => {
     const rom = cart()
     flip(rom, ROUTE_AT + 3)
-    flip(rom, ROUTE_AT + 4)
+    flip(rom, ROUTE_AT + 12)
     const r = fiveEeries(rom, seed(), entry, SYN)
     expect(r.ok && r.unverified).toEqual([])
   })
@@ -253,21 +267,14 @@ describe('the gate', () => {
     expect(eeriesGate(table, SYN)).toEqual([])
   })
 
-  it('names the distance routine alone (never as a route refusal) when its behaviour changes', () => {
-    const sidesSwapped = cart()
-    sidesSwapped.writeAt(DISTANCE_AT + 11, [0x90]) // BCS -> BCC: Y = 1 on the wrong side
-    const empty = cart()
-    empty.writeAt(DISTANCE_AT, [0x60]) // an RTS: Y stays whatever it was
-    for (const rom of [sidesSwapped, empty]) expect(eeriesGate(rom, SYN)).toEqual([HORZ])
-  })
-
-  it('does not blank the Eeries for a changed routine: they are drawn from it and flagged (D52)', () => {
+  it('does not check the distance routine on its own: the spawner run executes it, so a changed one is drawn as the cart makes it, unflagged', () => {
     const rom = cart()
     // The distance routine without its increment: every Eerie reads Mario as to the right of it.
     rom.writeAt(DISTANCE_INY_AT, [0xea])
+    expect(eeriesGate(rom, SYN)).toEqual([])
     const r = fiveEeries(rom, seed(), entry, SYN)
     if (!r.ok) throw new Error(r.reason)
-    expect(r.unverified).toEqual([HORZ])
+    expect(r.unverified).toEqual([])
     expect(r.eeries).toHaveLength(5)
     expect(new Set(r.parts.map(p => p.char))).toEqual(new Set([SYNTHETIC_SPEEDS.marioRight]))
   })

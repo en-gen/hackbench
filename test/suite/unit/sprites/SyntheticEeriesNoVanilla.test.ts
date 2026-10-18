@@ -12,11 +12,16 @@ import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 const WINDOW = 8
 
 /** File offsets of the bytes that differ between the cart with the fixture and the cart without it, as regions (gaps under 16 merged). */
-function addedRegions(): [number, number][] {
-  const [on, off] = [
-    buildSyntheticRom({ eeries: { travel: true } }).buffer,
-    buildSyntheticRom().buffer,
-  ]
+/** Every Eerie cart the tests build: each option changes bytes the others do not. */
+const CARTS: NonNullable<Parameters<typeof buildSyntheticRom>[0]>[] = [
+  { eeries: {} },
+  { eeries: { travel: true } },
+  { eeries: { room: 3 } },
+  { eeries: { spacing: [-0x40, -0x20, 0x20, 0x40], stream: [0xa1, 0x43, 0xde, 0xff] } },
+]
+
+function addedRegions(opts: (typeof CARTS)[number]): [number, number][] {
+  const [on, off] = [buildSyntheticRom(opts).buffer, buildSyntheticRom().buffer]
   const out: [number, number][] = []
   for (let i = 0; i < on.length; i++) {
     if (on[i] === off[i]) continue
@@ -50,18 +55,21 @@ const vanillaBytes = (rom: RomFile): Buffer =>
   Buffer.from(rom.buffer.subarray(rom.hasHeader ? 512 : 0))
 
 describe.skipIf(!hasRom(VANILLA))('the synthetic Eerie cart against the vanilla ROM', () => {
-  it('adds no 8-byte window that occurs in the vanilla ROM, in any routine or table it writes', () => {
-    const cart = buildSyntheticRom({ eeries: { travel: true } }).buffer
-    const regions = addedRegions()
-    expect(regions.length, 'the fixture adds something').toBeGreaterThan(3)
-    const hits = copied(cart, regions, vanillaBytes(freshRom()))
-    expect(hits.map(snes), 'offending offsets').toEqual([])
-  })
+  it.each(CARTS.map((c, i) => [i, c] as const))(
+    'cart %i adds no 8-byte window that occurs in the vanilla ROM, in any routine or table it writes',
+    (_i, opts) => {
+      const cart = buildSyntheticRom(opts).buffer
+      const regions = addedRegions(opts)
+      expect(regions.length, 'the fixture adds something').toBeGreaterThan(3)
+      const hits = copied(cart, regions, vanillaBytes(freshRom()))
+      expect(hits.map(snes), 'offending offsets').toEqual([])
+    },
+  )
 
   it('goes red on a planted copy: a window lifted from the vanilla ROM is reported at its offset', () => {
     const vanilla = vanillaBytes(freshRom())
     const cart = Uint8Array.from(buildSyntheticRom({ eeries: { travel: true } }).buffer)
-    const regions = addedRegions()
+    const regions = addedRegions(CARTS[1]!)
     // Plant 8 vanilla bytes (the first window with 3 distinct values from a code-dense stretch) into the first region.
     let at = 0x10000
     while (new Set(vanilla.subarray(at, at + WINDOW)).size < 3) at++

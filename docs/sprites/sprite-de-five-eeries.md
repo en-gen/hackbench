@@ -45,25 +45,26 @@ the placement, on all five placements. The reference VS Code extension has no ha
 
 - `src/rom/sprites/interp/FiveEeries.ts` runs `Load5Eeries` on the core (`SpawnRun.routine`, JSR with DB 2) over the
   map's own loaded state, with the caller's inputs in `$00-$03`, and draws the n-th spawned sprite alone with the ordinary
-  sprite runner (`SpawnRun.nth`), five times. Nothing about a position, speed or frame is written there. A
+  sprite runner (`SpawnRun.nth`, counted in the order the spawn filled its slots, so nth 0 is the first spawn, the one that carries the list index), five times. Nothing about a position, speed or frame is written there. A
   spawned sprite that is not picked is emptied for that run so the five do not add to each other's OAM.
 - Map view (`map-sprites.ts`, `eeriesResult`): ONE sprite at the entry's stream index whose parts are the Eeries,
-  anchored at the entry. A vertical map is refused with a reason (the loader hands the spawner the Y boundary as X
-  there, `bank_02.asm:5232-5238`); none of the vanilla placements is in one.
+  anchored at the entry. In a vertical map the loader hands the spawner the scroll-axis boundary, the
+  entry's Y, as its X (`bank_02.asm:5232-5238`), and the spawner reads the entry's first byte as the Eerie's Y. It is run on
+  those inputs and drawn, with `unverified` saying so: no vanilla placement is in a vertical map, so that input is
+  derived from the loader and not checked (D52: drawn, not blanked). A synthetic cart pins the arithmetic.
 - The spawner that runs is the one the loader's `JSR` names (the operand at $02:A895, what the ROM holds), so a hack that
   repoints the call runs its own routine; with no `JSR` there the vanilla entry runs. Either way the route is flagged.
 - Gate (BA fingerprint ruling, 2026-10-18: one SHA-256 only over 24 or more unknown bytes). (1) The spawner that runs is
-  hashed: one SHA-256 over 97 bytes, about 96 unknown. (2) The loader route at $02:A88C is 12 bytes, too few to hash, so it
-  is checked by structure: CMP #$DE, BNE, DEY, STY $03 and JSR, each compared alone against a named constant
-  (`eeriesRouteIntact`). The branch offset and the PHY / PHX / PLX / PLY / BRA around the call are not read, because the
-  spawner does not depend on them. A route that is not this shape REFUSES with a plain-words reason before the JSR is
-  read, because a rewritten loader may hold $20 as an operand where the JSR was (a repointed JSR operand on an intact
-  route still runs the spawner it names, and is flagged when that spawner differs). (3) SubHorzPosBnk2 is 18 bytes, so it
-  is run on the core, not hashed: Y must be 1 for Mario left of the sprite and 0 otherwise over six pairs (both sides,
-  equal, across a 256 boundary). A difference there is named in `unverified` as the horizontal distance routine and the
-  Eeries are still drawn; it is never reported as a route refusal. The tables are data and are not hashed. What refuses:
-  no map image, a changed loader route, no JSR, a spawner that does not return (the reason is the core's), no Eerie drew.
-  A refusal is a marker with the reason, never nothing. Eeries that spawned but did not draw are counted in `notes`.
+  hashed: one SHA-256 over 97 bytes, about 96 unknown. A difference is named in `unverified` and it still runs. (2) The
+  loader route at $02:A88C is 12 bytes, too few to hash, so it is checked by structure: every instruction from the
+  compare to the call, CMP #$DE, BNE, PHY, PHX, DEY, STY $03 and JSR, each compared alone against a named constant
+  (`eeriesRouteIntact`). Only the BNE's offset is not read. A route that is not this shape REFUSES with a plain-words
+  reason before the JSR is read: a BRA between the compare and the call can skip a JSR whose bytes are still there, and a
+  rewritten loader may hold $20 as an operand where the JSR was. A repointed JSR operand on an intact route still runs the
+  spawner it names, and is flagged when that spawner differs. (3) SubHorzPosBnk2 is not checked on its own: the spawner run
+  executes it, so the Eeries face as the ROM's routine makes them, and nothing about it is hashed or stated. The tables
+  are data and are not hashed. What refuses: no map image, a changed loader route, no JSR, a spawner that does not return
+  (the reason is the core's), no Eerie drew. A refusal is a marker with the reason, never nothing.
 - Fewer than five spawned is the game's own answer, so it is not `unverified`. The sprite carries a plain-words `note`
   ("Only 4 of the 5 Eeries appear: this map's sprite memory setting leaves room for 4.") that the map's note line shows once
   per distinct line. When the spawner itself differs from vanilla the reason is dropped ("Only 4 of the 5 Eeries appear."),
@@ -79,8 +80,9 @@ the placement, on all five placements. The reference VS Code extension has no ha
 - C. Acceptance 1 ("positions and frame the capture shows") is met for the capture-linked Eerie of each placement;
   the capture cannot say more, for the reason above.
 
-The runner steps one frame before its pass 0, so pass k is k + 2 frames after the spawn frame as the capture counts
-them. On the linked Eerie of list 4 the run gives, at pass 6 (8 frames) x 968, y 346, tile $ED, and at pass 14
+A sprite the spawner leaves in status $08 has no INIT, so the runner steps no frame before pass 0 (it takes the status
+from the picked slot after the spawn): pass k is k + 1 frames after the spawn frame as the capture counts them. On the
+linked Eerie of list 4 the run gives, at pass 7 (8 frames) x 968, y 346, tile $ED, and at pass 15
 (16 frames) x 960, y 352, tile $6A: both the capture's, to the pixel and the tile
 (`test/suite/unit/sprites/FiveEeries.corpus.test.ts`, both placements of $021).
 
