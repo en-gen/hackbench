@@ -32,7 +32,7 @@ const TABLES: BlockContentTables = {
 const solid = (c: number[]) => Uint8ClampedArray.from({ length: 16 * 16 * 4 }, (_, i) => c[i % 4]!)
 
 /** The shown pixel (x, y) of a 32 x 32 screen with one item block at cell (1, 1) and one sprite pixel at (28, 28), inside the indicator's quadrant. */
-function shown(highPriorityBlock: boolean, spriteKey: ListKey, doors = false) {
+function shown(highPriorityBlock: boolean, spriteKey: ListKey, doors = false, spritesLast = false) {
   const tiles: ReturnType<typeof tile>[] = []
   tiles[0x111] = tile(0x111, [sub(0), sub(0), sub(0), sub(0, 0, highPriorityBlock)])
   const grid = hGrid(2)
@@ -43,7 +43,9 @@ function shown(highPriorityBlock: boolean, spriteKey: ListKey, doors = false) {
     TABLES,
     { coin: () => art, sprite: () => art },
   ) as never as { indicators: { plane: never; x: number; y: number; art: string }[]; arts: Record<string, string> } // prettier-ignore
-  const lists = screenPlanes(0x13, 0, false)
+  const real = screenPlanes(0x13, 0, false)
+  // The planted defect, kept in the suite so the verdict is proven able to fail: the sprite plane drawn last.
+  const lists = spritesLast ? { ...real, main: [...real.main.filter(k => k !== spriteKey), spriteKey] } : real // prettier-ignore
   const planes: Record<string, Uint8ClampedArray | null> = Object.fromEntries(
     lists.main.map(k => [k, null]),
   )
@@ -72,6 +74,17 @@ describe('an item-block indicator under a sprite pixel', () => {
     expect(s.at(28, 28), 'the sprite pixel, not the indicator').toEqual(SPRITE)
     expect(s.at(30, 30), 'the indicator still shows beside the sprite pixel').toEqual(COIN)
     expect(s.planes).toEqual([high ? 'l1High' : 'l1Low'])
+  })
+
+  // Sprites 0 and 1 sit before layer 1 in the draw order, so the indicator covers their pixel.
+  it.each(['sprites0', 'sprites1'] as const)('a %s pixel is behind the indicator', key => {
+    expect(shown(false, key).at(28, 28)).toEqual(COIN)
+  })
+
+  it('planted defect: drawing the sprite plane last flips a sprites0 pixel from covered to shown', () => {
+    // Proves the order the cases above rely on is what decides them.
+    expect(shown(false, 'sprites0', false, true).at(28, 28)).toEqual(SPRITE)
+    expect(shown(false, 'sprites0').at(28, 28)).toEqual(COIN)
   })
 })
 
