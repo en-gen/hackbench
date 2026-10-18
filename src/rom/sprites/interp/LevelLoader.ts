@@ -13,8 +13,8 @@
  * object of Layer 1 expanded into the Map16 tables at $7E:C800/$7F:C800).
  * Hardware registers are the bus stubs; nothing is read from an emulator capture.
  *
- * The fixed entries and the GM11 spans between them are fingerprinted (LOADER_SPANS), and the jump that leads into
- * the mid-routine entry is checked by its target (an entry that exists is not an entry that is reached),
+ * The fixed entries and the GM11 spans between them are checked instruction by instruction (SITES: the calls by their targets), and the jump that leads into
+ * the mid-routine entry by its target (an entry that exists is not an entry that is reached),
  * and the run is guarded like the sprite runner's (no BRK/COP, no leaving ROM).
  * A ROM that differs, as the corpus hacks do, is refused with a reason rather
  * than run on a guess; the caller then has no loaded image.
@@ -32,7 +32,6 @@ import {
 } from '../../cpu/call'
 import type { Cpu65816 } from '../../cpu/Cpu65816'
 import type { RomFile } from '../../RomFile'
-import { spanFingerprint } from '../../SubmapFlagGate'
 import { bytesAt, mapperProblem } from './Guards'
 import { smwMachine } from './Machine'
 import { withSeed, type SeedOverride, type SpriteSeed } from './SpriteSeed'
@@ -48,100 +47,85 @@ export const LOADER_TOTAL_CAP = 2_000_000
 export type LevelLoad =
   { ok: true; wram: Uint8Array; steps: number } | { ok: false; reason: string }
 
-/** Where the loader enters the pointer loader (CODE_05D8B7, mid-routine; see loadLevelState). */
+// Entries the loader runs, by their 16-bit address within bank $05 or $00 (compared with what the ROM's own
+// call and jump operands name; see SITES).
 const POINTER_LOADER = 0x05d8b7
+const HEADER_LOADER = 0xd796 // CODE_05D796, whose sublevel branch ends in the jump into the pointer loader
+const ENTRANCE_SETUP = 0xa635
+const DATA_LOADER = 0x801e
+const SUBLEVEL_JUMP = 0x05d83b // the jump into the pointer loader
+const OVERWORLD_PATH = (SUBLEVEL_JUMP + 3) & 0xffff // derived: where CODE_05D796's overworld branch jumps, the instruction after that jump
+const LEVEL_NUMBER_DP = 0x0e // the cell the loader writes the level number to, and the pointer loader reads
+const SUBLEVEL_FLAG = 0x141a // SublevelCount, which the loader sets and CODE_05D796 tests
+
+// 65816 opcodes, named once; each site below checks one instruction.
+const PHB = 0x8b
+const PHP = 0x08
+const REP = 0xc2
+const LDA_IMM = 0xa9
+const LDA_DP = 0xa5
+const LDA_ABS = 0xad
+const JSR = 0x20
+const JSL = 0x22
+const JMP = 0x4c
 
 /**
- * The sublevel branch of CODE_05D796 ends in a JMP into the pointer loader (bank_05.asm:7162). Checked
- * structurally: the opcode must be an absolute JMP and the target, read from its operand, the entry the
- * loader enters, so no bytes of the ROM are held here. Null when it is.
+ * One instruction the loader relies on, checked on its own: its opcode and, where the loader is bound to
+ * it, its operand (a call or jump target, or a cell), read from the ROM. No run of more than one
+ * instruction is stated, so no ROM bytes are held here (rom-interpretation.md stock-code exception, #1030).
+ * `bank` is the bank a long call must name ($80 mirrors ignored). Everything between the sites is not
+ * compared: the routines run from the ROM's own bytes, and the runner refuses a stray return or a budget overrun.
  */
-function jumpProblem(rom: RomFile): string | null {
-  const j = bytesAt(rom, 0x05d83b, 3)
-  const ok = !!j && j[0] === 0x4c && (0x050000 | (j[2]! << 8) | j[1]!) === POINTER_LOADER
-  return ok ? null : 'jump into the pointer loader at $05:D83B'
-}
-
-/**
- * A loader span recognised by SHA-256 (`spanFingerprint`, the way SubmapFlagGate and L3CodeGate do it),
- * so the commit holds no ROM bytes: `length` bytes at `at` with the `mask` offsets zeroed (operands
- * a hack legitimately relocates). A span whose bytes hash differently is refused by `name`.
- * Measured on the vanilla US ROM (SHA-1 6b47bb75); the 512-level digest test pins that the loader's
- * output is unchanged from the byte-literal shapes these replace. A new span is added the same way:
- * hash the vanilla bytes, copy the digest here, add a synthetic stand-in beside the others.
- */
-export interface LoaderSpan {
+export interface Site {
   name: string
   at: number
-  length: number
-  mask: readonly number[]
-  sha: string
+  op: number
+  /** Operand the instruction must carry, little endian. */
+  operand?: { value: number; size: 1 | 2 }
+  bank?: number
 }
 
-// Merging with #1050: whichever lands second converts its 9FB8 (8 B) and A5AF (23 B) shapes to spans here,
-// hand-writes their stand-ins (syntheticLoaderSpans.ts STAND_IN_LENGTH), ports its loader tails, and re-pins
-// VANILLA_ALL_LEVELS and PTR/ENT.
-//
-// Every span hides at least 24 UNKNOWN bytes (the fingerprint minimum): not masked, and not stated elsewhere in
-// the repo; the count per span is pinned in test/suite/unit/sprites/levelLoaderFingerprint.test.ts. A short
-// span is widened over the rest of the routine the loader runs, never hashed short. Each is measured on the
-// vanilla US ROM; only the Lunar Magic-saved vanilla build matches all of them (4 corpus hacks are refused).
-// prettier-ignore
-export const LOADER_SPANS: readonly LoaderSpan[] = [
-  // GM11LoadLevel from the header call to the data call (bank_00.asm:2644-2657) as ONE span: the two calls, the
-  // layer-position copy, the unmodelled music upload call, the entrance call, the screen setup. Masked: the bank
-  // bytes of the two JSLs and the music call's operand (a hack may relocate it); a hook inserted anywhere else in
-  // the sequence changes the hash.
-  { name: 'GM11 level load sequence at $00:96F4 (calls, position copy, screen setup)', at: 0x0096f4, length: 38, mask: [3, 15, 16, 37], sha: '2a32066393213a63dd729e8710e09d77d2d8ebd3765bfc7483fab670b0f30d29' },
-  // CODE_00A796, the whole routine to its RTS (bank_00.asm:5089-5117); the setting operand and one branch displacement are masked.
-  { name: 'Layer 2 scroll setup at $00:A796', at: 0x00a796, length: 44, mask: [3, 4, 6], sha: 'cbeceb26aef39983d5f33ab8274094bd2e77f58dd5dda1bd5d03d81cf4296bee' },
-  // UpdateScreenPosition from its entry through the four position copies (bank_00.asm:13631-13650). Common hacks
-  // hook the left buffer store at $F6E4, so that one instruction pair (6 bytes) is masked and the code after it hashed.
-  { name: 'UpdateScreenPosition at $00:F6DB (hook site $F6E4 masked)', at: 0x00f6db, length: 42, mask: [9, 10, 11, 12, 13, 14], sha: '24c859bab4961b7a7eb08fbb1543a2f88c9793fcd049c85e91ab6443cf53da98' },
-  // CODE_05D796's prologue, the SUBLEVEL branch the loader models, and the screen-exit test after it (bank_05.asm:7079-7099).
-  { name: 'CODE_05D796 prologue and sublevel branch at $05:D796', at: 0x05d796, length: 39, mask: [6, 7, 9, 10, 14, 15, 19, 20], sha: 'afc3a8bb6645673149f638e630f6ecf60a91c1c8b36cb8f0d58b58574dfbe4c9' },
-  // CODE_05D8B7 through the Layer 1/2 pointer reads (bank_05.asm:7227-7246); the six table operands are masked
-  // (a hack may move a table, and the loader runs whatever the operands name).
-  { name: 'pointer loader at $05:D8B7', at: 0x05d8b7, length: 41, mask: [12, 13, 17, 18, 22, 23, 27, 28, 32, 33, 37, 38], sha: '1c5572430fc2f552fb393bb3ea7f5e720943d4b12c70f33094a7aeeee6d74b91' },
-  // CODE_00A635, Mario's entrance setup, up to its CODE_00A660 label (bank_00.asm:4913-4930).
-  { name: 'Mario entrance setup at $00:A635', at: 0x00a635, length: 43, mask: [], sha: '78bcaf8ea95eeeb3cc8c27594985fa2efc41c65ddbd4ffc9586f81f50c8fbc96' },
-  // CODE_05801E, the level data loader, through the layer 2 pointer bank test (bank_05.asm:20-34).
-  { name: 'level data loader at $05:801E', at: 0x05801e, length: 33, mask: [], sha: 'ed2298bf7c6f4b70cdd4b0ac43041e1086e53aa5ce42cf3b5a6bf53e302ec759' },
+export const LOADER_SITES: readonly Site[] = [
+  // GM11LoadLevel's three calls, in the order the loader makes them (bank_00.asm:2644, 2651, 2657).
+  { name: 'GM11 call JSL CODE_05D796 at $00:96F4', at: 0x0096f4, op: JSL, operand: { value: HEADER_LOADER, size: 2 }, bank: 5 }, // prettier-ignore
+  { name: 'GM11 call JSR CODE_00A635 at $00:9705', at: 0x009705, op: JSR, operand: { value: ENTRANCE_SETUP, size: 2 } }, // prettier-ignore
+  { name: 'GM11 call JSL CODE_05801E at $00:9716', at: 0x009716, op: JSL, operand: { value: DATA_LOADER, size: 2 }, bank: 5 }, // prettier-ignore
+  // The screen setup (bank_00.asm:2652) opens with a load, not a hook: a hack that replaces it (Seven Vanilla
+  // Levels does) is code a sequence that ran the original span would misread. Its calls are followed by the run.
+  { name: 'GM11 code between the entrance setup and the level data call at $00:9708', at: 0x009708, op: LDA_IMM }, // prettier-ignore
+  // CODE_05D796 (bank_05.asm:7079-7093): it opens with the PHB that CODE_05D8B7's PLB pairs with, reads the
+  // sublevel flag the loader sets, and its sublevel branch is the jump into the pointer loader, the overworld
+  // branch the jump past it. Single instructions at their offsets; the routine itself is not run.
+  { name: 'CODE_05D796 prologue and sublevel branch at $05:D796', at: 0x05d796, op: PHB },
+  { name: 'CODE_05D796 prologue and sublevel branch at $05:D796', at: 0x05d796 + 21, op: LDA_ABS, operand: { value: SUBLEVEL_FLAG, size: 2 } }, // prettier-ignore
+  { name: 'CODE_05D796 prologue and sublevel branch at $05:D796', at: 0x05d796 + 26, op: JMP, operand: { value: OVERWORLD_PATH, size: 2 } }, // prettier-ignore
+  // The sublevel branch ends in JMP CODE_05D8B7 (bank_05.asm:7162).
+  { name: 'jump into the pointer loader at $05:D83B', at: SUBLEVEL_JUMP, op: JMP, operand: { value: POINTER_LOADER & 0xffff, size: 2 } }, // prettier-ignore
+  // CODE_05D8B7 opens with REP and reads the level number from the cell the loader writes (bank_05.asm:7228-7229).
+  { name: 'pointer loader at $05:D8B7', at: POINTER_LOADER, op: REP },
+  { name: 'pointer loader at $05:D8B7', at: POINTER_LOADER + 2, op: LDA_DP, operand: { value: LEVEL_NUMBER_DP, size: 1 } }, // prettier-ignore
+  // The entrance setup opens with a load (bank_00.asm:4914) and the data loader with PHP (bank_05.asm:21).
+  { name: 'Mario entrance setup at $00:A635', at: ENTRANCE_SETUP, op: LDA_ABS },
+  { name: 'level data loader at $05:801E', at: 0x05801e, op: PHP },
 ]
 
-const synthetic: LoaderSpan[] = []
-
-/**
- * Tests only: a synthetic cart's loader routines are hand-written, so their fingerprints are accepted
- * IN ADDITION to the vanilla ones, by span name. By content, so a patched copy of the cart is still
- * accepted where its span is unchanged. Nothing under src/ calls this
- * (test/suite/unit/sprites/levelLoaderFingerprint.test.ts), so a shipped build accepts vanilla only.
- */
-export function acceptLoaderSpans(spans: readonly LoaderSpan[]): void {
-  for (const s of spans)
-    if (!synthetic.some(t => t.name === s.name && t.sha === s.sha)) synthetic.push(s)
+function siteHolds(rom: RomFile, s: Site): boolean {
+  const n = 1 + (s.operand?.size ?? 0) + (s.bank === undefined ? 0 : 1)
+  const b = bytesAt(rom, s.at, n)
+  if (!b || b[0] !== s.op) return false
+  if (s.operand) {
+    const v = s.operand.size === 2 ? (b[2]! << 8) | b[1]! : b[1]!
+    if (v !== s.operand.value) return false
+  }
+  return s.bank === undefined || (b[n - 1]! & 0x7f) === s.bank
 }
 
-/**
- * The first loader entry whose bytes differ from what this loader knows, or null. `spans` replaces
- * the fingerprints checked (a test of the check itself); by default LOADER_SPANS and, in a test
- * that registered one, a synthetic cart's.
- */
-export function loaderShapeProblem(rom: RomFile, spans?: readonly LoaderSpan[]): string | null {
+/** The first loader site whose instruction is not the one this loader knows, or null. */
+export function loaderShapeProblem(rom: RomFile): string | null {
   const mapper = mapperProblem(rom)
   if (mapper) return mapper
-  const refuse = (name: string) => `${name} is not the vanilla shape; the loader will not run it`
-  const jump = jumpProblem(rom)
-  if (jump) return refuse(jump)
-  for (const s of spans ?? LOADER_SPANS) {
-    const known = spans ? [s] : [s, ...synthetic.filter(t => t.name === s.name)]
-    const hit = known.some(k => {
-      const b = bytesAt(rom, k.at, k.length)
-      return !!b && spanFingerprint(Uint8Array.from(b), k.mask) === k.sha
-    })
-    if (!hit) return refuse(s.name)
-  }
-  return null
+  const bad = LOADER_SITES.find(s => !siteHolds(rom, s))
+  return bad ? `${bad.name} is not the vanilla shape; the loader will not run it` : null
 }
 
 /**
@@ -149,20 +133,16 @@ export function loaderShapeProblem(rom: RomFile, spans?: readonly LoaderSpan[]):
  * 0x105). RNGCalc ($148B/C) is left zero here; the runner derives it by running
  * the ROM's GetRand (see SpriteRunner.ts).
  */
-export function loadLevelState(
-  rom: RomFile,
-  level: number,
-  spans?: readonly LoaderSpan[],
-): LevelLoad {
-  const problem = loaderShapeProblem(rom, spans)
+export function loadLevelState(rom: RomFile, level: number): LevelLoad {
+  const problem = loaderShapeProblem(rom)
   if (problem) return { ok: false, reason: problem }
   const { bus, cpu } = smwMachine(rom)
   const w = bus.wram
   // SublevelCount ($141A) nonzero is a sublevel entry: it skips the
   // overworld-only intro branches that would overwrite the sprite memory setting.
-  w[0x141a] = 1
-  w[0x0e] = level & 0xff
-  w[0x0f] = (level >> 8) & 0xff
+  w[SUBLEVEL_FLAG] = 1
+  w[LEVEL_NUMBER_DP] = level & 0xff
+  w[LEVEL_NUMBER_DP + 1] = (level >> 8) & 0xff
   let steps = 0
   // One loader step: `go` gets the steps left in the total cap and returns how the step ended.
   const step = (name: string, go: (room: number) => CallResult) => {
@@ -210,7 +190,7 @@ export function loadLevelState(
     const bad =
       run('level pointer loader', POINTER_LOADER, 'jsl', 0x05, [0x05]) ??
       span('layer position copy', 0x0096f8, 0x009702) ??
-      run('Mario entrance setup', 0x00a635, 'jsr', 0x00) ??
+      run('Mario entrance setup', ENTRANCE_SETUP, 'jsr', 0x00) ??
       span('screen position setup', 0x009708, 0x009716) ??
       run('level data loader', 0x05801e, 'jsl', 0x05)
     if (bad) return { ok: false, reason: bad }

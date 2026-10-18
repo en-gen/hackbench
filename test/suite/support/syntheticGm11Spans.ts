@@ -2,7 +2,7 @@
  * The synthetic cart's stand-ins for what GM11LoadLevel runs between the entrance setup and the
  * level data call (bank_00.asm:2652-2656): CODE_00A796 and UpdateScreenPosition, with the option
  * mutants the level loader tests plant. Split from syntheticSpriteRom.ts to keep that file under
- * the content gate's byte-token limit. No ROM-derived bytes: the shapes are the loader's own checks and
+ * the content gate's byte-token limit. No ROM-derived bytes: the checked sites are single instructions and
  * the hook is hand-written.
  */
 import type { SyntheticOptions } from './syntheticSpriteRom'
@@ -12,8 +12,8 @@ export function putGm11Spans(
   o: SyntheticOptions,
 ): void {
   const bad = (k: string, b: number) => (o.badLoader === k ? 0xea : b)
-  // Hand-written stand-ins for CODE_00A796 and UpdateScreenPosition (their fingerprints are
-  // syntheticLoaderSpans). A796: REP #$20, LDA #$0003 (its operand is masked in the fingerprint), a countdown, SEP #$20, RTS. UpdateScreenPosition: REP #$20, SEC, PHB PHK PLB,
+  // Hand-written stand-ins for CODE_00A796 and UpdateScreenPosition (the loader runs them, it does not compare
+  // them). A796: REP #$20, LDA #$0003, a countdown, SEP #$20, RTS. UpdateScreenPosition: REP #$20, SEC, PHB PHK PLB,
   // LDA $142A, then the hook site (SBC #$000C / STA $142C) and SEP #$20 / LDA $1462 (the
   // copied $1A: proves the pointer loader and the copy ran first) / STA $1E / LDA $71 (the entrance
   // setup's) / STA $20 / PLB / RTL.

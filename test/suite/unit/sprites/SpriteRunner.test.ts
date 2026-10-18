@@ -663,7 +663,7 @@ describe('level loader on a synthetic cart', () => {
     })
     expect(run({ badLoader: 'callsite' })).toMatchObject({
       ok: false,
-      reason: expect.stringMatching(/GM11 level load sequence/),
+      reason: expect.stringMatching(/GM11 call JSL CODE_05D796/),
     })
     expect(run({ badLoader: 'pointers' })).toMatchObject({
       ok: false,
@@ -677,28 +677,12 @@ describe('level loader on a synthetic cart', () => {
       ok: false,
       reason: expect.stringMatching(/data loader/),
     })
-    expect(run({ badLoader: 'scroll' })).toMatchObject({
-      ok: false,
-      reason: expect.stringMatching(/Layer 2 scroll setup/),
-    })
-    expect(run({ badLoader: 'update' })).toMatchObject({
-      ok: false,
-      reason: expect.stringMatching(/UpdateScreenPosition/),
-    })
-    // The LAST byte of each new shape: a shape cut short of it (8 bytes for the update) would not see these.
-    expect(run({ badLoader: 'scrollTail' })).toMatchObject({
-      ok: false,
-      reason: expect.stringMatching(/Layer 2 scroll setup/),
-    })
-    expect(run({ badLoader: 'updateTail' })).toMatchObject({
-      ok: false,
-      reason: expect.stringMatching(/UpdateScreenPosition/),
-    })
-    // The LDA operand is exact ($142A), not a wildcard.
-    expect(run({ badLoader: 'updateOperand' })).toMatchObject({
-      ok: false,
-      reason: expect.stringMatching(/UpdateScreenPosition/),
-    })
+    // CODE_00A796 and UpdateScreenPosition are not compared: the screen setup runs their bytes, so a changed
+    // one is never refused as "not the vanilla shape" (it either runs or is refused while running).
+    for (const k of ['scroll', 'update', 'scrollTail', 'updateTail', 'updateOperand'] as const) {
+      const r = run({ badLoader: k })
+      if (!r.ok) expect(r.reason, k).not.toMatch(/not the vanilla shape/)
+    }
   })
 
   it('a JML inside UpdateScreenPosition (a hack hook at $00:F6E4) runs and leaves the same state', () => {
