@@ -545,14 +545,18 @@ export function restoreBookmark(cur: Cursor): void {
   cur.col = cur.bookmarkCol
 }
 
-/** Report that dispatch found no port for `handler` (0: an empty entry); the object draws nothing. */
-export function refuseUnported(cur: Cursor, handler: number): void {
+/**
+ * Report that dispatch found no port for `handler` (0: an empty entry); the object draws nothing.
+ * `reason` replaces the stock wording where a caller can say more (the pipe variants, #1033).
+ */
+export function refuseUnported(cur: Cursor, handler: number, reason?: string): void {
   cur.refusals?.push({
     objectIndex: cur.owner,
     handler,
     reason:
-      handler === 0
+      reason ??
+      (handler === 0
         ? 'The dispatch entry is empty, so the object is not drawn.'
-        : `No port for the handler at ${hex6(handler)}, so the object is not drawn.`,
+        : `No port for the handler at ${hex6(handler)}, so the object is not drawn.`),
   })
 }

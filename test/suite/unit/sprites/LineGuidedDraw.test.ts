@@ -127,6 +127,14 @@ describe('line-guided draw pass', () => {
     expect(g.anchor!.x).toBe(0x84)
   })
 
+  it('flags the run model as snapping for a vanilla-shaped $67 only (SpriteModel.snaps)', () => {
+    expect(run(103).snaps).toBe(true)
+    // Not vanilla-shaped, another id, and a run whose draw dispatch is not the pinned shape: all unflagged.
+    expect(run(103, { alteredGrinder: true }).snaps).toBeUndefined()
+    expect(run(31).snaps).toBeUndefined()
+    expect(runOnce(buildSyntheticRom(), 103, seed).snaps).toBeUndefined()
+  })
+
   it('applies the snap rule to id $67 only: another id whose MAIN is the grinder handler is generic', () => {
     const rom = buildSyntheticRom({ id31IsGrinder: true })
     // The alias passes the shape gate, so the id check alone is what keeps id 31 generic.

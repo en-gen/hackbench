@@ -88,7 +88,7 @@ describe('the layer 3 camera is unverified when the entrance-position code is no
     const rom = l3Cart()
     const v = verdict(rom, stockOf(rom))
     expect(v.l3).not.toBeNull()
-    expect(v.l3?.camYUnverified).toBeUndefined()
+    expect(v.l3?.camYReasons).toBeUndefined()
   })
 
   // Every byte of every checked range, not a sample: a flip at any offset must name its own range.
@@ -102,7 +102,7 @@ describe('the layer 3 camera is unverified when the entrance-position code is no
         const v = verdict(rom, spans)
         expect(v.l3, `offset ${off}`).not.toBeNull() // best effort, never blanked
         expect(v.l3?.camYPx).toBeDefined()
-        expect(v.l3?.camYUnverified?.startsWith(`${hex6(s.addr)} `), `offset ${off}`).toBe(true)
+        expect(v.l3?.camYReasons?.[0]?.startsWith(`${hex6(s.addr)} `), `offset ${off}`).toBe(true)
         flipAt(rom, s.addr + off)
       }
     },
@@ -117,7 +117,7 @@ describe('the layer 3 camera is unverified when the entrance-position code is no
       c.bytes.forEach((b, off) => {
         if (b === WILD) return
         flipAt(rom, c.addr + off)
-        expect(verdict(rom, spans).l3?.camYUnverified?.startsWith(`${hex6(c.addr)} `), `offset ${off}`).toBe(true) // prettier-ignore
+        expect(verdict(rom, spans).l3?.camYReasons?.[0]?.startsWith(`${hex6(c.addr)} `), `offset ${off}`).toBe(true) // prettier-ignore
         flipAt(rom, c.addr + off)
         flipped++
       })
