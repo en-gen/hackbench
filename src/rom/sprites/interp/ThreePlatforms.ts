@@ -119,12 +119,10 @@ export function threePlatforms(
   run: (rom: RomFile, id: number, seed: SpriteSeed, opts?: RunOptions) => SpriteModel = runOnce,
 ): PlatformsResult {
   const unverified = platformsGate(rom, routines)
-  const spec = {
-    sprite: SPAWNED_SPRITE,
-    count: PLATFORM_COUNT,
-    routine: spawnerEntry(rom),
-    spawnFrame: true,
-  }
+  const routine = spawnerEntry(rom)
+  if (routine === null)
+    return { ok: false, reason: 'the loader no longer calls a spawner for the three platforms (no JSR where it called one), so there is nothing to run', unverified } // prettier-ignore
+  const spec = { sprite: SPAWNED_SPRITE, count: PLATFORM_COUNT, routine, spawnFrame: true }
   const { children, missing, why } = runSpawnedChildren(rom, seed, e, spec, passes, run)
   if (children.length === 0)
     return { ok: false, reason: why || `the spawner made none of the ${PLATFORM_COUNT} platforms`, ...(missing === PLATFORM_COUNT ? { none: true as const } : {}), unverified } // prettier-ignore
