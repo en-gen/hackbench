@@ -193,6 +193,8 @@ export interface RunOptions {
    * kept, as the game and the graders do.
    */
   init?: boolean
+  /** The camera re-run's own guard: set on the second run so it cannot recurse. */
+  recentred?: boolean
 }
 
 export { Refusal }
@@ -590,6 +592,15 @@ export function runOnce(
     }
     if (snaps && !atRest && model.chosen !== undefined)
       model.anchor = { ...model.anchor!, ...model.passes[model.chosen]!.origin }
+    // INIT can move a sprite off the screen the run was centred on (the grinders' -$140), and GetDrawInfo then
+    // culls it. The camera only picks which screen the picture is taken on: run again with it moved by the
+    // same offset, and re-base that picture onto the placed spot as before (D139 D, D134).
+    const [dx, dy] = [anchor.x - placed.x, anchor.y - placed.y]
+    if (atRest && !opts.recentred && model.chosen === undefined && (dx !== 0 || dy !== 0)) {
+      const cam = m.seed.camera
+      const again = runOnce(rom, id, { ...seed, camera: { x: cam.x + dx, y: cam.y + dy } }, { ...opts, recentred: true }) // prettier-ignore
+      if (again.chosen !== undefined) return again
+    }
     if (model.passes.every(p => p.parts.length === 0))
       model.emptyReason = `drew no OAM tile in ${m.seed.mainPasses} passes (${atRest ? "its look is set up when the map runs and shown on play" : 'invisible by design, or the seed lacks state'})` // prettier-ignore
   } catch (e) {

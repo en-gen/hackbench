@@ -28,6 +28,8 @@ import { putGrinderRoutines } from './syntheticGrinder'
 export interface SyntheticOptions {
   /** ADC operand of id 0's INIT shift. */
   initShift?: number
+  /** Id 0's INIT also adds 256 to X, and its MAIN draws nothing unless it is within 0-255 px right of the camera (GetDrawInfo's cull). */
+  initFarCull?: boolean
   /** Replace id 0's MAIN tile STA with NOPs (draws nothing useful). */
   noTileWrite?: boolean
   /** Break the sprite loop's countdown (loop reader must refuse). */
@@ -271,7 +273,7 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   ] // prettier-ignore
   // Handlers.
   put(0x018600, [0x60])
-  put(0x018610, [0xa9, o.initShift ?? 8, 0x18, 0x75, 0xe4, 0x95, 0xe4, 0x60])
+  put(0x018610, [0xa9, o.initShift ?? 8, 0x18, 0x75, 0xe4, 0x95, 0xe4, ...(o.initFarCull ? [0xfe, 0xe0, 0x14] : []), 0x60]) // prettier-ignore
   // id 1 INIT: X + 8, Y - 1 with the borrow into the high byte.
   put(0x018620, [0xa9, 0x08, 0x18, 0x75, 0xe4, 0x95, 0xe4, 0xb5, 0xd8, 0xd0, 0x03, 0xde, 0xd4, 0x14, 0xd6, 0xd8, 0x60]) // prettier-ignore
   // One 16x16 piece at the sprite position minus the scroll, in OAM entry 4 * slot.
@@ -280,7 +282,11 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
     0x99, 0x01, 0x03, ...tile, ...attr, 0xda, 0x98, 0x4a, 0x4a, 0xaa, 0xa9, 0x01, 0x0a, 0x9d, 0x60, 0x04, 0xfa, 0x60,
   ] // prettier-ignore
   const tileSta = o.noTileWrite ? [0xea, 0xea, 0xea] : [0x99, 0x02, 0x03]
-  put(0x018640, draw([0xa9, 0x24, ...tileSta], [0xa9, 0x0a, 0x99, 0x03, 0x03]))
+  // 16-bit X minus the camera; a high byte other than 0 means off screen, as GetDrawInfo culls.
+  const cull = o.initFarCull
+    ? [0xb5, 0xe4, 0x38, 0xe5, 0x1a, 0xbd, 0xe0, 0x14, 0xe5, 0x1b, 0xf0, 0x01, 0x60]
+    : []
+  put(0x018640, [...cull, ...draw([0xa9, 0x24, ...tileSta], [0xa9, 0x0a, 0x99, 0x03, 0x03])]) // prettier-ignore
   // id 2: attribute $4A (X flip) when Mario is left of the sprite, else $0A.
   put(0x018680, draw([0xa9, 0x24, 0x99, 0x02, 0x03], [0xa9, 0x0a, 0x99, 0x03, 0x03, 0xa5, 0xd1, 0xd5, 0xe4, 0xb0, 0x05, 0xa9, 0x4a, 0x99, 0x03, 0x03])) // prettier-ignore
   // id 3: tile = 3 * 5 from the CPU multiplier ($4202/$4203 in, $4216 out).

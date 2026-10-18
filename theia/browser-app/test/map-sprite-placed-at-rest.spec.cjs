@@ -7,9 +7,9 @@
  * entry is a map tile (x and y multiples of 16), while the INIT-on anchor is off it (a chainsaw or grinder
  * is moved 15 px right and 320 px left or so by InitLineGuidedSpr, bank_01.asm:11788-11799). The exact
  * list coordinates are pinned against the parsed list in test/suite/unit/sprites/PlacedAtRest.test.ts.
- * - Map $00F: every chainsaw ($65) is on the tile grid; 23 draw, 7 show the not-drawn marker (D52).
- * - Map $01A: every grinder ($67) is on the tile grid; 10 draw, 3 show the marker (INIT's X move takes
- *   them off the screen the sprite is run on, so they put no tile in OAM).
+ * - Map $00F: every chainsaw ($65) is drawn and on the tile grid.
+ * - Map $01A: every grinder ($67) is drawn and on the tile grid (INIT's X move takes them off the screen
+ *   the sprite is run on, so the picture is taken again with the camera moved).
  * - Map $106: the P-switch ($3E) draws its picture (INIT's look) at its placed spot.
  * Goes red on develop (INIT-on): the chainsaw and grinder anchors are off the grid.
  */
@@ -71,10 +71,7 @@ test('map $00F: every chainsaw sits at its placed tile, not moved by its setup c
   page,
 }) => {
   const saws = await spritesOf(page, 0x00f, 0x65)
-  expect(saws.filter(s => s.status === 'drawn')).toHaveLength(23)
-  const markers = saws.filter(s => s.status === 'placeholder')
-  expect(markers).toHaveLength(7)
-  for (const m of markers) expect(m.reason).toMatch(/drew no OAM tile/)
+  expect(saws.filter(s => s.status !== 'drawn').map(offGrid)).toEqual([])
   expect(saws.filter(s => s.x % 16 !== 0 || s.y % 16 !== 0).map(offGrid)).toEqual([])
 })
 
@@ -82,10 +79,7 @@ test('map $01A: every grinder sits at its placed tile, not moved by its setup co
   page,
 }) => {
   const grinders = await spritesOf(page, 0x01a, 0x67)
-  expect(grinders.filter(s => s.status === 'drawn')).toHaveLength(10)
-  const markers = grinders.filter(s => s.status === 'placeholder')
-  expect(markers).toHaveLength(3)
-  for (const m of markers) expect(m.reason).toMatch(/drew no OAM tile/)
+  expect(grinders.filter(s => s.status !== 'drawn').map(offGrid)).toEqual([])
   expect(grinders.filter(s => s.x % 16 !== 0 || s.y % 16 !== 0).map(offGrid)).toEqual([])
 })
 

@@ -55,11 +55,11 @@ describe.skipIf(!hasRom(VANILLA))('at rest on vanilla', () => {
     const run = interpRunner(smw.rom, map, built.inputs)
     return list.map(s => ({ s, r: run(s) }))
   }
-  // The last number is how many draw a tile; the rest show the marker (D52): INIT runs for the picture
-  // (D139 D), and 7 of the chainsaws and 3 of the grinders put no tile on the spawn-centred screen.
+  // The last number is how many draw a tile: all of them. INIT moves these sprites off the screen the run
+  // is centred on (a culled draw), so the picture is taken again with the camera moved (D139 D).
   for (const [map, id, drawn] of [
-    [0x0f, 0x65, 23],
-    [0x1a, 0x67, 10],
+    [0x0f, 0x65, 30],
+    [0x1a, 0x67, 13],
   ] as const)
     it(`every $${id.toString(16)} on map $${map.toString(16)} draws at its list position`, () => {
       const got = placed(map, id)
@@ -75,6 +75,21 @@ describe.skipIf(!hasRom(VANILLA))('at rest on vanilla', () => {
       }
       expect(n).toBe(drawn)
     })
+})
+
+describe('a sprite INIT moves off the screen it was run on (camera re-run)', () => {
+  // INIT adds 256 px to X and MAIN draws only on screen, as GetDrawInfo does: the first run culls it.
+  const far = buildSyntheticRom({ initFarCull: true })
+  it('still draws its tile, at the placed spot, not the marker (D139 D)', () => {
+    const m = runOnce(far, 0, SPRITE_SEED, { init: false })
+    expect(m.emptyReason).toBeUndefined()
+    expect(m.chosen).toBe(0)
+    expect(m.anchor).toMatchObject({ x: 0x80, y: 0x80, rawX: 0x80, rawY: 0x80 })
+    expect(m.passes[0]!.parts[0]).toMatchObject({ dx: 0, dy: 0 })
+  })
+  it('play keeps the cull: INIT-on has no re-run and draws nothing', () => {
+    expect(runOnce(far, 0, SPRITE_SEED).emptyReason).toMatch(/drew no OAM tile/)
+  })
 })
 
 describe('what at rest starts from', () => {
