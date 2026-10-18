@@ -143,10 +143,13 @@ export function buildL3Verdict(
   // A $80 byte's Y is $D0 until a loaded Layer 3 Smash sprite writes X and Y from its own place (#807).
   let pos = { x: 0, y: yPx }
   let followsCamera = false
+  let landingNote: string | null = null
   if (load.settingsByte === 0x80) {
     const found = smash(rom, index)
-    if (!found.ok) return none(found.reason)
-    if (found.pos) {
+    // Viewers draw, they do not blank: a smasher whose landing cannot be worked out leaves layer 3 at
+    // its load-time position, with the reason as an unverified-position note.
+    if (!found.ok) landingNote = found.reason
+    else if (found.pos) {
       pos = found.pos
       followsCamera = true
     }
@@ -157,6 +160,7 @@ export function buildL3Verdict(
   const startGate = entrancePositionGate(rom, startSpans)
   const reasons = [
     startGate,
+    landingNote,
     entrances === GRAPH_UNAVAILABLE ? EXIT_GRAPH_UNAVAILABLE : null,
   ].filter((r): r is string => !!r)
   return {

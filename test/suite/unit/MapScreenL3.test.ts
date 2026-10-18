@@ -17,6 +17,8 @@ import {
   type L3Inputs,
   type L3Verdict,
 } from '../../../src/rom/model/L3Model'
+import { readL3SmashLoadPos } from '../../../src/rom/L3Smash'
+import { firstLanding } from '../../../src/rom/sprites/interp/SmashLanding'
 import {
   drawL3Planes,
   screenResult,
@@ -568,8 +570,28 @@ describe('a $80 level under a smash sprite (synthetic, #807)', () => {
     expect(verdictWith(noSmash).l3).toMatchObject({ xPx: 0, yPx: 0xd0 })
   })
 
-  it('refuses with the reason when the smash read refuses', () => {
-    expect(verdictWith(() => ({ ok: false, reason: 'because' }))).toMatchObject({ l3: null, reason: 'because' }) // prettier-ignore
+  it('draws at the load-time position, with an unverified note, when the smash read refuses', () => {
+    const v = verdictWith(() => ({ ok: false, reason: 'because' }))
+    expect(v.l3).toMatchObject({ xPx: 0, yPx: 0xd0 })
+    expect(v.l3?.camYReasons).toContain('because')
+    expect(v.l3?.followsCamera).toBeUndefined()
+  })
+
+  // A loader shape the interpreter refuses (the synthetic cart is not the game's): the real reader still decides by the sprite list.
+  const real = (sprites: () => { spriteId: number }[]) => (r: RomFile, i: number) => readL3SmashLoadPos(r, i, firstLanding, sprites as never) // prettier-ignore
+  it('a $80 map with no smasher draws layer 3 even when the loader cannot run', () => {
+    const v = verdictWith(real(() => [{ spriteId: 0x33 }]))
+    expect(v.l3).toMatchObject({ xPx: 0, yPx: 0xd0 })
+    expect((v.l3?.camYReasons ?? []).filter(r => /first landing/.test(r))).toEqual([])
+  })
+
+  it('a $80 map with a smasher and a loader that cannot run draws at the load-time position, with the reason', () => {
+    const v = verdictWith(real(() => [{ spriteId: 0x89 }]))
+    expect(v.l3).toMatchObject({ xPx: 0, yPx: 0xd0 })
+    expect(v.l3?.camYReasons?.find(r => /first landing/.test(r))).toMatch(
+      /^the smasher's first landing could not be worked out \(title map load/,
+    )
+    expect(v.l3?.followsCamera).toBeUndefined()
   })
 })
 

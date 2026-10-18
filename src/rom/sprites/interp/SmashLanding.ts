@@ -37,7 +37,7 @@ export const FIRST_LANDING_SCHEDULE = [
   'sprite pass 2',
 ] as const
 
-const SMASH_SPRITE_ID = 0x89
+export const SMASH_SPRITE_ID = 0x89
 /** The start-up sweep CODE_02ACA1 (bank_02.asm:5876): a JSR entry, DB 2 as its bank. */
 const SWEEP = 0x02aca1
 const STEP_CAP = 400_000
@@ -94,8 +94,13 @@ function smash(rom: RomFile, wram: Uint8Array): Landing | null | string {
     const slots = Array.from({ length: 12 }, (_, i) => i).filter(i => w[STATUS + i] !== 0 && w[NUMBER + i] === SMASH_SPRITE_ID) // prettier-ignore
     if (slots.length === 0) return null
     if (slots.length > 1) return 'several smash sprites are loaded'
-    run('the first sprite pass', ENTRY.spriteLoop, 'jsl')
-    run('the second sprite pass', ENTRY.spriteLoop, 'jsl')
+    const slot = slots[0]!
+    for (const pass of ['first', 'second']) {
+      run(`the ${pass} sprite pass`, ENTRY.spriteLoop, 'jsl')
+      // An erased or replaced smasher leaves the loader's $22/$24, which is not a landing.
+      if (w[STATUS + slot] === 0 || w[NUMBER + slot] !== SMASH_SPRITE_ID)
+        return `the smash sprite did not survive the ${pass} sprite pass`
+    }
   } catch (e) {
     if (e instanceof Refusal) return e.message
     throw e
@@ -113,7 +118,7 @@ export function firstLanding(
   map: number,
   steps: LandingSteps = STOCK_STEPS,
 ): LandingResult {
-  const refuse = (step: (typeof FIRST_LANDING_SCHEDULE)[number], why: string): LandingResult => ({ ok: false, reason: `Layer 3 not drawn yet: ${step} (${why})` }) // prettier-ignore
+  const refuse = (step: (typeof FIRST_LANDING_SCHEDULE)[number], why: string): LandingResult => ({ ok: false, reason: `the smasher's first landing could not be worked out (${step}: ${why})` }) // prettier-ignore
   const title = steps.titleMap(rom)
   if (typeof title === 'string') return refuse(FIRST_LANDING_SCHEDULE[0], title)
   const first = steps.load(rom, title, 0)
@@ -122,7 +127,8 @@ export function firstLanding(
   if (typeof second === 'string') return refuse(FIRST_LANDING_SCHEDULE[1], second)
   const landed = steps.smash(rom, second.wram)
   // The smash step names its own failure (sweep, pass 1, pass 2, several smashers).
-  if (typeof landed === 'string') return { ok: false, reason: `Layer 3 not drawn yet: ${landed}` }
+  if (typeof landed === 'string')
+    return { ok: false, reason: `the smasher's first landing could not be worked out (${landed})` }
   if (landed === null) return { ok: true, landing: null }
   const signed = (v: number) => (v & 0x8000 ? v - 0x10000 : v)
   return { ok: true, landing: { x: signed(landed.x), y: signed(landed.y) } }

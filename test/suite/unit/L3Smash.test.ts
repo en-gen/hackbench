@@ -4,6 +4,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { readL3SmashLoadPos } from '../../../src/rom/L3Smash'
+import type { LevelSprite } from '../../../src/rom/LevelParser'
 import { RomFile } from '../../../src/rom/RomFile'
 import {
   FIRST_LANDING_SCHEDULE,
@@ -16,6 +17,7 @@ import { VANILLA, hasRom, romPath } from '../support/corpus'
 
 const rom = new RomFile('synthetic.sfc', Buffer.alloc(0x80000, 0))
 const TITLE = 3
+const spr = (spriteId: number): LevelSprite => ({ spriteId, x: 1, y: 0, screen: 0, extraBit: false, raw: [], index: 0, streamOffset: 0 }) // prettier-ignore
 const MAP = 9
 
 /** Steps where a map load makes `calls[map]` "GetRand calls": the RNG cell counts them, and the smash step reads it back as X. */
@@ -61,20 +63,30 @@ describe('FIRST_LANDING_SCHEDULE (synthetic steps)', () => {
   it('a step that cannot run refuses the whole result with its step named', () => {
     const base = counting({ [TITLE]: 1, [MAP]: 4 })
     const cases: [string, LandingSteps, string][] = [
-      ['title map', { ...base, titleMap: () => 'not the shape' }, 'title map load (not the shape)'],
-      ['title load', { ...base, load: (_r, m, g) => (m === TITLE ? 'loader refused' : base.load(rom, m, g)) }, 'title map load (loader refused)'], // prettier-ignore
-      ['map load', { ...base, load: (_r, m, g) => (m === MAP ? 'loader refused' : base.load(rom, m, g)) }, 'target map load (loader refused)'], // prettier-ignore
+      ['title map', { ...base, titleMap: () => 'not the shape' }, 'title map load: not the shape'],
+      ['title load', { ...base, load: (_r, m, g) => (m === TITLE ? 'loader refused' : base.load(rom, m, g)) }, 'title map load: loader refused'], // prettier-ignore
+      ['map load', { ...base, load: (_r, m, g) => (m === MAP ? 'loader refused' : base.load(rom, m, g)) }, 'target map load: loader refused'], // prettier-ignore
       ['smash', { ...base, smash: () => 'sweep did not return' }, 'sweep did not return'], // prettier-ignore
     ]
     for (const [what, steps, want] of cases) {
-      expect(firstLanding(rom, MAP, steps), what).toEqual({ ok: false, reason: `Layer 3 not drawn yet: ${want}` }) // prettier-ignore
+      expect(firstLanding(rom, MAP, steps), what).toEqual({ ok: false, reason: `the smasher's first landing could not be worked out (${want})` }) // prettier-ignore
     }
   })
 
-  it('readL3SmashLoadPos passes the landing and the refusal through', () => {
-    expect(readL3SmashLoadPos(rom, MAP, () => ({ ok: true, landing: { x: -104, y: 160 } }))).toEqual({ ok: true, pos: { x: -104, y: 160 } }) // prettier-ignore
-    expect(readL3SmashLoadPos(rom, MAP, () => ({ ok: true, landing: null }))).toEqual({ ok: true, pos: null }) // prettier-ignore
-    expect(readL3SmashLoadPos(rom, MAP, () => ({ ok: false, reason: 'because' }))).toEqual({ ok: false, reason: 'because' }) // prettier-ignore
+  it('readL3SmashLoadPos reads the sprite list first: no smasher is no landing and the interpreter never runs', () => {
+    const boom = () => {
+      throw new Error('the interpreter ran')
+    }
+    expect(readL3SmashLoadPos(rom, MAP, boom, () => [spr(0x33)])).toEqual({ ok: true, pos: null })
+    expect(readL3SmashLoadPos(rom, MAP, boom, () => [])).toEqual({ ok: true, pos: null })
+  })
+
+  it('readL3SmashLoadPos with a smasher passes the landing and the refusal through; an unreadable list is a refusal', () => {
+    const smasher = () => [spr(0x33), spr(0x89)]
+    expect(readL3SmashLoadPos(rom, MAP, () => ({ ok: true, landing: { x: -104, y: 160 } }), smasher)).toEqual({ ok: true, pos: { x: -104, y: 160 } }) // prettier-ignore
+    expect(readL3SmashLoadPos(rom, MAP, () => ({ ok: true, landing: null }), smasher)).toEqual({ ok: true, pos: null }) // prettier-ignore
+    expect(readL3SmashLoadPos(rom, MAP, () => ({ ok: false, reason: 'because' }), smasher)).toEqual({ ok: false, reason: 'because' }) // prettier-ignore
+    expect(readL3SmashLoadPos(rom, MAP, () => ({ ok: true, landing: null }), () => null)).toMatchObject({ ok: false }) // prettier-ignore
   })
 })
 
@@ -99,9 +111,10 @@ const smashCart = (o: CartOpts = {}) => {
   const slot = (i: number) => [0xa9, 0x08, 0x8d, 0xc8 + i, 0x14, 0xa9, 0x89, 0x85, 0x9e + i]
   const n = o.smashers ?? 1
   const brk = (at: CartOpts['brk']) => (o.brk === at ? [0x00] : [])
+  const kill = (at: CartOpts['kill']) => (o.kill === at ? [0x9c, 0xc8, 0x14] : []) // STZ the slot's status
   cart.writeAt(SWEEP, [...brk('sweep'), ...(n > 0 ? slot(0) : []), ...(n > 1 ? slot(1) : []), 0x60])
-  const second = [0xad, 0x8b, 0x14, 0x85, 0x22, 0xad, 0x8c, 0x14, 0x85, 0x23, 0xa9, 0xa0, 0x85, 0x24, 0x64, 0x25, 0x6b] // prettier-ignore
-  cart.writeAt(LOOP, [0xad, 0x00, 0x1f, 0xd0, 0x04 + brk('first').length, ...brk('first'), 0xee, 0x00, 0x1f, 0x6b, ...brk('second'), ...second]) // prettier-ignore
+  const second = [0xad, 0x8b, 0x14, 0x85, 0x22, 0xad, 0x8c, 0x14, 0x85, 0x23, 0xa9, 0xa0, 0x85, 0x24, 0x64, 0x25, ...kill('second'), 0x6b] // prettier-ignore
+  cart.writeAt(LOOP, [0xad, 0x00, 0x1f, 0xd0, 0x04 + brk('first').length + kill('first').length, ...brk('first'), ...kill('first'), 0xee, 0x00, 0x1f, 0x6b, ...brk('second'), ...second]) // prettier-ignore
   return cart
 }
 /** A loader that models n GetRand calls per map as +n on RNGCalc, written where the real one leaves it. */
@@ -134,18 +147,25 @@ describe('the real title reader and smash step on a stand-in cart (synthetic)', 
   })
 
   it('refuses when the byte before the title operand is not the LDA immediate', () => {
-    expect(landing(smashCart({ lda: 0xea }))).toMatch(/^Layer 3 not drawn yet: title map load/)
+    expect(landing(smashCart({ lda: 0xea }))).toMatch(
+      /^the smasher's first landing could not be worked out \(title map load/,
+    )
   })
 
   it('no smasher in the sweep is no landing; two are refused by name', () => {
     expect(firstLanding(smashCart({ smashers: 0 }), 9, realSteps())).toEqual({ ok: true, landing: null }) // prettier-ignore
-    expect(landing(smashCart({ smashers: 2 }))).toBe('Layer 3 not drawn yet: several smash sprites are loaded') // prettier-ignore
+    expect(landing(smashCart({ smashers: 2 }))).toBe("the smasher's first landing could not be worked out (several smash sprites are loaded)") // prettier-ignore
   })
 
   it('a sweep or pass that does not return refuses, each under its own name', () => {
-    expect(landing(smashCart({ brk: 'sweep' }))).toMatch(/^Layer 3 not drawn yet: the start-up sprite sweep/) // prettier-ignore
-    expect(landing(smashCart({ brk: 'first' }))).toMatch(/^Layer 3 not drawn yet: the first sprite pass/) // prettier-ignore
-    expect(landing(smashCart({ brk: 'second' }))).toMatch(/^Layer 3 not drawn yet: the second sprite pass/) // prettier-ignore
+    expect(landing(smashCart({ brk: 'sweep' }))).toMatch(/^the smasher's first landing could not be worked out \(the start-up sprite sweep/) // prettier-ignore
+    expect(landing(smashCart({ brk: 'first' }))).toMatch(/^the smasher's first landing could not be worked out \(the first sprite pass/) // prettier-ignore
+    expect(landing(smashCart({ brk: 'second' }))).toMatch(/^the smasher's first landing could not be worked out \(the second sprite pass/) // prettier-ignore
+  })
+
+  it('refuses when the smasher is gone after a pass (status cleared), naming the pass', () => {
+    expect(landing(smashCart({ kill: 'first' }))).toBe("the smasher's first landing could not be worked out (the smash sprite did not survive the first sprite pass)") // prettier-ignore
+    expect(landing(smashCart({ kill: 'second' }))).toBe("the smasher's first landing could not be worked out (the smash sprite did not survive the second sprite pass)") // prettier-ignore
   })
 
   it('both passes run: the second pass is what writes the layer 3 cells', () => {

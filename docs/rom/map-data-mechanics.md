@@ -587,8 +587,10 @@ Mesen GetRand hooks on $01F and $1D4 only (force-loaded from the title screen, v
 machine); an overworld entry is expected to match because the title frames and the idle overworld do not
 advance the RNG, but that was not run. Later smash cycles re-roll X (-128..-65) from the RNG as it
 then stands, so they follow a longer, input-dependent history and are not modelled. When any step
-cannot run (a loader shape that is not stock, the sweep or a pass does not return, several smashers),
-the whole result refuses with that step named, and the map view draws no Layer 3 on that map.
+cannot run (a loader shape that is not stock, the sweep or a pass does not return, several smashers,
+or the smasher is gone after a pass), the whole result refuses with that step named. The map view then
+keeps Layer 3 at its load-time position (as before this chain) and adds an unverified-position note with the
+reason; it does not blank the layer or guess. A map whose sprite list has no smasher never runs the chain.
 
 Known blind spot: a hack can keep the loader's stock shapes and still call GetRand outside this schedule (UberASM
 level init code, overworld sprites, extra title-demo frames, a patched title sprite or a custom sprite that
