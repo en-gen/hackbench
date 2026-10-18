@@ -130,12 +130,15 @@ function jsrTarget(from: number, operand: number): number | null {
   return from - (from % LOROM_BANK_SIZE) + (operand - LOROM_BANK_SIZE)
 }
 
-// callSubroutine's return frame and any push sit in the stack page.
-// True for the stack page, where the call's return frame and any push land.
+/** True for the stack page, where callSubroutine's return frame and any push land. */
 const isStack = (off: number): boolean => off >= 0x100 && off < 0x200
 // P as the game has it at the helper: 16-bit X and Y (REP #$10, bank_00.asm:5518), 8-bit A.
 const HELPER_P = 0x24
 const SRAM_FILL = 0x5a
+// Index register values the helper is run with: a loop counter or compare on X or Y must not change the answer.
+const INDEX_SWEEP = [0, 0x100, 0x3ff, 0x8000]
+const HW_FIRST = 0x2000
+const HW_END = 0x4400
 
 /** SNES address of a LoROM cart offset (header already stripped). */
 const loromAddress = (off: number): number =>
@@ -218,19 +221,30 @@ function isStockUnpack(rom: RomFile, at: number, fps: Mode7Fingerprints): boolea
  * packing decodeMode7Tiles implements, read from behaviour not from bytes.
  * Per .claude/rules/rom-interpretation.md stock-code exception (added in #1030):
  * fixed entry (the JSR target), step budget HELPER_MAX_STEPS, refusal with a reason.
+ * X and Y are swept over INDEX_SWEEP, and any hardware-register or SRAM read fails.
+ *
+ * @returns null when the helper behaves, else the plain-words reason it does not.
  */
 function helperShiftsPixelOut(
   rom: RomFile,
   helperAt: number,
   input: number,
   output: number,
-): boolean {
+): string | null {
   try {
     const { bus, cpu } = smwMachine(rom)
     const touched = new Set<number>()
     let hardware = false
     bus.onWramWrite = off => touched.add(off)
     bus.onHwWrite = () => (hardware = true)
+    // Hardware and SRAM reads are state the game gives the helper, not part of its job.
+    const read = bus.read.bind(bus)
+    bus.read = (addr: number): number => {
+      const lo = addr & 0xffff
+      const bank = (addr >>> 16) & 0x7f
+      if ((bank < 0x40 && lo >= HW_FIRST && lo < HW_END) || (bank >= 0x70 && bank <= 0x7d && lo < 0x8000)) hardware = true // prettier-ignore
+      return read(addr)
+    }
     const reads = new Set<number>()
     bus.inputs = reads
     for (let v = 0; v < 0x100; v++) {
@@ -243,7 +257,11 @@ function helperShiftsPixelOut(
       const r = callSubroutine(cpu, loromAddress(helperAt), {
         kind: 'jsr',
         maxSteps: HELPER_MAX_STEPS,
-        regs: { p: HELPER_P },
+        regs: {
+          p: HELPER_P,
+          x: INDEX_SWEEP[v % INDEX_SWEEP.length],
+          y: INDEX_SWEEP[(v >> 2) % INDEX_SWEEP.length],
+        },
       })
       const onlyTwo =
         !hardware &&
@@ -252,14 +270,17 @@ function helperShiftsPixelOut(
         [...reads].every(off => off === input)
       const shifted = bus.wram[input] === (v << BITS_PER_PIXEL) % 0x100
       const out = bus.wram[output] === v >> (8 - BITS_PER_PIXEL)
-      if (r.kind !== 'returned' || !onlyTwo || !shifted || !out) return false
+      if (r.kind === 'refused') return r.reason
+      if (r.kind !== 'returned' || !onlyTwo || !shifted || !out) return NOT_PIXELS
     }
-    return true
+    return null
   } catch (e) {
-    if (e instanceof Refusal) return false
+    if (e instanceof Refusal) return e.message
     throw e
   }
 }
+
+const NOT_PIXELS = 'The bit-shifting helper does not unpack three-bit pixels as expected'
 
 /** Reads the loop's byte count from a recognized routine once its helper and call site check out; otherwise says why not. */
 function readByteLength(rom: RomFile, at: number): Length {
@@ -276,11 +297,17 @@ function readByteLength(rom: RomFile, at: number): Length {
   if (
     helperAt === null ||
     site[INPUT_STA_OFF] !== STA_DIRECT ||
-    site[OUTPUT_LDA_OFF] !== LDA_DIRECT ||
-    !helperShiftsPixelOut(rom, helperAt, site[INPUT_STA_OFF + 1]!, site[OUTPUT_LDA_OFF + 1]!)
+    site[OUTPUT_LDA_OFF] !== LDA_DIRECT
   ) {
-    return unreadable('The bit-shifting helper does not unpack three-bit pixels as expected')
+    return unreadable(NOT_PIXELS)
   }
+  const problem = helperShiftsPixelOut(
+    rom,
+    helperAt,
+    site[INPUT_STA_OFF + 1]!,
+    site[OUTPUT_LDA_OFF + 1]!,
+  )
+  if (problem !== null) return unreadable(problem)
 
   // Exactly one branch-over-JSR in the routine's bank may call it.
   const callers = branchOverJsrs(rom).filter(c => c.to === at)

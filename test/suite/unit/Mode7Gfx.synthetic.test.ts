@@ -51,8 +51,9 @@ import {
 const find = (rom: RomFile): ReturnType<typeof findMode7GfxFiles> =>
   findMode7GfxFiles(rom, SYNTH_MODE7_FINGERPRINTS)
 
-const ROUTINE = 0x00ab42
-const HELPER_AT = 0x00abc4
+// Not the game's addresses: the call site then does not match the game's bytes either.
+const ROUTINE = 0x00b142
+const HELPER_AT = 0x00b1c4
 const CALLER = 0x00aa5b
 
 interface Layout {
@@ -202,6 +203,8 @@ describe('findMode7GfxFiles', () => {
       ['a write to cart SRAM', { sramStore: true }],
       ['an OR into an output it did not clear', { orOut: true }],
       ['a read of another byte', { readsOther: true }],
+      ['a branch on Y at or above $0100', { readsY: true }],
+      ['a hardware read', { hwRead: true }],
     ]
     for (const [what, helperShape] of wrong) {
       const rom = makeRom()
@@ -216,6 +219,41 @@ describe('findMode7GfxFiles', () => {
     writeMode7Load(rom)
     rom.writeAt(HELPER_AT, ALT_HELPER)
     expect(find(rom)).toEqual([{ fileIndex: 0x27, byteLength: 0xc00 }])
+  })
+
+  it('passes the interpreter refusal through as the reason', () => {
+    // A map byte for SA-1: the interpreter runs LoROM only, and says so.
+    const rom = vanillaShaped()
+    rom.buffer[0x7fd5] = 0x23
+    const [file] = find(rom)
+    expect(file).toMatchObject({ fileIndex: 0x27, byteLength: null })
+    expect(file!.reason).toMatch(/LoROM only/)
+  })
+
+  it('refuses both when a stock routine and a changed one are both called', () => {
+    const rom = vanillaShaped()
+    rom.writeAt(0x00c000, callSiteBytes(0xb000))
+    rom.writeAt(0x00b000, [0xa0, 0x1c, 0x22, 0x01, 0x02, 0x03])
+    expect(find(rom)).toEqual([
+      { fileIndex: 0x27, byteLength: null, reason: expect.stringMatching(/more than one/) },
+      { fileIndex: 0x1c, byteLength: null, reason: expect.stringMatching(/changed/) },
+    ])
+  })
+
+  it('does not claim a changed routine on a HiROM cart, whose JSR arithmetic it lacks', () => {
+    const buf = Buffer.alloc(0x100000, 0x00)
+    buf[0xffd5] = 0x21 // HiROM
+    buf.set([0xa0, 0x27, 0x22, 0x01, 0x02, 0x03], 0x3142)
+    buf.set(callSiteBytes(0xb142), 0x2a5b)
+    expect(find(new RomFile('hirom.smc', buf))).toEqual([])
+  })
+
+  it('does not claim a changed routine whose file index is past the pointer table', () => {
+    const rom = makeRom()
+    rom.writeAt(ROUTINE, unpackBytes(0xff, 0x03ff, HELPER_AT & 0xffff))
+    flip(rom, ROUTINE + 40)
+    rom.writeAt(CALLER, callSiteBytes(ROUTINE & 0xffff))
+    expect(find(rom)).toEqual([])
   })
 
   it('accepts a helper that keeps its loop counter in a 16-bit X', () => {
@@ -295,9 +333,9 @@ describe('findMode7GfxFiles', () => {
   it('claims the file as unreadable on a HiROM cart, whose bank math it does not do', () => {
     const buf = Buffer.alloc(0x100000, 0x00)
     buf[0xffd5] = 0x21 // HiROM
-    buf.set(unpackBytes(0x27, 0x03ff, 0xabc4), 0x2b42)
-    buf.set(helperBytes(), 0x2bc4)
-    buf.set(callSiteBytes(0xab42), 0x2a5b)
+    buf.set(unpackBytes(0x27, 0x03ff, 0xb1c4), 0x3142)
+    buf.set(helperBytes(), 0x31c4)
+    buf.set(callSiteBytes(0xb142), 0x2a5b)
     expect(find(new RomFile('hirom.smc', buf))).toEqual([
       { fileIndex: 0x27, byteLength: null, reason: expect.stringMatching(/HiROM/) },
     ])

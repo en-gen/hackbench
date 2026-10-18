@@ -8,14 +8,18 @@ import { createHash } from 'node:crypto'
 import { existsSync, readdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
-import { CORPUS, VANILLA, freshRom, hasRom, romPath } from '../support/corpus'
-import { WILD, findPattern } from '../../../src/rom/BytePattern'
+import { CORPUS, ROM_DIR, VANILLA, freshRom, hasRom } from '../support/corpus'
+import { findPattern } from '../../../src/rom/BytePattern'
 import { decodeMode7Tiles, findMode7GfxFiles } from '../../../src/rom/Mode7Gfx'
 import { readGfxFile } from '../../../src/rom/GfxLoader'
 import { flip } from '../support/syntheticRom'
 import { ALT_HELPER, callSiteBytes, helperBytes, unpackBytes } from '../support/syntheticMode7'
 import { RomFile } from '../../../src/rom/RomFile'
 
+const BEQ = 0xf0
+const JSR = 0x20
+const JSR_LENGTH = 3 // opcode and a 2-byte operand: what a BEQ over it skips
+const BANK = 0x8000
 const ROUTINE = 0x00ab42 // CODE_00AB42, SMWDisX bank_00.asm:5515
 const HELPER = 0x00abc4 // CODE_00ABC4, :5575
 
@@ -28,7 +32,7 @@ const DEVELOP_PIXELS = '5f19015e48aed0674ad573bfd606a4c525315a8417cdad42ee1a55dc
 function expectRefused(rom: RomFile, label: string): void {
   const [file] = findMode7GfxFiles(rom)
   expect(file, label).toMatchObject({ fileIndex: 0x27, byteLength: null })
-  expect(file!.reason, label).toMatch(/does not unpack|not found exactly once|changed/)
+  expect(file!.reason, label).toMatch(/does not unpack|not found exactly once|changed|executed at/)
 }
 
 // CORPUS is the static name list, not a directory listing: every ROM registers
@@ -69,8 +73,13 @@ describe.each(CORPUS)('Mode7Gfx on %s', name => {
 
     it('refuses the file, with a reason, when one byte of the call site changes', () => {
       const rom = freshRom(name)
-      // BEQ over JSR CODE_00AB42 (SMWDisX bank_00.asm:5392-5393), found by shape.
-      const [site] = findPattern(rom, [0xf0, WILD, 0x20, 0x42, 0xab])
+      // BEQ over JSR CODE_00AB42 (SMWDisX bank_00.asm:5392-5393): found as src does, one
+      // opcode at a time, with the JSR target derived from its operand.
+      const site = findPattern(rom, [BEQ]).find(at => {
+        const b = rom.readAtFileOffset(at + 1, 1 + JSR_LENGTH)!
+        const to = at - (at % BANK) + ((b[2]! | (b[3]! << 8)) - BANK)
+        return b[0] === JSR_LENGTH && b[1] === JSR && to === ROUTINE - BANK
+      })
       expect(site).toBeDefined()
       for (const i of [0, 1, 2, 3, 4]) {
         const bad = freshRom(name)
@@ -89,11 +98,11 @@ describe.skipIf(!hasRom(VANILLA))(
     const RUN = 8
     const sample = (): Buffer => freshRom(VANILLA).buffer
     const fixtures: [string, number[]][] = [
-      ['routine', unpackBytes(0x27, 0x03ff, 0xabc4)],
+      ['routine', unpackBytes(0x27, 0x03ff, 0xb1c4)],
       ['routine, other file and count', unpackBytes(0x1c, 0x00ff, 0x9100)],
       ['helper', helperBytes()],
       ['alt helper', ALT_HELPER],
-      ['call site', callSiteBytes(0xab42)],
+      ['call site', callSiteBytes(0xb142)],
     ]
     const runsIn = (bytes: number[]): Buffer[] =>
       Array.from({ length: bytes.length - RUN + 1 }, (_, i) => Buffer.from(bytes.slice(i, i + RUN)))
@@ -114,8 +123,9 @@ describe.skipIf(!hasRom(VANILLA))(
 // build and this one gave the same answer for file $27 on every ROM, 110 read as
 // Mode 7 (the file's decoded length equals the loop's) and 42 unavailable. Pinned as counts
 // because develop's code is gone; a looser recognizer moves them.
-const ROMS = dirname(romPath(VANILLA))
-const HACKS = resolve(dirname(ROMS), 'hacks/roms')
+// No corpus helper lists the hack collection, so it is located beside the corpus and gated here.
+const ROMS = ROM_DIR
+const HACKS = resolve(dirname(ROM_DIR), 'hacks/roms')
 describe.skipIf(!existsSync(HACKS) || !existsSync(ROMS))('Mode7Gfx on the hack collection', () => {
   it('reads 110 ROMs as Mode 7 and claims 42 unavailable, as develop did', () => {
     const tally: Record<string, number> = {}
@@ -132,7 +142,10 @@ describe.skipIf(!existsSync(HACKS) || !existsSync(ROMS))('Mode7Gfx on the hack c
     }
     expect(tally).toEqual({ mode7: 110, unavailable: 42 })
   }, 120_000)
+})
 
+// The plant for the tally above: an edited routine is unavailable, never planar.
+describe.skipIf(!hasRom(CORPUS[0]!))('Mode7Gfx plant for the hack tally', () => {
   it('goes red when a routine byte is flipped on a Mode 7 ROM: unavailable, never planar', () => {
     const rom = freshRom(CORPUS[0])
     flip(rom, ROUTINE + 40)
