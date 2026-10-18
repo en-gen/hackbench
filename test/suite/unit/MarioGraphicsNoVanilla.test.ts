@@ -7,14 +7,7 @@
 import { describe, expect, it } from 'vitest'
 import { STOCK_BOOT, STOCK_DMA } from '../../../src/rom/MarioGraphics'
 import { freshRom, hasRom, VANILLA } from '../support/corpus'
-import {
-  bankCarryCart,
-  cart,
-  dmaCode,
-  highBankCart,
-  seq,
-  type Cart,
-} from '../support/marioGraphicsFixture'
+import { allCarts, cart, dmaCode, seq } from '../support/marioGraphicsFixture'
 
 const W = 8
 const distinct = (w: Uint8Array) => new Set(w).size >= 3
@@ -39,17 +32,6 @@ function vanillaWindows(): { set: Set<string>; bytes: Uint8Array } {
   return { set, bytes }
 }
 
-/** The carts the MarioGraphics tests build, one per shape: default, another bank and offset, oversized, odd operands. */
-const CARTS: Cart[] = [
-  {},
-  { d33: seq(1, 72), bank: 9, low: 0x9000, top: 0x207e, srcTop: 71 },
-  { d33: Array(0x9100).fill(7) },
-  { d32: Array(0x9100).fill(7) },
-  { copies: 2 },
-  { top: 0xb000 },
-  { edit: c => { c[40] = 0x60 } }, // prettier-ignore
-]
-
 /** Byte arrays other tests feed in directly (expansion buffers, the player buffer). */
 function loose(): Uint8Array[] {
   const tiles = new Uint8Array(0xb000 - 0x2000)
@@ -65,7 +47,7 @@ function loose(): Uint8Array[] {
 describe.skipIf(!hasRom(VANILLA))('MarioGraphics fixtures against the vanilla ROM (#980)', () => {
   it('assembles no 8-byte window that occurs in the vanilla ROM', () => {
     const { set } = vanillaWindows()
-    const carts = [...CARTS.map(cart), bankCarryCart(), highBankCart()]
+    const carts = allCarts()
     const hits = carts.map(c => shared(c.buffer, set).length)
     expect(hits, 'windows per cart').toEqual(carts.map(() => 0))
     expect(loose().map(b => shared(b, set).length)).toEqual(loose().map(() => 0))

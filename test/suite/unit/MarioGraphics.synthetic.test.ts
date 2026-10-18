@@ -7,9 +7,12 @@ import { describe, it, expect } from 'vitest'
 import {
   boot,
   bankCarryCart,
+  CALLS,
+  callsCart,
   cart,
+  CART_SHAPES,
   dma,
-  dmaCode,
+  withDmaCart,
   highBankCart,
   GATE,
   routine,
@@ -71,6 +74,12 @@ describe('expandTo4bpp', () => {
     buf.set(seq(1, 48))
     expect(expandTo4bpp(buf, 47, 0x1e)).toMatch(/below/)
   })
+
+  it('refuses a write below the buffer inside a pass, though the source ends in that pass', () => {
+    // 24 source bytes, destination 0x1c: the plane-0/1 loop reaches p = -2 on its last words and x runs out in
+    // the same pass, so a bound checked once per pass reports success with writes dropped.
+    expect(expandTo4bpp(new Uint8Array(0x60), 23, 0x1c)).toMatch(/below/)
+  })
 })
 
 describe('buildMarioGraphics', () => {
@@ -101,16 +110,25 @@ describe('buildMarioGraphics', () => {
   })
 
   it('refuses a cart whose upload routine is patched, and passes the stock-shaped one', () => {
-    const withDma = (patch: (c: number[]) => void) => {
-      const c = dmaCode()
-      patch(c)
-      const r = cart({})
-      r.buffer.set(c, 0x2000)
-      return buildMarioGraphics(r, GATE, boot(), dma())
-    }
+    const withDma = (patch: (c: number[]) => void) =>
+      buildMarioGraphics(withDmaCart(patch), GATE, boot(), dma())
     expect(withDma(() => {}).ok).toBe(true)
     refused(withDma(c => { c[20] ^= 1 }), /upload.*not the stock one/) // prettier-ignore
     refused(buildMarioGraphics(cart({}), GATE, boot(), dma()), /upload.*not the stock one/)
+  })
+
+  it('refuses a cart whose boot call or upload calls no longer reach the routines found', () => {
+    const build = (edit: (b: Uint8Array) => void) =>
+      buildMarioGraphics(callsCart(edit), GATE, boot(), dma(), CALLS)
+    expect(build(() => {}).ok).toBe(true)
+    refused(build(b => { b[0x7f00] = 0x22 }), /call at \$ff00.*boot/) // prettier-ignore
+    refused(build(b => { b[0x7f11] ^= 1 }), /call at \$ff10.*upload/) // prettier-ignore
+    refused(build(b => { b[0x7f22] = 0x7f }), /call at \$ff20.*upload/) // prettier-ignore
+  })
+
+  it('gives every shared cart shape a verdict, never a throw', () => {
+    for (const shape of CART_SHAPES)
+      expect(typeof buildMarioGraphics(cart(shape), GATE, boot()).ok).toBe('boolean')
   })
 
   it('refuses a boot routine found twice, absent, or changed in a byte the operands do not cover', () => {

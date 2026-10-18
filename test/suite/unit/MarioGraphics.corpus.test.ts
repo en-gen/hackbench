@@ -7,7 +7,7 @@
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { unzip } from '../../../tools/scripts/capture_render'
 import { decode4bpp } from '../../../src/rom/GraphicsDecoder'
 import type { RomFile } from '../../../src/rom/RomFile'
@@ -68,19 +68,18 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
       maps: new Set<string>(),
     }
 
-    it('reads the buffer from the cart', () => {
+    // The buffer and the sweep are built once here, so no verdict below can run on a tally another case was to fill.
+    beforeAll(() => {
       rom = freshRom()
       built = readMarioGraphics(rom)
       buffer = built.ok ? built.bytes : buffer
       tiles = Array.from({ length: 384 }, (_, t) => Buffer.from(buffer.subarray(0x5d00 + t * 32, 0x5d00 + t * 32 + 32)).toString('hex')) // prettier-ignore
       index = new Map(tiles.map((h, t) => [h, t] as const))
       expect(built).toMatchObject({ ok: true })
-    })
-
-    it('sweeps every capture sample', slow(600_000), () => {
+      const captures = readdirSync(CAPTURE_DIR).filter(f => f.endsWith('.zip')).sort() // prettier-ignore
+      expect(captures.length, 'capture archives listed').toBeGreaterThan(0)
       const chars = podobooChars(rom)
-      for (const f of readdirSync(CAPTURE_DIR).sort()) {
-        if (!f.endsWith('.zip')) continue
+      for (const f of captures) {
         const files = unzip(readFileSync(join(CAPTURE_DIR, f)))
         for (const name of files.keys()) {
           if (!/vram\.bin$/.test(name) || /l3_vram/.test(name)) continue
@@ -106,7 +105,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
           }
         }
       }
-    })
+    }, 600_000)
 
     it("equals the chars hardware holds at Mario's own pose pointers (GFX32), but for samples taken between a pose change and its upload", () => {
       expect(tally.pose[1]).toBeGreaterThan(3000)

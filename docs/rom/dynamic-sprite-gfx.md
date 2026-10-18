@@ -34,8 +34,14 @@ The expansion per 24-byte tile: the 8 plane-2 bytes as words with a zero high by
 - GFX33's expansion: 263 distinct nonzero expanded tiles occur verbatim in 6829 VRAM samples, 253 of them with
   plane 2 set.
 
-Not proven: the upload loop itself is cited, not pattern-checked, so a hack that moves the VRAM destination or the
-row spacing would be drawn as vanilla.
+The two upload loops (bank_00.asm:4580-4605) are pinned by a SHA-256 over 64 bytes at `$00:A34D` (`STOCK_DMA`), so a
+hack that edits the VRAM destination or the row spacing there is refused. The four callers are checked as well, each an
+opcode `$20` whose operand must equal the address of the routine found by hash: the boot call at `$00:9414`
+(bank_00.asm:2300) and the three MarioGFXDMA calls in the NMI handler at `$00:821D`, `$00:823A` and `$00:82D7`
+(bank_00.asm:274, 289, 365), MarioGFXDMA being `$4D` before the loops (SMW_U.sym `A300`). Evidence scope: the vanilla ROM
+passes, one machine, and synthetic redirected callers are refused (`MarioGraphics.synthetic.test.ts`). Not proven: the
+bytes of MarioGFXDMA before the loops (its palette DMA and the `$67F0` row) are not hashed, nor is that the NMI reaches
+those three call sites in a hack that rearranges the handler.
 
 ## Hacks (D51, D57)
 
@@ -57,5 +63,4 @@ exact 998 to 1018, shape 803 to 810, wrong 125 to 97, close 18 to 18, empty 13 t
 The 28 records that changed grade: map `$101` 14 wrong to exact and `$54` slot 0 wrong to empty, `$1D4` 5 and `$1CD` 1
 wrong to exact, map `$01F` `$67` 7 wrong to shape. The one empty: `$54`'s only recorded tile is OAM entry 124 (tile `$E4`,
 palette row 12, the castle flame), not a tile of the sprite, and the model draws nothing for it, so empty is the
-honest grade; before it graded wrong by matching flame pieces the cluster sprite wrote. The 3 left (`$1D4` list 7, 9,
-11) record castle-flame entries as the Podoboo's, a hardware-side attribution of a frame where the Podoboo drew nothing.
+honest grade; before it graded wrong by matching flame pieces the cluster sprite wrote. The 3 left (`$1D4` list 7, 9, 11) record castle-flame entries as the Podoboo's, a hardware-side attribution of a frame where the Podoboo drew nothing.

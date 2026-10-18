@@ -6,7 +6,7 @@ import { RomFile } from '../../../src/rom/RomFile'
 import { encode } from '../../../src/rom/LcLz2'
 import type { CompressionCheck } from '../../../src/rom/GfxArena'
 import { fingerprint } from '../../../src/rom/Fingerprint'
-import { bootFingerprint, type BootRoutine } from '../../../src/rom/MarioGraphics'
+import { bootFingerprint, type BootRoutine, type CallSite } from '../../../src/rom/MarioGraphics'
 
 /** Distinct, scattered byte values for consecutive indexes (an ascending run of small values occurs in the vanilla ROM). */
 export const seq = (from: number, n: number) =>
@@ -81,3 +81,51 @@ export const cart = (o: Cart) => {
   for (let i = 0; i < (o.copies ?? 1); i++) bytes.set(code, 0x100 + i * 0x100)
   return RomFile.fromBytes('synthetic.sfc', bytes)
 }
+
+/** A cart with the made-up upload routine at its record's offset ($2000). */
+export const withDmaCart = (patch: (c: number[]) => void = () => {}) => {
+  const c = dmaCode()
+  patch(c)
+  const r = cart({})
+  r.buffer.set(c, 0x2000)
+  return r
+}
+
+/**
+ * Callers in bank $00 (file offset = address - $8000): one JSR to the boot routine at $8100, two to the upload
+ * routine's entry, $4D before its loops at $A000 (offset $2000). `edit` damages the assembled bytes.
+ */
+export const CALLS: CallSite[] = [
+  { from: 0xff00, to: 'boot' },
+  { from: 0xff10, to: 'dma', back: 0x4d },
+  { from: 0xff20, to: 'dma', back: 0x4d },
+]
+export const callsCart = (edit: (b: Uint8Array) => void = () => {}) => {
+  const r = withDmaCart()
+  const targets = [0x8100, 0x9fb3, 0x9fb3]
+  CALLS.forEach((c, i) =>
+    r.buffer.set([0x20, targets[i]! & 0xff, targets[i]! >> 8], c.from - 0x8000),
+  )
+  edit(r.buffer)
+  return r
+}
+
+/** The cart shapes `cart` is built in, one per case the tests exercise. */
+export const CART_SHAPES: Cart[] = [
+  {},
+  { d33: seq(1, 72), bank: 9, low: 0x9000, top: 0x207e, srcTop: 71 },
+  { d33: Array(0x9100).fill(7) },
+  { d32: Array(0x9100).fill(7) },
+  { copies: 2 },
+  { top: 0xb000 },
+  { edit: c => { c[40] = 0x60 } }, // prettier-ignore
+]
+
+/** EVERY cart the MarioGraphics tests assemble; the vanilla-byte scan walks this list, so a new shape cannot skip it. */
+export const allCarts = (): RomFile[] => [
+  ...CART_SHAPES.map(cart),
+  bankCarryCart(),
+  highBankCart(),
+  withDmaCart(),
+  callsCart(),
+]

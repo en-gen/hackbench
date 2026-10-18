@@ -14,7 +14,7 @@
  *
  * The buffer is built once at boot (CODE_00B888, bank_00.asm:6250-6290):
  * GFX33 (3bpp) is decompressed to $7E:2000 and expanded in place, backwards, to
- * 4bpp at the top of the area ($9D00-$ACFF), then GFX32 (Mario, 4bpp) is
+ * 4bpp at the top of the area ($7D00-$ACFF), then GFX32 (Mario, 4bpp) is
  * decompressed over $7E:2000. Both pointers are read from the code's operands;
  * the routine itself is pinned by a SHA-256 over its fixed bytes.
  * Evidence scope: docs/rom/dynamic-sprite-gfx.md.
@@ -63,6 +63,27 @@ export const STOCK_DMA: BootRoutine = {
   sha256: 'ea61acf43341bd988f651b7339bc1c11300be7ef98639680c74d3883e7519355',
 }
 
+/**
+ * A JSR (opcode $20, a bank-$00 target) at SNES `from` that must reach the routine found by hash: the boot routine, or
+ * MarioGFXDMA, whose hashed loops sit `back` bytes after its entry. Operands are read and compared with the found
+ * address, so no byte run is stored. The bytes before the loops (the palette and $67F0 DMAs) are not hashed.
+ */
+export interface CallSite {
+  from: number
+  to: 'boot' | 'dma'
+  back?: number
+}
+
+// The caller of CODE_00B888 (GM01Presents, bank_00.asm:2300, $00:9414) and the three calls of MarioGFXDMA in the NMI
+// handler (bank_00.asm:274, 289, 365), one per game-mode branch. MarioGFXDMA starts $4D before the loops
+// (bank_00.asm:4551, 4580; SMW_U.sym A300). One machine, one cart: the addresses are the vanilla ROM's.
+export const STOCK_CALLS: readonly CallSite[] = [
+  { from: 0x009414, to: 'boot' },
+  { from: 0x00821d, to: 'dma', back: 0x4d },
+  { from: 0x00823a, to: 'dma', back: 0x4d },
+  { from: 0x0082d7, to: 'dma', back: 0x4d },
+]
+
 const SLACK = 0x100
 
 /** File offsets within SLACK of `r.at` whose `r.length` bytes hash to `r.sha256` (through `hashOf`). */
@@ -104,6 +125,7 @@ export function buildMarioGraphics(
   src: CompressionCheck,
   boot: BootRoutine = STOCK_BOOT,
   dma: BootRoutine | undefined = boot === STOCK_BOOT ? STOCK_DMA : undefined, // tests that inject a boot bring their own
+  calls: readonly CallSite[] | undefined = boot === STOCK_BOOT ? STOCK_CALLS : undefined,
 ): MarioBuffer {
   const fail = (reason: string): MarioBuffer => ({ ok: false, reason })
   const sites = stockSites(rom, boot, bootFingerprint)
@@ -112,6 +134,13 @@ export function buildMarioGraphics(
   const uploads = dma && stockSites(rom, dma, fingerprint).length
   if (uploads === 0) return fail('the routine that uploads the Mario graphics buffer to VRAM is not the stock one') // prettier-ignore
   if (uploads !== undefined && uploads > 1) return fail('the routine that uploads the Mario graphics buffer to VRAM occurs more than once, so which copy runs is not known') // prettier-ignore
+  for (const c of calls ?? []) {
+    const found =
+      c.to === 'boot' ? sites[0]! : stockSites(rom, dma!, fingerprint)[0]! - (c.back ?? 0)
+    const jsr = rom.readAt(c.from, 3)
+    if (!jsr || jsr[0] !== 0x20 || (jsr[1]! | (jsr[2]! << 8)) !== 0x8000 + found)
+      return fail(`the call at $${c.from.toString(16)} no longer reaches the stock ${c.to === 'boot' ? 'boot' : 'upload'} routine`) // prettier-ignore
+  }
   if (!src.ok) return fail(src.reason)
   const site = rom.readAtFileOffset(sites[0]!, boot.length)!
   const w = (i: number) => site[i]!
@@ -148,14 +177,17 @@ export function expandTo4bpp(buf: Uint8Array, x: number, p: number): string | nu
   if (x >= buf.length || p < 1 || p + 1 >= buf.length)
     return 'the expansion points outside the buffer'
   for (;;) {
-    for (let i = 0; i < 8; i++, x--, p -= 2) [buf[p], buf[p + 1]] = [buf[x]!, 0]
+    for (let i = 0; i < 8; i++, x--, p -= 2) {
+      if (p < 0) return 'the expansion runs below the buffer'
+      ;[buf[p], buf[p + 1]] = [buf[x]!, 0]
+    }
     for (let i = 0; i < 8; i++, p -= 2) {
+      if (p < 0) return 'the expansion runs below the buffer'
       x--
       ;[buf[p], buf[p + 1]] = [buf[x]!, buf[x + 1]!]
       x--
       if (x < 0) return null
     }
-    if (p < 0) return 'the expansion runs below the buffer'
   }
 }
 
