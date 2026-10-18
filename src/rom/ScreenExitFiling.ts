@@ -14,7 +14,9 @@
  * wrong WRAM, a refused instruction or a budget overrun. Only the WRAM effect is read back.
  * This is the fourth bounded exception in .claude/rules/rom-interpretation.md.
  *
- * Evidence scope: the eight (_A, _B, byte) cases below plus a second write to one screen;
+ * Evidence scope: the eight (_A, _B, byte) cases below, supplemented by two writes to screen 7:
+ * first (_B $00, byte $44), then (_B $01, byte $55); the second must overwrite the first, so
+ * ExitTableLow,7 ends $55 and ExitTableHigh,7 ends 1;
  * synthetic carts in test/suite/unit/ScreenExitFiling.synthetic.test.ts, and the stock vanilla
  * and magic ROMs pass (one machine). Not modelled: the Layer 2 object stream reaches the same
  * handler through a different caller.
