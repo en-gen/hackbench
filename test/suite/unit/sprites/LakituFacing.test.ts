@@ -109,8 +109,10 @@ const cloudMain = (write: readonly number[]) => [
   0x20, AT.subHorizPos & 0xff, AT.subHorizPos >> 8 & 0xff, 0x98, 0x48, 0xbc, 0x0e, 0x16, 0x68, // SubHorizPos, side to A, reload Y
   ...write, 0x60,
 ]
-const STORE = [0x99, 0x7c, 0x15] // STA $157C,Y
-const NOPS = [0xea, 0xea, 0xea] // the planted defect
+const STA_ABS_Y = 0x99
+const NOP = 0xea
+const STORE = [STA_ABS_Y, FACING & 0xff, FACING >> 8] // STA $157C,Y, assembled from the RAM address
+const NOPS = [NOP, NOP, NOP] // the planted defect, the store's length
 
 /** A synthetic rider (id 70) whose INIT spawns a cloud (id 71) in the highest free slot from 7 down, as InitLakitu does, and a cloud MAIN with the effect of the real routine's. */
 function lakituRom(o: { cloud?: 'full' | 'nowrite' | 'rts' } = {}): RomFile {
@@ -269,20 +271,19 @@ describe.skipIf(!hasRom(VANILLA))(
       expect(sharedWithCart(cart, rom).length).toBeGreaterThan(0)
     })
 
-    it('goes red when the cloud MAIN store ($01:E998, STA $157C,Y) is disabled (planted defect)', () => {
-      const rom = freshRom()
-      expect([...rom.readAt(0x01e998, 3)!]).toEqual([0x99, 0x7c, 0x15]) // the store this test disables
-      rom.writeAt(0x01e998, [0xea, 0xea, 0xea])
-      // Find a map entry with Mario left of the rider (side 1): without the store pass-0 facing stays 0.
-      const e = MAPS.flatMap(m => at(rom, m)).find(x => side(x.x, x.mario.x) === 1)
-      expect(e).toBeDefined()
-      const s = sample(rom, 0x1e, 0x87, 0, {
-        sprite: e!.x,
-        y: e!.y,
-        mario: e!.mario.x,
-        loaded: e!.w,
-      })
-      expect(s.pass0).toBe(0)
+    // CODE_01E98D + 11: the cloud MAIN's store into the rider's $157C (bank_01.asm:14216-14222), 3 bytes long. Its
+    // relevance is proven by behaviour, not by its bytes: with it intact Mario-left gives facing 1, NOPed gives 0.
+    const CLOUD_STORE_AT = 0x01e98d + 11
+    it('goes red when the cloud MAIN store (CODE_01E98D + 11) is disabled (planted defect)', () => {
+      const run = (rom: RomFile) => {
+        const e = MAPS.flatMap(m => at(rom, m)).find(x => side(x.x, x.mario.x) === 1)
+        expect(e).toBeDefined()
+        return sample(rom, 0x1e, 0x87, 0, { sprite: e!.x, y: e!.y, mario: e!.mario.x, loaded: e!.w }).pass0 // prettier-ignore
+      }
+      expect(run(freshRom())).toBe(1) // unpatched: the differential's baseline
+      const planted = freshRom()
+      planted.writeAt(CLOUD_STORE_AT, NOPS)
+      expect(run(planted)).toBe(0)
     })
   },
 )
