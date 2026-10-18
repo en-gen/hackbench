@@ -11,7 +11,12 @@ import { isLevelModeVertical, parseLevelHeader } from '../../../src/rom/LevelPar
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { withCrusher } from '../../../src/rom/L3CodeGate'
-import { buildL3Verdict, type L3Inputs, type L3Verdict } from '../../../src/rom/model/L3Model'
+import {
+  buildL3Verdict,
+  EXIT_GRAPH_UNAVAILABLE,
+  type L3Inputs,
+  type L3Verdict,
+} from '../../../src/rom/model/L3Model'
 import {
   drawL3Planes,
   screenResult,
@@ -182,20 +187,20 @@ describe('the wire: screens, math, layer 2 role (synthetic)', () => {
     expect(wireOf({ ...l1Of(0, 0, false), l3 }).math).toBeNull()
   })
   it('an unverified layer 3 camera is a layer note on a map that still draws it (#860)', () => {
-    const drawn = (note?: string) => verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYUnverified: note })) // prettier-ignore
+    const drawn = (...notes: string[]) => verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYReasons: notes.length ? notes : undefined })) // prettier-ignore
     const w = wireOf({ ...l1Of(0, 0, false), l3: drawn('because') })
     expect(w.layerNotes).toEqual(['Layer 3 position unverified: because'])
     expect(w.planes.l3Low ?? w.planes.l3High).toBeTruthy()
     expect(wireOf({ ...l1Of(0, 0, false), l3: drawn() }).layerNotes).toEqual([])
   })
   describe('one reason shared by the background height and the layer 3 position reads once (#926)', () => {
-    const drawn = (note?: string) => verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYUnverified: note })) // prettier-ignore
+    const drawn = (...notes: string[]) => verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYReasons: notes.length ? notes : undefined })) // prettier-ignore
     const withL2 = (reasons: string[]) => ({
       ok: true as const,
       l2: { kind: 'objects' as const, grid: [[null]], tiles: [], dy: 0, reasons, note: `Background height unverified: ${reasons.join(' ')}` }, // prettier-ignore
     })
-    const notes = (reasons: string[], l3Note: string) =>
-      wireOf({ ...l1Of(0, 0, false), l2: withL2(reasons), l3: drawn(l3Note) }).layerNotes
+    const notes = (reasons: string[], ...l3Notes: string[]) =>
+      wireOf({ ...l1Of(0, 0, false), l2: withL2(reasons), l3: drawn(...l3Notes) }).layerNotes
     it('the same gate reason on both parts is one line naming both', () => {
       expect(notes(['gate'], 'gate')).toEqual(['Background height and Layer 3 position unverified: gate']) // prettier-ignore
     })
@@ -205,9 +210,15 @@ describe('the wire: screens, math, layer 2 role (synthetic)', () => {
     it('a gate plus a dy note on L2 with the same gate on L3: the gate once, the dy note kept', () => {
       expect(notes(['gate', 'dy'], 'gate')).toEqual(['Background height and Layer 3 position unverified: gate', 'Background height unverified: dy']) // prettier-ignore
     })
+    it('the graph reason stays a Layer 3 line while the gate reason both layers give is merged (#910)', () => {
+      const gate = 'the level-start code is not stock'
+      const graph = EXIT_GRAPH_UNAVAILABLE
+      const m = { ...l1Of(0, 0, false), l2: withL2([gate]), l3: drawn(gate, graph) }
+      expect(wireOf(m).layerNotes).toEqual([`Background height and Layer 3 position unverified: ${gate}`, `Layer 3 position unverified: ${graph}`]) // prettier-ignore
+    })
   })
   describe('the note lines for every reason overlap of the two parts (#926)', () => {
-    const drawn = (note?: string) => verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYUnverified: note })) // prettier-ignore
+    const drawn = (...notes: string[]) => verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYReasons: notes.length ? notes : undefined })) // prettier-ignore
     const withL2 = (reasons: string[]) => ({
       ok: true as const,
       l2: { kind: 'objects' as const, grid: [[null]], tiles: [], dy: 0, reasons, note: `Background height unverified: ${reasons.join(' ')}` }, // prettier-ignore
@@ -227,7 +238,11 @@ describe('the wire: screens, math, layer 2 role (synthetic)', () => {
     ]
     for (const [l2, l3, expected] of cases) {
       it(`L2 ${JSON.stringify(l2)} with L3 ${JSON.stringify(l3)}`, () => {
-        const m = { ...l1Of(0, 0, false), ...(l2 ? { l2: withL2(l2) } : {}), l3: drawn(l3) }
+        const m = {
+          ...l1Of(0, 0, false),
+          ...(l2 ? { l2: withL2(l2) } : {}),
+          l3: drawn(...(l3 ? [l3] : [])),
+        }
         expect(wireOf(m).layerNotes).toEqual(expected)
       })
     }
