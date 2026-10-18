@@ -40,6 +40,14 @@ export const GRAPH_UNAVAILABLE = 'graph-unavailable'
 export const EXIT_GRAPH_UNAVAILABLE =
   'HackBench could not work out which entrance starts this map, so this layer is placed as if the map were entered from its main entrance.' // prettier-ignore
 
+/**
+ * A world-locked Layer 3 is anchored at the camera of a direct load; a map entered by a screen exit starts
+ * from the previous map's camera, which is not known here (docs/rom/layer3-world-locked.md). Reads after
+ * "Layer 3 position unverified: ".
+ */
+export const SCREEN_EXIT_CAMERA =
+  "this map is entered from another map, and that map's camera decides where this layer starts." // prettier-ignore
+
 export interface L3Inputs {
   /** The 64 x 64 BG3 tilemap, index = row * 64 + col, HUD rows included (the drawing skips them). */
   tilemap: Uint16Array
@@ -170,6 +178,7 @@ export function buildL3Verdict(
   const reasons = [
     startGate,
     entrances === GRAPH_UNAVAILABLE ? EXIT_GRAPH_UNAVAILABLE : null,
+    worldLocked && via && !via.overworld && (via.primary || via.secondary.length > 0) ? SCREEN_EXIT_CAMERA : null, // prettier-ignore
   ].filter((r): r is string => !!r)
   return {
     ...known,

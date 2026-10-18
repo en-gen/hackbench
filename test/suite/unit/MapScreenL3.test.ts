@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest'
 import type { RgbaColor } from '../../../src/rom/GraphicsDecoder'
 import { parseLevelHeader } from '../../../src/rom/LevelParser'
 import { RomFile } from '../../../src/rom/RomFile'
-import { SmwRom } from '../../../src/rom/SmwRom'
+import { SmwRom, type MapEntrances } from '../../../src/rom/SmwRom'
 import { withCrusher } from '../../../src/rom/L3CodeGate'
 import {
   CAMERA_HOOKED,
@@ -23,6 +23,7 @@ import { createHash } from 'node:crypto'
 import {
   buildL3Verdict,
   EXIT_GRAPH_UNAVAILABLE,
+  SCREEN_EXIT_CAMERA,
   type L3Inputs,
   type L3Verdict,
 } from '../../../src/rom/model/L3Model'
@@ -561,6 +562,23 @@ describe('world-locked layer 3: byte $81 off Castle1 and Underground1 (synthetic
     }
   })
 
+  it('adds the entered-from-another-map reason for a screen-exit entry, not for a direct load', () => {
+    const at = (via?: MapEntrances) => buildL3Verdict(romW(), 5, { ...l1Of(0, 9, false), header: header6(9) }, BG_OK, chars, GATE_OK, undefined, via, undefined, stock).l3 // prettier-ignore
+    const reasons = (via?: MapEntrances) => at(via)?.camYReasons ?? []
+    const direct = { overworld: true, primary: false, secondary: [] }
+    expect(reasons(direct)).not.toContain(SCREEN_EXIT_CAMERA)
+    expect(reasons(undefined)).not.toContain(SCREEN_EXIT_CAMERA)
+    expect(reasons({ overworld: false, primary: true, secondary: [] })).toContain(
+      SCREEN_EXIT_CAMERA,
+    )
+    expect(reasons({ overworld: false, primary: false, secondary: [3] })).toContain(
+      SCREEN_EXIT_CAMERA,
+    )
+    expect(SCREEN_EXIT_CAMERA).not.toMatch(/\$|0x|[0-9a-f]{4}/i)
+    // The anchor is still drawn.
+    expect(at({ overworld: false, primary: true, secondary: [] })?.worldLocked).toBeDefined()
+  })
+
   it('does not draw on a vertical map', () => {
     const l1 = { ...l1Of(0, 9, false), header: header6(9), isVertical: true }
     expect(buildL3Verdict(romW(), 5, l1, BG_OK, chars, GATE_OK).reason).toBe('Layer 3 not drawn yet: vertical maps') // prettier-ignore
@@ -608,16 +626,21 @@ describe('entranceCameraX and its code gate (synthetic, #563)', () => {
 
   it('reads the load setup one field at a time, from the offsets the instructions use', () => {
     // Distinct non-ROM values: each field must come from its own offset.
-    expect(
-      readCameraSetup(romWith(0x009705, [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77])),
-    ).toMatchObject({
-      // prettier-ignore
+    // GM11LoadLevel's seventeen bytes: JSR, LDA #, STA, JSR, INC abs (operand skipped), JSL.
+    const gm11 = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xf1, 0x01, 0x02] // prettier-ignore
+    expect(readCameraSetup(romWith(0x009705, gm11))).toMatchObject({
       loadCallOp: 0x11,
       loadCallTarget: 0x3322,
       maxScreensOp: 0x44,
       maxScreens: 0x55,
       maxScreensStoreOp: 0x66,
       maxScreensStore: 0x77, // prettier-ignore
+      scrollCallOp: 0x88,
+      scrollCallTarget: 0xaa99,
+      screenScrollOp: 0xbb,
+      updateCallOp: 0xee,
+      updateCallTarget: 0x01f1,
+      updateCallBank: 0x02, // prettier-ignore
     })
     expect(readCameraSetup(romWith(0x00a7b9, [0x91, 0x82, 0x73, 0x64, 0x55, 0x46]))).toMatchObject({
       // prettier-ignore
@@ -638,6 +661,14 @@ describe('entranceCameraX and its code gate (synthetic, #563)', () => {
     // CameraMoveTrigger $00A0 or LastScreenHoriz $30 are the cases that move the camera.
     expect(isStockCameraSetup({ ...STOCK_CAMERA_SETUP, trigger: 0x00a0 })).toBe(false)
     expect(isStockCameraSetup({ ...STOCK_CAMERA_SETUP, maxScreens: 0x30 })).toBe(false)
+  })
+
+  it('a redirected JSL to UpdateScreenPosition, or JSR to the scroll setup, is refused', () => {
+    expect(isStockCameraSetup({ ...STOCK_CAMERA_SETUP, updateCallTarget: 0xf6e0 })).toBe(false)
+    expect(isStockCameraSetup({ ...STOCK_CAMERA_SETUP, updateCallBank: 0x05 })).toBe(false)
+    expect(isStockCameraSetup({ ...STOCK_CAMERA_SETUP, scrollCallTarget: 0xa7c2 })).toBe(false)
+    const redirected = { ...STOCK_CAMERA_SETUP, updateCallTarget: 0xf6e0 }
+    expect(readEntranceCameraGate(romWith(0x00f6a3, body), spans, digest, redirected).ok).toBe(false) // prettier-ignore
   })
 
   it('a ROM that does not carry the setup is refused when the digest is right', () => {

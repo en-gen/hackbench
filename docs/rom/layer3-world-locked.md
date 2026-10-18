@@ -55,9 +55,28 @@ map's camera (about 675 on a static trace, 23 px from the anchor, not captured).
 $1C1 at the direct-load anchor and shows no note about this: a screen-exit entry can differ. A
 secondary entrance start is not modelled either.
 
-The camera routines, their tables, the GM11 site and the CameraMoveTrigger store ($80, which sets the $8C buffer) are fingerprinted (`ENTRANCE_CAMERA_SITES`, SHA-256
-of the stock bytes, as the smash sites are): a ROM that patches them gets no anchor and the layer stays
-refused. CODE_00A635's zeroing loop is not fingerprinted.
+A screen-exit entry gets the reason "this map is entered from another map, and that map's camera decides
+where this layer starts" under the layer's "position unverified" note (`SCREEN_EXIT_CAMERA`); a direct
+(overworld) entry does not.
+
+### How the camera code is checked (`src/rom/L3EntranceCamera.ts`)
+
+A ROM that patches the camera code gets no anchor and the layer stays refused.
+
+- ONE SHA-256 over three spans joined in order. Unknown bytes (not already spelled in the repo), counted on
+  the working tree:
+  - DATA_00F6A3..DATA_00F6DA (bank_00.asm:13605-13628), 56 bytes: `scroll/cameraMarioX.ts` states 28 of them
+    (F6A3 4, F6B3 entries 0 and 2 4, F6BF offsets 0/2/8/10 8, F6CF 12), so 28 unknown;
+  - UpdateScreenPosition through CODE_00F75A's branch (13631-13691), 129 bytes: the synthetic loader
+    stand-in (`test/suite/support/syntheticGm11Spans.ts`) rebuilds $F6DB-$F6EA, 16 bytes, which also covers
+    the 9 bytes develop's `LevelLoader.ts` spells, so 113 unknown;
+  - CODE_00F8AB..RTS (13873-13895), 52 bytes, all unknown.
+    Total 193, over the 24 minimum.
+- Structure, one named opcode or operand at a time, read from the ROM, no stored byte runs: GM11LoadLevel's
+  JSR CODE_00A635, LDA #!LevelMaxScreens / STA LastScreenHoriz, JSR CODE_00A796, INC ScreenScrollAtWill and
+  JSL UpdateScreenPosition (bank_00.asm:2651-2656, full targets), and CODE_00A7B9's LDA #$0080 / STA
+  CameraMoveTrigger (5114-5115). Redirecting any of those calls is refused even when the callees hash.
+- CODE_00A635's zeroing loop is not checked.
 
 ## Drawing rule
 
