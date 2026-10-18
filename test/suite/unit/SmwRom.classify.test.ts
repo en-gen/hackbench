@@ -136,6 +136,14 @@ describe('SmwRom.buildLevelExitGraph', () => {
     expect(result.unavailable).toMatch(/DATA_05F800 is unreadable/)
   })
 
+  it('declines the graph when the screen-exit handler no longer files per screen (#957)', () => {
+    const rom = make4MbRom()
+    rom.writeAt(0x0db000 + 8, [0xea, 0xea, 0xea]) // the ExitTableLow store becomes NOPs
+    const result = graphOf(new SmwRom(rom))
+    expect(result.graph.size).toBe(0)
+    expect(result.unavailable).toMatch(/Screen exits/)
+  })
+
   it('returns an empty Map when no level has any exit objects', () => {
     const rom = make4MbRom()
     setL1Ptr(rom, 0x010, 0x068000)

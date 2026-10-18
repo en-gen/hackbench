@@ -85,6 +85,40 @@ export const SYNTHETIC_FINGERPRINTS: OverworldFingerprints = Object.freeze({
 })
 
 /**
+ * A handler for extended object $00 that files a screen exit as the game's does, in different
+ * instructions (so no ROM byte run is committed), at $0DB000 and reached through the dispatch
+ * pointer: ScreenExitFiling runs it rather than matching bytes.
+ */
+// prettier-ignore
+export const SCREEN_EXIT_FILING_CODE: readonly number[] = [
+  0xa6, 0x0a,       // LDX _A
+  0x8a,             // TXA
+  0x29, 0x1f,       // AND #$1F
+  0xaa,             // TAX
+  0xa7, 0x65,       // LDA [Layer1DataPtr]
+  0x9d, 0xb8, 0x19, // STA ExitTableLow,X
+  0x85, 0x5a,       // STA LvlLoadObjNo
+  0xc2, 0x20,       // REP #$20
+  0xe6, 0x65,       // INC Layer1DataPtr (16 bit)
+  0xe2, 0x20,       // SEP #$20
+  0xa5, 0x0b,       // LDA _B
+  0x4a,             // LSR A, bit 0 into carry
+  0x8d, 0x93, 0x1b, // STA UseSecondaryExit
+  0xa9, 0x00,       // LDA #0
+  0x2a,             // ROL A, the carry is bit 8
+  0x9d, 0xd8, 0x19, // STA ExitTableHigh,X
+  0x60,             // RTS
+]
+export function plantScreenExitFiling(rom: RomFile): void {
+  try {
+    rom.writeAt(0x0da10f, [0x00, 0xb0, 0x0d])
+    rom.writeAt(0x0db000, [...SCREEN_EXIT_FILING_CODE])
+  } catch {
+    // An image too short to hold bank $0D has no exit graph to build.
+  }
+}
+
+/**
  * The stock code SubmapFlagGate and OverworldEntrances check, at vanilla's
  * addresses, so a synthetic image is not declined. Tests that must catch a
  * wrong constant plant their own bytes at literal addresses instead.
@@ -94,6 +128,7 @@ export function plantStockSubmapCode(rom: RomFile): void {
     if ('fingerprints' in c) rom.writeAt(c.addr, nops(c.length))
     else rom.writeAt(c.addr, [...c.bytes])
   }
+  plantScreenExitFiling(rom)
   plantSpan(rom, START_EXIT_SPAN, START_EXIT_PLANT)
   plantSpan(rom, START_MAIN_SPAN, START_MAIN_PLANT)
   rom.writeAt(0x05d8a2, [0xc9, 0x25, 0x90, 0x03, 0x38, 0xe9, 0x24])

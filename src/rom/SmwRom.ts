@@ -26,6 +26,7 @@
  */
 
 import { RomFile } from './RomFile'
+import { screenExitFilingMismatch } from './ScreenExitFiling'
 import { parseLevelObjects, readableScreenExits } from './LevelParser'
 import { levelNameForSlot } from './SmwLevelNames'
 import { deriveOverworldEntrances, type OverworldEntranceIndex } from './OverworldEntrances'
@@ -451,6 +452,9 @@ export class SmwRom {
     // The screen-exit path's own LDA #imm (bank_05.asm:7109), past SCREEN_EXIT's gate.
     const screenHigh = readSubmapHigh(this.rom, SCREEN_EXIT_HIGH_AT)
     if (typeof screenHigh === 'string') return { graph: new Map(), unavailable: screenHigh }
+    // Last-exit-wins per screen (#957) is the stock handler's behaviour; found by running it.
+    const filing = screenExitFilingMismatch(this.rom)
+    if (filing) return { graph: new Map(), unavailable: filing }
     // A root's flag is modeled as `root >= $100`, which is its layout only while
     // submap entrances load high byte 1. With 0 they land in $0xx, yet their exits
     // still take the screen-exit byte (OWPlayerSubmap is set), so a $0xx root's
