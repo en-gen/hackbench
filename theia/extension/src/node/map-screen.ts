@@ -228,7 +228,9 @@ export type L3Planes = Record<'l3Low' | 'l3High', Plane>
  * scrolls with the camera, every 256 px over the first 32 columns, and its
  * second copy of the tilemap is not drawn). A layer that follows the camera (a loaded smash
  * sprite, #997) is drawn as ONE copy of the 512 px tilemap, at world x = column*8 - Layer3XPos,
- * with no repeat. Rows that start above the level are skipped whole, as the reference view does.
+ * with no repeat. A world-locked layer (settings byte $81-$BF, #563) puts column 0 at the entrance camera X
+ * (`worldLocked.camXPx`) and repeats every 512 px, as the game's wrapping BG3 does. Rows that start above
+ * the level are skipped whole, as the reference view does.
  * Char 0 of every 2bpp palette is clear.
  */
 export function drawL3Planes(l3: L3Inputs, screen: number): L3Planes {

@@ -80,9 +80,14 @@ export const STOCK_CAMERA_SETUP: Readonly<CameraSetup> = {
   triggerStore: 0x142a, // CameraMoveTrigger
 }
 
-/** Null when any byte cannot be read. */
+/**
+ * The instructions at the two checked places, field by field. Null when any byte cannot be read: a cut-short
+ * ROM is a refusal, never a stock guess.
+ */
 export function readCameraSetup(rom: RomFile): CameraSetup | null {
+  /** One byte, or null past the end of the ROM. */
   const b = (at: number) => rom.readByte(at)
+  /** A little-endian operand word, or null when either byte is unreadable. */
   const w = (at: number) => {
     const lo = b(at)
     const hi = b(at + 1)
@@ -109,9 +114,15 @@ export function readCameraSetup(rom: RomFile): CameraSetup | null {
   return Object.values(s).some(v => v === null) ? null : (s as CameraSetup)
 }
 
+/** True when every field is the named stock value; a ROM that redirects any call or the trigger fails (D126: no byte runs). */
 export const isStockCameraSetup = (s: CameraSetup | null): boolean =>
   !!s && (Object.keys(STOCK_CAMERA_SETUP) as (keyof CameraSetup)[]).every(k => s[k] === STOCK_CAMERA_SETUP[k]) // prettier-ignore
 
+/**
+ * Whether the load-time camera code is the stock code: the joined-span digest AND the structural setup. A hack
+ * that patches the camera would put the layer at a wrong X with full confidence, so it is refused instead.
+ * `spans`, `sha256` and `setup` are parameters so a synthetic ROM can exercise each half.
+ */
 export function readEntranceCameraGate(
   rom: RomFile,
   spans: readonly CameraSpan[] = ENTRANCE_CAMERA_SPANS,

@@ -98,6 +98,12 @@ export interface L3Verdict {
 
 type Wanted = Pick<L1Inputs, 'header' | 'isVertical' | 'colors'>
 
+/**
+ * Whether and where a map's Layer 3 is drawn, with the plane lists and color math the compositor needs either
+ * way. Refusals carry a reason and never a guess. A world-locked layer (#563) is anchored at the load camera
+ * (`entranceCameraX`) and flags a screen-exit entry as unverified, whose camera is the previous map's.
+ * The `smash`, `cameraGate` and `chars` readers are parameters so synthetic ROMs can drive each path.
+ */
 export function buildL3Verdict(
   rom: RomFile,
   index: number,
@@ -156,6 +162,7 @@ export function buildL3Verdict(
     // Only a $81-$BF byte skips the TRB that clears BG3 (CODE_00A01F, bank_00.asm:4174); byte $00
     // takes the tide path to CODE_00A01B (:4164) and is cleared.
     const kept = (load.settingsByte & 0x80) !== 0
+    /** A refusal that keeps BG3 in the color math when its CGADSUB bit is kept (CODE_00A01F), as the view must. */
     const refuse = (reason = 'Layer 3 not drawn yet: camera-locked layer 3') =>
       none(reason, {
         cgadsub: effectiveCgadsub(layout.cgadsub, !kept),
