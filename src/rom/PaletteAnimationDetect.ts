@@ -748,6 +748,7 @@ function walkToCgramWrite(
     // Lengths depend on M and X (`LDA #` is 2 or 3 bytes): a relocated routine
     // cannot be read without instruction boundaries, and a byte scan for the
     // write finds matching bytes no path reaches. 65816 hardware, not SMW.
+    // `instructionLength` takes the 8-bit flags (m8, x8); this walk tracks 16-bit.
     at += instructionLength(opcode, !m16, !x16)
   }
   return no(at, 'a CGRAM write within a routine this module can walk')
