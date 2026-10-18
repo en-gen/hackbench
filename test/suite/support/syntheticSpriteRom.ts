@@ -30,6 +30,8 @@ export interface SyntheticOptions {
   initShift?: number
   /** Id 0's INIT also adds 256 to X, and its MAIN draws nothing unless it is within 0-255 px right of the camera (GetDrawInfo's cull). */
   initFarCull?: boolean
+  /** With `initFarCull`: id 0's MAIN first steps X back by $40, so it draws only after moving partway back. */
+  mainStepsBack?: boolean
   /** Replace id 0's MAIN tile STA with NOPs (draws nothing useful). */
   noTileWrite?: boolean
   /** Break the sprite loop's countdown (loop reader must refuse). */
@@ -283,10 +285,11 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   ] // prettier-ignore
   const tileSta = o.noTileWrite ? [0xea, 0xea, 0xea] : [0x99, 0x02, 0x03]
   // 16-bit X minus the camera; a high byte other than 0 means off screen, as GetDrawInfo culls.
+  const back = o.mainStepsBack ? [0xb5, 0xe4, 0x38, 0xe9, 0x40, 0x95, 0xe4] : []
   const cull = o.initFarCull
     ? [0xb5, 0xe4, 0x38, 0xe5, 0x1a, 0xbd, 0xe0, 0x14, 0xe5, 0x1b, 0xf0, 0x01, 0x60]
     : []
-  put(0x018640, [...cull, ...draw([0xa9, 0x24, ...tileSta], [0xa9, 0x0a, 0x99, 0x03, 0x03])]) // prettier-ignore
+  put(0x018640, [...back, ...cull, ...draw([0xa9, 0x24, ...tileSta], [0xa9, 0x0a, 0x99, 0x03, 0x03])]) // prettier-ignore
   // id 2: attribute $4A (X flip) when Mario is left of the sprite, else $0A.
   put(0x018680, draw([0xa9, 0x24, 0x99, 0x02, 0x03], [0xa9, 0x0a, 0x99, 0x03, 0x03, 0xa5, 0xd1, 0xd5, 0xe4, 0xb0, 0x05, 0xa9, 0x4a, 0x99, 0x03, 0x03])) // prettier-ignore
   // id 3: tile = 3 * 5 from the CPU multiplier ($4202/$4203 in, $4216 out).

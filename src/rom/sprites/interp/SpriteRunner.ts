@@ -193,8 +193,6 @@ export interface RunOptions {
    * kept, as the game and the graders do.
    */
   init?: boolean
-  /** The camera re-run's own guard: set on the second run so it cannot recurse. */
-  recentred?: boolean
 }
 
 export { Refusal }
@@ -215,7 +213,7 @@ export class Machine {
 
   constructor(
     rom: RomFile,
-    readonly seed: SpriteSeed,
+    public seed: SpriteSeed,
     id: number,
     shell?: ShellLoad,
   ) {
@@ -376,6 +374,15 @@ export class Machine {
     throw new Refusal(
       r.kind === 'budget' && room < STEP_BUDGET ? capMsg : describe(r, STEP_BUDGET)!,
     )
+  }
+
+  /** Moves the camera by (dx, dy), in WRAM and in the seed `readParts` removes it with. */
+  recentre(dx: number, dy: number): void {
+    if (dx === 0 && dy === 0) return
+    const camera = { x: this.seed.camera.x + dx, y: this.seed.camera.y + dy }
+    this.seed = { ...this.seed, camera }
+    this.w16(RAM.camX, camera.x)
+    this.w16(RAM.camY, camera.y)
   }
 
   pos(): { x: number; y: number } {
@@ -548,6 +555,10 @@ export function runOnce(
       DRAWS_BEFORE_LINE_SNAP.has(num) &&
       grinderDrawsBeforeSnap(rom, mains.handler.address, opts.grinderDispatch)
     const placed = { x: m.seed.sprite.x, y: m.seed.sprite.y }
+    // INIT can move a sprite off the screen the run was centred on (the grinders' -$140, the Podoboo's drop),
+    // and GetDrawInfo then culls it. The camera only picks which screen the picture is taken on: centre it on the
+    // post-INIT spot; the drawing is re-based onto the placed spot below (D139 D, D134).
+    if (atRest) m.recentre(anchor.x - placed.x, anchor.y - placed.y)
     model.anchor = { ...(atRest ? placed : anchor), rawX: placed.x, rawY: placed.y }
     if (snaps) model.snaps = true
     model.oamBase = w[RAM.oamIndex + m.seed.slot]
@@ -563,7 +574,9 @@ export function runOnce(
       model.steps.push(m.steps - n)
       probe?.(p, w)
       // The draw ran before this pass's own move, so for $67 it ran where the pass before left it.
-      const origin = snaps ? (model.passes[p - 1]?.pos ?? anchor) : anchor
+      // At rest the parts are measured from where the pass ended, so MAIN's own few pixels of motion do not
+      // leak into the picture (the Podoboo's jump).
+      const origin = snaps ? (model.passes[p - 1]?.pos ?? anchor) : atRest ? m.pos() : anchor
       model.passes.push({
         pass: p,
         pos: m.pos(),
@@ -592,15 +605,6 @@ export function runOnce(
     }
     if (snaps && !atRest && model.chosen !== undefined)
       model.anchor = { ...model.anchor!, ...model.passes[model.chosen]!.origin }
-    // INIT can move a sprite off the screen the run was centred on (the grinders' -$140), and GetDrawInfo then
-    // culls it. The camera only picks which screen the picture is taken on: run again with it moved by the
-    // same offset, and re-base that picture onto the placed spot as before (D139 D, D134).
-    const [dx, dy] = [anchor.x - placed.x, anchor.y - placed.y]
-    if (atRest && !opts.recentred && model.chosen === undefined && (dx !== 0 || dy !== 0)) {
-      const cam = m.seed.camera
-      const again = runOnce(rom, id, { ...seed, camera: { x: cam.x + dx, y: cam.y + dy } }, { ...opts, recentred: true }) // prettier-ignore
-      if (again.chosen !== undefined) return again
-    }
     if (model.passes.every(p => p.parts.length === 0))
       model.emptyReason = `drew no OAM tile in ${m.seed.mainPasses} passes (${atRest ? "its look is set up when the map runs and shown on play" : 'invisible by design, or the seed lacks state'})` // prettier-ignore
   } catch (e) {

@@ -87,6 +87,12 @@ describe('a sprite INIT moves off the screen it was run on (camera re-run)', () 
     expect(m.anchor).toMatchObject({ x: 0x80, y: 0x80, rawX: 0x80, rawY: 0x80 })
     expect(m.passes[0]!.parts[0]).toMatchObject({ dx: 0, dy: 0 })
   })
+  it('draws the full picture when MAIN moves it partway back before drawing (a Podoboo)', () => {
+    const m = runOnce(buildSyntheticRom({ initFarCull: true, mainStepsBack: true }), 0, SPRITE_SEED, { init: false }) // prettier-ignore
+    expect(m.chosen).toBe(0)
+    expect(m.anchor).toMatchObject({ x: 0x80, y: 0x80 })
+    expect(m.passes[0]!.parts[0]).toMatchObject({ dx: 0, dy: 0 })
+  })
   it('play keeps the cull: INIT-on has no re-run and draws nothing', () => {
     expect(runOnce(far, 0, SPRITE_SEED).emptyReason).toMatch(/drew no OAM tile/)
   })

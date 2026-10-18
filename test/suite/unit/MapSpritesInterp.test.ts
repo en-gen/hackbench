@@ -478,7 +478,7 @@ const PINNED_ROWS: Record<string, string> = {
   '1:13@3808,368': 'differ 3808,368 29a7dadd44',
   '1:13@3824,368': 'differ 3824,368 29a7dadd44',
   '1:13@3840,368': 'differ 3840,368 29a7dadd44',
-  '11c:1f@352,336': 'differ 352,336 9c12455c79',
+  '11c:1f@352,336': 'differ 352,336 ba1aaa3de0',
 }
 
 /**
