@@ -1143,7 +1143,7 @@ for (const [index, first] of [
   [0x011, { x: 60, y: 89 }],
   [0x1c1, { x: 200, y: 89 }],
 ]) {
-  test(`$${index.toString(16)}: the world-locked Layer 3 is drawn at its anchor and says it drifts`, async ({
+  test(`$${index.toString(16)}: the world-locked Layer 3 is drawn at its anchor and its tooltip is the usual one`, async ({
     page,
   }) => {
     const screens = [0, 1, 2, 3]

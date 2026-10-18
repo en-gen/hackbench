@@ -65,7 +65,8 @@ The BG3 tilemap is 64 x 64 words (BG3SC $53), so it repeats every 512 px horizon
 map is 432 px tall, so there is no visible vertical repeat. Row R sits at map Y R * 8. Colour math keeps
 BG3: CGADSUB $24 in the captures, and the BG3-clearing TRB at CODE_00A01B is skipped (bank_00.asm:4174).
 
-The drift is not drawn; the toggle's tooltip says it exists.
+The drift is not drawn and no tooltip mentions it (owner ruling); the wire keeps a `drifts` flag for a future
+map properties panel.
 
 ## Not covered
 

@@ -33,10 +33,15 @@ export interface CameraSpan {
 }
 
 /**
- * ONE SHA-256 over three spans joined in this order: DATA_00F6A3..DATA_00F6DA (bank_00.asm:13605-13628, 56
- * bytes), UpdateScreenPosition through CODE_00F75A's branch (13631-13691, 129 bytes), CODE_00F8AB..RTS
- * (13873-13895, 52 bytes). Every span is code or data the camera rule reads. Unknown bytes: 181 (the two
- * code spans; the table's values the port already states in scroll/cameraMarioX.ts are not counted).
+ * ONE SHA-256 over three spans joined in this order, each one the camera rule reads. Unknown bytes (not
+ * already spelled in the repo), counted on the working tree:
+ *   - DATA_00F6A3..DATA_00F6DA (bank_00.asm:13605-13628), 56 bytes: scroll/cameraMarioX.ts states 28 of them
+ *     (F6A3 4, F6B3 entries 0 and 2 4, F6BF offsets 0/2/8/10 8, F6CF 12), so 28 unknown;
+ *   - UpdateScreenPosition through CODE_00F75A's branch (13631-13691), 129 bytes: the synthetic loader stand-in
+ *     (test/suite/support/syntheticGm11Spans.ts) rebuilds $F6DB-$F6EA, 16 bytes, which also covers the 9 bytes
+ *     develop's LevelLoader.ts spells, so 113 unknown;
+ *   - CODE_00F8AB..RTS (13873-13895), 52 bytes, all unknown.
+ * Total 193, far over the 24 minimum.
  */
 export const ENTRANCE_CAMERA_SPANS: readonly CameraSpan[] = [
   { addr: 0x00f6a3, length: 0x38 },
