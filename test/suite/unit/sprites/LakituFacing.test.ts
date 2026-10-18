@@ -18,7 +18,7 @@ import { runOnce } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { readStream } from '../../../../theia/extension/src/node/map-sprites'
 import { freshRom, hasRom, romPath, VANILLA } from '../../support/corpus'
-import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
+import { buildSyntheticRom, SYNTHETIC_INIT_TABLE_OFFSET } from '../../support/syntheticSpriteRom'
 
 const FACING = 0x157c
 const RIDER = 70
@@ -129,10 +129,10 @@ function lakituRom(o: { cloud?: 'full' | 'nowrite' | 'rts' } = {}): RomFile {
   if (o.cloud === 'rts') rom.writeAt(AT.cloudMain, [0x60]) // the cloud's MAIN never writes: a bare RTS
   rom.writeAt(AT.riderMain, [0x60]) // the rider's MAIN does nothing
   const words = (a: number) => [a & 0xff, (a >> 8) & 0xff]
-  rom.writeAt(0x018170 + 11 + RIDER * 2, words(AT.riderInit & 0xffff))
+  rom.writeAt(0x018170 + SYNTHETIC_INIT_TABLE_OFFSET + RIDER * 2, words(AT.riderInit & 0xffff))
   rom.writeAt(0x018320 + 9 + RIDER * 2, words(AT.riderMain & 0xffff))
   rom.writeAt(0x018320 + 9 + CLOUD * 2, words(AT.cloudMain & 0xffff))
-  rom.writeAt(0x018170 + 11 + CLOUD * 2, words(AT.riderMain & 0xffff))
+  rom.writeAt(0x018170 + SYNTHETIC_INIT_TABLE_OFFSET + CLOUD * 2, words(AT.riderMain & 0xffff))
   return rom
 }
 
