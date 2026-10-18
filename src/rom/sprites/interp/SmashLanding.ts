@@ -1,26 +1,13 @@
 /**
  * SmashLanding.ts -- where the Layer 3 Smash sprite ($89) first puts layer 3, worked out by running
- * the ROM's own code on the core, not by a stored position (#997). The sprite re-sets its X in state 0
- * from GetRand (bank_02.asm:11147-11166) and CODE_00FF61 writes Layer3XPos/YPos from it on the next
- * pass (bank_00.asm:14778-14803), so the landing is a function of how many GetRand calls ran first.
- * RNGCalc is zero at power-on (ClearMemory, bank_00.asm:38-42) and nothing else reseeds it
- * (CODE_01AD07, bank_01.asm:6101-6119), so the chain below reproduces the game's first landing.
+ * the ROM's own code on the core, not by a stored position (#997). Why: the sprite's X comes from
+ * GetRand (bank_02.asm:11158-11163), so the landing depends on how many GetRand calls ran since
+ * power-on. The call chain, evidence scope and blind spots are in docs/rom/map-data-mechanics.md
+ * ("Layer 3 under a smash sprite").
  *
- * FIRST_LANDING_SCHEDULE is ONE documented model of the game's order, and a hack-fragility point:
- * a hack that changes the order, adds a GetRand caller before it, or boots another way lands elsewhere,
- * and the loader's shape gate cannot see it: UberASM level init code, overworld sprites, extra
- * title-demo frames, a patched title sprite or a custom sprite that calls GetRand before the smasher
- * all give a confident but wrong X. The map view draws what the stock-shaped chain gives.
- *   1. Title map load. GM03 loads the title map by the immediate of LDA #!MainMapLvls+!TitleScreenLevel
- *      (bank_00.asm:2626) and falls into GM11LoadLevel (:2631), whose loader calls GetRand.
- *   2. Target map load: GM11LoadLevel (bank_00.asm:2644-2657) with the RNG the title load left.
- *      (The harness forces the load from the title screen; a title frame does not advance the RNG.)
- *   3. Start-up sprite sweep, CODE_02ACA1 (bank_02.asm:5876-5910), which fills the sprite slots.
- *   4. Sprite pass 1: the sprite loop (CODE_01808C) runs the smasher's state 0.
- *   5. Sprite pass 2: the smasher's main calls CODE_00FF61 first, which writes $22/$24.
- * Evidence scope: the order was checked against GetRand hooks in Mesen on $01F and $1D4 only
- * (1 call in the title load, 4 in the map load, then state 0), one machine, vanilla USA ROM.
- * A step that cannot run refuses the whole result with a reason; nothing is guessed.
+ * FIRST_LANDING_SCHEDULE is ONE model of the game's order and a HACK-FRAGILITY POINT: a hack that
+ * changes the order or adds a GetRand caller lands elsewhere, and the loader's shape gate cannot
+ * see it. A step that cannot run refuses the whole result with a reason; nothing is guessed.
  */
 import { callSubroutine, describe, Refusal } from '../../cpu/call'
 import { OW_ADDR } from '../../OverworldLoader'
@@ -29,6 +16,7 @@ import { loadLevelState, RNG_CALC } from './LevelLoader'
 import { smwMachine } from './Machine'
 import { ENTRY } from './SpriteDispatch'
 
+/** The order the game runs these in; one model, verified on $01F and $1D4 only (see the doc). */
 export const FIRST_LANDING_SCHEDULE = [
   'title map load',
   'target map load',
