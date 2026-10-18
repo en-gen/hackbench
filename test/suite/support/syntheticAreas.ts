@@ -10,6 +10,7 @@ export type Name = keyof typeof AREA_SPANS
 // The module recognizes them through SYNTHETIC_AREA_FPS, the way OverworldDecode's
 // SYNTHETIC_FPS recognizes its NOP spans. Citations for the real routines are in the module.
 export const NAMES = Object.keys(AREA_SPANS) as Name[]
+/** Span length, so tests size their flips and planted copies from the module, not a copy. */
 export const LEN = (n: Name): number => AREA_SPANS[n].length
 export const CODE = Object.fromEntries(
   NAMES.map(n => {
@@ -90,18 +91,23 @@ export const callAt = (n: CallName, bank = 4): number =>
   n === 'jsl' ? CALLS[n] : inBank(CALLS[n], bank)
 /** Compare immediates planted before the two scan callers: any two different values. */
 export const TILE = { jsrStar: 0x11, jsrPipe: 0x22 }
+const I = { jsr: 0x20, jsl: 0x22, beq: 0xf0, bne: 0xd0, cmpImm: 0xc9, phy: 0x5a, ldaAbs: 0xad }
+/** Made-up load of an address no check reads: it only has to be an absolute load. */
+const ldaAbs = (addr: number): number[] => [I.ldaAbs, addr & 0xff, addr >> 8]
+/** A JSL to `lo` in `bank`; the module reads this operand to find the callee. */
+const jsl = (lo: number, bank: number): number[] => [I.jsl, lo & 0xff, lo >> 8, bank]
+/** A JSR to `lo`; same-bank by construction, as the module requires. */
+const jsr = (lo: number): number[] => [I.jsr, lo & 0xff, lo >> 8]
+/** A BEQ over `over`, its displacement derived from the skipped length like the module's check. */
+const skip = (over: number[]): number[] => [I.beq, over.length]
+/** A BNE with a made-up displacement; only the opcode matters to the check. */
+const branch = (): number[] => [I.bne, 0]
 /**
  * Plants a call to `target` (low word) at `n`. Each call is built instruction by instruction from
  * named opcodes, the way the module checks them, with made-up operands: the JSL with a skip
  * over it, the path JSR after a push and a branch, a scan JSR after a compare and a branch.
  * `bank` is the JSL's bank byte; `at` overrides the site.
  */
-const I = { jsr: 0x20, jsl: 0x22, beq: 0xf0, bne: 0xd0, cmpImm: 0xc9, phy: 0x5a, ldaAbs: 0xad }
-const ldaAbs = (addr: number): number[] => [I.ldaAbs, addr & 0xff, addr >> 8]
-const jsl = (lo: number, bank: number): number[] => [I.jsl, lo & 0xff, lo >> 8, bank]
-const jsr = (lo: number): number[] => [I.jsr, lo & 0xff, lo >> 8]
-const skip = (over: number[]): number[] => [I.beq, over.length]
-const branch = (): number[] => [I.bne, 0]
 export function call(
   rom: RomFile,
   n: CallName,

@@ -171,6 +171,10 @@ function unreached(rom: RomFile, n: Name, target: number, cameraAt: number): str
 const bankLocal = (bankOf: number, operand: number): number | null =>
   operand < 0x8000 ? null : (bankOf & ~0x7fff) | (operand & 0x7fff)
 
+/**
+ * The area set the ROM names, or why it cannot be read. Every gate refuses rather than falling
+ * back to vanilla, because a hack's areas must come from its own tables.
+ */
 export function deriveOverworldAreas(
   rom: RomFile,
   fps: AreaFingerprints = AREA_FINGERPRINTS,
