@@ -46,13 +46,21 @@ import { SmwRom } from '../../../../src/rom/SmwRom'
 import { parseLevelSprites } from '../../../../src/rom/LevelParser'
 import type { LevelSprite } from '../../../../src/rom/LevelParser'
 import { getCharPixels, type VramState } from '../../../../src/rom/GfxLoader'
+import {
+  charsFromUploads,
+  readMarioGraphics,
+  UPLOAD_SPRITES,
+  uploadProbe,
+  type MarioBuffer,
+  type SlotUpload,
+} from '../../../../src/rom/MarioGraphics'
 import { bgr555ToRgba, type RgbaColor } from '../../../../src/rom/GraphicsDecoder'
 import { getPaletteColor } from '../../../../src/rom/PaletteLoader'
 import { readMarioStartPos } from '../../../../src/rom/MarioStartPos'
 import {
   runOnce,
   RAM,
-  type SpriteModel as RunModel,
+  type SpriteModel as BaseModel,
   type PaletteWrite,
   type SpritePart,
 } from '../../../../src/rom/sprites/interp/SpriteRunner'
@@ -113,6 +121,11 @@ const FONT = [
 export interface SpriteModel {
   vram: VramState
   colors: RgbaColor[]
+  /**
+   * The player graphics buffer, read when a drawn sprite pointed Mario's tile DMA at it (#980; the Podoboo's
+   * chars). Called only then. Absent: such a sprite is drawn from the map's own chars, marked unverified.
+   */
+  playerGraphics?: () => MarioBuffer
 }
 
 /**
@@ -127,6 +140,8 @@ export type SpriteDrawResult =
       anchor?: { x: number; y: number }
       /** CGRAM colors the sprite's own code set by its drawn frame (interpreter only). */
       runtimePalette?: PaletteWrite[]
+      /** The player-buffer slots the drawn frame's run pointed Mario's tile DMA at (interpreter only; #980). */
+      uploads?: SlotUpload[]
       /** Set when the run's seed is not the ROM-run level state: why the art is unverified. */
       unverified?: string
     })
@@ -217,7 +232,18 @@ export function drawSprites(
     const res = draw(s)
     if (!res.ok) return placeholder(s, 'reason' in res ? res.reason : res.failure.kind, 'unverified' in res ? res.unverified : undefined) // prettier-ignore
     if (res.parts.length === 0) return placeholder(s, 'noParts')
-    const pixels = res.parts.map(p => getCharPixels(model.vram, p.charNum))
+    let unverified = 'unverified' in res ? res.unverified : undefined
+    let upload: Map<number, Uint8Array> | undefined
+    if ('uploads' in res && res.uploads?.length) {
+      const d = charsFromUploads(model.playerGraphics?.() ?? { ok: false, reason: 'no player graphics buffer was given' }, res.uploads) // prettier-ignore
+      if (d.ok) upload = d.chars
+      // D51/D57: a ROM whose buffer cannot be read keeps today's art, with the reason said.
+      else {
+        const why = `its chars come from the player graphics buffer, which is not read here (${d.reason}); drawn from the map's loaded sprite graphics instead` // prettier-ignore
+        unverified = unverified ? `${unverified}; ${why}` : why
+      }
+    }
+    const pixels = res.parts.map(p => upload?.get(p.charNum) ?? getCharPixels(model.vram, p.charNum)) // prettier-ignore
     // One missing char would draw as a hole, so the whole sprite is marked.
     if (pixels.some(p => !p)) return placeholder(s, 'charsNotLoaded')
     const [ax, ay] = 'anchor' in res && res.anchor ? [res.anchor.x, res.anchor.y] : [pixelX(s), s.y * TILE] // prettier-ignore
@@ -259,7 +285,7 @@ export function drawSprites(
       parts: res.parts.map(p => ({ char: p.charNum, palette: p.palette, flipX: p.flipX, flipY: p.flipY, dx: p.dx, dy: p.dy })), // prettier-ignore
       priority: base64(new Uint8ClampedArray(prio.buffer)),
       status: 'drawn',
-      ...('unverified' in res && res.unverified ? { unverified: res.unverified } : {}),
+      ...(unverified ? { unverified } : {}),
     }
   })
 }
@@ -339,18 +365,32 @@ export function cameraFor(x: number, y: number, vertical: boolean, screens: numb
   return { x: clamp(x - 128, maxX), y: clamp(y - 112, maxY) }
 }
 
+/** A run that also kept, per pass, the player-buffer slots the sprite pointed at (`runWithUploads`). */
+export type RunModel = BaseModel & { uploads?: SlotUpload[][] }
+
+/** `runOnce`, plus the DynGfxTilePtr slots a sprite that uploads from the player buffer wrote (#980). */
+export function runWithUploads(rom: RomFile, id: number, seed: SpriteSeed): RunModel {
+  if (!UPLOAD_SPRITES.has(id)) return runOnce(rom, id, seed, { init: false })
+  const p = uploadProbe()
+  return Object.assign(runOnce(rom, id, seed, { init: false, probe: p.probe }), {
+    uploads: p.byPass,
+  })
+}
+
 /** What the interpreter shows for one sprite: its model, as the drawer's reply. */
 export function modelResult(m: RunModel): SpriteDrawResult {
   const generic = m.seedSource === 'generic'
   const u = generic ? { unverified: `level loader refused (${m.seedReason}); drawn from a placement-only seed` } : {} // prettier-ignore
   if (m.refusal) return { ok: false, reason: `refused: ${m.refusal}`, ...u }
   const pass = m.chosen === undefined ? undefined : m.passes[m.chosen]
+  const uploads = m.chosen === undefined ? undefined : m.uploads?.[m.chosen]
   if (!m.anchor || !pass) return { ok: false, reason: m.emptyReason ?? 'drew no tile', ...u }
   return {
     ok: true,
     parts: interpParts(pass.parts),
     anchor: { x: m.anchor.x, y: m.anchor.y },
     runtimePalette: pass.palette,
+    ...(uploads?.length ? { uploads } : {}),
     ...u,
     identity: { spriteId: m.id, mainHandler: 0, initHandler: 0, status: 'vanilla' },
   }
@@ -443,7 +483,7 @@ export function interpRunner(
   rom: RomFile,
   index: number,
   model: { isVertical: boolean; screenCount: number },
-  run: (rom: RomFile, id: number, seed: SpriteSeed) => RunModel = (r, i, sd) => runOnce(r, i, sd, { init: false }), // prettier-ignore
+  run: (rom: RomFile, id: number, seed: SpriteSeed) => RunModel = runWithUploads,
   seedFor: (rom: RomFile, index: number) => SpriteSeed = levelSeed,
   ringRoutines: RingRoutines = VANILLA_RING_ROUTINES,
 ): (sprite: LevelSprite) => SpriteRun {
@@ -733,9 +773,14 @@ function compute(
     if (!data) return { status: 'unavailable', reason: `No sprite data at the pointer for slot ${index.toString(16)}` } // prettier-ignore
     // The level loader runs once; the sprites and the castle flames both start from its image.
     const base = levelSeed(rom.rom, index)
-    const draw = interpDrawer(rom.rom, index, model, undefined, () => base)
-    const dynamic = dynamicOf(rom.rom)
-    const layer = spriteLayer(data, model, draw, dynamic)
+    const draw = interpDrawer(rom.rom, index, model, runWithUploads, () => base)
+    // Read (and cached on the cart) only when a drawn sprite points Mario's tile DMA at the buffer.
+    const withUploads = { ...model, playerGraphics: () => readMarioGraphics(rom.rom) }
+    const dynamic = (n: PaletteNote) => {
+      const b = rom.rom.readAt(n.entryAddr, n.colors * 2)
+      return b ? Array.from({ length: n.colors }, (_, i) => bgr555ToRgba(b[i * 2]! | (b[i * 2 + 1]! << 8))) : [] // prettier-ignore
+    }
+    const layer = spriteLayer(data, withUploads, draw, dynamic)
     const stream = parseLevelSprites(data, model.isVertical)
     const flames = castleFlameSprites(rom.rom, base, stream, model, model.l2?.ok ? model.l2.l2.dy : undefined, dynamic) // prettier-ignore
     if (flames.sprites.length === 0 && !flames.note) return layer

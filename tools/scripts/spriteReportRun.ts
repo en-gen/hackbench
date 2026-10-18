@@ -21,7 +21,7 @@ import {
 import { tmpdir } from 'os'
 import { dirname, join, resolve } from 'path'
 import { runSprite, type SpriteModel } from '../../src/rom/sprites/interp/SpriteRunner'
-import { loadLevelState } from '../../src/rom/sprites/interp/LevelLoader'
+import { loadLevelState, NO_CLUSTER_SPRITES } from '../../src/rom/sprites/interp/LevelLoader'
 import { withSeed } from '../../src/rom/sprites/interp/SpriteSeed'
 import {
   CAPTURE_DIR,
@@ -558,6 +558,7 @@ export function gradeCaptures(f: Filter): Graded[] {
       const t = timelineFor(rec, anchorFrame, marioStart)
       const seed = withSeed({
         loaded: lvl.ok ? lvl.wram : undefined,
+        ram: NO_CLUSTER_SPRITES, // as levelSeed does (#809): the level's cluster sprites would draw into the tested sprite's OAM
         slot: rec.slot,
         mainPasses: t.mainPasses,
         ...t.seedExtra,

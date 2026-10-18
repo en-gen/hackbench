@@ -17,17 +17,11 @@
  * the GFX view then reports it unavailable rather than guessing planar.
  * A hack that rewrites the opening itself is not recognised at all.
  */
-import { BytePattern, WILD, findPattern, matchesAt } from './BytePattern'
+import { WILD, findPattern, matchesAt, parsePattern as pattern } from './BytePattern'
 import { LOROM_BANK_SIZE } from './addressing'
 import { GFX_FILE_COUNT } from './GfxLoader'
 import { PIXELS_PER_TILE } from './GraphicsDecoder'
 import { RomFile } from './RomFile'
-
-const pattern = (s: string): BytePattern =>
-  s
-    .trim()
-    .split(/\s+/)
-    .map(b => (b === '??' ? WILD : parseInt(b, 16)))
 
 const OPENING_PATTERN = pattern('a0 ?? 22 ?? ?? ?? c2 10 a0 00 00 a2 ?? ?? b7 00 85 0f')
 
