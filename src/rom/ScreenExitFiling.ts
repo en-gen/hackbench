@@ -7,13 +7,14 @@
  * back, so any code with those effects passes and any other is named. The entry comes from the
  * ROM's own extended-object dispatch, not from a constant.
  *
- * Evidence scope: the behaviour checked is the eleven (_A, _B, byte) cases below plus a second
+ * Evidence scope: the behaviour checked is the eight (_A, _B, byte) cases below plus a second
  * write to one screen; synthetic ROMs in test/suite/unit/ScreenExitFiling.synthetic.test.ts.
  */
 import { callSubroutine, describe as describeResult } from './cpu/call'
 import { smwMachine } from './sprites/interp/Machine'
 import { ADDR_EXTENDED_DISPATCH, readLongPointer } from './objectHandlers/romData'
 import { hex6 } from './hex'
+import { romByte } from './sprites/interp/SpriteBus'
 import type { RomFile } from './RomFile'
 
 // WRAM addresses from SMW_U.sym: Layer1DataPtr, LvlLoadObjNo, _A, _B, ExitTableLow/High, UseSecondaryExit.
@@ -27,6 +28,11 @@ const SECONDARY = 0x1b93
 /** Where the test stream lives: WRAM bank $7E, clear of every address above. */
 const STREAM = 0x7e4000
 const BUDGET = 200
+/** The extended-object dispatcher's SEP and its JSL ExecutePtrLong (bank_0D.asm:1056-1060): one opcode byte each, compared singly. */
+export const DISPATCH_SEP_AT = 0x0da106
+export const DISPATCH_JSL_AT = 0x0da10b
+const SEP = 0xe2
+const JSL = 0x22
 const SENTINEL = 0xee
 
 // Screen field with its high bits set (masked by $1F), flags in every combination, extra byte values.
@@ -45,6 +51,14 @@ const CASES: readonly (readonly [a: number, b: number, d: number])[] = [
 export function screenExitFilingMismatch(rom: RomFile): string | null {
   const entry = readLongPointer(rom, ADDR_EXTENDED_DISPATCH)
   if (entry === null) return 'the extended-object dispatch is unreadable'
+  // The table is three-byte entries only if the dispatcher still JSLs ExecutePtrLong with the table right after it.
+  const shape =
+    rom.readByte(DISPATCH_SEP_AT) === SEP &&
+    rom.readByte(DISPATCH_JSL_AT) === JSL &&
+    DISPATCH_JSL_AT + 4 === ADDR_EXTENDED_DISPATCH
+  if (!shape) return 'the extended-object dispatch is not the long-pointer call this check reads'
+  if (romByte(rom, entry) === null)
+    return `the extended-object $00 entry $${hex6(entry)} is not cart ROM`
   try {
     const { bus, cpu } = smwMachine(rom)
     const w = bus.wram

@@ -5,7 +5,11 @@
  */
 import { describe, expect, it } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
-import { screenExitFilingMismatch } from '../../../src/rom/ScreenExitFiling'
+import {
+  DISPATCH_JSL_AT,
+  DISPATCH_SEP_AT,
+  screenExitFilingMismatch,
+} from '../../../src/rom/ScreenExitFiling'
 import { SCREEN_EXIT_FILING_CODE } from '../support/syntheticRom'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
 
@@ -20,9 +24,14 @@ const at = (...seq: number[]): number => {
   return i
 }
 
+/** File offset of a bank $0D address in this LoROM image. */
+const off0d = (snes: number): number => 0x0d * 0x8000 + (snes & 0x7fff)
+
 function rom(code: number[], dispatchTo = 0x0db000): RomFile {
   const bytes = new Uint8Array(0x100000)
   bytes[0x7fd5] = 0x20
+  bytes[off0d(DISPATCH_SEP_AT)] = 0xe2 // SEP, the dispatcher's first opcode
+  bytes[off0d(DISPATCH_JSL_AT)] = 0x22 // JSL ExecutePtrLong, whose table follows
   bytes.set([dispatchTo & 0xff, (dispatchTo >> 8) & 0xff, dispatchTo >> 16], DISPATCH)
   bytes.set(code, HANDLER)
   return RomFile.fromBytes('filing.sfc', bytes)
@@ -71,8 +80,21 @@ describe('screenExitFilingMismatch (#957)', () => {
     })
   }
 
+  it('refuses before running when the dispatcher no longer reads a long-pointer table', () => {
+    const r = rom(FILING)
+    r.writeAt(DISPATCH_JSL_AT, [0x20]) // JSR: not a long call, so the table is not three-byte entries
+    expect(screenExitFilingMismatch(r)).toMatch(/dispatch/)
+  })
+  it('refuses before running when the dispatcher does not start with SEP', () => {
+    const r = rom(FILING)
+    r.writeAt(DISPATCH_SEP_AT, [0xea])
+    expect(screenExitFilingMismatch(r)).toMatch(/dispatch/)
+  })
+  it('reports the step budget when the handler spins', () => {
+    expect(screenExitFilingMismatch(rom([0x80, 0xfe]))).toMatch(/budget|steps/i)
+  })
   it('names a mismatch when the dispatch points outside the cart', () => {
-    expect(screenExitFilingMismatch(rom(FILING, 0x7e2000))).toMatch(/Screen exits/)
+    expect(screenExitFilingMismatch(rom(FILING, 0x7e2000))).toMatch(/not cart ROM/)
   })
   it('names a mismatch when the dispatch is unreadable', () => {
     const r = RomFile.fromBytes('tiny.sfc', new Uint8Array(0x10))

@@ -16,6 +16,8 @@ import {
   WALK_PROLOGUE_LENGTH,
   type OverworldFingerprints,
 } from '../../../src/rom/OverworldEntrances'
+import { ADDR_EXTENDED_DISPATCH } from '../../../src/rom/objectHandlers/romData'
+import { DISPATCH_JSL_AT, DISPATCH_SEP_AT } from '../../../src/rom/ScreenExitFiling'
 import { fingerprint } from '../../../src/rom/Fingerprint'
 import { WILD } from '../../../src/rom/BytePattern'
 
@@ -111,7 +113,9 @@ export const SCREEN_EXIT_FILING_CODE: readonly number[] = [
 ]
 export function plantScreenExitFiling(rom: RomFile): void {
   try {
-    rom.writeAt(0x0da10f, [0x00, 0xb0, 0x0d])
+    rom.writeAt(DISPATCH_SEP_AT, [0xe2])
+    rom.writeAt(DISPATCH_JSL_AT, [0x22])
+    rom.writeAt(ADDR_EXTENDED_DISPATCH, [0x00, 0xb0, 0x0d])
     rom.writeAt(0x0db000, [...SCREEN_EXIT_FILING_CODE])
   } catch {
     // An image too short to hold bank $0D has no exit graph to build.
