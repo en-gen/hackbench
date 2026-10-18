@@ -30,7 +30,7 @@ type Options = { stream?: number[]; spacing?: number[]; room?: number }
 const draw = (marioX: number, eeries: Options = {}, tweak?: (rom: RomFile) => void) => {
   const rom = buildSyntheticRom({ eeries })
   tweak?.(rom)
-  return interpDrawer(rom, 0x21, model, runOnce, () => eeriesSeed(marioX), SYNTHETIC_EERIES_ROUTINES as never)(entry) // prettier-ignore
+  return interpDrawer(rom, 0x21, model, runOnce, () => eeriesSeed(marioX), undefined, SYNTHETIC_EERIES_ROUTINES as never)(entry) // prettier-ignore
 }
 
 /** The drawn reply, or the failure with its own words. */
@@ -75,7 +75,7 @@ describe('sprite $DE on the map', () => {
   })
 
   it('is refused with the reason in a vertical map: the loader hands the spawner the wrong axis', () => {
-    const r = interpDrawer(buildSyntheticRom({ eeries: {} }), 0x21, { isVertical: true, screenCount: 16 }, runOnce, () => eeriesSeed(100), SYNTHETIC_EERIES_ROUTINES as never)(entry) // prettier-ignore
+    const r = interpDrawer(buildSyntheticRom({ eeries: {} }), 0x21, { isVertical: true, screenCount: 16 }, runOnce, () => eeriesSeed(100), undefined, SYNTHETIC_EERIES_ROUTINES as never)(entry) // prettier-ignore
     expect(r.ok).toBe(false)
     expect(!r.ok && 'reason' in r && r.reason).toMatch(/not drawn in a vertical map/)
   })
@@ -87,7 +87,7 @@ describe('sprite $DE on the map', () => {
       return { ...seed, loadRefusal: 'loader entry moved' }
     }
     const rom = buildSyntheticRom({ eeries: {} })
-    const r = interpDrawer(rom, 0x21, model, runOnce, noImage, SYNTHETIC_EERIES_ROUTINES as never)(entry) // prettier-ignore
+    const r = interpDrawer(rom, 0x21, model, runOnce, noImage, undefined, SYNTHETIC_EERIES_ROUTINES as never)(entry) // prettier-ignore
     expect(r.ok).toBe(false)
     expect(!r.ok && 'reason' in r && r.reason).toMatch(/level loader's image: loader entry moved/)
   })

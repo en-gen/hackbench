@@ -25,13 +25,13 @@ import {
   TreeModel,
   TreeNode,
   TreeProps,
-  TreeWidget,
   CompositeTreeNode,
   ExpandableTreeNode,
   SelectableTreeNode,
-  createTreeContainer,
 } from '@theia/core/lib/browser'
 import { Emitter } from '@theia/core/lib/common'
+import { ExplorerTreeWidget, createExplorerTreeContainer } from './explorer-search'
+import { paletteGroupSub, paletteSearchRow, type SearchRow } from './explorer-match'
 import {
   LoadPaletteResult,
   PaletteGroupDto,
@@ -63,6 +63,8 @@ export interface PaletteTreeNode extends CompositeTreeNode, SelectableTreeNode {
   kind: 'group' | 'variant' | 'note'
   groupId?: string
   variant?: number
+  /** A group's first CGRAM row; absent when its table targets none. */
+  row?: number
   sub?: string
   expanded?: boolean
 }
@@ -72,7 +74,36 @@ const OVERWORLD_NOTE =
   'Overworld palettes are loaded by a different routine and are not shown here yet.'
 
 @injectable()
-export class PaletteExplorerWidget extends TreeWidget {
+export class PaletteExplorerWidget extends ExplorerTreeWidget {
+  protected readonly searchNoun = 'palettes'
+
+  /**
+   * A group has no number of its own; its CGRAM row is shown in decimal, so it
+   * matches bare decimal digits. A variant's id is the number ending its label.
+   */
+  protected searchRow(node: TreeNode): SearchRow | undefined {
+    return paletteSearchRow(node as PaletteTreeNode)
+  }
+
+  /**
+   * Theia's default row carries no node id; only its expansion toggle does,
+   * which a one-variant group does not have. Every row gets it (as Maps does).
+   */
+  protected override createNodeAttributes(
+    node: TreeNode,
+    props: NodeProps,
+  ): React.Attributes & React.HTMLAttributes<HTMLElement> {
+    return {
+      ...super.createNodeAttributes(node, props),
+      ...({ 'data-node-id': node.id } as Record<string, string>),
+    }
+  }
+
+  protected openMatch(node: TreeNode): boolean {
+    this.fireOpen(node as PaletteTreeNode, true)
+    return true
+  }
+
   /**
    * Rows belong to a project, and nothing is open on a fresh load, so none of
    * them are persisted. Theia's TreeWidget serialises its whole model by
@@ -159,6 +190,7 @@ export class PaletteExplorerWidget extends TreeWidget {
     )
     this.toDispose.push(
       this.model.onSelectionChanged(() => {
+        if (this.selectingFromFilter) return
         this.fireOpen(this.model.selectedNodes[0] as PaletteTreeNode | undefined, false)
       }),
     )
@@ -272,7 +304,8 @@ export class PaletteExplorerWidget extends TreeWidget {
       name: g.label,
       kind: 'group',
       groupId: g.id,
-      sub: `${g.variants.length} variant${g.variants.length === 1 ? '' : 's'}`,
+      ...(g.cgRamRow === null ? {} : { row: g.cgRamRow }),
+      sub: paletteGroupSub(g.cgRamRow ?? undefined, g.variants.length),
       parent: undefined,
       children: [],
       selected: false,
@@ -364,12 +397,9 @@ export class PaletteExplorerWidget extends TreeWidget {
 }
 
 export function createPaletteExplorerWidget(parent: interfaces.Container): PaletteExplorerWidget {
-  const child: Container = createTreeContainer(parent, {
-    widget: PaletteExplorerWidget,
-    props: {
-      // A row click both selects and opens the group/variant.
-      globalSelection: true,
-    },
+  const child: Container = createExplorerTreeContainer(parent, PaletteExplorerWidget, {
+    // A row click both selects and opens the group/variant.
+    globalSelection: true,
   })
   return child.get(PaletteExplorerWidget)
 }

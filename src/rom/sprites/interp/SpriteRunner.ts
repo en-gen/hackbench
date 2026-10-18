@@ -157,6 +157,8 @@ export interface SpriteModel {
   chosen?: number
   /** Why a $67 on a vanilla-shaped handler stayed on its first drawn pass although the next one draws. */
   lineStepReason?: string
+  /** True for $67 on a vanilla-shaped handler: each pass draws where the pass before left the sprite (`PassResult.origin`). */
+  snaps?: boolean
   dependsOn: DependsOn[]
   /** Instruction counts: INIT, then each MAIN pass. */
   steps: number[]
@@ -558,6 +560,7 @@ export function runOnce(
       DRAWS_BEFORE_LINE_SNAP.has(num) &&
       grinderDrawsBeforeSnap(rom, mains.handler.address, opts.grinderDispatch)
     model.anchor = { ...anchor, rawX: m.seed.sprite.x, rawY: m.seed.sprite.y }
+    if (snaps) model.snaps = true
     model.oamBase = w[RAM.oamIndex + m.seed.slot]
     probe?.(-1, w)
     for (let p = 0; p < m.seed.mainPasses; p++) {
