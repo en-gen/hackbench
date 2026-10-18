@@ -19,10 +19,13 @@
  * branch-over-JSR in the routine's bank whose JSR lands on the routine.
  * When the routine is found and the helper or call is not, the file is
  * claimed with no readable packing: the GFX view then reports it
- * unavailable rather than guessing planar. A hack that edits the routine
- * itself is not recognized at all.
+ * unavailable rather than guessing planar. A routine that EDITS the stock
+ * one is still claimed the same way, found by structure alone: a
+ * branch-over-JSR whose target opens `LDY #imm / JSL` names the file in the
+ * LDY operand. Only an edit to those first bytes, or a relocated edited
+ * copy, goes unrecognized.
  */
-import { BytePattern, WILD, findPattern } from './BytePattern'
+import { findPattern } from './BytePattern'
 import { LOROM_BANK_SIZE } from './addressing'
 import { Refusal, callSubroutine } from './cpu/call'
 import { GFX_FILE_COUNT } from './GfxLoader'
@@ -31,8 +34,11 @@ import { RomFile } from './RomFile'
 import { smwMachine } from './sprites/interp/Machine'
 import { spanFingerprint } from './SubmapFlagGate'
 
-// Candidate routine start: LDY #file / JSL. A 3-byte shape locates; the hash decides.
-const CANDIDATE_SHAPE: BytePattern = [0xa0, WILD, 0x22]
+// Candidate routine start: LDY #file, then (after the file operand) JSL. One opcode
+// at a time locates; the hash decides.
+const LDY_IMM = 0xa0
+const JSL = 0x22
+const JSL_OFF = 2
 const FILE_INDEX_OFF = 1
 const LOOP_COUNT_OFF = 12
 
@@ -59,10 +65,12 @@ const STA_DIRECT = 0x85
 const LDA_DIRECT = 0xa5
 // The helper is run, not hashed; its budget is far above its length.
 const HELPER_MAX_STEPS = 64
-// SetallFGBG80 (:5391-5396): a BEQ over the JSR that calls the routine.
-const JSR_LENGTH = 3
+// SetallFGBG80 (:5392-5393): a BEQ over the JSR that calls the routine.
 const BEQ = 0xf0
 const JSR = 0x20
+// A JSR is its opcode and a 2-byte operand; a BEQ that skips exactly one lands after it.
+const ABS_OPERAND_LEN = 2
+const JSR_LENGTH = 1 + ABS_OPERAND_LEN
 
 export const STOCK_MODE7_FINGERPRINTS: Mode7Fingerprints = {
   unpack: ['ea7f55d3066be1875355145f2428603285a991cb15675279eba4315b28baa8b9'],
@@ -124,24 +132,64 @@ function jsrTarget(from: number, operand: number): number | null {
 
 // callSubroutine's return frame and any push sit in the stack page.
 const isStack = (off: number): boolean => off >= 0x100 && off < 0x200
+// P as the game has it at the helper: 16-bit X and Y (REP #$10, bank_00.asm:5518), 8-bit A.
+const HELPER_P = 0x24
+const SRAM_FILL = 0x5a
 
 /** SNES address of a LoROM cart offset (header already stripped). */
 const loromAddress = (off: number): number =>
   ((off >> 15) << 16) | LOROM_BANK_SIZE | (off % LOROM_BANK_SIZE)
 
+const opensWithLdyJsl = (rom: RomFile, at: number): boolean =>
+  rom.readAtFileOffset(at, JSL_OFF + 1)?.[JSL_OFF] === JSL
+
+/** Cart offsets of every LDY #imm that is followed by a JSL. */
+const openings = (rom: RomFile): number[] =>
+  findPattern(rom, [LDY_IMM]).filter(at => opensWithLdyJsl(rom, at))
+
+/** Every branch-over-JSR: its cart offset and the same-bank cart offset the JSR lands on. LoROM only. */
+function branchOverJsrs(rom: RomFile): { at: number; to: number }[] {
+  const out: { at: number; to: number }[] = []
+  for (const at of findPattern(rom, [BEQ])) {
+    const b = rom.readAtFileOffset(at + 1, 1 + JSR_LENGTH)
+    if (!b || b[0] !== JSR_LENGTH || b[1] !== JSR) continue
+    const to = jsrTarget(at, b[2]! | (b[3]! << 8))
+    if (to !== null) out.push({ at, to })
+  }
+  return out
+}
+
+/**
+ * Cart offsets that a branch-over-JSR calls and that open `LDY #imm / JSL`:
+ * the routine by structure, whatever its body now holds. LoROM only, as the
+ * JSR arithmetic is.
+ */
+function calledOpenings(rom: RomFile): number[] {
+  if (rom.mapMode === 'hirom') return []
+  return [...new Set(branchOverJsrs(rom).map(c => c.to).filter(to => opensWithLdyJsl(rom, to) && rom.readAtFileOffset(to, 1)![0] === LDY_IMM))] // prettier-ignore
+}
+
 function _findMode7GfxFiles(rom: RomFile, fps: Mode7Fingerprints): Mode7GfxFile[] {
-  const hits = findPattern(rom, CANDIDATE_SHAPE).filter(at => isStockUnpack(rom, at, fps))
+  const hits = openings(rom).filter(at => isStockUnpack(rom, at, fps))
+  const changed = calledOpenings(rom).filter(at => !hits.includes(at))
   const files: Mode7GfxFile[] = []
+  const fileOf = (at: number): number => rom.readAtFileOffset(at + FILE_INDEX_OFF, 1)![0]!
+  const total = hits.length + changed.filter(at => fileOf(at) < GFX_FILE_COUNT).length
   for (const at of hits) {
-    const fileIndex = rom.readAtFileOffset(at + FILE_INDEX_OFF, 1)![0]!
+    const fileIndex = fileOf(at)
     if (fileIndex >= GFX_FILE_COUNT) continue
     // More than one routine: which one runs cannot be said, so none is read.
     files.push({
       fileIndex,
-      ...(hits.length === 1
+      ...(total === 1
         ? readByteLength(rom, at)
         : unreadable('The ROM holds more than one Mode 7 unpack routine')),
     })
+  }
+  for (const at of changed) {
+    const fileIndex = fileOf(at)
+    if (fileIndex < GFX_FILE_COUNT)
+      files.push({ fileIndex, ...unreadable('The unpack routine changed') })
   }
   return files
 }
@@ -159,9 +207,12 @@ function isStockUnpack(rom: RomFile, at: number, fps: Mode7Fingerprints): boolea
 
 /**
  * Runs the helper on the 65816 core for every input byte: it must return,
- * write only the input and output bytes (and the stack), leave the input shifted left by
+ * write nowhere but the input and output bytes and the stack (no hardware
+ * register, no SRAM), read no WRAM but the input byte, leave the input shifted left by
  * BITS_PER_PIXEL and put the bits shifted out in the output. That is the
  * packing decodeMode7Tiles implements, read from behaviour not from bytes.
+ * Per .claude/rules/rom-interpretation.md stock-code exception (added in #1030):
+ * fixed entry (the JSR target), step budget HELPER_MAX_STEPS, refusal with a reason.
  */
 function helperShiftsPixelOut(
   rom: RomFile,
@@ -172,16 +223,28 @@ function helperShiftsPixelOut(
   try {
     const { bus, cpu } = smwMachine(rom)
     const touched = new Set<number>()
+    let hardware = false
     bus.onWramWrite = off => touched.add(off)
+    bus.onHwWrite = () => (hardware = true)
+    const reads = new Set<number>()
+    bus.inputs = reads
     for (let v = 0; v < 0x100; v++) {
       touched.clear()
+      reads.clear()
+      bus.clearWritten()
+      bus.sram.fill(v ^ SRAM_FILL)
       bus.wram[input] = v
       bus.wram[output] = 0xff
       const r = callSubroutine(cpu, loromAddress(helperAt), {
         kind: 'jsr',
         maxSteps: HELPER_MAX_STEPS,
+        regs: { p: HELPER_P },
       })
-      const onlyTwo = [...touched].every(off => off === input || off === output || isStack(off))
+      const onlyTwo =
+        !hardware &&
+        bus.sram.every(b => b === (v ^ SRAM_FILL)) &&
+        [...touched].every(off => off === input || off === output || isStack(off)) &&
+        [...reads].every(off => off === input)
       const shifted = bus.wram[input] === (v << BITS_PER_PIXEL) % 0x100
       const out = bus.wram[output] === v >> (8 - BITS_PER_PIXEL)
       if (r.kind !== 'returned' || !onlyTwo || !shifted || !out) return false
@@ -214,10 +277,7 @@ function readByteLength(rom: RomFile, at: number): Length {
   }
 
   // Exactly one branch-over-JSR in the routine's bank may call it.
-  const operand = LOROM_BANK_SIZE + (at % LOROM_BANK_SIZE)
-  const bank = Math.floor(at / LOROM_BANK_SIZE)
-  const call: BytePattern = [BEQ, JSR_LENGTH, JSR, operand & 0xff, operand >> 8]
-  const callers = findPattern(rom, call).filter(c => Math.floor(c / LOROM_BANK_SIZE) === bank)
+  const callers = branchOverJsrs(rom).filter(c => c.to === at)
   if (callers.length !== 1) {
     return unreadable('The call to the unpack routine is not found exactly once in stock form')
   }

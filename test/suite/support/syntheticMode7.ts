@@ -46,18 +46,35 @@ export interface HelperShape {
   strayStore?: number
   /** End with an infinite loop instead of RTS. */
   hang?: boolean
+  /** STA $2119 before returning: a hardware write. */
+  hwStore?: boolean
+  /** STA long into cart SRAM ($700000). */
+  sramStore?: boolean
+  /** ORA into OUT instead of overwriting it. */
+  orOut?: boolean
+  /** Read a byte other than IN: LDA $13, and return early unless it is zero. */
+  readsOther?: boolean
+  /** Do the shifts with the loop counter in a 16-bit X (PHX / LDX #3 / DEX / BNE / PLX). */
+  wideX?: boolean
   /** End with RTL, the wrong return for a JSR. */
   rtl?: boolean
 }
 
 export function helperBytes(shape: HelperShape = {}): number[] {
   const { lsrs = 5, asls = 3 } = shape
+  const shifts = shape.wideX
+    ? [0xda, 0xa2, asls, 0x00, 0x06, IN, 0xca, 0xd0, 0xfb, 0xfa]
+    : Array.from({ length: asls }, () => [0x06, IN]).flat()
   return [
+    ...(shape.readsOther ? [0xa5, 0x13, 0xf0, 0x01, 0x60] : []),
     0xa5, IN,
     ...new Array<number>(lsrs).fill(0x4a),
+    ...(shape.orOut ? [0x05, OUT] : []),
     0x85, OUT,
     ...(shape.strayStore === undefined ? [] : [0x85, shape.strayStore]),
-    ...Array.from({ length: asls }, () => [0x06, IN]).flat(),
+    ...(shape.hwStore ? [0x8d, 0x19, 0x21] : []),
+    ...(shape.sramStore ? [0x8f, 0x00, 0x00, 0x70] : []),
+    ...shifts,
     ...(shape.hang ? [0x80, 0xfe] : shape.rtl ? [0x6b] : [0x60]),
   ]
 } // prettier-ignore

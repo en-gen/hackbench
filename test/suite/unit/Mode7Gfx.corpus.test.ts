@@ -5,14 +5,16 @@
  * the synthetic suite covers the same logic on hand-written code.
  */
 import { createHash } from 'node:crypto'
+import { existsSync, readdirSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
-import { CORPUS, VANILLA, freshRom, hasRom } from '../support/corpus'
+import { CORPUS, VANILLA, freshRom, hasRom, romPath } from '../support/corpus'
 import { WILD, findPattern } from '../../../src/rom/BytePattern'
 import { decodeMode7Tiles, findMode7GfxFiles } from '../../../src/rom/Mode7Gfx'
 import { readGfxFile } from '../../../src/rom/GfxLoader'
 import { flip } from '../support/syntheticRom'
 import { ALT_HELPER, callSiteBytes, helperBytes, unpackBytes } from '../support/syntheticMode7'
-import type { RomFile } from '../../../src/rom/RomFile'
+import { RomFile } from '../../../src/rom/RomFile'
 
 const ROUTINE = 0x00ab42 // CODE_00AB42, SMWDisX bank_00.asm:5515
 const HELPER = 0x00abc4 // CODE_00ABC4, :5575
@@ -25,7 +27,7 @@ const DEVELOP_PIXELS = '5f19015e48aed0674ad573bfd606a4c525315a8417cdad42ee1a55dc
 function expectRefused(rom: RomFile, label: string): void {
   const [file] = findMode7GfxFiles(rom)
   expect(file, label).toMatchObject({ fileIndex: 0x27, byteLength: null })
-  expect(file!.reason, label).toMatch(/does not unpack|not found exactly once/)
+  expect(file!.reason, label).toMatch(/does not unpack|not found exactly once|changed/)
 }
 
 // CORPUS is the static name list, not a directory listing: every ROM registers
@@ -42,12 +44,18 @@ describe.each(CORPUS)('Mode7Gfx on %s', name => {
       expect(createHash('sha256').update(decoded).digest('hex')).toBe(DEVELOP_PIXELS)
     })
 
-    it('names nothing when one byte of the routine changes', () => {
-      for (const i of [0, 18, 40, 80, 117]) {
+    it('refuses the file, with a reason, when one byte of the routine changes', () => {
+      for (const i of [18, 40, 80, 117]) {
         const rom = freshRom(name)
         flip(rom, ROUTINE + i)
-        expect(findMode7GfxFiles(rom), `routine offset ${i}`).toEqual([])
+        expectRefused(rom, `routine offset ${i}`)
       }
+    })
+
+    it('names nothing when the routine no longer opens LDY / JSL', () => {
+      const rom = freshRom(name)
+      flip(rom, ROUTINE)
+      expect(findMode7GfxFiles(rom)).toEqual([])
     })
 
     it('refuses the file, with a reason, when the helper no longer shifts three bits', () => {
@@ -99,3 +107,34 @@ describe.skipIf(!hasRom(VANILLA))(
     })
   },
 )
+
+// Hack acceptance equals develop's. Measured 2026-10-18, one machine, over the
+// 152 ROMs in hackbench-tools (hacks/roms plus roms): develop's literal-pattern
+// build and this one gave the same answer for file $27 on every ROM, 110 read as
+// Mode 7 (the file's decoded length equals the loop's) and 42 unavailable. Pinned as counts
+// because develop's code is gone; a looser recognizer moves them.
+const ROMS = dirname(romPath(VANILLA))
+const HACKS = resolve(dirname(ROMS), 'hacks/roms')
+describe.skipIf(!existsSync(HACKS) || !existsSync(ROMS))('Mode7Gfx on the hack collection', () => {
+  it('reads 110 ROMs as Mode 7 and claims 42 unavailable, as develop did', () => {
+    const tally: Record<string, number> = {}
+    for (const dir of [HACKS, ROMS]) {
+      for (const f of readdirSync(dir).filter(f => /\.(sfc|smc)$/i.test(f))) {
+        const rom = RomFile.load(resolve(dir, f))
+        const read = readGfxFile(rom, 0x27)
+        const len = read.ok ? read.bytes.length : 0
+        const file = findMode7GfxFiles(rom).find(x => x.fileIndex === 0x27)
+        // inferDefaultBpp's rule: a claimed file reads as Mode 7 only at the loop's length.
+        const k = !file ? 'planar' : file.byteLength === len ? 'mode7' : 'unavailable'
+        tally[k] = (tally[k] ?? 0) + 1
+      }
+    }
+    expect(tally).toEqual({ mode7: 110, unavailable: 42 })
+  }, 120_000)
+
+  it('goes red when a routine byte is flipped on a Mode 7 ROM: unavailable, never planar', () => {
+    const rom = freshRom(CORPUS[0])
+    flip(rom, ROUTINE + 40)
+    expect(findMode7GfxFiles(rom).find(x => x.fileIndex === 0x27)?.byteLength).toBeNull()
+  })
+})

@@ -111,6 +111,10 @@ export function listGfxFileInfos(rom: SmwRom): GfxFileDto[] {
       tileCount,
     }
     if (!read.ok) file.unavailable = read.reason
+    else if (bpp === null) {
+      const claimed = findMode7GfxFiles(rom.rom).find(f => f.fileIndex === index)
+      if (claimed?.reason) file.unavailable = claimed.reason
+    }
     files.push(file)
   }
   return files
