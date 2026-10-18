@@ -59,7 +59,7 @@ describe('dispatch reader', () => {
   })
   it('refuses dispatch calls that do not reach one 16-bit ExecutePtr', () => {
     const t = resolveTables(buildSyntheticRom({ badExecutePtr: true }))
-    expect(t).toMatchObject({ ok: false, reason: expect.stringMatching(/same routine/) })
+    expect(t).toMatchObject({ ok: false, reason: expect.stringMatching(/CallSpriteInit is not/) })
     // Agreeing calls into a routine of another shape (here, a RTS) are refused too.
     const rts = buildSyntheticRom()
     rts.writeAt(0x0086fa, [0x60])

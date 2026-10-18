@@ -307,15 +307,13 @@ describe('Torpedo Ted launcher from the routines (synthetic cart)', () => {
     expect(!r.ok && r.reason).toMatch(/^MAIN: /)
   })
 
-  // The dispatch bytes the run follows are not the whole check: an ExecutePtr copy that behaves the same but is not the
-  // vanilla shape runs, and is reported (the call-target line in torpedoLauncher).
+  // The dispatch bytes the run follows are not the whole check: an ExecutePtr copy that behaves the same on the indexes
+  // the launcher uses but not on all 256 (it masks the index to 7 bits) runs, and is reported (the call-target line in torpedoLauncher).
   it('a dispatch call to a differently shaped ExecutePtr runs, unverified, naming the call target', () => {
     const copy = 0x008800
     const dirty = launcherRom(b => {
-      b.set(
-        [0xea, ...b.subarray(off(0x0086fa), off(0x0086fa) + SYNTHETIC_EXECUTE_PTR_CODE.length)],
-        off(copy),
-      ) // NOP + ExecutePtr
+      b.set(b.subarray(off(0x0086fa), off(0x0086fa) + SYNTHETIC_EXECUTE_PTR_CODE.length), off(copy))
+      b[off(copy) + 8] = 0x7f // AND #$00FF -> AND #$007F
       b.set([copy & 0xff, (copy >> 8) & 0xff, 0x00], off(DISPATCH_AT + 2))
     })
     const r = ok(dirty, routinesOf(launcherRom()))

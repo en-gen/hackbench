@@ -20,11 +20,7 @@
  * ($0703, with $0680 = 6), 22 through $2121/$2122; 23 sets one color directly then by the list, 24 appends a list color and requests the MainPalette upload in one frame, 25 sets two colors with one CGADD, 26 writes id 21's MainPalette list without requesting the upload, 28 writes mirror colors with no list header, 29 uploads a two-color list entry, 27 appends a list color in every MAIN pass, 30 burns ~196k steps per INIT and never leaves status 1; 31 draws at X then moves X by +4 each MAIN; 32 is 31 but draws only from its second MAIN; 103 is the line-guided grinder's id: its MAIN has the vanilla SHAPE the runner's gate reads (bank_01.asm:11837-11846, 12182-12204) around a draw then a +4 move. Options plant a defect for the oracle tests.
  */
 import { RomFile } from '../../../src/rom/RomFile'
-import {
-  recognizeShapes,
-  type DispatcherSpan,
-  type ShapePrints,
-} from '../../../src/rom/sprites/interp/SpriteDispatch'
+import type { DispatcherSpan } from '../../../src/rom/sprites/interp/SpriteDispatch'
 
 import { putGm11Spans } from './syntheticGm11Spans'
 import { putGrinderRoutines } from './syntheticGrinder'
@@ -96,25 +92,43 @@ export interface SyntheticOptions {
 
 const BANK = 0x8000
 
-/** Our own block spawn dispatcher, written for this fixture: index compare, JSL FindFreeSprSlot, fall-through. */
-// prettier-ignore
-export const SYNTHETIC_DISPATCHER_CODE: readonly number[] = Object.freeze([
-  0xa5, 0x05,             // LDA $05: the content index
-  0xc9, 0x0c,             // CMP #$0C
-  0xf0, 0x03,             // BEQ slot
-  0x4c, 0x05, 0x89,       // JMP $8905: GenSpriteFromBlk's own countdown
-  0x22, 0xe4, 0xa9, 0x02, // slot: JSL FindFreeSprSlot, Y = slot or $FF
-  0x5a, 0xfa,             // PHY / PLX: X = Y, N set when none was free
-  0x30, 0x03,             // BMI done
-  0x4c, 0x22, 0x89,       // JMP $8922: the status write
-  0x6b,                   // done: RTL
-])
+/**
+ * Our own item block spawn routine, written for this fixture, as ONE contiguous 81-byte span from $02:88DC like
+ * the game's: the dispatcher (index compare, JSL FindFreeSprSlot, fall-through), the slot countdown at +$29 and the
+ * status write at +$46 (11 bytes of it; its tail follows). Gaps are zero. `bad` breaks one piece's first byte.
+ */
+export function syntheticSpawnCode(bad?: 'head' | 'status' | 'dispatch'): number[] {
+  const code = new Array<number>(81).fill(0)
+  // prettier-ignore
+  const dispatcher = [
+    0xa5, 0x05,             // LDA $05: the content index
+    0xc9, 0x0c,             // CMP #$0C
+    0xf0, 0x03,             // BEQ slot
+    0x4c, 0x05, 0x89,       // JMP $8905: GenSpriteFromBlk's own countdown
+    0x22, 0xe4, 0xa9, 0x02, // slot: JSL FindFreeSprSlot, Y = slot or $FF
+    0x5a, 0xfa,             // PHY / PLX: X = Y, N set when none was free
+    0x30, 0x03,             // BMI done
+    0x4c, 0x22, 0x89,       // JMP $8922: the status write
+    0x6b,                   // done: RTL
+  ]
+  // The free-slot hit branches to a JMP $8922 at $028912 (a displacement of 6, not the game's), so the head shares no 8 bytes with it.
+  const head = [0xa2, 0x0b, 0xbd, 0xc8, 0x14, 0xf0, 0x06, 0xca, 0xe0, 0xff, 0xd0, 0xf6, 0x6b, 0x4c, 0x22, 0x89] // prettier-ignore
+  const status = [0xa4, 0x05, 0x8e, 0x61, 0x18, 0xb9, 0xc5, 0x88, 0x9d, 0xc8, 0x14]
+  code.splice(0, dispatcher.length, ...dispatcher)
+  code.splice(0x29, head.length, ...head)
+  code.splice(0x46, status.length, ...status)
+  if (bad === 'dispatch') code[0] = 0xea
+  if (bad === 'head') code[0x29] = 0xea
+  if (bad === 'status') code[0x46] = 0xea
+  return code
+}
 
-/** The gate's view of SYNTHETIC_DISPATCHER_CODE: the JSL operand masked, the rest hashed. */
+/** The gate's view of `syntheticSpawnCode()`: the JSL operand and the status write's two addresses masked, the rest hashed. */
 export const SYNTHETIC_DISPATCHER: DispatcherSpan = Object.freeze({
-  length: SYNTHETIC_DISPATCHER_CODE.length,
+  length: 81,
   callAt: 10,
-  fingerprints: Object.freeze(['5e321bdaabc6e582f75144b988d69dda7e2942736697a29d06e5f5f2ec6b9f3b']),
+  operands: Object.freeze([73, 74, 76, 77]),
+  fingerprints: Object.freeze(['399b784c2dd1f67c4c7ef5da247f11ff2a87885570b6ca5d17df36da0ae3f4c2']),
 })
 
 /**
@@ -126,39 +140,6 @@ export const SYNTHETIC_EXECUTE_PTR_CODE: readonly number[] = Object.freeze([
   0x84, 0x0d, 0x7a, 0x84, 0x0a, 0xc2, 0x30, 0x29, 0xff, 0x00, 0x0a, 0x85, 0x08, 0x68, 0x85, 0x0b,
   0xa4, 0x08, 0xc8, 0xb7, 0x0a, 0x85, 0x0a, 0xe2, 0x30, 0xa4, 0x0d, 0xdc, 0x0a, 0x00,
 ]) // prettier-ignore
-
-/** The reader's view of this cart's own shapes: committed digests of the bytes above and below, operands masked. */
-export const SYNTHETIC_SHAPES: ShapePrints = Object.freeze({
-  executePtr: {
-    length: 30,
-    mask: [1, 4, 12, 15, 17, 20, 22, 26, 28],
-    sha: '840add179e965c9665553a3dae0bba2e206cbbf92f061e463419c6d76ac9cfad',
-  },
-  callSpriteInit: {
-    length: 9,
-    mask: [],
-    sha: '440c69bc2914d82a8bac77ec395e2f835635ff4d8f4ca49507bc1ca2c6213729',
-  },
-  blockStatus: {
-    length: 11,
-    mask: [3, 4, 6, 7],
-    sha: '31acb58a116da0ba70c7afcb96012ae24c8758e4e09d85c57d1fabeaba39ecc2',
-  },
-})
-let unregisterShapes = recognizeShapes(SYNTHETIC_SHAPES)
-
-/**
- * Runs `fn` with only the game's shapes recognized, as production sees them. Importing this module makes the
- * whole test file accept the cart's shapes (docs/testing.md); a test that needs a production verdict uses this.
- */
-export function withProductionShapes<T>(fn: () => T): T {
-  unregisterShapes()
-  try {
-    return fn()
-  } finally {
-    unregisterShapes = recognizeShapes(SYNTHETIC_SHAPES)
-  }
-}
 
 export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   const rom = new Uint8Array(8 * BANK) // banks 0-7
@@ -278,12 +259,11 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   // The dispatcher at $02:88DC: our own routine (not the game's), with the observable behaviour the runner needs.
   // Content 12 goes through FindFreeSprSlot (which here always answers slot 7) and on a slot to the status write
   // at $028922; every other index jumps to $028905. Its fingerprint is SYNTHETIC_DISPATCHER, injected by the tests.
-  if (o.badSpawn !== 'dispatch') put(0x0288dc, [...SYNTHETIC_DISPATCHER_CODE])
+  put(0x0288dc, syntheticSpawnCode(o.badSpawn))
   put(0x02a9e3, [0xea]) // a NOP before the opening: six zero bytes then STZ $0E is itself a window of the game's
   put(0x02a9e4, [0x64, 0x0e, 0x8b, 0x4b, 0xab, 0xa0, 0x07, 0xab, 0x6b]) // FindFreeSprSlot stand-in (its STZ $0E / PHB PHK PLB opening): Y = 7
-  // The free-slot hit branches to a JMP $8922 at $028912 (a displacement of 6, not the game's), so the head shares no 8 bytes with it.
-  put(0x028905, [o.badSpawn === 'head' ? 0xea : 0xa2, 0x0b, 0xbd, 0xc8, 0x14, 0xf0, 0x06, 0xca, 0xe0, 0xff, 0xd0, 0xf6, 0x6b, 0x4c, 0x22, 0x89]) // prettier-ignore
-  put(0x028922, [o.badSpawn === 'status' ? 0xea : 0xa4, 0x05, 0x8e, 0x61, 0x18, 0xb9, 0xc5, 0x88, 0x9d, 0xc8, 0x14, 0xb9, 0xa3, 0x88, 0x95, 0x9e, 0x22, 0xd2, 0xf7, 0x07]) // prettier-ignore
+  // The rest of the status write (its first 11 bytes are in the spawn span above): sprite number from a table, InitSpriteTables.
+  put(0x02892d, [0xb9, 0xa3, 0x88, 0x95, 0x9e, 0x22, 0xd2, 0xf7, 0x07])
   put(
     0x028936,
     o.spawnLoop

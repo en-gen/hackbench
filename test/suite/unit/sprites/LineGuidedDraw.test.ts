@@ -17,7 +17,6 @@ import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import {
   DISPATCH_PINNED,
-  ENTRY_PINNED,
   grinderDrawsBeforeSnap,
 } from '../../../../src/rom/sprites/interp/LineGuided'
 import { runOnce, type SpriteModel } from '../../../../src/rom/sprites/interp/SpriteRunner'
@@ -143,15 +142,13 @@ describe('line-guided draw pass', () => {
     expect(grinderDrawsBeforeSnap(rom, GRINDER_HANDLER)).toBe(false)
   })
 
-  it('refuses a changed byte at every pinned offset of the entry and of the dispatch span', () => {
+  it('refuses a changed byte at every pinned offset of the dispatch span', () => {
     const flip = (at: number) => {
       const rom = buildSyntheticRom()
       rom.writeAt(at, [rom.readAt(at, 1)![0]! ^ 0x01])
       return grinderDrawsBeforeSnap(rom, GRINDER_HANDLER, GRINDER_DISPATCH)
     }
-    expect(ENTRY_PINNED).toHaveLength(14)
     expect(DISPATCH_PINNED).toHaveLength(28)
-    for (const i of ENTRY_PINNED) expect(flip(GRINDER_HANDLER + i), `entry +${i}`).toBe(false)
     for (const i of DISPATCH_PINNED)
       expect(flip(GRINDER_DISPATCH_AT + i), `dispatch +${i}`).toBe(false)
   })

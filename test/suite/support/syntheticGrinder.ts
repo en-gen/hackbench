@@ -11,7 +11,6 @@ import type { SyntheticOptions } from './syntheticSpriteRom'
 export const GRINDER_HANDLER = 0x019200
 export const GRINDER_DISPATCH_AT = 0x019220
 export const GRINDER_DISPATCH: DispatchShape = {
-  entry: 'c9291205669b95c789fa5ab1263739a2f90cdb187187ce8ba8ff4fb695217584',
   sha: 'b0a612c755212e49d450d6043bad791dc6421eb05d5a1e006ff000e0406decbd',
   targets: [0x018600, 0x019400, 0x019280, 0x019280, 0x019282, 0x019290],
 }

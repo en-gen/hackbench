@@ -6,18 +6,41 @@
 import type { RomFile } from '../../RomFile'
 import { mirror } from '../../addressing'
 import { spanFingerprint } from '../../SubmapFlagGate'
+import { nativeReset, Refusal, runUntil } from '../../cpu/call'
+import { smwMachine } from './Machine'
 
 /**
- * LineGrinder to its JMP (SMWDisX bank_01.asm:11837-11846): 17 bytes, recognized by `DispatchShape.entry`
- * (SHA-256 with the three free operands zeroed). The JMP target follows at +17.
+ * The handler's entry (LineGrinder, SMWDisX bank_01.asm:11837-11846) is run, not matched: from the handler, with
+ * the cells zero and then all set, it must reach a JMP within `ENTRY_STEPS` instructions and both runs must land on
+ * the same address. That address is the dispatch block the digest below then checks.
  */
-export const ENTRY_LEN = 17
-const ENTRY_OPERANDS = [12, 14, 15]
+const ENTRY_STEPS = 24
+const JMP_ABS = 0x4c
 
-/** Offsets of the entry's pinned bytes (the rest are operands that name a constant or a register). */
-export const ENTRY_PINNED = Array.from({ length: ENTRY_LEN }, (_, i) => i).filter(
-  i => !ENTRY_OPERANDS.includes(i),
-)
+/** Where a run from `handler` with WRAM filled with `fill` ends on its first JMP, or null (refused, spent, or off ROM). */
+function entryJumpsTo(rom: RomFile, handler: number, fill: number): number | null {
+  let m: ReturnType<typeof smwMachine>
+  try {
+    m = smwMachine(rom)
+  } catch (e) {
+    if (e instanceof Refusal) return null
+    throw e
+  }
+  const { bus, cpu } = m
+  bus.wram.fill(fill, 0, 0x2000)
+  const guard = bus.onInstruction
+  let last = 0
+  bus.onInstruction = (addr, op) => {
+    guard?.(addr, op)
+    last = op
+  }
+  nativeReset(cpu)
+  cpu.x = 3
+  cpu.pb = handler >>> 16
+  cpu.pc = handler & 0xffff
+  const r = runUntil(cpu, ENTRY_STEPS, () => last === JMP_ABS)
+  return r.kind === 'returned' ? (cpu.pb << 16) | cpu.pc : null
+}
 
 /**
  * CODE_01D9A7's dispatch, 41 bytes (bank_01.asm:12182-12204), is over the literal limit
@@ -34,9 +57,8 @@ export const DISPATCH_PINNED = Array.from({ length: DISPATCH_LEN }, (_, i) => i)
   i => !DISPATCH_OPERANDS.includes(i),
 )
 
-/** `entry`: the digest of the handler's first 17 bytes; `sha`: the masked-span digest; `targets`: each call's folded 24-bit target, in span order. */
+/** `sha`: the masked-span digest; `targets`: each call's folded 24-bit target, in span order. */
 export interface DispatchShape {
-  entry: string
   sha: string
   targets: readonly number[]
 }
@@ -48,7 +70,6 @@ export interface DispatchShape {
  * and 22 SMW Central hacks; the runner refuses the other 127 before this gate), one machine, 2026-10-10.
  */
 export const VANILLA_DISPATCH: DispatchShape = {
-  entry: '12e5d92f198bc3c96032950e43e56d72bee31a09cde8dca4d23fe1e8defeaf96',
   sha: '5ab0b410faae1acff4783cfef08df9beeca77bf750f71d8bdb8dbb1f434f7961',
   targets: [0x01dbd4, 0x01dc0b, 0x01a7e4, 0x01a7e4, 0x03c263, 0x01d74d],
 }
@@ -59,10 +80,10 @@ export function grinderDrawsBeforeSnap(
   handler: number,
   shape = VANILLA_DISPATCH,
 ): boolean {
-  const entry = rom.readAt(handler, ENTRY_LEN + 2)
-  if (!entry || spanFingerprint(entry.subarray(0, ENTRY_LEN), ENTRY_OPERANDS) !== shape.entry)
-    return false
-  const at = (handler & 0xff0000) | entry[ENTRY_LEN]! | (entry[ENTRY_LEN + 1]! << 8)
+  // A handler that gates on the lock and frame (cells set) and one that plays the sound (cells zero) must reach one block.
+  const quiet = entryJumpsTo(rom, handler, 0)
+  if (quiet === null || quiet !== entryJumpsTo(rom, handler, 0xff)) return false
+  const at = quiet
   const span = rom.readAt(at, DISPATCH_LEN)
   if (span?.length !== DISPATCH_LEN || spanFingerprint(span, DISPATCH_OPERANDS) !== shape.sha)
     return false
