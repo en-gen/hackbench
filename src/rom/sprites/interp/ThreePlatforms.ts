@@ -119,6 +119,10 @@ export function threePlatforms(
   run: (rom: RomFile, id: number, seed: SpriteSeed, opts?: RunOptions) => SpriteModel = runOnce,
 ): PlatformsResult {
   const unverified = platformsGate(rom, routines)
+  // A loader that no longer has this route may hold an operand where the JSR opcode was, so the address read from it
+  // is not a spawner to run (a repointed JSR operand on an intact route is).
+  if (!loaderRouteIntact(rom))
+    return { ok: false, reason: `${LOADER_ROUTE.what} is not the shape this reader knows, so the platform spawner cannot be found`, unverified } // prettier-ignore
   const routine = spawnerEntry(rom)
   if (routine === null)
     return { ok: false, reason: 'the loader no longer calls a spawner for the three platforms (no JSR where it called one), so there is nothing to run', unverified } // prettier-ignore

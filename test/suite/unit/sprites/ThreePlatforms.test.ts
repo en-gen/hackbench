@@ -146,7 +146,7 @@ describe('the spawner the loader calls', () => {
     rom.writeAt(0x02a8a5, [0x4c])
     const r = threePlatforms(rom, seed, entry, SYN)
     expect(r.ok).toBe(false)
-    expect(!r.ok && r.reason).toMatch(/no longer calls a spawner for the three platforms/)
+    expect(!r.ok && r.reason).toMatch(/loader route to the platform spawner/)
     expect(r.unverified).toEqual(['the loader route to the platform spawner'])
     expect(spawnerEntry(rom)).toBeNull()
   })
@@ -190,10 +190,21 @@ describe('the gate', () => {
     ['the store of the data offset (STY)', 7],
     ['its direct page operand ($03)', 8],
     ['the JSR', 9],
-  ])('names the loader route when %s changes', (_what, at) => {
+  ])('names the loader route and refuses to run a spawner when %s changes', (_what, at) => {
     const route = platformCart()
     flip(route, 0x02a89c + at)
     expect(platformsGate(route, SYN)).toEqual(['the loader route to the platform spawner'])
+    // The $20 at $02:A8A5 may now be an operand, so the address read from it is not a spawner to run.
+    const r = threePlatforms(route, seed, entry, SYN)
+    expect(r.ok).toBe(false)
+    expect(!r.ok && r.reason).toMatch(/loader route to the platform spawner/)
+    expect(r.unverified).toEqual(['the loader route to the platform spawner'])
+  })
+
+  it('still runs the spawner a repointed JSR names: the route shape holds', () => {
+    const rom = platformCart()
+    rom.writeAt(0x02a8a6, [LOAD_3_PLATFORMS & 0xff, (LOAD_3_PLATFORMS >> 8) & 0xff])
+    expect(threePlatforms(rom, seed, entry, SYN).ok).toBe(true)
   })
 
   it('names the loader route, and not the tables', () => {

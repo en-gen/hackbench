@@ -29,11 +29,14 @@ function addedRegions(cart: Uint8Array): [number, number][] {
 /** File offsets of every `WINDOW`-byte window in the regions with 3 or more distinct values that occurs in `vanilla`. */
 function copied(bytes: Uint8Array, regions: [number, number][], vanilla: Buffer): number[] {
   const hits: number[] = []
-  for (const [from, to] of regions)
+  // Each region is widened by WINDOW-1 bytes each side, so a window that straddles an added byte and a neighbour is read too.
+  for (const [r0, r1] of regions) {
+    const [from, to] = [Math.max(0, r0 - (WINDOW - 1)), Math.min(bytes.length, r1 + WINDOW - 1)]
     for (let i = from; i + WINDOW <= to; i++) {
       const w = bytes.subarray(i, i + WINDOW)
       if (new Set(w).size >= 3 && vanilla.indexOf(w) >= 0) hits.push(i)
     }
+  }
   return hits
 }
 
@@ -62,6 +65,6 @@ describe.skipIf(!hasRom(VANILLA))('the synthetic platform cart against the vanil
     // Bytes the cart already shares with the vanilla route are not "added", so the region starts inside the span.
     const hits = copied(cart, addedRegions(cart), vanilla)
     expect(hits.length, 'the planted span is found').toBeGreaterThan(0)
-    expect(hits.every(h => h >= at && h < at + 12)).toBe(true)
+    expect(hits.every(h => h > at - WINDOW && h < at + 12)).toBe(true)
   })
 })
