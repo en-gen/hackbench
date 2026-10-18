@@ -187,12 +187,12 @@ export interface RunOptions {
   /** The dispatch shape the $67 gate accepts; a test hook, so a synthetic cart brings its own (default: vanilla's). */
   grinderDispatch?: DispatchShape
   /**
-   * `false` is the map view's at-rest picture (D134, D91): no INIT, drawn by its own MAIN from the placed spot,
-   * no $67 line-walk pick. Default true: INIT first, as the game and the graders do.
+   * `false` is the map view's at-rest picture. D139 D, D138 A: INIT runs for the look only (tiles, flips,
+   * variants, status). D134, D91: the drawing is re-based onto the placed spot, so INIT's moves and the
+   * 320 px shift are not shown, and there is no $67 line-walk pick. Default true: INIT first and its moves
+   * kept, as the game and the graders do.
    */
   init?: boolean
-  /** With `init: false`: 'init-picture' runs INIT for the look only and re-bases the art on the placed spot (D139). */
-  restPicture?: 'no-init' | 'init-picture'
 }
 
 export { Refusal }
@@ -403,8 +403,6 @@ export class Machine {
   }
 }
 
-const CALL_INIT_STATUS = 8
-
 const s8 = (v: number) => (v > 127 ? v - 256 : v)
 
 /** Parts the pass wrote, relative to `anchor`, in screen terms (camera removed). */
@@ -489,8 +487,7 @@ export function runOnce(
   const shell = loaded.shell
   // INIT runs only for a sprite the loader leaves in status 1.
   const atRest = opts.init === false
-  const pic = atRest && opts.restPicture === 'init-picture'
-  const runsInit = (!atRest || pic) && (shell?.status ?? 1) === 1
+  const runsInit = (shell?.status ?? 1) === 1
   const num = shell?.number ?? id
   // A sprite the loader does not leave in status 1 never runs INIT, so its INIT pointer is not read.
   const inits = runsInit ? resolvePointer(rom, tables.tables.initTable, num) : undefined
@@ -525,9 +522,6 @@ export function runOnce(
       m.seed.slot = picked
       w[RAM.curSprite] = picked
     } else m.call(ENTRY.initSpriteTables, 'jsl')
-    // D134: stop where the game hands control to INIT: CallSpriteInit stores status 8 first (bank_01.asm:226-227).
-    if (atRest && !pic && !opts.spawn)
-      w[RAM.status + m.seed.slot] = shell?.status ?? CALL_INIT_STATUS
     let n = m.steps
     // Status 1 -> CallSpriteInit, which sets status 8 and runs INIT. An INIT
     // that leaves status 1 runs again next frame, as the game does (the floating

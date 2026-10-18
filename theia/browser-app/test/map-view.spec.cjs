@@ -1252,7 +1252,7 @@ test('$018: layer 3 is camera-locked, so its toggle is disabled and says so', as
 
 /**
  * The sprite layer (#564), drawn by the sprite interpreter (#585). $106 holds both kinds on vanilla:
- * sprites the ROM's own INIT and MAIN draw (23 of 25: #968 made the 3 stationary shells draw, and the P-switch $3E draws nothing without its INIT, D134) and ids the interpreter refuses (marked, with its
+ * sprites the ROM's own INIT and MAIN draw (24 of 25: #968 made the 3 stationary shells draw, and the P-switch $3E draws since INIT runs for the picture, D139 D) and ids the interpreter refuses (marked, with its
  * reason). Its sprites sit past screen 0, so screen 1 is scrolled into view. $105 draws 32 of 34.
  */
 const spriteToggle = (page, index) => page.locator(`${root(index)} [data-control="layer-sprites"]`)
@@ -1299,7 +1299,7 @@ test('an interpreter-drawn sprite shows its own pixels where the service placed 
   )
   expect(reply.status).toBe('ok')
   expect(reply.sprites).toHaveLength(25)
-  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(23) // 21 plus the 3 stationary shells (#968), less the P-switch marked at rest (D134)
+  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(24) // 21 plus the 3 stationary shells (#968) and the P-switch (D139 D)
   // Measured on vanilla: the first $05 is at tile (27, 20), a 16 x 32 body whose top is above its anchor.
   const koopa = reply.sprites.find(s => s.id === 5)
   expect(koopa).toMatchObject({ x: 432, y: 320, status: 'drawn' })
@@ -1307,11 +1307,11 @@ test('an interpreter-drawn sprite shows its own pixels where the service placed 
   // After #968 the one $106 miss is $4D at (3760, 368), in screen 14 (3584-3840): measured on vanilla.
   const marker = reply.sprites.find(s => s.status === 'placeholder' && s.id === 0x4d)
   expect(marker, 'a marker on $106').toBeTruthy()
-  // D134: INIT does not run at rest, so the P-switch ($3E) draws nothing and is marked at its list position.
+  // D139 D: INIT runs for the picture, so the P-switch ($3E) is drawn at its list position (D134).
   const pswitch = reply.sprites.filter(s => s.id === 0x3e)
-  expect(pswitch.map(s => s.status)).toEqual(['placeholder'])
-  expect(pswitch[0].reason).toMatch(/set up when the map runs and shown on play/)
-  expect(reply.sprites.filter(s => s.status === 'placeholder')).toHaveLength(2)
+  expect(pswitch.map(s => s.status)).toEqual(['drawn'])
+  expect(pswitch[0]).toMatchObject({ x: 4512, y: 272 })
+  expect(reply.sprites.filter(s => s.status === 'placeholder')).toHaveLength(1)
   expect(marker).toMatchObject({ id: 0x4d, x: 3760, y: 368 })
   const mScreen = Math.floor(marker.box.x0 / 256)
   expect(mScreen).toBe(14)

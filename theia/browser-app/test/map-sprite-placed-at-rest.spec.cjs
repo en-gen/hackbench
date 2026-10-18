@@ -1,16 +1,17 @@
 /**
- * The map view draws each sprite at rest (D134, D91, #980): at its placed (list) position, without the
- * start-up code (INIT) that play/simulate runs. Vanilla ROM; skipped, never faked, without it.
+ * The map view draws each sprite at rest (#980): its start-up code (INIT) runs for the picture only (D139 D,
+ * D138 A), and the drawing stays at the placed (list) position (D134, D91), so INIT's moves wait for
+ * play/simulate. Vanilla ROM; skipped, never faked, without it.
  *
  * The sprite list is not served over the RPC, so the placed position is read as the list's own grid: a list
  * entry is a map tile (x and y multiples of 16), while the INIT-on anchor is off it (a chainsaw or grinder
  * is moved 15 px right and 320 px left or so by InitLineGuidedSpr, bank_01.asm:11788-11799). The exact
  * list coordinates are pinned against the parsed list in test/suite/unit/sprites/PlacedAtRest.test.ts.
- * - Map $00F: every chainsaw ($65) is drawn and its anchor is on the tile grid.
- * - Map $01A: every grinder ($67) is drawn and its anchor is on the tile grid.
- * - Map $106: the P-switch ($3E) draws nothing without its INIT, so it shows the not-drawn marker (D52)
- *   with the reason, on the grid.
- * Goes red on develop (INIT-on): the chainsaw and grinder anchors are off the grid, and the $3E is drawn.
+ * - Map $00F: every chainsaw ($65) is on the tile grid; 23 draw, 7 show the not-drawn marker (D52).
+ * - Map $01A: every grinder ($67) is on the tile grid; 10 draw, 3 show the marker (INIT's X move takes
+ *   them off the screen the sprite is run on, so they put no tile in OAM).
+ * - Map $106: the P-switch ($3E) draws its picture (INIT's look) at its placed spot.
+ * Goes red on develop (INIT-on): the chainsaw and grinder anchors are off the grid.
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')
@@ -66,27 +67,30 @@ async function spritesOf(page, index, id) {
 
 const offGrid = s => `#${s.index} at ${s.x},${s.y}`
 
-test('map $00F: every chainsaw is drawn at its placed tile, not moved by its setup code', async ({
+test('map $00F: every chainsaw sits at its placed tile, not moved by its setup code', async ({
   page,
 }) => {
   const saws = await spritesOf(page, 0x00f, 0x65)
-  expect(saws.filter(s => s.status !== 'drawn').map(offGrid)).toEqual([])
+  expect(saws.filter(s => s.status === 'drawn')).toHaveLength(23)
+  const markers = saws.filter(s => s.status === 'placeholder')
+  expect(markers).toHaveLength(7)
+  for (const m of markers) expect(m.reason).toMatch(/drew no OAM tile/)
   expect(saws.filter(s => s.x % 16 !== 0 || s.y % 16 !== 0).map(offGrid)).toEqual([])
 })
 
-test('map $01A: every grinder is drawn at its placed tile, not moved by its setup code', async ({
+test('map $01A: every grinder sits at its placed tile, not moved by its setup code', async ({
   page,
 }) => {
   const grinders = await spritesOf(page, 0x01a, 0x67)
-  expect(grinders.filter(s => s.status !== 'drawn').map(offGrid)).toEqual([])
+  expect(grinders.filter(s => s.status === 'drawn')).toHaveLength(10)
+  const markers = grinders.filter(s => s.status === 'placeholder')
+  expect(markers).toHaveLength(3)
+  for (const m of markers) expect(m.reason).toMatch(/drew no OAM tile/)
   expect(grinders.filter(s => s.x % 16 !== 0 || s.y % 16 !== 0).map(offGrid)).toEqual([])
 })
 
-test('map $106: a P-switch that draws nothing at rest shows the not-drawn marker', async ({
-  page,
-}) => {
+test('map $106: the P-switch draws its picture at its placed spot', async ({ page }) => {
   const [pswitch] = await spritesOf(page, 0x106, 0x3e)
-  expect(pswitch.status).toBe('placeholder')
-  expect(pswitch.reason).toMatch(/set up when the map runs and shown on play/)
-  expect([pswitch.x % 16, pswitch.y % 16]).toEqual([0, 0])
+  expect(pswitch).toMatchObject({ status: 'drawn', x: 4512, y: 272 })
+  expect(pswitch.box).toEqual({ x0: 4512, y0: 272, x1: 4528, y1: 288 })
 })

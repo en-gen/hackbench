@@ -19,8 +19,9 @@
  *
  * THE SERVED PATH IS THE INTERPRETER (#585): `interpDrawer` runs the sprite's
  * own MAIN from the ROM on the 65816 core (src/rom/sprites/interp/)
- * and draws the first pass that puts a tile in OAM, at the PLACED spot: INIT
- * does not run at rest (D134), so a Piranha Plant's +8 / -1 (InitPiranha,
+ * and draws the first pass that puts a tile in OAM, at the PLACED spot. INIT
+ * runs for the PICTURE only (D139 D, D138 A: tiles, flips, variants, status);
+ * its moves are not shown (D134, D91), so a Piranha Plant's +8 / -1 (InitPiranha,
  * SMWDisX bank_01.asm:880-889) waits for play/simulate. The table engine (`engineDrawer`) stays
  * as the comparison oracle of step 3 and goes in step 4. Seeds are generic:
  * the ROM-run level loader's WRAM, Mario at the level's start, the camera
@@ -810,7 +811,7 @@ export function framesOf(
   return { frames }
 }
 
-/** The run behind a sprite's frames: at rest, like the map's picture (D134), so frame 0 is that bitmap. */
+/** The run behind a sprite's frames: at rest, like the map's picture (D139 D: INIT's look, D134 position), so frame 0 is that bitmap. */
 export function frameRun(
   rom: RomFile,
   index: number,

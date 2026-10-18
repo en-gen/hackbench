@@ -1,6 +1,7 @@
 /**
- * The at-rest mode (D134, D91, #980): a sprite is drawn by its own MAIN from the placed (list) spot and INIT
- * never runs. The synthetic block needs no ROM; the corpus block runs the real chainsaws and grinders.
+ * The at-rest mode (#980): a sprite's INIT runs for its PICTURE only (D139 D, D138 A) and the drawing is
+ * re-based onto the placed (list) spot, so INIT's moves are not shown (D134, D91). The synthetic block needs
+ * no ROM; the corpus block runs the real chainsaws and grinders.
  */
 import { describe, it, expect } from 'vitest'
 import { runOnce, RAM } from '../../../../src/rom/sprites/interp/SpriteRunner'
@@ -18,17 +19,18 @@ const rom = buildSyntheticRom()
 
 describe('at-rest mode on a synthetic cart', () => {
   // Id 0: INIT adds 8 to X; MAIN draws one piece at the sprite position.
-  it('draws at the placed spot with INIT never executed', () => {
+  it("draws at the placed spot after INIT ran for the picture (D139 D); INIT's +8 is not shown", () => {
     const m = runOnce(rom, 0, SPRITE_SEED, { init: false })
     expect(m.refusal).toBeUndefined()
     expect(m.anchor).toMatchObject({ x: 0x80, y: 0x80, rawX: 0x80, rawY: 0x80 })
-    expect(m.initFrames).toBe(0)
+    expect(m.initFrames).toBe(1)
     expect(m.chosen).toBe(0)
     expect(m.passes[0]!.parts[0]).toMatchObject({ dx: 0, dy: 0 })
   })
-  it('leaves what INIT would write untouched (id 20: INIT sets a CGRAM color)', () => {
-    expect(runOnce(rom, 20, SPRITE_SEED).passes[0]!.palette.length).toBeGreaterThan(0)
-    expect(runOnce(rom, 20, SPRITE_SEED, { init: false }).passes[0]!.palette).toEqual([])
+  it('keeps what INIT wrote for the look (id 20: INIT sets a CGRAM color)', () => {
+    const rest = runOnce(rom, 20, SPRITE_SEED, { init: false }).passes[0]!.palette
+    expect(rest.length).toBeGreaterThan(0)
+    expect(rest).toEqual(runOnce(rom, 20, SPRITE_SEED).passes[0]!.palette)
   })
   it('the default still runs INIT (graders, timelines)', () => {
     const m = runOnce(rom, 0, SPRITE_SEED)
@@ -53,20 +55,25 @@ describe.skipIf(!hasRom(VANILLA))('at rest on vanilla', () => {
     const run = interpRunner(smw.rom, map, built.inputs)
     return list.map(s => ({ s, r: run(s) }))
   }
-  for (const [map, id] of [
-    [0x0f, 0x65],
-    [0x1a, 0x67],
+  // The last number is how many draw a tile; the rest show the marker (D52): INIT runs for the picture
+  // (D139 D), and 7 of the chainsaws and 3 of the grinders put no tile on the spawn-centred screen.
+  for (const [map, id, drawn] of [
+    [0x0f, 0x65, 23],
+    [0x1a, 0x67, 10],
   ] as const)
     it(`every $${id.toString(16)} on map $${map.toString(16)} draws at its list position`, () => {
       const got = placed(map, id)
       expect(got.length).toBeGreaterThan(0)
+      let n = 0
       for (const { s, r } of got) {
         if (!('m' in r)) throw new Error('direct answer')
         expect(r.m.refusal).toBeUndefined()
         expect([r.m.anchor?.x, r.m.anchor?.y]).toEqual([s.x * 16, s.y * 16])
         expect(r.m.anchor).toMatchObject({ rawX: s.x * 16, rawY: s.y * 16 })
-        expect(r.m.chosen).toBe(0)
+        if (r.m.chosen !== undefined) n++
+        else expect(r.m.emptyReason).toMatch(/drew no OAM tile/)
       }
+      expect(n).toBe(drawn)
     })
 })
 
@@ -106,31 +113,27 @@ describe('the served paths run at rest', () => {
     if (!('m' in r)) throw new Error('direct answer')
     return r.m
   }
-  it('interpRunner defaults to no INIT', () => {
+  // D139 D, D138 A: INIT runs for the picture; the drawing stays on the placed spot (D134, D91).
+  const s20 = { ...s, spriteId: 20 } as LevelSprite
+  it("interpRunner draws INIT's picture at the placed spot", () => {
     const m = ran(interpRunner(rom, 0, shape, undefined, () => base)(s))
-    expect(m.initFrames).toBe(0)
-    expect(m.anchor).toMatchObject({ x: 128, y: 128 })
+    expect(m.initFrames).toBe(1)
+    expect(m.anchor).toMatchObject({ x: 128, y: 128, rawX: 128, rawY: 128 })
+    expect(ran(interpRunner(rom, 0, shape, undefined, () => base)(s20)).passes[0]!.palette.length).toBeGreaterThan(0) // prettier-ignore
   })
-  it('the frames of a sprite are run with no INIT', () => {
+  it("the frames of a sprite are run with INIT's picture at the placed spot", () => {
     const m = ran(frameRun(rom, 0, shape, base, s))
-    expect(m.initFrames).toBe(0)
+    expect(m.initFrames).toBe(1)
     expect(m.anchor).toMatchObject({ x: 128, y: 128 })
+    expect(ran(frameRun(rom, 0, shape, base, s20)).passes[0]!.palette.length).toBeGreaterThan(0)
   })
 })
 
-describe('the D139 picture switch', () => {
-  it("'init-picture' runs INIT for the look and draws it at the placed spot; 'no-init' is the default", () => {
-    const run = (restPicture?: 'no-init' | 'init-picture') => runOnce(rom, 20, SPRITE_SEED, { init: false, restPicture }) // prettier-ignore
-    const pic = run('init-picture')
-    expect(pic.passes[0]!.palette.length).toBeGreaterThan(0)
-    expect(pic.anchor).toMatchObject({ x: 0x80, y: 0x80 })
-    expect(pic.passes[0]!.parts[0]).toMatchObject({ dx: 0, dy: 0 })
-    expect(run().passes[0]!.palette).toEqual([])
-    expect(run('no-init').passes[0]!.palette).toEqual([])
-  })
-  it("'init-picture' re-bases a sprite INIT moved (id 0: +8) onto the placed spot", () => {
-    const m = runOnce(rom, 0, SPRITE_SEED, { init: false, restPicture: 'init-picture' })
+describe('the D139 picture', () => {
+  it('re-bases a sprite INIT moved (id 0: +8) onto the placed spot, its look kept', () => {
+    const m = runOnce(rom, 0, SPRITE_SEED, { init: false })
     expect(m.initFrames).toBe(1)
     expect(m.anchor).toMatchObject({ x: 0x80, rawX: 0x80 })
+    expect(m.passes[0]!.parts[0]).toMatchObject({ dx: 0, dy: 0 })
   })
 })

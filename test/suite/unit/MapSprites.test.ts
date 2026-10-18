@@ -349,13 +349,13 @@ describe.skipIf(!hasRom(VANILLA))('mapSprites on the vanilla ROM', () => {
     return r
   }
 
-  // 23: 21 plus the 3 stationary shells on $106 ($DB at 272,368 and 1312,368; $DA at 1664,368), drawn since #837,
-  // less $3E, which draws nothing without its INIT (D134: INIT does not run at rest; marked, D52).
-  it('draws 23 of the 25 sprites of $106 and marks the rest, every one with a matching bitmap', () => {
+  // 24: 21 plus the 3 stationary shells on $106 ($DB at 272,368 and 1312,368; $DA at 1664,368), drawn since #837.
+  // $3E (the P-switch) draws too, now INIT runs for the picture (D139 D); the other sprite is marked (D52).
+  it('draws 24 of the 25 sprites of $106 and marks the rest, every one with a matching bitmap', () => {
     const r = run(0x106)
     expect(r.sprites).toHaveLength(25)
     const drawn = r.sprites.filter(s => s.status === 'drawn')
-    expect(drawn).toHaveLength(23)
+    expect(drawn).toHaveLength(24)
     // Sprite $05 stands at tile row 20: its parts begin above the anchor, a 16 x 32 body.
     const koopa = drawn.find(s => s.id === 0x05)!
     expect(sized(koopa)).toEqual([16, 32])

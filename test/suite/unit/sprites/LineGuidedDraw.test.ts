@@ -225,7 +225,7 @@ it('the grinder table covers both configured slots, $1a and $1f', () => {
 
 describe.skipIf(!hasRom(VANILLA))('every vanilla grinder, on the vanilla ROM', () => {
   for (const [slot, want] of Object.entries(GRINDERS)) {
-    it(`slot $${Number(slot).toString(16)}: ${want.length} placements drawn at their list position, no line walk (D91)`, () => {
+    it(`slot $${Number(slot).toString(16)}: ${want.length} placements drawn or marked at their list position, no line walk (D91)`, () => {
       const path = romPath(VANILLA)
       const bytes = new Uint8Array(readFileSync(path))
       const r = mapSprites(new L1ModelCache(), bytes, path, Number(slot))
@@ -238,7 +238,9 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla grinder, on the vanilla ROM', (
       const got = r.sprites.filter(d => d.id === 0x67)
       expect(got).toHaveLength(want.length)
       got.forEach((d, i) => {
-        expect(d.status, `#${i}`).toBe('drawn')
+        // INIT runs for the picture (D139 D) and its -$140 X move (bank_01.asm:11793-11799) takes a grinder
+        // off the spawn-centred screen: the table's null rows show the marker (D52), as on develop.
+        expect(d.status, `#${i}`).toBe(want[i] === null ? 'placeholder' : 'drawn')
         expect([d.x, d.y], `#${i}`).toEqual([list[i]!.x * 16, list[i]!.y * 16])
       })
     }, 120_000)
