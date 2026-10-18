@@ -6,6 +6,11 @@ The morning brief after a night shift is `grep -l '^Proposed' docs/decisions/*.m
 
 | File | State | Decides |
 | --- | --- | --- |
+| [2026-10-17-map-notes-rom-scope.md](2026-10-17-map-notes-rom-scope.md) | Proposed | whole-ROM map notes are shown once under This ROM, never on each map |
+| [2026-10-17-map-draw-notes-stay-above-map.md](2026-10-17-map-draw-notes-stay-above-map.md) | Proposed | map draw notes stay above the map and are also listed |
+| [2026-10-17-missing-base-rom-is-a-project-problem.md](2026-10-17-missing-base-rom-is-a-project-problem.md) | Proposed | a missing base ROM is a project problem, not a map note |
+| [2026-10-17-map-facts-plain-labels.md](2026-10-17-map-facts-plain-labels.md) | Proposed | plain labels: Layout, Collected items remembered, Tile graphics |
+| [2026-10-17-graphics-note-names-lunar-magic.md](2026-10-17-graphics-note-names-lunar-magic.md) | Proposed | the graphics note keeps the Lunar Magic wording |
 | [2026-10-08-zoom-anchor-race-seam.md](2026-10-08-zoom-anchor-race-seam.md) | Ruled | Maps zoom: the renderedZoom guard is unreachable from UI input, no test; plant 1 is tested |
 | [2026-10-09-self-clear-round-trip.md](2026-10-09-self-clear-round-trip.md) | Ruled | self-clear uses a resume prompt through the orchestrator; night shift enactable; the BA enacts only after the post-cutover confirm |
 | [2026-10-08-night-shift-ends-on-owner-word.md](2026-10-08-night-shift-ends-on-owner-word.md) | Ruled | night shift has no scheduled return; the owner ends it |
