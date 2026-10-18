@@ -254,6 +254,8 @@ export interface MapLayer3Dto {
   reason: string | null
   /** Layer 3 drifts slowly to the left in the game, which the drawing does not show (#563). Kept for the map properties panel, Decisions pending; no tooltip reads it. */
   drifts?: boolean
+  /** Layer 3 follows the camera in the game and is drawn once (#997). Kept for the map properties panel, Decisions pending; no view reads it yet. */
+  followsCamera?: boolean
 }
 
 /**

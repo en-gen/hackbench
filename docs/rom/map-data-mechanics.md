@@ -531,3 +531,67 @@ Added for #505. The map view draws L2 at `Layer1YPos - Layer2YPos` as the level 
 - One secondary flag per map. `UseSecondaryExit` is a single byte that every screen-exit object rewrites as the load parses it, and the exit path reads it once, so the last exit object's flag holds for all of a map's exits. `LevelStart` and the exit graph share that rule (`mapUsesSecondaryExits`). Vanilla has no map whose exit objects mix the two flags; the hacks do, but they refuse the exit graph. Not modelled: the game also runs screen exits from the Layer 2 object stream in some level modes (`bank_05.asm:430-472`, extended object 0 reaching `CODE_0DA512` at `bank_0D.asm:1062`), which can overwrite the flag after Layer 1; both readers parse Layer 1 only. Evidence scope: Layer 2 screen exits in 0 vanilla maps, from a parse-level probe, not an emulator run. SMWDisX `bank_0D.asm:1436-1438`, `bank_05.asm:7111-7112, 7300`. `[EST]`
 - Vanilla, one machine, 2026-10-10: no map is reached only by secondary entrances; the 28 maps with secondary entrances are all entry maps. Across the 143-map roster no L2 position changes, and one map ($118) gains the note: it is not vertical, so its midway restart matches its overworld entry, and its secondary entrance $1C3 starts L2 at a different height. The four corpus hacks refuse the exit graph, so the Layer 2 position is unchanged on them. `[EST]`
 - Not modelled: the castle and ghost house intro scene (`bank_05.asm:7436-7447`), a separate scene that sets both positions to $C0.
+
+## Layer 3 under a smash sprite (#997)
+
+Settings byte $80 with a loaded Layer 3 Smash sprite ($89) is the one case where the game moves
+Layer 3 by a sprite, and it does so every frame. Evidence scope: SMWDisX read plus a scan of the
+vanilla map data (two tracing passes, no emulator run); vanilla maps with the sprite: $01F, $1D4
+and $1FC, all horizontal and all starting Mario at X 16, so the load camera X is 0
+(bank_05.asm:7170, UpdateScreenPosition bank_00.asm:13631-13690).
+
+- **Who writes it.** The sprite's main routine calls CODE_00FF61 first, before its lock check
+  (bank_02.asm:11123-11124), which writes Layer3XPos and Layer3YPos (bank_00.asm:14778-14803). The
+  load-time setup leaves the layer's own scroll code switched off (bank_00.asm:4190-4191,
+  bank_05.asm:4481-4484), so nothing else moves it.
+- **X.** Layer3XPos is the sprite's X (kept in -256..255, else pinned at $100). The sprite adds the
+  camera's per-frame movement to its X (bank_02.asm:11127-11137; the movement is new minus old,
+  positive to the right, bank_00.asm:13643, 13752-13755), so Layer 3 scrolls with the camera, at
+  Layer 1's speed. State 0 sets the sprite X to $FF80 plus a random 0-63 at the start of every smash
+  cycle (bank_02.asm:11147-11166; state 4 returns to it), so each cycle the panel restarts 65-128 px
+  right of the screen's left edge, and it pins at $100 only if the camera moves about 321-384 px
+  within one cycle. Over time it follows the camera. The very first frame uses the map's sprite X
+  instead (the sprite's X and Y in the map's data), which is $100 on $01F and $1FC (a blank screen: BG3 columns 32-63 are empty).
+- **Y.** $A0 minus the sprite's Y, plus the shake offset. The camera is not in it, so on screen the
+  layer keeps its place vertically (the sprite's Y animates between 0 and $A0 as the smasher falls
+  and rises). Before the sprite is loaded, Y is $D0 (bank_00.asm:4192-4195).
+- **No despawn.** The routine has no off-screen check; only SpriteWillAppear erases it
+  (bank_02.asm:11148-11150).
+- **Not #563.** The $81 camera-locked case runs CODE_05C40C: Y = Layer1YPos, X adds the camera
+  movement plus a drift (bank_05.asm:5504-5571). Different code, different rule.
+
+The map view has no camera, so a smash-driven Layer 3 is drawn once: a single copy of the 512 px
+tilemap at world x = column * 8 - Layer3XPos, at the Layer3YPos the code writes, and never repeated
+every 512 px. The position is the smasher's FIRST landing, worked out by running the ROM's own code
+(`src/rom/sprites/interp/SmashLanding.ts`), with no stored position: the sprite's X comes from GetRand,
+and GetRand's state at that point is a function of how many calls ran since power-on.
+
+Call chain, in the order `FIRST_LANDING_SCHEDULE` runs it (a hack-fragility point: one model of the
+game's order):
+
+1. Title map load. GM03 loads the map named by the immediate of the LDA at bank_00.asm:2626 (decoded
+   as CODE_05D8A2 does, bank_05.asm:7216-7222) and falls into GM11LoadLevel (bank_00.asm:2631); the
+   loader calls GetRand once (InitStandardSprite, bank_01.asm:844-845, for the title map's sprite).
+2. Target map load, GM11LoadLevel (bank_00.asm:2644-2657), with the RNG the title load left; its
+   level-data loader calls GetRand four times (the castle flames' cluster code, CODE_02FA16,
+   bank_02.asm:16230-16233).
+3. Start-up sprite sweep CODE_02ACA1 (bank_02.asm:5876-5910) fills the sprite slots.
+4. Sprite pass 1: the sprite loop (CODE_01808C) runs the smasher's state 0, which takes GetRand's
+   low six bits plus $80 as its X (bank_02.asm:11158-11163).
+5. Sprite pass 2: the smasher's main calls CODE_00FF61 first, which writes $22/$24.
+
+RNGCalc is zero at power-on (ClearMemory, bank_00.asm:38-42) and only CODE_01AD07 writes it
+(bank_01.asm:6101-6119), so five calls arrive at state 0. On $01F, $1D4 and $1FC that gives sprite X
+$FF98, so Layer3XPos -104 and Layer3YPos $A0 (corpus tests). Scope: the schedule was checked against
+Mesen GetRand hooks on $01F and $1D4 only (force-loaded from the title screen, vanilla USA ROM, one
+machine); an overworld entry is expected to match because the title frames and the idle overworld do not
+advance the RNG, but that was not run. Later smash cycles re-roll X (-128..-65) from the RNG as it
+then stands, so they follow a longer, input-dependent history and are not modelled. When any step
+cannot run (a loader shape that is not stock, the sweep or a pass does not return, several smashers,
+or the smasher is gone after a pass), the whole result refuses with that step named. The map view then
+keeps Layer 3 at its load-time position (as before this chain) and adds an unverified-position note with the
+reason; it does not blank the layer or guess. A map whose sprite list has no smasher never runs the chain.
+
+Known blind spot: a hack can keep the loader's stock shapes and still call GetRand outside this schedule (UberASM
+level init code, overworld sprites, extra title-demo frames, a patched title sprite or a custom sprite that
+runs before the smasher). The chain then gives a confident but wrong X; nothing here can see it.
