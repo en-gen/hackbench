@@ -6,6 +6,19 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![codecov](https://codecov.io/gh/en-gen/hackbench/graph/badge.svg?token=3dD409XNya)](https://codecov.io/gh/en-gen/hackbench)
 ![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/en-gen/hackbench?utm_source=oss&utm_medium=github&utm_campaign=en-gen%2Fhackbench&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
+[![Dependabot](https://img.shields.io/badge/dependabot-enabled-025E8C?logo=dependabot)](./.github/dependabot.yml)
+[![Code style: Prettier](https://img.shields.io/badge/code_style-prettier-ff69b4.svg?logo=prettier)](https://prettier.io)
+
+[![Last commit](https://img.shields.io/github/last-commit/en-gen/hackbench)](https://github.com/en-gen/hackbench/commits/develop)
+[![Commit activity](https://img.shields.io/github/commit-activity/m/en-gen/hackbench)](https://github.com/en-gen/hackbench/pulse)
+[![Open issues](https://img.shields.io/github/issues/en-gen/hackbench)](https://github.com/en-gen/hackbench/issues)
+[![Open pull requests](https://img.shields.io/github/issues-pr/en-gen/hackbench)](https://github.com/en-gen/hackbench/pulls)
+
+[![TypeScript](https://img.shields.io/github/package-json/dependency-version/en-gen/hackbench/dev/typescript?logo=typescript&logoColor=white)](./package.json)
+[![Eclipse Theia](https://img.shields.io/github/package-json/dependency-version/en-gen/hackbench/@theia/core?filename=theia%2Felectron-app%2Fpackage.json&label=theia&logo=eclipseide)](./theia/electron-app/package.json)
+[![Electron](https://img.shields.io/github/package-json/dependency-version/en-gen/hackbench/dev/electron?filename=theia%2Felectron-app%2Fpackage.json&logo=electron)](./theia/electron-app/package.json)
+[![Vitest](https://img.shields.io/github/package-json/dependency-version/en-gen/hackbench/dev/vitest?logo=vitest)](./package.json)
+[![Playwright](https://img.shields.io/github/package-json/dependency-version/en-gen/hackbench/dev/@playwright/test?label=playwright&logo=playwright)](./package.json)
 
 HackBench opens a Super Mario World ROM and lets you browse and edit
 what is inside it: maps, palettes, graphics and music, with an emulator
