@@ -74,6 +74,10 @@ function runFilingCheck(rom: RomFile): string | null {
       w[B] = b
       w[0x4000] = d
       const before = w.slice()
+      // Entering at the game's own caller (LevLoadExtObj) puts the dispatcher, ExecutePtrLong and the
+      // table on the run's path, so a diverted jump, a return or a moved table shows up as wrong WRAM,
+      // a refused instruction or a budget overrun instead of needing bytes stated here to catch it
+      // (exception 4, .claude/rules/rom-interpretation.md).
       const r = callSubroutine(cpu, LOADER_ENTRY, { kind: 'jsr', maxSteps: BUDGET })
       if (r.kind !== 'returned') return describeResult(r, BUDGET) ?? r.kind
       const x = a & 0x1f
