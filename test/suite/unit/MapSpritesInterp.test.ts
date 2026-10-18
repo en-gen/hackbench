@@ -417,67 +417,67 @@ describe('drawSprites with the interpreter', () => {
 /** Row `map:id@x,y` -> verdict, served anchor, digest of the interpreter's part keys (see `pinned`). One machine, vanilla. */
 // prettier-ignore
 const PINNED_ROWS: Record<string, string> = {
-  '106:5@432,320': 'same 432,320 75b102da23',
-  '106:5@448,320': 'same 448,320 75b102da23',
-  '106:5@464,320': 'same 464,320 75b102da23',
-  '106:5@480,320': 'same 480,320 75b102da23',
-  '106:5@496,320': 'same 496,320 75b102da23',
-  '106:5@512,320': 'same 512,320 75b102da23',
-  '106:5@528,320': 'same 528,320 75b102da23',
-  '106:5@544,320': 'same 544,320 75b102da23',
-  '106:1@1344,368': 'same 1344,368 55d7cd9a11',
-  '106:0@1696,368': 'same 1696,368 23dda30666',
+  '106:5@432,320': 'differ 432,320 b22d0ee5c2',
+  '106:5@448,320': 'differ 448,320 b22d0ee5c2',
+  '106:5@464,320': 'differ 464,320 b22d0ee5c2',
+  '106:5@480,320': 'differ 480,320 b22d0ee5c2',
+  '106:5@496,320': 'differ 496,320 b22d0ee5c2',
+  '106:5@512,320': 'differ 512,320 b22d0ee5c2',
+  '106:5@528,320': 'differ 528,320 b22d0ee5c2',
+  '106:5@544,320': 'differ 544,320 b22d0ee5c2',
+  '106:1@1344,368': 'differ 1344,368 6951c25a07',
+  '106:0@1696,368': 'differ 1696,368 2fc532f004',
   '106:4e@3088,304': 'same 3088,304 a890101608',
   '106:4e@3168,352': 'same 3168,352 a890101608',
   '106:4e@3424,320': 'same 3424,320 a890101608',
   '106:4d@3760,368': 'interp-miss - -',
   '106:4d@3952,368': 'same 3952,368 e53dc0877b',
-  '8:2@128,304': 'differ 128,304 5c1daaa53f',
-  '8:5@224,368': 'differ 224,368 73a3e6fff4',
-  '8:5@288,368': 'differ 288,368 73a3e6fff4',
-  '8:5@352,368': 'differ 352,368 73a3e6fff4',
-  '8:5@416,368': 'differ 416,368 73a3e6fff4',
-  '8:5@480,368': 'differ 480,368 73a3e6fff4',
-  '8:5@544,368': 'differ 544,368 73a3e6fff4',
-  '8:5@608,368': 'differ 608,368 73a3e6fff4',
-  '8:5@672,368': 'differ 672,368 73a3e6fff4',
-  '11b:3@144,368': 'differ 144,368 c2c726401e',
-  '11b:4@208,368': 'differ 208,368 023e282179',
-  '11b:5@272,368': 'differ 272,368 73a3e6fff4',
-  '11b:6@336,368': 'differ 336,368 b4e706d4df',
-  '11b:4@400,368': 'differ 400,368 023e282179',
-  '11b:5@464,368': 'differ 464,368 73a3e6fff4',
-  '11b:6@528,368': 'differ 528,368 b4e706d4df',
-  '11b:4@592,368': 'differ 592,368 023e282179',
-  '11b:5@656,368': 'differ 656,368 73a3e6fff4',
-  '6:3@320,368': 'same 320,368 8db4314a8a',
-  '6:f@528,368': 'same 528,368 b3ff82ca7b',
-  '6:5@624,368': 'same 624,368 75b102da23',
-  '6:6@768,368': 'same 768,368 7ea5a3a536',
-  '6:6@880,368': 'same 880,368 7ea5a3a536',
-  '6:5@1488,272': 'differ 1488,272 07f6cc95bd',
-  '6:f@1552,368': 'same 1552,368 b3ff82ca7b',
-  '6:f@1584,368': 'same 1584,368 b3ff82ca7b',
-  '6:6@1600,288': 'same 1600,288 7ea5a3a536',
-  '6:f@1616,368': 'same 1616,368 b3ff82ca7b',
-  '6:f@1648,368': 'same 1648,368 b3ff82ca7b',
-  '6:f@1680,368': 'same 1680,368 b3ff82ca7b',
-  '1c2:11@224,304': 'differ 224,304 ece1e9ea01',
-  '1c2:11@272,304': 'differ 272,304 ece1e9ea01',
-  '1c2:11@416,352': 'differ 416,352 ece1e9ea01',
-  '1c2:11@560,288': 'differ 560,288 ece1e9ea01',
-  '1c2:11@976,352': 'differ 976,352 ece1e9ea01',
-  '1:13@2720,240': 'differ 2720,240 29a7dadd44',
-  '1:13@3312,320': 'differ 3312,320 29a7dadd44',
-  '1:13@3376,352': 'differ 3376,352 29a7dadd44',
-  '1:13@3728,368': 'differ 3728,368 29a7dadd44',
-  '1:13@3744,368': 'differ 3744,368 29a7dadd44',
-  '1:13@3760,368': 'differ 3760,368 29a7dadd44',
-  '1:13@3776,368': 'differ 3776,368 29a7dadd44',
-  '1:13@3792,368': 'differ 3792,368 29a7dadd44',
-  '1:13@3808,368': 'differ 3808,368 29a7dadd44',
-  '1:13@3824,368': 'differ 3824,368 29a7dadd44',
-  '1:13@3840,368': 'differ 3840,368 29a7dadd44',
+  '8:2@128,304': 'differ 128,304 04b11889df',
+  '8:5@224,368': 'differ 224,368 b22d0ee5c2',
+  '8:5@288,368': 'differ 288,368 b22d0ee5c2',
+  '8:5@352,368': 'differ 352,368 b22d0ee5c2',
+  '8:5@416,368': 'differ 416,368 b22d0ee5c2',
+  '8:5@480,368': 'differ 480,368 b22d0ee5c2',
+  '8:5@544,368': 'differ 544,368 b22d0ee5c2',
+  '8:5@608,368': 'differ 608,368 b22d0ee5c2',
+  '8:5@672,368': 'differ 672,368 b22d0ee5c2',
+  '11b:3@144,368': 'differ 144,368 13bbc993fd',
+  '11b:4@208,368': 'differ 208,368 b3ce336c62',
+  '11b:5@272,368': 'differ 272,368 b22d0ee5c2',
+  '11b:6@336,368': 'differ 336,368 3f3031ad20',
+  '11b:4@400,368': 'differ 400,368 b3ce336c62',
+  '11b:5@464,368': 'differ 464,368 b22d0ee5c2',
+  '11b:6@528,368': 'differ 528,368 3f3031ad20',
+  '11b:4@592,368': 'differ 592,368 b3ce336c62',
+  '11b:5@656,368': 'differ 656,368 b22d0ee5c2',
+  '6:3@320,368': 'differ 320,368 13bbc993fd',
+  '6:f@528,368': 'differ 528,368 fd1e01dda3',
+  '6:5@624,368': 'differ 624,368 b22d0ee5c2',
+  '6:6@768,368': 'differ 768,368 3f3031ad20',
+  '6:6@880,368': 'differ 880,368 3f3031ad20',
+  '6:5@1488,272': 'differ 1488,272 cad23cc7dc',
+  '6:f@1552,368': 'differ 1552,368 fd1e01dda3',
+  '6:f@1584,368': 'differ 1584,368 fd1e01dda3',
+  '6:6@1600,288': 'differ 1600,288 3f3031ad20',
+  '6:f@1616,368': 'differ 1616,368 fd1e01dda3',
+  '6:f@1648,368': 'differ 1648,368 fd1e01dda3',
+  '6:f@1680,368': 'differ 1680,368 fd1e01dda3',
+  '1c2:11@224,304': 'differ 224,304 dbc6b7d040',
+  '1c2:11@272,304': 'differ 272,304 dbc6b7d040',
+  '1c2:11@416,352': 'differ 416,352 dbc6b7d040',
+  '1c2:11@560,288': 'differ 560,288 dbc6b7d040',
+  '1c2:11@976,352': 'differ 976,352 dbc6b7d040',
+  '1:13@2720,240': 'differ 2720,240 40b4f2c62f',
+  '1:13@3312,320': 'differ 3312,320 40b4f2c62f',
+  '1:13@3376,352': 'differ 3376,352 40b4f2c62f',
+  '1:13@3728,368': 'differ 3728,368 40b4f2c62f',
+  '1:13@3744,368': 'differ 3744,368 40b4f2c62f',
+  '1:13@3760,368': 'differ 3760,368 40b4f2c62f',
+  '1:13@3776,368': 'differ 3776,368 40b4f2c62f',
+  '1:13@3792,368': 'differ 3792,368 40b4f2c62f',
+  '1:13@3808,368': 'differ 3808,368 40b4f2c62f',
+  '1:13@3824,368': 'differ 3824,368 40b4f2c62f',
+  '1:13@3840,368': 'differ 3840,368 40b4f2c62f',
   '11c:1f@352,336': 'differ 352,336 9c12455c79',
 }
 
@@ -487,14 +487,14 @@ const PINNED_ROWS: Record<string, string> = {
  * draws no tile for in 64 passes ($4D).
  */
 const EXPECTED: Record<string, Record<string, number>> = {
-  $00: { same: 1 },
-  $01: { same: 1 },
+  $00: { differ: 1 },
+  $01: { differ: 1 },
   $02: { differ: 1 },
-  $03: { differ: 1, same: 1 },
+  $03: { differ: 2 },
   $04: { differ: 3 },
-  $05: { same: 9, differ: 12 },
-  $06: { differ: 2, same: 3 },
-  $0F: { same: 6 },
+  $05: { differ: 21 },
+  $06: { differ: 5 },
+  $0F: { differ: 6 },
   $11: { differ: 5 },
   $13: { differ: 11 },
   $1F: { differ: 1 },
@@ -675,15 +675,15 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     }
   })
 
-  it('$4F on $105 is served at its stream position plus (8, -1): INIT moved it, not a table', () => {
+  it('$4F on $105 is served at its stream position: INIT (+8, -1) does not run at rest (D134)', () => {
     const b = bytes()
     const r = mapSprites(new L1ModelCache(), b, romPath(VANILLA), 0x105)
     if (r.status !== 'ok') throw new Error(JSON.stringify(r))
     const rom = new SmwRom(RomFile.fromBytes('x.sfc', Buffer.from(b)))
     const raw = parseLevelSprites(rom.rom.readUpTo(rom.getLevelSpritePointer(0x105)!, 0x200)!, false).filter(s => s.spriteId === 0x4f) // prettier-ignore
     const served = r.sprites.filter(s => s.id === 0x4f)
-    expect(served.map(s => [s.x, s.y])).toEqual([[1816, 335], [2232, 319], [4552, 319]]) // prettier-ignore
-    expect(served.map(s => [s.x, s.y])).toEqual(raw.map(s => [s.x * 16 + 8, s.y * 16 - 1]))
+    expect(served.map(s => [s.x, s.y])).toEqual([[1808, 336], [2224, 320], [4544, 320]]) // prettier-ignore
+    expect(served.map(s => [s.x, s.y])).toEqual(raw.map(s => [s.x * 16, s.y * 16]))
     expect(served.every(s => s.status === 'drawn')).toBe(true)
   })
 
@@ -752,10 +752,10 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
       expect(r.sprites.some(s => s.unverified)).toBe(false)
       return [r.sprites.filter(s => s.status === 'drawn').length, r.sprites.length]
     })
-    // +1 on $105 and +3 on $106: the stationary shells ($DA-$DD, $DF) draw since #837.
+    // +1 on $105 and +3 on $106: the stationary shells ($DA-$DD, $DF) draw since #837; -1 on $106: $3E draws nothing without its INIT (D134).
     expect(got).toEqual([
       [32, 34],
-      [24, 25],
+      [23, 25],
     ])
   })
 })

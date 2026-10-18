@@ -18,10 +18,10 @@
  * (auto-scroll, generators, layer control): their real treatment is deferred.
  *
  * THE SERVED PATH IS THE INTERPRETER (#585): `interpDrawer` runs the sprite's
- * own INIT and MAIN from the ROM on the 65816 core (src/rom/sprites/interp/)
- * and draws the first pass that puts a tile in OAM, at the anchor INIT left
- * (a Piranha Plant's +8 / -1, InitPiranha, SMWDisX bank_01.asm:880-889, comes
- * from running it, not from a table). The table engine (`engineDrawer`) stays
+ * own MAIN from the ROM on the 65816 core (src/rom/sprites/interp/)
+ * and draws the first pass that puts a tile in OAM, at the PLACED spot: INIT
+ * does not run at rest (D134), so a Piranha Plant's +8 / -1 (InitPiranha,
+ * SMWDisX bank_01.asm:880-889) waits for play/simulate. The table engine (`engineDrawer`) stays
  * as the comparison oracle of step 3 and goes in step 4. Seeds are generic:
  * the ROM-run level loader's WRAM, Mario at the level's start, the camera
  * placed so the sprite is on screen. The colors the sprite's own code wrote to
@@ -442,7 +442,8 @@ export function interpRunner(
   rom: RomFile,
   index: number,
   model: { isVertical: boolean; screenCount: number },
-  run: (rom: RomFile, id: number, seed: SpriteSeed) => RunModel = runOnce,
+  // The map view's picture is a sprite at rest (D134): placed spot, MAIN only, INIT left for play/simulate.
+  run: (rom: RomFile, id: number, seed: SpriteSeed) => RunModel = (r, i, sd) => runOnce(r, i, sd, { init: false }), // prettier-ignore
   seedFor: (rom: RomFile, index: number) => SpriteSeed = levelSeed,
   ringRoutines: RingRoutines = VANILLA_RING_ROUTINES,
 ): (sprite: LevelSprite) => SpriteRun {
@@ -732,7 +733,7 @@ function compute(
     if (!data) return { status: 'unavailable', reason: `No sprite data at the pointer for slot ${index.toString(16)}` } // prettier-ignore
     // The level loader runs once; the sprites and the castle flames both start from its image.
     const base = levelSeed(rom.rom, index)
-    const draw = interpDrawer(rom.rom, index, model, runOnce, () => base)
+    const draw = interpDrawer(rom.rom, index, model, undefined, () => base)
     const dynamic = dynamicOf(rom.rom)
     const layer = spriteLayer(data, model, draw, dynamic)
     const stream = parseLevelSprites(data, model.isVertical)
@@ -834,7 +835,7 @@ export function mapSpriteFrames(
     // Extra bits fail closed in the map view; there is nothing to animate either.
     if ((s.raw[0] ?? 0) & EXTRA_BITS) return { status: 'ok', frames: [], reason: 'extraBits' }
     const base = levelSeed(rom.rom, index)
-    const run = interpRunner(rom.rom, index, model, runOnce, () => base)(s)
+    const run = interpRunner(rom.rom, index, model, undefined, () => base)(s)
     return { status: 'ok', ...framesOf(run, s, model, dynamicOf(rom.rom)) }
   } catch (err) {
     return { status: 'unavailable', reason: (err as Error).message }
