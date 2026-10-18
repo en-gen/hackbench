@@ -31,7 +31,7 @@ const rom = buildSyntheticRom()
 
 describe('sprite loop reader', () => {
   it('resolves the setup and HandleSprite addresses from the loop itself', () => {
-    expect(resolveLoop(rom)).toEqual({ ok: true, setup: 0x0180d2, handle: 0x018127 })
+    expect(resolveLoop(rom)).toEqual({ ok: true, setup: 0x0180e0, handle: 0x018127 })
   })
   it('refuses a loop whose countdown matches more than once', () => {
     const dup = buildSyntheticRom({ dupLoop: true })
@@ -51,7 +51,7 @@ describe('sprite loop reader', () => {
 describe('dispatch reader', () => {
   it('reads both table bases from the dispatch code', () => {
     const t = resolveTables(rom)
-    expect(t).toEqual({ ok: true, tables: { initTable: 0x01817b, mainTable: 0x018329 } })
+    expect(t).toEqual({ ok: true, tables: { initTable: 0x01817c, mainTable: 0x018329 } })
   })
   it('refuses a HandleSprite that is not the known shape', () => {
     const t = resolveTables(buildSyntheticRom({ badDispatch: true }))
@@ -59,7 +59,7 @@ describe('dispatch reader', () => {
   })
   it('refuses dispatch calls that do not reach one 16-bit ExecutePtr', () => {
     const t = resolveTables(buildSyntheticRom({ badExecutePtr: true }))
-    expect(t).toMatchObject({ ok: false, reason: expect.stringMatching(/same routine/) })
+    expect(t).toMatchObject({ ok: false, reason: expect.stringMatching(/CallSpriteInit is not/) })
     // Agreeing calls into a routine of another shape (here, a RTS) are refused too.
     const rts = buildSyntheticRom()
     rts.writeAt(0x0086fa, [0x60])
@@ -456,9 +456,25 @@ describe.skipIf(!hasRom(VANILLA))('vanilla', () => {
     const m = runSprite(freshRom(), 0x4f, withSeed({ sprite: { x: 2096, y: 352 } }))
     expect(m.anchor).toMatchObject({ x: 2104, y: 351 })
   })
-  it('refuses ids past the table, completing none of $C9-$FF', () => {
+  it('the stationary shell $DB (sprite $05) on map $135 at 3184,240 draws 1 part (#837)', () => {
     const r = freshRom()
-    for (let id = 0xc9; id < 0x100; id++) expect(runSprite(r, id).refusal).toBeDefined()
+    const lvl = loadLevelState(r, 0x135)
+    if (!lvl.ok) throw new Error(lvl.reason)
+    const m = runSprite(
+      r,
+      0xdb,
+      withSeed({ loaded: lvl.wram, sprite: { x: 3184, y: 240 }, camera: { x: 3072, y: 128 }, mario: { x: 3184, y: 240 } }), // prettier-ignore
+    )
+    expect(m.refusal).toBeUndefined()
+    // The first pass that draws, as the map view picks it (a shell has no INIT pass before MAIN).
+    expect(m.passes.find(p => p.parts.length > 0)?.parts).toHaveLength(1)
+  })
+  it('refuses ids past the table, completing none of $C9-$FF but the stationary shells', () => {
+    const r = freshRom()
+    for (let id = 0xc9; id < 0x100; id++)
+      expect(runSprite(r, id).refusal === undefined, `$${id.toString(16)}`).toBe(
+        [0xda, 0xdb, 0xdc, 0xdd, 0xdf].includes(id),
+      )
   })
 })
 

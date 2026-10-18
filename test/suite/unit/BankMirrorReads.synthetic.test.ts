@@ -7,7 +7,7 @@ import { jslTarget } from '../../../src/rom/GfxDecompressor'
 import { le24 } from '../../../src/rom/bytes'
 import { loromToOffset, mirror } from '../../../src/rom/addressing'
 import { resolveTables } from '../../../src/rom/sprites/interp/SpriteDispatch'
-import { buildSyntheticRom } from '../support/syntheticSpriteRom'
+import { buildSyntheticRom, SYNTHETIC_EXECUTE_PTR_CODE } from '../support/syntheticSpriteRom'
 
 const romWith = (at: number, bytes: number[]): RomFile => {
   const buf = new Uint8Array(0x8000 * 4)
@@ -44,13 +44,13 @@ describe('#704 inline bank masks', () => {
     const buf = Buffer.alloc(0x400000, 0)
     buf.set(src, 0)
     const at = (snes: number): number => loromToOffset(snes, 0x400000)!
-    const execBytes = src.subarray(at(0x0086fa), at(0x0086fa) + 27)
+    const execBytes = src.subarray(at(0x0086fa), at(0x0086fa) + SYNTHETIC_EXECUTE_PTR_CODE.length)
     const putJsl = (operand: number, t: number): void => {
       buf.set([t & 0xff, (t >> 8) & 0xff, t >>> 16], at(operand))
     }
-    // HandleSprite +13, CallSpriteInit +8, CallSpriteMain +6 (the fixture's JSL operands).
+    // HandleSprite +13, CallSpriteInit +9, CallSpriteMain +6 (the fixture's JSL operands).
     putJsl(0x018127 + 13, target(0))
-    putJsl(0x018170 + 8, target(1))
+    putJsl(0x018170 + 9, target(1))
     putJsl(0x018320 + 6, target(2))
     for (const n of [0, 1, 2] as const) {
       const t = target(n)

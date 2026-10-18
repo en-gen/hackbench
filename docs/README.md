@@ -11,7 +11,7 @@ on Eclipse Theia and Electron.
 | understand how it is put together      | [architecture/overview.md](architecture/overview.md)                                     |
 | know what a word means here            | [glossary.md](glossary.md)                                                               |
 | contribute                             | [codebase map](architecture/codebase-map.md), then [CONTRIBUTING.md](../CONTRIBUTING.md) |
-| know the house rules for docs         | [CONVENTIONS.md](CONVENTIONS.md)                                                         |
+| know the house rules for docs          | [CONVENTIONS.md](CONVENTIONS.md)                                                         |
 
 ## Current state
 
@@ -89,6 +89,8 @@ cited to the disassembly.
   compositor pass list
 - [rom/map-data-mechanics.md](rom/map-data-mechanics.md) - how maps grow,
   relocate and share pointers; sprite-stream limits; acts-like
+- [rom/enterable-pipes-and-doors.md](rom/enterable-pipes-and-doors.md) - which tiles
+  are enterable pipes and doors, and which screen exit they use
 - [rom/block-contents.md](rom/block-contents.md) - what each item block
   ($111-$12D) holds, by X column and game state
 
@@ -137,6 +139,10 @@ Designs agreed before implementation, dated and kept as written.
 
 - [superpowers/specs/](superpowers/specs/) - accepted designs
 - [superpowers/plans/](superpowers/plans/) - the implementation plans from them
+
+## Designs
+
+- [design/](design/) - UI designs the owner has picked, before the build issue
 
 ## Mockups
 

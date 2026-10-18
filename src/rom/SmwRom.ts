@@ -26,7 +26,7 @@
  */
 
 import { RomFile } from './RomFile'
-import { parseLevelObjects } from './LevelParser'
+import { parseLevelObjects, readableScreenExits } from './LevelParser'
 import { levelNameForSlot } from './SmwLevelNames'
 import { deriveOverworldEntrances, type OverworldEntranceIndex } from './OverworldEntrances'
 import {
@@ -106,6 +106,8 @@ export interface LevelExitGraph {
   unavailable: string | null
   /** Every way into each real map the walk reaches, edges the graph drops included. Absent when unavailable. */
   entrances?: Map<number, MapEntrances>
+  /** Real maps whose layer 1 stream was not read to its $FF: their screen exits are dropped and may be missing (#788). Ascending; absent when unavailable. */
+  unreadableMaps?: number[]
 }
 
 /**
@@ -487,6 +489,8 @@ export class SmwRom {
     // Parse every level's screen-exit objects once. Resolution is deferred
     // to the BFS below because it needs each level's submap flag, which is
     // only known once the BFS actually reaches that level.
+    const unreadableMaps: number[] = []
+    const realMapSet = new Set(realMaps)
     const exitsByLevel = new Map<number, Array<{ isSecondary: boolean; rawByte: number }>>()
     for (let levelIdx = 0; levelIdx < LEVEL_COUNT; levelIdx++) {
       const rawL1 = this.getLevelRawData(levelIdx)
@@ -500,7 +504,9 @@ export class SmwRom {
       } catch {
         continue
       }
-      const exits = parsed.objects.filter(o => o.screenExitDest !== undefined)
+      const exits = readableScreenExits(parsed)
+      // Every unterminated real map, exit-shaped objects or not: once the walk desyncs, finding none says nothing.
+      if (!parsed.terminated && realMapSet.has(levelIdx)) unreadableMaps.push(levelIdx)
       const isSecondary = mapUsesSecondaryExits(exits)
       const specs = exits.map(o => ({
         isSecondary,
@@ -572,7 +578,7 @@ export class SmwRom {
     }
     for (const e of entrances.values()) e.secondary.sort((a, b) => a - b)
 
-    return { graph, unavailable: null, entrances }
+    return { graph, unavailable: null, entrances, unreadableMaps }
   }
 
   /** Name for `index`, from the overworld walk's own entrances, not a bias
