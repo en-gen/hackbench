@@ -28,17 +28,50 @@ const SECONDARY = 0x1b93
 /** Where the test stream lives: WRAM bank $7E, clear of every address above. */
 const STREAM = 0x7e4000
 const BUDGET = 200
-/** The extended-object dispatcher's SEP and its JSL ExecutePtrLong (bank_0D.asm:1056-1060): one opcode byte each, compared singly. */
-export const DISPATCH_SEP_AT = 0x0da106
-export const DISPATCH_JSL_AT = 0x0da10b
-const SEP = 0xe2
-const JSL = 0x22
 /** SEP #$30 (bank_0D.asm:1057): A, X and Y 8-bit. The handler is entered with the P that this sets. */
 const SEP_IMM_AXY8 = 0x30
 /** P after the reset the game's code runs under ($34: IRQ off), with the dispatcher's SEP applied. */
 const P_BASE = 0x34
-/** ExecutePtrLong (bank_00.asm:864, SMW_U.sym $0086FA); the FastROM mirror bank $80 is the same code. */
-const EXECUTE_PTR_LONG = 0x0086fa
+const DISPATCH_JSL_AT = 0x0da10b
+
+interface PathStep {
+  at: number
+  /** One instruction: opcode and operands, each compared to the ROM singly. */
+  bytes: readonly number[]
+  what: string
+  /** Index of a bank byte, compared with bit 7 masked: a FastROM mirror is the same bank. */
+  bankAt?: number
+}
+
+/**
+ * Every instruction from the level loader's choice of the extended branch to the JSL that indexes
+ * the handler table, in execution order (SMWDisX bank_05.asm:794-802, bank_0D.asm:1051-1060;
+ * ExecutePtrLong bank_00.asm:864, SMW_U.sym $0086FA). Not read, and why: the code before the LDA
+ * at $0586C5 only sets loader state, and a change there skips or repeats the whole object load,
+ * not this handler; ExecutePtrLong's own body is shared by every dispatch in the game and is
+ * reached only through the checked JSL target; the JMP/RTS after each return run after the
+ * handler. A byte that diverts earlier is a byte in this list.
+ */
+const DISPATCH_PATH: readonly PathStep[] = [
+  { at: 0x0586c5, bytes: [0xa5, 0x5a], what: 'LDA LvlLoadObjNo, the extended-object test' },
+  { at: 0x0586c7, bytes: [0xd0, 0x06], what: 'BNE past the extended branch' },
+  { at: 0x0586c9, bytes: [0x20, 0xe3, 0x86], what: 'JSR LevLoadExtObj' },
+  { at: 0x0586e3, bytes: [0xe2, 0x30], what: 'LevLoadExtObj SEP #$30' },
+  { at: 0x0586e5, bytes: [0x22, 0x00, 0xa1, 0x0d], what: 'JSL CODE_0DA100', bankAt: 3 },
+  { at: 0x0da100, bytes: [0xe2, 0x30], what: 'CODE_0DA100 SEP #$30' },
+  { at: 0x0da102, bytes: [0x20, 0x06, 0xa1], what: 'JSR CODE_0DA106' },
+  { at: 0x0da105, bytes: [0x6b], what: 'RTL' },
+  { at: 0x0da106, bytes: [0xe2, SEP_IMM_AXY8], what: 'the dispatcher SEP #$30 (8-bit registers)' },
+  { at: 0x0da108, bytes: [0xa5, 0x59], what: 'LDA LvlLoadObjSize, the extended number' },
+  { at: 0x0da10a, bytes: [0xaa], what: 'TAX, the table index' },
+  {
+    at: DISPATCH_JSL_AT,
+    bytes: [0x22, 0xfa, 0x86, 0x00],
+    what: 'JSL ExecutePtrLong, the routine that reads the handler table',
+    bankAt: 3,
+  },
+]
+
 const SENTINEL = 0xee
 
 // Screen field with its high bits set (masked by $1F), flags in every combination, extra byte values.
@@ -63,19 +96,17 @@ export function screenExitFilingMismatch(rom: RomFile): string | null {
 function runFilingCheck(rom: RomFile): string | null {
   const entry = readLongPointer(rom, ADDR_EXTENDED_DISPATCH)
   if (entry === null) return 'the extended-object dispatch is unreadable'
-  // The table is three-byte entries only if the dispatcher still JSLs ExecutePtrLong with the table right after it.
-  const shape =
-    rom.readByte(DISPATCH_SEP_AT) === SEP &&
-    rom.readByte(DISPATCH_JSL_AT) === JSL &&
-    DISPATCH_JSL_AT + 4 === ADDR_EXTENDED_DISPATCH
-  if (!shape) return 'the extended-object dispatch is not the long-pointer call this check reads'
-  const imm = rom.readByte(DISPATCH_SEP_AT + 1)
-  if (imm !== SEP_IMM_AXY8)
-    return 'the extended-object dispatch no longer starts with SEP #$30, so the handler would run in a different register mode'
-  const target = rom.readAt(DISPATCH_JSL_AT + 1, 3)
-  const callee = target ? target[0]! | (target[1]! << 8) | ((target[2]! & 0x7f) << 16) : -1
-  if (callee !== EXECUTE_PTR_LONG)
-    return 'the extended-object dispatch calls a different routine than the long-pointer jump this check reads'
+  // The table is three-byte entries only if the path above ends in the JSL with the table right after it.
+  if (DISPATCH_JSL_AT + 4 !== ADDR_EXTENDED_DISPATCH)
+    return 'the extended-object dispatch table is not where the JSL leaves it'
+  for (const step of DISPATCH_PATH) {
+    const got = rom.readAt(step.at, step.bytes.length)
+    for (let i = 0; i < step.bytes.length; i++) {
+      const bank = i === step.bankAt
+      if (!got || (bank ? got[i]! & 0x7f : got[i]) !== step.bytes[i])
+        return `the extended-object dispatch path differs at $${hex6(step.at + i)}: ${step.what}, so this check cannot tell which handler runs`
+    }
+  }
   if (romByte(rom, entry) === null)
     return `the extended-object $00 entry $${hex6(entry)} is not in the ROM image`
   try {
@@ -92,7 +123,7 @@ function runFilingCheck(rom: RomFile): string | null {
       const r = callSubroutine(cpu, entry, {
         kind: 'jsr',
         maxSteps: BUDGET,
-        regs: { p: P_BASE | imm },
+        regs: { p: P_BASE | SEP_IMM_AXY8 },
       })
       if (r.kind !== 'returned') return describeResult(r, BUDGET) ?? r.kind
       const x = a & 0x1f

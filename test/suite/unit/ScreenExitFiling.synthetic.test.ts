@@ -5,14 +5,12 @@
  */
 import { describe, expect, it } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
-import {
-  DISPATCH_JSL_AT,
-  DISPATCH_SEP_AT,
-  screenExitFilingMismatch,
-} from '../../../src/rom/ScreenExitFiling'
-import { SCREEN_EXIT_FILING_CODE } from '../support/syntheticRom'
+import { screenExitFilingMismatch } from '../../../src/rom/ScreenExitFiling'
+import { DISPATCH_PATH_PLANT, SCREEN_EXIT_FILING_CODE } from '../support/syntheticRom'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
 
+const DISPATCH_SEP_AT = 0x0da106
+const DISPATCH_JSL_AT = 0x0da10b
 const DISPATCH = 0x0d * 0x8000 + 0x210f
 const HANDLER = 0x0d * 0x8000 + 0x3000 // $0DB000, off the stock address on purpose
 
@@ -24,16 +22,13 @@ const at = (...seq: number[]): number => {
   return i
 }
 
-/** File offset of a bank $0D address in this LoROM image. */
-const off0d = (snes: number): number => 0x0d * 0x8000 + (snes & 0x7fff)
+/** File offset of a LoROM address in this image. */
+const off = (snes: number): number => ((snes >> 16) & 0x7f) * 0x8000 + (snes & 0x7fff)
 
 function rom(code: number[], dispatchTo = 0x0db000): RomFile {
   const bytes = new Uint8Array(0x100000)
   bytes[0x7fd5] = 0x20
-  bytes[off0d(DISPATCH_SEP_AT)] = 0xe2 // SEP, the dispatcher's first opcode
-  bytes[off0d(DISPATCH_SEP_AT) + 1] = 0x30 // SEP #$30: A, X, Y 8-bit
-  bytes[off0d(DISPATCH_JSL_AT)] = 0x22 // JSL ExecutePtrLong, whose table follows
-  bytes.set([0xfa, 0x86, 0x00], off0d(DISPATCH_JSL_AT) + 1) // its target
+  for (const [addr, b] of DISPATCH_PATH_PLANT) bytes.set(b, off(addr))
   bytes.set([dispatchTo & 0xff, (dispatchTo >> 8) & 0xff, dispatchTo >> 16], DISPATCH)
   bytes.set(code, HANDLER)
   return RomFile.fromBytes('filing.sfc', bytes)
@@ -124,6 +119,21 @@ describe('screenExitFilingMismatch (#957)', () => {
     expect(screenExitFilingMismatch(r)).toBeNull()
     r.writeAt(HANDLER, [0x60]) // a real edit bumps the version and the handler now files nothing
     expect(screenExitFilingMismatch(r)).toMatch(/Screen exits/)
+  })
+  it('refuses a changed byte at every instruction on the path into the dispatch', () => {
+    for (const [addr, plant] of DISPATCH_PATH_PLANT) {
+      for (let i = 0; i < plant.length; i++) {
+        const r = rom(FILING)
+        r.writeAt(addr + i, [plant[i]! ^ 0x01])
+        const at = `$${(addr + i).toString(16).toUpperCase().padStart(6, '0')}`
+        expect(screenExitFilingMismatch(r), at).toContain(`differs at ${at}`)
+      }
+    }
+  })
+  it('refuses a JMP planted over the dispatcher TAX, before the checked JSL', () => {
+    const r = rom(FILING)
+    r.writeAt(0x0da10a, [0x4c])
+    expect(screenExitFilingMismatch(r)).toMatch(/dispatch.*differs at \$0DA10A/)
   })
   it('reports the step budget when the handler spins', () => {
     expect(screenExitFilingMismatch(rom([0x80, 0xfe]))).toMatch(/budget|steps/i)
