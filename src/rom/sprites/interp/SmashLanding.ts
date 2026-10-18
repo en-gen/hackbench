@@ -22,7 +22,7 @@
 import { callSubroutine, describe, Refusal } from '../../cpu/call'
 import { OW_ADDR } from '../../OverworldLoader'
 import type { RomFile } from '../../RomFile'
-import { loadLevelState } from './LevelLoader'
+import { loadLevelState, RNG_CALC } from './LevelLoader'
 import { smwMachine } from './Machine'
 import { ENTRY } from './SpriteDispatch'
 
@@ -34,13 +34,12 @@ export const FIRST_LANDING_SCHEDULE = [
   'sprite pass 2',
 ] as const
 
-export const SMASH_SPRITE_ID = 0x89
+const SMASH_SPRITE_ID = 0x89
 /** The start-up sweep CODE_02ACA1 (bank_02.asm:5876): a JSR entry, DB 2 as its bank. */
 const SWEEP = 0x02aca1
 const STEP_CAP = 400_000
 const LDA_IMM = 0xa9
-/** WRAM cells (rammap.asm): RNGCalc, the 12 slots' status and number, XLow, XHigh, Layer3XPos/YPos ($22/$24). */
-const RNG = 0x148b
+/** WRAM cells (rammap.asm): the 12 slots' status and number, XLow, XHigh, Layer3XPos/YPos ($22/$24). */
 const STATUS = 0x14c8
 const NUMBER = 0x9e
 const L3_POS = 0x22
@@ -55,7 +54,7 @@ export interface LandingSteps {
   smash(rom: RomFile, wram: Uint8Array): Landing | null | string
 }
 
-const rngOf = (w: Uint8Array) => w[RNG]! | (w[RNG + 1]! << 8)
+const rngOf = (w: Uint8Array) => w[RNG_CALC]! | (w[RNG_CALC + 1]! << 8)
 
 /** The title map: the operand of the LDA at GM03LoadTitleScreen, decoded as CODE_05D8A2 does (bank_05.asm:7216-7222). */
 function titleMap(rom: RomFile): number | string {

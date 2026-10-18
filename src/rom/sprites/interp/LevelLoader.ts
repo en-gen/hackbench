@@ -88,6 +88,9 @@ export function loaderShapeProblem(rom: RomFile): string | null {
   return null
 }
 
+/** RNGCalc (rammap.asm), the 16-bit GetRand state. */
+export const RNG_CALC = 0x148b
+
 /**
  * The 128 KB WRAM after the ROM has loaded `level` (the 9-bit level number, e.g.
  * 0x105). RNGCalc ($148B/C) starts at `rng` (power-on zero) and is left as the loader's
@@ -99,8 +102,8 @@ export function loadLevelState(rom: RomFile, level: number, rng = 0): LevelLoad 
   const { bus, cpu } = smwMachine(rom)
   const w = bus.wram
   // RNGCalc ($148B/C) as an earlier load left it: the loader calls GetRand (SmashLanding.ts).
-  w[0x148b] = rng & 0xff
-  w[0x148c] = rng >> 8
+  w[RNG_CALC] = rng & 0xff
+  w[RNG_CALC + 1] = rng >> 8
   // SublevelCount ($141A) nonzero is a sublevel entry: it skips the
   // overworld-only intro branches that would overwrite the sprite memory setting.
   w[0x141a] = 1
