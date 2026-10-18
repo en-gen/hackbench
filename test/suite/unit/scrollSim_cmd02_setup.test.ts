@@ -104,10 +104,10 @@ const LEVELS: readonly { id: string; expectedL1Type: number; expectedL1Timer: nu
   { id: '1cf', expectedL1Type: 0x10, expectedL1Timer: 0x40 },
 ]
 
-describe.skipIf(!vanillaRomPresent)('scrollSim - cmd $02 setup body validation', () => {
+describe('scrollSim - cmd $02 setup body validation', () => {
   for (const lvl of LEVELS) {
     const csv = `${FIXTURES}/${lvl.id}/l2_scroll.csv`
-    describe.skipIf(!fs.existsSync(csv))(`$${lvl.id.toUpperCase()}`, () => {
+    describe.skipIf(!vanillaRomPresent || !fs.existsSync(csv))(`$${lvl.id.toUpperCase()}`, () => {
       it('post-setup state matches capture row 1', () => {
         const cap = loadCapture(csv)
         const sim = simFromCapture(cap[0])

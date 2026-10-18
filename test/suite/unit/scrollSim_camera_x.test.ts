@@ -37,11 +37,11 @@ const FIXTURES = MESEN_FIXTURES_DIR
 
 const LEVELS = ['01a', '111', '1cf'] as const
 
-describe.skipIf(!vanillaRomPresent)('scrollSim - Mario-X camera tracking (horizontal)', () => {
+describe('scrollSim - Mario-X camera tracking (horizontal)', () => {
   for (const id of LEVELS) {
     const csv = `${FIXTURES}/${id}/l2_scroll.csv`
 
-    describe.skipIf(!fs.existsSync(csv))(`$${id.toUpperCase()}`, () => {
+    describe.skipIf(!vanillaRomPresent || !fs.existsSync(csv))(`$${id.toUpperCase()}`, () => {
       it('nl1x matches capture column-for-column (camera driven by marioX)', () => {
         const cap = loadCapture(csv)
         // horizLayer1Setting: 1 enables camera tracking; marioWalkRate: 0

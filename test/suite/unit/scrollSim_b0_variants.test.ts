@@ -83,31 +83,34 @@ function activeFields(exclude: readonly FieldKey[]): readonly FieldKey[] {
   return ALL_FIELDS.filter(f => !exclude.includes(f))
 }
 
-describe.skipIf(!vanillaRomPresent)('scrollSim - b0-variant captures (cmd $03 / cmd $08)', () => {
+describe('scrollSim - b0-variant captures (cmd $03 / cmd $08)', () => {
   for (const v of VARIANTS) {
     const csv = `${FIXTURES}/${v.level}/l2_scroll.csv`
 
-    describe.skipIf(!fs.existsSync(csv))(`$${v.level.toUpperCase()} (cmd $${v.cmd})`, () => {
-      it('frame 1 matches post-setup state', () => {
-        const cap = loadCapture(csv)
-        const sim = simFromCapture(cap[0])
-        const m = firstMismatch(sim.stateAtFrame(0), cap[0])
-        if (m !== null) console.warn(`[$${v.level}] post-setup mismatch: ${m}`)
-        expect(m).toBe(null)
-      })
+    describe.skipIf(!vanillaRomPresent || !fs.existsSync(csv))(
+      `$${v.level.toUpperCase()} (cmd $${v.cmd})`,
+      () => {
+        it('frame 1 matches post-setup state', () => {
+          const cap = loadCapture(csv)
+          const sim = simFromCapture(cap[0])
+          const m = firstMismatch(sim.stateAtFrame(0), cap[0])
+          if (m !== null) console.warn(`[$${v.level}] post-setup mismatch: ${m}`)
+          expect(m).toBe(null)
+        })
 
-      it('cmd oscillation matches every active captured frame', () => {
-        const cap = loadCapture(csv)
-        const sim = simFromCapture(cap[0])
-        const fields = activeFields(v.excludeFields)
-        const active = detectActiveFrames(cap)
-        for (let r = 1; r <= active; r++) {
-          const m = firstMismatch(sim.stateAtFrame(r - 1), cap[r - 1], fields)
-          if (m !== null) {
-            throw new Error(`Mismatch at row ${r}/${active}: ${m}`)
+        it('cmd oscillation matches every active captured frame', () => {
+          const cap = loadCapture(csv)
+          const sim = simFromCapture(cap[0])
+          const fields = activeFields(v.excludeFields)
+          const active = detectActiveFrames(cap)
+          for (let r = 1; r <= active; r++) {
+            const m = firstMismatch(sim.stateAtFrame(r - 1), cap[r - 1], fields)
+            if (m !== null) {
+              throw new Error(`Mismatch at row ${r}/${active}: ${m}`)
+            }
           }
-        }
-      })
-    })
+        })
+      },
+    )
   }
 })

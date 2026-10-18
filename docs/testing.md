@@ -261,6 +261,14 @@ Reading the corpus INSIDE a case body stays fine: the case exists either
 way. Put a tripwire on the listing so it cannot pass vacuously, as
 `Map16.tileCount.test.ts` does with `expect(carts.length).toBeGreaterThan(0)`.
 
+Nest no `describe.skipIf` inside a suite that is itself `skipIf`: when the
+outer suite skips, the inner tests end `pending`, and the summary line counts
+`pending` as neither passed nor skipped, so the totals no longer add up. Put
+every condition on ONE `describe.skipIf` (`!romPresent || !fs.existsSync(csv)`)
+and leave the outer suite a plain `describe`. Evidence: vitest ^5.0.3,
+2026-10-18, a synthetic probe (nested gave `pending`, flat gave `skipped`);
+27 scrollSim capture tests showed it before this change.
+
 ## Writing new tests
 
 Order of preference, highest to lowest:
