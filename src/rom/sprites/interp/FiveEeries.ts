@@ -33,8 +33,7 @@ import {
 } from './SpriteRunner'
 import type { SpriteSeed } from './SpriteSeed'
 
-/** Load5Eeries, and the Wave Eerie it spawns. */
-export const LOAD_5_EERIES = 0x02af9d
+/** The Wave Eerie the spawner makes. */
 const SPAWNED_SPRITE = 0x39
 const SPAWNER_LENGTH = 97
 /**
@@ -44,22 +43,25 @@ const SPAWNER_LENGTH = 97
  * (the $DE compare, the JSR opcode and its operand, $03), so 29.
  */
 const PATH_SPANS = [
+  // Loader route: why needed: it is what makes a $DE entry reach the spawner (compare, branch, call, return to the loop).
   { at: 0x02a88c, length: 16 },
+  // SubHorzPosBnk2: why needed: it picks each Eerie's X speed by Mario's side, so it decides which way they face.
   { at: 0x02848d, length: 18 },
 ]
 export const EERIES_PATH = 'the loader route or the horizontal distance routine'
-/** The opcode of a JSR; the only literal byte read here, to find the call's operand. */
-const JSR = 0x20
+/** The opcode of a JSR, compared on its own (never inside a stored byte array) to find the call's operand. */
+const OP_JSR = 0x20
 /** The loader's `JSR Load5Eeries` (bank_02.asm:5318): its opcode, and the operand that names the spawner. */
 const LOADER_CALL = 0x02a895
 
 /**
  * The spawner the loader calls: the JSR operand at $02:A895 (bank 2), what the ROM holds, so a repointed call runs the
- * routine it names. With no JSR there (the call was replaced) the vanilla entry runs; the route check names it (D52).
+ * routine it names. With no JSR there the call was replaced and there is no spawner to name: null, never a vanilla
+ * address (the caller refuses in plain words).
  */
-export function spawnerEntry(rom: RomFile): number {
+export function spawnerEntry(rom: RomFile): number | null {
   const call = bytesAt(rom, LOADER_CALL, 3)
-  return call?.[0] === JSR ? 0x020000 | call[1]! | (call[2]! << 8) : LOAD_5_EERIES
+  return call?.[0] === OP_JSR ? 0x020000 | call[1]! | (call[2]! << 8) : null
 }
 
 /** How many Eeries Load5Eeries tries to spawn (the loop from 4 down to 0, bank_02.asm:6278-6313). */
@@ -124,7 +126,9 @@ export function eeriesGate(
   const path = PATH_SPANS.flatMap(sp => bytes(sp.at, sp.length))
   // A failed read shortens the span, so it can never hash to the vanilla digest.
   if (spanFingerprint(Uint8Array.from(path)) !== routines.path) out.push(EERIES_PATH)
-  if (spanFingerprint(Uint8Array.from(bytes(spawnerEntry(rom), SPAWNER_LENGTH))) !== routines.spawner) out.push('the Eerie spawner') // prettier-ignore
+  // With no JSR at the call there is no spawner to hash; the path digest above already names the changed call.
+  const entry = spawnerEntry(rom)
+  if (entry !== null && spanFingerprint(Uint8Array.from(bytes(entry, SPAWNER_LENGTH))) !== routines.spawner) out.push('the Eerie spawner') // prettier-ignore
   return out
 }
 
@@ -143,12 +147,15 @@ export function fiveEeries(
   run: (rom: RomFile, id: number, seed: SpriteSeed, opts?: RunOptions) => SpriteModel = runOnce,
 ): EeriesResult {
   const unverified = eeriesGate(rom, routines)
+  const routine = spawnerEntry(rom)
+  if (routine === null)
+    return { ok: false, reason: 'the loader no longer calls a spawner for the five Eeries (no JSR where it called one), so there is nothing to run', unverified } // prettier-ignore
   const inputs = { 0x00: e.x & 0xff, 0x01: (e.x >> 8) & 0xff, 0x02: e.index, 0x03: e.streamOffset }
   const placed: PlacedEerie[] = []
   let why = ''
   let missing = 0
   for (let n = 0; n < EERIES; n++) {
-    const m = run(rom, SPAWNED_SPRITE, { ...seed, mainPasses: passes }, { spawn: { inputs, routine: spawnerEntry(rom), nth: n } }) // prettier-ignore
+    const m = run(rom, SPAWNED_SPRITE, { ...seed, mainPasses: passes }, { spawn: { inputs, routine, nth: n } }) // prettier-ignore
     if (m.refusal?.startsWith(SPAWN_SHORT)) {
       missing++
       continue

@@ -144,7 +144,7 @@ describe('the spawn frame (D137): no travel', () => {
   const travelling = (run?: Run) => shape(fiveEeries(cart({ eeries: { travel: true } }), seed(), entry, SYN, 1, run)) // prettier-ignore
 
   it('the fixture Eerie really moves: its drawn pass is not at its spawn spot (so the checks below can fail)', () => {
-    const m = runOnce(cart({ eeries: { travel: true } }), 0x39, seed(), { spawn: { inputs: { 0: 832 & 0xff, 1: 832 >> 8, 2: 9, 3: 0 }, routine: spawnerEntry(cart()), nth: 2 } }) // prettier-ignore
+    const m = runOnce(cart({ eeries: { travel: true } }), 0x39, seed(), { spawn: { inputs: { 0: 832 & 0xff, 1: 832 >> 8, 2: 9, 3: 0 }, routine: spawnerEntry(cart())!, nth: 2 } }) // prettier-ignore
     expect(m.spawnPos).toEqual({ x: 832, y: 368 })
     expect(m.passes[0]!.pos).not.toEqual(m.spawnPos)
   })
@@ -184,13 +184,17 @@ describe('the spawner the loader calls', () => {
     expect(spawnerEntry(repointed())).toBe(0x02b100)
   })
 
-  it('is the vanilla entry, flagged, when the loader no longer has a JSR there (D52: drawn, not blanked)', () => {
+  it('refuses, in plain words, when the loader no longer has a JSR there: no vanilla address is run in its place', () => {
     const rom = cart()
     rom.writeAt(JSR_AT, [0x4c]) // a jump in place of the call
-    const r = fiveEeries(rom, seed(), entry, SYN)
-    if (!r.ok) throw new Error(r.reason)
-    expect(r.eeries).toHaveLength(5)
-    expect(r.unverified).toEqual([PATH])
+    expect(spawnerEntry(rom)).toBeNull()
+    const ran: unknown[] = []
+    const run: Run = (r, id, s, o) => (ran.push(o), runOnce(r, id, s, o))
+    const r = fiveEeries(rom, seed(), entry, SYN, 1, run)
+    expect(r.ok).toBe(false)
+    expect(!r.ok && r.reason).toBe('the loader no longer calls a spawner for the five Eeries (no JSR where it called one), so there is nothing to run') // prettier-ignore
+    expect(!r.ok && r.unverified).toEqual([PATH])
+    expect(ran, 'no spawner was run, vanilla or otherwise').toEqual([])
   })
 })
 
