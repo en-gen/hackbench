@@ -28,11 +28,15 @@ import {
   overrideDefaultMode7Fingerprints,
 } from '../../../src/rom/Mode7Gfx'
 import {
-  HELPER,
+  ALT_HELPER,
   SYNTH_MODE7_FINGERPRINTS,
+  UNPACK_MASK,
   callSiteBytes,
+  helperBytes,
+  type HelperShape,
   unpackBytes,
 } from '../support/syntheticMode7'
+import { spanFingerprint } from '../../../src/rom/SubmapFlagGate'
 import {
   decodeGfxSheet,
   decodeTiles,
@@ -58,6 +62,7 @@ interface Layout {
   fileIndex?: number
   loopCount?: number
   callTarget?: number
+  helperShape?: HelperShape
 }
 
 /** Writes the vanilla-shaped trio into one LoROM bank. */
@@ -73,7 +78,7 @@ function writeMode7Load(rom: RomFile, layout: Layout = {}): void {
   } = layout
   const at = (addr: number): number => (bank << 16) | addr
   rom.writeAt(at(routine), unpackBytes(fileIndex, loopCount, helper))
-  rom.writeAt(at(helper), HELPER)
+  rom.writeAt(at(helper), helperBytes(layout.helperShape))
   rom.writeAt(at(caller), callSiteBytes(callTarget))
 }
 
@@ -96,18 +101,15 @@ const UNREADABLE = [{ fileIndex: 0x27, byteLength: null, reason: expect.any(Stri
 
 /**
  * Every byte position except the operands the resolver is meant to read,
- * listed here from the ASM and NOT derived from Mode7Gfx's patterns: an
- * oracle read off the implementation loses a position the moment the
- * implementation wildcards it.
+ * listed here from the ASM and NOT derived from Mode7Gfx's mask: an oracle
+ * read off the implementation loses a position the moment the implementation
+ * wildcards it.
  */
 const allBut = (length: number, operands: number[]): number[] =>
   Array.from({ length }, (_, i) => i).filter(i => !operands.includes(i))
 const JSR_OPERANDS = [19, 20, 27, 28, 59, 60, 67, 68, 99, 100, 107, 108]
 // LDY #file, JSL long, LDX #count, then the six JSR operands.
 const UNPACK_PINNED = allBut(unpackBytes(0, 0, 0).length, [1, 3, 4, 5, 12, 13, ...JSR_OPERANDS])
-const HELPER_PINNED = allBut(HELPER.length, [])
-// JSR operand, STA abs,X operand.
-const CALL_PINNED = allBut(callSiteBytes(0).length, [3, 4, 10, 11])
 
 describe('findMode7GfxFiles', () => {
   it('reads the file index and byte length from the operands', () => {
@@ -136,7 +138,7 @@ describe('findMode7GfxFiles', () => {
 
   it('names nothing when the routine is absent', () => {
     const rom = makeRom()
-    rom.writeAt(HELPER_AT, HELPER)
+    rom.writeAt(HELPER_AT, helperBytes())
     rom.writeAt(CALLER, callSiteBytes(ROUTINE & 0xffff))
     expect(find(rom)).toEqual([])
   })
@@ -156,38 +158,73 @@ describe('findMode7GfxFiles', () => {
     ])
   })
 
-  it('claims the file as unreadable for every pinned byte of the unpack loop', () => {
-    // Past the opening, any edit means the packing is no longer known. Each
-    // position is its own planted defect: wildcarding any one of them in the
-    // pattern leaves exactly one of these unkilled.
-    for (const i of UNPACK_PINNED.filter(i => i >= 18)) {
+  it('names nothing for every pinned byte of the routine, the opening included', () => {
+    // One fingerprint covers all 118 bytes: each position is its own planted
+    // defect, and wildcarding any one in the mask leaves exactly one unkilled.
+    for (const i of UNPACK_PINNED) {
       const rom = vanillaShaped()
       flip(rom, ROUTINE + i)
-      expect(find(rom), `offset ${i}`).toEqual(UNREADABLE)
+      expect(find(rom), `offset ${i}`).toEqual([])
     }
   })
 
-  it('never reads a length when a pinned byte of the opening changes', () => {
-    for (const i of UNPACK_PINNED.filter(i => i < 18)) {
-      const rom = vanillaShaped()
-      flip(rom, ROUTINE + i)
-      expect(
-        find(rom).every(f => f.byteLength === null),
-        `offset ${i}`,
-      ).toBe(true)
+  it('claims the file as unreadable for a helper that does not shift three bits out', () => {
+    const wrong: [string, HelperShape][] = [
+      ['two shifts of the input', { asls: 2 }],
+      ['four shifts of the input', { asls: 4 }],
+      ['a pixel two bits wide', { lsrs: 6 }],
+      ['a pixel four bits wide', { lsrs: 4 }],
+      ['a store to another byte', { strayStore: 0x20 }],
+      ['no return', { hang: true }],
+      ['a long return', { rtl: true }],
+    ]
+    for (const [what, helperShape] of wrong) {
+      const rom = makeRom()
+      writeMode7Load(rom, { helperShape })
+      expect(find(rom), what).toEqual(UNREADABLE)
     }
   })
 
-  it('claims the file as unreadable for every pinned byte of the helper', () => {
-    for (const i of HELPER_PINNED) {
-      const rom = vanillaShaped()
-      flip(rom, HELPER_AT + i)
-      expect(find(rom), `offset ${i}`).toEqual(UNREADABLE)
-    }
+  it('accepts a differently written helper that has the same effect', () => {
+    // Shifts are by three either way; a hash of the stock bytes could not say so.
+    const rom = makeRom()
+    writeMode7Load(rom)
+    rom.writeAt(HELPER_AT, ALT_HELPER)
+    expect(find(rom)).toEqual([{ fileIndex: 0x27, byteLength: 0xc00 }])
   })
 
-  it('claims the file as unreadable for every pinned byte of the call site', () => {
-    for (const i of CALL_PINNED) {
+  it('reads the helper from the byte numbers the routine names, not from fixed ones', () => {
+    // The routine's STA / LDA operands point at bytes the helper does not use.
+    const rom = makeRom()
+    rom.writeAt(ROUTINE, unpackBytes(0x27, 0x03ff, HELPER_AT, { input: 0x40, output: 0x41 }))
+    rom.writeAt(HELPER_AT, helperBytes())
+    rom.writeAt(CALLER, callSiteBytes(ROUTINE))
+    const fps = {
+      unpack: [
+        spanFingerprint(
+          Uint8Array.from(unpackBytes(0, 0, 0, { input: 0x40, output: 0x41 })),
+          UNPACK_MASK,
+        )!,
+      ],
+    }
+    expect(findMode7GfxFiles(rom, fps)).toEqual(UNREADABLE)
+  })
+
+  it('claims the file as unreadable when the routine does not store then load its pixel', () => {
+    const rom = makeRom()
+    const bytes = unpackBytes(0x27, 0x03ff, HELPER_AT)
+    bytes[21] = 0xad // LDA absolute, not direct: the output byte cannot be read
+    rom.writeAt(ROUTINE, bytes)
+    rom.writeAt(HELPER_AT, helperBytes())
+    rom.writeAt(CALLER, callSiteBytes(ROUTINE))
+    const variant = Uint8Array.from(bytes.map((v, i) => (UNPACK_MASK.includes(i) ? 0 : v)))
+    const fps = { unpack: [spanFingerprint(variant)!] }
+    expect(findMode7GfxFiles(rom, fps)).toEqual(UNREADABLE)
+  })
+
+  it('claims the file as unreadable for every byte of the call site that makes it a call', () => {
+    // BEQ, its distance, JSR, and both operand bytes.
+    for (const i of [0, 1, 2, 3, 4]) {
       const rom = vanillaShaped()
       flip(rom, CALLER + i)
       expect(find(rom), `offset ${i}`).toEqual(UNREADABLE)
@@ -218,7 +255,7 @@ describe('findMode7GfxFiles', () => {
 
   it('claims the file as unreadable when the call site is in another bank', () => {
     const rom = vanillaShaped()
-    rom.writeAt(CALLER, new Array(12).fill(0xea))
+    rom.writeAt(CALLER, new Array(8).fill(0xea))
     rom.writeAt(0x018000, callSiteBytes(ROUTINE & 0xffff))
     expect(find(rom)).toEqual(UNREADABLE)
   })
@@ -227,7 +264,7 @@ describe('findMode7GfxFiles', () => {
     const buf = Buffer.alloc(0x100000, 0x00)
     buf[0xffd5] = 0x21 // HiROM
     buf.set(unpackBytes(0x27, 0x03ff, 0xabc4), 0x2b42)
-    buf.set(HELPER, 0x2bc4)
+    buf.set(helperBytes(), 0x2bc4)
     buf.set(callSiteBytes(0xab42), 0x2a5b)
     expect(find(new RomFile('hirom.smc', buf))).toEqual(UNREADABLE)
   })
@@ -236,17 +273,8 @@ describe('findMode7GfxFiles', () => {
     expect(findMode7GfxFiles(vanillaShaped())).toEqual([])
   })
 
-  it('refuses code the stock fingerprints do not recognize, and says so in plain words', () => {
-    // The synthetic routine is not the game's: with only its opening accepted,
-    // the stock unpack fingerprint refuses it.
-    const fps = { ...STOCK_MODE7_FINGERPRINTS, opening: SYNTH_MODE7_FINGERPRINTS.opening }
-    const [file] = findMode7GfxFiles(vanillaShaped(), fps)
-    expect(file).toMatchObject({ fileIndex: 0x27, byteLength: null })
-    expect(file!.reason).toMatch(/not a recognized build/)
-  })
-
   it('holds well-formed stock fingerprints that are not the synthetic ones', () => {
-    for (const key of ['opening', 'unpack', 'helper', 'call'] as const) {
+    for (const key of ['unpack'] as const) {
       const stock = STOCK_MODE7_FINGERPRINTS[key]
       expect(stock, key).toHaveLength(1)
       expect(stock[0], key).toMatch(/^[0-9a-f]{64}$/)

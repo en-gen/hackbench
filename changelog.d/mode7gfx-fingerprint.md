@@ -1,3 +1,3 @@
 ### Changed
 
-- The Mode 7 graphics reader recognizes the game's unpack routine, helper and call site by SHA-256 fingerprint instead of storing their code bytes. Behavior on the stock ROM and on the hacks is unchanged; changed code is still refused (the file is reported unavailable, as before).
+- The Mode 7 graphics reader recognizes the game's unpack routine by one SHA-256 fingerprint over the whole routine instead of storing its code bytes. The bit-shifting helper is now checked by running it, and the call site by its structure. On the stock ROM and the five hacks the result is unchanged; a hack that edits the unpack routine itself is no longer claimed as unavailable and is read as ordinary graphics.
