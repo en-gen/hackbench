@@ -94,7 +94,7 @@ export interface SyntheticOptions {
    * (inputs in $00-$03, the sprite data through $CE, up to five slots out), its tables, a slot search over `room` slots
    * (default 12), and a sprite $39 whose tile is its X speed. `stream` is the sprite list the data pointer reaches.
    */
-  eeries?: { stream?: number[]; spacing?: number[]; room?: number }
+  eeries?: { stream?: number[]; spacing?: number[]; room?: number; travel?: boolean }
 }
 
 const BANK = 0x8000

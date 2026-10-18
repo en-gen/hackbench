@@ -25,11 +25,10 @@ export const SYNTHETIC_OFFSETS = Object.freeze([-0x28, -0x14, 0, 0x14, 0x28])
 export const SYNTHETIC_SPEEDS = Object.freeze({ marioRight: 0x18, marioLeft: 0xe8 })
 /** The fixture's default list: one entry, data byte $71 (Y $170), column 4 of screen 3. */
 export const EERIES_DEFAULT_STREAM = Object.freeze([0x71, 0x43, 0xde, 0xff])
-/** The gate's fingerprints of the fixture's own spawner (97 bytes), distance routine (18) and route (12). */
+/** The gate's fingerprints of the fixture's own spawner (97 bytes) and of its route (16) with the distance routine (18), one digest. */
 export const SYNTHETIC_EERIES_ROUTINES = Object.freeze({
   spawner: '4d2a8762f4befd476d4aebc53608dc16810e50e05ca9d236901d5379f1c91c52',
-  horzPos: 'c79ebc0d75b79074d5e2d6b1823c26397b672762e9badcb987761236c9e42dbb',
-  route: 'c312018be40e9835358374403cb5718453dfb9cb6fbc6fb2b5d89e0c9bcb438c',
+  path: '06d7f7b5c61e580f6983546001299a4d3124cc6ef654c1ef9807c206111e20c6',
 })
 
 /** A loaded level image with Mario at `marioX` and SpriteDataPtr ($CE-$D0) at the fixture's list; `extra` adds camera, mario or sprite. */
@@ -91,7 +90,14 @@ export function putEeries(
 ): void {
   // The loader's call site: the base cart already has the compare and branch in front (4 bytes); then filler, then the
   // JSR the production code reads its target from.
-  put(ROUTE_AT + 4, [...new Array<number>(5).fill(0xea), 0x20, lo(SPAWNER_AT), hi(SPAWNER_AT)])
+  // Then filler to the end of the 16 bytes the gate hashes.
+  put(ROUTE_AT + 4, [
+    ...new Array<number>(5).fill(0xea),
+    0x20,
+    lo(SPAWNER_AT),
+    hi(SPAWNER_AT),
+    ...new Array<number>(4).fill(0xea),
+  ])
   // The distance routine: Y = 1 when Mario is left of the sprite (a borrow comparing X positions), else 0.
   put(
     DISTANCE_AT,
@@ -122,6 +128,8 @@ export function putEeries(
   // drawn piece. Attribute and tile first, then Y and X relative to the camera, then the size bit.
   // prettier-ignore
   put(EERIE_HANDLER, [
+    // `travel`: the fixture's Eerie moves before it draws, as the game's does: X right 3 and Y down 5 a frame.
+    ...(e.travel ? [0xb5, 0xe4, 0x18, 0x69, 0x03, 0x95, 0xe4, 0x90, 0x03, 0xfe, 0xe0, 0x14, 0xb5, 0xd8, 0x18, 0x69, 0x05, 0x95, 0xd8] : []),
     0xbc, 0xea, 0x15, 0x98, 0x4a, 0x4a, 0x48, 0xa9, 0x0a, ...abs3(0x99, 0x0303), 0xb5, 0xb6, ...abs3(0x99, 0x0302),
     0x38, 0xb5, 0xd8, 0xe5, 0x1c, ...abs3(0x99, 0x0301), 0x38, 0xb5, 0xe4, 0xe5, 0x1a, ...abs3(0x99, 0x0300),
     0xfa, 0xa9, 0x02, ...abs3(0x9d, 0x0460), 0x60,

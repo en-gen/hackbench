@@ -145,6 +145,8 @@ export interface SpriteModel {
   initFrames?: number
   /** $15EA after INIT: the OAM base the cart assigned. */
   oamBase?: number
+  /** A spawn run: where the spawn code left the picked sprite, before any frame ran (D137: what a spawner's child is drawn at). */
+  spawnPos?: { x: number; y: number }
   passes: PassResult[]
   /**
    * The frame policy: index of the first pass at or after INIT that draws at
@@ -530,6 +532,7 @@ export function runOnce(
       // From here the sprite is wherever the game put it.
       m.seed.slot = picked
       w[RAM.curSprite] = picked
+      model.spawnPos = m.pos()
     } else m.call(ENTRY.initSpriteTables, 'jsl')
     let n = m.steps
     // Status 1 -> CallSpriteInit, which sets status 8 and runs INIT. An INIT

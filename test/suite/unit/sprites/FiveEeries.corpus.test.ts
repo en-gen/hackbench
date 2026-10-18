@@ -66,14 +66,13 @@ describe.skipIf(!hasRom(VANILLA))('sprite $DE, vanilla ROM', () => {
         expect(res.notes).toEqual([])
         expect(res.spawned).toBe(count)
         expect(res.eeries).toHaveLength(count)
-        // Each is -32 -16 0 16 32 from the entry, moved 2 px by the runner's two MAIN runs of a 1 px/frame Eerie;
-        // the missing one of a four-slot range is the last spawn, -32.
+        // D137: each sits where the spawner put it, -32 -16 0 16 32 from the entry (the missing one of a four-slot
+        // range is the last spawn, -32), at the data byte's Y: no travel.
         const want = [-32, -16, 0, 16, 32].slice(5 - count)
-        expect(res.eeries.map((q, k) => Math.abs(q.x - x - want[k]!))).toEqual(want.map(() => 2))
-        // Y is the data byte's, plus the wave: within 5 px of it, either way.
+        expect(res.eeries.map(q => q.x - x)).toEqual(want)
         const dataY = (entry.raw[0]! & 0xf0) | ((entry.raw[0]! & 1) << 8)
         expect(dataY).toBe(y)
-        expect(res.eeries.every(q => Math.abs(q.y - dataY) <= 5)).toBe(true)
+        expect(res.eeries.map(q => q.y)).toEqual(want.map(() => dataY))
       }
     },
   )
