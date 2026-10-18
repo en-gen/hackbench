@@ -547,9 +547,9 @@ export function runOnce(
       m.seed.slot = picked
       w[RAM.curSprite] = picked
       model.spawnPos = m.pos()
-      // A spawn leaves the status it chose: only status 1 runs INIT, so a status-8 sprite has no frame before pass 0
-      // (a frame there would move it before it is first drawn).
-      runsInit = w[RAM.status + picked] === 1
+      // An own spawner leaves the status it chose: only status 1 runs INIT, so a status-8 sprite has no frame before pass 0
+      // (a frame there would move it before it is first drawn). The block path is as it always was.
+      if (own !== undefined) runsInit = w[RAM.status + picked] === 1
     } else m.call(ENTRY.initSpriteTables, 'jsl')
     let n = m.steps
     // Status 1 -> CallSpriteInit, which sets status 8 and runs INIT. An INIT
