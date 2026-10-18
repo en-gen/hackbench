@@ -455,6 +455,8 @@ function platformsResult(
   routines: PlatformRoutines,
 ): SpriteDrawResult {
   if (vertical) return { ok: false, reason: 'the three platforms are not drawn in a vertical map: the game takes their X from the wrong axis there' } // prettier-ignore
+  // The spawner reads its data byte through SpriteDataPtr, which only the ROM-run loader's image sets.
+  if (!seed.loaded) return { ok: false, reason: `the three platforms need the level loader's image: ${seed.loadRefusal ?? 'no level image was given'}` } // prettier-ignore
   const [x, y] = [pixelX(s), s.y * TILE]
   const r = threePlatforms(
     rom,

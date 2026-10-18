@@ -99,6 +99,8 @@ describe.skipIf(!hasRom(VANILLA))('sprite $E0, vanilla ROM', () => {
         expect(s.note).toBeUndefined()
         // The group spans a chain's length either side: far bigger than the 16 x 16 placeholder.
         expect(s.box.x1 - s.box.x0).toBeGreaterThan(64)
+        // Spawn-frame positions (D137): the same box from the placement for every one, to the pixel.
+        expect([s.box.x0 - s.x, s.box.y0 - s.y, s.box.x1 - s.x, s.box.y1 - s.y]).toEqual([-57, -25, 74, 64]) // prettier-ignore
       }
     }
     // The 24 $A3 placed directly (22 on $023, 2 on $135) are drawn as themselves, one 48 x 48 platform each.

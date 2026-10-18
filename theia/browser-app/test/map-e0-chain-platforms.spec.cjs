@@ -6,12 +6,13 @@
  * placeholder. Checked from the RPC reply and the composite:
  * - seven $E0 sprites at the documented pixel positions, status 'drawn' (not 'placeholder'), no `unverified` and no
  *   `note` (a note reading "Only N of the 3 platforms appear" would mean fewer than three spawned);
- * - the first one's pixel box is 131 wide and 89-90 tall, the group of three platforms and their chains, far above 16 x 16;
+ * - every one's pixel box is exactly (-57,-25)..(+74,+64) from its placement (131 x 89), the platforms at their spawn-frame offsets;
  * - its opaque pixels show in the composite of screen 1, and the sprite toggle (S) takes them out.
  * NOT covered: the pixels against hardware (no capture); hovering or selecting the sprite (#981). The platform COUNT
  * itself is pinned by test/suite/unit/sprites/ThreePlatforms.corpus.test.ts (spawned === 3); the reply carries no parts.
  * Plants for the verifier (each must turn the spec red; restore after):
  * - map-sprites.ts `interpDrawer`: remove the line that routes $E0 to `platformsResult`: the placeholder returns;
+ * - SpawnedChildren.ts: set SpriteLock to 0 (the travel frame returns): boxes shift 1-2 px by placement and the box assertion fails;
  * - the ROM: plant a 1 in the spawner's count immediate in the ROM the spec loads (not PLATFORM_COUNT, which draws one
  *   platform and shows no note): the box shrinks and the note appears.
  */
@@ -132,10 +133,16 @@ test('the $E0 placements of map $135 are seven drawn sprites of three chain plat
     expect(s.note, 'all three platforms spawned').toBeUndefined()
     expect(s.box.x1 - s.box.x0, `entry ${s.index} is wider than a 16 px placeholder`).toBeGreaterThan(64) // prettier-ignore
   }
-  // The first group: three platforms and their chains, 131 wide and 89-90 tall (sweep table in the doc).
+  // Spawn-frame positions, no travel (D137): the group's box is the union of the three platforms and their chains at the
+  // offsets the spawner put them (vanilla sweep, one machine, derived from the ROM's code: platform parts span
+  // x -57..58 and y -25..48 from the placement, 16 px pieces), so every placement has the SAME box relative to its
+  // spot, to the pixel. A frame of travel would move the platforms 1-2 px by bit 4 of the placement X and break this.
+  // The reply carries no parts, so the box edges are the only position it exposes; per-platform offsets are pinned by
+  // ThreePlatforms.corpus.test.ts.
+  for (const e of e0) {
+    expect([e.box.x0 - e.x, e.box.y0 - e.y, e.box.x1 - e.x, e.box.y1 - e.y], `entry ${e.index} box from its spot`).toEqual([-57, -25, 74, 64]) // prettier-ignore
+  }
   const s = e0[0]
-  expect(s.box.x1 - s.box.x0).toBe(131)
-  expect([89, 90]).toContain(s.box.y1 - s.box.y0)
 
   // x 368 is on screen 1 (256..511); only the pixels inside that screen are compared.
   await openMap(page, 1)

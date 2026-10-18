@@ -54,6 +54,17 @@ describe('sprite $E0 on the map', () => {
     expect(!r.ok && 'reason' in r && r.reason).toMatch(/not drawn in a vertical map/)
   })
 
+  it('is refused, with the reason, when the level loader gave no image: SpriteDataPtr was never set', () => {
+    const noImage = () => {
+      const seed = eeriesSeed(100)
+      delete seed.loaded
+      return { ...seed, loadRefusal: 'loader entry moved' }
+    }
+    const r = interpDrawer(platformCart(), 0x21, model, runOnce, noImage, undefined, undefined, SYNTHETIC_PLATFORM_ROUTINES as never)(entry) // prettier-ignore
+    expect(r.ok).toBe(false)
+    expect(!r.ok && 'reason' in r && r.reason).toMatch(/level loader's image: loader entry moved/)
+  })
+
   it('draws a changed spawner and says so (D52), never blank', () => {
     const rom = platformCart()
     rom.writeAt(SPAWNER_AT + 80, [0x02]) // the count's immediate, 3 -> 2: two platforms, and the hash differs
