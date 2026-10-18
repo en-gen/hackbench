@@ -39,6 +39,7 @@ function cart(code: number[] = FILING, ...patches: [number, number[]][]): RomFil
   for (const [addr, b] of patches) bytes.set(b, off(addr))
   return RomFile.fromBytes('filing.sfc', bytes)
 }
+/** The reference handler with the bytes at `index` replaced by `to`: one planted defect. */
 const edit = (index: number, ...to: number[]): number[] => {
   const c = [...FILING]
   c.splice(index, to.length, ...to)

@@ -348,6 +348,7 @@ describe('SmwRom.buildLevelExitGraph', () => {
   // later exit object for a screen overwrites the earlier one (#957).
   describe('last exit written per screen wins (#957)', () => {
     const MAPS = [0x050, 0x051, 0x060, 0x061]
+    /** A map with the given exit objects and four real destination maps, as a built exit graph. */
     const build = (exits: number[]) => {
       const rom = make4MbRom()
       setL1Ptr(rom, 0x010, 0x068000)

@@ -132,6 +132,7 @@ export const SCREEN_EXIT_LOADER_PLANT: readonly [addr: number, bytes: readonly n
   ],
   [0x0da110, [0x00, 0xb0, 0x0d]], // entry 0 -> SCREEN_EXIT_HANDLER_AT
 ]
+/** Writes the synthetic load path and handler into `rom`; skipped on an image too short to hold those banks. */
 export function plantScreenExitFiling(rom: RomFile): void {
   try {
     for (const [addr, bytes] of SCREEN_EXIT_LOADER_PLANT) rom.writeAt(addr, [...bytes])

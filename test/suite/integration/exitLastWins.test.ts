@@ -25,7 +25,7 @@ function sweep(rawOf: (slot: number) => Uint8Array | null | undefined) {
   return { affected, slotsRead, exitObjects }
 }
 
-// A screen-exit object on `screen` to the primary destination `dest`.
+/** A screen-exit object on `screen` to the primary destination `dest`. */
 const exit = (screen: number, dest: number) => [screen, 0x01, 0x00, dest]
 
 describe('exit last-write-wins sweep oracle (#957)', () => {

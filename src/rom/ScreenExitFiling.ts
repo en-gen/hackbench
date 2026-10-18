@@ -63,10 +63,12 @@ export function screenExitFilingMismatch(rom: RomFile): string | null {
   return cachedByVersion(FILING_CACHE, rom, () => runFilingCheck(rom))
 }
 
+/** The uncached check: seeds the loader's inputs, runs the extended-object load path, and judges the WRAM it leaves. */
 function runFilingCheck(rom: RomFile): string | null {
   try {
     const { bus, cpu } = smwMachine(rom)
     const w = bus.wram
+    /** One handler run for an (_A, _B, byte) exit; null when WRAM holds exactly what a per-screen filing leaves, else the reason. */
     const run = (a: number, b: number, d: number): string | null => {
       w[PTR] = STREAM & 0xff
       w[PTR + 1] = (STREAM >> 8) & 0xff
