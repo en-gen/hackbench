@@ -9,6 +9,8 @@ import {
   PATH_SRC,
   T,
   WARP_SRC,
+  call,
+  callAt,
   inBank,
   pathDst,
   pathSrc,
@@ -147,7 +149,7 @@ describe('deriveOverworldAreas, synthetic ROMs (no corpus needed)', () => {
 
   it('an area of $80 or more is invalid even inside a long camera table: the index wraps', () => {
     const rom = stub()
-    setWord(rom, 'camera', 12, 0xa06b + 0x120) // 144 entries
+    setWord(rom, 'camera', OP.camY, 0xa06b + 0x120) // 144 entries
     pathDst(rom, 13, 0x83) // record 13 is live: its source is area 3
     pathSrc(rom, 12, 0x84) // a source of $84 is dead
     pathDst(rom, 12, 0x85)
@@ -158,7 +160,7 @@ describe('deriveOverworldAreas, synthetic ROMs (no corpus needed)', () => {
 
   it('a JSL to the $84 mirror of CODE_04853B is the same call', () => {
     const rom = stub()
-    setByte(rom, 'jsl', 8, 0x84)
+    call(rom, 'jsl', low4('dest'), 0x84)
     expect(areasOf(deriveOverworldAreas(rom))).toEqual(ALL)
   })
 
@@ -166,7 +168,7 @@ describe('deriveOverworldAreas, synthetic ROMs (no corpus needed)', () => {
     const rom = stub()
     rom.writeAt(siteAt('dest'), Buffer.alloc(LEN('dest'))) // gone from bank 4
     plant(rom, 'dest', 5, word(OP.warpDst, T.warpDst))
-    plant(rom, 'jsl', 4, { ...word(6, 0x853b), 8: 5 })
+    call(rom, 'jsl', 0x853b, 5)
     warpDst(rom, 26, 7, 5) // only the bank 5 table has it
     expect(areasOf(deriveOverworldAreas(rom))).toContain(7)
   })
@@ -185,7 +187,7 @@ describe('deriveOverworldAreas, synthetic ROMs (no corpus needed)', () => {
 
   it('the camera table length comes from the operands: a shorter one invalidates more areas', () => {
     const rom = stub()
-    setWord(rom, 'camera', 12, 0xa06b + 8) // 4 entries
+    setWord(rom, 'camera', OP.camY, 0xa06b + 8) // 4 entries
     const r = deriveOverworldAreas(rom)
     // Area 5 is only named by records out of area 6, which are dead.
     expect(invalidOf(r)).toEqual([4, 6])
@@ -194,22 +196,22 @@ describe('deriveOverworldAreas, synthetic ROMs (no corpus needed)', () => {
 
   it('refuses a camera operand below $8000 even at an even distance', () => {
     const rom = stub()
-    setWord(rom, 'camera', 5, 0x7001)
-    setWord(rom, 'camera', 12, 0x700f)
+    setWord(rom, 'camera', OP.camX, 0x7001)
+    setWord(rom, 'camera', OP.camY, 0x700f)
     expect(deriveOverworldAreas(rom)).toHaveProperty('unavailable')
   })
 
   it('refuses a camera Y table that runs past the end of its bank', () => {
     const rom = stub()
-    setWord(rom, 'camera', 12, 0xfff1) // even distance from $A06B, but Y + count*2 > $10000
+    setWord(rom, 'camera', OP.camY, 0xfff1) // even distance from $A06B, but Y + count*2 > $10000
     expect(deriveOverworldAreas(rom)).toHaveProperty('unavailable')
   })
 
   it('refuses an odd or backwards camera distance, or a camera operand outside the bank', () => {
     for (const [index, v] of [
-      [12, 0xa06b + 9],
-      [12, 0xa06b],
-      [5, 0x7000],
+      [OP.camY, 0xa06b + 9],
+      [OP.camY, 0xa06b],
+      [OP.camX, 0x7000],
     ] as const) {
       const rom = stub()
       setWord(rom, 'camera', index, v)
@@ -261,23 +263,51 @@ describe('deriveOverworldAreas, synthetic ROMs (no corpus needed)', () => {
     expect(areasOf(deriveOverworldAreas(rom))).toEqual([...ALL, 7])
   })
 
-  it('refuses a caller that does not call the site its routine was found at', () => {
-    const cases: [string, (rom: RomFile) => void][] = [
-      ['jsl low byte', r => setByte(r, 'jsl', 6, r.readByte(siteAt('jsl') + 6)! + 1)],
-      ['jsrPath low byte', r => setByte(r, 'jsrPath', 7, r.readByte(siteAt('jsrPath') + 7)! + 1)],
-      ['jsrStar low byte', r => setByte(r, 'jsrStar', 5, r.readByte(siteAt('jsrStar') + 5)! + 1)],
-      ['jsrPipe low byte', r => setByte(r, 'jsrPipe', 5, r.readByte(siteAt('jsrPipe') + 5)! + 1)],
-      ['jsrPath operand below $8000', r => setWord(r, 'jsrPath', 7, 0x1a24)],
-      ['jsl right low word, bank 5', r => setByte(r, 'jsl', 8, 5)],
+  it('refuses a routine that no JSL or JSR reaches, naming it', () => {
+    // Retarget the only caller of each: the routine is stock code nothing calls.
+    const cases: [string, (rom: RomFile) => void, RegExp][] = [
+      ['jsl low byte', r => call(r, 'jsl', low4('dest') + 1), /CODE_04853B, .* never called/],
+      [
+        'jsrPath low byte',
+        r => call(r, 'jsrPath', low4('path') + 1),
+        /CODE_049A24, .* never called/,
+      ],
+      [
+        'jsrPath operand below $8000',
+        r => call(r, 'jsrPath', 0x1a24),
+        /CODE_049A24, .* never called/,
+      ],
+      [
+        'jsl right low word, bank 5',
+        r => call(r, 'jsl', low4('dest'), 5),
+        /CODE_04853B, .* never called/,
+      ],
+      [
+        'jsrPath from another bank',
+        r => call(r, 'jsrPath', low4('path'), 4, inBank(0xb000, 5)),
+        /CODE_049A24, .* never called/,
+      ],
     ]
-    for (const [label, mutate] of cases) {
+    for (const [label, mutate, re] of cases) {
       const rom = stub()
       mutate(rom)
-      // A retargeted caller lands on a span that is not the routine, or on another routine.
-      expect(refusal(deriveOverworldAreas(rom)), label).toMatch(
-        /does not call|is not stock|that is not/,
-      )
+      if (label === 'jsrPath from another bank') {
+        rom.writeAt(callAt('jsrPath'), Buffer.alloc(3)) // and the bank 4 caller is gone
+      }
+      expect(refusal(deriveOverworldAreas(rom)), label).toMatch(re)
     }
+  })
+
+  it('the warp scan needs one caller, not both: either JSR alone reaches it', () => {
+    for (const keep of ['jsrStar', 'jsrPipe'] as const) {
+      const rom = stub()
+      rom.writeAt(callAt(keep === 'jsrStar' ? 'jsrPipe' : 'jsrStar'), Buffer.alloc(3))
+      expect(areasOf(deriveOverworldAreas(rom)), keep).toEqual(ALL)
+    }
+    const rom = stub()
+    rom.writeAt(callAt('jsrStar'), Buffer.alloc(3))
+    rom.writeAt(callAt('jsrPipe'), Buffer.alloc(3))
+    expect(refusal(deriveOverworldAreas(rom))).toMatch(/CODE_048509, .* never called/)
   })
 
   it('refuses table operands outside the bank, and one that runs a byte past it', () => {
@@ -307,37 +337,38 @@ describe('deriveOverworldAreas, synthetic ROMs (no corpus needed)', () => {
     // addresses are two bytes, the counters and LDY immediates one. Over-masking an opcode
     // would let altered code hash as stock.
     const operands: Record<Name, number[]> = {
-      camera: [5, 6, 12, 13],
+      camera: [3, 4, 12, 13, 14, 16, 17, 19, 20, 26, 27, 33, 34],
       path: [18, 23, 31, 32, 39, 40, 44, 45, 55, 56, 61, 62, 67, 68, 78, 79, 87, 88],
       scan: [16, 18, 19, 36, 37],
       dest: [12, 13, 29, 30],
-      jsl: [6, 7, 8],
-      jsrPath: [7, 8],
-      jsrStar: [5, 6],
-      jsrPipe: [5, 6],
     }
     for (const n of NAMES) expect([...AREA_SPANS[n].mask], n).toEqual(operands[n])
   })
 
-  it('a routine whose bytes are not the stock code refuses at the call that reaches it', () => {
+  it('a routine whose bytes are not the stock code refuses, though a call still reaches it', () => {
     const rom = stub()
     setByte(rom, 'scan', 0, 0x00)
-    expect(refusal(deriveOverworldAreas(rom))).toMatch(
-      /calls code at file offset \w+ that is not CODE_048509, the warp scan/,
-    )
+    expect(refusal(deriveOverworldAreas(rom))).toMatch(/CODE_048509, the warp scan .* is not stock/)
   })
 
-  it('refuses a camera read or a caller that appears twice, so which copy runs is unknown', () => {
-    for (const n of ['camera', 'jsl', 'jsrPath', 'jsrStar', 'jsrPipe'] as Name[]) {
-      const rom = stub()
-      rom.writeAt(0x078000, rom.readAt(siteAt(n), LEN(n))!)
-      expect(deriveOverworldAreas(rom), n).toHaveProperty('unavailable')
-    }
+  it('refuses a camera read that appears twice, so which copy runs is unknown', () => {
+    const rom = stub()
+    rom.writeAt(0x078000, rom.readAt(siteAt('camera'), LEN('camera'))!)
+    expect(deriveOverworldAreas(rom)).toHaveProperty('unavailable')
+  })
+
+  it('refuses a routine copied twice with a caller for each, so which one runs is unknown', () => {
+    const rom = stub()
+    const copy = inBank(0xb000, 4)
+    rom.writeAt(copy, rom.readAt(siteAt('scan'), LEN('scan'))!)
+    call(rom, 'jsrPipe', 0xb000)
+    call(rom, 'jsrStar', low4('scan')) // one caller each: two called copies
+    expect(refusal(deriveOverworldAreas(rom))).toMatch(/CODE_048509, .* not stock/)
   })
 
   it('a routine is where its callers call: a moved one resolves, a left-behind copy is ignored', () => {
     // Move CODE_048509 and CODE_049A24 within bank 4, retarget their callers and leave the
-    // stock-place copies behind: the old whole-ROM scan saw two matches and refused.
+    // stock-place copies behind, uncalled.
     const rom = stub()
     const scanTo = inBank(0xb000, 4)
     const pathTo = inBank(0xb100, 4)
@@ -349,9 +380,9 @@ describe('deriveOverworldAreas, synthetic ROMs (no corpus needed)', () => {
     rom.writeAt(pathTo + OP.pathLdy, [(PATH_SRC.length - 1) * 5])
     rom.writeAt(pathTo + OP.pathSrc, [T.pathSrc & 0xff, T.pathSrc >> 8])
     rom.writeAt(pathTo + OP.pathDst, [T.pathDst & 0xff, T.pathDst >> 8])
-    plant(rom, 'jsrStar', 4, word(5, 0xb000))
-    plant(rom, 'jsrPipe', 4, word(5, 0xb000))
-    plant(rom, 'jsrPath', 4, word(7, 0xb100))
+    call(rom, 'jsrStar', 0xb000)
+    call(rom, 'jsrPipe', 0xb000)
+    call(rom, 'jsrPath', 0xb100)
     expect(areasOf(deriveOverworldAreas(rom))).toEqual(ALL)
     // The moved routines read tables of their own (all zeros: every record live, every path
     // destination area 0). The left-behind stock tables kill the records that would name the
@@ -365,9 +396,6 @@ describe('deriveOverworldAreas, synthetic ROMs (no corpus needed)', () => {
     pathSrc(rom, 13, 0xff)
     rom.writeAt(movedPathDst + 5 * 13, [8])
     expect(areasOf(deriveOverworldAreas(rom))).toEqual([0, 1, 2, 4, 5, 6, 7, 8]) // 3 is gone: only the stock path table named it
-    // Only one of the scan's two callers retargeted: they disagree about where it is.
-    plant(rom, 'jsrPipe', 4, word(5, low4('scan')))
-    expect(refusal(deriveOverworldAreas(rom))).toMatch(/does not call/)
   })
 
   it('a called routine whose code is altered refuses, naming it', () => {

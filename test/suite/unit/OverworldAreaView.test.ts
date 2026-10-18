@@ -197,7 +197,7 @@ describe('decodeAreaView and decodeOverworldAreas (planted area routines)', () =
 
   it('a refused derivation refuses the view with the derivation reason, no vanilla camera', () => {
     const rom = viewRomWithAreas()
-    rom.writeAt(0x00a130, [0x00]) // the camera read's first opcode
+    rom.writeAt(0x00a300, [0x00]) // the camera read's first opcode
     const r = view(rom, 1)
     expect(r).toEqual({
       status: 'unavailable',

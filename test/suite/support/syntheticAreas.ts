@@ -26,17 +26,18 @@ export const SYNTHETIC_AREA_FPS = Object.fromEntries(
 ) as AreaFingerprints
 // SNES addresses; `moves` sites follow the routine bank.
 export const WHERE: Record<Name, { at: number; moves?: true }> = {
-  camera: { at: 0x00a130 },
+  camera: { at: 0x00a300 },
   scan: { at: 0x048509, moves: true },
   dest: { at: 0x04853b, moves: true },
   path: { at: 0x049a24, moves: true },
-  jsl: { at: 0x00a08a },
-  jsrPath: { at: 0x049616, moves: true },
-  jsrStar: { at: 0x049161, moves: true },
-  jsrPipe: { at: 0x049184, moves: true },
 }
+// Call instructions planted by `call`, not fingerprinted: the module reads their operands.
+export const CALLS = { jsl: 0x00a08a, jsrPath: 0x049616, jsrStar: 0x049161, jsrPipe: 0x049184 }
+export type CallName = keyof typeof CALLS
 // Operand offsets inside the routines above.
 export const OP = {
+  camX: 26,
+  camY: 33,
   pathCounter: 18,
   pathLdy: 23,
   pathSrc: 44,
@@ -85,11 +86,31 @@ export function plant(rom: RomFile, n: Name, bank: number, ops: Record<number, n
   rom.writeAt(siteAt(n, bank), b)
 }
 
+/** Where a planted call sits: JSL in bank 0, JSRs in the routine bank. */
+export const callAt = (n: CallName, bank = 4): number =>
+  n === 'jsl' ? CALLS[n] : inBank(CALLS[n], bank)
+/**
+ * Plants a call to `target` (low word) at `n`: a JSL to `bank` (or `bank` | $80 for the FastROM
+ * mirror), or a JSR within the caller's own bank. `at` overrides the site.
+ */
+export function call(
+  rom: RomFile,
+  n: CallName,
+  target: number,
+  bank = 4,
+  at: number = callAt(n, bank),
+): void {
+  rom.writeAt(
+    at,
+    n === 'jsl' ? [0x22, target & 0xff, target >> 8, bank] : [0x20, target & 0xff, target >> 8],
+  )
+}
+
 /** Plants vanilla-shaped routines, callers and tables (from CODE) into `rom`. */
 export function plantAreas(rom: RomFile, bank = 4): void {
   const put = (n: Name, ops: Record<number, number> = {}): void => plant(rom, n, bank, ops)
   const low = (n: Name): number => siteAt(n, bank) & 0xffff
-  put('camera', { ...word(5, 0xa06b), ...word(12, 0xa079) })
+  put('camera', { ...word(OP.camX, 0xa06b), ...word(OP.camY, 0xa079) })
   put('scan', { [OP.warpLdy]: (WARP_SRC.length - 1) * 2, ...word(OP.warpSrc, T.warpSrc) })
   put('dest', word(OP.warpDst, T.warpDst))
   put('path', {
@@ -98,10 +119,10 @@ export function plantAreas(rom: RomFile, bank = 4): void {
     ...word(OP.pathSrc, T.pathSrc),
     ...word(OP.pathDst, T.pathDst),
   })
-  put('jsl', { ...word(6, low('dest')), 8: bank })
-  put('jsrPath', word(7, low('path')))
-  put('jsrStar', word(5, low('scan')))
-  put('jsrPipe', word(5, low('scan')))
+  call(rom, 'jsl', low('dest'), bank)
+  call(rom, 'jsrPath', low('path'), bank)
+  call(rom, 'jsrStar', low('scan'), bank)
+  call(rom, 'jsrPipe', low('scan'), bank)
   WARP_SRC.forEach((a, i) => warpSrc(rom, i, a, bank))
   WARP_DST.forEach((a, i) => warpDst(rom, i, a, bank))
   PATH_SRC.forEach((a, i) => pathSrc(rom, i, a, bank))
