@@ -1170,11 +1170,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected layer3Label(): string {
     const l3 = this.mapLayout?.layer3
     if (!l3) return 'Layer 3 · reading the map'
-    if (l3.reason) return l3.reason
-    const role = l3.priority ? 'Layer 3 · Overlay' : 'Layer 3 · Background'
-    return l3.followsCamera
-      ? `${role}. In the game this layer follows the camera; shown here once, where it appears at the start.`
-      : role
+    return l3.reason ?? (l3.priority ? 'Layer 3 · Overlay' : 'Layer 3 · Background')
   }
 
   protected render(): React.ReactNode {

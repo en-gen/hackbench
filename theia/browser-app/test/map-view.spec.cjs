@@ -1138,7 +1138,7 @@ for (const [index, role, bit, known] of [
  * (the panel again from world 672, screen 2 from x 160) is not drawn. The first opaque column (x 160)
  * is derived, not yet measured; the verifier's first run confirms it.
  */
-test('$01F: layer 3 is drawn once, across screens 0 and 1, not repeated 512 px on, and the toggle says it follows the camera', async ({
+test('$01F: layer 3 is drawn once, across screens 0 and 1, not repeated 512 px on, and the toggle tooltip is unchanged', async ({
   page,
 }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
@@ -1175,7 +1175,7 @@ test('$01F: layer 3 is drawn once, across screens 0 and 1, not repeated 512 px o
     return x0
   }, root(0x01f))
   expect(firstColumn, 'layer 3 starts at the first landing, not the old -128 start').toBe(160)
-  await expect(button).toHaveAttribute('title', /follows the camera/)
+  await expect(button).toHaveAttribute('title', 'Layer 3 · Background')
 })
 
 /**

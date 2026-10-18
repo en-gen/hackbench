@@ -252,7 +252,7 @@ export type MapPlaneKey = (typeof MAP_PLANE_KEYS)[number]
 export interface MapLayer3Dto {
   priority: boolean
   reason: string | null
-  /** Layer 3 follows the camera in the game and is drawn once, at the entrance camera (#997). */
+  /** Layer 3 follows the camera in the game and is drawn once (#997). Kept for the map properties panel, Decisions pending; no view reads it yet. */
   followsCamera?: boolean
 }
 
