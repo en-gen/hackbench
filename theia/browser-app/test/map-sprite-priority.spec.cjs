@@ -39,9 +39,7 @@ test.skip(!fs.existsSync(ROM), `vanilla ROM not present at ${ROM}`)
 
 const SLOT = 0x105
 const SCREEN = 7
-// Measured 236 with INIT's +8/-1 on the plant. At rest (D134) it stands 8 px left of the pipe's middle, so less of it
-// is covered; the at-rest count was not measured when this floor was set (verifier: pin it from the first run).
-const MIN_BEHIND = 60
+const MIN_BEHIND = 200 // measured 231 at rest (the plant's own pixels; 236 with INIT's +8/-1 on); a floor
 const MIN_SHOWN = 300 // measured 376
 
 const GET_SVC = `function getSvc(name) {
@@ -250,6 +248,9 @@ test('hovering a hidden sprite draws it opaque, leaving restores the door exactl
   expect(same(hoverOther.behind, before.behind), 'the covered plant is untouched').toBe(behind.length) // prettier-ignore
   expect(same(hoverOther.shown, before.shown), 'the uncovered sprite is untouched').toBe(on.at.shown.length) // prettier-ignore
 
+  // Leave first: at rest (D134) the neighbour's name tooltip, placed above it, reaches over the plant and would take the move.
+  await page.mouse.move(2, 2)
+  await page.waitForTimeout(500)
   // Hover the plant: its covered pixels turn to the sprite colour, both squares of the door.
   const plant = await clientOf(page, plantPixel)
   await page.mouse.move(plant.x, plant.y)
