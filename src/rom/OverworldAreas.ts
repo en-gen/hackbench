@@ -22,7 +22,7 @@
  *   CODE_04853B sets DB itself (PHK/PLB). The callers' own callers are not checked.
  */
 import type { RomFile } from './RomFile'
-import { findPattern, WILD } from './BytePattern'
+import { findPattern } from './BytePattern'
 import { spanFingerprint } from './SubmapFlagGate'
 import { hex4 } from './hex'
 
@@ -98,40 +98,67 @@ function findSpan(rom: RomFile, n: Name, fps: AreaFingerprints, max = 8): number
   return hits
 }
 
+/** One opcode each, checked one at a time (D126): no stored run of instructions. */
+const OP_JSR = 0x20
+const OP_JSL = 0x22
+const OP_BEQ = 0xf0
+const OP_BNE = 0xd0
+const OP_CMP_IMM = 0xc9
+const OP_PHY = 0x5a
+const OP_LDA_ABS = 0xad
+/** Instruction lengths, from the 65816 encoding: the offsets between neighbours derive from them. */
+const LEN_JSL = 4
+const LEN_BRANCH = 2
+const LEN_CMP_IMM = 2
+const LEN_LDA_ABS = 3
+
 /**
  * Why no call of the right shape reaches the routine at cart offset `target`, or null when one
- * does. Shapes (opcodes and operands read from the cart, no bytes kept):
- * - dest: a JSL naming it (the FastROM mirror too), over a short branch that follows a load,
- *   in the camera routine's bank. GM0CLoadOverworld precedes the camera read in that bank
- *   (bank_00.asm:4250-4254); its bank is taken from where the camera read was found.
- * - path: a JSR to it from its own bank, after a branch and a one-byte push.
- * - scan: JSRs to it from its own bank, each after a compare-immediate and a branch; there
- *   must be two with different immediates (the star tile and the pipe tile).
+ * does. The call is found by its own opcode and operand; its neighbours are then checked one
+ * opcode at a time at offsets derived from instruction lengths (no operand value is stated):
+ * - dest: a JSL naming it (the FastROM mirror too), skipped by a BEQ whose displacement is the
+ *   JSL's length, after an absolute load, in the camera routine's bank. GM0CLoadOverworld
+ *   precedes the camera read in that bank (bank_00.asm:4250-4254); the bank is taken from where
+ *   the camera read was found.
+ * - path: a JSR to it from its own bank, after a push and a BNE.
+ * - scan: JSRs to it from its own bank, each after a compare-immediate and a BNE; there must be
+ *   two with different immediates (the star tile and the pipe tile).
  * A data run that spells the shape passes too; the check is structure, not proof it runs.
  */
 function unreached(rom: RomFile, n: Name, target: number, cameraAt: number): string | null {
   const lo = 0x8000 | (target & 0x7fff)
   const [l, h] = [lo & 0xff, lo >> 8]
   const bank = target >> 15
+  const byte = (at: number): number => (at < 0 ? -1 : (rom.readAtFileOffset(at, 1)?.[0] ?? -1))
   const here = (hits: number[]): number[] => hits.filter(at => at >> 15 === bank)
   if (n === 'dest') {
     const camBank = cameraAt >> 15
-    const jsl = [bank, bank | 0x80].flatMap(b =>
-      findPattern(rom, [0xad, WILD, WILD, 0xf0, 0x04, 0x22, l, h, b]),
-    )
-    return jsl.some(at => at >> 15 === camBank) ? null : "a JSL in the camera routine's bank"
+    const jsl = [bank, bank | 0x80]
+      .flatMap(b => findPattern(rom, [OP_JSL, l, h, b]))
+      .filter(
+        at =>
+          at >> 15 === camBank &&
+          byte(at - LEN_BRANCH) === OP_BEQ &&
+          byte(at - LEN_BRANCH + 1) === LEN_JSL &&
+          byte(at - LEN_BRANCH - LEN_LDA_ABS) === OP_LDA_ABS,
+      )
+    return jsl.length > 0 ? null : "JSL in the camera routine's bank"
   }
   if (n === 'path') {
-    return here(findPattern(rom, [0xd0, WILD, 0x5a, 0x20, l, h])).length > 0
-      ? null
-      : 'a JSR after a branch'
+    const jsr = here(findPattern(rom, [OP_JSR, l, h])).filter(
+      at => byte(at - 1) === OP_PHY && byte(at - 1 - LEN_BRANCH) === OP_BNE,
+    )
+    return jsr.length > 0 ? null : 'JSR after a push and a branch'
   }
   const tiles = new Set(
-    here(findPattern(rom, [0xc9, WILD, 0xd0, WILD, 0x20, l, h])).map(
-      at => rom.readAtFileOffset(at + 1, 1)![0],
-    ),
+    here(findPattern(rom, [OP_JSR, l, h]))
+      .filter(
+        at =>
+          byte(at - LEN_BRANCH) === OP_BNE && byte(at - LEN_BRANCH - LEN_CMP_IMM) === OP_CMP_IMM,
+      )
+      .map(at => byte(at - LEN_BRANCH - 1)),
   )
-  return tiles.size >= 2 ? null : 'a JSR after a compare for each of two tiles'
+  return tiles.size >= 2 ? null : 'JSR after a compare for each of two tiles'
 }
 
 /** Cart offset an operand names in the bank of `bankOf` (a cart offset in that bank), or null

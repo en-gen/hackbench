@@ -297,6 +297,7 @@ describe('deriveOverworldAreas, synthetic ROMs (no corpus needed)', () => {
         RE.path,
       ],
       ['jsl without the branch over it', r => r.writeAt(callAt('jsl') + 3, [0xea, 0xea]), RE.dest],
+      ['jsl whose branch skips another length', r => r.writeAt(callAt('jsl') + 4, [2]), RE.dest],
       ['jsrPath without its branch', r => r.writeAt(callAt('jsrPath'), [0xea]), RE.path],
       [
         'a scan caller without the compare',
@@ -324,6 +325,13 @@ describe('deriveOverworldAreas, synthetic ROMs (no corpus needed)', () => {
     const same = stub()
     same.writeAt(callAt('jsrPipe') + 1, [TILE.jsrStar])
     expect(refusal(deriveOverworldAreas(same))).toMatch(RE.scan)
+    // Both callers present but in another bank than the routine: a JSR cannot reach it from there.
+    const far = stub()
+    blank(far, 'jsrStar')
+    blank(far, 'jsrPipe')
+    call(far, 'jsrStar', low4('scan'), 4, inBank(0xb200, 5))
+    call(far, 'jsrPipe', low4('scan'), 4, inBank(0xb210, 5))
+    expect(refusal(deriveOverworldAreas(far))).toMatch(RE.scan)
     // A caller whose compare is not followed by a branch.
     const noBranch = stub()
     noBranch.writeAt(callAt('jsrStar') + 2, [0xea])

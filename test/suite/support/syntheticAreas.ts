@@ -92,10 +92,17 @@ export const callAt = (n: CallName, bank = 4): number =>
 /** Compare immediates planted before the two scan callers: any two different values. */
 export const TILE = { jsrStar: 0x11, jsrPipe: 0x22 }
 /**
- * Plants a call to `target` (low word) at `n`, in the shape the module reads: the JSL after a
- * load and a branch over it, the path JSR after a branch and a push, a scan JSR after a
- * compare-immediate and a branch. `bank` is the JSL's bank byte; `at` overrides the site.
+ * Plants a call to `target` (low word) at `n`. Each call is built instruction by instruction from
+ * named opcodes, the way the module checks them, with made-up operands: the JSL with a skip
+ * over it, the path JSR after a push and a branch, a scan JSR after a compare and a branch.
+ * `bank` is the JSL's bank byte; `at` overrides the site.
  */
+const I = { jsr: 0x20, jsl: 0x22, beq: 0xf0, bne: 0xd0, cmpImm: 0xc9, phy: 0x5a, ldaAbs: 0xad }
+const ldaAbs = (addr: number): number[] => [I.ldaAbs, addr & 0xff, addr >> 8]
+const jsl = (lo: number, bank: number): number[] => [I.jsl, lo & 0xff, lo >> 8, bank]
+const jsr = (lo: number): number[] => [I.jsr, lo & 0xff, lo >> 8]
+const skip = (over: number[]): number[] => [I.beq, over.length]
+const branch = (): number[] => [I.bne, 0]
 export function call(
   rom: RomFile,
   n: CallName,
@@ -103,13 +110,11 @@ export function call(
   bank = 4,
   at: number = callAt(n, bank),
 ): void {
-  const lo = target & 0xff
-  const hi = target >> 8
   const shape: Record<CallName, number[]> = {
-    jsl: [0xad, 0, 0, 0xf0, 4, 0x22, lo, hi, bank],
-    jsrPath: [0xd0, 0, 0x5a, 0x20, lo, hi],
-    jsrStar: [0xc9, TILE.jsrStar, 0xd0, 0, 0x20, lo, hi],
-    jsrPipe: [0xc9, TILE.jsrPipe, 0xd0, 0, 0x20, lo, hi],
+    jsl: [...ldaAbs(0x1234), ...skip(jsl(0, 0)), ...jsl(target, bank)],
+    jsrPath: [...branch(), I.phy, ...jsr(target)],
+    jsrStar: [I.cmpImm, TILE.jsrStar, ...branch(), ...jsr(target)],
+    jsrPipe: [I.cmpImm, TILE.jsrPipe, ...branch(), ...jsr(target)],
   }
   rom.writeAt(at, shape[n])
 }
