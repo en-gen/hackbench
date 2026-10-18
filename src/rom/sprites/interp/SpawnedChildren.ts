@@ -8,6 +8,9 @@ import { bytesAt } from './Guards'
 import { SPAWN_SHORT, type RunOptions, type SpriteModel, type SpritePart } from './SpriteRunner'
 import type { SpriteSeed } from './SpriteSeed'
 
+/** SpriteLock ($9D, SMWDisX rammap.asm): while it is set the game's own sprite code skips its per-frame move. */
+const SPRITE_LOCK = 0x9d
+
 /** The spawner a loader's `JSR` names (bank 2), so a repointed call runs the routine it names; `vanilla` when there is no JSR. */
 export function jsrTarget(rom: RomFile, callAt: number, vanilla: number): number {
   const call = bytesAt(rom, callAt, 3)
@@ -41,12 +44,14 @@ export interface SpawnedChildren {
 /**
  * Each child is its own run of the spawner (a fresh machine) with the nth spawned sprite drawn alone, so the children
  * do not add to each other's OAM. `passes` is how many MAIN passes each child runs; the first drawing one is shown.
+ * `spawnFrame` (D137): draw each child where the parent's spawn code put it, with no travel. SpriteLock is set for the
+ * run, so the child's own MAIN skips its move and draws the spawn-frame state; nothing is moved or zeroed here.
  */
 export function runSpawnedChildren(
   rom: RomFile,
   seed: SpriteSeed,
   e: SpawnerEntry,
-  spec: { sprite: number; count: number; routine: number },
+  spec: { sprite: number; count: number; routine: number; spawnFrame?: boolean },
   passes: number,
   run: (rom: RomFile, id: number, seed: SpriteSeed, opts?: RunOptions) => SpriteModel,
 ): SpawnedChildren {
@@ -54,7 +59,7 @@ export function runSpawnedChildren(
   const children: SpawnedChild[] = []
   let [missing, why] = [0, '']
   for (let n = 0; n < spec.count; n++) {
-    const m = run(rom, spec.sprite, { ...seed, mainPasses: passes }, { spawn: { inputs, routine: spec.routine, nth: n } }) // prettier-ignore
+    const m = run(rom, spec.sprite, { ...seed, mainPasses: passes, ram: spec.spawnFrame ? { ...seed.ram, [SPRITE_LOCK]: 1 } : seed.ram }, { spawn: { inputs, routine: spec.routine, nth: n } }) // prettier-ignore
     if (m.refusal?.startsWith(SPAWN_SHORT)) {
       missing++
       continue

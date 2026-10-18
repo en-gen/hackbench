@@ -27,8 +27,14 @@ export const LOAD_3_PLATFORMS = 0x02af33
 const SPAWNED_SPRITE = 0xa3
 const SPAWNER_LENGTH = 84
 export const PLATFORM_COUNT = 3
-/** The loader's route, 12 bytes at $02:A89C: CMP #$E0 / BNE / PHY / PHX / DEY / STY $03 / JSR Load3Platforms (bank_02.asm:5325-5331). Kept as a fingerprint, not as bytes. */
-const LOADER_ROUTE = { what: 'the loader route to the platform spawner', at: 0x02a89c, length: 12 }
+/** The loader's route at $02:A89C starts CMP #$E0 (bank_02.asm:5325). Checked by structure, not by hash: 12 bytes hold under 24 unknown ones (the fingerprint minimum), so a digest would be brute-forceable. */
+const LOADER_ROUTE = { what: 'the loader route to the platform spawner', at: 0x02a89c }
+/** The sprite number the route compares against: this sprite's own id. */
+const COMPARE_IMMEDIATE_OP = 0xc9
+const SPRITE_ID = 0xe0
+const JSR_OP = 0x20
+/** The spawner's input contract: the loader stores the entry's data offset into direct page $03 (STY, bank_02.asm:5329) before the JSR. */
+const STORE_OFFSET = { at: 0x02a89c + 7, op: 0x84, dp: 0x03 }
 /** The loader's `JSR Load3Platforms` (bank_02.asm:5331). */
 const LOADER_CALL = 0x02a8a5
 
@@ -37,14 +43,15 @@ export function spawnerEntry(rom: RomFile): number {
   return jsrTarget(rom, LOADER_CALL, LOAD_3_PLATFORMS)
 }
 
-/** SHA-256 of the spawner (84 bytes, ending in RTS) and of the loader route (12); the two tables the spawner reads are data and NOT part. */
+/**
+ * SHA-256 of the spawner (84 bytes, ending in RTS), one digest, nothing masked: well over 24 unknown bytes. The two
+ * tables the spawner reads are data and NOT part. The loader route is checked by structure (`loaderRouteIntact`).
+ */
 export interface PlatformRoutines {
   spawner: string
-  loaderRoute: string
 }
 export const VANILLA_PLATFORM_ROUTINES: PlatformRoutines = {
   spawner: '1d4bd4577349469b955d8ff0f36f58280c4da2b4f3101d78a815b42a88ec513d',
-  loaderRoute: '9d36e7ee9e18df10b419797ee95e79d453d5c73af7c9b505a6f04297620ba0f4',
 }
 
 export interface PlatformEntry {
@@ -60,6 +67,20 @@ export type PlatformsResult =
   | { ok: true; parts: SpritePart[]; unverified: string[]; spawned: number; notes: string[] }
   | { ok: false; reason: string; none?: true; unverified: string[] }
 
+/** True when the loader still compares the list id against $E0, stores the data offset in $03 and `JSR`s a routine: the shape the spawner call rests on. */
+export function loaderRouteIntact(rom: RomFile): boolean {
+  const head = bytesAt(rom, LOADER_ROUTE.at, 2)
+  const store = bytesAt(rom, STORE_OFFSET.at, 2)
+  const call = bytesAt(rom, LOADER_CALL, 1)
+  return (
+    head?.[0] === COMPARE_IMMEDIATE_OP &&
+    head[1] === SPRITE_ID &&
+    store?.[0] === STORE_OFFSET.op &&
+    store[1] === STORE_OFFSET.dp &&
+    call?.[0] === JSR_OP
+  )
+}
+
 /** `unverified` names each routine or call-path part that is not the vanilla shape (empty when all match). */
 export function platformsGate(
   rom: RomFile,
@@ -67,8 +88,7 @@ export function platformsGate(
 ): string[] {
   const out: string[] = []
   const sha = (at: number, n: number) => spanFingerprint(Uint8Array.from(bytesAt(rom, at, n) ?? []))
-  if (sha(LOADER_ROUTE.at, LOADER_ROUTE.length) !== routines.loaderRoute)
-    out.push(LOADER_ROUTE.what)
+  if (!loaderRouteIntact(rom)) out.push(LOADER_ROUTE.what)
   if (sha(spawnerEntry(rom), SPAWNER_LENGTH) !== routines.spawner) out.push('the platform spawner')
   return out
 }
@@ -83,7 +103,12 @@ export function threePlatforms(
   run: (rom: RomFile, id: number, seed: SpriteSeed, opts?: RunOptions) => SpriteModel = runOnce,
 ): PlatformsResult {
   const unverified = platformsGate(rom, routines)
-  const spec = { sprite: SPAWNED_SPRITE, count: PLATFORM_COUNT, routine: spawnerEntry(rom) }
+  const spec = {
+    sprite: SPAWNED_SPRITE,
+    count: PLATFORM_COUNT,
+    routine: spawnerEntry(rom),
+    spawnFrame: true,
+  }
   const { children, missing, why } = runSpawnedChildren(rom, seed, e, spec, passes, run)
   if (children.length === 0)
     return { ok: false, reason: why || `the spawner made none of the ${PLATFORM_COUNT} platforms`, ...(missing === PLATFORM_COUNT ? { none: true as const } : {}), unverified } // prettier-ignore

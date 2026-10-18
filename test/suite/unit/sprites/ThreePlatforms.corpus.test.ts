@@ -61,6 +61,31 @@ describe.skipIf(!hasRom(VANILLA))('sprite $E0, vanilla ROM', () => {
     },
   )
 
+  it('draws every placement at the same spawn-frame offsets: no travel, whatever the placement X (D137)', () => {
+    // A frame of travel steps the angle by +2 or -2 by bit 4 of the X (bank_02.asm:11382-11400, skipped under SpriteLock), so placements
+    // 16 px apart would differ; at the spawn frame all are the same shape.
+    const shapes = new Set<string>()
+    for (const [map] of MAPS) {
+      const { rom, sprites } = placements(map)
+      const base = levelSeed(rom, map)
+      const w = base.loaded!
+      const mario = { x: w[0x94]! | (w[0x95]! << 8), y: w[0x96]! | (w[0x97]! << 8) }
+      for (const e of sprites) {
+        const [x, y] = [e.x * 16, e.y * 16]
+        const seed = withSeed({ sprite: { x, y }, camera: cameraFor(x, y, false, 32), mario }, base) // prettier-ignore
+        const res = threePlatforms(rom, seed, {
+          x,
+          y,
+          index: e.index,
+          streamOffset: e.streamOffset,
+        })
+        if (!res.ok) throw new Error(res.reason)
+        shapes.add(JSON.stringify(res.parts.map(p => [p.dx, p.dy]).sort()))
+      }
+    }
+    expect([...shapes]).toHaveLength(1)
+  })
+
   it('draws through the map view, never a marker, and $A3 placed directly still draws', () => {
     const bytes = new Uint8Array(freshRom().buffer)
     for (const [map, n] of MAPS) {

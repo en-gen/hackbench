@@ -25,8 +25,15 @@ How the map view draws it, and what each step rests on. Evidence scope throughou
 - Map view (`map-sprites.ts`, `platformsResult`): ONE sprite at the entry's stream index whose parts are the three
   platforms and their chains. A vertical map is refused with a reason, as for $DE (the loader hands the spawner the Y
   boundary as X there); none of the vanilla placements is in one.
-- Gate (D52, never blank): the SHA-256 of the 84-byte spawner (`$02:AF33`, vanilla `1d4bd457...513d`) and the loader's
-  route bytes at `$02:A89C`. A difference is named in `unverified` and the spawner the loader calls still runs. What
+- Spawn-frame positions (D137, no travel): each platform is drawn with SpriteLock (`$9D`) set, so its own MAIN
+  (`Banzai_Rotating`, `bank_02.asm:11365`) skips the angle step of `CODE_02D62A` (11382-11400, `BNE CODE_02D653` at 11383) and
+  draws the angle the spawner stored. Nothing is moved or zeroed by the editor. Without it the angle steps by 2 in a direction
+  set by bit 4 of the X, so placements 16 px apart differed by about 1 px per platform.
+- Gate (D52, never blank): ONE SHA-256 of the 84-byte spawner (`$02:AF33`, vanilla `1d4bd457...513d`, nothing masked, well
+  over the 24 unknown byte minimum). The loader route at `$02:A89C` is only 12 bytes, so it is checked by structure, not
+  hashed: the compare opcode and its immediate (the sprite's own id), the `STY $03` that hands over the data offset, and the
+  `JSR` opcode at `$02:A8A5` (its operand is read as the spawner's address). A difference is named in `unverified` and the
+  spawner the loader calls still runs. What
   refuses: no map image, a spawner that does not return, no platform drew, no room for any (told in plain words). Platforms
   that spawned and did not draw are in the sprite's note. The two angle tables are data and are not hashed.
 

@@ -54,6 +54,8 @@ export interface PlatformCartOptions {
   room?: number
   /** $A3's MAIN returns without drawing when $1602 (the angle after INIT) is this: a platform that spawned and did not draw. */
   skipDraw?: number
+  /** $A3's MAIN moves its angle by one before drawing unless SpriteLock ($9D) is set, as the game's does (D137): the travel a spawn-frame draw must not show. */
+  travel?: boolean
 }
 
 export function platformCart(o: PlatformCartOptions = {}): RomFile {
@@ -68,6 +70,7 @@ export function platformCart(o: PlatformCartOptions = {}): RomFile {
   rom.writeAt(INIT, [0xbd, 0x02, 0x16, 0x09, 0x80, 0x9d, 0x02, 0x16, 0x60])
   // prettier-ignore
   rom.writeAt(MAIN, [
+    ...(o.travel ? [0xa5, 0x9d, 0xd0, 0x03, 0xfe, 0x02, 0x16] : []), // LDA $9D / BNE +3 / INC $1602,X
     ...(o.skipDraw === undefined ? [] : [0xbd, 0x02, 0x16, 0xc9, o.skipDraw, 0xd0, 0x01, 0x60]),
     0xbc, 0xea, 0x15, 0xa9, 0x0a, 0x99, 0x03, 0x03, // OAM index, attribute
     0x38, 0xb5, 0xd8, 0xe5, 0x1c, 0x99, 0x01, 0x03, 0xbd, 0x02, 0x16, 0x99, 0x02, 0x03, // y, tile

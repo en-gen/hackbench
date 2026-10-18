@@ -106,6 +106,27 @@ describe('the three platforms', () => {
   })
 })
 
+describe('spawn-frame positions, no travel (D137)', () => {
+  // The cart's $A3 MAIN moves its angle by one before drawing unless SpriteLock is set, as the game's does. Drawn at
+  // the spawn frame the pieces are the cart's spawn angles with INIT's bit 7, at the entry X plus angle & $70.
+  const spawnFrame = (r: ReturnType<typeof drawn>) => {
+    expect(r.parts.map(p => p.char)).toEqual(ANGLES.map(a => a | 0x80))
+    expect(r.parts.map(p => p.dx)).toEqual([0x10, 0x20, 0x30])
+  }
+
+  it('draws each child at its spawn-frame offset though its MAIN would move it', () => {
+    spawnFrame(drawn(platformCart({ travel: true })))
+  })
+
+  it('goes red on a planted travel frame: the same cart drawn with the sprites unlocked', () => {
+    const unlocked: typeof runOnce = (rom, id, s, o) => runOnce(rom, id, { ...s, ram: { ...s.ram, 0x9d: 0 } }, o) // prettier-ignore
+    const r = threePlatforms(platformCart({ travel: true }), seed, entry, SYN, 1, unlocked)
+    if (!r.ok) throw new Error(r.reason)
+    expect(() => spawnFrame(r)).toThrow()
+    expect(r.parts.map(p => p.char)).toEqual(ANGLES.map(a => (a | 0x80) + 1))
+  })
+})
+
 describe('the spawner the loader calls', () => {
   it('is the JSR operand at $02:A8A5: a repointed one runs the spawner it names, and says so', () => {
     const rom = platformCart()
@@ -115,10 +136,8 @@ describe('the spawner the loader calls', () => {
     rom.writeAt(0x02a8a6, [0x00, 0xb1])
     const r = drawn(rom)
     expect(r.parts).toHaveLength(2) // the copy counts 2
-    expect(r.unverified).toEqual([
-      'the loader route to the platform spawner',
-      'the platform spawner',
-    ])
+    // The JSR operand is the call's target, not part of the route's shape: only the spawner it reaches is told.
+    expect(r.unverified).toEqual(['the platform spawner'])
   })
 
   it('is the vanilla entry, flagged, when the loader no longer has a JSR there (D52)', () => {
@@ -132,21 +151,16 @@ describe('the spawner the loader calls', () => {
 
 describe('the cart is its own code, not the vanilla routines', () => {
   // Hashes only: no ROM bytes are stored, so the claim is that neither synthetic routine fingerprints as the vanilla one.
-  it('fingerprints differently from the vanilla spawner and loader route', () => {
+  it('fingerprints differently from the vanilla spawner', () => {
     expect(SYN.spawner).not.toBe(VANILLA_PLATFORM_ROUTINES.spawner)
-    expect(SYN.loaderRoute).not.toBe(VANILLA_PLATFORM_ROUTINES.loaderRoute)
     const rom = platformCart()
     const cart = (at: number, n: number) => spanFingerprint(Uint8Array.from(bytesAt(rom, at, n)!))
     expect(cart(LOAD_3_PLATFORMS, 84)).toBe(SYN.spawner)
     expect(cart(LOAD_3_PLATFORMS, 84)).not.toBe(VANILLA_PLATFORM_ROUTINES.spawner)
-    expect(cart(0x02a89c, 12)).not.toBe(VANILLA_PLATFORM_ROUTINES.loaderRoute)
   })
 
-  it('is told apart from the vanilla gate: the vanilla fingerprints name both routines on this cart', () => {
-    expect(platformsGate(platformCart())).toEqual([
-      'the loader route to the platform spawner',
-      'the platform spawner',
-    ])
+  it('is told apart from the vanilla gate: the vanilla spawner fingerprint names the cart spawner, the route is intact', () => {
+    expect(platformsGate(platformCart())).toEqual(['the platform spawner'])
   })
 })
 
@@ -161,6 +175,26 @@ describe('the gate', () => {
       flip(rom, LOAD_3_PLATFORMS + i)
       expect(platformsGate(rom, SYN), `byte ${i}`).toContain('the platform spawner')
     }
+  })
+
+  // The route is checked by structure (12 bytes are under the 24-unknown-byte fingerprint minimum): each value it
+  // rests on is planted in turn, and the cart's own order of the two pushes (not a structural value) stays quiet.
+  it.each([
+    ['the compare opcode', 0],
+    ['the compare immediate ($E0)', 1],
+    ['the store of the data offset (STY)', 7],
+    ['its direct page operand ($03)', 8],
+    ['the JSR', 9],
+  ])('names the loader route when %s changes', (_what, at) => {
+    const route = platformCart()
+    flip(route, 0x02a89c + at)
+    expect(platformsGate(route, SYN)).toEqual(['the loader route to the platform spawner'])
+  })
+
+  it('does not name the loader route for bytes that are not part of its shape', () => {
+    const route = platformCart()
+    for (const at of [2, 3, 4, 5, 6]) flip(route, 0x02a89c + at) // the branch and the pushes
+    expect(platformsGate(route, SYN)).toEqual([])
   })
 
   it('names the loader route, and not the tables', () => {
