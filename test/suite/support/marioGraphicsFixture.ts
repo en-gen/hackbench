@@ -5,6 +5,7 @@
 import { RomFile } from '../../../src/rom/RomFile'
 import { encode } from '../../../src/rom/LcLz2'
 import type { CompressionCheck } from '../../../src/rom/GfxArena'
+import { fingerprint } from '../../../src/rom/Fingerprint'
 import { bootFingerprint, type BootRoutine } from '../../../src/rom/MarioGraphics'
 
 /** Distinct, scattered byte values for consecutive indexes (an ascending run of small values occurs in the vanilla ROM). */
@@ -33,6 +34,10 @@ export const boot = (): BootRoutine => ({
     Uint8Array.from(routine({ at33: 0, bank: 0, top: 0, srcTop: 0, at32: 0 })),
   )!,
 })
+/** A made-up upload routine (64 bytes, invented head and filler) and its record, as `boot` is for the boot routine. */
+export const DMA_HEAD = [0xa5, 0x5c, 0xa6]
+export const dmaCode = (): number[] => [...DMA_HEAD, ...new Array<number>(61).fill(0xea)]
+export const dma = (): BootRoutine => ({ anchor: DMA_HEAD, length: 64, sha256: fingerprint(Uint8Array.from(dmaCode()))! }) // prettier-ignore
 export const GATE: CompressionCheck = {
   ok: true,
   sites: {} as never,
@@ -40,6 +45,27 @@ export const GATE: CompressionCheck = {
   order: 'be',
 }
 export const base = (bank: number) => bank * 0x8000 // file offset of $bank:8000 in a LoROM
+
+/** GFX33 ends at the top of bank $08, so GFX32 starts at the bottom of the next one. */
+export const bankCarryCart = () => {
+  const c33 = encode(Uint8Array.from(seq(1, 48)))
+  const low = 0x10000 - c33.length
+  const bytes = new Uint8Array(0x80000)
+  bytes.set(c33, base(8) + low - 0x8000)
+  bytes.set(encode(Uint8Array.from(Array(16).fill(0xee))), base(9))
+  bytes.set(routine({ at33: low, bank: 8, top: 0x205e, srcTop: 47, at32: 0x8000 }), 0x100)
+  return RomFile.fromBytes('s.sfc', bytes)
+}
+
+/** GFX33 at $48:0000, which LoROM reads at file offset $48 * $8000 though the pointer is not into a ROM half. */
+export const highBankCart = () => {
+  const [c33, c32] = [encode(Uint8Array.from(seq(1, 48))), encode(Uint8Array.from(Array(16).fill(0xee)))] // prettier-ignore
+  const bytes = new Uint8Array(0x400000)
+  bytes.set(c33, 0x48 * 0x8000)
+  bytes.set(c32, 0x48 * 0x8000 + c33.length)
+  bytes.set(routine({ at33: 0, bank: 0x48, top: 0x205e, srcTop: 47, at32: c33.length }), 0x100)
+  return RomFile.fromBytes('s.sfc', bytes)
+}
 
 export type Cart = { d33?: number[]; d32?: number[]; bank?: number; low?: number; top?: number; srcTop?: number; copies?: number; edit?: (b: number[]) => void } // prettier-ignore
 /** A cart with GFX33 at $<bank>:<low>, GFX32 right after it, and `copies` of the boot routine. */

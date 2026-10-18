@@ -141,7 +141,7 @@ export interface SpriteModel {
    */
   seedSource?: 'rom-level-load' | 'generic'
   seedReason?: string
-  /** Frames INIT took: 1 unless it left status 1 and was re-run; 0 when INIT did not run (a shell, or at rest). */
+  /** Frames INIT took: 1 unless it left status 1 and was re-run; 0 when INIT did not run (a shell, which the loader leaves past INIT). */
   initFrames?: number
   /** $15EA after INIT: the OAM base the cart assigned. */
   oamBase?: number

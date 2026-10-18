@@ -49,7 +49,6 @@ import { getCharPixels, type VramState } from '../../../../src/rom/GfxLoader'
 import {
   charsFromUploads,
   readMarioGraphics,
-  UPLOAD_SPRITES,
   uploadProbe,
   type MarioBuffer,
   type SlotUpload,
@@ -370,11 +369,8 @@ export type RunModel = BaseModel & { uploads?: SlotUpload[][] }
 
 /** `runOnce`, plus the DynGfxTilePtr slots a sprite that uploads from the player buffer wrote (#980). */
 export function runWithUploads(rom: RomFile, id: number, seed: SpriteSeed): RunModel {
-  if (!UPLOAD_SPRITES.has(id)) return runOnce(rom, id, seed, { init: false })
   const p = uploadProbe()
-  return Object.assign(runOnce(rom, id, seed, { init: false, probe: p.probe }), {
-    uploads: p.byPass,
-  })
+  return Object.assign(runOnce(rom, id, seed, { init: false, probe: p.probe }), { uploads: p.byPass }) // prettier-ignore
 }
 
 /** What the interpreter shows for one sprite: its model, as the drawer's reply. */
@@ -894,7 +890,8 @@ export function mapSpriteFrames(
     const base = levelSeed(rom.rom, index)
     return {
       status: 'ok',
-      ...framesOf(frameRun(rom.rom, index, model, base, s), s, model, dynamicOf(rom.rom)),
+      // The same player-buffer reader the map path gives, so frame 0 is the bitmap the map drew (D138 A).
+      ...framesOf(frameRun(rom.rom, index, model, base, s), s, { ...model, playerGraphics: () => readMarioGraphics(rom.rom) }, dynamicOf(rom.rom)), // prettier-ignore
     }
   } catch (err) {
     return { status: 'unavailable', reason: (err as Error).message }

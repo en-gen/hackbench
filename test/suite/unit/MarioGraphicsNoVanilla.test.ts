@@ -8,7 +8,14 @@ import { describe, expect, it } from 'vitest'
 import { WILD } from '../../../src/rom/BytePattern'
 import { STOCK_BOOT } from '../../../src/rom/MarioGraphics'
 import { freshRom, hasRom, VANILLA } from '../support/corpus'
-import { cart, seq, type Cart } from '../support/marioGraphicsFixture'
+import {
+  bankCarryCart,
+  cart,
+  dmaCode,
+  highBankCart,
+  seq,
+  type Cart,
+} from '../support/marioGraphicsFixture'
 
 const W = 8
 const distinct = (w: Uint8Array) => new Set(w).size >= 3
@@ -48,14 +55,20 @@ const CARTS: Cart[] = [
 function loose(): Uint8Array[] {
   const tiles = new Uint8Array(0xb000 - 0x2000)
   for (let t = 0; t < tiles.length / 32; t++) tiles.fill((t % 255) + 1, t * 32, t * 32 + 32)
-  return [Uint8Array.from(seq(1, 48)), Uint8Array.from(seq(1, 24 * 3)), tiles]
+  return [
+    Uint8Array.from(seq(1, 48)),
+    Uint8Array.from(seq(1, 24 * 3)),
+    tiles,
+    Uint8Array.from(dmaCode()),
+  ]
 }
 
 describe.skipIf(!hasRom(VANILLA))('MarioGraphics fixtures against the vanilla ROM (#980)', () => {
   it('assembles no 8-byte window that occurs in the vanilla ROM', () => {
     const { set } = vanillaWindows()
-    const hits = CARTS.map(c => shared(cart(c).buffer, set).length)
-    expect(hits, 'windows per cart').toEqual(CARTS.map(() => 0))
+    const carts = [...CARTS.map(cart), bankCarryCart(), highBankCart()]
+    const hits = carts.map(c => shared(c.buffer, set).length)
+    expect(hits, 'windows per cart').toEqual(carts.map(() => 0))
     expect(loose().map(b => shared(b, set).length)).toEqual(loose().map(() => 0))
   })
 

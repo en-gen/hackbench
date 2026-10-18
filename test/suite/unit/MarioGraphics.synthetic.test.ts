@@ -5,18 +5,19 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
-  base,
   boot,
+  bankCarryCart,
   cart,
+  dma,
+  dmaCode,
+  highBankCart,
   GATE,
   routine,
   seq,
   type Cart,
   type Operands,
 } from '../support/marioGraphicsFixture'
-import { RomFile } from '../../../src/rom/RomFile'
 import { decode4bpp } from '../../../src/rom/GraphicsDecoder'
-import { encode } from '../../../src/rom/LcLz2'
 import {
   bootFingerprint,
   buildMarioGraphics,
@@ -95,14 +96,21 @@ describe('buildMarioGraphics', () => {
   })
 
   it('carries GFX32 into the next bank when GFX33 ends at the top of its own', () => {
-    const c33 = encode(Uint8Array.from(seq(1, 48)))
-    const low = 0x10000 - c33.length
-    const bytes = new Uint8Array(0x80000)
-    bytes.set(c33, base(8) + low - 0x8000)
-    bytes.set(encode(Uint8Array.from(Array(16).fill(0xee))), base(9))
-    bytes.set(routine({ at33: low, bank: 8, top: 0x205e, srcTop: 47, at32: 0x8000 }), 0x100)
-    const b = bytesOf(buildMarioGraphics(RomFile.fromBytes('s.sfc', bytes), GATE, boot()))
+    const b = bytesOf(buildMarioGraphics(bankCarryCart(), GATE, boot()))
     expect(at(b, 0x2000, 16)).toEqual(Array(16).fill(0xee))
+  })
+
+  it('refuses a cart whose upload routine is patched, and passes the stock-shaped one', () => {
+    const withDma = (patch: (c: number[]) => void) => {
+      const c = dmaCode()
+      patch(c)
+      const r = cart({})
+      r.buffer.set(c, 0x2000)
+      return buildMarioGraphics(r, GATE, boot(), dma())
+    }
+    expect(withDma(() => {}).ok).toBe(true)
+    refused(withDma(c => { c[20] ^= 1 }), /upload.*not the stock one/) // prettier-ignore
+    refused(buildMarioGraphics(cart({}), GATE, boot(), dma()), /upload.*not the stock one/)
   })
 
   it('refuses a boot routine found twice, absent, or changed in a byte the operands do not cover', () => {
@@ -132,16 +140,7 @@ describe('buildMarioGraphics', () => {
   it('refuses a GFX33 pointer that is not into the ROM half of its bank, though readAt can map it', () => {
     // $48:0000 reads file offset $48 * $8000 (LoROM mirrors the low half of a high bank), so the stream below is
     // readable there; only the `lo < $8000` guard refuses it. Deleting that guard makes this ok.
-    const [c33, c32] = [
-      encode(Uint8Array.from(seq(1, 48))),
-      encode(Uint8Array.from(Array(16).fill(0xee))),
-    ]
-    const at = 0x48 * 0x8000
-    const bytes = new Uint8Array(0x400000)
-    bytes.set(c33, at)
-    bytes.set(c32, at + c33.length)
-    bytes.set(routine({ at33: 0, bank: 0x48, top: 0x205e, srcTop: 47, at32: c33.length }), 0x100)
-    refused(buildMarioGraphics(RomFile.fromBytes('s.sfc', bytes), GATE, boot()), /GFX33/)
+    refused(buildMarioGraphics(highBankCart(), GATE, boot()), /GFX33/)
   })
 
   it('refuses a file that decompresses past the buffer, and an expansion that does not fit it', () => {

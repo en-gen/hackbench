@@ -54,6 +54,14 @@ export const STOCK_BOOT: BootRoutine = {
   sha256: '41bd1df9519507a44f4eb96ded5761a2aafa0bfc36151c60290fbb3d8a54b05b',
 }
 
+// MarioGFXDMA's two upload loops (bank_00.asm:4580-4605), 64 bytes, hashed whole. A hack that patches them can send the
+// slots anywhere, so the buffer is not read for it. One site in the vanilla ROM (one machine, one cart).
+export const STOCK_DMA: BootRoutine = {
+  anchor: hex('a9 00 60 8d 16 21 a2'),
+  length: 64,
+  sha256: 'ea61acf43341bd988f651b7339bc1c11300be7ef98639680c74d3883e7519355',
+}
+
 /** Operand offsets in the routine: GFX33 low, high, bank; expansion top (word); source top (word); GFX32 low/high (word). */
 const OP = { g33Lo: 3, g33Hi: 4, g33Bank: 8, top: 30, srcTop: 35, g32: 80 }
 const MASKED = [OP.g33Lo, OP.g33Hi, OP.g33Bank, OP.top, OP.top + 1, OP.srcTop, OP.srcTop + 1, OP.g32, OP.g32 + 1] // prettier-ignore
@@ -78,6 +86,7 @@ export function buildMarioGraphics(
   rom: RomFile,
   src: CompressionCheck,
   boot: BootRoutine = STOCK_BOOT,
+  dma: BootRoutine | undefined = boot === STOCK_BOOT ? STOCK_DMA : undefined, // tests that inject a boot bring their own
 ): MarioBuffer {
   const fail = (reason: string): MarioBuffer => ({ ok: false, reason })
   const sites = findPattern(rom, boot.anchor).filter(at => {
@@ -85,6 +94,14 @@ export function buildMarioGraphics(
     return b !== null && bootFingerprint(b) === boot.sha256
   })
   if (sites.length !== 1) return fail('the boot routine that builds the Mario graphics buffer is not the stock one') // prettier-ignore
+  if (
+    dma &&
+    findPattern(rom, dma.anchor).filter(
+      at => fingerprint(rom.readAtFileOffset(at, dma.length)) === dma.sha256,
+    ).length !== 1
+  )
+    // prettier-ignore
+    return fail('the routine that uploads the Mario graphics buffer to VRAM is not the stock one')
   if (!src.ok) return fail(src.reason)
   const site = rom.readAtFileOffset(sites[0]!, boot.length)!
   const w = (i: number) => site[i]!
@@ -135,14 +152,6 @@ export function expandTo4bpp(buf: Uint8Array, x: number, p: number): string | nu
 /** The decoded pixels (64 palette indices, as getCharPixels gives) of the OBJ chars a sprite's pointers fill, keyed by hackbench char ($400 + OBJ char). */
 export type DynamicChars =
   { ok: true; chars: Map<number, Uint8Array> } | { ok: false; reason: string }
-
-/**
- * Sprites whose graphics routine points Mario's tile DMA at the buffer: the Podoboo ($33) and the sinking
- * fireball ($B5), which share the Fireballs handler (SMWDisX bank_01.asm:949 and :1079; CODE_01E198 is reached from
- * it at :13119-13120 and draws through SubSprGfx0Entry0). Only these are watched: the other writers of
- * DynGfxTilePtr (bank_01.asm:14879-14894, bank_02.asm:14096) are not drawn from the buffer by this change.
- */
-export const UPLOAD_SPRITES: ReadonlySet<number> = new Set([0x33, 0xb5])
 
 /** One DynGfxTilePtr slot (0-4 row 1, 5-9 row 2) a sprite's run pointed at WRAM address `ptr`. */
 export interface SlotUpload {
