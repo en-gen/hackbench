@@ -4,6 +4,22 @@
 
 [![CI](https://github.com/en-gen/hackbench/actions/workflows/ci.yml/badge.svg)](https://github.com/en-gen/hackbench/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+[![codecov](https://codecov.io/gh/en-gen/hackbench/graph/badge.svg?token=3dD409XNya)](https://codecov.io/gh/en-gen/hackbench)
+![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/en-gen/hackbench?utm_source=oss&utm_medium=github&utm_campaign=en-gen%2Fhackbench&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/en-gen/hackbench/badge)](https://scorecard.dev/viewer/?uri=github.com/en-gen/hackbench)
+[![Dependabot](https://img.shields.io/badge/dependabot-enabled-025E8C?logo=dependabot)](./.github/dependabot.yml)
+[![Code style: Prettier](https://img.shields.io/badge/code_style-prettier-ff69b4.svg?logo=prettier)](https://prettier.io)
+
+[![Last commit](https://img.shields.io/github/last-commit/en-gen/hackbench)](https://github.com/en-gen/hackbench/commits/develop)
+[![Commit activity](https://img.shields.io/github/commit-activity/m/en-gen/hackbench)](https://github.com/en-gen/hackbench/pulse)
+[![Open issues](https://img.shields.io/github/issues/en-gen/hackbench)](https://github.com/en-gen/hackbench/issues)
+[![Open pull requests](https://img.shields.io/github/issues-pr/en-gen/hackbench)](https://github.com/en-gen/hackbench/pulls)
+
+[![TypeScript](https://img.shields.io/github/package-json/dependency-version/en-gen/hackbench/dev/typescript?logo=typescript&logoColor=white)](./package.json)
+[![Eclipse Theia](https://img.shields.io/github/package-json/dependency-version/en-gen/hackbench/@theia/core?filename=theia%2Felectron-app%2Fpackage.json&label=theia&logo=eclipseide)](./theia/electron-app/package.json)
+[![Electron](https://img.shields.io/github/package-json/dependency-version/en-gen/hackbench/dev/electron?filename=theia%2Felectron-app%2Fpackage.json&logo=electron)](./theia/electron-app/package.json)
+[![Vitest](https://img.shields.io/github/package-json/dependency-version/en-gen/hackbench/dev/vitest?logo=vitest)](./package.json)
+[![Playwright](https://img.shields.io/github/package-json/dependency-version/en-gen/hackbench/dev/@playwright/test?label=playwright&logo=playwright)](./package.json)
 
 HackBench opens a Super Mario World ROM and lets you browse and edit
 what is inside it: maps, palettes, graphics and music, with an emulator
@@ -11,7 +27,8 @@ running your working copy beside them.
 
 It never modifies your ROM. Every edit becomes a patch layer in a
 **project**, and the project is what you keep, share and version. When you
-are ready to distribute, HackBench exports a real `.ips`.
+are ready to distribute, HackBench exports a real `.bps` patch, the
+format SMW Central requires (`.ips` is still available).
 
 > **Status: pre-alpha.** No packaged release yet, so the only way to run it
 > is to build from source. Expect breaking changes. Early testers are very
@@ -31,7 +48,7 @@ MyHack/
   levels/            created with the project
   snapshots/         created with the project
   ops/               your edits, as ordered layers of {address, old, new}
-  export/            the .ips you ship
+  export/            the .bps you ship
   saves/             the emulator's save game (SRAM, not ROM content)
 ```
 
@@ -110,7 +127,8 @@ Full walkthrough: [docs/guide/getting-started.md](docs/guide/getting-started.md)
    in the left sidebar. The Emulator is in the bottom panel: View > Emulator.
 3. Edit a palette: click a swatch, change it, click **OK**. That commits one
    layer. Nothing downstream moves until you confirm.
-4. **File > Export Patch** writes an `.ips` into your project's `export/`.
+4. **File > Export Patch** writes a `.bps` into your project's `export/`
+   (IPS is an option).
 
 You supply your own legally obtained ROM. See [Legal](#legal).
 
@@ -162,7 +180,7 @@ snapshots. This applies to the source tree, the packaged application, and
 every fixture, test input, and documentation sample.
 
 Projects you create contain no ROM content either, which is what makes
-them safe to share. The `.ips` patches you export contain only your own
+them safe to share. The `.bps` patches you export contain only your own
 changes.
 
 You must supply your own legally obtained ROM. HackBench is an unofficial

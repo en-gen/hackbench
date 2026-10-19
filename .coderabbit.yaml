@@ -16,59 +16,24 @@ reviews:
   high_level_summary: false
   poem: false
   review_status: true
-  # These re-include files CodeRabbit skips by default. Images, dumps, archives
-  # and audio are the shapes ROM-derived bytes take, and a skipped file is
-  # approved unseen. Lockfiles too: the repo is public and CI installs them
-  # frozen, so a changed resolved URL or integrity hash matters.
+  # Owner ruling 2026-10-18: review only src/ and theia/ ("I only want
+  # coderabbit to run if the pr includes changes to src/*", then "src/* or
+  # theia/*"). A plain pattern that is not a built-in default turns this list
+  # into an allowlist (docs.coderabbit.ai/configuration/path-instructions, "How
+  # path filters combine"), so a PR changing nothing under src/ or theia/ has
+  # no reviewable file and gets no review. Filters are per file: in a PR that
+  # does touch src/, files outside these trees (test/, tools/, docs/, CI) are
+  # not reviewed either. Markdown under the two trees is skipped too.
+  # Images, archives, audio and the lockfile are named explicitly because
+  # CodeRabbit skips them by default; they are the shapes ROM-derived bytes
+  # take, and a skipped file is approved unseen. The content gate
+  # (check-content.mjs) still scans every path.
   path_filters:
-    - '**/*.png'
-    - '**/*.jpg'
-    - '**/*.jpeg'
-    - '**/*.gif'
-    - '**/*.bmp'
-    - '**/*.ico'
-    - '**/*.bin'
-    - '**/*.zip'
-    - '**/*.7z'
-    - '**/*.gz'
-    - '**/*.tar'
-    - '**/*.wav'
-    - '**/*.mp3'
-    - '**/*.ogg'
-    - '**/*.flac'
-    - '**/package-lock.json'
-    - '**/yarn.lock'
-    # Owner ruling 2026-10-17: skip changelog fragments and docs, except
-    # docs/rom, docs/testing.md, docs/glossary.md and .claude/rules, to save
-    # review slots. CodeRabbit's rules (docs.coderabbit.ai/configuration/
-    # path-instructions, "How path filters combine"): any matching '!' pattern
-    # excludes a file regardless of order, and a plain pattern that is not an
-    # exact built-in default turns the list into an allowlist. So the kept
-    # paths cannot be re-included; each skipped docs path is listed instead.
-    # A new docs/ directory or top-level docs file is reviewed until added here.
-    - '!changelog.d/**'
-    - '!CHANGELOG.md'
-    - '!docs/agents/**'
-    - '!docs/architecture/**'
-    - '!docs/decisions/**'
-    - '!docs/guide/**'
-    - '!docs/ideas/**'
-    - '!docs/mockups/**'
-    - '!docs/protocols/**'
-    - '!docs/runbooks/**'
-    - '!docs/spikes/**'
-    - '!docs/sprites/**'
-    - '!docs/superpowers/**'
-    - '!docs/CONVENTIONS.md'
-    - '!docs/README.md'
-    - '!docs/capture-viewer.md'
-    - '!docs/gfx-arena-budget.md'
-    - '!docs/hypotheses.md'
-    - '!docs/layer-previews.md'
-    - '!docs/music-playback.md'
-    - '!docs/references.md'
-    - '!docs/sfx-tables.md'
-    - '!docs/ui-conventions.md'
+    - 'src/**'
+    - 'theia/**'
+    - '{src,theia}/**/*.{png,jpg,jpeg,gif,bmp,ico,bin,zip,7z,gz,tar,wav,mp3,ogg,flac}'
+    - 'theia/yarn.lock'
+    - '!**/*.md'
   auto_review:
     # Owner ruling 2026-10-16: paid Essentials plan, five included PR reviews
     # per developer per hour, subject to CodeRabbit's Fair Usage Policy. Every

@@ -41,6 +41,7 @@ const GET_SVC = `function getSvc(name) {
   }
   return null
 }`
+/** The map view's root selector for the map under test. */
 const rootOf = () => `[id="hackbench.map-view:${SLOT}"]`
 let tmp
 let manifestPath
@@ -82,6 +83,7 @@ const sample = (page, pixels, screen) =>
     { rootSel: rootOf(), pixels, screen },
   )
 
+/** The share of sampled pixels equal to the wanted ones. */
 const share = (got, want) => got.filter((v, i) => v === want[i]).length / Math.max(got.length, 1)
 
 /** Opens the map; returns once `screen` is scrolled to, fetched, and painted with its sprites. */
@@ -96,6 +98,7 @@ async function openMap(page, screen) {
     },
     { mp: manifestPath, index: SLOT },
   )
+  /** The selector of one canvas plane of the screen under test. */
   const at = kind => `${rootOf()} canvas[data-screen="${screen}"][data-plane="${kind}"]`
   await page
     .locator(at('l1Low'))

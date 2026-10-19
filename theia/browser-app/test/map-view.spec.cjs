@@ -1072,7 +1072,7 @@ for (const [index, role, bit, known] of [
       // (backend probe, one run, one machine: the same box on screens 0-3; the box starts at 257, the first opaque
       // row). A low plane (l3Low), so pixels are read there. No outline-black pixel: the two are its first opaque
       // pixel in raster order and one of another color. $01F (smash
-      // Layer 3, 512 px repeat) is left out until #997.
+      // Layer 3, drawn once) has its own test below (#997).
       plane: 'l3Low',
       box: { x: 0, y: 257 },
       pixel: { x: 25, y: 257 },
@@ -1130,6 +1130,118 @@ for (const [index, role, bit, known] of [
     expect(back.pixels).toEqual(before.pixels)
   })
 }
+
+/**
+ * Layer 3 on $011 and $1C1 (#563): settings byte $81 on tileset 9, world-locked, so it is drawn from the
+ * camera at load ($011: map X 0, $1C1: map X 652). The art on these maps repeats every 256 px itself, so
+ * every screen shows the same pixels and the 512 px tilemap repeat is covered by the unit tests, not here.
+ * What the browser pins is the anchor: the first opaque pixel on each screen, measured from the backend's
+ * planes (row 89; x 60 from camera 0, x 200 from camera 652, which is 60 + 652 mod 256) and 504 opaque
+ * pixels in the priority plane. A camera taken as 0 on $1C1, or a sign error, moves x. Flipping the toggle changes pixels on every screen and restores them.
+ */
+for (const [index, first] of [
+  [0x011, { x: 60, y: 89 }],
+  [0x1c1, { x: 200, y: 89 }],
+]) {
+  test(`$${index.toString(16)}: the world-locked Layer 3 is drawn at its anchor and its tooltip is the usual one`, async ({
+    page,
+  }) => {
+    const screens = [0, 1, 2, 3]
+    const project = await createProject(page, path.join(tmp, 'MyHack'))
+    await openMap(page, project.manifestPath, index)
+    const button = l3Toggle(page, index)
+    await expect(button).toBeEnabled()
+    await expect(button).toHaveAttribute('aria-pressed', 'true')
+    await expect(button).toHaveAttribute('title', 'Layer 3 · Overlay') // develop's text: the priority plane is l3High, and no drift note
+    for (const screen of screens) await showScreen(page, index, screen)
+    // Per screen: the opaque count and first opaque pixel of the priority plane (read in the page, not shipped).
+    const probe = screen =>
+      page.evaluate(
+        ({ rootSel, screen }) => {
+          const c = document.querySelector(`${rootSel} canvas[data-screen="${screen}"][data-plane="l3High"]`) // prettier-ignore
+          const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+          let n = 0
+          let at = null
+          for (let i = 3; i < d.length; i += 4)
+            if (d[i]) {
+              n++
+              at ??= { x: ((i - 3) / 4) % c.width, y: Math.floor((i - 3) / 4 / c.width) }
+            }
+          return { n, at }
+        },
+        { rootSel: root(index), screen },
+      )
+    for (const screen of screens)
+      expect(await probe(screen), `screen ${screen}`).toEqual({ n: 504, at: first })
+    const sum = async () => Promise.all(screens.map(s => readScreen(page, index, s).then(r => r.checksum))) // prettier-ignore
+    const on = await sum()
+    await button.click()
+    await expect(button).toHaveAttribute('aria-pressed', 'false')
+    const off = await sum()
+    off.forEach((c, i) => expect(c, `screen ${screens[i]} changes`).not.toBe(on[i]))
+    await button.click()
+    expect(await sum()).toEqual(on)
+  })
+}
+
+/**
+ * #997: $01F's layer 3 is driven by the smash sprite, which keeps it on the camera in the game. The
+ * map view draws ONE copy, at world x = column*8 + 104 (the first landing, Layer3XPos -104, run from the ROM): the panel
+ * spans screen 0 (from x 160) into screen 1 (to about x 303 in world terms), and the 512 px repeat
+ * (the panel again from world 672, screen 2 from x 160) is not drawn. The first opaque column (x 160)
+ * was measured by the verifier.
+ */
+test('$01F: layer 3 is drawn once, across screens 0 and 1, not repeated 512 px on, and the toggle tooltip is unchanged', async ({
+  page,
+}) => {
+  // The pinned x is the vanilla ROM's; a custom HB_ROM or a missing corpus ROM cannot match it.
+  test.skip(
+    !!process.env.HB_ROM || !fs.existsSync(romPath(VANILLA)),
+    'needs the vanilla corpus ROM',
+  )
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x01f)
+  const button = l3Toggle(page, 0x01f)
+  const screenPixels = s =>
+    page.evaluate(
+      ({ rootSel, s }) => Array.from(composeCanvases(planesOf(rootSel, s), 0, 0, 256, 432)),
+      { rootSel: root(0x01f), s },
+    )
+  // A composite canvas's data-drawn is generation:key:flags:..., the flags being the L1 L2 L3 sprites switches
+  // it was painted with (map-view-widget.tsx, paintComposite). Reading it tells a repaint from a stale frame.
+  const l3Flag = s =>
+    page.evaluate(
+      sel => document.querySelector(sel)?.dataset.drawn?.split(':')[4]?.[2],
+      `${root(0x01f)} canvas[data-layer="screen"][data-screen="${s}"]`,
+    )
+  await showScreen(page, 0x01f, 2)
+  await expect.poll(() => l3Flag(2)).toBe('1')
+  const on = [await screenPixels(0), await screenPixels(1), await screenPixels(2)]
+  await button.click()
+  await expect(button).toHaveAttribute('aria-pressed', 'false')
+  // Screen 2's OWN repaint with layer 3 off, not just screen 0's: otherwise off[2] could be the old frame.
+  await expect.poll(() => l3Flag(2)).toBe('0')
+  const off = [await screenPixels(0), await screenPixels(1), await screenPixels(2)]
+  const changed = i => off[i].filter((v, k) => v !== on[i][k]).length
+  expect(changed(0), 'layer 3 is on screen 0').toBeGreaterThan(0)
+  expect(changed(1), 'the rest of the panel is on screen 1').toBeGreaterThan(0)
+  expect(on[2].some(v => v !== 0), 'screen 2 is rendered, so the comparison below is not of two blanks').toBe(true) // prettier-ignore
+  expect(off[2], 'no copy of layer 3 at the 512 px repeat').toEqual(on[2])
+  // The panel's first opaque column on screen 0 tells the first landing (-104, derived x 160) from the old
+  // smash-cycle start (-128, x 184); the verifier measured 160.
+  const firstColumn = await page.evaluate(rootSel => {
+    let x0 = 1e9
+    for (const c of document.querySelectorAll(
+      `${rootSel} canvas[data-screen="0"][data-plane^="l3"]`,
+    )) {
+      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+      for (let i = 3; i < d.length; i += 4) if (d[i] !== 0) x0 = Math.min(x0, (i >> 2) % c.width)
+    }
+    return x0
+  }, root(0x01f))
+  expect(firstColumn, 'layer 3 starts at the first landing, not the old -128 start').toBe(160)
+  await expect(button).toHaveAttribute('title', 'Layer 3 · Background')
+})
 
 /**
  * The toggle look (option D): pressed is a filled chip with a 1px border, off has neither (a transparent

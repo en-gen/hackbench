@@ -403,9 +403,10 @@ const FIVE_EERIES = 0xde
 
 /**
  * The five Eeries of a stream entry (#1015), run from the ROM's own spawner: ONE sprite at its real stream index
- * (so hover and selection find it), the five Eeries as its parts. A vertical map is not drawn: the loader hands
- * the spawner the screen's Y boundary as the X there (bank_02.asm:5232-5238). A routine or call-path part that is
- * not the vanilla shape does not blank it (D52): drawn, flagged `unverified`. Nothing drawn is a marker with the reason.
+ * (so hover and selection find it), the five Eeries as its parts. In a vertical map the loader hands the spawner the
+ * scroll-axis boundary, the entry's Y, as its X (bank_02.asm:5232-5238); the spawner is run on that input and the result
+ * is flagged `unverified`, because no vanilla map places a $DE there (D52: drawn, not blanked). A spawner that is not
+ * the hashed one is flagged the same way. A loader route the reader cannot place, or nothing drawn, is a marker with the reason.
  */
 function eeriesResult(
   rom: RomFile,
@@ -414,25 +415,33 @@ function eeriesResult(
   vertical: boolean,
   routines: EeriesRoutines,
 ): SpriteDrawResult {
-  if (vertical) return { ok: false, reason: 'the five Eeries are not drawn in a vertical map: the game takes their X from the wrong axis there' } // prettier-ignore
   // The spawner reads its data byte through SpriteDataPtr, which only the ROM-run loader's image sets.
   if (!seed.loaded) return { ok: false, reason: `the five Eeries need the level loader's image: ${seed.loadRefusal ?? 'no level image was given'}` } // prettier-ignore
   const [x, y] = [pixelX(s), s.y * TILE]
-  const r = fiveEeries(rom, seed, { x, y, index: s.index, streamOffset: s.streamOffset }, routines)
+  const input = vertical ? y : x
+  const r = fiveEeries(rom, seed, { x: input, y, at: { x, y }, index: s.index, streamOffset: s.streamOffset }, routines) // prettier-ignore
   // The slot-range reason is true only while the spawner is the game's own; a changed one may spawn fewer for its own reasons.
   const gameOwn = r.unverified.length === 0
   if (!r.ok) {
     const none = `None of the ${EERIES_COUNT} Eeries appear`
     return { ok: false, reason: r.none ? (gameOwn ? `${none}: this map's sprite memory setting leaves no room.` : `${none}.`) : `refused: ${r.reason}` } // prettier-ignore
   }
-  const why = [...r.unverified.map(u => `${u} is not the vanilla shape`), ...r.notes].join('; ')
+  const why = [
+    ...r.unverified.map(u => `${u} is not the vanilla shape`),
+    ...(vertical ? ["in a vertical map the spawner is given the entry's Y as its X (the loader's boundary), derived from the loader and not checked: no vanilla map places one"] : []), // prettier-ignore
+  ].join('; ')
+  // What spawned and did not draw is a shortfall to tell, not a flaw of the routine: it goes in the note, not `unverified`.
+  const notes = [
+    ...(r.spawned < EERIES_COUNT ? [`Only ${r.spawned} of the ${EERIES_COUNT} Eeries appear${gameOwn ? `: this map's sprite memory setting leaves room for ${r.spawned}.` : '.'}`] : []), // prettier-ignore
+    ...r.notes,
+  ]
   return {
     ok: true,
     parts: interpParts(r.parts),
     anchor: { x, y },
     identity: { spriteId: s.spriteId, mainHandler: 0, initHandler: 0, status: 'vanilla' },
     // Fewer than five is the game's answer for this map's slot range, not a flaw: said in plain words, not `unverified`.
-    ...(r.spawned < EERIES_COUNT ? { note: `Only ${r.spawned} of the ${EERIES_COUNT} Eeries appear${gameOwn ? `: this map's sprite memory setting leaves room for ${r.spawned}.` : '.'}` } : {}), // prettier-ignore
+    ...(notes.length ? { note: notes.join(' ') } : {}),
     ...(why
       ? { unverified: `the five Eeries are drawn from the spawner the loader calls, and ${why}` }
       : {}),

@@ -14,7 +14,7 @@ import type { SyntheticOptions } from './syntheticSpriteRom'
 export const EERIES_STREAM_AT = 0x038000
 /** Where the loader calls the spawner from, the spawner's entry, the distance routine and the fixture's tables. */
 export const ROUTE_AT = 0x02a88c
-export const SPAWNER_AT = 0x02af9d
+export const SPAWNER_AT = 0x02afa8
 export const DISTANCE_AT = 0x02848d
 export const TABLES_AT = 0x02b200
 /** Offsets inside the spawner and the distance routine that tests plant defects at. */
@@ -25,10 +25,9 @@ export const SYNTHETIC_OFFSETS = Object.freeze([-0x28, -0x14, 0, 0x14, 0x28])
 export const SYNTHETIC_SPEEDS = Object.freeze({ marioRight: 0x18, marioLeft: 0xe8 })
 /** The fixture's default list: one entry, data byte $71 (Y $170), column 4 of screen 3. */
 export const EERIES_DEFAULT_STREAM = Object.freeze([0x71, 0x43, 0xde, 0xff])
-/** The gate's fingerprints of the fixture's own spawner (97 bytes) and of its route (16) with the distance routine (18), one digest. */
+/** The gate's fingerprint of the fixture's own spawner (97 bytes). The loader route and the distance routine are checked by structure and behaviour. */
 export const SYNTHETIC_EERIES_ROUTINES = Object.freeze({
   spawner: '4d2a8762f4befd476d4aebc53608dc16810e50e05ca9d236901d5379f1c91c52',
-  path: '06d7f7b5c61e580f6983546001299a4d3124cc6ef654c1ef9807c206111e20c6',
 })
 
 /** A loaded level image with Mario at `marioX` and SpriteDataPtr ($CE-$D0) at the fixture's list; `extra` adds camera, mario or sprite. */
@@ -42,8 +41,11 @@ export function eeriesSeed(marioX: number, extra: Parameters<typeof withSeed>[0]
 /** Where sprite $39's handler sits in the fixture. */
 export const EERIE_HANDLER = 0x019600
 
+/** An absolute-address instruction: opcode, then the address low and high. */
 const abs3 = (op: number, a: number) => [op, a & 0xff, (a >> 8) & 0xff]
+/** The low byte of an address, for operands. */
 const lo = (a: number) => a & 0xff
+/** The high byte of an address, for operands. */
 const hi = (a: number) => (a >> 8) & 0xff
 
 /** The spawner: its code as an array, with the loop's branch offsets worked out. */
@@ -53,6 +55,7 @@ function spawnerCode(): number[] {
     hi: TABLES_AT + 5,
     xs: TABLES_AT + 10,
   }
+  /** An absolute-address instruction inside the spawner, written with the same low/high helpers. */
   const abs = (op: number, a: number) => [op, lo(a), hi(a)]
   // Data byte to $0A/$0B (raw, then its bit 0), the countdown in $0C.
   const head = [0xa5, 0x03, 0xa8, 0xb7, 0xce, 0x85, 0x0a, 0x29, 0x01, 0x85, 0x0b, 0xa9, 0x04, 0x85, 0x0c] // prettier-ignore
@@ -89,14 +92,22 @@ export function putEeries(
   e: NonNullable<SyntheticOptions['eeries']>,
 ): void {
   // The loader's call site: the base cart already has the compare and branch in front (4 bytes); then filler, then the
-  // JSR the production code reads its target from.
-  // Then filler to the end of the 16 bytes the gate hashes.
+  // The branch offset (the one route byte the reader does not look at) is the fixture's own, so no window of the route
+  // equals the game's.
+  put(ROUTE_AT + 3, [0x30])
+  // Then the route's own shape, written for this fixture: PHY, PHX, DEY, STY $03 (the data offset the spawner reads),
+  // the JSR the production code reads its target from, and filler after it.
   put(ROUTE_AT + 4, [
-    ...new Array<number>(5).fill(0xea),
+    0x5a,
+    0xda,
+    0x88,
+    0x84,
+    0x03,
     0x20,
     lo(SPAWNER_AT),
     hi(SPAWNER_AT),
-    ...new Array<number>(4).fill(0xea),
+    0xea,
+    0xea,
   ])
   // The distance routine: Y = 1 when Mario is left of the sprite (a borrow comparing X positions), else 0.
   put(

@@ -155,6 +155,8 @@ export interface SpriteModel {
    * frame a map should show.
    */
   chosen?: number
+  /** Why a $67 handler got the generic rule: the grinder gate ran it and it did not make the vanilla calls in order. */
+  lineGateReason?: string
   /** Why a $67 on a vanilla-shaped handler stayed on its first drawn pass although the next one draws. */
   lineStepReason?: string
   /** True for $67 on a vanilla-shaped handler: each pass draws where the pass before left the sprite (`PassResult.origin`). */
@@ -186,7 +188,7 @@ export interface SpawnRun {
    */
   routine?: number
   /**
-   * Which spawned sprite to draw, counting the occupied slots from slot 0 (default 0). When given, the others
+   * Which spawned sprite to draw, counting in the order the spawn filled its slots (default 0). When given, the others
    * are emptied so only the chosen one runs and writes OAM; when absent the block path is as it always was.
    */
   nth?: number
@@ -494,7 +496,7 @@ export function runOnce(
   if (loaded.refusal) return { ...model, refusal: loaded.refusal }
   const shell = loaded.shell
   // INIT runs only for a sprite the loader leaves in status 1.
-  const runsInit = (shell?.status ?? 1) === 1
+  let runsInit = (shell?.status ?? 1) === 1
   const num = shell?.number ?? id
   // A sprite the loader does not leave in status 1 never runs INIT, so its INIT pointer is not read.
   const inits = runsInit ? resolvePointer(rom, tables.tables.initTable, num) : undefined
@@ -523,8 +525,20 @@ export function runOnce(
       for (let i = 0; i < 12; i++) w[RAM.status + i] = 0
       for (const [k, v] of Object.entries(opts.spawn.inputs)) w[Number(k)] = v
       // The code reads its tables through DB: the game reaches it from its own bank (PHK PLB), so enter it with DB = its bank.
-      m.call(spawn.entry, own === undefined ? 'jsl' : 'jsr', spawn.entry >>> 16)
-      const made = Array.from({ length: 12 }, (_, i) => i).filter(i => w[RAM.status + i] !== 0)
+      // Slots in the order the spawn first filled them: that is its spawn order, whichever way its search runs.
+      const order: number[] = []
+      const before = m.bus.onWramWrite
+      m.bus.onWramWrite = (off, v) => {
+        before?.(off, v)
+        const i = off - RAM.status
+        if (i >= 0 && i < 12 && v !== 0 && !order.includes(i)) order.push(i)
+      }
+      try {
+        m.call(spawn.entry, own === undefined ? 'jsl' : 'jsr', spawn.entry >>> 16)
+      } finally {
+        m.bus.onWramWrite = before
+      }
+      const made = order.filter(i => w[RAM.status + i] !== 0)
       const nth = opts.spawn.nth
       const picked = made[nth ?? 0]
       if (picked === undefined)
@@ -535,6 +549,9 @@ export function runOnce(
       m.seed.slot = picked
       w[RAM.curSprite] = picked
       model.spawnPos = m.pos()
+      // An own spawner leaves the status it chose: only status 1 runs INIT, so a status-8 sprite has no frame before pass 0
+      // (a frame there would move it before it is first drawn). The block path is as it always was.
+      if (own !== undefined) runsInit = w[RAM.status + picked] === 1
     } else m.call(ENTRY.initSpriteTables, 'jsl')
     let n = m.steps
     // Status 1 -> CallSpriteInit, which sets status 8 and runs INIT. An INIT
@@ -556,9 +573,17 @@ export function runOnce(
     if (st === 1)
       return { ...model, refusal: `INIT did not complete in ${MAX_INIT_FRAMES} frames: status stays 1, waiting on state the seed lacks` } // prettier-ignore
     const anchor = m.pos()
-    const snaps =
-      DRAWS_BEFORE_LINE_SNAP.has(num) &&
-      grinderDrawsBeforeSnap(rom, mains.handler.address, opts.grinderDispatch)
+    const gate = DRAWS_BEFORE_LINE_SNAP.has(num)
+      ? grinderDrawsBeforeSnap(
+          rom,
+          mains.handler.address,
+          num,
+          RAM.spriteNumber,
+          opts.grinderDispatch,
+        )
+      : null
+    const snaps = gate?.ok === true
+    if (gate && !gate.ok) model.lineGateReason = gate.reason
     model.anchor = { ...anchor, rawX: m.seed.sprite.x, rawY: m.seed.sprite.y }
     if (snaps) model.snaps = true
     model.oamBase = w[RAM.oamIndex + m.seed.slot]

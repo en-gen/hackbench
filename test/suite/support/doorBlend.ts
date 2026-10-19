@@ -13,6 +13,8 @@ export function doorPixelsUnderMath(
   planes: Planes,
   doors: Uint32Array,
   cgadsub: number,
+  /** Filled with the blended door pixels per covering layer (the plane that sets the bit), for callers that tell them apart. */
+  by: { l1: number; l2: number; l3: number } = { l1: 0, l2: 0, l3: 0 },
 ): { doorPixels: number; blended: number } {
   let doorPixels = 0
   let blended = 0
@@ -29,7 +31,16 @@ export function doorPixelsUnderMath(
     }
     if (cover < 1 || !main.slice(0, k + 1).some(key => key.startsWith('sprites') && !key.startsWith('spritesL2') && (planes[key]?.[p * 4 + 3] ?? 0) > 0)) continue // prettier-ignore
     doorPixels++
-    if (cgadsub & bit) blended++
+    if (cgadsub & bit) {
+      blended++
+      if (bit === BIT.l1) by.l1++
+      else if (bit === BIT.l2) by.l2++
+      else by.l3++
+    }
   }
   return { doorPixels, blended }
 }
+
+/** True when the blended door pixels of a screen are all covered by Layer 3 (some, and none by Layer 1 or Layer 2). */
+export const blendedOnlyByLayer3 = (by: { l1: number; l2: number; l3: number }) =>
+  by.l1 === 0 && by.l2 === 0 && by.l3 > 0

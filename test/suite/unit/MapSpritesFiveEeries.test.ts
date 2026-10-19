@@ -27,6 +27,7 @@ const model = { isVertical: false, screenCount: 16 }
 const [near, far] = [SYNTHETIC_OFFSETS[0]!, SYNTHETIC_OFFSETS[4]!]
 
 type Options = { stream?: number[]; spacing?: number[]; room?: number }
+/** Draws the fixture's $DE entry with Mario at `marioX`, over a cart built from `eeries` and optionally tweaked. */
 const draw = (marioX: number, eeries: Options = {}, tweak?: (rom: RomFile) => void) => {
   const rom = buildSyntheticRom({ eeries })
   tweak?.(rom)
@@ -38,6 +39,7 @@ function ok(r: ReturnType<typeof draw>) {
   if (!r.ok) throw new Error(`not drawn: ${JSON.stringify(r)}`)
   return r
 }
+/** The span of the drawn pieces' offsets from the entry, to compare against the cart tables. */
 const extent = (r: ReturnType<typeof ok>) => ({
   x: [Math.min(...r.parts.map(p => p.dx)), Math.max(...r.parts.map(p => p.dx))],
   y: [Math.min(...r.parts.map(p => p.dy)), Math.max(...r.parts.map(p => p.dy))],
@@ -64,6 +66,7 @@ describe('sprite $DE on the map', () => {
   })
 
   it('faces Mario: the speed the cart picks by his side is what the pieces show', () => {
+    /** The tiles drawn for Mario at `marioX`: the cart's tile is the X speed, so this shows which way they face. */
     const chars = (marioX: number) => [...new Set(ok(draw(marioX)).parts.map(p => p.charNum))]
     // Mario left of the Eeries picks the second table entry, right of them the first; the tile is that speed.
     const [left, right] = [chars(100), chars(2000)]
@@ -74,13 +77,20 @@ describe('sprite $DE on the map', () => {
     expect(Math.min(...right) & 0xff).toBe(SYNTHETIC_SPEEDS.marioRight)
   })
 
-  it('is refused with the reason in a vertical map: the loader hands the spawner the wrong axis', () => {
-    const r = interpDrawer(buildSyntheticRom({ eeries: {} }), 0x21, { isVertical: true, screenCount: 16 }, runOnce, () => eeriesSeed(100), undefined, SYNTHETIC_EERIES_ROUTINES as never)(entry) // prettier-ignore
-    expect(r.ok).toBe(false)
-    expect(!r.ok && 'reason' in r && r.reason).toMatch(/not drawn in a vertical map/)
+  it('draws in a vertical map from the loader-provided inputs: the spawner gets the entry Y as its X, and says it is unchecked', () => {
+    // The loader hands the spawner the scroll-axis boundary as $00/$01 (bank_02.asm:5232-5238), which in a vertical
+    // map is the entry's Y: 26 tiles = 416 px. The spawner still reads its own data byte (Y $170 = 368) for Y.
+    const e = { ...entry, y: 26 }
+    const r = ok(interpDrawer(buildSyntheticRom({ eeries: {} }), 0x21, { isVertical: true, screenCount: 16 }, runOnce, () => eeriesSeed(100), undefined, SYNTHETIC_EERIES_ROUTINES as never)(e)) // prettier-ignore
+    expect(r.anchor).toEqual({ x: 832, y: 416 })
+    expect(extent(r).x).toEqual([416 + near - 832, 416 + far + 8 - 832])
+    expect(extent(r).y).toEqual([368 - 416, 368 - 416 + 8])
+    expect(r.unverified).toMatch(/vertical map/)
+    expect(r.parts).toHaveLength(5 * 4)
   })
 
   it('is refused, with the reason, when the level loader gave no image: SpriteDataPtr was never set', () => {
+    /** A seed with no loader image, as when the level loader refuses. */
     const noImage = () => {
       const seed = eeriesSeed(100)
       delete seed.loaded
@@ -130,7 +140,9 @@ describe('sprite $DE on the map', () => {
   it('names the spawner the loader calls in the unverified text, not a vanilla address', () => {
     const repointed = ok(
       draw(100, {}, rom => {
-        rom.writeAt(0x02b100, bytesAt(rom, SPAWNER_AT, 97)!)
+        const copy = bytesAt(rom, SPAWNER_AT, 97)!
+        copy[COUNT_IMMEDIATE_AT - SPAWNER_AT] = 0x03 // a different spawner, so it is named
+        rom.writeAt(0x02b100, copy)
         rom.writeAt(ROUTE_AT + 10, [0x00, 0xb1])
       }),
     )
@@ -140,5 +152,10 @@ describe('sprite $DE on the map', () => {
     expect(repointed.unverified).not.toMatch(/vanilla address/)
     // Unchanged route and routine: nothing to say.
     expect(ok(draw(100)).unverified).toBeUndefined()
+  })
+
+  it('is a marker with the reason when the loader route is not the shape the reader knows', () => {
+    const r = draw(100, {}, rom => rom.writeAt(ROUTE_AT + 6, [0xe2, 0x20])) // SEP #$20 where DEY, STY were
+    expect(!r.ok && 'reason' in r && r.reason).toMatch(/^refused: the loader route to the Eerie spawner is not the shape/) // prettier-ignore
   })
 })

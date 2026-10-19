@@ -147,6 +147,7 @@ describe('spriteLayer', () => {
 
   it('puts a sprite note on the map note line once, and on its entry', () => {
     const h = { ...MODEL, isVertical: false, screenCount: 1 }
+    /** An engine reply that carries a sprite note, to prove the note reaches the map's note line once. */
     const said = () => ({ ...ok(part(0x401, 0, 0)), note: 'Only 4 of the 5 Eeries appear.' }) as EngineResult & { note: string } // prettier-ignore
     const r = spriteLayer(Uint8Array.from([0, 0x10, 0x01, 0x10, 0x20, 0x02, 0x10, END]), h, said)
     expect(r.sprites.map(s => s.note)).toEqual(['Only 4 of the 5 Eeries appear.', 'Only 4 of the 5 Eeries appear.']) // prettier-ignore
