@@ -211,7 +211,13 @@ const canvasPixels = (page, index) =>
     ]
     const [mapW, mapH] = [Math.round(edge.width / zoom), Math.round(edge.height / zoom)]
     const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
-    const out = { left: 0, right: 0, above: 0, below: 0, map: 0, minX: 1e9, maxX: -1e9, first: null, padL, padT, cw: c.width, ch: c.height } // prettier-ignore
+    // A pixel whose 8 neighbors are all opaque: a pointer rounded to a whole pixel still lands on the sprite.
+    const solid = (d, w, x, y) => {
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) if (d[((y + dy) * w + x + dx) * 4 + 3] === 0) return false
+      return true
+    }
+    const out = { left: 0, right: 0, above: 0, below: 0, map: 0, minX: 1e9, maxX: -1e9, first: null, inner: null, padL, padT, cw: c.width, ch: c.height } // prettier-ignore
     for (let y = 0; y < c.height; y++)
       for (let x = 0; x < c.width; x++) {
         if (data[(y * c.width + x) * 4 + 3] === 0) continue
@@ -220,6 +226,7 @@ const canvasPixels = (page, index) =>
         else if (mx < 0) {
           out.left++
           out.first ??= { x: mx, y: my }
+          out.inner ??= solid(data, c.width, x, y) && mx >= out.minX + 2 ? { x: mx, y: my } : null
           out.minX = Math.min(out.minX, mx)
           out.maxX = Math.max(out.maxX, mx)
         } else if (mx >= mapW) out.right++
@@ -290,7 +297,9 @@ for (const { index, screenW, vertical } of [
         }, root(index))
       await expect.poll(async () => (await style()).color, { timeout: 10000 }).toBe(back)
       const { mask } = await style()
-      expect(mask.startsWith(`linear-gradient(${vertical ? 'to bottom' : 'to right'}, rgba(0, 0, 0, 0)`)).toBe(true) // prettier-ignore
+      // Chromium drops the default direction ("to bottom") when it serializes the vertical gradient.
+      const dir = vertical ? '(?:to bottom, )?' : 'to right, '
+      expect(mask).toMatch(new RegExp(`^linear-gradient\\(${dir}rgba\\(0, 0, 0, 0\\)`))
       // The two opaque stops sit one gutter in from each end (the computed value keeps the zoom's fraction).
       const g = String(Math.round(G * zoom))
       expect(mask).toMatch(new RegExp(`rgb\\(0, 0, 0\\) ${g}(\\.\\d+)?px`))
@@ -344,15 +353,15 @@ test('$C4: hovering the door in the gutter shows the sprite tooltip anchor at th
       sc.scrollTop = Math.max(0, y - sc.clientHeight / 2)
       sc.scrollLeft = 0
     },
-    { sel: root(0xc4), y: px.first.y + px.padT },
+    { sel: root(0xc4), y: px.inner.y + px.padT },
   )
   await page.waitForTimeout(400)
   const r = await rects(page, 0xc4)
   const zoom = r.screen.w / 256
   // A real opaque door pixel, left of the map.
   const at = {
-    x: r.edge.left + (px.first.x + 0.5) * zoom,
-    y: r.edge.top + (px.first.y + 0.5) * zoom,
+    x: r.edge.left + (px.inner.x + 0.5) * zoom,
+    y: r.edge.top + (px.inner.y + 0.5) * zoom,
   }
   await page.mouse.move(at.x, at.y)
   await expect.poll(() => inWidget(page, 0xc4, w => w.hoverSprite?.id ?? null), { timeout: 10000 }).toBe(0x8d) // prettier-ignore

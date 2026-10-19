@@ -182,7 +182,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** Wheel, pointer and key events in the tab: the late-pad restore yields to any of them. */
   protected userInputs = 0
   /** A late-pad restore waiting for its frames: the pixel to hold and the pad to restore to. */
-  protected pendingRestore: { held: { x?: number; y?: number } | null | undefined; after: Pad; generation: number; inputs: number } | undefined // prettier-ignore
+  protected pendingRestore: { held: { x?: number; y?: number } | null | undefined; after: Pad; generation: number; inputs: number; dirty: boolean } | undefined // prettier-ignore
   protected screenError: string | undefined
   protected screenErrorDetail: string | undefined
   /** Each palace's block, decoded once per load, or why it cannot be drawn. */
@@ -451,6 +451,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** Drops every cached screen and reads the map again from the working copy. */
   protected refresh(): void {
     this.generation++
+    this.pendingRestore = undefined
     this.setHoverSprite(undefined)
     this.screens.clear()
     this.coveredIds.clear()
@@ -560,6 +561,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const pending = this.pendingRestore
     if (pending) {
       pending.after = after
+      pending.dirty = true
       return
     }
     const el = this.scroller
@@ -568,21 +570,38 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       x: el.scrollLeft > 0 ? (el.scrollLeft + el.clientWidth / 2 - before.left * z) / z : undefined,
       y: el.scrollTop > 0 ? (el.scrollTop + el.clientHeight / 2 - before.top * z) / z : undefined,
     }
-    const restore = { held, after, generation: this.generation, inputs: this.userInputs }
+    const restore = {
+      held,
+      after,
+      generation: this.generation,
+      inputs: this.userInputs,
+      dirty: false,
+    }
     this.pendingRestore = restore
+    // The refit's zoom is the one to restore at; a different one by the last frame is the user's.
+    let zoom = this.zoom
+    const finish = (): void => {
+      if (this.pendingRestore !== restore) return // the map was reopened or refreshed
+      // The pad changed again while waiting: refit once more and give the layout a frame to commit.
+      if (restore.dirty) {
+        restore.dirty = false
+        this.fitStrip()
+        zoom = this.zoom
+        requestAnimationFrame(finish)
+        return
+      }
+      this.pendingRestore = undefined
+      const { held: h, after: a, generation, inputs } = restore
+      if (!el || !h || generation !== this.generation || zoom !== this.zoom || inputs !== this.userInputs) return // prettier-ignore
+      el.scrollTo({
+        left: h.x === undefined ? undefined : (h.x + a.left) * zoom - el.clientWidth / 2,
+        top: h.y === undefined ? undefined : (h.y + a.top) * zoom - el.clientHeight / 2,
+      })
+    }
     requestAnimationFrame(() => {
       this.fitStrip()
-      // The refit's zoom is the one to restore at; a different one by the next frame is the user's.
-      const z2 = this.zoom
-      requestAnimationFrame(() => {
-        this.pendingRestore = undefined
-        const { held: h, after: a, generation, inputs } = restore
-        if (!el || !h || generation !== this.generation || z2 !== this.zoom || inputs !== this.userInputs) return // prettier-ignore
-        el.scrollTo({
-          left: h.x === undefined ? undefined : (h.x + a.left) * z2 - el.clientWidth / 2,
-          top: h.y === undefined ? undefined : (h.y + a.top) * z2 - el.clientHeight / 2,
-        })
-      })
+      zoom = this.zoom
+      requestAnimationFrame(finish)
     })
   }
 
@@ -1063,7 +1082,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** The pointer's client position over the strip, kept so a scroll or zoom can re-find the block under it. */
   protected pointer: { x: number; y: number } | undefined
 
-  /** Counts a wheel, pointer or key event on the scroller, so the late-pad restore can tell the user moved. */
+  /** Counts a wheel or pointer event on the scroller (keys are counted on the tab node, see `init`), so the late-pad restore can tell the user moved. */
   protected readonly countInput = (): void => {
     this.userInputs++
   }
