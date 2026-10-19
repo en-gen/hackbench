@@ -77,6 +77,12 @@ import {
   TORPEDO_LAUNCHER_ID,
   torpedoLauncher,
 } from '../../../../src/rom/sprites/interp/TorpedoLauncher'
+import {
+  PLATFORM_COUNT,
+  threePlatforms,
+  VANILLA_PLATFORM_ROUTINES,
+  type PlatformRoutines,
+} from '../../../../src/rom/sprites/interp/ThreePlatforms'
 import { withSeed, type SpriteSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { getSpriteMetadata } from '../../../../src/rom/model/sprites/SpriteMetadata'
 import { readSpriteTileTables } from '../../../../src/rom/SpriteTileLoader'
@@ -462,6 +468,58 @@ function eeriesResult(
   }
 }
 
+/** Sprite $E0: a loader command that spawns three Grey Platforms on Chain ($A3) (CODE_02A89C, SMWDisX bank_02.asm:5325-5331). */
+const THREE_PLATFORMS = 0xe0
+
+/**
+ * The three platforms of a stream entry (the $E0 issue), run from the ROM's own spawner and their INIT: ONE sprite at its
+ * real stream index, the platforms and their chains as its parts. A vertical map is drawn flagged `unverified`, as for $DE (the loader hands
+ * the spawner the Y boundary as X there; D52: drawn, not blanked). A changed routine does not blank it (D52): drawn, flagged `unverified`.
+ */
+function platformsResult(
+  rom: RomFile,
+  seed: SpriteSeed,
+  s: LevelSprite,
+  vertical: boolean,
+  routines: PlatformRoutines,
+): SpriteDrawResult {
+  // The spawner reads its data byte through SpriteDataPtr, which only the ROM-run loader's image sets.
+  if (!seed.loaded) return { ok: false, reason: `the three platforms need the level loader's image: ${seed.loadRefusal ?? 'no level image was given'}` } // prettier-ignore
+  const [x, y] = [pixelX(s), s.y * TILE]
+  // A vertical map hands the spawner the entry's Y boundary as its X (bank_02.asm:5232-5238), as for the Eeries.
+  const r = threePlatforms(rom, seed, { x: vertical ? y : x, y, at: { x, y }, index: s.index, streamOffset: s.streamOffset }, routines) // prettier-ignore
+  const gameOwn = r.unverified.length === 0
+  if (!r.ok) {
+    const none = `None of the ${PLATFORM_COUNT} platforms appear`
+    return { ok: false, reason: r.none ? (gameOwn ? `${none}: this map's sprite memory setting leaves no room.` : `${none}.`) : `refused: ${r.reason}` } // prettier-ignore
+  }
+  const why = [
+    ...r.unverified.map(
+      u =>
+        `${u} is not the vanilla shape${u === 'the platform spawner' ? ', so where its platforms sit and their per-platform values are taken from that edited code and not checked' : ''}`,
+    ),
+    ...(vertical ? ["in a vertical map the spawner is given the entry's Y as its X (the loader's boundary), derived from the loader and not checked: no vanilla map places one"] : []), // prettier-ignore
+  ].join('; ')
+  // What spawned and did not draw, or came out short, is a shortfall to tell, not a flaw of the routine: the note, not `unverified`.
+  const notes = [
+    ...(r.spawned < PLATFORM_COUNT ? [`Only ${r.spawned} of the ${PLATFORM_COUNT} platforms appear${gameOwn ? `: this map's sprite memory setting leaves room for ${r.spawned}.` : '.'}`] : []), // prettier-ignore
+    ...(r.spawned > PLATFORM_COUNT ? [`The spawner made ${r.spawned} platforms, more than the ${PLATFORM_COUNT} the game makes.`] : []), // prettier-ignore
+    ...r.notes,
+  ]
+  return {
+    ok: true,
+    parts: interpParts(r.parts),
+    anchor: { x, y },
+    identity: { spriteId: s.spriteId, mainHandler: 0, initHandler: 0, status: 'vanilla' },
+    ...(notes.length ? { note: notes.join(' ') } : {}),
+    ...(why
+      ? {
+          unverified: `the three platforms are drawn from the spawner the loader calls, and ${why}`,
+        }
+      : {}),
+  }
+}
+
 /** Sprites $E2 (counter-clockwise) and $E3 (clockwise): a ring of 10 cluster sprites, not slot sprites (CODE_02AAC0, SMWDisX bank_02.asm:5640-5641). */
 const RING_LEFT = 0xe2
 const RING_RIGHT = 0xe3
@@ -525,6 +583,7 @@ export function interpRunner(
   seedFor: (rom: RomFile, index: number) => SpriteSeed = levelSeed,
   ringRoutines: RingRoutines = VANILLA_RING_ROUTINES,
   eeriesRoutines: EeriesRoutines = VANILLA_EERIES_ROUTINES,
+  platformRoutines: PlatformRoutines = VANILLA_PLATFORM_ROUTINES,
   /** The map's whole sprite list: a sprite that scans the slots for a companion is run with its neighbors (#841). */
   list: readonly LevelSprite[] = [],
 ): (sprite: LevelSprite) => SpriteRun {
@@ -554,16 +613,25 @@ export function interpRunner(
     const neighbours = neighboursOf(list, s, e => ({ x: pixelX(e), y: e.y * TILE }))
     const seed = (camera: { x: number; y: number }, extra = {}) => withSeed({ sprite: { x, y }, camera, mario, ...shape, ...(neighbours.length ? { neighbours } : {}), ...extra }, base) // prettier-ignore
     if (s.spriteId === FIVE_EERIES) return { direct: eeriesResult(rom, seed(camera), s, model.isVertical, eeriesRoutines) } // prettier-ignore
+    if (s.spriteId === THREE_PLATFORMS) return { direct: platformsResult(rom, seed(camera), s, model.isVertical, platformRoutines) } // prettier-ignore
     if (s.spriteId === TORPEDO_LAUNCHER_ID) return { direct: launcherResult(rom, seed(camera)) } // prettier-ignore
     const m = run(rom, s.spriteId, seed(camera))
     const at = m.chosen
     if (!w || !loaderCam || at === undefined || !m.anchor || s.index < 0 || s.index >= 128 || !w[SPRITE_LOAD_STATUS + s.index]) return { m, fixed: false } // prettier-ignore
     // Probe: the camera moved 13 x 11 px (not a multiple of the 8 px tile pitch, so a neighbor
     // tile cannot alias) towards the sprite's screen centre, so it stays drawn; run only to the drawn pass.
-    const shifted = { x: camera.x + (x - camera.x < 128 ? -13 : 13), y: camera.y + (y - camera.y < 112 ? -11 : 11) } // prettier-ignore
-    const probe = run(rom, s.spriteId, seed(shifted, { mainPasses: at + 1 }))
-    const fixed = fixOffsets(m, probe, loaderCam, w)
-    return { m: fixed ?? m, fixed: !!fixed }
+    // A sprite with its own gate on the camera ($8D draws only while low byte of Layer1XPos < $46, bank_02.asm:15670-15673)
+    // may draw nothing there: the shift is tried the other way, and if that draws nothing too the probe
+    // proves nothing and the run stands (no position is invented).
+    const dir = [x - camera.x < 128 ? -13 : 13, y - camera.y < 112 ? -11 : 11]
+    for (const k of [1, -1]) {
+      const shifted = { x: camera.x + dir[0]! * k, y: camera.y + dir[1]! * k }
+      const probe = run(rom, s.spriteId, seed(shifted, { mainPasses: at + 1 }))
+      if (!probe.passes[at]?.parts.length) continue
+      const fixed = fixOffsets(m, probe, loaderCam, w)
+      return { m: fixed ?? m, fixed: !!fixed }
+    }
+    return { m, fixed: false }
   }
 }
 
@@ -596,14 +664,23 @@ function fixOffsets(
     const x9 = e[0]! | ((loaded[RAM.oamSize + p.oam]! & 1) << 8)
     return (e.some(v => v) || x9 > 255) && x9 === p.ox && e[1] === p.oy
   }
-  const same = (p: SpritePart) => !residue(p) && other.parts.some(q => q.oam === p.oam && q.ox === p.ox && q.oy === p.oy) // prettier-ignore
-  if (!pass.parts.some(same)) return null
-  // X is 9 bits (bit 8 is the sign); OAM Y $E0-$FF is above the screen's top edge.
-  const parts = pass.parts.map(p =>
-    same(p)
-      ? { ...p, dx: (p.ox > 255 ? p.ox - 512 : p.ox) + cam.x - anchor.x, dy: (p.oy >= 0xe0 ? p.oy - 256 : p.oy) + cam.y - anchor.y } // prettier-ignore
-      : p,
-  )
+  // Each axis on its own: $8D's X is table - Layer1XPos (follows the camera) but its Y is a bare table byte.
+  /** Per axis, whether part `p` is screen-fixed: its OAM X or Y is the same in the probe run (the camera moved) and is not loader residue. */
+  const fixedAxes = (p: SpritePart) => {
+    const q = !residue(p) ? other.parts.find(q => q.oam === p.oam) : undefined
+    return { x: !!q && q.ox === p.ox, y: !!q && q.oy === p.oy }
+  }
+  const axes = pass.parts.map(fixedAxes)
+  if (!axes.some(f => f.x || f.y)) return null
+  // X is 9 bits (bit 8 is the sign); OAM Y $E0-$FF is above the screen's top edge. A fixed axis is not wrapped to a byte.
+  const parts = pass.parts.map((p, i) => {
+    const f = axes[i]!
+    return {
+      ...p,
+      dx: f.x ? (p.ox > 255 ? p.ox - 512 : p.ox) + cam.x - anchor.x : p.dx,
+      dy: f.y ? (p.oy >= 0xe0 ? p.oy - 256 : p.oy) + cam.y - anchor.y : p.dy,
+    }
+  })
   return { ...m, passes: m.passes.map((q, i) => (i === at ? { ...q, parts } : q)) }
 }
 
@@ -826,6 +903,7 @@ function compute(
       () => base,
       undefined,
       undefined,
+      undefined,
       stream,
     )
     const dynamic = dynamicOf(rom.rom)
@@ -929,10 +1007,10 @@ export function mapSpriteFrames(
     if ((s.raw[0] ?? 0) & EXTRA_BITS) return { status: 'ok', frames: [], reason: 'extraBits' }
     const base = levelSeed(rom.rom, index)
     const stream = parseLevelSprites(data, model.isVertical)
-    const run = interpRunner(rom.rom, index, model, runOnce, () => base, undefined, undefined, stream)(s) // prettier-ignore
+    const run = interpRunner(rom.rom, index, model, runOnce, () => base, undefined, undefined, undefined, stream)(s) // prettier-ignore
     const frames = framesOf(run, s, model, dynamicOf(rom.rom))
     // Drawn by its parent on the map (the $9B a $9C carries): its tiles are the parent's, so say that, not "drew no tile".
-    const dto = frames.frames.length ? undefined : drawSprites(stream, model, interpDrawer(rom.rom, index, model, runOnce, () => base, undefined, undefined, stream)).find(d => d.index === s.index) // prettier-ignore
+    const dto = frames.frames.length ? undefined : drawSprites(stream, model, interpDrawer(rom.rom, index, model, runOnce, () => base, undefined, undefined, undefined, stream)).find(d => d.index === s.index) // prettier-ignore
     if (dto?.drawnBy !== undefined) return { status: 'ok', frames: [], reason: 'Drawn as part of the sprite it rides with, not on its own.' } // prettier-ignore
     return { status: 'ok', ...frames }
   } catch (err) {

@@ -307,7 +307,7 @@ describe('a sprite its parent drew, through the real drawer (#1049)', () => {
   const rom = cart()
   const vram = { sp1: Array.from({ length: 512 }, () => new Uint8Array(64).fill(1)) }
   const sp = (index: number, spriteId: number, x: number, y: number, screen = 0) => ({ index, x, y, spriteId, screen, extraBit: false, raw: [], streamOffset: 0 }) as LevelSprite // prettier-ignore
-  const drawn = (list: LevelSprite[]) => drawSprites(list, { vram, colors: COLORS } as never, interpDrawer(rom, 0x104, { isVertical: false, screenCount: 2 }, runOnce, () => withSeed({ loaded: new Uint8Array(0x2000) }), undefined, undefined, list)) // prettier-ignore
+  const drawn = (list: LevelSprite[]) => drawSprites(list, { vram, colors: COLORS } as never, interpDrawer(rom, 0x104, { isVertical: false, screenCount: 2 }, runOnce, () => withSeed({ loaded: new Uint8Array(0x2000) }), undefined, undefined, undefined, list)) // prettier-ignore
 
   it('a lone companion the scanner draws is listed as drawn by it, at its own position, with only its own tiles', () => {
     const [parent, child, far] = drawn([sp(0, SCANNER, 8, 8), sp(1, QUIET, 9, 7), sp(2, QUIET, 2, 7, 5)]) // prettier-ignore
