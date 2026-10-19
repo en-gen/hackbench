@@ -351,57 +351,49 @@ unknown cells. Z-order is 150: above the screens, below the collision lines (200
 while the tab shows a screen error, so no marks sit on a blank strip.
 
 Only the anchor cell (the parser's x,y) is marked: a refused object's footprint is unknown, and a
-guessed rectangle would be [PROP]. The cell keeps the object's own x,y even when that names a tile off
-the map (negative, or past `screenCount` x 16 columns or rows): it is never clamped onto the edge and
-never dropped (D52, D76 call 2); the canvas extends to hold it, see below.
+guessed rectangle would be [PROP]. On a horizontal map an anchor inside the map or its 8-tile gutter
+keeps the object's own x,y; beyond that (above or below a horizontal map, anywhere off a vertical one)
+it is clamped onto the last row or column as in #969, never dropped (D52). The rule lives in
+`refusedCellsOf` / `refusedBounds`, using `GUTTER_TILES` from `src/rom/model/MapGutter.ts`.
 
 Test hooks: `data-control="refused-overlay"` (absent when there are no cells), per cell
 `data-control="refused-cell"` with `data-x`, `data-y` (tiles) and `data-object`, and the reason
 `Object <n> (<type>): <why>` as both the `<title>` tooltip and the `aria-label`.
 
-### The map strip past the map (#1004)
+### The map strip's gutter (#1004)
 
-Content the data places off the map draws there: refused-object marks and sprites (a sprite's `box`
-is already in unclamped map pixels; the per-screen sprite canvases cut it to the map, so the part
-outside was never drawn before). `browser/off-map-extent.ts` (pure) turns the map size and every
-such rect into a `Pad` `{left, top, right, bottom}` in map pixels: 0 on a side nothing overflows,
-else the overflow rounded up to whole 16 px tiles plus one tile of margin [PROP]. It is the single
-place the canvas grows; a reserved "add screen" area (#950) would add to it.
+Owner ruling D48 part 2: "half a screen width of gutter on each end with ui to add a screen. The
+background should fade in a gradient to the edges", and from the T27 test: the back area colour should
+"fade to transparent in the gutter area". A HORIZONTAL map therefore has a fixed 128 px gutter
+(`GUTTER_PX`, half a 256 px screen) on its left and right, always, whatever the map holds; nothing is
+added above or below. A VERTICAL map has no gutter and its DOM, styles and sizes are as before; both
+the vertical case and anything beyond the gutter stay as they were until D145 is decided. The
+earlier content-driven margin (a pad grown to hold every off-map mark and sprite) is gone: the
+gutter depends on the orientation alone (`gutterPad` in `browser/off-map-extent.ts`), so nothing that
+loads later can resize the strip, and Fit on a horizontal map fits the height exactly as before.
 
-With all four pads 0 the DOM, styles and sizes are exactly as before. Otherwise the widget:
+With a gutter the widget:
 
-- pads `.hb-map-view-strip` (CSS padding by pad x zoom) so the screens stay where they were
-  relative to the map origin, and insets the back area to the map;
-- draws the refused SVG in a user space whose origin is the MAP origin (`viewBox` starts at
-  `-left, -top`), so off-map cells land in the margin;
-- draws the sprite pixels that fall outside the map on one canvas
-  (`data-layer="off-map-sprites"`, z 120); the pixels inside stay with the screens, under the tiles;
-- marks the map's edge with a 1 px outline (`data-control="map-edge"`, theme foreground at low
-  opacity), only when padded; the grid (`MapGridOverlay`, `map-grid.ts` `pad`) runs on across the
-  margin on the same tile lattice.
+- pads `.hb-map-view-strip` (`0 128px*zoom`) so the screens keep their place relative to the map;
+- paints the back area over the whole strip as a horizontal gradient: the map's back colour, solid
+  across the map and fading linearly to transparent at the outer edge of each gutter, so the
+  checkerboard shows through (a vertical map keeps the solid colour);
+- draws the refused SVG in a user space whose origin is the MAP origin (`viewBox` starts at the
+  negative gutter), so marks in the gutter land there at their raw tile;
+- draws the sprite pixels that fall in the gutters on one canvas (`data-layer="off-map-sprites"`, z
+  120). The pixels inside the map stay with the screens, under the tiles' priority; pixels beyond
+  the gutter, or above or below the map, are dropped as before. The canvas spans the whole padded
+  strip rather than the two bands (simpler), and its bitmap is only allocated when a sprite reaches a
+  gutter;
+- marks the map's edge with a 1 px outline (`data-control="map-edge"`) [PROP] and runs the grid
+  (`MapGridOverlay`, `map-grid.ts` `gutter`) on across the gutters on the same tile lattice.
 
-Everything that turns a pointer or scroll offset into a map position subtracts the leading pad:
-`updateHover` (`stripToMap`), `liftAt` (off-map positions never lift: no tile covers a sprite
-there), `visibleScreens`, `placeStart`, and `measureFit`, whose cross-axis size includes both
-cross-axis pads so Fit still shows the whole width (vertical map) or height (horizontal). The pad
-is derived from the layout and the sprites together, and it counts sprites even while the sprite
-layer is hidden, so toggling sprites never moves the layout [PROP]. When the sprites reply grows it, the tab
-refits and keeps a scrolled view on the same map pixel: the map pixel under the view centre is
-recorded before the change and the scroll set absolutely after the refit commits (an axis at scroll 0
-is left alone, so the margin shows); `.hb-map-view-scroller` sets `overflow-anchor: none` so the
-browser does not shift it as well. Evidence for that claim is the Playwright case in
-`map-off-map-canvas.spec.cjs` (same map pixel under the same client point within 1 px, one machine,
-Chromium via the Theia browser app), not a proof for every zoom or reply order.
-`mapOrigin()` (protected, map pixels: the leading pad, the same name, signature and units as
-#977's neighbour-card hook) is the one value a card positioned relative to the map needs.
-
-What vanilla does (reviewer sweep, 488 maps, one machine, vanilla ROM): 13 maps are padded, each by
-real opaque sprite pixels outside the map and none by a refused object (vanilla refuses none). The
-ghost houses ($C4, $EB, $F0, $FB, $1DA, $1E6, $1E7, $1F9) get 144 px above and 32 px left, from
-sprite $8D placed at the map's corner whose parts reach 113 px above it. $DD gets 32 px left (sprite
-$63 reaches 8 px left). $0E, $1B and $110 get 32 px below (sprites $9E, $AD), and $102 gets 48 px
-below (sprites $5D, $A4 at row 432). The other 475 maps, including $105, $106 and $109, are unpadded
-and render exactly as before.
+Everything that turns a pointer or scroll offset into a map position subtracts the left gutter:
+`updateHover`, `liftAt` (positions off the map never lift: no tile covers a sprite there),
+`visibleScreens` and `placeStart`. A newly opened map is scrolled to 0, so the left gutter shows
+[PROP]. `overflow-anchor: none` is no longer needed: the strip's size cannot change after sprites
+load. `mapOrigin()` (protected, map pixels: `{x: 128, y: 0}` on a horizontal map, `{x: 0, y: 0}` on a
+vertical one) has the name, signature and units of #977's neighbour-card hook.
 
 ## The emulator view
 

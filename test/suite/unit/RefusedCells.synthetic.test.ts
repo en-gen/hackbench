@@ -7,7 +7,12 @@ import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { expandMapOwned, SWITCH_FLAGS_UNCLEARED } from '../../../src/rom/ObjectExpander'
 import type { LevelObject } from '../../../src/rom/LevelParser'
-import { refusedCellsOf, WHY_UNPORTED, WHY_GATE } from '../../../src/rom/model/RefusedCells'
+import {
+  refusedBounds,
+  refusedCellsOf as cellsOf,
+  WHY_UNPORTED,
+  WHY_GATE,
+} from '../../../src/rom/model/RefusedCells'
 import { formatRefusedLine } from '../../../src/rom/objectHandlers/interpretedGate'
 import { ADDR_EXTENDED_DISPATCH } from '../../../src/rom/objectHandlers/romData'
 
@@ -48,6 +53,10 @@ const expand = (
 ) =>
   // prettier-ignore
   expandMapOwned(objects, 2, rom, 0, vertical, undefined, undefined, SWITCH_FLAGS_UNCLEARED, sink)
+
+const BIG = { cols: 999, rows: 999, gutter: 0 }
+/** `cellsOf` with bounds too wide to clamp anything: the tests that are not about placement. */
+const refusedCellsOf = (r: Parameters<typeof cellsOf>[0], o: LevelObject[]) => cellsOf(r, o, BIG)
 
 describe('refusedCellsOf (#816)', () => {
   it('marks the anchor cell of an unported object, on screen 1, with the plain reason', () => {
@@ -134,16 +143,51 @@ describe('one cell per object (#816)', () => {
     }
   })
 
-  it('an anchor off the strip keeps its own x,y, never clamped (#1004)', () => {
-    // Negative and past-the-end on both axes: a clamp would turn each into 0 or the last row/column.
-    const objects = [obj(1, -2, 5), obj(1, 90, 5), obj(1, 4, -3), obj(1, 4, 400), obj(1, -1, -1)]
-    const rs = objects.map((_, i) => ({ objectIndex: i, handler: 1, reason: 'x' }))
-    expect(refusedCellsOf(rs, objects).map(c => [c.x, c.y])).toEqual([
-      [-2, 5],
-      [90, 5],
-      [4, -3],
-      [4, 400],
-      [-1, -1],
+  const place = (objects: LevelObject[], vertical: boolean) =>
+    cellsOf(
+      objects.map((_, i) => ({ objectIndex: i, handler: 1, reason: 'x' })),
+      objects,
+      refusedBounds(vertical, 3),
+    ).map(c => [c.x, c.y])
+
+  it('bounds follow the orientation and the screen count, with the gutter on horizontal maps only', () => {
+    expect(refusedBounds(false, 3)).toEqual({ cols: 48, rows: 27, gutter: 8 })
+    expect(refusedBounds(true, 3)).toEqual({ cols: 32, rows: 48, gutter: 0 })
+  })
+
+  it('a horizontal map keeps an anchor in its gutter at the data position (D48 part 2, #1004)', () => {
+    // Eight tiles each side of 48 columns: -8 and 55 are the outermost gutter tiles.
+    expect(place([obj(1, -8, 5), obj(1, -1, 5), obj(1, 48, 5), obj(1, 55, 5)], false)).toEqual([
+      [-8, 5],
+      [-1, 5],
+      [48, 5],
+      [55, 5],
+    ])
+  })
+
+  it('beyond the gutter, or above or below a horizontal map, the anchor is pulled onto the map edge', () => {
+    expect(
+      place([obj(1, -9, 5), obj(1, 56, 5), obj(1, 3, -1), obj(1, 3, 27), obj(1, -40, 99)], false),
+    ).toEqual([
+      // prettier-ignore
+      [0, 5],
+      [47, 5],
+      [3, 0],
+      [3, 26],
+      [0, 26],
+    ])
+  })
+
+  it('a vertical map has no gutter: any anchor off the strip is pulled onto it', () => {
+    expect(
+      place([obj(1, -1, 5), obj(1, 32, 5), obj(1, 3, -2), obj(1, 3, 48), obj(1, 20, 9)], true),
+    ).toEqual([
+      // prettier-ignore
+      [0, 5],
+      [31, 5],
+      [3, 0],
+      [3, 47],
+      [20, 9],
     ])
   })
 })

@@ -15,7 +15,6 @@
 import * as React from '@theia/core/shared/react'
 import { computeGridLines, GridLines, GridSpec } from './grid-lines'
 import { computeMapGridLines } from './map-grid'
-import { NO_PAD, type Pad } from './off-map-extent'
 
 /** Foreground at partial opacity: reads on light and dark content alike. */
 const GRID_ALPHA = 0.4
@@ -132,11 +131,11 @@ export function MapGridOverlay(props: {
   vertical: boolean
   screenCount: number
   zoom: number
-  /** Off-map canvas around the map (#1004): the lines run across it too. */
-  pad?: Pad
+  /** Gutter each side of a horizontal map along x, map px (#1004): the lines run across it too. */
+  gutter?: number
 }): React.ReactElement | null {
   const { scroller, vertical, screenCount, zoom } = props
-  const pad = props.pad ?? NO_PAD
+  const gutter = props.gutter ?? 0
   const dpr = useDevicePixelRatio()
   const read = (): MapView => ({
     scrollX: scroller?.scrollLeft ?? 0,
@@ -161,8 +160,8 @@ export function MapGridOverlay(props: {
   React.useLayoutEffect(sync)
   const v = view
   const lines = React.useMemo(
-    () => computeMapGridLines({ vertical, screenCount, zoom, dpr, pad, ...v }),
-    [vertical, screenCount, zoom, dpr, pad.left, pad.top, pad.right, pad.bottom, v.scrollX, v.scrollY, v.viewW, v.viewH], // prettier-ignore
+    () => computeMapGridLines({ vertical, screenCount, zoom, dpr, gutter, ...v }),
+    [vertical, screenCount, zoom, dpr, gutter, v.scrollX, v.scrollY, v.viewW, v.viewH],
   )
   if (!scroller || v.viewW <= 0 || v.viewH <= 0) return null
   return (

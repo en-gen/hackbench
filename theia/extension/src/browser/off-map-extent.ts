@@ -1,15 +1,14 @@
 /**
- * How far the map view's canvas must reach past the map to show content the data
- * places off the map (#1004, owner ruling D76 call 2): a refused-object mark or a
- * sprite is drawn where the data names it, never clamped. Pure (no DOM, no Theia).
- *
- * The padding is the ONLY place the canvas grows. A reserved "add screen" area
- * (#950, D69) would add to `offMapPad`'s result here, not in the widget.
+ * The fixed gutter beside a horizontal map and the sprite pixels that fall in it (D48 part 2,
+ * #1004). Pure (no DOM, no Theia). A horizontal map gets half a screen of canvas on its left and
+ * right, always, whatever it holds; a vertical map gets none, and nothing is added above or
+ * below either (pending D145). A reserved "add screen" area (#950, D69) would add to `gutterPad`.
  */
 import type { MapSpriteDto } from '../common/project-protocol'
 import { decodeRgba } from './map16-pixels'
+import { GUTTER_PX } from '../../../../src/rom/model/MapGutter'
 
-/** One map tile in map pixels; the pad is whole tiles so the grid runs on across the margin. */
+/** One map tile in map pixels; the gutter is whole tiles so the grid runs on across it. */
 export const TILE = 16
 
 /** Map pixels of canvas beyond each side of the map. */
@@ -20,57 +19,30 @@ export interface Pad {
   bottom: number
 }
 
-/** A rectangle in map pixels, x1 and y1 exclusive. */
-export interface Rect {
-  x0: number
-  y0: number
-  x1: number
-  y1: number
-}
-
+/** No margin: a vertical map, and every strip before its layout is known. */
 export const NO_PAD: Pad = { left: 0, top: 0, right: 0, bottom: 0 }
 
+/** Whether any side has a margin: the strip then differs from the plain map. */
 export const isPadded = (p: Pad): boolean => p.left + p.top + p.right + p.bottom > 0
 
-/** [PROP] one tile of margin past the farthest off-map content, so a mark never sits on the canvas edge. */
-const MARGIN = TILE
+const GUTTER: Pad = { left: GUTTER_PX, top: 0, right: GUTTER_PX, bottom: 0 }
 
-const side = (overflow: number): number =>
-  overflow > 0 ? Math.ceil(overflow / TILE) * TILE + MARGIN : 0
+/** The canvas beyond each side of the map: the fixed gutter on a horizontal map, nothing on a vertical one. */
+export const gutterPad = (vertical: boolean): Pad => (vertical ? NO_PAD : GUTTER)
 
-/** The padding that holds every rect: zero on a side nothing overflows. */
-export function offMapPad(mapW: number, mapH: number, rects: Iterable<Rect>): Pad {
-  let [l, t, r, b] = [0, 0, 0, 0]
-  for (const q of rects) {
-    l = Math.max(l, -q.x0)
-    t = Math.max(t, -q.y0)
-    r = Math.max(r, q.x1 - mapW)
-    b = Math.max(b, q.y1 - mapH)
-  }
-  return { left: side(l), top: side(t), right: side(r), bottom: side(b) }
-}
-
-export const samePad = (a: Pad, b: Pad): boolean =>
-  a.left === b.left && a.top === b.top && a.right === b.right && a.bottom === b.bottom
-
-/** A refused object's 16 x 16 cell at tile (x, y). */
-export const cellRect = (x: number, y: number): Rect => ({
-  x0: x * TILE,
-  y0: y * TILE,
-  x1: (x + 1) * TILE,
-  y1: (y + 1) * TILE,
-})
-
+/** Whether map pixel (x, y) is inside a map of `mapW` x `mapH` pixels. */
 export const insideMap = (x: number, y: number, mapW: number, mapH: number): boolean =>
   x >= 0 && y >= 0 && x < mapW && y < mapH
 
 const decoded = new WeakMap<MapSpriteDto, Uint8ClampedArray>()
 
 /**
- * The sprite pixels that fall OUTSIDE the map, on a bitmap of the padded size (the map's
- * pixels stay transparent: the screens draw those, under the tiles' priority). Stacked as
- * the screens stack them, by position along the scroll axis then stream index. Null when
- * no sprite reaches the margin.
+ * The sprite pixels that fall in the margin `pad` (the gutter bands), on a bitmap of the padded
+ * size. The map's own pixels stay transparent (the screens draw those, under the tiles'
+ * priority) and so does everything beyond the gutter or above or below the map, as on develop.
+ * The bitmap spans the whole padded strip rather than just the two bands: simpler, and it is
+ * only allocated when a sprite reaches the gutter. Stacked as the screens stack them, by
+ * position along the scroll axis then stream index. Null when no sprite reaches the margin.
  */
 export function offMapSpritePixels(
   sprites: readonly MapSpriteDto[],

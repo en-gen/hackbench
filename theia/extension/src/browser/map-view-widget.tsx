@@ -56,13 +56,11 @@ import { MapGridOverlay } from './grid-overlay'
 import { CollisionOverlay } from './collision-overlay'
 import { RefusedOverlay } from './refused-overlay'
 import {
-  cellRect,
+  gutterPad,
   insideMap,
   isPadded,
   NO_PAD,
-  offMapPad,
   offMapSpritePixels,
-  samePad,
   type Pad,
 } from './off-map-extent'
 import { collisionKey, collisionPlan } from './map-view-state'
@@ -159,9 +157,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** The exception text behind `error`: a tooltip and the console, never the visible words (#786). */
   protected errorDetail: string | undefined
   protected mapLayout: Layout | undefined
-  /** `pad` for one (layout, sprites) pair: it is read on every pointer move. */
-  protected padMemo: { l: Layout; s: Sprites | undefined; pad: Pad } | undefined
-  /** The canvas for sprites the data places off the map (#1004), when the strip is padded. */
+  /** The canvas for sprites the data places in a horizontal map's gutter (#1004). */
   protected offMapCanvas: HTMLCanvasElement | null = null
   protected screenError: string | undefined
   protected screenErrorDetail: string | undefined
@@ -386,7 +382,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const vertical = l.orientation === 'vertical'
     const fit = this.zoomController.fitting ? this.measureFit() : undefined
     if (fit !== undefined && Math.abs(fit - this.zoom) > 1e-6) return
-    const [lead, trail] = this.scrollPad(l)
+    const { left: lead, right: trail } = this.pad
     const extent = (l.screenCount * (vertical ? l.height : l.width) + lead + trail) * this.zoom
     if ((vertical ? strip.offsetHeight : strip.offsetWidth) < extent - 1) return
     this.pendingStart = undefined
@@ -493,47 +489,13 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
     // An older map's or edit's sprites must not land over a newer one.
     if (generation !== this.generation) return
-    const before = this.pad
     this.sprites = r.status === 'ok' ? r : undefined
-    this.keepViewOnPadChange(before)
     this.lift = undefined
     this.coveredIds.clear()
     this.spritesWhy = r.status === 'ok' ? undefined : r.status === 'unavailable' ? r.reason : `The base ROM ${r.baseRom.title} is not on this machine` // prettier-ignore
     this.spritesVersion++
     this.update()
     this.sync()
-  }
-
-  /**
-   * Sprites arrive after the map: off-map ones can grow the strip. Fit refits to the new cross
-   * axis, and a leading pad that appears under a scrolled view shifts the content. The map pixel
-   * under the view centre is recorded before the change and the scroll set absolutely after the
-   * refit has committed (the way ZoomController.restoreAnchor does), so the view stays on it; a
-   * relative nudge would drift with the refit's zoom. An axis at scroll 0 is left alone: the margin shows.
-   */
-  protected keepViewOnPadChange(before: Pad): void {
-    const l = this.mapLayout
-    const after = this.pad
-    if (!l || samePad(before, after)) return
-    const el = this.scroller
-    const z = this.zoom
-    const held = el && {
-      x: el.scrollLeft > 0 ? (el.scrollLeft + el.clientWidth / 2 - before.left * z) / z : undefined,
-      y: el.scrollTop > 0 ? (el.scrollTop + el.clientHeight / 2 - before.top * z) / z : undefined,
-    }
-    const generation = this.generation
-    requestAnimationFrame(() => {
-      this.fitStrip()
-      // The refit's zoom is the one to restore at; a different one by the next frame is the user's.
-      const z2 = this.zoom
-      requestAnimationFrame(() => {
-        if (!el || !held || generation !== this.generation || z2 !== this.zoom) return
-        el.scrollTo({
-          left: held.x === undefined ? undefined : (held.x + after.left) * z2 - el.clientWidth / 2,
-          top: held.y === undefined ? undefined : (held.y + after.top) * z2 - el.clientHeight / 2,
-        })
-      })
-    })
   }
 
   protected async loadBlocks(): Promise<void> {
@@ -617,37 +579,22 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   }
 
   /**
-   * The canvas beyond each side of the map (#1004, D76 call 2): off-map refused cells and sprites
-   * draw where the data names them, so the strip grows to hold them. All zero (the strip exactly
-   * the map) when nothing is off the map.
+   * The canvas beyond each side of the map: the fixed gutter of a horizontal map (D48 part 2,
+   * #1004), none on a vertical one or before the layout is known. It depends on the orientation
+   * alone, so nothing that loads later (sprites, an edit) can change the strip's size.
    */
   protected get pad(): Pad {
     const l = this.mapLayout
-    if (!l) return NO_PAD
-    const m = this.padMemo
-    if (m && m.l === l && m.s === this.sprites) return m.pad
-    const [w, h] = this.mapPx(l)
-    const rects = [
-      ...(l.refusedCells ?? []).map(c => cellRect(c.x, c.y)),
-      ...(this.sprites?.sprites ?? []).map(sp => sp.box),
-    ]
-    const pad = offMapPad(w, h, rects)
-    this.padMemo = { l, s: this.sprites, pad }
-    return pad
+    return l ? gutterPad(l.orientation === 'vertical') : NO_PAD
   }
 
   /**
-   * The map's top-left corner in MAP pixels from the strip's: the leading pad. Same name, signature
-   * and units as #977's `mapOrigin()` (neighbour cards add it times the zoom), which returns (0, 0) today.
+   * The map's top-left corner in MAP pixels from the strip's: the gutter's width on a horizontal
+   * map, (0, 0) on a vertical one. Same name, signature and units as #977's `mapOrigin()`
+   * (neighbour cards add it times the zoom).
    */
   protected mapOrigin(): { x: number; y: number } {
     return { x: this.pad.left, y: this.pad.top }
-  }
-
-  /** The padding on the scroll axis before and after the map, map pixels. */
-  protected scrollPad(l: Layout): [number, number] {
-    const p = this.pad
-    return l.orientation === 'vertical' ? [p.top, p.bottom] : [p.left, p.right]
   }
 
   /** The screens in view, plus MARGIN either side; screen 0 before the layout is known. */
@@ -657,8 +604,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const vertical = l.orientation === 'vertical'
     const size = (vertical ? l.height : l.width) * this.zoom
     const el = this.scroller
-    const pos =
-      (el ? (vertical ? el.scrollTop : el.scrollLeft) : 0) - this.scrollPad(l)[0] * this.zoom
+    // The gutter before screen 0 shifts every screen along the scroll axis (it is 0 on a vertical map).
+    const pos = (el ? (vertical ? el.scrollTop : el.scrollLeft) : 0) - this.pad.left * this.zoom
     const view = (el && (vertical ? el.clientHeight : el.clientWidth)) || size
     const first = Math.max(0, Math.floor(pos / size) - MARGIN)
     const last = Math.max(first, Math.min(l.screenCount - 1, Math.floor((pos + view - 1) / size) + MARGIN)) // prettier-ignore
@@ -1063,9 +1010,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const vertical = l.orientation === 'vertical'
     const avail = vertical ? el.clientWidth : el.clientHeight
     if (avail <= 0) return undefined
-    const p = this.pad
-    const cross = vertical ? l.width + p.left + p.right : l.height + p.top + p.bottom
-    return Math.min(4, Math.max(0.25, avail / cross))
+    return Math.min(4, Math.max(0.25, avail / (vertical ? l.width : l.height)))
   }
 
   /** Refits while in fit mode; always asks for the screens now in view. */
@@ -1350,8 +1295,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const z = this.zoom
     const [mapW, mapH] = this.mapPx(l)
     const origin = this.mapOrigin()
-    // Padding of the strip and inset of the back area share one box: the map's.
-    const box = `${pad.top * z}px ${pad.right * z}px ${pad.bottom * z}px ${pad.left * z}px`
+    const g = pad.left * z
+    // The back colour is solid across the map and fades linearly to transparent over each gutter (D48 part 2).
+    const back = `rgb(${l.backdrop.join(',')})`
+    const backFade = `linear-gradient(to right, transparent, ${back} ${g}px, ${back} calc(100% - ${g}px), transparent)` // prettier-ignore
     return (
       <div className="hb-map-grid-host">
         <div
@@ -1382,14 +1329,13 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
               so hiding a layer shows what is under it, down to nothing. */}
           <div
             className="hb-map-view-strip hb-checkerboard"
-            style={padded ? { padding: box } : undefined}
+            style={padded ? { padding: `0 ${g}px` } : undefined}
           >
             <div
               className="hb-map-view-back-area"
               data-layer="back-area"
               style={{
-                background: `rgb(${l.backdrop.join(',')})`,
-                ...(padded && { inset: box }),
+                background: padded ? backFade : back,
               }}
             />
             {Array.from({ length: l.screenCount }, (_, s) => (
@@ -1474,7 +1420,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
             vertical={l.orientation === 'vertical'}
             screenCount={l.screenCount}
             zoom={this.zoom}
-            pad={pad}
+            gutter={pad.left}
           />
         )}
       </div>
