@@ -135,6 +135,9 @@ export function readEntranceCameraGate(
     if (!bytes) return { ok: false, reason: CAMERA_HOOKED }
     hash.update(bytes)
   }
+  // Known gap (#1127): this checks the GM11 load path's bytes and call sites, not that the game-mode $11
+  // vector reaches it. A hack that redirects the vector and leaves the stock loader intact would still get
+  // the stock anchor. The reach check is shared with the other loaders and is tracked there.
   if (hash.digest('hex') !== sha256 || !isStockCameraSetup(setup)) {
     return { ok: false, reason: CAMERA_HOOKED }
   }
