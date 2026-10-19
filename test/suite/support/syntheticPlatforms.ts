@@ -21,6 +21,8 @@ const ROUTE_AT = 0x02a89c
 /** Writes the loader route at the game's offsets so the structure gate sees the vanilla shape without vanilla bytes. */
 function writeRoute(rom: RomFile): void {
   const at = (offset: number, ...bytes: number[]) => rom.writeAt(ROUTE_AT + offset, bytes)
+  rom.writeAt(0x02a866, [0xc9, 0xe7, 0x90, 0x22]) // the loader's first compare: ids below $E7 go on to the $DE case
+  rom.writeAt(0x02a88c, [0xc9, 0xde, 0xd0, 0x0c, 0xea, 0xea, 0xea, 0xea]) // the $DE case's compare: any other id goes on to this route
   at(0, 0xc9, 0xe0) // compare with the sprite id
   at(2, 0xd0, 0x0c) // branch away for any other id
   at(4, 0xda) // push X

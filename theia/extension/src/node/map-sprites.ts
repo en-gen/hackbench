@@ -479,14 +479,19 @@ function platformsResult(
         `${u} is not the vanilla shape${u === 'the platform spawner' ? ', so where its platforms sit and their per-platform values are taken from that edited code and not checked' : ''}`,
     ),
     ...(vertical ? ["in a vertical map the spawner is given the entry's Y as its X (the loader's boundary), derived from the loader and not checked: no vanilla map places one"] : []), // prettier-ignore
-    ...r.notes,
   ].join('; ')
+  // What spawned and did not draw, or came out short, is a shortfall to tell, not a flaw of the routine: the note, not `unverified`.
+  const notes = [
+    ...(r.spawned < PLATFORM_COUNT ? [`Only ${r.spawned} of the ${PLATFORM_COUNT} platforms appear${gameOwn ? `: this map's sprite memory setting leaves room for ${r.spawned}.` : '.'}`] : []), // prettier-ignore
+    ...(r.spawned > PLATFORM_COUNT ? [`The spawner made ${r.spawned} platforms, more than the ${PLATFORM_COUNT} the game makes.`] : []), // prettier-ignore
+    ...r.notes,
+  ]
   return {
     ok: true,
     parts: interpParts(r.parts),
     anchor: { x, y },
     identity: { spriteId: s.spriteId, mainHandler: 0, initHandler: 0, status: 'vanilla' },
-    ...(r.spawned < PLATFORM_COUNT ? { note: `Only ${r.spawned} of the ${PLATFORM_COUNT} platforms appear${gameOwn ? `: this map's sprite memory setting leaves room for ${r.spawned}.` : '.'}` } : {}), // prettier-ignore
+    ...(notes.length ? { note: notes.join(' ') } : {}),
     ...(why
       ? {
           unverified: `the three platforms are drawn from the spawner the loader calls, and ${why}`,

@@ -60,6 +60,12 @@ describe('sprite $E0 on the map', () => {
     expect(xs(r)).toEqual(xs(ok(draw())).map(x => x - (944 - 336)))
   })
 
+  it('tells a platform that spawned and did not draw in the note, and does not call the sprite unverified', () => {
+    const r = ok(draw(platformCart({ skipDraw: 0x22 | 0x80 })))
+    expect(r.note).toMatch(/1 platform did not draw/)
+    expect(r.unverified).toBeUndefined()
+  })
+
   it('is refused, with the reason, when the level loader gave no image: SpriteDataPtr was never set', () => {
     const noImage = () => {
       const seed = eeriesSeed(100)

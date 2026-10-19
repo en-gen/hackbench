@@ -551,15 +551,16 @@ export function runOnce(
       const picked = made[nth ?? 0]
       if (picked === undefined)
         return { ...model, refusal: nth === undefined ? 'the item block spawn found no free slot and spawned nothing' : `${SPAWN_SHORT}${made.length} sprites, not ${nth + 1}` } // prettier-ignore
-      const madeNumber = w[RAM.spriteNumber + picked]!
-      if (opts.spawn.expectNumber !== undefined && madeNumber !== opts.spawn.expectNumber)
-        return { ...model, refusal: `the spawner made sprite $${madeNumber.toString(16).toUpperCase().padStart(2, '0')}, not $${opts.spawn.expectNumber.toString(16).toUpperCase().padStart(2, '0')}, so it is not drawn as one` } // prettier-ignore
       // One sprite runs and draws; the rest the spawn made would add their own OAM entries to its parts.
       if (nth !== undefined) for (const i of made) if (i !== picked) w[RAM.status + i] = 0
       // From here the sprite is wherever the game put it.
       m.seed.slot = picked
       w[RAM.curSprite] = picked
       model.spawnPos = m.pos()
+      // Checked after spawnPos is set, so a refused child still counts as one the spawner placed.
+      const madeNumber = w[RAM.spriteNumber + picked]!
+      if (opts.spawn.expectNumber !== undefined && madeNumber !== opts.spawn.expectNumber)
+        return { ...model, refusal: `the spawner made sprite $${madeNumber.toString(16).toUpperCase().padStart(2, '0')}, not $${opts.spawn.expectNumber.toString(16).toUpperCase().padStart(2, '0')}, so it is not drawn as one` } // prettier-ignore
       // An own spawner leaves the status it chose: only status 1 runs INIT, so a status-8 sprite has no frame before pass 0
       // (a frame there would move it before it is first drawn). The block path is as it always was.
       if (own !== undefined) runsInit = w[RAM.status + picked] === 1

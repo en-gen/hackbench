@@ -40,6 +40,7 @@ const OP_JSR = 0x20
 const OP_PLY = 0x7a
 const OP_PLX = 0xfa
 const OP_BRA = 0x80
+const OP_BCC = 0x90
 /** The sprite number the route compares against: this sprite's own id. */
 const SPRITE_ID = 0xe0
 /** Direct page $03: where the spawner reads the entry's data offset (bank_02.asm:6212). */
@@ -49,6 +50,15 @@ const DP_DATA_OFFSET = 0x03
  * BRA back to the loop head (CODE_02A89A, 2 bytes before the route), then CODE_02A8AC, the next case, which starts with a compare.
  */
 const AT = { cmp: 0, id: 1, bne: 2, bneTo: 3, push1: 4, push2: 5, dey: 6, sty: 7, dp: 8, jsr: 9, pop1: 12, pop2: 13, bra: 14, braTo: 15, next: 16 } // prettier-ignore
+/**
+ * The two compares that lead to the route (bank_02.asm:5287-5288 and 5311-5312): CMP #$E7 / BCC to the $DE case at
+ * $02:A88C, whose CMP #$DE / BNE lands on the route. Each branch offset is read from the ROM and must land where the
+ * chain needs it, so a branch diverted before the route (the spawner left unchanged) is refused, not drawn.
+ */
+const DISPATCH_CHAIN = [
+  { at: 0x02a866, id: 0xe7, op: OP_BCC, lands: 0x02a88c },
+  { at: 0x02a88c, id: 0xde, op: OP_BNE, lands: LOADER_ROUTE.at },
+]
 /** Where the BRA must land, relative to the route's start. */
 const LOOP_HEAD = -2
 /** The loader's `JSR Load3Platforms` (bank_02.asm:5331): its opcode, and the operand that names the spawner. */
@@ -94,9 +104,15 @@ export type PlatformsResult =
  * call rests on, each checked alone: CMP #$E0, BNE (its offset read from the ROM must land on the next case), the two
  * pushes (either order) with the pops in the reverse order, DEY, STY $03, JSR, the BRA (its offset must land on the loop
  * head) and the next case's compare. A BRA planted anywhere in it would skip the JSR, so none of it is left unchecked.
+ * The chain of compares that reaches it is checked too (`DISPATCH_CHAIN`); what leads to the first of them (the sprite-list
+ * walk before $02:A866) is not, and is stated as such in the doc.
  * Not hashed: 12 to 17 bytes hold under 24 unknown.
  */
 export function loaderRouteIntact(rom: RomFile): boolean {
+  const chain = DISPATCH_CHAIN.every(c => {
+    const b = bytesAt(rom, c.at, 4)
+    return b?.[0] === OP_CMP_IMM && b[1] === c.id && b[2] === c.op && c.at + 4 + (b[3]! < 0x80 ? b[3]! : b[3]! - 0x100) === c.lands // prettier-ignore
+  })
   const at = (k: keyof typeof AT) => bytesAt(rom, LOADER_ROUTE.at + AT[k], 1)?.[0]
   const rel = (k: 'bneTo' | 'braTo', from: number) => {
     const v = at(k)
@@ -106,6 +122,7 @@ export function loaderRouteIntact(rom: RomFile): boolean {
   const pushes = (push1 === OP_PHY && push2 === OP_PHX) || (push1 === OP_PHX && push2 === OP_PHY)
   const pops = (pop1 === OP_PLX && pop2 === OP_PLY && push1 === OP_PHY) || (pop1 === OP_PLY && pop2 === OP_PLX && push1 === OP_PHX) // prettier-ignore
   return (
+    chain &&
     at('cmp') === OP_CMP_IMM &&
     at('id') === SPRITE_ID &&
     at('bne') === OP_BNE &&
@@ -154,16 +171,16 @@ export function threePlatforms(
   if (routine === null)
     return { ok: false, reason: 'the loader no longer calls a spawner for the three platforms (no JSR where it called one), so there is nothing to run', unverified } // prettier-ignore
   const spec = { sprite: SPAWNED_SPRITE, count: PLATFORM_COUNT, routine, spawnFrame: true }
-  const { children, missing, why } = runSpawnedChildren(rom, seed, e, spec, passes, run)
+  const { children, missing, spawned, why } = runSpawnedChildren(rom, seed, e, spec, passes, run)
   if (children.length === 0)
     return { ok: false, reason: why || `the spawner made none of the ${PLATFORM_COUNT} platforms`, ...(missing === PLATFORM_COUNT ? { none: true as const } : {}), unverified } // prettier-ignore
-  const undrawn = PLATFORM_COUNT - missing - children.length
+  const undrawn = spawned - children.length
   const notes = why ? [`${undrawn} ${undrawn === 1 ? 'platform' : 'platforms'} did not draw: ${why}`] : [] // prettier-ignore
   return {
     ok: true,
     parts: children.flatMap(c => c.parts),
     unverified,
-    spawned: PLATFORM_COUNT - missing,
+    spawned,
     notes,
   }
 }

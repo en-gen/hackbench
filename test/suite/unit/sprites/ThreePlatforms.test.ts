@@ -86,6 +86,15 @@ describe('the three platforms', () => {
     expect(r.notes[0]).toMatch(/^1 platform did not draw: /)
   })
 
+  it('draws every platform an edited spawner makes, not only three', () => {
+    const rom = platformCart()
+    rom.writeAt(LOAD_3_PLATFORMS + COUNT_AT, [0x04]) // the count's immediate, 3 -> 4
+    const r = drawn(rom)
+    expect(r.spawned).toBe(4)
+    expect(r.parts).toHaveLength(4)
+    expect(r.unverified).toEqual(['the platform spawner'])
+  })
+
   it('reports none when no slot is free', () => {
     const r = threePlatforms(platformCart({ room: 0 }), seed, entry, SYN)
     expect(r.ok).toBe(false)
@@ -240,6 +249,27 @@ describe('the gate', () => {
     expect(!r.ok && r.reason).toMatch(/loader route to the platform spawner/)
     expect(ran).toBe(false)
   })
+
+  it.each([
+    ['the first compare ($E7)', 0x02a866 + 1],
+    ['the first branch opcode', 0x02a866 + 2],
+    ['the first branch offset (it must land on the $DE case)', 0x02a866 + 3],
+    ['the $DE case compare', 0x02a88c + 1],
+    ['the $DE case branch opcode', 0x02a88c + 2],
+    ['the $DE case branch offset (it must land on the route)', 0x02a88c + 3],
+  ])(
+    'refuses to run the spawner, before it runs, when %s of the loader dispatch changes',
+    (_what, at) => {
+      const rom = platformCart()
+      flip(rom, at)
+      let ran = false
+      const run: typeof runOnce = (...a) => ((ran = true), runOnce(...a))
+      const r = threePlatforms(rom, seed, entry, SYN, 1, run)
+      expect(r.ok).toBe(false)
+      expect(!r.ok && r.reason).toMatch(/loader route to the platform spawner/)
+      expect(ran).toBe(false)
+    },
+  )
 
   it('refuses pops that do not undo the pushes in reverse order (the registers would swap)', () => {
     const rom = platformCart()
