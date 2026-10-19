@@ -181,7 +181,7 @@ for (const { slot, broIndex, platformIndex } of [
           )
           return pos()
         },
-        { strip: stripOf(slot), mapW, mapH, x: at.x, y: at.y },
+        { strip: `${rootOf(slot)} [data-control="map-edge"]`, mapW, mapH, x: at.x, y: at.y },
       )
       await page.mouse.move(p.x + 1, p.y)
       await page.mouse.move(p.x, p.y)
