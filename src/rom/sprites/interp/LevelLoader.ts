@@ -72,9 +72,13 @@ const hexAt = (a: number): string =>
 
 // Names of the routines the ROM's calls reach, built from the address the check actually ran at (a hack
 // may have moved a routine); the label says which vanilla routine it stands for.
+/** The refusal name of the header loader (CODE_05D796) the ROM's call resolved to `at`. */
 const nameHeader = (at: number): string => `CODE_05D796-equivalent header loader at ${hexAt(at)}`
+/** The refusal name of the pointer loader (CODE_05D8B7) the ROM's call resolved to `at`. */
 const namePointer = (at: number): string => `CODE_05D8B7-equivalent pointer loader at ${hexAt(at)}`
+/** The refusal name of the entrance setup (CODE_00A635) the ROM's call resolved to `at`. */
 const nameEntrance = (at: number): string => `CODE_00A635-equivalent entrance setup at ${hexAt(at)}`
+/** The refusal name of the data loader (CODE_05801E) the ROM's call resolved to `at`. */
 const nameData = (at: number): string => `CODE_05801E-equivalent data loader at ${hexAt(at)}`
 
 // 65816 opcodes, named once; each site below checks one instruction.
@@ -91,9 +95,11 @@ const CLC = 0x18
 const STZ_ABS = 0x9c
 const BNE = 0xd0
 
-// Unchecked, as on develop (follow-up filed by Planning): the music upload call at $00:9702 between the layer
-// position copy and the entrance call is not modelled, and CODE_05D796's screen-exit code from $05:D7B3 to the
-// jump at $05:D83B is skipped, because the loader enters CODE_05D8B7 with the level number already in place.
+// Unchecked, as on develop (follow-up filed by Planning): the music upload call at $00:9702 (JSR UploadLevelMusic,
+// SMWDisX bank_00.asm:2650) between the layer position copy and the entrance call is not modelled, and
+// CODE_05D796's screen-exit code from $05:D7B3 to the jump at $05:D83B (bank_05.asm:7095-7162) is skipped, because
+// the loader enters CODE_05D8B7 with the level number already in place; that code would overwrite it from the
+// exit tables.
 
 /**
  * One instruction the loader relies on, checked on its own: its opcode and, where the loader is bound to
