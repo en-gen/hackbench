@@ -3,6 +3,7 @@
  * config file -> WorkingRomRegistry -> ProjectServiceImpl.located -> L1ModelCache.
  * Needs the theia/ workspace installed (project-server.ts imports inversify).
  */
+import { rampRom } from '../support/syntheticRegistryRom'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
@@ -53,5 +54,25 @@ describe.skipIf(!theiaInstalled)('ProjectServiceImpl map models', () => {
 
     expect(seen[0]?.objectCode).toHaveProperty('notFound') // a blank cart: detection recorded why
     expect(seen[1]?.objectCode).toEqual({ bank: 0x2d })
+  })
+})
+
+describe.skipIf(!theiaInstalled)('ProjectServiceImpl.openProject (#975)', () => {
+  it('asks the registry to revalidate the cached copy', async () => {
+    const romPath = path.join(tmp, 'game.sfc')
+    // Period-256 ramp: shares no 8-byte run with the vanilla ROM (an all-zero fill does).
+    fs.writeFileSync(romPath, rampRom())
+    const romRegistry = new RomRegistry(path.join(tmp, 'rom-registry.json'))
+    romRegistry.register(romPath)
+    const { manifestPath } = createProject({ romPath, name: 'P', directory: path.join(tmp, 'P') })
+    const { ProjectServiceImpl } = await import('../../../theia/extension/src/node/project-server')
+    const server = new ProjectServiceImpl() as unknown as Record<string, unknown>
+    const registry = new WorkingRomRegistry(romRegistry)
+    server.workingRoms = registry
+    server.recent = { remember: () => {} }
+    const seen: string[] = []
+    registry.revalidateOnOpen = (m: string) => void seen.push(m)
+    await (server as unknown as InstanceType<typeof ProjectServiceImpl>).openProject(manifestPath)
+    expect(seen).toEqual([manifestPath])
   })
 })

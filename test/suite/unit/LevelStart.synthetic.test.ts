@@ -69,8 +69,10 @@ type Exit = { to: number; via?: number }
 /** A room with screen exits: `via` makes it a secondary exit through that DATA_05F800 index. */
 function room(rom: RomFile, slot: number, ptr: number, exits: Exit[] = []): void {
   rom.writeAt(ADDR.LEVEL_L1_PTR + slot * 3, [ptr & 0xff, (ptr >> 8) & 0xff, (ptr >> 16) & 0xff])
+  // Exit i sits on screen i: the game keeps one exit per screen (bank_0D.asm:1428-1435).
+  if (exits.length > 32) throw new Error('a map has 32 screens')
   const body = exits.length
-    ? exits.flatMap(e => (e.via === undefined ? [0x00, 0x01, 0x00, e.to & 0xff] : [0x00, 0x02, 0x00, e.via])) // prettier-ignore
+    ? exits.flatMap((e, i) => (e.via === undefined ? [i, 0x01, 0x00, e.to & 0xff] : [i, 0x02, 0x00, e.via])) // prettier-ignore
     : [0x42]
   rom.writeAt(ptr, [0, 0, 0, 0, 0, ...body, 0xff])
 }
