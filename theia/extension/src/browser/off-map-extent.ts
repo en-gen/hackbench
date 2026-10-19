@@ -72,10 +72,11 @@ export const backGradient = (vertical: boolean, back: string, gutterPx: number):
   `linear-gradient(${vertical ? 'to bottom' : 'to right'}, transparent, ${back} ${gutterPx}px, ${back} calc(100% - ${gutterPx}px), transparent)` // prettier-ignore
 
 /**
- * Which screens of an N-screen map a scroll window touches, `margin` either side. `scroll` and `view`
- * are along the scroll axis in screen px, `size` one screen's px and `lead` the pad before screen 0 in
- * the same px, which shifts every screen by that much. Never an empty range: a window wholly in the
- * leading pad still gets screen 0 and its neighbours.
+ * Which screens of an N-screen map a scroll window touches, `margin` either side, as an inclusive
+ * `[first, last]`. `scroll` and `view` are along the scroll axis in screen px, `size` one screen's px
+ * and `lead` the pad before screen 0 in the same px, which shifts every screen by that much. Both ends
+ * stay in `0..count-1`. A window wholly in the leading or trailing pad touches no screen and gets the
+ * empty range `[0, -1]`: asking for a screen the map does not have is an error the view would keep.
  */
 export function screensInView(
   scroll: number,
@@ -86,17 +87,18 @@ export function screensInView(
   margin: number,
 ): [number, number] {
   const pos = scroll - lead
-  const first = Math.max(0, Math.floor(pos / size) - margin)
+  if (pos + view <= 0 || pos >= count * size) return [0, -1]
+  const first = Math.min(count - 1, Math.max(0, Math.floor(pos / size) - margin))
   const last = Math.max(first, Math.min(count - 1, Math.floor((pos + view - 1) / size) + margin))
   return [first, last]
 }
 
 /**
- * The scroll offset that centres map point `start` (map px along the scroll axis) in a `view` px window:
+ * The scroll offset that centers map point `start` (map px along the scroll axis) in a `view` px window:
  * the point sits `lead` px (the pad before the map, map px) further along the strip, clamped to
  * `[0, max]`.
  */
-export const centreScroll = (
+export const centerScroll = (
   start: number,
   lead: number,
   zoom: number,

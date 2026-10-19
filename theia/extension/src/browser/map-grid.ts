@@ -41,7 +41,7 @@ export function mapScreenTiles(vertical: boolean): ScreenTiles {
     : { cols: SCREEN_W, rows: SCREEN_H }
 }
 
-/** The weight of the boundary before tile `index` on `axis` (tile units from the strip's origin). */
+/** The weight of the boundary before tile `index` on `axis` (tile units from the MAP's origin). */
 export function mapGridWeight(vertical: boolean, axis: 'x' | 'y', index: number): number {
   const { cols, rows } = mapScreenTiles(vertical)
   const per = axis === 'x' ? cols : rows

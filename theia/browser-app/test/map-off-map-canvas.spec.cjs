@@ -12,14 +12,17 @@
  * Injection uses the RPC intercept pattern (docs/testing.md "Playwright and RPC"; the widget's own
  * `projects` swapped for a Proxy, as map-refused-cells.spec.cjs does).
  *
- * Planted-offset sanity for the verifier: drop `- pad.left` in updateHover, drop `+ pad.top` from the sprite
- * anchor, write `(y + pad.top) * w + x` without `+ pad.left` in offMapSpritePixels, or make the back area a
- * solid color; the hover, canvas-pixel, click and fade assertions below must go red.
+ * Planted-offset sanity for the verifier (each should turn the named cases red): drop `- pad.left` or
+ * `- pad.top` in updateHover (hover, on $105 and $109), drop `+ pad.top` from the sprite anchor (the anchor
+ * case on $109), write `(y + pad.top) * w + x` without `+ pad.left` in offMapSpritePixels (the $C4/$DD/$102
+ * canvas-pixel cases), make the back area a solid color (the fade case), or request screens outside the
+ * map in visibleScreens (any case would then show a screen error).
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
+const nodeCrypto = require('crypto')
 const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
 
 const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
@@ -97,7 +100,7 @@ async function openMap(page, index, { cells, block } = {}) {
               const extra = window.__hbExtra.map((box, i) => {
                 const n = (box.x1 - box.x0) * (box.y1 - box.y0) * 4
                 const rgba = btoa(String.fromCharCode(...new Uint8Array(n).fill(255)))
-                return { index: 900 + i, id: 1, x: box.x0, y: box.y0, box, rgba, status: 'drawn' }
+                return { index: 900 + i, id: 1, name: 'Test sprite', x: box.x0, y: box.y0, box, rgba, status: 'drawn' } // prettier-ignore
               })
               return { ...r, sprites: [...r.sprites, ...extra] }
             }
@@ -157,6 +160,7 @@ const rects = (page, index) =>
       edge: r(document.querySelector(`${sel} [data-control="map-edge"]`)),
       backArea: r(document.querySelector(`${sel} [data-layer="back-area"]`)),
       screen: r(document.querySelector(`${sel} .hb-map-view-screen`)),
+      checker: r(document.querySelector(`${sel} [data-layer="checkerboard"]`)),
       screens: document.querySelectorAll(`${sel} .hb-map-view-screen`).length,
       marks: [...document.querySelectorAll(`${sel} [data-control="refused-cell"] rect`)].map(r),
       collision: r(document.querySelector(`${sel} [data-control="collision-overlay"]`)),
@@ -207,7 +211,7 @@ const canvasPixels = (page, index) =>
     ]
     const [mapW, mapH] = [Math.round(edge.width / zoom), Math.round(edge.height / zoom)]
     const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
-    const out = { left: 0, right: 0, above: 0, below: 0, map: 0, minX: 1e9, maxX: -1e9, padL, padT, cw: c.width, ch: c.height } // prettier-ignore
+    const out = { left: 0, right: 0, above: 0, below: 0, map: 0, minX: 1e9, maxX: -1e9, first: null, padL, padT, cw: c.width, ch: c.height } // prettier-ignore
     for (let y = 0; y < c.height; y++)
       for (let x = 0; x < c.width; x++) {
         if (data[(y * c.width + x) * 4 + 3] === 0) continue
@@ -215,6 +219,7 @@ const canvasPixels = (page, index) =>
         if (mx >= 0 && mx < mapW && my >= 0 && my < mapH) out.map++
         else if (mx < 0) {
           out.left++
+          out.first ??= { x: mx, y: my }
           out.minX = Math.min(out.minX, mx)
           out.maxX = Math.max(out.maxX, mx)
         } else if (mx >= mapW) out.right++
@@ -238,6 +243,9 @@ test('$105: a horizontal map has a 128 px gutter left and right and none above o
     expect(r.strip.w).toBeCloseTo((r.screens * 256 + 2 * G) * zoom, 0)
     expect(r.strip.h).toBeCloseTo(432 * zoom, 0)
     expect(r.screen.left - r.edge.left).toBeCloseTo(0, 0)
+    // The checkerboard stops at the gutters, so the fade runs over the panel behind the strip.
+    expect(r.checker.left - r.strip.left).toBeCloseTo(G * zoom, 0)
+    expect(r.strip.right - r.checker.right).toBeCloseTo(G * zoom, 0)
   }
 })
 
@@ -289,30 +297,64 @@ for (const { index, screenW, vertical } of [
   })
 }
 
-test('$C4 (ghost house): the left pad is the door (8 px, one tile) plus the gutter; $8D is the only sprite and sits at its door', async ({
+// The ghost houses (sweep of the 488 vanilla maps, one machine): each has sprite $8D with its door 8 px left of
+// the map, which pads 16 px left (one tile) plus the gutter. $C4 has a second sprite ($7B) inside the map.
+for (const index of [0xc4, 0xeb, 0xf0, 0xfb, 0x1da, 0x1e6, 0x1e7, 0x1f9]) {
+  test(`$${index.toString(16)} (ghost house): the left pad is the door (one tile) plus the gutter; $8D sits at its door`, async ({
+    page,
+  }) => {
+    const mp = await openMap(page, index)
+    await spritesLanded(page, index)
+    const sprites = await page.evaluate(
+      ({ mp, index }) => getSvc('Symbol(ProjectService)').mapSprites(mp, index),
+      { mp, index },
+    )
+    expect(sprites.status).toBe('ok')
+    const door = sprites.sprites.filter(sp => sp.id === 0x8d)
+    expect(door).toHaveLength(1)
+    expect(door[0].box).toEqual({ x0: -8, y0: 287, x1: 56, y1: 383 })
+    await zoomAt(page, index, 'zoom-actual')
+    const r = await rects(page, index)
+    const zoom = r.screen.w / 256
+    expectPad(pads(r, zoom), { left: 16 + G, top: 0, right: G, bottom: 0 })
+    const px = await canvasPixels(page, index)
+    expect(px.left).toBeGreaterThan(0)
+    expect(px.minX).toBeGreaterThanOrEqual(-8)
+    expect(px.maxX).toBeLessThan(0)
+    // Nothing above, below or over the map: the screens draw the map's own pixels.
+    expect([px.above, px.below, px.right, px.map]).toEqual([0, 0, 0, 0])
+    expect(px.padL).toBe(16 + G)
+  })
+}
+
+test('$C4: hovering the door in the gutter shows the sprite tooltip anchor at the door', async ({
   page,
 }) => {
-  const mp = await openMap(page, 0xc4)
+  await openMap(page, 0xc4)
   await spritesLanded(page, 0xc4)
-  const sprites = await page.evaluate(
-    ({ mp, index }) => getSvc('Symbol(ProjectService)').mapSprites(mp, index),
-    { mp, index: 0xc4 },
-  )
-  expect(sprites.status).toBe('ok')
-  expect(sprites.sprites).toHaveLength(1)
-  expect(sprites.sprites[0].id).toBe(0x8d)
-  expect(sprites.sprites[0].box).toEqual({ x0: -8, y0: 287, x1: 56, y1: 383 })
   await zoomAt(page, 0xc4, 'zoom-actual')
   const r = await rects(page, 0xc4)
   const zoom = r.screen.w / 256
-  expectPad(pads(r, zoom), { left: 16 + G, top: 0, right: G, bottom: 0 })
   const px = await canvasPixels(page, 0xc4)
-  expect(px.left).toBeGreaterThan(0)
-  expect(px.minX).toBeGreaterThanOrEqual(-8)
-  expect(px.maxX).toBeLessThan(0)
-  // Nothing above, below or over the map: the screens draw the map's own pixels.
-  expect([px.above, px.below, px.right, px.map]).toEqual([0, 0, 0, 0])
-  expect(px.padL).toBe(16 + G)
+  // A real opaque door pixel, left of the map.
+  const at = {
+    x: r.edge.left + (px.first.x + 0.5) * zoom,
+    y: r.edge.top + (px.first.y + 0.5) * zoom,
+  }
+  await page.mouse.move(at.x, at.y)
+  await expect.poll(() => inWidget(page, 0xc4, w => w.hoverSprite?.id ?? null), { timeout: 10000 }).toBe(0x8d) // prettier-ignore
+  const a = await page.evaluate(() => {
+    const e = document.querySelector('.hb-map-sprite-anchor')
+    const b = e && e.getBoundingClientRect()
+    return b && { left: b.left, top: b.top, right: b.right, bottom: b.bottom }
+  })
+  expect(a).not.toBeNull()
+  expect(a.left).toBeLessThanOrEqual(at.x)
+  expect(a.right).toBeGreaterThanOrEqual(at.x)
+  expect(a.top).toBeLessThanOrEqual(at.y)
+  expect(a.bottom).toBeGreaterThanOrEqual(at.y)
+  // The anchor is the sprite's box at the pad offset: 8 px left of the map edge.
+  expect(a.left - r.edge.left).toBeCloseTo(-8 * zoom, 0)
 })
 
 test('$DD: platform pixels land in the left pad, which is 8 px (one tile) plus the gutter', async ({
@@ -330,7 +372,7 @@ test('$DD: platform pixels land in the left pad, which is 8 px (one tile) plus t
   expect(px.map).toBe(0)
 })
 
-test('$102: sprites below the map grow the bottom by 48 px and there is no gutter below', async ({
+test('$102: sprites 24 px below the map grow the bottom by 32 px (one tile rounding) and there is no gutter below', async ({
   page,
 }) => {
   await openMap(page, 0x102)
@@ -338,10 +380,30 @@ test('$102: sprites below the map grow the bottom by 48 px and there is no gutte
   await zoomAt(page, 0x102, 'zoom-actual')
   const r = await rects(page, 0x102)
   const zoom = r.screen.w / 256
-  expectPad(pads(r, zoom), { left: G, top: 0, right: G, bottom: 48 })
+  expectPad(pads(r, zoom), { left: G, top: 0, right: G, bottom: 32 })
   const px = await canvasPixels(page, 0x102)
   expect(px.below).toBeGreaterThan(0)
   expect(px.above).toBe(0)
+})
+
+test('$102: Fit frames the map and its bottom band: the whole strip fits the view with no vertical scroll', async ({
+  page,
+}) => {
+  await openMap(page, 0x102)
+  await spritesLanded(page, 0x102)
+  await click(page, 0x102, 'zoom-fit')
+  await page.waitForTimeout(600)
+  const m = await page.evaluate(sel => {
+    const sc = document.querySelector(`${sel} [data-control="map-scroller"]`)
+    const strip = document.querySelector(`${sel} .hb-map-view-strip`).getBoundingClientRect()
+    return { clientH: sc.clientHeight, scrollH: sc.scrollHeight, stripH: strip.height }
+  }, root(0x102))
+  expect(m.stripH).toBeLessThanOrEqual(m.clientH + 1)
+  expect(m.scrollH).toBeLessThanOrEqual(m.clientH + 1)
+  // And Fit used the bottom band: 432 map px + 32 px, not 432 alone.
+  const r = await rects(page, 0x102)
+  const zoom = r.screen.w / 256
+  expect(r.strip.h / zoom).toBeCloseTo(432 + 32, 0)
 })
 
 test('marks far past the end draw raw, in a canvas grown to hold them with the gutter beyond', async ({
@@ -393,37 +455,52 @@ test('the collision overlay starts at the map edge, not the strip corner, at two
   }
 })
 
-test('hover and click at the pad offset hit the right tile and sprite, and the margin does not throw', async ({
-  page,
-}) => {
-  // An item block at map px (32, 48) and an opaque 16 x 16 sprite at (64, 100).
-  await page.evaluate(() => (window.__hbExtra = [{ x0: 64, y0: 100, x1: 80, y1: 116 }]))
-  await openMap(page, 0x105, { block: { x: 32, y: 48 } })
-  await spritesLanded(page, 0x105)
-  await zoomAt(page, 0x105, 'zoom-actual')
-  const r = await rects(page, 0x105)
-  const zoom = r.screen.w / 256
-  const hoverBlock = () => inWidget(page, 0x105, w => (w.hover ? [w.hover.x, w.hover.y] : null))
-  const hoverSprite = () => inWidget(page, 0x105, w => w.hoverSprite?.index ?? null)
-  // Over the block, measured from the MAP's origin: found. From the STRIP's origin it is 128 px short.
-  await page.mouse.move(r.edge.left + 40 * zoom, r.edge.top + 56 * zoom)
-  await expect.poll(hoverBlock, { timeout: 10000 }).toEqual([32, 48])
-  await page.mouse.move(r.strip.left + 40 * zoom, r.strip.top + 56 * zoom)
-  await expect.poll(hoverBlock, { timeout: 10000 }).toBeNull()
-  // Over the sprite: hovered, then clicked and selected; the strip-origin point selects nothing.
-  await page.mouse.move(r.edge.left + 72 * zoom, r.edge.top + 108 * zoom)
-  await expect.poll(hoverSprite, { timeout: 10000 }).toBe(900)
-  await page.mouse.click(r.edge.left + 72 * zoom, r.edge.top + 108 * zoom)
-  await expect.poll(() => inWidget(page, 0x105, w => w.selectedSprite?.index ?? null)).toBe(900)
-  await page.mouse.click(r.strip.left + 72 * zoom, r.strip.top + 108 * zoom)
-  await expect.poll(() => inWidget(page, 0x105, w => w.selectedSprite?.index ?? null)).toBeNull()
-  // The ends of the strip and the gutter: no throw, no hit.
-  await page.mouse.move(r.strip.left + 2, r.strip.top + 2)
-  await page.mouse.move(r.strip.right - 2, r.strip.bottom - 2)
-  expect(await hoverSprite()).toBeNull()
-  expect(await hoverBlock()).toBeNull()
-  expect(pageErrors).toEqual([])
-})
+for (const { index, screenW, vertical } of [
+  { index: 0x105, screenW: 256, vertical: false },
+  { index: 0x109, screenW: 512, vertical: true },
+]) {
+  test(`$${index.toString(16)}: hover, click and the sprite anchor use the pad offset (${vertical ? 'top and bottom' : 'left and right'} gutters)`, async ({
+    page,
+  }) => {
+    // An item block at map px (32, 48) and an opaque 16 x 16 sprite at (64, 100).
+    await page.evaluate(() => (window.__hbExtra = [{ x0: 64, y0: 100, x1: 80, y1: 116 }]))
+    await openMap(page, index, { block: { x: 32, y: 48 } })
+    await spritesLanded(page, index)
+    await zoomAt(page, index, 'zoom-actual')
+    const r = await rects(page, index)
+    const zoom = r.screen.w / screenW
+    const hoverBlock = () => inWidget(page, index, w => (w.hover ? [w.hover.x, w.hover.y] : null))
+    const hoverSprite = () => inWidget(page, index, w => w.hoverSprite?.index ?? null)
+    const selected = () => inWidget(page, index, w => w.selectedSprite?.index ?? null)
+    // Over the block, measured from the MAP's origin: found. From the STRIP's origin it is a gutter short.
+    await page.mouse.move(r.edge.left + 40 * zoom, r.edge.top + 56 * zoom)
+    await expect.poll(hoverBlock, { timeout: 10000 }).toEqual([32, 48])
+    await page.mouse.move(r.strip.left + 40 * zoom, r.strip.top + 56 * zoom)
+    await expect.poll(hoverBlock, { timeout: 10000 }).toBeNull()
+    // Over the sprite: hovered, with its anchor box at the pad offset, then clicked and selected;
+    // the strip-origin point selects nothing.
+    await page.mouse.move(r.edge.left + 72 * zoom, r.edge.top + 108 * zoom)
+    await expect.poll(hoverSprite, { timeout: 10000 }).toBe(900)
+    const anchor = await page.evaluate(() => {
+      const b = document.querySelector('.hb-map-sprite-anchor')?.getBoundingClientRect()
+      return b && { left: b.left, top: b.top, w: b.width, h: b.height }
+    })
+    expect(anchor).not.toBeNull()
+    expect(anchor.left - r.edge.left).toBeCloseTo(64 * zoom, 0)
+    expect(anchor.top - r.edge.top).toBeCloseTo(100 * zoom, 0)
+    expect(anchor.w).toBeCloseTo(16 * zoom, 0)
+    await page.mouse.click(r.edge.left + 72 * zoom, r.edge.top + 108 * zoom)
+    await expect.poll(selected).toBe(900)
+    await page.mouse.click(r.strip.left + 72 * zoom, r.strip.top + 108 * zoom)
+    await expect.poll(selected).toBeNull()
+    // The ends of the strip and the gutter: no throw, no hit.
+    await page.mouse.move(r.strip.left + 2, r.strip.top + 2)
+    await page.mouse.move(r.strip.right - 2, r.strip.bottom - 2)
+    expect(await hoverSprite()).toBeNull()
+    expect(await hoverBlock()).toBeNull()
+    expect(pageErrors).toEqual([])
+  })
+}
 
 test('the grid runs across the gutters and the growth band', async ({ page }) => {
   await openMap(page, 0x102)
@@ -448,43 +525,124 @@ test('the grid runs across the gutters and the growth band', async ({ page }) =>
   expect(Math.max(...lines.y.map(l => l.pos))).toBeGreaterThan(432)
 })
 
-test('in Fit, a sprites reply that adds a top and left pad refits and holds the map pixel under the view center', async ({
-  page,
-}) => {
-  // Stays in Fit, so the refit changes the zoom: only an absolute restore (not a relative nudge) holds the pixel.
-  await openMap(page, 0x105)
-  await spritesLanded(page, 0x105)
-  await click(page, 0x105, 'zoom-fit')
-  await page.waitForTimeout(500)
-  const point = () =>
-    page.evaluate(sel => {
-      const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
-      const cx = s.getBoundingClientRect().left + s.clientWidth / 2
-      const origin = document.querySelector(`${sel} [data-control="map-edge"]`).getBoundingClientRect() // prettier-ignore
-      const zoom = document.querySelector(`${sel} .hb-map-view-screen`).getBoundingClientRect().width / 256 // prettier-ignore
-      return { mapX: (cx - origin.left) / zoom, zoom, left: s.scrollLeft, wide: s.scrollWidth - s.clientWidth } // prettier-ignore
-    }, root(0x105))
-  await page.evaluate(sel => {
-    const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
-    s.scrollLeft = Math.floor((s.scrollWidth - s.clientWidth) / 2)
-  }, root(0x105))
-  await page.waitForTimeout(400)
-  const before = await point()
-  expect(before.wide).toBeGreaterThan(100)
-  expect(before.left).toBeGreaterThan(0)
-  // 40 px above and left of the map: the left pad goes from 128 to 176 and a 48 px top pad appears.
-  await page.evaluate(async () => {
-    window.__hbExtra = [{ x0: -40, y0: -40, x1: -24, y1: -24 }]
-    const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {
-      index: 0x105,
-    })
-    await w.loadSprites()
+// A sprites reply that grows the pad under a scrolled view must keep the map pixel under the view center.
+// Horizontal: the box adds a left pad (the scroll axis) and a top pad, so the fit zoom drops. Vertical: the box
+// adds a top pad (the scroll axis) only, so the zoom stays and only the absolute restore can hold the pixel.
+for (const { index, screenW, vertical, box } of [
+  { index: 0x105, screenW: 256, vertical: false, box: { x0: -40, y0: -40, x1: -24, y1: -24 } },
+  { index: 0x109, screenW: 512, vertical: true, box: { x0: 100, y0: -40, x1: 116, y1: -24 } },
+]) {
+  test(`$${index.toString(16)}: in Fit, a sprites reply that grows the leading pad holds the map pixel under the view center`, async ({
+    page,
+  }) => {
+    await openMap(page, index)
+    await spritesLanded(page, index)
+    await click(page, index, 'zoom-fit')
+    await page.waitForTimeout(500)
+    const point = () =>
+      page.evaluate(
+        ({ sel, vertical, screenW }) => {
+          const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
+          const sr = s.getBoundingClientRect()
+          const edge = document.querySelector(`${sel} [data-control="map-edge"]`).getBoundingClientRect() // prettier-ignore
+          const zoom = document.querySelector(`${sel} .hb-map-view-screen`).getBoundingClientRect().width / screenW // prettier-ignore
+          const at = vertical ? sr.top + s.clientHeight / 2 - edge.top : sr.left + s.clientWidth / 2 - edge.left // prettier-ignore
+          return { map: at / zoom, zoom, scroll: vertical ? s.scrollTop : s.scrollLeft, range: vertical ? s.scrollHeight - s.clientHeight : s.scrollWidth - s.clientWidth } // prettier-ignore
+        },
+        { sel: root(index), vertical, screenW },
+      )
+    await page.evaluate(
+      ({ sel, vertical }) => {
+        const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
+        const range = vertical ? s.scrollHeight - s.clientHeight : s.scrollWidth - s.clientWidth
+        if (vertical) s.scrollTop = Math.floor(range / 2)
+        else s.scrollLeft = Math.floor(range / 2)
+      },
+      { sel: root(index), vertical },
+    )
+    await page.waitForTimeout(400)
+    const before = await point()
+    expect(before.range).toBeGreaterThan(100)
+    expect(before.scroll).toBeGreaterThan(0)
+    await page.evaluate(
+      async ({ index, box }) => {
+        window.__hbExtra = [box]
+        const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { index })
+        await w.loadSprites()
+      },
+      { index, box },
+    )
+    await expect.poll(() => inWidget(page, index, w => w.offMapPixels() !== null)).toBe(true)
+    await page.waitForTimeout(1000)
+    const after = await point()
+    await expect(page.locator(`${root(index)} [data-control="zoom-fit"]`)).toHaveAttribute('aria-pressed', 'true') // prettier-ignore
+    if (!vertical) expect(after.zoom).toBeLessThan(before.zoom * 0.95)
+    else expect(after.zoom).toBeCloseTo(before.zoom, 2)
+    expect(Math.abs(after.map - before.map) * after.zoom).toBeLessThanOrEqual(1)
   })
-  await expect.poll(async () => (await rects(page, 0x105)).strip.h > 0).toBe(true)
-  await page.waitForTimeout(1000)
-  const after = await point()
-  await expect(page.locator(`${root(0x105)} [data-control="zoom-fit"]`)).toHaveAttribute('aria-pressed', 'true') // prettier-ignore
-  // The 48 px top pad shrinks the fit zoom; the pixel still sits under the center.
-  expect(after.zoom).toBeLessThan(before.zoom * 0.95)
-  expect(Math.abs(after.mapX - before.mapX) * after.zoom).toBeLessThanOrEqual(1)
-})
+}
+
+/**
+ * #1004 criterion 3: with nothing off the map, the map's own area is pixel-identical to before and the gutter
+ * shows at both long ends. $105 and $109 have nothing off the map (the vanilla sweep in theia-shell.md). The
+ * hashes cover only the first two screens' composite canvases, scrolled to the map origin, so the gutter and
+ * the scroll position cannot change them. Record the baseline on develop with HB_BASELINE_DIR=<dir>
+ * HB_WRITE_BASELINE=1 (develop has no gutter, so only the hashes are written there), then run on the branch with
+ * HB_BASELINE_DIR=<dir>: hashes must match AND the gutter must be 128 * zoom at both long ends, nothing on the
+ * short sides.
+ */
+for (const { index, screenW, vertical } of [
+  { index: 0x105, screenW: 256, vertical: false },
+  { index: 0x109, screenW: 512, vertical: true },
+]) {
+  test(`$${index.toString(16)}: with nothing off the map, the map area is pixel-identical to develop and the gutter shows at both ends`, async ({
+    page,
+  }) => {
+    test.skip(!process.env.HB_BASELINE_DIR, 'HB_BASELINE_DIR not set')
+    await openMap(page, index)
+    await spritesLanded(page, index)
+    await click(page, index, 'zoom-actual')
+    await page.waitForTimeout(500)
+    // Scroll to the map origin: past the gutter on the branch, the strip start on develop (no mapOrigin there).
+    await page.evaluate(
+      async ({ i, sel }) => {
+        const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {
+          index: i,
+        })
+        const o = typeof w.mapOrigin === 'function' ? w.mapOrigin() : { x: 0, y: 0 }
+        const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
+        s.scrollLeft = o.x * w.zoom
+        s.scrollTop = o.y * w.zoom
+      },
+      { i: index, sel: root(index) },
+    )
+    await page.waitForTimeout(1500)
+    const fp = await page.evaluate(sel => {
+      const screens = [...document.querySelectorAll(`${sel} .hb-map-view-screen`)].slice(0, 2)
+      return screens.map(sc => {
+        const c = sc.querySelector('canvas[data-layer="screen"]')
+        return { size: [c.width, c.height], url: c.toDataURL() }
+      })
+    }, root(index))
+    expect(fp.every(f => f.url.length > 1000)).toBe(true)
+    const out = JSON.stringify(
+      fp.map(f => ({
+        size: f.size,
+        sha: nodeCrypto.createHash('sha256').update(f.url).digest('hex'),
+      })),
+      null,
+      1,
+    )
+    const file = path.join(process.env.HB_BASELINE_DIR, `off-map-${index.toString(16)}.json`)
+    if (process.env.HB_WRITE_BASELINE) {
+      fs.mkdirSync(process.env.HB_BASELINE_DIR, { recursive: true })
+      fs.writeFileSync(file, out)
+      return
+    }
+    expect(fs.existsSync(file), `baseline ${file}: run on develop with HB_WRITE_BASELINE=1 first`).toBe(true) // prettier-ignore
+    expect(out).toBe(fs.readFileSync(file, 'utf8'))
+    const r = await rects(page, index)
+    const zoom = r.screen.w / screenW
+    expectPad(pads(r, zoom), vertical ? { left: 0, top: G, right: 0, bottom: G } : { left: G, top: 0, right: G, bottom: 0 }) // prettier-ignore
+  })
+}

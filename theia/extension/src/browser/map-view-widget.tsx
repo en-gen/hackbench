@@ -66,7 +66,7 @@ import { RefusedOverlay } from './refused-overlay'
 import {
   backGradient,
   cellRect,
-  centreScroll,
+  centerScroll,
   insideMap,
   NO_PAD,
   offMapPad,
@@ -177,6 +177,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected offMapCanvas: HTMLCanvasElement | null = null
   /** `pad` for one (layout, sprites) pair: it is read on every pointer move. */
   protected padMemo: { l: Layout; s: Sprites | undefined; pad: Pad } | undefined
+  /** The sprite pixels outside the map for one (layout, sprites) pair, null when none reach outside. */
+  protected offMapMemo: { l: Layout; s: Sprites; px: Uint8ClampedArray | null } | undefined
+  /** Wheel, pointer and key events on the scroller: the late-pad restore yields to any of them. */
+  protected userInputs = 0
   protected screenError: string | undefined
   protected screenErrorDetail: string | undefined
   /** Each palace's block, decoded once per load, or why it cannot be drawn. */
@@ -421,7 +425,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     }
     const view = vertical ? el.clientHeight : el.clientWidth
     const max = (vertical ? el.scrollHeight : el.scrollWidth) - view
-    const at = centreScroll(vertical ? start.y : start.x, lead, this.zoom, view, max)
+    const at = centerScroll(vertical ? start.y : start.x, lead, this.zoom, view, max)
     el.scrollTo(vertical ? { top: at } : { left: at })
     this.startState = 'placed'
     this.update()
@@ -538,7 +542,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
    * center is recorded before the change and the scroll set absolutely after the refit has committed
    * (the way ZoomController.restoreAnchor does), so the view stays on it; a relative nudge would drift
    * with the refit's zoom. An axis at scroll 0 is left alone, so the leading gutter shows. Skipped when
-   * the map was reopened (generation) or the user zoomed in between. Nothing happens when the pad is unchanged.
+   * the map was reopened (generation), or the user zoomed, scrolled or pressed a key in the two frames. Nothing happens when the pad is unchanged.
    */
   protected keepViewOnPadChange(before: Pad): void {
     const l = this.mapLayout
@@ -551,12 +555,13 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       y: el.scrollTop > 0 ? (el.scrollTop + el.clientHeight / 2 - before.top * z) / z : undefined,
     }
     const generation = this.generation
+    const inputs = this.userInputs
     requestAnimationFrame(() => {
       this.fitStrip()
       // The refit's zoom is the one to restore at; a different one by the next frame is the user's.
       const z2 = this.zoom
       requestAnimationFrame(() => {
-        if (!el || !held || generation !== this.generation || z2 !== this.zoom) return
+        if (!el || !held || generation !== this.generation || z2 !== this.zoom || inputs !== this.userInputs) return // prettier-ignore
         el.scrollTo({
           left: held.x === undefined ? undefined : (held.x + after.left) * z2 - el.clientWidth / 2,
           top: held.y === undefined ? undefined : (held.y + after.top) * z2 - el.clientHeight / 2,
@@ -668,7 +673,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   /**
    * The map's top-left corner in MAP pixels from the strip's: the leading pads. Same name, signature
-   * and units as #977's `mapOrigin()` (neighbour cards add it times the zoom).
+   * and units as #977's `mapOrigin()` (neighbor cards add it times the zoom).
    */
   protected mapOrigin(): { x: number; y: number } {
     return { x: this.pad.left, y: this.pad.top }
@@ -750,7 +755,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       l.backdrop.join() !== r.backdrop.join()
     ) {
       // The first reply sizes the strip; the screens in view follow once it is laid out.
+      const before = this.pad
       this.mapLayout = r
+      // An edit can move a mark off the map and change the pad under a scrolled view.
+      if (l) this.keepViewOnPadChange(before)
       this.update()
       requestAnimationFrame(() => this.fitStrip())
     }
@@ -818,12 +826,29 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.syncOffMap()
   }
 
-  /** The sprite pixels off the map, on one bitmap of the padded strip (the screens draw the rest). */
+  /**
+   * The sprite pixels outside the map on one bitmap of the padded strip (the screens draw the rest),
+   * or null when no sprite reaches outside. Memoized per (layout, sprites): the render asks on every
+   * pass and the bitmap is the expensive part.
+   */
+  protected offMapPixels(): Uint8ClampedArray | null {
+    const l = this.mapLayout
+    const sp = this.sprites
+    if (!l || !sp) return null
+    const m = this.offMapMemo
+    if (m && m.l === l && m.s === sp) return m.px
+    const [mw, mh] = this.mapPx(l)
+    const px = offMapSpritePixels(sp.sprites, mw, mh, this.pad, l.orientation === 'vertical')
+    this.offMapMemo = { l, s: sp, px }
+    return px
+  }
+
+  /** Paints the off-map sprite canvas, when it is mounted (it is only when `offMapPixels` has pixels). */
   protected syncOffMap(): void {
     const c = this.offMapCanvas
     const l = this.mapLayout
-    const sp = this.sprites
-    if (!c || !l || !sp) return
+    const px = this.offMapPixels()
+    if (!c || !l || !px) return
     const p = this.pad
     const want = `${this.generation}:${this.spritesVersion}:${p.left},${p.top},${p.right},${p.bottom}`
     if (c.dataset.drawn === want) return
@@ -832,12 +857,11 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     c.height = mh + p.top + p.bottom
     const ctx = c.getContext('2d')
     ctx?.clearRect(0, 0, c.width, c.height)
-    const px = offMapSpritePixels(sp.sprites, mw, mh, p, l.orientation === 'vertical')
-    if (px) ctx?.putImageData(new ImageData(px, c.width, c.height), 0, 0)
+    ctx?.putImageData(new ImageData(px, c.width, c.height), 0, 0)
     c.dataset.drawn = want
   }
 
-  /** Remembers the off-map sprite canvas (it mounts only when sprites reach the pad) and paints it at once. */
+  /** Remembers the off-map sprite canvas (mounted only when `offMapPixels` is non-null) and paints it at once. */
   protected readonly offMapRef = (el: HTMLCanvasElement | null): void => {
     this.offMapCanvas = el
     this.syncOffMap()
@@ -1022,6 +1046,11 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   /** The pointer's client position over the strip, kept so a scroll or zoom can re-find the block under it. */
   protected pointer: { x: number; y: number } | undefined
+
+  /** Counts a wheel, pointer or key event on the scroller, so the late-pad restore can tell the user moved. */
+  protected readonly countInput = (): void => {
+    this.userInputs++
+  }
 
   protected readonly onPointerMove = (e: React.MouseEvent): void => {
     this.pointer = { x: e.clientX, y: e.clientY }
@@ -1487,6 +1516,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     // The back color is solid across the map and fades to transparent over each long-end gutter only (D48 part 2, R24).
     const vertical = l.orientation === 'vertical'
     const back = backGradient(vertical, `rgb(${l.backdrop.join(',')})`, GUTTER_PX * z)
+    // The strip's rect without the gutters, which are `GUTTER_PX` of the long-end pads.
+    const checker = vertical
+      ? `${(pad.top - GUTTER_PX) * z}px 0 ${(pad.bottom - GUTTER_PX) * z}px 0`
+      : `0 ${(pad.right - GUTTER_PX) * z}px 0 ${(pad.left - GUTTER_PX) * z}px`
     return (
       <div className="hb-map-grid-host">
         <div
@@ -1509,6 +1542,9 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
             this.updateHover()
           }}
           onMouseMove={this.onPointerMove}
+          onWheelCapture={this.countInput}
+          onPointerDownCapture={this.countInput}
+          onKeyDownCapture={this.countInput}
           onMouseLeave={() => {
             this.pointer = undefined
             this.setHover(undefined)
@@ -1519,7 +1555,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
           {/* Bottom to top (planes by `screens`, composited per screen): the checkerboard, the back area, then the screens,
               so hiding a layer shows what is under it, down to nothing. */}
           <div
-            className="hb-map-view-strip hb-checkerboard"
+            className="hb-map-view-strip"
             style={{ padding: `${pad.top * z}px ${pad.right * z}px ${pad.bottom * z}px ${pad.left * z}px` }} // prettier-ignore
             onClick={e => {
               const strip = e.currentTarget.getBoundingClientRect()
@@ -1527,6 +1563,13 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
               this.selectSprite(this.spriteUnder((e.clientX - strip.left) / this.zoom - pad.left, (e.clientY - strip.top) / this.zoom - pad.top)) // prettier-ignore
             }}
           >
+            {/* The checkerboard is confined to the map and its content bands: the gutter, where the back color
+                fades out, shows the panel behind it (D48 part 2). */}
+            <div
+              className="hb-checkerboard"
+              data-layer="checkerboard"
+              style={{ position: 'absolute', inset: checker }}
+            />
             <div
               className="hb-map-view-back-area"
               data-layer="back-area"
@@ -1582,7 +1625,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
                 pad={pad}
               />
             )}
-            {this.showSprites && !this.screenError && !!this.sprites?.sprites.length && (
+            {this.showSprites && !this.screenError && !!this.offMapPixels() && (
               <canvas
                 className="hb-map-view-offmap"
                 data-layer="off-map-sprites"

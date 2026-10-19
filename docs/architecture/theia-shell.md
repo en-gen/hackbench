@@ -385,10 +385,10 @@ and right of a horizontal map, top and bottom of a vertical one) a fixed 128 px 
 256 px screen) is added BEYOND that content, always, even when nothing is off the map; the short sides get
 the content alone, no gutter and no extra margin. The "add screen" control (#950, D69) will sit in a gutter.
 
-The pad is derived from the layout (marks) and the sprites reply together and memoised by both, so it can
+The pad is derived from the layout (marks) and the sprites reply together and memoized by both, so it can
 change when the sprites arrive (`keepViewOnPadChange`, below). It is read from one getter, `pad`, by every
 consumer, and `mapOrigin()` (protected, map pixels: `{x: pad.left, y: pad.top}`; same name, signature and
-units as #977's neighbour-card hook) is the same value as a point.
+units as #977's neighbor-card hook) is the same value as a point.
 
 With the pad the widget:
 
@@ -401,17 +401,23 @@ With the pad the widget:
   left/top pad), so marks off the map land where the data names them;
 - draws the sprite pixels that fall outside the map on one canvas (`data-layer="off-map-sprites"`, z 120).
   The pixels inside the map stay with the screens, under the tiles' priority. The canvas spans the whole
-  padded strip rather than the pad bands (simpler); its bitmap is only allocated when a sprite reaches
-  outside the map. Like the refused overlay it is not drawn while the tab shows a screen error;
+  padded strip rather than the pad bands (simpler) and is mounted only when `offMapSpritePixels` returns
+  pixels, so a map whose sprites all lie inside it has no such element. Like the refused overlay it is not
+  drawn while the tab shows a screen error;
+- confines the checkerboard (`.hb-checkerboard`, "nothing here") to the strip without the 128 px gutters, so
+  where the back color fades out the panel shows behind it, not the checkerboard [PROP];
 - marks the map's edge with a 1 px outline (`data-control="map-edge"`) [PROP], and runs the grid
   (`MapGridOverlay`, `map-grid.ts` `pad`) on across the pad.
 
 Everything that turns a pointer or scroll offset into a map position subtracts the leading pad: hover
 (`updateHover`), click selection and the hover anchor of a sprite (#981, #984; the anchor adds the pad back),
 `liftAt` (positions off the map never lift: no tile covers a sprite there), `visibleScreens`
-(`screensInView`) and `placeStart` (`centreScroll`), both unit-tested on the arithmetic. Fit's cross axis
-includes the short-side pads (`measureFit`), and a newly opened map is scrolled to 0 so the leading gutter
-shows [PROP].
+(`screensInView`) and `placeStart` (`centerScroll`), both unit-tested on the arithmetic. A scroll window wholly
+in a pad touches no screen, and no screen outside the map is ever requested (a request for one would set a
+screen error that sticks). Fit's cross axis
+includes the short-side pads (`measureFit`). A newly opened map still scrolls to the player's start
+(`placeStart` centers it, lead included), so the leading gutter shows only when the start is near the map's
+beginning.
 
 When a sprites reply grows the pad, `keepViewOnPadChange` refits and restores the view: the map pixel under
 the view center is recorded before the change and the scroll set absolutely after the refit commits (an
@@ -420,11 +426,26 @@ axis at scroll 0 is left alone), skipped when the map was reopened or the user z
 the Playwright case in `map-off-map-canvas.spec.cjs` (Fit, same map pixel under the center within 1 px, one
 machine, Chromium via the Theia browser app); not a proof for every zoom or reply order.
 
-What vanilla does (reviewer sweep of the 488 maps that build, one machine, vanilla ROM, before the
-gutters): 13 maps had real opaque sprite pixels off the map, none a refused object (vanilla refuses
-none). With sprite $8D fixed (#1016) the eight ghost houses ($C4, $EB, $F0, $FB, $1DA, $1E6, $1E7, $1F9)
-reach 8 px left of the map (a 16 px left pad plus the gutter), $DD reaches 8 px left (sprite $63), $0E, $1B
-and $110 reach 32 px below and $102 reaches 48 px below. Every other map is padded by the gutters alone.
+What vanilla does (a sweep of the 488 maps that build, one machine, vanilla ROM, with `offMapPad` at this
+commit over every sprite `box` and refused cell; vanilla refuses no object): 14 maps have content off the
+map, the other 474 (including $105 and $109) are padded by the gutters alone. Content pad beyond the
+gutter, in px:
+
+| map                                                | content (sprite ids)                      | left | right | bottom |
+| -------------------------------------------------- | ----------------------------------------- | ---- | ----- | ------ |
+| $C4 $EB $F0 $FB $1DA $1E6 $1E7 $1F9 (ghost houses) | $8D door, box starts 8 px left of the map | 16   | 0     | 0      |
+| $DD                                                | $63, 8 px left                            | 16   | 0     | 0      |
+| $F8                                                | $E2                                       | 0    | 32    | 16     |
+| $0E, $110                                          | $9E                                       | 0    | 0     | 16     |
+| $1B                                                | $AD                                       | 0    | 0     | 16     |
+| $102                                               | $5D, $A4 (24 px below)                    | 0    | 0     | 32     |
+
+Add 128 on the left and right (the gutters) to read the pad itself; a bottom pad has no gutter.
+
+Sharing the space with #977: its neighbor cards sit in bands that are siblings of the scroller and are
+positioned from `mapOrigin()`, while the gutters are inside the strip, so the two never overlap. The "add
+screen" control (#950) goes in a gutter.
+
 The reference VS Code extension has no off-map canvas: its map editor pans with padding that is clamped
 to the map (`src/webview/mapEditor/main.ts:301`), so there is nothing to port.
 

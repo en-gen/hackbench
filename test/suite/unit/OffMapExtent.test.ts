@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest'
 import {
   backGradient,
   cellRect,
-  centreScroll,
+  centerScroll,
   insideMap,
   offMapPad,
   offMapSpritePixels,
@@ -80,23 +80,43 @@ describe('backGradient (owner R24)', () => {
 })
 
 describe('the scroll-axis lead (visibleScreens and placeStart arithmetic)', () => {
-  it('a window wholly in the leading pad still gets screen 0, and the lead shifts every screen', () => {
-    // 3 screens of 100 px behind a 128 px lead; a 50 px window scrolled to 10 is in the lead.
-    expect(screensInView(10, 50, 100, 128, 3, 0)).toEqual([0, 0])
+  it('a window wholly in the leading or trailing pad needs no screen (none may be asked for)', () => {
+    // 3 screens of 100 px behind a 128 px lead and before a 400 px trail (a wide off-map band).
+    expect(screensInView(10, 50, 100, 128, 3, 0)).toEqual([0, -1])
+    expect(screensInView(10, 50, 100, 128, 3, 2)).toEqual([0, -1])
+    expect(screensInView(428 + 10, 50, 100, 128, 3, 0)).toEqual([0, -1]) // map ends at 428
+    expect(screensInView(428 + 399, 1, 100, 128, 3, 2)).toEqual([0, -1])
+  })
+
+  it('never names a screen outside 0..count-1, however far the window or the margin reaches', () => {
+    for (const scroll of [0, 50, 128, 300, 427, 428, 600, 828, 5000]) {
+      for (const margin of [0, 1, 3]) {
+        const [first, last] = screensInView(scroll, 200, 100, 128, 3, margin)
+        if (last < first) continue
+        expect(first).toBeGreaterThanOrEqual(0)
+        expect(last).toBeLessThanOrEqual(2)
+      }
+    }
+    // Reaching into the trailing pad from the map: the last screen, not a fourth.
+    expect(screensInView(300, 400, 100, 128, 3, 2)).toEqual([0, 2])
+  })
+
+  it('the lead shifts every screen, the margin widens the range, clamped to the map', () => {
     // Scrolled to 228 the window starts exactly at screen 1; without the lead it would be screen 2.
     expect(screensInView(228, 50, 100, 128, 3, 0)).toEqual([1, 1])
     expect(screensInView(228, 150, 100, 128, 3, 0)).toEqual([1, 2])
-    // The margin widens it, clamped to the map.
     expect(screensInView(228, 50, 100, 128, 3, 1)).toEqual([0, 2])
     expect(screensInView(0, 10, 100, 0, 3, 0)).toEqual([0, 0])
+    // A window straddling the leading pad and screen 0 asks for screen 0.
+    expect(screensInView(100, 100, 100, 128, 3, 0)).toEqual([0, 0])
   })
 
-  it('centres a map point on the view with the lead added, clamped to the scroll range', () => {
-    expect(centreScroll(300, 128, 1, 200, 1000)).toBe(328)
-    expect(centreScroll(300, 128, 2, 200, 1000)).toBe(756)
-    expect(centreScroll(10, 128, 1, 200, 1000)).toBe(38)
-    expect(centreScroll(0, 0, 1, 200, 1000)).toBe(0)
-    expect(centreScroll(900, 128, 1, 200, 500)).toBe(500)
+  it('centers a map point on the view with the lead added, clamped to the scroll range', () => {
+    expect(centerScroll(300, 128, 1, 200, 1000)).toBe(328)
+    expect(centerScroll(300, 128, 2, 200, 1000)).toBe(756)
+    expect(centerScroll(10, 128, 1, 200, 1000)).toBe(38)
+    expect(centerScroll(0, 0, 1, 200, 1000)).toBe(0)
+    expect(centerScroll(900, 128, 1, 200, 500)).toBe(500)
   })
 })
 
@@ -136,17 +156,26 @@ describe('offMapSpritePixels', () => {
     expect([at(-8, 4)[1], at(-1, 4)[1], at(0, 4)[1], at(7, 4)[1], at(-8, 6)[1]]).toEqual([255, 255, 0, 0, 0]) // prettier-ignore
   })
 
-  it('the $8D-shaped witness: a tall box above and left of the map, in the top and left margins', () => {
-    // A sprite at (0, 0) whose parts reach 113 px above it (vanilla ghost-house maps pad top 144, left 32).
+  it('the $8D door: a box starting 8 px left of the map keeps its left-gutter pixels, and none over the map', () => {
+    // Vanilla ghost houses (#1016): sprite $8D, box (-8, 287) to (56, 383); pad 144 left (one tile plus the gutter).
+    const pad = { left: 144, top: 0, right: 128, bottom: 0 }
+    const out = offMapSpritePixels([sprite(0, { x0: -8, y0: 287, x1: 56, y1: 383 })], 256, 432, pad, false) // prettier-ignore
+    const at = reader(out, 256, pad)
+    expect(at(-8, 287)).toEqual([10, 255])
+    expect(at(-1, 382)).toEqual([10, 255])
+    expect(at(-9, 300)[1]).toBe(0)
+    expect(at(0, 300)[1]).toBe(0)
+    expect(at(10, 286)[1]).toBe(0)
+  })
+
+  it('a box above and left of the map keeps its top and left pixels at the data position', () => {
     const pad = { left: 32, top: 144, right: 0, bottom: 0 }
     const out = offMapSpritePixels([sprite(0, { x0: -8, y0: -113, x1: 56, y1: 111 })], 256, 432, pad, false) // prettier-ignore
     const at = reader(out, 256, pad)
-    // Top margin, the box's first row and a middle row; the corner; the left margin below the map's top.
     expect(at(10, -113)).toEqual([10, 255])
     expect(at(10, -1)).toEqual([10, 255])
     expect(at(-8, -113)).toEqual([10, 255])
     expect(at(-8, 50)).toEqual([10, 255])
-    // Not in the box, and in the map (the screens draw it).
     expect(at(10, -114)[1]).toBe(0)
     expect(at(-9, 50)[1]).toBe(0)
     expect(at(10, 0)[1]).toBe(0)
