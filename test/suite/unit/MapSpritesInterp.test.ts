@@ -844,8 +844,8 @@ describe.skipIf(!hasRom(VANILLA))('ghost house exit sign ($8D) sits at its door 
     expect(ys.filter(y => y < 0x8f + 192).sort((a, c) => a - c)).toEqual([287, 287, 287, 287, 295, 295, 295, 295]) // prettier-ignore
     expect(Math.max(...ys)).toBe(0xaf + 192 + 8)
     expect(Math.min(...r.parts.map(p => ax + p.dx))).toBe(-8) // X as before: table - Layer1XPos 0
-    // Mario starts at (16, 352), inside the frame band.
-    const mario = 352
+    // Mario's start, read from the ROM, is inside the frame band.
+    const mario = readMarioStartPos(rom.rom, map)!.y
     expect(mario).toBeGreaterThanOrEqual(Math.min(...ys.filter(y => y >= 0x8f + 192)))
     expect(mario).toBeLessThanOrEqual(Math.max(...ys) + 7)
   })

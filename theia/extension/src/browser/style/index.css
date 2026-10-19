@@ -359,6 +359,8 @@
      axis cannot make it appear and change the fit again. */
   overflow-x: scroll;
   overflow-y: auto;
+  /* A sprites reply can grow the pad before the view; keepViewOnPadChange restores the view itself. */
+  overflow-anchor: none;
 }
 
 .hb-map-view-scroller.hb-vertical {
@@ -411,7 +413,7 @@
   image-rendering: pixelated;
 }
 
-/* The map's edge, drawn only when the strip has a gutter (#1004). */
+/* The map's edge, drawn on every map once its layout is known (#1004). */
 .hb-map-view-edge {
   position: absolute;
   z-index: 160;

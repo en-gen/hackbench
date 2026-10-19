@@ -1,36 +1,102 @@
 /**
- * The fixed gutter and the sprite pixels that fall in it (D48 part 2, #1004). Pure arithmetic
- * and synthetic bitmaps: no ROM, no DOM.
+ * The off-map canvas padding (#1004). Pure arithmetic and
+ * synthetic bitmaps: no ROM, no DOM.
  */
 import { describe, it, expect } from 'vitest'
 import {
-  gutterPad,
+  backGradient,
+  cellRect,
+  centreScroll,
   insideMap,
-  isPadded,
-  NO_PAD,
+  offMapPad,
   offMapSpritePixels,
+  screensInView,
   type Pad,
+  type Rect,
 } from '../../../theia/extension/src/browser/off-map-extent'
 import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
 
-/** A sprite box in map pixels, x1 and y1 exclusive. */
-interface Rect {
-  x0: number
-  y0: number
-  x1: number
-  y1: number
-}
+// 16 x 27 tile screens side by side, or 32 x 16 stacked (LevelParser.ts), one to seven screens.
+const SHAPES = [1, 2, 5, 7].flatMap(n => [
+  { w: 256 * n, h: 432, vertical: false },
+  { w: 512, h: 256 * n, vertical: true },
+])
+const G = 128
 
-describe('gutterPad (D48 part 2)', () => {
-  it('a horizontal map always has 128 px each side and none above or below, whatever its length', () => {
-    // The gutter is a property of the orientation alone: no map length or content enters it.
-    expect(gutterPad(false)).toEqual({ left: 128, top: 0, right: 128, bottom: 0 })
-    expect(isPadded(gutterPad(false))).toBe(true)
+describe('offMapPad: the gutter (D48 part 2, D145)', () => {
+  it('a map with nothing off it is padded by the gutter alone, at its long ends only', () => {
+    for (const { w, h, vertical } of SHAPES) {
+      const inside: Rect[] = [cellRect(0, 0), cellRect(w / 16 - 1, h / 16 - 1), { x0: 0, y0: 0, x1: w, y1: h }] // prettier-ignore
+      const want = vertical ? { left: 0, top: G, right: 0, bottom: G } : { left: G, top: 0, right: G, bottom: 0 } // prettier-ignore
+      expect(offMapPad(w, h, inside, vertical)).toEqual(want)
+      expect(offMapPad(w, h, [], vertical)).toEqual(want)
+    }
+  })
+})
+
+describe('offMapPad: content growth', () => {
+  const H = { w: 256 * 5, h: 432, vertical: false }
+  const V = { w: 512, h: 256 * 5, vertical: true }
+  const pad = (m: typeof H, rects: Rect[]) => offMapPad(m.w, m.h, rects, m.vertical)
+
+  it('on a long end the gutter sits BEYOND the tile-rounded content', () => {
+    // Cell at tile -2 overflows by 32 px: 32 + the 128 gutter.
+    expect(pad(H, [cellRect(-2, 5)])).toEqual({ left: 32 + G, top: 0, right: G, bottom: 0 })
+    expect(pad(H, [cellRect(H.w / 16 + 1, 5)])).toEqual({ left: G, top: 0, right: 32 + G, bottom: 0 }) // prettier-ignore
+    expect(pad(V, [cellRect(5, -1)])).toEqual({ left: 0, top: 16 + G, right: 0, bottom: G })
+    expect(pad(V, [cellRect(5, V.h / 16)])).toEqual({ left: 0, top: G, right: 0, bottom: 16 + G }) // prettier-ignore
   })
 
-  it('a vertical map has no gutter at all', () => {
-    expect(gutterPad(true)).toEqual(NO_PAD)
-    expect(isPadded(gutterPad(true))).toBe(false)
+  it('on a short side the content alone, no gutter and no extra margin', () => {
+    expect(pad(H, [cellRect(5, -1)])).toEqual({ left: G, top: 16, right: G, bottom: 0 })
+    expect(pad(H, [cellRect(5, 27)])).toEqual({ left: G, top: 0, right: G, bottom: 16 })
+    expect(pad(V, [cellRect(-3, 5)])).toEqual({ left: 48, top: G, right: 0, bottom: G })
+    expect(pad(V, [cellRect(32, 5)])).toEqual({ left: 0, top: G, right: 16, bottom: G })
+  })
+
+  it('a partial tile of overflow rounds up to a whole tile', () => {
+    expect(pad(H, [{ x0: -1, y0: 0, x1: 8, y1: 8 }]).left).toBe(16 + G)
+    expect(pad(H, [{ x0: 0, y0: 0, x1: H.w + 1, y1: 8 }]).right).toBe(16 + G)
+    expect(pad(H, [{ x0: 0, y0: 0, x1: 8, y1: 433 }]).bottom).toBe(16)
+    expect(pad(H, [{ x0: 0, y0: -17, x1: 8, y1: 8 }]).top).toBe(32)
+  })
+
+  it('content far beyond the old gutter still gets the gutter past it (no clamp, no cap)', () => {
+    expect(pad(H, [cellRect(-100, 5)]).left).toBe(1600 + G)
+    expect(pad(V, [cellRect(5, V.h / 16 + 300)]).bottom).toBe(4816 + G)
+  })
+
+  it('takes the farthest rect on each side, and all four sides at once', () => {
+    const p = pad(H, [cellRect(-1, 0), cellRect(-3, 0), cellRect(0, -2), cellRect(H.w / 16 + 1, 0), cellRect(0, 28)]) // prettier-ignore
+    expect(p).toEqual({ left: 48 + G, top: 32, right: 32 + G, bottom: 32 })
+  })
+})
+
+describe('backGradient (owner R24)', () => {
+  it('fades along the scroll axis: to the right on a horizontal map, to the bottom on a vertical one', () => {
+    expect(backGradient(false, 'rgb(1,2,3)', 128)).toBe('linear-gradient(to right, transparent, rgb(1,2,3) 128px, rgb(1,2,3) calc(100% - 128px), transparent)') // prettier-ignore
+    expect(backGradient(true, 'rgb(1,2,3)', 256)).toBe('linear-gradient(to bottom, transparent, rgb(1,2,3) 256px, rgb(1,2,3) calc(100% - 256px), transparent)') // prettier-ignore
+  })
+})
+
+describe('the scroll-axis lead (visibleScreens and placeStart arithmetic)', () => {
+  it('a window wholly in the leading pad still gets screen 0, and the lead shifts every screen', () => {
+    // 3 screens of 100 px behind a 128 px lead; a 50 px window scrolled to 10 is in the lead.
+    expect(screensInView(10, 50, 100, 128, 3, 0)).toEqual([0, 0])
+    // Scrolled to 228 the window starts exactly at screen 1; without the lead it would be screen 2.
+    expect(screensInView(228, 50, 100, 128, 3, 0)).toEqual([1, 1])
+    expect(screensInView(228, 150, 100, 128, 3, 0)).toEqual([1, 2])
+    // The margin widens it, clamped to the map.
+    expect(screensInView(228, 50, 100, 128, 3, 1)).toEqual([0, 2])
+    expect(screensInView(0, 10, 100, 0, 3, 0)).toEqual([0, 0])
+  })
+
+  it('centres a map point on the view with the lead added, clamped to the scroll range', () => {
+    expect(centreScroll(300, 128, 1, 200, 1000)).toBe(328)
+    expect(centreScroll(300, 128, 2, 200, 1000)).toBe(756)
+    expect(centreScroll(10, 128, 1, 200, 1000)).toBe(38)
+    expect(centreScroll(0, 0, 1, 200, 1000)).toBe(0)
+    expect(centreScroll(900, 128, 1, 200, 500)).toBe(500)
   })
 })
 
@@ -54,8 +120,6 @@ describe('offMapSpritePixels', () => {
   const sprite = (index: number, box: Rect, c = 10, a = 255): MapSpriteDto =>
     ({ index, id: 1, x: box.x0, y: box.y0, box, rgba: rgba((box.x1 - box.x0) * (box.y1 - box.y0), c, a), status: 'drawn' }) as MapSpriteDto // prettier-ignore
 
-  const G = gutterPad(false)
-  const [W, H] = [256, 432]
   /** The pixel at MAP coordinates (x, y) of a padded bitmap: [r, a], or [0, 0] when the bitmap is null. */
   const reader =
     (out: Uint8ClampedArray | null, mapW: number, pad: Pad) => (x: number, y: number) => {
@@ -63,39 +127,56 @@ describe('offMapSpritePixels', () => {
       const i = ((y + pad.top) * (mapW + pad.left + pad.right) + x + pad.left) * 4
       return [out[i]!, out[i + 3]!]
     }
-  const draw = (sprites: MapSpriteDto[]) =>
-    reader(offMapSpritePixels(sprites, W, H, G, false), W, G)
 
-  it('keeps the pixels in the left and right gutters at the data position, and leaves the map to the screens', () => {
-    // 16 wide, straddling the map's left edge: 8 px in the gutter, 8 on the map.
-    const left = draw([sprite(0, { x0: -8, y0: 4, x1: 8, y1: 6 })])
-    expect([left(-8, 4)[1], left(-1, 4)[1], left(0, 4)[1], left(7, 4)[1], left(-8, 6)[1]]).toEqual([255, 255, 0, 0, 0]) // prettier-ignore
-    const right = draw([sprite(0, { x0: W - 8, y0: 4, x1: W + 8, y1: 6 })])
-    expect([right(W - 1, 4)[1], right(W, 4)[1], right(W + 7, 4)[1], right(W + 8, 4)[1]]).toEqual([0, 255, 255, 0]) // prettier-ignore
+  it('keeps only the pixels outside the map, at their padded position', () => {
+    const pad = { left: 32, top: 0, right: 0, bottom: 0 }
+    // 16 wide, straddling the map's left edge: 8 px off the map, 8 on it.
+    const s = sprite(0, { x0: -8, y0: 4, x1: 8, y1: 6 })
+    const at = reader(offMapSpritePixels([s], 256, 432, pad, false), 256, pad)
+    expect([at(-8, 4)[1], at(-1, 4)[1], at(0, 4)[1], at(7, 4)[1], at(-8, 6)[1]]).toEqual([255, 255, 0, 0, 0]) // prettier-ignore
   })
 
-  it('a ghost-house door shape: pixels at x -8..-1 of the left gutter are kept', () => {
-    const at = draw([sprite(0, { x0: -8, y0: 287, x1: 8, y1: 335 })])
-    expect(at(-8, 300)).toEqual([10, 255])
-    expect(at(-1, 334)).toEqual([10, 255])
-    expect(at(-9, 300)[1]).toBe(0)
+  it('the $8D-shaped witness: a tall box above and left of the map, in the top and left margins', () => {
+    // A sprite at (0, 0) whose parts reach 113 px above it (vanilla ghost-house maps pad top 144, left 32).
+    const pad = { left: 32, top: 144, right: 0, bottom: 0 }
+    const out = offMapSpritePixels([sprite(0, { x0: -8, y0: -113, x1: 56, y1: 111 })], 256, 432, pad, false) // prettier-ignore
+    const at = reader(out, 256, pad)
+    // Top margin, the box's first row and a middle row; the corner; the left margin below the map's top.
+    expect(at(10, -113)).toEqual([10, 255])
+    expect(at(10, -1)).toEqual([10, 255])
+    expect(at(-8, -113)).toEqual([10, 255])
+    expect(at(-8, 50)).toEqual([10, 255])
+    // Not in the box, and in the map (the screens draw it).
+    expect(at(10, -114)[1]).toBe(0)
+    expect(at(-9, 50)[1]).toBe(0)
+    expect(at(10, 0)[1]).toBe(0)
+    expect(at(56, -50)[1]).toBe(0)
   })
 
-  it('drops what is beyond the gutter, and what is above or below the map', () => {
-    const beyond = draw([sprite(0, { x0: -140, y0: 10, x1: -120, y1: 20 })])
-    expect(beyond(-129, 15)[1]).toBe(0) // beyond the gutter's outer edge
-    expect(beyond(-128, 15)[1]).toBe(255) // the outermost gutter column
-    const far = draw([sprite(0, { x0: W + 120, y0: 10, x1: W + 140, y1: 20 })])
-    expect(far(W + 127, 15)[1]).toBe(255)
-    expect(far(W + 128, 15)[1]).toBe(0)
-    // Above and below: no row outside 0..H is kept, even inside the gutter's columns.
-    const rows = draw([sprite(0, { x0: -8, y0: -20, x1: 8, y1: -4 }), sprite(1, { x0: -8, y0: H + 4, x1: 8, y1: H + 20 })]) // prettier-ignore
-    expect(rows(-4, -10)[1]).toBe(0)
-    expect(rows(-4, H + 10)[1]).toBe(0)
-    expect(offMapSpritePixels([sprite(0, { x0: -8, y0: -20, x1: 8, y1: -4 })], W, H, G, false)).toBeNull() // prettier-ignore
+  it('reaches every side: left, top, right, bottom, on a horizontal and a vertical map', () => {
+    for (const { w, h, vertical } of [
+      { w: 512, h: 432, vertical: false },
+      { w: 512, h: 512, vertical: true },
+    ]) {
+      const boxes: [Rect, [number, number]][] = [
+        [{ x0: -6, y0: 40, x1: 4, y1: 50 }, [-3, 45]],
+        [{ x0: 40, y0: -6, x1: 50, y1: 4 }, [45, -3]],
+        [{ x0: w - 4, y0: 40, x1: w + 6, y1: 50 }, [w + 3, 45]],
+        [{ x0: 40, y0: h - 4, x1: 50, y1: h + 6 }, [45, h + 3]],
+      ]
+      for (const [box, probe] of boxes) {
+        const pad = offMapPad(w, h, [box], vertical)
+        const at = reader(offMapSpritePixels([sprite(0, box)], w, h, pad, vertical), w, pad)
+        expect(at(...probe)).toEqual([10, 255])
+        // The in-map part of the same sprite is left to the screens.
+        const [ix, iy] = [Math.min(Math.max(probe[0], 0), w - 1), Math.min(Math.max(probe[1], 0), h - 1)] // prettier-ignore
+        expect(at(ix, iy)[1]).toBe(0)
+      }
+    }
   })
 
-  it('where sprites overlap in the gutter, the one the screens would stack on top wins', () => {
+  it('where sprites overlap in the margin, the one the screens would stack on top wins', () => {
+    const pad = { left: 48, top: 0, right: 0, bottom: 0 }
     // Horizontal map: stacked by x then stream index, later on top.
     const low = sprite(5, { x0: -16, y0: 10, x1: -4, y1: 20 }, 100)
     const high = sprite(1, { x0: -10, y0: 10, x1: -2, y1: 20 }, 200)
@@ -103,7 +184,7 @@ describe('offMapSpritePixels', () => {
       [low, high],
       [high, low],
     ]) {
-      const at = draw(order)
+      const at = reader(offMapSpritePixels(order, 256, 432, pad, false), 256, pad)
       expect(at(-12, 15)).toEqual([100, 255]) // only the lower one covers it
       expect(at(-6, 15)).toEqual([200, 255]) // both cover it: larger x on top, whatever the index
     }
@@ -113,13 +194,37 @@ describe('offMapSpritePixels', () => {
     for (const order of [
       [a, b],
       [b, a],
-    ])
-      expect(draw(order)(-6, 15)).toEqual([200, 255])
+    ]) {
+      const at = reader(offMapSpritePixels(order, 256, 432, pad, false), 256, pad)
+      expect(at(-6, 15)).toEqual([200, 255])
+    }
+    // Vertical map: stacked by y.
+    const vp = { left: 0, top: 48, right: 0, bottom: 0 }
+    const up = sprite(9, { x0: 10, y0: -16, x1: 20, y1: -4 }, 100)
+    const down = sprite(0, { x0: 10, y0: -10, x1: 20, y1: -2 }, 200)
+    for (const order of [
+      [up, down],
+      [down, up],
+    ]) {
+      const at = reader(offMapSpritePixels(order, 512, 256, vp, true), 512, vp)
+      expect(at(15, -6)).toEqual([200, 255])
+    }
   })
 
-  it('returns null when nothing reaches the gutter, or what does is transparent', () => {
-    expect(draw([sprite(0, { x0: 0, y0: 0, x1: 16, y1: 16 })])(0, 0)).toEqual([0, 0])
-    expect(offMapSpritePixels([sprite(0, { x0: 0, y0: 0, x1: 16, y1: 16 })], W, H, G, false)).toBeNull() // prettier-ignore
-    expect(offMapSpritePixels([sprite(0, { x0: -8, y0: 0, x1: 0, y1: 8 }, 10, 0)], W, H, G, false)).toBeNull() // prettier-ignore
+  it('writes nothing outside the pad it is given (no wrap into the next row)', () => {
+    const pad = { left: 128, top: 0, right: 128, bottom: 0 }
+    // 80 px wide, 72 of them beyond the pad: only the 8 columns inside it (x -128..-121) are kept.
+    const out = offMapSpritePixels([sprite(0, { x0: -200, y0: 10, x1: -120, y1: 20 })], 256, 432, pad, false)! // prettier-ignore
+    let opaque = 0
+    for (let i = 3; i < out.length; i += 4) if (out[i] !== 0) opaque++
+    expect(opaque).toBe(8 * 10)
+  })
+
+  it('returns null when nothing reaches the margin, or what does is transparent', () => {
+    const pad = { left: 32, top: 0, right: 0, bottom: 0 }
+    const inside = sprite(0, { x0: 0, y0: 0, x1: 16, y1: 16 })
+    const clear = sprite(0, { x0: -8, y0: 0, x1: 0, y1: 8 }, 10, 0)
+    expect(offMapSpritePixels([inside], 256, 432, pad, false)).toBeNull()
+    expect(offMapSpritePixels([clear], 256, 432, pad, false)).toBeNull()
   })
 })

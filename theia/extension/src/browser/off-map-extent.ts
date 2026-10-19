@@ -1,14 +1,18 @@
 /**
- * The fixed gutter beside a horizontal map and the sprite pixels that fall in it (D48 part 2,
- * #1004). Pure (no DOM, no Theia). A horizontal map gets half a screen of canvas on its left and
- * right, always, whatever it holds; a vertical map gets none, and nothing is added above or
- * below either (pending D145). A reserved "add screen" area (#950, D69) would add to `gutterPad`.
+ * How far the map view's canvas reaches past the map (owner rulings D48 part 2, D76 call 2, D145,
+ * #1004). Pure (no DOM, no Theia).
+ *
+ * Each side's pad is the content the data places off the map there (a refused-object mark, a sprite),
+ * rounded up to whole 16 px tiles, and at each LONG end (left and right of a horizontal map, top and
+ * bottom of a vertical one) a fixed 128 px gutter BEYOND that content, always, even for a map with
+ * nothing off it. The short sides get the content alone. This is the single place the canvas grows:
+ * every pointer and overlay consumer reads the resulting `Pad` as one origin.
  */
 import type { MapSpriteDto } from '../common/project-protocol'
 import { decodeRgba } from './map16-pixels'
 import { GUTTER_PX } from '../../../../src/rom/model/MapGutter'
 
-/** One map tile in map pixels; the gutter is whole tiles so the grid runs on across it. */
+/** One map tile in map pixels; the pad is whole tiles so the grid runs on across the margin. */
 export const TILE = 16
 
 /** Map pixels of canvas beyond each side of the map. */
@@ -19,30 +23,110 @@ export interface Pad {
   bottom: number
 }
 
-/** No margin: a vertical map, and every strip before its layout is known. */
+/** A rectangle in map pixels, x1 and y1 exclusive. */
+export interface Rect {
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+}
+
 export const NO_PAD: Pad = { left: 0, top: 0, right: 0, bottom: 0 }
 
-/** Whether any side has a margin: the strip then differs from the plain map. */
-export const isPadded = (p: Pad): boolean => p.left + p.top + p.right + p.bottom > 0
+/** Overflow of `px` rounded up to whole tiles, so the grid runs on across the pad on the same lattice. */
+const tiles = (px: number): number => (px > 0 ? Math.ceil(px / TILE) * TILE : 0)
 
-const GUTTER: Pad = { left: GUTTER_PX, top: 0, right: GUTTER_PX, bottom: 0 }
+/**
+ * The padding that holds every rect, plus the gutter at the long ends. `vertical` says which ends are
+ * long. A rect inside the map adds nothing: a map with no off-map content is padded by the gutter alone.
+ */
+export function offMapPad(
+  mapW: number,
+  mapH: number,
+  rects: Iterable<Rect>,
+  vertical: boolean,
+): Pad {
+  let [l, t, r, b] = [0, 0, 0, 0]
+  for (const q of rects) {
+    l = Math.max(l, -q.x0)
+    t = Math.max(t, -q.y0)
+    r = Math.max(r, q.x1 - mapW)
+    b = Math.max(b, q.y1 - mapH)
+  }
+  const g = (long: boolean): number => (long ? GUTTER_PX : 0)
+  return {
+    left: tiles(l) + g(!vertical),
+    top: tiles(t) + g(vertical),
+    right: tiles(r) + g(!vertical),
+    bottom: tiles(b) + g(vertical),
+  }
+}
 
-/** The canvas beyond each side of the map: the fixed gutter on a horizontal map, nothing on a vertical one. */
-export const gutterPad = (vertical: boolean): Pad => (vertical ? NO_PAD : GUTTER)
+/**
+ * The back area's gradient (owner R24): `back` is solid across the map and its content bands, and fades
+ * linearly to transparent over the GUTTER only, at each long end ("to right" on a horizontal map,
+ * "to bottom" on a vertical one). A band the content grew on a short side is not a gutter and stays solid
+ * [PROP]. `gutterPx` is the gutter's width on screen (128 * zoom).
+ */
+export const backGradient = (vertical: boolean, back: string, gutterPx: number): string =>
+  `linear-gradient(${vertical ? 'to bottom' : 'to right'}, transparent, ${back} ${gutterPx}px, ${back} calc(100% - ${gutterPx}px), transparent)` // prettier-ignore
 
-/** Whether map pixel (x, y) is inside a map of `mapW` x `mapH` pixels. */
+/**
+ * Which screens of an N-screen map a scroll window touches, `margin` either side. `scroll` and `view`
+ * are along the scroll axis in screen px, `size` one screen's px and `lead` the pad before screen 0 in
+ * the same px, which shifts every screen by that much. Never an empty range: a window wholly in the
+ * leading pad still gets screen 0 and its neighbours.
+ */
+export function screensInView(
+  scroll: number,
+  view: number,
+  size: number,
+  lead: number,
+  count: number,
+  margin: number,
+): [number, number] {
+  const pos = scroll - lead
+  const first = Math.max(0, Math.floor(pos / size) - margin)
+  const last = Math.max(first, Math.min(count - 1, Math.floor((pos + view - 1) / size) + margin))
+  return [first, last]
+}
+
+/**
+ * The scroll offset that centres map point `start` (map px along the scroll axis) in a `view` px window:
+ * the point sits `lead` px (the pad before the map, map px) further along the strip, clamped to
+ * `[0, max]`.
+ */
+export const centreScroll = (
+  start: number,
+  lead: number,
+  zoom: number,
+  view: number,
+  max: number,
+): number =>
+  // prettier-ignore
+  Math.min(Math.max((start + lead) * zoom - view / 2, 0), max)
+
+export const samePad = (a: Pad, b: Pad): boolean =>
+  a.left === b.left && a.top === b.top && a.right === b.right && a.bottom === b.bottom
+
+/** A refused object's 16 x 16 cell at tile (x, y). */
+export const cellRect = (x: number, y: number): Rect => ({
+  x0: x * TILE,
+  y0: y * TILE,
+  x1: (x + 1) * TILE,
+  y1: (y + 1) * TILE,
+})
+
 export const insideMap = (x: number, y: number, mapW: number, mapH: number): boolean =>
   x >= 0 && y >= 0 && x < mapW && y < mapH
 
 const decoded = new WeakMap<MapSpriteDto, Uint8ClampedArray>()
 
 /**
- * The sprite pixels that fall in the gutter `pad`, on a bitmap of the padded
- * size. The map's own pixels stay transparent (the screens draw those, under the tiles'
- * priority) and so does everything beyond the gutter or above or below the map, as on develop.
- * The bitmap spans the whole padded strip rather than just the two bands: simpler, and it is
- * only allocated when a sprite reaches the gutter. Stacked as the screens stack them, by
- * position along the scroll axis then stream index. Null when no sprite reaches the gutter.
+ * The sprite pixels that fall OUTSIDE the map, on a bitmap of the padded size (the map's
+ * pixels stay transparent: the screens draw those, under the tiles' priority). Stacked as
+ * the screens stack them, by position along the scroll axis then stream index. Null when
+ * no sprite reaches the margin.
  */
 export function offMapSpritePixels(
   sprites: readonly MapSpriteDto[],

@@ -21,7 +21,7 @@
  * Free of `@theia/core` so vitest loads it in CI (see grid-lines.ts).
  */
 import { GridLine, GridLines, place } from './grid-lines'
-import { TILE } from './off-map-extent'
+import { NO_PAD, TILE, type Pad } from './off-map-extent'
 import { SCREEN_H, SCREEN_H_VERT, SCREEN_W, SCREEN_W_VERT } from '../../../../src/rom/LevelParser'
 
 export const TILE_GRID_WEIGHT = 1
@@ -65,8 +65,8 @@ export interface MapGridSpec {
   scrollY: number
   viewW: number
   viewH: number
-  /** Gutter before and after the map along x, map px (a horizontal map's, #1004): the grid runs on across it. */
-  gutter?: number
+  /** Off-map canvas before and after the map, map px (whole tiles, #1004): the grid runs on across it. */
+  pad?: Pad
 }
 
 /**
@@ -84,12 +84,13 @@ export function computeMapGridLines(spec: MapGridSpec): GridLines {
   const rows = vertical ? s.rows * screenCount : s.rows
   const step = TILE * zoom
   const dev = (css: number): number => Math.round(css * dpr)
-  const gutter = spec.gutter ?? 0
-  const offX = gutter * zoom
-  // Tile indices run from the map's origin, so the gutter has negative ones (mapGridWeight takes them).
-  const [loX, hiTX] = [-gutter / TILE, cols + gutter / TILE]
+  const pad = spec.pad ?? NO_PAD
+  const [offX, offY] = [pad.left * zoom, pad.top * zoom]
+  // Tile indices run from the map's origin, so the margin has negative ones (mapGridWeight takes them).
+  const [loX, hiTX] = [-pad.left / TILE, cols + pad.right / TILE]
+  const [loY, hiTY] = [-pad.top / TILE, rows + pad.bottom / TILE]
   const endX = dev((hiTX - loX) * step - scrollX)
-  const endY = dev(rows * step - scrollY)
+  const endY = dev((hiTY - loY) * step - scrollY)
   const hiX = Math.min(dev(viewW), endX)
   const hiY = Math.min(dev(viewH), endY)
   if (hiX <= 0 || hiY <= 0) return out
@@ -117,10 +118,10 @@ export function computeMapGridLines(spec: MapGridSpec): GridLines {
     const l = one(i, scrollX, offX, hiX, 'x', [0, hiY])
     if (l) out.x.push(l)
   }
-  const iy0 = Math.max(0, Math.floor(scrollY / step) - 1)
-  const iy1 = Math.min(rows, Math.ceil((scrollY + viewH) / step) + 1)
+  const iy0 = Math.max(loY, Math.floor((scrollY - offY) / step) - 1)
+  const iy1 = Math.min(hiTY, Math.ceil((scrollY - offY + viewH) / step) + 1)
   for (let i = iy0; i <= iy1; i++) {
-    const l = one(i, scrollY, 0, hiY, 'y', [0, hiX])
+    const l = one(i, scrollY, offY, hiY, 'y', [0, hiX])
     if (l) out.y.push(l)
   }
   return out
