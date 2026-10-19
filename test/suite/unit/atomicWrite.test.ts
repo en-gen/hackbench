@@ -95,8 +95,14 @@ describe('writeFileAtomic', () => {
   it('throws, removes the temp and keeps the old file when a write takes zero bytes', () => {
     const file = path.join(dir, 'e.bin')
     fs.writeFileSync(file, 'old')
-    hooks.write = () => 0
-    expect(() => writeFileAtomic(file, 'new content')).toThrow(/e\.bin/)
+    // Returns 0 once, then throws: a loop that ignores the zero return fails here
+    // instead of spinning forever (a sync loop also blocks vitest's own timeout).
+    let calls = 0
+    hooks.write = () => {
+      if (calls++ > 0) throw new Error('write hook called again after a zero-byte return')
+      return 0
+    }
+    expect(() => writeFileAtomic(file, 'new content')).toThrow(/Short write.*e\.bin/)
     expect(fs.readdirSync(dir)).toEqual(['e.bin'])
     expect(fs.readFileSync(file, 'utf8')).toBe('old')
   })
