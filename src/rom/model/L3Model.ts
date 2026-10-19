@@ -6,8 +6,10 @@
  * at its load-time Y (`l3LoadTimeY`), with no animation (#115). The verdict also
  * carries what the compositor needs whether or not layer 3 draws: the per-screen
  * plane lists (`ScreenPlanes`), the effective CGADSUB and the layer 2 role. The
- * rest are refusals carrying their reason, never a guess: camera-locked layer 3
- * has no fixed place (#563). The main/sub designations only mean BG1/BG2/BG3 in
+ * rest are refusals carrying their reason, never a guess. Camera-locked layer 3
+ * ($81-$BF) is world-locked and draws from the entrance camera (#563,
+ * docs/rom/layer3-world-locked.md); $00 off Castle1 and Underground1, mode 0E and
+ * vertical maps still refuse. The main/sub designations only mean BG1/BG2/BG3 in
  * BG mode 1, so an unverified mode keeps the old stacking and no math.
  */
 import type { RomFile } from '../RomFile'
@@ -17,6 +19,8 @@ import type { BgModeResult } from '../BgMode'
 import { layoutRefusal, readModeLayouts } from '../LevelScreenTables'
 import { HOOKED_L3_CODE, readL3CodeGate, type L3CodeGate } from '../L3CodeGate'
 import { l3LoadTimeY, loadL3Tilemap, readInitialLayer1YPos } from '../L3Loader'
+import { CAMERA_HOOKED, entranceCameraX, readEntranceCameraGate } from '../L3EntranceCamera'
+import { readMarioStartPos } from '../MarioStartPos'
 import { readL3SmashLoadPos, type L3SmashResult } from '../L3Smash'
 import { readLayer3Setting } from '../ObjectExpander'
 import type { MapEntrances } from '../SmwRom'
@@ -36,6 +40,14 @@ export const GRAPH_UNAVAILABLE = 'graph-unavailable'
 export const EXIT_GRAPH_UNAVAILABLE =
   'HackBench could not work out which entrance starts this map, so this layer is placed as if the map were entered from its main entrance.' // prettier-ignore
 
+/**
+ * A world-locked Layer 3 is anchored at the camera of a direct load; a map entered by a screen exit starts
+ * from the previous map's camera, which is not known here (docs/rom/layer3-world-locked.md). Reads after
+ * "Layer 3 position unverified: ".
+ */
+export const SCREEN_EXIT_CAMERA =
+  "this map is entered from another map, and that map's camera decides where this layer starts." // prettier-ignore
+
 export interface L3Inputs {
   /** The 64 x 64 BG3 tilemap, index = row * 64 + col, HUD rows included (the drawing skips them). */
   tilemap: Uint16Array
@@ -48,6 +60,14 @@ export interface L3Inputs {
   /** Layer3YPos at load, and Layer1YPos at load: a tile row R sits at level Y R*8 - yPx + camYPx. */
   yPx: number
   camYPx: number
+  /**
+   * Set for a settings byte $81-$BF off Castle1 and Underground1 (CODE_00A01F, bank_00.asm:4174): Layer 3
+   * is world-locked, so tilemap column 0 sits at map X `camXPx`, the camera when the level loaded, and
+   * the 512 px tilemap repeats across the map. In the game it also drifts slowly left (a quarter pixel a
+   * frame, CODE_05C45B, bank_05.asm:5546-5558); the drawing leaves that out, so `camXPx` is the position at load
+   * and not where the layer sits a few seconds in (#563, docs/rom/layer3-world-locked.md).
+   */
+  worldLocked?: { camXPx: number }
   /** A tide ($00-$7F settings byte) tiles every 256 px and draws one copy of its two-copy tilemap. */
   tide: boolean
   /**
@@ -80,6 +100,12 @@ export interface L3Verdict {
 
 type Wanted = Pick<L1Inputs, 'header' | 'isVertical' | 'colors'>
 
+/**
+ * Whether and where a map's Layer 3 is drawn, with the plane lists and color math the compositor needs either
+ * way. Refusals carry a reason and never a guess. A world-locked layer (#563) is anchored at the load camera
+ * (`entranceCameraX`) and flags a screen-exit entry as unverified, whose camera is the previous map's.
+ * The `smash`, `cameraGate` and `chars` readers are parameters so synthetic ROMs can drive each path.
+ */
 export function buildL3Verdict(
   rom: RomFile,
   index: number,
@@ -90,6 +116,7 @@ export function buildL3Verdict(
   smash: (rom: RomFile, index: number) => L3SmashResult = readL3SmashLoadPos,
   entrances?: MapEntrances | typeof GRAPH_UNAVAILABLE,
   startSpans?: Parameters<typeof entrancePositionGate>[1],
+  cameraGate: (rom: RomFile) => L3CodeGate = readEntranceCameraGate,
 ): L3Verdict {
   const priority = l1.header.layer3Priority
   const via = entrances === GRAPH_UNAVAILABLE ? undefined : entrances
@@ -131,14 +158,27 @@ export function buildL3Verdict(
   const tileset = l1.header.objectTileset
   const load = loadL3Tilemap(rom, index, tileset, l1.header.timeLimit)
   if (!load) return none("This map's layer 3 tilemap cannot be read")
-  const yPx = l3LoadTimeY(load.settingsByte, tileset)
+  let yPx = l3LoadTimeY(load.settingsByte, tileset)
+  let worldLocked: L3Inputs['worldLocked']
   if (yPx === null) {
     // Only a $81-$BF byte skips the TRB that clears BG3 (CODE_00A01F, bank_00.asm:4174); byte $00
-    // takes the tide path to CODE_00A01B (:4164) and is cleared. #563 draws the kept case.
+    // takes the tide path to CODE_00A01B (:4164) and is cleared.
     const kept = (load.settingsByte & 0x80) !== 0
-    return none('Layer 3 not drawn yet: camera-locked layer 3', {
-      cgadsub: effectiveCgadsub(layout.cgadsub, !kept),
-    })
+    /** A refusal that keeps BG3 in the color math when its CGADSUB bit is kept (CODE_00A01F), as the view must. */
+    const refuse = (reason = 'Layer 3 not drawn yet: camera-locked layer 3') =>
+      none(reason, {
+        cgadsub: effectiveCgadsub(layout.cgadsub, !kept),
+      })
+    // The world-locked draw is verified for $81-$BF where BG3 is not alone on the main screen; mode 0E
+    // ($018) adds it onto layers 1 and 2 and stays refused.
+    if (!kept || (layout.main & 0x03) === 0) return refuse()
+    const start = readMarioStartPos(rom, index)
+    if (!start) return refuse()
+    if (!cameraGate(rom).ok) return refuse(CAMERA_HOOKED)
+    // CODE_05BE8A copied Layer1YPos into Layer3YPos before CODE_009FB8 (bank_00.asm:4869-4870), which
+    // leaves it alone on this path; CODE_05C48D keeps the copy each frame (bank_05.asm:5569-5570).
+    yPx = readInitialLayer1YPos(rom, index, false, via)
+    worldLocked = { camXPx: entranceCameraX(start.x) }
   }
   // A $80 byte's Y is $D0 (CODE_00A007, bank_00.asm:4184-4195) until a loaded Layer 3 Smash sprite writes X and Y
   // from its own place (#807). `smash` is the sprite's first landing, worked out by SmashLanding.ts (#997); it is
@@ -164,9 +204,12 @@ export function buildL3Verdict(
     startGate,
     landingNote,
     entrances === GRAPH_UNAVAILABLE ? EXIT_GRAPH_UNAVAILABLE : null,
+    worldLocked && via && !via.overworld && (via.primary || via.secondary.length > 0) ? SCREEN_EXIT_CAMERA : null, // prettier-ignore
   ].filter((r): r is string => !!r)
   return {
     ...known,
+    // The world-locked path skips the TRB that clears BG3 (CODE_00A01F), so BG3 stays in the math.
+    ...(worldLocked && { cgadsub: effectiveCgadsub(layout.cgadsub, false) }),
     reason: null,
     l3: {
       tilemap: load.tilemap,
@@ -174,6 +217,7 @@ export function buildL3Verdict(
       colors: l1.colors,
       xPx: pos.x,
       yPx: pos.y,
+      ...(worldLocked && { worldLocked }),
       camYPx: readInitialLayer1YPos(rom, index, false, via),
       camYReasons: reasons.length ? reasons : undefined,
       // $00 is Layer3TideSetting 0: no tide (it is camera-locked or Castle1/Underground1's half-speed scroll).
