@@ -375,8 +375,7 @@ leads with words and ends in hex (`Its drawing code was changed where HackBench 
 $0DB4B1 is $00).`); the address is what tells two gate lines on one object apart. The cell's handler is
 the first gate refusal's, else the first refusal's.
 
-With 2+ issues the cell gets a count badge: a solid red circle, no outline, with a white number ("9+" past
-9) centred on it (text-anchor middle, central baseline, at the circle's own centre). It lies wholly inside
+With 2+ issues the cell gets a count badge: a solid red circle, no outline, with a white number ("9+" past 9) centred on it (text-anchor middle, central baseline, at the circle's own centre). It lies wholly inside
 the tile's top-right 8 x 8 quadrant (r 3.5 centred 4 px in from the tile's right and top, 0.5 px from the
 quadrant's edges), in map pixels so it scales with zoom. The "!" moves left and down (x 5, y 10, 10 px) so
 the circle never sits on it. Geometry and tooltip text are pure functions in `browser/refused-badge.ts`;
