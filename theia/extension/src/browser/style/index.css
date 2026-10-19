@@ -369,7 +369,8 @@
   overflow-y: scroll;
 }
 
-/* Exactly the map's extent, so the layers stop where the map does. */
+/* The map's extent plus the canvas pad around it (#1004), set inline as padding. The screens are flex
+   children, so the padding keeps them where the map is; overlays are positioned from the strip's corner. */
 .hb-map-view-strip {
   position: relative;
   flex: none;
