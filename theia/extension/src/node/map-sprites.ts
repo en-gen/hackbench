@@ -76,6 +76,12 @@ import {
   TORPEDO_LAUNCHER_ID,
   torpedoLauncher,
 } from '../../../../src/rom/sprites/interp/TorpedoLauncher'
+import {
+  PLATFORM_COUNT,
+  threePlatforms,
+  VANILLA_PLATFORM_ROUTINES,
+  type PlatformRoutines,
+} from '../../../../src/rom/sprites/interp/ThreePlatforms'
 import { withSeed, type SpriteSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { getSpriteMetadata } from '../../../../src/rom/model/sprites/SpriteMetadata'
 import { readSpriteTileTables } from '../../../../src/rom/SpriteTileLoader'
@@ -442,6 +448,58 @@ function eeriesResult(
   }
 }
 
+/** Sprite $E0: a loader command that spawns three Grey Platforms on Chain ($A3) (CODE_02A89C, SMWDisX bank_02.asm:5325-5331). */
+const THREE_PLATFORMS = 0xe0
+
+/**
+ * The three platforms of a stream entry (the $E0 issue), run from the ROM's own spawner and their INIT: ONE sprite at its
+ * real stream index, the platforms and their chains as its parts. A vertical map is drawn flagged `unverified`, as for $DE (the loader hands
+ * the spawner the Y boundary as X there; D52: drawn, not blanked). A changed routine does not blank it (D52): drawn, flagged `unverified`.
+ */
+function platformsResult(
+  rom: RomFile,
+  seed: SpriteSeed,
+  s: LevelSprite,
+  vertical: boolean,
+  routines: PlatformRoutines,
+): SpriteDrawResult {
+  // The spawner reads its data byte through SpriteDataPtr, which only the ROM-run loader's image sets.
+  if (!seed.loaded) return { ok: false, reason: `the three platforms need the level loader's image: ${seed.loadRefusal ?? 'no level image was given'}` } // prettier-ignore
+  const [x, y] = [pixelX(s), s.y * TILE]
+  // A vertical map hands the spawner the entry's Y boundary as its X (bank_02.asm:5232-5238), as for the Eeries.
+  const r = threePlatforms(rom, seed, { x: vertical ? y : x, y, at: { x, y }, index: s.index, streamOffset: s.streamOffset }, routines) // prettier-ignore
+  const gameOwn = r.unverified.length === 0
+  if (!r.ok) {
+    const none = `None of the ${PLATFORM_COUNT} platforms appear`
+    return { ok: false, reason: r.none ? (gameOwn ? `${none}: this map's sprite memory setting leaves no room.` : `${none}.`) : `refused: ${r.reason}` } // prettier-ignore
+  }
+  const why = [
+    ...r.unverified.map(
+      u =>
+        `${u} is not the vanilla shape${u === 'the platform spawner' ? ', so where its platforms sit and their per-platform values are taken from that edited code and not checked' : ''}`,
+    ),
+    ...(vertical ? ["in a vertical map the spawner is given the entry's Y as its X (the loader's boundary), derived from the loader and not checked: no vanilla map places one"] : []), // prettier-ignore
+  ].join('; ')
+  // What spawned and did not draw, or came out short, is a shortfall to tell, not a flaw of the routine: the note, not `unverified`.
+  const notes = [
+    ...(r.spawned < PLATFORM_COUNT ? [`Only ${r.spawned} of the ${PLATFORM_COUNT} platforms appear${gameOwn ? `: this map's sprite memory setting leaves room for ${r.spawned}.` : '.'}`] : []), // prettier-ignore
+    ...(r.spawned > PLATFORM_COUNT ? [`The spawner made ${r.spawned} platforms, more than the ${PLATFORM_COUNT} the game makes.`] : []), // prettier-ignore
+    ...r.notes,
+  ]
+  return {
+    ok: true,
+    parts: interpParts(r.parts),
+    anchor: { x, y },
+    identity: { spriteId: s.spriteId, mainHandler: 0, initHandler: 0, status: 'vanilla' },
+    ...(notes.length ? { note: notes.join(' ') } : {}),
+    ...(why
+      ? {
+          unverified: `the three platforms are drawn from the spawner the loader calls, and ${why}`,
+        }
+      : {}),
+  }
+}
+
 /** Sprites $E2 (counter-clockwise) and $E3 (clockwise): a ring of 10 cluster sprites, not slot sprites (CODE_02AAC0, SMWDisX bank_02.asm:5640-5641). */
 const RING_LEFT = 0xe2
 const RING_RIGHT = 0xe3
@@ -505,6 +563,7 @@ export function interpRunner(
   seedFor: (rom: RomFile, index: number) => SpriteSeed = levelSeed,
   ringRoutines: RingRoutines = VANILLA_RING_ROUTINES,
   eeriesRoutines: EeriesRoutines = VANILLA_EERIES_ROUTINES,
+  platformRoutines: PlatformRoutines = VANILLA_PLATFORM_ROUTINES,
 ): (sprite: LevelSprite) => SpriteRun {
   // The loader runs once per map, not per sprite.
   const base = seedFor(rom, index)
@@ -531,6 +590,7 @@ export function interpRunner(
     const camera = cameraFor(x, y, model.isVertical, model.screenCount)
     const seed = (camera: { x: number; y: number }, extra = {}) => withSeed({ sprite: { x, y }, camera, mario, ...shape, ...extra }, base) // prettier-ignore
     if (s.spriteId === FIVE_EERIES) return { direct: eeriesResult(rom, seed(camera), s, model.isVertical, eeriesRoutines) } // prettier-ignore
+    if (s.spriteId === THREE_PLATFORMS) return { direct: platformsResult(rom, seed(camera), s, model.isVertical, platformRoutines) } // prettier-ignore
     if (s.spriteId === TORPEDO_LAUNCHER_ID) return { direct: launcherResult(rom, seed(camera)) } // prettier-ignore
     const m = run(rom, s.spriteId, seed(camera))
     const at = m.chosen
