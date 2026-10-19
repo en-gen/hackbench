@@ -216,10 +216,21 @@ describe('synthetic: the loader runs hand-written code under its structural chec
     const rom = buildSyntheticRom()
     rom.writeAt(0x05d83b, [0x6c])
     expect(loaderShapeProblem(rom)).toBe(msg)
-    for (const i of [1, 2]) {
-      const moved = buildSyntheticRom()
-      moved.writeAt(0x05d83b + i, [moved.readAt(0x05d83b + i, 1)![0]! ^ 0x01])
-      expect(loaderShapeProblem(moved), `operand ${i}`).toMatch(/pointer loader at \$05:D8B7/)
+  })
+  it('an entry the ROM moved is refused under its resolved address, not the vanilla one', () => {
+    const refusal = (name: string) => `${name} is not the vanilla shape; the loader will not run it`
+    // [operand byte to change, the address its call or jump then names, the refusal]
+    const moved: [number, string][] = [
+      [0x0096f5, refusal('CODE_05D796-equivalent header loader at $05:D797')],
+      [0x009706, refusal('CODE_00A635-equivalent entrance setup at $00:A6A1')],
+      [0x009717, refusal('CODE_05801E-equivalent data loader at $05:801F')],
+      [0x05d83c, refusal('CODE_05D8B7-equivalent pointer loader at $05:D8B6')],
+      [0x05d83d, refusal('CODE_05D8B7-equivalent pointer loader at $05:D9B7')],
+    ]
+    for (const [at, want] of moved) {
+      const rom = buildSyntheticRom()
+      rom.writeAt(at, [rom.readAt(at, 1)![0]! ^ 0x01])
+      expect(loaderShapeProblem(rom), at.toString(16)).toBe(want)
     }
   })
   it('a long call to the right address in another bank is refused; the $80 mirror of bank 5 is not', () => {
@@ -239,7 +250,7 @@ describe('synthetic: the loader runs hand-written code under its structural chec
   })
   it('the entrance setup branch must land on a load: a landing on anything else is refused', () => {
     const msg =
-      'Mario entrance setup at $00:A635 is not the vanilla shape; the loader will not run it'
+      'CODE_00A635-equivalent entrance setup at $00:A6A0 is not the vanilla shape; the loader will not run it'
     const rom = buildSyntheticRom()
     rom.writeAt(ENTRANCE + 11, [0xea]) // the load the branch reaches
     expect(loaderShapeProblem(rom)).toBe(msg)
@@ -256,7 +267,9 @@ describe('synthetic: the loader runs hand-written code under its structural chec
   it('a flag cell or level cell outside work RAM is refused, naming the site', () => {
     const flag = buildSyntheticRom()
     flag.writeAt(0x05d796 + 22, [0x00, 0x20]) // LDA $2000: not work RAM
-    expect(loaderShapeProblem(flag)).toMatch(/sublevel flag cell \(outside work RAM\)/)
+    expect(loaderShapeProblem(flag)).toMatch(
+      /header loader at \$05:D796 \(sublevel flag cell outside work RAM\)/,
+    )
     expect(loadLevelState(flag, 0x105)).toMatchObject({ ok: false })
     const ok = buildSyntheticRom()
     ok.writeAt(0x05d796 + 22, [0xff, 0x1f]) // the last cell: still work RAM

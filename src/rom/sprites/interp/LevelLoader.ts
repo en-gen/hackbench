@@ -66,10 +66,16 @@ const NAME_HEADER_CALL = 'GM11 call JSL CODE_05D796 at $00:96F4'
 const NAME_ENTRANCE_CALL = 'GM11 call JSR CODE_00A635 at $00:9705'
 const NAME_DATA_CALL = 'GM11 call JSL CODE_05801E at $00:9716'
 const NAME_JUMP = 'jump into the pointer loader at $05:D83B'
-const NAME_HEADER = 'CODE_05D796 prologue and sublevel branch at $05:D796'
-const NAME_POINTER = 'pointer loader at $05:D8B7'
-const NAME_FLAG_CELL = 'CODE_05D796 sublevel flag cell (outside work RAM) at $05:D796'
-const NAME_LEVEL_CELL = 'pointer loader level number cell (outside work RAM) at $05:D8B7'
+/** A 24-bit address as `$BB:AAAA`. */
+const hexAt = (a: number): string =>
+  `$${(a >> 16).toString(16).toUpperCase().padStart(2, '0')}:${(a & 0xffff).toString(16).toUpperCase().padStart(4, '0')}`
+
+// Names of the routines the ROM's calls reach, built from the address the check actually ran at (a hack
+// may have moved a routine); the label says which vanilla routine it stands for.
+const nameHeader = (at: number): string => `CODE_05D796-equivalent header loader at ${hexAt(at)}`
+const namePointer = (at: number): string => `CODE_05D8B7-equivalent pointer loader at ${hexAt(at)}`
+const nameEntrance = (at: number): string => `CODE_00A635-equivalent entrance setup at ${hexAt(at)}`
+const nameData = (at: number): string => `CODE_05801E-equivalent data loader at ${hexAt(at)}`
 
 // 65816 opcodes, named once; each site below checks one instruction.
 const PHB = 0x8b
@@ -151,11 +157,12 @@ function entriesOf(rom: RomFile): Entries | string {
   const pointer = (SUBLEVEL_JUMP & 0xff0000) | ptr.value
   const flag = operandAt(rom, header + 21, LDA_ABS)
   const level = operandAt(rom, pointer + 2, LDA_DP, 1)
-  if (!flag) return NAME_HEADER
-  if (!level) return NAME_POINTER
+  if (!flag) return nameHeader(header)
+  if (!level) return namePointer(pointer)
   // The pointer loader's cell is a direct-page operand, taken as an absolute address because D = 0 (nativeReset).
-  if (flag.value >= WRAM_END) return NAME_FLAG_CELL
-  if (level.value + 1 >= WRAM_END) return NAME_LEVEL_CELL
+  if (flag.value >= WRAM_END) return `${nameHeader(header)} (sublevel flag cell outside work RAM)`
+  if (level.value + 1 >= WRAM_END)
+    return `${namePointer(pointer)} (level number cell outside work RAM)`
   return {
     header,
     headerBank,
@@ -184,9 +191,9 @@ export function loaderSites(rom: RomFile): Site[] {
   ]
   const e = entriesOf(rom)
   if (typeof e === 'string') return sites
-  const h = NAME_HEADER
-  const p = NAME_POINTER
-  const a = 'Mario entrance setup at $00:A635'
+  const h = nameHeader(e.header)
+  const p = namePointer(e.pointer)
+  const a = nameEntrance(e.entrance)
   // CODE_05D796 (bank_05.asm:7079-7093) opens with the PHB that CODE_05D8B7's PLB pairs with, tests the sublevel
   // flag the loader sets, and ends its overworld branch in a jump past the sublevel one. Its prologue is run
   // (loadLevelState); only single instructions are named here.
@@ -202,7 +209,7 @@ export function loaderSites(rom: RomFile): Site[] {
     // The entrance setup opens with a load (bank_00.asm:4914), its first branch lands on one; the data loader opens with PHP.
     { name: a, at: e.entrance, op: LDA_ABS },
     { name: a, at: e.entrance + 9, op: BNE, lands: LDA_ABS },
-    { name: 'level data loader at $05:801E', at: e.data, op: PHP },
+    { name: nameData(e.data), at: e.data, op: PHP },
   )
   return sites
 }

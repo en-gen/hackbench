@@ -661,7 +661,7 @@ describe('level loader on a synthetic cart', () => {
   it('refuses each differing entry with its name', () => {
     expect(run({ badLoader: 'lead' })).toMatchObject({
       ok: false,
-      reason: expect.stringMatching(/CODE_05D796 prologue/),
+      reason: expect.stringMatching(/header loader/),
     })
     expect(run({ badLoader: 'jump' })).toMatchObject({
       ok: false,
