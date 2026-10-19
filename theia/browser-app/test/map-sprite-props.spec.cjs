@@ -35,7 +35,8 @@ let tmp
 let manifestPath
 let projectDir
 const rootOf = slot => `[id="hackbench.map-view:${slot}"]`
-const stripOf = slot => `${rootOf(slot)} .hb-map-view-strip`
+/** The map's own rect (the edge element), not the strip, which now includes the canvas pad (#1004). */
+const stripOf = slot => `${rootOf(slot)} [data-control="map-edge"]`
 const panel = page => page.locator('[id="hackbench.properties"]')
 const hex = id => '$' + id.toString(16).toUpperCase().padStart(2, '0')
 
