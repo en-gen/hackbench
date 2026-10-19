@@ -83,6 +83,7 @@ function readLabels(dir: string, strict = false): Record<string, string> {
   return out
 }
 
+/** Rewrites the whole labels file atomically, so a crash never leaves half a label map. */
 function writeLabels(dir: string, labels: Record<string, string>): void {
   fs.mkdirSync(dir, { recursive: true })
   writeFileAtomic(path.join(dir, LABELS_FILE), Buffer.from(JSON.stringify(labels, null, 2)))
@@ -133,6 +134,7 @@ export function loadSave(
   return fs.existsSync(file) ? new Uint8Array(fs.readFileSync(file)) : undefined
 }
 
+/** Writes one slot's save atomically; refuses an empty or oversized file so a bad core dump cannot replace a good save. */
 export function storeSave(
   projectDirectory: string,
   romTitle: string,

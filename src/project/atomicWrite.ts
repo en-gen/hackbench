@@ -11,6 +11,7 @@ import * as fs from 'fs'
  * temp name; `wx` refuses a leftover or planted temp. Rename replaces a hard
  * link at the target instead of writing through it to the file it points at.
  * On any failure the temporary file is removed and the error rethrown.
+ * The parent directory must already exist; callers make it (`fs.mkdirSync`).
  */
 export function writeFileAtomic(file: string, data: Uint8Array | string): void {
   const tmp = `${file}.${process.pid}.tmp`
