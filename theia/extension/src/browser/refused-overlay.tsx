@@ -12,20 +12,14 @@
  */
 import * as React from '@theia/core/shared/react'
 import type { MapRefusedCellDto } from '../common/project-protocol'
-import {
-  BADGE_STROKE,
-  CELL,
-  badgeGeometry,
-  badgeLabel,
-  bangGeometry,
-  refusedTooltip,
-} from './refused-badge'
+import { CELL, badgeGeometry, badgeLabel, bangGeometry, refusedTooltip } from './refused-badge'
 
 /** Red, dashed and marked with "!": the collision overlay's unknown cells are orange and hatched, so the two never read alike. */
 const WARN = 'var(--theia-editorError-foreground, #f44336)'
 /** Theia's on-colour for filled controls, white by default; used for the "!" and the badge on the red. */
 const ON_WARN = 'var(--theia-button-foreground, #fff)'
 
+/** The red dashed "!" cells over the map strip, each with a count badge when it has 2+ issues (#1005). */
 export function RefusedOverlay(props: {
   cells: readonly MapRefusedCellDto[]
   /** The whole strip, in map pixels. */
@@ -80,13 +74,7 @@ export function RefusedOverlay(props: {
             </text>
             {n > 1 && (
               <g data-control="refused-badge" style={{ pointerEvents: 'none' }}>
-                <circle
-                  cx={b.cx}
-                  cy={b.cy}
-                  r={b.r}
-                  style={{ fill: WARN, stroke: ON_WARN }}
-                  strokeWidth={BADGE_STROKE}
-                />
+                <circle cx={b.cx} cy={b.cy} r={b.r} style={{ fill: WARN }} />
                 <text
                   x={b.cx}
                   y={b.cy}

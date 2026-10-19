@@ -363,11 +363,13 @@ leads with words and ends in hex (`Its drawing code was changed where HackBench 
 $0DB4B1 is $00).`); the address is what tells two gate lines on one object apart. The cell's handler is
 the first gate refusal's, else the first refusal's.
 
-With 2+ issues the cell gets a count badge, a solid red circle with a white number ("9+" past 9) drawn in
-map pixels inside its top-right corner, so it scales with zoom. The circle plus its stroke sits 0.5 px
-inside the 16 px cell (unit-swept over cells 0..99 x 0..59, counts 2, 9 and 10; not yet seen in the
-running app). The "!" shrinks into the lower left so the badge does not cover it. Geometry and tooltip
-text are pure functions in `browser/refused-badge.ts`.
+With 2+ issues the cell gets a count badge: a solid red circle, no outline, with a white number ("9+" past
+9) centred on it (text-anchor middle, central baseline, at the circle's own centre). It lies wholly inside
+the tile's top-right 8 x 8 quadrant (r 3.5 centred 4 px in from the tile's right and top, 0.5 px from the
+quadrant's edges), in map pixels so it scales with zoom. The "!" moves left and down (x 5, y 10, 10 px) so
+the circle never sits on it. Geometry and tooltip text are pure functions in `browser/refused-badge.ts`;
+the quadrant containment is unit-swept over cells 0..99 x 0..59, counts 2, 9 and 10 (not yet seen in the
+running app by me; the owner passed the look in T26).
 
 Test hooks: `data-control="refused-overlay"` (absent when there are no cells), per cell
 `data-control="refused-cell"` with `data-x`, `data-y` (tiles), `data-object` and `data-count` (issues,

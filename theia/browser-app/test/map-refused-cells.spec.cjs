@@ -151,8 +151,9 @@ for (const { index, screenPx } of MAPS) {
 
 /**
  * Every cell's geometry read from the SVG's own attributes through getScreenCTM, so the numbers are
- * SCREEN pixels at the current zoom and font-independent: cell box (no dash stroke), badge outer circle
- * (r + stroke / 2), and the "!" attributes in map units.
+ * SCREEN pixels at the current zoom and font-independent: cell box (no dash stroke), its top-right
+ * quadrant, the badge circle (no outline, so just r), the badge text's centring attributes, and the "!"
+ * attributes in map units.
  */
 const geometryAt = (page, index) =>
   page.evaluate(sel => {
@@ -166,12 +167,17 @@ const geometryAt = (page, index) =>
       const c = g.querySelector('[data-control="refused-badge"] circle')
       const t = g.querySelector(':scope > text')
       const a = k => Number(c.getAttribute(k))
-      const out = c ? a('r') + Number(c.getAttribute('stroke-width')) / 2 : 0
+      const out = c ? a('r') : 0
+      const bt = g.querySelector('[data-control="refused-badge"] text')
+      const cell = screenBox(rect, n('x'), n('y'), n('width'), n('height'))
       return {
         x: Number(g.dataset.x),
         y: Number(g.dataset.y),
         count: g.dataset.count,
-        cell: screenBox(rect, n('x'), n('y'), n('width'), n('height')),
+        cell,
+        quad: { l: (cell.l + cell.r) / 2, r: cell.r, t: cell.t, b: (cell.t + cell.b) / 2 },
+        stroke: c ? c.getAttribute('stroke') + '|' + c.getAttribute('stroke-width') : null,
+        centred: bt ? { x: Number(bt.getAttribute('x')), y: Number(bt.getAttribute('y')), anchor: bt.getAttribute('text-anchor'), baseline: bt.getAttribute('dominant-baseline') } : null, // prettier-ignore
         badge: c ? screenBox(c, a('cx') - out, a('cy') - out, 2 * out, 2 * out) : null,
         badgeText: g.querySelector('[data-control="refused-badge"] text')?.textContent ?? null,
         circle: c ? { cx: a('cx'), cy: a('cy'), out } : null,
@@ -220,12 +226,15 @@ test('a count badge shows only for 2+ issues, lists every reason, and stays insi
     expect(boxes[0].badge).toBeNull()
     for (const b of boxes.slice(1)) {
       const tol = 0.5 // screen px, antialiasing
-      // The cell is 16 map px, so 16 * zoom on screen; the badge's whole outer circle lies inside it.
+      // The cell is 16 map px, so 16 * zoom on screen; the badge lies wholly in its top-right 8 x 8 quadrant.
       expect(b.cell.r - b.cell.l).toBeCloseTo(16 * zoom, 0)
-      expect(b.badge.l).toBeGreaterThanOrEqual(b.cell.l - tol)
-      expect(b.badge.r).toBeLessThanOrEqual(b.cell.r + tol)
-      expect(b.badge.t).toBeGreaterThanOrEqual(b.cell.t - tol)
-      expect(b.badge.b).toBeLessThanOrEqual(b.cell.b + tol)
+      expect(b.badge.l).toBeGreaterThanOrEqual(b.quad.l - tol)
+      expect(b.badge.r).toBeLessThanOrEqual(b.quad.r + tol)
+      expect(b.badge.t).toBeGreaterThanOrEqual(b.quad.t - tol)
+      expect(b.badge.b).toBeLessThanOrEqual(b.quad.b + tol)
+      // No outline, and the number is centred on the circle by attributes (not by glyph box).
+      expect(b.stroke).toBe('null|null')
+      expect(b.centred).toEqual({ x: b.circle.cx, y: b.circle.cy, anchor: 'middle', baseline: 'central' }) // prettier-ignore
       for (const o of boxes) if (o !== b) expect(overlap(b.badge, o.cell)).toBe(false) // prettier-ignore
       // The "!" box (generous 0.6 x 0.9 of its font size, map units) must clear the circle.
       const hw = 0.3 * b.bang.fs

@@ -2,9 +2,10 @@
  * The refused-cell tooltip and count badge (#1005), pure parts only: no React, no Theia, no ROM.
  */
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
 import {
   BADGE_INSET,
-  BADGE_STROKE,
+  QUADRANT,
   CELL,
   badgeGeometry,
   badgeLabel,
@@ -39,16 +40,30 @@ describe('badgeGeometry (#1005)', () => {
   const cells: [number, number][] = []
   for (let x = 0; x < 100; x++) for (let y = 0; y < 60; y++) cells.push([x, y])
 
-  it('circle plus whole stroke sits exactly BADGE_INSET inside the cell top and right, for cells 0..99 x 0..59, counts 2, 9, 10', () => {
+  it('the circle lies wholly inside the top-right quadrant, BADGE_INSET from its edges, for cells 0..99 x 0..59, counts 2, 9, 10', () => {
     for (const [x, y] of cells)
       for (const n of [2, 9, 10]) {
         const g = badgeGeometry(x, y, n)
-        const ext = g.r + BADGE_STROKE / 2
-        expect(g.cx + ext).toBeCloseTo(x * CELL + CELL - BADGE_INSET, 9)
-        expect(g.cy - ext).toBeCloseTo(y * CELL + BADGE_INSET, 9)
-        expect(g.cx - ext).toBeGreaterThan(x * CELL)
-        expect(g.cy + ext).toBeLessThan(y * CELL + CELL)
+        expect(g.cx + g.r).toBeCloseTo(x * CELL + CELL - BADGE_INSET, 9)
+        expect(g.cy - g.r).toBeCloseTo(y * CELL + BADGE_INSET, 9)
+        expect(g.cx - g.r).toBeGreaterThan(x * CELL + QUADRANT)
+        expect(g.cy + g.r).toBeLessThan(y * CELL + QUADRANT)
       }
+  })
+
+  it('the digit is centred on the circle: the overlay places its text at cx, cy', () => {
+    const src = readFileSync('theia/extension/src/browser/refused-overlay.tsx', 'utf8')
+    const m =
+      /<text\s+x=\{b\.cx\}\s+y=\{b\.cy\}\s+textAnchor="middle"\s+dominantBaseline="central"/.exec(
+        src,
+      )
+    expect(m).not.toBeNull()
+  })
+
+  it('the circle has no outline', () => {
+    expect(readFileSync('theia/extension/src/browser/refused-overlay.tsx', 'utf8')).not.toMatch(
+      /stroke: ON_WARN|BADGE_STROKE/,
+    )
   })
 
   it('the "!" box, taken generously as 0.6 x 0.9 of its font size, stays clear of the circle', () => {
@@ -63,9 +78,11 @@ describe('badgeGeometry (#1005)', () => {
       const hh = 0.45 * b.fontSize
       const nx = Math.max(b.x - hw, Math.min(g.cx, b.x + hw))
       const ny = Math.max(b.y - hh, Math.min(g.cy, b.y + hh))
-      expect(Math.hypot(nx - g.cx, ny - g.cy)).toBeGreaterThan(g.r + BADGE_STROKE / 2)
+      expect(Math.hypot(nx - g.cx, ny - g.cy)).toBeGreaterThan(g.r)
       expect(b.x - hw).toBeGreaterThanOrEqual(x * CELL)
       expect(b.y + hh).toBeLessThanOrEqual(y * CELL + CELL)
+      expect(b.x + hw).toBeLessThanOrEqual(x * CELL + CELL)
+      expect(b.y - hh).toBeGreaterThanOrEqual(y * CELL)
     }
   })
 
