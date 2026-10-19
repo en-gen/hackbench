@@ -91,7 +91,7 @@ describe('sprite $E0 on the map', () => {
   it('says what it assumed when the spawner is changed: its children are taken to be platforms', () => {
     const rom = platformCart()
     rom.writeAt(SPAWNER_AT + 80, [0x02])
-    expect(ok(draw(rom)).unverified).toMatch(/the platform spawner is not the vanilla shape, so what it spawns is assumed to be chain platforms/) // prettier-ignore
+    expect(ok(draw(rom)).unverified).toMatch(/the platform spawner is not the vanilla shape, so where its platforms sit and their per-platform values are taken from that edited code and not checked/) // prettier-ignore
   })
 
   // The slot range of the map's sprite memory setting: from 0 to 4 free slots; the game's answer is min(room, 3).

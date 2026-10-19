@@ -476,7 +476,7 @@ function platformsResult(
   const why = [
     ...r.unverified.map(
       u =>
-        `${u} is not the vanilla shape${u === 'the platform spawner' ? ', so what it spawns is assumed to be chain platforms' : ''}`,
+        `${u} is not the vanilla shape${u === 'the platform spawner' ? ', so where its platforms sit and their per-platform values are taken from that edited code and not checked' : ''}`,
     ),
     ...(vertical ? ["in a vertical map the spawner is given the entry's Y as its X (the loader's boundary), derived from the loader and not checked: no vanilla map places one"] : []), // prettier-ignore
     ...r.notes,
