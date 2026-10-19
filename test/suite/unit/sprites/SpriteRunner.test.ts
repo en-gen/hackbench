@@ -316,6 +316,37 @@ describe('runner on a synthetic cart', () => {
   })
 })
 
+describe('drawPos is the position at the first OAM write of the pass (#842)', () => {
+  // Id 31 draws at X, then moves X by +4 (syntheticSpriteRom). The capture reads the sprite at its first
+  // OAM write (headless_capture.lua note, record x,y), so pass p draws where pass p-1 left it, not at `pos`.
+  it('a draw-then-move sprite draws at the position before its own move', () => {
+    const m = runSprite(rom, 31, withSeed({ mainPasses: 3 }))
+    const [p0, p1] = [m.passes[0]!, m.passes[1]!]
+    expect(p0.pos.x).toBe(p0.drawPos!.x + 4)
+    expect(p1.drawPos!.x).toBe(p0.pos.x)
+  })
+  it('a sprite that draws, moves, then draws again is sampled at the FIRST write', () => {
+    // Id 34: draw, X += 4, draw. The last write is at the end position; the capture takes the first.
+    const m = runSprite(rom, 34, withSeed({ mainPasses: 2 }))
+    const p0 = m.passes[0]!
+    expect(p0.drawPos!.x).toBe(p0.pos.x - 4)
+  })
+  // The capture counts a write only while $15E9 is the slot and outside $0400-$041F
+  // (headless_capture.lua:1270-1290). Ids 35 and 36 write such a cell, then move +4, then draw.
+  it('ignores an OAM-range write made while $15E9 is another slot', () => {
+    const p0 = runSprite(rom, 35).passes[0]!
+    expect(p0.drawPos!.x).toBe(p0.pos.x)
+  })
+  it('ignores a write into the $0400-$041F gap before the first tile write', () => {
+    const p0 = runSprite(rom, 36).passes[0]!
+    expect(p0.drawPos!.x).toBe(p0.pos.x)
+  })
+  it('a sprite that does not move draws where it ends', () => {
+    const m = runSprite(rom, 0)
+    expect(m.passes[0]!.drawPos).toEqual(m.passes[0]!.pos)
+  })
+})
+
 describe('piece X offsets wrap like 9-bit OAM X (#869)', () => {
   // Id 33 draws at OAM X = low byte $0E, size byte $0F (bit 0 = X bit 8), both planted. The expected
   // offset is the 9-bit difference to the anchor's screen X, folded into -256..255.

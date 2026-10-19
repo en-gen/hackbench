@@ -21,7 +21,7 @@ import {
   type FlameRoutines,
 } from '../../../../src/rom/sprites/interp/CastleFlames'
 import { bytesAt } from '../../../../src/rom/sprites/interp/Guards'
-import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
+import { levelSeed, markSyntheticRom } from '../../../../src/rom/sprites/interp/LevelLoader'
 import type { LevelSprite } from '../../../../src/rom/LevelParser'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { RAM } from '../../../../src/rom/sprites/interp/SpriteRunner'
@@ -118,7 +118,9 @@ function flameRom(
   put(TABLES_AT, [0x1f, 0x0f, 0x0f, 0x1f, 0x03, 0x03, 0x1f, 0x07, 0xf0, 0xf4, 0xf8, 0xfc, ...d.tiles, ...d.props]) // prettier-ignore
   for (const [at, b] of PATH_BYTES) put(at, b)
   tweak(bytes)
-  return RomFile.fromBytes('flames.sfc', bytes)
+  const rom = RomFile.fromBytes('flames.sfc', bytes)
+  markSyntheticRom(rom) // a copy of the synthetic cart: vouch for its hand-written loader spans again
+  return rom
 }
 
 /** The fingerprints of this cart's own routines (the vanilla ones are for the vanilla bytes). */
@@ -525,6 +527,13 @@ describe('castle flames on the map (synthetic cart)', () => {
         b.set([0x00, 0x00, 0x00, 0xe6, 0xff], off(at))
       })
       vi.spyOn(SmwRom.prototype, 'getLevelSpritePointer').mockReturnValue(at)
+      // mapSprites builds its own RomFile from the bytes: vouch for the synthetic cart's loader spans on it.
+      const fromBytes = RomFile.fromBytes.bind(RomFile)
+      vi.spyOn(RomFile, 'fromBytes').mockImplementation((...args) => {
+        const rom = fromBytes(...args)
+        markSyntheticRom(rom)
+        return rom
+      })
       const inputs = {
         ...model,
         isVertical: false,

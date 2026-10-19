@@ -17,12 +17,15 @@
  * loader entries ($05:D8AE, $05:D8B7, $00:A635, $05:801E) carry the vanilla shape bytes
  * and small routines of our own. Ids 20, 21 and 22 draw like id 0 and set one CGRAM color
  * in INIT: 20 through the NMI upload list ($0681/$0682), 21 through a MainPalette list
- * ($0703, with $0680 = 6), 22 through $2121/$2122; 23 sets one color directly then by the list, 24 appends a list color and requests the MainPalette upload in one frame, 25 sets two colors with one CGADD, 26 writes id 21's MainPalette list without requesting the upload, 28 writes mirror colors with no list header, 29 uploads a two-color list entry, 27 appends a list color in every MAIN pass, 30 burns ~196k steps per INIT and never leaves status 1; 31 draws at X then moves X by +4 each MAIN; 32 is 31 but draws only from its second MAIN; 103 is the line-guided grinder's id: its MAIN has the vanilla SHAPE the runner's gate reads (bank_01.asm:11837-11846, 12182-12204) around a draw then a +4 move. Options plant a defect for the oracle tests.
+ * ($0703, with $0680 = 6), 22 through $2121/$2122; 23 sets one color directly then by the list, 24 appends a list color and requests the MainPalette upload in one frame, 25 sets two colors with one CGADD, 26 writes id 21's MainPalette list without requesting the upload, 28 writes mirror colors with no list header, 29 uploads a two-color list entry, 27 appends a list color in every MAIN pass, 30 burns ~196k steps per INIT and never leaves status 1; 31 draws at X then moves X by +4 each MAIN; 34 draws, moves X by +4, then draws again; 32 is 31 but draws only from its second MAIN; 103 is the line-guided grinder's id: its MAIN has the vanilla SHAPE the runner's gate reads (bank_01.asm:11837-11846, 12182-12204) around a draw then a +4 move. Options plant a defect for the oracle tests.
  */
 import { RomFile } from '../../../src/rom/RomFile'
+import { markSyntheticRom } from '../../../src/rom/sprites/interp/LevelLoader'
 import type { DispatcherSpan } from '../../../src/rom/sprites/interp/SpriteDispatch'
 
 import { putGm11Spans } from './syntheticGm11Spans'
+import { putLoaderStandIns } from './syntheticLoaderStandIns'
+import { putDrawPosProbes } from './syntheticDrawProbes'
 import { putGrinderRoutines } from './syntheticGrinder'
 
 export interface SyntheticOptions {
@@ -63,6 +66,9 @@ export interface SyntheticOptions {
     | 'scrollRtl'
     | 'updateRts'
     | 'scrollPop'
+    | 'layer3'
+    | 'gm12'
+    | 'reset'
   /**
    * UpdateScreenPosition carries a JML at $00:F6E4 (86 of 107 corpus ROMs do) to $05:F000, which
    * does the rest of its work: 'jml' ends in RTL, 'loop' never returns, 'rts' ends in the wrong return.
@@ -86,6 +92,8 @@ export interface SyntheticOptions {
   grinderDrawsOnPass1?: boolean
   /** Id 103 draws from its second MAIN onward (already on its track at the first draw). */
   grinderDrawsFromPass1?: boolean
+  /** The value the header-loader stand-in leaves in $0D9B IRQNMICommand (default 0); bit 7 = a boss room. */
+  irqCommand?: number
   /** Id 31's MAIN pointer is id 103's handler: the shape matches, the id does not. */
   id31IsGrinder?: boolean
 }
@@ -182,14 +190,10 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   put(0x009716, [0x22, 0x1e, 0x80, 0x05])
   put(0x05d796, [bad('lead', 0x8b), 0x4b, 0xab, 0xe2, 0x30, 0x9c, 0xcf, 0x13, 0xad, 0x95, 0x1b, 0xd0, 0x05, 0xac, 0x25, 0x14, 0xf0, 0x03, 0x20, 0xac, 0xdb, 0xad, 0x1a, 0x14, 0xd0, 0x03, 0x4c, 0x3e, 0xd8]) // prettier-ignore
   put(0x05d83b, [bad('jump', 0x4c), 0xb7, 0xd8])
-  // CODE_05D8B7 shape, then SEP #$30 / LDA #7 / STA $1692 / STA $1A / PLB / RTL
-  put(0x05d8b7, [bad('pointers', 0xc2), 0x30, 0xa5, 0x0e, 0x0a, 0x18, 0x65, 0x0e, 0xa8, 0xe2, 0x30, 0xa9, 0x07, 0x8d, 0x92, 0x16, 0x85, 0x1a, 0xab, 0x6b]) // prettier-ignore
   putGm11Spans(put, o)
+  putLoaderStandIns(put, o)
   // CODE_00A635 shape, then LDA $0000 / LDA #6 / STA $71 / RTS
   put(0x00a635, [bad('entrance', 0xad), 0xad, 0x14, 0x0d, 0xae, 0x14, 0x0d, 0x0c, 0x19, 0xd0, 0x0a, 0xad, 0x00, 0x00, 0xa9, 0x06, 0x85, 0x71, 0x60]) // prettier-ignore
-  // CODE_05801E shape, STA $7EC800,X, LDA #$77 / STA $5E (CODE_0584E3 rewrites $5E, bank_05.asm:560,
-  // so only a data loader run AFTER the screen setup leaves $77), then PLP RTL (or COP)
-  put(0x05801e, [bad('data', 0x08), 0xe2, 0x20, 0xc2, 0x10, 0xa2, 0x00, 0x00, 0xa9, 0x25, 0x9f, 0x00, 0xc8, 0x7e, 0xa9, 0x77, 0x85, 0x5e, ...(o.loaderCop ? [0x02, 0x00] : [0x28, 0x6b])]) // prettier-ignore
   // $01:808C sprite loop: PHB PHK PLB, X = $0B..0 { STX $15E9; JSR setup; JSR handle }
   put(0x01808b, [0xea]) // a NOP before the loop: the zero fill then PHB PHK is itself a window of the game's
   put(0x01808c, [
@@ -254,8 +258,11 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   mainTable[27] = 0x8e40
   mainTable[31] = 0x9300
   mainTable[32] = 0x92a0
+  mainTable[34] = 0x9780
   mainTable[103] = 0x9200
   mainTable[33] = 0x8a80
+  mainTable[35] = 0x9700
+  mainTable[36] = 0x9740
   if (o.id31IsGrinder) mainTable[31] = 0x9500
   for (const id of [20, 21, 22, 23, 24, 25]) mainTable[id] = 0x8640
   const words = (t: number[]) => t.flatMap(w => [w & 0xff, w >> 8])
@@ -374,6 +381,7 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   // id 33: draws one piece whose OAM X low byte is $0E and whose size byte ($0460 + index) is $0F, both
   // planted through the seed, so a test can set any 9-bit X. Y follows the sprite as in the others.
   put(0x018a80, [0xbc, 0xea, 0x15, 0xa5, 0x0e, 0x99, 0x00, 0x03, 0x38, 0xb5, 0xd8, 0xe5, 0x1c, 0x99, 0x01, 0x03, 0xa9, 0x24, 0x99, 0x02, 0x03, 0xa9, 0x0a, 0x99, 0x03, 0x03, 0xda, 0x98, 0x4a, 0x4a, 0xaa, 0xa5, 0x0f, 0x9d, 0x60, 0x04, 0xfa, 0x60]) // prettier-ignore
+  putDrawPosProbes(put)
   // id 11: JML $7E0000, execution leaves ROM.
   put(0x018a00, [0x5c, 0x00, 0x00, 0x7e])
   // id 12: draws into the $0200 OAM page, entry 3 ($020C..), tile $33, size byte $0423 = 2.
@@ -439,5 +447,9 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   ]) {
     put(addr, [0xa0, status, 0x98, 0x9d, 0xc8, 0x14, 0x60, 0xea]) // LDY #st / TYA / STA $14C8,X / RTS
   }
-  return RomFile.fromBytes('synthetic.sfc', rom)
+  const cart = RomFile.fromBytes('synthetic.sfc', rom)
+  // The loader pins three spans by fingerprint; this cart's hand-written ones are vouched for unless the
+  // option planted a defect in one.
+  markSyntheticRom(cart, o.badLoader ? [o.badLoader] : [])
+  return cart
 }
