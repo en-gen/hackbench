@@ -43,7 +43,8 @@ import { PALACES, type Palace } from '../../../../src/rom/SwitchBlockTiles'
 import { palaceArt, type PalaceArt } from '../../../../src/rom/SwitchArt'
 import { renderMap16Tile } from '../../../../src/rom/TileRenderer'
 import { ghostOf, overlayHidden } from '../../../../src/rom/render/HiddenTiles'
-import { MAP_PLANE_KEYS } from '../common/project-protocol'
+import { MAP_PLANE_KEYS, type MapStartResult } from '../common/project-protocol'
+import type { LevelStart } from '../../../../src/rom/LevelStart'
 import { FALLBACK_SCREENS } from '../../../../src/rom/model/ScreenPlanes'
 import type {
   MapPlaneKey,
@@ -520,6 +521,12 @@ const PALACE_UNDRAWN = 'this block could not be drawn on this ROM.'
  */
 export const unreadable = (detail: string, reason = MAP_UNREADABLE) =>
   ({ status: 'unavailable', reason, detail }) as const
+
+/** A level-start read as the RPC reply: on failure the loader's `detail` (the diagnostic, e.g. on a changed-code ROM) is kept, `reason` only when there is none (#967). */
+export const startResult = (s: LevelStart): MapStartResult =>
+  s.ok
+    ? { status: 'ok', screen: s.screen, x: s.x, y: s.y, vertical: s.vertical }
+    : startUnavailable(s.detail ?? s.reason)
 
 /** A start position the entrance loader could not work out (#967): plain words, the loader's text apart. */
 export const startUnavailable = (detail: string) =>

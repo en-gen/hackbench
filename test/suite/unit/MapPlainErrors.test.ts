@@ -13,6 +13,7 @@ import {
   L1ModelCache,
   mapScreen,
   palaceIconsOf,
+  startResult,
   startUnavailable,
   toolbarArtOf,
 } from '../../../theia/extension/src/node/map-screen'
@@ -156,9 +157,25 @@ describe('the start position (#967)', () => {
   })
 })
 
+describe('mapStart reply (#967)', () => {
+  it('a refusal keeps the loader detail, falling back to its reason', () => {
+    const r = startResult({
+      ok: false,
+      reason: 'plain',
+      detail: 'planted code changed at $05:8000',
+    })
+    expect(r).toMatchObject({ status: 'unavailable', detail: 'planted code changed at $05:8000' })
+    expect(startResult({ ok: false, reason: 'plain only' })).toMatchObject({ detail: 'plain only' })
+  })
+  it('a found start passes through', () => {
+    const ok = { ok: true, kind: 'main', hops: 0, screen: 1, x: 2, y: 3, vertical: false } as const
+    expect(startResult(ok)).toEqual({ status: 'ok', screen: 1, x: 2, y: 3, vertical: false })
+  })
+})
+
 describe('the view-side wording (#967)', () => {
   it('an unverified sprite toggle names no code, the raw text is for the tooltip', () => {
-    expect(unverifiedLabel()).toBe('Sprites · unverified: this ROM changes code the sprites depend on.') // prettier-ignore
+    expect(unverifiedLabel()).toBe('Sprites · unverified: some sprites may not be drawn exactly as in the game.') // prettier-ignore
   })
   it('a rejected call keeps its text in detail only', () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {})
