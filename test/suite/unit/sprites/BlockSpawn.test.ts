@@ -49,6 +49,13 @@ describe('the item block spawn', () => {
     expect(seen[0]).toBe(9) // and the egg-like status survives instead of becoming 8
   })
 
+  it('keeps the frame before pass 0 for a status-8 block spawn: the block path is as it always was (no `routine`)', () => {
+    const { m, seen } = cells(1)
+    expect(seen[0]).toBe(8)
+    expect(m.initFrames).toBe(1) // one frame ran before pass 0; only an own `routine` spawn skips it
+    expect(m.steps[0]).toBeGreaterThan(0) // and it executed instructions
+  })
+
   it('draws the spawned sprite through its status handler, at its own position', () => {
     const { m } = cells(3)
     expect(m.refusal).toBeUndefined()

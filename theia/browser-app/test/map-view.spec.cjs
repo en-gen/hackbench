@@ -149,6 +149,16 @@ function scrollState(page, index) {
 /** Where centring pixel `at` of the scroll axis puts the scroll: clamped to the strip (#339). */
 const centred = (at, zoom, view, max) => Math.min(Math.max(at * zoom - view / 2, 0), max)
 
+/** The map's origin in the strip, map px (the canvas pad before it, #1004): a map point's strip position is point + origin. */
+const originOf = (page, index) =>
+  page.evaluate(
+    i =>
+      getSvc('ApplicationShell')
+        .getWidgetById('hackbench.map-view:' + i)
+        .mapOrigin(),
+    index,
+  )
+
 async function activate(page, index) {
   await page.evaluate(async id => {
     await getSvc('ApplicationShell').activateWidget(id)
@@ -396,7 +406,9 @@ test('$109 opens scrolled to its start: screen 6 in view, scrollTop above 0', as
   expect(st.top).toBeGreaterThan(0)
   expect(st.left).toBe(0)
   // y 1680 on the scroll axis, centred where the strip allows (here the strip's end clamps it).
-  expect(st.top).toBeCloseTo(centred(1680, st.zoom, st.viewH, st.maxTop), 0)
+  // The start sits at 1680 + the top gutter in the strip, and is centered there.
+  const org = await originOf(page, 0x109)
+  expect(st.top).toBeCloseTo(centred(1680 + org.y, st.zoom, st.viewH, st.maxTop), 0)
   await expect
     .poll(async () => (await readViewport(page, 0x109)).screens.map(s => s.screen), {
       timeout: 15000,
@@ -436,7 +448,8 @@ test("a preview-tab change from $109 to another map scrolls to that map's start"
   const st = await scrollState(page, 0x1c1)
   expect(st.top).toBe(0) // horizontal: the old map's vertical scroll is gone
   expect(st.left).toBeGreaterThan(0)
-  expect(st.left).toBeCloseTo(centred(start.x, st.zoom, st.viewW, st.maxLeft), 0)
+  const org = await originOf(page, 0x1c1)
+  expect(st.left).toBeCloseTo(centred(start.x + org.x, st.zoom, st.viewW, st.maxLeft), 0)
   await expect
     .poll(async () => (await readViewport(page, 0x1c1)).screens.map(s => s.screen), {
       timeout: 15000,
@@ -647,7 +660,14 @@ test('a start reply after the user zoomed out (offset still 0) is skipped', asyn
 async function shownPixels(page, locator) {
   const box = await locator.evaluate(el => {
     const r = el.getBoundingClientRect()
-    return { x: r.left + el.clientLeft + 1, y: r.top + el.clientTop + 1, width: el.clientWidth - 2, height: el.clientHeight - 2 } // prettier-ignore
+    const view = { x: r.left + el.clientLeft + 1, y: r.top + el.clientTop + 1, width: el.clientWidth - 2, height: el.clientHeight - 2 } // prettier-ignore
+    // A map scroller also shows the canvas pad around the map (#1004): sample the map's own rect only.
+    const edge = el.querySelector('[data-control="map-edge"]')
+    if (!edge) return view
+    const e = edge.getBoundingClientRect()
+    const [x0, y0] = [Math.max(view.x, e.left + 1), Math.max(view.y, e.top + 1)]
+    const [x1, y1] = [Math.min(view.x + view.width, e.right - 1), Math.min(view.y + view.height, e.bottom - 1)] // prettier-ignore
+    return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }
   })
   const png = (await screenshotWithoutGrid(page, { clip: box })).toString('base64')
   return page.evaluate(async b64 => {
@@ -2571,14 +2591,22 @@ for (const [index, vertical] of [
     await gridSettled(page, index)
     const g = await readGrid(page, root(index))
     expect(g.cell).toBe(16) // zoom 1
+    // Line positions are from the STRIP's start; the map starts after its gutter (#1004), so tiles count from there.
+    const org = await page.evaluate(sel => {
+      const e = document.querySelector(`${sel} [data-control="map-edge"]`).getBoundingClientRect()
+      const t = document.querySelector(`${sel} .hb-map-view-strip`).getBoundingClientRect()
+      return { x: e.left - t.left, y: e.top - t.top }
+    }, root(index))
     // Vertical: x repeats every 32 columns with the half at 16; y every 16 rows.
     // Horizontal: x every 16 columns; y every 27 rows with the half at row 16.
     const xs = vertical ? [32, 16] : [16, undefined]
     const ys = vertical ? [16, undefined] : [27, 16]
-    for (const l of g.xLines) expect(l.weight).toBe(weightOf(Math.round(l.pos / 16), ...xs))
-    for (const l of g.yLines) expect(l.weight).toBe(weightOf(Math.round(l.pos / 16), ...ys))
+    for (const l of g.xLines)
+      expect(l.weight).toBe(weightOf(Math.round((l.pos - org.x) / 16), ...xs))
+    for (const l of g.yLines)
+      expect(l.weight).toBe(weightOf(Math.round((l.pos - org.y) / 16), ...ys))
     const half = (vertical ? g.xLines : g.yLines).filter(l => l.weight === 3)
-    expect(half.map(l => l.pos)).toContain(256)
+    expect(half.map(l => l.pos)).toContain(256 + (vertical ? org.x : org.y))
     expect(new Set([...g.xLines, ...g.yLines].map(l => l.weight))).toEqual(new Set([1, 3, 5]))
     // Pixels: each vertical line paints exactly its weight, centred on its boundary pixel.
     expect(runs(g.rowHits)).toEqual(g.xLines.map(l => ({ start: l.start, size: l.size })))
@@ -2590,7 +2618,7 @@ for (const [index, vertical] of [
     // measured from the strip's own edge in the DOM, painted as a 3 px run on the canvas.
     const off = await page.evaluate(sel => {
       const o = document.querySelector(`${sel} .hb-grid-overlay`).getBoundingClientRect()
-      const t = document.querySelector(`${sel} .hb-map-view-strip`).getBoundingClientRect()
+      const t = document.querySelector(`${sel} [data-control="map-edge"]`).getBoundingClientRect()
       return { x: t.left - o.left, y: t.top - o.top }
     }, root(index))
     const axisOff = vertical ? off.x : off.y

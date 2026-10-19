@@ -359,6 +359,8 @@
      axis cannot make it appear and change the fit again. */
   overflow-x: scroll;
   overflow-y: auto;
+  /* A sprites reply can grow the pad before the view; keepViewOnPadChange restores the view itself. */
+  overflow-anchor: none;
 }
 
 .hb-map-view-scroller.hb-vertical {
@@ -367,7 +369,8 @@
   overflow-y: scroll;
 }
 
-/* Exactly the map's extent, so the layers stop where the map does. */
+/* The map's extent plus the canvas pad around it (#1004), set inline as padding. The screens are flex
+   children, so the padding keeps them where the map is; overlays are positioned from the strip's corner. */
 .hb-map-view-strip {
   position: relative;
   flex: none;
@@ -400,6 +403,23 @@
 
 .hb-map-refused [data-control='refused-cell'] {
   pointer-events: all;
+}
+
+.hb-map-view-offmap {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 120;
+  pointer-events: none;
+  image-rendering: pixelated;
+}
+
+/* The map's edge, drawn on every map once its layout is known (#1004). */
+.hb-map-view-edge {
+  position: absolute;
+  z-index: 160;
+  pointer-events: none;
+  outline: 1px solid color-mix(in srgb, var(--theia-foreground, #cccccc) 35%, transparent);
 }
 
 .hb-map-refused rect {
