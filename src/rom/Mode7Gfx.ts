@@ -23,7 +23,10 @@
  * one is still claimed the same way, found by structure alone: a
  * branch-over-JSR whose target opens `LDY #imm / JSL` names the file in the
  * LDY operand. Only an edit to those first bytes, or a relocated edited
- * copy, goes unrecognized.
+ * copy, goes unrecognized. Limit: with no stock routine, that claim is made
+ * only when exactly ONE such opening is called anywhere in the ROM; the
+ * caller is not derived to be the Mode 7 one, so two or more leave every
+ * file to ordinary planar inference rather than blanking unrelated loaders.
  */
 import { findPattern } from './BytePattern'
 import { LOROM_BANK_SIZE } from './addressing'
@@ -182,10 +185,16 @@ function _findMode7GfxFiles(rom: RomFile, fps: Mode7Fingerprints): Mode7GfxFile[
   // With a stock routine present, a called LDY / JSL opening that fails the hash only
   // matters when it names the SAME file: an unrelated one (a common GFX-load shape) is
   // ignored, so a decoy cannot blank a file that decodes. With none present, every
-  // such opening is a routine that was edited, and is claimed.
-  const changed = calledOpenings(rom).filter(
-    at => !hits.includes(at) && (hits.length === 0 || hits.some(h => fileOf(h) === fileOf(at))),
-  )
+  // such opening is claimed only when it is the ONLY one called (the stock path's
+  // exactly-one rule): with two or more, which is Mode 7 cannot be said, so nothing
+  // is claimed and the files read as ordinary planar graphics.
+  const called = calledOpenings(rom).filter(at => !hits.includes(at))
+  const changed =
+    hits.length === 0
+      ? called.length === 1
+        ? called
+        : []
+      : called.filter(at => hits.some(h => fileOf(h) === fileOf(at)))
   const total = hits.length + changed.filter(at => fileOf(at) < GFX_FILE_COUNT).length
   for (const at of hits) {
     const fileIndex = fileOf(at)

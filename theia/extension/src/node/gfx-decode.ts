@@ -114,6 +114,9 @@ export function listGfxFileInfos(rom: SmwRom): GfxFileDto[] {
     else if (bpp === null) {
       const claimed = findMode7GfxFiles(rom.rom).find(f => f.fileIndex === index)
       if (claimed?.reason) file.unavailable = claimed.reason
+      else if (claimed && claimed.byteLength !== null) {
+        file.unavailable = `The Mode 7 unpack loop reads ${claimed.byteLength} bytes but the file holds ${raw.length}`
+      }
     }
     files.push(file)
   }

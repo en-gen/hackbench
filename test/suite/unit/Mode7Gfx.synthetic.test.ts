@@ -247,6 +247,25 @@ describe('findMode7GfxFiles', () => {
     ])
   })
 
+  it('claims nothing, and leaves the files planar, for two unrelated loaders and no stock routine', () => {
+    const rom = makeRom()
+    rom.writeAt(0x00b000, [0xa0, 0x1c, 0x22, 0x01, 0x02, 0x03])
+    rom.writeAt(0x00b100, [0xa0, 0x1d, 0x22, 0x01, 0x02, 0x03])
+    rom.writeAt(0x00c000, callSiteBytes(0xb000))
+    rom.writeAt(0x00c100, callSiteBytes(0xb100))
+    expect(find(rom)).toEqual([])
+    expect(inferDefaultBpp(rom, 0x1c, 0xc00)).toBe(3)
+  })
+
+  it('claims a lone edited routine as unavailable when no stock routine exists', () => {
+    const rom = makeRom()
+    rom.writeAt(0x00b000, [0xa0, 0x1c, 0x22, 0x01, 0x02, 0x03])
+    rom.writeAt(0x00c000, callSiteBytes(0xb000))
+    expect(find(rom)).toEqual([
+      { fileIndex: 0x1c, byteLength: null, reason: expect.stringMatching(/changed/) },
+    ])
+  })
+
   it('does not claim a changed routine on a HiROM cart, whose JSR arithmetic it lacks', () => {
     const buf = Buffer.alloc(0x100000, 0x00)
     buf[0xffd5] = 0x21 // HiROM
@@ -470,6 +489,14 @@ describe('GFX view (gfx-decode) on the Mode 7 file', () => {
   it('lists the file as mode7 with a tile count at 24 bytes per tile', () => {
     const entry = listGfxFileInfos(romWithFile27(0xc00)).find(f => f.index === 0x27)
     expect(entry).toMatchObject({ defaultBpp: 'mode7', byteLength: 0xc00, tileCount: 128 })
+  })
+
+  it('explains a readable routine whose loop length differs from the file', () => {
+    const entry = listGfxFileInfos(romWithFile27(0xc00 - 24)).find(f => f.index === 0x27)
+    expect(entry).toMatchObject({
+      defaultBpp: null,
+      unavailable: expect.stringMatching(/reads 3072 bytes but the file holds 3048/),
+    })
   })
 
   it('lists the reason when the routine names the file but cannot be read', () => {
