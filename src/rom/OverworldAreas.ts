@@ -16,8 +16,8 @@
  * Hack-fragility points, not checked:
  * - DATA_00A06B is taken to be followed immediately by DATA_00A079 (bank_00.asm:4242-4246),
  *   so their operand distance is the camera table length.
- * - A call is recognized by shape, not by what precedes the shape: a hack that keeps the shape
- *   but never runs it is not noticed.
+ * - A call is recognized by its own shape (see `unreached`); whether the game reaches it is not
+ *   checked, so a hack that keeps the shape but jumps past it is not noticed.
  * - CODE_048509 and CODE_049A24 read their tables with DB = their own bank; only
  *   CODE_04853B sets DB itself (PHK/PLB). The callers' own callers are not checked.
  */
