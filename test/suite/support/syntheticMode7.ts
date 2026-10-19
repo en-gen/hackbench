@@ -61,6 +61,10 @@ export interface HelperShape {
   readsY?: boolean
   /** LDA $4212 / BNE +0: a hardware READ with no effect on the result. */
   hwRead?: boolean
+  /** Rewrite SRAM with the value already there (a constant-fill cart, 0): a write that leaves the contents unchanged. */
+  sramRewrite?: boolean
+  /** LDA OUT / TAY: read the output back after writing it, and corrupt Y. */
+  clobbersY?: boolean
   /** End with RTL, the wrong return for a JSR. */
   rtl?: boolean
 }
@@ -82,6 +86,8 @@ export function helperBytes(shape: HelperShape = {}): number[] {
     ...(shape.strayStore === undefined ? [] : [0x85, shape.strayStore]),
     ...(shape.hwStore ? [0x8d, 0x19, 0x21] : []),
     ...(shape.sramStore ? [0x8f, 0x00, 0x00, 0x70] : []),
+    ...(shape.sramRewrite ? [0xa9, 0x00, 0x8f, 0x00, 0x00, 0x70] : []),
+    ...(shape.clobbersY ? [0xa5, OUT, 0xa8] : []),
     ...shifts,
     ...(shape.hang ? [0x80, 0xfe] : shape.rtl ? [0x6b] : [0x60]),
   ]

@@ -205,6 +205,8 @@ describe('findMode7GfxFiles', () => {
       ['a read of another byte', { readsOther: true }],
       ['a branch on Y at or above $0100', { readsY: true }],
       ['a hardware read', { hwRead: true }],
+      ['an SRAM write that leaves the contents unchanged', { sramRewrite: true }],
+      ['a changed Y after reading the output back', { clobbersY: true }],
     ]
     for (const [what, helperShape] of wrong) {
       const rom = makeRom()

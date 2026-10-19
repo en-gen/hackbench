@@ -137,7 +137,6 @@ function jsrTarget(from: number, operand: number): number | null {
 const isStack = (off: number): boolean => off >= 0x100 && off < 0x200
 // P as the game has it at the helper: 16-bit X and Y (REP #$10, bank_00.asm:5518), 8-bit A.
 const HELPER_P = 0x24
-const SRAM_FILL = 0x5a
 // Index register values the helper is run with: a loop counter or compare on X or Y must not change the answer.
 const INDEX_SWEEP = [0, 0x100, 0x3ff, 0x8000]
 const HW_FIRST = 0x2000
@@ -253,7 +252,9 @@ function helperShiftsPixelOut(
     const touched = new Set<number>()
     let hardware = false
     bus.onWramWrite = off => touched.add(off)
+    let sramWrite = false
     bus.onHwWrite = () => (hardware = true)
+    bus.onSramWrite = () => (sramWrite = true)
     // Hardware and SRAM reads are state the game gives the helper, not part of its job.
     const read = bus.read.bind(bus)
     bus.read = (addr: number): number => {
@@ -268,27 +269,31 @@ function helperShiftsPixelOut(
       touched.clear()
       reads.clear()
       bus.clearWritten()
-      bus.sram.fill(v ^ SRAM_FILL)
+      sramWrite = false
       bus.wram[input] = v
       bus.wram[output] = 0xff
+      const x = INDEX_SWEEP[v % INDEX_SWEEP.length]
+      const y = INDEX_SWEEP[(v >> 2) % INDEX_SWEEP.length]
       const r = callSubroutine(cpu, loromAddress(helperAt), {
         kind: 'jsr',
         maxSteps: HELPER_MAX_STEPS,
         regs: {
           p: HELPER_P,
-          x: INDEX_SWEEP[v % INDEX_SWEEP.length],
-          y: INDEX_SWEEP[(v >> 2) % INDEX_SWEEP.length],
+          x,
+          y,
         },
       })
       const onlyTwo =
         !hardware &&
-        bus.sram.every(b => b === (v ^ SRAM_FILL)) &&
+        !sramWrite &&
         [...touched].every(off => off === input || off === output || isStack(off)) &&
         [...reads].every(off => off === input)
       const shifted = bus.wram[input] === (v << BITS_PER_PIXEL) % 0x100
       const out = bus.wram[output] === v >> (8 - BITS_PER_PIXEL)
       if (r.kind === 'refused') return r.reason
-      if (r.kind !== 'returned' || !onlyTwo || !shifted || !out) return NOT_PIXELS
+      // The unpack loop keeps its source offset in Y and its count in X across the call.
+      const kept = cpu.x === x && cpu.y === y
+      if (r.kind !== 'returned' || !kept || !onlyTwo || !shifted || !out) return NOT_PIXELS
     }
     return null
   } catch (e) {
