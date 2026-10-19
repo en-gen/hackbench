@@ -25,6 +25,17 @@ import { entrancePositionGate } from '../SubmapFlagGate'
 import { effectiveCgadsub } from './ColorMath'
 import { FALLBACK_SCREENS, screenPlanes, type ScreenPlanes } from './ScreenPlanes'
 
+/** Passed as `entrances` when the exit graph itself failed; distinct from a map the graph never reaches. */
+export const GRAPH_UNAVAILABLE = 'graph-unavailable'
+
+/**
+ * Said when the exit graph could not be built (a hooked hack, #910): which entrance starts the map
+ * is then unknown, so `chooseEntrance` falls back to the primary row, a guess a secondary-only map
+ * would contradict. Reads after "Layer 3 position unverified: ".
+ */
+export const EXIT_GRAPH_UNAVAILABLE =
+  'HackBench could not work out which entrance starts this map, so this layer is placed as if the map were entered from its main entrance.' // prettier-ignore
+
 export interface L3Inputs {
   /** The 64 x 64 BG3 tilemap, index = row * 64 + col, HUD rows included (the drawing skips them). */
   tilemap: Uint16Array
@@ -32,15 +43,25 @@ export interface L3Inputs {
   chars: GfxSheet[]
   /** CGRAM; BG3's 2bpp palette P is colors P*4..P*4+3. */
   colors: RgbaColor[]
-  /** Layer3XPos at load (0 unless a smash sprite sets it, #807); camera X at load is 0. Absent: 0. */
+  /** Layer3XPos drawn at camera X 0: 0 unless a smash sprite drives it (the smasher's first landing, #997). Absent: 0. */
   xPx?: number
   /** Layer3YPos at load, and Layer1YPos at load: a tile row R sits at level Y R*8 - yPx + camYPx. */
   yPx: number
   camYPx: number
   /** A tide ($00-$7F settings byte) tiles every 256 px and draws one copy of its two-copy tilemap. */
   tide: boolean
-  /** Set when the code that reads `camYPx` is not stock (#860): the value is a best reading, not confirmed. */
-  camYUnverified?: string
+  /**
+   * Why `camYPx` is a best reading, not confirmed (#860, #910), one sentence each. A list like L2's
+   * `reasons`, so a reason both layers give is merged by whole sentence (#926). Absent: confirmed.
+   */
+  camYReasons?: string[]
+  /**
+   * A loaded Layer 3 Smash sprite drives this layer (#997): it rewrites Layer3XPos/YPos every frame
+   * (bank_00.asm:14778-14803), X scrolling with the camera and re-rolled each smash cycle
+   * (bank_02.asm:11147-11166). A whole-map view has no camera, so it draws the layer as one
+   * copy and never repeats it every 512 px.
+   */
+  followsCamera?: boolean
 }
 
 export interface L3Verdict {
@@ -67,10 +88,11 @@ export function buildL3Verdict(
   chars: (rom: RomFile) => GfxSheet[] | null = readL3Chars,
   gate: L3CodeGate = readL3CodeGate(rom),
   smash: (rom: RomFile, index: number) => L3SmashResult = readL3SmashLoadPos,
-  entrances?: MapEntrances,
+  entrances?: MapEntrances | typeof GRAPH_UNAVAILABLE,
   startSpans?: Parameters<typeof entrancePositionGate>[1],
 ): L3Verdict {
   const priority = l1.header.layer3Priority
+  const via = entrances === GRAPH_UNAVAILABLE ? undefined : entrances
   const base = { priority, screens: FALLBACK_SCREENS, cgadsub: null, layer2Interactive: false }
   const other = (reason: string): L3Verdict => ({ ...base, l3: null, reason })
   if (!bg.ok) return other(`Layer 3 not drawn: ${bg.reason}`)
@@ -118,16 +140,31 @@ export function buildL3Verdict(
       cgadsub: effectiveCgadsub(layout.cgadsub, !kept),
     })
   }
-  // A $80 byte's Y is $D0 until a loaded Layer 3 Smash sprite writes X and Y from its own place (#807).
+  // A $80 byte's Y is $D0 (CODE_00A007, bank_00.asm:4184-4195) until a loaded Layer 3 Smash sprite writes X and Y
+  // from its own place (#807). `smash` is the sprite's first landing, worked out by SmashLanding.ts (#997); it is
+  // only run for a map that lists a smasher, so every other $80 map keeps these load-time values.
   let pos = { x: 0, y: yPx }
+  let followsCamera = false
+  let landingNote: string | null = null
   if (load.settingsByte === 0x80) {
     const found = smash(rom, index)
-    if (!found.ok) return none(found.reason)
-    if (found.pos) pos = found.pos
+    // Viewers draw, they do not blank: a smasher whose landing cannot be worked out leaves layer 3 at
+    // its load-time position, with the reason as an unverified-position note.
+    if (!found.ok) landingNote = found.reason
+    else if (found.pos) {
+      pos = found.pos
+      followsCamera = true
+    }
   }
   // The GFX loader (CODE_00A993) is a third piece of layer 3 code: hooked, or any file failing to load, leaves no chars.
   const sheets = chars(rom)
   if (!sheets || sheets.length === 0) return none(HOOKED_L3_CODE)
+  const startGate = entrancePositionGate(rom, startSpans)
+  const reasons = [
+    startGate,
+    landingNote,
+    entrances === GRAPH_UNAVAILABLE ? EXIT_GRAPH_UNAVAILABLE : null,
+  ].filter((r): r is string => !!r)
   return {
     ...known,
     reason: null,
@@ -137,10 +174,11 @@ export function buildL3Verdict(
       colors: l1.colors,
       xPx: pos.x,
       yPx: pos.y,
-      camYPx: readInitialLayer1YPos(rom, index, false, entrances),
-      camYUnverified: entrancePositionGate(rom, startSpans) ?? undefined,
+      camYPx: readInitialLayer1YPos(rom, index, false, via),
+      camYReasons: reasons.length ? reasons : undefined,
       // $00 is Layer3TideSetting 0: no tide (it is camera-locked or Castle1/Underground1's half-speed scroll).
       tide: load.settingsByte !== 0 && load.settingsByte < 0x80,
+      ...(followsCamera ? { followsCamera } : {}),
     },
   }
 }
