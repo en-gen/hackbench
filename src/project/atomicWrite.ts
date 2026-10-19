@@ -19,7 +19,14 @@ export function writeFileAtomic(file: string, data: Uint8Array | string): void {
   try {
     const fd = fs.openSync(tmp, 'wx')
     try {
-      fs.writeSync(fd, bytes)
+      // writeSync may take fewer bytes than asked; renaming a short file would truncate the target.
+      let done = 0
+      while (done < bytes.length) {
+        const n = fs.writeSync(fd, bytes, done, bytes.length - done)
+        if (n <= 0)
+          throw new Error(`Short write to ${file}: ${done} of ${bytes.length} bytes written`)
+        done += n
+      }
       fs.fsyncSync(fd)
     } finally {
       fs.closeSync(fd)

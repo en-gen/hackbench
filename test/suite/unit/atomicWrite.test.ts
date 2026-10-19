@@ -10,6 +10,8 @@ const hooks = vi.hoisted(() => ({
   rename: undefined as undefined | (() => void),
   renameCalls: 0,
   opened: [] as string[],
+  write: undefined as
+    undefined | ((fd: number, buf: Uint8Array, off: number, len: number) => number),
 }))
 vi.mock('fs', async importOriginal => {
   const real = await importOriginal<typeof import('fs')>()
@@ -19,6 +21,8 @@ vi.mock('fs', async importOriginal => {
       hooks.renameCalls++
       return hooks.rename ? hooks.rename() : real.renameSync(a, b)
     },
+    writeSync: (fd: number, buf: Uint8Array, off: number, len: number) =>
+      hooks.write ? hooks.write(fd, buf, off, len) : real.writeSync(fd, buf, off, len),
     openSync: (f: string, flags: string) => {
       hooks.opened.push(`${f}|${flags}`)
       return real.openSync(f, flags)
@@ -33,6 +37,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   hooks.rename = undefined
+  hooks.write = undefined
   hooks.renameCalls = 0
   hooks.opened.length = 0
   fs.rmSync(dir, { recursive: true, force: true })
@@ -64,6 +69,35 @@ describe('writeFileAtomic', () => {
     }
     expect(() => writeFileAtomic(file, 'new')).toThrow(boom)
     expect(fs.readdirSync(dir)).toEqual(['c.json'])
+    expect(fs.readFileSync(file, 'utf8')).toBe('old')
+  })
+
+  it('writes every byte when each write call takes only part of the buffer', () => {
+    const file = path.join(dir, 'd.bin')
+    const input = Uint8Array.from({ length: 100 }, (_, i) => i)
+    let calls = 0
+    const hook = (fd: number, buf: Uint8Array, off: number, len: number) => {
+      calls++
+      const start = off ?? 0
+      hooks.write = undefined // call through to the real write, then re-arm
+      try {
+        return fs.writeSync(fd, buf, start, Math.min(len ?? buf.length - start, 7))
+      } finally {
+        hooks.write = hook
+      }
+    }
+    hooks.write = hook
+    writeFileAtomic(file, input)
+    expect(calls).toBeGreaterThan(1)
+    expect([...fs.readFileSync(file)]).toEqual([...input])
+  })
+
+  it('throws, removes the temp and keeps the old file when a write takes zero bytes', () => {
+    const file = path.join(dir, 'e.bin')
+    fs.writeFileSync(file, 'old')
+    hooks.write = () => 0
+    expect(() => writeFileAtomic(file, 'new content')).toThrow(/e\.bin/)
+    expect(fs.readdirSync(dir)).toEqual(['e.bin'])
     expect(fs.readFileSync(file, 'utf8')).toBe('old')
   })
 })
