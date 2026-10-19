@@ -331,8 +331,11 @@ What the tests now do about that:
   fails the count even where it happens to realign. The oracle is shown to
   fail by laying `PEA` out as two bytes and as four.
 
-  It cannot fail for 23 of the 256 entries, and the earlier claim of 13 was
-  wrong in both directions. Measured, not reasoned: each entry in turn was
+  It cannot fail for 23 of the 256 entries when only the sprite walk reads
+  them (the palette-animation walk, `PaletteAnimationDetect.ts`, also reads
+  the eight conditional branches, `$FC`, `$CB` and `$DB` by length since
+  #1006, so those are observable there; this section was measured before
+  that), and the earlier claim of 13 was wrong in both directions. Measured, not reasoned: each entry in turn was
   given a wrong value and the FULL suite run against it, 256 runs, and
   exactly these 23 survived.
 
@@ -364,8 +367,9 @@ What the tests now do about that:
   flag-width entry pinned at 2, which is how `BIT #imm` sat wrong.
 
 Twenty-four mutations survive, and each is equivalent rather than uncaught.
-Twenty-three are the `INSN_LEN` entries in the table above: the value is
-never read, so a wrong one cannot change any behaviour. The twenty-fourth
+Twenty-three are the `INSN_LEN` entries in the table above: the sprite
+walk never reads the value, so a wrong one cannot change its behaviour
+(the palette-animation walk reads some of them; see above). The twenty-fourth
 is not a table entry:
 
 | Mutation | Why no test can see it |
