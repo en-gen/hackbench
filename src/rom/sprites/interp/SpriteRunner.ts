@@ -608,7 +608,7 @@ export function runOnce(
   const b = runCore(rom, id, seed, opts, true)
   if (b.refusal) return { ...a, neighbourRun: 'refused' }
   if (b.chosen === undefined || !addsOnly(a, b)) return { ...a, neighbourRun: 'same' }
-  return { ...childrenAtRest(a, b), dependsOn: [...a.dependsOn, 'neighbours'], scansSlots: true, neighbourRun: 'adopted' } // prettier-ignore
+  return { ...childrenAtRest(b), dependsOn: [...a.dependsOn, 'neighbours'], scansSlots: true, neighbourRun: 'adopted' } // prettier-ignore
 }
 
 /**
@@ -625,16 +625,15 @@ function addsOnly(a: SpriteModel, b: SpriteModel): boolean {
 const partKey = (q: SpritePart) => [q.oam, q.char, q.palette, +q.flipX, +q.flipY, q.dx, q.dy, q.size].join(',') // prettier-ignore
 
 /**
- * The drawn neighbours are children and sit where the parent's spawn frame puts them (D137): the parts the
- * run alone lacks lose however far the parent had moved from its anchor when it drew them. A parent that draws
- * before it moves (the platform, bank_02.asm:12115-12148) has no shift, so its children are unchanged.
+ * A parent that draws children is drawn with them at its spawn frame (D137): however far it had moved from its anchor
+ * when it drew them comes off every part of the pass, so the group keeps the offsets the parent's code gives it. A
+ * parent that draws before it moves (the platform, bank_02.asm:12115-12148) has no shift and is unchanged.
  */
-function childrenAtRest(a: SpriteModel, b: SpriteModel): SpriteModel {
+function childrenAtRest(b: SpriteModel): SpriteModel {
   const pass = b.passes[b.chosen!]!
   const shift = pass.drew?.shift
   if (!shift || (!shift.x && !shift.y)) return b
-  const mine = new Set(a.chosen === undefined ? [] : a.passes[a.chosen]!.parts.map(partKey))
-  const parts = pass.parts.map(q => (mine.has(partKey(q)) ? q : { ...q, dx: q.dx - shift.x, dy: q.dy - shift.y })) // prettier-ignore
+  const parts = pass.parts.map(q => ({ ...q, dx: q.dx - shift.x, dy: q.dy - shift.y }))
   return { ...b, passes: b.passes.map(p => (p === pass ? { ...p, parts } : p)) }
 }
 

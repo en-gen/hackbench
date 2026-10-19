@@ -16,6 +16,8 @@ import { Machine, RAM, runOnce } from '../../../../src/rom/sprites/interp/Sprite
 import { shellLoad } from '../../../../src/rom/sprites/ShellSprites'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import type { LevelSprite } from '../../../../src/rom/LevelParser'
+import { drawSprites, interpDrawer } from '../../../../theia/extension/src/node/map-sprites'
+import { COLORS } from '../../support/mapInputs'
 import { buildSyntheticRom, SYNTHETIC_INIT_TABLE_OFFSET } from '../../support/syntheticSpriteRom'
 
 const SCANNER = 50
@@ -37,11 +39,15 @@ const SHELL_LIST_ID = 0xdb
 const BARE = 59
 /** Moves itself +8 in X, THEN draws, and sets the companion's position from its own (as $9C does) before drawing it. */
 const TRAVELS = 60
+/** Draws the companion first and its own piece after it (the order that leaves a sticky "drawing for" attribution wrong). */
+const CHILD_FIRST = 61
 
 /** Every byte run this file's cart plants, for the copyright check at the foot of the file. */
 const planted: number[][] = []
 
-function cart(opts: { breakShellLoader?: boolean } = {}): RomFile {
+function cart(
+  opts: { breakShellLoader?: boolean; travel?: { x: number; y: number } } = {},
+): RomFile {
   const bytes = new Uint8Array(buildSyntheticRom().buffer)
   const off = (snes: number) => (snes >>> 16) * 0x8000 + ((snes & 0xffff) - 0x8000)
   const put = (snes: number, b: number[]) => {
@@ -89,14 +95,24 @@ function cart(opts: { breakShellLoader?: boolean } = {}): RomFile {
   put(0x019f80, scan(QUIET, 0x8600, 0x8640, true)) // own = an RTS: nothing drawn alone
   // MAIN: LDA $E4,X / CLC / ADC #8 / STA $E4,X (travel first) / JSR draw / LDY #9 / loop: [LDA $14C8,Y / EOR #8 / BNE next]
   // [LDA $9E,Y / EOR #51 / BEQ found] next: DEY / BPL loop / RTS / found: companion Y = own Y - 16, X = own X / PHX / TYX / JSR draw / PLX / RTS
+  const t = opts.travel ?? { x: 8, y: 0 }
+  const step = (cell: number, by: number) =>
+    by ? [0xb5, cell, 0x18, 0x69, by & 0xff, 0x95, cell] : []
   put(0x01a000, [
-    0xb5, 0xe4, 0x18, 0x69, 0x08, 0x95, 0xe4, 0x20, 0x40, 0x86, 0xa0, 0x09, 0xb9, 0xc8, 0x14, 0x49,
+    ...step(0xe4, t.x), ...step(0xd8, t.y), 0x20, 0x40, 0x86, 0xa0, 0x09, 0xb9, 0xc8, 0x14, 0x49,
     0x08, 0xd0, 0x07, 0xb9, 0x9e, 0x00, 0x49, QUIET, 0xf0, 0x04, 0x88, 0x10, 0xef, 0x60, 0x38, 0xb5,
     0xd8, 0xe9, 0x10, 0x99, 0xd8, 0x00, 0xb5, 0xe4, 0x99, 0xe4, 0x00, 0xda, 0xbb, 0x20, 0x40, 0x86,
     0xfa, 0x60,
   ]) // prettier-ignore
-  {
-    const o = off(0x018320 + 9 + TRAVELS * 2)
+  // LDY #9 / loop: [LDA $14C8,Y / EOR #8 / BNE next] [LDA $9E,Y / EOR #51 / BEQ found] next: DEY / BPL loop / JSR draw / RTS
+  // / found: PHX / TYX / JSR draw / PLX / JSR draw / RTS: the companion is drawn BEFORE the sprite's own piece.
+  put(0x01a100, [
+    0xa0, 0x09, 0xb9, 0xc8, 0x14, 0x49, 0x08, 0xd0, 0x07, 0xb9, 0x9e, 0x00, 0x49, QUIET, 0xf0, 0x07,
+    0x88, 0x10, 0xef, 0x20, 0x40, 0x86, 0x60, 0xda, 0xbb, 0x20, 0x40, 0x86, 0xfa, 0x20, 0x40, 0x86,
+    0x60,
+  ]) // prettier-ignore
+  for (const id of [TRAVELS, CHILD_FIRST]) {
+    const o = off(0x018320 + 9 + id * 2)
     bytes[o] = 0
     bytes[o + 1] = 0
   }
@@ -116,6 +132,7 @@ function cart(opts: { breakShellLoader?: boolean } = {}): RomFile {
   main(DRAWS, 0x8640)
   main(SHIFTS, 0x9900)
   main(TRAVELS, 0xa000)
+  main(CHILD_FIRST, 0xa100)
   // The shell ceiling compare's opcode ($02A8C0) is what shellLoad reads for a id from $C9 up: a wrong byte refuses.
   if (opts.breakShellLoader) bytes[off(0x02a8c0)] = 0xea
   return RomFile.fromBytes('scan.sfc', bytes)
@@ -259,25 +276,53 @@ describe('which neighbours the sprite drew, and where (#1049, D137)', () => {
     expect(same.passes[same.chosen!]!.drew).toBeUndefined()
   })
 
-  it('children sit at the spawn-frame offsets from the parent: the parent moving before it draws adds no travel to them', () => {
-    // The parent steps +8 in X before it draws, so its own piece is drawn at dx 8 (the frame policy, unchanged).
-    // It puts the child at its own X and 16 above its Y: at rest that is (0, -16) from where it was placed.
-    const m = runOnce(rom, TRAVELS, seedWith([near(QUIET, 3)]))
-    expect(m.neighbourRun).toBe('adopted')
-    const at = partsOf(m).map(p => [p.dx, p.dy]).sort((a, b) => a[1]! - b[1]!) // prettier-ignore
-    expect(at).toEqual([
-      [0, -16],
-      [8, 0],
-    ])
-    expect(m.passes[m.chosen!]!.drew).toMatchObject({
-      children: [{ index: 3 }],
-      shift: { x: 8, y: 0 },
-    })
+  it('the whole group sits at the spawn-frame offsets whichever way the parent moves before it draws (D137)', () => {
+    // The parent steps before it draws and puts the child at its own X and 16 above its own Y: at rest that is
+    // the parent's piece at (0, 0) and the child's at (0, -16), whatever the step was.
+    for (const t of [
+      { x: 8, y: 0 },
+      { x: -8, y: 0 },
+      { x: 0, y: 8 },
+      { x: 0, y: -8 },
+    ]) {
+      // prettier-ignore
+      const m = runOnce(cart({ travel: t }), TRAVELS, seedWith([near(QUIET, 3)]))
+      expect(m.neighbourRun).toBe('adopted')
+      const at = partsOf(m).map(p => [p.dx, p.dy]).sort((a, b) => a[1]! - b[1]!) // prettier-ignore
+      expect(at, JSON.stringify(t)).toEqual([
+        [0, -16],
+        [0, 0],
+      ])
+      expect(m.passes[m.chosen!]!.drew).toMatchObject({ children: [{ index: 3 }], shift: t })
+    }
   })
 
   it('a parent that has not moved when it draws has no shift to take off', () => {
     const m = runOnce(rom, SCANNER, seedWith([near(QUIET, 3)]))
     expect(m.passes[m.chosen!]!.drew?.shift).toEqual({ x: 0, y: 0 })
+  })
+})
+
+describe('a sprite its parent drew, through the real drawer (#1049)', () => {
+  const rom = cart()
+  const vram = { sp1: Array.from({ length: 512 }, () => new Uint8Array(64).fill(1)) }
+  const sp = (index: number, spriteId: number, x: number, y: number, screen = 0) => ({ index, x, y, spriteId, screen, extraBit: false, raw: [], streamOffset: 0 }) as LevelSprite // prettier-ignore
+  const drawn = (list: LevelSprite[]) => drawSprites(list, { vram, colors: COLORS } as never, interpDrawer(rom, 0x104, { isVertical: false, screenCount: 2 }, runOnce, () => withSeed({ loaded: new Uint8Array(0x2000) }), undefined, undefined, list)) // prettier-ignore
+
+  it('a lone companion the scanner draws is listed as drawn by it, at its own position, with only its own tiles', () => {
+    const [parent, child, far] = drawn([sp(0, SCANNER, 8, 8), sp(1, QUIET, 9, 7), sp(2, QUIET, 2, 7, 5)]) // prettier-ignore
+    expect(child).toMatchObject({ index: 1, status: 'drawn', drawnBy: 0, x: 144, y: 112 })
+    expect(child!.reason).toBeUndefined()
+    // The scanner draws two pieces, its own and the companion's: the companion gets the one it drew.
+    expect(parent!.parts!.length).toBe(2 * child!.parts!.length)
+    // Another companion, on a screen the scanner's neighbours do not reach, keeps its marker.
+    expect(far).toMatchObject({ index: 2, status: 'placeholder' })
+  })
+
+  it('a parent that draws the companion before its own piece still gives the companion only its own tiles', () => {
+    const [parent, child] = drawn([sp(0, CHILD_FIRST, 8, 8), sp(1, QUIET, 9, 7)])
+    expect(child).toMatchObject({ status: 'drawn', drawnBy: 0 })
+    expect(parent!.parts!.length).toBe(2 * child!.parts!.length)
   })
 })
 

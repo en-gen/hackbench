@@ -66,6 +66,13 @@ function bitmapOf(s: MapSpriteDto): { rgba: Uint8ClampedArray; prio: Uint8Array 
   return bmp
 }
 
+/** Whether `s` has an opaque pixel at map pixel (px, py). */
+function opaqueAt(s: MapSpriteDto, px: number, py: number): boolean {
+  const { x0, y0, x1, y1 } = s.box
+  if (px < x0 || px >= x1 || py < y0 || py >= y1) return false
+  return bitmapOf(s).rgba[((py - y0) * (x1 - x0) + (px - x0)) * 4 + 3] !== 0
+}
+
 /**
  * The sprite that owns the map pixel (x, y), in map pixels: the topmost of the `stackOrder` `spriteLayer` draws
  * with an opaque pixel there. Transparent pixels and Layer 2 flames hit nothing (#981).
@@ -80,9 +87,9 @@ export function spriteAt(
   const order = stackOrder(sprites, g, false)
   for (let n = order.length - 1; n >= 0; n--) {
     const s = order[n]!
-    const { x0, y0, x1, y1 } = s.box
-    if (px < x0 || px >= x1 || py < y0 || py >= y1) continue
-    if (bitmapOf(s).rgba[((py - y0) * (x1 - x0) + (px - x0)) * 4 + 3] !== 0) return s
+    if (!opaqueAt(s, px, py)) continue
+    // A sprite its parent drew is inside the parent's bitmap, which wins here when it sorts on top: the child takes the hit (D52).
+    return order.find(c => c.drawnBy === s.index && opaqueAt(c, px, py)) ?? s
   }
   return undefined
 }

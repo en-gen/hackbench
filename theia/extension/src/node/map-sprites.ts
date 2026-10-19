@@ -279,11 +279,11 @@ export function drawSprites(
     if (res.ok) for (const c of res.children ?? []) claimed.set(c.index, { parent: s.index, res, parts: c.parts }) // prettier-ignore
     return render(s, res)
   })
-  // Such a sprite that drew nothing of its own stays in the list (D52: it can be selected and dragged) with the
+  // Such a sprite (a placeholder, for whatever reason it drew nothing alone) stays in the list (D52: it can be selected and dragged) with the
   // tiles the parent drew for it as its area and no marker. The view hit-tests it and does not paint it again.
   return dtos.map((d, n) => {
     const c = claimed.get(d.index)
-    if (!c || d.status !== 'placeholder' || d.reason !== 'noParts') return d
+    if (!c || d.status !== 'placeholder' || d.reason === 'extraBits') return d
     const own = render(sprites[n]!, { ...c.res, parts: c.parts } as SpriteDrawResult)
     return own.status === 'drawn' ? { ...own, x: d.x, y: d.y, drawnBy: c.parent } : d
   })
