@@ -157,7 +157,7 @@ function gradeAll(
   const rows: Row[] = []
   const inputs = new Map<number, { reads: number; nonzero: number }>()
   const loadedByMap = new Map<string, Uint8Array | undefined>()
-  // Each map's own sprite list, for the neighbour run of a sprite that scans the slot tables (#841).
+  // Each map's own sprite list, for the neighbor run of a sprite that scans the slot tables (#841).
   const listByMap = new Map<string, LevelSprite[]>()
   const smw = new SmwRom(rom)
   let fallbacks = 0
@@ -261,7 +261,7 @@ function gradeAll(
   return { rows, by, inputs, fallbacks, missAtK }
 }
 
-/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Raised after #837 (stationary shells) and #841 (neighbour run): measured 2026-10-17, one machine: exact 1038, exact+shape 1850, wrong 76, empty 13 (develop: 1033, 1836, 90, 13). */
+/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Raised after #837 (stationary shells) and #841 (neighbor run): measured 2026-10-17, one machine: exact 1038, exact+shape 1850, wrong 76, empty 13 (develop: 1033, 1836, 90, 13). */
 const FLOOR = {
   graded: 1957,
   exact: 1035,

@@ -80,7 +80,7 @@ const STEP_BUDGET = 200_000
 export const TOTAL_STEP_CAP = 1_000_000
 /** Slots in the sprite tables. */
 const SLOTS = 12
-/** Slots the $9C scan covers, 0-9 (bank_02.asm:12118); neighbours go no further. */
+/** Slots the $9C scan covers, 0-9 (bank_02.asm:12118); neighbors go no further. */
 const SCANNED_SLOTS = 10
 
 /** INIT retries allowed while the routine leaves status 1. */
@@ -128,7 +128,7 @@ export interface PassResult {
    */
   palette: PaletteWrite[]
   /**
-   * Neighbour run only, when the sprite's own code drew a neighbour: each neighbour it drew (`seed.neighbours[].index`)
+   * Neighbor run only, when the sprite's own code drew a neighbor: each neighbor it drew (`seed.neighbours[].index`)
    * with the OAM entries written for it, and how far the sprite had moved from `SpriteModel.anchor` when it did (0 when it draws
    * before it moves). The child is drawn at rest, so `runOnce` takes `shift` off the child's parts (D137).
    */
@@ -241,19 +241,19 @@ export class Machine {
   steps = 0
   /** The sprite's own code read another slot's number or status cell. */
   scanned = false
-  /** Slots `load` put neighbours in (their InitSpriteTables still has to run). */
+  /** Slots `load` put neighbors in (their InitSpriteTables still has to run). */
   readonly neighbourSlots: number[] = []
-  /** Slot to list index of each neighbour `load` placed (undefined when the seed gave none). */
+  /** Slot to list index of each neighbor `load` placed (undefined when the seed gave none). */
   private readonly placed = new Map<number, number | undefined>()
-  /** Neighbour slots whose OAM index ($15EA) the sprite's own code read this pass. */
+  /** Neighbor slots whose OAM index ($15EA) the sprite's own code read this pass. */
   private drewSlots = new Set<number>()
-  /** The neighbour slot whose draw is running (its `$15EA` was the last one read). */
+  /** The neighbor slot whose draw is running (its `$15EA` was the last one read). */
   private drawingFor: number | undefined
-  /** OAM tile bytes written while each neighbour slot was `drawingFor`. */
+  /** OAM tile bytes written while each neighbor slot was `drawingFor`. */
   private readonly childTiles = new Map<number, Set<number>>()
   /** Where the sprite stood at the first such read. */
   private drewAt: { x: number; y: number } | undefined
-  /** OAM tile bytes written while `$15E9` named this sprite's slot; read instead of `touched` in a neighbour run. */
+  /** OAM tile bytes written while `$15E9` named this sprite's slot; read instead of `touched` in a neighbor run. */
   private own = new Set<number>()
 
   constructor(
@@ -290,7 +290,7 @@ export class Machine {
         }
       }
     }
-    // The gate for the neighbour run: a read of the number ($9E) or status ($14C8) table at a slot other than
+    // The gate for the neighbor run: a read of the number ($9E) or status ($14C8) table at a slot other than
     // this sprite's, made while the loop is on this sprite's slot ($15E9 is stored before the loop's own reads
     // of its slot). The loop's reads of the other slots happen under their own $15E9.
     if (seed.neighbours?.length)
@@ -399,7 +399,7 @@ export class Machine {
     if (s.loaded) {
       w.set(s.loaded.subarray(0, w.length))
       // The loader also spawns the level's own sprite list (CODE_02A751); only the sprite under test is active,
-      // unless a neighbour run places the list's other sprites afterwards (placeNeighbours).
+      // unless a neighbor run places the list's other sprites afterwards (placeNeighbours).
       for (let i = 0; i < 12; i++) w[RAM.status + i] = 0
     }
     for (let i = 0; i < RAM.oamEntries; i++) w[RAM.oam + 1 + i * 4] = 0xf0 // cleared OAM is offscreen
@@ -511,7 +511,7 @@ export class Machine {
     this.drewAt = undefined
   }
 
-  /** What `PassResult.drew` says for the pass just run, or undefined when the sprite drew no neighbour. */
+  /** What `PassResult.drew` says for the pass just run, or undefined when the sprite drew no neighbor. */
   drew(anchor: { x: number; y: number }): PassResult['drew'] {
     const children = [...this.drewSlots].flatMap(j => {
       const index = this.placed.get(j)
@@ -595,7 +595,7 @@ const DRAWS_BEFORE_LINE_SNAP: ReadonlySet<number> = new Set([0x67])
  * Run with a seed; no marioX analysis (half the cost of `runSprite`). The run is alone. When the sprite's own
  * code scanned the slot tables for a companion (`scansSlots`) and the seed lists `neighbours`, a second run puts
  * them in the other slots and counts only the OAM written under this sprite's slot (as the capture does: a
- * neighbour's own draw is not this sprite's). It replaces the first only when its parts differ (#841).
+ * neighbor's own draw is not this sprite's). It replaces the first only when its parts differ (#841).
  */
 export function runOnce(
   rom: RomFile,
@@ -612,8 +612,8 @@ export function runOnce(
 }
 
 /**
- * The neighbour run is taken only when it ADDS parts to the pass the run alone chose and leaves the ones it
- * had: a companion the sprite draws on itself. A neighbour that merely changes how the sprite behaves (a collision
+ * The neighbor run is taken only when it ADDS parts to the pass the run alone chose and leaves the ones it
+ * had: a companion the sprite draws on itself. A neighbor that merely changes how the sprite behaves (a collision
  * scan, a kick) is not a part of its picture (#841).
  */
 function addsOnly(a: SpriteModel, b: SpriteModel): boolean {

@@ -692,7 +692,7 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
   })
 
   it('$9C (Hammer Bro platform) is served with its Hammer Bro on top: the map list reaches the neighbour run (#841)', () => {
-    // Alone the platform box is 26 px tall; the neighbour run adds the Hammer Bro, 14 more.
+    // Alone the platform box is 26 px tall; the neighbor run adds the Hammer Bro, 14 more.
     for (const idx of [0x006, 0x11e, 0x127]) {
       const r = mapSprites(new L1ModelCache(), bytes(), romPath(VANILLA), idx)
       if (r.status !== 'ok') throw new Error(JSON.stringify(r))

@@ -62,9 +62,9 @@ export interface SpriteSeed {
   /** Why `loadLevelState` refused, when the caller tried and `loaded` is absent; echoed in the model. */
   loadRefusal?: string
   /**
-   * Other sprites of the level's list near this one, nearest first (`neighboursOf`). A run puts them in
+   * Other sprites of the map's list near this one, nearest first (`neighboursOf`). A run puts them in
    * the other slots only when the sprite's own code scanned the slot tables and only for the second run
-   * `runOnce` makes then; the first run is always alone. `index` is the entry's place in the level's sprite list.
+   * `runOnce` makes then; the first run is always alone. `index` is the entry's place in the map's sprite list.
    */
   neighbours?: { id: number; x: number; y: number; index?: number }[]
 }

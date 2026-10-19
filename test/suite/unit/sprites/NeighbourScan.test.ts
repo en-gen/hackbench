@@ -1,6 +1,6 @@
 /**
  * #841: a sprite whose own code scans the slot tables for a companion ($9C looks for a $9B in slots 0-9 and
- * draws it, SMWDisX bank_02.asm:12118-12148) is run a second time with the level list's neighbours in the other
+ * draws it, SMWDisX bank_02.asm:12118-12148) is run a second time with the map list's neighbors in the other
  * slots. Synthetic, no ROM: the cart adds id 50 (draws its own piece, then scans slots 9..0 for a status-8
  * sprite numbered 51 and draws a piece at that slot's position under that slot's OAM index, as
  * PutHammerBroOnPlat does), id 51 (draws nothing, as $9B alone), id 52 (draws its own piece in its own turn).
@@ -247,7 +247,7 @@ describe('neighbour placement (#841)', () => {
   })
 
   it("a neighbour that refuses in the second run is reported as refused, and the scanner's own picture stands", () => {
-    // Id 4's MAIN executes COP: the run alone has no neighbour to refuse on.
+    // Id 4's MAIN executes COP: the run alone has no neighbor to refuse on.
     const alone = runOnce(rom, SCANNER, seedWith())
     const m = runOnce(rom, SCANNER, seedWith([{ id: 4, x: 0x90, y: 0x70 }, { id: QUIET, x: 0xa0, y: 0x70 }])) // prettier-ignore
     expect(m.neighbourRun).toBe('refused')
@@ -315,7 +315,7 @@ describe('a sprite its parent drew, through the real drawer (#1049)', () => {
     expect(child!.reason).toBeUndefined()
     // The scanner draws two pieces, its own and the companion's: the companion gets the one it drew.
     expect(parent!.parts!.length).toBe(2 * child!.parts!.length)
-    // Another companion, on a screen the scanner's neighbours do not reach, keeps its marker.
+    // Another companion, on a screen the scanner's neighbors do not reach, keeps its marker.
     expect(far).toMatchObject({ index: 2, status: 'placeholder' })
   })
 

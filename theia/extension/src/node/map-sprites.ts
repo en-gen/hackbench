@@ -27,7 +27,7 @@
  * placed so the sprite is on screen. The colors the sprite's own code wrote to
  * CGRAM (NMI upload list, palette mirror, direct registers;
  * `Machine.paletteWrites`) override the level's row for that sprite only.
- * Not modelled: the sprite is run alone, so one that reacts to a neighbour or
+ * Not modelled: the sprite is run alone, so one that reacts to a neighbor or
  * to the player's actions shows its first pose.
  * A sprite with bit 3 of byte 0 set is marked, not drawn: the gate fails
  * closed for sprites that MAY be custom (PIXI dispatches on bit 3), which the
@@ -135,7 +135,7 @@ export type SpriteDrawResult =
       runtimePalette?: PaletteWrite[]
       /** Set when the run's seed is not the ROM-run level state: why the art is unverified. */
       unverified?: string
-      /** The list sprites this sprite's own code drew (a neighbour run, #1049), each with the parts drawn for it. */
+      /** The list sprites this sprite's own code drew (a neighbor run, #1049), each with the parts drawn for it. */
       children?: { index: number; parts: DrawPart[] }[]
       /** A plain-words line about what the map shows of this sprite (not a flaw): it goes on the map's note line. */
       note?: string
@@ -525,7 +525,7 @@ export function interpRunner(
   seedFor: (rom: RomFile, index: number) => SpriteSeed = levelSeed,
   ringRoutines: RingRoutines = VANILLA_RING_ROUTINES,
   eeriesRoutines: EeriesRoutines = VANILLA_EERIES_ROUTINES,
-  /** The map's whole sprite list: a sprite that scans the slots for a companion is run with its neighbours (#841). */
+  /** The map's whole sprite list: a sprite that scans the slots for a companion is run with its neighbors (#841). */
   list: readonly LevelSprite[] = [],
 ): (sprite: LevelSprite) => SpriteRun {
   // The loader runs once per map, not per sprite.
@@ -558,7 +558,7 @@ export function interpRunner(
     const m = run(rom, s.spriteId, seed(camera))
     const at = m.chosen
     if (!w || !loaderCam || at === undefined || !m.anchor || s.index < 0 || s.index >= 128 || !w[SPRITE_LOAD_STATUS + s.index]) return { m, fixed: false } // prettier-ignore
-    // Probe: the camera moved 13 x 11 px (not a multiple of the 8 px tile pitch, so a neighbour
+    // Probe: the camera moved 13 x 11 px (not a multiple of the 8 px tile pitch, so a neighbor
     // tile cannot alias) towards the sprite's screen centre, so it stays drawn; run only to the drawn pass.
     const shifted = { x: camera.x + (x - camera.x < 128 ? -13 : 13), y: camera.y + (y - camera.y < 112 ? -11 : 11) } // prettier-ignore
     const probe = run(rom, s.spriteId, seed(shifted, { mainPasses: at + 1 }))
