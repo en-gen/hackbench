@@ -196,13 +196,15 @@ In practice:
 - Fourth bounded exception, stock-code checks (D126, owner 2026-10-17; size rule BA
   2026-10-18 under owner delegation): a check of stock code with under 24 unknown bytes
   has no fingerprint, so it may run the game's own routine on the same core, bus, guard and
-  call helper (`src/rom/cpu/call.ts`, `Machine.ts`). A fixed entry only, entered at the
-  game's own caller of the code under check so that the dispatchers and jumps on the way run
-  as ROM code and are not restated (no byte, hash or instruction of the path is stated: a
-  diversion anywhere shows as wrong behaviour); seeded only with the state that code reads; a
-  step budget; a refusal with a reason; only the result the check needs is read back. First
-  user: the CODE_0DA512 screen-exit gate, `src/rom/ScreenExitFiling.ts` (#1030), entered at
-  LevLoadExtObj.
+  call helper (`src/rom/cpu/call.ts`, `Machine.ts`). A fixed entry only, entered at a fixed
+  entry reached through the ROM's own checked caller, operands or tables, so that the
+  dispatchers and jumps on the way run as ROM code and are not restated (no byte, hash or
+  instruction of the path is stated: a diversion anywhere shows as wrong behaviour); seeded
+  with the state the code reads, plus probe fills used only to detect stray writes; a step
+  budget; a refusal with a reason; only the result the check needs is read back. Users:
+  the CODE_0DA512 screen-exit gate, `src/rom/ScreenExitFiling.ts` (#1030), entered at
+  LevLoadExtObj; #1082's three runs (ExecutePtr, CallSpriteInit, the grinder); and #1079's
+  Mode 7 helper, `src/rom/Mode7Gfx.ts`.
 - A derivation that truly cannot be read must be NAMED as a hack-fragility
   point and paired with honest degradation: compare the handler against its
   vanilla bytes and DECLINE TO ASSERT when it diverges, rather than rendering
