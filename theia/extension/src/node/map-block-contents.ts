@@ -111,6 +111,7 @@ export function plainWhy(reason: string): string {
 const inRange = (id: number | null | undefined): id is number =>
   id != null && id >= FIRST_ITEM_BLOCK && id <= LAST_ITEM_BLOCK
 
+/** Builds the block indicators; each miss is reported in plain words with the gate text kept as detail (#967). */
 export function blockIndicators(
   model: IndicatorModel,
   t: BlockContentTables | TablesUnavailable,
@@ -286,6 +287,7 @@ export function romArt(rom: RomFile, index: number, model: MapInputs): ItemArt {
 /** Replies per working-copy bytes, as `mapSprites` keeps them. */
 const replies = new WeakMap<Uint8Array, Map<number, MapBlockContentsResult>>()
 
+/** Block contents for one map; passes the shared cache's plain-words refusal through unchanged (#967). */
 export function mapBlockContents(
   cache: L1ModelCache,
   bytes: Uint8Array,

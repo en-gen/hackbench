@@ -147,6 +147,7 @@ export class ProjectServiceImpl implements ProjectService {
     return mapSpriteFrames(this.screens, r.working.bytes(), r.romPath, index, spriteIndex)
   }
 
+  /** Reads a level's start; a failure uses the shared plain-words start-unavailable wording (#967). */
   async mapStart(manifestPath: string, index: number): Promise<MapStartResult> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r

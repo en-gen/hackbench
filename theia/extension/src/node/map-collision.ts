@@ -137,6 +137,7 @@ export async function mapCollision(
   return r
 }
 
+/** Computes collision for one map; a Layer 1 refusal is returned as the cache's plain words with its detail (#967). */
 async function compute(
   cache: L1ModelCache,
   probes: ProbeCache,

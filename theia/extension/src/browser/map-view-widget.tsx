@@ -262,6 +262,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** The view left offset 0 while the start was pending, even if it came back: the user has taken over. */
   protected movedBeforeStart = false
 
+  /** Wires the widget's first render, listeners and disposal once it is injected; the failure wording below is shared with every overlay (#967). */
   @postConstruct()
   protected init(): void {
     this.addClass('hb-map-view')
@@ -479,6 +480,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.update()
   }
 
+  /** Reads the collision lines; a failure becomes plain words with the raw text as tooltip detail (#967), never the main message. */
   protected async loadCollision(): Promise<void> {
     const o = this.options
     if (!o) return
@@ -515,6 +517,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     return `Map ${this.options?.index.toString(16)} ${overlay}`
   }
 
+  /** Reads the map's sprites; a failure is worded once via `readFailed` so the toolbar never shows raw error text (#967). */
   protected async loadSprites(): Promise<void> {
     const o = this.options
     if (!o) return
@@ -536,6 +539,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.sync()
   }
 
+  /** Reads block contents; a failure keeps plain words on the label and the technical text in the tooltip (#967). */
   protected async loadBlocks(): Promise<void> {
     const o = this.options
     if (!o) return
@@ -583,6 +587,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.update()
   }
 
+  /** Reads the palace icons; a failure leaves the icons undrawn with a plain-word reason (#967). */
   protected async loadIcons(): Promise<void> {
     const o = this.options
     if (!o) return
@@ -633,6 +638,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     for (const s of this.visibleScreens()) void this.fetchScreen(s)
   }
 
+  /** Fetches one screen; an unreadable Layer 1 model is shown as the shared plain-words sentence (#967). */
   protected async fetchScreen(screen: number): Promise<void> {
     const o = this.options
     const key = this.key(screen)
@@ -1141,6 +1147,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.sync()
   }
 
+  /** Tooltip for Sprites: the label first, then the technical detail as a second line, so raw text never leads (#967). */
   protected spritesTitle(): string {
     if (this.spritesWhy) return withDetail(this.spritesLabel(), this.spritesDetail)
     return withDetail(
@@ -1212,6 +1219,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     return l3.reason ?? (l3.priority ? 'Layer 3 · Overlay' : 'Layer 3 · Background')
   }
 
+  /** Renders the toolbar and canvas; every unavailable overlay title comes from the plain-word helpers (#967). */
   protected render(): React.ReactNode {
     this.renderedZoom = this.zoomController.value
     return (
@@ -1344,6 +1352,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     )
   }
 
+  /** Renders one palace toggle, passing its plain-word reason and detail down as the tooltip (#967). */
   protected renderToggle(p: Palace): React.ReactNode {
     const icon = this.icons.get(p)
     const pressed = this.view.state.flags[p]

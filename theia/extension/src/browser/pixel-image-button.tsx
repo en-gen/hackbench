@@ -35,6 +35,7 @@ export interface PixelImageButtonProps {
   data?: Record<string, string>
 }
 
+/** Icon button for drawn art or a failure reason; the detail prop lets the tooltip carry technical text as a second line (#967). */
 export function PixelImageButton({
   frame,
   scale,

@@ -529,6 +529,7 @@ export const startUnavailable = (detail: string) =>
     detail,
   }) as const
 
+/** Builds one screen; a refusal keeps the cache's plain-words reason and carries the gate text as detail (#967). */
 export function mapScreen(
   cache: L1ModelCache,
   bytes: Uint8Array,

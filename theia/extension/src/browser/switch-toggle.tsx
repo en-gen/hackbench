@@ -26,6 +26,7 @@ export function decodeSwitchButton(
   }
 }
 
+/** Switch palace toggle; an unavailable switch shows its plain reason, with the technical detail as the tooltip's second line (#967). */
 export function SwitchToggle(props: {
   kind: Map16SwitchKind
   images: SwitchButtonImages | undefined
