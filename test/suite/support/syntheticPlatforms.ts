@@ -5,7 +5,7 @@
  */
 import type { RomFile } from '../../../src/rom/RomFile'
 import { spanFingerprint } from '../../../src/rom/SubmapFlagGate'
-import { buildSyntheticRom } from './syntheticSpriteRom'
+import { buildSyntheticRom, SYNTHETIC_INIT_TABLE_OFFSET } from './syntheticSpriteRom'
 import { EERIES_STREAM_AT } from './syntheticEeries'
 
 export const SPAWNER_AT = 0x02af33
@@ -77,7 +77,7 @@ export function platformCart(o: PlatformCartOptions = {}): RomFile {
   const rom = buildSyntheticRom({ eeries: { stream: o.stream ?? [0x51, 0xb3, 0xe0, 0xff], room: o.room } }) // prettier-ignore
   // The loader's route and spawner at the game's addresses, the tables at the cart's own.
   writeRoute(rom)
-  rom.writeAt(ANGLE_TABLE_AT, [...ANGLES].reverse())
+  rom.writeAt(ANGLE_TABLE_AT, ANGLES) // spawn 0 first: runs hand children over in spawn order (#1063)
   rom.writeAt(FLAG_TABLE_AT, [1, 0, 0])
   rom.writeAt(SPAWNER_AT, spawner())
   // $A3: INIT sets bit 7 of $1602 (so a drawn tile with it set proves INIT ran on the status-1 spawn); MAIN draws one
@@ -92,7 +92,7 @@ export function platformCart(o: PlatformCartOptions = {}): RomFile {
     0xbd, 0x02, 0x16, 0x29, 0x70, 0x18, 0x75, 0xe4, 0x38, 0xe5, 0x1a, 0x99, 0x00, 0x03, // x
     0xa9, 0x02, 0x48, 0x98, 0x4a, 0x4a, 0xa8, 0x68, 0x99, 0x60, 0x04, 0x60, // size 16 x 16
   ])
-  rom.writeAt(0x018170 + 11 + 0xa3 * 2, [INIT & 0xff, (INIT >> 8) & 0xff])
+  rom.writeAt(0x018170 + SYNTHETIC_INIT_TABLE_OFFSET + 0xa3 * 2, [INIT & 0xff, (INIT >> 8) & 0xff])
   rom.writeAt(0x018320 + 9 + 0xa3 * 2, [MAIN & 0xff, (MAIN >> 8) & 0xff])
   return rom
 }

@@ -67,7 +67,7 @@ describe('the three platforms', () => {
         },
       })
     threePlatforms(platformCart(), seed, entry, SYN, 1, run)
-    expect(linked).toEqual([0, 0, 9])
+    expect(linked).toEqual([9, 0, 0])
   })
 
   it('draws what spawns and says nothing is hidden: room for two draws two', () => {
