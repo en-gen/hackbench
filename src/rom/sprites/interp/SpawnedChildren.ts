@@ -41,6 +41,8 @@ export interface SpawnedChildren {
  * do not add to each other's OAM. `passes` is how many MAIN passes each child runs; the first drawing one is shown.
  * `spawnFrame` (D137): draw each child where the parent's spawn code put it, with no travel. SpriteLock is set for the
  * run, so the child's own MAIN skips its move and draws the spawn-frame state; nothing is moved or zeroed here.
+ * A child the spawner stored under another sprite number is refused (`expectNumber`), because the handler is chosen from
+ * `spec.sprite` before the spawner runs and would otherwise draw that sprite's art for it.
  */
 export function runSpawnedChildren(
   rom: RomFile,
