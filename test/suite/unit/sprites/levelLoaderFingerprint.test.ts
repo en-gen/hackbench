@@ -241,6 +241,27 @@ describe('synthetic: the loader runs hand-written code under its structural chec
       expect(loaderShapeProblem(rom), at.toString(16)).toBe(want)
     }
   })
+  it('a header loader moved within bank 5 is followed to its own sublevel jump and pointer loader, not to the stock $D83B', () => {
+    const rom = buildSyntheticRom()
+    // The stock header loader, the stock jump at $D83B and the stock pointer loader stay as they are, except that the
+    // stock pointer loader is broken: a loader that still reached it by the fixed address would be refused.
+    const header = rom.readAt(0x05d796, 29)!
+    rom.writeAt(0x05e000, [...header])
+    rom.writeAt(0x05e000 + 27, [0x03, 0xe2]) // its overworld JMP now lands on $E203, just past a sublevel jump at $E200
+    rom.writeAt(0x05e200, [0x4c, 0x00, 0xe1]) // JMP $E100: the moved pointer loader
+    rom.writeAt(0x05e100, [...rom.readAt(0x05d8b7, 18)!])
+    rom.writeAt(0x05d8b7, [0xea]) // the stock pointer loader no longer opens with REP
+    rom.writeAt(0x0096f5, [0x00, 0xe0]) // JSL $05:E000
+    expect(loaderShapeProblem(rom)).toBeNull()
+    const l = loadLevelState(rom, 0x105)
+    if (!l.ok) throw new Error(l.reason)
+    expect([l.wram[0x10], l.wram[0x11], l.wram[0x1692]]).toEqual([0x05, 0x01, 7])
+    // And the moved path is itself checked: break its pointer loader and the refusal names the moved address.
+    rom.writeAt(0x05e100, [0xea])
+    expect(loaderShapeProblem(rom)).toBe(
+      'CODE_05D8B7-equivalent pointer loader at $05:E100 is not the vanilla shape; the loader will not run it',
+    )
+  })
   it('a long call to the right address in another bank is refused; the $80 mirror of bank 5 is not', () => {
     const rom = buildSyntheticRom()
     rom.writeAt(0x0096f7, [0x06])

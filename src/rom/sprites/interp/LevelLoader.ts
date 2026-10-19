@@ -67,17 +67,15 @@ export const GM11_SPANS = {
   layerCopy: [HEADER_CALL + 4, MUSIC_CALL],
   screenSetup: [SCREEN_SETUP, DATA_CALL],
 } as const
-const SUBLEVEL_JUMP = 0x05d83b // the jump into the pointer loader
 const JUMP_OFFSET = 26 // the JMP in CODE_05D796's prologue, from its entry (bank_05.asm:7093)
 const PROLOGUE_END = JUMP_OFFSET + 3 // the instruction after that JMP, where the sublevel branch continues
 const WRAM_END = 0x2000 // the cells the loader seeds must lie in work RAM ($0000-$1FFF)
-// Where that JMP must go: the instruction after the sublevel jump. Compared, not read.
-const OVERWORLD_PATH = (SUBLEVEL_JUMP + 3) & 0xffff
 
+/** Names the sublevel jump into the pointer loader at the address the header loader's overworld jump implies. */
+const nameJump = (at: number): string => `jump into the pointer loader at ${hexAt(at)}`
 const NAME_HEADER_CALL = 'GM11 call JSL CODE_05D796 at $00:96F4'
 const NAME_ENTRANCE_CALL = 'GM11 call JSR CODE_00A635 at $00:9705'
 const NAME_DATA_CALL = 'GM11 call JSL CODE_05801E at $00:9716'
-const NAME_JUMP = 'jump into the pointer loader at $05:D83B'
 /** A 24-bit address as `$BB:AAAA`. */
 const hexAt = (a: number): string =>
   `$${(a >> 16).toString(16).toUpperCase().padStart(2, '0')}:${(a & 0xffff).toString(16).toUpperCase().padStart(4, '0')}`
@@ -142,6 +140,8 @@ interface Entries {
   data: number
   dataBank: number
   pointer: number
+  /** The sublevel jump into the pointer loader. */
+  jump: number
   /** The cell the pointer loader reads the level number from. */
   levelCell: number
   /** The cell the header loader's prologue tests (the sublevel flag). */
@@ -165,15 +165,20 @@ function entriesOf(rom: RomFile): Entries | string {
   const head = operandAt(rom, HEADER_CALL, JSL)
   const ent = operandAt(rom, ENTRANCE_CALL, JSR)
   const data = operandAt(rom, DATA_CALL, JSL)
-  const ptr = operandAt(rom, SUBLEVEL_JUMP, JMP)
   if (!head) return NAME_HEADER_CALL
   if (!ent) return NAME_ENTRANCE_CALL
   if (!data) return NAME_DATA_CALL
-  if (!ptr) return NAME_JUMP
   const headerBank = head.bank & 0x7f
   const dataBank = data.bank & 0x7f
   const header = (headerBank << 16) | head.value
-  const pointer = (SUBLEVEL_JUMP & 0xff0000) | ptr.value
+  // The overworld JMP in the called header loader lands on the instruction after the sublevel jump (bank_05.asm:
+  // 7093, 7162), so that jump is found from the routine the ROM reaches, not at a fixed address.
+  const over = operandAt(rom, header + JUMP_OFFSET, JMP)
+  if (!over) return nameHeader(header)
+  const jump = (headerBank << 16) | ((over.value - 3) & 0xffff)
+  const ptr = operandAt(rom, jump, JMP)
+  if (!ptr) return nameJump(jump)
+  const pointer = (headerBank << 16) | ptr.value
   const flag = operandAt(rom, header + 21, LDA_ABS)
   const level = operandAt(rom, pointer + 2, LDA_DP, 1)
   if (!flag) return nameHeader(header)
@@ -189,6 +194,7 @@ function entriesOf(rom: RomFile): Entries | string {
     data: (dataBank << 16) | data.value,
     dataBank,
     pointer,
+    jump,
     levelCell: level.value,
     sublevelCell: flag.value,
   }
@@ -206,7 +212,6 @@ export function loaderSites(rom: RomFile): Site[] {
     { name: 'GM11 code between the entrance setup and the level data call at $00:9708', at: SCREEN_SETUP, op: LDA_IMM }, // prettier-ignore
     { name: 'GM11 code between the entrance setup and the level data call at $00:9708', at: SCREEN_UPDATE_CALL, op: JSL, bank: 0, bankExact: true }, // prettier-ignore
     // The sublevel branch ends in JMP CODE_05D8B7 (bank_05.asm:7162).
-    { name: NAME_JUMP, at: SUBLEVEL_JUMP, op: JMP },
   ]
   const e = entriesOf(rom)
   if (typeof e === 'string') return sites
@@ -220,7 +225,8 @@ export function loaderSites(rom: RomFile): Site[] {
     { name: h, at: e.header, op: PHB },
     { name: h, at: e.header + 5, op: STZ_ABS },
     { name: h, at: e.header + 21, op: LDA_ABS },
-    { name: h, at: e.header + JUMP_OFFSET, op: JMP, operand: { value: OVERWORLD_PATH, size: 2 } },
+    { name: h, at: e.header + JUMP_OFFSET, op: JMP },
+    { name: nameJump(e.jump), at: e.jump, op: JMP },
     // CODE_05D8B7 opens with REP and reads the level number from the cell the loader writes (bank_05.asm:7228-7229).
     { name: p, at: e.pointer, op: REP },
     { name: p, at: e.pointer + 2, op: LDA_DP },
