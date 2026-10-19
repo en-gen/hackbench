@@ -230,11 +230,13 @@ export class Machine {
   readonly neighbourSlots: number[] = []
   /** Slot to list index of each neighbour `load` placed (undefined when the seed gave none). */
   private readonly placed = new Map<number, number | undefined>()
-  /** Neighbour slots whose OAM index ($15EA) the sprite's own code read this pass, and where the sprite stood at the first read. */
+  /** Neighbour slots whose OAM index ($15EA) the sprite's own code read this pass. */
   private drewSlots = new Set<number>()
-  /** The neighbour slot whose draw is running (its `$15EA` was the last one read), and the OAM tile bytes written for each. */
+  /** The neighbour slot whose draw is running (its `$15EA` was the last one read). */
   private drawingFor: number | undefined
+  /** OAM tile bytes written while each neighbour slot was `drawingFor`. */
   private readonly childTiles = new Map<number, Set<number>>()
+  /** Where the sprite stood at the first such read. */
   private drewAt: { x: number; y: number } | undefined
   /** OAM tile bytes written while `$15E9` named this sprite's slot; read instead of `touched` in a neighbour run. */
   private own = new Set<number>()
@@ -281,11 +283,13 @@ export class Machine {
         // A draw routine reads the OAM index of the slot it draws; read on this sprite's turn, that slot is its child.
         if (off >= RAM.oamIndex && off < RAM.oamIndex + SLOTS) {
           const j = off - RAM.oamIndex
-          if (this.bus.wram[RAM.curSprite] === this.seed.slot)
-            this.drawingFor = this.placed.has(j) ? j : undefined
-          if (this.placed.has(j) && this.bus.wram[RAM.curSprite] === this.seed.slot) {
-            this.drewSlots.add(j)
-            this.drewAt ??= this.pos()
+          if (this.bus.wram[RAM.curSprite] === this.seed.slot) {
+            const child = this.placed.has(j)
+            this.drawingFor = child ? j : undefined
+            if (child) {
+              this.drewSlots.add(j)
+              this.drewAt ??= this.pos()
+            }
           }
           return
         }
@@ -496,8 +500,7 @@ export class Machine {
   drew(anchor: { x: number; y: number }): PassResult['drew'] {
     const children = [...this.drewSlots].flatMap(j => {
       const index = this.placed.get(j)
-      const tiles = [...(this.childTiles.get(j) ?? [])]
-      const oam = tiles
+      const oam = [...(this.childTiles.get(j) ?? [])]
         .filter(
           o => o >= RAM.oam && o < RAM.oam + RAM.oamEntries * 4 && (o - RAM.oam - 2) % 4 === 0,
         )
@@ -732,6 +735,7 @@ function runCore(
       probe?.(p, w)
       // The draw ran before this pass's own move, so for $67 it ran where the pass before left it.
       const origin = snaps ? (model.passes[p - 1]?.pos ?? anchor) : anchor
+      const drew = neighbourRun ? m.drew(anchor) : undefined
       model.passes.push({
         pass: p,
         pos: m.pos(),
@@ -739,7 +743,7 @@ function runCore(
         parts: readParts(m, origin),
         uploads: uploadsOf(m, hw),
         palette: m.paletteWrites(),
-        ...(neighbourRun && m.drew(anchor) ? { drew: m.drew(anchor) } : {}),
+        ...(drew ? { drew } : {}),
       })
     }
     if (m.scanned) model.scansSlots = true
