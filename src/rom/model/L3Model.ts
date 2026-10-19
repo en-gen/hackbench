@@ -63,7 +63,9 @@ export interface L3Inputs {
   /**
    * Set for a settings byte $81-$BF off Castle1 and Underground1 (CODE_00A01F, bank_00.asm:4174): Layer 3
    * is world-locked, so tilemap column 0 sits at map X `camXPx`, the camera when the level loaded, and
-   * the 512 px tilemap repeats across the map. In the game it also drifts left (#563).
+   * the 512 px tilemap repeats across the map. In the game it also drifts slowly left (a quarter pixel a
+   * frame, CODE_05C45B, bank_05.asm:5546-5558); the drawing leaves that out, so `camXPx` is the position at load
+   * and not where the layer sits a few seconds in (#563, docs/rom/layer3-world-locked.md).
    */
   worldLocked?: { camXPx: number }
   /** A tide ($00-$7F settings byte) tiles every 256 px and draws one copy of its two-copy tilemap. */
