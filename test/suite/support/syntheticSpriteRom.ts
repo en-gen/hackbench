@@ -23,6 +23,7 @@ import { RomFile } from '../../../src/rom/RomFile'
 import type { DispatcherSpan } from '../../../src/rom/sprites/interp/SpriteDispatch'
 
 import { putGm11Spans } from './syntheticGm11Spans'
+import { EERIE_HANDLER, putEeries } from './syntheticEeries'
 import { putGrinderRoutines } from './syntheticGrinder'
 
 export interface SyntheticOptions {
@@ -92,6 +93,12 @@ export interface SyntheticOptions {
   grinderDrawsFromPass1?: boolean
   /** Id 31's MAIN pointer is id 103's handler: the shape matches, the id does not. */
   id31IsGrinder?: boolean
+  /**
+   * The sprite loader's five-Eerie spawner (#1015): a call site, a spawn routine of our own at the spawner's entry
+   * (inputs in $00-$03, the sprite data through $CE, up to five slots out), its tables, a slot search over `room` slots
+   * (default 12), and a sprite $39 whose tile is its X speed. `stream` is the sprite list the data pointer reaches.
+   */
+  eeries?: { stream?: number[]; spacing?: number[]; room?: number; travel?: boolean }
 }
 
 const BANK = 0x8000
@@ -260,6 +267,7 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   mainTable[32] = 0x92a0
   mainTable[103] = 0x9200
   mainTable[33] = 0x8a80
+  if (o.eeries) mainTable[57] = EERIE_HANDLER
   if (o.id31IsGrinder) mainTable[31] = 0x9500
   for (const id of [20, 21, 22, 23, 24, 25]) mainTable[id] = 0x8640
   const words = (t: number[]) => t.flatMap(w => [w & 0xff, w >> 8])
@@ -448,5 +456,6 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   ]) {
     put(addr, [0xa0, status, 0x98, 0x9d, 0xc8, 0x14, 0x60, 0xea]) // LDY #st / TYA / STA $14C8,X / RTS
   }
+  if (o.eeries) putEeries(put, o.eeries)
   return RomFile.fromBytes('synthetic.sfc', rom)
 }

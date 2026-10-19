@@ -85,6 +85,64 @@ export const SYNTHETIC_FINGERPRINTS: OverworldFingerprints = Object.freeze({
 })
 
 /**
+ * A handler for extended object $00 that files a screen exit as the game's does, in different
+ * instructions, ending in RTL because the synthetic dispatcher below reaches it by a long jump.
+ */
+// prettier-ignore
+export const SCREEN_EXIT_FILING_CODE: readonly number[] = [
+  0xa6, 0x0a,       // LDX _A
+  0x8a,             // TXA
+  0x29, 0x1f,       // AND #$1F
+  0xaa,             // TAX
+  0xa7, 0x65,       // LDA [Layer1DataPtr]
+  0x9d, 0xb8, 0x19, // STA ExitTableLow,X
+  0x85, 0x5a,       // STA LvlLoadObjNo
+  0xc2, 0x20,       // REP #$20
+  0xe6, 0x65,       // INC Layer1DataPtr (16 bit)
+  0xe2, 0x20,       // SEP #$20
+  0xa5, 0x0b,       // LDA _B
+  0x4a,             // LSR A, bit 0 into carry
+  0x8d, 0x93, 0x1b, // STA UseSecondaryExit
+  0xa9, 0x00,       // LDA #0
+  0x2a,             // ROL A, the carry is bit 8
+  0x9d, 0xd8, 0x19, // STA ExitTableHigh,X
+  0x6b,             // RTL
+]
+export const SCREEN_EXIT_HANDLER_AT = 0x0db000
+/**
+ * The synthetic cart's own extended-object load path, written with different instructions from
+ * the game's so the assembled cart holds no run of the game's code: a loader stub at the
+ * LevLoadExtObj address, a dispatcher, a long-pointer jump at the ExecutePtrLong address
+ * (a 3-byte table read into scratch, then JML [abs]) and the table. Each entry is
+ * [address, bytes].
+ */
+export const SCREEN_EXIT_LOADER_PLANT: readonly [addr: number, bytes: readonly number[]][] = [
+  [0x0586e3, [0xe2, 0x10, 0xe2, 0x20, 0x22, 0x00, 0xa1, 0x0d, 0x60]], // SEP, SEP, JSL dispatcher, RTS
+  [0x0da100, [0xe2, 0x30, 0x22, 0xfa, 0x86, 0x00, 0x6b]], // SEP, JSL pointer jump, RTL
+  [
+    0x0086fa,
+    // prettier-ignore
+    [
+      0xa5, 0x59, 0x85, 0x03, 0x0a, 0x65, 0x03, 0xaa,  // index * 3 into X
+      0xbf, 0x10, 0xa1, 0x0d, 0x85, 0x00,              // table byte 0 -> $00
+      0xbf, 0x11, 0xa1, 0x0d, 0x85, 0x01,              // byte 1 -> $01
+      0xbf, 0x12, 0xa1, 0x0d, 0x85, 0x02,              // byte 2 -> $02
+      0xdc, 0x00, 0x00,                                // JML [$0000]
+    ],
+  ],
+  [0x0da110, [0x00, 0xb0, 0x0d]], // entry 0 -> SCREEN_EXIT_HANDLER_AT
+]
+/** Writes the synthetic load path and handler into `rom`; skipped on an image too short to hold those banks. */
+export function plantScreenExitFiling(rom: RomFile): void {
+  try {
+    for (const [addr, bytes] of SCREEN_EXIT_LOADER_PLANT) rom.writeAt(addr, [...bytes])
+    rom.writeAt(SCREEN_EXIT_HANDLER_AT, [...SCREEN_EXIT_FILING_CODE])
+  } catch {
+    // An image too short to hold these banks has no exit graph to build.
+  }
+}
+
+/**
  * The stock code SubmapFlagGate and OverworldEntrances check, at vanilla's
  * addresses, so a synthetic image is not declined. Tests that must catch a
  * wrong constant plant their own bytes at literal addresses instead.
@@ -94,6 +152,7 @@ export function plantStockSubmapCode(rom: RomFile): void {
     if ('fingerprints' in c) rom.writeAt(c.addr, nops(c.length))
     else rom.writeAt(c.addr, [...c.bytes])
   }
+  plantScreenExitFiling(rom)
   plantSpan(rom, START_EXIT_SPAN, START_EXIT_PLANT)
   plantSpan(rom, START_MAIN_SPAN, START_MAIN_PLANT)
   rom.writeAt(0x05d8a2, [0xc9, 0x25, 0x90, 0x03, 0x38, 0xe9, 0x24])
@@ -207,7 +266,9 @@ export function writeSyntheticRom(dir: string, rooms: Map<number, number[]>): st
     // `levelHasObjects` rejects a room whose first byte is $FF: leaves need one.
     if (destinations.length === 0) body.push(0x00, 0x10, 0x01)
 
-    for (const dest of destinations) {
+    if (destinations.length > 32) throw new Error(`$${index.toString(16)} has over 32 exits`)
+    // Exit i on screen i: the game keeps one exit per screen (bank_0D.asm:1428-1435).
+    for (const [n, dest] of destinations.entries()) {
       // An exit carries only the low byte; buildLevelExitGraph re-adds bit 8
       // from the reaching root's submap flag, so this edge is unreachable.
       if ((dest & 0x100) !== (index & 0x100)) {
@@ -216,7 +277,7 @@ export function writeSyntheticRom(dir: string, rooms: Map<number, number[]>): st
       // Extended object $00, settings 0, byte 1 of 0: a primary screen exit,
       // so the trailing byte is the destination low byte (see the screen-exit
       // branch of LevelParser.parseLevelObjects).
-      body.push(0x00, 0x00, 0x00, dest & 0xff)
+      body.push(n, 0x00, 0x00, dest & 0xff)
     }
     body.push(0xff)
 
