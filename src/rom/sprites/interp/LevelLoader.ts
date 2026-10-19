@@ -47,17 +47,23 @@ export const LOADER_TOTAL_CAP = 2_000_000
 export type LevelLoad =
   { ok: true; wram: Uint8Array; steps: number } | { ok: false; reason: string }
 
-// Entries the loader runs, by their 16-bit address within bank $05 or $00 (compared with what the ROM's own
-// call and jump operands name; see SITES).
-const POINTER_LOADER = 0x05d8b7
-const HEADER_LOADER = 0xd796 // CODE_05D796, whose sublevel branch ends in the jump into the pointer loader
-const ENTRANCE_SETUP = 0xa635
-const DATA_LOADER = 0x801e
+// Fixed places of the GM11 sequence and of the sublevel jump (bank_00.asm:2644-2657, bank_05.asm:7162). Every
+// other address the loader enters (the header loader, the entrance setup, the data loader, the pointer loader)
+// and every cell it seeds is read from the operands found here, never stated.
+const HEADER_CALL = 0x0096f4
+const ENTRANCE_CALL = 0x009705
+const SCREEN_SETUP = 0x009708
+const SCREEN_UPDATE_CALL = SCREEN_SETUP + 10
+const DATA_CALL = 0x009716
 const SUBLEVEL_JUMP = 0x05d83b // the jump into the pointer loader
 const OVERWORLD_PATH = (SUBLEVEL_JUMP + 3) & 0xffff // derived: where CODE_05D796's overworld branch jumps, the instruction after that jump
-const LEVEL_NUMBER_DP = 0x0e // the cell the loader writes the level number to, and the pointer loader reads
-const SUBLEVEL_FLAG = 0x141a // SublevelCount, which the loader sets and CODE_05D796 tests
-const SCREEN_UPDATE = 0xf6db // UpdateScreenPosition, which the screen setup calls
+
+const NAME_HEADER_CALL = 'GM11 call JSL CODE_05D796 at $00:96F4'
+const NAME_ENTRANCE_CALL = 'GM11 call JSR CODE_00A635 at $00:9705'
+const NAME_DATA_CALL = 'GM11 call JSL CODE_05801E at $00:9716'
+const NAME_JUMP = 'jump into the pointer loader at $05:D83B'
+const NAME_HEADER = 'CODE_05D796 prologue and sublevel branch at $05:D796'
+const NAME_POINTER = 'pointer loader at $05:D8B7'
 
 // 65816 opcodes, named once; each site below checks one instruction.
 const PHB = 0x8b
@@ -73,13 +79,18 @@ const CLC = 0x18
 const STZ_ABS = 0x9c
 const BNE = 0xd0
 
+// Unchecked, as on develop (follow-up filed by Planning): the music upload call at $00:9702 between the layer
+// position copy and the entrance call is not modelled, and CODE_05D796's screen-exit code from $05:D7B3 to the
+// jump at $05:D83B is skipped, because the loader enters CODE_05D8B7 with the level number already in place.
+
 /**
  * One instruction the loader relies on, checked on its own: its opcode and, where the loader is bound to
- * it, its operand (a call or jump target, or a cell), read from the ROM. No run of more than one
- * instruction is stated, so no ROM bytes are held here (rom-interpretation.md stock-code exception, #1030).
+ * it, its operand, read from the ROM. No run of more than one instruction is stated, so no ROM bytes are
+ * held here (per .claude/rules/rom-interpretation.md stock-code exception, added in #1030). Every
+ * instruction between the sites is run on the core or, for the two gaps above, unchecked as on develop.
  * `bank` is the bank a long call must name ($80 mirrors ignored unless `bankExact`). `lands` is, for a
- * relative branch, the opcode the instruction its displacement reaches must carry (the distance is read, not stated). Everything between the sites is not
- * compared: the routines run from the ROM's own bytes, and the runner refuses a stray return or a budget overrun.
+ * relative branch, the opcode the instruction its displacement reaches must carry (the distance is read,
+ * not stated). Operands that name an entry or a cell are not compared: they are read and followed (`entriesOf`).
  */
 export interface Site {
   name: string
@@ -92,39 +103,105 @@ export interface Site {
   lands?: number
 }
 
-export const LOADER_SITES: readonly Site[] = [
-  // GM11LoadLevel's three calls, in the order the loader makes them (bank_00.asm:2644, 2651, 2657).
-  { name: 'GM11 call JSL CODE_05D796 at $00:96F4', at: 0x0096f4, op: JSL, operand: { value: HEADER_LOADER, size: 2 }, bank: 5 }, // prettier-ignore
-  { name: 'GM11 call JSR CODE_00A635 at $00:9705', at: 0x009705, op: JSR, operand: { value: ENTRANCE_SETUP, size: 2 } }, // prettier-ignore
-  { name: 'GM11 call JSL CODE_05801E at $00:9716', at: 0x009716, op: JSL, operand: { value: DATA_LOADER, size: 2 }, bank: 5 }, // prettier-ignore
-  // The screen setup (bank_00.asm:2652) opens with a load, not a hook: a hack that replaces it (Seven Vanilla
-  // Levels does) is code a sequence that ran the original span would misread. Its calls are followed by the run.
-  { name: 'GM11 code between the entrance setup and the level data call at $00:9708', at: 0x009708, op: LDA_IMM }, // prettier-ignore
-  // The span ends in the call to UpdateScreenPosition, in bank 0 itself (a $80 mirror is another return bank).
-  { name: 'GM11 code between the entrance setup and the level data call at $00:9708', at: 0x009708 + 10, op: JSL, operand: { value: SCREEN_UPDATE, size: 2 }, bank: 0, bankExact: true }, // prettier-ignore
-  // CODE_05D796 (bank_05.asm:7079-7093): it opens with the PHB that CODE_05D8B7's PLB pairs with, reads the
-  // sublevel flag the loader sets, and its sublevel branch is the jump into the pointer loader, the overworld
-  // branch the jump past it. Single instructions at their offsets; the routine itself is not run.
-  { name: 'CODE_05D796 prologue and sublevel branch at $05:D796', at: 0x05d796, op: PHB },
-  { name: 'CODE_05D796 prologue and sublevel branch at $05:D796', at: 0x05d796 + 5, op: STZ_ABS },
-  { name: 'CODE_05D796 prologue and sublevel branch at $05:D796', at: 0x05d796 + 21, op: LDA_ABS, operand: { value: SUBLEVEL_FLAG, size: 2 } }, // prettier-ignore
-  { name: 'CODE_05D796 prologue and sublevel branch at $05:D796', at: 0x05d796 + 26, op: JMP, operand: { value: OVERWORLD_PATH, size: 2 } }, // prettier-ignore
-  // The sublevel branch ends in JMP CODE_05D8B7 (bank_05.asm:7162).
-  { name: 'jump into the pointer loader at $05:D83B', at: SUBLEVEL_JUMP, op: JMP, operand: { value: POINTER_LOADER & 0xffff, size: 2 } }, // prettier-ignore
-  // CODE_05D8B7 opens with REP and reads the level number from the cell the loader writes (bank_05.asm:7228-7229).
-  { name: 'pointer loader at $05:D8B7', at: POINTER_LOADER, op: REP },
-  { name: 'pointer loader at $05:D8B7', at: POINTER_LOADER + 5, op: CLC },
-  { name: 'pointer loader at $05:D8B7', at: POINTER_LOADER + 2, op: LDA_DP, operand: { value: LEVEL_NUMBER_DP, size: 1 } }, // prettier-ignore
-  // The entrance setup opens with a load (bank_00.asm:4914) and the data loader with PHP (bank_05.asm:21).
-  { name: 'Mario entrance setup at $00:A635', at: ENTRANCE_SETUP, op: LDA_ABS },
-  { name: 'Mario entrance setup at $00:A635', at: ENTRANCE_SETUP + 9, op: BNE, lands: LDA_ABS },
-  { name: 'level data loader at $05:801E', at: 0x05801e, op: PHP },
-]
+/** The entries and cells the ROM's own calls and jump name, as 24-bit addresses and cell numbers. */
+interface Entries {
+  header: number
+  headerBank: number
+  entrance: number
+  data: number
+  dataBank: number
+  pointer: number
+  /** The cell the pointer loader reads the level number from. */
+  levelCell: number
+  /** The cell the header loader's prologue tests (the sublevel flag). */
+  sublevelCell: number
+}
+
+/** The operand of the instruction at `at` (and the bank byte of a long call), or null when its opcode is not `op`. */
+function operandAt(
+  rom: RomFile,
+  at: number,
+  op: number,
+  size: 1 | 2 = 2,
+): { value: number; bank: number } | null {
+  const b = bytesAt(rom, at, 1 + size + (op === JSL ? 1 : 0))
+  if (!b || b[0] !== op) return null
+  return { value: size === 2 ? (b[2]! << 8) | b[1]! : b[1]!, bank: op === JSL ? b[3]! : 0 }
+}
+
+/** What the ROM's calls and jump name, or the name of the site whose instruction is not the expected one. */
+function entriesOf(rom: RomFile): Entries | string {
+  const head = operandAt(rom, HEADER_CALL, JSL)
+  const ent = operandAt(rom, ENTRANCE_CALL, JSR)
+  const data = operandAt(rom, DATA_CALL, JSL)
+  const ptr = operandAt(rom, SUBLEVEL_JUMP, JMP)
+  if (!head) return NAME_HEADER_CALL
+  if (!ent) return NAME_ENTRANCE_CALL
+  if (!data) return NAME_DATA_CALL
+  if (!ptr) return NAME_JUMP
+  const headerBank = head.bank & 0x7f
+  const dataBank = data.bank & 0x7f
+  const header = (headerBank << 16) | head.value
+  const pointer = (SUBLEVEL_JUMP & 0xff0000) | ptr.value
+  const flag = operandAt(rom, header + 21, LDA_ABS)
+  const level = operandAt(rom, pointer + 2, LDA_DP, 1)
+  if (!flag) return NAME_HEADER
+  if (!level) return NAME_POINTER
+  return {
+    header,
+    headerBank,
+    entrance: ent.value,
+    data: (dataBank << 16) | data.value,
+    dataBank,
+    pointer,
+    levelCell: level.value,
+    sublevelCell: flag.value,
+  }
+}
+
+/** The instructions the loader checks on `rom`, at the addresses its own calls name (the fixed ones first). */
+export function loaderSites(rom: RomFile): Site[] {
+  const sites: Site[] = [
+    // GM11LoadLevel's three calls, in the order the loader makes them (bank_00.asm:2644, 2651, 2657).
+    { name: NAME_HEADER_CALL, at: HEADER_CALL, op: JSL, bank: 5 },
+    { name: NAME_ENTRANCE_CALL, at: ENTRANCE_CALL, op: JSR },
+    { name: NAME_DATA_CALL, at: DATA_CALL, op: JSL, bank: 5 },
+    // The screen setup (bank_00.asm:2652) opens with a load, not a hook, and ends in the call to
+    // UpdateScreenPosition in bank 0 itself (a $80 mirror is another return bank). The rest is run.
+    { name: 'GM11 code between the entrance setup and the level data call at $00:9708', at: SCREEN_SETUP, op: LDA_IMM }, // prettier-ignore
+    { name: 'GM11 code between the entrance setup and the level data call at $00:9708', at: SCREEN_UPDATE_CALL, op: JSL, bank: 0, bankExact: true }, // prettier-ignore
+    // The sublevel branch ends in JMP CODE_05D8B7 (bank_05.asm:7162).
+    { name: NAME_JUMP, at: SUBLEVEL_JUMP, op: JMP },
+  ]
+  const e = entriesOf(rom)
+  if (typeof e === 'string') return sites
+  const h = NAME_HEADER
+  const p = NAME_POINTER
+  const a = 'Mario entrance setup at $00:A635'
+  // CODE_05D796 (bank_05.asm:7079-7093) opens with the PHB that CODE_05D8B7's PLB pairs with, tests the sublevel
+  // flag the loader sets, and ends its overworld branch in a jump past the sublevel one. Its prologue is run
+  // (loadLevelState); only single instructions are named here.
+  sites.push(
+    { name: h, at: e.header, op: PHB },
+    { name: h, at: e.header + 5, op: STZ_ABS },
+    { name: h, at: e.header + 21, op: LDA_ABS },
+    { name: h, at: e.header + 26, op: JMP, operand: { value: OVERWORLD_PATH, size: 2 } },
+    // CODE_05D8B7 opens with REP and reads the level number from the cell the loader writes (bank_05.asm:7228-7229).
+    { name: p, at: e.pointer, op: REP },
+    { name: p, at: e.pointer + 2, op: LDA_DP },
+    { name: p, at: e.pointer + 5, op: CLC },
+    // The entrance setup opens with a load (bank_00.asm:4914), its first branch lands on one; the data loader opens with PHP.
+    { name: a, at: e.entrance, op: LDA_ABS },
+    { name: a, at: e.entrance + 9, op: BNE, lands: LDA_ABS },
+    { name: 'level data loader at $05:801E', at: e.data, op: PHP },
+  )
+  return sites
+}
 
 /** Whether the instruction at site `s` is the one the loader knows (opcode, operand, bank, branch landing). */
 function siteHolds(rom: RomFile, s: Site): boolean {
-  const n =
-    1 + (s.operand?.size ?? (s.lands === undefined ? 0 : 1)) + (s.bank === undefined ? 0 : 1)
+  // A long call is four bytes: opcode, 16-bit target, bank.
+  const n = s.bank !== undefined ? 4 : 1 + (s.operand?.size ?? (s.lands === undefined ? 0 : 1))
   const b = bytesAt(rom, s.at, n)
   if (!b || b[0] !== s.op) return false
   if (s.operand) {
@@ -136,15 +213,18 @@ function siteHolds(rom: RomFile, s: Site): boolean {
     if (bytesAt(rom, dest, 1)?.[0] !== s.lands) return false
   }
   if (s.bank === undefined) return true
-  return (s.bankExact ? b[n - 1]! : b[n - 1]! & 0x7f) === s.bank
+  return (s.bankExact ? b[3]! : b[3]! & 0x7f) === s.bank
 }
 
 /** The first loader site whose instruction is not the one this loader knows, or null. */
 export function loaderShapeProblem(rom: RomFile): string | null {
   const mapper = mapperProblem(rom)
   if (mapper) return mapper
-  const bad = LOADER_SITES.find(s => !siteHolds(rom, s))
-  return bad ? `${bad.name} is not the vanilla shape; the loader will not run it` : null
+  const refuse = (name: string) => `${name} is not the vanilla shape; the loader will not run it`
+  const bad = loaderSites(rom).find(s => !siteHolds(rom, s))
+  if (bad) return refuse(bad.name)
+  const e = entriesOf(rom)
+  return typeof e === 'string' ? refuse(e) : null
 }
 
 /** RNGCalc (rammap.asm), the 16-bit GetRand state. */
@@ -158,6 +238,7 @@ export const RNG_CALC = 0x148b
 export function loadLevelState(rom: RomFile, level: number, rng = 0): LevelLoad {
   const problem = loaderShapeProblem(rom)
   if (problem) return { ok: false, reason: problem }
+  const e = entriesOf(rom) as Entries // an Entries: the shape check above passed
   const { bus, cpu } = smwMachine(rom)
   const w = bus.wram
   // RNGCalc ($148B/C) as an earlier load left it: the loader calls GetRand (SmashLanding.ts).
@@ -165,9 +246,9 @@ export function loadLevelState(rom: RomFile, level: number, rng = 0): LevelLoad 
   w[RNG_CALC + 1] = rng >> 8
   // SublevelCount ($141A) nonzero is a sublevel entry: it skips the
   // overworld-only intro branches that would overwrite the sprite memory setting.
-  w[SUBLEVEL_FLAG] = 1
-  w[LEVEL_NUMBER_DP] = level & 0xff
-  w[LEVEL_NUMBER_DP + 1] = (level >> 8) & 0xff
+  w[e.sublevelCell] = 1
+  w[e.levelCell] = level & 0xff
+  w[e.levelCell + 1] = (level >> 8) & 0xff
   let steps = 0
   // One loader step: `go` gets the steps left in the total cap and returns how the step ended.
   const step = (name: string, go: (room: number) => CallResult) => {
@@ -206,6 +287,32 @@ export function loadLevelState(rom: RomFile, level: number, rng = 0): LevelLoad 
               : null,
       )
     })
+  // CODE_05D796's prologue, run from its entry to the instruction after its overworld jump (where the sublevel
+  // branch continues). Entered with 16-bit registers, which the prologue itself must narrow; leaving the
+  // routine's own range (a hook) or leaving 16-bit registers behind is refused. The screen-exit code after it
+  // (to the jump at $05:D83B) is not run, as on develop.
+  const prologue = () =>
+    step('CODE_05D796 prologue', room => {
+      nativeReset(cpu, 0x04)
+      cpu.pb = e.headerBank
+      const lo = e.header & 0xffff
+      cpu.pc = lo
+      const s0 = cpu.s
+      const arrive = lo + 29
+      const at = (c: Cpu65816) => `$${c.pb.toString(16).toUpperCase().padStart(2, '0')}:${c.pc.toString(16).toUpperCase().padStart(4, '0')}` // prettier-ignore
+      const gone = (c: Cpu65816): CallResult | null =>
+        c.pb !== e.headerBank || c.pc < lo || c.pc > arrive
+          ? { kind: 'refused', reason: `CODE_05D796's prologue left its routine at ${at(c)}`, at: (c.pb << 16) | c.pc, steps: 0 } // prettier-ignore
+          : null
+      const r = runUntil(cpu, room, c => c.pb === e.headerBank && c.pc === arrive, gone)
+      if (r.kind !== 'returned') return r
+      const why = !(cpu.m8 && cpu.x8)
+        ? "CODE_05D796's prologue did not narrow the registers to 8 bits"
+        : cpu.s !== s0 - 1
+          ? "CODE_05D796's prologue did not leave exactly its PHB on the stack"
+          : null
+      return why ? { kind: 'refused', reason: why, at: (cpu.pb << 16) | cpu.pc, steps: r.steps } : r
+    })
   try {
     // CODE_05D8B7 is entered mid-routine, after CODE_05D796's PHB; its PLB needs that byte.
     // GM11LoadLevel's order (bank_00.asm:2644-2657): the header loader, the layer position copy
@@ -213,11 +320,12 @@ export function loadLevelState(rom: RomFile, level: number, rng = 0): LevelLoad 
     // entrance state), the screen setup (2652-2656, ending in UpdateScreenPosition), then CODE_05801E.
     // That one ends with PLP, RTL; it saves its own DB use via the JSL caller.
     const bad =
-      run('level pointer loader', POINTER_LOADER, 'jsl', 0x05, [0x05]) ??
+      prologue() ??
+      run('level pointer loader', e.pointer, 'jsl', e.pointer >> 16, [e.pointer >> 16]) ??
       span('layer position copy', 0x0096f8, 0x009702) ??
-      run('Mario entrance setup', ENTRANCE_SETUP, 'jsr', 0x00) ??
+      run('Mario entrance setup', e.entrance, 'jsr', 0x00) ??
       span('screen position setup', 0x009708, 0x009716) ??
-      run('level data loader', 0x05801e, 'jsl', 0x05)
+      run('level data loader', e.data, 'jsl', e.dataBank)
     if (bad) return { ok: false, reason: bad }
   } catch (e) {
     if (e instanceof Refusal) return { ok: false, reason: e.message }

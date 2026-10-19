@@ -783,14 +783,16 @@ that 13.1 byte-checked. Round 1's attribution ("all four first fail on Lunar
 Magic's JSL at `$05:D8B1`") described that lead-in, which the sublevel path
 never executes; it was the wrong thing to check and is gone. Now checked, in
 order: GM11's three calls (`$00:96F4`, `$00:9705`, `$00:9716`, each by the target its operand
-names), the opening instruction of the screen setup (`$00:9708`), CODE_05D796's opening instruction, the
-sublevel flag it reads and the jump that ends its overworld branch (`$05:D796`), the jump into the pointer
-loader (`$05:D83B`, by its target), and the opening instruction of each entry of 13.1 (the pointer loader
-also by the level-number cell it reads). Nothing longer than one instruction is stated (#1081; before it,
-runs of 9 to 29 bytes were compared, then hashed, which the fingerprint minimum rejected as too short to
-hide anything). Everything between those sites is not compared: the GM11 spans (`$00:96F8`, `$00:9708`),
-CODE_00A796 and UpdateScreenPosition run from the ROM's bytes, and the music upload between the first two
-calls is not modelled and not checked. The first failure per corpus ROM:
+names, which the loader then follows), the opening instruction of the screen setup and its call to
+UpdateScreenPosition, the opening instructions of CODE_05D796, the jump into the pointer loader
+(`$05:D83B`), and the opening instructions of each entry of 13.1. CODE_05D796's prologue is then run on the core
+from its entry to the instruction after its overworld jump (`$05:D7B3` on vanilla); a hook that leaves the
+routine, or a prologue that does not narrow the registers to 8 bits, is refused with a reason (#1081). Nothing
+longer than one instruction is stated (before #1081, runs of 9 to 29 bytes were compared, then hashed, which the
+fingerprint minimum rejected as too short to hide anything). The GM11 spans (`$00:96F8`, `$00:9708`),
+CODE_00A796 and UpdateScreenPosition run from the ROM's bytes. Two gaps are unchecked, as on develop: the music
+upload call at `$00:9702`, and CODE_05D796's screen-exit code from `$05:D7B3` to the jump at `$05:D83B`, which the
+loader skips by entering CODE_05D8B7 with the level number in place. The first failure per corpus ROM:
 
 | ROM                   | First failing check                    |
 | --------------------- | -------------------------------------- |

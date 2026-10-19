@@ -3,7 +3,11 @@
  * checks gated on the corpus. Every defect the oracle claims to catch is
  * planted here and shown to change the verdict.
  */
-import { levelSeed, loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
+import {
+  levelSeed,
+  loaderShapeProblem,
+  loadLevelState,
+} from '../../../../src/rom/sprites/interp/LevelLoader'
 import { readdirSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { runOnce, runSprite, TOTAL_STEP_CAP } from '../../../../src/rom/sprites/interp/SpriteRunner'
@@ -500,7 +504,7 @@ describe.skipIf(!hasRom(VANILLA))('ROM level loader (vanilla)', () => {
     rom.writeAt(0x05d83b, [0x4c, 0x00, 0x80])
     expect(loadLevelState(rom, 0x105)).toMatchObject({
       ok: false,
-      reason: expect.stringMatching(/jump into the pointer loader/),
+      reason: expect.stringMatching(/pointer loader/),
     })
   })
   it('a planted header-decode defect changes the loaded state (the loader can go red)', () => {
@@ -681,7 +685,8 @@ describe('level loader on a synthetic cart', () => {
     // one is never refused as "not the vanilla shape" (it either runs or is refused while running).
     for (const k of ['scroll', 'update', 'scrollTail', 'updateTail', 'updateOperand'] as const) {
       const r = run({ badLoader: k })
-      if (!r.ok) expect(r.reason, k).not.toMatch(/not the vanilla shape/)
+      expect(loaderShapeProblem(buildSyntheticRom({ badLoader: k })), k).toBeNull()
+      expect(r.ok ? 'ran' : r.reason, k).not.toMatch(/not the vanilla shape/)
     }
   })
 

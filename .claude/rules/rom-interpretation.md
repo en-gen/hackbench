@@ -190,8 +190,9 @@ In practice:
   `mapCollision` product run SMW's own Mario-versus-layer-1 routines
   (`CODE_00EAA6`, `CODE_00EADB`) on the same core, bus, guard and call helpers
   over a synthetic level, seeded by the ROM's own level loader. Same limits as
-  the sprite exception: fixed entries, byte-checked shapes, step budgets, a
-  refusal with a reason, nothing else run. Do not extend it to other routines
+  the sprite exception: fixed entries, shapes checked one named instruction at
+  a time (no stored byte runs), step budgets, a refusal with a reason, nothing
+  else run. Do not extend it to other routines
   without a decision of the same kind.
 - Fourth bounded exception, stock-code checks (D126, owner 2026-10-17; size rule BA
   2026-10-18 under owner delegation): a check of stock code with under 24 unknown bytes
@@ -202,8 +203,7 @@ In practice:
   diversion anywhere shows as wrong behaviour); seeded only with the state that code reads; a
   step budget; a refusal with a reason; only the result the check needs is read back. First
   user: the CODE_0DA512 screen-exit gate, `src/rom/ScreenExitFiling.ts` (#1030), entered at
-  LevLoadExtObj. Also: the level loader's GM11 spans and entry routines, `src/rom/sprites/interp/LevelLoader.ts`
-  (#1081), which state only single instructions (call and jump targets, opening opcodes) and run the rest.
+  LevLoadExtObj.
 - A derivation that truly cannot be read must be NAMED as a hack-fragility
   point and paired with honest degradation: compare the handler against its
   vanilla bytes and DECLINE TO ASSERT when it diverges, rather than rendering

@@ -1,9 +1,9 @@
 /**
- * The level loader holds no ROM bytes and no fingerprints: it checks single instructions (LOADER_SITES,
- * an opcode and the operand it is bound to) and then runs the ROM's own routines on the 65816 core
- * (rom-interpretation.md stock-code exception, #1030). Vanilla: the loader result is unchanged from the
- * byte-literal version it replaces. Hacks: every store hack develop's loader accepted still loads.
- * Synthetic: a changed site is refused by name.
+ * The level loader holds no ROM bytes and no fingerprints: it checks single instructions (loaderSites,
+ * an opcode and, where bound, the operand) and then runs the ROM's own routines on the 65816 core
+ * (per .claude/rules/rom-interpretation.md stock-code exception, added in #1030). Vanilla: the loaded work RAM
+ * is unchanged from the byte-literal version it replaces. Hacks: every one of the 146 store hacks gets the
+ * outcome it got on develop. Synthetic: a changed site is refused by name, and CODE_05D796's prologue is run.
  */
 import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
@@ -12,17 +12,23 @@ import { describe, expect, it } from 'vitest'
 import {
   loaderShapeProblem,
   loadLevelState,
-  LOADER_SITES,
+  loaderSites,
+  type Site,
 } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { freshRom, hasRom, TOOLS_ROOT, VANILLA } from '../../support/corpus'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 
-/** SHA-256 over every level number's (steps, WRAM), measured on the byte-literal loader at develop 7848539b. */
-const VANILLA_ALL_LEVELS = '4b36f5feb7d21b5827a3f7b55a83274aea0f27edda616542da8609bc7a89648a'
+/**
+ * SHA-256 over every level number's (steps, WRAM). WRAM alone is 46135805aad6cc6af578d77c8f9e169b767fba2b3caf37ef858e07977da9c4bb,
+ * measured on the loader without the prologue run (156dfff9) and with it (this value's version), one machine, 2026-10-19:
+ * the prologue run adds 11 steps per level and changes no cell. Before that, 4b36f5fe... on the byte-literal loader at develop 7848539b.
+ */
+const VANILLA_ALL_LEVELS = '0346ff5b7acd6e432b040061dec17df4b7a79a49fe2850131e07409d03108a9c'
+const VANILLA_ALL_WRAM = '46135805aad6cc6af578d77c8f9e169b767fba2b3caf37ef858e07977da9c4bb'
 
 /**
- * The store hacks (hackbench-tools/hacks/roms, 146 on 2026-10-18) whose loader develop a990aaac accepted by
+ * The store hacks (hackbench-tools/hacks/roms, 146 on 2026-10-19) whose loader develop a990aaac accepted by
  * shape, measured by running develop's byte-literal shape list over all 146 (one machine). Of them all but
  * RUN_REFUSED load level $105; those five are accepted by the shape check and then refused while running,
  * with a reason (the pointer loader never returns for four, one leaves ROM code), as on develop.
@@ -75,22 +81,38 @@ describe('the loader holds no fingerprint and no byte run', () => {
     expect(printsIn('const b = [0x22, 0x96, 0xd7, 0x05, 0x01]')).toHaveLength(1)
   })
   it('every site is one instruction: an opcode, at most a 16-bit operand and a bank', () => {
-    expect(LOADER_SITES.length).toBeGreaterThan(0)
-    for (const s of LOADER_SITES) expect(s.operand?.size ?? 0, s.name).toBeLessThanOrEqual(2)
+    const sites = loaderSites(buildSyntheticRom())
+    expect(sites.length).toBeGreaterThan(10)
+    for (const s of sites) expect(s.operand?.size ?? 0, s.name).toBeLessThanOrEqual(2)
   })
 })
 
-/** Every byte of every site on `make()`'s ROM: changed, the loader refuses by the site's name. */
+/** Offsets within a site whose change must be refused by the site's own name: the opcode, a compared operand, the branch distance, the bank. */
+function guardedOffsets(s: Site): number[] {
+  return [
+    0,
+    ...(s.operand ? Array.from({ length: s.operand.size }, (_, i) => i + 1) : []),
+    ...(s.lands === undefined ? [] : [1]),
+    ...(s.bank === undefined ? [] : [3]),
+  ]
+}
+
+/** Every guarded byte of every site on `make()`'s ROM: changed, the loader refuses by the site's name; a followed operand moves the entry and is refused too. */
 function expectSitesGuarded(make: () => RomFile): void {
   expect(loaderShapeProblem(make())).toBeNull()
-  for (const s of LOADER_SITES) {
-    const n = 1 + (s.operand?.size ?? 0) + (s.bank === undefined ? 0 : 1)
-    for (let i = 0; i < n; i++) {
+  for (const s of loaderSites(make())) {
+    for (const i of guardedOffsets(s)) {
       const rom = make()
       rom.writeAt(s.at + i, [rom.readAt(s.at + i, 1)![0]! ^ 0x01])
       expect(loaderShapeProblem(rom), `${s.name} +${i}`).toBe(
         `${s.name} is not the vanilla shape; the loader will not run it`,
       )
+    }
+    // A call or jump whose operand is followed, not compared: changing it moves the entry, which is refused.
+    if (s.operand === undefined && !s.bankExact && [0x20, 0x22, 0x4c].includes(s.op)) {
+      const rom = make()
+      rom.writeAt(s.at + 1, [rom.readAt(s.at + 1, 1)![0]! ^ 0x01])
+      expect(loaderShapeProblem(rom), `${s.name} operand`).not.toBeNull()
     }
   }
 }
@@ -98,18 +120,39 @@ function expectSitesGuarded(make: () => RomFile): void {
 describe.skipIf(!hasRom(VANILLA))(
   'vanilla: the structural loader gives the same result as the byte-literal one',
   () => {
-    it('all 512 level numbers: one digest over steps and WRAM', () => {
+    it('all 512 level numbers: one digest over steps and WRAM, one over WRAM alone', () => {
       const rom = freshRom()
       const h = createHash('sha256')
+      const hw = createHash('sha256')
       for (let level = 0; level < 512; level++) {
         const l = loadLevelState(rom, level)
         if (!l.ok) throw new Error(`level ${level}: ${l.reason}`)
         h.update(`${level}:${l.steps}:`).update(l.wram)
+        hw.update(l.wram)
       }
+      expect(hw.digest('hex')).toBe(VANILLA_ALL_WRAM)
       expect(h.digest('hex')).toBe(VANILLA_ALL_LEVELS)
     }, 120_000)
-    it('the vanilla ROM has no problem; each site refuses when any of its bytes changes', () => {
+    it('the vanilla ROM has no problem; each site refuses when any guarded byte changes', () => {
       expectSitesGuarded(() => freshRom())
+    })
+    it('witness: a JSL hook inside the CODE_05D796 prologue ($05:D79E) is refused, with a reason', () => {
+      const rom = freshRom()
+      rom.writeAt(0x05d79e, [0x22, 0x00, 0x80, 0x05])
+      expect(loaderShapeProblem(rom)).toBeNull()
+      expect(loadLevelState(rom, 0x105)).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/CODE_05D796's prologue left its routine/),
+      })
+    })
+    it('witness: the prologue SEP replaced by NOPs ($05:D799) is refused, with a reason', () => {
+      const rom = freshRom()
+      rom.writeAt(0x05d799, [0xea, 0xea])
+      expect(loaderShapeProblem(rom)).toBeNull()
+      expect(loadLevelState(rom, 0x105)).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/did not narrow the registers/),
+      })
     })
   },
 )
@@ -156,7 +199,7 @@ describe.skipIf(hackIds().length < 146)(
 )
 
 describe('synthetic: the loader runs hand-written code under its structural checks', () => {
-  it('accepts the cart; each byte of each checked instruction is refused by the site name', () => {
+  it('accepts the cart; each guarded byte of each checked instruction is refused by the site name', () => {
     expectSitesGuarded(() => buildSyntheticRom())
     expect(loadLevelState(buildSyntheticRom(), 0x105).ok).toBe(true)
   })
@@ -165,17 +208,16 @@ describe('synthetic: the loader runs hand-written code under its structural chec
     rom.writeAt(0x00a79a, [0x00])
     expect(loaderShapeProblem(rom)).toBeNull()
   })
-  it('the jump into the pointer loader is checked by its target: the opcode and each operand byte', () => {
+  it('the jump into the pointer loader is checked by its opcode, and its operand is followed to the entry', () => {
     const msg =
       'jump into the pointer loader at $05:D83B is not the vanilla shape; the loader will not run it'
-    for (const [i, v] of [
-      [0, 0x6c],
-      [1, 0xb8],
-      [2, 0xd9],
-    ] as const) {
-      const rom = buildSyntheticRom()
-      rom.writeAt(0x05d83b + i, [v])
-      expect(loaderShapeProblem(rom), `offset ${i}`).toBe(msg)
+    const rom = buildSyntheticRom()
+    rom.writeAt(0x05d83b, [0x6c])
+    expect(loaderShapeProblem(rom)).toBe(msg)
+    for (const i of [1, 2]) {
+      const moved = buildSyntheticRom()
+      moved.writeAt(0x05d83b + i, [moved.readAt(0x05d83b + i, 1)![0]! ^ 0x01])
+      expect(loaderShapeProblem(moved), `operand ${i}`).toMatch(/pointer loader at \$05:D8B7/)
     }
   })
   it('a long call to the right address in another bank is refused; the $80 mirror of bank 5 is not', () => {
@@ -184,5 +226,41 @@ describe('synthetic: the loader runs hand-written code under its structural chec
     expect(loaderShapeProblem(rom)).toMatch(/GM11 call JSL CODE_05D796/)
     rom.writeAt(0x0096f7, [0x85])
     expect(loaderShapeProblem(rom)).toBeNull()
+  })
+  it('the call to UpdateScreenPosition must name bank 0 exactly: the $80 mirror is refused', () => {
+    const rom = buildSyntheticRom()
+    expect(loaderShapeProblem(rom)).toBeNull()
+    rom.writeAt(0x009715, [0x80])
+    expect(loaderShapeProblem(rom)).toMatch(/GM11 code between the entrance setup/)
+    rom.writeAt(0x009715, [0x00])
+    expect(loaderShapeProblem(rom)).toBeNull()
+  })
+  it('the entrance setup branch must land on a load: a landing on anything else is refused', () => {
+    const msg =
+      'Mario entrance setup at $00:A635 is not the vanilla shape; the loader will not run it'
+    const rom = buildSyntheticRom()
+    rom.writeAt(0x00a635 + 11, [0xea]) // the load the branch reaches
+    expect(loaderShapeProblem(rom)).toBe(msg)
+    const far = buildSyntheticRom()
+    far.writeAt(0x00a635 + 10, [0x02]) // the distance: now reaches an operand byte
+    expect(loaderShapeProblem(far)).toBe(msg)
+  })
+  it('witness: a JSL hook inside the CODE_05D796 prologue (offset 8) leaves the routine and is refused', () => {
+    const rom = buildSyntheticRom()
+    rom.writeAt(0x05d796 + 8, [0x22, 0x00, 0x80, 0x05])
+    expect(loaderShapeProblem(rom)).toBeNull()
+    expect(loadLevelState(rom, 0x105)).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/CODE_05D796's prologue left its routine/),
+    })
+  })
+  it('witness: the prologue SEP replaced by NOPs leaves 16-bit registers and is refused', () => {
+    const rom = buildSyntheticRom()
+    rom.writeAt(0x05d796 + 1, [0xea, 0xea])
+    expect(loaderShapeProblem(rom)).toBeNull()
+    expect(loadLevelState(rom, 0x105)).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/did not narrow the registers/),
+    })
   })
 })
