@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest'
 import {
   loaderShapeProblem,
   loadLevelState,
+  GM11_SPANS,
   loaderSites,
   type Site,
 } from '../../../../src/rom/sprites/interp/LevelLoader'
@@ -199,6 +200,13 @@ describe.skipIf(hackIds().length < 146)(
     })
   },
 )
+
+describe('the GM11 spans the loader runs', () => {
+  it('start and stop where the checked sites sit: [$96F8, $9702) and [$9708, $9716)', () => {
+    expect(GM11_SPANS.layerCopy).toEqual([0x0096f8, 0x009702])
+    expect(GM11_SPANS.screenSetup).toEqual([0x009708, 0x009716])
+  })
+})
 
 describe('synthetic: the loader runs hand-written code under its structural checks', () => {
   it('accepts the cart; each guarded byte of each checked instruction is refused by the site name', () => {

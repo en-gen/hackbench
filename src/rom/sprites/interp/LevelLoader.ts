@@ -52,10 +52,21 @@ export type LevelLoad =
 // other address the loader enters (the header loader, the entrance setup, the data loader, the pointer loader)
 // and every cell it seeds is read from the operands found here, never stated.
 const HEADER_CALL = 0x0096f4
+/** The music upload call (bank_00.asm:2650): between the two spans, neither checked nor run. */
+const MUSIC_CALL = 0x009702
 const ENTRANCE_CALL = 0x009705
 const SCREEN_SETUP = 0x009708
 const SCREEN_UPDATE_CALL = SCREEN_SETUP + 10
 const DATA_CALL = 0x009716
+/**
+ * The two inline GM11 spans the loader runs from the ROM's bytes, as [from, to) in bank 0 (bank_00.asm:2645-2649,
+ * 2652-2656): each starts where the instruction before it ends and ends at the next call, so the checked
+ * sites and the run start and stop at the same places.
+ */
+export const GM11_SPANS = {
+  layerCopy: [HEADER_CALL + 4, MUSIC_CALL],
+  screenSetup: [SCREEN_SETUP, DATA_CALL],
+} as const
 const SUBLEVEL_JUMP = 0x05d83b // the jump into the pointer loader
 const JUMP_OFFSET = 26 // the JMP in CODE_05D796's prologue, from its entry (bank_05.asm:7093)
 const PROLOGUE_END = JUMP_OFFSET + 3 // the instruction after that JMP, where the sublevel branch continues
@@ -105,7 +116,8 @@ const BNE = 0xd0
 /**
  * One instruction the loader relies on, checked on its own: its opcode and, where the loader is bound to
  * it, its operand, read from the ROM. No run of more than one instruction is stated, so no ROM bytes are
- * held here (per .claude/rules/rom-interpretation.md stock-code exception, added in #1030). Every
+ * held here (per .claude/rules/rom-interpretation.md, block-collision use: the level loader checks single
+ * named instructions, no stored byte runs, #1081; the routines are run per the #1030 stock-code exception). Every
  * instruction between the sites is run on the core or, for the two gaps above, unchecked as on develop.
  * `bank` is the bank a long call must name ($80 mirrors ignored unless `bankExact`). `lands` is, for a
  * relative branch, the opcode the instruction its displacement reaches must carry (the distance is read,
@@ -345,9 +357,9 @@ export function loadLevelState(rom: RomFile, level: number, rng = 0): LevelLoad 
     const bad =
       prologue() ??
       run('level pointer loader', e.pointer, 'jsl', e.pointer >> 16, [e.pointer >> 16]) ??
-      span('layer position copy', 0x0096f8, 0x009702) ??
+      span('layer position copy', ...GM11_SPANS.layerCopy) ??
       run('Mario entrance setup', e.entrance, 'jsr', 0x00) ??
-      span('screen position setup', 0x009708, 0x009716) ??
+      span('screen position setup', ...GM11_SPANS.screenSetup) ??
       run('level data loader', e.data, 'jsl', e.dataBank)
     if (bad) return { ok: false, reason: bad }
   } catch (e) {
