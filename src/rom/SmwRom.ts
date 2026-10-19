@@ -453,6 +453,9 @@ export class SmwRom {
     const screenHigh = readSubmapHigh(this.rom, SCREEN_EXIT_HIGH_AT)
     if (typeof screenHigh === 'string') return { graph: new Map(), unavailable: screenHigh }
     // Last-exit-wins per screen (#957) is the stock handler's behaviour; found by running it.
+    // Runs after the byte-compare and table gates above because those refusals are cheaper and
+    // name a more basic fault; a handler that files differently declines the whole graph here,
+    // with the gate's own reason, rather than applying the rule to exits the game would file otherwise.
     const filing = screenExitFilingMismatch(this.rom)
     if (filing) return { graph: new Map(), unavailable: filing }
     // A root's flag is modeled as `root >= $100`, which is its layout only while
