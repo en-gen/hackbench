@@ -26,6 +26,7 @@
  */
 
 import { RomFile } from './RomFile'
+import { screenExitFilingMismatch } from './ScreenExitFiling'
 import { parseLevelObjects, readableScreenExits } from './LevelParser'
 import { levelNameForSlot } from './SmwLevelNames'
 import { deriveOverworldEntrances, type OverworldEntranceIndex } from './OverworldEntrances'
@@ -451,6 +452,12 @@ export class SmwRom {
     // The screen-exit path's own LDA #imm (bank_05.asm:7109), past SCREEN_EXIT's gate.
     const screenHigh = readSubmapHigh(this.rom, SCREEN_EXIT_HIGH_AT)
     if (typeof screenHigh === 'string') return { graph: new Map(), unavailable: screenHigh }
+    // Last-exit-wins per screen (#957) is the stock handler's behaviour; found by running it.
+    // Runs after the byte-compare and table gates above because those refusals are cheaper and
+    // name a more basic fault; a handler that files differently declines the whole graph here,
+    // with the gate's own reason, rather than applying the rule to exits the game would file otherwise.
+    const filing = screenExitFilingMismatch(this.rom)
+    if (filing) return { graph: new Map(), unavailable: filing }
     // A root's flag is modeled as `root >= $100`, which is its layout only while
     // submap entrances load high byte 1. With 0 they land in $0xx, yet their exits
     // still take the screen-exit byte (OWPlayerSubmap is set), so a $0xx root's
@@ -507,8 +514,17 @@ export class SmwRom {
       const exits = readableScreenExits(parsed)
       // Every unterminated real map, exit-shaped objects or not: once the walk desyncs, finding none says nothing.
       if (!parsed.terminated && realMapSet.has(levelIdx)) unreadableMaps.push(levelIdx)
+      // The secondary flag is one global byte, so it reads the whole stream.
       const isSecondary = mapUsesSecondaryExits(exits)
-      const specs = exits.map(o => ({
+      // ExitTableLow/High are filed per screen by a plain STA (bank_0D.asm:1428-1435),
+      // so a later exit for the same screen overwrites the earlier one (#957). A Map
+      // keeps first-insertion order, so delete before set to order by the surviving write.
+      const lastPerScreen = new Map<number, (typeof exits)[number]>()
+      for (const o of exits) {
+        lastPerScreen.delete(o.screenExitScreen!)
+        lastPerScreen.set(o.screenExitScreen!, o)
+      }
+      const specs = [...lastPerScreen.values()].map(o => ({
         isSecondary,
         // LevelParser folds a dead ExitTableHigh-derived bit into bit 8 of
         // screenExitDest (see LevelParser.ts); mask it back off to recover

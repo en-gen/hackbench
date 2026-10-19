@@ -147,7 +147,7 @@ In practice:
 - The line is at ASSUMPTION, not at opcodes. **We are not building an
   emulator, but content we load for editing must be INTERPRETED, not assumed
   from the ROM.** Running the ROM to see what happens is out of scope outside
-  the three bounded exceptions below.
+  the four bounded exceptions below.
   Reading bytes - including opcodes - to determine what the ROM does with
   the content we are about to show the user is in scope and required.
 - Static control-flow reading is on the required side of that line. Walking
@@ -193,6 +193,16 @@ In practice:
   the sprite exception: fixed entries, byte-checked shapes, step budgets, a
   refusal with a reason, nothing else run. Do not extend it to other routines
   without a decision of the same kind.
+- Fourth bounded exception, stock-code checks (D126, owner 2026-10-17; size rule BA
+  2026-10-18 under owner delegation): a check of stock code with under 24 unknown bytes
+  has no fingerprint, so it may run the game's own routine on the same core, bus, guard and
+  call helper (`src/rom/cpu/call.ts`, `Machine.ts`). A fixed entry only, entered at the
+  game's own caller of the code under check so that the dispatchers and jumps on the way run
+  as ROM code and are not restated (no byte, hash or instruction of the path is stated: a
+  diversion anywhere shows as wrong behaviour); seeded only with the state that code reads; a
+  step budget; a refusal with a reason; only the result the check needs is read back. First
+  user: the CODE_0DA512 screen-exit gate, `src/rom/ScreenExitFiling.ts` (#1030), entered at
+  LevLoadExtObj.
 - A derivation that truly cannot be read must be NAMED as a hack-fragility
   point and paired with honest degradation: compare the handler against its
   vanilla bytes and DECLINE TO ASSERT when it diverges, rather than rendering
