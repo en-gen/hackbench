@@ -190,9 +190,10 @@ In practice:
   `mapCollision` product run SMW's own Mario-versus-layer-1 routines
   (`CODE_00EAA6`, `CODE_00EADB`) on the same core, bus, guard and call helpers
   over a synthetic level, seeded by the ROM's own level loader. Same limits as
-  the sprite exception: fixed entries, shapes checked one named instruction at
-  a time (no stored byte runs), step budgets, a refusal with a reason, nothing
-  else run. Do not extend it to other routines
+  the sprite exception: fixed entries, step budgets, a refusal with a reason,
+  nothing else run. Shape checks are per use: the TileProbe call sites are
+  byte-checked; the level loader that seeds it checks single named instructions
+  (no stored byte runs, #1081). Do not extend it to other routines
   without a decision of the same kind.
 - Fourth bounded exception, stock-code checks (D126, owner 2026-10-17; size rule BA
   2026-10-18 under owner delegation): a check of stock code with under 24 unknown bytes

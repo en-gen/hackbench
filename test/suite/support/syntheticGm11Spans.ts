@@ -7,6 +7,7 @@
  */
 import type { SyntheticOptions } from './syntheticSpriteRom'
 
+/** Puts the cart's CODE_00A796 and UpdateScreenPosition stand-ins, and the optional hook, through `put`. */
 export function putGm11Spans(
   put: (snes: number, bytes: number[]) => void,
   o: SyntheticOptions,

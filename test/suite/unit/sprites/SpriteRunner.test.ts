@@ -644,16 +644,18 @@ describe('level loader on a synthetic cart', () => {
     expect(l.wram[0x1692]).toBe(7) // CODE_05D8B7 stand-in
     expect(l.wram[0x71]).toBe(6) // CODE_00A635 stand-in: skipping it leaves 0
     expect(l.wram[0xc800]).toBe(0x25) // CODE_05801E stand-in
-    expect(l.wram[0x0e]).toBe(0x05)
-    expect(l.wram[0x0f]).toBe(0x01)
+    // The level number lands in the cell the pointer stub reads (LDA $10 here, read from the ROM's own operand, not $0E).
+    expect(l.wram[0x10]).toBe(0x05)
+    expect(l.wram[0x11]).toBe(0x01)
+    expect(l.wram[0x0e]).toBe(0)
     // The GM11 spans (bank_00.asm:2645-2656), run from the cart's bytes; each cell needs the
     // step before it: $1462 and $1E hold the pointer stub's $1A only if the copy ran after it,
     // and $20 holds $71 only if the entrance setup ran before the screen setup.
     expect(l.wram[0x1462]).toBe(7)
     expect(l.wram[0x1e]).toBe(7)
     expect(l.wram[0x20]).toBe(6)
-    expect(l.wram[0x5e]).toBe(0x77) // the data stub's, written after GM11's STA $5E (so the data loader ran last)
-    expect(l.wram[0x1404]).toBe(1)
+    expect(l.wram[0x62]).toBe(0x77) // the data stub's, written after the screen setup stub's $21 to the same cell (so the data loader ran last)
+    expect(l.wram[0x1405]).toBe(1) // the screen setup stub's INC
   })
 
   it('refuses each differing entry with its name', () => {
@@ -694,7 +696,7 @@ describe('level loader on a synthetic cart', () => {
     const base = run()
     const hooked = run({ updateHook: 'jml' })
     if (!base.ok || !hooked.ok) throw new Error('refused')
-    for (const c of [0x1462, 0x1463, 0x1469, 0x1e, 0x20, 0x5e, 0x1404, 0x142c, 0x142d])
+    for (const c of [0x1462, 0x1463, 0x1469, 0x1e, 0x20, 0x62, 0x1405, 0x142c, 0x142d])
       expect(hooked.wram[c], `cell ${c.toString(16)}`).toBe(base.wram[c])
     expect(hooked.wram[0x1e]).toBe(7)
     expect(hooked.wram[0x20]).toBe(6)

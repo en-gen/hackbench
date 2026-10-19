@@ -37,6 +37,8 @@ const VANILLA_ALL_WRAM = '46135805aad6cc6af578d77c8f9e169b767fba2b3caf37ef858e07
 const DEVELOP_ACCEPTED = [10009, 10020, 10186, 10188, 10907, 16058, 16059, 4987, 5559, 5609, 6161, 6267, 6416, 6593, 6764, 9535, 9717, 9756, 9794, 9795, 9874, 9888]
 const RUN_REFUSED = [10186, 6161, 6764, 9535, 9756]
 const HACKS_DIR = join(TOOLS_ROOT, 'hacks', 'roms')
+/** Where the synthetic cart keeps its entrance setup: off the vanilla address, so a hard-coded entry fails. */
+const ENTRANCE = 0x00a6a0
 /** The store hack `id` as a fresh ROM. */
 const hackRom = (id: number): RomFile => RomFile.load(join(HACKS_DIR, `${id}.sfc`))
 
@@ -239,11 +241,26 @@ describe('synthetic: the loader runs hand-written code under its structural chec
     const msg =
       'Mario entrance setup at $00:A635 is not the vanilla shape; the loader will not run it'
     const rom = buildSyntheticRom()
-    rom.writeAt(0x00a635 + 11, [0xea]) // the load the branch reaches
+    rom.writeAt(ENTRANCE + 11, [0xea]) // the load the branch reaches
     expect(loaderShapeProblem(rom)).toBe(msg)
     const far = buildSyntheticRom()
-    far.writeAt(0x00a635 + 10, [0x02]) // the distance: now reaches an operand byte
+    far.writeAt(ENTRANCE + 10, [0x02]) // the distance: now reaches an operand byte
     expect(loaderShapeProblem(far)).toBe(msg)
+  })
+  it('the entry addresses and cells are followed from the ROM: the cart moves the entrance setup and the level cell', () => {
+    const l = loadLevelState(buildSyntheticRom(), 0x105)
+    if (!l.ok) throw new Error(l.reason)
+    expect(l.wram[0x71]).toBe(6) // the entrance stand-in at ENTRANCE ran
+    expect([l.wram[0x10], l.wram[0x11], l.wram[0x0e]]).toEqual([0x05, 0x01, 0])
+  })
+  it('a flag cell or level cell outside work RAM is refused, naming the site', () => {
+    const flag = buildSyntheticRom()
+    flag.writeAt(0x05d796 + 22, [0x00, 0x20]) // LDA $2000: not work RAM
+    expect(loaderShapeProblem(flag)).toMatch(/sublevel flag cell \(outside work RAM\)/)
+    expect(loadLevelState(flag, 0x105)).toMatchObject({ ok: false })
+    const ok = buildSyntheticRom()
+    ok.writeAt(0x05d796 + 22, [0xff, 0x1f]) // the last cell: still work RAM
+    expect(loaderShapeProblem(ok)).toBeNull()
   })
   it('witness: a JSL hook inside the CODE_05D796 prologue (offset 8) leaves the routine and is refused', () => {
     const rom = buildSyntheticRom()

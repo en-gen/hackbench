@@ -153,6 +153,7 @@ export const SYNTHETIC_EXECUTE_PTR_CODE: readonly number[] = Object.freeze([
 /** Where the cart's INIT pointer table starts, from the start of its CallSpriteInit at $01:8170 (the routine is 12 bytes). */
 export const SYNTHETIC_INIT_TABLE_OFFSET = 12
 
+/** The synthetic cart: hand-written routines at the addresses the interpreter's tests read, with the planted defects `o` asks for. */
 export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   const rom = new Uint8Array(8 * BANK) // banks 0-7
   const put = (snes: number, bytes: number[]): void => {
@@ -175,23 +176,25 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   put(0x0096f4, [bad('callsite', 0x22), 0x96, 0xd7, 0x05])
   // Layer position copy, unrolled: $1A to $1462 and $1B to $1463 (only $1A is read downstream), ends at $9702.
   put(0x0096f8, [0xa5, 0x1a, 0x8d, 0x62, 0x14, 0xa5, 0x1b, 0x8d, 0x63, 0x14])
-  put(0x009705, [0x20, 0x35, 0xa6])
-  // Screen setup: LDA # / STA dp, $1404++, JSR $A796, JSL $F6DB; ends at $9716 (the JSL must be last: a hook's stray RTS lands there). Only the opening load and the JSL are checked.
-  put(0x009708, [0xa9, 0x21, 0x85, 0x5f, 0xee, 0x04, 0x14, 0x20, 0x96, 0xa7, 0x22, 0xdb, 0xf6, 0x00]) // prettier-ignore
+  put(0x009705, [0x20, 0xa0, 0xa6]) // JSR to the entrance setup, which this cart keeps off its vanilla address
+  // Screen setup: LDA # / STA $62, $1405++, JSR $A796, JSL $F6DB; ends at $9716 (the JSL must be last: a hook's stray RTS lands there).
+  // Only the opening load and the JSL are checked. The data stub writes $62 too, so its value shows which ran last.
+  // The JSR $A796 and JSL $00F6DB targets: forced by the #1120 stand-ins; moves when #1120 retargets them.
+  put(0x009708, [0xa9, 0x21, 0x85, 0x62, 0xee, 0x05, 0x14, 0x20, 0x96, 0xa7, 0x22, 0xdb, 0xf6, 0x00]) // prettier-ignore
   put(0x009716, [0x22, 0x1e, 0x80, 0x85]) // bank byte as the FastROM mirror of bank 5; never run (the loader enters $05:801E itself)
   // CODE_05D796's place: its prologue is run (the loader checks PHB at +0, STZ at +5, the LDA of the sublevel flag at +21,
   // BNE past the JMP $D83E at +26), so it narrows the registers, tests the flag and branches over the jump; NOPs between.
   put(0x05d796, [bad('lead', 0x8b), 0xe2, 0x30, 0xea, 0xea, 0x9c, 0x55, 0x15, ...Array(13).fill(0xea), 0xad, 0x3c, 0x15, 0xd0, 0x03, 0x4c, 0x3e, 0xd8, 0xea]) // prettier-ignore
   put(0x05d83b, [bad('jump', 0x4c), 0xb7, 0xd8])
-  // Pointer loader: REP #$20 / LDA $0E / NOP / CLC / TAY, then SEP #$30 / LDA #7 / STA $1692 / STA $1A / PLB / RTL
-  put(0x05d8b7, [bad('pointers', 0xc2), 0x20, 0xa5, 0x0e, 0xea, 0x18, 0xa8, 0xe2, 0x30, 0xa9, 0x07, 0x8d, 0x92, 0x16, 0x85, 0x1a, 0xab, 0x6b]) // prettier-ignore
+  // Pointer loader: REP #$20 / LDA $10 (the level number cell, not the game's) / NOP / CLC / TAY, then SEP #$30 / LDA #7 / STA $1692 / STA $1A / PLB / RTL
+  put(0x05d8b7, [bad('pointers', 0xc2), 0x20, 0xa5, 0x10, 0xea, 0x18, 0xa8, 0xe2, 0x30, 0xa9, 0x07, 0x8d, 0x92, 0x16, 0x85, 0x1a, 0xab, 0x6b]) // prettier-ignore
   putGm11Spans(put, o)
   // Entrance setup: LDA abs (the checked opening load) / SEP #$20 / STZ / NOP / BNE to the next load (the checked branch lands on a load) / LDA / STZ / LDA #6 / STA $71 / RTS
-  put(0x00a635, [bad('entrance', 0xad), 0x41, 0x15, 0xe2, 0x20, 0x9c, 0x55, 0x15, 0xea, 0xd0, 0x00, 0xad, 0x56, 0x15, 0x9c, 0x56, 0x15, 0xa9, 0x06, 0x85, 0x71, 0x60]) // prettier-ignore
-  // Data loader: PHP / REP #$10 / SEP #$20 / LDA #$25 / LDX #0 / STA $7EC800,X / LDA #$77 / STA $5E
-  // (CODE_0584E3 rewrites $5E, bank_05.asm:560, so only a data loader run AFTER the screen setup
+  put(0x00a6a0, [bad('entrance', 0xad), 0x41, 0x15, 0xe2, 0x20, 0x9c, 0x55, 0x15, 0xea, 0xd0, 0x00, 0xad, 0x56, 0x15, 0x9c, 0x56, 0x15, 0xa9, 0x06, 0x85, 0x71, 0x60]) // prettier-ignore
+  // Data loader: PHP / REP #$10 / SEP #$20 / LDA #$25 / LDX #0 / STA $7EC800,X / LDA #$77 / STA $62
+  // (the screen setup stub stores $21 to $62, so only a data loader run AFTER the screen setup
   // leaves $77), then PLP RTL (or COP)
-  put(0x05801e, [bad('data', 0x08), 0xc2, 0x10, 0xe2, 0x20, 0xa9, 0x25, 0xa2, 0x00, 0x00, 0x9f, 0x00, 0xc8, 0x7e, 0xa9, 0x77, 0x85, 0x5e, ...(o.loaderCop ? [0x02, 0x00] : [0x28, 0x6b])]) // prettier-ignore
+  put(0x05801e, [bad('data', 0x08), 0xc2, 0x10, 0xe2, 0x20, 0xa9, 0x25, 0xa2, 0x00, 0x00, 0x9f, 0x00, 0xc8, 0x7e, 0xa9, 0x77, 0x85, 0x62, ...(o.loaderCop ? [0x02, 0x00] : [0x28, 0x6b])]) // prettier-ignore
   // $01:808C sprite loop: PHB PHK PLB, X = $0B..0 { STX $15E9; JSR setup; JSR handle }
   put(0x01808b, [0xea]) // a NOP before the loop: the zero fill then PHB PHK is itself a window of the game's
   put(0x01808c, [

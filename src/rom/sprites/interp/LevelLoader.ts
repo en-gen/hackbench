@@ -13,9 +13,9 @@
  * object of Layer 1 expanded into the Map16 tables at $7E:C800/$7F:C800).
  * Hardware registers are the bus stubs; nothing is read from an emulator capture.
  *
- * The fixed entries and the GM11 spans between them are checked instruction by instruction (SITES: the calls by their targets), and the jump that leads into
- * the mid-routine entry by its target (an entry that exists is not an entry that is reached),
- * and the run is guarded like the sprite runner's (no BRK/COP, no leaving ROM).
+ * The fixed entries and the GM11 spans between them are checked instruction by instruction (loaderSites),
+ * and the targets of the calls and of the jump that leads into the mid-routine entry are followed
+ * (an entry that exists is not an entry that is reached), and the run is guarded like the sprite runner's (no BRK/COP, no leaving ROM).
  * A ROM that differs, as the corpus hacks do, is refused with a reason rather
  * than run on a guess; the caller then has no loaded image.
  *
@@ -56,7 +56,11 @@ const SCREEN_SETUP = 0x009708
 const SCREEN_UPDATE_CALL = SCREEN_SETUP + 10
 const DATA_CALL = 0x009716
 const SUBLEVEL_JUMP = 0x05d83b // the jump into the pointer loader
-const OVERWORLD_PATH = (SUBLEVEL_JUMP + 3) & 0xffff // derived: where CODE_05D796's overworld branch jumps, the instruction after that jump
+const JUMP_OFFSET = 26 // the JMP in CODE_05D796's prologue, from its entry (bank_05.asm:7093)
+const PROLOGUE_END = JUMP_OFFSET + 3 // the instruction after that JMP, where the sublevel branch continues
+const WRAM_END = 0x2000 // the cells the loader seeds must lie in work RAM ($0000-$1FFF)
+// Where that JMP must go: the instruction after the sublevel jump. Compared, not read.
+const OVERWORLD_PATH = (SUBLEVEL_JUMP + 3) & 0xffff
 
 const NAME_HEADER_CALL = 'GM11 call JSL CODE_05D796 at $00:96F4'
 const NAME_ENTRANCE_CALL = 'GM11 call JSR CODE_00A635 at $00:9705'
@@ -64,6 +68,8 @@ const NAME_DATA_CALL = 'GM11 call JSL CODE_05801E at $00:9716'
 const NAME_JUMP = 'jump into the pointer loader at $05:D83B'
 const NAME_HEADER = 'CODE_05D796 prologue and sublevel branch at $05:D796'
 const NAME_POINTER = 'pointer loader at $05:D8B7'
+const NAME_FLAG_CELL = 'CODE_05D796 sublevel flag cell (outside work RAM) at $05:D796'
+const NAME_LEVEL_CELL = 'pointer loader level number cell (outside work RAM) at $05:D8B7'
 
 // 65816 opcodes, named once; each site below checks one instruction.
 const PHB = 0x8b
@@ -147,6 +153,9 @@ function entriesOf(rom: RomFile): Entries | string {
   const level = operandAt(rom, pointer + 2, LDA_DP, 1)
   if (!flag) return NAME_HEADER
   if (!level) return NAME_POINTER
+  // The pointer loader's cell is a direct-page operand, taken as an absolute address because D = 0 (nativeReset).
+  if (flag.value >= WRAM_END) return NAME_FLAG_CELL
+  if (level.value + 1 >= WRAM_END) return NAME_LEVEL_CELL
   return {
     header,
     headerBank,
@@ -185,7 +194,7 @@ export function loaderSites(rom: RomFile): Site[] {
     { name: h, at: e.header, op: PHB },
     { name: h, at: e.header + 5, op: STZ_ABS },
     { name: h, at: e.header + 21, op: LDA_ABS },
-    { name: h, at: e.header + 26, op: JMP, operand: { value: OVERWORLD_PATH, size: 2 } },
+    { name: h, at: e.header + JUMP_OFFSET, op: JMP, operand: { value: OVERWORLD_PATH, size: 2 } },
     // CODE_05D8B7 opens with REP and reads the level number from the cell the loader writes (bank_05.asm:7228-7229).
     { name: p, at: e.pointer, op: REP },
     { name: p, at: e.pointer + 2, op: LDA_DP },
@@ -298,7 +307,7 @@ export function loadLevelState(rom: RomFile, level: number, rng = 0): LevelLoad 
       const lo = e.header & 0xffff
       cpu.pc = lo
       const s0 = cpu.s
-      const arrive = lo + 29
+      const arrive = lo + PROLOGUE_END
       const at = (c: Cpu65816) => `$${c.pb.toString(16).toUpperCase().padStart(2, '0')}:${c.pc.toString(16).toUpperCase().padStart(4, '0')}` // prettier-ignore
       const gone = (c: Cpu65816): CallResult | null =>
         c.pb !== e.headerBank || c.pc < lo || c.pc > arrive
