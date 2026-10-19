@@ -7,11 +7,11 @@
  * platform's wings reach only y-10). The Mesen capture layers_v5/006 has 8 OAM entries for this sprite, the
  * bro's four at dy -16 and -24 (one machine). Checked from the node reply (mapSprites):
  * - the $9C bitmap reaches 24 px above its anchor and has opaque pixels in the bro-only rows;
- * - the $9B the platform picks up stays in the list, flagged `drawnBy` the platform, with the bro tiles as its area
- *   and no "9B" marker (owner T16, 2026-10-17); the pointer on the bro hits it and the hover names it (#981);
+ * - the $9B the platform picks up stays in the list, flagged `drawnBy` the platform, with the bro tiles as its area;
+ *   asserted on the DTO (status drawn, `drawnBy`, no `reason`), not on canvas pixels (owner T16, 2026-10-17);
  * - the same for the $9C at 2176,272;
- * - on the canvas: the pointer on an opaque bro pixel opens Theia's hover with the $9B's own name (it wins the hit
- *   over the platform's bitmap, which holds the same pixels), and no marker is listed over the platform.
+ * - on the canvas, maps $006 and $126: the pointer on an opaque bro pixel opens Theia's hover with the $9B's own
+ *   name. On $126 the $9B (28) sorts under its $9C (29), so only the hit-precedence rule makes the hover name it.
  * Plant for the verifier: in `runOnce` (SpriteRunner.ts) return `a` before the neighbor run; the first
  * assertion goes red (box top at y-10, no bro rows).
  * NOT covered here: the exact tiles (the unit tests and spriteGrade.captures.test.ts grade them).
@@ -123,64 +123,75 @@ test('each $9C on map $006 draws the Hammer Bro above its platform, and its $9B 
   }
 })
 
-test('the pointer on the Hammer Bro opens the hover of the $9B, not the platform (T16, D52)', async ({
-  page,
-}) => {
-  await page.evaluate(
-    async ({ mp }) => {
-      const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { index: 6 })
-      await w.open({ manifestPath: mp, index: 6, label: '6', iconClass: '' })
-      const shell = getSvc('ApplicationShell')
-      await shell.addWidget(w, { area: 'main' })
-      await shell.activateWidget(w.id)
-    },
-    { mp: manifestPath },
-  )
-  opened.push('hackbench.map-view:6')
-  await page.locator(stripOf(6)).waitFor({ timeout: 30000 })
-  const reply = await page.evaluate(
-    ({ mp }) => getSvc('Symbol(ProjectService)').mapSprites(mp, 0x6),
-    { mp: manifestPath },
-  )
-  const bro = reply.sprites.find(s => s.index === 11)
-  const platform = reply.sprites.find(s => s.index === 10)
-  // A bro pixel in the bro-only rows, with its 2 px neighborhood opaque in the bro bitmap too.
-  const rgba = Buffer.from(bro.rgba, 'base64')
-  const w = bro.box.x1 - bro.box.x0
-  const solid = (x, y) => rgba[((y - bro.box.y0) * w + (x - bro.box.x0)) * 4 + 3] !== 0
-  let at
-  for (let y = bro.box.y0 + 2; y < 272 - 16 && !at; y++)
-    for (let x = bro.box.x0 + 2; x < bro.box.x1 - 2 && !at; x++)
-      if ([-2, 0, 2].every(d => [-2, 0, 2].every(e => solid(x + d, y + e)))) at = { x, y }
-  expect(at, 'an opaque bro pixel above the platform wings').toBeTruthy()
-  const mapW = reply.width * reply.screenCount
-  const mapH = reply.height
-  const hover = async () => {
-    const p = await page.evaluate(
-      ({ strip, mapW, mapH, x, y }) => {
-        const el = document.querySelector(strip)
-        const sc = el.closest('[data-control="map-scroller"]')
-        const pos = () => {
-          const r = el.getBoundingClientRect()
-          return {
-            x: r.left + ((x + 0.5) * r.width) / mapW,
-            y: r.top + ((y + 0.5) * r.height) / mapH,
-          }
-        }
-        const [first, view] = [pos(), sc.getBoundingClientRect()]
-        sc.scrollBy(first.x - (view.left + view.width / 2), first.y - (view.top + view.height / 2))
-        return pos()
+for (const { slot, broIndex, platformIndex } of [
+  // $006: the $9B (11) sorts above its $9C (10). $126: it sorts below (28 under 29), the case the hit rule exists for.
+  { slot: 0x6, broIndex: 11, platformIndex: 10 },
+  { slot: 0x126, broIndex: 28, platformIndex: 29 },
+]) {
+  test(`the pointer on the Hammer Bro opens the hover of the $9B, not the platform (map $${slot.toString(16)}, T16, D52)`, async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ mp, slot }) => {
+        const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {
+          index: slot,
+        })
+        await w.open({ manifestPath: mp, index: slot, label: slot.toString(16), iconClass: '' })
+        const shell = getSvc('ApplicationShell')
+        await shell.addWidget(w, { area: 'main' })
+        await shell.activateWidget(w.id)
       },
-      { strip: stripOf(6), mapW, mapH, x: at.x, y: at.y },
+      { mp: manifestPath, slot },
     )
-    await page.mouse.move(p.x + 1, p.y)
-    await page.mouse.move(p.x, p.y)
-    return page.evaluate(() => {
-      const h = document.querySelector('.theia-hover')
-      return h && h.isConnected && h.matches(':popover-open') ? h.textContent : null
-    })
-  }
-  // Behavior: the text the user reads is the $9B's name, and it differs from the platform's (else this proves nothing).
-  expect(bro.name).not.toBe(platform.name)
-  await expect.poll(hover, { timeout: 15000 }).toBe(bro.name)
-})
+    opened.push(`hackbench.map-view:${slot}`)
+    await page.locator(stripOf(slot)).waitFor({ timeout: 30000 })
+    const reply = await page.evaluate(
+      ({ mp, slot }) => getSvc('Symbol(ProjectService)').mapSprites(mp, slot),
+      { mp: manifestPath, slot },
+    )
+    const bro = reply.sprites.find(s => s.index === broIndex)
+    const platform = reply.sprites.find(s => s.index === platformIndex)
+    // A bro pixel in the bro-only rows, with its 2 px neighborhood opaque in the bro bitmap too.
+    const rgba = Buffer.from(bro.rgba, 'base64')
+    const w = bro.box.x1 - bro.box.x0
+    const solid = (x, y) => rgba[((y - bro.box.y0) * w + (x - bro.box.x0)) * 4 + 3] !== 0
+    let at
+    for (let y = bro.box.y0 + 2; y < platform.y - 16 && !at; y++)
+      for (let x = bro.box.x0 + 2; x < bro.box.x1 - 2 && !at; x++)
+        if ([-2, 0, 2].every(d => [-2, 0, 2].every(e => solid(x + d, y + e)))) at = { x, y }
+    expect(at, 'an opaque bro pixel above the platform wings').toBeTruthy()
+    const mapW = reply.width * reply.screenCount
+    const mapH = reply.height
+    const hover = async () => {
+      const p = await page.evaluate(
+        ({ strip, mapW, mapH, x, y }) => {
+          const el = document.querySelector(strip)
+          const sc = el.closest('[data-control="map-scroller"]')
+          const pos = () => {
+            const r = el.getBoundingClientRect()
+            return {
+              x: r.left + ((x + 0.5) * r.width) / mapW,
+              y: r.top + ((y + 0.5) * r.height) / mapH,
+            }
+          }
+          const [first, view] = [pos(), sc.getBoundingClientRect()]
+          sc.scrollBy(
+            first.x - (view.left + view.width / 2),
+            first.y - (view.top + view.height / 2),
+          )
+          return pos()
+        },
+        { strip: stripOf(slot), mapW, mapH, x: at.x, y: at.y },
+      )
+      await page.mouse.move(p.x + 1, p.y)
+      await page.mouse.move(p.x, p.y)
+      return page.evaluate(() => {
+        const h = document.querySelector('.theia-hover')
+        return h && h.isConnected && h.matches(':popover-open') ? h.textContent : null
+      })
+    }
+    // Behavior: the text the user reads is the $9B's name, and it differs from the platform's (else this proves nothing).
+    expect(bro.name).not.toBe(platform.name)
+    await expect.poll(hover, { timeout: 15000 }).toBe(bro.name)
+  })
+}

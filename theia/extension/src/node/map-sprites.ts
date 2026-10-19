@@ -930,7 +930,11 @@ export function mapSpriteFrames(
     const base = levelSeed(rom.rom, index)
     const stream = parseLevelSprites(data, model.isVertical)
     const run = interpRunner(rom.rom, index, model, runOnce, () => base, undefined, undefined, stream)(s) // prettier-ignore
-    return { status: 'ok', ...framesOf(run, s, model, dynamicOf(rom.rom)) }
+    const frames = framesOf(run, s, model, dynamicOf(rom.rom))
+    // Drawn by its parent on the map (the $9B a $9C carries): its tiles are the parent's, so say that, not "drew no tile".
+    const dto = frames.frames.length ? undefined : drawSprites(stream, model, interpDrawer(rom.rom, index, model, runOnce, () => base, undefined, undefined, stream)).find(d => d.index === s.index) // prettier-ignore
+    if (dto?.drawnBy !== undefined) return { status: 'ok', frames: [], reason: 'Drawn as part of the sprite it rides with, not on its own.' } // prettier-ignore
+    return { status: 'ok', ...frames }
   } catch (err) {
     return { status: 'unavailable', reason: (err as Error).message }
   }

@@ -429,6 +429,23 @@ describe.skipIf(!hasRom(VANILLA))('mapSprites on the vanilla ROM', () => {
     }
   })
 
+  it('the Properties preview of a $9B its platform drew says so in plain words, not "drew no OAM tile" (#1049)', () => {
+    const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
+    for (const [map, index] of [
+      [0x6, 11],
+      [0x126, 28],
+    ] as const) {
+      const f = mapSpriteFrames(new L1ModelCache(), bytes, romPath(VANILLA), map, index)
+      if (f.status !== 'ok') throw new Error(JSON.stringify(f))
+      expect(f.frames).toEqual([])
+      expect(f.reason, `map ${map.toString(16)} index ${index}`).toMatch(/^Drawn as part of the sprite it rides with/) // prettier-ignore
+      expect(f.reason).not.toMatch(/OAM|\$/)
+    }
+    // A sprite nobody drew keeps the engine's own reason.
+    const lone = mapSpriteFrames(new L1ModelCache(), bytes, romPath(VANILLA), 0x6, 10)
+    expect(lone.status === 'ok' && lone.frames.length).toBeGreaterThan(0)
+  })
+
   it("the Properties preview's first frame is the map's own bitmap for the $9C on $006 (frame 0 IS the map's picture)", () => {
     const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
     const cache = new L1ModelCache()
