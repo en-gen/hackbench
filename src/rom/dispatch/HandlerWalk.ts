@@ -57,8 +57,9 @@ const X = -2
  * Two other readers do read them: the L1 handler interpreter
  * (`objectHandlers/interpret.ts`) for the opcodes it evaluates, and the
  * palette-animation walk (`PaletteAnimationDetect.ts`), which steps over the
- * eight conditional branches, `$FC`, `$CB` and `$DB` by length. Their
- * synthetic tests see a mutation to those entries.
+ * eight conditional branches, `$FC`, `$CB` and `$DB` by length.
+ * `HandlerWalkInsnLen.synthetic.test.ts` goes red when one of those entries
+ * changes (planted `$CB`, `$FC` and `$90`, 2026-10-18).
  */
 // prettier-ignore
 const INSN_LEN: readonly number[] = [

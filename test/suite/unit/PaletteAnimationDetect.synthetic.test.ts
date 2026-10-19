@@ -740,6 +740,10 @@ describe('a relocated overworld upload', () => {
     ['ADC (dp,X)', [0x61, 0x10]],
     ['STA (dp,X)', [0x81, 0x10]],
     ['PER', [0x62, 0x00, 0x00]],
+    // Conditional branches are two bytes (offset 0 here, so either path lands next).
+    ['BCC', [0x90, 0x00]],
+    ['BEQ', [0xf0, 0x00]],
+    ['WAI', [0xcb]],
     // The polarity at the call site: HandlerWalk takes (m8, x8), this walk
     // tracks (m16, x16). Both widths, and a REP/SEP round trip each.
     ['LDX # with 8-bit X', [0xa2, 0x10]],
