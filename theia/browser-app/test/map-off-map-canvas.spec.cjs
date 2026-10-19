@@ -681,3 +681,64 @@ for (const { index, screenW, vertical } of [
     expect(sha).toBe(fs.readFileSync(file, 'utf8'))
   })
 }
+
+/**
+ * #1016: the ghost house EXIT sign ($8D) is drawn at its doorway, asserted on PIXELS in the map's own coordinates.
+ * The sprite canvas of screen 0 is at native resolution (one canvas pixel per map pixel, screen 0 starting at map x 0),
+ * so a fractional strip offset or zoom cannot move a pixel. GhostExitMain draws screen-fixed (SMWDisX bank_02.asm:
+ * 15663-15692 tables, 15670-15708 routine): the sign at x 8-40, y 287-303, the door frame at y 335-383, with the
+ * loader's camera Y of 192 added. Before the fix the sign was drawn 192 px too high and the frame 448 px too high.
+ * No hardware capture exists; the expected rows come from the ROM tables and the loader camera.
+ */
+test('$FB (ghost house): the EXIT sign pixels sit at the doorway, not at the old wrong height', async ({
+  page,
+}) => {
+  await openMap(page, 0xfb)
+  await spritesLanded(page, 0xfb)
+  await zoomAt(page, 0xfb, 'zoom-actual')
+  const canvas = `${root(0xfb)} canvas[data-plane="sprites"][data-screen="0"]`
+  await expect(page.locator(canvas)).toHaveAttribute('data-drawn', /./, { timeout: 30000 })
+  // Opaque pixels by map row, over a column range of screen 0.
+  const rows = x0 =>
+    page.evaluate(
+      ({ sel, x0, x1 }) => {
+        const c = document.querySelector(sel)
+        const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+        const out = []
+        for (let y = 0; y < c.height; y++) {
+          let n = 0
+          for (let x = x0; x < Math.min(x1, c.width); x++) if (d[(y * c.width + x) * 4 + 3] > 0) n++
+          out.push(n)
+        }
+        return out
+      },
+      { sel: canvas, x0, x1: 64 },
+    )
+  await expect.poll(async () => (await rows(0)).some(n => n > 0), { timeout: 30000 }).toBe(true)
+  const all = await rows(0)
+  const sign = await rows(8)
+  const sum = (a, y0, y1) => a.slice(y0, y1 + 1).reduce((s, n) => s + n, 0)
+  // The canvas holds every sprite of screen 0: other sprites near the doorway (from the real reply) are excluded
+  // from the "nothing here" checks, so a Boo or a coin cannot fail them.
+  const others = (await inWidget(page, 0xfb, w => w.sprites.sprites)).filter(sp => sp.id !== 0x8d)
+  const clear = (y0, y1) => others.every(sp => sp.box.x0 >= 64 || sp.box.y1 <= y0 || sp.box.y0 > y1)
+  // The sign: opaque pixels in x 8-40, y 287-303 (the columns here start at 8; the sign ends at 40).
+  expect(sum(sign, 287, 303)).toBeGreaterThan(0)
+  // None at the old wrong height, 192 px higher (the sign) or 448 px higher (the frame).
+  if (clear(0, 280)) expect(sum(all, 0, 280)).toBe(0)
+  if (clear(95, 111)) expect(sum(all, 95, 111)).toBe(0)
+  // The doorway frame below it: opaque rows within 335-383, and none past 383.
+  expect(sum(all, 335, 383)).toBeGreaterThan(0)
+  if (clear(384, all.length - 1)) expect(sum(all, 384, all.length - 1)).toBe(0)
+  // Relative to the frame: the sign's last row is above the frame's first row, the two within one doorway height.
+  if (clear(280, 400)) {
+    const rowsOf = (a, y0, y1) =>
+      a.map((n, y) => (n > 0 && y >= y0 && y <= y1 ? y : -1)).filter(y => y >= 0)
+    const signRows = rowsOf(all, 280, 330)
+    const frameRows = rowsOf(all, 335, 400)
+    expect(signRows.length).toBeGreaterThan(0)
+    expect(frameRows.length).toBeGreaterThan(0)
+    expect(Math.max(...signRows)).toBeLessThan(Math.min(...frameRows))
+    expect(Math.min(...frameRows) - Math.min(...signRows)).toBeLessThanOrEqual(96)
+  }
+})
