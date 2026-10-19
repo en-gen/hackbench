@@ -127,6 +127,12 @@ export interface PassResult {
    * start of INIT), in application order. See `Machine.paletteWrites`.
    */
   palette: PaletteWrite[]
+  /**
+   * Neighbour run only, when the sprite's own code drew a neighbour: the list indices (`seed.neighbours[].index`) of
+   * the neighbours it drew, and how far the sprite had moved from `SpriteModel.anchor` when it did (0 when it draws
+   * before it moves). The child is drawn at rest, so `runOnce` takes `shift` off the child's parts (D137).
+   */
+  drew?: { index: number[]; shift: { x: number; y: number } }
 }
 
 export type DependsOn = 'marioX' | 'neighbours'
@@ -222,6 +228,11 @@ export class Machine {
   scanned = false
   /** Slots `load` put neighbours in (their InitSpriteTables still has to run). */
   readonly neighbourSlots: number[] = []
+  /** Slot to list index of each neighbour `load` placed (undefined when the seed gave none). */
+  private readonly placed = new Map<number, number | undefined>()
+  /** Neighbour slots whose OAM index ($15EA) the sprite's own code read this pass, and where the sprite stood at the first read. */
+  private drewSlots = new Set<number>()
+  private drewAt: { x: number; y: number } | undefined
   /** OAM tile bytes written while `$15E9` named this sprite's slot; read instead of `touched` in a neighbour run. */
   private own = new Set<number>()
 
@@ -258,6 +269,15 @@ export class Machine {
     // of its slot). The loop's reads of the other slots happen under their own $15E9.
     if (seed.neighbours?.length)
       this.bus.onRead = off => {
+        // A draw routine reads the OAM index of the slot it draws; read on this sprite's turn, that slot is its child.
+        if (off >= RAM.oamIndex && off < RAM.oamIndex + SLOTS) {
+          const j = off - RAM.oamIndex
+          if (this.placed.has(j) && this.bus.wram[RAM.curSprite] === this.seed.slot) {
+            this.drewSlots.add(j)
+            this.drewAt ??= this.pos()
+          }
+          return
+        }
         const inStatus = off >= RAM.status && off < RAM.status + SLOTS
         const inNumber = off >= RAM.spriteNumber && off < RAM.spriteNumber + SLOTS
         if (!inStatus && !inNumber) return
@@ -415,6 +435,7 @@ export class Machine {
       w[RAM.yHigh + k] = (nb.y >> 8) & 0xff
       w[RAM.status + k] = loaded.shell?.status ?? 1
       this.neighbourSlots.push(k)
+      this.placed.set(k, nb.index)
     }
   }
 
@@ -454,6 +475,17 @@ export class Machine {
   clearOamWrites(): void {
     this.touched.clear()
     this.own.clear()
+    this.drewSlots.clear()
+    this.drewAt = undefined
+  }
+
+  /** What `PassResult.drew` says for the pass just run, or undefined when the sprite drew no neighbour. */
+  drew(anchor: { x: number; y: number }): PassResult['drew'] {
+    const index = [...this.drewSlots]
+      .map(j => this.placed.get(j))
+      .filter((i): i is number => i !== undefined)
+    if (!this.drewAt || !index.length) return undefined
+    return { index, shift: { x: this.drewAt.x - anchor.x, y: this.drewAt.y - anchor.y } }
   }
 
   /** OAM mirror indices whose tile byte this pass wrote. */
@@ -538,7 +570,7 @@ export function runOnce(
   const b = runCore(rom, id, seed, opts, true)
   if (b.refusal) return { ...a, neighbourRun: 'refused' }
   if (b.chosen === undefined || !addsOnly(a, b)) return { ...a, neighbourRun: 'same' }
-  return { ...b, dependsOn: [...a.dependsOn, 'neighbours'], scansSlots: true, neighbourRun: 'adopted' } // prettier-ignore
+  return { ...childrenAtRest(a, b), dependsOn: [...a.dependsOn, 'neighbours'], scansSlots: true, neighbourRun: 'adopted' } // prettier-ignore
 }
 
 /**
@@ -547,10 +579,25 @@ export function runOnce(
  * scan, a kick) is not a part of its picture (#841).
  */
 function addsOnly(a: SpriteModel, b: SpriteModel): boolean {
-  const key = (q: SpritePart) => [q.oam, q.char, q.palette, +q.flipX, +q.flipY, q.dx, q.dy, q.size].join(',') // prettier-ignore
-  const mine = a.chosen === undefined ? [] : a.passes[a.chosen]!.parts.map(key)
-  const theirs = new Set(b.passes[b.chosen!]!.parts.map(key))
+  const mine = a.chosen === undefined ? [] : a.passes[a.chosen]!.parts.map(partKey)
+  const theirs = new Set(b.passes[b.chosen!]!.parts.map(partKey))
   return theirs.size > mine.length && mine.every(k => theirs.has(k))
+}
+
+const partKey = (q: SpritePart) => [q.oam, q.char, q.palette, +q.flipX, +q.flipY, q.dx, q.dy, q.size].join(',') // prettier-ignore
+
+/**
+ * The drawn neighbours are children and sit where the parent's spawn frame puts them (D137): the parts the
+ * run alone lacks lose however far the parent had moved from its anchor when it drew them. A parent that draws
+ * before it moves (the platform, bank_02.asm:12115-12148) has no shift, so its children are unchanged.
+ */
+function childrenAtRest(a: SpriteModel, b: SpriteModel): SpriteModel {
+  const pass = b.passes[b.chosen!]!
+  const shift = pass.drew?.shift
+  if (!shift || (!shift.x && !shift.y)) return b
+  const mine = new Set(a.chosen === undefined ? [] : a.passes[a.chosen]!.parts.map(partKey))
+  const parts = pass.parts.map(q => (mine.has(partKey(q)) ? q : { ...q, dx: q.dx - shift.x, dy: q.dy - shift.y })) // prettier-ignore
+  return { ...b, passes: b.passes.map(p => (p === pass ? { ...p, parts } : p)) }
 }
 
 function runCore(
@@ -672,6 +719,7 @@ function runCore(
         parts: readParts(m, origin),
         uploads: uploadsOf(m, hw),
         palette: m.paletteWrites(),
+        ...(neighbourRun && m.drew(anchor) ? { drew: m.drew(anchor) } : {}),
       })
     }
     if (m.scanned) model.scansSlots = true

@@ -387,7 +387,7 @@ describe('interpDrawer hands the map list on as neighbours (#841)', () => {
     )
     const list = [sp(0, 0x9c, 4), sp(1, 0x9b, 6)]
     interpDrawer(blank, 0x104, { isVertical: false, screenCount: 2 }, run, () => withSeed({ loaded: new Uint8Array(0x2000) }), undefined, list)(list[0]!) // prettier-ignore
-    expect(seeds[0]!.neighbours).toEqual([{ id: 0x9b, x: 96, y: 80 }])
+    expect(seeds[0]!.neighbours).toEqual([{ id: 0x9b, x: 96, y: 80, index: 1 }])
   })
 })
 

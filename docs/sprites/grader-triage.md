@@ -123,6 +123,13 @@ leave "wrong" (5 exact, 9 shape); no record graded worse. Without the "keeps
 the parts it had" rule, 26 other records graded worse (sprites that scan the slots for collisions), so that rule is
 load-bearing.
 
+The neighbours the sprite drew itself (it read their `$15EA` OAM index on its own turn) are recorded in
+`PassResult.drew` by list index. The map view drops the "no parts" marker of such a sprite (#1049): the $9B is part of
+the platform's picture, not an unexplained placeholder. Their parts are drawn at the parent's spawn frame (D137): the
+distance the parent had moved from its anchor when it drew them is taken off. For $9C it draws before it moves
+(`bank_02.asm:12115-12148`), so the shift is 0 and the picture above is unchanged; a parent that moves first (a synthetic
+fixture in `NeighbourScan.test.ts`) is the case it changes.
+
 **S, floating-platform sink (9).** $A4 on map 102 only. INIT runs the sink loop (`bank_01.asm:6815-6837`):
 ours ends 32 px below the list y (anchor y 432 for a list y of 400) while the capture's first draw is at
 the list y within 16 px, so the lower two parts are off screen in ours (2 parts against 4). The inputs that

@@ -36,7 +36,7 @@ export function neighboursOf(
     .filter(
       e => e.index !== s.index && isSlotSprite(e.spriteId) && Math.abs(e.screen - s.screen) <= 1,
     )
-    .map(e => ({ id: e.spriteId, ...px(e) }))
+    .map(e => ({ id: e.spriteId, ...px(e), index: e.index }))
     .sort(
       (a, b) =>
         Math.abs(a.x - at.x) + Math.abs(a.y - at.y) - (Math.abs(b.x - at.x) + Math.abs(b.y - at.y)),

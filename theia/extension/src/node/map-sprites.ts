@@ -129,6 +129,8 @@ export type SpriteDrawResult =
       runtimePalette?: PaletteWrite[]
       /** Set when the run's seed is not the ROM-run level state: why the art is unverified. */
       unverified?: string
+      /** Stream indices of the list sprites this sprite's own code drew (a neighbour run, #1049): they get no marker of their own. */
+      drewIndex?: number[]
     })
   | Extract<EngineResult, { ok: false }>
   | { ok: false; reason: string; unverified?: string }
@@ -211,10 +213,13 @@ export function drawSprites(
   draw: SpriteDrawer,
   dynamic: (note: PaletteNote) => RgbaColor[] = () => [],
 ): MapSpriteDto[] {
-  return sprites.map(s => {
+  // Sprites a parent drew (the $9B a $9C picks up, #1049) are part of the parent's picture, not unexplained.
+  const drawnByParent = new Set<number>()
+  const dtos = sprites.map((s): MapSpriteDto => {
     // Fail closed: a possibly custom sprite is never given vanilla art.
     if ((s.raw[0] ?? 0) & EXTRA_BITS) return placeholder(s, 'extraBits')
     const res = draw(s)
+    if (res.ok && 'drewIndex' in res) for (const i of res.drewIndex ?? []) drawnByParent.add(i)
     if (!res.ok) return placeholder(s, 'reason' in res ? res.reason : res.failure.kind, 'unverified' in res ? res.unverified : undefined) // prettier-ignore
     if (res.parts.length === 0) return placeholder(s, 'noParts')
     const pixels = res.parts.map(p => getCharPixels(model.vram, p.charNum))
@@ -262,6 +267,8 @@ export function drawSprites(
       ...('unverified' in res && res.unverified ? { unverified: res.unverified } : {}),
     }
   })
+  // Only a sprite that drew nothing of its own loses its marker; one with its own picture keeps it.
+  return dtos.filter(d => !(d.status === 'placeholder' && d.reason === 'noParts' && drawnByParent.has(d.index))) // prettier-ignore
 }
 
 /** The engine over this cart: a missing descriptor or a repointed handler is a miss, never a guess. */
@@ -351,6 +358,7 @@ export function modelResult(m: RunModel): SpriteDrawResult {
     parts: interpParts(pass.parts),
     anchor: { x: m.anchor.x, y: m.anchor.y },
     runtimePalette: pass.palette,
+    ...(pass.drew ? { drewIndex: pass.drew.index } : {}),
     ...u,
     identity: { spriteId: m.id, mainHandler: 0, initHandler: 0, status: 'vanilla' },
   }

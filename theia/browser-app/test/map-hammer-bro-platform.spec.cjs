@@ -7,7 +7,8 @@
  * platform's wings reach only y-10). The Mesen capture layers_v5/006 has 8 OAM entries for this sprite, the
  * bro's four at dy -16 and -24 (one machine). Checked from the node reply (mapSprites):
  * - the $9C bitmap reaches 24 px above its anchor and has opaque pixels in the bro-only rows;
- * - the $9B entry is still a placeholder marker (D52: a placed sprite never draws as nothing);
+ * - the $9B the platform picks up has NO entry, so no "9B" box covers the bro (owner T16, 2026-10-17):
+ *   the pointer on the bro lands on the $9C, whose plain name is what the hover shows (#981);
  * - the same for the $9C at 2176,272.
  * Plant for the verifier: in `runOnce` (SpriteRunner.ts) return `a` before the neighbour run; the first
  * assertion goes red (box top at y-10, no bro rows).
@@ -64,7 +65,7 @@ function opaqueRows(s, y0, y1) {
   return n
 }
 
-test('each $9C on map $006 draws the Hammer Bro above its platform, and its $9B stays a marker', async ({
+test('each $9C on map $006 draws the Hammer Bro above its platform, and its $9B has no marker', async ({
   page,
 }) => {
   const reply = await page.evaluate(
@@ -83,8 +84,14 @@ test('each $9C on map $006 draws the Hammer Bro above its platform, and its $9B 
     // The bro's top tiles sit at dy -24; the platform's own parts reach no higher than dy -10.
     expect(platform.box.y0).toBe(272 - 24)
     expect(opaqueRows(platform, 272 - 24, 272 - 16)).toBeGreaterThan(0)
-    const bro = reply.sprites.find(s => s.index === broIndex)
-    expect(bro.id).toBe(0x9b)
-    expect(bro.status).toBe('placeholder')
+    // Behavior, not presence: no sprite of any kind is listed for the $9B's index, and nothing the map view
+    // can hit-test or draw sits over the bro-only rows except the platform's own bitmap.
+    expect(reply.sprites.find(s => s.index === broIndex)).toBeUndefined()
+    const over = reply.sprites.filter(
+      s => s.index !== platformIndex && s.box.x0 < x + 16 && s.box.x1 > x && s.box.y0 < 272 - 16 && s.box.y1 > 272 - 24, // prettier-ignore
+    )
+    expect(over.map(s => [s.index, s.id])).toEqual([])
+    // The hover shows the sprite's name (#981): the platform has one, in plain words (letters and spaces).
+    expect(platform.name).toMatch(/^[A-Za-z ]+$/)
   }
 })

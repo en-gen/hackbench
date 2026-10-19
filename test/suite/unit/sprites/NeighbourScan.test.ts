@@ -35,6 +35,8 @@ const SHELLSCAN = 58
 const SHELL_LIST_ID = 0xdb
 /** Draws nothing of its own; scans for id QUIET and draws only that companion. */
 const BARE = 59
+/** Moves itself +8 in X, THEN draws, and sets the companion's position from its own (as $9C does) before drawing it. */
+const TRAVELS = 60
 
 /** Every byte run this file's cart plants, for the copyright check at the foot of the file. */
 const planted: number[][] = []
@@ -85,6 +87,19 @@ function cart(opts: { breakShellLoader?: boolean } = {}): RomFile {
   put(0x019d00, scan(QUIET, 0x8640, 0x9e00, true))
   put(0x019f00, scan(5, 0x8640, 0x8640, true, 9))
   put(0x019f80, scan(QUIET, 0x8600, 0x8640, true)) // own = an RTS: nothing drawn alone
+  // MAIN: LDA $E4,X / CLC / ADC #8 / STA $E4,X (travel first) / JSR draw / LDY #9 / loop: [LDA $14C8,Y / EOR #8 / BNE next]
+  // [LDA $9E,Y / EOR #51 / BEQ found] next: DEY / BPL loop / RTS / found: companion Y = own Y - 16, X = own X / PHX / TYX / JSR draw / PLX / RTS
+  put(0x01a000, [
+    0xb5, 0xe4, 0x18, 0x69, 0x08, 0x95, 0xe4, 0x20, 0x40, 0x86, 0xa0, 0x09, 0xb9, 0xc8, 0x14, 0x49,
+    0x08, 0xd0, 0x07, 0xb9, 0x9e, 0x00, 0x49, QUIET, 0xf0, 0x04, 0x88, 0x10, 0xef, 0x60, 0x38, 0xb5,
+    0xd8, 0xe9, 0x10, 0x99, 0xd8, 0x00, 0xb5, 0xe4, 0x99, 0xe4, 0x00, 0xda, 0xbb, 0x20, 0x40, 0x86,
+    0xfa, 0x60,
+  ]) // prettier-ignore
+  {
+    const o = off(0x018320 + 9 + TRAVELS * 2)
+    bytes[o] = 0
+    bytes[o + 1] = 0
+  }
   const word = (table: number, id: number, v: number) => {
     const o = off(table + id * 2)
     bytes[o] = v & 0xff
@@ -100,6 +115,7 @@ function cart(opts: { breakShellLoader?: boolean } = {}): RomFile {
   main(SCANNER, 0x9800)
   main(DRAWS, 0x8640)
   main(SHIFTS, 0x9900)
+  main(TRAVELS, 0xa000)
   // The shell ceiling compare's opcode ($02A8C0) is what shellLoad reads for a id from $C9 up: a wrong byte refuses.
   if (opts.breakShellLoader) bytes[off(0x02a8c0)] = 0xea
   return RomFile.fromBytes('scan.sfc', bytes)
@@ -219,6 +235,42 @@ describe('neighbour placement (#841)', () => {
     const m = runOnce(rom, SCANNER, seedWith([{ id: 4, x: 0x90, y: 0x70 }, { id: QUIET, x: 0xa0, y: 0x70 }])) // prettier-ignore
     expect(m.neighbourRun).toBe('refused')
     expect(partsOf(m)).toEqual(partsOf(alone))
+  })
+})
+
+describe('which neighbours the sprite drew, and where (#1049, D137)', () => {
+  const rom = cart()
+  const near = (id: number, index: number, x = 0x90) => ({ id, x, y: 0x70, index })
+
+  it('names, by list index, the neighbours the sprite drew itself and not the ones that drew in their own turn', () => {
+    const m = runOnce(rom, SCANNER, seedWith([near(DRAWS, 7), near(QUIET, 9, 0xa0)]))
+    expect(m.neighbourRun).toBe('adopted')
+    expect(m.passes[m.chosen!]!.drew?.index).toEqual([9])
+  })
+
+  it('names none when the second run is not taken or the sprite never drew a neighbour', () => {
+    expect(runOnce(rom, SCANNER, seedWith()).passes[0]!.drew).toBeUndefined()
+    const same = runOnce(rom, SCANNER, seedWith([near(DRAWS, 7)]))
+    expect(same.neighbourRun).toBe('same')
+    expect(same.passes[same.chosen!]!.drew).toBeUndefined()
+  })
+
+  it('children sit at the spawn-frame offsets from the parent: the parent moving before it draws adds no travel to them', () => {
+    // The parent steps +8 in X before it draws, so its own piece is drawn at dx 8 (the frame policy, unchanged).
+    // It puts the child at its own X and 16 above its Y: at rest that is (0, -16) from where it was placed.
+    const m = runOnce(rom, TRAVELS, seedWith([near(QUIET, 3)]))
+    expect(m.neighbourRun).toBe('adopted')
+    const at = partsOf(m).map(p => [p.dx, p.dy]).sort((a, b) => a[1]! - b[1]!) // prettier-ignore
+    expect(at).toEqual([
+      [0, -16],
+      [8, 0],
+    ])
+    expect(m.passes[m.chosen!]!.drew).toEqual({ index: [3], shift: { x: 8, y: 0 } })
+  })
+
+  it('a parent that has not moved when it draws has no shift to take off', () => {
+    const m = runOnce(rom, SCANNER, seedWith([near(QUIET, 3)]))
+    expect(m.passes[m.chosen!]!.drew?.shift).toEqual({ x: 0, y: 0 })
   })
 })
 

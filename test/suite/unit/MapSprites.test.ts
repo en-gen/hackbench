@@ -102,6 +102,16 @@ describe('drawSprites: extra bits, palette splice', () => {
     expect(c).toMatchObject({ reason: 'extraBits' })
   })
 
+  it('a sprite its parent drew gets no marker, and a sprite nobody drew still does (#1049)', () => {
+    const parent = (drew: number[]): EngineResult => ({ ...ok(part(0x401, 0, 0)), drewIndex: drew }) as EngineResult // prettier-ignore
+    const list = [spr(10, 3, 2, 0x9c), spr(11, 3, 2, 0x9b), spr(12, 9, 2, 0x9b)]
+    const draw = (drew: number[]) => (s: LevelSprite): EngineResult => s.spriteId === 0x9c ? parent(drew) : ok() // prettier-ignore
+    // Index 11 is the one $9C drew; 12 draws nothing and nothing drew it.
+    expect(drawSprites(list, MODEL, draw([11])).map(d => [d.index, d.status])).toEqual([[10, 'drawn'], [12, 'placeholder']]) // prettier-ignore
+    // The same list with no claim keeps both markers, so the filter is the claim and not the id.
+    expect(drawSprites(list, MODEL, draw([])).map(d => d.index)).toEqual([10, 11, 12])
+  })
+
   it('splices only the parts on the note row', () => {
     const chars = { sp1: [Uint8Array.from([3, 4, ...new Array(62).fill(0)])] }
     const note = { kind: 'dynamicCgram' as const, row: 9, firstCol: 4, colors: 1, entryAddr: 0 }
