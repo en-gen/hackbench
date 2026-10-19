@@ -88,7 +88,7 @@ on purpose), so two options: grade any pass against any frame (grader-only), or 
 to pass N. Assert for N=4: wrong over all graded at most 190 and exact at least 880.
 
 **K, stationary-shell list ids (35).** All 35 are $04-$07 whose list byte is $DA-$DD and whose capture
-record has `initFrame` null: 38 of the 2,262 spawn records in `layers_v5` (not of the 1,957 gradable) have it null: 35 Koopa records (list ids $DA-$DC, sprites $04-$07) and 3 records labelled $39 (list id $DE, maps 021 x2 and 11d; not part of this cause). All 35 Koopa
+record has `initFrame` null: 38 of the 2,262 spawn records in `layers_v5` (not of the 1,957 gradable) have it null: 35 Koopa records (list ids $DA-$DC, sprites $04-$07) and 3 records labelled $39 (list id $DE, maps 021 x2 and 11d; not part of this cause: $DE spawns five Eeries and only the first carries the list index, `bank_02.asm:6305-6308`, so the recorder links one per placement; docs/sprites/sprite-de-five-eeries.md). All 35 Koopa
 records are wrong. The level loader sends every list id from $DA up to $E0 to status 9 (`bank_02.asm:5348-5350`) and, for the Koopa ids, makes the sprite number `id - $DA + 4`; no INIT (`SMWDisX bank_02.asm:5339-5340`, `:5348-5350`, `:5360-5373`, `:5455-5461`). The runner
 seeds the number alone with status 1, so it runs a walking Koopa's INIT and draws two parts where the
 capture shows one. This is a real product defect: the map draws a walking Koopa for a stationary shell.
