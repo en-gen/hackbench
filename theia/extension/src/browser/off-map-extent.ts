@@ -37,12 +37,12 @@ export const insideMap = (x: number, y: number, mapW: number, mapH: number): boo
 const decoded = new WeakMap<MapSpriteDto, Uint8ClampedArray>()
 
 /**
- * The sprite pixels that fall in the margin `pad` (the gutter bands), on a bitmap of the padded
+ * The sprite pixels that fall in the gutter `pad`, on a bitmap of the padded
  * size. The map's own pixels stay transparent (the screens draw those, under the tiles'
  * priority) and so does everything beyond the gutter or above or below the map, as on develop.
  * The bitmap spans the whole padded strip rather than just the two bands: simpler, and it is
  * only allocated when a sprite reaches the gutter. Stacked as the screens stack them, by
- * position along the scroll axis then stream index. Null when no sprite reaches the margin.
+ * position along the scroll axis then stream index. Null when no sprite reaches the gutter.
  */
 export function offMapSpritePixels(
   sprites: readonly MapSpriteDto[],

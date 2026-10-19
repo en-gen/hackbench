@@ -897,7 +897,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const g = this.sprites
     if (!g || !this.showSprites) return undefined
     const vertical = g.orientation === 'vertical'
-    // Off the map (the margin, #1004): no tile covers a sprite there, and no screen is there to look up.
+    // Off the map (the gutter, #1004): no tile covers a sprite there, and no screen is there to look up.
     const [mw, mh] = this.mapPx(g)
     if (!insideMap(x, y, mw, mh)) return undefined
     const s = Math.floor(vertical ? y / g.height : x / g.width)
@@ -1334,9 +1334,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
             <div
               className="hb-map-view-back-area"
               data-layer="back-area"
-              style={{
-                background: padded ? backFade : back,
-              }}
+              style={{ background: padded ? backFade : back }}
             />
             {Array.from({ length: l.screenCount }, (_, s) => (
               <div
