@@ -13,9 +13,10 @@
  * object of Layer 1 expanded into the Map16 tables at $7E:C800/$7F:C800).
  * Hardware registers are the bus stubs; nothing is read from an emulator capture.
  *
- * The fixed entries and the GM11 spans between them are checked instruction by instruction (loaderSites),
- * and the targets of the calls and of the jump that leads into the mid-routine entry are followed
- * (an entry that exists is not an entry that is reached), and the run is guarded like the sprite runner's (no BRK/COP, no leaving ROM).
+ * The fixed GM11 calls and single instructions at the resolved entries are checked (loaderSites); the GM11
+ * spans between them are run on the core, not checked. The targets of the calls and of the jump that leads
+ * into the mid-routine entry are followed (an entry that exists is not an entry that is reached), and the
+ * run is guarded like the sprite runner's (no BRK/COP, no leaving ROM).
  * A ROM that differs, as the corpus hacks do, is refused with a reason rather
  * than run on a guess; the caller then has no loaded image.
  *
@@ -72,13 +73,13 @@ const hexAt = (a: number): string =>
 
 // Names of the routines the ROM's calls reach, built from the address the check actually ran at (a hack
 // may have moved a routine); the label says which vanilla routine it stands for.
-/** The refusal name of the header loader (CODE_05D796) the ROM's call resolved to `at`. */
+/** Names the header loader at the address its call resolved to, so a refusal points at the moved code. */
 const nameHeader = (at: number): string => `CODE_05D796-equivalent header loader at ${hexAt(at)}`
-/** The refusal name of the pointer loader (CODE_05D8B7) the ROM's call resolved to `at`. */
+/** Names the pointer loader at the address the sublevel jump resolved to, so a refusal points at the moved code. */
 const namePointer = (at: number): string => `CODE_05D8B7-equivalent pointer loader at ${hexAt(at)}`
-/** The refusal name of the entrance setup (CODE_00A635) the ROM's call resolved to `at`. */
+/** Names the entrance setup at the address its call resolved to, so a refusal points at the moved code. */
 const nameEntrance = (at: number): string => `CODE_00A635-equivalent entrance setup at ${hexAt(at)}`
-/** The refusal name of the data loader (CODE_05801E) the ROM's call resolved to `at`. */
+/** Names the data loader at the address its call resolved to, so a refusal points at the moved code. */
 const nameData = (at: number): string => `CODE_05801E-equivalent data loader at ${hexAt(at)}`
 
 // 65816 opcodes, named once; each site below checks one instruction.
