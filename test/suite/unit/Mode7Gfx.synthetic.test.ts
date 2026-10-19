@@ -230,13 +230,20 @@ describe('findMode7GfxFiles', () => {
     expect(file!.reason).toMatch(/LoROM only/)
   })
 
-  it('refuses both when a stock routine and a changed one are both called', () => {
+  it('reads the stock file normally beside a called LDY / JSL decoy for another file', () => {
     const rom = vanillaShaped()
     rom.writeAt(0x00c000, callSiteBytes(0xb000))
     rom.writeAt(0x00b000, [0xa0, 0x1c, 0x22, 0x01, 0x02, 0x03])
+    expect(find(rom)).toEqual([{ fileIndex: 0x27, byteLength: 0xc00 }])
+  })
+
+  it('refuses both when a changed routine claims the same file as the stock one', () => {
+    const rom = vanillaShaped()
+    rom.writeAt(0x00c000, callSiteBytes(0xb000))
+    rom.writeAt(0x00b000, [0xa0, 0x27, 0x22, 0x01, 0x02, 0x03])
     expect(find(rom)).toEqual([
       { fileIndex: 0x27, byteLength: null, reason: expect.stringMatching(/more than one/) },
-      { fileIndex: 0x1c, byteLength: null, reason: expect.stringMatching(/changed/) },
+      { fileIndex: 0x27, byteLength: null, reason: expect.stringMatching(/changed/) },
     ])
   })
 

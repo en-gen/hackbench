@@ -177,9 +177,15 @@ function calledOpenings(rom: RomFile): number[] {
 /** Uncached body of findMode7GfxFiles: stock routines by hash, edited ones by structure, so an edit is refused, not guessed planar. */
 function _findMode7GfxFiles(rom: RomFile, fps: Mode7Fingerprints): Mode7GfxFile[] {
   const hits = openings(rom).filter(at => isStockUnpack(rom, at, fps))
-  const changed = calledOpenings(rom).filter(at => !hits.includes(at))
   const files: Mode7GfxFile[] = []
   const fileOf = (at: number): number => rom.readAtFileOffset(at + FILE_INDEX_OFF, 1)![0]!
+  // With a stock routine present, a called LDY / JSL opening that fails the hash only
+  // matters when it names the SAME file: an unrelated one (a common GFX-load shape) is
+  // ignored, so a decoy cannot blank a file that decodes. With none present, every
+  // such opening is a routine that was edited, and is claimed.
+  const changed = calledOpenings(rom).filter(
+    at => !hits.includes(at) && (hits.length === 0 || hits.some(h => fileOf(h) === fileOf(at))),
+  )
   const total = hits.length + changed.filter(at => fileOf(at) < GFX_FILE_COUNT).length
   for (const at of hits) {
     const fileIndex = fileOf(at)
