@@ -170,7 +170,9 @@ function branchOverJsrs(rom: RomFile): { at: number; to: number }[] {
 /**
  * Cart offsets that a branch-over-JSR calls and that open `LDY #imm / JSL`:
  * the routine by structure, whatever its body now holds. LoROM only, as the
- * JSR arithmetic is.
+ * JSR arithmetic is. The caller is not derived to be SetallFGBG80
+ * (bank_00.asm:5392-5393); callers of this list decide how many openings they
+ * will act on, because any ordinary GFX loader has the same shape.
  */
 function calledOpenings(rom: RomFile): number[] {
   if (rom.mapMode === 'hirom') return []
