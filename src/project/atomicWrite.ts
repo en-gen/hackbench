@@ -16,8 +16,10 @@ import * as fs from 'fs'
 export function writeFileAtomic(file: string, data: Uint8Array | string): void {
   const tmp = `${file}.${process.pid}.tmp`
   const bytes = typeof data === 'string' ? Buffer.from(data, 'utf8') : data
+  // Opened before the cleanup `try`: a refused open created nothing, so the
+  // catch below must not delete what is at `tmp` (a sibling writer's live temp).
+  const fd = fs.openSync(tmp, 'wx')
   try {
-    const fd = fs.openSync(tmp, 'wx')
     try {
       // writeSync may take fewer bytes than asked; renaming a short file would truncate the target.
       let done = 0

@@ -228,7 +228,9 @@ describe('SaveStore', () => {
     // A directory where the temporary file goes: the write fails on every
     // platform before the real save is touched.
     fs.mkdirSync(path.join(dir, 'saves', `${slotFile(TITLE, 1)}.${process.pid}.tmp`))
-    expect(() => storeSave(dir, TITLE, 1, new Uint8Array([2]))).toThrow()
+    expect(() => storeSave(dir, TITLE, 1, new Uint8Array([2]))).toThrow(
+      expect.objectContaining({ code: 'EEXIST' }),
+    )
     expect(loadSave(dir, TITLE, 1)).toEqual(new Uint8Array([1, 1]))
   })
 

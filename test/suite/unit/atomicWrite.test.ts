@@ -100,6 +100,24 @@ describe('writeFileAtomic', () => {
     expect(fs.readdirSync(dir)).toEqual(['e.bin'])
     expect(fs.readFileSync(file, 'utf8')).toBe('old')
   })
+
+  it('a refused wx open deletes nothing: a planted file at the temp path survives with its content', () => {
+    const file = path.join(dir, 'f.json')
+    fs.writeFileSync(file, 'old')
+    const tmp = `${file}.${process.pid}.tmp`
+    fs.writeFileSync(tmp, 'another writer live temp')
+    expect(() => writeFileAtomic(file, 'new')).toThrow(expect.objectContaining({ code: 'EEXIST' }))
+    expect(fs.readFileSync(tmp, 'utf8')).toBe('another writer live temp')
+    expect(fs.readFileSync(file, 'utf8')).toBe('old')
+  })
+
+  it('a directory at the temp path surfaces EEXIST, not the cleanup error, and survives', () => {
+    const file = path.join(dir, 'g.json')
+    const tmp = `${file}.${process.pid}.tmp`
+    fs.mkdirSync(tmp)
+    expect(() => writeFileAtomic(file, 'new')).toThrow(expect.objectContaining({ code: 'EEXIST' }))
+    expect(fs.statSync(tmp).isDirectory()).toBe(true)
+  })
 })
 
 describe('renameWithRetry', () => {
