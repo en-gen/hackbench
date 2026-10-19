@@ -130,6 +130,7 @@ export type EeriesResult =
  * a spawner. A repointed JSR operand on an intact route is a spawner and runs.
  */
 export function eeriesRouteIntact(rom: RomFile): boolean {
+  /** One route byte by its name, or undefined for a failed read, so the comparison below reads as a list. */
   const at = (k: keyof typeof AT) => bytesAt(rom, ROUTE_AT + AT[k], 1)?.[0]
   return (
     at('cmp') === OP_CMP_IMM &&

@@ -26,6 +26,7 @@ import { CAPTURE_DIR, freshRom, hasCaptures, hasRom, romPath, VANILLA } from '..
  */
 const MAPS: [number, number, number][] = [[0x021, 2, 5], [0x11d, 1, 4], [0x1e8, 1, 4], [0x1e9, 1, 4]] // prettier-ignore
 
+/** The $DE placements of a vanilla map, from its sprite list, with the ROM they were read from. */
 function placements(map: number) {
   const rom = freshRom()
   const smw = new SmwRom(rom)
@@ -46,6 +47,7 @@ function eeriesOf(map: number, i: number, passes = 1) {
     base,
   )
   const models: SpriteModel[] = []
+  /** Runs each Eerie and keeps its model by spawn order, so the capture test can read the linked one. */
   const run = (r: never, id: number, s: never, o: never) => (models[(o as { spawn: { nth: number } }).spawn.nth] = runOnce(r, id, s, o)) // prettier-ignore
   const res = fiveEeries(rom, seed, { x, y, index: e.index, streamOffset: e.streamOffset }, undefined, passes, run as never) // prettier-ignore
   return { res, models, entry: e, x, y }
@@ -97,6 +99,7 @@ describe.skipIf(!hasRom(VANILLA) || !hasCaptures())(
   'sprite $DE against the layers_v5 capture of map $021',
   () => {
     // Read inside the test: a skipped describe still runs its body.
+    /** The capture's spawn records, read inside the test because a skipped describe still runs its body. */
     const spawnsOf = () => {
       const entries = unzip(readFileSync(join(CAPTURE_DIR, '021.zip')))
       const key = [...entries.keys()].find(k => k.endsWith('sprite_spawns.json'))!

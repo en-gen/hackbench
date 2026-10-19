@@ -20,6 +20,7 @@ const CARTS: NonNullable<Parameters<typeof buildSyntheticRom>[0]>[] = [
   { eeries: { spacing: [-0x40, -0x20, 0x20, 0x40], stream: [0xa1, 0x43, 0xde, 0xff] } },
 ]
 
+/** The regions a cart adds over the base cart, widened so a window overlapping an added byte is scanned. */
 function addedRegions(opts: (typeof CARTS)[number]): [number, number][] {
   const [on, off] = [buildSyntheticRom(opts).buffer, buildSyntheticRom().buffer]
   const out: [number, number][] = []
@@ -51,6 +52,7 @@ function copied(bytes: Uint8Array, regions: [number, number][], vanilla: Buffer)
   return hits
 }
 
+/** The vanilla ROM without a copier header, as the scan's haystack. */
 const vanillaBytes = (rom: RomFile): Buffer =>
   Buffer.from(rom.buffer.subarray(rom.hasHeader ? 512 : 0))
 

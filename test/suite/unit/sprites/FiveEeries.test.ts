@@ -35,9 +35,11 @@ import {
 
 type Run = (rom: never, id: number, s: SpriteSeed, o?: Parameters<typeof runOnce>[3]) => SpriteModel
 
+/** A level seed for the fixture with Mario at `marioX`. */
 const seed = (marioX = 100) => eeriesSeed(marioX, { camera: { x: 700, y: 224 }, mario: { x: marioX, y: 0 } }) // prettier-ignore
 /** The list entry of the fixture's stream: X 832, list index 9, data byte $71 (Y $170 = 368). */
 const entry: EeriesEntry = { x: 832, y: 368, index: 9, streamOffset: 0 }
+/** The synthetic cart with the Eerie fixture (or the given options). */
 const cart = (e: Parameters<typeof buildSyntheticRom>[0] = { eeries: {} }) => buildSyntheticRom(e)
 const JSR_AT = ROUTE_AT + 9
 /** The offsets in spawn order: the spawner's loop runs from the table's last entry to its first. */
@@ -73,6 +75,7 @@ describe('the five Eeries', () => {
 
   it('links only the first spawn to the list index, and that one is the rightmost, nth 0', () => {
     const linked: number[] = []
+    /** Runs the sprite with a probe that records the list index the spawn gave the slot. */
     const run: Run = (rom, id, s, o) =>
       runOnce(rom, id, s, {
         ...o,
@@ -89,6 +92,7 @@ describe('the five Eeries', () => {
   })
 
   it('faces Mario: each piece shows the cart speed picked by his side', () => {
+    /** The set of tiles drawn for Mario at `marioX`. */
     const tiles = (marioX: number) => {
       const r = fiveEeries(cart(), seed(marioX), entry, SYN)
       return r.ok ? new Set(r.parts.map(p => p.char)) : new Set<number>()
@@ -115,6 +119,7 @@ describe('the five Eeries', () => {
   })
 
   it('draws what it can when fewer than five spawn, and says so', () => {
+    /** Refuses from the fourth Eerie on, as a spawn with no room for more would. */
     const run: Run = (rom, id, s, o) =>
       (o?.spawn?.nth ?? 0) >= 3
         ? { id, passes: [], dependsOn: [], steps: [], refusal: `${SPAWN_SHORT}3 sprites, not ${o!.spawn!.nth! + 1}` } // prettier-ignore
@@ -140,7 +145,9 @@ describe('the spawn frame (D137): no travel', () => {
     if (!r.ok) throw new Error(r.reason)
     return { at: r.eeries.map(e => [e.x, e.y]), parts: r.parts.map(p => [p.dx, p.dy, p.char]) }
   }
+  /** The shape of the fixture whose Eerie does not move: what the travelling one must equal. */
   const atRest = () => shape(fiveEeries(cart({ eeries: {} }), seed(), entry, SYN))
+  /** The shape of the fixture whose Eerie moves every frame, optionally through a planted run. */
   const travelling = (run?: Run) => shape(fiveEeries(cart({ eeries: { travel: true } }), seed(), entry, SYN, 1, run)) // prettier-ignore
 
   it('the fixture Eerie really moves: its drawn pass is not at its spawn spot (so the checks below can fail)', () => {
@@ -162,6 +169,7 @@ describe('the spawn frame (D137): no travel', () => {
   })
 
   it('goes red on a planted travel frame: positions taken from the drawn pass differ', () => {
+    /** A run that takes the position from the drawn pass, as a travel frame would: the defect the check must catch. */
     const planted: Run = (rom, id, s, o) => {
       const m = runOnce(rom, id, s, o)
       return { ...m, spawnPos: m.passes[m.chosen ?? 0]?.pos }
@@ -200,8 +208,10 @@ describe('the spawner the loader calls', () => {
 describe('the loader route (checked by structure, before the JSR is read)', () => {
   /** The route instructions the check reads, by offset from $02:A88C: CMP, the id, BNE, PHY, PHX, DEY, STY, its operand, JSR. */
   const SHAPE = { cmp: 0, id: 1, bne: 2, phy: 4, phx: 5, dey: 6, sty: 7, dp: 8, jsr: 9 }
+  /** Runs the route-refusal case and records any spawner run, so a test can prove none ran. */
   const refusal = (rom: ReturnType<typeof cart>) => {
     const ran: unknown[] = []
+    /** Runs the sprite and records that a spawner ran at all. */
     const run: Run = (r, id, s, o) => (ran.push(o), runOnce(r, id, s, o))
     const r = fiveEeries(rom, seed(), entry, SYN, 1, run)
     return { r, ran }

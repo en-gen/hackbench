@@ -27,6 +27,7 @@ const model = { isVertical: false, screenCount: 16 }
 const [near, far] = [SYNTHETIC_OFFSETS[0]!, SYNTHETIC_OFFSETS[4]!]
 
 type Options = { stream?: number[]; spacing?: number[]; room?: number }
+/** Draws the fixture's $DE entry with Mario at `marioX`, over a cart built from `eeries` and optionally tweaked. */
 const draw = (marioX: number, eeries: Options = {}, tweak?: (rom: RomFile) => void) => {
   const rom = buildSyntheticRom({ eeries })
   tweak?.(rom)
@@ -38,6 +39,7 @@ function ok(r: ReturnType<typeof draw>) {
   if (!r.ok) throw new Error(`not drawn: ${JSON.stringify(r)}`)
   return r
 }
+/** The span of the drawn pieces' offsets from the entry, to compare against the cart tables. */
 const extent = (r: ReturnType<typeof ok>) => ({
   x: [Math.min(...r.parts.map(p => p.dx)), Math.max(...r.parts.map(p => p.dx))],
   y: [Math.min(...r.parts.map(p => p.dy)), Math.max(...r.parts.map(p => p.dy))],
@@ -64,6 +66,7 @@ describe('sprite $DE on the map', () => {
   })
 
   it('faces Mario: the speed the cart picks by his side is what the pieces show', () => {
+    /** The tiles drawn for Mario at `marioX`: the cart's tile is the X speed, so this shows which way they face. */
     const chars = (marioX: number) => [...new Set(ok(draw(marioX)).parts.map(p => p.charNum))]
     // Mario left of the Eeries picks the second table entry, right of them the first; the tile is that speed.
     const [left, right] = [chars(100), chars(2000)]
@@ -87,6 +90,7 @@ describe('sprite $DE on the map', () => {
   })
 
   it('is refused, with the reason, when the level loader gave no image: SpriteDataPtr was never set', () => {
+    /** A seed with no loader image, as when the level loader refuses. */
     const noImage = () => {
       const seed = eeriesSeed(100)
       delete seed.loaded

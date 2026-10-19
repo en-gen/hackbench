@@ -41,8 +41,11 @@ export function eeriesSeed(marioX: number, extra: Parameters<typeof withSeed>[0]
 /** Where sprite $39's handler sits in the fixture. */
 export const EERIE_HANDLER = 0x019600
 
+/** An absolute-address instruction: opcode, then the address low and high. */
 const abs3 = (op: number, a: number) => [op, a & 0xff, (a >> 8) & 0xff]
+/** The low byte of an address, for operands. */
 const lo = (a: number) => a & 0xff
+/** The high byte of an address, for operands. */
 const hi = (a: number) => (a >> 8) & 0xff
 
 /** The spawner: its code as an array, with the loop's branch offsets worked out. */
@@ -52,6 +55,7 @@ function spawnerCode(): number[] {
     hi: TABLES_AT + 5,
     xs: TABLES_AT + 10,
   }
+  /** An absolute-address instruction inside the spawner, written with the same low/high helpers. */
   const abs = (op: number, a: number) => [op, lo(a), hi(a)]
   // Data byte to $0A/$0B (raw, then its bit 0), the countdown in $0C.
   const head = [0xa5, 0x03, 0xa8, 0xb7, 0xce, 0x85, 0x0a, 0x29, 0x01, 0x85, 0x0b, 0xa9, 0x04, 0x85, 0x0c] // prettier-ignore
