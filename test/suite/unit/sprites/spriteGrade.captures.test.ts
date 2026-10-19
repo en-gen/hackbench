@@ -339,6 +339,25 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     120_000,
   )
 
+  // #1035: a stationary shell is placed as list id $DA-$DD but recorded as $04-$07 (the loader rebases it,
+  // bank_02.asm:5456-5462). Graded under the record id it is a walking Koopa and grades wrong; under the
+  // list id (runnerId) it is exact. Measured 2026-10-17, one machine, vanilla captures: 35 such records,
+  // 8 on map 12d, all wrong under the record id and all exact under the list id. Entry 10 on 12d has later
+  // kicked frames, but its drawn frame is the still shell and the grader accepts any recorded frame.
+  // Other list ids that differ from the record ($E0 -> $A3, $DE -> $39, 14 records) are not shells and keep
+  // the record id: the runner has no loader rule for them, so the list id would only refuse.
+  it('every record whose list id differs through the shell rule grades exact (35, 8 on map 12d)', () => {
+    const rom = freshRom()
+    const shells = all.filter(a => {
+      const id = parseInt(a.rec.id.slice(1), 16)
+      return runnerId(rom, id, a.rec.listIndex, a.listed) !== id
+    })
+    expect(shells).toHaveLength(35)
+    expect(shells.filter(a => a.map === '12d').map(a => a.rec.listIndex)).toEqual([0, 4, 8, 10, 13, 17, 22, 29]) // prettier-ignore
+    const { rows } = gradeAll(rom, shells)
+    expect(rows.map(r => r.verdict)).toEqual(shells.map(() => 'exact'))
+  }, 120_000)
+
   // A miss at k: the model draws nothing on the hardware's pass, which grades wrong. Without
   // `m.chosen = k` the grader falls back to the first drawing pass and the detail changes.
   it('map 102 $A4 at 912,400 misses at k and grades wrong, not empty', () => {

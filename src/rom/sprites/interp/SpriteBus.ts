@@ -98,6 +98,8 @@ export class SpriteBus implements Bus {
   onWramWrite: ((off: number, v: number) => void) | null = null
   /** Called for every hardware-register write ($2000-$43FF) with the 16-bit address and value. */
   onHwWrite: ((reg: number, v: number) => void) | null = null
+  /** Called for every SRAM write with the offset in the 32 KB buffer and the value (`recordWrites` does not see them). */
+  onSramWrite: ((off: number, v: number) => void) | null = null
   /** Every hardware register address ($2000-$43FF, bank-folded) written, with counts. */
   readonly hwWrites = new Map<number, number>()
   onInstruction?: (addr: number, op: number) => void
@@ -228,6 +230,7 @@ export class SpriteBus implements Bus {
     const lo = addr & 0xffff
     if (this.isSram(bank, lo)) {
       this.sram[lo] = v
+      this.onSramWrite?.(lo, v)
       return
     }
     if ((bank & 0x7f) >= 0x40 || lo < 0x2000 || lo >= 0x4400) return

@@ -6,11 +6,13 @@ import 'hackbench-theia-extension/src/browser/style/zoom.css'
 import 'hackbench-theia-extension/src/browser/style/pixel-canvas.css'
 // The map tab's palace toggles are PixelImageButtons, as the Map16 view's switch toggles are.
 import 'hackbench-theia-extension/src/browser/style/pixel-button.css'
+import 'hackbench-theia-extension/src/browser/style/properties.css'
 import { ContainerModule } from '@theia/core/shared/inversify'
 import { CommandContribution, MenuContribution } from '@theia/core/lib/common'
 import {
   bindViewContribution,
   FrontendApplicationContribution,
+  KeybindingContribution,
   WidgetFactory,
 } from '@theia/core/lib/browser'
 import { TabBarToolbarContribution } from '@theia/core/lib/browser/shell/tab-bar-toolbar'
@@ -25,6 +27,7 @@ import { NewProjectDialog } from './new-project-dialog'
 import { ProjectPropertiesDialog } from './project-properties-dialog'
 import { ProjectContext } from './project-context'
 import { BrandContribution } from './brand-contribution'
+import { ExplorerFindContribution } from './explorer-search'
 import { MapExplorerContribution } from './map-explorer-contribution'
 import { createMapExplorerWidget, MAP_EXPLORER_ID } from './map-explorer-widget'
 import { MapViewWidget, MAP_VIEW_ID } from './map-view-widget'
@@ -39,6 +42,9 @@ import { ThemeService } from '@theia/core/lib/browser/theming'
 import { SystemColorThemePicker, SystemThemeService } from './system-color-theme'
 import { CtrlWheelGuardContribution } from './ctrl-wheel-guard-contribution'
 import { PerfContribution } from './perf-contribution'
+import { PropertiesContribution } from './properties-contribution'
+import { PropertiesModel } from './properties-model'
+import { PROPERTIES_VIEW_ID, PropertiesWidget } from './properties-widget'
 
 export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
   rebind(OutlineViewContribution).to(HiddenOutlineViewContribution).inSingletonScope()
@@ -109,7 +115,23 @@ export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
     }))
     .inSingletonScope()
 
+  // The Properties side panel (#984): one shared model, so every map tab points the same view.
+  bind(PropertiesModel).toConstantValue(new PropertiesModel())
+  bind(PropertiesWidget).toSelf()
+  bind(WidgetFactory)
+    .toDynamicValue(ctx => ({
+      id: PROPERTIES_VIEW_ID,
+      createWidget: () => ctx.container.get(PropertiesWidget),
+    }))
+    .inSingletonScope()
+  bindViewContribution(bind, PropertiesContribution)
+
   bindViewContribution(bind, MapExplorerContribution)
   bind(FrontendApplicationContribution).toService(MapExplorerContribution)
   bind(TabBarToolbarContribution).toService(MapExplorerContribution)
+
+  bind(ExplorerFindContribution).toSelf().inSingletonScope()
+  bind(CommandContribution).toService(ExplorerFindContribution)
+  bind(KeybindingContribution).toService(ExplorerFindContribution)
+  bind(TabBarToolbarContribution).toService(ExplorerFindContribution)
 })

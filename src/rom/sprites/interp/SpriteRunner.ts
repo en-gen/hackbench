@@ -158,8 +158,12 @@ export interface SpriteModel {
    * frame a map should show.
    */
   chosen?: number
+  /** Why a $67 handler got the generic rule: the grinder gate ran it and it did not make the vanilla calls in order. */
+  lineGateReason?: string
   /** Why a $67 on a vanilla-shaped handler stayed on its first drawn pass although the next one draws. */
   lineStepReason?: string
+  /** True for $67 on a vanilla-shaped handler: each pass draws where the pass before left the sprite (`PassResult.origin`). */
+  snaps?: boolean
   dependsOn: DependsOn[]
   /** Instruction counts: INIT, then each MAIN pass. */
   steps: number[]
@@ -634,10 +638,19 @@ function runCore(
     if (st === 1)
       return { ...model, refusal: `INIT did not complete in ${MAX_INIT_FRAMES} frames: status stays 1, waiting on state the seed lacks` } // prettier-ignore
     const anchor = m.pos()
-    const snaps =
-      DRAWS_BEFORE_LINE_SNAP.has(num) &&
-      grinderDrawsBeforeSnap(rom, mains.handler.address, opts.grinderDispatch)
+    const gate = DRAWS_BEFORE_LINE_SNAP.has(num)
+      ? grinderDrawsBeforeSnap(
+          rom,
+          mains.handler.address,
+          num,
+          RAM.spriteNumber,
+          opts.grinderDispatch,
+        )
+      : null
+    const snaps = gate?.ok === true
+    if (gate && !gate.ok) model.lineGateReason = gate.reason
     model.anchor = { ...anchor, rawX: m.seed.sprite.x, rawY: m.seed.sprite.y }
+    if (snaps) model.snaps = true
     model.oamBase = w[RAM.oamIndex + m.seed.slot]
     probe?.(-1, w)
     for (let p = 0; p < m.seed.mainPasses; p++) {
