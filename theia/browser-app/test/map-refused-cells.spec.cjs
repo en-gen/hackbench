@@ -101,7 +101,9 @@ const tooltipOf = c =>
 const cellAt = (page, index, screenW, n) =>
   page.evaluate(
     ({ sel, screenW, n }) => {
-      const strip = document.querySelector(`${sel} .hb-map-view-strip`).getBoundingClientRect()
+      const strip = document
+        .querySelector(`${sel} [data-control="map-edge"]`)
+        .getBoundingClientRect() // the map's own origin (#1004)
       const screen = document.querySelector(`${sel} .hb-map-view-screen`).getBoundingClientRect()
       const cells = document.querySelectorAll(`${sel} [data-control="refused-cell"] rect`)
       const r = cells[n].getBoundingClientRect()

@@ -27,7 +27,8 @@ running your working copy beside them.
 
 It never modifies your ROM. Every edit becomes a patch layer in a
 **project**, and the project is what you keep, share and version. When you
-are ready to distribute, HackBench exports a real `.ips`.
+are ready to distribute, HackBench exports a real `.bps` patch, the
+format SMW Central requires (`.ips` is still available).
 
 > **Status: pre-alpha.** No packaged release yet, so the only way to run it
 > is to build from source. Expect breaking changes. Early testers are very
@@ -47,7 +48,7 @@ MyHack/
   levels/            created with the project
   snapshots/         created with the project
   ops/               your edits, as ordered layers of {address, old, new}
-  export/            the .ips you ship
+  export/            the .bps you ship
   saves/             the emulator's save game (SRAM, not ROM content)
 ```
 
@@ -126,7 +127,8 @@ Full walkthrough: [docs/guide/getting-started.md](docs/guide/getting-started.md)
    in the left sidebar. The Emulator is in the bottom panel: View > Emulator.
 3. Edit a palette: click a swatch, change it, click **OK**. That commits one
    layer. Nothing downstream moves until you confirm.
-4. **File > Export Patch** writes an `.ips` into your project's `export/`.
+4. **File > Export Patch** writes a `.bps` into your project's `export/`
+   (IPS is an option).
 
 You supply your own legally obtained ROM. See [Legal](#legal).
 
@@ -178,7 +180,7 @@ snapshots. This applies to the source tree, the packaged application, and
 every fixture, test input, and documentation sample.
 
 Projects you create contain no ROM content either, which is what makes
-them safe to share. The `.ips` patches you export contain only your own
+them safe to share. The `.bps` patches you export contain only your own
 changes.
 
 You must supply your own legally obtained ROM. HackBench is an unofficial

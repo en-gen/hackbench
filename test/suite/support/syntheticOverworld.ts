@@ -22,6 +22,7 @@ import { WILD } from '../../../src/rom/BytePattern'
 import { GFX_FGBG_TABLE, GFX_FILE_COUNT } from '../../../src/rom/GfxLoader'
 import { ADDR_BACK_AREA } from '../../../src/rom/PaletteLoader'
 import { fingerprint } from '../../../src/rom/Fingerprint'
+import { SYNTHETIC_AREA_FPS } from './syntheticAreas'
 import { plantStockPaletteCol1 } from '../../../src/rom/PaletteStockTables'
 import type { StockCode, StockSpan } from '../../../src/rom/SubmapFlagGate'
 import type { WorkingRom } from '../../../src/project/WorkingRom'
@@ -39,10 +40,11 @@ export const TITLE_HEADER = 0x078000
 const BG_COLOR_INDEX = 3
 export const BACKDROP_BGR = 0x1234
 
-/** CODE_00AD25 and CODE_04DABA as planted here: NOPs, recognized by these fingerprints. */
+/** CODE_00AD25 and CODE_04DABA as planted here, and the area routines of syntheticAreas: NOPs, recognized by these fingerprints. */
 export const SYNTHETIC_FPS = {
   cgram: [fingerprint(Buffer.alloc(0x81, 0xea))!],
   l2: [fingerprint(Buffer.alloc(0x35, 0xea))!],
+  areas: SYNTHETIC_AREA_FPS,
 }
 
 export { le16, le24 }

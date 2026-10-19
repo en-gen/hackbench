@@ -7,11 +7,7 @@ import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { expandMapOwned, SWITCH_FLAGS_UNCLEARED } from '../../../src/rom/ObjectExpander'
 import type { LevelObject } from '../../../src/rom/LevelParser'
-import {
-  refusedCellsOf as cellsOf,
-  refusedBounds,
-  WHY_UNPORTED,
-} from '../../../src/rom/model/RefusedCells'
+import { refusedCellsOf, WHY_UNPORTED } from '../../../src/rom/model/RefusedCells'
 import { formatRefusedLine } from '../../../src/rom/objectHandlers/interpretedGate'
 import { ADDR_EXTENDED_DISPATCH } from '../../../src/rom/objectHandlers/romData'
 
@@ -54,8 +50,6 @@ const expand = (
   expandMapOwned(objects, 2, rom, 0, vertical, undefined, undefined, SWITCH_FLAGS_UNCLEARED, sink)
 
 const GATE = /^Its drawing code /
-const BIG = { cols: 999, rows: 999 }
-const refusedCellsOf = (r: Parameters<typeof cellsOf>[0], o: LevelObject[]) => cellsOf(r, o, BIG)
 
 describe('refusedCellsOf (#816)', () => {
   it('marks the anchor cell of an unported object, on screen 1, with the plain reason', () => {
@@ -117,14 +111,14 @@ describe('refusedCellsOf (#816)', () => {
   })
 })
 
-describe('one cell per object, kept on the map (#816)', () => {
+describe('one cell per object (#816)', () => {
   const sink = () => ({ unverified: [] as string[], primitives: [], draw: () => false })
 
   it('an object refused twice (vertical pipe, handle_0DB49E) is one cell carrying the gate reason', () => {
     const objects = [obj(1, 3, 4)]
     const { refusals } = expand(cart(0x0db49e), objects, sink())
     expect(refusals.length).toBe(2)
-    const cells = cellsOf(refusals, objects, BIG)
+    const cells = refusedCellsOf(refusals, objects)
     expect(cells.map(c => c.objectIndex)).toEqual([0])
     expect(cells[0]!.reasons).toHaveLength(2)
     expect(cells[0]!.reasons.every(r => GATE.test(r))).toBe(true)
@@ -134,26 +128,19 @@ describe('one cell per object, kept on the map (#816)', () => {
   })
 
   it('a bare gate line without a ROM still reads as the gate reason', () => {
-    expect(cellsOf([gate()], [obj(1, 3, 4)], BIG)[0]!.reasons[0]).toMatch(GATE)
+    expect(refusedCellsOf([gate()], [obj(1, 3, 4)])[0]!.reasons[0]).toMatch(GATE)
   })
 
-  it('bounds follow the orientation and the screen count', () => {
-    expect(refusedBounds(false, 3)).toEqual({ cols: 48, rows: 27 })
-    expect(refusedBounds(true, 3)).toEqual({ cols: 32, rows: 48 })
-  })
-
-  it('an anchor past the strip is pulled to its last row and column, never dropped', () => {
-    const objects = [obj(1, 3, 31), obj(1, 40, 2), obj(1, 20, 9)]
-    const rs = [0, 1, 2].map(i => ({ objectIndex: i, handler: 1, reason: 'x' }))
-    expect(cellsOf(rs, objects, refusedBounds(false, 2)).map(c => [c.x, c.y])).toEqual([
-      [3, 26],
-      [31, 2],
-      [20, 9],
-    ])
-    expect(cellsOf(rs, objects, refusedBounds(true, 2)).map(c => [c.x, c.y])).toEqual([
-      [3, 31],
-      [31, 2],
-      [20, 9],
+  it('an anchor off the strip keeps its own x,y, never clamped (#1004)', () => {
+    // Negative and past-the-end on both axes: a clamp would turn each into 0 or the last row/column.
+    const objects = [obj(1, -2, 5), obj(1, 90, 5), obj(1, 4, -3), obj(1, 4, 400), obj(1, -1, -1)]
+    const rs = objects.map((_, i) => ({ objectIndex: i, handler: 1, reason: 'x' }))
+    expect(refusedCellsOf(rs, objects).map(c => [c.x, c.y])).toEqual([
+      [-2, 5],
+      [90, 5],
+      [4, -3],
+      [4, 400],
+      [-1, -1],
     ])
   })
 })
@@ -168,7 +155,7 @@ const gate = (at = 0x0db4a0, found = 0x00, n = 0) => ({
 
 describe('every distinct issue is kept (#1005)', () => {
   const o = [obj(1, 3, 4)]
-  const reasonsOf = (rs: Parameters<typeof cellsOf>[0]) => cellsOf(rs, o, BIG)[0]!.reasons
+  const reasonsOf = (rs: Parameters<typeof refusedCellsOf>[0]) => refusedCellsOf(rs, o)[0]!.reasons
 
   it('one issue gives one reason', () => {
     expect(reasonsOf([unp()])).toEqual([WHY_UNPORTED])
@@ -201,8 +188,8 @@ describe('every distinct issue is kept (#1005)', () => {
       [unp(), gate()],
       [gate(), unp()],
     ])
-      expect(cellsOf(rs, o, BIG)[0]!.handler).toBe(2)
-    expect(cellsOf([unp()], o, BIG)[0]!.handler).toBe(1)
+      expect(refusedCellsOf(rs, o)[0]!.handler).toBe(2)
+    expect(refusedCellsOf([unp()], o)[0]!.handler).toBe(1)
   })
 
   it('identical refusals do not inflate the count', () => {
@@ -211,7 +198,7 @@ describe('every distinct issue is kept (#1005)', () => {
 
   it('reasons are per object, not pooled across objects', () => {
     const two = [obj(1, 1, 1), obj(1, 2, 2)]
-    const c = cellsOf([gate(0x0db4a0, 0, 0), unp(0), unp(1)], two, BIG)
+    const c = refusedCellsOf([gate(0x0db4a0, 0, 0), unp(0), unp(1)], two)
     expect(c.map(x => x.reasons.length)).toEqual([2, 1])
   })
 })
