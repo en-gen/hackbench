@@ -16,7 +16,7 @@ import { Machine, RAM, runOnce } from '../../../../src/rom/sprites/interp/Sprite
 import { shellLoad } from '../../../../src/rom/sprites/ShellSprites'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import type { LevelSprite } from '../../../../src/rom/LevelParser'
-import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
+import { buildSyntheticRom, SYNTHETIC_INIT_TABLE_OFFSET } from '../../support/syntheticSpriteRom'
 
 const SCANNER = 50
 const QUIET = 51
@@ -90,7 +90,7 @@ function cart(opts: { breakShellLoader?: boolean } = {}): RomFile {
     bytes[o] = v & 0xff
     bytes[o + 1] = v >> 8
   }
-  word(0x018170 + 11, COMP, 0x9b80)
+  word(0x018170 + SYNTHETIC_INIT_TABLE_OFFSET, COMP, 0x9b80)
   for (const id of [INITS, NUMONLY, HIGHBYTE, SHELLSCAN, BARE]) word(0x018320 + 9, id, 0)
   word(0x018320 + 9, INITS, 0x9a00)
   word(0x018320 + 9, NUMONLY, 0x9c00)

@@ -445,9 +445,9 @@ export function interpRunner(
   model: { isVertical: boolean; screenCount: number },
   run: (rom: RomFile, id: number, seed: SpriteSeed) => RunModel = runOnce,
   seedFor: (rom: RomFile, index: number) => SpriteSeed = levelSeed,
+  ringRoutines: RingRoutines = VANILLA_RING_ROUTINES,
   /** The map's whole sprite list: a sprite that scans the slots for a companion is run with its neighbours (#841). */
   list: readonly LevelSprite[] = [],
-  ringRoutines: RingRoutines = VANILLA_RING_ROUTINES,
 ): (sprite: LevelSprite) => SpriteRun {
   // The loader runs once per map, not per sprite.
   const base = seedFor(rom, index)
@@ -737,7 +737,7 @@ function compute(
     // The level loader runs once; the sprites and the castle flames both start from its image.
     const base = levelSeed(rom.rom, index)
     const stream = parseLevelSprites(data, model.isVertical)
-    const draw = interpDrawer(rom.rom, index, model, runOnce, () => base, stream)
+    const draw = interpDrawer(rom.rom, index, model, runOnce, () => base, undefined, stream)
     const dynamic = dynamicOf(rom.rom)
     const layer = spriteLayer(data, model, draw, dynamic)
     const flames = castleFlameSprites(rom.rom, base, stream, model, model.l2?.ok ? model.l2.l2.dy : undefined, dynamic) // prettier-ignore
