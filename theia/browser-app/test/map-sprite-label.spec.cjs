@@ -69,6 +69,8 @@ test.afterEach(async ({ page }) => {
 
 const rootOf = slot => `[id="hackbench.map-view:${slot}"]`
 const stripOf = slot => `${rootOf(slot)} .hb-map-view-strip`
+/** The map's own rect (the edge element); the strip includes the canvas pad (#1004), so geometry reads this. */
+const mapOf = slot => `${rootOf(slot)} [data-control="map-edge"]`
 
 /** Opens map `slot` and returns the node reply's sprites with a hit test on their own bitmaps. */
 async function openMap(page, slot) {
@@ -83,7 +85,7 @@ async function openMap(page, slot) {
     { mp: manifestPath, index: slot },
   )
   opened.push(`hackbench.map-view:${slot}`)
-  await page.locator(stripOf(slot)).waitFor({ timeout: 30000 })
+  await page.locator(mapOf(slot)).waitFor({ timeout: 30000 })
   const reply = await page.evaluate(
     ({ mp, slot }) => getSvc('Symbol(ProjectService)').mapSprites(mp, slot),
     { mp: manifestPath, slot },
@@ -120,7 +122,7 @@ function clientOf(page, slot, map, x, y) {
       sc.scrollBy(first.x - (view.left + view.width / 2), first.y - (view.top + view.height / 2))
       return at()
     },
-    { strip: stripOf(slot), mapW: map.mapW, mapH: map.mapH, x, y },
+    { strip: mapOf(slot), mapW: map.mapW, mapH: map.mapH, x, y },
   )
 }
 
@@ -201,7 +203,7 @@ const hoverIsThemed = page =>
 /** 'aligned' when the hover anchor sits over `sprite`'s box in the current view, else how far off it is. */
 async function anchorState(page, slot, map, sprite) {
   const a = await page.locator('.hb-map-sprite-anchor').boundingBox()
-  const r = await page.locator(stripOf(slot)).boundingBox()
+  const r = await page.locator(mapOf(slot)).boundingBox()
   if (!a || !r) return 'none'
   const z = r.width / map.mapW
   const [dx, dy] = [a.x - (r.x + sprite.box.x0 * z), a.y - (r.y + sprite.box.y0 * z)]

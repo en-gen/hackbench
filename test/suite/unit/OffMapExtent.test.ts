@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
-  backGradient,
+  fadeMask,
   cellRect,
   centerScroll,
   insideMap,
@@ -72,27 +72,27 @@ describe('offMapPad: content growth', () => {
   })
 })
 
-describe('backGradient (owner R24)', () => {
+describe('fadeMask (owner R24)', () => {
   it('fades along the scroll axis: to the right on a horizontal map, to the bottom on a vertical one', () => {
-    expect(backGradient(false, 'rgb(1,2,3)', 128)).toBe('linear-gradient(to right, transparent, rgb(1,2,3) 128px, rgb(1,2,3) calc(100% - 128px), transparent)') // prettier-ignore
-    expect(backGradient(true, 'rgb(1,2,3)', 256)).toBe('linear-gradient(to bottom, transparent, rgb(1,2,3) 256px, rgb(1,2,3) calc(100% - 256px), transparent)') // prettier-ignore
+    expect(fadeMask(false, 128)).toBe('linear-gradient(to right, transparent, #000 128px, #000 calc(100% - 128px), transparent)') // prettier-ignore
+    expect(fadeMask(true, 256)).toBe('linear-gradient(to bottom, transparent, #000 256px, #000 calc(100% - 256px), transparent)') // prettier-ignore
   })
 })
 
 describe('the scroll-axis lead (visibleScreens and placeStart arithmetic)', () => {
-  it('a window wholly in the leading or trailing pad needs no screen (none may be asked for)', () => {
+  it('a window wholly in the leading or trailing pad gets the nearest edge screen, never one past the map', () => {
     // 3 screens of 100 px behind a 128 px lead and before a 400 px trail (a wide off-map band).
-    expect(screensInView(10, 50, 100, 128, 3, 0)).toEqual([0, -1])
-    expect(screensInView(10, 50, 100, 128, 3, 2)).toEqual([0, -1])
-    expect(screensInView(428 + 10, 50, 100, 128, 3, 0)).toEqual([0, -1]) // map ends at 428
-    expect(screensInView(428 + 399, 1, 100, 128, 3, 2)).toEqual([0, -1])
+    expect(screensInView(10, 50, 100, 128, 3, 0)).toEqual([0, 0])
+    expect(screensInView(10, 50, 100, 128, 3, 2)).toEqual([0, 2])
+    expect(screensInView(428 + 10, 50, 100, 128, 3, 0)).toEqual([2, 2]) // map ends at 428
+    expect(screensInView(428 + 399, 1, 100, 128, 3, 2)).toEqual([0, 2])
+    expect(screensInView(428 + 399, 1, 100, 128, 3, 0)).toEqual([2, 2])
   })
 
   it('never names a screen outside 0..count-1, however far the window or the margin reaches', () => {
     for (const scroll of [0, 50, 128, 300, 427, 428, 600, 828, 5000]) {
       for (const margin of [0, 1, 3]) {
         const [first, last] = screensInView(scroll, 200, 100, 128, 3, margin)
-        if (last < first) continue
         expect(first).toBeGreaterThanOrEqual(0)
         expect(last).toBeLessThanOrEqual(2)
       }

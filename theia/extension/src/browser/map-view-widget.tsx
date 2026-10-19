@@ -64,7 +64,7 @@ import { MapGridOverlay } from './grid-overlay'
 import { CollisionOverlay } from './collision-overlay'
 import { RefusedOverlay } from './refused-overlay'
 import {
-  backGradient,
+  fadeMask,
   cellRect,
   centerScroll,
   insideMap,
@@ -179,8 +179,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected padMemo: { l: Layout; s: Sprites | undefined; pad: Pad } | undefined
   /** The sprite pixels outside the map for one (layout, sprites) pair, null when none reach outside. */
   protected offMapMemo: { l: Layout; s: Sprites; px: Uint8ClampedArray | null } | undefined
-  /** Wheel, pointer and key events on the scroller: the late-pad restore yields to any of them. */
+  /** Wheel, pointer and key events in the tab: the late-pad restore yields to any of them. */
   protected userInputs = 0
+  /** A late-pad restore waiting for its frames: the pixel to hold and the pad to restore to. */
+  protected pendingRestore: { held: { x?: number; y?: number } | null | undefined; after: Pad; generation: number; inputs: number } | undefined // prettier-ignore
   protected screenError: string | undefined
   protected screenErrorDetail: string | undefined
   /** Each palace's block, decoded once per load, or why it cannot be drawn. */
@@ -276,6 +278,11 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.node.tabIndex = 0
     this.toDispose.push({ dispose: () => this.resizes.disconnect() })
     this.toDispose.push({ dispose: () => this.setHoverSprite(undefined) })
+    // Keys count as user input for the late-pad restore; the tab, not the scroller, has the focus.
+    this.node.addEventListener('keydown', this.countInput, true)
+    this.toDispose.push({
+      dispose: () => this.node.removeEventListener('keydown', this.countInput, true),
+    })
     this.toDispose.push({ dispose: () => this.selectSprite(undefined) })
     this.toDispose.push(this.view)
     // Three consumers of one store, each deciding for itself.
@@ -537,34 +544,43 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   }
 
   /**
-   * Sprites arrive after the map, and off-map ones can grow the pad. Fit refits to the new cross axis,
-   * and a leading pad that appears under a scrolled view shifts the content. The map pixel under the view
-   * center is recorded before the change and the scroll set absolutely after the refit has committed
-   * (the way ZoomController.restoreAnchor does), so the view stays on it; a relative nudge would drift
-   * with the refit's zoom. An axis at scroll 0 is left alone, so the leading gutter shows. Skipped when
-   * the map was reopened (generation), or the user zoomed, scrolled or pressed a key in the two frames. Nothing happens when the pad is unchanged.
+   * Sprites arrive after the map (and an edit can move a mark), and off-map content can grow the pad.
+   * Fit refits to the new cross axis, and a leading pad that appears under a scrolled view shifts the
+   * content. The map pixel under the view center is recorded before the change and the scroll set
+   * absolutely after the refit has committed (the way ZoomController.restoreAnchor does), so the view
+   * stays on it; a relative nudge would drift with the refit's zoom. An axis at scroll 0 is left alone,
+   * so the leading pad shows. A second change while a restore is pending reuses the recorded pixel and
+   * only replaces the pad it restores to. Skipped when the map was reopened (generation), or the user
+   * zoomed, scrolled, pressed a key or a pointer in the two frames. Nothing happens when the pad is unchanged.
    */
   protected keepViewOnPadChange(before: Pad): void {
     const l = this.mapLayout
     const after = this.pad
     if (!l || samePad(before, after)) return
+    const pending = this.pendingRestore
+    if (pending) {
+      pending.after = after
+      return
+    }
     const el = this.scroller
     const z = this.zoom
     const held = el && {
       x: el.scrollLeft > 0 ? (el.scrollLeft + el.clientWidth / 2 - before.left * z) / z : undefined,
       y: el.scrollTop > 0 ? (el.scrollTop + el.clientHeight / 2 - before.top * z) / z : undefined,
     }
-    const generation = this.generation
-    const inputs = this.userInputs
+    const restore = { held, after, generation: this.generation, inputs: this.userInputs }
+    this.pendingRestore = restore
     requestAnimationFrame(() => {
       this.fitStrip()
       // The refit's zoom is the one to restore at; a different one by the next frame is the user's.
       const z2 = this.zoom
       requestAnimationFrame(() => {
-        if (!el || !held || generation !== this.generation || z2 !== this.zoom || inputs !== this.userInputs) return // prettier-ignore
+        this.pendingRestore = undefined
+        const { held: h, after: a, generation, inputs } = restore
+        if (!el || !h || generation !== this.generation || z2 !== this.zoom || inputs !== this.userInputs) return // prettier-ignore
         el.scrollTo({
-          left: held.x === undefined ? undefined : (held.x + after.left) * z2 - el.clientWidth / 2,
-          top: held.y === undefined ? undefined : (held.y + after.top) * z2 - el.clientHeight / 2,
+          left: h.x === undefined ? undefined : (h.x + a.left) * z2 - el.clientWidth / 2,
+          top: h.y === undefined ? undefined : (h.y + a.top) * z2 - el.clientHeight / 2,
         })
       })
     })
@@ -1513,13 +1529,13 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const z = this.zoom
     const [mapW, mapH] = this.mapPx(l)
     const origin = this.mapOrigin()
-    // The back color is solid across the map and fades to transparent over each long-end gutter only (D48 part 2, R24).
+    // The back color is solid across the map and fades to transparent over each long-end gutter only (D48 part 2,
+    // R24), by a mask, so the element's background-color stays the map's back color.
     const vertical = l.orientation === 'vertical'
-    const back = backGradient(vertical, `rgb(${l.backdrop.join(',')})`, GUTTER_PX * z)
-    // The strip's rect without the gutters, which are `GUTTER_PX` of the long-end pads.
-    const checker = vertical
-      ? `${(pad.top - GUTTER_PX) * z}px 0 ${(pad.bottom - GUTTER_PX) * z}px 0`
-      : `0 ${(pad.right - GUTTER_PX) * z}px 0 ${(pad.left - GUTTER_PX) * z}px`
+    const back = `rgb(${l.backdrop.join(',')})`
+    const fade = fadeMask(vertical, GUTTER_PX * z)
+    // The strip's rect without the gutters: the outermost `GUTTER_PX` of each long-end pad (content grows inward of it).
+    const checker = vertical ? `${GUTTER_PX * z}px 0` : `0 ${GUTTER_PX * z}px`
     return (
       <div className="hb-map-grid-host">
         <div
@@ -1544,7 +1560,6 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
           onMouseMove={this.onPointerMove}
           onWheelCapture={this.countInput}
           onPointerDownCapture={this.countInput}
-          onKeyDownCapture={this.countInput}
           onMouseLeave={() => {
             this.pointer = undefined
             this.setHover(undefined)
@@ -1573,7 +1588,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
             <div
               className="hb-map-view-back-area"
               data-layer="back-area"
-              style={{ background: back }}
+              style={{ background: back, maskImage: fade, WebkitMaskImage: fade }}
             />
             {Array.from({ length: l.screenCount }, (_, s) => (
               <div

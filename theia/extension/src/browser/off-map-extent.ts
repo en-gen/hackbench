@@ -63,20 +63,22 @@ export function offMapPad(
 }
 
 /**
- * The back area's gradient (owner R24): `back` is solid across the map and its content bands, and fades
- * linearly to transparent over the GUTTER only, at each long end ("to right" on a horizontal map,
- * "to bottom" on a vertical one). A band the content grew on a short side is not a gutter and stays solid
- * [PROP]. `gutterPx` is the gutter's width on screen (128 * zoom).
+ * The alpha mask that fades the back area (owner R24): opaque across the map and its content bands,
+ * fading linearly to transparent over the GUTTER only, at each long end ("to right" on a horizontal
+ * map, "to bottom" on a vertical one). A band the content grew on a short side is not a gutter and
+ * stays opaque [PROP]. A mask rather than a gradient background keeps the back area's own
+ * `background-color` the map's back color, which tests and tools read. `gutterPx` is 128 * zoom.
  */
-export const backGradient = (vertical: boolean, back: string, gutterPx: number): string =>
-  `linear-gradient(${vertical ? 'to bottom' : 'to right'}, transparent, ${back} ${gutterPx}px, ${back} calc(100% - ${gutterPx}px), transparent)` // prettier-ignore
+export const fadeMask = (vertical: boolean, gutterPx: number): string =>
+  `linear-gradient(${vertical ? 'to bottom' : 'to right'}, transparent, #000 ${gutterPx}px, #000 calc(100% - ${gutterPx}px), transparent)` // prettier-ignore
 
 /**
  * Which screens of an N-screen map a scroll window touches, `margin` either side, as an inclusive
  * `[first, last]`. `scroll` and `view` are along the scroll axis in screen px, `size` one screen's px
  * and `lead` the pad before screen 0 in the same px, which shifts every screen by that much. Both ends
- * stay in `0..count-1`. A window wholly in the leading or trailing pad touches no screen and gets the
- * empty range `[0, -1]`: asking for a screen the map does not have is an error the view would keep.
+ * stay in `0..count-1`: a window wholly in the leading or trailing pad is taken at the nearest edge
+ * screen (so an edit still refreshes the layout there), and a screen the map does not have is never
+ * named, because asking for one is an error the view would keep.
  */
 export function screensInView(
   scroll: number,
@@ -86,10 +88,10 @@ export function screensInView(
   count: number,
   margin: number,
 ): [number, number] {
-  const pos = scroll - lead
-  if (pos + view <= 0 || pos >= count * size) return [0, -1]
-  const first = Math.min(count - 1, Math.max(0, Math.floor(pos / size) - margin))
-  const last = Math.max(first, Math.min(count - 1, Math.floor((pos + view - 1) / size) + margin))
+  const end = count * size - 1
+  const at = (px: number): number => Math.floor(Math.min(Math.max(px - lead, 0), end) / size)
+  const first = Math.min(count - 1, Math.max(0, at(scroll) - margin))
+  const last = Math.max(first, Math.min(count - 1, at(scroll + view - 1) + margin))
   return [first, last]
 }
 

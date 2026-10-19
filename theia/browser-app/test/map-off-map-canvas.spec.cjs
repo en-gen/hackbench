@@ -281,18 +281,21 @@ for (const { index, screenW, vertical } of [
       // The back area spans the whole strip, so the gradient's outer stops are the gutters' outer edges.
       expect(r.backArea.w).toBeCloseTo(r.strip.w, 0)
       expect(r.backArea.h).toBeCloseTo(r.strip.h, 0)
-      const image = await page.evaluate(
-        sel =>
-          getComputedStyle(document.querySelector(`${sel} [data-layer="back-area"]`))
-            .backgroundImage,
-        root(index),
-      )
-      expect(image.startsWith(`linear-gradient(${vertical ? 'to bottom' : 'to right'}, rgba(0, 0, 0, 0)`)).toBe(true) // prettier-ignore
-      // Both opaque stops are the back color, one gutter in from each end (the computed value rounds the zoom).
-      expect(image.split(back).length - 1).toBe(2)
-      expect(image).toMatch(new RegExp(`${back.replace(/[()]/g, '\\$&')} ${(G * zoom).toFixed(0)}(\\.\\d+)?px`)) // prettier-ignore
-      expect(image).toMatch(/calc\(100% - \d+(\.\d+)?px\)/)
-      expect(image).toMatch(/rgba\(0, 0, 0, 0\)\)$/)
+      // The back area's own background-color is the map's back color (what tests and tools read); the fade is a
+      // mask, opaque across the map and fading over the gutter only. Polled: the style lands with the render.
+      const style = () =>
+        page.evaluate(sel => {
+          const cs = getComputedStyle(document.querySelector(`${sel} [data-layer="back-area"]`))
+          return { color: cs.backgroundColor, mask: cs.maskImage || cs.webkitMaskImage || '' }
+        }, root(index))
+      await expect.poll(async () => (await style()).color, { timeout: 10000 }).toBe(back)
+      const { mask } = await style()
+      expect(mask.startsWith(`linear-gradient(${vertical ? 'to bottom' : 'to right'}, rgba(0, 0, 0, 0)`)).toBe(true) // prettier-ignore
+      // The two opaque stops sit one gutter in from each end (the computed value keeps the zoom's fraction).
+      const g = String(Math.round(G * zoom))
+      expect(mask).toMatch(new RegExp(`rgb\\(0, 0, 0\\) ${g}(\\.\\d+)?px`))
+      expect(mask).toMatch(/calc\(100% - \d+(\.\d+)?px\)/)
+      expect(mask).toMatch(/rgba\(0, 0, 0, 0\)(?: 100%)?\)$/)
     }
   })
 }
@@ -333,9 +336,19 @@ test('$C4: hovering the door in the gutter shows the sprite tooltip anchor at th
   await openMap(page, 0xc4)
   await spritesLanded(page, 0xc4)
   await zoomAt(page, 0xc4, 'zoom-actual')
+  const px = await canvasPixels(page, 0xc4)
+  // The door is 287 px down: scroll it to the middle of the view first, or the pointer lands off the page.
+  await page.evaluate(
+    ({ sel, y }) => {
+      const sc = document.querySelector(`${sel} [data-control="map-scroller"]`)
+      sc.scrollTop = Math.max(0, y - sc.clientHeight / 2)
+      sc.scrollLeft = 0
+    },
+    { sel: root(0xc4), y: px.first.y + px.padT },
+  )
+  await page.waitForTimeout(400)
   const r = await rects(page, 0xc4)
   const zoom = r.screen.w / 256
-  const px = await canvasPixels(page, 0xc4)
   // A real opaque door pixel, left of the map.
   const at = {
     x: r.edge.left + (px.first.x + 0.5) * zoom,
@@ -357,7 +370,7 @@ test('$C4: hovering the door in the gutter shows the sprite tooltip anchor at th
   expect(a.left - r.edge.left).toBeCloseTo(-8 * zoom, 0)
 })
 
-test('$DD: platform pixels land in the left pad, which is 8 px (one tile) plus the gutter', async ({
+test('$DD: platform pixels land in the left pad: 8 px rounds up to one 16 px tile, plus the gutter', async ({
   page,
 }) => {
   await openMap(page, 0xdd)
@@ -372,7 +385,7 @@ test('$DD: platform pixels land in the left pad, which is 8 px (one tile) plus t
   expect(px.map).toBe(0)
 })
 
-test('$102: sprites 24 px below the map grow the bottom by 32 px (one tile rounding) and there is no gutter below', async ({
+test('$102: sprites 24 px below the map grow the bottom by 32 px (24 rounds up to 32) and there is no gutter below', async ({
   page,
 }) => {
   await openMap(page, 0x102)
@@ -506,7 +519,10 @@ test('the grid runs across the gutters and the growth band', async ({ page }) =>
   await openMap(page, 0x102)
   await spritesLanded(page, 0x102)
   await zoomAt(page, 0x102, 'zoom-actual')
-  await page.locator(`${root(0x102)} [data-control="grid-toggle"]`).click()
+  // The grid is on by default (#920): a click here would turn it off. Make sure of it, as map-view.spec.cjs does.
+  const toggle = page.locator(`${root(0x102)} [data-control="grid-toggle"]`)
+  if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   // The map view's own grid canvas (scoped to this view: another view's grid canvas also carries the class).
   const grid = page.locator(`${root(0x102)} canvas.hb-grid-overlay`)
   await expect(grid).toHaveCount(1, { timeout: 15000 })
@@ -584,65 +600,75 @@ for (const { index, screenW, vertical, box } of [
 
 /**
  * #1004 criterion 3: with nothing off the map, the map's own area is pixel-identical to before and the gutter
- * shows at both long ends. $105 and $109 have nothing off the map (the vanilla sweep in theia-shell.md). The
- * hashes cover only the first two screens' composite canvases, scrolled to the map origin, so the gutter and
- * the scroll position cannot change them. Record the baseline on develop with HB_BASELINE_DIR=<dir>
- * HB_WRITE_BASELINE=1 (develop has no gutter, so only the hashes are written there), then run on the branch with
- * HB_BASELINE_DIR=<dir>: hashes must match AND the gutter must be 128 * zoom at both long ends, nothing on the
- * short sides.
+ * shows at both long ends. $105 and $109 have nothing off the map (the vanilla sweep in theia-shell.md).
+ *
+ * Two tests per map. The gutter half runs unconditionally. The pixel half compares a real screenshot of the map's
+ * own rect (the edge element on the branch, the strip on develop, scrolled to the map origin at Actual size, grid
+ * off) with a develop baseline, so CSS, z-order and overlay changes are seen, not just the composite bitmaps.
+ * Recipe: on develop run with HB_BASELINE_DIR=<dir> HB_WRITE_BASELINE=1 (writes <dir>/off-map-<map>.sha), then on
+ * the branch with HB_BASELINE_DIR=<dir>.
  */
 for (const { index, screenW, vertical } of [
   { index: 0x105, screenW: 256, vertical: false },
   { index: 0x109, screenW: 512, vertical: true },
 ]) {
-  test(`$${index.toString(16)}: with nothing off the map, the map area is pixel-identical to develop and the gutter shows at both ends`, async ({
+  const name = `$${index.toString(16)}: with nothing off the map`
+  test(`${name}, the gutter shows at both long ends and nothing on the short sides`, async ({
     page,
   }) => {
-    test.skip(!process.env.HB_BASELINE_DIR, 'HB_BASELINE_DIR not set')
+    await openMap(page, index)
+    await spritesLanded(page, index)
+    await zoomAt(page, index, 'zoom-actual')
+    const r = await rects(page, index)
+    const zoom = r.screen.w / screenW
+    expectPad(pads(r, zoom), vertical ? { left: 0, top: G, right: 0, bottom: G } : { left: G, top: 0, right: G, bottom: 0 }) // prettier-ignore
+  })
+
+  test(`${name}, the map's own area is pixel-identical to the develop baseline (criterion 3)`, async ({
+    page,
+  }) => {
+    test.skip(
+      !process.env.HB_BASELINE_DIR,
+      '#1004 criterion 3: set HB_BASELINE_DIR; record the baseline on develop with HB_WRITE_BASELINE=1, then run on the branch',
+    )
     await openMap(page, index)
     await spritesLanded(page, index)
     await click(page, index, 'zoom-actual')
+    // Grid off, so its canvas cannot differ between the two builds.
+    const toggle = page.locator(`${root(index)} [data-control="grid-toggle"]`)
+    if ((await toggle.getAttribute('aria-pressed')) === 'true') await toggle.click()
     await page.waitForTimeout(500)
-    // Scroll to the map origin: past the gutter on the branch, the strip start on develop (no mapOrigin there).
-    await page.evaluate(
+    // Scroll to the map origin (past the gutter on the branch; the strip start on develop, which has no mapOrigin()).
+    const clip = await page.evaluate(
       async ({ i, sel }) => {
         const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {
           index: i,
         })
         const o = typeof w.mapOrigin === 'function' ? w.mapOrigin() : { x: 0, y: 0 }
-        const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
-        s.scrollLeft = o.x * w.zoom
-        s.scrollTop = o.y * w.zoom
+        const sc = document.querySelector(`${sel} [data-control="map-scroller"]`)
+        sc.scrollLeft = o.x * w.zoom
+        sc.scrollTop = o.y * w.zoom
+        await new Promise(res => setTimeout(res, 1500))
+        const map = (document.querySelector(`${sel} [data-control="map-edge"]`) ?? document.querySelector(`${sel} .hb-map-view-strip`)).getBoundingClientRect() // prettier-ignore
+        const view = sc.getBoundingClientRect()
+        const [x0, y0] = [Math.max(map.left, view.left) + 1, Math.max(map.top, view.top) + 1]
+        const [x1, y1] = [Math.min(map.right, view.right - 20) - 1, Math.min(map.bottom, view.bottom - 20) - 1] // prettier-ignore
+        return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }
       },
       { i: index, sel: root(index) },
     )
-    await page.waitForTimeout(1500)
-    const fp = await page.evaluate(sel => {
-      const screens = [...document.querySelectorAll(`${sel} .hb-map-view-screen`)].slice(0, 2)
-      return screens.map(sc => {
-        const c = sc.querySelector('canvas[data-layer="screen"]')
-        return { size: [c.width, c.height], url: c.toDataURL() }
-      })
-    }, root(index))
-    expect(fp.every(f => f.url.length > 1000)).toBe(true)
-    const out = JSON.stringify(
-      fp.map(f => ({
-        size: f.size,
-        sha: nodeCrypto.createHash('sha256').update(f.url).digest('hex'),
-      })),
-      null,
-      1,
-    )
-    const file = path.join(process.env.HB_BASELINE_DIR, `off-map-${index.toString(16)}.json`)
+    expect(clip.width).toBeGreaterThan(100)
+    const sha = nodeCrypto
+      .createHash('sha256')
+      .update(await page.screenshot({ clip }))
+      .digest('hex')
+    const file = path.join(process.env.HB_BASELINE_DIR, `off-map-${index.toString(16)}.sha`)
     if (process.env.HB_WRITE_BASELINE) {
       fs.mkdirSync(process.env.HB_BASELINE_DIR, { recursive: true })
-      fs.writeFileSync(file, out)
+      fs.writeFileSync(file, sha)
       return
     }
     expect(fs.existsSync(file), `baseline ${file}: run on develop with HB_WRITE_BASELINE=1 first`).toBe(true) // prettier-ignore
-    expect(out).toBe(fs.readFileSync(file, 'utf8'))
-    const r = await rects(page, index)
-    const zoom = r.screen.w / screenW
-    expectPad(pads(r, zoom), vertical ? { left: 0, top: G, right: 0, bottom: G } : { left: G, top: 0, right: G, bottom: 0 }) // prettier-ignore
+    expect(sha).toBe(fs.readFileSync(file, 'utf8'))
   })
 }
