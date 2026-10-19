@@ -245,7 +245,11 @@ describe('which neighbours the sprite drew, and where (#1049, D137)', () => {
   it('names, by list index, the neighbours the sprite drew itself and not the ones that drew in their own turn', () => {
     const m = runOnce(rom, SCANNER, seedWith([near(DRAWS, 7), near(QUIET, 9, 0xa0)]))
     expect(m.neighbourRun).toBe('adopted')
-    expect(m.passes[m.chosen!]!.drew?.index).toEqual([9])
+    const kids = m.passes[m.chosen!]!.drew?.children
+    expect(kids?.map(c => c.index)).toEqual([9])
+    // Its one piece is the part the parent drew for it, and not the parent's own.
+    expect(kids![0]!.oam).toHaveLength(1)
+    expect(partsOf(m).some(p => p.oam === kids![0]!.oam[0])).toBe(true)
   })
 
   it('names none when the second run is not taken or the sprite never drew a neighbour', () => {
@@ -265,7 +269,10 @@ describe('which neighbours the sprite drew, and where (#1049, D137)', () => {
       [0, -16],
       [8, 0],
     ])
-    expect(m.passes[m.chosen!]!.drew).toEqual({ index: [3], shift: { x: 8, y: 0 } })
+    expect(m.passes[m.chosen!]!.drew).toMatchObject({
+      children: [{ index: 3 }],
+      shift: { x: 8, y: 0 },
+    })
   })
 
   it('a parent that has not moved when it draws has no shift to take off', () => {

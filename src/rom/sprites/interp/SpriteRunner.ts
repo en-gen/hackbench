@@ -128,11 +128,11 @@ export interface PassResult {
    */
   palette: PaletteWrite[]
   /**
-   * Neighbour run only, when the sprite's own code drew a neighbour: the list indices (`seed.neighbours[].index`) of
-   * the neighbours it drew, and how far the sprite had moved from `SpriteModel.anchor` when it did (0 when it draws
+   * Neighbour run only, when the sprite's own code drew a neighbour: each neighbour it drew (`seed.neighbours[].index`)
+   * with the OAM entries written for it, and how far the sprite had moved from `SpriteModel.anchor` when it did (0 when it draws
    * before it moves). The child is drawn at rest, so `runOnce` takes `shift` off the child's parts (D137).
    */
-  drew?: { index: number[]; shift: { x: number; y: number } }
+  drew?: { children: { index: number; oam: number[] }[]; shift: { x: number; y: number } }
 }
 
 export type DependsOn = 'marioX' | 'neighbours'
@@ -232,6 +232,9 @@ export class Machine {
   private readonly placed = new Map<number, number | undefined>()
   /** Neighbour slots whose OAM index ($15EA) the sprite's own code read this pass, and where the sprite stood at the first read. */
   private drewSlots = new Set<number>()
+  /** The neighbour slot whose draw is running (its `$15EA` was the last one read), and the OAM tile bytes written for each. */
+  private drawingFor: number | undefined
+  private readonly childTiles = new Map<number, Set<number>>()
   private drewAt: { x: number; y: number } | undefined
   /** OAM tile bytes written while `$15E9` named this sprite's slot; read instead of `touched` in a neighbour run. */
   private own = new Set<number>()
@@ -248,7 +251,13 @@ export class Machine {
     this.cpu = m.cpu
     this.bus.onWramWrite = off => {
       this.touched.add(off)
-      if (this.bus.wram[RAM.curSprite] === this.seed.slot) this.own.add(off)
+      if (this.bus.wram[RAM.curSprite] === this.seed.slot) {
+        this.own.add(off)
+        if (this.drawingFor !== undefined) {
+          const set = this.childTiles.get(this.drawingFor) ?? new Set<number>()
+          this.childTiles.set(this.drawingFor, set.add(off))
+        }
+      }
       if (off === RAM.paletteIndexTable) this.modeWritten = true
     }
     this.bus.onHwWrite = (reg, v) => {
@@ -272,6 +281,8 @@ export class Machine {
         // A draw routine reads the OAM index of the slot it draws; read on this sprite's turn, that slot is its child.
         if (off >= RAM.oamIndex && off < RAM.oamIndex + SLOTS) {
           const j = off - RAM.oamIndex
+          if (this.bus.wram[RAM.curSprite] === this.seed.slot)
+            this.drawingFor = this.placed.has(j) ? j : undefined
           if (this.placed.has(j) && this.bus.wram[RAM.curSprite] === this.seed.slot) {
             this.drewSlots.add(j)
             this.drewAt ??= this.pos()
@@ -476,16 +487,25 @@ export class Machine {
     this.touched.clear()
     this.own.clear()
     this.drewSlots.clear()
+    this.childTiles.clear()
+    this.drawingFor = undefined
     this.drewAt = undefined
   }
 
   /** What `PassResult.drew` says for the pass just run, or undefined when the sprite drew no neighbour. */
   drew(anchor: { x: number; y: number }): PassResult['drew'] {
-    const index = [...this.drewSlots]
-      .map(j => this.placed.get(j))
-      .filter((i): i is number => i !== undefined)
-    if (!this.drewAt || !index.length) return undefined
-    return { index, shift: { x: this.drewAt.x - anchor.x, y: this.drewAt.y - anchor.y } }
+    const children = [...this.drewSlots].flatMap(j => {
+      const index = this.placed.get(j)
+      const tiles = [...(this.childTiles.get(j) ?? [])]
+      const oam = tiles
+        .filter(
+          o => o >= RAM.oam && o < RAM.oam + RAM.oamEntries * 4 && (o - RAM.oam - 2) % 4 === 0,
+        )
+        .map(o => (o - RAM.oam - 2) / 4)
+      return index === undefined ? [] : [{ index, oam }]
+    })
+    if (!this.drewAt || !children.length) return undefined
+    return { children, shift: { x: this.drewAt.x - anchor.x, y: this.drewAt.y - anchor.y } }
   }
 
   /** OAM mirror indices whose tile byte this pass wrote. */

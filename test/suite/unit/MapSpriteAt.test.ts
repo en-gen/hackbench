@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   spriteAt,
+  compositeSpriteScreen,
   spriteDoors,
   doorIdAt,
   spriteName,
@@ -46,6 +47,17 @@ describe('spriteAt', () => {
     const a = dto(0x01, 4, [1, 0])
     const b = dto(0x02, 5, [1, 0])
     expect(spriteAt([b, a], H, 1, 0)?.id).toBe(0x02) // same column: the higher stream index
+  })
+
+  it('a sprite its parent drew is hit and named but paints nothing of its own (#1049)', () => {
+    const parent = dto(0x9c, 10, [0, 0])
+    const child = dto(0x9b, 11, [0, 0], [2, 1], [], { drawnBy: 10 })
+    expect(spriteAt([parent, child], H, 1, 0)).toBe(child)
+    // The parent's bitmap already holds the child's tiles: with only the child listed, nothing is composed.
+    expect(compositeSpriteScreen([child], 0, H)).toBeNull()
+    expect(compositeSpriteScreen([parent, child], 0, H)).toEqual(
+      compositeSpriteScreen([parent], 0, H),
+    )
   })
 
   it('agrees with the door map that decides what is drawn on top', () => {

@@ -115,6 +115,8 @@ function spriteLayer(
   const order = stackOrder(sprites, g, onLayer2)
   let out: SpriteLayer | null = null
   for (const [n, s] of order.entries()) {
+    // A sprite its parent drew is in the parent's bitmap already (#1049).
+    if (s.drawnBy !== undefined) continue
     const { x0, y0, x1, y1 } = s.box
     const [cx0, cx1] = [Math.max(x0, left), Math.min(x1, left + g.width)]
     const [cy0, cy1] = [Math.max(y0, top), Math.min(y1, top + g.height)]

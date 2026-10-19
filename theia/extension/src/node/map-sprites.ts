@@ -129,8 +129,8 @@ export type SpriteDrawResult =
       runtimePalette?: PaletteWrite[]
       /** Set when the run's seed is not the ROM-run level state: why the art is unverified. */
       unverified?: string
-      /** Stream indices of the list sprites this sprite's own code drew (a neighbour run, #1049): they get no marker of their own. */
-      drewIndex?: number[]
+      /** The list sprites this sprite's own code drew (a neighbour run, #1049), each with the parts drawn for it. */
+      children?: { index: number; parts: DrawPart[] }[]
     })
   | Extract<EngineResult, { ok: false }>
   | { ok: false; reason: string; unverified?: string }
@@ -213,13 +213,7 @@ export function drawSprites(
   draw: SpriteDrawer,
   dynamic: (note: PaletteNote) => RgbaColor[] = () => [],
 ): MapSpriteDto[] {
-  // Sprites a parent drew (the $9B a $9C picks up, #1049) are part of the parent's picture, not unexplained.
-  const drawnByParent = new Set<number>()
-  const dtos = sprites.map((s): MapSpriteDto => {
-    // Fail closed: a possibly custom sprite is never given vanilla art.
-    if ((s.raw[0] ?? 0) & EXTRA_BITS) return placeholder(s, 'extraBits')
-    const res = draw(s)
-    if (res.ok && 'drewIndex' in res) for (const i of res.drewIndex ?? []) drawnByParent.add(i)
+  const render = (s: LevelSprite, res: SpriteDrawResult): MapSpriteDto => {
     if (!res.ok) return placeholder(s, 'reason' in res ? res.reason : res.failure.kind, 'unverified' in res ? res.unverified : undefined) // prettier-ignore
     if (res.parts.length === 0) return placeholder(s, 'noParts')
     const pixels = res.parts.map(p => getCharPixels(model.vram, p.charNum))
@@ -266,9 +260,24 @@ export function drawSprites(
       status: 'drawn',
       ...('unverified' in res && res.unverified ? { unverified: res.unverified } : {}),
     }
+  }
+  // Sprites a parent drew (the $9B a $9C picks up, #1049) are part of the parent's picture, not unexplained.
+  const claimed = new Map<number, { parent: number; res: SpriteDrawResult; parts: DrawPart[] }>()
+  const dtos = sprites.map((s): MapSpriteDto => {
+    // Fail closed: a possibly custom sprite is never given vanilla art.
+    if ((s.raw[0] ?? 0) & EXTRA_BITS) return placeholder(s, 'extraBits')
+    const res = draw(s)
+    if (res.ok) for (const c of res.children ?? []) claimed.set(c.index, { parent: s.index, res, parts: c.parts }) // prettier-ignore
+    return render(s, res)
   })
-  // Only a sprite that drew nothing of its own loses its marker; one with its own picture keeps it.
-  return dtos.filter(d => !(d.status === 'placeholder' && d.reason === 'noParts' && drawnByParent.has(d.index))) // prettier-ignore
+  // Such a sprite that drew nothing of its own stays in the list (D52: it can be selected and dragged) with the
+  // tiles the parent drew for it as its area and no marker. The view hit-tests it and does not paint it again.
+  return dtos.map((d, n) => {
+    const c = claimed.get(d.index)
+    if (!c || d.status !== 'placeholder' || d.reason !== 'noParts') return d
+    const own = render(sprites[n]!, { ...c.res, parts: c.parts } as SpriteDrawResult)
+    return own.status === 'drawn' ? { ...own, x: d.x, y: d.y, drawnBy: c.parent } : d
+  })
 }
 
 /** The engine over this cart: a missing descriptor or a repointed handler is a miss, never a guess. */
@@ -358,7 +367,9 @@ export function modelResult(m: RunModel): SpriteDrawResult {
     parts: interpParts(pass.parts),
     anchor: { x: m.anchor.x, y: m.anchor.y },
     runtimePalette: pass.palette,
-    ...(pass.drew ? { drewIndex: pass.drew.index } : {}),
+    ...(pass.drew
+      ? { children: pass.drew.children.map(c => ({ index: c.index, parts: interpParts(pass.parts.filter(p => c.oam.includes(p.oam))) })) } // prettier-ignore
+      : {}),
     ...u,
     identity: { spriteId: m.id, mainHandler: 0, initHandler: 0, status: 'vanilla' },
   }

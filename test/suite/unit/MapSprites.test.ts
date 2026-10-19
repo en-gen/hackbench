@@ -102,14 +102,22 @@ describe('drawSprites: extra bits, palette splice', () => {
     expect(c).toMatchObject({ reason: 'extraBits' })
   })
 
-  it('a sprite its parent drew gets no marker, and a sprite nobody drew still does (#1049)', () => {
-    const parent = (drew: number[]): EngineResult => ({ ...ok(part(0x401, 0, 0)), drewIndex: drew }) as EngineResult // prettier-ignore
+  it('a sprite its parent drew stays in the list, flagged, with the parent-drawn tiles and no marker (#1049, D52)', () => {
+    const child = (index: number) => ({ index, parts: [part(0x401, 0, -16)] })
+    const parent = (kids: ReturnType<typeof child>[]): EngineResult => ({ ...ok(part(0x401, 0, 0)), children: kids }) as EngineResult // prettier-ignore
     const list = [spr(10, 3, 2, 0x9c), spr(11, 3, 2, 0x9b), spr(12, 9, 2, 0x9b)]
-    const draw = (drew: number[]) => (s: LevelSprite): EngineResult => s.spriteId === 0x9c ? parent(drew) : ok() // prettier-ignore
-    // Index 11 is the one $9C drew; 12 draws nothing and nothing drew it.
-    expect(drawSprites(list, MODEL, draw([11])).map(d => [d.index, d.status])).toEqual([[10, 'drawn'], [12, 'placeholder']]) // prettier-ignore
-    // The same list with no claim keeps both markers, so the filter is the claim and not the id.
-    expect(drawSprites(list, MODEL, draw([])).map(d => d.index)).toEqual([10, 11, 12])
+    const draw = (kids: ReturnType<typeof child>[]) => (s: LevelSprite): EngineResult => s.spriteId === 0x9c ? parent(kids) : ok() // prettier-ignore
+    // Index 11 is the one $9C drew; 12 draws nothing and nothing drew it, so it keeps its marker.
+    const [p, c, m] = drawSprites(list, MODEL, draw([child(11)]))
+    expect(c).toMatchObject({ index: 11, id: 0x9b, status: 'drawn', drawnBy: 10, x: 48, y: 32 })
+    expect(c!.reason).toBeUndefined()
+    // Its area is the tiles the parent drew for it (16 px above the anchor), not a 16 x 16 marker at the anchor.
+    expect(c!.box).toEqual({ x0: 48, y0: 16, x1: 56, y1: 24 })
+    expect(c!.parts).toHaveLength(1)
+    expect(p!.drawnBy).toBeUndefined()
+    expect(m).toMatchObject({ index: 12, status: 'placeholder', reason: 'noParts' })
+    // The same list with no claim keeps both markers, so the flag is the claim and not the id.
+    expect(drawSprites(list, MODEL, draw([])).map(d => [d.index, d.status])).toEqual([[10, 'drawn'], [11, 'placeholder'], [12, 'placeholder']]) // prettier-ignore
   })
 
   it('splices only the parts on the note row', () => {

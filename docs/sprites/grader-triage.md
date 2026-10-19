@@ -124,8 +124,9 @@ the parts it had" rule, 26 other records graded worse (sprites that scan the slo
 load-bearing.
 
 The neighbours the sprite drew itself (it read their `$15EA` OAM index on its own turn) are recorded in
-`PassResult.drew` by list index. The map view drops the "no parts" marker of such a sprite (#1049): the $9B is part of
-the platform's picture, not an unexplained placeholder. Their parts are drawn at the parent's spawn frame (D137): the
+`PassResult.drew` by list index, with the OAM entries written for each. The map view gives such a sprite no "no parts"
+marker (#1049) and keeps it in the list as `drawnBy` its parent (D52): its area is the tiles the parent drew for it, it can
+be hit, named and selected, and the view does not paint it again (the parent's bitmap holds the tiles). Their parts are drawn at the parent's spawn frame (D137): the
 distance the parent had moved from its anchor when it drew them is taken off. For $9C it draws before it moves
 (`bank_02.asm:12115-12148`), so the shift is 0 and the picture above is unchanged; a parent that moves first (a synthetic
 fixture in `NeighbourScan.test.ts`) is the case it changes.
