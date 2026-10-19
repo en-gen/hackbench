@@ -19,6 +19,10 @@ const WARN = 'var(--theia-editorError-foreground, #f44336)'
 export const refusedTooltip = (c: MapRefusedCellDto): string =>
   `Object ${c.objectIndex} (${c.objectType}): ${c.why}`
 
+/**
+ * The marks of the Layer 1 objects the drawer refused, as one SVG in map pixels. It spans the padded strip
+ * with its origin at the MAP's origin, so a mark the data places off the map is drawn there (#1004).
+ */
 export function RefusedOverlay(props: {
   cells: readonly MapRefusedCellDto[]
   /** The whole strip, in map pixels. */

@@ -582,6 +582,7 @@ function fixOffsets(
     return (e.some(v => v) || x9 > 255) && x9 === p.ox && e[1] === p.oy
   }
   // Each axis on its own: $8D's X is table - Layer1XPos (follows the camera) but its Y is a bare table byte.
+  /** Per axis, whether part `p` is screen-fixed: its OAM X or Y is the same in the probe run (the camera moved) and is not loader residue. */
   const fixedAxes = (p: SpritePart) => {
     const q = !residue(p) ? other.parts.find(q => q.oam === p.oam) : undefined
     return { x: !!q && q.ox === p.ox, y: !!q && q.oy === p.oy }

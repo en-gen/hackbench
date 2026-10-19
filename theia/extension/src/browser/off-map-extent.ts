@@ -53,6 +53,7 @@ export function offMapPad(
     r = Math.max(r, q.x1 - mapW)
     b = Math.max(b, q.y1 - mapH)
   }
+  /** The gutter a side gets: only the long ends have one. */
   const g = (long: boolean): number => (long ? GUTTER_PX : 0)
   return {
     left: tiles(l) + g(!vertical),
@@ -89,6 +90,7 @@ export function screensInView(
   margin: number,
 ): [number, number] {
   const end = count * size - 1
+  /** The screen under scroll position `px`, clamped into the map so a pad position gives its nearest edge screen. */
   const at = (px: number): number => Math.floor(Math.min(Math.max(px - lead, 0), end) / size)
   const first = Math.min(count - 1, Math.max(0, at(scroll) - margin))
   const last = Math.max(first, Math.min(count - 1, at(scroll + view - 1) + margin))
@@ -110,6 +112,7 @@ export const centerScroll = (
   // prettier-ignore
   Math.min(Math.max((start + lead) * zoom - view / 2, 0), max)
 
+/** Whether two pads are the same on every side: a change is what makes the view restore its place. */
 export const samePad = (a: Pad, b: Pad): boolean =>
   a.left === b.left && a.top === b.top && a.right === b.right && a.bottom === b.bottom
 
@@ -121,6 +124,7 @@ export const cellRect = (x: number, y: number): Rect => ({
   y1: (y + 1) * TILE,
 })
 
+/** Whether map pixel (x, y) is inside the map: positions in the pad have negative or too-large coordinates. */
 export const insideMap = (x: number, y: number, mapW: number, mapH: number): boolean =>
   x >= 0 && y >= 0 && x < mapW && y < mapH
 

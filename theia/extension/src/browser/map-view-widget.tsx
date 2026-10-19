@@ -271,6 +271,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** The view left offset 0 while the start was pending, even if it came back: the user has taken over. */
   protected movedBeforeStart = false
 
+  /** Sets the tab up once the container has built it: its class and focus, the listeners (including the key counter for the late-pad restore), and the disposables that undo them. */
   @postConstruct()
   protected init(): void {
     this.addClass('hb-map-view')
@@ -522,6 +523,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     if (why) this.showCollision = false
   }
 
+  /**
+   * Reads the map's sprites for the open slot and replaces the current ones. A reply for an older map or edit
+   * is dropped (generation). The pad can depend on the sprites, so the view is held across a pad change.
+   */
   protected async loadSprites(): Promise<void> {
     const o = this.options
     if (!o) return
@@ -580,6 +585,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.pendingRestore = restore
     // The refit's zoom is the one to restore at; a different one by the last frame is the user's.
     let zoom = this.zoom
+    /** The last frame of the restore: runs once more after a refit if the pad changed again, then scrolls. */
     const finish = (): void => {
       if (this.pendingRestore !== restore) return // the map was reopened or refreshed
       // The pad changed again while waiting: refit once more and give the layout a frame to commit.
@@ -738,6 +744,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     for (const s of this.visibleScreens()) void this.fetchScreen(s)
   }
 
+  /**
+   * Fetches one screen's planes (once per cache key) and, on the first reply, sizes the strip from it. A reply
+   * whose layout changed the pad (an edit moved a mark off the map) keeps the view on the same map pixel.
+   */
   protected async fetchScreen(screen: number): Promise<void> {
     const o = this.options
     const key = this.key(screen)
@@ -1119,6 +1129,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     return g && this.showSprites ? spriteAt(g.sprites, g, x, y) : undefined
   }
 
+  /**
+   * Sets the sprite under the pointer and places Theia's hover over it. The anchor box is the sprite's box
+   * plus the pad, because the strip's origin is not the map's origin (#1004).
+   */
   protected setHoverSprite(next: MapSpriteDto | undefined): void {
     const strip = this.node.querySelector('.hb-map-view-strip')
     const placed = hoverPlacementKey(
@@ -1533,6 +1547,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     }
   }
 
+  /**
+   * The strip: checkerboard, back area (masked to fade over the gutters), one canvas stack per screen, then
+   * the overlays. Every overlay is positioned from the one `pad`, so the map sits where its data says.
+   */
   protected renderStrip(): React.ReactNode {
     const l = this.mapLayout
     if (!l) {

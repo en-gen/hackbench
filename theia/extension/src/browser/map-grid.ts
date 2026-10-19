@@ -94,6 +94,10 @@ export function computeMapGridLines(spec: MapGridSpec): GridLines {
   const hiX = Math.min(dev(viewW), endX)
   const hiY = Math.min(dev(viewH), endY)
   if (hiX <= 0 || hiY <= 0) return out
+  /**
+   * One boundary line, or nothing when it is off the view. `off` is the content px before tile 0 of this axis
+   * (the pad), so a line's `pos` is from the strip's start while its weight counts tiles from the map's origin.
+   */
   const one = (
     i: number,
     scroll: number,

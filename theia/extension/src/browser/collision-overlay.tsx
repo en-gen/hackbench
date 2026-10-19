@@ -52,6 +52,10 @@ const Lines = React.memo(function Lines(props: {
   )
 })
 
+/**
+ * The collision lines as one SVG in map pixels. `origin` is where the map starts inside a padded strip
+ * (#1004), so the lines sit on the map and not on the strip's corner.
+ */
 export function CollisionOverlay(props: {
   layer: CollisionLayerView
   zoom: number
