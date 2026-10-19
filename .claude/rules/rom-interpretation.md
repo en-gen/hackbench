@@ -202,7 +202,8 @@ In practice:
   diversion anywhere shows as wrong behaviour); seeded only with the state that code reads; a
   step budget; a refusal with a reason; only the result the check needs is read back. First
   user: the CODE_0DA512 screen-exit gate, `src/rom/ScreenExitFiling.ts` (#1030), entered at
-  LevLoadExtObj.
+  LevLoadExtObj. Also: the level loader's GM11 spans and entry routines, `src/rom/sprites/interp/LevelLoader.ts`
+  (#1081), which state only single instructions (call and jump targets, opening opcodes) and run the rest.
 - A derivation that truly cannot be read must be NAMED as a hack-fragility
   point and paired with honest degradation: compare the handler against its
   vanilla bytes and DECLINE TO ASSERT when it diverges, rather than rendering

@@ -804,8 +804,7 @@ corpus ROMs have one; 20 are vanilla; 9678 is all zeros there) is accepted; the 
 the same step cap and a stack guard that also refuses a return to `$00:9716` in another bank. Shape acceptance over the 107 corpus ROMs (one machine,
 2026-10-07): 14 with the old shapes, 7 with a 12-byte shape that covered `$F6E4`, 14 with the
 9-byte shape; the four ROMs above keep their first failure. Over the 146 store hacks (2026-10-18, one machine): develop's
-byte shapes accepted 22 (17 load level `$105`, 5 are refused while running); the single-instruction sites accept those 22
-and 12 more, whose entry routines differ past their first instruction and now run from their own bytes (#1081). Of the seven that flipped
+byte shapes accepted 22 (17 load level `$105`, 5 are refused while running); the single-instruction sites accept exactly those 22, with the same load or refusal outcome for each (#1081). Of the seven that flipped
 (10186, 5559, 6161, 6416, 6593, 6764, 9535), 5559, 6416 and 6593 load and run the
 new spans (`$1404` = 1, `$1462-$1469` populated, Map16 identical to the old loader on
 levels `$105` and `$000-$004`, bar 6416 level 0 whose data loader hits the step cap in both);

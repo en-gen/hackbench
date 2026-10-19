@@ -31,21 +31,30 @@ const VANILLA_ALL_LEVELS = '4b36f5feb7d21b5827a3f7b55a83274aea0f27edda616542da86
 const DEVELOP_ACCEPTED = [10009, 10020, 10186, 10188, 10907, 16058, 16059, 4987, 5559, 5609, 6161, 6267, 6416, 6593, 6764, 9535, 9717, 9756, 9794, 9795, 9874, 9888]
 const RUN_REFUSED = [10186, 6161, 6764, 9535, 9756]
 const HACKS_DIR = join(TOOLS_ROOT, 'hacks', 'roms')
+/** The store hack `id` as a fresh ROM. */
 const hackRom = (id: number): RomFile => RomFile.load(join(HACKS_DIR, `${id}.sfc`))
 
-/** The ids among `ids` (after `mutate`) the loader accepts by shape, and those of them that load level $105. */
-function loadsOf(ids: readonly number[], mutate?: (rom: RomFile) => void) {
-  const accepted: number[] = []
-  const loaded: number[] = []
-  for (const id of ids) {
-    const rom = hackRom(id)
-    mutate?.(rom)
-    if (loaderShapeProblem(rom)) continue
-    accepted.push(id)
-    if (loadLevelState(rom, 0x105).ok) loaded.push(id)
-  }
-  return { accepted, loaded }
+type Outcome = 'loads' | 'refused while running' | 'refused by shape'
+
+/** What the loader does with `rom` (level $105): refuse it by shape, accept it and fail while running, or load it. */
+function outcomeOf(rom: RomFile): Outcome {
+  if (loaderShapeProblem(rom)) return 'refused by shape'
+  return loadLevelState(rom, 0x105).ok ? 'loads' : 'refused while running'
 }
+
+/** Expected outcome of store hack `id` (develop a990aaac, measured): every hack not listed is refused by shape. */
+const expectedOutcome = (id: number): Outcome =>
+  !DEVELOP_ACCEPTED.includes(id)
+    ? 'refused by shape'
+    : RUN_REFUSED.includes(id)
+      ? 'refused while running'
+      : 'loads'
+
+/** Hacks whose outcome in `got` differs from develop's, as "id: got (want)". */
+const parityProblems = (got: ReadonlyMap<number, Outcome>): string[] =>
+  [...got].flatMap(([id, o]) =>
+    o === expectedOutcome(id) ? [] : [`${id}: ${o} (${expectedOutcome(id)})`],
+  )
 
 /** What a fingerprint or a copied byte run in source text looks like. */
 const printsIn = (text: string): string[] => [
@@ -105,21 +114,43 @@ describe.skipIf(!hasRom(VANILLA))(
   },
 )
 
-describe.skipIf(!existsSync(HACKS_DIR) || readdirSync(HACKS_DIR).length < 146)(
-  'store hacks: every one develop accepted still loads',
+/** Ids of the store hacks on this machine (empty when the hacks directory is absent). */
+const hackIds = (): number[] =>
+  existsSync(HACKS_DIR)
+    ? readdirSync(HACKS_DIR)
+        .filter(f => /^\d+\.sfc$/.test(f))
+        .map(f => parseInt(f, 10))
+        .sort((x, y) => x - y)
+    : []
+
+describe.skipIf(hackIds().length < 146)(
+  'store hacks: all 146 load, or are refused, exactly as on develop',
   () => {
-    it('all 22 are accepted by shape; 17 load level $105 and the other 5 are refused while running', () => {
-      const { accepted, loaded } = loadsOf(DEVELOP_ACCEPTED)
-      expect(accepted).toEqual(DEVELOP_ACCEPTED)
-      expect(loaded).toEqual(DEVELOP_ACCEPTED.filter(id => !RUN_REFUSED.includes(id)))
-    }, 300_000)
-    it('goes red when one of them stops loading: a planted change to its data loader entry', () => {
-      const victim = 4987
-      const planted = loadsOf([victim], rom =>
-        rom.writeAt(0x05801e, [rom.readAt(0x05801e, 1)![0]! ^ 0x01]),
-      )
-      expect(planted).toEqual({ accepted: [], loaded: [] })
-      expect(loadsOf([victim]).loaded).toEqual([victim])
+    it('the per-hack outcome equals the one on develop for every hack: 17 load, 5 fail while running, 124 refused by shape', () => {
+      const ids = hackIds()
+      expect(ids).toHaveLength(146)
+      const got = new Map(ids.map(id => [id, outcomeOf(hackRom(id))] as const))
+      expect(parityProblems(got)).toEqual([])
+      const count = (o: Outcome) => [...got.values()].filter(v => v === o).length
+      expect([count('loads'), count('refused while running'), count('refused by shape')]).toEqual([
+        17, 5, 124,
+      ])
+    }, 600_000)
+    it('goes red when one hack changes: one that stops loading, and one that is newly accepted', () => {
+      const stopped = hackRom(4987)
+      stopped.writeAt(0x05801e, [stopped.readAt(0x05801e, 1)![0]! ^ 0x01])
+      // 4990 is refused by shape only because its call to UpdateScreenPosition names bank $80; make it bank 0.
+      const widened = hackRom(4990)
+      widened.writeAt(0x009715, [0x00])
+      expect(
+        parityProblems(
+          new Map([
+            [4987, outcomeOf(stopped)],
+            [4990, outcomeOf(widened)],
+            [9871, outcomeOf(hackRom(9871))],
+          ]),
+        ),
+      ).toEqual(['4987: refused by shape (loads)', expect.stringMatching(/^4990: /)])
     })
   },
 )

@@ -179,15 +179,15 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   // Screen setup: LDA #$20 / STA $5E, $1404++, JSR $A796, JSL $F6DB; ends at $9716 (the JSL must be last: a hook's stray RTS lands there).
   put(0x009708, [0xa9, 0x20, 0x85, 0x5e, 0xee, 0x04, 0x14, 0x20, 0x96, 0xa7, 0x22, 0xdb, 0xf6, 0x00]) // prettier-ignore
   put(0x009716, [0x22, 0x1e, 0x80, 0x85]) // bank byte as the FastROM mirror of bank 5; never run (the loader enters $05:801E itself)
-  // CODE_05D796's place, never run: PHB at +0, LDA $141A at +21 and JMP $D83E at +26 are the instructions
-  // the loader checks there, with NOPs between.
-  put(0x05d796, [bad('lead', 0x8b), ...Array(20).fill(0xea), 0xad, 0x1a, 0x14, 0xea, 0xea, 0x4c, 0x3e, 0xd8]) // prettier-ignore
+  // CODE_05D796's place, never run: PHB at +0, an STZ at +5, LDA $141A at +21 and JMP $D83E at +26 are the
+  // instructions the loader checks there, with NOPs between.
+  put(0x05d796, [bad('lead', 0x8b), ...Array(4).fill(0xea), 0x9c, 0xcf, 0x13, ...Array(13).fill(0xea), 0xad, 0x1a, 0x14, 0xea, 0xea, 0x4c, 0x3e, 0xd8]) // prettier-ignore
   put(0x05d83b, [bad('jump', 0x4c), 0xb7, 0xd8])
-  // Pointer loader: REP #$20 / LDA $0E / ASL / ASL / TAY, then SEP #$30 / LDA #7 / STA $1692 / STA $1A / PLB / RTL
-  put(0x05d8b7, [bad('pointers', 0xc2), 0x20, 0xa5, 0x0e, 0x0a, 0x0a, 0xa8, 0xe2, 0x30, 0xa9, 0x07, 0x8d, 0x92, 0x16, 0x85, 0x1a, 0xab, 0x6b]) // prettier-ignore
+  // Pointer loader: REP #$20 / LDA $0E / ASL / CLC / TAY, then SEP #$30 / LDA #7 / STA $1692 / STA $1A / PLB / RTL
+  put(0x05d8b7, [bad('pointers', 0xc2), 0x20, 0xa5, 0x0e, 0x0a, 0x18, 0xa8, 0xe2, 0x30, 0xa9, 0x07, 0x8d, 0x92, 0x16, 0x85, 0x1a, 0xab, 0x6b]) // prettier-ignore
   putGm11Spans(put, o)
-  // Entrance setup: LDA $14AD (the checked opening load) / SEP #$20 / STZ $14AD / STZ $14AE / LDA #6 / STA $71 / RTS
-  put(0x00a635, [bad('entrance', 0xad), 0xad, 0x14, 0xe2, 0x20, 0x9c, 0xad, 0x14, 0x9c, 0xae, 0x14, 0xa9, 0x06, 0x85, 0x71, 0x60]) // prettier-ignore
+  // Entrance setup: LDA $14AD (the checked opening load) / SEP #$20 / STZ $14AD / NOP / BNE to the next load (the checked branch lands on a load) / LDA $14AE / STZ $14AE / LDA #6 / STA $71 / RTS
+  put(0x00a635, [bad('entrance', 0xad), 0xad, 0x14, 0xe2, 0x20, 0x9c, 0xad, 0x14, 0xea, 0xd0, 0x00, 0xad, 0xae, 0x14, 0x9c, 0xae, 0x14, 0xa9, 0x06, 0x85, 0x71, 0x60]) // prettier-ignore
   // Data loader: PHP / REP #$10 / SEP #$20 / LDA #$25 / LDX #0 / STA $7EC800,X / LDA #$77 / STA $5E
   // (CODE_0584E3 rewrites $5E, bank_05.asm:560, so only a data loader run AFTER the screen setup
   // leaves $77), then PLP RTL (or COP)

@@ -57,6 +57,7 @@ const SUBLEVEL_JUMP = 0x05d83b // the jump into the pointer loader
 const OVERWORLD_PATH = (SUBLEVEL_JUMP + 3) & 0xffff // derived: where CODE_05D796's overworld branch jumps, the instruction after that jump
 const LEVEL_NUMBER_DP = 0x0e // the cell the loader writes the level number to, and the pointer loader reads
 const SUBLEVEL_FLAG = 0x141a // SublevelCount, which the loader sets and CODE_05D796 tests
+const SCREEN_UPDATE = 0xf6db // UpdateScreenPosition, which the screen setup calls
 
 // 65816 opcodes, named once; each site below checks one instruction.
 const PHB = 0x8b
@@ -68,12 +69,16 @@ const LDA_ABS = 0xad
 const JSR = 0x20
 const JSL = 0x22
 const JMP = 0x4c
+const CLC = 0x18
+const STZ_ABS = 0x9c
+const BNE = 0xd0
 
 /**
  * One instruction the loader relies on, checked on its own: its opcode and, where the loader is bound to
  * it, its operand (a call or jump target, or a cell), read from the ROM. No run of more than one
  * instruction is stated, so no ROM bytes are held here (rom-interpretation.md stock-code exception, #1030).
- * `bank` is the bank a long call must name ($80 mirrors ignored). Everything between the sites is not
+ * `bank` is the bank a long call must name ($80 mirrors ignored unless `bankExact`). `lands` is, for a
+ * relative branch, the opcode the instruction its displacement reaches must carry (the distance is read, not stated). Everything between the sites is not
  * compared: the routines run from the ROM's own bytes, and the runner refuses a stray return or a budget overrun.
  */
 export interface Site {
@@ -83,6 +88,8 @@ export interface Site {
   /** Operand the instruction must carry, little endian. */
   operand?: { value: number; size: 1 | 2 }
   bank?: number
+  bankExact?: boolean
+  lands?: number
 }
 
 export const LOADER_SITES: readonly Site[] = [
@@ -93,31 +100,43 @@ export const LOADER_SITES: readonly Site[] = [
   // The screen setup (bank_00.asm:2652) opens with a load, not a hook: a hack that replaces it (Seven Vanilla
   // Levels does) is code a sequence that ran the original span would misread. Its calls are followed by the run.
   { name: 'GM11 code between the entrance setup and the level data call at $00:9708', at: 0x009708, op: LDA_IMM }, // prettier-ignore
+  // The span ends in the call to UpdateScreenPosition, in bank 0 itself (a $80 mirror is another return bank).
+  { name: 'GM11 code between the entrance setup and the level data call at $00:9708', at: 0x009708 + 10, op: JSL, operand: { value: SCREEN_UPDATE, size: 2 }, bank: 0, bankExact: true }, // prettier-ignore
   // CODE_05D796 (bank_05.asm:7079-7093): it opens with the PHB that CODE_05D8B7's PLB pairs with, reads the
   // sublevel flag the loader sets, and its sublevel branch is the jump into the pointer loader, the overworld
   // branch the jump past it. Single instructions at their offsets; the routine itself is not run.
   { name: 'CODE_05D796 prologue and sublevel branch at $05:D796', at: 0x05d796, op: PHB },
+  { name: 'CODE_05D796 prologue and sublevel branch at $05:D796', at: 0x05d796 + 5, op: STZ_ABS },
   { name: 'CODE_05D796 prologue and sublevel branch at $05:D796', at: 0x05d796 + 21, op: LDA_ABS, operand: { value: SUBLEVEL_FLAG, size: 2 } }, // prettier-ignore
   { name: 'CODE_05D796 prologue and sublevel branch at $05:D796', at: 0x05d796 + 26, op: JMP, operand: { value: OVERWORLD_PATH, size: 2 } }, // prettier-ignore
   // The sublevel branch ends in JMP CODE_05D8B7 (bank_05.asm:7162).
   { name: 'jump into the pointer loader at $05:D83B', at: SUBLEVEL_JUMP, op: JMP, operand: { value: POINTER_LOADER & 0xffff, size: 2 } }, // prettier-ignore
   // CODE_05D8B7 opens with REP and reads the level number from the cell the loader writes (bank_05.asm:7228-7229).
   { name: 'pointer loader at $05:D8B7', at: POINTER_LOADER, op: REP },
+  { name: 'pointer loader at $05:D8B7', at: POINTER_LOADER + 5, op: CLC },
   { name: 'pointer loader at $05:D8B7', at: POINTER_LOADER + 2, op: LDA_DP, operand: { value: LEVEL_NUMBER_DP, size: 1 } }, // prettier-ignore
   // The entrance setup opens with a load (bank_00.asm:4914) and the data loader with PHP (bank_05.asm:21).
   { name: 'Mario entrance setup at $00:A635', at: ENTRANCE_SETUP, op: LDA_ABS },
+  { name: 'Mario entrance setup at $00:A635', at: ENTRANCE_SETUP + 9, op: BNE, lands: LDA_ABS },
   { name: 'level data loader at $05:801E', at: 0x05801e, op: PHP },
 ]
 
+/** Whether the instruction at site `s` is the one the loader knows (opcode, operand, bank, branch landing). */
 function siteHolds(rom: RomFile, s: Site): boolean {
-  const n = 1 + (s.operand?.size ?? 0) + (s.bank === undefined ? 0 : 1)
+  const n =
+    1 + (s.operand?.size ?? (s.lands === undefined ? 0 : 1)) + (s.bank === undefined ? 0 : 1)
   const b = bytesAt(rom, s.at, n)
   if (!b || b[0] !== s.op) return false
   if (s.operand) {
     const v = s.operand.size === 2 ? (b[2]! << 8) | b[1]! : b[1]!
     if (v !== s.operand.value) return false
   }
-  return s.bank === undefined || (b[n - 1]! & 0x7f) === s.bank
+  if (s.lands !== undefined) {
+    const dest = (s.at & 0xff0000) | ((s.at + 2 + ((b[1]! << 24) >> 24)) & 0xffff)
+    if (bytesAt(rom, dest, 1)?.[0] !== s.lands) return false
+  }
+  if (s.bank === undefined) return true
+  return (s.bankExact ? b[n - 1]! : b[n - 1]! & 0x7f) === s.bank
 }
 
 /** The first loader site whose instruction is not the one this loader knows, or null. */
