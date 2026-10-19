@@ -18,6 +18,7 @@ const MAIN = 0x019700
 const INIT = 0x019780
 /** The loader's route, written an instruction at a time at the game's offsets (our own order of the two pushes); the JSR stays at +9 where the gate reads the call. */
 const ROUTE_AT = 0x02a89c
+/** Writes the loader route at the game's offsets so the structure gate sees the vanilla shape without vanilla bytes. */
 function writeRoute(rom: RomFile): void {
   const at = (offset: number, ...bytes: number[]) => rom.writeAt(ROUTE_AT + offset, bytes)
   at(0, 0xc9, 0xe0) // compare with the sprite id
@@ -71,6 +72,7 @@ export interface PlatformCartOptions {
   travel?: boolean
 }
 
+/** A synthetic cart: the route, a spawner and the $A3 routines above, each knob in `o` bending one rule a test pins. */
 export function platformCart(o: PlatformCartOptions = {}): RomFile {
   const rom = buildSyntheticRom({ eeries: { stream: o.stream ?? [0x51, 0xb3, 0xe0, 0xff], room: o.room } }) // prettier-ignore
   // The loader's route and spawner at the game's addresses, the tables at the cart's own.
