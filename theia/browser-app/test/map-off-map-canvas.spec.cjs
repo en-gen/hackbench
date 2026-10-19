@@ -17,7 +17,7 @@
  * once on develop with HB_WRITE_BASELINE=1 (writes <HB_BASELINE_DIR>/off-map-109.json), then on the branch
  * without it. Planted-offset sanity for the verifier: drop `- pad.left` in updateHover, make
  * offMapSpritePixels write `(y + pad.top) * w + x` without `+ pad.left`, or set the back area to a solid
- * colour; the hover, canvas-pixel and fade assertions below must go red.
+ * color; the hover, canvas-pixel and fade assertions below must go red.
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')
@@ -208,7 +208,7 @@ test('$105: a horizontal map always has 128 px each side and none above or below
   }
 })
 
-test('$105: the back colour is solid across the map and fades to transparent over each gutter', async ({
+test('$105: the back color is solid across the map and fades to transparent over each gutter', async ({
   page,
 }) => {
   await openMap(page, 0x105)

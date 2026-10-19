@@ -26,7 +26,7 @@ const os = require('os')
 const { readGrid, screenshotWithoutGrid } = require('./grid-probe.cjs')
 const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
 
-const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
+const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT}`
 const ROM = process.env.HB_ROM || romPath(VANILLA)
 
 /**
@@ -1013,13 +1013,14 @@ test('the canvas stack puts layer 2 under everything on a standard-layout map, b
   ])
 })
 
-/** The composite of every visible plane over the box that layer 3's own pixels fill on screen 0. */
-async function layer3Region(page, index, box) {
+/** The composite of every visible plane over the box that layer 3's own pixels fill on a screen (default 0). */
+// `screen` is for #997's $01F spec (screens 1/3/5).
+async function layer3Region(page, index, box, screen = 0) {
   return page.evaluate(
-    ({ rootSel, box }) => {
-      const planes = planesOf(rootSel, 0)
+    ({ rootSel, box, screen }) => {
+      const planes = planesOf(rootSel, screen)
       if (!box) {
-        const l3 = [...document.querySelectorAll(`${rootSel} canvas[data-screen="0"][data-plane^="l3"]`)] // prettier-ignore
+        const l3 = [...document.querySelectorAll(`${rootSel} canvas[data-screen="${screen}"][data-plane^="l3"]`)] // prettier-ignore
         let [x0, y0, x1, y1] = [1e9, 1e9, -1, -1]
         for (const c of l3) {
           const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
@@ -1029,11 +1030,12 @@ async function layer3Region(page, index, box) {
             ;[x0, y0, x1, y1] = [Math.min(x0, x), Math.min(y0, y), Math.max(x1, x), Math.max(y1, y)]
           }
         }
+        if (x1 < 0) throw new Error(`no Layer 3 pixel on screen ${screen}`)
         box = { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 }
       }
       return { box, pixels: Array.from(composeCanvases(planes, box.x, box.y, box.w, box.h)) }
     },
-    { rootSel: root(index), box },
+    { rootSel: root(index), box, screen },
   )
 }
 
@@ -1042,15 +1044,13 @@ const l3Toggle = (page, index) => page.locator(`${root(index)} [data-control="la
 /**
  * Layer 3 (#561), on vanilla maps measured from the ROM: $002 is a tide with the header's BG3
  * priority bit set (an overlay: its band is in l3High, drawn over layer 1, at the foot of every
- * screen), $01F is a cage with the bit clear (a background: l3High under l1Low), $105 has no
- * layer 3 ($009, an interactive layer 2 map, has its own tests below).
+ * screen), $01A has the bit clear (a background, in l3Low), $105 has no layer 3 ($009, an
+ * interactive layer 2 map, has its own tests below).
  */
 for (const [index, role, bit, known] of [
   // known: the top-left of layer 3's box on screen 0, and its first opaque pixel in raster order with
-  // that pixel's color (outline black), then a non-black pixel. $01F's is BG3 palette 3, its crusher
-  // color 15 (gold, the castle_crusher palette's last entry; without the crusher colors the same pixel is
-  // [255,90,90]), so a wrong palette fails.
-  // All measured from the backend's planes.
+  // that pixel's color (outline black for $002), then a second pixel of another color, so a wrong palette
+  // fails. All measured from the backend's planes.
   [
     0x002,
     'Layer 3 · Overlay',
@@ -1063,14 +1063,21 @@ for (const [index, role, bit, known] of [
     },
   ],
   [
-    0x01f,
+    0x01a,
     'Layer 3 · Background',
     false,
     {
-      box: { x: 56, y: 48 },
-      pixel: { x: 64, y: 48 },
-      rgba: [0, 0, 0, 255],
-      color: { pixel: { x: 80, y: 48 }, rgba: [222, 165, 57, 255] },
+      // Settings byte not $80, so no smash sprite places layer 3: Layer3YPos 192 and camYPx 192 cancel
+      // (y = r*8 - yPx + camYPx, map-screen.ts:250), so tile row R lands at canvas Y R*8, X 0 on every screen
+      // (backend probe, one run, one machine: the same box on screens 0-3; the box starts at 257, the first opaque
+      // row). A low plane (l3Low), so pixels are read there. No outline-black pixel: the two are its first opaque
+      // pixel in raster order and one of another color. $01F (smash
+      // Layer 3, drawn once) has its own test below (#997).
+      plane: 'l3Low',
+      box: { x: 0, y: 257 },
+      pixel: { x: 25, y: 257 },
+      rgba: [66, 82, 99, 255],
+      color: { pixel: { x: 33, y: 265 }, rgba: [148, 148, 148, 255] },
     },
   ],
 ]) {
@@ -1086,17 +1093,24 @@ for (const [index, role, bit, known] of [
     // The bit places BG3's high plane: over layer 1 when set, under layer 1's low plane when clear.
     const order = await zOrder(page, index)
     const at = k => order.indexOf(k)
-    expect(at('l2High')).toBeLessThan(at('l3Low'))
+    // A missing plane gives -1 and would pass an order check, so each must be present first.
+    for (const k of ['l3Low', 'l3High', 'l2Low', 'l2High', 'l1Low', 'l1High'])
+      expect(at(k), k).toBeGreaterThanOrEqual(0)
+    // Bit set: l2High < l3Low because Layer 2 is on the sub screen, under the whole main screen
+    // (map-view-model.ts:146-148). Bit clear: RenderPass.ts:22-47 gives l3Low, OBJ0, l3High, OBJ1, l2Low
+    // (z-order probe: l3Low, l3High, l2Low, l1Low, l2High, one run, one machine).
+    if (bit) expect(at('l2High')).toBeLessThan(at('l3Low'))
+    else expect(at('l3High')).toBeLessThan(at('l2Low'))
     expect(at('l3High') > at('l1High')).toBe(bit)
     expect(at('l3High') < at('l1Low')).toBe(!bit)
 
-    const before = await layer3Region(page, index)
-    expect(before.box.w * before.box.h, 'layer 3 draws pixels on screen 0').toBeGreaterThan(0)
-    // A known layer 3 pixel: where the region starts, opaque in l3High; over layer 1 it is the shown color.
+    const sc = known.screen ?? 0
+    const before = await layer3Region(page, index, undefined, sc)
+    // A known layer 3 pixel: where the region starts, opaque in its plane; over layer 1 it is the shown color.
     expect({ x: before.box.x, y: before.box.y }).toEqual(known.box)
-    const own = await page.locator(`${root(index)} canvas[data-screen="0"][data-plane="l3High"]`).evaluate((c, p) => Array.from(c.getContext('2d').getImageData(p.x, p.y, 1, 1).data), known.pixel) // prettier-ignore
+    const own = await page.locator(`${root(index)} canvas[data-screen="${sc}"][data-plane="${known.plane ?? 'l3High'}"]`).evaluate((c, p) => Array.from(c.getContext('2d').getImageData(p.x, p.y, 1, 1).data), known.pixel) // prettier-ignore
     expect(own, 'layer 3 pixel and color at the known position').toEqual(known.rgba)
-    const tinted = await page.locator(`${root(index)} canvas[data-screen="0"][data-plane="l3High"]`).evaluate((c, p) => Array.from(c.getContext('2d').getImageData(p.x, p.y, 1, 1).data), known.color.pixel) // prettier-ignore
+    const tinted = await page.locator(`${root(index)} canvas[data-screen="${sc}"][data-plane="${known.plane ?? 'l3High'}"]`).evaluate((c, p) => Array.from(c.getContext('2d').getImageData(p.x, p.y, 1, 1).data), known.color.pixel) // prettier-ignore
     expect(tinted, 'a non-black layer 3 pixel, from the right palette').toEqual(known.color.rgba)
     if (bit) {
       const at =
@@ -1105,17 +1119,76 @@ for (const [index, role, bit, known] of [
     }
     await button.click()
     await expect(button).toHaveAttribute('aria-pressed', 'false')
-    for (const plane of planeLocators(page, index, 0, ['l3Low', 'l3High']))
+    for (const plane of planeLocators(page, index, sc, ['l3Low', 'l3High']))
       await expect(plane).toHaveCSS('visibility', 'hidden')
-    const hidden = await layer3Region(page, index, before.box)
+    const hidden = await layer3Region(page, index, before.box, sc)
     const changed = hidden.pixels.filter((v, i) => v !== before.pixels[i]).length
     expect(changed, 'hiding layer 3 changes the pixels it covered').toBeGreaterThan(0)
     await button.click()
     await expect(button).toHaveAttribute('aria-pressed', 'true')
-    const back = await layer3Region(page, index, before.box)
+    const back = await layer3Region(page, index, before.box, sc)
     expect(back.pixels).toEqual(before.pixels)
   })
 }
+
+/**
+ * #997: $01F's layer 3 is driven by the smash sprite, which keeps it on the camera in the game. The
+ * map view draws ONE copy, at world x = column*8 + 104 (the first landing, Layer3XPos -104, run from the ROM): the panel
+ * spans screen 0 (from x 160) into screen 1 (to about x 303 in world terms), and the 512 px repeat
+ * (the panel again from world 672, screen 2 from x 160) is not drawn. The first opaque column (x 160)
+ * was measured by the verifier.
+ */
+test('$01F: layer 3 is drawn once, across screens 0 and 1, not repeated 512 px on, and the toggle tooltip is unchanged', async ({
+  page,
+}) => {
+  // The pinned x is the vanilla ROM's; a custom HB_ROM or a missing corpus ROM cannot match it.
+  test.skip(
+    !!process.env.HB_ROM || !fs.existsSync(romPath(VANILLA)),
+    'needs the vanilla corpus ROM',
+  )
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openMap(page, project.manifestPath, 0x01f)
+  const button = l3Toggle(page, 0x01f)
+  const screenPixels = s =>
+    page.evaluate(
+      ({ rootSel, s }) => Array.from(composeCanvases(planesOf(rootSel, s), 0, 0, 256, 432)),
+      { rootSel: root(0x01f), s },
+    )
+  // A composite canvas's data-drawn is generation:key:flags:..., the flags being the L1 L2 L3 sprites switches
+  // it was painted with (map-view-widget.tsx, paintComposite). Reading it tells a repaint from a stale frame.
+  const l3Flag = s =>
+    page.evaluate(
+      sel => document.querySelector(sel)?.dataset.drawn?.split(':')[4]?.[2],
+      `${root(0x01f)} canvas[data-layer="screen"][data-screen="${s}"]`,
+    )
+  await showScreen(page, 0x01f, 2)
+  await expect.poll(() => l3Flag(2)).toBe('1')
+  const on = [await screenPixels(0), await screenPixels(1), await screenPixels(2)]
+  await button.click()
+  await expect(button).toHaveAttribute('aria-pressed', 'false')
+  // Screen 2's OWN repaint with layer 3 off, not just screen 0's: otherwise off[2] could be the old frame.
+  await expect.poll(() => l3Flag(2)).toBe('0')
+  const off = [await screenPixels(0), await screenPixels(1), await screenPixels(2)]
+  const changed = i => off[i].filter((v, k) => v !== on[i][k]).length
+  expect(changed(0), 'layer 3 is on screen 0').toBeGreaterThan(0)
+  expect(changed(1), 'the rest of the panel is on screen 1').toBeGreaterThan(0)
+  expect(on[2].some(v => v !== 0), 'screen 2 is rendered, so the comparison below is not of two blanks').toBe(true) // prettier-ignore
+  expect(off[2], 'no copy of layer 3 at the 512 px repeat').toEqual(on[2])
+  // The panel's first opaque column on screen 0 tells the first landing (-104, derived x 160) from the old
+  // smash-cycle start (-128, x 184); the verifier measured 160.
+  const firstColumn = await page.evaluate(rootSel => {
+    let x0 = 1e9
+    for (const c of document.querySelectorAll(
+      `${rootSel} canvas[data-screen="0"][data-plane^="l3"]`,
+    )) {
+      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+      for (let i = 3; i < d.length; i += 4) if (d[i] !== 0) x0 = Math.min(x0, (i >> 2) % c.width)
+    }
+    return x0
+  }, root(0x01f))
+  expect(firstColumn, 'layer 3 starts at the first landing, not the old -128 start').toBe(160)
+  await expect(button).toHaveAttribute('title', 'Layer 3 · Background')
+})
 
 /**
  * The toggle look (option D): pressed is a filled chip with a 1px border, off has neither (a transparent
@@ -1238,8 +1311,8 @@ test('$018: layer 3 is camera-locked, so its toggle is disabled and says so', as
 
 /**
  * The sprite layer (#564), drawn by the sprite interpreter (#585). $106 holds both kinds on vanilla:
- * sprites the ROM's own INIT and MAIN draw (21 of 25) and ids the interpreter refuses (marked, with its
- * reason). Its sprites sit past screen 0, so screen 1 is scrolled into view. $105 draws 31 of 34.
+ * sprites the ROM's own INIT and MAIN draw (24 of 25, #968 made the 3 stationary shells draw) and ids the interpreter refuses (marked, with its
+ * reason). Its sprites sit past screen 0, so screen 1 is scrolled into view. $105 draws 32 of 34.
  */
 const spriteToggle = (page, index) => page.locator(`${root(index)} [data-control="layer-sprites"]`)
 const spritePlane = (page, index, screen) =>
@@ -1285,27 +1358,35 @@ test('an interpreter-drawn sprite shows its own pixels where the service placed 
   )
   expect(reply.status).toBe('ok')
   expect(reply.sprites).toHaveLength(25)
-  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(21)
-  const inScreen1 = s => s.box.x0 >= 256 && s.box.x1 <= 512 && s.box.y0 >= 0 && s.box.y1 <= 432
+  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(24) // 21 plus the 3 stationary shells (#968)
   // Measured on vanilla: the first $05 is at tile (27, 20), a 16 x 32 body whose top is above its anchor.
   const koopa = reply.sprites.find(s => s.id === 5)
   expect(koopa).toMatchObject({ x: 432, y: 320, status: 'drawn' })
   expect(koopa.box).toEqual({ x0: 432, y0: 304, x1: 448, y1: 336 })
-  const marker = reply.sprites.find(s => s.status === 'placeholder' && inScreen1(s))
-  expect(marker, 'a marker inside screen 1').toBeTruthy()
-  // The interpreter's own words: sprite $DB is past the ROM's 201-entry pointer table.
-  expect(marker.reason).toMatch(/^refused: INIT: id \$db is past the 201-entry pointer table/)
+  // After #968 the one $106 miss is $4D at (3760, 368), in screen 14 (3584-3840): measured on vanilla.
+  const marker = reply.sprites.find(s => s.status === 'placeholder')
+  expect(marker, 'a marker on $106').toBeTruthy()
+  expect(marker).toMatchObject({ id: 0x4d, x: 3760, y: 368 })
+  const mScreen = Math.floor(marker.box.x0 / 256)
+  expect(mScreen).toBe(14)
+  await showScreen(page, 0x106, mScreen)
+  await expect(spritePlane(page, 0x106, mScreen)).toHaveAttribute('data-drawn', SPRITES_DRAWN)
+  // The interpreter's own words: the sprite ran 64 passes and drew no OAM tile.
+  expect(marker.reason).toMatch(/^drew no OAM tile in 64 passes/)
 
   const read = await page.evaluate(
-    ({ koopa, marker }) => {
-      const c = document.querySelector(
-        '[id="hackbench.map-view:262"] canvas[data-screen="1"][data-plane="sprites"]',
-      )
-      const ctx = c.getContext('2d')
-      const cut = s => {
+    ({ koopa, marker, mScreen }) => {
+      const ctxOf = n =>
+        document
+          .querySelector(
+            `[id="hackbench.map-view:262"] canvas[data-screen="${n}"][data-plane="sprites"]`,
+          )
+          .getContext('2d')
+      const ctx = ctxOf(1)
+      const cut = (s, n = 1, c = ctx) => {
         const w = s.box.x1 - s.box.x0
         const h = s.box.y1 - s.box.y0
-        const got = ctx.getImageData(s.box.x0 - 256, s.box.y0, w, h).data
+        const got = c.getImageData(s.box.x0 - 256 * n, s.box.y0, w, h).data
         const want = Uint8Array.from(atob(s.rgba), ch => ch.charCodeAt(0))
         // Alpha and opaque colors only: a readback premultiplies translucent pixels.
         let same = true
@@ -1322,9 +1403,9 @@ test('an interpreter-drawn sprite shows its own pixels where the service placed 
       const abs = ctx.getImageData(432 - 256, 304, 16, 32).data
       let inBox = 0
       for (let i = 3; i < abs.length; i += 4) if (abs[i] !== 0) inBox++
-      return { koopa: { ...cut(koopa), inBox }, marker: cut(marker) }
+      return { koopa: { ...cut(koopa), inBox }, marker: cut(marker, mScreen, ctxOf(mScreen)) }
     },
-    { koopa, marker },
+    { koopa, marker, mScreen },
   )
   expect(read.koopa.opaque, 'the interpreter drew pixels').toBeGreaterThan(0)
   expect(read.koopa.inBox, 'canvas pixels inside the absolute box (432,304)-(448,336)').toBeGreaterThan(0) // prettier-ignore
@@ -1345,7 +1426,7 @@ test('$4F on $105 is served at its stream position plus the (8, -1) its INIT add
     project.manifestPath,
   )
   expect(reply.status).toBe('ok')
-  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(31)
+  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(32) // 31 plus the shell $DB at 3344,368 (#968)
   // Stream positions (1808, 336), (2224, 320), (4544, 320): measured on vanilla, absolute.
   const fours = reply.sprites.filter(s => s.id === 0x4f)
   expect(fours.map(s => [s.x, s.y, s.status])).toEqual([

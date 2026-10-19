@@ -265,6 +265,18 @@ Hover (#879): the widget finds the sprite under the pointer with `doorIdAt`
 and `IndicatorDisplay`; that sprite's covered pixels draw opaque. The lift is
 part of the composite's cache key for the screens whose door map holds the id, so a lifted frame is never kept as the normal one and other screens do not repaint. The id is global to the map, so a sprite crossing a screen edge lifts on each screen it reaches; a sprite with no covered pixel on any composed screen never lifts.
 
+Sprite label (#981): `MapSpriteDto.name` is filled node-side from
+`getSpriteMetadata(id)?.displayName` (the sprite name table in
+`src/rom/model/sprites/SpriteMetadata.ts`); an id the table lacks has none and
+gets no hover. `spriteAt` (`map-view-model.ts`) returns the sprite that
+owns an opaque map pixel, using the same `stackOrder` as `spriteLayer`, so the
+named sprite is the one drawn on top. The widget asks Theia's `HoverService`
+for a hover whose text is `spriteName` (the name only), placed against an
+invisible fixed box over the sprite, so it takes the editor hover theme
+colours; there is no native `title` and nothing in the status bar. Leaving
+the sprite, a sprite reload, the sprite toggle going off or closing the tab
+cancels it.
+
 ### The map tab's collision overlay (#435)
 
 `ProjectService.mapCollision(manifestPath, index)` returns a map's collision as
@@ -363,21 +375,20 @@ Test hooks: `data-control="refused-overlay"` (absent when there are no cells), p
 ### The map strip's gutter (#1004)
 
 Owner ruling D48 part 2: "half a screen width of gutter on each end with ui to add a screen. The
-background should fade in a gradient to the edges", and from the T27 test: the back area colour should
+background should fade in a gradient to the edges", and from the T27 test: the back area color should
 "fade to transparent in the gutter area". A HORIZONTAL map therefore has a fixed 128 px gutter
 (`GUTTER_PX`, half a 256 px screen) on its left and right, always, whatever the map holds; nothing is
 added above or below. A VERTICAL map has no gutter and its DOM, styles and sizes are as before; both
 the vertical case and anything beyond the gutter stay as they were until D145 is decided. The
-earlier content-driven margin (a pad grown to hold every off-map mark and sprite) is gone: the
 gutter depends on the orientation alone (`gutterPad` in `browser/off-map-extent.ts`), so nothing that
 loads later can resize the strip, and Fit on a horizontal map fits the height exactly as before.
 
 With a gutter the widget:
 
 - pads `.hb-map-view-strip` (`0 128px*zoom`) so the screens keep their place relative to the map;
-- paints the back area over the whole strip as a horizontal gradient: the map's back colour, solid
+- paints the back area over the whole strip as a horizontal gradient: the map's back color, solid
   across the map and fading linearly to transparent at the outer edge of each gutter, so the
-  checkerboard shows through (a vertical map keeps the solid colour);
+  checkerboard shows through (a vertical map keeps the solid color);
 - draws the refused SVG in a user space whose origin is the MAP origin (`viewBox` starts at the
   negative gutter), so marks in the gutter land there at their raw tile;
 - draws the sprite pixels that fall in the gutters on one canvas (`data-layer="off-map-sprites"`, z
@@ -391,9 +402,41 @@ With a gutter the widget:
 Everything that turns a pointer or scroll offset into a map position subtracts the left gutter:
 `updateHover`, `liftAt` (positions off the map never lift: no tile covers a sprite there),
 `visibleScreens` and `placeStart`. A newly opened map is scrolled to 0, so the left gutter shows
-[PROP]. `overflow-anchor: none` is no longer needed: the strip's size cannot change after sprites
-load. `mapOrigin()` (protected, map pixels: `{x: 128, y: 0}` on a horizontal map, `{x: 0, y: 0}` on a
+[PROP]. `mapOrigin()` (protected, map pixels: `{x: 128, y: 0}` on a horizontal map, `{x: 0, y: 0}` on a
 vertical one) has the name, signature and units of #977's neighbour-card hook.
+
+## Properties view (#984)
+
+One right-hand side panel, `hackbench.properties`, reopened from View > Properties. It shows a SUBJECT held by
+`PropertiesModel` (`properties-model.ts`): `none` or `sprite` today. A map tab publishes as its own owner and
+only the owner's clear takes effect, so closing a background map never wipes the front map's sprite. Clicking a sprite publishes it and reveals the panel without
+activating it; empty ground, hiding or closing the map clears it to "No sprite selected".
+
+It is a small `ReactWidget`, not `@theia/property-view`: that package is not a dependency and adding it churns
+the lockfile for a selection-service round trip that would lose the owner rule. Everything it shows comes from
+the `MapSpriteDto` the map view draws from (`parts` is filled by `drawSprites` from the same list that blits the
+bitmap), via the pure `sprite-props.ts`; nothing re-reads the ROM and nothing writes.
+
+Animation: `mapSprites` still ships one pose per sprite (the interpreter's `chosen` pass). The panel asks for the
+rest on demand through `mapSpriteFrames(manifestPath, mapIndex, spriteIndex)`: the node side runs that one sprite
+again with the map view's seed and camera, and blits every pass that draws through `drawSprites` (no second draw
+path). `Machine.passes` are consecutive game frames. The loop starts at the pass the map shows (`chosen`, so frame
+0 is the map's bitmap) and goes on to later passes, kept in pass order and capped at 16. The sprite's own movement
+is subtracted (from `pos`, or from `origin` for a $67 on a vanilla-shaped handler, whose parts are measured from the
+pass before), then poses are deduped by each part's char, flips and offset from the other parts, so parts that
+move against each other are a new pose and whole-sprite drift is not. One pose says "Not animated"; no frames at
+all says "Animation not shown" plus a plain reason (the node and player keep reason codes, `framesReasonText`
+puts them in words). Sprites with screen-fixed parts (`fixOffsets`) are not animated, because that fix is only
+derived for the chosen pass. `FramePlayer` (`sprite-frames.ts`) requests on selection, drops replies and errors
+for an older selection, steps every 133 ms (8 game frames) and stops its timer on clear, hide and dispose. The
+widget follows the model through `followSubject` (`properties-follow.ts`), which applies the current subject
+first: a click publishes BEFORE the reveal command creates the widget. Evidence scope: vanilla ROM, one machine; a Koopa ($04)
+yields at least 2 frames across maps $0C7 and $105, a $9F at most 1 (`SpriteFrames.test.ts`). Known follow-ups: no keyboard
+selection of a sprite yet, and `parts` now rides on every drawn sprite in the `mapSprites` reply.
+
+Adding the map description (#1023): add a `map` variant to `PropertiesSubject`, publish it from the map widget
+where it now publishes `none`, and call `registerSubjectRenderer('map', ...)` in `properties-widget.tsx` (the
+renderer registry; `render()` does not change); the sprite breadcrumb in `SpriteSubject` is where "Back" goes.
 
 ## The emulator view
 

@@ -32,7 +32,7 @@
  */
 const { test, expect } = require('@playwright/test')
 
-const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
+const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT}`
 const COLOR_THEME_KEY = 'workbench.colorTheme'
 const POLL_TIMEOUT = 15000
 
