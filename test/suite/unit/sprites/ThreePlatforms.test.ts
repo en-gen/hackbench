@@ -22,6 +22,7 @@ import { eeriesSeed } from '../../support/syntheticEeries'
 import {
   ANGLES,
   platformCart,
+  SPAWNER_AT,
   SYNTHETIC_PLATFORM_ROUTINES as SYN,
 } from '../../support/syntheticPlatforms'
 
@@ -104,6 +105,26 @@ describe('the three platforms', () => {
     const r = drawn(rom)
     expect(r.parts).toHaveLength(2)
     expect(r.unverified).toEqual(['the platform spawner'])
+  })
+})
+
+describe('the id the spawner wrote', () => {
+  const ID_AT = 24 // the cart spawner's `LDA #$A3` operand: the number it stores in the sprite-number table
+
+  it('refuses a child the spawner made as another sprite, never drawing it as $A3', () => {
+    const rom = platformCart()
+    rom.writeAt(SPAWNER_AT + ID_AT, [0x01])
+    const r = threePlatforms(rom, seed, entry, SYN)
+    expect(r.ok).toBe(false)
+    expect(!r.ok && r.reason).toMatch(/spawner made sprite \$01, not \$A3/)
+  })
+
+  it('goes red on the plant: the same cart with the id check removed draws $A3 art for it', () => {
+    const rom = platformCart()
+    rom.writeAt(SPAWNER_AT + ID_AT, [0x01])
+    const noCheck: typeof runOnce = (rom, id, s, o) => runOnce(rom, id, s, o && o.spawn ? { ...o, spawn: { ...o.spawn, expectNumber: undefined } } : o) // prettier-ignore
+    const r = threePlatforms(rom, seed, entry, SYN, 1, noCheck)
+    expect(r.ok).toBe(true)
   })
 })
 

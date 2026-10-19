@@ -48,10 +48,16 @@ describe('sprite $E0 on the map', () => {
     expect(xs(ok(draw(rom)))).toEqual([16, 24, 48, 56, 64, 72])
   })
 
-  it('is refused with the reason in a vertical map: the loader hands the spawner the wrong axis', () => {
-    const r = draw(platformCart(), true)
-    expect(r.ok).toBe(false)
-    expect(!r.ok && 'reason' in r && r.reason).toMatch(/not drawn in a vertical map/)
+  it('draws in a vertical map, flagged unverified, at the entry (the loader hands the spawner the Y boundary as X)', () => {
+    const r = ok(draw(platformCart(), true))
+    expect(r.parts).toHaveLength(3 * 4)
+    expect(r.anchor).toEqual({ x: 944, y: 336 })
+    expect(r.unverified).toMatch(/vertical map the spawner is given the entry's Y as its X/)
+    // The horizontal map names nothing: the flag is the vertical input's, not the cart's.
+    expect(ok(draw()).unverified).toBeUndefined()
+    // The cart puts each platform at the spawner's X plus its angle; X is the boundary 336, so the pieces sit 944 - 336 left of the horizontal ones,
+    // measured from the entry's own X (re-anchored by `at`, not by the boundary).
+    expect(xs(r)).toEqual(xs(ok(draw())).map(x => x - (944 - 336)))
   })
 
   it('is refused, with the reason, when the level loader gave no image: SpriteDataPtr was never set', () => {

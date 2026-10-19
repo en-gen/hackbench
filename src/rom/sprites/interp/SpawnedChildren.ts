@@ -16,6 +16,8 @@ export interface SpawnerEntry {
   y: number
   index: number
   streamOffset: number
+  /** The entry's map position in px when the loader hands the spawner something else as X (a vertical map: the Y boundary). Defaults to (x, y). */
+  at?: { x: number; y: number }
 }
 
 export interface SpawnedChild {
@@ -52,7 +54,7 @@ export function runSpawnedChildren(
   const children: SpawnedChild[] = []
   let [missing, why] = [0, '']
   for (let n = 0; n < spec.count; n++) {
-    const m = run(rom, spec.sprite, { ...seed, mainPasses: passes, ram: spec.spawnFrame ? { ...seed.ram, [SPRITE_LOCK]: 1 } : seed.ram }, { spawn: { inputs, routine: spec.routine, nth: n } }) // prettier-ignore
+    const m = run(rom, spec.sprite, { ...seed, mainPasses: passes, ram: spec.spawnFrame ? { ...seed.ram, [SPRITE_LOCK]: 1 } : seed.ram }, { spawn: { inputs, routine: spec.routine, nth: n, expectNumber: spec.sprite } }) // prettier-ignore
     if (m.refusal?.startsWith(SPAWN_SHORT)) {
       missing++
       continue
@@ -63,7 +65,8 @@ export function runSpawnedChildren(
       continue
     }
     // The run's parts are relative to the child's own position when its passes began; re-anchor them to the entry.
-    const [ox, oy] = [m.anchor.x - e.x, m.anchor.y - e.y]
+    const at = e.at ?? e
+    const [ox, oy] = [m.anchor.x - at.x, m.anchor.y - at.y]
     children.push({
       x: pass.pos.x,
       y: pass.pos.y,

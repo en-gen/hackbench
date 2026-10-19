@@ -453,8 +453,8 @@ const THREE_PLATFORMS = 0xe0
 
 /**
  * The three platforms of a stream entry (the $E0 issue), run from the ROM's own spawner and their INIT: ONE sprite at its
- * real stream index, the platforms and their chains as its parts. Vertical maps are refused as for $DE (the loader hands
- * the spawner the Y boundary as X there). A changed routine does not blank it (D52): drawn, flagged `unverified`.
+ * real stream index, the platforms and their chains as its parts. A vertical map is drawn flagged `unverified`, as for $DE (the loader hands
+ * the spawner the Y boundary as X there; D52: drawn, not blanked). A changed routine does not blank it (D52): drawn, flagged `unverified`.
  */
 function platformsResult(
   rom: RomFile,
@@ -463,16 +463,11 @@ function platformsResult(
   vertical: boolean,
   routines: PlatformRoutines,
 ): SpriteDrawResult {
-  if (vertical) return { ok: false, reason: 'the three platforms are not drawn in a vertical map: the game takes their X from the wrong axis there' } // prettier-ignore
   // The spawner reads its data byte through SpriteDataPtr, which only the ROM-run loader's image sets.
   if (!seed.loaded) return { ok: false, reason: `the three platforms need the level loader's image: ${seed.loadRefusal ?? 'no level image was given'}` } // prettier-ignore
   const [x, y] = [pixelX(s), s.y * TILE]
-  const r = threePlatforms(
-    rom,
-    seed,
-    { x, y, index: s.index, streamOffset: s.streamOffset },
-    routines,
-  )
+  // A vertical map hands the spawner the entry's Y boundary as its X (bank_02.asm:5232-5238), as for the Eeries.
+  const r = threePlatforms(rom, seed, { x: vertical ? y : x, y, at: { x, y }, index: s.index, streamOffset: s.streamOffset }, routines) // prettier-ignore
   const gameOwn = r.unverified.length === 0
   if (!r.ok) {
     const none = `None of the ${PLATFORM_COUNT} platforms appear`
@@ -483,6 +478,7 @@ function platformsResult(
       u =>
         `${u} is not the vanilla shape${u === 'the platform spawner' ? ', so what it spawns is assumed to be chain platforms' : ''}`,
     ),
+    ...(vertical ? ["in a vertical map the spawner is given the entry's Y as its X (the loader's boundary), derived from the loader and not checked: no vanilla map places one"] : []), // prettier-ignore
     ...r.notes,
   ].join('; ')
   return {

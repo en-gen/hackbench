@@ -81,6 +81,8 @@ export interface PlatformEntry {
   /** Index in the sprite list ($02) and the offset of the entry's first byte ($03). */
   index: number
   streamOffset: number
+  /** The entry's map position in px when `x` is the vertical map's Y boundary (as for the Eeries). Defaults to (x, y). */
+  at?: { x: number; y: number }
 }
 
 export type PlatformsResult =
