@@ -130,7 +130,7 @@ export interface PassResult {
   palette: PaletteWrite[]
   /**
    * Neighbor run only, when the sprite's own code drew a neighbor: each neighbor it drew (`seed.neighbours[].index`)
-   * with the OAM entries written for it, and how far the sprite had moved from `SpriteModel.anchor` when it did (0 when it draws
+   * with the OAM entries written for it, and how far the sprite had moved from `PassResult.origin` when it did (0 when it draws
    * before it moves). The child is drawn at rest, so `runOnce` takes `shift` off the child's parts (D137).
    */
   drew?: { children: { index: number; oam: number[] }[]; shift: { x: number; y: number } }
@@ -537,8 +537,8 @@ export class Machine {
     this.drewAt = undefined
   }
 
-  /** What `PassResult.drew` says for the pass just run, or undefined when the sprite drew no neighbor. */
-  drew(anchor: { x: number; y: number }): PassResult['drew'] {
+  /** What `PassResult.drew` says for the pass just run, or undefined when the sprite drew no neighbor; the shift is from `origin`, where the parts are measured. */
+  drew(origin: { x: number; y: number }): PassResult['drew'] {
     const children = [...this.drewSlots].flatMap(j => {
       const index = this.placed.get(j)
       const oam = [...(this.childTiles.get(j) ?? [])]
@@ -549,7 +549,7 @@ export class Machine {
       return index === undefined ? [] : [{ index, oam }]
     })
     if (!this.drewAt || !children.length) return undefined
-    return { children, shift: { x: this.drewAt.x - anchor.x, y: this.drewAt.y - anchor.y } }
+    return { children, shift: { x: this.drewAt.x - origin.x, y: this.drewAt.y - origin.y } }
   }
 
   /** OAM mirror indices whose tile byte this pass wrote. */
@@ -815,7 +815,7 @@ function runCore(
       // leak into the picture (the Podoboo's jump). A handler that draws and then moves is measured from its
       // end too: measuring from the draw changed 12 vanilla rows ($05, $06) from same to differ against the table engine.
       const origin = snaps ? (model.passes[p - 1]?.pos ?? anchor) : atRest ? m.pos() : anchor
-      const drew = neighbourRun ? m.drew(anchor) : undefined
+      const drew = neighbourRun ? m.drew(origin) : undefined
       model.passes.push({
         pass: p,
         pos: m.pos(),

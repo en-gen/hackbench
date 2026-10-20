@@ -285,15 +285,16 @@ describe('which neighbours the sprite drew, and where (#1049, D137)', () => {
       { x: 0, y: 8 },
       { x: 0, y: -8 },
     ]) {
-      // prettier-ignore
-      const m = runOnce(cart({ travel: t }), TRAVELS, seedWith([near(QUIET, 3)]))
-      expect(m.neighbourRun).toBe('adopted')
-      const at = partsOf(m).map(p => [p.dx, p.dy]).sort((a, b) => a[1]! - b[1]!) // prettier-ignore
-      expect(at, JSON.stringify(t)).toEqual([
-        [0, -16],
-        [0, 0],
-      ])
-      expect(m.passes[m.chosen!]!.drew).toMatchObject({ children: [{ index: 3 }], shift: t })
+      // Both frame policies: the map serves `atRest` (parts measured from where the pass ended).
+      for (const atRest of [false, true]) {
+        const m = runOnce(cart({ travel: t }), TRAVELS, seedWith([near(QUIET, 3)]), { atRest })
+        const why = JSON.stringify({ t, atRest })
+        expect(m.neighbourRun, why).toBe('adopted')
+        const at = partsOf(m).map(p => [p.dx, p.dy]).sort((a, b) => a[1]! - b[1]!) // prettier-ignore
+        expect(at, why).toEqual([[0, -16], [0, 0]]) // prettier-ignore
+        // The shift is how far the parent had moved from where the parts are measured when it drew.
+        expect(m.passes[m.chosen!]!.drew, why).toMatchObject({ children: [{ index: 3 }], shift: atRest ? { x: 0, y: 0 } : t }) // prettier-ignore
+      }
     }
   })
 
