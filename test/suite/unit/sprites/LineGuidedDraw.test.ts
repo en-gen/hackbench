@@ -570,6 +570,13 @@ describe('the gate and the INIT check, branch by branch (synthetic carts, findin
     expect(reasonOf(buildSyntheticRom({ grinderCell: 'Not3' }))).toBeNull()
   })
 
+  it('a JML to the line step ends the arm like a JMP does (a long jump is a transfer too)', () => {
+    const rom = buildSyntheticRom()
+    // The dispatch's last three bytes are JMP step; the four-byte JML takes the byte after them as the bank.
+    rom.writeAt(GRINDER_DISPATCH_AT + 7, [0x5c, 0x90, 0x92, 0x01])
+    expect(reasonOf(rom)).toBeNull()
+  })
+
   it('a bare JMP entry changed to a JML is refused (the JML takes the next byte as a bank)', () => {
     const rom = buildSyntheticRom()
     rom.writeAt(GRINDER_HANDLER + 16, [0x5c])
