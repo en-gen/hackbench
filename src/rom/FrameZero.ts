@@ -76,6 +76,7 @@ const framesError = (reason: string, hasStockFrames: boolean): string =>
       : "These characters are shown as this ROM's own GFX loaded them."
   }`
 
+/** Plain-words reason a stock animation was not run, for the message shown beside the preview. */
 function unreachedReason(unreached: { target: number } | { reason: string }): string {
   if ('reason' in unreached) return unreached.reason
   return `this ROM decides per level whether the stock animation runs (the level calls ${formatAddr(unreached.target)})`

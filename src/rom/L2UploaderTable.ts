@@ -76,6 +76,7 @@ function classify(rom: RomFile, target: number): L2UploaderKind {
   return 'unrecognized'
 }
 
+/** Reads the per-mode uploader pointer table via the strip loop's call site; a missing or altered site refuses instead of reading a wrong table. */
 function compute(rom: RomFile): L2UploaderTable {
   const caller = findExactlyOneSite(rom, CALLER, 'the strip loop that calls the L2 uploader (bank_05.asm:111-114)') // prettier-ignore
   if (!caller.ok) return caller

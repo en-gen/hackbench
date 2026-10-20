@@ -95,6 +95,7 @@ function _findMode7GfxFiles(rom: RomFile): Mode7GfxFile[] {
   return files
 }
 
+/** Reads the unpack length at a matched site; null for HiROM, where the LoROM bank arithmetic below would be wrong. */
 function readByteLength(rom: RomFile, at: number): number | null {
   // Bank arithmetic below is LoROM's.
   if (rom.mapMode === 'hirom') return null

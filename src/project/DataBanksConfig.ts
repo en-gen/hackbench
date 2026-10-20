@@ -30,6 +30,7 @@ function parseBank(v: unknown): BankResult {
   throw new Error(`objectCode must be a bank like "$0D" or { "notFound": "<reason>" }, got ${JSON.stringify(v)}`) // prettier-ignore
 }
 
+/** Serializes a bank result back to the manifest form `parseBank` accepts, so a round trip is lossless. */
 const store = (r: BankResult): unknown => ('bank' in r ? hex2s(r.bank) : { notFound: r.notFound })
 
 /**

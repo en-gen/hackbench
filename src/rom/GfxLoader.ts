@@ -211,6 +211,7 @@ export function findCreditsGfxFile(rom: RomFile): CreditsGfxFile | null {
   return result
 }
 
+/** Locates the credits GFX file only when exactly one loader site matches; null when the routine was replaced or is ambiguous. */
 function _findCreditsGfxFile(rom: RomFile): CreditsGfxFile | null {
   const hits = findPattern(rom, LOAD_CREDITS_PATTERN)
   if (hits.length !== 1) return null // 0 = replaced, >1 = which one runs?

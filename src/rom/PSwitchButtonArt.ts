@@ -86,6 +86,7 @@ function readParts(rom: RomFile, base: number, parts: Part[], where: string): Bu
 
 const isRefusal = (r: Buffer[] | Refusal): r is Refusal => !Array.isArray(r)
 
+/** Refuses (never guesses) when the stun dispatch or any art part does not match the stock layout, so a hacked ROM yields a refusal, not wrong art. */
 export function readPSwitchButtonArt(rom: RomFile): PSwitchButtonArtResult {
   const P = PSWITCH_PARTS
   const dispatch = readParts(rom, STUN_DISPATCH, P.dispatch, 'the sprite-stun dispatch')

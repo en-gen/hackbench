@@ -262,6 +262,7 @@ interface Ctx {
   readonly loose: boolean
 }
 
+/** Maps a block's content id to what the editor shows; null when the id is not a known content. */
 function contentFor(id: number, c: Ctx): BlockContent | null {
   if (id === CONTENT_COIN) return { kind: 'coin', label: 'Coin' }
   if (id === CONTENT_MULTICOIN) return { kind: 'multiCoin', label: 'Multiple coins' }

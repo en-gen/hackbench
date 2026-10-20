@@ -152,6 +152,7 @@ function refuse(reason: string): never {
 }
 const known = (v: V, what: string): number => (v === null ? refuse(`unknown ${what}`) : v)
 
+/** Runs one object handler in a small 65816 model; any unmodelled read or write refuses rather than yielding a guessed tile. */
 export function interpret(
   rom: RomFile,
   entry: number,
