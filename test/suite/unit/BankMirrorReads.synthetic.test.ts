@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { jslTarget } from '../../../src/rom/GfxDecompressor'
-import { long } from '../../../src/rom/GfxArena'
+import { le24 } from '../../../src/rom/bytes'
 import { loromToOffset, mirror } from '../../../src/rom/addressing'
 import { resolveTables } from '../../../src/rom/sprites/interp/SpriteDispatch'
 import { buildSyntheticRom, SYNTHETIC_EXECUTE_PTR_CODE } from '../support/syntheticSpriteRom'
@@ -27,8 +27,8 @@ describe('read addresses keep bank $FE/$FF', () => {
   it.each([
     ['FE', 0xfe],
     ['FF', 0xff],
-  ])('GfxArena long() returns bank $%s unfolded', (_label, bank) => {
-    expect(long(Uint8Array.of(0x34, 0x92, bank), 0)).toBe((bank << 16) | 0x9234)
+  ])('bytes le24() returns bank $%s unfolded', (_label, bank) => {
+    expect(le24(Uint8Array.of(0x34, 0x92, bank), 0)).toBe((bank << 16) | 0x9234)
   })
 
   it('a FastROM mirror still matches its canonical key through mirror()', () => {

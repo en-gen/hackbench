@@ -15,10 +15,10 @@
 import type { RomFile } from './RomFile'
 import { WILD, matchesBytes, type BytePattern } from './BytePattern'
 import { fingerprint } from './Fingerprint'
-import { long } from './GfxArena'
-import { mirror } from './addressing'
+import { le24 } from './bytes'
+import { formatAddr, mirror } from './addressing'
 import { jslTarget, type FastRoutine } from './GfxDecompressor'
-import { hex6 } from './hex'
+import { hex6, hexs } from './hex'
 
 export interface StockCode {
   addr: number
@@ -201,8 +201,8 @@ export function readSubmapHigh(rom: RomFile, at: number): number | string {
   const high = rom.readByte(at)!
   if (high <= 1) return high
   return (
-    `$${at.toString(16).toUpperCase().padStart(6, '0')} loads submap high byte ` +
-    `$${high.toString(16).toUpperCase()}, which names no slot: the pointer table ends at $1FF.`
+    `${formatAddr(at)} loads submap high byte ` +
+    `${hexs(high)}, which names no slot: the pointer table ends at $1FF.`
   )
 }
 
@@ -327,7 +327,7 @@ function midwayHookMismatch(
 ): string | null {
   const site = rom.readAt(OVERWORLD_INDEX_GUARD.addr, MIDWAY_HOOK_SITE.length)
   if (!matchesBytes(site, MIDWAY_HOOK_SITE)) return '$05D83E holds no STZ _F / LDY #0 / JML.'
-  const at = long(site!, 5)
+  const at = le24(site!, 5)
   for (const b of builds) {
     const code = rom.readAt(at, b.length)
     const mask = [
@@ -337,8 +337,8 @@ function midwayHookMismatch(
     ]
     if (spanFingerprint(code, mask) !== b.fingerprint) continue
     if (
-      mirror(long(code!, b.indexAt + 1)) !== 0x05d847 ||
-      mirror(long(code!, b.overrideAt + 1)) !== 0x05d8a2
+      mirror(le24(code!, b.indexAt + 1)) !== 0x05d847 ||
+      mirror(le24(code!, b.overrideAt + 1)) !== 0x05d8a2
     ) {
       return `the hook at $${hex6(at)} does not return to $05D847 and $05D8A2.`
     }
@@ -444,7 +444,7 @@ export function stockCodeMismatch(
       const fp = spanFingerprint(rom.readAt(c.addr, c.length), c.mask)
       if (fp !== null && (spanFingerprints ?? c.fingerprints).includes(fp)) continue
       return (
-        `$${c.addr.toString(16).toUpperCase().padStart(6, '0')} (${c.what}, ${c.cite}) is ` +
+        `${formatAddr(c.addr)} (${c.what}, ${c.cite}) is ` +
         `${fp ? 'not a recognized build of that code' : 'not readable'}.`
       )
     }
@@ -453,7 +453,7 @@ export function stockCodeMismatch(
       b === WILD ? true : i === c.bankAt ? ((found![i]! ^ b) & 0x7f) === 0 : found![i] === b
     if (found && c.bytes.every(same)) continue
     return (
-      `$${c.addr.toString(16).toUpperCase().padStart(6, '0')} (${c.what}, ${c.cite}) holds ` +
+      `${formatAddr(c.addr)} (${c.what}, ${c.cite}) holds ` +
       `${found ? hex(found) : 'nothing readable'}, not the stock ${hex(c.bytes)}.`
     )
   }

@@ -17,6 +17,7 @@
  * the GFX view then reports it unavailable rather than guessing planar.
  * A hack that rewrites the opening itself is not recognised at all.
  */
+import { le16 } from './bytes'
 import { WILD, findPattern, matchesAt, parsePattern as pattern } from './BytePattern'
 import { LOROM_BANK_SIZE } from './addressing'
 import { GFX_FILE_COUNT } from './GfxLoader'
@@ -88,15 +89,15 @@ function _findMode7GfxFiles(rom: RomFile): Mode7GfxFile[] {
   return files
 }
 
+/** Reads the unpack length at a matched site; null for HiROM, where the LoROM bank arithmetic below would be wrong. */
 function readByteLength(rom: RomFile, at: number): number | null {
   // Bank arithmetic below is LoROM's.
   if (rom.mapMode === 'hirom') return null
   const site = matchesAt(rom, at, UNPACK_PATTERN)
   if (!site) return null
-  const read16 = (off: number): number => site[off]! | (site[off + 1]! << 8)
 
-  const helperOperand = read16(JSR_OPERAND_OFFS[0]!)
-  if (JSR_OPERAND_OFFS.some(off => read16(off) !== helperOperand)) return null
+  const helperOperand = le16(site, JSR_OPERAND_OFFS[0]!)
+  if (JSR_OPERAND_OFFS.some(off => le16(site, off) !== helperOperand)) return null
   const helperAt = jsrTarget(at, helperOperand)
   if (helperAt === null || !matchesAt(rom, helperAt, HELPER_PATTERN)) return null
 
@@ -106,7 +107,7 @@ function readByteLength(rom: RomFile, at: number): number | null {
   if (jsrTarget(callers[0]!, call[0]! | (call[1]! << 8)) !== at) return null
 
   // 16-bit LDX / DEX / BPL: an operand with bit 15 set runs the body once.
-  const count = read16(LOOP_COUNT_OFF)
+  const count = le16(site, LOOP_COUNT_OFF)
   return (count & 0x8000 ? 1 : count + 1) * BYTES_PER_GROUP
 }
 
