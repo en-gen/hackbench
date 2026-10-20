@@ -1384,7 +1384,7 @@ test('$018: layer 3 is camera-locked, so its toggle is disabled and says so', as
 
 /**
  * The sprite layer (#564), drawn by the sprite interpreter (#585). $106 holds both kinds on vanilla:
- * sprites the ROM's own INIT and MAIN draw (24 of 25, #968 made the 3 stationary shells draw) and ids the interpreter refuses (marked, with its
+ * sprites the ROM's own INIT and MAIN draw (24 of 25: #968 made the 3 stationary shells draw, and the P-switch $3E draws since INIT runs for the picture, D139 D) and ids the interpreter refuses (marked, with its
  * reason). Its sprites sit past screen 0, so screen 1 is scrolled into view. $105 draws 32 of 34.
  */
 const spriteToggle = (page, index) => page.locator(`${root(index)} [data-control="layer-sprites"]`)
@@ -1431,14 +1431,19 @@ test('an interpreter-drawn sprite shows its own pixels where the service placed 
   )
   expect(reply.status).toBe('ok')
   expect(reply.sprites).toHaveLength(25)
-  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(24) // 21 plus the 3 stationary shells (#968)
+  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(24) // 21 plus the 3 stationary shells (#968) and the P-switch (D139 D)
   // Measured on vanilla: the first $05 is at tile (27, 20), a 16 x 32 body whose top is above its anchor.
   const koopa = reply.sprites.find(s => s.id === 5)
   expect(koopa).toMatchObject({ x: 432, y: 320, status: 'drawn' })
   expect(koopa.box).toEqual({ x0: 432, y0: 304, x1: 448, y1: 336 })
   // After #968 the one $106 miss is $4D at (3760, 368), in screen 14 (3584-3840): measured on vanilla.
-  const marker = reply.sprites.find(s => s.status === 'placeholder')
+  const marker = reply.sprites.find(s => s.status === 'placeholder' && s.id === 0x4d)
   expect(marker, 'a marker on $106').toBeTruthy()
+  // D139 D: INIT runs for the picture, so the P-switch ($3E) is drawn at its list position (D134).
+  const pswitch = reply.sprites.filter(s => s.id === 0x3e)
+  expect(pswitch.map(s => s.status)).toEqual(['drawn'])
+  expect(pswitch[0]).toMatchObject({ x: 4512, y: 272 })
+  expect(reply.sprites.filter(s => s.status === 'placeholder')).toHaveLength(1)
   expect(marker).toMatchObject({ id: 0x4d, x: 3760, y: 368 })
   const mScreen = Math.floor(marker.box.x0 / 256)
   expect(mScreen).toBe(14)
@@ -1489,7 +1494,7 @@ test('an interpreter-drawn sprite shows its own pixels where the service placed 
   expect(read.marker.corner).toEqual([90, 200, 255, 255])
 })
 
-test('$4F on $105 is served at its stream position plus the (8, -1) its INIT adds', async ({
+test('$4F on $105 is served at its stream position: the INIT move (+8, -1) is not shown at rest (D134)', async ({
   page,
 }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
@@ -1503,23 +1508,20 @@ test('$4F on $105 is served at its stream position plus the (8, -1) its INIT add
   // Stream positions (1808, 336), (2224, 320), (4544, 320): measured on vanilla, absolute.
   const fours = reply.sprites.filter(s => s.id === 0x4f)
   expect(fours.map(s => [s.x, s.y, s.status])).toEqual([
-    [1816, 335, 'drawn'],
-    [2232, 319, 'drawn'],
-    [4552, 319, 'drawn'],
+    [1808, 336, 'drawn'],
+    [2224, 320, 'drawn'],
+    [4544, 320, 'drawn'],
   ])
 })
 
 /**
- * #126: a vanilla grinder ($67) draws, then steps onto its line, so its first drawn pass is at the
- * off-track spawn spot, the second at the probe-corner spot and the third on the track. $01A's first
- * grinder draws on all three. Values from the interpreter on vanilla (LineGuidedDraw.test.ts pins the same
- * anchor): pass 2 at (751, 367), pass 1 at (739, 356), pass 0 at (735, 352). Passes 1 and 2 draw the same
- * frame and pass 0 another with the same opaque count, so the frame is told apart by checksumOf over the
- * served bitmap: 896249997 for passes 1 and 2, 3767367845 for pass 0 (pass 2's position and checksum recomputed
- * offline with the widget's functions on the vanilla ROM, one machine, 2026-10-11; pass 0's is the
- * 2026-10-10 measurement).
+ * #126, D91, D134: a vanilla grinder ($67) draws, then steps onto its line (pass 2 at (751, 367) INIT-on, pass 1
+ * at (739, 356)). The map's picture is the sprite at rest: the first pass, at the list position (720, 352), frame
+ * checksum 3767367845 (the same frame as the INIT-on pass 0; the 896249997 frame of passes 1 and 2 is the one
+ * play/simulate reaches). Values from the served reply on vanilla, one machine, 2026-10-17; the list position
+ * is pinned against the parsed list by LineGuidedDraw.test.ts.
  */
-test('a vanilla grinder is served on its track, at the third pass, not at its spawn spot', async ({
+test('a vanilla grinder is served at its list position, its first pass, not walked onto its track (D91)', async ({
   page,
 }) => {
   // The pinned numbers are the vanilla ROM's; a custom HB_ROM or a missing corpus ROM cannot match them.
@@ -1535,17 +1537,14 @@ test('a vanilla grinder is served on its track, at the third pass, not at its sp
   )
   expect(reply.status).toBe('ok')
   const grinder = reply.sprites.find(s => s.id === 0x67)
-  expect(grinder).toMatchObject({ x: 751, y: 367, status: 'drawn' })
-  // The four 16 x 16 body pieces sit around the anchor: a 32 x 32 box, not the spawn spot's (719, 336)
-  // or the probe corner's (723, 340).
-  expect(grinder.box).toEqual({ x0: 735, y0: 351, x1: 767, y1: 383 })
+  expect(grinder).toMatchObject({ x: 720, y: 352, status: 'drawn' })
+  // The four 16 x 16 body pieces sit around the anchor: a 32 x 32 box, not the track's (735, 351).
+  expect(grinder.box).toEqual({ x0: 704, y0: 336, x1: 736, y1: 368 })
   const sum = await page.evaluate(
     rgba => checksumOf(Uint8Array.from(atob(rgba), ch => ch.charCodeAt(0))),
     grinder.rgba,
   )
-  expect(sum, 'the third pass frame (same as the second), not the first (3767367845)').toBe(
-    896249997,
-  )
+  expect(sum, 'the first pass frame, not the walked passes (896249997)').toBe(3767367845)
 
   // And the canvas holds that bitmap at that box (screen 2 starts at x 512).
   await showScreen(page, 0x01a, 2)
