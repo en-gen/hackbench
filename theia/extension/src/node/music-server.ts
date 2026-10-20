@@ -67,6 +67,7 @@ const SFX_YOSHI_DRUM_OFF = 0x03
 export class MusicServiceImpl implements MusicService {
   @inject(WorkingRomRegistry) protected readonly workingRoms!: WorkingRomRegistry
 
+  /** Lists the level-bank tracks with the level-header indices that select each. */
   async loadMusic(manifestPath: string): Promise<LoadMusicResult> {
     const opened = this.openRom(manifestPath)
     if (opened.status !== 'ok') return refuse(opened)
@@ -88,6 +89,7 @@ export class MusicServiceImpl implements MusicService {
     return { status: 'ok', list }
   }
 
+  /** Details for one level-bank track; throws when the bank is unreadable or the track is absent. */
   async trackDetails(manifestPath: string, bgmCommand: number): Promise<MusicTrackDetailsDto> {
     const rom = this.romFor(manifestPath)
     const bankRomAddr = getLevelMusicBankAddrIfReadable(rom)
@@ -113,6 +115,7 @@ export class MusicServiceImpl implements MusicService {
     }
   }
 
+  /** Loads one music bank, refusing with a status instead of an empty list when its catalog cannot be verified. */
   async loadBank(manifestPath: string, bank: MusicBankName): Promise<LoadBankResult> {
     const opened = this.openRom(manifestPath)
     if (opened.status !== 'ok') return refuse(opened)
@@ -156,6 +159,7 @@ export class MusicServiceImpl implements MusicService {
     return { status: 'ok', bank: dto }
   }
 
+  /** Builds an SPC snapshot for one track, or null when the bank fails its gate or lacks the track. */
   async trackSpc(
     manifestPath: string,
     bank: MusicBankName,
@@ -183,6 +187,7 @@ export class MusicServiceImpl implements MusicService {
     return spc ? Array.from(spc) : null
   }
 
+  /** Loads every SFX port, all or nothing: one unreadable table makes the whole result unavailable. */
   async loadSfx(manifestPath: string): Promise<LoadSfxResult> {
     const opened = this.openRom(manifestPath)
     if (opened.status !== 'ok') return refuse(opened)
@@ -217,6 +222,7 @@ export class MusicServiceImpl implements MusicService {
     return { status: 'ok', ports }
   }
 
+  /** Builds an SPC snapshot for one sound effect, or null for an unknown port or unbuildable id. */
   async sfxSpc(manifestPath: string, port: number, id: number): Promise<number[] | null> {
     if (!SFX_PORTS.includes(port as SfxPort)) return null
     const opened = this.openRom(manifestPath)

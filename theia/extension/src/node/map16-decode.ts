@@ -679,6 +679,7 @@ export type Map16WriteGate =
   | { status: 'unavailable'; reason: string }
   | { status: 'refused'; reason: string }
 
+/** Decides whether a Map16 quadrant write may reach the ROM; every failure is a refused or unavailable result, never a throw, and none lands a write at a guessed address. */
 export function gateQuadrantWrite(
   rom: RomFile,
   tileset: number,

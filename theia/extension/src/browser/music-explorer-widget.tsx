@@ -81,6 +81,7 @@ export interface MusicTrackNode extends CompositeTreeNode, SelectableTreeNode {
 }
 
 const hexIndex = (i: number): string => `$${i.toString(16).toUpperCase()}`
+/** A byte as a $-prefixed two-digit id, the form the track list and the ROM docs use. */
 const hexByte = (i: number): string => `$${hex2(i)}`
 
 const BANKS: Array<{ bank: MusicBankName; label: string }> = [

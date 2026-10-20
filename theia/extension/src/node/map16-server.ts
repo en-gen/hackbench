@@ -44,6 +44,7 @@ export class Map16ServiceImpl implements Map16Service {
     return this.currentSheet(manifestPath, tileset, layer, paletteVariant)
   }
 
+  /** Writes one quadrant field only after gateQuadrantWrite passes, then returns the reloaded sheet. */
   async setQuadrantField(
     manifestPath: string,
     tileset: number,

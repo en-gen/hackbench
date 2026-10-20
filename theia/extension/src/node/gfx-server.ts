@@ -36,6 +36,7 @@ import { decodeAreaView, decodeOverworld, decodeOverworldAreas } from './overwor
 @injectable()
 export class GfxServiceImpl implements GfxService {
   @inject(WorkingRomRegistry) protected readonly workingRoms!: WorkingRomRegistry
+  /** Lists GFX files from the working copy, not the base ROM, so sizes reflect edits. */
   async listGfxFiles(manifestPath: string): Promise<LoadGfxFilesResult> {
     const r = this.workingRoms.get(manifestPath)
     if (r.status === 'rom-not-located') return r

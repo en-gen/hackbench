@@ -18,10 +18,12 @@ export function rgbaToBgr555(c: PaletteColorDto): number {
   return ((c.r >> 3) & 0x1f) | (((c.g >> 3) & 0x1f) << 5) | (((c.b >> 3) & 0x1f) << 10)
 }
 
+/** A swatch colour as the raw 15-bit ROM word, because this view lists ROM values, not CSS colours. */
 export function formatBgr555(c: PaletteColorDto): string {
   return `$${hex4(rgbaToBgr555(c))}`
 }
 
+/** Placeholder text for an unverified address, so the view never shows a guessed one. */
 export function formatRomAddr(addr: number | null): string {
   return addr !== null ? `$${hex6(addr)}` : 'address unverified'
 }

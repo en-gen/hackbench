@@ -54,8 +54,9 @@ export interface WorkingRomEntry {
 
 /**
  * The working copy as a RomFile, over a copy of its bytes (WorkingRom.bytes()
- * is shared; callers must copy before use) with the project's data banks
- * attached.
+ * returns the live cached array, so the copy is what keeps a later edit from
+ * changing a RomFile already handed out) with the project's data banks
+ * attached. Callers of this helper need not copy again.
  */
 export function romFileOf(entry: WorkingRomEntry): RomFile {
   return RomFile.fromBytes(entry.romPath, Buffer.from(entry.working.bytes()), entry.dataBanks)

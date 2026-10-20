@@ -6,6 +6,7 @@ export interface GridToggleButtonProps {
   onToggle: () => void
 }
 
+/** Toolbar button shared by the Maps and Map16 views, so both name the grid control and its states the same way. */
 export function GridToggleButton({ on, onToggle }: GridToggleButtonProps): React.ReactElement {
   const label = on ? 'Hide grid' : 'Show grid'
   return (

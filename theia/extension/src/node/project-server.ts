@@ -105,6 +105,7 @@ export class ProjectServiceImpl implements ProjectService {
     this.recent.clear()
   }
 
+  /** Details for one map slot, read from the working copy. */
   async mapDetails(
     manifestPath: string,
     index: number,
@@ -132,6 +133,7 @@ export class ProjectServiceImpl implements ProjectService {
     return mapSprites(this.screens, r.working.bytes(), r.romPath, index)
   }
 
+  /** Start screen and position for a map slot, or the reason it cannot be read. */
   async mapStart(manifestPath: string, index: number): Promise<MapStartResult> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
@@ -167,6 +169,7 @@ export class ProjectServiceImpl implements ProjectService {
     return mapBlockContents(this.screens, r.working.bytes(), r.romPath, index)
   }
 
+  /** Toolbar art for the palace icons, built from the same cached screens the map view paints. */
   async mapPalaceIcons(manifestPath: string, index: number): Promise<PalaceIconsResult> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
@@ -206,6 +209,7 @@ export class ProjectServiceImpl implements ProjectService {
     return this.workingRoms.register(romPath)
   }
 
+  /** The grouped map tree; a bad groups.json is reported in groupsError rather than hiding the maps. */
   async loadMaps(manifestPath: string): Promise<LoadMapsResult> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
@@ -257,6 +261,7 @@ export class ProjectServiceImpl implements ProjectService {
     }
   }
 
+  /** Saves the user's map groups after admission checks, returning invalid with the reason instead of throwing. */
   async setMapGroups(manifestPath: string, groups: MapGroup[]): Promise<SetMapGroupsResult> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
