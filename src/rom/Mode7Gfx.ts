@@ -153,6 +153,13 @@ const HW_END = 0x4400
 const loromAddress = (off: number): number =>
   ((off >> 15) << 16) | LOROM_BANK_SIZE | (off % LOROM_BANK_SIZE)
 
+/** Does the 3-byte JSL target at `bytes[at..]` reach the one PrepareGraphicsFile GfxLoader resolves? */
+function jslReachesLoader(rom: RomFile, bytes: ArrayLike<number>, at: number): boolean {
+  const loader = findUnique(rom, PREPARE_GFX_PATTERN)
+  const to = loromToOffset(le16(bytes, at) | (bytes[at + 2]! << 16), rom.romSize)
+  return loader !== null && to === loader
+}
+
 /** Does the code at `at` open with LDY #imm / JSL? The JSL opcode is the check; the hash decides the rest. */
 const opensWithLdyJsl = (rom: RomFile, at: number): boolean =>
   rom.readAtFileOffset(at, JSL_OFF + 1)?.[JSL_OFF] === JSL
@@ -174,7 +181,8 @@ function branchOverJsrs(rom: RomFile): { at: number; to: number }[] {
 }
 
 /**
- * Cart offsets that a branch-over-JSR calls and that open `LDY #imm / JSL`:
+ * Cart offsets that a branch-over-JSR calls and that open `LDY #imm / JSL`, the JSL
+ * reaching PrepareGraphicsFile (so an ordinary custom loader of another routine is not one):
  * the routine by structure, whatever its body now holds. LoROM only, as the
  * JSR arithmetic is. The caller is not derived to be SetallFGBG80
  * (bank_00.asm:5392-5393); callers of this list decide how many openings they
@@ -182,7 +190,22 @@ function branchOverJsrs(rom: RomFile): { at: number; to: number }[] {
  */
 function calledOpenings(rom: RomFile): number[] {
   if (rom.mapMode === 'hirom') return []
-  return [...new Set(branchOverJsrs(rom).map(c => c.to).filter(to => opensWithLdyJsl(rom, to) && rom.readAtFileOffset(to, 1)![0] === LDY_IMM))] // prettier-ignore
+  const opens = (to: number): boolean => {
+    const head = rom.readAtFileOffset(to, JSL_TARGET_OFF + 3)
+    return (
+      head !== null &&
+      head[0] === LDY_IMM &&
+      head[JSL_OFF] === JSL &&
+      jslReachesLoader(rom, head, JSL_TARGET_OFF)
+    )
+  }
+  return [
+    ...new Set(
+      branchOverJsrs(rom)
+        .map(c => c.to)
+        .filter(opens),
+    ),
+  ]
 }
 
 /** Uncached body of findMode7GfxFiles: stock routines by hash, edited ones by structure, so an edit is refused, not guessed planar. */
@@ -324,12 +347,7 @@ function readByteLength(rom: RomFile, at: number): Length {
   if (rom.mapMode === 'hirom') return unreadable('The ROM is HiROM')
   const site = rom.readAtFileOffset(at, UNPACK_LENGTH)!
 
-  const loader = findUnique(rom, PREPARE_GFX_PATTERN)
-  const jslTo = loromToOffset(
-    le16(site, JSL_TARGET_OFF) | (site[JSL_TARGET_OFF + 2]! << 16),
-    rom.romSize,
-  )
-  if (loader === null || jslTo !== loader) {
+  if (!jslReachesLoader(rom, site, JSL_TARGET_OFF)) {
     return unreadable('The unpack routine loads its file through a different routine')
   }
   const helperOperand = le16(site, JSR_OPERAND_OFFS[0]!)
@@ -344,6 +362,13 @@ function readByteLength(rom: RomFile, at: number): Length {
   ) {
     return unreadable(NOT_PIXELS)
   }
+  // The caller is checked before any ROM code runs: the helper is entered only through it.
+  // Exactly one branch-over-JSR in the routine's bank may call it.
+  const callers = branchOverJsrs(rom).filter(c => c.to === at)
+  if (callers.length !== 1) {
+    return unreadable('The call to the unpack routine is not found exactly once in stock form')
+  }
+
   const problem = helperShiftsPixelOut(
     rom,
     helperAt,
@@ -351,12 +376,6 @@ function readByteLength(rom: RomFile, at: number): Length {
     site[OUTPUT_LDA_OFF + 1]!,
   )
   if (problem !== null) return unreadable(problem)
-
-  // Exactly one branch-over-JSR in the routine's bank may call it.
-  const callers = branchOverJsrs(rom).filter(c => c.to === at)
-  if (callers.length !== 1) {
-    return unreadable('The call to the unpack routine is not found exactly once in stock form')
-  }
 
   // 16-bit LDX / DEX / BPL: an operand with bit 15 set runs the body once.
   const count = le16(site, LOOP_COUNT_OFF)

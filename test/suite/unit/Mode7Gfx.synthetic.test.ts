@@ -14,6 +14,8 @@ import { flip } from '../support/syntheticRom'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { GFX_FILE_COUNT } from '../../../src/rom/GfxLoader'
 import {
+  PREPARE_GFX,
+  jsl,
   TABLE_BANK,
   TABLE_HI,
   TABLE_LO,
@@ -100,6 +102,9 @@ function vanillaShaped(): RomFile {
   writeMode7Load(rom)
   return rom
 }
+
+/** An LDY #file / JSL PrepareGraphicsFile opening with a non-stock body after it. */
+const opening = (file: number, target = PREPARE_GFX): number[] => [0xa0, file, ...jsl(target), 1, 2]
 
 /** The answer for a file the routine names but whose packing cannot be read. */
 const UNREADABLE = [{ fileIndex: 0x27, byteLength: null, reason: expect.any(String) }]
@@ -239,14 +244,14 @@ describe('findMode7GfxFiles', () => {
   it('reads the stock file normally beside a called LDY / JSL decoy for another file', () => {
     const rom = vanillaShaped()
     rom.writeAt(0x00c000, callSiteBytes(0xb000))
-    rom.writeAt(0x00b000, [0xa0, 0x1c, 0x22, 0x01, 0x02, 0x03])
+    rom.writeAt(0x00b000, opening(0x1c))
     expect(find(rom)).toEqual([{ fileIndex: 0x27, byteLength: 0xc00 }])
   })
 
   it('refuses both when a changed routine claims the same file as the stock one', () => {
     const rom = vanillaShaped()
     rom.writeAt(0x00c000, callSiteBytes(0xb000))
-    rom.writeAt(0x00b000, [0xa0, 0x27, 0x22, 0x01, 0x02, 0x03])
+    rom.writeAt(0x00b000, opening(0x27))
     expect(find(rom)).toEqual([
       { fileIndex: 0x27, byteLength: null, reason: expect.stringMatching(/more than one/) },
       { fileIndex: 0x27, byteLength: null, reason: expect.stringMatching(/changed/) },
@@ -255,17 +260,34 @@ describe('findMode7GfxFiles', () => {
 
   it('claims nothing, and leaves the files planar, for two unrelated loaders and no stock routine', () => {
     const rom = makeRom()
-    rom.writeAt(0x00b000, [0xa0, 0x1c, 0x22, 0x01, 0x02, 0x03])
-    rom.writeAt(0x00b100, [0xa0, 0x1d, 0x22, 0x01, 0x02, 0x03])
+    rom.writeAt(0x00b000, opening(0x1c))
+    rom.writeAt(0x00b100, opening(0x1d))
     rom.writeAt(0x00c000, callSiteBytes(0xb000))
     rom.writeAt(0x00c100, callSiteBytes(0xb100))
     expect(find(rom)).toEqual([])
     expect(inferDefaultBpp(rom, 0x1c, 0xc00)).toBe(3)
   })
 
+  it('ignores a lone called LDY / JSL opening whose JSL is not PrepareGraphicsFile', () => {
+    const rom = makeRom()
+    rom.writeAt(0x00b000, opening(0x1c, 0x00c000))
+    rom.writeAt(0x00c000, callSiteBytes(0xb000))
+    expect(find(rom)).toEqual([])
+  })
+
+  it('refuses on the call-site count before it runs the helper', () => {
+    // No caller, and a helper that would be refused for a hardware read: the call site is
+    // named, so the unchecked helper was never run.
+    const rom = makeRom()
+    writeMode7Load(rom, { helperShape: { hwRead: true } })
+    rom.writeAt(CALLER, new Array(8).fill(0xea))
+    const [file] = find(rom)
+    expect(file!.reason).toMatch(/call to the unpack routine/)
+  })
+
   it('claims a lone edited routine as unavailable when no stock routine exists', () => {
     const rom = makeRom()
-    rom.writeAt(0x00b000, [0xa0, 0x1c, 0x22, 0x01, 0x02, 0x03])
+    rom.writeAt(0x00b000, opening(0x1c))
     rom.writeAt(0x00c000, callSiteBytes(0xb000))
     expect(find(rom)).toEqual([
       { fileIndex: 0x1c, byteLength: null, reason: expect.stringMatching(/changed/) },
@@ -275,7 +297,7 @@ describe('findMode7GfxFiles', () => {
   it('does not claim a changed routine on a HiROM cart, whose JSR arithmetic it lacks', () => {
     const buf = Buffer.alloc(0x100000, 0x00)
     buf[0xffd5] = 0x21 // HiROM
-    buf.set([0xa0, 0x27, 0x22, 0x01, 0x02, 0x03], 0x3142)
+    buf.set(opening(0x27), 0x3142)
     buf.set(callSiteBytes(0xb142), 0x2a5b)
     expect(find(new RomFile('hirom.smc', buf))).toEqual([])
   })
