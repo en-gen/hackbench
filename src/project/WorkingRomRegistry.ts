@@ -62,7 +62,7 @@ export function romFileOf(entry: WorkingRomEntry): RomFile {
   return RomFile.fromBytes(entry.romPath, Buffer.from(entry.working.bytes()), entry.dataBanks)
 }
 
-/** The working copy as an SmwRom; see romFileOf. */
+/** Lets servers that read SMW tables get romFileOf's copy and data banks without re-stating either. */
 export function smwRomOf(entry: WorkingRomEntry): SmwRom {
   return new SmwRom(romFileOf(entry))
 }

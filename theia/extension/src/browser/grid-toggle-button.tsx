@@ -1,4 +1,3 @@
-/** The grid on/off toolbar button, shared by Maps and Map16. */
 import * as React from '@theia/core/shared/react'
 
 export interface GridToggleButtonProps {
