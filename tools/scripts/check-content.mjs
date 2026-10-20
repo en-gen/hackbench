@@ -258,6 +258,8 @@ function countDisasmLines(text) {
 
 // A comment claiming the data near it came from the game (#812). Content
 // alone cannot tell a 4-byte ROM copy from an invented one; the claim can.
+// No g flag on purpose: hasRomProvenance calls .test() on it as a pre-filter,
+// and a global regex would carry lastIndex between files.
 const CLAIM_PHRASE =
   /\b(?:vanilla\s+(?:ROM\s+)?(?:at\s+)?(?:\$|0x)[0-9a-f]|(?:copied|taken|lifted|dumped) from\b|from the (?:vanilla )?ROM\s+at\s+(?:\$|0x)[0-9a-f]|ROM bytes\b|real ROM (?:bytes|data|values)\b)/i
 const PROVENANCE_WINDOW = 3
@@ -358,7 +360,17 @@ function splitComments(path, text) {
   })
 }
 
+// Counts the comment-splitting passes hasRomProvenance really runs; the
+// develop-clean test (#812) pins that claim-free text never pays for one.
+export const provenanceStats = { splits: 0 }
+
+/** True when a comment claims ROM provenance over a nearby inline literal.
+ * Split out of checkTextContent so checkRomProvenance can run it alone (#812). */
 function hasRomProvenance(path, text) {
+  // Every claim lives inside one line of a comment, so a text without the
+  // phrase anywhere cannot claim; skip the per-character comment scan.
+  if (!CLAIM_PHRASE.test(text)) return false
+  provenanceStats.splits++
   const parts = splitComments(path, text)
   for (let i = 0; i < parts.length; i++) {
     if (!claimsProvenance(parts[i].comment)) continue
@@ -372,6 +384,11 @@ function hasRomProvenance(path, text) {
     if (LITERAL_OPEN.test(below)) return true
   }
   return false
+}
+
+/** The rom-provenance rule alone, pragma exemption included (#812). */
+export function checkRomProvenance(path, text) {
+  return !scanPragmas(text).allowed.has('rom-provenance') && hasRomProvenance(path, text)
 }
 
 /** Text-content rules shared by blob content, commit messages and tag

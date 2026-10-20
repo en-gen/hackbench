@@ -27,6 +27,13 @@ export const WILD = -1
 /** A byte run with WILD in the positions that vary. */
 export type BytePattern = readonly number[]
 
+/** "c2 10 ??" to a BytePattern; whitespace may span lines. */
+export const parsePattern = (s: string): BytePattern =>
+  s
+    .trim()
+    .split(/\s+/)
+    .map(b => (b === '??' ? WILD : parseInt(b, 16)))
+
 /**
  * Cart-relative file offsets of every match for `pattern`, ascending.
  *

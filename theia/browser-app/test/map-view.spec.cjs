@@ -149,6 +149,16 @@ function scrollState(page, index) {
 /** Where centring pixel `at` of the scroll axis puts the scroll: clamped to the strip (#339). */
 const centred = (at, zoom, view, max) => Math.min(Math.max(at * zoom - view / 2, 0), max)
 
+/** The map's origin in the strip, map px (the canvas pad before it, #1004): a map point's strip position is point + origin. */
+const originOf = (page, index) =>
+  page.evaluate(
+    i =>
+      getSvc('ApplicationShell')
+        .getWidgetById('hackbench.map-view:' + i)
+        .mapOrigin(),
+    index,
+  )
+
 async function activate(page, index) {
   await page.evaluate(async id => {
     await getSvc('ApplicationShell').activateWidget(id)
@@ -396,7 +406,9 @@ test('$109 opens scrolled to its start: screen 6 in view, scrollTop above 0', as
   expect(st.top).toBeGreaterThan(0)
   expect(st.left).toBe(0)
   // y 1680 on the scroll axis, centred where the strip allows (here the strip's end clamps it).
-  expect(st.top).toBeCloseTo(centred(1680, st.zoom, st.viewH, st.maxTop), 0)
+  // The start sits at 1680 + the top gutter in the strip, and is centered there.
+  const org = await originOf(page, 0x109)
+  expect(st.top).toBeCloseTo(centred(1680 + org.y, st.zoom, st.viewH, st.maxTop), 0)
   await expect
     .poll(async () => (await readViewport(page, 0x109)).screens.map(s => s.screen), {
       timeout: 15000,
@@ -436,7 +448,8 @@ test("a preview-tab change from $109 to another map scrolls to that map's start"
   const st = await scrollState(page, 0x1c1)
   expect(st.top).toBe(0) // horizontal: the old map's vertical scroll is gone
   expect(st.left).toBeGreaterThan(0)
-  expect(st.left).toBeCloseTo(centred(start.x, st.zoom, st.viewW, st.maxLeft), 0)
+  const org = await originOf(page, 0x1c1)
+  expect(st.left).toBeCloseTo(centred(start.x + org.x, st.zoom, st.viewW, st.maxLeft), 0)
   await expect
     .poll(async () => (await readViewport(page, 0x1c1)).screens.map(s => s.screen), {
       timeout: 15000,
@@ -647,7 +660,14 @@ test('a start reply after the user zoomed out (offset still 0) is skipped', asyn
 async function shownPixels(page, locator) {
   const box = await locator.evaluate(el => {
     const r = el.getBoundingClientRect()
-    return { x: r.left + el.clientLeft + 1, y: r.top + el.clientTop + 1, width: el.clientWidth - 2, height: el.clientHeight - 2 } // prettier-ignore
+    const view = { x: r.left + el.clientLeft + 1, y: r.top + el.clientTop + 1, width: el.clientWidth - 2, height: el.clientHeight - 2 } // prettier-ignore
+    // A map scroller also shows the canvas pad around the map (#1004): sample the map's own rect only.
+    const edge = el.querySelector('[data-control="map-edge"]')
+    if (!edge) return view
+    const e = edge.getBoundingClientRect()
+    const [x0, y0] = [Math.max(view.x, e.left + 1), Math.max(view.y, e.top + 1)]
+    const [x1, y1] = [Math.min(view.x + view.width, e.right - 1), Math.min(view.y + view.height, e.bottom - 1)] // prettier-ignore
+    return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }
   })
   const png = (await screenshotWithoutGrid(page, { clip: box })).toString('base64')
   return page.evaluate(async b64 => {
@@ -1364,7 +1384,7 @@ test('$018: layer 3 is camera-locked, so its toggle is disabled and says so', as
 
 /**
  * The sprite layer (#564), drawn by the sprite interpreter (#585). $106 holds both kinds on vanilla:
- * sprites the ROM's own INIT and MAIN draw (24 of 25, #968 made the 3 stationary shells draw) and ids the interpreter refuses (marked, with its
+ * sprites the ROM's own INIT and MAIN draw (24 of 25: #968 made the 3 stationary shells draw, and the P-switch $3E draws since INIT runs for the picture, D139 D) and ids the interpreter refuses (marked, with its
  * reason). Its sprites sit past screen 0, so screen 1 is scrolled into view. $105 draws 32 of 34.
  */
 const spriteToggle = (page, index) => page.locator(`${root(index)} [data-control="layer-sprites"]`)
@@ -1411,14 +1431,19 @@ test('an interpreter-drawn sprite shows its own pixels where the service placed 
   )
   expect(reply.status).toBe('ok')
   expect(reply.sprites).toHaveLength(25)
-  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(24) // 21 plus the 3 stationary shells (#968)
+  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(24) // 21 plus the 3 stationary shells (#968) and the P-switch (D139 D)
   // Measured on vanilla: the first $05 is at tile (27, 20), a 16 x 32 body whose top is above its anchor.
   const koopa = reply.sprites.find(s => s.id === 5)
   expect(koopa).toMatchObject({ x: 432, y: 320, status: 'drawn' })
   expect(koopa.box).toEqual({ x0: 432, y0: 304, x1: 448, y1: 336 })
   // After #968 the one $106 miss is $4D at (3760, 368), in screen 14 (3584-3840): measured on vanilla.
-  const marker = reply.sprites.find(s => s.status === 'placeholder')
+  const marker = reply.sprites.find(s => s.status === 'placeholder' && s.id === 0x4d)
   expect(marker, 'a marker on $106').toBeTruthy()
+  // D139 D: INIT runs for the picture, so the P-switch ($3E) is drawn at its list position (D134).
+  const pswitch = reply.sprites.filter(s => s.id === 0x3e)
+  expect(pswitch.map(s => s.status)).toEqual(['drawn'])
+  expect(pswitch[0]).toMatchObject({ x: 4512, y: 272 })
+  expect(reply.sprites.filter(s => s.status === 'placeholder')).toHaveLength(1)
   expect(marker).toMatchObject({ id: 0x4d, x: 3760, y: 368 })
   const mScreen = Math.floor(marker.box.x0 / 256)
   expect(mScreen).toBe(14)
@@ -1469,7 +1494,7 @@ test('an interpreter-drawn sprite shows its own pixels where the service placed 
   expect(read.marker.corner).toEqual([90, 200, 255, 255])
 })
 
-test('$4F on $105 is served at its stream position plus the (8, -1) its INIT adds', async ({
+test('$4F on $105 is served at its stream position: the INIT move (+8, -1) is not shown at rest (D134)', async ({
   page,
 }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
@@ -1483,23 +1508,20 @@ test('$4F on $105 is served at its stream position plus the (8, -1) its INIT add
   // Stream positions (1808, 336), (2224, 320), (4544, 320): measured on vanilla, absolute.
   const fours = reply.sprites.filter(s => s.id === 0x4f)
   expect(fours.map(s => [s.x, s.y, s.status])).toEqual([
-    [1816, 335, 'drawn'],
-    [2232, 319, 'drawn'],
-    [4552, 319, 'drawn'],
+    [1808, 336, 'drawn'],
+    [2224, 320, 'drawn'],
+    [4544, 320, 'drawn'],
   ])
 })
 
 /**
- * #126: a vanilla grinder ($67) draws, then steps onto its line, so its first drawn pass is at the
- * off-track spawn spot, the second at the probe-corner spot and the third on the track. $01A's first
- * grinder draws on all three. Values from the interpreter on vanilla (LineGuidedDraw.test.ts pins the same
- * anchor): pass 2 at (751, 367), pass 1 at (739, 356), pass 0 at (735, 352). Passes 1 and 2 draw the same
- * frame and pass 0 another with the same opaque count, so the frame is told apart by checksumOf over the
- * served bitmap: 896249997 for passes 1 and 2, 3767367845 for pass 0 (pass 2's position and checksum recomputed
- * offline with the widget's functions on the vanilla ROM, one machine, 2026-10-11; pass 0's is the
- * 2026-10-10 measurement).
+ * #126, D91, D134: a vanilla grinder ($67) draws, then steps onto its line (pass 2 at (751, 367) INIT-on, pass 1
+ * at (739, 356)). The map's picture is the sprite at rest: the first pass, at the list position (720, 352), frame
+ * checksum 3767367845 (the same frame as the INIT-on pass 0; the 896249997 frame of passes 1 and 2 is the one
+ * play/simulate reaches). Values from the served reply on vanilla, one machine, 2026-10-17; the list position
+ * is pinned against the parsed list by LineGuidedDraw.test.ts.
  */
-test('a vanilla grinder is served on its track, at the third pass, not at its spawn spot', async ({
+test('a vanilla grinder is served at its list position, its first pass, not walked onto its track (D91)', async ({
   page,
 }) => {
   // The pinned numbers are the vanilla ROM's; a custom HB_ROM or a missing corpus ROM cannot match them.
@@ -1515,17 +1537,14 @@ test('a vanilla grinder is served on its track, at the third pass, not at its sp
   )
   expect(reply.status).toBe('ok')
   const grinder = reply.sprites.find(s => s.id === 0x67)
-  expect(grinder).toMatchObject({ x: 751, y: 367, status: 'drawn' })
-  // The four 16 x 16 body pieces sit around the anchor: a 32 x 32 box, not the spawn spot's (719, 336)
-  // or the probe corner's (723, 340).
-  expect(grinder.box).toEqual({ x0: 735, y0: 351, x1: 767, y1: 383 })
+  expect(grinder).toMatchObject({ x: 720, y: 352, status: 'drawn' })
+  // The four 16 x 16 body pieces sit around the anchor: a 32 x 32 box, not the track's (735, 351).
+  expect(grinder.box).toEqual({ x0: 704, y0: 336, x1: 736, y1: 368 })
   const sum = await page.evaluate(
     rgba => checksumOf(Uint8Array.from(atob(rgba), ch => ch.charCodeAt(0))),
     grinder.rgba,
   )
-  expect(sum, 'the third pass frame (same as the second), not the first (3767367845)').toBe(
-    896249997,
-  )
+  expect(sum, 'the first pass frame, not the walked passes (896249997)').toBe(3767367845)
 
   // And the canvas holds that bitmap at that box (screen 2 starts at x 512).
   await showScreen(page, 0x01a, 2)
@@ -2571,14 +2590,22 @@ for (const [index, vertical] of [
     await gridSettled(page, index)
     const g = await readGrid(page, root(index))
     expect(g.cell).toBe(16) // zoom 1
+    // Line positions are from the STRIP's start; the map starts after its gutter (#1004), so tiles count from there.
+    const org = await page.evaluate(sel => {
+      const e = document.querySelector(`${sel} [data-control="map-edge"]`).getBoundingClientRect()
+      const t = document.querySelector(`${sel} .hb-map-view-strip`).getBoundingClientRect()
+      return { x: e.left - t.left, y: e.top - t.top }
+    }, root(index))
     // Vertical: x repeats every 32 columns with the half at 16; y every 16 rows.
     // Horizontal: x every 16 columns; y every 27 rows with the half at row 16.
     const xs = vertical ? [32, 16] : [16, undefined]
     const ys = vertical ? [16, undefined] : [27, 16]
-    for (const l of g.xLines) expect(l.weight).toBe(weightOf(Math.round(l.pos / 16), ...xs))
-    for (const l of g.yLines) expect(l.weight).toBe(weightOf(Math.round(l.pos / 16), ...ys))
+    for (const l of g.xLines)
+      expect(l.weight).toBe(weightOf(Math.round((l.pos - org.x) / 16), ...xs))
+    for (const l of g.yLines)
+      expect(l.weight).toBe(weightOf(Math.round((l.pos - org.y) / 16), ...ys))
     const half = (vertical ? g.xLines : g.yLines).filter(l => l.weight === 3)
-    expect(half.map(l => l.pos)).toContain(256)
+    expect(half.map(l => l.pos)).toContain(256 + (vertical ? org.x : org.y))
     expect(new Set([...g.xLines, ...g.yLines].map(l => l.weight))).toEqual(new Set([1, 3, 5]))
     // Pixels: each vertical line paints exactly its weight, centred on its boundary pixel.
     expect(runs(g.rowHits)).toEqual(g.xLines.map(l => ({ start: l.start, size: l.size })))
@@ -2590,7 +2617,7 @@ for (const [index, vertical] of [
     // measured from the strip's own edge in the DOM, painted as a 3 px run on the canvas.
     const off = await page.evaluate(sel => {
       const o = document.querySelector(`${sel} .hb-grid-overlay`).getBoundingClientRect()
-      const t = document.querySelector(`${sel} .hb-map-view-strip`).getBoundingClientRect()
+      const t = document.querySelector(`${sel} [data-control="map-edge"]`).getBoundingClientRect()
       return { x: t.left - o.left, y: t.top - o.top }
     }, root(index))
     const axisOff = vertical ? off.x : off.y
@@ -3271,4 +3298,180 @@ test('an unavailable screen shows its reason, with the detail only in the toolti
   const err = page.locator(`${root(0x105)} [data-control="map-error"]`).first()
   await expect(err).toHaveText('R')
   await expect(err).toHaveAttribute('title', 'D')
+})
+
+/** #967: the overlays' read failures say it in plain words; the exception is a second tooltip line. */
+const JUST_NOW = 'this map could not be read just now. Open the map again to try again.'
+const tooltip = (page, control) =>
+  page
+    .locator(`${root(0x105)} [data-control="${control}"]`)
+    .first()
+    .getAttribute('title')
+const overlayCases = [
+  ['mapSprites', 'layer-sprites', 'Sprites unavailable: '],
+  ['mapCollisionCheck', 'collision-toggle', 'Collision unavailable: '],
+  ['mapPalaceIcons', 'switch-blue', 'Blue P-switch: '],
+]
+for (const [method, control, lead] of overlayCases) {
+  test(`a rejected ${method} says it in plain words, the exception on the second tooltip line (#967)`, async ({
+    page,
+  }) => {
+    const project = await createProject(page, path.join(tmp, 'MyHack'))
+    await openRejecting(page, project.manifestPath, method)
+    await expect.poll(() => tooltip(page, control)).toContain(JUST_NOW)
+    const [first, second] = (await tooltip(page, control)).split('\n')
+    expect(first).toContain(lead + JUST_NOW)
+    expect(first).not.toContain('planted-786')
+    expect(second).toBe(PLANTED_786)
+    // The accessible name is the plain words alone, never the exception.
+    const name = await page.locator(`${root(0x105)} [data-control="${control}"]`).first().getAttribute('aria-label') // prettier-ignore
+    expect(name).not.toContain('planted-786')
+  })
+}
+
+test('a rejected mapBlockContents shows a plain note with the exception only in its tooltip (#967)', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openRejecting(page, project.manifestPath, 'mapBlockContents')
+  const note = page.locator(`${root(0x105)} [data-note="block-contents"]`)
+  await expect(note).toHaveText(`Block contents are not drawn: ${JUST_NOW}`)
+  expect(await note.getAttribute('title')).toBe(PLANTED_786)
+})
+
+test('a server read failure keeps its detail out of the visible note and the tooltip lead (#967)', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  const reply = { status: 'unavailable', reason: 'R', detail: 'D' }
+  await openResolving(page, project.manifestPath, 'mapBlockContents', reply)
+  const note = page.locator(`${root(0x105)} [data-note="block-contents"]`)
+  await expect(note).toHaveText('Block contents are not drawn: R')
+  await expect(note).toHaveAttribute('title', 'D')
+})
+
+test('a rejected mapCollision probe says it in plain words once the toggle is pressed (#967)', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  // The check says collision is available, so the toggle is usable; only the probe it starts rejects.
+  await page.evaluate(
+    async ({ mp, msg }) => {
+      const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {
+        index: 0x105,
+      })
+      const real = w.projects
+      w.projects = new Proxy(real, {
+        get: (t, k) => k === 'mapCollisionCheck' ? async () => ({ status: 'available' }) : k === 'mapCollision' ? async () => { throw new Error(msg) } : typeof t[k] === 'function' ? t[k].bind(t) : t[k], // prettier-ignore
+      })
+      await w.open({ manifestPath: mp, index: 0x105, label: '105', iconClass: '' })
+      const shell = getSvc('ApplicationShell')
+      await shell.addWidget(w, { area: 'main' })
+      await shell.activateWidget(w.id)
+    },
+    { mp: project.manifestPath, msg: PLANTED_786 },
+  )
+  opened.push('hackbench.map-view:261')
+  const toggle = page.locator(`${root(0x105)} [data-control="collision-toggle"]`).first()
+  await expect(toggle).toHaveAttribute('data-collision-state', 'ready')
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('data-collision-state', 'refused')
+  const [first, second] = (await tooltip(page, 'collision-toggle')).split('\n')
+  expect(first).toBe(`Collision unavailable: ${JUST_NOW}`)
+  expect(second).toBe(PLANTED_786)
+  expect(await toggle.getAttribute('aria-label')).toBe(`Collision unavailable: ${JUST_NOW}`)
+})
+
+test('a rejected mapPalaceIcons names the palace in plain words, the exception on the second line (#967)', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openRejecting(page, project.manifestPath, 'mapPalaceIcons')
+  await expect.poll(() => tooltip(page, 'palace-green')).toContain(JUST_NOW)
+  const [first, second] = (await tooltip(page, 'palace-green')).split('\n')
+  expect(first).toBe(`Green switch palace: ${JUST_NOW}`)
+  expect(second).toBe(PLANTED_786)
+})
+
+test('a palace block that cannot be drawn shows plain words, the reason on the second line (#967)', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  const plain = 'this block could not be drawn on this ROM.'
+  await openResolving(page, project.manifestPath, 'mapPalaceIcons', {
+    status: 'ok',
+    icons: [{ palace: 'green', unavailable: plain, detail: 'planted palace' }],
+    switchArt: {},
+    switchUnavailable: {},
+  })
+  await expect.poll(() => tooltip(page, 'palace-green')).toContain(plain)
+  const [first, second] = (await tooltip(page, 'palace-green')).split('\n')
+  expect(first).toBe(`Green switch palace: ${plain}`)
+  expect(second).toBe('planted palace')
+})
+
+test('a note on the sprites carries its technical text on the title only (#967)', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  const note = "The castle flames are drawn from this ROM's own code, which differs from the original game." // prettier-ignore
+  await openResolving(page, project.manifestPath, 'mapSprites', {
+    status: 'ok',
+    orientation: 'horizontal',
+    screenCount: 1,
+    width: 256,
+    height: 432,
+    sprites: [],
+    note,
+    noteDetail: 'the flame spawn routine is not the vanilla shape',
+  })
+  const el = page.locator(`${root(0x105)} [data-note="sprites"]`)
+  await expect(el).toHaveText(note)
+  await expect(el).toHaveAttribute('title', 'the flame spawn routine is not the vanilla shape')
+})
+
+test('a start position that cannot be worked out reads plainly, the loader text in the title (#967)', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  const plain = 'the start position could not be worked out for this map.'
+  await openResolving(page, project.manifestPath, 'mapStart', {
+    status: 'unavailable',
+    reason: plain,
+    detail: 'planted loader text',
+  })
+  const el = page.locator(`${root(0x105)} [data-control="map-start-note"]`)
+  await expect(el).toHaveText('start unavailable')
+  await expect(el).toHaveAttribute('title', `${plain}\nplanted loader text`)
+})
+
+test('a missing base ROM for the sprites names the next step (#967)', async ({ page }) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openResolving(page, project.manifestPath, 'mapSprites', {
+    status: 'rom-not-located',
+    baseRom: { title: 'X' },
+  })
+  await expect
+    .poll(() => tooltip(page, 'layer-sprites'))
+    .toContain(
+      'the base ROM X is not on this machine. Choose File > Project Properties... and locate it again.',
+    )
+})
+
+test('a switch with no art shows plain words on the tooltip first line, the gate text on the second (#967)', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  const plain = "this switch's picture could not be drawn on this ROM."
+  await openResolving(page, project.manifestPath, 'mapPalaceIcons', {
+    status: 'ok',
+    icons: [],
+    switchArt: {},
+    switchUnavailable: { blue: plain },
+    switchDetail: { blue: 'planted' },
+  })
+  await expect.poll(() => tooltip(page, 'switch-blue')).toContain(plain)
+  const [first, second] = (await tooltip(page, 'switch-blue')).split('\n')
+  expect(first).toBe(`Blue P-switch: ${plain}`)
+  expect(second).toBe('planted')
 })

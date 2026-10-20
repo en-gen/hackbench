@@ -81,6 +81,7 @@ export const TOTAL_STEP_CAP = 1_000_000
 /** INIT retries allowed while the routine leaves status 1. */
 const MAX_INIT_FRAMES = 64
 
+/** One OAM entry a pass wrote, placed relative to the sprite's origin with the camera removed. */
 export interface SpritePart {
   /** Entry in the OAM mirror, 0-127 ($0200 page first, then $0300). */
   oam: number
@@ -92,7 +93,7 @@ export interface SpritePart {
   priority: number
   flipX: boolean
   flipY: boolean
-  /** Pixels from the pass's draw origin (`PassResult.origin`): the post-INIT position, except for $67 on a vanilla-shaped handler. */
+  /** Pixels from the pass's draw origin (`PassResult.origin`): the post-INIT position when INIT's moves are kept, and the position at the end of the pass at rest (`PassResult.pos`; the picture is then drawn on the placed spot, `SpriteModel.anchor`), except for $67 on a vanilla-shaped handler. */
   dx: number
   dy: number
   /** Raw attribute byte, for graders that compare it whole. */
@@ -112,7 +113,7 @@ export interface PassResult {
   pass: number
   /** Level position of the sprite at the end of this pass. */
   pos: { x: number; y: number }
-  /** Where this pass's parts are measured from: `SpriteModel.anchor`, except for $67 on a vanilla-shaped handler (where the pass before left it). */
+  /** Where this pass's parts are measured from: `SpriteModel.anchor` when INIT's moves are kept; the end-of-pass `pos` at rest; the pass before's `pos` for $67 on a vanilla-shaped handler (where the pass before left it). */
   origin: { x: number; y: number }
   parts: SpritePart[]
   /** Palette or graphics uploads the pass wrote registers for. */
@@ -126,13 +127,14 @@ export interface PassResult {
 
 export type DependsOn = 'marioX'
 
+/** What running one sprite id produced: its passes, anchor and the reason when it drew nothing or was refused. */
 export interface SpriteModel {
   id: number
   /** Why nothing was emitted: the run was refused. */
   refusal?: string
   /** Why no part was drawn across all passes, when the run completed. */
   emptyReason?: string
-  /** Position after INIT, and the raw placement it started from. For $67 on a vanilla-shaped handler: the position its drawn (chosen) pass drew at, after the line snap. */
+  /** Position after INIT (the placed spot at rest), and the raw placement it started from. For $67 on a vanilla-shaped handler: the position its drawn (chosen) pass drew at, after the line snap. */
   anchor?: { x: number; y: number; rawX: number; rawY: number }
   /**
    * Where the level state came from: the ROM's own level loader, or a generic
@@ -141,7 +143,7 @@ export interface SpriteModel {
    */
   seedSource?: 'rom-level-load' | 'generic'
   seedReason?: string
-  /** Frames INIT took: 1 unless it left status 1 and was re-run. */
+  /** Frames INIT took: 1 unless it left status 1 and was re-run; 0 when INIT did not run (a shell, which the loader leaves past INIT). */
   initFrames?: number
   /** $15EA after INIT: the OAM base the cart assigned. */
   oamBase?: number
@@ -192,21 +194,35 @@ export interface SpawnRun {
    * are emptied so only the chosen one runs and writes OAM; when absent the block path is as it always was.
    */
   nth?: number
+  /**
+   * The sprite number the caller draws these as (the handler `id` is chosen up front). A spawn that wrote any other number
+   * into the picked slot is refused: an edited spawner must not get another sprite's art (#1076).
+   */
+  expectNumber?: number
 }
 
 /** The refusal text when `SpawnRun.nth` names a sprite the spawn did not make; callers that ask for several count these. */
 export const SPAWN_SHORT = 'the spawn made only '
 
+/** Switches for `runOnce`; the defaults are the play/simulate run. */
 export interface RunOptions {
   spawn?: SpawnRun
   probe?: Probe
   trackInputs?: boolean
-  /** The dispatch shape the line-guided gate accepts; a test hook, so a synthetic cart brings its own (default: vanilla's). */
+  /** The dispatch shape the $67 gate accepts; a test hook, so a synthetic cart brings its own (default: vanilla's). */
   grinderDispatch?: DispatchShape
+  /**
+   * `true` is the map view's at-rest picture. D139 D, D138 A: INIT runs for the look only (tiles, flips,
+   * variants, status). D134, D91: the drawing is re-based onto the placed spot, so INIT's moves and the
+   * 320 px shift are not shown, and there is no $67 line-walk pick. Default false: INIT first and its moves
+   * kept, as the game and the graders do.
+   */
+  atRest?: boolean
 }
 
 export { Refusal }
 
+/** The 65816 interpreter plus the sprite loop's WRAM seed, for one sprite slot. */
 export class Machine {
   readonly bus: SpriteBus
   readonly cpu: Cpu65816
@@ -223,7 +239,7 @@ export class Machine {
 
   constructor(
     rom: RomFile,
-    readonly seed: SpriteSeed,
+    public seed: SpriteSeed,
     id: number,
     shell?: ShellLoad,
   ) {
@@ -386,6 +402,15 @@ export class Machine {
     )
   }
 
+  /** Moves the camera by (dx, dy), in WRAM and in the seed `readParts` removes it with. */
+  recentre(dx: number, dy: number): void {
+    if (dx === 0 && dy === 0) return
+    const camera = { x: this.seed.camera.x + dx, y: this.seed.camera.y + dy }
+    this.seed = { ...this.seed, camera }
+    this.w16(RAM.camX, camera.x)
+    this.w16(RAM.camY, camera.y)
+  }
+
   pos(): { x: number; y: number } {
     const w = this.bus.wram
     const n = this.seed.slot
@@ -498,6 +523,7 @@ export function runOnce(
   if (loaded.refusal) return { ...model, refusal: loaded.refusal }
   const shell = loaded.shell
   // INIT runs only for a sprite the loader leaves in status 1.
+  const atRest = opts.atRest === true
   let runsInit = (shell?.status ?? 1) === 1
   const num = shell?.number ?? id
   // A sprite the loader does not leave in status 1 never runs INIT, so its INIT pointer is not read.
@@ -525,6 +551,9 @@ export function runOnce(
       if (!spawn.ok) return { ...model, refusal: spawn.reason }
       // Every slot empty, so the game's own search decides where the sprite goes.
       for (let i = 0; i < 12; i++) w[RAM.status + i] = 0
+      // Only what the spawn writes counts as its number, never a cell the shell left behind.
+      if (opts.spawn.expectNumber !== undefined)
+        for (let i = 0; i < 12; i++) w[RAM.spriteNumber + i] = 0
       for (const [k, v] of Object.entries(opts.spawn.inputs)) w[Number(k)] = v
       // The code reads its tables through DB: the game reaches it from its own bank (PHK PLB), so enter it with DB = its bank.
       // Slots in the order the spawn first filled them: that is its spawn order, whichever way its search runs.
@@ -551,6 +580,10 @@ export function runOnce(
       m.seed.slot = picked
       w[RAM.curSprite] = picked
       model.spawnPos = m.pos()
+      // Checked after spawnPos is set, so a refused child still counts as one the spawner placed.
+      const madeNumber = w[RAM.spriteNumber + picked]!
+      if (opts.spawn.expectNumber !== undefined && madeNumber !== opts.spawn.expectNumber)
+        return { ...model, refusal: `the spawner made sprite $${madeNumber.toString(16).toUpperCase().padStart(2, '0')}, not $${opts.spawn.expectNumber.toString(16).toUpperCase().padStart(2, '0')}, so it is not drawn as one` } // prettier-ignore
       // An own spawner leaves the status it chose: only status 1 runs INIT, so a status-8 sprite has no frame before pass 0
       // (a frame there would move it before it is first drawn). The block path is as it always was.
       if (own !== undefined) runsInit = w[RAM.status + picked] === 1
@@ -586,7 +619,12 @@ export function runOnce(
       : null
     const snaps = gate?.ok === true
     if (gate && !gate.ok) model.lineGateReason = gate.reason
-    model.anchor = { ...anchor, rawX: m.seed.sprite.x, rawY: m.seed.sprite.y }
+    const placed = { x: m.seed.sprite.x, y: m.seed.sprite.y }
+    // INIT can move a sprite off the screen the run was centred on (the grinders' -$140, the Podoboo's drop),
+    // and GetDrawInfo then culls it. The camera only picks which screen the picture is taken on: centre it on the
+    // post-INIT spot; the drawing is re-based onto the placed spot below (D139 D, D134).
+    if (atRest) m.recentre(anchor.x - placed.x, anchor.y - placed.y)
+    model.anchor = { ...(atRest ? placed : anchor), rawX: placed.x, rawY: placed.y }
     if (snaps) model.snaps = true
     model.oamBase = w[RAM.oamIndex + m.seed.slot]
     probe?.(-1, w)
@@ -600,8 +638,11 @@ export function runOnce(
       m.frame()
       model.steps.push(m.steps - n)
       probe?.(p, w)
-      // The draw ran before this pass's own move, so for them it ran where the pass before left it.
-      const origin = snaps ? (model.passes[p - 1]?.pos ?? anchor) : anchor
+      // The draw ran before this pass's own move, so for $67 it ran where the pass before left it.
+      // At rest the parts are measured from where the pass ended, so MAIN's own few pixels of motion do not
+      // leak into the picture (the Podoboo's jump). A handler that draws and then moves is measured from its
+      // end too: measuring from the draw changed 12 vanilla rows ($05, $06) from same to differ against the table engine.
+      const origin = snaps ? (model.passes[p - 1]?.pos ?? anchor) : atRest ? m.pos() : anchor
       model.passes.push({
         pass: p,
         pos: m.pos(),
@@ -619,7 +660,8 @@ export function runOnce(
     // line walk then set, which is on the line (CODE_01D768 / CODE_01D7B0, 11863-11930; Mesen capture 6b47bb75 slot
     // $1F: (415,336) -> (419,340) -> (431,336)). Each step is only taken if the pass before it moved the sprite
     // and the next pass draws; a fingerprint match cannot prove that. A first draw after pass 0 is already on track.
-    if (snaps && first === 0 && model.passes[1]?.parts.length) {
+    // The line-walk pick is a move: play/simulate only (D91).
+    if (snaps && !atRest && first === 0 && model.passes[1]?.parts.length) {
       const [q0, q1] = [model.passes[0]!.pos, model.passes[1]!.pos]
       const moved = (a: { x: number; y: number }, b: { x: number; y: number }) =>
         a.x !== b.x || a.y !== b.y
@@ -631,10 +673,10 @@ export function runOnce(
       else if (num === 0x67) model.chosen = 1
       else model.lineStepReason = 'the third pass drew nothing or the second did not move the sprite: kept the first drawn pass' // prettier-ignore
     }
-    if (snaps && model.chosen !== undefined)
+    if (snaps && !atRest && model.chosen !== undefined)
       model.anchor = { ...model.anchor!, ...model.passes[model.chosen]!.origin }
     if (model.passes.every(p => p.parts.length === 0))
-      model.emptyReason = `drew no OAM tile in ${m.seed.mainPasses} passes (invisible by design, or the seed lacks state)` // prettier-ignore
+      model.emptyReason = `drew no OAM tile in ${m.seed.mainPasses} passes (${atRest ? "it drew no tile at rest; whether it shows in play was not checked" : 'invisible by design, or the seed lacks state'})` // prettier-ignore
   } catch (e) {
     if (e instanceof Refusal) return { ...model, refusal: e.message }
     throw e

@@ -13,6 +13,7 @@ import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import {
   drawSprites,
+  type SpriteDrawResult,
   mapSprites,
   readStream,
   spriteLayer,
@@ -90,6 +91,44 @@ describe('drawSprites', () => {
   it('takes the anchor from the parsed tile position as is (the parser already swapped vertical X and Y)', () => {
     const [s] = drawSprites([spr(0, 20, 37)], MODEL, () => ok(part(0x401, 0, 0)))
     expect(s).toMatchObject({ x: 320, y: 592 })
+  })
+})
+
+describe('drawSprites: chars a sprite uploads to the player slots (#980)', () => {
+  // A buffer whose piece at $2000 is solid color 3, so a slot pointed there is recognisable.
+  const buffer = () => {
+    const bytes = new Uint8Array(0xb000 - 0x2000)
+    bytes.fill(0xff, 0, 0x40)
+    return { ok: true as const, bytes }
+  }
+  // SP1 reaching char $406, which holds the left-1/right-2 pattern of char $400.
+  const WIDE = { ...MODEL, vram: { sp1: [...SP1, ...Array(6).fill(SP1[0])] } }
+  const draw = (...uploads: { slot: number; ptr: number }[]) => (): SpriteDrawResult => ({ ...ok(part(0x406, 0, 0)), uploads }) // prettier-ignore
+
+  it("draws the sprite's own chars where the map's SP1 has others, and only that sprite's", () => {
+    const model = { ...WIDE, playerGraphics: buffer }
+    const [a, b] = drawSprites([spr(0, 0, 0, 0x33), spr(1, 4, 0, 0x10)], model, s => s.index === 0 ? draw({ slot: 3, ptr: 0x2000 })() : ok(part(0x406, 0, 0))) // prettier-ignore
+    expect(px(decode(a!), 8, 0, 0)[0]).toBe(9 * 16 + 15)
+    expect(px(decode(b!), 8, 0, 0)[0]).toBe(9 * 16 + 1)
+    expect(a).not.toHaveProperty('unverified')
+  })
+
+  it('draws the map chars, with the reason as the sprite note, when the buffer cannot be read', () => {
+    const model = { ...WIDE, playerGraphics: () => ({ ok: false as const, reason: 'not stock' }) } // prettier-ignore
+    const [s] = drawSprites([spr(0, 0, 0, 0x33)], model, draw({ slot: 3, ptr: 0x2000 }))
+    expect(s).toMatchObject({ status: 'drawn', unverified: expect.stringContaining('not stock') })
+    expect(px(decode(s!), 8, 0, 0)[0]).toBe(9 * 16 + 1)
+  })
+
+  it('keeps an earlier note and adds the reason, and does the same when no buffer reader is given', () => {
+    const [s] = drawSprites([spr(0, 0, 0, 0x33)], WIDE, () => ({ ...draw({ slot: 3, ptr: 0x2000 })(), unverified: 'seed' }) as SpriteDrawResult) // prettier-ignore
+    expect(s).toMatchObject({ status: 'drawn', unverified: expect.stringMatching(/^seed; its chars come from/) }) // prettier-ignore
+  })
+
+  it('does not read the buffer for a sprite that uploaded nothing', () => {
+    const read = vi.fn(buffer)
+    drawSprites([spr(0, 0, 0)], { ...MODEL, playerGraphics: read }, () => ok(part(0x401, 0, 0)))
+    expect(read).not.toHaveBeenCalled()
   })
 })
 
@@ -359,6 +398,7 @@ describe.skipIf(!hasRom(VANILLA))('mapSprites on the vanilla ROM', () => {
   }
 
   // 24: 21 plus the 3 stationary shells on $106 ($DB at 272,368 and 1312,368; $DA at 1664,368), drawn since #837.
+  // $3E (the P-switch) draws too, now INIT runs for the picture (D139 D); the other sprite is marked (D52).
   it('draws 24 of the 25 sprites of $106 and marks the rest, every one with a matching bitmap', () => {
     const r = run(0x106)
     expect(r.sprites).toHaveLength(25)

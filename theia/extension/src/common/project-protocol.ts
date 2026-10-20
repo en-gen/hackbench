@@ -260,8 +260,8 @@ export interface MapLayer3Dto {
 
 /**
  * An object the map could not draw (#816), at its anchor cell in map tiles
- * (16 px, whole-map coordinates). `why` is plain words; the tooltip reads
- * `Object <objectIndex> (<objectType>): <why>`, the same numbering as the map note.
+ * (16 px, whole-map coordinates). `reasons` is one plain-words line per distinct issue (#1005); the tooltip
+ * is `Object <objectIndex> (<objectType>)` then one line each, the same numbering as the map note.
  */
 export interface MapRefusedCellDto {
   x: number
@@ -269,7 +269,7 @@ export interface MapRefusedCellDto {
   objectIndex: number
   objectType: string
   handler: number
-  why: string
+  reasons: string[]
 }
 
 /**
@@ -390,8 +390,10 @@ export type MapSpritesResult =
       sprites: MapSpriteDto[]
       /** Why some sprites may be missing (an unterminated stream), when they may be. */
       note?: string
+      /** The technical text behind `note`, for its tooltip only. */
+      noteDetail?: string
     }
-  | { status: 'unavailable'; reason: string }
+  | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
 /** One line of the collision overlay (#435), in map pixels: `points` is x0,y0,x1,y1,..., an unknown cell its closed outline. */
@@ -403,7 +405,7 @@ export interface MapCollisionLineDto {
 /** Whether a map's collision can be probed, found without probing (#435): the toggle's enabled state and tooltip. */
 export type MapCollisionCheckResult =
   | { status: 'available' }
-  | { status: 'unavailable'; reason: string }
+  | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
 /**
@@ -419,7 +421,7 @@ export type MapCollisionResult =
       height: number
       lines: MapCollisionLineDto[]
     }
-  | { status: 'unavailable'; reason: string }
+  | { status: 'unavailable'; reason: string; detail?: string }
   /** The working copy moved on while the probe ran: ask again, and do not treat it as a refusal. */
   | { status: 'stale' }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
@@ -441,7 +443,7 @@ export interface BlockIndicatorDto {
  */
 export type MapStartResult =
   | { status: 'ok'; screen: number; x: number; y: number; vertical: boolean }
-  | { status: 'unavailable'; reason: string }
+  | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
 /**
@@ -462,8 +464,10 @@ export type MapBlockContentsResult =
       indicators: BlockIndicatorDto[]
       /** Contents that could not be drawn, and why. */
       note?: string
+      /** The technical text behind `note`, for its tooltip only. */
+      noteDetail?: string
     }
-  | { status: 'unavailable'; reason: string }
+  | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
 /**
@@ -474,7 +478,7 @@ export type SwitchStateDto = Record<Map16SwitchKind, boolean>
 
 /** One palace's switch block as 16x16 RGBA, both states, or why it cannot be drawn. */
 export type PalaceIconDto = { palace: keyof SwitchFlagsDto } & (
-  { uncleared: string; cleared: string } | { unavailable: string }
+  { uncleared: string; cleared: string } | { unavailable: string; detail?: string }
 )
 
 /** The map toolbar's art: each palace's block (per ROM) and each char switch's own (#574's). */
@@ -485,8 +489,10 @@ export type PalaceIconsResult =
       switchArt: Partial<Record<Map16SwitchKind, Map16SwitchButtonImages>>
       /** Why a switch has no art. */
       switchUnavailable: Partial<Record<Map16SwitchKind, string>>
+      /** The technical text behind each `switchUnavailable`, for a tooltip's second line (#967). */
+      switchDetail?: Partial<Record<Map16SwitchKind, string>>
     }
-  | { status: 'unavailable'; reason: string }
+  | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
 /** 'bps' is the default: SMW Central's Hacks section no longer accepts IPS. */
