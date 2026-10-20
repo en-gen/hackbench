@@ -100,7 +100,32 @@ skips without it. `CastleFlames.test.ts` applies it to the bytes its fixtures wr
 Where a reader in `src/` fixes the game's opcodes (or a fixture keeps the game's operand values on purpose), the
 window stays and the gate's allow list names the region and why. Each region spans at most 64 bytes and lists its
 exact hit count: a count that rises, drops or reaches zero fails until the list is updated, and planted cases prove
-those checks go red. The fix for an allowed region is to make the reader recognize the code by SHA-256 (as
+those checks go red.
+
+ExecutePtr, CallSpriteInit and the grinder handler (#1082) were removed by running them instead: a stock-code
+SHA-256 needs at least 24 unknown bytes (not masked, not stated elsewhere in the working tree), and each of those had
+fewer. The runs follow the stock-code exception in `.claude/rules/rom-interpretation.md` (added in #1030): a fixed
+entry, a step budget, a refusal that names why. Entries are reached from HandleSprite through the ROM's own operands
+and tables: ExecutePtr from its JSL operand, CallSpriteInit from its status table, the grinder handler from the MAIN
+pointer table.
+
+- `checkExecutePtr` calls the routine as a JSL with a table of its own in WRAM, for all 256 indices, and requires
+  the landing, the popped frame, the kept registers and no register or SRAM write.
+- `resolveTables` runs CallSpriteInit for every sprite number in three slots and requires the JSL frame at
+  ExecutePtr, the number as the index and the run status as the only write besides the frame; the INIT table is read
+  from that frame.
+- `grinderDrawsBeforeSnap` runs the handler in every slot, then in slot 3 with each WRAM cell it reads set to every
+  value, one cell at a time, and requires the draw, the interact and the line step in that order; it returns a
+  reason, which the runner puts in `lineGateReason`. Known limit: a hook that needs two cells set together (for
+  example `LDA $9D / AND $13 / BNE`) is not caught. The three expected routine addresses are the old `targets`,
+  fixed for vanilla; a relocated routine fails closed.
+- Register and SRAM writes are refused in all three runs (the bus reports SRAM stores through `onSramWrite`).
+  Evidence scope: the vanilla USA ROM and the synthetic cart, one machine, 2026-10-18.
+- The block spawn dispatcher, slot search and status write are one 81-byte span (`BLOCK_SPAWN_DISPATCHER`).
+
+Planted defects for each are in `test/suite/unit/sprites/ShapeRuns.test.ts`.
+
+The fix for an allowed region is to make the reader recognize the code by SHA-256 (as
 `CastleFlames.ts` and `SubmapFlagGate.ts` do), then delete the region.
 
 Source-text probes read the file text only, so they miss runs built from helpers, named opcodes or spread
@@ -277,6 +302,14 @@ is registered on every machine and the skip count names it.
 Reading the corpus INSIDE a case body stays fine: the case exists either
 way. Put a tripwire on the listing so it cannot pass vacuously, as
 `Map16.tileCount.test.ts` does with `expect(carts.length).toBeGreaterThan(0)`.
+
+Nest no `describe.skipIf` inside a suite that is itself `skipIf`: when the
+outer suite skips, the inner tests end `pending`, and the summary line counts
+`pending` as neither passed nor skipped, so the totals no longer add up. Put
+every condition on ONE `describe.skipIf` (`!romPresent || !fs.existsSync(csv)`)
+and leave the outer suite a plain `describe`. Evidence: vitest ^5.0.3,
+2026-10-18, a synthetic probe (nested gave `pending`, flat gave `skipped`);
+27 scrollSim capture tests showed it before this change.
 
 ## Writing new tests
 
