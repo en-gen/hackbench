@@ -10,7 +10,6 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import type { EngineResult } from '../../../src/rom/model/sprites/generic/SpriteDrawEngine'
 import type { LevelSprite } from '../../../src/rom/LevelParser'
 import { RomFile } from '../../../src/rom/RomFile'
-import * as SpriteRunner from '../../../src/rom/sprites/interp/SpriteRunner'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import {
   drawSprites,
@@ -445,21 +444,6 @@ describe.skipIf(!hasRom(VANILLA))('mapSprites on the vanilla ROM', () => {
     // A sprite nobody drew keeps the engine's own reason.
     const lone = mapSpriteFrames(new L1ModelCache(), bytes, romPath(VANILLA), 0x6, 10)
     expect(lone.status === 'ok' && lone.frames.length).toBeGreaterThan(0)
-  })
-
-  it('the claim check redraws the asked sprite and its possible parents, not the whole map (#1153)', () => {
-    const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
-    const spy = vi.spyOn(SpriteRunner, 'runOnce')
-    try {
-      const all = run(0x6).sprites.length
-      spy.mockClear()
-      const f = mapSpriteFrames(new L1ModelCache(), bytes, romPath(VANILLA), 0x6, 11)
-      expect(f.status === 'ok' && f.reason).toMatch(/^Drawn as part of the sprite it rides with/)
-      // The map holds `all` sprites; the asked one, the $9C beside it and the few others in range are enough.
-      expect(spy.mock.calls.length).toBeLessThan(all / 2)
-    } finally {
-      spy.mockRestore()
-    }
   })
 
   it("the Properties preview's first frame is the map's own bitmap for the $9C on $006 (frame 0 IS the map's picture)", () => {

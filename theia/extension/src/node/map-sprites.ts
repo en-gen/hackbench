@@ -1010,21 +1010,7 @@ export function mapSpriteFrames(
     const run = interpRunner(rom.rom, index, model, runOnce, () => base, undefined, undefined, undefined, stream)(s) // prettier-ignore
     const frames = framesOf(run, s, model, dynamicOf(rom.rom))
     // Drawn by its parent on the map (the $9B a $9C carries): its tiles are the parent's, so say that, not "drew no tile".
-    // Only a sprite whose neighbor list holds this one can have drawn it, so only those are drawn again (#1153).
-    const at = (e: LevelSprite) => ({ x: pixelX(e), y: e.y * TILE })
-    const parents = frames.frames.length ? [] : stream.filter(q => q.index !== s.index && neighboursOf(stream, q, at).some(n => n.index === s.index)) // prettier-ignore
-    const draw = interpDrawer(
-      rom.rom,
-      index,
-      model,
-      runOnce,
-      () => base,
-      undefined,
-      undefined,
-      undefined,
-      stream,
-    )
-    const dto = parents.length ? drawSprites([s, ...parents], model, draw).find(d => d.index === s.index) : undefined // prettier-ignore
+    const dto = frames.frames.length ? undefined : drawSprites(stream, model, interpDrawer(rom.rom, index, model, runOnce, () => base, undefined, undefined, undefined, stream)).find(d => d.index === s.index) // prettier-ignore
     if (dto?.drawnBy !== undefined) return { status: 'ok', frames: [], reason: 'Drawn as part of the sprite it rides with, not on its own.' } // prettier-ignore
     return { status: 'ok', ...frames }
   } catch (err) {
