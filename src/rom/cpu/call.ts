@@ -7,6 +7,7 @@
  * Evidence scope: exercised by synthetic code in
  * test/suite/unit/sprites/callHelpers.test.ts.
  */
+import { hex2s, hex4s } from '../hex'
 import type { Cpu65816 } from './Cpu65816'
 
 /** Thrown from a bus `onInstruction` hook to stop a run; the message is the reason shown to the user. */
@@ -124,8 +125,6 @@ export function callSubroutine(
   })
 }
 
-const hex = (n: number, w: number): string => n.toString(16).toUpperCase().padStart(w, '0')
-
 /** The reason text for a result that did not return, or null when it returned; one wording for every caller. */
 export function describe(r: CallResult, budget: number): string | null {
   switch (r.kind) {
@@ -139,7 +138,7 @@ export function describe(r: CallResult, budget: number): string | null {
       if (r.s === r.expected && r.pb === r.expectedPb)
         return 'the routine popped its own return address and kept running'
       return r.s === r.expected
-        ? `returned into bank $${hex(r.pb, 2)} instead of $${hex(r.expectedPb, 2)}; the call frame was not unwound`
-        : `stack unbalanced at return (S=$${hex(r.s, 4)}, expected $${hex(r.expected, 4)})`
+        ? `returned into bank ${hex2s(r.pb)} instead of ${hex2s(r.expectedPb)}; the call frame was not unwound`
+        : `stack unbalanced at return (S=${hex4s(r.s)}, expected ${hex4s(r.expected)})`
   }
 }
