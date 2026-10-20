@@ -27,8 +27,11 @@
  * placed so the sprite is on screen. The colors the sprite's own code wrote to
  * CGRAM (NMI upload list, palette mirror, direct registers;
  * `Machine.paletteWrites`) override the level's row for that sprite only.
- * Not modelled: the sprite is run alone, so one that reacts to a neighbor or
- * to the player's actions shows its first pose.
+ * Each sprite is run alone, except one whose own code scans the slot tables
+ * for a companion ($9C looks for a $9B): it is run a second time with the
+ * map's neighboring sprites in the other slots, because the picture it draws
+ * includes that companion (#841). Not modelled: any other reaction to a
+ * neighbor, and the player's actions: a sprite shows its first pose.
  * A sprite with bit 3 of byte 0 set is marked, not drawn: the gate fails
  * closed for sprites that MAY be custom (PIXI dispatches on bit 3), which the
  * vanilla descriptor would draw wrongly. Vanilla scroll/command sprites ($E8,
