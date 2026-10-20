@@ -4,10 +4,10 @@
  * SMWDisX bank_08-0B.asm:193-194).
  *
  * CODE_00AB42 (SMWDisX bank_00.asm:5515-5567) reads the file three bytes at
- * a time and, through CODE_00ABC4 (:5575-5583), shifts out eight 3-bit
+ * a time and, through CODE_00ABC4 (bank_00.asm:5575-5583), shifts out eight 3-bit
  * fields per group, high bits first, writing each as one Mode 7 pixel byte.
  * No 2/3/4bpp planar decode can show it. Its caller is SetallFGBG80
- * (:5391-5396).
+ * (bank_00.asm:5391-5396).
  *
  * The routine is found by ONE SHA-256 fingerprint over its whole 118 bytes
  * (100 of them unmasked), checked at every `LDY #imm / JSL` candidate; the
@@ -62,14 +62,14 @@ const UNPACK_LENGTH = 118
 const JSR_OPERAND_OFFS = [19, 27, 59, 67, 99, 107]
 const UNPACK_MASK = [1, 3, 4, 5, 12, 13, ...JSR_OPERAND_OFFS.flatMap(o => [o, o + 1])]
 // The routine's input byte is the operand of its first STA direct, its output
-// byte the operand of the LDA direct after the first helper call (:5515-5583).
+// byte the operand of the LDA direct after the first helper call (bank_00.asm:5515-5583).
 const INPUT_STA_OFF = 16
 const OUTPUT_LDA_OFF = 21
 const STA_DIRECT = 0x85
 const LDA_DIRECT = 0xa5
 // The helper is run, not hashed; its budget is far above its length.
 const HELPER_MAX_STEPS = 64
-// SetallFGBG80 (:5392-5393): a BEQ over the JSR that calls the routine.
+// SetallFGBG80 (bank_00.asm:5392-5393): a BEQ over the JSR that calls the routine.
 const BEQ = 0xf0
 const JSR = 0x20
 // A JSR is its opcode and a 2-byte operand; a BEQ that skips exactly one lands after it.
@@ -138,6 +138,8 @@ function jsrTarget(from: number, operand: number): number | null {
 const isStack = (off: number): boolean => off >= 0x100 && off < 0x200
 // P as the game has it at the helper: 16-bit X and Y (REP #$10, bank_00.asm:5518), 8-bit A.
 const HELPER_P = 0x24
+// P bits M (A width) and X (index width), the two that change how later code is read.
+const WIDTH_BITS = 0x30
 // Index register values the helper is run with: a loop counter or compare on X or Y must not change the answer.
 const INDEX_SWEEP = [0, 0x100, 0x3ff, 0x8000]
 const HW_FIRST = 0x2000
@@ -292,8 +294,15 @@ function helperShiftsPixelOut(
       const shifted = bus.wram[input] === (v << BITS_PER_PIXEL) % 0x100
       const out = bus.wram[output] === v >> (8 - BITS_PER_PIXEL)
       if (r.kind === 'refused') return r.reason
-      // The unpack loop keeps its source offset in Y and its count in X across the call.
-      const kept = cpu.x === x && cpu.y === y
+      // The unpack loop keeps its source offset in Y and its count in X across the call, and
+      // runs on in the same A and index widths, direct page and data bank. N, Z and C are
+      // free: the loop reloads A before it branches.
+      const kept =
+        cpu.x === x &&
+        cpu.y === y &&
+        (cpu.p & WIDTH_BITS) === (HELPER_P & WIDTH_BITS) &&
+        cpu.d === 0 &&
+        cpu.db === 0
       if (r.kind !== 'returned' || !kept || !onlyTwo || !shifted || !out) return NOT_PIXELS
     }
     return null

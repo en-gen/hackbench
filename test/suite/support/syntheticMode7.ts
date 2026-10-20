@@ -65,6 +65,8 @@ export interface HelperShape {
   sramRewrite?: boolean
   /** LDA OUT / TAY: read the output back after writing it, and corrupt Y. */
   clobbersY?: boolean
+  /** Raw bytes run just before the return, to leave a register or flag changed. */
+  beforeReturn?: number[]
   /** End with RTL, the wrong return for a JSR. */
   rtl?: boolean
 }
@@ -89,6 +91,7 @@ export function helperBytes(shape: HelperShape = {}): number[] {
     ...(shape.sramRewrite ? [0xa9, 0x00, 0x8f, 0x00, 0x00, 0x70] : []),
     ...(shape.clobbersY ? [0xa5, OUT, 0xa8] : []),
     ...shifts,
+    ...(shape.beforeReturn ?? []),
     ...(shape.hang ? [0x80, 0xfe] : shape.rtl ? [0x6b] : [0x60]),
   ]
 } // prettier-ignore

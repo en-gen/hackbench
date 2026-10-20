@@ -205,6 +205,10 @@ describe('findMode7GfxFiles', () => {
       ['a read of another byte', { readsOther: true }],
       ['a branch on Y at or above $0100', { readsY: true }],
       ['a hardware read', { hwRead: true }],
+      ['M flipped to 16-bit A (REP #$20)', { beforeReturn: [0xc2, 0x20] }],
+      ['X flipped to 8-bit (SEP #$10)', { beforeReturn: [0xe2, 0x10] }],
+      ['a changed direct page (LDA #imm / TCD)', { beforeReturn: [0xa9, 0x10, 0x5b] }],
+      ['a changed data bank (LDA #imm / PHA / PLB)', { beforeReturn: [0xa9, 0x05, 0x48, 0xab] }],
       ['an SRAM write that leaves the contents unchanged', { sramRewrite: true }],
       ['a changed Y after reading the output back', { clobbersY: true }],
     ]
@@ -282,6 +286,15 @@ describe('findMode7GfxFiles', () => {
     flip(rom, ROUTINE + 40)
     rom.writeAt(CALLER, callSiteBytes(ROUTINE & 0xffff))
     expect(find(rom)).toEqual([])
+  })
+
+  it('accepts a helper that changes only N, Z or C', () => {
+    // The unpack loop reloads A before it branches, so these flags are free.
+    for (const beforeReturn of [[0x38], [0x18], [0xa9, 0x80], [0xa9, 0x00]]) {
+      const rom = makeRom()
+      writeMode7Load(rom, { helperShape: { beforeReturn } })
+      expect(find(rom), beforeReturn.join(',')).toEqual([{ fileIndex: 0x27, byteLength: 0xc00 }])
+    }
   })
 
   it('accepts a helper that keeps its loop counter in a 16-bit X', () => {
