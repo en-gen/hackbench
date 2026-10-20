@@ -16,10 +16,21 @@ import {
 import { parseLevelSprites } from '../../../../src/rom/LevelParser'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
-import { grinderDrawsBeforeSnap } from '../../../../src/rom/sprites/interp/LineGuided'
+import {
+  grinderDrawsBeforeSnap,
+  LINE_GUIDED_IDS,
+  VANILLA_DISPATCH,
+} from '../../../../src/rom/sprites/interp/LineGuided'
 import { RAM, runOnce, type SpriteModel } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { SPRITE_SEED, withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
-import { hasRom, romPath, SPRITE_TRACE_SET, TOOLS_ROOT, VANILLA } from '../../support/corpus'
+import {
+  freshRom,
+  hasRom,
+  romPath,
+  SPRITE_TRACE_SET,
+  TOOLS_ROOT,
+  VANILLA,
+} from '../../support/corpus'
 import {
   GRINDER_DISPATCH_AT,
   GRINDER_DISPATCH,
@@ -271,6 +282,59 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla grinder, on the vanilla ROM', (
       })
     }, 120_000)
   }
+})
+
+describe('per-id arms (#792)', () => {
+  const arm = GRINDER_DISPATCH.arm
+  const bogus = [0x019400, 0x019400, 0x019290]
+  const gateFor = (rom: RomFile, number: number, shape = GRINDER_DISPATCH) =>
+    grinderDrawsBeforeSnap(rom, GRINDER_HANDLER, number, RAM.spriteNumber, shape)
+
+  it('runs the arm of the id it is asked about: byId wins, the default covers the rest', () => {
+    const rom = buildSyntheticRom()
+    const shape = { arm: bogus, byId: { 0x68: arm } }
+    expect(gateFor(rom, 0x68, shape).ok).toBe(true)
+    // $67 falls to the default arm, which this cart's handler does not make.
+    expect(gateFor(rom, 0x67, shape)).toMatchObject({ ok: false, reason: expect.stringMatching(/slot 0: it reaches/) }) // prettier-ignore
+    expect(gateFor(rom, 0x68, { arm: arm, byId: { 0x68: bogus } }).ok).toBe(false)
+  })
+
+  it('refuses an id whose cart calls its arm out of order, per id', () => {
+    const rom = buildSyntheticRom({ alteredGrinder: true })
+    for (const id of [0x62, 0x64, 0x65, 0x66, 0x67, 0x68])
+      expect(gateFor(rom, id, { arm, byId: { [id]: arm } }), `id ${id}`).toMatchObject({ ok: false, reason: expect.stringMatching(/out of order/) }) // prettier-ignore
+  })
+
+  it('names exactly $62, $64, $65, $66, $67, $68 over every id 0..255 ($63 is a plant that must go red)', () => {
+    const named = Array.from({ length: 256 }, (_, id) => id).filter(id => LINE_GUIDED_IDS.has(id))
+    expect(named).toEqual([0x62, 0x64, 0x65, 0x66, 0x67, 0x68])
+    // Every named id has an arm that ends in the line step, and none of them is empty.
+    const arms = named.map(id => VANILLA_DISPATCH.byId?.[id] ?? VANILLA_DISPATCH.arm)
+    expect(arms.every(a => a.length >= 2 && a.at(-1) === 0x01d74d)).toBe(true)
+  })
+})
+
+describe.skipIf(!hasRom(VANILLA))('per-id arms on the vanilla cart (#792)', () => {
+  const seed3 = withSeed({ slot: 3, sprite: { x: 0x80, y: 0x80 } }, SPRITE_SEED)
+
+  it('the run gate accepts each admitted id and not $63, and says why for none', () => {
+    const rom = freshRom()
+    const got = [0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68].map(id => {
+      const m = runOnce(rom, id, seed3)
+      return [id, m.snaps === true, m.lineGateReason]
+    })
+    expect(got).toEqual([[0x62, true, undefined], [0x63, false, undefined], [0x64, true, undefined], [0x65, true, undefined], [0x66, true, undefined], [0x67, true, undefined], [0x68, true, undefined]]) // prettier-ignore
+  }, 120_000)
+
+  it('refuses an id whose draw call is pointed at the interact routine (a planted hijack)', () => {
+    const rom = freshRom()
+    // CODE_01D9BA (the $67 test) is followed by JSR CODE_01DC0B: point it at MarioSprInteractRt instead.
+    const at = 0x01d9be
+    const before = rom.readAt(at, 3)!
+    expect(before[0]).toBe(0x20)
+    rom.writeAt(at + 1, [0xe4, 0xa7])
+    expect(runOnce(rom, 0x67, seed3).lineGateReason).toMatch(/out of order|within the step budget/)
+  }, 120_000)
 })
 
 const TRACE_SLOT_7 = join(TOOLS_ROOT, 'fixtures', 'sprite-trace', SPRITE_TRACE_SET, '01f')

@@ -11,7 +11,7 @@ import type { Cpu65816 } from '../../cpu/Cpu65816'
 import { callSubroutine, describe, Refusal } from '../../cpu/call'
 import type { RomFile } from '../../RomFile'
 import { mapperProblem } from './Guards'
-import { type DispatchShape, grinderDrawsBeforeSnap } from './LineGuided'
+import { type DispatchShape, grinderDrawsBeforeSnap, LINE_GUIDED_IDS } from './LineGuided'
 import { smwMachine } from './Machine'
 import { type ShellLoad, shellLoad } from '../ShellSprites'
 import {
@@ -491,10 +491,9 @@ export type Probe = (pass: number, wram: Uint8Array) => void
  * (SMWDisX bank_01.asm:12182-12204, platform arm 12323-12358, corner stores 12054-12061; $64's INIT steps it
  * too, 11766-11783). So one run shows three spots: the off-track INIT spot, the probe corner the first MAIN
  * snapped to, and the line point the walk then set. The editor draws the third (#126, #792). Which ids qualify
- * is `DRAWS_BEFORE_LINE_SNAP` plus the run-based gate (develop's #1030 gate covers $67 only; the other ids
- * return with the gate rework in the next phase of #792).
+ * is `DRAWS_BEFORE_LINE_SNAP` (`LINE_GUIDED_IDS`) plus the run-based gate, which runs each id's own arm.
  */
-const DRAWS_BEFORE_LINE_SNAP: ReadonlySet<number> = new Set([0x67])
+const DRAWS_BEFORE_LINE_SNAP: ReadonlySet<number> = LINE_GUIDED_IDS
 
 /** Run once with a seed; no dependsOn analysis (half the cost of `runSprite`). */
 export function runOnce(

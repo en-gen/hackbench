@@ -41,3 +41,10 @@ placement exercises it. `$62`'s own INIT (`InitLineBrwnPlat`, `11808`) does not 
 
 For these ids the runner moves to pass 2 only when pass 0 moved the sprite, pass 1 moved it again, and pass 2 draws;
 otherwise it keeps pass 0, the generic rule. Only the grinder (`$67`, #126) may stop at pass 1.
+
+## How the gate checks it
+
+Each id is accepted by RUNNING its handler from the ROM's own MAIN pointer (`LineGuided.ts`, #1030) and watching the calls
+it makes: the arm listed above for that id (`VANILLA_DISPATCH.byId`), in order, ending at the line step, with no register or
+SRAM write across every slot and every value of the WRAM cells it reads in slot 3. A ROM that differs keeps the old rule
+and the model says why (`lineGateReason`). The call targets are still vanilla addresses; reading them from the ROM is #1121.

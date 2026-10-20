@@ -302,6 +302,31 @@ describe.skipIf(!hasRom(VANILLA))('mapSpriteFrames: the Podoboo keeps its buffer
   )
 })
 
+describe.skipIf(!hasRom(VANILLA))('mapSpriteFrames: line-guided chainsaws stay put (#1128)', () => {
+  it(
+    'every frame of every chainsaw ($65) on map $0F has the same left edge: only the pose changes',
+    slow(60_000),
+    () => {
+      const bytes = new Uint8Array(readFileSync(romPath(VANILLA)))
+      const cache = new L1ModelCache()
+      const drawn = mapSprites(cache, bytes, romPath(VANILLA), 0x0f)
+      if (drawn.status !== 'ok') throw new Error('map $0F unavailable')
+      const saws = drawn.sprites.filter(d => d.id === 0x65 && d.status === 'drawn')
+      expect(saws.length).toBeGreaterThan(0)
+      for (const d of saws) {
+        const r = mapSpriteFrames(cache, bytes, romPath(VANILLA), 0x0f, d.index)
+        if (r.status !== 'ok') throw new Error('no frames')
+        expect(r.frames.length, `#${d.index}`).toBeGreaterThan(1)
+        expect(new Set(r.frames.map(f => f.box.x0)), `#${d.index} x0`).toHaveProperty('size', 1)
+        // The saw bobs 2 px between its poses; travel along the track would be many.
+        const ys = r.frames.map(f => f.box.y0)
+        expect(Math.max(...ys) - Math.min(...ys), `#${d.index} y0`).toBeLessThanOrEqual(2)
+        expect(r.frames[0]!.rgba, `#${d.index}`).toBe(d.rgba)
+      }
+    },
+  )
+})
+
 describe('mapSpriteFrames without a cart', () => {
   it('a ROM that holds no such map answers unavailable with a reason, never throws', () => {
     const r = mapSpriteFrames(new L1ModelCache(), new Uint8Array(0x80000), 'blank.sfc', 0x105, 0)

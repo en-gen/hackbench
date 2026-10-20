@@ -1,5 +1,5 @@
 /**
- * Whether a cart's line-guided grinder ($67) still dispatches in the vanilla order: draw, then the
+ * Whether a cart's line-guided sprite ($62, $64-$68) still dispatches in the vanilla order: draw, then the
  * line step. A hack that rewrites the handler gets the runner's generic rule. The gate RUNS the handler
  * from its MAIN pointer and watches which routines it calls; it does not read those routines' bodies.
  *
@@ -13,15 +13,35 @@ import { nativeReset, Refusal } from '../../cpu/call'
 import { RunCache, smwMachine, watchSram } from './Machine'
 
 /**
- * The routines the $67 arm calls or jumps to, in order, as FastROM-folded 24-bit addresses: the draw (CODE_01DC0B,
- * a call), the interact (MarioSprInteractRt, $01A7E4, a call) and the line step (CODE_01D74D, the jump that ends
- * the arm). SMWDisX bank_01.asm:12190-12204; label at 5385 for the interact.
+ * The routines each line-guided id's arm of CODE_01D9A7 calls or jumps to, in order, as FastROM-folded 24-bit
+ * addresses; the last one ends the arm (the line step, CODE_01D74D, $01D74D). SMWDisX bank_01.asm:12182-12215 and
+ * the platform arm 12323-12358; label at 5385 for the interact (MarioSprInteractRt, $01A7E4).
+ *  - $67: draw CODE_01DC0B, interact, step. $68: draw CODE_01DBD4, interact, step.
+ *  - $65, $66: interact, then the chainsaw's draw (JSL CODE_03C263), step.
+ *  - $64 (rope): its draw CODE_01DC54, then the step as a call (12209-12215).
+ *  - $62: the platform arm draws (CODE_01B2DF) and then calls the step. $63 is left out (owner ruling D85).
+ * `arm` is the default for an id `byId` does not name (a test cart brings its own).
  */
 export interface DispatchShape {
   arm: readonly number[]
+  byId?: Readonly<Record<number, readonly number[]>>
 }
 
-export const VANILLA_DISPATCH: DispatchShape = { arm: [0x01dc0b, 0x01a7e4, 0x01d74d] }
+const STEP = 0x01d74d
+const INTERACT = 0x01a7e4
+export const VANILLA_DISPATCH: DispatchShape = {
+  arm: [0x01dc0b, INTERACT, STEP],
+  byId: {
+    0x62: [0x01b2df, STEP],
+    0x64: [0x01dc54, STEP],
+    0x65: [INTERACT, 0x03c263, STEP],
+    0x66: [INTERACT, 0x03c263, STEP],
+    0x68: [0x01dbd4, INTERACT, STEP],
+  },
+}
+
+/** The ids whose arm `VANILLA_DISPATCH` names: the ones the run model gives the draw-before-step rule (#792). */
+export const LINE_GUIDED_IDS: ReadonlySet<number> = new Set([0x62, 0x64, 0x65, 0x66, 0x67, 0x68])
 
 export type GrinderGate = { ok: true } | { ok: false; reason: string }
 
@@ -90,8 +110,9 @@ export function grinderDrawsBeforeSnap(
   numberCell: number,
   shape: DispatchShape = VANILLA_DISPATCH,
 ): GrinderGate {
-  const key = [handler, number, numberCell, ...shape.arm].join(',')
-  return cache.lookup(rom, key) ?? sweep(rom, handler, number, numberCell, shape, key)
+  const arm = shape.byId?.[number] ?? shape.arm
+  const key = [handler, number, numberCell, ...arm].join(',')
+  return cache.lookup(rom, key) ?? sweep(rom, handler, number, numberCell, arm, key)
 }
 
 const cache = new RunCache<GrinderGate>()
@@ -101,7 +122,7 @@ function sweep(
   handler: number,
   number: number,
   numberCell: number,
-  shape: DispatchShape,
+  arm: readonly number[],
   key: string,
 ): GrinderGate {
   let m: ReturnType<typeof smwMachine>
@@ -128,7 +149,7 @@ function sweep(
     bus.inputs = new Set()
     bus.wram[numberCell + slot] = number
     if (poke) bus.wram[poke[0]] = poke[1]
-    let why = drive(rom, m, handler, slot, shape.arm, () => last)
+    let why = drive(rom, m, handler, slot, arm, () => last)
     if (!why && bus.hwWrites.size) why = 'it writes a hardware register'
     if (!why && sram.writes > 0) why = 'it writes SRAM'
     const reads = [...bus.inputs].filter(c => c !== numberCell + slot)
@@ -140,7 +161,8 @@ function sweep(
     for (let slot = 0; slot < 12; slot++) {
       const r = exec(slot)
       if (r.why) return { ok: false, reason: `slot ${slot}: ${r.why}` }
-      for (const c of r.reads) cells.add(c)
+      // Per-slot tables hold one cell per slot, so only the slot the sweep pokes (3) names its cells.
+      if (slot === 3) for (const c of r.reads) cells.add(c)
     }
     const done = new Set<number>()
     while (done.size < cells.size) {
