@@ -376,7 +376,7 @@ export function loadLevelState(rom: RomFile, level: number, rng = 0): LevelLoad 
 }
 
 /** $18B8 ActivateClusterSprite and the 20 ClusterSpriteNumber cells from $1892 (rammap.asm:1872, 1855). */
-const NO_CLUSTER_SPRITES: Record<number, number> = Object.fromEntries([
+export const NO_CLUSTER_SPRITES: Record<number, number> = Object.fromEntries([
   [0x18b8, 0],
   ...Array.from({ length: 20 }, (_, i) => [0x1892 + i, 0]),
 ])

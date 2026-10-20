@@ -15,6 +15,7 @@ import { openProject, Project, RomIdentity, romIdentity } from './Project'
 import { readRomBounded } from './BoundedRead'
 import { RomRegistry } from './RomRegistry'
 import { RomFile } from '../rom/RomFile'
+import { SmwRom } from '../rom/SmwRom'
 import type { DataBanks } from '../rom/DataBanks'
 import { resolveDataBanks } from './DataBanksConfig'
 import { GfxCharEdit, GfxRefusal } from '../rom/GfxLayer'
@@ -49,6 +50,21 @@ export interface WorkingRomEntry {
   project: Project
   /** Detected on the base ROM, hand edits applied (meta/data-banks.json); a reader attaches it to the RomFile it builds. */
   dataBanks: DataBanks
+}
+
+/**
+ * The working copy as a RomFile, over a copy of its bytes (WorkingRom.bytes()
+ * returns the live cached array, so the copy is what keeps a later edit from
+ * changing a RomFile already handed out) with the project's data banks
+ * attached. Callers of this helper need not copy again.
+ */
+export function romFileOf(entry: WorkingRomEntry): RomFile {
+  return RomFile.fromBytes(entry.romPath, Buffer.from(entry.working.bytes()), entry.dataBanks)
+}
+
+/** Lets servers that read SMW tables get romFileOf's copy and data banks without re-stating either. */
+export function smwRomOf(entry: WorkingRomEntry): SmwRom {
+  return new SmwRom(romFileOf(entry))
 }
 
 export type WorkingRomResult =
