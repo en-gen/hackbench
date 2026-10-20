@@ -192,6 +192,11 @@ export interface SpawnRun {
    * are emptied so only the chosen one runs and writes OAM; when absent the block path is as it always was.
    */
   nth?: number
+  /**
+   * The sprite number the caller draws these as (the handler `id` is chosen up front). A spawn that wrote any other number
+   * into the picked slot is refused: an edited spawner must not get another sprite's art (#1076).
+   */
+  expectNumber?: number
 }
 
 /** The refusal text when `SpawnRun.nth` names a sprite the spawn did not make; callers that ask for several count these. */
@@ -523,6 +528,9 @@ export function runOnce(
       if (!spawn.ok) return { ...model, refusal: spawn.reason }
       // Every slot empty, so the game's own search decides where the sprite goes.
       for (let i = 0; i < 12; i++) w[RAM.status + i] = 0
+      // Only what the spawn writes counts as its number, never a cell the shell left behind.
+      if (opts.spawn.expectNumber !== undefined)
+        for (let i = 0; i < 12; i++) w[RAM.spriteNumber + i] = 0
       for (const [k, v] of Object.entries(opts.spawn.inputs)) w[Number(k)] = v
       // The code reads its tables through DB: the game reaches it from its own bank (PHK PLB), so enter it with DB = its bank.
       // Slots in the order the spawn first filled them: that is its spawn order, whichever way its search runs.
@@ -549,6 +557,10 @@ export function runOnce(
       m.seed.slot = picked
       w[RAM.curSprite] = picked
       model.spawnPos = m.pos()
+      // Checked after spawnPos is set, so a refused child still counts as one the spawner placed.
+      const madeNumber = w[RAM.spriteNumber + picked]!
+      if (opts.spawn.expectNumber !== undefined && madeNumber !== opts.spawn.expectNumber)
+        return { ...model, refusal: `the spawner made sprite $${madeNumber.toString(16).toUpperCase().padStart(2, '0')}, not $${opts.spawn.expectNumber.toString(16).toUpperCase().padStart(2, '0')}, so it is not drawn as one` } // prettier-ignore
       // An own spawner leaves the status it chose: only status 1 runs INIT, so a status-8 sprite has no frame before pass 0
       // (a frame there would move it before it is first drawn). The block path is as it always was.
       if (own !== undefined) runsInit = w[RAM.status + picked] === 1
