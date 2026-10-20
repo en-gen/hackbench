@@ -95,12 +95,21 @@ export const STOCK_INIT_LINE_GUIDED: Routine = {
   len: 42,
   sha: '7ccee5c902300dbb8daee9323528d7c8c3db9bc76c4c881ed2ffaa80f0077f42',
 }
-/** The ids whose INIT the stock table points at InitLineGuidedSpr (bank_01.asm:332-335): the ones held to its fingerprint. Not a rule about who moves. */
-export const STOCK_INIT_IDS: ReadonlySet<number> = new Set([0x65, 0x66, 0x67, 0x68])
+/**
+ * InitLineRope into InitLinePlat's tail, whole, one digest (bank_01.asm:11766-11783, $01D6C4): the INIT of $64.
+ * One cart, one machine. $62's INIT is six bytes, too short for a digest of its own; one that moves it is unverified.
+ */
+export const STOCK_INIT_LINE_ROPE: Routine = {
+  len: 41,
+  sha: '1174e6fdaa0ab70c43b29a0e96692295f24fe789b6254fb9abf4bda8272950bd',
+}
 
-/** Whether the routine at `at` is `stock`, by SHA-256 of its bytes. */
-export const isStockRoutine = (rom: RomFile, at: number, stock: Routine): boolean =>
-  routineSha(rom.readAt(at, stock.len), stock.norm) === stock.sha
+/** The INITs a line-guided sprite that moves at start-up may have; any other is unverified, whatever the id. */
+export const STOCK_INITS: readonly Routine[] = [STOCK_INIT_LINE_GUIDED, STOCK_INIT_LINE_ROPE]
+
+/** Whether the routine at `at` is one of `stocks`, by SHA-256 of its bytes. */
+export const isStockRoutine = (rom: RomFile, at: number, stocks: readonly Routine[]): boolean =>
+  stocks.some(r => routineSha(rom.readAt(at, r.len), r.norm) === r.sha)
 
 export type GrinderGate = { ok: true } | { ok: false; reason: string }
 

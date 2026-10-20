@@ -282,6 +282,8 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   mainTable[32] = 0x92a0
   if (o.grinderInitShifts) initTable[31] = initTable[103] = 0x8610
   if (o.grinderInitDelta) initTable[31] = initTable[103] = 0x9700
+  if (o.grinderInitDelta && o.grinderAliases)
+    for (const id of [98, 100, 101, 102, 104]) initTable[id] = 0x9700
   mainTable[103] = 0x9200
   for (const id of [98, 104]) mainTable[id] = o.grinderAliases ? 0x9200 : 0x9600
   for (const id of [100, 101, 102]) mainTable[id] = o.grinderAliases ? 0x9200 : 0x9610

@@ -141,7 +141,7 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla line-guided placement (#792)', 
     }
   })
 
-  it('at rest: the gate changes where the picture sits from its anchor by the pass-before origin, not by the shift', () => {
+  it('at rest, compared with the generic rule (gate off): the origin change alone, apart from the shift. $67 is in the table but was already gated on develop', () => {
     // The picture's top-left with the gate on, minus with it off, minus what INIT moved: the origin change alone.
     const tally = Object.fromEntries(
       IDS.map(id => {

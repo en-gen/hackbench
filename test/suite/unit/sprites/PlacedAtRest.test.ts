@@ -149,6 +149,20 @@ describe('first frame at rest on synthetic carts: the run decides (R16, findings
     expect(shiftNote({ x: 0x80, y: -0x40, stored: { x: 0x80, y: 0x40 } })).toMatch(/128 px up/)
   })
 
+  it('start-up code and the first step both move it: the DTO carries where start-up left it, and the note splits 8 and 4 px', () => {
+    const rom = buildSyntheticRom({ grinderInitShifts: true, grinderDrawsFromPass1: true })
+    const m = runOnce(rom, 103, SPRITE_SEED, { atRest: true, grinderDispatch: grinderShape(rom) })
+    expect(m.anchor).toMatchObject({ x: 0x8c, y: 0x80 }) // 128 + 8 (INIT) + 4 (pass 0's step)
+    const res = modelResult(m)
+    expect(res).toMatchObject({ ok: true, anchor: { x: 0x8c }, stored: { x: 0x80 }, afterInit: { x: 0x88, y: 0x80 } }) // prettier-ignore
+    const dto = res as {
+      anchor: { x: number; y: number }
+      stored: { x: number; y: number }
+      afterInit: { x: number; y: number }
+    }
+    expect(shiftNote({ ...dto.anchor, stored: dto.stored, afterInit: dto.afterInit })).toMatch(/start-up code moves it 8 px to the right, and its first step 4 px to the right more/) // prettier-ignore
+  })
+
   it('when the first drawing pass is above 0 the anchor is the origin its parts are measured from (finding 3)', () => {
     const m = rest({ grinderInitShifts: true, grinderDrawsFromPass1: true })
     expect(m.chosen).toBe(1)
@@ -227,13 +241,18 @@ describe('what at rest starts from', () => {
     expect(status(0xda, true)).toBe(9)
     expect(runOnce(rom, 0xda, SPRITE_SEED, { atRest: true }).refusal).toBeUndefined()
   })
-  it('a $67-style sprite whose first drawing pass is above 0 keeps the raw anchor at rest', () => {
+  it('a $67-style sprite whose first drawing pass is above 0 stands where the game first drew it, not on the list spot (R16)', () => {
     const r = buildSyntheticRom({ grinderDrawsFromPass1: true })
     const opts = { grinderDispatch: grinderShape(r) }
     const played = runOnce(r, 103, SPRITE_SEED, opts)
     const rest = runOnce(r, 103, SPRITE_SEED, { ...opts, atRest: true })
     expect(rest.chosen).toBe(1)
-    expect(rest.anchor).toMatchObject({ x: 0x80, y: 0x80 })
+    // INIT does not move it, but pass 0's step does (+4) before pass 1 draws: the anchor is the origin the parts are
+    // measured from (132 = 0x84), and the sprite is marked as drawn away from its map tile. Before: 128 and 132.
+    expect(rest.passes[1]!.origin.x).toBe(0x84)
+    expect(rest.anchor).toMatchObject({ x: 0x84, y: 0x80, rawX: 0x80 })
+    expect(rest.shifted).toBe(true)
+    expect(rest.passes[1]!.parts[0]!.dx).toBe(0)
     expect(played.anchor!.x).not.toBe(0x80)
   })
   it('a sprite that draws nothing at rest says only that it drew no tile and was not checked in play', () => {

@@ -22,8 +22,7 @@ import {
   grinderDrawsBeforeSnap,
   isStockRoutine,
   routineSha,
-  STOCK_INIT_LINE_GUIDED,
-  STOCK_INIT_IDS,
+  STOCK_INITS,
   LINE_GUIDED_IDS,
   VANILLA_DISPATCH,
 } from '../../../../src/rom/sprites/interp/LineGuided'
@@ -583,57 +582,65 @@ describe('the gate and the INIT check, branch by branch (synthetic carts, findin
     expect(gateOf(rom).ok).toBe(false)
   })
 
-  describe('InitLineGuidedSpr on a synthetic INIT (ids 103 = $67)', () => {
+  describe('the INIT of a line-guided sprite that moved is held to a stock INIT, whatever its id (N6)', () => {
     const SEED = withSeed({ slot: 3, sprite: { x: 0x80, y: 0x80 } }, SPRITE_SEED)
     const stockOf = (rom: RomFile) => ({ len: 31, sha: fingerprint(rom.readAt(0x019700, 31))! })
-    const rest = (rom: RomFile, stock = stockOf(buildSyntheticRom({ grinderInitDelta: [8, 0] }))) =>
-      runOnce(rom, 103, SEED, {
-        atRest: true,
-        grinderDispatch: grinderShape(rom),
-        stockInit: stock,
-      })
+    const STOCK = [stockOf(buildSyntheticRom({ grinderInitDelta: [8, 0] }))]
+    const rest = (
+      id: number,
+      o: SyntheticOptions,
+      stocks: readonly { len: number; sha: string }[] = STOCK,
+    ) => {
+      // prettier-ignore
+      const rom = buildSyntheticRom({ grinderAliases: true, ...o })
+      return runOnce(rom, id, SEED, { atRest: true, grinderDispatch: grinderShape(rom), stockInits: stocks }) // prettier-ignore
+    }
 
-    it('the stock INIT is not flagged, a patched one is flagged and still runs', () => {
-      expect(rest(buildSyntheticRom({ grinderInitDelta: [8, 0] })).lineInitReason).toBeUndefined()
-      const patched = rest(buildSyntheticRom({ grinderInitDelta: [12, 0] }))
-      expect(patched.lineInitReason).toMatch(/not the stock InitLineGuidedSpr/)
+    it('a stock INIT that moves the sprite is not flagged; a patched one is flagged and still runs', () => {
+      expect(rest(103, { grinderInitDelta: [8, 0] }).lineInitReason).toBeUndefined()
+      const patched = rest(103, { grinderInitDelta: [12, 0] })
+      expect(patched.lineInitReason).toMatch(/not a stock line-guided INIT/)
       expect(patched.refusal).toBeUndefined()
       expect(patched.anchor!.x).toBe(0x8c) // the patched INIT's own +12, interpreted
     })
 
-    it('the flag reaches the picture only when the patched INIT moved the sprite: no stored tile, no note otherwise', () => {
-      const moved = modelResult(rest(buildSyntheticRom({ grinderInitDelta: [12, 0] })))
-      expect(moved).toMatchObject({ ok: true, stored: { x: 0x80, y: 0x80 }, unverified: expect.stringMatching(/not the stock/) }) // prettier-ignore
-      // A patched INIT that moves nothing: flagged on the model, but nothing is drawn away, so no outline and no note.
-      const still = rest(buildSyntheticRom({ grinderInitDelta: [0, 0] }))
-      expect(still.lineInitReason).toBeDefined()
+    it.each([[98], [100], [101], [102], [103], [104]])(
+      'id %i: a patched INIT that moves it is flagged, whatever the id',
+      id => {
+        const m = rest(id, { grinderInitDelta: [12, 0] })
+        expect(m.shifted).toBe(true)
+        expect(m.lineInitReason).toMatch(/not a stock line-guided INIT/)
+        expect(modelResult(m)).toMatchObject({ ok: true, unverified: expect.stringMatching(/not a stock line-guided INIT/) }) // prettier-ignore
+        // And the stock INIT, the same move, is not.
+        expect(rest(id, { grinderInitDelta: [8, 0] }).lineInitReason).toBeUndefined()
+      },
+    )
+
+    it('the flag reaches the picture only when the sprite moved: no stored tile, no note, no flag otherwise', () => {
+      const still = rest(103, { grinderInitDelta: [0, 0] })
+      expect(still.shifted).toBeUndefined()
+      expect(still.lineInitReason).toBeUndefined()
       const res = modelResult(still)
       expect(res).not.toHaveProperty('stored')
-      expect((res as { unverified?: string }).unverified ?? '').not.toMatch(/stock/)
+      expect((res as { unverified?: string }).unverified ?? '').not.toMatch(/INIT/)
     })
   })
 })
 
 describe('InitLineGuidedSpr is checked by fingerprint (#792, D110 call 4)', () => {
   it('every fingerprint covers at least 24 bytes in one digest (D126)', () => {
-    const lens = [...Object.values(VANILLA_DISPATCH.routines), STOCK_INIT_LINE_GUIDED].map(
-      r => r.len,
-    )
+    const lens = [...Object.values(VANILLA_DISPATCH.routines), ...STOCK_INITS].map(r => r.len)
     expect(Math.min(...lens)).toBeGreaterThanOrEqual(24)
-  })
-
-  it('names the four ids whose INIT is it, and no other over 0..255', () => {
-    expect(Array.from({ length: 256 }, (_, id) => id).filter(id => STOCK_INIT_IDS.has(id))).toEqual([0x65, 0x66, 0x67, 0x68]) // prettier-ignore
   })
 
   it('accepts a routine whose bytes hash to the stock one and refuses each single-byte edit (synthetic bytes)', () => {
     const rom = buildSyntheticRom()
     const stock = { len: 16, sha: fingerprint(rom.readAt(0x019200, 16))! }
-    expect(isStockRoutine(rom, 0x019200, stock)).toBe(true)
+    expect(isStockRoutine(rom, 0x019200, [stock])).toBe(true)
     const accepted = Array.from({ length: 16 }, (_, i) => i).filter(i => {
       const r = buildSyntheticRom()
       r.writeAt(0x019200 + i, [r.readAt(0x019200 + i, 1)![0]! ^ 0x01])
-      return isStockRoutine(r, 0x019200, stock)
+      return isStockRoutine(r, 0x019200, [stock])
     })
     expect(accepted).toEqual([])
   })
@@ -644,18 +651,18 @@ describe.skipIf(!hasRom(VANILLA))(
   () => {
     const seed3 = withSeed({ slot: 3, sprite: { x: 0x80, y: 0x80 } }, SPRITE_SEED)
 
-    it('is stock for $65-$68 and not flagged', () => {
+    it('is stock for every admitted id and not flagged, though $64 and $65-$68 move on this seed', () => {
       const rom = freshRom()
-      for (const id of STOCK_INIT_IDS) expect(runOnce(rom, id, seed3).lineInitReason, `id ${id}`).toBeUndefined() // prettier-ignore
+      for (const id of LINE_GUIDED_IDS) expect(runOnce(rom, id, seed3, { atRest: true }).lineInitReason, `id ${id}`).toBeUndefined() // prettier-ignore
     }, 120_000)
 
     it('flags an edited subtract constant as unverified, while the interpreter still runs the edited INIT', () => {
-      const stock = runOnce(freshRom(), 0x65, seed3)
+      const stock = runOnce(freshRom(), 0x65, seed3, { atRest: true })
       const rom = freshRom()
       // The constant of the even-column branch's SBC #imm: changed, so the shift differs from stock.
       rom.writeAt(0x01d6fa, [rom.readAt(0x01d6fa, 1)![0]! ^ 0x10])
-      const m = runOnce(rom, 0x65, seed3)
-      expect(m.lineInitReason).toMatch(/not the stock InitLineGuidedSpr/)
+      const m = runOnce(rom, 0x65, seed3, { atRest: true })
+      expect(m.lineInitReason).toMatch(/not a stock line-guided INIT/)
       expect(m.refusal).toBeUndefined()
       expect(m.anchor!.x).not.toBe(stock.anchor!.x)
     }, 120_000)

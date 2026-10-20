@@ -58,8 +58,11 @@ is "unverified": the model says why (`lineGateReason`) and the sprite keeps the 
 
 `InitLineGuidedSpr` ($01D6ED, 42 bytes, `bank_01.asm:11788-11811`) runs before the sprite's first frame: an even column
 subtracts $140 from X, an odd one adds $0F and flips. The map's at-rest picture of an admitted line-guided sprite is
-drawn where its INIT left it, taken from the run: no id list and no constant decide it, so a sprite whose INIT does not
-move it stays on its tile. The map's tile for it is kept as `stored` and outlined while the sprite is selected, and
+drawn where the game first draws it, taken from the run: no id list and no constant decide it. That is where its start-up
+code left it, or one step on if the first pass that draws comes after a step. A sprite that is not moved before its first
+draw stays on its tile. The map's tile for it is kept as `stored` and outlined while the sprite is selected, and
 the Properties panel says how far it moved. On the vanilla ROM all 90 `$65`-`$68` placements sit 320 px left or 15 px
-right of their tile, on its row, and none of the 6 `$62` or 12 `$64` do (7 maps, one machine, 2026-10-20). A patched
-`InitLineGuidedSpr` is flagged unverified (`lineInitReason`) and still runs.
+right of their tile, on its row, and none of the 6 `$62` or 12 `$64` do (7 maps, one machine, 2026-10-20). A sprite drawn away from its
+tile whose INIT is not one of the two stock line-guided INITs (`InitLineGuidedSpr`, and `InitLineRope` with the
+`InitLinePlat` tail it falls into) is flagged unverified (`lineInitReason`), whatever its id, and still runs. The note says how
+much of the move was start-up code and how much its first step.

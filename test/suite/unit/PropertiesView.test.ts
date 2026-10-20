@@ -122,6 +122,25 @@ describe('spriteProps: a sprite drawn away from its stored tile (R16)', () => {
       /15 px to the right and 4 px down before/,
     )
   })
+  it('splits the move honestly when start-up code and the first step both move it: the two parts come from the run', () => {
+    const both = shiftNote({
+      x: 412,
+      y: 96,
+      stored: { x: 400, y: 96 },
+      afterInit: { x: 408, y: 96 },
+    })
+    expect(both).toMatch(
+      /Its start-up code moves it 8 px to the right, and its first step 4 px to the right more, before it is first drawn/,
+    )
+    // Only the first step moved it (the start-up code left it where it is stored).
+    expect(
+      shiftNote({ x: 404, y: 96, stored: { x: 400, y: 96 }, afterInit: { x: 400, y: 96 } }),
+    ).toMatch(/^Its first step moves it 4 px to the right before it is first drawn/)
+    // Only the start-up code moved it: the first step added nothing, so the note is the plain one.
+    expect(
+      shiftNote({ x: 408, y: 96, stored: { x: 400, y: 96 }, afterInit: { x: 408, y: 96 } }),
+    ).toMatch(/^Its own start-up code moves it 8 px to the right before it is first drawn/)
+  })
   it('says nothing when the picture is on its stored tile or no tile is stored', () => {
     expect(shiftNote(at(400, 96))).toBeUndefined()
     expect(shiftNote(at(400, 96, { x: 400, y: 96 }))).toBeUndefined()

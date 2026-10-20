@@ -345,6 +345,8 @@ export interface MapSpriteDto {
    * tile when the sprite is selected; `x`, `y` stay the drawn anchor.
    */
   stored?: { x: number; y: number }
+  /** With `stored`: where the sprite's start-up code left it, before its first step (`x`, `y` are where it is first drawn). */
+  afterInit?: { x: number; y: number }
   rgba: string
   /**
    * The parts the bitmap was blitted from, in the order drawn (#984): the Properties view lists them from

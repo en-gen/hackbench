@@ -15,10 +15,9 @@ import {
   type DispatchShape,
   type Routine,
   grinderDrawsBeforeSnap,
-  STOCK_INIT_IDS,
   isStockRoutine,
   LINE_GUIDED_IDS,
-  STOCK_INIT_LINE_GUIDED,
+  STOCK_INITS,
 } from './LineGuided'
 import { smwMachine } from './Machine'
 import { type ShellLoad, shellLoad } from '../ShellSprites'
@@ -173,6 +172,8 @@ export interface SpriteModel {
   lineInitReason?: string
   /** True when the at-rest picture is drawn where INIT left the sprite, not at its list position (`anchor` vs `rawX`, `rawY`). */
   shifted?: boolean
+  /** With `shifted`: where the sprite's INIT left it, before any step; `anchor` is where it was first drawn. */
+  initAt?: { x: number; y: number }
   /** True for $67 on a vanilla-shaped handler: each pass draws where the pass before left the sprite (`PassResult.origin`). */
   snaps?: boolean
   dependsOn: DependsOn[]
@@ -224,7 +225,7 @@ export interface RunOptions {
   /** The dispatch shape the $67 gate accepts; a test hook, so a synthetic cart brings its own (default: vanilla's). */
   grinderDispatch?: DispatchShape
   /** The InitLineGuidedSpr fingerprint to hold the INIT of $65-$68 to; a test hook, so a synthetic cart brings its own (default: vanilla's). */
-  stockInit?: Routine
+  stockInits?: readonly Routine[]
   /**
    * `true` is the map view's at-rest picture. D139 D, D138 A: INIT runs for the look only (tiles, flips,
    * variants, status). D134, D91: the drawing is re-based onto the placed spot, so INIT's moves and the
@@ -632,12 +633,6 @@ export function runOnce(
       : null
     const snaps = gate?.ok === true
     if (gate && !gate.ok) model.lineGateReason = gate.reason
-    if (
-      inits?.ok &&
-      STOCK_INIT_IDS.has(num) &&
-      !isStockRoutine(rom, inits.handler.address, opts.stockInit ?? STOCK_INIT_LINE_GUIDED)
-    )
-      model.lineInitReason = `its INIT (at $${inits.handler.address.toString(16)}) is not the stock InitLineGuidedSpr, so the shift it makes before the first frame is unverified`
     const placed = { x: m.seed.sprite.x, y: m.seed.sprite.y }
     // INIT can move a sprite off the screen the run was centred on (the grinders' -$140, the Podoboo's drop),
     // and GetDrawInfo then culls it. The camera only picks which screen the picture is taken on: centre it on the
@@ -696,15 +691,25 @@ export function runOnce(
     // before its first frame (InitLineGuidedSpr, bank_01.asm:11788-11811; InitLineRope's two steps): the game draws it
     // where INIT left it, so the picture stands on the chosen pass's own origin, which the parts are measured from
     // (owner ruling R16 / D85 B). Interpreted, not a constant: the move is whatever INIT did.
-    const moved = anchor.x !== placed.x || anchor.y !== placed.y
     if (snaps && !atRest && model.chosen !== undefined)
       model.anchor = { ...model.anchor!, ...model.passes[model.chosen]!.origin }
-    else if (atRest && snaps && moved && model.chosen !== undefined) {
-      // A sprite left of the map's edge is a negative X in the game's 16 bits.
+    else if (atRest && snaps && model.chosen !== undefined) {
+      // The game's first drawn frame is at the chosen pass's origin, whoever moved the sprite there: start-up code,
+      // or a step before the first pass that draws. A sprite left of the map's edge is a negative X in 16 bits.
       const signed = (v: number) => (v & 0x8000 ? v - 0x10000 : v)
       const o = model.passes[model.chosen]!.origin
-      model.anchor = { ...model.anchor!, x: signed(o.x), y: signed(o.y) }
-      model.shifted = true
+      const at = { x: signed(o.x), y: signed(o.y) }
+      if (at.x !== signed(placed.x) || at.y !== signed(placed.y)) {
+        model.anchor = { ...model.anchor!, ...at }
+        model.initAt = { x: signed(anchor.x), y: signed(anchor.y) }
+        model.shifted = true
+        // A sprite that moves before its first frame is trusted only when its INIT is a stock line-guided one.
+        if (
+          inits?.ok &&
+          !isStockRoutine(rom, inits.handler.address, opts.stockInits ?? STOCK_INITS)
+        )
+          model.lineInitReason = `its INIT (at $${inits.handler.address.toString(16)}) is not a stock line-guided INIT, so the move it makes before the first frame is unverified`
+      }
     }
     if (model.passes.every(p => p.parts.length === 0))
       model.emptyReason = `drew no OAM tile in ${m.seed.mainPasses} passes (${atRest ? "it drew no tile at rest; whether it shows in play was not checked" : 'invisible by design, or the seed lacks state'})` // prettier-ignore
