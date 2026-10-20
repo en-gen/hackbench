@@ -83,8 +83,10 @@ const topLeft = (m: SpriteModel): [number, number] => {
 }
 
 describe.skipIf(!hasRom(VANILLA))('every vanilla line-guided placement (#792)', () => {
-  const all = rows()
-  const of = (id: number) => all.filter(r => r.id === id)
+  // Built on first use, not when the file loads: without the corpus the describe is skipped and must not run the sweep.
+  let cache: Row[] | undefined
+  const table = () => (cache ??= rows())
+  const of = (id: number) => table().filter(r => r.id === id)
 
   it('INIT-on: how many the line pick moves from the generic rule, and by how much', () => {
     const got = Object.fromEntries(
@@ -109,7 +111,7 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla line-guided placement (#792)', 
   }, 600_000)
 
   it('INIT-on: each one the pick moved sits on a line tile (Map16 $76-$99), and on a straight one at its edge', () => {
-    for (const r of all) {
+    for (const r of table()) {
       const [a, b] = [r.play.anchor!, r.playOff.anchor!]
       if (a.x === b.x && a.y === b.y) continue
       const where = `slot ${r.slot} id $${r.id.toString(16)} (${a.x},${a.y}) tile $${r.tile?.toString(16)}`
@@ -129,7 +131,7 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla line-guided placement (#792)', 
   })
 
   it("at rest: the picture stands on the run's own post-INIT spot: 320 px left (even column) or 15 px right (odd) for $65-$68; $62 and the 12 $64 ropes, already on their line, do not move", () => {
-    for (const r of all) {
+    for (const r of table()) {
       const want = r.id >= 0x65 ? [r.x & 0x10 ? 15 : -320, 0] : [0, 0]
       expect(
         [r.rest.anchor!.x - r.x, r.rest.anchor!.y - r.y],
