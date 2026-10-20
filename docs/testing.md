@@ -89,6 +89,23 @@ content is never exempt, and a malformed line or unknown rule exits 2.
 (`tools/scripts/set-hooks-path.cjs`). The only bypass is
 `git commit --no-verify` / `git push --no-verify`.
 
+### The 8-byte window rule (synthetic carts)
+
+A synthetic cart must not carry the game's code. The rule is mechanical: no 8 consecutive bytes with at least 3
+distinct values may also occur anywhere in the vanilla ROM. `test/suite/support/vanillaWindows.ts` holds the
+checker (it reports each hit as an SNES address) and `test/suite/unit/sprites/SyntheticSpriteRomNoVanilla.test.ts`
+applies it to the sprite cart, the default and each `SyntheticOptions` value on its own; it needs the vanilla ROM and
+skips without it. `CastleFlames.test.ts` applies it to the bytes its fixtures write over the plain cart.
+
+Where a reader in `src/` fixes the game's opcodes (or a fixture keeps the game's operand values on purpose), the
+window stays and the gate's allow list names the region and why. Each region spans at most 64 bytes and lists its
+exact hit count: a count that rises, drops or reaches zero fails until the list is updated, and planted cases prove
+those checks go red. The fix for an allowed region is to make the reader recognize the code by SHA-256 (as
+`CastleFlames.ts` and `SubmapFlagGate.ts` do), then delete the region.
+
+Source-text probes read the file text only, so they miss runs built from helpers, named opcodes or spread
+arrays. The assembled gate, run against the built cart, is the oracle; a clean probe alone proves nothing.
+
 ## Where the corpus lives
 
 The ROM corpus is **outside the repo**, beside the clone:
@@ -815,6 +832,60 @@ private to the test file.
 - `HB_CORE_JS` is the absolute path to `snes9x_libretro.js` (its `.wasm` must sit beside it). `emulator-view` and `emulator-gamepad` read it; unset, they fall back to the documented path (`vendor/cores/snes9x-wasm/` inside the worktree) and skip only if the core is missing there too, which in a worktree it usually is; a skipped run still exits 0. Set it, e.g. `HB_CORE_JS=C:/Projects/hackbench-cores/snes9x-wasm/snes9x_libretro.js`, and check the run reports passed, not skipped. `[EST]`
 - Nightly cost is why e2e is not per-PR. `[EST]`
 
+## ROM-window probe
+
+`node tools/scripts/rom-window-probe.mjs` reports 8-byte windows of text or
+assembled bytes that also occur in the vanilla ROM, so a synthetic ROM,
+fixture or detection pattern can be checked before pushing. It is
+report-only and local-only: no hook, CI job or `check-content.mjs` runs it,
+and CI has no ROM to run it against.
+
+```
+node tools/scripts/rom-window-probe.mjs <files...>        text scan (PARTIAL, below)
+node tools/scripts/rom-window-probe.mjs --git-range <spec> files the range touches
+node tools/scripts/rom-window-probe.mjs --bin <files...>  assembled bytes
+```
+
+`--rom <file>` skips the lookup. `--repo <dir>` names the repo `--git-range`
+diffs; the ROM lookup always uses the checkout the script lives in, as
+`test/suite/support/corpus.cjs` does. `--git-range` takes `a..b` (post-image
+`b`), `a...b` (from `merge-base(a,b)`) or one rev (that rev against the
+WORKTREE, so uncommitted edits count, and untracked files are scanned whole). It
+scans each touched text file whole and keeps runs that overlap an added line;
+binary files go through the bytes check; deleted lines and deleted files are
+never scanned, but a touched file whose post-image cannot be read is an error.
+
+**The text scan is partial.** It reads `0x..`, `$..`, bare two-digit hex and
+decimal 0-255 tokens, with comments blanked: `//` and block comments in
+JS/TS files, `;` in `.asm`/`.inc`/`.s` files, nothing in any other file
+type (no Lua `--`, no markdown). Quoted strings are skipped when blanking, so
+`'http://x'` hides nothing. It does not see 16-bit words, hex strings,
+quoted-byte arrays, per-byte writes (`buf[a] = 0xa9`), split strings, or values
+behind `as number`. Comment blanking can desync on a regex literal with an escaped slash or an
+unterminated backtick, and `.c`/`.h` files get none. A comma-separated list of bare hex pairs (also in asm, e.g. `.db a9, 10, 85`), or a
+space-separated decimal list, is not read reliably (a two-digit number beside
+a comma is taken as decimal, otherwise as hex). Wildcard bytes (a fingerprint's
+zeroed operands) split runs on purpose, so a pattern with wildcards is checked
+per fixed stretch. **`--bin` on the assembled bytes is the authoritative
+check:** have the fixture builder write its bytes to a scratch file
+(`writeFileSync(scratch, builder())`), then run
+`rom-window-probe.mjs --bin <scratch>`.
+
+Windows with fewer than 3 distinct values are ignored (they match any ROM):
+43,597 of 524,281 positions and 2,982 of 442,994 distinct windows in the
+vanilla ROM (one machine). A 512-byte copier header is stripped, so no window
+straddles it. Output is `HIT path:line windows=N` (`offset=0x..` for bytes) and
+a `TOTAL` line, never ROM bytes. Exit codes: 0 no hit, 1 a hit, 2 nothing was
+checked (no input, no ROM found, a missing `--rom` file, a git or file error;
+HIT lines found before an error are still printed, the message goes to stderr
+and starts `SKIP:` when no ROM exists). Exit 2 on a missing ROM is deliberate:
+"probe exit 0" is cited as proof, so a run that checked nothing must not exit 0.
+
+`bytesHits` in `tools/scripts/lib/rom-windows.mjs` is the shared in-memory
+finder. The assembled-ROM tests (`SyntheticEeriesNoVanilla` and the like) and
+`test/suite/support/romWindows.ts` can adopt it; that is a follow-up for their
+owners.
+
 ## Run lock
 
 Full unit runs, Theia builds and Playwright runs share a counting semaphore
@@ -868,9 +939,19 @@ node "$MAIN_CHECKOUT/tools/scripts/run-lock.mjs" release --owner "<team> <worktr
   `test:unit` only: the corpus and timing vitest configs and Theia builds are
   uncapped. The value is a starting point, not measured under 3 concurrent
   runs.
-- Known limit: worktrees whose `theia/node_modules` is a junction to the main
-  checkout share build state, so they must not build Theia concurrently even
-  with separate lock slots.
+- Shared installs are refused (#1038). `tools/scripts/check-theia-install.mjs`
+  runs as the Theia `prebuild*` hooks and at the top of the Playwright config
+  (unless `HB_APP_URL` or `HB_SKIP_INSTALL_GUARD` is set; the unit gates that
+  only load the config set the latter). It fails when the `theia` folder or
+  `theia/node_modules` is a junction or link, a
+  `hackbench-*` workspace link resolves outside the checkout, or a package
+  `node_modules` or `theia/node_modules/.cache` is a link out. Such a worktree
+  would bundle another checkout's extension and share its nx cache. Fix for a
+  junction: remove it WITHOUT a recursive delete (`cmd /c rmdir`, with
+  backslashes: `theia\node_modules`), then `yarn --cwd theia install` in that
+  worktree. For a linked `theia` folder, remove the link, `git checkout -- theia`,
+  then install. Evidence: synthetic layouts, one Windows machine; 8.3 short
+  paths compare through native realpath but are untested. The checkout is found from INIT_CWD, a PWD equal to the cwd, or the cwd, because POSIX cwd is the symlink target; that path is simulated on Windows (cwd in the target, logical path in the env) and never run on POSIX.
 - `owner.txt` holds `owner:`, `purpose:` and `started:` (UTC) lines.
 - Only the owner removes a lock slot, with `release` and the exact same id (no
   prefix, no padding; only the slot whose `owner:` matches is freed; blank ids and line breaks (CR, LF, U+2028, U+2029) are refused). A wrong or

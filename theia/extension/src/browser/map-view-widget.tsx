@@ -758,6 +758,20 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** Each screen's picture at screen resolution, while it holds indicators: built once, then only hover cells are redone. */
   protected readonly displays = new Map<number, { want: string; display: IndicatorDisplay }>()
 
+  /** Screens whose last build found no indicator, with the key it was for: no rebuild until the key moves (#973). */
+  protected readonly bare = new Map<number, string>()
+
+  /** The state `syncDisplay` leaves a screen with nothing to draw in: the composite itself shows. */
+  protected showBare(canvas: HTMLCanvasElement, comp?: HTMLCanvasElement): void {
+    if (canvas.width !== 0) canvas.width = 0
+    delete canvas.dataset.drawn
+    canvas.dataset.indicators = '[]'
+    if (comp) comp.style.visibility = ''
+  }
+
+  /** IndicatorDisplay builds so far; the scroll perf spec (#973) reads it to prove a warm scroll builds none. */
+  protected displayBuilds = 0
+
   /**
    * The display canvas of screen `s` covers the native composite, which stays untouched, with the same
    * picture at the zoom and the indicators drawn in their planes (`IndicatorDisplay`). `data-indicators`
@@ -767,15 +781,16 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const [comp, shot, b] = [this.composites.get(s), this.screens.get(this.key(s)), this.blocks]
     const hide = () => {
       this.displays.delete(s)
-      if (canvas.width !== 0) canvas.width = 0
-      delete canvas.dataset.drawn
-      canvas.dataset.indicators = '[]'
-      if (comp) comp.style.visibility = ''
+      this.showBare(canvas, comp)
     }
     if (!comp?.dataset.drawn || !shot || !b) return hide()
     const want = `${comp.dataset.drawn}:${this.blocksVersion}:${this.zoom}`
+    // A screen found to hold no indicator stays that way for this key: skip the rebuild (#973).
+    if (this.bare.get(s) === want) return this.showBare(canvas, comp)
+    this.bare.delete(s)
     let cur = this.displays.get(s)
     if (cur?.want !== want) {
+      this.displayBuilds++
       const display = new IndicatorDisplay({
         width: shot.width,
         height: shot.height,
@@ -791,7 +806,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
         indicators: b.indicators,
         arts: b.decoded,
       }, this.hoverOn(s) && indicatorId(this.hoverOn(s)!)) // prettier-ignore
-      if (!display.touches) return hide()
+      if (!display.touches) {
+        this.bare.set(s, want)
+        return hide()
+      }
       canvas.width = display.width
       canvas.height = display.height
       canvas

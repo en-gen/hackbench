@@ -25,7 +25,7 @@ function load(env: Record<string, string>) {
     delete base[k]
   const r = spawnSync(process.execPath, ['-e', SCRIPT], {
     encoding: 'utf8',
-    env: { ...base, ...env },
+    env: { ...base, HB_SKIP_INSTALL_GUARD: '1', ...env },
   })
   return { status: r.status, stderr: r.stderr, out: r.status === 0 ? JSON.parse(r.stdout) : null }
 }
