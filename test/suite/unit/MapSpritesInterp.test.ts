@@ -738,7 +738,7 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     }
   })
 
-  it('$4F on $105 is served at its stream position: INIT (+8, -1) does not run at rest (D134)', () => {
+  it('$4F on $105 is served at its stream position: the INIT move (+8, -1) is not shown at rest (D134)', () => {
     const b = bytes()
     const r = mapSprites(new L1ModelCache(), b, romPath(VANILLA), 0x105)
     if (r.status !== 'ok') throw new Error(JSON.stringify(r))

@@ -1494,7 +1494,7 @@ test('an interpreter-drawn sprite shows its own pixels where the service placed 
   expect(read.marker.corner).toEqual([90, 200, 255, 255])
 })
 
-test('$4F on $105 is served at its stream position: its INIT (+8, -1) does not run at rest (D134)', async ({
+test('$4F on $105 is served at its stream position: the INIT move (+8, -1) is not shown at rest (D134)', async ({
   page,
 }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))

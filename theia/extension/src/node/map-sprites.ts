@@ -385,7 +385,7 @@ export type RunModel = BaseModel & { uploads?: SlotUpload[][] }
 /** `runOnce`, plus the DynGfxTilePtr slots a sprite that uploads from the player buffer wrote (#980). */
 export function runWithUploads(rom: RomFile, id: number, seed: SpriteSeed): RunModel {
   const p = uploadProbe()
-  return Object.assign(runOnce(rom, id, seed, { init: false, probe: p.probe }), { uploads: p.byPass }) // prettier-ignore
+  return Object.assign(runOnce(rom, id, seed, { atRest: true, probe: p.probe }), { uploads: p.byPass }) // prettier-ignore
 }
 
 /** What the interpreter shows for one sprite: its model, as the drawer's reply. */
@@ -889,6 +889,7 @@ const dynamicOf = (rom: RomFile) => (n: PaletteNote) => {
   return b ? Array.from({ length: n.colors }, (_, i) => bgr555ToRgba(b[i * 2]! | (b[i * 2 + 1]! << 8))) : [] // prettier-ignore
 }
 
+/** Runs the sprite interpreter at rest for every placed sprite on one map and folds the results into the served model. */
 function compute(
   cache: L1ModelCache,
   bytes: Uint8Array,

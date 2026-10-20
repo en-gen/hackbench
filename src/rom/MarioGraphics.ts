@@ -27,8 +27,10 @@ import { gfxSource } from './GfxLoader'
 import type { CompressionCheck } from './GfxArena'
 import { decode4bpp } from './GraphicsDecoder'
 
+/** Where the Mario graphics buffer starts in WRAM; the game's DMA reads the player's tiles from here. */
 export const MARIO_GFX_BASE = 0x2000 // MarioGraphics, $7E:2000 (rammap.asm:2092)
 const WRAM_BYTES = 0xb000 // up to the end of the expanded GFX33 ($ACFF)
+/** The per-slot dynamic tile pointer table in WRAM; a sprite upload writes its source address here. */
 export const DYN_GFX_TILE_PTR = 0x0d85 // rammap.asm:1321; one word per slot, row 2 at +$0A
 const ROW_SLOTS = 5
 const PIECE = 0x40 // bytes per slot (HW_DMACNT, bank_00.asm:4586)
@@ -49,6 +51,7 @@ export interface BootRoutine {
 // scanned: the routines are reached by fixed JSR targets, and a cart that moved one is not stock here. The JSR is pinned to the stock decompressor
 // entry by the hash. Lunar Magic replaces its body (a direct GFX33 decompress to $7E:7D00, then a JMP to CODE_00B8D7):
 // 141 of the 146 hack-corpus ROMs do, and those are not stock here.
+/** The vanilla boot routine that expands GFX33 into the buffer, matched by hash so a patched copy is refused. */
 export const STOCK_BOOT: BootRoutine = {
   at: 0x3888,
   length: 84,
@@ -57,6 +60,7 @@ export const STOCK_BOOT: BootRoutine = {
 
 // MarioGFXDMA's two upload loops (bank_00.asm:4580-4605), 64 bytes, hashed whole. A hack that patches them can send the
 // slots anywhere, so the buffer is not read for it. One site in the vanilla ROM (one machine, one cart).
+/** The vanilla upload loops that DMA the buffer to VRAM, matched by hash so a patched copy is refused. */
 export const STOCK_DMA: BootRoutine = {
   at: 0x234d, // $00:A34D, the LDA #$6000 of bank_00.asm:4580
   length: 64,
@@ -77,6 +81,7 @@ export interface CallSite {
 // The caller of CODE_00B888 (GM01Presents, bank_00.asm:2300, $00:9414) and the three calls of MarioGFXDMA in the NMI
 // handler (bank_00.asm:274, 289, 365), one per game-mode branch. MarioGFXDMA starts $4D before the loops
 // (bank_00.asm:4551, 4580; SMW_U.sym A300). One machine, one cart: the addresses are the vanilla ROM's.
+/** The vanilla call sites that must still reach the stock routines, or the buffer is not what runs. */
 export const STOCK_CALLS: readonly CallSite[] = [
   { from: 0x009414, to: 'boot' },
   { from: 0x00821d, to: 'dma', back: 0x4d },
@@ -127,16 +132,18 @@ export function buildMarioGraphics(
   dma: BootRoutine | undefined = boot === STOCK_BOOT ? STOCK_DMA : undefined, // tests that inject a boot bring their own
   calls: readonly CallSite[] | undefined = boot === STOCK_BOOT ? STOCK_CALLS : undefined,
 ): MarioBuffer {
+  /** A refusal with its plain reason; the buffer is never guessed. */
   const fail = (reason: string): MarioBuffer => ({ ok: false, reason })
   const sites = stockSites(rom, boot, bootFingerprint)
   if (sites.length === 0) return fail('the boot routine that builds the Mario graphics buffer is not the stock one') // prettier-ignore
   if (sites.length > 1) return fail('the boot routine that builds the Mario graphics buffer occurs more than once, so which copy runs is not known') // prettier-ignore
-  const uploads = dma && stockSites(rom, dma, fingerprint).length
+  const dmaSites = dma ? stockSites(rom, dma, fingerprint) : undefined
+  const uploads = dmaSites?.length
   if (uploads === 0) return fail('the routine that uploads the Mario graphics buffer to VRAM is not the stock one') // prettier-ignore
   if (uploads !== undefined && uploads > 1) return fail('the routine that uploads the Mario graphics buffer to VRAM occurs more than once, so which copy runs is not known') // prettier-ignore
   for (const c of calls ?? []) {
-    const found =
-      c.to === 'boot' ? sites[0]! : stockSites(rom, dma!, fingerprint)[0]! - (c.back ?? 0)
+    if (c.to === 'dma' && !dmaSites) return fail(`the call at $${c.from.toString(16)} names an upload routine that was not given`) // prettier-ignore
+    const found = c.to === 'boot' ? sites[0]! : dmaSites![0]! - (c.back ?? 0)
     const jsr = rom.readAt(c.from, 3)
     if (!jsr || jsr[0] !== 0x20 || (jsr[1]! | (jsr[2]! << 8)) !== 0x8000 + found)
       return fail(`the call at $${c.from.toString(16)} no longer reaches the stock ${c.to === 'boot' ? 'boot' : 'upload'} routine`) // prettier-ignore
@@ -212,10 +219,12 @@ export function uploadProbe(): {
   probe: (pass: number, wram: Uint8Array) => void
   byPass: SlotUpload[][]
 } {
+  /** The 16-bit source address the run left in dynamic-tile slot `i`. */
   const ptr = (w: Uint8Array, i: number) =>
     w[DYN_GFX_TILE_PTR + 2 * i]! | (w[DYN_GFX_TILE_PTR + 2 * i + 1]! << 8)
   let before: number[] = []
   const byPass: SlotUpload[][] = []
+  /** Records the slots whose pointer this pass changed, so only real uploads are reported. */
   const probe = (pass: number, wram: Uint8Array) => {
     const now = Array.from({ length: 2 * ROW_SLOTS }, (_, i) => ptr(wram, i))
     if (pass < 0) before = now

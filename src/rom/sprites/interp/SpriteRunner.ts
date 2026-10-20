@@ -81,6 +81,7 @@ export const TOTAL_STEP_CAP = 1_000_000
 /** INIT retries allowed while the routine leaves status 1. */
 const MAX_INIT_FRAMES = 64
 
+/** One OAM entry a pass wrote, placed relative to the sprite's origin with the camera removed. */
 export interface SpritePart {
   /** Entry in the OAM mirror, 0-127 ($0200 page first, then $0300). */
   oam: number
@@ -126,6 +127,7 @@ export interface PassResult {
 
 export type DependsOn = 'marioX'
 
+/** What running one sprite id produced: its passes, anchor and the reason when it drew nothing or was refused. */
 export interface SpriteModel {
   id: number
   /** Why nothing was emitted: the run was refused. */
@@ -202,6 +204,7 @@ export interface SpawnRun {
 /** The refusal text when `SpawnRun.nth` names a sprite the spawn did not make; callers that ask for several count these. */
 export const SPAWN_SHORT = 'the spawn made only '
 
+/** Switches for `runOnce`; the defaults are the play/simulate run. */
 export interface RunOptions {
   spawn?: SpawnRun
   probe?: Probe
@@ -209,16 +212,17 @@ export interface RunOptions {
   /** The dispatch shape the $67 gate accepts; a test hook, so a synthetic cart brings its own (default: vanilla's). */
   grinderDispatch?: DispatchShape
   /**
-   * `false` is the map view's at-rest picture. D139 D, D138 A: INIT runs for the look only (tiles, flips,
+   * `true` is the map view's at-rest picture. D139 D, D138 A: INIT runs for the look only (tiles, flips,
    * variants, status). D134, D91: the drawing is re-based onto the placed spot, so INIT's moves and the
-   * 320 px shift are not shown, and there is no $67 line-walk pick. Default true: INIT first and its moves
+   * 320 px shift are not shown, and there is no $67 line-walk pick. Default false: INIT first and its moves
    * kept, as the game and the graders do.
    */
-  init?: boolean
+  atRest?: boolean
 }
 
 export { Refusal }
 
+/** The 65816 interpreter plus the sprite loop's WRAM seed, for one sprite slot. */
 export class Machine {
   readonly bus: SpriteBus
   readonly cpu: Cpu65816
@@ -517,7 +521,7 @@ export function runOnce(
   if (loaded.refusal) return { ...model, refusal: loaded.refusal }
   const shell = loaded.shell
   // INIT runs only for a sprite the loader leaves in status 1.
-  const atRest = opts.init === false
+  const atRest = opts.atRest === true
   let runsInit = (shell?.status ?? 1) === 1
   const num = shell?.number ?? id
   // A sprite the loader does not leave in status 1 never runs INIT, so its INIT pointer is not read.
@@ -634,7 +638,8 @@ export function runOnce(
       probe?.(p, w)
       // The draw ran before this pass's own move, so for $67 it ran where the pass before left it.
       // At rest the parts are measured from where the pass ended, so MAIN's own few pixels of motion do not
-      // leak into the picture (the Podoboo's jump).
+      // leak into the picture (the Podoboo's jump). A handler that draws and then moves is measured from its
+      // end too: measuring from the draw changed 12 vanilla rows ($05, $06) from same to differ against the table engine.
       const origin = snaps ? (model.passes[p - 1]?.pos ?? anchor) : atRest ? m.pos() : anchor
       model.passes.push({
         pass: p,

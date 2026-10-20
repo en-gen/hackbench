@@ -20,7 +20,7 @@ const rom = buildSyntheticRom()
 describe('at-rest mode on a synthetic cart', () => {
   // Id 0: INIT adds 8 to X; MAIN draws one piece at the sprite position.
   it("draws at the placed spot after INIT ran for the picture (D139 D); INIT's +8 is not shown", () => {
-    const m = runOnce(rom, 0, SPRITE_SEED, { init: false })
+    const m = runOnce(rom, 0, SPRITE_SEED, { atRest: true })
     expect(m.refusal).toBeUndefined()
     expect(m.anchor).toMatchObject({ x: 0x80, y: 0x80, rawX: 0x80, rawY: 0x80 })
     expect(m.initFrames).toBe(1)
@@ -28,7 +28,7 @@ describe('at-rest mode on a synthetic cart', () => {
     expect(m.passes[0]!.parts[0]).toMatchObject({ dx: 0, dy: 0 })
   })
   it('keeps what INIT wrote for the look (id 20: INIT sets a CGRAM color)', () => {
-    const rest = runOnce(rom, 20, SPRITE_SEED, { init: false }).passes[0]!.palette
+    const rest = runOnce(rom, 20, SPRITE_SEED, { atRest: true }).passes[0]!.palette
     expect(rest.length).toBeGreaterThan(0)
     expect(rest).toEqual(runOnce(rom, 20, SPRITE_SEED).passes[0]!.palette)
   })
@@ -36,10 +36,10 @@ describe('at-rest mode on a synthetic cart', () => {
     const m = runOnce(rom, 0, SPRITE_SEED)
     expect(m.initFrames).toBe(1)
     expect(m.anchor).toMatchObject({ x: 0x88, rawX: 0x80 })
-    expect(runOnce(rom, 0, SPRITE_SEED, { init: true }).anchor?.x).toBe(0x88)
+    expect(runOnce(rom, 0, SPRITE_SEED, { atRest: false }).anchor?.x).toBe(0x88)
   })
   it('follows the seed: a different placed spot moves the picture with it', () => {
-    const m = runOnce(rom, 0, withSeed({ sprite: { x: 0x140, y: 0x90 } }), { init: false })
+    const m = runOnce(rom, 0, withSeed({ sprite: { x: 0x140, y: 0x90 } }), { atRest: true })
     expect(m.anchor).toMatchObject({ x: 0x140, y: 0x90 })
   })
 })
@@ -81,14 +81,14 @@ describe('a sprite INIT moves off the screen it was run on (camera re-run)', () 
   // INIT adds 256 px to X and MAIN draws only on screen, as GetDrawInfo does: the first run culls it.
   const far = buildSyntheticRom({ initFarCull: true })
   it('still draws its tile, at the placed spot, not the marker (D139 D)', () => {
-    const m = runOnce(far, 0, SPRITE_SEED, { init: false })
+    const m = runOnce(far, 0, SPRITE_SEED, { atRest: true })
     expect(m.emptyReason).toBeUndefined()
     expect(m.chosen).toBe(0)
     expect(m.anchor).toMatchObject({ x: 0x80, y: 0x80, rawX: 0x80, rawY: 0x80 })
     expect(m.passes[0]!.parts[0]).toMatchObject({ dx: 0, dy: 0 })
   })
   it('draws the full picture when MAIN moves it partway back before drawing (a Podoboo)', () => {
-    const m = runOnce(buildSyntheticRom({ initFarCull: true, mainStepsBack: true }), 0, SPRITE_SEED, { init: false }) // prettier-ignore
+    const m = runOnce(buildSyntheticRom({ initFarCull: true, mainStepsBack: true }), 0, SPRITE_SEED, { atRest: true }) // prettier-ignore
     expect(m.chosen).toBe(0)
     expect(m.anchor).toMatchObject({ x: 0x80, y: 0x80 })
     expect(m.passes[0]!.parts[0]).toMatchObject({ dx: 0, dy: 0 })
@@ -99,27 +99,27 @@ describe('a sprite INIT moves off the screen it was run on (camera re-run)', () 
 })
 
 describe('what at rest starts from', () => {
-  const status = (id: number, init?: boolean) => {
+  const status = (id: number, atRest?: boolean) => {
     let st = -1
-    runOnce(rom, id, SPRITE_SEED, { init, probe: (p, w) => { if (p === -1) st = w[RAM.status + SPRITE_SEED.slot]! } }) // prettier-ignore
+    runOnce(rom, id, SPRITE_SEED, { atRest, probe: (p, w) => { if (p === -1) st = w[RAM.status + SPRITE_SEED.slot]! } }) // prettier-ignore
     return st
   }
   it('stops where the game hands control to INIT (status 8), and a shell keeps the loader status 9', () => {
-    expect(status(0, false)).toBe(8)
-    expect(status(0xda, false)).toBe(9)
-    expect(runOnce(rom, 0xda, SPRITE_SEED, { init: false }).refusal).toBeUndefined()
+    expect(status(0, true)).toBe(8)
+    expect(status(0xda, true)).toBe(9)
+    expect(runOnce(rom, 0xda, SPRITE_SEED, { atRest: true }).refusal).toBeUndefined()
   })
   it('a $67-style sprite whose first drawing pass is above 0 keeps the raw anchor at rest', () => {
     const opts = { grinderDispatch: GRINDER_DISPATCH }
     const r = buildSyntheticRom({ grinderDrawsFromPass1: true })
     const played = runOnce(r, 103, SPRITE_SEED, opts)
-    const rest = runOnce(r, 103, SPRITE_SEED, { ...opts, init: false })
+    const rest = runOnce(r, 103, SPRITE_SEED, { ...opts, atRest: true })
     expect(rest.chosen).toBe(1)
     expect(rest.anchor).toMatchObject({ x: 0x80, y: 0x80 })
     expect(played.anchor!.x).not.toBe(0x80)
   })
   it('a sprite that draws nothing at rest says its look is set up when the map runs', () => {
-    const m = runOnce(buildSyntheticRom({ noTileWrite: true }), 0, SPRITE_SEED, { init: false })
+    const m = runOnce(buildSyntheticRom({ noTileWrite: true }), 0, SPRITE_SEED, { atRest: true })
     expect(m.emptyReason).toMatch(/set up when the map runs and shown on play/)
   })
 })
@@ -152,7 +152,7 @@ describe('the served paths run at rest', () => {
 
 describe('the D139 picture', () => {
   it('re-bases a sprite INIT moved (id 0: +8) onto the placed spot, its look kept', () => {
-    const m = runOnce(rom, 0, SPRITE_SEED, { init: false })
+    const m = runOnce(rom, 0, SPRITE_SEED, { atRest: true })
     expect(m.initFrames).toBe(1)
     expect(m.anchor).toMatchObject({ x: 0x80, rawX: 0x80 })
     expect(m.passes[0]!.parts[0]).toMatchObject({ dx: 0, dy: 0 })

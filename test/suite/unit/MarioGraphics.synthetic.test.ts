@@ -133,6 +133,17 @@ describe('buildMarioGraphics', () => {
     refused(build(b => { b[0x7f22] = 0x7f }), /call at \$ff20.*upload/) // prettier-ignore
   })
 
+  it('refuses a call that names an upload routine nobody gave, rather than throwing', () => {
+    const r = buildMarioGraphics(
+      callsCart(() => {}),
+      GATE,
+      boot(),
+      undefined,
+      CALLS,
+    )
+    refused(r, /call at \$ff10.*upload routine that was not given/)
+  })
+
   it('gives every shared cart shape a verdict, never a throw', () => {
     for (const shape of CART_SHAPES)
       expect(typeof buildMarioGraphics(cart(shape), GATE, boot()).ok).toBe('boolean')
