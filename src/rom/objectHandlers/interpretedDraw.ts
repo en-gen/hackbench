@@ -16,7 +16,7 @@ import {
   seedFromGrid,
   type RecognizedPrimitive,
 } from './interpret'
-import { mirror } from '../addressing'
+import { formatAddr, mirror } from '../addressing'
 import { noteUnverified } from './interpretedGate'
 import { dataBanksOf } from '../DataBanks'
 
@@ -34,8 +34,6 @@ export type DrawInterpreted = (cur: Cursor, handler: number, ctx: InterpretedDra
 
 /** What a caller of expandMap hands over: the note sink and the function that fills it. */
 export type InterpretedSink = Pick<InterpretedDraw, 'unverified' | 'draw' | 'primitives'>
-
-const hex6 = (n: number): string => '$' + n.toString(16).toUpperCase().padStart(6, '0')
 
 /** True when the interpreter drew the object; false leaves it to the port, with the reason recorded. */
 export function drawInterpreted(cur: Cursor, handler: number, ctx: InterpretedDraw): boolean {
@@ -59,11 +57,11 @@ export function drawInterpreted(cur: Cursor, handler: number, ctx: InterpretedDr
       seed: seedFromGrid(cur.grid),
     },
   )
-  if (r.refusal) return note(`${r.refusal.reason} at ${hex6(r.refusal.at)}`)
+  if (r.refusal) return note(`${r.refusal.reason} at ${formatAddr(r.refusal.at)}`)
   const reached = r.dispatches[r.dispatches.length - 1]
   if (reached === undefined) return note('the run reached no dispatch')
   if (mirror(reached) !== mirror(handler) && mirror(reached) !== mirror(inBank(handler)))
-    return note(`the ROM's dispatch reaches ${hex6(reached)}`)
+    return note(`the ROM's dispatch reaches ${formatAddr(reached)}`)
   applyWrites(cur.grid, r.writes, cur.owners, cur.owner)
   return true
 }

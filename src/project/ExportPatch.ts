@@ -13,6 +13,7 @@ import { encodeBps } from '../rom/Bps'
 import { COPIER_HEADER_SIZE } from '../rom/addressing'
 import { WorkingRom } from './WorkingRom'
 import { projectNameProblem } from './Project'
+import { writeFileAtomic } from './atomicWrite'
 
 export const EXPORT_DIR = 'export'
 export type PatchFormat = 'bps' | 'ips'
@@ -65,15 +66,7 @@ export function exportPatch(
   const patches = diffPatches(source, target)
   const bytes = format === 'ips' ? encodeIps(patches) : encodeBps(source, target)
 
-  // Temp file then rename: rename replaces a hard link at the target instead
-  // of writing through it to the file it points at.
-  const tmpPath = `${filePath}.tmp-${process.pid}`
-  try {
-    fs.writeFileSync(tmpPath, bytes, { flag: 'wx' })
-    fs.renameSync(tmpPath, filePath)
-  } finally {
-    fs.rmSync(tmpPath, { force: true })
-  }
+  writeFileAtomic(filePath, bytes)
   return {
     path: filePath,
     hasCopierHeader: working.hasCopierHeader,

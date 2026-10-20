@@ -2,6 +2,7 @@
  * The VRAM a map or a Map16 sheet composites from: the ROM's own animation
  * frame 0, one source for the map tab, the Map16 view and the L1 data gate.
  */
+import { formatAddr } from './addressing'
 import type { RomFile } from './RomFile'
 import type { VramState } from './GfxLoader'
 import {
@@ -75,8 +76,8 @@ const framesError = (reason: string, hasStockFrames: boolean): string =>
       : "These characters are shown as this ROM's own GFX loaded them."
   }`
 
+/** Plain-words reason a stock animation was not run, for the message shown beside the preview. */
 function unreachedReason(unreached: { target: number } | { reason: string }): string {
   if ('reason' in unreached) return unreached.reason
-  const hex = unreached.target.toString(16).toUpperCase().padStart(6, '0')
-  return `this ROM decides per level whether the stock animation runs (the level calls $${hex})`
+  return `this ROM decides per level whether the stock animation runs (the level calls ${formatAddr(unreached.target)})`
 }

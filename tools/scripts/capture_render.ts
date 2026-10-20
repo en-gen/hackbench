@@ -16,15 +16,14 @@ import {
   readSync,
   readdirSync,
   realpathSync,
-  renameSync,
   statSync,
   unlinkSync,
-  writeFileSync,
 } from 'fs'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import * as zlib from 'zlib'
 import { inflateRawSync, inflateSync } from 'zlib'
 import { buildSync } from 'esbuild'
+import { writeFileAtomic } from '../../src/project/atomicWrite'
 import * as D from './capture_decode'
 import * as Draw from './capture_draw'
 import { maskStatusBar, statusBarRows, STATUS_BAR_HEIGHT } from './statusBarMask'
@@ -1094,12 +1093,6 @@ ${rows.join('\n')}</table>
 ${lists.join('\n')}</section>`
 }
 
-/** Write whole or not at all, and never hold the file: a reader never sees half a page. */
-function writeAtomic(path: string, text: string) {
-  writeFileSync(path + '.tmp', text)
-  renameSync(path + '.tmp', path)
-}
-
 const CRC_TABLE = Int32Array.from({ length: 256 }, (_, n) => {
   for (let k = 0; k < 8; k++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1
   return n
@@ -1294,7 +1287,7 @@ export function runCapture(input: string, out: string, log = console.log, repo =
     const file = join(out, lv, 'viewer.html')
     if (L.data) {
       mkdirSync(join(out, lv), { recursive: true })
-      writeAtomic(file, page(L))
+      writeFileAtomic(file, page(L))
     } else if (existsSync(file)) unlinkSync(file)
     const link = L.data ? `<a href="${lv}/viewer.html">${esc(label)}</a>` : esc(label)
     const layers = (L.checks?.rows ?? []).slice(0, 3)
@@ -1307,7 +1300,7 @@ export function runCapture(input: string, out: string, log = console.log, repo =
   }
   rows.sort((a, b) => a.rank - b.rank)
   mkdirSync(out, { recursive: true })
-  writeAtomic(
+  writeFileAtomic(
     join(out, 'index.html'),
     `<!doctype html><meta charset=utf-8><title>Captures</title><style>${CSS}</style>
 <h2>Mesen captures</h2><p>One row per map, failures first.</p>

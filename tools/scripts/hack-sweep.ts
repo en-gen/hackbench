@@ -10,6 +10,7 @@
  * names, verdicts and counts; a reason may quote one instruction's bytes, and
  * longer runs are elided.
  */
+import { hex3s } from '../../src/rom/hex'
 import { createHash } from 'crypto'
 import { existsSync, readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
@@ -49,7 +50,6 @@ interface IndexEntry {
   patched_rom_sha256?: string
 }
 
-const hex = (n: number, w: number): string => `$${n.toString(16).toUpperCase().padStart(w, '0')}`
 const ok = (summary: string): ReaderOutcome => ({ verdict: 'ok', summary })
 const refuse = (...reasons: string[]): ReaderOutcome => ({ verdict: 'unavailable', reasons })
 
@@ -85,7 +85,7 @@ function readers(smw: SmwRom): Record<string, () => ReaderOutcome> {
         }
       }
       if (!failed.length) return ok(`${real.length} maps open`)
-      const slots = failed.slice(0, 5).map(f => hex(f.index, 3))
+      const slots = failed.slice(0, 5).map(f => hex3s(f.index))
       const agg = new Error(
         `${failed.length} of ${real.length} maps throw (${slots.join(', ')}${failed.length > 5 ? ', ...' : ''}): ${failed[0]!.err.message}`,
       )

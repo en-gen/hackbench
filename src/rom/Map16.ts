@@ -19,6 +19,7 @@
  *   word 3 = BR (bottom-right)
  */
 
+import { le16, le24 } from './bytes'
 import { RomFile } from './RomFile'
 import { BytePattern, WILD, findPattern, findUnique, matchesAt } from './BytePattern'
 import { loromFromOffset, loromToOffset } from './addressing'
@@ -224,8 +225,6 @@ function readTileAt(rom: RomFile, addr: number, id: number): Map16Tile {
 /** A value read from the ROM, or why this ROM does not say. */
 export type Map16Read<T> = { ok: true; value: T } | { ok: false; reason: string }
 
-const le16 = (b: Uint8Array, at: number): number => b[at]! | (b[at + 1]! << 8)
-const le24 = (b: Uint8Array, at: number): number => le16(b, at) | (b[at + 2]! << 16)
 const s8 = (v: number): number => (v << 24) >> 24
 const s16 = (v: number): number => (v << 16) >> 16
 const refuse = (reason: string): { ok: false; reason: string } => ({ ok: false, reason })
