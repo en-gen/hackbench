@@ -135,6 +135,7 @@ export interface PassResult {
   drew?: { children: { index: number; oam: number[] }[]; shift: { x: number; y: number } }
 }
 
+/** What a sprite's picture depends on besides its own code: Mario's X, or the map's other sprites placed beside it (#841). */
 export type DependsOn = 'marioX' | 'neighbours'
 
 export interface SpriteModel {
@@ -627,6 +628,7 @@ function addsOnly(a: SpriteModel, b: SpriteModel): boolean {
   return theirs.size > mine.length && mine.every(k => theirs.has(k))
 }
 
+/** A part's identity for comparing two runs: everything that draws, with its offset. */
 const partKey = (q: SpritePart) => [q.oam, q.char, q.palette, +q.flipX, +q.flipY, q.dx, q.dy, q.size].join(',') // prettier-ignore
 
 /**
@@ -642,6 +644,7 @@ function childrenAtRest(b: SpriteModel): SpriteModel {
   return { ...b, passes: b.passes.map(p => (p === pass ? { ...p, parts } : p)) }
 }
 
+/** One run of `id` from INIT through the main passes, alone or (`neighbourRun`) with the seed's neighbors placed in the other slots. */
 function runCore(
   rom: RomFile,
   id: number,
