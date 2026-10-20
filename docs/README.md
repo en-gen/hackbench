@@ -140,6 +140,10 @@ Designs agreed before implementation, dated and kept as written.
 - [superpowers/specs/](superpowers/specs/) - accepted designs
 - [superpowers/plans/](superpowers/plans/) - the implementation plans from them
 
+## Designs
+
+- [design/](design/) - UI designs the owner has picked, before the build issue
+
 ## Mockups
 
 - [mockups/](mockups/) - HTML wireframes
