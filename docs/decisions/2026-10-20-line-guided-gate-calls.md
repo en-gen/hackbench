@@ -15,7 +15,7 @@ Six calls the line-guided work (#792, #1121, #1128) took that the owner has not 
 
 ## Options considered
 
-1. (a) Compare call targets to vanilla addresses written in the code. (b) Read each target from the operand the run reaches and name the routine there by a SHA-256 of its first bytes, keeping the run's order check. (c) Read the targets and trust them without naming the routine.
+1. (a) Compare call targets to vanilla addresses written in the code. (b) Read each target from the operand the run reaches and name the routine there by a SHA-256 of the routine's code (the whole routine, at least 24 unknown bytes in one digest, D126), keeping the run's order check. (c) Read the targets and trust them without naming the routine.
 2. (a) Rewrite the tests against the redesigned Travel. (b) Drop them.
 3. (a) Do the rope now. (b) Leave it to a second round.
 4. (a) Check the NMI vector. (b) No vector check: hash the handler wherever it sits.
@@ -24,7 +24,7 @@ Six calls the line-guided work (#792, #1121, #1128) took that the owner has not 
 
 ## Ruling
 
-1. Option b, ruled in the work order of 2026-10-20 (wording not recorded; paraphrase `[INF]`). Built in `LineGuided.ts`: eight routines named by the SHA-256 of their first 24 bytes (8 for the chainsaw draw wrapper), vanilla US cart, one machine `[EST]`. A prefix catches a hook at the entry (a JSL or JML patch) and misses an edit past the prefix `[EST]`. A call to anything else is "unverified" and the sprite keeps the generic rule.
+1. Option b, ruled in the work order of 2026-10-20 (wording not recorded; paraphrase `[INF]`). Built in `LineGuided.ts`: eight routines named by one SHA-256 each over the whole routine's code (48 to 591 bytes, none masked; a table a routine reads is outside its span), vanilla US cart, one machine `[EST]`. A planted edit 30 bytes into each routine is caught `[EST]`. A call to anything else is "unverified" and the sprite keeps the generic rule.
 2. Option b, ruled in the same order: D148 dropped map-editor simulation, so the old tests have no target (wording not recorded; paraphrase `[INF]`). Nothing is written for them.
 3. Option b, ruled in the same order (paraphrase `[INF]`). The rule is in the ROM: 9 tiles when the slot is 6 or higher and the sprite memory setting is not zero, else 5 (SMWDisX bank_01.asm:12583-12589); the loader picks the slot (bank_02.asm:5376-5405) `[EST]`. The map view seeds slot 0 and setting 0 today `[EST]`, and the setting's plumbing is #1156 and #1157.
 4. Option a, taken by #1119's commit "pin MarioGFXDMA from its entry and the NMI vector" and recorded here `[PROP]`. `STOCK_NMI` requires the vector at $00:FFEA to point at a handler whose 368 bytes from $00:816A hash to the stock value; a ROM that redirects the vector is refused (`MarioGraphics.ts`).

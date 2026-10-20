@@ -46,11 +46,11 @@ otherwise it keeps pass 0, the generic rule. Only the grinder (`$67`, #126) may 
 
 Each id is accepted by RUNNING its handler from the ROM's own MAIN pointer (`LineGuided.ts`, #1030) and watching the
 calls it makes. Each call target is read from the operand the run reaches and named by a SHA-256 of the routine's
-first bytes (`STOCK`, #1121): the prelude, the platform and rope draws, the `$67` and `$68` draws, the interact, the
+code, one digest per routine (`STOCK`, #1121): the prelude, the platform and rope draws, the `$67` and `$68` draws, the interact, the
 chainsaw draw wrapper and the line step. The calls must come in that id's order (`VANILLA_DISPATCH.byId`), ending at
 the line step, with no register or SRAM write across every slot and every value of the WRAM cells it reads in slot 3.
 A call to a routine that is not one of these is "unverified": the model says why (`lineGateReason`) and the sprite keeps
-the old rule. A prefix catches a hook at a routine's entry, not an edit past it.
+the old rule. A table a routine reads is outside its span.
 
 ## First frame at rest (R16)
 

@@ -2,7 +2,7 @@
  * Whether a cart's line-guided sprite ($62, $64-$68) still dispatches in the vanilla order: draw, then the
  * line step. A hack that rewrites the handler gets the runner's generic rule. The gate RUNS the handler
  * from its MAIN pointer and watches which routines it calls, naming each call target by a SHA-256 of the
- * routine's first bytes (the hook-signature style). The targets are read from the ROM's own operands, so no
+ * routine's code (the hook-signature style). The targets are read from the ROM's own operands, so no
  * routine address is written here (#1121); a call to a routine that is not a stock one is "unverified".
  *
  * Per .claude/rules/rom-interpretation.md stock-code exception (added in #1030): the entry is fixed, the run has a
@@ -15,28 +15,30 @@ import { nativeReset, Refusal } from '../../cpu/call'
 import { fingerprint } from '../../Fingerprint'
 import { RunCache, smwMachine, watchSram } from './Machine'
 
-/** A routine named by its first `len` bytes, hashed whole (SHA-256, lowercase hex). */
+/** A routine named by its first `len` bytes, hashed whole in one digest (SHA-256, lowercase hex). */
 export interface Routine {
   len: number
   sha: string
 }
 
 /**
- * The stock routines the dispatch CODE_01D9A7 reaches, by what they do. Prefixes only: a patch past the prefix is
- * not seen, one at the entry (a JSL or JML hook) is. SMWDisX bank_01.asm: prelude CODE_018063 (4348), platform
- * draw CODE_01B2DF (4607), rope draw CODE_01DC54, $67 draw CODE_01DC0B, $68 draw CODE_01DBD4, interact
- * MarioSprInteractRt, chainsaw draw wrapper CODE_03C263, line step CODE_01D74D (11848). One cart (vanilla US),
- * one machine.
+ * The stock routines the dispatch CODE_01D9A7 reaches, by role, each hashed whole in one digest: the prelude
+ * CODE_018063, platform draw CODE_01B2DF, rope draw CODE_01DC54, $67 draw CODE_01DC0B, $68 draw CODE_01DBD4,
+ * MarioSprInteractRt, the chainsaw draw (CODE_03C263 and the routine after it) and the line step CODE_01D74D.
+ * Code only: a table a routine reads is not in its span. One cart (vanilla US), one machine.
  */
 const STOCK: Readonly<Record<string, Routine>> = {
-  prelude: { len: 24, sha: '34f9a559dae471bcea605bddf17a1b54bd93b62d52c1f6fbf09e025e6ae7c913' },
-  draw62: { len: 24, sha: 'dbcedc01c21b8d55f108d2fac950a74d7a6491f5f720c4a9fe2c30f7aad2eb95' },
-  rope: { len: 24, sha: 'ad56ecf943c1e8d80b2a347ed672b00f58d5a6d2f53d04493d86813de7460601' },
-  draw67: { len: 24, sha: '1fa7fe6fbdf86ec163e2af8d6853d945c3a7ba31eed327043e8eef260ac33bb3' },
-  draw68: { len: 24, sha: '0b75ea74245060df91ba45e9debde04cc591ad12acda988bd9b89adf24a96524' },
-  interact: { len: 24, sha: '831c0babe84a9aa671d2c5d57730fb42e2c564beb45a4b578a7f2a5950174c90' },
-  chainsawDraw: { len: 8, sha: '2097718c005f9beebcf14222c37e509b19541828e008912d8a69ff8ee9122c5e' },
-  step: { len: 24, sha: '023da48591bdff4aa0eed58c8c6ba2e769f13bd1dbe5a7021cff3720f268f747' },
+  prelude: { len: 41, sha: 'ee69fb268a54310db915010517a1018892562de721524bebb396d4fdc09a6fa9' },
+  draw62: { len: 164, sha: '2554a26d468fd57bcb9b73c5f04b2667c0b1ef8d8ecb48e9c09ef7b18ca27604' },
+  rope: { len: 125, sha: '7440e348ecf1b1bb0d1307252e3b649cb710f444fb90990e7907e39961232090' },
+  draw67: { len: 48, sha: '5bf4e097322aa8b524cfb6671299ba6f1096aa6dbdf852a8c2ce6b09bdaa1827' },
+  draw68: { len: 53, sha: 'e8accbeabae8d1be0c8dce077c50eb66b565088e0508438ce7e3f56eef7bb8aa' },
+  interact: { len: 591, sha: '6ab333bcbfb8ed0ce7abe9276e41ce8e3256c470d8cd402a83f113447e37b581' },
+  chainsawDraw: {
+    len: 118,
+    sha: '7de4f593b0cbad322e3273a6c5663485b704cb849ae48334b4e24ec9a6f4a75d',
+  },
+  step: { len: 99, sha: 'a9ef48ec9b830805fd5532ab361e1fd0e59e1319c6b12426523a0fa6e77493f4' },
 }
 
 /**
@@ -68,10 +70,8 @@ export const VANILLA_DISPATCH: DispatchShape = {
 export const LINE_GUIDED_IDS: ReadonlySet<number> = new Set([0x62, 0x64, 0x65, 0x66, 0x67, 0x68])
 
 /**
- * InitLineGuidedSpr, whole (INC SpriteMisc187B; the even-column branch subtracts $140 from X, the odd one adds $0F and
- * flips; then SpriteMisc1540 = 2 and RTS): 42 bytes, bank_01.asm:11788-11809. The shift is what the sprite does before
- * its first drawn frame, so a patched copy is flagged unverified (the interpreter still runs it). Covers the span
- * $01D6F9-$01D701 that holds the two constants (D110 call 4) and the rest of the routine around it. One cart, one machine.
+ * InitLineGuidedSpr, whole, one digest: bank_01.asm:11788-11809 ($01D6ED). A patched copy is flagged unverified (the
+ * interpreter still runs it). Covers the span $01D6F9-$01D701 (D110 call 4) and the rest of the routine. One cart, one machine.
  */
 export const STOCK_INIT_LINE_GUIDED: Routine = {
   len: 42,

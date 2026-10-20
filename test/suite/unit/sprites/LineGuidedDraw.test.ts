@@ -20,6 +20,7 @@ import { SmwRom } from '../../../../src/rom/SmwRom'
 import {
   grinderDrawsBeforeSnap,
   isStockRoutine,
+  STOCK_INIT_LINE_GUIDED,
   INIT_SHIFT_IDS,
   LINE_GUIDED_IDS,
   VANILLA_DISPATCH,
@@ -393,18 +394,28 @@ describe.skipIf(!hasRom(VANILLA))('per-id arms on the vanilla cart (#792, #1121)
   it('flags an edited stock routine as unverified, whichever of the eight is edited', () => {
     // Entry byte of each routine the arms call: prelude, $62 draw, rope draw, $67 draw, $68 draw, interact, chainsaw draw wrapper, line step.
     const entries: [number, number][] = [[0x65, 0x018063], [0x62, 0x01b2df], [0x64, 0x01dc54], [0x67, 0x01dc0b], [0x68, 0x01dbd4], [0x65, 0x01a7e4], [0x65, 0x03c263], [0x67, 0x01d74d]] // prettier-ignore
-    for (const [id, at] of entries) {
-      const rom = freshRom()
-      rom.writeAt(at, [rom.readAt(at, 1)![0]! ^ 0x01])
-      const m = runOnce(rom, id, seed3)
-      expect(m.snaps, `$${at.toString(16)} for id ${id}`).not.toBe(true)
-      // A routine INIT itself calls (the rope's draw) stops the run there, before the gate: the refusal is the flag.
-      expect(m.lineGateReason ?? m.refusal, `$${at.toString(16)} for id ${id}`).toBeDefined()
-    }
+    // At the entry, and 30 bytes in: past the 24-byte prefix an earlier version hashed.
+    for (const [id, at0] of entries)
+      for (const off of [0, 30]) {
+        const at = at0 + off
+        const rom = freshRom()
+        rom.writeAt(at, [rom.readAt(at, 1)![0]! ^ 0x01])
+        const m = runOnce(rom, id, seed3)
+        expect(m.snaps, `$${at.toString(16)} for id ${id}`).not.toBe(true)
+        // A routine INIT itself calls (the rope's draw) stops the run there, before the gate: the refusal is the flag.
+        expect(m.lineGateReason ?? m.refusal, `$${at.toString(16)} for id ${id}`).toBeDefined()
+      }
   }, 240_000)
 })
 
 describe('InitLineGuidedSpr is checked by fingerprint (#792, D110 call 4)', () => {
+  it('every fingerprint covers at least 24 bytes in one digest (D126)', () => {
+    const lens = [...Object.values(VANILLA_DISPATCH.routines), STOCK_INIT_LINE_GUIDED].map(
+      r => r.len,
+    )
+    expect(Math.min(...lens)).toBeGreaterThanOrEqual(24)
+  })
+
   it('names the four ids whose INIT is it, and no other over 0..255', () => {
     expect(Array.from({ length: 256 }, (_, id) => id).filter(id => INIT_SHIFT_IDS.has(id))).toEqual([0x65, 0x66, 0x67, 0x68]) // prettier-ignore
   })
