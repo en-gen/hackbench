@@ -344,7 +344,7 @@ test('a sprite reload (an edit or refresh) clears the panel', async ({ page }) =
 })
 
 // R16 / D85 B: a chainsaw is drawn where its own setup code leaves it (InitLineGuidedSpr, bank_01.asm:11788-11809); the
-// tile the level stores it on is outlined while it is selected, and the panel says how far it moved.
+// tile the map stores it on is outlined while it is selected, and the panel says how far it moved.
 // Plant: delete the `stored-tile` element from the map view and the count assertion goes red; make the note constant
 // and the distance assertion goes red for the odd/even column that does not match.
 test('a chainsaw drawn away from its stored tile outlines that tile while selected, and the panel says how far it moved', async ({

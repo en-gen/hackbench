@@ -130,7 +130,7 @@ describe('spriteProps: a sprite drawn away from its stored tile (R16)', () => {
   it('reports the stored tile as the sprite position, and carries the note', () => {
     const p = spriteProps(at(80, 96, { x: 400, y: 96 }))
     expect(p).toMatchObject({ col: 25, row: 6 })
-    expect(p.notes.join(' ')).toMatch(/The highlighted tile is where the level stores it/)
+    expect(p.notes.join(' ')).toMatch(/The highlighted tile is where the map stores it/)
   })
 })
 

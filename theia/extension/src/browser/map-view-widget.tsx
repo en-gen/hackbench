@@ -1738,7 +1738,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
               <div
                 className="hb-map-stored-tile"
                 data-control="stored-tile"
-                title="Where the level stores this sprite"
+                title="Where the map stores this sprite"
                 style={{ left: (pad.left + this.selectedSprite.stored.x) * z, top: (pad.top + this.selectedSprite.stored.y) * z, width: 16 * z, height: 16 * z }} // prettier-ignore
               />
             )}

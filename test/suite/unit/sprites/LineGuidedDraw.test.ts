@@ -1,8 +1,8 @@
 /**
- * The line-guided grinder ($67) run INIT-on is drawn where the line walk puts it, two passes after its first draw (#126);
- * the map's picture at rest draws it at the list position instead (D91).
- * Synthetic cart: ids 31 and 103 draw one piece at SpriteXPos and then move +4 (hand-written opcodes),
- * so CI (no cart) proves the rule picks the third drawn pass for $67 only.
+ * A line-guided sprite ($62, $64-$68) run INIT-on is drawn where the line walk puts it, two passes after its first draw
+ * (#126, #792); the map's picture at rest does not take that pick (D91) but stands on its post-INIT spot (R16).
+ * Synthetic cart: ids 31 and 103 draw one piece at SpriteXPos and then move +4 (hand-written opcodes), 98-104
+ * aliased to the grinder handler, so CI (no cart) proves the rule picks the third drawn pass for the admitted ids only.
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -143,7 +143,7 @@ describe('line-guided draw pass', () => {
     expect(g.anchor!.x).toBe(0x84)
   })
 
-  it('flags the run model as snapping for a vanilla-shaped $67 only (SpriteModel.snaps)', () => {
+  it('flags the run model as snapping for a gate-passing line-guided id only (SpriteModel.snaps)', () => {
     expect(run(103).snaps).toBe(true)
     // Not vanilla-shaped, another id, and a run whose draw dispatch is not the pinned shape: all unflagged.
     expect(run(103, { alteredGrinder: true }).snaps).toBeUndefined()
@@ -151,7 +151,7 @@ describe('line-guided draw pass', () => {
     expect(runOnce(buildSyntheticRom(), 103, seed).snaps).toBeUndefined()
   })
 
-  it('applies the snap rule to id $67 only: another id whose MAIN is the grinder handler is generic', () => {
+  it('applies the snap rule to the admitted ids only: another id whose MAIN is the grinder handler is generic', () => {
     const rom = buildSyntheticRom({ id31IsGrinder: true })
     // The alias passes the shape gate, so the id check alone is what keeps id 31 generic.
     expect(gate(rom, 0x019500)).toBe(true)
@@ -292,6 +292,78 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla grinder, on the vanilla ROM', (
       })
     }, 120_000)
   }
+})
+
+describe('the pass pick for every admitted id (synthetic cart, ids aliased to the grinder handler)', () => {
+  // List ids 98, 100, 101, 102, 104 are $62, $64, $65, $66, $68; 103 is $67.
+  const ADMITTED = [98, 100, 101, 102, 103, 104]
+  const aliased = (o: SyntheticOptions = {}) => buildSyntheticRom({ grinderAliases: true, ...o })
+  const go = (id: number, rom = aliased()) => runOnce(rom, id, seed, { grinderDispatch: grinderShape(rom) }) // prettier-ignore
+
+  it.each(ADMITTED)('draws id %i at the third pass, where the line walk left it', id => {
+    const g = go(id)
+    expect(g.snaps).toBe(true)
+    expect(g.passes.slice(0, 3).map(p => p.origin.x)).toEqual([0x80, 0x84, 0x88])
+    expect(g.chosen).toBe(2)
+    expect(g.anchor!.x).toBe(0x88)
+  })
+
+  it.each(ADMITTED)(
+    'id %i: when pass 2 draws nothing only $67 (the grinder, #126) stops at pass 1',
+    id => {
+      const g = go(id, aliased({ grinderDrawsTwice: true }))
+      expect(g.passes.slice(0, 3).map(p => p.parts.length > 0)).toEqual([true, true, false])
+      if (id === 103) {
+        expect(g.chosen).toBe(1)
+        expect(g.anchor!.x).toBe(0x84)
+        expect(g.lineStepReason).toBeUndefined()
+      } else {
+        expect(g.chosen).toBe(0)
+        expect(g.anchor!.x).toBe(0x80)
+        expect(g.lineStepReason).toMatch(/third pass/)
+      }
+    },
+  )
+
+  it.each(ADMITTED)(
+    'id %i: keeps pass 0 when the first MAIN moved it but the second did not, though pass 2 draws',
+    id => {
+      // The step moves +4 on its first call only, so the second pass does not move the sprite.
+      const rom = aliased()
+      rom.writeAt(0x019290, [0xfe, 0x50, 0x16, 0xbd, 0x50, 0x16, 0xc9, 0x02, 0x90, 0x01, 0x60, 0xb5, 0xe4, 0x18, 0x69, 0x04, 0x95, 0xe4, 0x60]) // prettier-ignore
+      const g = go(id, rom)
+      expect(g.passes.slice(0, 3).map(p => p.parts.length > 0)).toEqual([true, true, true])
+      expect(g.passes[1]!.pos).toEqual(g.passes[0]!.pos)
+      // $67 keeps its old fallback (pass 1); the others stay on pass 0 and say why.
+      expect(g.chosen).toBe(id === 103 ? 1 : 0)
+      if (id !== 103) expect(g.lineStepReason).toMatch(/third pass/)
+    },
+  )
+
+  it.each(ADMITTED)(
+    'id %i: draws at its first pass when the dispatch is not the vanilla shape',
+    id => {
+      const g = go(id, aliased({ alteredGrinder: true }))
+      expect(g.snaps).toBeUndefined()
+      expect(g.chosen).toBe(0)
+      expect(g.anchor!.x).toBe(0x80)
+    },
+  )
+
+  it('keys the grinder fallback by the loaded number: a shell list id loaded as $67 stops at pass 1 too', () => {
+    // Plant the loader so list id $DA loads as sprite 103 in status 1 (INIT runs): the status compare operand 1 rebases it,
+    // the ADC operand 103 is the new base. A real $67 here chooses pass 1; a list-id test would choose pass 0.
+    const rom = buildSyntheticRom({ grinderDrawsTwice: true })
+    rom.writeAt(0x02a8d1, [0x01])
+    rom.writeAt(0x02a979, [0x01])
+    rom.writeAt(0x02a983, [103])
+    const shape = grinderShape(rom)
+    const [shell, real] = [0xda, 103].map(id => runOnce(rom, id, seed, { grinderDispatch: shape }))
+    expect(real!.chosen).toBe(1)
+    expect(shell!.refusal).toBeUndefined()
+    expect(shell!.chosen).toBe(real!.chosen)
+    expect(shell!.anchor!.x).toBe(real!.anchor!.x)
+  })
 })
 
 describe('the line-guided routines are named by fingerprint, read from the ROM (#792, #1121)', () => {

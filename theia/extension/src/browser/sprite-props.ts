@@ -86,7 +86,7 @@ export interface SpriteProps {
 }
 
 /**
- * The plain-words note for a sprite drawn away from the tile the level stores it on (R16): the distance is the
+ * The plain-words note for a sprite drawn away from the tile the map stores it on (R16): the distance is the
  * difference the run produced, never a constant here. Absent when the picture is on its stored tile.
  */
 export function shiftNote(s: Pick<MapSpriteDto, 'x' | 'y' | 'stored'>): string | undefined {
@@ -97,7 +97,7 @@ export function shiftNote(s: Pick<MapSpriteDto, 'x' | 'y' | 'stored'>): string |
     dy && `${Math.abs(dy)} px ${dy < 0 ? 'up' : 'down'}`,
   ].filter(Boolean)
   if (!parts.length) return undefined
-  return `Its own start-up code moves it ${parts.join(' and ')} before it is first drawn, so the map draws it there, as the game does. The highlighted tile is where the level stores it.`
+  return `Its own start-up code moves it ${parts.join(' and ')} before it is first drawn, so the map draws it there, as the game does. The highlighted tile is where the map stores it.`
 }
 
 export function spriteProps(s: MapSpriteDto): SpriteProps {
@@ -114,7 +114,7 @@ export function spriteProps(s: MapSpriteDto): SpriteProps {
     label: spriteLabel(s),
     id: s.id,
     name: s.name,
-    // The tile the level stores the sprite on, which is the drawn anchor unless the sprite's INIT shifts it (R16).
+    // The tile the map stores the sprite on, which is the drawn anchor unless the sprite's INIT shifts it (R16).
     col: Math.floor((s.stored?.x ?? s.x) / TILE),
     row: Math.floor((s.stored?.y ?? s.y) / TILE),
     parts,
