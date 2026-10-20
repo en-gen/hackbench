@@ -297,6 +297,27 @@ describe('findMode7GfxFiles', () => {
     }
   })
 
+  it('claims the file as unreadable when the routine loads through a different routine', () => {
+    // Everything the hash covers is unchanged but the masked JSL target.
+    const rom = makeRom()
+    rom.writeAt(ROUTINE, unpackBytes(0x27, 0x03ff, HELPER_AT & 0xffff, { jsl: 0x00c000 }))
+    rom.writeAt(HELPER_AT, helperBytes())
+    rom.writeAt(CALLER, callSiteBytes(ROUTINE & 0xffff))
+    expect(find(rom)).toEqual([
+      { fileIndex: 0x27, byteLength: null, reason: expect.stringMatching(/different routine/) },
+    ])
+  })
+
+  it('claims the file as unreadable when PrepareGraphicsFile cannot be resolved', () => {
+    const buf = Buffer.alloc(0x100000, 0x00)
+    buf[0x7fd5] = 0x20
+    const rom = new RomFile('bare.smc', buf)
+    writeMode7Load(rom)
+    expect(find(rom)).toEqual([
+      { fileIndex: 0x27, byteLength: null, reason: expect.stringMatching(/different routine/) },
+    ])
+  })
+
   it('accepts a helper that keeps its loop counter in a 16-bit X', () => {
     // The game calls it with REP #$10 in force; 8-bit X would read LDX #3 as BRK.
     const rom = makeRom()

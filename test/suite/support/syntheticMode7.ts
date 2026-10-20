@@ -8,6 +8,7 @@
  * byte) with a different instruction mix from the game's.
  */
 import { spanFingerprint } from '../../../src/rom/SubmapFlagGate'
+import { PREPARE_GFX } from './syntheticGfxCart'
 import type { Mode7Fingerprints } from '../../../src/rom/Mode7Gfx'
 
 /** Two-byte little-endian operand. */
@@ -24,12 +25,14 @@ export function unpackBytes(
   fileIndex: number,
   loopCount: number,
   helper: number,
-  io: { input?: number; output?: number } = {},
+  io: { input?: number; output?: number; jsl?: number } = {},
 ): number[] {
   // Varied filler, not a NOP run: an 8-byte run of one value is common in a real ROM.
   const b = Array.from({ length: 118 }, (_, i) => (i * 29 + 5) & 0xff)
   const set = (at: number, ...v: number[]): void => void v.forEach((x, i) => (b[at + i] = x))
-  set(0, 0xa0, fileIndex, 0x22, 0x10, 0x80, 0x03, 0xc2, 0x30, 0xa0, 0x01, 0x00, 0xa2)
+  const target = io.jsl ?? PREPARE_GFX
+  set(0, 0xa0, fileIndex, 0x22, target & 0xff, (target >> 8) & 0xff, target >> 16)
+  set(6, 0xc2, 0x30, 0xa0, 0x01, 0x00, 0xa2)
   set(12, ...le(loopCount))
   set(14, 0xb7, 0x01, 0x85, io.input ?? IN)
   for (const at of [18, 26, 58, 66, 98, 106]) set(at, 0x20, ...le(helper))

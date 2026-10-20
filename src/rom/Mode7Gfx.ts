@@ -29,8 +29,9 @@
  * file to ordinary planar inference rather than blanking unrelated loaders.
  */
 import { le16 } from './bytes'
-import { findPattern } from './BytePattern'
-import { LOROM_BANK_SIZE } from './addressing'
+import { findPattern, findUnique } from './BytePattern'
+import { LOROM_BANK_SIZE, loromToOffset } from './addressing'
+import { PREPARE_GFX_PATTERN } from './GfxArena'
 import { Refusal, callSubroutine } from './cpu/call'
 import { GFX_FILE_COUNT } from './GfxLoader'
 import { PIXELS_PER_TILE } from './GraphicsDecoder'
@@ -45,6 +46,9 @@ const JSL = 0x22
 const JSL_OFF = 2
 const FILE_INDEX_OFF = 1
 const LOOP_COUNT_OFF = 12
+// The routine's JSL (bytes 3-5) is masked in the digest, so it is checked here: it must
+// reach the one PrepareGraphicsFile that GfxLoader resolves (bank_00.asm:6571-6591).
+const JSL_TARGET_OFF = 3
 
 /**
  * The stock bytes of the routine are kept as a SHA-256 fingerprint, not as a
@@ -320,6 +324,14 @@ function readByteLength(rom: RomFile, at: number): Length {
   if (rom.mapMode === 'hirom') return unreadable('The ROM is HiROM')
   const site = rom.readAtFileOffset(at, UNPACK_LENGTH)!
 
+  const loader = findUnique(rom, PREPARE_GFX_PATTERN)
+  const jslTo = loromToOffset(
+    le16(site, JSL_TARGET_OFF) | (site[JSL_TARGET_OFF + 2]! << 16),
+    rom.romSize,
+  )
+  if (loader === null || jslTo !== loader) {
+    return unreadable('The unpack routine loads its file through a different routine')
+  }
   const helperOperand = le16(site, JSR_OPERAND_OFFS[0]!)
   if (JSR_OPERAND_OFFS.some(off => le16(site, off) !== helperOperand)) {
     return unreadable('The unpack routine calls more than one helper')
