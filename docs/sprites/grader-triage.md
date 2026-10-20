@@ -127,7 +127,7 @@ the platform and 4 of the bro. The runner ran the sprite alone: 4 parts, in all 
 slot was running (`scansSlots`) is run again with the map's neighbors (`neighboursOf`: its screen and the one
 each side, nearest first, at most 9) in the other slots, counting only OAM written under its own `$15E9`; that run
 is used when it adds parts and keeps the ones the run alone had (`dependsOn: neighbours`). Measured (one machine, vanilla
-cart, `spriteGrade.captures.test.ts`): on top of #837 (develop aec6f216): wrong 90 to 76, exact 1033 to 1038, shape 803 to 812, close 18, empty 13; all 14 $9C records
+cart, `spriteGrade.captures.test.ts`): base develop 6d23b7b0 against the merge head, one machine: exact 1053 to 1058, shape 810 to 819, wrong 62 to 48, close 18, empty 14, and only the 14 $9C rows changed (all better); all 14 $9C records
 leave "wrong" (5 exact, 9 shape); no record graded worse. Without the "keeps
 the parts it had" rule, 26 other records graded worse (sprites that scan the slots for collisions), so that rule is
 load-bearing.

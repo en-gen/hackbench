@@ -270,14 +270,14 @@ function gradeAll(
   return { rows, by, inputs, fallbacks, missAtK }
 }
 
-/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Raised after #837 (stationary shells) and #841 (neighbor run): measured 2026-10-17, one machine: exact 1038, exact+shape 1850, wrong 76, empty 13 (develop: 1033, 1836, 90, 13). */
+/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Raised for #841 (neighbor run): measured with the merge head against develop 6d23b7b0, one machine: exact 1058, exact+shape 1877, wrong 48, close 18, empty 14 (develop: 1053, 1863, 62, 18, 14); only the 14 $9C rows changed. */
 const FLOOR = {
   graded: 1957,
-  exact: 1035,
-  exactOrShape: 1847,
+  exact: 1055,
+  exactOrShape: 1874,
   maxRefused: 0,
   maxEmpty: 16,
-  maxWrong: 79,
+  maxWrong: 51,
   maxMissAtK: 30,
   // 38 measured (spawned records without initFrame); all-timed would read 0.
   minFallbacks: 30,
