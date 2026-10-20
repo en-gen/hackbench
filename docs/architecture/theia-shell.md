@@ -356,7 +356,7 @@ tab is focused and its toggle is usable (`canToggleCollision`, the button's own 
 Layer 1 objects the expander refused draw nothing, so the tab marks where they are. `refusedCells`
 rides on every `mapScreen` reply (whole map, absent when none), built in `buildL1Inputs`
 (`src/rom/model/RefusedCells.ts`): one cell per object, since one object can be refused twice
-(handle_0DB49E), with the gate reason winning over the unported one. The overlay
+(handle_0DB49E), carrying all its reasons (below). The overlay
 (`browser/refused-overlay.tsx`) is one SVG in map coordinates, scaled by `ZoomController` like the
 collision overlay. Cells are red, dashed and marked "!", unlike the collision overlay's orange hatched
 unknown cells. Z-order is 150: above the screens, below the collision lines (200). It is hidden
@@ -367,9 +367,26 @@ guessed rectangle would be [PROP]. The cell keeps the object's own x,y at any di
 or off it: it is never clamped (D76 call 2, D145) and never dropped (D52), and the canvas grows to hold it,
 see "The map strip's pad" below.
 
+Each cell lists EVERY distinct issue on its object (#1005): `RefusedCell.reasons`, gate reasons first,
+then unported, identical text counted once. The count is "places in the object's drawing code that
+HackBench checked and found changed" [PROP]: a handler stops at its first failed check, so a hack that
+changed three places may show one or two. The app does not run every check just to count them. A gate line
+leads with words and ends in hex (`Its drawing code was changed where HackBench expects a call (byte
+$0DB4B1 is $00).`); the address is what tells two gate lines on one object apart. The cell's handler is
+the first gate refusal's, else the first refusal's.
+
+With 2+ issues the cell gets a count badge: a solid red circle, no outline, with a white number ("9+" past 9) centered on it (text-anchor middle, central baseline, at the circle's own center). It lies wholly inside
+the tile's top-right 8 x 8 quadrant (r 3.5 centered 4 px in from the tile's right and top, 0.5 px from the
+quadrant's edges), in map pixels so it scales with zoom. The "!" moves left and down (x 5, y 10, 10 px) so
+the circle never sits on it. Geometry and tooltip text are pure functions in `browser/refused-badge.ts`;
+the quadrant containment is unit-swept over cells 0..99 x 0..59, counts 2, 9 and 10 (not yet seen in the
+running app by me; the owner passed the look in T26).
+
 Test hooks: `data-control="refused-overlay"` (absent when there are no cells), per cell
-`data-control="refused-cell"` with `data-x`, `data-y` (tiles) and `data-object`, and the reason
-`Object <n> (<type>): <why>` as both the `<title>` tooltip and the `aria-label`.
+`data-control="refused-cell"` with `data-x`, `data-y` (tiles), `data-object` and `data-count` (issues,
+always present), and `Object <n> (<type>)` plus one line per reason (bulleted with 2+) as the `<title>`
+tooltip; the `aria-label` is the same text, prefixed `<n> issues.` with 2+. The badge is
+`data-control="refused-badge"`, present only when the count is 2 or more.
 
 ### The map strip's pad (#1004)
 

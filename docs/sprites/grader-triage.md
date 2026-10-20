@@ -76,6 +76,15 @@ runner zeroes cluster sprites in `load`, and the grader drops flame pieces from 
 attributes by slot (C). Assert: the part list for $33 at map 1d4 416,240 has no OAM index 124-127; the
 30 listed cases grade close or better.
 
+**A, measured after the grader cleared the loaded cluster cells (#980).** The grader seed now clears `$18B8` and
+`$1892-$18A5` as `levelSeed` does (#809). Chosen-pass totals over the 1,957 records ('rom' seed, hardware timeline;
+one machine, one run each, commit 17dbd4d0): before exact 998 / shape 803 / close 18 / wrong 125 / empty 13 / missAtK
+25, after exact 1018 / shape 810 / close 18 / wrong 97 / empty 14 / missAtK 29. Of the 28 records that changed: map
+101 14 wrong to exact, 1d4 5 and 1cd 1 wrong to exact, 01f `$67` 7 wrong to shape, and one wrong to empty (map 101 `$54`
+slot 0, whose only recorded tile is OAM entry 124, a castle-flame piece, so the model drawing nothing is correct).
+Pinned by `spriteGrade.captures.test.ts` (map 101 tally 14 exact / 6 wrong / 1 empty, and the raised floors) and by
+`SpriteReport.test.ts` (the report grader against a mirrored loop); both go red with the clearing removed.
+
 **B, graded pass (161: 89 exact at a later pass, 72 shape-only).** The policy grades the first pass that
 draws (`SpriteModel.chosen`, the first pass with any OAM parts, `SpriteRunner.ts:526-527`; it is pass 0 in 153 of the 161, pass 4 in 5, 11 in 2, 19 in 1; the probe read the same `chosen`, so the counts stand). No recorded frame equals it, but a later pass equals one
 exactly (89) or up to position (72, sprites that move: $72 41 of 72 shape cases, $09 16). The match is at pass 1

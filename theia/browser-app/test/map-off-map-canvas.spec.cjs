@@ -64,7 +64,7 @@ test.afterEach(async ({ page }) => {
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true })
 })
 
-const cell = (x, y, n) => ({ x, y, objectIndex: n, objectType: 'type 9', handler: 0x0dfff0, why: WHY }) // prettier-ignore
+const cell = (x, y, n) => ({ x, y, objectIndex: n, objectType: 'type 9', handler: 0x0dfff0, reasons: [WHY] }) // prettier-ignore
 
 /**
  * Opens the map and returns its project's manifest path. `cells` replaces every mapScreen reply's
@@ -458,7 +458,7 @@ test('marks far past the end draw raw, in a canvas grown to hold them with the g
   }
   await expect(
     page.locator(`${root(0x105)} [data-control="refused-cell"][data-object="1"] title`),
-  ).toHaveText(`Object 1 (type 9): ${WHY}`)
+  ).toHaveText(`Object 1 (type 9)\n${WHY}`)
   expect(pageErrors).toEqual([])
 })
 

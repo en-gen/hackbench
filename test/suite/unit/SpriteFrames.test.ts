@@ -265,6 +265,43 @@ describe('interpRunner reports screen-fixed parts', () => {
   })
 })
 
+describe('framesOf: chars a sprite uploads to the player slots (#980, D138 A)', () => {
+  // A buffer whose first piece is solid color 3; slot 3 pointed at it puts those chars on $406/$407.
+  const buffer = () => ({ ok: true as const, bytes: new Uint8Array(0xb000 - 0x2000).fill(0xff, 0, 0x40) }) // prettier-ignore
+  const m = { ...run([[6, 0]]), uploads: [[{ slot: 3, ptr: 0x2000 }]] }
+  const level = { ...LEVEL, vram: { sp1: [...LEVEL.vram.sp1, ...Array(8).fill(SOLID)] } }
+  it('frame 0 is drawn from the buffer, with no note, when the model has the reader', () => {
+    const [f] = framesOf({ m, fixed: false }, spr, { ...level, playerGraphics: buffer }).frames
+    expect(f).toMatchObject({ status: 'drawn' })
+    expect(f).not.toHaveProperty('unverified')
+  })
+  it('without the reader the same frame carries the unverified note (what mapSpriteFrames used to give)', () => {
+    const [f] = framesOf({ m, fixed: false }, spr, level).frames
+    expect(f).toMatchObject({ unverified: expect.stringContaining('player graphics buffer') })
+  })
+})
+
+describe.skipIf(!hasRom(VANILLA))('mapSpriteFrames: the Podoboo keeps its buffer art', () => {
+  it(
+    'frame 0 of every Podoboo on $11C is the bitmap the map draws, with no note',
+    slow(60_000),
+    () => {
+      const bytes = new Uint8Array(readFileSync(romPath(VANILLA)))
+      const cache = new L1ModelCache()
+      const drawn = mapSprites(cache, bytes, romPath(VANILLA), 0x11c)
+      if (drawn.status !== 'ok') throw new Error('map $11C unavailable')
+      const pods = drawn.sprites.filter(d => d.id === 0x33 && d.status === 'drawn')
+      expect(pods.length).toBeGreaterThan(0)
+      for (const d of pods) {
+        const r = mapSpriteFrames(cache, bytes, romPath(VANILLA), 0x11c, d.index)
+        if (r.status !== 'ok') throw new Error('no frames')
+        expect(r.frames[0]!.rgba, `#${d.index}`).toBe(d.rgba)
+        expect(r.frames[0]).not.toHaveProperty('unverified')
+      }
+    },
+  )
+})
+
 describe('mapSpriteFrames without a cart', () => {
   it('a ROM that holds no such map answers unavailable with a reason, never throws', () => {
     const r = mapSpriteFrames(new L1ModelCache(), new Uint8Array(0x80000), 'blank.sfc', 0x105, 0)

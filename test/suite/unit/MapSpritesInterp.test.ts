@@ -558,7 +558,7 @@ const PINNED_ROWS: Record<string, string> = {
   '1:13@3808,368': 'differ 3808,368 29a7dadd44',
   '1:13@3824,368': 'differ 3824,368 29a7dadd44',
   '1:13@3840,368': 'differ 3840,368 29a7dadd44',
-  '11c:1f@352,336': 'differ 352,336 9c12455c79',
+  '11c:1f@352,336': 'differ 352,336 ba1aaa3de0',
 }
 
 /**
@@ -572,7 +572,7 @@ const EXPECTED: Record<string, Record<string, number>> = {
   $02: { differ: 1 },
   $03: { differ: 1, same: 1 },
   $04: { differ: 3 },
-  $05: { same: 9, differ: 12 },
+  $05: { differ: 12, same: 9 },
   $06: { differ: 2, same: 3 },
   $0F: { same: 6 },
   $11: { differ: 5 },
@@ -681,10 +681,9 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     )
     for (const r of rows.filter(r => r.verdict !== 'same'))
       console.log(`${r.verdict} map ${r.map.toString(16)} id ${r.id.toString(16)} at ${r.at}\n  engine ${r.e}\n  interp ${r.i}`) // prettier-ignore
-    // The known list. Of the 36 differing rows: 19 are tile/flip (the engine's frame-0 pose
-    // against a later walk-cycle frame or a facing), 16 are +1 px Y walk-frame offsets (ids $03-$06, overlapping the tile bucket),
-    // and $1F on $11C relocates itself in its own MAIN (x 352 to 304 by pass 1, flipped,
-    // depending on Mario and the RNG); one id draws nothing. A new entry, or one that clears, fails here.
+    // The known list, re-pinned for D139 D (INIT runs for the picture, so its tile and flip choices
+    // now match the engine's more often: $05 9 of 21, $0F all 6; positions are unchanged, D134).
+    // Differences left are walk-frame offsets and $1F relocating itself in its own MAIN. A new entry, or one that clears, fails here.
     expect(t).toEqual(EXPECTED)
     // Per row: verdict, served anchor and a digest of the interpreter's part keys, so a
     // change INSIDE a differing row (a tile, a flip, a pixel) is as red as a new row.
@@ -766,15 +765,15 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     }
   })
 
-  it('$4F on $105 is served at its stream position plus (8, -1): INIT moved it, not a table', () => {
+  it('$4F on $105 is served at its stream position: the INIT move (+8, -1) is not shown at rest (D134)', () => {
     const b = bytes()
     const r = mapSprites(new L1ModelCache(), b, romPath(VANILLA), 0x105)
     if (r.status !== 'ok') throw new Error(JSON.stringify(r))
     const rom = new SmwRom(RomFile.fromBytes('x.sfc', Buffer.from(b)))
     const raw = parseLevelSprites(rom.rom.readUpTo(rom.getLevelSpritePointer(0x105)!, 0x200)!, false).filter(s => s.spriteId === 0x4f) // prettier-ignore
     const served = r.sprites.filter(s => s.id === 0x4f)
-    expect(served.map(s => [s.x, s.y])).toEqual([[1816, 335], [2232, 319], [4552, 319]]) // prettier-ignore
-    expect(served.map(s => [s.x, s.y])).toEqual(raw.map(s => [s.x * 16 + 8, s.y * 16 - 1]))
+    expect(served.map(s => [s.x, s.y])).toEqual([[1808, 336], [2224, 320], [4544, 320]]) // prettier-ignore
+    expect(served.map(s => [s.x, s.y])).toEqual(raw.map(s => [s.x * 16, s.y * 16]))
     expect(served.every(s => s.status === 'drawn')).toBe(true)
   })
 
@@ -843,7 +842,7 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
       expect(r.sprites.some(s => s.unverified)).toBe(false)
       return [r.sprites.filter(s => s.status === 'drawn').length, r.sprites.length]
     })
-    // +1 on $105 and +3 on $106: the stationary shells ($DA-$DD, $DF) draw since #837.
+    // +1 on $105 and +3 on $106: the stationary shells ($DA-$DD, $DF) draw since #837; $3E draws its P-switch again now INIT runs for the picture (D139 D), so $106 is 24.
     expect(got).toEqual([
       [32, 34],
       [24, 25],

@@ -11,7 +11,12 @@ import * as path from 'path'
 import * as os from 'os'
 import { RomRegistry } from '../../../src/project/RomRegistry'
 import { createProject, RomIdentity } from '../../../src/project/Project'
-import { WorkingRomRegistry } from '../../../src/project/WorkingRomRegistry'
+import {
+  WorkingRomEntry,
+  WorkingRomRegistry,
+  romFileOf,
+  smwRomOf,
+} from '../../../src/project/WorkingRomRegistry'
 import {
   appendLayer,
   loadLayers,
@@ -1292,5 +1297,43 @@ describe('WorkingRomRegistry undo/redo', () => {
       if (a.status !== 'ok' || b.status !== 'ok') throw new Error('not ok')
       expect(b.working).toBe(a.working)
     })
+  })
+})
+
+describe('romFileOf / smwRomOf', () => {
+  // Only bytes() is read by the helpers, so a stub stands in for the project.
+  const shared = Buffer.alloc(0x10000, 0)
+  shared[0x7fd5] = 0x20 // LoROM map mode, so SmwRom accepts it
+  shared[0x1234] = 0xab
+  const dataBanks = { objectCode: { bank: 0x0d } }
+  const entryOver = (bytes: Buffer): WorkingRomEntry =>
+    ({
+      working: { bytes: () => bytes },
+      romPath: 'synthetic.sfc',
+      dataBanks,
+    }) as unknown as WorkingRomEntry
+
+  it('romFileOf carries the working bytes and the entry data banks', () => {
+    const rom = romFileOf(entryOver(shared))
+    expect(Buffer.compare(rom.buffer, shared)).toBe(0)
+    expect(rom.dataBanks).toBe(dataBanks)
+  })
+
+  it('romFileOf reads from a copy, so neither side sees the other write', () => {
+    const live = Buffer.from(shared)
+    const rom = romFileOf(entryOver(live))
+    rom.buffer[0x1234] = 0x11
+    expect(live[0x1234]).toBe(0xab)
+    live[0x1235] = 0x22
+    expect(rom.buffer[0x1235]).toBe(0)
+  })
+
+  it('smwRomOf wraps the same bytes and data banks', () => {
+    const entry = entryOver(shared)
+    const smw = smwRomOf(entry)
+    // LoROM $00:9234 is file offset $1234.
+    expect(smw.rom.readAt(0x009234, 1)![0]).toBe(0xab)
+    expect(smw.rom.readAt(0x009234, 1)![0]).toBe(romFileOf(entry).readAt(0x009234, 1)![0])
+    expect(smw.rom.dataBanks).toBe(dataBanks)
   })
 })

@@ -30,7 +30,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { unzip } from '../../../../tools/scripts/capture_render'
 import type { RomFile } from '../../../../src/rom/RomFile'
 import { runSprite } from '../../../../src/rom/sprites/interp/SpriteRunner'
-import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
+import { loadLevelState, NO_CLUSTER_SPRITES } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { neighboursOf } from '../../../../src/rom/sprites/interp/Neighbours'
 import type { LevelSprite } from '../../../../src/rom/LevelParser'
@@ -200,6 +200,9 @@ function gradeAll(
     if (!timed) fallbacks++
     const seed = withSeed({
       loaded,
+      // The ROM-run level's cluster sprites (map $101's castle flames) would draw into the OAM read as the
+      // tested sprite's; levelSeed clears them (#809), so the grader does too. The oracle image keeps the capture's.
+      ...(mode === 'rom' ? { ram: NO_CLUSTER_SPRITES } : {}),
       slot: rec.slot,
       mainPasses: Math.max(opts.passes ?? 64, timed ? k + 1 : 0),
       // Pass p runs at seed + 1 + p only when INIT takes one frame, so pass k lands on the frame
