@@ -181,6 +181,28 @@ describe('first frame at rest on synthetic carts: the run decides (R16, findings
     expect(flagged.lineInitReason).toMatch(/not a stock line-guided INIT/)
   })
 
+  it('a gate that refuses a sprite whose INIT moves it leaves it on its tile and says so (CodeRabbit)', () => {
+    const rom = buildSyntheticRom({ grinderInitShifts: true, alteredGrinder: true })
+    const m = runOnce(rom, 103, SPRITE_SEED, { atRest: true, grinderDispatch: grinderShape(rom) })
+    expect(m.lineGateReason).toMatch(/out of order/)
+    expect(m.anchor).toMatchObject({ x: 0x80, y: 0x80 }) // the generic rule: the list tile
+    expect(m.initMoved).toBe(true)
+    const res = modelResult(m) as { unverified?: string; stored?: unknown }
+    expect(res.unverified).toMatch(
+      /drawn on its map tile although its start-up code moves it: .*out of order/,
+    )
+    expect(res.stored).toBeUndefined()
+    // A refused sprite whose INIT does not move it has nothing to qualify.
+    const still = buildSyntheticRom({ alteredGrinder: true })
+    const m2 = runOnce(still, 103, SPRITE_SEED, {
+      atRest: true,
+      grinderDispatch: grinderShape(still),
+    })
+    expect(m2.lineGateReason).toBeDefined()
+    expect(m2.initMoved).toBeUndefined()
+    expect((modelResult(m2) as { unverified?: string }).unverified ?? '').not.toMatch(/start-up/)
+  })
+
   it('when the first drawing pass is above 0 the anchor is the origin its parts are measured from (finding 3)', () => {
     const m = rest({ grinderInitShifts: true, grinderDrawsFromPass1: true })
     expect(m.chosen).toBe(1)

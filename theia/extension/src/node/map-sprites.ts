@@ -417,7 +417,9 @@ export function modelResult(m: RunModel): SpriteDrawResult {
     // A patched INIT matters to the picture only when it moved the sprite; the generic-seed note and this one both stand.
     ...(m.shifted && m.lineInitReason
       ? { unverified: [u.unverified, m.lineInitReason].filter(Boolean).join('; ') }
-      : {}),
+      : m.initMoved && m.lineGateReason
+        ? { unverified: [u.unverified, `drawn on its map tile although its start-up code moves it: ${m.lineGateReason}`].filter(Boolean).join('; ') } // prettier-ignore
+        : {}),
     identity: { spriteId: m.id, mainHandler: 0, initHandler: 0, status: 'vanilla' },
   }
 }

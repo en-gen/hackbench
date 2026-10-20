@@ -172,6 +172,8 @@ export interface SpriteModel {
   lineInitReason?: string
   /** True when the at-rest picture is drawn where INIT left the sprite, not at its list position (`anchor` vs `rawX`, `rawY`). */
   shifted?: boolean
+  /** At rest, for a line-guided sprite the gate refused: its INIT moves it, but the picture stays on its tile (see `lineGateReason`). */
+  initMoved?: boolean
   /** With `shifted`: where the sprite's INIT left it, before any step; `anchor` is where it was first drawn. */
   initAt?: { x: number; y: number }
   /** True for $67 on a vanilla-shaped handler: each pass draws where the pass before left the sprite (`PassResult.origin`). */
@@ -640,6 +642,9 @@ export function runOnce(
     if (atRest) m.recentre(anchor.x - placed.x, anchor.y - placed.y)
     model.anchor = { ...(atRest ? placed : anchor), rawX: placed.x, rawY: placed.y }
     if (snaps) model.snaps = true
+    // A gate-refused line-guided sprite stays on its tile at rest; if its INIT moves it, the picture says so (rom-interpretation: warn).
+    else if (atRest && gate && (anchor.x !== placed.x || anchor.y !== placed.y))
+      model.initMoved = true
     model.oamBase = w[RAM.oamIndex + m.seed.slot]
     probe?.(-1, w)
     for (let p = 0; p < m.seed.mainPasses; p++) {
