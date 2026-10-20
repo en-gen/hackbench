@@ -11,7 +11,14 @@ import type { Cpu65816 } from '../../cpu/Cpu65816'
 import { callSubroutine, describe, Refusal } from '../../cpu/call'
 import type { RomFile } from '../../RomFile'
 import { mapperProblem } from './Guards'
-import { type DispatchShape, grinderDrawsBeforeSnap, LINE_GUIDED_IDS } from './LineGuided'
+import {
+  type DispatchShape,
+  grinderDrawsBeforeSnap,
+  INIT_SHIFT_IDS,
+  isStockRoutine,
+  LINE_GUIDED_IDS,
+  STOCK_INIT_LINE_GUIDED,
+} from './LineGuided'
 import { smwMachine } from './Machine'
 import { type ShellLoad, shellLoad } from '../ShellSprites'
 import {
@@ -161,6 +168,8 @@ export interface SpriteModel {
   lineGateReason?: string
   /** Why a $67 on a vanilla-shaped handler stayed on its first drawn pass although the next one draws. */
   lineStepReason?: string
+  /** Why a $65-$68 sprite's INIT is not the stock InitLineGuidedSpr: its shift is unverified, though the interpreter ran it. */
+  lineInitReason?: string
   /** True for $67 on a vanilla-shaped handler: each pass draws where the pass before left the sprite (`PassResult.origin`). */
   snaps?: boolean
   dependsOn: DependsOn[]
@@ -618,6 +627,12 @@ export function runOnce(
       : null
     const snaps = gate?.ok === true
     if (gate && !gate.ok) model.lineGateReason = gate.reason
+    if (
+      inits?.ok &&
+      INIT_SHIFT_IDS.has(num) &&
+      !isStockRoutine(rom, inits.handler.address, STOCK_INIT_LINE_GUIDED)
+    )
+      model.lineInitReason = `its INIT (at $${inits.handler.address.toString(16)}) is not the stock InitLineGuidedSpr, so the shift it makes before the first frame is unverified`
     const placed = { x: m.seed.sprite.x, y: m.seed.sprite.y }
     // INIT can move a sprite off the screen the run was centred on (the grinders' -$140, the Podoboo's drop),
     // and GetDrawInfo then culls it. The camera only picks which screen the picture is taken on: centre it on the

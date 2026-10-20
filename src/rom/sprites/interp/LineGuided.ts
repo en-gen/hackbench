@@ -1,77 +1,133 @@
 /**
  * Whether a cart's line-guided sprite ($62, $64-$68) still dispatches in the vanilla order: draw, then the
  * line step. A hack that rewrites the handler gets the runner's generic rule. The gate RUNS the handler
- * from its MAIN pointer and watches which routines it calls; it does not read those routines' bodies.
+ * from its MAIN pointer and watches which routines it calls, naming each call target by a SHA-256 of the
+ * routine's first bytes (the hook-signature style). The targets are read from the ROM's own operands, so no
+ * routine address is written here (#1121); a call to a routine that is not a stock one is "unverified".
  *
  * Per .claude/rules/rom-interpretation.md stock-code exception (added in #1030): the entry is fixed, the run has a
  * step budget, and a refusal names why. The entry chain: HandleSprite (fixed) -> its JMP operand -> CallSpriteMain
- * -> the MAIN pointer table -> the handler for sprite $67.
+ * -> the MAIN pointer table -> the handler for the sprite.
  */
 import type { RomFile } from '../../RomFile'
 import { mirror } from '../../addressing'
 import { nativeReset, Refusal } from '../../cpu/call'
+import { fingerprint } from '../../Fingerprint'
 import { RunCache, smwMachine, watchSram } from './Machine'
 
-/**
- * The routines each line-guided id's arm of CODE_01D9A7 calls or jumps to, in order, as FastROM-folded 24-bit
- * addresses; the last one ends the arm (the line step, CODE_01D74D, $01D74D). SMWDisX bank_01.asm:12182-12215 and
- * the platform arm 12323-12358; label at 5385 for the interact (MarioSprInteractRt, $01A7E4).
- *  - $67: draw CODE_01DC0B, interact, step. $68: draw CODE_01DBD4, interact, step.
- *  - $65, $66: interact, then the chainsaw's draw (JSL CODE_03C263), step.
- *  - $64 (rope): its draw CODE_01DC54, then the step as a call (12209-12215).
- *  - $62: the platform arm draws (CODE_01B2DF) and then calls the step. $63 is left out (owner ruling D85).
- * `arm` is the default for an id `byId` does not name (a test cart brings its own).
- */
-export interface DispatchShape {
-  arm: readonly number[]
-  byId?: Readonly<Record<number, readonly number[]>>
+/** A routine named by its first `len` bytes, hashed whole (SHA-256, lowercase hex). */
+export interface Routine {
+  len: number
+  sha: string
 }
 
-const STEP = 0x01d74d
-const INTERACT = 0x01a7e4
+/**
+ * The stock routines the dispatch CODE_01D9A7 reaches, by what they do. Prefixes only: a patch past the prefix is
+ * not seen, one at the entry (a JSL or JML hook) is. SMWDisX bank_01.asm: prelude CODE_018063 (4348), platform
+ * draw CODE_01B2DF (4607), rope draw CODE_01DC54, $67 draw CODE_01DC0B, $68 draw CODE_01DBD4, interact
+ * MarioSprInteractRt, chainsaw draw wrapper CODE_03C263, line step CODE_01D74D (11848). One cart (vanilla US),
+ * one machine.
+ */
+const STOCK: Readonly<Record<string, Routine>> = {
+  prelude: { len: 24, sha: '34f9a559dae471bcea605bddf17a1b54bd93b62d52c1f6fbf09e025e6ae7c913' },
+  draw62: { len: 24, sha: 'dbcedc01c21b8d55f108d2fac950a74d7a6491f5f720c4a9fe2c30f7aad2eb95' },
+  rope: { len: 24, sha: 'ad56ecf943c1e8d80b2a347ed672b00f58d5a6d2f53d04493d86813de7460601' },
+  draw67: { len: 24, sha: '1fa7fe6fbdf86ec163e2af8d6853d945c3a7ba31eed327043e8eef260ac33bb3' },
+  draw68: { len: 24, sha: '0b75ea74245060df91ba45e9debde04cc591ad12acda988bd9b89adf24a96524' },
+  interact: { len: 24, sha: '831c0babe84a9aa671d2c5d57730fb42e2c564beb45a4b578a7f2a5950174c90' },
+  chainsawDraw: { len: 8, sha: '2097718c005f9beebcf14222c37e509b19541828e008912d8a69ff8ee9122c5e' },
+  step: { len: 24, sha: '023da48591bdff4aa0eed58c8c6ba2e769f13bd1dbe5a7021cff3720f268f747' },
+}
+
+/**
+ * `routines`: what each role looks like; `arm`: the roles the dispatch calls, in order, for an id `byId` does not
+ * name. The last is the line step, which ends the arm. The prelude call (LineRope_Chainsaw's, skipped by a branch
+ * on some frames) may come anywhere and is not part of the order. Vanilla order (bank_01.asm:12182-12215, platform
+ * arm 12323-12358): $62 draw, step; $64 rope, step; $65 and $66 interact, chainsaw draw, step; $67 and $68 draw,
+ * interact, step. $63 is left out (owner ruling D85).
+ */
+export interface DispatchShape {
+  routines: Readonly<Record<string, Routine>>
+  arm: readonly string[]
+  byId?: Readonly<Record<number, readonly string[]>>
+}
+
 export const VANILLA_DISPATCH: DispatchShape = {
-  arm: [0x01dc0b, INTERACT, STEP],
+  routines: STOCK,
+  arm: ['draw67', 'interact', 'step'],
   byId: {
-    0x62: [0x01b2df, STEP],
-    0x64: [0x01dc54, STEP],
-    0x65: [INTERACT, 0x03c263, STEP],
-    0x66: [INTERACT, 0x03c263, STEP],
-    0x68: [0x01dbd4, INTERACT, STEP],
+    0x62: ['draw62', 'step'],
+    0x64: ['rope', 'step'],
+    0x65: ['interact', 'chainsawDraw', 'step'],
+    0x66: ['interact', 'chainsawDraw', 'step'],
+    0x68: ['draw68', 'interact', 'step'],
   },
 }
 
-/** The ids whose arm `VANILLA_DISPATCH` names: the ones the run model gives the draw-before-step rule (#792). */
+/** The ids the draw-before-step rule is for: the ones `VANILLA_DISPATCH` gives an arm (#792). */
 export const LINE_GUIDED_IDS: ReadonlySet<number> = new Set([0x62, 0x64, 0x65, 0x66, 0x67, 0x68])
+
+/**
+ * InitLineGuidedSpr, whole (INC SpriteMisc187B; the even-column branch subtracts $140 from X, the odd one adds $0F and
+ * flips; then SpriteMisc1540 = 2 and RTS): 42 bytes, bank_01.asm:11788-11809. The shift is what the sprite does before
+ * its first drawn frame, so a patched copy is flagged unverified (the interpreter still runs it). Covers the span
+ * $01D6F9-$01D701 that holds the two constants (D110 call 4) and the rest of the routine around it. One cart, one machine.
+ */
+export const STOCK_INIT_LINE_GUIDED: Routine = {
+  len: 42,
+  sha: '7ccee5c902300dbb8daee9323528d7c8c3db9bc76c4c881ed2ffaa80f0077f42',
+}
+/** The ids whose INIT is InitLineGuidedSpr in the stock table (bank_01.asm:332-335). */
+export const INIT_SHIFT_IDS: ReadonlySet<number> = new Set([0x65, 0x66, 0x67, 0x68])
+
+/** Whether the routine at `at` is `stock`, by SHA-256 of its bytes. */
+export const isStockRoutine = (rom: RomFile, at: number, stock: Routine): boolean =>
+  fingerprint(rom.readAt(at, stock.len)) === stock.sha
 
 export type GrinderGate = { ok: true } | { ok: false; reason: string }
 
 /**
  * Instructions one run may take. Vanilla LineGrinder is 8 instructions or fewer (bank_01.asm:11837-11846) and
  * the dispatch to the end of the $67 arm adds about as many compares and branches, so 64 leaves room for a
- * hook; the two calls count as one step each because their bodies are not run.
+ * hook; the calls count as one step each because their bodies are not run.
  */
 const RUN_STEPS = 64
 /** Distinct WRAM cells the handler may read before the sweep gives up: vanilla reads three, plus the sprite number. */
 const MAX_CELLS = 16
 const JSR = 0x20
 const JSL = 0x22
+const JMP = 0x4c
+const JML = 0x5c
 const hex = (n: number): string => n.toString(16).toUpperCase().padStart(6, '0')
 
-/** Runs from `handler` in `slot` until the arm is complete; null when it is, else why not. A call into the arm is stepped over. */
+type Bus = ReturnType<typeof smwMachine>['bus']
+
+/** Names the routine at `at` by its bytes (read through the bus, so the run cache sees them); null when it is none of `routines`. */
+function roleAt(bus: Bus, routines: DispatchShape['routines'], at: number): string | null {
+  for (const [role, r] of Object.entries(routines)) {
+    const bytes = Uint8Array.from({ length: r.len }, (_, i) => bus.read((at + i) & 0xffffff))
+    if (fingerprint(bytes) === r.sha) return role
+  }
+  return null
+}
+
+/** Runs from `handler` in `slot` until the line step; null when the calls before it were `expect`'s, else why not. A call is stepped over. */
 function drive(
-  rom: RomFile,
   m: ReturnType<typeof smwMachine>,
   handler: number,
   slot: number,
-  arm: readonly number[],
+  shape: DispatchShape,
+  expect: readonly string[],
   lastOp: () => number,
+  names: Map<number, string | null>,
 ): string | null {
   const { cpu, bus } = m
   nativeReset(cpu)
   cpu.x = slot
   cpu.pb = handler >>> 16
   cpu.pc = handler & 0xffff
-  let k = 0
+  const seen: string[] = []
+  const want = expect.slice(0, -1)
   for (let steps = 0; steps < RUN_STEPS; steps++) {
     try {
       cpu.step()
@@ -79,22 +135,28 @@ function drive(
       if (e instanceof Refusal) return e.message
       throw e
     }
-    const at = mirror((cpu.pb << 16) | cpu.pc)
-    const i = arm.indexOf(at)
-    if (i < 0) continue
-    if (i !== k) return `it reaches $${hex(at)} out of order`
-    if (k === arm.length - 1)
-      return rom.readByte((cpu.pb << 16) | cpu.pc) === null ? 'the line step is not in ROM' : null
-    // A call: take its return by hand, since the routine's own body is not part of this check.
     const op = lastOp()
-    if (op !== JSR && op !== JSL) return `it jumps to $${hex(at)} instead of calling it`
+    if (op !== JSR && op !== JSL && op !== JMP && op !== JML) continue
+    const to = (cpu.pb << 16) | cpu.pc
+    const at = mirror(to)
+    if (!names.has(at)) names.set(at, roleAt(bus, shape.routines, to))
+    const role = names.get(at)
+    const call = op === JSR || op === JSL
+    if (!role) {
+      if (call) return `it calls $${hex(at)}, which is not a stock routine (unverified)`
+      continue
+    }
+    if (role === 'step')
+      return seen.join() === want.join() ? null : `it calls ${seen.join(', ') || 'nothing'} before the line step, out of order or missing: expected ${want.join(', ')}` // prettier-ignore
+    if (!call) return `it jumps to the ${role} routine instead of calling it`
+    // A call: take its return by hand, since the routine's own body is not part of this check.
+    if (role !== 'prelude') seen.push(role)
     const ret = bus.read(cpu.s + 1) | (bus.read(cpu.s + 2) << 8)
     if (op === JSL) cpu.pb = bus.read(cpu.s + 3)
     cpu.s = (cpu.s + (op === JSL ? 3 : 2)) & 0xffff
     cpu.pc = (ret + 1) & 0xffff
-    k++
   }
-  return 'it did not finish the arm within the step budget'
+  return 'it did not reach the line step within the step budget'
 }
 
 /**
@@ -111,8 +173,8 @@ export function grinderDrawsBeforeSnap(
   shape: DispatchShape = VANILLA_DISPATCH,
 ): GrinderGate {
   const arm = shape.byId?.[number] ?? shape.arm
-  const key = [handler, number, numberCell, ...arm].join(',')
-  return cache.lookup(rom, key) ?? sweep(rom, handler, number, numberCell, arm, key)
+  const key = [handler, number, numberCell, ...arm, JSON.stringify(shape.routines)].join(',')
+  return cache.lookup(rom, key) ?? sweep(rom, handler, number, numberCell, shape, arm, key)
 }
 
 const cache = new RunCache<GrinderGate>()
@@ -122,7 +184,8 @@ function sweep(
   handler: number,
   number: number,
   numberCell: number,
-  arm: readonly number[],
+  shape: DispatchShape,
+  arm: readonly string[],
   key: string,
 ): GrinderGate {
   let m: ReturnType<typeof smwMachine>
@@ -141,6 +204,7 @@ function sweep(
     last = op
   }
   const sram = watchSram(bus)
+  const names = new Map<number, string | null>()
   const clean = bus.snapshot()
   /** One run; returns why not, and the cells it read. */
   const exec = (slot: number, poke?: [number, number]): { why: string | null; reads: number[] } => {
@@ -149,7 +213,7 @@ function sweep(
     bus.inputs = new Set()
     bus.wram[numberCell + slot] = number
     if (poke) bus.wram[poke[0]] = poke[1]
-    let why = drive(rom, m, handler, slot, arm, () => last)
+    let why = drive(m, handler, slot, shape, arm, () => last, names)
     if (!why && bus.hwWrites.size) why = 'it writes a hardware register'
     if (!why && sram.writes > 0) why = 'it writes SRAM'
     const reads = [...bus.inputs].filter(c => c !== numberCell + slot)

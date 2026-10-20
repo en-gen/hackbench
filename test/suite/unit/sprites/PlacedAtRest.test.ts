@@ -12,7 +12,7 @@ import { SmwRom } from '../../../../src/rom/SmwRom'
 import { frameRun, interpRunner } from '../../../../theia/extension/src/node/map-sprites'
 import { L1ModelCache } from '../../../../theia/extension/src/node/map-screen'
 import { VANILLA, hasRom, romPath } from '../../support/corpus'
-import { GRINDER_DISPATCH } from '../../support/syntheticGrinder'
+import { grinderShape } from '../../support/syntheticGrinder'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 
 const rom = buildSyntheticRom()
@@ -110,8 +110,8 @@ describe('what at rest starts from', () => {
     expect(runOnce(rom, 0xda, SPRITE_SEED, { atRest: true }).refusal).toBeUndefined()
   })
   it('a $67-style sprite whose first drawing pass is above 0 keeps the raw anchor at rest', () => {
-    const opts = { grinderDispatch: GRINDER_DISPATCH }
     const r = buildSyntheticRom({ grinderDrawsFromPass1: true })
+    const opts = { grinderDispatch: grinderShape(r) }
     const played = runOnce(r, 103, SPRITE_SEED, opts)
     const rest = runOnce(r, 103, SPRITE_SEED, { ...opts, atRest: true })
     expect(rest.chosen).toBe(1)

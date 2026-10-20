@@ -4,13 +4,27 @@
  * handler is an entry of our own and a dispatch of our own, and `grinderDrawsBeforeSnap` RUNS them and watches the
  * calls (it does not read their bytes).
  */
+import { fingerprint } from '../../../src/rom/Fingerprint'
+import type { RomFile } from '../../../src/rom/RomFile'
 import type { DispatchShape } from '../../../src/rom/sprites/interp/LineGuided'
 import type { SyntheticOptions } from './syntheticSpriteRom'
 
 /** Where id 103's handler sits, its dispatch block, and the calls the gate expects of this cart: draw, interact, line step. */
 export const GRINDER_HANDLER = 0x019200
 export const GRINDER_DISPATCH_AT = 0x019220
-export const GRINDER_DISPATCH: DispatchShape = { arm: [0x019400, 0x019282, 0x019290] }
+
+/**
+ * The shape this cart's dispatch is expected to have, fingerprinted from the cart as it stands NOW (call it after any
+ * edit that should still be accepted): draw at $019400, interact at $019282, step at $019290. A test plants a defect
+ * by editing the cart AFTER taking the shape from a pristine one.
+ */
+export const grinderShape = (rom: RomFile): DispatchShape => {
+  const at = (a: number, len: number) => ({ len, sha: fingerprint(rom.readAt(a, len))! })
+  return {
+    routines: { draw67: at(0x019400, 8), interact: at(0x019282, 4), step: at(0x019290, 8) },
+    arm: ['draw67', 'interact', 'step'],
+  }
+}
 
 /** `drawSub`: the shared one-piece draw routine, ending in RTS. */
 export function putGrinderRoutines(
@@ -41,7 +55,7 @@ export function putGrinderRoutines(
           ? [0xc9, 0x02, 0xb0, 0x01, 0x60] // draws once the count reaches 2: pass 1 onward
           : null
   put(0x019400, [...(gate ? [0xfe, 0x50, 0x16, 0xbd, 0x50, 0x16, ...gate] : []), ...drawSub])
-  put(0x019282, [0x6b])
+  put(0x019282, [0xea, 0xea, 0xea, 0x6b])
   put(0x019280, [0x60])
   // id 103 handler: an entry of our own (SpriteLock/TrueFrame test, JMP), then a dispatch block of our own;
   // the step here is the +4 move.

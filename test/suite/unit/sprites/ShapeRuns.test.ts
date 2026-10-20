@@ -21,11 +21,7 @@ import {
   spanMask,
 } from '../../../../src/rom/sprites/interp/SpriteDispatch'
 import { freshRom, hasRom, VANILLA } from '../../support/corpus'
-import {
-  GRINDER_DISPATCH,
-  GRINDER_DISPATCH_AT,
-  GRINDER_HANDLER,
-} from '../../support/syntheticGrinder'
+import { grinderShape, GRINDER_DISPATCH_AT, GRINDER_HANDLER } from '../../support/syntheticGrinder'
 import {
   buildSyntheticRom,
   SYNTHETIC_DISPATCHER as SYN,
@@ -45,6 +41,8 @@ const execReason = (rom: RomFile) => {
   const r = checkExecutePtr(rom, CALL)
   return r.ok ? null : r.reason
 }
+
+const GRINDER_DISPATCH = grinderShape(buildSyntheticRom())
 
 describe('ExecutePtr is run, not hashed (synthetic cart)', () => {
   it('accepts the cart 16-bit pointer-table jump', () => {
